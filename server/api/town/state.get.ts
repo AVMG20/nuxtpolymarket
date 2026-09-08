@@ -6,11 +6,19 @@ import {
     TOWN_TICK_MS,
     TOWN_MAX_OFFLINE_MS,
     TOWN_MAX_BUILDING_LEVEL,
+    townBuildingMaxLevel,
     TOWN_MAX_PLOTS,
     TOWN_RUSH_MS_PER_GEM,
     TOWN_WELCOME_BACK_MIN_MS,
     TOWN_PARK_RADIUS,
+    TOWN_MAX_BUILDERS,
+    townBuildersBusy,
+    townBuilderGemCost,
     TOWN_PARK_MAX_BONUS,
+    TOWN_SUPPLY_FULL_TILES,
+    TOWN_SUPPLY_FALLOFF_TILES,
+    TOWN_SUPPLY_MIN_EFFICIENCY,
+    townSupplyNetwork,
     TOWN_PLOT_REFUND_SHARE,
     townPlotRefundFor,
     TOWN_INDUSTRY_MAX_PENALTY,
@@ -39,7 +47,8 @@ export default defineEventHandler(async (event) => {
     const catalog = TOWN_BUILDINGS.map(def => ({
         ...def,
         levelCost: townLevelCost(def, 1),
-        levelBuildMs: townLevelBuildMs(def, 1)
+        levelBuildMs: townLevelBuildMs(def, 1),
+        maxLevel: townBuildingMaxLevel(def)
     }))
     const resources = TOWN_RESOURCES.map(r => ({ ...r, ceilingPrice: townCeilingPrice(r.id) }))
     const constants = {
@@ -49,8 +58,12 @@ export default defineEventHandler(async (event) => {
         maxPlots: TOWN_MAX_PLOTS,
         rushMsPerGem: TOWN_RUSH_MS_PER_GEM,
         parkMaxBonus: TOWN_PARK_MAX_BONUS,
+        supplyFullTiles: TOWN_SUPPLY_FULL_TILES,
+        supplyFalloffTiles: TOWN_SUPPLY_FALLOFF_TILES,
+        supplyMinEfficiency: TOWN_SUPPLY_MIN_EFFICIENCY,
         industryMaxPenalty: TOWN_INDUSTRY_MAX_PENALTY,
-        parkRadius: TOWN_PARK_RADIUS
+        parkRadius: TOWN_PARK_RADIUS,
+        maxBuilders: TOWN_MAX_BUILDERS
     }
 
     const existing = await getTownState(userId)
@@ -75,7 +88,9 @@ export default defineEventHandler(async (event) => {
         getWorldView(userId, plots)
     ])
 
-    const derived = deriveTown(sim, state.happiness, now, settled.satisfied)
+    // One breadth-first pass over the roads serves both derives below.
+    const network = townSupplyNetwork(sim, now)
+    const derived = deriveTown(sim, state.happiness, now, settled.satisfied, network)
     const unlockedTiers = [0, 1, 2, 3, 4, 5, 6].filter(t => townTierUnlocked(sim, t, now, state.produced))
     const tierLocks = Object.fromEntries([2, 3, 4, 5, 6].map(t => [t, townTierRequirement(sim, t, now, state.produced)]))
     const maxTier = Math.max(...unlockedTiers)
@@ -86,7 +101,7 @@ export default defineEventHandler(async (event) => {
     for (const need of TOWN_NEEDS) {
         if (townNeedExpected(need, derived.popCap, derived.reachableTier)) reachable[need.resource] = true
     }
-    const happinessPotential = deriveTown(sim, state.happiness, now, reachable).happinessTarget
+    const happinessPotential = deriveTown(sim, state.happiness, now, reachable, network).happinessTarget
 
     const countsByType: Record<string, number> = {}
     for (const b of sim) countsByType[b.type] = (countsByType[b.type] ?? 0) + 1
@@ -154,6 +169,11 @@ export default defineEventHandler(async (event) => {
         })),
         world,
         plotRefundShare: TOWN_PLOT_REFUND_SHARE,
+        builders: {
+            owned: state.builders,
+            busy: townBuildersBusy(settled.sim, now),
+            nextGemCost: townBuilderGemCost(state.builders)
+        },
         plotPurchase: plotPurchaseInfo(state, now),
         expansions,
         buildings: buildings.map(b => ({
@@ -168,6 +188,8 @@ export default defineEventHandler(async (event) => {
             completesAt: b.completesAt.getTime(),
             createdAt: b.createdAt.getTime(),
             staffing: derived.staffing.get(b.id) ?? null,
+            supply: derived.supply.get(b.id) ?? null,
+            throughput: derived.throughput.get(b.id) ?? null,
             connected: townRoadAccess(sim, sim.find(x => x.id === b.id)!)
         })),
         inventory,

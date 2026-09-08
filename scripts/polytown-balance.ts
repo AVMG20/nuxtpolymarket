@@ -136,6 +136,20 @@ function plan(w: World) {
     // 2. Parks keep the mood up: one per four houses.
     if (count(w, 'park') * 4 < count(w, 'house')) place(w, getTownBuilding('park')!)
 
+    // 2b. Feed the town before anything else. Needs scale with population, so
+    //     a mayor who keeps adding houses has to keep adding bakeries and
+    //     smithies or the goods never pile up for the next tier.
+    const net0 = townNetPerTick(w.buildings, derived, w.now)
+    for (const [id] of Object.entries(derived.needsPerTick) as [TownResourceId, number][]) {
+        if ((net0[id] ?? 0) > 0) continue
+        const maker = producerOf(id)
+        if (!maker || townTierRequirement(w.buildings, maker.tier, w.now, w.produced)) continue
+        const mine = w.buildings.filter(b => b.type === maker.id)
+        const up = mine.filter(b => b.level > 0 && b.upgradingTo === null && b.level < TOWN_MAX_BUILDING_LEVEL).sort((a, b) => a.level - b.level)[0]
+        if (up && upgrade(w, up)) return
+        if (place(w, maker)) return
+    }
+
     // 3. Storage: a warehouse whenever something sits at the cap.
     const atCap = Object.values(w.inventory).some(v => (v ?? 0) >= derived.storageCap - 1)
     if (atCap && place(w, getTownBuilding('warehouse')!)) return
@@ -184,11 +198,13 @@ function plan(w: World) {
         if (!producer || townTierRequirement(w.buildings, producer.tier, w.now, w.produced)) continue
         const mine = w.buildings.filter(b => b.type === producer.id)
         const upgradable = mine.filter(b => b.level > 0 && b.upgradingTo === null && b.level < TOWN_MAX_BUILDING_LEVEL).sort((a, b) => a.level - b.level)[0]
-        // Tiles are the scarce thing: upgrade once there are a handful.
-        if (!saving && mine.length >= 3 && upgradable && upgrade(w, upgradable)) return
+        // Tiles are the scarce thing, so a real player grows what stands
+        // rather than sprawling: upgrade once there are a handful of copies,
+        // and only spread out while there is plenty of room left.
+        if (mine.length >= 3 && upgradable && upgrade(w, upgradable)) return
         if (mine.length < 3 && place(w, producer)) return
-        if (!saving && upgradable && upgrade(w, upgradable)) return
-        if (tilesAvailable(w) > 8 && place(w, producer)) return
+        if (upgradable && upgrade(w, upgradable)) return
+        if (!saving && tilesAvailable(w) > 8 && place(w, producer)) return
     }
 }
 

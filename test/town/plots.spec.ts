@@ -219,9 +219,15 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             ]
             expect(mine).toHaveLength(3)
 
-            // Nobody landed on top of the realm as it already stood…
+            // Nobody landed on top of the realm as it already stood. Other
+            // spec files found and delete towns on the same spiral while this
+            // runs, so a square that was taken when `before` was read may be
+            // free by the time we claim it — compare only against the land
+            // that is still there.
+            const stillThere = new Set((await allPlots()).map(p => p.id))
             for (const seeded of mine) {
                 for (const existing of before) {
+                    if (!stillThere.has(existing.id)) continue
                     expect(townPlotDistance(seeded, existing)).toBeGreaterThan(TOWN_FOUNDING_GAP)
                 }
             }

@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { townBuildings } from '#server/database/schema'
+import { townBuildings, townState } from '#server/database/schema'
 import { foundTown, placeBuilding, settleTownForRead } from '#server/utils/town'
-import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
+import { SKIP, cleanupUser, moveTownToFlatGround, seedUser } from '../setup/db-helpers'
 
 describe('building orientation validation', () => {
     it.each([-1, 4, 0.5, NaN, Infinity, '1', true])('rejects invalid rotation %s before touching town state', async (rotation) => {
@@ -18,6 +18,11 @@ describe.skipIf(SKIP)('saved building orientation', () => {
     it('preserves all four orientations after settlement and defaults old callers to zero', async () => {
         await seedUser(owner, { balance: '1000000' })
         const { plotId } = await foundTown(owner)
+        // Fixed tile coordinates below, so put the town on flat grassland
+        // rather than on whatever terrain the realm dealt it.
+        await moveTownToFlatGround(plotId)
+        // Crews would otherwise cap how many houses this test can put up at once.
+        await db.update(townState).set({ builders: 99 }).where(eq(townState.userId, owner))
 
         // A road along row 3, starting at the plot edge and continuing itself,
         // with one spur up to (4, 4) so a house can face east onto it.

@@ -16,6 +16,13 @@ export interface TownBuildingView {
     createdAt: number
     staffing: number | null
     connected: boolean
+    /** How well this workshop's inputs reach it over the roads, and from where. */
+    supply: {
+        ratio: number
+        inputs: { resource: string, ratio: number, nearestTiles: number | null, suppliers: number }[]
+    } | null
+    /** What it actually runs at: staffing × supply. */
+    throughput: number | null
 }
 
 export interface TownPlotView {
@@ -57,6 +64,7 @@ export interface TownCatalogEntry {
     storage: number
     levelCost: { coins: number, resources: Record<string, number> }
     levelBuildMs: number
+    maxLevel: number
 }
 
 export interface TownResourceView {
@@ -117,12 +125,31 @@ export interface TownMoodView {
     storage: number
 }
 
+export interface TownResearchProject {
+    id: string
+    branch: string
+    step: number
+    name: string
+    description: string
+    durationMs: number
+    coins: number
+    resources: Record<string, number>
+    done: boolean
+    unlocked: boolean
+}
+
+export interface TownResearchBoard {
+    active: { researchId: string, completesAt: number } | null
+    done: string[]
+    projects: TownResearchProject[]
+}
+
 export interface TownState {
     initialized: boolean
     serverNow: number
     catalog: TownCatalogEntry[]
     resources: TownResourceView[]
-    constants: { tickMs: number, maxOfflineMs: number, maxLevel: number, maxPlots: number, rushMsPerGem: number, parkRadius: number, parkMaxBonus: number, industryMaxPenalty: number }
+    constants: { tickMs: number, maxOfflineMs: number, maxLevel: number, maxPlots: number, rushMsPerGem: number, parkRadius: number, parkMaxBonus: number, industryMaxPenalty: number, supplyFullTiles: number, supplyFalloffTiles: number, supplyMinEfficiency: number, maxBuilders: number }
     netPerTick?: Record<string, number>
     unlockedTiers?: number[]
     coinsEarned?: number
@@ -160,6 +187,7 @@ export interface TownState {
     expansions?: { x: number, y: number, free: boolean, ownerName?: string }[]
     world?: { towns: TownNeighbourPlot[], listings: { plotId: string, x: number, y: number, ownerName: string, price: number }[] }
     plotRefundShare?: number
+    builders?: { owned: number, busy: number, nextGemCost: number | null }
     buildings?: TownBuildingView[]
     inventory?: Record<string, number>
     myOrders?: TownOrderView[]
@@ -189,8 +217,21 @@ export const useTown = () => {
     const inventory = computed(() => state.value?.inventory ?? {})
     const myOrders = computed(() => state.value?.myOrders ?? [])
     const lastPrices = computed(() => state.value?.lastPrices ?? {})
-    const constants = computed(() => state.value?.constants ?? { tickMs: 60_000, maxOfflineMs: 8 * 3_600_000, maxLevel: 20, maxPlots: 12, rushMsPerGem: 300_000, parkRadius: 3, parkMaxBonus: 20, industryMaxPenalty: 25 })
+    const constants = computed(() => state.value?.constants ?? { tickMs: 60_000, maxOfflineMs: 8 * 3_600_000, maxLevel: 20, maxPlots: 12, rushMsPerGem: 300_000, parkRadius: 3, parkMaxBonus: 20, industryMaxPenalty: 25, supplyFullTiles: 8, supplyFalloffTiles: 24, supplyMinEfficiency: 0.3, maxBuilders: 6 })
     const milestones = computed(() => state.value?.milestones ?? [])
+    /** Build crews: how many the town owns, how many are on a job, what the next costs. */
+    const builders = computed(() => state.value?.builders ?? { owned: 3, busy: 0, nextGemCost: null })
+
+    // Research is its own endpoint: the board is long and changes rarely, so it
+    // has no business being refetched with every settle. It is still fetched
+    // once on load, because the dock shows a dot while a project is running and
+    // that has to be right before anybody opens the window.
+    const { data: researchBoard, refresh: refreshResearch } = useAsyncData<TownResearchBoard | null>(
+        'town-research',
+        () => $fetch<TownResearchBoard>('/api/town/research' as string),
+        { server: false, default: () => null }
+    )
+    const buildersFree = computed(() => Math.max(0, builders.value.owned - builders.value.busy))
     const claimableMilestones = computed(() => milestones.value.filter(m => m.complete && !m.claimed))
     const unlockedTiers = computed(() => new Set(state.value?.unlockedTiers ?? [0, 1]))
     const netPerTick = computed(() => state.value?.netPerTick ?? {})
@@ -262,6 +303,10 @@ export const useTown = () => {
         lastPrices,
         constants,
         milestones,
+        builders,
+        researchBoard,
+        refreshResearch,
+        buildersFree,
         claimableMilestones,
         unlockedTiers,
         netPerTick,
@@ -285,6 +330,8 @@ export const useTown = () => {
         sellPlot: (plotId: string) => call<{ plotId: string, refund: number }>('/api/town/plot/sell', { plotId }),
         buyPlotFromPlayer: (plotId: string) => call<{ plotId: string, price: number }>('/api/town/plot/buy-from-player', { plotId }),
         buyPlot: (x: number, y: number) => call<{ plotId: string, price: number }>('/api/town/plot/buy', { x, y }),
+        hireBuilder: () => call<{ builders: number, gems: number }>('/api/town/builder'),
+        startResearch: (researchId: string) => call<{ researchId: string, completesAt: number }>('/api/town/research/start', { researchId }),
         sellToFloor: (resource: string, quantity: number) =>
             call<{ total: number, quantity: number }>('/api/town/market/sell-floor', { resource, quantity }),
         placeOrder: (resource: string, side: 'buy' | 'sell', price: number, quantity: number) =>

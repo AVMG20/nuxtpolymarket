@@ -1559,8 +1559,27 @@ export const townState = pgTable('town_state', {
   coinsEarned: numeric('coins_earned', { precision: 19, scale: 4 }).notNull().default('0'),
   /** Lifetime units produced per resource — the tier gate a rich mayor cannot buy past. Written under the state lock. */
   produced: jsonb('produced').$type<Record<string, number>>().notNull().default({}),
+  /** Build crews owned. Three come free; the rest are bought with gems, permanently. */
+  builders: integer('builders').notNull().default(3),
+  /** The research project running right now, if any. Only ever one at a time. */
+  researchId: text('research_id'),
+  researchCompletesAt: timestamp('research_completes_at'),
   createdAt: timestamp('created_at').defaultNow().notNull()
 })
+
+/**
+ * A finished research project. The unique (user, project) pair is the guard:
+ * settling a finished project inserts here, and a second concurrent settle
+ * conflicts instead of granting the effect twice.
+ */
+export const townResearch = pgTable('town_research', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  researchId: text('research_id').notNull(),
+  completedAt: timestamp('completed_at').defaultNow().notNull()
+}, table => [
+  unique('town_research_user_project').on(table.userId, table.researchId)
+])
 
 /**
  * One 8x8 plot on the shared endless grid. The unique (x, y) constraint is the

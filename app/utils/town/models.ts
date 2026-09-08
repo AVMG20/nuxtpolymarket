@@ -9,6 +9,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { TownBuildingId } from '#shared/utils/gamelogic/town'
 import { townVisualLevel, townVisualStage } from './appearance'
 import { upgradeBuildingParts } from './upgrades'
+import { enrichArchitecture } from './architecture'
+import { townSurfaceMaterial, type TownSurface } from './surfaces'
 
 export interface Part {
     shape: 'box' | 'cyl' | 'cone' | 'sphere' | 'pyramid' | 'wedge'
@@ -20,6 +22,7 @@ export interface Part {
     h: number
     d: number
     color: number
+    surface?: TownSurface
     emissive?: number
     name?: string
     rotY?: number
@@ -86,7 +89,7 @@ export function shade(color: number, amount: number): number {
 function build(parts: Part[]): THREE.Group {
     const group = new THREE.Group()
     for (const p of parts) {
-        const mesh = new THREE.Mesh(geometry(p), townMaterial(p.color, p.emissive))
+        const mesh = new THREE.Mesh(geometry(p), p.surface && !p.emissive ? townSurfaceMaterial(p.color, p.surface) : townMaterial(p.color, p.emissive))
         mesh.position.set(p.x, p.y + p.h / 2, p.z)
         if (p.shape === 'pyramid') mesh.rotation.y = Math.PI / 4
         if (p.shape === 'wedge') mesh.position.y = p.y
@@ -500,7 +503,7 @@ export function createBuildingModel(type: TownBuildingId, requestedLevel = 1): T
     const key = `${type}:${level}`
     let proto = prototypes.get(key)
     if (!proto) {
-        proto = build(upgradeBuildingParts(type, level, [...MODELS[type](), ...details(type)]))
+        proto = build(enrichArchitecture(type, upgradeBuildingParts(type, level, [...MODELS[type](), ...details(type)])))
         if (type === 'mill') {
             const hub = proto.getObjectByName('spin')!
             // Children rotate with the existing hub animation.

@@ -93,23 +93,64 @@ export const TOWN_TIER_POP_REQUIREMENT: Record<number, number> = { 2: 24, 3: 80,
 /**
  * …and this many units of the previous tier's goods produced over the town's
  * lifetime. Coins can buy houses; only tiles and time can make goods, so this
- * is what paces a rich mayor. Tuned for roughly: tier 2 in hours, tier 3 in a
- * few days, tier 4 ~2 weeks, tier 5 ~1 month, tier 6 ~3 months.
+ * is what paces a rich mayor. Measured against a town running four buildings
+ * of the gating tier: tier 2 in hours, tier 3 in ~3 days, tier 4 in ~1 week,
+ * tier 5 in ~2 weeks and tier 6 in ~6 weeks on top of everything before it,
+ * which puts a first Emporium near the three-month mark.
  */
 export const TOWN_TIER_PRODUCTION_REQUIREMENT: Record<number, { tier: number, amount: number }> = {
-    2: { tier: 1, amount: 3_000 },
-    3: { tier: 2, amount: 40_000 },
-    4: { tier: 3, amount: 20_000 },
-    5: { tier: 4, amount: 15_000 },
-    6: { tier: 5, amount: 8_000 }
+    2: { tier: 1, amount: 5_000 },
+    3: { tier: 2, amount: 250_000 },
+    4: { tier: 3, amount: 400_000 },
+    5: { tier: 4, amount: 2_000_000 },
+    6: { tier: 5, amount: 600_000 }
 }
 
-/** Building level cap and per-level cost growth (coins and resources alike). */
+/**
+ * Growing a building past a certain size needs goods from further up the
+ * chain, whatever the building is: a house reaches level 2 on timber alone,
+ * but level 3 wants planks, level 9 tools, level 13 steel, level 17 machines
+ * and the last level luxuries. Nothing reaches 20 until the whole chain runs,
+ * so a tier-1 building can never be rushed to the cap on raw materials.
+ *
+ * `base` is the level-5-equivalent amount for a tier-1 building; bigger
+ * buildings need proportionally more, and the amount climbs with the level the
+ * same way every other cost does.
+ */
+export const TOWN_UPGRADE_BANDS: readonly { minLevel: number, resource: TownResourceId, base: number }[] = [
+    { minLevel: 3, resource: 'planks', base: 12 },
+    { minLevel: 9, resource: 'tools', base: 10 },
+    { minLevel: 13, resource: 'steel', base: 8 },
+    { minLevel: 17, resource: 'machines', base: 4 },
+    { minLevel: 20, resource: 'luxuries', base: 5 }
+]
+/** How much more of a band good a higher-tier building needs per tier. */
+export const TOWN_UPGRADE_BAND_TIER_SCALE = 0.4
+
+/** Building level cap and per-level coin growth. */
 export const TOWN_MAX_BUILDING_LEVEL = 20
+/**
+ * A few buildings stop short of the cap because there is nothing left to gain
+ * from growing them. The model gains a new look every four levels, so any cap
+ * sits on one of those boundaries and a maxed building still shows its final
+ * form rather than a half-finished one.
+ */
+export const TOWN_LEVEL_VISUAL_STEP = 4
+/**
+ * Goods climb faster than coins do. Coins are the easy half for a mayor who
+ * earns elsewhere on the site; the goods are what the town has to make for
+ * itself, so they are the real cost of a high level and the reason a big town
+ * has to choose between selling its surplus and reinvesting it.
+ */
+export const TOWN_LEVEL_RESOURCE_GROWTH = 1.42
 // Starter buildings go up in a minute so a new mayor is playing immediately;
 // the idle pacing comes from levels (×1.3 each) and from the higher tiers,
 // which run for hours and cap at three days.
-export const TOWN_LEVEL_COST_GROWTH = 1.35
+// Coins climb gently. The entry price of a tier is the real coin decision; at
+// the old 1.35 a single maxed Emporium cost a trillion on its own and the
+// endgame became a coin problem instead of a production one. Goods carry the
+// weight instead — see TOWN_LEVEL_RESOURCE_GROWTH, which is much steeper.
+export const TOWN_LEVEL_COST_GROWTH = 1.20
 /**
  * Putting a building up is quick; growing it is the idle part. The first build
  * uses `buildMs`, every upgrade starts from `upgradeMs` and takes 40% longer
@@ -122,6 +163,27 @@ export const TOWN_LEVEL_TIME_GROWTH = 1.4
  * plan and starts being a punishment — and rushing it would cost 864 gems.
  */
 export const TOWN_MAX_BUILD_MS = 72 * 60 * 60_000
+/**
+ * The wall is per tier, so the game paces the way an idle game should: the
+ * first two tiers stay brisk even at high levels, the middle tiers settle into
+ * half-day and day-long jobs, and only the last two tiers reach the two- and
+ * three-day walls. A player checking in twice a day always has something finishing early
+ * on, and late-game towns grow on their own for days at a time.
+ */
+export const TOWN_MAX_BUILD_MS_BY_TIER: Record<number, number> = {
+    0: 6 * 60 * 60_000,
+    1: 8 * 60 * 60_000,
+    2: 12 * 60 * 60_000,
+    3: 18 * 60 * 60_000,
+    4: 28 * 60 * 60_000,
+    5: 54 * 60 * 60_000,
+    6: 72 * 60 * 60_000
+}
+
+/** The longest a single build or upgrade of `def` may run. */
+export function townMaxBuildMs(def: { tier: number }): number {
+    return TOWN_MAX_BUILD_MS_BY_TIER[def.tier] ?? TOWN_MAX_BUILD_MS
+}
 
 /**
  * Happiness is a running score out of 100 that the town drifts toward.
@@ -197,19 +259,29 @@ export interface TownResourceDef {
     floorPrice: number
 }
 
+/**
+ * Floor prices set what the whole game is worth, so they are the balance lever
+ * of last resort. Polytown costs far more to invest in than the other idle
+ * games on the site — hundreds of billions of coins and months of build
+ * timers — so it is meant to out-earn them once it is built, and to earn less
+ * than them while it is still going up. The low tiers are priced generously
+ * relative to the top so that a young town is not earning pocket change for
+ * its first month; the ladder from wheat to luxuries is still three thousand
+ * to one, which is what keeps climbing tiers worth doing.
+ */
 export const TOWN_RESOURCES: readonly TownResourceDef[] = [
-    { id: 'wheat', name: 'Wheat', emoji: '🌾', tier: 1, floorPrice: 5 },
-    { id: 'wood', name: 'Wood', emoji: '🪵', tier: 1, floorPrice: 5 },
-    { id: 'stone', name: 'Stone', emoji: '🪨', tier: 1, floorPrice: 8 },
-    { id: 'flour', name: 'Flour', emoji: '🌕', tier: 2, floorPrice: 22 },
-    { id: 'planks', name: 'Planks', emoji: '🪚', tier: 2, floorPrice: 22 },
-    { id: 'bricks', name: 'Bricks', emoji: '🧱', tier: 2, floorPrice: 36 },
-    { id: 'bread', name: 'Bread', emoji: '🍞', tier: 3, floorPrice: 110 },
-    { id: 'tools', name: 'Tools', emoji: '🔧', tier: 3, floorPrice: 200 },
-    { id: 'ore', name: 'Iron Ore', emoji: '⛏️', tier: 4, floorPrice: 100 },
-    { id: 'steel', name: 'Steel', emoji: '⚙️', tier: 4, floorPrice: 900 },
-    { id: 'machines', name: 'Machines', emoji: '🏭', tier: 5, floorPrice: 6_000 },
-    { id: 'luxuries', name: 'Luxuries', emoji: '💎', tier: 6, floorPrice: 40_000 }
+    { id: 'wheat', name: 'Wheat', emoji: '🌾', tier: 1, floorPrice: 30 },
+    { id: 'wood', name: 'Wood', emoji: '🪵', tier: 1, floorPrice: 30 },
+    { id: 'stone', name: 'Stone', emoji: '🪨', tier: 1, floorPrice: 48 },
+    { id: 'flour', name: 'Flour', emoji: '🌕', tier: 2, floorPrice: 121 },
+    { id: 'planks', name: 'Planks', emoji: '🪚', tier: 2, floorPrice: 121 },
+    { id: 'bricks', name: 'Bricks', emoji: '🧱', tier: 2, floorPrice: 198 },
+    { id: 'bread', name: 'Bread', emoji: '🍞', tier: 3, floorPrice: 550 },
+    { id: 'tools', name: 'Tools', emoji: '🔧', tier: 3, floorPrice: 1_000 },
+    { id: 'ore', name: 'Iron Ore', emoji: '⛏️', tier: 4, floorPrice: 400 },
+    { id: 'steel', name: 'Steel', emoji: '⚙️', tier: 4, floorPrice: 3_600 },
+    { id: 'machines', name: 'Machines', emoji: '🏭', tier: 5, floorPrice: 16_500 },
+    { id: 'luxuries', name: 'Luxuries', emoji: '💎', tier: 6, floorPrice: 100_000 }
 ]
 
 const RESOURCE_BY_ID = new Map(TOWN_RESOURCES.map(r => [r.id, r]))
@@ -258,12 +330,16 @@ export const TOWN_NEEDS: readonly TownNeedDef[] = [
     { resource: 'luxuries', name: 'Luxuries', perPop: 160, minPop: 120, happiness: 6, food: false, description: 'The finer things. A luxury town is a delighted town.' }
 ]
 
-/** Units of each need the whole town wants per tick at `pop` residents. */
-export function townNeedsPerTick(pop: number): Partial<Record<TownResourceId, number>> {
+/**
+ * Units of each need the whole town wants per tick at `pop` residents. A need
+ * the town cannot make yet is not demanded at all, so a tier-1 town neither
+ * eats bread nor shows a bread deficit in the resource rail.
+ */
+export function townNeedsPerTick(pop: number, reachableTier = 99): Partial<Record<TownResourceId, number>> {
     const out: Partial<Record<TownResourceId, number>> = {}
     if (pop <= 0) return out
     for (const n of TOWN_NEEDS) {
-        if (pop < n.minPop) continue
+        if (!townNeedExpected(n, pop, reachableTier)) continue
         out[n.resource] = Math.max(1, Math.ceil(pop / n.perPop))
     }
     return out
@@ -282,17 +358,22 @@ export function townNeedExpected(need: TownNeedDef, pop: number, reachableTier: 
 }
 
 /**
- * The highest resource tier the town could plausibly stock: one above the best
- * building it has finished, because that is the tier it can build into next.
+ * The highest resource tier the town can actually stock: the best building it
+ * has FINISHED, never one beyond. Being able to build a mill does not mean you
+ * can bake bread, so a town without a bakery is not marked down for having no
+ * bread — the moment it builds one, bread starts counting.
+ *
+ * Floored at 1 so grain is always on the scorecard: people with no farm are
+ * genuinely going hungry.
  */
 export function townReachableTier(buildings: TownSimBuilding[], now: number): number {
-    let best = 0
+    let best = 1
     for (const b of buildings) {
         if (!isBuilt(b, now)) continue
         const tier = BUILDING_BY_ID.get(b.type)!.tier
         if (tier > best) best = tier
     }
-    return best + 1
+    return best
 }
 
 export function needsHappiness(satisfied: TownSatisfied, pop: number, reachableTier = 99): number {
@@ -340,7 +421,9 @@ export interface TownBuildingDef {
     tier: number
     kind: TownBuildingKind
     description: string
-    /** Level-1 build cost. Every later level multiplies both by TOWN_LEVEL_COST_GROWTH^(level-1). */
+    /** Highest level this building can reach, when lower than the global cap. Always a multiple of four so the model lands on a finished look. */
+    maxLevel?: number
+    /** Level-1 build cost. Later levels scale coins by TOWN_LEVEL_COST_GROWTH and goods by the steeper TOWN_LEVEL_RESOURCE_GROWTH. */
     cost: { coins: number, resources: TownResourceBag }
     /** Extra resources every upgrade (level >= 2) needs, scaled like the rest of the cost. Puts goods back into the town. */
     upgradeResources: TownResourceBag
@@ -383,6 +466,7 @@ export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
     {
         id: 'park', name: 'Park', emoji: '🌳', color: 0x52b788, tier: 0, kind: 'civic',
         description: 'Green space. Every house within 3 tiles gets happier — place parks between your homes.',
+        maxLevel: 12,
         cost: { coins: 60_000, resources: { wood: 80 } }, buildMs: 1 * MIN, upgradeMs: 10 * MIN,
         upgradeResources: { wood: 50, stone: 30 },
         workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 2, storage: 0
@@ -390,6 +474,7 @@ export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
     {
         id: 'warehouse', name: 'Warehouse', emoji: '📦', color: 0x8d99ae, tier: 2, kind: 'storage',
         description: 'Raises the storage cap of every resource. Full storage halts production.',
+        maxLevel: 16,
         cost: { coins: 150_000, resources: { planks: 60, bricks: 40 } }, buildMs: 30 * MIN, upgradeMs: 30 * MIN,
         upgradeResources: { planks: 80, bricks: 40 },
         workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 0, storage: TOWN_WAREHOUSE_STORAGE
@@ -397,84 +482,84 @@ export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
     {
         id: 'farm', name: 'Farm', emoji: '🌾', color: 0xd4a373, tier: 1, kind: 'industry',
         description: 'Grows wheat. The simplest way to start earning.',
-        cost: { coins: 45_000, resources: { wood: 20 } }, buildMs: 1 * MIN, upgradeMs: 10 * MIN,
+        cost: { coins: 45_000, resources: { wood: 20 } }, buildMs: 1 * MIN, upgradeMs: 8 * MIN,
         upgradeResources: { wood: 40 },
         workers: 1, inputs: {}, outputs: { wheat: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'lumber', name: 'Lumber Camp', emoji: '🪵', color: 0x6f4e37, tier: 1, kind: 'industry',
         description: 'Fells trees for wood.',
-        cost: { coins: 45_000, resources: {} }, buildMs: 1 * MIN, upgradeMs: 10 * MIN,
+        cost: { coins: 45_000, resources: {} }, buildMs: 1 * MIN, upgradeMs: 8 * MIN,
         upgradeResources: { stone: 40 },
         workers: 1, inputs: {}, outputs: { wood: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'quarry', name: 'Quarry', emoji: '🪨', color: 0x9a8c98, tier: 1, kind: 'industry',
         description: 'Cuts stone from the ground.',
-        cost: { coins: 70_000, resources: { wood: 40 } }, buildMs: 2 * MIN, upgradeMs: 15 * MIN,
+        cost: { coins: 70_000, resources: { wood: 40 } }, buildMs: 2 * MIN, upgradeMs: 10 * MIN,
         upgradeResources: { wood: 50 },
         workers: 1, inputs: {}, outputs: { stone: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'mill', name: 'Mill', emoji: '🌕', color: 0xf4e285, tier: 2, kind: 'industry',
         description: 'Grinds wheat into flour.',
-        cost: { coins: 120_000, resources: { wood: 120, stone: 80 } }, buildMs: 45 * MIN, upgradeMs: 45 * MIN,
+        cost: { coins: 160_000, resources: { wood: 120, stone: 80 } }, buildMs: 30 * MIN, upgradeMs: 25 * MIN,
         upgradeResources: { planks: 50, stone: 40 },
         workers: 2, inputs: { wheat: 2 }, outputs: { flour: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'sawmill', name: 'Sawmill', emoji: '🪚', color: 0xbc6c25, tier: 2, kind: 'industry',
         description: 'Saws wood into planks.',
-        cost: { coins: 120_000, resources: { wood: 120, stone: 80 } }, buildMs: 45 * MIN, upgradeMs: 45 * MIN,
+        cost: { coins: 160_000, resources: { wood: 120, stone: 80 } }, buildMs: 30 * MIN, upgradeMs: 25 * MIN,
         upgradeResources: { planks: 50, stone: 40 },
         workers: 2, inputs: { wood: 2 }, outputs: { planks: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'kiln', name: 'Brick Kiln', emoji: '🧱', color: 0xc1440e, tier: 2, kind: 'industry',
         description: 'Fires stone into bricks.',
-        cost: { coins: 200_000, resources: { wood: 150, stone: 120 } }, buildMs: 60 * MIN, upgradeMs: 60 * MIN,
+        cost: { coins: 260_000, resources: { wood: 150, stone: 120 } }, buildMs: 40 * MIN, upgradeMs: 30 * MIN,
         upgradeResources: { planks: 50, bricks: 40 },
         workers: 2, inputs: { stone: 2 }, outputs: { bricks: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'bakery', name: 'Bakery', emoji: '🍞', color: 0xf77f00, tier: 3, kind: 'industry',
         description: 'Bakes bread. Fed townsfolk are happier, and bread sells well.',
-        cost: { coins: 700_000, resources: { planks: 150, bricks: 100, wheat: 300 } }, buildMs: 3 * HOUR, upgradeMs: 4 * HOUR,
+        cost: { coins: 1_400_000, resources: { planks: 150, bricks: 100, wheat: 300 } }, buildMs: 3 * HOUR, upgradeMs: 6 * HOUR,
         upgradeResources: { bricks: 80, tools: 20 },
         workers: 3, inputs: { flour: 2, wood: 1 }, outputs: { bread: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'smithy', name: 'Smithy', emoji: '🔧', color: 0x4a4e69, tier: 3, kind: 'industry',
         description: 'Forges tools from planks and bricks. Tools unlock heavy industry.',
-        cost: { coins: 1_000_000, resources: { planks: 200, bricks: 200, stone: 200 } }, buildMs: 4 * HOUR, upgradeMs: 5 * HOUR,
+        cost: { coins: 2_200_000, resources: { planks: 200, bricks: 200, stone: 200 } }, buildMs: 4 * HOUR, upgradeMs: 7 * HOUR,
         upgradeResources: { bricks: 80, tools: 25 },
         workers: 3, inputs: { planks: 2, bricks: 2 }, outputs: { tools: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'mine', name: 'Iron Mine', emoji: '⛏️', color: 0x3d405b, tier: 4, kind: 'industry',
         description: 'Digs iron ore. Needs tools to build and to keep running.',
-        cost: { coins: 1_300_000, resources: { tools: 100, bricks: 400, planks: 300 } }, buildMs: 6 * HOUR, upgradeMs: 8 * HOUR,
+        cost: { coins: 5_000_000, resources: { tools: 100, bricks: 400, planks: 300 } }, buildMs: 6 * HOUR, upgradeMs: 12 * HOUR,
         upgradeResources: { tools: 80, planks: 150 },
-        workers: 4, inputs: { tools: 1 }, outputs: { ore: 3 }, popCap: 0, happiness: 0, storage: 0
+        workers: 4, inputs: { tools: 1 }, outputs: { ore: 4 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'foundry', name: 'Foundry', emoji: '⚙️', color: 0x9d0208, tier: 4, kind: 'industry',
         description: 'Smelts ore into steel.',
-        cost: { coins: 7_500_000, resources: { tools: 200, bricks: 800, planks: 400 } }, buildMs: 8 * HOUR, upgradeMs: 10 * HOUR,
+        cost: { coins: 18_000_000, resources: { tools: 200, bricks: 800, planks: 400 } }, buildMs: 8 * HOUR, upgradeMs: 16 * HOUR,
         upgradeResources: { tools: 120, bricks: 250 },
-        workers: 5, inputs: { ore: 3, wood: 2 }, outputs: { steel: 1 }, popCap: 0, happiness: 0, storage: 0
+        workers: 5, inputs: { ore: 4, wood: 2 }, outputs: { steel: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'factory', name: 'Factory', emoji: '🏭', color: 0x577590, tier: 5, kind: 'industry',
         description: 'Assembles machines from steel, planks and tools.',
-        cost: { coins: 45_000_000, resources: { steel: 400, tools: 500, bricks: 1000 } }, buildMs: 12 * HOUR, upgradeMs: 16 * HOUR,
+        cost: { coins: 90_000_000, resources: { steel: 400, tools: 500, bricks: 1000 } }, buildMs: 12 * HOUR, upgradeMs: 28 * HOUR,
         upgradeResources: { steel: 150, tools: 150 },
         workers: 8, inputs: { steel: 3, planks: 3, tools: 1 }, outputs: { machines: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'emporium', name: 'Emporium', emoji: '💎', color: 0x7b2cbf, tier: 6, kind: 'industry',
         description: 'Crafts luxuries — the most valuable good a town can produce.',
-        cost: { coins: 500_000_000, resources: { machines: 100, steel: 1000, tools: 800, bread: 1000 } }, buildMs: 24 * HOUR, upgradeMs: 30 * HOUR,
+        cost: { coins: 900_000_000, resources: { machines: 100, steel: 1000, tools: 800, bread: 1000 } }, buildMs: 24 * HOUR, upgradeMs: 48 * HOUR,
         upgradeResources: { machines: 40, steel: 300 },
         workers: 12, inputs: { machines: 2, bread: 4, tools: 2 }, outputs: { luxuries: 1 }, popCap: 0, happiness: 0, storage: 0
     }
@@ -501,28 +586,91 @@ export function scaleBag(bag: TownResourceBag, factor: number, round: (n: number
     return out
 }
 
+/** What one band demands of `def` at `level`, or 0 below the band's floor. */
+export function townUpgradeBandAmount(def: TownBuildingDef, band: typeof TOWN_UPGRADE_BANDS[number], level: number): number {
+    if (level < band.minLevel) return 0
+    const tierScale = 1 + def.tier * TOWN_UPGRADE_BAND_TIER_SCALE
+    return Math.max(1, Math.round(band.base * tierScale * Math.pow(TOWN_LEVEL_RESOURCE_GROWTH, level - band.minLevel)))
+}
+
+/** The next band a building has not reached yet, so the UI can warn ahead of time. */
+export function townNextUpgradeBand(level: number): typeof TOWN_UPGRADE_BANDS[number] | null {
+    return TOWN_UPGRADE_BANDS.find(b => b.minLevel > level) ?? null
+}
+
 /**
  * Coins + resources to build (level 1) or upgrade TO `level`. An upgrade is a
  * rebuild at a bigger size, so it pays the base cost again at the level's
- * multiplier PLUS the building's `upgradeResources` — that second bag is what
- * makes growth cost a real slice of what the town produces.
+ * multiplier, PLUS the building's own `upgradeResources`, PLUS whatever the
+ * level bands demand from further up the production chain.
  */
 export function townLevelCost(def: TownBuildingDef, level: number): { coins: number, resources: TownResourceBag } {
     const factor = Math.pow(TOWN_LEVEL_COST_GROWTH, level - 1)
-    const resources = scaleBag(def.cost.resources, factor)
+    const goodsFactor = Math.pow(TOWN_LEVEL_RESOURCE_GROWTH, level - 1)
+    const resources = scaleBag(def.cost.resources, goodsFactor)
     if (level >= 2) {
-        for (const [id, qty] of Object.entries(scaleBag(def.upgradeResources, factor)) as [TownResourceId, number][]) {
+        for (const [id, qty] of Object.entries(scaleBag(def.upgradeResources, goodsFactor)) as [TownResourceId, number][]) {
             resources[id] = (resources[id] ?? 0) + qty
+        }
+        // Roads have no levels, so they never reach a band.
+        if (def.kind !== 'road') {
+            for (const band of TOWN_UPGRADE_BANDS) {
+                const qty = townUpgradeBandAmount(def, band, level)
+                if (qty > 0) resources[band.resource] = (resources[band.resource] ?? 0) + qty
+            }
         }
     }
     return { coins: Math.round(def.cost.coins * factor), resources }
 }
 
+/** The highest level `def` can reach. Roads have none; a few buildings stop short of the global cap. */
+export function townBuildingMaxLevel(def: TownBuildingDef): number {
+    if (def.kind === 'road') return 1
+    return def.maxLevel ?? TOWN_MAX_BUILDING_LEVEL
+}
+
 /** Build/upgrade duration in ms for reaching `level`. Pass the town's happiness to apply the mood's build-time perk. */
-export function townLevelBuildMs(def: TownBuildingDef, level: number, happiness?: number): number {
+export function townLevelBuildMs(def: TownBuildingDef, level: number, happiness?: number, research: TownResearchBonus = TOWN_NO_RESEARCH): number {
     const mood = happiness === undefined ? 1 : townMood(happiness).buildTime
     const base = level <= 1 ? def.buildMs : def.upgradeMs * Math.pow(TOWN_LEVEL_TIME_GROWTH, level - 2)
-    return Math.min(TOWN_MAX_BUILD_MS, Math.round(base * mood))
+    // Research shortens the job before the tier wall is applied, so a maxed
+    // Construction branch really does bring a three-day build under the cap.
+    const shortened = base * mood * (1 - research.buildTime)
+    return Math.min(townMaxBuildMs(def), Math.round(shortened))
+}
+
+// ─── Builders ────────────────────────────────────────────────────────────────
+// Every build and every upgrade occupies one builder for as long as its clock
+// runs, so a town can only grow on as many fronts as it has crews. This is the
+// pacing lever the timers alone could never be: without it a mayor starts
+// twenty upgrades at once and the whole town is only ever as slow as its
+// slowest single building. Two crews come free; the rest cost gems.
+
+export const TOWN_FREE_BUILDERS = 3
+export const TOWN_MAX_BUILDERS = 6
+/** Gems for the 4th, 5th and 6th crew. Permanent, so the price climbs hard. */
+export const TOWN_BUILDER_GEM_COSTS: readonly number[] = [250, 500, 1000]
+
+/** Gems to hire one more crew when the town already has `owned`, or null at the cap. */
+export function townBuilderGemCost(owned: number): number | null {
+    if (owned >= TOWN_MAX_BUILDERS) return null
+    return TOWN_BUILDER_GEM_COSTS[owned - TOWN_FREE_BUILDERS] ?? null
+}
+
+/**
+ * Crews on a job right now. A building counts while its clock is still
+ * running, whether that is the first build or an upgrade — roads finish
+ * instantly, so they never tie one up.
+ */
+export function townBuildersBusy(buildings: TownSimBuilding[], now: number): number {
+    let busy = 0
+    for (const b of buildings) if (b.completesAt > now && (b.level === 0 || b.upgradingTo !== null)) busy++
+    return busy
+}
+
+/** Crews standing idle, never below zero. */
+export function townBuildersFree(buildings: TownSimBuilding[], owned: number, now: number): number {
+    return Math.max(0, owned - townBuildersBusy(buildings, now))
 }
 
 /** Gems needed to finish a build with `remainingMs` left on the clock. */
@@ -565,6 +713,437 @@ export function townSpiralCoords(index: number): { x: number, y: number } {
     }
 }
 
+// ─── Terrain ─────────────────────────────────────────────────────────────────
+// Land is not interchangeable. Every tile of the realm has a terrain type
+// worked out from its world coordinates, so nothing is stored per tile, the
+// server and every client agree without a round trip, and the square you are
+// looking at is the same square your neighbour sees. Terrain is what makes one
+// plot worth more than the next when they change hands: a wooded, rocky plot
+// with a stream through it is a different proposition to eight-by-eight grass.
+
+export const TOWN_TERRAIN_IDS = ['plain', 'water', 'rock', 'forest', 'fertile'] as const
+export type TownTerrainId = typeof TOWN_TERRAIN_IDS[number]
+
+/** A building standing on terrain that suits it runs this much harder. */
+export const TOWN_TERRAIN_BONUS = 0.25
+export interface TownTerrainDef {
+    id: TownTerrainId
+    name: string
+    emoji: string
+    /** Tint the ground overlay and its legend paint this terrain with. */
+    color: number
+    description: string
+    /** Nothing may be placed here. */
+    blocked: boolean
+    /** Buildings that gain TOWN_TERRAIN_BONUS standing on it. */
+    boosts: readonly TownBuildingId[]
+    /**
+     * How many of a plot's 64 tiles this terrain takes, rolled per plot inside
+     * these bounds. Every plot is therefore guaranteed its handful of each
+     * useful type — a founding plot can never be a wasteland — and water is
+     * capped low enough that no plot loses meaningful room to build.
+     * `plain` takes whatever is left over, so it has no quota of its own.
+     */
+    tilesPerPlot: { min: number, max: number }
+}
+
+export const TOWN_TERRAINS: readonly TownTerrainDef[] = [
+    {
+        id: 'plain', name: 'Grassland', emoji: '🌱', color: 0x9dbf6e, blocked: false, boosts: [],
+        description: 'No bonus.',
+        tilesPerPlot: { min: 0, max: 0 }
+    },
+    {
+        id: 'water', name: 'Water', emoji: '💧', color: 0x4aa3d8, blocked: true, boosts: [],
+        description: 'Cannot build.',
+        tilesPerPlot: { min: 1, max: 4 }
+    },
+    {
+        id: 'rock', name: 'Rocky', emoji: '🪨', color: 0x9a8c98, blocked: false, boosts: ['quarry', 'mine'],
+        description: 'Quarries, iron mines.',
+        tilesPerPlot: { min: 4, max: 8 }
+    },
+    {
+        id: 'forest', name: 'Woodland', emoji: '🌲', color: 0x3f7a4d, blocked: false, boosts: ['lumber'],
+        description: 'Lumber camps.',
+        tilesPerPlot: { min: 5, max: 9 }
+    },
+    {
+        id: 'fertile', name: 'Fertile', emoji: '🌾', color: 0xc7a02c, blocked: false, boosts: ['farm'],
+        description: 'Farms.',
+        tilesPerPlot: { min: 5, max: 9 }
+    }
+]
+
+const TERRAIN_BY_ID = new Map(TOWN_TERRAINS.map(t => [t.id, t]))
+
+export function getTownTerrain(id: TownTerrainId): TownTerrainDef {
+    return TERRAIN_BY_ID.get(id)!
+}
+
+/** Deterministic 32-bit mix of three integers, mapped to [0, 1). */
+function terrainHash(x: number, y: number, salt: number): number {
+    let h = Math.imul(x | 0, 0x27d4eb2d) ^ Math.imul(y | 0, 0x165667b1) ^ Math.imul(salt | 0, 0x9e3779b1)
+    h = Math.imul(h ^ (h >>> 15), 0x85ebca6b)
+    h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35)
+    return ((h ^ (h >>> 16)) >>> 0) / 0x1_0000_0000
+}
+
+/**
+ * Smooth value noise over the tile grid. It is sampled in WORLD coordinates on
+ * purpose: a wood should not stop dead at a plot boundary, so buying the land
+ * next door carries the same trees on into it.
+ */
+function terrainNoise(wx: number, wy: number, salt: number, scale: number): number {
+    const x = wx / scale
+    const y = wy / scale
+    const x0 = Math.floor(x)
+    const y0 = Math.floor(y)
+    const ease = (t: number) => t * t * (3 - 2 * t)
+    const fx = ease(x - x0)
+    const fy = ease(y - y0)
+    const near = terrainHash(x0, y0, salt) * (1 - fx) + terrainHash(x0 + 1, y0, salt) * fx
+    const far = terrainHash(x0, y0 + 1, salt) * (1 - fx) + terrainHash(x0 + 1, y0 + 1, salt) * fx
+    return near * (1 - fy) + far * fy
+}
+
+/** Two octaves: broad patches with a little ragged edge on them. */
+function terrainField(wx: number, wy: number, salt: number): number {
+    return terrainNoise(wx, wy, salt, 3.5) * 0.7 + terrainNoise(wx, wy, salt + 977, 1.7) * 0.3
+}
+
+/**
+ * Roughly this share of the realm is flat grassland: nothing to be had from
+ * the ground, but no water on it either, so all 64 tiles are buildable. It is
+ * the cheap end of the land market and a real trade-off rather than a worse
+ * plot — and it is why two squares on the market are never quite the same.
+ * A town is never FOUNDED on one (see claimFoundingPlot); flat ground is
+ * something you buy on purpose.
+ */
+export const TOWN_FLAT_PLOT_CHANCE = 0.06
+
+export function townPlotIsFlat(px: number, py: number): boolean {
+    return terrainHash(px, py, 7717) < TOWN_FLAT_PLOT_CHANCE
+}
+
+// Terrain is a pure function of the coordinates, so a cached plot can never go
+// stale — the map only ever grows. A town holds twelve plots and a world view
+// a few dozen more; the cap is there so a long-lived server process that pans
+// over a lot of land does not keep every square it ever drew.
+const terrainCache = new Map<string, readonly TownTerrainId[]>()
+const TERRAIN_CACHE_LIMIT = 4096
+
+/**
+ * The 64 tiles of plot (px, py), row-major (`ty * 8 + tx`).
+ *
+ * Each terrain rolls a count and then takes that many of the highest tiles of
+ * its own noise field. Doing it in that order — rather than thresholding the
+ * noise — is what lets the counts be guaranteed and the shapes still be
+ * patches instead of confetti.
+ */
+export function townPlotTerrain(px: number, py: number): readonly TownTerrainId[] {
+    const key = `${px},${py}`
+    const cached = terrainCache.get(key)
+    if (cached) return cached
+
+    // Flat grassland skips all of this and stays 64 plain tiles.
+    const tiles: TownTerrainId[] = new Array(TOWN_TILES_PER_PLOT).fill('plain')
+    let salt = 1
+    for (const def of townPlotIsFlat(px, py) ? [] : TOWN_TERRAINS) {
+        salt += 101
+        if (def.tilesPerPlot.max <= 0) continue
+        const { min, max } = def.tilesPerPlot
+        const count = min + Math.floor(terrainHash(px, py, salt) * (max - min + 1))
+        const ranked: { index: number, value: number }[] = []
+        for (let ty = 0; ty < TOWN_PLOT_SIZE; ty++) {
+            for (let tx = 0; tx < TOWN_PLOT_SIZE; tx++) {
+                const index = ty * TOWN_PLOT_SIZE + tx
+                if (tiles[index] !== 'plain') continue
+                ranked.push({ index, value: terrainField(px * TOWN_PLOT_SIZE + tx, py * TOWN_PLOT_SIZE + ty, salt) })
+            }
+        }
+        // Ties break on the tile index, so the layout never rides on how the
+        // engine happens to sort equal values.
+        ranked.sort((a, b) => b.value - a.value || a.index - b.index)
+        for (let i = 0; i < count && i < ranked.length; i++) tiles[ranked[i]!.index] = def.id
+    }
+
+    if (terrainCache.size >= TERRAIN_CACHE_LIMIT) terrainCache.clear()
+    terrainCache.set(key, tiles)
+    return tiles
+}
+
+/** Terrain on a world tile. */
+export function townTerrainAt(wx: number, wy: number): TownTerrainId {
+    const px = Math.floor(wx / TOWN_PLOT_SIZE)
+    const py = Math.floor(wy / TOWN_PLOT_SIZE)
+    return townPlotTerrain(px, py)[(wy - py * TOWN_PLOT_SIZE) * TOWN_PLOT_SIZE + (wx - px * TOWN_PLOT_SIZE)]!
+}
+
+/**
+ * What the ground under a building is worth to it. Buildings with no world
+ * coordinates — unit fixtures, rows written before plots had tiles — stand on
+ * nothing in particular and get the plain rate.
+ */
+export function townTerrainMultiplier(type: TownBuildingId, wx?: number, wy?: number): number {
+    if (wx === undefined || wy === undefined) return 1
+    return getTownTerrain(townTerrainAt(wx, wy)).boosts.includes(type) ? 1 + TOWN_TERRAIN_BONUS : 1
+}
+
+// ─── Supply chains ───────────────────────────────────────────────────────────
+// A workshop wants its raw materials nearby. Distance is measured in ROAD
+// TILES travelled, not as the crow flies, so the shape of your street network
+// is what decides whether a sawmill runs at full speed. Supply is also
+// finite: one lumber camp cannot feed five sawmills, and when several
+// workshops compete the closest pairing wins, so a camp on the left feeds the
+// sawmill on the left rather than being spread thin across the town.
+
+/**
+ * Inside this many road tiles a supplier delivers at full rate. Measured
+ * against real towns: workshops sharing a plot sit two to five tiles apart,
+ * while anything across a plot boundary is six or more, so this is the line
+ * between "same district" and "the other side of town".
+ */
+export const TOWN_SUPPLY_FULL_TILES = 4
+/** By this distance a supplier has fallen to the minimum rate. */
+export const TOWN_SUPPLY_FALLOFF_TILES = 16
+/**
+ * The slowest a workshop ever runs. It is never zero: goods bought from other
+ * mayors have no local supplier at all, and buying should still be worth
+ * something — just slower than making them next door.
+ */
+export const TOWN_SUPPLY_MIN_EFFICIENCY = 0.3
+
+/**
+ * What finished research adds to a town. Declared here rather than imported so
+ * the rules module stays free of the research board: the shape matches what
+ * townResearchEffects() returns, and a town that has researched nothing simply
+ * passes TOWN_NO_RESEARCH.
+ */
+export interface TownResearchBonus {
+    /** Extra share of output from every workshop. */
+    output: number
+    /** Extra road tiles a supplier covers at full rate. */
+    supplyTiles: number
+    /** Share taken off every build and upgrade timer. */
+    buildTime: number
+    /** Extra residents per house level. */
+    popPerHouseLevel: number
+    /** Flat points on the happiness target. */
+    happiness: number
+    /** Extra share of the per-resource storage cap. */
+    storage: number
+    /** Extra share on top of the town hall's floor price. */
+    floorPrice: number
+}
+
+export const TOWN_NO_RESEARCH: TownResearchBonus = {
+    output: 0,
+    supplyTiles: 0,
+    buildTime: 0,
+    popPerHouseLevel: 0,
+    happiness: 0,
+    storage: 0,
+    floorPrice: 0
+}
+
+/** How much of a delivery survives the trip. */
+export function townSupplyEfficiency(tiles: number, extraFullTiles = 0): number {
+    const full = TOWN_SUPPLY_FULL_TILES + extraFullTiles
+    if (tiles <= full) return 1
+    if (tiles >= TOWN_SUPPLY_FALLOFF_TILES) return TOWN_SUPPLY_MIN_EFFICIENCY
+    const span = Math.max(1, TOWN_SUPPLY_FALLOFF_TILES - full)
+    return 1 - (1 - TOWN_SUPPLY_MIN_EFFICIENCY) * ((tiles - full) / span)
+}
+
+/**
+ * How deep in the chain each resource sits: raw goods are 0, and every
+ * refinement is one deeper. Resolving supply in this order means a mill's own
+ * throughput is already known by the time a bakery asks it for flour.
+ */
+const RESOURCE_DEPTH: Map<TownResourceId, number> = (() => {
+    const depth = new Map<TownResourceId, number>()
+    for (const r of TOWN_RESOURCES) depth.set(r.id, 0)
+    // Repeat until stable; the chain is a dozen links, so this settles fast.
+    for (let pass = 0; pass < TOWN_RESOURCES.length; pass++) {
+        for (const def of TOWN_BUILDINGS) {
+            const inputs = Object.keys(def.inputs) as TownResourceId[]
+            if (inputs.length === 0) continue
+            const deepest = Math.max(...inputs.map(i => depth.get(i) ?? 0))
+            for (const out of Object.keys(def.outputs) as TownResourceId[]) {
+                if ((depth.get(out) ?? 0) < deepest + 1) depth.set(out, deepest + 1)
+            }
+        }
+    }
+    return depth
+})()
+
+export function townResourceDepth(id: TownResourceId): number {
+    return RESOURCE_DEPTH.get(id) ?? 0
+}
+
+/**
+ * Road distances between the front doors buildings deliver through. Buildings
+ * do not move during a settle, so this is computed once and reused for every
+ * tick rather than re-walked per tick.
+ */
+export interface TownSupplyNetwork {
+    /** Each building's front-door road tile, as "x,y". */
+    frontOf: Map<string, string>
+    /** Road tiles travelled between two front doors; missing means no road joins them. */
+    between: Map<string, Map<string, number>>
+}
+
+export function townSupplyNetwork(buildings: TownSimBuilding[], now = Date.now()): TownSupplyNetwork {
+    const roads = new Set<string>()
+    for (const b of buildings) {
+        if (b.type === 'road' && b.wx !== undefined && b.wy !== undefined && isBuilt(b, now)) {
+            roads.add(`${b.wx},${b.wy}`)
+        }
+    }
+
+    const frontOf = new Map<string, string>()
+    const sources = new Set<string>()
+    for (const b of buildings) {
+        if (b.wx === undefined || b.wy === undefined || b.type === 'road') continue
+        const def = BUILDING_BY_ID.get(b.type)!
+        if (def.kind !== 'industry') continue
+        const f = townFrontTile(b.wx, b.wy, b.rotation ?? 0)
+        const key = `${f.wx},${f.wy}`
+        if (!roads.has(key)) continue
+        frontOf.set(b.id, key)
+        if (Object.keys(def.outputs).length > 0) sources.add(key)
+    }
+
+    // One breadth-first walk per delivering front door covers every workshop
+    // that door can reach, so the whole map costs sources × road tiles.
+    const between = new Map<string, Map<string, number>>()
+    for (const start of sources) {
+        const seen = new Map<string, number>([[start, 0]])
+        let frontier = [start]
+        while (frontier.length > 0) {
+            const next: string[] = []
+            for (const tile of frontier) {
+                const d = seen.get(tile)!
+                const [tx, ty] = tile.split(',').map(Number) as [number, number]
+                for (const [dx, dy] of TOWN_FACING) {
+                    const nb = `${tx + dx},${ty + dy}`
+                    if (!roads.has(nb) || seen.has(nb)) continue
+                    seen.set(nb, d + 1)
+                    next.push(nb)
+                }
+            }
+            frontier = next
+        }
+        between.set(start, seen)
+    }
+    return { frontOf, between }
+}
+
+/** Road tiles between two buildings, or null when no road joins them. */
+export function townRoadDistance(network: TownSupplyNetwork, fromId: string, toId: string): number | null {
+    const from = network.frontOf.get(fromId)
+    const to = network.frontOf.get(toId)
+    if (from === undefined || to === undefined) return null
+    if (from === to) return 0
+    return network.between.get(from)?.get(to) ?? null
+}
+
+export interface TownSupplyEntry {
+    /** How much of what this workshop needs actually arrives, TOWN_SUPPLY_MIN_EFFICIENCY .. 1. */
+    ratio: number
+    /** Per input resource: how well it is served, and where from. */
+    inputs: { resource: TownResourceId, ratio: number, nearestTiles: number | null, suppliers: number }[]
+}
+
+/**
+ * Work out how well every workshop is supplied. Producers are allocated to
+ * consumers closest-pair-first, so the nearest workshop gets first claim on
+ * the nearest supplier and a single camp cannot be counted twice.
+ */
+export function townSupply(
+    buildings: TownSimBuilding[],
+    staffing: Map<string, number>,
+    network: TownSupplyNetwork,
+    now = Date.now(),
+    extraFullTiles = 0
+): Map<string, TownSupplyEntry> {
+    const active = buildings
+        .filter(b => isBuilt(b, now) && BUILDING_BY_ID.get(b.type)!.kind === 'industry')
+        .map(b => ({ b, def: BUILDING_BY_ID.get(b.type)!, level: effectiveLevel(b, now), staff: staffing.get(b.id) ?? 0 }))
+
+    const result = new Map<string, TownSupplyEntry>()
+    const ratioOf = new Map<string, number>()
+    for (const a of active) {
+        // Nothing to haul in, or no place on the map at all (a fixture without
+        // world coordinates) — either way there is no journey to slow down.
+        if (Object.keys(a.def.inputs).length === 0 || !network.frontOf.has(a.b.id)) {
+            ratioOf.set(a.b.id, 1)
+            result.set(a.b.id, { ratio: 1, inputs: [] })
+        }
+    }
+
+    const consumed = new Set<TownResourceId>()
+    for (const a of active) for (const id of Object.keys(a.def.inputs) as TownResourceId[]) consumed.add(id)
+    const order = [...consumed].sort((x, y) => townResourceDepth(x) - townResourceDepth(y))
+
+    // Per consumer, how well each of its inputs is served.
+    const perInput = new Map<string, { resource: TownResourceId, ratio: number, nearestTiles: number | null, suppliers: number }[]>()
+
+    for (const resource of order) {
+        const producers = active
+            .filter(a => (a.def.outputs[resource] ?? 0) > 0 && a.staff > 0)
+            .map(a => ({
+                id: a.b.id,
+                // A supplier can only pass on what it manages to make itself.
+                left: (a.def.outputs[resource] ?? 0) * a.level * a.staff * (ratioOf.get(a.b.id) ?? TOWN_SUPPLY_MIN_EFFICIENCY)
+            }))
+        const consumers = active
+            // Only a workshop with people in it competes for deliveries; an
+            // idle one holding a claim would starve a working neighbour.
+            .filter(a => (a.def.inputs[resource] ?? 0) > 0 && a.staff > 0 && network.frontOf.has(a.b.id))
+            .map(a => ({ id: a.b.id, need: (a.def.inputs[resource] ?? 0) * a.level * a.staff, left: 0, got: 0, nearest: null as number | null, suppliers: 0 }))
+        for (const c of consumers) c.left = c.need
+
+        const pairs: { c: typeof consumers[number], p: typeof producers[number], tiles: number }[] = []
+        for (const c of consumers) {
+            for (const p of producers) {
+                const tiles = townRoadDistance(network, p.id, c.id)
+                if (tiles === null) continue
+                pairs.push({ c, p, tiles })
+            }
+        }
+        // Closest pair first: the near sawmill takes the near camp, and what is
+        // left over spills to whoever is next closest.
+        pairs.sort((a, b) => a.tiles - b.tiles)
+        for (const { c, p, tiles } of pairs) {
+            if (c.left <= 0 || p.left <= 0) continue
+            const take = Math.min(c.left, p.left)
+            c.left -= take
+            p.left -= take
+            c.got += take * townSupplyEfficiency(tiles, extraFullTiles)
+            c.suppliers++
+            if (c.nearest === null || tiles < c.nearest) c.nearest = tiles
+        }
+
+        for (const c of consumers) {
+            const ratio = Math.max(TOWN_SUPPLY_MIN_EFFICIENCY, Math.min(1, c.need > 0 ? c.got / c.need : 1))
+            const list = perInput.get(c.id) ?? []
+            list.push({ resource, ratio, nearestTiles: c.nearest, suppliers: c.suppliers })
+            perInput.set(c.id, list)
+            // A workshop runs at the pace of its worst-served input.
+            ratioOf.set(c.id, Math.min(ratioOf.get(c.id) ?? 1, ratio))
+        }
+    }
+
+    for (const a of active) {
+        const inputs = perInput.get(a.b.id)
+        if (!inputs) continue
+        result.set(a.b.id, { ratio: ratioOf.get(a.b.id) ?? 1, inputs })
+    }
+    return result
+}
+
 // ─── Simulation ──────────────────────────────────────────────────────────────
 
 export interface TownSimBuilding {
@@ -589,6 +1168,8 @@ export interface TownSimState {
     lastSettledAt: number
     inventory: TownResourceBag
     buildings: TownSimBuilding[]
+    /** What the town's finished research adds. Absent means none of it. */
+    research?: TownResearchBonus
 }
 
 export interface TownDerived {
@@ -602,6 +1183,10 @@ export interface TownDerived {
     industryTiles: number
     /** Buildings staffed enough to run, with their staffing ratio (0..1). */
     staffing: Map<string, number>
+    /** How well each workshop's inputs reach it over the roads (0.3 .. 1). */
+    supply: Map<string, TownSupplyEntry>
+    /** What a building actually runs at: staffing × supply. This is the rate production uses. */
+    throughput: Map<string, number>
     /** Happiness → production speed multiplier, 0.5 .. 1.0. */
     speedMultiplier: number
     /** Units the town consumes per tick for each need. */
@@ -683,6 +1268,7 @@ export function townAutoFacing(buildings: TownSimBuilding[], wx: number, wy: num
  */
 export function townPlacementIssue(buildings: TownSimBuilding[], def: TownBuildingDef, wx: number, wy: number, rotation: number): string | null {
     if (buildings.some(b => b.wx === wx && b.wy === wy)) return 'That tile is already taken'
+    if (getTownTerrain(townTerrainAt(wx, wy)).blocked) return 'You cannot build on water'
     if (def.kind === 'road') {
         const touchesRoad = TOWN_FACING.some(([dx, dy]) => townRoadAt(buildings, wx + dx, wy + dy))
         if (!touchesRoad && !townIsPlotEdge(wx, wy)) return 'Roads must start at the edge of your land or continue another road'
@@ -861,6 +1447,19 @@ export function townTierRequirement(buildings: TownSimBuilding[], tier: number, 
     return { needsBuilding: !hasPrevious, pop, popRequired, produced: made, producedRequired, producedTier }
 }
 
+/**
+ * Exactly what one tick moves through a workshop, or null when it moves
+ * nothing. Output is floored, so a workshop running slowly enough that its
+ * output rounds to zero consumes nothing either — the settle skips it, and
+ * every number shown to the player has to agree with that.
+ */
+export function townTickRecipe(def: TownBuildingDef, level: number, ratio: number): { inputs: TownResourceBag, outputs: TownResourceBag } | null {
+    if (ratio <= 0) return null
+    const outputs = scaleBag(def.outputs, level * ratio, Math.floor)
+    if (Object.keys(outputs).length === 0) return null
+    return { inputs: scaleBag(def.inputs, level * ratio, Math.ceil), outputs }
+}
+
 /** Net resource change per tick at current staffing, assuming inputs are available. */
 export function townNetPerTick(buildings: TownSimBuilding[], derived: TownDerived, now: number): TownResourceBag {
     const net: TownResourceBag = {}
@@ -869,12 +1468,12 @@ export function townNetPerTick(buildings: TownSimBuilding[], derived: TownDerive
         const def = BUILDING_BY_ID.get(b.type)!
         if (def.kind !== 'industry') continue
         const level = effectiveLevel(b, now)
-        const ratio = derived.staffing.get(b.id) ?? 0
-        if (ratio <= 0) continue
-        for (const [id, qty] of Object.entries(scaleBag(def.outputs, level * ratio, Math.floor)) as [TownResourceId, number][]) {
+        const recipe = townTickRecipe(def, level, derived.throughput.get(b.id) ?? 0)
+        if (!recipe) continue
+        for (const [id, qty] of Object.entries(recipe.outputs) as [TownResourceId, number][]) {
             net[id] = (net[id] ?? 0) + qty
         }
-        for (const [id, qty] of Object.entries(scaleBag(def.inputs, level * ratio, Math.ceil)) as [TownResourceId, number][]) {
+        for (const [id, qty] of Object.entries(recipe.inputs) as [TownResourceId, number][]) {
             net[id] = (net[id] ?? 0) - qty
         }
     }
@@ -932,7 +1531,14 @@ export function townSpeedMultiplier(happiness: number): number {
  * Workers are handed out oldest building first, so a town that outgrows its
  * housing sees its newest industry idle rather than everything slowing down.
  */
-export function deriveTown(buildings: TownSimBuilding[], happiness: number, now: number, satisfied: TownSatisfied = {}): TownDerived {
+export function deriveTown(
+    buildings: TownSimBuilding[],
+    happiness: number,
+    now: number,
+    satisfied: TownSatisfied = {},
+    network?: TownSupplyNetwork,
+    research: TownResearchBonus = TOWN_NO_RESEARCH
+): TownDerived {
     let popCap = 0
     let happinessTarget = TOWN_HAPPINESS_BASE_TARGET
     let storageCap = TOWN_BASE_STORAGE
@@ -944,8 +1550,8 @@ export function deriveTown(buildings: TownSimBuilding[], happiness: number, now:
         .map(b => ({ b, def: BUILDING_BY_ID.get(b.type)!, level: effectiveLevel(b, now) }))
         .sort((a, z) => a.b.createdAt - z.b.createdAt)
 
-    for (const { def, level } of built) {
-        popCap += def.popCap * level
+    for (const { b, def, level } of built) {
+        popCap += (def.popCap + (def.popCap > 0 ? research.popPerHouseLevel : 0)) * level
         happinessTarget += def.happiness * level
         storageCap += def.storage * level
         if (def.kind === 'industry') {
@@ -960,8 +1566,8 @@ export function deriveTown(buildings: TownSimBuilding[], happiness: number, now:
     const crowding = workersDemanded > popCap * TOWN_HAPPINESS_CROWDING_RATIO ? TOWN_HAPPINESS_CROWDING_PENALTY : 0
     const needsScore = needsHappiness(satisfied, popCap, reachableTier)
     happinessTarget += layout.parks - layout.industry - crowding + needsScore
-    happinessTarget = Math.max(0, Math.min(100, happinessTarget))
-    storageCap = Math.round(storageCap * townMood(happiness).storage)
+    happinessTarget = Math.max(0, Math.min(100, happinessTarget + research.happiness))
+    storageCap = Math.round(storageCap * townMood(happiness).storage * (1 + research.storage))
 
     const staffing = new Map<string, number>()
     let remaining = popCap
@@ -973,6 +1579,21 @@ export function deriveTown(buildings: TownSimBuilding[], happiness: number, now:
         staffing.set(b.id, need === 0 ? 1 : got / need)
     }
 
+    // Road distances are the expensive half and never change mid-settle, so a
+    // caller walking many ticks passes the network in rather than rebuilding it.
+    const supply = townSupply(builtSims, staffing, network ?? townSupplyNetwork(buildings, now), now, research.supplyTiles)
+    // Terrain rides on the same ratio as staffing and supply rather than being
+    // bolted onto the output bag afterwards. Everything that quotes a rate —
+    // the tick loop, the net-per-tick preview, the income estimate — reads
+    // throughput and floors it identically, so a bonus that only one of them
+    // knew about is a number the player would catch us lying about.
+    const throughput = new Map<string, number>()
+    for (const { b, def } of built) {
+        const staff = staffing.get(b.id)
+        if (staff === undefined) continue
+        throughput.set(b.id, staff * (supply.get(b.id)?.ratio ?? 1) * townTerrainMultiplier(def.id, b.wx, b.wy) * (1 + research.output))
+    }
+
     return {
         popCap,
         workersDemanded,
@@ -981,8 +1602,10 @@ export function deriveTown(buildings: TownSimBuilding[], happiness: number, now:
         storageCap,
         industryTiles,
         staffing,
+        supply,
+        throughput,
         speedMultiplier: townSpeedMultiplier(happiness),
-        needsPerTick: townNeedsPerTick(popCap),
+        needsPerTick: townNeedsPerTick(popCap, reachableTier),
         reachableTier,
         happinessBreakdown: {
             base: TOWN_HAPPINESS_BASE_TARGET,
@@ -1027,6 +1650,10 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
     const buildings = state.buildings.map(b => ({ ...b }))
     const completed: { id: string, level: number }[] = []
 
+    // Research never changes mid-window: a project that finishes while the
+    // player is away is banked by settleTownResearch before this runs.
+    const research = state.research ?? TOWN_NO_RESEARCH
+
     let happiness = state.happiness
     let progress = state.tickProgressMs
     let ticks = 0
@@ -1036,7 +1663,10 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
     // Walk the window in whole ticks. Buildings that finish mid-window start
     // producing from the tick after their completion timestamp.
     let cursor = from
-    let derived = deriveTown(buildings, happiness, cursor, satisfied)
+    // Buildings do not move mid-settle, so the road distances behind the supply
+    // chains are walked once here instead of on every tick.
+    const network = townSupplyNetwork(buildings, now)
+    let derived = deriveTown(buildings, happiness, cursor, satisfied, network, research)
     let guard = 0
     while (elapsed > 0 && guard++ < 100_000) {
         const needMs = (TOWN_TICK_MS - progress) / derived.speedMultiplier
@@ -1052,18 +1682,16 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
         ticks++
 
         // Re-derive at this instant so newly finished buildings join the tick.
-        derived = deriveTown(buildings, happiness, cursor, satisfied)
+        derived = deriveTown(buildings, happiness, cursor, satisfied, network, research)
 
         for (const b of buildings) {
             if (!isBuilt(b, cursor)) continue
             const def = BUILDING_BY_ID.get(b.type)!
             if (def.kind !== 'industry') continue
             const level = effectiveLevel(b, cursor)
-            const ratio = derived.staffing.get(b.id) ?? 0
-            if (ratio <= 0) continue
-            const inputs = scaleBag(def.inputs, level * ratio, Math.ceil)
-            const outputs = scaleBag(def.outputs, level * ratio, Math.floor)
-            if (Object.keys(outputs).length === 0) continue
+            const recipe = townTickRecipe(def, level, derived.throughput.get(b.id) ?? 0)
+            if (!recipe) continue
+            const { inputs, outputs } = recipe
 
             let ok = true
             for (const [id, qty] of Object.entries(inputs) as [TownResourceId, number][]) {
@@ -1099,10 +1727,10 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
         }
 
         // Happiness drifts toward the target computed from this tick's town.
-        const target = deriveTown(buildings, happiness, cursor, satisfied).happinessTarget
+        const target = deriveTown(buildings, happiness, cursor, satisfied, network, research).happinessTarget
         if (happiness < target) happiness = Math.min(target, happiness + TOWN_HAPPINESS_DRIFT_PER_TICK)
         else if (happiness > target) happiness = Math.max(target, happiness - TOWN_HAPPINESS_DRIFT_PER_TICK)
-        derived = deriveTown(buildings, happiness, cursor, satisfied)
+        derived = deriveTown(buildings, happiness, cursor, satisfied, network, research)
     }
 
     // Bake finished builds/upgrades into levels so the caller can persist them.
@@ -1141,12 +1769,15 @@ export function townFloorIncomePerDay(buildings: TownSimBuilding[], happiness: n
         const def = BUILDING_BY_ID.get(b.type)!
         if (def.kind !== 'industry') continue
         const level = effectiveLevel(b, now)
-        const ratio = derived.staffing.get(b.id) ?? 0
-        for (const [id, qty] of Object.entries(def.outputs) as [TownResourceId, number][]) {
-            perTick += qty * level * ratio * townFloorPrice(id)
+        // Priced off the very bags the tick loop moves, so the headline number
+        // never advertises output a workshop is too slow to actually finish.
+        const recipe = townTickRecipe(def, level, derived.throughput.get(b.id) ?? 0)
+        if (!recipe) continue
+        for (const [id, qty] of Object.entries(recipe.outputs) as [TownResourceId, number][]) {
+            perTick += qty * townFloorPrice(id)
         }
-        for (const [id, qty] of Object.entries(def.inputs) as [TownResourceId, number][]) {
-            perTick -= qty * level * ratio * townFloorPrice(id)
+        for (const [id, qty] of Object.entries(recipe.inputs) as [TownResourceId, number][]) {
+            perTick -= qty * townFloorPrice(id)
         }
     }
     return Math.max(0, perTick * ticksPerDay)

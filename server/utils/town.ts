@@ -1,13 +1,13 @@
 import { and, asc, desc, eq, gt, gte, inArray, lte, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction } from '#server/database/schema'
+import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townResearch } from '#server/database/schema'
 import { credit, creditGems, debit, debitGems } from '#server/utils/balance'
 import { matchGemOrder } from '#shared/utils/gamelogic/gem-exchange'
 import {
     TOWN_PLOT_SIZE,
     TOWN_MAX_OFFLINE_MS,
     TOWN_MAX_PLOTS,
-    TOWN_MAX_BUILDING_LEVEL,
+    townBuildingMaxLevel,
     TOWN_MARKET_MAX_OPEN_ORDERS,
     TOWN_MARKET_HISTORY_LIMIT,
     TOWN_MARKET_BOOK_DEPTH,
@@ -25,7 +25,10 @@ import {
     isValidTownListPrice,
     TOWN_FOUNDING_GAP,
     townSpiralCoords,
+    townPlotIsFlat,
     townFloorPrice,
+    TOWN_NO_RESEARCH,
+    type TownResearchBonus,
     townCeilingPrice,
     townOrderTotal,
     isValidTownPrice,
@@ -39,11 +42,15 @@ import {
     townMilestoneComplete,
     getTownMilestone,
     TOWN_MILESTONES,
+    townBuildersFree,
+    townBuilderGemCost,
+    TOWN_MAX_BUILDERS,
     type TownResourceId,
     type TownResourceBag,
     type TownSimBuilding,
     type TownSatisfied
 } from '#shared/utils/gamelogic/town'
+import { townResearchEffects } from '#shared/utils/gamelogic/town-research'
 
 const CATEGORY = 'polytown'
 
@@ -123,7 +130,7 @@ export async function takeInventory(tx: DbExecutor, userId: string, resource: To
     }
 }
 
-async function spendBag(tx: DbExecutor, userId: string, bag: TownResourceBag) {
+export async function spendBag(tx: DbExecutor, userId: string, bag: TownResourceBag) {
     for (const [id, qty] of Object.entries(bag) as [TownResourceId, number][]) {
         await takeInventory(tx, userId, id, qty)
     }
@@ -163,6 +170,23 @@ export interface SettledTown {
 }
 
 /**
+ * What this player's finished research is worth, read inside the caller's
+ * transaction. Research changes at most once every twelve hours, so this is a
+ * cheap read next to everything else a settle does.
+ */
+export async function getResearchBonus(tx: DbExecutor, userId: string): Promise<TownResearchBonus> {
+    const rows = await tx.select({ researchId: townResearch.researchId })
+        .from(townResearch)
+        .where(eq(townResearch.userId, userId))
+    return townResearchEffects(rows.map(r => r.researchId))
+}
+
+/** The town hall's price for this player: the floor, plus whatever Trade research adds. */
+export function townPriceFor(resource: TownResourceId, research: TownResearchBonus): number {
+    return Math.round(townFloorPrice(resource) * (1 + research.floorPrice) * 100) / 100
+}
+
+/**
  * Lock the town, advance the simulation to `now`, and persist the result as
  * increments. Must run inside `tx`; callers then continue their own mutation
  * with the returned (fresh) rows.
@@ -173,13 +197,15 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
     const inventory = await getInventory(userId, tx, true)
     const { plots, byId } = await getPlotMap(userId, tx)
     const simBefore = rows.map(row => toSim(row, byId.get(row.plotId)))
+    const research = await getResearchBonus(tx, userId)
 
     const result = settleTown({
         happiness: state.happiness,
         tickProgressMs: state.tickProgressMs,
         lastSettledAt: state.lastSettledAt.getTime(),
         inventory,
-        buildings: simBefore
+        buildings: simBefore,
+        research
     }, now)
 
     for (const [id, delta] of Object.entries(result.delta) as [TownResourceId, number][]) {
@@ -259,6 +285,11 @@ async function claimFoundingPlot(tx: DbExecutor, userId: string) {
     for (let i = 0; i < 100_000; i++) {
         const spot = townSpiralCoords(i)
         if (owned.some(p => townPlotDistance(p, spot) <= TOWN_FOUNDING_GAP)) continue
+        // Flat grassland is perfectly buildable but has no soil, no timber and
+        // no stone worth the name. A first plot should have some of each so a
+        // new mayor can see what terrain is for; bland land is something you
+        // buy on purpose later, not something you are handed.
+        if (townPlotIsFlat(spot.x, spot.y)) continue
         const [plot] = await tx.insert(townPlots).values({ userId, x: spot.x, y: spot.y, paidPrice: '0' }).onConflictDoNothing().returning()
         if (plot) return plot
     }
@@ -547,6 +578,11 @@ export async function placeBuilding(userId: string, plotId: string, tileX: numbe
         const issue = townPlacementIssue(sim, def, wx, wy, rotation)
         if (issue) throw createError({ statusCode: 400, statusMessage: issue })
 
+        // Roads go up instantly and need nobody; everything else needs a crew.
+        if (def.kind !== 'road' && townBuildersFree(sim, state.builders, now) <= 0) {
+            throw createError({ statusCode: 400, statusMessage: 'Every builder is busy' })
+        }
+
         // The n-th copy costs more: count every existing one, finished or not.
         const existing = sim.filter(b => b.type === def.id).length
         const cost = townPlaceCost(def, existing)
@@ -622,15 +658,18 @@ export async function moveBuilding(userId: string, buildingId: string, plotId: s
 export async function upgradeBuilding(userId: string, buildingId: string) {
     return db.transaction(async (tx) => {
         const now = Date.now()
-        const { buildings, state } = await settleTownState(tx, userId, now)
+        const { buildings, state, sim } = await settleTownState(tx, userId, now)
         const building = buildings.find(b => b.id === buildingId)
         if (!building) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
         if (building.level === 0) throw createError({ statusCode: 400, statusMessage: 'Still under construction' })
         if (building.upgradingTo !== null) throw createError({ statusCode: 400, statusMessage: 'Already upgrading' })
-        if (building.level >= TOWN_MAX_BUILDING_LEVEL) throw createError({ statusCode: 400, statusMessage: 'Already at max level' })
 
         const def = getTownBuilding(building.type)!
         if (def.kind === 'road') throw createError({ statusCode: 400, statusMessage: 'Roads have no levels' })
+        if (building.level >= townBuildingMaxLevel(def)) throw createError({ statusCode: 400, statusMessage: 'Already at max level' })
+        if (townBuildersFree(sim, state.builders, now) <= 0) {
+            throw createError({ statusCode: 400, statusMessage: 'Every builder is busy' })
+        }
         const nextLevel = building.level + 1
         const cost = townLevelCost(def, nextLevel)
         if (cost.coins > 0) await debit(userId, cost.coins.toFixed(4), CATEGORY, tx)
@@ -753,10 +792,10 @@ async function lockTownForMarket(tx: DbExecutor, userId: string) {
 export async function sellToFloor(userId: string, resource: string, quantity: number) {
     if (!isTownResourceId(resource)) throw createError({ statusCode: 400, statusMessage: 'Unknown resource' })
     if (!isValidTownQuantity(quantity)) throw createError({ statusCode: 400, statusMessage: 'Quantity must be a whole number' })
-    const price = townFloorPrice(resource)
-    const total = townOrderTotal(price, quantity)
     return db.transaction(async (tx) => {
         await lockTownForMarket(tx, userId)
+        const price = townPriceFor(resource, await getResearchBonus(tx, userId))
+        const total = townOrderTotal(price, quantity)
         // The conditional decrement is the guard — inventory increments commute.
         await takeInventory(tx, userId, resource, quantity)
         await credit(userId, total.toFixed(4), CATEGORY, tx)
@@ -774,15 +813,18 @@ export async function sellBulkToFloor(userId: string, items: { resource: string,
     if (!Array.isArray(items) || items.length === 0 || items.length > TOWN_RESOURCES.length) {
         throw createError({ statusCode: 400, statusMessage: 'Nothing to sell' })
     }
-    const lines: { resource: TownResourceId, quantity: number, price: number, total: number }[] = []
     for (const item of items) {
         if (!isTownResourceId(item.resource)) throw createError({ statusCode: 400, statusMessage: 'Unknown resource' })
         if (!isValidTownQuantity(item.quantity)) throw createError({ statusCode: 400, statusMessage: 'Quantity must be a whole number' })
-        const price = townFloorPrice(item.resource)
-        lines.push({ resource: item.resource, quantity: item.quantity, price, total: townOrderTotal(price, item.quantity) })
     }
     return db.transaction(async (tx) => {
         await lockTownForMarket(tx, userId)
+        const research = await getResearchBonus(tx, userId)
+        const lines = items.map((item) => {
+            const resource = item.resource as TownResourceId
+            const price = townPriceFor(resource, research)
+            return { resource, quantity: item.quantity, price, total: townOrderTotal(price, item.quantity) }
+        })
         let total = 0
         for (const line of lines) {
             await takeInventory(tx, userId, line.resource, line.quantity)
@@ -1091,5 +1133,25 @@ export async function deleteTownForUser(userId: string, tx: DbExecutor = db) {
     await tx.delete(townBuildings).where(eq(townBuildings.userId, userId))
     await tx.delete(townInventory).where(eq(townInventory.userId, userId))
     await tx.delete(townPlots).where(eq(townPlots.userId, userId))
+    await tx.delete(townResearch).where(eq(townResearch.userId, userId))
     await tx.delete(townState).where(eq(townState.userId, userId))
+}
+/**
+ * Hire one more build crew, permanently. The town_state row is already locked
+ * by the settle, so reading the current count inside that lock and writing the
+ * increment is safe; the conditional WHERE is belt and braces.
+ */
+export async function hireTownBuilder(userId: string) {
+    return db.transaction(async (tx) => {
+        const { state } = await settleTownState(tx, userId)
+        const gems = townBuilderGemCost(state.builders)
+        if (gems === null) throw createError({ statusCode: 400, statusMessage: `You already have ${TOWN_MAX_BUILDERS} builders` })
+        await debitGems(userId, gems, tx)
+        const [updated] = await tx.update(townState)
+            .set({ builders: state.builders + 1 })
+            .where(and(eq(townState.id, state.id), eq(townState.builders, state.builders)))
+            .returning({ builders: townState.builders })
+        if (!updated) throw createError({ statusCode: 409, statusMessage: 'Try again' })
+        return { builders: updated.builders, gems }
+    })
 }

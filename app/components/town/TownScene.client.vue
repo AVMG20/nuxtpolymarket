@@ -5,11 +5,15 @@
 // projecting world points each frame and written straight to the DOM — no
 // per-frame Vue re-render.
 import * as THREE from 'three'
+import { addLandscape, clearLandscape, createMeadowTexture } from '~/utils/town/landscape'
+import { animateTownWater } from '~/utils/town/surfaces'
+import { createTerrainOverlay, createWaterLayer, disposeTerrainOverlay, disposeWaterLayer } from '~/utils/town/terrain'
 import { townVisualLevel } from '~/utils/town/appearance'
 import { townDragDelta, townKeyboardDelta, townIsTyping } from '~/utils/town/camera'
 import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { createBuildingModel, createVillager, createForSaleSign, townMaterial, TREE_GEOMETRY } from '~/utils/town/models'
+import { createBuildingModel, townMaterial } from '~/utils/town/models'
+import { createCar, createTruck, TOWN_VEHICLE_COLORS, TOWN_VEHICLE_SIZE } from '~/utils/town/vehicles'
 
 export interface ScenePlot { id: string, x: number, y: number }
 export interface SceneBuilding {
@@ -63,6 +67,8 @@ const props = withDefaults(defineProps<{
     ghostIssue?: string | null
     /** Building being moved: hidden in place while its ghost follows the cursor. */
     movingId?: string | null
+    /** Tint the ground by terrain type. Off, the scene looks exactly as it always does. */
+    terrainOverlay?: boolean
 }>(), {
     selectedBuildingId: null,
     ghostType: null,
@@ -79,7 +85,8 @@ const props = withDefaults(defineProps<{
     effectRadii: () => [],
     ghostRadius: null,
     ghostIssue: null,
-    movingId: null
+    movingId: null,
+    terrainOverlay: false
 })
 
 const emit = defineEmits<{
@@ -113,8 +120,6 @@ const MAX_PIXEL_RATIO = 1.5
 const IDLE_FRAME_MS = 1000 / 30
 const ACTIVE_FRAME_MS = 1000 / 60
 const OVERLAY_INTERVAL_MS = 100
-const VILLAGER_INTERVAL_MS = 50
-const MAX_VILLAGERS = 12
 
 let shadowsDirty = true
 function markShadowsDirty() {
@@ -126,17 +131,19 @@ function markShadowsDirty() {
 let renderer: THREE.WebGLRenderer | null = null
 const scene = new THREE.Scene()
 const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400)
-const sun = new THREE.DirectionalLight(0xffe6bf, 2.5)
+const sun = new THREE.DirectionalLight(0xffdfac, 3.1)
 const plotsGroup = new THREE.Group()
 const buildingsGroup = new THREE.Group()
 const expansionGroup = new THREE.Group()
 const neighbourGroup = new THREE.Group()
 const decorGroup = new THREE.Group()
-const villagerGroup = new THREE.Group()
+const vehicleGroup = new THREE.Group()
 const fxGroup = new THREE.Group()
-scene.add(plotsGroup, buildingsGroup, expansionGroup, neighbourGroup, decorGroup, villagerGroup, fxGroup)
+const terrainGroup = new THREE.Group()
+const waterGroup = new THREE.Group()
+scene.add(plotsGroup, buildingsGroup, expansionGroup, neighbourGroup, decorGroup, vehicleGroup, waterGroup, terrainGroup, fxGroup)
 
-const SKY = 0xb4d9dd
+const SKY = 0xc6d3cc
 scene.background = new THREE.Color(SKY)
 scene.fog = new THREE.Fog(SKY, 60, 160)
 
@@ -161,7 +168,7 @@ function applyCamera() {
     // in steps instead, and only then mark the map dirty.
     if (Math.abs(tx - sunAt.x) > 3 || Math.abs(tz - sunAt.z) > 3) {
         sunAt = { x: tx, z: tz }
-        sun.position.set(tx + 26, 40, tz + 14)
+        sun.position.set(tx + 30, 32, tz + 18)
         sun.target.position.set(tx, 0, tz)
         sun.target.updateMatrixWorld()
         markShadowsDirty()
@@ -184,7 +191,7 @@ function recenter(animate = true) {
         camGoal.tx = (minX + maxX) / 2
         camGoal.tz = (minZ + maxZ) / 2
         const span = Math.max(maxX - minX, maxZ - minZ)
-        camGoal.dist = Math.min(MAX_DIST, Math.max(MIN_DIST, span * 1.15 + 6))
+        camGoal.dist = Math.min(MAX_DIST, Math.max(MIN_DIST, span * 1.6 + 8))
     }
     if (!animate) Object.assign(cam, camGoal)
 }
@@ -192,23 +199,29 @@ function recenter(animate = true) {
 // ─── Lighting & ground ───────────────────────────────────────────────────────
 
 function setupStatic() {
-    const hemi = new THREE.HemisphereLight(0xd6efff, 0x718555, 1.15)
+    const hemi = new THREE.HemisphereLight(0xdceafa, 0x655339, 1.35)
     scene.add(hemi)
+    const skyFill = new THREE.DirectionalLight(0xd8e7f1, 0.35)
+    skyFill.position.set(-30, 20, -20)
+    scene.add(skyFill)
     sun.castShadow = true
-    sun.shadow.mapSize.set(1024, 1024)
+    sun.shadow.mapSize.set(2048, 2048)
     sun.shadow.camera.near = 5
     sun.shadow.camera.far = 120
     sun.shadow.camera.left = -34
     sun.shadow.camera.right = 34
     sun.shadow.camera.top = 34
     sun.shadow.camera.bottom = -34
+    sun.shadow.radius = 2
     sun.shadow.bias = -0.0006
     sun.shadow.normalBias = 0.02
     scene.add(sun, sun.target)
 
+    meadowTexture = createMeadowTexture()
+    meadowTexture.repeat.set(600 / 16, 600 / 16)
     const ground = new THREE.Mesh(
         new THREE.PlaneGeometry(600, 600),
-        new THREE.MeshStandardMaterial({ color: 0x709b68, roughness: 1 })
+        new THREE.MeshStandardMaterial({ map: meadowTexture, roughness: 1 })
     )
     ground.rotation.x = -Math.PI / 2
     ground.position.y = -0.02
@@ -248,6 +261,7 @@ const clouds: THREE.Group[] = []
 
 // ─── Plots ───────────────────────────────────────────────────────────────────
 
+let meadowTexture: THREE.CanvasTexture | null = null
 let plotTexture: THREE.CanvasTexture | null = null
 function makePlotTexture(): THREE.CanvasTexture {
     if (plotTexture) return plotTexture
@@ -256,10 +270,13 @@ function makePlotTexture(): THREE.CanvasTexture {
     c.width = size
     c.height = size
     const g = c.getContext('2d')!
+    const meadow = createMeadowTexture()
+    g.drawImage(meadow.image as HTMLCanvasElement, 0, 0, size, size)
+    meadow.dispose()
     const cell = size / PLOT
     for (let y = 0; y < PLOT; y++) {
         for (let x = 0; x < PLOT; x++) {
-            g.fillStyle = (x + y) % 2 === 0 ? '#94b977' : '#8fb471'
+            g.fillStyle = (x + y) % 2 === 0 ? 'rgba(211, 210, 135, 0.055)' : 'rgba(211, 210, 135, 0.025)'
             g.fillRect(x * cell, y * cell, cell, cell)
             // Deterministic grass strokes and tiny clover flecks, baked once.
             for (let i = 0; i < 36; i++) {
@@ -275,7 +292,7 @@ function makePlotTexture(): THREE.CanvasTexture {
             }
         }
     }
-    g.strokeStyle = 'rgba(51, 77, 46, 0.16)'
+    g.strokeStyle = 'rgba(51, 77, 46, 0.09)'
     g.lineWidth = 2
     for (let i = 0; i <= PLOT; i++) {
         g.beginPath(); g.moveTo(i * cell, 0); g.lineTo(i * cell, size); g.stroke()
@@ -304,16 +321,39 @@ function rebuildPlots() {
     }
 }
 
+// ─── Terrain overlay ─────────────────────────────────────────────────────────
+
+/**
+ * The terrain map, rebuilt whenever the land or the ghost changes. It is torn
+ * down rather than hidden: an overlay nobody is looking at should not be
+ * holding a canvas texture per plot.
+ */
+function rebuildTerrainOverlay() {
+    disposeTerrainOverlay(terrainGroup)
+    disposeWaterLayer(waterGroup)
+    if (!props.terrainOverlay) return
+    const highlight = props.ghostType && getTownBuilding(props.ghostType) ? props.ghostType as TownBuildingId : null
+    terrainGroup.add(...createTerrainOverlay(props.plots, highlight).children)
+}
+
+/**
+ * Water is always on screen, overlay or not: it is the one terrain that
+ * refuses a building, and a pond the player cannot see is a placement error
+ * with no explanation.
+ */
+function rebuildWater() {
+    disposeWaterLayer(waterGroup)
+    waterGroup.add(...createWaterLayer(props.plots).children)
+    markShadowsDirty()
+}
+
 // ─── Expansion slots ─────────────────────────────────────────────────────────
 
-interface SlotEntry { slot: SceneExpansion, hit: THREE.Mesh, sign: THREE.Group | null, board: THREE.Mesh | null }
-const slotEntries: SlotEntry[] = []
 let hoveredSlotKey: string | null = null
 
 function rebuildExpansions() {
-    slotEntries.length = 0
     expansionGroup.clear()
-    const freeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.16, roughness: 1, depthWrite: false })
+    const freeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.055, roughness: 1, depthWrite: false })
     const takenMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, transparent: true, opacity: 0.18, roughness: 1, depthWrite: false })
     for (const slot of props.expansions) {
         const hit = new THREE.Mesh(new THREE.PlaneGeometry(PLOT - 0.3, PLOT - 0.3), slot.free ? freeMat : takenMat)
@@ -324,60 +364,13 @@ function rebuildExpansions() {
 
         const edges = new THREE.LineSegments(
             new THREE.EdgesGeometry(new THREE.PlaneGeometry(PLOT - 0.3, PLOT - 0.3)),
-            new THREE.LineDashedMaterial({ color: slot.free ? 0xffffff : 0x666666, dashSize: 0.5, gapSize: 0.35, transparent: true, opacity: 0.55 })
+            new THREE.LineDashedMaterial({ color: slot.free ? 0xffffff : 0x666666, dashSize: 0.5, gapSize: 0.35, transparent: true, opacity: 0.32 })
         )
         edges.computeLineDistances()
         edges.rotation.x = -Math.PI / 2
         edges.position.copy(hit.position).setY(0.02)
         expansionGroup.add(edges)
-
-        let sign: THREE.Group | null = null
-        let board: THREE.Mesh | null = null
-        if (slot.free) {
-            sign = flattenModel(createForSaleSign())
-            sign.position.set(slot.x * PLOT + PLOT / 2, 0, slot.y * PLOT + PLOT / 2)
-            sign.rotation.y = cam.yaw
-            sign.scale.setScalar(1.6)
-            board = sign.getObjectByName('board') as THREE.Mesh
-            board.material = signMaterial(false)
-            expansionGroup.add(sign)
-        }
-        slotEntries.push({ slot, hit, sign, board })
     }
-}
-
-const signMats = new Map<string, THREE.MeshStandardMaterial>()
-function signMaterial(hover: boolean): THREE.MeshStandardMaterial {
-    const key = hover ? 'hover' : 'idle'
-    let m = signMats.get(key)
-    if (m) return m
-    const c = document.createElement('canvas')
-    c.width = 512
-    c.height = 224
-    const g = c.getContext('2d')!
-    const paper = g.createLinearGradient(0, 0, 0, c.height)
-    paper.addColorStop(0, hover ? '#fff1c7' : '#faf1d9')
-    paper.addColorStop(1, hover ? '#e8c778' : '#dfcea5')
-    g.fillStyle = paper
-    g.fillRect(0, 0, c.width, c.height)
-    g.strokeStyle = '#386a67'
-    g.lineWidth = 14
-    g.strokeRect(7, 7, c.width - 14, c.height - 14)
-    g.strokeStyle = '#b28a48'
-    g.lineWidth = 2
-    g.strokeRect(23, 23, c.width - 46, c.height - 46)
-    g.fillStyle = '#315654'
-    g.textAlign = 'center'
-    g.textBaseline = 'middle'
-    g.font = '900 78px Georgia, serif'
-    g.fillText('FOR SALE', c.width / 2, c.height / 2 - 18)
-    g.font = '600 32px system-ui, sans-serif'
-    g.fillText('click to buy', c.width / 2, c.height / 2 + 60)
-    const tex = new THREE.CanvasTexture(c)
-    tex.colorSpace = THREE.SRGBColorSpace
-    m = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.9, emissive: hover ? 0x664400 : 0x000000 })
-    signMats.set(key, m)
-    return m
 }
 
 // ─── Neighbours ──────────────────────────────────────────────────────────────
@@ -540,12 +533,10 @@ const ROAD_CURB = townMaterial(0x8d8f95)
 
 function roadKey(wx: number, wy: number) { return `${wx},${wy}` }
 
-// Both sets are rebuilt only when the buildings or plots change, not per frame.
+// The road set is rebuilt only when the buildings or plots change, not per frame.
 let roadCache: Set<string> | null = null
-let occupiedCache: Set<string> | null = null
 function invalidateTileCaches() {
     roadCache = null
-    occupiedCache = null
 }
 
 function roadTiles(): Set<string> {
@@ -925,7 +916,7 @@ function hash(x: number, y: number, salt: number) {
 }
 
 function rebuildDecor() {
-    decorGroup.clear()
+    clearLandscape(decorGroup)
     const blocked = new Set<string>()
     for (const p of props.plots) blocked.add(`${p.x},${p.y}`)
     for (const s of props.expansions) blocked.add(`${s.x},${s.y}`)
@@ -936,155 +927,396 @@ function rebuildDecor() {
         minPY = Math.min(minPY, p.y); maxPY = Math.max(maxPY, p.y)
     }
     if (!Number.isFinite(minPX)) { minPX = maxPX = minPY = maxPY = 0 }
-    const R = 5
-    const trunks: THREE.Matrix4[] = []
-    const foliage: THREE.Matrix4[] = []
-    const crowns: THREE.Matrix4[] = []
-    const bushes: THREE.Matrix4[] = []
-    const rocks: THREE.Matrix4[] = []
-    const m = new THREE.Matrix4()
-    const q = new THREE.Quaternion()
-    const s = new THREE.Vector3()
-    const v = new THREE.Vector3()
-    for (let py = minPY - R; py <= maxPY + R; py++) {
-        for (let px = minPX - R; px <= maxPX + R; px++) {
-            if (blocked.has(`${px},${py}`)) continue
-            // Density falls off with distance from the town so the horizon thins out.
-            const dist = Math.max(0, Math.min(Math.abs(px - minPX), Math.abs(px - maxPX)), Math.min(Math.abs(py - minPY), Math.abs(py - maxPY)))
-            const count = Math.round(10 - dist * 1.2)
-            for (let i = 0; i < count; i++) {
-                const rx = hash(px, py, i * 3 + 1)
-                const rz = hash(px, py, i * 3 + 2)
-                const kind = hash(px, py, i * 3 + 3)
-                const x = px * PLOT + 0.6 + rx * (PLOT - 1.2)
-                const z = py * PLOT + 0.6 + rz * (PLOT - 1.2)
-                const rot = hash(px, py, i * 7 + 11) * Math.PI * 2
-                q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rot)
-                if (kind < 0.62) {
-                    const sc = 0.8 + hash(px, py, i * 5 + 4) * 0.7
-                    s.set(sc, sc, sc)
-                    trunks.push(m.clone().compose(v.set(x, 0.17 * sc, z), q, s))
-                    foliage.push(m.clone().compose(v.set(x, 0.64 * sc, z), q, s))
-                    crowns.push(m.clone().compose(v.set(x, 1.02 * sc, z), q, s.set(sc * 0.72, sc * 0.8, sc * 0.72)))
-                } else if (kind < 0.88) {
-                    const sc = 0.7 + hash(px, py, i * 5 + 4) * 0.6
-                    s.set(sc, sc * 0.8, sc)
-                    bushes.push(m.clone().compose(v.set(x, 0.2 * sc, z), q, s))
-                } else {
-                    const sc = 0.6 + hash(px, py, i * 5 + 4) * 0.9
-                    s.set(sc, sc * 0.7, sc)
-                    rocks.push(m.clone().compose(v.set(x, 0.1 * sc, z), q, s))
-                }
-            }
+    const parcels: { x: number, z: number }[] = []
+    for (let py = minPY - 5; py <= maxPY + 5; py++) {
+        for (let px = minPX - 5; px <= maxPX + 5; px++) {
+            if (!blocked.has(`${px},${py}`)) parcels.push({ x: px, z: py })
         }
     }
-    const inst = (geo: THREE.BufferGeometry, color: number, mats: THREE.Matrix4[]) => {
-        if (mats.length === 0) return
-        const im = new THREE.InstancedMesh(geo, townMaterial(color), mats.length)
-        mats.forEach((mat, i) => im.setMatrixAt(i, mat))
-        im.castShadow = true
-        im.receiveShadow = true
-        im.instanceMatrix.needsUpdate = true
-        decorGroup.add(im)
-    }
-    inst(TREE_GEOMETRY.trunk, 0x6b4226, trunks)
-    inst(TREE_GEOMETRY.foliage, 0x347566, foliage)
-    inst(TREE_GEOMETRY.foliage, 0x639969, crowns)
-    inst(TREE_GEOMETRY.bush, 0x80a664, bushes)
-    inst(TREE_GEOMETRY.rock, 0x9baaaa, rocks)
+    addLandscape(decorGroup, parcels, PLOT)
 }
 
-// ─── Villagers ───────────────────────────────────────────────────────────────
+// ─── Traffic ─────────────────────────────────────────────────────────────────
+// Cars and trucks are decoration that makes the road network look used. Every
+// vehicle is a one-way journey: a car runs between a house and a workplace
+// (either direction), a truck hauls a real supply link from the producer to the
+// building that needs what it makes, and both are gone the moment they arrive.
+// Replacements trickle in on a jittered timer, so the town shows a stream of
+// different journeys rather than the same few loops.
+//
+// Routes are breadth-first searches over the road tiles, computed once per
+// journey — never per frame. Traffic keeps right of the centre line and queues
+// behind whatever is in front of it. Nothing here is pickable, and nothing
+// casts a shadow: the shadow map is only redrawn on change, so a moving caster
+// would smear.
 
-interface Villager { group: THREE.Group, x: number, z: number, tx: number, tz: number, speed: number, wait: number, bob: number }
-const villagers: Villager[] = []
-const VILLAGER_COLORS = [0xe74c3c, 0x3498db, 0xf1c40f, 0x9b59b6, 0x1abc9c, 0xe67e22, 0x2ecc71]
+const MAX_CARS = 3
+const MAX_TRUCKS = 3
+/** Seconds between spawns. Random inside the range so it never looks metronomic. */
+const SPAWN_MIN = 1.2
+const SPAWN_MAX = 4
+/** Shorter wait before trying again when a spawn found nowhere to go. */
+const SPAWN_RETRY = 0.6
+/** Road surface height: the plot slab (0.3) plus the road slab (0.04). */
+const VEHICLE_Y = 0.34
+/**
+ * How far right of the centre line traffic drives, in tiles. Two lanes are
+ * 0.44 apart and a vehicle is 0.22 wide, so oncoming traffic passes with a
+ * fifth of a tile between the two and stays well inside the curbs.
+ */
+const LANE_OFFSET = 0.22
+/**
+ * Past this much sideways separation another vehicle is in the oncoming lane
+ * and is ignored. It is wider than a vehicle, so anything skipped by this test
+ * is genuinely clear of the one doing the looking.
+ */
+const LANE_CLEAR = 0.3
+/** Only the space just ahead is watched — reserving whole tiles causes gridlock. */
+const LOOK_AHEAD = 1
+/** Bumper gap held when stopped, and the distance it brakes over. */
+const STOP_GAP = 0.07
+const SLOW_GAP = 0.5
+const ACCELERATION = 2.2
+const BRAKING = 6
+/** Stalled this long means the thing in front is not moving either: give up. */
+const BLOCKED_LIMIT = 3.5
+/** How fast the nose swings round a corner, in radians per second. */
+const VEHICLE_TURN_RATE = 7
 
-function occupiedTiles(): Set<string> {
-    if (occupiedCache) return occupiedCache
-    const set = new Set<string>()
-    for (const b of props.buildings) {
-        const pos = worldPos(b)
-        if (pos) set.add(`${Math.floor(pos.x)},${Math.floor(pos.z)}`)
-    }
-    occupiedCache = set
-    return set
+type VehicleKind = 'car' | 'truck'
+
+interface Vehicle {
+    kind: VehicleKind
+    color: number
+    group: THREE.Group
+    /** Tile centres of the route, origin included. */
+    path: { x: number, z: number }[]
+    /** Index of the waypoint currently being driven toward. */
+    step: number
+    /** Road tile the journey ends on, as an "x,z" key. */
+    dest: string
+    /** Position on the centre line, and where it sits once shifted into its lane. */
+    x: number
+    z: number
+    px: number
+    pz: number
+    yaw: number
+    /** Cruise speed, and the eased speed it is actually doing. */
+    speed: number
+    vel: number
+    /** Half its length, for bumper-to-bumper spacing. */
+    half: number
+    /** Seconds spent at a standstill. */
+    blocked: number
+}
+const vehicles: Vehicle[] = []
+
+// Spawning is continuous, so finished models are parked by kind and colour and
+// handed back out instead of being rebuilt.
+const vehiclePool = new Map<string, THREE.Group[]>()
+const POOL_PER_KEY = 3
+
+function takeModel(kind: VehicleKind, color: number): THREE.Group {
+    const parked = vehiclePool.get(`${kind}:${color}`)?.pop()
+    if (parked) return parked
+    const group = kind === 'car' ? createCar(color) : createTruck(color)
+    group.traverse((o) => { o.castShadow = false; o.receiveShadow = false })
+    return group
 }
 
-function randomFreeTile(): { x: number, z: number } | null {
-    if (props.plots.length === 0) return null
-    // Townsfolk live on the streets: start on a road when the town has any.
-    const roads = [...roadTiles()]
-    if (roads.length) {
-        const [wx, wz] = roads[Math.floor(Math.random() * roads.length)]!.split(',').map(Number) as [number, number]
-        return { x: wx + 0.5, z: wz + 0.5 }
+function releaseModel(v: Vehicle) {
+    vehicleGroup.remove(v.group)
+    const key = `${v.kind}:${v.color}`
+    const bucket = vehiclePool.get(key)
+    if (!bucket) vehiclePool.set(key, [v.group])
+    else if (bucket.length < POOL_PER_KEY) bucket.push(v.group)
+}
+
+function tileCentre(key: string): { x: number, z: number } {
+    const comma = key.indexOf(',')
+    return { x: Number(key.slice(0, comma)) + 0.5, z: Number(key.slice(comma + 1)) + 0.5 }
+}
+
+/** Shortest route over road tiles, or null when the two are not connected. */
+function roadPath(from: string, to: string, roads: Set<string>): { x: number, z: number }[] | null {
+    if (from === to || !roads.has(from) || !roads.has(to)) return null
+    const cameFrom = new Map<string, string>([[from, from]])
+    const queue: string[] = [from]
+    for (let head = 0; head < queue.length && !cameFrom.has(to); head++) {
+        const cur = queue[head]!
+        const comma = cur.indexOf(',')
+        const cx = Number(cur.slice(0, comma))
+        const cz = Number(cur.slice(comma + 1))
+        for (const [dx, dz] of TOWN_FACING) {
+            const next = roadKey(cx + dx, cz + dz)
+            if (!roads.has(next) || cameFrom.has(next)) continue
+            cameFrom.set(next, cur)
+            queue.push(next)
+        }
     }
-    const occ = occupiedTiles()
-    for (let i = 0; i < 20; i++) {
-        const p = props.plots[Math.floor(Math.random() * props.plots.length)]!
-        const tx = Math.floor(Math.random() * PLOT)
-        const ty = Math.floor(Math.random() * PLOT)
-        const wx = p.x * PLOT + tx
-        const wz = p.y * PLOT + ty
-        if (!occ.has(`${wx},${wz}`)) return { x: wx + 0.5, z: wz + 0.5 }
+    if (!cameFrom.has(to)) return null
+    const out: { x: number, z: number }[] = []
+    let cur = to
+    while (cur !== from) {
+        out.push(tileCentre(cur))
+        cur = cameFrom.get(cur)!
+    }
+    out.push(tileCentre(from))
+    out.reverse()
+    return out
+}
+
+/** The road tile a building's door opens onto, or any road beside it. */
+function doorTile(b: SceneBuilding, roads: Set<string>): string | null {
+    const pos = worldPos(b)
+    if (!pos) return null
+    const wx = Math.floor(pos.x)
+    const wy = Math.floor(pos.z)
+    const front = townFrontTile(wx, wy, b.rotation ?? 0)
+    const frontKey = roadKey(front.wx, front.wy)
+    if (roads.has(frontKey)) return frontKey
+    for (const [dx, dy] of TOWN_FACING) {
+        const key = roadKey(wx + dx, wy + dy)
+        if (roads.has(key)) return key
     }
     return null
 }
 
-function syncVillagers() {
-    const want = Math.min(MAX_VILLAGERS, props.popCap)
-    while (villagers.length > want) {
-        const v = villagers.pop()!
-        villagerGroup.remove(v.group)
+function pickKey(keys: string[]): string {
+    return keys[Math.floor(Math.random() * keys.length)]!
+}
+
+// Where journeys can start and end. Rebuilt only when the town changes, and
+// reused in place so a rebuild allocates nothing.
+const homeStops: string[] = []
+const workStops: string[] = []
+const workDefs: TownBuildingDef[] = []
+/** Producer → consumer pairs whose goods actually flow, as door-tile keys. */
+const tradeLinks: [string, string][] = []
+
+function rebuildRoutes() {
+    homeStops.length = 0
+    workStops.length = 0
+    workDefs.length = 0
+    tradeLinks.length = 0
+    const roads = roadTiles()
+    if (roads.size >= 2) {
+        for (const b of props.buildings) {
+            const def = getTownBuilding(b.type)
+            if (!def || def.kind === 'road' || b.level === 0) continue
+            const key = doorTile(b, roads)
+            if (!key) continue
+            if (def.kind === 'housing') homeStops.push(key)
+            else if (def.kind === 'industry') {
+                workStops.push(key)
+                workDefs.push(def)
+            }
+        }
+        for (let p = 0; p < workStops.length; p++) {
+            const outputs = Object.keys(workDefs[p]!.outputs)
+            if (outputs.length === 0) continue
+            for (let c = 0; c < workStops.length; c++) {
+                if (workStops[c] === workStops[p]) continue
+                const needs = workDefs[c]!.inputs as Record<string, number | undefined>
+                if (outputs.some(r => (needs[r] ?? 0) > 0)) tradeLinks.push([workStops[p]!, workStops[c]!])
+            }
+        }
+        if (tradeLinks.length === 0) {
+            // Nothing trades yet — run between any two workplaces instead.
+            for (let i = 0; i < workStops.length; i++) {
+                for (let j = i + 1; j < workStops.length; j++) tradeLinks.push([workStops[i]!, workStops[j]!])
+            }
+        }
     }
-    while (villagers.length < want) {
-        const start = randomFreeTile()
-        if (!start) break
-        const group = createVillager(VILLAGER_COLORS[villagers.length % VILLAGER_COLORS.length]!)
-        group.traverse((o) => { o.castShadow = false; o.receiveShadow = false })
-        group.position.set(start.x, 0.3, start.z)
-        group.scale.setScalar(1.8)
-        villagerGroup.add(group)
-        villagers.push({ group, x: start.x, z: start.z, tx: start.x, tz: start.z, speed: 0.6 + Math.random() * 0.5, wait: Math.random() * 2, bob: Math.random() * 6 })
+    // Anyone whose road was demolished mid-journey re-routes, or leaves.
+    for (let i = vehicles.length - 1; i >= 0; i--) {
+        const v = vehicles[i]!
+        const path = roadPath(roadKey(Math.floor(v.x), Math.floor(v.z)), v.dest, roads)
+        if (path && path.length > 1) {
+            v.path = path
+            v.step = 1
+        } else {
+            despawn(i)
+        }
     }
 }
 
-function stepVillagers(dt: number) {
-    const occ = occupiedTiles()
+// The routes only change when a building moves, appears or disappears, but the
+// buildings prop is replaced on every poll — compare a signature first.
+let trafficSig = ''
+function syncVehicles() {
+    let sig = ''
+    for (const p of props.plots) sig += `${p.id}@${p.x},${p.y};`
+    for (const b of props.buildings) sig += `${b.plotId}:${b.tileX},${b.tileY},${b.type},${b.rotation ?? 0},${b.level === 0 ? 0 : 1};`
+    if (sig === trafficSig) return
+    trafficSig = sig
+    rebuildRoutes()
+}
+
+function despawn(i: number) {
+    releaseModel(vehicles[i]!)
+    vehicles.splice(i, 1)
+}
+
+function countKind(kind: VehicleKind): number {
+    let n = 0
+    for (const v of vehicles) if (v.kind === kind) n++
+    return n
+}
+
+/** Enough clear road at (px, pz) to drop a vehicle of this length into. */
+function spaceFree(px: number, pz: number, half: number): boolean {
+    for (const v of vehicles) {
+        if (Math.hypot(v.px - px, v.pz - pz) < half + v.half + 0.12) return false
+    }
+    return true
+}
+
+/** Starts one journey. False when there was nowhere sensible to run it. */
+function spawnVehicle(kind: VehicleKind): boolean {
     const roads = roadTiles()
-    for (const v of villagers) {
-        if (v.wait > 0) { v.wait -= dt; continue }
-        const dx = v.tx - v.x
-        const dz = v.tz - v.z
+    if (roads.size < 2) return false
+    if (kind === 'car' && (homeStops.length === 0 || workStops.length === 0)) return false
+    if (kind === 'truck' && tradeLinks.length === 0) return false
+    for (let attempt = 0; attempt < 4; attempt++) {
+        let from: string
+        let to: string
+        if (kind === 'car') {
+            // Commutes run both ways: out to work in one car, home in the next.
+            const outbound = Math.random() < 0.5
+            from = pickKey(outbound ? homeStops : workStops)
+            to = pickKey(outbound ? workStops : homeStops)
+        } else {
+            const link = tradeLinks[Math.floor(Math.random() * tradeLinks.length)]!
+            from = link[0]
+            to = link[1]
+        }
+        const path = roadPath(from, to, roads)
+        if (!path || path.length < 2) continue
+        const start = path[0]!
+        const next = path[1]!
+        const yaw = Math.atan2(next.x - start.x, next.z - start.z)
+        const half = (kind === 'car' ? TOWN_VEHICLE_SIZE.car.length : TOWN_VEHICLE_SIZE.truck.length) / 2
+        const px = start.x - Math.cos(yaw) * LANE_OFFSET
+        const pz = start.z + Math.sin(yaw) * LANE_OFFSET
+        if (!spaceFree(px, pz, half)) continue
+        const color = TOWN_VEHICLE_COLORS[Math.floor(Math.random() * TOWN_VEHICLE_COLORS.length)]!
+        const group = takeModel(kind, color)
+        group.position.set(px, VEHICLE_Y, pz)
+        group.rotation.y = yaw
+        vehicleGroup.add(group)
+        vehicles.push({
+            kind,
+            color,
+            group,
+            path,
+            step: 1,
+            dest: to,
+            x: start.x,
+            z: start.z,
+            px,
+            pz,
+            yaw,
+            speed: kind === 'car' ? 1.5 + Math.random() * 0.7 : 1 + Math.random() * 0.4,
+            vel: 0,
+            half,
+            blocked: 0
+        })
+        return true
+    }
+    return false
+}
+
+/**
+ * Free road between this vehicle's nose and whatever is in front of it in the
+ * same lane, or Infinity when the way is clear. Oncoming traffic sits a full
+ * lane to the side and is skipped, so the two never block each other.
+ */
+function gapAhead(v: Vehicle): number {
+    const fx = Math.sin(v.yaw)
+    const fz = Math.cos(v.yaw)
+    let gap = Infinity
+    for (const w of vehicles) {
+        if (w === v) continue
+        const dx = w.px - v.px
+        const dz = w.pz - v.pz
+        const along = dx * fx + dz * fz
+        if (along <= 0 || along > LOOK_AHEAD) continue
+        // Right of the heading is (-fz, fx); anything further out is another lane.
+        const lateral = dz * fx - dx * fz
+        if (lateral > LANE_CLEAR || lateral < -LANE_CLEAR) continue
+        const free = along - v.half - w.half
+        if (free < gap) gap = free
+    }
+    return gap
+}
+
+// Seeded apart so the first car and the first truck do not arrive together.
+let carDelay = Math.random() * 1.5
+let truckDelay = 0.8 + Math.random() * 2
+function nextSpawnDelay() {
+    return SPAWN_MIN + Math.random() * (SPAWN_MAX - SPAWN_MIN)
+}
+
+function stepTraffic(dt: number) {
+    // Trickle in replacements for the journeys that have finished.
+    carDelay -= dt
+    if (carDelay <= 0) {
+        const started = countKind('car') < MAX_CARS && spawnVehicle('car')
+        carDelay = started ? nextSpawnDelay() : SPAWN_RETRY + Math.random() * SPAWN_RETRY
+    }
+    truckDelay -= dt
+    if (truckDelay <= 0) {
+        const started = countKind('truck') < MAX_TRUCKS && spawnVehicle('truck')
+        truckDelay = started ? nextSpawnDelay() : SPAWN_RETRY + Math.random() * SPAWN_RETRY
+    }
+
+    for (let i = vehicles.length - 1; i >= 0; i--) {
+        const v = vehicles[i]!
+        const target = v.path[v.step]
+        if (!target) { despawn(i); continue }
+        const dx = target.x - v.x
+        const dz = target.z - v.z
         const d = Math.hypot(dx, dz)
-        if (d < 0.05) {
-            // Stroll to a neighbouring tile: along the road when there is one,
-            // across free grass otherwise. Never through a building.
-            const opts: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1]]
-            const cx = Math.floor(v.x)
-            const cz = Math.floor(v.z)
-            const onRoad = roads.has(roadKey(cx, cz))
-            const candidates = opts.filter(([ox, oz]) => {
-                const nx = cx + ox
-                const nz = cz + oz
-                if (onRoad) return roads.has(roadKey(nx, nz))
-                const inside = props.plots.some(p => nx >= p.x * PLOT && nx < p.x * PLOT + PLOT && nz >= p.y * PLOT && nz < p.y * PLOT + PLOT)
-                return inside && (!occ.has(`${nx},${nz}`) || roads.has(roadKey(nx, nz)))
-            })
-            if (candidates.length) {
-                const choice = candidates[Math.floor(Math.random() * candidates.length)]!
-                v.tx = cx + choice[0] + 0.5
-                v.tz = cz + choice[1] + 0.5
-            }
-            v.wait = Math.random() < 0.3 ? 0.6 + Math.random() * 1.5 : 0
+        if (d < 0.02) {
+            v.step++
+            // Journey over: the vehicle has arrived and is gone.
+            if (v.step >= v.path.length) despawn(i)
             continue
         }
-        const step = Math.min(d, v.speed * dt)
-        v.x += (dx / d) * step
-        v.z += (dz / d) * step
-        v.bob += dt * 12
-        v.group.position.set(v.x, 0.3 + Math.abs(Math.sin(v.bob)) * 0.02, v.z)
-        v.group.rotation.y = Math.atan2(dx, dz)
+
+        // Queue behind whoever is in front, brake early, pull away smoothly.
+        const gap = gapAhead(v)
+        const want = gap < SLOW_GAP ? v.speed * Math.max(0, (gap - STOP_GAP) / (SLOW_GAP - STOP_GAP)) : v.speed
+        const rate = want < v.vel ? BRAKING : ACCELERATION
+        v.vel += Math.max(-rate * dt, Math.min(rate * dt, want - v.vel))
+        // Whatever the easing says, never roll into the vehicle ahead.
+        const room = gap === Infinity ? d : Math.max(0, gap - STOP_GAP)
+        const advance = Math.min(d, v.vel * dt, room)
+        if (want <= 0.001) {
+            // Nose to tail with something that is not moving. Rather than sit
+            // there forever, the journey is abandoned and the road clears.
+            v.blocked += dt
+            if (v.blocked > BLOCKED_LIMIT) { despawn(i); continue }
+        } else {
+            v.blocked = 0
+        }
+        v.x += (dx / d) * advance
+        v.z += (dz / d) * advance
+
+        // Ease the nose round rather than snapping it at every corner.
+        let turn = Math.atan2(dx, dz) - v.yaw
+        while (turn > Math.PI) turn -= Math.PI * 2
+        while (turn < -Math.PI) turn += Math.PI * 2
+        v.yaw += turn * Math.min(1, dt * VEHICLE_TURN_RATE)
+        // Right-hand traffic: sit one lane to the right of the centre line, the
+        // right of a heading (fx, fz) being (-fz, fx). Taking it from the eased
+        // heading means the offset swings round with the vehicle through a
+        // corner or a reversal instead of flicking across the road.
+        v.px = v.x - Math.cos(v.yaw) * LANE_OFFSET
+        v.pz = v.z + Math.sin(v.yaw) * LANE_OFFSET
+        v.group.position.set(v.px, VEHICLE_Y, v.pz)
+        v.group.rotation.y = v.yaw
     }
 }
 
@@ -1151,6 +1383,8 @@ function project(x: number, y: number, z: number): { sx: number, sy: number, vis
 
 interface Popup { el: HTMLDivElement, x: number, y: number, z: number, life: number }
 const popups: Popup[] = []
+/** Seconds a "+2 🪵" label drifts before it is gone. */
+const POPUP_LIFE = 1.6
 const RESOURCE_EMOJI: Record<string, string> = {}
 
 function addPopup(x: number, y: number, z: number, text: string) {
@@ -1172,13 +1406,14 @@ function ensureBar(e: BuildingEntry) {
 }
 
 /**
- * Where each HTML overlay is anchored in the world. Positioning runs EVERY
- * frame — a label that only moves ten times a second visibly swims behind the
- * scene while the camera pans — while the expensive bookkeeping (creating and
- * removing elements, progress widths, popup lifetimes) stays on the slower
- * cadence in updateOverlays.
+ * Where each HTML overlay is anchored in the world, plus anything that has to
+ * move smoothly. Both run EVERY frame with real delta time — a label that only
+ * moves ten times a second visibly swims behind the scene while the camera
+ * pans, and a popup whose life only advances then climbs in steps — while the
+ * expensive bookkeeping (creating and removing elements, progress widths)
+ * stays on the slower cadence in updateOverlays.
  */
-function positionOverlays() {
+function positionOverlays(dt: number) {
     for (const e of entries.values()) {
         if (e.bar) {
             const p = project(e.group.position.x, e.group.position.y + e.modelHeight * e.model.scale.y + 0.16, e.group.position.z)
@@ -1192,22 +1427,27 @@ function positionOverlays() {
             e.alert.style.display = p.visible ? '' : 'none'
         }
     }
-    for (const pu of popups) {
+    // Production popups drift and fade on real time, then retire themselves.
+    for (let i = popups.length - 1; i >= 0; i--) {
+        const pu = popups[i]!
+        pu.life += dt
+        if (pu.life > POPUP_LIFE) {
+            pu.el.remove()
+            popups.splice(i, 1)
+            continue
+        }
         const p = project(pu.x, pu.y + pu.life * 0.8, pu.z)
         pu.el.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
+        pu.el.style.opacity = String(pu.life < 0.2 ? pu.life / 0.2 : 1 - (pu.life - 0.2) / (POPUP_LIFE - 0.2))
     }
     if (issueLabel && issueAnchor) {
         const p = project(issueAnchor.x, 1.35, issueAnchor.z)
         issueLabel.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
         issueLabel.style.display = p.visible ? '' : 'none'
     }
-    // The signs face the camera; their price rides the cursor tooltip.
-    for (const e of slotEntries) {
-        if (e.sign) e.sign.rotation.y = cam.yaw
-    }
 }
 
-function updateOverlays(now: number, dt: number) {
+function updateOverlays(now: number) {
     // Build progress bars: create, retire, and set the fill width.
     for (const e of entries.values()) {
         const pending = isPending(e.data, now)
@@ -1219,17 +1459,6 @@ function updateOverlays(now: number, dt: number) {
         const total = townLevelBuildMs(e.def, e.data.upgradingTo ?? 1)
         const progress = Math.max(0, Math.min(1, 1 - (e.data.completesAt - now) / total))
         ;(e.bar!.firstElementChild as HTMLElement).style.width = `${Math.round(progress * 100)}%`
-    }
-    // Production popups age out.
-    for (let i = popups.length - 1; i >= 0; i--) {
-        const pu = popups[i]!
-        pu.life += dt
-        if (pu.life > 1.6) {
-            pu.el.remove()
-            popups.splice(i, 1)
-            continue
-        }
-        pu.el.style.opacity = String(pu.life < 0.2 ? pu.life / 0.2 : 1 - (pu.life - 0.2) / 1.4)
     }
     // Disconnected buildings wear a big "!".
     for (const e of entries.values()) {
@@ -1246,10 +1475,6 @@ function updateOverlays(now: number, dt: number) {
             overlay.value.appendChild(el)
             e.alert = el
         }
-    }
-    // A hovered sign lights up; what it costs is shown at the cursor.
-    for (const e of slotEntries) {
-        if (e.board) e.board.material = signMaterial(`${e.slot.x},${e.slot.y}` === hoveredSlotKey)
     }
 }
 
@@ -1321,7 +1546,9 @@ function groundDelta(dx: number, dy: number) {
 }
 
 const movementKeys = new Set<string>()
-const movementCodes = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD'])
+const movementCodes = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'])
+/** Radians per second while Q or E is held. */
+const KEY_TURN_RATE = 1.1
 function onMovementKeyDown(e: KeyboardEvent) {
     if (!props.keyboardEnabled || !visible || e.metaKey || e.ctrlKey || e.altKey || townIsTyping(e.target)) return
     if (!movementCodes.has(e.code)) return
@@ -1341,6 +1568,11 @@ function moveCamera(dt: number) {
     const delta = townKeyboardDelta(right, forward, cam.yaw, cam.dist * 0.45 * dt)
     camGoal.tx += delta.x
     camGoal.tz += delta.z
+
+    // Q and E swing the view around the point the camera is looking at, the
+    // same axis a right-drag turns.
+    const turn = Number(movementKeys.has('KeyQ')) - Number(movementKeys.has('KeyE'))
+    if (turn !== 0) camGoal.yaw += turn * KEY_TURN_RATE * dt
 }
 
 function onPointerDown(e: PointerEvent) {
@@ -1545,7 +1777,6 @@ function cameraBusy() {
 }
 
 let lastOverlayMs = 0
-let lastVillagerMs = 0
 
 function frame(ms: number) {
     rafId = requestAnimationFrame(frame)
@@ -1558,6 +1789,7 @@ function frame(ms: number) {
     lastMs = ms
 
     moveCamera(dt)
+    animateTownWater(ms / 1000)
 
     // Camera easing.
     const k = 1 - Math.pow(0.001, dt)
@@ -1658,17 +1890,14 @@ function frame(ms: number) {
         if (c.position.x > 120) c.position.x = -120
     }
 
-    if (ms - lastVillagerMs >= VILLAGER_INTERVAL_MS) {
-        stepVillagers((ms - lastVillagerMs) / 1000)
-        lastVillagerMs = ms
-    }
+    stepTraffic(dt)
     stepParticles(dt)
     if (ms - lastOverlayMs >= OVERLAY_INTERVAL_MS) {
-        updateOverlays(now, (ms - lastOverlayMs) / 1000)
+        updateOverlays(now)
         lastOverlayMs = ms
         if (shapesChanged) markShadowsDirty()
     }
-    positionOverlays()
+    positionOverlays(dt)
 
     if (shadowsDirty) {
         renderer.shadowMap.needsUpdate = true
@@ -1708,7 +1937,7 @@ onMounted(() => {
     renderer.shadowMap.autoUpdate = false
     renderer.shadowMap.needsUpdate = true
     renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.05
+    renderer.toneMappingExposure = 0.94
     renderer.outputColorSpace = THREE.SRGBColorSpace
 
     window.addEventListener('keydown', onMovementKeyDown)
@@ -1717,11 +1946,13 @@ onMounted(() => {
     document.addEventListener('visibilitychange', clearMovement)
     setupStatic()
     rebuildPlots()
+    rebuildWater()
+    rebuildTerrainOverlay()
     rebuildExpansions()
     rebuildNeighbours()
     rebuildDecor()
     syncBuildings()
-    syncVillagers()
+    syncVehicles()
     rebuildGhost()
     rebuildGhostRadius()
     syncRadii()
@@ -1748,15 +1979,20 @@ onBeforeUnmount(() => {
     io?.disconnect()
     for (const e of entries.values()) { releaseModelGlow(e.model); e.bar?.remove(); e.alert?.remove() }
     for (const p of popups) p.el.remove()
+    clearLandscape(decorGroup)
+    disposeTerrainOverlay(terrainGroup)
+    disposeWaterLayer(waterGroup)
+    meadowTexture?.dispose()
+    plotTexture?.dispose()
     renderer?.dispose()
     renderer = null
 })
 
-watch(() => props.plots, () => { invalidateTileCaches(); rebuildPlots(); rebuildDecor(); syncBuildings(); syncVillagers(); markShadowsDirty() }, { deep: true })
+watch(() => props.plots, () => { invalidateTileCaches(); rebuildPlots(); rebuildWater(); rebuildTerrainOverlay(); rebuildDecor(); syncBuildings(); syncVehicles(); markShadowsDirty() }, { deep: true })
+watch(() => [props.terrainOverlay, props.ghostType], rebuildTerrainOverlay)
 watch(() => props.expansions, () => { rebuildExpansions(); rebuildDecor(); markShadowsDirty() }, { deep: true })
 watch(() => props.neighbours, () => { rebuildNeighbours(); rebuildDecor(); markShadowsDirty() }, { deep: true })
-watch(() => props.buildings, () => { invalidateTileCaches(); syncBuildings(); syncVillagers(); markShadowsDirty() }, { deep: true })
-watch(() => props.popCap, syncVillagers)
+watch(() => props.buildings, () => { invalidateTileCaches(); syncBuildings(); syncVehicles(); markShadowsDirty() }, { deep: true })
 watch(() => [props.ghostType, props.ghostLevel], rebuildGhost)
 watch(() => props.keyboardEnabled, clearMovement)
 watch(() => props.ghostRotation, (value) => {
@@ -1777,7 +2013,7 @@ defineExpose({ recenter: () => recenter(true), setResourceEmoji: (map: Record<st
         <canvas
             ref="canvas"
             tabindex="0"
-            aria-label="Town view. WASD to move, drag to pan, right-drag to orbit, scroll to zoom."
+            aria-label="Town view. WASD to move, Q and E to turn, drag to pan, right-drag to orbit, scroll to zoom."
             class="block h-full w-full touch-none"
             :class="isPanning ? 'cursor-grabbing' : ''"
             @pointerdown="onPointerDown"

@@ -39,7 +39,7 @@ import {
     townRushGemCost,
     type TownResourceId
 } from '#shared/utils/gamelogic/town'
-import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
+import { SKIP, burst, cleanupUser, moveTownToFlatGround, seedUser } from '../setup/db-helpers'
 
 const OWNER = 'test-town-owner'
 const BUYER = 'test-town-buyer'
@@ -283,12 +283,40 @@ async function cleanup() {
     }
 }
 
-/** Seed a player, found their town, and hand back their only plot. */
+/**
+ * Crews cap how many builds can run at once, which every one of these tests
+ * would otherwise trip over while setting a town up. Give them plenty.
+ */
+async function unlimitedBuilders(userId: string) {
+    await db.update(townState).set({ builders: 99 }).where(eq(townState.userId, userId))
+}
+
+/**
+ * Seed a player, found their town, and hand back their only plot. The plot is
+ * moved onto flat grassland: these specs build on fixed tile coordinates, and
+ * terrain would otherwise decide which of them are water and which grow more
+ * than the spec asks for.
+ */
 async function foundFor(id: string, opts: { balance?: string, gems?: number } = {}) {
     await seedUser(id, opts)
     const { plotId } = await foundTown(id)
+    await moveTownToFlatGround(plotId)
+    await unlimitedBuilders(id)
     return plotId
 }
+
+/**
+ * Order-book prices in these specs used to be literals a coin or two above the
+ * old wheat floor. Express them against the floor instead, so retuning prices
+ * never breaks a test that is really about the book.
+ */
+const WHEAT_FLOOR = townFloorPrice('wheat')
+/** A price `n` steps above the floor, still inside the band. */
+const over = (n: number) => Math.round(WHEAT_FLOOR + n * WHEAT_FLOOR * 0.1)
+/** Coins as a fixed-4 string, the shape getBalance hands back. */
+const coins = (n: number) => n.toFixed(4)
+/** A purse that covers any order these specs place, with change left over. */
+const PURSE = over(5) * 20
 
 describe.skipIf(SKIP)('polytown (database)', () => {
     beforeEach(cleanup)
@@ -299,6 +327,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         it('creates the town state and hands over the free founding plot', async () => {
             await seedUser(OWNER)
             const { stateId, plotId } = await foundTown(OWNER)
+            await unlimitedBuilders(OWNER)
 
             expect(stateId).toBeTruthy()
             const state = await stateOf(OWNER)
@@ -1128,61 +1157,61 @@ describe.skipIf(SKIP)('polytown (database)', () => {
     describe('player market', () => {
         it('escrows the seller stock and fills a crossing buy at the resting price', async () => {
             await seedUser(SELLER, { balance: '0.0000' })
-            await seedUser(BUYER, { balance: '100.0000' })
+            await seedUser(BUYER, { balance: coins(PURSE) })
             await stock(SELLER, 'wheat', 10)
 
-            const sell = await placeTownOrder(SELLER, 'wheat', 'sell', 6, 10)
+            const sell = await placeTownOrder(SELLER, 'wheat', 'sell', over(1), 10)
             expect(sell.status).toBe('open')
             expect(await held(SELLER, 'wheat')).toBe(0)
 
-            const buy = await placeTownOrder(BUYER, 'wheat', 'buy', 8, 10)
+            const buy = await placeTownOrder(BUYER, 'wheat', 'buy', over(3), 10)
 
             expect(buy.status).toBe('filled')
             expect(buy.filled).toBe(10)
-            expect(buy.avgFillPrice).toBe(6)
-            // Escrowed 80, paid 60, 20 in change.
-            expect(await getBalance(BUYER)).toBe('40.0000')
-            expect(await getBalance(SELLER)).toBe('60.0000')
+            expect(buy.avgFillPrice).toBe(over(1))
+            // Escrowed at the bid, paid at the resting ask, the rest is change.
+            expect(await getBalance(BUYER)).toBe(coins(PURSE - over(1) * 10))
+            expect(await getBalance(SELLER)).toBe(coins(over(1) * 10))
             expect(await held(BUYER, 'wheat')).toBe(10)
 
             const trades = await db.select().from(townTrades).where(eq(townTrades.sellerId, SELLER))
             expect(trades).toHaveLength(1)
             expect(trades[0]!.quantity).toBe(10)
-            expect(parseFloat(trades[0]!.price)).toBe(6)
+            expect(parseFloat(trades[0]!.price)).toBe(over(1))
         })
 
         it('counts a fill toward the lifetime earnings of the seller only', async () => {
             await foundFor(SELLER, { balance: '0.0000' })
-            await foundFor(BUYER, { balance: '100.0000' })
+            await foundFor(BUYER, { balance: coins(PURSE) })
             await stock(SELLER, 'wheat', 10)
 
             // Seller rests, buyer crosses: the resting seller is the one earning.
-            await placeTownOrder(SELLER, 'wheat', 'sell', 6, 10)
-            await placeTownOrder(BUYER, 'wheat', 'buy', 8, 10)
+            await placeTownOrder(SELLER, 'wheat', 'sell', over(1), 10)
+            await placeTownOrder(BUYER, 'wheat', 'buy', over(3), 10)
 
-            expect((await stateOf(SELLER)).coinsEarned).toBe('60.0000')
+            expect((await stateOf(SELLER)).coinsEarned).toBe(coins(over(1) * 10))
             expect(parseFloat((await stateOf(BUYER)).coinsEarned)).toBe(0)
         })
 
         it('counts a fill for the seller when the seller is the taker', async () => {
             await foundFor(SELLER, { balance: '0.0000' })
-            await foundFor(BUYER, { balance: '100.0000' })
+            await foundFor(BUYER, { balance: coins(PURSE) })
             await stock(SELLER, 'wheat', 6)
 
-            await placeTownOrder(BUYER, 'wheat', 'buy', 7, 6)
-            await placeTownOrder(SELLER, 'wheat', 'sell', 5, 6)
+            await placeTownOrder(BUYER, 'wheat', 'buy', over(2), 6)
+            await placeTownOrder(SELLER, 'wheat', 'sell', over(0), 6)
 
-            expect((await stateOf(SELLER)).coinsEarned).toBe('42.0000')
+            expect((await stateOf(SELLER)).coinsEarned).toBe(coins(over(2) * 6))
             expect(parseFloat((await stateOf(BUYER)).coinsEarned)).toBe(0)
         })
 
         it('leaves the unmatched remainder resting on the book', async () => {
             await seedUser(SELLER, { balance: '0.0000' })
-            await seedUser(BUYER, { balance: '100.0000' })
+            await seedUser(BUYER, { balance: coins(PURSE) })
             await stock(SELLER, 'wheat', 10)
 
-            await placeTownOrder(SELLER, 'wheat', 'sell', 6, 10)
-            const buy = await placeTownOrder(BUYER, 'wheat', 'buy', 6, 4)
+            await placeTownOrder(SELLER, 'wheat', 'sell', over(1), 10)
+            const buy = await placeTownOrder(BUYER, 'wheat', 'buy', over(1), 4)
 
             expect(buy.status).toBe('filled')
             const [resting] = await openOrders(SELLER)
@@ -1193,18 +1222,18 @@ describe.skipIf(SKIP)('polytown (database)', () => {
 
         it('refunds the resource on a cancelled sell and the coins on a cancelled buy', async () => {
             await seedUser(SELLER, { balance: '0.0000' })
-            await seedUser(BUYER, { balance: '100.0000' })
+            await seedUser(BUYER, { balance: coins(PURSE) })
             await stock(SELLER, 'wheat', 10)
 
-            const sell = await placeTownOrder(SELLER, 'wheat', 'sell', 6, 10)
+            const sell = await placeTownOrder(SELLER, 'wheat', 'sell', over(1), 10)
             const sellCancel = await cancelTownOrder(SELLER, sell.orderId)
             expect(sellCancel.refundedQuantity).toBe(10)
             expect(await held(SELLER, 'wheat')).toBe(10)
 
-            const buy = await placeTownOrder(BUYER, 'wheat', 'buy', 10, 10)
-            expect(await getBalance(BUYER)).toBe('0.0000')
+            const buy = await placeTownOrder(BUYER, 'wheat', 'buy', over(5), 10)
+            expect(await getBalance(BUYER)).toBe(coins(PURSE - over(5) * 10))
             await cancelTownOrder(BUYER, buy.orderId)
-            expect(await getBalance(BUYER)).toBe('100.0000')
+            expect(await getBalance(BUYER)).toBe(coins(PURSE))
 
             await expect(cancelTownOrder(BUYER, buy.orderId)).rejects.toThrow(/no longer open/)
         })
@@ -1212,16 +1241,16 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         it('refuses any price outside the system band', async () => {
             const floor = townFloorPrice('wheat')
             const ceiling = townCeilingPrice('wheat')
-            await seedUser(BUYER, { balance: '100000.0000' })
+            await seedUser(BUYER, { balance: coins(PURSE * 100) })
 
             await expect(placeTownOrder(BUYER, 'wheat', 'buy', floor - 0.01, 1)).rejects.toThrow(/Price must be between/)
             await expect(placeTownOrder(BUYER, 'wheat', 'buy', ceiling + 0.01, 1)).rejects.toThrow(/Price must be between/)
-            await expect(placeTownOrder(BUYER, 'wheat', 'buy', 6.005, 1)).rejects.toThrow(/2 decimals/)
-            await expect(placeTownOrder(BUYER, 'wheat', 'buy', 6, 1.5)).rejects.toThrow(/whole number/)
-            await expect(placeTownOrder(BUYER, 'gold', 'buy', 6, 1)).rejects.toThrow(/Unknown resource/)
+            await expect(placeTownOrder(BUYER, 'wheat', 'buy', over(1) + 0.005, 1)).rejects.toThrow(/2 decimals/)
+            await expect(placeTownOrder(BUYER, 'wheat', 'buy', over(1), 1.5)).rejects.toThrow(/whole number/)
+            await expect(placeTownOrder(BUYER, 'gold', 'buy', over(1), 1)).rejects.toThrow(/Unknown resource/)
 
             expect(await openOrders(BUYER)).toHaveLength(0)
-            expect(await getBalance(BUYER)).toBe('100000.0000')
+            expect(await getBalance(BUYER)).toBe(coins(PURSE * 100))
 
             // Both edges of the band are allowed.
             await placeTownOrder(BUYER, 'wheat', 'buy', floor, 1)
@@ -1234,8 +1263,8 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             await seedUser(SELLER, { balance: '0.0000' })
             await stock(SELLER, 'wheat', 1)
 
-            await expect(placeTownOrder(BUYER, 'wheat', 'buy', 6, 10)).rejects.toThrow()
-            await expect(placeTownOrder(SELLER, 'wheat', 'sell', 6, 10)).rejects.toThrow(/Not enough Wheat/)
+            await expect(placeTownOrder(BUYER, 'wheat', 'buy', over(1), 10)).rejects.toThrow()
+            await expect(placeTownOrder(SELLER, 'wheat', 'sell', over(1), 10)).rejects.toThrow(/Not enough Wheat/)
 
             expect(await openOrders(BUYER)).toHaveLength(0)
             expect(await openOrders(SELLER)).toHaveLength(0)
@@ -1244,27 +1273,27 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         })
 
         it('aggregates the book by price and reports the caller their own orders', async () => {
-            await seedUser(BUYER, { balance: '100000.0000' })
+            await seedUser(BUYER, { balance: coins(PURSE * 100) })
             await seedUser(SELLER, { balance: '0.0000' })
             await stock(SELLER, 'wheat', 10)
 
-            await placeTownOrder(BUYER, 'wheat', 'buy', 6, 3)
-            await placeTownOrder(BUYER, 'wheat', 'buy', 6, 2)
-            await placeTownOrder(BUYER, 'wheat', 'buy', 5, 4)
-            await placeTownOrder(SELLER, 'wheat', 'sell', 12, 6)
+            await placeTownOrder(BUYER, 'wheat', 'buy', over(1), 3)
+            await placeTownOrder(BUYER, 'wheat', 'buy', over(1), 2)
+            await placeTownOrder(BUYER, 'wheat', 'buy', over(0), 4)
+            await placeTownOrder(SELLER, 'wheat', 'sell', over(10), 6)
 
             const market = await getTownMarket('wheat', BUYER)
 
             expect(market.floor).toBe(townFloorPrice('wheat'))
             expect(market.ceiling).toBe(townCeilingPrice('wheat'))
-            expect(market.bids).toEqual([{ price: 6, quantity: 5 }, { price: 5, quantity: 4 }])
-            expect(market.asks).toEqual([{ price: 12, quantity: 6 }])
+            expect(market.bids).toEqual([{ price: over(1), quantity: 5 }, { price: over(0), quantity: 4 }])
+            expect(market.asks).toEqual([{ price: over(10), quantity: 6 }])
             expect(market.myOrders).toHaveLength(3)
             expect(market.myOrders.every(o => o.side === 'buy')).toBe(true)
 
             const sellerView = await getTownMarket('wheat', SELLER)
             expect(sellerView.myOrders).toHaveLength(1)
-            expect(sellerView.myOrders[0]!.price).toBe(12)
+            expect(sellerView.myOrders[0]!.price).toBe(over(10))
 
             const anonymous = await getTownMarket('wheat', null)
             expect(anonymous.myOrders).toEqual([])
@@ -1272,24 +1301,24 @@ describe.skipIf(SKIP)('polytown (database)', () => {
         })
 
         it('records the trade history a fill produces', async () => {
-            await seedUser(BUYER, { balance: '100000.0000' })
+            await seedUser(BUYER, { balance: coins(PURSE * 100) })
             await seedUser(SELLER, { balance: '0.0000' })
             await stock(SELLER, 'wheat', 6)
 
-            await placeTownOrder(BUYER, 'wheat', 'buy', 7, 6)
-            const sell = await placeTownOrder(SELLER, 'wheat', 'sell', 5, 6)
+            await placeTownOrder(BUYER, 'wheat', 'buy', over(2), 6)
+            const sell = await placeTownOrder(SELLER, 'wheat', 'sell', over(0), 6)
 
             // The seller crossed a resting bid, so they are paid the higher bid.
             expect(sell.status).toBe('filled')
-            expect(sell.avgFillPrice).toBe(7)
-            expect(await getBalance(SELLER)).toBe('42.0000')
+            expect(sell.avgFillPrice).toBe(over(2))
+            expect(await getBalance(SELLER)).toBe(coins(over(2) * 6))
 
             // The book is shared with whatever else uses this database (a dev
             // server's real trades included), so only assert on our own fill.
             const market = await getTownMarket('wheat', BUYER)
             const mine = market.trades.filter(t => t.mine)
             expect(mine).toHaveLength(1)
-            expect(mine[0]).toMatchObject({ price: 7, quantity: 6, mine: true })
+            expect(mine[0]).toMatchObject({ price: over(2), quantity: 6, mine: true })
             expect(market.guidePrice).toBeGreaterThanOrEqual(market.floor)
             expect(market.guidePrice).toBeLessThanOrEqual(market.ceiling)
             expect(market.bids).toEqual([])
@@ -1366,7 +1395,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
             await seedStreet(OWNER, plotId, 3, HOUSE_AND_FARM)
             await stock(OWNER, 'wheat', 5)
-            await placeTownOrder(OWNER, 'wheat', 'sell', 6, 5)
+            await placeTownOrder(OWNER, 'wheat', 'sell', over(1), 5)
             // Give the production log something to hold.
             await rewindSettle(OWNER, 5 * MINUTE + 30_000)
             await settleTownForRead(OWNER)
