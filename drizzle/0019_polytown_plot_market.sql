@@ -1,0 +1,1 @@
+ALTER TABLE "town_plots" ADD COLUMN "list_price" numeric(19, 4);

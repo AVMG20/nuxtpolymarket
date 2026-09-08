@@ -1,0 +1,2 @@
+ALTER TABLE "town_state" ADD COLUMN "milestones_claimed" jsonb DEFAULT '[]'::jsonb NOT NULL;--> statement-breakpoint
+ALTER TABLE "town_state" ADD COLUMN "coins_earned" numeric(19, 4) DEFAULT '0' NOT NULL;

@@ -1535,6 +1535,180 @@ export const callOfXenoStateRelations = relations(callOfXenoState, ({ one }) => 
   user: one(user, { fields: [callOfXenoState.userId], references: [user.id] })
 }))
 
+// ─── Polytown ─────────────────────────────────────────────────────────────────
+
+/**
+ * One row per player town. Production is settled lazily from elapsed real time
+ * (see server/utils/town.ts:settleTownState) under a FOR UPDATE lock on this
+ * row — there is no server-side loop. Happiness and tick progress are the only
+ * simulation carry-overs; everything else is derived from buildings + inventory.
+ */
+export const townState = pgTable('town_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  happiness: integer('happiness').notNull().default(50),
+  /** Speed-scaled ms of progress toward the next tick, carried between settles. */
+  tickProgressMs: integer('tick_progress_ms').notNull().default(0),
+  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull(),
+  /** Plots ever bought from the system (the founding plot counts). Drives price + cooldown. */
+  plotsBought: integer('plots_bought').notNull().default(1),
+  lastPlotBoughtAt: timestamp('last_plot_bought_at').defaultNow().notNull(),
+  /** Milestone ids already paid out. Claiming appends under a NOT-contains guard (claim-then-reward). */
+  milestonesClaimed: jsonb('milestones_claimed').$type<string[]>().notNull().default([]),
+  /** Lifetime coins earned from selling resources (floor + player fills). Drives the merchant milestones. */
+  coinsEarned: numeric('coins_earned', { precision: 19, scale: 4 }).notNull().default('0'),
+  /** Lifetime units produced per resource — the tier gate a rich mayor cannot buy past. Written under the state lock. */
+  produced: jsonb('produced').$type<Record<string, number>>().notNull().default({}),
+  /** Build crews owned. Three come free; the rest are bought with gems, permanently. */
+  builders: integer('builders').notNull().default(3),
+  /** The research project running right now, if any. Only ever one at a time. */
+  researchId: text('research_id'),
+  researchCompletesAt: timestamp('research_completes_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+})
+
+/**
+ * One row, holding whatever the realm as a whole has to remember.
+ *
+ * Right now that is the founding scan's high-water mark. Without it every new
+ * town walked the spiral from index zero against every plot in the world,
+ * which is quadratic in towns and hard-failed at the 100k-iteration guard once
+ * a few thousand towns existed. The cursor only ever moves forward, so a town
+ * founded today starts its search where the last one finished.
+ */
+export const townRealm = pgTable('town_realm', {
+  id: integer('id').primaryKey().default(1),
+  /** Lowest spiral index that might still be free. */
+  foundingCursor: integer('founding_cursor').notNull().default(0)
+})
+
+/**
+ * A finished research project. The unique (user, project) pair is the guard:
+ * settling a finished project inserts here, and a second concurrent settle
+ * conflicts instead of granting the effect twice.
+ */
+export const townResearch = pgTable('town_research', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  researchId: text('research_id').notNull(),
+  completedAt: timestamp('completed_at').defaultNow().notNull()
+}, table => [
+  unique('town_research_user_project').on(table.userId, table.researchId)
+])
+
+/**
+ * One 8x8 plot on the shared endless grid. The unique (x, y) constraint is the
+ * claim guard: the player picks the square, the insert either wins it or
+ * conflicts. Founding plots take the first free square on a spiral from the
+ * origin; later plots must touch one the player already owns.
+ */
+export const townPlots = pgTable('town_plots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  x: integer('x').notNull(),
+  y: integer('y').notNull(),
+  /** Asking price while the owner has this (empty) plot on the market, else null. */
+  listPrice: numeric('list_price', { precision: 19, scale: 4 }),
+  /**
+   * What the current owner actually paid for this square — the land office
+   * price, the price a neighbour asked, or 0 for a founding plot. The refund
+   * is a share of THIS, never of a counter a player can pump by trading.
+   */
+  paidPrice: numeric('paid_price', { precision: 19, scale: 4 }).notNull().default('0'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('town_plots_userId_idx').on(t.userId),
+  unique('town_plots_xy_unique').on(t.x, t.y)
+])
+
+/**
+ * One building on one tile. level 0 = still under first construction
+ * (completesAt in the future). upgradingTo is set while an upgrade is in
+ * progress; settle bakes it into level once completesAt passes.
+ */
+export const townBuildings = pgTable('town_buildings', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  plotId: text('plot_id').notNull().references(() => townPlots.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  tileX: integer('tile_x').notNull(),
+  tileY: integer('tile_y').notNull(),
+  rotation: integer('rotation').notNull().default(0), // clockwise quarter turns; cosmetic only
+  level: integer('level').notNull().default(0),
+  upgradingTo: integer('upgrading_to'),
+  completesAt: timestamp('completes_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('town_buildings_userId_idx').on(t.userId),
+  unique('town_buildings_tile_unique').on(t.plotId, t.tileX, t.tileY)
+])
+
+/**
+ * What each settle produced, per resource — the data behind the production
+ * chart. One row per (settle, resource) with a positive amount; consumption is
+ * not logged here, the chart is about goods being made.
+ */
+export const townProduction = pgTable('town_production', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  resource: text('resource').notNull(),
+  amount: integer('amount').notNull(),
+  /** Window covered by the settle, so bucketing can spread it over the hours it spanned. */
+  fromAt: timestamp('from_at').notNull(),
+  toAt: timestamp('to_at').notNull()
+}, t => [index('town_production_user_to_idx').on(t.userId, t.toAt)])
+
+/** Per-player resource stock. Always written as increments (amount = amount + delta). */
+export const townInventory = pgTable('town_inventory', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  resource: text('resource').notNull(),
+  /** Units held. bigint because a late-game market fill can name more than int4 holds. */
+  amount: bigint('amount', { mode: 'number' }).notNull().default(0)
+}, t => [
+  // The unique pair's leading column already serves every by-user lookup.
+  unique('town_inventory_unique').on(t.userId, t.resource)
+])
+
+/** Per-resource limit order book, same shape as gem_orders. Buys escrow coins, sells escrow the resource. */
+export const townOrders = pgTable('town_orders', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  resource: text('resource').notNull(),
+  side: text('side').notNull(), // 'buy' | 'sell'
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(),
+  quantity: integer('quantity').notNull(),
+  filled: integer('filled').notNull().default(0),
+  status: text('status').notNull().default('open'), // 'open' | 'filled' | 'cancelled'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
+}, t => [
+  index('town_orders_book_idx').on(t.resource, t.status, t.side, t.price),
+  index('town_orders_userId_idx').on(t.userId, t.status)
+])
+
+/** One row per executed match — the per-resource price history. */
+export const townTrades = pgTable('town_trades', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  resource: text('resource').notNull(),
+  buyerId: text('buyer_id').references(() => user.id, { onDelete: 'set null' }),
+  sellerId: text('seller_id').references(() => user.id, { onDelete: 'set null' }),
+  takerId: text('taker_id').references(() => user.id, { onDelete: 'set null' }),
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(),
+  quantity: integer('quantity').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('town_trades_resource_createdAt_idx').on(t.resource, t.createdAt),
+  // All three are ON DELETE SET NULL, and deleting a town scans by them.
+  index('town_trades_buyer_idx').on(t.buyerId),
+  index('town_trades_seller_idx').on(t.sellerId),
+  index('town_trades_taker_idx').on(t.takerId)
+])
+
+export const townStateRelations = relations(townState, ({ one }) => ({
+  user: one(user, { fields: [townState.userId], references: [user.id] })
+}))
+
 export const sessionRelations = relations(session, ({ one }) => ({
   user: one(user, {
     fields: [session.userId],

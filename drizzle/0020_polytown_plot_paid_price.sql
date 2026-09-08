@@ -1,0 +1,1 @@
+ALTER TABLE "town_plots" ADD COLUMN "paid_price" numeric(19, 4) DEFAULT '0' NOT NULL;
