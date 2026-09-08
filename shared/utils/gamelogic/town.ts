@@ -1260,6 +1260,8 @@ export interface TownSimState {
     buildings: TownSimBuilding[]
     /** What the town's finished research adds. Absent means none of it. */
     research?: TownResearchBonus
+    /** Fractional goods each workshop has made but not yet finished. Absent means none. */
+    carry?: TownCarry
 }
 
 export interface TownDerived {
@@ -1553,15 +1555,55 @@ export function townTierRequirement(
 
 /**
  * Exactly what one tick moves through a workshop, or null when it moves
- * nothing. Output is floored, so a workshop running slowly enough that its
- * output rounds to zero consumes nothing either — the settle skips it, and
- * every number shown to the player has to agree with that.
+ * nothing. The bags are fractional: a level-1 farm on fertile ground grows
+ * 1.25 wheat a tick, and a half-staffed mill grinds one wheat into half a
+ * loaf's worth of flour. Whole units are what the tick actually hands over
+ * (see townTickWork); the fraction is carried to the next tick, so the rate
+ * quoted here is the rate the player really gets over time. Rounding the
+ * bags per tick instead quietly ate every bonus smaller than a whole unit —
+ * a farm moved onto fertile ground kept growing exactly one wheat.
  */
 export function townTickRecipe(def: TownBuildingDef, level: number, ratio: number): { inputs: TownResourceBag, outputs: TownResourceBag } | null {
     if (ratio <= 0) return null
-    const outputs = scaleBag(def.outputs, level * ratio, Math.floor)
+    const outputs = scaleBag(def.outputs, level * ratio, n => n)
     if (Object.keys(outputs).length === 0) return null
-    return { inputs: scaleBag(def.inputs, level * ratio, Math.ceil), outputs }
+    return { inputs: scaleBag(def.inputs, level * ratio, n => n), outputs }
+}
+
+/**
+ * Per building, per resource: the part of a unit a workshop has already made
+ * (or used) but that the tick could not hand over whole. Always in [0, 1).
+ * Persisted with the town state so a slow workshop's progress survives the
+ * settle, and pruned to the buildings that still stand.
+ */
+export type TownCarry = Record<string, TownResourceBag>
+
+/** Guards against 0.25 + 0.25 + 0.25 + 0.25 landing a hair under 1. */
+const CARRY_EPSILON = 1e-9
+
+/**
+ * Turn a fractional recipe into the whole units this tick moves. Each bag adds
+ * its carry, hands over the integer part and keeps the rest for next time, so
+ * over any run of ticks the total matches the exact rate to within a unit.
+ */
+export function townTickWork(
+    recipe: { inputs: TownResourceBag, outputs: TownResourceBag },
+    carry: TownResourceBag = {}
+): { inputs: TownResourceBag, outputs: TownResourceBag, carry: TownResourceBag } {
+    const next: TownResourceBag = {}
+    const settle = (bag: TownResourceBag): TownResourceBag => {
+        const whole: TownResourceBag = {}
+        for (const [id, qty] of Object.entries(bag) as [TownResourceId, number][]) {
+            const total = qty + (carry[id] ?? 0)
+            const units = Math.floor(total + CARRY_EPSILON)
+            if (units > 0) whole[id] = units
+            const rest = total - units
+            if (rest > CARRY_EPSILON) next[id] = rest
+        }
+        return whole
+    }
+    // A resource is only ever on one side of a recipe, so one carry bag covers both.
+    return { inputs: settle(recipe.inputs), outputs: settle(recipe.outputs), carry: next }
 }
 
 /** Net resource change per tick at current staffing, assuming inputs are available. */
@@ -1690,7 +1732,7 @@ export function deriveTown(
     // Terrain rides on the same ratio as staffing and supply rather than being
     // bolted onto the output bag afterwards. Everything that quotes a rate —
     // the tick loop, the net-per-tick preview, the income estimate — reads
-    // throughput and floors it identically, so a bonus that only one of them
+    // throughput and works it identically, so a bonus that only one of them
     // knew about is a number the player would catch us lying about.
     // Only workshops turn residents into goods. Everything else is staffed
     // from the same pool — a warehouse holds what its crew can manage — but has
@@ -1737,6 +1779,8 @@ export interface TownSettleResult {
     completed: { id: string, level: number }[]
     /** Which needs the last tick could supply (or current stock, if no tick ran). */
     satisfied: TownSatisfied
+    /** Unfinished fractions per standing building, to hand back on the next settle. */
+    carry: TownCarry
 }
 
 /**
@@ -1757,6 +1801,13 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
     const delta: TownResourceBag = {}
     const buildings = state.buildings.map(b => ({ ...b }))
     const completed: { id: string, level: number }[] = []
+    // Only what still stands is carried: a demolished workshop's half a loaf
+    // goes with it, and nothing keys on a building that no longer exists.
+    const carry: TownCarry = {}
+    for (const b of buildings) {
+        const c = state.carry?.[b.id]
+        if (c && Object.keys(c).length > 0) carry[b.id] = { ...c }
+    }
 
     // Research never changes mid-window: a project that finishes while the
     // player is away is banked by settleTownResearch before this runs.
@@ -1799,7 +1850,8 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
             const level = effectiveLevel(b, cursor)
             const recipe = townTickRecipe(def, level, derived.throughput.get(b.id) ?? 0)
             if (!recipe) continue
-            const { inputs, outputs } = recipe
+            const work = townTickWork(recipe, carry[b.id])
+            const { inputs, outputs } = work
 
             let ok = true
             for (const [id, qty] of Object.entries(inputs) as [TownResourceId, number][]) {
@@ -1809,7 +1861,9 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
             for (const [id, qty] of Object.entries(outputs) as [TownResourceId, number][]) {
                 if ((inv[id] ?? 0) + qty > derived.storageCap) { ok = false; break }
             }
+            // A tick that cannot run leaves the carry alone: nothing was made.
             if (!ok) continue
+            carry[b.id] = work.carry
 
             for (const [id, qty] of Object.entries(inputs) as [TownResourceId, number][]) {
                 inv[id] = (inv[id] ?? 0) - qty
@@ -1855,6 +1909,11 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
     for (const [id, qty] of Object.entries(delta) as [TownResourceId, number][]) {
         if (qty !== 0) cleanDelta[id] = qty
     }
+    // A workshop whose fractions all landed has nothing to carry.
+    const cleanCarry: TownCarry = {}
+    for (const [id, bag] of Object.entries(carry)) {
+        if (Object.keys(bag).length > 0) cleanCarry[id] = bag
+    }
 
     return {
         happiness,
@@ -1863,7 +1922,8 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
         delta: cleanDelta,
         ticks,
         completed,
-        satisfied
+        satisfied,
+        carry: cleanCarry
     }
 }
 
@@ -1882,8 +1942,8 @@ export function townFloorIncomePerDay(
         const def = BUILDING_BY_ID.get(b.type)!
         if (def.kind !== 'industry') continue
         const level = effectiveLevel(b, now)
-        // Priced off the very bags the tick loop moves, so the headline number
-        // never advertises output a workshop is too slow to actually finish.
+        // Priced off the same recipe the tick loop works from: fractional
+        // output is carried between ticks, so the exact rate is the real one.
         const recipe = townTickRecipe(def, level, derived.throughput.get(b.id) ?? 0)
         if (!recipe) continue
         for (const [id, qty] of Object.entries(recipe.outputs) as [TownResourceId, number][]) {

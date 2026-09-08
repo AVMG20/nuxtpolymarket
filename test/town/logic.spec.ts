@@ -47,6 +47,10 @@ import {
     needsHappiness,
     scaleBag,
     settleTown,
+    townTickRecipe,
+    townTickWork,
+    townTerrainAt,
+    TOWN_TERRAIN_BONUS,
     townAutoFacing,
     townBuildingsFronting,
     townEffectRadius,
@@ -166,6 +170,40 @@ function houseAndFarm(): TownSimBuilding[] {
     return [
         built('house', 'house', { createdAt: T0 - 90_000 }),
         built('farm', 'farm', { level: 2, createdAt: T0 - 80_000 })
+    ]
+}
+
+/** The first world tile of the given terrain, searched outward from the origin. */
+function tileOf(terrain: 'fertile' | 'plain'): { wx: number, wy: number } {
+    for (let r = 0; r <= 6; r++) {
+        for (let px = -r; px <= r; px++) {
+            for (let py = -r; py <= r; py++) {
+                for (let ty = 0; ty < TOWN_PLOT_SIZE - 1; ty++) {
+                    for (let tx = 0; tx < TOWN_PLOT_SIZE; tx++) {
+                        const wx = px * TOWN_PLOT_SIZE + tx
+                        const wy = py * TOWN_PLOT_SIZE + ty
+                        // The road in front of it (see farmOn) has to be dry land too.
+                        if (townTerrainAt(wx, wy) === terrain && townTerrainAt(wx, wy + 1) !== 'water') return { wx, wy }
+                    }
+                }
+            }
+        }
+    }
+    throw new Error(`no ${terrain} tile anywhere near the origin`)
+}
+const fertileTile = () => tileOf('fertile')
+const plainTile = () => tileOf('plain')
+
+/**
+ * A house whose residents eat one grain a tick, and a level-1 farm standing on
+ * `tile` with a road at its front door. On grassland the farm grows exactly
+ * what the house eats; on fertile ground it grows a quarter more.
+ */
+function farmOn(tile: { wx: number, wy: number }): TownSimBuilding[] {
+    return [
+        built('house', 'house', { createdAt: T0 - 90_000 }),
+        at('road', 'road', tile.wx, tile.wy + 1, { createdAt: T0 - 85_000 }),
+        at('farm', 'farm', tile.wx, tile.wy, { rotation: 0, createdAt: T0 - 80_000 })
     ]
 }
 
@@ -456,6 +494,65 @@ describe('scaleBag', () => {
     it('honours the rounding function it is handed', () => {
         expect(scaleBag({ wheat: 3 }, 0.5, Math.ceil)).toEqual({ wheat: 2 })
         expect(scaleBag({ wheat: 3 }, 0.5, Math.floor)).toEqual({ wheat: 1 })
+    })
+})
+
+describe('townTickWork', () => {
+    const farm = getTownBuilding('farm')!
+    const mill = getTownBuilding('mill')!
+
+    it('quotes the exact fractional recipe rather than a rounded one', () => {
+        expect(townTickRecipe(farm, 1, 1 + TOWN_TERRAIN_BONUS)).toEqual({ inputs: {}, outputs: { wheat: 1.25 } })
+        expect(townTickRecipe(mill, 1, 0.5)).toEqual({ inputs: { wheat: 1 }, outputs: { flour: 0.5 } })
+        expect(townTickRecipe(farm, 1, 0)).toBeNull()
+    })
+
+    it('hands over whole units and keeps the fraction for next time', () => {
+        const work = townTickWork(townTickRecipe(farm, 1, 1.25)!)
+        expect(work.outputs).toEqual({ wheat: 1 })
+        expect(work.carry).toEqual({ wheat: 0.25 })
+    })
+
+    it('pays the fraction out once it adds up to a unit', () => {
+        const recipe = townTickRecipe(farm, 1, 1.25)!
+        let carry = {}
+        let grown = 0
+        for (let i = 0; i < 4; i++) {
+            const work = townTickWork(recipe, carry)
+            grown += work.outputs.wheat ?? 0
+            carry = work.carry
+        }
+        // 1 + 1 + 1 + 2: the quarters land as a whole wheat on the fourth tick.
+        expect(grown).toBe(5)
+        expect(carry).toEqual({})
+    })
+
+    it('does not lose a unit to floating point drift', () => {
+        const recipe = { inputs: {}, outputs: { wheat: 0.1 } }
+        let carry = {}
+        let grown = 0
+        for (let i = 0; i < 10; i++) {
+            const work = townTickWork(recipe, carry)
+            grown += work.outputs.wheat ?? 0
+            carry = work.carry
+        }
+        expect(grown).toBe(1)
+        expect(carry).toEqual({})
+    })
+
+    it('carries inputs the same way, so a slow mill pays exactly for what it grinds', () => {
+        const recipe = townTickRecipe(mill, 1, 0.5)!
+        let carry = {}
+        let wheat = 0
+        let flour = 0
+        for (let i = 0; i < 4; i++) {
+            const work = townTickWork(recipe, carry)
+            wheat += work.inputs.wheat ?? 0
+            flour += work.outputs.flour ?? 0
+            carry = work.carry
+        }
+        expect(wheat).toBe(4)
+        expect(flour).toBe(2)
     })
 })
 
@@ -1645,6 +1742,13 @@ describe('townNetPerTick', () => {
         // Eight residents still only want one grain a tick.
         expect(net(buildings)).toEqual({ wheat: 2 })
     })
+
+    it('quotes the terrain bonus as the fraction the ticks really pay out', () => {
+        // A level-1 farm on fertile ground grows a wheat and a quarter a tick;
+        // rounding it here would hide the bonus the tick loop carries.
+        expect(net(farmOn(fertileTile()))).toEqual({ wheat: TOWN_TERRAIN_BONUS })
+        expect(net(farmOn(plainTile()))).toEqual({ wheat: 0 })
+    })
 })
 
 describe('milestones', () => {
@@ -1924,6 +2028,74 @@ describe('settleTown', () => {
         const result = settleTown(sim({ buildings: [built('farm', 'farm')] }), T0 + 5 * TOWN_TICK_MS)
         expect(result.ticks).toBeGreaterThan(0)
         expect(result.delta).toEqual({})
+    })
+
+    describe('fractional output', () => {
+        const rate = 1 + TOWN_TERRAIN_BONUS
+
+        it('pays the terrain bonus to a level-1 farm by carrying the quarters between ticks', () => {
+            const fertile = settleTown(sim({ buildings: farmOn(fertileTile()) }), T0 + 4 * TOWN_TICK_MS)
+            const ticks = fertile.ticks
+            expect(ticks).toBeGreaterThanOrEqual(4)
+            // A whole wheat every tick, plus one more for every four: the
+            // quarters land as a unit instead of being rounded away. The
+            // residents eat one a tick.
+            const grown = Math.floor(ticks * rate + 1e-9)
+            expect(grown).toBeGreaterThan(ticks)
+            expect(fertile.delta).toEqual({ wheat: grown - ticks })
+            const left = ticks * rate - grown
+            expect(fertile.carry).toEqual(left > 0 ? { farm: { wheat: left } } : {})
+
+            // Same town on grassland: exactly what the house eats, and nothing carried.
+            const plain = settleTown(sim({ buildings: farmOn(plainTile()) }), T0 + 4 * TOWN_TICK_MS)
+            expect(plain.ticks).toBe(ticks)
+            expect(plain.delta).toEqual({})
+            expect(plain.carry).toEqual({})
+        })
+
+        it('hands the unfinished fraction back so the next settle can pick it up', () => {
+            const first = settleTown(sim({ buildings: farmOn(fertileTile()) }), T0 + TOWN_TICK_MS)
+            expect(first.ticks).toBe(1)
+            expect(first.carry).toEqual({ farm: { wheat: rate - 1 } })
+        })
+
+        it('produces the same total whether a window is settled whole or in pieces', () => {
+            const buildings = farmOn(fertileTile())
+            const whole = settleTown(sim({ buildings }), T0 + 8 * TOWN_TICK_MS)
+
+            const first = settleTown(sim({ buildings }), T0 + 3 * TOWN_TICK_MS)
+            const resume = {
+                happiness: first.happiness,
+                tickProgressMs: first.tickProgressMs,
+                lastSettledAt: first.lastSettledAt,
+                buildings
+            }
+            const second = settleTown(sim({ ...resume, carry: first.carry }), T0 + 8 * TOWN_TICK_MS)
+            expect(first.ticks + second.ticks).toBe(whole.ticks)
+            expect((first.delta.wheat ?? 0) + (second.delta.wheat ?? 0)).toBe(whole.delta.wheat ?? 0)
+
+            // Which is exactly why the carry is persisted: forgetting it
+            // between settles quietly loses part of the bonus.
+            const forgetful = settleTown(sim(resume), T0 + 8 * TOWN_TICK_MS)
+            expect((first.delta.wheat ?? 0) + (forgetful.delta.wheat ?? 0)).toBeLessThan(whole.delta.wheat ?? 0)
+        })
+
+        it('leaves the carry alone on a tick the workshop cannot run', () => {
+            const buildings = [
+                built('house', 'house', { createdAt: T0 - 90_000 }),
+                built('mill', 'mill', { createdAt: T0 - 80_000 })
+            ]
+            // No wheat to grind: the half a flour already made stays half made.
+            const starved = settleTown(sim({ buildings, carry: { mill: { flour: 0.5 } } }), T0 + TOWN_TICK_MS)
+            expect(starved.ticks).toBe(1)
+            expect(starved.delta).toEqual({})
+            expect(starved.carry).toEqual({ mill: { flour: 0.5 } })
+        })
+
+        it('drops the carry of a building that no longer stands', () => {
+            const result = settleTown(sim({ buildings: houseAndFarm(), carry: { gone: { wheat: 0.5 } } }), T0 + TOWN_TICK_MS)
+            expect(result.carry).toEqual({})
+        })
     })
 })
 

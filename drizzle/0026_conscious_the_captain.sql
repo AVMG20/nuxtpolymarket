@@ -1,0 +1,1 @@
+ALTER TABLE "town_state" ADD COLUMN "carry" jsonb DEFAULT '{}'::jsonb NOT NULL;
