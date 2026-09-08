@@ -921,6 +921,32 @@ describe('deriveTown', () => {
 })
 
 describe('layout', () => {
+    it('makes heavy industry impossible to hide inside a single plot', () => {
+        // A plot is 8 tiles across. Any radius below that is solved forever the
+        // moment a mayor owns a second plot — houses on one, workshops on the
+        // other — so from tier 4 up the nuisance has to outreach a whole plot,
+        // and tier 3 has to come close enough to cost real room.
+        for (const def of TOWN_BUILDINGS) {
+            if (def.kind !== 'industry') continue
+            const { radius, penalty } = townIndustryNuisance(def)
+            if (def.tier >= 4) expect(radius).toBeGreaterThanOrEqual(TOWN_PLOT_SIZE)
+            if (def.tier === 3) expect(radius).toBeGreaterThan(TOWN_PLOT_SIZE / 2)
+            expect(penalty).toBeGreaterThan(0)
+        }
+
+        // And both climb with the tier, so heavier industry is always worse.
+        let lastRadius = 0
+        let lastPenalty = 0
+        for (const tier of [1, 2, 3, 4, 5, 6]) {
+            const def = TOWN_BUILDINGS.find(b => b.kind === 'industry' && b.tier === tier)!
+            const { radius, penalty } = townIndustryNuisance(def)
+            expect(radius).toBeGreaterThan(lastRadius)
+            expect(penalty).toBeGreaterThanOrEqual(lastPenalty)
+            lastRadius = radius
+            lastPenalty = penalty
+        }
+    })
+
     it('cheers every house inside the park radius, diagonals included', () => {
         for (let dx = -TOWN_PARK_RADIUS; dx <= TOWN_PARK_RADIUS; dx++) {
             for (let dy = -TOWN_PARK_RADIUS; dy <= TOWN_PARK_RADIUS; dy++) {

@@ -219,20 +219,31 @@ export const TOWN_INDUSTRY_PENALTY_SCALE = 4
 /** Penalty when the town has no food at all (neither wheat nor bread was eaten this tick). */
 export const TOWN_HAPPINESS_STARVING_PENALTY = 12
 /**
- * Parks cheer every house within this Chebyshev radius (3 = a 7×7 square).
+ * Parks cheer every house within this Chebyshev radius (4 = a 9×9 square).
  * A road tile always sits between a home and its neighbours, so every radius
  * here is one wider than the raw distance the effect is meant to cover.
  */
-export const TOWN_PARK_RADIUS = 3
-/** Nuisance radius and per-house penalty by building tier (index = tier). */
+export const TOWN_PARK_RADIUS = 4
+/**
+ * Nuisance radius and per-house penalty by building tier (index = tier).
+ *
+ * A plot is 8 tiles across, so any radius below that is solved forever the
+ * moment a mayor owns a second plot: put the houses on one and the workshops
+ * on the other and the penalty is zero at every tier, for good. Tier 3 costs
+ * most of a plot of distance, tier 4 more than a whole one, tier 6 nearly two —
+ * heavy
+ * industry has to be pushed genuinely far away, and the land to do it with is
+ * the thing you spend. The penalty climbs faster than the radius so a factory
+ * is unpleasant rather than merely inconvenient.
+ */
 export const TOWN_INDUSTRY_NUISANCE: readonly { radius: number, penalty: number }[] = [
     { radius: 2, penalty: 1 }, // tier 0 (unused)
-    { radius: 3, penalty: 1 }, // farms, lumber, quarry
-    { radius: 3, penalty: 1 }, // mill, sawmill, kiln
-    { radius: 4, penalty: 2 }, // bakery, smithy
-    { radius: 4, penalty: 2 }, // mine, foundry
-    { radius: 5, penalty: 3 }, // factory
-    { radius: 5, penalty: 3 } // emporium
+    { radius: 3, penalty: 1 }, // farms, lumber, quarry — still fits inside one plot
+    { radius: 4, penalty: 2 }, // mill, sawmill, kiln
+    { radius: 6, penalty: 3 }, // bakery, smithy — most of a plot of distance
+    { radius: 8, penalty: 5 }, // mine, foundry — more than a whole plot
+    { radius: 11, penalty: 8 }, // factory
+    { radius: 13, penalty: 10 } // emporium — nearly two plots clear, or live with it
 ]
 /** Welcome-back summary is shown for absences at least this long. */
 export const TOWN_WELCOME_BACK_MIN_MS = 5 * 60_000
@@ -486,7 +497,7 @@ export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
     },
     {
         id: 'park', name: 'Park', emoji: '🌳', color: 0x52b788, tier: 0, kind: 'civic',
-        description: 'Green space. Every house within 3 tiles gets happier — place parks between your homes.',
+        description: 'Green space. Every house within 4 tiles gets happier — place parks between your homes.',
         maxLevel: 12,
         cost: { coins: 60_000, resources: { wood: 80 } }, buildMs: 1 * MIN, upgradeMs: 10 * MIN,
         upgradeResources: { wood: 50, stone: 30 },
@@ -494,7 +505,7 @@ export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
     },
     {
         id: 'bathhouse', name: 'Bathhouse', emoji: '🛁', color: 0x64b6d8, tier: 4, kind: 'civic',
-        description: 'Hot water and clean streets. Every home within 3 tiles is happier for it.',
+        description: 'Hot water and clean streets. Every home within 4 tiles is happier for it.',
         maxLevel: 8,
         cost: { coins: 3_000_000, resources: { bricks: 600, steel: 80 } }, buildMs: 4 * HOUR, upgradeMs: 10 * HOUR,
         upgradeResources: { bricks: 200, steel: 40 },
