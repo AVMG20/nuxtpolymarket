@@ -24,8 +24,8 @@ import {
     TOWN_NEEDS,
     TOWN_PARK_MAX_BONUS,
     TOWN_PARK_RADIUS,
-    TOWN_PLOT_COOLDOWN_BASE_MS,
-    TOWN_PLOT_COOLDOWN_GROWTH,
+    TOWN_PLOT_COOLDOWNS_MS,
+    TOWN_MAX_PLOTS,
     TOWN_PLOT_PRICE_BASE,
     TOWN_PLOT_PRICE_GROWTH,
     TOWN_PLOT_SIZE,
@@ -223,20 +223,41 @@ describe('plot cooldown and price', () => {
         expect(townPlotPrice(-3)).toBe(0)
     })
 
-    it('makes the second plot cost the base price after ten minutes', () => {
-        expect(townPlotCooldownMs(2)).toBe(10 * 60_000)
-        expect(townPlotCooldownMs(2)).toBe(TOWN_PLOT_COOLDOWN_BASE_MS)
+    it('makes the second plot cost the base price after four hours', () => {
+        expect(townPlotCooldownMs(2)).toBe(4 * 60 * 60_000)
+        expect(townPlotCooldownMs(2)).toBe(TOWN_PLOT_COOLDOWNS_MS[0])
         expect(townPlotPrice(2)).toBe(TOWN_PLOT_PRICE_BASE)
     })
 
-    it('multiplies both the wait and the price for every further plot', () => {
-        for (let index = 3; index <= 8; index++) {
-            expect(townPlotCooldownMs(index)).toBe(Math.round(townPlotCooldownMs(index - 1) * TOWN_PLOT_COOLDOWN_GROWTH))
+    it('makes every further plot wait longer and cost more', () => {
+        for (let index = 3; index <= TOWN_MAX_PLOTS; index++) {
+            expect(townPlotCooldownMs(index)).toBe(TOWN_PLOT_COOLDOWNS_MS[index - 2])
+            expect(townPlotCooldownMs(index)).toBeGreaterThan(townPlotCooldownMs(index - 1))
             // Compared against the closed form, not the previous plot: rounding
             // the running product would drift apart from it by plot eight.
             expect(townPlotPrice(index)).toBe(Math.round(TOWN_PLOT_PRICE_BASE * TOWN_PLOT_PRICE_GROWTH ** (index - 2)))
             expect(townPlotPrice(index)).toBeGreaterThan(townPlotPrice(index - 1))
         }
+    })
+
+    it('gates the early game on land, and still finishes the board inside the season', () => {
+        // Land is what the first weeks are short of, so the second plot is a
+        // real wait rather than a formality.
+        expect(townPlotCooldownMs(2)).toBeGreaterThanOrEqual(60 * 60_000)
+        expect(townPlotCooldownMs(3)).toBeGreaterThanOrEqual(24 * 60 * 60_000)
+
+        // And the tail stays reachable: the old geometric curve put the last
+        // plot behind a wait of well over a year.
+        let total = 0
+        for (let index = 2; index <= TOWN_MAX_PLOTS; index++) total += townPlotCooldownMs(index)
+        const days = total / (24 * 60 * 60_000)
+        expect(days).toBeGreaterThan(30)
+        expect(days).toBeLessThan(90)
+    })
+
+    it('never runs off the end of the cooldown table', () => {
+        const longest = TOWN_PLOT_COOLDOWNS_MS[TOWN_PLOT_COOLDOWNS_MS.length - 1]!
+        expect(townPlotCooldownMs(TOWN_MAX_PLOTS + 5)).toBe(longest)
     })
 })
 

@@ -24,9 +24,35 @@ export const TOWN_WAREHOUSE_STORAGE = 5_000
 /** Rushing a build costs one gem per this many ms remaining, rounded up. */
 export const TOWN_RUSH_MS_PER_GEM = 5 * 60_000
 
-/** Second plot waits 10 min after founding; every further plot triples the wait. Prices go 50k, 225k, 1M, 4.5M… — more land is more income, so it is priced like it. */
-export const TOWN_PLOT_COOLDOWN_BASE_MS = 10 * 60_000
-export const TOWN_PLOT_COOLDOWN_GROWTH = 3
+/**
+ * How long the land office makes you wait for each plot after the free one.
+ *
+ * Being short of land IS the early game: it is what forces the choice between
+ * a house and a workshop, and what makes the tiles you have worth arranging.
+ * A geometric curve got that backwards — the first extra plots arrived within
+ * the hour, so the squeeze was over before it started, while the last ones sat
+ * behind waits of a year and more that nobody would ever reach.
+ *
+ * A flat ramp does the job better. Four hours before a second plot, a day
+ * before a third, then one more day each time, topping out at ten. Twelve
+ * plots is about eight weeks of waiting in total, which sits inside the same
+ * window as growing a town to the top tiers.
+ */
+const HOUR_MS = 60 * 60_000
+const DAY_MS = 24 * HOUR_MS
+export const TOWN_PLOT_COOLDOWNS_MS: readonly number[] = [
+    4 * HOUR_MS, // plot 2
+    1 * DAY_MS, // plot 3
+    2 * DAY_MS,
+    3 * DAY_MS,
+    4 * DAY_MS,
+    5 * DAY_MS,
+    6 * DAY_MS,
+    7 * DAY_MS,
+    8 * DAY_MS,
+    9 * DAY_MS,
+    10 * DAY_MS // plot 12
+]
 export const TOWN_PLOT_PRICE_BASE = 50_000
 export const TOWN_PLOT_PRICE_GROWTH = 4.5
 export const TOWN_MAX_PLOTS = 12
@@ -744,11 +770,13 @@ export function townRushGemCost(remainingMs: number): number {
 
 /**
  * Cooldown before buying plot number `plotIndex` (1-based; the first plot is
- * free on founding and has none). 10 min for the second, tripling after.
+ * free on founding and has none). Past the end of the table every further plot
+ * costs the longest wait on it.
  */
 export function townPlotCooldownMs(plotIndex: number): number {
     if (plotIndex <= 1) return 0
-    return Math.round(TOWN_PLOT_COOLDOWN_BASE_MS * Math.pow(TOWN_PLOT_COOLDOWN_GROWTH, plotIndex - 2))
+    const last = TOWN_PLOT_COOLDOWNS_MS[TOWN_PLOT_COOLDOWNS_MS.length - 1]!
+    return TOWN_PLOT_COOLDOWNS_MS[plotIndex - 2] ?? last
 }
 
 export function townPlotPrice(plotIndex: number): number {
