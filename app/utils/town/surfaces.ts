@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 
-export type TownSurface = 'plaster' | 'brick' | 'timber' | 'roof' | 'stone' | 'water'
+export type TownSurface = 'plaster' | 'brick' | 'timber' | 'roof' | 'stone' | 'water' | 'asphalt'
 const textures = new Map<TownSurface, THREE.DataTexture>()
 const materials = new Map<string, THREE.MeshStandardMaterial>()
 
@@ -24,6 +24,8 @@ function texture(surface: TownSurface): THREE.DataTexture {
                 shade = x % 24 < 2 ? 151 : 225 + Math.sin(x * 1.7 + Math.sin(y * 0.15)) * 12 + noise * 12
             } else if (surface === 'roof') {
                 shade = y % 16 < 2 ? 160 : 222 + Math.cos(x * Math.PI / 8) * 16 + noise * 12
+            } else if (surface === 'asphalt') {
+                shade = 229 + noise * 24
             } else if (surface === 'water') {
                 shade = 231 + Math.sin(x * Math.PI / 16 + Math.sin(y * Math.PI / 32)) * 4 + Math.cos(y * Math.PI / 8 + x * Math.PI / 32) * 2
             } else {

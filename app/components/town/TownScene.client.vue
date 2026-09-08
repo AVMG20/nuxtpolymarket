@@ -8,6 +8,7 @@ import * as THREE from 'three'
 import { addLandscape, clearLandscape, createMeadowTexture } from '~/utils/town/landscape'
 import { animateTownWater } from '~/utils/town/surfaces'
 import { createTerrainOverlay, createWaterLayer, disposeTerrainOverlay, disposeWaterLayer } from '~/utils/town/terrain'
+import { createRoadParts } from '~/utils/town/roads'
 import { townVisualLevel } from '~/utils/town/appearance'
 import { townDragDelta, townKeyboardDelta, townIsTyping } from '~/utils/town/camera'
 import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
@@ -557,10 +558,6 @@ function buildingModel(type: TownBuildingId, level = 1): THREE.Group {
 // A road tile is a flat slab with a lighter centre line running toward every
 // neighbouring road, so a network reads as one connected street.
 
-const ROAD_BASE = townMaterial(0x595a60)
-const ROAD_LINE = townMaterial(0xd9d3c3)
-const ROAD_CURB = townMaterial(0x8d8f95)
-
 function roadKey(wx: number, wy: number) { return `${wx},${wy}` }
 
 // The road set is rebuilt only when the buildings or plots change, not per frame.
@@ -590,39 +587,9 @@ function buildRoadModel(conns: boolean[]): THREE.Group {
     const key = conns.map(c => c ? '1' : '0').join('')
     const cached = roadModelCache.get(key)
     if (cached) return cached.clone(true)
-    const built = flattenModel(buildRoadParts(conns))
+    const built = flattenModel(createRoadParts(conns))
     roadModelCache.set(key, built)
     return built.clone(true)
-}
-
-function buildRoadParts(conns: boolean[]): THREE.Group {
-    const g = new THREE.Group()
-    const base = new THREE.Mesh(new THREE.BoxGeometry(1, 0.04, 1), ROAD_BASE)
-    base.position.y = 0.02
-    base.receiveShadow = true
-    g.add(base)
-    const any = conns.some(Boolean)
-    if (!any) {
-        const dot = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.012, 0.16), ROAD_LINE)
-        dot.position.y = 0.046
-        g.add(dot)
-    }
-    conns.forEach((on, i) => {
-        if (!on) return
-        const [dx, dy] = TOWN_FACING[i]!
-        const seg = new THREE.Mesh(new THREE.BoxGeometry(dx === 0 ? 0.08 : 0.5, 0.012, dx === 0 ? 0.5 : 0.08), ROAD_LINE)
-        seg.position.set(dx * 0.25, 0.046, dy * 0.25)
-        g.add(seg)
-    })
-    // Curbs on the open sides.
-    conns.forEach((on, i) => {
-        if (on) return
-        const [dx, dy] = TOWN_FACING[i]!
-        const curb = new THREE.Mesh(new THREE.BoxGeometry(dx === 0 ? 1 : 0.06, 0.05, dx === 0 ? 0.06 : 1), ROAD_CURB)
-        curb.position.set(dx * 0.47, 0.03, dy * 0.47)
-        g.add(curb)
-    })
-    return g
 }
 
 function isPending(b: SceneBuilding, now: number) {

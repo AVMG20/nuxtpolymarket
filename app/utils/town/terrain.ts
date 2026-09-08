@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { TOWN_PLOT_SIZE, getTownTerrain, townPlotTerrain, type TownBuildingId } from '#shared/utils/gamelogic/town'
+import { TOWN_PLOT_SIZE, getTownTerrain, townPlotTerrain, townTerrainAt, type TownBuildingId } from '#shared/utils/gamelogic/town'
 
 // The terrain overlay: a flat tinted sheet laid over each plot's grass while
 // the player has it switched on. It is a map, not scenery — the scene has to
@@ -112,9 +112,8 @@ export function disposeTerrainOverlay(group: THREE.Group) {
 // you do it, so unlike the rest of the map it is always on screen. An invisible
 // tile that refuses a building is the worst thing this feature could do.
 //
-// It is painted the same way the overlay is — a canvas sheet per plot — rather
-// than modelled as geometry, so it lands in the scene through a path the rest
-// of the ground already uses.
+// Connected shorelines are baked per plot from world terrain, including
+// neighbouring plots, so shared water edges never acquire an internal bank.
 
 /** Just above the plot slab (top at y = 0.3), under the terrain map at 0.305. */
 const WATER_Y = 0.303
@@ -122,25 +121,68 @@ const WATER_Y = 0.303
 function paintWater(px: number, py: number): HTMLCanvasElement | null {
     const tiles = townPlotTerrain(px, py)
     if (!tiles.includes('water')) return null
-
-    const size = TOWN_PLOT_SIZE * CELL
+    const cell = 96
+    const size = TOWN_PLOT_SIZE * cell
     const canvas = document.createElement('canvas')
     canvas.width = canvas.height = size
     const ctx = canvas.getContext('2d')!
+    const pixels = ctx.createImageData(size, size)
     for (let ty = 0; ty < TOWN_PLOT_SIZE; ty++) {
         for (let tx = 0; tx < TOWN_PLOT_SIZE; tx++) {
             if (tiles[ty * TOWN_PLOT_SIZE + tx] !== 'water') continue
-            const x = tx * CELL
-            const y = ty * CELL
-            ctx.fillStyle = '#2f8fd6'
-            ctx.fillRect(x, y, CELL, CELL)
-            // A darker bank, so a pond reads as a hole in the ground rather
-            // than a blue sticker.
-            ctx.strokeStyle = 'rgba(12, 48, 74, 0.75)'
-            ctx.lineWidth = 3
-            ctx.strokeRect(x + 1.5, y + 1.5, CELL - 3, CELL - 3)
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.16)'
-            ctx.fillRect(x + 4, y + 4, CELL - 8, (CELL - 8) / 2)
+            const wx = px * TOWN_PLOT_SIZE + tx
+            const wz = py * TOWN_PLOT_SIZE + ty
+            const land: [number, number][] = []
+            for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+                if (townTerrainAt(wx + dx, wz + dz) !== 'water') land.push([dx, dz])
+            }
+            const corners: [number, number][] = []
+            for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+                if (land.some(([dx, dz]) => dx === sx && dz === 0) && land.some(([dx, dz]) => dx === 0 && dz === sz)) corners.push([sx, sz])
+            }
+            for (let y = 0; y < cell; y++) for (let x = 0; x < cell; x++) {
+                const u = (x + 0.5) / cell
+                const v = (y + 0.5) / cell
+                let shore = 1
+                for (const [dx, dz] of land) {
+                    const sx = Math.max(dx - u, 0, u - dx - 1)
+                    const sz = Math.max(dz - v, 0, v - dz - 1)
+                    shore = Math.min(shore, Math.hypot(sx, sz))
+                }
+                // Round exposed outer corners, but leave shared water edges open.
+                for (const [sx, sz] of corners) {
+                    const cornerX = sx < 0 ? u : 1 - u
+                    const cornerZ = sz < 0 ? v : 1 - v
+                    if (cornerX < 0.2 && cornerZ < 0.2) shore = Math.min(shore, 0.2 - Math.hypot(cornerX - 0.2, cornerZ - 0.2))
+                }
+                const xx = wx + u
+                const zz = wz + v
+                const grain = Math.sin(xx * 83.7 + zz * 131.2) * Math.sin(xx * 219.1 - zz * 43.6)
+                const edge = shore - 0.018 - (Math.sin(xx * 19 + zz * 13) + Math.sin(xx * 31 - zz * 23)) * 0.009
+                if (edge < 0) continue
+                const i = ((ty * cell + y) * size + tx * cell + x) * 4
+                let color: number[]
+                if (edge < 0.055) color = [164 + grain * 12, 155 + grain * 11, 119 + grain * 9]
+                else {
+                    const depth = Math.min(1, (edge - 0.055) / 0.24)
+                    const wave = Math.sin(xx * 29 + Math.sin(zz * 13)) * Math.sin(zz * 39 + xx * 7) * 2
+                    color = [105 - depth * 45 + wave, 158 - depth * 41 + wave, 145 - depth * 24 + wave]
+                }
+                pixels.data[i] = color[0]!
+                pixels.data[i + 1] = color[1]!
+                pixels.data[i + 2] = color[2]!
+                pixels.data[i + 3] = 255
+            }
+        }
+    }
+    ctx.putImageData(pixels, 0, 0)
+    for (let ty = 0; ty < TOWN_PLOT_SIZE; ty++) for (let tx = 0; tx < TOWN_PLOT_SIZE; tx++) {
+        if (tiles[ty * TOWN_PLOT_SIZE + tx] !== 'water' || (tx + ty) % 3) continue
+        for (let i = 0; i < 3; i++) {
+            ctx.fillStyle = i % 2 ? '#91aa72' : '#78965d'
+            ctx.beginPath()
+            ctx.ellipse((tx + 0.34 + i * 0.09) * cell, (ty + 0.42 + i % 2 * 0.12) * cell, 3.2, 2.6, i, 0.2, Math.PI * 1.92)
+            ctx.fill()
         }
     }
     return canvas
@@ -157,7 +199,8 @@ export function createWaterLayer(plots: readonly { x: number, y: number }[]): TH
         const texture = new THREE.CanvasTexture(canvas)
         texture.colorSpace = THREE.SRGBColorSpace
         texture.anisotropy = 4
-        const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+        const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+            roughness: 0.48,
             map: texture,
             transparent: true,
             depthWrite: false
@@ -167,8 +210,10 @@ export function createWaterLayer(plots: readonly { x: number, y: number }[]): TH
             WATER_Y,
             plot.y * TOWN_PLOT_SIZE + TOWN_PLOT_SIZE / 2
         )
+        mesh.receiveShadow = true
         group.add(mesh)
     }
+    if (group.children.length === 0) geometry.dispose()
     return group
 }
 
