@@ -1,5 +1,4 @@
 import * as THREE from 'three'
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { TOWN_PLOT_SIZE, getTownTerrain, townPlotTerrain, type TownBuildingId } from '#shared/utils/gamelogic/town'
 
 // The terrain overlay: a flat tinted sheet laid over each plot's grass while
@@ -109,56 +108,80 @@ export function disposeTerrainOverlay(group: THREE.Group) {
 }
 
 // ─── Water ───────────────────────────────────────────────────────────────────
-// Water is the one terrain that changes what you can do rather than how well
-// you do it, so unlike the rest of the map it is always on screen. A player who
-// cannot see a pond will try to build on it, be refused, and have no idea why.
-// It sits below the grass rather than over it, so it reads as a hole in the
-// ground and not as another coloured sheet.
+// Water is the one terrain that changes what you CAN do rather than how well
+// you do it, so unlike the rest of the map it is always on screen. An invisible
+// tile that refuses a building is the worst thing this feature could do.
+//
+// It is painted the same way the overlay is — a canvas sheet per plot — rather
+// than modelled as geometry, so it lands in the scene through a path the rest
+// of the ground already uses.
 
-/** Top of the water, just under the plot slab at y = 0.3. */
-const WATER_Y = 0.24
-const WATER_DEPTH = 0.16
+/** Just above the plot slab (top at y = 0.3), under the terrain map at 0.305. */
+const WATER_Y = 0.303
 
-/** One merged slab of every water tile on the given plots. */
-export function createWaterLayer(plots: readonly { x: number, y: number }[]): THREE.Group {
-    const group = new THREE.Group()
-    const parts: THREE.BufferGeometry[] = []
-    for (const plot of plots) {
-        const tiles = townPlotTerrain(plot.x, plot.y)
-        for (let ty = 0; ty < TOWN_PLOT_SIZE; ty++) {
-            for (let tx = 0; tx < TOWN_PLOT_SIZE; tx++) {
-                if (tiles[ty * TOWN_PLOT_SIZE + tx] !== 'water') continue
-                const box = new THREE.BoxGeometry(1, WATER_DEPTH, 1)
-                box.translate(
-                    plot.x * TOWN_PLOT_SIZE + tx + 0.5,
-                    WATER_Y - WATER_DEPTH / 2,
-                    plot.y * TOWN_PLOT_SIZE + ty + 0.5
-                )
-                parts.push(box)
-            }
+function paintWater(px: number, py: number): HTMLCanvasElement | null {
+    const tiles = townPlotTerrain(px, py)
+    if (!tiles.includes('water')) return null
+
+    const size = TOWN_PLOT_SIZE * CELL
+    const canvas = document.createElement('canvas')
+    canvas.width = canvas.height = size
+    const ctx = canvas.getContext('2d')!
+    for (let ty = 0; ty < TOWN_PLOT_SIZE; ty++) {
+        for (let tx = 0; tx < TOWN_PLOT_SIZE; tx++) {
+            if (tiles[ty * TOWN_PLOT_SIZE + tx] !== 'water') continue
+            const x = tx * CELL
+            const y = ty * CELL
+            ctx.fillStyle = '#2f8fd6'
+            ctx.fillRect(x, y, CELL, CELL)
+            // A darker bank, so a pond reads as a hole in the ground rather
+            // than a blue sticker.
+            ctx.strokeStyle = 'rgba(12, 48, 74, 0.75)'
+            ctx.lineWidth = 3
+            ctx.strokeRect(x + 1.5, y + 1.5, CELL - 3, CELL - 3)
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.16)'
+            ctx.fillRect(x + 4, y + 4, CELL - 8, (CELL - 8) / 2)
         }
     }
-    if (parts.length === 0) return group
-    const merged = mergeGeometries(parts, false)
-    for (const part of parts) part.dispose()
-    if (!merged) return group
-    const mesh = new THREE.Mesh(merged, new THREE.MeshStandardMaterial({
-        color: 0x3d8fc4,
-        roughness: 0.18,
-        metalness: 0.05,
-        transparent: true,
-        opacity: 0.92
-    }))
-    mesh.receiveShadow = true
-    group.add(mesh)
+    return canvas
+}
+
+/** One sheet per plot that has any water on it. */
+export function createWaterLayer(plots: readonly { x: number, y: number }[]): THREE.Group {
+    const group = new THREE.Group()
+    const geometry = new THREE.PlaneGeometry(TOWN_PLOT_SIZE, TOWN_PLOT_SIZE)
+    geometry.rotateX(-Math.PI / 2)
+    for (const plot of plots) {
+        const canvas = paintWater(plot.x, plot.y)
+        if (!canvas) continue
+        const texture = new THREE.CanvasTexture(canvas)
+        texture.colorSpace = THREE.SRGBColorSpace
+        texture.anisotropy = 4
+        const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            depthWrite: false
+        }))
+        mesh.position.set(
+            plot.x * TOWN_PLOT_SIZE + TOWN_PLOT_SIZE / 2,
+            WATER_Y,
+            plot.y * TOWN_PLOT_SIZE + TOWN_PLOT_SIZE / 2
+        )
+        group.add(mesh)
+    }
     return group
 }
 
+/** Every sheet owns a canvas texture, so the layer has to be let go properly. */
 export function disposeWaterLayer(group: THREE.Group) {
+    let geometry: THREE.BufferGeometry | null = null
     for (const child of group.children) {
         if (!(child instanceof THREE.Mesh)) continue
-        child.geometry.dispose()
-        ;(child.material as THREE.Material).dispose()
+        geometry = child.geometry
+        const material = child.material as THREE.MeshBasicMaterial
+        material.map?.dispose()
+        material.dispose()
     }
+    geometry?.dispose()
     group.clear()
 }

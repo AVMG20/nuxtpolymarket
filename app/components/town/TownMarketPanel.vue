@@ -33,6 +33,8 @@ const props = defineProps<{
     netPerTick: Record<string, number>
     speedMultiplier: number
     tickMs: number
+    /** Per-resource storage cap. Full storage halts the workshops that fill it. */
+    storageCap: number
 }>()
 
 const emit = defineEmits<{
@@ -246,6 +248,13 @@ function fmtRate(perHour: number) {
 const quickQty = ref(1)
 watch(selected, () => { quickQty.value = Math.min(Math.max(1, owned.value), 100) })
 const sellTotal = computed(() => (resource.value?.floorPrice ?? 0) * Math.max(0, Math.floor(quickQty.value || 0)))
+
+// ── Storage ──
+// A resource sitting at its cap is not a full cupboard, it is a stopped
+// production line, so the bar turns red before it gets there.
+const storeRatio = computed(() => props.storageCap > 0 ? Math.min(1, owned.value / props.storageCap) : 0)
+const storeFull = computed(() => storeRatio.value >= 0.999)
+const storeClass = computed(() => storeRatio.value >= 0.9 ? 'bad' : storeRatio.value >= 0.7 ? 'meh' : 'ok')
 /** Cheapest way to buy `quickQty` right now by eating the ask book, or null if the book is too thin. */
 const buyQuote = computed(() => {
     const want = Math.max(0, Math.floor(quickQty.value || 0))
@@ -435,10 +444,15 @@ function timeAgo(at: number) {
                         <div class="text-xs opacity-60">Tier {{ resource.tier }} · you own <b class="opacity-100">{{ formatNumber(owned) }}</b></div>
                     </div>
                     <div class="mk-prices">
-                        <span><i>Floor</i><b>{{ fmtPrice(resource.floorPrice) }}</b></span>
-                        <span v-if="lastPrices[resource.id]"><i>Last</i><b style="color: var(--g-gold)">{{ fmtPrice(lastPrices[resource.id]!) }}</b></span>
-                        <span><i>Max offer</i><b>{{ fmtPrice(resource.ceilingPrice) }}</b></span>
+                        <span v-if="lastPrices[resource.id]"><i>Last traded</i><b style="color: var(--g-gold)">{{ fmtPrice(lastPrices[resource.id]!) }}</b></span>
                     </div>
+                </div>
+
+                <!-- Storage: full storage halts every workshop that makes this. -->
+                <div class="mk-store" :data-tip="storeFull ? 'Storage is full — the workshops that make this have stopped. Sell some, or build a warehouse.' : 'Build warehouses to hold more.'">
+                    <span class="mk-store-label">📦 Storage</span>
+                    <span class="mk-store-bar"><i :class="storeClass" :style="{ width: `${Math.round(storeRatio * 100)}%` }" /></span>
+                    <b class="mk-store-num">{{ formatNumber(owned) }}<span class="opacity-45">/{{ formatNumber(storageCap) }}</span></b>
                 </div>
 
                 <!-- Instant trade -->
@@ -559,6 +573,14 @@ function timeAgo(at: number) {
 .mk-prices span { display: flex; flex-direction: column; align-items: flex-end; }
 .mk-prices i { font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.5; }
 .mk-prices b { font-size: 14px; font-variant-numeric: tabular-nums; }
+.mk-store { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--g-line); cursor: help; }
+.mk-store-label { font-size: 12px; opacity: 0.7; }
+.mk-store-bar { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
+.mk-store-bar i { display: block; height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+.mk-store-bar i.ok { background: linear-gradient(90deg, #7ee081, #3ecf5a); }
+.mk-store-bar i.meh { background: linear-gradient(90deg, #ffd479, #f5a623); }
+.mk-store-bar i.bad { background: linear-gradient(90deg, #ff8a8a, #ff5252); }
+.mk-store-num { font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .mk-sec { padding: 12px 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--g-line); }
 .mk-sec > header { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; opacity: 0.85; }
 .mk-sec > header .opacity-50 { text-transform: none; letter-spacing: 0; font-weight: 600; }

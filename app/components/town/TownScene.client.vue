@@ -29,6 +29,8 @@ export interface SceneBuilding {
     createdAt: number
     staffing: number | null
     connected?: boolean
+    /** Total duration of the job running now, quoted by the server. */
+    jobMs?: number | null
 }
 export interface SceneExpansion { x: number, y: number, free: boolean, ownerName?: string }
 export interface SceneNeighbour {
@@ -205,7 +207,8 @@ function setupStatic() {
     skyFill.position.set(-30, 20, -20)
     scene.add(skyFill)
     sun.castShadow = true
-    sun.shadow.mapSize.set(2048, 2048)
+    // 1024 is indistinguishable at this camera distance and a quarter the fill.
+    sun.shadow.mapSize.set(1024, 1024)
     sun.shadow.camera.near = 5
     sun.shadow.camera.far = 120
     sun.shadow.camera.left = -34
@@ -304,9 +307,37 @@ function makePlotTexture(): THREE.CanvasTexture {
     return plotTexture
 }
 
+/**
+ * Empty a group and give back everything it held.
+ *
+ * Object3D.clear() only unparents: the GL buffer behind a dropped geometry is
+ * freed on its 'dispose' event and nowhere else, so a rebuild that merely
+ * clears leaks every geometry and material it made, for the life of the tab.
+ * These groups rebuild on every poll, so that adds up fast.
+ */
+function disposeGroup(group: THREE.Object3D) {
+    const geometries = new Set<THREE.BufferGeometry>()
+    const materials = new Set<THREE.Material>()
+    group.traverse((child) => {
+        const mesh = child as THREE.Mesh | THREE.LineSegments
+        if (!mesh.geometry) return
+        geometries.add(mesh.geometry)
+        const material = mesh.material
+        if (Array.isArray(material)) for (const m of material) materials.add(m)
+        else if (material) materials.add(material)
+    })
+    for (const geometry of geometries) geometry.dispose()
+    for (const material of materials) {
+        const withMap = material as THREE.Material & { map?: THREE.Texture | null }
+        withMap.map?.dispose()
+        material.dispose()
+    }
+    group.clear()
+}
+
 const plotMeshes = new Map<string, THREE.Mesh>()
 function rebuildPlots() {
-    plotsGroup.clear()
+    disposeGroup(plotsGroup)
     plotMeshes.clear()
     const tex = makePlotTexture()
     const topMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 })
@@ -330,7 +361,6 @@ function rebuildPlots() {
  */
 function rebuildTerrainOverlay() {
     disposeTerrainOverlay(terrainGroup)
-    disposeWaterLayer(waterGroup)
     if (!props.terrainOverlay) return
     const highlight = props.ghostType && getTownBuilding(props.ghostType) ? props.ghostType as TownBuildingId : null
     terrainGroup.add(...createTerrainOverlay(props.plots, highlight).children)
@@ -352,7 +382,7 @@ function rebuildWater() {
 let hoveredSlotKey: string | null = null
 
 function rebuildExpansions() {
-    expansionGroup.clear()
+    disposeGroup(expansionGroup)
     const freeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.055, roughness: 1, depthWrite: false })
     const takenMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, transparent: true, opacity: 0.18, roughness: 1, depthWrite: false })
     for (const slot of props.expansions) {
@@ -380,7 +410,7 @@ function rebuildExpansions() {
 
 
 function rebuildNeighbours() {
-    neighbourGroup.clear()
+    disposeGroup(neighbourGroup)
     if (props.neighbours.length === 0) return
 
     const tex = makePlotTexture()
@@ -696,6 +726,7 @@ function syncBuildings() {
         }
         if (!pending && e.scaffold) {
             e.group.remove(e.scaffold)
+            disposeGroup(e.scaffold)
             e.scaffold = null
         }
         if (e.wasPending && !pending) e.popAt = performance.now()
@@ -712,6 +743,9 @@ function syncBuildings() {
 function disposeEntry(e: BuildingEntry) {
     releaseModelGlow(e.model)
     buildingsGroup.remove(e.group)
+    // The model's geometry is shared with the prototype cache and must not be
+    // touched; the scaffold is this entry's own and would otherwise leak.
+    if (e.scaffold) { disposeGroup(e.scaffold); e.scaffold = null }
     e.bar?.remove()
     e.alert?.remove()
 }
@@ -871,7 +905,7 @@ function syncRadii() {
     }
     wanted.forEach((r, i) => {
         const holder = radiusPool[i]!
-        holder.clear()
+        disposeGroup(holder)
         holder.add(makeRadius(r.radius, r.kind))
         holder.position.set(r.x, 0.33, r.y)
         holder.visible = true
@@ -881,7 +915,7 @@ function syncRadii() {
 
 let ghostRadiusMesh: THREE.Group | null = null
 function rebuildGhostRadius() {
-    if (ghostRadiusMesh) { fxGroup.remove(ghostRadiusMesh); ghostRadiusMesh = null }
+    if (ghostRadiusMesh) { fxGroup.remove(ghostRadiusMesh); disposeGroup(ghostRadiusMesh); ghostRadiusMesh = null }
     const gr = props.ghostRadius
     if (!gr) return
     ghostRadiusMesh = makeRadius(gr.radius, gr.kind)
@@ -1456,7 +1490,10 @@ function updateOverlays(now: number) {
             continue
         }
         ensureBar(e)
-        const total = townLevelBuildMs(e.def, e.data.upgradingTo ?? 1)
+        // The server quotes the total; it is the only side that knows this
+        // town's mood and research, and a bar that disagrees with the clock
+        // beside it is worse than no bar.
+        const total = Math.max(1, e.data.jobMs ?? townLevelBuildMs(e.def, e.data.upgradingTo ?? 1))
         const progress = Math.max(0, Math.min(1, 1 - (e.data.completesAt - now) / total))
         ;(e.bar!.firstElementChild as HTMLElement).style.width = `${Math.round(progress * 100)}%`
     }
@@ -1535,8 +1572,16 @@ const pointers = new Map<number, { x: number, y: number }>()
 let pinch = 0
 const isPanning = ref(false)
 
+// getBoundingClientRect forces a synchronous layout, and this runs on every
+// pointer move. The rect only changes when the canvas resizes or the page
+// scrolls, both of which we already hear about.
+let canvasRect: DOMRect | null = null
+function refreshCanvasRect() {
+    canvasRect = canvas.value?.getBoundingClientRect() ?? null
+}
+
 function local(e: PointerEvent | WheelEvent) {
-    const r = canvas.value!.getBoundingClientRect()
+    const r = canvasRect ?? canvas.value!.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
 }
 
@@ -1810,7 +1855,7 @@ function frame(ms: number) {
         if (e.wasPending && !pending) {
             e.popAt = ms
             e.wasPending = false
-            if (e.scaffold) { e.group.remove(e.scaffold); e.scaffold = null }
+            if (e.scaffold) { e.group.remove(e.scaffold); disposeGroup(e.scaffold); e.scaffold = null }
             markShadowsDirty()
         }
         const def = e.def
@@ -1819,7 +1864,7 @@ function frame(ms: number) {
         // Grow out of the ground while building; pop on completion; hover lift.
         let sy = levelScale(b.level)
         if (pending) {
-            const total = townLevelBuildMs(def, b.upgradingTo ?? 1)
+            const total = Math.max(1, b.jobMs ?? townLevelBuildMs(def, b.upgradingTo ?? 1))
             const progress = Math.max(0, Math.min(1, 1 - (b.completesAt - now) / total))
             sy = (b.level === 0 ? 0.15 : levelScale(b.level)) + progress * (levelScale(b.upgradingTo ?? 1) - (b.level === 0 ? 0.15 : levelScale(b.level))) * 0.9
             if (Math.random() < dt * 1.5) spawn(new THREE.Vector3(e.group.position.x + (Math.random() - 0.5) * 0.6, 0.35, e.group.position.z + (Math.random() - 0.5) * 0.6), 'dust')
@@ -1916,6 +1961,7 @@ function resize() {
     renderer.setSize(viewW, viewH, false)
     camera.aspect = viewW / viewH
     camera.updateProjectionMatrix()
+    refreshCanvasRect()
 }
 
 let ro: ResizeObserver | null = null
@@ -1943,6 +1989,7 @@ onMounted(() => {
     window.addEventListener('keydown', onMovementKeyDown)
     window.addEventListener('keyup', onMovementKeyUp)
     window.addEventListener('blur', clearMovement)
+    window.addEventListener('scroll', refreshCanvasRect, { passive: true, capture: true })
     document.addEventListener('visibilitychange', clearMovement)
     setupStatic()
     rebuildPlots()
@@ -1973,6 +2020,7 @@ onBeforeUnmount(() => {
     window.removeEventListener('keydown', onMovementKeyDown)
     window.removeEventListener('keyup', onMovementKeyUp)
     window.removeEventListener('blur', clearMovement)
+    window.removeEventListener('scroll', refreshCanvasRect, { capture: true })
     document.removeEventListener('visibilitychange', clearMovement)
     cancelAnimationFrame(rafId)
     ro?.disconnect()
@@ -1988,10 +2036,41 @@ onBeforeUnmount(() => {
     renderer = null
 })
 
-watch(() => props.plots, () => { invalidateTileCaches(); rebuildPlots(); rebuildWater(); rebuildTerrainOverlay(); rebuildDecor(); syncBuildings(); syncVehicles(); markShadowsDirty() }, { deep: true })
+/**
+ * The scenery around the town depends on the plots, the expansion slots and the
+ * neighbours all three. They used to be three deep watchers each calling
+ * rebuildDecor, and because a poll replaces the whole state object all three
+ * fired every thirty seconds — so the meadow (about thirty thousand instanced
+ * props) was rebuilt three times for one poll that usually changed nothing.
+ *
+ * One watcher, and the decor is rebuilt only when the footprint it is drawn
+ * around has actually moved.
+ */
+let decorKey = ''
+function landChanged() {
+    const key = [
+        props.plots.map(p => `${p.x},${p.y}`).join('|'),
+        props.expansions.map(e => `${e.x},${e.y},${e.free ? 1 : 0}`).join('|'),
+        props.neighbours.map(n => `${n.x},${n.y}`).join('|')
+    ].join('#')
+    if (key === decorKey) return false
+    decorKey = key
+    return true
+}
+
+watch(() => [props.plots, props.expansions, props.neighbours], () => {
+    invalidateTileCaches()
+    rebuildPlots()
+    rebuildWater()
+    rebuildTerrainOverlay()
+    rebuildExpansions()
+    rebuildNeighbours()
+    if (landChanged()) rebuildDecor()
+    syncBuildings()
+    syncVehicles()
+    markShadowsDirty()
+}, { deep: true })
 watch(() => [props.terrainOverlay, props.ghostType], rebuildTerrainOverlay)
-watch(() => props.expansions, () => { rebuildExpansions(); rebuildDecor(); markShadowsDirty() }, { deep: true })
-watch(() => props.neighbours, () => { rebuildNeighbours(); rebuildDecor(); markShadowsDirty() }, { deep: true })
 watch(() => props.buildings, () => { invalidateTileCaches(); syncBuildings(); syncVehicles(); markShadowsDirty() }, { deep: true })
 watch(() => [props.ghostType, props.ghostLevel], rebuildGhost)
 watch(() => props.keyboardEnabled, clearMovement)

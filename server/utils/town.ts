@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, gte, inArray, lte, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townResearch } from '#server/database/schema'
+import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townResearch, townRealm } from '#server/database/schema'
 import { credit, creditGems, debit, debitGems } from '#server/utils/balance'
 import { matchGemOrder } from '#shared/utils/gamelogic/gem-exchange'
 import {
@@ -30,6 +30,7 @@ import {
     TOWN_NO_RESEARCH,
     type TownResearchBonus,
     townCeilingPrice,
+    TOWN_MAX_ORDER_PRICE,
     townOrderTotal,
     isValidTownPrice,
     isValidTownQuantity,
@@ -53,6 +54,12 @@ import {
 import { townResearchEffects } from '#shared/utils/gamelogic/town-research'
 
 const CATEGORY = 'polytown'
+/**
+ * Coins returning to the player who escrowed them: change on a cheaper fill,
+ * and the refund on a cancelled order. Tagged so the bank does not garnish
+ * money the player never earned — see isEarning in server/utils/balance.ts.
+ */
+const CATEGORY_REFUND = 'polytown:refund'
 
 // App-unique advisory lock keys. Plot claiming serializes on one global key so
 // spiral indexes never collide; each resource book gets its own key so matching
@@ -102,14 +109,21 @@ export async function getInventory(userId: string, ex: DbExecutor = db, lock = f
     return bag
 }
 
-/** Upsert-increment. Never writes an absolute value, so concurrent fills and settles commute. */
+/**
+ * Upsert-increment. Never writes an absolute value, so concurrent fills and
+ * settles commute.
+ *
+ * Both halves floor at zero. A town cannot hold negative stock, and a shelf
+ * that does not exist yet holds nothing rather than a debt — consuming from an
+ * empty larder is a no-op, not a hole to be filled later.
+ */
 export async function addInventory(tx: DbExecutor, userId: string, resource: TownResourceId, delta: number) {
     if (delta === 0) return
     await tx.insert(townInventory)
-        .values({ userId, resource, amount: delta })
+        .values({ userId, resource, amount: Math.max(0, delta) })
         .onConflictDoUpdate({
             target: [townInventory.userId, townInventory.resource],
-            set: { amount: sql`${townInventory.amount} + ${delta}` }
+            set: { amount: sql`greatest(0, ${townInventory.amount} + ${delta})` }
         })
 }
 
@@ -167,6 +181,36 @@ export interface SettledTown {
     elapsedMs: number
     /** Which needs the last tick could supply. */
     satisfied: TownSatisfied
+    /**
+     * What this town's research is worth. Handed back so every caller derives
+     * with the same bonus the settle just paid out — a rate quoted without it
+     * is a number the player would catch us lying about.
+     */
+    research: TownResearchBonus
+}
+
+/**
+ * Bank the running project if its clock has run out. Lives here rather than in
+ * the research module because the settle has to do it first, under the same
+ * town_state lock, before it reads the bonus for the window it is about to pay.
+ *
+ * The insert is the guard: a second caller conflicts on the unique
+ * (user, project) pair and changes nothing.
+ */
+export async function bankFinishedResearch(
+    tx: DbExecutor,
+    userId: string,
+    state: typeof townState.$inferSelect,
+    now = Date.now()
+) {
+    if (!state.researchId || !state.researchCompletesAt) return
+    if (state.researchCompletesAt.getTime() > now) return
+    await tx.insert(townResearch)
+        .values({ userId, researchId: state.researchId })
+        .onConflictDoNothing()
+    await tx.update(townState)
+        .set({ researchId: null, researchCompletesAt: null })
+        .where(and(eq(townState.id, state.id), eq(townState.researchId, state.researchId)))
 }
 
 /**
@@ -181,9 +225,14 @@ export async function getResearchBonus(tx: DbExecutor, userId: string): Promise<
     return townResearchEffects(rows.map(r => r.researchId))
 }
 
-/** The town hall's price for this player: the floor, plus whatever Trade research adds. */
-export function townPriceFor(resource: TownResourceId, research: TownResearchBonus): number {
-    return Math.round(townFloorPrice(resource) * (1 + research.floorPrice) * 100) / 100
+/**
+ * The town hall's price. It is the floor and nothing else: a per-player bonus
+ * on top of it was arbitrage, because the order book's minimum ask stayed at
+ * the raw floor and anyone with the perk could buy there and sell here for
+ * more. Kept as a function so every sale path goes through one place.
+ */
+export function townPriceFor(resource: TownResourceId): number {
+    return townFloorPrice(resource)
 }
 
 /**
@@ -197,6 +246,10 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
     const inventory = await getInventory(userId, tx, true)
     const { plots, byId } = await getPlotMap(userId, tx)
     const simBefore = rows.map(row => toSim(row, byId.get(row.plotId)))
+    // A project that finished while the player was away has to be banked
+    // before the window is settled, or the whole offline stretch is paid at
+    // the un-researched rate and the bonus is quietly lost.
+    await bankFinishedResearch(tx, userId, state, now)
     const research = await getResearchBonus(tx, userId)
 
     const result = settleTown({
@@ -262,7 +315,8 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
         completed: result.completed,
         delta: result.delta,
         elapsedMs: Math.min(now - state.lastSettledAt.getTime(), TOWN_MAX_OFFLINE_MS),
-        satisfied: result.satisfied
+        satisfied: result.satisfied,
+        research
     }
 }
 
@@ -281,17 +335,51 @@ export async function settleTownForRead(userId: string) {
  */
 async function claimFoundingPlot(tx: DbExecutor, userId: string) {
     await lockPlots(tx)
-    const owned = await tx.select({ x: townPlots.x, y: townPlots.y }).from(townPlots)
-    for (let i = 0; i < 100_000; i++) {
-        const spot = townSpiralCoords(i)
-        if (owned.some(p => townPlotDistance(p, spot) <= TOWN_FOUNDING_GAP)) continue
+
+    // Resume where the last founding finished. Squares behind the cursor were
+    // rejected once and can only have become more crowded since, so walking
+    // them again is pure waste — and it is what used to make founding
+    // quadratic in the number of towns and fail outright past a few thousand.
+    const [realm] = await tx.insert(townRealm)
+        .values({ id: 1, foundingCursor: 0 })
+        .onConflictDoNothing()
+        .returning({ foundingCursor: townRealm.foundingCursor })
+    let cursor = realm?.foundingCursor
+        ?? (await tx.select({ foundingCursor: townRealm.foundingCursor }).from(townRealm).where(eq(townRealm.id, 1)))[0]?.foundingCursor
+        ?? 0
+
+    for (let checked = 0; checked < 50_000; checked++, cursor++) {
+        const spot = townSpiralCoords(cursor)
+
         // Flat grassland is perfectly buildable but has no soil, no timber and
         // no stone worth the name. A first plot should have some of each so a
         // new mayor can see what terrain is for; bland land is something you
         // buy on purpose later, not something you are handed.
         if (townPlotIsFlat(spot.x, spot.y)) continue
-        const [plot] = await tx.insert(townPlots).values({ userId, x: spot.x, y: spot.y, paidPrice: '0' }).onConflictDoNothing().returning()
-        if (plot) return plot
+
+        // Only the square's own neighbourhood matters, so ask the database for
+        // that box instead of pulling the whole realm into memory.
+        const [near] = await tx.select({ n: sql<number>`count(*)`.mapWith(Number) })
+            .from(townPlots)
+            .where(and(
+                gte(townPlots.x, spot.x - TOWN_FOUNDING_GAP),
+                lte(townPlots.x, spot.x + TOWN_FOUNDING_GAP),
+                gte(townPlots.y, spot.y - TOWN_FOUNDING_GAP),
+                lte(townPlots.y, spot.y + TOWN_FOUNDING_GAP)
+            ))
+        if ((near?.n ?? 0) > 0) continue
+
+        const [plot] = await tx.insert(townPlots)
+            .values({ userId, x: spot.x, y: spot.y, paidPrice: '0' })
+            .onConflictDoNothing()
+            .returning()
+        if (!plot) continue
+
+        // Everything up to and including this square is spoken for.
+        await tx.update(townRealm)
+            .set({ foundingCursor: cursor + 1 })
+            .where(eq(townRealm.id, 1))
+        return plot
     }
     throw createError({ statusCode: 500, statusMessage: 'No free land left' })
 }
@@ -337,7 +425,7 @@ export async function foundTown(userId: string) {
     })
 }
 
-export function plotPurchaseInfo(state: { plotsBought: number, lastPlotBoughtAt: Date }, now = Date.now()) {
+export function plotPurchaseInfo(state: { plotsBought: number, lastPlotBoughtAt: Date }, now = Date.now(), owned = state.plotsBought) {
     const nextIndex = state.plotsBought + 1
     const cooldownMs = townPlotCooldownMs(nextIndex)
     const availableAt = state.lastPlotBoughtAt.getTime() + cooldownMs
@@ -347,7 +435,8 @@ export function plotPurchaseInfo(state: { plotsBought: number, lastPlotBoughtAt:
         cooldownMs,
         availableAt,
         remainingMs: Math.max(0, availableAt - now),
-        maxed: state.plotsBought >= TOWN_MAX_PLOTS
+        // The cap is on land held, not land bought: plots also arrive from other players.
+        maxed: owned >= TOWN_MAX_PLOTS
     }
 }
 
@@ -356,7 +445,7 @@ export async function buyPlot(userId: string, x: number, y: number) {
     return db.transaction(async (tx) => {
         const now = Date.now()
         const { state, plots } = await settleTownState(tx, userId, now)
-        const info = plotPurchaseInfo(state, now)
+        const info = plotPurchaseInfo(state, now, plots.length)
         if (info.maxed) throw createError({ statusCode: 400, statusMessage: 'You own the maximum number of plots' })
         if (info.remainingMs > 0) throw createError({ statusCode: 400, statusMessage: 'The land office is not selling to you yet' })
         if (!plots.some(p => Math.abs(p.x - x) + Math.abs(p.y - y) === 1)) {
@@ -433,7 +522,10 @@ export async function sellPlotToSystem(userId: string, plotId: string) {
  * — that is the point of the player market — but the plot still has to touch
  * land you already own, so towns stay contiguous.
  */
-export async function buyPlotFromPlayer(userId: string, plotId: string) {
+export async function buyPlotFromPlayer(userId: string, plotId: string, expectedPrice?: number) {
+    if (expectedPrice !== undefined && !isValidTownListPrice(expectedPrice)) {
+        throw createError({ statusCode: 400, statusMessage: 'That is not a price' })
+    }
     return db.transaction(async (tx) => {
         await lockPlots(tx)
         const listing = await tx.query.townPlots.findFirst({ where: eq(townPlots.id, plotId) })
@@ -441,6 +533,12 @@ export async function buyPlotFromPlayer(userId: string, plotId: string) {
         if (listing.userId === userId) throw createError({ statusCode: 400, statusMessage: 'That plot is already yours' })
         const sellerId = listing.userId
         const price = parseFloat(listing.listPrice)
+        // The buyer agreed to a price they saw, and what they saw can be half a
+        // minute old. Without this a seller can re-list at any figure while the
+        // click is in flight and the buyer pays it.
+        if (expectedPrice !== undefined && price !== expectedPrice) {
+            throw createError({ statusCode: 409, statusMessage: 'The asking price changed — take another look' })
+        }
 
         // Lock both towns in id order so two crossing purchases cannot deadlock.
         for (const id of [userId, sellerId].sort()) {
@@ -464,15 +562,22 @@ export async function buyPlotFromPlayer(userId: string, plotId: string) {
 
         // The conditional update is the claim: whoever flips the listing owns it.
         const [bought] = await tx.update(townPlots)
-            .set({ userId, listPrice: null, paidPrice: price.toFixed(4) })
+            // paidPrice is what the LAND OFFICE was paid, and it stays at zero
+            // through a player sale. The coins for this plot went to the seller,
+            // not into the treasury, so the treasury owes nothing for it back —
+            // otherwise two accounts could pass a plot between them at any price
+            // they liked and mint a quarter of it every round.
+            .set({ userId, listPrice: null, paidPrice: '0' })
             .where(and(eq(townPlots.id, plotId), eq(townPlots.userId, sellerId), sql`${townPlots.listPrice} is not null`))
             .returning({ id: townPlots.id })
         if (!bought) throw createError({ statusCode: 409, statusMessage: 'Someone just bought that plot' })
 
         await debit(userId, price.toFixed(4), CATEGORY, tx)
         await credit(sellerId, price.toFixed(4), CATEGORY, tx)
-        await tx.update(townState).set({ plotsBought: sql`${townState.plotsBought} + 1` }).where(eq(townState.userId, userId))
-        await tx.update(townState).set({ plotsBought: sql`greatest(1, ${townState.plotsBought} - 1)` }).where(eq(townState.userId, sellerId))
+        // plotsBought counts plots taken from the LAND OFFICE, and a sale
+        // between players is none of the office's business. Moving it here
+        // would let a pair sell a plot back and forth to walk each other's
+        // price ladder back down to the first rung.
         return { plotId, price, sellerId }
     })
 }
@@ -559,11 +664,11 @@ export async function placeBuilding(userId: string, plotId: string, tileX: numbe
 
     return db.transaction(async (tx) => {
         const now = Date.now()
-        const { sim, state } = await settleTownState(tx, userId, now)
+        const { sim, state, research } = await settleTownState(tx, userId, now)
 
         const plot = await tx.query.townPlots.findFirst({ where: and(eq(townPlots.id, plotId), eq(townPlots.userId, userId)) })
         if (!plot) throw createError({ statusCode: 400, statusMessage: 'That plot is not yours' })
-        const lock = townTierRequirement(sim, def.tier, now, state.produced)
+        const lock = townTierRequirement(sim, def.tier, now, state.produced, research)
         if (lock) {
             const why = lock.needsBuilding
                 ? `Finish a tier ${def.tier - 1} building first`
@@ -591,7 +696,7 @@ export async function placeBuilding(userId: string, plotId: string, tileX: numbe
 
         // Roads are instant; everything else builds, faster in a happier town.
         const instant = def.kind === 'road'
-        const buildMs = instant ? 0 : townLevelBuildMs(def, 1, state.happiness)
+        const buildMs = instant ? 0 : townLevelBuildMs(def, 1, state.happiness, research)
 
         // The unique (plot, tile) constraint is the occupancy guard.
         const [building] = await tx.insert(townBuildings)
@@ -658,7 +763,7 @@ export async function moveBuilding(userId: string, buildingId: string, plotId: s
 export async function upgradeBuilding(userId: string, buildingId: string) {
     return db.transaction(async (tx) => {
         const now = Date.now()
-        const { buildings, state, sim } = await settleTownState(tx, userId, now)
+        const { buildings, state, sim, research } = await settleTownState(tx, userId, now)
         const building = buildings.find(b => b.id === buildingId)
         if (!building) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
         if (building.level === 0) throw createError({ statusCode: 400, statusMessage: 'Still under construction' })
@@ -675,7 +780,7 @@ export async function upgradeBuilding(userId: string, buildingId: string) {
         if (cost.coins > 0) await debit(userId, cost.coins.toFixed(4), CATEGORY, tx)
         await spendBag(tx, userId, cost.resources)
 
-        const completesAt = new Date(now + townLevelBuildMs(def, nextLevel, state.happiness))
+        const completesAt = new Date(now + townLevelBuildMs(def, nextLevel, state.happiness, research))
         const [updated] = await tx.update(townBuildings)
             .set({ upgradingTo: nextLevel, completesAt })
             .where(and(eq(townBuildings.id, buildingId), eq(townBuildings.level, building.level), sql`${townBuildings.upgradingTo} is null`))
@@ -719,7 +824,15 @@ export async function demolishBuilding(userId: string, buildingId: string) {
     })
 }
 
-/** Lifetime sales counter behind the merchant milestones. Plain increment, no read. */
+/**
+ * Lifetime sales counter behind the merchant milestones. Plain increment, no read.
+ *
+ * Only town-hall sales count. A player counterparty can be the seller's own
+ * second account, and two accounts passing one unit back and forth at a price
+ * they choose will run this counter to any figure they like — which then pays
+ * out real coins and gems at the Magnate milestone. The hall is the one
+ * counterparty nobody can be on both sides of.
+ */
 async function recordEarnings(tx: DbExecutor, userId: string, coins: number) {
     if (coins <= 0) return
     await tx.update(townState)
@@ -729,12 +842,12 @@ async function recordEarnings(tx: DbExecutor, userId: string, coins: number) {
 
 // ─── Milestones ──────────────────────────────────────────────────────────────
 
-export function milestoneSnapshotFor(settled: Pick<SettledTown, 'state' | 'sim' | 'inventory' | 'satisfied'>, now: number) {
-    const derived = deriveTown(settled.sim, settled.state.happiness, now, settled.satisfied)
+export function milestoneSnapshotFor(settled: Pick<SettledTown, 'state' | 'sim' | 'inventory' | 'satisfied' | 'research'>, now: number) {
+    const derived = deriveTown(settled.sim, settled.state.happiness, now, settled.satisfied, undefined, settled.research)
     return townMilestoneSnapshot(settled.sim, derived, settled.state.happiness, settled.state.plotsBought, parseFloat(settled.state.coinsEarned), now)
 }
 
-export function serializeMilestones(settled: Pick<SettledTown, 'state' | 'sim' | 'inventory' | 'satisfied'>, now: number) {
+export function serializeMilestones(settled: Pick<SettledTown, 'state' | 'sim' | 'inventory' | 'satisfied' | 'research'>, now: number) {
     const snapshot = milestoneSnapshotFor(settled, now)
     const claimed = new Set(settled.state.milestonesClaimed)
     return TOWN_MILESTONES.map((m) => {
@@ -794,7 +907,7 @@ export async function sellToFloor(userId: string, resource: string, quantity: nu
     if (!isValidTownQuantity(quantity)) throw createError({ statusCode: 400, statusMessage: 'Quantity must be a whole number' })
     return db.transaction(async (tx) => {
         await lockTownForMarket(tx, userId)
-        const price = townPriceFor(resource, await getResearchBonus(tx, userId))
+        const price = townPriceFor(resource)
         const total = townOrderTotal(price, quantity)
         // The conditional decrement is the guard — inventory increments commute.
         await takeInventory(tx, userId, resource, quantity)
@@ -822,7 +935,7 @@ export async function sellBulkToFloor(userId: string, items: { resource: string,
         const research = await getResearchBonus(tx, userId)
         const lines = items.map((item) => {
             const resource = item.resource as TownResourceId
-            const price = townPriceFor(resource, research)
+            const price = townPriceFor(resource)
             return { resource, quantity: item.quantity, price, total: townOrderTotal(price, item.quantity) }
         })
         let total = 0
@@ -881,11 +994,14 @@ export interface PlaceTownOrderResult {
 }
 
 /**
- * Limit order with escrow, matched against the resting book. Prices are
- * clamped to the system band [floor, ceiling]: nobody can undercut the
- * system's buy price or overcharge above what the system sells at, which keeps
- * the book meaningful and pump-proof. Buys escrow coins (change refunded on
- * cheaper fills), sells escrow the resource. Same engine as the gem exchange.
+ * Limit order with escrow, matched against the resting book.
+ *
+ * The floor is the only bound. Nobody may ask less than the town hall already
+ * pays, because an order below it could never be worth taking — but there is
+ * no ceiling: what a good is worth to another mayor is between the two of
+ * them, and a scarce good late in the game is worth far more than ten times
+ * its floor. Buys escrow coins (change refunded on cheaper fills), sells
+ * escrow the resource. Same engine as the gem exchange.
  */
 export async function placeTownOrder(
     userId: string,
@@ -899,31 +1015,25 @@ export async function placeTownOrder(
     if (!isValidTownPrice(price)) throw createError({ statusCode: 400, statusMessage: 'Price must have at most 2 decimals' })
     if (!isValidTownQuantity(quantity)) throw createError({ statusCode: 400, statusMessage: 'Quantity must be a whole number' })
     const floor = townFloorPrice(resource)
-    const ceiling = townCeilingPrice(resource)
-    if (price < floor || price > ceiling) {
-        throw createError({ statusCode: 400, statusMessage: `Price must be between ${floor} and ${ceiling} coins` })
+    if (price < floor) {
+        throw createError({ statusCode: 400, statusMessage: `The town hall already pays ${floor} — ask at least that` })
+    }
+    // A price nobody could ever pay is a typo, not an order: the escrow on a
+    // buy at 1e15 would fail anyway, and a sell at that price only clutters
+    // the book. Cap it well above anything the game can produce.
+    if (price > TOWN_MAX_ORDER_PRICE) {
+        throw createError({ statusCode: 400, statusMessage: `Price must be ${TOWN_MAX_ORDER_PRICE.toLocaleString('en')} coins or less` })
     }
 
     return db.transaction(async (tx) => {
         await lockBook(tx, resource)
-        // Own town first (lock order: town_state → inventory → user). This also
-        // serializes the cross-resource open-order cap below.
-        await lockTownForMarket(tx, userId)
 
-        const [countRow] = await tx
-            .select({ openCount: sql<number>`count(*)`.mapWith(Number) })
-            .from(townOrders)
-            .where(and(eq(townOrders.userId, userId), eq(townOrders.status, 'open')))
-        if ((countRow?.openCount ?? 0) >= TOWN_MARKET_MAX_OPEN_ORDERS) {
-            throw createError({ statusCode: 400, statusMessage: `All ${TOWN_MARKET_MAX_OPEN_ORDERS} market slots are in use` })
-        }
-
-        if (side === 'buy') {
-            await debit(userId, townOrderTotal(price, quantity).toFixed(4), CATEGORY, tx)
-        } else {
-            await takeInventory(tx, userId, resource, quantity)
-        }
-
+        // Read the book BEFORE locking any town, so that every town this order
+        // touches — the taker's and every counterparty's — can then be locked
+        // in one sorted pass. Locking your own first and the counterparty's
+        // second deadlocks the moment two players trade with each other on two
+        // different books at the same time: each holds what the other wants.
+        // The book lock above is what makes reading first safe.
         const opposite = side === 'buy' ? 'sell' : 'buy'
         const priceStr = price.toFixed(4)
         const restingRows = await tx
@@ -945,6 +1055,23 @@ export async function placeTownOrder(
         }))
         const { fills, remaining } = matchGemOrder({ side, price, quantity, book })
 
+        const touched = [...new Set([userId, ...fills.map(f => f.userId)])].sort()
+        for (const id of touched) await lockTownForMarket(tx, id)
+
+        const [countRow] = await tx
+            .select({ openCount: sql<number>`count(*)`.mapWith(Number) })
+            .from(townOrders)
+            .where(and(eq(townOrders.userId, userId), eq(townOrders.status, 'open')))
+        if ((countRow?.openCount ?? 0) >= TOWN_MARKET_MAX_OPEN_ORDERS) {
+            throw createError({ statusCode: 400, statusMessage: `All ${TOWN_MARKET_MAX_OPEN_ORDERS} market slots are in use` })
+        }
+
+        if (side === 'buy') {
+            await debit(userId, townOrderTotal(price, quantity).toFixed(4), CATEGORY, tx)
+        } else {
+            await takeInventory(tx, userId, resource, quantity)
+        }
+
         let coinsMoved = 0
         for (const fill of fills) {
             const [resting] = await tx.update(townOrders)
@@ -958,16 +1085,14 @@ export async function placeTownOrder(
             if (!resting) throw createError({ statusCode: 500, statusMessage: 'Order book conflict' })
 
             const fillTotal = townOrderTotal(fill.price, fill.quantity)
-            if (fill.userId !== userId) await lockTownForMarket(tx, fill.userId)
+            // No recordEarnings here at all: see the note on that function.
             if (side === 'buy') {
                 const change = townOrderTotal(price, fill.quantity) - fillTotal
                 await addInventory(tx, userId, resource, fill.quantity)
-                if (change > 0) await credit(userId, change.toFixed(4), CATEGORY, tx)
-                await recordEarnings(tx, fill.userId, fillTotal)
+                if (change > 0) await credit(userId, change.toFixed(4), CATEGORY_REFUND, tx)
                 await credit(fill.userId, fillTotal.toFixed(4), CATEGORY, tx)
             } else {
                 await addInventory(tx, fill.userId, resource, fill.quantity)
-                await recordEarnings(tx, userId, fillTotal)
                 await credit(userId, fillTotal.toFixed(4), CATEGORY, tx)
             }
             coinsMoved += fillTotal
@@ -1019,7 +1144,7 @@ export async function cancelTownOrder(userId: string, orderId: string) {
         if (remaining > 0) {
             await lockTownForMarket(tx, userId)
             if (order.side === 'buy') {
-                await credit(userId, townOrderTotal(parseFloat(order.price), remaining).toFixed(4), CATEGORY, tx)
+                await credit(userId, townOrderTotal(parseFloat(order.price), remaining).toFixed(4), CATEGORY_REFUND, tx)
             } else {
                 await addInventory(tx, userId, existing.resource, remaining)
             }
@@ -1114,11 +1239,30 @@ export async function getMyTownOrders(userId: string) {
 }
 
 /** Last-trade price per resource, for the inventory panel's "market" column. */
+/**
+ * The last traded price of every resource.
+ *
+ * Written as one indexed lookup per resource rather than `distinct on`: the
+ * mixed-direction ordering `distinct on` needs cannot use
+ * town_trades_resource_createdAt_idx, so it seq-scanned and disk-sorted the
+ * whole trade table on every poll — nearly two seconds at three million rows.
+ * A lateral join over the twelve resources hits the index twelve times and
+ * comes back in well under a millisecond, however long the table gets.
+ */
 export async function getTownLastPrices(): Promise<Record<string, number>> {
     const rows = await db.execute<{ resource: string, price: string }>(sql`
-        select distinct on (resource) resource, price
-        from town_trades
-        order by resource, created_at desc
+        select r.resource, t.price
+        from unnest(${sql.raw(`array[${TOWN_RESOURCES.map(r => `'${r.id}'`).join(', ')}]::text[]`)}) as r(resource)
+        cross join lateral (
+            select price
+            from town_trades
+            where town_trades.resource = r.resource
+              -- A trade with yourself costs nothing and proves nothing, so it
+              -- must not become the price every other mayor sees.
+              and (buyer_id is null or seller_id is null or buyer_id <> seller_id)
+            order by created_at desc
+            limit 1
+        ) as t
     `)
     const out: Record<string, number> = {}
     const list = Array.isArray(rows) ? rows : (rows as unknown as { rows: { resource: string, price: string }[] }).rows

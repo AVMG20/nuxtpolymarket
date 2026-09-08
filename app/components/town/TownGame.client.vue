@@ -43,7 +43,19 @@ const sceneRef = ref<InstanceType<typeof TownScene> | null>(null)
 const hoveredBuildingId = ref<string | null>(null)
 const hoveredSlot = ref<{ x: number, y: number, free: boolean, ownerName?: string } | null>(null)
 const hoveredNeighbour = ref<{ plotId: string, ownerName: string, type?: string, level?: number } | null>(null)
-const mouse = ref({ x: 0, y: 0 })
+/**
+ * The cursor tooltips follow the pointer through CSS custom properties rather
+ * than a ref. A ref here is a render dependency, so every mousemove re-ran the
+ * whole game template — four hundred elements — at pointer rate, for the sake
+ * of two numbers only three absolutely-positioned boxes ever read.
+ */
+const rootEl = ref<HTMLElement | null>(null)
+function trackPointer(e: MouseEvent) {
+    const el = rootEl.value
+    if (!el) return
+    el.style.setProperty('--cursor-x', `${e.clientX + 16}px`)
+    el.style.setProperty('--cursor-y', `${e.clientY + 16}px`)
+}
 
 const ghostLevel = computed(() => movingId.value ? town.buildings.value.find(b => b.id === movingId.value)?.level ?? 1 : 1)
 const selectedBuilding = computed(() => town.buildings.value.find(b => b.id === selectedBuildingId.value) ?? null)
@@ -213,7 +225,8 @@ const selNextLevel = computed(() => (selectedBuilding.value?.level ?? 0) + 1)
 const selMaxLevel = computed(() => selectedEntry.value?.maxLevel ?? town.constants.value.maxLevel)
 const selCanUpgrade = computed(() => !!selectedBuilding.value && !selPending.value && selectedBuilding.value.level > 0 && selectedBuilding.value.level < selMaxLevel.value)
 const selUpgradeCost = computed(() => selDef.value ? townLevelCost(selDef.value, selNextLevel.value) : { coins: 0, resources: {} })
-const selUpgradeMs = computed(() => selDef.value ? townLevelBuildMs(selDef.value, selNextLevel.value) : 0)
+// The server quotes this: only it knows the town's mood and its research.
+const selUpgradeMs = computed(() => selectedBuilding.value?.nextUpgradeMs ?? 0)
 /** The next rung that will start demanding a good from further up the chain. */
 
 const plotById = computed(() => new Map(town.plots.value.map(p => [p.id, p])))
@@ -369,7 +382,7 @@ function buyListing() {
     const listing = confirmListing.value
     confirmListing.value = null
     if (!listing) return
-    run(() => town.buyPlotFromPlayer(listing.id), res => toast.add({ title: `Bought ${listing.ownerName}'s plot`, description: `Paid ${formatNumber(res.price)} coins`, color: 'success' }), 'plot')
+    run(() => town.buyPlotFromPlayer(listing.id, listing.price), res => toast.add({ title: `Bought ${listing.ownerName}'s plot`, description: `Paid ${formatNumber(res.price)} coins`, color: 'success' }), 'plot')
 }
 
 function listPlotForSale(plotId: string) {
@@ -664,7 +677,7 @@ function onKey(e: KeyboardEvent) {
     else if (e.key === 'm' || e.key === 'M') openMarket()
     else if (e.key === 't' || e.key === 'T') openWindow('goals')
     else if (e.key === 'l' || e.key === 'L') openWindow('mayors')
-    else if (e.key === 'r' || e.key === 'R') openWindow('research')
+    else if (e.key === 'c' || e.key === 'C') openWindow('research')
     else if (e.key === 'p' || e.key === 'P') openWindow('land')
     else if (e.key === 'g' || e.key === 'G') toggleTerrain()
 }
@@ -717,7 +730,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 </script>
 
 <template>
-    <div class="town-root" @mousemove="mouse = { x: $event.clientX, y: $event.clientY }">
+    <div ref="rootEl" class="town-root" @mousemove="trackPointer">
         <TownScene
             v-if="town.initialized.value"
             ref="sceneRef"
@@ -852,9 +865,11 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <!-- Placement hint -->
             <Transition name="fade">
                 <div v-if="ghostType" class="hint">
-                    {{ movingId ? 'Click a tile to move' : 'Click a tile to place' }} <b><TownAsset v-if="ghostType !== 'road'" :id="ghostType" kind="building" :level="ghostLevel" /><template v-else>🛣️</template> {{ town.catalogById.value.get(ghostType)?.name }}</b>
-                    <template v-if="town.catalogById.value.get(ghostType)?.kind !== 'road'"> · white arrow = front door, must touch a road · <button class="placement-rotate" data-tip-below="Rotate clockwise" @click="rotatePlacement"><kbd>R</kbd> rotate</button></template>
-                    · <kbd>Esc</kbd> cancel
+                    <b><TownAsset v-if="ghostType !== 'road'" :id="ghostType" kind="building" :level="ghostLevel" /><template v-else>🛣️</template> {{ town.catalogById.value.get(ghostType)?.name }}</b>
+                    <template v-if="town.catalogById.value.get(ghostType)?.kind !== 'road'">
+                        <button class="placement-rotate" data-tip-below="The white arrow is the front door, and it has to touch a road." @click="rotatePlacement"><kbd>R</kbd> rotate</button>
+                    </template>
+                    <kbd>Esc</kbd>
                 </div>
                 <div v-else-if="hoveredSlot && plotPurchase && plotRemainingMs > 0 && !plotPurchase.maxed" class="hint">
                     Land office opens in <b>{{ formatTownDuration(plotRemainingMs) }}</b>
@@ -863,7 +878,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
             <!-- Inventory (left) -->
             <div v-if="inventoryRows.length" class="inv">
-                <button v-for="r in inventoryRows" :key="r.id" class="inv-row" :class="r.amount >= storageCap ? 'is-full' : ''" :data-tip="`${r.name} · floor ${r.floorPrice} · click to trade`" @click="openMarket(r.id)">
+                <button v-for="r in inventoryRows" :key="r.id" class="inv-row" :class="r.amount >= storageCap ? 'is-full' : ''" @click="openMarket(r.id)">
                     <span class="inv-emoji"><TownAsset :id="r.id" /></span>
                     <span class="inv-num">{{ formatNumber(r.amount) }}</span>
                     <span v-if="r.perHour" class="inv-rate" :class="r.perHour > 0 ? 'up' : 'down'">{{ r.perHour > 0 ? '+' : '' }}{{ formatNumber(r.perHour) }}/h</span>
@@ -871,7 +886,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             </div>
 
             <!-- Land for sale under the cursor -->
-            <div v-if="hoveredSlot && !hoveredBuilding && !hoveredNeighbour" class="tip" :style="{ left: `${mouse.x + 16}px`, top: `${mouse.y + 16}px` }">
+            <div v-if="hoveredSlot && !hoveredBuilding && !hoveredNeighbour" class="tip is-cursor">
                 <template v-if="!hoveredSlot.free">
                     <b>{{ hoveredSlot.ownerName ?? 'Another mayor' }}</b>
                     <div class="opacity-70">Their land</div>
@@ -891,7 +906,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             </div>
 
             <!-- Another mayor's land -->
-            <div v-if="hoveredNeighbour && !hoveredBuilding" class="tip" :style="{ left: `${mouse.x + 16}px`, top: `${mouse.y + 16}px` }">
+            <div v-if="hoveredNeighbour && !hoveredBuilding" class="tip is-cursor">
                 <b>{{ hoveredNeighbour.ownerName }}</b>
                 <div v-if="hoveredNeighbour.type" class="opacity-70">
                     <TownAsset v-if="hoveredNeighbour.type !== 'road'" :id="hoveredNeighbour.type" kind="building" /><template v-else>🛣️</template>
@@ -900,7 +915,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             </div>
 
             <!-- Hover tooltip -->
-            <div v-if="hoveredBuilding && hoveredEntry && !selectedBuilding" class="tip" :style="{ left: `${mouse.x + 16}px`, top: `${mouse.y + 16}px` }">
+            <div v-if="hoveredBuilding && hoveredEntry && !selectedBuilding" class="tip is-cursor">
                 <b><TownAsset :id="hoveredEntry.id" kind="building" :level="hoveredBuilding.level" /> {{ hoveredEntry.name }}</b>
                 <span v-if="hoveredBuilding.level > 0" class="opacity-60"> · Lv {{ hoveredBuilding.level }}</span>
                 <div class="opacity-70">
@@ -939,7 +954,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     <span>🔨 {{ selectedBuilding.level === 0 ? 'Under construction' : 'Upgrading' }}</span>
                                     <b>{{ formatTownDuration(selRemaining) }}</b>
                                 </div>
-                                <div class="g-progress mt-1"><i :style="{ width: `${Math.round(100 * (1 - selRemaining / townLevelBuildMs(selDef!, selectedBuilding.upgradingTo ?? 1)))}%` }" /></div>
+                                <div class="g-progress mt-1"><i :style="{ width: `${Math.round(100 * (1 - selRemaining / Math.max(1, selectedBuilding.jobMs ?? 1)))}%` }" /></div>
                             </div>
                             <button class="g-btn g-btn-gem" :disabled="busy || gems < selRushGems" @click="rushSelected">💎 Rush · {{ selRushGems }}</button>
                         </div>
@@ -1095,7 +1110,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 </button>
                 <button class="dock-btn" :class="windowOpen === 'land' ? 'is-active' : ''" @click="openWindow('land')"><span class="dock-ico">🗺️</span><span>Land</span><kbd>P</kbd></button>
                 <button class="dock-btn" :class="windowOpen === 'research' ? 'is-active' : ''" @click="openWindow('research')">
-                    <span class="dock-ico">🔬</span><span>Research</span><kbd>R</kbd>
+                    <span class="dock-ico">🔬</span><span>Research</span><kbd>C</kbd>
                     <span v-if="researchRunning" class="dock-dot" />
                 </button>
                 <button class="dock-btn" :class="windowOpen === 'mayors' ? 'is-active' : ''" @click="openWindow('mayors')"><span class="dock-ico">👑</span><span>Mayors</span><kbd>L</kbd></button>
@@ -1118,6 +1133,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             :net-per-tick="town.netPerTick.value"
                             :speed-multiplier="speed"
                             :tick-ms="town.constants.value.tickMs"
+                            :storage-cap="storageCap"
                             @sell-floor="sellFloor"
                             @sell-bulk="sellBulk"
                             @place-order="placeOrder"
@@ -1218,17 +1234,20 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <div class="g-window-body space-y-2 text-sm opacity-90">
                             <p>🏠 <b>Houses</b> bring two residents per level. Every industry building needs residents to run — an unstaffed farm grows nothing.</p>
                             <p>😊 <b>Happiness</b> is a score out of 100 that sets how fast the town produces. Every town starts at 50; parks add up to 20, the goods your people want add or subtract, and workshops beside homes take up to 25 away. Open the meter to see every line.</p>
-                            <p>🍞 <b>Needs</b>: residents eat grain and bread, and later want tools and luxuries. A need only counts once your town could make it — nobody misses bread before you can bake it. After that, going without costs happiness. The goods are really consumed, so keep producing or buy from other mayors.</p>
+                            <p>🍞 <b>Needs</b>: residents eat grain and bread, and want bricks, tools and luxuries as the town grows. A need only counts once your town could make it — nobody misses bread before you can bake it. After that, going without costs happiness. The goods are really consumed, so keep producing or buy from other mayors.</p>
                             <p>🌳 <b>Radius</b>: a park cheers every house within 3 tiles; industry sours the homes around it, further the higher its tier. While placing, the square on the ground shows the reach.</p>
                             <p>🪚 <b>Tiers</b>: raw goods → refined goods → bread and tools → iron, steel, machines, luxuries. Finish one building of a tier to unlock the next.</p>
                             <p>🚚 <b>Supply</b>: a workshop wants its materials nearby. Distance is counted in <b>road tiles travelled</b>, not how close the buildings look, so the shape of your streets decides how fast a sawmill runs. Supply is finite too: one lumber camp cannot feed five sawmills, and the closest pairing always wins. A workshop with no supplier at all still runs, just slowly, which is what makes buying from other mayors worth it.</p>
                             <p>🛣️ <b>Roads</b>: every building's front door (the arrow while placing) must touch a road, and roads start at the edge of your land. Press <kbd>R</kbd> to rotate — buildings auto-face a road next to them. Buildings can be moved for free.</p>
-                            <p>⬆ <b>Levels</b>: upgrade buildings up to level 20. Every upgrade costs coins <b>and</b> goods, so your own production feeds your growth. Costs climb fast — a level 20 factory runs into the trillions.</p>
+                            <p>⬆ <b>Levels</b>: most buildings upgrade to level 20; a park stops at 12 and a warehouse at 16. Every upgrade costs coins <b>and</b> goods, and the goods climb faster than the coins, so your own production is what really pays for growth.</p>
+                            <p>🔨 <b>Builders</b>: every build and every upgrade occupies one crew until it finishes, and you start with three. That cap is the pace of the game — you cannot set the whole town upgrading at once. Roads are instant and need nobody. Three more crews can be hired for good with gems, and when everything is busy the game offers to rush the cheapest job.</p>
+                            <p>🏞️ <b>Terrain</b>: land is not all the same. Fertile soil, woodland and rock each make the matching building a quarter more productive, water cannot be built on, and a rare plot is flat grassland with no bonuses at all. Press <kbd>G</kbd> to see what is where before you place anything — more land means more chances at a good patch.</p>
+                            <p>🔬 <b>Research</b>: a slow track running alongside everything else. Thirty projects in five branches, one at a time, from twelve hours to three days each. More output, faster builds, longer supply reach, more residents, better prices. Finishing the board takes about two months.</p>
                             <p>📦 <b>Storage</b> caps each resource. Full storage halts production — sell, or build warehouses.</p>
                             <p>🏪 <b>Market</b>: there is <b>no passive income</b> — you earn by selling. The town hall always buys at a floor price so you are never stuck, but <b>buying is only ever from other players</b>. Offers fill instantly when they cross.</p>
                             <p>🗺️ <b>Land</b>: every mayor shares one realm. The land office sells you a square next to yours — each one costs more and opens more slowly than the last. Empty plots can go back to the office for a quarter of their price, or be listed for other mayors at any price you choose. Buying from a player skips the office's waiting time.</p>
                             <p>💎 <b>Rush</b> any build for 1 gem per 5 minutes left. 🏆 <b>Goals</b> pay coins for hitting town targets.</p>
-                            <p class="opacity-60">WASD to move · Q and E to turn · drag to pan · wheel to zoom · right-drag to orbit · R to rotate a building while placing · <kbd>B</kbd> <kbd>M</kbd> <kbd>T</kbd> <kbd>L</kbd> <kbd>P</kbd> <kbd>Esc</kbd></p>
+                            <p class="opacity-60">WASD to move · Q and E to turn · drag to pan · wheel to zoom · right-drag to orbit · R to rotate a building while placing · <kbd>B</kbd>uild <kbd>M</kbd>arket <kbd>T</kbd> goals <kbd>L</kbd> mayors <kbd>P</kbd> land <kbd>C</kbd> research <kbd>G</kbd> terrain <kbd>Esc</kbd></p>
                         </div>
                     </div>
                 </div>
@@ -1451,7 +1470,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .placement-rotate:hover { filter: brightness(1.2); }
 .hint {
     position: absolute; left: 50%; top: 70px; transform: translateX(-50%); z-index: 5;
-    padding: 8px 14px; border-radius: 999px; background: var(--g-bg); border: 1px solid var(--g-line);
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 14px; border-radius: 999px; background: var(--g-bg); border: 1px solid var(--g-line);
     backdrop-filter: blur(10px); font-size: 13px; white-space: nowrap;
 }
 .g-chip-btn { cursor: pointer; }
@@ -1505,6 +1525,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .inv-rate.up { color: var(--g-green); }
 .inv-rate.down { color: var(--g-red); }
 
+.tip.is-cursor { left: var(--cursor-x, 0px); top: var(--cursor-y, 0px); }
 .tip { position: fixed; z-index: 30; pointer-events: none; padding: 8px 12px; border-radius: 10px; background: var(--g-bg-2); border: 1px solid var(--g-line); font-size: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3); }
 
 .card {

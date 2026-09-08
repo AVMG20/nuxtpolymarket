@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { transactions, townState, townPlots, townBuildings } from '#server/database/schema'
+import { transactions, townState, townPlots, townBuildings, townRealm } from '#server/database/schema'
 import { getBalance } from '#server/utils/balance'
 import {
     buyPlotFromPlayer,
@@ -13,6 +13,7 @@ import {
 } from '#server/utils/town'
 import {
     TOWN_FOUNDING_GAP,
+    townPlotIsFlat,
     TOWN_MAX_PLOTS,
     TOWN_PLOT_MAX_LIST_PRICE,
     TOWN_PLOT_MIN_LIST_PRICE,
@@ -231,7 +232,7 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
                     expect(townPlotDistance(seeded, existing)).toBeGreaterThan(TOWN_FOUNDING_GAP)
                 }
             }
-            // …nor on top of each other: at least two empty plots in between.
+            // …nor on top of each other: at least TOWN_FOUNDING_GAP empty plots in between.
             for (const a of mine) {
                 for (const b of mine) {
                     if (a.id === b.id) continue
@@ -240,21 +241,28 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             }
         })
 
-        it('plants the town on the first spiral square that clears the gap', async () => {
+        it('plants the town on a spiral square that clears the gap, and never walks back', async () => {
             const before = await allPlots()
-            const expected = (() => {
-                for (let i = 0; i < 100_000; i++) {
-                    const spot = townSpiralCoords(i)
-                    if (!before.some(p => townPlotDistance(p, spot) <= TOWN_FOUNDING_GAP)) return spot
-                }
-                throw new Error('no free spiral square')
-            })()
-
             await seedUser(OWNER)
             await foundTown(OWNER)
 
             const [plot] = await plotsOf(OWNER)
-            expect({ x: plot!.x, y: plot!.y }).toEqual(expected)
+            const spot = { x: plot!.x, y: plot!.y }
+
+            // It is a square on the spiral, clear of everyone, and worth having.
+            let index = -1
+            for (let i = 0; i < 200_000; i++) {
+                const s = townSpiralCoords(i)
+                if (s.x === spot.x && s.y === spot.y) { index = i; break }
+            }
+            expect(index).toBeGreaterThanOrEqual(0)
+            expect(townPlotIsFlat(spot.x, spot.y)).toBe(false)
+            for (const p of before) expect(townPlotDistance(p, spot)).toBeGreaterThan(TOWN_FOUNDING_GAP)
+
+            // And the realm's cursor moved past it, so the next founding starts
+            // where this one finished rather than walking the spiral again.
+            const [realm] = await db.select().from(townRealm).where(eq(townRealm.id, 1))
+            expect(realm!.foundingCursor).toBeGreaterThan(index)
         })
 
         it('spaces a run of foundings without ever reusing a square', async () => {
@@ -439,7 +447,7 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             }
         }
 
-        it('moves the land, the coins and both plot counters', async () => {
+        it('moves the land and the coins, and leaves the land-office ladder alone', async () => {
             const { price, forSale } = await marketPair(250)
 
             const result = await buyPlotFromPlayer(BUYER, forSale.id)
@@ -454,11 +462,14 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
 
             expect(await plotsOf(BUYER)).toHaveLength(2)
             expect(await plotsOf(SELLER)).toHaveLength(1)
-            expect((await stateOf(BUYER)).plotsBought).toBe(2)
-            expect((await stateOf(SELLER)).plotsBought).toBe(1)
+            // plotsBought counts what the LAND OFFICE sold, and it sold nothing
+            // here. Moving it would let a pair pass one plot back and forth to
+            // walk each other's price ladder back to the first rung.
+            expect((await stateOf(BUYER)).plotsBought).toBe(1)
+            expect((await stateOf(SELLER)).plotsBought).toBe(2)
         })
 
-        it('floors the seller plot counter at one', async () => {
+        it('leaves the seller plot counter alone', async () => {
             const at = await freeRegion()
             await townAt(BUYER, [{ x: at.x, y: at.y }], { balance: '10000.0000' })
             const sellerPlots = await townAt(
@@ -556,10 +567,11 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             expect(row!.listPrice).toBeNull()
             expect([BUYER, RIVAL]).toContain(row!.userId)
 
-            // The seller is paid once, and only the winner is charged.
+            // The seller is paid once, and only the winner is charged. Their
+            // land-office counter is untouched: the office was not involved.
             expect(await ledger(SELLER, 'credit')).toHaveLength(1)
             expect(await getBalance(SELLER)).toBe(price.toFixed(4))
-            expect((await stateOf(SELLER)).plotsBought).toBe(1)
+            expect((await stateOf(SELLER)).plotsBought).toBe(2)
 
             const winner = row!.userId
             const loser = winner === BUYER ? RIVAL : BUYER

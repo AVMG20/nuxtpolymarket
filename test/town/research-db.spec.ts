@@ -3,7 +3,7 @@ import { eq, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { townState, townResearch, townInventory } from '#server/database/schema'
 import { getBalance } from '#server/utils/balance'
-import { deleteTownForUser } from '#server/utils/town'
+import { deleteTownForUser, settleTownForRead } from '#server/utils/town'
 import {
     getTownResearchBoard,
     getTownResearchDone,
@@ -163,5 +163,29 @@ describe.skipIf(SKIP)('polytown research (database)', () => {
         await deleteTownForUser(OWNER)
         const rows = await db.select().from(townResearch).where(inArray(townResearch.userId, USERS))
         expect(rows).toHaveLength(0)
+    })
+
+
+
+    it('banks a project that finished while the player was away, before settling the window', async () => {
+        await foundRich(OWNER)
+        await startTownResearch(OWNER, FIRST.id)
+        await windClockBack(OWNER)
+
+        // Nobody has opened the research window; the settle has to bank it.
+        const settled = await settleTownForRead(OWNER)
+        expect(settled.research.output).toBeGreaterThan(0)
+        expect(await getTownResearchDone(OWNER)).toEqual([FIRST.id])
+    })
+
+    it('hands the settle result the bonus it paid out with', async () => {
+        await foundRich(OWNER)
+        const before = await settleTownForRead(OWNER)
+        expect(before.research.output).toBe(0)
+
+        await startTownResearch(OWNER, FIRST.id)
+        await windClockBack(OWNER)
+        const after = await settleTownForRead(OWNER)
+        expect(after.research.output).toBe(FIRST.effect.output)
     })
 })

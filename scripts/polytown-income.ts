@@ -36,6 +36,8 @@ const TICKS_PER_HOUR = HOUR / TOWN_TICK_MS
 const PLAN: { type: string, copies: number }[] = [
     { type: 'house', copies: 40 },
     { type: 'park', copies: 5 },
+    { type: 'bathhouse', copies: 2 },
+    { type: 'theatre', copies: 1 },
     { type: 'warehouse', copies: 3 },
     { type: 'farm', copies: 4 },
     { type: 'lumber', copies: 4 },

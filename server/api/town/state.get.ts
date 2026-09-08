@@ -7,6 +7,7 @@ import {
     TOWN_MAX_OFFLINE_MS,
     TOWN_MAX_BUILDING_LEVEL,
     townBuildingMaxLevel,
+    getTownBuilding,
     TOWN_MAX_PLOTS,
     TOWN_RUSH_MS_PER_GEM,
     TOWN_WELCOME_BACK_MIN_MS,
@@ -90,9 +91,10 @@ export default defineEventHandler(async (event) => {
 
     // One breadth-first pass over the roads serves both derives below.
     const network = townSupplyNetwork(sim, now)
-    const derived = deriveTown(sim, state.happiness, now, settled.satisfied, network)
+    // Every rate below is derived with the same bonus the settle just paid.
+    const derived = deriveTown(sim, state.happiness, now, settled.satisfied, network, settled.research)
     const unlockedTiers = [0, 1, 2, 3, 4, 5, 6].filter(t => townTierUnlocked(sim, t, now, state.produced))
-    const tierLocks = Object.fromEntries([2, 3, 4, 5, 6].map(t => [t, townTierRequirement(sim, t, now, state.produced)]))
+    const tierLocks = Object.fromEntries([2, 3, 4, 5, 6].map(t => [t, townTierRequirement(sim, t, now, state.produced, settled.research)]))
     const maxTier = Math.max(...unlockedTiers)
 
     // The bar's ceiling: what the town would score with every need it could
@@ -101,7 +103,7 @@ export default defineEventHandler(async (event) => {
     for (const need of TOWN_NEEDS) {
         if (townNeedExpected(need, derived.popCap, derived.reachableTier)) reachable[need.resource] = true
     }
-    const happinessPotential = deriveTown(sim, state.happiness, now, reachable, network).happinessTarget
+    const happinessPotential = deriveTown(sim, state.happiness, now, reachable, network, settled.research).happinessTarget
 
     const countsByType: Record<string, number> = {}
     for (const b of sim) countsByType[b.type] = (countsByType[b.type] ?? 0) + 1
@@ -154,7 +156,7 @@ export default defineEventHandler(async (event) => {
             expected: townNeedExpected(n, derived.popCap, derived.reachableTier),
             producible: (getTownResource(n.resource)?.tier ?? 1) <= maxTier
         })),
-        floorIncomePerDay: townFloorIncomePerDay(sim, state.happiness, now),
+        floorIncomePerDay: townFloorIncomePerDay(sim, state.happiness, now, settled.research),
         netPerTick: townNetPerTick(sim, derived, now),
         tickProgressMs: state.tickProgressMs,
         lastSettledAt: state.lastSettledAt.getTime(),
@@ -174,7 +176,7 @@ export default defineEventHandler(async (event) => {
             busy: townBuildersBusy(settled.sim, now),
             nextGemCost: townBuilderGemCost(state.builders)
         },
-        plotPurchase: plotPurchaseInfo(state, now),
+        plotPurchase: plotPurchaseInfo(state, now, plots.length),
         expansions,
         buildings: buildings.map(b => ({
             id: b.id,
@@ -190,7 +192,16 @@ export default defineEventHandler(async (event) => {
             staffing: derived.staffing.get(b.id) ?? null,
             supply: derived.supply.get(b.id) ?? null,
             throughput: derived.throughput.get(b.id) ?? null,
-            connected: townRoadAccess(sim, sim.find(x => x.id === b.id)!)
+            connected: townRoadAccess(sim, sim.find(x => x.id === b.id)!),
+            // Durations come from the server, because only the server knows
+            // this town's mood and research. A client that recomputed them
+            // would draw a progress bar that disagrees with its own clock.
+            jobMs: b.level === 0 || b.upgradingTo !== null
+                ? townLevelBuildMs(getTownBuilding(b.type)!, b.upgradingTo ?? 1, state.happiness, settled.research)
+                : null,
+            nextUpgradeMs: b.level > 0 && b.level < townBuildingMaxLevel(getTownBuilding(b.type)!)
+                ? townLevelBuildMs(getTownBuilding(b.type)!, b.level + 1, state.happiness, settled.research)
+                : null
         })),
         inventory,
         myOrders,

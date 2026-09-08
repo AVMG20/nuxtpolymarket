@@ -16,6 +16,12 @@ export interface TownBuildingView {
     createdAt: number
     staffing: number | null
     connected: boolean
+    /**
+     * Durations quoted by the server, which is the only place that knows this
+     * town's mood and research. Never recompute these on the client.
+     */
+    jobMs: number | null
+    nextUpgradeMs: number | null
     /** How well this workshop's inputs reach it over the roads, and from where. */
     supply: {
         ratio: number
@@ -328,7 +334,7 @@ export const useTown = () => {
         demolishBuilding: (buildingId: string) => call('/api/town/building/demolish', { buildingId }),
         listPlot: (plotId: string, price: number | null) => call<{ plotId: string, listPrice: number | null }>('/api/town/plot/list', { plotId, price }),
         sellPlot: (plotId: string) => call<{ plotId: string, refund: number }>('/api/town/plot/sell', { plotId }),
-        buyPlotFromPlayer: (plotId: string) => call<{ plotId: string, price: number }>('/api/town/plot/buy-from-player', { plotId }),
+        buyPlotFromPlayer: (plotId: string, expectedPrice: number) => call<{ plotId: string, price: number }>('/api/town/plot/buy-from-player', { plotId, expectedPrice }),
         buyPlot: (x: number, y: number) => call<{ plotId: string, price: number }>('/api/town/plot/buy', { x, y }),
         hireBuilder: () => call<{ builders: number, gems: number }>('/api/town/builder'),
         startResearch: (researchId: string) => call<{ researchId: string, completesAt: number }>('/api/town/research/start', { researchId }),

@@ -32,11 +32,11 @@ export const TOWN_PLOT_PRICE_GROWTH = 4.5
 export const TOWN_MAX_PLOTS = 12
 /**
  * One shared realm: a new town is planted so that at least this many EMPTY
- * plots sit between it and anyone else's land (the nearest neighbour is
- * therefore three squares away). Everyone gets room to grow before they meet
- * a neighbour — and something worth buying when they do.
+ * plots sit between it and anyone else's land, so the nearest neighbour is two
+ * squares away and the two towns span three. Enough room to grow into before
+ * you meet anybody, close enough that the land between you is worth buying.
  */
-export const TOWN_FOUNDING_GAP = 2
+export const TOWN_FOUNDING_GAP = 1
 /** Selling a plot back to the land office returns this share of what that plot cost. */
 export const TOWN_PLOT_REFUND_SHARE = 0.25
 /** Bounds on what a player may ask for a plot. */
@@ -44,10 +44,16 @@ export const TOWN_PLOT_MIN_LIST_PRICE = 1
 export const TOWN_PLOT_MAX_LIST_PRICE = 1_000_000_000_000
 
 /**
- * What the land office pays to take a plot back: a share of what the owner
- * actually paid for it. Deriving this from the plot-count instead would let a
- * player buy a cheap plot off a neighbour and sell it back at the price of
- * their NEXT office plot — a coin printer.
+ * What the land office pays to take a plot back: a share of what the office
+ * itself was paid for it, which is zero for a plot that changed hands between
+ * players or was granted on founding.
+ *
+ * Both halves of that matter. Deriving the refund from the plot COUNT would let
+ * a player buy a cheap plot off a neighbour and sell it back at the price of
+ * their next office plot. Deriving it from whatever the last buyer paid ANOTHER
+ * PLAYER is worse: two accounts could pass one plot back and forth at a made-up
+ * price and mint a quarter of it every round, because the coins between them
+ * are zero-sum but the refund is new money.
  */
 export function townPlotRefundFor(paidPrice: number): number {
     return Math.floor(Math.max(0, paidPrice) * TOWN_PLOT_REFUND_SHARE)
@@ -233,6 +239,12 @@ export const TOWN_WELCOME_BACK_MIN_MS = 5 * 60_000
 
 /** Player offers may not exceed this multiple of the floor. The system never sells — only players do. */
 export const TOWN_CEILING_MULTIPLIER = 10
+/**
+ * The most a player order may ask. Not a balance lever — the book has no
+ * ceiling by design — just a guard against a typo resting on the book forever
+ * at a price no town could ever pay.
+ */
+export const TOWN_MAX_ORDER_PRICE = 1_000_000_000
 export const TOWN_MARKET_MAX_OPEN_ORDERS = 50
 export const TOWN_MARKET_HISTORY_LIMIT = 40
 export const TOWN_MARKET_BOOK_DEPTH = 12
@@ -325,6 +337,7 @@ export interface TownNeedDef {
 
 export const TOWN_NEEDS: readonly TownNeedDef[] = [
     { resource: 'wheat', name: 'Grain', perPop: 12, minPop: 1, happiness: 2, food: true, description: 'The staple. A town with no grain and no bread is starving.' },
+    { resource: 'bricks', name: 'Bricks', perPop: 60, minPop: 12, happiness: 2, food: false, description: 'Homes wear out. A town that keeps bricks on hand keeps its streets in good order.' },
     { resource: 'bread', name: 'Bread', perPop: 24, minPop: 16, happiness: 4, food: true, description: 'A proper meal. Worth more than grain alone.' },
     { resource: 'tools', name: 'Tools', perPop: 40, minPop: 40, happiness: 3, food: false, description: 'Workers wear tools out. Keep a stock and they work happier.' },
     { resource: 'luxuries', name: 'Luxuries', perPop: 160, minPop: 120, happiness: 6, food: false, description: 'The finer things. A luxury town is a delighted town.' }
@@ -401,6 +414,7 @@ export function needsHappiness(satisfied: TownSatisfied, pop: number, reachableT
 export const TOWN_BUILDING_IDS = [
     'road',
     'house', 'park', 'warehouse',
+    'bathhouse', 'theatre',
     'farm', 'lumber', 'quarry',
     'mill', 'sawmill', 'kiln',
     'bakery', 'smithy',
@@ -470,6 +484,22 @@ export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
         cost: { coins: 60_000, resources: { wood: 80 } }, buildMs: 1 * MIN, upgradeMs: 10 * MIN,
         upgradeResources: { wood: 50, stone: 30 },
         workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 2, storage: 0
+    },
+    {
+        id: 'bathhouse', name: 'Bathhouse', emoji: '🛁', color: 0x64b6d8, tier: 4, kind: 'civic',
+        description: 'Hot water and clean streets. Every home within 3 tiles is happier for it.',
+        maxLevel: 8,
+        cost: { coins: 3_000_000, resources: { bricks: 600, steel: 80 } }, buildMs: 4 * HOUR, upgradeMs: 10 * HOUR,
+        upgradeResources: { bricks: 200, steel: 40 },
+        workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 4, storage: 0
+    },
+    {
+        id: 'theatre', name: 'Theatre', emoji: '🎭', color: 0xa64d9c, tier: 5, kind: 'civic',
+        description: 'Somewhere to spend an evening. Worth more happiness than anything else the town can build.',
+        maxLevel: 8,
+        cost: { coins: 30_000_000, resources: { machines: 40, steel: 400, bricks: 1_200 } }, buildMs: 8 * HOUR, upgradeMs: 20 * HOUR,
+        upgradeResources: { machines: 15, steel: 150 },
+        workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 7, storage: 0
     },
     {
         id: 'warehouse', name: 'Warehouse', emoji: '📦', color: 0x8d99ae, tier: 2, kind: 'storage',
@@ -644,7 +674,7 @@ export function townLevelBuildMs(def: TownBuildingDef, level: number, happiness?
 // runs, so a town can only grow on as many fronts as it has crews. This is the
 // pacing lever the timers alone could never be: without it a mayor starts
 // twenty upgrades at once and the whole town is only ever as slow as its
-// slowest single building. Two crews come free; the rest cost gems.
+// slowest single building. Three crews come free; the rest cost gems.
 
 export const TOWN_FREE_BUILDERS = 3
 export const TOWN_MAX_BUILDERS = 6
@@ -654,7 +684,9 @@ export const TOWN_BUILDER_GEM_COSTS: readonly number[] = [250, 500, 1000]
 /** Gems to hire one more crew when the town already has `owned`, or null at the cap. */
 export function townBuilderGemCost(owned: number): number | null {
     if (owned >= TOWN_MAX_BUILDERS) return null
-    return TOWN_BUILDER_GEM_COSTS[owned - TOWN_FREE_BUILDERS] ?? null
+    // A town below the free allowance has not paid for anything yet, so the
+    // next crew is the first priced one.
+    return TOWN_BUILDER_GEM_COSTS[Math.max(0, owned - TOWN_FREE_BUILDERS)] ?? null
 }
 
 /**
@@ -933,8 +965,6 @@ export interface TownResearchBonus {
     happiness: number
     /** Extra share of the per-resource storage cap. */
     storage: number
-    /** Extra share on top of the town hall's floor price. */
-    floorPrice: number
 }
 
 export const TOWN_NO_RESEARCH: TownResearchBonus = {
@@ -943,8 +973,7 @@ export const TOWN_NO_RESEARCH: TownResearchBonus = {
     buildTime: 0,
     popPerHouseLevel: 0,
     happiness: 0,
-    storage: 0,
-    floorPrice: 0
+    storage: 0
 }
 
 /** How much of a delivery survives the trip. */
@@ -1429,14 +1458,22 @@ export function townProducedOfTier(produced: TownResourceBag, tier: number): num
 }
 
 /** Why a tier is still locked, or null when it is open. */
-export function townTierRequirement(buildings: TownSimBuilding[], tier: number, now: number, produced: TownResourceBag = {}): TownTierLock | null {
+export function townTierRequirement(
+    buildings: TownSimBuilding[],
+    tier: number,
+    now: number,
+    produced: TownResourceBag = {},
+    research: TownResearchBonus = TOWN_NO_RESEARCH
+): TownTierLock | null {
     if (tier <= 1) return null
     const hasPrevious = buildings.some(b => isBuilt(b, now) && BUILDING_BY_ID.get(b.type)!.tier === tier - 1)
     let pop = 0
     for (const b of buildings) {
         if (!isBuilt(b, now) || !townRoadAccess(buildings, b)) continue
         const def = BUILDING_BY_ID.get(b.type)!
-        pop += def.popCap * effectiveLevel(b, now)
+        // The same sum deriveTown does: residents a Civics project added are
+        // real residents, and the gate has to see the ones already at work.
+        pop += (def.popCap + (def.popCap > 0 ? research.popPerHouseLevel : 0)) * effectiveLevel(b, now)
     }
     const popRequired = TOWN_TIER_POP_REQUIREMENT[tier] ?? 0
     const req = TOWN_TIER_PRODUCTION_REQUIREMENT[tier]
@@ -1760,8 +1797,13 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
 }
 
 /** Coins per day the current layout earns if every output were floor-sold (ignores input consumption elsewhere). */
-export function townFloorIncomePerDay(buildings: TownSimBuilding[], happiness: number, now: number): number {
-    const derived = deriveTown(buildings, happiness, now)
+export function townFloorIncomePerDay(
+    buildings: TownSimBuilding[],
+    happiness: number,
+    now: number,
+    research: TownResearchBonus = TOWN_NO_RESEARCH
+): number {
+    const derived = deriveTown(buildings, happiness, now, {}, undefined, research)
     const ticksPerDay = (24 * 60 * 60_000) / TOWN_TICK_MS * derived.speedMultiplier
     let perTick = 0
     for (const b of buildings) {
@@ -1844,7 +1886,7 @@ function built(type: TownBuildingId, target = 1): TownMilestoneDef['progress'] {
 export const TOWN_MILESTONES: readonly TownMilestoneDef[] = [
     { id: 'first-home', title: 'Home Sweet Home', description: 'Build a House.', emoji: '🏠', reward: 0, gems: 1, tier: 0, progress: built('house') },
     { id: 'first-farm', title: 'Breaking Ground', description: 'Build a Farm.', emoji: '🌾', reward: 0, gems: 1, tier: 0, progress: built('farm') },
-    { id: 'first-sale', title: 'First Sale', description: 'Earn 1,000 coins from selling resources.', emoji: '💰', reward: 0, gems: 1, tier: 0, progress: s => ({ current: Math.min(1_000, s.coinsEarned), target: 1_000 }) },
+    { id: 'first-sale', title: 'First Sale', description: 'Earn 1,000 coins selling to the town hall.', emoji: '💰', reward: 0, gems: 1, tier: 0, progress: s => ({ current: Math.min(1_000, s.coinsEarned), target: 1_000 }) },
     { id: 'green-thumb', title: 'Green Thumb', description: 'Build a Park.', emoji: '🌳', reward: 0, gems: 1, tier: 0, progress: built('park') },
     { id: 'growing', title: 'Growing Pains', description: 'Run 4 industry buildings at once.', emoji: '🏗️', reward: 0, gems: 1, tier: 1, progress: s => ({ current: Math.min(4, s.industryCount), target: 4 }) },
     { id: 'neighbourhood', title: 'Neighbourhood', description: 'House 16 residents.', emoji: '👨‍👩‍👧', reward: 0, gems: 2, tier: 1, progress: s => ({ current: Math.min(16, s.popCap), target: 16 }) },
@@ -1855,13 +1897,13 @@ export const TOWN_MILESTONES: readonly TownMilestoneDef[] = [
     { id: 'land-grab', title: 'Land Grab', description: 'Buy a second plot.', emoji: '🗺️', reward: 0, gems: 5, tier: 2, progress: s => ({ current: Math.min(2, s.plotsBought), target: 2 }) },
     { id: 'baker', title: 'Fresh Bread', description: 'Build a Bakery.', emoji: '🍞', reward: 0, gems: 6, tier: 3, progress: built('bakery') },
     { id: 'toolmaker', title: 'Toolmaker', description: 'Build a Smithy.', emoji: '🔧', reward: 0, gems: 6, tier: 3, progress: built('smithy') },
-    { id: 'merchant', title: 'Merchant', description: 'Earn 1M coins from sales.', emoji: '🏪', reward: 0, gems: 8, tier: 3, progress: s => ({ current: Math.min(1_000_000, s.coinsEarned), target: 1_000_000 }) },
+    { id: 'merchant', title: 'Merchant', description: 'Earn 1M coins selling to the town hall.', emoji: '🏪', reward: 0, gems: 8, tier: 3, progress: s => ({ current: Math.min(1_000_000, s.coinsEarned), target: 1_000_000 }) },
     { id: 'deep-dig', title: 'Deep Dig', description: 'Build an Iron Mine.', emoji: '⛏️', reward: 0, gems: 10, tier: 4, progress: built('mine') },
     { id: 'steelworks', title: 'Steelworks', description: 'Build a Foundry.', emoji: '⚙️', reward: 0, gems: 12, tier: 4, progress: built('foundry') },
     { id: 'maxed', title: 'Perfectionist', description: 'Upgrade any building to level 10.', emoji: '🏅', reward: 0, gems: 10, tier: 4, progress: s => ({ current: Math.min(10, s.maxLevel), target: 10 }) },
     { id: 'industrialist', title: 'Industrialist', description: 'Build a Factory.', emoji: '🏭', reward: 20_000_000, gems: 20, tier: 5, progress: built('factory') },
     { id: 'tycoon', title: 'Tycoon', description: 'Build an Emporium.', emoji: '💎', reward: 150_000_000, gems: 40, tier: 6, progress: built('emporium') },
-    { id: 'magnate', title: 'Magnate', description: 'Earn 100M coins from sales.', emoji: '👑', reward: 10_000_000, gems: 25, tier: 6, progress: s => ({ current: Math.min(100_000_000, s.coinsEarned), target: 100_000_000 }) }
+    { id: 'magnate', title: 'Magnate', description: 'Earn 100M coins selling to the town hall.', emoji: '👑', reward: 10_000_000, gems: 25, tier: 6, progress: s => ({ current: Math.min(100_000_000, s.coinsEarned), target: 100_000_000 }) }
 ]
 
 const MILESTONE_BY_ID = new Map(TOWN_MILESTONES.map(m => [m.id, m]))

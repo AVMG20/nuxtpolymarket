@@ -1568,6 +1568,21 @@ export const townState = pgTable('town_state', {
 })
 
 /**
+ * One row, holding whatever the realm as a whole has to remember.
+ *
+ * Right now that is the founding scan's high-water mark. Without it every new
+ * town walked the spiral from index zero against every plot in the world,
+ * which is quadratic in towns and hard-failed at the 100k-iteration guard once
+ * a few thousand towns existed. The cursor only ever moves forward, so a town
+ * founded today starts its search where the last one finished.
+ */
+export const townRealm = pgTable('town_realm', {
+  id: integer('id').primaryKey().default(1),
+  /** Lowest spiral index that might still be free. */
+  foundingCursor: integer('founding_cursor').notNull().default(0)
+})
+
+/**
  * A finished research project. The unique (user, project) pair is the guard:
  * settling a finished project inserts here, and a second concurrent settle
  * conflicts instead of granting the effect twice.
@@ -1648,9 +1663,10 @@ export const townInventory = pgTable('town_inventory', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   resource: text('resource').notNull(),
-  amount: integer('amount').notNull().default(0)
+  /** Units held. bigint because a late-game market fill can name more than int4 holds. */
+  amount: bigint('amount', { mode: 'number' }).notNull().default(0)
 }, t => [
-  index('town_inventory_userId_idx').on(t.userId),
+  // The unique pair's leading column already serves every by-user lookup.
   unique('town_inventory_unique').on(t.userId, t.resource)
 ])
 
@@ -1681,7 +1697,13 @@ export const townTrades = pgTable('town_trades', {
   price: numeric('price', { precision: 19, scale: 4 }).notNull(),
   quantity: integer('quantity').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull()
-}, t => [index('town_trades_resource_createdAt_idx').on(t.resource, t.createdAt)])
+}, t => [
+  index('town_trades_resource_createdAt_idx').on(t.resource, t.createdAt),
+  // All three are ON DELETE SET NULL, and deleting a town scans by them.
+  index('town_trades_buyer_idx').on(t.buyerId),
+  index('town_trades_seller_idx').on(t.sellerId),
+  index('town_trades_taker_idx').on(t.takerId)
+])
 
 export const townStateRelations = relations(townState, ({ one }) => ({
   user: one(user, { fields: [townState.userId], references: [user.id] })

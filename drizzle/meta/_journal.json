@@ -169,6 +169,20 @@
       "when": 1788866092466,
       "tag": "0023_loving_pepper_potts",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788874676595,
+      "tag": "0024_reflective_shocker",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1788874779295,
+      "tag": "0025_icy_polaris",
+      "breakpoints": true
     }
   ]
 }

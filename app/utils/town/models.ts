@@ -173,7 +173,10 @@ function chimney(x: number, y: number, z: number, h = 0.25): Part[] {
     ]
 }
 
-const MODELS: Record<TownBuildingId, () => Part[]> = {
+// Buildings the asset pass has not reached yet borrow the park's shape rather
+// than crashing the registry. Give one its own entry here to replace the
+// placeholder.
+const MODELS: Partial<Record<TownBuildingId, () => Part[]>> = {
     // Roads are drawn by the scene as connected flat tiles; the model is only a
     // fallback so the registry stays complete.
     road: () => [
@@ -195,6 +198,28 @@ const MODELS: Record<TownBuildingId, () => Part[]> = {
         ...roundTree(0.05, -0.3, 0.8),
         { shape: 'box', x: -0.1, y: 0.04, z: 0.3, w: 0.3, h: 0.05, d: 0.08, color: WOOD },
         { shape: 'cyl', x: 0.3, y: 0.04, z: -0.3, w: 0.18, h: 0.03, d: 0.18, color: 0x5aa0d8, seg: 10 }
+    ],
+    // Placeholder shapes for the two civic buildings the asset pass has not
+    // reached. Distinct enough to tell apart on the map and in the build menu;
+    // replace them with proper models when the artwork lands.
+    bathhouse: () => [
+        { shape: 'box' as const, x: 0, y: 0, z: 0, w: 0.78, h: 0.06, d: 0.78, color: STONE },
+        { shape: 'box' as const, x: 0, y: 0.06, z: -0.12, w: 0.66, h: 0.3, d: 0.44, color: CREAM },
+        { shape: 'box' as const, x: 0, y: 0.36, z: -0.12, w: 0.72, h: 0.05, d: 0.5, color: STONE_DARK },
+        { shape: 'cyl' as const, x: 0, y: 0.41, z: -0.12, w: 0.34, h: 0.16, d: 0.34, color: 0x9fd6ec, seg: 12 },
+        { shape: 'box' as const, x: 0, y: 0.06, z: 0.24, w: 0.5, h: 0.05, d: 0.3, color: 0x64b6d8 },
+        { shape: 'cyl' as const, x: -0.26, y: 0.06, z: 0.24, w: 0.1, h: 0.22, d: 0.1, color: STONE, seg: 10 },
+        { shape: 'cyl' as const, x: 0.26, y: 0.06, z: 0.24, w: 0.1, h: 0.22, d: 0.1, color: STONE, seg: 10 }
+    ],
+    theatre: () => [
+        { shape: 'box' as const, x: 0, y: 0, z: 0, w: 0.84, h: 0.06, d: 0.8, color: STONE_DARK },
+        { shape: 'box' as const, x: 0, y: 0.06, z: -0.1, w: 0.68, h: 0.46, d: 0.5, color: 0x7b3f74 },
+        { shape: 'box' as const, x: 0, y: 0.52, z: -0.1, w: 0.76, h: 0.06, d: 0.58, color: 0xa64d9c },
+        { shape: 'pyramid' as const, x: 0, y: 0.58, z: -0.1, w: 0.6, h: 0.16, d: 0.44, color: 0x51264c },
+        { shape: 'box' as const, x: 0, y: 0.06, z: 0.22, w: 0.6, h: 0.05, d: 0.24, color: STONE },
+        ...[-0.22, 0, 0.22].map(x => ({ shape: 'cyl' as const, x, y: 0.11, z: 0.26, w: 0.09, h: 0.34, d: 0.09, color: CREAM, seg: 10 })),
+        { shape: 'box' as const, x: 0, y: 0.45, z: 0.26, w: 0.62, h: 0.06, d: 0.16, color: CREAM },
+        { shape: 'box' as const, x: 0, y: 0.2, z: 0.16, w: 0.24, h: 0.28, d: 0.02, color: 0x2b1a2a }
     ],
     warehouse: () => [
         { shape: 'box', x: 0, y: 0, z: 0, w: 0.82, h: 0.36, d: 0.62, color: 0x8d99ae },
@@ -503,7 +528,8 @@ export function createBuildingModel(type: TownBuildingId, requestedLevel = 1): T
     const key = `${type}:${level}`
     let proto = prototypes.get(key)
     if (!proto) {
-        proto = build(enrichArchitecture(type, upgradeBuildingParts(type, level, [...MODELS[type](), ...details(type)])))
+        const model = MODELS[type] ?? MODELS.park!
+        proto = build(enrichArchitecture(type, upgradeBuildingParts(type, level, [...model(), ...details(type)])))
         if (type === 'mill') {
             const hub = proto.getObjectByName('spin')!
             // Children rotate with the existing hub animation.

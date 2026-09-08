@@ -29,7 +29,7 @@ export const TOWN_RESEARCH_BRANCH_DEFS: readonly TownResearchBranchDef[] = [
     { id: 'logistics', name: 'Logistics', emoji: '🚚', description: 'Suppliers reach further down the road.' },
     { id: 'construction', name: 'Construction', emoji: '🔨', description: 'Builds and upgrades finish sooner.' },
     { id: 'civics', name: 'Civics', emoji: '🏘️', description: 'Homes hold more people and the town is happier.' },
-    { id: 'trade', name: 'Trade', emoji: '⚖️', description: 'Better prices at the town hall, and room to store more.' }
+    { id: 'trade', name: 'Trade', emoji: '⚖️', description: 'Room to store more, and workshops that waste less of it.' }
 ]
 
 /**
@@ -49,8 +49,6 @@ export interface TownResearchEffect {
     happiness?: number
     /** Extra share of the per-resource storage cap. */
     storage?: number
-    /** Extra share on top of the town hall's floor price. */
-    floorPrice?: number
 }
 
 export interface TownResearchDef {
@@ -128,12 +126,12 @@ const BRANCH_STEPS: Record<TownResearchBranchId, BranchStep[]> = {
         { name: 'Grand Boulevards', description: 'The last four points of happiness the board has to give.', effect: { happiness: 4 } }
     ],
     trade: [
-        { name: 'Weights & Measures', description: 'The town hall pays 2% over the floor.', effect: { floorPrice: 0.02 } },
-        { name: 'Granaries', description: 'Store 15% more of every good.', effect: { storage: 0.15 } },
-        { name: 'Guild Ledgers', description: 'Another 3% over the floor.', effect: { floorPrice: 0.03 } },
-        { name: 'Bonded Stores', description: 'Store another 20% of every good.', effect: { storage: 0.2 } },
-        { name: 'Trade Charter', description: 'Another 3% over the floor.', effect: { floorPrice: 0.03 } },
-        { name: 'Merchant Fleet', description: 'Another 4% over the floor, and 25% more storage.', effect: { floorPrice: 0.04, storage: 0.25 } }
+        { name: 'Weights & Measures', description: 'Store 15% more of every good.', effect: { storage: 0.15 } },
+        { name: 'Granaries', description: 'Store another 20% of every good.', effect: { storage: 0.2 } },
+        { name: 'Guild Ledgers', description: 'Another 25% storage, and 2% more out of every workshop.', effect: { storage: 0.25, output: 0.02 } },
+        { name: 'Bonded Stores', description: 'Store another 30% of every good.', effect: { storage: 0.3 } },
+        { name: 'Trade Charter', description: 'Another 35% storage, and 3% more out of every workshop.', effect: { storage: 0.35, output: 0.03 } },
+        { name: 'Merchant Fleet', description: 'The last 45% of storage the board has to give.', effect: { storage: 0.45 } }
     ]
 }
 
@@ -176,8 +174,7 @@ export function townResearchEffects(done: readonly string[]): Required<TownResea
         buildTime: 0,
         popPerHouseLevel: 0,
         happiness: 0,
-        storage: 0,
-        floorPrice: 0
+        storage: 0
     }
     for (const id of done) {
         const def = RESEARCH_BY_ID.get(id)

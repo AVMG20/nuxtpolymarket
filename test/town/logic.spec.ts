@@ -90,6 +90,7 @@ const T0 = 1_700_000_000_000
 /** The grain need: the only one the smallest towns have. */
 const GRAIN = TOWN_NEEDS.find(n => n.resource === 'wheat')!
 const BREAD = TOWN_NEEDS.find(n => n.resource === 'bread')!
+const BRICKS = TOWN_NEEDS.find(n => n.resource === 'bricks')!
 
 const HOUSE = getTownBuilding('house')!
 /** Residents one house level is worth — every workforce here is sized off this. */
@@ -444,13 +445,23 @@ describe('needs', () => {
 
     it('introduces each need at its own minimum population', () => {
         expect(townNeedsPerTick(1)).toEqual({ wheat: 1 })
-        expect(townNeedsPerTick(15)).toEqual({ wheat: 2 })
-        // Bread joins at sixteen residents, tools at forty, luxuries at 120.
-        expect(Object.keys(townNeedsPerTick(16))).toEqual(['wheat', 'bread'])
-        expect(Object.keys(townNeedsPerTick(39))).toEqual(['wheat', 'bread'])
-        expect(Object.keys(townNeedsPerTick(40))).toEqual(['wheat', 'bread', 'tools'])
-        expect(Object.keys(townNeedsPerTick(119))).toEqual(['wheat', 'bread', 'tools'])
-        expect(Object.keys(townNeedsPerTick(120))).toEqual(['wheat', 'bread', 'tools', 'luxuries'])
+        expect(townNeedsPerTick(11)).toEqual({ wheat: 1 })
+        // Every tier puts something on the shopping list, in turn: bricks at
+        // twelve residents, bread at sixteen, tools at forty, luxuries at 120.
+        expect(Object.keys(townNeedsPerTick(12))).toEqual(['wheat', 'bricks'])
+        expect(Object.keys(townNeedsPerTick(16))).toEqual(['wheat', 'bricks', 'bread'])
+        expect(Object.keys(townNeedsPerTick(39))).toEqual(['wheat', 'bricks', 'bread'])
+        expect(Object.keys(townNeedsPerTick(40))).toEqual(['wheat', 'bricks', 'bread', 'tools'])
+        expect(Object.keys(townNeedsPerTick(119))).toEqual(['wheat', 'bricks', 'bread', 'tools'])
+        expect(Object.keys(townNeedsPerTick(120))).toEqual(['wheat', 'bricks', 'bread', 'tools', 'luxuries'])
+
+        // Every tier from 1 to 6 puts at least one need or one happiness
+        // building into the town, which is what keeps the whole ladder useful.
+        for (const tier of [1, 2, 3, 4, 5, 6]) {
+            const needs = TOWN_NEEDS.some(n => TOWN_RESOURCES.find(r => r.id === n.resource)!.tier === tier)
+            const civic = TOWN_BUILDINGS.some(b => b.kind === 'civic' && b.tier === tier)
+            expect(needs || civic).toBe(true)
+        }
     })
 
     it('rounds the per-tick demand up, and never below one unit', () => {
@@ -474,15 +485,16 @@ describe('needs', () => {
         // bonus as well as the starving penalty.
         expect(needsHappiness({}, 10)).toBe(-GRAIN.happiness - TOWN_HAPPINESS_STARVING_PENALTY)
         expect(needsHappiness({ wheat: true }, 10)).toBe(GRAIN.happiness)
-        expect(needsHappiness({ wheat: true, bread: true }, BREAD.minPop)).toBe(GRAIN.happiness + BREAD.happiness)
+        expect(needsHappiness({ wheat: true, bread: true, bricks: true }, BREAD.minPop)).toBe(GRAIN.happiness + BRICKS.happiness + BREAD.happiness)
 
         // Bread alone still counts as food, so nobody starves — but the grain
         // this town was expected to supply and did not is still a mark against it.
-        expect(needsHappiness({ bread: true }, BREAD.minPop)).toBe(BREAD.happiness - GRAIN.happiness)
+        expect(needsHappiness({ bread: true }, BREAD.minPop)).toBe(BREAD.happiness - GRAIN.happiness - BRICKS.happiness)
     })
 
     it('leaves a need the town is too small for off the scorecard', () => {
-        const small = BREAD.minPop - 1
+        // Small enough that only grain is on the scorecard at all.
+        const small = BRICKS.minPop - 1
         // Missing bread costs a town this size nothing at all…
         expect(needsHappiness({ wheat: true }, small)).toBe(GRAIN.happiness)
         // …and buying it anyway still pays.
@@ -493,13 +505,14 @@ describe('needs', () => {
         const pop = BREAD.minPop
         const breadTier = tierOf(BREAD)
 
-        // A tier-1 town cannot bake, so missing bread is not held against it.
-        expect(needsHappiness({ wheat: true }, pop, breadTier - 1)).toBe(GRAIN.happiness)
-        // The moment bread is within reach, going without it costs its bonus.
-        expect(needsHappiness({ wheat: true }, pop, breadTier)).toBe(GRAIN.happiness - BREAD.happiness)
+        // A tier-1 town cannot bake, so missing bread is not held against it —
+        // though the bricks it could fire by then are.
+        expect(needsHappiness({ wheat: true }, pop, breadTier - 1)).toBe(GRAIN.happiness - BRICKS.happiness)
+        // The moment bread is within reach, going without it costs its bonus too.
+        expect(needsHappiness({ wheat: true }, pop, breadTier)).toBe(GRAIN.happiness - BRICKS.happiness - BREAD.happiness)
         // Bread the town was never expected to make still counts when it has it.
-        expect(needsHappiness({ wheat: true, bread: true }, pop, breadTier - 1))
-            .toBe(GRAIN.happiness + BREAD.happiness)
+        expect(needsHappiness({ wheat: true, bread: true, bricks: true }, pop, breadTier - 1))
+            .toBe(GRAIN.happiness + BRICKS.happiness + BREAD.happiness)
     })
 
     it('only starves a town that was expected to feed itself', () => {
@@ -520,7 +533,7 @@ describe('needs', () => {
         expect(needsHappiness({ tools: true }, pop))
             .toBe(tools.happiness - missed - TOWN_HAPPINESS_STARVING_PENALTY)
 
-        const everything = { wheat: true, bread: true, tools: true, luxuries: true }
+        const everything = { wheat: true, bricks: true, bread: true, tools: true, luxuries: true }
         const all = TOWN_NEEDS.reduce((sum, n) => sum + n.happiness, 0)
         expect(needsHappiness(everything, 200)).toBe(all)
     })
@@ -861,7 +874,7 @@ describe('deriveTown', () => {
         const town = deriveTown([built('h', 'house', { level }), BAKERY], 50, T0)
         expect(town.popCap).toBe(PER_HOUSE_LEVEL * level)
         expect(town.needsPerTick).toEqual(townNeedsPerTick(town.popCap))
-        expect(Object.keys(town.needsPerTick)).toEqual([GRAIN.resource, BREAD.resource])
+        expect(Object.keys(town.needsPerTick)).toEqual([GRAIN.resource, BRICKS.resource, BREAD.resource])
     })
 
     it('does not eat what the town cannot make yet', () => {
@@ -1063,8 +1076,9 @@ describe('layout', () => {
 
         expect(later.reachableTier).toBe(tierOf(BREAD))
         expect(townNeedExpected(BREAD, later.popCap, later.reachableTier)).toBe(true)
-        expect(later.happinessBreakdown.needs).toBe(GRAIN.happiness - BREAD.happiness)
-        expect(later.happinessTarget).toBe(town.happinessTarget - BREAD.happiness)
+        // A bakery is tier 3, so bricks come within reach at the same moment.
+        expect(later.happinessBreakdown.needs).toBe(GRAIN.happiness - BRICKS.happiness - BREAD.happiness)
+        expect(later.happinessTarget).toBe(town.happinessTarget - BRICKS.happiness - BREAD.happiness)
     })
 })
 
@@ -1676,26 +1690,26 @@ describe('settleTown', () => {
         // A town big enough to want bread as well as grain, and more than one
         // grain a tick — so a part-stocked larder can fall short.
         const buildings = [BIG_HOUSE, BAKERY]
-        expect(Object.keys(BIG_DEMAND)).toEqual([GRAIN.resource, BREAD.resource])
+        expect(Object.keys(BIG_DEMAND)).toEqual([GRAIN.resource, BRICKS.resource, BREAD.resource])
         expect(BIG_DEMAND.wheat!).toBeGreaterThan(1)
 
         const short = settleTown(sim({ happiness: 50, inventory: { wheat: BIG_DEMAND.wheat! - 1 }, buildings }), T0 + 3 * TOWN_TICK_MS)
         expect(short.ticks).toBeGreaterThan(0)
         // Half a demand feeds nobody, so the grain on hand is never eaten.
         expect(short.delta).toEqual({})
-        expect(short.satisfied).toEqual({ wheat: false, bread: false })
+        expect(short.satisfied).toEqual({ wheat: false, bricks: false, bread: false })
 
         // Two whole tick's worth of grain and a leftover the third cannot use.
         const stocked = settleTown(sim({ happiness: 50, inventory: { wheat: 2 * BIG_DEMAND.wheat! + 1 }, buildings }), T0 + 3 * TOWN_TICK_MS)
         expect(stocked.ticks).toBe(3)
         expect(stocked.delta).toEqual({ wheat: -2 * BIG_DEMAND.wheat! })
-        expect(stocked.satisfied).toEqual({ wheat: false, bread: false })
+        expect(stocked.satisfied).toEqual({ wheat: false, bricks: false, bread: false })
     })
 
     it('reports the stock on hand when no tick ran at all', () => {
         const result = settleTown(sim({ inventory: { bread: 5 } }), T0)
         expect(result.ticks).toBe(0)
-        expect(result.satisfied).toEqual({ wheat: false, bread: true, tools: false, luxuries: false })
+        expect(result.satisfied).toEqual({ wheat: false, bricks: false, bread: true, tools: false, luxuries: false })
     })
 
     it('lets a fed town climb and a starving one sink', () => {
@@ -1703,7 +1717,7 @@ describe('settleTown', () => {
         const fed = settleTown(sim({ happiness: 50, inventory: { wheat: 500, bread: 500 }, buildings }), T0 + 5 * TOWN_TICK_MS)
         const starving = settleTown(sim({ happiness: 50, buildings }), T0 + 5 * TOWN_TICK_MS)
 
-        expect(fed.satisfied).toEqual({ wheat: true, bread: true })
+        expect(fed.satisfied).toEqual({ wheat: true, bricks: false, bread: true })
         expect(fed.delta).toEqual({ wheat: -5 * BIG_DEMAND.wheat!, bread: -5 * BIG_DEMAND.bread! })
         expect(fed.happiness).toBeGreaterThan(50)
         expect(starving.happiness).toBeLessThan(50)

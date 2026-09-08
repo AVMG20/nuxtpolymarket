@@ -7,7 +7,7 @@ import {
     getTownResearch,
     townResearchUnlocked
 } from '#shared/utils/gamelogic/town-research'
-import { settleTownState, spendBag } from '#server/utils/town'
+import { bankFinishedResearch, settleTownState, spendBag } from '#server/utils/town'
 
 const CATEGORY = 'polytown'
 
@@ -28,15 +28,7 @@ export async function settleTownResearch(userId: string, now = Date.now()) {
     const state = await db.query.townState.findFirst({ where: eq(townState.userId, userId) })
     if (!state?.researchId || !state.researchCompletesAt) return
     if (state.researchCompletesAt.getTime() > now) return
-
-    // The insert is the guard: a second concurrent settle conflicts on the
-    // unique (user, research) pair and changes nothing.
-    await db.insert(townResearch)
-        .values({ userId, researchId: state.researchId })
-        .onConflictDoNothing()
-    await db.update(townState)
-        .set({ researchId: null, researchCompletesAt: null })
-        .where(and(eq(townState.id, state.id), eq(townState.researchId, state.researchId)))
+    await db.transaction(tx => bankFinishedResearch(tx, userId, state, now))
 }
 
 /**
