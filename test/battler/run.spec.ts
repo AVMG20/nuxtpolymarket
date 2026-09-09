@@ -132,6 +132,28 @@ async function fund(runId: string) {
     await db.update(tcgBattlerRun).set({ cash: 15 }).where(eq(tcgBattlerRun.id, runId))
 }
 
+/**
+ * Guarantee the shop track has something in it.
+ *
+ * Buying consumes the tile it bought from and the track only refills on a
+ * reroll or the next round (run.ts, buyUnit) — so a test that buys as many
+ * units as the track is wide leaves it EMPTY, and the next step to index into
+ * state.shop gets a 400 'No such offer'. Whether that happens is down to the
+ * run's random secret: when the wanted card is already on the track, the buy
+ * loop never rerolls, and three buys drain a 3-wide track. That made this file
+ * fail about one run in fifteen.
+ */
+async function ensureShop(runId: string): Promise<RunState> {
+    let state = (await activeRun(USERS.player)).runState as RunState
+    for (let i = 0; state.shop.length === 0 && i < 5; i++) {
+        await fund(runId)
+        await rerollShop(USERS.player, runId)
+        state = (await activeRun(USERS.player)).runState as RunState
+    }
+    expect(state.shop.length, 'shop should refill on reroll').toBeGreaterThan(0)
+    return state
+}
+
 async function activeRun(userId: string) {
     const view = await runView(userId)
     if (!view.run) throw new Error('expected an active run')
@@ -249,7 +271,8 @@ describe.skipIf(SKIP)('tcg battler runs integration', () => {
 
     it('freeze persists an offer across rerolls and move respects the budget', async () => {
         const run = await activeRun(USERS.player)
-        let state = (await activeRun(USERS.player)).runState as RunState
+        // The previous test may have bought the track empty; freezing needs a tile.
+        let state = await ensureShop(run.id)
         await toggleFreeze(USERS.player, run.id, 0)
         const frozenCard = state.shop[0]!.cardId
         await rerollShop(USERS.player, run.id)
@@ -257,6 +280,7 @@ describe.skipIf(SKIP)('tcg battler runs integration', () => {
         expect(state.shop.some(offer => offer.cardId === frozenCard && offer.frozen)).toBe(true)
 
         // Buy one unit to have something to move.
+        await ensureShop(run.id)
         await fund(run.id)
         const offerIndex = 0
         await buyUnit(USERS.player, run.id, offerIndex, null, 0)
@@ -274,6 +298,7 @@ describe.skipIf(SKIP)('tcg battler runs integration', () => {
         const run = await activeRun(USERS.player)
         // A fielded unit is a precondition here, not the thing under test.
         if ((run.runState as RunState).board.length === 0) {
+            await ensureShop(run.id)
             await fund(run.id)
             await buyUnit(USERS.player, run.id, 0, null, 0)
         }
