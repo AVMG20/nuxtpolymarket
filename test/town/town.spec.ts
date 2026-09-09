@@ -40,6 +40,7 @@ import {
     townPlotPrice,
     townRushGemCost,
     TOWN_MAX_ORDER_PRICE,
+    TOWN_MARKET_MIN_PRICE,
     type TownResourceId
 } from '#shared/utils/gamelogic/town'
 import { SKIP, burst, cleanupUser, moveTownToFlatGround, seedUser } from '../setup/db-helpers'
@@ -1114,6 +1115,57 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await getBalance(OWNER)).toBe((townFloorPrice('wheat') * 10).toFixed(4))
         })
 
+        it('takes the best bids above the floor before the town hall gets a look', async () => {
+            await foundFor(OWNER, { balance: '0.0000' })
+            await foundFor(BUYER, { balance: coins(PURSE * 100) })
+            await stock(OWNER, 'wheat', 10)
+
+            // Two mayors bidding over the floor, and one under it.
+            await placeTownOrder(BUYER, 'wheat', 'buy', over(20), 3)
+            await placeTownOrder(BUYER, 'wheat', 'buy', over(5), 2)
+            await placeTownOrder(BUYER, 'wheat', 'buy', WHEAT_FLOOR - 1, 5)
+
+            const result = await sellToFloor(OWNER, 'wheat', 8)
+
+            // Best bid first, then the next, then the hall for the remaining 3.
+            const expected = over(20) * 3 + over(5) * 2 + WHEAT_FLOOR * 3
+            expect(result.filledByPlayers).toBe(5)
+            expect(result.toPlayers).toBe(over(20) * 3 + over(5) * 2)
+            expect(result.toHall).toBe(WHEAT_FLOOR * 3)
+            expect(result.total).toBe(expected)
+            expect(await getBalance(OWNER)).toBe(expected.toFixed(4))
+            expect(await held(OWNER, 'wheat')).toBe(2)
+            expect(await held(BUYER, 'wheat')).toBe(5)
+
+            // The under-floor bid is still resting: the hall beat it.
+            expect(await openOrders(BUYER)).toHaveLength(1)
+        })
+
+        it('leaves your own bids alone rather than trading with yourself', async () => {
+            await foundFor(OWNER, { balance: coins(PURSE * 100) })
+            await stock(OWNER, 'wheat', 5)
+            await placeTownOrder(OWNER, 'wheat', 'buy', over(20), 5)
+            const before = await getBalance(OWNER)
+
+            const result = await sellToFloor(OWNER, 'wheat', 5)
+
+            expect(result.filledByPlayers).toBe(0)
+            expect(result.total).toBe(WHEAT_FLOOR * 5)
+            expect(await getBalance(OWNER)).toBe((parseFloat(before) + WHEAT_FLOOR * 5).toFixed(4))
+            expect(await openOrders(OWNER)).toHaveLength(1)
+        })
+
+        it('counts only the town hall share toward lifetime earnings', async () => {
+            await foundFor(OWNER, { balance: '0.0000' })
+            await foundFor(BUYER, { balance: coins(PURSE * 100) })
+            await stock(OWNER, 'wheat', 10)
+            await placeTownOrder(BUYER, 'wheat', 'buy', over(20), 6)
+
+            await sellToFloor(OWNER, 'wheat', 10)
+
+            expect((await stateOf(OWNER)).coinsEarned).toBe((WHEAT_FLOOR * 4).toFixed(4))
+        })
+
         it('adds the sale total to the lifetime earnings counter', async () => {
             await foundFor(OWNER, { balance: '0.0000' })
             await stock(OWNER, 'wheat', 10)
@@ -1148,6 +1200,26 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await held(OWNER, 'wood')).toBe(0)
             expect(await held(OWNER, 'stone')).toBe(0)
             expect((await stateOf(OWNER)).coinsEarned).toBe(expected.toFixed(4))
+        })
+
+        it('routes every line through the bids before the hall', async () => {
+            await foundFor(OWNER, { balance: '0.0000' })
+            await foundFor(BUYER, { balance: coins(PURSE * 100) })
+            await stock(OWNER, 'wheat', 10)
+            await stock(OWNER, 'wood', 5)
+            await placeTownOrder(BUYER, 'wheat', 'buy', over(20), 4)
+
+            const result = await sellBulkToFloor(OWNER, [
+                { resource: 'wheat', quantity: 10 },
+                { resource: 'wood', quantity: 5 }
+            ])
+
+            const expected = over(20) * 4 + WHEAT_FLOOR * 6 + townFloorPrice('wood') * 5
+            expect(result.total).toBe(expected)
+            expect(result.resources).toEqual(['wheat'])
+            expect(await getBalance(OWNER)).toBe(expected.toFixed(4))
+            expect(await held(BUYER, 'wheat')).toBe(4)
+            expect((await stateOf(OWNER)).coinsEarned).toBe((WHEAT_FLOOR * 6 + townFloorPrice('wood') * 5).toFixed(4))
         })
 
         it('rolls the whole basket back when one line is short', async () => {
@@ -1284,11 +1356,11 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             await expect(cancelTownOrder(BUYER, buy.orderId)).rejects.toThrow(/no longer open/)
         })
 
-        it('refuses a price below what the town hall already pays, and a typo above every price', async () => {
+        it('takes any price a mayor names, and refuses only the typos', async () => {
             const floor = townFloorPrice('wheat')
             await seedUser(BUYER, { balance: coins(PURSE * 100) })
 
-            await expect(placeTownOrder(BUYER, 'wheat', 'buy', floor - 0.01, 1)).rejects.toThrow(/town hall already pays/)
+            await expect(placeTownOrder(BUYER, 'wheat', 'buy', 0, 1)).rejects.toThrow(/2 decimals/)
             await expect(placeTownOrder(BUYER, 'wheat', 'buy', TOWN_MAX_ORDER_PRICE + 1, 1)).rejects.toThrow(/or less/)
             await expect(placeTownOrder(BUYER, 'wheat', 'buy', over(1) + 0.005, 1)).rejects.toThrow(/2 decimals/)
             await expect(placeTownOrder(BUYER, 'wheat', 'buy', over(1), 1.5)).rejects.toThrow(/whole number/)
@@ -1297,9 +1369,12 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await openOrders(BUYER)).toHaveLength(0)
             expect(await getBalance(BUYER)).toBe(coins(PURSE * 100))
 
-            // The floor itself is allowed, and so is any price above it: what a
-            // good is worth to another mayor is between the two of them.
+            // Any price is allowed, under the floor as well as over it: what a
+            // good is worth to another mayor is between the two of them, and a
+            // sell that beats nobody simply never gets taken.
             await placeTownOrder(BUYER, 'wheat', 'buy', floor, 1)
+            const under = await placeTownOrder(BUYER, 'wheat', 'buy', TOWN_MARKET_MIN_PRICE, 1)
+            expect(under.status).toBe('open')
             await placeTownOrder(BUYER, 'wheat', 'sell', townCeilingPrice('wheat') * 50, 0)
                 .catch(() => null)
             await seedUser(SELLER, { balance: '0.0000' })

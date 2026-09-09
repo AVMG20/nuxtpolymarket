@@ -904,25 +904,116 @@ async function lockTownForMarket(tx: DbExecutor, userId: string) {
     await tx.select({ id: townState.id }).from(townState).where(eq(townState.userId, userId)).for('update')
 }
 
+/**
+ * What one sell of `quantity` would fetch: every resting bid that beats the
+ * town hall, best price first, then the hall for whatever is left.
+ *
+ * Read-only, and it reads the book — so the caller must already hold the book
+ * lock for `resource`, and must not have locked any town yet. Locking a town
+ * before the book is what deadlocks two mayors trading on two books at once.
+ *
+ * Own bids are skipped. Filling one would hand your own goods to your own
+ * escrow and read as a sale on the tape for a price you set on both sides.
+ */
+async function planSweepSell(tx: DbExecutor, userId: string, resource: TownResourceId, quantity: number) {
+    const floor = townPriceFor(resource)
+    const restingRows = await tx
+        .select()
+        .from(townOrders)
+        .where(and(
+            eq(townOrders.resource, resource),
+            eq(townOrders.status, 'open'),
+            eq(townOrders.side, 'buy'),
+            gte(townOrders.price, floor.toFixed(4))
+        ))
+        .orderBy(desc(townOrders.price), asc(townOrders.createdAt))
+
+    const book = restingRows
+        .filter(row => row.userId !== userId)
+        .map(row => ({ id: row.id, userId: row.userId, price: parseFloat(row.price), remaining: row.quantity - row.filled }))
+
+    const { fills, remaining } = matchGemOrder({ side: 'sell', price: floor, quantity, book })
+    let playerTotal = 0
+    for (const fill of fills) playerTotal += townOrderTotal(fill.price, fill.quantity)
+    const hallTotal = townOrderTotal(floor, remaining)
+    return { resource, quantity, floor, fills, remaining, playerTotal, hallTotal, total: playerTotal + hallTotal }
+}
+
+type SweepSellPlan = Awaited<ReturnType<typeof planSweepSell>>
+
+/** Everyone whose town row a plan will touch, seller included. */
+function sweepParticipants(userId: string, plans: SweepSellPlan[]) {
+    return [...new Set([userId, ...plans.flatMap(plan => plan.fills.map(fill => fill.userId))])].sort()
+}
+
+/**
+ * Apply one planned sweep. The seller's goods leave in a single conditional
+ * decrement — the guard for the whole line — and are then handed to the
+ * buyers the plan matched, with the rest going to the hall.
+ *
+ * Only the hall's share reaches recordEarnings: see the note on that function.
+ */
+async function applySweepSell(tx: DbExecutor, userId: string, plan: SweepSellPlan) {
+    await takeInventory(tx, userId, plan.resource, plan.quantity)
+
+    for (const fill of plan.fills) {
+        const [resting] = await tx.update(townOrders)
+            .set({
+                filled: sql`${townOrders.filled} + ${fill.quantity}`,
+                status: sql`case when ${townOrders.filled} + ${fill.quantity} >= ${townOrders.quantity} then 'filled' else 'open' end`,
+                updatedAt: new Date()
+            })
+            .where(and(eq(townOrders.id, fill.orderId), eq(townOrders.status, 'open')))
+            .returning({ id: townOrders.id })
+        if (!resting) throw createError({ statusCode: 500, statusMessage: 'Order book conflict' })
+
+        await addInventory(tx, fill.userId, plan.resource, fill.quantity)
+        await tx.insert(townTrades).values({
+            resource: plan.resource,
+            buyerId: fill.userId,
+            sellerId: userId,
+            takerId: userId,
+            price: fill.price.toFixed(4),
+            quantity: fill.quantity
+        })
+    }
+
+    if (plan.total > 0) await credit(userId, plan.total.toFixed(4), CATEGORY, tx)
+    if (plan.hallTotal > 0) await recordEarnings(tx, userId, plan.hallTotal)
+}
+
+/**
+ * Sell one good for the most coins on offer: the player bids that beat the
+ * town hall first, best price first, then the hall for the remainder.
+ *
+ * Routing through the book rather than straight to the floor is the whole
+ * point — a mayor who wants your steel badly should get it before the hall
+ * does, without the seller having to watch the book to notice.
+ */
 export async function sellToFloor(userId: string, resource: string, quantity: number) {
     if (!isTownResourceId(resource)) throw createError({ statusCode: 400, statusMessage: 'Unknown resource' })
     if (!isValidTownQuantity(quantity)) throw createError({ statusCode: 400, statusMessage: 'Quantity must be a whole number' })
     return db.transaction(async (tx) => {
-        await lockTownForMarket(tx, userId)
-        const price = townPriceFor(resource)
-        const total = townOrderTotal(price, quantity)
-        // The conditional decrement is the guard — inventory increments commute.
-        await takeInventory(tx, userId, resource, quantity)
-        await credit(userId, total.toFixed(4), CATEGORY, tx)
-        await recordEarnings(tx, userId, total)
-        return { resource, quantity, price, total }
+        await lockBook(tx, resource)
+        const plan = await planSweepSell(tx, userId, resource, quantity)
+        for (const id of sweepParticipants(userId, [plan])) await lockTownForMarket(tx, id)
+        await applySweepSell(tx, userId, plan)
+        return {
+            resource,
+            quantity,
+            price: plan.floor,
+            total: plan.total,
+            toPlayers: plan.playerTotal,
+            toHall: plan.hallTotal,
+            filledByPlayers: quantity - plan.remaining
+        }
     })
 }
 
 /**
- * Sell several resources to the town hall in one transaction. Each line is
- * guarded by the conditional decrement in takeInventory, so a stale quantity
- * fails that line's whole batch rather than overselling.
+ * Sell several goods in one transaction, each routed the same way as a single
+ * sell. Books are locked in resource order before anything is read, so two
+ * bulk sells over overlapping goods queue instead of deadlocking.
  */
 export async function sellBulkToFloor(userId: string, items: { resource: string, quantity: number }[]) {
     if (!Array.isArray(items) || items.length === 0 || items.length > TOWN_RESOURCES.length) {
@@ -932,22 +1023,24 @@ export async function sellBulkToFloor(userId: string, items: { resource: string,
         if (!isTownResourceId(item.resource)) throw createError({ statusCode: 400, statusMessage: 'Unknown resource' })
         if (!isValidTownQuantity(item.quantity)) throw createError({ statusCode: 400, statusMessage: 'Quantity must be a whole number' })
     }
+    const order = new Map(TOWN_RESOURCES.map((r, i) => [r.id as string, i]))
+    const sorted = [...items].sort((a, b) => (order.get(a.resource) ?? 0) - (order.get(b.resource) ?? 0))
+
     return db.transaction(async (tx) => {
-        await lockTownForMarket(tx, userId)
-        const research = await getResearchBonus(tx, userId)
-        const lines = items.map((item) => {
-            const resource = item.resource as TownResourceId
-            const price = townPriceFor(resource)
-            return { resource, quantity: item.quantity, price, total: townOrderTotal(price, item.quantity) }
-        })
+        for (const item of sorted) await lockBook(tx, item.resource as TownResourceId)
+
+        const plans: SweepSellPlan[] = []
+        for (const item of sorted) plans.push(await planSweepSell(tx, userId, item.resource as TownResourceId, item.quantity))
+
+        for (const id of sweepParticipants(userId, plans)) await lockTownForMarket(tx, id)
+
         let total = 0
-        for (const line of lines) {
-            await takeInventory(tx, userId, line.resource, line.quantity)
-            total += line.total
+        for (const plan of plans) {
+            await applySweepSell(tx, userId, plan)
+            total += plan.total
         }
-        await credit(userId, total.toFixed(4), CATEGORY, tx)
-        await recordEarnings(tx, userId, total)
-        return { total, lines }
+        const lines = plans.map(plan => ({ resource: plan.resource, quantity: plan.quantity, price: plan.floor, total: plan.total }))
+        return { total, lines, resources: plans.filter(plan => plan.fills.length > 0).map(plan => plan.resource) }
     })
 }
 
@@ -998,12 +1091,13 @@ export interface PlaceTownOrderResult {
 /**
  * Limit order with escrow, matched against the resting book.
  *
- * The floor is the only bound. Nobody may ask less than the town hall already
- * pays, because an order below it could never be worth taking — but there is
- * no ceiling: what a good is worth to another mayor is between the two of
- * them, and a scarce good late in the game is worth far more than ten times
- * its floor. Buys escrow coins (change refunded on cheaper fills), sells
- * escrow the resource. Same engine as the gem exchange.
+ * Price is the mayors' business, not the town hall's: any figure from a
+ * hundredth of a coin up to TOWN_MAX_ORDER_PRICE is allowed, in either
+ * direction. There is no floor — an ask under what the hall pays is a bad
+ * trade, not an invalid one, and the quick sell routes past it anyway — and
+ * no ceiling, because a scarce good late in the game is worth far more than
+ * ten times its floor. Buys escrow coins (change refunded on cheaper fills),
+ * sells escrow the resource. Same engine as the gem exchange.
  */
 export async function placeTownOrder(
     userId: string,
@@ -1016,10 +1110,6 @@ export async function placeTownOrder(
     if (side !== 'buy' && side !== 'sell') throw createError({ statusCode: 400, statusMessage: 'Choose buy or sell' })
     if (!isValidTownPrice(price)) throw createError({ statusCode: 400, statusMessage: 'Price must have at most 2 decimals' })
     if (!isValidTownQuantity(quantity)) throw createError({ statusCode: 400, statusMessage: 'Quantity must be a whole number' })
-    const floor = townFloorPrice(resource)
-    if (price < floor) {
-        throw createError({ statusCode: 400, statusMessage: `The town hall already pays ${floor} — ask at least that` })
-    }
     // A price nobody could ever pay is a typo, not an order: the escrow on a
     // buy at 1e15 would fail anyway, and a sell at that price only clutters
     // the book. Cap it well above anything the game can produce.

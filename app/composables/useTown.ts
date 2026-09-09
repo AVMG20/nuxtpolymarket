@@ -330,7 +330,7 @@ export const useTown = () => {
         moveBuilding: (buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number) =>
             call<{ buildingId: string }>('/api/town/building/move', { buildingId, plotId, tileX, tileY, rotation }),
         sellBulk: (items: { resource: string, quantity: number }[]) =>
-            call<{ total: number, lines: { resource: string, quantity: number, total: number }[] }>('/api/town/market/sell-bulk', { items }),
+            call<{ total: number, lines: { resource: string, quantity: number, total: number }[], resources: string[] }>('/api/town/market/sell-bulk', { items }),
         upgradeBuilding: (buildingId: string) => call<{ level: number, completesAt: number }>('/api/town/building/upgrade', { buildingId }),
         rushBuilding: (buildingId: string) => call<{ gems: number, level: number }>('/api/town/building/rush', { buildingId }),
         demolishBuilding: (buildingId: string) => call('/api/town/building/demolish', { buildingId }),
@@ -341,7 +341,7 @@ export const useTown = () => {
         hireBuilder: () => call<{ builders: number, gems: number }>('/api/town/builder'),
         startResearch: (researchId: string) => call<{ researchId: string, completesAt: number }>('/api/town/research/start', { researchId }),
         sellToFloor: (resource: string, quantity: number) =>
-            call<{ total: number, quantity: number }>('/api/town/market/sell-floor', { resource, quantity }),
+            call<{ total: number, quantity: number, toPlayers: number, toHall: number, filledByPlayers: number }>('/api/town/market/sell-floor', { resource, quantity }),
         placeOrder: (resource: string, side: 'buy' | 'sell', price: number, quantity: number) =>
             call<{ status: 'open' | 'filled', filled: number, coinsMoved: number }>('/api/town/market/place', { resource, side, price, quantity }),
         cancelOrder: (orderId: string) => call('/api/town/market/cancel', { orderId })

@@ -3,6 +3,7 @@ import TownCoin from '~/components/town/TownCoin.vue'
 import TownAsset from '~/components/town/TownAsset.vue'
 import TownProductionChart from '~/components/town/TownProductionChart.vue'
 import type { TownResourceView, TownOrderView } from '~/composables/useTown'
+import { TOWN_MARKET_MIN_PRICE, TOWN_MAX_ORDER_PRICE } from '#shared/utils/gamelogic/town'
 
 interface BookLevel { price: number, quantity: number }
 interface MarketData {
@@ -256,10 +257,44 @@ function fmtRate(perHour: number) {
     return perHour > 0 ? `+${formatNumber(perHour)}/h` : `−${formatNumber(Math.abs(perHour))}/h`
 }
 
-// ── Quick trade with the system ──
+// ── Quick trade ──
 const quickQty = ref(1)
 watch(selected, () => { quickQty.value = Math.min(Math.max(1, owned.value), 100) })
-const sellTotal = computed(() => (resource.value?.floorPrice ?? 0) * Math.max(0, Math.floor(quickQty.value || 0)))
+
+/** Resting bids with your own taken out — a quick sell never fills your own offer. */
+const otherBids = computed(() => {
+    const mine = new Map<number, number>()
+    for (const o of market.value?.myOrders ?? []) {
+        if (o.side === 'buy') mine.set(o.price, (mine.get(o.price) ?? 0) + (o.quantity - o.filled))
+    }
+    return (market.value?.bids ?? [])
+        .map(l => ({ price: l.price, quantity: l.quantity - (mine.get(l.price) ?? 0) }))
+        .filter(l => l.quantity > 0)
+})
+
+/**
+ * What a quick sell pays: every bid above the town hall's floor, best first,
+ * then the hall for the rest. Mirrors what the server actually does.
+ */
+const sellQuote = computed(() => {
+    const want = Math.max(0, Math.floor(quickQty.value || 0))
+    const floor = resource.value?.floorPrice ?? 0
+    let left = want
+    let total = 0
+    let toPlayers = 0
+    let best = 0
+    for (const lvl of otherBids.value) {
+        if (left <= 0) break
+        if (lvl.price <= floor) break
+        const take = Math.min(left, lvl.quantity)
+        total += take * lvl.price
+        toPlayers += take
+        best = Math.max(best, lvl.price)
+        left -= take
+    }
+    total += left * floor
+    return { total, toPlayers, best, floor }
+})
 
 // ── Storage ──
 // A resource sitting at its cap is not a full cupboard, it is a stopped
@@ -296,18 +331,21 @@ watch([market, orderSide], ([m]) => {
 }, { immediate: true })
 
 const orderTotal = computed(() => Math.round((orderPrice.value || 0) * 100) * Math.max(0, Math.floor(orderQty.value || 0)) / 100)
-const orderValid = computed(() => {
-    if (!market.value) return false
+/** Why the offer button is off, or null when it is on. Shown next to the button. */
+const orderIssue = computed(() => {
+    if (!market.value) return 'Loading the book…'
     const p = orderPrice.value
     const q = Math.floor(orderQty.value || 0)
-    // No ceiling: the floor is the only bound the server enforces, and a UI
-    // that refuses what the API accepts is just a worse client.
-    if (!Number.isFinite(p) || p < market.value.floor) return false
-    if (q < 1) return false
-    if (orderSide.value === 'sell' && q > owned.value) return false
-    if (orderSide.value === 'buy' && orderTotal.value > props.balance) return false
-    return true
+    // Price is unbounded in both directions bar the sanity limits the server
+    // keeps; a UI that refuses what the API accepts is just a worse client.
+    if (!Number.isFinite(p) || p < TOWN_MARKET_MIN_PRICE) return `Price must be at least ${TOWN_MARKET_MIN_PRICE}`
+    if (p > TOWN_MAX_ORDER_PRICE) return 'Price is too high'
+    if (q < 1) return 'Enter an amount'
+    if (orderSide.value === 'sell' && q > owned.value) return `You only have ${formatNumber(owned.value)}`
+    if (orderSide.value === 'buy' && orderTotal.value > props.balance) return 'Not enough coins'
+    return null
 })
+const orderValid = computed(() => orderIssue.value === null)
 
 function fillFromLevel(side: 'buy' | 'sell', level: BookLevel) {
     // Clicking an ask = you buy at that price; clicking a bid = you sell into it.
@@ -394,10 +432,11 @@ function timeAgo(at: number) {
                 </section>
 
                 <section class="mk-sec">
-                    <header>Sell to town hall <span class="opacity-50">— everything goes at floor price, in one transaction</span></header>
+                    <header>Sell in bulk <span class="opacity-50">— best offers first, the town hall for the rest, all in one go</span></header>
 
                     <div v-if="!ownedRows.length" class="py-4 text-center text-xs opacity-60">Your warehouse is empty</div>
                     <template v-else>
+                        <p class="mb-2 text-[11px] opacity-55">Totals are what the town hall guarantees — any mayor bidding more is taken first, so you get at least this.</p>
                         <div class="mk-actions">
                             <button
                                 v-for="q in quickSells"
@@ -407,7 +446,7 @@ function timeAgo(at: number) {
                                 @click="sellItems(q.items)"
                             >
                                 Sell {{ q.label }}
-                                <b class="ml-1" style="color: var(--g-gold)"><TownCoin /> {{ formatNumber(q.value) }}</b>
+                                <b class="ml-1" style="color: var(--g-gold)">≥ <TownCoin /> {{ formatNumber(q.value) }}</b>
                             </button>
                         </div>
 
@@ -416,7 +455,7 @@ function timeAgo(at: number) {
                             <input v-model.number="keep" type="number" min="0" class="g-input w-24">
                             <button class="g-btn g-btn-primary py-2 text-xs" :disabled="busy || keepSell.value <= 0" @click="sellItems(keepSell.items)">
                                 Sell above keep
-                                <b class="ml-1"><TownCoin /> {{ formatNumber(keepSell.value) }}</b>
+                                <b class="ml-1">≥ <TownCoin /> {{ formatNumber(keepSell.value) }}</b>
                             </button>
                             <span class="text-[11px] opacity-50">Leaves {{ formatNumber(Math.max(0, Math.floor(keep || 0))) }} of each good in store.</span>
                         </div>
@@ -426,8 +465,8 @@ function timeAgo(at: number) {
                                 <span>Good</span>
                                 <span>Owned</span>
                                 <span>Rate</span>
-                                <span>Floor</span>
-                                <span>Value</span>
+                                <span>Hall pays</span>
+                                <span>Worth</span>
                                 <span />
                             </div>
                             <div v-for="r in ownedRows" :key="r.id" class="mk-row">
@@ -463,7 +502,7 @@ function timeAgo(at: number) {
                 </div>
 
                 <!-- Storage: full storage halts every workshop that makes this. -->
-                <div class="mk-store" :data-tip="storeFull ? 'Storage is full — the workshops that make this have stopped. Sell some, or build a warehouse.' : 'Build warehouses to hold more.'">
+                <div class="mk-store" :data-tip="storeFull ? 'Over the cap — the workshops that make this have stopped until you are back under it. Buying past the cap is allowed; selling or a warehouse gets production going again.' : 'Build warehouses to hold more. Buying can take you over the cap — production just stops until you are back under.'">
                     <span class="mk-store-label">📦 Storage</span>
                     <span class="mk-store-bar"><i :class="storeClass" :style="{ width: `${Math.round(storeRatio * 100)}%` }" /></span>
                     <b class="mk-store-num">{{ formatNumber(owned) }}<span class="opacity-45">/{{ formatNumber(storageCap) }}</span></b>
@@ -471,24 +510,31 @@ function timeAgo(at: number) {
 
                 <!-- Instant trade -->
                 <section class="mk-sec">
-                    <header>Quick trade <span class="opacity-50">— the town hall always buys at floor; buying takes another player's offer</span></header>
+                    <header>Trade now <span class="opacity-50">— selling takes the best offers first, then the town hall</span></header>
                     <div class="flex flex-wrap items-center gap-2">
                         <input v-model.number="quickQty" type="number" min="1" class="g-input w-24">
                         <button class="g-btn py-2 text-xs" @click="quickQty = owned">All</button>
                         <div class="flex-1" />
                         <button class="g-btn g-btn-primary py-2" :disabled="busy || owned < 1 || quickQty < 1 || quickQty > owned" @click="emit('sell-floor', resource.id, Math.floor(quickQty))">
-                            Sell to town hall · <TownCoin /> {{ formatNumber(sellTotal) }}
+                            Sell · <TownCoin /> {{ formatNumber(sellQuote.total) }}
                         </button>
                         <button
                             class="g-btn py-2"
                             :disabled="busy || !buyQuote || buyQuote.cost > balance"
-                            :title="buyQuote ? 'Fills against the cheapest player offers' : 'Not enough on offer — place a buy offer below'"
+                            :title="buyQuote ? 'Fills against the cheapest offers on sale' : 'Nothing on sale — place a buy offer below'"
                             @click="buyQuote && emit('place-order', resource.id, 'buy', buyQuote.worstPrice, Math.floor(quickQty))"
                         >
-                            <span v-if="buyQuote">Buy from players · <TownCoin /> {{ formatNumber(buyQuote.cost) }}</span>
-                            <span v-else>Nobody selling</span>
+                            <span v-if="buyQuote">Buy · <TownCoin /> {{ formatNumber(buyQuote.cost) }}</span>
+                            <span v-else>Nothing on sale</span>
                         </button>
                     </div>
+                    <p class="mt-1 text-[11px] opacity-55">
+                        <template v-if="quickQty > owned">You only have {{ formatNumber(owned) }} — sell that or less.</template>
+                        <template v-else-if="sellQuote.toPlayers > 0">
+                            {{ formatNumber(sellQuote.toPlayers) }} goes to mayors paying up to <b>{{ fmtPrice(sellQuote.best) }}</b>, the rest to the town hall at {{ fmtPrice(sellQuote.floor) }}.
+                        </template>
+                        <template v-else>Nobody is bidding above the town hall's {{ fmtPrice(sellQuote.floor) }}, so this all goes to the hall.</template>
+                    </p>
                 </section>
 
                 <!-- Order book -->
@@ -526,16 +572,21 @@ function timeAgo(at: number) {
                         </span>
                     </header>
                     <div class="flex flex-wrap items-center gap-2">
-                        <label class="text-xs opacity-60">Price</label>
-                        <input v-model.number="orderPrice" type="number" step="0.01" :min="market?.floor" class="g-input w-28">
+                        <label class="text-xs opacity-60">Price each</label>
+                        <input v-model.number="orderPrice" type="number" step="0.01" :min="TOWN_MARKET_MIN_PRICE" class="g-input w-28">
                         <label class="text-xs opacity-60">×</label>
                         <input v-model.number="orderQty" type="number" min="1" class="g-input w-24">
+                        <button v-if="orderSide === 'sell'" class="g-btn py-2 text-xs" @click="orderQty = owned">All</button>
                         <div class="flex-1 text-right text-sm font-bold tabular-nums">= <TownCoin /> {{ formatNumber(orderTotal) }}</div>
                         <button class="g-btn py-2" :class="orderSide === 'sell' ? 'g-btn-danger' : 'g-btn-primary'" :disabled="busy || !orderValid" @click="emit('place-order', resource.id, orderSide, orderPrice, Math.floor(orderQty))">
                             {{ orderSide === 'sell' ? 'List for sale' : 'Place buy offer' }}
                         </button>
                     </div>
-                    <p class="mt-1 text-[11px] opacity-50">Ask what you like, so long as it beats the town hall. Crossing offers fill instantly at the resting price.</p>
+                    <p class="mt-1 text-[11px]" :class="orderIssue ? 'text-[color:var(--g-red)] opacity-90' : 'opacity-50'">
+                        <template v-if="orderIssue">{{ orderIssue }}</template>
+                        <template v-else-if="orderSide === 'sell'">Name any price. It waits on the book until someone takes it; anyone already bidding more fills you instantly.</template>
+                        <template v-else>Name any price. It waits on the book until someone sells into it; anyone already asking less fills you instantly.</template>
+                    </p>
                 </section>
 
                 <!-- My orders -->

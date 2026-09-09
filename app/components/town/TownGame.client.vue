@@ -437,7 +437,8 @@ function openMarket(resource?: string) {
 }
 function sellFloor(resource: string, quantity: number) {
     run(() => town.sellToFloor(resource, quantity), (res) => {
-        toast.add({ title: `Sold ${formatNumber(res.quantity)} for ${formatNumber(res.total)} coins`, color: 'success' })
+        const toMayors = res.filledByPlayers > 0 ? ` — ${formatNumber(res.filledByPlayers)} to other mayors` : ''
+        toast.add({ title: `Sold ${formatNumber(res.quantity)} for ${formatNumber(res.total)} coins${toMayors}`, color: 'success' })
         sound.play(res.total >= 100_000 ? 'bigcoin' : 'coin')
     })
 }
