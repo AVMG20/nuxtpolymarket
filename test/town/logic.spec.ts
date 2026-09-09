@@ -265,8 +265,8 @@ describe('plot cooldown and price', () => {
         expect(townPlotPrice(-3)).toBe(0)
     })
 
-    it('makes the second plot cost the base price after four hours', () => {
-        expect(townPlotCooldownMs(2)).toBe(4 * 60 * 60_000)
+    it('makes the second plot cost the base price after eight hours', () => {
+        expect(townPlotCooldownMs(2)).toBe(8 * 60 * 60_000)
         expect(townPlotCooldownMs(2)).toBe(TOWN_PLOT_COOLDOWNS_MS[0])
         expect(townPlotPrice(2)).toBe(TOWN_PLOT_PRICE_BASE)
     })
@@ -293,8 +293,8 @@ describe('plot cooldown and price', () => {
         let total = 0
         for (let index = 2; index <= TOWN_MAX_PLOTS; index++) total += townPlotCooldownMs(index)
         const days = total / (24 * 60 * 60_000)
-        expect(days).toBeGreaterThan(30)
-        expect(days).toBeLessThan(90)
+        expect(days).toBeGreaterThan(14)
+        expect(days).toBeLessThan(45)
     })
 
     it('never runs off the end of the cooldown table', () => {

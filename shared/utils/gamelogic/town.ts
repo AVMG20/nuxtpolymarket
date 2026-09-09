@@ -33,29 +33,23 @@ export const TOWN_RUSH_MS_PER_GEM = 5 * 60_000
  * the hour, so the squeeze was over before it started, while the last ones sat
  * behind waits of a year and more that nobody would ever reach.
  *
- * A flat ramp does the job better. Four hours before a second plot, a day
- * before a third, then one more day each time, topping out at ten. Twelve
- * plots is about eight weeks of waiting in total, which sits inside the same
- * window as growing a town to the top tiers.
+ * A flat ramp does the job better, and a short one keeps the squeeze on:
+ * eight hours before a second plot, two days before a third, then two more
+ * days each time. Six plots is about three weeks of waiting in total, and
+ * the board stays small enough that every tile placement is a real choice.
  */
 const HOUR_MS = 60 * 60_000
 const DAY_MS = 24 * HOUR_MS
 export const TOWN_PLOT_COOLDOWNS_MS: readonly number[] = [
-    4 * HOUR_MS, // plot 2
-    1 * DAY_MS, // plot 3
-    2 * DAY_MS,
-    3 * DAY_MS,
+    8 * HOUR_MS, // plot 2
+    2 * DAY_MS, // plot 3
     4 * DAY_MS,
-    5 * DAY_MS,
     6 * DAY_MS,
-    7 * DAY_MS,
-    8 * DAY_MS,
-    9 * DAY_MS,
-    10 * DAY_MS // plot 12
+    8 * DAY_MS // plot 6
 ]
 export const TOWN_PLOT_PRICE_BASE = 50_000
 export const TOWN_PLOT_PRICE_GROWTH = 4.5
-export const TOWN_MAX_PLOTS = 12
+export const TOWN_MAX_PLOTS = 6
 /**
  * One shared realm: a new town is planted so that at least this many EMPTY
  * plots sit between it and anyone else's land in every direction, diagonals
@@ -920,7 +914,7 @@ export function townPlotIsFlat(px: number, py: number): boolean {
 }
 
 // Terrain is a pure function of the coordinates, so a cached plot can never go
-// stale — the map only ever grows. A town holds twelve plots and a world view
+// stale — the map only ever grows. A town holds a handful of plots and a world view
 // a few dozen more; the cap is there so a long-lived server process that pans
 // over a lot of land does not keep every square it ever drew.
 const terrainCache = new Map<string, readonly TownTerrainId[]>()
