@@ -44,6 +44,7 @@ function openListing(listing: TcgListingSummary, event: MouseEvent) {
     assetNumber: listing.render.assetNumber,
     maskKind: listing.render.maskKind,
     foilEffect: listing.render.foilEffect,
+    foilMask: listing.render.foilMask,
     pattern: listing.render.pattern,
     printRunLabel: listing.render.printRunLabel,
     finishLabel: finishLabel(listing.render.finish, listing.render.pattern),

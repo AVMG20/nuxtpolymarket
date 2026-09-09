@@ -23,6 +23,7 @@ export interface LightboxCard {
     assetNumber: string | null
     maskKind: string | null
     foilEffect: string | null
+    foilMask?: string | null
     legacySet?: string | null
     holo?: boolean
     name: string
@@ -776,6 +777,7 @@ onBeforeUnmount(() => {
                         :asset-number="String(card.assetNumber ?? '')"
                         :mask-kind="card.maskKind ?? 'wp'"
                         :foil-effect="card.foilEffect"
+                        :foil-mask="card.foilMask ?? null"
                         :pattern="card.pattern"
                         :legacy-set="card.legacySet ?? null"
                         :holo="card.holo ?? false"
@@ -796,6 +798,7 @@ onBeforeUnmount(() => {
                         :asset-number="String(card.assetNumber ?? '')"
                         :mask-kind="card.maskKind ?? 'wp'"
                         :foil-effect="card.foilEffect"
+                        :foil-mask="card.foilMask ?? null"
                         :pattern="card.pattern"
                         :legacy-set="card.legacySet ?? null"
                         :holo="card.holo ?? false"

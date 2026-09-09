@@ -57,6 +57,7 @@ function inspectSlab(printing: GalleryPrinting, set: GallerySet, event: MouseEve
     assetNumber: printing.assetNumber,
     maskKind: printing.maskKind,
     foilEffect: printing.foilEffect,
+    foilMask: printing.foilMask,
     legacySet: printing.bundle ? null : legacySetOf(printing.plaatjesCardId),
     holo: printing.finish === 'holo',
     name: printing.cardName,

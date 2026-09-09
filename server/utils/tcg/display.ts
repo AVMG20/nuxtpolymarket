@@ -169,6 +169,7 @@ export interface DisplaySlotView {
     assetNumber: string | null
     maskKind: string | null
     foilEffect: string | null
+    foilMask: string | null
     rarity: string | null
     cardNumber: string | null
     setTotal: number | null
@@ -240,6 +241,7 @@ export async function getDisplay(displayId: string): Promise<DisplayView> {
         assetNumber: tcgPrinting.assetNumber,
         maskKind: tcgPrinting.maskKind,
         foilEffect: tcgPrinting.foilEffect,
+        foilMask: tcgPrinting.foilMask,
         setName: tcgSet.name,
         setCode: tcgSet.code,
         releaseDate: tcgSet.releaseDate
@@ -269,6 +271,7 @@ export async function getDisplay(displayId: string): Promise<DisplayView> {
             assetNumber: row.assetNumber,
             maskKind: row.maskKind,
             foilEffect: row.foilEffect,
+            foilMask: row.foilMask,
             rarity: row.rarity,
             cardNumber: row.cardNumber,
             setTotal: row.setTotal,

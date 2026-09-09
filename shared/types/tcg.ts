@@ -157,6 +157,7 @@ export interface OpenedPackCard {
     assetNumber: string
     maskKind: string | null
     foilEffect: string | null
+    foilMask: string | null
     printRunLabel: string
 }
 
@@ -264,11 +265,16 @@ export interface GalleryPrinting {
     assetNumber: string | null
     maskKind: string | null
     foilEffect: string | null
+    foilMask: string | null
     cardName: string
     cardNumber: string
     setTotal: number | null
     rarity: string | null
     sortOrder: number
+    /** Earliest copy serial the profiled user owns ('chase #42'), for display. */
+    serial: string | null
+    /** That serial's number, so the gallery can sort by it. */
+    serialNo: number | null
     /** Copies the profiled user owns. Never carries condition data. */
     owned: number
     slabbed: number
@@ -457,6 +463,7 @@ export interface TcgSubmissionSummary {
         assetNumber: string | null
         maskKind: string | null
         foilEffect: string | null
+        foilMask: string | null
         pattern: string | null
         finish: string
         plaatjesCardId: string
@@ -505,6 +512,7 @@ export interface TcgListingSummary {
         assetNumber: string | null
         maskKind: string | null
         foilEffect: string | null
+        foilMask: string | null
         pattern: string | null
         finish: string
         plaatjesCardId: string
