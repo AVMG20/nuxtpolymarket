@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { townResearch } from '#server/database/schema'
@@ -12,7 +12,7 @@ import {
 import { getTownResearchBoard } from '#server/utils/town-research'
 import { TOWN_RESEARCH_BRANCHES } from '#shared/utils/gamelogic/town-research'
 import { TOWN_FREE_BUILDERS, TOWN_MAX_BUILDERS } from '#shared/utils/gamelogic/town'
-import { SKIP, cleanupUser, moveTownToFlatGround, seedUser } from '../setup/db-helpers'
+import { SKIP, cleanupUser, lockTownRealm, moveTownToFlatGround, seedUser } from '../setup/db-helpers'
 
 const OWNER = 'test-town-smoke-owner'
 
@@ -28,9 +28,17 @@ async function cleanup() {
  * right and the game is still unplayable from a standing start.
  */
 describe.skipIf(SKIP)('a new mayor can play (database)', () => {
+    // One shared realm: hold it for this file so a sibling spec cannot plant
+    // or delete plots midway through a test here (db-helpers, lockTownRealm).
+    let releaseRealm: () => Promise<void>
+    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
+
     beforeEach(cleanup)
     afterEach(cleanup)
-    afterAll(async () => { await db.$client.end() })
+    afterAll(async () => {
+        await releaseRealm()
+        await db.$client.end()
+    })
 
     it('founds a town, lays a road, and puts up a house and a lumber camp', async () => {
         await seedUser(OWNER, { balance: '100000000000', gems: 5000 })

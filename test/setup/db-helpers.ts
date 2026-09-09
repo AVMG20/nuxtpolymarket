@@ -87,3 +87,46 @@ export async function burst<T>(n: number, fn: (i: number) => Promise<T>) {
         rejected: results.filter(r => r.status === 'rejected').length
     }
 }
+
+/*
+ * Serializing the town specs (§ polytown).
+ *
+ * Every town DB spec plants into ONE shared realm (townRealm id 1) and several
+ * of them delete plots as they clean up. Vitest runs spec FILES in parallel, so
+ * a sibling can delete a plot after this file has snapshotted the realm — and
+ * an assertion comparing a fresh founding against that stale snapshot then
+ * fails, because foundTown quite correctly reused the freed square.
+ *
+ * That is a test-isolation problem, not a production one: claimFoundingPlot
+ * takes pg_advisory_xact_lock, so concurrent foundings already serialize
+ * against each other and the founding gap is enforced.
+ *
+ * The fix is a SESSION-scoped advisory lock, held for the lifetime of a spec
+ * file, on its own connection: pooled connections cannot hold one reliably,
+ * since the unlock has to reach the same backend that took it.
+ */
+
+/**
+ * Test-only lock key. Deliberately NOT the key claimFoundingPlot uses — a
+ * session lock on that key would block every foundTown call inside the very
+ * spec holding it, which deadlocks rather than serializes.
+ */
+const TOWN_SPEC_LOCK_KEY = 761_442_021
+
+/**
+ * Take the town realm for this spec file. Returns the release function; call
+ * it from afterAll. A no-op when the suite is skipping for want of a database.
+ */
+export async function lockTownRealm(): Promise<() => Promise<void>> {
+    if (SKIP) return async () => {}
+    const { default: pg } = await import('pg')
+    const client = new pg.Client({ connectionString: process.env.DATABASE_URL })
+    await client.connect()
+    await client.query('select pg_advisory_lock($1)', [TOWN_SPEC_LOCK_KEY])
+    return async () => {
+        // Unlock first so a waiting file starts immediately; end() alone would
+        // release it too, but only once the backend notices the disconnect.
+        await client.query('select pg_advisory_unlock($1)', [TOWN_SPEC_LOCK_KEY])
+        await client.end()
+    }
+}
