@@ -212,6 +212,7 @@ export interface TradeCardView {
         assetNumber: string | null
         maskKind: string | null
         foilEffect: string | null
+        foilMask: string | null
         pattern: string | null
         finish: string
         plaatjesCardId: string
@@ -254,6 +255,7 @@ const tradeCardColumns = {
     assetNumber: tcgPrinting.assetNumber,
     maskKind: tcgPrinting.maskKind,
     foilEffect: tcgPrinting.foilEffect,
+    foilMask: tcgPrinting.foilMask,
     pattern: tcgPrinting.pattern,
     finish: tcgPrinting.finish,
     plaatjesCardId: tcgPrinting.plaatjesCardId,
@@ -286,6 +288,7 @@ interface TradeCardRow {
     assetNumber: string | null
     maskKind: string | null
     foilEffect: string | null
+    foilMask: string | null
     pattern: string | null
     finish: string
     plaatjesCardId: string
@@ -323,6 +326,7 @@ function toTradeCardView(row: TradeCardRow): TradeCardView {
             assetNumber: row.assetNumber,
             maskKind: row.maskKind,
             foilEffect: row.foilEffect,
+            foilMask: row.foilMask,
             pattern: row.pattern,
             finish: row.finish,
             plaatjesCardId: row.plaatjesCardId,

@@ -3,12 +3,15 @@ import * as THREE from 'three'
 import type { TcgWearSpec } from '#shared/types/tcg'
 import { ASPECT, resolve, resolveLegacy, makeLoader, makeMaterial, loadCard } from '~/utils/tcg/foil'
 import { makeWearMaterial, makeEraserMaterial } from '~/utils/tcg/wear'
+import { etchFor } from '~/utils/tcg/etch'
 
 const props = withDefaults(defineProps<{
     bundle: string
     assetNumber: string
     maskKind: string
     foilEffect?: string | null
+    /** Surface treatment ('Etched', 'Holo', 'Reverse'…) — decides engraving. */
+    foilMask?: string | null
     /** Reverse-pattern variant ('pokeball' | 'masterball') — overrides the
      *  effect, since these parallels have their own foil treatment. */
     pattern?: string | null
@@ -24,6 +27,7 @@ const props = withDefaults(defineProps<{
     wear?: TcgWearSpec | null
 }>(), {
     foilEffect: null,
+    foilMask: null,
     pattern: null,
     legacySet: null,
     holo: false,
@@ -92,6 +96,7 @@ onMounted(async () => {
             num: props.assetNumber,
             mask: props.maskKind,
             effect: ((props.pattern || props.foilEffect) ?? '').toLowerCase(),
+            etch: etchFor(props.foilMask),
             // Alternate-art faces are `<family>_en_<num>_alt` with the marker
             // carried on the stored bundle; resolve() re-appends it.
             alt: props.bundle.endsWith('_alt')

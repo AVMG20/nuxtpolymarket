@@ -40,6 +40,7 @@ function inspect(card: TradeCardView, event: MouseEvent) {
     assetNumber: card.render.assetNumber,
     maskKind: card.render.maskKind,
     foilEffect: card.render.foilEffect,
+    foilMask: card.render.foilMask,
     legacySet: card.render.bundle ? null : legacySetOf(card.render.plaatjesCardId),
     holo: card.render.finish === 'holo',
     name: card.card.name,
