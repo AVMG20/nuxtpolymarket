@@ -31,7 +31,7 @@ const negativeY = (datum: unknown) => {
 </script>
 
 <template>
-  <VisXYContainer :data="data" :padding="padding" :class="height" :width="width">
+  <VisXYContainer :data="data" :padding="padding" :class="[height, 'chart-line']" :width="width">
     <VisArea :x="x" :y="negativeColor ? positiveY : y" :color="color" :opacity="areaOpacity" />
     <VisArea v-if="negativeColor" :x="x" :y="negativeY" :color="negativeColor" :opacity="areaOpacity" />
     <VisLine :x="x" :y="negativeColor ? positiveY : y" :color="color" />
@@ -41,3 +41,41 @@ const negativeY = (datum: unknown) => {
     <VisTooltip />
   </VisXYContainer>
 </template>
+
+<style scoped>
+/*
+ * Unovis ships its own palette and picks between its light and dark values off
+ * `prefers-color-scheme`, which ignores the class-based theme the app actually
+ * uses. Point both branches at the Nuxt UI tokens so the chart follows the
+ * theme the user picked instead of the one the OS reports.
+ */
+.chart-line {
+  --vis-axis-grid-color: var(--ui-border);
+  --vis-dark-axis-grid-color: var(--ui-border);
+  --vis-axis-domain-color: var(--ui-border);
+  --vis-dark-axis-domain-color: var(--ui-border);
+  --vis-axis-tick-color: transparent;
+  --vis-dark-axis-tick-color: transparent;
+  --vis-axis-tick-label-color: var(--ui-text-dimmed);
+  --vis-dark-axis-tick-label-color: var(--ui-text-dimmed);
+  --vis-axis-label-color: var(--ui-text-muted);
+  --vis-dark-axis-label-color: var(--ui-text-muted);
+  --vis-axis-grid-line-width: 1;
+  --vis-axis-tick-line-width: 0;
+  --vis-axis-tick-label-font-size: 11px;
+
+  --vis-crosshair-line-stroke-color: var(--ui-border-accented);
+  --vis-crosshair-circle-stroke-color: var(--ui-bg);
+
+  --vis-tooltip-background-color: var(--ui-bg-elevated);
+  --vis-dark-tooltip-background-color: var(--ui-bg-elevated);
+  --vis-tooltip-border-color: var(--ui-border-accented);
+  --vis-dark-tooltip-border-color: var(--ui-border-accented);
+  --vis-tooltip-text-color: var(--ui-text);
+  --vis-dark-tooltip-text-color: var(--ui-text);
+  --vis-tooltip-shadow-color: rgb(0 0 0 / 0.25);
+  --vis-dark-tooltip-shadow-color: rgb(0 0 0 / 0.5);
+  --vis-tooltip-border-radius: var(--ui-radius);
+  --vis-tooltip-padding: 4px 8px;
+}
+</style>
