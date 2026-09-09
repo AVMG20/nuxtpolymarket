@@ -231,6 +231,28 @@ const selUpgradeMs = computed(() => selectedBuilding.value?.nextUpgradeMs ?? 0)
 const selWorkersWanted = computed(() => selDef.value && selectedBuilding.value
     ? townWorkersFor(selDef.value, selectedBuilding.value.level)
     : 0)
+/** The workers meter's tooltip: what this building wants, and what its road network has. */
+const selWorkersTitle = computed(() => {
+    const b = selectedBuilding.value
+    const d = b?.district
+    const want = `Wants ${selWorkersWanted.value} residents; houses fill posts oldest building first.`
+    if (!d) return want
+    return `${want}\nThis road network: ${d.residents} residents for ${d.jobs} jobs.`
+})
+/** Why this building is short of hands, when the roads are the reason. */
+const selDistrictFix = computed(() => {
+    const b = selectedBuilding.value
+    const e = selectedEntry.value
+    const d = b?.district
+    if (!b || !e || !d || b.connected === false || b.completesAt > now.value) return null
+    if (e.kind === 'housing') {
+        return d.jobs === 0 ? '👥 Nobody here can reach a job. Join this road to your workshops.' : null
+    }
+    if (e.kind === 'road' || selWorkersWanted.value === 0 || (b.staffing ?? 0) >= 0.99) return null
+    if (d.residents === 0) return '👥 No homes on this road network. Build houses along it, or join it to your town by road.'
+    if (d.residents < d.jobs) return `👥 This road network has ${d.residents} residents for ${d.jobs} jobs. Add houses along it, or join it to more of your town.`
+    return null
+})
 /** The next rung that will start demanding a good from further up the chain. */
 
 const plotById = computed(() => new Map(town.plots.value.map(p => [p.id, p])))
@@ -925,6 +947,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 <div class="opacity-70">
                     <template v-if="hoveredBuilding.connected === false && hoveredEntry.kind !== 'road'"><span class="text-rose-300 font-bold">⚠ No road at the front door — not working</span></template>
                     <template v-else-if="hoveredBuilding.completesAt > now">{{ hoveredBuilding.level === 0 ? 'Building' : 'Upgrading' }} · {{ formatTownDuration(hoveredBuilding.completesAt - now) }}</template>
+                    <template v-else-if="hoveredEntry.kind === 'industry' && hoveredBuilding.district?.residents === 0"><span class="text-rose-300 font-bold">⚠ No homes on this road</span></template>
                     <template v-else-if="hoveredEntry.kind === 'industry'">{{ Math.round((hoveredBuilding.staffing ?? 0) * 100) }}% staffed</template>
                     <template v-else-if="hoveredEntry.kind === 'housing'">{{ hoveredEntry.popCap * hoveredBuilding.level }} residents</template>
                     <template v-else>Click for details</template>
@@ -978,7 +1001,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
                             <!-- The two things that slow a building down -->
                             <div v-if="selWorkersWanted > 0" class="meters">
-                                <div class="meter" :data-tip="`Residents on the job. This one wants ${selWorkersWanted}, and houses fill the posts oldest building first.`">
+                                <div class="meter" :data-tip="selWorkersTitle">
                                     <span class="meter-ico">👥</span>
                                     <span class="meter-label">Workers</span>
                                     <span class="meter-bar"><i :class="barClass(selectedBuilding.staffing ?? 0)" :style="{ width: `${Math.round((selectedBuilding.staffing ?? 0) * 100)}%` }" /></span>
@@ -1007,7 +1030,10 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             </div>
 
                             <!-- Notes, only when they have something to say -->
-                            <p v-if="selSupplyFix" class="card-note is-bad">
+                            <p v-if="selDistrictFix" class="card-note is-bad">
+                                {{ selDistrictFix }}
+                            </p>
+                            <p v-else-if="selSupplyFix" class="card-note is-bad">
                                 Starved of <TownAsset :id="selSupplyFix.resource" /> {{ selSupplyFix.name }}. Put a {{ selSupplyFix.maker }} within {{ selSupplyFix.tiles }} road tiles, or buy some at the market.
                             </p>
                             <p v-else-if="selNuisance && selNuisance.homes > 0" class="card-note is-bad">
@@ -1242,7 +1268,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <p>🌳 <b>Radius</b>: a park cheers every house within 4 tiles. Industry sours the homes around it, and the higher the tier the further it reaches — a farm is a nuisance to its own street, a factory to two plots in every direction. Keeping heavy industry away from your people costs land, which is the point. While placing, the square on the ground shows the reach.</p>
                             <p>🪚 <b>Tiers</b>: raw goods → refined goods → bread and tools → iron, steel, machines, luxuries. Finish one building of a tier to unlock the next.</p>
                             <p>🚚 <b>Supply</b>: a workshop wants its materials nearby. Distance is counted in <b>road tiles travelled</b>, not how close the buildings look, so the shape of your streets decides how fast a sawmill runs. Supply is finite too: one lumber camp cannot feed five sawmills, and the closest pairing always wins. A workshop with no supplier at all still runs, just slowly, which is what makes buying from other mayors worth it.</p>
-                            <p>🛣️ <b>Roads</b>: every building's front door (the arrow while placing) must touch a road, and roads start at the edge of your land. Press <kbd>R</kbd> to rotate — buildings auto-face a road next to them. Buildings can be moved for free.</p>
+                            <p>🛣️ <b>Roads</b>: every building's front door (the arrow while placing) must touch a road, and people walk to work along the roads. Homes only staff the workshops their road network reaches, so a separate cluster needs its own houses or a road back to town. Press <kbd>R</kbd> to rotate — buildings auto-face a road next to them. Buildings can be moved for free.</p>
                             <p>⬆ <b>Levels</b>: most buildings upgrade to level 20; a park stops at 12 and a warehouse at 16. Every upgrade costs coins <b>and</b> goods, and the goods climb faster than the coins, so your own production is what really pays for growth.</p>
                             <p>🔨 <b>Builders</b>: every build and every upgrade occupies one crew until it finishes, and you start with three. That cap is the pace of the game — you cannot set the whole town upgrading at once. Roads are instant and need nobody. Three more crews can be hired for good with gems, and when everything is busy the game offers to rush the cheapest job.</p>
                             <p>🏞️ <b>Terrain</b>: land is not all the same. Fertile soil, woodland and rock each make the matching building a quarter more productive, water cannot be built on, and a rare plot is flat grassland with no bonuses at all. Press <kbd>G</kbd> to see what is where before you place anything — more land means more chances at a good patch.</p>

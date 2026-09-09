@@ -511,7 +511,7 @@ const HOUR = 60 * MIN
 export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
     {
         id: 'road', name: 'Road', emoji: '🛣️', color: 0x6b6b6b, tier: 0, kind: 'road',
-        description: 'Front doors open onto roads. Start at the edge of your land, then extend.',
+        description: 'Front doors open onto roads. People walk to work along them, so join homes and workshops by road.',
         cost: { coins: 1_000, resources: {} }, buildMs: 0, upgradeMs: 0,
         upgradeResources: {},
         workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 0, storage: 0
@@ -1264,6 +1264,12 @@ export interface TownSimState {
     carry?: TownCarry
 }
 
+export interface TownDistrict {
+    residents: number
+    jobs: number
+    employed: number
+}
+
 export interface TownDerived {
     popCap: number
     workersDemanded: number
@@ -1275,6 +1281,10 @@ export interface TownDerived {
     industryTiles: number
     /** Buildings staffed enough to run, with their staffing ratio (0..1). */
     staffing: Map<string, number>
+    /** The road network each standing building is on; see townDistricts. */
+    districtOf: Map<string, string>
+    /** Per road network: who lives on it and how many posts it has to fill. */
+    districts: Map<string, TownDistrict>
     /** How well each workshop's inputs reach it over the roads (0.3 .. 1). */
     supply: Map<string, TownSupplyEntry>
     /** What a building actually runs at: staffing × supply. This is the rate production uses. */
@@ -1334,13 +1344,6 @@ export function townFrontTile(wx: number, wy: number, rotation: number): { wx: n
     return { wx: wx + dx, wy: wy + dy }
 }
 
-/** True on the outer ring of a plot — where a road can meet the outside world. */
-export function townIsPlotEdge(wx: number, wy: number): boolean {
-    const mx = ((wx % TOWN_PLOT_SIZE) + TOWN_PLOT_SIZE) % TOWN_PLOT_SIZE
-    const my = ((wy % TOWN_PLOT_SIZE) + TOWN_PLOT_SIZE) % TOWN_PLOT_SIZE
-    return mx === 0 || my === 0 || mx === TOWN_PLOT_SIZE - 1 || my === TOWN_PLOT_SIZE - 1
-}
-
 export function townRoadAt(buildings: TownSimBuilding[], wx: number, wy: number): boolean {
     return buildings.some(b => b.type === 'road' && b.wx === wx && b.wy === wy)
 }
@@ -1361,11 +1364,9 @@ export function townAutoFacing(buildings: TownSimBuilding[], wx: number, wy: num
 export function townPlacementIssue(buildings: TownSimBuilding[], def: TownBuildingDef, wx: number, wy: number, rotation: number): string | null {
     if (buildings.some(b => b.wx === wx && b.wy === wy)) return 'That tile is already taken'
     if (getTownTerrain(townTerrainAt(wx, wy)).blocked) return 'You cannot build on water'
-    if (def.kind === 'road') {
-        const touchesRoad = TOWN_FACING.some(([dx, dy]) => townRoadAt(buildings, wx + dx, wy + dy))
-        if (!touchesRoad && !townIsPlotEdge(wx, wy)) return 'Roads must start at the edge of your land or continue another road'
-        return null
-    }
+    // A road can start anywhere. It only does anything once it joins homes to
+    // jobs, and the staffing rules are what enforce that, not the placement.
+    if (def.kind === 'road') return null
     const front = townFrontTile(wx, wy, rotation)
     if (!townRoadAt(buildings, front.wx, front.wy)) return 'Needs a road at its front door — rotate with R or build a road first'
     return null
@@ -1390,6 +1391,75 @@ export function townBuildingsFronting(buildings: TownSimBuilding[], wx: number, 
         const f = townFrontTile(b.wx, b.wy, b.rotation ?? 0)
         return f.wx === wx && f.wy === wy
     })
+}
+
+/** The district every building without a tile belongs to — fixtures and legacy rows. */
+export const TOWN_DISTRICT_ANYWHERE = '*'
+
+/**
+ * Which road network each building's front door opens onto.
+ *
+ * People walk to work along roads. A house and a workshop on the same network
+ * are neighbours however far apart they stand; two networks that never meet
+ * are two villages, and one cannot staff the other. A road on its own is
+ * allowed anywhere, so this is the rule that makes a stray road with houses
+ * on it worth nothing until it reaches the jobs.
+ *
+ * Returns building id → district id. Roads are in it too, keyed to their own
+ * network. A building whose front door is not on a road is left out. The
+ * district id is the lowest road tile of the network, so it is stable for as
+ * long as the network keeps that tile.
+ */
+export function townDistricts(buildings: TownSimBuilding[]): Map<string, string> {
+    const roadTiles: string[] = []
+    const roadIds = new Map<string, string>()
+    for (const b of buildings) {
+        if (b.type !== 'road' || b.wx === undefined || b.wy === undefined) continue
+        const key = `${b.wx},${b.wy}`
+        roadTiles.push(key)
+        roadIds.set(key, b.id)
+    }
+    // Lowest tile first, so the first tile a flood fill starts from is also the
+    // network's lowest and can name it.
+    roadTiles.sort((a, b) => {
+        const [ax, ay] = a.split(',').map(Number) as [number, number]
+        const [bx, by] = b.split(',').map(Number) as [number, number]
+        return ay - by || ax - bx
+    })
+
+    const districtOfTile = new Map<string, string>()
+    for (const start of roadTiles) {
+        if (districtOfTile.has(start)) continue
+        districtOfTile.set(start, start)
+        let frontier = [start]
+        while (frontier.length > 0) {
+            const next: string[] = []
+            for (const tile of frontier) {
+                const [tx, ty] = tile.split(',').map(Number) as [number, number]
+                for (const [dx, dy] of TOWN_FACING) {
+                    const nb = `${tx + dx},${ty + dy}`
+                    if (!roadIds.has(nb) || districtOfTile.has(nb)) continue
+                    districtOfTile.set(nb, start)
+                    next.push(nb)
+                }
+            }
+            frontier = next
+        }
+    }
+
+    const result = new Map<string, string>()
+    for (const b of buildings) {
+        if (b.wx === undefined || b.wy === undefined) {
+            result.set(b.id, TOWN_DISTRICT_ANYWHERE)
+            continue
+        }
+        const key = b.type === 'road'
+            ? `${b.wx},${b.wy}`
+            : (() => { const f = townFrontTile(b.wx, b.wy, b.rotation ?? 0); return `${f.wx},${f.wy}` })()
+        const district = districtOfTile.get(key)
+        if (district !== undefined) result.set(b.id, district)
+    }
+    return result
 }
 
 /**
@@ -1711,13 +1781,26 @@ export function deriveTown(
     happinessTarget += layout.parks - layout.industry - crowding + needsScore
     happinessTarget = Math.max(0, Math.min(100, happinessTarget + research.happiness))
 
-    // Residents are handed out oldest building first, and a warehouse queues
-    // with everything else: unstaffed, it holds only what its crew can manage.
+    // People walk to work along the roads, so each road network staffs itself
+    // out of the houses on it. Within a network residents are handed out
+    // oldest building first, and a warehouse queues with everything else:
+    // unstaffed, it holds only what its crew can manage.
+    const districtOf = townDistricts(buildings)
+    const districts = new Map<string, TownDistrict>()
+    for (const { b, def, level } of built) {
+        const id = districtOf.get(b.id) ?? TOWN_DISTRICT_ANYWHERE
+        const d = districts.get(id) ?? { residents: 0, jobs: 0, employed: 0 }
+        d.residents += (def.popCap + (def.popCap > 0 ? research.popPerHouseLevel : 0)) * level
+        d.jobs += townWorkersFor(def, level)
+        districts.set(id, d)
+    }
     const staffing = new Map<string, number>()
     let remaining = popCap
     for (const { b, def, level } of built) {
+        const d = districts.get(districtOf.get(b.id) ?? TOWN_DISTRICT_ANYWHERE)!
         const need = townWorkersFor(def, level)
-        const got = Math.min(need, remaining)
+        const got = Math.min(need, d.residents - d.employed)
+        d.employed += got
         remaining -= got
         const ratio = need === 0 ? 1 : got / need
         staffing.set(b.id, ratio)
@@ -1752,6 +1835,8 @@ export function deriveTown(
         storageCap,
         industryTiles,
         staffing,
+        districtOf,
+        districts,
         supply,
         throughput,
         speedMultiplier: townSpeedMultiplier(happiness),

@@ -193,6 +193,9 @@ export default defineEventHandler(async (event) => {
             supply: derived.supply.get(b.id) ?? null,
             throughput: derived.throughput.get(b.id) ?? null,
             connected: townRoadAccess(sim, sim.find(x => x.id === b.id)!),
+            // The road network this building is on: who lives along it and
+            // how many posts it has. Null while the building is cut off.
+            district: derived.districts.get(derived.districtOf.get(b.id) ?? '') ?? null,
             // Durations come from the server, because only the server knows
             // this town's mood and research. A client that recomputed them
             // would draw a progress bar that disagrees with its own clock.

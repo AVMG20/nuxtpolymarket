@@ -57,7 +57,8 @@ import {
     townFrontTile,
     townHousesWithin,
     townIndustryNuisance,
-    townIsPlotEdge,
+    townDistricts,
+    TOWN_DISTRICT_ANYWHERE,
     townLayoutScore,
     townLevelBuildMs,
     townLevelCost,
@@ -200,8 +201,11 @@ const plainTile = () => tileOf('plain')
  * what the house eats; on fertile ground it grows a quarter more.
  */
 function farmOn(tile: { wx: number, wy: number }): TownSimBuilding[] {
+    // The house lives next door on the same street: people only staff what
+    // their own roads reach.
     return [
-        built('house', 'house', { createdAt: T0 - 90_000 }),
+        at('house', 'house', tile.wx + 1, tile.wy, { rotation: 0, createdAt: T0 - 90_000 }),
+        at('house-road', 'road', tile.wx + 1, tile.wy + 1, { createdAt: T0 - 85_000 }),
         at('road', 'road', tile.wx, tile.wy + 1, { createdAt: T0 - 85_000 }),
         at('farm', 'farm', tile.wx, tile.wy, { rotation: 0, createdAt: T0 - 80_000 })
     ]
@@ -1414,26 +1418,6 @@ describe('roads and facing', () => {
         expect(townFrontTile(0, 0, -4)).toEqual(townFrontTile(0, 0, 0))
     })
 
-    it('marks the outer ring of every plot as an edge, negative coordinates included', () => {
-        expect(townIsPlotEdge(0, 0)).toBe(true)
-        expect(townIsPlotEdge(7, 7)).toBe(true)
-        expect(townIsPlotEdge(3, 0)).toBe(true)
-        expect(townIsPlotEdge(0, 3)).toBe(true)
-        expect(townIsPlotEdge(3, 3)).toBe(false)
-        expect(townIsPlotEdge(1, 1)).toBe(false)
-
-        // The plot to the east starts a fresh 0..7 ring.
-        expect(townIsPlotEdge(TOWN_PLOT_SIZE, TOWN_PLOT_SIZE)).toBe(true)
-        expect(townIsPlotEdge(TOWN_PLOT_SIZE + 1, TOWN_PLOT_SIZE + 1)).toBe(false)
-
-        // And so does the plot to the west, where the coordinates go negative.
-        expect(townIsPlotEdge(-1, -1)).toBe(true)
-        expect(townIsPlotEdge(-8, -8)).toBe(true)
-        expect(townIsPlotEdge(-7, -7)).toBe(false)
-        expect(townIsPlotEdge(-2, -2)).toBe(false)
-        expect(townIsPlotEdge(-5, -8)).toBe(true)
-    })
-
     it('finds a road under a tile and only a road', () => {
         const buildings = [road(1, 0), at('house', 'house', 0, 0)]
         expect(townRoadAt(buildings, 1, 0)).toBe(true)
@@ -1502,6 +1486,96 @@ describe('roads and facing', () => {
         expect(settleTown(sim({ buildings: cut }), T0 + 5 * TOWN_TICK_MS).delta).toEqual({})
     })
 
+    describe('districts', () => {
+        // Two streets that never meet: one along y=0, one along y=5.
+        const north = [road(0, 0), road(1, 0), road(2, 0)]
+        const south = [road(0, 5), road(1, 5), road(2, 5)]
+        const houseNorth = at('house-n', 'house', 0, 1, { rotation: 2, createdAt: T0 - 1000 })
+        const farmNorth = at('farm-n', 'farm', 1, 1, { rotation: 2, createdAt: T0 - 900 })
+        const farmSouth = at('farm-s', 'farm', 1, 6, { rotation: 2, createdAt: T0 - 800 })
+
+        it('names every road network and puts each front door on one', () => {
+            const d = townDistricts([...north, ...south, houseNorth, farmNorth, farmSouth, at('lost', 'farm', 5, 3)])
+            expect(d.get('house-n')).toBe(d.get('farm-n'))
+            expect(d.get('farm-s')).not.toBe(d.get('farm-n'))
+            expect(d.get('road-0-0')).toBe(d.get('farm-n'))
+            expect(d.get('road-2-5')).toBe(d.get('farm-s'))
+            // No road at the front door: no district at all.
+            expect(d.has('lost')).toBe(false)
+            // No tile at all: the one district every fixture shares.
+            expect(townDistricts([built('x', 'farm')]).get('x')).toBe(TOWN_DISTRICT_ANYWHERE)
+        })
+
+        it('joins two networks the moment a road connects them', () => {
+            const apart = townDistricts([...north, ...south, farmNorth, farmSouth])
+            expect(apart.get('farm-n')).not.toBe(apart.get('farm-s'))
+            const bridge = [road(2, 1), road(2, 2), road(2, 3), road(2, 4)]
+            const joined = townDistricts([...north, ...south, ...bridge, farmNorth, farmSouth])
+            expect(joined.get('farm-n')).toBe(joined.get('farm-s'))
+        })
+
+        it('lets residents staff only what their own roads reach', () => {
+            // One house on the north street, a farm on each. The north farm
+            // fills; the south farm has nobody who can walk to it, however many
+            // people the town holds.
+            const town = deriveTown([...north, ...south, houseNorth, farmNorth, farmSouth], 50, T0)
+            expect(town.popCap).toBe(PER_HOUSE_LEVEL)
+            expect(town.staffing.get('farm-n')).toBe(1)
+            expect(town.staffing.get('farm-s')).toBe(0)
+            expect(town.throughput.get('farm-s')).toBe(0)
+            expect(town.workersEmployed).toBe(getTownBuilding('farm')!.workers)
+
+            const south5 = town.districts.get(town.districtOf.get('farm-s')!)!
+            expect(south5).toEqual({ residents: 0, jobs: getTownBuilding('farm')!.workers, employed: 0 })
+            const north0 = town.districts.get(town.districtOf.get('farm-n')!)!
+            expect(north0.residents).toBe(PER_HOUSE_LEVEL)
+            expect(north0.employed).toBe(getTownBuilding('farm')!.workers)
+        })
+
+        it('spare residents on one network do not reach another', () => {
+            // A level-4 house has far more people than the north farm wants,
+            // yet the south farm still stands empty.
+            const bigHouse = { ...houseNorth, level: 4 }
+            const town = deriveTown([...north, ...south, bigHouse, farmNorth, farmSouth], 50, T0)
+            expect(town.popCap).toBe(PER_HOUSE_LEVEL * 4)
+            expect(town.workersEmployed).toBeLessThan(town.popCap)
+            expect(town.staffing.get('farm-s')).toBe(0)
+        })
+
+        it('runs a self-sufficient hamlet on its own roads', () => {
+            // Two houses and two farms on the south street, nothing joining it
+            // to the north. Enough people live there, so it works.
+            const hamlet = [
+                ...north, ...south, houseNorth, farmNorth,
+                at('house-s', 'house', 0, 6, { rotation: 2, createdAt: T0 - 1000 }),
+                at('house-s2', 'house', 0, 4, { rotation: 0, createdAt: T0 - 1000 }),
+                farmSouth,
+                at('farm-s2', 'farm', 2, 6, { rotation: 2, createdAt: T0 - 700 })
+            ]
+            const town = deriveTown(hamlet, 50, T0)
+            expect(town.staffing.get('farm-s')).toBe(1)
+            expect(town.staffing.get('farm-s2')).toBe(1)
+            expect(town.workersEmployed).toBe(town.workersDemanded)
+        })
+
+        it('reconnects the moment the road does, and the stranded farm produces again', () => {
+            // Level 2, so the farm outgrows what the house's residents eat.
+            const apart = [...north, ...south, houseNorth, { ...farmSouth, level: 2 }]
+            const bridge = [road(2, 1), road(2, 2), road(2, 3), road(2, 4)]
+            expect(deriveTown(apart, 50, T0).staffing.get('farm-s')).toBe(0)
+            expect(settleTown(sim({ buildings: apart }), T0 + 5 * TOWN_TICK_MS).delta).toEqual({})
+            expect(deriveTown([...apart, ...bridge], 50, T0).staffing.get('farm-s')).toBe(1)
+            expect(settleTown(sim({ buildings: [...apart, ...bridge] }), T0 + 5 * TOWN_TICK_MS).delta.wheat).toBeGreaterThan(0)
+        })
+
+        it('staffs fixtures without tiles as one town, as every older spec assumes', () => {
+            const town = deriveTown([built('house', 'house'), built('farm', 'farm')], 50, T0)
+            expect(town.staffing.get('farm')).toBe(1)
+            expect(town.districts.size).toBe(1)
+            expect(town.districts.get(TOWN_DISTRICT_ANYWHERE)!.residents).toBe(PER_HOUSE_LEVEL)
+        })
+    })
+
     it('lists the buildings whose front door opens onto a tile', () => {
         const buildings = [
             road(0, 0),
@@ -1530,16 +1604,14 @@ describe('roads and facing', () => {
             expect(townPlacementIssue(buildings, roadDef, 3, 0, 0)).toMatch(/already taken/)
         })
 
-        it('starts a road at the edge of the plot or beside another road', () => {
+        it('lets a road start anywhere on dry land', () => {
+            // The staffing rules, not placement, decide whether a stray road
+            // is worth anything: a network with no homes staffs nothing.
             expect(townPlacementIssue([], roadDef, 0, 3, 0)).toBeNull()
             expect(townPlacementIssue([], roadDef, 7, 3, 0)).toBeNull()
-            expect(townPlacementIssue([], roadDef, 3, 3, 0)).toMatch(/edge of your land/)
-
-            // One tile in from the edge is fine once a road reaches it.
-            expect(townPlacementIssue([road(3, 0)], roadDef, 3, 1, 0)).toBeNull()
-            expect(townPlacementIssue([road(3, 0)], roadDef, 3, 2, 0)).toMatch(/edge of your land/)
-            // Diagonals do not continue a road.
-            expect(townPlacementIssue([road(3, 1)], roadDef, 4, 2, 0)).toMatch(/edge of your land/)
+            expect(townPlacementIssue([], roadDef, 3, 3, 0)).toBeNull()
+            expect(townPlacementIssue([road(3, 0)], roadDef, 3, 2, 0)).toBeNull()
+            expect(townPlacementIssue([road(3, 0)], roadDef, 3, 0, 0)).toMatch(/already taken/)
         })
 
         it('makes every other building front onto a road', () => {

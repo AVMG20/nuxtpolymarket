@@ -210,10 +210,10 @@ async function seedRoad(userId: string, plotId: string, tileX: number) {
 }
 
 /**
- * Seed a whole street: a road under each building on row `roadY`, and the
- * building itself on the row above facing it. A building with no road at its
- * front door is cut off — it houses nobody and produces nothing — so anything
- * seeded for its residents or its output has to be connected.
+ * Seed a whole street: one unbroken road along row `roadY` from the first
+ * building to the last, and each building on the row above facing it. People
+ * only staff what their own roads reach, so a house and a farm seeded for
+ * each other have to share a street, not just a row.
  */
 async function seedStreet(
     userId: string,
@@ -222,8 +222,13 @@ async function seedStreet(
     specs: { type: string, tileX: number, level?: number, completesAt?: Date }[]
 ) {
     const rows = []
+    if (specs.length > 0) {
+        const xs = specs.map(s => s.tileX)
+        for (let x = Math.min(...xs); x <= Math.max(...xs); x++) {
+            await seedBuilding(userId, plotId, 'road', x, 1, { tileY: roadY })
+        }
+    }
     for (const spec of specs) {
-        await seedBuilding(userId, plotId, 'road', spec.tileX, 1, { tileY: roadY })
         rows.push(await seedBuilding(userId, plotId, spec.type, spec.tileX, spec.level ?? 1, {
             tileY: roadY + 1,
             rotation: FACES_EDGE_ROAD,
@@ -408,11 +413,11 @@ describe.skipIf(SKIP)('polytown (database)', () => {
 
             // Nothing but bare land yet.
             await expect(placeBuilding(OWNER, plotId, 3, 3, 'farm')).rejects.toThrow(/front door/)
-            // A road has to start at the edge of the land, or continue one.
-            await expect(placeBuilding(OWNER, plotId, 3, 3, 'road')).rejects.toThrow(/edge of your land/)
+            // A road can go anywhere on dry land; whether it is any use is
+            // decided by who lives along it.
+            await placeBuilding(OWNER, plotId, 3, 3, 'road')
 
             await placeBuilding(OWNER, plotId, 3, 0, 'road')
-            // One tile in from the edge is fine now that a road reaches it.
             await placeBuilding(OWNER, plotId, 3, 1, 'road')
 
             // Facing +y, away from the road on (4, 0): no front door.
@@ -421,7 +426,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             await placeBuilding(OWNER, plotId, 4, 0, 'farm', 3)
 
             expect(await buildingsTyped(OWNER, 'farm')).toHaveLength(1)
-            expect(await buildingsTyped(OWNER, 'road')).toHaveLength(2)
+            expect(await buildingsTyped(OWNER, 'road')).toHaveLength(3)
         })
 
         it('builds nothing when the coins are short', async () => {
@@ -938,8 +943,10 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             // tick grinds only a fraction of a flour, so without a carry it
             // would never finish one at all.
             const plotId = await foundFor(OWNER, { balance: '100000.0000' })
-            await seedStreet(OWNER, plotId, 3, [{ type: 'house', tileX: 0 }])
-            const [mill] = await seedStreet(OWNER, plotId, 3, [{ type: 'mill', tileX: townIndustryNuisance(MILL).radius + 1 }])
+            const [, mill] = await seedStreet(OWNER, plotId, 3, [
+                { type: 'house', tileX: 0 },
+                { type: 'mill', tileX: townIndustryNuisance(MILL).radius + 1 }
+            ])
             await stock(OWNER, 'wheat', 100)
             const perTick = MILL.outputs.flour! * TOWN_SUPPLY_MIN_EFFICIENCY
             expect(perTick).toBeLessThan(1)

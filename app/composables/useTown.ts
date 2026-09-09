@@ -16,6 +16,8 @@ export interface TownBuildingView {
     createdAt: number
     staffing: number | null
     connected: boolean
+    /** The road network it is on: residents living along it and posts to fill. Null while cut off. */
+    district: { residents: number, jobs: number, employed: number } | null
     /**
      * Durations quoted by the server, which is the only place that knows this
      * town's mood and research. Never recompute these on the client.
