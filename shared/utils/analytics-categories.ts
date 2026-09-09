@@ -33,7 +33,19 @@ const CATEGORY_LABELS: Record<string, string> = {
     roulette: 'Roulette',
     'casino-holdem': 'Casino Hold\'em',
     'three-card-poker': 'Three Card Poker',
-    baccarat: 'Baccarat'
+    baccarat: 'Baccarat',
+    town: 'Polytown',
+    meadowbrawl: 'Meadowbrawl',
+    pathwarden: 'Pathwarden',
+    firewall: 'Firewall',
+    'call-of-xeno': 'Call of Xeno',
+    'storm-the-house': 'Storm the House',
+    'voxel-arena': 'Voxel Arena',
+    battler: 'Battler',
+    tcg: 'TCG',
+    prestige: 'Prestige',
+    draft: 'Draft',
+    assets: 'Assets'
 }
 
 function titleCase(prefix: string): string {
