@@ -11,6 +11,7 @@ import {
     TOWN_MARKET_MAX_OPEN_ORDERS,
     TOWN_MARKET_HISTORY_LIMIT,
     TOWN_MARKET_BOOK_DEPTH,
+    TOWN_MARKET_MIN_PRICE,
     TOWN_RESOURCES,
     getTownBuilding,
     getTownResource,
@@ -1023,8 +1024,20 @@ export async function sellBulkToFloor(userId: string, items: { resource: string,
         if (!isTownResourceId(item.resource)) throw createError({ statusCode: 400, statusMessage: 'Unknown resource' })
         if (!isValidTownQuantity(item.quantity)) throw createError({ statusCode: 400, statusMessage: 'Quantity must be a whole number' })
     }
+    // One line per good, or two lines would each plan against the same book and
+    // then both fill the same resting bid: the second sweep reads a book the
+    // first has not written yet, so together they can take more off a bid than
+    // it ever escrowed. Merging is friendlier than refusing, and the merged
+    // quantity has to clear the same bound as a single line.
+    const merged = new Map<string, number>()
+    for (const item of items) merged.set(item.resource, (merged.get(item.resource) ?? 0) + item.quantity)
+    for (const quantity of merged.values()) {
+        if (!isValidTownQuantity(quantity)) throw createError({ statusCode: 400, statusMessage: 'That is more than anyone can hold' })
+    }
     const order = new Map(TOWN_RESOURCES.map((r, i) => [r.id as string, i]))
-    const sorted = [...items].sort((a, b) => (order.get(a.resource) ?? 0) - (order.get(b.resource) ?? 0))
+    const sorted = [...merged.entries()]
+        .map(([resource, quantity]) => ({ resource, quantity }))
+        .sort((a, b) => (order.get(a.resource) ?? 0) - (order.get(b.resource) ?? 0))
 
     return db.transaction(async (tx) => {
         for (const item of sorted) await lockBook(tx, item.resource as TownResourceId)
@@ -1108,6 +1121,9 @@ export async function placeTownOrder(
 ): Promise<PlaceTownOrderResult> {
     if (!isTownResourceId(resource)) throw createError({ statusCode: 400, statusMessage: 'Unknown resource' })
     if (side !== 'buy' && side !== 'sell') throw createError({ statusCode: 400, statusMessage: 'Choose buy or sell' })
+    if (!Number.isFinite(price) || price < TOWN_MARKET_MIN_PRICE) {
+        throw createError({ statusCode: 400, statusMessage: `Price must be at least ${TOWN_MARKET_MIN_PRICE}` })
+    }
     if (!isValidTownPrice(price)) throw createError({ statusCode: 400, statusMessage: 'Price must have at most 2 decimals' })
     if (!isValidTownQuantity(quantity)) throw createError({ statusCode: 400, statusMessage: 'Quantity must be a whole number' })
     // A price nobody could ever pay is a typo, not an order: the escrow on a

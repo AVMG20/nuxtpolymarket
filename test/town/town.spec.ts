@@ -1222,6 +1222,29 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect((await stateOf(OWNER)).coinsEarned).toBe((WHEAT_FLOOR * 6 + townFloorPrice('wood') * 5).toFixed(4))
         })
 
+        it('merges a good listed twice into one line', async () => {
+            // Two lines for one good would each plan against the same book and
+            // then both fill the same resting bid, taking more off it than the
+            // bidder escrowed.
+            await foundFor(OWNER, { balance: '0.0000' })
+            await foundFor(BUYER, { balance: coins(PURSE * 100) })
+            await stock(OWNER, 'wheat', 10)
+            await placeTownOrder(BUYER, 'wheat', 'buy', over(20), 4)
+
+            const result = await sellBulkToFloor(OWNER, [
+                { resource: 'wheat', quantity: 3 },
+                { resource: 'wheat', quantity: 3 }
+            ])
+
+            expect(result.lines).toHaveLength(1)
+            expect(result.lines[0]!.quantity).toBe(6)
+            expect(result.total).toBe(over(20) * 4 + WHEAT_FLOOR * 2)
+            expect(await held(OWNER, 'wheat')).toBe(4)
+            expect(await held(BUYER, 'wheat')).toBe(4)
+            // The bid took its four and no more.
+            expect(await openOrders(BUYER)).toHaveLength(0)
+        })
+
         it('rolls the whole basket back when one line is short', async () => {
             await foundFor(OWNER, { balance: '0.0000' })
             await stock(OWNER, 'wheat', 10)
@@ -1360,7 +1383,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             const floor = townFloorPrice('wheat')
             await seedUser(BUYER, { balance: coins(PURSE * 100) })
 
-            await expect(placeTownOrder(BUYER, 'wheat', 'buy', 0, 1)).rejects.toThrow(/2 decimals/)
+            await expect(placeTownOrder(BUYER, 'wheat', 'buy', 0, 1)).rejects.toThrow(/at least/)
             await expect(placeTownOrder(BUYER, 'wheat', 'buy', TOWN_MAX_ORDER_PRICE + 1, 1)).rejects.toThrow(/or less/)
             await expect(placeTownOrder(BUYER, 'wheat', 'buy', over(1) + 0.005, 1)).rejects.toThrow(/2 decimals/)
             await expect(placeTownOrder(BUYER, 'wheat', 'buy', over(1), 1.5)).rejects.toThrow(/whole number/)
