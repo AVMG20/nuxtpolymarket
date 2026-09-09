@@ -407,11 +407,33 @@ function rebuildExpansions() {
 // ─── Neighbours ──────────────────────────────────────────────────────────────
 // One realm: other mayors' land is drawn around yours so you can watch them
 // grow, see where you could expand, and spot a plot they have put up for sale.
-// Their buildings are static props — no animation, no picking beyond a listing.
+// Their towns are alive too: sails turn, chimneys smoke, and their roads carry
+// traffic (see the traffic zones below). What we do not have is their
+// simulation — staffing, timers, output — so every finished workshop is drawn
+// as running and there are no production popups or scaffolds.
 
+/** A neighbour's building with something to animate, and where it stands. */
+interface NeighbourAnim { type: string, x: number, z: number, spin: THREE.Object3D[], smoke: THREE.Object3D[], glow: THREE.Mesh[] }
+const neighbourAnims: NeighbourAnim[] = []
+/** Beyond this many tiles from the camera's focus a neighbour's smoke is not worth a puff. */
+const NEIGHBOUR_FX_RANGE = 30
 
+// The neighbours prop is replaced on every poll, and most polls change nothing
+// out there — so the models (and the sails' current angle) survive a poll
+// unless a building really appeared, moved or grew.
+let neighbourSig = ''
 function rebuildNeighbours() {
+    let sig = ''
+    for (const n of props.neighbours) {
+        sig += `${n.id}@${n.x},${n.y},${n.listPrice ?? ''},${n.ownerName}:`
+        for (const b of n.buildings) sig += `${b.type},${b.tileX},${b.tileY},${b.rotation},${townVisualLevel(b.level)};`
+        sig += '|'
+    }
+    if (sig === neighbourSig) return
+    neighbourSig = sig
+
     disposeGroup(neighbourGroup)
+    neighbourAnims.length = 0
     if (props.neighbours.length === 0) return
 
     const tex = makePlotTexture()
@@ -437,11 +459,18 @@ function rebuildNeighbours() {
             const wy = n.y * PLOT + b.tileY
             const model = b.type === 'road'
                 ? buildRoadModel(roadConnections(wx, wy, roads))
-                : buildingModel(b.type as TownBuildingId)
+                : buildingModel(b.type as TownBuildingId, townVisualLevel(b.level))
             model.position.set(wx + 0.5, 0.3, wy + 0.5)
             if (b.type !== 'road') {
                 model.rotation.y = b.rotation * Math.PI / 2
                 model.scale.setScalar(levelScale(b.level))
+                const anim: NeighbourAnim = { type: b.type, x: wx + 0.5, z: wy + 0.5, spin: [], smoke: [], glow: [] }
+                model.traverse((o) => {
+                    if (o.name === 'spin') anim.spin.push(o)
+                    if (o.name === 'smoke') anim.smoke.push(o)
+                    if (o.name === 'glow' && o instanceof THREE.Mesh) anim.glow.push(o)
+                })
+                if (anim.spin.length || anim.smoke.length || anim.glow.length) neighbourAnims.push(anim)
             }
             const info = { plotId: n.id, ownerName: n.ownerName, type: b.type, level: b.level }
             model.traverse((o) => {
@@ -945,14 +974,25 @@ function rebuildDecor() {
 // Replacements trickle in on a jittered timer, so the town shows a stream of
 // different journeys rather than the same few loops.
 //
+// Every town in view gets its own traffic: the player's, and each neighbour's.
+// A town is a "zone" with its own roads, stops and spawn clocks, so a dozen
+// towns do not all release a car on the same frame, and one town's cap cannot
+// be eaten by another's. Only zones near the camera spawn — traffic nobody can
+// see is wasted work — and the player's own town always gets its share.
+//
 // Routes are breadth-first searches over the road tiles, computed once per
 // journey — never per frame. Traffic keeps right of the centre line and queues
 // behind whatever is in front of it. Nothing here is pickable, and nothing
 // casts a shadow: the shadow map is only redrawn on change, so a moving caster
 // would smear.
 
+/** Per town. */
 const MAX_CARS = 3
 const MAX_TRUCKS = 3
+/** Across every town in view, the player's own excepted. */
+const MAX_NEIGHBOUR_VEHICLES = 24
+/** A neighbour spawns traffic only while its town is about this close to the camera's focus. */
+const TRAFFIC_SPAWN_RANGE = 28
 /** Seconds between spawns. Random inside the range so it never looks metronomic. */
 const SPAWN_MIN = 1.2
 const SPAWN_MAX = 4
@@ -988,6 +1028,8 @@ type VehicleKind = 'car' | 'truck'
 
 interface Vehicle {
     kind: VehicleKind
+    /** The town it is driving in. */
+    zone: TrafficZone
     color: number
     group: THREE.Group
     /** Tile centres of the route, origin included. */
@@ -1068,12 +1110,8 @@ function roadPath(from: string, to: string, roads: Set<string>): { x: number, z:
 }
 
 /** The road tile a building's door opens onto, or any road beside it. */
-function doorTile(b: SceneBuilding, roads: Set<string>): string | null {
-    const pos = worldPos(b)
-    if (!pos) return null
-    const wx = Math.floor(pos.x)
-    const wy = Math.floor(pos.z)
-    const front = townFrontTile(wx, wy, b.rotation ?? 0)
+function doorTile(wx: number, wy: number, rotation: number, roads: Set<string>): string | null {
+    const front = townFrontTile(wx, wy, rotation)
     const frontKey = roadKey(front.wx, front.wy)
     if (roads.has(frontKey)) return frontKey
     for (const [dx, dy] of TOWN_FACING) {
@@ -1087,53 +1125,106 @@ function pickKey(keys: string[]): string {
     return keys[Math.floor(Math.random() * keys.length)]!
 }
 
-// Where journeys can start and end. Rebuilt only when the town changes, and
-// reused in place so a rebuild allocates nothing.
-const homeStops: string[] = []
-const workStops: string[] = []
-const workDefs: TownBuildingDef[] = []
-/** Producer → consumer pairs whose goods actually flow, as door-tile keys. */
-const tradeLinks: [string, string][] = []
+/** One town's traffic: where journeys can start and end, and when the next one leaves. */
+interface TrafficZone {
+    own: boolean
+    roads: Set<string>
+    /** Centre of the road network, for the camera-distance check. */
+    cx: number
+    cz: number
+    homeStops: string[]
+    workStops: string[]
+    /** Producer → consumer pairs whose goods actually flow, as door-tile keys. */
+    tradeLinks: [string, string][]
+    carDelay: number
+    truckDelay: number
+}
+/** Rebuilt only when a town in view changes. The player's town is first when it has roads. */
+const zones: TrafficZone[] = []
+/** Every road in view, for re-routing whatever is already on the move. */
+let allRoads = new Set<string>()
 
-function rebuildRoutes() {
-    homeStops.length = 0
-    workStops.length = 0
-    workDefs.length = 0
-    tradeLinks.length = 0
-    const roads = roadTiles()
-    if (roads.size >= 2) {
-        for (const b of props.buildings) {
-            const def = getTownBuilding(b.type)
-            if (!def || def.kind === 'road' || b.level === 0) continue
-            const key = doorTile(b, roads)
-            if (!key) continue
-            if (def.kind === 'housing') homeStops.push(key)
-            else if (def.kind === 'industry') {
-                workStops.push(key)
-                workDefs.push(def)
-            }
-        }
-        for (let p = 0; p < workStops.length; p++) {
-            const outputs = Object.keys(workDefs[p]!.outputs)
-            if (outputs.length === 0) continue
-            for (let c = 0; c < workStops.length; c++) {
-                if (workStops[c] === workStops[p]) continue
-                const needs = workDefs[c]!.inputs as Record<string, number | undefined>
-                if (outputs.some(r => (needs[r] ?? 0) > 0)) tradeLinks.push([workStops[p]!, workStops[c]!])
-            }
-        }
-        if (tradeLinks.length === 0) {
-            // Nothing trades yet — run between any two workplaces instead.
-            for (let i = 0; i < workStops.length; i++) {
-                for (let j = i + 1; j < workStops.length; j++) tradeLinks.push([workStops[i]!, workStops[j]!])
-            }
+interface ZoneBuilding { wx: number, wy: number, rotation: number, type: string, level: number }
+
+function buildZone(items: ZoneBuilding[], own: boolean): TrafficZone | null {
+    const roads = new Set<string>()
+    let cx = 0
+    let cz = 0
+    for (const b of items) {
+        if (b.type !== 'road') continue
+        roads.add(roadKey(b.wx, b.wy))
+        cx += b.wx + 0.5
+        cz += b.wy + 0.5
+    }
+    if (roads.size < 2) return null
+    const zone: TrafficZone = {
+        own, roads, cx: cx / roads.size, cz: cz / roads.size,
+        homeStops: [], workStops: [], tradeLinks: [],
+        // Seeded apart so the first car and the first truck do not arrive together.
+        carDelay: Math.random() * 1.5, truckDelay: 0.8 + Math.random() * 2
+    }
+    const workDefs: TownBuildingDef[] = []
+    for (const b of items) {
+        const def = getTownBuilding(b.type)
+        if (!def || def.kind === 'road' || b.level === 0) continue
+        const key = doorTile(b.wx, b.wy, b.rotation, roads)
+        if (!key) continue
+        if (def.kind === 'housing') zone.homeStops.push(key)
+        else if (def.kind === 'industry') {
+            zone.workStops.push(key)
+            workDefs.push(def)
         }
     }
+    const { workStops, tradeLinks } = zone
+    for (let p = 0; p < workStops.length; p++) {
+        const outputs = Object.keys(workDefs[p]!.outputs)
+        if (outputs.length === 0) continue
+        for (let c = 0; c < workStops.length; c++) {
+            if (workStops[c] === workStops[p]) continue
+            const needs = workDefs[c]!.inputs as Record<string, number | undefined>
+            if (outputs.some(r => (needs[r] ?? 0) > 0)) tradeLinks.push([workStops[p]!, workStops[c]!])
+        }
+    }
+    if (tradeLinks.length === 0) {
+        // Nothing trades yet — run between any two workplaces instead.
+        for (let i = 0; i < workStops.length; i++) {
+            for (let j = i + 1; j < workStops.length; j++) tradeLinks.push([workStops[i]!, workStops[j]!])
+        }
+    }
+    return zone
+}
+
+function rebuildRoutes() {
+    zones.length = 0
+    allRoads = new Set<string>()
+
+    const own: ZoneBuilding[] = []
+    for (const b of props.buildings) {
+        const pos = worldPos(b)
+        if (pos) own.push({ wx: Math.floor(pos.x), wy: Math.floor(pos.z), rotation: b.rotation ?? 0, type: b.type, level: b.level })
+    }
+    // A neighbour with several plots is one town, and its roads run across them.
+    const byOwner = new Map<string, ZoneBuilding[]>()
+    for (const n of props.neighbours) {
+        const list = byOwner.get(n.ownerName) ?? []
+        for (const b of n.buildings) list.push({ wx: n.x * PLOT + b.tileX, wy: n.y * PLOT + b.tileY, rotation: b.rotation, type: b.type, level: b.level })
+        byOwner.set(n.ownerName, list)
+    }
+    const ownZone = buildZone(own, true)
+    if (ownZone) zones.push(ownZone)
+    for (const items of byOwner.values()) {
+        const zone = buildZone(items, false)
+        if (zone) zones.push(zone)
+    }
+    for (const zone of zones) for (const r of zone.roads) allRoads.add(r)
+
     // Anyone whose road was demolished mid-journey re-routes, or leaves.
     for (let i = vehicles.length - 1; i >= 0; i--) {
         const v = vehicles[i]!
-        const path = roadPath(roadKey(Math.floor(v.x), Math.floor(v.z)), v.dest, roads)
-        if (path && path.length > 1) {
+        const zone = zones.find(z => z.roads.has(v.dest))
+        const path = zone ? roadPath(roadKey(Math.floor(v.x), Math.floor(v.z)), v.dest, allRoads) : null
+        if (zone && path && path.length > 1) {
+            v.zone = zone
             v.path = path
             v.step = 1
         } else {
@@ -1143,12 +1234,17 @@ function rebuildRoutes() {
 }
 
 // The routes only change when a building moves, appears or disappears, but the
-// buildings prop is replaced on every poll — compare a signature first.
+// buildings and neighbours props are replaced on every poll — compare a
+// signature first.
 let trafficSig = ''
 function syncVehicles() {
     let sig = ''
     for (const p of props.plots) sig += `${p.id}@${p.x},${p.y};`
     for (const b of props.buildings) sig += `${b.plotId}:${b.tileX},${b.tileY},${b.type},${b.rotation ?? 0},${b.level === 0 ? 0 : 1};`
+    for (const n of props.neighbours) {
+        sig += `${n.ownerName}@${n.x},${n.y}:`
+        for (const b of n.buildings) sig += `${b.tileX},${b.tileY},${b.type},${b.rotation},${b.level === 0 ? 0 : 1};`
+    }
     if (sig === trafficSig) return
     trafficSig = sig
     rebuildRoutes()
@@ -1159,9 +1255,14 @@ function despawn(i: number) {
     vehicles.splice(i, 1)
 }
 
-function countKind(kind: VehicleKind): number {
+function countKind(kind: VehicleKind, zone: TrafficZone): number {
     let n = 0
-    for (const v of vehicles) if (v.kind === kind) n++
+    for (const v of vehicles) if (v.kind === kind && v.zone === zone) n++
+    return n
+}
+function countNeighbourVehicles(): number {
+    let n = 0
+    for (const v of vehicles) if (!v.zone.own) n++
     return n
 }
 
@@ -1174,9 +1275,8 @@ function spaceFree(px: number, pz: number, half: number): boolean {
 }
 
 /** Starts one journey. False when there was nowhere sensible to run it. */
-function spawnVehicle(kind: VehicleKind): boolean {
-    const roads = roadTiles()
-    if (roads.size < 2) return false
+function spawnVehicle(kind: VehicleKind, zone: TrafficZone): boolean {
+    const { roads, homeStops, workStops, tradeLinks } = zone
     if (kind === 'car' && (homeStops.length === 0 || workStops.length === 0)) return false
     if (kind === 'truck' && tradeLinks.length === 0) return false
     for (let attempt = 0; attempt < 4; attempt++) {
@@ -1208,6 +1308,7 @@ function spawnVehicle(kind: VehicleKind): boolean {
         vehicleGroup.add(group)
         vehicles.push({
             kind,
+            zone,
             color,
             group,
             path,
@@ -1252,24 +1353,30 @@ function gapAhead(v: Vehicle): number {
     return gap
 }
 
-// Seeded apart so the first car and the first truck do not arrive together.
-let carDelay = Math.random() * 1.5
-let truckDelay = 0.8 + Math.random() * 2
 function nextSpawnDelay() {
     return SPAWN_MIN + Math.random() * (SPAWN_MAX - SPAWN_MIN)
 }
 
+/** Whether this zone may release another vehicle right now. */
+function zoneMaySpawn(zone: TrafficZone): boolean {
+    if (zone.own) return true
+    if (countNeighbourVehicles() >= MAX_NEIGHBOUR_VEHICLES) return false
+    return Math.hypot(zone.cx - cam.tx, zone.cz - cam.tz) < TRAFFIC_SPAWN_RANGE + cam.dist * 0.5
+}
+
 function stepTraffic(dt: number) {
-    // Trickle in replacements for the journeys that have finished.
-    carDelay -= dt
-    if (carDelay <= 0) {
-        const started = countKind('car') < MAX_CARS && spawnVehicle('car')
-        carDelay = started ? nextSpawnDelay() : SPAWN_RETRY + Math.random() * SPAWN_RETRY
-    }
-    truckDelay -= dt
-    if (truckDelay <= 0) {
-        const started = countKind('truck') < MAX_TRUCKS && spawnVehicle('truck')
-        truckDelay = started ? nextSpawnDelay() : SPAWN_RETRY + Math.random() * SPAWN_RETRY
+    // Trickle in replacements for the journeys that have finished, town by town.
+    for (const zone of zones) {
+        zone.carDelay -= dt
+        if (zone.carDelay <= 0) {
+            const started = zoneMaySpawn(zone) && countKind('car', zone) < MAX_CARS && spawnVehicle('car', zone)
+            zone.carDelay = started ? nextSpawnDelay() : SPAWN_RETRY + Math.random() * SPAWN_RETRY
+        }
+        zone.truckDelay -= dt
+        if (zone.truckDelay <= 0) {
+            const started = zoneMaySpawn(zone) && countKind('truck', zone) < MAX_TRUCKS && spawnVehicle('truck', zone)
+            zone.truckDelay = started ? nextSpawnDelay() : SPAWN_RETRY + Math.random() * SPAWN_RETRY
+        }
     }
 
     for (let i = vehicles.length - 1; i >= 0; i--) {
@@ -1883,6 +1990,22 @@ function frame(ms: number) {
         for (const g of e.glow) {
             const m = g.material as THREE.MeshStandardMaterial
             m.emissiveIntensity = staffed || def.kind === 'housing' ? 1.1 + Math.sin(ms / 400 + e.group.position.x) * 0.3 : 0.15
+        }
+    }
+
+    // Neighbours run at the realm's pace, not this town's mood.
+    for (const n of neighbourAnims) {
+        for (const o of n.spin) {
+            if (n.type === 'mill') o.rotation.z += dt * 1.6
+            else o.rotation.y += dt * 4
+        }
+        if (n.smoke.length && Math.random() < dt * 1.4 && Math.hypot(n.x - cam.tx, n.z - cam.tz) < NEIGHBOUR_FX_RANGE) {
+            const anchor = n.smoke[Math.floor(Math.random() * n.smoke.length)]!
+            anchor.getWorldPosition(tmp)
+            spawn(tmp.clone(), 'smoke')
+        }
+        for (const g of n.glow) {
+            (g.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.1 + Math.sin(ms / 400 + n.x) * 0.3
         }
     }
 
