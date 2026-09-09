@@ -269,6 +269,10 @@ export interface GalleryPrinting {
     setTotal: number | null
     rarity: string | null
     sortOrder: number
+    /** Earliest copy serial the profiled user owns ('chase #42'), for display. */
+    serial: string | null
+    /** That serial's number, so the gallery can sort by it. */
+    serialNo: number | null
     /** Copies the profiled user owns. Never carries condition data. */
     owned: number
     slabbed: number

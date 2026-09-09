@@ -3,7 +3,7 @@
  * sidecar call goes through `$fetch`, which is stubbed per case.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchCardPrice } from '#server/utils/tcg/prices'
+import { fetchCardPrice, fetchCardPrices, clearPriceCache } from '#server/utils/tcg/prices'
 
 const BASE = 'http://sidecar.invalid'
 
@@ -14,6 +14,8 @@ function stubFetch(impl: (url: string) => unknown) {
 afterEach(() => {
     Reflect.deleteProperty(globalThis, '$fetch')
     vi.restoreAllMocks()
+    // Prices cache in process; each case starts from an empty one.
+    clearPriceCache()
 })
 
 describe('fetchCardPrice', () => {
@@ -63,5 +65,49 @@ describe('fetchCardPrice', () => {
         })
         await fetchCardPrice('sv8-5_en_074_alt', BASE)
         expect(seen[0]).toBe(`${BASE}/cards/sv8-5_en_074_alt/price`)
+    })
+})
+
+describe('the price cache', () => {
+    it('asks the sidecar once per card, then serves from memory', async () => {
+        stubFetch(() => ({ price: { eur: 3, usd: 4 } }))
+        const spy = globalThis.$fetch as unknown as ReturnType<typeof vi.fn>
+
+        expect(await fetchCardPrice('swsh7_cached', BASE)).toMatchObject({ eur: 3 })
+        expect(await fetchCardPrice('swsh7_cached', BASE)).toMatchObject({ eur: 3 })
+        expect(spy).toHaveBeenCalledTimes(1)
+    })
+
+    // A null from an unreachable sidecar is cached too, but briefly — long
+    // enough to stop a burst hammering it, short enough that the vendor is
+    // not stuck at its 1-coin floor after the sidecar comes back.
+    it('caches a miss as well, so a dead sidecar is not hammered', async () => {
+        stubFetch(() => { throw new Error('sidecar down') })
+        const spy = globalThis.$fetch as unknown as ReturnType<typeof vi.fn>
+
+        expect(await fetchCardPrice('swsh7_down', BASE)).toBeNull()
+        expect(await fetchCardPrice('swsh7_down', BASE)).toBeNull()
+        expect(spy).toHaveBeenCalledTimes(1)
+    })
+})
+
+describe('fetchCardPrices', () => {
+    it('maps every id, dedupes, and degrades card by card', async () => {
+        stubFetch((url: string) => {
+            if (url.includes('broken')) throw new Error('nope')
+            if (url.includes('unpriced')) return { price: null }
+            return { price: { eur: 9.5, usd: 11 } }
+        })
+        const prices = await fetchCardPrices(['a', 'b', 'a', 'broken', 'unpriced'], BASE)
+
+        expect([...prices.keys()].sort()).toEqual(['a', 'b', 'broken', 'unpriced'])
+        expect(prices.get('a')).toMatchObject({ eur: 9.5 })
+        expect(prices.get('broken')).toBeNull()
+        expect(prices.get('unpriced')).toBeNull()
+    })
+
+    it('returns an empty map for no ids', async () => {
+        stubFetch(() => ({ price: { eur: 1 } }))
+        expect((await fetchCardPrices([], BASE)).size).toBe(0)
     })
 })

@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, ne } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { tcgSet, tcgCard, tcgPrinting, tcgCopy } from '#server/database/schema'
 import type { GalleryPayload, GalleryPrinting, GallerySet, TcgFinish } from '#shared/types/tcg'
@@ -27,6 +27,25 @@ export async function galleryFor(userId: string): Promise<GalleryPayload> {
     if (ownedRows.length === 0) return []
     const ownedByPrinting = new Map(ownedRows.map(row => [row.printingId, row.owned]))
     const printingIds = [...ownedByPrinting.keys()]
+
+    // The earliest copy of each printing the user owns, for the serial sort.
+    // DISTINCT ON keeps the sheet name that goes with the winning serial —
+    // a MIN() would hand back a number with nothing to label it.
+    const serialRows = await db.execute(sql`
+        select distinct on (c.printing_id)
+            c.printing_id,
+            s.name as sheet_name,
+            (c.cut_index * s.pack_slots + c.slot_offset + 1) as serial_no
+        from tcg_copies c
+        join tcg_sheets s on s.id = c.sheet_id
+        where c.owner_id = ${userId}
+          and c.lifecycle <> 'destroyed'
+          and c.printing_id in (${sql.join(printingIds.map(id => sql`${id}`), sql`, `)})
+        order by c.printing_id, serial_no
+    `)
+    const serialByPrinting = new Map(
+        (serialRows.rows as { printing_id: string, sheet_name: string, serial_no: number }[])
+            .map(row => [row.printing_id, { label: `${row.sheet_name} #${row.serial_no}`, no: Number(row.serial_no) }]))
 
     const [printings, slabRows] = await Promise.all([
         db.select({
@@ -130,6 +149,8 @@ export async function galleryFor(userId: string): Promise<GalleryPayload> {
             setTotal: printing.setTotal,
             rarity: printing.rarity,
             sortOrder: printing.sortOrder,
+            serial: serialByPrinting.get(printing.id)?.label ?? null,
+            serialNo: serialByPrinting.get(printing.id)?.no ?? null,
             owned: ownedByPrinting.get(printing.id) ?? 0,
             slabbed: slabbedByPrinting.get(printing.id) ?? 0,
             topGrade: topGradeByPrinting.get(printing.id) ?? null

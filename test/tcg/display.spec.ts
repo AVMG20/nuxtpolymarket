@@ -181,6 +181,19 @@ describe.skipIf(SKIP)('tcg displays integration', () => {
         void slab
     })
 
+    // The serial sort orders tiles by the earliest copy of each printing the
+    // viewer owns, so the gallery has to carry that copy's serial.
+    it('gallery: carries the earliest owned serial per printing', async () => {
+        const printing = (await galleryFor(USERS.owner))
+            .find(set => set.id === setId)!
+            .printings.find(p => p.id === printingId)!
+
+        // The fixture's sheet is one slot per pack, so the serial number is
+        // slotOffset + 1 and the earliest copy seeded here is offset 0.
+        expect(printing.serialNo).toBe(1)
+        expect(printing.serial).toBe('d #1')
+    })
+
     it('caps displays per user and validates capacity', async () => {
         const binder = await createDisplay(USERS.viewer, 'binder', 'Cap binder')
         await expect(saveDisplay(USERS.viewer, binder.id, { capacity: 7, slots: [] }))
