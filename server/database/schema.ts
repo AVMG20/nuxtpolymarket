@@ -67,7 +67,12 @@ export const transactions = pgTable(
     category: text('category'),
     createdAt: timestamp('created_at').defaultNow().notNull()
   },
-  table => [index('transactions_userId_createdAt_idx').on(table.userId, table.createdAt)]
+  table => [
+    index('transactions_userId_createdAt_idx').on(table.userId, table.createdAt),
+    // The site-wide audit filters on createdAt alone, which the composite index
+    // above cannot serve because userId leads it.
+    index('transactions_createdAt_idx').on(table.createdAt)
+  ]
 )
 
 export const session = pgTable(
