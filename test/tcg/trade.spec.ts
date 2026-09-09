@@ -1,6 +1,7 @@
 /**
- * Direct trades (§7.1): no escrow until accept, atomic accept-time
- * validation, coin leg 95/5. Real Postgres from .env.
+ * Direct trades (§7.1): the sender's coins escrow on creation, cards do not,
+ * accept-time validation is atomic and the coin leg pays 95/5.
+ * Real Postgres from .env.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { eq, inArray } from 'drizzle-orm'
@@ -11,6 +12,7 @@ import { listCopy } from '#server/utils/tcg/market'
 import { vendorCopy } from '#server/utils/tcg/vendor'
 import { mintCondition } from '#shared/utils/tcg/condition'
 import { sellerProceeds } from '#shared/utils/tcg/market'
+import { credit } from '#server/utils/balance'
 import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
 
 const USERS = {
@@ -101,7 +103,7 @@ describe.skipIf(SKIP)('tcg direct trades integration', () => {
             note: 'two commons and coins for your card'
         })
 
-        // Offers escrow nothing: ann's cards stay fully usable while it sits.
+        // Cards escrow nothing: ann's stay fully usable while the offer sits.
         await listCopy(USERS.ann, annCard1, 100, null)
         // …but an encumbered item makes the accept fail cleanly.
         await expect(acceptOffer(USERS.ben, offer.id))
@@ -116,11 +118,13 @@ describe.skipIf(SKIP)('tcg direct trades integration', () => {
             .where(eq((await import('#server/database/schema')).tcgListing.copyId, annCard1))
         await cancelListing(USERS.ann, listing!.id)
 
+        // Coins, though, left ann the moment she made the offer — accept only
+        // moves what is already held, so her balance does not change again.
         const annBefore = await balanceOf(USERS.ann)
         const benBefore = await balanceOf(USERS.ben)
         await acceptOffer(USERS.ben, offer.id)
 
-        expect(await balanceOf(USERS.ann)).toBeCloseTo(annBefore - 500, 4)
+        expect(await balanceOf(USERS.ann)).toBeCloseTo(annBefore, 4)
         expect(await balanceOf(USERS.ben)).toBeCloseTo(benBefore + sellerProceeds(500), 4)
 
         const copies = await db.select({ id: tcgCopy.id, ownerId: tcgCopy.ownerId }).from(tcgCopy)
@@ -163,6 +167,107 @@ describe.skipIf(SKIP)('tcg direct trades integration', () => {
         })
         const result = await burst(6, () => acceptOffer(USERS.ben, second.id))
         expect(result).toEqual({ ok: 1, rejected: 5 })
+    }, 30_000)
+
+    it('escrows the sender coins on creation and refunds them on cancel', async () => {
+        const card = await seedCopy(USERS.ann)
+        const before = await balanceOf(USERS.ann)
+
+        const offer = await createOffer(USERS.ann, {
+            toUserId: USERS.ben, senderCopyIds: [card], receiverCopyIds: [],
+            senderCoins: 250, receiverCoins: 0, note: null
+        })
+        expect(await balanceOf(USERS.ann)).toBeCloseTo(before - 250, 4)
+        const [held] = await db.select({ escrow: tcgTradeOffer.senderEscrow }).from(tcgTradeOffer)
+            .where(eq(tcgTradeOffer.id, offer.id))
+        expect(parseFloat(held!.escrow)).toBeCloseTo(250, 4)
+
+        await cancelOffer(USERS.ann, offer.id)
+        expect(await balanceOf(USERS.ann)).toBeCloseTo(before, 4)
+        const [released] = await db.select({ escrow: tcgTradeOffer.senderEscrow }).from(tcgTradeOffer)
+            .where(eq(tcgTradeOffer.id, offer.id))
+        expect(parseFloat(released!.escrow)).toBe(0)
+    }, 30_000)
+
+    it('refunds the escrow when the receiver declines', async () => {
+        const card = await seedCopy(USERS.ann)
+        const before = await balanceOf(USERS.ann)
+        const offer = await createOffer(USERS.ann, {
+            toUserId: USERS.ben, senderCopyIds: [card], receiverCopyIds: [],
+            senderCoins: 120, receiverCoins: 0, note: null
+        })
+        expect(await balanceOf(USERS.ann)).toBeCloseTo(before - 120, 4)
+        await declineOffer(USERS.ben, offer.id)
+        expect(await balanceOf(USERS.ann)).toBeCloseTo(before, 4)
+    }, 30_000)
+
+    // The point of escrowing: an offer the sender cannot fund never reaches
+    // the receiver, instead of failing under them at accept.
+    it('refuses an offer the sender cannot fund, and creates nothing', async () => {
+        const card = await seedCopy(USERS.ann)
+        const before = await balanceOf(USERS.ann)
+        const openBefore = await db.select({ id: tcgTradeOffer.id }).from(tcgTradeOffer)
+            .where(eq(tcgTradeOffer.fromUserId, USERS.ann))
+
+        await expect(createOffer(USERS.ann, {
+            toUserId: USERS.ben, senderCopyIds: [card], receiverCopyIds: [],
+            senderCoins: before + 1000, receiverCoins: 0, note: null
+        })).rejects.toMatchObject({ statusCode: 400 })
+
+        expect(await balanceOf(USERS.ann)).toBeCloseTo(before, 4)
+        const openAfter = await db.select({ id: tcgTradeOffer.id }).from(tcgTradeOffer)
+            .where(eq(tcgTradeOffer.fromUserId, USERS.ann))
+        expect(openAfter).toHaveLength(openBefore.length)
+    }, 30_000)
+
+    // Coins ASKED FOR are never escrowed — the receiver has not agreed yet, so
+    // they pay at accept, which is the moment they do.
+    it('leaves the receiver side unescrowed until accept', async () => {
+        const annCard = await seedCopy(USERS.ann)
+        const benBefore = await balanceOf(USERS.ben)
+        const offer = await createOffer(USERS.ann, {
+            toUserId: USERS.ben, senderCopyIds: [annCard], receiverCopyIds: [],
+            senderCoins: 0, receiverCoins: 300, note: null
+        })
+        expect(await balanceOf(USERS.ben)).toBeCloseTo(benBefore, 4)
+
+        const annBefore = await balanceOf(USERS.ann)
+        await acceptOffer(USERS.ben, offer.id)
+        expect(await balanceOf(USERS.ben)).toBeCloseTo(benBefore - 300, 4)
+        expect(await balanceOf(USERS.ann)).toBeCloseTo(annBefore + sellerProceeds(300), 4)
+    }, 30_000)
+
+    // A burst of cancels must refund once, not six times.
+    it('refunds exactly once under a burst of cancels', async () => {
+        const card = await seedCopy(USERS.ann)
+        const before = await balanceOf(USERS.ann)
+        const offer = await createOffer(USERS.ann, {
+            toUserId: USERS.ben, senderCopyIds: [card], receiverCopyIds: [],
+            senderCoins: 400, receiverCoins: 0, note: null
+        })
+        const result = await burst(6, () => cancelOffer(USERS.ann, offer.id))
+        expect(result).toEqual({ ok: 1, rejected: 5 })
+        expect(await balanceOf(USERS.ann)).toBeCloseTo(before, 4)
+    }, 30_000)
+
+    // Offers made before escrow existed carry senderEscrow 0 with coins owed:
+    // accept must still take them, or the payout would mint coins.
+    it('debits at accept for an offer that predates escrow', async () => {
+        const annCard = await seedCopy(USERS.ann)
+        const offer = await createOffer(USERS.ann, {
+            toUserId: USERS.ben, senderCopyIds: [annCard], receiverCopyIds: [],
+            senderCoins: 200, receiverCoins: 0, note: null
+        })
+        // Rewind to the pre-migration shape: coins promised, nothing held.
+        await db.update(tcgTradeOffer).set({ senderEscrow: '0' })
+            .where(eq(tcgTradeOffer.id, offer.id))
+        await credit(USERS.ann, '200.0000', 'test')
+
+        const annBefore = await balanceOf(USERS.ann)
+        const benBefore = await balanceOf(USERS.ben)
+        await acceptOffer(USERS.ben, offer.id)
+        expect(await balanceOf(USERS.ann)).toBeCloseTo(annBefore - 200, 4)
+        expect(await balanceOf(USERS.ben)).toBeCloseTo(benBefore + sellerProceeds(200), 4)
     }, 30_000)
 
     it('validation: direction of coins, sides, caps, self-trades, cancel', async () => {
