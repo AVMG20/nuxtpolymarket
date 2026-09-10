@@ -24,7 +24,8 @@
     "balance:pirates": "bun scripts/pirates-balance.ts",
     "balance:shapezz": "bun scripts/shapezz-balance.ts",
     "balance:compare": "bun scripts/economy-compare.ts",
-    "tcg:rarity-audit": "bun scripts/tcg-rarity-audit.ts"
+    "tcg:rarity-audit": "bun scripts/tcg-rarity-audit.ts",
+    "art:town": "bun tools/town-art-gallery/serve.mjs"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.98",

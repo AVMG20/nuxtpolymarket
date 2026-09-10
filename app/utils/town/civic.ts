@@ -23,6 +23,10 @@ function lantern(x: number, z: number): Part[] {
     return [c(x, 0.05, z, 0.025, 0.25, C.dark), b(x, 0.3, z, 0.055, 0.07, 0.055, 0xffd999, { emissive: 0x9c682b, name: 'glow' }), { shape: 'hip', x, y: 0.37, z, w: 0.085, h: 0.04, d: 0.085, color: C.dark }]
 }
 
+function sign(x: number, y: number, z: number, color = 0x63918b): Part[] {
+    return [b(x, y, z, 0.18, 0.105, 0.028, 0x92704d, { soft: true }), b(x, y + 0.013, z + 0.019, 0.154, 0.08, 0.009, color), ...[-1, 1].map(side => b(x + side * 0.067, y + 0.11, z, 0.012, 0.038, 0.012, 0x52605c))]
+}
+
 /** Civic landmarks have their own progression rather than industrial cargo upgrades. */
 export function createCivicParts(type: 'bathhouse' | 'theatre' | 'park', level: number): Part[] {
     const stage = Math.floor((level - 1) / 4)
@@ -42,7 +46,16 @@ export function createCivicParts(type: 'bathhouse' | 'theatre' | 'park', level: 
             for (const z of [-0.27, -0.04]) parts.push(...arch(0, 0.12, 0.342, 0.12, 0.22).map(p => ({ ...p, x: side * p.z, z: z - side * p.x, rotY: side * Math.PI / 2, rotX: p.rotX })))
             parts.push(...planter(side * 0.37, 0.32))
         }
+        // Low mosaic frieze and roof-edge ornaments frame the bathing courtyard.
+        for (const x of [-0.29, -0.145, 0, 0.145, 0.29]) parts.push(b(x, top + 0.005, 0.245, 0.075, 0.038, 0.022, C.copper))
+        for (const side of [-1, 1]) parts.push(c(side * 0.3, top + 0.035, 0.09, 0.035, 0.045, C.gold), ball(side * 0.3, top + 0.08, 0.09, 0.065, 0.065, C.cream))
         if (stage > 0) for (const x of [-0.25, 0.25]) parts.push(c(x, top + 0.04, -0.26, 0.12, 0.08, C.cream), ball(x, top + 0.11, -0.26, 0.14, 0.13, C.copper))
+        // Copper dome seams and a ring of small glazed clerestory windows.
+        for (let i = 0; i < 12; i++) {
+            const a = i * Math.PI / 6
+            parts.push(c(Math.cos(a) * 0.209, top + 0.14, -0.12 + Math.sin(a) * 0.209, 0.009, 0.045, 0xc1a16c))
+        }
+        for (const x of [-0.25, 0, 0.25]) parts.push(b(x, 0.35, 0.151, 0.075, 0.045, 0.009, 0x63918b))
     } else if (type === 'theatre') {
         const top = 0.57 + stage * 0.1
         parts.push(b(0, 0.045, -0.075, 0.74, top - 0.045, 0.57, C.wine, { surface: 'plaster' }), b(0, top, -0.075, 0.81, 0.045, 0.64, C.cream))
@@ -62,7 +75,17 @@ export function createCivicParts(type: 'bathhouse' | 'theatre' | 'park', level: 
             for (const z of [-0.24, 0.04]) parts.push(b(side * 0.382, 0.17, z, 0.022, 0.24, 0.1, C.gold), b(side * 0.395, 0.19, z, 0.009, 0.19, 0.074, C.wine))
             parts.push(...lantern(side * 0.4, 0.33))
         }
+        // Velvet banners and a raised pediment make the entrance a clear focal point.
+        for (const side of [-1, 1]) {
+            parts.push(b(side * 0.305, 0.36, 0.32, 0.065, 0.17, 0.016, C.wine), b(side * 0.305, 0.35, 0.332, 0.068, 0.018, 0.012, C.gold))
+        }
+        parts.push({ shape: 'hip', x: 0, y: top + 0.035, z: 0.27, w: 0.38, h: 0.2, d: 0.11, color: C.cream })
         if (stage > 0) for (const x of [-0.31, 0.31]) parts.push(c(x, top + 0.04, 0.21, 0.09, 0.15, C.gold), ball(x, top + 0.19, 0.21, 0.11, 0.1, C.cream))
+        parts.push(...sign(-0.285, 0.17, 0.232, 0xb18c64), ...sign(0.285, 0.17, 0.232, 0x708e8a))
+        for (const side of [-1, 1]) {
+            parts.push(b(side * 0.285, 0.195, 0.254, 0.035, 0.04, 0.006, 0xeee1c4))
+            parts.push(b(side * 0.31, 0.077, 0.403, 0.035, 0.015, 0.045, 0xc1a16c))
+        }
     } else {
         parts.push(b(0, 0.045, 0, 0.87, 0.012, 0.87, 0x829564), b(0, 0.06, 0, 0.16, 0.009, 0.85, 0xcfc3a1), b(0, 0.06, 0, 0.85, 0.009, 0.14, 0xcfc3a1))
         parts.push(c(0, 0.07, 0, 0.34, 0.055, C.stone), c(0, 0.126, 0, 0.28, 0.008, 0x659b98, { surface: 'water' }), c(0, 0.135, 0, 0.06, 0.18, C.cream), c(0, 0.315, 0, 0.17, 0.025, C.stone), ball(0, 0.34, 0, 0.04, 0.08, 0xb9d8ca))
@@ -79,6 +102,12 @@ export function createCivicParts(type: 'bathhouse' | 'theatre' | 'park', level: 
         if (stage > 0) {
             for (const x of [-0.16, 0.16]) parts.push(b(x, 0.06, -0.32, 0.025, 0.48, 0.025, C.cream))
             for (let i = 0; i < 7; i++) parts.push(b((i - 3) * 0.055, 0.54, -0.32, 0.024, 0.025, 0.23, C.wood))
+        }
+        // Low hedges frame the garden without hiding its fountain and benches.
+        for (const side of [-1, 1]) for (let i = 0; i < 5; i++) parts.push({ shape: 'sphere', x: side * 0.414, y: 0.05, z: -0.34 + i * 0.1, w: 0.068, h: 0.075, d: 0.105, color: i % 2 ? 0x7b955f : 0x69835a, seg: 7 })
+        for (const side of [-1, 1]) {
+            parts.push(b(side * 0.26, 0.07, 0.04, 0.2, 0.03, 0.115, C.stone))
+            for (let i = 0; i < 4; i++) parts.push(ball(side * 0.26 + (i - 1.5) * 0.044, 0.11, 0.04, 0.038, 0.05, i % 2 ? 0xe6b09e : C.gold))
         }
         if (stage > 1) parts.push(...lantern(-0.4, 0.36), ...lantern(0.4, 0.36))
     }

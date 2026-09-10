@@ -28,8 +28,8 @@ function shutters(x: number, y: number, z: number): Part[] {
 /** Dress the final upgraded shell, so stone courses follow its actual height. */
 export function enrichArchitecture(type: TownBuildingId, source: Part[]): Part[] {
     if (type === 'road') return source
-    const wood = new Set([0xad7949, 0x5e3a1a, 0x79533b, 0xbb8a52, 0xbc6c25, 0x6f3f16])
-    const masonry = new Set([0xb5462d, 0xc1440e, 0x7a1f1f, 0xba6851])
+    const wood = new Set([0xad7949, 0x5e3a1a, 0x79533b, 0xbb8a52, 0xad8559, 0x6f3f16])
+    const masonry = new Set([0xb5462d, 0xbb6749, 0x9c6757, 0xba6851])
     const parts = source.map(p => {
         let surface: TownSurface | undefined
         if (!p.name) {
@@ -56,6 +56,11 @@ export function enrichArchitecture(type: TownBuildingId, source: Part[]): Part[]
             for (const x of [-w * 0.25, w * 0.25]) {
                 parts.push(...window(x, 0.13 + floor * 0.23, d / 2 + 0.012).map(p => ({ ...p, x: -p.x, z: -p.z, rotY: Math.PI })))
             }
+        }
+        if (type === 'foundry' || type === 'factory') {
+            const x = type === 'foundry' ? 0.389 : -0.439
+            for (const z of [-0.1, 0.015]) parts.push(box(x, 0.06, z, 0.016, h - 0.06, 0.016, 0xc1a16c))
+            for (let y = 0.09; y < h; y += 0.055) parts.push(box(x, y, -0.043, 0.023, 0.013, 0.13, 0x52605c))
         }
         // Drainpipes and roof gutters add depth to the silhouette from above.
         for (const side of [-1, 1]) {

@@ -5,6 +5,7 @@
 // Geometry and materials are cached and shared; instances are cheap clones.
 
 import * as THREE from 'three'
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { TownBuildingId } from '#shared/utils/gamelogic/town'
 import { townVisualLevel, townVisualStage } from './appearance'
@@ -23,6 +24,7 @@ export interface Part {
     h: number
     d: number
     color: number
+    soft?: boolean
     surface?: TownSurface
     emissive?: number
     name?: string
@@ -37,11 +39,12 @@ const geometryCache = new Map<string, THREE.BufferGeometry>()
 const materialCache = new Map<string, THREE.MeshStandardMaterial>()
 
 function geometry(p: Part): THREE.BufferGeometry {
-    const key = `${p.shape}:${p.seg ?? ''}`
+    const soft = p.soft ?? (p.shape === 'box' && !p.name && p.w >= 0.12 && p.h >= 0.09 && p.d >= 0.08)
+    const key = `${p.shape}:${p.seg ?? ''}:${soft ? 'soft' : ''}`
     let g = geometryCache.get(key)
     if (g) return g
     switch (p.shape) {
-        case 'box': g = new THREE.BoxGeometry(1, 1, 1); break
+        case 'box': g = soft ? new RoundedBoxGeometry(1, 1, 1, 1, 0.035) : new THREE.BoxGeometry(1, 1, 1); break
         case 'cyl': g = new THREE.CylinderGeometry(0.5, 0.5, 1, p.seg ?? 10); break
         case 'cone': g = new THREE.ConeGeometry(0.5, 1, p.seg ?? 8); break
         case 'hip': g = new THREE.ConeGeometry(0.5 * Math.SQRT2, 1, 4).rotateY(Math.PI / 4); break
@@ -145,7 +148,7 @@ const LEAF = 0x659b59
 const LEAF_DARK = 0x347565
 const SOIL = 0x8a6a3f
 const WHEAT = 0xe0c05a
-const GLOW = 0xff8c1a
+const GLOW = 0xecaa51
 const METAL = 0x4a5568
 const BRICK = 0xb5462d
 const GOLD = 0xe8b95d
@@ -197,7 +200,7 @@ const MODELS: Partial<Record<TownBuildingId, () => Part[]>> = {
     bathhouse: () => createCivicParts('bathhouse', 1),
     theatre: () => createCivicParts('theatre', 1),
     warehouse: () => [
-        { shape: 'box', x: 0, y: 0, z: 0, w: 0.82, h: 0.36, d: 0.62, color: 0x8d99ae },
+        { shape: 'box', x: 0, y: 0, z: 0, w: 0.82, h: 0.36, d: 0.62, color: 0x8e9a96 },
         { shape: 'box', x: 0, y: 0.36, z: 0, w: 0.88, h: 0.06, d: 0.68, color: 0x5c6675 },
         { shape: 'box', x: 0, y: 0, z: 0.32, w: 0.34, h: 0.26, d: 0.02, color: 0x3d4552 },
         { shape: 'box', x: 0, y: 0.13, z: 0.33, w: 0.34, h: 0.02, d: 0.02, color: 0x2b3038 },
@@ -206,7 +209,7 @@ const MODELS: Partial<Record<TownBuildingId, () => Part[]>> = {
     ],
     farm: () => [
         { shape: 'box', x: 0, y: 0, z: 0, w: 0.9, h: 0.06, d: 0.9, color: SOIL },
-        ...[-0.3, -0.1, 0.1, 0.3].flatMap(z => [-0.32, -0.16, 0, 0.16, 0.32].map(x => ({ shape: 'box' as const, x, y: 0.06, z, w: 0.07, h: 0.16 + ((x * 7 + z * 3) % 0.05), d: 0.06, color: WHEAT }))),
+        ...[-0.3, -0.1, 0.1, 0.3].flatMap(z => [-0.32, -0.16, 0, 0.16, 0.32].flatMap(x => x < -0.16 && z === -0.3 ? [] : [-1, 0, 1].map(i => ({ shape: 'cyl' as const, x: x + i * 0.024, y: 0.06, z: z + i * 0.013, w: 0.013, h: 0.19 + i * 0.017, d: 0.013, color: WHEAT, seg: 5 })))),
         { shape: 'box', x: -0.3, y: 0.06, z: -0.3, w: 0.22, h: 0.18, d: 0.2, color: WOOD },
         { shape: 'pyramid', x: -0.3, y: 0.24, z: -0.3, w: 0.28, h: 0.12, d: 0.26, color: ROOF_RED }
     ],
@@ -235,7 +238,7 @@ const MODELS: Partial<Record<TownBuildingId, () => Part[]>> = {
         { shape: 'box', x: 0, y: 0.55, z: 0.33, w: 0.05, h: 0.05, d: 0.16, color: WOOD_DARK, name: 'spin' }
     ],
     sawmill: () => [
-        { shape: 'box', x: 0, y: 0, z: 0, w: 0.8, h: 0.34, d: 0.5, color: 0xbc6c25 },
+        { shape: 'box', x: 0, y: 0, z: 0, w: 0.8, h: 0.34, d: 0.5, color: 0xad8559 },
         { shape: 'wedge', x: 0.225, y: 0.34, z: 0, w: 0.45, h: 0.24, d: 0.58, color: 0x6f3f16 },
         { shape: 'wedge', x: -0.225, y: 0.34, z: 0, w: 0.45, h: 0.24, d: 0.58, color: 0x6f3f16, rotY: Math.PI },
         { shape: 'cyl', x: 0.2, y: 0.1, z: 0.28, w: 0.3, h: 0.03, d: 0.3, color: 0xcfd8dc, rotX: Math.PI / 2, seg: 16, name: 'spin' },
@@ -243,7 +246,7 @@ const MODELS: Partial<Record<TownBuildingId, () => Part[]>> = {
     ],
     kiln: () => [
         { shape: 'box', x: 0, y: 0, z: 0, w: 0.7, h: 0.18, d: 0.7, color: BRICK },
-        { shape: 'sphere', x: 0, y: -0.1, z: 0, w: 0.62, h: 0.62, d: 0.62, color: 0xc1440e, seg: 12 },
+        { shape: 'sphere', x: 0, y: -0.1, z: 0, w: 0.62, h: 0.62, d: 0.62, color: 0xbb6749, seg: 12 },
         { shape: 'box', x: 0, y: 0.1, z: 0.3, w: 0.18, h: 0.14, d: 0.06, color: 0x2b1a12 },
         { shape: 'box', x: 0, y: 0.11, z: 0.31, w: 0.14, h: 0.1, d: 0.02, color: GLOW, emissive: GLOW, name: 'glow' },
         ...chimney(0, 0.4, -0.05, 0.3)
@@ -257,7 +260,7 @@ const MODELS: Partial<Record<TownBuildingId, () => Part[]>> = {
         ...chimney(-0.2, 0.5, -0.15, 0.22)
     ],
     smithy: () => [
-        { shape: 'box', x: 0, y: 0, z: 0, w: 0.7, h: 0.38, d: 0.56, color: 0x4a4e69 },
+        { shape: 'box', x: 0, y: 0, z: 0, w: 0.7, h: 0.38, d: 0.56, color: 0x737d86 },
         { shape: 'wedge', x: 0.2, y: 0.38, z: 0, w: 0.4, h: 0.22, d: 0.64, color: 0x2f3247 },
         { shape: 'wedge', x: -0.2, y: 0.38, z: 0, w: 0.4, h: 0.22, d: 0.64, color: 0x2f3247, rotY: Math.PI },
         { shape: 'box', x: 0, y: 0.02, z: 0.29, w: 0.3, h: 0.22, d: 0.02, color: GLOW, emissive: 0xff6a00, name: 'glow' },
@@ -265,7 +268,10 @@ const MODELS: Partial<Record<TownBuildingId, () => Part[]>> = {
         ...chimney(-0.22, 0.5, -0.1, 0.26)
     ],
     mine: () => [
-        { shape: 'sphere', x: -0.1, y: -0.25, z: -0.15, w: 0.9, h: 0.7, d: 0.8, color: 0x555a66, seg: 9 },
+        ...[
+            [-0.19, -0.08, -0.17, 0.64, 0.48, 0.55], [0.18, -0.04, -0.19, 0.47, 0.38, 0.48],
+            [-0.34, 0.01, 0.08, 0.29, 0.26, 0.36], [-0.13, 0.25, -0.25, 0.38, 0.24, 0.35]
+        ].map(([x, y, z, w, h, d], i): Part => ({ shape: 'sphere', x: x!, y: y!, z: z!, w: w!, h: h!, d: d!, color: i % 2 ? 0x78817b : 0x626c69, seg: 5, rotY: i * 0.7 })),
         { shape: 'box', x: 0.1, y: 0, z: 0.22, w: 0.3, h: 0.28, d: 0.06, color: 0x1a1a22 },
         { shape: 'box', x: -0.06, y: 0, z: 0.25, w: 0.05, h: 0.3, d: 0.05, color: WOOD },
         { shape: 'box', x: 0.26, y: 0, z: 0.25, w: 0.05, h: 0.3, d: 0.05, color: WOOD },
@@ -275,21 +281,21 @@ const MODELS: Partial<Record<TownBuildingId, () => Part[]>> = {
         { shape: 'box', x: 0.1, y: 0.1, z: 0.4, w: 0.14, h: 0.05, d: 0.09, color: 0x8892a6 }
     ],
     foundry: () => [
-        { shape: 'box', x: 0, y: 0, z: 0, w: 0.76, h: 0.6, d: 0.6, color: 0x7a1f1f },
-        { shape: 'box', x: 0, y: 0.6, z: 0, w: 0.82, h: 0.06, d: 0.66, color: 0x3a0c0c },
+        { shape: 'box', x: 0, y: 0, z: 0, w: 0.76, h: 0.6, d: 0.6, color: 0x9c6757 },
+        { shape: 'box', x: 0, y: 0.6, z: 0, w: 0.82, h: 0.06, d: 0.66, color: 0x586766 },
         { shape: 'box', x: 0, y: 0.2, z: 0.31, w: 0.5, h: 0.08, d: 0.02, color: GLOW, emissive: 0xff5a00, name: 'glow' },
         ...chimney(-0.22, 0.66, -0.15, 0.4),
         ...chimney(0.22, 0.66, -0.15, 0.32)
     ],
     factory: () => [
-        { shape: 'box', x: 0, y: 0, z: 0, w: 0.86, h: 0.5, d: 0.66, color: 0x577590 },
+        { shape: 'box', x: 0, y: 0, z: 0, w: 0.86, h: 0.5, d: 0.66, color: 0x748f91 },
         ...[-0.28, 0, 0.28].map(x => ({ shape: 'wedge' as const, x, y: 0.5, z: 0, w: 0.28, h: 0.18, d: 0.66, color: 0x3d5266 })),
         ...[-0.28, 0, 0.28].flatMap((x, i) => chimney(x, 0.68, -0.22, 0.3 + i * 0.06)),
         { shape: 'cyl', x: 0.44, y: 0.15, z: 0.1, w: 0.22, h: 0.04, d: 0.22, color: METAL, rotZ: Math.PI / 2, seg: 8, name: 'spin' },
         { shape: 'box', x: 0, y: 0.1, z: 0.34, w: 0.5, h: 0.2, d: 0.02, color: 0xa9d6ff, emissive: 0x6fb8ff, name: 'glow' }
     ],
     emporium: () => [
-        { shape: 'box', x: 0, y: 0, z: 0, w: 0.8, h: 0.46, d: 0.66, color: 0x7b2cbf },
+        { shape: 'box', x: 0, y: 0, z: 0, w: 0.8, h: 0.46, d: 0.66, color: 0x927079 },
         { shape: 'box', x: 0, y: 0.46, z: 0, w: 0.86, h: 0.05, d: 0.72, color: GOLD },
         ...[-0.3, -0.1, 0.1, 0.3].map(x => ({ shape: 'cyl' as const, x, y: 0, z: 0.36, w: 0.07, h: 0.46, d: 0.07, color: 0xf8f1ff, seg: 8 })),
         { shape: 'sphere', x: 0, y: 0.36, z: 0, w: 0.5, h: 0.5, d: 0.5, color: GOLD, seg: 12 },
@@ -302,6 +308,14 @@ const MODELS: Partial<Record<TownBuildingId, () => Part[]>> = {
 // are visual only and never participate in production or placement rules.
 function box(x: number, y: number, z: number, w: number, h: number, d: number, color: number, extra: Partial<Part> = {}): Part {
     return { shape: 'box', x, y, z, w, h, d, color, ...extra }
+}
+
+const round = (x: number, y: number, z: number, w: number, h: number, color: number, extra: Partial<Part> = {}): Part => ({ shape: 'cyl', x, y, z, w, h, d: w, color, seg: 12, ...extra })
+function crate(x: number, y: number, z: number): Part[] {
+    return [box(x, y, z, 0.12, 0.105, 0.12, WOOD, { surface: 'timber', soft: true }), ...[-1, 1].map(side => box(x + side * 0.037, y, z, 0.014, 0.11, 0.126, CREAM))]
+}
+function sign(x: number, y: number, z: number, color = ROOF_BLUE): Part[] {
+    return [box(x, y, z, 0.18, 0.105, 0.028, WOOD, { soft: true }), box(x, y + 0.013, z + 0.019, 0.154, 0.08, 0.009, color), ...[-1, 1].map(side => box(x + side * 0.067, y + 0.11, z, 0.012, 0.038, 0.012, METAL))]
 }
 
 function pot(x: number, z: number, flowers = false): Part[] {
@@ -350,7 +364,7 @@ function roofTiles(w: number, y: number, h: number, d: number, color: number): P
     }).flat())
 }
 
-function details(type: TownBuildingId): Part[] {
+function details(type: TownBuildingId, level: number): Part[] {
     const parts: Part[] = []
     const shells: Partial<Record<TownBuildingId, [number, number, number]>> = {
         house: [0.6, 0.42, 0.5], warehouse: [0.82, 0.36, 0.62], sawmill: [0.8, 0.34, 0.5],
@@ -393,6 +407,12 @@ function details(type: TownBuildingId): Part[] {
                 for (const dx of [-0.045, 0, 0.045]) parts.push({ shape: 'sphere', x: x + dx, y: 0.16, z: 0.3, w: 0.045, h: 0.045, d: 0.045, color: dx === 0 ? 0xf2c96d : 0xdf8794 })
             }
             parts.push(box(0, 0.005, 0.33, 0.2, 0.035, 0.13, STONE), box(0.045, 0.12, 0.281, 0.017, 0.017, 0.014, GOLD), ...pot(-0.34, 0.23))
+            // Door panels and a warm enamel number plate beside the existing porch.
+            parts.push(box(0, 0.045, 0.279, 0.075, 0.055, 0.008, WOOD), box(0, 0.12, 0.279, 0.075, 0.073, 0.008, WOOD), box(-0.116, 0.205, 0.281, 0.046, 0.031, 0.009, ROOF_BLUE))
+            for (const x of [-0.11, 0, 0.11]) parts.push(box(x, 0.007, 0.421, 0.10, 0.014, 0.072, CREAM))
+            // Cottage trim stays readable at town-camera scale.
+            for (const x of [-0.29, 0.29]) parts.push(box(x, 0.045, 0.31, 0.03, 0.17, 0.035, CREAM))
+            parts.push(box(-0.12, 0.17, 0.297, 0.045, 0.055, 0.028, GOLD))
             break
         case 'park':
             parts.push(...fence(-0.43), ...pot(-0.32, 0.33, true), ...pot(0.32, 0.33, true))
@@ -409,6 +429,13 @@ function details(type: TownBuildingId): Part[] {
             }
             for (let i = 0; i < 7; i++) parts.push(box((i - 3) * 0.12, 0.42, 0, 0.014, 0.018, 0.66, STONE))
             parts.push(...barrel(-0.32, -0.39))
+            parts.push(...sign(0, 0.235, 0.344), box(0, 0.005, 0.414, 0.35, 0.021, 0.14, CREAM))
+            for (let i = 0; i < 5; i++) parts.push(box(-0.28, 0.125 + i * 0.037, -0.394, 0.086, 0.009, 0.02, METAL))
+            if (level <= 4) {
+                parts.push(box(0, 0.422, -0.1, 0.4, 0.09, 0.22, METAL), box(0, 0.48, 0.013, 0.35, 0.035, 0.014, ROOF_BLUE))
+                for (const x of [-0.14, -0.07, 0, 0.07, 0.14]) parts.push(box(x, 0.48, 0.023, 0.014, 0.035, 0.014, CREAM))
+            }
+            for (const x of [-0.19, 0.19]) parts.push(box(x, 0.01, 0.342, 0.025, 0.27, 0.036, CREAM))
             break
         case 'farm':
             parts.push(...fence(-0.44))
@@ -420,6 +447,10 @@ function details(type: TownBuildingId): Part[] {
                 }
             }
             parts.push(box(0.31, 0.06, -0.32, 0.023, 0.34, 0.023, WOOD_DARK), box(0.31, 0.27, -0.32, 0.18, 0.024, 0.024, WOOD_DARK), { shape: 'sphere', x: 0.31, y: 0.36, z: -0.32, w: 0.08, h: 0.075, d: 0.08, color: CREAM }, { shape: 'cyl', x: 0.31, y: 0.42, z: -0.32, w: 0.14, h: 0.018, d: 0.14, color: WHEAT }, box(0.31, 0.27, -0.32, 0.08, 0.09, 0.06, ROOF_BLUE))
+            parts.push(round(0.34, 0.065, 0.37, 0.09, 0.08, BRICK), round(0.34, 0.14, 0.37, 0.06, 0.016, CREAM))
+            for (let i = 0; i < 6; i++) parts.push(box(-0.38 + i * 0.13, 0.065, 0.43, 0.09, 0.025, 0.016, WOOD))
+            parts.push(box(-0.3, 0.075, -0.193, 0.09, 0.135, 0.012, WOOD_DARK), box(-0.3, 0.19, -0.181, 0.12, 0.016, 0.015, CREAM))
+            for (const x of [-0.405, -0.195]) parts.push(box(x, 0.065, -0.195, 0.017, 0.17, 0.017, CREAM))
             break
         case 'lumber':
             for (const [y, z] of [[0.08, 0.1], [0.08, 0.28], [0.2, 0.19]]) {
@@ -430,20 +461,44 @@ function details(type: TownBuildingId): Part[] {
             parts.push(box(0.26, 0.25, 0.25, 0.12, 0.065, 0.018, STONE), ...barrel(0.37, 0.04))
             for (const z of [0.08, 0.24]) parts.push(box(-0.15, 0.035, z, 0.38, 0.025, 0.025, WOOD_DARK))
             for (const x of [-0.3, -0.2, -0.1]) parts.push(box(x, 0.018, -0.02, 0.07, 0.035, 0.3, WOOD))
+            if (level <= 4) parts.push(...crate(0.29, 0.01, -0.02))
+            parts.push(box(-0.27, 0.045, 0.42, 0.16, 0.028, 0.032, METAL), box(-0.2, 0.073, 0.42, 0.013, 0.055, 0.027, WOOD))
+            // A small forester's shelter anchors the otherwise open workyard.
+            if (level <= 4) {
+                parts.push(box(-0.035, 0.015, -0.24, 0.26, 0.21, 0.23, WOOD, { surface: 'timber' }))
+                for (const side of [-1, 1]) parts.push({ shape: 'wedge', x: -0.035 + side * 0.075, y: 0.225, z: -0.24, w: 0.15, h: 0.13, d: 0.29, color: ROOF_BLUE, rotY: side < 0 ? Math.PI : 0 })
+                parts.push(box(-0.035, 0.025, -0.116, 0.09, 0.16, 0.016, WOOD_DARK), box(-0.035, 0.16, -0.10, 0.12, 0.016, 0.025, CREAM))
+            }
             break
         case 'quarry':
             parts.push(box(0.05, 0.28, -0.3, 0.012, 0.23, 0.012, METAL), box(0.05, 0.25, -0.3, 0.08, 0.03, 0.06, METAL))
             for (let i = 0; i < 5; i++) parts.push(box(-0.25 + i * 0.1, 0.012, 0.39, 0.08, 0.06, 0.08, i % 2 ? STONE : CREAM))
             for (const y of [0.11, 0.2]) parts.push(box(-0.2, y, 0.003, 0.32, 0.012, 0.008, STONE_DARK))
+            parts.push(...crate(0.31, 0.045, 0.35))
+            for (let i = 0; i < 4; i++) parts.push(box(-0.18 + i * 0.095, 0.072, 0.43, 0.06, 0.018, 0.028, GOLD))
+            // Cut stone strata and a hand winch make the quarry read as a workplace.
+            for (const y of [0.09, 0.155, 0.22]) parts.push(box(-0.2, y, 0.004, 0.345, 0.013, 0.017, CREAM))
+            parts.push(round(0.35, 0.24, -0.26, 0.14, 0.04, METAL, { rotX: Math.PI / 2 }), box(0.35, 0.265, -0.222, 0.14, 0.015, 0.02, WOOD), box(0.405, 0.21, -0.215, 0.018, 0.085, 0.027, METAL))
+            for (const x of [-0.35, -0.26]) parts.push(box(x, 0.17, 0.28, 0.072, 0.055, 0.13, CREAM))
             break
         case 'mill':
             parts.push(...windowFrame(0, 0.28, 0.247, 0.1, 0.13), box(0, 0.28, 0.245, 0.1, 0.13, 0.02, 0x82bfc3), ...barrel(-0.3, 0.16), ...barrel(-0.3, -0.02))
             for (const y of [0.07, 0.23, 0.43]) parts.push({ shape: 'cyl', x: 0, y, z: 0, w: 0.509, h: 0.014, d: 0.509, color: STONE, seg: 10 })
+            parts.push(...sign(0, 0.12, 0.279, WOOD))
+            for (let i = 0; i < 8; i++) {
+                const a = i * Math.PI / 4
+                parts.push(round(Math.sin(a) * 0.251, 0.05, Math.cos(a) * 0.251, 0.04, 0.028, CREAM))
+            }
+            parts.push(box(-0.095, 0.01, 0.257, 0.024, 0.215, 0.025, CREAM), box(0.095, 0.01, 0.257, 0.024, 0.215, 0.025, CREAM))
             break
         case 'sawmill':
             for (const x of [-0.3, -0.18, -0.06]) parts.push(box(x, 0.025, 0.38, 0.08, 0.045, 0.22, WOOD))
             parts.push(box(0.2, 0.06, 0.36, 0.33, 0.035, 0.13, WOOD_DARK))
             for (const x of [-0.32, -0.16, 0, 0.16, 0.32]) parts.push(box(x, 0.05, 0.258, 0.014, 0.25, 0.018, WOOD_DARK))
+            parts.push(...sign(-0.22, 0.2, 0.28, WOOD))
+            for (let i = 0; i < 4; i++) parts.push(box(0.07 + i * 0.055, 0.01, -0.36, 0.04, 0.06, 0.18, i % 2 ? WOOD : 0xc4a378))
+            // Finished boards and braces around the open saw bench.
+            for (const side of [-1, 1]) parts.push(box(side * 0.32, 0.22, 0.27, 0.022, 0.115, 0.025, CREAM, { rotZ: side * 0.65 }))
             break
         case 'kiln':
             for (let row = 0; row < 4; row++) {
@@ -455,6 +510,10 @@ function details(type: TownBuildingId): Part[] {
                 }
             }
             for (let i = 0; i < 6; i++) parts.push(box(-0.27 + (i % 2) * 0.12, 0.02 + Math.floor(i / 2) * 0.045, 0.4, 0.105, 0.04, 0.065, BRICK))
+            for (const side of [-1, 1]) parts.push(box(side * 0.11, 0.095, 0.342, 0.027, 0.145, 0.035, CREAM))
+            parts.push(box(0, 0.233, 0.342, 0.25, 0.03, 0.035, CREAM), ...crate(0.29, 0.01, 0.37))
+            parts.push(box(0, 0.025, 0.35, 0.2, 0.023, 0.11, METAL))
+            for (const x of [-0.055, 0, 0.055]) parts.push(box(x, 0.04, 0.375, 0.02, 0.018, 0.07, WOOD_DARK))
             break
         case 'bakery':
             parts.push(...windowFrame(-0.14, 0.12, 0.31, 0.18, 0.14), box(0, 0.065, 0.39, 0.4, 0.045, 0.12, WOOD), ...pot(0.37, 0.22, true))
@@ -463,10 +522,20 @@ function details(type: TownBuildingId): Part[] {
                 parts.push(box(x, 0.148, 0.39, 0.012, 0.005, 0.035, CREAM, { rotY: 0.4 }))
             }
             parts.push(...roofTiles(0.72, 0.5, 0.16, 0.62, ROOF_BLUE))
+            parts.push(...sign(-0.13, 0.32, 0.301, ROOF_BLUE))
+            for (const side of [-1, 1]) parts.push({ shape: 'sphere', x: -0.13 + side * 0.026, y: 0.345, z: 0.326, w: 0.055, h: 0.032, d: 0.016, color: 0xe6bf73, seg: 8 })
+            for (const x of [-0.24, -0.12, 0, 0.12, 0.24]) parts.push(box(x, 0.285, 0.405, 0.115, 0.045, 0.015, x === 0 || Math.abs(x) === 0.24 ? ROOF_RED : CREAM))
+            parts.push(box(0.14, 0.13, 0.308, 0.09, 0.09, 0.012, ROOF_BLUE), box(0.19, 0.09, 0.317, 0.012, 0.015, 0.012, GOLD))
             break
         case 'smithy':
             parts.push(box(0.25, 0.1, 0.4, 0.21, 0.03, 0.095, STONE), box(0.25, 0.13, 0.4, 0.04, 0.09, 0.028, WOOD), box(0.25, 0.21, 0.4, 0.09, 0.04, 0.045, METAL), ...barrel(-0.36, 0.33))
             for (const x of [-0.11, -0.055, 0, 0.055, 0.11]) parts.push(box(x, 0.025, 0.313, 0.013, 0.19, 0.018, METAL))
+            parts.push(round(-0.31, 0.01, 0.4, 0.12, 0.09, METAL))
+            for (let i = 0; i < 4; i++) parts.push({ shape: 'sphere', x: -0.335 + i % 2 * 0.045, y: 0.08, z: 0.38 + Math.floor(i / 2) * 0.035, w: 0.045, h: 0.04, d: 0.035, color: 0x39443f, seg: 6 })
+            // Widen the anvil's horn and add an iron horseshoe sign.
+            parts.push(box(0.31, 0.07, 0.4, 0.09, 0.035, 0.04, METAL))
+            for (const x of [-0.23, -0.17]) parts.push(box(x, 0.21, 0.312, 0.016, 0.07, 0.015, GOLD))
+            parts.push(box(-0.2, 0.2, 0.312, 0.075, 0.016, 0.015, GOLD))
             break
         case 'mine':
             for (const x of [-0.02, 0.22]) parts.push(box(x, 0.016, 0.37, 0.017, 0.015, 0.26, STONE))
@@ -474,13 +543,30 @@ function details(type: TownBuildingId): Part[] {
             for (const x of [0, 0.2]) for (const z of [0.36, 0.44]) parts.push({ shape: 'cyl', x, y: 0.02, z, w: 0.047, h: 0.025, d: 0.047, color: METAL, rotZ: Math.PI / 2, seg: 8 })
             for (const [x, y, z] of [[-0.29, 0.22, -0.22], [-0.07, 0.36, -0.1], [0.15, 0.23, -0.2]]) parts.push({ shape: 'pyramid', x: x!, y: y!, z: z!, w: 0.09, h: 0.12, d: 0.09, color: 0x80b8c2 })
             parts.push(box(0.29, 0.18, 0.29, 0.045, 0.065, 0.045, GLOW, { emissive: GLOW, name: 'glow' }))
+            parts.push(...sign(0.1, 0.3, 0.289, WOOD))
+            for (const x of [-0.06, 0.26]) for (const y of [0.06, 0.23]) parts.push(round(x, y, 0.285, 0.018, 0.009, GOLD, { rotX: Math.PI / 2 }))
+            for (const side of [-1, 1]) parts.push(box(0.1 + side * 0.12, 0.205, 0.288, 0.032, 0.11, 0.035, WOOD_DARK, { rotZ: side * 0.6 }))
+            parts.push(box(-0.1, 0.27, 0.3, 0.027, 0.06, 0.027, GOLD))
             break
         case 'foundry':
         case 'factory':
+            parts.push(...sign(0, 0.32, type === 'factory' ? 0.347 : 0.319, ROOF_BLUE))
             for (const x of [-0.3, -0.15, 0, 0.15, 0.3]) parts.push(box(x, 0.09, type === 'factory' ? 0.357 : 0.329, 0.017, type === 'factory' ? 0.22 : 0.21, 0.019, METAL))
             for (const z of [-0.2, 0, 0.2]) parts.push(box(-0.39, 0.16, z, 0.025, 0.26, 0.11, STONE_DARK))
             parts.push(...barrel(-0.29, 0.41), ...barrel(-0.12, 0.41))
             for (const x of [-0.22, 0.22]) for (const y of [0.72, 0.86]) parts.push(box(x, y, -0.15, 0.115, 0.025, 0.115, STONE))
+            if (type === 'factory') {
+                for (const x of [-0.432, -0.152, 0.128]) {
+                    parts.push(box(x, 0.53, 0, 0.016, 0.11, 0.57, ROOF_BLUE))
+                    for (const z of [-0.24, -0.12, 0, 0.12, 0.24]) parts.push(box(x - 0.01, 0.525, z, 0.018, 0.13, 0.015, CREAM))
+                }
+            } else {
+                for (const z of [-0.29, 0.29]) parts.push(box(0, 0.65, z, 0.8, 0.035, 0.022, GOLD))
+                if (level <= 4) {
+                    parts.push(box(0, 0.66, 0.02, 0.28, 0.11, 0.22, METAL))
+                    for (const x of [-0.09, -0.03, 0.03, 0.09]) parts.push(box(x, 0.69, 0.137, 0.025, 0.05, 0.015, WOOD_DARK))
+                }
+            }
             break
         case 'emporium':
             parts.push(box(0, 0.015, 0.41, 0.76, 0.035, 0.13, CREAM), box(0, 0.053, 0.38, 0.64, 0.03, 0.08, CREAM), ...pot(-0.39, 0.38, true), ...pot(0.39, 0.38, true))
@@ -490,6 +576,12 @@ function details(type: TownBuildingId): Part[] {
                 const a = i * Math.PI / 6
                 parts.push({ shape: 'sphere', x: Math.cos(a) * 0.247, y: 0.54, z: Math.sin(a) * 0.247, w: 0.028, h: 0.085, d: 0.028, color: CREAM })
             }
+            for (const x of [-0.2, 0, 0.2]) {
+                parts.push(box(x, 0.345, 0.373, 0.17, 0.025, 0.1, ROOF_BLUE, { rotX: 0.16 }))
+                for (const side of [-1, 1]) parts.push(box(x + side * 0.049, 0.355, 0.375, 0.025, 0.009, 0.10, CREAM, { rotX: 0.16 }))
+            }
+            for (const x of [-0.2, 0, 0.2]) parts.push(box(x, 0.316, 0.421, 0.17, 0.036, 0.018, ROOF_BLUE))
+            for (const side of [-1, 1]) parts.push(box(side * 0.39, 0.12, 0.28, 0.04, 0.23, 0.025, GOLD), box(side * 0.39, 0.26, 0.3, 0.07, 0.035, 0.055, CREAM))
             break
     }
     return parts
@@ -504,7 +596,10 @@ export function createBuildingModel(type: TownBuildingId, requestedLevel = 1): T
     let proto = prototypes.get(key)
     if (!proto) {
         const model = MODELS[type] ?? MODELS.park!
-        proto = build(enrichArchitecture(type, type === 'park' || type === 'bathhouse' || type === 'theatre' ? createCivicParts(type, level) : upgradeBuildingParts(type, level, [...model(), ...details(type)])))
+        const parts = type === 'park' || type === 'bathhouse' || type === 'theatre'
+            ? createCivicParts(type, level)
+            : upgradeBuildingParts(type, level, [...model(), ...details(type, level)])
+        proto = build(enrichArchitecture(type, parts))
         if (type === 'mill') {
             const hub = proto.getObjectByName('spin')!
             // Children rotate with the existing hub animation.
@@ -512,6 +607,8 @@ export function createBuildingModel(type: TownBuildingId, requestedLevel = 1): T
                 const sail = build([
                     box(0, 0, 0, 0.028, 0.42, 0.025, WOOD_DARK),
                     box(0.052, 0.1, 0, 0.1, 0.3, 0.015, CREAM),
+                    box(0.102, 0.1, 0, 0.012, 0.3, 0.018, WOOD),
+                    box(0.052, 0.39, 0, 0.11, 0.014, 0.018, WOOD),
                     ...[0.14, 0.22, 0.3, 0.38].map(y => box(0.052, y, 0.012, 0.11, 0.012, 0.01, WOOD))
                 ])
                 // The named hub is a scaled primitive; cancel that local scale.
