@@ -9,7 +9,8 @@ import TownLeaderboardPanel from '~/components/town/TownLeaderboardPanel.vue'
 import TownResearchPanel from '~/components/town/TownResearchPanel.vue'
 import { formatTownDuration } from '~/utils/town-format'
 import { townTerrainCss } from '~/utils/town/terrain'
-import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, houseAdjacency, townLevelCost, townLevelBuildMs, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, houseAdjacency, townLevelCost, townLevelBuildMs, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import type { SceneTile, SceneMoveGhost } from '~/components/town/TownScene.client.vue'
 
 const town = useTown()
 const sound = useTownSound()
@@ -37,6 +38,14 @@ function rotatePlacement() { ghostRotation.value = (ghostRotation.value + 1) % 4
 const movingId = ref<string | null>(null)
 const hoveredTile = ref<{ plotId: string, tileX: number, tileY: number, wx: number, wy: number } | null>(null)
 const selectedBuildingId = ref<string | null>(null)
+/** Everything a marquee (or a shift-click) has gathered up. */
+const selectedIds = ref<string[]>([])
+/** The left button's tool. The bulldozer paints demolition instead of panning. */
+const tool = ref<'none' | 'bulldoze'>('none')
+/** Tiles the current placement drag covers, sent up by the scene. */
+const dragTiles = ref<SceneTile[]>([])
+/** A whole selection riding on the cursor: offsets from the tile under it. */
+const moveSelection = ref<{ items: SceneMoveGhost[] } | null>(null)
 const marketResource = ref<string | null>(null)
 const busy = ref(false)
 const sceneRef = ref<InstanceType<typeof TownScene> | null>(null)
@@ -57,13 +66,22 @@ function trackPointer(e: MouseEvent) {
     el.style.setProperty('--cursor-y', `${e.clientY + 16}px`)
 }
 
-const ghostLevel = computed(() => movingId.value ? town.buildings.value.find(b => b.id === movingId.value)?.level ?? 1 : 1)
+// A site being relocated is drawn as the building it will become — level 0 has
+// no artwork of its own.
+const ghostLevel = computed(() => movingId.value ? Math.max(1, town.buildings.value.find(b => b.id === movingId.value)?.level ?? 1) : 1)
 const selectedBuilding = computed(() => town.buildings.value.find(b => b.id === selectedBuildingId.value) ?? null)
 const selectedEntry = computed(() => selectedBuilding.value ? town.catalogById.value.get(selectedBuilding.value.type) ?? null : null)
 const hoveredBuilding = computed(() => town.buildings.value.find(b => b.id === hoveredBuildingId.value) ?? null)
 const hoveredEntry = computed(() => hoveredBuilding.value ? town.catalogById.value.get(hoveredBuilding.value.type) ?? null : null)
 
 watch(selectedBuilding, (b) => { if (!b) selectedBuildingId.value = null })
+// A selection outlives a poll, but not a demolition: drop whatever is gone.
+watch(town.buildings, (list) => {
+    if (selectedIds.value.length === 0 && !moveSelection.value) return
+    const alive = new Set(list.map(b => b.id))
+    if (selectedIds.value.some(id => !alive.has(id))) selectedIds.value = selectedIds.value.filter(id => alive.has(id))
+    if (moveSelection.value?.items.some(i => !alive.has(i.id))) moveSelection.value = null
+})
 watch(town.resources, (list) => { sceneRef.value?.setResourceEmoji(Object.fromEntries(list.map(r => [r.id, r.emoji]))) }, { immediate: true })
 
 function openWindow(w: Window) {
@@ -87,12 +105,15 @@ function toggleBuild() {
 }
 
 function closeAll() {
-    if (windowOpen.value || buildOpen.value || selectedBuildingId.value) sound.play('close')
+    if (windowOpen.value || buildOpen.value || selectedBuildingId.value || selectedIds.value.length) sound.play('close')
     windowOpen.value = null
     buildOpen.value = false
     ghostType.value = null
     movingId.value = null
     selectedBuildingId.value = null
+    selectedIds.value = []
+    moveSelection.value = null
+    tool.value = 'none'
 }
 
 // ── Build ──
@@ -133,17 +154,24 @@ function pickBuild(type: string) {
 
 function startMove() {
     const b = selectedBuilding.value
-    if (!b || b.level === 0 || b.upgradingTo !== null) return
+    if (!b) return
     sound.play('click')
     movingId.value = b.id
     ghostType.value = b.type
+    // A site travels as the building it will become, so it reads as itself.
     ghostRotation.value = b.rotation
     selectedBuildingId.value = null
+    selectedIds.value = []
     buildOpen.value = false
 }
 
 async function onSelectTile(tile: { plotId: string, tileX: number, tileY: number }) {
     sound.unlock()
+    if (moveSelection.value) {
+        if (busy.value) return
+        await commitGroupMove()
+        return
+    }
     if (!ghostType.value) {
         if (!buildOpen.value) toggleBuild()
         return
@@ -192,10 +220,15 @@ function onSelectBuilding(id: string) {
     buildOpen.value = false
     windowOpen.value = null
     selectedBuildingId.value = id
+    // One card at a time: a click is a fresh selection, the way it reads in
+    // every builder. Shift-drag is how you keep a block.
+    selectedIds.value = []
 }
 
 function onDeselect() {
+    if (moveSelection.value) { moveSelection.value = null; return }
     if (ghostType.value) { ghostType.value = null; movingId.value = null; return }
+    if (selectedIds.value.length) { clearSelection(); sound.play('close'); return }
     if (selectedBuildingId.value) { selectedBuildingId.value = null; sound.play('close') }
 }
 
@@ -287,6 +320,232 @@ const ghostIssue = computed<string | null>(() => {
     const others = movingId.value ? simBuildings.value.filter(b => b.id !== movingId.value) : simBuildings.value
     return townPlacementIssue(others, def, tile.wx, tile.wy, ghostRotation.value)
 })
+
+// ── Drag placement ──────────────────────────────────────────────────────────
+// A drag paints a run of tiles. Each one is judged against the layout the tiles
+// before it in the same drag would create, so a street connects to itself and
+// the pads on the ground read exactly as the server will decide.
+
+function planTiles(tiles: SceneTile[]) {
+    const type = ghostType.value
+    const def = type ? getTownBuilding(type) : null
+    if (!def || tiles.length === 0) return []
+    const layout = movingId.value ? simBuildings.value.filter(b => b.id !== movingId.value) : [...simBuildings.value]
+    const counts = new Map<string, number>()
+    for (const b of layout) counts.set(b.type, (counts.get(b.type) ?? 0) + 1)
+    const out: { tile: SceneTile, rotation: number, ok: boolean, coins: number }[] = []
+    for (const tile of tiles) {
+        let rotation = ghostRotation.value
+        if (def.kind !== 'road' && townPlacementIssue(layout, def, tile.wx, tile.wy, rotation) !== null) {
+            const auto = townAutoFacing(layout, tile.wx, tile.wy)
+            if (auto !== null) rotation = auto
+        }
+        const ok = townPlacementIssue(layout, def, tile.wx, tile.wy, rotation) === null
+        const coins = ok ? townPlaceCost(def, counts.get(def.id) ?? 0).coins : 0
+        out.push({ tile, rotation, ok, coins })
+        if (ok) {
+            counts.set(def.id, (counts.get(def.id) ?? 0) + 1)
+            layout.push({
+                id: `drag:${tile.wx},${tile.wy}`,
+                type: def.id as TownSimBuilding['type'],
+                level: def.kind === 'road' ? 1 : 0,
+                completesAt: 0,
+                upgradingTo: null,
+                createdAt: 0,
+                wx: tile.wx,
+                wy: tile.wy,
+                rotation
+            })
+        }
+    }
+    return out
+}
+
+const dragPlan = computed(() => planTiles(dragTiles.value))
+const dragValid = computed(() => dragPlan.value.map(p => p.ok))
+/** What the drag under the cursor would cost, for the strip along the top. */
+const dragQuote = computed(() => {
+    const usable = dragPlan.value.filter(p => p.ok)
+    if (usable.length < 2) return null
+    return { count: usable.length, coins: usable.reduce((sum, p) => sum + p.coins, 0) }
+})
+
+function onDragTiles(tiles: SceneTile[]) {
+    dragTiles.value = tiles
+}
+
+/**
+ * A drag let go. The tiles come with the event rather than from `dragTiles`:
+ * the scene clears that as it releases, so reading the ref here would plan an
+ * empty run and build nothing.
+ */
+function onPlaceLine(tiles: SceneTile[]) {
+    if (!ghostType.value || busy.value) return
+    // A relocation is one building by definition — the drag only ever adds.
+    if (movingId.value) { dragTiles.value = []; return }
+    const plan = planTiles(tiles).filter(p => p.ok)
+    dragTiles.value = []
+    if (plan.length === 0) {
+        sound.play('error')
+        toast.add({ title: 'Nothing could go there', color: 'warning' })
+        return
+    }
+    const items = plan.map(p => ({ plotId: p.tile.plotId, tileX: p.tile.tileX, tileY: p.tile.tileY, type: ghostType.value!, rotation: p.rotation }))
+    run(() => town.placeBuildings(items.slice(0, TOWN_MAX_DRAG_TILES)), (res) => {
+        const name = town.catalogById.value.get(ghostType.value ?? '')?.name ?? 'building'
+        toast.add({ title: `Built ${res.placed.length} × ${name}`, description: res.skipped ? `${res.skipped} skipped — ${res.reason}` : undefined, color: 'success' })
+    }, 'place')
+}
+
+// ── Selection ───────────────────────────────────────────────────────────────
+
+const selectedBuildings = computed(() => town.buildings.value.filter(b => selectedIds.value.includes(b.id)))
+/** The selection's upgradeable members, and what starting them all would cost. */
+const selectionUpgradable = computed(() => selectedBuildings.value.filter((b) => {
+    const entry = town.catalogById.value.get(b.type)
+    const def = getTownBuilding(b.type)
+    if (!entry || !def || entry.kind === 'road') return false
+    if (b.level === 0 || b.upgradingTo !== null) return false
+    return b.level < (entry.maxLevel ?? town.constants.value.maxLevel)
+}))
+
+function onSelectMany(ids: string[], additive: boolean) {
+    sound.unlock()
+    const all = additive ? [...new Set([...selectedIds.value, ...ids])] : ids
+    // One bulk call is capped server-side, so the selection is capped here — a
+    // band over three plots must not gather a block that can never be acted on.
+    const next = all.slice(0, TOWN_MAX_DRAG_TILES)
+    if (all.length > next.length) toast.add({ title: `Selection capped at ${TOWN_MAX_DRAG_TILES}`, color: 'warning' })
+    selectedIds.value = next
+    ghostType.value = null
+    movingId.value = null
+    if (next.length === 1) {
+        selectedBuildingId.value = next[0]!
+        buildOpen.value = false
+    } else {
+        selectedBuildingId.value = null
+        if (next.length) { buildOpen.value = false; windowOpen.value = null }
+    }
+    if (next.length) sound.play('click')
+}
+
+function clearSelection() {
+    selectedIds.value = []
+    moveSelection.value = null
+}
+
+function toggleBulldoze() {
+    sound.unlock()
+    tool.value = tool.value === 'bulldoze' ? 'none' : 'bulldoze'
+    if (tool.value === 'bulldoze') {
+        ghostType.value = null
+        movingId.value = null
+        moveSelection.value = null
+        buildOpen.value = false
+        selectedBuildingId.value = null
+    }
+    sound.play('click')
+}
+
+/** A bulldozer drag let go, or the Delete key on a selection. */
+const confirmBulk = ref<{ ids: string[] } | null>(null)
+function onBulldoze(ids: string[]) {
+    if (ids.length === 0) return
+    sound.unlock()
+    confirmBulk.value = { ids }
+}
+function demolishBulk() {
+    const ids = confirmBulk.value?.ids ?? []
+    confirmBulk.value = null
+    if (ids.length === 0) return
+    run(() => town.demolishBuildings(ids), (res) => {
+        selectedIds.value = selectedIds.value.filter(id => !res.demolished.includes(id))
+        if (selectedBuildingId.value && res.demolished.includes(selectedBuildingId.value)) selectedBuildingId.value = null
+        toast.add({ title: `Demolished ${res.demolished.length}`, color: 'neutral' })
+    }, 'demolish')
+}
+
+function upgradeSelection() {
+    const ids = selectionUpgradable.value.map(b => b.id)
+    if (ids.length === 0) return
+    run(() => town.upgradeBuildings(ids), (res) => {
+        toast.add({
+            title: `${res.started.length} ${res.started.length === 1 ? 'upgrade' : 'upgrades'} started`,
+            description: res.skipped ? `${res.skipped} skipped — ${res.reason}` : undefined,
+            color: 'success'
+        })
+    }, 'upgrade')
+}
+
+// ── Group move ──────────────────────────────────────────────────────────────
+
+function plotAt(wx: number, wy: number) {
+    const px = Math.floor(wx / TOWN_PLOT_SIZE)
+    const py = Math.floor(wy / TOWN_PLOT_SIZE)
+    return town.plots.value.find(p => p.x === px && p.y === py) ?? null
+}
+
+/** Pick the whole selection up, laid out around the top-left member. */
+function startGroupMove() {
+    const list = selectedBuildings.value
+    if (list.length === 0) return
+    const tiles = list.map((b) => {
+        const plot = plotById.value.get(b.plotId)
+        return { b, wx: (plot?.x ?? 0) * TOWN_PLOT_SIZE + b.tileX, wy: (plot?.y ?? 0) * TOWN_PLOT_SIZE + b.tileY }
+    })
+    const ax = Math.min(...tiles.map(t => t.wx))
+    const ay = Math.min(...tiles.map(t => t.wy))
+    moveSelection.value = {
+        items: tiles.map(t => ({ id: t.b.id, type: t.b.type, level: Math.max(1, t.b.level), rotation: t.b.rotation, dx: t.wx - ax, dy: t.wy - ay }))
+    }
+    ghostType.value = null
+    movingId.value = null
+    selectedBuildingId.value = null
+    buildOpen.value = false
+    tool.value = 'none'
+    sound.play('click')
+}
+
+const moveGhosts = computed(() => moveSelection.value?.items ?? null)
+/** Where every member of the carried selection would land, from the tile under the cursor. */
+const groupMoveTargets = computed(() => {
+    const sel = moveSelection.value
+    const tile = hoveredTile.value
+    if (!sel || !tile) return null
+    return sel.items.map(i => ({ id: i.id, wx: tile.wx + i.dx, wy: tile.wy + i.dy, rotation: i.rotation }))
+})
+const moveIssue = computed(() => {
+    const targets = groupMoveTargets.value
+    if (!targets) return null
+    for (const t of targets) if (!plotAt(t.wx, t.wy)) return 'Keep the whole block on your own land'
+    return townGroupMoveIssue(simBuildings.value, targets)
+})
+
+function rotateGroup() {
+    const sel = moveSelection.value
+    if (!sel) return
+    // Each building turns on the spot: the block keeps its shape, the doors move.
+    sel.items = sel.items.map(i => ({ ...i, rotation: (i.rotation + 1) % 4 }))
+    sound.play('click')
+}
+
+async function commitGroupMove() {
+    const targets = groupMoveTargets.value
+    if (!targets) return
+    if (moveIssue.value) {
+        sound.play('error')
+        toast.add({ title: moveIssue.value, color: 'warning' })
+        return
+    }
+    const moves = targets.map((t) => {
+        const plot = plotAt(t.wx, t.wy)!
+        return { buildingId: t.id, plotId: plot.id, tileX: t.wx - plot.x * TOWN_PLOT_SIZE, tileY: t.wy - plot.y * TOWN_PLOT_SIZE, rotation: t.rotation }
+    })
+    await run(() => town.moveBuildings(moves), () => {
+        toast.add({ title: `Moved ${moves.length} ${moves.length === 1 ? 'building' : 'buildings'}`, color: 'success' })
+        moveSelection.value = null
+    }, 'place')
+}
 
 /** What the selected industry building does to the neighbourhood. */
 const selNuisance = computed(() => {
@@ -685,22 +944,35 @@ const terrainLegend = computed(() => TOWN_TERRAINS.map(t => ({
 
 function onKey(e: KeyboardEvent) {
     if (townIsTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
-    if (e.code === 'KeyR' && ghostType.value && !welcome.value && !helpOpen.value && !confirmDemolish.value) {
+    const modal = welcome.value || helpOpen.value || confirmDemolish.value || confirmBulk.value
+    if (e.code === 'KeyR' && !modal && (ghostType.value || moveSelection.value)) {
         e.preventDefault()
-        rotatePlacement()
+        if (moveSelection.value) rotateGroup()
+        else rotatePlacement()
+        return
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !modal && selectedIds.value.length) {
+        e.preventDefault()
+        onBulldoze(selectedIds.value)
         return
     }
     if (e.key === 'Escape') {
         if (blocked.value) blocked.value = null
         else if (buildersOpen.value) buildersOpen.value = false
+        else if (confirmBulk.value) confirmBulk.value = null
         else if (confirmPlot.value) confirmPlot.value = null
         else if (confirmListing.value) confirmListing.value = null
         else if (confirmSellPlot.value) confirmSellPlot.value = null
+        else if (moveSelection.value) moveSelection.value = null
+        else if (tool.value !== 'none') tool.value = 'none'
         else if (ghostType.value) { ghostType.value = null; movingId.value = null }
+        else if (selectedIds.value.length) clearSelection()
         else if (welcome.value) welcome.value = null
         else if (helpOpen.value) helpOpen.value = false
         else closeAll()
-    } else if (e.key === 'b' || e.key === 'B') toggleBuild()
+    } else if (e.key === 'x' || e.key === 'X') toggleBulldoze()
+    else if ((e.key === 'v' || e.key === 'V') && selectedIds.value.length) startGroupMove()
+    else if (e.key === 'b' || e.key === 'B') toggleBuild()
     else if (e.key === 'm' || e.key === 'M') openMarket()
     else if (e.key === 't' || e.key === 'T') openWindow('goals')
     else if (e.key === 'l' || e.key === 'L') openWindow('mayors')
@@ -769,7 +1041,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             :ghost-type="ghostType"
             :ghost-rotation="ghostRotation"
             :ghost-level="ghostLevel"
-            :keyboard-enabled="!windowOpen && !welcome && !helpOpen && !confirmDemolish && !confirmPlot && !confirmListing && !confirmSellPlot && !buildersOpen && !blocked"
+            :keyboard-enabled="!windowOpen && !welcome && !helpOpen && !confirmDemolish && !confirmBulk && !confirmPlot && !confirmListing && !confirmSellPlot && !buildersOpen && !blocked"
             :server-offset-ms="town.serverOffsetMs.value"
             :pop-cap="popCap"
             :speed-multiplier="speed"
@@ -782,6 +1054,11 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             :ghost-issue="ghostIssue"
             :moving-id="movingId"
             :terrain-overlay="terrainOverlay"
+            :selected-ids="selectedIds"
+            :move-ghosts="moveGhosts"
+            :move-issue="moveIssue"
+            :drag-valid="dragValid"
+            :tool="tool"
             @hover-tile="onHoverTile"
             @select-tile="onSelectTile"
             @select-building="onSelectBuilding"
@@ -791,6 +1068,10 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             @hover-neighbour="hoveredNeighbour = $event"
             @hover-expansion="hoveredSlot = $event"
             @deselect="onDeselect"
+            @drag-tiles="onDragTiles"
+            @place-line="onPlaceLine"
+            @select-many="onSelectMany"
+            @bulldoze="onBulldoze"
         />
 
         <!-- Founding -->
@@ -884,6 +1165,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
             <!-- Top-right controls -->
             <div class="corner">
+                <button class="g-icon" :class="tool === 'bulldoze' ? 'is-armed' : ''" data-tip-below="Bulldozer — drag across buildings to clear them (X)" @click="toggleBulldoze">🚜</button>
                 <button class="g-icon" data-tip-below="How to play" @click="helpOpen = true">?</button>
                 <button class="g-icon" :data-tip-below="sound.enabled.value ? 'Mute' : 'Unmute'" @click="toggleSound">{{ sound.enabled.value ? '🔊' : '🔇' }}</button>
                 <button class="g-icon" data-tip-below="Recenter" @click="sceneRef?.recenter()">◎</button>
@@ -891,8 +1173,20 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
             <!-- Placement hint -->
             <Transition name="fade">
-                <div v-if="ghostType" class="hint">
+                <div v-if="moveSelection" class="hint">
+                    <b>↔ {{ moveSelection.items.length }} moving</b>
+                    <button class="placement-rotate" data-tip-below="Turn every building on the spot." @click="rotateGroup"><kbd>R</kbd> rotate</button>
+                    <kbd>Esc</kbd>
+                </div>
+                <div v-else-if="tool === 'bulldoze'" class="hint is-danger">
+                    <b>🚜 Bulldozer</b>
+                    <span class="opacity-60">drag to clear</span>
+                    <kbd>Esc</kbd>
+                </div>
+                <div v-else-if="ghostType" class="hint">
                     <b><TownAsset v-if="ghostType !== 'road'" :id="ghostType" kind="building" :level="ghostLevel" /><template v-else>🛣️</template> {{ town.catalogById.value.get(ghostType)?.name }}</b>
+                    <span v-if="dragQuote" class="hint-quote">×{{ dragQuote.count }} · <TownCoin /> {{ formatNumber(dragQuote.coins) }}</span>
+                    <span v-else-if="!movingId" class="opacity-60">drag to lay a run</span>
                     <template v-if="town.catalogById.value.get(ghostType)?.kind !== 'road'">
                         <button class="placement-rotate" data-tip-below="The white arrow is the front door, and it has to touch a road." @click="rotatePlacement"><kbd>R</kbd> rotate</button>
                     </template>
@@ -955,6 +1249,17 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 </div>
             </div>
 
+            <!-- Selection toolbar: what a marquee gathered, and what can be done to it -->
+            <Transition name="rise">
+                <div v-if="selectedIds.length > 1 && !moveSelection" class="seltoolbar">
+                    <b class="seltoolbar-count">{{ selectedIds.length }} selected</b>
+                    <button class="g-btn g-btn-sm" data-tip="Move the whole block. Sites travel too." :disabled="busy" @click="startGroupMove">↔ Move<kbd class="chip-key">V</kbd></button>
+                    <button class="g-btn g-btn-sm" :disabled="busy || selectionUpgradable.length === 0" :data-tip="selectionUpgradable.length ? 'As many as your crews and coins allow.' : 'None can upgrade now.'" @click="upgradeSelection">⬆ Upgrade {{ selectionUpgradable.length }}</button>
+                    <button class="g-btn g-btn-sm g-btn-quiet-danger" data-tip="No refund." :disabled="busy" @click="onBulldoze(selectedIds)">🗑 Demolish<kbd class="chip-key">Del</kbd></button>
+                    <button class="g-icon g-icon-sm" data-tip="Clear" @click="clearSelection">✕</button>
+                </div>
+            </Transition>
+
             <!-- Selected building card -->
             <Transition name="rise">
                 <div v-if="selectedBuilding && selectedEntry" class="card">
@@ -985,6 +1290,12 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 <div class="g-progress mt-1"><i :style="{ width: `${Math.round(100 * (1 - selRemaining / Math.max(1, selectedBuilding.jobMs ?? 1)))}%` }" /></div>
                             </div>
                             <button class="g-btn g-btn-gem" :disabled="busy || gems < selRushGems" @click="rushSelected">💎 Rush · {{ selRushGems }}</button>
+                        </div>
+
+                        <!-- A site can be moved like anything else: the clock keeps running. -->
+                        <div v-if="selPending" class="card-actions">
+                            <button class="g-btn g-btn-sm" data-tip="The build carries on wherever you put it." :disabled="busy" @click="startMove">↔ Move</button>
+                            <button class="g-btn g-btn-sm g-btn-quiet-danger" data-tip="No refund." @click="confirmDemolish = true">🗑 Demolish</button>
                         </div>
 
                         <template v-else>
@@ -1278,7 +1589,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <p>🏪 <b>Market</b>: there is <b>no passive income</b> — you earn by selling. The town hall always buys at a floor price so you are never stuck, but <b>buying is only ever from other players</b>. Offers fill instantly when they cross.</p>
                             <p>🗺️ <b>Land</b>: every mayor shares one realm. The land office sells you a square next to yours — each one costs more and opens more slowly than the last. Empty plots can go back to the office for a quarter of their price, or be listed for other mayors at any price you choose. Buying from a player skips the office's waiting time.</p>
                             <p>💎 <b>Rush</b> any build for 1 gem per 5 minutes left. 🏆 <b>Goals</b> pay coins for hitting town targets.</p>
-                            <p class="opacity-60">WASD to move · Q and E to turn · drag to pan · wheel to zoom · right-drag to orbit · R to rotate a building while placing · <kbd>B</kbd>uild <kbd>M</kbd>arket <kbd>T</kbd> goals <kbd>L</kbd> mayors <kbd>P</kbd> land <kbd>C</kbd> research <kbd>G</kbd> terrain <kbd>Esc</kbd></p>
+                            <p>🖱️ <b>Controls</b>: drag to lay a run · shift-drag to select · <kbd>V</kbd> move the block · <kbd>Del</kbd> clear it · <kbd>X</kbd> bulldozer. Half-built buildings move too.</p>
+                            <p class="opacity-60">WASD move · Q/E turn · drag pan · middle-drag pans while placing · wheel zoom · right-drag orbit · R rotate · <kbd>B</kbd>uild <kbd>M</kbd>arket <kbd>T</kbd> goals <kbd>L</kbd> mayors <kbd>P</kbd> land <kbd>C</kbd> research <kbd>G</kbd> terrain <kbd>X</kbd> bulldozer <kbd>Esc</kbd></p>
                         </div>
                     </div>
                 </div>
@@ -1383,6 +1695,22 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <div class="mt-4 flex justify-end gap-2">
                                 <button class="g-btn" @click="buildersOpen = false">Cancel</button>
                                 <button class="g-btn g-btn-gem" :disabled="busy || gems < (town.builders.value.nextGemCost ?? 0)" @click="hireBuilder">Hire</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Transition>
+
+            <!-- Bulk demolish confirm -->
+            <Transition name="fade">
+                <div v-if="confirmBulk" class="backdrop" @click.self="confirmBulk = null">
+                    <div class="g-window is-tiny">
+                        <div class="g-window-head"><h2>Demolish {{ confirmBulk.ids.length }} {{ confirmBulk.ids.length === 1 ? 'building' : 'buildings' }}?</h2></div>
+                        <div class="g-window-body">
+                            <p class="text-sm opacity-80">No refund. Every tile becomes free again.</p>
+                            <div class="mt-4 flex justify-end gap-2">
+                                <button class="g-btn" @click="confirmBulk = null">Cancel</button>
+                                <button class="g-btn g-btn-danger" :disabled="busy" @click="demolishBulk">🗑 Demolish</button>
                             </div>
                         </div>
                     </div>
@@ -1505,6 +1833,19 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
     padding: 7px 14px; border-radius: 999px; background: var(--g-bg); border: 1px solid var(--g-line);
     backdrop-filter: blur(10px); font-size: 13px; white-space: nowrap;
 }
+.hint.is-danger { border-color: rgba(229, 50, 45, 0.6); }
+.hint-quote { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); font-weight: 800; color: var(--g-gold); }
+.g-icon.is-armed { border-color: rgba(229, 50, 45, 0.75); box-shadow: 0 0 0 2px rgba(229, 50, 45, 0.3), 0 6px 20px rgba(0, 0, 0, 0.25); }
+
+/* What a marquee gathered, and the three things worth doing to it. */
+.seltoolbar {
+    position: absolute; left: 50%; bottom: 112px; transform: translateX(-50%); z-index: 6;
+    display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 16px;
+    background: var(--g-bg); border: 1px solid var(--g-line); backdrop-filter: blur(14px);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35); max-width: calc(100% - 28px); flex-wrap: wrap;
+}
+.seltoolbar-count { font-size: 13px; padding: 0 6px; color: var(--g-gem); }
+
 .g-chip-btn { cursor: pointer; }
 .g-chip-btn.is-pinned { border-color: rgba(255, 255, 255, 0.35); }
 .g-meter-lg { width: 110px; position: relative; overflow: visible; }
