@@ -615,19 +615,24 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect((await buildingsTyped(OWNER, 'farm'))[0]!.tileX).toBe(0)
         })
 
-        it('refuses to move a building that is still going up', async () => {
+        it('moves a building that is still going up without touching its clock', async () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000' })
             await seedRoad(OWNER, plotId, 0)
             await seedRoad(OWNER, plotId, 5)
+            const completesAt = new Date(Date.now() + HOUR)
             const site = await seedBuilding(OWNER, plotId, 'farm', 0, 0, {
                 tileY: 1,
                 rotation: FACES_EDGE_ROAD,
-                completesAt: new Date(Date.now() + HOUR)
+                completesAt
             })
 
-            await expect(moveBuilding(OWNER, site.id, plotId, 5, 1, FACES_EDGE_ROAD)).rejects.toThrow(/Finish building it first/)
-            await expect(moveBuilding(OWNER, 'no-such-building', plotId, 5, 1, FACES_EDGE_ROAD)).rejects.toThrow(/not found/i)
-            expect((await buildingsTyped(OWNER, 'farm'))[0]!.tileX).toBe(0)
+            await moveBuilding(OWNER, site.id, plotId, 5, 1, FACES_EDGE_ROAD)
+            await expect(moveBuilding(OWNER, 'no-such-building', plotId, 4, 1, FACES_EDGE_ROAD)).rejects.toThrow(/not found/i)
+
+            const [moved] = await buildingsTyped(OWNER, 'farm')
+            expect(moved!.tileX).toBe(5)
+            expect(moved!.level).toBe(0)
+            expect(moved!.completesAt.getTime()).toBe(completesAt.getTime())
         })
 
         it('lets a road move away and simply cuts off whatever fronted it', async () => {

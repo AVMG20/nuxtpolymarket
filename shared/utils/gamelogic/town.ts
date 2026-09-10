@@ -1366,6 +1366,72 @@ export function townPlacementIssue(buildings: TownSimBuilding[], def: TownBuildi
     return null
 }
 
+/** The most tiles one drag can paint, so a wild swipe cannot ask for a thousand buildings. */
+export const TOWN_MAX_DRAG_TILES = 64
+
+/**
+ * Tiles a drag from one tile to another covers: an L, the longer axis first,
+ * which is how a road drag behaves in every city builder. Start and end are
+ * both included, and the run is capped at TOWN_MAX_DRAG_TILES.
+ */
+export function townDragLine(x0: number, y0: number, x1: number, y1: number): { wx: number, wy: number }[] {
+    const out: { wx: number, wy: number }[] = []
+    const dx = x1 - x0
+    const dy = y1 - y0
+    const stepX = Math.sign(dx)
+    const stepY = Math.sign(dy)
+    const push = (wx: number, wy: number) => { if (out.length < TOWN_MAX_DRAG_TILES) out.push({ wx, wy }) }
+    if (Math.abs(dx) >= Math.abs(dy)) {
+        for (let x = x0; x !== x1 + stepX && stepX !== 0; x += stepX) push(x, y0)
+        if (stepX === 0) push(x0, y0)
+        for (let y = y0 + stepY; y !== y1 + stepY && stepY !== 0; y += stepY) push(x1, y)
+    } else {
+        for (let y = y0; y !== y1 + stepY && stepY !== 0; y += stepY) push(x0, y)
+        if (stepY === 0) push(x0, y0)
+        for (let x = x0 + stepX; x !== x1 + stepX && stepX !== 0; x += stepX) push(x, y1)
+    }
+    return out
+}
+
+/** One building's destination in a group move: where it lands and which way it ends up facing. */
+export interface TownGroupMove { id: string, wx: number, wy: number, rotation: number }
+
+/**
+ * Why a whole selection cannot land where it is being dragged, or null.
+ *
+ * The check runs against the layout as it would be *after* the move, not
+ * before: a block of houses carrying its own street with it is legal, and a
+ * building may take the tile another member of the same group is vacating.
+ */
+export function townGroupMoveIssue(buildings: TownSimBuilding[], moves: TownGroupMove[]): string | null {
+    if (moves.length === 0) return 'Nothing to move'
+    const byId = new Map(buildings.map(b => [b.id, b]))
+    const moving = new Set(moves.map(m => m.id))
+    const final: TownSimBuilding[] = []
+    const taken = new Set<string>()
+    for (const b of buildings) {
+        if (moving.has(b.id)) continue
+        final.push(b)
+        if (b.wx !== undefined && b.wy !== undefined) taken.add(`${b.wx},${b.wy}`)
+    }
+    for (const m of moves) {
+        const src = byId.get(m.id)
+        if (!src) return 'Building not found'
+        const key = `${m.wx},${m.wy}`
+        if (taken.has(key)) return 'That tile is already taken'
+        if (getTownTerrain(townTerrainAt(m.wx, m.wy)).blocked) return 'You cannot build on water'
+        taken.add(key)
+        final.push({ ...src, wx: m.wx, wy: m.wy, rotation: m.rotation })
+    }
+    for (const m of moves) {
+        const def = getTownBuilding(byId.get(m.id)!.type)
+        if (!def || def.kind === 'road') continue
+        const front = townFrontTile(m.wx, m.wy, m.rotation)
+        if (!townRoadAt(final, front.wx, front.wy)) return 'Needs a road at its front door — rotate with R or bring a road along'
+    }
+    return null
+}
+
 /**
  * Does this building have a road at its front door? Roads always do; buildings
  * without world coordinates (unit tests, legacy rows) are treated as connected.

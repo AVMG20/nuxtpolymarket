@@ -611,7 +611,7 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             const homestead = pick(sellerPlots, at.x + 1, at.y + 1)
             await listPlot(SELLER, forSale.id, 900)
             await seedBuilding(SELLER, homestead.id, 'house', 1, 1)
-            // Still under construction — the map should not draw it yet.
+            // Under construction — the map draws it as a site, scaffold and all.
             await seedBuilding(SELLER, homestead.id, 'farm', 2, 0)
 
             const view = await getWorldView(OWNER, [{ x: ownPlot!.x, y: ownPlot!.y }])
@@ -625,8 +625,9 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
 
             const homesteadView = view.towns.find(t => t.id === homestead.id)!
             expect(homesteadView.listPrice).toBeNull()
-            expect(homesteadView.buildings).toHaveLength(1)
-            expect(homesteadView.buildings[0]).toMatchObject({ type: 'house', level: 1 })
+            expect(homesteadView.buildings).toHaveLength(2)
+            expect(homesteadView.buildings.find(b => b.type === 'house')).toMatchObject({ type: 'house', level: 1 })
+            expect(homesteadView.buildings.find(b => b.type === 'farm')).toMatchObject({ type: 'farm', level: 0 })
 
             expect(view.listings).toEqual([
                 { plotId: forSale.id, x: forSale.x, y: forSale.y, ownerName: SEED_NAME, price: 900 }

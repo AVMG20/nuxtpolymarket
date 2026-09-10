@@ -50,7 +50,8 @@ export interface TownNeighbourPlot {
     ownerId: string
     ownerName: string
     listPrice: number | null
-    buildings: { type: string, tileX: number, tileY: number, rotation: number, level: number }[]
+    /** Their buildings, sites included: level 0 is going up, upgradingTo is growing. */
+    buildings: { type: string, tileX: number, tileY: number, rotation: number, level: number, upgradingTo: number | null, completesAt: number }[]
 }
 
 export interface TownCatalogEntry {
@@ -329,6 +330,16 @@ export const useTown = () => {
             call<{ buildingId: string, completesAt: number }>('/api/town/building/place', { plotId, tileX, tileY, type, rotation }),
         moveBuilding: (buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number) =>
             call<{ buildingId: string }>('/api/town/building/move', { buildingId, plotId, tileX, tileY, rotation }),
+        /** A drag: every tile it painted, laid in one transaction. */
+        placeBuildings: (items: { plotId: string, tileX: number, tileY: number, type: string, rotation: number }[]) =>
+            call<{ placed: { buildingId: string, type: string }[], skipped: number, reason: string | null }>('/api/town/building/place-bulk', { items }),
+        /** A whole selection moved together, all or nothing. */
+        moveBuildings: (moves: { buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number }[]) =>
+            call<{ moved: string[] }>('/api/town/building/move-bulk', { moves }),
+        demolishBuildings: (buildingIds: string[]) =>
+            call<{ demolished: string[], types: string[] }>('/api/town/building/demolish-bulk', { buildingIds }),
+        upgradeBuildings: (buildingIds: string[]) =>
+            call<{ started: { buildingId: string, level: number }[], skipped: number, reason: string | null }>('/api/town/building/upgrade-bulk', { buildingIds }),
         sellBulk: (items: { resource: string, quantity: number }[]) =>
             call<{ total: number, lines: { resource: string, quantity: number, total: number }[], resources: string[] }>('/api/town/market/sell-bulk', { items }),
         upgradeBuilding: (buildingId: string) => call<{ level: number, completesAt: number }>('/api/town/building/upgrade', { buildingId }),

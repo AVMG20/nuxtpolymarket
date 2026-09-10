@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, inArray, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townResearch, townRealm } from '#server/database/schema'
 import { credit, creditGems, debit, debitGems } from '#server/utils/balance'
@@ -40,6 +40,9 @@ import {
     townTierRequirement,
     townPlaceCost,
     townPlacementIssue,
+    townGroupMoveIssue,
+    TOWN_MAX_DRAG_TILES,
+    type TownGroupMove,
     townMilestoneSnapshot,
     townMilestoneComplete,
     getTownMilestone,
@@ -614,17 +617,32 @@ export async function getWorldView(userId: string, ownPlots: { x: number, y: num
         .limit(120)
     if (rows.length === 0) return { towns: [], listings: [] }
 
-    const buildings = await db.select({
+    // Level 0 rows are included: a neighbour's building site, with its scaffold
+    // and its clock, is half of what makes the realm look inhabited. Leaving
+    // them out meant a plot stayed visibly empty until the moment it finished.
+    const rows2 = await db.select({
         plotId: townBuildings.plotId,
         type: townBuildings.type,
         tileX: townBuildings.tileX,
         tileY: townBuildings.tileY,
         rotation: townBuildings.rotation,
-        level: townBuildings.level
+        level: townBuildings.level,
+        upgradingTo: townBuildings.upgradingTo,
+        completesAt: townBuildings.completesAt
     })
         .from(townBuildings)
-        .where(and(inArray(townBuildings.plotId, rows.map(r => r.id)), gt(townBuildings.level, 0)))
+        .where(inArray(townBuildings.plotId, rows.map(r => r.id)))
         .limit(600)
+    const buildings = rows2.map(b => ({
+        plotId: b.plotId,
+        type: b.type,
+        tileX: b.tileX,
+        tileY: b.tileY,
+        rotation: b.rotation,
+        level: b.level,
+        upgradingTo: b.upgradingTo,
+        completesAt: b.completesAt.getTime()
+    }))
 
     const byPlot = new Map<string, typeof buildings>()
     for (const b of buildings) {
@@ -655,112 +673,243 @@ export async function getWorldView(userId: string, ownPlots: { x: number, y: num
 
 // ─── Buildings ───────────────────────────────────────────────────────────────
 
-export async function placeBuilding(userId: string, plotId: string, tileX: number, tileY: number, type: string, rotation = 0) {
+/**
+ * A running purse for a bulk call: what the player had when the transaction
+ * opened, less what this call has committed so far.
+ *
+ * It only decides where a batch stops — the debit and the inventory guards are
+ * still what actually enforce the spend, so a stale read can make this
+ * optimistic but never lets anything through unpaid.
+ */
+async function townPurse(tx: DbExecutor, userId: string, inventory: TownResourceBag) {
+    const [row] = await tx.select({ balance: user.balance }).from(user).where(eq(user.id, userId))
+    let coins = parseFloat(row?.balance ?? '0')
+    const goods: TownResourceBag = { ...inventory }
+    return {
+        /** Why this cost is out of reach right now, or null. */
+        shortOf(cost: { coins: number, resources: TownResourceBag }): string | null {
+            if (cost.coins > coins) return 'Not enough coins'
+            for (const [id, qty] of Object.entries(cost.resources) as [TownResourceId, number][]) {
+                if ((goods[id] ?? 0) < qty) return `Not enough ${getTownResource(id)?.name ?? id}`
+            }
+            return null
+        },
+        spend(cost: { coins: number, resources: TownResourceBag }) {
+            coins -= cost.coins
+            for (const [id, qty] of Object.entries(cost.resources) as [TownResourceId, number][]) {
+                goods[id] = (goods[id] ?? 0) - qty
+            }
+        }
+    }
+}
+
+export interface TownPlacement { plotId: string, tileX: number, tileY: number, type: string, rotation?: number }
+
+function validatePlacementShape(item: TownPlacement) {
+    const rotation = item.rotation ?? 0
     if (!Number.isInteger(rotation) || rotation < 0 || rotation > 3) {
         throw createError({ statusCode: 400, statusMessage: 'Rotation must be 0, 1, 2 or 3 quarter turns' })
     }
-    const def = getTownBuilding(type)
+    const def = getTownBuilding(item.type)
     if (!def) throw createError({ statusCode: 400, statusMessage: 'Unknown building' })
-    if (!Number.isInteger(tileX) || !Number.isInteger(tileY) || tileX < 0 || tileY < 0 || tileX >= TOWN_PLOT_SIZE || tileY >= TOWN_PLOT_SIZE) {
+    if (!Number.isInteger(item.tileX) || !Number.isInteger(item.tileY) || item.tileX < 0 || item.tileY < 0 || item.tileX >= TOWN_PLOT_SIZE || item.tileY >= TOWN_PLOT_SIZE) {
         throw createError({ statusCode: 400, statusMessage: 'That tile is off the plot' })
     }
-
-    return db.transaction(async (tx) => {
-        const now = Date.now()
-        const { sim, state, research } = await settleTownState(tx, userId, now)
-
-        const plot = await tx.query.townPlots.findFirst({ where: and(eq(townPlots.id, plotId), eq(townPlots.userId, userId)) })
-        if (!plot) throw createError({ statusCode: 400, statusMessage: 'That plot is not yours' })
-        const lock = townTierRequirement(sim, def.tier, now, state.produced, research)
-        if (lock) {
-            const why = lock.needsBuilding
-                ? `Finish a tier ${def.tier - 1} building first`
-                : lock.pop < lock.popRequired
-                    ? `Tier ${def.tier} needs ${lock.popRequired} residents (you house ${lock.pop})`
-                    : `Tier ${def.tier} opens after producing ${lock.producedRequired} tier-${lock.producedTier} goods (${lock.produced} so far)`
-            throw createError({ statusCode: 400, statusMessage: why })
-        }
-
-        const wx = plot.x * TOWN_PLOT_SIZE + tileX
-        const wy = plot.y * TOWN_PLOT_SIZE + tileY
-        const issue = townPlacementIssue(sim, def, wx, wy, rotation)
-        if (issue) throw createError({ statusCode: 400, statusMessage: issue })
-
-        // Roads go up instantly and need nobody; everything else needs a crew.
-        if (def.kind !== 'road' && townBuildersFree(sim, state.builders, now) <= 0) {
-            throw createError({ statusCode: 400, statusMessage: 'Every builder is busy' })
-        }
-
-        // The n-th copy costs more: count every existing one, finished or not.
-        const existing = sim.filter(b => b.type === def.id).length
-        const cost = townPlaceCost(def, existing)
-        if (cost.coins > 0) await debit(userId, cost.coins.toFixed(4), CATEGORY, tx)
-        await spendBag(tx, userId, cost.resources)
-
-        // Roads are instant; everything else builds, faster in a happier town.
-        const instant = def.kind === 'road'
-        const buildMs = instant ? 0 : townLevelBuildMs(def, 1, state.happiness, research)
-
-        // The unique (plot, tile) constraint is the occupancy guard.
-        const [building] = await tx.insert(townBuildings)
-            .values({
-                userId,
-                plotId,
-                type: def.id,
-                tileX,
-                tileY,
-                rotation,
-                level: instant ? 1 : 0,
-                completesAt: new Date(now + buildMs)
-            })
-            .onConflictDoNothing()
-            .returning()
-        if (!building) throw createError({ statusCode: 400, statusMessage: 'That tile is already taken' })
-        // Building on a listed plot takes it off the market.
-        await tx.update(townPlots).set({ listPrice: null }).where(eq(townPlots.id, plotId))
-        return { buildingId: building.id, completesAt: building.completesAt.getTime(), cost }
-    })
+    return { def, rotation }
 }
 
 /**
- * Move a finished building to another tile on any owned plot. Free, but the
- * same road rule applies at the new spot, and a road cannot be moved out from
- * under the buildings whose front door it serves.
+ * Place one or more buildings in a single transaction — what a road drag sends.
+ *
+ * Every item is validated against the layout the previous items in the same
+ * drag already created, so a run of road tiles connects to itself and a house
+ * may be dropped beside a road laid a moment earlier in the same call. A drag
+ * across a tile that is taken, or past what the purse covers, skips that tile
+ * rather than failing the whole gesture — but a request that places nothing at
+ * all reports the first reason, so a single click still explains itself the way
+ * it always did.
+ *
+ * A running total of what the drag has already committed decides where the
+ * money runs out. The debit is still the guard that a concurrent spend cannot
+ * slip past: if it refuses, the whole drag rolls back rather than half-charging.
  */
-export async function moveBuilding(userId: string, buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number) {
-    if (!Number.isInteger(rotation) || rotation < 0 || rotation > 3) {
-        throw createError({ statusCode: 400, statusMessage: 'Rotation must be 0, 1, 2 or 3 quarter turns' })
-    }
-    if (!Number.isInteger(tileX) || !Number.isInteger(tileY) || tileX < 0 || tileY < 0 || tileX >= TOWN_PLOT_SIZE || tileY >= TOWN_PLOT_SIZE) {
-        throw createError({ statusCode: 400, statusMessage: 'That tile is off the plot' })
-    }
+export async function placeBuildings(userId: string, items: TownPlacement[]) {
+    if (items.length === 0) throw createError({ statusCode: 400, statusMessage: 'Nothing to build' })
+    if (items.length > TOWN_MAX_DRAG_TILES) throw createError({ statusCode: 400, statusMessage: 'Too many tiles in one go' })
+    const shapes = items.map(validatePlacementShape)
+
     return db.transaction(async (tx) => {
         const now = Date.now()
-        const { sim, buildings } = await settleTownState(tx, userId, now)
-        const row = buildings.find(b => b.id === buildingId)
-        const me = sim.find(b => b.id === buildingId)
-        if (!row || !me) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
-        if (row.level === 0 || row.upgradingTo !== null) throw createError({ statusCode: 400, statusMessage: 'Finish building it first' })
-        const def = getTownBuilding(row.type)!
+        const { sim, state, research, inventory } = await settleTownState(tx, userId, now)
+        const { byId: plotsById } = await getPlotMap(userId, tx)
+        const purse = await townPurse(tx, userId, inventory)
 
-        const plot = await tx.query.townPlots.findFirst({ where: and(eq(townPlots.id, plotId), eq(townPlots.userId, userId)) })
-        if (!plot) throw createError({ statusCode: 400, statusMessage: 'That plot is not yours' })
-        const wx = plot.x * TOWN_PLOT_SIZE + tileX
-        const wy = plot.y * TOWN_PLOT_SIZE + tileY
+        // The layout as this call builds it up, so each item sees the last one.
+        const layout = [...sim]
+        const counts = new Map<string, number>()
+        for (const b of sim) counts.set(b.type, (counts.get(b.type) ?? 0) + 1)
+        let buildersLeft = townBuildersFree(sim, state.builders, now)
 
-        // Moving a road may cut buildings off — they simply stop working until reconnected.
-        const others = sim.filter(b => b.id !== buildingId)
-        const issue = townPlacementIssue(others, def, wx, wy, rotation)
+        const placed: { buildingId: string, type: string, plotId: string, tileX: number, tileY: number, completesAt: number, cost: ReturnType<typeof townPlaceCost> }[] = []
+        const touchedPlots = new Set<string>()
+        let firstIssue: string | null = null
+        const note = (why: string) => { if (!firstIssue) firstIssue = why }
+
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i]!
+            const { def, rotation } = shapes[i]!
+            const plot = plotsById.get(item.plotId)
+            if (!plot) { note('That plot is not yours'); continue }
+
+            const lock = townTierRequirement(layout, def.tier, now, state.produced, research)
+            if (lock) {
+                note(lock.needsBuilding
+                    ? `Finish a tier ${def.tier - 1} building first`
+                    : lock.pop < lock.popRequired
+                        ? `Tier ${def.tier} needs ${lock.popRequired} residents (you house ${lock.pop})`
+                        : `Tier ${def.tier} opens after producing ${lock.producedRequired} tier-${lock.producedTier} goods (${lock.produced} so far)`)
+                continue
+            }
+
+            const wx = plot.x * TOWN_PLOT_SIZE + item.tileX
+            const wy = plot.y * TOWN_PLOT_SIZE + item.tileY
+            const issue = townPlacementIssue(layout, def, wx, wy, rotation)
+            if (issue) { note(issue); continue }
+
+            // Roads go up instantly and need nobody; everything else needs a crew.
+            const instant = def.kind === 'road'
+            if (!instant && buildersLeft <= 0) { note('Every builder is busy'); continue }
+
+            // The n-th copy costs more: count every existing one, finished or not.
+            const cost = townPlaceCost(def, counts.get(def.id) ?? 0)
+            const short = purse.shortOf(cost)
+            if (short) { note(short); continue }
+
+            const buildMs = instant ? 0 : townLevelBuildMs(def, 1, state.happiness, research)
+            // The unique (plot, tile) constraint is the occupancy guard, and the
+            // insert comes first: a tile lost to a concurrent build must not be
+            // paid for.
+            const [building] = await tx.insert(townBuildings)
+                .values({
+                    userId,
+                    plotId: item.plotId,
+                    type: def.id,
+                    tileX: item.tileX,
+                    tileY: item.tileY,
+                    rotation,
+                    level: instant ? 1 : 0,
+                    completesAt: new Date(now + buildMs)
+                })
+                .onConflictDoNothing()
+                .returning()
+            if (!building) { note('That tile is already taken'); continue }
+
+            if (cost.coins > 0) await debit(userId, cost.coins.toFixed(4), CATEGORY, tx)
+            await spendBag(tx, userId, cost.resources)
+            purse.spend(cost)
+
+            counts.set(def.id, (counts.get(def.id) ?? 0) + 1)
+            if (!instant) buildersLeft--
+            layout.push(toSim(building, plot))
+            touchedPlots.add(item.plotId)
+            placed.push({
+                buildingId: building.id,
+                type: def.id,
+                plotId: item.plotId,
+                tileX: item.tileX,
+                tileY: item.tileY,
+                completesAt: building.completesAt.getTime(),
+                cost
+            })
+        }
+
+        if (placed.length === 0) throw createError({ statusCode: 400, statusMessage: firstIssue ?? 'Nothing could be built there' })
+        // Building on a listed plot takes it off the market.
+        await tx.update(townPlots).set({ listPrice: null }).where(inArray(townPlots.id, [...touchedPlots]))
+        return { placed, skipped: items.length - placed.length, reason: placed.length < items.length ? firstIssue : null }
+    })
+}
+
+export async function placeBuilding(userId: string, plotId: string, tileX: number, tileY: number, type: string, rotation = 0) {
+    const { placed } = await placeBuildings(userId, [{ plotId, tileX, tileY, type, rotation }])
+    const one = placed[0]!
+    return { buildingId: one.buildingId, completesAt: one.completesAt, cost: one.cost }
+}
+
+export interface TownRelocation { buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number }
+
+/**
+ * Move a set of buildings to new tiles on owned plots, all or nothing.
+ *
+ * A move is free and never touches the clock, so a building still going up (or
+ * upgrading) travels with the rest of its block — the crew follows the site.
+ * Validity is judged on the layout the move would leave behind, so a selection
+ * carrying its own street with it stays legal and two buildings may swap tiles.
+ * Moving a road may still cut other buildings off; they simply stop working
+ * until reconnected, which the "!" on the map already says.
+ */
+export async function moveBuildings(userId: string, moves: TownRelocation[]) {
+    if (moves.length === 0) throw createError({ statusCode: 400, statusMessage: 'Nothing to move' })
+    if (moves.length > TOWN_MAX_DRAG_TILES) throw createError({ statusCode: 400, statusMessage: 'Too many buildings in one go' })
+    for (const m of moves) {
+        if (!Number.isInteger(m.rotation) || m.rotation < 0 || m.rotation > 3) {
+            throw createError({ statusCode: 400, statusMessage: 'Rotation must be 0, 1, 2 or 3 quarter turns' })
+        }
+        if (!Number.isInteger(m.tileX) || !Number.isInteger(m.tileY) || m.tileX < 0 || m.tileY < 0 || m.tileX >= TOWN_PLOT_SIZE || m.tileY >= TOWN_PLOT_SIZE) {
+            throw createError({ statusCode: 400, statusMessage: 'That tile is off the plot' })
+        }
+    }
+    if (new Set(moves.map(m => m.buildingId)).size !== moves.length) {
+        throw createError({ statusCode: 400, statusMessage: 'A building can only be moved once' })
+    }
+
+    return db.transaction(async (tx) => {
+        const now = Date.now()
+        const { sim } = await settleTownState(tx, userId, now)
+        const { byId: plotsById } = await getPlotMap(userId, tx)
+
+        const wanted: TownGroupMove[] = []
+        for (const m of moves) {
+            if (!sim.some(b => b.id === m.buildingId)) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
+            const plot = plotsById.get(m.plotId)
+            if (!plot) throw createError({ statusCode: 400, statusMessage: 'That plot is not yours' })
+            wanted.push({
+                id: m.buildingId,
+                wx: plot.x * TOWN_PLOT_SIZE + m.tileX,
+                wy: plot.y * TOWN_PLOT_SIZE + m.tileY,
+                rotation: m.rotation
+            })
+        }
+        const issue = townGroupMoveIssue(sim, wanted)
         if (issue) throw createError({ statusCode: 400, statusMessage: issue })
 
-        const [moved] = await tx.update(townBuildings)
-            .set({ plotId, tileX, tileY, rotation })
-            .where(and(eq(townBuildings.id, buildingId), eq(townBuildings.userId, userId)))
-            .returning({ id: townBuildings.id })
-        if (!moved) throw createError({ statusCode: 400, statusMessage: 'That tile is already taken' })
-        await tx.update(townPlots).set({ listPrice: null }).where(eq(townPlots.id, plotId))
-        return { buildingId, plotId, tileX, tileY, rotation }
+        // Two buildings may be swapping tiles, and the unique (plot, tile) index
+        // would reject whichever moved first. Park the whole set off the grid,
+        // then set the real tiles: both statements run inside this transaction,
+        // and the constraint is checked per statement, so the shuffle is legal.
+        // Negative tiles never collide with a real one and never survive the call.
+        let park = -1
+        for (const m of moves) {
+            await tx.update(townBuildings)
+                .set({ tileX: park, tileY: park })
+                .where(and(eq(townBuildings.id, m.buildingId), eq(townBuildings.userId, userId)))
+            park--
+        }
+        for (const m of moves) {
+            const [moved] = await tx.update(townBuildings)
+                .set({ plotId: m.plotId, tileX: m.tileX, tileY: m.tileY, rotation: m.rotation })
+                .where(and(eq(townBuildings.id, m.buildingId), eq(townBuildings.userId, userId)))
+                .returning({ id: townBuildings.id })
+            if (!moved) throw createError({ statusCode: 400, statusMessage: 'That tile is already taken' })
+        }
+        await tx.update(townPlots).set({ listPrice: null }).where(inArray(townPlots.id, [...new Set(moves.map(m => m.plotId))]))
+        return { moved: moves.map(m => m.buildingId) }
     })
+}
+
+export async function moveBuilding(userId: string, buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number) {
+    await moveBuildings(userId, [{ buildingId, plotId, tileX, tileY, rotation }])
+    return { buildingId, plotId, tileX, tileY, rotation }
 }
 
 export async function upgradeBuilding(userId: string, buildingId: string) {
@@ -824,6 +973,84 @@ export async function demolishBuilding(userId: string, buildingId: string) {
             .returning({ id: townBuildings.id, type: townBuildings.type })
         if (!deleted) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
         return { buildingId: deleted.id, type: deleted.type }
+    })
+}
+
+/** Clear a whole selection (or a bulldozer drag) in one transaction. */
+export async function demolishBuildings(userId: string, buildingIds: string[]) {
+    const ids = [...new Set(buildingIds.filter(Boolean))]
+    if (ids.length === 0) throw createError({ statusCode: 400, statusMessage: 'Nothing to demolish' })
+    if (ids.length > TOWN_MAX_DRAG_TILES) throw createError({ statusCode: 400, statusMessage: 'Too many buildings in one go' })
+    return db.transaction(async (tx) => {
+        await settleTownState(tx, userId)
+        // The DELETE is the guard: whatever comes back is what this call removed,
+        // so a tile already cleared by another request is simply not in the list.
+        const deleted = await tx.delete(townBuildings)
+            .where(and(inArray(townBuildings.id, ids), eq(townBuildings.userId, userId)))
+            .returning({ id: townBuildings.id, type: townBuildings.type })
+        if (deleted.length === 0) throw createError({ statusCode: 404, statusMessage: 'Nothing left to demolish' })
+        return { demolished: deleted.map(d => d.id), types: deleted.map(d => d.type) }
+    })
+}
+
+/**
+ * Start an upgrade on every building in a selection that can take one.
+ *
+ * Crews, coins and goods all run out partway through a big selection, so this
+ * takes the ones it can afford in the order given and reports the rest rather
+ * than failing the lot. Each upgrade is charged and started exactly like the
+ * single-building path, under the same town_state lock.
+ */
+export async function upgradeBuildings(userId: string, buildingIds: string[]) {
+    const ids = [...new Set(buildingIds.filter(Boolean))]
+    if (ids.length === 0) throw createError({ statusCode: 400, statusMessage: 'Nothing to upgrade' })
+    if (ids.length > TOWN_MAX_DRAG_TILES) throw createError({ statusCode: 400, statusMessage: 'Too many buildings in one go' })
+
+    return db.transaction(async (tx) => {
+        const now = Date.now()
+        const { buildings, state, sim, research, inventory } = await settleTownState(tx, userId, now)
+        const purse = await townPurse(tx, userId, inventory)
+        let buildersLeft = townBuildersFree(sim, state.builders, now)
+        const started: { buildingId: string, level: number, completesAt: number }[] = []
+        let firstIssue: string | null = null
+        const note = (why: string) => { if (!firstIssue) firstIssue = why }
+
+        for (const id of ids) {
+            const building = buildings.find(b => b.id === id)
+            if (!building) { note('Building not found'); continue }
+            if (building.level === 0) { note('Still under construction'); continue }
+            if (building.upgradingTo !== null) { note('Already upgrading'); continue }
+            const def = getTownBuilding(building.type)!
+            if (def.kind === 'road') { note('Roads have no levels'); continue }
+            if (building.level >= townBuildingMaxLevel(def)) { note('Already at max level'); continue }
+            if (buildersLeft <= 0) { note('Every builder is busy'); continue }
+
+            const nextLevel = building.level + 1
+            const cost = townLevelCost(def, nextLevel)
+            const short = purse.shortOf(cost)
+            if (short) { note(short); continue }
+            const completesAt = new Date(now + townLevelBuildMs(def, nextLevel, state.happiness, research))
+            // The conditional UPDATE claims the upgrade; only then is anything charged.
+            const [updated] = await tx.update(townBuildings)
+                .set({ upgradingTo: nextLevel, completesAt })
+                .where(and(
+                    eq(townBuildings.id, id),
+                    eq(townBuildings.userId, userId),
+                    eq(townBuildings.level, building.level),
+                    sql`${townBuildings.upgradingTo} is null`
+                ))
+                .returning({ id: townBuildings.id })
+            if (!updated) { note('Building changed — try again'); continue }
+            if (cost.coins > 0) await debit(userId, cost.coins.toFixed(4), CATEGORY, tx)
+            await spendBag(tx, userId, cost.resources)
+            purse.spend(cost)
+
+            buildersLeft--
+            started.push({ buildingId: id, level: nextLevel, completesAt: completesAt.getTime() })
+        }
+
+        if (started.length === 0) throw createError({ statusCode: 400, statusMessage: firstIssue ?? 'Nothing could be upgraded' })
+        return { started, skipped: ids.length - started.length, reason: started.length < ids.length ? firstIssue : null }
     })
 }
 
