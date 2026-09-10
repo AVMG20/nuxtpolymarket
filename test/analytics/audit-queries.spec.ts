@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { sql } from 'drizzle-orm'
+import { afterAll, beforeAll, describe, it, expect } from 'vitest'
+import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { transactions } from '#server/database/schema'
 import {
@@ -17,7 +17,8 @@ import {
     type AuditWindow
 } from '#server/utils/audit'
 import { normaliseCategory } from '#shared/utils/analytics-categories'
-import { GENRES, genreForLabel } from '#shared/utils/game-genres'
+import { GENRES, genreForLabel, prefixesForGenre } from '#shared/utils/game-genres'
+import { cleanupUser, seedUser } from '../setup/db-helpers'
 
 // The audit reads build their CASE and IN clauses from the shared genre tables.
 // That composition is easy to break in ways only Postgres notices — a repeated
@@ -25,6 +26,42 @@ import { GENRES, genreForLabel } from '#shared/utils/game-genres'
 // real query functions rather than asserting on generated strings.
 
 const WINDOWS = Object.keys(AUDIT_WINDOWS) as AuditWindow[]
+
+const LEDGER_USER = 'test-audit-queries'
+
+/**
+ * One row per category the tables know about, plus an uncategorised one and a
+ * game nobody has mapped yet.
+ *
+ * These reads used to assert against whatever the database happened to be
+ * holding, which is every row on a developer's machine and none at all on a
+ * fresh CI database — so the comparison between the SQL bucket and the JS one
+ * silently passed over zero rows there, then failed the moment it was asked to
+ * find any. The ledger the specs read is now the ledger they wrote.
+ */
+async function seedLedger() {
+    await seedUser(LEDGER_USER)
+    const prefixes = [...new Set(GENRES.flatMap(prefixesForGenre))]
+    const categories: (string | null)[] = [
+        ...prefixes,
+        // A sub-category collapses to its prefix, and both sides of the null case.
+        `${prefixes[0]}:side:seed`,
+        'a-game-nobody-mapped-yet',
+        null
+    ]
+    await db.insert(transactions).values(categories.map((category, i) => ({
+        userId: LEDGER_USER,
+        amount: '1.0000',
+        type: i % 2 === 0 ? 'credit' : 'debit',
+        category
+    })))
+}
+
+beforeAll(seedLedger)
+afterAll(async () => {
+    await db.delete(transactions).where(eq(transactions.userId, LEDGER_USER))
+    await cleanupUser(LEDGER_USER)
+})
 
 describe('auditOverview', () => {
     it('runs for every window', async () => {
