@@ -14,6 +14,7 @@ import type { SceneTile, SceneMoveGhost } from '~/components/town/TownScene.clie
 
 const town = useTown()
 const sound = useTownSound()
+const motion = useTownMotion()
 const toast = useToast()
 const { user } = useAuth()
 
@@ -1099,6 +1100,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             :move-issue="moveIssue"
             :drag-valid="dragValid"
             :tool="tool"
+            :reduced-motion="motion.reduced.value"
             @hover-tile="onHoverTile"
             @select-tile="onSelectTile"
             @select-building="onSelectBuilding"
@@ -1208,8 +1210,12 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 <button class="g-icon" :class="tool === 'bulldoze' ? 'is-armed' : ''" data-tip-below="Bulldozer — drag across buildings to clear them (X)" @click="toggleBulldoze">🚜</button>
                 <button class="g-icon" data-tip-below="How to play" @click="helpOpen = true">?</button>
                 <button class="g-icon" :data-tip-below="sound.enabled.value ? 'Mute' : 'Unmute'" @click="toggleSound">{{ sound.enabled.value ? '🔊' : '🔇' }}</button>
+                <button class="g-icon" :class="motion.reduced.value ? 'is-on' : ''" :data-tip-below="motion.reduced.value ? 'Reduced motion on — flat view, no camera glide, snap turns, still scenery' : 'Reduce motion — for motion sickness'" @click="motion.toggle()">{{ motion.reduced.value ? '🧘' : '🌀' }}</button>
                 <button class="g-icon" data-tip-below="Recenter" @click="sceneRef?.recenter()">◎</button>
             </div>
+
+            <!-- Reduced motion: a still frame at the edges gives the eye something that never moves. -->
+            <div v-if="motion.reduced.value" class="motion-frame" aria-hidden="true" />
 
             <!-- Placement hint -->
             <Transition name="fade">
@@ -1630,7 +1636,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <p>🗺️ <b>Land</b>: every mayor shares one realm. The land office sells you a square next to yours — each one costs more and opens more slowly than the last. Empty plots can go back to the office for a quarter of their price, or be listed for other mayors at any price you choose. Buying from a player skips the office's waiting time.</p>
                             <p>💎 <b>Rush</b> any build for 1 gem per 5 minutes left. 🏆 <b>Goals</b> pay coins for hitting town targets.</p>
                             <p>🖱️ <b>Controls</b>: drag to select, shift-drag to add, shift-click to toggle one · with a building picked, drag to lay a run, even from the end of a street · <kbd>M</kbd> move · <kbd>Del</kbd> demolish · <kbd>X</kbd> bulldozer. Half-built buildings move too.</p>
-                            <p class="opacity-60">WASD move · Q/E turn · middle-drag pan · wheel zoom · right-drag orbit · R rotate · <kbd>B</kbd>uild <kbd>H</kbd> market <kbd>T</kbd> goals <kbd>L</kbd> mayors <kbd>P</kbd> land <kbd>C</kbd> research <kbd>G</kbd> terrain <kbd>X</kbd> bulldozer <kbd>Esc</kbd></p>
+                            <p class="opacity-60">WASD move · Q/E turn · middle-drag pan · wheel zoom · right-drag orbit · R rotate · <kbd>B</kbd>uild <kbd>H</kbd> market <kbd>T</kbd> goals <kbd>L</kbd> mayors <kbd>P</kbd> land <kbd>C</kbd> research <kbd>G</kbd> terrain <kbd>X</kbd> bulldozer <kbd>Esc</kbd> · 🌀 reduce motion if the camera makes you queasy</p>
                         </div>
                     </div>
                 </div>
@@ -1875,6 +1881,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 }
 .hint.is-danger { border-color: rgba(229, 50, 45, 0.6); }
 .hint-quote { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); font-weight: 800; color: var(--g-gold); }
+.g-icon.is-on { border-color: rgba(79, 211, 106, 0.6); box-shadow: 0 0 0 2px rgba(79, 211, 106, 0.22), 0 6px 20px rgba(0, 0, 0, 0.25); }
+.motion-frame { position: absolute; inset: 0; pointer-events: none; z-index: 2; box-shadow: inset 0 0 120px 30px rgba(10, 14, 20, 0.45); }
 .g-icon.is-armed { border-color: rgba(229, 50, 45, 0.75); box-shadow: 0 0 0 2px rgba(229, 50, 45, 0.3), 0 6px 20px rgba(0, 0, 0, 0.25); }
 
 /* What a marquee gathered, and the three things worth doing to it. */
