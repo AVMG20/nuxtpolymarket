@@ -5,7 +5,8 @@ import TownProductionChart from '~/components/town/TownProductionChart.vue'
 import type { TownResourceView, TownOrderView } from '~/composables/useTown'
 import { TOWN_MARKET_MIN_PRICE, TOWN_MAX_ORDER_PRICE } from '#shared/utils/gamelogic/town'
 
-interface BookLevel { price: number, quantity: number }
+interface BookPlayer { id: string, name: string, image: string | null, quantity: number, mine: boolean }
+interface BookLevel { price: number, quantity: number, players: BookPlayer[] }
 interface MarketData {
     resource: string
     floor: number
@@ -358,6 +359,18 @@ function fmtPrice(p: number) {
     return p >= 1000 ? formatNumber(p) : p.toFixed(2).replace(/\.00$/, '')
 }
 
+/** Deepest level on either side, so the depth bars share one scale. */
+const bookMax = computed(() => Math.max(1, ...(market.value?.bids ?? []).map(l => l.quantity), ...(market.value?.asks ?? []).map(l => l.quantity)))
+
+function depthWidth(level: BookLevel) {
+    return `${Math.max(6, Math.round((level.quantity / bookMax.value) * 100))}%`
+}
+
+/** Faces to show on a level: the first three, plus a "+N" chip for the rest. */
+function facesFor(level: BookLevel) {
+    return level.players.slice(0, 3)
+}
+
 function timeAgo(at: number) {
     const s = Math.max(0, Math.round((Date.now() - at) / 1000))
     if (s < 60) return `${s}s`
@@ -539,27 +552,73 @@ function timeAgo(at: number) {
 
                 <!-- Order book -->
                 <section class="mk-sec">
-                    <header>Player offers <span class="opacity-50">— click a row to trade against it</span></header>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <div class="mk-colhead"><span>Buyers</span><span style="color: var(--g-green)">bid · qty</span></div>
-                            <div v-if="market && market.bids.length" class="space-y-0.5">
-                                <button v-for="lvl in market.bids" :key="lvl.price" class="mk-lvl is-bid" @click="fillFromLevel('buy', lvl)">
-                                    <span>{{ fmtPrice(lvl.price) }}</span><span class="opacity-60">{{ formatNumber(lvl.quantity) }}</span>
-                                </button>
+                    <header>Player offers <span class="opacity-50">— each row is one price; click it to trade against it</span></header>
+                    <div class="mk-book">
+                        <div class="mk-book-side">
+                            <div class="mk-book-head is-bid">
+                                <span class="mk-book-who">Buyers</span>
+                                <span>Pays each</span>
+                                <span>Wants</span>
+                                <span class="text-right">Total</span>
                             </div>
-                            <div v-else class="py-3 text-center text-xs opacity-50">{{ loading && !market ? '…' : 'No buyers' }}</div>
+                            <template v-if="market && market.bids.length">
+                                <button
+                                    v-for="lvl in market.bids"
+                                    :key="lvl.price"
+                                    class="mk-book-row is-bid"
+                                    :class="{ 'is-mine': lvl.players.some(p => p.mine) }"
+                                    @click="fillFromLevel('buy', lvl)"
+                                >
+                                    <i class="mk-depth" :style="{ width: depthWidth(lvl) }" />
+                                    <span class="mk-book-who">
+                                        <UTooltip v-for="p in facesFor(lvl)" :key="p.id" :text="`${p.mine ? 'You' : p.name} · ${formatNumber(p.quantity)}`">
+                                            <UAvatar :src="p.image ?? undefined" :alt="p.name" size="2xs" class="mk-face" :class="{ 'is-me': p.mine }" />
+                                        </UTooltip>
+                                        <UTooltip v-if="lvl.players.length > 3" :text="lvl.players.slice(3).map(p => p.name).join(', ')">
+                                            <span class="mk-face mk-face-more">+{{ lvl.players.length - 3 }}</span>
+                                        </UTooltip>
+                                    </span>
+                                    <span class="mk-book-price"><CoinBalance :value="lvl.price" :compact="lvl.price >= 1000" /></span>
+                                    <span class="mk-book-qty">{{ formatNumber(lvl.quantity) }} <TownAsset :id="resource.id" /></span>
+                                    <span class="mk-book-total"><CoinBalance :value="lvl.price * lvl.quantity" /></span>
+                                </button>
+                            </template>
+                            <div v-else class="mk-book-empty">{{ loading && !market ? '…' : 'Nobody is buying' }}</div>
                         </div>
-                        <div>
-                            <div class="mk-colhead"><span>Sellers</span><span style="color: var(--g-red)">ask · qty</span></div>
-                            <div v-if="market && market.asks.length" class="space-y-0.5">
-                                <button v-for="lvl in market.asks" :key="lvl.price" class="mk-lvl is-ask" @click="fillFromLevel('sell', lvl)">
-                                    <span>{{ fmtPrice(lvl.price) }}</span><span class="opacity-60">{{ formatNumber(lvl.quantity) }}</span>
-                                </button>
+
+                        <div class="mk-book-side">
+                            <div class="mk-book-head is-ask">
+                                <span class="mk-book-who">Sellers</span>
+                                <span>Asks each</span>
+                                <span>Sells</span>
+                                <span class="text-right">Total</span>
                             </div>
-                            <div v-else class="py-3 text-center text-xs opacity-50">{{ loading && !market ? '…' : 'No sellers' }}</div>
+                            <template v-if="market && market.asks.length">
+                                <button
+                                    v-for="lvl in market.asks"
+                                    :key="lvl.price"
+                                    class="mk-book-row is-ask"
+                                    :class="{ 'is-mine': lvl.players.some(p => p.mine) }"
+                                    @click="fillFromLevel('sell', lvl)"
+                                >
+                                    <i class="mk-depth" :style="{ width: depthWidth(lvl) }" />
+                                    <span class="mk-book-who">
+                                        <UTooltip v-for="p in facesFor(lvl)" :key="p.id" :text="`${p.mine ? 'You' : p.name} · ${formatNumber(p.quantity)}`">
+                                            <UAvatar :src="p.image ?? undefined" :alt="p.name" size="2xs" class="mk-face" :class="{ 'is-me': p.mine }" />
+                                        </UTooltip>
+                                        <UTooltip v-if="lvl.players.length > 3" :text="lvl.players.slice(3).map(p => p.name).join(', ')">
+                                            <span class="mk-face mk-face-more">+{{ lvl.players.length - 3 }}</span>
+                                        </UTooltip>
+                                    </span>
+                                    <span class="mk-book-price"><CoinBalance :value="lvl.price" :compact="lvl.price >= 1000" /></span>
+                                    <span class="mk-book-qty">{{ formatNumber(lvl.quantity) }} <TownAsset :id="resource.id" /></span>
+                                    <span class="mk-book-total"><CoinBalance :value="lvl.price * lvl.quantity" /></span>
+                                </button>
+                            </template>
+                            <div v-else class="mk-book-empty">{{ loading && !market ? '…' : 'Nobody is selling' }}</div>
                         </div>
                     </div>
+                    <p class="mt-2 text-[11px] opacity-50">Buyers pay the price shown for every unit. Sellers hand over units at theirs. A ring marks your own offers.</p>
                 </section>
 
                 <!-- Place order -->
@@ -577,7 +636,7 @@ function timeAgo(at: number) {
                         <label class="text-xs opacity-60">×</label>
                         <input v-model.number="orderQty" type="number" min="1" class="g-input w-24">
                         <button v-if="orderSide === 'sell'" class="g-btn py-2 text-xs" @click="orderQty = owned">All</button>
-                        <div class="flex-1 text-right text-sm font-bold tabular-nums">= <TownCoin /> {{ formatNumber(orderTotal) }}</div>
+                        <div class="flex flex-1 items-center justify-end gap-1 text-sm font-bold tabular-nums">= <CoinBalance :value="orderTotal" /></div>
                         <button class="g-btn py-2" :class="orderSide === 'sell' ? 'g-btn-danger' : 'g-btn-primary'" :disabled="busy || !orderValid" @click="emit('place-order', resource.id, orderSide, orderPrice, Math.floor(orderQty))">
                             {{ orderSide === 'sell' ? 'List for sale' : 'Place buy offer' }}
                         </button>
@@ -591,12 +650,20 @@ function timeAgo(at: number) {
 
                 <!-- My orders -->
                 <section v-if="market && market.myOrders.length" class="mk-sec">
-                    <header>Your open offers</header>
+                    <header>Your open offers <span class="opacity-50">— what is still waiting on the book</span></header>
                     <div class="space-y-1">
-                        <div v-for="o in market.myOrders" :key="o.id" class="mk-order">
-                            <span :style="{ color: o.side === 'sell' ? 'var(--g-red)' : 'var(--g-green)' }">{{ o.side === 'sell' ? 'Sell' : 'Buy' }}</span>
-                            <span>{{ formatNumber(o.quantity - o.filled) }} @ {{ fmtPrice(o.price) }}</span>
-                            <button class="g-icon g-icon-sm" :disabled="busy" @click="emit('cancel-order', o.id)">✕</button>
+                        <div v-for="o in market.myOrders" :key="o.id" class="mk-order" :class="o.side === 'sell' ? 'is-ask' : 'is-bid'">
+                            <span class="mk-order-side">{{ o.side === 'sell' ? 'Selling' : 'Buying' }}</span>
+                            <span class="mk-order-qty">
+                                {{ formatNumber(o.quantity - o.filled) }} <TownAsset :id="resource.id" />
+                                <small v-if="o.filled > 0">{{ formatNumber(o.filled) }} of {{ formatNumber(o.quantity) }} done</small>
+                            </span>
+                            <span class="mk-order-price">at <CoinBalance :value="o.price" :compact="o.price >= 1000" /> each</span>
+                            <span class="mk-order-total">
+                                <small>{{ o.side === 'sell' ? 'you get' : 'you pay' }}</small>
+                                <CoinBalance :value="o.price * (o.quantity - o.filled)" />
+                            </span>
+                            <button class="g-icon g-icon-sm" :disabled="busy" title="Cancel and get it back" @click="emit('cancel-order', o.id)">✕</button>
                         </div>
                     </div>
                 </section>
@@ -649,17 +716,45 @@ function timeAgo(at: number) {
 .mk-sec { padding: 12px 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--g-line); }
 .mk-sec > header { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; opacity: 0.85; }
 .mk-sec > header .opacity-50 { text-transform: none; letter-spacing: 0; font-weight: 600; }
-.mk-colhead { display: flex; justify-content: space-between; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.6; margin-bottom: 4px; }
-.mk-lvl { display: flex; width: 100%; justify-content: space-between; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--g-text); background: transparent; border: none; cursor: pointer; }
-.mk-lvl.is-bid { color: #9af0a8; }
-.mk-lvl.is-ask { color: #ffb3b3; }
-.mk-lvl:hover { background: rgba(255, 255, 255, 0.08); }
+.mk-book { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.mk-book-side { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mk-book-head, .mk-book-row { display: grid; grid-template-columns: minmax(58px, auto) 1fr 1fr auto; align-items: center; gap: 8px; padding: 5px 8px; }
+.mk-book-head { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.6; padding-bottom: 2px; }
+.mk-book-head.is-bid .mk-book-who { color: #9af0a8; opacity: 1; }
+.mk-book-head.is-ask .mk-book-who { color: #ffb3b3; opacity: 1; }
+.mk-book-row { position: relative; overflow: hidden; width: 100%; border-radius: 8px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--g-text); background: rgba(255, 255, 255, 0.04); border: 1px solid transparent; cursor: pointer; text-align: left; }
+.mk-book-row:hover { background: rgba(255, 255, 255, 0.1); border-color: var(--g-line); }
+.mk-book-row.is-mine { border-color: rgba(255, 255, 255, 0.22); }
+.mk-book-row > * { position: relative; }
+.mk-depth { position: absolute !important; inset: 0 auto 0 0; pointer-events: none; opacity: 0.16; }
+.mk-book-row.is-bid .mk-depth { background: linear-gradient(90deg, #4fd36a, transparent); }
+.mk-book-row.is-ask .mk-depth { background: linear-gradient(90deg, #ff6b6b, transparent); }
+.mk-book-who { display: flex; align-items: center; }
+.mk-face { flex-shrink: 0; box-shadow: 0 0 0 2px rgba(20, 22, 28, 0.9); }
+.mk-book-who > * + * { margin-left: -5px; }
+.mk-face.is-me { box-shadow: 0 0 0 2px #facc15; }
+.mk-face-more { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; font-size: 9px; font-weight: 800; background: rgba(255, 255, 255, 0.18); }
+.mk-book-price { display: flex; align-items: center; white-space: nowrap; }
+.mk-book-row.is-bid .mk-book-price { color: #9af0a8; }
+.mk-book-row.is-ask .mk-book-price { color: #ffb3b3; }
+.mk-book-qty { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.mk-book-total { display: flex; justify-content: flex-end; white-space: nowrap; opacity: 0.75; }
+.mk-book-empty { padding: 14px 8px; text-align: center; font-size: 12px; opacity: 0.5; border-radius: 8px; border: 1px dashed var(--g-line); }
 .mk-toggle { display: inline-flex; padding: 2px; border-radius: 8px; background: rgba(0, 0, 0, 0.25); }
 .mk-toggle button { padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; color: var(--g-muted); background: transparent; border: none; cursor: pointer; text-transform: none; letter-spacing: 0; }
 .mk-toggle button.is-on { background: rgba(255, 255, 255, 0.16); color: var(--g-text); }
 .mk-toggle button.is-sell { background: rgba(255, 107, 107, 0.25); color: #ffb3b3; }
 .mk-toggle button.is-buy { background: rgba(79, 211, 106, 0.25); color: #9af0a8; }
-.mk-order { display: flex; align-items: center; justify-content: space-between; padding: 4px 8px; border-radius: 8px; background: rgba(255, 255, 255, 0.06); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mk-order { display: grid; grid-template-columns: auto 1fr auto auto auto; align-items: center; gap: 12px; padding: 6px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border-left: 3px solid transparent; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mk-order.is-bid { border-left-color: #4fd36a; }
+.mk-order.is-ask { border-left-color: #ff6b6b; }
+.mk-order.is-bid .mk-order-side { color: #9af0a8; }
+.mk-order.is-ask .mk-order-side { color: #ffb3b3; }
+.mk-order-side { min-width: 50px; }
+.mk-order-qty { display: flex; align-items: center; gap: 5px; }
+.mk-order-qty small, .mk-order-total small { font-size: 10px; font-weight: 600; opacity: 0.55; }
+.mk-order-price { display: flex; align-items: center; gap: 4px; white-space: nowrap; opacity: 0.85; }
+.mk-order-total { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 :global(.town-root .g-input) { padding: 7px 10px; border-radius: 10px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--g-line); color: var(--g-text); font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; outline: none; }
 :global(.town-root .g-input:focus) { border-color: rgba(255, 255, 255, 0.35); }
 </style>
