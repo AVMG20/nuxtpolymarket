@@ -598,9 +598,14 @@ export async function getWorldView(userId: string, ownPlots: { x: number, y: num
     const maxY = Math.max(...ownPlots.map(p => p.y)) + radius
 
     // When the cap bites, it is the farthest land that goes, never a random
-    // square in the middle of a neighbour's town.
-    const cx = (minX + maxX) / 2
-    const cy = (minY + maxY) / 2
+    // square in the middle of a neighbour's town. Distance is measured from
+    // the DOUBLED centre so it stays an integer: a town spanning an even number
+    // of squares has a half-square centre, and Postgres infers the parameter's
+    // type from the integer column it is subtracted from, so `x - 0.5` was
+    // rejected as invalid integer input. That made /api/town/state a 500 for
+    // every mayor with such a town, and with it the whole world view.
+    const cx2 = minX + maxX
+    const cy2 = minY + maxY
     const rows = await db.select({
         id: townPlots.id,
         x: townPlots.x,
@@ -616,7 +621,7 @@ export async function getWorldView(userId: string, ownPlots: { x: number, y: num
             gte(townPlots.x, minX), lte(townPlots.x, maxX),
             gte(townPlots.y, minY), lte(townPlots.y, maxY)
         ))
-        .orderBy(sql`greatest(abs(${townPlots.x} - ${cx}), abs(${townPlots.y} - ${cy}))`, townPlots.id)
+        .orderBy(sql`greatest(abs(2 * ${townPlots.x} - ${cx2}), abs(2 * ${townPlots.y} - ${cy2}))`, townPlots.id)
         .limit(120)
     if (rows.length === 0) return { towns: [], listings: [] }
 

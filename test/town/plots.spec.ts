@@ -655,6 +655,20 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             expect(await getWorldView(OWNER, [])).toEqual({ towns: [], listings: [] })
         })
 
+        it('works for a town whose centre falls between two squares', async () => {
+            // Two plots side by side put the centre at x + 0.5. The distance
+            // ORDER BY used to hand that to Postgres as a parameter subtracted
+            // from an integer column, which it refused — a 500 on every state
+            // read for every mayor with an even-width town.
+            const at = await freeRegion()
+            const ownPlots = await townAt(OWNER, [{ x: at.x, y: at.y }, { x: at.x + 1, y: at.y }])
+            const near = await townAt(SELLER, [{ x: at.x + 2, y: at.y + 1 }], { balance: '0' })
+
+            const view = await getWorldView(OWNER, ownPlots.map(p => ({ x: p.x, y: p.y })))
+
+            expect(view.towns.map(t => t.id)).toEqual([near[0]!.id])
+        })
+
         it('still shows a block a neighbour just moved when the realm is crowded', async () => {
             // More than 600 buildings within range, then a bulk move. The old
             // building cap had no ORDER BY, so heap order decided which rows
