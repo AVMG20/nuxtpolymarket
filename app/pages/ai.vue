@@ -151,15 +151,7 @@ async function sendMessage() {
         conversationId = streamEvent.conversationId
         selectedId.value = streamEvent.conversationId
       }
-      if (streamEvent.type === 'assistant_message' && conversationId === selectedId.value) {
-        void loadMessages(conversationId, false)
-      }
-      if (streamEvent.type === 'tool_result') {
-        streamedToolResults.value = {
-          ...streamedToolResults.value,
-          [streamEvent.toolCallId]: streamEvent.result
-        }
-      }
+      void handleStreamEvent(streamEvent, conversationId)
     })
     // Avoid rendering the streamed reply and its persisted copy together, and
     // keep the existing conversation mounted during the completion refresh.
@@ -173,6 +165,23 @@ async function sendMessage() {
     pendingUserContent.value = ''
     streamingContent.value = ''
     sending.value = false
+  }
+}
+
+// One reply can span several model rounds. When a round is persisted, the
+// streamed copy of its text is dropped so the message is not shown twice, while
+// deltas of the next round that already arrived stay on screen.
+async function handleStreamEvent(streamEvent: AiStreamEvent, conversationId: string) {
+  if (streamEvent.type === 'assistant_message') {
+    const roundText = streamingContent.value
+    if (conversationId === selectedId.value) await loadMessages(conversationId, false)
+    if (streamingContent.value.startsWith(roundText)) streamingContent.value = streamingContent.value.slice(roundText.length)
+  }
+  if (streamEvent.type === 'tool_result') {
+    streamedToolResults.value = {
+      ...streamedToolResults.value,
+      [streamEvent.toolCallId]: streamEvent.result
+    }
   }
 }
 
@@ -327,6 +336,18 @@ function toolDescription(call: AiToolCall) {
     const label = String(args.upgrade ?? 'miner').replaceAll('_', ' ')
     return `Purchase ${levels} ${label} level${levels === 1 ? '' : 's'}. This may spend coins or gems and stops on the first failed purchase.`
   }
+  if (call.function.name === 'run_town_dailies') {
+    const prefer = Array.isArray(args.preferTypes) && args.preferTypes.length ? ` Prefer ${args.preferTypes.join(', ')}.` : ''
+    const cap = args.maxUpgrades != null ? ` At most ${args.maxUpgrades} upgrade(s).` : ''
+    return args.upgrades === false
+      ? 'Claim completed Polytown milestones. No upgrades.'
+      : `Claim completed Polytown milestones, then start upgrades with idle builders on the lowest-level connected buildings the town can afford.${prefer}${cap}`
+  }
+  if (call.function.name === 'sell_town_resources') {
+    const which = Array.isArray(args.resources) && args.resources.length ? args.resources.join(', ') : 'every stocked resource'
+    const keep = args.keepQuantity != null ? `, keeping at least ${args.keepQuantity} of each` : ''
+    return `Sell ${args.percent ?? 0}% of ${which} on the Polytown market${keep}. Player bids fill first, the rest sells at the floor price.`
+  }
   if (call.function.name === 'trade_gems') return `${args.action === 'sell' ? 'Sell' : 'Buy'} ${args.gems} gem${Number(args.gems) === 1 ? '' : 's'} on the live Gem Market.`
   if (call.function.name === 'feed_colony') return `Fill Colony nutrition using ${args.method ?? 'coins'}.`
   if (call.function.name === 'call_game_api') return `${args.method} ${args.path}\n${JSON.stringify(args.body ?? {}, null, 2)}`
@@ -348,6 +369,15 @@ function toolResultSummary(result: Record<string, unknown>) {
     const errors = Array.isArray(result.errors) && result.errors.length ? ` · ${result.errors.length} issue(s)` : ''
     return `Collected and fed with ${result.feedMethod}${errors}`
   }
+  if (Array.isArray(result.upgradesStarted) && Array.isArray(result.milestonesClaimed)) {
+    const note = result.upgradeNote ? ` · ${result.upgradeNote}` : ''
+    return `Claimed ${result.milestonesClaimed.length} milestone(s) · Started ${result.upgradesStarted.length} upgrade(s)${note}`
+  }
+  if (Array.isArray(result.lines) && typeof result.total === 'number') {
+    return result.lines.length
+      ? `Sold ${result.lines.length} resource line(s) for ${formatNumber(result.total, false)} coins`
+      : String(result.message ?? 'Nothing to sell')
+  }
   if (result.action === 'buy' && typeof result.cost === 'number') return `Bought ${result.gems} gem(s) for ${formatNumber(result.cost, false)} coins`
   if (result.action === 'sell' && typeof result.revenue === 'number') return `Sold ${result.gems} gem(s) for ${formatNumber(result.revenue, false)} coins`
   if (typeof result.net === 'number') return `Completed · Net ${result.net >= 0 ? '+' : ''}${formatNumber(result.net, false)} coins`
@@ -360,21 +390,15 @@ async function resolveTool(message: AiMessageDto, call: AiToolCall, approved: bo
   activeToolResolutions.value += 1
   streamingContent.value = ''
   try {
+    const conversationId = selectedId.value
     await readAiStream('/api/ai/tools/execute', {
-      conversationId: selectedId.value,
+      conversationId,
       assistantMessageId: message.id,
       toolCallId: call.id,
       approved
     }, (streamEvent) => {
-      if (streamEvent.type === 'assistant_message' && selectedId.value) {
-        void loadMessages(selectedId.value, false)
-      }
-      if (streamEvent.type !== 'tool_result') return
-      streamedToolResults.value = {
-        ...streamedToolResults.value,
-        [streamEvent.toolCallId]: streamEvent.result
-      }
-      if (resolvingToolId.value === streamEvent.toolCallId) resolvingToolId.value = ''
+      void handleStreamEvent(streamEvent, conversationId)
+      if (streamEvent.type === 'tool_result' && resolvingToolId.value === streamEvent.toolCallId) resolvingToolId.value = ''
     })
     await Promise.all([loadMessages(selectedId.value, false), refreshConversations()])
     await fetchSession()
@@ -424,6 +448,12 @@ const starterPrompts = [
     title: 'Redeploy completed Hack Ops',
     description: 'Collect completed missions and send the same agents back to the same operations.',
     prompt: 'Do my Hack Ops dailies: collect every completed operation and redeploy the same agents on the same mission when possible. Summarize cash, gems, items, failures, and new completion times.'
+  },
+  {
+    icon: 'i-lucide-building-2',
+    title: 'Run my Polytown dailies',
+    description: 'Claim finished milestones and put idle builders on the cheapest upgrades the town can afford.',
+    prompt: 'Do my Polytown dailies: claim every completed milestone, then use my idle builders to upgrade the lowest-level connected buildings I can afford. Tell me what was claimed, what started upgrading, and when it finishes.'
   },
   {
     icon: 'i-lucide-chart-no-axes-combined',
@@ -556,7 +586,7 @@ const starterPrompts = [
               <UIcon class="size-7 text-primary" name="i-lucide-bot" />
             </div>
             <h1 class="text-2xl font-semibold">How can I help you play?</h1>
-            <p class="mt-2 max-w-xl text-sm text-muted">Ask about strategies and earnings, check live game state, run idle dailies, or request authenticated game actions.</p>
+            <p class="mt-2 max-w-xl text-sm text-muted">Ask about strategies and earnings, check live game state, run idle dailies, grow your town, or request authenticated game actions.</p>
             <div class="mt-6 grid w-full max-w-5xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <button
                 v-for="example in starterPrompts"
@@ -606,16 +636,16 @@ const starterPrompts = [
                             size="sm"
                             variant="soft"
                           >
-                            {{ toolResult(call.id) ? toolResultSummary(toolResult(call.id)!) : willAutoRun(call) ? 'Running…' : 'Approval required' }}
+                            {{ toolResult(call.id) ? toolResultSummary(toolResult(call.id)!) : willAutoRun(call) && (sending || toolResolutionActive) ? 'Running…' : 'Approval required' }}
                           </UBadge>
                         </div>
                         <p class="mt-1 whitespace-pre-wrap break-words text-sm text-muted">{{ toolDescription(call) }}</p>
-                        <div v-if="!toolResult(call.id) && !willAutoRun(call)" class="mt-3 flex gap-2">
+                        <div v-if="!toolResult(call.id) && (!willAutoRun(call) || !(sending || toolResolutionActive))" class="mt-3 flex gap-2">
                           <UButton
                             :disabled="Boolean(resolvingToolId)"
                             :loading="resolvingToolId === call.id"
                             size="sm"
-                            label="Approve"
+                            :label="willAutoRun(call) ? 'Run now' : 'Approve'"
                             @click="resolveTool(message, call, true)"
                           />
                           <UButton
