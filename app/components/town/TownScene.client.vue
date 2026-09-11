@@ -10,7 +10,7 @@ import { animateTownWater } from '~/utils/town/surfaces'
 import { createTerrainOverlay, createWaterLayer, disposeTerrainOverlay, disposeWaterLayer } from '~/utils/town/terrain'
 import { createRoadParts } from '~/utils/town/roads'
 import { townVisualLevel } from '~/utils/town/appearance'
-import { townDragDelta, townKeyboardDelta, townIsTyping } from '~/utils/town/camera'
+import { townDragDelta, townKeyboardDelta, townIsTyping, townWheelZoomFactor, townSnapTurn } from '~/utils/town/camera'
 import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, townDragLine, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { createBuildingModel, townMaterial } from '~/utils/town/models'
@@ -87,6 +87,12 @@ const props = withDefaults(defineProps<{
     dragValid?: boolean[]
     /** The left button's tool: bulldoze paints demolition instead of panning. */
     tool?: SceneTool
+    /**
+     * Motion-sickness mode. Orthographic view, camera cuts instead of glides,
+     * quarter-turn snaps instead of a free orbit, and no ambient motion (still
+     * water, no smoke, no traffic, no bobbing labels). Off, nothing changes.
+     */
+    reducedMotion?: boolean
 }>(), {
     selectedBuildingId: null,
     ghostType: null,
@@ -161,7 +167,13 @@ function markShadowsDirty() {
 
 let renderer: THREE.WebGLRenderer | null = null
 const scene = new THREE.Scene()
-const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 400)
+const FOV = 38
+const perspectiveCamera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 400)
+// The orthographic camera is framed to match the perspective one at the point
+// it looks at, so switching keeps the same things on screen — only the
+// parallax goes, which is the point for anyone the perspective swim upsets.
+const orthographicCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -200, 400)
+let camera: THREE.PerspectiveCamera | THREE.OrthographicCamera = perspectiveCamera
 const sun = new THREE.DirectionalLight(0xffdfac, 3.1)
 const plotsGroup = new THREE.Group()
 const buildingsGroup = new THREE.Group()
@@ -185,9 +197,32 @@ const camGoal = { ...cam }
 const MIN_DIST = 7
 const MAX_DIST = 70
 
+/** Half the visible height at the focus point — the same for both cameras. */
+function halfViewHeight(dist: number) {
+    return dist * Math.tan(THREE.MathUtils.degToRad(FOV / 2))
+}
+
+let orthoFramedAt = { dist: 0, aspect: 0 }
+function frameOrthographic() {
+    const aspect = viewW / viewH
+    if (orthoFramedAt.dist === cam.dist && orthoFramedAt.aspect === aspect) return
+    orthoFramedAt = { dist: cam.dist, aspect }
+    const h = halfViewHeight(cam.dist)
+    orthographicCamera.left = -h * aspect
+    orthographicCamera.right = h * aspect
+    orthographicCamera.top = h
+    orthographicCamera.bottom = -h
+    orthographicCamera.updateProjectionMatrix()
+}
+
+function syncCameraKind() {
+    camera = props.reducedMotion ? orthographicCamera : perspectiveCamera
+}
+
 let sunAt = { x: Infinity, z: Infinity }
 function applyCamera() {
     const { tx, tz, yaw, pitch, dist } = cam
+    if (camera === orthographicCamera) frameOrthographic()
     camera.position.set(
         tx + dist * Math.cos(pitch) * Math.sin(yaw),
         dist * Math.sin(pitch),
@@ -224,7 +259,7 @@ function recenter(animate = true) {
         const span = Math.max(maxX - minX, maxZ - minZ)
         camGoal.dist = Math.min(MAX_DIST, Math.max(MIN_DIST, span * 1.6 + 8))
     }
-    if (!animate) Object.assign(cam, camGoal)
+    if (!animate || props.reducedMotion) Object.assign(cam, camGoal)
 }
 
 // ─── Lighting & ground ───────────────────────────────────────────────────────
@@ -1558,6 +1593,7 @@ function nextSpawnDelay() {
 
 /** Whether this zone may release another vehicle right now. */
 function zoneMaySpawn(zone: TrafficZone): boolean {
+    if (props.reducedMotion) return false
     if (zone.own) return true
     if (countNeighbourVehicles() >= MAX_NEIGHBOUR_VEHICLES) return false
     return Math.hypot(zone.cx - cam.tx, zone.cz - cam.tz) < TRAFFIC_SPAWN_RANGE + cam.dist * 0.5
@@ -1640,7 +1676,7 @@ const MAX_PARTICLES = 40
 const PARTICLE_DRAW_DISTANCE = 45
 
 function spawn(pos: THREE.Vector3, kind: 'smoke' | 'spark' | 'dust') {
-    if (particles.length >= MAX_PARTICLES || cam.dist > PARTICLE_DRAW_DISTANCE) return
+    if (props.reducedMotion || particles.length >= MAX_PARTICLES || cam.dist > PARTICLE_DRAW_DISTANCE) return
     const mat = kind === 'smoke' ? smokeMat : kind === 'spark' ? sparkMat : dustMat
     const mesh = new THREE.Mesh(puffGeo, mat)
     mesh.position.copy(pos)
@@ -1728,7 +1764,7 @@ function positionOverlays(dt: number) {
             e.bar.style.display = p.visible ? '' : 'none'
         }
         if (e.alert) {
-            const bob = Math.sin(performance.now() / 350 + e.group.position.x) * 0.06
+            const bob = props.reducedMotion ? 0 : Math.sin(performance.now() / 350 + e.group.position.x) * 0.06
             const p = project(e.group.position.x, e.group.position.y + e.modelHeight * e.model.scale.y + 0.3 + bob, e.group.position.z)
             e.alert.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
             e.alert.style.display = p.visible ? '' : 'none'
@@ -1969,7 +2005,7 @@ function local(e: PointerEvent | WheelEvent) {
 }
 
 function groundDelta(dx: number, dy: number) {
-    const unitsPerPixel = 2 * cam.dist * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / viewH
+    const unitsPerPixel = 2 * halfViewHeight(cam.dist) / viewH
     return townDragDelta(dx, dy, cam.yaw, cam.pitch, unitsPerPixel)
 }
 
@@ -1977,10 +2013,21 @@ const movementKeys = new Set<string>()
 const movementCodes = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'])
 /** Radians per second while Q or E is held. */
 const KEY_TURN_RATE = 1.1
+/** One snap turn, for reduced motion: an eighth of a circle. */
+const SNAP_TURN = Math.PI / 4
+/** Pixels of right-drag per snap turn. */
+const SNAP_TURN_PIXELS = 70
+let snapTurnAccumulated = 0
 function onMovementKeyDown(e: KeyboardEvent) {
     if (!props.keyboardEnabled || !visible || e.metaKey || e.ctrlKey || e.altKey || townIsTyping(e.target)) return
     if (!movementCodes.has(e.code)) return
     e.preventDefault()
+    // Reduced motion: Q and E snap a quarter turn per press instead of
+    // sweeping the view while held.
+    if (props.reducedMotion && (e.code === 'KeyQ' || e.code === 'KeyE')) {
+        if (!e.repeat) camGoal.yaw += (e.code === 'KeyQ' ? 1 : -1) * SNAP_TURN
+        return
+    }
     movementKeys.add(e.code)
 }
 function onMovementKeyUp(e: KeyboardEvent) {
@@ -2034,6 +2081,7 @@ function onPointerDown(e: PointerEvent) {
     }
     moved = 0
     last = p
+    snapTurnAccumulated = 0
     dragMode = modeFor(e, p)
     if (dragMode === 'paint') {
         const hit = pick(p.x, p.y)
@@ -2068,7 +2116,7 @@ function onPointerMove(e: PointerEvent) {
         moved = 5
         const [a, b] = [...pointers.values()]
         const d = Math.hypot(a!.x - b!.x, a!.y - b!.y)
-        if (pinch > 0) camGoal.dist = Math.max(MIN_DIST, Math.min(MAX_DIST, camGoal.dist * (pinch / d)))
+        if (pinch > 0) zoomBy(pinch / d, true)
         pinch = d
         return
     }
@@ -2077,14 +2125,32 @@ function onPointerMove(e: PointerEvent) {
         const dy = p.y - last.y
         moved += Math.abs(dx) + Math.abs(dy)
         last = p
+        // A drag moves the view directly, not through the easing: the ground
+        // and the pointer stay glued together, with no lag and no drift after
+        // the button comes up. Easing is kept for the wheel, the keys and
+        // recenter, which have no hand to follow.
         if (dragMode === 'orbit') {
-            camGoal.yaw -= dx * 0.006
-            camGoal.pitch = Math.max(0.35, Math.min(1.35, camGoal.pitch + dy * 0.004))
+            if (props.reducedMotion) {
+                // Snap turns only, and the tilt stays put.
+                snapTurnAccumulated += dx
+                const { steps, remainder } = townSnapTurn(snapTurnAccumulated, SNAP_TURN_PIXELS)
+                snapTurnAccumulated = remainder
+                if (steps) camGoal.yaw -= steps * SNAP_TURN
+                return
+            }
+            const yaw = -dx * 0.006
+            cam.yaw += yaw
+            camGoal.yaw += yaw
+            const pitch = Math.max(0.35, Math.min(1.35, camGoal.pitch + dy * 0.004))
+            cam.pitch += pitch - camGoal.pitch
+            camGoal.pitch = pitch
             return
         }
         if (dragMode === 'pan') {
             if (moved > 4) isPanning.value = true
             const g = groundDelta(dx, dy)
+            cam.tx += g.x
+            cam.tz += g.z
             camGoal.tx += g.x
             camGoal.tz += g.z
             return
@@ -2197,9 +2263,19 @@ function onPointerCancel(e: PointerEvent) {
     isPanning.value = false
 }
 
+/**
+ * Multiply the camera distance. A pinch is a hand on the screen, so it moves
+ * the view directly like a drag; the wheel eases in.
+ */
+function zoomBy(factor: number, direct: boolean) {
+    const next = Math.max(MIN_DIST, Math.min(MAX_DIST, camGoal.dist * factor))
+    if (direct) cam.dist += next - camGoal.dist
+    camGoal.dist = next
+}
+
 function onWheel(e: WheelEvent) {
     e.preventDefault()
-    camGoal.dist = Math.max(MIN_DIST, Math.min(MAX_DIST, camGoal.dist * (1 + Math.sign(e.deltaY) * 0.12)))
+    zoomBy(townWheelZoomFactor(e.deltaY, e.deltaMode), false)
 }
 
 function onLeave() {
@@ -2376,10 +2452,12 @@ function frame(ms: number) {
     lastMs = ms
 
     moveCamera(dt)
-    animateTownWater(ms / 1000)
+    const still = props.reducedMotion
+    if (!still) animateTownWater(ms / 1000)
 
-    // Camera easing.
-    const k = 1 - Math.pow(0.001, dt)
+    // Camera easing — a cut, not a glide, for reduced motion.
+    syncCameraKind()
+    const k = still ? 1 : 1 - Math.pow(0.001, dt)
     cam.tx += (camGoal.tx - cam.tx) * k
     cam.tz += (camGoal.tz - cam.tz) * k
     cam.yaw += (camGoal.yaw - cam.yaw) * k
@@ -2412,6 +2490,7 @@ function frame(ms: number) {
             if (Math.random() < dt * 1.5) spawn(new THREE.Vector3(e.group.position.x + (Math.random() - 0.5) * 0.6, 0.35, e.group.position.z + (Math.random() - 0.5) * 0.6), 'dust')
         }
         let pop = 0
+        if (e.popAt && still) e.popAt = 0
         if (e.popAt) {
             const t = (ms - e.popAt) / 500
             if (t >= 1) {
@@ -2457,7 +2536,7 @@ function frame(ms: number) {
         }
         for (const g of e.glow) {
             const m = g.material as THREE.MeshStandardMaterial
-            m.emissiveIntensity = staffed || def.kind === 'housing' ? 1.1 + Math.sin(ms / 400 + e.group.position.x) * 0.3 : 0.15
+            m.emissiveIntensity = staffed || def.kind === 'housing' ? 1.1 + (still ? 0 : Math.sin(ms / 400 + e.group.position.x) * 0.3) : 0.15
         }
     }
 
@@ -2473,7 +2552,7 @@ function frame(ms: number) {
             spawn(tmp.clone(), 'smoke')
         }
         for (const g of n.glow) {
-            (g.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.1 + Math.sin(ms / 400 + n.x) * 0.3
+            (g.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.1 + (still ? 0 : Math.sin(ms / 400 + n.x) * 0.3)
         }
     }
 
@@ -2484,15 +2563,17 @@ function frame(ms: number) {
     if (sel) {
         ring.visible = true
         ring.position.set(sel.group.position.x, 0.32, sel.group.position.z)
-        const s = 1 + Math.sin(ms / 300) * 0.05
+        const s = still ? 1 : 1 + Math.sin(ms / 300) * 0.05
         ring.scale.set(s, s, s)
     } else {
         ring.visible = false
     }
 
-    for (const c of clouds) {
-        c.position.x += (c.userData.drift as number) * dt
-        if (c.position.x > 120) c.position.x = -120
+    if (!still) {
+        for (const c of clouds) {
+            c.position.x += (c.userData.drift as number) * dt
+            if (c.position.x > 120) c.position.x = -120
+        }
     }
 
     stepTraffic(dt)
@@ -2519,8 +2600,10 @@ function resize() {
     viewW = Math.max(1, Math.round(r.width))
     viewH = Math.max(1, Math.round(r.height))
     renderer.setSize(viewW, viewH, false)
-    camera.aspect = viewW / viewH
-    camera.updateProjectionMatrix()
+    perspectiveCamera.aspect = viewW / viewH
+    perspectiveCamera.updateProjectionMatrix()
+    orthoFramedAt.aspect = 0
+    frameOrthographic()
     refreshCanvasRect()
 }
 

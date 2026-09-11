@@ -19,3 +19,22 @@ export function townKeyboardDelta(right: number, forward: number, yaw: number, d
 export function townIsTyping(target: EventTarget | null) {
     return target instanceof HTMLElement && (!!target.closest('input, textarea, select, [role="textbox"]') || target.isContentEditable)
 }
+
+/**
+ * Turn one wheel event into a zoom factor to multiply the camera distance by.
+ * Proportional to how far the wheel actually moved, so a trackpad's stream of
+ * tiny deltas zooms gently instead of firing a full notch each — and clamped,
+ * so one violent flick cannot throw the camera across its whole range.
+ * Lines and pages (Firefox, some mice) are converted to pixels first.
+ */
+export function townWheelZoomFactor(deltaY: number, deltaMode = 0) {
+    const pixels = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * 100 : deltaY
+    const clamped = Math.max(-60, Math.min(60, pixels))
+    return Math.exp(clamped * 0.0025)
+}
+
+/** Quarter-turn snap: how many 45° steps a dragged distance has crossed, and what is left over. */
+export function townSnapTurn(accumulated: number, pixelsPerStep = 70) {
+    const steps = Math.trunc(accumulated / pixelsPerStep)
+    return { steps, remainder: accumulated - steps * pixelsPerStep }
+}
