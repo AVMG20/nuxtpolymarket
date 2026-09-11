@@ -597,6 +597,10 @@ export async function getWorldView(userId: string, ownPlots: { x: number, y: num
     const minY = Math.min(...ownPlots.map(p => p.y)) - radius
     const maxY = Math.max(...ownPlots.map(p => p.y)) + radius
 
+    // When the cap bites, it is the farthest land that goes, never a random
+    // square in the middle of a neighbour's town.
+    const cx = (minX + maxX) / 2
+    const cy = (minY + maxY) / 2
     const rows = await db.select({
         id: townPlots.id,
         x: townPlots.x,
@@ -612,12 +616,21 @@ export async function getWorldView(userId: string, ownPlots: { x: number, y: num
             gte(townPlots.x, minX), lte(townPlots.x, maxX),
             gte(townPlots.y, minY), lte(townPlots.y, maxY)
         ))
+        .orderBy(sql`greatest(abs(${townPlots.x} - ${cx}), abs(${townPlots.y} - ${cy}))`, townPlots.id)
         .limit(120)
     if (rows.length === 0) return { towns: [], listings: [] }
 
     // Level 0 rows are included: a neighbour's building site, with its scaffold
     // and its clock, is half of what makes the realm look inhabited. Leaving
     // them out meant a plot stayed visibly empty until the moment it finished.
+    //
+    // Every building on those plots comes back — no row cap. The plot cap above
+    // already bounds this at 120 × 64 tiles. A cap here used to be 600, without
+    // an ORDER BY, so Postgres served heap order: an UPDATE writes a fresh tuple
+    // at the end of the heap, which put every building a neighbour had just
+    // moved behind the cut once the realm held more than 600 within range.
+    // Freshly moved blocks vanished from everyone else's map while untouched
+    // rows stayed.
     const rows2 = await db.select({
         plotId: townBuildings.plotId,
         type: townBuildings.type,
@@ -630,7 +643,6 @@ export async function getWorldView(userId: string, ownPlots: { x: number, y: num
     })
         .from(townBuildings)
         .where(inArray(townBuildings.plotId, rows.map(r => r.id)))
-        .limit(600)
     const buildings = rows2.map(b => ({
         plotId: b.plotId,
         type: b.type,

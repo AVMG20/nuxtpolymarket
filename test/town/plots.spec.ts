@@ -18,6 +18,7 @@ import {
     TOWN_PLOT_MAX_LIST_PRICE,
     TOWN_PLOT_MIN_LIST_PRICE,
     TOWN_PLOT_REFUND_SHARE,
+    TOWN_PLOT_SIZE,
     isValidTownListPrice,
     townPlotDistance,
     townPlotPrice,
@@ -652,6 +653,49 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
         it('returns nothing for a mayor with no land', async () => {
             await seedUser(OWNER)
             expect(await getWorldView(OWNER, [])).toEqual({ towns: [], listings: [] })
+        })
+
+        it('still shows a block a neighbour just moved when the realm is crowded', async () => {
+            // More than 600 buildings within range, then a bulk move. The old
+            // building cap had no ORDER BY, so heap order decided which rows
+            // fit — and an UPDATE lands at the end of the heap, which is where
+            // every moved building went.
+            const at = await freeRegion()
+            const [ownPlot] = await townAt(OWNER, [{ x: at.x, y: at.y }])
+            const coords: { x: number, y: number }[] = []
+            for (let i = 1; i <= 11; i++) coords.push({ x: at.x + i, y: at.y })
+            const sellerPlots = await townAt(SELLER, coords, { balance: '0' })
+            const filler = sellerPlots.flatMap(p => Array.from({ length: TOWN_PLOT_SIZE * TOWN_PLOT_SIZE }, (_, i) => ({
+                userId: SELLER,
+                plotId: p.id,
+                type: 'road',
+                tileX: i % TOWN_PLOT_SIZE,
+                tileY: Math.floor(i / TOWN_PLOT_SIZE),
+                level: 1,
+                completesAt: new Date(Date.now() - 60_000)
+            })))
+            await db.insert(townBuildings).values(filler)
+
+            const block = pick(sellerPlots, at.x + 11, at.y)
+            const movers = await db.select({ id: townBuildings.id, tileX: townBuildings.tileX }).from(townBuildings)
+                .where(and(eq(townBuildings.plotId, block.id), eq(townBuildings.tileY, 0)))
+            // Park then re-tile, the way moveBuildings does it, so the rows get
+            // rewritten twice and end up at the tail of the heap.
+            let park = -1
+            for (const m of movers) {
+                await db.update(townBuildings).set({ tileX: park, tileY: park }).where(eq(townBuildings.id, m.id))
+                park--
+            }
+            for (const m of movers) {
+                await db.update(townBuildings).set({ tileX: m.tileX, tileY: 0 }).where(eq(townBuildings.id, m.id))
+            }
+
+            const view = await getWorldView(OWNER, [{ x: ownPlot!.x, y: ownPlot!.y }], 12)
+            const total = view.towns.reduce((n, t) => n + t.buildings.length, 0)
+            expect(total).toBe(filler.length)
+            const seen = view.towns.find(t => t.id === block.id)!
+            expect(seen.buildings.filter(b => b.tileY === 0).map(b => b.tileX).sort((a, b) => a - b))
+                .toEqual(movers.map(m => m.tileX).sort((a, b) => a - b))
         })
     })
 })
