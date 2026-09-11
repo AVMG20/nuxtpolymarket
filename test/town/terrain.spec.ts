@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { townPlots } from '#server/database/schema'
@@ -23,7 +23,7 @@ import {
     type TownSimBuilding,
     type TownTerrainId
 } from '#shared/utils/gamelogic/town'
-import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
+import { SKIP, cleanupUser, lockTownRealm, seedUser } from '../setup/db-helpers'
 
 const T0 = 1_700_000_000_000
 
@@ -250,9 +250,15 @@ describe('terrain through a settle', () => {
 
 describe.skipIf(SKIP)('the plot a town is founded on (database)', () => {
     const owner = `test-town-terrain-${crypto.randomUUID()}`
+    // One shared realm: hold it for this file so a sibling spec cannot plant
+    // or delete plots midway through a test here (db-helpers, lockTownRealm).
+    let releaseRealm: () => Promise<void>
+    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
+
     afterAll(async () => {
         await db.delete(townPlots).where(eq(townPlots.userId, owner))
         await cleanupUser(owner)
+        await releaseRealm()
     })
 
     it('always has something of every terrain on it, and room to build', async () => {

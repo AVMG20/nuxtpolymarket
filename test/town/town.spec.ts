@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, inArray, or } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user, transactions, townState, townPlots, townBuildings, townInventory, townOrders, townProduction, townTrades } from '#server/database/schema'
@@ -43,7 +43,7 @@ import {
     TOWN_MARKET_MIN_PRICE,
     type TownResourceId
 } from '#shared/utils/gamelogic/town'
-import { SKIP, burst, cleanupUser, moveTownToFlatGround, seedUser } from '../setup/db-helpers'
+import { SKIP, burst, cleanupUser, lockTownRealm, moveTownToFlatGround, seedUser } from '../setup/db-helpers'
 
 const OWNER = 'test-town-owner'
 const BUYER = 'test-town-buyer'
@@ -328,9 +328,17 @@ const coins = (n: number) => n.toFixed(4)
 const PURSE = over(5) * 20
 
 describe.skipIf(SKIP)('polytown (database)', () => {
+    // One shared realm: hold it for this file so a sibling spec cannot plant
+    // or delete plots midway through a test here (db-helpers, lockTownRealm).
+    let releaseRealm: () => Promise<void>
+    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
+
     beforeEach(cleanup)
     afterEach(cleanup)
-    afterAll(async () => { await db.$client.end() })
+    afterAll(async () => {
+        await releaseRealm()
+        await db.$client.end()
+    })
 
     describe('foundTown', () => {
         it('creates the town state and hands over the free founding plot', async () => {

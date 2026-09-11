@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { transactions, townState, townPlots, townBuildings, townRealm } from '#server/database/schema'
@@ -25,7 +25,7 @@ import {
     townPlotRefundFor,
     townSpiralCoords
 } from '#shared/utils/gamelogic/town'
-import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
+import { SKIP, burst, cleanupUser, lockTownRealm, seedUser } from '../setup/db-helpers'
 
 const OWNER = 'test-plotmkt-owner'
 const SELLER = 'test-plotmkt-seller'
@@ -201,9 +201,17 @@ async function cleanup() {
 }
 
 describe.skipIf(SKIP)('polytown plot market (database)', () => {
+    // One shared realm: hold it for this file so a sibling spec cannot plant
+    // or delete plots midway through a test here (db-helpers, lockTownRealm).
+    let releaseRealm: () => Promise<void>
+    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
+
     beforeEach(cleanup)
     afterEach(cleanup)
-    afterAll(async () => { await db.$client.end() })
+    afterAll(async () => {
+        await releaseRealm()
+        await db.$client.end()
+    })
 
     describe('foundTown — one shared realm', () => {
         it('leaves TOWN_FOUNDING_GAP empty plots around every new town', async () => {
