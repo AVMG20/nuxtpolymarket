@@ -437,7 +437,10 @@ function rebuildTerrainOverlay() {
  */
 function rebuildWater() {
     disposeWaterLayer(waterGroup)
-    waterGroup.add(...createWaterLayer(props.plots).children)
+    // Neighbours' ponds too: terrain is a function of world coordinates, so
+    // the square next door has the same water whoever owns it, and a slab
+    // drawn dry beside your own pond read as a different realm.
+    waterGroup.add(...createWaterLayer([...props.plots, ...props.neighbours]).children)
     markShadowsDirty()
 }
 
