@@ -98,9 +98,15 @@ describe('townGroupMoveIssue', () => {
         ])).toMatch(/already taken/)
     })
 
-    it('refuses a house whose door would face no road once everything has moved', () => {
+    it('lets a house move away from its road — it stops working, it is not refused', () => {
         const buildings = [road('r', 0, 0), house('h', 0, 1)]
-        expect(townGroupMoveIssue(buildings, [{ id: 'h', wx: 5, wy: 5, rotation: FACES_EDGE_ROAD }])).toMatch(/front door/)
+        expect(townGroupMoveIssue(buildings, [{ id: 'h', wx: 5, wy: 5, rotation: FACES_EDGE_ROAD }])).toBeNull()
+    })
+
+    it('refuses water', () => {
+        let x = 0
+        while (!getTownTerrain(townTerrainAt(x, 0)).blocked) x++
+        expect(townGroupMoveIssue([road('r', 0, 3)], [{ id: 'r', wx: x, wy: 0, rotation: 0 }])).toMatch(/water/)
     })
 
     it('has nothing to say about an empty move', () => {
@@ -276,14 +282,34 @@ describe.skipIf(SKIP)('polytown bulk controls (database)', () => {
             await stock('wheat', 10_000)
             const { placed } = await placeBuildings(OWNER, [
                 { plotId, tileX: 0, tileY: 0, type: 'road', rotation: 0 },
+                { plotId, tileX: 0, tileY: 1, type: 'house', rotation: FACES_EDGE_ROAD },
+                { plotId, tileX: 5, tileY: 5, type: 'road', rotation: 0 }
+            ])
+            const road = placed.find(p => p.type === 'road' && p.tileX === 0)!
+            const house = placed.find(p => p.type === 'house')!
+
+            // The house would land on a road outside the group: nothing moves, not even the street.
+            await expect(moveBuildings(OWNER, [
+                { buildingId: road.buildingId, plotId, tileX: 5, tileY: 4, rotation: 0 },
+                { buildingId: house.buildingId, plotId, tileX: 5, tileY: 5, rotation: FACES_EDGE_ROAD }
+            ])).rejects.toThrow(/already taken/)
+            expect((await own('house'))[0]).toMatchObject({ tileX: 0, tileY: 1 })
+            expect((await own('road')).find(r => r.id === road.buildingId)).toMatchObject({ tileX: 0, tileY: 0 })
+        })
+
+        it('lets a house leave its road; it just goes dark until one reaches it', async () => {
+            const plotId = await foundFor()
+            await stock('wood', 10_000)
+            await stock('stone', 10_000)
+            await stock('wheat', 10_000)
+            const { placed } = await placeBuildings(OWNER, [
+                { plotId, tileX: 0, tileY: 0, type: 'road', rotation: 0 },
                 { plotId, tileX: 0, tileY: 1, type: 'house', rotation: FACES_EDGE_ROAD }
             ])
             const house = placed.find(p => p.type === 'house')!
 
-            // The house alone, away from its road: no front door, so nothing moves.
-            await expect(moveBuildings(OWNER, [{ buildingId: house.buildingId, plotId, tileX: 5, tileY: 5, rotation: FACES_EDGE_ROAD }]))
-                .rejects.toThrow(/front door/)
-            expect((await own('house'))[0]).toMatchObject({ tileX: 0, tileY: 1 })
+            await moveBuildings(OWNER, [{ buildingId: house.buildingId, plotId, tileX: 5, tileY: 5, rotation: FACES_EDGE_ROAD }])
+            expect((await own('house'))[0]).toMatchObject({ tileX: 5, tileY: 5 })
         })
 
         it('refuses a building listed twice, and one that is not there', async () => {

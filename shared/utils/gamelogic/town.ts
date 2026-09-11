@@ -1397,37 +1397,34 @@ export function townDragLine(x0: number, y0: number, x1: number, y1: number): { 
 export interface TownGroupMove { id: string, wx: number, wy: number, rotation: number }
 
 /**
- * Why a whole selection cannot land where it is being dragged, or null.
+ * Why a building, or a whole selection, cannot land where it is being
+ * dragged, or null.
  *
- * The check runs against the layout as it would be *after* the move, not
- * before: a block of houses carrying its own street with it is legal, and a
- * building may take the tile another member of the same group is vacating.
+ * Only the ground is judged: a tile something outside the group stands on,
+ * or water. A move is not held to the front-door rule a fresh build is —
+ * rearranging a street means the houses along it are briefly doorless, and
+ * refusing every intermediate step made moving anything but a workshop a
+ * puzzle. A building put down away from a road simply stops working, and the
+ * "!" it wears says so until a road reaches it.
+ *
+ * A building may take the tile another member of the same group is vacating,
+ * so two of them can swap.
  */
 export function townGroupMoveIssue(buildings: TownSimBuilding[], moves: TownGroupMove[]): string | null {
     if (moves.length === 0) return 'Nothing to move'
     const byId = new Map(buildings.map(b => [b.id, b]))
     const moving = new Set(moves.map(m => m.id))
-    const final: TownSimBuilding[] = []
     const taken = new Set<string>()
     for (const b of buildings) {
         if (moving.has(b.id)) continue
-        final.push(b)
         if (b.wx !== undefined && b.wy !== undefined) taken.add(`${b.wx},${b.wy}`)
     }
     for (const m of moves) {
-        const src = byId.get(m.id)
-        if (!src) return 'Building not found'
+        if (!byId.has(m.id)) return 'Building not found'
         const key = `${m.wx},${m.wy}`
         if (taken.has(key)) return 'That tile is already taken'
         if (getTownTerrain(townTerrainAt(m.wx, m.wy)).blocked) return 'You cannot build on water'
         taken.add(key)
-        final.push({ ...src, wx: m.wx, wy: m.wy, rotation: m.rotation })
-    }
-    for (const m of moves) {
-        const def = getTownBuilding(byId.get(m.id)!.type)
-        if (!def || def.kind === 'road') continue
-        const front = townFrontTile(m.wx, m.wy, m.rotation)
-        if (!townRoadAt(final, front.wx, front.wy)) return 'Needs a road at its front door — rotate with R or bring a road along'
     }
     return null
 }
@@ -1826,7 +1823,7 @@ export function deriveTown(
         .map(b => ({ b, def: BUILDING_BY_ID.get(b.type)!, level: effectiveLevel(b, now) }))
         .sort((a, z) => a.b.createdAt - z.b.createdAt)
 
-    for (const { b, def, level } of built) {
+    for (const { def, level } of built) {
         popCap += (def.popCap + (def.popCap > 0 ? research.popPerHouseLevel : 0)) * level
         happinessTarget += def.happiness * level
         if (def.kind === 'industry') industryTiles++

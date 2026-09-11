@@ -129,8 +129,8 @@ const emit = defineEmits<{
     'drag-tiles': [tiles: SceneTile[]]
     /** A placement drag let go: build on all of these. */
     'place-line': [tiles: SceneTile[]]
-    /** A marquee let go: everything it enclosed, and whether it adds to the selection. */
-    'select-many': [ids: string[], additive: boolean]
+    /** A marquee let go (or a shift-click): what it covers, and what to do with the selection. */
+    'select-many': [ids: string[], mode: 'replace' | 'add' | 'toggle']
     /** A bulldozer drag let go: everything it painted. */
     'bulldoze': [ids: string[]]
 }>()
@@ -880,7 +880,12 @@ function showIssue(text: string | null, x: number, z: number) {
     issueAnchor = { x, z }
 }
 
-function placeGhostAt(x: number, z: number) {
+/**
+ * Put the ghost on (x, z). During a paint drag the tint follows the verdict on
+ * the run's last tile, and the issue label stays down: the pads on the ground
+ * are the authority then, and a single-tile message would contradict them.
+ */
+function placeGhostAt(x: number, z: number, painting = false) {
     if (ghost) {
         ghost.visible = true
         ghost.position.set(x + 0.5, 0.3, z + 0.5)
@@ -896,8 +901,13 @@ function placeGhostAt(x: number, z: number) {
     } else {
         frontMarker.visible = false
     }
-    tintGhost(!props.ghostIssue)
-    showIssue(props.ghostIssue, x + 0.5, z + 0.5)
+    if (painting) {
+        tintGhost(props.dragValid[paintTiles.length - 1] !== false)
+        showIssue(null, 0, 0)
+    } else {
+        tintGhost(!props.ghostIssue)
+        showIssue(props.ghostIssue, x + 0.5, z + 0.5)
+    }
 }
 
 function hideGhost() {
@@ -1062,6 +1072,8 @@ const moveGhostGroup = new THREE.Group()
 buildingsGroup.add(moveGhostGroup)
 let moveGhostMats: THREE.MeshStandardMaterial[] = []
 let moveGhostItems: { holder: THREE.Object3D, dx: number, dy: number }[] = []
+/** Last tile the block hovered, so a rebuild (a rotate) can put it straight back. */
+let moveGhostAnchor: { wx: number, wy: number } | null = null
 
 function disposeMoveGhosts() {
     for (const m of moveGhostMats) m.dispose()
@@ -1099,6 +1111,7 @@ function rebuildMoveGhosts() {
     }
     tintMoveGhosts(!props.moveIssue)
     moveGhostGroup.visible = false
+    if (moveGhostAnchor) placeMoveGhostsAt(moveGhostAnchor.wx, moveGhostAnchor.wy)
 }
 
 function tintMoveGhosts(ok: boolean) {
@@ -1110,6 +1123,7 @@ function tintMoveGhosts(ok: boolean) {
 
 function placeMoveGhostsAt(wx: number, wy: number) {
     if (moveGhostItems.length === 0) return
+    moveGhostAnchor = { wx, wy }
     moveGhostGroup.visible = true
     for (const item of moveGhostItems) item.holder.position.set(wx + item.dx + 0.5, 0.3, wy + item.dy + 0.5)
     tintMoveGhosts(!props.moveIssue)
@@ -1118,6 +1132,7 @@ function placeMoveGhostsAt(wx: number, wy: number) {
 
 function hideMoveGhosts() {
     moveGhostGroup.visible = false
+    moveGhostAnchor = null
     if (props.moveGhosts?.length) hidePads()
 }
 
@@ -1824,10 +1839,13 @@ function tileOccupied(tile: TileRef) {
 
 /**
  * What the left button is doing for the length of one press. A city builder
- * lives or dies on this: dragging paints a street, shift-dragging rubber-bands
- * a selection, the bulldozer wipes a row, and everything else pans the map.
+ * lives or dies on this: dragging rubber-bands a selection, dragging with a
+ * ghost paints a street, the bulldozer wipes a row, and a carried block rides
+ * the cursor until it is let go. The left button never pans — WASD and the
+ * middle button do that — so a selection is never one slip away from a scroll.
+ * A finger has no keyboard, so touch keeps the one-finger pan.
  */
-type DragMode = 'none' | 'pan' | 'orbit' | 'paint' | 'marquee' | 'bulldoze'
+type DragMode = 'none' | 'pan' | 'orbit' | 'paint' | 'marquee' | 'bulldoze' | 'carry'
 let dragMode: DragMode = 'none'
 let moved = 0
 let last = { x: 0, y: 0 }
@@ -1837,6 +1855,8 @@ const isPanning = ref(false)
 
 /** Where a placement drag started, and the tiles it has painted since. */
 let paintStart: SceneTile | null = null
+/** The building the drag began on, if any — a click that never moves still selects it. */
+let paintStartBuilding: string | null = null
 let paintTiles: SceneTile[] = []
 let paintKey = ''
 /** Buildings a bulldozer drag has swept over. */
@@ -1889,6 +1909,21 @@ function paintLine(to: SceneTile): SceneTile[] {
     return out
 }
 
+/** The tile an own building stands on. */
+function tileOfEntry(e: BuildingEntry): SceneTile {
+    return { plotId: e.data.plotId, tileX: e.data.tileX, tileY: e.data.tileY, wx: Math.floor(e.group.position.x), wy: Math.floor(e.group.position.z) }
+}
+
+/** The own tile under a pick, whether the ray hit the ground or a building standing on it. */
+function tileUnder(hit: Pick): SceneTile | null {
+    if (hit?.kind === 'tile') return { ...hit.tile, wx: hit.x, wy: hit.z }
+    if (hit?.kind === 'building') {
+        const e = entries.get(hit.id)
+        return e ? tileOfEntry(e) : null
+    }
+    return null
+}
+
 /** The owned tile at a world position, or null when the drag has run off the plots. */
 function tileAtWorld(wx: number, wy: number): SceneTile | null {
     for (const p of props.plots) {
@@ -1913,6 +1948,7 @@ function setPaintTiles(tiles: SceneTile[]) {
 
 function endPaint() {
     paintStart = null
+    paintStartBuilding = null
     paintTiles = []
     paintKey = ''
     hidePads()
@@ -1971,15 +2007,18 @@ function moveCamera(dt: number) {
 function modeFor(e: PointerEvent, at: { x: number, y: number }): DragMode {
     if (e.button === 2) return 'orbit'
     if (e.button === 1) return 'pan'
+    if (e.pointerType === 'touch') return 'pan'
     if (props.tool === 'bulldoze') return 'bulldoze'
-    if (e.shiftKey) return 'marquee'
-    // A ghost turns the left button into a brush, but only over your own land —
-    // dragging from the sky still pans, so the camera never gets stuck.
-    if (ghost && !props.moveGhosts?.length && !props.movingId) {
+    // A block on the cursor is dropped where the button comes up, however far
+    // the pointer wandered on the way: a slip must not throw the selection away.
+    if (props.moveGhosts?.length) return 'carry'
+    // A ghost turns the left button into a brush over your own land. A building
+    // counts as land: a street is extended by dragging from its end.
+    if (ghost && !props.movingId) {
         const hit = pick(at.x, at.y)
-        if (hit?.kind === 'tile') return 'paint'
+        if (hit?.kind === 'tile' || hit?.kind === 'building') return 'paint'
     }
-    return 'pan'
+    return 'marquee'
 }
 
 function onPointerDown(e: PointerEvent) {
@@ -1998,14 +2037,12 @@ function onPointerDown(e: PointerEvent) {
     dragMode = modeFor(e, p)
     if (dragMode === 'paint') {
         const hit = pick(p.x, p.y)
-        if (hit?.kind === 'tile') {
-            paintStart = { ...hit.tile, wx: hit.x, wy: hit.z }
-            setPaintTiles([paintStart])
-        }
+        paintStart = tileUnder(hit)
+        paintStartBuilding = hit?.kind === 'building' ? hit.id : null
+        if (paintStart) setPaintTiles([paintStart])
     } else if (dragMode === 'marquee') {
         marqueeStart = p
         marqueeIds.clear()
-        showMarquee(p.x, p.y, p.x, p.y)
     } else if (dragMode === 'bulldoze') {
         bulldozeIds.clear()
         const hit = pick(p.x, p.y)
@@ -2053,18 +2090,27 @@ function onPointerMove(e: PointerEvent) {
             return
         }
         if (dragMode === 'paint') {
-            const hit = pick(p.x, p.y)
-            if (hit?.kind === 'tile') {
-                const tiles = paintLine({ ...hit.tile, wx: hit.x, wy: hit.z })
+            const to = tileUnder(pick(p.x, p.y))
+            if (to) {
+                const tiles = paintLine(to)
                 setPaintTiles(tiles)
-                placeGhostAt(hit.x, hit.z)
+                setHoverTile(to)
+                placeGhostAt(to.wx, to.wy, true)
             }
             return
         }
         if (dragMode === 'marquee') {
-            showMarquee(marqueeStart.x, marqueeStart.y, p.x, p.y)
-            marqueeIds.clear()
-            for (const id of buildingsInBox(marqueeStart.x, marqueeStart.y, p.x, p.y)) marqueeIds.add(id)
+            // A band only opens once the pointer has really moved, so a click
+            // that wobbles a pixel does not flash a box.
+            if (moved > 4) {
+                showMarquee(marqueeStart.x, marqueeStart.y, p.x, p.y)
+                marqueeIds.clear()
+                for (const id of buildingsInBox(marqueeStart.x, marqueeStart.y, p.x, p.y)) marqueeIds.add(id)
+            }
+            return
+        }
+        if (dragMode === 'carry') {
+            updateHover(p.x, p.y)
             return
         }
         if (dragMode === 'bulldoze') {
@@ -2082,7 +2128,7 @@ function onPointerUp(e: PointerEvent) {
     const p = local(e)
     pointers.delete(e.pointerId)
     const mode = dragMode
-    const wasClick = mode !== 'none' && mode !== 'orbit' && pointers.size === 0 && moved <= 4 && e.button === 0
+    const wasClick = mode !== 'none' && mode !== 'orbit' && pointers.size === 0 && (moved <= 4 || mode === 'carry') && e.button === 0
     dragMode = 'none'
     isPanning.value = false
     pinch = 0
@@ -2091,9 +2137,15 @@ function onPointerUp(e: PointerEvent) {
         hideMarquee()
         const ids = buildingsInBox(marqueeStart.x, marqueeStart.y, p.x, p.y)
         marqueeIds.clear()
-        // A band that never opened is a shift-click: leave the selection alone.
-        if (moved > 4) emit('select-many', ids, e.ctrlKey || e.metaKey)
-        return
+        // Shift or ctrl held: the band adds to what is already selected.
+        if (moved > 4) { emit('select-many', ids, e.shiftKey || e.ctrlKey || e.metaKey ? 'add' : 'replace'); return }
+        // A band that never opened is a click. With shift down it toggles the
+        // one building under it; otherwise it is the ordinary click below.
+        if (e.shiftKey) {
+            const hit = pick(p.x, p.y)
+            if (hit?.kind === 'building') emit('select-many', [hit.id], 'toggle')
+            return
+        }
     }
     if (mode === 'bulldoze') {
         const ids = [...bulldozeIds]
@@ -2104,10 +2156,13 @@ function onPointerUp(e: PointerEvent) {
     }
     if (mode === 'paint') {
         const tiles = paintTiles
+        const startedOn = paintStartBuilding
         endPaint()
         // One tile and no movement is an ordinary click: keep the old path, which
-        // is what auto-facing and a single relocation both hang off.
+        // is what auto-facing and a single relocation both hang off — and a click
+        // on a building still opens its card, brush or no brush.
         if (tiles.length > 1) { emit('place-line', tiles); return }
+        if (startedOn) { emit('select-building', startedOn); return }
         if (tiles.length === 1) { emit('select-tile', tiles[0]!); return }
     }
     if (!wasClick) return
@@ -2196,19 +2251,15 @@ function updateHover(sx: number, sy: number) {
         setHoverBuilding(null)
         setHoverSlot(null)
         hoverTile.visible = false
-        const target = hit?.kind === 'tile'
-            ? { wx: hit.x, wy: hit.z, tile: hit.tile }
-            : hit?.kind === 'building'
-                ? (() => { const e = entries.get(hit.id); return e ? { wx: Math.floor(e.group.position.x), wy: Math.floor(e.group.position.z), tile: { plotId: e.data.plotId, tileX: e.data.tileX, tileY: e.data.tileY } } : null })()
-                : null
+        const target = tileUnder(hit)
         if (target) {
-            setHoverTile({ ...target.tile, wx: target.wx, wy: target.wy })
+            setHoverTile(target)
             placeMoveGhostsAt(target.wx, target.wy)
             canvas.value!.style.cursor = props.moveIssue ? 'not-allowed' : 'move'
         } else {
             setHoverTile(null)
             hideMoveGhosts()
-            canvas.value!.style.cursor = 'grab'
+            canvas.value!.style.cursor = 'default'
         }
         return
     }
@@ -2294,7 +2345,7 @@ function updateHover(sx: number, sy: number) {
         canvas.value!.style.cursor = 'default'
         return
     }
-    canvas.value!.style.cursor = 'grab'
+    canvas.value!.style.cursor = 'default'
 }
 
 // ─── Frame loop ──────────────────────────────────────────────────────────────
@@ -2597,6 +2648,7 @@ watch(() => props.ghostRotation, (value) => {
 watch(() => props.ghostIssue, () => { if (ghost?.visible) placeGhostAt(Math.floor(ghost.position.x), Math.floor(ghost.position.z)) })
 watch(() => props.movingId, () => { for (const e of entries.values()) e.group.visible = !isBeingMoved(e.data.id) })
 watch(() => props.moveGhosts, () => {
+    if (!props.moveGhosts?.length) moveGhostAnchor = null
     rebuildMoveGhosts()
     for (const e of entries.values()) e.group.visible = !isBeingMoved(e.data.id)
     if (!props.moveGhosts?.length) hidePads()
@@ -2604,8 +2656,10 @@ watch(() => props.moveGhosts, () => {
 }, { deep: true })
 watch(() => props.moveIssue, () => tintMoveGhosts(!props.moveIssue))
 watch(() => props.dragValid, () => {
-    if (paintTiles.length) showPads(paintTiles, i => props.dragValid[i] !== false)
-}, { deep: true })
+    if (!paintTiles.length) return
+    showPads(paintTiles, i => props.dragValid[i] !== false)
+    if (ghost?.visible) tintGhost(props.dragValid[paintTiles.length - 1] !== false)
+})
 watch(() => props.tool, () => {
     if (props.tool !== 'bulldoze') { bulldozeIds.clear(); hidePads() }
     setHoverBuilding(null)
@@ -2622,7 +2676,7 @@ defineExpose({ recenter: () => recenter(true), setResourceEmoji: (map: Record<st
         <canvas
             ref="canvas"
             tabindex="0"
-            aria-label="Town view. WASD to move, Q and E to turn, drag to pan, right-drag to orbit, scroll to zoom."
+            aria-label="Town view. WASD to move, Q and E to turn, drag to select, middle-drag to pan, right-drag to orbit, scroll to zoom."
             class="block h-full w-full touch-none"
             :class="isPanning ? 'cursor-grabbing' : ''"
             @pointerdown="onPointerDown"

@@ -605,14 +605,13 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await getBalance(OWNER)).toBe('100000.0000')
         })
 
-        it('will not drop a building where there is no road to face', async () => {
+        it('drops a building where there is no road to face — it goes dark, it is not refused', async () => {
             const plotId = await foundFor(OWNER, { balance: '100000.0000' })
             await seedRoad(OWNER, plotId, 0)
             const farm = await seedBuilding(OWNER, plotId, 'farm', 0, 1, { tileY: 1, rotation: FACES_EDGE_ROAD })
 
-            await expect(moveBuilding(OWNER, farm.id, plotId, 4, 4, 0)).rejects.toThrow(/front door/)
-            // Still where it was.
-            expect((await buildingsTyped(OWNER, 'farm'))[0]!.tileX).toBe(0)
+            await moveBuilding(OWNER, farm.id, plotId, 4, 4, 0)
+            expect((await buildingsTyped(OWNER, 'farm'))[0]).toMatchObject({ tileX: 4, tileY: 4 })
         })
 
         it('moves a building that is still going up without touching its clock', async () => {

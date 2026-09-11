@@ -22,13 +22,11 @@ import {
     townPlotCooldownMs,
     townPlotPrice,
     townPlotRefundFor,
-    townPlotDistance,
     isValidTownListPrice,
     TOWN_FOUNDING_GAP,
     townSpiralCoords,
     townPlotIsFlat,
     townFloorPrice,
-    TOWN_NO_RESEARCH,
     type TownResearchBonus,
     townCeilingPrice,
     TOWN_MAX_ORDER_PRICE,
@@ -843,10 +841,10 @@ export interface TownRelocation { buildingId: string, plotId: string, tileX: num
  *
  * A move is free and never touches the clock, so a building still going up (or
  * upgrading) travels with the rest of its block — the crew follows the site.
- * Validity is judged on the layout the move would leave behind, so a selection
- * carrying its own street with it stays legal and two buildings may swap tiles.
- * Moving a road may still cut other buildings off; they simply stop working
- * until reconnected, which the "!" on the map already says.
+ * Only the ground is checked (occupied, water), so two buildings may swap
+ * tiles and a block may carry its own street. A move may leave a building —
+ * the moved one, or one whose road went — without a front door; it simply
+ * stops working until a road reaches it, which the "!" on the map already says.
  */
 export async function moveBuildings(userId: string, moves: TownRelocation[]) {
     if (moves.length === 0) throw createError({ statusCode: 400, statusMessage: 'Nothing to move' })
