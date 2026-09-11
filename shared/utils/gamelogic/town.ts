@@ -1366,6 +1366,69 @@ export function townPlacementIssue(buildings: TownSimBuilding[], def: TownBuildi
     return null
 }
 
+/** The most tiles one drag can paint, so a wild swipe cannot ask for a thousand buildings. */
+export const TOWN_MAX_DRAG_TILES = 64
+
+/**
+ * Tiles a drag from one tile to another covers: an L, the longer axis first,
+ * which is how a road drag behaves in every city builder. Start and end are
+ * both included, and the run is capped at TOWN_MAX_DRAG_TILES.
+ */
+export function townDragLine(x0: number, y0: number, x1: number, y1: number): { wx: number, wy: number }[] {
+    const out: { wx: number, wy: number }[] = []
+    const dx = x1 - x0
+    const dy = y1 - y0
+    const stepX = Math.sign(dx)
+    const stepY = Math.sign(dy)
+    const push = (wx: number, wy: number) => { if (out.length < TOWN_MAX_DRAG_TILES) out.push({ wx, wy }) }
+    if (Math.abs(dx) >= Math.abs(dy)) {
+        for (let x = x0; x !== x1 + stepX && stepX !== 0; x += stepX) push(x, y0)
+        if (stepX === 0) push(x0, y0)
+        for (let y = y0 + stepY; y !== y1 + stepY && stepY !== 0; y += stepY) push(x1, y)
+    } else {
+        for (let y = y0; y !== y1 + stepY && stepY !== 0; y += stepY) push(x0, y)
+        if (stepY === 0) push(x0, y0)
+        for (let x = x0 + stepX; x !== x1 + stepX && stepX !== 0; x += stepX) push(x, y1)
+    }
+    return out
+}
+
+/** One building's destination in a group move: where it lands and which way it ends up facing. */
+export interface TownGroupMove { id: string, wx: number, wy: number, rotation: number }
+
+/**
+ * Why a building, or a whole selection, cannot land where it is being
+ * dragged, or null.
+ *
+ * Only the ground is judged: a tile something outside the group stands on,
+ * or water. A move is not held to the front-door rule a fresh build is —
+ * rearranging a street means the houses along it are briefly doorless, and
+ * refusing every intermediate step made moving anything but a workshop a
+ * puzzle. A building put down away from a road simply stops working, and the
+ * "!" it wears says so until a road reaches it.
+ *
+ * A building may take the tile another member of the same group is vacating,
+ * so two of them can swap.
+ */
+export function townGroupMoveIssue(buildings: TownSimBuilding[], moves: TownGroupMove[]): string | null {
+    if (moves.length === 0) return 'Nothing to move'
+    const byId = new Map(buildings.map(b => [b.id, b]))
+    const moving = new Set(moves.map(m => m.id))
+    const taken = new Set<string>()
+    for (const b of buildings) {
+        if (moving.has(b.id)) continue
+        if (b.wx !== undefined && b.wy !== undefined) taken.add(`${b.wx},${b.wy}`)
+    }
+    for (const m of moves) {
+        if (!byId.has(m.id)) return 'Building not found'
+        const key = `${m.wx},${m.wy}`
+        if (taken.has(key)) return 'That tile is already taken'
+        if (getTownTerrain(townTerrainAt(m.wx, m.wy)).blocked) return 'You cannot build on water'
+        taken.add(key)
+    }
+    return null
+}
+
 /**
  * Does this building have a road at its front door? Roads always do; buildings
  * without world coordinates (unit tests, legacy rows) are treated as connected.
@@ -1760,7 +1823,7 @@ export function deriveTown(
         .map(b => ({ b, def: BUILDING_BY_ID.get(b.type)!, level: effectiveLevel(b, now) }))
         .sort((a, z) => a.b.createdAt - z.b.createdAt)
 
-    for (const { b, def, level } of built) {
+    for (const { def, level } of built) {
         popCap += (def.popCap + (def.popCap > 0 ? research.popPerHouseLevel : 0)) * level
         happinessTarget += def.happiness * level
         if (def.kind === 'industry') industryTiles++
