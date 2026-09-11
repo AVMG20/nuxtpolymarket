@@ -1485,8 +1485,11 @@ describe.skipIf(SKIP)('polytown (database)', () => {
 
             expect(market.floor).toBe(townFloorPrice('wheat'))
             expect(market.ceiling).toBe(townCeilingPrice('wheat'))
-            expect(market.bids).toEqual([{ price: over(1), quantity: 5 }, { price: over(0), quantity: 4 }])
-            expect(market.asks).toEqual([{ price: over(10), quantity: 6 }])
+            expect(market.bids).toMatchObject([{ price: over(1), quantity: 5 }, { price: over(0), quantity: 4 }])
+            expect(market.asks).toMatchObject([{ price: over(10), quantity: 6 }])
+            // Each level names who is behind it, and flags the caller's own share.
+            expect(market.bids[0]!.players).toEqual([{ id: BUYER, name: 'concurrency test user', image: null, quantity: 5, mine: true }])
+            expect(market.asks[0]!.players).toEqual([{ id: SELLER, name: 'concurrency test user', image: null, quantity: 6, mine: false }])
             expect(market.myOrders).toHaveLength(3)
             expect(market.myOrders.every(o => o.side === 'buy')).toBe(true)
 
@@ -1496,7 +1499,8 @@ describe.skipIf(SKIP)('polytown (database)', () => {
 
             const anonymous = await getTownMarket('wheat', null)
             expect(anonymous.myOrders).toEqual([])
-            expect(anonymous.bids).toEqual(market.bids)
+            expect(anonymous.bids).toMatchObject([{ price: over(1), quantity: 5 }, { price: over(0), quantity: 4 }])
+            expect(anonymous.bids.every(l => l.players.every(p => !p.mine))).toBe(true)
         })
 
         it('records the trade history a fill produces', async () => {

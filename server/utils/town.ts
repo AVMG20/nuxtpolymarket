@@ -1503,9 +1503,20 @@ export async function cancelTownOrder(userId: string, orderId: string) {
     })
 }
 
+/** One mayor's share of a price level. `mine` lets the client mark the caller's own offers. */
+export interface TownBookPlayer {
+    id: string
+    name: string
+    image: string | null
+    quantity: number
+    mine: boolean
+}
+
 export interface TownBookLevel {
     price: number
     quantity: number
+    /** Who is behind the level, biggest share first. */
+    players: TownBookPlayer[]
 }
 
 export async function getTownMarket(resource: string, userId: string | null) {
@@ -1514,19 +1525,30 @@ export async function getTownMarket(resource: string, userId: string | null) {
     const open = await db.select({
         side: townOrders.side,
         price: townOrders.price,
+        userId: townOrders.userId,
+        userName: user.name,
+        userImage: user.image,
         remaining: sql<number>`${townOrders.quantity} - ${townOrders.filled}`.mapWith(Number)
     })
         .from(townOrders)
+        .innerJoin(user, eq(user.id, townOrders.userId))
         .where(and(eq(townOrders.resource, resource), eq(townOrders.status, 'open')))
 
     const agg = (side: 'buy' | 'sell') => {
-        const map = new Map<number, number>()
+        const map = new Map<number, Map<string, TownBookPlayer>>()
         for (const row of open) {
             if (row.side !== side) continue
             const price = parseFloat(row.price)
-            map.set(price, (map.get(price) ?? 0) + row.remaining)
+            let level = map.get(price)
+            if (!level) map.set(price, level = new Map())
+            const p = level.get(row.userId)
+            if (p) p.quantity += row.remaining
+            else level.set(row.userId, { id: row.userId, name: row.userName, image: row.userImage, quantity: row.remaining, mine: row.userId === userId })
         }
-        const levels: TownBookLevel[] = [...map.entries()].map(([price, quantity]) => ({ price, quantity }))
+        const levels: TownBookLevel[] = [...map.entries()].map(([price, players]) => {
+            const list = [...players.values()].sort((a, b) => b.quantity - a.quantity)
+            return { price, quantity: list.reduce((n, p) => n + p.quantity, 0), players: list }
+        })
         levels.sort((a, b) => side === 'buy' ? b.price - a.price : a.price - b.price)
         return levels.slice(0, TOWN_MARKET_BOOK_DEPTH)
     }
