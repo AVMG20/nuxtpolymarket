@@ -1,4 +1,4 @@
-import type { Container, Graphics, Sprite } from 'pixi.js'
+import type { Container, Graphics } from 'pixi.js'
 import type { PirateAbilityId, PiratePowerUpDefinition, PiratePowerUpId, PirateEnemyTier } from '#shared/utils/gamelogic/pirates'
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ export interface ShipVisual {
     root: Container
     hull: Container
     body: Container
-    sprite?: Sprite
+    cannons: { mount: Container, barrel: Graphics, slotIndex: number, recoil: number }[]
     sails: Graphics[]
     flashOverlay: Graphics
     phase: number

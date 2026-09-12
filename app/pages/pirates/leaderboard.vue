@@ -15,17 +15,7 @@ const rankStyles = [
 
 <template>
   <UContainer class="space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="flex items-center gap-2 text-2xl font-bold">
-          <UIcon name="i-lucide-trophy" class="size-6 text-warning" />
-          Pirate Raid Hall of Captains
-        </h1>
-        <p class="mt-0.5 text-sm text-muted">
-          Ranked by the highest six-minute difficulty completed. Failed and abandoned voyages never enter the board.
-        </p>
-      </div>
-    </div>
+    <PiratesPageHeader icon="i-lucide-trophy" kicker="Renown" title="Hall of Captains" subtitle="Highest difficulty completed. Only full voyages count." />
 
     <LeaderboardSkeleton v-if="pending" height="h-28" />
 
@@ -81,7 +71,7 @@ const rankStyles = [
           No captains have returned yet
         </p>
         <p class="mt-1 text-sm text-muted">
-          Complete all six minutes at difficulty 0 to claim the first place on the board.
+          Finish a full voyage to claim first place.
         </p>
         <UButton class="mt-4" to="/pirates" icon="i-lucide-anchor" label="Set Sail" />
       </div>
