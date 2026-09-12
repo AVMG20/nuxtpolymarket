@@ -618,6 +618,37 @@ function selRate(perLevel: number) {
     if (!b) return '0'
     return ioRate(perLevel * b.level * (b.throughput ?? 1), selUnit.value)
 }
+/** Hovering Upgrade swaps the cost for what the next level changes. */
+const previewUpgrade = ref(false)
+/** Before → after for the next level, at today's staffing and supply. */
+const selUpgradePreview = computed(() => {
+    const b = selectedBuilding.value
+    const e = selectedEntry.value
+    if (!b || !e || e.kind === 'road') return []
+    const next = b.level + 1
+    const rows: { id?: string, ico?: string, label: string, from: string, to: string, up: boolean, tip?: string }[] = []
+    if (e.kind === 'industry') {
+        const rate = (q: number, level: number) => ioRate(q * level * (b.throughput ?? 1), selUnit.value)
+        for (const [id, q] of Object.entries(e.outputs)) {
+            rows.push({ id, label: '', from: `+${rate(q, b.level)}`, to: `+${rate(q, next)}`, up: true, tip: town.resourceById.value.get(id)?.name })
+        }
+        for (const [id, q] of Object.entries(e.inputs)) {
+            rows.push({ id, label: '', from: `−${rate(q, b.level)}`, to: `−${rate(q, next)}`, up: false, tip: town.resourceById.value.get(id)?.name })
+        }
+    } else if (e.kind === 'housing') {
+        rows.push({ ico: '👥', label: 'residents', from: String(e.popCap * b.level), to: String(e.popCap * next), up: true })
+    } else if (e.kind === 'civic') {
+        rows.push({ ico: '😊', label: 'happiness', from: `+${e.happiness * b.level}`, to: `+${e.happiness * next}`, up: true })
+    } else if (e.kind === 'storage') {
+        rows.push({ ico: '📦', label: 'storage', from: formatNumber(e.storage * b.level), to: formatNumber(e.storage * next), up: true })
+    }
+    if (selDef.value) {
+        const want = townWorkersFor(selDef.value, b.level)
+        const wantNext = townWorkersFor(selDef.value, next)
+        if (wantNext !== want) rows.push({ ico: '👥', label: 'wanted', from: String(want), to: String(wantNext), up: false, tip: 'Residents it will want. Short-handed buildings run slower.' })
+    }
+    return rows
+})
 /** The supply tag's tooltip: the rule once, then a line per input good. */
 const selSupplyTitle = computed(() => {
     const s = selSupply.value
@@ -1391,11 +1422,11 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <div v-if="selWorkersWanted > 0" class="meters">
                                 <div class="meter" :data-tip="selWorkersTitle">
                                     <span class="meter-ico">👥</span>
-                                    <span class="meter-label">Workers</span>
+                                    <span class="meter-label">Workers <em class="meter-want">{{ selWorkersWanted }}</em></span>
                                     <span class="meter-bar"><i :class="barClass(selectedBuilding.staffing ?? 0)" :style="{ width: `${Math.round((selectedBuilding.staffing ?? 0) * 100)}%` }" /></span>
                                     <b class="meter-value">{{ Math.round((selectedBuilding.staffing ?? 0) * 100) }}%</b>
                                 </div>
-                                <div v-if="selSupply" class="meter" :data-tip="selSupplyTitle">
+                                <div v-if="selSupply && selectedEntry.kind === 'industry' && Object.keys(selectedEntry.inputs).length" class="meter" :data-tip="selSupplyTitle">
                                     <span class="meter-ico">🚚</span>
                                     <span class="meter-label">Supply</span>
                                     <span class="meter-bar"><i :class="barClass(selSupply.ratio)" :style="{ width: `${Math.round(selSupply.ratio * 100)}%` }" /></span>
@@ -1431,7 +1462,21 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <!-- Upgrade -->
                             <template v-if="selCanUpgrade && selectedEntry.kind !== 'road'">
                                 <div class="upgrade">
-                                    <div class="upgrade-info">
+                                    <div v-if="previewUpgrade && selUpgradePreview.length" class="upgrade-info upgrade-preview">
+                                        <div class="upgrade-head">
+                                            <b>Level {{ selectedBuilding.level }} → {{ selNextLevel }}</b>
+                                            <span class="opacity-55">{{ selectedEntry.kind === 'industry' ? `per ${selUnit === 'day' ? 'day' : 'hour'}` : '' }}</span>
+                                        </div>
+                                        <div class="upgrade-cost">
+                                            <span v-for="(r, i) in selUpgradePreview" :key="i" :data-tip="r.tip">
+                                                <TownAsset v-if="r.id" :id="r.id" /><template v-else>{{ r.ico }}</template>
+                                                <s class="preview-from">{{ r.from }}</s>
+                                                <b :class="r.up ? 'preview-up' : 'preview-more'">{{ r.to }}</b>
+                                                <em v-if="!r.id" class="preview-label">{{ r.label }}</em>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div v-else class="upgrade-info">
                                         <div class="upgrade-head">
                                             <b>Level {{ selNextLevel }}</b>
                                             <span class="opacity-55">⏱ {{ formatTownDuration(selUpgradeMs) }}</span>
@@ -1441,7 +1486,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                             <span v-for="[id, q] in Object.entries(selUpgradeCost.resources)" :key="id" :class="(town.inventory.value[id] ?? 0) >= q ? '' : 'bad'"><TownAsset :id="id" /> {{ formatNumber(q) }}</span>
                                         </div>
                                     </div>
-                                    <button class="g-btn g-btn-primary upgrade-go" :disabled="busy || !canAfford(selUpgradeCost)" :data-tip="buildersFree === 0 ? 'Every builder is on a job — click to free one.' : canAfford(selUpgradeCost) ? undefined : 'You are short on what is marked red.'" @click="upgradeSelected">
+                                    <button class="g-btn g-btn-primary upgrade-go" :disabled="busy || !canAfford(selUpgradeCost)" :data-tip="buildersFree === 0 ? 'Every builder is on a job — click to free one.' : canAfford(selUpgradeCost) ? undefined : 'You are short on what is marked red.'" @mouseenter="previewUpgrade = true" @mouseleave="previewUpgrade = false" @focus="previewUpgrade = true" @blur="previewUpgrade = false" @click="upgradeSelected">
                                         ⬆ {{ buildersFree === 0 ? 'No builder' : 'Upgrade' }}
                                     </button>
                                 </div>
@@ -2011,9 +2056,10 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
 /* The two things that throttle a workshop, side by side. */
 .meters { display: flex; flex-direction: column; gap: 5px; }
-.meter { display: grid; grid-template-columns: 18px 62px 1fr 40px; align-items: center; gap: 8px; font-size: 12px; cursor: help; }
+.meter { display: grid; grid-template-columns: 18px 84px 1fr 40px; align-items: center; gap: 8px; font-size: 12px; cursor: help; }
 .meter-ico { font-size: 14px; line-height: 1; }
-.meter-label { opacity: 0.65; }
+.meter-label { opacity: 0.65; white-space: nowrap; }
+.meter-want { font-style: normal; font-weight: 800; opacity: 0.9; }
 .meter-bar { height: 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
 .meter-bar i { display: block; height: 100%; border-radius: 999px; transition: width 0.4s ease; }
 .meter-bar i.ok { background: linear-gradient(90deg, #7ee081, #3ecf5a); }
@@ -2028,6 +2074,12 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .upgrade-cost { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .upgrade-cost span { display: inline-flex; align-items: center; gap: 4px; }
 .upgrade-go { flex-shrink: 0; padding: 8px 14px; font-size: 12px; }
+/* Hovering Upgrade: the cost gives way to what the next level changes. */
+.upgrade-preview .upgrade-cost span { cursor: default; }
+.preview-from { opacity: 0.45; text-decoration-color: rgba(255, 255, 255, 0.5); }
+.preview-up { color: #9af0a8; }
+.preview-more { color: #ffd479; }
+.preview-label { font-style: normal; font-weight: 600; opacity: 0.55; }
 .g-btn-sm { padding: 7px 12px; font-size: 12px; }
 .g-btn-quiet-danger { color: #ffb3b3; }
 .g-btn-quiet-danger:hover:not(:disabled) { background: rgba(229, 50, 45, 0.2); }
