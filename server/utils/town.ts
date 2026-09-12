@@ -48,6 +48,8 @@ import {
     townBuildersFree,
     townBuilderGemCost,
     TOWN_MAX_BUILDERS,
+    townBuildingCountIssue,
+    townJewelsFor,
     type TownResourceId,
     type TownResourceBag,
     type TownSimBuilding,
@@ -785,6 +787,11 @@ export async function placeBuildings(userId: string, items: TownPlacement[]) {
                         : `Tier ${def.tier} opens after producing ${lock.producedRequired} tier-${lock.producedTier} goods (${lock.produced} so far)`)
                 continue
             }
+
+            // Counted against everything already standing plus what this same
+            // call has put up, so one drag cannot lay three jewel mines at once.
+            const capped = townBuildingCountIssue(def, counts.get(def.id) ?? 0)
+            if (capped) { note(capped); continue }
 
             const wx = plot.x * TOWN_PLOT_SIZE + item.tileX
             const wy = plot.y * TOWN_PLOT_SIZE + item.tileY
@@ -1646,6 +1653,27 @@ export async function getTownLastPrices(): Promise<Record<string, number>> {
     const list = Array.isArray(rows) ? rows : (rows as unknown as { rows: { resource: string, price: string }[] }).rows
     for (const row of list) out[row.resource] = parseFloat(row.price)
     return out
+}
+
+// ─── Jewels → gems ────────────────────────────────────────────────────────────────
+
+/**
+ * Turn jewels into gems, whole gems only. The settle runs first so the jewels
+ * dug since the last visit are on the shelf; the conditional decrement in
+ * takeInventory is the guard, so a burst of conversions can never pay out more
+ * than the jewels actually held. Lock order is the milestone one:
+ * town_state → town_inventory → user.
+ */
+export async function convertJewels(userId: string, gems: number) {
+    if (!Number.isInteger(gems) || gems < 1) throw createError({ statusCode: 400, statusMessage: 'Convert at least one whole gem' })
+    if (gems > 1_000_000) throw createError({ statusCode: 400, statusMessage: 'That is more than any mine could hold' })
+    return db.transaction(async (tx) => {
+        await settleTownState(tx, userId)
+        const jewels = townJewelsFor(gems)
+        await takeInventory(tx, userId, 'jewels', jewels)
+        await creditGems(userId, gems, tx)
+        return { gems, jewels }
+    })
 }
 
 export async function deleteTownForUser(userId: string, tx: DbExecutor = db) {

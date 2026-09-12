@@ -13,7 +13,6 @@ export const AI_CAPABILITIES = [
     { key: 'casino', label: 'Casino & blackjack', description: 'Wagering coins on games and blackjack', icon: 'i-lucide-dices' },
     { key: 'bank', label: 'Bank', description: 'Deposits, withdrawals, and debt repayment', icon: 'i-lucide-landmark' },
     { key: 'gems', label: 'Gem market', description: 'Buying and selling gems', icon: 'i-lucide-gem' },
-    { key: 'miner', label: 'Miner', description: 'Collecting rewards and buying upgrades', icon: 'i-lucide-pickaxe' },
     { key: 'colony', label: 'Colony', description: 'Collecting, feeding, selling, and upgrades', icon: 'i-lucide-bug' },
     { key: 'xeno', label: 'Xeno garden', description: 'Planting, harvesting, and selling plants', icon: 'i-lucide-sprout' },
     { key: 'hack', label: 'Hack Ops', description: 'Dispatching and collecting operations', icon: 'i-lucide-terminal' },

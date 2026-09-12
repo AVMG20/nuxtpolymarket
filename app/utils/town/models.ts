@@ -9,12 +9,13 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { TownBuildingId } from '#shared/utils/gamelogic/town'
 import { townVisualLevel, townVisualStage } from './appearance'
 import { upgradeBuildingParts } from './upgrades'
+import { createJewelMineParts } from './jewel-mine'
 import { createCivicParts } from './civic'
 import { enrichArchitecture } from './architecture'
 import { townSurfaceMaterial, type TownSurface } from './surfaces'
 
 export interface Part {
-    shape: 'box' | 'cyl' | 'cone' | 'sphere' | 'pyramid' | 'hip' | 'wedge'
+    shape: 'box' | 'cyl' | 'cone' | 'sphere' | 'pyramid' | 'hip' | 'wedge' | 'crystal'
     x: number
     /** Bottom of the part (not the centre) — parts stack naturally. */
     y: number
@@ -41,6 +42,7 @@ function geometry(p: Part): THREE.BufferGeometry {
     let g = geometryCache.get(key)
     if (g) return g
     switch (p.shape) {
+        case 'crystal': g = new THREE.LatheGeometry([new THREE.Vector2(0, -0.5), new THREE.Vector2(0.38, -0.5), new THREE.Vector2(0.5, -0.32), new THREE.Vector2(0.5, 0.18), new THREE.Vector2(0, 0.5)], p.seg ?? 6); break
         case 'box': g = new THREE.BoxGeometry(1, 1, 1); break
         case 'cyl': g = new THREE.CylinderGeometry(0.5, 0.5, 1, p.seg ?? 10); break
         case 'cone': g = new THREE.ConeGeometry(0.5, 1, p.seg ?? 8); break
@@ -274,6 +276,7 @@ const MODELS: Partial<Record<TownBuildingId, () => Part[]>> = {
         { shape: 'box', x: 0.1, y: 0.01, z: 0.4, w: 0.18, h: 0.1, d: 0.12, color: 0x7a4b2a, name: 'cart' },
         { shape: 'box', x: 0.1, y: 0.1, z: 0.4, w: 0.14, h: 0.05, d: 0.09, color: 0x8892a6 }
     ],
+    gemmine: () => createJewelMineParts(),
     foundry: () => [
         { shape: 'box', x: 0, y: 0, z: 0, w: 0.76, h: 0.6, d: 0.6, color: 0x7a1f1f },
         { shape: 'box', x: 0, y: 0.6, z: 0, w: 0.82, h: 0.06, d: 0.66, color: 0x3a0c0c },

@@ -1,5 +1,6 @@
 import type { TownBuildingId } from '#shared/utils/gamelogic/town'
 import type { Part } from './models'
+import { createJewelMineParts } from './jewel-mine'
 import { townVisualLevel, townVisualStage } from './appearance'
 
 // A miniature town grows from timber workshops into ornate civic landmarks.
@@ -85,6 +86,7 @@ const SHELLS: Partial<Record<TownBuildingId, [number, number, number]>> = {
 
 export function upgradeBuildingParts(type: TownBuildingId, requestedLevel: number, original: Part[]): Part[] {
     const level = townVisualLevel(requestedLevel)
+    if (type === 'gemmine') return createJewelMineParts(level)
     if (level === 1 || type === 'road') return original
     const stage = townVisualStage(level)
     const shell = SHELLS[type]

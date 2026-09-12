@@ -21,7 +21,8 @@ import {
     sellToFloor,
     settleTownForRead,
     upgradeBuilding,
-    deleteTownForUser
+    deleteTownForUser,
+    convertJewels
 } from '#server/utils/town'
 import {
     TOWN_PLOT_SIZE,
@@ -39,8 +40,18 @@ import {
     townPlotCooldownMs,
     townPlotPrice,
     townRushGemCost,
+    townWorkersFor,
     TOWN_MAX_ORDER_PRICE,
     TOWN_MARKET_MIN_PRICE,
+    TOWN_GEM_MINE_CAP,
+    TOWN_JEWELS_PER_GEM,
+    TOWN_MAX_BUILDING_LEVEL,
+    deriveTown,
+    settleTown,
+    townNetPerTick,
+    townFloorIncomePerDay,
+    TOWN_TICK_MS,
+    type TownSimBuilding,
     type TownResourceId
 } from '#shared/utils/gamelogic/town'
 import { SKIP, burst, cleanupUser, moveTownToFlatGround, seedUser } from '../setup/db-helpers'
@@ -1590,6 +1601,100 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(claim.reward).toBe(getTownMilestone('first-sale')!.reward)
             expect(await getBalance(OWNER)).toBe((sale.total + claim.reward).toFixed(4))
             expect((await stateOf(OWNER)).milestonesClaimed).toEqual(['first-sale'])
+        })
+    })
+
+    describe('jewel mine', () => {
+        const GEM_MINE = getTownBuilding('gemmine')!
+        const DAY = 24 * HOUR
+
+        /** A street of houses and `mines` jewel mines at `level`, every mine fully staffed. */
+        function minedTown(mines: number, level: number, now: number): TownSimBuilding[] {
+            const out: TownSimBuilding[] = []
+            const workers = townWorkersFor(GEM_MINE, level) * mines
+            const houseLevel = Math.ceil(workers / (HOUSE.popCap * 8))
+            const count = Math.ceil(workers / (HOUSE.popCap * houseLevel))
+            const road = (wx: number) => ({ id: `r${wx}`, type: 'road' as const, level: 1, completesAt: 0, upgradingTo: null, createdAt: 0, wx, wy: 0, rotation: 0 })
+            for (let x = 0; x < count + mines; x++) out.push(road(x))
+            for (let x = 0; x < count; x++) out.push({ id: `h${x}`, type: 'house', level: houseLevel, completesAt: 0, upgradingTo: null, createdAt: 0, wx: x, wy: 1, rotation: FACES_EDGE_ROAD })
+            for (let x = 0; x < mines; x++) out.push({ id: `m${x}`, type: 'gemmine', level, completesAt: 0, upgradingTo: null, createdAt: 1, wx: count + x, wy: 1, rotation: FACES_EDGE_ROAD })
+            void now
+            return out
+        }
+
+        it('digs about sixteen gems a day from two maxed mines in a Content town', () => {
+            const now = Date.now()
+            const buildings = minedTown(TOWN_GEM_MINE_CAP, TOWN_MAX_BUILDING_LEVEL, now)
+            const derived = deriveTown(buildings, 50, now)
+            for (const b of buildings) if (b.type === 'gemmine') expect(derived.throughput.get(b.id)).toBe(1)
+
+            // The rate the tick loop works from, over a day of Content ticks.
+            const perDay = (townNetPerTick(buildings, derived, now).jewels ?? 0) * DAY / TOWN_TICK_MS
+            // One jewel a tick per level, like every other workshop.
+            expect(perDay).toBeCloseTo(TOWN_GEM_MINE_CAP * TOWN_MAX_BUILDING_LEVEL * DAY / TOWN_TICK_MS, 6)
+            expect(perDay / TOWN_JEWELS_PER_GEM).toBeCloseTo(16, 6)
+            // Jewels sell for a fraction of a gem, so they barely register as income.
+            expect(townFloorIncomePerDay(buildings, 50, now)).toBeLessThan(5_000)
+        })
+
+        it('stops digging once the warehouse is full of jewels', () => {
+            const now = Date.now()
+            const buildings = minedTown(1, 1, now)
+            const derived = deriveTown(buildings, 50, now)
+
+            const full = settleTown({ happiness: 50, tickProgressMs: 0, lastSettledAt: now - 8 * HOUR, inventory: { jewels: derived.storageCap }, buildings }, now)
+            expect(full.delta.jewels ?? 0).toBe(0)
+            const room = settleTown({ happiness: 50, tickProgressMs: 0, lastSettledAt: now - 8 * HOUR, inventory: {}, buildings }, now)
+            expect(room.delta.jewels ?? 0).toBeGreaterThan(0)
+        })
+
+        it('never grows past the mine cap, even inside one drag', async () => {
+            const plotId = await foundFor(OWNER, { balance: coins(1_000_000_000) })
+            await unlockTier2(OWNER, plotId)
+            for (let x = 0; x < 8; x++) await seedRoad(OWNER, plotId, x)
+            await stockFor(OWNER, ...Array.from({ length: TOWN_GEM_MINE_CAP + 1 }, (_, i) => townPlaceCost(GEM_MINE, i)))
+
+            for (let i = 0; i < TOWN_GEM_MINE_CAP; i++) {
+                await placeBuilding(OWNER, plotId, i, 1, 'gemmine', FACES_EDGE_ROAD)
+            }
+            await expect(placeBuilding(OWNER, plotId, TOWN_GEM_MINE_CAP, 1, 'gemmine', FACES_EDGE_ROAD)).rejects.toThrow(/only have/)
+            expect(await buildingsTyped(OWNER, 'gemmine')).toHaveLength(TOWN_GEM_MINE_CAP)
+        })
+
+        it('converts whole gems and refuses jewels the town does not hold', async () => {
+            await foundFor(OWNER, { gems: 0 })
+            await stock(OWNER, 'jewels', TOWN_JEWELS_PER_GEM * 3 + 4)
+
+            const result = await convertJewels(OWNER, 2)
+            expect(result).toEqual({ gems: 2, jewels: TOWN_JEWELS_PER_GEM * 2 })
+            expect(await getGems(OWNER)).toBe(2)
+            expect(await held(OWNER, 'jewels')).toBe(TOWN_JEWELS_PER_GEM + 4)
+
+            await expect(convertJewels(OWNER, 2)).rejects.toThrow(/Not enough Jewels/)
+            await expect(convertJewels(OWNER, 0)).rejects.toThrow(/whole gem/)
+            await expect(convertJewels(OWNER, 1.5)).rejects.toThrow(/whole gem/)
+            expect(await getGems(OWNER)).toBe(2)
+        })
+
+        it('pays a concurrent burst of conversions only what the jewels cover', async () => {
+            await foundFor(OWNER, { gems: 0 })
+            await stock(OWNER, 'jewels', TOWN_JEWELS_PER_GEM * 3)
+
+            const result = await burst(10, () => convertJewels(OWNER, 1))
+
+            expect(result.ok).toBe(3)
+            expect(await getGems(OWNER)).toBe(3)
+            expect(await held(OWNER, 'jewels')).toBe(0)
+        })
+
+        it('still lets jewels be sold to the town hall on purpose', async () => {
+            await seedUser(OWNER, { balance: '0.0000' })
+            await stock(OWNER, 'jewels', 10)
+
+            const result = await sellToFloor(OWNER, 'jewels', 10)
+
+            expect(result.total).toBe(townFloorPrice('jewels') * 10)
+            expect(await held(OWNER, 'jewels')).toBe(0)
         })
     })
 

@@ -12,7 +12,7 @@ import { townBuildingPortrait, townVisualLevel } from '../../app/utils/town/appe
  * buildings. The list is asserted below so it cannot quietly grow, and a
  * building leaves it the moment a PNG lands.
  */
-const AWAITING_ARTWORK = ['bathhouse', 'theatre']
+const AWAITING_ARTWORK = ['bathhouse', 'theatre', 'gemmine']
 
 describe('Polytown upgrade artwork', () => {
     it('has artwork for everything but the buildings still waiting on the asset pass', () => {

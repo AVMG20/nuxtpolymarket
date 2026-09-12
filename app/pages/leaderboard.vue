@@ -12,11 +12,6 @@ interface LeaderboardUser {
   bailoutRemaining: number
   gems: number
   gemValue: number
-  rigLevel: number
-  vaultLevel: number
-  factoryLevel: number
-  overclockPct: number
-  catalystPct: number
   hackPower: number
   colonyHabitatLevel: number
   colonyResearchLevels: number
@@ -28,7 +23,6 @@ interface LeaderboardUser {
   battlerRating: number | null
   battlerBattlesWon: number
   battlerBattlesLost: number
-  totalLevels: number
   totalUpgrades: number
   totalWealth: number
 }
@@ -49,14 +43,6 @@ const rankBg = [
   'bg-gradient-to-r from-amber-700/10 to-amber-600/5 border-amber-700/30'
 ]
 
-const upgradeColors = {
-  miner: 'text-yellow-400',
-  vault: 'text-green-400',
-  factory: 'text-cyan-400',
-  overclock: 'text-orange-400',
-  catalyst: 'text-violet-400'
-}
-
 function openDetails(user: LeaderboardUser) {
   selectedUser.value = user
 }
@@ -76,14 +62,13 @@ function openDetails(user: LeaderboardUser) {
 
     <UCard v-else-if="users?.length" :ui="{ body: 'p-0 sm:p-0' }">
       <div class="overflow-x-auto">
-        <table class="min-w-[1200px] w-full border-collapse text-sm">
+        <table class="min-w-[960px] w-full border-collapse text-sm">
           <thead class="border-b border-default bg-elevated/50 text-xs font-bold uppercase tracking-wide text-muted">
             <tr>
               <th scope="col" class="w-14 px-3 py-3 text-center"><UTooltip text="Rank"><UIcon name="i-lucide-trophy" class="mx-auto size-4" /></UTooltip></th>
               <th scope="col" class="min-w-44 px-3 py-3 text-left">Player</th>
               <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Total upgrades"><UIcon name="i-lucide-arrow-big-up-dash" class="size-4" /></UTooltip></th>
               <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Balances"><UIcon name="i-lucide-wallet-cards" class="size-4" /></UTooltip></th>
-              <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Miner progression"><UIcon name="i-lucide-pickaxe" class="size-4" /></UTooltip></th>
               <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Game progress"><UIcon name="i-lucide-chart-no-axes-combined" class="size-4" /></UTooltip></th>
             </tr>
           </thead>
@@ -128,15 +113,6 @@ function openDetails(user: LeaderboardUser) {
                     <UIcon name="i-lucide-life-buoy" class="size-4 shrink-0 text-warning" />
                   </UTooltip>
                   <UTooltip text="Gems and gem value"><span class="inline-flex items-center gap-1"><GemBalance :value="u.gems" /><CoinBalance :value="u.gemValue" /></span></UTooltip>
-                </div>
-              </td>
-              <td class="px-3 py-3">
-                <div class="flex items-center gap-2.5 whitespace-nowrap font-semibold tabular-nums">
-                  <UTooltip text="Rig level"><span class="inline-flex items-center gap-1"><UIcon name="i-lucide-cpu" class="size-3.5 text-warning" />{{ u.rigLevel }}</span></UTooltip>
-                  <UTooltip text="Vault level"><span class="inline-flex items-center gap-1"><UIcon name="i-lucide-vault" class="size-3.5 text-success" />{{ u.vaultLevel }}</span></UTooltip>
-                  <UTooltip text="Factory level"><span class="inline-flex items-center gap-1"><UIcon name="i-lucide-factory" class="size-3.5 text-info" />{{ u.factoryLevel }}</span></UTooltip>
-                  <UTooltip text="Rig Overclock"><span class="inline-flex items-center gap-1 text-warning"><UIcon name="i-lucide-gauge" class="size-3.5" />+{{ u.overclockPct }}%</span></UTooltip>
-                  <UTooltip text="Factory Catalyst"><span class="inline-flex items-center gap-1 text-secondary"><UIcon name="i-lucide-flask-conical" class="size-3.5" />+{{ u.catalystPct }}%</span></UTooltip>
                 </div>
               </td>
               <td class="px-3 py-3">
@@ -198,37 +174,6 @@ function openDetails(user: LeaderboardUser) {
             <span class="text-muted">Bail-out running —</span>
             <CoinBalance :value="selectedUser.bailoutRemaining" :compact="false" :minimum-fraction-digits="2" class="font-semibold" />
             <span class="text-muted">left to levy back</span>
-          </div>
-
-          <div>
-            <p class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Miner progression</p>
-            <div class="grid grid-cols-3 gap-2">
-              <div class="rounded-lg bg-elevated/60 p-3 text-center">
-                <UIcon name="i-lucide-cpu" class="size-4" :class="upgradeColors.miner" />
-                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.miner">{{ selectedUser.rigLevel }}</p>
-                <p class="text-[10px] text-muted">Miner</p>
-              </div>
-              <div class="rounded-lg bg-elevated/60 p-3 text-center">
-                <UIcon name="i-lucide-vault" class="size-4" :class="upgradeColors.vault" />
-                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.vault">{{ selectedUser.vaultLevel }}</p>
-                <p class="text-[10px] text-muted">Vault</p>
-              </div>
-              <div class="rounded-lg bg-elevated/60 p-3 text-center">
-                <UIcon name="i-lucide-factory" class="size-4" :class="upgradeColors.factory" />
-                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.factory">{{ selectedUser.factoryLevel }}</p>
-                <p class="text-[10px] text-muted">Factory</p>
-              </div>
-              <div class="rounded-lg bg-elevated/60 p-3 text-center">
-                <UIcon name="i-lucide-gauge" class="size-4" :class="upgradeColors.overclock" />
-                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.overclock">+{{ selectedUser.overclockPct }}%</p>
-                <p class="text-[10px] text-muted">Rig Overclock</p>
-              </div>
-              <div class="rounded-lg bg-elevated/60 p-3 text-center">
-                <UIcon name="i-lucide-flask-conical" class="size-4" :class="upgradeColors.catalyst" />
-                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.catalyst">+{{ selectedUser.catalystPct }}%</p>
-                <p class="text-[10px] text-muted">Factory Catalyst</p>
-              </div>
-            </div>
           </div>
 
           <div>

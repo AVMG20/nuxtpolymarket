@@ -38,6 +38,9 @@ import {
     townNextMood,
     townRoadAccess,
     getTownResource,
+    townResourceSoldByDefault,
+    TOWN_JEWELS_PER_GEM,
+    TOWN_GEM_MINE_CAP,
     type TownSatisfied
 } from '#shared/utils/gamelogic/town'
 
@@ -51,7 +54,7 @@ export default defineEventHandler(async (event) => {
         levelBuildMs: townLevelBuildMs(def, 1),
         maxLevel: townBuildingMaxLevel(def)
     }))
-    const resources = TOWN_RESOURCES.map(r => ({ ...r, ceilingPrice: townCeilingPrice(r.id) }))
+    const resources = TOWN_RESOURCES.map(r => ({ ...r, ceilingPrice: townCeilingPrice(r.id), soldByDefault: townResourceSoldByDefault(r.id) }))
     const constants = {
         tickMs: TOWN_TICK_MS,
         maxOfflineMs: TOWN_MAX_OFFLINE_MS,
@@ -64,7 +67,9 @@ export default defineEventHandler(async (event) => {
         supplyMinEfficiency: TOWN_SUPPLY_MIN_EFFICIENCY,
         industryMaxPenalty: TOWN_INDUSTRY_MAX_PENALTY,
         parkRadius: TOWN_PARK_RADIUS,
-        maxBuilders: TOWN_MAX_BUILDERS
+        maxBuilders: TOWN_MAX_BUILDERS,
+        jewelsPerGem: TOWN_JEWELS_PER_GEM,
+        gemMineCap: TOWN_GEM_MINE_CAP
     }
 
     const existing = await getTownState(userId)

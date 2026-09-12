@@ -74,6 +74,8 @@ export interface TownCatalogEntry {
     levelCost: { coins: number, resources: Record<string, number> }
     levelBuildMs: number
     maxLevel: number
+    /** The most of this building a town may own; unset means no limit. */
+    maxCount?: number
 }
 
 export interface TownResourceView {
@@ -83,6 +85,8 @@ export interface TownResourceView {
     tier: number
     floorPrice: number
     ceilingPrice: number
+    /** False for jewels: the bulk-sell buttons skip them unless asked to include them. */
+    soldByDefault: boolean
 }
 
 export interface TownOrderView {
@@ -158,7 +162,7 @@ export interface TownState {
     serverNow: number
     catalog: TownCatalogEntry[]
     resources: TownResourceView[]
-    constants: { tickMs: number, maxOfflineMs: number, maxLevel: number, maxPlots: number, rushMsPerGem: number, parkRadius: number, parkMaxBonus: number, industryMaxPenalty: number, supplyFullTiles: number, supplyFalloffTiles: number, supplyMinEfficiency: number, maxBuilders: number }
+    constants: { tickMs: number, maxOfflineMs: number, maxLevel: number, maxPlots: number, rushMsPerGem: number, parkRadius: number, parkMaxBonus: number, industryMaxPenalty: number, supplyFullTiles: number, supplyFalloffTiles: number, supplyMinEfficiency: number, maxBuilders: number, jewelsPerGem: number, gemMineCap: number }
     netPerTick?: Record<string, number>
     unlockedTiers?: number[]
     coinsEarned?: number
@@ -226,7 +230,7 @@ export const useTown = () => {
     const inventory = computed(() => state.value?.inventory ?? {})
     const myOrders = computed(() => state.value?.myOrders ?? [])
     const lastPrices = computed(() => state.value?.lastPrices ?? {})
-    const constants = computed(() => state.value?.constants ?? { tickMs: 60_000, maxOfflineMs: 8 * 3_600_000, maxLevel: 20, maxPlots: 12, rushMsPerGem: 300_000, parkRadius: 3, parkMaxBonus: 20, industryMaxPenalty: 25, supplyFullTiles: 8, supplyFalloffTiles: 24, supplyMinEfficiency: 0.3, maxBuilders: 6 })
+    const constants = computed(() => state.value?.constants ?? { tickMs: 60_000, maxOfflineMs: 8 * 3_600_000, maxLevel: 20, maxPlots: 12, rushMsPerGem: 300_000, parkRadius: 3, parkMaxBonus: 20, industryMaxPenalty: 25, supplyFullTiles: 8, supplyFalloffTiles: 24, supplyMinEfficiency: 0.3, maxBuilders: 6, jewelsPerGem: 10, gemMineCap: 2 })
     const milestones = computed(() => state.value?.milestones ?? [])
     /** Build crews: how many the town owns, how many are on a job, what the next costs. */
     const builders = computed(() => state.value?.builders ?? { owned: 3, busy: 0, nextGemCost: null })
@@ -353,6 +357,7 @@ export const useTown = () => {
         startResearch: (researchId: string) => call<{ researchId: string, completesAt: number }>('/api/town/research/start', { researchId }),
         sellToFloor: (resource: string, quantity: number) =>
             call<{ total: number, quantity: number, toPlayers: number, toHall: number, filledByPlayers: number }>('/api/town/market/sell-floor', { resource, quantity }),
+        convertJewels: (gems: number) => call<{ gems: number, jewels: number }>('/api/town/market/convert', { gems }),
         placeOrder: (resource: string, side: 'buy' | 'sell', price: number, quantity: number) =>
             call<{ status: 'open' | 'filled', filled: number, coinsMoved: number }>('/api/town/market/place', { resource, side, price, quantity }),
         cancelOrder: (orderId: string) => call('/api/town/market/cancel', { orderId })

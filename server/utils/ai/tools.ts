@@ -55,7 +55,7 @@ const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [
         type: 'function',
         function: {
             name: 'get_player_overview',
-            description: 'Read a compact live overview of the player\'s Xeno, Colony, Hack Ops, Miner, and Gem Market state. For bank balances, rates, debt, or loan room, use get_bank_status. This does not mutate game state.',
+            description: 'Read a compact live overview of the player\'s Xeno, Colony, Hack Ops, Polytown, and Gem Market state. For bank balances, rates, debt, or loan room, use get_bank_status. This does not mutate game state.',
             parameters: { type: 'object', properties: {}, additionalProperties: false }
         }
     },
@@ -268,34 +268,6 @@ const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [
     {
         type: 'function',
         function: {
-            name: 'run_miner_dailies',
-            description: 'Collect available Miner cash, collect whole Factory gems, and open every remaining free Miner lootbox. This never buys paid lootbox opens.',
-            parameters: { type: 'object', properties: {}, additionalProperties: false }
-        }
-    },
-    {
-        type: 'function',
-        function: {
-            name: 'purchase_miner_upgrades',
-            description: 'Purchase one or more levels of a Miner upgrade. This can spend coins or gems and stops safely at the first failed purchase. Read the player overview first so the player can be told the current level and next cost.',
-            parameters: {
-                type: 'object',
-                properties: {
-                    upgrade: {
-                        type: 'string',
-                        enum: ['rig', 'vault', 'factory', 'overclock', 'catalyst', 'lootbox_slot', 'rakeback_unlock'],
-                        description: 'The Miner upgrade or shop unlock to purchase.'
-                    },
-                    levels: { type: 'integer', minimum: 1, maximum: 20, description: 'Number of levels to attempt. Use 1 for rakeback_unlock.' }
-                },
-                required: ['upgrade', 'levels'],
-                additionalProperties: false
-            }
-        }
-    },
-    {
-        type: 'function',
-        function: {
             name: 'run_town_dailies',
             description: 'Claim completed Polytown milestones and start upgrades with idle builders.',
             parameters: {
@@ -318,7 +290,7 @@ const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [
         type: 'function',
         function: {
             name: 'sell_town_resources',
-            description: 'Sell a percentage of Polytown stock on the town market.',
+            description: 'Sell a percentage of Polytown stock on the town market. Jewels are skipped unless named: they are worth far more converted into gems.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -363,7 +335,7 @@ const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [
             parameters: {
                 type: 'object',
                 properties: {
-                    path: { type: 'string', description: 'A path beginning with /api/xeno, /api/colony, /api/hack, /api/miner, /api/town, /api/pirates, /api/gem-exchange, or /api/games.' },
+                    path: { type: 'string', description: 'A path beginning with /api/xeno, /api/colony, /api/hack, /api/town, /api/pirates, /api/gem-exchange, or /api/games.' },
                     method: { type: 'string', enum: ['GET', 'POST'] },
                     body: { type: 'object', description: 'Request JSON for POST calls.', additionalProperties: true }
                 },

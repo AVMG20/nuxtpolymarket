@@ -35,6 +35,9 @@ export default defineNuxtConfig({
     routeRules: {
         // The auto-scaling gem market became the player-driven exchange
         '/gem-market': { redirect: '/gem-exchange' },
+        // The Miner idle game is retired; Polytown's gem mines took over gem income.
+        '/miner': { redirect: '/polytown' },
+        '/miner/**': { redirect: '/polytown' },
         '/games/**': { ssr: false },
         '/pirates/**': { ssr: false },
         '/shapezz': { ssr: false },

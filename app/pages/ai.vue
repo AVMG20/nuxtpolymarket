@@ -330,12 +330,6 @@ function toolDescription(call: AiToolCall) {
   }
   if (call.function.name === 'find_best_hackops_mission') return 'Analyze available Hack Ops missions and choose the best squad. This does not dispatch a mission.'
   if (call.function.name === 'dispatch_hackops_mission') return `Dispatch ${Array.isArray(args.agentIds) ? args.agentIds.length : 0} agent(s) on Hack Ops mission ${args.templateId ?? ''}.`
-  if (call.function.name === 'run_miner_dailies') return 'Collect available Miner cash and Factory gems, then open every remaining free lootbox. No paid lootboxes.'
-  if (call.function.name === 'purchase_miner_upgrades') {
-    const levels = Number(args.levels ?? 0)
-    const label = String(args.upgrade ?? 'miner').replaceAll('_', ' ')
-    return `Purchase ${levels} ${label} level${levels === 1 ? '' : 's'}. This may spend coins or gems and stops on the first failed purchase.`
-  }
   if (call.function.name === 'run_town_dailies') {
     const prefer = Array.isArray(args.preferTypes) && args.preferTypes.length ? ` Prefer ${args.preferTypes.join(', ')}.` : ''
     const cap = args.maxUpgrades != null ? ` At most ${args.maxUpgrades} upgrade(s).` : ''
@@ -344,7 +338,7 @@ function toolDescription(call: AiToolCall) {
       : `Claim completed Polytown milestones, then start upgrades with idle builders on the lowest-level connected buildings the town can afford.${prefer}${cap}`
   }
   if (call.function.name === 'sell_town_resources') {
-    const which = Array.isArray(args.resources) && args.resources.length ? args.resources.join(', ') : 'every stocked resource'
+    const which = Array.isArray(args.resources) && args.resources.length ? args.resources.join(', ') : 'every stocked resource except jewels'
     const keep = args.keepQuantity != null ? `, keeping at least ${args.keepQuantity} of each` : ''
     return `Sell ${args.percent ?? 0}% of ${which} on the Polytown market${keep}. Player bids fill first, the rest sells at the floor price.`
   }
@@ -357,14 +351,6 @@ function toolDescription(call: AiToolCall) {
 function toolResultSummary(result: Record<string, unknown>) {
   if (result.declined) return 'Declined by player'
   if (result.error) return `Failed: ${result.error}`
-  if (typeof result.purchasedLevels === 'number') {
-    const stopped = result.stoppedReason ? ` · Stopped: ${result.stoppedReason}` : ''
-    return `Purchased ${result.purchasedLevels}/${result.requestedLevels} level(s)${stopped}`
-  }
-  if (typeof result.openedFreeLootboxes === 'number') {
-    const errors = Array.isArray(result.errors) && result.errors.length ? ` · ${result.errors.length} issue(s)` : ''
-    return `Collected Miner rewards · Opened ${result.openedFreeLootboxes}/${result.requestedFreeLootboxes} free lootboxes${errors}`
-  }
   if (result.feedMethod) {
     const errors = Array.isArray(result.errors) && result.errors.length ? ` · ${result.errors.length} issue(s)` : ''
     return `Collected and fed with ${result.feedMethod}${errors}`
@@ -458,8 +444,8 @@ const starterPrompts = [
   {
     icon: 'i-lucide-chart-no-axes-combined',
     title: 'Optimize my idle income',
-    description: 'Compare live Xeno, Colony, Hack Ops, and Miner production and suggest the best next move.',
-    prompt: 'Read my live Xeno, Colony, Hack Ops, and Miner state. Compare their current expected income and identify the three highest-impact actions I can take next, including costs and payback reasoning.'
+    description: 'Compare live Xeno, Colony, Hack Ops, and Polytown production and suggest the best next move.',
+    prompt: 'Read my live Xeno, Colony, Hack Ops, and Polytown state. Compare their current expected income and identify the three highest-impact actions I can take next, including costs and payback reasoning.'
   },
   {
     icon: 'i-lucide-dices',

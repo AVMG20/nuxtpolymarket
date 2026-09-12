@@ -1,9 +1,8 @@
 import { count, countDistinct, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { getSessionUserId } from '#server/utils/auth'
-import { user, minerState, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders, tcgBattlerRun, tcgBattlerRating } from '#server/database/schema'
+import { user, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders, tcgBattlerRun, tcgBattlerRating } from '#server/database/schema'
 import { getGemGuidePrice } from '#server/utils/gem-exchange'
-import { overclockMultiplier, catalystMultiplier } from '#shared/utils/miner-config'
 import { bailoutRemaining, debtFloor, growBankBalance, isBailoutActive } from '#shared/utils/gamelogic/bank'
 import { PLANT_TYPES } from '#shared/utils/xeno'
 import { equippedAgentPower, type EquippableItemRow } from '#server/utils/hack'
@@ -20,11 +19,6 @@ export default defineEventHandler(async (event) => {
         prestige: user.prestige,
         balance: user.balance,
         gems: user.gems,
-        rigLevel: minerState.rigLevel,
-        vaultLevel: minerState.vaultLevel,
-        factoryLevel: minerState.factoryLevel,
-        overclockLevel: minerState.overclockLevel,
-        catalystLevel: minerState.catalystLevel,
         bankBalance: bankState.balance,
         bankLastSettledAt: bankState.lastSettledAt,
         bankLoanPrincipal: bankState.loanPrincipal,
@@ -33,7 +27,6 @@ export default defineEventHandler(async (event) => {
         bailoutRepaid: bankState.bailoutRepaid,
       })
       .from(user)
-      .leftJoin(minerState, eq(minerState.userId, user.id))
       .leftJoin(bankState, eq(bankState.userId, user.id)),
     getGemGuidePrice(),
     // Coins and gems escrowed in open exchange offers still belong to the
@@ -134,7 +127,6 @@ export default defineEventHandler(async (event) => {
       if (bankBalance < 0 && loanPrincipal > 0) bankBalance = Math.max(bankBalance, debtFloor(loanPrincipal))
       const bailoutActive = isBailoutActive(bailout)
       const totalWealth = balance + gemValue + bankBalance
-      const totalLevels = (u.rigLevel ?? 1) + (u.vaultLevel ?? 1) + (u.factoryLevel ?? 1)
       const itemMap = itemsByUser.get(u.id) ?? new Map<string, EquippableItemRow>()
       const hackPower = (agentsByUser.get(u.id) ?? [])
         .reduce((total, agent) => total + equippedAgentPower(agent, itemMap), 0)
@@ -145,10 +137,7 @@ export default defineEventHandler(async (event) => {
       const xenoBreederSlotsUnlocked = xenoBreederByUser.get(u.id) ?? 0
       const aiPromptsUsed = aiPromptsByUser.get(u.id) ?? 0
       const battler = battlerByUser.get(u.id)
-      const totalUpgrades = totalLevels
-        + (u.overclockLevel ?? 0)
-        + (u.catalystLevel ?? 0)
-        + colonyHabitatLevel
+      const totalUpgrades = colonyHabitatLevel
         + colonyResearchLevels
         + xenoSpeciesUnlocked
         + xenoGridSlotsUnlocked
@@ -167,11 +156,6 @@ export default defineEventHandler(async (event) => {
         bailoutRemaining: bailoutActive ? bailoutRemaining(bailout) : 0,
         gems,
         gemValue,
-        rigLevel: u.rigLevel ?? 1,
-        vaultLevel: u.vaultLevel ?? 1,
-        factoryLevel: u.factoryLevel ?? 1,
-        overclockPct: Math.round((overclockMultiplier(u.overclockLevel ?? 0) - 1) * 100),
-        catalystPct: Math.round((catalystMultiplier(u.catalystLevel ?? 0) - 1) * 100),
         hackPower,
         colonyHabitatLevel,
         colonyResearchLevels,
@@ -183,7 +167,6 @@ export default defineEventHandler(async (event) => {
         battlerRating: battlerRatingByUser.get(u.id) ?? null,
         battlerBattlesWon: battler?.battlesWon ?? 0,
         battlerBattlesLost: battler?.battlesLost ?? 0,
-        totalLevels,
         totalUpgrades,
         totalWealth,
       }

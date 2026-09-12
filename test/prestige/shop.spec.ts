@@ -16,7 +16,6 @@ import {
     colonyUpgrades,
     hackAgents,
     hackItems,
-    minerState,
     prestigePurchases,
     user,
     xenoPlants,
@@ -31,13 +30,10 @@ import {
     CREDIT_LINE_PER_PURCHASE,
     HACK_DARKNET_AGENTS,
     HACK_DARKNET_ITEMS,
-    MINER_CORE_RIG_GRANT,
     XENO_LEAP_PLANTS_PER_TYPE,
-    minerRigMaxLevel,
     prestigeShopItem
 } from '#shared/utils/prestige-shop'
 import { LOAN_MULTIPLIER } from '#shared/utils/gamelogic/bank'
-import { CATALYST_MAX_LEVEL, OVERCLOCK_MAX_LEVEL } from '#shared/utils/miner-config'
 import { PRESTIGE_TIERS } from '#shared/utils/prestige'
 import { PLANT_TYPES } from '#shared/utils/xeno'
 import { BASE_BUILDER_COUNT, HABITAT_BUILDER_JOB_ID, UPGRADE_TRACKS, gemTickMs, getBug, habitatTrackRequirement } from '#shared/utils/colony'
@@ -132,28 +128,6 @@ describe.skipIf(SKIP)('prestige shop', () => {
         expect(await getPrestigePurchaseCount(USER_ID, 'xeno-leap')).toBe(2)
     })
 
-    it('raises the miner ceilings and hands over the granted levels', async () => {
-        await seedPrestiged(5)
-
-        await buyPrestigeShopItem(USER_ID, 'miner-core')
-
-        const [state] = await db.select().from(minerState).where(eq(minerState.userId, USER_ID))
-        // Fresh state starts at rig 1, so the grant lands in full.
-        expect(state?.rigLevel).toBe(1 + MINER_CORE_RIG_GRANT)
-        expect(minerRigMaxLevel(await getPrestigePurchaseCount(USER_ID, 'miner-core'))).toBe(105)
-    })
-
-    it('never pushes a maxed rig past the ceiling it just raised', async () => {
-        await seedPrestiged(5)
-        await db.insert(minerState).values({ userId: USER_ID, rigLevel: 100, vaultLevel: 100 })
-
-        await buyPrestigeShopItem(USER_ID, 'miner-core')
-
-        const [state] = await db.select().from(minerState).where(eq(minerState.userId, USER_ID))
-        expect(state?.rigLevel).toBe(105)
-        expect(state?.rigLevel).toBeLessThanOrEqual(minerRigMaxLevel(1))
-    })
-
     it('stocks every plant up to T3 on the first Xenogenesis Leap', async () => {
         await seedPrestiged(5)
 
@@ -222,39 +196,6 @@ describe.skipIf(SKIP)('prestige shop', () => {
         expect(gemTickMs(hive, COLONY_HIVE_SNAILS_PER_PURCHASE)).toBe(base)
         expect(gemTickMs(hive, 1)).toBe(base)
         expect(gemTickMs({ typeId: 'gem_snail' }, COLONY_HIVE_SNAILS_PER_PURCHASE)).toBeGreaterThan(base)
-    })
-
-    it('sells the gem tracks in two halves, cheap half first', async () => {
-        await seedPrestiged(6)
-
-        const first = await buyPrestigeShopItem(USER_ID, 'miner-overclock')
-        expect(first.spent).toBe(1)
-        let [state] = await db.select().from(minerState).where(eq(minerState.userId, USER_ID))
-        expect(state?.overclockLevel).toBe(5)
-
-        const second = await buyPrestigeShopItem(USER_ID, 'miner-overclock')
-        expect(second.spent).toBe(2)
-        ;[state] = await db.select().from(minerState).where(eq(minerState.userId, USER_ID))
-        expect(state?.overclockLevel).toBe(OVERCLOCK_MAX_LEVEL)
-
-        await buyPrestigeShopItem(USER_ID, 'miner-catalyst')
-        ;[state] = await db.select().from(minerState).where(eq(minerState.userId, USER_ID))
-        expect(state?.catalystLevel).toBe(5)
-        await buyPrestigeShopItem(USER_ID, 'miner-catalyst')
-        ;[state] = await db.select().from(minerState).where(eq(minerState.userId, USER_ID))
-        expect(state?.catalystLevel).toBe(CATALYST_MAX_LEVEL)
-    })
-
-    // A player who ground the gem shop up to level 8 must not be knocked back
-    // to 5 by buying the cheap half.
-    it('never lowers a gem track a player already paid gems for', async () => {
-        await seedPrestiged(5)
-        await db.insert(minerState).values({ userId: USER_ID, overclockLevel: 8 })
-
-        await buyPrestigeShopItem(USER_ID, 'miner-overclock')
-
-        const [state] = await db.select().from(minerState).where(eq(minerState.userId, USER_ID))
-        expect(state?.overclockLevel).toBe(8)
     })
 
     it('raises the builder count without writing colony state', async () => {
@@ -335,7 +276,7 @@ describe.skipIf(SKIP)('prestige shop', () => {
     // back, and hands back the allowance that bought them.
     it('wipes every perk on the next ascent and restores the full allowance', async () => {
         await seedPrestiged(5)
-        await buyPrestigeShopItem(USER_ID, 'miner-core')
+        await buyPrestigeShopItem(USER_ID, 'account-credit')
         await buyPrestigeShopItem(USER_ID, 'colony-brood')
         await buyPrestigeShopItem(USER_ID, 'hack-darknet')
         expect((await readUser())?.prestigeTokens).toBe(2)
@@ -347,18 +288,16 @@ describe.skipIf(SKIP)('prestige shop', () => {
         const result = await prestigeUser(USER_ID)
 
         expect(result.tokens).toBe(TIER_2.tokens)
-        const [purchases, miner, bugs, agents] = await Promise.all([
+        const [purchases, bugs, agents] = await Promise.all([
             db.select().from(prestigePurchases).where(eq(prestigePurchases.userId, USER_ID)),
-            db.select().from(minerState).where(eq(minerState.userId, USER_ID)),
             db.select().from(colonyBugs).where(eq(colonyBugs.userId, USER_ID)),
             db.select().from(hackAgents).where(eq(hackAgents.userId, USER_ID))
         ])
         expect(purchases.length).toBe(0)
-        expect(miner.length).toBe(0)
         expect(bugs.length).toBe(0)
         expect(agents.length).toBe(0)
-        // The raised miner ceiling is gone with the purchase row.
-        expect(minerRigMaxLevel(await getPrestigePurchaseCount(USER_ID, 'miner-core'))).toBe(100)
+        // The perk count is gone with the purchase row.
+        expect(await getPrestigePurchaseCount(USER_ID, 'account-credit')).toBe(0)
     })
 
     it('keeps a rejected purchase from leaving a partial effect behind', async () => {

@@ -184,7 +184,7 @@ describe('townResourceDepth', () => {
     }
 
     it('puts everything dug or grown from nothing at the bottom', () => {
-        expect([...raw].sort()).toEqual(['stone', 'wheat', 'wood'])
+        expect([...raw].sort()).toEqual(['jewels', 'stone', 'wheat', 'wood'])
         for (const id of raw) expect(townResourceDepth(id)).toBe(0)
     })
 

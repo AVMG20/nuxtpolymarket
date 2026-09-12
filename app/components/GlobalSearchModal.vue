@@ -118,53 +118,6 @@ const rawGroups: CommandPaletteGroup[] = [
     ]
   },
   {
-    id: 'miner',
-    label: 'Miner (Idle Game)',
-    items: [
-      {
-        id: 'miner-overview',
-        label: 'Miner Overview',
-        description: 'Idle mining rig, GPU hashing, and ore extraction',
-        icon: 'i-lucide-pickaxe',
-        to: '/miner',
-        keywords: ['miner', 'mining', 'rig', 'gpu', 'ore', 'hash', 'idle']
-      },
-      {
-        id: 'miner-factory',
-        parentId: 'miner-overview',
-        isSubpage: true,
-        treePrefix: '├──',
-        label: 'Factory',
-        description: 'Automated factory pipelines and production lines',
-        icon: 'i-lucide-factory',
-        to: '/miner/factory',
-        keywords: ['miner', 'factory', 'automation', 'machines', 'production', 'pipeline']
-      },
-      {
-        id: 'miner-shop',
-        parentId: 'miner-overview',
-        isSubpage: true,
-        treePrefix: '├──',
-        label: 'Shop',
-        description: 'Upgrade mining hardware, pickaxes, and power efficiency',
-        icon: 'i-lucide-store',
-        to: '/miner/shop',
-        keywords: ['miner', 'shop', 'hardware', 'pickaxe', 'buy', 'upgrades', 'store']
-      },
-      {
-        id: 'miner-lootbox',
-        parentId: 'miner-overview',
-        isSubpage: true,
-        treePrefix: '└──',
-        label: 'Lootboxes',
-        description: 'Unbox rare mining gear, GPUs, and bonus chips',
-        icon: 'i-lucide-gift',
-        to: '/miner/lootbox',
-        keywords: ['miner', 'lootbox', 'crates', 'unboxing', 'rewards', 'chest']
-      }
-    ]
-  },
-  {
     id: 'xeno',
     label: 'Xeno (Idle Game)',
     items: [

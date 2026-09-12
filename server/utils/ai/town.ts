@@ -6,6 +6,7 @@ import {
     TOWN_RESOURCES,
     townBuildingMaxLevel,
     townLevelCost,
+    townResourceSoldByDefault,
     type TownResourceBag
 } from '#shared/utils/gamelogic/town'
 
@@ -104,7 +105,9 @@ export function planTownSale(inventory: Record<string, number>, options: TownSal
     if (!Number.isInteger(keep) || keep < 0) {
         throw createError({ statusCode: 400, statusMessage: 'keepQuantity must be a whole number of 0 or more' })
     }
-    const requested = options.resources ?? TOWN_RESOURCES.map(resource => resource.id)
+    // Jewels are usually kept to convert into gems, so a blanket sale skips
+    // them; naming them explicitly still sells them.
+    const requested = options.resources ?? TOWN_RESOURCES.filter(resource => townResourceSoldByDefault(resource.id)).map(resource => resource.id)
     if (!Array.isArray(requested) || !requested.length) {
         throw createError({ statusCode: 400, statusMessage: 'Choose at least one Polytown resource' })
     }

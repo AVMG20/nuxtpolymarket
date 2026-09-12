@@ -13,14 +13,13 @@
  * Pricing is anchored on TIME SAVED, not coin value. After a wipe, coins come
  * back fast for a player who just burned ten billion of them; what actually
  * hurts to regrind is the wall clock — COLONY's builder queue is ~82 days end
- * to end, the miner rig is ~11 months to level 100, and XENO tiers are gated
- * behind breeding RNG. So colony/xeno/miner skips cost real tokens, while
- * HACKOPS — which is coin-gated, not time-gated — is the cheap lane.
+ * to end, and XENO tiers are gated behind breeding RNG. So colony/xeno skips
+ * cost real tokens, while HACKOPS — which is coin-gated, not time-gated — is
+ * the cheap lane.
  */
-import { CATALYST_MAX_LEVEL, FACTORY_MAX_LEVEL, OVERCLOCK_MAX_LEVEL, RIG_MAX_LEVEL, VAULT_MAX_LEVEL } from './miner-config'
 import { BASE_BUILDER_COUNT, MAX_GEMS_PER_DAY, MAX_TIER as COLONY_MAX_TIER, getBug } from './colony'
 
-export type PrestigeShopGame = 'miner' | 'xeno' | 'colony' | 'hack' | 'account'
+export type PrestigeShopGame = 'xeno' | 'colony' | 'hack' | 'account'
 
 export interface PrestigeShopSection {
     id: PrestigeShopGame
@@ -31,7 +30,6 @@ export interface PrestigeShopSection {
 }
 
 export const PRESTIGE_SHOP_SECTIONS: PrestigeShopSection[] = [
-    { id: 'miner', label: 'Miner', icon: 'i-lucide-pickaxe', to: '/miner' },
     { id: 'xeno', label: 'Xeno', icon: 'i-lucide-sprout', to: '/xeno' },
     { id: 'colony', label: 'Colony', icon: 'i-lucide-bug', to: '/colony' },
     { id: 'hack', label: 'HackOps', icon: 'i-lucide-terminal', to: '/hack' },
@@ -51,51 +49,6 @@ export interface PrestigeShopItem {
     maxOwned: number
     /** Token price of the NEXT purchase, given how many are already owned. */
     cost: (owned: number) => number
-}
-
-// ─── Miner ────────────────────────────────────────────────────────────────────
-// Rig income is geometric at 1.11^level, so raising the ceiling is worth far
-// more than the levels handed over with it — +50 rig levels of headroom is a
-// ~184x income ceiling. The granted levels are the early-game jumpstart; the
-// raised cap is the endgame payoff.
-
-export const MINER_CORE_MAX_OWNED = 10
-/** Levels of extra CEILING one purchase adds. 10 buys take the rig 100 → 150. */
-export const MINER_CORE_RIG_STEP = 5
-export const MINER_CORE_VAULT_STEP = 5
-export const MINER_CORE_FACTORY_STEP = 2
-/** Levels handed over immediately on purchase (clamped to the new ceiling). */
-export const MINER_CORE_RIG_GRANT = 5
-export const MINER_CORE_VAULT_GRANT = 5
-export const MINER_CORE_FACTORY_GRANT = 1
-
-export function minerRigMaxLevel(coreOwned: number) {
-    return RIG_MAX_LEVEL + coreOwned * MINER_CORE_RIG_STEP
-}
-
-export function minerVaultMaxLevel(coreOwned: number) {
-    return VAULT_MAX_LEVEL + coreOwned * MINER_CORE_VAULT_STEP
-}
-
-export function minerFactoryMaxLevel(coreOwned: number) {
-    return FACTORY_MAX_LEVEL + coreOwned * MINER_CORE_FACTORY_STEP
-}
-
-// ─── Miner gem tracks ─────────────────────────────────────────────────────────
-// Overclock and Catalyst are each sold in two halves rather than one lump: the
-// first token buys the cheap half of the gem curve (levels 1-5, ~90 gems), and
-// the expensive half (6-10, ~600 gems) costs two more. Both tracks grow their
-// gem price at ~1.5x per level, so a flat single price either massively
-// overpaid for the front half or was unaffordable for the back half.
-
-export const MINER_GEM_TRACK_MAX_OWNED = 2
-/** Level each purchase takes the track to — 5, then the track's own max. */
-export const MINER_OVERCLOCK_STEPS = [5, OVERCLOCK_MAX_LEVEL]
-export const MINER_CATALYST_STEPS = [5, CATALYST_MAX_LEVEL]
-
-/** Token price of the NEXT half: 1 for levels 1-5, 2 for 6-10. */
-export function minerGemTrackCost(owned: number) {
-    return owned === 0 ? 1 : 2
 }
 
 // ─── Xeno ─────────────────────────────────────────────────────────────────────
@@ -206,46 +159,6 @@ export const CREDIT_LINE_MAX_OWNED = 10
 export const CREDIT_LINE_PER_PURCHASE = 1_000_000
 
 export const PRESTIGE_SHOP_ITEMS: PrestigeShopItem[] = [
-    {
-        id: 'miner-core',
-        game: 'miner',
-        name: 'Deep Core Calibration',
-        icon: 'i-lucide-pickaxe',
-        summary: 'Breaks the rig, vault and factory ceilings — and hands you a running start.',
-        grants: [
-            `+${MINER_CORE_RIG_STEP} max rig level, +${MINER_CORE_VAULT_STEP} max vault level, +${MINER_CORE_FACTORY_STEP} max factory level`,
-            `Immediately +${MINER_CORE_RIG_GRANT} rig, +${MINER_CORE_VAULT_GRANT} vault, +${MINER_CORE_FACTORY_GRANT} factory level`,
-            `All ${MINER_CORE_MAX_OWNED} take the rig and vault to ${minerRigMaxLevel(MINER_CORE_MAX_OWNED)} and the factory to ${minerFactoryMaxLevel(MINER_CORE_MAX_OWNED)}`
-        ],
-        maxOwned: MINER_CORE_MAX_OWNED,
-        cost: () => 1
-    },
-    {
-        id: 'miner-overclock',
-        game: 'miner',
-        name: 'Rig Overclock',
-        icon: 'i-lucide-gauge',
-        summary: 'The Overclock track, in two halves — take the cheap half or buy the whole thing.',
-        grants: [
-            `1 token: Overclock to level ${MINER_OVERCLOCK_STEPS[0]} (+${MINER_OVERCLOCK_STEPS[0]! * 2}% mining and lootbox cash) — about 90 gems saved`,
-            `2 more: Overclock to level ${OVERCLOCK_MAX_LEVEL} (+${OVERCLOCK_MAX_LEVEL * 2}%) — about 600 more gems saved`
-        ],
-        maxOwned: MINER_GEM_TRACK_MAX_OWNED,
-        cost: minerGemTrackCost
-    },
-    {
-        id: 'miner-catalyst',
-        game: 'miner',
-        name: 'Factory Catalyst',
-        icon: 'i-lucide-flask-conical',
-        summary: 'The Catalyst track, in two halves — take the cheap half or buy the whole thing.',
-        grants: [
-            `1 token: Catalyst to level ${MINER_CATALYST_STEPS[0]} (+${MINER_CATALYST_STEPS[0]! * 8}% gem production rate) — about 90 gems saved`,
-            `2 more: Catalyst to level ${CATALYST_MAX_LEVEL} (+${CATALYST_MAX_LEVEL * 8}%) — about 600 more gems saved`
-        ],
-        maxOwned: MINER_GEM_TRACK_MAX_OWNED,
-        cost: minerGemTrackCost
-    },
     {
         id: 'xeno-leap',
         game: 'xeno',
