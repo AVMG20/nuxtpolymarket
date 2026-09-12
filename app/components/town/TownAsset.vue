@@ -24,7 +24,7 @@ const emoji = computed(() => props.id ? EMOJI[props.id] : undefined)
  * own 3D model instead of showing a glyph, so every entry in the build menu
  * looks like the same kind of thing. Drop a PNG in and this list goes away.
  */
-const AWAITING_ARTWORK = new Set(['bathhouse', 'theatre'])
+const AWAITING_ARTWORK = new Set(['bathhouse', 'theatre', 'gemmine'])
 
 const src = computed(() => {
     if (!props.id) return undefined

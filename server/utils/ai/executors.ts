@@ -104,41 +104,6 @@ interface ColonyState {
     builderCount: number
 }
 
-interface MinerState {
-    walletBalance: number
-    rigLevel: number
-    rigMaxLevel: number
-    rigUpgradeCost: number
-    vaultLevel: number
-    vaultMaxLevel: number
-    vaultUpgradeCost: number
-    factoryLevel: number
-    factoryMaxLevel: number
-    factoryUpgradeCost: number
-    pendingCash: number
-    pendingGems: number
-    income: number
-    cap: number
-    rate: number
-    gemCap: number
-    gems: number
-    lootboxSlots: number
-    lootboxMaxSlots: number
-    lootboxNextSlotCost: number
-    lootboxFreeOpensRemaining: number
-    overclockLevel: number
-    overclockMaxLevel: number
-    overclockNextCost: number | null
-    catalystLevel: number
-    catalystMaxLevel: number
-    catalystNextCost: number | null
-    incomeMultiplier: number
-    gemRateMultiplier: number
-    gemPrice: number
-    lootboxAvgValue: number
-    lootboxOpenPrice: number
-}
-
 interface GemExchangeState {
     guidePrice: number
     bestBid: number | null
@@ -190,11 +155,10 @@ export function parseToolArguments(raw: string): Record<string, unknown> {
 
 async function getOverview(event: H3Event) {
     const headers = toolHeaders(event)
-    const [xeno, colony, hack, miner, gemExchange, town] = await Promise.all([
+    const [xeno, colony, hack, gemExchange, town] = await Promise.all([
         uf(event.$fetch)<XenoState>('/api/xeno/state', { headers }),
         uf(event.$fetch)<ColonyState>('/api/colony/state', { headers }),
         uf(event.$fetch)<HackState>('/api/hack/state', { headers }),
-        uf(event.$fetch)<MinerState>('/api/miner/state', { headers }),
         uf(event.$fetch)<GemExchangeState>('/api/gem-exchange/state', { headers }),
         uf(event.$fetch)<TownState>('/api/town/state', { headers })
     ])
@@ -257,53 +221,6 @@ async function getOverview(event: H3Event) {
             activeOps: hack.activeOps,
             freeAgents: hack.agents.filter(agent => !agent.onOp),
             missionTemplates: hack.opTemplates
-        },
-        miner: {
-            walletCoins: miner.walletBalance,
-            rig: {
-                level: miner.rigLevel,
-                maxLevel: miner.rigMaxLevel,
-                incomePerDay: miner.income,
-                pendingCoins: miner.pendingCash,
-                storageCapCoins: miner.cap,
-                nextUpgradeCostCoins: miner.rigUpgradeCost
-            },
-            vault: {
-                level: miner.vaultLevel,
-                maxLevel: miner.vaultMaxLevel,
-                storageCapCoins: miner.cap,
-                nextUpgradeCostCoins: miner.vaultUpgradeCost
-            },
-            factory: {
-                level: miner.factoryLevel,
-                maxLevel: miner.factoryMaxLevel,
-                gemsPerDay: miner.rate,
-                pendingGems: miner.pendingGems,
-                storageCapGems: miner.gemCap,
-                nextUpgradeCostCoins: miner.factoryUpgradeCost
-            },
-            overclock: {
-                level: miner.overclockLevel,
-                maxLevel: miner.overclockMaxLevel,
-                rigAndLootboxCashMultiplier: miner.incomeMultiplier,
-                nextUpgradeCostGems: miner.overclockNextCost
-            },
-            catalyst: {
-                level: miner.catalystLevel,
-                maxLevel: miner.catalystMaxLevel,
-                factoryRateMultiplier: miner.gemRateMultiplier,
-                nextUpgradeCostGems: miner.catalystNextCost
-            },
-            lootboxes: {
-                slots: miner.lootboxSlots,
-                maxSlots: miner.lootboxMaxSlots,
-                freeOpensRemainingToday: miner.lootboxFreeOpensRemaining,
-                nextSlotCostCoins: miner.lootboxNextSlotCost,
-                expectedValueCoins: miner.lootboxAvgValue,
-                paidOpenCostCoins: miner.lootboxOpenPrice,
-                liveGemPriceCoins: miner.gemPrice
-            },
-            gems: miner.gems
         },
         gemExchange: {
             guidePrice: gemExchange.guidePrice,
@@ -827,102 +744,6 @@ async function findBestHackOpsMission(event: H3Event) {
     }
 }
 
-async function runMinerDailies(event: H3Event) {
-    const headers = toolHeaders(event)
-    const initial = await uf(event.$fetch)<MinerState>('/api/miner/state', { headers })
-    const result: {
-        minerCash: unknown | null
-        factoryGems: unknown | null
-        freeLootboxes: unknown[]
-        errors: Array<{ action: string, error: string }>
-    } = {
-        minerCash: null,
-        factoryGems: null,
-        freeLootboxes: [],
-        errors: []
-    }
-
-    if (initial.pendingCash >= 0.01) {
-        try {
-            result.minerCash = await uf(event.$fetch)('/api/miner/collect', { method: 'POST', headers })
-        } catch (error) {
-            result.errors.push({ action: 'collect_miner_cash', error: getErrorMessage(error) })
-        }
-    }
-
-    if (Math.floor(initial.pendingGems) >= 1) {
-        try {
-            result.factoryGems = await uf(event.$fetch)('/api/miner/collect-gems', { method: 'POST', headers })
-        } catch (error) {
-            result.errors.push({ action: 'collect_factory_gems', error: getErrorMessage(error) })
-        }
-    }
-
-    for (let open = 0; open < initial.lootboxFreeOpensRemaining; open++) {
-        try {
-            result.freeLootboxes.push(await uf(event.$fetch)('/api/miner/lootbox/open', {
-                method: 'POST',
-                headers,
-                body: { mode: 'free' }
-            }))
-        } catch (error) {
-            result.errors.push({ action: `open_free_lootbox_${open + 1}`, error: getErrorMessage(error) })
-            break
-        }
-    }
-
-    return {
-        ...result,
-        requestedFreeLootboxes: initial.lootboxFreeOpensRemaining,
-        openedFreeLootboxes: result.freeLootboxes.length
-    }
-}
-
-const MINER_UPGRADE_ENDPOINTS = {
-    rig: '/api/miner/upgrade-rig',
-    vault: '/api/miner/upgrade-vault',
-    factory: '/api/miner/upgrade-factory',
-    overclock: '/api/miner/shop/overclock',
-    catalyst: '/api/miner/shop/catalyst',
-    lootbox_slot: '/api/miner/lootbox/buy-slot',
-    rakeback_unlock: '/api/user/unlock-rakeback'
-} as const
-
-async function purchaseMinerUpgrades(event: H3Event, args: Record<string, unknown>) {
-    const upgrade = typeof args.upgrade === 'string' ? args.upgrade : ''
-    const levels = Number(args.levels)
-    if (!(upgrade in MINER_UPGRADE_ENDPOINTS)) {
-        throw createError({ statusCode: 400, statusMessage: 'Unknown Miner upgrade' })
-    }
-    if (!Number.isInteger(levels) || levels < 1 || levels > 20) {
-        throw createError({ statusCode: 400, statusMessage: 'levels must be an integer from 1 to 20' })
-    }
-    if (upgrade === 'rakeback_unlock' && levels !== 1) {
-        throw createError({ statusCode: 400, statusMessage: 'Rakeback can only be unlocked once' })
-    }
-
-    const headers = toolHeaders(event)
-    const endpoint = MINER_UPGRADE_ENDPOINTS[upgrade as keyof typeof MINER_UPGRADE_ENDPOINTS]
-    const purchases: unknown[] = []
-    let stoppedReason: string | null = null
-    for (let level = 0; level < levels; level++) {
-        try {
-            purchases.push(await uf(event.$fetch)(endpoint, { method: 'POST', headers }))
-        } catch (error) {
-            stoppedReason = getErrorMessage(error)
-            break
-        }
-    }
-
-    return {
-        upgrade,
-        requestedLevels: levels,
-        purchasedLevels: purchases.length,
-        stoppedReason,
-        purchases
-    }
-}
-
 async function tradeGems(event: H3Event, args: Record<string, unknown>) {
     const action = args.action === 'buy' ? 'buy' : args.action === 'sell' ? 'sell' : ''
     const gems = Number(args.gems)
@@ -1001,10 +822,6 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
             return findBestHackOpsMission(event)
         case 'dispatch_hackops_mission':
             return dispatchHackOpsMission(event, args)
-        case 'run_miner_dailies':
-            return runMinerDailies(event)
-        case 'purchase_miner_upgrades':
-            return purchaseMinerUpgrades(event, args)
         case 'run_town_dailies':
             return runTownDailies(event, args)
         case 'sell_town_resources':
@@ -1027,7 +844,7 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
         case 'call_game_api': {
             const path = typeof args.path === 'string' ? args.path : ''
             const method = args.method === 'GET' ? 'GET' : args.method === 'POST' ? 'POST' : ''
-            const gamePath = /^\/api\/(xeno|colony|hack|miner|town|pirates|gem-exchange|games)(?:\/[a-z0-9-]+)*$/
+            const gamePath = /^\/api\/(xeno|colony|hack|town|pirates|gem-exchange|games)(?:\/[a-z0-9-]+)*$/
             if (!gamePath.test(path) || !method) {
                 throw createError({ statusCode: 400, statusMessage: 'Only authenticated game API paths and GET/POST methods are allowed' })
             }

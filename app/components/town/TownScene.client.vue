@@ -2527,6 +2527,9 @@ function frame(ms: number) {
             if (b.type === 'smithy' && Math.random() < dt * 2) {
                 spawn(new THREE.Vector3(e.group.position.x + 0.25, 0.45, e.group.position.z + 0.4), 'spark')
             }
+            if (b.type === 'gemmine' && Math.random() < dt * 1.5) {
+                spawn(new THREE.Vector3(e.group.position.x + (Math.random() - 0.5) * 0.7, 0.3 + Math.random() * 0.3, e.group.position.z + (Math.random() - 0.5) * 0.7), 'spark')
+            }
             if (b.type === 'emporium' && Math.random() < dt * 3) {
                 spawn(new THREE.Vector3(e.group.position.x + (Math.random() - 0.5) * 0.8, 0.9 + Math.random() * 0.4, e.group.position.z + (Math.random() - 0.5) * 0.8), 'spark')
             }

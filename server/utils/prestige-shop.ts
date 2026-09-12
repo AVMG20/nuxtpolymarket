@@ -10,7 +10,6 @@ import {
     hackAgents,
     hackItems,
     hackState,
-    minerState,
     prestigePurchases,
     user,
     xenoPlants,
@@ -26,16 +25,8 @@ import {
     HACK_DARKNET_ITEMS,
     HACK_GHOST_AGENTS,
     HACK_GHOST_ITEMS,
-    MINER_CATALYST_STEPS,
-    MINER_CORE_FACTORY_GRANT,
-    MINER_CORE_RIG_GRANT,
-    MINER_CORE_VAULT_GRANT,
-    MINER_OVERCLOCK_STEPS,
     XENO_LEAP_FIRST_TIER,
     XENO_LEAP_PLANTS_PER_TYPE,
-    minerFactoryMaxLevel,
-    minerRigMaxLevel,
-    minerVaultMaxLevel,
     prestigeShopItem,
     xenoLeapTier,
     type PrestigeShopItem
@@ -70,44 +61,6 @@ import { LOAN_MULTIPLIER } from '#shared/utils/gamelogic/bank'
  * `owned` is the count AFTER this purchase, so the first purchase sees 1.
  */
 type Effect = (tx: DbExecutor, userId: string, owned: number) => Promise<void>
-
-// ─── Miner ────────────────────────────────────────────────────────────────────
-
-async function ensureMinerState(tx: DbExecutor, userId: string) {
-    await tx.insert(minerState).values({ userId }).onConflictDoNothing()
-}
-
-const minerCore: Effect = async (tx, userId, owned) => {
-    await ensureMinerState(tx, userId)
-    // `least` clamps to the ceiling this purchase just raised, so a player who
-    // is already at the old cap gets the full grant and nobody overshoots.
-    await tx.update(minerState)
-        .set({
-            rigLevel: sql`least(${minerState.rigLevel} + ${MINER_CORE_RIG_GRANT}, ${minerRigMaxLevel(owned)})`,
-            vaultLevel: sql`least(${minerState.vaultLevel} + ${MINER_CORE_VAULT_GRANT}, ${minerVaultMaxLevel(owned)})`,
-            factoryLevel: sql`least(${minerState.factoryLevel} + ${MINER_CORE_FACTORY_GRANT}, ${minerFactoryMaxLevel(owned)})`
-        })
-        .where(eq(minerState.userId, userId))
-}
-
-// Both gem tracks are sold in two halves. `greatest` means a player who
-// already bought levels with real gems keeps them — the perk raises the floor
-// to this half's step, it never rolls anyone backwards.
-const minerOverclock: Effect = async (tx, userId, owned) => {
-    const level = MINER_OVERCLOCK_STEPS[owned - 1] ?? MINER_OVERCLOCK_STEPS.at(-1)!
-    await ensureMinerState(tx, userId)
-    await tx.update(minerState)
-        .set({ overclockLevel: sql`greatest(${minerState.overclockLevel}, ${level})` })
-        .where(eq(minerState.userId, userId))
-}
-
-const minerCatalyst: Effect = async (tx, userId, owned) => {
-    const level = MINER_CATALYST_STEPS[owned - 1] ?? MINER_CATALYST_STEPS.at(-1)!
-    await ensureMinerState(tx, userId)
-    await tx.update(minerState)
-        .set({ catalystLevel: sql`greatest(${minerState.catalystLevel}, ${level})` })
-        .where(eq(minerState.userId, userId))
-}
 
 // ─── Xeno ─────────────────────────────────────────────────────────────────────
 
@@ -353,9 +306,6 @@ const accountCredit: Effect = async (tx, userId) => {
 }
 
 const EFFECTS: Record<string, Effect> = {
-    'miner-core': minerCore,
-    'miner-overclock': minerOverclock,
-    'miner-catalyst': minerCatalyst,
     'xeno-leap': xenoLeap,
     'colony-brood': colonyBrood,
     'colony-hive-snail': colonyHiveSnail,

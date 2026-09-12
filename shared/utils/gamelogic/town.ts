@@ -47,6 +47,30 @@ export const TOWN_PLOT_COOLDOWNS_MS: readonly number[] = [
     6 * DAY_MS,
     8 * DAY_MS // plot 6
 ]
+// ─── Jewels ──────────────────────────────────────────────────────────────────
+// Jewels are an ordinary good with one extra door: the market's gem tab turns
+// them into gems at a fixed rate. The jewel mine digs them at the same pace
+// every other workshop runs at — one unit a tick per level — so they stock,
+// sell and trade like anything else, and later buildings may take them as an
+// input. What makes the mine special is only that gems are the site's scarce
+// currency, so it is the one building a town may not have more than two of.
+//
+// The conversion rate is the balance lever. Two mines at level 20 in a Content
+// town dig 57,600 jewels a day; at 3,600 a gem that is 16 gems, and a Thriving
+// town nudges it to 21. Terrain and research raise it like any other workshop,
+// so a maxed board on rocky ground tops out near 37. The old Miner factory
+// paid 10–16 a day, so this is the same order of income behind a far longer
+// climb: level 20 wants the whole production chain (see TOWN_UPGRADE_BANDS).
+// The warehouse cap is what paces the claiming — a town that never converts or
+// sells fills up and the mine stops, like any other workshop.
+
+/** Jewels the market turns into one gem. */
+export const TOWN_JEWELS_PER_GEM = 3_600
+/** Jewel mines a town may own, finished or not. */
+export const TOWN_GEM_MINE_CAP = 2
+/** The second mine costs this much more than the first. */
+export const TOWN_GEM_MINE_REPEAT_GROWTH = 2.5
+
 export const TOWN_PLOT_PRICE_BASE = 50_000
 export const TOWN_PLOT_PRICE_GROWTH = 4.5
 export const TOWN_MAX_PLOTS = 6
@@ -106,6 +130,7 @@ export const TOWN_ROAD_REPEAT_GROWTH = 1.02
  */
 export function townRepeatGrowth(def: TownBuildingDef): number {
     if (def.kind === 'road') return TOWN_ROAD_REPEAT_GROWTH
+    if (def.id === 'gemmine') return TOWN_GEM_MINE_REPEAT_GROWTH
     if (def.kind === 'housing') return 1.4
     if (def.kind === 'civic' || def.kind === 'storage') return 1.3
     if (def.tier <= 1) return 1.35
@@ -291,7 +316,8 @@ export const TOWN_RESOURCE_IDS = [
     'bread', 'tools',
     'ore', 'steel',
     'machines',
-    'luxuries'
+    'luxuries',
+    'jewels'
 ] as const
 export type TownResourceId = typeof TOWN_RESOURCE_IDS[number]
 
@@ -302,6 +328,12 @@ export interface TownResourceDef {
     tier: number
     /** Coins the system always pays per unit. */
     floorPrice: number
+    /**
+     * False for a good the bulk-sell buttons and the AI's blanket sale leave
+     * alone unless told otherwise. Jewels are the only one: they are worth far
+     * more converted into gems than sold, so selling them is opt-in.
+     */
+    soldByDefault?: boolean
 }
 
 /**
@@ -326,7 +358,11 @@ export const TOWN_RESOURCES: readonly TownResourceDef[] = [
     { id: 'ore', name: 'Iron Ore', emoji: '⛏️', tier: 4, floorPrice: 400 },
     { id: 'steel', name: 'Steel', emoji: '⚙️', tier: 4, floorPrice: 3_600 },
     { id: 'machines', name: 'Machines', emoji: '🏭', tier: 5, floorPrice: 16_500 },
-    { id: 'luxuries', name: 'Luxuries', emoji: '💎', tier: 6, floorPrice: 100_000 }
+    { id: 'luxuries', name: 'Luxuries', emoji: '💎', tier: 6, floorPrice: 100_000 },
+    // A tier-2 good like the mine that digs it. The floor is a sliver of a
+    // gem's value (a gem's worth of jewels fetches 180 coins) so the town hall
+    // is never the better deal than converting.
+    { id: 'jewels', name: 'Jewels', emoji: '💠', tier: 2, floorPrice: 0.05, soldByDefault: false }
 ]
 
 const RESOURCE_BY_ID = new Map(TOWN_RESOURCES.map(r => [r.id, r]))
@@ -337,6 +373,16 @@ export function getTownResource(id: string): TownResourceDef | undefined {
 
 export function isTownResourceId(id: string): id is TownResourceId {
     return RESOURCE_BY_ID.has(id as TownResourceId)
+}
+
+/** Whether a blanket "sell everything" includes this resource. */
+export function townResourceSoldByDefault(id: TownResourceId): boolean {
+    return RESOURCE_BY_ID.get(id)?.soldByDefault !== false
+}
+
+/** Jewels a town needs in stock to convert into `gems`. */
+export function townJewelsFor(gems: number): number {
+    return gems * TOWN_JEWELS_PER_GEM
 }
 
 export function townFloorPrice(id: TownResourceId): number {
@@ -449,7 +495,7 @@ export const TOWN_BUILDING_IDS = [
     'house', 'park', 'warehouse',
     'bathhouse', 'theatre',
     'farm', 'lumber', 'quarry',
-    'mill', 'sawmill', 'kiln',
+    'mill', 'sawmill', 'kiln', 'gemmine',
     'bakery', 'smithy',
     'mine', 'foundry',
     'factory',
@@ -477,6 +523,8 @@ export interface TownBuildingDef {
     workersPerLevel?: number
     /** Highest level this building can reach, when lower than the global cap. Always a multiple of four so the model lands on a finished look. */
     maxLevel?: number
+    /** The most of this building a town may own, finished or not. Unset means no limit. */
+    maxCount?: number
     /** Level-1 build cost. Later levels scale coins by TOWN_LEVEL_COST_GROWTH and goods by the steeper TOWN_LEVEL_RESOURCE_GROWTH. */
     cost: { coins: number, resources: TownResourceBag }
     /** Extra resources every upgrade (level >= 2) needs, scaled like the rest of the cost. Puts goods back into the town. */
@@ -595,6 +643,14 @@ export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
         workers: 2, inputs: { stone: 2 }, outputs: { bricks: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
+        id: 'gemmine', name: 'Jewel Mine', emoji: '💠', color: 0x6a4fc1, tier: 2, kind: 'industry',
+        description: 'Digs jewels, which the market converts into gems. Hungry for hands, and a town may run only two.',
+        maxCount: TOWN_GEM_MINE_CAP,
+        cost: { coins: 600_000, resources: { stone: 400, wood: 300 } }, buildMs: 45 * MIN, upgradeMs: 40 * MIN,
+        upgradeResources: { stone: 150, bricks: 40 },
+        workers: 5, inputs: {}, outputs: { jewels: 1 }, popCap: 0, happiness: 0, storage: 0
+    },
+    {
         id: 'bakery', name: 'Bakery', emoji: '🍞', color: 0xf77f00, tier: 3, kind: 'industry',
         description: 'Bakes bread. Fed townsfolk are happier, and bread sells well.',
         cost: { coins: 1_400_000, resources: { planks: 150, bricks: 100, wheat: 300 } }, buildMs: 3 * HOUR, upgradeMs: 6 * HOUR,
@@ -704,6 +760,15 @@ export function townLevelCost(def: TownBuildingDef, level: number): { coins: num
 export function townWorkersFor(def: TownBuildingDef, level: number): number {
     if (level <= 0) return 0
     return def.workers + (def.workersPerLevel ?? def.workers) * (level - 1)
+}
+
+/**
+ * Why the town may not put up another `def` when it already has `existing`
+ * of them, or null when it may. Only capped buildings ever say no.
+ */
+export function townBuildingCountIssue(def: TownBuildingDef, existing: number): string | null {
+    if (def.maxCount === undefined || existing < def.maxCount) return null
+    return def.maxCount === 1 ? `A town may only have one ${def.name}` : `A town may only have ${def.maxCount} of the ${def.name}`
 }
 
 /** The highest level `def` can reach. Roads have none; a few buildings stop short of the global cap. */
@@ -846,8 +911,8 @@ export const TOWN_TERRAINS: readonly TownTerrainDef[] = [
         tilesPerPlot: { min: 1, max: 4 }
     },
     {
-        id: 'rock', name: 'Rocky', emoji: '🪨', color: 0x9a8c98, blocked: false, boosts: ['quarry', 'mine'],
-        description: 'Quarries, iron mines.',
+        id: 'rock', name: 'Rocky', emoji: '🪨', color: 0x9a8c98, blocked: false, boosts: ['quarry', 'mine', 'gemmine'],
+        description: 'Quarries.',
         tilesPerPlot: { min: 4, max: 8 }
     },
     {
@@ -2168,6 +2233,7 @@ export const TOWN_MILESTONES: readonly TownMilestoneDef[] = [
     { id: 'happy-town', title: 'Happy Town', description: 'Reach 75 happiness.', emoji: '😄', reward: 0, gems: 3, tier: 2, progress: s => ({ current: Math.min(75, s.happiness), target: 75 }) },
     { id: 'brickworks', title: 'Brickworks', description: 'Build a Brick Kiln.', emoji: '🧱', reward: 0, gems: 3, tier: 2, progress: built('kiln') },
     { id: 'land-grab', title: 'Land Grab', description: 'Buy a second plot.', emoji: '🗺️', reward: 0, gems: 5, tier: 2, progress: s => ({ current: Math.min(2, s.plotsBought), target: 2 }) },
+    { id: 'prospector', title: 'Prospector', description: 'Build a Jewel Mine.', emoji: '💠', reward: 0, gems: 5, tier: 2, progress: built('gemmine') },
     { id: 'baker', title: 'Fresh Bread', description: 'Build a Bakery.', emoji: '🍞', reward: 0, gems: 6, tier: 3, progress: built('bakery') },
     { id: 'toolmaker', title: 'Toolmaker', description: 'Build a Smithy.', emoji: '🔧', reward: 0, gems: 6, tier: 3, progress: built('smithy') },
     { id: 'merchant', title: 'Merchant', description: 'Earn 1M coins selling to the town hall.', emoji: '🏪', reward: 0, gems: 8, tier: 3, progress: s => ({ current: Math.min(1_000_000, s.coinsEarned), target: 1_000_000 }) },

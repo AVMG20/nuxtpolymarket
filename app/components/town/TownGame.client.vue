@@ -9,7 +9,7 @@ import TownLeaderboardPanel from '~/components/town/TownLeaderboardPanel.vue'
 import TownResearchPanel from '~/components/town/TownResearchPanel.vue'
 import { formatTownDuration } from '~/utils/town-format'
 import { townTerrainCss } from '~/utils/town/terrain'
-import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
 import type { SceneTile, SceneMoveGhost } from '~/components/town/TownScene.client.vue'
 
 const town = useTown()
@@ -139,7 +139,18 @@ function canAfford(cost: { coins: number, resources: Record<string, number> }) {
     return true
 }
 
+/** Why the town may not put up another of `type`, or null. Mirrors the server's count cap. */
+function countIssue(type: string): string | null {
+    const def = getTownBuilding(type)
+    return def ? townBuildingCountIssue(def, town.countsByType.value[type] ?? 0) : null
+}
+
 function pickBuild(type: string) {
+    const capped = countIssue(type)
+    if (capped) {
+        toast.add({ title: capped, color: 'neutral' })
+        return
+    }
     // Roads go up instantly and need nobody; everything else needs a free crew.
     const def = town.catalogById.value.get(type)
     if (def && def.kind !== 'road' && buildersFree.value === 0) {
@@ -269,7 +280,7 @@ const selWorkersWanted = computed(() => selDef.value && selectedBuilding.value
 const selWorkersTitle = computed(() => {
     const b = selectedBuilding.value
     const d = b?.district
-    const want = `Wants ${selWorkersWanted.value} residents; houses fill posts oldest building first.`
+    const want = `Wants ${selWorkersWanted.value} ${selWorkersWanted.value === 1 ? 'resident' : 'residents'}`
     if (!d) return want
     return `${want}\nThis road network: ${d.residents} residents for ${d.jobs} jobs.`
 })
@@ -601,11 +612,43 @@ const selNuisance = computed(() => {
 /** How well the selected workshop's inputs reach it — null unless it consumes goods. */
 const selSupply = computed(() => selectedBuilding.value?.supply ?? null)
 /** Per-hour rate the building really runs at: recipe × level × throughput. */
+const selUnit = computed(() => selectedEntry.value ? ioUnit(selectedEntry.value) : 'h')
 function selRate(perLevel: number) {
     const b = selectedBuilding.value
-    if (!b) return 0
-    return perHour(perLevel * b.level * (b.throughput ?? 1))
+    if (!b) return '0'
+    return ioRate(perLevel * b.level * (b.throughput ?? 1), selUnit.value)
 }
+/** Hovering Upgrade swaps the cost for what the next level changes. */
+const previewUpgrade = ref(false)
+/** Before → after for the next level, at today's staffing and supply. */
+const selUpgradePreview = computed(() => {
+    const b = selectedBuilding.value
+    const e = selectedEntry.value
+    if (!b || !e || e.kind === 'road') return []
+    const next = b.level + 1
+    const rows: { id?: string, ico?: string, label: string, from: string, to: string, up: boolean, tip?: string }[] = []
+    if (e.kind === 'industry') {
+        const rate = (q: number, level: number) => ioRate(q * level * (b.throughput ?? 1), selUnit.value)
+        for (const [id, q] of Object.entries(e.outputs)) {
+            rows.push({ id, label: '', from: `+${rate(q, b.level)}`, to: `+${rate(q, next)}`, up: true, tip: town.resourceById.value.get(id)?.name })
+        }
+        for (const [id, q] of Object.entries(e.inputs)) {
+            rows.push({ id, label: '', from: `−${rate(q, b.level)}`, to: `−${rate(q, next)}`, up: false, tip: town.resourceById.value.get(id)?.name })
+        }
+    } else if (e.kind === 'housing') {
+        rows.push({ ico: '👥', label: 'residents', from: String(e.popCap * b.level), to: String(e.popCap * next), up: true })
+    } else if (e.kind === 'civic') {
+        rows.push({ ico: '😊', label: 'happiness', from: `+${e.happiness * b.level}`, to: `+${e.happiness * next}`, up: true })
+    } else if (e.kind === 'storage') {
+        rows.push({ ico: '📦', label: 'storage', from: formatNumber(e.storage * b.level), to: formatNumber(e.storage * next), up: true })
+    }
+    if (selDef.value) {
+        const want = townWorkersFor(selDef.value, b.level)
+        const wantNext = townWorkersFor(selDef.value, next)
+        if (wantNext !== want) rows.push({ ico: '👥', label: 'wanted', from: String(want), to: String(wantNext), up: false, tip: 'Residents it will want. Short-handed buildings run slower.' })
+    }
+    return rows
+})
 /** The supply tag's tooltip: the rule once, then a line per input good. */
 const selSupplyTitle = computed(() => {
     const s = selSupply.value
@@ -749,6 +792,12 @@ function placeOrder(resource: string, side: 'buy' | 'sell', price: number, quant
             toast.add({ title: res.filled > 0 ? `Partially filled, rest listed` : 'Offer listed', color: 'success' })
             sound.play('click')
         }
+    })
+}
+function convertJewels(gems: number) {
+    run(() => town.convertJewels(gems), (res) => {
+        toast.add({ title: `Converted ${formatNumber(res.jewels)} jewels into ${res.gems} ${res.gems === 1 ? 'gem' : 'gems'}`, color: 'success' })
+        sound.play('bigcoin')
     })
 }
 function sellBulk(items: { resource: string, quantity: number }[]) {
@@ -950,8 +999,20 @@ const ticksPerHour = computed(() => (3_600_000 / town.constants.value.tickMs) * 
 function perHour(perTick: number) {
     return Math.round(perTick * ticksPerHour.value)
 }
+/** Anything too slow to show a whole unit an hour is quoted per day instead. */
+function ioUnit(c: { outputs: Record<string, number> }): 'h' | 'day' {
+    return Object.values(c.outputs).some(q => q * ticksPerHour.value < 1) ? 'day' : 'h'
+}
+function ioRate(q: number, unit: 'h' | 'day') {
+    const value = q * ticksPerHour.value * (unit === 'day' ? 24 : 1)
+    return value < 10 ? String(Math.round(value * 10) / 10) : formatNumber(Math.round(value))
+}
 const inventoryRows = computed(() => town.resources.value
-    .map(r => ({ ...r, amount: town.inventory.value[r.id] ?? 0, perHour: Math.round((town.netPerTick.value[r.id] ?? 0) * ticksPerHour.value) }))
+    .map(r => ({
+        ...r,
+        amount: town.inventory.value[r.id] ?? 0,
+        perHour: Math.round((town.netPerTick.value[r.id] ?? 0) * ticksPerHour.value)
+    }))
     .filter(r => r.amount > 0 || r.perHour !== 0))
 function toggleSound() {
     sound.unlock()
@@ -1245,7 +1306,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
             <!-- Inventory (left) -->
             <div v-if="inventoryRows.length" class="inv">
-                <button v-for="r in inventoryRows" :key="r.id" class="inv-row" :class="r.amount >= storageCap ? 'is-full' : ''" @click="openMarket(r.id)">
+                <button v-for="r in inventoryRows" :key="r.id" class="inv-row" :class="r.amount >= storageCap ? 'is-full' : ''" :data-tip="r.name" @click="openMarket(r.id)">
                     <span class="inv-emoji"><TownAsset :id="r.id" /></span>
                     <span class="inv-num">{{ formatNumber(r.amount) }}</span>
                     <span v-if="r.perHour" class="inv-rate" :class="r.perHour > 0 ? 'up' : 'down'">{{ r.perHour > 0 ? '+' : '' }}{{ formatNumber(r.perHour) }}/h</span>
@@ -1347,25 +1408,25 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <template v-else>
                             <!-- What it makes, at the rate it really runs -->
                             <div v-if="selectedEntry.kind === 'industry'" class="recipe">
-                                <span v-for="[id, q] in Object.entries(selectedEntry.inputs)" :key="id" class="recipe-item is-in">
-                                    <TownAsset :id="id" /> −{{ formatNumber(selRate(q)) }}
+                                <span v-for="[id, q] in Object.entries(selectedEntry.inputs)" :key="id" class="recipe-item is-in" :data-tip="town.resourceById.value.get(id)?.name">
+                                    <TownAsset :id="id" /> −{{ selRate(q) }}
                                 </span>
                                 <span v-if="Object.keys(selectedEntry.inputs).length" class="recipe-arrow">→</span>
-                                <span v-for="[id, q] in Object.entries(selectedEntry.outputs)" :key="id" class="recipe-item is-out">
-                                    <TownAsset :id="id" /> +{{ formatNumber(selRate(q)) }}
+                                <span v-for="[id, q] in Object.entries(selectedEntry.outputs)" :key="id" class="recipe-item is-out" :data-tip="town.resourceById.value.get(id)?.name">
+                                    <TownAsset :id="id" /> +{{ selRate(q) }}
                                 </span>
-                                <span class="recipe-unit" data-tip="What it really moves right now. Level, workers and supply are all counted in.">per hour</span>
+                                <span class="recipe-unit" data-tip="What it really moves right now. Level, workers and supply are all counted in.">per {{ selUnit === 'day' ? 'day' : 'hour' }}</span>
                             </div>
 
                             <!-- The two things that slow a building down -->
                             <div v-if="selWorkersWanted > 0" class="meters">
                                 <div class="meter" :data-tip="selWorkersTitle">
                                     <span class="meter-ico">👥</span>
-                                    <span class="meter-label">Workers</span>
+                                    <span class="meter-label">Workers <em class="meter-want">{{ selWorkersWanted }}</em></span>
                                     <span class="meter-bar"><i :class="barClass(selectedBuilding.staffing ?? 0)" :style="{ width: `${Math.round((selectedBuilding.staffing ?? 0) * 100)}%` }" /></span>
                                     <b class="meter-value">{{ Math.round((selectedBuilding.staffing ?? 0) * 100) }}%</b>
                                 </div>
-                                <div v-if="selSupply" class="meter" :data-tip="selSupplyTitle">
+                                <div v-if="selSupply && selectedEntry.kind === 'industry' && Object.keys(selectedEntry.inputs).length" class="meter" :data-tip="selSupplyTitle">
                                     <span class="meter-ico">🚚</span>
                                     <span class="meter-label">Supply</span>
                                     <span class="meter-bar"><i :class="barClass(selSupply.ratio)" :style="{ width: `${Math.round(selSupply.ratio * 100)}%` }" /></span>
@@ -1401,7 +1462,21 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <!-- Upgrade -->
                             <template v-if="selCanUpgrade && selectedEntry.kind !== 'road'">
                                 <div class="upgrade">
-                                    <div class="upgrade-info">
+                                    <div v-if="previewUpgrade && selUpgradePreview.length" class="upgrade-info upgrade-preview">
+                                        <div class="upgrade-head">
+                                            <b>Level {{ selectedBuilding.level }} → {{ selNextLevel }}</b>
+                                            <span class="opacity-55">{{ selectedEntry.kind === 'industry' ? `per ${selUnit === 'day' ? 'day' : 'hour'}` : '' }}</span>
+                                        </div>
+                                        <div class="upgrade-cost">
+                                            <span v-for="(r, i) in selUpgradePreview" :key="i" :data-tip="r.tip">
+                                                <TownAsset v-if="r.id" :id="r.id" /><template v-else>{{ r.ico }}</template>
+                                                <s class="preview-from">{{ r.from }}</s>
+                                                <b :class="r.up ? 'preview-up' : 'preview-more'">{{ r.to }}</b>
+                                                <em v-if="!r.id" class="preview-label">{{ r.label }}</em>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div v-else class="upgrade-info">
                                         <div class="upgrade-head">
                                             <b>Level {{ selNextLevel }}</b>
                                             <span class="opacity-55">⏱ {{ formatTownDuration(selUpgradeMs) }}</span>
@@ -1411,7 +1486,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                             <span v-for="[id, q] in Object.entries(selUpgradeCost.resources)" :key="id" :class="(town.inventory.value[id] ?? 0) >= q ? '' : 'bad'"><TownAsset :id="id" /> {{ formatNumber(q) }}</span>
                                         </div>
                                     </div>
-                                    <button class="g-btn g-btn-primary upgrade-go" :disabled="busy || !canAfford(selUpgradeCost)" :data-tip="buildersFree === 0 ? 'Every builder is on a job — click to free one.' : canAfford(selUpgradeCost) ? undefined : 'You are short on what is marked red.'" @click="upgradeSelected">
+                                    <button class="g-btn g-btn-primary upgrade-go" :disabled="busy || !canAfford(selUpgradeCost)" :data-tip="buildersFree === 0 ? 'Every builder is on a job — click to free one.' : canAfford(selUpgradeCost) ? undefined : 'You are short on what is marked red.'" @mouseenter="previewUpgrade = true" @mouseleave="previewUpgrade = false" @focus="previewUpgrade = true" @blur="previewUpgrade = false" @click="upgradeSelected">
                                         ⬆ {{ buildersFree === 0 ? 'No builder' : 'Upgrade' }}
                                     </button>
                                 </div>
@@ -1442,13 +1517,13 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             v-for="c in tierEntries"
                             :key="c.id"
                             class="bcard"
-                            :class="[ghostType === c.id && !movingId ? 'is-active' : '', canAfford(town.nextCost.value[c.id] ?? c.cost) && !tierLocked(c.tier) && (c.kind === 'road' || buildersFree > 0) ? '' : 'is-dim']"
+                            :class="[ghostType === c.id && !movingId ? 'is-active' : '', canAfford(town.nextCost.value[c.id] ?? c.cost) && !tierLocked(c.tier) && !countIssue(c.id) && (c.kind === 'road' || buildersFree > 0) ? '' : 'is-dim']"
                             :disabled="tierLocked(c.tier)"
                             :style="{ '--accent': hex(c.color) }"
-                            :data-tip="(town.countsByType.value[c.id] ?? 0) ? `You own ${town.countsByType.value[c.id]} — each extra one costs more` : ''"
+                            :data-tip="countIssue(c.id) ?? ((town.countsByType.value[c.id] ?? 0) ? `You own ${town.countsByType.value[c.id]}${c.maxCount ? ` of ${c.maxCount}` : ''} — each extra one costs more` : (c.maxCount ? `A town may run ${c.maxCount}` : ''))"
                             @click="pickBuild(c.id)"
                         >
-                            <span v-if="town.countsByType.value[c.id]" class="bcard-count">×{{ town.countsByType.value[c.id] }}</span>
+                            <span v-if="town.countsByType.value[c.id] || c.maxCount" class="bcard-count">×{{ town.countsByType.value[c.id] ?? 0 }}<template v-if="c.maxCount">/{{ c.maxCount }}</template></span>
                             <span class="bcard-emoji"><TownAsset v-if="c.kind !== 'road'" :id="c.id" kind="building" /><span v-else>🛣️</span></span>
                             <b class="bcard-name">{{ c.name }}</b>
                             <span class="bcard-cost" :class="balance >= (town.nextCost.value[c.id]?.coins ?? c.cost.coins) ? '' : 'bad'"><TownCoin /> {{ formatNumber(town.nextCost.value[c.id]?.coins ?? c.cost.coins) }}</span>
@@ -1463,10 +1538,10 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 <span v-if="c.happiness">😊 +{{ c.happiness }}</span>
                                 <span v-if="c.storage">📦 +{{ formatNumber(c.storage) }}</span>
                             </span>
-                            <span v-if="Object.keys(c.outputs).length" class="bcard-io" data-tip="Per hour at level 1">
-                                <template v-if="Object.keys(c.inputs).length"><span v-for="[id, q] in Object.entries(c.inputs)" :key="id">{{ formatNumber(perHour(q)) }}<TownAsset :id="id" /></span>→</template>
-                                <span v-for="[id, q] in Object.entries(c.outputs)" :key="id" class="text-emerald-300">{{ formatNumber(perHour(q)) }}<TownAsset :id="id" /></span>
-                                <span class="opacity-50">/h</span>
+                            <span v-if="Object.keys(c.outputs).length" class="bcard-io" :data-tip="`Per ${ioUnit(c) === 'day' ? 'day' : 'hour'} at level 1`">
+                                <template v-if="Object.keys(c.inputs).length"><span v-for="[id, q] in Object.entries(c.inputs)" :key="id">{{ ioRate(q, ioUnit(c)) }}<TownAsset :id="id" /></span>→</template>
+                                <span v-for="[id, q] in Object.entries(c.outputs)" :key="id" class="text-emerald-300">{{ ioRate(q, ioUnit(c)) }}<TownAsset :id="id" /></span>
+                                <span class="opacity-50">/{{ ioUnit(c) }}</span>
                             </span>
                         </button>
                     </div>
@@ -1522,6 +1597,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             :speed-multiplier="speed"
                             :tick-ms="town.constants.value.tickMs"
                             :storage-cap="storageCap"
+                            :jewels-per-gem="town.constants.value.jewelsPerGem"
+                            @convert="convertJewels"
                             @sell-floor="sellFloor"
                             @sell-bulk="sellBulk"
                             @place-order="placeOrder"
@@ -1979,9 +2056,10 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
 /* The two things that throttle a workshop, side by side. */
 .meters { display: flex; flex-direction: column; gap: 5px; }
-.meter { display: grid; grid-template-columns: 18px 62px 1fr 40px; align-items: center; gap: 8px; font-size: 12px; cursor: help; }
+.meter { display: grid; grid-template-columns: 18px 84px 1fr 40px; align-items: center; gap: 8px; font-size: 12px; cursor: help; }
 .meter-ico { font-size: 14px; line-height: 1; }
-.meter-label { opacity: 0.65; }
+.meter-label { opacity: 0.65; white-space: nowrap; }
+.meter-want { font-style: normal; font-weight: 800; opacity: 0.9; }
 .meter-bar { height: 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
 .meter-bar i { display: block; height: 100%; border-radius: 999px; transition: width 0.4s ease; }
 .meter-bar i.ok { background: linear-gradient(90deg, #7ee081, #3ecf5a); }
@@ -1996,6 +2074,12 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .upgrade-cost { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .upgrade-cost span { display: inline-flex; align-items: center; gap: 4px; }
 .upgrade-go { flex-shrink: 0; padding: 8px 14px; font-size: 12px; }
+/* Hovering Upgrade: the cost gives way to what the next level changes. */
+.upgrade-preview .upgrade-cost span { cursor: default; }
+.preview-from { opacity: 0.45; text-decoration-color: rgba(255, 255, 255, 0.5); }
+.preview-up { color: #9af0a8; }
+.preview-more { color: #ffd479; }
+.preview-label { font-style: normal; font-weight: 600; opacity: 0.55; }
 .g-btn-sm { padding: 7px 12px; font-size: 12px; }
 .g-btn-quiet-danger { color: #ffb3b3; }
 .g-btn-quiet-danger:hover:not(:disabled) { background: rgba(229, 50, 45, 0.2); }

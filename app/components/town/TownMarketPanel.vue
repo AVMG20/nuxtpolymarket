@@ -37,6 +37,8 @@ const props = defineProps<{
     tickMs: number
     /** Per-resource storage cap. Full storage halts the workshops that fill it. */
     storageCap: number
+    /** Jewels one gem costs at the market. */
+    jewelsPerGem: number
 }>()
 
 const emit = defineEmits<{
@@ -45,10 +47,19 @@ const emit = defineEmits<{
     'sell-bulk': [items: { resource: string, quantity: number }[]]
     'place-order': [resource: string, side: 'buy' | 'sell', price: number, quantity: number]
     'cancel-order': [orderId: string]
+    convert: [gems: number]
 }>()
 
 /** Sentinel for the overview entry at the top of the list. No resource uses this id. */
 const ALL = 'all'
+/** Sentinel for the gems tab: where jewels are turned into gems. */
+const GEMS = 'gems'
+
+/** Where a resource id opens from the HUD: the gems tab for jewels, its own book for anything else. */
+function tabFor(resource: string | null): string {
+    if (!resource) return ALL
+    return resource === 'jewels' ? GEMS : resource
+}
 
 /** One colour per resource, shared by the chart, the legend and the list dots. */
 const RESOURCE_COLORS: Record<string, string> = {
@@ -63,17 +74,19 @@ const RESOURCE_COLORS: Record<string, string> = {
     ore: '#69788c',
     steel: '#cdd5de',
     machines: '#a476e8',
-    luxuries: '#e662b8'
+    luxuries: '#e662b8',
+    jewels: '#b18cff'
 }
 
 function colorFor(id: string) {
     return RESOURCE_COLORS[id] ?? 'var(--g-muted)'
 }
 
-const selected = ref<string>(props.initialResource ?? ALL)
-watch(() => props.initialResource, (r) => { if (r) selected.value = r })
+const selected = ref<string>(tabFor(props.initialResource))
+watch(() => props.initialResource, (r) => { if (r) selected.value = tabFor(r) })
 
 const isAll = computed(() => selected.value === ALL)
+const isGems = computed(() => selected.value === GEMS)
 const resource = computed(() => props.resources.find(r => r.id === selected.value) ?? null)
 const owned = computed(() => props.inventory[selected.value] ?? 0)
 const resourceNames = computed<Record<string, string>>(() => Object.fromEntries(props.resources.map(r => [r.id, r.name])))
@@ -84,7 +97,7 @@ let fetchSeq = 0
 
 async function loadMarket() {
     const id = selected.value
-    if (id === ALL) { fetchSeq++; loading.value = false; return }
+    if (id === ALL || id === GEMS) { fetchSeq++; loading.value = false; return }
     const seq = ++fetchSeq
     loading.value = true
     try {
@@ -193,7 +206,16 @@ const visibleSeries = computed(() => producedSeries.value.filter(id => !hiddenSe
 // ── Overview: bulk sell ──
 const ticksPerHour = computed(() => (3_600_000 / (props.tickMs || 60_000)) * (props.speedMultiplier || 1))
 
+/**
+ * Jewels are worth far more converted than sold, so the bulk buttons leave
+ * them alone unless the mayor ticks the box. Off every time the window opens.
+ */
+const includeHeld = ref(false)
+const heldBack = computed(() => props.resources.filter(r => r.soldByDefault === false))
+const heldBackOwned = computed(() => heldBack.value.reduce((n, r) => n + (props.inventory[r.id] ?? 0), 0))
+
 const ownedRows = computed(() => props.resources
+    .filter(r => includeHeld.value || r.soldByDefault !== false)
     .map(r => ({
         id: r.id,
         name: r.name,
@@ -229,6 +251,30 @@ function itemsAboveKeep(): SellItem[] {
 }
 
 const floorById = computed(() => new Map(props.resources.map(r => [r.id, r.floorPrice])))
+
+// ── Gems ──
+const jewels = computed(() => props.inventory.jewels ?? 0)
+const jewelsPerDay = computed(() => (props.netPerTick.jewels ?? 0) * ticksPerHour.value * 24)
+/** Whole gems the jewels on hand convert into. */
+const gemsReady = computed(() => Math.floor(jewels.value / Math.max(1, props.jewelsPerGem)))
+const convertQty = ref(0)
+watch(gemsReady, (n) => { convertQty.value = n }, { immediate: true })
+const convertValid = computed(() => Number.isInteger(convertQty.value) && convertQty.value >= 1 && convertQty.value <= gemsReady.value)
+const jewelRatio = computed(() => props.storageCap > 0 ? Math.min(1, jewels.value / props.storageCap) : 0)
+const jewelClass = computed(() => jewelRatio.value >= 0.9 ? 'bad' : jewelRatio.value >= 0.7 ? 'meh' : 'ok')
+/** Days until storage is full of jewels at the current rate, or null when it is not filling. */
+const jewelFullDays = computed(() => {
+    if (jewelsPerDay.value <= 0 || props.storageCap <= jewels.value) return null
+    return (props.storageCap - jewels.value) / jewelsPerDay.value
+})
+function fmtDays(days: number) {
+    if (days < 1) return `${Math.max(1, Math.round(days * 24))}h`
+    return `${Math.round(days * 10) / 10}d`
+}
+function convert() {
+    if (!convertValid.value) return
+    emit('convert', Math.floor(convertQty.value))
+}
 
 function valueOf(items: SellItem[]) {
     let total = 0
@@ -397,6 +443,14 @@ function timeAgo(at: number) {
                         <span class="block text-[11px] leading-tight opacity-60">Production &amp; bulk sell</span>
                     </span>
                 </button>
+                <button class="mk-item" :class="isGems ? 'is-active' : ''" @click="selected = GEMS">
+                    <span class="text-lg leading-none">💎</span>
+                    <span class="min-w-0 flex-1 text-left">
+                        <span class="block truncate text-sm font-bold leading-tight">Gems</span>
+                        <span class="block text-[11px] leading-tight opacity-60 tabular-nums">{{ formatNumber(jewels) }} jewels</span>
+                    </span>
+                    <span v-if="gemsReady > 0" class="mk-ready">{{ gemsReady }}</span>
+                </button>
                 <div class="mk-sep" />
                 <button v-for="r in resources" :key="r.id" class="mk-item" :class="selected === r.id ? 'is-active' : ''" @click="selected = r.id">
                     <span class="mk-dot" :style="{ background: colorFor(r.id) }" />
@@ -450,6 +504,11 @@ function timeAgo(at: number) {
                     <div v-if="!ownedRows.length" class="py-4 text-center text-xs opacity-60">Your warehouse is empty</div>
                     <template v-else>
                         <p class="mb-2 text-[11px] opacity-55">Totals are what the town hall guarantees — any mayor bidding more is taken first, so you get at least this.</p>
+                        <label v-if="heldBack.length" class="mk-check" :data-tip="`${heldBack.map(r => r.name).join(', ')} are worth far more as gems. Tick this only if you really want the town hall to take them.`">
+                            <input v-model="includeHeld" type="checkbox">
+                            <span>Include <template v-for="(r, i) in heldBack" :key="r.id"><template v-if="i">, </template><TownAsset :id="r.id" /> {{ r.name }}</template> in these sales</span>
+                            <span class="opacity-50 tabular-nums">{{ formatNumber(heldBackOwned) }} held</span>
+                        </label>
                         <div class="mk-actions">
                             <button
                                 v-for="q in quickSells"
@@ -497,6 +556,45 @@ function timeAgo(at: number) {
                                 </span>
                             </div>
                         </div>
+                    </template>
+                </section>
+            </div>
+
+            <!-- Gems -->
+            <div v-else-if="isGems" class="mk-detail">
+                <div class="mk-title">
+                    <span class="text-4xl drop-shadow"><TownAsset id="jewels" /></span>
+                    <div class="flex-1">
+                        <div class="text-lg font-black leading-tight">Gems</div>
+                        <div class="text-xs opacity-60">{{ jewelsPerGem }} jewels make one gem · you hold <b class="opacity-100">{{ formatNumber(jewels) }}</b></div>
+                    </div>
+                    <div class="mk-prices">
+                        <span><i>Digging</i><b style="color: var(--g-green)">{{ jewelsPerDay > 0 ? `+${Math.round(jewelsPerDay * 10) / 10}/day` : '—' }}</b></span>
+                        <span><i>Ready</i><b style="color: var(--g-gem)">💎 {{ gemsReady }}</b></span>
+                    </div>
+                </div>
+
+                <div class="mk-store" data-tip="Jewels share the warehouse cap with every other good. Full, the mines stop digging until you convert or sell — build warehouses to hold more between visits.">
+                    <span class="mk-store-label">📦 Storage</span>
+                    <span class="mk-store-bar"><i :class="jewelClass" :style="{ width: `${Math.round(jewelRatio * 100)}%` }" /></span>
+                    <b class="mk-store-num">{{ formatNumber(jewels) }}<span class="opacity-45">/{{ formatNumber(storageCap) }}</span><span v-if="jewelFullDays !== null" class="ml-2 font-semibold opacity-50">full in {{ fmtDays(jewelFullDays) }}</span></b>
+                </div>
+
+                <section class="mk-sec">
+                    <header>Convert jewels into gems <span class="opacity-50">— whole gems only, straight to your balance</span></header>
+                    <div v-if="jewelsPerDay <= 0 && jewels <= 0" class="py-4 text-center text-xs opacity-60">No jewel mine yet. It is a tier-2 build — find it in the build menu.</div>
+                    <template v-else>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <input v-model.number="convertQty" type="number" min="1" :max="gemsReady" class="g-input w-24">
+                            <button class="g-btn py-2 text-xs" :disabled="gemsReady < 1" @click="convertQty = gemsReady">All</button>
+                            <span class="text-xs opacity-60 tabular-nums">= {{ formatNumber(Math.max(0, Math.floor(convertQty || 0)) * jewelsPerGem) }} <TownAsset id="jewels" /></span>
+                            <div class="flex-1" />
+                            <button class="g-btn g-btn-gem py-2" :disabled="busy || !convertValid" @click="convert">💎 Convert {{ convertValid ? Math.floor(convertQty) : '' }}</button>
+                        </div>
+                        <p class="mt-1 text-[11px] opacity-55">
+                            <template v-if="gemsReady < 1">{{ formatNumber(jewelsPerGem - (jewels % jewelsPerGem)) }} more jewels until the next gem.</template>
+                            <template v-else>Jewels also trade on the market like any other good — <button class="underline" @click="selected = 'jewels'">see the jewel book</button> — but a gem is worth far more than the town hall pays.</template>
+                        </p>
                     </template>
                 </section>
             </div>
@@ -689,6 +787,10 @@ function timeAgo(at: number) {
 .mk-item:hover { background: rgba(255, 255, 255, 0.06); }
 .mk-item.is-active { background: rgba(255, 255, 255, 0.1); border-color: var(--g-line); }
 .mk-sep { height: 1px; margin: 4px 6px; background: var(--g-line); flex-shrink: 0; }
+.mk-check { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 10px; border-radius: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--g-line); font-size: 12px; font-weight: 700; cursor: pointer; }
+.mk-check input { accent-color: #b18cff; }
+.mk-check > span:first-of-type { display: inline-flex; align-items: center; gap: 4px; }
+.mk-ready { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: rgba(177, 140, 255, 0.28); color: #e5d4ff; font-size: 10px; font-weight: 900; text-align: center; font-variant-numeric: tabular-nums; }
 .mk-dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
 .mk-detail { flex: 1; min-width: 0; overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
 .mk-legend { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); border: 1px solid var(--g-line); color: var(--g-text); font-size: 11px; font-weight: 700; cursor: pointer; }

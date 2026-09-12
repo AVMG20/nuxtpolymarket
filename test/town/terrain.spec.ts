@@ -154,7 +154,7 @@ describe('what terrain is worth', () => {
     it('boosts exactly the raw industries the terrain is named for', () => {
         expect(getTownTerrain('fertile').boosts).toEqual(['farm'])
         expect(getTownTerrain('forest').boosts).toEqual(['lumber'])
-        expect(getTownTerrain('rock').boosts).toEqual(['quarry', 'mine'])
+        expect(getTownTerrain('rock').boosts).toEqual(['quarry', 'mine', 'gemmine'])
         expect(getTownTerrain('plain').boosts).toEqual([])
         expect(getTownTerrain('water').boosts).toEqual([])
     })
