@@ -165,8 +165,8 @@ function sim(over: Partial<TownSimState> = {}): TownSimState {
     }
 }
 
-// A house plus a level-2 farm is the smallest town whose residents eat: the
-// farm grows 2 wheat a tick and the house's residents take 1 of them.
+// A house plus a level-2 farm is the smallest town that runs a surplus: the
+// farm grows 2 wheat a tick and the house's residents eat 1 of them.
 function houseAndFarm(): TownSimBuilding[] {
     return [
         built('house', 'house', { createdAt: T0 - 90_000 }),
@@ -196,10 +196,9 @@ const fertileTile = () => tileOf('fertile')
 const plainTile = () => tileOf('plain')
 
 /**
- * A house whose residents want one grain a tick, and a level-1 farm standing on
- * `tile` with a road at its front door. On grassland the farm grows one wheat
- * a tick; on fertile ground it grows a quarter more. Either way the residents
- * leave a first-level harvest alone.
+ * A house whose residents eat one grain a tick, and a level-1 farm standing on
+ * `tile` with a road at its front door. On grassland the farm grows exactly
+ * what the house eats; on fertile ground it grows a quarter more.
  */
 function farmOn(tile: { wx: number, wy: number }): TownSimBuilding[] {
     // The house lives next door on the same street: people only staff what
@@ -215,14 +214,12 @@ function farmOn(tile: { wx: number, wy: number }): TownSimBuilding[] {
 /** One house tall enough to shelter the population bread needs to appear. */
 const BIG_HOUSE = built('house', 'house', { level: houseLevelsFor(BREAD.minPop), createdAt: T0 - 90_000 })
 /**
- * A finished bakery, so bread counts as something the town can make and its
- * residents start asking for it. With no flour on hand it bakes nothing, so it
- * never moves the inventory itself. Level 2, because the townsfolk only take
- * half of what a workshop could make: a level-1 bakery's single loaf is its
- * own to keep, and the crowd in BIG_HOUSE wants exactly one.
+ * A finished bakery, so bread counts as something the town can make and going
+ * without it costs happiness. With no flour on hand it bakes nothing, so it
+ * never moves the inventory itself.
  */
-const BAKERY = built('bakery', 'bakery', { level: 2, createdAt: T0 - 90_000 })
-/** What that town eats every tick: grain and bread both. */
+const BAKERY = built('bakery', 'bakery', { createdAt: T0 - 90_000 })
+/** What that town eats every tick: grain and bread both, bakery or not. */
 const BIG_DEMAND = townNeedsPerTick(PER_HOUSE_LEVEL * houseLevelsFor(BREAD.minPop))
 
 describe('townSpiralCoords', () => {
@@ -664,29 +661,6 @@ describe('needs', () => {
         expect(needsHappiness(everything, 200)).toBe(all)
     })
 
-    it('takes at most half of what the town makes of a good', () => {
-        const pop = TOWN_TIER_POP_REQUIREMENT[tierOf(BREAD)]!
-        const full = townNeedsPerTick(pop)
-        expect(full.bread).toBeGreaterThan(1)
-
-        // A level-1 workshop keeps its whole output: nothing is asked for yet,
-        // and the need still sits on the list as supplied.
-        expect(townNeedsPerTick(pop, 99, { bread: 1 }).bread).toBe(0)
-        expect(townNeedsPerTick(pop, 99, { bread: 1.04 }).bread).toBe(0)
-        // From there the townsfolk take half, rounded down…
-        expect(townNeedsPerTick(pop, 99, { bread: 2 }).bread).toBe(1)
-        expect(townNeedsPerTick(pop, 99, { bread: 3 }).bread).toBe(1)
-        expect(townNeedsPerTick(pop, 99, { bread: 2 * full.bread! - 1 }).bread).toBe(full.bread! - 1)
-        // …until the population is the smaller number again.
-        expect(townNeedsPerTick(pop, 99, { bread: 2 * full.bread! }).bread).toBe(full.bread)
-        expect(townNeedsPerTick(pop, 99, { bread: 1_000 }).bread).toBe(full.bread)
-        // A good the town has no workshop for is asked for in full.
-        expect(townNeedsPerTick(pop, 99, { bread: 1_000 }).tools).toBe(full.tools)
-        expect(townNeedsPerTick(pop, 99, {})).toEqual(full)
-        // Floating-point output lands on the whole number it is a hair under.
-        expect(townNeedsPerTick(pop, 99, { bread: 0.1 * 3 * 20 }).bread).toBe(3)
-    })
-
     it('is what deriveTown folds into the happiness target', () => {
         const town = [built('house', 'house', { level: 3 })] // six residents
         const hungry = deriveTown(town, 50, T0, {})
@@ -1057,44 +1031,25 @@ describe('deriveTown', () => {
         expect(Object.keys(town.needsPerTick)).toEqual([GRAIN.resource, BRICKS.resource, BREAD.resource])
     })
 
-    it('caps each need at half of what the workshops make of it', () => {
-        // The tier-3 gate: enough residents to want several loaves a tick.
-        const pop = TOWN_TIER_POP_REQUIREMENT[tierOf(BREAD)]!
-        const house = built('h', 'house', { level: houseLevelsFor(pop) })
-        const wanted = townNeedsPerTick(pop)
-        expect(wanted.bread).toBeGreaterThan(1)
-        expect(wanted.tools).toBeGreaterThan(1)
-
-        // A brand-new bakery keeps its single loaf; tools, with no smithy, are
-        // still asked for in full.
-        const fresh = deriveTown([house, built('bakery', 'bakery')], 50, T0)
-        expect(fresh.needsPerTick.bread).toBe(0)
-        expect(fresh.needsPerTick.tools).toBe(wanted.tools)
-
-        // A smithy lifts the tools demand the same way, and a tall bakery hands
-        // over half of what it bakes until the crowd is the smaller number.
-        const grown = deriveTown([house, built('bakery', 'bakery', { level: 4 }), built('smithy', 'smithy')], 50, T0)
-        expect(grown.needsPerTick.bread).toBe(Math.min(wanted.bread!, 2))
-        expect(grown.needsPerTick.tools).toBe(0)
-        const tall = deriveTown([house, built('bakery', 'bakery', { level: 2 * wanted.bread! + 3 })], 50, T0)
-        expect(tall.needsPerTick.bread).toBe(wanted.bread)
-
-        // The cap reads the rate the workshop really runs at, staffing included:
-        // a bakery with a third of its crew bakes a third of its loaves.
-        const short = deriveTown([house, built('bakery', 'bakery', { level: 3 * houseLevelsFor(pop) })], 50, T0)
-        const baked = 3 * houseLevelsFor(pop) * short.throughput.get('bakery')!
-        expect(short.throughput.get('bakery')).toBeLessThan(1)
-        expect(short.needsPerTick.bread).toBe(Math.min(wanted.bread!, Math.floor(baked / 2 + 1e-9)))
-    })
-
-    it('does not eat what the town cannot make yet', () => {
-        // Same crowd, no bakery: bread is off the shopping list entirely, so
-        // the resource rail never shows a deficit for a good you cannot bake.
+    it('wants the same goods whether or not the town can make them yet', () => {
+        // Same crowd, no bakery: bread stays on the shopping list, so the
+        // resource rail shows the real deficit and nothing jumps the moment a
+        // bakery finishes. Only the scorecard waits for the tier.
         const level = houseLevelsFor(BREAD.minPop)
         const town = deriveTown([built('h', 'house', { level })], 50, T0)
         expect(town.reachableTier).toBe(1)
-        expect(Object.keys(town.needsPerTick)).toEqual([GRAIN.resource])
-        expect(townNetPerTick([built('h', 'house', { level })], town, T0)[BREAD.resource]).toBeUndefined()
+        expect(town.needsPerTick).toEqual(deriveTown([built('h', 'house', { level }), BAKERY], 50, T0).needsPerTick)
+        expect(Object.keys(town.needsPerTick)).toEqual([GRAIN.resource, BRICKS.resource, BREAD.resource])
+        expect(town.happinessBreakdown.needs).toBe(-GRAIN.happiness - TOWN_HAPPINESS_STARVING_PENALTY)
+
+        // The tier-3 gate's worth of residents: the appetite is identical
+        // before and after the first tier-3 workshop stands.
+        const pop = TOWN_TIER_POP_REQUIREMENT[tierOf(BREAD)]!
+        const big = built('h', 'house', { level: houseLevelsFor(pop) })
+        expect(deriveTown([big], 50, T0).needsPerTick).toEqual(deriveTown([big, BAKERY], 50, T0).needsPerTick)
+        expect(deriveTown([big], 50, T0).needsPerTick).toEqual(townNeedsPerTick(pop))
+        // And the rail is honest about it: bread the town wants and does not have.
+        expect(townNetPerTick([built('h', 'house', { level })], town, T0)[BREAD.resource]).toBe(-townNeedsPerTick(PER_HOUSE_LEVEL * level).bread!)
     })
 })
 
@@ -1826,28 +1781,25 @@ describe('townNetPerTick', () => {
     it('nets the mill\'s wheat draw against the farm\'s output and the town\'s appetite', () => {
         // Enough house levels to cover the farm's job and the mill's two, so
         // both run full.
-        const jobs = townWorkersFor(getTownBuilding('farm')!, 4) + getTownBuilding('mill')!.workers
+        const jobs = getTownBuilding('farm')!.workers + getTownBuilding('mill')!.workers
         const level = houseLevelsFor(jobs)
         const buildings = [
             built('house', 'house', { level, createdAt: T0 - 1000 }),
-            built('farm', 'farm', { level: 4, createdAt: T0 - 900 }),
+            built('farm', 'farm', { createdAt: T0 - 900 }),
             built('mill', 'mill', { createdAt: T0 - 800 })
         ]
-        // Farm +4 wheat, mill −2 wheat +1 flour, and the residents eat theirs
-        // (one a tick: well under the half of the harvest they may take).
+        // Farm +1 wheat, mill −2 wheat +1 flour, and the residents eat theirs.
         const eaten = townNeedsPerTick(PER_HOUSE_LEVEL * level).wheat!
-        expect(eaten).toBe(1)
-        expect(net(buildings)).toEqual({ wheat: 4 - 2 - eaten, flour: 1 })
+        expect(net(buildings)).toEqual({ wheat: 1 - 2 - eaten, flour: 1 })
     })
 
     it('subtracts what the townsfolk consume even with nobody working', () => {
         const idle = [built('house', 'house')]
         expect(net(idle)).toEqual({ wheat: -townNeedsPerTick(PER_HOUSE_LEVEL).wheat! })
 
-        // A level-1 farm's single wheat is its own: the residents take at
-        // most half of the harvest, and half of one rounds down to nothing.
-        expect(net(houseAndFarm().map(b => ({ ...b, level: 1 })))).toEqual({ wheat: 1 })
-        // From level 2 the residents eat one of the two.
+        // A level-1 farm grows exactly what its own residents eat.
+        expect(net(houseAndFarm().map(b => ({ ...b, level: 1 })))).toEqual({ wheat: 0 })
+        // The level-2 farm of the standard test town runs a surplus.
         expect(net(houseAndFarm())).toEqual({ wheat: 1 })
     })
 
@@ -1861,10 +1813,8 @@ describe('townNetPerTick', () => {
             built('house', 'house', { createdAt: T0 - 1000 }),
             built('farm', 'farm', { level: 0, completesAt: T0 + 60_000, createdAt: T0 - 900 })
         ]
-        // Without the farm the grain is asked for in full; with it, the
-        // residents leave the first level's harvest alone.
         expect(net(buildings)).toEqual({ wheat: -1 })
-        expect(net(buildings.map(b => ({ ...b, completesAt: T0 - 1 })))).toEqual({ wheat: 1 })
+        expect(net(buildings.map(b => ({ ...b, completesAt: T0 - 1 })))).toEqual({ wheat: 0 })
     })
 
     it('scales output with the building level', () => {
@@ -1878,10 +1828,9 @@ describe('townNetPerTick', () => {
 
     it('quotes the terrain bonus as the fraction the ticks really pay out', () => {
         // A level-1 farm on fertile ground grows a wheat and a quarter a tick;
-        // rounding it here would hide the bonus the tick loop carries. The
-        // residents take nothing from a first-level harvest.
-        expect(net(farmOn(fertileTile()))).toEqual({ wheat: 1 + TOWN_TERRAIN_BONUS })
-        expect(net(farmOn(plainTile()))).toEqual({ wheat: 1 })
+        // rounding it here would hide the bonus the tick loop carries.
+        expect(net(farmOn(fertileTile()))).toEqual({ wheat: TOWN_TERRAIN_BONUS })
+        expect(net(farmOn(plainTile()))).toEqual({ wheat: 0 })
     })
 })
 
@@ -2023,28 +1972,6 @@ describe('settleTown', () => {
         expect(stocked.satisfied).toEqual({ wheat: false, bricks: false, bread: false })
     })
 
-    it('lets a first tier-3 workshop bank its output instead of feeding it to the town', () => {
-        // The town that reaches tier 3: the pop gate's worth of residents, a
-        // freshly finished smithy and bakery, and every input they could want.
-        // Before the output cap the residents ate every tool and loaf, so the
-        // 25 tools the smithy's own upgrade needs never accumulated.
-        const pop = TOWN_TIER_POP_REQUIREMENT[tierOf(BREAD)]!
-        const buildings = [
-            built('house', 'house', { level: houseLevelsFor(pop), createdAt: T0 - 90_000 }),
-            built('smithy', 'smithy', { createdAt: T0 - 80_000 }),
-            built('bakery', 'bakery', { createdAt: T0 - 80_000 })
-        ]
-        const inventory = { wheat: 10_000, planks: 10_000, bricks: 10_000, flour: 10_000, wood: 10_000 }
-        const result = settleTown(sim({ happiness: 50, inventory, buildings }), T0 + 30 * TOWN_TICK_MS)
-
-        expect(result.ticks).toBe(30)
-        expect(result.delta.tools).toBe(30)
-        expect(result.delta.bread).toBe(30)
-        expect(result.satisfied.tools).toBe(true)
-        expect(result.satisfied.bread).toBe(true)
-        expect(result.happiness).toBeGreaterThan(50)
-    })
-
     it('reports the stock on hand when no tick ran at all', () => {
         const result = settleTown(sim({ inventory: { bread: 5 } }), T0)
         expect(result.ticks).toBe(0)
@@ -2124,20 +2051,20 @@ describe('settleTown', () => {
     })
 
     it('a first build that lands mid-window starts producing for the rest of it', () => {
-        // The level-2 farm feeds the town and banks one a tick; the second
-        // farm adds one more, and only from the tick after it finishes.
+        // The first farm feeds the town; the second is pure surplus, and only
+        // from the tick after it finishes.
         const buildings = [
-            built('house', 'house', { level: 2, createdAt: T0 - 90_000 }),
-            built('farm', 'farm', { level: 2, createdAt: T0 - 80_000 }),
+            built('house', 'house', { createdAt: T0 - 90_000 }),
+            built('farm', 'farm', { createdAt: T0 - 80_000 }),
             built('farm2', 'farm', { level: 0, completesAt: T0 + 150_000, createdAt: T0 })
         ]
         const result = settleTown(sim({ buildings }), T0 + 10 * TOWN_TICK_MS)
 
         expect(result.completed).toEqual([{ id: 'farm2', level: 1 }])
         expect(result.ticks).toBeGreaterThan(5)
-        // The first few ticks ran on one farm at one surplus wheat a tick.
-        expect(result.delta.wheat ?? 0).toBeGreaterThan(result.ticks)
-        expect(result.delta.wheat ?? 0).toBeLessThan(2 * result.ticks)
+        expect(result.delta.wheat ?? 0).toBeGreaterThan(0)
+        // The first few ticks ran on one farm, which the town ate clean.
+        expect(result.delta.wheat ?? 0).toBeLessThan(result.ticks)
     })
 
     it('bakes a finished upgrade into completed and produces at the new level', () => {
@@ -2195,17 +2122,17 @@ describe('settleTown', () => {
             expect(ticks).toBeGreaterThanOrEqual(4)
             // A whole wheat every tick, plus one more for every four: the
             // quarters land as a unit instead of being rounded away. The
-            // residents leave a first-level harvest alone, so it all banks.
+            // residents eat one a tick.
             const grown = Math.floor(ticks * rate + 1e-9)
             expect(grown).toBeGreaterThan(ticks)
-            expect(fertile.delta).toEqual({ wheat: grown })
+            expect(fertile.delta).toEqual({ wheat: grown - ticks })
             const left = ticks * rate - grown
             expect(fertile.carry).toEqual(left > 0 ? { farm: { wheat: left } } : {})
 
-            // Same town on grassland: one whole wheat a tick, and nothing carried.
+            // Same town on grassland: exactly what the house eats, and nothing carried.
             const plain = settleTown(sim({ buildings: farmOn(plainTile()) }), T0 + 4 * TOWN_TICK_MS)
             expect(plain.ticks).toBe(ticks)
-            expect(plain.delta).toEqual({ wheat: ticks })
+            expect(plain.delta).toEqual({})
             expect(plain.carry).toEqual({})
         })
 

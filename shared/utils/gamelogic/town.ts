@@ -400,8 +400,10 @@ export type TownResourceBag = Partial<Record<TownResourceId, number>>
 // its bonus to the happiness target; goods leave the inventory for real, so a
 // town has to keep producing (or buying) what its people eat and use.
 //
-// What they ask for grows with the population, but never past what the town's
-// own workshops can spare: see TOWN_NEED_OUTPUT_SHARE.
+// What they ask for depends on the population alone, never on the tier the
+// town has reached: a town of 80 wants the same bread the day before it builds
+// a bakery as the day after, so unlocking a tier never moves a rate. Whether an
+// unmet need also costs happiness is a separate question (townNeedExpected).
 
 export interface TownNeedDef {
     resource: TownResourceId
@@ -426,37 +428,17 @@ export const TOWN_NEEDS: readonly TownNeedDef[] = [
 ]
 
 /**
- * The most of a good the townsfolk take, as a share of what the town's own
- * workshops make of it per tick.
- *
- * Every need unlocks behind a tier, and every tier unlocks behind a population
- * gate, so the first bakery always opens onto a town that already wants more
- * bread than one level-1 workshop can bake (80 residents ask for 4 a tick).
- * Eaten straight off the pop count, the need swallowed the whole output, the
- * stock never grew, and the smithy that needs 25 tools to reach level 2 never
- * got them — a dead end. Capped at half of what the town makes, a new workshop
- * always keeps something back for growth, and the pop count takes over as the
- * limit once the workshops have outgrown it. A good the town has no workshop
- * for is asked for in full: buy it or build one.
+ * Units of each need the whole town wants per tick at `pop` residents. Purely
+ * a function of the population: a good the town cannot make yet is still
+ * wanted (and eaten if bought), so the resource rail shows the real deficit
+ * and nothing jumps when the tier that makes it unlocks.
  */
-export const TOWN_NEED_OUTPUT_SHARE = 0.5
-
-/**
- * Units of each need the whole town wants per tick at `pop` residents. A need
- * the town cannot make yet is not demanded at all, so a tier-1 town neither
- * eats bread nor shows a bread deficit in the resource rail. `output` is what
- * the town's workshops make of each good per tick; a good it makes any of is
- * capped at TOWN_NEED_OUTPUT_SHARE of that, so a fresh workshop's whole first
- * level is its own to bank (and the need it covers counts as supplied).
- */
-export function townNeedsPerTick(pop: number, reachableTier = 99, output: TownResourceBag = {}): Partial<Record<TownResourceId, number>> {
+export function townNeedsPerTick(pop: number): Partial<Record<TownResourceId, number>> {
     const out: Partial<Record<TownResourceId, number>> = {}
     if (pop <= 0) return out
     for (const n of TOWN_NEEDS) {
-        if (!townNeedExpected(n, pop, reachableTier)) continue
-        const wanted = Math.max(1, Math.ceil(pop / n.perPop))
-        const made = output[n.resource] ?? 0
-        out[n.resource] = made > 0 ? Math.min(wanted, Math.floor(made * TOWN_NEED_OUTPUT_SHARE + CARRY_EPSILON)) : wanted
+        if (pop < n.minPop) continue
+        out[n.resource] = Math.max(1, Math.ceil(pop / n.perPop))
     }
     return out
 }
@@ -464,10 +446,11 @@ export function townNeedsPerTick(pop: number, reachableTier = 99, output: TownRe
 export type TownSatisfied = Partial<Record<TownResourceId, boolean>>
 
 /**
- * Whether the town is expected to keep this need supplied. A need it cannot
- * produce yet is simply not on the scorecard — no bonus, no penalty — so a
- * tier-1 town is not marked down for having no bread. The moment the tier that
- * makes it is within reach, a missing need starts costing points.
+ * Whether the town is marked down for leaving this need unmet. A need it
+ * cannot produce yet is simply not on the scorecard — it is still wanted and
+ * eaten (see townNeedsPerTick), but costs no points — so a tier-1 town is not
+ * penalised for having no bread. The moment the tier that makes it is within
+ * reach, a missing need starts costing points. Supplied, it always pays.
  */
 export function townNeedExpected(need: TownNeedDef, pop: number, reachableTier: number): boolean {
     return pop >= need.minPop && (getTownResource(need.resource)?.tier ?? 99) <= reachableTier
@@ -1374,9 +1357,9 @@ export interface TownDerived {
     throughput: Map<string, number>
     /** Happiness → production speed multiplier, 0.5 .. 1.0. */
     speedMultiplier: number
-    /** Units the town consumes per tick for each need. */
+    /** Units the town consumes per tick for each need, from the population alone. */
     needsPerTick: Partial<Record<TownResourceId, number>>
-    /** Highest resource tier the town is expected to be able to stock. */
+    /** Highest resource tier the town is expected to be able to stock; gates the scorecard, not the appetite. */
     reachableTier: number
     /** Where the happiness target came from, line by line. */
     happinessBreakdown: {
@@ -1840,7 +1823,7 @@ export function townNetPerTick(buildings: TownSimBuilding[], derived: TownDerive
         }
     }
     for (const [id, qty] of Object.entries(derived.needsPerTick) as [TownResourceId, number][]) {
-        if (qty > 0) net[id] = (net[id] ?? 0) - qty
+        net[id] = (net[id] ?? 0) - qty
     }
     return net
 }
@@ -1972,16 +1955,6 @@ export function deriveTown(
         const staff = staffing.get(b.id) ?? 0
         throughput.set(b.id, staff * (supply.get(b.id)?.ratio ?? 1) * townTerrainMultiplier(def.id, b.wx, b.wy) * (1 + research.output))
     }
-    // What the workshops make of each good per tick, at the rate the tick
-    // loop really runs them: the ceiling on what the townsfolk may take.
-    const output: TownResourceBag = {}
-    for (const { b, def, level } of built) {
-        const recipe = def.kind === 'industry' ? townTickRecipe(def, level, throughput.get(b.id) ?? 0) : null
-        if (!recipe) continue
-        for (const [id, qty] of Object.entries(recipe.outputs) as [TownResourceId, number][]) {
-            output[id] = (output[id] ?? 0) + qty
-        }
-    }
 
     return {
         popCap,
@@ -1996,7 +1969,7 @@ export function deriveTown(
         supply,
         throughput,
         speedMultiplier: townSpeedMultiplier(happiness),
-        needsPerTick: townNeedsPerTick(popCap, reachableTier, output),
+        needsPerTick: townNeedsPerTick(popCap),
         reachableTier,
         happinessBreakdown: {
             base: TOWN_HAPPINESS_BASE_TARGET,

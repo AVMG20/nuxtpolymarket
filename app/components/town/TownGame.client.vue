@@ -865,7 +865,8 @@ const moodOpen = ref(false)
 const moodPinned = ref(false)
 const needs = computed(() => town.needs.value)
 /** Needs the score actually counts — the rest are future tiers, shown greyed. */
-const scoredNeeds = computed(() => needs.value.filter(n => n.expected || n.satisfied))
+/** Every want the townsfolk have: scored ones, plus goods they eat but the town cannot make yet. */
+const scoredNeeds = computed(() => needs.value.filter(n => n.active || n.satisfied))
 const unmetNeeds = computed(() => needs.value.filter(n => n.expected && !n.satisfied))
 const starving = computed(() => needs.value.some(n => n.food && n.expected) && !needs.value.some(n => n.food && n.satisfied))
 const mood = computed(() => town.state.value?.mood ?? null)
@@ -1247,17 +1248,17 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             </div>
 
                             <div class="moodpop-sec">Needs</div>
-                            <div v-for="n in scoredNeeds" :key="n.resource" class="needs-row" :class="n.satisfied ? 'is-ok' : 'is-bad'" :data-tip="n.description">
+                            <div v-for="n in scoredNeeds" :key="n.resource" class="needs-row" :class="n.satisfied ? 'is-ok' : n.expected ? 'is-bad' : ''" :data-tip="n.description">
                                 <span class="text-lg"><TownAsset :id="n.resource" /></span>
                                 <b class="w-20">{{ n.name }}</b>
                                 <span class="min-w-0 flex-1 truncate opacity-70">
                                     <template v-if="n.satisfied">{{ formatNumber(perHour(n.perTick)) }}/h</template>
-                                    <template v-else-if="!n.producible">{{ needMaker(n.resource) }}</template>
+                                    <template v-else-if="!n.producible">wants {{ formatNumber(perHour(n.perTick)) }}/h · {{ needMaker(n.resource) }}</template>
                                     <template v-else>out of stock · needs {{ formatNumber(perHour(n.perTick)) }}/h</template>
                                 </span>
-                                <span class="needs-badge">{{ n.satisfied ? '+' : '−' }}{{ n.happiness }}</span>
+                                <span v-if="n.satisfied || n.expected" class="needs-badge">{{ n.satisfied ? '+' : '−' }}{{ n.happiness }}</span>
                             </div>
-                            <p v-if="scoredNeeds.length === 0" class="needs-foot">Your townsfolk want for nothing yet. New wants appear as the town grows and unlocks tiers.</p>
+                            <p v-if="scoredNeeds.length === 0" class="needs-foot">Your townsfolk want for nothing yet. New wants appear as the town grows.</p>
                         </div>
                     </Transition>
                 </div>
