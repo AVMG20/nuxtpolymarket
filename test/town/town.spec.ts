@@ -1499,8 +1499,8 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(market.bids).toMatchObject([{ price: over(1), quantity: 5 }, { price: over(0), quantity: 4 }])
             expect(market.asks).toMatchObject([{ price: over(10), quantity: 6 }])
             // Each level names who is behind it, and flags the caller's own share.
-            expect(market.bids[0]!.players).toEqual([{ id: BUYER, name: 'concurrency test user', image: null, quantity: 5, mine: true }])
-            expect(market.asks[0]!.players).toEqual([{ id: SELLER, name: 'concurrency test user', image: null, quantity: 6, mine: false }])
+            expect(market.bids[0]!.players).toEqual([{ id: BUYER, name: 'concurrency test user', emblem: null, quantity: 5, mine: true }])
+            expect(market.asks[0]!.players).toEqual([{ id: SELLER, name: 'concurrency test user', emblem: null, quantity: 6, mine: false }])
             expect(market.myOrders).toHaveLength(3)
             expect(market.myOrders.every(o => o.side === 'buy')).toBe(true)
 

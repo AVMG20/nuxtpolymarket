@@ -1533,7 +1533,8 @@ export async function cancelTownOrder(userId: string, orderId: string) {
 export interface TownBookPlayer {
     id: string
     name: string
-    image: string | null
+    /** The player's drawn emblem, as the mayors board shows it. */
+    emblem: string | null
     quantity: number
     mine: boolean
 }
@@ -1553,7 +1554,7 @@ export async function getTownMarket(resource: string, userId: string | null) {
         price: townOrders.price,
         userId: townOrders.userId,
         userName: user.name,
-        userImage: user.image,
+        userEmblem: user.emblem,
         remaining: sql<number>`${townOrders.quantity} - ${townOrders.filled}`.mapWith(Number)
     })
         .from(townOrders)
@@ -1569,7 +1570,7 @@ export async function getTownMarket(resource: string, userId: string | null) {
             if (!level) map.set(price, level = new Map())
             const p = level.get(row.userId)
             if (p) p.quantity += row.remaining
-            else level.set(row.userId, { id: row.userId, name: row.userName, image: row.userImage, quantity: row.remaining, mine: row.userId === userId })
+            else level.set(row.userId, { id: row.userId, name: row.userName, emblem: row.userEmblem, quantity: row.remaining, mine: row.userId === userId })
         }
         const levels: TownBookLevel[] = [...map.entries()].map(([price, players]) => {
             const list = [...players.values()].sort((a, b) => b.quantity - a.quantity)

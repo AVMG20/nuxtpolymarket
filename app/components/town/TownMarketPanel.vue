@@ -5,7 +5,7 @@ import TownProductionChart from '~/components/town/TownProductionChart.vue'
 import type { TownResourceView, TownOrderView } from '~/composables/useTown'
 import { TOWN_MARKET_MIN_PRICE, TOWN_MAX_ORDER_PRICE } from '#shared/utils/gamelogic/town'
 
-interface BookPlayer { id: string, name: string, image: string | null, quantity: number, mine: boolean }
+interface BookPlayer { id: string, name: string, emblem: string | null, quantity: number, mine: boolean }
 interface BookLevel { price: number, quantity: number, players: BookPlayer[] }
 interface MarketData {
     resource: string
@@ -690,7 +690,7 @@ function timeAgo(at: number) {
                                     <i class="mk-depth" :style="{ width: depthWidth(lvl) }" />
                                     <span class="mk-book-who">
                                         <UTooltip v-for="p in facesFor(lvl)" :key="p.id" :text="`${p.mine ? 'You' : p.name} · ${formatNumber(p.quantity)}`">
-                                            <UAvatar :src="p.image ?? undefined" :alt="p.name" size="2xs" class="mk-face" :class="{ 'is-me': p.mine }" />
+                                            <span class="mk-face" :class="{ 'is-me': p.mine }"><ProfileEmblem :emblem="p.emblem" :name="p.name" /></span>
                                         </UTooltip>
                                         <UTooltip v-if="lvl.players.length > 3" :text="lvl.players.slice(3).map(p => p.name).join(', ')">
                                             <span class="mk-face mk-face-more">+{{ lvl.players.length - 3 }}</span>
@@ -722,7 +722,7 @@ function timeAgo(at: number) {
                                     <i class="mk-depth" :style="{ width: depthWidth(lvl) }" />
                                     <span class="mk-book-who">
                                         <UTooltip v-for="p in facesFor(lvl)" :key="p.id" :text="`${p.mine ? 'You' : p.name} · ${formatNumber(p.quantity)}`">
-                                            <UAvatar :src="p.image ?? undefined" :alt="p.name" size="2xs" class="mk-face" :class="{ 'is-me': p.mine }" />
+                                            <span class="mk-face" :class="{ 'is-me': p.mine }"><ProfileEmblem :emblem="p.emblem" :name="p.name" /></span>
                                         </UTooltip>
                                         <UTooltip v-if="lvl.players.length > 3" :text="lvl.players.slice(3).map(p => p.name).join(', ')">
                                             <span class="mk-face mk-face-more">+{{ lvl.players.length - 3 }}</span>
@@ -943,7 +943,7 @@ function timeAgo(at: number) {
 .mk-book-row.is-ask .mk-depth { background: var(--g-red-bg); }
 .mk-book-who { display: flex; align-items: center; }
 .mk-book-who > * + * { margin-left: -5px; }
-.mk-face { flex-shrink: 0; box-shadow: 0 0 0 2px var(--g-bg-2); }
+.mk-face { display: inline-flex; width: 20px; height: 20px; flex-shrink: 0; border-radius: 999px; font-size: 9px; box-shadow: 0 0 0 2px var(--g-bg-2); }
 .mk-face.is-me { box-shadow: 0 0 0 2px var(--g-gold); }
 .mk-face-more { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; font-size: 9px; font-weight: 700; color: var(--g-text-2); background: var(--g-fill-2); box-shadow: 0 0 0 2px var(--g-bg-2); }
 .mk-book-price { display: flex; align-items: center; justify-content: flex-end; white-space: nowrap; font-weight: 600; }
