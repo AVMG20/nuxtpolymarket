@@ -134,6 +134,19 @@ async function allPlots() {
     return db.select({ x: townPlots.x, y: townPlots.y, userId: townPlots.userId }).from(townPlots)
 }
 
+/**
+ * The land from `before` that is still standing now. Other spec files found
+ * and delete towns on the same spiral while this one runs, so a square that
+ * was taken when `before` was read may be gone by the time we claim one next
+ * to it — founding only promises a gap from the land that existed at that
+ * moment. The spiral never hands out a square twice, so (x, y, owner) is a
+ * stable identity.
+ */
+async function survivingPlots(before: { x: number, y: number, userId: string }[]) {
+    const now = new Set((await allPlots()).map(p => `${p.x},${p.y},${p.userId}`))
+    return before.filter(p => now.has(`${p.x},${p.y},${p.userId}`))
+}
+
 /** The row at a given square, from what a seeding helper handed back. */
 function pick(rows: PlotRow[], x: number, y: number) {
     const row = rows.find(p => p.x === x && p.y === y)
@@ -221,17 +234,10 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             ]
             expect(mine).toHaveLength(3)
 
-            // Nobody landed on top of the realm as it already stood. Other
-            // spec files found and delete towns on the same spiral while this
-            // runs, so a square that was taken when `before` was read may be
-            // free by the time we claim it — compare only against the land
-            // that is still there.
-            const stillThere = new Set((await allPlots()).map(p => p.id))
+            // Nobody landed on top of the realm as it already stood.
+            const existing = await survivingPlots(before)
             for (const seeded of mine) {
-                for (const existing of before) {
-                    if (!stillThere.has(existing.id)) continue
-                    expect(townPlotDistance(seeded, existing)).toBeGreaterThan(TOWN_FOUNDING_GAP)
-                }
+                for (const p of existing) expect(townPlotDistance(seeded, p)).toBeGreaterThan(TOWN_FOUNDING_GAP)
             }
             // …nor on top of each other: at least TOWN_FOUNDING_GAP empty plots in between.
             for (const a of mine) {
@@ -258,7 +264,7 @@ describe.skipIf(SKIP)('polytown plot market (database)', () => {
             }
             expect(index).toBeGreaterThanOrEqual(0)
             expect(townPlotIsFlat(spot.x, spot.y)).toBe(false)
-            for (const p of before) expect(townPlotDistance(p, spot)).toBeGreaterThan(TOWN_FOUNDING_GAP)
+            for (const p of await survivingPlots(before)) expect(townPlotDistance(p, spot)).toBeGreaterThan(TOWN_FOUNDING_GAP)
 
             // And the realm's cursor moved past it, so the next founding starts
             // where this one finished rather than walking the spiral again.
