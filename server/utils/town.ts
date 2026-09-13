@@ -1,7 +1,8 @@
 import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townResearch, townRealm } from '#server/database/schema'
+import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townResearch, townRealm, townEvents } from '#server/database/schema'
 import { credit, creditGems, debit, debitGems } from '#server/utils/balance'
+import { pruneTownEvents, recordTownEvent } from '#server/utils/town-events'
 import { matchGemOrder } from '#shared/utils/gamelogic/gem-exchange'
 import {
     TOWN_PLOT_SIZE,
@@ -213,12 +214,15 @@ export async function bankFinishedResearch(
 ) {
     if (!state.researchId || !state.researchCompletesAt) return
     if (state.researchCompletesAt.getTime() > now) return
-    await tx.insert(townResearch)
+    const banked = await tx.insert(townResearch)
         .values({ userId, researchId: state.researchId })
         .onConflictDoNothing()
+        .returning({ id: townResearch.id })
     await tx.update(townState)
         .set({ researchId: null, researchCompletesAt: null })
         .where(and(eq(townState.id, state.id), eq(townState.researchId, state.researchId)))
+    // Only the caller that won the insert tells the mayor; the loser changed nothing.
+    if (banked.length) await recordTownEvent(tx, userId, { kind: 'research', researchId: state.researchId }, state.researchCompletesAt.getTime())
 }
 
 /**
@@ -298,11 +302,22 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
         await tx.delete(townProduction).where(and(eq(townProduction.userId, userId), lte(townProduction.toAt, new Date(now - 8 * 24 * 3_600_000))))
     }
 
+    const rowById = new Map(rows.map(row => [row.id, row]))
     for (const done of result.completed) {
         await tx.update(townBuildings)
             .set({ level: done.level, upgradingTo: null })
             .where(eq(townBuildings.id, done.id))
+        // Tell the mayor, dated to when it finished, not when we noticed.
+        const row = rowById.get(done.id)
+        if (row) {
+            await recordTownEvent(tx, userId, {
+                kind: row.level === 0 ? 'built' : 'upgraded',
+                type: row.type,
+                level: done.level
+            }, Math.min(row.completesAt.getTime(), now))
+        }
     }
+    if (result.completed.length) await pruneTownEvents(tx, userId, now)
 
     const [updated] = await tx.update(townState)
         .set({
@@ -994,6 +1009,8 @@ export async function rushBuilding(userId: string, buildingId: string) {
         await tx.update(townBuildings)
             .set({ level, upgradingTo: null, completesAt: new Date(now) })
             .where(eq(townBuildings.id, buildingId))
+        // The settle never sees this one finish, so the note is written here.
+        await recordTownEvent(tx, userId, { kind: building.level === 0 ? 'built' : 'upgraded', type: building.type, level }, now)
         return { buildingId, gems, level }
     })
 }
@@ -1233,7 +1250,7 @@ async function applySweepSell(tx: DbExecutor, userId: string, plan: SweepSellPla
                 updatedAt: new Date()
             })
             .where(and(eq(townOrders.id, fill.orderId), eq(townOrders.status, 'open')))
-            .returning({ id: townOrders.id })
+            .returning({ id: townOrders.id, status: townOrders.status })
         if (!resting) throw createError({ statusCode: 500, statusMessage: 'Order book conflict' })
 
         await addInventory(tx, fill.userId, plan.resource, fill.quantity)
@@ -1244,6 +1261,15 @@ async function applySweepSell(tx: DbExecutor, userId: string, plan: SweepSellPla
             takerId: userId,
             price: fill.price.toFixed(4),
             quantity: fill.quantity
+        })
+        await recordTownEvent(tx, fill.userId, {
+            kind: 'trade',
+            side: 'buy',
+            resource: plan.resource,
+            quantity: fill.quantity,
+            price: fill.price,
+            coins: townOrderTotal(fill.price, fill.quantity),
+            done: resting.status === 'filled'
         })
     }
 
@@ -1457,7 +1483,7 @@ export async function placeTownOrder(
                     updatedAt: new Date()
                 })
                 .where(and(eq(townOrders.id, fill.orderId), eq(townOrders.status, 'open')))
-                .returning({ id: townOrders.id })
+                .returning({ id: townOrders.id, status: townOrders.status })
             if (!resting) throw createError({ statusCode: 500, statusMessage: 'Order book conflict' })
 
             const fillTotal = townOrderTotal(fill.price, fill.quantity)
@@ -1472,6 +1498,16 @@ export async function placeTownOrder(
                 await credit(userId, fillTotal.toFixed(4), CATEGORY, tx)
             }
             coinsMoved += fillTotal
+            // The resting mayor was not here to see it: leave them a note.
+            await recordTownEvent(tx, fill.userId, {
+                kind: 'trade',
+                side: opposite,
+                resource,
+                quantity: fill.quantity,
+                price: fill.price,
+                coins: fillTotal,
+                done: resting.status === 'filled'
+            })
 
             await tx.insert(townTrades).values({
                 resource,
@@ -1704,6 +1740,7 @@ export async function deleteTownForUser(userId: string, tx: DbExecutor = db) {
     await tx.delete(townInventory).where(eq(townInventory.userId, userId))
     await tx.delete(townPlots).where(eq(townPlots.userId, userId))
     await tx.delete(townResearch).where(eq(townResearch.userId, userId))
+    await tx.delete(townEvents).where(eq(townEvents.userId, userId))
     await tx.delete(townState).where(eq(townState.userId, userId))
 }
 /**

@@ -6,6 +6,7 @@ import TownScene from '~/components/town/TownScene.client.vue'
 import TownMarketPanel from '~/components/town/TownMarketPanel.vue'
 import TownMilestonesPanel from '~/components/town/TownMilestonesPanel.vue'
 import TownLeaderboardPanel from '~/components/town/TownLeaderboardPanel.vue'
+import TownEventsPanel from '~/components/town/TownEventsPanel.vue'
 import TownResearchPanel from '~/components/town/TownResearchPanel.vue'
 import { formatTownDuration } from '~/utils/town-format'
 import { townTerrainCss } from '~/utils/town/terrain'
@@ -28,7 +29,7 @@ onMounted(() => { clock = setInterval(() => { now.value = Date.now() + town.serv
 onBeforeUnmount(() => { if (clock) clearInterval(clock) })
 
 // ── UI state ──
-type Window = 'market' | 'goals' | 'mayors' | 'land' | 'research' | null
+type Window = 'market' | 'goals' | 'mayors' | 'land' | 'research' | 'events' | null
 const windowOpen = ref<Window>(null)
 const buildOpen = ref(false)
 const buildTier = ref(0)
@@ -1443,6 +1444,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
             <!-- Top-right controls -->
             <div class="corner">
+                <button class="g-icon" :class="windowOpen === 'events' ? 'is-on' : ''" data-tip-below="What happened — finished builds, research, filled offers" @click="openWindow('events')">
+                    <UIcon name="i-lucide-bell" />
                 </button>
                 <button class="g-icon" data-tip-below="How to play" @click="helpOpen = true">
                     <UIcon name="i-lucide-circle-question-mark" />
@@ -1852,7 +1855,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <!-- Windows -->
             <Transition name="fade">
                 <div v-if="windowOpen" class="backdrop" @click.self="closeAll">
-                    <div class="g-window" :class="windowOpen === 'market' ? 'is-wide' : ''">
+                    <div class="g-window" :class="windowOpen === 'market' ? 'is-wide' : windowOpen === 'events' ? 'is-small' : ''">
                         <TownMarketPanel
                             v-if="windowOpen === 'market'"
                             :resources="town.resources.value"
@@ -1876,6 +1879,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         />
                         <TownMilestonesPanel v-else-if="windowOpen === 'goals'" :milestones="town.milestones.value" :busy="busy" @claim="claimMilestone" @close="closeAll" />
                         <TownLeaderboardPanel v-else-if="windowOpen === 'mayors'" @close="closeAll" />
+                        <TownEventsPanel v-else-if="windowOpen === 'events'" :catalog-by-id="town.catalogById.value" :resource-by-id="town.resourceById.value" :tick="stateTick" @close="closeAll" />
                         <TownResearchPanel
                             v-else-if="windowOpen === 'research'"
                             :board="town.researchBoard.value"
@@ -2970,8 +2974,10 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
     background: var(--g-fill);
     border: 1px solid var(--g-line);
 }
-.upgrade-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.upgrade-head { display: flex; align-items: baseline; gap: 8px; }
+.upgrade-faces { flex: 1; min-width: 0; display: grid; }
+.upgrade-info { grid-area: 1 / 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.upgrade-info.is-hidden { visibility: hidden; pointer-events: none; }
+.upgrade-head { display: flex; align-items: center; gap: 8px; min-height: 18px; }
 .upgrade-head .g-sub { display: inline-flex; align-items: center; gap: 4px; }
 .upgrade-cost { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .upgrade-cost span { display: inline-flex; align-items: center; gap: 4px; }

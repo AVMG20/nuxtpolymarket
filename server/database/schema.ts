@@ -16,6 +16,7 @@ import type {
   TcgCondition
 } from '#shared/types/tcg-db'
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
+import type { TownEventData } from '#shared/utils/gamelogic/town-events'
 import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
 
 export const user = pgTable('user', {
@@ -1719,6 +1720,23 @@ export const townTrades = pgTable('town_trades', {
   index('town_trades_seller_idx').on(t.sellerId),
   index('town_trades_taker_idx').on(t.takerId)
 ])
+
+/**
+ * What happened to a town while its mayor was not looking: a build or upgrade
+ * that finished, a project banked, a resting offer another mayor took. The
+ * notification centre lists these newest first. Nothing tracks read state.
+ *
+ * `createdAt` is the moment the thing happened, not the moment it was written
+ * — a build that finished six hours ago is written by the settle that notices
+ * it, but still lists at the time it finished.
+ */
+export const townEvents = pgTable('town_events', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), // 'built' | 'upgraded' | 'research' | 'trade'
+  data: jsonb('data').$type<TownEventData>().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('town_events_user_createdAt_idx').on(t.userId, t.createdAt)])
 
 export const townStateRelations = relations(townState, ({ one }) => ({
   user: one(user, { fields: [townState.userId], references: [user.id] })

@@ -24,6 +24,7 @@ import {
     deleteTownForUser,
     convertJewels
 } from '#server/utils/town'
+import { listTownEvents, recordTownEvent } from '#server/utils/town-events'
 import {
     TOWN_PLOT_SIZE,
     TOWN_TIER_POP_REQUIREMENT,
@@ -937,6 +938,49 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(settled.buildings.find(b => b.id === buildingId)!.level).toBe(1)
         })
 
+        it('leaves the mayor a note for each build that finished, dated to when it finished', async () => {
+            const plotId = await foundFor(OWNER, { balance: '100000.0000' })
+            await seedStreet(OWNER, plotId, 3, [{ type: 'house', tileX: 0 }])
+            await seedRoad(OWNER, plotId, 1)
+            await stockFor(OWNER, townPlaceCost(FARM, 0))
+            const { buildingId } = await placeBuilding(OWNER, plotId, 1, 1, 'farm', FACES_EDGE_ROAD)
+            const finishedAt = new Date(Date.now() - 3 * MINUTE)
+            await db.update(townBuildings).set({ completesAt: finishedAt }).where(eq(townBuildings.id, buildingId))
+            await rewindSettle(OWNER, 5 * MINUTE)
+
+            await settleTownForRead(OWNER)
+            const { events, more } = await listTownEvents(OWNER, null)
+
+            expect(more).toBe(false)
+            expect(events).toHaveLength(1)
+            expect(events[0]!.data).toEqual({ kind: 'built', type: 'farm', level: 1 })
+            expect(Math.abs(events[0]!.at - finishedAt.getTime())).toBeLessThan(1000)
+
+            // A second settle notices nothing new and writes nothing.
+            await settleTownForRead(OWNER)
+            expect((await listTownEvents(OWNER, null)).events).toHaveLength(1)
+        })
+
+        it('pages the notes newest first through a cursor', async () => {
+            await foundFor(OWNER, { balance: '100000.0000' })
+            const base = Date.now() - HOUR
+            for (let i = 0; i < 12; i++) {
+                await recordTownEvent(db, OWNER, { kind: 'upgraded', type: 'house', level: i + 2 }, base + i * 1000)
+            }
+
+            const first = await listTownEvents(OWNER, null)
+            expect(first.more).toBe(true)
+            expect(first.events.map(e => (e.data as { level: number }).level)).toEqual([13, 12, 11, 10, 9, 8, 7, 6, 5, 4])
+
+            const second = await listTownEvents(OWNER, first.events[first.events.length - 1]!.id)
+            expect(second.more).toBe(false)
+            expect(second.events.map(e => (e.data as { level: number }).level)).toEqual([3, 2])
+
+            // A bigger page is one request; the cap holds.
+            expect((await listTownEvents(OWNER, null, 12)).events).toHaveLength(12)
+            expect((await listTownEvents(OWNER, null, 10_000)).events).toHaveLength(12)
+        })
+
         it('reports what the window produced and how long it covered', async () => {
             await surplusTown()
             await rewindSettle(OWNER, 5 * MINUTE + 30_000)
@@ -1480,6 +1524,24 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await openOrders(SELLER)).toHaveLength(0)
             expect(await getBalance(BUYER)).toBe('1.0000')
             expect(await held(SELLER, 'wheat')).toBe(1)
+        })
+
+        it('tells the resting mayor when a taker fills their offer, not the taker', async () => {
+            await seedUser(BUYER, { balance: coins(PURSE * 100) })
+            await seedUser(SELLER, { balance: '0.0000' })
+            await stock(SELLER, 'wheat', 10)
+            await placeTownOrder(BUYER, 'wheat', 'buy', over(1), 5)
+
+            // A partial fill from the book, then the rest through the quick sell.
+            await placeTownOrder(SELLER, 'wheat', 'sell', over(1), 2)
+            await sellToFloor(SELLER, 'wheat', 3)
+
+            const buyerNotes = (await listTownEvents(BUYER, null)).events.map(e => e.data)
+            expect(buyerNotes).toEqual([
+                { kind: 'trade', side: 'buy', resource: 'wheat', quantity: 3, price: over(1), coins: over(1) * 3, done: true },
+                { kind: 'trade', side: 'buy', resource: 'wheat', quantity: 2, price: over(1), coins: over(1) * 2, done: false }
+            ])
+            expect((await listTownEvents(SELLER, null)).events).toHaveLength(0)
         })
 
         it('aggregates the book by price and reports the caller their own orders', async () => {
