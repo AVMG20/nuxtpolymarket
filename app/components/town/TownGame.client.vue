@@ -1000,7 +1000,7 @@ const recommendedUpgrades = computed(() => {
     rows.sort((a, b) => a.rank - b.rank || a.order - b.order || a.level - b.level)
     // One row per building type: six houses in a row is not six recommendations.
     const seen = new Set<string>()
-    return rows.filter(r => !seen.has(r.type) && seen.add(r.type)).slice(0, 6)
+    return rows.filter(r => !seen.has(r.type) && seen.add(r.type)).slice(0, 5)
 })
 
 /** Start one of the recommended upgrades without hunting for the building. */
@@ -1024,6 +1024,8 @@ const runningJobs = computed(() => town.buildings.value
         level: b.upgradingTo ?? 1,
         first: b.level === 0,
         remainingMs: b.completesAt - now.value,
+        /** How far along, 0..1 — the server quotes the job's full length. */
+        progress: Math.min(1, Math.max(0, 1 - (b.completesAt - now.value) / Math.max(1, b.jobMs ?? 1))),
         gems: townRushGemCost(b.completesAt - now.value)
     }))
     .sort((a, b) => a.gems - b.gems))
@@ -1303,9 +1305,25 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <Transition name="fade">
                         <div v-if="buildersPop" class="moodpop is-builders">
                             <div>
-                                <span class="g-label">Recommended upgrades</span>
+                                <span class="g-label">In progress</span>
                                 <p class="moodpop-sub">{{ buildersFree }} of {{ town.builders.value.owned }} builders free</p>
                             </div>
+                            <div class="moodpop-group">
+                                <div v-for="j in runningJobs" :key="j.id" class="job-row">
+                                    <span class="rec-art"><TownAsset :id="j.type" kind="building" :level="j.level" /></span>
+                                    <span class="rec-main">
+                                        <span class="job-head">
+                                            <b :data-tip="j.name">{{ j.name }}</b>
+                                            <span class="rec-level">{{ j.first ? 'Building' : `Lv ${j.level - 1} → ${j.level}` }}</span>
+                                            <span class="job-time">{{ formatTownDuration(j.remainingMs) }}</span>
+                                        </span>
+                                        <span class="g-progress job-bar"><i :style="{ width: `${Math.round(j.progress * 100)}%` }" /></span>
+                                    </span>
+                                </div>
+                                <p v-if="runningJobs.length === 0" class="g-empty">Every builder is idle.</p>
+                            </div>
+
+                            <span class="g-label">Recommended upgrades</span>
                             <div class="moodpop-group">
                                 <button
                                     v-for="r in recommendedUpgrades"
@@ -2734,6 +2752,21 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
     transition: background 0.15s ease, border-color 0.15s ease;
 }
 .rec-row:hover:not(:disabled) { background: var(--g-fill-2); border-color: var(--g-line-2); }
+/* A job under way: the same row, but nothing to click and a bar instead of a cost. */
+.job-row {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: var(--g-radius-xs);
+    background: var(--g-fill);
+    border: 1px solid var(--g-line);
+}
+.job-head { display: flex; align-items: center; gap: 6px; }
+.job-head b { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
+.job-time { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--g-text-2); }
+.job-bar { height: 4px; margin-top: 3px; }
 .rec-row:disabled { cursor: not-allowed; }
 .rec-row.is-dim { opacity: 0.55; }
 .rec-art { font-size: 12px; line-height: 1; }
