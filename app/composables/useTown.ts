@@ -107,6 +107,12 @@ export interface TownMilestoneView {
     reward: number
     gems: number
     tier: number
+    /** Chain this goal belongs to — the same goal at a rising target — or null for a one-off. */
+    chain: string | null
+    /** 1-based position within `chain`, null outside a chain. */
+    step: number | null
+    /** Total steps in `chain`, null outside a chain. */
+    steps: number | null
     current: number
     target: number
     complete: boolean

@@ -2205,6 +2205,14 @@ export interface TownMilestoneSnapshot {
     /** Lifetime coins earned from selling resources (floor + player market). */
     coinsEarned: number
     industryCount: number
+    /** Completed buildings that are not road tiles. */
+    buildingCount: number
+    /** Completed road tiles. */
+    roadCount: number
+    /** Research projects finished. */
+    researchDone: number
+    /** Every need the town is asked for was supplied on the last tick. */
+    needsSatisfied: boolean
 }
 
 export interface TownMilestoneDef {
@@ -2221,6 +2229,14 @@ export interface TownMilestoneDef {
     gems?: number
     /** Ordering / grouping hint. */
     tier: number
+    /**
+     * Chain this goal belongs to: the same goal again at a higher target. The
+     * UI shows a chain as one row that advances, so only the next unclaimed
+     * step needs to be on screen.
+     */
+    chain?: string
+    /** 1-based position in `chain`. Steps are listed in rising-target order. */
+    step?: number
     progress: (s: TownMilestoneSnapshot) => { current: number, target: number }
 }
 
@@ -2228,48 +2244,148 @@ function built(type: TownBuildingId, target = 1): TownMilestoneDef['progress'] {
     return s => ({ current: Math.min(target, s.builtByType[type] ?? 0), target })
 }
 
+/** A goal that wants `target` of whatever `pick` counts. Progress is clamped for display. */
+function atLeast(pick: (s: TownMilestoneSnapshot) => number, target: number): TownMilestoneDef['progress'] {
+    return s => ({ current: Math.min(target, pick(s)), target })
+}
+
+/** Every building kind that produces goods — the "Full Chain" goal wants one of each. */
+const INDUSTRY_BUILDING_IDS = TOWN_BUILDINGS.filter(b => b.kind === 'industry').map(b => b.id)
+
+function civicCount(s: TownMilestoneSnapshot): number {
+    let total = 0
+    for (const def of TOWN_BUILDINGS) {
+        if (def.kind !== 'civic') continue
+        total += s.builtByType[def.id] ?? 0
+    }
+    return total
+}
+
 export const TOWN_MILESTONES: readonly TownMilestoneDef[] = [
+    // ── Tier 0: the first hour ────────────────────────────────────────────────
     { id: 'first-home', title: 'Home Sweet Home', description: 'Build a House.', emoji: '🏠', reward: 0, gems: 1, tier: 0, progress: built('house') },
     { id: 'first-farm', title: 'Breaking Ground', description: 'Build a Farm.', emoji: '🌾', reward: 0, gems: 1, tier: 0, progress: built('farm') },
-    { id: 'first-sale', title: 'First Sale', description: 'Earn 1,000 coins selling to the town hall.', emoji: '💰', reward: 0, gems: 1, tier: 0, progress: s => ({ current: Math.min(1_000, s.coinsEarned), target: 1_000 }) },
+    { id: 'first-sale', title: 'First Sale', description: 'Earn 1,000 coins selling to the town hall.', emoji: '💰', reward: 0, gems: 1, tier: 0, chain: 'merchant', step: 1, progress: atLeast(s => s.coinsEarned, 1_000) },
     { id: 'green-thumb', title: 'Green Thumb', description: 'Build a Park.', emoji: '🌳', reward: 0, gems: 1, tier: 0, progress: built('park') },
-    { id: 'growing', title: 'Growing Pains', description: 'Run 4 industry buildings at once.', emoji: '🏗️', reward: 0, gems: 1, tier: 1, progress: s => ({ current: Math.min(4, s.industryCount), target: 4 }) },
-    { id: 'neighbourhood', title: 'Neighbourhood', description: 'House 16 residents.', emoji: '👨‍👩‍👧', reward: 0, gems: 2, tier: 1, progress: s => ({ current: Math.min(16, s.popCap), target: 16 }) },
-    { id: 'level-up', title: 'Level Up', description: 'Upgrade any building to level 3.', emoji: '⬆️', reward: 0, gems: 2, tier: 1, progress: s => ({ current: Math.min(3, s.maxLevel), target: 3 }) },
+    // ── Tier 1 ────────────────────────────────────────────────────────────────
+    { id: 'growing', title: 'Growing Pains', description: 'Run 4 industry buildings at once.', emoji: '🏗️', reward: 0, gems: 1, tier: 1, chain: 'industry', step: 1, progress: atLeast(s => s.industryCount, 4) },
+    { id: 'neighbourhood', title: 'Neighbourhood', description: 'House 16 residents.', emoji: '👨‍👩‍👧', reward: 0, gems: 2, tier: 1, chain: 'population', step: 1, progress: atLeast(s => s.popCap, 16) },
+    { id: 'level-up', title: 'Level Up', description: 'Upgrade any building to level 3.', emoji: '⬆️', reward: 0, gems: 2, tier: 1, chain: 'levels', step: 1, progress: atLeast(s => s.maxLevel, 3) },
+    { id: 'build-10', title: 'A Village', description: 'Have 10 buildings standing.', emoji: '🏘️', reward: 0, gems: 1, tier: 1, chain: 'buildings', step: 1, progress: atLeast(s => s.buildingCount, 10) },
+    { id: 'road-20', title: 'Paved Paths', description: 'Lay 20 road tiles.', emoji: '🛣️', reward: 0, gems: 1, tier: 1, chain: 'roads', step: 1, progress: atLeast(s => s.roadCount, 20) },
+    { id: 'houses-10', title: 'Ten Roofs', description: 'Build 10 Houses.', emoji: '🏡', reward: 0, gems: 1, tier: 1, chain: 'houses', step: 1, progress: built('house', 10) },
+    // ── Tier 2 ────────────────────────────────────────────────────────────────
     { id: 'processing', title: 'Processing Power', description: 'Build a Mill or a Sawmill.', emoji: '🪚', reward: 0, gems: 3, tier: 2, progress: s => ({ current: Math.min(1, (s.builtByType.mill ?? 0) + (s.builtByType.sawmill ?? 0)), target: 1 }) },
-    { id: 'happy-town', title: 'Happy Town', description: 'Reach 75 happiness.', emoji: '😄', reward: 0, gems: 3, tier: 2, progress: s => ({ current: Math.min(75, s.happiness), target: 75 }) },
+    { id: 'happy-town', title: 'Happy Town', description: 'Reach 75 happiness.', emoji: '😄', reward: 0, gems: 3, tier: 2, chain: 'happiness', step: 1, progress: atLeast(s => s.happiness, 75) },
     { id: 'brickworks', title: 'Brickworks', description: 'Build a Brick Kiln.', emoji: '🧱', reward: 0, gems: 3, tier: 2, progress: built('kiln') },
-    { id: 'land-grab', title: 'Land Grab', description: 'Buy a second plot.', emoji: '🗺️', reward: 0, gems: 5, tier: 2, progress: s => ({ current: Math.min(2, s.plotsBought), target: 2 }) },
+    { id: 'land-grab', title: 'Land Grab', description: 'Buy a second plot.', emoji: '🗺️', reward: 0, gems: 5, tier: 2, chain: 'land', step: 1, progress: atLeast(s => s.plotsBought, 2) },
     { id: 'prospector', title: 'Prospector', description: 'Build a Jewel Mine.', emoji: '💠', reward: 0, gems: 5, tier: 2, progress: built('gemmine') },
+    { id: 'sale-100k', title: 'Regular Trade', description: 'Earn 100,000 coins selling to the town hall.', emoji: '🧾', reward: 0, gems: 2, tier: 2, chain: 'merchant', step: 2, progress: atLeast(s => s.coinsEarned, 100_000) },
+    { id: 'pop-50', title: 'Small Town', description: 'House 50 residents.', emoji: '👪', reward: 0, gems: 2, tier: 2, chain: 'population', step: 2, progress: atLeast(s => s.popCap, 50) },
+    { id: 'civic-3', title: 'Public Works', description: 'Have 3 civic buildings standing.', emoji: '⛲', reward: 0, gems: 2, tier: 2, chain: 'civic', step: 1, progress: atLeast(civicCount, 3) },
+    { id: 'store-2', title: 'Stockpile', description: 'Build 2 Warehouses.', emoji: '📦', reward: 0, gems: 1, tier: 2, chain: 'warehouses', step: 1, progress: built('warehouse', 2) },
+    // ── Tier 3 ────────────────────────────────────────────────────────────────
     { id: 'baker', title: 'Fresh Bread', description: 'Build a Bakery.', emoji: '🍞', reward: 0, gems: 6, tier: 3, progress: built('bakery') },
     { id: 'toolmaker', title: 'Toolmaker', description: 'Build a Smithy.', emoji: '🔧', reward: 0, gems: 6, tier: 3, progress: built('smithy') },
-    { id: 'merchant', title: 'Merchant', description: 'Earn 1M coins selling to the town hall.', emoji: '🏪', reward: 0, gems: 8, tier: 3, progress: s => ({ current: Math.min(1_000_000, s.coinsEarned), target: 1_000_000 }) },
+    { id: 'merchant', title: 'Merchant', description: 'Earn 1M coins selling to the town hall.', emoji: '🏪', reward: 0, gems: 8, tier: 3, chain: 'merchant', step: 3, progress: atLeast(s => s.coinsEarned, 1_000_000) },
+    { id: 'build-50', title: 'A Town', description: 'Have 50 buildings standing.', emoji: '🏙️', reward: 0, gems: 3, tier: 3, chain: 'buildings', step: 2, progress: atLeast(s => s.buildingCount, 50) },
+    { id: 'road-80', title: 'Grid Plan', description: 'Lay 80 road tiles.', emoji: '🚧', reward: 0, gems: 3, tier: 3, chain: 'roads', step: 2, progress: atLeast(s => s.roadCount, 80) },
+    { id: 'research-5', title: 'First Findings', description: 'Finish 5 research projects.', emoji: '🔬', reward: 0, gems: 3, tier: 3, chain: 'research', step: 1, progress: atLeast(s => s.researchDone, 5) },
+    { id: 'industry-12', title: 'Workshop District', description: 'Run 12 industry buildings at once.', emoji: '🏗️', reward: 0, gems: 3, tier: 3, chain: 'industry', step: 2, progress: atLeast(s => s.industryCount, 12) },
+    // ── Tier 4 ────────────────────────────────────────────────────────────────
     { id: 'deep-dig', title: 'Deep Dig', description: 'Build an Iron Mine.', emoji: '⛏️', reward: 0, gems: 10, tier: 4, progress: built('mine') },
     { id: 'steelworks', title: 'Steelworks', description: 'Build a Foundry.', emoji: '⚙️', reward: 0, gems: 12, tier: 4, progress: built('foundry') },
-    { id: 'maxed', title: 'Perfectionist', description: 'Upgrade any building to level 10.', emoji: '🏅', reward: 0, gems: 10, tier: 4, progress: s => ({ current: Math.min(10, s.maxLevel), target: 10 }) },
+    { id: 'maxed', title: 'Perfectionist', description: 'Upgrade any building to level 10.', emoji: '🏅', reward: 0, gems: 10, tier: 4, chain: 'levels', step: 2, progress: atLeast(s => s.maxLevel, 10) },
+    { id: 'pop-200', title: 'Big Town', description: 'House 200 residents.', emoji: '🏙️', reward: 0, gems: 5, tier: 4, chain: 'population', step: 3, progress: atLeast(s => s.popCap, 200) },
+    { id: 'houses-30', title: 'Housing Boom', description: 'Build 30 Houses.', emoji: '🏡', reward: 0, gems: 4, tier: 4, chain: 'houses', step: 2, progress: built('house', 30) },
+    { id: 'store-5', title: 'Full Shelves', description: 'Build 5 Warehouses.', emoji: '📦', reward: 0, gems: 4, tier: 4, chain: 'warehouses', step: 2, progress: built('warehouse', 5) },
+    { id: 'land-4', title: 'Landowner', description: 'Own 4 plots.', emoji: '🗺️', reward: 0, gems: 5, tier: 4, chain: 'land', step: 2, progress: atLeast(s => s.plotsBought, 4) },
+    { id: 'happy-90', title: 'Delighted', description: 'Reach 90 happiness.', emoji: '🥳', reward: 0, gems: 5, tier: 4, chain: 'happiness', step: 2, progress: atLeast(s => s.happiness, 90) },
+    // ── Tier 5 ────────────────────────────────────────────────────────────────
     { id: 'industrialist', title: 'Industrialist', description: 'Build a Factory.', emoji: '🏭', reward: 20_000_000, gems: 20, tier: 5, progress: built('factory') },
+    { id: 'sale-10m', title: 'Trading House', description: 'Earn 10M coins selling to the town hall.', emoji: '🏦', reward: 10_000_000, gems: 8, tier: 5, chain: 'merchant', step: 4, progress: atLeast(s => s.coinsEarned, 10_000_000) },
+    { id: 'level-15', title: 'Master Builder', description: 'Upgrade any building to level 15.', emoji: '🏗️', reward: 0, gems: 8, tier: 5, chain: 'levels', step: 3, progress: atLeast(s => s.maxLevel, 15) },
+    { id: 'build-150', title: 'A City', description: 'Have 150 buildings standing.', emoji: '🌆', reward: 0, gems: 8, tier: 5, chain: 'buildings', step: 3, progress: atLeast(s => s.buildingCount, 150) },
+    { id: 'civic-10', title: 'Civic Pride', description: 'Have 10 civic buildings standing.', emoji: '🎭', reward: 0, gems: 6, tier: 5, chain: 'civic', step: 2, progress: atLeast(civicCount, 10) },
+    { id: 'research-15', title: 'Half the Board', description: 'Finish 15 research projects.', emoji: '🔬', reward: 0, gems: 6, tier: 5, chain: 'research', step: 2, progress: atLeast(s => s.researchDone, 15) },
+    { id: 'industry-30', title: 'Heavy Industry', description: 'Run 30 industry buildings at once.', emoji: '🏭', reward: 0, gems: 8, tier: 5, chain: 'industry', step: 3, progress: atLeast(s => s.industryCount, 30) },
+    // ── Tier 6: the long tail ─────────────────────────────────────────────────
     { id: 'tycoon', title: 'Tycoon', description: 'Build an Emporium.', emoji: '💎', reward: 150_000_000, gems: 40, tier: 6, progress: built('emporium') },
-    { id: 'magnate', title: 'Magnate', description: 'Earn 100M coins selling to the town hall.', emoji: '👑', reward: 10_000_000, gems: 25, tier: 6, progress: s => ({ current: Math.min(100_000_000, s.coinsEarned), target: 100_000_000 }) }
+    { id: 'magnate', title: 'Magnate', description: 'Earn 100M coins selling to the town hall.', emoji: '👑', reward: 10_000_000, gems: 25, tier: 6, chain: 'merchant', step: 5, progress: atLeast(s => s.coinsEarned, 100_000_000) },
+    { id: 'sale-1b', title: 'Billion Coin Town', description: 'Earn 1B coins selling to the town hall.', emoji: '🪙', reward: 250_000_000, gems: 20, tier: 6, chain: 'merchant', step: 6, progress: atLeast(s => s.coinsEarned, 1_000_000_000) },
+    { id: 'level-20', title: 'Sky High', description: 'Upgrade any building to level 20.', emoji: '🚀', reward: 50_000_000, gems: 14, tier: 6, chain: 'levels', step: 4, progress: atLeast(s => s.maxLevel, 20) },
+    { id: 'pop-800', title: 'Metropolis', description: 'House 800 residents.', emoji: '🌃', reward: 50_000_000, gems: 12, tier: 6, chain: 'population', step: 4, progress: atLeast(s => s.popCap, 800) },
+    { id: 'land-6', title: 'Whole Valley', description: 'Own 6 plots.', emoji: '🧭', reward: 25_000_000, gems: 10, tier: 6, chain: 'land', step: 3, progress: atLeast(s => s.plotsBought, 6) },
+    { id: 'research-30', title: 'Whole Board', description: 'Finish all 30 research projects.', emoji: '🎓', reward: 50_000_000, gems: 12, tier: 6, chain: 'research', step: 3, progress: atLeast(s => s.researchDone, 30) },
+    { id: 'full-chain', title: 'Full Chain', description: 'Own at least one of every industry building.', emoji: '🔗', reward: 100_000_000, gems: 14, tier: 6, progress: s => ({ current: INDUSTRY_BUILDING_IDS.filter(id => (s.builtByType[id] ?? 0) > 0).length, target: INDUSTRY_BUILDING_IDS.length }) },
+    { id: 'self-sufficient', title: 'Self-sufficient', description: 'Supply every need the town asks for.', emoji: '🍽️', reward: 25_000_000, gems: 10, tier: 6, progress: s => ({ current: s.needsSatisfied ? 1 : 0, target: 1 }) }
 ]
 
 const MILESTONE_BY_ID = new Map(TOWN_MILESTONES.map(m => [m.id, m]))
+
+/** How many steps each chain has, so a row can read "3 / 6" without the caller counting. */
+const MILESTONE_CHAIN_SIZE = TOWN_MILESTONES.reduce((sizes, m) => {
+    if (m.chain) sizes.set(m.chain, (sizes.get(m.chain) ?? 0) + 1)
+    return sizes
+}, new Map<string, number>())
 
 export function getTownMilestone(id: string): TownMilestoneDef | undefined {
     return MILESTONE_BY_ID.get(id)
 }
 
-export function townMilestoneSnapshot(buildings: TownSimBuilding[], derived: TownDerived, happiness: number, plotsBought: number, coinsEarned: number, now: number): TownMilestoneSnapshot {
+/** Total steps in `chain`, or 0 for a name no goal uses. */
+export function townMilestoneChainSize(chain: string | undefined | null): number {
+    return chain ? MILESTONE_CHAIN_SIZE.get(chain) ?? 0 : 0
+}
+
+/**
+ * Whether every need the town is asked for was met on the last tick. A need
+ * below its population threshold is not asked for, so it never counts against
+ * a town too small to have it — but a town with no residents at all is asked
+ * for nothing, and "nothing missing" there is not self-sufficiency.
+ */
+export function townAllNeedsSatisfied(satisfied: TownSatisfied): boolean {
+    const asked = TOWN_NEEDS.filter(n => satisfied[n.resource] !== undefined)
+    return asked.length > 0 && asked.every(n => satisfied[n.resource] === true)
+}
+
+export function townMilestoneSnapshot(
+    buildings: TownSimBuilding[],
+    derived: TownDerived,
+    happiness: number,
+    plotsBought: number,
+    coinsEarned: number,
+    now: number,
+    extra: { researchDone?: number, needsSatisfied?: boolean } = {}
+): TownMilestoneSnapshot {
     const builtByType: Partial<Record<TownBuildingId, number>> = {}
     let maxLevel = 0
     let industryCount = 0
+    let buildingCount = 0
+    let roadCount = 0
     for (const b of buildings) {
         if (!isBuilt(b, now)) continue
         const level = effectiveLevel(b, now)
         builtByType[b.type] = (builtByType[b.type] ?? 0) + 1
         if (level > maxLevel) maxLevel = level
-        if (BUILDING_BY_ID.get(b.type)!.kind === 'industry') industryCount++
+        const kind = BUILDING_BY_ID.get(b.type)!.kind
+        if (kind === 'industry') industryCount++
+        if (kind === 'road') roadCount++
+        else buildingCount++
     }
-    return { builtByType, maxLevel, popCap: derived.popCap, happiness, plotsBought, coinsEarned, industryCount }
+    return {
+        builtByType,
+        maxLevel,
+        popCap: derived.popCap,
+        happiness,
+        plotsBought,
+        coinsEarned,
+        industryCount,
+        buildingCount,
+        roadCount,
+        researchDone: extra.researchDone ?? 0,
+        needsSatisfied: extra.needsSatisfied ?? false
+    }
 }
 
 export function townMilestoneComplete(def: TownMilestoneDef, snapshot: TownMilestoneSnapshot): boolean {

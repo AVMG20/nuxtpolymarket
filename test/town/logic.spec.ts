@@ -62,6 +62,8 @@ import {
     townLayoutScore,
     townLevelBuildMs,
     townLevelCost,
+    townAllNeedsSatisfied,
+    townMilestoneChainSize,
     townMilestoneComplete,
     townMilestoneSnapshot,
     townMood,
@@ -90,6 +92,7 @@ import {
     type TownSimState,
     type TownBuildingDef
 } from '#shared/utils/gamelogic/town'
+import { TOWN_RESEARCH } from '#shared/utils/gamelogic/town-research'
 
 const T0 = 1_700_000_000_000
 
@@ -1859,7 +1862,39 @@ describe('milestones', () => {
     it('keeps the total gem payout modest against what the site pays elsewhere', () => {
         const gems = TOWN_MILESTONES.reduce((sum, m) => sum + (m.gems ?? 0), 0)
         expect(gems).toBeGreaterThan(0)
-        expect(gems).toBeLessThanOrEqual(250)
+        expect(gems).toBeLessThanOrEqual(350)
+    })
+
+    it('builds every chain out of consecutive steps at rising targets', () => {
+        const empty = snapshot([])
+        const chains = new Map<string, typeof TOWN_MILESTONES[number][]>()
+        for (const m of TOWN_MILESTONES) {
+            if (!m.chain) {
+                // A step number without a chain to be a step of is a typo.
+                expect(m.step).toBeUndefined()
+                continue
+            }
+            expect(m.step).toBeTypeOf('number')
+            const list = chains.get(m.chain) ?? []
+            list.push(m)
+            chains.set(m.chain, list)
+        }
+
+        expect(chains.size).toBeGreaterThan(0)
+        for (const [chain, steps] of chains) {
+            // More than one step, or it is not a chain.
+            expect(steps.length, chain).toBeGreaterThan(1)
+            expect(townMilestoneChainSize(chain)).toBe(steps.length)
+            // Listed in step order, numbered 1..n with no gaps.
+            expect(steps.map(m => m.step), chain).toEqual(steps.map((_, i) => i + 1))
+            // And each step asks for strictly more than the one before it.
+            const targets = steps.map(m => m.progress(empty).target)
+            for (let i = 1; i < targets.length; i++) {
+                expect(targets[i]!, `${chain} step ${i + 1}`).toBeGreaterThan(targets[i - 1]!)
+            }
+        }
+        expect(townMilestoneChainSize('not-a-chain')).toBe(0)
+        expect(townMilestoneChainSize(null)).toBe(0)
     })
 
     it('summarises the town into the snapshot the conditions read', () => {
@@ -1876,6 +1911,95 @@ describe('milestones', () => {
         expect(snap.industryCount).toBe(2)
         expect(snap.plotsBought).toBe(2)
         expect(snap.coinsEarned).toBe(1_234)
+    })
+
+    it('counts roads apart from the buildings on them', () => {
+        const snap = snapshot([
+            built('house', 'house'),
+            built('park', 'park'),
+            built('farm', 'farm'),
+            built('site', 'kiln', { level: 0, completesAt: T0 + 60_000, createdAt: T0 }),
+            road(0, 0),
+            road(1, 0),
+            road(2, 0)
+        ])
+
+        // Roads are their own count, and a site still going up is in neither.
+        expect(snap.roadCount).toBe(3)
+        expect(snap.buildingCount).toBe(3)
+        // Nothing was handed in for the fields the caller has to supply.
+        expect(snap.researchDone).toBe(0)
+        expect(snap.needsSatisfied).toBe(false)
+    })
+
+    it('takes research and needs from what the caller measured', () => {
+        const derived = deriveTown([], 50, T0)
+        const snap = townMilestoneSnapshot([], derived, 50, 1, 0, T0, { researchDone: 7, needsSatisfied: true })
+        expect(snap.researchDone).toBe(7)
+        expect(snap.needsSatisfied).toBe(true)
+    })
+
+    it('completes the research chain on the count of finished projects', () => {
+        expect(complete('research-5', snapshot([], { researchDone: 4 }))).toBe(false)
+        expect(complete('research-5', snapshot([], { researchDone: 5 }))).toBe(true)
+        expect(complete('research-15', snapshot([], { researchDone: 5 }))).toBe(false)
+        expect(complete('research-30', snapshot([], { researchDone: TOWN_RESEARCH.length }))).toBe(true)
+        // The last step is the whole board, not a number that outruns it.
+        expect(getTownMilestone('research-30')!.progress(snapshot([])).target).toBe(TOWN_RESEARCH.length)
+    })
+
+    it('completes the building and road chains off their own counts', () => {
+        expect(complete('build-10', snapshot([], { buildingCount: 9 }))).toBe(false)
+        expect(complete('build-10', snapshot([], { buildingCount: 10 }))).toBe(true)
+        expect(complete('build-150', snapshot([], { buildingCount: 149 }))).toBe(false)
+        expect(complete('road-20', snapshot([], { roadCount: 20 }))).toBe(true)
+        // Roads are not buildings and buildings are not roads.
+        expect(complete('road-20', snapshot([], { buildingCount: 999 }))).toBe(false)
+        expect(complete('build-10', snapshot([], { roadCount: 999 }))).toBe(false)
+    })
+
+    it('completes self-sufficient only when every need asked for is met', () => {
+        expect(complete('self-sufficient', snapshot([], { needsSatisfied: false }))).toBe(false)
+        expect(complete('self-sufficient', snapshot([], { needsSatisfied: true }))).toBe(true)
+
+        // A town asked for nothing has not supplied anything.
+        expect(townAllNeedsSatisfied({})).toBe(false)
+        expect(townAllNeedsSatisfied({ wheat: true })).toBe(true)
+        expect(townAllNeedsSatisfied({ wheat: true, bread: false })).toBe(false)
+        expect(townAllNeedsSatisfied(Object.fromEntries(TOWN_NEEDS.map(n => [n.resource, true])))).toBe(true)
+    })
+
+    it('completes full-chain only with one of every industry building', () => {
+        const industry = TOWN_BUILDINGS.filter(b => b.kind === 'industry')
+        const all = industry.map(def => built(`i-${def.id}`, def.id))
+        expect(complete('full-chain', snapshot(all))).toBe(true)
+        expect(complete('full-chain', snapshot(all.slice(1)))).toBe(false)
+        // Duplicates of one workshop are not a chain.
+        expect(complete('full-chain', snapshot(
+            Array.from({ length: industry.length }, (_, i) => built(`farm${i}`, 'farm'))
+        ))).toBe(false)
+    })
+
+    it('completes the civic chain off every civic building, not parks alone', () => {
+        const civic = (n: number, type: TownBuildingId) => Array.from({ length: n }, (_, i) => built(`${type}${i}`, type))
+        expect(complete('civic-3', snapshot(civic(2, 'park')))).toBe(false)
+        expect(complete('civic-3', snapshot(civic(3, 'park')))).toBe(true)
+        expect(complete('civic-3', snapshot([...civic(1, 'park'), ...civic(1, 'bathhouse'), ...civic(1, 'theatre')]))).toBe(true)
+        expect(complete('civic-3', snapshot(civic(9, 'farm')))).toBe(false)
+    })
+
+    it('keeps the land chain inside the plots a town can actually own', () => {
+        const land = TOWN_MILESTONES.filter(m => m.chain === 'land')
+        const empty = snapshot([])
+        for (const m of land) expect(m.progress(empty).target).toBeLessThanOrEqual(TOWN_MAX_PLOTS)
+        expect(land.at(-1)!.progress(empty).target).toBe(TOWN_MAX_PLOTS)
+    })
+
+    it('keeps the level chain inside the highest level a building reaches', () => {
+        const levels = TOWN_MILESTONES.filter(m => m.chain === 'levels')
+        const empty = snapshot([])
+        for (const m of levels) expect(m.progress(empty).target).toBeLessThanOrEqual(TOWN_MAX_BUILDING_LEVEL)
+        expect(levels.at(-1)!.progress(empty).target).toBe(TOWN_MAX_BUILDING_LEVEL)
     })
 
     it('completes first-home only once a house is standing', () => {

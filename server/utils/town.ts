@@ -43,6 +43,8 @@ import {
     type TownGroupMove,
     townMilestoneSnapshot,
     townMilestoneComplete,
+    townMilestoneChainSize,
+    townAllNeedsSatisfied,
     getTownMilestone,
     TOWN_MILESTONES,
     townBuildersFree,
@@ -191,6 +193,8 @@ export interface SettledTown {
      * is a number the player would catch us lying about.
      */
     research: TownResearchBonus
+    /** Project ids this town has finished — the research milestones count them. */
+    researchDone: string[]
 }
 
 /**
@@ -223,10 +227,15 @@ export async function bankFinishedResearch(
  * cheap read next to everything else a settle does.
  */
 export async function getResearchBonus(tx: DbExecutor, userId: string): Promise<TownResearchBonus> {
+    return townResearchEffects(await getResearchDoneIds(tx, userId))
+}
+
+/** Project ids this player has finished, read inside the caller's transaction. */
+export async function getResearchDoneIds(tx: DbExecutor, userId: string): Promise<string[]> {
     const rows = await tx.select({ researchId: townResearch.researchId })
         .from(townResearch)
         .where(eq(townResearch.userId, userId))
-    return townResearchEffects(rows.map(r => r.researchId))
+    return rows.map(r => r.researchId)
 }
 
 /**
@@ -254,7 +263,8 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
     // before the window is settled, or the whole offline stretch is paid at
     // the un-researched rate and the bonus is quietly lost.
     await bankFinishedResearch(tx, userId, state, now)
-    const research = await getResearchBonus(tx, userId)
+    const researchDone = await getResearchDoneIds(tx, userId)
+    const research = townResearchEffects(researchDone)
 
     const result = settleTown({
         happiness: state.happiness,
@@ -322,7 +332,8 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
         delta: result.delta,
         elapsedMs: Math.min(now - state.lastSettledAt.getTime(), TOWN_MAX_OFFLINE_MS),
         satisfied: result.satisfied,
-        research
+        research,
+        researchDone
     }
 }
 
@@ -1094,12 +1105,17 @@ async function recordEarnings(tx: DbExecutor, userId: string, coins: number) {
 
 // ─── Milestones ──────────────────────────────────────────────────────────────
 
-export function milestoneSnapshotFor(settled: Pick<SettledTown, 'state' | 'sim' | 'inventory' | 'satisfied' | 'research'>, now: number) {
+type MilestoneInput = Pick<SettledTown, 'state' | 'sim' | 'inventory' | 'satisfied' | 'research' | 'researchDone'>
+
+export function milestoneSnapshotFor(settled: MilestoneInput, now: number) {
     const derived = deriveTown(settled.sim, settled.state.happiness, now, settled.satisfied, undefined, settled.research)
-    return townMilestoneSnapshot(settled.sim, derived, settled.state.happiness, settled.state.plotsBought, parseFloat(settled.state.coinsEarned), now)
+    return townMilestoneSnapshot(settled.sim, derived, settled.state.happiness, settled.state.plotsBought, parseFloat(settled.state.coinsEarned), now, {
+        researchDone: settled.researchDone.length,
+        needsSatisfied: townAllNeedsSatisfied(settled.satisfied)
+    })
 }
 
-export function serializeMilestones(settled: Pick<SettledTown, 'state' | 'sim' | 'inventory' | 'satisfied' | 'research'>, now: number) {
+export function serializeMilestones(settled: MilestoneInput, now: number) {
     const snapshot = milestoneSnapshotFor(settled, now)
     const claimed = new Set(settled.state.milestonesClaimed)
     return TOWN_MILESTONES.map((m) => {
@@ -1112,6 +1128,9 @@ export function serializeMilestones(settled: Pick<SettledTown, 'state' | 'sim' |
             reward: m.reward,
             gems: m.gems ?? 0,
             tier: m.tier,
+            chain: m.chain ?? null,
+            step: m.step ?? null,
+            steps: m.chain ? townMilestoneChainSize(m.chain) : null,
             current: progress.current,
             target: progress.target,
             complete: progress.current >= progress.target,
