@@ -955,6 +955,131 @@ export async function moveBuildings(userId: string, moves: TownRelocation[]) {
     })
 }
 
+export interface TownRedesign {
+    /** Every building being kept, with the tile it ends up on. */
+    moves: TownRelocation[]
+    /** Brand-new roads to lay, paid for at the usual price. */
+    roads: { plotId: string, tileX: number, tileY: number }[]
+}
+
+/** The most tiles a redesign can name: every tile of every plot a town can own. */
+export const TOWN_REDESIGN_MAX_TILES = TOWN_MAX_PLOTS * TOWN_PLOT_SIZE * TOWN_PLOT_SIZE
+
+/**
+ * Lay the whole town out again in one go, all or nothing.
+ *
+ * The client picks everything up into a tray and puts it back down; this is
+ * the tray being emptied. Every building that is not a road must be in
+ * `moves` — a redesign never demolishes a building, so a call that forgot
+ * one is refused rather than quietly deleting it. Roads are the exception:
+ * any road left out is removed (the client warns before it asks), and new
+ * ones can be laid at the same time, charged exactly as a fresh build.
+ *
+ * Moves are free and keep the clock, like moveBuildings. Only the ground is
+ * checked; a building put down away from a road goes dark, it is not refused.
+ */
+export async function redesignTown(userId: string, plan: TownRedesign) {
+    const { moves, roads } = plan
+    if (moves.length + roads.length === 0) throw createError({ statusCode: 400, statusMessage: 'Nothing to lay out' })
+    if (moves.length + roads.length > TOWN_REDESIGN_MAX_TILES) throw createError({ statusCode: 400, statusMessage: 'Too many tiles in one go' })
+    const onPlot = (t: { tileX: number, tileY: number }) =>
+        Number.isInteger(t.tileX) && Number.isInteger(t.tileY) && t.tileX >= 0 && t.tileY >= 0 && t.tileX < TOWN_PLOT_SIZE && t.tileY < TOWN_PLOT_SIZE
+    for (const m of moves) {
+        if (!Number.isInteger(m.rotation) || m.rotation < 0 || m.rotation > 3) {
+            throw createError({ statusCode: 400, statusMessage: 'Rotation must be 0, 1, 2 or 3 quarter turns' })
+        }
+        if (!onPlot(m)) throw createError({ statusCode: 400, statusMessage: 'That tile is off the plot' })
+    }
+    for (const r of roads) if (!onPlot(r)) throw createError({ statusCode: 400, statusMessage: 'That tile is off the plot' })
+    if (new Set(moves.map(m => m.buildingId)).size !== moves.length) {
+        throw createError({ statusCode: 400, statusMessage: 'A building can only be placed once' })
+    }
+    const roadDef = getTownBuilding('road')!
+
+    return db.transaction(async (tx) => {
+        const now = Date.now()
+        const { sim } = await settleTownState(tx, userId, now)
+        const { byId: plotsById } = await getPlotMap(userId, tx)
+
+        const moving = new Set(moves.map(m => m.buildingId))
+        const removed: string[] = []
+        for (const b of sim) {
+            if (moving.has(b.id)) continue
+            if (b.type !== 'road') throw createError({ statusCode: 400, statusMessage: 'Every building has to be placed before saving' })
+            removed.push(b.id)
+        }
+
+        const world = (plotId: string, tileX: number, tileY: number) => {
+            const plot = plotsById.get(plotId)
+            if (!plot) throw createError({ statusCode: 400, statusMessage: 'That plot is not yours' })
+            return { plot, wx: plot.x * TOWN_PLOT_SIZE + tileX, wy: plot.y * TOWN_PLOT_SIZE + tileY }
+        }
+        const wanted: TownGroupMove[] = []
+        for (const m of moves) {
+            if (!sim.some(b => b.id === m.buildingId)) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
+            const { wx, wy } = world(m.plotId, m.tileX, m.tileY)
+            wanted.push({ id: m.buildingId, wx, wy, rotation: m.rotation })
+        }
+        // The roads being removed do not hold their tiles against the new layout.
+        const kept = sim.filter(b => !removed.includes(b.id))
+        const issue = townGroupMoveIssue(kept, wanted)
+        if (issue) throw createError({ statusCode: 400, statusMessage: issue })
+
+        // New roads are judged against the finished layout, and priced the way
+        // a fresh build would be: the n-th road counts every road still standing.
+        const layout: TownSimBuilding[] = kept.map((b) => {
+            const w = wanted.find(m => m.id === b.id)
+            return w ? { ...b, wx: w.wx, wy: w.wy, rotation: w.rotation } : b
+        })
+        let roadCount = layout.filter(b => b.type === 'road').length
+        let coins = 0
+        const newRoads: { plotId: string, tileX: number, tileY: number, wx: number, wy: number }[] = []
+        for (const r of roads) {
+            const { wx, wy } = world(r.plotId, r.tileX, r.tileY)
+            const why = townPlacementIssue(layout, roadDef, wx, wy, 0)
+            if (why) throw createError({ statusCode: 400, statusMessage: why })
+            coins += townPlaceCost(roadDef, roadCount).coins
+            roadCount++
+            layout.push({ id: `new:${wx},${wy}`, type: 'road', level: 1, completesAt: 0, upgradingTo: null, createdAt: 0, wx, wy, rotation: 0 })
+            newRoads.push({ ...r, wx, wy })
+        }
+
+        // Park, clear, then set: see moveBuildings for why the shuffle is legal.
+        let park = -1
+        for (const m of moves) {
+            await tx.update(townBuildings)
+                .set({ tileX: park, tileY: park })
+                .where(and(eq(townBuildings.id, m.buildingId), eq(townBuildings.userId, userId)))
+            park--
+        }
+        if (removed.length) {
+            await tx.delete(townBuildings).where(and(inArray(townBuildings.id, removed), eq(townBuildings.userId, userId)))
+        }
+        for (const m of moves) {
+            const [moved] = await tx.update(townBuildings)
+                .set({ plotId: m.plotId, tileX: m.tileX, tileY: m.tileY, rotation: m.rotation })
+                .where(and(eq(townBuildings.id, m.buildingId), eq(townBuildings.userId, userId)))
+                .returning({ id: townBuildings.id })
+            if (!moved) throw createError({ statusCode: 400, statusMessage: 'That tile is already taken' })
+        }
+        const built: string[] = []
+        for (const r of newRoads) {
+            const [row] = await tx.insert(townBuildings)
+                .values({ userId, plotId: r.plotId, type: 'road', tileX: r.tileX, tileY: r.tileY, rotation: 0, level: 1, completesAt: new Date(now) })
+                .onConflictDoNothing()
+                .returning({ id: townBuildings.id })
+            if (!row) throw createError({ statusCode: 400, statusMessage: 'That tile is already taken' })
+            built.push(row.id)
+        }
+        // debit throws when the purse is short, and the transaction rolls back.
+        if (coins > 0) await debit(userId, coins.toFixed(4), CATEGORY, tx)
+
+        const touched = new Set([...moves.map(m => m.plotId), ...roads.map(r => r.plotId)])
+        if (touched.size) await tx.update(townPlots).set({ listPrice: null }).where(inArray(townPlots.id, [...touched]))
+        return { moved: moves.map(m => m.buildingId), removed, built, coins }
+    })
+}
+
 export async function moveBuilding(userId: string, buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number) {
     await moveBuildings(userId, [{ buildingId, plotId, tileX, tileY, rotation }])
     return { buildingId, plotId, tileX, tileY, rotation }

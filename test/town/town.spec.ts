@@ -16,6 +16,7 @@ import {
     moveBuilding,
     placeBuilding,
     placeTownOrder,
+    redesignTown,
     rushBuilding,
     sellBulkToFloor,
     sellToFloor,
@@ -684,6 +685,78 @@ describe.skipIf(SKIP)('polytown (database)', () => {
 
             await expect(moveBuilding(OWNER, farm.id, plotId, 1, 1, 4)).rejects.toThrow(/quarter turns/)
             await expect(moveBuilding(OWNER, farm.id, plotId, TOWN_PLOT_SIZE, 1, 0)).rejects.toThrow(/off the plot/)
+        })
+    })
+
+    describe('redesignTown', () => {
+        it('moves every building, drops the roads left out and lays new ones for coins', async () => {
+            const plotId = await foundFor(OWNER, { balance: '100000.0000' })
+            const roadA = await seedRoad(OWNER, plotId, 0)
+            const roadB = await seedRoad(OWNER, plotId, 1)
+            const house = await seedBuilding(OWNER, plotId, 'house', 0, 2, { tileY: 1, rotation: FACES_EDGE_ROAD })
+            const farm = await seedBuilding(OWNER, plotId, 'farm', 1, 1, { tileY: 1, rotation: FACES_EDGE_ROAD, completesAt: new Date(Date.now() + HOUR) })
+
+            const res = await redesignTown(OWNER, {
+                moves: [
+                    { buildingId: roadA.id, plotId, tileX: 4, tileY: 4, rotation: 0 },
+                    { buildingId: house.id, plotId, tileX: 4, tileY: 5, rotation: 0 },
+                    // The farm takes the house's old tile: the shuffle is legal.
+                    { buildingId: farm.id, plotId, tileX: 0, tileY: 1, rotation: 1 }
+                ],
+                roads: [{ plotId, tileX: 5, tileY: 4 }, { plotId, tileX: 6, tileY: 4 }]
+            })
+
+            expect(res.moved).toEqual([roadA.id, house.id, farm.id])
+            expect(res.removed).toEqual([roadB.id])
+            expect(res.built).toHaveLength(2)
+            const rows = await buildingsOf(OWNER)
+            expect(rows).toHaveLength(5)
+            expect(rows.find(r => r.id === house.id)).toMatchObject({ tileX: 4, tileY: 5, level: 2 })
+            expect(rows.find(r => r.id === farm.id)).toMatchObject({ tileX: 0, tileY: 1, rotation: 1, level: 1 })
+            expect(rows.find(r => r.id === farm.id)!.completesAt.getTime()).toBe(farm.completesAt.getTime())
+            expect(rows.find(r => r.id === roadB.id)).toBeUndefined()
+            // Two new roads, priced as the second and third road standing after the save.
+            const road = getTownBuilding('road')!
+            const coins = townPlaceCost(road, 1).coins + townPlaceCost(road, 2).coins
+            expect(res.coins).toBe(coins)
+            expect(await getBalance(OWNER)).toBe((100000 - coins).toFixed(4))
+        })
+
+        it('refuses to save while a building is still in the tray', async () => {
+            const plotId = await foundFor(OWNER, { balance: '100000.0000' })
+            await seedRoad(OWNER, plotId, 0)
+            const house = await seedBuilding(OWNER, plotId, 'house', 0, 1, { tileY: 1, rotation: FACES_EDGE_ROAD })
+            await seedBuilding(OWNER, plotId, 'farm', 1, 1, { tileY: 1, rotation: FACES_EDGE_ROAD })
+
+            await expect(redesignTown(OWNER, {
+                moves: [{ buildingId: house.id, plotId, tileX: 3, tileY: 3, rotation: 0 }],
+                roads: []
+            })).rejects.toThrow(/has to be placed/)
+
+            // Nothing moved, nothing removed.
+            expect(await buildingsOf(OWNER)).toHaveLength(3)
+            expect((await buildingsOf(OWNER)).find(b => b.id === house.id)).toMatchObject({ tileX: 0, tileY: 1 })
+            expect(await buildingsTyped(OWNER, 'road')).toHaveLength(1)
+        })
+
+        it('refuses a layout that lands two pieces on one tile, or one on water, or a road it cannot pay for', async () => {
+            const plotId = await foundFor(OWNER, { balance: '0.0000' })
+            const house = await seedBuilding(OWNER, plotId, 'house', 0, 1, { tileY: 1 })
+            const farm = await seedBuilding(OWNER, plotId, 'farm', 1, 1, { tileY: 1 })
+            const both = (x: number) => [
+                { buildingId: house.id, plotId, tileX: x, tileY: 2, rotation: 0 },
+                { buildingId: farm.id, plotId, tileX: x, tileY: 2, rotation: 0 }
+            ]
+            await expect(redesignTown(OWNER, { moves: both(2), roads: [] })).rejects.toThrow(/already taken/)
+            await expect(redesignTown(OWNER, {
+                moves: [{ buildingId: house.id, plotId, tileX: 2, tileY: 2, rotation: 0 }, { buildingId: farm.id, plotId, tileX: 3, tileY: 2, rotation: 0 }],
+                roads: [{ plotId, tileX: 2, tileY: 2 }]
+            })).rejects.toThrow(/already taken/)
+            await expect(redesignTown(OWNER, {
+                moves: [{ buildingId: house.id, plotId, tileX: 2, tileY: 2, rotation: 0 }, { buildingId: farm.id, plotId, tileX: 3, tileY: 2, rotation: 0 }],
+                roads: [{ plotId, tileX: 4, tileY: 2 }]
+            })).rejects.toThrow()
+            expect((await buildingsOf(OWNER)).find(b => b.id === house.id)).toMatchObject({ tileX: 0, tileY: 1 })
         })
     })
 
