@@ -41,13 +41,14 @@ const hoveredTile = ref<{ plotId: string, tileX: number, tileY: number, wx: numb
 const selectedBuildingId = ref<string | null>(null)
 /** Everything a marquee has gathered up, or a shift-click has toggled in. */
 const selectedIds = ref<string[]>([])
-/** The left button's tool. The bulldozer paints demolition instead of panning. */
-const tool = ref<'none' | 'bulldoze'>('none')
 /** Tiles the current placement drag covers, sent up by the scene. */
 const dragTiles = ref<SceneTile[]>([])
 /** A whole selection riding on the cursor: offsets from the tile under it. */
 const moveSelection = ref<{ items: SceneMoveGhost[] } | null>(null)
 const marketResource = ref<string | null>(null)
+/** Counts state refreshes, so an open notification list learns a build finished under it. */
+const stateTick = ref(0)
+watch(town.state, () => { stateTick.value++ })
 /** The happiness popover. Hover only. */
 const moodOpen = ref(false)
 /** The income popover. Hover only — there is nothing in it to click. */
@@ -123,7 +124,6 @@ function closeAll() {
     selectedBuildingId.value = null
     selectedIds.value = []
     moveSelection.value = null
-    tool.value = 'none'
 }
 
 // ── Build ──
@@ -480,22 +480,9 @@ function clearSelection() {
     moveSelection.value = null
 }
 
-function toggleBulldoze() {
-    sound.unlock()
-    tool.value = tool.value === 'bulldoze' ? 'none' : 'bulldoze'
-    if (tool.value === 'bulldoze') {
-        ghostType.value = null
-        movingId.value = null
-        moveSelection.value = null
-        buildOpen.value = false
-        selectedBuildingId.value = null
-    }
-    sound.play('click')
-}
-
-/** A bulldozer drag let go, or the Delete key on a selection. */
+/** The Delete key or the toolbar's Demolish on a selection. */
 const confirmBulk = ref<{ ids: string[] } | null>(null)
-function onBulldoze(ids: string[]) {
+function demolishMany(ids: string[]) {
     if (ids.length === 0) return
     sound.unlock()
     confirmBulk.value = { ids }
@@ -548,7 +535,6 @@ function startGroupMove() {
     movingId.value = null
     selectedBuildingId.value = null
     buildOpen.value = false
-    tool.value = 'none'
     sound.play('click')
 }
 
@@ -1146,7 +1132,7 @@ function onKey(e: KeyboardEvent) {
     }
     if ((e.key === 'Delete' || e.key === 'Backspace') && !modal && (selectedIds.value.length || selectedBuilding.value)) {
         e.preventDefault()
-        if (selectedIds.value.length) onBulldoze(selectedIds.value)
+        if (selectedIds.value.length) demolishMany(selectedIds.value)
         else confirmDemolish.value = true
         return
     }
@@ -1158,14 +1144,12 @@ function onKey(e: KeyboardEvent) {
         else if (confirmListing.value) confirmListing.value = null
         else if (confirmSellPlot.value) confirmSellPlot.value = null
         else if (moveSelection.value) moveSelection.value = null
-        else if (tool.value !== 'none') tool.value = 'none'
         else if (ghostType.value) { ghostType.value = null; movingId.value = null }
         else if (selectedIds.value.length) clearSelection()
         else if (welcome.value) welcome.value = null
         else if (helpOpen.value) helpOpen.value = false
         else closeAll()
-    } else if (e.key === 'x' || e.key === 'X') toggleBulldoze()
-    else if ((e.key === 'm' || e.key === 'M') && selectedIds.value.length > 1) startGroupMove()
+    } else if ((e.key === 'm' || e.key === 'M') && selectedIds.value.length > 1) startGroupMove()
     else if ((e.key === 'm' || e.key === 'M') && selectedBuilding.value) startMove()
     else if (e.key === 'b' || e.key === 'B') toggleBuild()
     else if (e.key === 'h' || e.key === 'H') openMarket()
@@ -1253,7 +1237,6 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             :move-ghosts="moveGhosts"
             :move-issue="moveIssue"
             :drag-valid="dragValid"
-            :tool="tool"
             :reduced-motion="motion.reduced.value"
             @hover-tile="onHoverTile"
             @select-tile="onSelectTile"
@@ -1267,7 +1250,6 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             @drag-tiles="onDragTiles"
             @place-line="onPlaceLine"
             @select-many="onSelectMany"
-            @bulldoze="onBulldoze"
         />
 
         <!-- Founding -->
@@ -1461,8 +1443,6 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
             <!-- Top-right controls -->
             <div class="corner">
-                <button class="g-icon" :class="tool === 'bulldoze' ? 'is-armed' : ''" data-tip-below="Bulldozer — drag across buildings to clear them (X)" @click="toggleBulldoze">
-                    <UIcon name="i-lucide-tractor" />
                 </button>
                 <button class="g-icon" data-tip-below="How to play" @click="helpOpen = true">
                     <UIcon name="i-lucide-circle-question-mark" />
@@ -1487,12 +1467,6 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <UIcon name="i-lucide-move" />
                     <b>{{ moveSelection.items.length }} moving</b>
                     <button class="hint-btn" data-tip-below="Turn the whole block a quarter turn" @click="rotateGroup"><kbd>R</kbd>rotate</button>
-                    <kbd>Esc</kbd>
-                </div>
-                <div v-else-if="tool === 'bulldoze'" class="hint is-danger">
-                    <UIcon name="i-lucide-tractor" />
-                    <b>Bulldozer</b>
-                    <span class="hint-note">drag to clear</span>
                     <kbd>Esc</kbd>
                 </div>
                 <div v-else-if="ghostType" class="hint">
@@ -1589,7 +1563,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <button class="g-btn g-btn-sm" :disabled="busy || selectionUpgradable.length === 0" :data-tip="selectionUpgradable.length ? 'As many as your crews and coins allow.' : 'None can upgrade now.'" @click="upgradeSelection">
                         <UIcon name="i-lucide-arrow-up" />Upgrade {{ selectionUpgradable.length }}
                     </button>
-                    <button class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." :disabled="busy" @click="onBulldoze(selectedIds)">
+                    <button class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." :disabled="busy" @click="demolishMany(selectedIds)">
                         <UIcon name="i-lucide-trash-2" />Demolish<kbd>Del</kbd>
                     </button>
                     <button class="g-icon g-icon-sm" data-tip="Clear" aria-label="Clear selection" @click="clearSelection">
@@ -2055,7 +2029,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 </p>
                                 <p class="help-keys">
                                     <kbd>WASD</kbd> move <kbd>Q</kbd><kbd>E</kbd> turn <kbd>R</kbd> rotate <kbd>M</kbd> move <kbd>Del</kbd> demolish
-                                    <kbd>X</kbd> bulldozer <kbd>B</kbd> build <kbd>H</kbd> market <kbd>T</kbd> goals <kbd>L</kbd> mayors
+                                    <kbd>B</kbd> build <kbd>H</kbd> market <kbd>T</kbd> goals <kbd>L</kbd> mayors
                                     <kbd>P</kbd> land <kbd>C</kbd> research <kbd>G</kbd> terrain <kbd>Esc</kbd> back
                                 </p>
                             </div>

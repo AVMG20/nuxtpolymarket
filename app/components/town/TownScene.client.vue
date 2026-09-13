@@ -46,9 +46,6 @@ export interface TileRef { plotId: string, tileX: number, tileY: number }
 export type SceneTile = TileRef & { wx: number, wy: number }
 /** One member of a selection being dragged: its artwork, and where it sits relative to the anchor. */
 export interface SceneMoveGhost { id: string, type: string, level: number, rotation: number, dx: number, dy: number }
-/** Which mouse tool the left button is holding. */
-export type SceneTool = 'none' | 'bulldoze'
-
 const props = withDefaults(defineProps<{
     plots: ScenePlot[]
     buildings: SceneBuilding[]
@@ -85,8 +82,6 @@ const props = withDefaults(defineProps<{
     moveIssue?: string | null
     /** Per-tile verdict on the tiles a drag is painting, in the order they were sent. */
     dragValid?: boolean[]
-    /** The left button's tool: bulldoze paints demolition instead of panning. */
-    tool?: SceneTool
     /**
      * Motion-sickness mode. Orthographic view, camera cuts instead of glides,
      * quarter-turn snaps instead of a free orbit, and no ambient motion (still
@@ -114,8 +109,7 @@ const props = withDefaults(defineProps<{
     selectedIds: () => [],
     moveGhosts: null,
     moveIssue: null,
-    dragValid: () => [],
-    tool: 'none'
+    dragValid: () => []
 })
 
 const emit = defineEmits<{
@@ -137,8 +131,6 @@ const emit = defineEmits<{
     'place-line': [tiles: SceneTile[]]
     /** A marquee let go (or a shift-click): what it covers, and what to do with the selection. */
     'select-many': [ids: string[], mode: 'replace' | 'add' | 'toggle']
-    /** A bulldozer drag let go: everything it painted. */
-    'bulldoze': [ids: string[]]
 }>()
 
 const wrap = ref<HTMLDivElement | null>(null)
@@ -1073,7 +1065,7 @@ function syncSelectionRings() {
 
 // ─── Drag pads ───────────────────────────────────────────────────────────────
 // The tiles a drag is painting, flat on the ground: green where the parent says
-// the build is allowed, red where it is not, and red under a bulldozer drag.
+// the build is allowed, red where it is not.
 
 const padGroup = new THREE.Group()
 fxGroup.add(padGroup)
@@ -1879,12 +1871,12 @@ function tileOccupied(tile: TileRef) {
 /**
  * What the left button is doing for the length of one press. A city builder
  * lives or dies on this: dragging rubber-bands a selection, dragging with a
- * ghost paints a street, the bulldozer wipes a row, and a carried block rides
+ * ghost paints a street, and a carried block rides
  * the cursor until it is let go. The left button never pans — WASD and the
  * middle button do that — so a selection is never one slip away from a scroll.
  * A finger has no keyboard, so touch keeps the one-finger pan.
  */
-type DragMode = 'none' | 'pan' | 'orbit' | 'paint' | 'marquee' | 'bulldoze' | 'carry'
+type DragMode = 'none' | 'pan' | 'orbit' | 'paint' | 'marquee' | 'carry'
 let dragMode: DragMode = 'none'
 let moved = 0
 let last = { x: 0, y: 0 }
@@ -1898,8 +1890,6 @@ let paintStart: SceneTile | null = null
 let paintStartBuilding: string | null = null
 let paintTiles: SceneTile[] = []
 let paintKey = ''
-/** Buildings a bulldozer drag has swept over. */
-const bulldozeIds = new Set<string>()
 /** Screen-space corners of a marquee, and the box drawn for it. */
 let marqueeStart = { x: 0, y: 0 }
 let marqueeEl: HTMLDivElement | null = null
@@ -2058,7 +2048,6 @@ function modeFor(e: PointerEvent, at: { x: number, y: number }): DragMode {
     if (e.button === 2) return 'orbit'
     if (e.button === 1) return 'pan'
     if (e.pointerType === 'touch') return 'pan'
-    if (props.tool === 'bulldoze') return 'bulldoze'
     // A block on the cursor is dropped where the button comes up, however far
     // the pointer wandered on the way: a slip must not throw the selection away.
     if (props.moveGhosts?.length) return 'carry'
@@ -2094,22 +2083,7 @@ function onPointerDown(e: PointerEvent) {
     } else if (dragMode === 'marquee') {
         marqueeStart = p
         marqueeIds.clear()
-    } else if (dragMode === 'bulldoze') {
-        bulldozeIds.clear()
-        const hit = pick(p.x, p.y)
-        if (hit?.kind === 'building') bulldozeIds.add(hit.id)
-        paintBulldozePads()
     }
-}
-
-/** Red pads under everything the bulldozer has swept over. */
-function paintBulldozePads() {
-    const tiles: { wx: number, wy: number }[] = []
-    for (const id of bulldozeIds) {
-        const e = entries.get(id)
-        if (e) tiles.push({ wx: Math.floor(e.group.position.x), wy: Math.floor(e.group.position.z) })
-    }
-    showPads(tiles, () => false)
 }
 
 function onPointerMove(e: PointerEvent) {
@@ -2182,12 +2156,6 @@ function onPointerMove(e: PointerEvent) {
             updateHover(p.x, p.y)
             return
         }
-        if (dragMode === 'bulldoze') {
-            const hit = pick(p.x, p.y)
-            if (hit?.kind === 'building') bulldozeIds.add(hit.id)
-            paintBulldozePads()
-            return
-        }
         return
     }
     updateHover(p.x, p.y)
@@ -2215,13 +2183,6 @@ function onPointerUp(e: PointerEvent) {
             if (hit?.kind === 'building') emit('select-many', [hit.id], 'toggle')
             return
         }
-    }
-    if (mode === 'bulldoze') {
-        const ids = [...bulldozeIds]
-        bulldozeIds.clear()
-        hidePads()
-        if (ids.length) emit('bulldoze', ids)
-        return
     }
     if (mode === 'paint') {
         const tiles = paintTiles
@@ -2261,7 +2222,6 @@ function onPointerCancel(e: PointerEvent) {
     pointers.delete(e.pointerId)
     if (dragMode === 'paint') endPaint()
     if (dragMode === 'marquee') { hideMarquee(); marqueeIds.clear() }
-    if (dragMode === 'bulldoze') { bulldozeIds.clear(); hidePads() }
     dragMode = 'none'
     isPanning.value = false
 }
@@ -2339,24 +2299,6 @@ function updateHover(sx: number, sy: number) {
             setHoverTile(null)
             hideMoveGhosts()
             canvas.value!.style.cursor = 'default'
-        }
-        return
-    }
-
-    if (props.tool === 'bulldoze') {
-        setHoverSlot(null)
-        setHoverTile(null)
-        hoverTile.visible = false
-        hideGhost()
-        if (hit?.kind === 'building') {
-            setHoverBuilding(hit.id)
-            const e = entries.get(hit.id)
-            if (e) showPads([{ wx: Math.floor(e.group.position.x), wy: Math.floor(e.group.position.z) }], () => false)
-            canvas.value!.style.cursor = 'crosshair'
-        } else {
-            setHoverBuilding(null)
-            hidePads()
-            canvas.value!.style.cursor = 'crosshair'
         }
         return
     }
@@ -2748,10 +2690,6 @@ watch(() => props.dragValid, () => {
     if (!paintTiles.length) return
     showPads(paintTiles, i => props.dragValid[i] !== false)
     if (ghost?.visible) tintGhost(props.dragValid[paintTiles.length - 1] !== false)
-})
-watch(() => props.tool, () => {
-    if (props.tool !== 'bulldoze') { bulldozeIds.clear(); hidePads() }
-    setHoverBuilding(null)
 })
 watch(() => props.ghostRadius, rebuildGhostRadius, { deep: true })
 watch(() => props.effectRadii, syncRadii, { deep: true })
