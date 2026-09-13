@@ -346,6 +346,9 @@ export const useTown = () => {
         /** A whole selection moved together, all or nothing. */
         moveBuildings: (moves: { buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number }[]) =>
             call<{ moved: string[] }>('/api/town/building/move-bulk', { moves }),
+        /** The whole town laid out again: every kept building's new tile, plus roads to lay fresh. Roads left out are removed. */
+        redesign: (moves: { buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number }[], roads: { plotId: string, tileX: number, tileY: number }[]) =>
+            call<{ moved: string[], removed: string[], built: string[], coins: number }>('/api/town/redesign', { moves, roads }),
         demolishBuildings: (buildingIds: string[]) =>
             call<{ demolished: string[], types: string[] }>('/api/town/building/demolish-bulk', { buildingIds }),
         upgradeBuildings: (buildingIds: string[]) =>

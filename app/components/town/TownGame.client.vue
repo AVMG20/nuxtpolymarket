@@ -10,7 +10,8 @@ import TownEventsPanel from '~/components/town/TownEventsPanel.vue'
 import TownResearchPanel from '~/components/town/TownResearchPanel.vue'
 import { formatTownDuration } from '~/utils/town-format'
 import { townTerrainCss } from '~/utils/town/terrain'
-import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import type { TownBuildingView } from '~/composables/useTown'
 import type { SceneTile, SceneMoveGhost } from '~/components/town/TownScene.client.vue'
 
 const town = useTown()
@@ -77,25 +78,22 @@ function trackPointer(e: MouseEvent) {
 
 // A site being relocated is drawn as the building it will become — level 0 has
 // no artwork of its own.
-const ghostLevel = computed(() => movingId.value ? Math.max(1, town.buildings.value.find(b => b.id === movingId.value)?.level ?? 1) : 1)
+const ghostLevel = computed(() => {
+    if (trayPick.value && trayPick.value !== 'road') return Math.max(1, trayGroups.value.find(g => g.key === trayPick.value)?.level ?? 1)
+    return movingId.value ? Math.max(1, town.buildings.value.find(b => b.id === movingId.value)?.level ?? 1) : 1
+})
 const selectedBuilding = computed(() => town.buildings.value.find(b => b.id === selectedBuildingId.value) ?? null)
 const selectedEntry = computed(() => selectedBuilding.value ? town.catalogById.value.get(selectedBuilding.value.type) ?? null : null)
-const hoveredBuilding = computed(() => town.buildings.value.find(b => b.id === hoveredBuildingId.value) ?? null)
+const hoveredBuilding = computed(() => sceneBuildings.value.find(b => b.id === hoveredBuildingId.value) ?? null)
 const hoveredEntry = computed(() => hoveredBuilding.value ? town.catalogById.value.get(hoveredBuilding.value.type) ?? null : null)
 
 watch(selectedBuilding, (b) => { if (!b) selectedBuildingId.value = null })
-// A selection outlives a poll, but not a demolition: drop whatever is gone.
-watch(town.buildings, (list) => {
-    if (selectedIds.value.length === 0 && !moveSelection.value) return
-    const alive = new Set(list.map(b => b.id))
-    if (selectedIds.value.some(id => !alive.has(id))) selectedIds.value = selectedIds.value.filter(id => alive.has(id))
-    if (moveSelection.value?.items.some(i => !alive.has(i.id))) moveSelection.value = null
-})
 watch(town.resources, (list) => { sceneRef.value?.setResourceEmoji(Object.fromEntries(list.map(r => [r.id, r.emoji]))) }, { immediate: true })
 
 function openWindow(w: Window) {
     sound.unlock()
     closeHudPopovers()
+    if (redesign.value) return
     if (windowOpen.value === w) { closeAll(); return }
     // The board is its own fetch, so pull it fresh the moment it is opened.
     if (w === 'research') town.refreshResearch()
@@ -108,6 +106,7 @@ function openWindow(w: Window) {
 function toggleBuild() {
     sound.unlock()
     closeHudPopovers()
+    if (redesign.value) return
     if (buildOpen.value) { buildOpen.value = false; ghostType.value = null; sound.play('close'); return }
     windowOpen.value = null
     selectedBuildingId.value = null
@@ -189,6 +188,7 @@ function startMove() {
 
 async function onSelectTile(tile: { plotId: string, tileX: number, tileY: number }) {
     sound.unlock()
+    if (redesign.value) { placeDraft(tile); return }
     if (moveSelection.value) {
         if (busy.value) return
         await commitGroupMove(tile)
@@ -238,6 +238,7 @@ function onHoverTile(tile: { plotId: string, tileX: number, tileY: number, wx: n
 function onSelectBuilding(id: string) {
     sound.unlock()
     closeHudPopovers()
+    if (redesign.value) { selectedIds.value = []; pickUpDraft(id); return }
     sound.play('click')
     ghostType.value = null
     buildOpen.value = false
@@ -249,10 +250,295 @@ function onSelectBuilding(id: string) {
 }
 
 function onDeselect() {
+    if (redesign.value) { dropTrayPick(); return }
     if (moveSelection.value) { moveSelection.value = null; return }
     if (ghostType.value) { ghostType.value = null; movingId.value = null; return }
     if (selectedIds.value.length) { clearSelection(); sound.play('close'); return }
     if (selectedBuildingId.value) { selectedBuildingId.value = null; sound.play('close') }
+}
+
+// ── Redesign ────────────────────────────────────────────────────────────────
+// The whole town goes into a tray and comes back down one piece at a time.
+// Nothing reaches the server until Save: the draft is a map of building id to
+// tile, laid over a snapshot of the town taken when the mode was entered.
+
+interface DraftSpot { plotId: string, tileX: number, tileY: number, rotation: number }
+const redesign = ref<{
+    /** The town as it stood when the tray opened — the pieces to put back. */
+    original: TownBuildingView[]
+    /** Where each piece has been put down, by building id. Absent = still in the tray. */
+    placed: Record<string, DraftSpot>
+    /** Roads laid beyond the ones the town had, paid for on save. */
+    newRoads: Record<string, DraftSpot>
+} | null>(null)
+/** What the tray has handed to the cursor: a group key, or 'road'. */
+const trayPick = ref<string | null>(null)
+const confirmRedesign = ref<{ moves: DraftSpot[], roads: DraftSpot[] } | null>(null)
+const ROAD_DEF = getTownBuilding('road')!
+let newRoadSeq = 0
+
+/** Whether anything has been put down since the tray opened. */
+const draftTouched = computed(() => !!redesign.value && (Object.keys(redesign.value.placed).length > 0 || Object.keys(redesign.value.newRoads).length > 0))
+
+/** The draft as building rows, so the scene and every rule see the layout being drawn. */
+const redesignBuildings = computed<TownBuildingView[]>(() => {
+    const r = redesign.value
+    if (!r) return []
+    const out: TownBuildingView[] = []
+    for (const b of r.original) {
+        const spot = r.placed[b.id]
+        if (spot) out.push({ ...b, ...spot })
+    }
+    for (const [id, spot] of Object.entries(r.newRoads)) {
+        out.push({
+            id, type: 'road', ...spot, level: 1, upgradingTo: null, completesAt: 0, createdAt: 0,
+            staffing: null, connected: true, district: null, jobMs: null, nextUpgradeMs: null, supply: null, throughput: null
+        })
+    }
+    return out
+})
+/** What the scene draws: the draft while redesigning, the town otherwise. */
+const sceneBuildings = computed(() => redesign.value ? redesignBuildings.value : town.buildings.value)
+// A selection outlives a poll, but not a demolition: drop whatever is gone.
+watch(() => sceneBuildings.value, (list) => {
+    if (selectedIds.value.length === 0 && !moveSelection.value) return
+    const alive = new Set(list.map(b => b.id))
+    if (selectedIds.value.some(id => !alive.has(id))) selectedIds.value = selectedIds.value.filter(id => alive.has(id))
+    if (moveSelection.value?.items.some(i => !alive.has(i.id))) moveSelection.value = null
+})
+
+interface TrayGroup { key: string, type: string, name: string, level: number, site: boolean, ids: string[] }
+/** The pieces still in the tray, one card per kind and level. Roads have their own card. */
+const trayGroups = computed<TrayGroup[]>(() => {
+    const r = redesign.value
+    if (!r) return []
+    const groups = new Map<string, TrayGroup>()
+    for (const b of r.original) {
+        if (b.type === 'road' || r.placed[b.id]) continue
+        const shown = b.upgradingTo ?? b.level
+        const key = `${b.type}:${shown}:${b.level === 0 ? 'site' : ''}`
+        let g = groups.get(key)
+        if (!g) groups.set(key, g = { key, type: b.type, name: town.catalogById.value.get(b.type)?.name ?? b.type, level: shown, site: b.level === 0, ids: [] })
+        g.ids.push(b.id)
+    }
+    return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name) || a.level - b.level)
+})
+/** Roads the town already had that are not down yet. */
+const trayRoads = computed(() => redesign.value ? redesign.value.original.filter(b => b.type === 'road' && !redesign.value!.placed[b.id]).map(b => b.id) : [])
+/** Buildings (not roads) still to place — Save waits for zero. */
+const trayLeft = computed(() => trayGroups.value.reduce((n, g) => n + g.ids.length, 0))
+const draftTotal = computed(() => redesign.value ? redesign.value.original.filter(b => b.type !== 'road').length : 0)
+/** What the new roads will cost: the n-th road counts every road still standing. */
+const newRoadCost = computed(() => {
+    const r = redesign.value
+    if (!r) return 0
+    const standing = r.original.filter(b => b.type === 'road' && r.placed[b.id]).length
+    let coins = 0
+    const n = Object.keys(r.newRoads).length
+    for (let i = 0; i < n; i++) coins += townPlaceCost(ROAD_DEF, standing + i).coins
+    return coins
+})
+const newRoadCount = computed(() => redesign.value ? Object.keys(redesign.value.newRoads).length : 0)
+/** Placed buildings whose front door has no road: they go dark, and the confirm says so. */
+const draftDoorless = computed(() => redesign.value ? simBuildings.value.filter(b => !townRoadAccess(simBuildings.value, b)).length : 0)
+const redesignSaveIssue = computed(() => {
+    if (trayLeft.value > 0) return `${trayLeft.value} ${trayLeft.value === 1 ? 'building is' : 'buildings are'} still in the tray`
+    if (newRoadCost.value > balance.value) return 'Not enough coins for the new roads'
+    return null
+})
+
+function startRedesign() {
+    if (!town.initialized.value || busy.value) return
+    sound.unlock()
+    closeAll()
+    redesign.value = { original: town.buildings.value.map(b => ({ ...b })), placed: {}, newRoads: {} }
+    trayPick.value = null
+    sound.play('open')
+}
+
+function cancelRedesign() {
+    redesign.value = null
+    confirmRedesign.value = null
+    clearSelection()
+    dropTrayPick()
+    sound.play('close')
+}
+
+/** Put every piece back in the tray. */
+function pickUpAll() {
+    if (!redesign.value) return
+    redesign.value.placed = {}
+    redesign.value.newRoads = {}
+    clearSelection()
+    dropTrayPick()
+    sound.play('click')
+}
+
+function pickTray(key: string) {
+    if (!redesign.value) return
+    sound.play('click')
+    if (trayPick.value === key) { dropTrayPick(); return }
+    trayPick.value = key
+    ghostType.value = key === 'road' ? 'road' : trayGroups.value.find(g => g.key === key)?.type ?? null
+    ghostRotation.value = 0
+    movingId.value = null
+}
+
+/** A road on the cursor, whether or not one was already there. */
+function holdRoad() {
+    trayPick.value = 'road'
+    ghostType.value = 'road'
+    ghostRotation.value = 0
+    movingId.value = null
+}
+
+function dropTrayPick() {
+    trayPick.value = null
+    ghostType.value = null
+    movingId.value = null
+}
+
+/** Only the ground is judged while redesigning: a tile taken, or water. The road def asks nothing else. */
+function groundIssue(wx: number, wy: number) {
+    return townPlacementIssue(simBuildings.value, ROAD_DEF, wx, wy, 0)
+}
+
+/** Put the piece on the cursor down on this tile, or say why not. */
+function placeDraft(tile: { plotId: string, tileX: number, tileY: number }) {
+    const r = redesign.value
+    if (!r) return
+    if (!ghostType.value || !trayPick.value) {
+        toast.add({ title: 'Pick something from the tray first', color: 'neutral' })
+        return
+    }
+    const plot = plotById.value.get(tile.plotId)
+    if (!plot) return
+    const issue = groundIssue(plot.x * TOWN_PLOT_SIZE + tile.tileX, plot.y * TOWN_PLOT_SIZE + tile.tileY)
+    if (issue) {
+        sound.play('error')
+        toast.add({ title: issue, color: 'warning' })
+        return
+    }
+    putDown(tile)
+    sound.play('place')
+}
+
+/** Consume one piece of the current pick onto a tile that has already been judged. */
+function putDown(tile: { plotId: string, tileX: number, tileY: number }, rotation = ghostRotation.value) {
+    const r = redesign.value
+    if (!r || !trayPick.value) return false
+    const spot: DraftSpot = { plotId: tile.plotId, tileX: tile.tileX, tileY: tile.tileY, rotation }
+    if (trayPick.value === 'road') {
+        const id = trayRoads.value[0]
+        if (id) r.placed[id] = { ...spot, rotation: 0 }
+        else r.newRoads[`new:${++newRoadSeq}`] = { ...spot, rotation: 0 }
+        return true
+    }
+    const group = trayGroups.value.find(g => g.key === trayPick.value)
+    const id = group?.ids[0]
+    if (!id) { dropTrayPick(); return false }
+    r.placed[id] = spot
+    // The last of its kind went down: the cursor is empty again.
+    if (group!.ids.length === 1) dropTrayPick()
+    return true
+}
+
+/** A drag while redesigning: each tile judged against the ones before it, like a fresh road run. */
+function planDraftTiles(tiles: SceneTile[]) {
+    const type = ghostType.value
+    const def = type ? getTownBuilding(type) : null
+    if (!def || !trayPick.value || tiles.length === 0) return []
+    const layout = [...simBuildings.value]
+    let left = trayPick.value === 'road' ? Infinity : (trayGroups.value.find(g => g.key === trayPick.value)?.ids.length ?? 0)
+    const out: { tile: SceneTile, rotation: number, ok: boolean, coins: number }[] = []
+    for (const tile of tiles) {
+        let rotation = ghostRotation.value
+        if (def.kind !== 'road' && townPlacementIssue(layout, def, tile.wx, tile.wy, rotation) !== null) {
+            const auto = townAutoFacing(layout, tile.wx, tile.wy)
+            if (auto !== null) rotation = auto
+        }
+        const ok = left > 0 && townPlacementIssue(layout, ROAD_DEF, tile.wx, tile.wy, 0) === null
+        out.push({ tile, rotation, ok, coins: 0 })
+        if (ok) {
+            left--
+            layout.push({ id: `drag:${tile.wx},${tile.wy}`, type: def.id as TownSimBuilding['type'], level: 1, completesAt: 0, upgradingTo: null, createdAt: 0, wx: tile.wx, wy: tile.wy, rotation })
+        }
+    }
+    return out
+}
+
+function placeDraftLine(tiles: SceneTile[]) {
+    const plan = planDraftTiles(tiles).filter(p => p.ok)
+    dragTiles.value = []
+    if (plan.length === 0) {
+        sound.play('error')
+        toast.add({ title: 'Nothing could go there', color: 'warning' })
+        return
+    }
+    let n = 0
+    for (const p of plan) if (putDown(p.tile, p.rotation)) n++
+    if (n) sound.play('place')
+}
+
+/** Click a piece that is down: it goes back on the cursor, ready to be put somewhere else. */
+function pickUpDraft(id: string) {
+    const r = redesign.value
+    if (!r) return
+    sound.play('click')
+    if (id.startsWith('new:')) {
+        const { [id]: _road, ...rest } = r.newRoads
+        r.newRoads = rest
+        holdRoad()
+        return
+    }
+    const b = r.original.find(x => x.id === id)
+    const spot = r.placed[id]
+    if (!b || !spot) return
+    const { [id]: _spot, ...rest } = r.placed
+    r.placed = rest
+    if (b.type === 'road') { holdRoad(); return }
+    const shown = b.upgradingTo ?? b.level
+    const key = `${b.type}:${shown}:${b.level === 0 ? 'site' : ''}`
+    trayPick.value = key
+    ghostType.value = b.type
+    ghostRotation.value = spot.rotation
+    movingId.value = null
+}
+
+/** Every selected piece goes back in the tray. */
+function liftSelection() {
+    const r = redesign.value
+    if (!r || selectedIds.value.length === 0) return
+    const ids = new Set(selectedIds.value)
+    r.placed = Object.fromEntries(Object.entries(r.placed).filter(([id]) => !ids.has(id)))
+    r.newRoads = Object.fromEntries(Object.entries(r.newRoads).filter(([id]) => !ids.has(id)))
+    selectedIds.value = []
+    moveSelection.value = null
+    sound.play('click')
+}
+
+function askSaveRedesign() {
+    const r = redesign.value
+    if (!r || redesignSaveIssue.value) return
+    sound.play('open')
+    confirmRedesign.value = { moves: Object.values(r.placed), roads: Object.values(r.newRoads) }
+}
+
+function saveRedesign() {
+    const r = redesign.value
+    if (!r) return
+    const moves = Object.entries(r.placed).map(([buildingId, s]) => ({ buildingId, ...s }))
+    const roads = Object.values(r.newRoads).map(s => ({ plotId: s.plotId, tileX: s.tileX, tileY: s.tileY }))
+    confirmRedesign.value = null
+    run(() => town.redesign(moves, roads), (res) => {
+        const bits = [`${res.moved.length} placed`]
+        if (res.built.length) bits.push(`${res.built.length} new ${res.built.length === 1 ? 'road' : 'roads'}`)
+        if (res.removed.length) bits.push(`${res.removed.length} ${res.removed.length === 1 ? 'road' : 'roads'} removed`)
+        toast.add({ title: 'Layout saved', description: bits.join(' · '), color: 'success' })
+        redesign.value = null
+        clearSelection()
+        dropTrayPick()
+    }, 'place')
 }
 
 // ── Actions ──
@@ -312,7 +598,7 @@ const selDistrictFix = computed(() => {
 /** The next rung that will start demanding a good from further up the chain. */
 
 const plotById = computed(() => new Map(town.plots.value.map(p => [p.id, p])))
-const simBuildings = computed<TownSimBuilding[]>(() => town.buildings.value.map((b) => {
+const simBuildings = computed<TownSimBuilding[]>(() => sceneBuildings.value.map((b) => {
     const plot = plotById.value.get(b.plotId)
     return {
         id: b.id,
@@ -341,6 +627,7 @@ const ghostIssue = computed<string | null>(() => {
     const def = getTownBuilding(ghostType.value)
     if (!def) return null
     // A relocation only asks about the ground; a fresh build also wants a door.
+    if (redesign.value) return groundIssue(tile.wx, tile.wy)
     if (movingId.value) return townGroupMoveIssue(simBuildings.value, [{ id: movingId.value, wx: tile.wx, wy: tile.wy, rotation: ghostRotation.value }])
     return townPlacementIssue(simBuildings.value, def, tile.wx, tile.wy, ghostRotation.value)
 })
@@ -392,7 +679,7 @@ function planTiles(tiles: SceneTile[]) {
     return out
 }
 
-const dragPlan = computed(() => planTiles(dragTiles.value))
+const dragPlan = computed(() => redesign.value ? planDraftTiles(dragTiles.value) : planTiles(dragTiles.value))
 const dragValid = computed(() => dragPlan.value.map(p => p.ok))
 /** What the drag under the cursor would cost, for the strip along the top. */
 const dragQuote = computed(() => {
@@ -412,6 +699,7 @@ function onDragTiles(tiles: SceneTile[]) {
  */
 function onPlaceLine(tiles: SceneTile[]) {
     if (!ghostType.value || busy.value) return
+    if (redesign.value) { placeDraftLine(tiles); return }
     // A relocation is one building by definition — the drag only ever adds.
     if (movingId.value) { dragTiles.value = []; return }
     const plan = planTiles(tiles).filter(p => p.ok)
@@ -430,7 +718,7 @@ function onPlaceLine(tiles: SceneTile[]) {
 
 // ── Selection ───────────────────────────────────────────────────────────────
 
-const selectedBuildings = computed(() => town.buildings.value.filter(b => selectedIds.value.includes(b.id)))
+const selectedBuildings = computed(() => sceneBuildings.value.filter(b => selectedIds.value.includes(b.id)))
 /** The selection's upgradeable members, and what starting them all would cost. */
 const selectionUpgradable = computed(() => selectedBuildings.value.filter((b) => {
     const entry = town.catalogById.value.get(b.type)
@@ -442,6 +730,15 @@ const selectionUpgradable = computed(() => selectedBuildings.value.filter((b) =>
 
 function onSelectMany(ids: string[], mode: 'replace' | 'add' | 'toggle') {
     sound.unlock()
+    // While the town is in the tray a band gathers placed pieces to move or
+    // lift as a block; a single piece is still lifted by clicking it.
+    if (redesign.value) {
+        moveSelection.value = null
+        selectedIds.value = mode === 'replace' ? ids : [...new Set([...selectedIds.value, ...ids])]
+        selectedBuildingId.value = null
+        if (selectedIds.value.length) { dropTrayPick(); sound.play('click') }
+        return
+    }
     // A plain click leaves its building in selectedBuildingId only; a shift-click
     // on top of it should grow from there, not start over.
     const base = selectedIds.value.length ? selectedIds.value : selectedBuildingId.value ? [selectedBuildingId.value] : []
@@ -534,6 +831,7 @@ function startGroupMove() {
     }
     ghostType.value = null
     movingId.value = null
+    trayPick.value = null
     selectedBuildingId.value = null
     buildOpen.value = false
     sound.play('click')
@@ -588,6 +886,18 @@ async function commitGroupMove(tile: { plotId: string, tileX: number, tileY: num
         const plot = plotAt(t.wx, t.wy)!
         return { buildingId: t.id, plotId: plot.id, tileX: t.wx - plot.x * TOWN_PLOT_SIZE, tileY: t.wy - plot.y * TOWN_PLOT_SIZE, rotation: t.rotation }
     })
+    if (redesign.value) {
+        const r = redesign.value
+        for (const m of moves) {
+            const spot: DraftSpot = { plotId: m.plotId, tileX: m.tileX, tileY: m.tileY, rotation: m.rotation }
+            if (m.buildingId.startsWith('new:')) r.newRoads[m.buildingId] = spot
+            else r.placed[m.buildingId] = spot
+        }
+        moveSelection.value = null
+        selectedIds.value = []
+        sound.play('place')
+        return
+    }
     await run(() => town.moveBuildings(moves), () => {
         toast.add({ title: `Moved ${moves.length} ${moves.length === 1 ? 'building' : 'buildings'}`, color: 'success' })
         moveSelection.value = null
@@ -1124,7 +1434,7 @@ const terrainLegend = computed(() => TOWN_TERRAINS.map(t => ({
 
 function onKey(e: KeyboardEvent) {
     if (townIsTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
-    const modal = welcome.value || helpOpen.value || confirmDemolish.value || confirmBulk.value
+    const modal = welcome.value || helpOpen.value || confirmDemolish.value || confirmBulk.value || confirmRedesign.value
     if (e.code === 'KeyR' && !modal && (ghostType.value || moveSelection.value)) {
         e.preventDefault()
         if (moveSelection.value) rotateGroup()
@@ -1135,6 +1445,21 @@ function onKey(e: KeyboardEvent) {
         e.preventDefault()
         if (selectedIds.value.length) demolishMany(selectedIds.value)
         else confirmDemolish.value = true
+        return
+    }
+    if (redesign.value) {
+        // The tray owns the keyboard: Esc drops what is on the cursor, and only
+        // leaves the mode while nothing has been put down yet — after that the
+        // Cancel button is the way out, so a stray Esc cannot throw away a layout.
+        if (e.key === 'Escape') {
+            if (confirmRedesign.value) confirmRedesign.value = null
+            else if (moveSelection.value) moveSelection.value = null
+            else if (selectedIds.value.length) clearSelection()
+            else if (ghostType.value) dropTrayPick()
+            else if (!draftTouched.value) cancelRedesign()
+        } else if ((e.key === 'm' || e.key === 'M') && selectedIds.value.length && !confirmRedesign.value) startGroupMove()
+        else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.value.length && !confirmRedesign.value) { e.preventDefault(); liftSelection() }
+        else if (e.key === 'g' || e.key === 'G') toggleTerrain()
         return
     }
     if (e.key === 'Escape') {
@@ -1176,8 +1501,9 @@ const effectRadii = computed(() => {
     }
     const ghostDef = ghostType.value ? town.catalogById.value.get(ghostType.value) : null
     if (ghostDef && ghostDef.kind === 'housing') {
-        // Placing a house: show every park and industry that would affect it.
-        for (const b of town.buildings.value) {
+        // Placing a house: show every park and industry that would affect it —
+        // the ones standing in the draft while redesigning, not the ones lifted.
+        for (const b of sceneBuildings.value) {
             if (b.level === 0) continue
             const def = town.catalogById.value.get(b.type)
             if (def?.kind === 'civic') push(b, town.constants.value.parkRadius, 'good')
@@ -1215,13 +1541,13 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             ref="sceneRef"
             class="absolute inset-0"
             :plots="town.plots.value"
-            :buildings="town.buildings.value"
+            :buildings="sceneBuildings"
             :expansions="town.state.value?.expansions ?? []"
             :selected-building-id="selectedBuildingId"
             :ghost-type="ghostType"
             :ghost-rotation="ghostRotation"
             :ghost-level="ghostLevel"
-            :keyboard-enabled="!windowOpen && !welcome && !helpOpen && !confirmDemolish && !confirmBulk && !confirmPlot && !confirmListing && !confirmSellPlot && !buildersOpen && !blocked"
+            :keyboard-enabled="!windowOpen && !welcome && !helpOpen && !confirmDemolish && !confirmBulk && !confirmPlot && !confirmListing && !confirmSellPlot && !buildersOpen && !blocked && !confirmRedesign"
             :server-offset-ms="town.serverOffsetMs.value"
             :pop-cap="popCap"
             :speed-multiplier="speed"
@@ -1444,6 +1770,9 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
             <!-- Top-right controls -->
             <div class="corner">
+                <button v-if="town.initialized.value" class="g-icon" :class="redesign ? 'is-on' : ''" data-tip-below="Redesign — pick the whole town up and lay it out again" @click="redesign ? cancelRedesign() : startRedesign()">
+                    <UIcon name="i-lucide-pencil-ruler" />
+                </button>
                 <button class="g-icon" :class="windowOpen === 'events' ? 'is-on' : ''" data-tip-below="What happened — finished builds, research, filled offers" @click="openWindow('events')">
                     <UIcon name="i-lucide-bell" />
                 </button>
@@ -1470,6 +1799,14 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <UIcon name="i-lucide-move" />
                     <b>{{ moveSelection.items.length }} moving</b>
                     <button class="hint-btn" data-tip-below="Turn the whole block a quarter turn" @click="rotateGroup"><kbd>R</kbd>rotate</button>
+                    <kbd>Esc</kbd>
+                </div>
+                <div v-else-if="redesign && ghostType" class="hint">
+                    <TownAsset v-if="ghostType !== 'road'" :id="ghostType" kind="building" :level="ghostLevel" />
+                    <UIcon v-else name="i-lucide-route" />
+                    <b>{{ town.catalogById.value.get(ghostType)?.name }}</b>
+                    <span class="hint-note">{{ ghostType === 'road' ? 'click or drag to lay' : 'click to put down · drag for a row' }}</span>
+                    <button v-if="ghostType !== 'road'" class="hint-btn" data-tip-below="The white arrow is the front door" @click="rotatePlacement"><kbd>R</kbd>rotate</button>
                     <kbd>Esc</kbd>
                 </div>
                 <div v-else-if="ghostType" class="hint">
@@ -1543,7 +1880,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <span v-if="hoveredBuilding.level > 0" class="g-sub">Lv {{ hoveredBuilding.level }}</span>
                 </b>
                 <div class="tip-sub">
-                    <template v-if="hoveredBuilding.connected === false && hoveredEntry.kind !== 'road'">
+                    <template v-if="redesign">click to lift it again</template>
+                    <template v-else-if="hoveredBuilding.connected === false && hoveredEntry.kind !== 'road'">
                         <span class="tip-bad"><UIcon name="i-lucide-triangle-alert" />No road at the front door</span>
                     </template>
                     <template v-else-if="hoveredBuilding.completesAt > now">{{ hoveredBuilding.level === 0 ? 'Building' : 'Upgrading' }} · {{ formatTownDuration(hoveredBuilding.completesAt - now) }}</template>
@@ -1558,15 +1896,18 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
             <!-- Selection toolbar: what a marquee gathered, and what can be done to it -->
             <Transition name="rise">
-                <div v-if="selectedIds.length > 1 && !moveSelection" class="seltoolbar">
+                <div v-if="(selectedIds.length > 1 || (redesign && selectedIds.length)) && !moveSelection" class="seltoolbar">
                     <b class="seltoolbar-count">{{ selectedIds.length }} selected</b>
                     <button class="g-btn g-btn-sm" data-tip="Move the whole block. Sites travel too." :disabled="busy" @click="startGroupMove">
                         <UIcon name="i-lucide-move" />Move<kbd>M</kbd>
                     </button>
-                    <button class="g-btn g-btn-sm" :disabled="busy || selectionUpgradable.length === 0" :data-tip="selectionUpgradable.length ? 'As many as your crews and coins allow.' : 'None can upgrade now.'" @click="upgradeSelection">
+                    <button v-if="redesign" class="g-btn g-btn-sm" data-tip="Back into the tray." @click="liftSelection">
+                        <UIcon name="i-lucide-undo-2" />Lift<kbd>Del</kbd>
+                    </button>
+                    <button v-if="!redesign" class="g-btn g-btn-sm" :disabled="busy || selectionUpgradable.length === 0" :data-tip="selectionUpgradable.length ? 'As many as your crews and coins allow.' : 'None can upgrade now.'" @click="upgradeSelection">
                         <UIcon name="i-lucide-arrow-up" />Upgrade {{ selectionUpgradable.length }}
                     </button>
-                    <button class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." :disabled="busy" @click="demolishMany(selectedIds)">
+                    <button v-if="!redesign" class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." :disabled="busy" @click="demolishMany(selectedIds)">
                         <UIcon name="i-lucide-trash-2" />Demolish<kbd>Del</kbd>
                     </button>
                     <button class="g-icon g-icon-sm" data-tip="Clear" aria-label="Clear selection" @click="clearSelection">
@@ -1828,8 +2169,44 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 </div>
             </Transition>
 
+            <!-- Redesign tray: the town, waiting to be put back down -->
+            <Transition name="rise">
+                <div v-if="redesign" class="tray g-panel">
+                    <div class="tray-head">
+                        <span class="g-label"><UIcon name="i-lucide-pencil-ruler" />Redesign</span>
+                        <span class="tray-progress" :class="trayLeft === 0 ? 'is-done' : ''">{{ draftTotal - trayLeft }}/{{ draftTotal }} placed</span>
+                        <span v-if="newRoadCount" class="tray-progress"><TownCoin />{{ formatNumber(newRoadCost) }} for {{ newRoadCount }} new {{ newRoadCount === 1 ? 'road' : 'roads' }}</span>
+                        <span class="flex-1" />
+                        <button class="g-btn g-btn-sm g-btn-ghost" :disabled="!draftTouched" data-tip="Everything back in the tray" @click="pickUpAll">
+                            <UIcon name="i-lucide-undo-2" />Pick up all
+                        </button>
+                        <button class="g-btn g-btn-sm" data-tip="Leave everything as it was. Nothing is saved." @click="cancelRedesign">
+                            <UIcon name="i-lucide-x" />Cancel
+                        </button>
+                        <button class="g-btn g-btn-sm g-btn-primary" :disabled="busy || !!redesignSaveIssue" :data-tip="redesignSaveIssue ?? 'Nothing changes until you confirm'" @click="askSaveRedesign">
+                            <UIcon name="i-lucide-check" />Save layout
+                        </button>
+                    </div>
+                    <div class="tray-items">
+                        <button class="tray-item" :class="trayPick === 'road' ? 'is-active' : ''" @click="pickTray('road')">
+                            <span class="tray-art"><UIcon name="i-lucide-route" /></span>
+                            <b>Road</b>
+                            <span v-if="trayRoads.length" class="tray-count">×{{ trayRoads.length }}</span>
+                            <span v-else class="tray-sub"><TownCoin />{{ formatNumber(townPlaceCost(ROAD_DEF, redesignBuildings.filter(b => b.type === 'road').length).coins) }} each</span>
+                        </button>
+                        <button v-for="g in trayGroups" :key="g.key" class="tray-item" :class="trayPick === g.key ? 'is-active' : ''" @click="pickTray(g.key)">
+                            <span class="tray-art"><TownAsset :id="g.type" kind="building" :level="Math.max(1, g.level)" /></span>
+                            <b>{{ g.name }}</b>
+                            <span class="tray-sub">{{ g.site ? 'site' : `L${g.level}` }}</span>
+                            <span class="tray-count">×{{ g.ids.length }}</span>
+                        </button>
+                        <p v-if="trayGroups.length === 0" class="tray-empty">Every building is down. Add roads, or save.</p>
+                    </div>
+                </div>
+            </Transition>
+
             <!-- Dock -->
-            <div class="dock g-panel">
+            <div v-if="!redesign" class="dock g-panel">
                 <button class="dock-btn" :class="buildOpen ? 'is-active' : ''" @click="toggleBuild">
                     <UIcon name="i-lucide-hammer" class="dock-ico" /><span>Build</span><kbd>B</kbd>
                 </button>
@@ -2148,6 +2525,38 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <div class="g-actions">
                                 <button class="g-btn g-btn-ghost" @click="buildersOpen = false">Cancel</button>
                                 <button class="g-btn g-btn-gem" :disabled="busy || gems < (town.builders.value.nextGemCost ?? 0)" @click="hireBuilder">Hire</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Transition>
+
+            <!-- Redesign save confirm -->
+            <Transition name="fade">
+                <div v-if="confirmRedesign" class="backdrop" @click.self="confirmRedesign = null">
+                    <div class="g-window is-small">
+                        <div class="g-window-head"><h2><UIcon name="i-lucide-pencil-ruler" />Save this layout?</h2></div>
+                        <div class="g-window-body space-y-3">
+                            <p class="g-copy">
+                                Every building moves to where you put it — all {{ confirmRedesign.moves.length }} at once. Builds and upgrades in
+                                progress keep their clocks. Moving is free.
+                            </p>
+                            <p v-if="trayRoads.length" class="card-note is-warn">
+                                <UIcon name="i-lucide-triangle-alert" />
+                                {{ trayRoads.length }} {{ trayRoads.length === 1 ? 'road is' : 'roads are' }} still in the tray and will be removed. Roads are cheap to lay again, but not free.
+                            </p>
+                            <p v-if="confirmRedesign.roads.length" class="g-copy">
+                                {{ confirmRedesign.roads.length }} new {{ confirmRedesign.roads.length === 1 ? 'road' : 'roads' }} for <TownCoin /> {{ formatNumber(newRoadCost) }}.
+                            </p>
+                            <p v-if="draftDoorless" class="card-note is-warn">
+                                <UIcon name="i-lucide-door-closed" />
+                                {{ draftDoorless }} {{ draftDoorless === 1 ? 'building has' : 'buildings have' }} no road at the front door and will stop working until one reaches {{ draftDoorless === 1 ? 'it' : 'them' }}.
+                            </p>
+                            <div class="g-actions">
+                                <button class="g-btn g-btn-ghost" @click="confirmRedesign = null">Keep editing</button>
+                                <button class="g-btn g-btn-primary" :disabled="busy" @click="saveRedesign">
+                                    <UIcon name="i-lucide-check" />Save layout
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -3063,6 +3472,44 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .legend-row.is-boosting { background: var(--g-fill-2); border-color: var(--g-line-2); }
 
 /* ── Dock ───────────────────────────────────────────────────────────────── */
+/* ── Redesign tray ──────────────────────────────────────────────────────── */
+.tray {
+    position: absolute;
+    left: 50%;
+    bottom: 16px;
+    transform: translateX(-50%);
+    z-index: 25;
+    width: min(1040px, calc(100% - 28px));
+    display: flex;
+    flex-direction: column;
+    border-radius: 18px;
+}
+.tray-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; border-bottom: 1px solid var(--g-line); }
+.tray-progress { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--g-muted); font-variant-numeric: tabular-nums; }
+.tray-progress.is-done { color: var(--g-green); }
+.tray-items { display: flex; align-items: stretch; gap: 6px; padding: 10px 12px 12px; overflow-x: auto; scrollbar-width: thin; }
+.tray-item {
+    position: relative;
+    flex: 0 0 auto;
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    min-width: 84px;
+    padding: 10px 10px 8px;
+    border-radius: var(--g-radius-sm);
+    background: var(--g-fill);
+    border: 1px solid var(--g-line);
+    color: var(--g-text);
+    font-size: 11.5px; font-weight: 600;
+    cursor: pointer;
+}
+.tray-item:hover { background: var(--g-fill-2); }
+.tray-item.is-active { border-color: var(--g-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-accent) 30%, transparent); }
+.tray-art { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; font-size: 24px; }
+.tray-art .iconify { width: 22px; height: 22px; color: var(--g-muted); }
+.tray-sub { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 500; color: var(--g-muted); font-variant-numeric: tabular-nums; }
+.tray-count { position: absolute; right: 6px; top: 6px; padding: 1px 6px; border-radius: 999px; background: var(--g-fill-2); font-size: 10px; font-weight: 700; color: var(--g-text-2); font-variant-numeric: tabular-nums; }
+.tray-empty { align-self: center; padding: 6px 4px; font-size: 12px; color: var(--g-muted); }
+.card-note.is-warn { color: var(--g-warn); font-size: 12.5px; }
+
 .dock {
     position: absolute;
     left: 50%;
