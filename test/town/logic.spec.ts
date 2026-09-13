@@ -11,6 +11,7 @@ import {
     TOWN_INDUSTRY_PENALTY_SCALE,
     TOWN_LEVEL_COST_GROWTH,
     TOWN_LEVEL_RESOURCE_GROWTH,
+    TOWN_SELF_SUPPLY_LEVEL,
     TOWN_UPGRADE_BANDS,
     townUpgradeBandAmount,
     townWorkersFor,
@@ -329,6 +330,7 @@ function expectedCost(def: TownBuildingDef, level: number) {
     const expected: Record<string, number> = { ...scaleBag(def.cost.resources, factor) }
     if (level >= 2) {
         for (const [id, qty] of Object.entries(scaleBag(def.upgradeResources, factor))) {
+            if (level < TOWN_SELF_SUPPLY_LEVEL && id in def.outputs) continue
             expected[id] = (expected[id] ?? 0) + (qty ?? 0)
         }
         for (const band of TOWN_UPGRADE_BANDS) {
@@ -363,6 +365,20 @@ describe('townLevelCost', () => {
         expect(townLevelCost(house, 2).resources).toEqual(scaleBag(house.upgradeResources, TOWN_LEVEL_RESOURCE_GROWTH))
         // Level 3 is the first plank band, so compare below it.
         expect(townLevelCost(house, 2).resources.planks).toBeUndefined()
+    })
+
+    it('lets a building off its own product until it can make it', () => {
+        const smithy = getTownBuilding('smithy')!
+        expect(smithy.upgradeResources.tools).toBeGreaterThan(0)
+        // Levels two to four never ask for tools: the smithy is what makes them.
+        for (const level of [2, 3, 4]) {
+            expect(townLevelCost(smithy, level).resources.tools).toBeUndefined()
+            expect(townLevelCost(smithy, level).resources.bricks).toBeGreaterThan(0)
+        }
+        expect(townLevelCost(smithy, TOWN_SELF_SUPPLY_LEVEL).resources.tools).toBeGreaterThan(0)
+        // A building that wants somebody else's good pays from level two.
+        const mine = getTownBuilding('mine')!
+        expect(townLevelCost(mine, 2).resources.tools).toBeGreaterThan(0)
     })
 
     it('stacks the upgrade resources on top of the scaled build cost', () => {
@@ -592,15 +608,23 @@ describe('needs', () => {
 
     it('rounds the per-tick demand up, and never below one unit', () => {
         for (const need of TOWN_NEEDS) {
-            const pop = Math.max(need.minPop, need.perPop * 3 + 1)
-            expect(townNeedsPerTick(pop)[need.resource]).toBe(Math.ceil(pop / need.perPop))
+            const pop = need.minPop + need.perPop * 3 + 1
+            // Only the residents past the threshold count.
+            expect(townNeedsPerTick(pop)[need.resource]).toBe(Math.ceil((pop - need.minPop) / need.perPop))
             // At the very edge of appearing, a need still costs a whole unit.
-            expect(townNeedsPerTick(need.minPop)[need.resource]).toBe(Math.max(1, Math.ceil(need.minPop / need.perPop)))
+            expect(townNeedsPerTick(need.minPop)[need.resource]).toBe(1)
         }
-        expect(townNeedsPerTick(12).wheat).toBe(1)
-        expect(townNeedsPerTick(13).wheat).toBe(2)
-        expect(townNeedsPerTick(24).wheat).toBe(2)
-        expect(townNeedsPerTick(25).wheat).toBe(3)
+        expect(townNeedsPerTick(13).wheat).toBe(1)
+        expect(townNeedsPerTick(14).wheat).toBe(2)
+        expect(townNeedsPerTick(25).wheat).toBe(2)
+        expect(townNeedsPerTick(26).wheat).toBe(3)
+    })
+
+    it('does not dump a whole town of demand on the tier that unlocks it', () => {
+        const tools = TOWN_NEEDS.find(n => n.resource === 'tools')!
+        // A town of 400 asks for tools on behalf of 360 residents, not 400.
+        expect(townNeedsPerTick(400).tools).toBe(Math.ceil((400 - tools.minPop) / tools.perPop))
+        expect(townNeedsPerTick(400).tools).toBeLessThan(Math.ceil(400 / tools.perPop))
     })
 
     it('pays a bonus per supplied need and starves a town with no food', () => {

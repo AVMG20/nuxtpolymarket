@@ -179,6 +179,8 @@ export const TOWN_UPGRADE_BANDS: readonly { minLevel: number, resource: TownReso
 ]
 /** How much more of a band good a higher-tier building needs per tier. */
 export const TOWN_UPGRADE_BAND_TIER_SCALE = 0.4
+/** The first level at which a building's upgrade may ask for the good it makes itself. */
+export const TOWN_SELF_SUPPLY_LEVEL = 5
 
 /** Building level cap and per-level coin growth. */
 export const TOWN_MAX_BUILDING_LEVEL = 20
@@ -432,13 +434,18 @@ export const TOWN_NEEDS: readonly TownNeedDef[] = [
  * a function of the population: a good the town cannot make yet is still
  * wanted (and eaten if bought), so the resource rail shows the real deficit
  * and nothing jumps when the tier that makes it unlocks.
+ *
+ * Only the residents past a need's threshold count: a town of 400 supplies
+ * tools for 360, not 400. Crossing the line then adds one unit a tick, not a
+ * whole town's worth at once, which is what a fresh level-1 smithy can keep up
+ * with.
  */
 export function townNeedsPerTick(pop: number): Partial<Record<TownResourceId, number>> {
     const out: Partial<Record<TownResourceId, number>> = {}
     if (pop <= 0) return out
     for (const n of TOWN_NEEDS) {
         if (pop < n.minPop) continue
-        out[n.resource] = Math.max(1, Math.ceil(pop / n.perPop))
+        out[n.resource] = Math.max(1, Math.ceil((pop - n.minPop) / n.perPop))
     }
     return out
 }
@@ -739,6 +746,11 @@ export function townNextUpgradeBand(level: number): typeof TOWN_UPGRADE_BANDS[nu
  * rebuild at a bigger size, so it pays the base cost again at the level's
  * multiplier, PLUS the building's own `upgradeResources`, PLUS whatever the
  * level bands demand from further up the production chain.
+ *
+ * A building that asks for its own product (the smithy wants tools) is let off
+ * that part until TOWN_SELF_SUPPLY_LEVEL. Otherwise the first smithy, arriving
+ * just as the town starts eating tools, could never grow out of the deficit
+ * it was built to fix.
  */
 export function townLevelCost(def: TownBuildingDef, level: number): { coins: number, resources: TownResourceBag } {
     const factor = Math.pow(TOWN_LEVEL_COST_GROWTH, level - 1)
@@ -746,6 +758,7 @@ export function townLevelCost(def: TownBuildingDef, level: number): { coins: num
     const resources = scaleBag(def.cost.resources, goodsFactor)
     if (level >= 2) {
         for (const [id, qty] of Object.entries(scaleBag(def.upgradeResources, goodsFactor)) as [TownResourceId, number][]) {
+            if (level < TOWN_SELF_SUPPLY_LEVEL && id in def.outputs) continue
             resources[id] = (resources[id] ?? 0) + qty
         }
         // Roads have no levels, so they never reach a band.
