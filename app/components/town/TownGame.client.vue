@@ -1687,31 +1687,35 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
                             <!-- Upgrade -->
                             <div v-if="selCanUpgrade && selectedEntry.kind !== 'road'" class="upgrade">
-                                <div v-if="previewUpgrade && selUpgradePreview.length" class="upgrade-info">
-                                    <div class="upgrade-head">
-                                        <span class="g-label">Level {{ selectedBuilding.level }} → {{ selNextLevel }}</span>
-                                        <span v-if="selectedEntry.kind === 'industry'" class="g-sub">per {{ selUnit === 'day' ? 'day' : 'hour' }}</span>
+                                <!-- Both faces are always laid out, one over the other, so the card never
+                                     changes height when the hover swaps the cost for the preview. -->
+                                <div class="upgrade-faces">
+                                    <div v-if="selUpgradePreview.length" class="upgrade-info" :class="previewUpgrade ? '' : 'is-hidden'" :aria-hidden="!previewUpgrade">
+                                        <div class="upgrade-head">
+                                            <span class="g-label">Level {{ selectedBuilding.level }} → {{ selNextLevel }}</span>
+                                            <span v-if="selectedEntry.kind === 'industry'" class="g-sub">per {{ selUnit === 'day' ? 'day' : 'hour' }}</span>
+                                        </div>
+                                        <div class="upgrade-cost">
+                                            <span v-for="(r, i) in selUpgradePreview" :key="i" :data-tip="r.tip">
+                                                <TownAsset v-if="r.id" :id="r.id" />
+                                                <UIcon v-else-if="r.ico" :name="r.ico" />
+                                                <s class="preview-from">{{ r.from }}</s>
+                                                <b :class="r.up ? 'preview-up' : 'preview-more'">{{ r.to }}</b>
+                                                <em v-if="!r.id" class="preview-label">{{ r.label }}</em>
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div class="upgrade-cost">
-                                        <span v-for="(r, i) in selUpgradePreview" :key="i" :data-tip="r.tip">
-                                            <TownAsset v-if="r.id" :id="r.id" />
-                                            <UIcon v-else-if="r.ico" :name="r.ico" />
-                                            <s class="preview-from">{{ r.from }}</s>
-                                            <b :class="r.up ? 'preview-up' : 'preview-more'">{{ r.to }}</b>
-                                            <em v-if="!r.id" class="preview-label">{{ r.label }}</em>
-                                        </span>
-                                    </div>
-                                </div>
-                                <div v-else class="upgrade-info">
-                                    <div class="upgrade-head">
-                                        <span class="g-label">Level {{ selNextLevel }}</span>
-                                        <span class="g-sub"><UIcon name="i-lucide-clock" />{{ formatTownDuration(selUpgradeMs) }}</span>
-                                    </div>
-                                    <div class="upgrade-cost">
-                                        <span :class="balance >= selUpgradeCost.coins ? '' : 'bad'"><TownCoin />{{ formatNumber(selUpgradeCost.coins) }}</span>
-                                        <span v-for="[id, q] in Object.entries(selUpgradeCost.resources)" :key="id" :class="(town.inventory.value[id] ?? 0) >= q ? '' : 'bad'">
-                                            <TownAsset :id="id" />{{ formatNumber(q) }}
-                                        </span>
+                                    <div class="upgrade-info" :class="previewUpgrade && selUpgradePreview.length ? 'is-hidden' : ''" :aria-hidden="previewUpgrade && selUpgradePreview.length > 0">
+                                        <div class="upgrade-head">
+                                            <span class="g-label">Level {{ selNextLevel }}</span>
+                                            <span class="g-sub"><UIcon name="i-lucide-clock" />{{ formatTownDuration(selUpgradeMs) }}</span>
+                                        </div>
+                                        <div class="upgrade-cost">
+                                            <span :class="balance >= selUpgradeCost.coins ? '' : 'bad'"><TownCoin />{{ formatNumber(selUpgradeCost.coins) }}</span>
+                                            <span v-for="[id, q] in Object.entries(selUpgradeCost.resources)" :key="id" :class="(town.inventory.value[id] ?? 0) >= q ? '' : 'bad'">
+                                                <TownAsset :id="id" />{{ formatNumber(q) }}
+                                            </span>
+                                        </div>
                                     </div>
                                 </div>
                                 <button
