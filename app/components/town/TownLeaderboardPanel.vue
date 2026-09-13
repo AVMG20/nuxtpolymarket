@@ -26,50 +26,91 @@ const { data, pending, refresh } = useAsyncData<{ rows: Row[], me: Row | null } 
 const rows = computed(() => data.value?.rows ?? [])
 const me = computed(() => data.value?.me ?? null)
 const meListed = computed(() => rows.value.some(r => r.me))
-
-function medal(rank: number) {
-    return rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`
-}
 </script>
 
 <template>
     <div class="flex h-full min-h-0 flex-col">
         <div class="g-window-head">
-            <h2>👑 Mayors</h2>
+            <h2>Mayors</h2>
             <div class="flex gap-2">
-                <button class="g-icon g-icon-sm" :class="pending ? 'animate-spin' : ''" title="Refresh" @click="refresh()">↻</button>
-                <button class="g-icon g-icon-sm" @click="emit('close')">✕</button>
+                <button class="g-icon g-icon-sm" data-tip="Refresh" @click="refresh()">
+                    <UIcon name="i-lucide-refresh-cw" :class="pending ? 'animate-spin' : ''" />
+                </button>
+                <button class="g-icon g-icon-sm" @click="emit('close')"><UIcon name="i-lucide-x" /></button>
             </div>
         </div>
         <div class="g-window-body">
             <div v-if="pending && !data" class="flex justify-center py-8"><span class="g-spinner" /></div>
-            <div v-else-if="rows.length === 0" class="py-8 text-center text-sm opacity-60">No towns founded yet.</div>
+            <div v-else-if="rows.length === 0" class="g-empty">No towns founded yet.</div>
             <div v-else class="space-y-1.5">
-                <div v-for="r in rows" :key="r.userId" class="mayor" :class="r.me ? 'is-me' : ''">
-                    <span class="mayor-rank" :class="r.rank <= 3 ? 'text-xl' : 'text-sm opacity-60'">{{ medal(r.rank) }}</span>
+                <div v-for="r in rows" :key="r.userId" class="g-row mayor" :class="r.me ? 'is-me' : ''">
+                    <span class="mayor-rank">
+                        <UIcon v-if="r.rank === 1" name="i-lucide-crown" class="rank-icon is-first" />
+                        <UIcon v-else-if="r.rank <= 3" name="i-lucide-medal" class="rank-icon" />
+                        <template v-else>#{{ r.rank }}</template>
+                    </span>
                     <div class="size-9 shrink-0"><ProfileEmblem :emblem="r.emblem" :name="r.name" :prestige="r.prestige" /></div>
                     <div class="min-w-0 flex-1">
-                        <div class="flex items-center gap-1.5 truncate text-sm font-extrabold">
+                        <div class="mayor-name">
                             <NuxtLink :to="`/players/${r.userId}`" class="truncate hover:underline">{{ r.name }}</NuxtLink>
                             <PrestigeBadge :level="r.prestige" size="xs" />
                         </div>
-                        <div class="text-[11px] opacity-60">{{ r.plots }} {{ r.plots === 1 ? 'plot' : 'plots' }} · {{ r.buildings }} buildings · tier {{ r.maxTier }} · 👥 {{ r.popCap }}</div>
+                        <div class="mayor-sub">
+                            <span><UIcon name="i-lucide-map" class="sub-icon" /> {{ r.plots }}</span>
+                            <span><UIcon name="i-lucide-building-2" class="sub-icon" /> {{ r.buildings }}</span>
+                            <span><UIcon name="i-lucide-users" class="sub-icon" /> {{ r.popCap }}</span>
+                            <span>tier {{ r.maxTier }}</span>
+                        </div>
                     </div>
-                    <div class="text-right">
-                        <div class="text-sm font-black tabular-nums" style="color: var(--g-green)"><TownCoin /> {{ formatNumber(r.incomePerDay) }}</div>
-                        <div class="text-[10px] opacity-50">per day</div>
+                    <div class="mayor-income">
+                        <TownCoin /> {{ formatNumber(r.incomePerDay) }}<span class="mayor-per">/day</span>
                     </div>
                 </div>
             </div>
         </div>
-        <div v-if="me && !meListed" class="border-t px-4 py-2 text-center text-xs opacity-70" style="border-color: var(--g-line)">
-            You are <b>#{{ me.rank }}</b> at <TownCoin /> {{ formatNumber(me.incomePerDay) }}/day
+        <div v-if="me && !meListed" class="mayor-foot">
+            You are <b>#{{ me.rank }}</b> · <TownCoin /> <b>{{ formatNumber(me.incomePerDay) }}</b>/day
         </div>
     </div>
 </template>
 
 <style scoped>
-.mayor { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid transparent; }
-.mayor.is-me { background: rgba(79, 211, 106, 0.1); border-color: rgba(79, 211, 106, 0.4); }
-.mayor-rank { width: 32px; text-align: center; flex-shrink: 0; }
+.mayor { align-items: center; gap: 12px; background: var(--g-fill); border: 1px solid transparent; }
+.mayor.is-me {
+    background: color-mix(in srgb, var(--g-accent) 12%, transparent);
+    border-color: color-mix(in srgb, var(--g-accent) 45%, transparent);
+}
+.mayor-rank {
+    width: 30px; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+    color: var(--g-muted);
+}
+.rank-icon { width: 17px; height: 17px; color: var(--g-muted); }
+.rank-icon.is-first { color: var(--g-gold); }
+
+.mayor-name { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; min-width: 0; }
+.mayor-sub {
+    margin-top: 1px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px;
+    font-size: 11px; color: var(--g-muted); font-variant-numeric: tabular-nums;
+}
+.mayor-sub > span { display: inline-flex; align-items: center; gap: 3px; }
+.sub-icon { width: 12px; height: 12px; flex-shrink: 0; }
+
+.mayor-income {
+    flex-shrink: 0;
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums;
+    color: var(--g-green);
+}
+.mayor-per { color: var(--g-muted); font-weight: 500; }
+
+.mayor-foot {
+    padding: 8px 16px;
+    border-top: 1px solid var(--g-line);
+    text-align: center;
+    font-size: 11.5px; color: var(--g-text-2);
+    font-variant-numeric: tabular-nums;
+}
 </style>

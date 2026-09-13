@@ -189,18 +189,21 @@ const tooltipStyle = computed(() => {
 .pc-wrap { position: relative; width: 100%; }
 .pc-svg { display: block; width: 100%; height: auto; overflow: visible; }
 .pc-grid { stroke: var(--g-line); stroke-width: 1; }
-.pc-guide { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; stroke-dasharray: 3 3; }
-.pc-line { fill: none; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; }
-.pc-dot { stroke: rgba(0, 0, 0, 0.45); stroke-width: 1.5; }
-.pc-ylab { fill: var(--g-muted); font-size: 10px; font-weight: 700; text-anchor: end; font-variant-numeric: tabular-nums; }
-.pc-xlab { fill: var(--g-muted); font-size: 10px; font-weight: 700; text-anchor: middle; font-variant-numeric: tabular-nums; }
+.pc-guide { stroke: var(--g-line-2); stroke-width: 1; stroke-dasharray: 3 3; }
+.pc-line { fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.pc-dot { stroke: var(--g-bg-2); stroke-width: 1.5; }
+.pc-ylab { fill: var(--g-muted); font-size: 10px; font-weight: 600; text-anchor: end; font-variant-numeric: tabular-nums; }
+.pc-xlab { fill: var(--g-muted); font-size: 10px; font-weight: 600; text-anchor: middle; font-variant-numeric: tabular-nums; }
 .pc-tip {
     position: absolute; top: 6px; z-index: 5; pointer-events: none;
-    min-width: 140px; padding: 7px 9px; border-radius: 10px;
-    background: rgba(12, 12, 14, 0.92); border: 1px solid var(--g-line);
-    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+    min-width: 140px; max-width: 260px; padding: 7px 9px;
+    border-radius: var(--g-radius-sm);
+    background: var(--g-bg-2); border: 1px solid var(--g-line);
+    box-shadow: var(--g-shadow); color: var(--g-text);
+    font-size: 11.5px; font-weight: 500; line-height: 1.45;
 }
-.pc-tip-head { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.55; margin-bottom: 4px; }
-.pc-tip-row { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.5; }
+.pc-tip-head { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--g-muted); margin-bottom: 4px; }
+.pc-tip-row { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.pc-tip-row b { font-weight: 600; }
 .pc-swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 </style>

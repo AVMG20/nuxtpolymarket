@@ -48,6 +48,12 @@ const dragTiles = ref<SceneTile[]>([])
 /** A whole selection riding on the cursor: offsets from the tile under it. */
 const moveSelection = ref<{ items: SceneMoveGhost[] } | null>(null)
 const marketResource = ref<string | null>(null)
+/** The happiness popover. Hover only. */
+const moodOpen = ref(false)
+/** The income popover. Hover only — there is nothing in it to click. */
+const incomeOpen = ref(false)
+/** The builders popover: what a free crew should be put on. */
+const buildersPop = ref(false)
 const busy = ref(false)
 const sceneRef = ref<InstanceType<typeof TownScene> | null>(null)
 const hoveredBuildingId = ref<string | null>(null)
@@ -87,6 +93,7 @@ watch(town.resources, (list) => { sceneRef.value?.setResourceEmoji(Object.fromEn
 
 function openWindow(w: Window) {
     sound.unlock()
+    closeHudPopovers()
     if (windowOpen.value === w) { closeAll(); return }
     // The board is its own fetch, so pull it fresh the moment it is opened.
     if (w === 'research') town.refreshResearch()
@@ -98,6 +105,7 @@ function openWindow(w: Window) {
 
 function toggleBuild() {
     sound.unlock()
+    closeHudPopovers()
     if (buildOpen.value) { buildOpen.value = false; ghostType.value = null; sound.play('close'); return }
     windowOpen.value = null
     selectedBuildingId.value = null
@@ -106,6 +114,7 @@ function toggleBuild() {
 }
 
 function closeAll() {
+    closeHudPopovers()
     if (windowOpen.value || buildOpen.value || selectedBuildingId.value || selectedIds.value.length) sound.play('close')
     windowOpen.value = null
     buildOpen.value = false
@@ -227,6 +236,7 @@ function onHoverTile(tile: { plotId: string, tileX: number, tileY: number, wx: n
 
 function onSelectBuilding(id: string) {
     sound.unlock()
+    closeHudPopovers()
     sound.play('click')
     ghostType.value = null
     buildOpen.value = false
@@ -291,11 +301,11 @@ const selDistrictFix = computed(() => {
     const d = b?.district
     if (!b || !e || !d || b.connected === false || b.completesAt > now.value) return null
     if (e.kind === 'housing') {
-        return d.jobs === 0 ? '👥 Nobody here can reach a job. Join this road to your workshops.' : null
+        return d.jobs === 0 ? 'Nobody here can reach a job. Join this road to your workshops.' : null
     }
     if (e.kind === 'road' || selWorkersWanted.value === 0 || (b.staffing ?? 0) >= 0.99) return null
-    if (d.residents === 0) return '👥 No homes on this road network. Build houses along it, or join it to your town by road.'
-    if (d.residents < d.jobs) return `👥 This road network has ${d.residents} residents for ${d.jobs} jobs. Add houses along it, or join it to more of your town.`
+    if (d.residents === 0) return 'No homes on this road network. Build houses along it, or join it to your town by road.'
+    if (d.residents < d.jobs) return `This road network has ${d.residents} residents for ${d.jobs} jobs. Add houses along it, or join it to more of your town.`
     return null
 })
 /** The next rung that will start demanding a good from further up the chain. */
@@ -636,16 +646,16 @@ const selUpgradePreview = computed(() => {
             rows.push({ id, label: '', from: `−${rate(q, b.level)}`, to: `−${rate(q, next)}`, up: false, tip: town.resourceById.value.get(id)?.name })
         }
     } else if (e.kind === 'housing') {
-        rows.push({ ico: '👥', label: 'residents', from: String(e.popCap * b.level), to: String(e.popCap * next), up: true })
+        rows.push({ ico: 'i-lucide-users', label: 'residents', from: String(e.popCap * b.level), to: String(e.popCap * next), up: true })
     } else if (e.kind === 'civic') {
-        rows.push({ ico: '😊', label: 'happiness', from: `+${e.happiness * b.level}`, to: `+${e.happiness * next}`, up: true })
+        rows.push({ ico: 'i-lucide-smile', label: 'happiness', from: `+${e.happiness * b.level}`, to: `+${e.happiness * next}`, up: true })
     } else if (e.kind === 'storage') {
-        rows.push({ ico: '📦', label: 'storage', from: formatNumber(e.storage * b.level), to: formatNumber(e.storage * next), up: true })
+        rows.push({ ico: 'i-lucide-package', label: 'storage', from: formatNumber(e.storage * b.level), to: formatNumber(e.storage * next), up: true })
     }
     if (selDef.value) {
         const want = townWorkersFor(selDef.value, b.level)
         const wantNext = townWorkersFor(selDef.value, next)
-        if (wantNext !== want) rows.push({ ico: '👥', label: 'wanted', from: String(want), to: String(wantNext), up: false, tip: 'Residents it will want. Short-handed buildings run slower.' })
+        if (wantNext !== want) rows.push({ ico: 'i-lucide-users', label: 'wanted', from: String(want), to: String(wantNext), up: false, tip: 'Residents it will want. Short-handed buildings run slower.' })
     }
     return rows
 })
@@ -861,12 +871,10 @@ onMounted(() => {
 })
 
 // ── Happiness / needs popover ──
-const moodOpen = ref(false)
-const moodPinned = ref(false)
 const needs = computed(() => town.needs.value)
 /** Needs the score actually counts — the rest are future tiers, shown greyed. */
 /** Every want the townsfolk have: scored ones, plus goods they eat but the town cannot make yet. */
-const scoredNeeds = computed(() => needs.value.filter(n => n.active || n.satisfied))
+const scoredNeeds = computed(() => needs.value.filter(n => n.satisfied || n.expected))
 const unmetNeeds = computed(() => needs.value.filter(n => n.expected && !n.satisfied))
 const starving = computed(() => needs.value.some(n => n.food && n.expected) && !needs.value.some(n => n.food && n.satisfied))
 const mood = computed(() => town.state.value?.mood ?? null)
@@ -877,29 +885,32 @@ const breakdown = computed(() => town.state.value?.happinessBreakdown ?? null)
 const scoreRows = computed(() => {
     const b = breakdown.value
     if (!b) return []
-    const rows: { label: string, points: number, hint: string }[] = []
-    rows.push({ label: '🏘️ Town', points: b.base, hint: 'Every town starts here' })
+    const rows: { label: string, icon: string, points: number, hint: string }[] = []
+    rows.push({ label: 'Town', icon: 'i-lucide-house', points: b.base, hint: 'Every town starts here' })
     if (b.needs !== 0) {
         rows.push({
-            label: '🍞 Needs',
+            label: 'Needs',
+            icon: 'i-lucide-utensils',
             points: b.needs,
             hint: b.needs > 0 ? 'Goods your townsfolk have' : 'Goods they want and cannot get'
         })
     }
-    if (b.parks) rows.push({ label: '🌳 Parks', points: b.parks, hint: `${formatNumber(b.layout.residentsWithPark)} of ${formatNumber(b.layout.residents)} residents live near one` })
-    if (b.industry) rows.push({ label: '🏭 Industry', points: b.industry, hint: `${formatNumber(b.layout.residentsWithIndustry)} residents live beside workshops` })
-    if (b.crowding) rows.push({ label: '👥 Overcrowded', points: b.crowding, hint: 'More jobs than residents' })
-    if (starving.value) rows.push({ label: '😠 Starving', points: -12, hint: 'No food in store at all' })
+    if (b.parks) rows.push({ label: 'Parks', icon: 'i-lucide-trees', points: b.parks, hint: `${formatNumber(b.layout.residentsWithPark)} of ${formatNumber(b.layout.residents)} residents live near one` })
+    if (b.industry) rows.push({ label: 'Industry', icon: 'i-lucide-factory', points: b.industry, hint: `${formatNumber(b.layout.residentsWithIndustry)} residents live beside workshops` })
+    if (b.crowding) rows.push({ label: 'Overcrowded', icon: 'i-lucide-users', points: b.crowding, hint: 'More jobs than residents' })
+    if (starving.value) rows.push({ label: 'Starving', icon: 'i-lucide-frown', points: -12, hint: 'No food in store at all' })
     return rows
 })
 /** A mood's perks as short game-style chips: "+15% production", "−10% build time". */
 function perkChips(m: { speed: number, buildTime: number, storage: number } | null) {
     if (!m) return []
     const pct = (v: number) => `${v > 0 ? '+' : '−'}${Math.round(Math.abs(v) * 100)}%`
-    const out: { text: string, good: boolean, bad: boolean }[] = []
-    out.push(m.speed === 1 ? { text: '⚙️ normal production', good: false, bad: false } : { text: `⚙️ ${pct(m.speed - 1)} production`, good: m.speed > 1, bad: m.speed < 1 })
-    if (m.buildTime !== 1) out.push({ text: `🔨 ${pct(m.buildTime - 1)} build time`, good: m.buildTime < 1, bad: m.buildTime > 1 })
-    if (m.storage !== 1) out.push({ text: `📦 ${pct(m.storage - 1)} storage`, good: true, bad: false })
+    const out: { text: string, icon: string, good: boolean, bad: boolean }[] = []
+    out.push(m.speed === 1
+        ? { text: 'normal production', icon: 'i-lucide-gauge', good: false, bad: false }
+        : { text: `${pct(m.speed - 1)} production`, icon: 'i-lucide-gauge', good: m.speed > 1, bad: m.speed < 1 })
+    if (m.buildTime !== 1) out.push({ text: `${pct(m.buildTime - 1)} build time`, icon: 'i-lucide-hammer', good: m.buildTime < 1, bad: m.buildTime > 1 })
+    if (m.storage !== 1) out.push({ text: `${pct(m.storage - 1)} storage`, icon: 'i-lucide-package', good: true, bad: false })
     return out
 }
 /** Which building makes a need the town cannot produce yet. */
@@ -907,12 +918,18 @@ function needMaker(resource: string) {
     const maker = town.catalog.value.find(c => Object.keys(c.outputs).includes(resource))
     return maker ? `build a ${maker.name} (tier ${maker.tier})` : 'not unlocked yet'
 }
-function openMood(pin = false) {
-    moodOpen.value = true
-    if (pin) moodPinned.value = !moodPinned.value
+/** The line a needs row shows — also its tooltip, so a truncated one can be read. */
+function needLine(n: { satisfied: boolean, producible: boolean, perTick: number, resource: string }) {
+    const rate = `${formatNumber(perHour(n.perTick))}/h`
+    if (n.satisfied) return rate
+    if (!n.producible) return `Wants ${rate} · ${needMaker(n.resource)}`
+    return `Out of stock · needs ${rate}`
 }
-function leaveMood() {
-    if (!moodPinned.value) moodOpen.value = false
+/** Shut the HUD popovers when a window or a card takes the screen. */
+function closeHudPopovers() {
+    moodOpen.value = false
+    incomeOpen.value = false
+    buildersPop.value = false
 }
 
 // ── HUD ──
@@ -924,19 +941,73 @@ const popCap = computed(() => town.state.value?.popCap ?? 0)
 // One crew per running build or upgrade. This is the pacing lever: a town can
 // only grow on as many fronts as it has crews, and the rest cost gems.
 const buildersFree = computed(() => town.buildersFree.value)
-const builderTip = computed(() => {
-    const b = town.builders.value
-    const head = buildersFree.value === 0
-        ? `All ${b.owned} builders are on a job. Rush one or wait.`
-        : `${buildersFree.value} of ${b.owned} builders free.`
-    return b.nextGemCost === null ? head : `${head}\nClick to hire another for ${b.nextGemCost} gems.`
-})
 const buildersOpen = ref(false)
 function openBuilders() {
     sound.unlock()
+    buildersPop.value = false
     if (town.builders.value.nextGemCost === null) return
     sound.play('open')
     buildersOpen.value = true
+}
+
+/** Goods the town is running down rather than stocking, worst shortfall first. */
+const starvedGoods = computed(() => Object.entries(town.netPerTick.value)
+    .filter(([, net]) => net < 0)
+    .sort((a, b) => a[1] - b[1])
+    .map(([id]) => id))
+
+/**
+ * What a free crew should be put on. Whatever makes a good the town is running
+ * down comes first, then homes while there are more jobs than residents, then
+ * simply the cheapest rung left — lowest tier, lowest level.
+ */
+const recommendedUpgrades = computed(() => {
+    const cap = town.constants.value.maxLevel
+    const starved = starvedGoods.value
+    const rows: {
+        id: string
+        type: string
+        name: string
+        level: number
+        rank: number
+        order: number
+        resource?: string
+        residents: boolean
+        cost: { coins: number, resources: Record<string, number> }
+    }[] = []
+    for (const b of town.buildings.value) {
+        const entry = town.catalogById.value.get(b.type)
+        const def = getTownBuilding(b.type)
+        if (!entry || !def || entry.kind === 'road') continue
+        if (b.level <= 0 || b.upgradingTo !== null || b.completesAt > now.value) continue
+        if (b.level >= (entry.maxLevel ?? cap)) continue
+        const short = entry.kind === 'industry'
+            ? starved.find(id => id in entry.outputs)
+            : undefined
+        const residents = short === undefined && entry.kind === 'housing' && workersDemanded.value > popCap.value
+        rows.push({
+            id: b.id,
+            type: b.type,
+            name: entry.name,
+            level: b.level,
+            rank: short !== undefined ? 0 : residents ? 1 : 2,
+            order: short !== undefined ? starved.indexOf(short) : residents ? 0 : entry.tier,
+            resource: short,
+            residents,
+            cost: townLevelCost(def, b.level + 1)
+        })
+    }
+    rows.sort((a, b) => a.rank - b.rank || a.order - b.order || a.level - b.level)
+    // One row per building type: six houses in a row is not six recommendations.
+    const seen = new Set<string>()
+    return rows.filter(r => !seen.has(r.type) && seen.add(r.type)).slice(0, 6)
+})
+
+/** Start one of the recommended upgrades without hunting for the building. */
+function upgradeRecommended(id: string) {
+    buildersPop.value = false
+    if (buildersFree.value === 0) { openBlocked({ kind: 'upgrade', buildingId: id }); return }
+    run(() => town.upgradeBuilding(id), res => toast.add({ title: `Upgrading to level ${res.level}`, color: 'success' }), 'upgrade')
 }
 
 /**
@@ -1008,13 +1079,32 @@ function ioRate(q: number, unit: 'h' | 'day') {
     const value = q * ticksPerHour.value * (unit === 'day' ? 24 : 1)
     return value < 10 ? String(Math.round(value * 10) / 10) : formatNumber(Math.round(value))
 }
+/** A day of output priced at the floor, good by good — which good actually pays. */
+const incomeRows = computed(() => town.resources.value
+    .map((r) => {
+        const perDay = Math.round((town.netPerTick.value[r.id] ?? 0) * ticksPerHour.value * 24)
+        return { id: r.id, name: r.name, perDay, value: Math.round(perDay * r.floorPrice) }
+    })
+    .filter(r => r.perDay > 0)
+    .sort((a, b) => b.value - a.value))
+
+/** Goods the town can actually make: everything a standing building outputs. */
+const producedIds = computed(() => {
+    const out = new Set<string>()
+    for (const b of town.buildings.value) {
+        if (b.level <= 0) continue
+        const entry = town.catalogById.value.get(b.type)
+        if (entry) for (const id of Object.keys(entry.outputs)) out.add(id)
+    }
+    return out
+})
 const inventoryRows = computed(() => town.resources.value
     .map(r => ({
         ...r,
         amount: town.inventory.value[r.id] ?? 0,
         perHour: Math.round((town.netPerTick.value[r.id] ?? 0) * ticksPerHour.value)
     }))
-    .filter(r => r.amount > 0 || r.perHour !== 0))
+    .filter(r => r.amount > 0 || producedIds.value.has(r.id)))
 function toggleSound() {
     sound.unlock()
     sound.enabled.value = !sound.enabled.value
@@ -1181,17 +1271,19 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
         <!-- Founding -->
         <div v-if="town.state.value && !town.initialized.value" class="found-screen">
             <div class="found-card">
-                <div class="text-6xl drop-shadow">🏘️</div>
-                <h1 class="mt-3 text-3xl font-black tracking-tight">Polytown</h1>
-                <p class="mt-3 text-sm opacity-80">
-                    Claim a plot on the endless grid, house your townsfolk, and turn wheat, wood and stone into goods worth a fortune.
-                    Sell to the town hall any time, or trade with other mayors.
+                <span class="found-mark"><UIcon name="i-lucide-house" /></span>
+                <h1 class="found-title">Polytown</h1>
+                <p class="found-copy">
+                    Claim a plot on the endless grid, house your townsfolk, and turn wheat, wood and stone into goods
+                    worth a fortune. Sell to the town hall any time, or trade with other mayors.
                 </p>
-                <button class="g-btn g-btn-primary mt-6 text-lg" :disabled="busy" @click="found">🚩 Found your town</button>
-                <p class="mt-3 text-xs opacity-60">Your first plot is free.</p>
+                <button class="g-btn g-btn-primary found-go" :disabled="busy" @click="found">
+                    <UIcon name="i-lucide-flag" />Found your town
+                </button>
+                <p class="found-note">Your first plot is free.</p>
             </div>
         </div>
-        <div v-else-if="!town.state.value" class="absolute inset-0 flex items-center justify-center text-white/70">
+        <div v-else-if="!town.state.value" class="absolute inset-0 flex items-center justify-center">
             <span class="g-spinner" />
         </div>
 
@@ -1199,81 +1291,173 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <!-- Top-left HUD -->
             <div class="hud">
                 <div class="g-chip" :class="workersDemanded > popCap ? 'g-chip-warn' : ''" :data-tip-below="workersDemanded > popCap ? 'Not enough residents — build houses' : 'Jobs / residents'">
-                    <span class="g-ico">👥</span><b>{{ workersDemanded }}<span class="opacity-50">/{{ popCap }}</span></b>
+                    <UIcon name="i-lucide-users" class="g-ico" />
+                    <b>{{ workersDemanded }}<span class="g-sub">/{{ popCap }}</span></b>
                 </div>
-                <button class="g-chip g-chip-btn" :class="buildersFree === 0 ? 'g-chip-warn' : ''" :data-tip-below="builderTip" @click="openBuilders">
-                    <span class="g-ico">🔨</span><b>{{ buildersFree }}<span class="opacity-50">/{{ town.builders.value.owned }}</span></b>
-                </button>
+                <div class="hud-hover" @mouseenter="buildersPop = true" @mouseleave="buildersPop = false">
+                    <button class="g-chip g-chip-btn" :class="buildersFree === 0 ? 'g-chip-warn' : ''" @click="openBuilders">
+                        <UIcon name="i-lucide-hammer" class="g-ico" />
+                        <b>{{ buildersFree }}<span class="g-sub">/{{ town.builders.value.owned }}</span></b>
+                    </button>
+
+                    <Transition name="fade">
+                        <div v-if="buildersPop" class="moodpop is-builders">
+                            <div>
+                                <span class="g-label">Recommended upgrades</span>
+                                <p class="moodpop-sub">{{ buildersFree }} of {{ town.builders.value.owned }} builders free</p>
+                            </div>
+                            <div class="moodpop-group">
+                                <button
+                                    v-for="r in recommendedUpgrades"
+                                    :key="r.id"
+                                    class="rec-row"
+                                    :class="canAfford(r.cost) ? '' : 'is-dim'"
+                                    :disabled="busy || !canAfford(r.cost)"
+                                    @click="upgradeRecommended(r.id)"
+                                >
+                                    <span class="rec-art"><TownAsset :id="r.type" kind="building" :level="r.level" /></span>
+                                    <span class="rec-main">
+                                        <b :data-tip="r.name">{{ r.name }}</b>
+                                        <span class="rec-meta">
+                                            <span class="rec-level">Lv {{ r.level }} → {{ r.level + 1 }}</span>
+                                            <span v-if="r.resource" class="g-tag g-tag-red"><TownAsset :id="r.resource" />short</span>
+                                            <span v-else-if="r.residents" class="g-tag g-tag-warn">Residents</span>
+                                        </span>
+                                    </span>
+                                    <span class="rec-cost" :class="canAfford(r.cost) ? '' : 'bad'">
+                                        <span><TownCoin />{{ formatNumber(r.cost.coins) }}</span>
+                                        <span v-for="[id, q] in Object.entries(r.cost.resources)" :key="id">
+                                            <TownAsset :id="id" />{{ formatNumber(q) }}
+                                        </span>
+                                    </span>
+                                </button>
+                                <p v-if="recommendedUpgrades.length === 0" class="g-empty">Nothing to upgrade right now.</p>
+                            </div>
+                            <p v-if="town.builders.value.nextGemCost !== null" class="moodpop-foot">
+                                Click the chip to hire another crew for {{ town.builders.value.nextGemCost }} gems.
+                            </p>
+                        </div>
+                    </Transition>
+                </div>
                 <button
                     class="g-chip g-chip-btn"
                     :class="terrainOverlay ? 'is-pinned' : ''"
-                    data-tip-below="Terrain map — see which tiles pay a bonus (G)"
+                    data-tip-below="Terrain map — which tiles pay a bonus"
                     @click="toggleTerrain"
                 >
-                    <span class="g-ico">🏞️</span><b>Terrain<kbd class="chip-key">G</kbd></b>
+                    <UIcon name="i-lucide-mountain" class="g-ico" />
+                    <b>Terrain</b><kbd>G</kbd>
                 </button>
-                <div class="relative" @mouseenter="openMood()" @mouseleave="leaveMood">
-                    <button class="g-chip g-chip-btn" :class="[unmetNeeds.length || starving ? 'g-chip-warn' : '', moodPinned ? 'is-pinned' : '']" @click="openMood(true)">
-                        <span class="g-ico">{{ mood?.emoji ?? '🙂' }}</span>
+                <div class="hud-hover" @mouseenter="moodOpen = true" @mouseleave="moodOpen = false">
+                    <div class="g-chip" :class="unmetNeeds.length || starving ? 'g-chip-warn' : ''">
+                        <span class="mood-face">{{ mood?.emoji ?? '🙂' }}</span>
                         <span class="g-meter g-meter-lg">
                             <i :style="{ width: `${happiness}%` }" :class="happiness >= 50 ? 'ok' : happiness >= 25 ? 'meh' : 'bad'" />
                             <em class="g-meter-mark" :style="{ left: `${happinessPotential}%` }" data-tip-below="Reachable with what you can make right now" />
                         </span>
-                        <b class="text-xs">{{ mood?.name ?? '' }}</b>
+                        <b>{{ mood?.name ?? '' }}</b>
                         <span v-if="unmetNeeds.length" class="g-dot">{{ unmetNeeds.length }}</span>
-                    </button>
+                    </div>
 
                     <Transition name="fade">
                         <div v-if="moodOpen" class="moodpop">
                             <div class="moodpop-head">
-                                <span class="text-2xl">{{ mood?.emoji }}</span>
-                                <b class="text-base">{{ mood?.name }}</b>
-                                <span class="opacity-50">{{ happiness }} / 100</span>
-                                <button v-if="moodPinned" class="g-icon g-icon-sm ml-auto" @click="moodPinned = false; moodOpen = false">✕</button>
+                                <span class="mood-face is-lg">{{ mood?.emoji }}</span>
+                                <b>{{ mood?.name }}</b>
+                                <span class="moodpop-score">{{ happiness }}<span class="g-sub">/100</span></span>
                             </div>
 
                             <div class="moodpop-perks">
-                                <span v-for="perk in perkChips(mood)" :key="perk.text" class="g-tag" :class="perk.good ? 'g-tag-green' : perk.bad ? 'g-tag-red' : ''">{{ perk.text }}</span>
+                                <span v-for="perk in perkChips(mood)" :key="perk.text" class="g-tag" :class="perk.good ? 'g-tag-green' : perk.bad ? 'g-tag-red' : ''">
+                                    <UIcon :name="perk.icon" />{{ perk.text }}
+                                </span>
                             </div>
                             <p v-if="nextMood" class="moodpop-next">
-                                {{ nextMood.emoji }} <b>{{ nextMood.name }}</b> at {{ nextMood.min }}:
+                                <span class="mood-face">{{ nextMood.emoji }}</span>
+                                <b>{{ nextMood.name }}</b> at {{ nextMood.min }}
                                 <span v-for="perk in perkChips(nextMood)" :key="perk.text" class="moodpop-next-perk">{{ perk.text }}</span>
                             </p>
 
-                            <div class="moodpop-sec">Where the score comes from</div>
-                            <div v-for="row in scoreRows" :key="row.label" class="score-row" :class="row.points > 0 ? 'is-plus' : row.points < 0 ? 'is-minus' : ''">
-                                <b class="min-w-0 flex-1 truncate">{{ row.label }}</b>
-                                <span class="truncate text-[11px] opacity-60">{{ row.hint }}</span>
-                                <span class="score-points">{{ row.points > 0 ? '+' : '' }}{{ row.points }}</span>
+                            <div class="moodpop-group">
+                                <span class="g-label">Score</span>
+                                <!-- Tips point down: the rows below are inside the popover, so they show. -->
+                                <div
+                                    v-for="row in scoreRows"
+                                    :key="row.label"
+                                    class="score-row"
+                                    :class="row.points > 0 ? 'is-plus' : row.points < 0 ? 'is-minus' : ''"
+                                    :data-tip-below="row.hint"
+                                >
+                                    <UIcon :name="row.icon" class="score-ico" />
+                                    <b>{{ row.label }}</b>
+                                    <span class="score-hint">{{ row.hint }}</span>
+                                    <span class="score-points">{{ row.points > 0 ? '+' : '' }}{{ row.points }}</span>
+                                </div>
                             </div>
 
-                            <div class="moodpop-sec">Needs</div>
-                            <div v-for="n in scoredNeeds" :key="n.resource" class="needs-row" :class="n.satisfied ? 'is-ok' : n.expected ? 'is-bad' : ''" :data-tip="n.description">
-                                <span class="text-lg"><TownAsset :id="n.resource" /></span>
-                                <b class="w-20">{{ n.name }}</b>
-                                <span class="min-w-0 flex-1 truncate opacity-70">
-                                    <template v-if="n.satisfied">{{ formatNumber(perHour(n.perTick)) }}/h</template>
-                                    <template v-else-if="!n.producible">wants {{ formatNumber(perHour(n.perTick)) }}/h · {{ needMaker(n.resource) }}</template>
-                                    <template v-else>out of stock · needs {{ formatNumber(perHour(n.perTick)) }}/h</template>
-                                </span>
-                                <span v-if="n.satisfied || n.expected" class="needs-badge">{{ n.satisfied ? '+' : '−' }}{{ n.happiness }}</span>
+                            <div class="moodpop-group">
+                                <span class="g-label">Needs</span>
+                                <div
+                                    v-for="n in scoredNeeds"
+                                    :key="n.resource"
+                                    class="needs-row"
+                                    :class="n.satisfied ? 'is-ok' : 'is-bad'"
+                                    :data-tip="`${needLine(n)}\n${n.description}`"
+                                >
+                                    <span class="needs-ico"><TownAsset :id="n.resource" /></span>
+                                    <b>{{ n.name }}</b>
+                                    <span class="needs-note">{{ needLine(n) }}</span>
+                                    <span class="needs-badge">{{ n.satisfied ? '+' : '−' }}{{ n.happiness }}</span>
+                                </div>
+                                <p v-if="scoredNeeds.length === 0" class="g-empty">Nothing wanted yet.</p>
                             </div>
-                            <p v-if="scoredNeeds.length === 0" class="needs-foot">Your townsfolk want for nothing yet. New wants appear as the town grows.</p>
                         </div>
                     </Transition>
                 </div>
-                <div class="g-chip g-chip-green" data-tip-below="What a day of output is worth if you sell it all at the floor price. There is no passive income — you earn by selling.">
-                    <span class="g-ico">📈</span><b>{{ formatNumber(incomePerDay) }}<span class="text-xs opacity-60">/day if sold</span></b>
+                <div class="hud-hover" @mouseenter="incomeOpen = true" @mouseleave="incomeOpen = false">
+                    <div class="g-chip">
+                        <UIcon name="i-lucide-trending-up" class="g-ico is-green" />
+                        <b>{{ formatNumber(incomePerDay) }}</b><span class="g-sub">/day if sold</span>
+                    </div>
+
+                    <Transition name="fade">
+                        <div v-if="incomeOpen" class="moodpop is-income">
+                            <span class="g-label">Per day, sold at floor</span>
+                            <div class="moodpop-group">
+                                <div v-for="r in incomeRows" :key="r.id" class="income-row">
+                                    <span class="income-ico"><TownAsset :id="r.id" /></span>
+                                    <b :data-tip="r.name">{{ r.name }}</b>
+                                    <span class="income-rate">+{{ formatNumber(r.perDay) }}/day</span>
+                                    <span class="income-value"><TownCoin />{{ formatNumber(r.value) }}</span>
+                                </div>
+                                <p v-if="incomeRows.length === 0" class="g-empty">Nothing is being produced yet.</p>
+                                <div v-if="incomeRows.length" class="income-row is-total">
+                                    <span class="g-label">Total</span>
+                                    <span class="income-value"><TownCoin />{{ formatNumber(incomePerDay) }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </Transition>
                 </div>
             </div>
 
             <!-- Top-right controls -->
             <div class="corner">
-                <button class="g-icon" :class="tool === 'bulldoze' ? 'is-armed' : ''" data-tip-below="Bulldozer — drag across buildings to clear them (X)" @click="toggleBulldoze">🚜</button>
-                <button class="g-icon" data-tip-below="How to play" @click="helpOpen = true">?</button>
-                <button class="g-icon" :data-tip-below="sound.enabled.value ? 'Mute' : 'Unmute'" @click="toggleSound">{{ sound.enabled.value ? '🔊' : '🔇' }}</button>
-                <button class="g-icon" :class="motion.reduced.value ? 'is-on' : ''" :data-tip-below="motion.reduced.value ? 'Reduced motion on — flat view, no camera glide, snap turns, still scenery' : 'Reduce motion — for motion sickness'" @click="motion.toggle()">{{ motion.reduced.value ? '🧘' : '🌀' }}</button>
-                <button class="g-icon" data-tip-below="Recenter" @click="sceneRef?.recenter()">◎</button>
+                <button class="g-icon" :class="tool === 'bulldoze' ? 'is-armed' : ''" data-tip-below="Bulldozer — drag across buildings to clear them (X)" @click="toggleBulldoze">
+                    <UIcon name="i-lucide-tractor" />
+                </button>
+                <button class="g-icon" data-tip-below="How to play" @click="helpOpen = true">
+                    <UIcon name="i-lucide-circle-question-mark" />
+                </button>
+                <button class="g-icon" :data-tip-below="sound.enabled.value ? 'Mute' : 'Unmute'" @click="toggleSound">
+                    <UIcon :name="sound.enabled.value ? 'i-lucide-volume-2' : 'i-lucide-volume-off'" />
+                </button>
+                <button class="g-icon" :class="motion.reduced.value ? 'is-on' : ''" :data-tip-below="motion.reduced.value ? 'Reduced motion on — flat view, no camera glide, snap turns' : 'Reduce motion'" @click="motion.toggle()">
+                    <UIcon :name="motion.reduced.value ? 'i-lucide-accessibility' : 'i-lucide-wind'" />
+                </button>
+                <button class="g-icon" data-tip-below="Recenter" @click="sceneRef?.recenter()">
+                    <UIcon name="i-lucide-locate-fixed" />
+                </button>
             </div>
 
             <!-- Reduced motion: a still frame at the edges gives the eye something that never moves. -->
@@ -1282,35 +1466,47 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <!-- Placement hint -->
             <Transition name="fade">
                 <div v-if="moveSelection" class="hint">
-                    <b>↔ {{ moveSelection.items.length }} moving</b>
-                    <button class="placement-rotate" data-tip-below="Turn the whole block a quarter turn." @click="rotateGroup"><kbd>R</kbd> rotate</button>
+                    <UIcon name="i-lucide-move" />
+                    <b>{{ moveSelection.items.length }} moving</b>
+                    <button class="hint-btn" data-tip-below="Turn the whole block a quarter turn" @click="rotateGroup"><kbd>R</kbd>rotate</button>
                     <kbd>Esc</kbd>
                 </div>
                 <div v-else-if="tool === 'bulldoze'" class="hint is-danger">
-                    <b>🚜 Bulldozer</b>
-                    <span class="opacity-60">drag to clear</span>
+                    <UIcon name="i-lucide-tractor" />
+                    <b>Bulldozer</b>
+                    <span class="hint-note">drag to clear</span>
                     <kbd>Esc</kbd>
                 </div>
                 <div v-else-if="ghostType" class="hint">
-                    <b><TownAsset v-if="ghostType !== 'road'" :id="ghostType" kind="building" :level="ghostLevel" /><template v-else>🛣️</template> {{ town.catalogById.value.get(ghostType)?.name }}</b>
-                    <span v-if="dragQuote" class="hint-quote">×{{ dragQuote.count }} · <TownCoin /> {{ formatNumber(dragQuote.coins) }}</span>
-                    <span v-else-if="!movingId" class="opacity-60">drag to lay a run</span>
-                    <template v-if="town.catalogById.value.get(ghostType)?.kind !== 'road'">
-                        <button class="placement-rotate" data-tip-below="The white arrow is the front door, and it has to touch a road." @click="rotatePlacement"><kbd>R</kbd> rotate</button>
-                    </template>
+                    <TownAsset v-if="ghostType !== 'road'" :id="ghostType" kind="building" :level="ghostLevel" />
+                    <UIcon v-else name="i-lucide-route" />
+                    <b>{{ town.catalogById.value.get(ghostType)?.name }}</b>
+                    <span v-if="dragQuote" class="hint-quote">×{{ dragQuote.count }}<TownCoin />{{ formatNumber(dragQuote.coins) }}</span>
+                    <span v-else-if="!movingId" class="hint-note">drag to lay a run</span>
+                    <button
+                        v-if="town.catalogById.value.get(ghostType)?.kind !== 'road'"
+                        class="hint-btn"
+                        data-tip-below="The white arrow is the front door, and it has to touch a road"
+                        @click="rotatePlacement"
+                    >
+                        <kbd>R</kbd>rotate
+                    </button>
                     <kbd>Esc</kbd>
                 </div>
                 <div v-else-if="hoveredSlot && plotPurchase && plotRemainingMs > 0 && !plotPurchase.maxed" class="hint">
-                    Land office opens in <b>{{ formatTownDuration(plotRemainingMs) }}</b>
+                    <UIcon name="i-lucide-map" />Land office opens in <b>{{ formatTownDuration(plotRemainingMs) }}</b>
                 </div>
             </Transition>
 
             <!-- Inventory (left) -->
             <div v-if="inventoryRows.length" class="inv">
-                <button v-for="r in inventoryRows" :key="r.id" class="inv-row" :class="r.amount >= storageCap ? 'is-full' : ''" :data-tip="r.name" @click="openMarket(r.id)">
-                    <span class="inv-emoji"><TownAsset :id="r.id" /></span>
+                <button v-for="r in inventoryRows" :key="r.id" class="inv-row" :class="r.amount >= storageCap ? 'is-full' : ''" :data-tip="r.amount >= storageCap ? `${r.name} — storage full` : r.name" @click="openMarket(r.id)">
+                    <span class="inv-ico"><TownAsset :id="r.id" /></span>
                     <span class="inv-num">{{ formatNumber(r.amount) }}</span>
-                    <span v-if="r.perHour" class="inv-rate" :class="r.perHour > 0 ? 'up' : 'down'">{{ r.perHour > 0 ? '+' : '' }}{{ formatNumber(r.perHour) }}/h</span>
+                    <span class="inv-tail">
+                        <UIcon v-if="r.amount >= storageCap" name="i-lucide-package" class="inv-full" />
+                        <span v-if="r.perHour" class="inv-rate" :class="r.perHour > 0 ? 'up' : 'down'">{{ r.perHour > 0 ? '+' : '' }}{{ formatNumber(r.perHour) }}/h</span>
+                    </span>
                 </button>
             </div>
 
@@ -1318,39 +1514,47 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <div v-if="hoveredSlot && !hoveredBuilding && !hoveredNeighbour" class="tip is-cursor">
                 <template v-if="!hoveredSlot.free">
                     <b>{{ hoveredSlot.ownerName ?? 'Another mayor' }}</b>
-                    <div class="opacity-70">Their land</div>
+                    <div class="tip-sub">Their land</div>
                 </template>
                 <template v-else-if="plotPurchase?.maxed">
-                    <b>🗺️ Land office</b>
-                    <div class="opacity-70">You own the maximum number of plots</div>
+                    <b><UIcon name="i-lucide-map" />Land office</b>
+                    <div class="tip-sub">You own the maximum number of plots</div>
                 </template>
                 <template v-else-if="plotRemainingMs > 0">
-                    <b>🗺️ For sale</b>
-                    <div class="opacity-70">Land office opens in {{ formatTownDuration(plotRemainingMs) }}</div>
+                    <b><UIcon name="i-lucide-map" />For sale</b>
+                    <div class="tip-sub">Opens in {{ formatTownDuration(plotRemainingMs) }}</div>
                 </template>
                 <template v-else>
-                    <b>🗺️ For sale · <TownCoin /> {{ formatNumber(plotPurchase?.price ?? 0) }}</b>
-                    <div class="opacity-70">{{ plotAffordable ? 'Click to buy' : 'Not enough coins' }}</div>
+                    <b><UIcon name="i-lucide-map" />For sale · <TownCoin />{{ formatNumber(plotPurchase?.price ?? 0) }}</b>
+                    <div class="tip-sub">{{ plotAffordable ? 'Click to buy' : 'Not enough coins' }}</div>
                 </template>
             </div>
 
             <!-- Another mayor's land -->
             <div v-if="hoveredNeighbour && !hoveredBuilding" class="tip is-cursor">
                 <b>{{ hoveredNeighbour.ownerName }}</b>
-                <div v-if="hoveredNeighbour.type" class="opacity-70">
-                    <TownAsset v-if="hoveredNeighbour.type !== 'road'" :id="hoveredNeighbour.type" kind="building" /><template v-else>🛣️</template>
+                <div v-if="hoveredNeighbour.type" class="tip-sub">
+                    <TownAsset v-if="hoveredNeighbour.type !== 'road'" :id="hoveredNeighbour.type" kind="building" />
+                    <UIcon v-else name="i-lucide-route" />
                     {{ town.catalogById.value.get(hoveredNeighbour.type)?.name ?? 'Building' }}<template v-if="hoveredNeighbour.level && hoveredNeighbour.type !== 'road'"> · Lv {{ hoveredNeighbour.level }}</template>
                 </div>
             </div>
 
             <!-- Hover tooltip -->
             <div v-if="hoveredBuilding && hoveredEntry && !selectedBuilding" class="tip is-cursor">
-                <b><TownAsset :id="hoveredEntry.id" kind="building" :level="hoveredBuilding.level" /> {{ hoveredEntry.name }}</b>
-                <span v-if="hoveredBuilding.level > 0" class="opacity-60"> · Lv {{ hoveredBuilding.level }}</span>
-                <div class="opacity-70">
-                    <template v-if="hoveredBuilding.connected === false && hoveredEntry.kind !== 'road'"><span class="text-rose-300 font-bold">⚠ No road at the front door — not working</span></template>
+                <b>
+                    <TownAsset :id="hoveredEntry.id" kind="building" :level="hoveredBuilding.level" />
+                    {{ hoveredEntry.name }}
+                    <span v-if="hoveredBuilding.level > 0" class="g-sub">Lv {{ hoveredBuilding.level }}</span>
+                </b>
+                <div class="tip-sub">
+                    <template v-if="hoveredBuilding.connected === false && hoveredEntry.kind !== 'road'">
+                        <span class="tip-bad"><UIcon name="i-lucide-triangle-alert" />No road at the front door</span>
+                    </template>
                     <template v-else-if="hoveredBuilding.completesAt > now">{{ hoveredBuilding.level === 0 ? 'Building' : 'Upgrading' }} · {{ formatTownDuration(hoveredBuilding.completesAt - now) }}</template>
-                    <template v-else-if="hoveredEntry.kind === 'industry' && hoveredBuilding.district?.residents === 0"><span class="text-rose-300 font-bold">⚠ No homes on this road</span></template>
+                    <template v-else-if="hoveredEntry.kind === 'industry' && hoveredBuilding.district?.residents === 0">
+                        <span class="tip-bad"><UIcon name="i-lucide-triangle-alert" />No homes on this road</span>
+                    </template>
                     <template v-else-if="hoveredEntry.kind === 'industry'">{{ Math.round((hoveredBuilding.staffing ?? 0) * 100) }}% staffed</template>
                     <template v-else-if="hoveredEntry.kind === 'housing'">{{ hoveredEntry.popCap * hoveredBuilding.level }} residents</template>
                     <template v-else>Click for details</template>
@@ -1361,60 +1565,80 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <Transition name="rise">
                 <div v-if="selectedIds.length > 1 && !moveSelection" class="seltoolbar">
                     <b class="seltoolbar-count">{{ selectedIds.length }} selected</b>
-                    <button class="g-btn g-btn-sm" data-tip="Move the whole block. Sites travel too." :disabled="busy" @click="startGroupMove">↔ Move<kbd class="chip-key">M</kbd></button>
-                    <button class="g-btn g-btn-sm" :disabled="busy || selectionUpgradable.length === 0" :data-tip="selectionUpgradable.length ? 'As many as your crews and coins allow.' : 'None can upgrade now.'" @click="upgradeSelection">⬆ Upgrade {{ selectionUpgradable.length }}</button>
-                    <button class="g-btn g-btn-sm g-btn-quiet-danger" data-tip="No refund." :disabled="busy" @click="onBulldoze(selectedIds)">🗑 Demolish<kbd class="chip-key">Del</kbd></button>
-                    <button class="g-icon g-icon-sm" data-tip="Clear" @click="clearSelection">✕</button>
+                    <button class="g-btn g-btn-sm" data-tip="Move the whole block. Sites travel too." :disabled="busy" @click="startGroupMove">
+                        <UIcon name="i-lucide-move" />Move<kbd>M</kbd>
+                    </button>
+                    <button class="g-btn g-btn-sm" :disabled="busy || selectionUpgradable.length === 0" :data-tip="selectionUpgradable.length ? 'As many as your crews and coins allow.' : 'None can upgrade now.'" @click="upgradeSelection">
+                        <UIcon name="i-lucide-arrow-up" />Upgrade {{ selectionUpgradable.length }}
+                    </button>
+                    <button class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." :disabled="busy" @click="onBulldoze(selectedIds)">
+                        <UIcon name="i-lucide-trash-2" />Demolish<kbd>Del</kbd>
+                    </button>
+                    <button class="g-icon g-icon-sm" data-tip="Clear" aria-label="Clear selection" @click="clearSelection">
+                        <UIcon name="i-lucide-x" />
+                    </button>
                 </div>
             </Transition>
 
             <!-- Selected building card -->
             <Transition name="rise">
-                <div v-if="selectedBuilding && selectedEntry" class="card">
+                <div v-if="selectedBuilding && selectedEntry" class="card g-panel">
                     <div class="card-head">
-                        <span class="card-emoji" :style="{ background: hex(selectedEntry.color) + '33' }"><TownAsset :id="selectedEntry.id" kind="building" :level="selectedBuilding.level" /></span>
+                        <span class="card-art" :style="{ background: hex(selectedEntry.color) + '22' }">
+                            <TownAsset :id="selectedEntry.id" kind="building" :level="selectedBuilding.level" />
+                        </span>
                         <div class="min-w-0 flex-1">
-                            <div class="flex items-center gap-2">
-                                <b class="text-base">{{ selectedEntry.name }}</b>
-                                <span v-if="selectedBuilding.level > 0 && selectedEntry.kind !== 'road'" class="g-tag" :data-tip="`This one tops out at level ${selMaxLevel}.`">Lv {{ selectedBuilding.level }}<span class="opacity-50">/{{ selMaxLevel }}</span><template v-if="selectedBuilding.upgradingTo"> → {{ selectedBuilding.upgradingTo }}</template></span>
-                                <span v-else class="g-tag">Building</span>
+                            <div class="card-title">
+                                <b>{{ selectedEntry.name }}</b>
+                                <span v-if="selectedBuilding.level > 0 && selectedEntry.kind !== 'road'" class="g-tag" :data-tip="`This one tops out at level ${selMaxLevel}.`">
+                                    Lv {{ selectedBuilding.level }}<span class="g-sub">/{{ selMaxLevel }}</span>
+                                    <template v-if="selectedBuilding.upgradingTo"><UIcon name="i-lucide-arrow-right" />{{ selectedBuilding.upgradingTo }}</template>
+                                </span>
+                                <span v-else class="g-tag">Site</span>
                             </div>
-                            <div class="text-xs opacity-70">{{ selectedEntry.description }}</div>
+                            <div class="card-desc">{{ selectedEntry.description }}</div>
                         </div>
-                        <button class="g-icon g-icon-sm" @click="closeAll">✕</button>
+                        <button class="g-icon g-icon-sm" aria-label="Close" @click="closeAll"><UIcon name="i-lucide-x" /></button>
                     </div>
 
                     <div class="card-body">
                         <div v-if="selectedBuilding.connected === false && selectedEntry.kind !== 'road'" class="card-alert">
-                            <b>!</b> No road at the front door. Nothing works here until you move it or lay a road on the tile the white arrow points at.
+                            <UIcon name="i-lucide-triangle-alert" />
+                            <span>No road at the front door. Nothing works here until a road reaches the tile the white arrow points at.</span>
                         </div>
 
                         <div v-if="selPending" class="card-row">
                             <div class="flex-1">
-                                <div class="flex justify-between text-xs opacity-80">
-                                    <span>🔨 {{ selectedBuilding.level === 0 ? 'Under construction' : 'Upgrading' }}</span>
+                                <div class="card-progress-head">
+                                    <span class="g-label"><UIcon name="i-lucide-hammer" />{{ selectedBuilding.level === 0 ? 'Under construction' : 'Upgrading' }}</span>
                                     <b>{{ formatTownDuration(selRemaining) }}</b>
                                 </div>
-                                <div class="g-progress mt-1"><i :style="{ width: `${Math.round(100 * (1 - selRemaining / Math.max(1, selectedBuilding.jobMs ?? 1)))}%` }" /></div>
+                                <div class="g-progress"><i :style="{ width: `${Math.round(100 * (1 - selRemaining / Math.max(1, selectedBuilding.jobMs ?? 1)))}%` }" /></div>
                             </div>
-                            <button class="g-btn g-btn-gem" :disabled="busy || gems < selRushGems" @click="rushSelected">💎 Rush · {{ selRushGems }}</button>
+                            <button class="g-btn g-btn-gem g-btn-sm" :disabled="busy || gems < selRushGems" @click="rushSelected">
+                                <UIcon name="i-lucide-gem" />Rush {{ selRushGems }}
+                            </button>
                         </div>
 
                         <!-- A site can be moved like anything else: the clock keeps running. -->
                         <div v-if="selPending" class="card-actions">
-                            <button class="g-btn g-btn-sm" data-tip="The build carries on wherever you put it." :disabled="busy" @click="startMove">↔ Move<kbd class="chip-key">M</kbd></button>
-                            <button class="g-btn g-btn-sm g-btn-quiet-danger" data-tip="No refund." @click="confirmDemolish = true">🗑 Demolish</button>
+                            <button class="g-btn g-btn-sm" data-tip="The build carries on wherever you put it." :disabled="busy" @click="startMove">
+                                <UIcon name="i-lucide-move" />Move<kbd>M</kbd>
+                            </button>
+                            <button class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." @click="confirmDemolish = true">
+                                <UIcon name="i-lucide-trash-2" />Demolish
+                            </button>
                         </div>
 
                         <template v-else>
                             <!-- What it makes, at the rate it really runs -->
                             <div v-if="selectedEntry.kind === 'industry'" class="recipe">
                                 <span v-for="[id, q] in Object.entries(selectedEntry.inputs)" :key="id" class="recipe-item is-in" :data-tip="town.resourceById.value.get(id)?.name">
-                                    <TownAsset :id="id" /> −{{ selRate(q) }}
+                                    <TownAsset :id="id" />−{{ selRate(q) }}
                                 </span>
-                                <span v-if="Object.keys(selectedEntry.inputs).length" class="recipe-arrow">→</span>
+                                <UIcon v-if="Object.keys(selectedEntry.inputs).length" name="i-lucide-arrow-right" class="recipe-arrow" />
                                 <span v-for="[id, q] in Object.entries(selectedEntry.outputs)" :key="id" class="recipe-item is-out" :data-tip="town.resourceById.value.get(id)?.name">
-                                    <TownAsset :id="id" /> +{{ selRate(q) }}
+                                    <TownAsset :id="id" />+{{ selRate(q) }}
                                 </span>
                                 <span class="recipe-unit" data-tip="What it really moves right now. Level, workers and supply are all counted in.">per {{ selUnit === 'day' ? 'day' : 'hour' }}</span>
                             </div>
@@ -1422,81 +1646,106 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <!-- The two things that slow a building down -->
                             <div v-if="selWorkersWanted > 0" class="meters">
                                 <div class="meter" :data-tip="selWorkersTitle">
-                                    <span class="meter-ico">👥</span>
-                                    <span class="meter-label">Workers <em class="meter-want">{{ selWorkersWanted }}</em></span>
-                                    <span class="meter-bar"><i :class="barClass(selectedBuilding.staffing ?? 0)" :style="{ width: `${Math.round((selectedBuilding.staffing ?? 0) * 100)}%` }" /></span>
+                                    <UIcon name="i-lucide-users" class="meter-ico" />
+                                    <span class="meter-label">Workers <em>{{ selWorkersWanted }}</em></span>
+                                    <span class="g-meter"><i :class="barClass(selectedBuilding.staffing ?? 0)" :style="{ width: `${Math.round((selectedBuilding.staffing ?? 0) * 100)}%` }" /></span>
                                     <b class="meter-value">{{ Math.round((selectedBuilding.staffing ?? 0) * 100) }}%</b>
                                 </div>
                                 <div v-if="selSupply && selectedEntry.kind === 'industry' && Object.keys(selectedEntry.inputs).length" class="meter" :data-tip="selSupplyTitle">
-                                    <span class="meter-ico">🚚</span>
+                                    <UIcon name="i-lucide-truck" class="meter-ico" />
                                     <span class="meter-label">Supply</span>
-                                    <span class="meter-bar"><i :class="barClass(selSupply.ratio)" :style="{ width: `${Math.round(selSupply.ratio * 100)}%` }" /></span>
+                                    <span class="g-meter"><i :class="barClass(selSupply.ratio)" :style="{ width: `${Math.round(selSupply.ratio * 100)}%` }" /></span>
                                     <b class="meter-value">{{ Math.round(selSupply.ratio * 100) }}%</b>
                                 </div>
                             </div>
 
                             <!-- Everything else says its one thing -->
                             <div v-if="selectedEntry.kind === 'housing'" class="card-stats">
-                                <span class="g-tag g-tag-green">👥 {{ selectedEntry.popCap * selectedBuilding.level }} residents</span>
-                                <span v-if="selAdjacency" class="g-tag" :class="selAdjacency.parks ? 'g-tag-green' : ''" :data-tip="`Parks within ${town.constants.value.parkRadius} tiles make this home happier.`">🌳 {{ selAdjacency.parks }} nearby</span>
-                                <span v-if="selAdjacency" class="g-tag" :class="selAdjacency.industry ? 'g-tag-red' : ''" data-tip="Workshops beside homes drag the town score down. Select one to see how far it reaches.">🏭 {{ selAdjacency.industry }} nearby</span>
+                                <span class="g-tag g-tag-green"><UIcon name="i-lucide-users" />{{ selectedEntry.popCap * selectedBuilding.level }} residents</span>
+                                <span v-if="selAdjacency" class="g-tag" :class="selAdjacency.parks ? 'g-tag-green' : ''" :data-tip="`Parks within ${town.constants.value.parkRadius} tiles make this home happier.`">
+                                    <UIcon name="i-lucide-trees" />{{ selAdjacency.parks }} nearby
+                                </span>
+                                <span v-if="selAdjacency" class="g-tag" :class="selAdjacency.industry ? 'g-tag-red' : ''" data-tip="Workshops beside homes drag the town score down.">
+                                    <UIcon name="i-lucide-factory" />{{ selAdjacency.industry }} nearby
+                                </span>
                             </div>
                             <div v-else-if="selectedEntry.kind === 'civic'" class="card-stats">
-                                <span class="g-tag g-tag-green">😊 +{{ selectedEntry.happiness * selectedBuilding.level }} happiness</span>
-                                <span class="g-tag" :data-tip="`Every home within ${town.constants.value.parkRadius} tiles of this park is happier for it.`">🌳 reaches {{ town.constants.value.parkRadius }} tiles</span>
+                                <span class="g-tag g-tag-green"><UIcon name="i-lucide-smile" />+{{ selectedEntry.happiness * selectedBuilding.level }} happiness</span>
+                                <span class="g-tag" :data-tip="`Every home within ${town.constants.value.parkRadius} tiles is happier for it.`">
+                                    <UIcon name="i-lucide-ruler" />{{ town.constants.value.parkRadius }} tiles
+                                </span>
                             </div>
                             <div v-else-if="selectedEntry.kind === 'storage'" class="card-stats">
-                                <span class="g-tag" :class="(selectedBuilding.staffing ?? 0) >= 0.99 ? 'g-tag-green' : ''" data-tip="A warehouse holds only what its crew can manage, so an unstaffed one holds nothing.">📦 +{{ formatNumber(Math.floor(selectedEntry.storage * selectedBuilding.level * (selectedBuilding.staffing ?? 0))) }} storage per good</span>
+                                <span class="g-tag" :class="(selectedBuilding.staffing ?? 0) >= 0.99 ? 'g-tag-green' : ''" data-tip="A warehouse holds only what its crew can manage, so an unstaffed one holds nothing.">
+                                    <UIcon name="i-lucide-package" />+{{ formatNumber(Math.floor(selectedEntry.storage * selectedBuilding.level * (selectedBuilding.staffing ?? 0))) }} per good
+                                </span>
                             </div>
 
                             <!-- Notes, only when they have something to say -->
-                            <p v-if="selDistrictFix" class="card-note is-bad">
-                                {{ selDistrictFix }}
+                            <p v-if="selDistrictFix" class="card-note">
+                                <UIcon name="i-lucide-users" />{{ selDistrictFix }}
                             </p>
-                            <p v-else-if="selSupplyFix" class="card-note is-bad">
-                                Starved of <TownAsset :id="selSupplyFix.resource" /> {{ selSupplyFix.name }}. Put a {{ selSupplyFix.maker }} within {{ selSupplyFix.tiles }} road tiles, or buy some at the market.
+                            <p v-else-if="selSupplyFix" class="card-note">
+                                <TownAsset :id="selSupplyFix.resource" />
+                                Starved of {{ selSupplyFix.name }} — put a {{ selSupplyFix.maker }} within {{ selSupplyFix.tiles }} road tiles, or buy some at the market.
                             </p>
-                            <p v-else-if="selNuisance && selNuisance.homes > 0" class="card-note is-bad">
-                                🏭 {{ selNuisance.homes }} {{ selNuisance.homes === 1 ? 'home' : 'homes' }} within {{ selNuisance.radius }} tiles, costing the town {{ selNuisance.total }} happiness.
+                            <p v-else-if="selNuisance && selNuisance.homes > 0" class="card-note">
+                                <UIcon name="i-lucide-factory" />{{ selNuisance.homes }} {{ selNuisance.homes === 1 ? 'home' : 'homes' }} within {{ selNuisance.radius }} tiles, costing the town {{ selNuisance.total }} happiness.
                             </p>
 
                             <!-- Upgrade -->
-                            <template v-if="selCanUpgrade && selectedEntry.kind !== 'road'">
-                                <div class="upgrade">
-                                    <div v-if="previewUpgrade && selUpgradePreview.length" class="upgrade-info upgrade-preview">
-                                        <div class="upgrade-head">
-                                            <b>Level {{ selectedBuilding.level }} → {{ selNextLevel }}</b>
-                                            <span class="opacity-55">{{ selectedEntry.kind === 'industry' ? `per ${selUnit === 'day' ? 'day' : 'hour'}` : '' }}</span>
-                                        </div>
-                                        <div class="upgrade-cost">
-                                            <span v-for="(r, i) in selUpgradePreview" :key="i" :data-tip="r.tip">
-                                                <TownAsset v-if="r.id" :id="r.id" /><template v-else>{{ r.ico }}</template>
-                                                <s class="preview-from">{{ r.from }}</s>
-                                                <b :class="r.up ? 'preview-up' : 'preview-more'">{{ r.to }}</b>
-                                                <em v-if="!r.id" class="preview-label">{{ r.label }}</em>
-                                            </span>
-                                        </div>
+                            <div v-if="selCanUpgrade && selectedEntry.kind !== 'road'" class="upgrade">
+                                <div v-if="previewUpgrade && selUpgradePreview.length" class="upgrade-info">
+                                    <div class="upgrade-head">
+                                        <span class="g-label">Level {{ selectedBuilding.level }} → {{ selNextLevel }}</span>
+                                        <span v-if="selectedEntry.kind === 'industry'" class="g-sub">per {{ selUnit === 'day' ? 'day' : 'hour' }}</span>
                                     </div>
-                                    <div v-else class="upgrade-info">
-                                        <div class="upgrade-head">
-                                            <b>Level {{ selNextLevel }}</b>
-                                            <span class="opacity-55">⏱ {{ formatTownDuration(selUpgradeMs) }}</span>
-                                        </div>
-                                        <div class="upgrade-cost">
-                                            <span :class="balance >= selUpgradeCost.coins ? '' : 'bad'"><TownCoin /> {{ formatNumber(selUpgradeCost.coins) }}</span>
-                                            <span v-for="[id, q] in Object.entries(selUpgradeCost.resources)" :key="id" :class="(town.inventory.value[id] ?? 0) >= q ? '' : 'bad'"><TownAsset :id="id" /> {{ formatNumber(q) }}</span>
-                                        </div>
+                                    <div class="upgrade-cost">
+                                        <span v-for="(r, i) in selUpgradePreview" :key="i" :data-tip="r.tip">
+                                            <TownAsset v-if="r.id" :id="r.id" />
+                                            <UIcon v-else-if="r.ico" :name="r.ico" />
+                                            <s class="preview-from">{{ r.from }}</s>
+                                            <b :class="r.up ? 'preview-up' : 'preview-more'">{{ r.to }}</b>
+                                            <em v-if="!r.id" class="preview-label">{{ r.label }}</em>
+                                        </span>
                                     </div>
-                                    <button class="g-btn g-btn-primary upgrade-go" :disabled="busy || !canAfford(selUpgradeCost)" :data-tip="buildersFree === 0 ? 'Every builder is on a job — click to free one.' : canAfford(selUpgradeCost) ? undefined : 'You are short on what is marked red.'" @mouseenter="previewUpgrade = true" @mouseleave="previewUpgrade = false" @focus="previewUpgrade = true" @blur="previewUpgrade = false" @click="upgradeSelected">
-                                        ⬆ {{ buildersFree === 0 ? 'No builder' : 'Upgrade' }}
-                                    </button>
                                 </div>
-                            </template>
-                            <div v-else-if="selectedEntry.kind !== 'road'" class="g-tag g-tag-gold justify-center py-1.5">🏅 Fully upgraded</div>
+                                <div v-else class="upgrade-info">
+                                    <div class="upgrade-head">
+                                        <span class="g-label">Level {{ selNextLevel }}</span>
+                                        <span class="g-sub"><UIcon name="i-lucide-clock" />{{ formatTownDuration(selUpgradeMs) }}</span>
+                                    </div>
+                                    <div class="upgrade-cost">
+                                        <span :class="balance >= selUpgradeCost.coins ? '' : 'bad'"><TownCoin />{{ formatNumber(selUpgradeCost.coins) }}</span>
+                                        <span v-for="[id, q] in Object.entries(selUpgradeCost.resources)" :key="id" :class="(town.inventory.value[id] ?? 0) >= q ? '' : 'bad'">
+                                            <TownAsset :id="id" />{{ formatNumber(q) }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <button
+                                    class="g-btn g-btn-primary g-btn-sm"
+                                    :disabled="busy || !canAfford(selUpgradeCost)"
+                                    :data-tip="buildersFree === 0 ? 'Every builder is on a job — click to free one.' : canAfford(selUpgradeCost) ? undefined : 'You are short on what is marked red.'"
+                                    @mouseenter="previewUpgrade = true"
+                                    @mouseleave="previewUpgrade = false"
+                                    @focus="previewUpgrade = true"
+                                    @blur="previewUpgrade = false"
+                                    @click="upgradeSelected"
+                                >
+                                    <UIcon name="i-lucide-arrow-up" />{{ buildersFree === 0 ? 'No builder' : 'Upgrade' }}
+                                </button>
+                            </div>
+                            <div v-else-if="selectedEntry.kind !== 'road'" class="g-tag g-tag-gold card-maxed">
+                                <UIcon name="i-lucide-medal" />Fully upgraded
+                            </div>
 
                             <div class="card-actions">
-                                <button class="g-btn g-btn-sm" data-tip="Pick it up and put it on another tile. Free. Away from a road it stops working until one reaches it." :disabled="busy" @click="startMove">↔ Move<kbd class="chip-key">M</kbd></button>
-                                <button class="g-btn g-btn-sm g-btn-quiet-danger" data-tip="Tear it down. Nothing is refunded." @click="confirmDemolish = true">🗑 Demolish</button>
+                                <button class="g-btn g-btn-sm" data-tip="Free. Away from a road it stops working until one reaches it." :disabled="busy" @click="startMove">
+                                    <UIcon name="i-lucide-move" />Move<kbd>M</kbd>
+                                </button>
+                                <button class="g-btn g-btn-sm g-btn-danger" data-tip="Nothing is refunded." @click="confirmDemolish = true">
+                                    <UIcon name="i-lucide-trash-2" />Demolish
+                                </button>
                             </div>
                         </template>
                     </div>
@@ -1505,14 +1754,16 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
             <!-- Build strip -->
             <Transition name="rise">
-                <div v-if="buildOpen" class="strip">
+                <div v-if="buildOpen" class="strip g-panel">
                     <div class="strip-tabs">
                         <button v-for="t in tiers" :key="t" class="strip-tab" :class="[buildTier === t ? 'is-active' : '', tierLocked(t) ? 'is-locked' : '']" @click="buildTier = t; sound.play('click')">
-                            <span v-if="tierLocked(t)">🔒</span>{{ tierName(t) }}
+                            <UIcon v-if="tierLocked(t)" name="i-lucide-lock" />{{ tierName(t) }}
                         </button>
-                        <button class="g-icon g-icon-sm ml-auto" @click="toggleBuild">✕</button>
+                        <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="toggleBuild"><UIcon name="i-lucide-x" /></button>
                     </div>
-                    <div v-if="tierLocked(buildTier) && tierLockText(buildTier)" class="strip-lock">🔒 {{ tierLockText(buildTier) }}</div>
+                    <div v-if="tierLocked(buildTier) && tierLockText(buildTier)" class="strip-lock">
+                        <UIcon name="i-lucide-lock" />{{ tierLockText(buildTier) }}
+                    </div>
                     <div class="strip-cards">
                         <button
                             v-for="c in tierEntries"
@@ -1521,28 +1772,41 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             :class="[ghostType === c.id && !movingId ? 'is-active' : '', canAfford(town.nextCost.value[c.id] ?? c.cost) && !tierLocked(c.tier) && !countIssue(c.id) && (c.kind === 'road' || buildersFree > 0) ? '' : 'is-dim']"
                             :disabled="tierLocked(c.tier)"
                             :style="{ '--accent': hex(c.color) }"
-                            :data-tip="countIssue(c.id) ?? ((town.countsByType.value[c.id] ?? 0) ? `You own ${town.countsByType.value[c.id]}${c.maxCount ? ` of ${c.maxCount}` : ''} — each extra one costs more` : (c.maxCount ? `A town may run ${c.maxCount}` : ''))"
                             @click="pickBuild(c.id)"
                         >
                             <span v-if="town.countsByType.value[c.id] || c.maxCount" class="bcard-count">×{{ town.countsByType.value[c.id] ?? 0 }}<template v-if="c.maxCount">/{{ c.maxCount }}</template></span>
-                            <span class="bcard-emoji"><TownAsset v-if="c.kind !== 'road'" :id="c.id" kind="building" /><span v-else>🛣️</span></span>
-                            <b class="bcard-name">{{ c.name }}</b>
-                            <span class="bcard-cost" :class="balance >= (town.nextCost.value[c.id]?.coins ?? c.cost.coins) ? '' : 'bad'"><TownCoin /> {{ formatNumber(town.nextCost.value[c.id]?.coins ?? c.cost.coins) }}</span>
+                            <span class="bcard-art">
+                                <TownAsset v-if="c.kind !== 'road'" :id="c.id" kind="building" />
+                                <UIcon v-else name="i-lucide-route" />
+                            </span>
+                            <b
+                                class="bcard-name"
+                                :data-tip="countIssue(c.id) ?? ((town.countsByType.value[c.id] ?? 0) ? `You own ${town.countsByType.value[c.id]}${c.maxCount ? ` of ${c.maxCount}` : ''} — each extra one costs more` : (c.maxCount ? `A town may run ${c.maxCount}` : ''))"
+                            >{{ c.name }}</b>
+                            <span class="bcard-cost" :class="balance >= (town.nextCost.value[c.id]?.coins ?? c.cost.coins) ? '' : 'bad'">
+                                <TownCoin />{{ formatNumber(town.nextCost.value[c.id]?.coins ?? c.cost.coins) }}
+                            </span>
                             <span v-if="Object.keys(town.nextCost.value[c.id]?.resources ?? c.cost.resources).length" class="bcard-res">
-                                <span v-for="[id, q] in Object.entries(town.nextCost.value[c.id]?.resources ?? c.cost.resources)" :key="id" :class="(town.inventory.value[id] ?? 0) >= q ? '' : 'bad'"><TownAsset :id="id" />{{ formatNumber(q) }}</span>
+                                <span v-for="[id, q] in Object.entries(town.nextCost.value[c.id]?.resources ?? c.cost.resources)" :key="id" :class="(town.inventory.value[id] ?? 0) >= q ? '' : 'bad'">
+                                    <TownAsset :id="id" />{{ formatNumber(q) }}
+                                </span>
                             </span>
                             <span class="bcard-meta">
-                                <span v-if="c.kind === 'road'">⚡ instant</span>
-                                <span v-else :data-tip="`Upgrades take ${formatTownDuration(Math.round(c.upgradeMs * (mood?.buildTime ?? 1)))} and up`">⏱ {{ formatTownDuration(Math.round(c.buildMs * (mood?.buildTime ?? 1))) }}</span>
-                                <span v-if="c.workers">👥 {{ c.workers }}</span>
-                                <span v-if="c.popCap">🏠 +{{ c.popCap }}</span>
-                                <span v-if="c.happiness">😊 +{{ c.happiness }}</span>
-                                <span v-if="c.storage">📦 +{{ formatNumber(c.storage) }}</span>
+                                <span v-if="c.kind === 'road'"><UIcon name="i-lucide-zap" />instant</span>
+                                <span v-else :data-tip="`Upgrades take ${formatTownDuration(Math.round(c.upgradeMs * (mood?.buildTime ?? 1)))} and up`">
+                                    <UIcon name="i-lucide-clock" />{{ formatTownDuration(Math.round(c.buildMs * (mood?.buildTime ?? 1))) }}
+                                </span>
+                                <span v-if="c.workers"><UIcon name="i-lucide-users" />{{ c.workers }}</span>
+                                <span v-if="c.popCap"><UIcon name="i-lucide-house" />+{{ c.popCap }}</span>
+                                <span v-if="c.happiness"><UIcon name="i-lucide-smile" />+{{ c.happiness }}</span>
+                                <span v-if="c.storage"><UIcon name="i-lucide-package" />+{{ formatNumber(c.storage) }}</span>
                             </span>
                             <span v-if="Object.keys(c.outputs).length" class="bcard-io" :data-tip="`Per ${ioUnit(c) === 'day' ? 'day' : 'hour'} at level 1`">
-                                <template v-if="Object.keys(c.inputs).length"><span v-for="[id, q] in Object.entries(c.inputs)" :key="id">{{ ioRate(q, ioUnit(c)) }}<TownAsset :id="id" /></span>→</template>
-                                <span v-for="[id, q] in Object.entries(c.outputs)" :key="id" class="text-emerald-300">{{ ioRate(q, ioUnit(c)) }}<TownAsset :id="id" /></span>
-                                <span class="opacity-50">/{{ ioUnit(c) }}</span>
+                                <template v-if="Object.keys(c.inputs).length">
+                                    <span v-for="[id, q] in Object.entries(c.inputs)" :key="id">{{ ioRate(q, ioUnit(c)) }}<TownAsset :id="id" /></span>
+                                    <UIcon name="i-lucide-arrow-right" />
+                                </template>
+                                <span v-for="[id, q] in Object.entries(c.outputs)" :key="id" class="is-out">{{ ioRate(q, ioUnit(c)) }}<TownAsset :id="id" /></span>
                             </span>
                         </button>
                     </div>
@@ -1551,10 +1815,11 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
             <!-- Terrain legend -->
             <Transition name="fade">
-                <div v-if="terrainOverlay" class="legend">
+                <div v-if="terrainOverlay" class="legend g-panel">
                     <div class="legend-head">
-                        <span>🏞️ Terrain <span class="opacity-55">+{{ Math.round(TOWN_TERRAIN_BONUS * 100) }}%</span></span>
-                        <button class="g-icon g-icon-sm ml-auto" @click="toggleTerrain">✕</button>
+                        <span class="g-label"><UIcon name="i-lucide-mountain" />Terrain</span>
+                        <span class="g-tag g-tag-green">+{{ Math.round(TOWN_TERRAIN_BONUS * 100) }}%</span>
+                        <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="toggleTerrain"><UIcon name="i-lucide-x" /></button>
                     </div>
                     <div v-for="t in terrainLegend" :key="t.id" class="legend-row" :class="t.boosting ? 'is-boosting' : ''">
                         <i :style="{ background: t.css }" />
@@ -1565,19 +1830,27 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             </Transition>
 
             <!-- Dock -->
-            <div class="dock">
-                <button class="dock-btn" :class="buildOpen ? 'is-active' : ''" @click="toggleBuild"><span class="dock-ico">🔨</span><span>Build</span><kbd>B</kbd></button>
-                <button class="dock-btn" :class="windowOpen === 'market' ? 'is-active' : ''" @click="openMarket()"><span class="dock-ico">🏪</span><span>Market</span><kbd>H</kbd></button>
+            <div class="dock g-panel">
+                <button class="dock-btn" :class="buildOpen ? 'is-active' : ''" @click="toggleBuild">
+                    <UIcon name="i-lucide-hammer" class="dock-ico" /><span>Build</span><kbd>B</kbd>
+                </button>
+                <button class="dock-btn" :class="windowOpen === 'market' ? 'is-active' : ''" @click="openMarket()">
+                    <UIcon name="i-lucide-store" class="dock-ico" /><span>Market</span><kbd>H</kbd>
+                </button>
                 <button class="dock-btn" :class="windowOpen === 'goals' ? 'is-active' : ''" @click="openWindow('goals')">
-                    <span class="dock-ico">🏆</span><span>Goals</span><kbd>T</kbd>
+                    <UIcon name="i-lucide-trophy" class="dock-ico" /><span>Goals</span><kbd>T</kbd>
                     <span v-if="claimable" class="dock-badge">{{ claimable }}</span>
                 </button>
-                <button class="dock-btn" :class="windowOpen === 'land' ? 'is-active' : ''" @click="openWindow('land')"><span class="dock-ico">🗺️</span><span>Land</span><kbd>P</kbd></button>
+                <button class="dock-btn" :class="windowOpen === 'land' ? 'is-active' : ''" @click="openWindow('land')">
+                    <UIcon name="i-lucide-map" class="dock-ico" /><span>Land</span><kbd>P</kbd>
+                </button>
                 <button class="dock-btn" :class="windowOpen === 'research' ? 'is-active' : ''" @click="openWindow('research')">
-                    <span class="dock-ico">🔬</span><span>Research</span><kbd>C</kbd>
+                    <UIcon name="i-lucide-microscope" class="dock-ico" /><span>Research</span><kbd>C</kbd>
                     <span v-if="researchRunning" class="dock-dot" />
                 </button>
-                <button class="dock-btn" :class="windowOpen === 'mayors' ? 'is-active' : ''" @click="openWindow('mayors')"><span class="dock-ico">👑</span><span>Mayors</span><kbd>L</kbd></button>
+                <button class="dock-btn" :class="windowOpen === 'mayors' ? 'is-active' : ''" @click="openWindow('mayors')">
+                    <UIcon name="i-lucide-crown" class="dock-ico" /><span>Mayors</span><kbd>L</kbd>
+                </button>
             </div>
 
             <!-- Windows -->
@@ -1593,12 +1866,12 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             :balance="balance"
                             :initial-resource="marketResource"
                             :busy="busy"
-                            @close="closeAll"
                             :net-per-tick="town.netPerTick.value"
                             :speed-multiplier="speed"
                             :tick-ms="town.constants.value.tickMs"
                             :storage-cap="storageCap"
                             :jewels-per-gem="town.constants.value.jewelsPerGem"
+                            @close="closeAll"
                             @convert="convertJewels"
                             @sell-floor="sellFloor"
                             @sell-bulk="sellBulk"
@@ -1620,48 +1893,48 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
                         <div v-else-if="windowOpen === 'land'" class="flex h-full min-h-0 flex-col">
                             <div class="g-window-head">
-                                <h2>🗺️ Land <span class="text-sm font-semibold opacity-50">{{ town.plots.value.length }}/{{ town.constants.value.maxPlots }}</span></h2>
-                                <button class="g-icon g-icon-sm" @click="closeAll">✕</button>
+                                <h2><UIcon name="i-lucide-map" />Land <span class="g-tag">{{ town.plots.value.length }}/{{ town.constants.value.maxPlots }}</span></h2>
+                                <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="closeAll"><UIcon name="i-lucide-x" /></button>
                             </div>
-                            <div class="g-window-body space-y-4">
-                                <section>
-                                    <div class="landsec-head">
-                                        Yours, free to sell
-                                        <span data-tip="A plot has to be completely empty before you can sell or list it.">{{ emptyPlots.length }} of {{ town.plots.value.length }}</span>
-                                    </div>
-                                    <p v-if="emptyPlots.length === 0" class="landsec-empty">Every plot has something on it. Demolish a plot clear to sell it.</p>
-                                    <div v-for="p in emptyPlots" :key="p.id" class="plotrow">
-                                        <span class="plot-ico">🟩</span>
+                            <div class="g-window-body space-y-3">
+                                <div class="g-sec">
+                                    <header>
+                                        <span>Yours, free to sell</span>
+                                        <span data-tip-below="A plot has to be completely empty before you can sell or list it.">{{ emptyPlots.length }} of {{ town.plots.value.length }}</span>
+                                    </header>
+                                    <p v-if="emptyPlots.length === 0" class="g-empty">Every plot has something on it.</p>
+                                    <div v-for="p in emptyPlots" :key="p.id" class="g-row plotrow">
+                                        <UIcon name="i-lucide-land-plot" class="plot-ico" />
                                         <div class="min-w-0 flex-1">
                                             <b>{{ p.x }}, {{ p.y }}</b>
-                                            <div v-if="p.listPrice !== null" class="plotrow-sub" style="color: var(--g-gold)">Listed · {{ formatNumber(p.listPrice) }}</div>
+                                            <div v-if="p.listPrice !== null" class="plotrow-sub is-gold">Listed · {{ formatNumber(p.listPrice) }}</div>
                                             <div v-else class="plotrow-sub">Office pays {{ formatNumber(p.refund) }}</div>
                                         </div>
                                         <template v-if="p.listPrice === null">
-                                            <input v-model.number="listingPrices[p.id]" type="number" min="1" placeholder="Ask" class="g-input w-24 py-1.5 text-xs">
+                                            <input v-model.number="listingPrices[p.id]" type="number" min="1" placeholder="Ask" class="g-input w-24">
                                             <button class="g-btn g-btn-sm" :disabled="busy" data-tip="Offer it to the mayors next to you at your price." @click="listPlotForSale(p.id)">List</button>
                                             <button class="g-btn g-btn-sm" :disabled="busy || p.refund <= 0" :data-tip="p.refund > 0 ? 'Sell back to the land office now.' : 'This plot was free — the office pays nothing.'" @click="confirmSellPlot = p.id">Sell</button>
                                         </template>
                                         <button v-else class="g-btn g-btn-sm" :disabled="busy" @click="unlistPlot(p.id)">Unlist</button>
                                     </div>
-                                </section>
+                                </div>
 
-                                <section>
-                                    <div class="landsec-head">
-                                        For sale near you
+                                <div class="g-sec">
+                                    <header>
+                                        <span>For sale near you</span>
                                         <span>{{ town.world.value.listings.length }}</span>
-                                    </div>
-                                    <p v-if="town.world.value.listings.length === 0" class="landsec-empty">Nobody next to you is selling.</p>
-                                    <div v-for="l in town.world.value.listings" :key="l.plotId" class="plotrow">
-                                        <span class="plot-ico">🗺️</span>
+                                    </header>
+                                    <p v-if="town.world.value.listings.length === 0" class="g-empty">Nobody next to you is selling.</p>
+                                    <div v-for="l in town.world.value.listings" :key="l.plotId" class="g-row plotrow">
+                                        <UIcon name="i-lucide-map-pinned" class="plot-ico" />
                                         <div class="min-w-0 flex-1">
                                             <b>{{ l.x }}, {{ l.y }}</b>
                                             <div class="plotrow-sub truncate">{{ l.ownerName }}</div>
                                         </div>
-                                        <b class="tabular-nums" style="color: var(--g-gold)"><TownCoin /> {{ formatNumber(l.price) }}</b>
+                                        <b class="plotrow-price"><TownCoin />{{ formatNumber(l.price) }}</b>
                                         <button class="g-btn g-btn-gold g-btn-sm" :disabled="busy || balance < l.price" @click="onSelectListing({ id: l.plotId, ownerName: l.ownerName, price: l.price })">Buy</button>
                                     </div>
-                                </section>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1672,20 +1945,27 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <Transition name="fade">
                 <div v-if="welcome" class="backdrop" @click.self="welcome = null">
                     <div class="g-window is-small">
-                        <div class="g-window-head"><h2>👋 Welcome back, Mayor</h2><button class="g-icon g-icon-sm" @click="welcome = null">✕</button></div>
-                        <div class="g-window-body">
-                            <p class="text-sm opacity-80">Your town kept working for <b>{{ formatTownDuration(welcome.elapsedMs) }}</b>.</p>
-                            <div class="mt-3 grid grid-cols-3 gap-2">
+                        <div class="g-window-head">
+                            <h2><UIcon name="i-lucide-hand" />Welcome back <span class="g-tag">{{ formatTownDuration(welcome.elapsedMs) }}</span></h2>
+                            <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="welcome = null"><UIcon name="i-lucide-x" /></button>
+                        </div>
+                        <div class="g-window-body space-y-3">
+                            <p class="g-label">While you were away</p>
+                            <div class="welcome-grid">
                                 <div v-for="r in welcomeRows" :key="r.id" class="g-cell">
-                                    <span class="text-2xl"><TownAsset :id="r.def?.id" /></span>
-                                    <b :class="r.qty > 0 ? 'text-emerald-300' : 'text-rose-300'">{{ r.qty > 0 ? '+' : '' }}{{ formatNumber(r.qty) }}</b>
-                                    <span class="text-[11px] opacity-60">{{ r.def?.name }}</span>
+                                    <span class="welcome-art"><TownAsset :id="r.def?.id" /></span>
+                                    <b :class="r.qty > 0 ? 'is-up' : 'is-down'">{{ r.qty > 0 ? '+' : '' }}{{ formatNumber(r.qty) }}</b>
+                                    <span class="g-sub">{{ r.def?.name }}</span>
                                 </div>
                             </div>
-                            <p v-if="welcomeValue" class="mt-3 text-center text-sm opacity-80">Worth about <b><TownCoin /> {{ formatNumber(welcomeValue) }}</b> at floor price.</p>
-                            <div class="mt-4 flex justify-end gap-2">
-                                <button class="g-btn" @click="welcome = null">Close</button>
-                                <button class="g-btn g-btn-primary" @click="welcome = null; openMarket()">🏪 Go to market</button>
+                            <p v-if="welcomeValue" class="welcome-worth">
+                                Worth about <b><TownCoin />{{ formatNumber(welcomeValue) }}</b> at floor price.
+                            </p>
+                            <div class="g-actions">
+                                <button class="g-btn g-btn-ghost" @click="welcome = null">Close</button>
+                                <button class="g-btn g-btn-primary" @click="welcome = null; openMarket()">
+                                    <UIcon name="i-lucide-store" />Market
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1695,26 +1975,72 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <!-- Help -->
             <Transition name="fade">
                 <div v-if="helpOpen" class="backdrop" @click.self="helpOpen = false">
-                    <div class="g-window is-small">
-                        <div class="g-window-head"><h2>How to play</h2><button class="g-icon g-icon-sm" @click="helpOpen = false">✕</button></div>
-                        <div class="g-window-body space-y-2 text-sm opacity-90">
-                            <p>🏠 <b>Houses</b> bring two residents per level. Every industry building needs residents to run — an unstaffed farm grows nothing.</p>
-                            <p>😊 <b>Happiness</b> is a score out of 100 that sets how fast the town produces. Every town starts at 50; parks add up to 20, the goods your people want add or subtract, and workshops beside homes take up to 25 away. Open the meter to see every line.</p>
-                            <p>🍞 <b>Needs</b>: residents eat grain and bread, and want bricks, tools and luxuries as the town grows. A need only counts once your town could make it — nobody misses bread before you can bake it. After that, going without costs happiness. The goods are really consumed, so keep producing or buy from other mayors.</p>
-                            <p>🌳 <b>Radius</b>: a park cheers every house within 4 tiles. Industry sours the homes around it, and the higher the tier the further it reaches — a farm is a nuisance to its own street, a factory to two plots in every direction. Keeping heavy industry away from your people costs land, which is the point. While placing, the square on the ground shows the reach.</p>
-                            <p>🪚 <b>Tiers</b>: raw goods → refined goods → bread and tools → iron, steel, machines, luxuries. Finish one building of a tier to unlock the next.</p>
-                            <p>🚚 <b>Supply</b>: a workshop wants its materials nearby. Distance is counted in <b>road tiles travelled</b>, not how close the buildings look, so the shape of your streets decides how fast a sawmill runs. Supply is finite too: one lumber camp cannot feed five sawmills, and the closest pairing always wins. A workshop with no supplier at all still runs, just slowly, which is what makes buying from other mayors worth it.</p>
-                            <p>🛣️ <b>Roads</b>: every building's front door (the arrow while placing) must touch a road, and people walk to work along the roads. Homes only staff the workshops their road network reaches, so a separate cluster needs its own houses or a road back to town. Press <kbd>R</kbd> to rotate — buildings auto-face a road next to them. Buildings can be moved for free.</p>
-                            <p>⬆ <b>Levels</b>: most buildings upgrade to level 20; a park stops at 12 and a warehouse at 16. Every upgrade costs coins <b>and</b> goods, and the goods climb faster than the coins, so your own production is what really pays for growth.</p>
-                            <p>🔨 <b>Builders</b>: every build and every upgrade occupies one crew until it finishes, and you start with three. That cap is the pace of the game — you cannot set the whole town upgrading at once. Roads are instant and need nobody. Three more crews can be hired for good with gems, and when everything is busy the game offers to rush the cheapest job.</p>
-                            <p>🏞️ <b>Terrain</b>: land is not all the same. Fertile soil, woodland and rock each make the matching building a quarter more productive, water cannot be built on, and a rare plot is flat grassland with no bonuses at all. Press <kbd>G</kbd> to see what is where before you place anything — more land means more chances at a good patch.</p>
-                            <p>🔬 <b>Research</b>: a slow track running alongside everything else. Thirty projects in five branches, one at a time, from twelve hours to three days each. More output, faster builds, longer supply reach, more residents, better prices. Finishing the board takes about two months.</p>
-                            <p>📦 <b>Storage</b> caps each resource. Full storage halts production — sell, or build warehouses.</p>
-                            <p>🏪 <b>Market</b>: there is <b>no passive income</b> — you earn by selling. The town hall always buys at a floor price so you are never stuck, but <b>buying is only ever from other players</b>. Offers fill instantly when they cross.</p>
-                            <p>🗺️ <b>Land</b>: every mayor shares one realm. The land office sells you a square next to yours — each one costs more and opens more slowly than the last. Empty plots can go back to the office for a quarter of their price, or be listed for other mayors at any price you choose. Buying from a player skips the office's waiting time.</p>
-                            <p>💎 <b>Rush</b> any build for 1 gem per 5 minutes left. 🏆 <b>Goals</b> pay coins for hitting town targets.</p>
-                            <p>🖱️ <b>Controls</b>: drag to select, shift-drag to add, shift-click to toggle one · with a building picked, drag to lay a run, even from the end of a street · <kbd>M</kbd> move · <kbd>Del</kbd> demolish · <kbd>X</kbd> bulldozer. Half-built buildings move too.</p>
-                            <p class="opacity-60">WASD move · Q/E turn · middle-drag pan · wheel zoom · right-drag orbit · R rotate · <kbd>B</kbd>uild <kbd>H</kbd> market <kbd>T</kbd> goals <kbd>L</kbd> mayors <kbd>P</kbd> land <kbd>C</kbd> research <kbd>G</kbd> terrain <kbd>X</kbd> bulldozer <kbd>Esc</kbd> · 🌀 reduce motion if the camera makes you queasy</p>
+                    <div class="g-window">
+                        <div class="g-window-head">
+                            <h2>How to play</h2>
+                            <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="helpOpen = false"><UIcon name="i-lucide-x" /></button>
+                        </div>
+                        <div class="g-window-body help space-y-3">
+                            <div class="g-sec">
+                                <header>The town</header>
+                                <dl>
+                                    <dt><UIcon name="i-lucide-house" />Houses</dt>
+                                    <dd>Two residents per level. Every workshop needs residents — an unstaffed farm grows nothing.</dd>
+                                    <dt><UIcon name="i-lucide-route" />Roads</dt>
+                                    <dd>Every front door must touch a road, and people walk to work along them, so a road network only staffs the workshops it reaches. <kbd>R</kbd> rotates; buildings auto-face a road. Moving is free.</dd>
+                                    <dt><UIcon name="i-lucide-smile" />Happiness</dt>
+                                    <dd>A score out of 100 that sets production speed. Starts at 50; parks add up to 20, needs add or subtract, workshops beside homes take up to 25. The mood chip shows every line.</dd>
+                                    <dt><UIcon name="i-lucide-utensils" />Needs</dt>
+                                    <dd>Residents eat grain and bread, then want bricks, tools and luxuries. A need only counts once you could make it; after that, going without costs happiness. The goods are really consumed.</dd>
+                                    <dt><UIcon name="i-lucide-ruler" />Radius</dt>
+                                    <dd>A park cheers homes within 4 tiles. Industry sours the homes around it, further at every tier. The square on the ground shows the reach while placing.</dd>
+                                </dl>
+                            </div>
+
+                            <div class="g-sec">
+                                <header>Growing</header>
+                                <dl>
+                                    <dt><UIcon name="i-lucide-layers" />Tiers</dt>
+                                    <dd>Raw goods → refined goods → bread and tools → steel, machines and luxuries. Finish one building of a tier to unlock the next.</dd>
+                                    <dt><UIcon name="i-lucide-arrow-up" />Levels</dt>
+                                    <dd>Most cap at 20, a park at 12, a warehouse at 16. Upgrades cost coins and goods, and the goods climb faster.</dd>
+                                    <dt><UIcon name="i-lucide-hammer" />Builders</dt>
+                                    <dd>One crew per build or upgrade, three to start; roads are instant. Three more can be hired for gems, and <UIcon name="i-lucide-gem" class="is-gem" /> rush costs 1 gem per 5 minutes left.</dd>
+                                    <dt><UIcon name="i-lucide-truck" />Supply</dt>
+                                    <dd>A workshop wants its inputs a short walk away, counted in <b>road tiles</b>, so the shape of your streets sets its speed. Supply is finite — one lumber camp cannot feed five sawmills, and the closest pairing wins.</dd>
+                                    <dt><UIcon name="i-lucide-package" />Storage</dt>
+                                    <dd>Caps each good. Full storage halts production — sell, or build warehouses.</dd>
+                                    <dt><UIcon name="i-lucide-mountain" />Terrain</dt>
+                                    <dd>Soil, woodland and rock make the matching building a quarter faster; water cannot be built on. <kbd>G</kbd> shows the map.</dd>
+                                    <dt><UIcon name="i-lucide-microscope" />Research</dt>
+                                    <dd>Thirty projects in five branches, one at a time, 12 hours to 3 days each: output, build speed, supply reach, residents, prices.</dd>
+                                </dl>
+                            </div>
+
+                            <div class="g-sec">
+                                <header>Coins</header>
+                                <dl>
+                                    <dt><UIcon name="i-lucide-store" />Market</dt>
+                                    <dd>There is no passive income — you earn by selling. The town hall always buys at a floor price, but buying is only ever from other mayors.</dd>
+                                    <dt><UIcon name="i-lucide-map" />Land</dt>
+                                    <dd>One shared realm. The office sells a square next to yours, each dearer and slower than the last. Empty plots go back for a quarter, or list at your own price.</dd>
+                                    <dt><UIcon name="i-lucide-trophy" />Goals</dt>
+                                    <dd>Pay coins and gems for hitting town targets.</dd>
+                                </dl>
+                            </div>
+
+                            <div class="g-sec">
+                                <header>Controls</header>
+                                <p class="help-keys">
+                                    Drag to select · shift-drag adds · shift-click toggles one · with a building picked, drag to lay a run
+                                    · middle-drag pans · wheel zooms · right-drag orbits
+                                </p>
+                                <p class="help-keys">
+                                    <kbd>WASD</kbd> move <kbd>Q</kbd><kbd>E</kbd> turn <kbd>R</kbd> rotate <kbd>M</kbd> move <kbd>Del</kbd> demolish
+                                    <kbd>X</kbd> bulldozer <kbd>B</kbd> build <kbd>H</kbd> market <kbd>T</kbd> goals <kbd>L</kbd> mayors
+                                    <kbd>P</kbd> land <kbd>C</kbd> research <kbd>G</kbd> terrain <kbd>Esc</kbd> back
+                                </p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1724,15 +2050,15 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <Transition name="fade">
                 <div v-if="confirmPlot && plotPurchase" class="backdrop" @click.self="confirmPlot = null">
                     <div class="g-window is-tiny">
-                        <div class="g-window-head"><h2>🗺️ Buy this land?</h2></div>
-                        <div class="g-window-body">
-                            <p class="text-sm opacity-80">Plot #{{ plotPurchase.nextIndex }} at ({{ confirmPlot.x }}, {{ confirmPlot.y }}). More land means more production — and the next plot costs more again.</p>
-                            <div class="mt-3 flex items-center justify-between rounded-xl px-3 py-2" style="background: rgba(255,255,255,0.06)">
-                                <span class="text-sm opacity-70">Price</span>
-                                <b class="text-lg" style="color: var(--g-gold)"><TownCoin /> {{ formatNumber(plotPurchase.price) }}</b>
+                        <div class="g-window-head"><h2><UIcon name="i-lucide-map" />Buy this land?</h2></div>
+                        <div class="g-window-body space-y-3">
+                            <p class="g-copy">Plot #{{ plotPurchase.nextIndex }} at ({{ confirmPlot.x }}, {{ confirmPlot.y }}). The next plot will cost more again.</p>
+                            <div class="g-stat">
+                                <span class="g-label">Price</span>
+                                <b class="is-gold"><TownCoin />{{ formatNumber(plotPurchase.price) }}</b>
                             </div>
-                            <div class="mt-4 flex justify-end gap-2">
-                                <button class="g-btn" @click="confirmPlot = null">Cancel</button>
+                            <div class="g-actions">
+                                <button class="g-btn g-btn-ghost" @click="confirmPlot = null">Cancel</button>
                                 <button class="g-btn g-btn-gold" :disabled="busy" @click="confirmBuyPlot">Buy land</button>
                             </div>
                         </div>
@@ -1744,15 +2070,15 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <Transition name="fade">
                 <div v-if="confirmListing" class="backdrop" @click.self="confirmListing = null">
                     <div class="g-window is-tiny">
-                        <div class="g-window-head"><h2>🤝 Buy this land?</h2></div>
-                        <div class="g-window-body">
-                            <p class="text-sm opacity-80">{{ confirmListing.ownerName }} is selling this plot. It has to touch land you already own.</p>
-                            <div class="mt-3 flex items-center justify-between rounded-xl px-3 py-2" style="background: rgba(255,255,255,0.06)">
-                                <span class="text-sm opacity-70">Asking price</span>
-                                <b class="text-lg" style="color: var(--g-gold)"><TownCoin /> {{ formatNumber(confirmListing.price) }}</b>
+                        <div class="g-window-head"><h2><UIcon name="i-lucide-handshake" />Buy this land?</h2></div>
+                        <div class="g-window-body space-y-3">
+                            <p class="g-copy">{{ confirmListing.ownerName }} is selling this plot. It has to touch land you already own.</p>
+                            <div class="g-stat">
+                                <span class="g-label">Asking price</span>
+                                <b class="is-gold"><TownCoin />{{ formatNumber(confirmListing.price) }}</b>
                             </div>
-                            <div class="mt-4 flex justify-end gap-2">
-                                <button class="g-btn" @click="confirmListing = null">Cancel</button>
+                            <div class="g-actions">
+                                <button class="g-btn g-btn-ghost" @click="confirmListing = null">Cancel</button>
                                 <button class="g-btn g-btn-gold" :disabled="busy || balance < confirmListing.price" @click="buyListing">Buy land</button>
                             </div>
                         </div>
@@ -1764,15 +2090,15 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <Transition name="fade">
                 <div v-if="confirmSellPlot" class="backdrop" @click.self="confirmSellPlot = null">
                     <div class="g-window is-tiny">
-                        <div class="g-window-head"><h2>🗺️ Sell this plot back?</h2></div>
-                        <div class="g-window-body">
-                            <p class="text-sm opacity-80">The land office pays back {{ Math.round((town.state.value?.plotRefundShare ?? 0.25) * 100) }}% of what you paid for this plot. Another mayor may pay more.</p>
-                            <div class="mt-3 flex items-center justify-between rounded-xl px-3 py-2" style="background: rgba(255,255,255,0.06)">
-                                <span class="text-sm opacity-70">Refund</span>
-                                <b class="text-lg" style="color: var(--g-gold)"><TownCoin /> {{ formatNumber(sellPlotRefund) }}</b>
+                        <div class="g-window-head"><h2><UIcon name="i-lucide-map" />Sell this plot back?</h2></div>
+                        <div class="g-window-body space-y-3">
+                            <p class="g-copy">The office pays {{ Math.round((town.state.value?.plotRefundShare ?? 0.25) * 100) }}% of what you paid. Another mayor may pay more.</p>
+                            <div class="g-stat">
+                                <span class="g-label">Refund</span>
+                                <b class="is-gold"><TownCoin />{{ formatNumber(sellPlotRefund) }}</b>
                             </div>
-                            <div class="mt-4 flex justify-end gap-2">
-                                <button class="g-btn" @click="confirmSellPlot = null">Cancel</button>
+                            <div class="g-actions">
+                                <button class="g-btn g-btn-ghost" @click="confirmSellPlot = null">Cancel</button>
                                 <button class="g-btn g-btn-danger" :disabled="busy" @click="sellPlotBack">Sell back</button>
                             </div>
                         </div>
@@ -1784,19 +2110,22 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <Transition name="fade">
                 <div v-if="blocked" class="backdrop" @click.self="blocked = null">
                     <div class="g-window is-tiny">
-                        <div class="g-window-head"><h2>🔨 Every builder is busy</h2><button class="g-icon g-icon-sm" @click="blocked = null">✕</button></div>
-                        <div class="g-window-body">
-                            <p class="text-sm opacity-80">All {{ town.builders.value.owned }} of your crews are on a job. Free one up, or wait for the first to finish.</p>
-                            <div v-if="blockedCheapest" class="mt-3 flex items-center gap-3 rounded-xl px-3 py-2" style="background: rgba(255,255,255,0.06)">
-                                <span class="text-xl"><TownAsset :id="blockedCheapest.type" kind="building" :level="blockedCheapest.level" /></span>
+                        <div class="g-window-head">
+                            <h2><UIcon name="i-lucide-hammer" />Every builder is busy</h2>
+                            <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="blocked = null"><UIcon name="i-lucide-x" /></button>
+                        </div>
+                        <div class="g-window-body space-y-3">
+                            <p class="g-copy">All {{ town.builders.value.owned }} crews are on a job. Free one up, or wait.</p>
+                            <div v-if="blockedCheapest" class="g-stat">
+                                <span class="blocked-art"><TownAsset :id="blockedCheapest.type" kind="building" :level="blockedCheapest.level" /></span>
                                 <div class="min-w-0 flex-1">
-                                    <b class="text-sm">{{ blockedCheapest.name }}</b>
-                                    <div class="text-[11px] opacity-60">{{ blockedCheapest.first ? 'Building' : `Upgrading to ${blockedCheapest.level}` }} · {{ formatTownDuration(blockedCheapest.remainingMs) }} left</div>
+                                    <b>{{ blockedCheapest.name }}</b>
+                                    <div class="g-sub">{{ blockedCheapest.first ? 'Building' : `Upgrading to ${blockedCheapest.level}` }} · {{ formatTownDuration(blockedCheapest.remainingMs) }} left</div>
                                 </div>
-                                <b style="color: var(--g-gem)">💎 {{ blockedCheapest.gems }}</b>
+                                <b class="is-gem"><UIcon name="i-lucide-gem" />{{ blockedCheapest.gems }}</b>
                             </div>
-                            <div class="mt-4 flex justify-end gap-2">
-                                <button class="g-btn" @click="blocked = null">Wait</button>
+                            <div class="g-actions">
+                                <button class="g-btn g-btn-ghost" @click="blocked = null">Wait</button>
                                 <button v-if="town.builders.value.nextGemCost !== null" class="g-btn" @click="blocked = null; openBuilders()">Hire a crew</button>
                                 <button v-if="blockedCheapest" class="g-btn g-btn-gem" :disabled="busy || gems < blockedCheapest.gems" @click="rushAndContinue">Rush &amp; continue</button>
                             </div>
@@ -1809,15 +2138,15 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <Transition name="fade">
                 <div v-if="buildersOpen" class="backdrop" @click.self="buildersOpen = false">
                     <div class="g-window is-tiny">
-                        <div class="g-window-head"><h2>🔨 Hire a builder</h2></div>
-                        <div class="g-window-body">
-                            <p class="text-sm opacity-80">Each crew works one build or upgrade at a time. More crews means more of the town growing at once, for good.</p>
-                            <div class="mt-3 flex items-center justify-between rounded-xl px-3 py-2" style="background: rgba(255,255,255,0.06)">
-                                <span class="text-sm opacity-70">{{ town.builders.value.owned }} → {{ town.builders.value.owned + 1 }} crews</span>
-                                <b class="text-lg" style="color: var(--g-gem)">💎 {{ town.builders.value.nextGemCost }}</b>
+                        <div class="g-window-head"><h2><UIcon name="i-lucide-hammer" />Hire a builder</h2></div>
+                        <div class="g-window-body space-y-3">
+                            <p class="g-copy">Each crew works one build or upgrade at a time. Hired for good.</p>
+                            <div class="g-stat">
+                                <span class="g-label">{{ town.builders.value.owned }} → {{ town.builders.value.owned + 1 }} crews</span>
+                                <b class="is-gem"><UIcon name="i-lucide-gem" />{{ town.builders.value.nextGemCost }}</b>
                             </div>
-                            <div class="mt-4 flex justify-end gap-2">
-                                <button class="g-btn" @click="buildersOpen = false">Cancel</button>
+                            <div class="g-actions">
+                                <button class="g-btn g-btn-ghost" @click="buildersOpen = false">Cancel</button>
                                 <button class="g-btn g-btn-gem" :disabled="busy || gems < (town.builders.value.nextGemCost ?? 0)" @click="hireBuilder">Hire</button>
                             </div>
                         </div>
@@ -1830,11 +2159,13 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 <div v-if="confirmBulk" class="backdrop" @click.self="confirmBulk = null">
                     <div class="g-window is-tiny">
                         <div class="g-window-head"><h2>Demolish {{ confirmBulk.ids.length }} {{ confirmBulk.ids.length === 1 ? 'building' : 'buildings' }}?</h2></div>
-                        <div class="g-window-body">
-                            <p class="text-sm opacity-80">No refund. Every tile becomes free again.</p>
-                            <div class="mt-4 flex justify-end gap-2">
-                                <button class="g-btn" @click="confirmBulk = null">Cancel</button>
-                                <button class="g-btn g-btn-danger" :disabled="busy" @click="demolishBulk">🗑 Demolish</button>
+                        <div class="g-window-body space-y-3">
+                            <p class="g-copy">No refund. Every tile becomes free again.</p>
+                            <div class="g-actions">
+                                <button class="g-btn g-btn-ghost" @click="confirmBulk = null">Cancel</button>
+                                <button class="g-btn g-btn-danger" :disabled="busy" @click="demolishBulk">
+                                    <UIcon name="i-lucide-trash-2" />Demolish
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1846,11 +2177,13 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 <div v-if="confirmDemolish" class="backdrop" @click.self="confirmDemolish = false">
                     <div class="g-window is-tiny">
                         <div class="g-window-head"><h2>Demolish {{ selectedEntry?.name }}?</h2></div>
-                        <div class="g-window-body">
-                            <p class="text-sm opacity-80">No refund. The tile becomes free again.</p>
-                            <div class="mt-4 flex justify-end gap-2">
-                                <button class="g-btn" @click="confirmDemolish = false">Cancel</button>
-                                <button class="g-btn g-btn-danger" @click="demolishSelected">🗑 Demolish</button>
+                        <div class="g-window-body space-y-3">
+                            <p class="g-copy">No refund. The tile becomes free again.</p>
+                            <div class="g-actions">
+                                <button class="g-btn g-btn-ghost" @click="confirmDemolish = false">Cancel</button>
+                                <button class="g-btn g-btn-danger" @click="demolishSelected">
+                                    <UIcon name="i-lucide-trash-2" />Demolish
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1861,365 +2194,953 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 </template>
 
 <style>
-/* ── Polytown game UI (shared by the town/* components) ─────────────────── */
+/* ── Polytown game UI ─────────────────────────────────────────────────────────
+   Tokens and shared .g-* primitives live here and here only; every other
+   town/* component consumes them and adds scoped rules of its own.
+   Light is the base theme, dark overrides the tokens — no white-glass fills. */
+
 .town-root {
-    --g-bg: rgba(16, 20, 27, 0.78);
-    --g-bg-2: rgba(28, 34, 44, 0.9);
-    --g-line: rgba(255, 255, 255, 0.09);
-    --g-text: #f4f1ea;
-    --g-muted: rgba(244, 241, 234, 0.62);
-    --g-gold: #f5c451;
-    --g-green: #4fd36a;
-    --g-red: #ff6b6b;
-    --g-gem: #6fd3ff;
+    /* surfaces */
+    --g-bg: rgba(251, 249, 244, 0.94);
+    --g-bg-2: rgba(255, 255, 255, 0.98);
+    --g-fill: rgba(34, 28, 16, 0.045);
+    --g-fill-2: rgba(34, 28, 16, 0.085);
+    --g-line: rgba(34, 28, 16, 0.10);
+    --g-line-2: rgba(34, 28, 16, 0.20);
+    /* text */
+    --g-text: #1f1c16;
+    --g-text-2: rgba(31, 28, 22, 0.70);
+    --g-muted: rgba(31, 28, 22, 0.50);
+    /* semantic */
+    --g-accent: var(--ui-primary);
+    --g-accent-fg: #fff;
+    --g-gold: #a8730c;
+    --g-gold-bg: rgba(212, 160, 23, 0.14);
+    --g-green: #1e8e4b;
+    --g-green-bg: rgba(30, 142, 75, 0.12);
+    --g-red: #c8443c;
+    --g-red-bg: rgba(200, 68, 60, 0.12);
+    --g-gem: #1d7fc2;
+    --g-gem-bg: rgba(29, 127, 194, 0.12);
+    --g-warn: #b7791f;
+    --g-warn-bg: rgba(183, 121, 31, 0.14);
+    /* shape */
+    --g-radius: 14px;
+    --g-radius-sm: 9px;
+    --g-radius-xs: 6px;
+    --g-shadow: 0 8px 24px rgba(40, 30, 10, 0.12), 0 1px 2px rgba(40, 30, 10, 0.08);
+    --g-shadow-lg: 0 24px 60px rgba(40, 30, 10, 0.18), 0 2px 6px rgba(40, 30, 10, 0.08);
+    --g-blur: blur(14px);
+    --g-font-display: ui-serif, 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+
     position: relative;
-    height: 100%;
+    height: min(100%, 100svh);
     width: 100%;
     overflow: hidden;
     color: var(--g-text);
-    font-family: ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif;
+    font-family: inherit;
     background: #8ecbe8;
 }
-.town-root kbd {
-    font: 600 10px/1 ui-monospace, monospace;
-    padding: 2px 5px;
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.12);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+
+.dark .town-root {
+    --g-bg: rgba(22, 24, 29, 0.94);
+    --g-bg-2: rgba(28, 31, 37, 0.97);
+    --g-fill: rgba(255, 255, 255, 0.055);
+    --g-fill-2: rgba(255, 255, 255, 0.10);
+    --g-line: rgba(255, 255, 255, 0.09);
+    --g-line-2: rgba(255, 255, 255, 0.20);
+    --g-text: #f1eee7;
+    --g-text-2: rgba(241, 238, 231, 0.70);
+    --g-muted: rgba(241, 238, 231, 0.50);
+    --g-accent-fg: #0b1a10;
+    --g-gold: #f0c257;
+    --g-gold-bg: rgba(240, 194, 87, 0.16);
+    --g-green: #5ad77a;
+    --g-green-bg: rgba(90, 215, 122, 0.14);
+    --g-red: #ff7b72;
+    --g-red-bg: rgba(255, 123, 114, 0.14);
+    --g-gem: #6cc8ff;
+    --g-gem-bg: rgba(108, 200, 255, 0.14);
+    --g-warn: #f0b34d;
+    --g-warn-bg: rgba(240, 179, 77, 0.16);
+    --g-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.3);
+    --g-shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+    background: #1b2430;
 }
+
+.town-root :is(b, strong) { font-weight: 650; }
 .town-root .bad { color: var(--g-red); }
+.town-root .is-gold { color: var(--g-gold); }
+.town-root .is-green { color: var(--g-green); }
+.town-root .is-gem { color: var(--g-gem); }
+.town-root .is-up { color: var(--g-green); }
+.town-root .is-down { color: var(--g-red); }
 
-.g-chip {
-    display: inline-flex; align-items: center; gap: 8px;
-    padding: 8px 14px; border-radius: 14px;
-    background: var(--g-bg); border: 1px solid var(--g-line);
-    backdrop-filter: blur(10px); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-    font-size: 15px; white-space: nowrap;
-}
-.g-chip b { font-weight: 800; letter-spacing: -0.01em; }
-.g-chip-gold b { color: var(--g-gold); }
-.g-chip-gem b { color: var(--g-gem); }
-.g-chip-green b { color: var(--g-green); }
-.g-chip-warn { border-color: rgba(245, 196, 81, 0.6); }
-.g-chip-warn b { color: var(--g-gold); }
-.g-ico { font-size: 17px; line-height: 1; }
-.g-meter { display: inline-block; width: 74px; height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
-.g-meter i { display: block; height: 100%; border-radius: 999px; transition: width 0.6s ease; }
-.g-meter i.ok { background: linear-gradient(90deg, #7ee081, #3ecf5a); }
-.g-meter i.meh { background: linear-gradient(90deg, #ffd479, #f5a623); }
-.g-meter i.bad { background: linear-gradient(90deg, #ff8a8a, #ff5252); }
+/* Small trailing detail next to a value: "/100", "/day if sold", unit names. */
+.g-sub { color: var(--g-muted); font-weight: 500; font-size: 0.85em; }
 
-.g-btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-    padding: 10px 16px; border-radius: 12px; font-weight: 700; font-size: 14px;
-    background: rgba(255, 255, 255, 0.1); border: 1px solid var(--g-line); color: var(--g-text);
-    cursor: pointer; transition: transform 0.08s ease, filter 0.15s ease, background 0.15s ease;
-    box-shadow: 0 2px 0 rgba(0, 0, 0, 0.25);
-}
-.g-btn:hover:not(:disabled) { filter: brightness(1.08); transform: translateY(-1px); }
-.g-btn:active:not(:disabled) { transform: translateY(1px); box-shadow: none; }
-.g-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.g-btn-primary { background: linear-gradient(180deg, #5fe07a, #2fb14b); color: #0b2a12; border-color: rgba(0, 0, 0, 0.15); }
-.g-btn-gem { background: linear-gradient(180deg, #7fdcff, #3aa8e0); color: #05283a; border-color: rgba(0, 0, 0, 0.15); }
-.g-btn-danger { background: linear-gradient(180deg, #ff7b7b, #d94141); color: #2a0707; }
-.g-btn-gold { background: linear-gradient(180deg, #ffd97a, #e9a825); color: #3b2500; }
-.g-cost { display: inline-flex; gap: 8px; font-size: 11px; font-weight: 600; opacity: 0.9; padding: 3px 8px; border-radius: 8px; background: rgba(0, 0, 0, 0.18); }
-
-.g-icon {
-    width: 38px; height: 38px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center;
-    background: var(--g-bg); border: 1px solid var(--g-line); color: var(--g-text); font-weight: 800; font-size: 15px;
-    backdrop-filter: blur(10px); cursor: pointer; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
-}
-.g-icon:hover { background: var(--g-bg-2); }
-.g-icon-sm { width: 30px; height: 30px; border-radius: 9px; font-size: 12px; box-shadow: none; }
-.g-icon-danger { color: var(--g-red); }
-
-.g-tag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 8px; background: rgba(255, 255, 255, 0.1); font-size: 12px; font-weight: 700; white-space: nowrap; }
-.g-tag-green { background: rgba(79, 211, 106, 0.18); color: #9af0a8; }
-.g-tag-red { background: rgba(255, 107, 107, 0.18); color: #ffb3b3; }
-.g-tag-warn { background: rgba(245, 196, 81, 0.18); color: #ffe19a; }
-.g-tag-gold { background: rgba(245, 196, 81, 0.2); color: var(--g-gold); }
-
-.g-progress { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
-.g-progress i { display: block; height: 100%; background: linear-gradient(90deg, #7ee081, #3ecf5a); transition: width 0.4s linear; }
-.g-spinner-xs { width: 14px !important; height: 14px !important; border-width: 2px !important; }
-.g-spinner { width: 28px; height: 28px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.2); border-top-color: #fff; animation: g-spin 0.8s linear infinite; }
-@keyframes g-spin { to { transform: rotate(360deg); } }
-.g-cell { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px; border-radius: 12px; background: rgba(255, 255, 255, 0.06); }
-
-.hud { position: absolute; left: 14px; top: 14px; display: flex; flex-wrap: wrap; gap: 8px; z-index: 5; max-width: calc(100% - 160px); }
-.corner { position: absolute; right: 14px; top: 14px; display: flex; gap: 8px; z-index: 5; }
-.placement-rotate { cursor: pointer; pointer-events: auto; padding: 3px 7px; border-radius: 6px; background: var(--g-bg-2); color: inherit; }
-.placement-rotate:hover { filter: brightness(1.2); }
-.hint {
-    position: absolute; left: 50%; top: 70px; transform: translateX(-50%); z-index: 5;
-    display: flex; align-items: center; gap: 10px;
-    padding: 7px 14px; border-radius: 999px; background: var(--g-bg); border: 1px solid var(--g-line);
-    backdrop-filter: blur(10px); font-size: 13px; white-space: nowrap;
-}
-.hint.is-danger { border-color: rgba(229, 50, 45, 0.6); }
-.hint-quote { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); font-weight: 800; color: var(--g-gold); }
-.g-icon.is-on { border-color: rgba(79, 211, 106, 0.6); box-shadow: 0 0 0 2px rgba(79, 211, 106, 0.22), 0 6px 20px rgba(0, 0, 0, 0.25); }
-.motion-frame { position: absolute; inset: 0; pointer-events: none; z-index: 2; box-shadow: inset 0 0 120px 30px rgba(10, 14, 20, 0.45); }
-.g-icon.is-armed { border-color: rgba(229, 50, 45, 0.75); box-shadow: 0 0 0 2px rgba(229, 50, 45, 0.3), 0 6px 20px rgba(0, 0, 0, 0.25); }
-
-/* What a marquee gathered, and the three things worth doing to it. */
-.seltoolbar {
-    position: absolute; left: 50%; bottom: 112px; transform: translateX(-50%); z-index: 6;
-    display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 16px;
-    background: var(--g-bg); border: 1px solid var(--g-line); backdrop-filter: blur(14px);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35); max-width: calc(100% - 28px); flex-wrap: wrap;
-}
-.seltoolbar-count { font-size: 13px; padding: 0 6px; color: var(--g-gem); }
-
-.g-chip-btn { cursor: pointer; }
-.g-chip-btn.is-pinned { border-color: rgba(255, 255, 255, 0.35); }
-.g-meter-lg { width: 110px; position: relative; overflow: visible; }
-.g-meter-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: #fff; opacity: 0.85; border-radius: 1px; }
-.g-dot { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--g-red); color: #fff; font-size: 11px; font-weight: 900; display: inline-flex; align-items: center; justify-content: center; }
-.moodpop { position: absolute; left: 0; top: calc(100% + 8px); z-index: 9; width: 340px; max-height: calc(100vh - 140px); overflow-y: auto; padding: 12px; border-radius: 16px; background: var(--g-bg-2); border: 1px solid var(--g-line); backdrop-filter: blur(12px); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4); display: flex; flex-direction: column; gap: 6px; }
-.moodpop-head { display: flex; align-items: center; gap: 8px; font-size: 14px; }
-.moodpop-next { font-size: 12px; opacity: 0.8; display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
-.moodpop-next-perk { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.08); font-weight: 700; }
-.moodpop-perks { display: flex; flex-wrap: wrap; gap: 6px; }
-.moodpop-ladder { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
-.moodpop-step { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 8px; font-size: 11px; opacity: 0.55; }
-.moodpop-step.is-done { opacity: 0.85; }
-.moodpop-step.is-now { opacity: 1; background: rgba(255, 255, 255, 0.1); outline: 1px solid var(--g-line); }
-.moodpop-sec { margin-top: 6px; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.7; }
-.moodpop-tips { margin: 0; padding-left: 16px; font-size: 12px; display: flex; flex-direction: column; gap: 3px; opacity: 0.9; }
-.bcard-count { position: absolute; right: 8px; top: 6px; font-size: 10px; font-weight: 800; opacity: 0.6; }
-.bcard { position: relative; }
-.g-chip-btn:hover { background: var(--g-bg-2); }
-.needs-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 9px; font-size: 12px; }
-.needs-row.is-ok { background: rgba(79, 211, 106, 0.12); }
-.needs-row.is-bad { background: rgba(255, 107, 107, 0.12); }
-.needs-row.is-off { opacity: 0.45; }
-.needs-badge { min-width: 30px; text-align: right; font-weight: 800; }
-.plotrow { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--g-line); font-size: 13px; }
-.plotrow + .plotrow { margin-top: 6px; }
-.score-row { display: flex; align-items: baseline; gap: 8px; padding: 4px 6px; border-radius: 8px; font-size: 12px; }
-.score-row.is-plus { background: rgba(79, 211, 106, 0.1); }
-.score-row.is-minus { background: rgba(255, 107, 107, 0.12); }
-.score-points { min-width: 34px; text-align: right; font-weight: 900; font-variant-numeric: tabular-nums; }
-.score-row.is-plus .score-points { color: var(--g-green); }
-.score-row.is-minus .score-points { color: var(--g-red); }
-.needs-row.is-ok .needs-badge { color: var(--g-green); }
-.needs-row.is-bad .needs-badge { color: var(--g-red); }
-.needs-foot { margin-top: 8px; font-size: 11px; opacity: 0.75; }
-
-.inv { position: absolute; left: 14px; top: 76px; display: flex; flex-direction: column; gap: 4px; z-index: 4; max-height: calc(100% - 190px); overflow-x: hidden; overflow-y: auto; scrollbar-width: none; padding-right: 2px; }
-.inv::-webkit-scrollbar { display: none; }
-.inv-row {
-    display: grid; grid-template-columns: 22px auto auto; align-items: center; gap: 8px;
-    padding: 5px 10px 5px 8px; border-radius: 10px; background: var(--g-bg); border: 1px solid var(--g-line);
-    backdrop-filter: blur(8px); font-size: 13px; cursor: pointer; text-align: left; color: var(--g-text);
-}
-.inv-row:hover { background: var(--g-bg-2); }
-.inv-row.is-full .inv-num { color: var(--g-gold); }
-.inv-emoji { font-size: 16px; }
-.inv-num { font-weight: 800; font-variant-numeric: tabular-nums; }
-.inv-rate { font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.inv-rate.up { color: var(--g-green); }
-.inv-rate.down { color: var(--g-red); }
-
-.tip.is-cursor { left: var(--cursor-x, 0px); top: var(--cursor-y, 0px); }
-.tip { position: fixed; z-index: 30; pointer-events: none; padding: 8px 12px; border-radius: 10px; background: var(--g-bg-2); border: 1px solid var(--g-line); font-size: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3); }
-
-.card {
-    position: absolute; left: 50%; bottom: 112px; transform: translateX(-50%); z-index: 6;
-    width: min(560px, calc(100% - 28px)); border-radius: 18px; background: var(--g-bg); border: 1px solid var(--g-line);
-    backdrop-filter: blur(14px); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
-}
-.card-head { border-radius: 18px 18px 0 0; }
-.card-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--g-line); }
-.card-emoji { width: 40px; height: 40px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; font-size: 26px; }
-.card-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
-.card-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.card-row { display: flex; align-items: center; gap: 10px; }
-.card-note { font-size: 11.5px; line-height: 1.45; opacity: 0.8; }
-.card-note.is-bad { color: #ffb3b3; opacity: 1; }
-.card-actions { display: flex; gap: 8px; }
-
-.landsec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.55; }
-.landsec-head span { letter-spacing: 0; text-transform: none; font-weight: 700; }
-.landsec-empty { font-size: 12px; opacity: 0.55; padding: 6px 2px; }
-.plot-ico { font-size: 18px; line-height: 1; }
-.plotrow-sub { font-size: 11px; opacity: 0.55; }
-
-/* What a workshop turns into what, at the rate it really runs. */
-.recipe { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.recipe-item { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 10px; font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.recipe-item.is-in { background: rgba(255, 255, 255, 0.07); }
-.recipe-item.is-out { background: rgba(79, 211, 106, 0.18); color: #9af0a8; }
-.recipe-arrow { opacity: 0.4; font-weight: 800; }
-.recipe-unit { font-size: 11px; opacity: 0.55; cursor: help; }
-
-/* The two things that throttle a workshop, side by side. */
-.meters { display: flex; flex-direction: column; gap: 5px; }
-.meter { display: grid; grid-template-columns: 18px 84px 1fr 40px; align-items: center; gap: 8px; font-size: 12px; cursor: help; }
-.meter-ico { font-size: 14px; line-height: 1; }
-.meter-label { opacity: 0.65; white-space: nowrap; }
-.meter-want { font-style: normal; font-weight: 800; opacity: 0.9; }
-.meter-bar { height: 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
-.meter-bar i { display: block; height: 100%; border-radius: 999px; transition: width 0.4s ease; }
-.meter-bar i.ok { background: linear-gradient(90deg, #7ee081, #3ecf5a); }
-.meter-bar i.meh { background: linear-gradient(90deg, #ffd479, #f5a623); }
-.meter-bar i.bad { background: linear-gradient(90deg, #ff8a8a, #ff5252); }
-.meter-value { text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; }
-
-/* The upgrade is its own panel: what, what it costs, then the button. */
-.upgrade { display: flex; align-items: center; gap: 10px; padding: 7px 8px 7px 10px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--g-line); }
-.upgrade-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.upgrade-head { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
-.upgrade-cost { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.upgrade-cost span { display: inline-flex; align-items: center; gap: 4px; }
-.upgrade-go { flex-shrink: 0; padding: 8px 14px; font-size: 12px; }
-/* Hovering Upgrade: the cost gives way to what the next level changes. */
-.upgrade-preview .upgrade-cost span { cursor: default; }
-.preview-from { opacity: 0.45; text-decoration-color: rgba(255, 255, 255, 0.5); }
-.preview-up { color: #9af0a8; }
-.preview-more { color: #ffd479; }
-.preview-label { font-style: normal; font-weight: 600; opacity: 0.55; }
-.g-btn-sm { padding: 7px 12px; font-size: 12px; }
-.g-btn-quiet-danger { color: #ffb3b3; }
-.g-btn-quiet-danger:hover:not(:disabled) { background: rgba(229, 50, 45, 0.2); }
-
-/* A styled tooltip, so nothing has to fall back to the browser's own. */
-[data-tip] { position: relative; }
-[data-tip]::after {
-    content: attr(data-tip);
-    position: absolute;
-    left: 50%;
-    bottom: calc(100% + 9px);
-    z-index: 40;
-    width: max-content;
-    max-width: 280px;
-    padding: 8px 11px;
-    border-radius: 10px;
-    background: rgba(10, 13, 18, 0.98);
+/* ── Surfaces ───────────────────────────────────────────────────────────── */
+.g-panel {
+    background: var(--g-bg);
     border: 1px solid var(--g-line);
-    color: var(--g-text);
-    font: 600 11.5px/1.5 ui-rounded, system-ui, sans-serif;
-    text-align: left;
-    white-space: pre-line;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    opacity: 0;
-    transform: translate(-50%, 5px);
-    pointer-events: none;
-    transition: opacity 0.12s ease, transform 0.12s ease;
+    backdrop-filter: var(--g-blur);
+    box-shadow: var(--g-shadow);
+    border-radius: var(--g-radius);
 }
-[data-tip]:hover::after { opacity: 1; transform: translate(-50%, 0); transition-delay: 0.15s; }
 
-/* Chrome pinned to the top of the screen points its tooltip the other way. */
-[data-tip-below] { position: relative; }
-[data-tip-below]::after {
-    content: attr(data-tip-below);
-    position: absolute;
-    left: 50%;
-    top: calc(100% + 9px);
-    z-index: 40;
-    width: max-content;
-    max-width: 280px;
-    padding: 8px 11px;
-    border-radius: 10px;
-    background: rgba(10, 13, 18, 0.98);
+.g-window {
+    width: min(680px, 100%);
+    max-height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-radius: 18px;
+    background: var(--g-bg-2);
     border: 1px solid var(--g-line);
-    color: var(--g-text);
-    font: 600 11.5px/1.5 ui-rounded, system-ui, sans-serif;
-    text-align: left;
-    white-space: pre-line;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-    opacity: 0;
-    transform: translate(-50%, -5px);
-    pointer-events: none;
-    transition: opacity 0.12s ease, transform 0.12s ease;
+    box-shadow: var(--g-shadow-lg);
+    overflow: hidden;
 }
-[data-tip-below]:hover::after { opacity: 1; transform: translate(-50%, 0); transition-delay: 0.15s; }
-.card-alert { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px; background: rgba(229, 50, 45, 0.18); border: 1px solid rgba(229, 50, 45, 0.5); font-size: 12px; }
-.card-alert b { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; background: #e5322d; color: #fff; text-align: center; line-height: 26px; font-size: 16px; }
-
-.strip {
-    position: absolute; left: 50%; bottom: 112px; transform: translateX(-50%); z-index: 6;
-    width: min(1040px, calc(100% - 28px)); border-radius: 18px; background: var(--g-bg); border: 1px solid var(--g-line);
-    backdrop-filter: blur(14px); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
-}
-.strip-tabs { display: flex; align-items: center; gap: 4px; padding: 10px 12px 0; overflow-x: auto; scrollbar-width: none; }
-.strip-tabs::-webkit-scrollbar { display: none; }
-.strip-lock { padding: 6px 12px 0; font-size: 11px; opacity: 0.7; }
-.strip-tab { flex-shrink: 0; white-space: nowrap; padding: 6px 12px; border-radius: 10px; font-size: 12px; font-weight: 800; color: var(--g-muted); background: transparent; border: 1px solid transparent; cursor: pointer; display: inline-flex; gap: 4px; }
-.strip-tab.is-active { background: rgba(255, 255, 255, 0.1); color: var(--g-text); border-color: var(--g-line); }
-.strip-tab.is-locked { opacity: 0.6; }
-.strip-cards { display: flex; gap: 10px; padding: 10px 12px 12px; overflow-x: auto; overflow-y: visible; scrollbar-width: thin; }
-.bcard {
-    flex: 0 0 150px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 12px 10px 10px;
-    border-radius: 14px; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--g-line); color: var(--g-text); cursor: pointer;
-    transition: transform 0.1s ease, background 0.15s ease, border-color 0.15s ease; text-align: center;
-    background-image: radial-gradient(120px 60px at 50% 0%, color-mix(in srgb, var(--accent) 35%, transparent), transparent);
-}
-.bcard:hover:not(:disabled) { transform: translateY(-3px); background-color: rgba(255, 255, 255, 0.1); }
-.bcard.is-active { border-color: var(--g-green); box-shadow: 0 0 0 2px rgba(79, 211, 106, 0.45); }
-.bcard.is-dim { opacity: 0.6; }
-.bcard:disabled { cursor: not-allowed; filter: grayscale(1); }
-.bcard-emoji { font-size: 34px; line-height: 1; filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.35)); }
-.bcard-name { font-size: 13px; margin-top: 4px; }
-.bcard-cost { font-size: 12px; font-weight: 800; color: var(--g-gold); }
-.bcard-res { display: flex; gap: 6px; font-size: 11px; font-weight: 700; opacity: 0.9; }
-.bcard-meta { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; font-size: 10px; opacity: 0.7; margin-top: 2px; }
-.bcard-io { display: flex; gap: 4px; font-size: 11px; font-weight: 700; margin-top: 2px; }
-
-.chip-key { margin-left: 6px; padding: 0 4px; border-radius: 5px; background: rgba(255, 255, 255, 0.12); font-size: 10px; font-weight: 700; opacity: 0.7; }
-
-.legend {
-    position: absolute; left: 14px; bottom: 16px; z-index: 6; width: 216px;
-    display: flex; flex-direction: column; gap: 2px; padding: 10px;
-    border-radius: 16px; background: var(--g-bg); border: 1px solid var(--g-line);
-    backdrop-filter: blur(14px); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
-}
-.legend-head { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 800; margin-bottom: 2px; }
-.legend-row { display: grid; grid-template-columns: 11px 1fr auto; gap: 8px; align-items: baseline; padding: 4px 6px; border-radius: 9px; border: 1px solid transparent; }
-.legend-row i { width: 11px; height: 11px; border-radius: 3px; align-self: center; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35); }
-.legend-row b { font-size: 12px; }
-.legend-row span { font-size: 10.5px; text-align: right; color: var(--g-muted); }
-.legend-row.is-boosting { background: rgba(255, 255, 255, 0.09); border-color: rgba(255, 255, 255, 0.35); }
-
-.dock {
-    position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 25;
-    display: flex; align-items: center; gap: 6px; padding: 8px; border-radius: 20px;
-    background: var(--g-bg); border: 1px solid var(--g-line); backdrop-filter: blur(14px); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
-}
-.dock-btn {
-    position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; width: 84px; padding: 8px 6px 6px;
-    border-radius: 14px; background: transparent; border: 1px solid transparent; color: var(--g-text); font-size: 12px; font-weight: 800; cursor: pointer;
-    transition: background 0.15s ease, transform 0.1s ease;
-}
-.dock-btn kbd { position: absolute; right: 6px; top: 6px; opacity: 0.5; }
-.dock-dot { position: absolute; left: 8px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--g-green); box-shadow: 0 0 8px var(--g-green); }
-.dock-btn:hover { background: rgba(255, 255, 255, 0.08); transform: translateY(-2px); }
-.dock-btn.is-active { background: rgba(255, 255, 255, 0.14); border-color: var(--g-line); }
-.dock-ico { font-size: 26px; line-height: 1; filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.35)); }
-.dock-badge { position: absolute; left: 50%; top: 2px; transform: translateX(6px); min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px; background: var(--g-green); color: #0b2a12; font-size: 11px; font-weight: 900; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4); }
-.dock-sep { width: 1px; height: 44px; background: var(--g-line); margin: 0 4px; }
-.dock-land { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 14px; font-size: 12px; font-weight: 700; color: var(--g-muted); }
-.dock-land .dock-ico { font-size: 22px; }
-.dock-land.is-ready { color: var(--g-gold); background: rgba(245, 196, 81, 0.12); }
-
-.found-screen { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 24px; background: radial-gradient(ellipse at 50% 30%, #bfe6f7, #6fb8d9 70%); }
-.found-card { max-width: 440px; text-align: center; padding: 36px 32px; border-radius: 24px; background: var(--g-bg); border: 1px solid var(--g-line); backdrop-filter: blur(14px); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35); }
-
-/* The dock sits along the bottom edge, so leave it room: a window that
-   reaches under it hides its own footer. */
-.backdrop { position: absolute; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 24px 24px 116px; background: rgba(6, 10, 16, 0.45); backdrop-filter: blur(3px); }
-.g-window { width: min(680px, 100%); max-height: 100%; display: flex; flex-direction: column; border-radius: 20px; background: rgba(18, 22, 29, 0.96); border: 1px solid var(--g-line); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5); overflow: hidden; }
 .g-window.is-wide { width: min(920px, 100%); height: min(680px, 100%); }
 .g-window.is-small { width: min(520px, 100%); }
 .g-window.is-tiny { width: min(400px, 100%); }
-.g-window-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--g-line); }
-.g-window-head h2 { font-size: 17px; font-weight: 900; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; }
-.g-window-body { padding: 16px 18px; overflow-x: hidden; overflow-y: auto; }
 
+.g-window-head {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--g-line);
+}
+.g-window-head h2 {
+    margin-right: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--g-font-display);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+.g-window-head h2 > .iconify { color: var(--g-muted); }
+.g-window-body { padding: 16px; overflow-x: hidden; overflow-y: auto; }
+
+.g-sec {
+    background: var(--g-fill);
+    border: 1px solid var(--g-line);
+    border-radius: var(--g-radius);
+    padding: 12px 14px;
+}
+.g-sec > header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--g-muted);
+}
+/* A second child is the header's right slot: a count, not another label. */
+.g-sec > header > span + span {
+    letter-spacing: 0;
+    text-transform: none;
+    font-weight: 600;
+    font-size: 11.5px;
+    color: var(--g-text-2);
+}
+
+.g-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--g-muted);
+}
+
+.g-copy { font-size: 13px; line-height: 1.55; color: var(--g-text-2); }
+.g-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Label left, one number right — the figure every confirm modal shows. */
+.g-stat {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: var(--g-radius-sm);
+    background: var(--g-fill);
+    border: 1px solid var(--g-line);
+}
+.g-stat > b {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 17px;
+    font-variant-numeric: tabular-nums;
+}
+
+.g-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--g-radius-sm);
+    font-size: 13px;
+}
+.g-row:hover { background: var(--g-fill); }
+
+.g-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 6px;
+    border-radius: var(--g-radius-sm);
+    background: var(--g-fill);
+    border: 1px solid var(--g-line);
+    font-variant-numeric: tabular-nums;
+}
+
+.g-empty {
+    padding: 12px;
+    border: 1px dashed var(--g-line-2);
+    border-radius: var(--g-radius-sm);
+    font-size: 12px;
+    color: var(--g-muted);
+    text-align: center;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.g-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 14px;
+    border-radius: var(--g-radius-sm);
+    font-weight: 600;
+    font-size: 13px;
+    background: var(--g-fill-2);
+    border: 1px solid var(--g-line);
+    color: var(--g-text);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: transform 0.1s ease, filter 0.15s ease, background 0.15s ease;
+}
+.g-btn:hover:not(:disabled) { filter: brightness(1.05); transform: translateY(-1px); }
+.g-btn:active:not(:disabled) { transform: none; }
+.g-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.g-btn-primary { background: var(--g-accent); border-color: transparent; color: var(--g-accent-fg); }
+.g-btn-gold { background: var(--g-gold-bg); color: var(--g-gold); border-color: color-mix(in srgb, var(--g-gold) 40%, transparent); }
+.g-btn-gem { background: var(--g-gem-bg); color: var(--g-gem); border-color: color-mix(in srgb, var(--g-gem) 40%, transparent); }
+.g-btn-danger { background: var(--g-red-bg); color: var(--g-red); border-color: color-mix(in srgb, var(--g-red) 40%, transparent); }
+.g-btn-ghost { background: transparent; border-color: transparent; color: var(--g-text-2); }
+.g-btn-ghost:hover:not(:disabled) { background: var(--g-fill); }
+.g-btn-sm { padding: 6px 10px; font-size: 12px; border-radius: var(--g-radius-xs); }
+.g-btn-xs { padding: 4px 8px; font-size: 11px; border-radius: var(--g-radius-xs); }
+/* Kept for the panels: a text-only danger action inside a list row. */
+.g-btn-quiet-danger { background: transparent; border-color: transparent; color: var(--g-red); }
+.g-btn-quiet-danger:hover:not(:disabled) { background: var(--g-red-bg); }
+
+.g-icon {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    border-radius: var(--g-radius-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--g-fill);
+    border: 1px solid var(--g-line);
+    color: var(--g-text-2);
+    font-size: 16px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.g-icon:hover { background: var(--g-fill-2); color: var(--g-text); }
+.g-icon-sm { width: 28px; height: 28px; font-size: 14px; }
+.g-icon.is-on { border-color: color-mix(in srgb, var(--g-accent) 55%, transparent); color: var(--g-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-accent) 20%, transparent); }
+.g-icon.is-armed { border-color: color-mix(in srgb, var(--g-red) 60%, transparent); color: var(--g-red); box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-red) 22%, transparent); }
+.g-icon-danger { color: var(--g-red); }
+/* The corner buttons float over the scene, so they carry the panel surface. */
+.corner .g-icon { background: var(--g-bg); backdrop-filter: var(--g-blur); box-shadow: var(--g-shadow); }
+
+/* ── Chips, tags, meters ────────────────────────────────────────────────── */
+.g-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: var(--g-radius);
+    background: var(--g-bg);
+    border: 1px solid var(--g-line);
+    backdrop-filter: var(--g-blur);
+    box-shadow: var(--g-shadow);
+    color: var(--g-text);
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.g-chip b { font-variant-numeric: tabular-nums; }
+.g-chip-btn { cursor: pointer; }
+.g-chip-btn:hover { background: var(--g-bg-2); }
+.g-chip-btn.is-pinned { border-color: var(--g-line-2); background: var(--g-bg-2); }
+.g-chip-warn { border-color: color-mix(in srgb, var(--g-warn) 55%, transparent); }
+.g-chip-warn b { color: var(--g-warn); }
+.g-chip-gold b { color: var(--g-gold); }
+.g-chip-gem b { color: var(--g-gem); }
+.g-chip-green b { color: var(--g-green); }
+.g-ico { width: 15px; height: 15px; flex-shrink: 0; color: var(--g-muted); }
+.g-chip .g-ico.is-green { color: var(--g-green); }
+
+.g-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    border-radius: var(--g-radius-xs);
+    background: var(--g-fill-2);
+    color: var(--g-text-2);
+    font-size: 11.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.g-tag-green { background: var(--g-green-bg); color: var(--g-green); }
+.g-tag-red { background: var(--g-red-bg); color: var(--g-red); }
+.g-tag-gold { background: var(--g-gold-bg); color: var(--g-gold); }
+.g-tag-gem { background: var(--g-gem-bg); color: var(--g-gem); }
+.g-tag-warn { background: var(--g-warn-bg); color: var(--g-warn); }
+
+.g-meter {
+    display: inline-block;
+    width: 100%;
+    height: 6px;
+    border-radius: 999px;
+    background: var(--g-fill-2);
+    overflow: hidden;
+}
+.g-meter i { display: block; height: 100%; border-radius: 999px; background: var(--g-muted); transition: width 0.6s ease; }
+.g-meter i.ok { background: var(--g-green); }
+.g-meter i.meh { background: var(--g-warn); }
+.g-meter i.bad { background: var(--g-red); }
+.g-meter-lg { width: 90px; flex-shrink: 0; position: relative; overflow: visible; }
+/* Specific enough to beat `[data-tip-below] { position: relative }`, which the
+   mark carries and which would otherwise drop it back into the flow. */
+.g-meter .g-meter-mark { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: var(--g-line-2); }
+
+.g-progress { height: 6px; border-radius: 999px; background: var(--g-fill-2); overflow: hidden; }
+.g-progress i { display: block; height: 100%; border-radius: 999px; background: var(--g-accent); transition: width 0.4s linear; }
+.g-progress i.ok { background: var(--g-green); }
+.g-progress i.meh { background: var(--g-warn); }
+.g-progress i.bad { background: var(--g-red); }
+
+.g-input {
+    height: 34px;
+    padding: 0 10px;
+    border-radius: var(--g-radius-sm);
+    background: var(--g-fill);
+    border: 1px solid var(--g-line);
+    color: var(--g-text);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+.g-input::placeholder { color: var(--g-muted); }
+.g-input:focus {
+    outline: none;
+    border-color: var(--g-line-2);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--g-accent) 25%, transparent);
+}
+
+.g-dot {
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--g-red);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.town-root kbd,
+.g-kbd {
+    font: 600 10px/1 ui-monospace, SFMono-Regular, monospace;
+    padding: 2px 4px;
+    border-radius: 4px;
+    background: var(--g-fill-2);
+    border: 1px solid var(--g-line);
+    color: var(--g-muted);
+}
+
+.g-spinner {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid var(--g-line-2);
+    border-top-color: var(--g-text);
+    animation: g-spin 0.8s linear infinite;
+}
+.g-spinner-xs { width: 13px !important; height: 13px !important; }
+@keyframes g-spin { to { transform: rotate(360deg); } }
+
+/* Kept for the panels: a compact inline cost readout. */
+.g-cost {
+    display: inline-flex;
+    gap: 8px;
+    padding: 3px 8px;
+    border-radius: var(--g-radius-xs);
+    background: var(--g-fill);
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Tooltips ───────────────────────────────────────────────────────────── */
+[data-tip],
+[data-tip-below] { position: relative; }
+[data-tip]::after,
+[data-tip-below]::after {
+    position: absolute;
+    left: 50%;
+    z-index: 40;
+    width: max-content;
+    max-width: 260px;
+    padding: 7px 10px;
+    border-radius: var(--g-radius-sm);
+    background: var(--g-bg-2);
+    border: 1px solid var(--g-line);
+    color: var(--g-text);
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 1.45;
+    text-align: left;
+    white-space: pre-line;
+    box-shadow: var(--g-shadow);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease, transform 0.12s ease;
+}
+[data-tip]::after { content: attr(data-tip); bottom: calc(100% + 8px); transform: translate(-50%, 4px); }
+[data-tip-below]::after { content: attr(data-tip-below); top: calc(100% + 8px); transform: translate(-50%, -4px); }
+[data-tip]:hover::after,
+[data-tip-below]:hover::after { opacity: 1; transform: translate(-50%, 0); transition-delay: 0.2s; }
+
+/* ── Transitions ────────────────────────────────────────────────────────── */
 .fade-enter-active, .fade-leave-active { transition: opacity 0.18s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
 .rise-enter-active, .rise-leave-active { transition: opacity 0.18s ease, transform 0.18s ease; }
-.rise-enter-from, .rise-leave-to { opacity: 0; transform: translate(-50%, 12px); }
+.rise-enter-from, .rise-leave-to { opacity: 0; transform: translate(-50%, 10px); }
+
+/* ── Founding ───────────────────────────────────────────────────────────── */
+.found-screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: #a9d6ea;
+}
+.dark .found-screen { background: #16181d; }
+.found-card {
+    max-width: 420px;
+    text-align: center;
+    padding: 36px 32px;
+    border-radius: 20px;
+    background: var(--g-bg-2);
+    border: 1px solid var(--g-line);
+    box-shadow: var(--g-shadow-lg);
+}
+.found-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    border-radius: var(--g-radius);
+    background: var(--g-fill);
+    border: 1px solid var(--g-line);
+    color: var(--g-accent);
+    font-size: 28px;
+}
+.found-title { margin-top: 14px; font-family: var(--g-font-display); font-size: 30px; font-weight: 600; letter-spacing: -0.02em; }
+.found-copy { margin-top: 10px; font-size: 13.5px; line-height: 1.6; color: var(--g-text-2); }
+.found-go { margin-top: 22px; padding: 11px 20px; font-size: 14px; }
+.found-note { margin-top: 10px; font-size: 11.5px; color: var(--g-muted); }
+
+/* ── HUD ────────────────────────────────────────────────────────────────── */
+.hud { position: absolute; left: 14px; top: 14px; display: flex; flex-wrap: wrap; gap: 8px; z-index: 5; max-width: calc(100% - 250px); }
+.corner { position: absolute; right: 14px; top: 14px; display: flex; gap: 8px; z-index: 5; }
+.motion-frame { position: absolute; inset: 0; pointer-events: none; z-index: 2; box-shadow: inset 0 0 120px 30px rgba(10, 14, 20, 0.2); }
+.mood-face { font-size: 16px; line-height: 1; }
+.mood-face.is-lg { font-size: 24px; }
+
+.moodpop {
+    position: absolute;
+    left: 0;
+    top: calc(100% + 8px);
+    z-index: 9;
+    width: 360px;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+    padding: 12px;
+    border-radius: var(--g-radius);
+    background: var(--g-bg-2);
+    border: 1px solid var(--g-line);
+    box-shadow: var(--g-shadow-lg);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+/* A chip with a hover popover. The bridge under the chip keeps the popover
+   open while the pointer crosses the gap; the popover itself clips, so it
+   cannot carry the bridge. */
+.hud-hover { position: relative; }
+.hud-hover::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 12px; }
+.moodpop.is-income { width: 300px; }
+.moodpop.is-builders { width: 320px; }
+.moodpop-sub { margin-top: 2px; font-size: 11.5px; color: var(--g-muted); }
+.moodpop-foot { font-size: 11px; color: var(--g-muted); }
+.moodpop-group { display: flex; flex-direction: column; gap: 4px; }
+.moodpop-head { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.moodpop-score { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--g-text-2); }
+.moodpop-perks { display: flex; flex-wrap: wrap; gap: 6px; }
+.moodpop-next { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; font-size: 11.5px; color: var(--g-text-2); }
+.moodpop-next-perk { padding: 1px 6px; border-radius: var(--g-radius-xs); background: var(--g-fill); font-weight: 600; }
+
+.rec-row {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 6px;
+    border-radius: var(--g-radius-xs);
+    background: var(--g-fill);
+    border: 1px solid var(--g-line);
+    color: var(--g-text);
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+.rec-row:hover:not(:disabled) { background: var(--g-fill-2); border-color: var(--g-line-2); }
+.rec-row:disabled { cursor: not-allowed; }
+.rec-row.is-dim { opacity: 0.55; }
+.rec-art { font-size: 12px; line-height: 1; }
+.rec-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.rec-main b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
+.rec-meta { display: flex; align-items: center; gap: 5px; }
+.rec-level { font-size: 10.5px; color: var(--g-muted); font-variant-numeric: tabular-nums; }
+.rec-meta .g-tag { padding: 1px 5px; font-size: 10px; }
+.rec-cost { display: flex; flex-wrap: wrap; justify-content: flex-end; max-width: 130px; gap: 2px 7px; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rec-cost > span { display: inline-flex; align-items: center; gap: 3px; }
+
+.income-row { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 3px 6px; border-radius: var(--g-radius-xs); font-size: 12px; }
+.income-row:hover { background: var(--g-fill); }
+.income-row b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.income-ico { font-size: 12px; line-height: 1; }
+.income-rate { font-size: 11px; color: var(--g-muted); font-variant-numeric: tabular-nums; }
+.income-value { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 78px; font-size: 13px; font-weight: 650; color: var(--g-gold); font-variant-numeric: tabular-nums; }
+.income-row.is-total { grid-template-columns: 1fr auto; margin-top: 2px; padding-top: 7px; border-top: 1px solid var(--g-line); }
+.income-row.is-total:hover { background: none; }
+
+.score-row { display: grid; grid-template-columns: 14px 86px 1fr auto; align-items: center; gap: 8px; padding: 4px 6px; border-radius: var(--g-radius-xs); font-size: 12px; }
+.score-row.is-plus { background: var(--g-green-bg); }
+.score-row.is-minus { background: var(--g-red-bg); }
+.score-row b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.score-ico { width: 14px; height: 14px; color: var(--g-muted); }
+.score-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--g-muted); }
+.score-points { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.score-row.is-plus .score-points { color: var(--g-green); }
+.score-row.is-minus .score-points { color: var(--g-red); }
+
+.needs-row { display: grid; grid-template-columns: 18px 76px 1fr 34px; align-items: center; gap: 8px; padding: 4px 6px; border-radius: var(--g-radius-xs); font-size: 12px; }
+.needs-row.is-ok { background: var(--g-green-bg); }
+.needs-row.is-bad { background: var(--g-red-bg); }
+.needs-ico { font-size: 12px; line-height: 1; }
+.needs-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--g-muted); }
+.needs-badge { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.needs-row.is-ok .needs-badge { color: var(--g-green); }
+.needs-row.is-bad .needs-badge { color: var(--g-red); }
+
+/* ── Placement hint ─────────────────────────────────────────────────────── */
+.hint {
+    position: absolute;
+    left: 50%;
+    top: 70px;
+    transform: translateX(-50%);
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: var(--g-bg);
+    border: 1px solid var(--g-line);
+    backdrop-filter: var(--g-blur);
+    box-shadow: var(--g-shadow);
+    font-size: 12.5px;
+    white-space: nowrap;
+}
+.hint.is-danger { border-color: color-mix(in srgb, var(--g-red) 55%, transparent); color: var(--g-red); }
+.hint-note { color: var(--g-muted); }
+.hint-quote { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: var(--g-gold-bg); color: var(--g-gold); font-weight: 600; font-variant-numeric: tabular-nums; }
+.hint-btn { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: var(--g-radius-xs); background: var(--g-fill); color: var(--g-text-2); font-size: 11px; cursor: pointer; }
+.hint-btn:hover { background: var(--g-fill-2); color: var(--g-text); }
+
+/* ── Inventory ──────────────────────────────────────────────────────────── */
+.inv {
+    position: absolute;
+    left: 14px;
+    top: 62px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    z-index: 4;
+    max-height: calc(100% - 180px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: none;
+    padding-right: 2px;
+}
+.inv::-webkit-scrollbar { display: none; }
+.inv-row {
+    display: grid;
+    grid-template-columns: 18px 46px 1fr;
+    align-items: center;
+    gap: 7px;
+    height: 30px;
+    padding: 0 9px;
+    border-radius: var(--g-radius-sm);
+    /* Opaque on purpose: blurred grass behind a translucent row reads as a green stain. */
+    background: var(--g-bg-2);
+    border: 1px solid var(--g-line);
+    box-shadow: var(--g-shadow);
+    font-size: 12.5px;
+    text-align: left;
+    color: var(--g-text);
+    cursor: pointer;
+}
+.inv-row:hover { background: var(--g-bg-2); }
+.inv-ico { font-size: 12px; line-height: 1; }
+.inv-num { font-weight: 650; font-variant-numeric: tabular-nums; }
+.inv-row.is-full .inv-num { color: var(--g-gold); }
+.inv-tail { display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.inv-full { width: 11px; height: 11px; flex-shrink: 0; color: var(--g-gold); }
+.inv-rate { font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.inv-rate.up { color: var(--g-green); }
+.inv-rate.down { color: var(--g-red); }
+
+/* ── Cursor tooltips ────────────────────────────────────────────────────── */
+/* Driven by --cursor-x/--cursor-y so a mousemove never re-renders the game. */
+.tip {
+    position: fixed;
+    z-index: 30;
+    pointer-events: none;
+    padding: 7px 10px;
+    border-radius: var(--g-radius-sm);
+    background: var(--g-bg-2);
+    border: 1px solid var(--g-line);
+    box-shadow: var(--g-shadow);
+    font-size: 12px;
+    max-width: 260px;
+}
+.tip.is-cursor { left: var(--cursor-x, 0px); top: var(--cursor-y, 0px); }
+.tip b { display: inline-flex; align-items: center; gap: 5px; }
+.tip-sub { display: flex; align-items: center; gap: 5px; margin-top: 2px; font-size: 11.5px; color: var(--g-text-2); }
+.tip-bad { display: inline-flex; align-items: center; gap: 5px; color: var(--g-red); font-weight: 600; }
+
+/* ── Selection toolbar ──────────────────────────────────────────────────── */
+.seltoolbar {
+    position: absolute;
+    left: 50%;
+    bottom: 112px;
+    transform: translateX(-50%);
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px;
+    max-width: calc(100% - 28px);
+    background: var(--g-bg);
+    border: 1px solid var(--g-line);
+    backdrop-filter: var(--g-blur);
+    box-shadow: var(--g-shadow);
+    border-radius: var(--g-radius);
+}
+.seltoolbar-count { padding: 0 4px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+/* ── Selected building card ─────────────────────────────────────────────── */
+.card {
+    position: absolute;
+    left: 50%;
+    bottom: 112px;
+    transform: translateX(-50%);
+    z-index: 6;
+    width: min(560px, calc(100% - 28px));
+}
+.card-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--g-line); }
+.card-art {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--g-radius-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+.card-title { display: flex; align-items: center; gap: 8px; }
+.card-title b { font-family: var(--g-font-display); font-size: 16px; }
+.card-desc { margin-top: 1px; font-size: 11.5px; line-height: 1.4; color: var(--g-muted); }
+.card-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 9px; }
+.card-row { display: flex; align-items: center; gap: 10px; }
+.card-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 5px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.card-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.card-actions { display: flex; gap: 8px; }
+.card-maxed { justify-content: center; padding: 6px; }
+.card-note { display: flex; align-items: flex-start; gap: 6px; font-size: 11.5px; line-height: 1.45; color: var(--g-red); }
+.card-note > .iconify { flex-shrink: 0; margin-top: 2px; }
+.card-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 9px 11px;
+    border-radius: var(--g-radius-sm);
+    background: var(--g-red-bg);
+    border: 1px solid color-mix(in srgb, var(--g-red) 40%, transparent);
+    color: var(--g-red);
+    font-size: 12px;
+    line-height: 1.45;
+}
+.card-alert > .iconify { flex-shrink: 0; margin-top: 1px; font-size: 15px; }
+
+.recipe { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.recipe-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 9px;
+    border-radius: var(--g-radius-xs);
+    font-size: 12.5px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+}
+.recipe-item.is-in { background: var(--g-fill-2); color: var(--g-text-2); }
+.recipe-item.is-out { background: var(--g-green-bg); color: var(--g-green); }
+.recipe-arrow { color: var(--g-muted); }
+.recipe-unit { font-size: 11px; color: var(--g-muted); cursor: help; }
+
+.meters { display: flex; flex-direction: column; gap: 6px; }
+.meter { display: grid; grid-template-columns: 14px 92px 1fr 38px; align-items: center; gap: 8px; font-size: 12px; cursor: help; }
+.meter-ico { width: 14px; height: 14px; color: var(--g-muted); }
+.meter-label { color: var(--g-muted); white-space: nowrap; }
+.meter-label em { font-style: normal; font-weight: 650; color: var(--g-text-2); }
+.meter-value { text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; }
+
+.upgrade {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 8px 8px 11px;
+    border-radius: var(--g-radius-sm);
+    background: var(--g-fill);
+    border: 1px solid var(--g-line);
+}
+.upgrade-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.upgrade-head { display: flex; align-items: baseline; gap: 8px; }
+.upgrade-head .g-sub { display: inline-flex; align-items: center; gap: 4px; }
+.upgrade-cost { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.upgrade-cost span { display: inline-flex; align-items: center; gap: 4px; }
+.preview-from { color: var(--g-muted); }
+.preview-up { color: var(--g-green); }
+.preview-more { color: var(--g-warn); }
+.preview-label { font-style: normal; font-weight: 500; color: var(--g-muted); }
+
+/* ── Build strip ────────────────────────────────────────────────────────── */
+.strip {
+    position: absolute;
+    left: 50%;
+    bottom: 112px;
+    transform: translateX(-50%);
+    z-index: 6;
+    width: min(1040px, calc(100% - 28px));
+}
+.strip-tabs { display: flex; align-items: center; gap: 4px; padding: 9px 10px 0; overflow-x: auto; scrollbar-width: none; }
+.strip-tabs::-webkit-scrollbar { display: none; }
+.strip-tab {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    padding: 5px 11px;
+    border-radius: var(--g-radius-xs);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--g-muted);
+    background: transparent;
+    border: 1px solid transparent;
+    cursor: pointer;
+}
+.strip-tab:hover { color: var(--g-text); }
+.strip-tab.is-active { background: var(--g-fill-2); border-color: var(--g-line); color: var(--g-text); }
+.strip-tab.is-locked { opacity: 0.6; }
+.strip-lock { display: flex; align-items: center; gap: 6px; padding: 7px 12px 0; font-size: 11.5px; color: var(--g-warn); }
+.strip-cards { display: flex; align-items: stretch; gap: 9px; padding: 10px; overflow-x: auto; overflow-y: visible; scrollbar-width: thin; }
+
+.bcard {
+    position: relative;
+    flex: 0 0 148px;
+    min-height: 176px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 12px 10px 10px;
+    border-radius: var(--g-radius-sm);
+    background: var(--g-fill);
+    border: 1px solid var(--g-line);
+    color: var(--g-text);
+    cursor: pointer;
+    overflow: hidden;
+    text-align: center;
+    transition: transform 0.1s ease, background 0.15s ease, border-color 0.15s ease;
+}
+/* One 3px bar in the building's own colour instead of a glow. */
+.bcard::before { content: ''; position: absolute; inset: 0 0 auto; height: 3px; background: var(--accent); }
+.bcard:hover:not(:disabled) { transform: translateY(-2px); background: var(--g-fill-2); }
+.bcard.is-active { border-color: var(--g-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-accent) 30%, transparent); }
+.bcard.is-dim { opacity: 0.55; }
+.bcard:disabled { cursor: not-allowed; filter: grayscale(1); }
+.bcard-count { position: absolute; right: 8px; top: 8px; font-size: 10px; font-weight: 600; color: var(--g-muted); font-variant-numeric: tabular-nums; }
+.bcard-art { display: inline-flex; align-items: center; justify-content: center; height: 52px; font-size: 28px; line-height: 1; color: var(--g-text-2); }
+.bcard-name { font-size: 13px; font-weight: 600; }
+.bcard-cost { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 650; color: var(--g-gold); font-variant-numeric: tabular-nums; }
+.bcard-res { display: flex; gap: 7px; font-size: 11px; font-weight: 600; color: var(--g-text-2); font-variant-numeric: tabular-nums; }
+.bcard-res span, .bcard-io span { display: inline-flex; align-items: center; gap: 3px; }
+.bcard-meta { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px 7px; font-size: 10px; color: var(--g-muted); font-variant-numeric: tabular-nums; }
+.bcard-meta span { display: inline-flex; align-items: center; gap: 3px; }
+.bcard-io { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--g-text-2); font-variant-numeric: tabular-nums; }
+.bcard-io .is-out { color: var(--g-green); }
+
+/* ── Terrain legend ─────────────────────────────────────────────────────── */
+.legend { position: absolute; left: 14px; bottom: 16px; z-index: 6; width: 220px; display: flex; flex-direction: column; gap: 2px; padding: 10px; }
+.legend-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.legend-row { display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; padding: 4px 6px; border-radius: var(--g-radius-xs); border: 1px solid transparent; }
+.legend-row i { width: 10px; height: 10px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25); }
+.legend-row b { font-size: 12px; font-weight: 600; }
+.legend-row span { font-size: 10.5px; text-align: right; color: var(--g-muted); }
+.legend-row.is-boosting { background: var(--g-fill-2); border-color: var(--g-line-2); }
+
+/* ── Dock ───────────────────────────────────────────────────────────────── */
+.dock {
+    position: absolute;
+    left: 50%;
+    bottom: 16px;
+    transform: translateX(-50%);
+    z-index: 25;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px;
+    border-radius: 18px;
+}
+.dock-btn {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    width: 72px;
+    padding: 8px 4px 6px;
+    border-radius: var(--g-radius-sm);
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--g-text-2);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.dock-btn > span { font-size: 11px; }
+.dock-btn:hover { background: var(--g-fill); color: var(--g-text); }
+.dock-btn.is-active { background: var(--g-fill-2); border-color: var(--g-line); color: var(--g-text); }
+.dock-btn.is-active .dock-ico { color: var(--g-accent); }
+.dock-ico { width: 20px; height: 20px; margin-top: 4px; color: var(--g-muted); }
+.dock-btn:hover .dock-ico { color: var(--g-text); }
+.dock-btn kbd { position: absolute; right: 4px; top: 4px; padding: 1px; font-size: 9px; border: 0; background: transparent; }
+.dock-dot { position: absolute; left: 8px; top: 8px; width: 6px; height: 6px; border-radius: 50%; background: var(--g-green); }
+.dock-badge {
+    position: absolute;
+    left: 50%;
+    top: 2px;
+    transform: translateX(4px);
+    min-width: 17px;
+    height: 17px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--g-accent);
+    color: var(--g-accent-fg);
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ── Land window ────────────────────────────────────────────────────────── */
+.plotrow { border: 1px solid var(--g-line); background: var(--g-bg-2); }
+.plotrow:hover { background: var(--g-bg-2); border-color: var(--g-line-2); }
+.plotrow + .plotrow { margin-top: 5px; }
+.plot-ico { width: 16px; height: 16px; flex-shrink: 0; color: var(--g-muted); }
+.plotrow-sub { font-size: 11px; color: var(--g-muted); }
+.plotrow-sub.is-gold { color: var(--g-gold); }
+.plotrow-price { display: inline-flex; align-items: center; gap: 4px; color: var(--g-gold); font-variant-numeric: tabular-nums; }
+
+/* ── Modals ─────────────────────────────────────────────────────────────── */
+/* The dock sits along the bottom edge, so leave it room: a window that
+   reaches under it hides its own footer. */
+.backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 24px 116px;
+    background: rgba(40, 32, 16, 0.32);
+    backdrop-filter: blur(3px);
+}
+.dark .backdrop { background: rgba(4, 6, 10, 0.5); }
+
+.welcome-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.welcome-art { font-size: 22px; line-height: 1; }
+.welcome-worth { text-align: center; font-size: 12.5px; color: var(--g-text-2); }
+.welcome-worth b { display: inline-flex; align-items: center; gap: 4px; color: var(--g-gold); }
+.blocked-art { font-size: 16px; line-height: 1; }
+
+/* ── Help ───────────────────────────────────────────────────────────────── */
+.help dl { display: grid; grid-template-columns: 112px 1fr; gap: 6px 12px; align-items: baseline; }
+.help dt { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650; color: var(--g-text); }
+.help dt > .iconify { color: var(--g-muted); flex-shrink: 0; }
+.help dd { font-size: 12.5px; line-height: 1.5; color: var(--g-text-2); }
+.help-keys { font-size: 12px; line-height: 1.9; color: var(--g-text-2); }
+.help-keys kbd { margin-right: 2px; }
+@media (max-width: 520px) {
+    .help dl { grid-template-columns: 1fr; gap: 2px; }
+    .help dd { margin-bottom: 8px; }
+}
 </style>

@@ -7,5 +7,5 @@
 </template>
 
 <style scoped>
-.town-coin { display: inline-block; width: 1em; height: 1em; color: #facc15; vertical-align: -0.12em; flex-shrink: 0; }
+.town-coin { display: inline-block; width: 1em; height: 1em; color: var(--g-gold); vertical-align: -0.12em; flex-shrink: 0; }
 </style>

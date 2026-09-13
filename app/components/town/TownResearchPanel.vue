@@ -66,17 +66,19 @@ function pick(p: Project) {
 <template>
     <div class="flex h-full min-h-0 flex-col">
         <div class="g-window-head">
-            <h2>🔬 Research <span class="text-sm font-semibold opacity-50">{{ doneCount }}/{{ projects.length }}</span></h2>
-            <button class="g-icon g-icon-sm" @click="emit('close')">✕</button>
+            <h2>Research <span class="g-tag">{{ doneCount }}/{{ projects.length }}</span></h2>
+            <button class="g-icon g-icon-sm" @click="emit('close')"><UIcon name="i-lucide-x" /></button>
         </div>
 
-        <div v-if="activeDef" class="active-bar">
-            <span class="text-lg">🔬</span>
-            <div class="min-w-0 flex-1">
-                <b class="text-sm">{{ activeDef.name }}</b>
-                <div class="g-progress mt-1"><i :style="{ width: `${Math.round(100 * (1 - activeRemaining / activeDef.durationMs))}%` }" /></div>
+        <div v-if="activeDef" class="active-wrap">
+            <div class="g-sec active-bar">
+                <UIcon name="i-lucide-flask-conical" class="active-icon" />
+                <div class="min-w-0 flex-1">
+                    <b class="active-name">{{ activeDef.name }}</b>
+                    <div class="g-progress mt-1"><i :style="{ width: `${Math.round(100 * (1 - activeRemaining / activeDef.durationMs))}%` }" /></div>
+                </div>
+                <b class="active-time">{{ formatTownDuration(activeRemaining) }}</b>
             </div>
-            <b class="shrink-0 tabular-nums text-sm">{{ formatTownDuration(activeRemaining) }}</b>
         </div>
 
         <div class="g-window-body">
@@ -84,8 +86,8 @@ function pick(p: Project) {
                 <div class="branch-head">
                     <span class="branch-emoji">{{ row.emoji }}</span>
                     <div class="min-w-0">
-                        <b class="text-sm">{{ row.name }}</b>
-                        <div class="text-[11px] opacity-55">{{ row.description }}</div>
+                        <b class="branch-name">{{ row.name }}</b>
+                        <div class="branch-desc">{{ row.description }}</div>
                     </div>
                 </div>
                 <div class="branch-line">
@@ -96,9 +98,9 @@ function pick(p: Project) {
                             :class="[p.done ? 'is-done' : '', p.id === active?.researchId ? 'is-active' : '', !p.unlocked ? 'is-locked' : '', picked === p.id ? 'is-picked' : '']"
                             @click="pick(p)"
                         >
-                            <span v-if="p.done">✓</span>
-                            <span v-else-if="p.id === active?.researchId" class="g-spinner g-spinner-xs" />
-                            <span v-else-if="!p.unlocked">🔒</span>
+                            <UIcon v-if="p.done" name="i-lucide-check" class="node-icon" />
+                            <span v-else-if="p.id === active?.researchId" class="g-spinner" />
+                            <UIcon v-else-if="!p.unlocked" name="i-lucide-lock" class="node-icon" />
                             <span v-else>{{ p.step }}</span>
                         </button>
                     </template>
@@ -109,55 +111,88 @@ function pick(p: Project) {
         <div v-if="pickedDef" class="pick-bar">
             <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2">
-                    <b class="text-sm">{{ pickedDef.name }}</b>
-                    <span class="g-tag">⏱ {{ formatTownDuration(pickedDef.durationMs) }}</span>
+                    <b class="pick-name">{{ pickedDef.name }}</b>
+                    <span class="g-tag"><UIcon name="i-lucide-clock" /> {{ formatTownDuration(pickedDef.durationMs) }}</span>
                 </div>
-                <p class="text-[11px] opacity-65">{{ pickedDef.description }}</p>
-                <div v-if="!pickedDef.done" class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-bold tabular-nums">
-                    <span :class="balance >= pickedDef.coins ? '' : 'bad'"><TownCoin /> {{ formatNumber(pickedDef.coins) }}</span>
-                    <span v-for="[id, q] in Object.entries(pickedDef.resources)" :key="id" :class="(inventory[id] ?? 0) >= q ? '' : 'bad'"><TownAsset :id="id" /> {{ formatNumber(q) }}</span>
+                <p class="pick-desc">{{ pickedDef.description }}</p>
+                <div v-if="!pickedDef.done" class="pick-cost">
+                    <span :class="balance >= pickedDef.coins ? 'is-gold' : 'is-short'"><TownCoin /> {{ formatNumber(pickedDef.coins) }}</span>
+                    <span v-for="[id, q] in Object.entries(pickedDef.resources)" :key="id" :class="(inventory[id] ?? 0) >= q ? '' : 'is-short'"><TownAsset :id="id" /> {{ formatNumber(q) }}</span>
                 </div>
             </div>
-            <div v-if="pickedDef.done" class="shrink-0 text-xs font-bold text-emerald-300">✓ Done</div>
+            <span v-if="pickedDef.done" class="g-tag g-tag-green shrink-0"><UIcon name="i-lucide-check" /> Done</span>
             <button
                 v-else
                 class="g-btn g-btn-primary shrink-0"
                 :disabled="busy || !startable(pickedDef) || !affordable(pickedDef)"
-                :data-tip="active ? 'Only one project runs at a time.' : !pickedDef.unlocked ? 'Finish the project before it first.' : !affordable(pickedDef) ? 'You are short on what is marked red.' : undefined"
+                :data-tip="active ? 'One project runs at a time.' : !pickedDef.unlocked ? 'Finish the project before it first.' : !affordable(pickedDef) ? 'Short on what is marked red.' : undefined"
                 @click="emit('start', pickedDef.id)"
             >
-                🔬 Research
+                <UIcon name="i-lucide-flask-conical" /> Research
             </button>
         </div>
-        <div v-else class="pick-hint">{{ active ? 'One project runs at a time. Pick another to see what it costs.' : 'Pick a project to see what it costs.' }}</div>
+        <div v-else class="pick-hint">Pick a project to see its cost.</div>
     </div>
 </template>
 
 <style scoped>
-.active-bar { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: 1px solid var(--g-line); background: rgba(122, 162, 247, 0.12); }
+.active-wrap { padding: 10px 16px 0; }
+.active-bar { display: flex; align-items: center; gap: 10px; }
+.active-icon { width: 18px; height: 18px; flex-shrink: 0; color: var(--g-accent); }
+.active-name { font-size: 13px; font-weight: 600; }
+.active-time { flex-shrink: 0; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .branch + .branch { margin-top: 14px; }
-.branch-head { display: flex; align-items: center; gap: 9px; margin-bottom: 7px; }
-.branch-emoji { width: 30px; height: 30px; flex-shrink: 0; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; font-size: 16px; background: rgba(255, 255, 255, 0.07); }
+.branch-head { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+.branch-emoji {
+    width: 32px; height: 32px; flex-shrink: 0;
+    border-radius: var(--g-radius-sm);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 16px; line-height: 1;
+    background: var(--g-fill);
+}
+.branch-name { font-size: 13px; font-weight: 600; }
+.branch-desc { font-size: 11px; color: var(--g-muted); }
 
-.branch-line { display: flex; align-items: center; padding-left: 39px; }
-.link { flex: 1; height: 2px; background: rgba(255, 255, 255, 0.12); }
-.link.is-done { background: rgba(79, 211, 106, 0.55); }
+.branch-line { display: flex; align-items: center; padding-left: 41px; }
+.link { flex: 1; height: 2px; background: var(--g-line); }
+.link.is-done { background: var(--g-green); }
 
 .node {
-    width: 32px; height: 32px; flex-shrink: 0; border-radius: 10px;
+    width: 30px; height: 30px; flex-shrink: 0;
+    border-radius: var(--g-radius-sm);
     display: inline-flex; align-items: center; justify-content: center;
-    font-size: 12px; font-weight: 800;
-    background: rgba(255, 255, 255, 0.06); border: 1px solid var(--g-line);
+    font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+    color: var(--g-text-2);
+    background: var(--g-fill);
+    border: 1px solid var(--g-line);
     transition: transform 0.1s ease, border-color 0.15s ease;
 }
-.node:hover { transform: translateY(-1px); border-color: rgba(255, 255, 255, 0.35); }
+.node:hover { transform: translateY(-1px); border-color: var(--g-line-2); }
+.node-icon { width: 14px; height: 14px; }
+.node .g-spinner { width: 14px; height: 14px; border-width: 2px; }
 .node.is-locked { opacity: 0.4; }
-.node.is-done { background: rgba(79, 211, 106, 0.2); border-color: rgba(79, 211, 106, 0.55); color: #9af0a8; }
-.node.is-active { background: rgba(122, 162, 247, 0.22); border-color: rgba(122, 162, 247, 0.7); }
-.node.is-picked { box-shadow: 0 0 0 2px var(--g-gold); }
+.node.is-done {
+    background: var(--g-green-bg);
+    border-color: color-mix(in srgb, var(--g-green) 45%, transparent);
+    color: var(--g-green);
+}
+.node.is-active {
+    background: color-mix(in srgb, var(--g-accent) 14%, transparent);
+    border-color: color-mix(in srgb, var(--g-accent) 50%, transparent);
+}
+.node.is-picked { box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-accent) 55%, transparent); }
 
 .pick-bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-top: 1px solid var(--g-line); }
-.pick-hint { padding: 10px 16px; border-top: 1px solid var(--g-line); font-size: 12px; opacity: 0.5; text-align: center; }
-.bad { color: #ff8a8a; }
+.pick-name { font-size: 13px; font-weight: 600; }
+.pick-desc { margin-top: 2px; font-size: 11px; color: var(--g-text-2); }
+.pick-cost {
+    margin-top: 5px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px;
+    font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.pick-cost > span { display: inline-flex; align-items: center; gap: 4px; }
+.pick-cost .is-gold { color: var(--g-gold); }
+.pick-cost .is-short { color: var(--g-red); }
+.pick-hint { padding: 10px 16px; border-top: 1px solid var(--g-line); font-size: 12px; color: var(--g-muted); text-align: center; }
 </style>

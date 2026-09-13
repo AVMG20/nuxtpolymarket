@@ -56,7 +56,7 @@ const src = computed(() => {
     flex-shrink: 0;
     object-fit: contain;
     vertical-align: middle;
-    filter: drop-shadow(0 2px 2px rgb(0 0 0 / 18%));
+    filter: drop-shadow(0 1px 1px rgb(0 0 0 / 12%));
 }
 .town-asset-building {
     width: 1.8em;

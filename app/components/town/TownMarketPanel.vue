@@ -429,52 +429,50 @@ function timeAgo(at: number) {
 <template>
     <div class="flex h-full min-h-0 flex-col">
         <div class="g-window-head">
-            <h2>🏪 Market</h2>
-            <button class="g-icon g-icon-sm" @click="emit('close')">✕</button>
+            <h2><UIcon name="i-lucide-store" class="mk-title-ico" /> Market</h2>
+            <button class="g-icon g-icon-sm" aria-label="Close" @click="emit('close')"><UIcon name="i-lucide-x" /></button>
         </div>
 
         <div class="flex min-h-0 flex-1">
             <!-- Resource list -->
             <div class="mk-list">
-                <button class="mk-item" :class="isAll ? 'is-active' : ''" @click="selected = ALL">
-                    <span class="text-lg leading-none">📊</span>
-                    <span class="min-w-0 flex-1 text-left">
-                        <span class="block truncate text-sm font-bold leading-tight">All</span>
-                        <span class="block text-[11px] leading-tight opacity-60">Production &amp; bulk sell</span>
-                    </span>
+                <button class="mk-item is-meta" :class="isAll ? 'is-on' : ''" @click="selected = ALL">
+                    <UIcon name="i-lucide-chart-line" class="mk-item-ico" />
+                    <span class="mk-item-name">All</span>
                 </button>
-                <button class="mk-item" :class="isGems ? 'is-active' : ''" @click="selected = GEMS">
-                    <span class="text-lg leading-none">💎</span>
-                    <span class="min-w-0 flex-1 text-left">
-                        <span class="block truncate text-sm font-bold leading-tight">Gems</span>
-                        <span class="block text-[11px] leading-tight opacity-60 tabular-nums">{{ formatNumber(jewels) }} jewels</span>
-                    </span>
-                    <span v-if="gemsReady > 0" class="mk-ready">{{ gemsReady }}</span>
+                <button class="mk-item is-meta" :class="isGems ? 'is-on' : ''" @click="selected = GEMS">
+                    <UIcon name="i-lucide-gem" class="mk-item-ico is-gem" />
+                    <span class="mk-item-name">Gems</span>
+                    <span v-if="gemsReady > 0" class="g-tag g-tag-gem mk-ready">{{ gemsReady }}</span>
                 </button>
-                <div class="mk-sep" />
-                <button v-for="r in resources" :key="r.id" class="mk-item" :class="selected === r.id ? 'is-active' : ''" @click="selected = r.id">
-                    <span class="mk-dot" :style="{ background: colorFor(r.id) }" />
-                    <span class="text-lg leading-none"><TownAsset :id="r.id" /></span>
-                    <span class="min-w-0 flex-1 text-left">
-                        <span class="block truncate text-sm font-bold leading-tight">{{ r.name }}</span>
-                        <span class="block text-[11px] leading-tight opacity-60 tabular-nums">{{ formatNumber(inventory[r.id] ?? 0) }} owned</span>
-                    </span>
-                    <span class="text-[11px] opacity-50 tabular-nums">{{ fmtPrice(lastPrices[r.id] ?? r.floorPrice) }}</span>
+
+                <div class="mk-list-gap" />
+                <button
+                    v-for="r in resources"
+                    :key="r.id"
+                    class="mk-item"
+                    :class="selected === r.id ? 'is-on' : ''"
+                    @click="selected = r.id"
+                >
+                    <TownAsset :id="r.id" class="mk-item-art" />
+                    <span class="mk-item-name">{{ r.name }}</span>
+                    <span class="mk-item-owned">{{ formatNumber(inventory[r.id] ?? 0) }}</span>
+                    <span class="mk-item-last"><TownCoin /> {{ fmtPrice(lastPrices[r.id] ?? r.floorPrice) }}</span>
                 </button>
             </div>
 
             <!-- Overview -->
             <div v-if="isAll" class="mk-detail">
-                <section class="mk-sec">
-                    <header class="flex items-center justify-between">
-                        <span>Production <span class="opacity-50">— units made per hour</span></span>
-                        <span class="mk-toggle">
+                <section class="g-sec">
+                    <header>
+                        <span data-tip="Units made per hour.">Production</span>
+                        <span class="mk-seg">
                             <button v-for="r in RANGES" :key="r.hours" :class="rangeHours === r.hours ? 'is-on' : ''" @click="rangeHours = r.hours">{{ r.label }}</button>
                         </span>
                     </header>
 
-                    <div v-if="prodLoading && !production" class="py-10 text-center text-xs opacity-50">Loading production…</div>
-                    <div v-else-if="!producedSeries.length" class="py-10 text-center text-xs opacity-60">Nothing produced yet — build a farm</div>
+                    <div v-if="prodLoading && !production" class="mk-loading"><span class="g-spinner" /></div>
+                    <div v-else-if="!producedSeries.length" class="g-empty">Nothing produced yet — build a farm</div>
                     <template v-else>
                         <TownProductionChart
                             :buckets="production?.buckets ?? []"
@@ -483,11 +481,11 @@ function timeAgo(at: number) {
                             :names="resourceNames"
                             :hours="rangeHours"
                         />
-                        <div class="mt-2 flex flex-wrap gap-1.5">
+                        <div class="mk-legend">
                             <button
                                 v-for="id in producedSeries"
                                 :key="id"
-                                class="mk-legend"
+                                class="mk-chip"
                                 :class="hiddenSeries.has(id) ? 'is-off' : ''"
                                 @click="toggleSeries(id)"
                             >
@@ -498,61 +496,61 @@ function timeAgo(at: number) {
                     </template>
                 </section>
 
-                <section class="mk-sec">
-                    <header>Sell in bulk <span class="opacity-50">— best offers first, the town hall for the rest, all in one go</span></header>
-
-                    <div v-if="!ownedRows.length" class="py-4 text-center text-xs opacity-60">Your warehouse is empty</div>
-                    <template v-else>
-                        <p class="mb-2 text-[11px] opacity-55">Totals are what the town hall guarantees — any mayor bidding more is taken first, so you get at least this.</p>
-                        <label v-if="heldBack.length" class="mk-check" :data-tip="`${heldBack.map(r => r.name).join(', ')} are worth far more as gems. Tick this only if you really want the town hall to take them.`">
+                <section class="g-sec">
+                    <header>
+                        <span data-tip="Best offers first, the town hall for the rest — in one go.">Sell in bulk</span>
+                        <label
+                            v-if="heldBack.length"
+                            class="mk-check"
+                            :data-tip="`${heldBack.map(r => r.name).join(', ')} are worth far more as gems — ${formatNumber(heldBackOwned)} held.`"
+                        >
                             <input v-model="includeHeld" type="checkbox">
-                            <span>Include <template v-for="(r, i) in heldBack" :key="r.id"><template v-if="i">, </template><TownAsset :id="r.id" /> {{ r.name }}</template> in these sales</span>
-                            <span class="opacity-50 tabular-nums">{{ formatNumber(heldBackOwned) }} held</span>
+                            <span>Include <template v-for="(r, i) in heldBack" :key="r.id"><template v-if="i">, </template>{{ r.name }}</template></span>
                         </label>
-                        <div class="mk-actions">
-                            <button
-                                v-for="q in quickSells"
-                                :key="q.fraction"
-                                class="g-btn py-2 text-xs"
-                                :disabled="busy || q.value <= 0"
-                                @click="sellItems(q.items)"
-                            >
-                                Sell {{ q.label }}
-                                <b class="ml-1" style="color: var(--g-gold)">≥ <TownCoin /> {{ formatNumber(q.value) }}</b>
+                    </header>
+
+                    <div v-if="!ownedRows.length" class="g-empty">Your warehouse is empty</div>
+                    <template v-else>
+                        <div class="mk-bar">
+                            <span class="g-label">Sell</span>
+                            <span class="mk-group">
+                                <button
+                                    v-for="q in quickSells"
+                                    :key="q.fraction"
+                                    :disabled="busy || q.value <= 0"
+                                    :data-tip="`At least ${formatNumber(q.value)} coins`"
+                                    @click="sellItems(q.items)"
+                                >{{ q.label }}</button>
+                            </span>
+                            <span class="mk-divider" />
+                            <span class="g-label" data-tip="Leaves this many of each good in store.">Keep</span>
+                            <input v-model.number="keep" type="number" min="0" class="g-input mk-qty">
+                            <button class="g-btn g-btn-primary g-btn-sm" :disabled="busy || keepSell.value <= 0" @click="sellItems(keepSell.items)">
+                                Sell rest <b>≥ <TownCoin /> {{ formatNumber(keepSell.value) }}</b>
                             </button>
                         </div>
 
-                        <div class="mk-actions mt-2">
-                            <label class="text-xs opacity-60">Keep</label>
-                            <input v-model.number="keep" type="number" min="0" class="g-input w-24">
-                            <button class="g-btn g-btn-primary py-2 text-xs" :disabled="busy || keepSell.value <= 0" @click="sellItems(keepSell.items)">
-                                Sell above keep
-                                <b class="ml-1">≥ <TownCoin /> {{ formatNumber(keepSell.value) }}</b>
-                            </button>
-                            <span class="text-[11px] opacity-50">Leaves {{ formatNumber(Math.max(0, Math.floor(keep || 0))) }} of each good in store.</span>
-                        </div>
-
-                        <div class="mk-table mt-3">
-                            <div class="mk-row mk-row-head">
-                                <span>Good</span>
-                                <span>Owned</span>
-                                <span>Rate</span>
-                                <span>Hall pays</span>
-                                <span>Worth</span>
+                        <div class="mk-table">
+                            <div class="mk-row is-head">
+                                <span class="g-label">Good</span>
+                                <span class="g-label">Owned</span>
+                                <span class="g-label">Rate</span>
+                                <span class="g-label">Hall pays</span>
+                                <span class="g-label">Worth</span>
                                 <span />
                             </div>
                             <div v-for="r in ownedRows" :key="r.id" class="mk-row">
-                                <span class="flex min-w-0 items-center gap-2">
+                                <span class="mk-cell-name">
                                     <span class="mk-dot" :style="{ background: colorFor(r.id) }" />
-                                    <TownAsset :id="r.id" />
+                                    <TownAsset :id="r.id" class="mk-item-art" />
                                     <span class="truncate">{{ r.name }}</span>
                                 </span>
-                                <span class="tabular-nums">{{ formatNumber(r.owned) }}</span>
-                                <span class="tabular-nums" :style="{ color: r.perHour > 0 ? 'var(--g-green)' : r.perHour < 0 ? 'var(--g-red)' : undefined }">{{ fmtRate(r.perHour) }}</span>
-                                <span class="tabular-nums opacity-60">{{ fmtPrice(r.floor) }}</span>
-                                <span class="tabular-nums"><TownCoin /> {{ formatNumber(r.owned * r.floor) }}</span>
-                                <span class="text-right">
-                                    <button class="g-btn px-2 py-1 text-[11px]" :disabled="busy" @click="sellItems([{ resource: r.id, quantity: r.owned }])">Sell all</button>
+                                <span class="mk-num">{{ formatNumber(r.owned) }}</span>
+                                <span class="mk-num" :class="r.perHour > 0 ? 'is-up' : r.perHour < 0 ? 'is-down' : ''">{{ fmtRate(r.perHour) }}</span>
+                                <span class="mk-num is-soft">{{ fmtPrice(r.floor) }}</span>
+                                <span class="mk-num"><TownCoin /> {{ formatNumber(r.owned * r.floor) }}</span>
+                                <span class="mk-cell-act">
+                                    <button class="g-btn g-btn-xs" :disabled="busy" @click="sellItems([{ resource: r.id, quantity: r.owned }])">Sell all</button>
                                 </span>
                             </div>
                         </div>
@@ -562,102 +560,124 @@ function timeAgo(at: number) {
 
             <!-- Gems -->
             <div v-else-if="isGems" class="mk-detail">
-                <div class="mk-title">
-                    <span class="text-4xl drop-shadow"><TownAsset id="jewels" /></span>
-                    <div class="flex-1">
-                        <div class="text-lg font-black leading-tight">Gems</div>
-                        <div class="text-xs opacity-60">{{ jewelsPerGem }} jewels make one gem · you hold <b class="opacity-100">{{ formatNumber(jewels) }}</b></div>
-                    </div>
-                    <div class="mk-prices">
-                        <span><i>Digging</i><b style="color: var(--g-green)">{{ jewelsPerDay > 0 ? `+${Math.round(jewelsPerDay * 10) / 10}/day` : '—' }}</b></span>
-                        <span><i>Ready</i><b style="color: var(--g-gem)">💎 {{ gemsReady }}</b></span>
+                <div class="mk-head">
+                    <TownAsset id="jewels" class="mk-art" />
+                    <div class="min-w-0 flex-1">
+                        <h3 class="mk-name">Gems</h3>
+                        <p class="mk-sub">{{ jewelsPerGem }} jewels make one gem</p>
                     </div>
                 </div>
 
-                <div class="mk-store" data-tip="Jewels share the warehouse cap with every other good. Full, the mines stop digging until you convert or sell — build warehouses to hold more between visits.">
-                    <span class="mk-store-label">📦 Storage</span>
-                    <span class="mk-store-bar"><i :class="jewelClass" :style="{ width: `${Math.round(jewelRatio * 100)}%` }" /></span>
-                    <b class="mk-store-num">{{ formatNumber(jewels) }}<span class="opacity-45">/{{ formatNumber(storageCap) }}</span><span v-if="jewelFullDays !== null" class="ml-2 font-semibold opacity-50">full in {{ fmtDays(jewelFullDays) }}</span></b>
+                <div class="mk-stats">
+                    <div class="mk-stat">
+                        <span class="g-label">Jewels held</span>
+                        <b>{{ formatNumber(jewels) }}</b>
+                    </div>
+                    <div class="mk-stat">
+                        <span class="g-label">Gems ready</span>
+                        <b class="is-gem"><UIcon name="i-lucide-gem" class="mk-i" /> {{ formatNumber(gemsReady) }}</b>
+                    </div>
+                    <div class="mk-stat">
+                        <span class="g-label">Digging</span>
+                        <b :class="jewelsPerDay > 0 ? 'is-up' : ''">{{ jewelsPerDay > 0 ? `+${Math.round(jewelsPerDay * 10) / 10}/day` : '—' }}</b>
+                    </div>
                 </div>
 
-                <section class="mk-sec">
-                    <header>Convert jewels into gems <span class="opacity-50">— whole gems only, straight to your balance</span></header>
-                    <div v-if="jewelsPerDay <= 0 && jewels <= 0" class="py-4 text-center text-xs opacity-60">No jewel mine yet. It is a tier-2 build — find it in the build menu.</div>
+                <div class="mk-store" data-tip="Full storage stops the mines until you convert or sell.">
+                    <span class="g-label"><UIcon name="i-lucide-package" class="mk-i" /> Storage</span>
+                    <span class="g-meter"><i :class="jewelClass" :style="{ width: `${Math.round(jewelRatio * 100)}%` }" /></span>
+                    <b class="mk-store-num">{{ formatNumber(jewels) }}<span class="is-soft">/{{ formatNumber(storageCap) }}</span><span v-if="jewelFullDays !== null" class="mk-store-eta">full in {{ fmtDays(jewelFullDays) }}</span></b>
+                </div>
+
+                <section class="g-sec">
+                    <header><span data-tip="Whole gems only, straight to your balance.">Convert</span></header>
+                    <div v-if="jewelsPerDay <= 0 && jewels <= 0" class="g-empty">No jewel mine yet — it is a tier-2 build</div>
                     <template v-else>
-                        <div class="flex flex-wrap items-center gap-2">
-                            <input v-model.number="convertQty" type="number" min="1" :max="gemsReady" class="g-input w-24">
-                            <button class="g-btn py-2 text-xs" :disabled="gemsReady < 1" @click="convertQty = gemsReady">All</button>
-                            <span class="text-xs opacity-60 tabular-nums">= {{ formatNumber(Math.max(0, Math.floor(convertQty || 0)) * jewelsPerGem) }} <TownAsset id="jewels" /></span>
-                            <div class="flex-1" />
-                            <button class="g-btn g-btn-gem py-2" :disabled="busy || !convertValid" @click="convert">💎 Convert {{ convertValid ? Math.floor(convertQty) : '' }}</button>
+                        <div class="mk-bar">
+                            <input v-model.number="convertQty" type="number" min="1" :max="gemsReady" class="g-input mk-qty">
+                            <button class="g-btn g-btn-sm" :disabled="gemsReady < 1" @click="convertQty = gemsReady">All</button>
+                            <span class="mk-num is-soft">= {{ formatNumber(Math.max(0, Math.floor(convertQty || 0)) * jewelsPerGem) }} <TownAsset id="jewels" class="mk-item-art" /></span>
+                            <span class="mk-grow" />
+                            <button class="g-btn g-btn-gem" :disabled="busy || !convertValid" @click="convert">
+                                <UIcon name="i-lucide-gem" class="mk-i" /> Convert {{ convertValid ? Math.floor(convertQty) : '' }}
+                            </button>
                         </div>
-                        <p class="mt-1 text-[11px] opacity-55">
-                            <template v-if="gemsReady < 1">{{ formatNumber(jewelsPerGem - (jewels % jewelsPerGem)) }} more jewels until the next gem.</template>
-                            <template v-else>Jewels also trade on the market like any other good — <button class="underline" @click="selected = 'jewels'">see the jewel book</button> — but a gem is worth far more than the town hall pays.</template>
-                        </p>
+                        <p v-if="gemsReady < 1" class="mk-note">{{ formatNumber(jewelsPerGem - (jewels % jewelsPerGem)) }} more jewels until the next gem</p>
                     </template>
                 </section>
             </div>
 
             <!-- Detail -->
             <div v-else-if="resource" class="mk-detail">
-                <div class="mk-title">
-                    <span class="text-4xl drop-shadow"><TownAsset :id="resource.id" /></span>
-                    <div class="flex-1">
-                        <div class="text-lg font-black leading-tight">{{ resource.name }}</div>
-                        <div class="text-xs opacity-60">Tier {{ resource.tier }} · you own <b class="opacity-100">{{ formatNumber(owned) }}</b></div>
+                <div class="mk-head">
+                    <TownAsset :id="resource.id" class="mk-art" />
+                    <div class="min-w-0 flex-1">
+                        <h3 class="mk-name">{{ resource.name }}</h3>
+                        <p class="mk-sub">Tier {{ resource.tier }} · {{ formatNumber(owned) }} owned</p>
                     </div>
-                    <div class="mk-prices">
-                        <span v-if="lastPrices[resource.id]"><i>Last traded</i><b style="color: var(--g-gold)">{{ fmtPrice(lastPrices[resource.id]!) }}</b></span>
+                </div>
+
+                <div class="mk-stats">
+                    <div class="mk-stat">
+                        <span class="g-label">Last price</span>
+                        <b v-if="lastPrices[resource.id]" class="is-gold"><TownCoin /> {{ fmtPrice(lastPrices[resource.id]!) }}</b>
+                        <b v-else class="is-soft">—</b>
+                    </div>
+                    <div class="mk-stat" data-tip="What the town hall always pays.">
+                        <span class="g-label">Hall floor</span>
+                        <b><TownCoin /> {{ fmtPrice(resource.floorPrice) }}</b>
+                    </div>
+                    <div class="mk-stat">
+                        <span class="g-label">You own</span>
+                        <b>{{ formatNumber(owned) }}</b>
                     </div>
                 </div>
 
                 <!-- Storage: full storage halts every workshop that makes this. -->
-                <div class="mk-store" :data-tip="storeFull ? 'Over the cap — the workshops that make this have stopped until you are back under it. Buying past the cap is allowed; selling or a warehouse gets production going again.' : 'Build warehouses to hold more. Buying can take you over the cap — production just stops until you are back under.'">
-                    <span class="mk-store-label">📦 Storage</span>
-                    <span class="mk-store-bar"><i :class="storeClass" :style="{ width: `${Math.round(storeRatio * 100)}%` }" /></span>
-                    <b class="mk-store-num">{{ formatNumber(owned) }}<span class="opacity-45">/{{ formatNumber(storageCap) }}</span></b>
+                <div class="mk-store" :data-tip="storeFull ? 'Over the cap — the workshops that make this have stopped until you are back under.' : 'Build warehouses to hold more. Production stops at the cap.'">
+                    <span class="g-label"><UIcon name="i-lucide-package" class="mk-i" /> Storage</span>
+                    <span class="g-meter"><i :class="storeClass" :style="{ width: `${Math.round(storeRatio * 100)}%` }" /></span>
+                    <b class="mk-store-num">{{ formatNumber(owned) }}<span class="is-soft">/{{ formatNumber(storageCap) }}</span></b>
                 </div>
 
                 <!-- Instant trade -->
-                <section class="mk-sec">
-                    <header>Trade now <span class="opacity-50">— selling takes the best offers first, then the town hall</span></header>
-                    <div class="flex flex-wrap items-center gap-2">
-                        <input v-model.number="quickQty" type="number" min="1" class="g-input w-24">
-                        <button class="g-btn py-2 text-xs" @click="quickQty = owned">All</button>
-                        <div class="flex-1" />
-                        <button class="g-btn g-btn-primary py-2" :disabled="busy || owned < 1 || quickQty < 1 || quickQty > owned" @click="emit('sell-floor', resource.id, Math.floor(quickQty))">
+                <section class="g-sec">
+                    <header><span data-tip="Selling takes the best offers first, then the town hall.">Trade now</span></header>
+                    <div class="mk-bar">
+                        <input v-model.number="quickQty" type="number" min="1" class="g-input mk-qty">
+                        <button class="g-btn g-btn-sm" @click="quickQty = owned">All</button>
+                        <span class="mk-grow" />
+                        <button class="g-btn g-btn-primary" :disabled="busy || owned < 1 || quickQty < 1 || quickQty > owned" @click="emit('sell-floor', resource.id, Math.floor(quickQty))">
                             Sell · <TownCoin /> {{ formatNumber(sellQuote.total) }}
                         </button>
                         <button
-                            class="g-btn py-2"
+                            class="g-btn"
+                            :class="buyQuote ? '' : 'g-btn-ghost'"
                             :disabled="busy || !buyQuote || buyQuote.cost > balance"
-                            :title="buyQuote ? 'Fills against the cheapest offers on sale' : 'Nothing on sale — place a buy offer below'"
+                            :data-tip="buyQuote ? 'Fills against the cheapest offers on sale' : 'Nothing on sale — place a buy offer below'"
                             @click="buyQuote && emit('place-order', resource.id, 'buy', buyQuote.worstPrice, Math.floor(quickQty))"
                         >
                             <span v-if="buyQuote">Buy · <TownCoin /> {{ formatNumber(buyQuote.cost) }}</span>
                             <span v-else>Nothing on sale</span>
                         </button>
                     </div>
-                    <p class="mt-1 text-[11px] opacity-55">
-                        <template v-if="quickQty > owned">You only have {{ formatNumber(owned) }} — sell that or less.</template>
-                        <template v-else-if="sellQuote.toPlayers > 0">
-                            {{ formatNumber(sellQuote.toPlayers) }} goes to mayors paying up to <b>{{ fmtPrice(sellQuote.best) }}</b>, the rest to the town hall at {{ fmtPrice(sellQuote.floor) }}.
-                        </template>
-                        <template v-else>Nobody is bidding above the town hall's {{ fmtPrice(sellQuote.floor) }}, so this all goes to the hall.</template>
+                    <p class="mk-note" :class="quickQty > owned ? 'is-bad' : ''">
+                        <template v-if="quickQty > owned">You only have {{ formatNumber(owned) }}</template>
+                        <template v-else-if="sellQuote.toPlayers > 0">{{ formatNumber(sellQuote.toPlayers) }} to mayors at up to {{ fmtPrice(sellQuote.best) }}, the rest to the hall at {{ fmtPrice(sellQuote.floor) }}</template>
+                        <template v-else>All to the town hall at {{ fmtPrice(sellQuote.floor) }}</template>
                     </p>
                 </section>
 
                 <!-- Order book -->
-                <section class="mk-sec">
-                    <header>Player offers <span class="opacity-50">— each row is one price; click it to trade against it</span></header>
+                <section class="g-sec">
+                    <header><span data-tip="One row per price. Click a row to trade against it — a gold ring marks your own offers.">Player offers</span></header>
                     <div class="mk-book">
                         <div class="mk-book-side">
                             <div class="mk-book-head is-bid">
-                                <span class="mk-book-who">Buyers</span>
-                                <span>Pays each</span>
-                                <span>Wants</span>
-                                <span class="text-right">Total</span>
+                                <span class="g-label is-bid">Buyers</span>
+                                <span class="g-label">Pays each</span>
+                                <span class="g-label">Wants</span>
+                                <span class="g-label mk-right">Total</span>
                             </div>
                             <template v-if="market && market.bids.length">
                                 <button
@@ -677,19 +697,19 @@ function timeAgo(at: number) {
                                         </UTooltip>
                                     </span>
                                     <span class="mk-book-price"><CoinBalance :value="lvl.price" :compact="lvl.price >= 1000" /></span>
-                                    <span class="mk-book-qty">{{ formatNumber(lvl.quantity) }} <TownAsset :id="resource.id" /></span>
+                                    <span class="mk-book-qty">{{ formatNumber(lvl.quantity) }} <TownAsset :id="resource.id" class="mk-item-art" /></span>
                                     <span class="mk-book-total"><CoinBalance :value="lvl.price * lvl.quantity" /></span>
                                 </button>
                             </template>
-                            <div v-else class="mk-book-empty">{{ loading && !market ? '…' : 'Nobody is buying' }}</div>
+                            <div v-else class="g-empty">{{ loading && !market ? '…' : 'Nobody is buying' }}</div>
                         </div>
 
                         <div class="mk-book-side">
                             <div class="mk-book-head is-ask">
-                                <span class="mk-book-who">Sellers</span>
-                                <span>Asks each</span>
-                                <span>Sells</span>
-                                <span class="text-right">Total</span>
+                                <span class="g-label is-ask">Sellers</span>
+                                <span class="g-label">Asks each</span>
+                                <span class="g-label">Sells</span>
+                                <span class="g-label mk-right">Total</span>
                             </div>
                             <template v-if="market && market.asks.length">
                                 <button
@@ -709,72 +729,71 @@ function timeAgo(at: number) {
                                         </UTooltip>
                                     </span>
                                     <span class="mk-book-price"><CoinBalance :value="lvl.price" :compact="lvl.price >= 1000" /></span>
-                                    <span class="mk-book-qty">{{ formatNumber(lvl.quantity) }} <TownAsset :id="resource.id" /></span>
+                                    <span class="mk-book-qty">{{ formatNumber(lvl.quantity) }} <TownAsset :id="resource.id" class="mk-item-art" /></span>
                                     <span class="mk-book-total"><CoinBalance :value="lvl.price * lvl.quantity" /></span>
                                 </button>
                             </template>
-                            <div v-else class="mk-book-empty">{{ loading && !market ? '…' : 'Nobody is selling' }}</div>
+                            <div v-else class="g-empty">{{ loading && !market ? '…' : 'Nobody is selling' }}</div>
                         </div>
                     </div>
-                    <p class="mt-2 text-[11px] opacity-50">Buyers pay the price shown for every unit. Sellers hand over units at theirs. A ring marks your own offers.</p>
                 </section>
 
                 <!-- Place order -->
-                <section class="mk-sec">
-                    <header class="flex items-center justify-between">
+                <section class="g-sec">
+                    <header>
                         <span>Your offer</span>
-                        <span class="mk-toggle">
+                        <span class="mk-seg">
                             <button :class="orderSide === 'sell' ? 'is-sell' : ''" @click="orderSide = 'sell'">Sell</button>
                             <button :class="orderSide === 'buy' ? 'is-buy' : ''" @click="orderSide = 'buy'">Buy</button>
                         </span>
                     </header>
-                    <div class="flex flex-wrap items-center gap-2">
-                        <label class="text-xs opacity-60">Price each</label>
-                        <input v-model.number="orderPrice" type="number" step="0.01" :min="TOWN_MARKET_MIN_PRICE" class="g-input w-28">
-                        <label class="text-xs opacity-60">×</label>
-                        <input v-model.number="orderQty" type="number" min="1" class="g-input w-24">
-                        <button v-if="orderSide === 'sell'" class="g-btn py-2 text-xs" @click="orderQty = owned">All</button>
-                        <div class="flex flex-1 items-center justify-end gap-1 text-sm font-bold tabular-nums">= <CoinBalance :value="orderTotal" /></div>
-                        <button class="g-btn py-2" :class="orderSide === 'sell' ? 'g-btn-danger' : 'g-btn-primary'" :disabled="busy || !orderValid" @click="emit('place-order', resource.id, orderSide, orderPrice, Math.floor(orderQty))">
+                    <div class="mk-bar">
+                        <span class="g-label">Price each</span>
+                        <input v-model.number="orderPrice" type="number" step="0.01" :min="TOWN_MARKET_MIN_PRICE" class="g-input mk-price">
+                        <span class="g-label">×</span>
+                        <input v-model.number="orderQty" type="number" min="1" class="g-input mk-qty">
+                        <button v-if="orderSide === 'sell'" class="g-btn g-btn-sm" @click="orderQty = owned">All</button>
+                        <span class="mk-grow" />
+                        <span class="mk-total"><span class="g-label">Total</span><CoinBalance :value="orderTotal" /></span>
+                        <span v-if="orderIssue" class="mk-issue">{{ orderIssue }}</span>
+                        <button class="g-btn" :class="orderSide === 'sell' ? 'g-btn-danger' : 'g-btn-primary'" :disabled="busy || !orderValid" @click="emit('place-order', resource.id, orderSide, orderPrice, Math.floor(orderQty))">
                             {{ orderSide === 'sell' ? 'List for sale' : 'Place buy offer' }}
                         </button>
                     </div>
-                    <p class="mt-1 text-[11px]" :class="orderIssue ? 'text-[color:var(--g-red)] opacity-90' : 'opacity-50'">
-                        <template v-if="orderIssue">{{ orderIssue }}</template>
-                        <template v-else-if="orderSide === 'sell'">Name any price. It waits on the book until someone takes it; anyone already bidding more fills you instantly.</template>
-                        <template v-else>Name any price. It waits on the book until someone sells into it; anyone already asking less fills you instantly.</template>
-                    </p>
                 </section>
 
                 <!-- My orders -->
-                <section v-if="market && market.myOrders.length" class="mk-sec">
-                    <header>Your open offers <span class="opacity-50">— what is still waiting on the book</span></header>
-                    <div class="space-y-1">
-                        <div v-for="o in market.myOrders" :key="o.id" class="mk-order" :class="o.side === 'sell' ? 'is-ask' : 'is-bid'">
-                            <span class="mk-order-side">{{ o.side === 'sell' ? 'Selling' : 'Buying' }}</span>
+                <section v-if="market && market.myOrders.length" class="g-sec">
+                    <header><span>Your open offers</span></header>
+                    <div class="mk-table">
+                        <div v-for="o in market.myOrders" :key="o.id" class="mk-order">
+                            <span class="g-tag" :class="o.side === 'sell' ? 'g-tag-red' : 'g-tag-green'">{{ o.side === 'sell' ? 'Selling' : 'Buying' }}</span>
                             <span class="mk-order-qty">
-                                {{ formatNumber(o.quantity - o.filled) }} <TownAsset :id="resource.id" />
+                                {{ formatNumber(o.quantity - o.filled) }} <TownAsset :id="resource.id" class="mk-item-art" />
                                 <small v-if="o.filled > 0">{{ formatNumber(o.filled) }} of {{ formatNumber(o.quantity) }} done</small>
                             </span>
-                            <span class="mk-order-price">at <CoinBalance :value="o.price" :compact="o.price >= 1000" /> each</span>
+                            <span class="mk-num is-soft">at <CoinBalance :value="o.price" :compact="o.price >= 1000" /> each</span>
                             <span class="mk-order-total">
-                                <small>{{ o.side === 'sell' ? 'you get' : 'you pay' }}</small>
+                                <span class="g-label">{{ o.side === 'sell' ? 'You get' : 'You pay' }}</span>
                                 <CoinBalance :value="o.price * (o.quantity - o.filled)" />
                             </span>
-                            <button class="g-icon g-icon-sm" :disabled="busy" title="Cancel and get it back" @click="emit('cancel-order', o.id)">✕</button>
+                            <button class="g-icon g-icon-sm" :disabled="busy" data-tip="Cancel and get it back" aria-label="Cancel offer" @click="emit('cancel-order', o.id)">
+                                <UIcon name="i-lucide-x" />
+                            </button>
                         </div>
                     </div>
                 </section>
 
                 <!-- Trades -->
-                <section class="mk-sec">
-                    <header>Recent trades</header>
-                    <div v-if="market && market.trades.length" class="grid grid-cols-2 gap-x-4 gap-y-0.5">
-                        <div v-for="(t, i) in market.trades.slice(0, 12)" :key="i" class="flex justify-between text-xs tabular-nums" :class="t.mine ? 'font-bold' : 'opacity-60'">
-                            <span>{{ formatNumber(t.quantity) }} @ {{ fmtPrice(t.price) }}</span><span>{{ timeAgo(t.at) }} ago</span>
+                <section class="g-sec">
+                    <header><span>Recent trades</span></header>
+                    <div v-if="market && market.trades.length" class="mk-trades">
+                        <div v-for="(t, i) in market.trades.slice(0, 12)" :key="i" class="mk-trade" :class="t.mine ? 'is-mine' : ''">
+                            <span>{{ formatNumber(t.quantity) }} @ {{ fmtPrice(t.price) }}</span>
+                            <span class="is-soft">{{ timeAgo(t.at) }} ago</span>
                         </div>
                     </div>
-                    <div v-else class="py-2 text-center text-xs opacity-50">No trades yet</div>
+                    <div v-else class="g-empty">No trades yet</div>
                 </section>
             </div>
         </div>
@@ -782,81 +801,172 @@ function timeAgo(at: number) {
 </template>
 
 <style scoped>
-.mk-list { width: 190px; flex-shrink: 0; overflow-y: auto; padding: 8px; border-right: 1px solid var(--g-line); display: flex; flex-direction: column; gap: 2px; }
-.mk-item { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 10px; color: var(--g-text); background: transparent; border: 1px solid transparent; cursor: pointer; }
-.mk-item:hover { background: rgba(255, 255, 255, 0.06); }
-.mk-item.is-active { background: rgba(255, 255, 255, 0.1); border-color: var(--g-line); }
-.mk-sep { height: 1px; margin: 4px 6px; background: var(--g-line); flex-shrink: 0; }
-.mk-check { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; padding: 6px 10px; border-radius: 10px; background: rgba(0, 0, 0, 0.2); border: 1px solid var(--g-line); font-size: 12px; font-weight: 700; cursor: pointer; }
-.mk-check input { accent-color: #b18cff; }
-.mk-check > span:first-of-type { display: inline-flex; align-items: center; gap: 4px; }
-.mk-ready { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: rgba(177, 140, 255, 0.28); color: #e5d4ff; font-size: 10px; font-weight: 900; text-align: center; font-variant-numeric: tabular-nums; }
-.mk-dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
-.mk-detail { flex: 1; min-width: 0; overflow-y: auto; padding: 14px 18px; display: flex; flex-direction: column; gap: 12px; }
-.mk-legend { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); border: 1px solid var(--g-line); color: var(--g-text); font-size: 11px; font-weight: 700; cursor: pointer; }
-.mk-legend:hover { background: rgba(255, 255, 255, 0.14); }
-.mk-legend.is-off { opacity: 0.4; }
-.mk-legend.is-off .mk-dot { background: var(--g-muted) !important; }
-.mk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.mk-table { display: flex; flex-direction: column; gap: 2px; }
-.mk-row { display: grid; grid-template-columns: minmax(0, 1.6fr) 0.8fr 0.9fr 0.7fr 1fr auto; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 8px; font-size: 12px; font-weight: 700; }
-.mk-row:not(.mk-row-head):hover { background: rgba(255, 255, 255, 0.06); }
-.mk-row-head { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.5; }
-.mk-title { display: flex; align-items: center; gap: 14px; }
-.mk-prices { display: flex; gap: 14px; }
-.mk-prices span { display: flex; flex-direction: column; align-items: flex-end; }
-.mk-prices i { font-style: normal; font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.5; }
-.mk-prices b { font-size: 14px; font-variant-numeric: tabular-nums; }
-.mk-store { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--g-line); cursor: help; }
-.mk-store-label { font-size: 12px; opacity: 0.7; }
-.mk-store-bar { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.1); overflow: hidden; }
-.mk-store-bar i { display: block; height: 100%; border-radius: 999px; transition: width 0.4s ease; }
-.mk-store-bar i.ok { background: linear-gradient(90deg, #7ee081, #3ecf5a); }
-.mk-store-bar i.meh { background: linear-gradient(90deg, #ffd479, #f5a623); }
-.mk-store-bar i.bad { background: linear-gradient(90deg, #ff8a8a, #ff5252); }
-.mk-store-num { font-size: 12px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.mk-sec { padding: 12px 14px; border-radius: 14px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--g-line); }
-.mk-sec > header { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; opacity: 0.85; }
-.mk-sec > header .opacity-50 { text-transform: none; letter-spacing: 0; font-weight: 600; }
-.mk-book { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.mk-book-side { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.mk-book-head, .mk-book-row { display: grid; grid-template-columns: minmax(58px, auto) 1fr 1fr auto; align-items: center; gap: 8px; padding: 5px 8px; }
-.mk-book-head { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.6; padding-bottom: 2px; }
-.mk-book-head.is-bid .mk-book-who { color: #9af0a8; opacity: 1; }
-.mk-book-head.is-ask .mk-book-who { color: #ffb3b3; opacity: 1; }
-.mk-book-row { position: relative; overflow: hidden; width: 100%; border-radius: 8px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--g-text); background: rgba(255, 255, 255, 0.04); border: 1px solid transparent; cursor: pointer; text-align: left; }
-.mk-book-row:hover { background: rgba(255, 255, 255, 0.1); border-color: var(--g-line); }
-.mk-book-row.is-mine { border-color: rgba(255, 255, 255, 0.22); }
+/* ── shell ── */
+.mk-title-ico { width: 18px; height: 18px; vertical-align: -0.18em; color: var(--g-muted); }
+.mk-detail { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+
+/* ── left type list ── */
+.mk-list { width: 236px; flex-shrink: 0; overflow-y: auto; overflow-x: hidden; padding: 8px; border-right: 1px solid var(--g-line); display: flex; flex-direction: column; }
+.mk-list-gap { height: 10px; flex-shrink: 0; }
+.mk-item {
+    position: relative; display: grid; grid-template-columns: 24px minmax(0, 1fr) auto auto;
+    align-items: center; gap: 8px; height: 36px; padding: 0 10px;
+    border-radius: var(--g-radius-sm); border: none; text-align: left;
+    color: var(--g-text-2); background: transparent; cursor: pointer;
+}
+.mk-item.is-meta { grid-template-columns: 24px minmax(0, 1fr) auto; }
+.mk-item:hover { background: var(--g-fill); color: var(--g-text); }
+.mk-item.is-on { background: var(--g-fill-2); color: var(--g-text); }
+.mk-item.is-on::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--g-accent); }
+.mk-item-ico { width: 16px; height: 16px; justify-self: center; color: var(--g-muted); }
+.mk-item-ico.is-gem { color: var(--g-gem); }
+.mk-item.is-on .mk-item-ico { color: var(--g-accent); }
+.mk-item-art { width: 18px; height: 18px; }
+.mk-item > .mk-item-art { width: 20px; height: 20px; justify-self: center; }
+.mk-item-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
+.mk-item-owned, .mk-item-last { font-size: 11.5px; text-align: right; white-space: nowrap; color: var(--g-muted); font-variant-numeric: tabular-nums; }
+.mk-item-last { display: inline-flex; align-items: center; gap: 3px; }
+.mk-ready { font-variant-numeric: tabular-nums; }
+
+/* ── section headers, shared bits ── */
+.g-sec > header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mk-grow { flex: 1; }
+.mk-right { text-align: right; }
+.is-soft { color: var(--g-muted); }
+.is-up { color: var(--g-green); }
+.is-down { color: var(--g-red); }
+.is-gold { color: var(--g-gold); }
+.is-gem { color: var(--g-gem); }
+.mk-note { margin-top: 6px; font-size: 11.5px; color: var(--g-muted); font-variant-numeric: tabular-nums; }
+.mk-note.is-bad { color: var(--g-red); }
+.mk-loading { display: flex; justify-content: center; padding: 40px 0; }
+.mk-dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; box-shadow: 0 0 0 1px var(--g-line-2); }
+.mk-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mk-divider { width: 1px; align-self: stretch; margin: 0 2px; background: var(--g-line); }
+.mk-qty { width: 76px; }
+.mk-price { width: 96px; }
+
+/* ── segmented control ── */
+.mk-seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--g-radius-sm); background: var(--g-fill-2); }
+.mk-seg button {
+    padding: 3px 10px; border: 1px solid transparent; border-radius: var(--g-radius-xs);
+    font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none;
+    color: var(--g-muted); background: transparent; cursor: pointer; font-variant-numeric: tabular-nums;
+}
+.mk-seg button:hover { color: var(--g-text); }
+.mk-seg button.is-on { background: var(--g-bg-2); border-color: var(--g-line); color: var(--g-text); }
+.mk-seg button.is-sell { background: var(--g-red-bg); color: var(--g-red); }
+.mk-seg button.is-buy { background: var(--g-green-bg); color: var(--g-green); }
+
+/* ── attached button group ── */
+.mk-group { display: inline-flex; border: 1px solid var(--g-line); border-radius: var(--g-radius-sm); background: var(--g-fill); }
+.mk-group button {
+    height: 28px; padding: 0 11px; border: none; border-left: 1px solid var(--g-line);
+    font-size: 12px; font-weight: 600; color: var(--g-text-2); background: transparent; cursor: pointer;
+    font-variant-numeric: tabular-nums;
+}
+.mk-group button:first-child { border-left: none; border-radius: var(--g-radius-sm) 0 0 var(--g-radius-sm); }
+.mk-group button:last-child { border-radius: 0 var(--g-radius-sm) var(--g-radius-sm) 0; }
+.mk-group button:hover:not(:disabled) { background: var(--g-fill-2); color: var(--g-text); }
+.mk-group button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ── legend chips ── */
+.mk-legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.mk-chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px;
+    border: 1px solid var(--g-line); border-radius: 999px; background: var(--g-fill);
+    color: var(--g-text-2); font-size: 11px; font-weight: 600; cursor: pointer;
+}
+.mk-chip:hover { background: var(--g-fill-2); color: var(--g-text); }
+.mk-chip.is-off { opacity: 0.45; }
+.mk-chip.is-off .mk-dot { background: var(--g-muted) !important; }
+
+/* ── tables ── */
+.mk-table { display: flex; flex-direction: column; margin-top: 10px; }
+.mk-row { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 0.8fr) minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, auto); align-items: center; gap: 10px; padding: 7px 2px; border-top: 1px solid var(--g-line); font-size: 12.5px; }
+.mk-row.is-head { padding: 0 2px 6px; border-top: none; }
+.mk-row:not(.is-head):hover { background: var(--g-fill); }
+.mk-row.is-head > .g-label:not(:first-child) { text-align: right; }
+.mk-cell-name { display: flex; min-width: 0; align-items: center; gap: 8px; font-weight: 600; }
+.mk-cell-act { text-align: right; }
+.mk-num { display: flex; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ── checkbox ── */
+.mk-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--g-muted); cursor: pointer; }
+.mk-check input { width: 13px; height: 13px; accent-color: var(--g-accent); cursor: pointer; }
+.mk-check:hover { color: var(--g-text-2); }
+
+/* ── title block ── */
+.mk-head { display: flex; align-items: center; gap: 14px; }
+.mk-art { width: 44px; height: 44px; }
+.mk-name { font-family: var(--g-font-display); font-size: 20px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
+.mk-sub { font-size: 12px; color: var(--g-muted); font-variant-numeric: tabular-nums; }
+
+/* ── stat cells ── */
+.mk-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.mk-stat > * { min-width: 0; }
+.mk-stat { display: flex; flex-direction: column; gap: 3px; padding: 9px 11px; border: 1px solid var(--g-line); border-radius: var(--g-radius-sm); background: var(--g-fill); }
+.mk-stat b { display: flex; align-items: center; gap: 5px; font-size: 18px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.mk-i { width: 14px; height: 14px; flex-shrink: 0; }
+
+/* ── storage row ── */
+.mk-store { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 9px 12px; border: 1px solid var(--g-line); border-radius: var(--g-radius-sm); background: var(--g-fill); cursor: help; }
+.mk-store .g-label { display: inline-flex; align-items: center; gap: 5px; }
+.mk-store .g-meter { height: 6px; border-radius: 999px; background: var(--g-fill-2); overflow: hidden; }
+.mk-store .g-meter > i { display: block; height: 100%; border-radius: inherit; transition: width 0.4s ease; }
+.mk-store .g-meter > i.ok { background: var(--g-green); }
+.mk-store .g-meter > i.meh { background: var(--g-warn); }
+.mk-store .g-meter > i.bad { background: var(--g-red); }
+.mk-store-num { font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mk-store-eta { margin-left: 8px; color: var(--g-muted); }
+
+/* ── order book ── */
+.mk-book { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.mk-book-side { min-width: 0; display: flex; flex-direction: column; }
+.mk-book-head, .mk-book-row { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, 1fr) minmax(0, auto); align-items: center; gap: 8px; padding: 6px 6px; }
+.mk-book-head > *, .mk-book-row > * { min-width: 0; overflow: hidden; }
+.mk-book-head { padding-top: 0; padding-bottom: 5px; }
+.mk-book-head > .g-label:nth-child(2), .mk-book-head > .g-label:nth-child(3) { text-align: right; }
+.mk-book-head .g-label.is-bid { color: var(--g-green); }
+.mk-book-head .g-label.is-ask { color: var(--g-red); }
+.mk-book-row {
+    position: relative; overflow: hidden; width: 100%; text-align: left; cursor: pointer;
+    border: none; border-top: 1px solid var(--g-line); border-left: 2px solid transparent;
+    background: transparent; color: var(--g-text-2);
+    font-size: 12.5px; font-variant-numeric: tabular-nums;
+}
+.mk-book-row:hover { background: var(--g-fill); color: var(--g-text); }
+.mk-book-row.is-mine { border-left-color: var(--g-gold); }
 .mk-book-row > * { position: relative; }
-.mk-depth { position: absolute !important; inset: 0 auto 0 0; pointer-events: none; opacity: 0.16; }
-.mk-book-row.is-bid .mk-depth { background: linear-gradient(90deg, #4fd36a, transparent); }
-.mk-book-row.is-ask .mk-depth { background: linear-gradient(90deg, #ff6b6b, transparent); }
+.mk-depth { position: absolute !important; inset: 0 auto 0 0; pointer-events: none; }
+.mk-book-row.is-bid .mk-depth { background: var(--g-green-bg); }
+.mk-book-row.is-ask .mk-depth { background: var(--g-red-bg); }
 .mk-book-who { display: flex; align-items: center; }
-.mk-face { flex-shrink: 0; box-shadow: 0 0 0 2px rgba(20, 22, 28, 0.9); }
 .mk-book-who > * + * { margin-left: -5px; }
-.mk-face.is-me { box-shadow: 0 0 0 2px #facc15; }
-.mk-face-more { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; font-size: 9px; font-weight: 800; background: rgba(255, 255, 255, 0.18); }
-.mk-book-price { display: flex; align-items: center; white-space: nowrap; }
-.mk-book-row.is-bid .mk-book-price { color: #9af0a8; }
-.mk-book-row.is-ask .mk-book-price { color: #ffb3b3; }
-.mk-book-qty { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
-.mk-book-total { display: flex; justify-content: flex-end; white-space: nowrap; opacity: 0.75; }
-.mk-book-empty { padding: 14px 8px; text-align: center; font-size: 12px; opacity: 0.5; border-radius: 8px; border: 1px dashed var(--g-line); }
-.mk-toggle { display: inline-flex; padding: 2px; border-radius: 8px; background: rgba(0, 0, 0, 0.25); }
-.mk-toggle button { padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 800; color: var(--g-muted); background: transparent; border: none; cursor: pointer; text-transform: none; letter-spacing: 0; }
-.mk-toggle button.is-on { background: rgba(255, 255, 255, 0.16); color: var(--g-text); }
-.mk-toggle button.is-sell { background: rgba(255, 107, 107, 0.25); color: #ffb3b3; }
-.mk-toggle button.is-buy { background: rgba(79, 211, 106, 0.25); color: #9af0a8; }
-.mk-order { display: grid; grid-template-columns: auto 1fr auto auto auto; align-items: center; gap: 12px; padding: 6px 10px; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border-left: 3px solid transparent; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.mk-order.is-bid { border-left-color: #4fd36a; }
-.mk-order.is-ask { border-left-color: #ff6b6b; }
-.mk-order.is-bid .mk-order-side { color: #9af0a8; }
-.mk-order.is-ask .mk-order-side { color: #ffb3b3; }
-.mk-order-side { min-width: 50px; }
-.mk-order-qty { display: flex; align-items: center; gap: 5px; }
-.mk-order-qty small, .mk-order-total small { font-size: 10px; font-weight: 600; opacity: 0.55; }
-.mk-order-price { display: flex; align-items: center; gap: 4px; white-space: nowrap; opacity: 0.85; }
-.mk-order-total { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-:global(.town-root .g-input) { padding: 7px 10px; border-radius: 10px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--g-line); color: var(--g-text); font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; outline: none; }
-:global(.town-root .g-input:focus) { border-color: rgba(255, 255, 255, 0.35); }
+.mk-face { flex-shrink: 0; box-shadow: 0 0 0 2px var(--g-bg-2); }
+.mk-face.is-me { box-shadow: 0 0 0 2px var(--g-gold); }
+.mk-face-more { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; font-size: 9px; font-weight: 700; color: var(--g-text-2); background: var(--g-fill-2); box-shadow: 0 0 0 2px var(--g-bg-2); }
+.mk-book-price { display: flex; align-items: center; justify-content: flex-end; white-space: nowrap; font-weight: 600; }
+.mk-book-row.is-bid .mk-book-price { color: var(--g-green); }
+.mk-book-row.is-ask .mk-book-price { color: var(--g-red); }
+.mk-book-qty { display: flex; align-items: center; justify-content: flex-end; gap: 4px; white-space: nowrap; }
+.mk-book-total { display: flex; justify-content: flex-end; white-space: nowrap; color: var(--g-muted); }
+
+/* ── your offer ── */
+.mk-total { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mk-issue { font-size: 11.5px; color: var(--g-red); }
+
+/* ── open offers ── */
+.mk-order { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto) minmax(0, auto) minmax(0, auto); align-items: center; gap: 12px; padding: 6px 2px; border-top: 1px solid var(--g-line); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.mk-order:first-child { border-top: none; }
+.mk-order-qty { display: flex; align-items: center; gap: 5px; font-weight: 600; }
+.mk-order-qty small { font-size: 10.5px; font-weight: 500; color: var(--g-muted); }
+.mk-order-total { display: flex; align-items: center; gap: 6px; white-space: nowrap; font-weight: 600; }
+.mk-order > * { min-width: 0; }
+
+/* ── recent trades ── */
+.mk-trades { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 20px; margin-top: 8px; }
+.mk-trade { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-top: 1px solid var(--g-line); font-size: 12px; color: var(--g-text-2); font-variant-numeric: tabular-nums; }
+.mk-trade:first-child, .mk-trade:nth-child(2) { border-top: none; }
+.mk-trade.is-mine { color: var(--g-text); font-weight: 600; }
 </style>
