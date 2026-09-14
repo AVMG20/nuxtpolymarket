@@ -18,3 +18,7 @@ export const AI_MAX_ROUNDS = 200
 
 /** Max amount for a single bank deposit or withdrawal. */
 export const BANK_MAX_AMOUNT = 100_000_000_000_000
+
+/** Max coins and gems in a single player-to-player gift. */
+export const GIFT_MAX_COINS = 100_000_000_000_000
+export const GIFT_MAX_GEMS = 1_000_000_000

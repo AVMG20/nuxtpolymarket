@@ -45,7 +45,8 @@ const CATEGORY_LABELS: Record<string, string> = {
     tcg: 'TCG',
     prestige: 'Prestige',
     draft: 'Draft',
-    assets: 'Assets'
+    assets: 'Assets',
+    gift: 'Gift'
 }
 
 function titleCase(prefix: string): string {
