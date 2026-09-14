@@ -8,6 +8,7 @@ import {
     TOWN_HAPPINESS_STARVING_PENALTY,
     TOWN_HOUSE_CHEER_MAX,
     townBuildingMaxLevel,
+    townCivicCheer,
     TOWN_NO_RESEARCH,
     TOWN_INDUSTRY_NUISANCE,
     TOWN_INDUSTRY_PENALTY_SCALE,
@@ -89,6 +90,7 @@ import {
     townTierRequirement,
     townTierUnlocked,
     type TownBuildingId,
+    type TownResourceId,
     type TownMilestoneSnapshot,
     type TownSimBuilding,
     type TownSimState,
@@ -1217,10 +1219,12 @@ describe('layout', () => {
         ])).toBe(0)
 
         // Levels count: a taller park cheers each home in reach by more.
+        const park = getTownBuilding('park')!
+        expect(townCivicCheer(park, 3)).toBeGreaterThan(PARK_CHEER)
         expect(adjacencyHappiness([
             at('house', 'house', 0, 0),
             at('park', 'park', 1, 0, { level: 3 })
-        ])).toBe(Math.min(TOWN_HOUSE_CHEER_MAX, 3 * PARK_CHEER))
+        ])).toBe(townCivicCheer(park, 3))
     })
 
     it('scales the nuisance radius and penalty with the industry tier', () => {
@@ -1255,9 +1259,13 @@ describe('layout', () => {
             expect(houseAdjacency([at('house', 'house', 0, 0), at('c', type, r, r)], 0, 0, Infinity).cheer).toBe(def.happiness)
             expect(houseAdjacency([at('house', 'house', 0, 0), at('c', type, r + 1, r)], 0, 0, Infinity).cheer).toBe(0)
         }
-        // And a maxed one of any of them fills a home exactly, wasting no level.
+        // Every level of any of them counts, and none fills a home on its own:
+        // the ceiling takes a park and a later building side by side.
         for (const def of TOWN_BUILDINGS) {
-            if (def.kind === 'civic') expect(def.happiness * townBuildingMaxLevel(def)).toBe(TOWN_HOUSE_CHEER_MAX)
+            if (def.kind !== 'civic') continue
+            const maxed = townBuildingMaxLevel(def)
+            expect(townCivicCheer(def, maxed)).toBeGreaterThan(townCivicCheer(def, maxed - 1))
+            expect(townCivicCheer(def, maxed)).toBeLessThan(TOWN_HOUSE_CHEER_MAX)
         }
         expect(townEffectRadius(getTownBuilding('house')!)).toBe(0)
         expect(townEffectRadius(getTownBuilding('warehouse')!)).toBe(0)
@@ -1361,16 +1369,16 @@ describe('layout', () => {
     })
 
     it('scores a tidy tier-1 town well clear of the base, and marks it down once bread comes within reach', () => {
-        // Houses on a street, parks on the same street covering all of them,
-        // and the farms far enough off that nobody smells them.
+        // Houses on a street, a park on the same street covering all of them,
+        // and the farms far enough off that nobody smells them. One park, so
+        // the score stays under the ceiling and every line can be read back.
         const houses = [0, 1, 2].map(x => at(`house${x}`, 'house', x, 1, { level: 20, rotation: 2, createdAt: T0 - 2000 + x }))
-        const parks = [3, 4].map(x => at(`park${x}`, 'park', x, 1, { rotation: 2, createdAt: T0 - 1500 + x }))
+        const parks = [3].map(x => at(`park${x}`, 'park', x, 1, { rotation: 2, createdAt: T0 - 1500 + x }))
         const farms = [0, 1].map(i => at(`farm${i}`, 'farm', FAR_AWAY + i, 1, { rotation: 2, createdAt: T0 - 1000 + i }))
         const core = [...houses, ...parks, ...farms]
 
         const town = deriveTown(connected(core), 50, T0, { wheat: true })
-        // Both parks are within reach of every house on the street.
-        const parkBonus = Math.min(TOWN_HOUSE_CHEER_MAX, parks.length * PARK_CHEER)
+        const parkBonus = PARK_CHEER
 
         expect(town.reachableTier).toBe(getTownBuilding('farm')!.tier)
         // Big enough that bread would be on the scorecard if it were reachable.
@@ -1413,49 +1421,77 @@ describe('happiness ladder', () => {
     const happy = TOWN_MOODS.find(m => m.id === 'happy')!
     const content = TOWN_MOODS.find(m => m.id === 'content')!
 
-    it('lets a clean town of any tier thrive on a maxed park alone', () => {
+    /** The tallest `def` a town whose goods stop at `tier` can grow — upgrade bands ask for later goods. */
+    function tallest(def: TownBuildingDef, tier: number): number {
+        let level = 1
+        while (level < townBuildingMaxLevel(def)) {
+            const wants = Object.keys(townLevelCost(def, level + 1).resources) as TownResourceId[]
+            if (wants.some(r => TOWN_RESOURCES.find(x => x.id === r)!.tier > tier)) break
+            level++
+        }
+        return level
+    }
+
+    it('lets a clean town of any tier thrive on the tallest park its goods can build', () => {
         const park = getTownBuilding('park')!
-        const maxed = townBuildingMaxLevel(park)
-        expect(park.happiness * maxed).toBe(TOWN_HOUSE_CHEER_MAX)
+        // The bands are what make this hard: tier 1 stops at level 2 (planks),
+        // tier 2 at level 8 (tools). The test is only honest if that holds.
+        expect(tallest(park, 1)).toBe(2)
+        expect(tallest(park, 2)).toBe(8)
+        expect(tallest(park, 3)).toBe(townBuildingMaxLevel(park))
 
         // Every workshop tier, and every need a town of that tier can stock —
         // satisfied, because this is what a town whose people are looked
-        // after scores. No tier may be locked out of Thriving by its own goods.
+        // after scores. No tier may be locked out of Thriving by its own goods,
+        // and no research is needed to get there.
         for (const tier of [1, 2, 3, 4, 5, 6]) {
             const workshop = TOWN_BUILDINGS.find(b => b.kind === 'industry' && b.tier === tier)!
             const satisfied = Object.fromEntries(
                 TOWN_NEEDS.filter(n => tierOf(n) <= tier).map(n => [n.resource, true])
             )
-            const town = deriveTown(street(maxed, [workshop.id]), 50, T0, satisfied)
+            const town = deriveTown(street(tallest(park, tier), [workshop.id]), 50, T0, satisfied)
 
             expect(town.reachableTier).toBe(tier)
             expect(town.happinessBreakdown.industry).toBe(0)
             expect(town.happinessBreakdown.crowding).toBe(0)
-            expect(town.happinessBreakdown.parks).toBe(TOWN_HOUSE_CHEER_MAX)
+            expect(town.happinessBreakdown.parks).toBe(townCivicCheer(park, tallest(park, tier)))
             expect(town.happinessTarget).toBeGreaterThanOrEqual(thriving.min)
         }
 
-        // Tier 1 only has grain to its name and still gets there.
-        const tier1 = deriveTown(street(maxed, ['farm']), 50, T0, { wheat: true })
-        expect(tier1.happinessTarget).toBeGreaterThanOrEqual(thriving.min)
+        // The later civic buildings carry their own tiers the same way.
+        for (const [type, tier] of [['bathhouse', 4], ['theatre', 5]] as const) {
+            const def = getTownBuilding(type)!
+            const workshop = TOWN_BUILDINGS.find(b => b.kind === 'industry' && b.tier === tier)!
+            const satisfied = Object.fromEntries(TOWN_NEEDS.filter(n => tierOf(n) <= tier).map(n => [n.resource, true]))
+            const town = deriveTown(connected([
+                ...[0, 1, 2].map(x => at(`house${x}`, 'house', x, 1, { level: 20, rotation: 2, createdAt: T0 - 2000 + x })),
+                at('civic', type, 3, 1, { level: tallest(def, tier), rotation: 2, createdAt: T0 - 1500 }),
+                at(workshop.id, workshop.id, FAR_AWAY, 1, { rotation: 2, createdAt: T0 - 1000 })
+            ]), 50, T0, satisfied)
+            expect(tallest(def, tier)).toBe(townBuildingMaxLevel(def))
+            expect(town.happinessTarget).toBeGreaterThanOrEqual(thriving.min)
+        }
     })
 
-    it('climbs one mood at a time as the park grows', () => {
-        const first = deriveTown(street(1, ['farm']), 50, T0, { wheat: true })
-        const fifth = deriveTown(street(5, ['farm']), 50, T0, { wheat: true })
+    it('needs the people fed, not just a park, to thrive', () => {
+        const starving = deriveTown(street(1, ['farm']), 50, T0, {})
+        const fed = deriveTown(street(1, ['farm']), 50, T0, { wheat: true })
 
-        expect(townMood(first.happinessTarget)).toBe(content)
-        expect(townMood(fifth.happinessTarget)).toBe(happy)
-        expect(fifth.happinessTarget).toBeLessThan(thriving.min)
+        expect(townMood(starving.happinessTarget)).toBe(content)
+        expect(townMood(fed.happinessTarget)).toBe(thriving)
+        // Every park level past the first is worth a point to each home in reach.
+        const taller = deriveTown(street(5, ['farm']), 50, T0, { wheat: true })
+        expect(taller.happinessTarget).toBe(fed.happinessTarget + 4 * (getTownBuilding('park')!.happinessPerLevel ?? 0))
     })
 
-    it('lets a tier-2 or tier-3 town thrive on a level-8 park, well short of maxed', () => {
-        const tier2 = deriveTown(street(8, ['farm', 'mill']), 50, T0, { wheat: true, bricks: true })
-        const tier3 = deriveTown(street(8, ['farm', 'bakery']), 50, T0, { wheat: true, bricks: true, bread: true })
+    it('marks a town down the moment it outgrows its parks and larder', () => {
+        // Same street, but a mill puts bricks within reach and nobody stocks them.
+        const fed = deriveTown(street(2, ['farm']), 50, T0, { wheat: true })
+        const wanting = deriveTown(street(2, ['farm', 'mill']), 50, T0, { wheat: true })
 
-        expect(8).toBeLessThan(townBuildingMaxLevel(getTownBuilding('park')!))
-        expect(tier2.happinessTarget).toBeGreaterThanOrEqual(thriving.min)
-        expect(tier3.happinessTarget).toBeGreaterThanOrEqual(thriving.min)
+        expect(townMood(fed.happinessTarget)).toBe(thriving)
+        expect(wanting.happinessTarget).toBe(fed.happinessTarget - BRICKS.happiness)
+        expect(townMood(wanting.happinessTarget)).toBe(happy)
     })
 
     it('keeps a factory street out of Thriving at the park level a clean one thrives on', () => {
@@ -1468,7 +1504,7 @@ describe('happiness ladder', () => {
         const town = deriveTown(smoggy, 50, T0, { wheat: true, bricks: true, bread: true, tools: true }, undefined, { ...TOWN_NO_RESEARCH, happiness: 16 })
 
         expect(town.happinessBreakdown.layout.residentsWithIndustry).toBe(town.happinessBreakdown.layout.residents)
-        expect(town.happinessBreakdown.parks).toBe(8 * getTownBuilding('park')!.happiness)
+        expect(town.happinessBreakdown.parks).toBe(townCivicCheer(getTownBuilding('park')!, 8))
         expect(town.happinessBreakdown.industry).toBe(-townIndustryNuisance(factory).penalty * TOWN_INDUSTRY_PENALTY_SCALE)
         expect(town.happinessTarget).toBeLessThan(thriving.min)
     })

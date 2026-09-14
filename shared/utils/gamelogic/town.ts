@@ -261,10 +261,13 @@ export function townMaxBuildMs(def: { tier: number }): number {
  * miserable, though two miserable residents in five hundred barely move the
  * town.
  *
- * A tidy tier-1 town with grain and a level-2 park beside every home lands
- * around 65 (Content); a tier-2 or tier-3 town with a level-8 park by every
- * home and its needs met reaches Thriving (90+) on its own, before research,
- * and a maxed park carries any tier there.
+ * Upgrade bands (TOWN_UPGRADE_BANDS) decide how tall a park a tier can grow:
+ * planks from level 3, tools from level 9, steel from 13. So cheer is
+ * front-loaded — a park is worth most the day it opens and each level adds
+ * a little — and every tier reaches Thriving (90+) on the tallest park it can
+ * build once its needs are met: tier 1 on a level-2 park and grain, tier 2 on
+ * a level-8 park and bricks, tier 3 and up on more than it can use. Research
+ * is slack on top, not a requirement.
  */
 export const TOWN_HAPPINESS_START = 50
 export const TOWN_HAPPINESS_BASE_TARGET = 55
@@ -275,11 +278,16 @@ export const TOWN_HAPPINESS_CROWDING_RATIO = 1
  * The most one home can gain from the parks, bathhouses and theatres in
  * reach. Stacking more around the same home past this does nothing, so parks
  * cannot be piled up to cancel a factory: a home beside heavy industry stays
- * unhappy however green its street is.
+ * unhappy however green its street is. No single civic building reaches it;
+ * it takes a park and a later building side by side.
  */
 export const TOWN_HOUSE_CHEER_MAX = 48
-/** Target points one home loses per point of nuisance from the workshops in reach. */
-export const TOWN_INDUSTRY_PENALTY_SCALE = 4
+/**
+ * Target points one home loses per point of nuisance from the workshops in
+ * reach. Set so a farm on the doorstep is a shrug, a mine takes a whole park
+ * to live with, and a factory or emporium costs more than any home can gain.
+ */
+export const TOWN_INDUSTRY_PENALTY_SCALE = 6
 /** Penalty when the town has no food at all (neither wheat nor bread was eaten this tick). */
 export const TOWN_HAPPINESS_STARVING_PENALTY = 12
 /**
@@ -594,8 +602,10 @@ export interface TownBuildingDef {
     outputs: TownResourceBag
     /** Residents housed per level (housing only). */
     popCap: number
-    /** Points each home in reach gains per level (civic only); see TOWN_HOUSE_CHEER_MAX. */
+    /** Points each home in reach gains at level 1 (civic only); see townCivicCheer. */
     happiness: number
+    /** Points each further level adds to every home in reach (civic only). */
+    happinessPerLevel?: number
     /** How far a civic building's cheer reaches, in tiles. Defaults to TOWN_PARK_RADIUS. */
     radius?: number
     /** Extra storage per resource per level (storage only). */
@@ -622,27 +632,27 @@ export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
     },
     {
         id: 'park', name: 'Park', emoji: '🌳', color: 0x52b788, tier: 0, kind: 'civic',
-        description: 'Green space. Every home within 4 tiles gains a little per level — place parks between your homes, not across town.',
-        maxLevel: 12,
+        description: 'Green space. Every home within 4 tiles is happier the day it opens, and a little more per level — place parks between your homes, not across town.',
+        maxLevel: 12, happinessPerLevel: 1,
         cost: { coins: 60_000, resources: { wood: 80 } }, buildMs: 1 * MIN, upgradeMs: 10 * MIN,
         upgradeResources: { wood: 50, stone: 30 },
-        workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 4, storage: 0
+        workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 33, storage: 0
     },
     {
         id: 'bathhouse', name: 'Bathhouse', emoji: '🛁', color: 0x64b6d8, tier: 4, kind: 'civic',
         description: 'Hot water and clean streets. Reaches a tile further than a park and every home in reach gains half again as much per level.',
-        maxLevel: 8, radius: 5,
+        maxLevel: 8, radius: 5, happinessPerLevel: 1,
         cost: { coins: 3_000_000, resources: { bricks: 600, steel: 80 } }, buildMs: 4 * HOUR, upgradeMs: 10 * HOUR,
         upgradeResources: { bricks: 200, steel: 40 },
-        workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 6, storage: 0
+        workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 36, storage: 0
     },
     {
         id: 'theatre', name: 'Theatre', emoji: '🎭', color: 0xa64d9c, tier: 5, kind: 'civic',
         description: 'Somewhere to spend an evening. Reaches three tiles further than a park, so one theatre cheers a whole neighbourhood.',
-        maxLevel: 8, radius: 7,
+        maxLevel: 8, radius: 7, happinessPerLevel: 1,
         cost: { coins: 30_000_000, resources: { machines: 40, steel: 400, bricks: 1_200 } }, buildMs: 8 * HOUR, upgradeMs: 20 * HOUR,
         upgradeResources: { machines: 15, steel: 150 },
-        workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 6, storage: 0
+        workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 40, storage: 0
     },
     {
         id: 'warehouse', name: 'Warehouse', emoji: '📦', color: 0x8d99ae, tier: 2, kind: 'storage',
@@ -1447,6 +1457,12 @@ export function townIndustryNuisance(def: TownBuildingDef): { radius: number, pe
 }
 
 /** Effect radius (Chebyshev) a building projects onto houses, or 0 for none. */
+/** What a civic building at `level` gives each home in reach, before the home's own ceiling. */
+export function townCivicCheer(def: TownBuildingDef, level: number): number {
+    if (def.kind !== 'civic' || level < 1) return 0
+    return def.happiness + (def.happinessPerLevel ?? 0) * (level - 1)
+}
+
 export function townEffectRadius(def: TownBuildingDef): number {
     if (def.kind === 'civic') return def.radius ?? TOWN_PARK_RADIUS
     if (def.kind === 'industry') return townIndustryNuisance(def).radius
@@ -1757,7 +1773,7 @@ export function houseAdjacency(buildings: TownSimBuilding[], wx: number, wy: num
         const def = BUILDING_BY_ID.get(b.type)!
         if (def.kind === 'civic' && within(b, wx, wy, townEffectRadius(def))) {
             parks++
-            rawCheer += def.happiness * effectiveLevel(b, now)
+            rawCheer += townCivicCheer(def, effectiveLevel(b, now))
         } else if (def.kind === 'industry') {
             const { radius, penalty } = townIndustryNuisance(def)
             if (within(b, wx, wy, radius)) {

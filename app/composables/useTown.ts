@@ -70,6 +70,7 @@ export interface TownCatalogEntry {
     outputs: Record<string, number>
     popCap: number
     happiness: number
+    happinessPerLevel?: number
     storage: number
     levelCost: { coins: number, resources: Record<string, number> }
     levelBuildMs: number

@@ -10,7 +10,7 @@ import TownEventsPanel from '~/components/town/TownEventsPanel.vue'
 import TownResearchPanel from '~/components/town/TownResearchPanel.vue'
 import { formatTownDuration } from '~/utils/town-format'
 import { townTerrainCss } from '~/utils/town/terrain'
-import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, townEffectRadius, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, townEffectRadius, townCivicCheer, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
 import type { TownBuildingView } from '~/composables/useTown'
 import type { SceneTile, SceneMoveGhost } from '~/components/town/TownScene.client.vue'
 
@@ -946,7 +946,7 @@ const selUpgradePreview = computed(() => {
         rows.push({ ico: 'i-lucide-users', label: 'residents', from: String(e.popCap * b.level), to: String(e.popCap * next), up: true })
     } else if (e.kind === 'civic') {
         // Past the per-home ceiling another level cheers nobody, so say nothing.
-        const cheer = (level: number) => Math.min(town.constants.value.houseCheerMax, e.happiness * level)
+        const cheer = (level: number) => Math.min(town.constants.value.houseCheerMax, townCivicCheer(getTownBuilding(e.id)!, level))
         if (cheer(next) > cheer(b.level)) rows.push({ ico: 'i-lucide-smile', label: 'per home in reach', from: `+${cheer(b.level)}`, to: `+${cheer(next)}`, up: true, tip: `A home gains at most +${town.constants.value.houseCheerMax} from all the parks around it.` })
     } else if (e.kind === 'storage') {
         rows.push({ ico: 'i-lucide-package', label: 'storage', from: formatNumber(e.storage * b.level), to: formatNumber(e.storage * next), up: true })
@@ -2008,7 +2008,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 </span>
                             </div>
                             <div v-else-if="selectedEntry.kind === 'civic'" class="card-stats">
-                                <span class="g-tag g-tag-green" :data-tip="`Each home in reach gains this much. A home gains at most +${town.constants.value.houseCheerMax} from all its parks together, and only homes in reach feel it.`"><UIcon name="i-lucide-smile" />+{{ Math.min(town.constants.value.houseCheerMax, selectedEntry.happiness * selectedBuilding.level) }} per home</span>
+                                <span class="g-tag g-tag-green" :data-tip="`Each home in reach gains this much. A home gains at most +${town.constants.value.houseCheerMax} from all its parks together, and only homes in reach feel it.`"><UIcon name="i-lucide-smile" />+{{ Math.min(town.constants.value.houseCheerMax, townCivicCheer(getTownBuilding(selectedEntry.id)!, selectedBuilding.level)) }} per home</span>
                                 <span class="g-tag" :data-tip="`Only homes within ${townEffectRadius(getTownBuilding(selectedEntry.id)!)} tiles feel it.`">
                                     <UIcon name="i-lucide-ruler" />{{ townEffectRadius(getTownBuilding(selectedEntry.id)!) }} tiles
                                 </span>
@@ -2140,7 +2140,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 </span>
                                 <span v-if="c.workers"><UIcon name="i-lucide-users" />{{ c.workers }}</span>
                                 <span v-if="c.popCap"><UIcon name="i-lucide-house" />+{{ c.popCap }}</span>
-                                <span v-if="c.happiness" data-tip="Per level, to each home in reach"><UIcon name="i-lucide-smile" />+{{ c.happiness }}</span>
+                                <span v-if="c.happiness" :data-tip="`To each home in reach, plus ${c.happinessPerLevel ?? 0} a level`"><UIcon name="i-lucide-smile" />+{{ c.happiness }}</span>
                                 <span v-if="c.storage"><UIcon name="i-lucide-package" />+{{ formatNumber(c.storage) }}</span>
                             </span>
                             <span v-if="Object.keys(c.outputs).length" class="bcard-io" :data-tip="`Per ${ioUnit(c) === 'day' ? 'day' : 'hour'} at level 1`">
@@ -2372,7 +2372,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     <dt><UIcon name="i-lucide-utensils" />Needs</dt>
                                     <dd>Residents eat grain and bread, then want bricks, tools and luxuries. A need only counts once you could make it; after that, going without costs happiness. The goods are really consumed.</dd>
                                     <dt><UIcon name="i-lucide-ruler" />Radius</dt>
-                                    <dd>A park cheers only the homes within 4 tiles, more per level; a bathhouse reaches 5 and a theatre 7. Industry sours the homes around it, further and harder at every tier. The square on the ground shows the reach while placing.</dd>
+                                    <dd>A park cheers only the homes within 4 tiles, most of it the day it opens and a little more per level; a bathhouse reaches 5 and a theatre 7. Industry sours the homes around it, further and harder at every tier. The square on the ground shows the reach while placing.</dd>
                                 </dl>
                             </div>
 
