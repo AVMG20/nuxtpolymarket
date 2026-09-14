@@ -164,15 +164,23 @@ async function sendGift() {
                 <span v-else class="font-mono text-sm text-muted">{{ i + 1 }}</span>
               </td>
               <td class="px-3 py-3">
-                <NuxtLink
-                  :to="`/players/${u.id}`"
-                  class="flex items-center gap-2.5 hover:underline"
-                  @click.stop
-                >
+                <div class="flex items-center gap-2.5">
                   <ProfileEmblem :emblem="u.emblem" :name="u.name" :prestige="u.prestige" class="size-9 text-sm" />
                   <p class="max-w-40 truncate font-semibold">{{ u.name }}</p>
                   <LeaderboardYouBadge :show="u.isCurrentUser" />
-                </NuxtLink>
+                  <UTooltip text="Open profile">
+                    <UButton
+                      :to="`/players/${u.id}`"
+                      icon="i-lucide-external-link"
+                      size="xs"
+                      variant="ghost"
+                      color="neutral"
+                      class="text-muted"
+                      :aria-label="`Open ${u.name}'s profile`"
+                      @click.stop
+                    />
+                  </UTooltip>
+                </div>
               </td>
               <td class="px-3 py-3">
                 <UTooltip text="Total upgrades">
@@ -201,9 +209,9 @@ async function sendGift() {
                   <UTooltip text="Xeno breeder slots"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-dna" class="size-3.5" />{{ u.xenoBreederSlotsUnlocked }}</span></UTooltip>
                   <UTooltip text="AI prompts used"><span class="inline-flex items-center gap-1 text-info"><UIcon name="i-lucide-bot" class="size-3.5" />{{ formatNumber(u.aiPromptsUsed, false) }}</span></UTooltip>
                   <UTooltip :text="`Battler — ${u.battlerRating == null ? 'unrated' : `${u.battlerRating} Elo`}, ${u.battlerRunsWon} runs won, ${u.battlerBattlesWon}–${u.battlerBattlesLost} in battles`">
-                    <NuxtLink :to="`/players/${u.id}`" class="inline-flex items-center gap-1 text-secondary hover:underline" @click.stop>
+                    <span class="inline-flex items-center gap-1 text-secondary">
                       <UIcon name="i-lucide-swords" class="size-3.5" />{{ u.battlerRating ?? '—' }}
-                    </NuxtLink>
+                    </span>
                   </UTooltip>
                 </div>
               </td>
@@ -225,7 +233,8 @@ async function sendGift() {
           <div class="flex items-center gap-3">
             <ProfileEmblem :emblem="selectedUser.emblem" :name="selectedUser.name" :prestige="selectedUser.prestige" class="size-12 text-lg" />
             <PrestigeBadge :level="selectedUser.prestige" size="md" />
-            <p class="min-w-0 truncate font-semibold">{{ selectedUser.name }}</p>
+            <p class="min-w-0 flex-1 truncate font-semibold">{{ selectedUser.name }}</p>
+            <UButton :to="`/players/${selectedUser.id}`" icon="i-lucide-external-link" size="xs" variant="soft" color="neutral" label="Profile" />
           </div>
 
           <div class="grid grid-cols-3 gap-2">
