@@ -168,7 +168,7 @@ export interface TownState {
     serverNow: number
     catalog: TownCatalogEntry[]
     resources: TownResourceView[]
-    constants: { tickMs: number, maxOfflineMs: number, maxLevel: number, maxPlots: number, rushMsPerGem: number, parkRadius: number, parkMaxBonus: number, industryMaxPenalty: number, supplyFullTiles: number, supplyFalloffTiles: number, supplyMinEfficiency: number, maxBuilders: number, jewelsPerGem: number, gemMineCap: number }
+    constants: { tickMs: number, maxOfflineMs: number, maxLevel: number, maxPlots: number, rushMsPerGem: number, parkRadius: number, houseCheerMax: number, supplyFullTiles: number, supplyFalloffTiles: number, supplyMinEfficiency: number, maxBuilders: number, jewelsPerGem: number, gemMineCap: number }
     netPerTick?: Record<string, number>
     unlockedTiers?: number[]
     coinsEarned?: number
@@ -236,7 +236,7 @@ export const useTown = () => {
     const inventory = computed(() => state.value?.inventory ?? {})
     const myOrders = computed(() => state.value?.myOrders ?? [])
     const lastPrices = computed(() => state.value?.lastPrices ?? {})
-    const constants = computed(() => state.value?.constants ?? { tickMs: 60_000, maxOfflineMs: 8 * 3_600_000, maxLevel: 20, maxPlots: 12, rushMsPerGem: 300_000, parkRadius: 3, parkMaxBonus: 20, industryMaxPenalty: 25, supplyFullTiles: 8, supplyFalloffTiles: 24, supplyMinEfficiency: 0.3, maxBuilders: 6, jewelsPerGem: 10, gemMineCap: 2 })
+    const constants = computed(() => state.value?.constants ?? { tickMs: 60_000, maxOfflineMs: 8 * 3_600_000, maxLevel: 20, maxPlots: 12, rushMsPerGem: 300_000, parkRadius: 4, houseCheerMax: 36, supplyFullTiles: 8, supplyFalloffTiles: 24, supplyMinEfficiency: 0.3, maxBuilders: 6, jewelsPerGem: 10, gemMineCap: 2 })
     const milestones = computed(() => state.value?.milestones ?? [])
     /** Build crews: how many the town owns, how many are on a job, what the next costs. */
     const builders = computed(() => state.value?.builders ?? { owned: 3, busy: 0, nextGemCost: null })
