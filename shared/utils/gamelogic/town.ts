@@ -246,7 +246,7 @@ export function townMaxBuildMs(def: { tier: number }): number {
  * where the points came from:
  *
  *   base                              55
- *   + every need the town supplies    up to +15
+ *   + every need the town supplies    up to +17
  *   − every need it could supply and does not
  *   + what homes gain from parks in reach   up to +48, averaged over residents
  *   − what homes lose to workshops in reach   no ceiling, averaged over residents
