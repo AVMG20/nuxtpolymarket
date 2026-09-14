@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { parseAmount } from '#shared/utils/parse-amount'
+
 interface LeaderboardUser {
   isCurrentUser: boolean
   id: string
@@ -27,7 +29,9 @@ interface LeaderboardUser {
   totalWealth: number
 }
 
-const { data: users, pending } = await useAsyncData('leaderboard', () => apiFetch<LeaderboardUser[]>('/api/leaderboard'))
+const { data: users, pending, refresh } = await useAsyncData('leaderboard', () => apiFetch<LeaderboardUser[]>('/api/leaderboard'))
+const { user: me, balanceNum, fetchSession } = useAuth()
+const toast = useToast()
 
 const selectedUser = ref<LeaderboardUser | null>(null)
 const detailsOpen = computed({
@@ -45,6 +49,78 @@ const rankBg = [
 
 function openDetails(user: LeaderboardUser) {
   selectedUser.value = user
+  giftCoinsInput.value = ''
+  giftGemsInput.value = ''
+}
+
+// -- gifting ------------------------------------------------------------------
+
+const giftCoinsInput = ref('')
+const giftGemsInput = ref('')
+const gifting = ref(false)
+
+const giftCoins = computed(() => {
+  if (!giftCoinsInput.value.trim()) return 0
+  const parsed = parseAmount(giftCoinsInput.value)
+  return parsed === null || parsed < 0.01 ? null : parsed
+})
+const giftGems = computed(() => {
+  if (!giftGemsInput.value.trim()) return 0
+  const parsed = parseAmount(giftGemsInput.value)
+  return parsed === null || !Number.isInteger(parsed) ? null : parsed
+})
+const myGems = computed(() => me.value?.gems ?? 0)
+
+const coinsTooMany = computed(() => (giftCoins.value ?? 0) > balanceNum.value)
+const gemsTooMany = computed(() => (giftGems.value ?? 0) > myGems.value)
+const canGift = computed(() =>
+  !!me.value
+  && !gifting.value
+  && giftCoins.value !== null
+  && giftGems.value !== null
+  && ((giftCoins.value ?? 0) > 0 || (giftGems.value ?? 0) > 0)
+  && !coinsTooMany.value
+  && !gemsTooMany.value
+)
+
+const coinPresets = ['10k', '100k', '1m', '10m', '100m', '1b']
+const gemPresets = ['10', '100', '1k', '10k']
+
+function setCoins(preset: string) {
+  giftCoinsInput.value = preset
+}
+
+function setGems(preset: string) {
+  giftGemsInput.value = preset
+}
+
+function allCoins() {
+  giftCoinsInput.value = Math.floor(balanceNum.value * 100) / 100 > 0 ? String(Math.floor(balanceNum.value * 100) / 100) : ''
+}
+
+function allGems() {
+  giftGemsInput.value = myGems.value > 0 ? String(myGems.value) : ''
+}
+
+async function sendGift() {
+  const target = selectedUser.value
+  if (!target || !canGift.value) return
+  gifting.value = true
+  try {
+    await apiFetch('/api/gift', {
+      method: 'POST',
+      body: { toUserId: target.id, coins: giftCoins.value ?? 0, gems: giftGems.value ?? 0 }
+    })
+    giftCoinsInput.value = ''
+    giftGemsInput.value = ''
+    await Promise.all([fetchSession(), refresh()])
+    const updated = users.value?.find(u => u.id === target.id)
+    if (updated) selectedUser.value = updated
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error, 'Gift failed'), color: 'error' })
+  } finally {
+    gifting.value = false
+  }
 }
 </script>
 
@@ -174,6 +250,59 @@ function openDetails(user: LeaderboardUser) {
             <span class="text-muted">Bail-out running —</span>
             <CoinBalance :value="selectedUser.bailoutRemaining" :compact="false" :minimum-fraction-digits="2" class="font-semibold" />
             <span class="text-muted">left to levy back</span>
+          </div>
+
+          <div v-if="me && !selectedUser.isCurrentUser" class="rounded-lg border border-primary/30 bg-primary/5 p-3">
+            <div class="mb-3 flex items-center gap-2">
+              <UIcon name="i-lucide-gift" class="size-4 text-primary" />
+              <p class="text-xs font-medium uppercase tracking-wide text-muted">Gift {{ selectedUser.name }}</p>
+            </div>
+
+            <form class="space-y-3" @submit.prevent="sendGift">
+              <div class="space-y-1.5">
+                <UInput
+                  v-model="giftCoinsInput"
+                  placeholder="Coins — e.g. 200k, 2.5m, 2b"
+                  icon="i-lucide-coins"
+                  autocomplete="off"
+                  class="w-full"
+                  :color="giftCoins === null || coinsTooMany ? 'error' : undefined"
+                >
+                  <template v-if="giftCoins" #trailing>
+                    <span class="text-xs tabular-nums text-muted">{{ formatNumber(giftCoins, false) }}</span>
+                  </template>
+                </UInput>
+                <div class="flex flex-wrap gap-1">
+                  <UButton v-for="p in coinPresets" :key="p" size="xs" variant="soft" color="neutral" @click="setCoins(p)">{{ p }}</UButton>
+                  <UButton size="xs" variant="soft" color="neutral" :disabled="balanceNum <= 0" @click="allCoins">All</UButton>
+                </div>
+                <p v-if="coinsTooMany" class="text-xs text-error">You only have <CoinBalance :value="me.balance" :compact="false" /></p>
+              </div>
+
+              <div class="space-y-1.5">
+                <UInput
+                  v-model="giftGemsInput"
+                  placeholder="Gems — e.g. 50, 1k"
+                  icon="i-lucide-gem"
+                  autocomplete="off"
+                  class="w-full"
+                  :color="giftGems === null || gemsTooMany ? 'error' : undefined"
+                >
+                  <template v-if="giftGems" #trailing>
+                    <span class="text-xs tabular-nums text-muted">{{ formatNumber(giftGems, false) }}</span>
+                  </template>
+                </UInput>
+                <div class="flex flex-wrap gap-1">
+                  <UButton v-for="p in gemPresets" :key="p" size="xs" variant="soft" color="neutral" @click="setGems(p)">{{ p }}</UButton>
+                  <UButton size="xs" variant="soft" color="neutral" :disabled="myGems <= 0" @click="allGems">All</UButton>
+                </div>
+                <p v-if="gemsTooMany" class="text-xs text-error">You only have <GemBalance :value="myGems" :compact="false" /></p>
+              </div>
+
+              <UButton type="submit" icon="i-lucide-gift" block :disabled="!canGift" :loading="gifting">
+                Send gift
+              </UButton>
+            </form>
           </div>
 
           <div>
