@@ -10,7 +10,7 @@ import TownEventsPanel from '~/components/town/TownEventsPanel.vue'
 import TownResearchPanel from '~/components/town/TownResearchPanel.vue'
 import { formatTownDuration } from '~/utils/town-format'
 import { townTerrainCss } from '~/utils/town/terrain'
-import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, townEffectRadius, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
 import type { TownBuildingView } from '~/composables/useTown'
 import type { SceneTile, SceneMoveGhost } from '~/components/town/TownScene.client.vue'
 
@@ -1508,13 +1508,13 @@ const effectRadii = computed(() => {
         for (const b of sceneBuildings.value) {
             if (b.level === 0) continue
             const def = town.catalogById.value.get(b.type)
-            if (def?.kind === 'civic') push(b, town.constants.value.parkRadius, 'good')
+            if (def?.kind === 'civic') push(b, townEffectRadius(getTownBuilding(b.type)!), 'good')
             else if (def?.kind === 'industry') push(b, townIndustryNuisance(getTownBuilding(b.type)!).radius, 'bad')
         }
     }
     const sel = selectedBuilding.value
     const selEntry = selectedEntry.value
-    if (sel && selEntry && selEntry.kind === 'civic') push(sel, town.constants.value.parkRadius, 'good')
+    if (sel && selEntry && selEntry.kind === 'civic') push(sel, townEffectRadius(getTownBuilding(selEntry.id)!), 'good')
     else if (sel && selEntry && selEntry.kind === 'industry') push(sel, townIndustryNuisance(getTownBuilding(selEntry.id)!).radius, 'bad')
     return out
 })
@@ -1523,7 +1523,7 @@ const effectRadii = computed(() => {
 const ghostRadius = computed(() => {
     const def = ghostType.value ? town.catalogById.value.get(ghostType.value) : null
     if (!def) return null
-    if (def.kind === 'civic') return { radius: town.constants.value.parkRadius, kind: 'good' as const }
+    if (def.kind === 'civic') return { radius: townEffectRadius(getTownBuilding(def.id)!), kind: 'good' as const }
     if (def.kind === 'industry') return { radius: townIndustryNuisance(getTownBuilding(def.id)!).radius, kind: 'bad' as const }
     return null
 })
@@ -2000,7 +2000,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <!-- Everything else says its one thing -->
                             <div v-if="selectedEntry.kind === 'housing'" class="card-stats">
                                 <span class="g-tag g-tag-green"><UIcon name="i-lucide-users" />{{ selectedEntry.popCap * selectedBuilding.level }} residents</span>
-                                <span v-if="selAdjacency" class="g-tag" :class="selAdjacency.cheer ? 'g-tag-green' : ''" :data-tip="`${selAdjacency.parks} park${selAdjacency.parks === 1 ? '' : 's'} within ${town.constants.value.parkRadius} tiles. A home gains at most +${town.constants.value.houseCheerMax} from them.`">
+                                <span v-if="selAdjacency" class="g-tag" :class="selAdjacency.cheer ? 'g-tag-green' : ''" :data-tip="`${selAdjacency.parks} park${selAdjacency.parks === 1 ? '' : 's'} in reach. A home gains at most +${town.constants.value.houseCheerMax} from them.`">
                                     <UIcon name="i-lucide-trees" />+{{ selAdjacency.cheer }}
                                 </span>
                                 <span v-if="selAdjacency" class="g-tag" :class="selAdjacency.nuisance ? 'g-tag-red' : ''" :data-tip="`${selAdjacency.industry} workshop${selAdjacency.industry === 1 ? '' : 's'} in reach. No ceiling: every one you add makes this home unhappier.`">
@@ -2009,8 +2009,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             </div>
                             <div v-else-if="selectedEntry.kind === 'civic'" class="card-stats">
                                 <span class="g-tag g-tag-green" :data-tip="`Each home in reach gains this much. A home gains at most +${town.constants.value.houseCheerMax} from all its parks together, and only homes in reach feel it.`"><UIcon name="i-lucide-smile" />+{{ Math.min(town.constants.value.houseCheerMax, selectedEntry.happiness * selectedBuilding.level) }} per home</span>
-                                <span class="g-tag" :data-tip="`Only homes within ${town.constants.value.parkRadius} tiles feel it.`">
-                                    <UIcon name="i-lucide-ruler" />{{ town.constants.value.parkRadius }} tiles
+                                <span class="g-tag" :data-tip="`Only homes within ${townEffectRadius(getTownBuilding(selectedEntry.id)!)} tiles feel it.`">
+                                    <UIcon name="i-lucide-ruler" />{{ townEffectRadius(getTownBuilding(selectedEntry.id)!) }} tiles
                                 </span>
                             </div>
                             <div v-else-if="selectedEntry.kind === 'storage'" class="card-stats">
@@ -2368,11 +2368,11 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     <dt><UIcon name="i-lucide-route" />Roads</dt>
                                     <dd>Every front door must touch a road, and people walk to work along them, so a road network only staffs the workshops it reaches. <kbd>R</kbd> rotates; buildings auto-face a road. Moving is free.</dd>
                                     <dt><UIcon name="i-lucide-smile" />Happiness</dt>
-                                    <dd>A score out of 100 that sets production speed. Starts at 55. Each home gains up to 36 from the parks in reach and loses without limit to the workshops in reach; the town feels the average across its residents. Needs add or subtract. The mood chip shows every line.</dd>
+                                    <dd>A score out of 100 that sets production speed. Starts at 55. Each home gains up to 48 from the parks in reach and loses without limit to the workshops in reach; the town feels the average across its residents. Needs add or subtract. The mood chip shows every line.</dd>
                                     <dt><UIcon name="i-lucide-utensils" />Needs</dt>
                                     <dd>Residents eat grain and bread, then want bricks, tools and luxuries. A need only counts once you could make it; after that, going without costs happiness. The goods are really consumed.</dd>
                                     <dt><UIcon name="i-lucide-ruler" />Radius</dt>
-                                    <dd>A park cheers only the homes within 4 tiles, more per level. Industry sours the homes around it, further and harder at every tier. The square on the ground shows the reach while placing.</dd>
+                                    <dd>A park cheers only the homes within 4 tiles, more per level; a bathhouse reaches 5 and a theatre 7. Industry sours the homes around it, further and harder at every tier. The square on the ground shows the reach while placing.</dd>
                                 </dl>
                             </div>
 

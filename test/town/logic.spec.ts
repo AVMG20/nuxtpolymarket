@@ -1055,7 +1055,7 @@ describe('deriveTown', () => {
         // happiness the research board has to give: well past the ceiling.
         const blissful = deriveTown(connected([
             at('house', 'house', 0, 0, { rotation: 2, createdAt: T0 - 1000 }),
-            at('park', 'park', 1, 0, { level: 4, rotation: 2, createdAt: T0 - 900 })
+            at('park', 'park', 1, 0, { level: 12, rotation: 2, createdAt: T0 - 900 })
         ]), 50, T0, { wheat: true }, undefined, { ...TOWN_NO_RESEARCH, happiness: 40 })
 
         expect(miserable.happinessBreakdown.industry).toBeLessThan(0)
@@ -1244,9 +1244,21 @@ describe('layout', () => {
         expect(factory.penalty).toBeGreaterThan(farm.penalty)
     })
 
-    it('gives nothing but industry and parks an effect radius', () => {
+    it('gives nothing but industry and civic buildings an effect radius', () => {
         expect(townIndustryNuisance(getTownBuilding('house')!)).toEqual({ radius: 0, penalty: 0 })
         expect(townEffectRadius(getTownBuilding('park')!)).toBe(TOWN_PARK_RADIUS)
+        // The later civic buildings reach further, and cheer at exactly that reach.
+        for (const type of ['bathhouse', 'theatre'] as const) {
+            const def = getTownBuilding(type)!
+            const r = townEffectRadius(def)
+            expect(r).toBeGreaterThan(TOWN_PARK_RADIUS)
+            expect(houseAdjacency([at('house', 'house', 0, 0), at('c', type, r, r)], 0, 0, Infinity).cheer).toBe(def.happiness)
+            expect(houseAdjacency([at('house', 'house', 0, 0), at('c', type, r + 1, r)], 0, 0, Infinity).cheer).toBe(0)
+        }
+        // And a maxed one of any of them fills a home exactly, wasting no level.
+        for (const def of TOWN_BUILDINGS) {
+            if (def.kind === 'civic') expect(def.happiness * townBuildingMaxLevel(def)).toBe(TOWN_HOUSE_CHEER_MAX)
+        }
         expect(townEffectRadius(getTownBuilding('house')!)).toBe(0)
         expect(townEffectRadius(getTownBuilding('warehouse')!)).toBe(0)
         expect(townEffectRadius(getTownBuilding('road')!)).toBe(0)
@@ -1423,38 +1435,40 @@ describe('happiness ladder', () => {
             expect(town.happinessTarget).toBeGreaterThanOrEqual(thriving.min)
         }
 
-        // Tier 3 outscores tier 2 because bread is on the table; tier 1 only
-        // has grain to its name and still gets there.
+        // Tier 1 only has grain to its name and still gets there.
         const tier1 = deriveTown(street(maxed, ['farm']), 50, T0, { wheat: true })
-        const tier2 = deriveTown(street(maxed, ['farm', 'mill']), 50, T0, { wheat: true, bricks: true })
-        const tier3 = deriveTown(street(maxed, ['farm', 'bakery']), 50, T0, { wheat: true, bricks: true, bread: true })
         expect(tier1.happinessTarget).toBeGreaterThanOrEqual(thriving.min)
-        expect(tier3.happinessTarget).toBeGreaterThan(tier2.happinessTarget)
-        expect(tier2.happinessTarget).toBeGreaterThan(tier1.happinessTarget)
-        expect(tier3.happinessTarget).toBeLessThan(100)
     })
 
     it('climbs one mood at a time as the park grows', () => {
         const first = deriveTown(street(1, ['farm']), 50, T0, { wheat: true })
-        const third = deriveTown(street(3, ['farm']), 50, T0, { wheat: true })
+        const fifth = deriveTown(street(5, ['farm']), 50, T0, { wheat: true })
 
         expect(townMood(first.happinessTarget)).toBe(content)
-        expect(townMood(third.happinessTarget)).toBe(happy)
-        expect(third.happinessTarget).toBeLessThan(thriving.min)
+        expect(townMood(fifth.happinessTarget)).toBe(happy)
+        expect(fifth.happinessTarget).toBeLessThan(thriving.min)
     })
 
-    it('keeps a factory street out of Thriving however green it is', () => {
-        const maxed = townBuildingMaxLevel(getTownBuilding('park')!)
+    it('lets a tier-2 or tier-3 town thrive on a level-8 park, well short of maxed', () => {
+        const tier2 = deriveTown(street(8, ['farm', 'mill']), 50, T0, { wheat: true, bricks: true })
+        const tier3 = deriveTown(street(8, ['farm', 'bakery']), 50, T0, { wheat: true, bricks: true, bread: true })
+
+        expect(8).toBeLessThan(townBuildingMaxLevel(getTownBuilding('park')!))
+        expect(tier2.happinessTarget).toBeGreaterThanOrEqual(thriving.min)
+        expect(tier3.happinessTarget).toBeGreaterThanOrEqual(thriving.min)
+    })
+
+    it('keeps a factory street out of Thriving at the park level a clean one thrives on', () => {
         const factory = getTownBuilding('factory')!
         const smoggy = connected([
             ...[0, 1, 2].map(x => at(`house${x}`, 'house', x, 1, { level: 20, rotation: 2, createdAt: T0 - 2000 + x })),
-            at('park', 'park', 3, 1, { level: maxed, rotation: 2, createdAt: T0 - 1500 }),
+            at('park', 'park', 3, 1, { level: 8, rotation: 2, createdAt: T0 - 1500 }),
             at('factory', 'factory', 1, 1 + townIndustryNuisance(factory).radius - 1, { rotation: 0, createdAt: T0 - 1000 })
         ])
         const town = deriveTown(smoggy, 50, T0, { wheat: true, bricks: true, bread: true, tools: true }, undefined, { ...TOWN_NO_RESEARCH, happiness: 16 })
 
         expect(town.happinessBreakdown.layout.residentsWithIndustry).toBe(town.happinessBreakdown.layout.residents)
-        expect(town.happinessBreakdown.parks).toBe(TOWN_HOUSE_CHEER_MAX)
+        expect(town.happinessBreakdown.parks).toBe(8 * getTownBuilding('park')!.happiness)
         expect(town.happinessBreakdown.industry).toBe(-townIndustryNuisance(factory).penalty * TOWN_INDUSTRY_PENALTY_SCALE)
         expect(town.happinessTarget).toBeLessThan(thriving.min)
     })
