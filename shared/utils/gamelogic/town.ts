@@ -406,6 +406,22 @@ export type TownResourceBag = Partial<Record<TownResourceId, number>>
 // town has reached: a town of 80 wants the same bread the day before it builds
 // a bakery as the day after, so unlocking a tier never moves a rate. Whether an
 // unmet need also costs happiness is a separate question (townNeedExpected).
+//
+// The rates are set against what a unit COSTS IN RESIDENTS to make, counting
+// the whole chain behind it at level-1 recipes: a wheat is one farm hand, a
+// brick four (kiln and quarry), a loaf twelve (bakery, mill, farms, lumber), a
+// tool nineteen (smithy, sawmill, kiln and their raw suppliers) and a luxury
+// some 356 — the emporium plus a whole tier-4 and tier-5 chain. `perPop`
+// divided into that is the share of the town that works to feed the need. The
+// shares add up to about a fifth of the population before luxuries and under a
+// third with them, so most residents are still making goods to sell. The old
+// rates (a loaf per 24, a tool per 40) asked for half the town for bread and
+// another half for tools: no town could ever run a surplus of either.
+//
+// `minPop` is where the first whole unit a tick is asked for, so it doubles
+// as a floor on that share — a fresh need costs one unit however small the
+// town is. Each is set no earlier than the population at which the tier that
+// makes it opens, and late enough that one unit is a modest slice of the town.
 
 export interface TownNeedDef {
     resource: TownResourceId
@@ -422,11 +438,18 @@ export interface TownNeedDef {
 }
 
 export const TOWN_NEEDS: readonly TownNeedDef[] = [
-    { resource: 'wheat', name: 'Grain', perPop: 12, minPop: 1, happiness: 2, food: true, description: 'The staple. A town with no grain and no bread is starving.' },
-    { resource: 'bricks', name: 'Bricks', perPop: 60, minPop: 12, happiness: 2, food: false, description: 'Homes wear out. A town that keeps bricks on hand keeps its streets in good order.' },
-    { resource: 'bread', name: 'Bread', perPop: 24, minPop: 16, happiness: 4, food: true, description: 'A proper meal. Worth more than grain alone.' },
-    { resource: 'tools', name: 'Tools', perPop: 40, minPop: 40, happiness: 3, food: false, description: 'Workers wear tools out. Keep a stock and they work happier.' },
-    { resource: 'luxuries', name: 'Luxuries', perPop: 160, minPop: 120, happiness: 6, food: false, description: 'The finer things. A luxury town is a delighted town.' }
+    // 1 resident per unit: 4% of the town past the first.
+    { resource: 'wheat', name: 'Grain', perPop: 24, minPop: 1, happiness: 2, food: true, description: 'The staple. A town with no grain and no bread is starving.' },
+    // 4 residents per unit: 3% at the margin, 10% for the first unit at 40.
+    { resource: 'bricks', name: 'Bricks', perPop: 120, minPop: 40, happiness: 2, food: false, description: 'Homes wear out. A town that keeps bricks on hand keeps its streets in good order.' },
+    // 12 residents per unit: 7.5% at the margin, 10% for the first loaf at 120.
+    { resource: 'bread', name: 'Bread', perPop: 160, minPop: 120, happiness: 4, food: true, description: 'A proper meal. Worth more than grain alone.' },
+    // 19 residents per unit: 6% at the margin, 10% for the first tool at 200.
+    { resource: 'tools', name: 'Tools', perPop: 300, minPop: 200, happiness: 3, food: false, description: 'Workers wear tools out. Keep a stock and they work happier.' },
+    // ~356 residents per unit: 9% at the margin. The first luxury a tick is a
+    // level-1 emporium's whole output, so it waits for a town well past the
+    // tier-6 gate, where it is an eighth of the hands (less with research).
+    { resource: 'luxuries', name: 'Luxuries', perPop: 4_000, minPop: 3_000, happiness: 6, food: false, description: 'The finer things. A luxury town is a delighted town.' }
 ]
 
 /**
@@ -436,7 +459,7 @@ export const TOWN_NEEDS: readonly TownNeedDef[] = [
  * and nothing jumps when the tier that makes it unlocks.
  *
  * Only the residents past a need's threshold count: a town of 400 supplies
- * tools for 360, not 400. Crossing the line then adds one unit a tick, not a
+ * tools for 200, not 400. Crossing the line then adds one unit a tick, not a
  * whole town's worth at once, which is what a fresh level-1 smithy can keep up
  * with.
  */

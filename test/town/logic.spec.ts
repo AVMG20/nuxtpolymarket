@@ -587,15 +587,23 @@ describe('needs', () => {
 
     it('introduces each need at its own minimum population', () => {
         expect(townNeedsPerTick(1)).toEqual({ wheat: 1 })
-        expect(townNeedsPerTick(11)).toEqual({ wheat: 1 })
+        expect(townNeedsPerTick(39)).toEqual({ wheat: 2 })
         // Every tier puts something on the shopping list, in turn: bricks at
-        // twelve residents, bread at sixteen, tools at forty, luxuries at 120.
-        expect(Object.keys(townNeedsPerTick(12))).toEqual(['wheat', 'bricks'])
-        expect(Object.keys(townNeedsPerTick(16))).toEqual(['wheat', 'bricks', 'bread'])
-        expect(Object.keys(townNeedsPerTick(39))).toEqual(['wheat', 'bricks', 'bread'])
-        expect(Object.keys(townNeedsPerTick(40))).toEqual(['wheat', 'bricks', 'bread', 'tools'])
-        expect(Object.keys(townNeedsPerTick(119))).toEqual(['wheat', 'bricks', 'bread', 'tools'])
-        expect(Object.keys(townNeedsPerTick(120))).toEqual(['wheat', 'bricks', 'bread', 'tools', 'luxuries'])
+        // forty residents, bread at 120, tools at 200, luxuries at 3,000.
+        expect(Object.keys(townNeedsPerTick(40))).toEqual(['wheat', 'bricks'])
+        expect(Object.keys(townNeedsPerTick(119))).toEqual(['wheat', 'bricks'])
+        expect(Object.keys(townNeedsPerTick(120))).toEqual(['wheat', 'bricks', 'bread'])
+        expect(Object.keys(townNeedsPerTick(199))).toEqual(['wheat', 'bricks', 'bread'])
+        expect(Object.keys(townNeedsPerTick(200))).toEqual(['wheat', 'bricks', 'bread', 'tools'])
+        expect(Object.keys(townNeedsPerTick(2999))).toEqual(['wheat', 'bricks', 'bread', 'tools'])
+        expect(Object.keys(townNeedsPerTick(3000))).toEqual(['wheat', 'bricks', 'bread', 'tools', 'luxuries'])
+
+        // No need opens before the tier that makes it can: a town is never
+        // asked to stock a good it could not have started producing.
+        for (const need of TOWN_NEEDS) {
+            const tier = TOWN_RESOURCES.find(r => r.id === need.resource)!.tier
+            expect(need.minPop).toBeGreaterThanOrEqual(TOWN_TIER_POP_REQUIREMENT[tier] ?? 0)
+        }
 
         // Every tier from 1 to 6 puts at least one need or one happiness
         // building into the town, which is what keeps the whole ladder useful.
@@ -614,15 +622,46 @@ describe('needs', () => {
             // At the very edge of appearing, a need still costs a whole unit.
             expect(townNeedsPerTick(need.minPop)[need.resource]).toBe(1)
         }
-        expect(townNeedsPerTick(13).wheat).toBe(1)
-        expect(townNeedsPerTick(14).wheat).toBe(2)
-        expect(townNeedsPerTick(25).wheat).toBe(2)
-        expect(townNeedsPerTick(26).wheat).toBe(3)
+        expect(townNeedsPerTick(25).wheat).toBe(1)
+        expect(townNeedsPerTick(26).wheat).toBe(2)
+        expect(townNeedsPerTick(49).wheat).toBe(2)
+        expect(townNeedsPerTick(50).wheat).toBe(3)
+    })
+
+    it('never asks more of the town than a modest share of its hands', () => {
+        // Residents it takes to make one unit a tick, counting every workshop
+        // behind it at level-1 recipes: the price of a need in people.
+        const labour = new Map<TownResourceId, number>()
+        const labourFor = (id: TownResourceId): number => {
+            const known = labour.get(id)
+            if (known !== undefined) return known
+            const def = TOWN_BUILDINGS.find(b => (b.outputs[id] ?? 0) > 0)!
+            const perUnit = 1 / def.outputs[id]!
+            let total = def.workers * perUnit
+            for (const [input, qty] of Object.entries(def.inputs) as [TownResourceId, number][]) total += labourFor(input) * qty * perUnit
+            labour.set(id, total)
+            return total
+        }
+        // Bread and tools once cost half the town each; the whole list now
+        // fits in about a fifth of it, and under a third once luxuries join.
+        const luxuries = TOWN_NEEDS.find(n => n.resource === 'luxuries')!
+        for (const need of TOWN_NEEDS) {
+            expect(labourFor(need.resource) / need.perPop).toBeLessThanOrEqual(0.1)
+            // The first unit, at the population that opens the need, is no
+            // more than a fifth of the town either. Grain is the exception on
+            // purpose: the founding farm feeds the first two residents.
+            if (need.minPop > 1) expect(labourFor(need.resource) / need.minPop).toBeLessThanOrEqual(0.2)
+        }
+        for (const pop of [40, 120, 200, 425, 640, 1600, 2999, 3000, 4000, 20_000]) {
+            let hands = 0
+            for (const [id, qty] of Object.entries(townNeedsPerTick(pop)) as [TownResourceId, number][]) hands += qty * labourFor(id)
+            expect(hands / pop).toBeLessThanOrEqual(pop < luxuries.minPop ? 0.25 : 1 / 3)
+        }
     })
 
     it('does not dump a whole town of demand on the tier that unlocks it', () => {
         const tools = TOWN_NEEDS.find(n => n.resource === 'tools')!
-        // A town of 400 asks for tools on behalf of 360 residents, not 400.
+        // A town of 400 asks for tools on behalf of 200 residents, not 400.
         expect(townNeedsPerTick(400).tools).toBe(Math.ceil((400 - tools.minPop) / tools.perPop))
         expect(townNeedsPerTick(400).tools).toBeLessThan(Math.ceil(400 / tools.perPop))
     })
@@ -979,16 +1018,19 @@ describe('deriveTown', () => {
     })
 
     it('keeps the happiness target inside [0, 100]', () => {
-        // Two tenements ringed by farms, a bakery working more jobs than the
-        // town has residents, and an empty larder: the smog ceiling, crowding
-        // and every reachable need missing, all at once.
-        const houses = [0, 1].map(x => at(`house${x}`, 'house', x, 0, { level: 10, rotation: 2, createdAt: T0 - 2000 + x }))
+        // Three maxed tenements ringed by farms — enough residents that bread
+        // is asked for — workshops working more jobs than the town has
+        // residents, and an empty larder: the smog ceiling, crowding and every
+        // reachable need missing, all at once.
+        const houses = [0, 1, 2].map(x => at(`house${x}`, 'house', x, 0, { level: 20, rotation: 2, createdAt: T0 - 2000 + x }))
         const farms = [-2, -1, 0, 1, 2, 3, 4].map(x => at(`farm${x}`, 'farm', x, FARM_NUISANCE.radius, { rotation: 0, createdAt: T0 - 900 + x }))
-        // A tier-3 bakery puts bread and tools within reach, so their absence
-        // counts — and its jobs outnumber the residents.
+        // A tier-3 bakery puts bread within reach, so its absence counts — and
+        // with a smithy beside it their jobs outnumber the residents.
         const bakery = at('bakery', 'bakery', FAR_AWAY, 0, { level: 20, rotation: 2, createdAt: T0 - 800 })
+        const smithy = at('smithy', 'smithy', FAR_AWAY + 1, 0, { level: 20, rotation: 2, createdAt: T0 - 700 })
 
-        const miserable = deriveTown(connected([...houses, ...farms, bakery]), 50, T0, {})
+        const miserable = deriveTown(connected([...houses, ...farms, bakery, smithy]), 50, T0, {})
+        expect(miserable.popCap).toBeGreaterThanOrEqual(BREAD.minPop)
         const blissful = deriveTown(
             Array.from({ length: 40 }, (_, i) => built(`park${i}`, 'park', { createdAt: T0 - 900 + i })),
             50, T0, {}
@@ -1264,7 +1306,7 @@ describe('layout', () => {
     it('scores a tidy tier-1 town well clear of the base, and marks it down once bread comes within reach', () => {
         // Houses on a street, parks on the same street covering all of them,
         // and the farms far enough off that nobody smells them.
-        const houses = [0, 1, 2].map(x => at(`house${x}`, 'house', x, 1, { level: 3, rotation: 2, createdAt: T0 - 2000 + x }))
+        const houses = [0, 1, 2].map(x => at(`house${x}`, 'house', x, 1, { level: 20, rotation: 2, createdAt: T0 - 2000 + x }))
         const parks = [3, 4].map(x => at(`park${x}`, 'park', x, 1, { rotation: 2, createdAt: T0 - 1500 + x }))
         const farms = [0, 1].map(i => at(`farm${i}`, 'farm', FAR_AWAY + i, 1, { rotation: 2, createdAt: T0 - 1000 + i }))
         const core = [...houses, ...parks, ...farms]
