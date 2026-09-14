@@ -10,6 +10,7 @@ await fetchSession()
 const { inDebt: bankGarnishing, refresh: refreshBankStatus } = useBankStatus()
 if (user.value) await refreshBankStatus()
 const appConfig = useAppConfig()
+const softStudio = useSoftStudio()
 const open = ref(true)
 const menuOpen = ref(false)
 const siteVersion = `v${packageJson.version.split('.').slice(0, 2).join('.')}`
@@ -359,6 +360,12 @@ const globalSearch = useGlobalSearch()
               <USeparator class="my-1" />
 
               <div class="px-3 py-2 space-y-2.5">
+                <USwitch
+                  v-model="softStudio"
+                  label="Soft Studio"
+                  size="sm"
+                />
+                <USeparator />
                 <div>
                   <p class="text-xs font-medium text-muted mb-1.5">
                     Primary

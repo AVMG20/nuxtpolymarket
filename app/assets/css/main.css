@@ -1,6 +1,37 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 
+/* Also matches portalled menus/dialogs because the preference lives on html. */
+@custom-variant studio (&:where([data-theme-style="soft-studio"], [data-theme-style="soft-studio"] *));
+
+@layer theme {
+  :root[data-theme-style="soft-studio"] {
+    --ui-radius: 0.5rem;
+    --ui-bg: var(--ui-color-neutral-50);
+    --ui-bg-muted: var(--ui-color-neutral-100);
+    --ui-bg-elevated: var(--ui-color-neutral-100);
+    --ui-border: color-mix(in srgb, var(--ui-color-neutral-300) 65%, var(--ui-color-neutral-100));
+    --ui-border-muted: var(--ui-color-neutral-200);
+    --studio-surface: var(--color-white);
+    --studio-field: color-mix(in srgb, var(--ui-color-neutral-50) 60%, var(--color-white));
+    --studio-shadow: 0 2px 8px -4px color-mix(in srgb, var(--ui-color-neutral-950) 12%, transparent);
+    --studio-overlay-shadow: 0 12px 36px -12px color-mix(in srgb, var(--ui-color-neutral-950) 22%, transparent);
+  }
+
+  :root.dark[data-theme-style="soft-studio"] {
+    --ui-bg: color-mix(in srgb, var(--ui-color-neutral-950) 65%, var(--ui-color-neutral-900));
+    --ui-bg-muted: var(--ui-color-neutral-900);
+    --ui-bg-elevated: color-mix(in srgb, var(--ui-color-neutral-800) 65%, var(--ui-color-neutral-900));
+    --ui-bg-accented: var(--ui-color-neutral-700);
+    --ui-border: color-mix(in srgb, var(--ui-color-neutral-700) 55%, var(--ui-color-neutral-800));
+    --ui-border-muted: var(--ui-color-neutral-800);
+    --studio-surface: var(--ui-color-neutral-900);
+    --studio-field: color-mix(in srgb, var(--ui-color-neutral-800) 35%, var(--ui-color-neutral-900));
+    --studio-shadow: 0 2px 8px -4px color-mix(in srgb, var(--ui-color-neutral-950) 65%, transparent);
+    --studio-overlay-shadow: 0 16px 40px -12px color-mix(in srgb, var(--ui-color-neutral-950) 80%, transparent);
+  }
+}
+
 /* Ensure Tailwind scans the shared utilities directory for dynamic class names */
 @source "../../../shared";
 
