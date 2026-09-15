@@ -52,6 +52,9 @@ function gemAmountLabel([lo, hi]: [number, number]) {
 
 const selectedAgentIds = ref<string[]>([])
 const dispatching = ref(false)
+// Auto-deploy: collecting the op sends the same squad straight back out. Stored
+// on the op row; the last choice is remembered so a grind loop starts on by default.
+const autoRedeploy = ref(false)
 
 // "Skip briefing next time" — persisted, removes the pre-roll pause on VO/caption
 // playback for players who've already heard the line (mirrors the crate "quick
@@ -60,9 +63,11 @@ const skipBriefing = ref(false)
 onMounted(() => {
   const saved = localStorage.getItem('hack-skip-briefing')
   if (saved !== null) skipBriefing.value = saved === 'true'
+  autoRedeploy.value = localStorage.getItem('hack-auto-redeploy') === 'true'
   audio.playSfx('briefing-open')
 })
 watch(skipBriefing, v => localStorage.setItem('hack-skip-briefing', String(v)))
+watch(autoRedeploy, v => localStorage.setItem('hack-auto-redeploy', String(v)))
 
 const briefingVoice = computed(() => template.value ? missionVoice(template.value.id) : '')
 const briefingText = computed(() => template.value ? missionBriefing(template.value.id) : '')
@@ -111,7 +116,7 @@ async function dispatch() {
   try {
     await $fetch('/api/hack/ops/dispatch', {
       method: 'POST',
-      body: { templateId: template.value.id, agentIds: selectedAgentIds.value }
+      body: { templateId: template.value.id, agentIds: selectedAgentIds.value, autoRedeploy: autoRedeploy.value }
     })
     audio.playSfx('deploy-confirm')
     toast.add({ title: `Op dispatched`, description: template.value.name, color: 'success' })
@@ -378,8 +383,18 @@ const thumbFailed = ref(false)
               </div>
             </template>
 
-            <div class="flex items-center justify-between mt-4">
+            <div class="flex items-center justify-between gap-3 flex-wrap mt-4">
               <span class="text-xs text-muted">{{ selectedAgentIds.length }}/{{ template.maxAgents }} agents selected</span>
+              <label
+                class="flex items-center gap-2 text-xs text-muted cursor-pointer select-none ml-auto"
+                title="On collect, redeploy this op with the same squad"
+              >
+                Auto-deploy
+                <USwitch
+                  v-model="autoRedeploy"
+                  size="sm"
+                />
+              </label>
               <UButton
                 label="Deploy Squad"
                 icon="i-lucide-send"
