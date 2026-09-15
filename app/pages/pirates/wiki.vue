@@ -219,24 +219,13 @@ function unlockLabel(unlockAtMs: number, boss?: boolean) {
 
 <template>
   <UContainer class="space-y-10">
-    <header class="flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h1 class="flex items-center gap-2 text-2xl font-bold">
-          <UIcon name="i-lucide-book-open" class="size-6 text-primary" />
-          Pirate Wiki
-        </h1>
-        <p class="mt-1 max-w-2xl text-sm text-muted">
-          Everything that can empower or sink you during a six-minute voyage.
-        </p>
-      </div>
-      <div class="flex flex-wrap gap-2">
-        <UButton size="sm" color="neutral" variant="subtle" to="#ship-systems" icon="i-lucide-ship" label="Ship systems" />
-        <UButton size="sm" color="neutral" variant="subtle" to="#abilities" icon="i-lucide-wand-sparkles" label="Abilities" />
-        <UButton size="sm" color="neutral" variant="subtle" to="#power-ups" icon="i-lucide-sparkles" label="Power-ups" />
-        <UButton size="sm" color="neutral" variant="subtle" to="#enemy-abilities" icon="i-lucide-bomb" label="Enemy abilities" />
-        <UButton size="sm" color="neutral" variant="subtle" to="#bestiary" icon="i-lucide-skull" label="Bestiary" />
-      </div>
-    </header>
+    <PiratesPageHeader icon="i-lucide-book-open" kicker="Charts" title="Pirate Wiki" subtitle="Ship, abilities, power-ups, enemies.">
+      <UButton size="sm" color="neutral" variant="subtle" to="#ship-systems" icon="i-lucide-ship" label="Ship systems" />
+      <UButton size="sm" color="neutral" variant="subtle" to="#abilities" icon="i-lucide-wand-sparkles" label="Abilities" />
+      <UButton size="sm" color="neutral" variant="subtle" to="#power-ups" icon="i-lucide-sparkles" label="Power-ups" />
+      <UButton size="sm" color="neutral" variant="subtle" to="#enemy-abilities" icon="i-lucide-bomb" label="Enemy abilities" />
+      <UButton size="sm" color="neutral" variant="subtle" to="#bestiary" icon="i-lucide-skull" label="Bestiary" />
+    </PiratesPageHeader>
 
     <section id="ship-systems" class="scroll-mt-6 space-y-4">
       <div>

@@ -1,8 +1,4 @@
 <script setup lang="ts">
-definePageMeta({
-    title: 'Pirate Raid'
-})
-
 const canvasHost = ref<HTMLDivElement | null>(null)
 const toast = useToast()
 const { fetchSession } = useAuth()
@@ -20,18 +16,27 @@ const {
     soundEnabled, soundVolume, playMenuSound
 } = usePirateRun()
 
-const hpPercent = computed(() => maxHp.value > 0 ? Math.max(0, Math.min(100, (hp.value / maxHp.value) * 100)) : 0)
-const hpBarColor = computed(() => hpPercent.value > 50 ? 'bg-success' : hpPercent.value > 25 ? 'bg-warning' : 'bg-error')
-const ammoCapacity = computed(() => state.value?.ammo.capacity ?? 0)
-const ammoPercent = computed(() => ammoCapacity.value > 0 ? Math.max(0, Math.min(100, (ammo.value / ammoCapacity.value) * 100)) : 0)
-const gemAmmoCapacity = computed(() => state.value?.gemAmmo.capacity ?? 0)
-const gemAmmoPercent = computed(() => gemAmmoCapacity.value > 0 ? Math.max(0, Math.min(100, (gemAmmo.value / gemAmmoCapacity.value) * 100)) : 0)
-const timerLabel = computed(() => {
-    const totalSeconds = Math.max(0, Math.ceil(remainingMs.value / 1000))
+function clockLabel(ms: number) {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000))
     const m = Math.floor(totalSeconds / 60)
     const s = totalSeconds % 60
     return `${m}:${s.toString().padStart(2, '0')}`
-})
+}
+
+function durationLabel(ms: number) {
+    const totalSeconds = Math.max(0, Math.ceil(ms / 1000))
+    const h = Math.floor(totalSeconds / 3600)
+    const m = Math.floor((totalSeconds % 3600) / 60)
+    const s = totalSeconds % 60
+    if (h > 0) return `${h}h ${m}m`
+    if (m > 0) return `${m}m ${s}s`
+    return `${s}s`
+}
+
+const hpPercent = computed(() => maxHp.value > 0 ? Math.max(0, Math.min(100, (hp.value / maxHp.value) * 100)) : 0)
+const hpBarColor = computed(() => hpPercent.value > 50 ? 'bg-success' : hpPercent.value > 25 ? 'bg-warning' : 'bg-error')
+const gemAmmoCapacity = computed(() => state.value?.gemAmmo.capacity ?? 0)
+const timerLabel = computed(() => clockLabel(remainingMs.value))
 const nextPowerUpLabel = computed(() => `${Math.max(0, Math.ceil(nextPowerUpMs.value / 1000))}s`)
 const nextHealthPackLabel = computed(() => `${Math.max(0, Math.ceil(nextHealthPackMs.value / 1000))}s`)
 const equippedAbility = computed(() => state.value?.abilities.find(ability => ability.equipped) ?? state.value?.abilities[0])
@@ -42,10 +47,11 @@ const abilityCooldownLabel = computed(() => {
     return abilityCooldownMs.value > 0 ? `${Math.ceil(abilityCooldownMs.value / 1000)}s` : 'Ready'
 })
 const abilityReady = computed(() => abilityCooldownMs.value <= 0 && !abilityLocked.value)
-const abilityCooldownPercent = computed(() => {
-    if (abilityLocked.value) return 100
-    return abilityCooldownTotalMs.value > 0 ? Math.max(0, Math.min(100, abilityCooldownMs.value / abilityCooldownTotalMs.value * 100)) : 0
+const abilityChargePercent = computed(() => {
+    if (abilityLocked.value) return 0
+    return abilityCooldownTotalMs.value > 0 ? 100 - Math.max(0, Math.min(100, abilityCooldownMs.value / abilityCooldownTotalMs.value * 100)) : 100
 })
+
 const selectedDifficulty = ref(0)
 const difficultySelectItems = computed(() => (state.value?.difficultyOptions ?? []).map(option => ({
     label: `Difficulty ${option.difficulty}${option.completed ? ' · cleared' : option.difficulty === state.value?.recommendedDifficulty ? ' · recommended' : ''}`,
@@ -68,28 +74,22 @@ watch(gameOverVisible, (visible) => {
 })
 
 function powerUpStatus(powerUp: typeof activePowerUps.value[number]) {
-    const stack = powerUp.stacks > 1 ? `x${powerUp.stacks}` : ''
+    if (powerUp.shield !== undefined) return `${powerUp.shield}`
+    if (powerUp.counter !== undefined) return `${powerUp.counter}`
+    return `${Math.max(0, Math.ceil((powerUp.remainingMs ?? 0) / 1000))}s`
+}
+function powerUpTooltip(powerUp: typeof activePowerUps.value[number]) {
+    const stack = powerUp.stacks > 1 ? ` x${powerUp.stacks}` : ''
     let status = ''
     if (powerUp.shield !== undefined) status = `${powerUp.shield} shield`
     else if (powerUp.counter !== undefined) status = `${powerUp.counter} shots`
-    else status = `${Math.max(0, Math.ceil((powerUp.remainingMs ?? 0) / 1000))}s`
-    return [stack, status].filter(Boolean).join(' · ')
+    else status = `${Math.max(0, Math.ceil((powerUp.remainingMs ?? 0) / 1000))}s left`
+    return `${powerUp.name}${stack} · ${status} — ${powerUp.description}`
 }
-const bestSurvivalLabel = computed(() => {
-    const totalSeconds = Math.floor((state.value?.bestSurvivalMs ?? 0) / 1000)
-    const m = Math.floor(totalSeconds / 60)
-    const s = totalSeconds % 60
-    return `${m}:${s.toString().padStart(2, '0')}`
-})
 
-const canSetSail = computed(() =>
-    (state.value?.cannons.length ?? 0) > 0
-)
-const blockReason = computed(() => {
-    if (!state.value) return null
-    if (state.value.cannons.length === 0) return 'Your gun deck is empty — equip a cannon before setting sail.'
-    return null
-})
+const bestSurvivalLabel = computed(() => clockLabel(state.value?.bestSurvivalMs ?? 0))
+
+const canSetSail = computed(() => (state.value?.cannons.length ?? 0) > 0)
 
 const gameOverIcon = computed(() => {
     if (!gameOverResult.value) return 'i-lucide-anchor'
@@ -109,11 +109,16 @@ const gameOverMessage = computed(() => {
     if (gameOverResult.value.reason === 'cancelled') return 'You called it early and banked what you\'d earned so far.'
     return 'Enemy cannons got the better of you.'
 })
-const gameOverSurvivalLabel = computed(() => {
-    const totalSeconds = Math.floor((gameOverResult.value?.elapsedMs ?? 0) / 1000)
-    const m = Math.floor(totalSeconds / 60)
-    const s = totalSeconds % 60
-    return `${m}:${s.toString().padStart(2, '0')}`
+const gameOverStats = computed(() => {
+    const r = gameOverResult.value
+    if (!r) return []
+    return [
+        { label: 'Sunk', value: `${r.kills}`, icon: 'i-lucide-skull', color: 'text-error' },
+        { label: 'Shots', value: `${r.shotsFired}`, icon: 'i-lucide-crosshair', color: 'text-info' },
+        { label: 'Abilities', value: `${r.abilitiesUsed}`, icon: equippedAbility.value?.icon ?? 'i-lucide-bomb', color: 'text-warning' },
+        { label: 'Best combo', value: `x${Math.max(1, r.maxCombo)}`, icon: 'i-lucide-flame', color: 'text-error' },
+        { label: 'Survived', value: clockLabel(r.elapsedMs), icon: 'i-lucide-timer', color: 'text-primary' }
+    ]
 })
 const gameOverRepairLabel = computed(() => durationLabel(gameOverResult.value?.repairMs ?? 0))
 
@@ -122,16 +127,6 @@ const gameOverRepairLabel = computed(() => durationLabel(gameOverResult.value?.r
 // jumping once a minute.
 const now = ref(Date.now())
 let clockTimer: ReturnType<typeof setInterval> | null = null
-
-function durationLabel(ms: number) {
-    const totalSeconds = Math.max(0, Math.ceil(ms / 1000))
-    const h = Math.floor(totalSeconds / 3600)
-    const m = Math.floor((totalSeconds % 3600) / 60)
-    const s = totalSeconds % 60
-    if (h > 0) return `${h}h ${m}m`
-    if (m > 0) return `${m}m ${s}s`
-    return `${s}s`
-}
 
 const repairUntilMs = computed(() => {
     const until = state.value?.repair?.until
@@ -172,6 +167,7 @@ async function handleStartVoyage() {
 
 const gameContainer = ref<HTMLDivElement | null>(null)
 const isFullscreen = ref(false)
+const portalTarget = computed(() => isFullscreen.value && gameContainer.value ? gameContainer.value : true)
 
 function toggleFullscreen() {
     if (!document.fullscreenElement) {
@@ -208,484 +204,347 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <UContainer class="space-y-6">
-    <!-- Header -->
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-bold">
-          Pirate Raid
-        </h1>
-        <p class="text-sm text-muted mt-0.5">
-          Sail out for 6 minutes, stack wild power-ups, and survive the final overrun.
-        </p>
-      </div>
-      <div v-if="state" class="flex items-center gap-2">
-        <UBadge color="primary" variant="subtle" :label="`Power ${state.power}`" icon="i-lucide-anchor" />
-        <UBadge color="neutral" variant="subtle" :label="`Best ${bestSurvivalLabel}`" icon="i-lucide-trophy" />
-        <UBadge color="neutral" variant="subtle" :label="`${state.runsPlayed} voyages`" icon="i-lucide-map" />
-        <UBadge v-if="isRepairing" color="warning" variant="subtle" :label="`Dry dock ${repairRemainingLabel}`" icon="i-lucide-wrench" />
-      </div>
-      <div class="flex w-full items-center gap-2 rounded-lg border border-default bg-elevated px-3 py-2 sm:w-auto">
-        <UIcon :name="soundEnabled ? 'i-lucide-volume-2' : 'i-lucide-volume-x'" class="size-4 text-primary" />
-        <USwitch v-model="soundEnabled" size="sm" aria-label="Enable pirate game sound" @click="playMenuSound" />
-        <USlider v-model="soundVolume" :min="0" :max="100" :disabled="!soundEnabled" size="xs" aria-label="Sound volume" class="w-24 sm:w-32" />
-        <span class="w-8 text-right text-[10px] font-bold tabular-nums text-muted">{{ soundVolume }}%</span>
-        <div class="h-4 w-px bg-default mx-1" />
-        <UButton
-          :icon="isFullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'"
-          color="neutral"
-          variant="subtle"
-          size="xs"
-          :aria-label="isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'"
-          @click="toggleFullscreen"
-        />
-      </div>
-    </div>
+  <div class="px-3 sm:px-4">
+    <USkeleton v-if="!state" class="h-[60svh] rounded-xl" />
 
-    <div v-if="!state" class="space-y-4">
-      <USkeleton class="h-80 rounded-xl" />
-    </div>
-
-    <template v-else>
-      <div ref="gameContainer" class="pirate-game-container flex flex-col min-h-0" :class="{ 'is-fullscreen': isFullscreen }">
-        <!-- Game viewport -->
-        <UCard class="pirate-card-wrapper flex flex-col flex-1 min-h-0" :ui="{ body: 'p-0 sm:p-0 flex flex-col flex-1 min-h-0' }">
-          <div class="game-viewport relative w-full overflow-hidden rounded-lg min-h-0 flex-1" :style="isFullscreen ? '' : 'aspect-ratio: 1400 / 820;'">
-            <div ref="canvasHost" class="absolute inset-0 flex items-center justify-center overflow-hidden" />
-
-            <!-- Floating in-game Fullscreen toggle button -->
-            <UButton
-              class="absolute top-3 right-3 z-30 opacity-70 hover:opacity-100 transition-opacity"
-              :icon="isFullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'"
-              color="neutral"
-              variant="subtle"
-              size="xs"
-              :aria-label="isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'"
-              @click="toggleFullscreen"
-            />
-
-          <!-- Paused overlay -->
-          <div v-if="paused" class="absolute inset-0 flex items-center justify-center bg-black/55 backdrop-blur-[2px]">
-            <div class="text-center space-y-3 px-4">
-              <UIcon name="i-lucide-pause-circle" class="size-10 text-primary mx-auto" />
-              <p class="text-white font-semibold text-lg">
-                Voyage paused
-              </p>
-              <div class="mx-auto flex max-w-xs flex-wrap items-center justify-center gap-x-1 text-sm text-white/70">
-                <span>{{ Math.ceil(hp) }} / {{ maxHp }} hull,</span>
-                <CoinBalance :value="coins" />
-                <span>banked, {{ timerLabel }} left on the clock.</span>
-              </div>
-              <div class="flex items-center justify-center gap-2">
-                <UButton size="lg" icon="i-lucide-play" label="Resume Voyage" @click="resumeVoyage" />
-                <UButton size="lg" color="error" variant="subtle" icon="i-lucide-flag" label="Cancel Voyage" @click="cancelVoyage" />
+    <div
+      v-else
+      ref="gameContainer"
+      class="pirate-game flex flex-col gap-2"
+      :class="{ 'is-fullscreen': isFullscreen }"
+    >
+      <!-- Top bar: voyage stats while idle, the live HUD while sailing.
+           Kept out of the sea so nothing covers the action. -->
+      <div class="flex min-h-12 shrink-0 items-center gap-2 rounded-xl border border-default bg-elevated/80 px-3 py-1.5">
+        <div v-if="running" class="flex min-w-0 flex-1 flex-wrap items-center gap-x-4 gap-y-2">
+          <!-- Hull -->
+          <div class="flex w-56 items-center gap-2">
+            <UIcon name="i-lucide-heart" class="size-4 shrink-0 text-error" />
+            <div class="min-w-0 flex-1">
+              <div class="h-2 overflow-hidden rounded-full bg-accented">
+                <div class="h-full rounded-full transition-[width] duration-200" :class="hpBarColor" :style="{ width: `${hpPercent}%` }" />
               </div>
             </div>
+            <span class="w-16 shrink-0 text-right text-xs font-semibold tabular-nums">{{ Math.ceil(hp) }}<span class="text-muted">/{{ maxHp }}</span></span>
           </div>
 
-          <!-- Dry dock overlay -->
-          <div v-else-if="isRepairing" class="absolute inset-0 flex items-center justify-center bg-black/55 backdrop-blur-[2px]">
-            <div class="text-center space-y-3 px-4 w-full max-w-xs mx-auto">
-              <UIcon name="i-lucide-wrench" class="size-10 text-primary mx-auto" />
-              <p class="text-white font-semibold text-lg">
-                Ship in dry dock
-              </p>
-              <p class="text-white/70 text-sm">
-                Patching up hull damage from the last voyage — back on the water in {{ repairRemainingLabel }}.
-              </p>
-              <div class="h-2 rounded-full bg-white/15 overflow-hidden">
-                <div class="h-full rounded-full bg-primary transition-[width] duration-1000" :style="{ width: `${repairProgressPercent}%` }" />
+          <!-- Ammo -->
+          <div class="flex items-center gap-1.5 text-xs">
+            <UTooltip :text="ammo > 0 ? 'Premium shots left' : 'Free ammo, unlimited'">
+              <span class="flex w-12 items-center gap-1 tabular-nums" :class="ammo > 0 ? 'text-warning' : 'text-muted'">
+                <UIcon name="i-lucide-box" class="size-4" />
+                {{ ammo > 0 ? ammo : '∞' }}
+              </span>
+            </UTooltip>
+            <UButton
+              v-if="gemAmmoCapacity > 0"
+              size="xs"
+              :color="preferGem ? 'info' : 'neutral'"
+              :variant="preferGem ? 'solid' : 'subtle'"
+              icon="i-lucide-gem"
+              :label="`${gemAmmo}`"
+              :disabled="gemAmmo === 0"
+              :title="preferGem ? 'Gem shots loaded — click to unload' : 'Load gem shots'"
+              @click="toggleAmmoMode"
+            />
+          </div>
+
+          <!-- Clock and loot -->
+          <div class="flex items-center gap-3">
+            <span class="w-14 text-2xl font-black leading-none tabular-nums" :class="remainingMs < 30_000 ? 'text-error' : ''">{{ timerLabel }}</span>
+            <CoinBalance :value="coins" class="w-20 text-sm font-bold tabular-nums" />
+            <Transition name="combo">
+              <UBadge v-if="comboVisible" color="error" variant="subtle" size="sm" icon="i-lucide-flame" :label="`x${combo}`" />
+            </Transition>
+            <Transition name="combo">
+              <UBadge v-if="bossVisible" color="error" variant="solid" size="sm" icon="i-lucide-skull" :label="bossName" class="animate-pulse" />
+            </Transition>
+          </div>
+
+          <!-- Power-ups -->
+          <div class="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto">
+            <UTooltip v-for="powerUp in activePowerUps" :key="powerUp.id" :text="powerUpTooltip(powerUp)">
+              <span class="flex min-w-14 shrink-0 items-center justify-center gap-1 rounded-md bg-primary/10 px-1.5 py-1 text-xs font-bold tabular-nums text-primary">
+                <span class="leading-none">{{ powerUp.icon }}</span>
+                <span v-if="powerUp.stacks > 1" class="text-[10px] opacity-70">x{{ powerUp.stacks }}</span>
+                {{ powerUpStatus(powerUp) }}
+              </span>
+            </UTooltip>
+            <span class="flex shrink-0 items-center gap-1 text-[10px] tabular-nums text-muted">
+              <UIcon name="i-lucide-sparkles" class="size-3" /><span class="w-6">{{ nextPowerUpLabel }}</span>
+              <UIcon name="i-lucide-heart-pulse" class="size-3" /><span class="w-6">{{ nextHealthPackLabel }}</span>
+            </span>
+          </div>
+
+          <!-- Ability and controls -->
+          <div class="flex items-center gap-1.5">
+            <UTooltip :text="`${equippedAbility?.name ?? 'Ability'} — right-click the sea`">
+              <div
+                class="relative flex h-8 min-w-24 items-center justify-center gap-1.5 overflow-hidden rounded-md border px-2.5 text-xs font-bold transition-colors"
+                :class="abilityReady ? 'border-primary/50 bg-primary/15 text-primary' : 'border-default bg-default text-muted'"
+              >
+                <div v-if="!abilityReady" class="absolute inset-y-0 left-0 bg-primary/10 transition-[width] duration-100" :style="{ width: `${abilityChargePercent}%` }" />
+                <UIcon :name="equippedAbility?.icon ?? 'i-lucide-bomb'" class="relative size-4" />
+                <span class="relative tabular-nums">{{ abilityCooldownLabel }}</span>
               </div>
+            </UTooltip>
+            <UButton size="sm" color="neutral" variant="subtle" icon="i-lucide-pause" aria-label="Pause" @click="pauseVoyage" />
+            <UButton size="sm" color="error" variant="subtle" icon="i-lucide-flag" aria-label="Retreat" @click="cancelVoyage" />
+          </div>
+        </div>
+        <div v-else class="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-muted">
+          <template v-if="paused">
+            <UIcon name="i-lucide-pause" class="size-3.5 text-primary" />
+            <span>Paused · Difficulty {{ selectedDifficulty }}</span>
+          </template>
+          <template v-else>
+            <UIcon name="i-lucide-anchor" class="size-3.5 text-primary" />
+            <span class="font-semibold text-default">Power {{ state.power }}</span>
+            <span class="hidden sm:inline">· Best {{ bestSurvivalLabel }} · {{ state.runsPlayed }} voyages</span>
+            <UBadge v-if="isRepairing" color="warning" variant="subtle" size="sm" icon="i-lucide-wrench" :label="`Dry dock ${repairRemainingLabel}`" class="ml-1" />
+          </template>
+        </div>
+        <div class="flex shrink-0 items-center gap-0.5">
+          <UPopover :portal="portalTarget">
+            <UButton
+              size="sm"
+              color="neutral"
+              variant="ghost"
+              :icon="soundEnabled ? 'i-lucide-volume-2' : 'i-lucide-volume-x'"
+              aria-label="Sound settings"
+            />
+            <template #content>
+              <div class="w-56 space-y-3 p-3.5">
+                <div class="flex items-center justify-between text-sm">
+                  <span class="font-semibold">Sound</span>
+                  <USwitch v-model="soundEnabled" size="sm" @click="playMenuSound" />
+                </div>
+                <div class="flex items-center gap-3" :class="!soundEnabled && 'opacity-40'">
+                  <USlider v-model="soundVolume" :min="0" :max="100" :disabled="!soundEnabled" size="sm" aria-label="Sound volume" />
+                  <span class="w-8 text-right text-xs tabular-nums text-muted">{{ soundVolume }}%</span>
+                </div>
+              </div>
+            </template>
+          </UPopover>
+          <UButton
+            size="sm"
+            color="neutral"
+            variant="ghost"
+            :icon="isFullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'"
+            :aria-label="isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'"
+            @click="toggleFullscreen"
+          />
+        </div>
+      </div>
+
+      <!-- Sea -->
+      <div class="relative min-h-0 flex-1 overflow-hidden rounded-xl bg-[#0b1a2b] ring-1 ring-default">
+        <div ref="canvasHost" class="absolute inset-0 flex items-center justify-center overflow-hidden" />
+
+        <!-- Paused -->
+        <div v-if="paused" class="absolute inset-0 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+          <div class="w-full max-w-xs space-y-4 text-center">
+            <UIcon name="i-lucide-pause" class="mx-auto size-8 text-white" />
+            <div>
+              <p class="text-lg font-bold text-white">
+                Paused
+              </p>
+              <p class="mt-1 flex items-center justify-center gap-1.5 text-sm text-white/70">
+                {{ timerLabel }} left · {{ Math.ceil(hp) }}/{{ maxHp }} hull · <CoinBalance :value="coins" />
+              </p>
+            </div>
+            <div class="flex flex-col gap-2">
+              <UButton block size="lg" icon="i-lucide-play" label="Resume" @click="resumeVoyage" />
+              <UButton block color="error" variant="subtle" icon="i-lucide-flag" label="Retreat and bank loot" @click="cancelVoyage" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Dry dock -->
+        <div v-else-if="isRepairing" class="absolute inset-0 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
+          <div class="w-full max-w-xs space-y-4 text-center">
+            <UIcon name="i-lucide-wrench" class="mx-auto size-8 text-warning" />
+            <div>
+              <p class="text-lg font-bold text-white">
+                In dry dock
+              </p>
+              <p class="mt-1 text-sm text-white/70">
+                Back on the water in {{ repairRemainingLabel }}
+              </p>
+            </div>
+            <UProgress :model-value="repairProgressPercent" color="warning" size="sm" />
+            <div>
               <UButton
+                block
                 size="lg"
                 color="neutral"
                 variant="subtle"
                 icon="i-lucide-gem"
+                :label="`Rush for ${repairRushGemCost} gem${repairRushGemCost === 1 ? '' : 's'}`"
                 :loading="rushing"
                 :disabled="gems < repairRushGemCost"
                 @click="rushRepair"
-              >
-                <span class="flex items-center gap-1.5">
-                  Rush Repair
-                  <span class="opacity-80">·</span>
-                  {{ repairRushGemCost }} gem{{ repairRushGemCost === 1 ? '' : 's' }}
-                </span>
-              </UButton>
-              <p v-if="gems < repairRushGemCost" class="text-red-300 text-xs">
-                Need {{ repairRushGemCost }} gems; you have {{ gems }}.
-              </p>
-              <p v-else class="text-white/60 text-xs">
-                1 gem per started 10 minutes remaining.
+              />
+              <p v-if="gems < repairRushGemCost" class="mt-2 text-xs text-white/50">
+                You have {{ gems }} gems.
               </p>
             </div>
           </div>
-
-          <!-- Pre-voyage overlay -->
-          <div v-else-if="!running" class="absolute inset-0 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]">
-            <UCard class="w-full max-w-lg bg-default/95 shadow-2xl" :ui="{ body: 'p-5 sm:p-6' }">
-              <div class="mb-4 flex items-center justify-center gap-2">
-                <UIcon name="i-lucide-sailboat" class="size-6 text-primary" />
-                <p class="text-lg font-bold">
-                  Ready to set sail?
-                </p>
-              </div>
-
-              <div class="grid grid-cols-2 gap-2.5 text-left">
-                <div class="rounded-lg border border-default bg-elevated p-3">
-                  <p class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
-                    <UIcon name="i-lucide-crosshair" class="size-3.5 text-primary" /> Cannons
-                  </p>
-                  <p class="mt-1 text-lg font-black tabular-nums">
-                    {{ state.cannons.length }} / {{ state.cannonSlots }}
-                  </p>
-                </div>
-                <div class="rounded-lg border border-default bg-elevated p-3">
-                  <p class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
-                    <UIcon name="i-lucide-box" class="size-3.5 text-warning" /> Ammo
-                  </p>
-                  <p class="mt-1 text-sm font-black tabular-nums">
-                    {{ state.ammo.count }} premium
-                  </p>
-                  <p class="text-[10px] text-muted">
-                    {{ state.gemAmmo.count }} gem · free ammo unlimited
-                  </p>
-                </div>
-                <div class="rounded-lg border border-default bg-elevated p-3">
-                  <p class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
-                    <UIcon :name="equippedAbility?.icon ?? 'i-lucide-bomb'" class="size-3.5 text-primary" /> Ability
-                  </p>
-                  <p class="mt-1 truncate text-sm font-black">
-                    {{ equippedAbility?.name ?? 'Powder Keg' }}
-                    <span v-if="equippedAbility" class="text-primary">Lv {{ equippedAbility.level }}</span>
-                  </p>
-                </div>
-                <div class="rounded-lg border border-default bg-elevated p-3">
-                  <p class="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
-                    <UIcon name="i-lucide-gauge" class="size-3.5 text-success" /> Power
-                  </p>
-                  <p class="mt-1 text-lg font-black tabular-nums">
-                    {{ state.power }}
-                  </p>
-                </div>
-              </div>
-
-              <div class="mt-3 rounded-lg border border-primary/30 bg-primary/5 p-3 text-left">
-                <div class="flex items-center justify-between gap-3">
-                  <div>
-                    <p class="flex items-center gap-1.5 text-xs font-bold">
-                      <UIcon name="i-lucide-waves" class="size-4 text-primary" /> Voyage difficulty
-                    </p>
-                    <p class="mt-0.5 text-[10px] text-muted">
-                      Enemy strength and loot scale with the selected tier.
-                    </p>
-                  </div>
-                  <UBadge v-if="selectedDifficulty === state.recommendedDifficulty" color="primary" variant="subtle" label="Recommended" />
-                </div>
-                <USelect v-model="selectedDifficulty" :items="difficultySelectItems" value-key="value" :portal="isFullscreen && gameContainer ? gameContainer : true" class="mt-2 w-full" />
-                <div class="mt-2 flex items-center justify-between text-xs">
-                  <span class="text-muted">Estimated in-run loot</span>
-                  <span class="flex items-center gap-2 font-bold">
-                    <UBadge color="success" variant="subtle" :label="`${selectedProfitMultiplier.toFixed(1)}x profit`" />
-                    <CoinBalance :value="selectedDifficultyInfo?.estimatedLoot ?? 0" />
-                  </span>
-                </div>
-                <div class="mt-1.5 flex items-center justify-between border-t border-primary/20 pt-1.5 text-xs">
-                  <span class="flex items-center gap-1 text-muted">
-                    <UIcon name="i-lucide-flag-triangle-right" class="size-3.5 text-primary" /> Completion bonus
-                  </span>
-                  <span class="flex items-center gap-1 font-bold text-primary">
-                    +<CoinBalance :value="selectedDifficultyInfo?.completionBonus ?? 0" />
-                  </span>
-                </div>
-                <p class="mt-1 text-[10px] leading-snug text-muted">
-                  Survive the full 6-minute voyage to claim the completion bonus on top of your loot.
-                </p>
-              </div>
-
-              <template v-if="canSetSail">
-                <UButton
-                  block
-                  class="mt-4"
-                  size="lg"
-                  icon="i-lucide-anchor"
-                  label="Set Sail"
-                  :loading="starting"
-                  @click="handleStartVoyage"
-                />
-              </template>
-              <template v-else>
-                <p class="mt-4 text-center text-xs text-error">
-                  {{ blockReason }}
-                </p>
-                <UButton block class="mt-2" size="lg" to="/pirates/manage" icon="i-lucide-hammer" label="Go to Armory" />
-              </template>
-            </UCard>
-          </div>
         </div>
 
-        <!-- Reserved control deck: normal document flow keeps every stat off the sea. -->
-        <div v-if="running" class="control-deck shrink-0 border-t border-default bg-elevated/80 p-3 sm:p-4">
-          <div class="grid gap-3 lg:grid-cols-[minmax(250px,1.2fr)_minmax(180px,0.8fr)_minmax(300px,1.5fr)_auto]">
-            <!-- Hull and magazines -->
-            <section class="rounded-lg border border-default bg-default p-3 space-y-2.5">
-              <div class="flex items-center justify-between text-xs">
-                <span class="flex items-center gap-1.5 font-semibold"><UIcon name="i-lucide-heart" class="size-4 text-error" /> Hull integrity</span>
-                <span class="tabular-nums text-muted">{{ Math.ceil(hp) }} / {{ maxHp }}</span>
-              </div>
-              <div class="h-2 overflow-hidden rounded-full bg-accented">
-                <div class="h-full rounded-full transition-[width] duration-200" :class="hpBarColor" :style="{ width: `${hpPercent}%` }" />
-              </div>
-
-              <div class="flex items-center justify-between text-xs">
-                <span class="flex items-center gap-1.5 font-semibold"><UIcon name="i-lucide-box" class="size-4" /> Premium shots</span>
-                <span v-if="ammo > 0" class="tabular-nums">{{ ammo }} / {{ ammoCapacity }}</span>
-                <span v-else class="font-medium text-muted">Free ammo active</span>
-              </div>
-              <div class="h-2 overflow-hidden rounded-full bg-accented">
-                <div class="h-full rounded-full bg-warning transition-[width] duration-200" :style="{ width: `${ammoPercent}%` }" />
-              </div>
-
-              <div v-if="gemAmmoCapacity > 0" class="flex items-center gap-2">
-                <div class="min-w-0 flex-1">
-                  <div class="mb-1 flex items-center justify-between text-[11px] text-info">
-                    <span class="flex items-center gap-1"><UIcon name="i-lucide-gem" class="size-3.5" /> Gem shots</span>
-                    <span class="tabular-nums">{{ gemAmmo }} / {{ gemAmmoCapacity }}</span>
-                  </div>
-                  <div class="h-1.5 overflow-hidden rounded-full bg-accented">
-                    <div class="h-full rounded-full bg-info transition-[width] duration-200" :style="{ width: `${gemAmmoPercent}%` }" />
-                  </div>
-                </div>
-                <UButton
-                  size="xs"
-                  :color="preferGem ? 'info' : 'neutral'"
-                  :variant="preferGem ? 'solid' : 'subtle'"
-                  icon="i-lucide-gem"
-                  :label="preferGem ? 'Loaded' : 'Load'"
-                  :disabled="gemAmmo === 0"
-                  @click="toggleAmmoMode"
-                />
-              </div>
-            </section>
-
-            <!-- Voyage clock and score -->
-            <section class="rounded-lg border border-default bg-default p-3 text-center flex flex-col justify-center gap-2">
-              <div>
-                <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
-                  Time remaining
+        <!-- Set sail -->
+        <div v-else-if="!running" class="absolute inset-0 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px]">
+          <UCard class="w-full max-w-sm bg-default/95 shadow-2xl" :ui="{ body: 'p-5 space-y-4' }">
+            <div class="flex items-center gap-3">
+              <UIcon name="i-lucide-sailboat" class="size-7 shrink-0 text-primary" />
+              <div class="min-w-0">
+                <p class="text-lg font-bold leading-tight">
+                  Set sail
                 </p>
-                <p class="text-3xl font-black tabular-nums leading-tight">
-                  {{ timerLabel }}
+                <p class="text-xs text-muted">
+                  Survive 6 minutes for the bonus.
                 </p>
               </div>
-              <div class="flex flex-wrap items-center justify-center gap-2">
-                <UBadge color="warning" variant="subtle">
-                  <CoinBalance :value="coins" />
-                </UBadge>
-                <Transition name="combo">
-                  <UBadge v-if="comboVisible" color="error" variant="subtle" :label="`Combo x${combo}`" icon="i-lucide-flame" />
-                </Transition>
-              </div>
-              <div class="h-6 flex items-center justify-center shrink-0">
-                <Transition name="boss">
-                  <div v-if="bossVisible" class="w-full rounded-md border border-error/40 bg-error/10 px-2 py-0.5 text-xs text-error animate-pulse">
-                    <span class="font-black uppercase">Flagship:</span> {{ bossName }}
-                  </div>
-                </Transition>
-              </div>
-            </section>
+            </div>
 
-            <!-- Power-up rack -->
-            <section class="rounded-lg border border-default bg-default p-3 flex flex-col">
-              <div class="mb-2 flex flex-wrap items-center justify-between gap-1 text-[10px] font-bold uppercase tracking-wide text-muted shrink-0">
-                <span class="flex items-center gap-1"><UIcon name="i-lucide-sparkles" class="size-3.5 text-primary" /> Active powers</span>
-                <span class="tabular-nums">Drop {{ nextPowerUpLabel }} · Repair {{ nextHealthPackLabel }}</span>
-              </div>
-              <div class="h-[76px] overflow-y-auto pr-0.5">
-                <div v-if="activePowerUps.length" class="grid gap-1.5 sm:grid-cols-2">
-                  <div
-                    v-for="powerUp in activePowerUps"
-                    :key="powerUp.id"
-                    class="flex min-w-0 items-center gap-2 rounded-md bg-elevated px-2 py-1.5"
-                    :title="powerUp.description"
-                  >
-                    <span class="text-base leading-none">{{ powerUp.icon }}</span>
-                    <div class="min-w-0 flex-1">
-                      <p class="truncate text-[11px] font-bold leading-tight">
-                        {{ powerUp.name }}
-                      </p>
-                      <p class="truncate text-[9px] leading-tight text-muted">
-                        {{ powerUp.description }}
-                      </p>
-                    </div>
-                    <span class="shrink-0 text-[10px] font-black tabular-nums text-primary">{{ powerUpStatus(powerUp) }}</span>
-                  </div>
-                </div>
-                <p v-else class="flex h-full items-center justify-center text-xs text-muted">
-                  Watch the sea for a glowing supply buoy.
-                </p>
-              </div>
-            </section>
+            <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              <span class="flex items-center gap-1.5" :class="state.cannons.length === 0 ? 'text-error' : 'text-muted'">
+                <UIcon name="i-lucide-crosshair" class="size-3.5" />
+                <span class="font-semibold text-default">{{ state.cannons.length }}/{{ state.cannonSlots }}</span> cannons
+              </span>
+              <span class="flex items-center gap-1.5 text-muted">
+                <UIcon :name="equippedAbility?.icon ?? 'i-lucide-bomb'" class="size-3.5" />
+                <span class="font-semibold text-default">{{ equippedAbility?.name ?? 'Powder Keg' }}</span>
+                <span v-if="equippedAbility">Lv {{ equippedAbility.level }}</span>
+              </span>
+              <span class="flex items-center gap-1.5 text-muted">
+                <UIcon name="i-lucide-box" class="size-3.5" />
+                <span class="font-semibold text-default">{{ state.ammo.count }}</span> premium
+                <span v-if="gemAmmoCapacity > 0">· <span class="font-semibold text-default">{{ state.gemAmmo.count }}</span> gem</span>
+              </span>
+            </div>
 
-            <!-- Voyage controls -->
-            <section class="flex items-center justify-center gap-2 lg:flex-col">
-              <div
-                class="w-full min-w-30 overflow-hidden rounded-lg border px-2.5 py-2 text-center transition-colors"
-                :class="abilityReady ? 'border-primary/50 bg-primary/10 text-primary' : 'border-default bg-default text-muted'"
-              >
-                <div class="flex items-center justify-center gap-1.5 text-xs font-bold">
-                  <UIcon :name="equippedAbility?.icon ?? 'i-lucide-bomb'" class="size-4" />
-                  {{ equippedAbility?.name ?? 'Ability' }} {{ abilityCooldownLabel }}
+            <div class="space-y-2">
+              <USelect v-model="selectedDifficulty" :items="difficultySelectItems" value-key="value" :portal="portalTarget" icon="i-lucide-waves" class="w-full" />
+              <div class="grid grid-cols-2 gap-2">
+                <div class="rounded-lg bg-elevated px-3 py-2">
+                  <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                    Est. loot · {{ selectedProfitMultiplier.toFixed(1) }}x
+                  </p>
+                  <CoinBalance :value="selectedDifficultyInfo?.estimatedLoot ?? 0" class="mt-0.5 text-sm font-bold" />
                 </div>
-                <p class="mt-0.5 text-[9px] uppercase tracking-wide">
-                  Right-click sea
-                </p>
-                <div class="mt-1 h-1 overflow-hidden rounded-full bg-accented">
-                  <div class="h-full rounded-full bg-primary transition-[width] duration-100" :style="{ width: `${100 - abilityCooldownPercent}%` }" />
+                <div class="rounded-lg bg-elevated px-3 py-2">
+                  <p class="text-[10px] font-semibold uppercase tracking-wide text-muted">
+                    Completion bonus
+                  </p>
+                  <CoinBalance :value="selectedDifficultyInfo?.completionBonus ?? 0" class="mt-0.5 text-sm font-bold text-primary" />
                 </div>
               </div>
-              <UButton color="neutral" variant="subtle" icon="i-lucide-pause" label="Pause" @click="pauseVoyage" />
-              <UButton color="error" variant="subtle" icon="i-lucide-flag" label="Retreat" @click="cancelVoyage" />
-            </section>
-          </div>
+            </div>
+
+            <UButton
+              v-if="canSetSail"
+              block
+              size="lg"
+              icon="i-lucide-anchor"
+              label="Set Sail"
+              :loading="starting"
+              @click="handleStartVoyage"
+            />
+            <div v-else class="space-y-2">
+              <p class="text-center text-xs text-error">
+                Equip a cannon before setting sail.
+              </p>
+              <UButton block size="lg" to="/pirates/manage" icon="i-lucide-hammer" label="Go to Armory" />
+            </div>
+          </UCard>
         </div>
-      </UCard>
       </div>
-    </template>
+
+    </div>
 
     <UModal
       v-model:open="gameOverVisible"
       :title="gameOverTitle"
       :dismissible="false"
       :close="false"
-      :portal="isFullscreen && gameContainer ? gameContainer : true"
+      :portal="portalTarget"
       scrollable
-      :ui="{ content: 'max-w-2xl' }"
+      :ui="{ content: 'max-w-lg' }"
     >
       <template #body>
         <div v-if="gameOverResult" class="space-y-4">
-          <div class="text-center">
-            <div class="mx-auto flex size-16 items-center justify-center rounded-full bg-elevated ring-1 ring-default">
-              <UIcon
-                :name="gameOverIcon"
-                class="size-9"
-                :class="gameOverResult.survived ? 'text-primary' : gameOverResult.reason === 'cancelled' ? 'text-muted' : 'text-error'"
-              />
+          <div class="flex items-center gap-3">
+            <UIcon
+              :name="gameOverIcon"
+              class="size-8 shrink-0"
+              :class="gameOverResult.survived ? 'text-primary' : gameOverResult.reason === 'cancelled' ? 'text-muted' : 'text-error'"
+            />
+            <div>
+              <p class="text-sm text-muted">
+                {{ gameOverMessage }}
+              </p>
+              <p class="text-xs text-muted">
+                Difficulty {{ gameOverResult.difficulty }}<span v-if="gameOverResult.completed" class="text-success"> · cleared</span>
+              </p>
             </div>
-            <p class="mt-2 text-sm text-muted">
-              {{ gameOverMessage }}
-            </p>
           </div>
 
-          <div class="rounded-xl border border-warning/30 bg-warning/10 p-4 text-center">
+          <div class="rounded-xl bg-warning/10 p-4 text-center">
             <p class="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
               Loot secured
             </p>
             <CoinBalance :value="gameOverResult.awarded" class="mt-1 justify-center text-3xl font-black" />
-            <div v-if="gameOverResult.completionBonus > 0" class="mt-2 flex items-center justify-center gap-1.5 text-xs font-bold text-primary">
-              <UIcon name="i-lucide-flag-triangle-right" class="size-3.5" />
-              <span>Includes +<CoinBalance :value="gameOverResult.completionBonus" class="inline-flex" /> completion bonus</span>
+            <p v-if="gameOverResult.completionBonus > 0" class="mt-1 flex items-center justify-center gap-1 text-xs font-semibold text-primary">
+              includes <CoinBalance :value="gameOverResult.completionBonus" :show-icon="false" /> completion bonus
+            </p>
+            <p v-if="gameOverResult.capped" class="mt-1 text-xs text-muted">
+              Payout capped for this voyage's duration.
+            </p>
+          </div>
+
+          <div class="grid grid-cols-5 gap-1 text-center">
+            <div v-for="stat in gameOverStats" :key="stat.label" class="rounded-lg bg-elevated px-1 py-2">
+              <UIcon :name="stat.icon" class="mx-auto mb-1 size-4" :class="stat.color" />
+              <p class="text-base font-black tabular-nums">
+                {{ stat.value }}
+              </p>
+              <p class="text-[10px] text-muted">
+                {{ stat.label }}
+              </p>
             </div>
           </div>
 
-          <div class="flex justify-center">
+          <div v-if="gameOverResult.sunkByType.length" class="flex flex-wrap gap-1.5">
             <UBadge
-              :color="gameOverResult.completed ? 'success' : 'neutral'"
+              v-for="ship in gameOverResult.sunkByType"
+              :key="ship.id"
+              color="neutral"
               variant="subtle"
-              :icon="gameOverResult.completed ? 'i-lucide-badge-check' : 'i-lucide-waves'"
-              :label="`Difficulty ${gameOverResult.difficulty}${gameOverResult.completed ? ' completed' : ''}`"
+              size="sm"
+              :label="`${ship.name} ×${ship.count}`"
             />
           </div>
 
-          <div class="grid grid-cols-2 gap-2 text-center sm:grid-cols-5">
-            <div class="rounded-lg bg-elevated px-2 py-3">
-              <UIcon name="i-lucide-skull" class="mx-auto mb-1 size-4 text-error" />
-              <p class="text-lg font-black">
-                {{ gameOverResult.kills }}
-              </p>
-              <p class="text-[10px] text-muted uppercase tracking-wide">
-                Ships sunk
-              </p>
-            </div>
-            <div class="rounded-lg bg-elevated px-2 py-3">
-              <UIcon name="i-lucide-crosshair" class="mx-auto mb-1 size-4 text-info" />
-              <p class="text-lg font-black tabular-nums">
-                {{ gameOverResult.shotsFired }}
-              </p>
-              <p class="text-[10px] text-muted uppercase tracking-wide">
-                Shots fired
-              </p>
-            </div>
-            <div class="rounded-lg bg-elevated px-2 py-3">
-              <UIcon :name="equippedAbility?.icon ?? 'i-lucide-bomb'" class="mx-auto mb-1 size-4 text-warning" />
-              <p class="text-lg font-black tabular-nums">
-                {{ gameOverResult.abilitiesUsed }}
-              </p>
-              <p class="text-[10px] text-muted uppercase tracking-wide">
-                Abilities used
-              </p>
-            </div>
-            <div class="rounded-lg bg-elevated px-2 py-3">
-              <UIcon name="i-lucide-flame" class="mx-auto mb-1 size-4 text-error" />
-              <p class="text-lg font-black">
-                x{{ Math.max(1, gameOverResult.maxCombo) }}
-              </p>
-              <p class="text-[10px] text-muted uppercase tracking-wide">
-                Best combo
-              </p>
-            </div>
-            <div class="col-span-2 rounded-lg bg-elevated px-2 py-3 sm:col-span-1">
-              <UIcon name="i-lucide-timer" class="mx-auto mb-1 size-4 text-primary" />
-              <p class="text-lg font-black tabular-nums">
-                {{ gameOverSurvivalLabel }}
-              </p>
-              <p class="text-[10px] text-muted uppercase tracking-wide">
-                Survived
-              </p>
-            </div>
-          </div>
+          <UAlert
+            v-if="gameOverResult.repairMs > 0"
+            color="warning"
+            variant="subtle"
+            icon="i-lucide-wrench"
+            :title="`Dry dock for ${gameOverRepairLabel} before your next voyage`"
+          />
 
-          <div v-if="gameOverResult.sunkByType.length" class="rounded-xl border border-default bg-elevated/50 p-3">
-            <p class="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted">
-              <UIcon name="i-lucide-list-collapse" class="size-4" /> Sunk by class
-            </p>
-            <div class="flex flex-wrap gap-1.5">
-              <UBadge
-                v-for="ship in gameOverResult.sunkByType"
-                :key="ship.id"
-                color="neutral"
-                variant="subtle"
-                :label="`${ship.name} ×${ship.count}`"
-              />
-            </div>
-          </div>
-
-          <p v-if="gameOverResult.capped" class="text-xs text-muted">
-            Payout capped for this voyage's duration.
-          </p>
-          <p v-if="gameOverResult.repairMs > 0" class="text-xs text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2 flex items-center justify-center gap-1.5">
-            <UIcon name="i-lucide-wrench" class="size-3.5" />
-            Dry dock for {{ gameOverRepairLabel }} before your next voyage
-          </p>
-          <div class="flex gap-2 border-t border-default pt-4">
-            <UButton block color="neutral" variant="subtle" label="Manage Ship" to="/pirates/manage" @click="closeGameOver" />
+          <div class="flex gap-2">
+            <UButton block color="neutral" variant="subtle" label="Manage ship" to="/pirates/manage" @click="closeGameOver" />
             <UButton block icon="i-lucide-anchor" label="Back to port" @click="closeGameOver" />
           </div>
         </div>
       </template>
     </UModal>
-  </UContainer>
+  </div>
 </template>
 
 <style scoped>
-.list-enter-active,
-.list-leave-active {
-  transition: all 0.25s ease;
-}
-.list-enter-from,
-.list-leave-to {
-  opacity: 0;
-  transform: translateY(6px);
-}
 .combo-enter-active {
   transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -694,73 +553,29 @@ onUnmounted(() => {
 }
 .combo-enter-from {
   opacity: 0;
-  transform: scale(1.8);
+  transform: scale(1.6);
 }
 .combo-leave-to {
   opacity: 0;
 }
-.boss-enter-active {
-  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.boss-leave-active {
-  transition: all 0.3s ease;
-}
-.boss-enter-from {
-  opacity: 0;
-  transform: translate(-50%, -12px) scale(1.3);
-}
-.boss-leave-to {
-  opacity: 0;
-  transform: translate(-50%, -8px);
-}
-.power-up-enter-active {
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.power-up-leave-active {
-  transition: all 0.25s ease;
-}
-.power-up-enter-from {
-  opacity: 0;
-  transform: translate(-50%, -12px) scale(1.25);
-}
-.power-up-leave-to {
-  opacity: 0;
-  transform: translate(-50%, -8px) scale(0.9);
+
+/* Sea plus HUD fit the viewport, so the whole voyage is visible without scrolling. */
+.pirate-game {
+  height: calc(100svh - 8rem);
+  min-height: 460px;
 }
 
-.pirate-game-container:fullscreen,
-.pirate-game-container.is-fullscreen {
+.pirate-game:fullscreen,
+.pirate-game.is-fullscreen {
   position: fixed;
   inset: 0;
   z-index: 9999;
   width: 100vw;
   height: 100vh;
+  min-height: 0;
   background-color: var(--ui-bg, #090d16);
-  padding: 0.75rem;
+  padding: 0.5rem;
   box-sizing: border-box;
   overflow: hidden;
-}
-
-.pirate-game-container:fullscreen :deep(.pirate-card-wrapper),
-.pirate-game-container.is-fullscreen :deep(.pirate-card-wrapper),
-.pirate-game-container:fullscreen .pirate-card-wrapper,
-.pirate-game-container.is-fullscreen .pirate-card-wrapper {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 0%;
-  height: 100%;
-  min-height: 0;
-}
-
-.pirate-game-container:fullscreen .game-viewport,
-.pirate-game-container.is-fullscreen .game-viewport {
-  flex: 1 1 0%;
-  min-height: 0;
-  aspect-ratio: auto !important;
-}
-
-.pirate-game-container:fullscreen .control-deck,
-.pirate-game-container.is-fullscreen .control-deck {
-  flex-shrink: 0;
 }
 </style>
