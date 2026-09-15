@@ -865,6 +865,9 @@ export const hackOps = pgTable('hack_ops', {
   startedAt: timestamp('started_at').defaultNow().notNull(),
   completesAt: timestamp('completes_at').notNull(),
   collected: boolean('collected').notNull().default(false),
+  // When set, collecting this op immediately dispatches the same template with
+  // the same squad (and carries the flag over), so a grind loop needs no clicks.
+  autoRedeploy: boolean('auto_redeploy').notNull().default(false),
   reward: jsonb('reward')
 }, t => [index('hack_ops_userId_idx').on(t.userId)])
 

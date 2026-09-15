@@ -3,6 +3,7 @@ import { db } from '#server/database'
 import { hackAgents, hackArtifacts, hackItems, hackOps, hackHistory, hackState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { credit, creditGems } from '#server/utils/balance'
+import { dispatchHackOp } from '#server/utils/hack-dispatch'
 import {
   OP_TEMPLATES, rollOpReward, agentXpGain, agentPower, xpToNextLevel, AGENT_MAX_LEVEL, MAX_INVENTORY_SLOTS,
   type AgentClass, type ItemMod, type AgentTrait, type OpReward, type HackRarity,
@@ -28,7 +29,7 @@ export default defineEventHandler(async (event) => {
     const [claimed] = await tx.update(hackOps)
       .set({ collected: true })
       .where(and(eq(hackOps.id, opId), eq(hackOps.userId, userId), eq(hackOps.collected, false)))
-      .returning({ id: hackOps.id })
+      .returning({ id: hackOps.id, autoRedeploy: hackOps.autoRedeploy })
     if (!claimed) throw createError({ statusCode: 400, statusMessage: 'Already collected' })
 
     const agentIds = op.agentIds as string[]
@@ -139,6 +140,27 @@ export default defineEventHandler(async (event) => {
       .set({ totalOpsCompleted: sql`${hackState.totalOpsCompleted} + 1` })
       .where(eq(hackState.userId, userId))
 
+    // Auto-redeploy: send the same squad straight back out on the same op. Runs
+    // inside this transaction, where the claim above has already freed the
+    // agents. The flag comes from the claim row (not the pre-transaction read) so
+    // a toggle that landed just before the claim is honored. A refused deploy
+    // (gear changed, an agent moved to storage) must not undo the payout, so it
+    // is reported instead of thrown.
+    let redeploy: { ok: true; opId: string; completesAt: Date } | { ok: false; error: string } | null = null
+    if (claimed.autoRedeploy) {
+      try {
+        // Nested transaction = savepoint, so a failed insert cannot poison the
+        // outer transaction that holds the payout.
+        const next = await tx.transaction(sp => dispatchHackOp(sp, userId, op.templateId, agentIds, {
+          instant: Boolean(useRuntimeConfig(event).devMode),
+          autoRedeploy: true,
+        }))
+        redeploy = { ok: true, opId: next.opId, completesAt: next.completesAt }
+      } catch (e: any) {
+        redeploy = { ok: false, error: e?.statusMessage ?? 'Redeploy failed' }
+      }
+    }
+
     return {
       success: reward.success,
       cash: reward.cash,
@@ -148,6 +170,7 @@ export default defineEventHandler(async (event) => {
       inventoryFull: reward.inventoryFull,
       artifacts: reward.artifacts,
       levelUps,
+      redeploy,
     }
   })
 })
