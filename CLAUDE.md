@@ -181,6 +181,14 @@ Fix what they report. Type errors and failing tests get fixed, not committed aro
 
 This matters more than usual here: `main` is shared and a type error that lands on it fails CI for every other open branch until someone fixes it, and blocks all deploys (`checks` gates `image` gates `deploy` in `.github/workflows/ci.yml`).
 
+## Toasts
+
+Only toast errors and failures (`color: 'error'` or `'warning'`). Never add success/confirmation toasts ("Saved", "Bought X", "Upgrade started"): the UI change is the feedback.
+
+## Changelog
+
+Every day of work gets an entry in `content/changelog/<YYYY-MM-DD>.md` for the current date. Create it if it doesn't exist yet, or add to it if it does. Keep it short and player-facing.
+
 ## Commits
 
 - Short, imperative subject line describing the actual change
