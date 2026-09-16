@@ -1,207 +1,79 @@
-# Polynux — Claude context
+# Polynux
+
+A play-money gaming site. Players earn and spend **coins** (`user.balance`) and **gems** (`user.gems`) across casino games (slots, dice, roulette, live tables), idle and strategy games (Xeno, Hack Ops, Colony, Polytown, Pathwarden, …), a TCG, a bank, a gem exchange and an AI assistant. Every feature touches the economy, so treat value-changing code with care.
 
 ## Stack
 
-- **Framework**: Nuxt 4 with Vue 3
-- **UI**: Nuxt UI (v3) — use its components and design tokens wherever possible
-- **ORM**: Drizzle ORM with PostgreSQL
-- **Auth**: better-auth — session is retrieved server-side via `auth.api.getSession({ headers: event.headers })`
-- **Package manager**: bun, exclusively. Use `bun` for installing packages and running scripts — never `pnpm`, `npm`, or `yarn`. `bun.lock` is the only lockfile; the others are gitignored so they cannot come back.
+- Nuxt 4 + Vue 3, **Nuxt UI v4** (use its components and semantic tokens)
+- Drizzle ORM + PostgreSQL (`server/database/schema.ts`)
+- better-auth
+- **bun only**. Never `npm`, `pnpm` or `yarn`. `bun.lock` is the only lockfile.
 
-## Colors
+## Layout
 
-Always use Nuxt UI semantic color tokens instead of arbitrary hex or raw Tailwind palette values when possible. Prefer:
-- `text-primary`, `bg-primary`, `border-primary`, etc. for the theme accent
-- `text-muted`, `bg-elevated`, `bg-background`, `border-default` for surfaces and subtle text
+- `app/`: pages, components, composables and utils (all auto-imported)
+- `server/api/`: Nitro file routes (`*.get.ts`, `*.post.ts`); shared logic lives in `server/utils/`
+- `shared/`: code used by both client and server (game rules, payouts, random)
+- `content/changelog/`: the player-facing changelog
+- `scripts/`: economy balance simulations (`bun run balance:*`)
 
-## Client-side auth — `app/composables/auth.ts`
+## Client
 
-Auto-imported composable. Provides session state and auth actions.
+- `useAuth()` gives `{ user, fetchSession, signOut }`. `user.value.balance` is a numeric string, so use `parseFloat` for comparisons. Call `fetchSession()` after anything that changes balance or gems.
+- `formatNumber(value, compact = true)` for every coin and gem amount shown.
+- Coin and gem inputs accept `10k`/`2.5m` shorthand: bind `useAmountInput(ref)` to the input and show `amountPreview(text)` as a trailing hint.
+- `apiFetch` for typed API calls; `apiErrorMessage(e, fallback)` for error text.
+- Colors: semantic tokens (`text-primary`, `text-muted`, `bg-elevated`, `border-default`), not raw hex or Tailwind palette colors.
+- **Toasts are for errors and failures only** (`'error'` / `'warning'`). Never add success or confirmation toasts; the UI updating is the feedback.
 
+## Server
+
+Protected endpoints start with:
 ```ts
-const { user, fetchSession, signOut } = useAuth()
-
-// user is a reactive ref — access fields directly:
-user.value?.name
-user.value?.email
-user.value?.balance  // numeric string, e.g. "1234.5000"
-user.value?.gems     // integer
-
-// Parse balance for comparisons/display:
-const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
-
-// Refresh session after server-side changes (e.g. after a purchase):
-await fetchSession()
+const session = await auth.api.getSession({ headers: event.headers })
+if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
 ```
 
-Always call `fetchSession()` after any action that mutates the user's balance or gems so the UI stays in sync.
+Import with `#server/…` and `#shared/…` aliases.
 
-To disable a purchase button when the user can't afford it:
-```vue
-:disabled="balance < cost"
-```
+**Balance**: `server/utils/balance.ts` has `credit`, `debit`, `creditGems`, `debitGems`, `getBalance` and `getHistory`. Amounts are numeric strings (`'25.50'`), with an optional category (`'game:dice'`). `debit`/`debitGems` throw 400 when the user can't afford it, so don't pre-check. Each write logs a `transactions` row. **Inside a `db.transaction()` that holds a lock, pass `tx` as the last argument**, otherwise the write uses a second connection and deadlocks.
 
-## Utilities
+### Concurrency: never read-then-write value
 
-### `formatNumber` — `app/utils/format-number.ts`
+Assume every endpoint that grants or spends value gets hit by a burst of parallel requests (10 parallel rakeback claims once paid out 10x). A `SELECT` check followed by an `UPDATE` is always a bug. The mutation must be the guard:
 
-Auto-imported Nuxt utility. Formats a number for display.
-
-```ts
-formatNumber(value: number | bigint, compact?: boolean): string
-// compact defaults to true  →  1 234 567  →  "1,2M"
-// compact = false           →  full number with up to 2 decimal places
-```
-
-Always use this when displaying balance or gem amounts in the UI.
-
-## Server-side balance — `server/utils/balance.ts`
-
-All functions run inside a Drizzle transaction and record a corresponding row in the `transactions` table. `debit` throws a `400` if the user has insufficient balance — no need to check manually.
-
-```ts
-import { credit, debit, getBalance, getHistory } from '#server/utils/balance'
-
-// Add money to a user
-await credit(userId, '100.00', 'category?')   // amount is a numeric string
-
-// Remove money from a user (throws 400 if insufficient)
-await debit(userId, '25.50', 'category?')
-
-// Read current balance (returns numeric string)
-const balance = await getBalance(userId)
-
-// Read transaction history (returns up to `limit` rows, default 50)
-const history = await getHistory(userId, 50)
-```
-
-`amount` is always a string representing a decimal number (matches the `numeric(19,4)` DB column). Pass the optional `category` to tag the transaction (e.g. `'game:cyber'`, `'deposit'`).
-
-`credit`, `debit`, `creditGems`, `debitGems` and `accumulateRake` all take an optional final `tx` argument. **If you are inside a `db.transaction()` that holds a row lock, you must pass `tx`** — otherwise the write goes out on a second pool connection and deadlocks against the lock your own transaction is holding.
-
-## Concurrency — never read-then-write value
-
-Any endpoint that grants or spends value (coins, gems, items, collectables) is a target for a burst of concurrent requests. A `SELECT` to check, followed by an `UPDATE` to apply, is **always a bug**: under Postgres' default READ COMMITTED, N concurrent requests all read the same pre-state, all pass the check, and all apply. This has been exploited in this codebase before — 10 parallel rakeback claims paid out 10x.
-
-**The mutation itself must be the guard.** Two acceptable patterns:
-
-**A — claim-then-reward.** Preferred when a flag or row marks the reward as consumed. Flip it with a conditional `UPDATE`, and only pay out if you won the claim:
-```ts
-const [claimed] = await tx.update(hackOps)
-  .set({ collected: true })
-  .where(and(eq(hackOps.id, opId), eq(hackOps.userId, userId), eq(hackOps.collected, false)))
-  .returning()
-if (!claimed) throw createError({ statusCode: 400, statusMessage: 'Already collected' })
-// only now roll rewards and credit
-```
-The same shape covers spends (`debitGems` guards `gems >= cost` in the WHERE) and sells (conditional `DELETE ... RETURNING`, credit only if a row came back).
-
-**B — lock-then-read.** When there's no flag to flip and you need the old value, take `SELECT ... FOR UPDATE` inside a transaction (see `getLockedBankState` in `server/utils/bank.ts`), and pass that `tx` to every write. Read the row *inside* the lock — a value read before it is already stale.
-
-**Never compare-and-swap on a `timestamp` column.** Postgres stores microseconds (`09:11:43.761343`) but drizzle hands back a JS `Date`, which only holds milliseconds (`09:11:43.761`). A `where(eq(table.someTimestamp, valueYouRead))` guard therefore matches **zero rows** for any row written by `defaultNow()`, silently failing closed forever. Use pattern B for timestamps. Integer and boolean columns are safe to CAS.
-
-Reviewing your own diff: if a handler reads a value, and later writes a value derived from it, ask what happens when the same request runs twice at once. If the answer isn't "the second one throws", it's not finished.
-
-## Randomness — `shared/utils/random.ts`
-
-**Never use `Math.random()` for anything that decides an outcome, payout, drop, or roll.** It is xorshift128+ in V8 — not a CSPRNG, and its state is shared across every request the process serves. Use the helpers instead:
-
-```ts
-import { randomFloat, randomInt, randomPick, randomChance } from '#shared/utils/random'
-
-randomFloat()            // [0, 1) — drop-in for Math.random()
-randomInt(1, 6)          // inclusive both ends
-randomPick(items)        // uniform element
-randomChance(0.25)       // true 25% of the time
-```
-
-`Math.random()` is acceptable only for cosmetics with no bearing on state — animation jitter, decorative sprite placement.
-
-Do not roll your own from `crypto.getRandomValues`. Note `x / 0xFFFFFFFF` is a subtly wrong idiom (it can return exactly `1.0`, so `Math.floor(r * len)` can index off the end of an array) — `randomFloat()` is correctly `[0, 1)`.
-
-## Database schema highlights — `server/database/schema.ts`
-
-- `user` — `id`, `name`, `email`, `balance` (numeric string), `gems` (integer)
-- `transactions` — `id`, `userId`, `amount`, `type` (`'credit'` | `'debit'`), `category`, `createdAt`
-- `session`, `account`, `verification` — managed by better-auth, don't touch directly
-
-### Changing the schema
-
-Schema changes ship as committed migration files. Edit `server/database/schema.ts`, then:
-
-```bash
-bun run db:generate   # writes drizzle/NNNN_name.sql — commit it alongside the schema change
-bun run db:migrate    # applies it to your local database
-```
-
-`drizzle-kit migrate` is what the container entrypoint and CI run. **Never put `push` back in the deploy path.** It decides what to do by diffing against the live database, and any diff that drops a populated table or column stops on a confirmation prompt that a container cannot answer — then exits 0 having applied nothing, including the unrelated creates in the same diff. That shipped a production outage on 2026-08-04. `bun run db:push` is still fine for throwaway local iteration.
-
-`drizzle/0000_baseline.sql` uses `CREATE TABLE IF NOT EXISTS` and duplicate-tolerant constraint blocks so it is a no-op against databases that already held the schema before migrations existed. Later migrations are ordinary generated output.
-
-## API conventions
-
-- Files live in `server/api/` and use Nitro's file-based routing (`*.get.ts`, `*.post.ts`, …)
-- Always validate the session at the top of protected endpoints:
+- **Claim-then-reward**: flip a flag with a conditional update and only pay if a row came back.
   ```ts
-  const session = await auth.api.getSession({ headers: event.headers })
-  if (!session?.user?.id) throw createError({ statusCode: 401, statusMessage: 'Unauthorized' })
+  const [claimed] = await tx.update(hackOps).set({ collected: true })
+      .where(and(eq(hackOps.id, opId), eq(hackOps.userId, userId), eq(hackOps.collected, false)))
+      .returning()
+  if (!claimed) throw createError({ statusCode: 400, statusMessage: 'Already collected' })
   ```
-- Use `#server/` path aliases for all server-side imports:
-  ```ts
-  import { db } from '#server/database'
-  import { user, minerState } from '#server/database/schema'
-  import { auth } from '#server/utils/auth'
-  import { credit, debit } from '#server/utils/balance'
-  ```
+  Sells work the same way: `DELETE … RETURNING`, then credit.
+- **Lock-then-read**: `SELECT … FOR UPDATE` inside a transaction (see `getLockedBankState` in `server/utils/bank.ts`), read inside the lock, and pass `tx` to every write.
+
+**Never compare-and-swap on a timestamp column.** Postgres stores microseconds but JS `Date` holds milliseconds, so the `WHERE` matches zero rows. Use lock-then-read instead. Integer and boolean CAS is fine.
+
+Self-check: if the same request runs twice at once, the second one must throw.
+
+### Randomness
+
+Never use `Math.random()` for outcomes, payouts, drops or rolls. Use `#shared/utils/random` instead: `randomFloat()` [0,1), `randomInt(min, max)` inclusive, `randomPick(arr)`, `randomChance(p)`. `Math.random()` is only acceptable for cosmetic effects. Don't roll your own from `crypto.getRandomValues`.
+
+## Schema changes
+
+Edit `schema.ts`, then run `bun run db:generate` (commit the generated `drizzle/NNNN_*.sql`) and `bun run db:migrate`. Deploys run `drizzle-kit migrate`. **Never put `db:push` in the deploy path**: it prompts on destructive diffs, a container can't answer, and it exits 0 having applied nothing (production outage, 2026-08-04). `push` is fine for throwaway local work.
 
 ## Code style
 
-- 4-space indentation in `server/` and `shared/` TypeScript files
-- No semicolons, single quotes, no trailing commas (`commaDangle: 'never'` in ESLint config)
-- `braceStyle: '1tbs'` — opening brace on the same line as the control statement
+- `server/` and `shared/`: 4-space indent. Elsewhere, match the file.
+- No semicolons, single quotes, no trailing commas, 1tbs braces.
 
-## Branches
+## Workflow
 
-Format: `type/short-description-kebab-case`  
-Types: `bugfix/`, `feature/`  
-Always branch from an up-to-date `main`.
-
-## Before committing
-
-Both must be green before any commit or push:
-
-```bash
-bun run typecheck
-bun run test
-```
-
-Fix what they report. Type errors and failing tests get fixed, not committed around and not left for CI to catch. If a failure is genuinely pre-existing and unrelated, say so explicitly rather than staying quiet about a red check.
-
-`nuxt build` does **not** typecheck (`typescript.typeCheck` is not enabled), so a passing build proves nothing about types — run `typecheck` separately.
-
-This matters more than usual here: `main` is shared and a type error that lands on it fails CI for every other open branch until someone fixes it, and blocks all deploys (`checks` gates `image` gates `deploy` in `.github/workflows/ci.yml`).
-
-## Toasts
-
-Only toast errors and failures (`color: 'error'` or `'warning'`). Never add success/confirmation toasts ("Saved", "Bought X", "Upgrade started"): the UI change is the feedback.
-
-## Changelog
-
-Every day of work gets an entry in `content/changelog/<YYYY-MM-DD>.md` for the current date. Create it if it doesn't exist yet, or add to it if it does. Keep it short and player-facing.
-
-## Commits
-
-- Short, imperative subject line describing the actual change
-- Multiple commits when changes span different concerns
-- No `Co-Authored-By` lines, no footers, no summaries after the subject
-- **Do not commit or push unless explicitly asked to do so.**
-
-## Pull requests
-
-- Title: the branch name verbatim (e.g. `bugfix/gem-slippage-race-condition`)
-- Body: empty
-- Base branch: always `main`
-
-## Rebases
-
-- Claude may run `git fetch` and `git rebase` to start a rebase, but stops there — do not resolve conflicts, continue, or push. Hand off to the user after initiating.
+- **Changelog**: every day of work gets a short, player-facing entry in `content/changelog/<YYYY-MM-DD>.md` for today's date (create or extend it).
+- **Before any commit**: `bun run typecheck` and `bun run test` must both pass. `nuxt build` does not typecheck. A red `main` blocks every branch and deploy, so fix failures and call out any that are genuinely pre-existing. DB tests need the compose Postgres running.
+- **Commits**: only when asked. Short imperative subject, no body or footer, no `Co-Authored-By`. Split commits by concern.
+- **Branches**: `feature/…` or `bugfix/…` in kebab-case, from an up-to-date `main`.
+- **PRs**: title is the branch name, empty body, base `main`.
+- **Rebases**: you may `git fetch` and start a `git rebase`, then stop. Don't resolve conflicts, continue or push.
