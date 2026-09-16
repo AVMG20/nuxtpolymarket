@@ -201,7 +201,6 @@ async function confirmSwap() {
     })
     audio.playSfx('loadout-lock')
     relayBark(LOADOUT_SWAP)
-    toast.add({ title: `${compareCandidate.value.name} equipped`, color: 'success' })
     compareItemId.value = null
     await refresh()
   } catch (e: any) {
@@ -216,7 +215,6 @@ async function unequip(item: InvItem) {
     await $fetch('/api/hack/items/equip', { method: 'POST', body: { itemId: item.id, agentId: null } })
     audio.playSfx('loadout-lock')
     relayBark(LOADOUT_UNEQUIP)
-    toast.add({ title: 'Item unequipped', color: 'neutral' })
     await refresh()
   } catch (e: any) {
     audio.playSfx('deny')

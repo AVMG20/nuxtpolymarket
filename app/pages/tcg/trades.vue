@@ -68,10 +68,6 @@ async function act(offerId: string, action: 'accept' | 'decline' | 'cancel') {
   acting.value = offerId
   try {
     await apiFetch(`/api/tcg/trades/${action}`, { method: 'POST', body: { offerId } })
-    toast.add({
-      title: action === 'accept' ? 'Trade completed' : action === 'decline' ? 'Offer declined' : 'Offer cancelled',
-      color: 'success'
-    })
     await Promise.all([refresh(), fetchSession()])
   } catch (e) {
     toast.add({ title: apiErrorMessage(e, 'Could not do that'), color: 'error' })
@@ -142,13 +138,6 @@ async function submitOffer() {
         receiverCoins: coinDirection.value === 'ask' ? Number(coinAmount.value) : 0,
         note: offerNote.value || null
       }
-    })
-    toast.add({
-      title: 'Offer sent',
-      description: coinDirection.value === 'pay'
-        ? `${formatNumber(Number(coinAmount.value), false)} coins are held until they accept or it is called off.`
-        : undefined,
-      color: 'success'
     })
     builderOpen.value = false
     offerNote.value = ''

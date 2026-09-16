@@ -157,15 +157,9 @@ async function abandonRun() {
     if (busy.value) return
     busy.value = 'abandon'
     try {
-        const res = await $fetch<FinishRunResult>('/api/meadowbrawl/finish-run', {
+        await $fetch<FinishRunResult>('/api/meadowbrawl/finish-run', {
             method: 'POST',
             body: { wave: 0, coins: 0, kills: 0, won: false, playedMs: 0, abandoned: true }
-        })
-        toast.add({
-            title: `Run abandoned — collected ${formatNumber(res.awarded)}`,
-            description: `${formatNumber(res.counted)} coins × ${res.coinMult.toFixed(2)}`,
-            color: 'success',
-            icon: 'i-lucide-coins'
         })
         await Promise.all([fetchSession(), refreshMeta()])
     } catch (err) {
@@ -194,14 +188,6 @@ async function submitFinish(won: boolean) {
         })
         finish.result = res
         finish.state = 'done'
-        if (res.newlyUnlocked.length) {
-            toast.add({
-                title: res.newlyUnlocked.length > 1 ? 'New weapons unlocked' : 'New weapon unlocked',
-                description: res.newlyUnlocked.map(id => WEAPONS[id as WeaponId].name).join(', '),
-                color: 'success',
-                icon: 'i-lucide-swords'
-            })
-        }
         await Promise.all([fetchSession(), refreshMeta()])
     } catch (err) {
         finish.state = 'error'
@@ -254,9 +240,7 @@ async function buyUpgrade(upgradeId: MeadowbrawlUpgradeId) {
     if (busy.value) return
     busy.value = `upgrade:${upgradeId}`
     try {
-        const res = await $fetch<{ level: number }>('/api/meadowbrawl/upgrade', { method: 'POST', body: { upgradeId } })
-        const def = meta.value?.upgrades.find(u => u.id === upgradeId)
-        toast.add({ title: `${def?.name ?? 'Upgrade'} is now level ${res.level}`, color: 'success', icon: 'i-lucide-arrow-big-up' })
+        await $fetch<{ level: number }>('/api/meadowbrawl/upgrade', { method: 'POST', body: { upgradeId } })
         await Promise.all([fetchSession(), refreshMeta()])
     } catch (err) {
         fail(err, 'Could not buy that upgrade')
@@ -269,13 +253,7 @@ async function buyPet(petId: MeadowbrawlPetId) {
     if (busy.value) return
     busy.value = `pet:${petId}`
     try {
-        const res = await $fetch<{ level: number }>('/api/meadowbrawl/pet-upgrade', { method: 'POST', body: { petId } })
-        const def = MEADOWBRAWL_PETS.find(p => p.id === petId)
-        toast.add({
-            title: res.level === 1 ? `${def?.name ?? 'Pet'} adopted` : `${def?.name ?? 'Pet'} is now level ${res.level}`,
-            color: 'success',
-            icon: 'i-lucide-paw-print'
-        })
+        await $fetch<{ level: number }>('/api/meadowbrawl/pet-upgrade', { method: 'POST', body: { petId } })
         await Promise.all([fetchSession(), refreshMeta()])
     } catch (err) {
         fail(err, 'Could not raise that pet')
@@ -288,8 +266,7 @@ async function rushCooldown() {
     if (busy.value) return
     busy.value = 'rush'
     try {
-        const res = await $fetch<{ gemCost: number }>('/api/meadowbrawl/rush', { method: 'POST' })
-        toast.add({ title: `The meadow is ready — ${res.gemCost} gems spent`, color: 'success', icon: 'i-lucide-gem' })
+        await $fetch<{ gemCost: number }>('/api/meadowbrawl/rush', { method: 'POST' })
         await Promise.all([fetchSession(), refreshMeta()])
     } catch (err) {
         fail(err, 'Could not rush the cooldown')

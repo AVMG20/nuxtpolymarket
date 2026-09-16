@@ -17,7 +17,6 @@ async function unlockRakeback() {
     await $fetch('/api/user/unlock-rakeback', { method: 'POST' })
     await fetchSession()
     unlockModalOpen.value = false
-    toast.add({ title: 'Rakeback unlocked!', color: 'success', icon: 'i-lucide-check' })
   } catch (e: any) {
     toast.add({ title: apiErrorMessage(e, 'Unlock failed'), color: 'error' })
   } finally {
@@ -33,7 +32,6 @@ async function claimRake() {
     await $fetch('/api/user/claim-rake', { method: 'POST' })
     await fetchSession()
     claimModalOpen.value = false
-    toast.add({ title: 'Rakeback claimed!', color: 'success', icon: 'i-lucide-check' })
   } catch (e: any) {
     toast.add({ title: apiErrorMessage(e, 'Claim failed'), color: 'error' })
   } finally {
@@ -71,7 +69,7 @@ async function saveName() {
   nameLoading.value = true
   const { error } = await client.updateUser({ name: trimmed })
   if (error) nameError.value = error.message ?? 'Failed to update'
-  else { await fetchSession(); toast.add({ title: 'Name updated', color: 'success', icon: 'i-lucide-check' }) }
+  else await fetchSession()
   nameLoading.value = false
 }
 
@@ -86,7 +84,7 @@ async function saveEmail() {
   emailLoading.value = true
   const { error } = await client.changeEmail({ newEmail: email.value.trim() })
   if (error) emailError.value = error.message ?? 'Failed to update email'
-  else { await fetchSession(); toast.add({ title: 'Email updated', color: 'success', icon: 'i-lucide-check' }) }
+  else await fetchSession()
   emailLoading.value = false
 }
 
@@ -109,7 +107,6 @@ async function savePassword() {
       currentPw.value = ''
       newPw.value = ''
       confirmPw.value = ''
-      toast.add({ title: 'Password changed', color: 'success', icon: 'i-lucide-check' })
     }
   } else {
     try {
@@ -118,7 +115,6 @@ async function savePassword() {
       confirmPw.value = ''
       const { data } = await client.listAccounts()
       accounts.value = (data as Account[]) ?? []
-      toast.add({ title: 'Password set', color: 'success', icon: 'i-lucide-check' })
     } catch (e: any) {
       pwError.value = apiErrorMessage(e, 'Failed to set password')
     }

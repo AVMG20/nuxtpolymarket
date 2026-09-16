@@ -83,20 +83,14 @@ function laterCost(item: PrestigeShopItem): number | null {
   return item.cost(owned + 1)
 }
 
-async function buy(itemId: string, name: string) {
+async function buy(itemId: string) {
   buying.value = itemId
   try {
-    const result = await $fetch('/api/prestige-shop/buy', {
+    await $fetch('/api/prestige-shop/buy', {
       method: 'POST',
       body: { itemId }
     })
     await Promise.all([fetchSession(), refresh()])
-    toast.add({
-      title: name,
-      description: `Bought for ${result.spent} token${result.spent === 1 ? '' : 's'}. ${result.tokensLeft} left.`,
-      color: 'success',
-      icon: 'i-lucide-crown'
-    })
   } catch (e) {
     toast.add({ title: apiErrorMessage(e, 'Purchase failed'), color: 'error' })
   } finally {
@@ -277,7 +271,7 @@ async function buy(itemId: string, name: string) {
               size="sm"
               :loading="buying === item.id"
               :disabled="level === 0 || !stateById.get(item.id)?.affordable"
-              @click="buy(item.id, item.name)"
+              @click="buy(item.id)"
             />
           </div>
         </UCard>

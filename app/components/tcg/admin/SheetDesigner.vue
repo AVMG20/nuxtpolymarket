@@ -50,7 +50,7 @@ async function createSheet () {
       packSlots: newSheet.packSlots,
       layout: [],
       sortOrder: props.detail.sheets.length
-    }, 'Sheet created')
+    })
     newSheet.name = ''
     newSheet.role = 'base'
     newSheet.packSlots = 1
@@ -212,7 +212,7 @@ async function saveSheet () {
       packSlots: draft.packSlots,
       layout: layoutPreview.value,
       sortOrder: sheet.sortOrder
-    }, 'Sheet saved')
+    })
     serverViolations.value = null
     emit('refresh')
   } catch (e) {
@@ -228,7 +228,7 @@ async function deleteSheet () {
   if (!sheet || deleting.value) return
   deleting.value = true
   try {
-    await call('/api/tcg/admin/sheets/delete', { sheetId: sheet.id }, 'Sheet deleted')
+    await call('/api/tcg/admin/sheets/delete', { sheetId: sheet.id })
     emit('refresh')
   } catch {
     // 400 (template reference) is toasted by useTcgAdmin

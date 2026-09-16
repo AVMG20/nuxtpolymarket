@@ -74,8 +74,7 @@ async function rushCooldown() {
   if (rushingCooldown.value || !isCoolingDown.value) return
   rushingCooldown.value = true
   try {
-    const response = await $fetch('/api/firewall/rush-cooldown', { method: 'POST' })
-    toast.add({ title: `Uplink recharge cleared for ${response.cost} gem${response.cost === 1 ? '' : 's'}`, color: 'success' })
+    await $fetch('/api/firewall/rush-cooldown', { method: 'POST' })
     await Promise.all([refreshState(), fetchSession()])
   } catch (error: unknown) {
     toast.add({

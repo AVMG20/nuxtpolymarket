@@ -298,7 +298,6 @@ async function sendToGrading() {
                 predictedGrade: predicted.value ?? null
             }
         })
-        toast.add({ title: 'Sent to the grader — back in 24 hours', color: 'success' })
         gradePanel.value = false
         predicted.value = undefined
         refetchCopies()
@@ -421,7 +420,6 @@ async function buy() {
     buying.value = true
     try {
         await apiFetch('/api/tcg/market/buy', { method: 'POST', body: { listingId: listing.id } })
-        toast.add({ title: 'Bought — the card is yours', color: 'success' })
         emit('changed')
         await fetchSession()
         emitClose()
@@ -436,7 +434,6 @@ async function buy() {
 async function cancelMyListing(listingId: string) {
     try {
         await apiFetch('/api/tcg/market/cancel', { method: 'POST', body: { listingId } })
-        toast.add({ title: 'Listing cancelled', color: 'success' })
         emit('changed')
         if (props.card?.listing) emitClose()
         else refetchCopies()
@@ -460,7 +457,6 @@ async function listForSale() {
             method: 'POST',
             body: { copyId, price: Number(sellPrice.value), note: sellNote.value || null }
         })
-        toast.add({ title: 'Listed on the market', color: 'success' })
         sellPanel.value = false
         sellNote.value = ''
         refetchCopies()
@@ -500,13 +496,9 @@ async function sellToVendor() {
     }
     vendorSubmitting.value = true
     try {
-        const res = await apiFetch<{ amount: number }>('/api/tcg/vendor/sell', {
+        await apiFetch<{ amount: number }>('/api/tcg/vendor/sell', {
             method: 'POST',
             body: { copyId }
-        })
-        toast.add({
-            title: `The vendor hands you ${formatNumber(res.amount, false)} coin${res.amount === 1 ? '' : 's'}. The card is gone.`,
-            color: 'success'
         })
         vendorPanel.value = false
         refetchCopies()
@@ -541,7 +533,6 @@ async function startAuction() {
             method: 'POST',
             body: { copyId, startPrice: Number(auctionStart.value), durationMs: auctionDurationMs.value }
         })
-        toast.add({ title: 'Auction started', color: 'success' })
         auctionPanel.value = false
         refetchCopies()
         emit('changed')

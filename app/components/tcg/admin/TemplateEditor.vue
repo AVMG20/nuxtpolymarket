@@ -82,7 +82,7 @@ async function save(kind: TcgPackKind) {
       setId: props.detail.set.id,
       kind,
       slots: drafts[kind].map(slot => ({ sheetId: slot.sheetId, count: slotCount(slot.sheetId) }))
-    }, `${kind === 'god' ? 'God' : 'Base'} template saved`)
+    })
     emit('refresh')
   } catch {
     // call() already toasted the error

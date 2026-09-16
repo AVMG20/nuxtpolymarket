@@ -135,7 +135,6 @@ async function save() {
         editingId.value = saved.id
         decks.value = await apiFetch<DeckRow[]>('/api/battler/decks')
         emit('saved')
-        toast.add({ title: `Deck “${saved.name}” saved`, color: 'success' })
     } catch (e) {
         toast.add({ title: apiErrorMessage(e, 'Could not save the deck'), color: 'error' })
     } finally {

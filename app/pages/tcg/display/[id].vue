@@ -137,7 +137,6 @@ async function save() {
         slots: layout.value.map(slot => slot?.copyId ?? null)
       }
     })
-    toast.add({ title: 'Display saved', color: 'success' })
     dirty.value = false
     editing.value = false
     await refresh()

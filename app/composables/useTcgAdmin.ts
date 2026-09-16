@@ -37,10 +37,9 @@ export const useTcgAdmin = () => {
    * POST an admin endpoint. Toasts a success message when given one, toasts
    * the API error (statusMessage) on failure and rethrows so callers can bail.
    */
-  async function call<T = unknown>(url: string, body?: Record<string, unknown>, successMsg?: string): Promise<T> {
+  async function call<T = unknown>(url: string, body?: Record<string, unknown>): Promise<T> {
     try {
       const res = await apiFetch(url, { method: 'POST', body })
-      if (successMsg) toast.add({ title: successMsg, color: 'success' })
       return res as T
     } catch (e) {
       toast.add({ title: apiErrorMessage(e, 'Something went wrong'), color: 'error' })

@@ -72,16 +72,9 @@ async function ascend() {
   if (!next.value) return
   ascending.value = true
   try {
-    const result = await $fetch('/api/prestige', { method: 'POST' })
+    await $fetch('/api/prestige', { method: 'POST' })
     await Promise.all([fetchSession(), refresh()])
     confirmOpen.value = false
-    toast.add({
-      title: `Prestige ${prestigeTier(result.level)?.roman} — ${prestigeTier(result.level)?.name}`,
-      description: `Everything is gone. Your prestige tokens are restored to ${result.tokens}.`,
-      color: 'success',
-      icon: 'i-lucide-crown',
-      duration: 10_000
-    })
   } catch (e) {
     toast.add({ title: apiErrorMessage(e, 'Prestige failed'), color: 'error' })
   } finally {

@@ -133,9 +133,7 @@ async function collect(op: { id: string, templateId: string }) {
       templateName: template?.name ?? 'Operation',
       icon: template?.icon ?? 'i-lucide-terminal'
     }
-    if (res.redeploy?.ok) {
-      toast.add({ title: 'Auto-deployed', description: `${template?.name ?? 'Operation'} is running again with the same squad`, icon: 'i-lucide-repeat', color: 'success' })
-    } else if (res.redeploy && !res.redeploy.ok) {
+    if (res.redeploy && !res.redeploy.ok) {
       toast.add({ title: 'Auto-deploy skipped', description: res.redeploy.error, icon: 'i-lucide-repeat', color: 'warning' })
     }
     await Promise.all([refresh(), fetchSession()])

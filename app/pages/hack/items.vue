@@ -86,9 +86,8 @@ function requestSell(itemId: string) {
 async function sellItem(itemId: string) {
   selling.value = itemId
   try {
-    const res = await $fetch('/api/hack/items/sell', { method: 'POST', body: { itemId } })
+    await $fetch('/api/hack/items/sell', { method: 'POST', body: { itemId } })
     audio.playSfx('purchase')
-    toast.add({ title: `Sold for $${formatNumber(res.price, true)}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     audio.playSfx('deny')
@@ -145,7 +144,6 @@ async function doUpgrade(levels: number) {
     })
     const reachedMax = res.newLevel >= ITEM_MAX_LEVEL
     relayBark(reachedMax ? CRAFT_MAX_LEVEL : CRAFT_UPGRADE, { rare: reachedMax })
-    toast.add({ title: `Upgraded to level ${res.newLevel}`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     audio.playSfx('deny')
@@ -169,7 +167,6 @@ async function doReroll() {
       body: { itemId: benchItem.value.id, lockedTypes: rerollLocked.value }
     })
     relayBark(rollQuality(res.item!.mods as ItemMod[]) >= beforeQuality ? CRAFT_REROLL_GOOD : CRAFT_REROLL_BAD)
-    toast.add({ title: `Re-rolled for ${res.cost} gems`, color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     audio.playSfx('deny')

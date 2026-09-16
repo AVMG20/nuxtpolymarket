@@ -119,7 +119,6 @@ async function dispatch() {
       body: { templateId: template.value.id, agentIds: selectedAgentIds.value, autoRedeploy: autoRedeploy.value }
     })
     audio.playSfx('deploy-confirm')
-    toast.add({ title: `Op dispatched`, description: template.value.name, color: 'success' })
     await refresh()
     await navigateTo('/hack')
   } catch (e: any) {

@@ -21,7 +21,6 @@ const digestShort = computed(() => {
 async function copyDigest() {
   if (!set.value?.commitmentDigest) return
   await navigator.clipboard.writeText(set.value.commitmentDigest)
-  toast.add({ title: 'Commitment digest copied', color: 'success' })
 }
 
 const isTemplateCreated = computed(() => set.value?.templateCode != null)
@@ -48,14 +47,14 @@ async function resetToAutomaticFit() {
       '/api/tcg/admin/sets/refit',
       { setId: id.value }
     )
-    toast.add({
-      title: 'Reset to the automatic fit',
-      description: res.warnings.length > 0
-        ? `${res.sheets} sheets rebuilt · ${res.warnings.length} warning${res.warnings.length === 1 ? '' : 's'}`
-        : `${res.sheets} sheets rebuilt from the published rates.`,
-      color: res.warnings.length > 0 ? 'warning' : 'success',
-      icon: 'i-lucide-rotate-ccw'
-    })
+    if (res.warnings.length > 0) {
+      toast.add({
+        title: 'Reset to the automatic fit',
+        description: `${res.sheets} sheets rebuilt · ${res.warnings.length} warning${res.warnings.length === 1 ? '' : 's'}`,
+        color: 'warning',
+        icon: 'i-lucide-rotate-ccw'
+      })
+    }
     resetOpen.value = false
     await refresh()
   } catch {

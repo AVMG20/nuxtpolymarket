@@ -38,10 +38,9 @@ export const useColony = () => {
 
   const { fetchSession } = useAuth()
 
-  async function call(url: string, body: Record<string, unknown>, successMsg: string): Promise<any> { // eslint-disable-line @typescript-eslint/no-explicit-any
+  async function call(url: string, body: Record<string, unknown>): Promise<any> { // eslint-disable-line @typescript-eslint/no-explicit-any
     try {
       const res = await $fetch(url, { method: 'POST', body })
-      if (successMsg) toast.add({ title: successMsg, color: 'success' })
       await refresh()
       return res
     } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -56,72 +55,61 @@ export const useColony = () => {
   }
 
   async function feedSwarm(method: 'coins' | 'gems' = 'coins') {
-    const res = await call('/api/colony/feed', { method }, '')
-    if (res?.cost) {
-      toast.add({
-        title: method === 'gems'
-          ? `Colony fed with ${formatNumber(res.cost, false)} gems — buffed!`
-          : `Colony fed for ${formatNumber(res.cost, false)} coins`,
-        color: 'success'
-      })
-    }
+    const res = await call('/api/colony/feed', { method })
     await fetchSession()
     return res
   }
 
   async function buyBug(typeId: string) {
-    const res = await call('/api/colony/bugs/buy', { typeId }, '')
-    if (res) toast.add({ title: `Bug acquired — Speed +${res.speed}% · Yield ${res.yield} · Eats ${res.eat}`, color: 'success' })
+    const res = await call('/api/colony/bugs/buy', { typeId })
     await fetchSession()
     return res
   }
 
   async function removeBug(bugId: string) {
-    const res = await call('/api/colony/bugs/remove', { bugId }, 'Bug released')
+    const res = await call('/api/colony/bugs/remove', { bugId })
     await fetchSession()
     return res
   }
 
   async function placeBug(typeId: string, speed: number, yield_: number, eat: number) {
-    return call('/api/colony/bugs/place', { typeId, speed, yield: yield_, eat }, '')
+    return call('/api/colony/bugs/place', { typeId, speed, yield: yield_, eat })
   }
 
   async function unplaceBug(bugId: string) {
-    return call('/api/colony/bugs/unplace', { bugId }, 'Bug moved to inventory')
+    return call('/api/colony/bugs/unplace', { bugId })
   }
 
   async function sellItem(itemTypeId: string, quantity?: number) {
-    const res = await call('/api/colony/market/sell', { itemTypeId, quantity }, '')
-    if (res?.coins) toast.add({ title: `Sold for ${formatNumber(res.coins, false)} coins`, color: 'success' })
+    const res = await call('/api/colony/market/sell', { itemTypeId, quantity })
     await fetchSession()
     return res
   }
 
   /** Collect all unclaimed loot. Returns { collected: [{itemTypeId,name,emoji,quantity}] } for floating popups. */
   async function collectLoot() {
-    return call('/api/colony/loot/collect', {}, '')
+    return call('/api/colony/loot/collect', {})
   }
 
   async function startUpgrade(trackId: string) {
-    const res = await call('/api/colony/upgrades/start', { trackId }, 'Builder started')
+    const res = await call('/api/colony/upgrades/start', { trackId })
     await fetchSession()
     return res
   }
 
   async function collectUpgrade(trackId?: string) {
-    const res = await call('/api/colony/upgrades/collect', { trackId }, 'Upgrade complete!')
+    const res = await call('/api/colony/upgrades/collect', { trackId })
     return res
   }
 
   async function upgradeHabitatLevel() {
-    const res = await call('/api/colony/habitat/upgrade', {}, 'Habitat construction started')
+    const res = await call('/api/colony/habitat/upgrade', {})
     await fetchSession()
     return res
   }
 
   async function sacrificeForResearch(typeId: string) {
-    const res = await call('/api/colony/research/sacrifice', { typeId }, '')
-    if (res) toast.add({ title: `Research complete — Level ${res.level} unlocked`, color: 'success' })
+    const res = await call('/api/colony/research/sacrifice', { typeId })
     await fetchSession()
     return res
   }

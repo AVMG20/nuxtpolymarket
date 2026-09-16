@@ -20,10 +20,9 @@ export const useTcg = () => {
     return id ? sets.value.find(s => s.id === id) ?? null : null
   }
 
-  async function call<T = unknown>(url: string, body?: Record<string, unknown>, successMsg?: string): Promise<T> {
+  async function call<T = unknown>(url: string, body?: Record<string, unknown>): Promise<T> {
     try {
       const res = await apiFetch(url, { method: 'POST', body })
-      if (successMsg) toast.add({ title: successMsg, color: 'success' })
       await Promise.all([refreshState(), refreshSets(), fetchSession()])
       return res as T
     } catch (e) {

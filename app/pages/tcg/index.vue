@@ -63,10 +63,9 @@ function buyDisabledReason(set: { id: string, remaining: number }, pairs: number
 }
 
 async function buy(set: { id: string, name: string }, pairs: number) {
-  const packs = pairs * (prices.value?.packsPerPair ?? 2)
   buying.value = `${set.id}:${pairs}`
   try {
-    await call('/api/tcg/buy-packs', { setId: set.id, pairs }, `Bought ${packs} ${set.name} packs`)
+    await call('/api/tcg/buy-packs', { setId: set.id, pairs })
   } catch {
     // toasted by call()
   } finally {
@@ -95,7 +94,7 @@ async function claim() {
   if (!bundleSetId.value) return
   claiming.value = true
   try {
-    await call('/api/tcg/claim-bundle', { setId: bundleSetId.value }, `Bundle claimed — ${prices.value?.bundlePacks ?? 36} packs`)
+    await call('/api/tcg/claim-bundle', { setId: bundleSetId.value })
   } catch {
     // toasted by call()
   } finally {

@@ -65,7 +65,6 @@ async function placeBid() {
                 quantity: Number(bidQuantity.value)
             }
         })
-        toast.add({ title: 'Buy order placed — coins escrowed', color: 'success' })
         bidOpen.value = false
         await Promise.all([refreshBook(), fetchSession()])
         emit('changed')
@@ -79,7 +78,6 @@ async function placeBid() {
 async function cancelBid(orderId: string) {
     try {
         await apiFetch('/api/tcg/book/cancel', { method: 'POST', body: { orderId } })
-        toast.add({ title: 'Order cancelled — escrow refunded', color: 'success' })
         await Promise.all([refreshBook(), fetchSession()])
         emit('changed')
     } catch (e) {
@@ -101,11 +99,10 @@ async function sellInstantly() {
     }
     selling.value = true
     try {
-        const fill = await apiFetch<{ price: number, proceeds: number }>('/api/tcg/book/sell', {
+        await apiFetch<{ price: number, proceeds: number }>('/api/tcg/book/sell', {
             method: 'POST',
             body: { copyId: props.ownCopyId }
         })
-        toast.add({ title: `Sold into the best bid — ${formatNumber(fill.proceeds, false)} coins`, color: 'success' })
         sellArmed.value = false
         await Promise.all([refreshBook(), fetchSession()])
         emit('changed')

@@ -186,32 +186,11 @@ async function placeOrder() {
   if (loading.value) return
   loading.value = true
   try {
-    const result = await $fetch('/api/gem-exchange/place', {
+    await $fetch('/api/gem-exchange/place', {
       method: 'POST',
       body: { side: tradeMode.value, quantity: safeQuantity.value, price: safePrice.value }
     })
     await Promise.all([refresh(), fetchSession()])
-
-    const gemLabel = (n: number) => `${formatNumber(n, false)} gem${n !== 1 ? 's' : ''}`
-    if (result.filled === 0) {
-      toast.add({
-        title: `${result.side === 'buy' ? 'Buy' : 'Sell'} offer placed`,
-        description: `${gemLabel(result.quantity)} @ ${formatNumber(result.price, false)} coins — waiting for a match`,
-        color: 'info'
-      })
-    } else {
-      const avg = result.avgFillPrice ?? result.price
-      const title = result.side === 'buy'
-          ? `Bought ${gemLabel(result.filled)} for ${formatNumber(result.coinsMoved, false)} coins`
-          : `Sold ${gemLabel(result.filled)} for ${formatNumber(result.coinsMoved, false)} coins`
-      toast.add({
-        title,
-        description: result.remaining > 0
-            ? `Avg ${formatNumber(avg, false)} coins — ${gemLabel(result.remaining)} still on offer`
-            : `Avg ${formatNumber(avg, false)} coins`,
-        color: 'success'
-      })
-    }
   } catch (e) {
     toast.add({ title: apiErrorMessage(e, 'Could not place the offer'), color: 'error' })
   } finally {
@@ -226,7 +205,6 @@ async function cancelOrder(orderId: string) {
   try {
     await $fetch('/api/gem-exchange/cancel', { method: 'POST', body: { orderId } })
     await Promise.all([refresh(), fetchSession()])
-    toast.add({ title: 'Offer cancelled — escrow returned', color: 'neutral' })
   } catch (e) {
     toast.add({ title: apiErrorMessage(e, 'Could not cancel the offer'), color: 'error' })
   } finally {

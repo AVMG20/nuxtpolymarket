@@ -45,7 +45,7 @@ const buying = ref(false)
 async function buyPack() {
     buying.value = true
     try {
-        await call('/api/tcg/admin/debug/buy-pack', { setId: setId.value }, 'Pack purchased')
+        await call('/api/tcg/admin/debug/buy-pack', { setId: setId.value })
         await refreshPacks()
         emit('refresh')
     } catch {
@@ -67,7 +67,7 @@ const reveal = ref<OpenedPackResult | null>(null)
 async function openPack(pack: SealedPackSummary) {
     openingId.value = pack.id
     try {
-        const result = await call('/api/tcg/admin/debug/open-pack', { packId: pack.id }, '') as OpenedPackResult
+        const result = await call('/api/tcg/admin/debug/open-pack', { packId: pack.id }) as OpenedPackResult
         revealCache[pack.id] = result
         reveal.value = result
         revealOpen.value = true
@@ -96,7 +96,7 @@ async function confirmReturn() {
     if (!pack) return
     returning.value = true
     try {
-        await call('/api/tcg/admin/debug/return-pack', { packId: pack.id }, 'Pack returned to the pool')
+        await call('/api/tcg/admin/debug/return-pack', { packId: pack.id })
         delete revealCache[pack.id]
         returnOpen.value = false
         returnTarget.value = null

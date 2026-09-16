@@ -212,12 +212,6 @@ function chooseHeadStartUpgrade(upgradeId: ShapezzRunUpgradeId) {
     engine.applyStartingUpgrade(upgradeId)
     headStartPicksRemaining.value -= 1
     sound.play('upgrade')
-    toast.add({
-        title: `${shapezzRunUpgrade(upgradeId).name} ONLINE`,
-        description: shapezzRunUpgrade(upgradeId).stackText,
-        color: 'success',
-        duration: 1800
-    })
     if (headStartPicksRemaining.value > 0) {
         headStartOffers.value = engine.rollUpgradeOffers()
     } else {
@@ -232,7 +226,6 @@ async function buyHeadStart() {
     try {
         await $fetch('/api/shapezz/head-start', { method: 'POST' })
         await Promise.all([refresh(), fetchSession()])
-        toast.add({ title: 'Head start unlocked', description: 'Choose a run upgrade before your next run begins.', color: 'success' })
     } catch (error: unknown) {
         toast.add({ title: apiErrorMessage(error, 'Could not buy head start'), color: 'error' })
     } finally {
@@ -245,12 +238,6 @@ function chooseUpgrade(upgradeId: ShapezzRunUpgradeId) {
     engine.chooseUpgrade(upgradeId)
     checkpointOffers.value = []
     sound.play('upgrade')
-    toast.add({
-        title: `${shapezzRunUpgrade(upgradeId).name} ONLINE`,
-        description: shapezzRunUpgrade(upgradeId).stackText,
-        color: 'success',
-        duration: 1800
-    })
 }
 
 async function cashOut() {
@@ -294,8 +281,7 @@ async function rushCooldown() {
     if (rushingCooldown.value || !isCoolingDown.value) return
     rushingCooldown.value = true
     try {
-        const response = await $fetch('/api/shapezz/rush-cooldown', { method: 'POST' })
-        toast.add({ title: `Arena recharge cleared for ${response.cost} gem${response.cost === 1 ? '' : 's'}`, color: 'success' })
+        await $fetch('/api/shapezz/rush-cooldown', { method: 'POST' })
         await Promise.all([refresh(), fetchSession()])
     } catch (error: unknown) {
         toast.add({ title: apiErrorMessage(error, 'Could not rush the arena recharge'), color: 'error' })

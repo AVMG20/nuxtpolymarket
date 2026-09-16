@@ -44,7 +44,6 @@ async function create() {
 async function remove(displayId: string) {
   try {
     await apiFetch(`/api/tcg/displays/${displayId}`, { method: 'DELETE' })
-    toast.add({ title: 'Display deleted — the cards stay in your collection', color: 'success' })
     await refresh()
   } catch (e) {
     toast.add({ title: apiErrorMessage(e, 'Could not delete'), color: 'error' })

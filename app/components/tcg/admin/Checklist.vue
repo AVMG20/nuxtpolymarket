@@ -6,7 +6,6 @@ const props = defineProps<{ detail: TcgSetDetailPayload, advanced?: boolean }>()
 const emit = defineEmits<{ refresh: [] }>()
 
 const { call } = useTcgAdmin()
-const toast = useToast()
 
 const committed = computed(() => props.detail.set.status === 'committed')
 const hasChecklist = computed(() => props.detail.cards.length > 0)
@@ -36,15 +35,9 @@ async function runImport() {
   if (!plaatjesSetCode.value.trim() || importing.value) return
   importing.value = true
   try {
-    const result = await call('/api/tcg/admin/sets/import-checklist', {
+    await call('/api/tcg/admin/sets/import-checklist', {
       setId: props.detail.set.id,
       plaatjesSetCode: plaatjesSetCode.value.trim()
-    }) as { cards: number, printings: number }
-    toast.add({
-      title: 'Checklist imported',
-      description: `${result.cards} cards, ${result.printings} printings`,
-      color: 'success',
-      icon: 'i-lucide-list-checks'
     })
     reimportOpen.value = false
     emit('refresh')

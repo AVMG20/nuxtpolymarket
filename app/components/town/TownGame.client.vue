@@ -535,7 +535,6 @@ function saveRedesign() {
         const bits = [`${res.moved.length} placed`]
         if (res.built.length) bits.push(`${res.built.length} new ${res.built.length === 1 ? 'road' : 'roads'}`)
         if (res.removed.length) bits.push(`${res.removed.length} ${res.removed.length === 1 ? 'road' : 'roads'} removed`)
-        toast.add({ title: 'Layout saved', description: bits.join(' · '), color: 'success' })
         redesign.value = null
         clearSelection()
         dropTrayPick()
@@ -711,10 +710,7 @@ function onPlaceLine(tiles: SceneTile[]) {
         return
     }
     const items = plan.map(p => ({ plotId: p.tile.plotId, tileX: p.tile.tileX, tileY: p.tile.tileY, type: ghostType.value!, rotation: p.rotation }))
-    run(() => town.placeBuildings(items.slice(0, TOWN_MAX_DRAG_TILES)), (res) => {
-        const name = town.catalogById.value.get(ghostType.value ?? '')?.name ?? 'building'
-        toast.add({ title: `Built ${res.placed.length} × ${name}`, description: res.skipped ? `${res.skipped} skipped — ${res.reason}` : undefined, color: 'success' })
-    }, 'place')
+    run(() => town.placeBuildings(items.slice(0, TOWN_MAX_DRAG_TILES)), undefined, 'place')
 }
 
 // ── Selection ───────────────────────────────────────────────────────────────
@@ -793,20 +789,13 @@ function demolishBulk() {
     run(() => town.demolishBuildings(ids), (res) => {
         selectedIds.value = selectedIds.value.filter(id => !res.demolished.includes(id))
         if (selectedBuildingId.value && res.demolished.includes(selectedBuildingId.value)) selectedBuildingId.value = null
-        toast.add({ title: `Demolished ${res.demolished.length}`, color: 'neutral' })
     }, 'demolish')
 }
 
 function upgradeSelection() {
     const ids = selectionUpgradable.value.map(b => b.id)
     if (ids.length === 0) return
-    run(() => town.upgradeBuildings(ids), (res) => {
-        toast.add({
-            title: `${res.started.length} ${res.started.length === 1 ? 'upgrade' : 'upgrades'} started`,
-            description: res.skipped ? `${res.skipped} skipped — ${res.reason}` : undefined,
-            color: 'success'
-        })
-    }, 'upgrade')
+    run(() => town.upgradeBuildings(ids), undefined, 'upgrade')
 }
 
 // ── Group move ──────────────────────────────────────────────────────────────
@@ -900,7 +889,6 @@ async function commitGroupMove(tile: { plotId: string, tileX: number, tileY: num
         return
     }
     await run(() => town.moveBuildings(moves), () => {
-        toast.add({ title: `Moved ${moves.length} ${moves.length === 1 ? 'building' : 'buildings'}`, color: 'success' })
         moveSelection.value = null
     }, 'place')
 }
@@ -987,12 +975,12 @@ function upgradeSelected() {
     const b = selectedBuilding.value
     if (!b) return
     if (buildersFree.value === 0) { openBlocked({ kind: 'upgrade', buildingId: b.id }); return }
-    run(() => town.upgradeBuilding(b.id), res => toast.add({ title: `Upgrading to level ${res.level}`, color: 'success' }), 'upgrade')
+    run(() => town.upgradeBuilding(b.id), undefined, 'upgrade')
 }
 function rushSelected() {
     const b = selectedBuilding.value
     if (!b) return
-    run(() => town.rushBuilding(b.id), res => toast.add({ title: `Rushed for ${res.gems} ${res.gems === 1 ? 'gem' : 'gems'}`, color: 'success' }), 'rush')
+    run(() => town.rushBuilding(b.id), undefined, 'rush')
 }
 const confirmDemolish = ref(false)
 function demolishSelected() {
@@ -1004,7 +992,6 @@ function demolishSelected() {
 
 function found() {
     run(() => town.foundTown(), () => {
-        toast.add({ title: 'Welcome, Mayor!', description: 'Build a couple of houses and a farm to get started.', color: 'success' })
         nextTick(() => sceneRef.value?.recenter())
     }, 'plot')
 }
@@ -1035,7 +1022,7 @@ function confirmBuyPlot() {
     const slot = confirmPlot.value
     confirmPlot.value = null
     if (!slot) return
-    run(() => town.buyPlot(slot.x, slot.y), res => toast.add({ title: 'New land!', description: `Paid ${formatNumber(res.price)} coins`, color: 'success' }), 'plot')
+    run(() => town.buyPlot(slot.x, slot.y), undefined, 'plot')
 }
 
 // ── Land ──
@@ -1059,17 +1046,17 @@ function buyListing() {
     const listing = confirmListing.value
     confirmListing.value = null
     if (!listing) return
-    run(() => town.buyPlotFromPlayer(listing.id, listing.price), res => toast.add({ title: `Bought ${listing.ownerName}'s plot`, description: `Paid ${formatNumber(res.price)} coins`, color: 'success' }), 'plot')
+    run(() => town.buyPlotFromPlayer(listing.id, listing.price), undefined, 'plot')
 }
 
 function listPlotForSale(plotId: string) {
     const price = parseAmount(listingPrices.value[plotId] ?? '')
     if (!price || price < 1) { toast.add({ title: 'Set an asking price first', color: 'warning' }); return }
-    run(() => town.listPlot(plotId, price), () => toast.add({ title: `Listed for ${formatNumber(price)} coins`, color: 'success' }), 'click')
+    run(() => town.listPlot(plotId, price), undefined, 'click')
 }
 
 function unlistPlot(plotId: string) {
-    run(() => town.listPlot(plotId, null), () => toast.add({ title: 'Taken off the market', color: 'neutral' }), 'close')
+    run(() => town.listPlot(plotId, null), undefined, 'close')
 }
 
 const confirmSellPlot = ref<string | null>(null)
@@ -1078,7 +1065,7 @@ function sellPlotBack() {
     const plotId = confirmSellPlot.value
     confirmSellPlot.value = null
     if (!plotId) return
-    run(() => town.sellPlot(plotId), res => toast.add({ title: `Land office paid ${formatNumber(res.refund)} coins`, color: 'success' }), 'coin')
+    run(() => town.sellPlot(plotId), undefined, 'coin')
 }
 
 // ── Market ──
@@ -1088,51 +1075,41 @@ function openMarket(resource?: string) {
 }
 function sellFloor(resource: string, quantity: number) {
     run(() => town.sellToFloor(resource, quantity), (res) => {
-        const toMayors = res.filledByPlayers > 0 ? ` — ${formatNumber(res.filledByPlayers)} to other mayors` : ''
-        toast.add({ title: `Sold ${formatNumber(res.quantity)} for ${formatNumber(res.total)} coins${toMayors}`, color: 'success' })
         sound.play(res.total >= 100_000 ? 'bigcoin' : 'coin')
     })
 }
 function placeOrder(resource: string, side: 'buy' | 'sell', price: number, quantity: number) {
     run(() => town.placeOrder(resource, side, price, quantity), (res) => {
         if (res.status === 'filled') {
-            toast.add({ title: side === 'sell' ? `Sold ${formatNumber(res.filled)} for ${formatNumber(res.coinsMoved)} coins` : `Bought ${formatNumber(res.filled)} for ${formatNumber(res.coinsMoved)} coins`, color: 'success' })
             sound.play(side === 'sell' ? 'coin' : 'buy')
         } else {
-            toast.add({ title: res.filled > 0 ? `Partially filled, rest listed` : 'Offer listed', color: 'success' })
             sound.play('click')
         }
     })
 }
 function convertJewels(gems: number) {
-    run(() => town.convertJewels(gems), (res) => {
-        toast.add({ title: `Converted ${formatNumber(res.jewels)} jewels into ${res.gems} ${res.gems === 1 ? 'gem' : 'gems'}`, color: 'success' })
+    run(() => town.convertJewels(gems), () => {
         sound.play('bigcoin')
     })
 }
 function sellBulk(items: { resource: string, quantity: number }[]) {
     if (!items.length) return
     run(() => town.sellBulk(items), (res) => {
-        toast.add({ title: `Sold ${res.lines.length} ${res.lines.length === 1 ? 'good' : 'goods'} for ${formatNumber(res.total)} coins`, color: 'success' })
         sound.play(res.total >= 100_000 ? 'bigcoin' : 'coin')
     })
 }
 function cancelOrder(orderId: string) {
-    run(() => town.cancelOrder(orderId), () => toast.add({ title: 'Offer cancelled', color: 'neutral' }), 'close')
+    run(() => town.cancelOrder(orderId), undefined, 'close')
 }
 
 // ── Milestones ──
 const claimable = computed(() => town.claimableMilestones.value.length)
 function claimMilestone(id: string) {
-    run(() => town.claimMilestone(id), (res) => {
-        const parts = [res.gems ? `+${res.gems} gems` : '', res.reward ? `+${formatNumber(res.reward)} coins` : ''].filter(Boolean)
-        toast.add({ title: `${res.title} · ${parts.join(' ')}`, color: 'success', icon: 'i-lucide-trophy' })
-    }, 'bigcoin')
+    run(() => town.claimMilestone(id), undefined, 'bigcoin')
 }
 watch(claimable, (n, prev) => {
     if (prev !== undefined && n > prev) {
         sound.play('complete')
-        toast.add({ title: 'Goal reached!', description: 'Claim your reward in Goals.', color: 'primary', icon: 'i-lucide-trophy' })
     }
 })
 
@@ -1307,7 +1284,7 @@ const recommendedUpgrades = computed(() => {
 function upgradeRecommended(id: string) {
     buildersPop.value = false
     if (buildersFree.value === 0) { openBlocked({ kind: 'upgrade', buildingId: id }); return }
-    run(() => town.upgradeBuilding(id), res => toast.add({ title: `Upgrading to level ${res.level}`, color: 'success' }), 'upgrade')
+    run(() => town.upgradeBuilding(id), undefined, 'upgrade')
 }
 
 /**
@@ -1346,16 +1323,14 @@ async function rushAndContinue() {
     const next = blocked.value
     if (!job || !next) return
     blocked.value = null
-    await run(() => town.rushBuilding(job.id), res => toast.add({ title: `Rushed for ${res.gems} ${res.gems === 1 ? 'gem' : 'gems'}`, color: 'success' }), 'rush')
+    await run(() => town.rushBuilding(job.id), undefined, 'rush')
     if (next.kind === 'build') pickBuild(next.type)
-    else await run(() => town.upgradeBuilding(next.buildingId), res => toast.add({ title: `Upgrading to level ${res.level}`, color: 'success' }), 'upgrade')
+    else await run(() => town.upgradeBuilding(next.buildingId), undefined, 'upgrade')
 }
 /** A dot on the dock while something is in the lab. */
 const researchRunning = computed(() => !!town.researchBoard.value?.active)
 function startResearch(id: string) {
-    const name = town.researchBoard.value?.projects.find(p => p.id === id)?.name ?? 'Project'
     run(() => town.startResearch(id), () => {
-        toast.add({ title: `${name} started`, color: 'success' })
         town.refreshResearch()
         town.refresh()
     }, 'upgrade')
@@ -1363,7 +1338,7 @@ function startResearch(id: string) {
 
 function hireBuilder() {
     buildersOpen.value = false
-    run(() => town.hireBuilder(), res => toast.add({ title: `Builder hired — ${res.builders} crews`, description: `Paid ${res.gems} gems`, color: 'success' }), 'coin')
+    run(() => town.hireBuilder(), undefined, 'coin')
 }
 const workersDemanded = computed(() => town.state.value?.workersDemanded ?? 0)
 const incomePerDay = computed(() => town.state.value?.floorIncomePerDay ?? 0)

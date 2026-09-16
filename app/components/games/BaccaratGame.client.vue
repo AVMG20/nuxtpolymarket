@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { LB_CHIPS } from '#shared/utils/live-blackjack/chips'
-import { BAC_BET_KEYS, BAC_PAYOUTS, totalStaked } from '#shared/utils/baccarat/payouts'
+import { totalStaked } from '#shared/utils/baccarat/payouts'
 import { bigEyeBoyMarks, bigRoadCells, bigRoadColumns } from '#shared/utils/baccarat/roadmap'
 import type { BacAction, BacBetKey, BacSeatState, BacSharedState } from '#shared/utils/baccarat/types'
 import type { LtSeat } from '#shared/utils/live-table/types'
@@ -120,21 +120,11 @@ watch(() => state.value?.phase, (phase, previous) => {
     if (net === null || net === undefined) return
     if (net > 0) {
         playSfx('win')
-        // Which spots actually paid, so "you won" reads as more than a number.
-        const wins = BAC_BET_KEYS
-            .filter(key => seat!.game.bets[key] > 0 && spotWins(key))
-            .map(key => `${SPOT_LABEL[key]} +${formatNumber(seat!.game.bets[key] * BAC_PAYOUTS[key])}`)
-        toast.add({
-            title: `You won ${formatNumber(net)}`,
-            description: wins.join(' · ') || undefined,
-            color: 'success'
-        })
     } else if (net < 0) {
         playSfx('lose')
         toast.add({ title: `You lost ${formatNumber(Math.abs(net))}`, color: 'error' })
     } else {
         playSfx('push')
-        toast.add({ title: 'Push — bet returned', color: 'neutral' })
     }
 })
 

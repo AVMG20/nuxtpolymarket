@@ -134,7 +134,6 @@ async function confirmApply() {
     })
     audio.playSfx('loadout-lock')
     relayBark(LOADOUT_SWAP)
-    toast.add({ title: 'Artifact applied', color: 'success' })
     selectedArtifactId.value = null
     await refresh()
   } catch (e: unknown) {

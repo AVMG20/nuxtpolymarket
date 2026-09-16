@@ -98,7 +98,6 @@ const { fetchSession } = useAuth()
 async function cancelOrder(orderId: string) {
   try {
     await apiFetch('/api/tcg/book/cancel', { method: 'POST', body: { orderId } })
-    toast.add({ title: 'Order cancelled — escrow refunded', color: 'success' })
     await Promise.all([refreshOrders(), fetchSession()])
   } catch (e) {
     toast.add({ title: apiErrorMessage(e, 'Could not cancel'), color: 'error' })
@@ -128,8 +127,7 @@ async function buyLotClick(lot: LotRow) {
   }
   lotBuying.value = true
   try {
-    const res = await apiFetch<{ copies: number }>('/api/tcg/lots/buy', { method: 'POST', body: { lotId: lot.id } })
-    toast.add({ title: `Bought the lot — ${res.copies} cards are yours`, color: 'success' })
+    await apiFetch<{ copies: number }>('/api/tcg/lots/buy', { method: 'POST', body: { lotId: lot.id } })
     lotArmed.value = null
     await Promise.all([refreshLots(), fetchSession()])
   } catch (e) {
@@ -142,7 +140,6 @@ async function buyLotClick(lot: LotRow) {
 async function cancelLotClick(lotId: string) {
   try {
     await apiFetch('/api/tcg/lots/cancel', { method: 'POST', body: { lotId } })
-    toast.add({ title: 'Lot cancelled', color: 'success' })
     await refreshLots()
   } catch (e) {
     toast.add({ title: apiErrorMessage(e, 'Could not cancel lot'), color: 'error' })
@@ -189,7 +186,6 @@ async function createLotClick() {
       method: 'POST',
       body: { setId: selectedSetId.value, picks, price: Number(lotPrice.value), note: lotNote.value || null }
     })
-    toast.add({ title: 'Bulk lot listed', color: 'success' })
     lotBuilderOpen.value = false
     lotNote.value = ''
     await refreshLots()
@@ -261,7 +257,6 @@ async function placeAuctionBid(auction: AuctionRow) {
   bidding.value = auction.id
   try {
     await apiFetch('/api/tcg/auctions/bid', { method: 'POST', body: { auctionId: auction.id, amount } })
-    toast.add({ title: `Bid placed — ${formatNumber(amount, false)} coins escrowed`, color: 'success' })
     await Promise.all([refreshAuctions(), fetchSession()])
   } catch (e) {
     toast.add({ title: apiErrorMessage(e, 'Could not bid'), color: 'error' })
@@ -272,7 +267,6 @@ async function placeAuctionBid(auction: AuctionRow) {
 async function cancelAuctionClick(auctionId: string) {
   try {
     await apiFetch('/api/tcg/auctions/cancel', { method: 'POST', body: { auctionId } })
-    toast.add({ title: 'Auction cancelled', color: 'success' })
     await refreshAuctions()
   } catch (e) {
     toast.add({ title: apiErrorMessage(e, 'Could not cancel'), color: 'error' })

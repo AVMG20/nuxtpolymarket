@@ -46,7 +46,7 @@ async function saveShopSettings() {
   if (!shopEdit.value || savingSettings.value) return
   savingSettings.value = true
   try {
-    await call('/api/tcg/admin/settings', { ...shopEdit.value }, 'Shop settings saved')
+    await call('/api/tcg/admin/settings', { ...shopEdit.value })
   } catch {
     // toasted by call()
   } finally {
@@ -84,14 +84,14 @@ async function createFromTemplate(template: RateTemplateRow) {
       '/api/tcg/admin/sets/create-from-template',
       { pricedexCode: template.code }
     )
-    toast.add({
-      title: `Set created from ${template.name}`,
-      description: res.warnings.length > 0
-        ? `${res.cards} cards, ${res.printings} printings · ${res.warnings.length} warning${res.warnings.length === 1 ? '' : 's'}`
-        : `${res.cards} cards, ${res.printings} printings`,
-      color: res.warnings.length > 0 ? 'warning' : 'success',
-      icon: 'i-lucide-layers'
-    })
+    if (res.warnings.length > 0) {
+      toast.add({
+        title: `Set created from ${template.name}`,
+        description: `${res.cards} cards, ${res.printings} printings · ${res.warnings.length} warning${res.warnings.length === 1 ? '' : 's'}`,
+        color: 'warning',
+        icon: 'i-lucide-layers'
+      })
+    }
     templateOpen.value = false
     await navigateTo(`/tcg-admin/${res.setId}`)
   } catch {
@@ -119,7 +119,7 @@ async function createSet() {
       name: form.name.trim(),
       code: form.code.trim(),
       plaatjesSetCode: form.plaatjesSetCode.trim() || undefined
-    }, 'Set created')
+    })
     createOpen.value = false
     form.name = ''
     form.code = ''
@@ -161,7 +161,7 @@ async function submitReprint() {
       setId: parent.id,
       printRunLabel: reprintLabel.value.trim(),
       onSaleAt: new Date(reprintOnSaleAt.value).toISOString()
-    }, `Reprint drafted — review and commit it`)
+    })
     reprintOpen.value = false
     await navigateTo(`/tcg-admin/${res.setId}`)
   } catch {
@@ -192,16 +192,10 @@ async function submitDelete() {
   if (!target || deleting.value || deleteConfirm.value !== target.code) return
   deleting.value = true
   try {
-    const res = await call<{ name: string, cards: number, printings: number }>(
+    await call<{ name: string, cards: number, printings: number }>(
       '/api/tcg/admin/sets/delete',
       { setId: target.id }
     )
-    toast.add({
-      title: `Deleted ${res.name}`,
-      description: `${res.cards} cards and ${res.printings} printings went with it.`,
-      color: 'success',
-      icon: 'i-lucide-trash-2'
-    })
     deleteTarget.value = null
     await refreshSets()
   } catch {

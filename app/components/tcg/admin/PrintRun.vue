@@ -51,7 +51,7 @@ async function saveDraft() {
             setId: setId.value,
             targetPackCount: targetPackCount.value,
             godPackOneIn: godPackOneIn.value
-        }, '')
+        })
         emit('refresh')
     } finally {
         saving.value = false
@@ -156,7 +156,7 @@ const canCommit = computed(() => !committed.value
 async function commitRun() {
     committing.value = true
     try {
-        const res = await call('/api/tcg/admin/commit', { setId: setId.value }, 'Print run committed') as { commitmentDigest: string, godPackCount: number }
+        const res = await call('/api/tcg/admin/commit', { setId: setId.value }) as { commitmentDigest: string, godPackCount: number }
         freshDigest.value = res.commitmentDigest
         confirmOpen.value = false
         emit('refresh')

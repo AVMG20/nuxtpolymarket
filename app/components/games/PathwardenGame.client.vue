@@ -624,18 +624,11 @@ function claimCheckpointReward(wave: number) {
   const request = (async () => {
     try {
       await flushSave()
-      const result = await $fetch('/api/pathwarden/checkpoint', {
+      await $fetch('/api/pathwarden/checkpoint', {
         method: 'POST',
         body: { wave }
       })
       claimedCheckpointWaves.add(wave)
-      if (!result.alreadyClaimed && result.reward > 0) {
-        toast.add({
-          title: `Checkpoint ${wave / 4} reward secured`,
-          description: `${formatNumber(result.reward, false)} Coins added. Aether cash-out is still available as a bonus.`,
-          color: 'success'
-        })
-      }
       await Promise.all([refreshBoosts(), fetchSession()])
     } catch (error: unknown) {
       toast.add({ title: 'Checkpoint reward pending', description: apiErrorMessage(error, 'We will retry when you choose a checkpoint action.'), color: 'warning' })
@@ -751,13 +744,8 @@ async function rushCooldown() {
   if (rushingCooldown.value) return
   rushingCooldown.value = true
   try {
-    const response = await $fetch('/api/pathwarden/rush-cooldown', { method: 'POST' })
+    await $fetch('/api/pathwarden/rush-cooldown', { method: 'POST' })
     await Promise.all([refreshBoosts(), fetchSession()])
-    toast.add({
-      title: 'The wardens are ready',
-      description: `${response.cost} Gem${response.cost === 1 ? '' : 's'} cleared the remaining recovery.`,
-      color: 'success'
-    })
   } catch (error) {
     toast.add({ title: apiErrorMessage(error, 'Could not rush recovery'), color: 'error' })
   } finally {
@@ -971,13 +959,7 @@ async function settleRun(reason: 'cashout' | 'victory' | 'defeat') {
 
 async function cashOut() {
   await claimCheckpointReward(snapshot.value.wave)
-  const result = await settleRun('cashout')
-  if (!result) return
-  toast.add({
-    title: `${formatNumber(result.coins, false)} Coins secured`,
-    description: `${formatNumber(result.aetherCounted, false)} Aether crossed the checkpoint.`,
-    color: 'success'
-  })
+  await settleRun('cashout')
 }
 
 async function continueCheckpoint() {
@@ -1039,17 +1021,10 @@ function createGame(restore?: PathwardenEngineRestore, startEngine = true) {
     onOpenArcanistWorkbench: openArcanistWorkbench,
     onAmbientStoryComplete: async (storyId) => {
       try {
-        const progress = await $fetch('/api/pathwarden/ambient', {
+        await $fetch('/api/pathwarden/ambient', {
           method: 'POST',
           body: { storyId }
         })
-        if (progress.achievementUnlocked) {
-          toast.add({
-            title: 'Village Chronicler unlocked',
-            description: 'You witnessed all 250 village stories. Your next permanent upgrade is free.',
-            color: 'success'
-          })
-        }
         await refreshBoosts()
       } catch {
         // Ambient theatre must never interrupt a run when progress syncing fails.

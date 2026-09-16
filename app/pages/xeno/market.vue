@@ -9,7 +9,6 @@ const gems = computed(() => user.value?.gems ?? 0)
 const { inventory, sellPlants, unlockedTypeIds, buyPlants, hybrids, rollHybrid, upgrades, buyUpgrade, refresh, fetchSession } = useXeno()
 const sound = useXenoSound()
 const fx = useXenoFx()
-const toast = useToast()
 
 type Tab = 'sell' | 'buy' | 'hybrids' | 'upgrades'
 const activeTab = ref<Tab>('sell')
@@ -190,7 +189,6 @@ async function doSellKeepAll() {
     const total = results.reduce((s, r) => s + (r.status === 'fulfilled' ? (r.value?.total ?? 0) : 0), 0)
     const sold = results.reduce((s, r) => s + (r.status === 'fulfilled' ? (r.value?.sold ?? 0) : 0), 0)
     if (sold) {
-      toast.add({ title: `Sold ${sold} plants for $${formatNumber(total, false)}`, color: 'success' })
       sound.play('harvest-big')
       coinsAt(lastClick, total)
     }

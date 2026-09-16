@@ -179,11 +179,6 @@ async function runBailout(action: 'bailout' | 'repay') {
     await $fetch(action === 'bailout' ? '/api/bank/bailout' : '/api/bank/bailout-repay', { method: 'POST' })
     bailoutConfirmOpen.value = false
     await Promise.all([refresh(), refreshChartHistory(), fetchSession(), loadHistory(true), refreshBankStatus()])
-    toast.add({
-      title: action === 'bailout' ? 'Bail-out accepted — your debt is lifted' : 'Bail-out repaid, penalty lifted',
-      color: 'success',
-      icon: action === 'bailout' ? 'i-lucide-life-buoy' : 'i-lucide-check'
-    })
   } catch (error: unknown) {
     toast.add({ title: apiErrorMessage(error, 'Bail-out failed'), color: 'error' })
   } finally {
@@ -199,7 +194,6 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
     await $fetch(`/api/bank/${action}`, { method: 'POST', body: repayDebt ? { repayDebt: true } : { amount: selectedAmount } })
     amount.value = 0
     await Promise.all([refresh(), refreshChartHistory(), fetchSession(), loadHistory(true)])
-    toast.add({ title: repayDebt ? 'Debt repaid exactly' : action === 'deposit' ? 'Money deposited' : 'Money withdrawn', color: 'success', icon: 'i-lucide-check' })
   } catch (error: unknown) {
     toast.add({ title: apiErrorMessage(error, 'Bank action failed'), color: 'error' })
   } finally {

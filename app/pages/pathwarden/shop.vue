@@ -31,16 +31,15 @@ function apiMessage(error: unknown, fallback: string) {
   return fallback
 }
 
-async function completePurchase(title: string) {
+async function completePurchase() {
   await Promise.all([refresh(), fetchSession()])
-  toast.add({ title, color: 'success', icon: 'i-lucide-sparkles' })
 }
 
 async function buyDefense(defenseId: string) {
   buyingDefense.value = defenseId
   try {
     await $fetch('/api/pathwarden/defenses/buy', { method: 'POST', body: { defenseId } })
-    await completePurchase('Blueprint added to your arsenal')
+    await completePurchase()
   } catch (error) {
     toast.add({ title: apiMessage(error, 'Could not buy blueprint'), color: 'error' })
   } finally {
@@ -52,7 +51,7 @@ async function buySkin(skinId: string) {
   buyingSkin.value = skinId
   try {
     await $fetch('/api/pathwarden/skins/buy', { method: 'POST', body: { skinId } })
-    await completePurchase('Citadel livery purchased and equipped')
+    await completePurchase()
   } catch (error) {
     toast.add({ title: apiMessage(error, 'Could not buy livery'), color: 'error' })
   } finally {
@@ -65,7 +64,6 @@ async function equipSkin(skinId: string) {
   try {
     await $fetch('/api/pathwarden/skins/equip', { method: 'POST', body: { skinId } })
     await refresh()
-    toast.add({ title: 'Citadel livery equipped', color: 'success' })
   } catch (error) {
     toast.add({ title: apiMessage(error, 'Could not equip livery'), color: 'error' })
   } finally {
@@ -77,7 +75,7 @@ async function buyBoost(boostId: PathwardenBoostId) {
   buyingBoost.value = boostId
   try {
     await $fetch('/api/pathwarden/boost', { method: 'POST', body: { boostId } })
-    await completePurchase('Permanent upgrade acquired')
+    await completePurchase()
   } catch (error) {
     toast.add({ title: apiMessage(error, 'Could not buy upgrade'), color: 'error' })
   } finally {
@@ -89,7 +87,7 @@ async function buySurge() {
   buyingSurge.value = true
   try {
     await $fetch('/api/pathwarden/surge', { method: 'POST', body: { count: 1 } })
-    await completePurchase('Mist Surge prepared')
+    await completePurchase()
   } catch (error) {
     toast.add({ title: apiMessage(error, 'Could not prepare surge'), color: 'error' })
   } finally {

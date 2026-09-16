@@ -76,7 +76,6 @@ async function startPackAuction() {
       method: 'POST',
       body: { packId: auctionPackId.value, startPrice: Number(auctionStart.value), durationMs: auctionDurationMs.value }
     })
-    toast.add({ title: 'Pack auction started — find it on the Market tab', color: 'success' })
     auctionPackId.value = null
     await refresh()
   } catch (e) {
