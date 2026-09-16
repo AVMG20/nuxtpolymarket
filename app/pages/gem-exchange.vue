@@ -74,7 +74,9 @@ const spread = computed(() => {
 // ---- Trade terminal ----
 const tradeMode = ref<'buy' | 'sell'>('buy')
 const quantity = ref(1)
+const quantityText = useAmountInput(quantity, { integer: true })
 const price = ref(0)
+const priceText = useAmountInput(price)
 const loading = ref(false)
 const priceTouched = ref(false)
 const tradeTerminal = useTemplateRef<HTMLElement>('tradeTerminal')
@@ -443,15 +445,17 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                     @click="setQuantity(quantity - 1)"
                 />
                 <UInput
-                    v-model="quantity"
-                    type="number"
-                    min="1"
+                    v-model="quantityText"
+                    autocomplete="off"
                     size="xl"
                     placeholder="1"
                     class="w-full"
                 >
                   <template #leading>
                     <UIcon name="i-lucide-gem" class="size-4 text-cyan-400" />
+                  </template>
+                  <template v-if="amountPreview(quantityText, true)" #trailing>
+                    <span class="text-xs tabular-nums text-muted">{{ amountPreview(quantityText, true) }}</span>
                   </template>
                 </UInput>
                 <UButton
@@ -484,16 +488,17 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                 Price per gem
               </label>
               <UInput
-                  v-model="price"
-                  type="number"
-                  :min="GEM_EXCHANGE_MIN_PRICE"
-                  step="0.01"
+                  v-model="priceText"
+                  autocomplete="off"
                   size="xl"
                   class="w-full"
                   @input="priceTouched = true"
               >
                 <template #leading>
                   <UIcon name="i-lucide-coins" class="size-4 text-yellow-400" />
+                </template>
+                <template v-if="amountPreview(priceText)" #trailing>
+                  <span class="text-xs tabular-nums text-muted">{{ amountPreview(priceText) }}</span>
                 </template>
               </UInput>
               <div class="flex items-center gap-1.5 mt-2">

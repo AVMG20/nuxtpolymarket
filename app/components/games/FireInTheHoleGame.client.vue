@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { parseAmount } from '#shared/utils/parse-amount'
 import type { FireBonusDrop, FireBonusResult, FireBonusValueEvent, FireCell, FireCascadeStep, FireInTheHoleResult, FireSymbol } from '#shared/utils/gamelogic/fireinthehole'
 import { FITH_BUY_BONUS_COST, FITH_COLS, FITH_FREE_SPINS, FITH_MIN_CONNECTION, FITH_ROWS, playFireInTheHole } from '#shared/utils/gamelogic/fireinthehole'
 import { initSlotPixiApp, safeDestroy } from '~/utils/slot-pixi'
@@ -94,7 +95,7 @@ function setBet(value: number) {
 }
 
 function commitBetInput() {
-  setBet(parseInt(betInput.value.replace(/[^\d]/g, ''), 10) || MIN_BET)
+  setBet(parseAmount(betInput.value) ?? MIN_BET)
   betInput.value = String(bet.value)
 }
 
@@ -1433,10 +1434,10 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="fire-readout">
                   <span>Bet</span>
+                  <output v-if="amountPreview(betInput)" class="ml-auto text-[10px] tabular-nums text-muted">{{ amountPreview(betInput) }}</output>
                   <input
                     v-model="betInput"
                     :disabled="isPlaying || autoSpinEnabled"
-                    inputmode="numeric"
                     aria-label="Bet amount"
                     class="w-24 border-0 bg-transparent text-right text-sm font-black text-highlighted outline-none"
                     @blur="commitBetInput"

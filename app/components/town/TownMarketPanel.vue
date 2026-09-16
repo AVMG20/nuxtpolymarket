@@ -258,6 +258,7 @@ const jewelsPerDay = computed(() => (props.netPerTick.jewels ?? 0) * ticksPerHou
 /** Whole gems the jewels on hand convert into. */
 const gemsReady = computed(() => Math.floor(jewels.value / Math.max(1, props.jewelsPerGem)))
 const convertQty = ref(0)
+const convertQtyText = useAmountInput(convertQty, { integer: true })
 watch(gemsReady, (n) => { convertQty.value = n }, { immediate: true })
 const convertValid = computed(() => Number.isInteger(convertQty.value) && convertQty.value >= 1 && convertQty.value <= gemsReady.value)
 const jewelRatio = computed(() => props.storageCap > 0 ? Math.min(1, jewels.value / props.storageCap) : 0)
@@ -367,6 +368,7 @@ const buyQuote = computed(() => {
 // ── Player order ──
 const orderSide = ref<'buy' | 'sell'>('sell')
 const orderPrice = ref<number>(0)
+const orderPriceText = useAmountInput(orderPrice)
 const orderQty = ref<number>(1)
 watch([market, orderSide], ([m]) => {
     if (!m) return
@@ -594,7 +596,7 @@ function timeAgo(at: number) {
                     <div v-if="jewelsPerDay <= 0 && jewels <= 0" class="g-empty">No jewel mine yet — it is a tier-2 build</div>
                     <template v-else>
                         <div class="mk-bar">
-                            <input v-model.number="convertQty" type="number" min="1" :max="gemsReady" class="g-input mk-qty">
+                            <input v-model="convertQtyText" autocomplete="off" class="g-input mk-qty">
                             <button class="g-btn g-btn-sm" :disabled="gemsReady < 1" @click="convertQty = gemsReady">All</button>
                             <span class="mk-num is-soft">= {{ formatNumber(Math.max(0, Math.floor(convertQty || 0)) * jewelsPerGem) }} <TownAsset id="jewels" class="mk-item-art" /></span>
                             <span class="mk-grow" />
@@ -749,7 +751,8 @@ function timeAgo(at: number) {
                     </header>
                     <div class="mk-bar">
                         <span class="g-label">Price each</span>
-                        <input v-model.number="orderPrice" type="number" step="0.01" :min="TOWN_MARKET_MIN_PRICE" class="g-input mk-price">
+                        <input v-model="orderPriceText" autocomplete="off" class="g-input mk-price">
+                        <span v-if="amountPreview(orderPriceText)" class="mk-num is-soft">{{ amountPreview(orderPriceText) }}</span>
                         <span class="g-label">×</span>
                         <input v-model.number="orderQty" type="number" min="1" class="g-input mk-qty">
                         <button v-if="orderSide === 'sell'" class="g-btn g-btn-sm" @click="orderQty = owned">All</button>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { parseAmount } from '#shared/utils/parse-amount'
 import type { TcgListingSummary } from '#shared/types/tcg'
 import type { LightboxCard } from '~/components/tcg/TcgCardLightbox.client.vue'
 import { legacySetOf } from '#shared/utils/tcg/legacy'
@@ -160,6 +161,7 @@ const lotBuilderOpen = ref(false)
 const rawCounts = ref<RawCountRow[] | null>(null)
 const lotPicks = ref<Record<string, number>>({})
 const lotPrice = ref(100)
+const lotPriceText = useAmountInput(lotPrice)
 const lotNote = ref('')
 const lotCreating = ref(false)
 watch(lotBuilderOpen, async (open) => {
@@ -246,11 +248,16 @@ function formatMs(ms: number) {
 function auctionMinBid(auction: AuctionRow) {
   return minNextBid(auction.startPrice, auction.currentBid)
 }
-const bidAmounts = ref<Record<string, number>>({})
+const bidAmounts = ref<Record<string, string>>({})
 const bidding = ref<string | null>(null)
 async function placeAuctionBid(auction: AuctionRow) {
   if (bidding.value) return
-  const amount = Number(bidAmounts.value[auction.id] ?? auctionMinBid(auction))
+  const typed = bidAmounts.value[auction.id]
+  const amount = typed === undefined ? auctionMinBid(auction) : parseAmount(typed)
+  if (amount === null) {
+    toast.add({ title: 'Enter a valid bid, e.g. 500 or 10k', color: 'warning' })
+    return
+  }
   bidding.value = auction.id
   try {
     await apiFetch('/api/tcg/auctions/bid', { method: 'POST', body: { auctionId: auction.id, amount } })
@@ -431,13 +438,16 @@ function thumbSrc(listing: TcgListingSummary): string {
                 class="flex items-center gap-2"
               >
                 <UInput
-                  :model-value="bidAmounts[auction.id] ?? auctionMinBid(auction)"
-                  type="number"
+                  :model-value="bidAmounts[auction.id] ?? String(auctionMinBid(auction))"
                   size="xs"
                   class="w-28"
-                  :min="auctionMinBid(auction)"
-                  @update:model-value="value => bidAmounts[auction.id] = Number(value)"
-                />
+                  autocomplete="off"
+                  @update:model-value="value => bidAmounts[auction.id] = String(value)"
+                >
+                  <template v-if="amountPreview(bidAmounts[auction.id])" #trailing>
+                    <span class="text-xs tabular-nums text-muted">{{ amountPreview(bidAmounts[auction.id]) }}</span>
+                  </template>
+                </UInput>
                 <UButton
                   size="xs"
                   :loading="bidding === auction.id"
@@ -580,15 +590,17 @@ function thumbSrc(listing: TcgListingSummary): string {
               class="flex-1"
             >
               <UInput
-                v-model.number="lotPrice"
-                type="number"
-                :min="1"
+                v-model="lotPriceText"
+                autocomplete="off"
               >
                 <template #leading>
                   <UIcon
                     name="i-lucide-coins"
                     class="size-3.5 text-yellow-400"
                   />
+                </template>
+                <template v-if="amountPreview(lotPriceText)" #trailing>
+                  <span class="text-xs tabular-nums text-muted">{{ amountPreview(lotPriceText) }}</span>
                 </template>
               </UInput>
             </UFormField>

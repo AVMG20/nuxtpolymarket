@@ -29,7 +29,8 @@ const { refresh: refreshBankStatus } = useBankStatus()
 const toast = useToast()
 const now = ref(Date.now())
 const chartNow = ref(Date.now())
-const amount = ref<number | null>(null)
+const amount = ref(0)
+const amountText = useAmountInput(amount)
 const loading = ref<'deposit' | 'withdraw' | null>(null)
 const bailoutLoading = ref<'bailout' | 'repay' | null>(null)
 const bailoutConfirmOpen = ref(false)
@@ -70,7 +71,7 @@ const walletBalance = computed(() => parseFloat(user.value?.balance ?? '0'))
 // still updates in real time, but its current accrual period uses this anchor.
 const rate = computed(() => isInDebt.value ? LOAN_DAILY_RATE : bankDailyRate(Math.max(0, data.value?.balance ?? 0)))
 const interestToday = computed(() => Math.abs(liveBalance.value) * rate.value)
-const validAmount = computed(() => amount.value && amount.value > 0 ? amount.value : 0)
+const validAmount = computed(() => amount.value > 0 ? amount.value : 0)
 const availableLoan = computed(() => data.value?.loanAvailable ?? 0)
 const availableBankBalance = computed(() => Math.max(0, liveBalance.value))
 const maxWithdrawal = computed(() => Math.max(0, liveBalance.value) + availableLoan.value)
@@ -196,7 +197,7 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
   loading.value = action
   try {
     await $fetch(`/api/bank/${action}`, { method: 'POST', body: repayDebt ? { repayDebt: true } : { amount: selectedAmount } })
-    amount.value = null
+    amount.value = 0
     await Promise.all([refresh(), refreshChartHistory(), fetchSession(), loadHistory(true)])
     toast.add({ title: repayDebt ? 'Debt repaid exactly' : action === 'deposit' ? 'Money deposited' : 'Money withdrawn', color: 'success', icon: 'i-lucide-check' })
   } catch (error: unknown) {
@@ -389,7 +390,11 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
           </div>
         </template>
         <UFormField name="amount" label="Amount">
-          <UInputNumber v-model="amount" :min="0" :step="100" class="w-full" placeholder="0" />
+          <UInput v-model="amountText" icon="i-lucide-coins" placeholder="e.g. 250k, 10m" autocomplete="off" class="w-full">
+            <template v-if="amountPreview(amountText)" #trailing>
+              <span class="text-xs tabular-nums text-muted">{{ amountPreview(amountText) }}</span>
+            </template>
+          </UInput>
         </UFormField>
         <div class="-mt-3 flex items-center justify-between text-xs text-muted">
           <span>Available in wallet</span>

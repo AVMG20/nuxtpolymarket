@@ -448,6 +448,7 @@ async function cancelMyListing(listingId: string) {
 // Sell form for an owned copy.
 const sellPanel = ref(false)
 const sellPrice = ref(1000)
+const sellPriceText = useAmountInput(sellPrice)
 const sellNote = ref('')
 const sellSubmitting = ref(false)
 async function listForSale() {
@@ -523,6 +524,7 @@ async function sellToVendor() {
 
 const auctionPanel = ref(false)
 const auctionStart = ref(100)
+const auctionStartText = useAmountInput(auctionStart)
 const auctionDurationMs = ref(3_600_000)
 const auctionDurations = [
     { label: '1 hour', value: 3_600_000 },
@@ -1030,14 +1032,16 @@ onBeforeUnmount(() => {
                             class="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-950/90 p-3"
                         >
                             <UInput
-                                v-model.number="sellPrice"
-                                type="number"
+                                v-model="sellPriceText"
                                 size="sm"
-                                :min="1"
+                                autocomplete="off"
                             >
                                 <template #leading>
                                     <span class="text-xs text-neutral-500">coins</span>
                                 </template>
+                              <template v-if="amountPreview(sellPriceText)" #trailing>
+                                <span class="text-xs tabular-nums text-muted">{{ amountPreview(sellPriceText) }}</span>
+                              </template>
                             </UInput>
                             <UInput
                                 v-model="sellNote"
@@ -1074,14 +1078,16 @@ onBeforeUnmount(() => {
                             class="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-950/90 p-3"
                         >
                             <UInput
-                                v-model.number="auctionStart"
-                                type="number"
+                                v-model="auctionStartText"
                                 size="sm"
-                                :min="1"
+                                autocomplete="off"
                             >
                                 <template #leading>
                                     <span class="text-xs text-neutral-500">start</span>
                                 </template>
+                              <template v-if="amountPreview(auctionStartText)" #trailing>
+                                <span class="text-xs tabular-nums text-muted">{{ amountPreview(auctionStartText) }}</span>
+                              </template>
                             </UInput>
                             <USelect
                                 v-model="auctionDurationMs"

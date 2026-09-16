@@ -3,6 +3,7 @@ import type { AiContextStatus, AiMessageDto, AiToolCall } from '#shared/utils/ai
 import type { AiCapabilityKey, AiGuardSettings } from '#shared/utils/ai-guard'
 import { AI_CAPABILITIES, AI_GUARD_COOKIE, defaultAiGuard, shouldToolAutoRun } from '#shared/utils/ai-guard'
 import { AI_CASINO_MAX_BET } from '#shared/utils/limits'
+import { parseAmount } from '#shared/utils/parse-amount'
 
 interface Conversation {
   id: string
@@ -70,9 +71,8 @@ function setAutoRun(key: AiCapabilityKey, value: boolean) {
 }
 
 function commitMaxBet() {
-  const match = maxBetInput.value.trim().toLowerCase().replace(/[,\s]/g, '').match(/^([\d.]+)([kmbt])?$/)
-  const parsed = match ? parseFloat(match[1]!) * ({ k: 1e3, m: 1e6, b: 1e9, t: 1e12 }[match[2] ?? ''] ?? 1) : NaN
-  const maxBet = Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, AI_CASINO_MAX_BET) : null
+  const parsed = parseAmount(maxBetInput.value)
+  const maxBet = parsed !== null ? Math.min(parsed, AI_CASINO_MAX_BET) : null
   guard.value = { ...guard.value, maxBet }
   maxBetInput.value = maxBet != null ? String(maxBet) : ''
 }
@@ -547,7 +547,11 @@ const starterPrompts = [
                   placeholder="No limit"
                   @blur="commitMaxBet"
                   @keydown.enter="commitMaxBet"
-                />
+                >
+                  <template v-if="amountPreview(maxBetInput)" #trailing>
+                    <span class="text-xs tabular-nums text-muted">{{ amountPreview(maxBetInput) }}</span>
+                  </template>
+                </UInput>
                 <p class="text-xs text-muted">Single wagers above this still need approval, even with Casino on. Accepts k/m/b/t (e.g. 1b). Hard cap {{ formatNumber(AI_CASINO_MAX_BET) }}.</p>
               </div>
               <UAlert

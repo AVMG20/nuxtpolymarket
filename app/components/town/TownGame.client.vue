@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { parseAmount } from '#shared/utils/parse-amount'
 import TownCoin from '~/components/town/TownCoin.vue'
 import { townIsTyping } from '~/utils/town/camera'
 import TownAsset from '~/components/town/TownAsset.vue'
@@ -1043,7 +1044,7 @@ const buildingsOnPlot = computed(() => {
     for (const b of town.buildings.value) counts[b.plotId] = (counts[b.plotId] ?? 0) + 1
     return counts
 })
-const listingPrices = ref<Record<string, number | null>>({})
+const listingPrices = ref<Record<string, string>>({})
 /** Only bare land can change hands, so those are the only rows worth listing. */
 const emptyPlots = computed(() => town.plots.value.filter(p => !buildingsOnPlot.value[p.id]))
 const confirmListing = ref<{ id: string, ownerName: string, price: number } | null>(null)
@@ -1062,7 +1063,7 @@ function buyListing() {
 }
 
 function listPlotForSale(plotId: string) {
-    const price = listingPrices.value[plotId]
+    const price = parseAmount(listingPrices.value[plotId] ?? '')
     if (!price || price < 1) { toast.add({ title: 'Set an asking price first', color: 'warning' }); return }
     run(() => town.listPlot(plotId, price), () => toast.add({ title: `Listed for ${formatNumber(price)} coins`, color: 'success' }), 'click')
 }
@@ -2290,7 +2291,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                             <div v-else class="plotrow-sub">Office pays {{ formatNumber(p.refund) }}</div>
                                         </div>
                                         <template v-if="p.listPrice === null">
-                                            <input v-model.number="listingPrices[p.id]" type="number" min="1" placeholder="Ask" class="g-input w-24">
+                                            <span v-if="amountPreview(listingPrices[p.id])" class="plotrow-sub is-gold">{{ amountPreview(listingPrices[p.id]) }}</span>
+                                            <input v-model="listingPrices[p.id]" autocomplete="off" placeholder="Ask" class="g-input w-24">
                                             <button class="g-btn g-btn-sm" :disabled="busy" data-tip="Offer it to the mayors next to you at your price." @click="listPlotForSale(p.id)">List</button>
                                             <button class="g-btn g-btn-sm" :disabled="busy || p.refund <= 0" :data-tip="p.refund > 0 ? 'Sell back to the land office now.' : 'This plot was free — the office pays nothing.'" @click="confirmSellPlot = p.id">Sell</button>
                                         </template>

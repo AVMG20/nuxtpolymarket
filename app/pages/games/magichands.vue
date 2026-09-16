@@ -36,6 +36,7 @@ function tierClass(v: number): string {
 
 // --- bet config -------------------------------------------------------------
 const handValue = ref(5)
+const handValueText = useAmountInput(handValue)
 const placements = ref<number[]>([])
 const placedSet = computed(() => new Set(placements.value))
 const totalStake = computed(() => placements.value.length * handValue.value)
@@ -376,13 +377,18 @@ onUnmounted(() => {
             <label class="text-xs text-muted uppercase tracking-wide font-medium block mb-1.5">Hand Value</label>
             <div class="flex items-center gap-2">
               <UInput
-                v-model.number="handValue"
-                type="number"
-                min="1"
+                v-model="handValueText"
+                icon="i-lucide-coins"
+                placeholder="e.g. 10k"
+                autocomplete="off"
                 :disabled="isBusy"
                 class="flex-1 font-mono"
                 size="lg"
-              />
+              >
+                <template v-if="amountPreview(handValueText)" #trailing>
+                  <span class="text-xs tabular-nums text-muted">{{ amountPreview(handValueText) }}</span>
+                </template>
+              </UInput>
               <div class="flex gap-1">
                 <UButton
                   color="neutral"

@@ -60,6 +60,7 @@ async function openPack(pack: Pick<SealedPackSummary, 'id' | 'setId'>) {
 // Auction a sealed pack (§7.1) — high-value sealed product is auctionable.
 const auctionPackId = ref<string | null>(null)
 const auctionStart = ref(100)
+const auctionStartText = useAmountInput(auctionStart)
 const auctionDurationMs = ref(3_600_000)
 const auctionDurations = [
   { label: '1 hour', value: 3_600_000 },
@@ -261,15 +262,17 @@ async function onCeremonyClose() {
             class="flex-1"
           >
             <UInput
-              v-model.number="auctionStart"
-              type="number"
-              :min="1"
+              v-model="auctionStartText"
+              autocomplete="off"
             >
               <template #leading>
                 <UIcon
                   name="i-lucide-coins"
                   class="size-3.5 text-yellow-400"
                 />
+              </template>
+              <template v-if="amountPreview(auctionStartText)" #trailing>
+                <span class="text-xs tabular-nums text-muted">{{ amountPreview(auctionStartText) }}</span>
               </template>
             </UInput>
           </UFormField>

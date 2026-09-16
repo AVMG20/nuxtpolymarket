@@ -47,6 +47,7 @@ const bestBid = computed(() => book.value?.levels[0] ?? null)
 // Place a bid.
 const bidOpen = ref(false)
 const bidPrice = ref(100)
+const bidPriceText = useAmountInput(bidPrice)
 const bidQuantity = ref(1)
 const placing = ref(false)
 async function placeBid() {
@@ -190,10 +191,9 @@ async function sellInstantly() {
         >
             <div class="flex gap-2">
                 <UInput
-                    v-model.number="bidPrice"
-                    type="number"
+                    v-model="bidPriceText"
                     size="sm"
-                    :min="1"
+                    autocomplete="off"
                     class="flex-1"
                 >
                     <template #leading>
@@ -202,6 +202,9 @@ async function sellInstantly() {
                             class="size-3.5 text-yellow-400"
                         />
                     </template>
+                  <template v-if="amountPreview(bidPriceText)" #trailing>
+                    <span class="text-xs tabular-nums text-muted">{{ amountPreview(bidPriceText) }}</span>
+                  </template>
                 </UInput>
                 <UInput
                     v-model.number="bidQuantity"

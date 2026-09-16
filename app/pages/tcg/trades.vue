@@ -118,6 +118,7 @@ function toggle(picked: Set<string>, copyId: string) {
 
 const coinDirection = ref<'none' | 'pay' | 'ask'>('none')
 const coinAmount = ref(0)
+const coinAmountText = useAmountInput(coinAmount)
 /**
  * Coins offered are escrowed on send, so an amount over the balance is a
  * refusal waiting to happen — say so before the round trip. Coins ASKED for
@@ -481,15 +482,17 @@ function thumbProps(copy: CounterpartCopy) {
               :error="overOffered ? 'More than you hold' : undefined"
             >
               <UInput
-                v-model.number="coinAmount"
-                type="number"
-                :min="1"
+                v-model="coinAmountText"
+                autocomplete="off"
               >
                 <template #leading>
                   <UIcon
                     name="i-lucide-coins"
                     class="size-3.5 text-yellow-400"
                   />
+                </template>
+                <template v-if="amountPreview(coinAmountText)" #trailing>
+                  <span class="text-xs tabular-nums text-muted">{{ amountPreview(coinAmountText) }}</span>
                 </template>
               </UInput>
             </UFormField>
