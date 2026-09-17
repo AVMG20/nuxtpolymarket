@@ -31,10 +31,13 @@
             @tab="onTab"
             :muted="muted"
             :fullscreen="fullscreen"
+            :spin="hangarSpin"
             :can-fullscreen="canFullscreen"
+            :highlight-item-id="lastCraftId"
             @sound="(s: VoidSfx) => audio.play(s)"
             @toggle-mute="muted = !muted"
             @toggle-fullscreen="toggleFullscreen"
+            @toggle-spin="hangarSpin = !hangarSpin"
         />
         <div v-else-if="!inFlight && !state" class="vr-loading">
             <div class="vr-logo">VOID<span>RUNNER</span></div>
@@ -65,6 +68,7 @@
                         <label>Mouse sensitivity <input v-model.number="sensitivity" type="range" min="0.3" max="2.5" step="0.05"></label>
                         <label>Invert mouse Y <input v-model="invertY" type="checkbox"></label>
                         <label>High graphics <input v-model="highQuality" type="checkbox"></label>
+                        <label title="Softer glow, dimmer explosions and faint screen flashes">Reduce flashes <input v-model="reduceFlashes" type="checkbox"></label>
                         <label v-if="canFullscreen">Fullscreen <input :checked="fullscreen" type="checkbox" @change="onFullscreenCheckbox"></label>
                     </div>
                     <div class="vr-controls vr-controls-compact">
@@ -113,7 +117,7 @@
 
         <!-- ═══ Craft reveal ═══ -->
         <Transition name="vr-reveal">
-            <div v-if="reveal" class="vr-modal-wrap" @click="reveal = null">
+            <div v-if="reveal" class="vr-modal-wrap" @click="closeReveal()">
                 <div class="vr-reveal" :style="{ '--rc': reveal.rarityColor }" @click.stop>
                     <div class="vr-reveal-rays" />
                     <div class="vr-reveal-kicker">{{ reveal.title }}</div>
@@ -125,7 +129,7 @@
                     <div v-if="reveal.affixList.length" class="vr-reveal-affixes">
                         <span v-for="a in reveal.affixList" :key="a.id">{{ a.text }} {{ a.name }}</span>
                     </div>
-                    <button class="vr-btn vr-btn-primary" @click="reveal = null">Nice</button>
+                    <button class="vr-btn vr-btn-primary" @click="closeReveal()">Nice</button>
                 </div>
             </div>
         </Transition>
@@ -244,6 +248,8 @@ const sensitivity = ref(1)
 const invertY = ref(false)
 const muted = ref(false)
 const highQuality = ref(true)
+const reduceFlashes = ref(false)
+const hangarSpin = ref(true)
 
 const reveal = ref<null | { title: string, name: string, tier: number, rarityName: string, rarityColor: string, stats: { label: string, value: string }[], affixList: { id: string, name: string, text: string }[] }>(null)
 
@@ -290,9 +296,9 @@ const controls: [string, string][] = [
     ['LMB', 'Nose guns'],
     ['Q / RMB', 'Pilot skill'],
     ['R', 'Ship ability'],
-    ['E (hold)', 'Secondary / lock-on'],
-    ['G', 'Device'],
-    ['T', 'Scan'],
+    ['E (hold)', 'Lock on, release to fire missiles'],
+    ['G', 'Device: your gadget, e.g. shield boost'],
+    ['T', 'Scan for hidden caches and logs'],
     ['V', 'Cockpit view'],
     ['1 / 2 / 3', 'Supplies'],
     ['F (hold)', 'Dock · F near a trader to trade'],
@@ -343,11 +349,13 @@ function loadPrefs() {
     try {
         const raw = localStorage.getItem('void-runner-prefs')
         if (!raw) return
-        const prefs = JSON.parse(raw) as { volume?: number, sensitivity?: number, invertY?: boolean, highQuality?: boolean, muted?: boolean }
+        const prefs = JSON.parse(raw) as { volume?: number, sensitivity?: number, invertY?: boolean, highQuality?: boolean, reduceFlashes?: boolean, hangarSpin?: boolean, muted?: boolean }
         if (typeof prefs.volume === 'number') volume.value = prefs.volume
         if (typeof prefs.sensitivity === 'number') sensitivity.value = prefs.sensitivity
         if (typeof prefs.invertY === 'boolean') invertY.value = prefs.invertY
         if (typeof prefs.highQuality === 'boolean') highQuality.value = prefs.highQuality
+        if (typeof prefs.reduceFlashes === 'boolean') reduceFlashes.value = prefs.reduceFlashes
+        if (typeof prefs.hangarSpin === 'boolean') hangarSpin.value = prefs.hangarSpin
         if (typeof prefs.muted === 'boolean') muted.value = prefs.muted
     } catch {
         // storage unavailable
@@ -376,16 +384,18 @@ function saveGuide(lesson: string) {
     }
 }
 
-watch([volume, sensitivity, invertY, highQuality, muted], () => {
+watch([volume, sensitivity, invertY, highQuality, reduceFlashes, hangarSpin, muted], () => {
     audio.volume = volume.value
     audio.setMuted(muted.value)
     if (engine) {
         engine.sensitivity = sensitivity.value
         engine.invertY = invertY.value
         engine.setQuality(highQuality.value)
+        engine.setReduceFlashes(reduceFlashes.value)
+        engine.hangarSpin = hangarSpin.value
     }
     try {
-        localStorage.setItem('void-runner-prefs', JSON.stringify({ volume: volume.value, sensitivity: sensitivity.value, invertY: invertY.value, highQuality: highQuality.value, muted: muted.value }))
+        localStorage.setItem('void-runner-prefs', JSON.stringify({ volume: volume.value, sensitivity: sensitivity.value, invertY: invertY.value, highQuality: highQuality.value, reduceFlashes: reduceFlashes.value, hangarSpin: hangarSpin.value, muted: muted.value }))
     } catch {
         // storage unavailable
     }
@@ -479,6 +489,16 @@ const buyShip = (shipId: string) => act(() => apiFetch('/api/void/ships/buy', { 
 })
 const setFit = (shipId: string, fit: unknown) => act(() => apiFetch('/api/void/ships/loadout', { method: 'POST', body: { shipId, fit } }), 'Could not refit', 'ui')
 const lastCraftId = ref<string | null>(null)
+let craftHighlightTimer: ReturnType<typeof setTimeout> | undefined
+
+/** The fresh item stays highlighted in the workshop for a moment, then goes back to normal. */
+function closeReveal() {
+    reveal.value = null
+    clearTimeout(craftHighlightTimer)
+    craftHighlightTimer = setTimeout(() => {
+        lastCraftId.value = null
+    }, 4000)
+}
 const craftItem = (kind: string, type: string, tier: number) => {
     lastCraftId.value = null
     return act(async () => {
@@ -649,6 +669,8 @@ async function closeSummary() {
 }
 
 onMounted(async () => {
+    // Registered before any await, so leaving the page early still unbinds it.
+    window.addEventListener('beforeunload', warnBeforeLeaving)
     // Inside the page's suspense boundary the template ref can bind a tick
     // after mounted fires, so wait a few frames for it before giving up.
     for (let i = 0; i < 10 && !viewport.value; i++) {
@@ -696,12 +718,15 @@ onMounted(async () => {
     engine.sensitivity = sensitivity.value
     engine.invertY = invertY.value
     if (!highQuality.value) engine.setQuality(false)
+    if (reduceFlashes.value) engine.setReduceFlashes(true)
+    engine.hangarSpin = hangarSpin.value
     await refresh()
-    // A run that never reported back (closed tab) banks nothing; clear it now.
+    // A run that never reported back (closed tab or reload) banks nothing; clear it now and say so.
     if (state.value?.activeRun) {
         try {
             await apiFetch('/api/void/finish', { method: 'POST', body: { reason: 'abandoned' } })
             await refresh()
+            toast.add({ title: 'Your last run was interrupted', description: 'The page closed or reloaded mid-flight, so that hold was lost.', color: 'warning' })
         } catch {
             // the next launch clears it
         }
@@ -709,6 +734,13 @@ onMounted(async () => {
     currentShowroom()
     window.addEventListener('pointerdown', unlockAudio, { once: true })
 })
+
+/** Closing or reloading mid-flight loses the hold, so ask the browser to confirm first. */
+function warnBeforeLeaving(e: BeforeUnloadEvent) {
+    if (!inFlight.value || summary.value) return
+    e.preventDefault()
+    e.returnValue = ''
+}
 
 function unlockAudio() {
     audio.unlock()
@@ -719,6 +751,7 @@ onBeforeUnmount(() => {
     engine = null
     audio.dispose()
     window.removeEventListener('pointerdown', unlockAudio)
+    window.removeEventListener('beforeunload', warnBeforeLeaving)
     document.removeEventListener('fullscreenchange', onFullscreenChange)
     window.removeEventListener('keydown', onFullscreenKey)
     if (document.fullscreenElement === root.value) void document.exitFullscreen().catch(() => {})
