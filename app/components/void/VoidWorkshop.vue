@@ -225,10 +225,11 @@ function salvage(itemId: string) {
 </script>
 
 <style>
-.vw { display: grid; gap: 2px; }
-.vw-craft { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--vr-line-strong); background: linear-gradient(160deg, rgba(94, 200, 255, 0.07), rgba(255, 255, 255, 0.02)); }
+.vw { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.vw-craft { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 8px; padding: 10px 12px; border: 1px solid var(--vr-line-strong); background: linear-gradient(160deg, rgba(94, 200, 255, 0.07), rgba(255, 255, 255, 0.02)); }
 .vw-kinds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
-.vw-kind { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vr-muted); border: 1px solid var(--vr-line); cursor: pointer; }
+.vw-kind { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 4px; font-size: 11px; font-weight: 700; letter-spacing: clamp(0.02em, 0.5vw, 0.12em); min-width: 0; overflow: hidden; text-transform: uppercase; color: var(--vr-muted); border: 1px solid var(--vr-line); cursor: pointer; }
+.vw-kind span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vw-kind:hover { color: var(--vr-text); }
 .vw-kind.vw-on { color: #fff; border-color: var(--vr-accent); background: rgba(94, 200, 255, 0.12); }
 .vw-types { display: flex; flex-wrap: wrap; gap: 4px; }
@@ -239,7 +240,7 @@ function salvage(itemId: string) {
 .vw-locked { opacity: 0.4; }
 .vw-desc { margin: 0; font-size: 12px; color: rgba(230, 241, 255, 0.7); }
 .vw-tiers { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
-.vw-tier { padding: 6px 0; font: 700 13px 'JetBrains Mono', monospace; border: 1px solid var(--vr-line); cursor: pointer; }
+.vw-tier { min-width: 0; padding: 6px 0; font: 700 13px 'JetBrains Mono', monospace; border: 1px solid var(--vr-line); cursor: pointer; }
 .vw-tier.vw-on { border-color: var(--vr-gold); color: var(--vr-gold); background: rgba(255, 210, 122, 0.1); }
 .vw-tier:disabled { cursor: not-allowed; }
 .vw-odds { display: flex; height: 5px; gap: 1px; }
@@ -255,7 +256,7 @@ function salvage(itemId: string) {
 .vw-mod-none { opacity: 0.35; cursor: default; }
 .vw-mod.vw-on { border-color: var(--c); box-shadow: 0 0 14px color-mix(in srgb, var(--c) 40%, transparent); }
 
-.vw-filter { display: flex; gap: 4px; margin-bottom: 6px; }
+.vw-filter { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .vw-filter button { padding: 4px 9px; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vr-muted); border: 1px solid var(--vr-line); cursor: pointer; }
 .vw-filter .vw-on { color: #fff; border-color: var(--vr-accent); }
 .vw-item { --rc: #fff; padding: 8px 10px; background: linear-gradient(120deg, color-mix(in srgb, var(--rc) 10%, transparent), rgba(255, 255, 255, 0.02) 55%); border: 1px solid color-mix(in srgb, var(--rc) 35%, transparent); border-left: 3px solid var(--rc); }
