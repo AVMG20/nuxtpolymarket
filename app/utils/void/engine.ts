@@ -92,6 +92,11 @@ const _v1 = new THREE.Vector3()
 const _v2 = new THREE.Vector3()
 const _v3 = new THREE.Vector3()
 const _q1 = new THREE.Quaternion()
+const _q2 = new THREE.Quaternion()
+const _e1 = new THREE.Euler()
+const AXIS_X = new THREE.Vector3(1, 0, 0)
+const AXIS_Y = new THREE.Vector3(0, 1, 0)
+const AXIS_Z = new THREE.Vector3(0, 0, 1)
 const _c1 = new THREE.Color()
 const _m1 = new THREE.Matrix4()
 
@@ -266,7 +271,6 @@ export class VoidEngine {
     constructor(private container: HTMLElement, public audio: VoidAudio, public events: EngineEvents) {
         if (!container) throw new Error('Void Runner needs a mounted container')
         const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', alpha: false })
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75))
         renderer.toneMapping = THREE.ACESFilmicToneMapping
         renderer.toneMappingExposure = 1.05
         renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -318,17 +322,64 @@ export class VoidEngine {
 
     // ─── Lifecycle ─────────────────────────────────────────────────────────
 
+    private highQuality = true
+    /** Adaptive resolution multiplier, lowered when frames run long. */
+    private resScale = 1
+    private frameAcc = 0
+    private frameCount = 0
+    private fastWindows = 0
+
+    /**
+     * Render resolution: the HDR, MSAA and bloom chain costs per pixel, so a
+     * Retina or 1440p screen at full density misses frames and the aim
+     * stutters. Cap the pixel count, then let the adaptive scale trim further.
+     */
+    private targetPixelRatio() {
+        const area = Math.max(1, this.width * this.height)
+        const cap = this.highQuality ? 1.5 : 1
+        const budget = this.highQuality ? 2.8e6 : 1.8e6
+        const pr = Math.min(window.devicePixelRatio, cap, Math.sqrt(budget / area)) * this.resScale
+        return Math.max(0.5, pr)
+    }
+
+    /** Called every frame: steps resolution down when frames run long, back up when there is headroom. */
+    private adaptResolution(dt: number) {
+        this.frameAcc += dt
+        this.frameCount++
+        if (this.frameAcc < 1.5) return
+        const avg = this.frameAcc / this.frameCount
+        this.frameAcc = 0
+        this.frameCount = 0
+        if (avg > 0.021 && this.resScale > 0.6) {
+            this.resScale = Math.max(0.6, this.resScale - 0.1)
+            this.fastWindows = 0
+            this.resize()
+        } else if (avg < 0.0175 && this.resScale < 1) {
+            if (++this.fastWindows >= 3) {
+                this.fastWindows = 0
+                this.resScale = Math.min(1, this.resScale + 0.05)
+                this.resize()
+            }
+        } else {
+            this.fastWindows = 0
+        }
+    }
+
     private resize = () => {
         const w = this.container.clientWidth || window.innerWidth
         const h = this.container.clientHeight || window.innerHeight
         this.width = w
         this.height = h
+        const ratio = this.targetPixelRatio()
+        this.renderer.setPixelRatio(ratio)
+        this.composer.setPixelRatio(ratio)
         this.renderer.setSize(w, h)
         this.composer.setSize(w, h)
         this.bloom.resolution.set(w / 2, h / 2)
         this.camera.aspect = w / h
         this.camera.updateProjectionMatrix()
-        const dpr = Math.min(window.devicePixelRatio, 2)
+        // The 2D overlay is redrawn every frame too; it does not need full Retina density.
+        const dpr = Math.min(window.devicePixelRatio, 1.5)
         this.overlay.width = w * dpr
         this.overlay.height = h * dpr
         this.overlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0)
@@ -358,8 +409,11 @@ export class VoidEngine {
     private loop = (now: number) => {
         if (this.disposed) return
         this.raf = requestAnimationFrame(this.loop)
-        const dt = Math.min(0.05, Math.max(0.0001, (now - this.lastTime) / 1000))
+        const raw = (now - this.lastTime) / 1000
+        const dt = Math.min(0.05, Math.max(0.0001, raw))
         this.lastTime = now
+        // Hidden tabs report huge gaps; those say nothing about render cost.
+        if (raw < 0.25) this.adaptResolution(raw)
         this.time += dt
 
         if (this.phase === 'hangar') {
@@ -437,7 +491,8 @@ export class VoidEngine {
     /** Low quality drops bloom and renders at native pixel density. */
     setQuality(high: boolean) {
         this.bloom.enabled = high
-        this.renderer.setPixelRatio(high ? Math.min(window.devicePixelRatio, 1.75) : 1)
+        this.highQuality = high
+        this.resScale = 1
         this.resize()
     }
 
@@ -459,6 +514,8 @@ export class VoidEngine {
             return
         }
         if (!this.locked) return
+        // Chrome occasionally reports a huge bogus delta under pointer lock; drop it.
+        if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return
         this.mouseDX += e.movementX
         this.mouseDY += e.movementY
     }
@@ -1098,33 +1155,30 @@ export class VoidEngine {
         // Mouse steers the aim; the hull follows at its own turn rate.
         const sens = 0.0021 * this.sensitivity
         if (this.mouseDX || this.mouseDY) {
-            const yaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -this.mouseDX * sens)
-            const pitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -this.mouseDY * sens * (this.invertY ? -1 : 1))
-            this.aimQuat.multiply(yaw).multiply(pitch)
+            this.aimQuat.multiply(_q1.setFromAxisAngle(AXIS_Y, -this.mouseDX * sens))
+            this.aimQuat.multiply(_q1.setFromAxisAngle(AXIS_X, -this.mouseDY * sens * (this.invertY ? -1 : 1)))
             this.mouseDX = 0
             this.mouseDY = 0
         }
         const roll = (k.has('KeyZ') ? 1 : 0) - (k.has('KeyX') ? 1 : 0)
         if (roll) {
-            this.aimQuat.multiply(_q1.setFromAxisAngle(new THREE.Vector3(0, 0, 1), roll * 1.8 * dt))
+            this.aimQuat.multiply(_q1.setFromAxisAngle(AXIS_Z, roll * 1.8 * dt))
         } else {
             // Gently settle the horizon back to the sector plane.
             const fwd = _v1.copy(FORWARD).applyQuaternion(this.aimQuat)
             if (Math.abs(fwd.dot(WORLD_UP)) < 0.85) {
                 const right = _v2.set(1, 0, 0).applyQuaternion(this.aimQuat)
                 const err = Math.asin(THREE.MathUtils.clamp(right.dot(WORLD_UP), -1, 1))
-                this.aimQuat.multiply(_q1.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -err * Math.min(1, dt * 1.4)))
+                this.aimQuat.multiply(_q1.setFromAxisAngle(AXIS_Z, -err * Math.min(1, dt * 1.4)))
             }
         }
         this.aimQuat.normalize()
 
         // Keep the aim within a cone of the nose so the crosshair never runs away.
+        // A hard clamp: easing it back fought the mouse and made fast flicks stutter.
         const maxDev = THREE.MathUtils.degToRad(38)
         const dev = p.quat.angleTo(this.aimQuat)
-        if (dev > maxDev) {
-            const back = p.quat.clone().rotateTowards(this.aimQuat, maxDev)
-            this.aimQuat.slerp(back, Math.min(1, dt * 12))
-        }
+        if (dev > maxDev) this.aimQuat.copy(_q2.copy(p.quat).rotateTowards(this.aimQuat, maxDev))
         const agility = stats.agility
         p.quat.rotateTowards(this.aimQuat, agility * dt * (0.4 + Math.min(1, dev * 3)))
 
@@ -2461,7 +2515,7 @@ export class VoidEngine {
                 const size = pk.relic ? 2.4 : 0.8 + Math.min(1.4, Math.sqrt(pk.amount / (pk.resource === 'core' ? 1 : VOID_UNIT_SCALE)) * 0.35)
                 // Idle loot bobs; flying loot stretches along its path.
                 const bob = pk.pulled ? 0 : Math.sin(this.time * 3 + pk.spin) * 0.25
-                _q1.setFromEuler(new THREE.Euler(pk.spin * 0.7, pk.spin, 0))
+                _q1.setFromEuler(_e1.set(pk.spin * 0.7, pk.spin, 0))
                 _m1.compose(_v2.copy(pk.pos).setY(pk.pos.y + bob), _q1, _v1.set(size, size * 1.3, size))
                 mesh.setMatrixAt(n, _m1)
                 mesh.setColorAt(n, _c1.set(res.color).multiplyScalar(pk.pulled ? 3.2 : 2.2))
@@ -2713,7 +2767,8 @@ export class VoidEngine {
             this.camera.position.copy(this.camPos)
             this.camera.lookAt(p.pos)
         } else {
-            this.camQuat.slerp(this.aimQuat, 1 - Math.exp(-18 * dt))
+            // Rotation tracks the aim tightly so the crosshair stays put on screen; position still lags for speed.
+            this.camQuat.slerp(this.aimQuat, 1 - Math.exp(-45 * dt))
             const offset = _v1.set(0, up, back).applyQuaternion(this.camQuat)
             const desired = _v2.copy(p.pos).add(offset)
             // Lag a little behind the ship so speed reads, but never too far.
