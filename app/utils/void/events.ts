@@ -239,6 +239,7 @@ export function eventLoot(engine: VoidEngine, e: Enemy) {
         engine.rings.spawn(e.pos, 60, _c.set(0x49e6ff), 0.8, 2)
         if (randomFloat() < 0.4) engine.dropRelic(e.pos)
         engine.dropFuel(e.pos)
+        if (randomFloat() < 0.25) engine.dropGear(e.pos)
         engine.events.toast('Vault cracked.', 'good')
         return true
     }

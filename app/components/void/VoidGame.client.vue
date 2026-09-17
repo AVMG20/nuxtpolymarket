@@ -144,6 +144,10 @@
                     <b v-if="summary.blueprint">Blueprint: {{ summary.blueprint }} MkII</b>
                     <b v-for="l in summary.lore" :key="l">Log: {{ l }}</b>
                 </div>
+                <div v-if="summary.gear.length" class="vr-relics vr-gear-loot">
+                    <span>Salvaged gear</span>
+                    <b v-for="(g, i) in summary.gear" :key="i" :style="{ color: g.color }">{{ g.rarity }} T{{ g.tier }} {{ g.name }}</b>
+                </div>
                 <div v-if="summary.relics.length" class="vr-relics">
                     <span>Relic caches opened</span>
                     <b v-for="(r, i) in summary.relics" :key="i" :style="{ color: r.hex }">{{ r.name }}</b>
@@ -175,7 +179,7 @@ import {
     VOID_RESOURCE_IDS, voidBundleUnits, voidBundleValue, voidHex, voidResource, voidSector, voidShip,
     type VoidResourceBundle, type VoidTurretId, type VoidUpgradeId
 } from '#shared/utils/gamelogic/void'
-import { voidItemType, voidMod } from '#shared/utils/gamelogic/void-items'
+import { VOID_RARITIES, voidItemType, voidMod } from '#shared/utils/gamelogic/void-items'
 import { VOID_LORE, voidZone, type VoidZoneModifier } from '#shared/utils/gamelogic/void-pilot'
 import { VoidAudio, type VoidSfx } from '~/utils/void/audio'
 import { VoidEngine } from '~/utils/void/engine'
@@ -218,6 +222,7 @@ const summary = ref<null | {
     blueprint: string | null
     lore: string[]
     depth: number
+    gear: { name: string, tier: number, color: string, rarity: string }[]
     items: { id: string, name: string, hex: string, amount: number }[]
 }>(null)
 
@@ -515,6 +520,7 @@ async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 
         blueprint: null,
         lore: [],
         depth: result.depth,
+        gear: [],
         lostValue: reason === 'extracted' ? 0 : Math.round(voidBundleValue(result.lost ?? {}) * (state.value?.trade.mult ?? 1)),
         items: reason === 'extracted' ? items : bundleItems({})
     }
@@ -522,7 +528,7 @@ async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 
     try {
         const res = await apiFetch<InternalApi['/api/void/finish']['post']>('/api/void/finish', {
             method: 'POST',
-            body: { reason, haul: result.haul, kills: result.kills, wardenKilled: result.wardenKilled, elapsedMs: result.elapsedMs, skillUses: result.skillUses, suppliesUsed: result.suppliesUsed, relics: result.relics, depth: result.depth, carrierKilled: result.carrierKilled, lore: result.lore }
+            body: { reason, haul: result.haul, kills: result.kills, wardenKilled: result.wardenKilled, elapsedMs: result.elapsedMs, skillUses: result.skillUses, suppliesUsed: result.suppliesUsed, relics: result.relics, gearCaches: result.gearCaches, bonusXp: result.bonusXp, depth: result.depth, carrierKilled: result.carrierKilled, lore: result.lore }
         })
         summary.value = {
             ...summary.value,
@@ -538,6 +544,7 @@ async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 
             blueprint: res.blueprint ? (voidItemType(res.blueprint)?.name ?? res.blueprint) : null,
             lore: res.lore.map(id => VOID_LORE.find(l => l.id === id)?.title ?? id),
             depth: res.depth,
+            gear: res.gear.map(g => ({ name: g.name, tier: g.tier, color: VOID_RARITIES[g.rarity]?.color ?? '#fff', rarity: VOID_RARITIES[g.rarity]?.name ?? 'Common' })),
             sectorCleared: res.sectorCleared,
             items: bundleItems(res.haul)
         }
@@ -550,7 +557,7 @@ async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 
 
 function abandon() {
     if (!engine) return
-    const result: RunResult = { reason: 'destroyed', haul: {}, lost: { ...engine.cargo }, kills: engine.kills, wardenKilled: false, elapsedMs: Math.round(engine.elapsed * 1000), skillUses: engine.skills?.uses ?? 0, suppliesUsed: { ...engine.suppliesUsed }, relics: 0, depth: engine.depth, carrierKilled: false, lore: [] }
+    const result: RunResult = { reason: 'destroyed', haul: {}, lost: { ...engine.cargo }, kills: engine.kills, wardenKilled: false, elapsedMs: Math.round(engine.elapsed * 1000), skillUses: engine.skills?.uses ?? 0, suppliesUsed: { ...engine.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: engine.pilotBonusXp, depth: engine.depth, carrierKilled: false, lore: [] }
     engine.paused = true
     void finishRun(result, 'abandoned')
 }

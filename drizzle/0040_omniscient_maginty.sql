@@ -1,0 +1,1 @@
+ALTER TABLE "void_state" ADD COLUMN "gear_today" integer DEFAULT 0 NOT NULL;

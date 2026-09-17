@@ -300,3 +300,6 @@
 .vr-prompt { position: absolute; left: 50%; top: 70%; transform: translateX(-50%); padding: 8px 16px; background: var(--vr-bg); border: 1px solid rgba(159, 255, 217, 0.4); font-size: 14px; font-weight: 600; letter-spacing: 0.08em; }
 .vr-flicker { animation: vr-flicker 0.18s steps(2) infinite; }
 @keyframes vr-flicker { 50% { opacity: 0.55; } }
+
+.vr-gear-loot { border-color: rgba(195, 139, 255, 0.55); background: rgba(195, 139, 255, 0.08); }
+.vr-gear-loot b { text-shadow: 0 0 12px currentColor; }

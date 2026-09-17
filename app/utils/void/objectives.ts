@@ -6,6 +6,8 @@ import * as THREE from 'three'
 import type { VoidEngine } from './engine'
 import { spawnEnemy } from './enemies'
 import type { Enemy } from './types'
+import { randomFloat } from '#shared/utils/random'
+import { voidResource, type VoidResourceId } from '#shared/utils/gamelogic/void'
 
 export interface ObjectiveView {
     title: string
@@ -21,6 +23,16 @@ interface TutorialStep {
     done: () => boolean
     /** Where the overlay should point while this step is active. */
     marker?: () => { pos: THREE.Vector3, label: string } | null
+}
+
+type BountyKind = 'kills' | 'elites' | 'ore' | 'crates' | 'signals' | 'jump' | 'reactor'
+
+interface Bounty {
+    kind: BountyKind
+    text: string
+    target: number
+    count: number
+    paid: boolean
 }
 
 export class ObjectiveTracker {
@@ -41,10 +53,13 @@ export class ObjectiveTracker {
     private completeFlash = 0
     private practiceRocks = new THREE.Vector3()
     marker: { pos: THREE.Vector3, label: string } | null = null
+    bounties: Bounty[] = []
+    private lastOre = 0
 
     constructor(private engine: VoidEngine, tutorial: boolean) {
         this.tutorial = tutorial
         if (tutorial) this.buildTutorial()
+        else this.rollBounties()
     }
 
     get tutorialRunning() {
@@ -177,6 +192,69 @@ export class ObjectiveTracker {
 
     onKill(enemy: Enemy) {
         if (this.trainees.includes(enemy)) this.traineeKills++
+        this.progress('kills', 1)
+        if (enemy.elite && enemy.kind !== 'crate') this.progress('elites', 1)
+        if (enemy.kind === 'reactor') this.progress('reactor', 1)
+    }
+
+    onCrate(cache: boolean) {
+        this.progress('crates', 1)
+        if (cache) this.progress('signals', 1)
+    }
+
+    onLog() {
+        this.progress('signals', 1)
+    }
+
+    onJump() {
+        this.progress('jump', 1)
+    }
+
+    /**
+     * Three small goals per run with a loot crate for each. They give every
+     * run a reason to try something different: hunt elites, push a jump,
+     * poke a carrier.
+     */
+    private rollBounties() {
+        const e = this.engine
+        const tier = e.config!.sector.tier
+        const ore = (Object.entries(e.config!.sector.ores).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))[0]?.[0] ?? 'ferrite') as VoidResourceId
+        const pool: Omit<Bounty, 'count' | 'paid'>[] = [
+            { kind: 'kills', text: 'Destroy hostiles', target: 12 + tier * 3 },
+            { kind: 'elites', text: 'Destroy elite ships', target: 2 },
+            { kind: 'ore', text: `Mine ${voidResource(ore).name.toLowerCase()} and other ore`, target: 300 + tier * 60 },
+            { kind: 'crates', text: 'Crack salvage crates', target: 4 },
+            { kind: 'signals', text: 'Recover a scanned signal', target: 1 },
+            { kind: 'jump', text: 'Jump through a gate', target: 1 },
+            { kind: 'reactor', text: 'Destroy a carrier shield reactor', target: 1 }
+        ]
+        // No carrier in this zone, no reactor bounty.
+        if (!e.enemies.some(x => x.kind === 'mothership')) pool.splice(pool.findIndex(b => b.kind === 'reactor'), 1)
+        while (this.bounties.length < 3 && pool.length) {
+            const pick = pool.splice(Math.floor(randomFloat() * pool.length), 1)[0]!
+            this.bounties.push({ ...pick, count: 0, paid: false })
+        }
+    }
+
+    private progress(kind: BountyKind, amount: number) {
+        const e = this.engine
+        for (const b of this.bounties) {
+            if (b.kind !== kind || b.paid) continue
+            b.count = Math.min(b.target, b.count + amount)
+            if (b.count >= b.target) {
+                b.paid = true
+                // Reward: a salvage burst right on the ship, with a shot at fuel or salvaged gear.
+                const p = e.player
+                if (!p) return
+                e.dropLoot('scrap', 12, 20, p.pos)
+                e.dropLoot('alloy', 3, 6, p.pos)
+                if (randomFloat() < 0.45) e.dropFuel(p.pos)
+                if (randomFloat() < 0.12) e.dropGear(p.pos)
+                e.pilotBonusXp += 40
+                e.events.banner('Bounty complete', b.text, 'good')
+                e.audio.play('levelUp', { volume: 0.8 })
+            }
+        }
     }
 
     onAbility() {
@@ -207,6 +285,10 @@ export class ObjectiveTracker {
         this.lastPos.copy(p.pos)
         if (p.boosting) this.boostTime += dt
         this.completeFlash = Math.max(0, this.completeFlash - dt)
+        // Ore bounty tracks ore units that land in the hold.
+        const ore = (e.cargo.ferrite ?? 0) + (e.cargo.cobalt ?? 0) + (e.cargo.iridium ?? 0) + (e.cargo.xenite ?? 0)
+        if (ore > this.lastOre) this.progress('ore', ore - this.lastOre)
+        this.lastOre = ore
 
         if (this.tutorialRunning) {
             const current = this.steps[this.step]!
@@ -243,6 +325,7 @@ export class ObjectiveTracker {
             title: cfg.sector.name,
             steps: [
                 ...(event ? [{ text: event.text, done: false, active: true, progress: event.progress }] : []),
+                ...this.bounties.map(b => ({ text: `Bounty: ${b.text}`, done: b.paid, active: !b.paid, progress: b.paid ? undefined : `${Math.floor(b.count)} / ${b.target}` })),
                 { text: 'Fill the hold', done: units >= cfg.stats.cargo, progress: `${units} / ${cfg.stats.cargo}`, active: units < cfg.stats.cargo },
                 { text: `Destroy ${cfg.sector.warden}`, done: e.wardenKilled, active: !e.wardenKilled, progress: e.warden?.alive ? `${Math.ceil((e.warden.hp / e.warden.maxHp) * 100)}%` : undefined },
                 { text: 'Dock to bank the haul', done: false, active: units > 0 || e.wardenKilled }

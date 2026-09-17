@@ -8,7 +8,7 @@ import {
     VOID_LORE, VOID_PERKS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidRunMarks
 } from '#shared/utils/gamelogic/void-pilot'
 import {
-    VOID_DAMAGE_MULT, VOID_DAMAGE_TYPE, VOID_DEVICES, VOID_SECONDARIES, VOID_ITEM_TYPES, VOID_RARITIES, voidCanCraftTier, voidCraftCost, voidDefenceStats, voidItemUpgradeCost, voidRollBonusAffix, voidRollItem, voidRollMod, voidWeaponFit,
+    VOID_DAMAGE_MULT, VOID_DAMAGE_TYPE, VOID_DEVICES, VOID_SECONDARIES, VOID_ITEM_TYPES, VOID_RARITIES, voidCanCraftTier, voidCraftCost, voidDefenceStats, voidItemUpgradeCost, voidRollBonusAffix, voidRollItem, voidRollMod, voidRollSalvagedGear, voidWeaponFit,
     type VoidItem
 } from '#shared/utils/gamelogic/void-items'
 
@@ -261,6 +261,24 @@ describe('void runner combat systems', () => {
         const mk2 = voidRollItem('turret', 'pulse', 1, seq([0]), true)
         expect(mk2.rarity).toBeGreaterThanOrEqual(1)
         expect(voidWeaponFit({ ...mk2, id: 'b', rarity: 0 }).power).toBeGreaterThan(voidWeaponFit({ ...plain, id: 'a' }).power)
+    })
+})
+
+describe('void runner salvaged gear', () => {
+    it('only rolls types craftable at the tier, keeping the better of two rarities', () => {
+        for (let i = 0; i < 40; i++) {
+            const r = (() => {
+                let n = i * 0.137
+                return () => (n = (n * 9301 + 49297) % 233280 / 233280)
+            })()
+            const item = voidRollSalvagedGear(1, r)
+            const type = VOID_ITEM_TYPES.find(t => t.id === item.type)!
+            expect(type.kind).toBe(item.kind)
+            expect(type.minTier).toBeLessThanOrEqual(1)
+            expect(item.tier).toBe(1)
+        }
+        const best = voidRollSalvagedGear(2, seq([0.9999]))
+        expect(best.rarity).toBeGreaterThan(0)
     })
 })
 

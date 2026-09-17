@@ -544,6 +544,7 @@ export class ShipSystems {
                     const entry = VOID_LORE.find(l => l.id === poi.loreId)
                     if (entry) {
                         this.loreFound.add(entry.id)
+                        e.objectives?.onLog()
                         e.events.banner('Data log recovered', entry.title, 'info')
                         e.audio.play('levelUp', { volume: 0.5, pitch: 1.3 })
                     }

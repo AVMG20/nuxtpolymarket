@@ -395,6 +395,29 @@ export function voidRollBonusAffix(item: Pick<VoidItem, 'kind' | 'rarity' | 'aff
     return affixes
 }
 
+/**
+ * Gear salvaged in a run: a random kind and type the pilot could craft at
+ * this tier, with rarity rolled twice and the better result kept.
+ */
+export function voidRollSalvagedGear(tier: number, rand: () => number): Omit<VoidItem, 'id'> {
+    const kinds: [VoidItemKind, number][] = [['turret', 3], ['armor', 2], ['shield', 2], ['gun', 1], ['secondary', 1], ['device', 1]]
+    const total = kinds.reduce((s, [, w]) => s + w, 0)
+    let roll = rand() * total
+    let kind: VoidItemKind = 'turret'
+    for (const [k, w] of kinds) {
+        roll -= w
+        if (roll < 0) {
+            kind = k
+            break
+        }
+    }
+    const types = VOID_ITEM_TYPES.filter(t => t.kind === kind && t.minTier <= tier)
+    const type = types[Math.floor(rand() * types.length)] ?? VOID_ITEM_TYPES.find(t => t.kind === kind)!
+    const a = voidRollItem(kind, type.id, Math.max(type.minTier, tier), rand)
+    const b = voidRollItem(kind, type.id, Math.max(type.minTier, tier), rand)
+    return a.rarity >= b.rarity ? a : b
+}
+
 export function voidRollMod(rand: () => number): VoidModId {
     const total = VOID_MODS.reduce((s, m) => s + m.weight, 0)
     let roll = rand() * total

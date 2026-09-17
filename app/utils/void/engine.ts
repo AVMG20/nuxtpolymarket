@@ -239,6 +239,9 @@ export class VoidEngine {
     supplies: Record<string, number> = {}
     suppliesUsed: Record<string, number> = {}
     relics = 0
+    gearCaches = 0
+    /** Pilot XP from bounties, reported with the run. */
+    pilotBonusXp = 0
     systems: ShipSystems | null = null
     // Jump chain state
     depth = 1
@@ -813,6 +816,8 @@ export class VoidEngine {
         this.supplies = { ...config.supplies }
         this.suppliesUsed = {}
         this.relics = 0
+        this.gearCaches = 0
+        this.pilotBonusXp = 0
         this.objectives = new ObjectiveTracker(this, !!config.tutorial)
         this.sectorEvents = new EventDirector(this)
         this.audio.startEngine()
@@ -2412,7 +2417,7 @@ export class VoidEngine {
         p.drones.forEach(d => this.scene.remove(d.group))
         this.audio.play('explosionLarge', { volume: 1.5 })
         this.audio.updateEngine(0, false, 0)
-        this.endResult = { reason: 'destroyed', haul: {}, lost: { ...this.cargo }, kills: this.kills, wardenKilled: this.wardenKilled, elapsedMs: Math.round(this.elapsed * 1000), skillUses: this.skills?.uses ?? 0, suppliesUsed: { ...this.suppliesUsed }, relics: 0, depth: this.depth, carrierKilled: false, lore: [] }
+        this.endResult = { reason: 'destroyed', haul: {}, lost: { ...this.cargo }, kills: this.kills, wardenKilled: this.wardenKilled, elapsedMs: Math.round(this.elapsed * 1000), skillUses: this.skills?.uses ?? 0, suppliesUsed: { ...this.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: this.pilotBonusXp, depth: this.depth, carrierKilled: false, lore: [] }
         this.events.toast('Ship destroyed. The hold is lost.', 'bad')
     }
 
@@ -2478,6 +2483,11 @@ export class VoidEngine {
 
     dropFuel(pos: THREE.Vector3) {
         this.pickups.push({ pos: pos.clone(), vel: this.randomDir(1).multiplyScalar(6), resource: 'core', amount: 0, life: 120, spin: 0, pulled: false, pullTime: 0, fuel: true })
+    }
+
+    dropGear(pos: THREE.Vector3) {
+        this.pickups.push({ pos: pos.clone(), vel: this.randomDir(1).multiplyScalar(6), resource: 'core', amount: 0, life: 120, spin: 0, pulled: false, pullTime: 0, gear: true })
+        this.events.toast('Salvaged gear dropped', 'good')
     }
 
     get relicMult() {
@@ -2608,7 +2618,7 @@ export class VoidEngine {
         this.wardenSpawned = false
         this.focus = null
         this.focusRock = null
-        this.objectives = null
+        this.objectives?.onJump()
         this.scene.fog = null
         this.config = { ...this.config, sector: { ...this.config.sector, threat: this.baseThreat * voidDepthThreat(this.depth) } }
         this.sectorEvents = new EventDirector(this)
@@ -2755,7 +2765,7 @@ export class VoidEngine {
             pk.spin += dt * (pk.pulled ? 12 : 2)
             if (p?.alive && this.phase === 'flying') {
                 const d = pk.pos.distanceTo(p.pos)
-                const full = units >= cap && !pk.relic && !pk.fuel
+                const full = units >= cap && !pk.relic && !pk.fuel && !pk.gear
                 if (!full && !pk.pulled && d < stats.magnet * (pk.relic ? 1.6 : 1)) {
                     pk.pulled = true
                     pk.pullTime = 0
@@ -2773,6 +2783,14 @@ export class VoidEngine {
                     pk.vel.multiplyScalar(Math.exp(-1.2 * dt))
                 }
                 const reach = p.radius + 2.5 + pk.vel.length() * dt
+                if (d < reach && pk.gear) {
+                    this.gearCaches++
+                    this.audio.play('levelUp', { volume: 1, pitch: 0.8 })
+                    this.flashes.flash(p.pos, 0xc38bff, 40, 60)
+                    this.rings.spawn(p.pos, 16, 0xc38bff, 0.6, 3)
+                    this.events.banner('Salvaged gear', 'Dock to crack it open and see what you got', 'good')
+                    continue
+                }
                 if (d < reach && pk.fuel) {
                     this.fuel++
                     this.audio.play('pickup', { pitch: 0.7, volume: 1 })
@@ -2819,8 +2837,8 @@ export class VoidEngine {
             pk.pos.addScaledVector(pk.vel, dt)
             next.push(pk)
             if (n < 1500 && pk.pos.distanceToSquared(this.camera.position) < 900 * 900) {
-                const res = pk.relic ? { color: 0xffd27a } : pk.fuel ? { color: 0xffa23d } : voidResource(pk.resource)
-                const size = pk.relic ? 2.4 : pk.fuel ? 1.8 : 0.8 + Math.min(1.4, Math.sqrt(pk.amount / (pk.resource === 'core' ? 1 : VOID_UNIT_SCALE)) * 0.35)
+                const res = pk.relic ? { color: 0xffd27a } : pk.gear ? { color: 0xc38bff } : pk.fuel ? { color: 0xffa23d } : voidResource(pk.resource)
+                const size = pk.relic || pk.gear ? 2.4 : pk.fuel ? 1.8 : 0.8 + Math.min(1.4, Math.sqrt(pk.amount / (pk.resource === 'core' ? 1 : VOID_UNIT_SCALE)) * 0.35)
                 // Idle loot bobs; flying loot stretches along its path.
                 const bob = pk.pulled ? 0 : Math.sin(this.time * 3 + pk.spin) * 0.25
                 _q1.setFromEuler(_e1.set(pk.spin * 0.7, pk.spin, 0))
@@ -2834,9 +2852,9 @@ export class VoidEngine {
                     const tail = _v1.copy(pk.pos).addScaledVector(pk.vel, -0.05)
                     this.lines.push(tail.x, tail.y, tail.z, pk.pos.x, pk.pos.y, pk.pos.z, _c1.set(res.color).multiplyScalar(2.5), 0.9, size * 0.12, size * 0.35)
                 }
-                if (pk.relic || pk.resource === 'core' || pk.resource === 'alloy') {
+                if (pk.relic || pk.gear || pk.resource === 'core' || pk.resource === 'alloy') {
                     // Rare salvage throws a light pillar so it is never missed in a fight.
-                    const hgt = pk.relic ? 70 : pk.resource === 'core' ? 40 : 18
+                    const hgt = pk.relic || pk.gear ? 70 : pk.resource === 'core' ? 40 : 18
                     const pulse = 0.6 + Math.sin(this.time * 4 + pk.spin) * 0.25
                     this.lines.push(pk.pos.x, pk.pos.y - hgt * 0.2, pk.pos.z, pk.pos.x, pk.pos.y + hgt, pk.pos.z, _c1.set(res.color).multiplyScalar(2), pulse * fade, 0.5, 0.05)
                 }
@@ -2896,6 +2914,8 @@ export class VoidEngine {
             skillUses: this.skills?.uses ?? 0,
             suppliesUsed: { ...this.suppliesUsed },
             relics: this.relics,
+            gearCaches: this.gearCaches,
+            bonusXp: this.pilotBonusXp,
             depth: this.depth,
             carrierKilled: !!this.systems?.carrierKilled,
             lore: [...(this.systems?.loreFound ?? [])]

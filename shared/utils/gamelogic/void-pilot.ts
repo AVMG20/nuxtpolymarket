@@ -77,6 +77,7 @@ export function voidRunMarks(run: VoidRunTrophies) {
 /** Daily caps on the rare meta rewards. */
 export const VOID_DAILY_MARKS = 8
 export const VOID_DAILY_BLUEPRINTS = 2
+export const VOID_DAILY_GEAR = 8
 
 /** Blueprints only come from gear kinds the pilot can use. */
 export const VOID_BLUEPRINT_KINDS: VoidItemKind[] = ['gun', 'turret', 'secondary', 'device']

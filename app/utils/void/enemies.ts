@@ -511,6 +511,7 @@ function mothershipDeath(engine: VoidEngine, e: Enemy) {
     engine.dropLoot('scrap', 80, 120, origin)
     engine.dropLoot('core', 1 + Math.floor(tier / 2), 1 + Math.floor(tier / 2), origin)
     engine.dropRelic(origin)
+    engine.dropGear(origin)
     engine.dropRelic(origin.clone().add(randDir().multiplyScalar(8)))
 }
 
@@ -731,6 +732,8 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
         if (chance > 0 && randomFloat() < chance) engine.dropRelic(e.pos)
         // Jump fuel: elites and carriers sometimes carry a cell.
         if ((e.data.elite || e.def?.elite) && randomFloat() < 0.25) engine.dropFuel(e.pos)
+        // Salvaged gear: a rare, exciting drop from elites; wardens always carry one.
+        if (e.kind === 'warden' || ((e.data.elite || e.def?.elite) && randomFloat() < 0.05)) engine.dropGear(e.pos)
     }
     if (stolen) {
         // no loot
@@ -739,6 +742,7 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
     } else if (e.kind === 'crate') {
         engine.dropLoot('scrap', 5, 10, e.pos)
         engine.dropLoot('alloy', 1, 3, e.pos, 0.45)
+        engine.objectives?.onCrate(!!e.data.cache)
         if (e.data.cache) {
             // Hidden caches found by scanning pay better and sometimes hold a relic or fuel.
             engine.dropLoot('alloy', 3, 6, e.pos)

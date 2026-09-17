@@ -37,6 +37,8 @@ export interface RunResult {
     suppliesUsed: Record<string, number>
     /** Relic caches picked up; the server rolls what they hold. */
     relics: number
+    gearCaches: number
+    bonusXp: number
     depth: number
     carrierKilled: boolean
     lore: string[]
@@ -211,6 +213,8 @@ export interface Pickup {
     relic?: boolean
     /** A jump fuel cell instead of cargo. */
     fuel?: boolean
+    /** A salvaged gear cache; the server rolls the item on extraction. */
+    gear?: boolean
 }
 
 export interface Tracer {
