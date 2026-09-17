@@ -23,6 +23,9 @@
             <button class="vh-mute" :title="muted ? 'Unmute' : 'Mute'" @click="$emit('toggle-mute')">
                 <UIcon :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'" class="size-4" />
             </button>
+            <button class="vh-mute vh-fullscreen" :title="spin ? 'Stop the camera spinning' : 'Let the camera circle the ship'" @click="$emit('toggle-spin')">
+                <UIcon :name="spin ? 'i-lucide-pause' : 'i-lucide-rotate-3d'" class="size-4" />
+            </button>
             <button v-if="canFullscreen" class="vh-mute vh-fullscreen" :title="fullscreen ? 'Exit fullscreen (F11)' : 'Fullscreen (F11)'" @click="$emit('toggle-fullscreen')">
                 <UIcon :name="fullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'" class="size-4" />
             </button>
@@ -52,7 +55,7 @@
         </header>
 
         <!-- Ship title over the showroom -->
-        <section class="vh-title">
+        <section v-if="tab === 'hangar'" class="vh-title">
             <div class="vh-title-role">{{ shown.role }} <span v-if="!shown.owned">· preview</span></div>
             <div class="vh-title-name">{{ shown.name }}</div>
             <p class="vh-title-desc">{{ shown.description }}</p>
@@ -94,7 +97,7 @@
         </section>
 
         <!-- Launch bar -->
-        <section class="vh-launch">
+        <section v-if="tab === 'hangar'" class="vh-launch">
             <button class="vh-arrow" :disabled="sectorIndex <= 0" @click="stepSector(-1)">
                 <UIcon name="i-lucide-chevron-left" class="size-5" />
             </button>
@@ -116,18 +119,51 @@
             </button>
         </section>
 
-        <!-- Side panel -->
-        <aside class="vh-panel">
-            <!-- Fitting -->
+        <!-- Full-screen page for everything you manage between runs -->
+        <section v-if="tab !== 'hangar'" class="vh-page">
+            <div class="vh-page-inner">
+                <header class="vh-page-head">
+                    <button class="vh-back" title="Back to the hangar (Esc)" @click="setTab('hangar')">
+                        <UIcon name="i-lucide-arrow-left" class="size-4" />
+                        <span>Hangar</span>
+                    </button>
+                    <div class="vh-page-title">
+                        <h1>{{ page.title }}</h1>
+                        <p>{{ page.blurb }}</p>
+                    </div>
+                    <button class="vr-btn vr-btn-primary vh-page-launch" :disabled="busy || !currentSector.unlocked" :title="`Launch into ${currentSector.name}`" @click="$emit('launch', currentSector.tier)">
+                        <UIcon name="i-lucide-rocket" class="size-4" /> Launch · {{ currentSector.name }}
+                    </button>
+                </header>
+
+            <!-- Loadout -->
             <template v-if="tab === 'fitting'">
-                <VoidFitting :state="state" :busy="busy" @set-fit="(shipId: string, fit: unknown) => $emit('set-fit', shipId, fit)" @buy-supply="(id: string, n: number) => $emit('buy-supply', id, n)" />
+                <VoidLoadout :state="state" :busy="busy" @set-fit="(shipId: string, fit: unknown) => $emit('set-fit', shipId, fit)" @craft="setTab('workshop:craft')" />
+                <h2 class="vh-h">Supplies <small>Keys 1-3 · each launch loads up to {{ state.supplyCarry }} of each, used or not</small></h2>
+                <div class="vh-list">
+                    <div v-for="s in state.supplies" :key="s.id" class="vh-card" :style="{ '--c': hex(s.color) }">
+                        <div class="vh-card-head">
+                            <kbd>{{ s.key }}</kbd>
+                            <UIcon :name="s.icon" class="size-4 vh-supply-icon" />
+                            <b>{{ s.name }}</b>
+                            <span class="vh-lvl">{{ s.stock }} / {{ state.supplyStockMax }}</span>
+                        </div>
+                        <p>{{ s.description }}</p>
+                        <div class="vh-card-foot">
+                            <VoidCost :cost="s.cost.resources" :held="state.resources" :coins="s.cost.coins" :balance="state.balance" />
+                            <button class="vr-btn vr-btn-sm" :disabled="busy || !s.affordable || s.stock >= state.supplyStockMax" @click="$emit('buy-supply', s.id, 1)">Buy</button>
+                        </div>
+                    </div>
+                </div>
             </template>
 
             <!-- Workshop -->
             <template v-else-if="tab === 'workshop'">
                 <VoidWorkshop
                     :state="state"
+                    v-model:view="workshopView"
                     :busy="busy"
+                    :highlight-id="highlightItemId"
                     @craft="(k: string, t: string, tier: number) => $emit('craft', k, t, tier)"
                     @upgrade="(id: string) => $emit('upgrade-item', id)"
                     @salvage="(id: string) => $emit('salvage', id)"
@@ -144,8 +180,8 @@
                         :key="ship.id"
                         class="vh-card vh-ship"
                         :class="{ 'vh-sel': shown.id === ship.id, 'vh-locked': !ship.unlocked && !ship.owned }"
-                        @mouseenter="hoverShip(ship.id)"
-                        @click="$emit('preview', ship.id === state.equippedShipId ? null : ship.id)"
+                        title="View this ship in the hangar"
+                        @click="viewShip(ship.id)"
                     >
                         <div class="vh-card-head">
                             <b>{{ ship.name }}</b>
@@ -259,7 +295,6 @@
 
             <!-- Market -->
             <template v-else-if="tab === 'market'">
-                <h2 class="vh-h">Market <small>Sell surplus for coins</small></h2>
                 <div class="vh-card vh-trade">
                     <div class="vh-card-head">
                         <UIcon name="i-lucide-handshake" class="size-4" />
@@ -381,7 +416,8 @@
                     <div v-if="!history.length" class="vh-hint">No runs logged.</div>
                 </div>
             </template>
-        </aside>
+            </div>
+        </section>
     </div>
 </template>
 
@@ -395,8 +431,8 @@ import type { VoidSfx } from '~/utils/void/audio'
 import { ENEMIES } from '~/utils/void/data'
 import VoidCost from './VoidCost.vue'
 import VoidSkills from './VoidSkills.vue'
-import VoidFitting from './VoidFitting.vue'
-import VoidWorkshop from './VoidWorkshop.vue'
+import VoidLoadout from './VoidLoadout.vue'
+import VoidWorkshop, { type WorkshopView } from './VoidWorkshop.vue'
 
 type State = InternalApi['/api/void/state']['get']
 
@@ -408,7 +444,10 @@ const props = defineProps<{
     leaderboard: InternalApi['/api/void/leaderboard']['get']
     muted?: boolean
     fullscreen?: boolean
+    spin?: boolean
     canFullscreen?: boolean
+    /** The item to flash in the workshop, such as a fresh craft. */
+    highlightItemId?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -430,6 +469,7 @@ const emit = defineEmits<{
     'sound': [sfx: VoidSfx]
     'toggle-mute': []
     'toggle-fullscreen': []
+    'toggle-spin': []
     'unlock-skill': [skillId: string]
     'equip-skill': [skillId: string]
     'skill-nodes': [skillId: string, nodes: string[]]
@@ -437,16 +477,21 @@ const emit = defineEmits<{
 }>()
 
 const tabs = [
-    { id: 'fitting', label: 'Fitting', icon: 'i-lucide-crosshair' },
-    { id: 'workshop', label: 'Workshop', icon: 'i-lucide-hammer' },
-    { id: 'shipyard', label: 'Shipyard', icon: 'i-lucide-rocket' },
-    { id: 'skills', label: 'Skills', icon: 'i-lucide-sparkles' },
-    { id: 'station', label: 'Station', icon: 'i-lucide-satellite' },
-    { id: 'market', label: 'Market', icon: 'i-lucide-coins' },
-    { id: 'codex', label: 'Codex', icon: 'i-lucide-book-open' },
-    { id: 'records', label: 'Records', icon: 'i-lucide-trophy' }
+    { id: 'hangar', label: 'Hangar', icon: 'i-lucide-warehouse', blurb: '' },
+    { id: 'fitting', label: 'Loadout', icon: 'i-lucide-crosshair', blurb: 'Choose the gear your ship flies with. Pick a slot, then the item to put in it.' },
+    { id: 'workshop', label: 'Workshop', icon: 'i-lucide-hammer', blurb: 'Craft new gear, level up what you own and socket relic mods.' },
+    { id: 'shipyard', label: 'Shipyard', icon: 'i-lucide-rocket', blurb: 'Build and switch hulls. Bigger hulls carry more turrets, armour and cargo.' },
+    { id: 'skills', label: 'Skills', icon: 'i-lucide-sparkles', blurb: 'Your pilot skill on Q. Unlock new skills and spend points as you level up.' },
+    { id: 'station', label: 'Station', icon: 'i-lucide-satellite', blurb: 'Permanent perks, daily delivery contracts and systems for every hull.' },
+    { id: 'market', label: 'Market', icon: 'i-lucide-coins', blurb: 'Sell the materials you bring home for coins. Trade Contracts raise every price.' },
+    { id: 'codex', label: 'Codex', icon: 'i-lucide-book-open', blurb: 'How the game works, the data logs you found and what hunts you out there.' },
+    { id: 'records', label: 'Records', icon: 'i-lucide-trophy', blurb: 'Your service record, the leaderboard and your recent runs.' }
 ]
-const tab = ref('fitting')
+const tab = ref('hangar')
+const page = computed(() => {
+    const t = tabs.find(x => x.id === tab.value) ?? tabs[0]!
+    return { title: t.label, blurb: t.blurb }
+})
 const codex = Object.values(ENEMIES).map(e => ({
     ...e,
     firstSector: e.kind === 'sentinel' ? 2 : e.weights.findIndex(w => w > 0) + 1
@@ -483,12 +528,12 @@ const firstSteps = computed(() => {
     const steps = [
         { text: 'Fly your first run and dock', hint: 'Press Launch. The flight guide walks you through the controls one step at a time.', done: s.extractions >= 1, tab: null },
         { text: 'Spend a skill point', hint: 'Skills: pick a node in your pilot skill tree. Every few pilot levels adds a point.', done: s.pilot.points < 1 || s.skills.some(k => k.nodesAllocated.length > 0), tab: 'skills' },
-        { text: 'Craft a new item', hint: 'Workshop: pick a turret or gun, T1, and Craft. Rarity is random.', done: s.items.length > 6 || s.items.some(i => i.rarity > 0), tab: 'workshop' },
-        { text: 'Fit your best gear', hint: 'Fitting: click a slot and pick the item with the green number.', done: s.items.some(i => i.level >= 1 || i.rarity > 0) && s.ships.some(sh => sh.owned && [sh.fit.gun, ...sh.fit.turrets].some(id => s.items.find(i => i.id === id && (i.level >= 1 || i.rarity > 0)))), tab: 'fitting' },
+        { text: 'Craft a new item', hint: 'Workshop, Craft: pick what to build, a model and T1, then Craft. Rarity is random.', done: s.items.length > 6 || s.items.some(i => i.rarity > 0), tab: 'workshop:craft' },
+        { text: 'Fit your best gear', hint: 'Loadout: click a hardpoint, then the item with the green score.', done: s.items.some(i => i.level >= 1 || i.rarity > 0) && s.ships.some(sh => sh.owned && [sh.fit.gun, ...sh.fit.turrets].some(id => s.items.find(i => i.id === id && (i.level >= 1 || i.rarity > 0)))), tab: 'fitting' },
         { text: 'Install a ship system', hint: 'Station: Cargo Systems Mk I fits more loot in every run.', done: s.upgrades.some(u => u.level >= 1), tab: 'station' },
         { text: 'Build your second hull', hint: 'Shipyard: the Wasp is fast, the Mule hauls. Both only need sector 1 materials.', done: s.ships.filter(sh => sh.owned).length >= 2, tab: 'shipyard' },
         { text: 'Destroy the Halcyon Warden and dock', hint: 'Follow the red skull marker. Bring your best fit and some Repair Nanites.', done: s.highestSectorCleared >= 1, tab: 'fitting' },
-        { text: 'Craft your first T2 gear', hint: 'Clearing a sector unlocks the next gear tier in the Workshop.', done: s.items.some(i => i.tier >= 2), tab: 'workshop' }
+        { text: 'Craft your first T2 gear', hint: 'Clearing a sector unlocks the next gear tier in Workshop, Craft.', done: s.items.some(i => i.tier >= 2), tab: 'workshop:craft' }
     ]
     const done = steps.filter(x => x.done).length
     if (done === steps.length) return null
@@ -531,11 +576,19 @@ const shown = computed(() => props.state.ships.find(s => s.id === (props.preview
 const ownedCount = computed(() => props.state.ships.filter(s => s.owned).length)
 const storesValue = computed(() => props.state.resourceCatalog.reduce((sum, r) => sum + held(r.id) * props.state.prices[r.id], 0))
 
+const workshopView = ref<WorkshopView>('gear')
+
+/** `workshop:craft` opens a tab at a specific view. */
 function setTab(id: string) {
-    tab.value = id
-    emit('tab', id)
+    const [main, sub] = id.split(':') as [string, string | undefined]
+    tab.value = main
+    if (main === 'workshop' && sub) workshopView.value = sub as WorkshopView
+    emit('tab', main)
     emit('sound', 'ui')
 }
+
+// A fresh craft is highlighted in My gear, but the Craft view stays open so
+// a pilot building several items in a row is not thrown out of the form.
 
 const now = ref(Date.now())
 let clockTimer: ReturnType<typeof setInterval> | undefined
@@ -583,13 +636,23 @@ function clock(ms: number) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-let hoverTimer: ReturnType<typeof setTimeout> | undefined
-function hoverShip(id: string) {
-    clearTimeout(hoverTimer)
-    hoverTimer = setTimeout(() => {
-        if (id !== (props.previewShipId ?? props.state.equippedShipId)) emit('preview', id === props.state.equippedShipId ? null : id)
-    }, 220)
+/** Show a hull on the showroom pad: back to the hangar view with it previewed. */
+function viewShip(id: string) {
+    emit('preview', id === props.state.equippedShipId ? null : id)
+    setTab('hangar')
 }
+
+/** Esc closes a page and returns to the hangar, unless the browser is using it. */
+function onKey(e: KeyboardEvent) {
+    if (e.code !== 'Escape' || tab.value === 'hangar' || e.defaultPrevented) return
+    // Esc belongs to the field, the overlay or fullscreen first.
+    const target = e.target as HTMLElement | null
+    if (target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) return
+    if (document.fullscreenElement) return
+    setTab('hangar')
+}
+onMounted(() => window.addEventListener('keydown', onKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
 function stepSector(delta: number) {
     const next = sectorIndex.value + delta
@@ -669,10 +732,27 @@ function stepSector(delta: number) {
 .vh-go:active:not(:disabled) { transform: translateY(1px); }
 .vh-go:disabled { filter: grayscale(0.8) brightness(0.6); cursor: not-allowed; }
 
-.vh-panel { position: absolute; right: 18px; top: 74px; bottom: 18px; width: min(410px, 36vw); padding: 6px 18px 18px; overflow-x: hidden; overflow-y: auto; background: linear-gradient(180deg, rgba(6, 12, 24, 0.82), rgba(6, 12, 24, 0.7)); border: 1px solid var(--vr-line); backdrop-filter: blur(10px); scrollbar-width: thin; scrollbar-color: rgba(120, 190, 255, 0.25) transparent; }
+.vh-page { position: absolute; left: 0; right: 0; top: 60px; bottom: 0; overflow-x: hidden; overflow-y: auto; background: linear-gradient(180deg, #050a14, #03070f); border-top: 1px solid var(--vr-line); scrollbar-width: thin; scrollbar-color: rgba(120, 190, 255, 0.25) transparent; animation: vh-page-in 0.2s ease-out; }
+@keyframes vh-page-in { from { opacity: 0; transform: translateY(8px); } }
+.vh-page-inner { max-width: 1480px; margin: 0 auto; padding: 20px 32px 60px; }
+.vh-page-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--vr-line); }
+.vh-back { display: flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--vr-muted); border: 1px solid var(--vr-line); cursor: pointer; transition: all 0.15s; }
+.vh-back:hover { color: var(--vr-text); border-color: var(--vr-line-strong); }
+.vh-page-title { flex: 1; min-width: 240px; }
+.vh-page-title h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; line-height: 1.1; }
+.vh-page-title p { margin: 2px 0 0; font-size: 14px; color: rgba(230, 241, 255, 0.7); }
+.vh-page-launch { padding: 10px 18px; }
+.vh-page .vh-list { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+.vh-page .vw-views { top: -20px; margin: -20px 0 12px; padding: 20px 0 10px; }
+.vh-page .vw-craft { max-width: 760px; }
+.vh-page .vw-mods { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.vh-page .vh-manual { max-width: 900px; }
+.vh-page .vh-table { max-width: 900px; }
+.vh-page .vh-record { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); max-width: 900px; }
+.vh-supply-icon { color: var(--c); }
 .vh-h { display: flex; align-items: baseline; gap: 10px; margin: 16px 0 10px; font-size: 14px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; }
 .vh-h small { font-size: 11px; letter-spacing: 0.12em; color: var(--vr-muted); text-transform: none; }
-.vh-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.vh-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-items: start; }
 .vh-card { position: relative; display: block; width: 100%; text-align: left; padding: 10px 12px; background: rgba(255, 255, 255, 0.025); border: 1px solid var(--vr-line); transition: border-color 0.15s, background 0.15s; }
 .vh-card:hover { border-color: var(--vr-line-strong); background: rgba(255, 255, 255, 0.045); }
 .vh-card p { margin: 4px 0 6px; font-size: 13px; line-height: 1.3; color: rgba(230, 241, 255, 0.65); }
