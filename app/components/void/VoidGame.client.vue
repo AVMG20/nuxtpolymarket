@@ -1,5 +1,5 @@
 <template>
-    <div class="vr-root" :class="{ 'vr-flying': inFlight }">
+    <div ref="root" class="vr-root" :class="{ 'vr-flying': inFlight }">
         <div ref="viewport" class="absolute inset-0" @click="onViewportClick" />
 
         <!-- ═══ Hangar ═══ -->
@@ -30,8 +30,11 @@
             @buy-trade="buyTrade"
             @tab="onTab"
             :muted="muted"
+            :fullscreen="fullscreen"
+            :can-fullscreen="canFullscreen"
             @sound="(s: VoidSfx) => audio.play(s)"
             @toggle-mute="muted = !muted"
+            @toggle-fullscreen="toggleFullscreen"
         />
         <div v-else-if="!inFlight && !state" class="vr-loading">
             <div class="vr-logo">VOID<span>RUNNER</span></div>
@@ -62,6 +65,7 @@
                         <label>Mouse sensitivity <input v-model.number="sensitivity" type="range" min="0.3" max="2.5" step="0.05"></label>
                         <label>Invert mouse Y <input v-model="invertY" type="checkbox"></label>
                         <label>High graphics <input v-model="highQuality" type="checkbox"></label>
+                        <label v-if="canFullscreen">Fullscreen <input :checked="fullscreen" type="checkbox" @change="onFullscreenCheckbox"></label>
                     </div>
                     <div class="vr-controls vr-controls-compact">
                         <div v-for="c in controls" :key="c[0]"><kbd>{{ c[0] }}</kbd><span>{{ c[1] }}</span></div>
@@ -138,14 +142,16 @@
                     <div><span>Units</span><b>{{ summary.units }}</b></div>
                     <div><span>Value</span><b>{{ formatNumber(summary.value) }}</b></div>
                 </div>
-                <div v-if="summary.marks || summary.blueprint || summary.lore.length" class="vr-relics vr-trophies">
+                <div v-if="summary.depth > 1 || summary.marks || summary.blueprint || summary.lore.length" class="vr-relics vr-trophies">
                     <span v-if="summary.depth > 1">Reached jump {{ summary.depth }}</span>
                     <b v-if="summary.marks">+{{ summary.marks }} Command Mark{{ summary.marks === 1 ? '' : 's' }}</b>
                     <b v-if="summary.blueprint">Blueprint: {{ summary.blueprint }} MkII</b>
                     <b v-for="l in summary.lore" :key="l">Log: {{ l }}</b>
                 </div>
-                <div v-if="summary.gear.length" class="vr-relics vr-gear-loot">
+                <div v-if="summary.gear.length || summary.gearEmpty || summary.gearLost" class="vr-relics vr-gear-loot">
                     <span>Salvaged gear</span>
+                    <em v-if="summary.gearEmpty">{{ summary.gearEmpty }} cache{{ summary.gearEmpty === 1 ? '' : 's' }} came back empty (run or daily limit)</em>
+                    <em v-if="summary.gearLost">{{ summary.gearLost }} cache{{ summary.gearLost === 1 ? '' : 's' }} lost with the ship</em>
                     <b v-for="(g, i) in summary.gear" :key="i" :style="{ color: g.color }">{{ g.rarity }} T{{ g.tier }} {{ g.name }}</b>
                 </div>
                 <div v-if="summary.relics.length" class="vr-relics">
@@ -189,6 +195,7 @@ import VoidHud from './VoidHud.vue'
 
 export type VoidStatePayload = InternalApi['/api/void/state']['get']
 
+const root = ref<HTMLDivElement | null>(null)
 const viewport = ref<HTMLDivElement | null>(null)
 const toast = useToast()
 const { fetchSession } = useAuth()
@@ -223,6 +230,8 @@ const summary = ref<null | {
     lore: string[]
     depth: number
     gear: { name: string, tier: number, color: string, rarity: string }[]
+    gearEmpty: number
+    gearLost: number
     items: { id: string, name: string, hex: string, amount: number }[]
 }>(null)
 
@@ -288,8 +297,47 @@ const controls: [string, string][] = [
     ['1 / 2 / 3', 'Supplies'],
     ['F (hold)', 'Dock · F near a trader to trade'],
     ['Tab / M', 'Sector map'],
+    ['F11', 'Fullscreen'],
     ['Esc', 'Pause']
 ]
+
+const fullscreen = ref(false)
+const canFullscreen = ref(false)
+
+/** Fullscreens the game itself, not the whole page, so the HUD and menus come along. */
+async function toggleFullscreen() {
+    try {
+        if (document.fullscreenElement) {
+            await document.exitFullscreen()
+        } else if (root.value) {
+            // Entering fullscreen drops pointer lock in some browsers, which
+            // pauses the run; resume and take the helm back if we were flying.
+            const relock = !!document.pointerLockElement
+            await root.value.requestFullscreen({ navigationUI: 'hide' })
+            if (relock && !document.pointerLockElement) engage()
+        }
+    } catch {
+        toast.add({ title: 'Fullscreen is not available here', color: 'warning' })
+    } finally {
+        fullscreen.value = document.fullscreenElement === root.value
+    }
+}
+
+function onFullscreenCheckbox(e: Event) {
+    // Keep the box in step with the real state, even when the request fails.
+    ;(e.target as HTMLInputElement).checked = fullscreen.value
+    void toggleFullscreen()
+}
+
+function onFullscreenChange() {
+    fullscreen.value = document.fullscreenElement === root.value
+}
+
+function onFullscreenKey(e: KeyboardEvent) {
+    if (e.code !== 'F11' || e.repeat || !canFullscreen.value) return
+    e.preventDefault()
+    void toggleFullscreen()
+}
 
 function loadPrefs() {
     try {
@@ -301,6 +349,28 @@ function loadPrefs() {
         if (typeof prefs.invertY === 'boolean') invertY.value = prefs.invertY
         if (typeof prefs.highQuality === 'boolean') highQuality.value = prefs.highQuality
         if (typeof prefs.muted === 'boolean') muted.value = prefs.muted
+    } catch {
+        // storage unavailable
+    }
+}
+
+const GUIDE_KEY = 'void-runner-guide'
+
+/** Pilot guide lessons are a local nicety, not progress: they live in the browser. */
+function loadGuide(): string[] {
+    try {
+        const raw = JSON.parse(localStorage.getItem(GUIDE_KEY) ?? '[]') as unknown
+        return Array.isArray(raw) ? raw.map(String) : []
+    } catch {
+        return []
+    }
+}
+
+function saveGuide(lesson: string) {
+    try {
+        const learned = new Set(loadGuide())
+        learned.add(lesson)
+        localStorage.setItem(GUIDE_KEY, JSON.stringify([...learned]))
     } catch {
         // storage unavailable
     }
@@ -477,7 +547,9 @@ async function launch(tier: number) {
             secondary: res.loadout.secondary,
             device: res.loadout.device,
             perks: res.loadout.perks,
-            loreKnown: s.lore.filter(l => l.found).map(l => l.id)
+            loreKnown: s.lore.filter(l => l.found).map(l => l.id),
+            // The pilot guide runs until sector 1 is cleared.
+            guideLearned: s.highestSectorCleared < 1 ? loadGuide() : null
         })
     } catch (e) {
         if (document.pointerLockElement) document.exitPointerLock()
@@ -521,6 +593,8 @@ async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 
         lore: [],
         depth: result.depth,
         gear: [],
+        gearEmpty: 0,
+        gearLost: reason === 'extracted' ? 0 : (engine?.gearCaches ?? 0),
         lostValue: reason === 'extracted' ? 0 : Math.round(voidBundleValue(result.lost ?? {}) * (state.value?.trade.mult ?? 1)),
         items: reason === 'extracted' ? items : bundleItems({})
     }
@@ -545,6 +619,7 @@ async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 
             lore: res.lore.map(id => VOID_LORE.find(l => l.id === id)?.title ?? id),
             depth: res.depth,
             gear: res.gear.map(g => ({ name: g.name, tier: g.tier, color: VOID_RARITIES[g.rarity]?.color ?? '#fff', rarity: VOID_RARITIES[g.rarity]?.name ?? 'Common' })),
+            gearEmpty: res.gearEmpty,
             sectorCleared: res.sectorCleared,
             items: bundleItems(res.haul)
         }
@@ -581,6 +656,9 @@ onMounted(async () => {
         await new Promise(resolve => requestAnimationFrame(resolve))
     }
     if (!viewport.value || engine) return
+    canFullscreen.value = !!document.fullscreenEnabled
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    window.addEventListener('keydown', onFullscreenKey)
     loadPrefs()
     audio.volume = volume.value
     audio.setMuted(muted.value)
@@ -604,6 +682,9 @@ onMounted(async () => {
         },
         gate: (options) => {
             gateChoice.value = options.map(id => voidZone(id))
+        },
+        guide: (lesson) => {
+            saveGuide(lesson)
         },
         trade: () => {
             tradeOpen.value = true
@@ -638,6 +719,9 @@ onBeforeUnmount(() => {
     engine = null
     audio.dispose()
     window.removeEventListener('pointerdown', unlockAudio)
+    document.removeEventListener('fullscreenchange', onFullscreenChange)
+    window.removeEventListener('keydown', onFullscreenKey)
+    if (document.fullscreenElement === root.value) void document.exitFullscreen().catch(() => {})
 })
 </script>
 

@@ -23,6 +23,9 @@
             <button class="vh-mute" :title="muted ? 'Unmute' : 'Mute'" @click="$emit('toggle-mute')">
                 <UIcon :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'" class="size-4" />
             </button>
+            <button v-if="canFullscreen" class="vh-mute vh-fullscreen" :title="fullscreen ? 'Exit fullscreen (F11)' : 'Fullscreen (F11)'" @click="$emit('toggle-fullscreen')">
+                <UIcon :name="fullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'" class="size-4" />
+            </button>
             <div class="vh-rank" :title="`Pilot level ${state.pilot.level}`">
                 <div class="vh-rank-badge">{{ state.pilot.level }}</div>
                 <div>
@@ -404,6 +407,8 @@ const props = defineProps<{
     history: InternalApi['/api/void/history']['get']
     leaderboard: InternalApi['/api/void/leaderboard']['get']
     muted?: boolean
+    fullscreen?: boolean
+    canFullscreen?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -424,6 +429,7 @@ const emit = defineEmits<{
     'tab': [tab: string]
     'sound': [sfx: VoidSfx]
     'toggle-mute': []
+    'toggle-fullscreen': []
     'unlock-skill': [skillId: string]
     'equip-skill': [skillId: string]
     'skill-nodes': [skillId: string, nodes: string[]]
@@ -475,9 +481,9 @@ const rank = computed(() => {
 const firstSteps = computed(() => {
     const s = props.state
     const steps = [
-        { text: 'Fly your first run and dock', hint: 'Press Launch. The flight tutorial walks you through the controls.', done: s.extractions >= 1, tab: null },
+        { text: 'Fly your first run and dock', hint: 'Press Launch. The flight guide walks you through the controls one step at a time.', done: s.extractions >= 1, tab: null },
+        { text: 'Spend a skill point', hint: 'Skills: pick a node in your pilot skill tree. Every few pilot levels adds a point.', done: s.pilot.points < 1 || s.skills.some(k => k.nodesAllocated.length > 0), tab: 'skills' },
         { text: 'Craft a new item', hint: 'Workshop: pick a turret or gun, T1, and Craft. Rarity is random.', done: s.items.length > 6 || s.items.some(i => i.rarity > 0), tab: 'workshop' },
-        { text: 'Level an item to +1', hint: 'Workshop: press +1 on any item. Early levels are cheap.', done: s.items.some(i => i.level >= 1), tab: 'workshop' },
         { text: 'Fit your best gear', hint: 'Fitting: click a slot and pick the item with the green number.', done: s.items.some(i => i.level >= 1 || i.rarity > 0) && s.ships.some(sh => sh.owned && [sh.fit.gun, ...sh.fit.turrets].some(id => s.items.find(i => i.id === id && (i.level >= 1 || i.rarity > 0)))), tab: 'fitting' },
         { text: 'Install a ship system', hint: 'Station: Cargo Systems Mk I fits more loot in every run.', done: s.upgrades.some(u => u.level >= 1), tab: 'station' },
         { text: 'Build your second hull', hint: 'Shipyard: the Wasp is fast, the Mule hauls. Both only need sector 1 materials.', done: s.ships.filter(sh => sh.owned).length >= 2, tab: 'shipyard' },
@@ -488,7 +494,8 @@ const firstSteps = computed(() => {
     if (done === steps.length) return null
     const current = steps.find(x => !x.done)!
     const index = steps.indexOf(current)
-    return { steps, done, current, visible: steps.slice(Math.max(0, index - 1), index + 3) }
+    // Gentle: the step just done, the one to do now and a peek at the next.
+    return { steps, done, current, visible: steps.slice(Math.max(0, index - 1), index + 2) }
 })
 
 /** Average tier of the gear fitted to the equipped hull (0 with nothing fitted). */
@@ -607,6 +614,7 @@ function stepSector(delta: number) {
 .vh-tab-on { color: #fff; border-color: var(--vr-accent); text-shadow: 0 0 12px rgba(94, 200, 255, 0.6); }
 .vh-mute { margin-left: auto; display: grid; place-items: center; width: 30px; height: 30px; color: var(--vr-muted); border: 1px solid var(--vr-line); cursor: pointer; }
 .vh-mute:hover { color: var(--vr-text); border-color: var(--vr-line-strong); }
+.vh-fullscreen { margin-left: -14px; }
 .vh-rank { margin-left: 12px; display: flex; align-items: center; gap: 9px; }
 .vh-rank-badge { display: grid; place-items: center; width: 30px; height: 30px; font: 700 14px 'Rajdhani', sans-serif; color: var(--vr-gold); border: 1px solid rgba(255, 210, 122, 0.5); clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); background: rgba(255, 210, 122, 0.1); }
 .vh-rank-name { font-size: 12px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; white-space: nowrap; }
@@ -661,16 +669,16 @@ function stepSector(delta: number) {
 .vh-go:active:not(:disabled) { transform: translateY(1px); }
 .vh-go:disabled { filter: grayscale(0.8) brightness(0.6); cursor: not-allowed; }
 
-.vh-panel { position: absolute; right: 18px; top: 74px; bottom: 18px; width: min(410px, 36vw); padding: 6px 18px 18px; overflow-y: auto; background: linear-gradient(180deg, rgba(6, 12, 24, 0.82), rgba(6, 12, 24, 0.7)); border: 1px solid var(--vr-line); backdrop-filter: blur(10px); scrollbar-width: thin; scrollbar-color: rgba(120, 190, 255, 0.25) transparent; }
+.vh-panel { position: absolute; right: 18px; top: 74px; bottom: 18px; width: min(410px, 36vw); padding: 6px 18px 18px; overflow-x: hidden; overflow-y: auto; background: linear-gradient(180deg, rgba(6, 12, 24, 0.82), rgba(6, 12, 24, 0.7)); border: 1px solid var(--vr-line); backdrop-filter: blur(10px); scrollbar-width: thin; scrollbar-color: rgba(120, 190, 255, 0.25) transparent; }
 .vh-h { display: flex; align-items: baseline; gap: 10px; margin: 16px 0 10px; font-size: 14px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; }
 .vh-h small { font-size: 11px; letter-spacing: 0.12em; color: var(--vr-muted); text-transform: none; }
-.vh-list { display: grid; gap: 8px; }
+.vh-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .vh-card { position: relative; display: block; width: 100%; text-align: left; padding: 10px 12px; background: rgba(255, 255, 255, 0.025); border: 1px solid var(--vr-line); transition: border-color 0.15s, background 0.15s; }
 .vh-card:hover { border-color: var(--vr-line-strong); background: rgba(255, 255, 255, 0.045); }
 .vh-card p { margin: 4px 0 6px; font-size: 13px; line-height: 1.3; color: rgba(230, 241, 255, 0.65); }
 .vh-card-head { display: flex; align-items: center; gap: 8px; font-size: 16px; }
 .vh-card-head b { font-weight: 700; letter-spacing: 0.06em; }
-.vh-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.vh-card-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 10px; margin-top: 8px; }
 .vh-kv { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--vr-muted); }
 .vh-kv b { color: var(--vr-text); font-family: 'JetBrains Mono', monospace; font-weight: 600; }
 .vh-tag { margin-left: auto; padding: 1px 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; border: 1px solid var(--vr-line-strong); color: var(--vr-muted); white-space: nowrap; }
