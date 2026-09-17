@@ -5,7 +5,7 @@ import {
     voidSectorResources, voidSectorUnlocked, voidSubtractBundle, voidUpgradeCost, type VoidStateSnapshot
 } from '#shared/utils/gamelogic/void'
 import {
-    VOID_LORE, VOID_PERKS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidRunMarks
+    VOID_BOUNTY_XP, VOID_DAILY_GEAR, VOID_LORE, VOID_PERKS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidBountyXp, voidGearCap, voidRunMarks
 } from '#shared/utils/gamelogic/void-pilot'
 import {
     VOID_DAMAGE_MULT, VOID_DAMAGE_TYPE, VOID_DEVICES, VOID_SECONDARIES, VOID_ITEM_TYPES, VOID_RARITIES, voidCanCraftTier, voidCraftCost, voidDefenceStats, voidItemUpgradeCost, voidRollBonusAffix, voidRollItem, voidRollMod, voidRollSalvagedGear, voidWeaponFit,
@@ -318,3 +318,29 @@ describe('void runner pilot meta', () => {
     })
 })
 
+
+describe('void runner bounties and gear caps', () => {
+    it('caps reported bounty XP at one bounty per minute flown and two per run', () => {
+        expect(voidBountyXp(999, 30_000)).toBe(0)
+        expect(voidBountyXp(999, 90_000)).toBe(VOID_BOUNTY_XP)
+        expect(voidBountyXp(999, 20 * 60_000)).toBe(VOID_BOUNTY_XP * 2)
+        expect(voidBountyXp(40, 20 * 60_000)).toBe(40)
+        expect(voidBountyXp('junk', 20 * 60_000)).toBe(0)
+        expect(voidBountyXp(-80, 20 * 60_000)).toBe(0)
+    })
+
+    it('caps salvaged gear by time, bosses and the daily limit', () => {
+        const run = { elapsedMs: 60_000, wardenKilled: false, carrierKilled: false, earnest: true }
+        const full = { elapsedMs: 10 * 60_000, wardenKilled: true, carrierKilled: true, earnest: true }
+        expect(voidGearCap(run, 0)).toBe(0)
+        expect(voidGearCap({ ...run, elapsedMs: 90_000 }, 0)).toBe(1)
+        expect(voidGearCap({ ...run, elapsedMs: 60 * 60_000 }, 0)).toBe(3)
+        expect(voidGearCap(full, 0)).toBe(5)
+        // A run with no kills or cargo banks nothing, whatever it reports.
+        expect(voidGearCap({ ...full, earnest: false }, 0)).toBe(0)
+        // Boss kills only count on a run long enough to have fought one.
+        expect(voidGearCap({ ...run, elapsedMs: 120_000, carrierKilled: true, wardenKilled: true }, 0)).toBe(1)
+        expect(voidGearCap(full, VOID_DAILY_GEAR - 2)).toBe(2)
+        expect(voidGearCap(full, VOID_DAILY_GEAR + 3)).toBe(0)
+    })
+})

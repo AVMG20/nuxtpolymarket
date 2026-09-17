@@ -14,7 +14,7 @@ import {
 } from '#shared/utils/gamelogic/void-items'
 import { voidPilotLevel, voidRunXp } from '#shared/utils/gamelogic/void-skills'
 import {
-    VOID_BLUEPRINT_KINDS, VOID_DAILY_BLUEPRINTS, VOID_DAILY_GEAR, VOID_DAILY_MARKS, VOID_PERK_IDS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidRunMarks, type VoidPerkId
+    VOID_BLUEPRINT_KINDS, VOID_DAILY_BLUEPRINTS, VOID_DAILY_MARKS, VOID_PERK_IDS, voidAllowedDepth, voidBountyXp, voidGearCap, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidRunMarks, type VoidPerkId
 } from '#shared/utils/gamelogic/void-pilot'
 import {
     VOID_CONTRACTS_PER_DAY, VOID_SUPPLY_STOCK_MAX, voidContractDay, voidContractsFor, voidNormalizeSupplies, voidSupplyCost,
@@ -192,7 +192,7 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
         // Salvaged gear: the client reports caches picked up; the server caps
         // them by time, warden and a daily limit, then rolls real items.
         const gearToday = sameDay ? s.gearToday : 0
-        const gearCap = Math.min(VOID_DAILY_GEAR - gearToday, Math.min(3, (settled.elapsedMs >= 90_000 ? 1 : 0) + Math.floor(settled.elapsedMs / 300_000)) + (settled.wardenKilled ? 1 : 0) + (carrierKilled && settled.elapsedMs >= 240_000 ? 1 : 0))
+        const gearCap = voidGearCap({ elapsedMs: settled.elapsedMs, wardenKilled: settled.wardenKilled, carrierKilled, earnest }, gearToday)
         const gearCount = extracted ? Math.max(0, Math.min(Math.floor(Number(body.gearCaches) || 0), gearCap)) : 0
         const gearRolled = Array.from({ length: gearCount }, () => voidRollSalvagedGear(Math.min(tier, Math.min(5, s.highestSectorCleared + 1)), randomFloat))
         // XP is earned whether or not the hold made it home.
@@ -203,7 +203,7 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             wardenKilled: settled.wardenKilled,
             tier,
             skillUses: Number(body.skillUses) || 0
-        }) + Math.min(Math.max(0, Math.floor(Number(body.bonusXp) || 0)), 120)
+        }) + voidBountyXp(body.bonusXp, settled.elapsedMs)
 
         // Clearing runStartedAt is the claim: a second finish in flight finds
         // it null and banks nothing.
@@ -268,7 +268,9 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             blueprint,
             lore: newLore,
             depth,
-            gear: gear.map(g => ({ name: voidItemName(g), tier: g.tier, rarity: g.rarity }))
+            gear: gear.map(g => ({ name: voidItemName(g), tier: g.tier, rarity: g.rarity })),
+            /** Caches picked up that came back empty: over the run or daily limit. */
+            gearEmpty: extracted ? Math.min(10, Math.max(0, Math.floor(Number(body.gearCaches) || 0) - gearCount)) : 0
         }
     })
 }
