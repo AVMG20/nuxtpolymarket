@@ -97,7 +97,7 @@ describe('void runner gear', () => {
     it('makes every tier cost more in both materials and coins', () => {
         for (const kind of ['gun', 'turret', 'armor', 'shield'] as const) {
             for (let t = 2; t <= 5; t++) {
-                expect(voidCraftCost(kind, t).coins).toBeGreaterThan(voidCraftCost(kind, t - 1).coins * 5)
+                expect(voidCraftCost(kind, t).coins).toBeGreaterThan(voidCraftCost(kind, t - 1).coins * 3.5)
                 expect(Object.keys(voidCraftCost(kind, t).resources).length).toBeGreaterThan(0)
             }
         }
@@ -113,7 +113,7 @@ describe('void runner gear', () => {
         expect(voidItemUpgradeCost({ kind: 'turret', tier: 2, level: 10 })).toBeNull()
         // A maxed item costs far more than the craft itself.
         const total = Array.from({ length: 10 }, (_, l) => voidItemUpgradeCost({ kind: 'turret', tier: 2, level: l })!.coins).reduce((a, b) => a + b, 0)
-        expect(total).toBeGreaterThan(voidCraftCost('turret', 2).coins * 10)
+        expect(total).toBeGreaterThan(voidCraftCost('turret', 2).coins * 8)
     })
 
     it('rolls rarity from the weights and gives rarer items more affixes', () => {

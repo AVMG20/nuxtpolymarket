@@ -192,14 +192,16 @@ export function voidItemName(item: Pick<VoidItem, 'type' | 'tier'>) {
 // ─── Crafting ───────────────────────────────────────────────────────────────
 
 const TIER_RECIPES: VoidResourceBundle[] = [
-    { ferrite: 300, scrap: 200 },
-    { ferrite: 300, cobalt: 250, scrap: 250 },
-    { cobalt: 450, iridium: 300, alloy: 60 },
-    { iridium: 600, xenite: 250, alloy: 150 },
-    { iridium: 800, xenite: 600, alloy: 300, core: 1 }
+    { ferrite: 220, scrap: 80 },
+    { ferrite: 250, cobalt: 220, scrap: 120 },
+    { cobalt: 420, iridium: 280, alloy: 40 },
+    { iridium: 700, xenite: 340, alloy: 120 },
+    { iridium: 800, xenite: 700, alloy: 160, core: 1 }
 ]
-const TIER_COINS = [60_000, 500_000, 3_500_000, 22_000_000, 120_000_000]
-const TIER_GEMS = [0, 0, 0, 2, 5]
+const TIER_COINS = [50_000, 400_000, 2_500_000, 10_000_000, 40_000_000]
+const TIER_GEMS = [0, 0, 0, 1, 3]
+/** Upgrade material share per tier: cheap to level early gear, heavier late. */
+const TIER_UPGRADE_SHARE = [0.12, 0.15, 0.18, 0.2, 0.22]
 const KIND_WEIGHT: Record<VoidItemKind, number> = { gun: 1.2, turret: 1, armor: 0.9, shield: 1 }
 
 export interface VoidItemPrice {
@@ -235,12 +237,13 @@ export function voidCraftCost(kind: VoidItemKind, tier: number): VoidItemPrice {
 export function voidItemUpgradeCost(item: Pick<VoidItem, 'kind' | 'tier' | 'level'>): VoidItemPrice | null {
     if (item.level >= VOID_ITEM_MAX_LEVEL) return null
     const craft = voidCraftCost(item.kind, item.tier)
-    const resources = scaleBundle({ ...craft.resources, core: 0 }, 0.18 * Math.pow(1.38, item.level))
-    // Deep tiers need a warp core for the last levels.
-    if (item.tier >= 4 && item.level >= 8) resources.core = 1
+    const share = TIER_UPGRADE_SHARE[Math.max(1, Math.min(VOID_MAX_TIER, item.tier)) - 1]!
+    const resources = scaleBundle({ ...craft.resources, core: 0 }, share * Math.pow(1.36, item.level))
+    // Deep tiers need a warp core for the final level.
+    if (item.tier >= 4 && item.level === 9) resources.core = 1
     return {
         resources,
-        coins: Math.round(craft.coins * 0.12 * Math.pow(1.62, item.level) / 1000) * 1000,
+        coins: Math.round(craft.coins * 0.08 * Math.pow(1.5, item.level) / 1000) * 1000,
         gems: item.tier >= 4 && item.level >= 9 ? TIER_GEMS[item.tier - 1]! : 0
     }
 }
