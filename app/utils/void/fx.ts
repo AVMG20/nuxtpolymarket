@@ -855,7 +855,7 @@ const tmpCol = new THREE.Color()
 export function explosion(fx: FxContext, pos: THREE.Vector3, vel: THREE.Vector3, size: number, color: THREE.ColorRepresentation, debris = true) {
     const r = Math.random
     const tint = new THREE.Color(color)
-    fx.particles.emit(pos.x, pos.y, pos.z, 0, 0, 0, { life: 0.18, size: size * 9, sizeEnd: size * 14, color: WHITE_HOT, intensity: 3, drag: 0 })
+    fx.particles.emit(pos.x, pos.y, pos.z, 0, 0, 0, { life: 0.18, size: size * 8, sizeEnd: size * 12, color: WHITE_HOT, intensity: 2, drag: 0 })
     fx.particles.emit(pos.x, pos.y, pos.z, vel.x * 0.5, vel.y * 0.5, vel.z * 0.5, { life: 0.45, size: size * 6, sizeEnd: size * 10, color: tint, intensity: 2.2, drag: 2 })
     const fire = Math.round(10 + size * 5)
     for (let i = 0; i < fire; i++) {
@@ -866,7 +866,7 @@ export function explosion(fx: FxContext, pos: THREE.Vector3, vel: THREE.Vector3,
         })
     }
     const sparks = Math.round(12 + size * 8)
-    tmpCol.set(0xffd89a).multiplyScalar(4)
+    tmpCol.set(0xffd89a).multiplyScalar(3)
     for (let i = 0; i < sparks; i++) {
         _v.set(r() - 0.5, r() - 0.5, r() - 0.5).normalize().multiplyScalar(size * (25 + r() * 45))
         fx.sparks.emit(pos.x, pos.y, pos.z, vel.x * 0.5 + _v.x, vel.y * 0.5 + _v.y, vel.z * 0.5 + _v.z, 0.25 + r() * 0.6, tmpCol, 0.12 + size * 0.05)
@@ -887,7 +887,7 @@ export function explosion(fx: FxContext, pos: THREE.Vector3, vel: THREE.Vector3,
 
 export function hitSpark(fx: FxContext, pos: THREE.Vector3, normal: THREE.Vector3, color: THREE.ColorRepresentation, scale = 1) {
     const r = Math.random
-    const c = tmpCol.set(color).multiplyScalar(3)
+    const c = tmpCol.set(color).multiplyScalar(2.2)
     fx.particles.emit(pos.x, pos.y, pos.z, 0, 0, 0, { life: 0.12, size: 2.2 * scale, sizeEnd: 3.5 * scale, color: c, drag: 0 })
     for (let i = 0; i < 5; i++) {
         _v.set(r() - 0.5, r() - 0.5, r() - 0.5).multiplyScalar(1.2).add(normal).normalize().multiplyScalar(18 + r() * 30)

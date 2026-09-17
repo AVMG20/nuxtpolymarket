@@ -154,6 +154,9 @@ export class VoidEngine {
     private composer: EffectComposer
     private renderPass: RenderPass
     private bloom: UnrealBloomPass
+    private scrubPass: ShaderPass
+    /** Accessibility: softer bloom, a lower brightness ceiling and faint screen flashes. */
+    reduceFlashes = false
     private finalPass: ShaderPass
     readonly camera = new THREE.PerspectiveCamera(68, 1, 0.3, 6000)
     scene = new THREE.Scene()
@@ -288,6 +291,8 @@ export class VoidEngine {
     private hangarDrones: THREE.Group[] = []
     private hangarFlames: { material: THREE.ShaderMaterial }[] = []
     private hangarOrbit = 2.3
+    /** The hangar camera slowly circles the ship; off for players who get motion sick. */
+    hangarSpin = true
     private hangarSize = 3
     private hangarSky: Sky | null = null
     private hangarDrag = false
@@ -317,17 +322,19 @@ export class VoidEngine {
         this.composer.addPass(this.renderPass)
         // One NaN pixel turns into a black rectangle once the bloom blurs it
         // across its mip chain, so scrub the HDR buffer before bloom sees it.
-        this.composer.addPass(new ShaderPass({
-            uniforms: { tDiffuse: { value: null } },
+        // The ceiling also caps how hot a pixel gets, so explosions never glare.
+        this.scrubPass = new ShaderPass({
+            uniforms: { tDiffuse: { value: null }, uCeiling: { value: 12 } },
             vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-            fragmentShader: `uniform sampler2D tDiffuse; varying vec2 vUv;
+            fragmentShader: `uniform sampler2D tDiffuse; uniform float uCeiling; varying vec2 vUv;
                 void main() {
                     vec4 c = texture2D(tDiffuse, vUv);
                     if (!(c.r == c.r && c.g == c.g && c.b == c.b) || max(c.r, max(c.g, c.b)) > 60000.0) c = vec4(0.0, 0.0, 0.0, 1.0);
-                    gl_FragColor = vec4(min(c.rgb, vec3(40.0)), 1.0);
+                    gl_FragColor = vec4(min(c.rgb, vec3(uCeiling)), 1.0);
                 }`
-        }))
-        this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.7, 0.5, 0.9)
+        })
+        this.composer.addPass(this.scrubPass)
+        this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.55, 0.5, 0.9)
         this.composer.addPass(this.bloom)
         this.finalPass = new ShaderPass(FINAL_SHADER)
         this.composer.addPass(this.finalPass)
@@ -541,6 +548,13 @@ export class VoidEngine {
         this.resize()
     }
 
+    /** Softer bloom, a lower brightness ceiling and faint screen flashes for sensitive eyes. */
+    setReduceFlashes(on: boolean) {
+        this.reduceFlashes = on
+        this.bloom.strength = on ? 0.3 : 0.55
+        this.scrubPass.uniforms.uCeiling!.value = on ? 4 : 12
+    }
+
     private onKeyUp = (e: KeyboardEvent) => {
         this.keys.delete(e.code)
         if (e.code === 'KeyE' && this.phase === 'flying' && this.locked && !this.paused) this.systems?.secondaryUp()
@@ -712,10 +726,11 @@ export class VoidEngine {
         // New hulls ease in from a slight shrink as they materialise.
         const swap = 1 - this.hangarSwap * this.hangarSwap * 0.12
         ship.scale.setScalar((5 / size) * (1 + Math.min(1, size / 16) * 0.6) * swap)
-        ship.position.y = 0.6 + Math.sin(this.time * 1.2) * 0.25
-        ship.rotation.z = Math.sin(this.time * 0.7) * 0.03
-        ship.rotation.x = Math.sin(this.time * 0.9) * 0.02
-        if (!this.hangarDrag) this.hangarOrbit += dt * 0.12
+        const sway = this.hangarSpin ? 1 : 0
+        ship.position.y = 0.6 + Math.sin(this.time * 1.2) * 0.25 * sway
+        ship.rotation.z = Math.sin(this.time * 0.7) * 0.03 * sway
+        ship.rotation.x = Math.sin(this.time * 0.9) * 0.02 * sway
+        if (!this.hangarDrag && this.hangarSpin) this.hangarOrbit += dt * 0.12
         const dist = 15 * this.hangarZoom
         this.camera.position.set(Math.sin(this.hangarOrbit) * dist, dist * this.hangarPitch + 2.5, Math.cos(this.hangarOrbit) * dist)
         // Look slightly right of the ship so it sits left of the side panel.
@@ -1244,7 +1259,7 @@ export class VoidEngine {
         this.whiteFlash = Math.max(0, this.whiteFlash - dt * 1.4)
         const hullFrac = p.hull / this.config.stats.hull
         this.finalPass.uniforms.uDamage!.value = Math.min(1, this.hurt * 0.8 + (hullFrac < 0.3 && p.alive ? (0.3 - hullFrac) * 1.2 * (0.7 + Math.sin(this.time * 5) * 0.3) : 0))
-        this.finalPass.uniforms.uFlash!.value = Math.min(1, this.whiteFlash) * 0.9
+        this.finalPass.uniforms.uFlash!.value = Math.min(1, this.whiteFlash) * (this.reduceFlashes ? 0.12 : 0.45)
         this.finalPass.uniforms.uAberration!.value = (p.boosting ? 0.03 : 0) + this.hurt * 0.04 + (p.abilityTime > 0 && p.ability === 'phase' ? 0.05 : 0)
 
         // Combat music follows how many hostiles are actively engaged nearby.
