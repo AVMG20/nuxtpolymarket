@@ -4,7 +4,7 @@
         <header class="vh-top">
             <NuxtLink to="/" class="vh-leave" @click="$emit('sound', 'ui')">
                 <UIcon name="i-lucide-chevron-left" class="size-4" />
-                <span>Leave</span>
+                <span class="vh-leave-label">Leave</span>
             </NuxtLink>
             <div class="vh-brand">VOID<span>RUNNER</span></div>
             <nav class="vh-tabs">
@@ -13,10 +13,11 @@
                     :key="t.id"
                     class="vh-tab"
                     :class="{ 'vh-tab-on': tab === t.id }"
+                    :title="t.label"
                     @click="setTab(t.id)"
                 >
                     <UIcon :name="t.icon" class="size-4" />
-                    <span>{{ t.label }}</span>
+                    <span class="vh-tab-label">{{ t.label }}</span>
                 </button>
             </nav>
             <button class="vh-mute" :title="muted ? 'Unmute' : 'Mute'" @click="$emit('toggle-mute')">
@@ -663,15 +664,26 @@ function stepSector(delta: number) {
 .vh-gun-on { background: color-mix(in srgb, var(--c) 14%, transparent); box-shadow: inset 0 0 0 1px var(--c); }
 .vh-gun-card { margin-top: 8px; }
 
-@media (max-width: 1750px) {
+/* Laptop widths: the top bar compacts in steps so nothing runs off screen. */
+@media (max-width: 1850px) {
     .vh-res { display: none; }
+    .vh-top { gap: 14px; }
+}
+@media (max-width: 1650px) {
+    .vh-rank-name, .vh-rank-bar { display: none; }
+    .vh-rank { margin-left: 4px; }
+    .vh-brand { font-size: 17px; letter-spacing: 0.28em; }
+    .vh-tab { padding: 8px 7px; gap: 5px; font-size: 12px; letter-spacing: 0.08em; }
+    .vh-wallet { margin-left: 4px; gap: 8px; }
+    .vh-coins { padding: 4px 9px; font-size: 13px; }
 }
 @media (max-width: 1400px) {
-    .vh-rank-name, .vh-rank-bar { display: none; }
+    .vh-tab-label, .vh-leave-label { display: none; }
+    .vh-tab { padding: 8px 9px; }
 }
 @media (max-width: 1100px) {
     .vh-res { display: none; }
-    .vh-tab span { display: none; }
+    .vh-tab-label { display: none; }
     .vh-title { display: none; }
 }
 </style>
