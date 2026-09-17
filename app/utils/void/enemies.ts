@@ -3,6 +3,7 @@
 import * as THREE from 'three'
 import { randomFloat } from '#shared/utils/random'
 import { voidShip } from '#shared/utils/gamelogic/void'
+import { VOID_DAMAGE_MULT, VOID_DAMAGE_TYPE, type VoidDamageType } from '#shared/utils/gamelogic/void-items'
 import { ENEMIES, ENEMY_KINDS, WARDEN_BASE_HP, WARDEN_GLOW, threatDamageMult, threatHpMult, type EnemyKind } from './data'
 import { ShieldBubble, Trail, createFlame, explosion, hitSpark } from './fx'
 import { buildCrate, buildEnemy, buildWarden } from './models'
@@ -11,6 +12,7 @@ import { ModelBuilder, cyl, ico, ring, type Hardpoint, type TurretModel } from '
 import { raySphere } from './asteroids'
 import { disposeTree, segmentSphere, type VoidEngine } from './engine'
 import type { Enemy, HostileKind } from './types'
+import type { AiTarget } from './systems'
 import { eventLoot, updateEventEntity } from './events'
 
 export const WARDEN_TRIGGER_RANGE = 380
@@ -74,6 +76,15 @@ export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vec
         radius = kind === 'freighter' ? 8 : kind === 'vault' ? 4.5 : built.radius * 0.8
         hp = 100
         name = kind === 'freighter' ? 'Smuggler Freighter' : kind === 'meteor' ? 'Meteor' : 'Derelict Vault'
+        engines = built.engines.map(en => en.position.clone())
+        engineRadii = built.engines.map(en => en.radius)
+    } else if (kind === 'trader') {
+        glow = 0x9fffd9
+        const built = buildEnemy('freighter', glow, 2.4)
+        group = built.group
+        radius = 12
+        hp = 1e9
+        name = 'Free Trader'
         engines = built.engines.map(en => en.position.clone())
         engineRadii = built.engines.map(en => en.radius)
     } else if (kind === 'mothership') {
@@ -187,6 +198,13 @@ export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vec
         model.add(flame.mesh)
         enemy.flames.push(flame)
     }
+    // Shields: energy weapons strip them, kinetic rounds tear the hull underneath.
+    const shieldShare = (kind === 'sentinel' ? 0.4 : kind === 'bulwark' ? 0.3 : kind === 'blinker' ? 0.25 : kind === 'carrier' ? 0.35 : kind === 'warden' ? 0.35 : kind === 'battery' ? 0.3 : 0) + (opts.elite ? 0.3 : 0)
+    if (shieldShare > 0) {
+        enemy.data.shieldMax = Math.round(enemy.maxHp * Math.min(0.6, shieldShare))
+        enemy.data.shield = engine.zone === 'ion' ? 0 : enemy.data.shieldMax
+        enemy.data.shieldDelay = 0
+    }
     if (kind === 'raider' || kind === 'mite' || kind === 'leech' || kind === 'lancer') {
         enemy.trail = new Trail(12, glow, kind === 'mite' ? 0.25 : 0.4, 0.03)
         enemy.trail.reset(pos)
@@ -267,6 +285,7 @@ export function spawnPatrol(engine: VoidEngine, center: THREE.Vector3, hunting: 
 export function spawnMothership(engine: VoidEngine, pos: THREE.Vector3) {
     const groupId = 9000 + engine.nextId()
     const m = spawnEnemy(engine, 'mothership', pos, { aggro: false, group: groupId })
+    m.data.carrier = 1
     m.data.heading = randomFloat() * Math.PI * 2
     m.data.launch = 6
     m.group.rotation.y = m.data.heading
@@ -275,6 +294,7 @@ export function spawnMothership(engine: VoidEngine, pos: THREE.Vector3) {
     for (const [slot, hp] of (m.group.userData.hardpoints as Hardpoint[]).entries()) {
         const at = m.group.localToWorld(hp.position.clone())
         const b = spawnEnemy(engine, 'battery', at, { aggro: false, group: groupId })
+        b.data.carrier = 1
         b.data.slot = slot
         b.cooldown = 1 + slot * 0.35
         b.group.userData.parent = m
@@ -285,6 +305,7 @@ export function spawnMothership(engine: VoidEngine, pos: THREE.Vector3) {
     const reactors: Enemy[] = []
     for (const [slot, local] of REACTOR_SLOTS.entries()) {
         const r = spawnEnemy(engine, 'reactor', m.group.localToWorld(local.clone()), { aggro: false, group: groupId })
+        r.data.carrier = 1
         r.data.slot = slot
         r.group.userData.parent = m
         reactors.push(r)
@@ -292,7 +313,8 @@ export function spawnMothership(engine: VoidEngine, pos: THREE.Vector3) {
     m.group.userData.reactors = reactors
     for (let i = 0; i < 6; i++) {
         const kind = i < 2 ? 'bulwark' : 'raider'
-        spawnEnemy(engine, kind, pos.clone().add(randDir(0.4).multiplyScalar(60 + randomFloat() * 40)), { aggro: false, group: groupId, elite: i === 2 })
+        const escort = spawnEnemy(engine, kind, pos.clone().add(randDir(0.4).multiplyScalar(60 + randomFloat() * 40)), { aggro: false, group: groupId, elite: i === 2 })
+        escort.data.carrier = 1
     }
     return m
 }
@@ -394,6 +416,7 @@ function updateMothership(engine: VoidEngine, e: Enemy, dt: number, dist: number
             for (let i = 0; i < 3; i++) {
                 const kind = engine.config!.sector.tier >= 3 && i === 0 ? 'blinker' : i === 2 ? 'mite' : 'raider'
                 const f = spawnEnemy(engine, kind, hangar.clone().addScaledVector(out, 6 + i * 4), { aggro: true, group: e.data.group })
+                f.data.carrier = 1
                 f.vel.copy(out).multiplyScalar(40)
             }
             engine.rings.spawn(hangar, 16, e.glow, 0.6, 2.5)
@@ -463,7 +486,7 @@ function mothershipDeath(engine: VoidEngine, e: Enemy) {
     const scene = engine.scene
     const chain = () => {
         // The run ended mid-chain: clean up quietly instead of exploding in the next sector.
-        if (!engine.player || engine.scene !== scene) {
+        if (!engine.player || engine.scene !== scene || !e.group.parent) {
             disposeTree(e.group)
             return
         }
@@ -514,15 +537,29 @@ export function spawnWarden(engine: VoidEngine) {
 export interface HitExtra {
     crit?: number
     mod?: string | null
+    dtype?: VoidDamageType
 }
 
+const CAPITAL = new Set(['mothership', 'battery', 'reactor', 'warden'])
+
 /** Non-burst sources never crit, spark or trigger mods. */
-const STEADY_SOURCES = new Set(['beam', 'lance', 'station', 'enemy', 'burn', 'chain'])
+const STEADY_SOURCES = new Set(['beam', 'lance', 'station', 'enemy', 'burn', 'chain', 'coalition'])
 
 export function damageEnemy(engine: VoidEngine, e: Enemy, amount: number, point: THREE.Vector3, source: string, extra?: HitExtra) {
     if (!e.alive || amount <= 0) return
+    // Traders are untouchable; Coalition ships turn on you when shot.
+    if (e.kind === 'trader') return
+    if (e.data.coalition && !e.hostile) {
+        // Friendly patrols only turn on you if you shoot them with your own guns.
+        if (source !== 'gun') return
+        turnCoalitionHostile(engine, e)
+    }
+    // Hits from Coalition patrols are theirs: no crits, no player bonuses, and the kill is not yours.
+    if (source === 'coalition') e.data.coalitionHit = 1
+    else if (source !== 'burn' && source !== 'chain') e.data.coalitionHit = 0
+    // Heavy ordnance on a warden follows the boss rules: scaled and capped.
     // Berserker and friends scale every player weapon.
-    if (source !== 'station' && source !== 'enemy' && source !== 'skill' && source !== 'burn' && source !== 'chain' && engine.skills) amount *= engine.skills.outgoingMult
+    if (source !== 'station' && source !== 'enemy' && source !== 'skill' && source !== 'burn' && source !== 'chain' && source !== 'coalition' && engine.skills) amount *= engine.skills.outgoingMult
     // A Bulwark's front dome eats everything but the heavy hitters.
     if (e.kind === 'bulwark' && source !== 'nova' && source !== 'lance' && source !== 'skill') {
         const fwd = _v1.set(0, 0, -1).applyQuaternion(e.group.quaternion)
@@ -548,6 +585,42 @@ export function damageEnemy(engine: VoidEngine, e: Enemy, amount: number, point:
         if (Math.random() < 0.25) engine.audio.play('shieldHit', { distance: point.distanceTo(engine.camera.position) * 0.5, volume: 0.5, pitch: 0.7 })
         return
     }
+    // Hits to the engines from behind do extra damage and slow the ship.
+    if (!STEADY_SOURCES.has(source) && e.def && !CAPITAL.has(e.kind) && e.hostile) {
+        const fwd = _v1.set(0, 0, -1).applyQuaternion(e.group.quaternion)
+        if (fwd.dot(_v2.subVectors(point, e.pos).normalize()) < -0.55) {
+            amount *= 1.25
+            e.data.slowT = Math.max(e.data.slowT ?? 0, 1.2)
+            if (Math.random() < 0.4) engine.sparks.emit(point.x, point.y, point.z, (Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20, (Math.random() - 0.5) * 20, 0.4, _c.set(0xff9a3d).multiplyScalar(3), 0.1)
+        }
+    }
+    // Shields soak damage first, weighted by damage type.
+    const dtype = extra?.dtype ?? VOID_DAMAGE_TYPE[source] ?? null
+    if ((e.data.shield ?? 0) > 0 && e.hostile) {
+        const mult = dtype ? VOID_DAMAGE_MULT[dtype] : { shield: 1, hull: 1 }
+        const onShield = amount * mult.shield
+        const absorbed = Math.min(e.data.shield!, onShield)
+        e.data.shield! -= absorbed
+        e.data.shieldDelay = 4
+        amount = ((onShield - absorbed) / mult.shield) * mult.hull
+        if (e.shield) {
+            _q.copy(e.group.quaternion).invert()
+            e.shield.impact(_v2.subVectors(point, e.pos).normalize().applyQuaternion(_q))
+        } else if (Math.random() < 0.35) {
+            engine.rings.spawn(point, e.radius * 0.9, 0x6fd8ff, 0.25, 2, _v2.subVectors(point, e.pos).normalize().clone())
+        }
+        if (e.data.shield! <= 0) {
+            engine.rings.spawn(e.pos, e.radius * 2.5, 0x6fd8ff, 0.4, 2.5)
+            engine.audio.play('blink', { distance: point.distanceTo(engine.camera.position) * 0.5, pitch: 1.4, volume: 0.5 })
+        }
+        if (amount <= 0) {
+            if (e.hostile && source !== 'station') engine.hitMarker = Math.max(engine.hitMarker, 0.12)
+            if (e.hostile && !e.aggro) alertGroup(engine, e)
+            return
+        }
+    } else if (dtype && e.hostile) {
+        amount *= VOID_DAMAGE_MULT[dtype].hull
+    }
     // Player hits can crit for double, shown as a big gold number.
     const burst = !STEADY_SOURCES.has(source)
     if (burst && e.hostile && randomFloat() < 0.12 + (extra?.crit ?? 0)) {
@@ -557,10 +630,12 @@ export function damageEnemy(engine: VoidEngine, e: Enemy, amount: number, point:
     } else {
         e.data.dmgAcc = (e.data.dmgAcc ?? 0) + amount
     }
+    // Heavy ordnance on bosses follows the boss rules, after crits and bonuses: scaled and capped per warhead.
+    if (source === 'secondary' && (e.kind === 'warden' || e.kind === 'mothership')) amount = Math.min(amount * 0.4, e.maxHp * 0.008)
     e.hp -= amount
     // A whole capital hull lighting up white is blinding; it only glints.
     e.flash = e.kind === 'mothership' ? Math.max(e.flash, 0.06) : source === 'beam' || source === 'lance' ? Math.max(e.flash, 0.3) : 1
-    if (e.hostile && source !== 'station') engine.hitMarker = Math.max(engine.hitMarker, source === 'beam' ? 0.08 : 0.18)
+    if (e.hostile && source !== 'station' && source !== 'coalition') engine.hitMarker = Math.max(engine.hitMarker, source === 'beam' ? 0.08 : 0.18)
     if (e.hostile && !e.aggro) alertGroup(engine, e)
     if (e.hostile && extra?.mod) applyHitMod(engine, e, amount, extra.mod)
     if (!STEADY_SOURCES.has(source)) {
@@ -596,6 +671,19 @@ function applyHitMod(engine: VoidEngine, e: Enemy, amount: number, mod: string) 
     }
 }
 
+function turnCoalitionHostile(engine: VoidEngine, e: Enemy) {
+    const group = e.data.group
+    for (const o of engine.enemies) {
+        if (!o.alive || !o.data.coalition || (group && o.data.group !== group && o !== e)) continue
+        o.data.coalition = 0
+        o.hostile = true
+        o.aggro = true
+        o.glow.set(0xff4a55)
+    }
+    engine.events.banner('Coalition patrol hostile', 'You fired on the Coalition', 'bad')
+    engine.audio.play('warning', { volume: 1 })
+}
+
 function alertGroup(engine: VoidEngine, e: Enemy) {
     e.aggro = true
     for (const other of engine.enemies) {
@@ -608,6 +696,8 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
     if (!e.alive) return
     e.alive = false
     e.hp = 0
+    // A Coalition kill is theirs: the wreck explodes but pays you nothing.
+    const stolen = !!e.data.coalitionHit
     const distance = e.pos.distanceTo(engine.camera.position)
     if (!silent) {
         if (e.kind === 'mothership') {
@@ -622,7 +712,7 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
             if (distance < 120) engine.trauma = Math.min(1, engine.trauma + 0.15 * size)
         }
     }
-    if (e.hostile && e.kind !== 'mine') {
+    if (e.hostile && e.kind !== 'mine' && !stolen) {
         engine.killMarker = 0.35
         engine.streak = engine.streakTimer > 0 ? engine.streak + 1 : 1
         engine.streakTimer = 3
@@ -630,17 +720,31 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
         engine.kills++
         engine.objectives?.onKill(e)
         engine.skills?.onKill(e)
+        // A beat of hit-stop on big kills; a slow-motion moment for bosses.
+        if (e.kind === 'warden' || e.kind === 'mothership') engine.slowMotion(1.4, 0.3)
+        else if (e.elite) engine.slowMotion(0.06, 0.1)
+        if (e.kind === 'mothership' && engine.systems) engine.systems.carrierKilled = true
     }
-    if (!silent && e.hostile) {
+    if (!silent && e.hostile && !stolen) {
         // Relic caches: rare from elites and carriers, guaranteed from a warden.
-        const chance = e.kind === 'warden' ? 1 : e.data.elite ? 0.07 : e.def?.elite ? 0.12 : 0
+        const chance = e.kind === 'warden' ? 1 : (e.data.elite ? 0.07 : e.def?.elite ? 0.12 : 0) * engine.relicMult
         if (chance > 0 && randomFloat() < chance) engine.dropRelic(e.pos)
+        // Jump fuel: elites and carriers sometimes carry a cell.
+        if ((e.data.elite || e.def?.elite) && randomFloat() < 0.25) engine.dropFuel(e.pos)
     }
-    if (!silent && eventLoot(engine, e)) {
+    if (stolen) {
+        // no loot
+    } else if (!silent && eventLoot(engine, e)) {
         // handled by the event
     } else if (e.kind === 'crate') {
         engine.dropLoot('scrap', 5, 10, e.pos)
         engine.dropLoot('alloy', 1, 3, e.pos, 0.45)
+        if (e.data.cache) {
+            // Hidden caches found by scanning pay better and sometimes hold a relic or fuel.
+            engine.dropLoot('alloy', 3, 6, e.pos)
+            if (randomFloat() < 0.12 * engine.relicMult) engine.dropRelic(e.pos)
+            if (randomFloat() < 0.35) engine.dropFuel(e.pos)
+        }
     } else if (e.def && !silent) {
         const lootMult = e.data.elite ? 2.5 : 1
         for (const drop of e.def.drops) engine.dropLoot(drop.resource, Math.round(drop.min * lootMult), Math.round(drop.max * lootMult), e.pos, Math.min(1, (drop.chance ?? 1) * lootMult))
@@ -705,7 +809,7 @@ function wardenDeath(engine: VoidEngine, e: Enemy) {
     let step = 0
     const scene = engine.scene
     const chain = () => {
-        if (!engine.player || engine.scene !== scene) {
+        if (!engine.player || engine.scene !== scene || !e.group.parent) {
             disposeTree(e.group)
             return
         }
@@ -727,6 +831,70 @@ function wardenDeath(engine: VoidEngine, e: Enemy) {
     engine.dropLoot('core', 1 + Math.ceil(cfg.sector.tier / 2), 1 + Math.ceil(cfg.sector.tier / 2), pos)
     engine.dropLoot('alloy', 10, 18, pos)
     engine.dropLoot('scrap', 25, 40, pos)
+}
+
+// ─── Coalition and traders ─────────────────────────────────────────────────
+
+/**
+ * Coalition patrols hunt raiders and ignore the player unless shot. They fire
+ * their own bolts, which never hit other Coalition ships.
+ */
+export function spawnCoalitionPatrol(engine: VoidEngine, center: THREE.Vector3) {
+    const groupId = 8000 + engine.nextId()
+    for (let i = 0; i < 3; i++) {
+        const c = spawnEnemy(engine, i === 0 ? 'lancer' : 'raider', center.clone().add(randDir(0.3).multiplyScalar(30 + randomFloat() * 30)), { aggro: false, group: groupId })
+        c.hostile = false
+        c.data.coalition = 1
+        c.name = i === 0 ? 'Coalition Lancer' : 'Coalition Patrol'
+        c.glow.set(0x5ec8ff)
+        c.maxHp = c.hp = c.hp * 1.5
+        c.cooldown = 1 + randomFloat()
+    }
+}
+
+export function spawnTrader(engine: VoidEngine, pos: THREE.Vector3) {
+    const t = spawnEnemy(engine, 'trader', pos, {})
+    t.hostile = false
+    return t
+}
+
+function updateCoalition(engine: VoidEngine, e: Enemy, dt: number) {
+    e.data.retarget = (e.data.retarget ?? 0) - dt
+    let target = e.group.userData.target as Enemy | undefined
+    if (!target?.alive || e.data.retarget! <= 0) {
+        e.data.retarget = 1
+        target = undefined
+        let best = 480 * 480
+        for (const o of engine.enemies) {
+            if (!o.alive || !o.hostile || o.kind === 'mine' || CAPITAL.has(o.kind) || o.data.coalition) continue
+            const d = o.pos.distanceToSquared(e.pos)
+            if (d < best) {
+                best = d
+                target = o
+            }
+        }
+        e.group.userData.target = target
+    }
+    if (!target) {
+        idle(e, dt)
+    } else {
+        const def = e.def!
+        const to = _v1.subVectors(target.pos, e.pos)
+        const d = to.length()
+        const a = engine.time * 0.8 + e.id
+        const goal = _v2.copy(target.pos).add(_v3.set(Math.cos(a) * 90, 20, Math.sin(a) * 90))
+        steer(e, _v3.subVectors(goal, e.pos).setLength(def.speed), 1.5, dt)
+        faceTowards(e, to, def.turn, dt)
+        e.cooldown -= dt
+        if (e.cooldown <= 0 && d < 260) {
+            e.cooldown = 0.9 + randomFloat() * 0.6
+            const dir = lead(e.pos, target.pos, target.vel, 320)
+            engine.projectiles.push({
+                pos: e.pos.clone(), vel: dir.multiplyScalar(320), life: 1.2, damage: 9 * engine.config!.sector.threat, hostile: false,
+                color: new THREE.Color(0x5ec8ff).multiplyScalar(3), width: 0.35, length: 5, splash: 0, homing: null, kind: 'bolt', mining: 0, source: 'coalition'
+            })
+        }
+    }
 }
 
 // ─── Behaviour ─────────────────────────────────────────────────────────────
@@ -789,8 +957,18 @@ export function updateEnemies(engine: VoidEngine, dt: number) {
     const p = engine.player
     const playerAlive = !!p?.alive && engine.phase === 'flying'
     const enemies = engine.enemies
+    const playerTarget: AiTarget | null = p ? { pos: p.pos, vel: p.vel, radius: p.radius, quat: p.quat, isPlayer: true } : null
     for (const e of enemies) {
         if (!e.alive) continue
+        if ((e.data.shieldMax ?? 0) > 0 && (e.data.shield ?? 0) < e.data.shieldMax!) {
+            e.data.shieldDelay = (e.data.shieldDelay ?? 0) - dt
+            if (e.data.shieldDelay! <= 0) e.data.shield = Math.min(e.data.shieldMax!, e.data.shield! + e.data.shieldMax! * 0.08 * (engine.zone === 'ion' ? 0.5 : 1) * dt)
+        }
+        if (e.kind === 'trader') {
+            e.group.rotation.y += dt * 0.02
+            continue
+        }
+        const target = playerTarget && engine.systems ? engine.systems.targetFor(e, playerTarget) : playerTarget
         e.stateTime += dt
         e.flash = Math.max(0, e.flash - dt * 6)
         if ((e.data.burnT ?? 0) > 0) {
@@ -805,15 +983,15 @@ export function updateEnemies(engine: VoidEngine, dt: number) {
             if (Math.random() < dt * 12) engine.sparks.emit(e.pos.x, e.pos.y, e.pos.z, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, 0.4, _c.set(0x9fe8ff).multiplyScalar(2.5), 0.08)
         }
         if ((e.data.stunT ?? 0) > 0) e.data.stunT! -= dt
-        const toPlayer = p ? _v3.subVectors(p.pos, e.pos) : _v3.set(0, 0, 0)
+        const toPlayer = target ? _v3.subVectors(target.pos, e.pos) : p ? _v3.subVectors(p.pos, e.pos) : _v3.set(0, 0, 0)
         const dist = toPlayer.length()
 
         if (e.hostile && e.kind !== 'warden' && p) {
             const vision = e.kind === 'sentinel' ? 290 : e.kind === 'mite' ? 260 : 340
-            if (!e.aggro && playerAlive && dist < vision) alertGroup(engine, e)
+            if (!e.aggro && playerAlive && target && dist < vision) alertGroup(engine, e)
             if (e.aggro && dist > 1100 && e.kind !== 'sentinel') e.aggro = false
             // The station's guns keep the dock clear.
-            if (e.pos.length() < 230 && e.kind !== 'mine') {
+            if (engine.depth === 1 && e.pos.length() < 230 && e.kind !== 'mine') {
                 damageEnemy(engine, e, 60 * dt * engine.config!.sector.threat, e.pos, 'station')
                 if (Math.random() < dt * 8) engine.lines.push(0, 20, 0, e.pos.x, e.pos.y, e.pos.z, _c.set(0x5ec8ff).multiplyScalar(3), 0.9, 0.3)
             }
@@ -846,8 +1024,9 @@ export function updateEnemies(engine: VoidEngine, dt: number) {
                 updateEventEntity(engine, e, dt)
                 break
             default:
-                if (!e.aggro || !playerAlive || (e.data.stunT ?? 0) > 0) idle(e, dt)
-                else attack(engine, e, dt, dist)
+                if (e.data.coalition) updateCoalition(engine, e, dt)
+                else if (!e.aggro || !playerAlive || !target || (e.data.stunT ?? 0) > 0) idle(e, dt)
+                else attack(engine, e, dt, dist, target)
         }
         if (!e.alive) continue
 
@@ -881,6 +1060,16 @@ export function updateEnemies(engine: VoidEngine, dt: number) {
         }
 
         // Visuals
+        // Damaged hulls smoke, and burn when nearly dead.
+        if (e.def && e.radius >= 2.5 && e.hostile) {
+            const frac = e.hp / e.maxHp
+            if (frac < 0.45 && Math.random() < dt * (frac < 0.2 ? 18 : 7)) {
+                engine.smoke.emit(e.pos.x, e.pos.y, e.pos.z, e.vel.x * 0.3, e.vel.y * 0.3 + 2, e.vel.z * 0.3, { life: 1.2, size: e.radius * 0.5, sizeEnd: e.radius * 1.6, color: 0x2e2a28, alpha: 0.45, drag: 1 })
+            }
+            if (frac < 0.2 && Math.random() < dt * 14) {
+                engine.particles.emit(e.pos.x + (Math.random() - 0.5) * e.radius, e.pos.y, e.pos.z + (Math.random() - 0.5) * e.radius, 0, 3, 0, { life: 0.4, size: e.radius * 0.35, sizeEnd: 0, color: 0xff7a2e, colorEnd: 0xff2a0a, intensity: 2.2, drag: 0.5 })
+            }
+        }
         // Capital ships and their fittings never pulse in size on a hit.
         const capital = e.kind === 'mothership' || e.kind === 'battery' || e.kind === 'reactor'
         if (!capital) e.group.scale.setScalar(1 + e.flash * 0.05)
@@ -929,8 +1118,11 @@ function idle(e: Enemy, dt: number) {
     faceTowards(e, e.vel, e.def.turn * 0.6, dt)
 }
 
-function attack(engine: VoidEngine, e: Enemy, dt: number, dist: number) {
-    const p = engine.player!
+function attack(engine: VoidEngine, e: Enemy, dt: number, dist: number, p: AiTarget) {
+    // Contact and beam damage only land on the real ship, not on a decoy.
+    const hurt = (amount: number, from: THREE.Vector3) => {
+        if (p.isPlayer) engine.damagePlayer(amount, from)
+    }
     const def = e.def!
     const dmg = def.damage * e.damageMult
     const toPlayer = _v2.subVectors(p.pos, e.pos)
@@ -946,7 +1138,7 @@ function attack(engine: VoidEngine, e: Enemy, dt: number, dist: number) {
             faceTowards(e, e.vel, def.turn, dt)
             e.group.rotateZ(dt * 8)
             if (dist < p.radius + e.radius + 1.5) {
-                engine.damagePlayer(dmg, e.pos)
+                hurt(dmg, e.pos)
                 killEnemy(engine, e)
             }
             break
@@ -1006,7 +1198,7 @@ function attack(engine: VoidEngine, e: Enemy, dt: number, dist: number) {
                     e.cooldown = def.cooldown * (0.8 + randomFloat() * 0.4)
                     const rock = engine.asteroids?.raycast(muzzle, end, 0)
                     if (rock) end.copy(muzzle).addScaledVector(e.aim, rock.t)
-                    if (segmentSphere(muzzle, end, p.pos, p.radius + 2.5)) engine.damagePlayer(dmg, muzzle)
+                    if (segmentSphere(muzzle, end, p.pos, p.radius + 2.5)) hurt(dmg, muzzle)
                     engine.tracers.push({ a: muzzle.clone(), b: end.clone(), color: new THREE.Color(0xff2d55).multiplyScalar(4), life: 0.4, maxLife: 0.4, width: 1.3 })
                     engine.tracers.push({ a: muzzle.clone(), b: end.clone(), color: new THREE.Color(3, 3, 3), life: 0.15, maxLife: 0.15, width: 0.4 })
                     engine.audio.play('rail', { distance: dist * 0.4, pan: engine.panOf(e.pos), pitch: 0.7 })
@@ -1071,8 +1263,8 @@ function attack(engine: VoidEngine, e: Enemy, dt: number, dist: number) {
                 const goal = _v2.copy(p.pos).add(offset)
                 e.vel.copy(goal).sub(e.pos).multiplyScalar(6)
                 faceTowards(e, _v1.subVectors(p.pos, e.pos), 6, dt)
-                p.tethered = 0.25
-                engine.damagePlayer(dmg * dt, e.pos)
+                if (p.isPlayer && engine.player) engine.player.tethered = 0.25
+                hurt(dmg * dt, e.pos)
                 const pulse = 0.5 + Math.sin(engine.time * 20) * 0.3
                 engine.lines.pushV(e.pos, p.pos, _c.set(0xb3ff3b).multiplyScalar(2.5), pulse, 0.35, 0.15)
             }

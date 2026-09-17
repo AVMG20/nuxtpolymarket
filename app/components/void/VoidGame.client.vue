@@ -21,6 +21,7 @@
             @socket="socketMod"
             @buy-supply="buySupply"
             @claim-contract="claimContract"
+            @buy-perk="buyPerk"
             @upgrade="buyUpgrade"
             @sell="sell"
             @unlock-skill="unlockSkill"
@@ -52,7 +53,7 @@
             </div>
 
             <!-- Pause -->
-            <div v-if="hud.paused && !summary" class="vr-modal-wrap">
+            <div v-if="hud.paused && !summary && !gateChoice && !tradeOpen" class="vr-modal-wrap">
                 <div class="vr-modal">
                     <div class="vr-modal-title">Paused</div>
                     <button class="vr-btn vr-btn-primary" @click="engage">Resume</button>
@@ -73,6 +74,38 @@
         <Transition name="vr-fade">
             <div v-if="launching" class="vr-launch-fade" />
         </Transition>
+
+        <!-- ═══ Jump gate ═══ -->
+        <div v-if="gateChoice && inFlight" class="vr-modal-wrap">
+            <div class="vr-modal vr-gate">
+                <div class="vr-debrief-kicker">Jump gate · {{ hud?.systems?.fuel ?? 0 }} fuel</div>
+                <div class="vr-modal-title">Choose a jump</div>
+                <p class="vr-gate-sub">The next zone is tougher and richer. Your hold comes with you. Extract at any beacon.</p>
+                <div class="vr-gate-options">
+                    <button v-for="z in gateChoice" :key="z.id" class="vr-gate-option" :style="{ '--zc': voidHex(z.color) }" @click="chooseJump(z.id)">
+                        <b>{{ z.name }}</b>
+                        <span>{{ z.description }}</span>
+                    </button>
+                </div>
+                <button class="vr-btn" @click="stayHere">Stay in this zone</button>
+            </div>
+        </div>
+
+        <!-- ═══ Free Trader ═══ -->
+        <div v-if="tradeOpen && inFlight" class="vr-modal-wrap">
+            <div class="vr-modal vr-trade">
+                <div class="vr-debrief-kicker">Free Trader · {{ hud?.cargoUnits ?? 0 }} units in hold</div>
+                <div class="vr-modal-title">Trade</div>
+                <p class="vr-gate-sub">Pays in cargo, taken from your largest stacks first.</p>
+                <div class="vr-trade-list">
+                    <button v-for="o in tradeOffers" :key="o.id" class="vr-trade-offer" :disabled="tradeableUnits < o.cost" @click="trade(o.id)">
+                        <b>{{ o.name }}</b>
+                        <span>{{ o.cost }} units</span>
+                    </button>
+                </div>
+                <button class="vr-btn vr-btn-primary" @click="closeTrade">Done</button>
+            </div>
+        </div>
 
         <!-- ═══ Craft reveal ═══ -->
         <Transition name="vr-reveal">
@@ -105,6 +138,12 @@
                     <div><span>Units</span><b>{{ summary.units }}</b></div>
                     <div><span>Value</span><b>{{ formatNumber(summary.value) }}</b></div>
                 </div>
+                <div v-if="summary.marks || summary.blueprint || summary.lore.length" class="vr-relics vr-trophies">
+                    <span v-if="summary.depth > 1">Reached jump {{ summary.depth }}</span>
+                    <b v-if="summary.marks">+{{ summary.marks }} Command Mark{{ summary.marks === 1 ? '' : 's' }}</b>
+                    <b v-if="summary.blueprint">Blueprint: {{ summary.blueprint }} MkII</b>
+                    <b v-for="l in summary.lore" :key="l">Log: {{ l }}</b>
+                </div>
                 <div v-if="summary.relics.length" class="vr-relics">
                     <span>Relic caches opened</span>
                     <b v-for="(r, i) in summary.relics" :key="i" :style="{ color: r.hex }">{{ r.name }}</b>
@@ -133,10 +172,11 @@
 <script setup lang="ts">
 import type { InternalApi } from 'nitropack/types'
 import {
-    VOID_RESOURCE_IDS, voidBundleValue, voidHex, voidResource, voidSector, voidShip,
+    VOID_RESOURCE_IDS, voidBundleUnits, voidBundleValue, voidHex, voidResource, voidSector, voidShip,
     type VoidResourceBundle, type VoidTurretId, type VoidUpgradeId
 } from '#shared/utils/gamelogic/void'
-import { voidMod } from '#shared/utils/gamelogic/void-items'
+import { voidItemType, voidMod } from '#shared/utils/gamelogic/void-items'
+import { VOID_LORE, voidZone, type VoidZoneModifier } from '#shared/utils/gamelogic/void-pilot'
 import { VoidAudio, type VoidSfx } from '~/utils/void/audio'
 import { VoidEngine } from '~/utils/void/engine'
 import type { HudState, RunResult } from '~/utils/void/types'
@@ -174,6 +214,10 @@ const summary = ref<null | {
     levelBefore: number
     levelAfter: number
     relics: { name: string, hex: string }[]
+    marks: number
+    blueprint: string | null
+    lore: string[]
+    depth: number
     items: { id: string, name: string, hex: string, amount: number }[]
 }>(null)
 
@@ -189,6 +233,39 @@ const highQuality = ref(true)
 
 const reveal = ref<null | { title: string, name: string, tier: number, rarityName: string, rarityColor: string, stats: { label: string, value: string }[], affixList: { id: string, name: string, text: string }[] }>(null)
 
+const gateChoice = ref<{ id: VoidZoneModifier, name: string, description: string, color: number }[] | null>(null)
+const tradeOpen = ref(false)
+const tradeableUnits = computed(() => (hud.value?.cargoUnits ?? 0) - (hud.value?.cargo.core ?? 0))
+const tradeOffers = [
+    { id: 'nanites' as const, name: 'Repair Nanites', cost: 150 },
+    { id: 'cell' as const, name: 'Shield Cell', cost: 120 },
+    { id: 'fuel' as const, name: 'Fuel Cell', cost: 250 }
+]
+
+function chooseJump(id: VoidZoneModifier) {
+    gateChoice.value = null
+    if (!engine?.gateOptions) return
+    engine.jump(id)
+    engage()
+}
+
+function stayHere() {
+    gateChoice.value = null
+    engine?.cancelGate()
+    engage()
+}
+
+function trade(offer: 'nanites' | 'cell' | 'fuel') {
+    engine?.trade(offer)
+    if (engine) hud.value = { ...hud.value!, cargoUnits: voidBundleUnits(engine.cargo), cargo: { ...engine.cargo } }
+}
+
+function closeTrade() {
+    tradeOpen.value = false
+    if (engine) engine.modalOpen = false
+    engage()
+}
+
 const controls: [string, string][] = [
     ['Mouse', 'Steer'],
     ['W / S', 'Thrust / brake'],
@@ -199,8 +276,12 @@ const controls: [string, string][] = [
     ['LMB', 'Nose guns'],
     ['Q / RMB', 'Pilot skill'],
     ['R', 'Ship ability'],
+    ['E (hold)', 'Secondary / lock-on'],
+    ['G', 'Device'],
+    ['T', 'Scan'],
+    ['V', 'Cockpit view'],
     ['1 / 2 / 3', 'Supplies'],
-    ['F (hold)', 'Dock at station or beacon'],
+    ['F (hold)', 'Dock · F near a trader to trade'],
     ['Tab / M', 'Sector map'],
     ['Esc', 'Pause']
 ]
@@ -341,6 +422,7 @@ const upgradeItem = (itemId: string) => act(() => apiFetch('/api/void/items/upgr
 const salvageItem = (itemId: string) => act(() => apiFetch('/api/void/items/salvage', { method: 'POST', body: { itemId } }), 'Could not salvage that', 'pickup')
 const socketMod = (itemId: string, modId: string) => act(() => apiFetch('/api/void/items/socket', { method: 'POST', body: { itemId, modId } }), 'Could not socket that mod', 'levelUp')
 const buySupply = (supplyId: string, count: number) => act(() => apiFetch('/api/void/supplies/buy', { method: 'POST', body: { supplyId, count } }).then(() => fetchSession()), 'Could not buy supplies', 'pickup')
+const buyPerk = (perkId: string) => act(() => apiFetch('/api/void/perks/buy', { method: 'POST', body: { perkId } }), 'Could not buy that perk', 'levelUp')
 const claimContract = (index: number) => act(() => apiFetch('/api/void/contracts/claim', { method: 'POST', body: { index } }).then(() => fetchSession()), 'Could not deliver that contract', 'levelUp')
 const buyUpgrade = (upgrade: VoidUpgradeId) => act(() => apiFetch('/api/void/upgrade', { method: 'POST', body: { upgrade } }), 'Could not upgrade', 'levelUp')
 const unlockSkill = (skillId: string) => act(() => apiFetch('/api/void/skills/unlock', { method: 'POST', body: { skillId } }), 'Could not unlock that skill', 'levelUp').then(() => fetchSession())
@@ -373,6 +455,8 @@ async function launch(tier: number) {
             }
         }
         previewShipId.value = null
+        gateChoice.value = null
+        tradeOpen.value = false
         run.value = { sectorName: res.sector.name, shipName: voidShip(res.loadout.shipId).name, tier }
         inFlight.value = true
         engine.startRun({
@@ -384,7 +468,11 @@ async function launch(tier: number) {
             levels: res.loadout.levels,
             gun: res.loadout.gun,
             skill: res.loadout.skill,
-            supplies: res.supplies
+            supplies: res.supplies,
+            secondary: res.loadout.secondary,
+            device: res.loadout.device,
+            perks: res.loadout.perks,
+            loreKnown: s.lore.filter(l => l.found).map(l => l.id)
         })
     } catch (e) {
         if (document.pointerLockElement) document.exitPointerLock()
@@ -408,6 +496,8 @@ function onViewportClick() {
 }
 
 async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 'abandoned') {
+    gateChoice.value = null
+    tradeOpen.value = false
     const items = bundleItems(result.haul)
     summary.value = {
         extracted: reason === 'extracted',
@@ -421,6 +511,10 @@ async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 
         levelBefore: 0,
         levelAfter: 0,
         relics: [],
+        marks: 0,
+        blueprint: null,
+        lore: [],
+        depth: result.depth,
         lostValue: reason === 'extracted' ? 0 : Math.round(voidBundleValue(result.lost ?? {}) * (state.value?.trade.mult ?? 1)),
         items: reason === 'extracted' ? items : bundleItems({})
     }
@@ -428,7 +522,7 @@ async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 
     try {
         const res = await apiFetch<InternalApi['/api/void/finish']['post']>('/api/void/finish', {
             method: 'POST',
-            body: { reason, haul: result.haul, kills: result.kills, wardenKilled: result.wardenKilled, elapsedMs: result.elapsedMs, skillUses: result.skillUses, suppliesUsed: result.suppliesUsed, relics: result.relics }
+            body: { reason, haul: result.haul, kills: result.kills, wardenKilled: result.wardenKilled, elapsedMs: result.elapsedMs, skillUses: result.skillUses, suppliesUsed: result.suppliesUsed, relics: result.relics, depth: result.depth, carrierKilled: result.carrierKilled, lore: result.lore }
         })
         summary.value = {
             ...summary.value,
@@ -440,6 +534,10 @@ async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 
             levelBefore: res.levelBefore,
             levelAfter: res.levelAfter,
             relics: res.relics.map(id => ({ name: voidMod(id)?.name ?? id, hex: voidHex(voidMod(id)?.color ?? 0xffffff) })),
+            marks: res.marks,
+            blueprint: res.blueprint ? (voidItemType(res.blueprint)?.name ?? res.blueprint) : null,
+            lore: res.lore.map(id => VOID_LORE.find(l => l.id === id)?.title ?? id),
+            depth: res.depth,
             sectorCleared: res.sectorCleared,
             items: bundleItems(res.haul)
         }
@@ -452,7 +550,7 @@ async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 
 
 function abandon() {
     if (!engine) return
-    const result: RunResult = { reason: 'destroyed', haul: {}, lost: { ...engine.cargo }, kills: engine.kills, wardenKilled: false, elapsedMs: Math.round(engine.elapsed * 1000), skillUses: engine.skills?.uses ?? 0, suppliesUsed: { ...engine.suppliesUsed }, relics: 0 }
+    const result: RunResult = { reason: 'destroyed', haul: {}, lost: { ...engine.cargo }, kills: engine.kills, wardenKilled: false, elapsedMs: Math.round(engine.elapsed * 1000), skillUses: engine.skills?.uses ?? 0, suppliesUsed: { ...engine.suppliesUsed }, relics: 0, depth: engine.depth, carrierKilled: false, lore: [] }
     engine.paused = true
     void finishRun(result, 'abandoned')
 }
@@ -496,6 +594,15 @@ onMounted(async () => {
         },
         pause: () => {
             if (engine?.player) hud.value = { ...hud.value!, paused: engine.paused }
+        },
+        gate: (options) => {
+            gateChoice.value = options.map(id => voidZone(id))
+        },
+        trade: () => {
+            tradeOpen.value = true
+            if (engine) engine.modalOpen = true
+            engine?.setPaused(true)
+            if (document.pointerLockElement) document.exitPointerLock()
         }
     })
     engine.sensitivity = sensitivity.value

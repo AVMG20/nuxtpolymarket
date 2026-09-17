@@ -222,6 +222,7 @@ export function eventLoot(engine: VoidEngine, e: Enemy) {
         if (tier >= 3) engine.dropLoot('core', 1, 1, e.pos, 0.5)
         explosion(engine.fx, e.pos, e.vel, 6, 0xffc44d)
         if (randomFloat() < 0.15) engine.dropRelic(e.pos)
+        if (randomFloat() < 0.5) engine.dropFuel(e.pos)
         engine.events.toast('Smuggler down. Grab the cargo.', 'good')
         return true
     }
@@ -237,6 +238,7 @@ export function eventLoot(engine: VoidEngine, e: Enemy) {
         explosion(engine.fx, e.pos, _v.set(0, 0, 0), 4, 0x49e6ff)
         engine.rings.spawn(e.pos, 60, _c.set(0x49e6ff), 0.8, 2)
         if (randomFloat() < 0.4) engine.dropRelic(e.pos)
+        engine.dropFuel(e.pos)
         engine.events.toast('Vault cracked.', 'good')
         return true
     }

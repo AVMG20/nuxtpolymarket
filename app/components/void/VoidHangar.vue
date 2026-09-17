@@ -59,7 +59,23 @@
                 <div><span>Drones</span><b>{{ shown.stats.drones }}</b></div>
                 <div v-if="shown.ability"><span>Ability</span><b>{{ abilityName(shown.ability) }}</b></div>
             </div>
-            <div v-if="nextGoal && !previewShipId" class="vh-goal">
+            <div v-if="firstSteps && !previewShipId" class="vh-steps">
+                <div class="vh-goal-kicker">First steps · {{ firstSteps.done }} / {{ firstSteps.steps.length }}</div>
+                <button
+                    v-for="step in firstSteps.visible"
+                    :key="step.text"
+                    class="vh-step"
+                    :class="{ 'vh-step-done': step.done, 'vh-step-now': step === firstSteps.current }"
+                    @click="step.tab && setTab(step.tab)"
+                >
+                    <i />
+                    <span>
+                        <b>{{ step.text }}</b>
+                        <small v-if="step === firstSteps.current">{{ step.hint }}</small>
+                    </span>
+                </button>
+            </div>
+            <div v-else-if="nextGoal && !previewShipId" class="vh-goal">
                 <div class="vh-goal-kicker">Next goal</div>
                 <div class="vh-goal-title">{{ nextGoal.title }}</div>
                 <div class="vh-goal-need">
@@ -158,6 +174,29 @@
 
             <!-- Station -->
             <template v-else-if="tab === 'station'">
+                <h2 class="vh-h">Command perks <small>{{ state.marks }} Command Marks · from wardens, carriers and deep jumps</small></h2>
+                <div class="vh-list">
+                    <div v-for="perk in state.perks" :key="perk.id" class="vh-card">
+                        <div class="vh-card-head">
+                            <UIcon :name="perk.icon" class="size-4" />
+                            <b>{{ perk.name }}</b>
+                            <span class="vh-lvl">{{ perk.rank }} / {{ perk.maxRank }}</span>
+                        </div>
+                        <p>{{ perk.description }}</p>
+                        <div class="vh-upg-effect">
+                            <span>{{ perk.current }}</span>
+                            <template v-if="perk.next">
+                                <UIcon name="i-lucide-arrow-right" class="size-3" />
+                                <b>{{ perk.next }}</b>
+                            </template>
+                        </div>
+                        <div v-if="perk.cost !== null" class="vh-card-foot">
+                            <span class="vh-kv"><span>Cost <b>{{ perk.cost }} marks</b></span></span>
+                            <button class="vr-btn vr-btn-sm" :disabled="busy || !perk.affordable" @click="$emit('buy-perk', perk.id)">Buy</button>
+                        </div>
+                        <div v-else class="vh-maxed">Maxed</div>
+                    </div>
+                </div>
                 <h2 class="vh-h">Station contracts <small>Resets in {{ resetIn }}</small></h2>
                 <div class="vh-list">
                     <div v-for="c in state.contracts" :key="c.index" class="vh-card vh-contract" :class="{ 'vh-dim': c.done }">
@@ -265,9 +304,19 @@
                 <div class="vh-manual">
                     <p><b>The loop.</b> Launch into a sector, crack glowing asteroids for ore, loot wrecks and kills, then dock at the station or a beacon to bank the hold. Die and the hold is gone.</p>
                     <p><b>Gear.</b> Guns, turrets, armour and shields are crafted in the Workshop from the materials of their tier. Every craft rolls a rarity with bonus stats, and every item levels to +10. Each sector you clear opens the next gear tier, and deeper sectors need it.</p>
+                    <p><b>Weapons.</b> Energy weapons strip shields and glance off hull plate; kinetic rounds bounce off shields and tear hulls; explosives are even-handed. Shots to an enemy's engines do extra damage and slow it.</p>
+                    <p><b>Systems.</b> E fires your secondary (hold to lock on), G triggers your device, T pulses the scanner to mark data logs and hidden caches. Heavy hull hits can knock out engines, weapons or shields for a few seconds; repair nanites fix them.</p>
+                    <p><b>Jumps.</b> Every zone has a jump gate. With a fuel cell you pick the next zone from three, each tougher and richer with its own twist. Extract at any beacon to bank the hold.</p>
                     <p><b>Relics.</b> Elites, wardens and vaults sometimes drop a golden relic cache. Bank it at a dock to reveal a mod, then socket it into gear for a unique effect.</p>
                     <p><b>Progress.</b> Hulls add slots, skills add a second weapon, station systems improve hauling, and contracts pay a premium for deliveries every day.</p>
                     <p><b>Combat.</b> Turrets pick targets on their own; your crosshair tells them what matters most. Elites carry a gold halo and drop far more loot.</p>
+                </div>
+                <h2 class="vh-h">Data logs <small>{{ state.lore.filter(l => l.found).length }} / {{ state.lore.length }} · scan (T) to find them</small></h2>
+                <div class="vh-list">
+                    <div v-for="entry in state.lore" :key="entry.id" class="vh-card" :class="{ 'vh-locked': !entry.found }">
+                        <div class="vh-card-head"><b>{{ entry.found ? entry.title : 'Undiscovered log' }}</b></div>
+                        <p v-if="entry.found">{{ entry.text }}</p>
+                    </div>
                 </div>
                 <h2 class="vh-h">Hostiles</h2>
                 <div class="vh-list">
@@ -369,6 +418,7 @@ const emit = defineEmits<{
     'socket': [itemId: string, modId: string]
     'buy-supply': [supplyId: string, count: number]
     'claim-contract': [index: number]
+    'buy-perk': [perkId: string]
     'upgrade': [id: VoidUpgradeId]
     'sell': [resource: string, amount: number | 'all']
     'tab': [tab: string]
@@ -418,6 +468,29 @@ const rank = computed(() => {
 })
 
 /** The cheapest next hull the pilot can work toward, and what they are short of. */
+/**
+ * A short, guided path through tier 1 for new pilots. Each step is read off
+ * the saved state, so it ticks itself off whatever order it happens in.
+ */
+const firstSteps = computed(() => {
+    const s = props.state
+    const steps = [
+        { text: 'Fly your first run and dock', hint: 'Press Launch. The flight tutorial walks you through the controls.', done: s.extractions >= 1, tab: null },
+        { text: 'Craft a new item', hint: 'Workshop: pick a turret or gun, T1, and Craft. Rarity is random.', done: s.items.length > 6 || s.items.some(i => i.rarity > 0), tab: 'workshop' },
+        { text: 'Level an item to +1', hint: 'Workshop: press +1 on any item. Early levels are cheap.', done: s.items.some(i => i.level >= 1), tab: 'workshop' },
+        { text: 'Fit your best gear', hint: 'Fitting: click a slot and pick the item with the green number.', done: s.items.some(i => i.level >= 1 || i.rarity > 0) && s.ships.some(sh => sh.owned && [sh.fit.gun, ...sh.fit.turrets].some(id => s.items.find(i => i.id === id && (i.level >= 1 || i.rarity > 0)))), tab: 'fitting' },
+        { text: 'Install a ship system', hint: 'Station: Cargo Systems Mk I fits more loot in every run.', done: s.upgrades.some(u => u.level >= 1), tab: 'station' },
+        { text: 'Build your second hull', hint: 'Shipyard: the Wasp is fast, the Mule hauls. Both only need sector 1 materials.', done: s.ships.filter(sh => sh.owned).length >= 2, tab: 'shipyard' },
+        { text: 'Destroy the Halcyon Warden and dock', hint: 'Follow the red skull marker. Bring your best fit and some Repair Nanites.', done: s.highestSectorCleared >= 1, tab: 'fitting' },
+        { text: 'Craft your first T2 gear', hint: 'Clearing a sector unlocks the next gear tier in the Workshop.', done: s.items.some(i => i.tier >= 2), tab: 'workshop' }
+    ]
+    const done = steps.filter(x => x.done).length
+    if (done === steps.length) return null
+    const current = steps.find(x => !x.done)!
+    const index = steps.indexOf(current)
+    return { steps, done, current, visible: steps.slice(Math.max(0, index - 1), index + 3) }
+})
+
 /** Average tier of the gear fitted to the equipped hull (0 with nothing fitted). */
 const gearTier = computed(() => {
     const f = equipped.value.fit
@@ -554,6 +627,16 @@ function stepSector(delta: number) {
 .vh-title-stats span { display: block; font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--vr-muted); }
 .vh-title-stats b { font-size: 20px; font-weight: 700; }
 .vh-title-cta { margin-top: 16px; pointer-events: auto; }
+.vh-steps { margin-top: 18px; padding: 10px 12px; max-width: 380px; display: grid; gap: 4px; background: linear-gradient(90deg, rgba(255, 210, 122, 0.1), transparent); border-left: 2px solid var(--vr-gold); pointer-events: auto; }
+.vh-step { display: flex; align-items: flex-start; gap: 9px; padding: 3px 0; text-align: left; color: rgba(230, 241, 255, 0.55); cursor: pointer; }
+.vh-step i { width: 9px; height: 9px; margin-top: 5px; border: 1.5px solid currentColor; transform: rotate(45deg); flex-shrink: 0; }
+.vh-step b { display: block; font-size: 14px; font-weight: 700; letter-spacing: 0.04em; }
+.vh-step small { display: block; margin-top: 1px; font-size: 12px; line-height: 1.3; color: rgba(230, 241, 255, 0.72); }
+.vh-step-now { color: #fff; }
+.vh-step-now i { border-color: var(--vr-gold); box-shadow: 0 0 8px rgba(255, 210, 122, 0.7); animation: vr-pulse 1.2s infinite; }
+.vh-step-done { color: var(--vr-good); }
+.vh-step-done b { text-decoration: line-through; text-decoration-color: rgba(61, 255, 176, 0.5); }
+.vh-step-done i { background: var(--vr-good); }
 .vh-goal { margin-top: 18px; padding: 10px 14px; max-width: 360px; background: linear-gradient(90deg, rgba(255, 210, 122, 0.1), transparent); border-left: 2px solid var(--vr-gold); }
 .vh-goal-kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.35em; text-transform: uppercase; color: var(--vr-gold); }
 .vh-goal-title { font-size: 17px; font-weight: 700; letter-spacing: 0.06em; }

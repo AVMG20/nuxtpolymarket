@@ -12,6 +12,7 @@
                 <span>Threat</span>
                 <div class="vr-threat-bar"><div :style="{ width: `${Math.round(hud.threat * 100)}%` }" /></div>
             </div>
+            <div v-if="hud.systems && hud.systems.depth > 1" class="vr-zone">Jump {{ hud.systems.depth }} · {{ hud.systems.zone }}</div>
             <div v-if="hud.wardenKilled" class="vr-warden-done">Warden down · dock to claim</div>
             <!-- Objectives -->
             <div v-if="hud.objectives" class="vr-objectives">
@@ -64,6 +65,26 @@
                     <div class="vr-ability-track"><div :style="{ width: `${(hud.skill.active ? hud.skill.activeFrac : Math.min(1, hud.skill.ready)) * 100}%` }" /></div>
                 </div>
             </div>
+            <div v-if="hud.systems?.subsystems.length" class="vr-subsys">
+                <span v-for="s in hud.systems.subsystems" :key="s.id">{{ s.id }} {{ Math.ceil(s.left) }}s</span>
+            </div>
+            <div v-if="hud.systems" class="vr-sys">
+                <div v-if="hud.systems.secondary" class="vr-sys-chip" :class="{ 'vr-sys-lock': hud.systems.secondary.locked }" :title="hud.systems.secondary.name">
+                    <kbd>E</kbd>{{ hud.systems.secondary.ammo }}/{{ hud.systems.secondary.max }}
+                    <i :style="{ width: `${(hud.systems.secondary.lock > 0 ? hud.systems.secondary.lock : hud.systems.secondary.ready) * 100}%` }" />
+                </div>
+                <div v-if="hud.systems.device" class="vr-sys-chip" :class="{ 'vr-sys-on': hud.systems.device.active }" :title="hud.systems.device.name">
+                    <kbd>G</kbd>{{ hud.systems.device.ready >= 1 ? 'Ready' : `${Math.round(hud.systems.device.ready * 100)}%` }}
+                    <i :style="{ width: `${hud.systems.device.ready * 100}%` }" />
+                </div>
+                <div class="vr-sys-chip" title="Scan pulse">
+                    <kbd>T</kbd>Scan
+                    <i :style="{ width: `${hud.systems.scan * 100}%` }" />
+                </div>
+                <div class="vr-sys-chip" title="Jump fuel">
+                    <UIcon name="i-lucide-fuel" class="size-3" />{{ hud.systems.fuel }}
+                </div>
+            </div>
             <div class="vr-supplies">
                 <div v-for="s in hud.supplies" :key="s.id" class="vr-supply" :class="{ 'vr-supply-out': !s.count }" :style="{ '--sc': s.color }" :title="s.name">
                     <kbd>{{ s.key }}</kbd><b>{{ s.count }}</b>
@@ -111,6 +132,7 @@
         </div>
 
         <div v-if="hud.outOfBounds" class="vr-bounds">Leaving the sector</div>
+        <div v-if="hud.trader && hud.phase === 'flying'" class="vr-prompt">Press <kbd>F</kbd> to trade</div>
 
         <Transition name="vr-banner">
             <div v-if="banner" :key="banner.id" class="vr-banner" :class="`vr-banner-${banner.tone}`">

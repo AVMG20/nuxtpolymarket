@@ -21,6 +21,7 @@
                     <i class="vh-dotc" />
                     <span>{{ t.name }}</span>
                     <small v-if="t.minTier > 1">T{{ t.minTier }}+</small>
+                    <em v-if="blueprintIds.has(t.id)" class="vw-bp" title="Blueprint owned: crafts come out as MkII">MkII</em>
                 </button>
             </div>
             <p v-if="selectedType" class="vw-desc">{{ selectedType.description }}</p>
@@ -124,7 +125,7 @@ import { voidMod } from '#shared/utils/gamelogic/void-items'
 import VoidCost from './VoidCost.vue'
 
 type State = InternalApi['/api/void/state']['get']
-type Kind = 'gun' | 'turret' | 'armor' | 'shield'
+type Kind = 'gun' | 'turret' | 'armor' | 'shield' | 'secondary' | 'device'
 
 const props = defineProps<{
     state: State
@@ -142,7 +143,9 @@ const kinds = [
     { id: 'gun' as const, label: 'Guns', icon: 'i-lucide-crosshair' },
     { id: 'turret' as const, label: 'Turrets', icon: 'i-lucide-radar' },
     { id: 'armor' as const, label: 'Armour', icon: 'i-lucide-shield-half' },
-    { id: 'shield' as const, label: 'Shields', icon: 'i-lucide-shield' }
+    { id: 'shield' as const, label: 'Shields', icon: 'i-lucide-shield' },
+    { id: 'secondary' as const, label: 'Secondary', icon: 'i-lucide-rocket' },
+    { id: 'device' as const, label: 'Devices', icon: 'i-lucide-cpu' }
 ]
 const filters = [{ id: 'all', label: 'All' }, ...kinds.map(k => ({ id: k.id, label: k.label }))]
 
@@ -153,6 +156,7 @@ const filter = ref('all')
 const modPick = ref<string | null>(null)
 const confirmSalvage = ref<string | null>(null)
 
+const blueprintIds = computed(() => new Set(props.state.blueprints.map(b => b.id)))
 const typesForKind = computed(() => props.state.crafting.types.filter(t => t.kind === kind.value))
 const selectedType = computed(() => typesForKind.value.find(t => t.id === type.value) ?? null)
 const tierCosts = computed(() => props.state.crafting.costs.find(c => c.kind === kind.value)?.tiers ?? [])
@@ -223,13 +227,14 @@ function salvage(itemId: string) {
 <style>
 .vw { display: grid; gap: 2px; }
 .vw-craft { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--vr-line-strong); background: linear-gradient(160deg, rgba(94, 200, 255, 0.07), rgba(255, 255, 255, 0.02)); }
-.vw-kinds { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+.vw-kinds { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
 .vw-kind { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vr-muted); border: 1px solid var(--vr-line); cursor: pointer; }
 .vw-kind:hover { color: var(--vr-text); }
 .vw-kind.vw-on { color: #fff; border-color: var(--vr-accent); background: rgba(94, 200, 255, 0.12); }
 .vw-types { display: flex; flex-wrap: wrap; gap: 4px; }
 .vw-type { display: flex; align-items: center; gap: 6px; padding: 5px 9px; font-size: 12px; font-weight: 700; border: 1px solid var(--vr-line); cursor: pointer; }
 .vw-type small { font: 600 9px 'JetBrains Mono', monospace; color: var(--vr-muted); }
+.vw-bp { font-style: normal; font: 700 9px 'JetBrains Mono', monospace; color: #e3c7ff; padding: 0 3px; border: 1px solid rgba(192, 123, 255, 0.6); }
 .vw-type.vw-on { border-color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
 .vw-locked { opacity: 0.4; }
 .vw-desc { margin: 0; font-size: 12px; color: rgba(230, 241, 255, 0.7); }

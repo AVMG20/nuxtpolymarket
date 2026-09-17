@@ -269,3 +269,34 @@
 .vr-reveal-leave-active { transition: opacity 0.2s; }
 .vr-reveal-enter-from, .vr-reveal-leave-to { opacity: 0; }
 @keyframes vr-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+/* Jump gate and trader */
+.vr-gate, .vr-trade { width: min(640px, calc(100vw - 32px)); }
+.vr-gate-sub { margin: -6px 0 0; font-size: 13px; color: var(--vr-muted); }
+.vr-gate-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.vr-gate-option { --zc: #5ec8ff; display: grid; gap: 6px; padding: 14px 12px; text-align: left; border: 1px solid color-mix(in srgb, var(--zc) 45%, transparent); background: linear-gradient(160deg, color-mix(in srgb, var(--zc) 18%, transparent), rgba(4, 8, 18, 0.6)); cursor: pointer; transition: transform 0.1s, box-shadow 0.15s; }
+.vr-gate-option:hover { transform: translateY(-2px); box-shadow: 0 0 20px color-mix(in srgb, var(--zc) 40%, transparent); }
+.vr-gate-option b { font-size: 16px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--zc); }
+.vr-gate-option span { font-size: 12px; line-height: 1.3; color: rgba(230, 241, 255, 0.75); }
+.vr-trade-list { display: grid; gap: 6px; }
+.vr-trade-offer { display: flex; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--vr-line-strong); background: rgba(159, 255, 217, 0.05); cursor: pointer; }
+.vr-trade-offer:hover:not(:disabled) { background: rgba(159, 255, 217, 0.12); }
+.vr-trade-offer:disabled { opacity: 0.35; cursor: not-allowed; }
+.vr-trade-offer b { font-weight: 700; letter-spacing: 0.06em; }
+.vr-trade-offer span { font: 600 12px 'JetBrains Mono', monospace; color: var(--vr-muted); }
+.vr-trophies { border-color: rgba(192, 123, 255, 0.5); background: rgba(192, 123, 255, 0.08); }
+.vr-trophies b { color: #e3c7ff; }
+
+/* Ship systems HUD */
+.vr-sys { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.vr-sys-chip { display: flex; align-items: center; gap: 5px; padding: 2px 8px 2px 2px; border: 1px solid var(--vr-line-strong); font: 600 11px 'JetBrains Mono', monospace; color: var(--vr-text); position: relative; overflow: hidden; }
+.vr-sys-chip kbd { min-width: 20px; }
+.vr-sys-chip i { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--vr-accent); }
+.vr-sys-chip.vr-sys-on { border-color: var(--vr-gold); color: var(--vr-gold); }
+.vr-sys-chip.vr-sys-lock { border-color: var(--vr-bad); color: #ffb3c0; }
+.vr-subsys { display: flex; gap: 6px; margin-top: 8px; }
+.vr-subsys span { padding: 2px 8px; font-size: 11px; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; color: #ffc2cd; border: 1px solid rgba(255, 79, 109, 0.6); background: rgba(255, 79, 109, 0.12); animation: vr-pulse 0.5s infinite; }
+.vr-zone { margin-top: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase; color: #c07bff; }
+.vr-prompt { position: absolute; left: 50%; top: 70%; transform: translateX(-50%); padding: 8px 16px; background: var(--vr-bg); border: 1px solid rgba(159, 255, 217, 0.4); font-size: 14px; font-weight: 600; letter-spacing: 0.08em; }
+.vr-flicker { animation: vr-flicker 0.18s steps(2) infinite; }
+@keyframes vr-flicker { 50% { opacity: 0.55; } }

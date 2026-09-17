@@ -15,6 +15,11 @@ export interface RunConfig {
     gun: VoidWeaponFit | null
     /** Supplies the ship took out of stock, by id. */
     supplies: Record<string, number>
+    secondary?: VoidWeaponFit | null
+    device?: VoidWeaponFit | null
+    perks?: Record<string, number>
+    /** Lore ids the pilot already has, so logs are not repeated. */
+    loreKnown?: string[]
     skill: { id: VoidSkillId, nodes: string[] }
     /** Walk the pilot through the basics on their first flight. */
     tutorial?: boolean
@@ -32,6 +37,9 @@ export interface RunResult {
     suppliesUsed: Record<string, number>
     /** Relic caches picked up; the server rolls what they hold. */
     relics: number
+    depth: number
+    carrierKilled: boolean
+    lore: string[]
 }
 
 export type Phase = 'hangar' | 'flying' | 'docking' | 'dead'
@@ -74,6 +82,11 @@ export interface HudState {
     skill: import('./skills').SkillHud | null
     supplies: { id: string, name: string, key: string, count: number, color: string }[]
     relics: number
+    systems: import('./systems').SystemsHud | null
+    energyLow: boolean
+    gate: null | { distance: number, fuel: number }
+    trader: boolean
+    cockpit: boolean
 }
 
 export interface EngineEvents {
@@ -82,10 +95,14 @@ export interface EngineEvents {
     /** Big cinematic title card. */
     banner: (title: string, subtitle: string, tone: 'info' | 'bad' | 'good') => void
     end: (result: RunResult) => void
+    /** A warp gate offers these zones for the next jump. */
+    gate: (options: import('#shared/utils/gamelogic/void-pilot').VoidZoneModifier[]) => void
+    /** The pilot opened the Free Trader. */
+    trade: () => void
     pause: (paused: boolean) => void
 }
 
-export type HostileKind = EnemyKind | 'mine' | 'crate' | 'warden' | 'freighter' | 'meteor' | 'vault' | 'mothership' | 'battery' | 'reactor'
+export type HostileKind = EnemyKind | 'mine' | 'crate' | 'warden' | 'freighter' | 'meteor' | 'vault' | 'mothership' | 'battery' | 'reactor' | 'trader'
 
 export interface Enemy {
     id: number
@@ -178,6 +195,7 @@ export interface Projectile {
     turn?: number
     crit?: number
     mod?: VoidModId | null
+    dtype?: import('#shared/utils/gamelogic/void-items').VoidDamageType
 }
 
 export interface Pickup {
@@ -191,6 +209,8 @@ export interface Pickup {
     pullTime: number
     /** A relic cache instead of cargo. */
     relic?: boolean
+    /** A jump fuel cell instead of cargo. */
+    fuel?: boolean
 }
 
 export interface Tracer {

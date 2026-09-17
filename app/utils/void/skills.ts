@@ -89,7 +89,8 @@ export class SkillRunner {
         this.name = def.name
         this.color = def.color
         this.params = voidSkillParams(def.id, skill.nodes)
-        this.cooldownMax = voidSkillCooldown(this.params)
+        // Tactical Link perk trims every skill's recharge.
+        this.cooldownMax = voidSkillCooldown(this.params) * (1 - (engine.config?.perks?.link ?? 0) * 0.08)
     }
 
     private get p() {

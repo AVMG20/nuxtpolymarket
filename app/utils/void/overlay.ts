@@ -102,15 +102,18 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, engine: VoidEngine) {
     if (!engine.wardenKilled && !engine.warden && !engine.objectives?.suppressWaves) {
         waypoint(ctx, engine, engine.lair, '#ff4f6d', 'WARDEN', engine.lair.distanceTo(p.pos), 'skull')
     }
+    if (engine.gate) waypoint(ctx, engine, engine.gate.pos, '#c07bff', engine.fuel > 0 ? 'JUMP GATE' : 'JUMP GATE · NO FUEL', engine.gate.pos.distanceTo(p.pos), 'ring')
+    if (engine.trader?.alive && engine.trader.pos.distanceTo(p.pos) < 900) waypoint(ctx, engine, engine.trader.pos, '#9fffd9', 'TRADER', engine.trader.pos.distanceTo(p.pos), 'diamond')
+    for (const m of engine.systems?.markers() ?? []) waypoint(ctx, engine, m.pos, m.color, m.label, m.pos.distanceTo(p.pos), 'diamond')
 
     // ── Enemies
     for (const e of engine.enemies) {
-        if (!e.alive) continue
+        if (!e.alive || !e.group.visible) continue
         const d = e.pos.distanceTo(cam.position)
         const focus = engine.focus === e
         if (d > (e.elite ? 1400 : 750) && !focus) continue
         const s = project(engine, e.pos)
-        const color = e.kind === 'crate' ? '#ffb45e' : e.kind === 'mine' ? '#ffd23f' : e.elite ? '#ff9a3d' : '#ff4a55'
+        const color = e.data.coalition ? '#5ec8ff' : e.kind === 'trader' ? '#9fffd9' : e.kind === 'crate' ? '#ffb45e' : e.kind === 'mine' ? '#ffd23f' : e.elite ? '#ff9a3d' : '#ff4a55'
         if (!s.visible) {
             if (e.aggro && e.hostile && d < 450 && e.kind !== 'mine') {
                 const at = edge(engine, e.pos, 46)
@@ -139,6 +142,7 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, engine: VoidEngine) {
         if (e.kind === 'warden') continue
         brackets(ctx, s.x, s.y, r, color, focus ? 2 : 1.2)
         if (e.hp < e.maxHp || focus) bar(ctx, s.x, s.y + r + 6, Math.max(26, r * 1.6), e.hp / e.maxHp, color)
+        if ((e.data.shieldMax ?? 0) > 0 && (e.data.shield! < e.data.shieldMax! || focus)) bar(ctx, s.x, s.y + r + 11, Math.max(26, r * 1.6), e.data.shield! / e.data.shieldMax!, '#6fd8ff')
         if (focus) {
             label(ctx, `${e.name.toUpperCase()}  ${distText(d)}`, s.x, s.y - r - 10, color)
             if (e.hostile && e.vel.lengthSq() > 1) {
@@ -272,6 +276,8 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, engine: VoidEngine) {
     }
 
     drawStrikeMarkers(ctx, engine)
+    drawLock(ctx, engine)
+    drawCracks(ctx, engine, w, h)
     drawDamageDirections(ctx, engine, w, h)
     drawRadar(ctx, engine, w, h)
     if (engine.mapOpen) drawSectorMap(ctx, engine, w, h)
@@ -389,7 +395,7 @@ function drawRadar(ctx: CanvasRenderingContext2D, engine: VoidEngine, w: number,
     for (const w of engine.hazards?.wells ?? []) plot(w.pos, '#ff7ab0', 7, false)
     for (const e of engine.enemies) {
         // Capital ships never show up on scopes: you find them by looking.
-        if (!e.alive || e.kind === 'mine' || (e.data.group ?? 0) >= 9000) continue
+        if (!e.alive || e.kind === 'mine' || !e.group.visible || e.data.carrier) continue
         plot(e.pos, e.kind === 'crate' ? '#ffb45e' : e.aggro ? '#ff4a55' : '#b04850', e.elite ? 4 : 3)
     }
     // Player chevron
@@ -447,7 +453,7 @@ function drawSectorMap(ctx: CanvasRenderingContext2D, engine: VoidEngine, w: num
     ctx.globalAlpha = 1
     // Hostiles
     for (const e of engine.enemies) {
-        if (!e.alive || e.kind === 'mine' || (e.data.group ?? 0) >= 9000) continue
+        if (!e.alive || e.kind === 'mine' || !e.group.visible || e.data.carrier) continue
         const at = to(e.pos)
         ctx.fillStyle = e.kind === 'crate' ? '#ffb45e' : e.elite ? '#ff9a3d' : e.aggro ? '#ff4a55' : 'rgba(255, 74, 85, 0.45)'
         const r = e.elite ? 3.5 : 2.2
@@ -578,4 +584,55 @@ function drawStrikeMarkers(ctx: CanvasRenderingContext2D, engine: VoidEngine) {
         }
         ctx.stroke()
     }
+}
+
+/** Lock-on: a closing diamond while E is held, solid when the lock is set. */
+function drawLock(ctx: CanvasRenderingContext2D, engine: VoidEngine) {
+    const sys = engine.systems
+    if (!sys) return
+    const target = sys.lockedTarget ?? (sys.lockProgress > 0 ? engine.focus : null)
+    if (!target?.alive) return
+    const s = project(engine, target.pos)
+    if (!s.visible) return
+    const k = Math.min(1, sys.lockProgress)
+    const locked = !!sys.lockedTarget
+    const r = 34 - k * 14
+    ctx.save()
+    ctx.translate(s.x, s.y)
+    ctx.rotate(Math.PI / 4 + (locked ? 0 : engine.time * 3))
+    ctx.strokeStyle = locked ? '#ff4f6d' : `rgba(255,120,120,${0.4 + k * 0.5})`
+    ctx.lineWidth = locked ? 2.5 : 1.6
+    ctx.strokeRect(-r, -r, r * 2, r * 2)
+    ctx.restore()
+    if (locked) label(ctx, 'LOCKED', s.x, s.y - 40, '#ff4f6d', 'center', '700 11px "Rajdhani", system-ui, sans-serif')
+}
+
+/** Cracks creep in from the screen corners when the hull is critical. */
+function drawCracks(ctx: CanvasRenderingContext2D, engine: VoidEngine, w: number, h: number) {
+    const p = engine.player
+    const stats = engine.config?.stats
+    if (!p?.alive || !stats) return
+    const frac = p.hull / stats.hull
+    if (frac > 0.25) return
+    const alpha = Math.min(0.55, (0.25 - frac) * 2.5) * (0.8 + Math.sin(engine.time * 6) * 0.2)
+    ctx.save()
+    ctx.strokeStyle = `rgba(255,255,255,${alpha})`
+    ctx.lineWidth = 1.2
+    const corners: [number, number, number, number][] = [[0, 0, 1, 1], [w, 0, -1, 1], [0, h, 1, -1], [w, h, -1, -1]]
+    corners.forEach(([x, y, sx, sy], ci) => {
+        for (let b = 0; b < 3; b++) {
+            ctx.beginPath()
+            let cx = x
+            let cy = y
+            ctx.moveTo(cx, cy)
+            for (let i = 0; i < 5; i++) {
+                const seed = Math.sin((ci + 1) * 91.7 + b * 37.1 + i * 13.3)
+                cx += sx * (30 + Math.abs(seed) * 45)
+                cy += sy * (20 + Math.abs(Math.cos(seed * 7)) * 40) * (b === 1 ? 0.5 : 1)
+                ctx.lineTo(cx, cy)
+            }
+            ctx.stroke()
+        }
+    })
+    ctx.restore()
 }

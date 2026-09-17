@@ -31,6 +31,9 @@ export class ObjectiveTracker {
     private boostTime = 0
     private rocksBroken = 0
     private abilityUsed = false
+    private secondaryUsed = false
+    private deviceUsed = false
+    private scanUsed = false
     private trainees: Enemy[] = []
     private traineeKills = 0
     private startedAt = -1
@@ -96,10 +99,25 @@ export class ObjectiveTracker {
                 done: () => this.trainees.length > 0 && this.traineeKills >= this.trainees.length
             },
             {
+                text: 'Fire a missile volley with E',
+                hint: 'Hold E with a hostile under your crosshair until it says LOCKED, then let go. Without a lock the missiles fly straight. Ammo refills every launch.',
+                done: () => this.secondaryUsed || !e.config?.secondary
+            },
+            {
                 text: 'Fire your pilot skill',
                 hint: 'Press Q or right mouse. The arc on the right of your crosshair shows the recharge. Unlock and shape skills in the hangar.',
                 progress: () => ability(),
                 done: () => this.abilityUsed
+            },
+            {
+                text: 'Trigger your device with G',
+                hint: 'Your Shield Booster refills the shield fast. Devices cost energy and recharge. Craft decoys, sentries and cloaks later.',
+                done: () => this.deviceUsed || !e.config?.device
+            },
+            {
+                text: 'Pulse the scanner with T',
+                hint: 'Scanning marks hidden caches and data logs nearby. Caches can hold fuel for the jump gate; logs fill your Codex.',
+                done: () => this.scanUsed
             },
             {
                 text: 'Fly home and hold F to dock',
@@ -163,6 +181,18 @@ export class ObjectiveTracker {
 
     onAbility() {
         this.abilityUsed = true
+    }
+
+    onSecondary() {
+        this.secondaryUsed = true
+    }
+
+    onDevice() {
+        this.deviceUsed = true
+    }
+
+    onScan() {
+        this.scanUsed = true
     }
 
     update(dt: number) {

@@ -87,8 +87,9 @@ import type { VoidItem } from '#shared/utils/gamelogic/void-items'
 import VoidCost from './VoidCost.vue'
 
 type State = InternalApi['/api/void/state']['get']
-type Kind = 'gun' | 'turret' | 'armor' | 'shield'
-type GroupKey = 'gun' | 'turrets' | 'armor' | 'shields'
+type Kind = 'gun' | 'turret' | 'armor' | 'shield' | 'secondary' | 'device'
+type GroupKey = 'gun' | 'turrets' | 'armor' | 'shields' | 'secondary' | 'device'
+type Fit = { gun: string | null, turrets: (string | null)[], armor: (string | null)[], shields: (string | null)[], secondary: string | null, device: string | null }
 
 const props = defineProps<{
     state: State
@@ -96,7 +97,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-    'set-fit': [shipId: string, fit: { gun: string | null, turrets: (string | null)[], armor: (string | null)[], shields: (string | null)[] }]
+    'set-fit': [shipId: string, fit: Fit]
     'buy-supply': [supplyId: string, count: number]
 }>()
 
@@ -111,7 +112,9 @@ const groups = computed(() => {
         { key: 'gun' as const, kind: 'gun' as const, label: 'Primary gun', hint: 'You fire this', slots: [f.gun] },
         { key: 'turrets' as const, kind: 'turret' as const, label: 'Turrets', hint: 'Fire on their own', slots: f.turrets },
         { key: 'armor' as const, kind: 'armor' as const, label: 'Armour', hint: 'Hull and resist', slots: f.armor },
-        { key: 'shields' as const, kind: 'shield' as const, label: 'Shields', hint: 'Recharging pool', slots: f.shields }
+        { key: 'shields' as const, kind: 'shield' as const, label: 'Shields', hint: 'Recharging pool', slots: f.shields },
+        { key: 'secondary' as const, kind: 'secondary' as const, label: 'Secondary', hint: 'E · missiles, rockets, mines', slots: [f.secondary] },
+        { key: 'device' as const, kind: 'device' as const, label: 'Device', hint: 'G · booster, decoy, cloak', slots: [f.device] }
     ]
 })
 
@@ -138,7 +141,7 @@ function candidates(kind: Kind) {
 
 function fittedElsewhere(itemId: string, key: GroupKey, index: number) {
     const f = ship.value.fit
-    const lists: Record<GroupKey, (string | null)[]> = { gun: [f.gun], turrets: f.turrets, armor: f.armor, shields: f.shields }
+    const lists: Record<GroupKey, (string | null)[]> = { gun: [f.gun], turrets: f.turrets, armor: f.armor, shields: f.shields, secondary: [f.secondary], device: [f.device] }
     return Object.entries(lists).some(([k, list]) => list.some((id, i) => id === itemId && !(k === key && i === index)))
 }
 
@@ -155,15 +158,17 @@ function deltaClass(score: number, currentId: string | null) {
 
 function fit(key: GroupKey, index: number, itemId: string | null) {
     const f = ship.value.fit
-    const next = { gun: f.gun, turrets: [...f.turrets], armor: [...f.armor], shields: [...f.shields] }
+    const next: Fit = { gun: f.gun, turrets: [...f.turrets], armor: [...f.armor], shields: [...f.shields], secondary: f.secondary, device: f.device }
     // An item lives in one slot on a hull: moving it clears the old slot.
     if (itemId) {
         if (next.gun === itemId) next.gun = null
+        if (next.secondary === itemId) next.secondary = null
+        if (next.device === itemId) next.device = null
         for (const list of [next.turrets, next.armor, next.shields]) {
             for (let i = 0; i < list.length; i++) if (list[i] === itemId) list[i] = null
         }
     }
-    if (key === 'gun') next.gun = itemId
+    if (key === 'gun' || key === 'secondary' || key === 'device') next[key] = itemId
     else next[key][index] = itemId
     open.value = null
     emit('set-fit', ship.value.id, next)
