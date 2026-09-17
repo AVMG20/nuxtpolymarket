@@ -1,9 +1,9 @@
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { townBuildings, townState } from '#server/database/schema'
 import { foundTown, placeBuilding, settleTownForRead } from '#server/utils/town'
-import { SKIP, cleanupUser, moveTownToFlatGround, seedUser } from '../setup/db-helpers'
+import { SKIP, cleanupUser, lockTownRealm, moveTownToFlatGround, seedUser } from '../setup/db-helpers'
 
 describe('building orientation validation', () => {
     it.each([-1, 4, 0.5, NaN, Infinity, '1', true])('rejects invalid rotation %s before touching town state', async (rotation) => {
@@ -12,8 +12,16 @@ describe('building orientation validation', () => {
 })
 
 describe.skipIf(SKIP)('saved building orientation', () => {
+    // One shared realm: hold it for this file so a sibling spec cannot plant
+    // or delete plots midway through a test here (db-helpers, lockTownRealm).
+    let releaseRealm: () => Promise<void>
+    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
+
     const owner = `test-town-rotation-${crypto.randomUUID()}`
-    afterAll(() => cleanupUser(owner))
+    afterAll(async () => {
+        await cleanupUser(owner)
+        await releaseRealm()
+    })
 
     it('preserves all four orientations after settlement and defaults old callers to zero', async () => {
         await seedUser(owner, { balance: '1000000' })
