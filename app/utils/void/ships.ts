@@ -910,6 +910,108 @@ const HOSTILE_DESIGNS: Record<string, (b: ModelBuilder, glow: number) => void> =
         b.engine([1.2, 0, 4.7], 0.65, true, glow)
         b.engine([0, 0.3, 4.7], 0.55, false, glow)
     },
+    /**
+     * The mothership: a ninety-metre wedge carrier built from stacked decks in
+     * different greys, with red command stripes, lit windows along the edges,
+     * a stepped command tower and open launch bays in both flanks and the belly.
+     */
+    mothership(b, glow) {
+        const wedge = (nose: number, stern: number, half: number) => [[0, nose], [half, stern], [-half, stern]] as [number, number][]
+        // Stacked hull decks, darkest at the bottom.
+        b.solid(slab(wedge(-48, 36, 24), 6, 0.35), 0x3c3a42, [0, -3, 0])
+        b.solid(slab(wedge(-45, 35, 21.5), 4, 0.3), 0x6d6a74, [0, 1.8, 0])
+        b.solid(slab(wedge(-31, 33, 15), 3.2, 0.25), 0x8e8a96, [0, 5.3, 0])
+        b.solid(slab(wedge(-18, 30, 7.5), 2.4, 0.2), 0x55525c, [0, 8, 0])
+        // Keel under the belly.
+        b.solid(slab(wedge(-30, 34, 12), 3, 0.25), 0x2c2a30, [0, -7.2, 0])
+
+        // Red command stripes along the mid deck.
+        for (const side of [1, -1]) {
+            const pts: [number, number][] = [[side * 1.2, -40], [side * 19.8, 30], [side * 18.4, 30], [side * 0.4, -38]]
+            b.solid(slab(side > 0 ? pts : pts.reverse(), 0.25, 0.02), H_PAINT, [0, 3.9, 0])
+        }
+
+        // Panel seams across the upper decks.
+        for (let i = 0; i < 10; i++) {
+            const z = -26 + i * 6
+            const half = 15 * (z + 31) / 64
+            if (half < 2) continue
+            b.metal(block(half * 2 - 1, 0.12, 0.3, 0.02), 0x2a282e, [0, 6.95, z])
+        }
+
+        // Greebles on the mid and upper decks, in a spread of shades.
+        const shades = [0x4a4850, 0x7a7680, 0x9e9aa6, 0x34323a]
+        let seed = 7
+        const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
+        for (let i = 0; i < 46; i++) {
+            const z = -34 + rnd() * 64
+            const upper = rnd() < 0.45
+            const half = upper ? 15 * (z + 31) / 64 : 21.5 * (z + 45) / 80
+            if (half < 3) continue
+            const x = (upper ? 1.5 : Math.max(2, half * 0.72)) + rnd() * (half * (upper ? 0.7 : 0.25))
+            const w = 1 + rnd() * 3
+            const h = 0.4 + rnd() * 1.2
+            const d = 1 + rnd() * 4
+            b.metal(block(w, h, d, 0.08), shades[i % shades.length]!, [x, (upper ? 6.9 : 3.8) + h / 2, z], [0, 0, 0], [1, 1, 1], true)
+        }
+
+        // Windows along the lower hull edge.
+        const edge = Math.atan2(24, 84)
+        for (let i = 0; i < 16; i++) {
+            const z = -36 + i * 4.6
+            const half = 24 * (z + 48) / 84
+            for (const row of [0, 1]) {
+                b.glow(new THREE.BoxGeometry(0.12, 0.28, 1.6), (i + row) % 5 === 0 ? 0xffd9a0 : 0x9fc4ff, 1.8, [half + 0.3, -4.2 + row * 1.6, z], [0, edge, 0], [1, 1, 1], true)
+            }
+            const mid = 21.5 * (z + 45) / 80
+            if (i % 2 === 0 && z < 30) b.glow(new THREE.BoxGeometry(0.12, 0.24, 2.2), 0x9fc4ff, 1.6, [mid + 0.28, 1.6, z + 1], [0, Math.atan2(21.5, 80), 0], [1, 1, 1], true)
+        }
+        // A pale trim line where the lower hull meets the mid deck.
+        for (const side of [1, -1]) {
+            const pts: [number, number][] = [[side * 0.6, -47], [side * 24.3, 36], [side * 23.1, 36], [side * 0.2, -45]]
+            b.solid(slab(side > 0 ? pts : pts.reverse(), 0.3, 0.02), 0xb8b4c0, [0, 0.1, 0])
+        }
+
+        // Launch bays: dark recesses in both flanks with lit interiors and frames.
+        for (const z of [4, 18]) {
+            const half = 21.5 * (z + 45) / 80
+            b.metal(block(1.2, 3, 9, 0.1), 0x0b0a0d, [half - 0.3, 1.8, z], [0, edge, 0], [1, 1, 1], true)
+            b.glow(new THREE.BoxGeometry(0.1, 2.2, 8), glow, 0.9, [half - 0.5, 1.8, z], [0, edge, 0], [1, 1, 1], true)
+            b.glow(new THREE.BoxGeometry(0.15, 0.15, 9.4), 0xffe6b0, 2.6, [half + 0.2, 3.45, z], [0, edge, 0], [1, 1, 1], true)
+            b.glow(new THREE.BoxGeometry(0.15, 0.15, 9.4), 0xffe6b0, 2.6, [half + 0.2, 0.15, z], [0, edge, 0], [1, 1, 1], true)
+        }
+        // Belly hangar mouth with guide lights.
+        b.metal(block(12, 1, 18, 0.1), 0x0b0a0d, [0, -8.8, 18])
+        b.glow(new THREE.BoxGeometry(10.5, 0.2, 16), glow, 1.1, [0, -9.2, 18])
+        for (let i = 0; i < 6; i++) b.glow(new THREE.BoxGeometry(11.5, 0.12, 0.3), 0xffe6b0, 2.4, [0, -9.4, 10.5 + i * 3])
+
+        // Command tower: stepped blocks, a lit bridge and sensor globes.
+        b.solid(block(18, 4, 12, 0.3), 0x6d6a74, [0, 11.2, 25])
+        b.solid(block(12, 4, 8, 0.25), 0x8e8a96, [0, 15, 27])
+        b.metal(block(4, 3, 5, 0.2), 0x3c3a42, [0, 17.5, 29])
+        b.solid(block(24, 2.2, 4.5, 0.2), 0x55525c, [0, 19.6, 28.5])
+        b.glow(new THREE.BoxGeometry(22, 0.35, 0.1), 0xffd9a0, 3, [0, 19.7, 26.2])
+        b.solid(block(8, 0.5, 3, 0.1), H_PAINT, [0, 13.4, 19.2])
+        for (const x of [-9.5, 9.5]) b.metal(ico(2, 1), 0x9e9aa6, [x, 22.2, 29])
+        b.metal(tube(0.15, 0.15, 7, 5), H_METAL, [2, 23, 30], [Math.PI / 2, 0, 0])
+        b.glow(octa(0.35), 0xff3040, 5, [2, 26.6, 30])
+
+        // Stern: engine housing with three big drives and four small.
+        b.solid(block(40, 11, 5, 0.3), 0x3c3a42, [0, -0.5, 38.5])
+        b.metal(block(42, 1.2, 5.6, 0.1), 0x6d6a74, [0, 5.4, 38.5])
+        b.engine([0, 0, 41.2], 4.4, false, glow)
+        b.engine([13, 0, 41.2], 3.6, true, glow)
+        b.engine([6.5, -4, 41.2], 1.9, true, glow)
+        b.engine([19, -3, 41.2], 1.7, true, glow)
+
+        // Nose beacon.
+        b.glow(octa(0.9), glow, 5, [0, 1, -47])
+
+        // Battery hardpoints (spawned as separate targets).
+        b.hardpoint([11, 4.2, -6], [0.2, 1, 0], true)
+        b.hardpoint([16, 4.2, 22], [0.2, 1, 0], true)
+        b.hardpoint([6.5, 7, -8], [0, 1, 0], true)
+    },
     sentinel(b, glow) {
         b.solid(ico(1.4, 1), H_ARMOR)
         b.solid(ring(2.1, 0.25, 4, 12), H_DARK, [0, 0, 0], [Math.PI / 2, 0, 0])

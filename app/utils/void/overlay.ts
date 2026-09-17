@@ -131,6 +131,9 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, engine: VoidEngine) {
             continue
         }
         const r = Math.max(e.kind === 'warden' ? 30 : 9, (e.radius * focal) / Math.max(1, d) * 1.25)
+        // The carrier is too big for brackets, and its fittings only show up close so it stays a surprise.
+        if (e.kind === 'mothership' && !focus) continue
+        if ((e.kind === 'battery' || e.kind === 'reactor') && !focus && d > 450) continue
         const alpha = focus ? 1 : Math.max(0.35, 1 - d / 900)
         ctx.globalAlpha = alpha
         if (e.kind === 'warden') continue
@@ -385,7 +388,8 @@ function drawRadar(ctx: CanvasRenderingContext2D, engine: VoidEngine, w: number,
     if (!engine.wardenKilled) plot(engine.warden?.pos ?? engine.lair, '#ff4f6d', 6, true)
     for (const w of engine.hazards?.wells ?? []) plot(w.pos, '#ff7ab0', 7, false)
     for (const e of engine.enemies) {
-        if (!e.alive || e.kind === 'mine') continue
+        // Capital ships never show up on scopes: you find them by looking.
+        if (!e.alive || e.kind === 'mine' || (e.data.group ?? 0) >= 9000) continue
         plot(e.pos, e.kind === 'crate' ? '#ffb45e' : e.aggro ? '#ff4a55' : '#b04850', e.elite ? 4 : 3)
     }
     // Player chevron
@@ -443,7 +447,7 @@ function drawSectorMap(ctx: CanvasRenderingContext2D, engine: VoidEngine, w: num
     ctx.globalAlpha = 1
     // Hostiles
     for (const e of engine.enemies) {
-        if (!e.alive || e.kind === 'mine') continue
+        if (!e.alive || e.kind === 'mine' || (e.data.group ?? 0) >= 9000) continue
         const at = to(e.pos)
         ctx.fillStyle = e.kind === 'crate' ? '#ffb45e' : e.elite ? '#ff9a3d' : e.aggro ? '#ff4a55' : 'rgba(255, 74, 85, 0.45)'
         const r = e.elite ? 3.5 : 2.2

@@ -34,7 +34,7 @@ import { SectorHazards } from './hazards'
 import { SkillRunner } from './skills'
 import { VOID_SUPPLIES } from '#shared/utils/gamelogic/void-station'
 import type { VoidWeaponFit } from '#shared/utils/gamelogic/void-items'
-import { damageEnemy, spawnEnemy, spawnPatrol, spawnWarden, updateCorpses, updateEnemies, WARDEN_TRIGGER_RANGE } from './enemies'
+import { damageEnemy, enemyRayHit, spawnEnemy, spawnMothership, spawnPatrol, spawnWarden, updateCorpses, updateEnemies, WARDEN_TRIGGER_RANGE } from './enemies'
 import type {
     Drone, Enemy, EngineEvents, FloatText, HudState, Phase, Pickup, Projectile, RunConfig, RunResult, Tracer, TurretSlot
 } from './types'
@@ -837,6 +837,16 @@ export class VoidEngine {
         // Some loose rock close to home so the first minute has something to shoot.
         for (let i = 0; i < 3; i++) addCluster(this.randomDir(0.3).multiplyScalar(this.rand(240, 380)), 70, 8, 0.7)
 
+        // A capital ship somewhere out in the dark, with no marker. Its orbit is
+        // cleared of rock so it never grinds through an asteroid.
+        let shipDir = this.randomDir(0.25)
+        for (let tries = 0; tries < 30 && (shipDir.dot(lairDir) > 0.2 || beaconDirs.some(d => d.dot(shipDir) > 0.6)); tries++) shipDir = this.randomDir(0.25)
+        const shipAt = shipDir.multiplyScalar(this.rand(1250, 1750))
+        const doomed: Asteroid[] = []
+        field.query(shipAt, 440, rock => doomed.push(rock))
+        for (const rock of doomed) field.remove(rock)
+        spawnMothership(this, shipAt)
+
         // Wrecks with salvage crates.
         for (let i = 0; i < 7; i++) {
             const pos = this.randomDir(0.3).multiplyScalar(this.rand(450, 2200))
@@ -1256,7 +1266,8 @@ export class VoidEngine {
             if (!Number.isFinite(perp)) continue
             const slack = e.radius * 1.3 + along * 0.06
             if (perp > slack) continue
-            const score = perp / slack + along / maxRange + (e.hostile ? 0 : 0.5)
+            // A capital hull is huge; its batteries and reactors win the crosshair when both are under it.
+            const score = perp / slack + along / maxRange + (e.hostile ? 0 : 0.5) + (e.kind === 'mothership' ? 1 : 0)
             if (score < bestScore) {
                 bestScore = score
                 best = e
@@ -1439,7 +1450,7 @@ export class VoidEngine {
             this.trauma = Math.max(this.trauma, 0.35)
             for (const e of this.enemies) {
                 if (!e.alive) continue
-                const t = raySphere(nose, fwd, e.pos, e.radius + 4)
+                const t = e.kind === 'mothership' ? enemyRayHit(e, nose, fwd, 700) : raySphere(nose, fwd, e.pos, e.radius + 4)
                 if (t !== null && t < 700) damageEnemy(this, e, 420 * stats.damageMult * dt, e.pos, 'lance')
             }
             this.asteroids?.query(_v3.copy(nose).addScaledVector(fwd, 350), 360, (rock) => {
@@ -1542,7 +1553,7 @@ export class VoidEngine {
             let hitEnemy: Enemy | null = null
             for (const e of this.enemies) {
                 if (!e.alive) continue
-                const t = raySphere(from, dir, e.pos, e.radius)
+                const t = enemyRayHit(e, from, dir, length)
                 if (t !== null && t < length) {
                     length = t
                     hitEnemy = e
@@ -1579,7 +1590,7 @@ export class VoidEngine {
             if (rockHit) limit = rockHit.t
             for (const e of this.enemies) {
                 if (!e.alive) continue
-                const t = raySphere(from, dir, e.pos, e.radius)
+                const t = enemyRayHit(e, from, dir, limit)
                 if (t !== null && t < limit) damageEnemy(this, e, damage, _v2.copy(from).addScaledVector(dir, t), 'rail', extra)
             }
             const end = from.clone().addScaledVector(dir, limit)
@@ -1783,7 +1794,7 @@ export class VoidEngine {
             const limit = rockHit ? rockHit.t : def.range
             for (const e of this.enemies) {
                 if (!e.alive) continue
-                const hitT = raySphere(muzzle, dir, e.pos, e.radius)
+                const hitT = enemyRayHit(e, muzzle, dir, limit)
                 if (hitT !== null && hitT < limit) damageEnemy(this, e, damage, _v2.copy(muzzle).addScaledVector(dir, hitT), 'rail', extra)
             }
             if (rockHit) {
@@ -2000,7 +2011,7 @@ export class VoidEngine {
                 for (const e of this.enemies) {
                     if (!e.alive) continue
                     if (Math.abs(e.pos.x - from.x) > e.radius + segLen + 2) continue
-                    const t = raySphere(from, dir, e.pos, e.radius)
+                    const t = enemyRayHit(e, from, dir, segLen)
                     if (t !== null && t <= segLen && t < bestT) {
                         bestT = t
                         bestEnemy = e
@@ -2570,7 +2581,8 @@ export class VoidEngine {
         this.patrolTimer -= dt
         if (this.patrolTimer <= 0) {
             this.patrolTimer = 30
-            const alive = this.enemies.filter(e => e.alive && e.hostile && e.kind !== 'sentinel' && e.kind !== 'mine').length
+            // The hidden carrier's group never crowds out ordinary patrols.
+            const alive = this.enemies.filter(e => e.alive && e.hostile && e.kind !== 'sentinel' && e.kind !== 'mine' && (e.data.group ?? 0) < 9000).length
             if (alive < 18 + this.config!.sector.tier * 2) {
                 const pos = this.randomDir(0.3).multiplyScalar(this.rand(700, 2300))
                 if (pos.distanceTo(p.pos) > 500) spawnPatrol(this, pos, false)

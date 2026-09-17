@@ -6,7 +6,8 @@ import { voidShip } from '#shared/utils/gamelogic/void'
 import { ENEMIES, ENEMY_KINDS, WARDEN_BASE_HP, WARDEN_GLOW, threatDamageMult, threatHpMult, type EnemyKind } from './data'
 import { ShieldBubble, Trail, createFlame, explosion, hitSpark } from './fx'
 import { buildCrate, buildEnemy, buildWarden } from './models'
-import { buildHostile } from './ships'
+import { buildHostile, buildTurret } from './ships'
+import { ModelBuilder, cyl, ico, ring, type Hardpoint, type TurretModel } from './models'
 import { raySphere } from './asteroids'
 import { disposeTree, segmentSphere, type VoidEngine } from './engine'
 import type { Enemy, HostileKind } from './types'
@@ -22,6 +23,12 @@ const _lead2 = new THREE.Vector3()
 const _q = new THREE.Quaternion()
 const _m = new THREE.Matrix4()
 const _c = new THREE.Color()
+
+/** The carrier's model scale; hit spheres, hardpoints and the hangar follow it. */
+const MOTHERSHIP_SCALE = 1.8
+
+/** Where the three shield reactors sit on the hull, in world-scaled local space. */
+const REACTOR_SLOTS = [new THREE.Vector3(0, 9.3, 4), new THREE.Vector3(14.5, 4, 27), new THREE.Vector3(-14.5, 4, 27)].map(v => v.multiplyScalar(MOTHERSHIP_SCALE))
 const UP = new THREE.Vector3(0, 1, 0)
 const WARDEN_SHOT = new THREE.Color(0xff3d6e)
 
@@ -69,6 +76,42 @@ export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vec
         name = kind === 'freighter' ? 'Smuggler Freighter' : kind === 'meteor' ? 'Meteor' : 'Derelict Vault'
         engines = built.engines.map(en => en.position.clone())
         engineRadii = built.engines.map(en => en.radius)
+    } else if (kind === 'mothership') {
+        glow = 0xff3b3b
+        const built = buildHostile('mothership', glow, MOTHERSHIP_SCALE)!
+        group = built.group
+        radius = 27 * MOTHERSHIP_SCALE
+        hp = WARDEN_BASE_HP * 3.5 * threatHpMult(threat)
+        name = 'Dreadnought Carrier'
+        engines = built.engines.map(en => en.position.clone())
+        engineRadii = built.engines.map(en => en.radius)
+        group.userData.hardpoints = built.hardpoints.map(h => ({ position: h.position.clone().multiplyScalar(MOTHERSHIP_SCALE), normal: h.normal }))
+    } else if (kind === 'reactor') {
+        glow = 0x6fd8ff
+        const b = new ModelBuilder()
+        b.metal(cyl(1.3, 1.7, 1.2, 10), 0x242126, [0, 0.6, 0])
+        b.solid(cyl(1.1, 1.3, 0.5, 10), 0x5d5a60, [0, 1.4, 0])
+        b.glow(ico(0.95, 1), glow, 3.5, [0, 2.4, 0])
+        b.glow(ring(1.35, 0.08, 4, 24), glow, 2.6, [0, 2.4, 0], [Math.PI / 2, 0, 0])
+        for (let i = 0; i < 4; i++) {
+            const a = (i / 4) * Math.PI * 2
+            b.metal(cyl(0.12, 0.18, 2.4, 6), 0x6b6670, [Math.cos(a) * 1.35, 1.6, Math.sin(a) * 1.35])
+        }
+        group = b.build().group
+        group.scale.setScalar(MOTHERSHIP_SCALE * 1.6)
+        radius = 3.2 * MOTHERSHIP_SCALE
+        hp = 1400 * threatHpMult(threat)
+        name = 'Shield reactor'
+    } else if (kind === 'battery') {
+        glow = 0xff5a36
+        const turret = buildTurret('rail', glow)
+        turret.root.scale.setScalar(4.5 * MOTHERSHIP_SCALE * 0.75)
+        group = new THREE.Group()
+        group.add(turret.root)
+        group.userData.turret = turret
+        radius = 3.8 * MOTHERSHIP_SCALE * 0.75
+        hp = 900 * threatHpMult(threat)
+        name = 'Carrier battery'
     } else if (kind === 'warden') {
         glow = WARDEN_GLOW[cfg.sector.tier - 1] ?? 0xff3b7a
         const built = buildWarden(cfg.sector.tier, glow)
@@ -110,7 +153,7 @@ export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vec
         alive: true,
         hostile: kind !== 'crate' && kind !== 'vault',
         aggro: !!opts.aggro,
-        elite: !!def?.elite || kind === 'warden' || kind === 'freighter',
+        elite: !!def?.elite || kind === 'warden' || kind === 'freighter' || kind === 'mothership' || kind === 'battery' || kind === 'reactor',
         anchor: pos.clone(),
         wander: pos.clone(),
         cooldown: (def?.cooldown ?? 2) * (0.5 + randomFloat()),
@@ -216,6 +259,238 @@ export function spawnPatrol(engine: VoidEngine, center: THREE.Vector3, hunting: 
     if (hunting) engine.audio.play('blink', { distance: center.distanceTo(engine.camera.position) * 0.4, pan: engine.panOf(center) })
 }
 
+/**
+ * A capital ship parked somewhere in the sector with no marker: six gun
+ * batteries, a hangar that launches fighters and an escort wing. Its hull
+ * shrugs off most damage while any battery still stands.
+ */
+export function spawnMothership(engine: VoidEngine, pos: THREE.Vector3) {
+    const groupId = 9000 + engine.nextId()
+    const m = spawnEnemy(engine, 'mothership', pos, { aggro: false, group: groupId })
+    m.data.heading = randomFloat() * Math.PI * 2
+    m.data.launch = 6
+    m.group.rotation.y = m.data.heading
+    m.group.updateMatrixWorld(true)
+    const batteries: Enemy[] = []
+    for (const [slot, hp] of (m.group.userData.hardpoints as Hardpoint[]).entries()) {
+        const at = m.group.localToWorld(hp.position.clone())
+        const b = spawnEnemy(engine, 'battery', at, { aggro: false, group: groupId })
+        b.data.slot = slot
+        b.cooldown = 1 + slot * 0.35
+        b.group.userData.parent = m
+        batteries.push(b)
+    }
+    m.group.userData.batteries = batteries
+    // Shield reactors: the hull is untouchable until all three are gone.
+    const reactors: Enemy[] = []
+    for (const [slot, local] of REACTOR_SLOTS.entries()) {
+        const r = spawnEnemy(engine, 'reactor', m.group.localToWorld(local.clone()), { aggro: false, group: groupId })
+        r.data.slot = slot
+        r.group.userData.parent = m
+        reactors.push(r)
+    }
+    m.group.userData.reactors = reactors
+    for (let i = 0; i < 6; i++) {
+        const kind = i < 2 ? 'bulwark' : 'raider'
+        spawnEnemy(engine, kind, pos.clone().add(randDir(0.4).multiplyScalar(60 + randomFloat() * 40)), { aggro: false, group: groupId, elite: i === 2 })
+    }
+    return m
+}
+
+const _hitInv = new THREE.Matrix4()
+const _hitA = new THREE.Vector3()
+const _hitD = new THREE.Vector3()
+const _hitP = new THREE.Vector3()
+const _faceDir = new THREE.Vector3()
+
+/** Is a point (carrier-local, unscaled units) inside the stacked wedge hull or its tower? */
+function insideCarrier(x: number, y: number, z: number) {
+    const ax = Math.abs(x)
+    if (z >= 19 && z <= 34 && ax < 12 && y > 8 && y < 21) return true
+    if (z < -48 || z > 41 || y < -8.7 || y > 9.2) return false
+    if (y < 0) return ax < 24 * (z + 48) / 84
+    if (y < 3.8) return ax < 21.5 * (z + 45) / 80
+    if (y < 6.9) return ax < 15 * (z + 31) / 64
+    return ax < 7.5 * (z + 18) / 48
+}
+
+/**
+ * Ray distance to an enemy. Ordinary enemies are spheres; the carrier is
+ * marched against its real wedge shape so shots through empty space beside
+ * the hull fly on, and fittings standing on the deck are reachable.
+ */
+export function enemyRayHit(e: Enemy, from: THREE.Vector3, dir: THREE.Vector3, maxT: number): number | null {
+    const coarse = raySphere(from, dir, e.pos, e.radius)
+    if (e.kind !== 'mothership' || coarse === null) return coarse
+    if (coarse > maxT) return null
+    _hitInv.copy(e.group.matrixWorld).invert()
+    _hitA.copy(from).applyMatrix4(_hitInv)
+    _hitD.copy(dir).transformDirection(_hitInv)
+    const end = Math.min(maxT, coarse + e.radius * 2)
+    for (let t = coarse; t <= end; t += 1.5) {
+        _hitP.copy(_hitA).addScaledVector(_hitD, t).divideScalar(MOTHERSHIP_SCALE)
+        if (insideCarrier(_hitP.x, _hitP.y, _hitP.z)) return t
+    }
+    return null
+}
+
+function updateMothership(engine: VoidEngine, e: Enemy, dt: number, dist: number) {
+    const p = engine.player
+    // A slow, stately orbit around where it was parked.
+    e.data.heading! += dt * 0.025
+    const h = e.data.heading!
+    const goal = _v1.set(Math.cos(h) * 220, 0, Math.sin(h) * 220).add(e.anchor)
+    const desired = _v2.subVectors(goal, e.pos)
+    if (desired.lengthSq() > 1) desired.setLength(14)
+    steer(e, desired, 0.4, dt)
+    e.pos.addScaledVector(e.vel, dt)
+    faceTowards(e, _faceDir.copy(e.vel), 0.08, dt)
+    e.group.updateMatrixWorld(true)
+
+    const shielded = reactorsUp(e)
+    if (!shielded && !e.data.shieldDown) {
+        // Last reactor gone: the shield collapses with a bang.
+        e.data.shieldDown = 1
+        engine.rings.spawn(e.pos, 90 * MOTHERSHIP_SCALE, 0x6fd8ff, 1.2, 3)
+        engine.flashes.flash(e.pos, 0x6fd8ff, 200, 500, 1)
+        engine.audio.play('blink', { pitch: 0.3, volume: 1.5 })
+        engine.events.banner('Carrier shields down', 'The hull is exposed', 'good')
+    }
+    if (!p?.alive) return
+    if (!e.data.seen && dist < 650) {
+        e.data.seen = 1
+        engine.events.banner('Dreadnought Carrier', shielded ? 'A capital ship. Destroy its shield reactors to breach the hull.' : 'Its shields are down. Finish it.', 'bad')
+        engine.audio.play('wardenAlert', { volume: 0.8, pitch: 0.7 })
+        if (!e.aggro) alertGroup(engine, e)
+    }
+    // Escorts keep station on the carrier instead of idling where it was parked.
+    for (const o of engine.enemies) {
+        if (o.alive && o !== e && o.data.group === e.data.group && o.kind !== 'battery' && o.kind !== 'reactor') o.anchor.copy(e.pos)
+    }
+    // Keep the pilot out of the hull: a few spheres along the keel.
+    for (const [z, r] of [[-26, 9], [0, 17], [26, 22]] as const) {
+        const c = e.group.localToWorld(_v1.set(0, 0, z * MOTHERSHIP_SCALE))
+        const off = _v2.subVectors(p.pos, c)
+        const d = off.length()
+        const min = r * MOTHERSHIP_SCALE + p.radius
+        if (d < min && d > 0.01) {
+            p.pos.addScaledVector(off.divideScalar(d), min - d)
+            const into = p.vel.dot(off)
+            if (into < 0) p.vel.addScaledVector(off, -into * 1.3)
+        }
+    }
+    if (!e.aggro || dist > 900) return
+    // The hangar launches a flight whenever the escort thins out.
+    e.data.launch! -= dt
+    if (e.data.launch! <= 0) {
+        e.data.launch = 16
+        const children = engine.enemies.filter(o => o.alive && o.data.group === e.data.group && (o.kind === 'raider' || o.kind === 'mite' || o.kind === 'blinker')).length
+        if (children < 8) {
+            // Alternate between the port and starboard launch bays.
+            e.data.bay = ((e.data.bay ?? 0) + 1) % 2
+            const side = e.data.bay ? 1 : -1
+            const hangar = e.group.localToWorld(_v1.set(side * 20, 1.8, 11).multiplyScalar(MOTHERSHIP_SCALE))
+            const out = _v2.set(side, 0, -0.3).normalize().transformDirection(e.group.matrixWorld)
+            for (let i = 0; i < 3; i++) {
+                const kind = engine.config!.sector.tier >= 3 && i === 0 ? 'blinker' : i === 2 ? 'mite' : 'raider'
+                const f = spawnEnemy(engine, kind, hangar.clone().addScaledVector(out, 6 + i * 4), { aggro: true, group: e.data.group })
+                f.vel.copy(out).multiplyScalar(40)
+            }
+            engine.rings.spawn(hangar, 16, e.glow, 0.6, 2.5)
+            engine.audio.play('undock', { distance: hangar.distanceTo(engine.camera.position) * 0.4, pitch: 0.6 })
+        }
+    }
+}
+
+function updateReactor(engine: VoidEngine, e: Enemy, dt: number) {
+    const parent = e.group.userData.parent as Enemy | undefined
+    if (!parent?.alive) {
+        // Goes down with the ship: no kill credit, just a blast.
+        explosion(engine.fx, e.pos, _v1.set(0, 0, 0), 1.6, e.glow)
+        killEnemy(engine, e, true)
+        return
+    }
+    e.pos.copy(parent.group.localToWorld(_v1.copy(REACTOR_SLOTS[e.data.slot!]!)))
+    e.group.quaternion.copy(parent.group.quaternion)
+    e.group.rotateY(engine.time * 0.8)
+    // A beam feeds the hull's shield so the link reads at a glance.
+    if (Math.random() < dt * 6) {
+        engine.lines.pushV(e.pos, parent.pos, _c.set(0x6fd8ff).multiplyScalar(1.5), 0.35, 0.6, 0.2)
+    }
+}
+
+function reactorsUp(e: Enemy) {
+    return (e.group.userData.reactors as Enemy[] | undefined)?.some(r => r.alive) ?? false
+}
+
+function updateBattery(engine: VoidEngine, e: Enemy, dt: number, dist: number) {
+    const parent = e.group.userData.parent as Enemy | undefined
+    if (!parent?.alive) {
+        // Goes down with the ship: no kill credit, just a blast.
+        explosion(engine.fx, e.pos, _v1.set(0, 0, 0), 1.6, e.glow)
+        killEnemy(engine, e, true)
+        return
+    }
+    const hp = (parent.group.userData.hardpoints as Hardpoint[])[e.data.slot!]!
+    e.pos.copy(parent.group.localToWorld(_v1.copy(hp.position)))
+    e.group.quaternion.copy(parent.group.quaternion)
+    const turret = e.group.userData.turret as TurretModel
+    const p = engine.player
+    if (!p?.alive || !parent.aggro) return
+    // Track the player in the hull's frame.
+    const local = parent.group.worldToLocal(_v2.copy(p.pos)).sub(hp.position)
+    turret.yaw.rotation.y = Math.atan2(-local.x, -local.z)
+    turret.pitch.rotation.x = THREE.MathUtils.clamp(Math.atan2(local.y, Math.hypot(local.x, local.z)), -0.15, 1.3)
+    e.cooldown -= dt
+    if (e.cooldown <= 0 && dist < 560 && (e.data.stunT ?? 0) <= 0) {
+        e.cooldown = 1.5 + randomFloat() * 0.6
+        const from = _v3.copy(e.pos).add(_v1.set(0, 3, 0))
+        for (let i = -1; i <= 1; i += 2) {
+            fireOrb(engine, from, lead(from, p.pos, p.vel, 190), 190, 13 * e.damageMult, e.glow, 1.3)
+        }
+        engine.audio.play('enemyShot', { distance: dist * 0.5, pan: engine.panOf(e.pos), pitch: 0.6 })
+    }
+}
+
+function mothershipDeath(engine: VoidEngine, e: Enemy) {
+    const tier = engine.config!.sector.tier
+    engine.events.banner('Dreadnought Carrier destroyed', 'Its hold spills across the sector', 'good')
+    engine.audio.play('explosionLarge', { volume: 2 })
+    engine.trauma = 1
+    const origin = e.pos.clone()
+    const quat = e.group.quaternion.clone()
+    let step = 0
+    const scene = engine.scene
+    const chain = () => {
+        // The run ended mid-chain: clean up quietly instead of exploding in the next sector.
+        if (!engine.player || engine.scene !== scene) {
+            disposeTree(e.group)
+            return
+        }
+        if (step > 12) return
+        const at = _v1.set((randomFloat() - 0.5) * 36, (randomFloat() - 0.5) * 14, -40 + step * 7).multiplyScalar(MOTHERSHIP_SCALE).applyQuaternion(quat).add(origin).clone()
+        explosion(engine.fx, at, _v2.set(0, 0, 0), 3 + step * 0.35, step % 2 ? 0xffc070 : e.glow)
+        engine.audio.play('explosionLarge', { distance: at.distanceTo(engine.camera.position) * 0.5 })
+        step++
+        if (step <= 12) setTimeout(chain, 140)
+        else {
+            explosion(engine.fx, origin, _v2.set(0, 0, 0), 14, e.glow)
+            engine.rings.spawn(origin, 360, e.glow, 1.8, 3)
+            engine.rings.spawn(origin, 220, 0xffffff, 1.2, 2, undefined, 0.04)
+            engine.flashes.flash(origin, e.glow, 400, 900, 1.4)
+            disposeTree(e.group)
+        }
+    }
+    chain()
+    const best = (['xenite', 'iridium', 'cobalt', 'ferrite'] as const).find(id => (engine.config!.sector.ores as Record<string, number>)[id]) ?? 'ferrite'
+    engine.dropLoot(best, 60, 100, origin)
+    engine.dropLoot('alloy', 30, 50, origin)
+    engine.dropLoot('scrap', 80, 120, origin)
+    engine.dropLoot('core', 1 + Math.floor(tier / 2), 1 + Math.floor(tier / 2), origin)
+    engine.dropRelic(origin)
+    engine.dropRelic(origin.clone().add(randDir().multiplyScalar(8)))
+}
+
 export function spawnWarden(engine: VoidEngine) {
     const w = spawnEnemy(engine, 'warden', engine.lair.clone(), { aggro: true })
     w.state = 'rise'
@@ -262,6 +537,17 @@ export function damageEnemy(engine: VoidEngine, e: Enemy, amount: number, point:
         }
     }
     if (e.kind === 'warden' && e.state === 'rise') amount *= 0.2
+    // The carrier's hull cannot be touched while a shield reactor stands.
+    if (e.kind === 'mothership' && reactorsUp(e)) {
+        // No dome: just a brief hex of shield light where the shot landed.
+        if (Math.random() < 0.5) {
+            const normal = _v2.subVectors(point, e.pos).normalize()
+            engine.rings.spawn(point, 5 + Math.random() * 3, 0x6fd8ff, 0.3, 2.2, normal.clone())
+            engine.particles.glow(point.x, point.y, point.z, _c.set(0x6fd8ff).multiplyScalar(2), 6)
+        }
+        if (Math.random() < 0.25) engine.audio.play('shieldHit', { distance: point.distanceTo(engine.camera.position) * 0.5, volume: 0.5, pitch: 0.7 })
+        return
+    }
     // Player hits can crit for double, shown as a big gold number.
     const burst = !STEADY_SOURCES.has(source)
     if (burst && e.hostile && randomFloat() < 0.12 + (extra?.crit ?? 0)) {
@@ -272,7 +558,8 @@ export function damageEnemy(engine: VoidEngine, e: Enemy, amount: number, point:
         e.data.dmgAcc = (e.data.dmgAcc ?? 0) + amount
     }
     e.hp -= amount
-    e.flash = source === 'beam' || source === 'lance' ? Math.max(e.flash, 0.3) : 1
+    // A whole capital hull lighting up white is blinding; it only glints.
+    e.flash = e.kind === 'mothership' ? Math.max(e.flash, 0.06) : source === 'beam' || source === 'lance' ? Math.max(e.flash, 0.3) : 1
     if (e.hostile && source !== 'station') engine.hitMarker = Math.max(engine.hitMarker, source === 'beam' ? 0.08 : 0.18)
     if (e.hostile && !e.aggro) alertGroup(engine, e)
     if (e.hostile && extra?.mod) applyHitMod(engine, e, amount, extra.mod)
@@ -323,7 +610,9 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
     e.hp = 0
     const distance = e.pos.distanceTo(engine.camera.position)
     if (!silent) {
-        if (e.kind === 'warden') {
+        if (e.kind === 'mothership') {
+            mothershipDeath(engine, e)
+        } else if (e.kind === 'warden') {
             wardenDeath(engine, e)
         } else {
             const size = e.kind === 'crate' ? 1.2 : Math.max(0.8, e.radius * 0.55)
@@ -372,7 +661,7 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
         })
         return
     }
-    if (e.kind !== 'warden' || silent) disposeTree(e.group)
+    if ((e.kind !== 'warden' && e.kind !== 'mothership') || silent) disposeTree(e.group)
 }
 
 /** Burning hulks left behind by kills. */
@@ -414,8 +703,13 @@ function wardenDeath(engine: VoidEngine, e: Enemy) {
     engine.whiteFlash = 0.6
     const pos = e.pos.clone()
     let step = 0
+    const scene = engine.scene
     const chain = () => {
-        if (!engine.player || step > 8) return
+        if (!engine.player || engine.scene !== scene) {
+            disposeTree(e.group)
+            return
+        }
+        if (step > 8) return
         const at = pos.clone().add(randDir().multiplyScalar(4 + step * 2))
         explosion(engine.fx, at, _v1.set(0, 0, 0), 2.5 + step * 0.4, step % 2 ? 0xffc070 : e.glow)
         engine.audio.play('explosionLarge', { distance: at.distanceTo(engine.camera.position) * 0.5 })
@@ -536,6 +830,15 @@ export function updateEnemies(engine: VoidEngine, dt: number) {
             case 'warden':
                 updateWarden(engine, e, dt, dist)
                 break
+            case 'mothership':
+                updateMothership(engine, e, dt, dist)
+                break
+            case 'battery':
+                updateBattery(engine, e, dt, dist)
+                break
+            case 'reactor':
+                updateReactor(engine, e, dt)
+                break
             case 'freighter':
             case 'vault':
                 break
@@ -548,7 +851,7 @@ export function updateEnemies(engine: VoidEngine, dt: number) {
         }
         if (!e.alive) continue
 
-        if (e.kind !== 'sentinel' && e.kind !== 'warden' && e.kind !== 'crate' && e.kind !== 'freighter' && e.kind !== 'vault' && e.kind !== 'meteor') {
+        if (e.kind !== 'sentinel' && e.kind !== 'warden' && e.kind !== 'mothership' && e.kind !== 'battery' && e.kind !== 'reactor' && e.kind !== 'crate' && e.kind !== 'freighter' && e.kind !== 'vault' && e.kind !== 'meteor') {
             // Keep clear of rocks and of each other.
             engine.asteroids?.query(e.pos, e.radius + 12, (rock) => {
                 const away = _v1.subVectors(e.pos, rock.pos)
@@ -578,8 +881,9 @@ export function updateEnemies(engine: VoidEngine, dt: number) {
         }
 
         // Visuals
-        const scale = 1 + e.flash * 0.05
-        e.group.scale.setScalar(scale)
+        // Capital ships and their fittings never pulse in size on a hit.
+        const capital = e.kind === 'mothership' || e.kind === 'battery' || e.kind === 'reactor'
+        if (!capital) e.group.scale.setScalar(1 + e.flash * 0.05)
         for (const shell of e.hitMeshes) {
             shell.visible = e.flash > 0.02
             ;(shell.material as THREE.MeshBasicMaterial).opacity = e.flash * 0.55

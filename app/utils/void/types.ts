@@ -85,7 +85,7 @@ export interface EngineEvents {
     pause: (paused: boolean) => void
 }
 
-export type HostileKind = EnemyKind | 'mine' | 'crate' | 'warden' | 'freighter' | 'meteor' | 'vault'
+export type HostileKind = EnemyKind | 'mine' | 'crate' | 'warden' | 'freighter' | 'meteor' | 'vault' | 'mothership' | 'battery' | 'reactor'
 
 export interface Enemy {
     id: number

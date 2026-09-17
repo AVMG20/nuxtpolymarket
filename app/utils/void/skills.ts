@@ -6,8 +6,8 @@ import * as THREE from 'three'
 import { randomFloat } from '#shared/utils/random'
 import { voidShip } from '#shared/utils/gamelogic/void'
 import { voidSkill, voidSkillCooldown, voidSkillParams, type VoidSkillId } from '#shared/utils/gamelogic/void-skills'
-import { raySphere, type Asteroid } from './asteroids'
-import { damageEnemy } from './enemies'
+import type { Asteroid } from './asteroids'
+import { damageEnemy, enemyRayHit } from './enemies'
 import { explosion, hitSpark, Trail } from './fx'
 import { buildShip } from './ships'
 import type { VoidEngine } from './engine'
@@ -734,7 +734,7 @@ export class SkillRunner {
 
     /** Segment test used by the lance-style hitscan helpers. */
     static rayHits(from: THREE.Vector3, dir: THREE.Vector3, e: Enemy, length: number) {
-        const t = raySphere(from, dir, e.pos, e.radius)
+        const t = enemyRayHit(e, from, dir, length)
         return t !== null && t < length
     }
 }
