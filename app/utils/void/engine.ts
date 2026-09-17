@@ -413,6 +413,7 @@ export class VoidEngine {
         const pr = this.renderer.getPixelRatio()
         this.particles.setViewportHeight(h * pr, this.camera.fov)
         this.smoke.setViewportHeight(h * pr, this.camera.fov)
+        this.dust.setViewport(h * pr, this.camera.fov, pr)
     }
 
     dispose() {
@@ -792,7 +793,7 @@ export class VoidEngine {
         this.fillLight.intensity = 0.9
         RIM_COLOR.value.set(config.sector.palette[2]).lerp(new THREE.Color(0xffffff), 0.35).multiplyScalar(0.55)
         scene.add(this.sunLight, this.fillLight, this.playerLight, new THREE.AmbientLight(0x2a3040, 0.9))
-        scene.add(this.particles.points, this.smoke.points, this.lines.mesh, this.rings.group, this.debris.mesh, this.flashes.group, this.pickupMesh, this.dust.points)
+        scene.add(this.particles.points, this.smoke.points, this.lines.mesh, this.rings.group, this.debris.mesh, this.flashes.group, this.pickupMesh, this.dust.points, this.dust.lines.mesh)
         this.particles.clear()
         this.smoke.clear()
         this.sparks.clear()
@@ -1214,9 +1215,7 @@ export class VoidEngine {
         this.updateCamera(dt)
         this.sky?.update(this.camera, this.time)
         this.updateTracers(dt)
-        this.dust.update(this.camera.position, p.alive ? p.vel : _v1.set(0, 0, 0), (ax, ay, az, bx, by, bz, a) => {
-            this.lines.push(ax, ay, az, bx, by, bz, _c1.setRGB(0.6, 0.75, 1), a, 0.05)
-        })
+        this.dust.update(this.camera.position, p.alive ? p.vel : _v1.set(0, 0, 0))
         this.particles.update(dt)
         this.smoke.update(dt)
         this.sparks.update(dt, this.lines)
@@ -3142,6 +3141,7 @@ export class VoidEngine {
         const pr = this.renderer.getPixelRatio()
         this.particles.setViewportHeight(this.height * pr, this.camera.fov)
         this.smoke.setViewportHeight(this.height * pr, this.camera.fov)
+        this.dust.setViewport(this.height * pr, this.camera.fov, pr)
     }
 
     // ─── HUD ───────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@
 // it reads as infinitely far away.
 
 import * as THREE from 'three'
+import { LineBatch } from './fx'
 import { mulberry32 } from './models'
 
 const NEBULA_VERT = /* glsl */`
@@ -302,15 +303,50 @@ export function createSky(palette: readonly [number, number, number], seed: numb
     }
 }
 
+const DUST_VERT = /* glsl */`
+uniform float uScale;
+uniform float uSize;
+uniform float uHalf;
+uniform float uMaxPx;
+varying float vFade;
+void main() {
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    float d = max(0.001, -mv.z);
+    float size = uSize * uScale / d;
+    // Dust brushing past the lens must not balloon into a screen-sized
+    // disc: cap the sprite and fade it out close up and at the wrap edge.
+    gl_PointSize = clamp(size, 1.0, uMaxPx);
+    vFade = smoothstep(3.0, 12.0, d) * (1.0 - smoothstep(uHalf, uHalf * 1.7, length(mv.xyz))) * min(1.0, size);
+    gl_Position = projectionMatrix * mv;
+}`
+
+const DUST_FRAG = /* glsl */`
+uniform vec3 uColor;
+uniform float uOpacity;
+varying float vFade;
+void main() {
+    float r = length(gl_PointCoord - 0.5) * 2.0;
+    float a = 1.0 - smoothstep(0.0, 1.0, r);
+    a = a * a * uOpacity * vFade;
+    if (a < 0.003) discard;
+    gl_FragColor = vec4(uColor * a, a);
+}`
+
+const DUST_STREAK = new THREE.Color(0.5, 0.62, 0.82)
+
 /**
  * Drifting dust near the camera. It is what makes speed visible in empty
- * space: points at rest, streaks when the ship is moving fast.
+ * space: points at rest, streaks when the ship is moving fast. Both blend
+ * over the scene rather than adding light, so a bright nebula behind the
+ * dust never pushes it over the bloom threshold into glaring blobs.
  */
 export class SpaceDust {
     readonly points: THREE.Points
+    readonly lines = new LineBatch(400, true)
     private positions: Float32Array
     private count: number
     private box = 140
+    private material: THREE.ShaderMaterial
 
     constructor(count = 900) {
         this.count = count
@@ -318,25 +354,43 @@ export class SpaceDust {
         for (let i = 0; i < count * 3; i++) this.positions[i] = (Math.random() - 0.5) * this.box
         const geo = new THREE.BufferGeometry()
         geo.setAttribute('position', new THREE.BufferAttribute(this.positions, 3))
-        const dot = document.createElement('canvas')
-        dot.width = dot.height = 32
-        const g = dot.getContext('2d')!
-        const grad = g.createRadialGradient(16, 16, 0, 16, 16, 16)
-        grad.addColorStop(0, 'rgba(255,255,255,1)')
-        grad.addColorStop(0.35, 'rgba(255,255,255,0.5)')
-        grad.addColorStop(1, 'rgba(255,255,255,0)')
-        g.fillStyle = grad
-        g.fillRect(0, 0, 32, 32)
-        const mat = new THREE.PointsMaterial({ color: 0x9fb6d8, size: 0.3, map: new THREE.CanvasTexture(dot), sizeAttenuation: true, transparent: true, opacity: 0.6, depthWrite: false, blending: THREE.AdditiveBlending })
-        this.points = new THREE.Points(geo, mat)
+        this.material = new THREE.ShaderMaterial({
+            vertexShader: DUST_VERT,
+            fragmentShader: DUST_FRAG,
+            uniforms: {
+                uScale: { value: 500 },
+                uSize: { value: 0.3 },
+                uHalf: { value: this.box / 2 },
+                uMaxPx: { value: 4 },
+                uColor: { value: new THREE.Color(0x9fb6d8) },
+                uOpacity: { value: 0.6 }
+            },
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.CustomBlending,
+            blendSrc: THREE.OneFactor,
+            blendDst: THREE.OneMinusSrcAlphaFactor,
+            toneMapped: false
+        })
+        this.points = new THREE.Points(geo, this.material)
         this.points.frustumCulled = false
+        this.lines.mesh.renderOrder = 29
     }
 
-    /** Wraps dust around the camera and draws velocity streaks through `line`. */
-    update(camera: THREE.Vector3, velocity: THREE.Vector3, line: (ax: number, ay: number, az: number, bx: number, by: number, bz: number, alpha: number) => void) {
+    /** `height` in device pixels. */
+    setViewport(height: number, fov: number, pixelRatio: number) {
+        this.material.uniforms.uScale!.value = height / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2))
+        this.material.uniforms.uMaxPx!.value = 3.5 * pixelRatio
+    }
+
+    /** Wraps dust around the camera and draws velocity streaks. */
+    update(camera: THREE.Vector3, velocity: THREE.Vector3) {
         const half = this.box / 2
         const speed = velocity.length()
         const streak = Math.min(1, Math.max(0, (speed - 50) / 120))
+        // Streak length follows speed but stops growing, so a boost reads as
+        // faster without the dust turning into long bright bars.
+        const s = speed > 0 ? Math.min(0.035 * streak, 5 / speed) : 0
         const p = this.positions
         for (let i = 0; i < this.count; i++) {
             const o = i * 3
@@ -348,10 +402,15 @@ export class SpaceDust {
                 p[o + k] = v
             }
             if (streak > 0 && i % 3 === 0) {
-                const s = 0.035 * streak
-                line(p[o]!, p[o + 1]!, p[o + 2]!, p[o]! - velocity.x * s, p[o + 1]! - velocity.y * s, p[o + 2]! - velocity.z * s, streak * 0.35)
+                const x = p[o]!
+                const y = p[o + 1]!
+                const z = p[o + 2]!
+                const d = Math.hypot(x - camera.x, y - camera.y, z - camera.z)
+                const fade = 1 - Math.min(1, Math.max(0, (d - half) / (half * 0.7)))
+                this.lines.push(x, y, z, x - velocity.x * s, y - velocity.y * s, z - velocity.z * s, DUST_STREAK, streak * 0.3 * fade, 0.04)
             }
         }
         ;(this.points.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true
+        this.lines.flush()
     }
 }

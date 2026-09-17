@@ -289,7 +289,15 @@ void main() {
     float ends = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x);
     float a = core * vColor.a * mix(0.6, 1.0, ends);
     if (!(a >= 0.003)) discard;
+#ifdef SOFT
+    // Blended over the scene instead of added to it: a pixel never ends up
+    // brighter than the line colour, so dust over a bright nebula stays
+    // under the bloom threshold.
+    a = min(a, 1.0);
+    gl_FragColor = vec4(vColor.rgb * a, a);
+#else
     gl_FragColor = vec4(vColor.rgb * a, 1.0);
+#endif
 }`
 
 export class LineBatch {
@@ -303,7 +311,8 @@ export class LineBatch {
     private geometry: THREE.InstancedBufferGeometry
     private attrs: THREE.InstancedBufferAttribute[]
 
-    constructor(capacity: number) {
+    /** `soft` lines blend over the scene instead of adding light, so they never bloom. */
+    constructor(capacity: number, soft = false) {
         this.capacity = capacity
         const geo = new THREE.InstancedBufferGeometry()
         geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, -1, 0, 1, -1, 0, 1, 1, 0, 0, 1, 0]), 3))
@@ -323,9 +332,12 @@ export class LineBatch {
         const mat = new THREE.ShaderMaterial({
             vertexShader: LINE_VERT,
             fragmentShader: LINE_FRAG,
+            defines: soft ? { SOFT: '' } : {},
             transparent: true,
             depthWrite: false,
-            blending: THREE.AdditiveBlending,
+            ...(soft
+                ? { blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor }
+                : { blending: THREE.AdditiveBlending }),
             side: THREE.DoubleSide,
             toneMapped: false
         })
