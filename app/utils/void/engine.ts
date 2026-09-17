@@ -2484,9 +2484,10 @@ export class VoidEngine {
         this.pickups.push({ pos: pos.clone(), vel: this.randomDir(1).multiplyScalar(6), resource: 'core', amount: 0, life: 120, spin: 0, pulled: false, pullTime: 0, fuel: true })
     }
 
-    dropGear(pos: THREE.Vector3) {
+    /** `quiet` skips the toast when the cache lands right on the ship (bounty rewards). */
+    dropGear(pos: THREE.Vector3, quiet = false) {
         this.pickups.push({ pos: pos.clone(), vel: this.randomDir(1).multiplyScalar(6), resource: 'core', amount: 0, life: 120, spin: 0, pulled: false, pullTime: 0, gear: true })
-        this.events.toast('Salvaged gear dropped', 'good')
+        if (!quiet) this.events.toast('Salvaged gear dropped', 'good')
     }
 
     get relicMult() {
@@ -2784,10 +2785,10 @@ export class VoidEngine {
                 const reach = p.radius + 2.5 + pk.vel.length() * dt
                 if (d < reach && pk.gear) {
                     this.gearCaches++
-                    this.audio.play('levelUp', { volume: 1, pitch: 0.8 })
+                    this.audio.play('gear')
                     this.flashes.flash(p.pos, 0xc38bff, 40, 60)
                     this.rings.spawn(p.pos, 16, 0xc38bff, 0.6, 3)
-                    this.events.banner('Salvaged gear', 'Dock to crack it open and see what you got', 'good')
+                    this.events.toast('Salvaged gear secured. Extract to open it.', 'good')
                     continue
                 }
                 if (d < reach && pk.fuel) {
@@ -3188,6 +3189,7 @@ export class VoidEngine {
             skill: this.skills?.hud() ?? null,
             supplies: VOID_SUPPLIES.map(s => ({ id: s.id, name: s.name, key: s.key, count: this.supplies[s.id] ?? 0, color: `#${s.color.toString(16).padStart(6, '0')}` })),
             relics: this.relics,
+            gearCaches: this.gearCaches,
             systems: this.systems?.hud() ?? null,
             energyLow: p.energy < 0.2,
             gate: this.gate ? { distance: Math.round(this.gate.pos.distanceTo(p.pos)), fuel: this.fuel } : null,

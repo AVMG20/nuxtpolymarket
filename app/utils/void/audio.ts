@@ -10,6 +10,7 @@ export type VoidSfx =
     | 'hit' | 'rockHit' | 'shieldHit' | 'hullHit' | 'explosionSmall' | 'explosionLarge' | 'rockBreak'
     | 'pickup' | 'cargoFull' | 'boost' | 'ability' | 'blink' | 'warning' | 'charge'
     | 'dock' | 'undock' | 'ui' | 'uiConfirm' | 'uiError' | 'wardenAlert' | 'levelUp' | 'lowHull' | 'mineArm'
+    | 'bounty' | 'gear'
 
 export class VoidAudio {
     private ctx: AudioContext | null = null
@@ -308,6 +309,22 @@ export class VoidAudio {
                 this.tone('triangle', 660, 660, 0.08 * v, 0.005, 0.12)
                 this.tone('triangle', 990, 990, 0.08 * v, 0.005, 0.2, 0, 0.09)
                 this.tone('sine', 1320, 1320, 0.06 * v, 0.005, 0.4, 0, 0.18)
+                break
+            case 'bounty':
+                // A short brass-like fanfare: a low punch under a rising fifth and octave.
+                if (!this.gate(sfx, 0.8)) return
+                this.tone('sine', 110, 70, 0.14 * v, 0.004, 0.35)
+                this.tone('sawtooth', 392, 392, 0.035 * v, 0.01, 0.16)
+                this.tone('triangle', 587, 587, 0.07 * v, 0.01, 0.2, 0, 0.1)
+                this.tone('triangle', 784, 784, 0.08 * v, 0.01, 0.55, 0, 0.2)
+                this.tone('sine', 1568, 1568, 0.025 * v, 0.02, 0.6, 0, 0.2)
+                break
+            case 'gear':
+                // Something heavy clunks into the hold, then a bright shimmer of loot.
+                if (!this.gate(sfx, 0.4)) return
+                this.noise('lowpass', 900, 120, 0.8, 0.22 * v, 0.002, 0.25)
+                this.tone('sine', 180, 60, 0.18 * v, 0.003, 0.3)
+                for (let i = 0; i < 4; i++) this.tone('triangle', 1046 * Math.pow(1.26, i), 1046 * Math.pow(1.26, i), 0.045 * v, 0.004, 0.22, 0, 0.08 + i * 0.06)
                 break
             case 'lowHull':
                 if (!this.gate(sfx, 1.1)) return

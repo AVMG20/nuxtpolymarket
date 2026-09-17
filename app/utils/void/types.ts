@@ -21,6 +21,8 @@ export interface RunConfig {
     /** Lore ids the pilot already has, so logs are not repeated. */
     loreKnown?: string[]
     skill: { id: VoidSkillId, nodes: string[] }
+    /** Tier-1 pilot guide lessons already learned; null once the guide is over. */
+    guideLearned?: string[] | null
     /** Walk the pilot through the basics on their first flight. */
     tutorial?: boolean
 }
@@ -84,6 +86,7 @@ export interface HudState {
     skill: import('./skills').SkillHud | null
     supplies: { id: string, name: string, key: string, count: number, color: string }[]
     relics: number
+    gearCaches: number
     systems: import('./systems').SystemsHud | null
     energyLow: boolean
     gate: null | { distance: number, fuel: number }
@@ -102,6 +105,8 @@ export interface EngineEvents {
     /** The pilot opened the Free Trader. */
     trade: () => void
     pause: (paused: boolean) => void
+    /** The pilot guide ticked off a lesson; the page remembers it between runs. */
+    guide?: (lesson: string) => void
 }
 
 export type HostileKind = EnemyKind | 'mine' | 'crate' | 'warden' | 'freighter' | 'meteor' | 'vault' | 'mothership' | 'battery' | 'reactor' | 'trader'

@@ -249,6 +249,7 @@
 .vr-supply b { font: 600 12px 'JetBrains Mono', monospace; }
 .vr-supply-out { opacity: 0.35; }
 .vr-relic-count { --sc: #ffd27a; padding-left: 8px; color: var(--vr-gold); animation: vr-pulse 1.6s ease-in-out infinite; }
+.vr-gear-count { --sc: #c38bff; padding-left: 8px; color: #d9b8ff; }
 .vr-relics { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; border: 1px solid rgba(255, 210, 122, 0.5); background: rgba(255, 210, 122, 0.08); }
 .vr-relics span { font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase; color: var(--vr-gold); }
 .vr-relics b { font-weight: 700; text-shadow: 0 0 10px currentColor; }
@@ -303,3 +304,4 @@
 
 .vr-gear-loot { border-color: rgba(195, 139, 255, 0.55); background: rgba(195, 139, 255, 0.08); }
 .vr-gear-loot b { text-shadow: 0 0 12px currentColor; }
+.vr-gear-loot em { font-style: normal; font-size: 12px; color: var(--vr-muted); }

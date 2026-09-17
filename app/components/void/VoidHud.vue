@@ -92,6 +92,9 @@
                 <div v-if="hud.relics" class="vr-supply vr-relic-count" title="Relic caches">
                     <UIcon name="i-lucide-gem" class="size-3" /><b>{{ hud.relics }}</b>
                 </div>
+                <div v-if="hud.gearCaches" class="vr-supply vr-gear-count" title="Salvaged gear caches, opened when you extract">
+                    <UIcon name="i-lucide-package" class="size-3" /><b>{{ hud.gearCaches }}</b>
+                </div>
             </div>
             <div v-if="hud.abilityName" class="vr-ability" :class="{ 'vr-ready': hud.abilityReady >= 1, 'vr-active': hud.abilityActive }">
                 <kbd>R</kbd>
