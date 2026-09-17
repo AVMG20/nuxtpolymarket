@@ -1,11 +1,13 @@
 import { eq, and, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { colonyState, colonyBugs, colonyUpgrades, colonyBugResearch, colonyLoot, colonyItems } from '#server/database/schema'
+import { colonyState, colonyBuilderJobs, colonyBugs, colonyUpgrades, colonyBugResearch, colonyLoot, colonyItems, user } from '#server/database/schema'
 import { creditGems, debit } from '#server/utils/balance'
+import { getPrestigePurchaseCount } from '#server/utils/prestige-shop'
+import { colonyBuilderCount } from '#shared/utils/prestige-shop'
 import {
   getBug,
   getItem,
-  BUG_TYPES,
+  PURCHASABLE_BUG_TYPES,
   UPGRADE_TRACKS,
   effectiveTickMs,
   effectiveEatPerTick,
@@ -27,6 +29,7 @@ import {
   MAX_RESEARCH_LEVEL,
   researchSpeedRange,
   researchYieldRange,
+  researchResourceMultiplier,
   researchCost,
   type BugType,
   type ItemCost,
@@ -42,6 +45,64 @@ export async function ensureColonyState(userId: string) {
   if (existing) return existing
   const [created] = await db.insert(colonyState).values({ userId }).returning()
   return created!
+}
+
+/** Every builder job currently in flight for this user. */
+export async function getBuilderJobs(userId: string, ex: DbExecutor = db) {
+  return ex.select().from(colonyBuilderJobs).where(eq(colonyBuilderJobs.userId, userId))
+}
+
+/**
+ * How many builders this run has: the free one plus every Labour Contract
+ * bought from the prestige shop. Derived from the purchase count rather than
+ * stored, so an ascent wiping prestige_purchases takes the extra builders
+ * with it for free.
+ */
+export async function getBuilderCount(userId: string, ex: DbExecutor = db): Promise<number> {
+  return colonyBuilderCount(await getPrestigePurchaseCount(userId, 'colony-builder', ex))
+}
+
+/**
+ * Claim a builder for `trackId`, or throw explaining why not. Must be called
+ * inside the caller's transaction, and that transaction must also carry
+ * whatever the job costs — see start.post.ts.
+ *
+ * Two guards, because there are two different ways to cheat this:
+ *   - same track twice → the unique (user, track) constraint on the insert.
+ *   - more jobs than builders → a `FOR UPDATE` lock on the USER row taken
+ *     before the busy count is read (pattern B). Locking the job rows would
+ *     not work: with none in flight there is nothing to lock, so two
+ *     simultaneous starts on two different tracks would both read "0 busy".
+ */
+export async function claimBuilder(userId: string, trackId: string, tx: DbExecutor) {
+  const [locked] = await tx.select({ id: user.id }).from(user).where(eq(user.id, userId)).for('update')
+  if (!locked) throw createError({ statusCode: 404, statusMessage: 'User not found' })
+
+  const busy = await tx.select({ trackId: colonyBuilderJobs.trackId })
+    .from(colonyBuilderJobs)
+    .where(eq(colonyBuilderJobs.userId, userId))
+
+  if (busy.some(job => job.trackId === trackId)) {
+    throw createError({ statusCode: 400, statusMessage: 'A builder is already working on this' })
+  }
+
+  const builderCount = await getBuilderCount(userId, tx)
+  if (busy.length >= builderCount) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: builderCount === 1
+        ? 'The builder is already busy'
+        : `All ${builderCount} builders are busy`
+    })
+  }
+
+  const [claimed] = await tx.insert(colonyBuilderJobs)
+    .values({ userId, trackId, startedAt: new Date() })
+    .onConflictDoNothing()
+    .returning()
+  if (!claimed) throw createError({ statusCode: 409, statusMessage: 'A builder was just assigned to this — try again' })
+
+  return claimed
 }
 
 /** Every upgrade track's current level, keyed by trackId (0 if never started). */
@@ -144,9 +205,10 @@ export async function settleColony(userId: string) {
   const elapsedMs = now - state.lastSettledAt.getTime()
   if (elapsedMs <= 0) return state
 
-  const [allBugs, levels] = await Promise.all([
+  const [allBugs, levels, researchLevels] = await Promise.all([
     tx.query.colonyBugs.findMany({ where: eq(colonyBugs.userId, userId) }),
-    getUpgradeLevels(userId)
+    getUpgradeLevels(userId),
+    getResearchLevels(userId)
   ])
   // only bugs placed in the terrarium forage and eat — inventory bugs are dormant
   const bugs = allBugs.filter(b => b.inTerrarium)
@@ -201,9 +263,14 @@ export async function settleColony(userId: string) {
           // spanning many ticks we settle on the expected value
           // (avgTickYield) rather than rolling every individual tick.
           // The gem-feed buff and the Foraging Yield track both raise the
-          // effective yield LEVEL by a flat amount before that roll.
+          // effective yield LEVEL by a flat amount before that roll; this
+          // species' Research level then multiplies the result (+25%/level).
+          // The multiplier is applied to the whole settled batch and floored
+          // once — you never bank a fraction of an item — rather than being
+          // floored per individual tick.
           const effectiveYield = bug.yield + mods.yieldLevelBonus + (buffed ? GEM_FEED_YIELD_BONUS : 0)
-          const qty = Math.round(avgTickYield(effectiveYield) * ticks)
+          const multiplier = researchResourceMultiplier(researchLevels[bug.typeId] ?? 0)
+          const qty = Math.floor(avgTickYield(effectiveYield) * ticks * multiplier)
           lootByItem.set(type.itemId, (lootByItem.get(type.itemId) ?? 0) + qty)
         }
       }
@@ -387,17 +454,22 @@ export async function creditItems(userId: string, itemTypeId: string, quantity: 
 }
 
 /** Whether the user's claimed item inventory covers every line of a cost. */
-export async function hasItems(userId: string, items: ItemCost[]): Promise<boolean> {
+export async function hasItems(userId: string, items: ItemCost[], ex: DbExecutor = db): Promise<boolean> {
   if (items.length === 0) return true
-  const owned = await db.query.colonyItems.findMany({ where: eq(colonyItems.userId, userId) })
+  const owned = await ex.select().from(colonyItems).where(eq(colonyItems.userId, userId))
   const ownedMap = new Map(owned.map(o => [o.itemTypeId, o.quantity]))
   return items.every(need => (ownedMap.get(need.itemTypeId) ?? 0) >= need.quantity)
 }
 
-/** Deduct item quantities from the claimed inventory. Throws 400 if anything is short. */
-export async function consumeItems(userId: string, items: ItemCost[]) {
+/**
+ * Deduct item quantities from the claimed inventory. The `quantity >=` in the
+ * WHERE is the guard, not the hasItems() call in front of it — two concurrent
+ * builds spending the same stack both pass that read, and only one matches
+ * this UPDATE.
+ */
+export async function consumeItems(userId: string, items: ItemCost[], ex: DbExecutor = db) {
   for (const need of items) {
-    const res = await db.update(colonyItems)
+    const res = await ex.update(colonyItems)
       .set({ quantity: sql`${colonyItems.quantity} - ${need.quantity}` })
       .where(and(
         eq(colonyItems.userId, userId),
@@ -411,13 +483,19 @@ export async function consumeItems(userId: string, items: ItemCost[]) {
   }
 }
 
-/** Pay a {coins, items} price: checks + deducts items first, then debits coins. Throws 400 if short on either. */
-export async function payPrice(userId: string, price: Price) {
-  if (!(await hasItems(userId, price.items))) {
+/**
+ * Pay a {coins, items} price: checks + deducts items first, then debits coins.
+ * Throws 400 if short on either. Pass `ex` when the caller already holds a
+ * transaction — with parallel builders, claiming a builder and paying for the
+ * level it builds have to commit or roll back together, or a failed payment
+ * leaves a builder occupied by a job nobody bought.
+ */
+export async function payPrice(userId: string, price: Price, ex: DbExecutor = db) {
+  if (!(await hasItems(userId, price.items, ex))) {
     throw createError({ statusCode: 400, statusMessage: 'Not enough items for this upgrade' })
   }
-  if (price.items.length > 0) await consumeItems(userId, price.items)
-  if (price.coins > 0) await debit(userId, price.coins.toFixed(4), 'colony')
+  if (price.items.length > 0) await consumeItems(userId, price.items, ex)
+  if (price.coins > 0) await debit(userId, price.coins.toFixed(4), 'colony', ex)
 }
 
 // ─── state.get.ts DTO serializers ──────────────────────────────────────────
@@ -428,6 +506,7 @@ export async function payPrice(userId: string, price: Price) {
 type TrackModifiers = ReturnType<typeof deriveTrackModifiers>
 type ColonyBugRow = typeof colonyBugs.$inferSelect
 type ColonyStateRow = typeof colonyState.$inferSelect
+type ColonyBuilderJobRow = typeof colonyBuilderJobs.$inferSelect
 
 /** Gem-producing species don't forage a real ITEM_TYPES entry (itemId is ''), so display info is special-cased here instead of via getItem(). */
 export function foragedDisplay(type: BugType | undefined) {
@@ -436,7 +515,7 @@ export function foragedDisplay(type: BugType | undefined) {
   return { emoji: item?.emoji ?? '❓', name: item?.name ?? 'Item', sellValue: item?.sellValue ?? 0 }
 }
 
-function buildPlacedBugDto(bug: ColonyBugRow, mods: TrackModifiers, sameSpeciesCount: number, gemBuffActive: boolean, buffSpeedPct: number) {
+function buildPlacedBugDto(bug: ColonyBugRow, mods: TrackModifiers, sameSpeciesCount: number, gemBuffActive: boolean, buffSpeedPct: number, resourceMultiplier: number) {
   const type = getBug(bug.typeId)
   const display = foragedDisplay(type)
   const social = socialMultiplier(bug.typeId, sameSpeciesCount)
@@ -470,6 +549,10 @@ function buildPlacedBugDto(bug: ColonyBugRow, mods: TrackModifiers, sameSpeciesC
       itemsPerTickMax: gemsPerCycle,
       itemsPerHour: tickMs > 0 ? (gemsPerCycle / tickMs) * 3_600_000 : 0,
       gemsPerCycle,
+      // Gems are deliberately NOT multiplied by Research — MAX_GEMS_PER_DAY is
+      // the only thing that governs them. Reported as 1 so the UI can show the
+      // same field for every bug without special-casing.
+      resourceMultiplier: 1,
       feedPerHour: effectiveEatPerTick(bug, mods.feedMultiplier) * (3_600_000 / tickMs)
     }
   }
@@ -481,10 +564,14 @@ function buildPlacedBugDto(bug: ColonyBugRow, mods: TrackModifiers, sameSpeciesC
   // itself, bumped by the Foraging Yield track's flat level bonus and by
   // +1 more while the gem-feed buff is active. min is always 1, max is
   // effectiveYield+1, avg (for rate math) is avgTickYield.
+  // This species' Research level then multiplies whatever that roll produces
+  // (see researchResourceMultiplier) — a colony-wide bonus that applies to
+  // bugs already placed, not just newly bought ones. Settle floors the batch
+  // (see settleColony), so the display floors the per-tick figures to match.
   const effectiveYield = bug.yield + mods.yieldLevelBonus + (gemBuffActive ? GEM_FEED_YIELD_BONUS : 0)
-  const itemsPerTickMin = 1
-  const itemsPerTickMax = effectiveYield + 1
-  const itemsPerTickAvg = avgTickYield(effectiveYield)
+  const itemsPerTickMin = Math.floor(1 * resourceMultiplier)
+  const itemsPerTickMax = Math.floor((effectiveYield + 1) * resourceMultiplier)
+  const itemsPerTickAvg = avgTickYield(effectiveYield) * resourceMultiplier
   return {
     id: bug.id,
     typeId: bug.typeId,
@@ -510,6 +597,9 @@ function buildPlacedBugDto(bug: ColonyBugRow, mods: TrackModifiers, sameSpeciesC
     itemsPerTickMin,
     itemsPerTickMax,
     itemsPerHour: tickMs > 0 ? (itemsPerTickAvg / tickMs) * 3_600_000 : 0,
+    // Surfaced so the bug tooltip can show WHY this bug out-produces an
+    // identical one of an unresearched species.
+    resourceMultiplier,
     // Eating is tied to completed ticks (see effectiveFeedPerHour) — a
     // faster effective tick from the speed trait, the Foraging Speed
     // track, a Social speed bonus, or the gem-feed buff means more meals
@@ -523,7 +613,7 @@ function buildPlacedBugDto(bug: ColonyBugRow, mods: TrackModifiers, sameSpeciesC
  * drain/hr — both ride the same same-species-count and gem-feed-buff state,
  * so they're derived together in one pass over placedBugs.
  */
-export function serializePlacedBugs(placedBugs: ColonyBugRow[], mods: TrackModifiers, gemBuffActive: boolean) {
+export function serializePlacedBugs(placedBugs: ColonyBugRow[], mods: TrackModifiers, gemBuffActive: boolean, researchLevels: Record<string, number> = {}) {
   const buffSpeedPct = gemBuffActive ? GEM_FEED_SPEED_BONUS_PCT : 0
   const sameSpeciesCounts = new Map<string, number>()
   for (const bug of placedBugs) sameSpeciesCounts.set(bug.typeId, (sameSpeciesCounts.get(bug.typeId) ?? 0) + 1)
@@ -539,14 +629,21 @@ export function serializePlacedBugs(placedBugs: ColonyBugRow[], mods: TrackModif
   }, 0)
 
   const bugs = placedBugs.map(bug =>
-    buildPlacedBugDto(bug, mods, sameSpeciesCounts.get(bug.typeId) ?? 1, gemBuffActive, buffSpeedPct)
+    buildPlacedBugDto(
+      bug,
+      mods,
+      sameSpeciesCounts.get(bug.typeId) ?? 1,
+      gemBuffActive,
+      buffSpeedPct,
+      researchResourceMultiplier(researchLevels[bug.typeId] ?? 0)
+    )
   )
 
   return { bugs, nutritionDrainPerHour }
 }
 
 /** Unplaced bugs, stacked by type+traits, with display/feed info for the inventory list. */
-export function serializeBugInventory(unplacedBugs: ColonyBugRow[], mods: TrackModifiers) {
+export function serializeBugInventory(unplacedBugs: ColonyBugRow[], mods: TrackModifiers, researchLevels: Record<string, number> = {}) {
   const bugStacks = new Map<string, { typeId: string, speed: number, yield: number, eat: number, quantity: number }>()
   for (const bug of unplacedBugs) {
     const key = `${bug.typeId}:${bug.speed}:${bug.yield}:${bug.eat}`
@@ -569,6 +666,7 @@ export function serializeBugInventory(unplacedBugs: ColonyBugRow[], mods: TrackM
       tier: type?.tier ?? 1,
       social: type?.social ?? true,
       producesGems: type?.producesGems ?? false,
+      resourceMultiplier: type?.producesGems ? 1 : researchResourceMultiplier(researchLevels[stack.typeId] ?? 0),
       baseTickMs: type?.baseTickMs ?? 0,
       yieldMin: type?.yieldMin ?? 0,
       yieldMax: type?.yieldMax ?? 0,
@@ -608,37 +706,44 @@ export function serializeUpgradeTracks(levels: Record<string, number>, habitatLe
   })
 }
 
-/** The single builder's current job (track level-up or habitat level-up), or null if idle. */
-export function serializeBuilder(state: ColonyStateRow, levels: Record<string, number>) {
-  if (!state.builderTrackId || !state.builderStartedAt) return null
-
-  if (state.builderTrackId === HABITAT_BUILDER_JOB_ID) {
+/** One builder's in-flight job (track level-up or habitat level-up). */
+export function serializeBuilderJob(job: ColonyBuilderJobRow, state: ColonyStateRow, levels: Record<string, number>) {
+  if (job.trackId === HABITAT_BUILDER_JOB_ID) {
     return {
       kind: 'habitat' as const,
-      trackId: state.builderTrackId,
+      id: job.id,
+      trackId: job.trackId,
       trackName: 'Habitat',
       level: state.habitatLevel + 1,
-      startedAt: state.builderStartedAt.toISOString(),
-      completesAt: new Date(state.builderStartedAt.getTime() + habitatLevelUpDurationMs(state.habitatLevel)).toISOString()
+      startedAt: job.startedAt.toISOString(),
+      completesAt: new Date(job.startedAt.getTime() + habitatLevelUpDurationMs(state.habitatLevel)).toISOString()
     }
   }
 
-  const track = UPGRADE_TRACKS.find(t => t.id === state.builderTrackId)
-  const nextLevel = (levels[state.builderTrackId] ?? 0) + 1
+  const track = UPGRADE_TRACKS.find(t => t.id === job.trackId)
+  const nextLevel = (levels[job.trackId] ?? 0) + 1
   const durationMs = trackLevelDurationMs(nextLevel)
   return {
     kind: 'track' as const,
-    trackId: state.builderTrackId,
-    trackName: track?.name ?? state.builderTrackId,
+    id: job.id,
+    trackId: job.trackId,
+    trackName: track?.name ?? job.trackId,
     level: nextLevel,
-    startedAt: state.builderStartedAt.toISOString(),
-    completesAt: new Date(state.builderStartedAt.getTime() + durationMs).toISOString()
+    startedAt: job.startedAt.toISOString(),
+    completesAt: new Date(job.startedAt.getTime() + durationMs).toISOString()
   }
 }
 
-/** Every species' Research DTO: current roll range, next range, and coin cost to advance. */
+/** Every in-flight builder job, oldest first so the list doesn't reshuffle on refresh. */
+export function serializeBuilders(jobs: ColonyBuilderJobRow[], state: ColonyStateRow, levels: Record<string, number>) {
+  return [...jobs]
+    .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime())
+    .map(job => serializeBuilderJob(job, state, levels))
+}
+
+/** Every species' Research DTO: current roll ranges and resource multiplier, what the next level buys, and the coin cost to advance. */
 export function serializeResearch(researchLevels: Record<string, number>) {
-  return BUG_TYPES.map((t) => {
+  return PURCHASABLE_BUG_TYPES.map((t) => {
     const researchLevel = researchLevels[t.id] ?? 0
     const atMax = researchLevel >= MAX_RESEARCH_LEVEL
     const [speedMin, speedMax] = researchSpeedRange(researchLevel)
@@ -656,16 +761,18 @@ export function serializeResearch(researchLevels: Record<string, number>) {
       speedMax,
       yieldMin,
       yieldMax,
+      resourceMultiplier: researchResourceMultiplier(researchLevel),
       nextSpeedRange: atMax ? null : researchSpeedRange(researchLevel + 1),
       nextYieldRange: atMax ? null : researchYieldRange(researchLevel + 1),
+      nextResourceMultiplier: atMax ? null : researchResourceMultiplier(researchLevel + 1),
       cost
     }
   })
 }
 
-/** Every species' catalog entry: current roll range (from Research), buyability, and owned count. */
+/** Every species' catalog entry: current roll ranges and resource multiplier (from Research), buyability, and owned count. */
 export function serializeSpeciesCatalog(bugs: ColonyBugRow[], researchLevels: Record<string, number>, habitatLevel: number) {
-  return BUG_TYPES.map((t) => {
+  return PURCHASABLE_BUG_TYPES.map((t) => {
     const display = foragedDisplay(t)
     const researchLevel = researchLevels[t.id] ?? 0
     const [speedMin, speedMax] = researchSpeedRange(researchLevel)
@@ -679,6 +786,7 @@ export function serializeSpeciesCatalog(bugs: ColonyBugRow[], researchLevels: Re
       speedMin,
       speedMax,
       researchLevel,
+      resourceMultiplier: researchResourceMultiplier(researchLevel),
       buyable: t.tier <= habitatLevel,
       owned: bugs.filter(b => b.typeId === t.id).length,
       itemEmoji: display.emoji,

@@ -6,6 +6,8 @@
   "scripts": {
     "build": "nuxt build",
     "dev": "bun --bun nuxt dev",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
@@ -13,8 +15,16 @@
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
     "test:integration": "vitest run --reporter=verbose",
+    "sentry:check": "bun scripts/sentry-check.ts",
     "balance:xeno": "bun scripts/xeno-income.ts",
-    "balance:colony": "bun scripts/colony-income.ts"
+    "balance:colony": "bun scripts/colony-income.ts",
+    "balance:hack": "bun scripts/hack-income.ts",
+    "balance:firewall": "bun scripts/firewall-balance.ts",
+    "balance:pathwarden": "bun scripts/pathwarden-balance.ts",
+    "balance:pirates": "bun scripts/pirates-balance.ts",
+    "balance:shapezz": "bun scripts/shapezz-balance.ts",
+    "balance:compare": "bun scripts/economy-compare.ts",
+    "tcg:rarity-audit": "bun scripts/tcg-rarity-audit.ts"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.98",
@@ -31,12 +41,14 @@
     "pg": "^8.20.0",
     "pixi-reels": "^1.1.0",
     "pixi.js": "^8.19.0",
-    "tailwindcss": "^4.2.1"
+    "tailwindcss": "^4.2.1",
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@elevenlabs/elevenlabs-js": "^2.59.0",
     "@nuxt/eslint": "^1.15.2",
     "@types/pg": "^8.18.0",
+    "@types/three": "^0.185.4",
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.0.3",
     "openai": "^6.49.0",

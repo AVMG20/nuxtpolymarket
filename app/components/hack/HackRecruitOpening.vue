@@ -177,7 +177,6 @@ async function reject() {
   rejecting.value = true
   try {
     await $fetch('/api/hack/agents/fire', { method: 'POST', body: { agentId: result.value.id } })
-    toast.add({ title: `${result.value.name} rejected`, color: 'neutral' })
     open.value = false
   } catch (e: any) {
     toast.add({ title: e.data?.statusMessage ?? 'Failed to reject', color: 'error' })

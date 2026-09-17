@@ -8,7 +8,10 @@ export default defineEventHandler(async (event) => {
   const userId = await requireUserId(event)
 
   const type = getBug(body.typeId)
-  if (!type) throw createError({ statusCode: 400, statusMessage: `Unknown bug type: ${body.typeId}` })
+  // prestigeOnly species are shop grants, not merchandise — getBug still
+  // resolves them (placed bugs have to serialize) but they are not for sale
+  // at any habitat level or price.
+  if (!type || type.prestigeOnly) throw createError({ statusCode: 400, statusMessage: `Unknown bug type: ${body.typeId}` })
 
   const state = await settleColony(userId)
 
@@ -17,8 +20,10 @@ export default defineEventHandler(async (event) => {
   }
 
   // The roll range for both speed and yield is driven by this species'
-  // Research level (see rollTraitPct/rollYieldLevel) — sacrificing bugs of
-  // this type on the Research page is the only way to raise it.
+  // Research level (see rollTraitPct/rollYieldLevel) — researching this type on
+  // the Research page is the only way to raise it. Research ALSO multiplies
+  // what this species forages colony-wide (see researchResourceMultiplier),
+  // which needs no roll and applies to bugs already owned.
   const researchLevel = await getResearchLevel(userId, type.id)
 
   // bought bugs land in inventory, unplaced — no capacity check here, that

@@ -19,6 +19,12 @@ export default defineEventHandler(async (event) => {
   if (!bug) throw createError({ statusCode: 404, statusMessage: 'Bug not found' })
 
   const type = getBug(bug.typeId)
+  // Prestige-only species are granted, never bought, so their spawnCost is a
+  // notional figure nobody ever paid — refunding half of it turns the grant
+  // into a coin printer (five Hive Snails off one token liquidate for 10M
+  // without ever running the gem loop). They stay in the colony for the run.
+  if (type?.prestigeOnly) throw createError({ statusCode: 400, statusMessage: `A ${type.name} cannot be released` })
+
   const refund = (type?.spawnCost ?? 0) * REMOVE_REFUND_RATE
 
   // Releasing a bug stops it immediately — credit whatever fraction of its

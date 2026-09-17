@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { parseAmount } from '#shared/utils/parse-amount'
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import type {
   AetherBonusTier,
@@ -64,7 +65,7 @@ function setBet(v: number) {
 }
 
 function commitBetInput() {
-  setBet(parseInt(betInput.value.replace(/[^\d]/g, ''), 10) || MIN_BET)
+  setBet(parseAmount(betInput.value) ?? MIN_BET)
   betInput.value = String(bet.value)
 }
 
@@ -1259,10 +1260,10 @@ onUnmounted(() => {
                 </div>
                 <div class="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-[rgba(250,204,21,0.12)] bg-black/40 px-2.5 py-1.5">
                   <span class="text-[10px] font-black tracking-wide uppercase text-muted">Bet</span>
+                  <output v-if="amountPreview(betInput)" class="ml-auto text-[10px] tabular-nums text-muted">{{ amountPreview(betInput) }}</output>
                   <input
                     v-model="betInput"
                     :disabled="isSpinning || autoSpinEnabled"
-                    inputmode="numeric"
                     aria-label="Bet amount"
                     class="w-24 border-0 bg-transparent text-right text-sm font-black text-white outline-none"
                     @blur="commitBetInput"

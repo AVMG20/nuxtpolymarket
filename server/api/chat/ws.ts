@@ -62,7 +62,7 @@ export default defineWebSocketHandler({
     if (!content) return
 
     const [currentSender] = await db
-      .select({ name: user.name, emblem: user.emblem })
+      .select({ name: user.name, emblem: user.emblem, prestige: user.prestige })
       .from(user)
       .where(eq(user.id, sender.id))
       .limit(1)
@@ -96,6 +96,7 @@ export default defineWebSocketHandler({
       userId: sender.id,
       name: currentSender.name,
       emblem: currentSender.emblem,
+      prestige: currentSender.prestige,
       content: row.content,
       createdAt: row.createdAt.toISOString()
     })

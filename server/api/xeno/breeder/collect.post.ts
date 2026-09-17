@@ -46,20 +46,30 @@ export default defineEventHandler(async (event) => {
   // resultQuantity already includes extraYield (set by computeBreedResult at breed start)
   const totalQty = slot.resultQuantity ?? 1
   const plantType = getPlantOrThrow(slot.resultTypeId)
+  const { resultTypeId, resultSpeed, resultYield, wasMutation } = slot
 
-  await addPlants(userId, slot.resultTypeId, slot.resultSpeed, slot.resultYield, totalQty)
+  return db.transaction(async (tx) => {
+    // Flipping `collected` is the claim — a second concurrent collect matches
+    // zero rows and throws instead of paying the litter out twice.
+    const [claimed] = await tx.update(xenoBreederSlots)
+      .set({
+        plant1TypeId: null, plant1Speed: null, plant1Yield: null,
+        plant2TypeId: null, plant2Speed: null, plant2Yield: null,
+        startedAt: null,
+        resultTypeId: null, resultSpeed: null, resultYield: null, resultQuantity: null, wasMutation: null,
+        collected: true,
+      })
+      .where(and(
+        eq(xenoBreederSlots.id, slot.id),
+        eq(xenoBreederSlots.userId, userId),
+        eq(xenoBreederSlots.collected, false),
+      ))
+      .returning({ id: xenoBreederSlots.id })
+    if (!claimed) throw createError({ statusCode: 400, statusMessage: 'Already collected' })
 
-  if (slot.artifactId) await consumeArtifactCharge(slot.artifactId, 'breeder', slot.id)
+    await addPlants(userId, resultTypeId, resultSpeed, resultYield, totalQty, tx)
+    if (slot.artifactId) await consumeArtifactCharge(slot.artifactId, 'breeder', slot.id, tx)
 
-  await db.update(xenoBreederSlots)
-    .set({
-      plant1TypeId: null, plant1Speed: null, plant1Yield: null,
-      plant2TypeId: null, plant2Speed: null, plant2Yield: null,
-      startedAt: null,
-      resultTypeId: null, resultSpeed: null, resultYield: null, resultQuantity: null, wasMutation: null,
-      collected: true,
-    })
-    .where(eq(xenoBreederSlots.id, slot.id))
-
-  return { collected: totalQty, plantName: plantType.name, wasMutation: slot.wasMutation }
+    return { collected: totalQty, plantName: plantType.name, wasMutation }
+  })
 })

@@ -1,17 +1,19 @@
 <script setup lang="ts">
+import { parseAmount } from '#shared/utils/parse-amount'
+
 interface LeaderboardUser {
   isCurrentUser: boolean
+  id: string
   name: string
   emblem: string | null
+  prestige: number
   balance: string
   bankBalance: number
+  inDebt: boolean
+  bailoutActive: boolean
+  bailoutRemaining: number
   gems: number
   gemValue: number
-  rigLevel: number
-  vaultLevel: number
-  factoryLevel: number
-  overclockPct: number
-  catalystPct: number
   hackPower: number
   colonyHabitatLevel: number
   colonyResearchLevels: number
@@ -19,12 +21,17 @@ interface LeaderboardUser {
   xenoGridSlotsUnlocked: number
   xenoBreederSlotsUnlocked: number
   aiPromptsUsed: number
-  totalLevels: number
+  battlerRunsWon: number
+  battlerRating: number | null
+  battlerBattlesWon: number
+  battlerBattlesLost: number
   totalUpgrades: number
   totalWealth: number
 }
 
-const { data: users, pending } = await useFetch<LeaderboardUser[]>('/api/leaderboard')
+const { data: users, pending, refresh } = await useAsyncData('leaderboard', () => apiFetch<LeaderboardUser[]>('/api/leaderboard'))
+const { user: me, balanceNum, fetchSession } = useAuth()
+const toast = useToast()
 
 const selectedUser = ref<LeaderboardUser | null>(null)
 const detailsOpen = computed({
@@ -40,16 +47,80 @@ const rankBg = [
   'bg-gradient-to-r from-amber-700/10 to-amber-600/5 border-amber-700/30'
 ]
 
-const upgradeColors = {
-  miner: 'text-yellow-400',
-  vault: 'text-green-400',
-  factory: 'text-cyan-400',
-  overclock: 'text-orange-400',
-  catalyst: 'text-violet-400'
-}
-
 function openDetails(user: LeaderboardUser) {
   selectedUser.value = user
+  giftCoinsInput.value = ''
+  giftGemsInput.value = ''
+}
+
+// -- gifting ------------------------------------------------------------------
+
+const giftCoinsInput = ref('')
+const giftGemsInput = ref('')
+const gifting = ref(false)
+
+const giftCoins = computed(() => {
+  if (!giftCoinsInput.value.trim()) return 0
+  const parsed = parseAmount(giftCoinsInput.value)
+  return parsed === null || parsed < 0.01 ? null : parsed
+})
+const giftGems = computed(() => {
+  if (!giftGemsInput.value.trim()) return 0
+  const parsed = parseAmount(giftGemsInput.value)
+  return parsed === null || !Number.isInteger(parsed) ? null : parsed
+})
+const myGems = computed(() => me.value?.gems ?? 0)
+
+const coinsTooMany = computed(() => (giftCoins.value ?? 0) > balanceNum.value)
+const gemsTooMany = computed(() => (giftGems.value ?? 0) > myGems.value)
+const canGift = computed(() =>
+  !!me.value
+  && !gifting.value
+  && giftCoins.value !== null
+  && giftGems.value !== null
+  && ((giftCoins.value ?? 0) > 0 || (giftGems.value ?? 0) > 0)
+  && !coinsTooMany.value
+  && !gemsTooMany.value
+)
+
+const coinPresets = ['10k', '100k', '1m', '10m', '100m', '1b']
+const gemPresets = ['10', '100', '1k', '10k']
+
+function setCoins(preset: string) {
+  giftCoinsInput.value = preset
+}
+
+function setGems(preset: string) {
+  giftGemsInput.value = preset
+}
+
+function allCoins() {
+  giftCoinsInput.value = Math.floor(balanceNum.value * 100) / 100 > 0 ? String(Math.floor(balanceNum.value * 100) / 100) : ''
+}
+
+function allGems() {
+  giftGemsInput.value = myGems.value > 0 ? String(myGems.value) : ''
+}
+
+async function sendGift() {
+  const target = selectedUser.value
+  if (!target || !canGift.value) return
+  gifting.value = true
+  try {
+    await apiFetch('/api/gift', {
+      method: 'POST',
+      body: { toUserId: target.id, coins: giftCoins.value ?? 0, gems: giftGems.value ?? 0 }
+    })
+    giftCoinsInput.value = ''
+    giftGemsInput.value = ''
+    await Promise.all([fetchSession(), refresh()])
+    const updated = users.value?.find(u => u.id === target.id)
+    if (updated) selectedUser.value = updated
+  } catch (error) {
+    toast.add({ title: apiErrorMessage(error, 'Gift failed'), color: 'error' })
+  } finally {
+    gifting.value = false
+  }
 }
 </script>
 
@@ -60,21 +131,20 @@ function openDetails(user: LeaderboardUser) {
         <UIcon name="i-lucide-trophy" class="size-6 text-yellow-400" />
         Leaderboard
       </h1>
-      <p class="mt-0.5 text-sm text-muted">Top players ranked by total upgrades, then total wealth</p>
+      <p class="mt-0.5 text-sm text-muted">Top players ranked by prestige, then total upgrades, then total wealth</p>
     </div>
 
     <LeaderboardSkeleton v-if="pending" />
 
     <UCard v-else-if="users?.length" :ui="{ body: 'p-0 sm:p-0' }">
       <div class="overflow-x-auto">
-        <table class="min-w-[1200px] w-full border-collapse text-sm">
+        <table class="min-w-[960px] w-full border-collapse text-sm">
           <thead class="border-b border-default bg-elevated/50 text-xs font-bold uppercase tracking-wide text-muted">
             <tr>
               <th scope="col" class="w-14 px-3 py-3 text-center"><UTooltip text="Rank"><UIcon name="i-lucide-trophy" class="mx-auto size-4" /></UTooltip></th>
               <th scope="col" class="min-w-44 px-3 py-3 text-left">Player</th>
               <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Total upgrades"><UIcon name="i-lucide-arrow-big-up-dash" class="size-4" /></UTooltip></th>
               <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Balances"><UIcon name="i-lucide-wallet-cards" class="size-4" /></UTooltip></th>
-              <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Miner progression"><UIcon name="i-lucide-pickaxe" class="size-4" /></UTooltip></th>
               <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Game progress"><UIcon name="i-lucide-chart-no-axes-combined" class="size-4" /></UTooltip></th>
             </tr>
           </thead>
@@ -95,9 +165,21 @@ function openDetails(user: LeaderboardUser) {
               </td>
               <td class="px-3 py-3">
                 <div class="flex items-center gap-2.5">
-                  <ProfileEmblem :emblem="u.emblem" :name="u.name" class="size-9 text-sm" />
+                  <ProfileEmblem :emblem="u.emblem" :name="u.name" :prestige="u.prestige" class="size-9 text-sm" />
                   <p class="max-w-40 truncate font-semibold">{{ u.name }}</p>
                   <LeaderboardYouBadge :show="u.isCurrentUser" />
+                  <UTooltip text="Open profile">
+                    <UButton
+                      :to="`/players/${u.id}`"
+                      icon="i-lucide-external-link"
+                      size="xs"
+                      variant="ghost"
+                      color="neutral"
+                      class="text-muted"
+                      :aria-label="`Open ${u.name}'s profile`"
+                      @click.stop
+                    />
+                  </UTooltip>
                 </div>
               </td>
               <td class="px-3 py-3">
@@ -109,18 +191,12 @@ function openDetails(user: LeaderboardUser) {
               </td>
               <td class="px-3 py-3">
                 <div class="flex items-center gap-3 whitespace-nowrap text-xs font-semibold">
-                  <UTooltip text="Wallet"><CoinBalance :value="u.balance" /></UTooltip>
+                  <UTooltip :text="u.inDebt ? 'Wallet — this player owes the bank' : 'Wallet'"><CoinBalance :value="u.balance" :danger="u.inDebt" /></UTooltip>
                   <UTooltip text="Bank"><BankBalance :value="u.bankBalance" /></UTooltip>
+                  <UTooltip v-if="u.bailoutActive" :text="`Took a bank bail-out — ${formatNumber(u.bailoutRemaining, false, 2)} still being levied back`">
+                    <UIcon name="i-lucide-life-buoy" class="size-4 shrink-0 text-warning" />
+                  </UTooltip>
                   <UTooltip text="Gems and gem value"><span class="inline-flex items-center gap-1"><GemBalance :value="u.gems" /><CoinBalance :value="u.gemValue" /></span></UTooltip>
-                </div>
-              </td>
-              <td class="px-3 py-3">
-                <div class="flex items-center gap-2.5 whitespace-nowrap font-semibold tabular-nums">
-                  <UTooltip text="Rig level"><span class="inline-flex items-center gap-1"><UIcon name="i-lucide-cpu" class="size-3.5 text-warning" />{{ u.rigLevel }}</span></UTooltip>
-                  <UTooltip text="Vault level"><span class="inline-flex items-center gap-1"><UIcon name="i-lucide-vault" class="size-3.5 text-success" />{{ u.vaultLevel }}</span></UTooltip>
-                  <UTooltip text="Factory level"><span class="inline-flex items-center gap-1"><UIcon name="i-lucide-factory" class="size-3.5 text-info" />{{ u.factoryLevel }}</span></UTooltip>
-                  <UTooltip text="Rig Overclock"><span class="inline-flex items-center gap-1 text-warning"><UIcon name="i-lucide-gauge" class="size-3.5" />+{{ u.overclockPct }}%</span></UTooltip>
-                  <UTooltip text="Factory Catalyst"><span class="inline-flex items-center gap-1 text-secondary"><UIcon name="i-lucide-flask-conical" class="size-3.5" />+{{ u.catalystPct }}%</span></UTooltip>
                 </div>
               </td>
               <td class="px-3 py-3">
@@ -132,6 +208,11 @@ function openDetails(user: LeaderboardUser) {
                   <UTooltip text="Xeno grid tiles"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-grid-2x2" class="size-3.5" />{{ u.xenoGridSlotsUnlocked }}</span></UTooltip>
                   <UTooltip text="Xeno breeder slots"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-dna" class="size-3.5" />{{ u.xenoBreederSlotsUnlocked }}</span></UTooltip>
                   <UTooltip text="AI prompts used"><span class="inline-flex items-center gap-1 text-info"><UIcon name="i-lucide-bot" class="size-3.5" />{{ formatNumber(u.aiPromptsUsed, false) }}</span></UTooltip>
+                  <UTooltip :text="`Battler — ${u.battlerRating == null ? 'unrated' : `${u.battlerRating} Elo`}, ${u.battlerRunsWon} runs won, ${u.battlerBattlesWon}–${u.battlerBattlesLost} in battles`">
+                    <span class="inline-flex items-center gap-1 text-secondary">
+                      <UIcon name="i-lucide-swords" class="size-3.5" />{{ u.battlerRating ?? '—' }}
+                    </span>
+                  </UTooltip>
                 </div>
               </td>
             </tr>
@@ -150,8 +231,10 @@ function openDetails(user: LeaderboardUser) {
       <template v-if="selectedUser" #body>
         <div class="space-y-5">
           <div class="flex items-center gap-3">
-            <ProfileEmblem :emblem="selectedUser.emblem" :name="selectedUser.name" class="size-12 text-lg" />
-            <p class="min-w-0 truncate font-semibold">{{ selectedUser.name }}</p>
+            <ProfileEmblem :emblem="selectedUser.emblem" :name="selectedUser.name" :prestige="selectedUser.prestige" class="size-12 text-lg" />
+            <PrestigeBadge :level="selectedUser.prestige" size="md" />
+            <p class="min-w-0 flex-1 truncate font-semibold">{{ selectedUser.name }}</p>
+            <UButton :to="`/players/${selectedUser.id}`" icon="i-lucide-external-link" size="xs" variant="soft" color="neutral" label="Profile" />
           </div>
 
           <div class="grid grid-cols-3 gap-2">
@@ -166,40 +249,69 @@ function openDetails(user: LeaderboardUser) {
               </div>
             </div>
             <div class="rounded-lg border border-default bg-elevated/40 p-3">
-              <CoinBalance :value="selectedUser.balance" class="mt-1 block text-base font-bold" />
+              <CoinBalance :value="selectedUser.balance" :danger="selectedUser.inDebt" class="mt-1 block text-base font-bold" />
               <p class="mt-0.5 text-[10px] text-muted">Wallet</p>
             </div>
           </div>
 
-          <div>
-            <p class="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Miner progression</p>
-            <div class="grid grid-cols-3 gap-2">
-              <div class="rounded-lg bg-elevated/60 p-3 text-center">
-                <UIcon name="i-lucide-cpu" class="size-4" :class="upgradeColors.miner" />
-                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.miner">{{ selectedUser.rigLevel }}</p>
-                <p class="text-[10px] text-muted">Miner</p>
-              </div>
-              <div class="rounded-lg bg-elevated/60 p-3 text-center">
-                <UIcon name="i-lucide-vault" class="size-4" :class="upgradeColors.vault" />
-                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.vault">{{ selectedUser.vaultLevel }}</p>
-                <p class="text-[10px] text-muted">Vault</p>
-              </div>
-              <div class="rounded-lg bg-elevated/60 p-3 text-center">
-                <UIcon name="i-lucide-factory" class="size-4" :class="upgradeColors.factory" />
-                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.factory">{{ selectedUser.factoryLevel }}</p>
-                <p class="text-[10px] text-muted">Factory</p>
-              </div>
-              <div class="rounded-lg bg-elevated/60 p-3 text-center">
-                <UIcon name="i-lucide-gauge" class="size-4" :class="upgradeColors.overclock" />
-                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.overclock">+{{ selectedUser.overclockPct }}%</p>
-                <p class="text-[10px] text-muted">Rig Overclock</p>
-              </div>
-              <div class="rounded-lg bg-elevated/60 p-3 text-center">
-                <UIcon name="i-lucide-flask-conical" class="size-4" :class="upgradeColors.catalyst" />
-                <p class="mt-1 text-lg font-bold tabular-nums" :class="upgradeColors.catalyst">+{{ selectedUser.catalystPct }}%</p>
-                <p class="text-[10px] text-muted">Factory Catalyst</p>
-              </div>
+          <div v-if="selectedUser.bailoutActive" class="flex items-center gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-xs">
+            <UIcon name="i-lucide-life-buoy" class="size-4 shrink-0 text-warning" />
+            <span class="text-muted">Bail-out running —</span>
+            <CoinBalance :value="selectedUser.bailoutRemaining" :compact="false" :minimum-fraction-digits="2" class="font-semibold" />
+            <span class="text-muted">left to levy back</span>
+          </div>
+
+          <div v-if="me && !selectedUser.isCurrentUser" class="rounded-lg border border-primary/30 bg-primary/5 p-3">
+            <div class="mb-3 flex items-center gap-2">
+              <UIcon name="i-lucide-gift" class="size-4 text-primary" />
+              <p class="text-xs font-medium uppercase tracking-wide text-muted">Gift {{ selectedUser.name }}</p>
             </div>
+
+            <form class="space-y-3" @submit.prevent="sendGift">
+              <div class="space-y-1.5">
+                <UInput
+                  v-model="giftCoinsInput"
+                  placeholder="Coins — e.g. 200k, 2.5m, 2b"
+                  icon="i-lucide-coins"
+                  autocomplete="off"
+                  class="w-full"
+                  :color="giftCoins === null || coinsTooMany ? 'error' : undefined"
+                >
+                  <template v-if="giftCoins" #trailing>
+                    <span class="text-xs tabular-nums text-muted">{{ formatNumber(giftCoins, false) }}</span>
+                  </template>
+                </UInput>
+                <div class="flex flex-wrap gap-1">
+                  <UButton v-for="p in coinPresets" :key="p" size="xs" variant="soft" color="neutral" @click="setCoins(p)">{{ p }}</UButton>
+                  <UButton size="xs" variant="soft" color="neutral" :disabled="balanceNum <= 0" @click="allCoins">All</UButton>
+                </div>
+                <p v-if="coinsTooMany" class="text-xs text-error">You only have <CoinBalance :value="me.balance" :compact="false" /></p>
+              </div>
+
+              <div class="space-y-1.5">
+                <UInput
+                  v-model="giftGemsInput"
+                  placeholder="Gems — e.g. 50, 1k"
+                  icon="i-lucide-gem"
+                  autocomplete="off"
+                  class="w-full"
+                  :color="giftGems === null || gemsTooMany ? 'error' : undefined"
+                >
+                  <template v-if="giftGems" #trailing>
+                    <span class="text-xs tabular-nums text-muted">{{ formatNumber(giftGems, false) }}</span>
+                  </template>
+                </UInput>
+                <div class="flex flex-wrap gap-1">
+                  <UButton v-for="p in gemPresets" :key="p" size="xs" variant="soft" color="neutral" @click="setGems(p)">{{ p }}</UButton>
+                  <UButton size="xs" variant="soft" color="neutral" :disabled="myGems <= 0" @click="allGems">All</UButton>
+                </div>
+                <p v-if="gemsTooMany" class="text-xs text-error">You only have <GemBalance :value="myGems" :compact="false" /></p>
+              </div>
+
+              <UButton type="submit" icon="i-lucide-gift" block :disabled="!canGift" :loading="gifting">
+                Send gift
+              </UButton>
+            </form>
           </div>
 
           <div>

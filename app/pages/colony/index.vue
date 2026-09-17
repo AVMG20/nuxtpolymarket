@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { tierBg, tierColor, levelTextColor } from '#shared/utils/xeno'
-import { avgTickYield } from '#shared/utils/colony'
+import { avgTickYield, getBug } from '#shared/utils/colony'
 import { formatDuration, traitTextColor } from '~/lib/colony-format'
 
 const colony = useColony()
-const { bugs, bugInventory, inventory, capacity, placedCount, nutrition, nutritionMax, nutritionDrainPerHour, feedCost, gemNutrition, gemBuffActive, gemFeedCost, gemFeedNutritionPerGem, initialized, pending, pendingLoot, serverNow } = colony
+const { bugs, bugInventory, inventory, capacity, placedCount, upgrades, habitatLevel, nutrition, nutritionMax, nutritionDrainPerHour, feedCost, gemNutrition, gemBuffActive, gemFeedCost, gemFeedNutritionPerGem, initialized, pending, pendingLoot, serverNow } = colony
 
 const { user } = useAuth()
 const balance = computed(() => parseFloat(user.value?.balance ?? '0'))
@@ -34,6 +34,11 @@ const sortedPlacedBugs = computed(() => [...bugs.value].sort((a: any, b: any) =>
   const nameDifference = a.name.localeCompare(b.name)
   return nameDifference !== 0 ? nameDifference : a.id.localeCompare(b.id)
 }))
+
+/** Prestige-shop grants cannot be released — the server refuses it. */
+function isPrestigeOnly(typeId: string): boolean {
+  return getBug(typeId)?.prestigeOnly ?? false
+}
 
 /** Effective tick time for an unplaced stack (speed trait applied, no habitat speed_boost track since that's colony-wide and not modeled here for a dormant bug — matches the market card's own convention). */
 function stackTickMs(stack: any): number {
@@ -424,6 +429,8 @@ function bugYieldPerCycle(bug: any): string {
               :bugs="bugs"
               :is-starving="isStarving"
               :has-spare-bugs="!!bugInventory.length"
+              :upgrades="upgrades"
+              :habitat-level="habitatLevel"
               @produced="handleBugProduced"
             />
             <template #fallback>
@@ -766,6 +773,13 @@ function bugYieldPerCycle(bug: any): string {
                         <span class="text-xs font-bold uppercase tracking-wider text-muted">Eat</span>
                         <span class="text-xs font-black tabular-nums text-muted">{{ bug.eat }} / cycle</span>
                       </div>
+                      <div
+                        v-if="bug.resourceMultiplier > 1"
+                        class="flex items-center justify-between gap-3"
+                      >
+                        <span class="text-xs font-bold uppercase tracking-wider text-muted">Research</span>
+                        <span class="text-xs font-black tabular-nums text-primary">×{{ bug.resourceMultiplier }} resources</span>
+                      </div>
                     </div>
 
                     <USeparator />
@@ -813,8 +827,11 @@ function bugYieldPerCycle(bug: any): string {
                   :class="[tierBg(bug.tier), unplacingId === bug.id ? 'opacity-50 pointer-events-none' : 'hover:ring-1 hover:ring-primary/50']"
                   @click="handleUnplace(bug.id)"
                 >
-                  <!-- Release (hover reveal) -->
+                  <!-- Release (hover reveal). Prestige-only species have no
+                       release: they were granted, not bought, so there is no
+                       spawn cost to hand back — see bugs/remove.post.ts. -->
                   <button
+                    v-if="!isPrestigeOnly(bug.typeId)"
                     class="absolute top-1.5 right-1.5 z-20 size-5 flex items-center justify-center rounded bg-black/30 opacity-0 group-hover:opacity-100 hover:bg-error hover:text-white transition-all"
                     title="Release — refunds 50% of spawn cost, plus credit for progress on the current cycle"
                     @click.stop="colony.removeBug(bug.id)"

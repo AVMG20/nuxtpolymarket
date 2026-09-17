@@ -17,13 +17,12 @@ const EMAIL = 'test@gmail.com'
 const PASSWORD = 'password123'
 
 const ALL_TRAIT_TYPES: AgentTraitType[] = [
-  'gem_chance',
+  'gem_yield',
   'speed_percent',
   'loot_percent',
   'xp_boost',
   'power_flat',
   'power_percent',
-  'gem_bonus',
 ]
 
 function traitMid(type: AgentTraitType) {
@@ -125,7 +124,7 @@ async function main() {
     slot: 'software',
     itemLevel: 3,
     rarity: 'operative',
-    mods: [{ type: 'loot_percent', value: 4 }, { type: 'gem_chance', value: 0.005 }],
+    mods: [{ type: 'loot_percent', value: 4 }, { type: 'gem_yield', value: 22 }],
     equippedBy: a1.id,
     createdAt: now,
   }).returning()
@@ -193,7 +192,7 @@ async function main() {
       inventoryFull: false,
       artifacts: [
         { type: 'loot_percent', rarity: 'specialist', count: 1 } as ArtifactRoll,
-        { type: 'gem_chance', rarity: 'ghost', count: 2 } as ArtifactRoll,
+        { type: 'gem_yield', rarity: 'ghost', count: 2 } as ArtifactRoll,
       ]
     },
     {

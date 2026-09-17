@@ -191,9 +191,13 @@ function initialize() {
     if (!import.meta.client || initialized) return
     initialized = true
     const storedEnabled = localStorage.getItem('pirates-sound-enabled')
-    const storedVolume = Number(localStorage.getItem('pirates-sound-volume'))
+    const storedVolume = localStorage.getItem('pirates-sound-volume')
     if (storedEnabled !== null) soundEnabled.value = storedEnabled === 'true'
-    if (Number.isFinite(storedVolume)) soundVolume.value = Math.max(0, Math.min(100, storedVolume))
+    // Number(null) is 0, not NaN, so reading the volume without the null check
+    // first sets it to zero and silently mutes the game on every first visit.
+    if (storedVolume !== null && Number.isFinite(Number(storedVolume))) {
+        soundVolume.value = Math.max(0, Math.min(100, Number(storedVolume)))
+    }
     watch(soundEnabled, (enabled) => {
         localStorage.setItem('pirates-sound-enabled', String(enabled))
         updateAmbienceLevel()

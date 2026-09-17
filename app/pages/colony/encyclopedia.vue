@@ -62,7 +62,7 @@ import {
             </p>
           </div>
           <p class="text-xs text-muted">
-            A fixed level rolled on purchase. Each cycle drops between 1 and yield level + 1 items. Research raises future roll ranges up to level {{ MAX_YIELD_LEVEL }}.
+            A fixed level rolled on purchase. Each cycle drops between 1 and yield level + 1 items. Research raises future roll ranges up to level {{ MAX_YIELD_LEVEL }}, and multiplies what every bug of that species forages on top of it.
           </p>
         </UCard>
         <UCard>
@@ -131,10 +131,10 @@ import {
             class="size-5 text-primary mb-2"
           />
           <p class="font-semibold text-sm">
-            One builder
+            Builders are shared
           </p>
           <p class="text-xs text-muted mt-1">
-            Track upgrades and Habitat levels share one builder. Keep early bugs working because later construction still needs their materials.
+            Track upgrades and Habitat levels share one builder — the Prestige Shop's Labour Contract adds more. Keep early bugs working because later construction still needs their materials.
           </p>
         </UCard>
       </div>

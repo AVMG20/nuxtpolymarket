@@ -1,9 +1,23 @@
 import { relations, sql } from 'drizzle-orm'
-import { pgTable, text, timestamp, boolean, index, numeric, integer, unique, jsonb, bigint } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, index, uniqueIndex, numeric, integer, unique, jsonb, bigint } from 'drizzle-orm/pg-core'
 import type {
   PathwardenGameState,
   PathwardenMapPlan
 } from '#shared/types/pathwarden-save'
+import type { FirewallRunSave } from '#shared/utils/gamelogic/firewall'
+import type { CallOfXenoRunSave } from '#shared/utils/gamelogic/call-of-xeno-save'
+import type { MeadowbrawlRunSave } from '#shared/utils/gamelogic/meadowbrawl-meta'
+import type {
+  TcgSheetLayout,
+  TcgPackTemplateSlot,
+  TcgPackCut,
+  TcgRestockEntry,
+  TcgCardRaw,
+  TcgCondition
+} from '#shared/types/tcg-db'
+import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
+import type { TownEventData } from '#shared/utils/gamelogic/town-events'
+import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -15,7 +29,13 @@ export const user = pgTable('user', {
   balance: numeric('balance', { precision: 19, scale: 4 }).notNull().default('0'),
   rake: numeric('rake', { precision: 19, scale: 4 }).notNull().default('0'),
   rakebackUnlocked: boolean('rakeback_unlocked').notNull().default(false),
+  isPokemonAdmin: boolean('is_pokemon_admin').notNull().default(false),
   gems: integer('gems').notNull().default(0),
+  // Account-wide reset tier, 0-4. Raised only by server/utils/prestige.ts,
+  // which wipes every game table in the same transaction.
+  prestige: integer('prestige').notNull().default(0),
+  // Paid out on each ascent (5/10/15/20) and spent in the prestige shop.
+  prestigeTokens: integer('prestige_tokens').notNull().default(0),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at')
     .defaultNow()
@@ -48,7 +68,12 @@ export const transactions = pgTable(
     category: text('category'),
     createdAt: timestamp('created_at').defaultNow().notNull()
   },
-  table => [index('transactions_userId_createdAt_idx').on(table.userId, table.createdAt)]
+  table => [
+    index('transactions_userId_createdAt_idx').on(table.userId, table.createdAt),
+    // The site-wide audit filters on createdAt alone, which the composite index
+    // above cannot serve because userId leads it.
+    index('transactions_createdAt_idx').on(table.createdAt)
+  ]
 )
 
 export const session = pgTable(
@@ -271,6 +296,57 @@ export const voidRunHistory = pgTable('void_run_history', {
   index('void_run_history_userId_createdAt_idx').on(t.userId, t.createdAt)
 ])
 
+// ─── MEADOWBRAWL ─────────────────────────────────────────────────────────
+
+export const meadowbrawlState = pgTable('meadowbrawl_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  // Homestead — permanent upgrade tracks.
+  prosperityLevel: integer('prosperity_level').notNull().default(0),
+  // Pet levels by pet id; a missing key means not adopted yet.
+  petLevels: jsonb('pet_levels').$type<Record<string, number>>().notNull().default({}),
+  activePet: text('active_pet'),
+  // Weapons earned so far (the sword is implicit) plus the deepest wave
+  // cleared with each weapon, which is what the unlock feats read.
+  unlockedWeapons: jsonb('unlocked_weapons').$type<string[]>().notNull().default([]),
+  bestWaveByWeapon: jsonb('best_wave_by_weapon').$type<Record<string, number>>().notNull().default({}),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  victories: integer('victories').notNull().default(0),
+  totalEarned: numeric('total_earned', { precision: 19, scale: 4 }).notNull().default('0'),
+  bestEarned: integer('best_earned').notNull().default(0),
+  bestWave: integer('best_wave').notNull().default(0),
+  // Active-run lock plus the payout-relevant snapshot taken at the start,
+  // so buying Prosperity or levelling the pet mid-run cannot change what
+  // the run already earned its way to.
+  runStartedAt: timestamp('run_started_at'),
+  runWeapon: text('run_weapon'),
+  runPet: text('run_pet'),
+  runPetLevel: integer('run_pet_level').notNull().default(0),
+  runCoinMult: numeric('run_coin_mult', { precision: 10, scale: 4 }),
+  // Wave-boundary checkpoint of the active run, restored on resume.
+  runSave: jsonb('run_save').$type<MeadowbrawlRunSave>(),
+  runSaveRevision: integer('run_save_revision').notNull().default(0),
+  lastRunFinishedAt: timestamp('last_run_finished_at')
+})
+
+export const meadowbrawlRuns = pgTable('meadowbrawl_runs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  weapon: text('weapon').notNull(),
+  pet: text('pet'),
+  wavesCleared: integer('waves_cleared').notNull().default(0),
+  won: boolean('won').notNull().default(false),
+  // Base coins the settle counted, and the cash it turned into.
+  coins: integer('coins').notNull().default(0),
+  awarded: integer('awarded').notNull().default(0),
+  capped: boolean('capped').notNull().default(false),
+  kills: integer('kills').notNull().default(0),
+  durationSeconds: integer('duration_seconds').notNull().default(0),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('meadowbrawl_runs_userId_createdAt_idx').on(t.userId, t.createdAt)
+])
+
 // ─── SHAPEZZ ─────────────────────────────────────────────────────────────
 
 export const shapezzState = pgTable('shapezz_state', {
@@ -363,6 +439,89 @@ export const pathwardenRuns = pgTable('pathwarden_runs', {
  * a Postgres advisory lock (see server/utils/gem-exchange.ts) so the book is
  * only ever mutated by one request at a time.
  */
+// ─── FIREWALL ────────────────────────────────────────────────────────────
+
+// Permanent, coin-bought Mainframe levels plus the account records the
+// difficulty gate reads. A run in progress is the `runStartedAt` lock here and
+// the save blob in `firewallRuns` — the two are always written together.
+export const firewallState = pgTable('firewall_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  bulwarkLevel: integer('bulwark_level').notNull().default(0),
+  munitionsLevel: integer('munitions_level').notNull().default(0),
+  foundryLevel: integer('foundry_level').notNull().default(0),
+  grantLevel: integer('grant_level').notNull().default(0),
+  salvageLevel: integer('salvage_level').notNull().default(0),
+  capacitorLevel: integer('capacitor_level').notNull().default(0),
+  charterLevel: integer('charter_level').notNull().default(0),
+  arsenalLevel: integer('arsenal_level').notNull().default(0),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  totalCoinsEarned: numeric('total_coins_earned', { precision: 19, scale: 4 }).notNull().default('0'),
+  // Gates the higher difficulties. Only ever raised by a settled run.
+  bestWave: integer('best_wave').notNull().default(0),
+  bestKills: integer('best_kills').notNull().default(0),
+  bestPayout: integer('best_payout').notNull().default(0),
+  victories: integer('victories').notNull().default(0),
+  runStartedAt: timestamp('run_started_at'),
+  runDifficultySnapshot: text('run_difficulty_snapshot'),
+  runPowerSnapshot: integer('run_power_snapshot'),
+  // Salvage Rig is snapshotted at deploy so a level bought mid-run cannot
+  // retroactively multiply coins the run already banked.
+  runCoinMultiplierSnapshot: numeric('run_coin_multiplier_snapshot', { precision: 10, scale: 4 }),
+  lastRunFinishedAt: timestamp('last_run_finished_at')
+})
+
+// One saved run per user, replaced wholesale on every uplink. `revision` is a
+// compare-and-swap guard so two tabs cannot interleave saves.
+export const firewallRuns = pgTable('firewall_runs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  revision: integer('revision').notNull().default(0),
+  saveVersion: integer('save_version').notNull(),
+  runState: jsonb('run_state').$type<FirewallRunSave>().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
+})
+
+// ─── CALL OF XENO ────────────────────────────────────────────────────────
+
+// Permanent, coin-bought upgrades plus the per-difficulty records that gate
+// the harder tiers. The game itself is fully client-side; the server's job is
+// owning the levels, stamping a run snapshot at deploy and settling the
+// payout against a wall-clock ceiling at finish.
+export const callOfXenoState = pgTable('call_of_xeno_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  warChestLevel: integer('war_chest_level').notNull().default(0),
+  bodyArmorLevel: integer('body_armor_level').notNull().default(0),
+  adrenalineLevel: integer('adrenaline_level').notNull().default(0),
+  scavengerLevel: integer('scavenger_level').notNull().default(0),
+  contractLevel: integer('contract_level').notNull().default(0),
+  sidearmLevel: integer('sidearm_level').notNull().default(0),
+  rigLevel: integer('rig_level').notNull().default(0),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  totalEarned: numeric('total_earned', { precision: 19, scale: 4 }).notNull().default('0'),
+  bestEarned: integer('best_earned').notNull().default(0),
+  // Best round reached per difficulty tier — Veteran reads Recruit's, etc.
+  bestRoundRecruit: integer('best_round_recruit').notNull().default(0),
+  bestRoundVeteran: integer('best_round_veteran').notNull().default(0),
+  bestRoundSurvivor: integer('best_round_survivor').notNull().default(0),
+  bestRoundNightmare: integer('best_round_nightmare').notNull().default(0),
+  // Active-run lock + the payout-relevant snapshot taken at deploy.
+  runStartedAt: timestamp('run_started_at'),
+  runDifficultySnapshot: text('run_difficulty_snapshot'),
+  runPayoutMultSnapshot: numeric('run_payout_mult_snapshot', { precision: 10, scale: 4 }),
+  // Round-boundary checkpoint of the active run, restored on resume.
+  runSave: jsonb('run_save').$type<CallOfXenoRunSave>(),
+  // Optimistic-concurrency token for runSave writes; reset at deploy.
+  runSaveRevision: integer('run_save_revision').notNull().default(0),
+  lastRunFinishedAt: timestamp('last_run_finished_at'),
+  // The player's single best run — what the leaderboard shows.
+  bestRunRounds: integer('best_run_rounds').notNull().default(0),
+  bestRunDurationSeconds: integer('best_run_duration_seconds').notNull().default(0),
+  bestRunDifficulty: text('best_run_difficulty')
+})
+
 export const gemOrders = pgTable('gem_orders', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
@@ -401,7 +560,15 @@ export const bankState = pgTable('bank_state', {
   principal: numeric('principal', { precision: 19, scale: 4 }).notNull().default('0'),
   maxPrincipal: numeric('max_principal', { precision: 19, scale: 4 }).notNull().default('0'),
   loanPrincipal: numeric('loan_principal', { precision: 19, scale: 4 }).notNull().default('0'),
-  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull()
+  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull(),
+  // Bail-out ledger. The debt is lifted off `balance` and parked here: the 40%
+  // levy pays it down into `bailoutRepaid`, and the penalty ends at whichever
+  // comes first — `bailoutUntil` lapsing or the two meeting. `bailoutUntil` is
+  // nulled the moment it is settled, which is also the flag for "no penalty".
+  bailoutAt: timestamp('bailout_at'),
+  bailoutUntil: timestamp('bailout_until'),
+  bailoutDebt: numeric('bailout_debt', { precision: 19, scale: 4 }).notNull().default('0'),
+  bailoutRepaid: numeric('bailout_repaid', { precision: 19, scale: 4 }).notNull().default('0')
 })
 
 /** Snapshot only at bank actions; the UI projects the latest point in real time. */
@@ -414,14 +581,47 @@ export const bankHistory = pgTable('bank_history', {
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [index('bank_history_userId_createdAt_idx').on(t.userId, t.createdAt)])
 
-export const blackjackSessions = pgTable('blackjack_sessions', {
-  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
-  state: jsonb('state').notNull(),
-  bet: numeric('bet', { precision: 19, scale: 4 }).notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
-})
+/**
+ * Escrow for the live table. Every stake — opening bet, double, split, insurance
+ * — writes a row in the same transaction as its debit, and settlement marks the
+ * row settled in the same transaction as the payout. A process that dies
+ * mid-round therefore leaves its unsettled stakes visible, and the recovery
+ * sweep in server/plugins refunds them instead of pocketing the player's money.
+ */
+export const liveBlackjackWagers = pgTable(
+  'live_blackjack_wagers',
+  {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    roundId: integer('round_id').notNull(),
+    amount: numeric('amount', { precision: 19, scale: 4 }).notNull(),
+    kind: text('kind').notNull(),
+    settled: boolean('settled').notNull().default(false),
+    createdAt: timestamp('created_at').defaultNow().notNull()
+  },
+  table => [index('live_blackjack_wagers_settled_createdAt_idx').on(table.settled, table.createdAt)]
+)
+
+/**
+ * Escrow for every table game built on the shared LiveTable base — roulette,
+ * baccarat, three card poker, casino hold'em. Same contract as the blackjack
+ * table above, with a `game` column instead of a table per game, so one
+ * recovery sweep covers all of them.
+ */
+export const tableWagers = pgTable(
+  'table_wagers',
+  {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    game: text('game').notNull(),
+    userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    roundId: integer('round_id').notNull(),
+    amount: numeric('amount', { precision: 19, scale: 4 }).notNull(),
+    kind: text('kind').notNull(),
+    settled: boolean('settled').notNull().default(false),
+    createdAt: timestamp('created_at').defaultNow().notNull()
+  },
+  table => [index('table_wagers_settled_createdAt_idx').on(table.settled, table.createdAt)]
+)
 
 // ─── Xeno ──────────────────────────────────────────────────────────────────
 
@@ -480,7 +680,13 @@ export const xenoGridSlots = pgTable('xeno_grid_slots', {
   plantId: text('plant_id').references(() => xenoPlants.id, { onDelete: 'set null' }),
   startedAt: timestamp('started_at'),
   artifactId: text('artifact_id').references(() => xenoArtifacts.id, { onDelete: 'set null' })
-}, t => [index('xeno_grid_userId_idx').on(t.userId)])
+}, t => [
+  index('xeno_grid_userId_idx').on(t.userId),
+  // A plant instance grows in at most one slot. Two slots pointing at the same
+  // row meant harvesting one deleted the row under the other (FK SET NULL) and
+  // left a phantom plot that could neither be seen, harvested nor replanted.
+  uniqueIndex('xeno_grid_plantId_uniq').on(t.plantId).where(sql`plant_id is not null`)
+])
 
 /**
  * Breeder slots. Parents are consumed (deleted from xenoPlants) when breeding starts;
@@ -533,11 +739,30 @@ export const colonyState = pgTable('colony_state', {
    * nutrition <= nutritionMax).
    */
   gemNutrition: integer('gem_nutrition').notNull().default(0),
-  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull(),
-  /** The single builder's current job, if any — cleared on collect. */
-  builderTrackId: text('builder_track_id'),
-  builderStartedAt: timestamp('builder_started_at')
+  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull()
 })
+
+/**
+ * One row = one builder currently working. A colony has BASE_BUILDER_COUNT
+ * builders plus whatever the prestige shop's Labour Contract granted, so the
+ * number of concurrent rows is capped by the caller, not the schema.
+ *
+ * The unique (user, track) constraint is the real guard, not a convenience:
+ * two builders on the same track would each collect "level N+1" and the
+ * player would pay once for a level they got twice. HABITAT_BUILDER_JOB_ID
+ * occupies the same namespace, so the habitat can also only ever have one
+ * builder on it.
+ */
+export const colonyBuilderJobs = pgTable('colony_builder_jobs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** An UpgradeTrackId, or HABITAT_BUILDER_JOB_ID for a habitat level-up. */
+  trackId: text('track_id').notNull(),
+  startedAt: timestamp('started_at').defaultNow().notNull()
+}, t => [
+  index('colony_builder_jobs_userId_idx').on(t.userId),
+  unique('colony_builder_jobs_unique').on(t.userId, t.trackId)
+])
 
 /**
  * One row = one bug instance. Buying a bug puts it in the player's inventory
@@ -601,11 +826,12 @@ export const colonyUpgrades = pgTable('colony_upgrades', {
 ])
 
 /**
- * Per-species research level (0-4) — sacrificing a growing number of a
- * species' own bugs on the Research page raises the roll range every FUTURE
- * purchase of that species uses (see RESEARCH_SPEED_MIN/MAX and
- * RESEARCH_YIELD_MIN/MAX in shared/utils/colony.ts). One row per species
- * the player has ever researched; missing = level 0 (base roll).
+ * Per-species research level (0-4) — paying coins on the Research page widens
+ * the SPEED roll range every future purchase of that species uses, and
+ * multiplies everything that species forages by up to 2x for bugs already
+ * owned (see RESEARCH_SPEED_MIN/MAX and RESEARCH_RESOURCE_MULTIPLIERS in
+ * shared/utils/colony.ts). One row per species the player has ever
+ * researched; missing = level 0.
  */
 export const colonyBugResearch = pgTable('colony_bug_research', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -615,6 +841,31 @@ export const colonyBugResearch = pgTable('colony_bug_research', {
 }, t => [
   index('colony_bug_research_userId_idx').on(t.userId),
   unique('colony_bug_research_unique').on(t.typeId, t.userId)
+])
+
+// ─── Prestige shop ────────────────────────────────────────────────────────────
+
+/**
+ * How many times this run has bought each prestige shop item. One row per
+ * (user, item); missing means zero owned.
+ *
+ * This carries a `user_id` and is deliberately NOT on the prestige preserve
+ * list, so ascending wipes it along with everything else the tokens bought.
+ * That is what makes the token refund honest: the perks die in the same
+ * transaction that hands the allowance back (see server/utils/prestige.ts).
+ *
+ * Some items apply their effect once, at purchase (plants, bugs, agents,
+ * levels); others are read live from this count (the miner level ceilings,
+ * see minerRigMaxLevel). Both kinds vanish here.
+ */
+export const prestigePurchases = pgTable('prestige_purchases', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  itemId: text('item_id').notNull(),
+  count: integer('count').notNull().default(0)
+}, t => [
+  index('prestige_purchases_userId_idx').on(t.userId),
+  unique('prestige_purchases_unique').on(t.userId, t.itemId)
 ])
 
 // ─── Hack Ops ─────────────────────────────────────────────────────────────────
@@ -679,6 +930,9 @@ export const hackOps = pgTable('hack_ops', {
   startedAt: timestamp('started_at').defaultNow().notNull(),
   completesAt: timestamp('completes_at').notNull(),
   collected: boolean('collected').notNull().default(false),
+  // When set, collecting this op immediately dispatches the same template with
+  // the same squad (and carries the flag over), so a grind loop needs no clicks.
+  autoRedeploy: boolean('auto_redeploy').notNull().default(false),
   reward: jsonb('reward')
 }, t => [index('hack_ops_userId_idx').on(t.userId)])
 
@@ -741,6 +995,562 @@ export const aiMessages = pgTable('ai_messages', {
   index('ai_messages_userId_role_createdAt_idx').on(t.userId, t.role, t.createdAt)
 ])
 
+// ─── TCG Collector ────────────────────────────────────────────────────────────
+
+/**
+ * One authored set. Lifecycle: 'draft' (checklist/sheets/template editable) →
+ * 'committed' (secretKey generated, commitmentDigest published, everything
+ * frozen; packs become purchasable). `secretKey` is server-only and must NEVER
+ * be serialized to any client, admin included. Pack purchase is guarded by a
+ * conditional UPDATE on packsSold (mutation-is-the-guard) — packsSold only ever
+ * moves forward and never exceeds targetPackCount.
+ */
+export const tcgSet = pgTable('tcg_sets', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  name: text('name').notNull(),
+  code: text('code').notNull(),
+  plaatjesSetCode: text('plaatjes_set_code'),
+  /** Pricedex rate-template code this set was created from, null for manual sets. */
+  templateCode: text('template_code'),
+  /** The full scraped rate template — provenance for diagnostics and god fitting. */
+  publishedRates: jsonb('published_rates').$type<RateTemplate>(),
+  releaseDate: text('release_date'),
+  status: text('status').notNull().default('draft'), // 'draft' | 'committed'
+  /** N — total packs this print run can ever sell. Set before commit. */
+  targetPackCount: integer('target_pack_count'),
+  /** Published god-pack rate ("1 in X"). Null = the set has no god packs. */
+  godPackOneIn: integer('god_pack_one_in'),
+  /** G — exact god pack count, derived and frozen at commit. */
+  godPackCount: integer('god_pack_count'),
+  /** Hex CSPRNG key generated at commit. Server-only — never serialized. */
+  secretKey: text('secret_key'),
+  /** sha256 over canonical layouts + k + N + G + key, published at commit. */
+  commitmentDigest: text('commitment_digest'),
+  packsSold: integer('packs_sold').notNull().default(0),
+  basePacksSold: integer('base_packs_sold').notNull().default(0),
+  godPacksSold: integer('god_packs_sold').notNull().default(0),
+  /**
+   * Reprints (§3.6): a later print run is its own set row linked to the run
+   * it reprints. Never fungible — its printings, packs and populations are
+   * all its own.
+   */
+  reprintOfSetId: text('reprint_of_set_id'),
+  /** '1st' for original runs; the reprint's stamp text otherwise (§5.4). */
+  printRunLabel: text('print_run_label').notNull().default('1st'),
+  /**
+   * The announcement gate (§3.6): a committed set is visible in the shop but
+   * not buyable until this passes. Null = on sale at commit.
+   */
+  onSaleAt: timestamp('on_sale_at'),
+  /**
+   * Returned reservations awaiting random re-surfacing (admin debug returns).
+   * Read-modify-write only under the set row lock (lockSetForUpdate).
+   */
+  restockPool: jsonb('restock_pool').$type<TcgRestockEntry[]>().notNull().default([]),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
+})
+
+/**
+ * One checklist entry (variant suffixes stripped — `plaatjesBaseId` is the
+ * suffix-free id). Imported from the pokemonplaatjes sidecar; read-only after
+ * import, replaced wholesale on re-import while the set is still a draft.
+ */
+export const tcgCard = pgTable('tcg_cards', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  plaatjesBaseId: text('plaatjes_base_id').notNull(),
+  number: text('number').notNull(),
+  setTotal: integer('set_total'),
+  name: text('name').notNull(),
+  rarity: text('rarity'),
+  rarityCode: text('rarity_code'),
+  category: text('category'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  raw: jsonb('raw').$type<TcgCardRaw>().notNull()
+}, t => [
+  index('tcg_cards_setId_sortOrder_idx').on(t.setId, t.sortOrder),
+  unique('tcg_cards_setId_plaatjesBaseId_unique').on(t.setId, t.plaatjesBaseId)
+])
+
+/**
+ * One printable variant of a card (`plaatjesCardId` keeps the variant suffix,
+ * e.g. `_ph`). Carries everything the WebGL foil renderer needs so pack-open
+ * responses never have to re-derive render refs. Referenced by id from sheet
+ * layouts; read-only after import.
+ */
+export const tcgPrinting = pgTable('tcg_printings', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  cardId: text('card_id').notNull().references(() => tcgCard.id, { onDelete: 'cascade' }),
+  plaatjesCardId: text('plaatjes_card_id').notNull(),
+  finish: text('finish').notNull(), // 'nonholo' | 'holo' | 'reverse'
+  pattern: text('pattern'), // e.g. 'pokeball' | 'masterball'
+  printRunLabel: text('print_run_label').notNull().default('1st'),
+  bundle: text('bundle'),
+  assetNumber: text('asset_number'),
+  maskKind: text('mask_kind'),
+  foilEffect: text('foil_effect'),
+  foilMask: text('foil_mask')
+}, t => [
+  index('tcg_printings_setId_idx').on(t.setId),
+  index('tcg_printings_cardId_idx').on(t.cardId),
+  unique('tcg_printings_setId_plaatjesCardId_unique').on(t.setId, t.plaatjesCardId)
+])
+
+/**
+ * One print sheet: `layout` is the full circular slot order (length M, entries
+ * are tcgPrinting ids), authored and validated as one value. Runtime fields are
+ * frozen at commit: `impressions` (R), `cursorLimit` (base sheets: N−G packs;
+ * god sheet: G). `cursor` counts cuts served and only ever advances via a
+ * conditional UPDATE `WHERE cursor < cursor_limit` — the mutation is the guard,
+ * so a sheet can never over-serve.
+ */
+export const tcgSheet = pgTable('tcg_sheets', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  role: text('role').notNull().default('base'), // 'base' | 'god'
+  /** k — how many consecutive slots one pack cut takes from this sheet. */
+  packSlots: integer('pack_slots').notNull().default(1),
+  layout: jsonb('layout').$type<TcgSheetLayout>().notNull().default([]),
+  sortOrder: integer('sort_order').notNull().default(0),
+  /** R — impressions printed, derived and frozen at commit. */
+  impressions: integer('impressions'),
+  cursor: integer('cursor').notNull().default(0),
+  cursorLimit: integer('cursor_limit')
+}, t => [index('tcg_sheets_setId_idx').on(t.setId)])
+
+/**
+ * Pack recipe: ordered slot groups, each pulling `count` cards from one sheet
+ * (`count` must equal that sheet's packSlots). One template per set+kind;
+ * kind 'god' is required before commit iff godPackOneIn is set.
+ */
+export const tcgPackTemplate = pgTable('tcg_pack_templates', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), // 'base' | 'god'
+  slots: jsonb('slots').$type<TcgPackTemplateSlot[]>().notNull().default([])
+}, t => [unique('tcg_pack_templates_setId_kind_unique').on(t.setId, t.kind)])
+
+/**
+ * Admin-tunable shop economics (§7.3): pack pricing, the daily cap and the
+ * weekend bundle. A single row keyed 'shop'; when absent, the launch defaults
+ * in server/utils/tcg/settings.ts apply. Reads happen per purchase, so an
+ * admin edit takes effect immediately — mid-flight buys keep the values they
+ * started with.
+ */
+export const tcgSettings = pgTable('tcg_settings', {
+  id: text('id').primaryKey(),
+  packsPerPair: integer('packs_per_pair').notNull(),
+  gemsPerPair: integer('gems_per_pair').notNull(),
+  packsPerDay: integer('packs_per_day').notNull(),
+  bundlePacks: integer('bundle_packs').notNull(),
+  bundleGems: integer('bundle_gems').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+})
+
+/**
+ * One row per (user, Amsterdam-day) tracking packs bought toward the global
+ * daily cap. The conditional upsert on this row IS the daily-cap guard
+ * (mutation-is-the-guard): `INSERT … ON CONFLICT DO UPDATE SET packs_bought =
+ * packs_bought + N WHERE packs_bought + N <= cap RETURNING` — no returned row
+ * means the cap is hit. Old rows are simply never touched again; no reset job
+ * exists or is needed.
+ */
+export const tcgAllowance = pgTable('tcg_allowances', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** Amsterdam-local 'YYYY-MM-DD' (see shared/utils/tcg/time.ts). */
+  dateKey: text('date_key').notNull(),
+  packsBought: integer('packs_bought').notNull().default(0)
+}, t => [unique('tcg_allowances_user_date_unique').on(t.userId, t.dateKey)])
+
+/**
+ * One claimed Friday bundle. The insert under the (ownerId, weekKey) unique
+ * constraint IS the one-claim-per-week guard: `onConflictDoNothing().returning()`
+ * hands back no row for a second claim in the same window. The bundle's 36
+ * packs link back via tcgPack.bundleId.
+ */
+export const tcgBundle = pgTable('tcg_bundles', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  ownerId: text('owner_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** The opening Friday's Amsterdam dateKey (see bundleWindow). */
+  weekKey: text('week_key').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [unique('tcg_bundles_owner_week_unique').on(t.ownerId, t.weekKey)])
+
+/**
+ * One sold pack. Contents are fully reserved at purchase — `cuts` stores the
+ * exact sheet cuts drawn — so opening only reveals, never rolls. `isGod` must
+ * NOT be serialized to non-admins while state is 'sealed'. Opening is
+ * claim-then-reward: conditional UPDATE state 'sealed' → 'opened'.
+ */
+export const tcgPack = pgTable('tcg_packs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  ownerId: text('owner_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** Set when the pack was sold as part of a Friday bundle; null for loose packs. */
+  bundleId: text('bundle_id').references(() => tcgBundle.id, { onDelete: 'set null' }),
+  /** 0-based sell-order index within the set — feeds the god permutation. */
+  packIndex: integer('pack_index').notNull(),
+  isGod: boolean('is_god').notNull().default(false),
+  cuts: jsonb('cuts').$type<TcgPackCut[]>().notNull(),
+  state: text('state').notNull().default('sealed'), // 'sealed' | 'opened'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  openedAt: timestamp('opened_at')
+}, t => [
+  index('tcg_packs_ownerId_idx').on(t.ownerId),
+  index('tcg_packs_bundleId_idx').on(t.bundleId),
+  unique('tcg_packs_setId_packIndex_unique').on(t.setId, t.packIndex)
+])
+
+/**
+ * One physical copy pulled from a pack. (sheetId, cutIndex, slotOffset) is the
+ * copy's serial provenance — globally unique, so every copy is traceable to
+ * the exact sheet slot it was cut from. `lifecycle` vocabulary:
+ * 'raw' | 'grading' | 'slabbed' | 'sealed' | 'destroyed' — 'grading' while a
+ * submission is out (§6.4), 'destroyed' after a vendor sale (§7.4; soft, the
+ * row stays so chains and sale history keep their referents).
+ * `condition` is rolled at mint (openPack) and immutable from then on (§6.1);
+ * it must NEVER be serialized to any client — no endpoint may select it into
+ * a payload. Nullable only because pre-slice-3 copies predate the column.
+ */
+export const tcgCopy = pgTable('tcg_copies', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  printingId: text('printing_id').notNull().references(() => tcgPrinting.id, { onDelete: 'cascade' }),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  ownerId: text('owner_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  packId: text('pack_id').notNull().references(() => tcgPack.id, { onDelete: 'cascade' }),
+  sheetId: text('sheet_id').notNull().references(() => tcgSheet.id, { onDelete: 'cascade' }),
+  cutIndex: integer('cut_index').notNull(),
+  slotOffset: integer('slot_offset').notNull(),
+  lifecycle: text('lifecycle').notNull().default('raw'),
+  condition: jsonb('condition').$type<TcgCondition>(),
+  // Grading result (§6.4) — set when lifecycle is 'slabbed', cleared by a
+  // crack. `grade` is text ('9.5') because it is an identity in popKey, not a
+  // number to sum. What is populated depends on the service's report tier:
+  // PSI grade only; CCC/BRK gradeSubs (4); GAG gradeSubs (8) + score + flaws.
+  gradeService: text('grade_service'),
+  grade: text('grade'),
+  gradeScore: integer('grade_score'),
+  gradeDesignation: text('grade_designation'),
+  gradeSubs: jsonb('grade_subs').$type<Record<string, number>>(),
+  gradeFlaws: jsonb('grade_flaws').$type<Array<{ id: string, category: number, severity: number }>>(),
+  certNumber: text('cert_number').unique(),
+  gradedAt: timestamp('graded_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('tcg_copies_ownerId_idx').on(t.ownerId),
+  index('tcg_copies_printingId_idx').on(t.printingId),
+  unique('tcg_copies_serial_unique').on(t.sheetId, t.cutIndex, t.slotOffset)
+])
+
+/**
+ * A grading submission (§6.4): the fee is debited on submit, the copy's
+ * lifecycle claim (raw → grading) is the double-submit guard, and the grade
+ * is computed at collection time — the wait is part of the design. The
+ * player's own predicted grade is recorded for §6.3's lossiness telemetry.
+ */
+export const tcgSubmission = pgTable('tcg_submissions', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  service: text('service').notNull(),
+  /** Coins paid on submission. */
+  fee: numeric('fee', { precision: 19, scale: 4 }).notNull(),
+  predictedGrade: text('predicted_grade'),
+  state: text('state').notNull().default('pending'),
+  /** Immutable result snapshot; the copy may later be cracked or regraded. */
+  gradeResult: jsonb('grade_result').$type<TcgGradeResult>(),
+  certNumber: text('cert_number'),
+  gradedAt: timestamp('graded_at'),
+  submittedAt: timestamp('submitted_at').defaultNow().notNull(),
+  returnsAt: timestamp('returns_at').notNull()
+}, t => [
+  index('tcg_submissions_userId_idx').on(t.userId),
+  index('tcg_submissions_copyId_idx').on(t.copyId)
+])
+
+/**
+ * A fixed-price market listing (§7.1). The partial unique index (created in
+ * SQL: one active listing per copy) plus the copy row lock in the engine are
+ * the concurrency guards. Sold rows ARE the sales history — the grade fields
+ * are snapshotted at sale time because the copy can be cracked afterwards
+ * and history must not mutate. The fee is 5%, burned: the buyer pays price,
+ * the seller receives 95%, and nothing is pooled — NEVER route the fee
+ * through accumulateRake (§7.6).
+ */
+export const tcgListing = pgTable('tcg_listings', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' }),
+  sellerId: text('seller_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(),
+  /** Seller's free-text condition claim — carries no authority (§7.1). */
+  note: text('note'),
+  state: text('state').notNull().default('active'), // 'active' | 'sold' | 'cancelled'
+  buyerId: text('buyer_id').references(() => user.id, { onDelete: 'set null' }),
+  soldGradeService: text('sold_grade_service'),
+  soldGrade: text('sold_grade'),
+  soldDesignation: text('sold_designation'),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  soldAt: timestamp('sold_at')
+}, t => [
+  index('tcg_listings_copyId_idx').on(t.copyId),
+  index('tcg_listings_sellerId_idx').on(t.sellerId),
+  index('tcg_listings_state_idx').on(t.state)
+])
+
+/**
+ * The ownership chain (§11.3) — every transfer travels with the copy and is
+ * public. The mint entry is synthesized from the copy's pack (owner + opened
+ * time), so only transfers are stored.
+ */
+export const tcgCopyTransfer = pgTable('tcg_copy_transfers', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' }),
+  fromUserId: text('from_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  toUserId: text('to_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), // 'sale'
+  price: numeric('price', { precision: 19, scale: 4 }),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('tcg_copy_transfers_copyId_idx').on(t.copyId)
+])
+
+/**
+ * Market slice 2 (§7.1) — the bid side. A standing buy order escrows
+ * price × quantity Coins at placement (debit-on-place, the gem-exchange
+ * convention) and is keyed by the slab identity (printing, service, grade,
+ * designation): buy orders exist ONLY for slabbed cards, which are fungible.
+ * Fills happen when an owner sells into the book; matching is serialized by
+ * a per-book advisory lock in server/utils/tcg/book.ts.
+ */
+export const tcgBuyOrder = pgTable('tcg_buy_orders', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  printingId: text('printing_id').notNull().references(() => tcgPrinting.id, { onDelete: 'cascade' }),
+  gradeService: text('grade_service').notNull(),
+  grade: text('grade').notNull(),
+  gradeDesignation: text('grade_designation'),
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(),
+  quantity: integer('quantity').notNull(),
+  filled: integer('filled').notNull().default(0),
+  status: text('status').notNull().default('open'), // 'open' | 'filled' | 'cancelled'
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('tcg_buy_orders_book_idx').on(t.printingId, t.gradeService, t.grade, t.status),
+  index('tcg_buy_orders_userId_idx').on(t.userId)
+])
+
+/**
+ * A bulk lot (§7.1): raw copies sold explicitly unsorted and uninspected —
+ * buyers never get copy renders, only the count. Copies in an active lot are
+ * encumbered (copyEncumbrance) until it sells or is cancelled.
+ */
+export const tcgLot = pgTable('tcg_lots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sellerId: text('seller_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  setId: text('set_id').notNull().references(() => tcgSet.id, { onDelete: 'cascade' }),
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(),
+  note: text('note'),
+  state: text('state').notNull().default('active'), // 'active' | 'sold' | 'cancelled'
+  buyerId: text('buyer_id').references(() => user.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  soldAt: timestamp('sold_at')
+}, t => [
+  index('tcg_lots_setId_state_idx').on(t.setId, t.state),
+  index('tcg_lots_sellerId_idx').on(t.sellerId)
+])
+
+export const tcgLotItem = pgTable('tcg_lot_items', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  lotId: text('lot_id').notNull().references(() => tcgLot.id, { onDelete: 'cascade' }),
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' })
+}, t => [
+  index('tcg_lot_items_lotId_idx').on(t.lotId),
+  index('tcg_lot_items_copyId_idx').on(t.copyId)
+])
+
+/**
+ * An auction (§7.1): singles (raw or slabbed) and sealed packs. Only the top
+ * bid is escrowed — a displaced bidder is refunded in the same transaction
+ * that replaces them. Settlement is lazy (grading's returnsAt pattern):
+ * a conditional claim gated on endsAt, run from reads and late bids.
+ */
+export const tcgAuction = pgTable('tcg_auctions', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sellerId: text('seller_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), // 'copy' | 'pack'
+  copyId: text('copy_id').references(() => tcgCopy.id, { onDelete: 'cascade' }),
+  packId: text('pack_id').references(() => tcgPack.id, { onDelete: 'cascade' }),
+  startPrice: numeric('start_price', { precision: 19, scale: 4 }).notNull(),
+  currentBid: numeric('current_bid', { precision: 19, scale: 4 }),
+  currentBidderId: text('current_bidder_id').references(() => user.id, { onDelete: 'set null' }),
+  endsAt: timestamp('ends_at').notNull(),
+  state: text('state').notNull().default('active'), // 'active' | 'settled' | 'cancelled'
+  settledAt: timestamp('settled_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('tcg_auctions_state_endsAt_idx').on(t.state, t.endsAt),
+  index('tcg_auctions_sellerId_idx').on(t.sellerId),
+  // copyEncumbrance() looks an auction up by the thing it holds, and runs on
+  // every list, grade, crack, trade-accept and battler buy — the hottest read
+  // in the whole copy lifecycle.
+  index('tcg_auctions_copyId_idx').on(t.copyId),
+  index('tcg_auctions_packId_idx').on(t.packId)
+])
+
+export const tcgAuctionBid = pgTable('tcg_auction_bids', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  auctionId: text('auction_id').notNull().references(() => tcgAuction.id, { onDelete: 'cascade' }),
+  bidderId: text('bidder_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  amount: numeric('amount', { precision: 19, scale: 4 }).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('tcg_auction_bids_auctionId_idx').on(t.auctionId)
+])
+
+/**
+ * A directed trade offer (§7.1): card-for-card ± Coins, the social heart of
+ * collecting. Offers escrow NOTHING — both collections stay fully usable
+ * while an offer sits — and everything (ownership, lifecycle, encumbrance,
+ * the coin leg) is validated atomically at accept time. At most one of
+ * senderCoins/receiverCoins is nonzero; the 5% burn taxes the coin leg only.
+ */
+export const tcgTradeOffer = pgTable('tcg_trade_offers', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  fromUserId: text('from_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  toUserId: text('to_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  senderCoins: numeric('sender_coins', { precision: 19, scale: 4 }).notNull().default('0'),
+  receiverCoins: numeric('receiver_coins', { precision: 19, scale: 4 }).notNull().default('0'),
+  /**
+   * Coins actually held for this offer, debited from the sender when it was
+   * created (§7.1, the buy-order pattern). Not a duplicate of senderCoins: it
+   * is 0 on offers made before escrow existed, and is cleared when the offer
+   * resolves — released back to the sender on cancel or decline, consumed by
+   * the payout on accept. So the sum of this column IS the coins in escrow.
+   */
+  senderEscrow: numeric('sender_escrow', { precision: 19, scale: 4 }).notNull().default('0'),
+  note: text('note'),
+  state: text('state').notNull().default('open'), // 'open' | 'accepted' | 'declined' | 'cancelled'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  resolvedAt: timestamp('resolved_at')
+}, t => [
+  index('tcg_trade_offers_from_idx').on(t.fromUserId, t.state),
+  index('tcg_trade_offers_to_idx').on(t.toUserId, t.state)
+])
+
+export const tcgTradeItem = pgTable('tcg_trade_items', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  offerId: text('offer_id').notNull().references(() => tcgTradeOffer.id, { onDelete: 'cascade' }),
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' }),
+  side: text('side').notNull() // 'sender' | 'receiver'
+}, t => [
+  index('tcg_trade_items_offerId_idx').on(t.offerId)
+])
+
+// ── TCG display (§10.5): binders for raw cards, shelves for slabs ──────────
+
+export const tcgDisplay = pgTable('tcg_displays', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), // 'binder' | 'shelf'
+  name: text('name').notNull(),
+  capacity: integer('capacity').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+}, t => [
+  index('tcg_displays_userId_idx').on(t.userId)
+])
+
+export const tcgDisplaySlot = pgTable('tcg_display_slots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  displayId: text('display_id').notNull().references(() => tcgDisplay.id, { onDelete: 'cascade' }),
+  position: integer('position').notNull(),
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' })
+}, t => [
+  unique('tcg_display_slots_position_unique').on(t.displayId, t.position),
+  // A physical card sits in exactly one pocket, ever.
+  unique('tcg_display_slots_copy_unique').on(t.copyId)
+])
+
+// ── Auto-battler (§12): runs, hard copy escrow, opponent snapshots ─────────
+
+/**
+ * A saved deck: up to 30 distinct card identities that narrow the run's
+ * draft pool. Copies are never bound — instances still come from owned raw
+ * copies at run start, and eligibility filters as usual.
+ */
+export const tcgBattlerDeck = pgTable('tcg_battler_decks', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  // { cardId, copies 1–6 }[]; legacy rows may hold bare card-id strings.
+  cards: jsonb('cards').notNull().$type<{ cardId: string, copies: number }[]>(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+}, t => [
+  index('tcg_battler_decks_userId_idx').on(t.userId)
+])
+
+export const tcgBattlerRun = pgTable('tcg_battler_runs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  state: text('state').notNull().default('active'), // 'active' | 'won' | 'lost' | 'abandoned'
+  // Seeds every draw in the run via deriveKey(secret, label) — server-only,
+  // never serialized (a known seed would let a player scout the shop).
+  secret: text('secret').notNull(),
+  round: integer('round').notNull().default(1),
+  wins: integer('wins').notNull().default(0),
+  losses: integer('losses').notNull().default(0),
+  cash: integer('cash').notNull().default(0),
+  runState: jsonb('run_state').notNull().$type<Record<string, unknown>>(),
+  // The deck the run drafted from, if any. Name is snapshotted so history
+  // survives deck deletion.
+  deckId: text('deck_id').references(() => tcgBattlerDeck.id, { onDelete: 'set null' }),
+  deckName: text('deck_name'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+  updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  finishedAt: timestamp('finished_at')
+}, t => [
+  index('tcg_battler_runs_userId_idx').on(t.userId),
+  // One live run per player: the partial unique index IS the start claim.
+  uniqueIndex('tcg_battler_runs_active_unique').on(t.userId).where(sql`state = 'active'`)
+])
+
+/**
+ * One Elo rating per player (§12.11 groundwork). Fights against real
+ * snapshots move both sides; rows are created lazily on first rated fight.
+ */
+export const tcgBattlerRating = pgTable('tcg_battler_ratings', {
+  userId: text('user_id').primaryKey().references(() => user.id, { onDelete: 'cascade' }),
+  rating: integer('rating').notNull().default(1000),
+  fights: integer('fights').notNull().default(0),
+  updatedAt: timestamp('updated_at').notNull().defaultNow()
+})
+
+export const tcgBattlerEscrow = pgTable('tcg_battler_escrow', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  runId: text('run_id').notNull().references(() => tcgBattlerRun.id, { onDelete: 'cascade' }),
+  // unique: a copy cannot back units in two concurrent runs (§12.10).
+  copyId: text('copy_id').notNull().references(() => tcgCopy.id, { onDelete: 'cascade' }).unique()
+}, t => [
+  index('tcg_battler_escrow_runId_idx').on(t.runId)
+])
+
+export const tcgBattlerSnapshot = pgTable('tcg_battler_snapshots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  runId: text('run_id').notNull().references(() => tcgBattlerRun.id, { onDelete: 'cascade' }),
+  round: integer('round').notNull(),
+  board: jsonb('board').notNull().$type<Record<string, unknown>[]>(),
+  createdAt: timestamp('created_at').notNull().defaultNow()
+}, t => [
+  index('tcg_battler_snapshots_round_idx').on(t.round)
+])
+
 export const chatMessagesRelations = relations(chatMessages, ({ one }) => ({
   user: one(user, { fields: [chatMessages.userId], references: [user.id] })
 }))
@@ -767,6 +1577,7 @@ export const userRelations = relations(user, ({ many, one }) => ({
   voidWeapons: many(voidWeapons),
   voidState: one(voidState),
   voidRunHistory: many(voidRunHistory),
+  firewallState: one(firewallState)
 }))
 
 export const minerStateRelations = relations(minerState, ({ one }) => ({
@@ -803,6 +1614,215 @@ export const shapezzStateRelations = relations(shapezzState, ({ one }) => ({
 
 export const pathwardenStateRelations = relations(pathwardenState, ({ one }) => ({
   user: one(user, { fields: [pathwardenState.userId], references: [user.id] })
+}))
+
+export const firewallStateRelations = relations(firewallState, ({ one }) => ({
+  user: one(user, { fields: [firewallState.userId], references: [user.id] })
+}))
+
+export const firewallRunsRelations = relations(firewallRuns, ({ one }) => ({
+  user: one(user, { fields: [firewallRuns.userId], references: [user.id] })
+}))
+
+export const meadowbrawlStateRelations = relations(meadowbrawlState, ({ one }) => ({
+  user: one(user, { fields: [meadowbrawlState.userId], references: [user.id] })
+}))
+
+export const callOfXenoStateRelations = relations(callOfXenoState, ({ one }) => ({
+  user: one(user, { fields: [callOfXenoState.userId], references: [user.id] })
+}))
+
+// ─── Polytown ─────────────────────────────────────────────────────────────────
+
+/**
+ * One row per player town. Production is settled lazily from elapsed real time
+ * (see server/utils/town.ts:settleTownState) under a FOR UPDATE lock on this
+ * row — there is no server-side loop. Happiness and tick progress are the only
+ * simulation carry-overs; everything else is derived from buildings + inventory.
+ */
+export const townState = pgTable('town_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  happiness: integer('happiness').notNull().default(50),
+  /** Speed-scaled ms of progress toward the next tick, carried between settles. */
+  tickProgressMs: integer('tick_progress_ms').notNull().default(0),
+  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull(),
+  /** Plots ever bought from the system (the founding plot counts). Drives price + cooldown. */
+  plotsBought: integer('plots_bought').notNull().default(1),
+  lastPlotBoughtAt: timestamp('last_plot_bought_at').defaultNow().notNull(),
+  /** Milestone ids already paid out. Claiming appends under a NOT-contains guard (claim-then-reward). */
+  milestonesClaimed: jsonb('milestones_claimed').$type<string[]>().notNull().default([]),
+  /** Lifetime coins earned from selling resources (floor + player fills). Drives the merchant milestones. */
+  coinsEarned: numeric('coins_earned', { precision: 19, scale: 4 }).notNull().default('0'),
+  /** Lifetime units produced per resource — the tier gate a rich mayor cannot buy past. Written under the state lock. */
+  produced: jsonb('produced').$type<Record<string, number>>().notNull().default({}),
+  /** Build crews owned. Three come free; the rest are bought with gems, permanently. */
+  builders: integer('builders').notNull().default(3),
+  /** Per building, per resource: fractions of a unit made but not yet handed over, carried between ticks. Written under the state lock. */
+  carry: jsonb('carry').$type<Record<string, Record<string, number>>>().notNull().default({}),
+  /** The research project running right now, if any. Only ever one at a time. */
+  researchId: text('research_id'),
+  researchCompletesAt: timestamp('research_completes_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+})
+
+/**
+ * One row, holding whatever the realm as a whole has to remember.
+ *
+ * Right now that is the founding scan's high-water mark. Without it every new
+ * town walked the spiral from index zero against every plot in the world,
+ * which is quadratic in towns and hard-failed at the 100k-iteration guard once
+ * a few thousand towns existed. The cursor only ever moves forward, so a town
+ * founded today starts its search where the last one finished.
+ */
+export const townRealm = pgTable('town_realm', {
+  id: integer('id').primaryKey().default(1),
+  /** Lowest spiral index that might still be free. */
+  foundingCursor: integer('founding_cursor').notNull().default(0)
+})
+
+/**
+ * A finished research project. The unique (user, project) pair is the guard:
+ * settling a finished project inserts here, and a second concurrent settle
+ * conflicts instead of granting the effect twice.
+ */
+export const townResearch = pgTable('town_research', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  researchId: text('research_id').notNull(),
+  completedAt: timestamp('completed_at').defaultNow().notNull()
+}, table => [
+  unique('town_research_user_project').on(table.userId, table.researchId)
+])
+
+/**
+ * One 8x8 plot on the shared endless grid. The unique (x, y) constraint is the
+ * claim guard: the player picks the square, the insert either wins it or
+ * conflicts. Founding plots take the first free square on a spiral from the
+ * origin; later plots must touch one the player already owns.
+ */
+export const townPlots = pgTable('town_plots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  x: integer('x').notNull(),
+  y: integer('y').notNull(),
+  /** Asking price while the owner has this (empty) plot on the market, else null. */
+  listPrice: numeric('list_price', { precision: 19, scale: 4 }),
+  /**
+   * What the current owner actually paid for this square — the land office
+   * price, the price a neighbour asked, or 0 for a founding plot. The refund
+   * is a share of THIS, never of a counter a player can pump by trading.
+   */
+  paidPrice: numeric('paid_price', { precision: 19, scale: 4 }).notNull().default('0'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('town_plots_userId_idx').on(t.userId),
+  unique('town_plots_xy_unique').on(t.x, t.y)
+])
+
+/**
+ * One building on one tile. level 0 = still under first construction
+ * (completesAt in the future). upgradingTo is set while an upgrade is in
+ * progress; settle bakes it into level once completesAt passes.
+ */
+export const townBuildings = pgTable('town_buildings', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  plotId: text('plot_id').notNull().references(() => townPlots.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  tileX: integer('tile_x').notNull(),
+  tileY: integer('tile_y').notNull(),
+  rotation: integer('rotation').notNull().default(0), // clockwise quarter turns; cosmetic only
+  level: integer('level').notNull().default(0),
+  upgradingTo: integer('upgrading_to'),
+  completesAt: timestamp('completes_at').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('town_buildings_userId_idx').on(t.userId),
+  unique('town_buildings_tile_unique').on(t.plotId, t.tileX, t.tileY)
+])
+
+/**
+ * What each settle produced, per resource — the data behind the production
+ * chart. One row per (settle, resource) with a positive amount; consumption is
+ * not logged here, the chart is about goods being made.
+ */
+export const townProduction = pgTable('town_production', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  resource: text('resource').notNull(),
+  amount: integer('amount').notNull(),
+  /** Window covered by the settle, so bucketing can spread it over the hours it spanned. */
+  fromAt: timestamp('from_at').notNull(),
+  toAt: timestamp('to_at').notNull()
+}, t => [index('town_production_user_to_idx').on(t.userId, t.toAt)])
+
+/** Per-player resource stock. Always written as increments (amount = amount + delta). */
+export const townInventory = pgTable('town_inventory', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  resource: text('resource').notNull(),
+  /** Units held. bigint because a late-game market fill can name more than int4 holds. */
+  amount: bigint('amount', { mode: 'number' }).notNull().default(0)
+}, t => [
+  // The unique pair's leading column already serves every by-user lookup.
+  unique('town_inventory_unique').on(t.userId, t.resource)
+])
+
+/** Per-resource limit order book, same shape as gem_orders. Buys escrow coins, sells escrow the resource. */
+export const townOrders = pgTable('town_orders', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  resource: text('resource').notNull(),
+  side: text('side').notNull(), // 'buy' | 'sell'
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(),
+  quantity: integer('quantity').notNull(),
+  filled: integer('filled').notNull().default(0),
+  status: text('status').notNull().default('open'), // 'open' | 'filled' | 'cancelled'
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
+}, t => [
+  index('town_orders_book_idx').on(t.resource, t.status, t.side, t.price),
+  index('town_orders_userId_idx').on(t.userId, t.status)
+])
+
+/** One row per executed match — the per-resource price history. */
+export const townTrades = pgTable('town_trades', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  resource: text('resource').notNull(),
+  buyerId: text('buyer_id').references(() => user.id, { onDelete: 'set null' }),
+  sellerId: text('seller_id').references(() => user.id, { onDelete: 'set null' }),
+  takerId: text('taker_id').references(() => user.id, { onDelete: 'set null' }),
+  price: numeric('price', { precision: 19, scale: 4 }).notNull(),
+  quantity: integer('quantity').notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [
+  index('town_trades_resource_createdAt_idx').on(t.resource, t.createdAt),
+  // All three are ON DELETE SET NULL, and deleting a town scans by them.
+  index('town_trades_buyer_idx').on(t.buyerId),
+  index('town_trades_seller_idx').on(t.sellerId),
+  index('town_trades_taker_idx').on(t.takerId)
+])
+
+/**
+ * What happened to a town while its mayor was not looking: a build or upgrade
+ * that finished, a project banked, a resting offer another mayor took. The
+ * notification centre lists these newest first. Nothing tracks read state.
+ *
+ * `createdAt` is the moment the thing happened, not the moment it was written
+ * — a build that finished six hours ago is written by the settle that notices
+ * it, but still lists at the time it finished.
+ */
+export const townEvents = pgTable('town_events', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  kind: text('kind').notNull(), // 'built' | 'upgraded' | 'research' | 'trade'
+  data: jsonb('data').$type<TownEventData>().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('town_events_user_createdAt_idx').on(t.userId, t.createdAt)])
+
+export const townStateRelations = relations(townState, ({ one }) => ({
+  user: one(user, { fields: [townState.userId], references: [user.id] })
 }))
 
 export const sessionRelations = relations(session, ({ one }) => ({

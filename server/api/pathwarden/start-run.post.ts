@@ -2,7 +2,13 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { pathwardenRuns, pathwardenState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { getLockedPathwardenState, pathwardenLevels } from '#server/utils/pathwarden'
+import {
+    generateValidatedPathwardenPlan,
+    getLockedPathwardenState,
+    pathwardenLevels,
+    pathwardenRandomSeed,
+    pathwardenRunIsResumable
+} from '#server/utils/pathwarden'
 import {
     PATHWARDEN_GENERATOR_VERSION,
     PATHWARDEN_SAVE_VERSION
@@ -12,31 +18,10 @@ import {
     pathwardenPower,
     pathwardenRunCooldownRemainingMs
 } from '#shared/utils/gamelogic/pathwarden'
-import { createPathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map'
-import { validatePathwardenMapPlan } from '#shared/utils/gamelogic/pathwarden-map-validation'
-
-function randomSeed() {
-    return crypto.getRandomValues(new Uint32Array(1))[0]!
-}
-
-// The generator is deterministic and structurally sound (0 invalid plans across
-// a 100k-seed sweep), so this validation is insurance against a future
-// regression, and it never rejects a real seed in practice.
-function generateValidatedPlan(seed: number, realm: number, allowRegeneration: boolean) {
-    let candidateSeed = seed
-    for (let attempt = 0; attempt < 8; attempt++) {
-        const plan = createPathwardenMapPlan({ seed: candidateSeed, realm })
-        if (validatePathwardenMapPlan(plan).errors.length === 0) return { seed: candidateSeed, plan }
-        if (!allowRegeneration) break
-        candidateSeed = randomSeed()
-    }
-    throw createError({ statusCode: 500, statusMessage: 'Could not generate a valid Pathwarden map' })
-}
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
-    const debugMode = import.meta.dev || Boolean(useRuntimeConfig(event).devMode)
-    const body = await readBody<{ realm?: number, useSurge?: boolean, seed?: number }>(event)
+    const body = await readBody<{ realm?: number, useSurge?: boolean }>(event)
     const realm = Math.floor(Number(body.realm))
     if (!Number.isInteger(realm) || realm < 1 || realm > 5) {
         throw createError({ statusCode: 400, statusMessage: 'Invalid Pathwarden realm' })
@@ -44,21 +29,15 @@ export default defineEventHandler(async (event) => {
 
     return db.transaction(async (tx) => {
         const state = await getLockedPathwardenState(tx, userId)
-        if (state.runStartedAt) {
-            // An active run whose save/generator version no longer matches can
-            // never be resumed, so starting a fresh march overwrites it rather
-            // than trapping the player behind a 409 (this is the recovery path
-            // that used to live, as a write, inside the run.get GET handler).
-            const [existing] = await tx.select({
-                saveVersion: pathwardenRuns.saveVersion,
-                generatorVersion: pathwardenRuns.generatorVersion
-            }).from(pathwardenRuns).where(eq(pathwardenRuns.userId, userId))
-            const resumable = existing
-                && existing.saveVersion === PATHWARDEN_SAVE_VERSION
-                && existing.generatorVersion === PATHWARDEN_GENERATOR_VERSION
-            if (resumable) {
-                throw createError({ statusCode: 409, statusMessage: 'A Pathwarden run is already active' })
-            }
+        const [existing] = await tx.select()
+            .from(pathwardenRuns)
+            .where(eq(pathwardenRuns.userId, userId))
+            .for('update')
+        const currentVersions = existing
+            && existing.saveVersion === PATHWARDEN_SAVE_VERSION
+            && existing.generatorVersion === PATHWARDEN_GENERATOR_VERSION
+        if (state.runStartedAt && pathwardenRunIsResumable(existing)) {
+            throw createError({ statusCode: 409, statusMessage: 'A Pathwarden run is already active' })
         }
         if (pathwardenRunCooldownRemainingMs(state.lastRunFinishedAt, Date.now()) > 0) {
             throw createError({ statusCode: 400, statusMessage: 'The wardens are still recovering. Wait or rush the recovery with Gems.' })
@@ -73,16 +52,14 @@ export default defineEventHandler(async (event) => {
         }
         const levels = pathwardenLevels(state)
         const power = pathwardenPower(levels)
-        // The seed is server-chosen. A client-supplied seed would let a player
-        // scout layouts offline and replay the easiest one, and pin generation
-        // on a worst-case (slow) seed; only development builds honour it.
-        const requestedSeed = Number(body.seed)
-        const hasDevSeed = debugMode && Number.isInteger(requestedSeed) && requestedSeed >= 0 && requestedSeed <= 0xFFFFFFFF
-        const { seed, plan: mapPlan } = generateValidatedPlan(
-            hasDevSeed ? requestedSeed : randomSeed(),
-            realm,
-            !hasDevSeed
-        )
+        // The map the player has been looking at was minted by pending-map and is
+        // already in this row — a resumable march would have thrown above, so
+        // adopting it is what keeps the march the client plays and the march the
+        // save describes the same map. The seed is chosen before the march
+        // begins, through pending-map, so nothing here can diverge from it.
+        const { seed, plan: mapPlan } = currentVersions
+            ? { seed: existing.seed, plan: { ...existing.mapPlan, realm } }
+            : generateValidatedPathwardenPlan(pathwardenRandomSeed(), realm, true)
         const [run] = await tx.insert(pathwardenRuns)
             .values({
                 userId,
@@ -123,7 +100,7 @@ export default defineEventHandler(async (event) => {
             surgeCharges: state.surgeCharges - (surged ? 1 : 0),
             power,
             effects: pathwardenBoostEffects(levels, surged),
-            run
+            run: run!
         }
     })
 })

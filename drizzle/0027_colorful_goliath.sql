@@ -1,0 +1,1 @@
+ALTER TABLE "tcg_trade_offers" ADD COLUMN "sender_escrow" numeric(19, 4) DEFAULT '0' NOT NULL;

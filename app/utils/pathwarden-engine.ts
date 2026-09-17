@@ -1,6 +1,7 @@
 import {
   PATHWARDEN_AMBIENT_STORY_COUNT,
   PATHWARDEN_DEFENSE_BLUEPRINTS,
+  pathwardenRelicStackMultiplier,
   type PathwardenDefenseArchetype,
   type PathwardenDefenseBlueprint,
   type PathwardenDefenseFamily
@@ -626,7 +627,9 @@ export interface PathwardenCallbacks {
 
 export interface PathwardenEngineRestore {
   mapPlan: PathwardenMapPlan
-  gameState: PathwardenGameState
+  // Absent for a march that has not been saved yet: the server mints the plan
+  // before the first wave, so the client never plays a map of its own making.
+  gameState?: PathwardenGameState
 }
 
 export interface PathwardenBoostEffects {
@@ -866,9 +869,10 @@ export class PathwardenEngine {
     if (!context) throw new Error('Canvas 2D context is unavailable')
     this.ctx = context
     this.callbacks = callbacks
-    this.introStoryActive = !restore && !skipIntro
+    const saved = restore?.gameState
+    this.introStoryActive = !saved && !skipIntro
     this.openingCinematicPlayed = skipIntro
-    this.realm = clamp(Math.floor(restore?.mapPlan.realm ?? realm), 1, 5)
+    this.realm = clamp(Math.floor(restore?.gameState ? restore.mapPlan.realm : realm), 1, 5)
     this.skinId = skinId
     if (!restore) {
       this.mapPlan = createPathwardenMapPlan({
@@ -891,9 +895,9 @@ export class PathwardenEngine {
       this.arcanistLevel = boosts.arcanistLevel
     }
     if (restore) {
-      this.activeRunSceneTime = this.activeRunSceneDuration
+      if (saved) this.activeRunSceneTime = this.activeRunSceneDuration
       this.mapSeed = restore.mapPlan.seed
-      this.mapRandomState = restore.gameState.combatRandomState
+      this.mapRandomState = saved?.combatRandomState ?? restore.mapPlan.seed
       this.mapPlan = restore.mapPlan
       this.elevations = this.createElevations()
       this.path = this.castlePath()
@@ -914,7 +918,7 @@ export class PathwardenEngine {
     window.addEventListener('blur', this.onWindowBlur)
     this.loadAssets()
     this.precalculateExpansionPlan(EXPANSION_DEPTH)
-    if (restore) this.restoreGameState(restore.gameState)
+    if (saved) this.restoreGameState(saved)
     else {
       this.activatePlannedChoices(this.mapPlan.castleRoomId)
       this.revealAround(this.initialRevealCells())
@@ -2225,6 +2229,13 @@ export class PathwardenEngine {
     return tower.relicFamily ? tower.relicPower : this.towerRelicFamily(tower) ? 1 : 0
   }
 
+  // Only relics the player actually bound stack. A defense whose blueprint
+  // family implies an element carries that element for free, and must not also
+  // collect the stack bonus for it.
+  private towerRelicStacking(tower: Tower) {
+    return pathwardenRelicStackMultiplier(tower.relicFamily ? tower.relicPower : 0)
+  }
+
   private towerRelicEffects(tower: Tower) {
     const effects = emptyRelicEffects()
     const entities = tower.relicEntities ?? (tower.relicEntity ? [tower.relicEntity] : [])
@@ -2387,7 +2398,8 @@ export class PathwardenEngine {
       tier: this.towerBlueprint(tower.type).tier,
       elevation,
       damage: Math.round(stats.damage * this.damageMultiplier * (1 + (elevation - 1) * 0.16)
-        * towerLevelPower(tower.level) * (1 + relicEffects.directDamagePct / 100)),
+        * towerLevelPower(tower.level) * this.towerRelicStacking(tower)
+        * (1 + relicEffects.directDamagePct / 100)),
       range: Math.round(stats.range * this.rangeMultiplier * (1 + (elevation - 1) * 0.09) * (1 + (tower.level - 1) * 0.05)
         * (1 + relicEffects.rangePct / 100)),
       rate: Number((stats.rate / this.rateMultiplier / (1 + relicEffects.attackSpeedPct / 100)).toFixed(2)),
@@ -2966,7 +2978,7 @@ export class PathwardenEngine {
         echo,
         targetId: target.id,
         damage: stats.damage * this.damageMultiplier * (1 + (elevation - 1) * 0.16) * towerLevelPower(tower.level)
-          * (1 + relicEffects.directDamagePct / 100),
+          * this.towerRelicStacking(tower) * (1 + relicEffects.directDamagePct / 100),
         speed: stats.projectileSpeed,
         splash: Math.max(stats.splash, relicSplash),
         splashFactor,
@@ -3118,7 +3130,11 @@ export class PathwardenEngine {
       shaman: { hp: 1.5, speed: 0.88, reward: 2.4, radius: 15, color: '#4ade80' },
       boss: { hp: 8.5, speed: 0.58, reward: 9, radius: 29, color: '#facc15' }
     }[type]
-    const realmHealth = 1 + (this.realm - 1) * 0.22
+    // Realms are the payout ladder: the Aether cashout rate at realm 5 is more
+    // than seven times realm 1, so each realm has to be a real wall rather than
+    // a cosmetic one. Health carries most of that, on top of the extra bodies
+    // `waveEnemyCount` already adds per realm.
+    const realmHealth = 1 + (this.realm - 1) * 0.38
     const realmSpeed = 1 + (this.realm - 1) * 0.04
     const realmBounty = 1 + (this.realm - 1) * 0.12
     const maxHp = (95 + this.wave * 28)
@@ -4704,6 +4720,7 @@ export class PathwardenEngine {
     if (import.meta.dev && this.debugVisuals) this.drawVisualGuides()
     ctx.restore()
 
+    this.drawTileReadout()
     this.drawMinimap()
     if (this.introStoryActive) this.drawIntroKingdomScene()
     if (this.activeRunSceneTime > 0) this.drawActiveRunScene()
@@ -9062,6 +9079,42 @@ export class PathwardenEngine {
     ctx.lineTo(screen.x - TILE_WIDTH / 2, screen.y)
     ctx.closePath()
     ctx.stroke()
+  }
+
+  /**
+   * Height decides a defense's damage and reach, so it has to be readable
+   * before committing Aether, not only in the message left after placing.
+   */
+  private drawTileReadout() {
+    if (this.introStoryActive || this.openingCinematicActive) return
+    if (!this.hoverCell || (this.phase !== 'planning' && this.phase !== 'path')) return
+    const ctx = this.ctx
+    const cell = this.hoverCell
+    const revealed = this.revealed.has(cellKey(cell))
+    const coordinates = `${cell.col}, ${cell.row}`
+    // Elevation beyond the frontier stays hidden; the fog is a real mechanic.
+    const detail = revealed ? `Height ${this.elevations[cell.row]![cell.col]}` : 'Under the mist'
+    ctx.save()
+    ctx.font = '800 14px sans-serif'
+    const width = Math.max(ctx.measureText(coordinates).width, ctx.measureText(detail).width) + 24
+    const height = 44
+    const anchor = this.worldToCanvas(this.gridToScreen(cell))
+    const x = clamp(anchor.x - width / 2, 8, WIDTH - width - 8)
+    const y = clamp(anchor.y - TILE_HEIGHT * this.zoom - height, 8, HEIGHT - height - 8)
+    ctx.fillStyle = 'rgba(8,21,45,.88)'
+    ctx.strokeStyle = revealed ? '#67e8f9' : '#64748b'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.roundRect(x, y, width, height, 10)
+    ctx.fill()
+    ctx.stroke()
+    ctx.textAlign = 'center'
+    ctx.fillStyle = '#ecfeff'
+    ctx.fillText(coordinates, x + width / 2, y + 19)
+    ctx.font = '700 11px sans-serif'
+    ctx.fillStyle = revealed ? '#a5f3fc' : '#94a3b8'
+    ctx.fillText(detail, x + width / 2, y + 34)
+    ctx.restore()
   }
 
   private drawWaveBanner() {

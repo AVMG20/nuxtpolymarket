@@ -95,9 +95,9 @@ function toggleCategory(cat: string) {
   selectedCategory.value = selectedCategory.value === cat ? null : cat
 }
 
-const selectedCatLabel = computed(() =>
-  selectedCategory.value === 'general' ? 'General' : selectedCategory.value
-)
+// categoryStats and recentTransactions already carry the display label
+// server-side, so the selected value is the label itself.
+const selectedCatLabel = computed(() => selectedCategory.value)
 
 const recentTransactions = computed(() => data.value?.recentTransactions ?? [])
 
@@ -203,7 +203,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
           class="size-4 text-primary shrink-0"
         />
         <span class="text-sm">
-          Showing only <span class="font-semibold capitalize">{{ selectedCatLabel }}</span> for today
+          Showing only <span class="font-semibold">{{ selectedCatLabel }}</span> for today
         </span>
         <UButton
           size="xs"
@@ -462,7 +462,7 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
           >
             <div class="flex items-center justify-between gap-2">
               <div class="flex items-center gap-1.5 min-w-0">
-                <span class="text-sm font-medium capitalize truncate">{{ stat.category }}</span>
+                <span class="text-sm font-medium truncate">{{ stat.category }}</span>
                 <UBadge
                   :label="`${stat.count}`"
                   color="neutral"
@@ -631,10 +631,10 @@ onMounted(() => setTimeout(() => { mounted.value = true }, 50))
               <div class="flex items-center gap-2">
                 <button
                   type="button"
-                  class="text-sm font-medium capitalize hover:text-primary hover:underline underline-offset-2 cursor-pointer transition-colors"
-                  @click="toggleCategory(tx.category ?? 'general')"
+                  class="text-sm font-medium hover:text-primary hover:underline underline-offset-2 cursor-pointer transition-colors"
+                  @click="toggleCategory(tx.category)"
                 >
-                  {{ tx.category ?? 'General' }}
+                  {{ tx.category }}
                 </button>
                 <UBadge
                   :label="tx.type"

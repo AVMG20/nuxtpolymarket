@@ -4,7 +4,13 @@ import packageJson from '../../package.json'
 
 const { user, signOut: authSignOut, fetchSession } = useAuth()
 await fetchSession()
+
+// The bank's cut follows the player around the app, so the wallet in the footer
+// turns red wherever they are — the tooltip is the only place it's explained.
+const { inDebt: bankGarnishing, refresh: refreshBankStatus } = useBankStatus()
+if (user.value) await refreshBankStatus()
 const appConfig = useAppConfig()
+const softStudio = useSoftStudio()
 const open = ref(true)
 const menuOpen = ref(false)
 const siteVersion = `v${packageJson.version.split('.').slice(0, 2).join('.')}`
@@ -32,17 +38,22 @@ const platformItems: NavigationMenuItem[] = [
 ]
 
 const idleGameItems: NavigationMenuItem[] = [
-  { label: 'Miner', class: 'mb-1', icon: 'i-lucide-pickaxe', to: '/miner' },
   { label: 'Xeno', class: 'mb-1', icon: 'i-lucide-sprout', to: '/xeno' },
   { label: 'Hack Ops', class: 'mb-1', icon: 'i-lucide-terminal', to: '/hack' },
-  { label: 'Colony', class: 'mb-1', icon: 'i-lucide-bug', to: '/colony' }
+  { label: 'Colony', class: 'mb-1', icon: 'i-lucide-bug', to: '/colony' },
+  { label: 'Polytown', class: 'mb-1', icon: 'i-lucide-building-2', to: '/polytown' }
 ]
 
 const activeGameItems: NavigationMenuItem[] = [
   { label: 'Pathwarden', class: 'mb-1', icon: 'i-lucide-castle', to: '/pathwarden' },
   { label: 'Pirate Raid', class: 'mb-1', icon: 'i-lucide-anchor', to: '/pirates' },
   { label: 'Void Runner', class: 'mb-1', icon: 'i-lucide-rocket', to: '/void' },
-  { label: 'SHAPEZZ', class: 'mb-1', icon: 'i-lucide-shapes', to: '/shapezz' }
+  { label: 'SHAPEZZ', class: 'mb-1', icon: 'i-lucide-shapes', to: '/shapezz' },
+  { label: 'Call of Xeno', class: 'mb-1', icon: 'i-lucide-skull', to: '/call-of-xeno' },
+  { label: 'Voxel Arena', class: 'mb-1', icon: 'i-lucide-boxes', to: '/voxel-arena' },
+  { label: 'Firewall', class: 'mb-1', icon: 'i-lucide-shield-half', to: '/firewall' },
+  { label: 'Meadowbrawl', class: 'mb-1', icon: 'i-lucide-swords', to: '/meadowbrawl' },
+  { label: 'TCG', class: 'mb-1', icon: 'i-lucide-layers', to: '/tcg' }
 ]
 
 const slotItems: NavigationMenuItem[] = [
@@ -59,7 +70,15 @@ const casinoItems: NavigationMenuItem[] = [
   { label: 'Limbo', class: 'mb-1', icon: 'i-lucide-trending-up', to: '/games/limbo' },
   { label: 'Wheel', class: 'mb-1', icon: 'i-lucide-loader-pinwheel', to: '/games/wheel' },
   { label: 'Magic Hands', class: 'mb-1', icon: 'i-lucide-hand', to: '/games/magichands' },
-  { label: 'Blackjack', class: 'mb-1', icon: 'i-lucide-spade', to: '/games/blackjack' }
+  { label: 'Live Blackjack', class: 'mb-1', icon: 'i-lucide-spade', to: '/games/live-blackjack' },
+  { label: 'Roulette', class: 'mb-1', icon: 'i-lucide-circle-dot', to: '/games/roulette' },
+  { label: 'Baccarat', class: 'mb-1', icon: 'i-lucide-diamond', to: '/games/baccarat' },
+  { label: 'Three Card Poker', class: 'mb-1', icon: 'i-lucide-gem', to: '/games/three-card-poker' },
+  { label: 'Casino Hold\'em', class: 'mb-1', icon: 'i-lucide-club', to: '/games/casino-holdem' }
+]
+
+const adminItems: NavigationMenuItem[] = [
+  { label: 'TCG Admin', class: 'mb-1', icon: 'i-lucide-layers', to: '/tcg-admin' }
 ]
 
 const primaryColors = [
@@ -103,6 +122,8 @@ function setNeutral(color: string) {
   themeNeutral.value = color
   appConfig.ui.colors.neutral = color
 }
+
+const globalSearch = useGlobalSearch()
 </script>
 
 <template>
@@ -113,36 +134,71 @@ function setNeutral(color: string) {
       collapsible="icon"
       rail
       :ui="{
-        header: 'px-3 min-h-14',
+        header: 'px-3 pt-3 pb-3 flex-col items-stretch gap-2.5 min-h-14',
         body: 'p-3 gap-0',
         footer: 'flex-col items-stretch gap-2 p-3'
       }"
     >
       <!-- Header -->
       <template #header="{ state, close }">
-        <UIcon
-          class="size-5 shrink-0 text-primary"
-          name="i-lucide-gamepad-2"
-        />
-        <span
-          v-if="state !== 'collapsed'"
-          class="flex-1 truncate text-lg font-bold text-primary"
-        >
-          Polynux
-        </span>
-        <!-- Mobile close -->
-        <UButton
-          class="lg:hidden shrink-0"
-          color="neutral"
-          icon="i-lucide-x"
-          size="sm"
-          variant="ghost"
-          @click="close()"
-        />
+        <div class="flex items-center justify-between gap-2 w-full">
+          <div class="flex items-center gap-2 min-w-0">
+            <UIcon
+              class="size-5 shrink-0 text-primary"
+              name="i-lucide-gamepad-2"
+            />
+            <span
+              v-if="state !== 'collapsed'"
+              class="flex-1 truncate text-lg font-bold text-primary"
+            >
+              Polynux
+            </span>
+          </div>
+          <!-- Mobile close -->
+          <UButton
+            class="lg:hidden shrink-0"
+            color="neutral"
+            icon="i-lucide-x"
+            size="sm"
+            variant="ghost"
+            @click="close()"
+          />
+        </div>
+
+        <!-- Search button inside header div -->
+        <div class="w-full">
+          <UButton
+            v-if="state !== 'collapsed'"
+            block
+            color="neutral"
+            variant="outline"
+            class="justify-between text-muted hover:text-default bg-elevated/40 border-default/80 cursor-pointer"
+            icon="i-lucide-search"
+            @click="globalSearch.open()"
+          >
+            <span class="truncate text-xs font-medium">Search pages...</span>
+            <span class="flex items-center gap-0.5 text-[10px] opacity-80">
+              <UKbd size="sm">⌘</UKbd>
+              <UKbd size="sm">K</UKbd>
+            </span>
+          </UButton>
+          <UTooltip v-else text="Search pages (⌘K)" :content="{ side: 'right' }">
+            <UButton
+              square
+              block
+              color="neutral"
+              variant="outline"
+              icon="i-lucide-search"
+              class="bg-elevated/40 border-default/80 cursor-pointer mx-auto"
+              @click="globalSearch.open()"
+            />
+          </UTooltip>
+        </div>
       </template>
 
       <!-- Nav content -->
       <template #default="{ state }">
+
         <p
           v-if="state !== 'collapsed'"
           class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1"
@@ -210,6 +266,22 @@ function setNeutral(color: string) {
           :items="slotItems"
           orientation="vertical"
         />
+
+        <template v-if="user?.isPokemonAdmin">
+          <USeparator class="my-3" />
+
+          <p
+            v-if="state !== 'collapsed'"
+            class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1"
+          >
+            Admin
+          </p>
+          <UNavigationMenu
+            :collapsed="state === 'collapsed'"
+            :items="adminItems"
+            orientation="vertical"
+          />
+        </template>
       </template>
 
       <!-- Footer -->
@@ -217,10 +289,10 @@ function setNeutral(color: string) {
         <!-- Balance: full row when expanded -->
         <div
           v-if="state !== 'collapsed'"
-          class="flex items-center justify-between px-1"
+          class="flex items-center justify-between px-3"
         >
           <span class="font-semibold text-sm">
-            <CoinBalance :value="user?.balance" />
+            <CoinBalance :value="user?.balance" :danger="bankGarnishing" :tooltip="BANK_DEBT_WARNING" />
           </span>
           <span class="font-semibold text-sm">
             <GemBalance :value="user?.gems" />
@@ -231,7 +303,18 @@ function setNeutral(color: string) {
           v-else
           class="flex flex-col items-center gap-2"
         >
+          <UTooltip
+            v-if="bankGarnishing"
+            :text="BANK_DEBT_WARNING"
+            :ui="{ content: 'h-auto max-w-64 whitespace-normal' }"
+          >
+            <UIcon
+              class="size-4 text-error"
+              name="i-lucide-coins"
+            />
+          </UTooltip>
           <UIcon
+            v-else
             class="size-4 text-yellow-400"
             name="i-lucide-coins"
           />
@@ -256,18 +339,19 @@ function setNeutral(color: string) {
             variant="ghost"
           >
             <template #leading>
-              <ProfileEmblem :emblem="user?.emblem" :name="user?.name" class="size-6" />
+              <ProfileEmblem :emblem="user?.emblem" :name="user?.name" :prestige="user?.prestige" class="size-6" />
+            </template>
+            <template v-if="state !== 'collapsed'" #trailing>
+              <UIcon name="i-lucide-chevrons-up-down" class="ml-auto size-4 shrink-0" />
             </template>
           </UButton>
 
           <template #content>
             <div class="w-56 py-1.5">
               <div class="flex items-center gap-3 px-3 py-2">
-                <ProfileEmblem :emblem="user?.emblem" :name="user?.name" class="size-8 text-sm" />
+                <ProfileEmblem :emblem="user?.emblem" :name="user?.name" :prestige="user?.prestige" class="size-8 text-sm" />
                 <div class="min-w-0">
-                  <p class="text-sm font-semibold truncate">
-                    {{ user?.name ?? 'Account' }}
-                  </p>
+                  <p class="truncate text-sm font-semibold">{{ user?.name ?? 'Account' }}</p>
                   <p class="text-xs text-muted truncate">
                     {{ user?.email }}
                   </p>
@@ -277,6 +361,12 @@ function setNeutral(color: string) {
               <USeparator class="my-1" />
 
               <div class="px-3 py-2 space-y-2.5">
+                <USwitch
+                  v-model="softStudio"
+                  label="Soft Studio"
+                  size="sm"
+                />
+                <USeparator />
                 <div>
                   <p class="text-xs font-medium text-muted mb-1.5">
                     Primary
@@ -364,33 +454,30 @@ function setNeutral(color: string) {
           </template>
         </UPopover>
 
-        <p
-          v-if="state !== 'collapsed'"
-          class="px-2 text-xs text-muted"
-        >
-          {{ siteVersion }}
-        </p>
-        <UIcon
-          v-else
-          :title="siteVersion"
-          class="mx-auto size-3.5 text-muted"
-          name="i-lucide-git-commit-horizontal"
-        />
       </template>
     </USidebar>
 
     <!-- Main content -->
     <div class="flex flex-1 flex-col overflow-hidden min-w-0">
       <!-- Mobile header -->
-      <header class="flex h-14 shrink-0 items-center gap-2 border-b border-default px-4 lg:hidden">
+      <header class="flex h-14 shrink-0 items-center justify-between border-b border-default px-4 lg:hidden">
+        <div class="flex items-center gap-2">
+          <UButton
+            aria-label="Open sidebar"
+            color="neutral"
+            icon="i-lucide-panel-left"
+            variant="ghost"
+            @click="open = true"
+          />
+          <span class="font-semibold text-primary">Polynux</span>
+        </div>
         <UButton
-          aria-label="Open sidebar"
+          aria-label="Search pages"
           color="neutral"
-          icon="i-lucide-panel-left"
+          icon="i-lucide-search"
           variant="ghost"
-          @click="open = true"
+          @click="globalSearch.open()"
         />
-        <span class="font-semibold text-primary">Polynux</span>
       </header>
 
       <main class="flex-1 overflow-auto">
@@ -398,5 +485,7 @@ function setNeutral(color: string) {
         <ChatWidget v-if="user" />
       </main>
     </div>
+
+    <GlobalSearchModal />
   </div>
 </template>

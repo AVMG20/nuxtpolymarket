@@ -11,8 +11,8 @@ export default defineEventHandler(async (event) => {
   const userId = await requireUserId(event)
 
   const qty = body.quantity ?? 1
-  if (!body.typeId || qty < 1 || qty > 10) {
-    throw createError({ statusCode: 400, statusMessage: 'Provide typeId and quantity (1–10)' })
+  if (!body.typeId || !Number.isInteger(qty) || qty < 1 || qty > 100) {
+    throw createError({ statusCode: 400, statusMessage: 'Provide typeId and quantity (1–100)' })
   }
 
   const plant = getPlantOrThrow(body.typeId)

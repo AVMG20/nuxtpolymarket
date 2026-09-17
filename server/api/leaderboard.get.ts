@@ -1,35 +1,32 @@
 import { count, countDistinct, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { getSessionUserId } from '#server/utils/auth'
-import { user, minerState, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders } from '#server/database/schema'
+import { user, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders, tcgBattlerRun, tcgBattlerRating } from '#server/database/schema'
 import { getGemGuidePrice } from '#server/utils/gem-exchange'
-import { overclockMultiplier, catalystMultiplier } from '#shared/utils/miner-config'
-import { debtFloor, growBankBalance } from '#shared/utils/gamelogic/bank'
+import { bailoutRemaining, debtFloor, growBankBalance, isBailoutActive } from '#shared/utils/gamelogic/bank'
 import { PLANT_TYPES } from '#shared/utils/xeno'
 import { equippedAgentPower, type EquippableItemRow } from '#server/utils/hack'
 
 export default defineEventHandler(async (event) => {
   const sessionUserId = await getSessionUserId(event)
   const xenoSpeciesIds = [...new Set(PLANT_TYPES.map(plant => plant.id))]
-  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts] = await Promise.all([
+  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts, battlerTotals, battlerRatings] = await Promise.all([
     db
       .select({
         id: user.id,
         name: user.name,
         emblem: user.emblem,
+        prestige: user.prestige,
         balance: user.balance,
         gems: user.gems,
-        rigLevel: minerState.rigLevel,
-        vaultLevel: minerState.vaultLevel,
-        factoryLevel: minerState.factoryLevel,
-        overclockLevel: minerState.overclockLevel,
-        catalystLevel: minerState.catalystLevel,
         bankBalance: bankState.balance,
         bankLastSettledAt: bankState.lastSettledAt,
         bankLoanPrincipal: bankState.loanPrincipal,
+        bailoutUntil: bankState.bailoutUntil,
+        bailoutDebt: bankState.bailoutDebt,
+        bailoutRepaid: bankState.bailoutRepaid,
       })
       .from(user)
-      .leftJoin(minerState, eq(minerState.userId, user.id))
       .leftJoin(bankState, eq(bankState.userId, user.id)),
     getGemGuidePrice(),
     // Coins and gems escrowed in open exchange offers still belong to the
@@ -76,6 +73,16 @@ export default defineEventHandler(async (event) => {
       .from(aiMessages)
       .where(eq(aiMessages.role, 'user'))
       .groupBy(aiMessages.userId),
+    db
+      .select({
+        userId: tcgBattlerRun.userId,
+        runsWon: sql<number>`count(*) filter (where ${tcgBattlerRun.state} = 'won')`.mapWith(Number),
+        battlesWon: sql<number>`coalesce(sum(${tcgBattlerRun.wins}), 0)`.mapWith(Number),
+        battlesLost: sql<number>`coalesce(sum(${tcgBattlerRun.losses}), 0)`.mapWith(Number)
+      })
+      .from(tcgBattlerRun)
+      .groupBy(tcgBattlerRun.userId),
+    db.select({ userId: tcgBattlerRating.userId, rating: tcgBattlerRating.rating }).from(tcgBattlerRating),
   ])
 
   const gemEscrowByUser = new Map(gemEscrowRows.map(row => [row.userId, row]))
@@ -98,6 +105,8 @@ export default defineEventHandler(async (event) => {
   const xenoGridByUser = new Map(xenoGridCounts.map(row => [row.userId, row.n]))
   const xenoBreederByUser = new Map(xenoBreederCounts.map(row => [row.userId, row.n]))
   const aiPromptsByUser = new Map(aiPromptCounts.map(row => [row.userId, row.n]))
+  const battlerByUser = new Map(battlerTotals.map(row => [row.userId, row]))
+  const battlerRatingByUser = new Map(battlerRatings.map(row => [row.userId, row.rating]))
 
   return users
     .map(u => {
@@ -107,12 +116,17 @@ export default defineEventHandler(async (event) => {
       const gemValue = gems * gemGuidePrice
       const storedBankBalance = parseFloat(u.bankBalance ?? '0')
       const loanPrincipal = parseFloat(u.bankLoanPrincipal ?? '0')
+      const bailout = {
+        until: u.bailoutUntil,
+        debt: parseFloat(u.bailoutDebt ?? '0'),
+        repaid: parseFloat(u.bailoutRepaid ?? '0')
+      }
       let bankBalance = u.bankLastSettledAt
-        ? growBankBalance(storedBankBalance, u.bankLastSettledAt)
+        ? growBankBalance(storedBankBalance, u.bankLastSettledAt, new Date(), bailout)
         : storedBankBalance
       if (bankBalance < 0 && loanPrincipal > 0) bankBalance = Math.max(bankBalance, debtFloor(loanPrincipal))
+      const bailoutActive = isBailoutActive(bailout)
       const totalWealth = balance + gemValue + bankBalance
-      const totalLevels = (u.rigLevel ?? 1) + (u.vaultLevel ?? 1) + (u.factoryLevel ?? 1)
       const itemMap = itemsByUser.get(u.id) ?? new Map<string, EquippableItemRow>()
       const hackPower = (agentsByUser.get(u.id) ?? [])
         .reduce((total, agent) => total + equippedAgentPower(agent, itemMap), 0)
@@ -122,27 +136,26 @@ export default defineEventHandler(async (event) => {
       const xenoGridSlotsUnlocked = xenoGridByUser.get(u.id) ?? 0
       const xenoBreederSlotsUnlocked = xenoBreederByUser.get(u.id) ?? 0
       const aiPromptsUsed = aiPromptsByUser.get(u.id) ?? 0
-      const totalUpgrades = totalLevels
-        + (u.overclockLevel ?? 0)
-        + (u.catalystLevel ?? 0)
-        + colonyHabitatLevel
+      const battler = battlerByUser.get(u.id)
+      const totalUpgrades = colonyHabitatLevel
         + colonyResearchLevels
         + xenoSpeciesUnlocked
         + xenoGridSlotsUnlocked
         + xenoBreederSlotsUnlocked
       return {
         isCurrentUser: u.id === sessionUserId,
+        id: u.id,
         name: u.name,
         emblem: u.emblem,
+        prestige: u.prestige,
         balance: u.balance,
         bankBalance,
+        // A running bail-out is still a debt until it is levied back or bought out.
+        inDebt: bankBalance < 0 || bailoutActive,
+        bailoutActive,
+        bailoutRemaining: bailoutActive ? bailoutRemaining(bailout) : 0,
         gems,
         gemValue,
-        rigLevel: u.rigLevel ?? 1,
-        vaultLevel: u.vaultLevel ?? 1,
-        factoryLevel: u.factoryLevel ?? 1,
-        overclockPct: Math.round((overclockMultiplier(u.overclockLevel ?? 0) - 1) * 100),
-        catalystPct: Math.round((catalystMultiplier(u.catalystLevel ?? 0) - 1) * 100),
         hackPower,
         colonyHabitatLevel,
         colonyResearchLevels,
@@ -150,10 +163,18 @@ export default defineEventHandler(async (event) => {
         xenoGridSlotsUnlocked,
         xenoBreederSlotsUnlocked,
         aiPromptsUsed,
-        totalLevels,
+        battlerRunsWon: battler?.runsWon ?? 0,
+        battlerRating: battlerRatingByUser.get(u.id) ?? null,
+        battlerBattlesWon: battler?.battlesWon ?? 0,
+        battlerBattlesLost: battler?.battlesLost ?? 0,
         totalUpgrades,
         totalWealth,
       }
     })
-    .sort((a, b) => b.totalUpgrades - a.totalUpgrades || b.totalWealth - a.totalWealth)
+    // Prestige outranks everything: ascending wipes all progress, so a fresh
+    // prestiged account would otherwise sit below the players it just lapped.
+    .sort((a, b) =>
+      (b.prestige ?? 0) - (a.prestige ?? 0)
+      || b.totalUpgrades - a.totalUpgrades
+      || b.totalWealth - a.totalWealth)
 })

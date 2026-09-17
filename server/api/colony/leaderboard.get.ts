@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
 
     const userIds = states.map(state => state.userId)
     const [users, bugs, items, upgrades, research] = await Promise.all([
-        db.select({ id: user.id, name: user.name }).from(user).where(inArray(user.id, userIds)),
+        db.select({ id: user.id, name: user.name, prestige: user.prestige }).from(user).where(inArray(user.id, userIds)),
         db.select({ userId: colonyBugs.userId, typeId: colonyBugs.typeId, inTerrarium: colonyBugs.inTerrarium }).from(colonyBugs).where(inArray(colonyBugs.userId, userIds)),
         db.select({ userId: colonyItems.userId, itemTypeId: colonyItems.itemTypeId, quantity: colonyItems.quantity }).from(colonyItems).where(inArray(colonyItems.userId, userIds)),
         db.select({ userId: colonyUpgrades.userId, level: colonyUpgrades.level }).from(colonyUpgrades).where(inArray(colonyUpgrades.userId, userIds)),
@@ -32,7 +32,13 @@ export default defineEventHandler(async (event) => {
 
             const playerBugs = bugs.filter(bug => bug.userId === state.userId)
             const playerItems = items.filter(item => item.userId === state.userId)
-            const bugValue = playerBugs.reduce((sum, bug) => sum + (getBug(bug.typeId)?.spawnCost ?? 0), 0)
+            // colonyValue is what the colony cost to build, so prestige-only
+            // grants score nothing: nobody paid their spawnCost, and counting
+            // it would sell 20M of standing for one prestige token.
+            const bugValue = playerBugs.reduce((sum, bug) => {
+                const type = getBug(bug.typeId)
+                return sum + (type && !type.prestigeOnly ? type.spawnCost : 0)
+            }, 0)
             const inventoryValue = playerItems.reduce((sum, item) => {
                 return sum + Math.max(0, item.quantity) * (getItem(item.itemTypeId)?.sellValue ?? 0)
             }, 0)
@@ -40,6 +46,7 @@ export default defineEventHandler(async (event) => {
             return {
                 isCurrentUser: state.userId === sessionUserId,
                 name: player.name,
+                prestige: player.prestige,
                 habitatLevel: state.habitatLevel,
                 bugCount: playerBugs.length,
                 placedBugCount: playerBugs.filter(bug => bug.inTerrarium).length,

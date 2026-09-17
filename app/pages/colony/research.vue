@@ -31,7 +31,7 @@ async function handleSacrifice(typeId: string) {
         Research
       </h1>
       <p class="text-sm text-muted">
-        Pour coins into a species to permanently widen the roll range every future purchase of that species uses. Bugs you already own keep whatever they rolled — each level costs a multiple of the species' own
+        Pour coins into a species to permanently widen the speed and yield roll every future purchase of that species uses, and to multiply everything it forages by +25% per level. The multiplier applies colony-wide, to bugs you already own as well — the wider rolls only show up on bugs bought afterwards. Each level costs a multiple of the species' own
         <NuxtLink
           to="/colony/market"
           class="text-primary underline"
@@ -67,7 +67,7 @@ async function handleSacrifice(typeId: string) {
                 >(max)</span>
               </p>
               <p class="text-xs text-muted mt-0.5">
-                Rolls {{ species.speedMin }}–{{ species.speedMax }}% speed · {{ species.yieldMin }}–{{ species.yieldMax }} yield
+                ×{{ species.resourceMultiplier }} resources · rolls {{ species.speedMin }}–{{ species.speedMax }}% speed · {{ species.yieldMin }}–{{ species.yieldMax }} yield
               </p>
             </div>
           </div>
@@ -78,10 +78,10 @@ async function handleSacrifice(typeId: string) {
           >
             <div class="flex items-center justify-between text-xs">
               <span class="text-muted">Currently</span>
-              <span class="font-mono font-medium text-highlighted">{{ species.speedMin }}–{{ species.speedMax }}% · {{ species.yieldMin }}–{{ species.yieldMax }} yield</span>
+              <span class="font-mono font-medium text-highlighted">×{{ species.resourceMultiplier }} · {{ species.speedMin }}–{{ species.speedMax }}% · {{ species.yieldMin }}–{{ species.yieldMax }} yield</span>
             </div>
             <div
-              v-if="species.nextSpeedRange && species.nextYieldRange"
+              v-if="species.nextSpeedRange && species.nextYieldRange && species.nextResourceMultiplier"
               class="flex items-center justify-between text-xs"
             >
               <span class="text-muted flex items-center gap-1">
@@ -91,7 +91,7 @@ async function handleSacrifice(typeId: string) {
                 />
                 Next level
               </span>
-              <span class="font-mono font-medium text-primary">{{ species.nextSpeedRange[0] }}–{{ species.nextSpeedRange[1] }}% · {{ species.nextYieldRange[0] }}–{{ species.nextYieldRange[1] }} yield</span>
+              <span class="font-mono font-medium text-primary">×{{ species.nextResourceMultiplier }} · {{ species.nextSpeedRange[0] }}–{{ species.nextSpeedRange[1] }}% · {{ species.nextYieldRange[0] }}–{{ species.nextYieldRange[1] }} yield</span>
             </div>
           </div>
         </div>

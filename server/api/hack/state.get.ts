@@ -95,6 +95,7 @@ export default defineEventHandler(async (event) => {
   const opsOut = activeOps.map(op => ({
     id: op.id, templateId: op.templateId, agentIds: op.agentIds as string[],
     startedAt: op.startedAt, completesAt: op.completesAt, done: new Date() >= op.completesAt,
+    autoRedeploy: op.autoRedeploy,
   }))
 
   const rosterExpandCost = state.rosterSlots < MAX_ROSTER_SLOTS

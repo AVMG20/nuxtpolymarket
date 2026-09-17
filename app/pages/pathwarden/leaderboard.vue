@@ -26,7 +26,7 @@ const { data, pending } = await useFetch('/api/pathwarden/leaderboard')
             <span v-else>#{{ entry.rank }}</span>
           </div>
           <div class="min-w-0">
-            <p class="truncate font-bold">{{ entry.name }} <LeaderboardYouBadge :show="entry.isCurrentUser" /></p>
+            <p class="truncate font-bold"><PrestigeBadge :level="entry.prestige" size="xs" /> {{ entry.name }} <LeaderboardYouBadge :show="entry.isCurrentUser" /></p>
             <p class="text-xs text-muted">{{ entry.runsPlayed }} ranked marches</p>
           </div>
           <div><span class="block text-[10px] uppercase text-muted">Secured realm</span><strong class="text-primary">{{ entry.completedRealm }}/5</strong></div>

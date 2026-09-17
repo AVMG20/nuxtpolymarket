@@ -48,7 +48,7 @@ const rankStyles = [
             </div>
             <div class="min-w-0">
               <p class="flex items-center gap-1.5 truncate font-bold">
-                {{ captain.name }}
+                <PrestigeBadge :level="captain.prestige" size="xs" /> {{ captain.name }}
                 <LeaderboardYouBadge :show="captain.isCurrentUser" />
               </p>
               <p class="truncate text-xs text-muted">

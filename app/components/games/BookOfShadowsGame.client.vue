@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { parseAmount } from '#shared/utils/parse-amount'
 import type { BonusResult, BonusSpinResult, BonusTier, BookOfShadowsResult, Cell, ConnectionWin, SlotSymbol } from '#shared/utils/gamelogic/bookofshadows'
 import { BONUS_TIERS, BOS_BUY_BONUS_COST, BOS_COLS, BOS_MAX_WIN_MULT, BOS_MIN_CONNECTION, BOS_ROWS, BONUS_SPINS, BONUS_RETRIGGER_BOOKS, BONUS_RETRIGGER_SPINS, BONUS_TRIGGER_COUNT, PAYTABLE, SYMBOL_WEIGHTS, playBookOfShadows } from '#shared/utils/gamelogic/bookofshadows'
 import { BOS_BONUS_SHEET_H, BOS_BONUS_SHEET_W, BOS_BONUS_SPRITE_SRC, BOS_BONUS_SYMBOL_META, BOS_SHEET_H, BOS_SHEET_W, BOS_SPRITE_SRC, BOS_SYMBOL_META } from '~/utils/bookofshadows-sprite'
@@ -46,7 +47,7 @@ function setBet(value: number) {
 }
 
 function commitBetInput() {
-  setBet(parseInt(betInput.value.replace(/[^\d]/g, ''), 10) || MIN_BET)
+  setBet(parseAmount(betInput.value) ?? MIN_BET)
   betInput.value = String(bet.value)
 }
 
@@ -1354,10 +1355,10 @@ onBeforeUnmount(() => {
                 </div>
                 <div class="bos-readout">
                   <span>Bet</span>
+                  <output v-if="amountPreview(betInput)" class="ml-auto text-[10px] tabular-nums text-muted">{{ amountPreview(betInput) }}</output>
                   <input
                     v-model="betInput"
                     :disabled="locked()"
-                    inputmode="numeric"
                     aria-label="Bet amount"
                     class="w-24 border-0 bg-transparent text-right text-sm font-black text-highlighted outline-none"
                     @blur="commitBetInput"

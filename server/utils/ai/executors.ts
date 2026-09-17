@@ -1,10 +1,22 @@
 import type { H3Event } from 'h3'
 import { MIN_DEPLOY_SUCCESS, opSuccessChance } from '#shared/utils/hack-config'
 import { ARTIFACT_TYPES, effectiveGrowTime, getPlant, MUTATIONS, PLANT_TYPES } from '#shared/utils/xeno'
-import { AI_CASINO_MAX_BET, AI_MAX_ROUNDS, BANK_MAX_AMOUNT } from '#shared/utils/limits'
+import { BANK_MAX_AMOUNT } from '#shared/utils/limits'
+import { getTownResource, TOWN_MAX_BUILDERS } from '#shared/utils/gamelogic/town'
 import type { AiToolCall } from '#shared/utils/ai'
 import { playCasinoRounds, playNamedCasinoRounds } from './casino'
 import { getErrorMessage, toolHeaders } from './helpers'
+import { planTownSale, townUpgradeCandidates, type TownBuildingSnapshot } from './town'
+
+/**
+ * The typed-route union behind $fetch has grown past TypeScript's
+ * instantiation depth (TS2589) as the API surface expanded. These executors
+ * call fixed internal routes with known result shapes, so they opt out of
+ * route-type inference wholesale: same runtime fetch, explicit generics.
+ */
+type UntypedFetch = <T = unknown>(url: string, opts?: Record<string, unknown>) => Promise<T>
+const uf = (fetcher: unknown): UntypedFetch => fetcher as UntypedFetch
+
 
 interface XenoStack {
     typeId: string
@@ -88,42 +100,8 @@ interface ColonyState {
         nextYieldRange: [number, number] | null
         cost: unknown
     }>
-    builder: { kind: 'track' | 'habitat', trackName: string, completesAt: string } | null
-}
-
-interface MinerState {
-    walletBalance: number
-    rigLevel: number
-    rigMaxLevel: number
-    rigUpgradeCost: number
-    vaultLevel: number
-    vaultMaxLevel: number
-    vaultUpgradeCost: number
-    factoryLevel: number
-    factoryMaxLevel: number
-    factoryUpgradeCost: number
-    pendingCash: number
-    pendingGems: number
-    income: number
-    cap: number
-    rate: number
-    gemCap: number
-    gems: number
-    lootboxSlots: number
-    lootboxMaxSlots: number
-    lootboxNextSlotCost: number
-    lootboxFreeOpensRemaining: number
-    overclockLevel: number
-    overclockMaxLevel: number
-    overclockNextCost: number | null
-    catalystLevel: number
-    catalystMaxLevel: number
-    catalystNextCost: number | null
-    incomeMultiplier: number
-    gemRateMultiplier: number
-    gemPrice: number
-    lootboxAvgValue: number
-    lootboxOpenPrice: number
+    builders: { kind: 'track' | 'habitat', trackId: string, trackName: string, completesAt: string }[]
+    builderCount: number
 }
 
 interface GemExchangeState {
@@ -133,7 +111,40 @@ interface GemExchangeState {
     userGems: number | null
 }
 
-function parseArguments(raw: string): Record<string, unknown> {
+interface TownMilestone {
+    id: string
+    title: string
+    reward: number
+    gems: number
+    complete: boolean
+    claimed: boolean
+}
+
+type TownState = { initialized: false } | {
+    initialized: true
+    happiness: number
+    mood: { name: string }
+    popCap: number
+    workersDemanded: number
+    workersEmployed: number
+    storageCap: number
+    floorIncomePerDay: number
+    coinsEarned: number
+    unlockedTiers: number[]
+    needs: Array<{ resource: string, active: boolean, satisfied: boolean, stock: number }>
+    builders: { owned: number, busy: number, nextGemCost: number | null }
+    buildings: Array<TownBuildingSnapshot & { name?: string }>
+    inventory: Record<string, number>
+    milestones: TownMilestone[]
+}
+
+/**
+ * Tool arguments as the model sent them. Some models send an empty string
+ * instead of `{}` for a tool without parameters, so that is treated as no
+ * arguments rather than as malformed JSON.
+ */
+export function parseToolArguments(raw: string): Record<string, unknown> {
+    if (!raw.trim()) return {}
     try {
         const value = JSON.parse(raw) as unknown
         return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -144,12 +155,12 @@ function parseArguments(raw: string): Record<string, unknown> {
 
 async function getOverview(event: H3Event) {
     const headers = toolHeaders(event)
-    const [xeno, colony, hack, miner, gemExchange] = await Promise.all([
-        event.$fetch<XenoState>('/api/xeno/state', { headers }),
-        event.$fetch<ColonyState>('/api/colony/state', { headers }),
-        event.$fetch<HackState>('/api/hack/state', { headers }),
-        event.$fetch<MinerState>('/api/miner/state', { headers }),
-        event.$fetch<GemExchangeState>('/api/gem-exchange/state', { headers })
+    const [xeno, colony, hack, gemExchange, town] = await Promise.all([
+        uf(event.$fetch)<XenoState>('/api/xeno/state', { headers }),
+        uf(event.$fetch)<ColonyState>('/api/colony/state', { headers }),
+        uf(event.$fetch)<HackState>('/api/hack/state', { headers }),
+        uf(event.$fetch)<GemExchangeState>('/api/gem-exchange/state', { headers }),
+        uf(event.$fetch)<TownState>('/api/town/state', { headers })
     ])
 
     const colonyCoinsPerHour = colony.bugs.reduce((sum, bug) => sum + bug.itemsPerHour * bug.itemSellValue, 0)
@@ -193,7 +204,8 @@ async function getOverview(event: H3Event) {
             estimatedHoursUntilStarving: starvationHours,
             pendingLoot: colony.pendingLoot,
             inventory: colony.inventory,
-            builder: colony.builder,
+            builders: colony.builders,
+            builderCount: colony.builderCount,
             upgrades: colony.upgrades,
             research: colony.research,
             placedBugs: colony.bugs.map(bug => ({
@@ -210,72 +222,168 @@ async function getOverview(event: H3Event) {
             freeAgents: hack.agents.filter(agent => !agent.onOp),
             missionTemplates: hack.opTemplates
         },
-        miner: {
-            walletCoins: miner.walletBalance,
-            rig: {
-                level: miner.rigLevel,
-                maxLevel: miner.rigMaxLevel,
-                incomePerDay: miner.income,
-                pendingCoins: miner.pendingCash,
-                storageCapCoins: miner.cap,
-                nextUpgradeCostCoins: miner.rigUpgradeCost
-            },
-            vault: {
-                level: miner.vaultLevel,
-                maxLevel: miner.vaultMaxLevel,
-                storageCapCoins: miner.cap,
-                nextUpgradeCostCoins: miner.vaultUpgradeCost
-            },
-            factory: {
-                level: miner.factoryLevel,
-                maxLevel: miner.factoryMaxLevel,
-                gemsPerDay: miner.rate,
-                pendingGems: miner.pendingGems,
-                storageCapGems: miner.gemCap,
-                nextUpgradeCostCoins: miner.factoryUpgradeCost
-            },
-            overclock: {
-                level: miner.overclockLevel,
-                maxLevel: miner.overclockMaxLevel,
-                rigAndLootboxCashMultiplier: miner.incomeMultiplier,
-                nextUpgradeCostGems: miner.overclockNextCost
-            },
-            catalyst: {
-                level: miner.catalystLevel,
-                maxLevel: miner.catalystMaxLevel,
-                factoryRateMultiplier: miner.gemRateMultiplier,
-                nextUpgradeCostGems: miner.catalystNextCost
-            },
-            lootboxes: {
-                slots: miner.lootboxSlots,
-                maxSlots: miner.lootboxMaxSlots,
-                freeOpensRemainingToday: miner.lootboxFreeOpensRemaining,
-                nextSlotCostCoins: miner.lootboxNextSlotCost,
-                expectedValueCoins: miner.lootboxAvgValue,
-                paidOpenCostCoins: miner.lootboxOpenPrice,
-                liveGemPriceCoins: miner.gemPrice
-            },
-            gems: miner.gems
-        },
         gemExchange: {
             guidePrice: gemExchange.guidePrice,
             bestBuyOffer: gemExchange.bestBid,
             bestSellOffer: gemExchange.bestAsk,
             userGems: gemExchange.userGems
+        },
+        town: summarizeTown(town)
+    }
+}
+
+function summarizeTown(town: TownState) {
+    if (!town.initialized) return { initialized: false as const }
+
+    const byType = new Map<string, { type: string, count: number, minLevel: number, maxLevel: number, upgrading: number, disconnected: number }>()
+    for (const building of town.buildings) {
+        const group = byType.get(building.type) ?? { type: building.type, count: 0, minLevel: Infinity, maxLevel: 0, upgrading: 0, disconnected: 0 }
+        group.count++
+        group.minLevel = Math.min(group.minLevel, building.level)
+        group.maxLevel = Math.max(group.maxLevel, building.level)
+        if (building.level === 0 || building.upgradingTo !== null) group.upgrading++
+        if (!building.connected) group.disconnected++
+        byType.set(building.type, group)
+    }
+
+    return {
+        initialized: true as const,
+        happiness: town.happiness,
+        mood: town.mood.name,
+        population: { capacity: town.popCap, workersEmployed: town.workersEmployed, workersDemanded: town.workersDemanded },
+        storageCapPerResource: town.storageCap,
+        floorIncomePerDay: town.floorIncomePerDay,
+        coinsEarnedLifetime: town.coinsEarned,
+        unlockedTiers: town.unlockedTiers,
+        unmetNeeds: town.needs.filter(need => need.active && !need.satisfied).map(need => need.resource),
+        builders: { owned: town.builders.owned, busy: town.builders.busy, idle: Math.max(0, town.builders.owned - town.builders.busy), nextGemCost: town.builders.nextGemCost },
+        stock: Object.entries(town.inventory)
+            .filter(([, quantity]) => quantity > 0)
+            .map(([resource, quantity]) => ({
+                resource,
+                name: getTownResource(resource)?.name ?? resource,
+                quantity,
+                floorPrice: getTownResource(resource)?.floorPrice ?? null,
+                atStorageCap: quantity >= town.storageCap
+            })),
+        buildings: [...byType.values()],
+        upgradeCandidates: townUpgradeCandidates(town.buildings, { limit: TOWN_MAX_BUILDERS + 2 }),
+        claimableMilestones: town.milestones
+            .filter(milestone => milestone.complete && !milestone.claimed)
+            .map(milestone => ({ id: milestone.id, title: milestone.title, coins: milestone.reward, gems: milestone.gems }))
+    }
+}
+
+async function runTownDailies(event: H3Event, args: Record<string, unknown>) {
+    const upgrades = args.upgrades !== false
+    const preferTypes = Array.isArray(args.preferTypes) ? args.preferTypes.filter((type): type is string => typeof type === 'string') : []
+    const maxUpgrades = args.maxUpgrades == null ? TOWN_MAX_BUILDERS : Number(args.maxUpgrades)
+    if (!Number.isInteger(maxUpgrades) || maxUpgrades < 1 || maxUpgrades > TOWN_MAX_BUILDERS) {
+        throw createError({ statusCode: 400, statusMessage: `maxUpgrades must be an integer from 1 to ${TOWN_MAX_BUILDERS}` })
+    }
+
+    const headers = toolHeaders(event)
+    const town = await uf(event.$fetch)<TownState>('/api/town/state', { headers })
+    if (!town.initialized) return { initialized: false as const, message: 'The player has not founded a town yet.' }
+
+    const milestonesClaimed: Array<{ id: string, title: string, coins: number, gems: number }> = []
+    const errors: Array<{ action: string, error: string }> = []
+    for (const milestone of town.milestones.filter(item => item.complete && !item.claimed)) {
+        try {
+            await uf(event.$fetch)('/api/town/milestone/claim', { method: 'POST', headers, body: { id: milestone.id } })
+            milestonesClaimed.push({ id: milestone.id, title: milestone.title, coins: milestone.reward, gems: milestone.gems })
+        } catch (error) {
+            errors.push({ action: `claim_milestone_${milestone.id}`, error: getErrorMessage(error) })
         }
+    }
+
+    const idleBuilders = Math.max(0, town.builders.owned - town.builders.busy)
+    const upgradeBudget = Math.min(idleBuilders, maxUpgrades)
+    // More candidates than builders: a pick the purse cannot cover is skipped
+    // and the next one tried, so cheap upgrades still start after an expensive
+    // miss. One request per building keeps the cap exact, which the bulk
+    // endpoint cannot do because it uses every idle builder it finds.
+    const candidates = townUpgradeCandidates(town.buildings, { preferTypes, limit: upgradeBudget * 4 })
+    const started: Array<{ buildingId: string, type: string, name: string, level: number, completesAt: number }> = []
+    const skipped: Array<{ buildingId: string, name: string, reason: string }> = []
+    let upgradeNote: string | null = null
+    if (!upgrades) {
+        upgradeNote = 'Upgrades skipped as requested'
+    } else if (!upgradeBudget) {
+        upgradeNote = 'Every builder is busy'
+    } else if (!candidates.length) {
+        upgradeNote = 'No connected building is waiting for an upgrade'
+    } else {
+        for (const candidate of candidates) {
+            if (started.length >= upgradeBudget) break
+            try {
+                const result = await uf(event.$fetch)<{ buildingId: string, level: number, completesAt: number }>(
+                    '/api/town/building/upgrade',
+                    { method: 'POST', headers, body: { buildingId: candidate.buildingId } }
+                )
+                started.push({ ...result, type: candidate.type, name: candidate.name })
+            } catch (error) {
+                const reason = getErrorMessage(error)
+                skipped.push({ buildingId: candidate.buildingId, name: candidate.name, reason })
+                if (reason === 'Every builder is busy') break
+            }
+        }
+        if (!started.length) upgradeNote = skipped[0]?.reason ?? 'Nothing could be upgraded'
+    }
+
+    return {
+        initialized: true as const,
+        milestonesClaimed,
+        upgradesStarted: started,
+        upgradesSkipped: skipped,
+        idleBuildersBefore: idleBuilders,
+        idleBuildersAfter: Math.max(0, idleBuilders - started.length),
+        upgradeNote,
+        errors
+    }
+}
+
+async function sellTownResources(event: H3Event, args: Record<string, unknown>) {
+    const resources = args.resources == null
+        ? undefined
+        : Array.isArray(args.resources) ? args.resources.map(String) : [String(args.resources)]
+    const headers = toolHeaders(event)
+    const town = await uf(event.$fetch)<TownState>('/api/town/state', { headers })
+    if (!town.initialized) return { initialized: false as const, message: 'The player has not founded a town yet.', total: 0, lines: [] }
+
+    const plan = planTownSale(town.inventory, {
+        percent: Number(args.percent),
+        resources,
+        keepQuantity: args.keepQuantity == null ? undefined : Number(args.keepQuantity)
+    })
+    if (!plan.length) return { initialized: true as const, total: 0, lines: [], message: 'Nothing to sell at that percentage' }
+
+    const result = await uf(event.$fetch)<{ total: number, lines: Array<{ resource: string, quantity: number, price: number, total: number }> }>(
+        '/api/town/market/sell-bulk',
+        { method: 'POST', headers, body: { items: plan.map(line => ({ resource: line.resource, quantity: line.quantity })) } }
+    )
+    return {
+        initialized: true as const,
+        percent: Number(args.percent),
+        total: result.total,
+        lines: result.lines.map(line => ({
+            ...line,
+            name: getTownResource(line.resource)?.name ?? line.resource,
+            kept: Math.max(0, (plan.find(entry => entry.resource === line.resource)?.stock ?? 0) - line.quantity)
+        }))
     }
 }
 
 async function runXenoDailies(event: H3Event, keepPerPlantType: number) {
     const headers = toolHeaders(event)
-    const initial = await event.$fetch<XenoState>('/api/xeno/state', { headers })
+    const initial = await uf(event.$fetch)<XenoState>('/api/xeno/state', { headers })
     const ready = initial.grid.slots.filter((slot): slot is XenoSlot & { plant: NonNullable<XenoSlot['plant']> } =>
         Boolean(slot.plant && Date.parse(slot.plant.completesAt) <= Date.now())
     )
     const harvested: Array<{ slotId: string, result: unknown }> = []
 
     for (const slot of ready) {
-        const result = await event.$fetch('/api/xeno/grid/harvest', {
+        const result = await uf(event.$fetch)('/api/xeno/grid/harvest', {
             method: 'POST',
             headers,
             body: { slotId: slot.id }
@@ -289,14 +397,14 @@ async function runXenoDailies(event: H3Event, keepPerPlantType: number) {
     ])).values()]
     const replanted: unknown[] = []
     for (const stack of harvestedStacks) {
-        replanted.push(await event.$fetch('/api/xeno/grid/plant-all', {
+        replanted.push(await uf(event.$fetch)('/api/xeno/grid/plant-all', {
             method: 'POST',
             headers,
             body: stack
         }))
     }
 
-    const afterPlanting = await event.$fetch<XenoState>('/api/xeno/state', { headers })
+    const afterPlanting = await uf(event.$fetch)<XenoState>('/api/xeno/state', { headers })
     const byType = new Map<string, XenoStack[]>()
     for (const stack of afterPlanting.inventory) {
         const entries = byType.get(stack.typeId) ?? []
@@ -313,7 +421,7 @@ async function runXenoDailies(event: H3Event, keepPerPlantType: number) {
             keepRemaining -= retained
             const quantity = stack.quantity - retained
             if (quantity <= 0) continue
-            const result = await event.$fetch('/api/xeno/market/sell', {
+            const result = await uf(event.$fetch)('/api/xeno/market/sell', {
                 method: 'POST',
                 headers,
                 body: { typeId, speed: stack.speed, yield: stack.yield, quantity }
@@ -392,15 +500,15 @@ async function manageXenoGarden(event: H3Event, args: Record<string, unknown>) {
     if (!requestedPlants.size) throw createError({ statusCode: 400, statusMessage: 'Choose at least one Xeno plant to prioritize' })
 
     const headers = toolHeaders(event)
-    let state = await event.$fetch<XenoState>('/api/xeno/state', { headers })
+    let state = await uf(event.$fetch)<XenoState>('/api/xeno/state', { headers })
     const ready = state.grid.slots.filter((slot): slot is XenoSlot & { plant: NonNullable<XenoSlot['plant']> } =>
         Boolean(slot.plant && Date.parse(slot.plant.completesAt) <= Date.now())
     )
     if (args.harvestReady === true) {
         for (const slot of ready) {
-            await event.$fetch('/api/xeno/grid/harvest', { method: 'POST', headers, body: { slotId: slot.id } })
+            await uf(event.$fetch)('/api/xeno/grid/harvest', { method: 'POST', headers, body: { slotId: slot.id } })
         }
-        state = await event.$fetch<XenoState>('/api/xeno/state', { headers })
+        state = await uf(event.$fetch)<XenoState>('/api/xeno/state', { headers })
     }
 
     const inventory = state.inventory.map(stack => ({ ...stack }))
@@ -424,7 +532,7 @@ async function manageXenoGarden(event: H3Event, args: Record<string, unknown>) {
             if (slotIndex < 0) break
             const slot = slots.splice(slotIndex, 1)[0]!
             const stack = takeStack(slot, typeId)!
-            await event.$fetch('/api/xeno/grid/plant', {
+            await uf(event.$fetch)('/api/xeno/grid/plant', {
                 method: 'POST', headers, body: { slotId: slot.id, typeId: stack.typeId, speed: stack.speed, yield: stack.yield }
             })
             stack.quantity--
@@ -447,7 +555,7 @@ async function manageXenoGarden(event: H3Event, args: Record<string, unknown>) {
             if (!candidate) break
             const slot = slots.splice(candidate.slotIndex, 1)[0]!
             const { stack } = candidate
-            await event.$fetch('/api/xeno/grid/plant', {
+            await uf(event.$fetch)('/api/xeno/grid/plant', {
                 method: 'POST', headers, body: { slotId: slot.id, typeId: stack.typeId, speed: stack.speed, yield: stack.yield }
             })
             stack.quantity--
@@ -472,14 +580,14 @@ async function manageXenoGarden(event: H3Event, args: Record<string, unknown>) {
 
 async function runHackOpsDailies(event: H3Event) {
     const headers = toolHeaders(event)
-    const initial = await event.$fetch<HackState>('/api/hack/state', { headers })
+    const initial = await uf(event.$fetch)<HackState>('/api/hack/state', { headers })
     const completed = initial.activeOps.filter(op => op.done || Date.parse(op.completesAt) <= Date.now())
     const collected: Array<{ opId: string, result?: unknown, error?: string }> = []
     const redeployed: Array<{ previousOpId: string, result?: unknown, error?: string }> = []
 
     for (const op of completed) {
         try {
-            const result = await event.$fetch('/api/hack/ops/collect', {
+            const result = await uf(event.$fetch)('/api/hack/ops/collect', {
                 method: 'POST',
                 headers,
                 body: { opId: op.id }
@@ -491,7 +599,7 @@ async function runHackOpsDailies(event: H3Event) {
         }
 
         try {
-            const dispatch = await event.$fetch('/api/hack/ops/dispatch', {
+            const dispatch = await uf(event.$fetch)('/api/hack/ops/dispatch', {
                 method: 'POST',
                 headers,
                 body: { templateId: op.templateId, agentIds: op.agentIds }
@@ -514,13 +622,13 @@ async function runColonyDailies(event: H3Event, feedMethod: 'coins' | 'gems') {
     }
 
     try {
-        result.collected = await event.$fetch('/api/colony/loot/collect', { method: 'POST', headers })
+        result.collected = await uf(event.$fetch)('/api/colony/loot/collect', { method: 'POST', headers })
     } catch (error) {
         result.errors.push({ action: 'collect_colony_loot', error: getErrorMessage(error) })
     }
 
     try {
-        result.fed = await event.$fetch('/api/colony/feed', {
+        result.fed = await uf(event.$fetch)('/api/colony/feed', {
             method: 'POST',
             headers,
             body: { method: feedMethod }
@@ -539,7 +647,7 @@ async function sellColonyResources(event: H3Event, args: Record<string, unknown>
     }
     const itemTypeId = typeof args.itemTypeId === 'string' ? args.itemTypeId : undefined
     const headers = toolHeaders(event)
-    const colony = await event.$fetch<ColonyState>('/api/colony/state', { headers })
+    const colony = await uf(event.$fetch)<ColonyState>('/api/colony/state', { headers })
     const resources = itemTypeId
         ? colony.inventory.filter(item => item.id === itemTypeId)
         : colony.inventory
@@ -552,7 +660,7 @@ async function sellColonyResources(event: H3Event, args: Record<string, unknown>
     for (const resource of resources) {
         const quantity = resource.quantity - keepQuantity
         if (quantity <= 0) continue
-        const result = await event.$fetch('/api/colony/market/sell', {
+        const result = await uf(event.$fetch)('/api/colony/market/sell', {
             method: 'POST',
             headers,
             body: { itemTypeId: resource.id, quantity }
@@ -569,13 +677,13 @@ async function startColonyUpgrade(event: H3Event, args: Record<string, unknown>)
     const headers = toolHeaders(event)
 
     if (upgradeType === 'habitat') {
-        return event.$fetch('/api/colony/habitat/upgrade', { method: 'POST', headers })
+        return uf(event.$fetch)('/api/colony/habitat/upgrade', { method: 'POST', headers })
     }
     if (upgradeType === 'track' && id) {
-        return event.$fetch('/api/colony/upgrades/start', { method: 'POST', headers, body: { trackId: id } })
+        return uf(event.$fetch)('/api/colony/upgrades/start', { method: 'POST', headers, body: { trackId: id } })
     }
     if (upgradeType === 'research' && id) {
-        return event.$fetch('/api/colony/research/sacrifice', { method: 'POST', headers, body: { typeId: id } })
+        return uf(event.$fetch)('/api/colony/research/sacrifice', { method: 'POST', headers, body: { typeId: id } })
     }
 
     throw createError({ statusCode: 400, statusMessage: 'Choose habitat, or provide an upgrade ID for a track or research upgrade' })
@@ -590,7 +698,7 @@ async function dispatchHackOpsMission(event: H3Event, args: Record<string, unkno
         throw createError({ statusCode: 400, statusMessage: 'Choose one mission template and one to four unique agent IDs' })
     }
 
-    return event.$fetch('/api/hack/ops/dispatch', {
+    return uf(event.$fetch)('/api/hack/ops/dispatch', {
         method: 'POST',
         headers: toolHeaders(event),
         body: { templateId, agentIds }
@@ -598,7 +706,7 @@ async function dispatchHackOpsMission(event: H3Event, args: Record<string, unkno
 }
 
 async function findBestHackOpsMission(event: H3Event) {
-    const hack = await event.$fetch<HackState>('/api/hack/state', { headers: toolHeaders(event) })
+    const hack = await uf(event.$fetch)<HackState>('/api/hack/state', { headers: toolHeaders(event) })
     const freeAgents = hack.agents
         .filter(agent => !agent.onOp)
         .sort((a, b) => b.power - a.power)
@@ -636,102 +744,6 @@ async function findBestHackOpsMission(event: H3Event) {
     }
 }
 
-async function runMinerDailies(event: H3Event) {
-    const headers = toolHeaders(event)
-    const initial = await event.$fetch<MinerState>('/api/miner/state', { headers })
-    const result: {
-        minerCash: unknown | null
-        factoryGems: unknown | null
-        freeLootboxes: unknown[]
-        errors: Array<{ action: string, error: string }>
-    } = {
-        minerCash: null,
-        factoryGems: null,
-        freeLootboxes: [],
-        errors: []
-    }
-
-    if (initial.pendingCash >= 0.01) {
-        try {
-            result.minerCash = await event.$fetch('/api/miner/collect', { method: 'POST', headers })
-        } catch (error) {
-            result.errors.push({ action: 'collect_miner_cash', error: getErrorMessage(error) })
-        }
-    }
-
-    if (Math.floor(initial.pendingGems) >= 1) {
-        try {
-            result.factoryGems = await event.$fetch('/api/miner/collect-gems', { method: 'POST', headers })
-        } catch (error) {
-            result.errors.push({ action: 'collect_factory_gems', error: getErrorMessage(error) })
-        }
-    }
-
-    for (let open = 0; open < initial.lootboxFreeOpensRemaining; open++) {
-        try {
-            result.freeLootboxes.push(await event.$fetch('/api/miner/lootbox/open', {
-                method: 'POST',
-                headers,
-                body: { mode: 'free' }
-            }))
-        } catch (error) {
-            result.errors.push({ action: `open_free_lootbox_${open + 1}`, error: getErrorMessage(error) })
-            break
-        }
-    }
-
-    return {
-        ...result,
-        requestedFreeLootboxes: initial.lootboxFreeOpensRemaining,
-        openedFreeLootboxes: result.freeLootboxes.length
-    }
-}
-
-const MINER_UPGRADE_ENDPOINTS = {
-    rig: '/api/miner/upgrade-rig',
-    vault: '/api/miner/upgrade-vault',
-    factory: '/api/miner/upgrade-factory',
-    overclock: '/api/miner/shop/overclock',
-    catalyst: '/api/miner/shop/catalyst',
-    lootbox_slot: '/api/miner/lootbox/buy-slot',
-    rakeback_unlock: '/api/user/unlock-rakeback'
-} as const
-
-async function purchaseMinerUpgrades(event: H3Event, args: Record<string, unknown>) {
-    const upgrade = typeof args.upgrade === 'string' ? args.upgrade : ''
-    const levels = Number(args.levels)
-    if (!(upgrade in MINER_UPGRADE_ENDPOINTS)) {
-        throw createError({ statusCode: 400, statusMessage: 'Unknown Miner upgrade' })
-    }
-    if (!Number.isInteger(levels) || levels < 1 || levels > 20) {
-        throw createError({ statusCode: 400, statusMessage: 'levels must be an integer from 1 to 20' })
-    }
-    if (upgrade === 'rakeback_unlock' && levels !== 1) {
-        throw createError({ statusCode: 400, statusMessage: 'Rakeback can only be unlocked once' })
-    }
-
-    const headers = toolHeaders(event)
-    const endpoint = MINER_UPGRADE_ENDPOINTS[upgrade as keyof typeof MINER_UPGRADE_ENDPOINTS]
-    const purchases: unknown[] = []
-    let stoppedReason: string | null = null
-    for (let level = 0; level < levels; level++) {
-        try {
-            purchases.push(await event.$fetch(endpoint, { method: 'POST', headers }))
-        } catch (error) {
-            stoppedReason = getErrorMessage(error)
-            break
-        }
-    }
-
-    return {
-        upgrade,
-        requestedLevels: levels,
-        purchasedLevels: purchases.length,
-        stoppedReason,
-        purchases
-    }
-}
-
 async function tradeGems(event: H3Event, args: Record<string, unknown>) {
     const action = args.action === 'buy' ? 'buy' : args.action === 'sell' ? 'sell' : ''
     const gems = Number(args.gems)
@@ -744,101 +756,50 @@ async function tradeGems(event: H3Event, args: Record<string, unknown>) {
     if (price === null) {
         // Default to the price most likely to fill instantly: cross the spread
         // when the opposite side of the book has offers, otherwise the guide.
-        const state = await event.$fetch<GemExchangeState>('/api/gem-exchange/state', { headers })
+        const state = await uf(event.$fetch)<GemExchangeState>('/api/gem-exchange/state', { headers })
         price = (action === 'buy' ? state.bestAsk : state.bestBid) ?? state.guidePrice
         price = Math.round(price * 100) / 100
     }
 
-    return event.$fetch('/api/gem-exchange/place', {
+    return uf(event.$fetch)('/api/gem-exchange/place', {
         method: 'POST',
         headers,
         body: { side: action, quantity: gems, price }
     })
 }
 
-interface BlackjackPlayResponse {
-    totalWagered: number
-    payout: number
-    net: number
-    balance: number
-}
-
-async function playBlackjackRounds(event: H3Event, args: Record<string, unknown>) {
-    const bet = Number(args.bet)
-    const rounds = Number(args.rounds)
-    if (!Number.isFinite(bet) || bet < 1 || bet > AI_CASINO_MAX_BET) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack bet' })
-    if (!Number.isInteger(rounds) || rounds < 1 || rounds > AI_MAX_ROUNDS) throw createError({ statusCode: 400, statusMessage: `Rounds must be from 1 to ${AI_MAX_ROUNDS}` })
-
-    const headers = toolHeaders(event)
-    let totalWagered = 0
-    let totalPayout = 0
-    let net = 0
-    let finalBalance: number | null = null
-    let stoppedReason: string | null = null
-    let playedRounds = 0
-    let wins = 0
-    let pushes = 0
-    let losses = 0
-    let biggestWin = 0
-    let biggestLoss = 0
-
-    // Each hand settles in its own locked transaction, so the row lock is released
-    // between hands instead of being held for the whole batch.
-    for (let round = 1; round <= rounds; round++) {
-        let hand: BlackjackPlayResponse
-        try {
-            hand = await event.$fetch<BlackjackPlayResponse>('/api/games/blackjack/play', { method: 'POST', headers, body: { bet } })
-        } catch (error) {
-            stoppedReason = getErrorMessage(error)
-            break
-        }
-        totalWagered += hand.totalWagered
-        totalPayout += hand.payout
-        net += hand.net
-        finalBalance = hand.balance
-        playedRounds++
-        if (hand.net > 1e-9) wins++
-        else if (hand.net < -1e-9) losses++
-        else pushes++
-        biggestWin = Math.max(biggestWin, hand.net)
-        biggestLoss = Math.min(biggestLoss, hand.net)
-    }
-
-    return { game: 'blackjack', bet, requestedRounds: rounds, playedRounds, stoppedReason, totalWagered, totalPayout, net, finalBalance, wins, pushes, losses, biggestWin, biggestLoss }
-}
-
 export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promise<unknown> {
-    const args = parseArguments(toolCall.function.arguments)
+    const args = parseToolArguments(toolCall.function.arguments)
     const headers = toolHeaders(event)
 
     switch (toolCall.function.name) {
         case 'get_player_overview':
             return getOverview(event)
         case 'get_bank_status':
-            return event.$fetch('/api/bank/state', { headers })
+            return uf(event.$fetch)('/api/bank/state', { headers })
         case 'deposit_to_bank': {
             const amount = Number(args.amount)
             if (!Number.isFinite(amount) || amount <= 0 || amount > BANK_MAX_AMOUNT) {
                 throw createError({ statusCode: 400, statusMessage: 'Enter a valid positive bank deposit amount' })
             }
-            return event.$fetch('/api/bank/deposit', { method: 'POST', headers, body: { amount } })
+            return uf(event.$fetch)('/api/bank/deposit', { method: 'POST', headers, body: { amount } })
         }
         case 'withdraw_from_bank': {
             const amount = Number(args.amount)
             if (!Number.isFinite(amount) || amount <= 0 || amount > BANK_MAX_AMOUNT) {
                 throw createError({ statusCode: 400, statusMessage: 'Enter a valid positive bank withdrawal amount' })
             }
-            return event.$fetch('/api/bank/withdraw', { method: 'POST', headers, body: { amount } })
+            return uf(event.$fetch)('/api/bank/withdraw', { method: 'POST', headers, body: { amount } })
         }
         case 'repay_bank_debt':
-            return event.$fetch('/api/bank/deposit', { method: 'POST', headers, body: { repayDebt: true } })
+            return uf(event.$fetch)('/api/bank/deposit', { method: 'POST', headers, body: { repayDebt: true } })
         case 'collect_colony_loot':
-            return event.$fetch('/api/colony/loot/collect', { method: 'POST', headers })
+            return uf(event.$fetch)('/api/colony/loot/collect', { method: 'POST', headers })
         case 'run_colony_dailies':
             return runColonyDailies(event, args.feedMethod === 'gems' ? 'gems' : 'coins')
         case 'feed_colony': {
             const method = args.method === 'gems' ? 'gems' : 'coins'
-            return event.$fetch('/api/colony/feed', { method: 'POST', headers, body: { method } })
+            return uf(event.$fetch)('/api/colony/feed', { method: 'POST', headers, body: { method } })
         }
         case 'sell_colony_resources':
             return sellColonyResources(event, args)
@@ -861,10 +822,10 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
             return findBestHackOpsMission(event)
         case 'dispatch_hackops_mission':
             return dispatchHackOpsMission(event, args)
-        case 'run_miner_dailies':
-            return runMinerDailies(event)
-        case 'purchase_miner_upgrades':
-            return purchaseMinerUpgrades(event, args)
+        case 'run_town_dailies':
+            return runTownDailies(event, args)
+        case 'sell_town_resources':
+            return sellTownResources(event, args)
         case 'trade_gems':
             return tradeGems(event, args)
         case 'play_casino_rounds':
@@ -880,37 +841,17 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
         case 'play_bookofshadows_rounds':
         case 'play_spinata_rounds':
             return playNamedCasinoRounds(event, toolCall.function.name, args)
-        case 'play_blackjack': {
-            const bet = Number(args.bet)
-            if (!Number.isFinite(bet) || bet < 1 || bet > AI_CASINO_MAX_BET) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack bet' })
-            return event.$fetch('/api/games/blackjack/play', { method: 'POST', headers, body: { bet } })
-        }
-        case 'play_blackjack_rounds':
-            return playBlackjackRounds(event, args)
-        case 'get_blackjack_state':
-            return event.$fetch('/api/games/blackjack/resume', { headers })
-        case 'start_blackjack': {
-            const bet = Number(args.bet)
-            if (!Number.isFinite(bet) || bet < 1 || bet > AI_CASINO_MAX_BET) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack bet' })
-            return event.$fetch('/api/games/blackjack/start', { method: 'POST', headers, body: { bet } })
-        }
-        case 'blackjack_action': {
-            const allowed = new Set(['hit', 'stand', 'double', 'split', 'surrender', 'insurance', 'no-insurance'])
-            const action = typeof args.action === 'string' ? args.action : ''
-            if (!allowed.has(action)) throw createError({ statusCode: 400, statusMessage: 'Invalid blackjack action' })
-            return event.$fetch('/api/games/blackjack/action', { method: 'POST', headers, body: { action } })
-        }
         case 'call_game_api': {
             const path = typeof args.path === 'string' ? args.path : ''
             const method = args.method === 'GET' ? 'GET' : args.method === 'POST' ? 'POST' : ''
-            const gamePath = /^\/api\/(xeno|colony|hack|miner|pirates|gem-exchange|games)(?:\/[a-z0-9-]+)*$/
+            const gamePath = /^\/api\/(xeno|colony|hack|town|pirates|gem-exchange|games)(?:\/[a-z0-9-]+)*$/
             if (!gamePath.test(path) || !method) {
                 throw createError({ statusCode: 400, statusMessage: 'Only authenticated game API paths and GET/POST methods are allowed' })
             }
             const body = args.body && typeof args.body === 'object' && !Array.isArray(args.body)
                 ? args.body as Record<string, unknown>
                 : undefined
-            return event.$fetch(path, { method, headers, ...(method === 'POST' ? { body } : {}) })
+            return uf(event.$fetch)(path, { method, headers, ...(method === 'POST' ? { body } : {}) })
         }
         default:
             throw createError({ statusCode: 400, statusMessage: 'This AI tool is not allowlisted' })

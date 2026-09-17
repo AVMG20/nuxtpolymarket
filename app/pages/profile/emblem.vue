@@ -77,7 +77,6 @@ async function saveEmblem(emblem: EmblemData) {
     draftEmblem.value = null
     sharedByName.value = null
     restoredDraft.value = false
-    toast.add({ title: 'Emblem saved', description: 'Your new icon is now visible across Polynux.', color: 'success', icon: 'i-lucide-check' })
   } catch (e: unknown) {
     toast.add({ title: apiErrorMessage(e, 'Failed to save emblem'), color: 'error' })
   } finally {
@@ -88,13 +87,11 @@ async function saveEmblem(emblem: EmblemData) {
 function loadHistoryEntry(entry: EmblemHistoryEntry) {
   draftEmblem.value = entry.emblem
   sharedByName.value = null
-  toast.add({ title: 'Loaded from history', description: 'Click Save to keep it as your emblem.', color: 'success', icon: 'i-lucide-history' })
 }
 
 async function copyShareLink(entry: EmblemHistoryEntry) {
   const url = `${location.origin}/profile/emblem?share=${entry.id}`
   await navigator.clipboard.writeText(url)
-  toast.add({ title: 'Share link copied', description: url, color: 'success', icon: 'i-lucide-link' })
 }
 
 function relative(date: string) {

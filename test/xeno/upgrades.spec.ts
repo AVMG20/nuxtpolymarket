@@ -19,8 +19,8 @@ describe('XENO global upgrades', () => {
         expect(XENO_UPGRADE_TRACKS.every(track => track.maxLevel === 10)).toBe(true)
     })
 
-    it('makes the final yield level cost 500 billion', () => {
-        expect(xenoUpgradeCost('yield', 9)).toBe(500_000_000_000)
+    it('makes the final yield level cost 54 billion', () => {
+        expect(xenoUpgradeCost('yield', 9)).toBe(54_000_000_000)
         expect(xenoUpgradeCost('yield', 10)).toBeNull()
     })
 
@@ -28,8 +28,8 @@ describe('XENO global upgrades', () => {
         expect(5 + 6 + xenoYieldBonus(10)).toBe(21)
     })
 
-    it('makes the final speed level cost 250 billion', () => {
-        expect(xenoUpgradeCost('speed', 9)).toBe(250_000_000_000)
+    it('makes the final speed level cost 27 billion', () => {
+        expect(xenoUpgradeCost('speed', 9)).toBe(27_000_000_000)
         expect(xenoUpgradeCost('speed', 10)).toBeNull()
     })
 

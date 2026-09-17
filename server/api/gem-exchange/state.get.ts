@@ -62,9 +62,11 @@ export default defineEventHandler(async (event) => {
             takerId: gemTrades.takerId,
             buyerName: buyer.name,
             buyerEmblem: buyer.emblem,
+            buyerPrestige: buyer.prestige,
             sellerId: gemTrades.sellerId,
             sellerName: seller.name,
-            sellerEmblem: seller.emblem
+            sellerEmblem: seller.emblem,
+            sellerPrestige: seller.prestige
         })
             .from(gemTrades)
             .leftJoin(buyer, eq(gemTrades.buyerId, buyer.id))
@@ -109,7 +111,8 @@ export default defineEventHandler(async (event) => {
             filled: gemOrders.filled,
             createdAt: gemOrders.createdAt,
             userName: user.name,
-            userEmblem: user.emblem
+            userEmblem: user.emblem,
+            userPrestige: user.prestige
         })
         .from(gemOrders)
         .leftJoin(user, eq(gemOrders.userId, user.id))
@@ -151,8 +154,10 @@ export default defineEventHandler(async (event) => {
             quantity: trade.quantity,
             buyerName: trade.buyerName,
             buyerEmblem: trade.buyerEmblem,
+            buyerPrestige: trade.buyerPrestige ?? 0,
             sellerName: trade.sellerName,
             sellerEmblem: trade.sellerEmblem,
+            sellerPrestige: trade.sellerPrestige ?? 0,
             takerSide: trade.takerId === trade.buyerId ? 'buy' : trade.takerId === trade.sellerId ? 'sell' : null,
             mine: userId !== null && (trade.buyerId === userId || trade.sellerId === userId),
             iBought: userId !== null && trade.buyerId === userId,
@@ -174,6 +179,7 @@ export default defineEventHandler(async (event) => {
             createdAt: order.createdAt,
             userName: order.userName,
             userEmblem: order.userEmblem,
+            userPrestige: order.userPrestige ?? 0,
             mine: userId !== null && order.userId === userId
         })),
         userGems: session?.user?.gems ?? null

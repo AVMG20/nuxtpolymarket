@@ -2,6 +2,7 @@
 import {
   PATHWARDEN_BOOSTS,
   PATHWARDEN_CHECKPOINT_WAVES,
+  PATHWARDEN_DEFENSE_BLUEPRINTS,
   pathwardenBoostCost,
   pathwardenCheckpointBaseCoins,
   pathwardenCheckpointRate
@@ -21,14 +22,19 @@ const sections = [
   { id: 'realms', label: 'Realms & rank', icon: 'i-lucide-trophy' }
 ]
 
+// Costs come from the blueprints the run actually charges against, so the guide
+// cannot drift away from them again.
 const defenses = [
-  { name: 'Star Ballista', cost: 55, role: 'Fast single-target fire', counters: 'Runners and wounded enemies', icon: 'i-lucide-crosshair' },
-  { name: 'Sun Mortar', cost: 90, role: 'Arcing area damage', counters: 'Dense groups and shamans', icon: 'i-lucide-bomb' },
-  { name: 'Winter Spire', cost: 75, role: 'Area slow and control', counters: 'Brutes, bosses and crowded bends', icon: 'i-lucide-snowflake' },
-  { name: 'Ember Bastion', cost: 115, role: 'Burning siege shells', counters: 'Durable targets and regenerating shamans', icon: 'i-lucide-flame' },
-  { name: 'Tempest Obelisk', cost: 135, role: 'Jumping lightning', counters: 'Separated clusters and fast formations', icon: 'i-lucide-zap' },
-  { name: 'Dawn Chapel', cost: 155, role: 'Radiant formation bursts', counters: 'Large late-wave groups', icon: 'i-lucide-sun' }
-]
+  { id: 'bolt', role: 'Fast single-target fire', counters: 'Runners and wounded enemies', icon: 'i-lucide-crosshair' },
+  { id: 'mortar', role: 'Arcing area damage', counters: 'Dense groups and shamans', icon: 'i-lucide-bomb' },
+  { id: 'frost', role: 'Area slow and control', counters: 'Brutes, bosses and crowded bends', icon: 'i-lucide-snowflake' },
+  { id: 'ember', role: 'Burning siege shells', counters: 'Durable targets and regenerating shamans', icon: 'i-lucide-flame' },
+  { id: 'storm', role: 'Jumping lightning', counters: 'Separated clusters and fast formations', icon: 'i-lucide-zap' },
+  { id: 'radiant', role: 'Radiant formation bursts', counters: 'Large late-wave groups', icon: 'i-lucide-sun' }
+].map((entry) => {
+  const blueprint = PATHWARDEN_DEFENSE_BLUEPRINTS.find(defense => defense.id === entry.id)!
+  return { ...entry, name: blueprint.name, cost: blueprint.aetherCost }
+})
 
 const relicFamilies = PATHWARDEN_RELICS.filter(relic => relic.rarity === 'common')
 

@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { parseAmount } from '#shared/utils/parse-amount'
 import type { Cell, LineWin, SpinataResult, SpinSymbol, SpinPaySymbol } from '#shared/utils/gamelogic/spinata'
 import {
   BONUS_PAY,
@@ -50,7 +51,7 @@ function setBet(v: number) {
 watch(bet, (v) => { betInput.value = String(v) }, { immediate: true })
 
 function commitBetInput() {
-  setBet(parseInt(betInput.value.replace(/[^\d]/g, ''), 10) || MIN_BET)
+  setBet(parseAmount(betInput.value) ?? MIN_BET)
   betInput.value = String(bet.value)
 }
 
@@ -1092,13 +1093,12 @@ const TRACK_COLORS = [
             /></span>
           </div>
           <div class="readout">
-            <span class="readout__label">Bet</span>
+            <span class="readout__label">Bet<output v-if="amountPreview(betInput)" class="ml-1.5 tabular-nums normal-case tracking-normal">{{ amountPreview(betInput) }}</output></span>
             <input
               v-model="betInput"
               :disabled="isSpinning || autoSpinEnabled"
               aria-label="Bet amount"
               class="bet-input readout__val"
-              inputmode="numeric"
               @blur="commitBetInput"
               @keydown.enter="($event.target as HTMLInputElement).blur()"
             >

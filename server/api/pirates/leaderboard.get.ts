@@ -10,6 +10,7 @@ export default defineEventHandler(async (event) => {
         .select({
             userId: user.id,
             name: user.name,
+            prestige: user.prestige,
             difficulty: pirateState.highestCompletedDifficulty,
             power: pirateState.bestCompletedPower,
             loot: pirateState.bestCompletedLoot,
@@ -27,6 +28,7 @@ export default defineEventHandler(async (event) => {
             rank: index + 1,
             isCurrentUser: row.userId === sessionUserId,
             name: row.name,
+            prestige: row.prestige,
             durationMs: PIRATE_RUN_DURATION_MS,
             difficulty: row.difficulty,
             power: row.power,

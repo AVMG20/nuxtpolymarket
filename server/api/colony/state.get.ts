@@ -10,11 +10,14 @@ import {
   serializePlacedBugs,
   serializeBugInventory,
   serializeUpgradeTracks,
-  serializeBuilder,
+  serializeBuilders,
+  getBuilderJobs,
+  getBuilderCount,
   serializeResearch,
   serializeSpeciesCatalog
 } from '#server/utils/colony'
 import {
+  BASE_BUILDER_COUNT,
   ITEM_TYPES,
   MAX_TIER,
   MAX_TRAIT_PCT,
@@ -65,19 +68,21 @@ export default defineEventHandler(async (event) => {
       pendingLoot: [],
       upgrades: [],
       research: [],
-      builder: null,
-      builderCount: 1
+      builders: [],
+      builderCount: BASE_BUILDER_COUNT
     }
   }
 
   const state = await settleColony(userId)
 
-  const [bugs, items, loot, levels, researchLevels] = await Promise.all([
+  const [bugs, items, loot, levels, researchLevels, builderJobs, builderCount] = await Promise.all([
     db.query.colonyBugs.findMany({ where: eq(colonyBugs.userId, userId) }),
     db.query.colonyItems.findMany({ where: eq(colonyItems.userId, userId) }),
     db.query.colonyLoot.findMany({ where: eq(colonyLoot.userId, userId) }),
     getUpgradeLevels(userId),
-    getResearchLevels(userId)
+    getResearchLevels(userId),
+    getBuilderJobs(userId),
+    getBuilderCount(userId)
   ])
 
   const placedBugs = bugs.filter(b => b.inTerrarium)
@@ -92,11 +97,11 @@ export default defineEventHandler(async (event) => {
   // Reflect whichever rate is CURRENTLY in effect in every display number
   // below, so the UI matches what's actually happening right now.
   const gemBuffActive = state.gemNutrition > 0
-  const { bugs: enrichedBugs, nutritionDrainPerHour } = serializePlacedBugs(placedBugs, mods, gemBuffActive)
+  const { bugs: enrichedBugs, nutritionDrainPerHour } = serializePlacedBugs(placedBugs, mods, gemBuffActive, researchLevels)
 
   const ownedItemMap = new Map(items.map(i => [i.itemTypeId, i.quantity]))
   const inventory = ITEM_TYPES.map(t => ({ ...t, quantity: ownedItemMap.get(t.id) ?? 0 }))
-  const bugInventory = serializeBugInventory(unplacedBugs, mods)
+  const bugInventory = serializeBugInventory(unplacedBugs, mods, researchLevels)
 
   const lootMap = new Map(loot.map(l => [l.itemTypeId, l.quantity]))
   const pendingLoot = ITEM_TYPES
@@ -132,7 +137,7 @@ export default defineEventHandler(async (event) => {
     pendingLoot,
     upgrades: serializeUpgradeTracks(levels, state.habitatLevel),
     research: serializeResearch(researchLevels),
-    builder: serializeBuilder(state, levels),
-    builderCount: 1
+    builders: serializeBuilders(builderJobs, state, levels),
+    builderCount
   }
 })

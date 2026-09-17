@@ -261,6 +261,13 @@ const rushingCooldown = ref(false)
 const nowMs = ref(Date.now())
 const toast = useToast()
 const { fetchSession } = useAuth()
+const route = useRoute()
+// `?seed=` reproduces an exact layout for testing. It only names the map
+// reserved on load; a march already under way keeps the map it started on.
+const requestedSeed = computed(() => {
+  const seed = Number(route.query.seed)
+  return Number.isInteger(seed) && seed >= 0 && seed <= 0xFFFFFFFF ? seed : undefined
+})
 const isDev = import.meta.dev
 const devGuidesEnabled = ref(false)
 const selectedIdleStoryId = ref(1)
@@ -390,6 +397,9 @@ let saveRevision = 0
 let saveDirty = false
 let activeSave: Promise<void> | null = null
 let restoredRun: { mapPlan: PathwardenMapPlan, gameState: PathwardenGameState } | undefined
+// The plan the server has reserved for the next march. Every fresh engine is
+// built on it, so the map on screen is the map the run row stores.
+let pendingMap: PathwardenMapPlan | undefined
 
 const towerTypes = computed(() => (boostState.value?.defenses
   ?.filter(defense => defense.owned)
@@ -405,7 +415,7 @@ const checkpointAetherBonus = computed(() => pathwardenAetherCashoutBonus(
   Math.min(
     snapshot.value.aether,
     boostState.value
-      ? pathwardenMaxAetherAtCheckpoint(snapshot.value.wave, boostState.value.levels, useSurge.value)
+      ? pathwardenMaxAetherAtCheckpoint(snapshot.value.wave, boostState.value.levels, useSurge.value, snapshot.value.realm)
       : snapshot.value.aether
   ),
   snapshot.value.wave,
@@ -556,7 +566,7 @@ async function clearDebugCache() {
     localStorage.removeItem('pathwarden-hints')
     hintsEnabled.value = true
     await refreshBoosts()
-    restart()
+    await restart()
     toast.add({
       title: 'Pathwarden cache cleared',
       description: 'The persisted active march was removed for this profile.',
@@ -614,18 +624,11 @@ function claimCheckpointReward(wave: number) {
   const request = (async () => {
     try {
       await flushSave()
-      const result = await $fetch('/api/pathwarden/checkpoint', {
+      await $fetch('/api/pathwarden/checkpoint', {
         method: 'POST',
         body: { wave }
       })
       claimedCheckpointWaves.add(wave)
-      if (!result.alreadyClaimed && result.reward > 0) {
-        toast.add({
-          title: `Checkpoint ${wave / 4} reward secured`,
-          description: `${formatNumber(result.reward, false)} Coins added. Aether cash-out is still available as a bonus.`,
-          color: 'success'
-        })
-      }
       await Promise.all([refreshBoosts(), fetchSession()])
     } catch (error: unknown) {
       toast.add({ title: 'Checkpoint reward pending', description: apiErrorMessage(error, 'We will retry when you choose a checkpoint action.'), color: 'warning' })
@@ -665,18 +668,32 @@ async function startWave() {
 async function ensureRunStarted() {
   if (runActive.value) return true
   try {
-    await $fetch('/api/pathwarden/start-run', {
+    const response = await $fetch('/api/pathwarden/start-run', {
       method: 'POST',
       body: {
         realm: selectedRealm.value,
-        useSurge: useSurge.value,
-        seed: engine?.exportMapPlan().seed
+        useSurge: useSurge.value
       }
     })
+    pendingMap = response.run.mapPlan
     runActive.value = true
     saveRevision = 0
-    scheduleSave()
     await refreshBoosts()
+    // The run row decides which map the march is fought on. A client showing a
+    // different one would save progress that can never be restored, so it
+    // rebuilds on the stored plan and the player starts the wave again.
+    if (engine?.exportMapPlan().seed !== response.run.seed) {
+      engine?.clearRunRelicState()
+      engine?.destroy()
+      createGame({ mapPlan: response.run.mapPlan })
+      toast.add({
+        title: 'March map updated',
+        description: 'The keep was rebuilt on the map reserved for this run.',
+        color: 'warning'
+      })
+      return false
+    }
+    scheduleSave()
     return true
   } catch (error: unknown) {
     toast.add({ title: apiErrorMessage(error, 'Could not start the run'), color: 'error' })
@@ -727,13 +744,8 @@ async function rushCooldown() {
   if (rushingCooldown.value) return
   rushingCooldown.value = true
   try {
-    const response = await $fetch('/api/pathwarden/rush-cooldown', { method: 'POST' })
+    await $fetch('/api/pathwarden/rush-cooldown', { method: 'POST' })
     await Promise.all([refreshBoosts(), fetchSession()])
-    toast.add({
-      title: 'The wardens are ready',
-      description: `${response.cost} Gem${response.cost === 1 ? '' : 's'} cleared the remaining recovery.`,
-      color: 'success'
-    })
   } catch (error) {
     toast.add({ title: apiErrorMessage(error, 'Could not rush recovery'), color: 'error' })
   } finally {
@@ -755,7 +767,7 @@ async function abandonRun(currency: 'gems' | 'coins') {
     saveTimer = null
     abandonOpen.value = false
     await Promise.all([refreshBoosts(), fetchSession()])
-    restart()
+    await restart()
     toast.add({
       title: 'March abandoned',
       description: `${formatNumber(result.cost, false)} ${result.currency === 'gems' ? 'Gems' : 'Coins'} paid. A fresh map is ready.`,
@@ -809,18 +821,21 @@ function dropRelic(event: DragEvent) {
   engine?.applyRelicToTowerAt(instanceId, event.clientX, event.clientY)
 }
 
-function restart() {
+async function restart() {
   engine?.clearRunRelicState()
   engine?.destroy()
   upgradeChoices.value = []
   useSurge.value = false
+  // Rebuilding the keep discards whatever was planned on the old layout, so
+  // reserving a fresh map here costs nothing a reload would not already cost.
+  await reserveMap()
   createGame()
 }
 
-function chooseRealm(realm: number) {
+async function chooseRealm(realm: number) {
   if (realm > unlockedRealm.value || realm === selectedRealm.value) return
   selectedRealm.value = realm
-  restart()
+  await restart()
 }
 
 function toggleSurge(enabled: boolean) {
@@ -892,7 +907,7 @@ async function buySkin(skinId: string) {
   try {
     await $fetch('/api/pathwarden/skins/buy', { method: 'POST', body: { skinId } })
     await Promise.all([refreshBoosts(), fetchSession()])
-    restart()
+    await restart()
   } catch (error) {
     toast.add({ title: apiErrorMessage(error, 'Skin purchase failed'), color: 'error' })
   } finally {
@@ -905,7 +920,7 @@ async function equipSkin(skinId: string) {
   try {
     await $fetch('/api/pathwarden/skins/equip', { method: 'POST', body: { skinId } })
     await refreshBoosts()
-    restart()
+    await restart()
   } finally {
     buyingSkin.value = null
   }
@@ -944,13 +959,7 @@ async function settleRun(reason: 'cashout' | 'victory' | 'defeat') {
 
 async function cashOut() {
   await claimCheckpointReward(snapshot.value.wave)
-  const result = await settleRun('cashout')
-  if (!result) return
-  toast.add({
-    title: `${formatNumber(result.coins, false)} Coins secured`,
-    description: `${formatNumber(result.aetherCounted, false)} Aether crossed the checkpoint.`,
-    color: 'success'
-  })
+  await settleRun('cashout')
 }
 
 async function continueCheckpoint() {
@@ -1001,6 +1010,7 @@ function flushSave(): Promise<void> {
 
 function createGame(restore?: PathwardenEngineRestore, startEngine = true) {
   if (!canvas.value) return
+  const plan = restore ?? (pendingMap ? { mapPlan: pendingMap } : undefined)
   engine = new PathwardenEngine(canvas.value, {
     onState: (state) => {
       snapshot.value = state
@@ -1011,17 +1021,10 @@ function createGame(restore?: PathwardenEngineRestore, startEngine = true) {
     onOpenArcanistWorkbench: openArcanistWorkbench,
     onAmbientStoryComplete: async (storyId) => {
       try {
-        const progress = await $fetch('/api/pathwarden/ambient', {
+        await $fetch('/api/pathwarden/ambient', {
           method: 'POST',
           body: { storyId }
         })
-        if (progress.achievementUnlocked) {
-          toast.add({
-            title: 'Village Chronicler unlocked',
-            description: 'You witnessed all 250 village stories. Your next permanent upgrade is free.',
-            color: 'success'
-          })
-        }
         await refreshBoosts()
       } catch {
         // Ambient theatre must never interrupt a run when progress syncing fails.
@@ -1032,7 +1035,7 @@ function createGame(restore?: PathwardenEngineRestore, startEngine = true) {
     }
   }, boostState.value
     ? pathwardenBoostEffects(boostState.value.levels, useSurge.value)
-    : undefined, selectedRealm.value, boostState.value?.equippedSkinId ?? 'warden-stone', restore, skipIntro.value)
+    : undefined, selectedRealm.value, boostState.value?.equippedSkinId ?? 'warden-stone', plan, skipIntro.value)
   engine.setKeyboardPan(keyboardPan.value)
   if (startEngine) engine.start()
 }
@@ -1060,6 +1063,20 @@ async function runMapLoader(work?: () => void) {
   mapGenerating.value = false
 }
 
+async function reserveMap() {
+  try {
+    const response = await $fetch('/api/pathwarden/pending-map', {
+      method: 'POST',
+      body: { seed: requestedSeed.value }
+    })
+    pendingMap = response.mapPlan ?? undefined
+  } catch {
+    // Without a reserved plan the engine falls back to a local map. The march
+    // cannot be started until the server hands one over, so nothing is lost.
+    pendingMap = undefined
+  }
+}
+
 async function createFreshMapWithLoading() {
   await runMapLoader(() => createGame(undefined, false))
   engine?.start()
@@ -1070,18 +1087,34 @@ onMounted(async () => {
     nowMs.value = Date.now()
   }, 1000)
   hintsEnabled.value = localStorage.getItem('pathwarden-hints') !== 'off'
+  let marchInProgress = false
   if (boostState.value?.activeRun) {
     const response = await $fetch('/api/pathwarden/run')
-    if (response.run?.gameState) {
+    if (response.run) {
+      // A march that has begun owns its map, save or no save. Reloading in the
+      // gap before the first autosave used to leave the client believing no
+      // march existed, so starting wave 1 asked for a second one and was
+      // refused for as long as the run lived.
+      marchInProgress = true
       runActive.value = true
       saveRevision = response.run.revision
       selectedRealm.value = response.run.realm
-      restoredRun = {
-        mapPlan: response.run.mapPlan,
-        gameState: response.run.gameState
+      pendingMap = response.run.mapPlan
+      if (response.run.gameState) {
+        restoredRun = {
+          mapPlan: response.run.mapPlan,
+          gameState: response.run.gameState
+        }
       }
+    } else if (response.recovered) {
+      toast.add({
+        title: 'March could not be restored',
+        description: 'The saved march no longer fits its map, so it was released. Starting a new one costs nothing.',
+        color: 'warning'
+      })
     }
   }
+  if (!marchInProgress) await reserveMap()
   unlockedRealm.value = boostState.value?.progression.maxUnlockedRealm ?? 1
   if (!restoredRun && skipIntro.value) await createFreshMapWithLoading()
   else createGame(restoredRun)

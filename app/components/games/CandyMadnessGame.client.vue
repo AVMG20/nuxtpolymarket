@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import { parseAmount } from '#shared/utils/parse-amount'
 import type {
   CandyFeature,
   CandyMadnessResult,
@@ -57,7 +58,7 @@ watch(bet, (v) => {
 }, { immediate: true })
 
 function commitBetInput() {
-  setBet(parseInt(betInput.value.replace(/[^\d]/g, ''), 10) || MIN_BET)
+  setBet(parseAmount(betInput.value) ?? MIN_BET)
   betInput.value = String(bet.value)
 }
 
@@ -1154,12 +1155,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </div>
               <div class="readout w-full justify-between">
                 <span class="ctrl-label">Bet</span>
+                <output v-if="amountPreview(betInput)" class="ml-auto text-[10px] tabular-nums text-muted">{{ amountPreview(betInput) }}</output>
                 <input
                   v-model="betInput"
                   :disabled="isSpinning || autoSpinEnabled"
                   aria-label="Bet amount"
                   class="bet-input ctrl-value tabular-nums"
-                  inputmode="numeric"
                   @blur="commitBetInput"
                   @keydown.enter="($event.target as HTMLInputElement).blur()"
                 >

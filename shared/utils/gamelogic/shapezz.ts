@@ -246,12 +246,23 @@ export const SHAPEZZ_PERMANENT_UPGRADES: Record<ShapezzPermanentUpgradeId, {
     killHeal: { name: 'Blood Battery', description: 'Restore health instantly whenever any enemy dies', icon: 'i-lucide-heart-pulse', color: 'success', maxLevel: SHAPEZZ_MAX_KILL_HEAL_LEVEL }
 }
 
+/**
+ * A single exponential across all twenty levels.
+ *
+ * The old curve doubled to level ten and then multiplied by seven hundred,
+ * which put the workshop at 5.3 billion — about eighteen thousand maxed runs.
+ * These games were priced as coin sinks before prestige existed; prestige owns
+ * that job now, and the back half of a tree nobody reaches is not a sink, it is
+ * a wall. The whole workshop is now a few hundred million, in the same bracket
+ * as the Pirate Raid armoury and the FIREWALL Mainframe.
+ */
+export const SHAPEZZ_UPGRADE_GROWTH = 1.55
+
 export function shapezzPermanentUpgradeCost(id: ShapezzPermanentUpgradeId, level: number) {
     if (level >= SHAPEZZ_PERMANENT_UPGRADES[id].maxLevel) return null
-    if (id === 'killHeal') return [250_000, 1_250_000, 7_500_000, 30_000_000][level] ?? null
-    const base = { core: 30_000, overclock: 32_000, armor: 24_000, thrusters: 28_000, magnet: 20_000 }[id]
-    if (level < 10) return Math.round(base * Math.pow(2, level))
-    return Math.round(base * 700 * Math.pow(1.35, level - 10))
+    if (id === 'killHeal') return [200_000, 1_000_000, 5_000_000, 20_000_000][level] ?? null
+    const base = { core: 8_000, overclock: 8_500, armor: 6_500, thrusters: 7_500, magnet: 5_500 }[id]
+    return Math.round(base * Math.pow(SHAPEZZ_UPGRADE_GROWTH, level))
 }
 
 /** Gem-bought pre-run bonus: each level grants one free upgrade pick before the run starts. Consumed on start. */
@@ -263,11 +274,17 @@ export function shapezzHeadStartCost(level: number) {
     return SHAPEZZ_HEAD_START_COSTS[level] ?? null
 }
 
+/**
+ * Permanent stats. The spread between a bare account and a maxed one has to be
+ * wide enough that the top difficulties are a different game rather than a
+ * shorter one: at twenty levels this is 7x damage and 2.3x fire rate on 6x the
+ * health, against arena curves that ramp roughly as fast.
+ */
 export function shapezzPlayerStats(levels: ShapezzPermanentLevels) {
     return {
-        maxHp: 120 + levels.armor * 18,
-        damage: 18 + levels.core * 3.2,
-        fireRate: 5.5 + levels.overclock * 0.24,
+        maxHp: 120 + levels.armor * 30,
+        damage: 18 + levels.core * 5.5,
+        fireRate: 5.5 + levels.overclock * 0.35,
         moveSpeed: 330 + levels.thrusters * 14,
         jumpSpeed: 930 + levels.thrusters * 20,
         magnetRange: 115 + levels.magnet * 22,
@@ -429,18 +446,35 @@ export function shapezzEnemyHealthMultiplier(elapsedMs: number, difficultyId: Sh
     return shapezzDifficulty(difficultyId).enemyHealth * (baselineRamp + highDifficultyRamp)
 }
 
+/** Base headroom for one completed 45-second mutation, before difficulty. */
+export const SHAPEZZ_PAYOUT_HEADROOM = 12_800
+/**
+ * How the ceiling compounds with run length.
+ *
+ * A run's real coin rate rises faster than its length: every mutation adds
+ * enemy value *and* enemy density, and the build that survives to take them is
+ * killing faster too. A quadratic ceiling therefore drifts below honest play on
+ * a long run and clipped real cashouts on the low difficulties, where a strong
+ * build survives longest. At 2.4 the ceiling tracks the earning curve instead
+ * of crossing it, which also makes it tighter than the old one on the short
+ * runs a forged total is most likely to claim.
+ */
+export const SHAPEZZ_PAYOUT_EXPONENT = 2.4
+
 /**
  * Server-side anti-cheat ceiling, tuned so honest play brushes against it only on excellent runs.
- * Target economy: a fresh account on Spark/Surge banks roughly 1-10k per run; a maxed build on
- * Annihilation reaches ~1M+ on a long, clean run.
+ * Target economy: a fresh account on Spark/Surge banks roughly 1-10k per run; a maxed workshop on
+ * a long, clean run reaches 1-2M, which is the site-wide top band for a settled run.
  */
 export function shapezzMaxPayoutForRun(elapsedMs: number, difficultyId: ShapezzDifficultyId) {
     const boundedElapsedMs = Math.max(0, Math.min(elapsedMs, 24 * 60 * 60 * 1000))
     const roundProgress = boundedElapsedMs / SHAPEZZ_CHECKPOINT_MS
     const difficulty = shapezzDifficulty(difficultyId)
-    // Quadratic cumulative headroom makes each 45-second mutation materially
-    // more valuable: on Surge this is ~9k, 38k, 84k, 150k, 234k, 338k.
-    return Math.floor(9_375 * roundProgress * roundProgress * difficulty.reward)
+    return Math.floor(
+        SHAPEZZ_PAYOUT_HEADROOM
+        * Math.pow(roundProgress, SHAPEZZ_PAYOUT_EXPONENT)
+        * difficulty.reward
+    )
 }
 
 /**

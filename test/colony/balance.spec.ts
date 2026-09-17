@@ -11,8 +11,12 @@ import {
   habitatLevelUpDurationMs,
   habitatTrackRequirement,
   socialSpeedBonusPct,
-  trackLevelDurationMs
+  trackLevelDurationMs,
+  researchResourceMultiplier,
+  MAX_RESEARCH_LEVEL,
+  RESEARCH_RESOURCE_MULTIPLIERS
 } from '../../shared/utils/colony'
+import { COLONY_STAGES, colonyStage } from '../../scripts/lib/economy-stages'
 
 describe('colony food balance', () => {
   it('charges the same meal regardless of yield', () => {
@@ -60,6 +64,19 @@ describe('colony economy balance', () => {
     }
   })
 
+  it('climbs 2-15x per habitat level on the real stage model', () => {
+    // The per-species check above holds sell values in isolation. This one
+    // walks the actual progression — track levels, capacity and speed cap all
+    // move together — which is where a habitat stage can quietly stop being
+    // worth the wait, or make the one before it pointless.
+    for (const habitatLevel of COLONY_STAGES.slice(1)) {
+      const previous = colonyStage(habitatLevel - 1, 0).coinsPerHour
+      const current = colonyStage(habitatLevel, 0).coinsPerHour
+      expect(current / previous).toBeGreaterThanOrEqual(2)
+      expect(current / previous).toBeLessThanOrEqual(15)
+    }
+  })
+
   it('keeps the builder critical path between 60 and 90 days', () => {
     let totalMs = 0
     for (const track of UPGRADE_TRACKS) {
@@ -73,6 +90,33 @@ describe('colony economy balance', () => {
     const totalDays = totalMs / 86_400_000
     expect(totalDays).toBeGreaterThanOrEqual(60)
     expect(totalDays).toBeLessThanOrEqual(90)
+  })
+})
+
+describe('colony research', () => {
+  it('doubles resource output at max level, in even 25% steps', () => {
+    expect(RESEARCH_RESOURCE_MULTIPLIERS).toHaveLength(MAX_RESEARCH_LEVEL + 1)
+    expect(researchResourceMultiplier(0)).toBe(1)
+    expect(researchResourceMultiplier(MAX_RESEARCH_LEVEL)).toBe(2)
+    for (let level = 1; level <= MAX_RESEARCH_LEVEL; level++) {
+      expect(researchResourceMultiplier(level) - researchResourceMultiplier(level - 1)).toBeCloseTo(0.25, 10)
+    }
+  })
+
+  it('clamps out-of-range levels instead of returning undefined', () => {
+    expect(researchResourceMultiplier(-1)).toBe(1)
+    expect(researchResourceMultiplier(MAX_RESEARCH_LEVEL + 5)).toBe(2)
+  })
+
+  it('is worth taking at every habitat level', () => {
+    // The whole point of the multiplier: research has to be visible next to the
+    // Foraging Yield track rather than buried under it. Before it existed a
+    // fully researched endgame colony earned 1.17x an unresearched one.
+    for (const habitatLevel of COLONY_STAGES) {
+      const base = colonyStage(habitatLevel, 0).coinsPerHour
+      const researched = colonyStage(habitatLevel, MAX_RESEARCH_LEVEL).coinsPerHour
+      expect(researched / base).toBeGreaterThanOrEqual(2)
+    }
   })
 })
 

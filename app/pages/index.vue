@@ -86,11 +86,43 @@ const casinoGames = [
   },
   {
     name: 'Blackjack',
-    description: 'Classic 21 — beat the dealer with a 6-deck shoe',
+    description: 'A real table — five seats, one shoe, everyone sees every card',
     icon: 'i-lucide-spade',
-    to: '/games/blackjack',
+    to: '/games/live-blackjack',
+    gradient: 'from-emerald-950 to-slate-900',
+    iconColor: 'text-emerald-400'
+  },
+  {
+    name: 'Roulette',
+    description: 'Single-zero European wheel — no seats, everyone bets the same layout',
+    icon: 'i-lucide-circle-dot',
+    to: '/games/roulette',
+    gradient: 'from-red-950 to-slate-900',
+    iconColor: 'text-red-400'
+  },
+  {
+    name: 'Baccarat',
+    description: 'Punto banco off a shared six-deck shoe — five seats, fixed drawing rules, zero decisions',
+    icon: 'i-lucide-diamond',
+    to: '/games/baccarat',
     gradient: 'from-rose-950 to-slate-900',
     iconColor: 'text-rose-400'
+  },
+  {
+    name: 'Three Card Poker',
+    description: 'Ante up, play or fold — one decision against the dealer, and a straight beats a flush',
+    icon: 'i-lucide-diamond',
+    to: '/games/three-card-poker',
+    gradient: 'from-rose-950 to-slate-900',
+    iconColor: 'text-rose-400'
+  },
+  {
+    name: 'Casino Hold\'em',
+    description: 'Five seats, one board — call or fold your two cards against the dealer',
+    icon: 'i-lucide-club',
+    to: '/games/casino-holdem',
+    gradient: 'from-teal-950 to-slate-900',
+    iconColor: 'text-teal-400'
   }
 ]
 
@@ -126,6 +158,30 @@ const arcadeGames = [
     to: '/void',
     gradient: 'from-indigo-950 via-purple-950 to-slate-950',
     iconColor: 'text-indigo-300'
+  },
+  {
+    name: 'Firewall',
+    description: 'Lane defence over 30 waves — five difficulties, a save between every wave, and a coin-bought Mainframe',
+    icon: 'i-lucide-shield-half',
+    to: '/firewall',
+    gradient: 'from-cyan-950 via-slate-900 to-slate-950',
+    iconColor: 'text-cyan-300'
+},
+  {
+    name: 'Meadowbrawl',
+    description: 'Top-down melee roguelite — chain combos, dodge telegraphs and stack absurd boons across 20 waves',
+    icon: 'i-lucide-swords',
+    to: '/meadowbrawl',
+    gradient: 'from-green-950 via-emerald-900 to-amber-950',
+    iconColor: 'text-amber-300'
+  },
+  {
+    name: 'Voxel Arena',
+    description: 'Third-person voxel wave survival — shoot, slash, dash and draft up to three rogue-like upgrades per wave',
+    icon: 'i-lucide-boxes',
+    to: '/voxel-arena',
+    gradient: 'from-indigo-950 via-slate-950 to-cyan-950',
+    iconColor: 'text-cyan-300'
   }
 ]
 

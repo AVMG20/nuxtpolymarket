@@ -135,7 +135,6 @@ async function swapCannons(slotA: number, slotB: number) {
     try {
         await $fetch('/api/pirates/cannons/swap', { method: 'POST', body: { slotA, slotB } })
         await refresh()
-        toast.add({ title: 'Cannons rearranged', color: 'success' })
     } catch (e: any) {
         toast.add({ title: apiErrorMessage(e, 'Failed to swap cannons'), color: 'error' })
     } finally {
@@ -163,7 +162,6 @@ async function unlockSlot() {
     try {
         await $fetch('/api/pirates/slots/unlock', { method: 'POST' })
         await Promise.all([refresh(), fetchSession()])
-        toast.add({ title: 'New gun port unlocked', color: 'success' })
     } catch (e: any) {
         toast.add({ title: apiErrorMessage(e, 'Failed to unlock slot'), color: 'error' })
     } finally {
@@ -175,9 +173,8 @@ async function buyAmmo(amount: number) {
     if (buyingAmmo.value !== null) return
     buyingAmmo.value = amount
     try {
-        const res = await $fetch('/api/pirates/ammo/buy', { method: 'POST', body: { amount } })
+        await $fetch('/api/pirates/ammo/buy', { method: 'POST', body: { amount } })
         await Promise.all([refresh(), fetchSession()])
-        toast.add({ title: `Stocked ${res.bought} ammo`, color: 'success' })
     } catch (e: any) {
         toast.add({ title: apiErrorMessage(e, 'Failed to buy ammo'), color: 'error' })
     } finally {
@@ -189,9 +186,8 @@ async function buyGemAmmo(bundles: number) {
     if (buyingGemAmmo.value !== null) return
     buyingGemAmmo.value = bundles
     try {
-        const res = await $fetch<{ bought: number, cost: number, ammoCount: number }>('/api/pirates/ammo/buy', { method: 'POST', body: { currency: 'gems', bundles } })
+        await $fetch<{ bought: number, cost: number, ammoCount: number }>('/api/pirates/ammo/buy', { method: 'POST', body: { currency: 'gems', bundles } })
         await Promise.all([refresh(), fetchSession()])
-        toast.add({ title: `Loaded ${res.bought} gem shots`, color: 'success' })
     } catch (e: any) {
         toast.add({ title: apiErrorMessage(e, 'Failed to buy gem powder'), color: 'error' })
     } finally {
@@ -209,7 +205,6 @@ async function equipCannon(tierId: string) {
         await $fetch('/api/pirates/cannons/buy', { method: 'POST', body: { slotIndex: pickerSlot.value, tierId } })
         await Promise.all([refresh(), fetchSession()])
         pickerOpen.value = false
-        toast.add({ title: 'Cannon equipped', color: 'success' })
     } catch (e: any) {
         toast.add({ title: apiErrorMessage(e, 'Failed to equip cannon'), color: 'error' })
     } finally {
@@ -221,9 +216,8 @@ async function sellCannon(slotIndex: number) {
     if (sellingSlot.value !== null) return
     sellingSlot.value = slotIndex
     try {
-        const res = await $fetch('/api/pirates/cannons/sell', { method: 'POST', body: { slotIndex } })
+        await $fetch('/api/pirates/cannons/sell', { method: 'POST', body: { slotIndex } })
         await Promise.all([refresh(), fetchSession()])
-        toast.add({ title: `Sold for ${formatNumber(res.refund)} coins`, color: 'success' })
     } catch (e: any) {
         toast.add({ title: apiErrorMessage(e, 'Failed to sell cannon'), color: 'error' })
     } finally {
@@ -237,10 +231,8 @@ async function selectSkin(skin: NonNullable<typeof state.value>['skins'][number]
     try {
         if (skin.owned) {
             await $fetch('/api/pirates/skins/equip', { method: 'POST', body: { skinId: skin.id } })
-            toast.add({ title: `${skin.name} equipped`, color: 'success' })
         } else {
             await $fetch('/api/pirates/skins/buy', { method: 'POST', body: { skinId: skin.id } })
-            toast.add({ title: `${skin.name} purchased and equipped`, color: 'success' })
         }
         await Promise.all([refresh(), fetchSession()])
     } catch (e: any) {
@@ -256,10 +248,8 @@ async function selectAbility(ability: NonNullable<typeof state.value>['abilities
     try {
         if (ability.owned) {
             await $fetch('/api/pirates/abilities/equip', { method: 'POST', body: { abilityId: ability.id } })
-            toast.add({ title: `${ability.name} equipped`, color: 'success' })
         } else {
             await $fetch('/api/pirates/abilities/buy', { method: 'POST', body: { abilityId: ability.id } })
-            toast.add({ title: `${ability.name} purchased and equipped`, color: 'success' })
         }
         await Promise.all([refresh(), fetchSession()])
     } catch (e: any) {
@@ -273,8 +263,7 @@ async function upgradeAbility(ability: NonNullable<typeof state.value>['abilitie
     if (!ability.owned || ability.upgradeCost === null || abilityAction.value) return
     abilityAction.value = ability.id
     try {
-        const res = await $fetch('/api/pirates/abilities/upgrade', { method: 'POST', body: { abilityId: ability.id } })
-        toast.add({ title: `${ability.name} upgraded to level ${res.newLevel}`, color: 'success' })
+        await $fetch('/api/pirates/abilities/upgrade', { method: 'POST', body: { abilityId: ability.id } })
         await Promise.all([refresh(), fetchSession()])
     } catch (e: any) {
         toast.add({ title: apiErrorMessage(e, 'Failed to upgrade ability'), color: 'error' })

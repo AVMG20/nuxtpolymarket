@@ -225,7 +225,7 @@ async function doSellKeepAll() {
                       :name="species.producesGems ? 'i-lucide-gem' : 'i-lucide-package-plus'"
                       class="size-3 text-success"
                     />
-                    {{ species.producesGems ? `1–${MAX_GEMS_PER_DAY} gems/day` : `Yield ${species.yieldMin}–${species.yieldMax}` }}
+                    {{ species.producesGems ? `1–${MAX_GEMS_PER_DAY} gems/day` : `Yield ${species.yieldMin}–${species.yieldMax} · ×${species.resourceMultiplier}` }}
                   </p>
                 </div>
                 <div class="rounded-lg bg-elevated/70 p-2">

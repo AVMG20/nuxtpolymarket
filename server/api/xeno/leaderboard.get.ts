@@ -11,7 +11,7 @@ const SPECIES_IDS = new Set(PLANT_TYPES.map(p => p.id))
 export default defineEventHandler(async (event) => {
   const sessionUserId = await getSessionUserId(event)
   const [users, allPlants, allUnlocked, allArtifacts, allGridSlots, allBreederSlots] = await Promise.all([
-    db.select({ id: user.id, name: user.name }).from(user),
+    db.select({ id: user.id, name: user.name, prestige: user.prestige }).from(user),
     db.select({ userId: xenoPlants.userId, typeId: xenoPlants.typeId }).from(xenoPlants),
     db.select({ userId: xenoPlantsUnlocked.userId, typeId: xenoPlantsUnlocked.typeId }).from(xenoPlantsUnlocked),
     db.select({ userId: xenoArtifacts.userId }).from(xenoArtifacts),
@@ -56,6 +56,7 @@ export default defineEventHandler(async (event) => {
       return {
         isCurrentUser: u.id === sessionUserId,
         name: u.name,
+        prestige: u.prestige,
         speciesUnlocked,
         plantCount: plants.length,
         portfolioValue,

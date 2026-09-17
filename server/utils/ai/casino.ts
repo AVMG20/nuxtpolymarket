@@ -141,7 +141,8 @@ export async function playCasinoRounds(event: H3Event, args: Record<string, unkn
     for (let round = 1; round <= rounds; round++) {
         let response: PlayGameResponse
         try {
-            response = await event.$fetch<PlayGameResponse, string>('/api/games/play-game', {
+            const playFetch = event.$fetch as unknown as <T>(url: string, opts?: Record<string, unknown>) => Promise<T>
+            response = await playFetch<PlayGameResponse>('/api/games/play-game', {
                 method: 'POST',
                 headers,
                 body: { game, bet, options }

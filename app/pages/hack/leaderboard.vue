@@ -45,12 +45,13 @@ const rankLabel = ['#1 MOST WANTED', '#2 MOST WANTED', '#3 MOST WANTED']
             <ProfileEmblem
               :emblem="players[1].emblem"
               :name="players[1].name"
+              :prestige="players[1].prestige"
               class="size-20 ring-4"
               :class="rankRing[1]"
             />
           </div>
           <p class="font-bold text-xl truncate">
-            {{ players[1].name }}
+            <PrestigeBadge :level="players[1].prestige" size="sm" /> {{ players[1].name }}
           </p>
           <p class="text-sm text-muted mt-1">
             {{ players[1].agentCount }} agents
@@ -92,12 +93,13 @@ const rankLabel = ['#1 MOST WANTED', '#2 MOST WANTED', '#3 MOST WANTED']
             <ProfileEmblem
               :emblem="players[0].emblem"
               :name="players[0].name"
+              :prestige="players[0].prestige"
               class="size-24 ring-4"
               :class="rankRing[0]"
             />
           </div>
           <p class="font-bold text-2xl truncate">
-            {{ players[0].name }}
+            <PrestigeBadge :level="players[0].prestige" size="sm" /> {{ players[0].name }}
           </p>
           <p class="text-sm text-muted mt-1">
             {{ players[0].agentCount }} agents
@@ -142,12 +144,13 @@ const rankLabel = ['#1 MOST WANTED', '#2 MOST WANTED', '#3 MOST WANTED']
             <ProfileEmblem
               :emblem="players[2].emblem"
               :name="players[2].name"
+              :prestige="players[2].prestige"
               class="size-20 ring-4"
               :class="rankRing[2]"
             />
           </div>
           <p class="font-bold text-xl truncate">
-            {{ players[2].name }}
+            <PrestigeBadge :level="players[2].prestige" size="sm" /> {{ players[2].name }}
           </p>
           <p class="text-sm text-muted mt-1">
             {{ players[2].agentCount }} agents
@@ -189,12 +192,13 @@ const rankLabel = ['#1 MOST WANTED', '#2 MOST WANTED', '#3 MOST WANTED']
             <ProfileEmblem
               :emblem="p.emblem"
               :name="p.name"
+              :prestige="p.prestige"
               class="size-9 text-sm"
             />
 
             <div class="min-w-0 flex-1">
               <p class="font-semibold text-base truncate">
-                {{ p.name }} <LeaderboardYouBadge :show="p.isCurrentUser" variant="inline" />
+                <PrestigeBadge :level="p.prestige" size="xs" /> {{ p.name }} <LeaderboardYouBadge :show="p.isCurrentUser" variant="inline" />
               </p>
               <p class="text-sm text-muted mt-0.5">
                 {{ p.agentCount }} agents

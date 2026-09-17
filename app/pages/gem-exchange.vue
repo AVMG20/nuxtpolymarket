@@ -74,7 +74,9 @@ const spread = computed(() => {
 // ---- Trade terminal ----
 const tradeMode = ref<'buy' | 'sell'>('buy')
 const quantity = ref(1)
+const quantityText = useAmountInput(quantity, { integer: true })
 const price = ref(0)
+const priceText = useAmountInput(price)
 const loading = ref(false)
 const priceTouched = ref(false)
 const tradeTerminal = useTemplateRef<HTMLElement>('tradeTerminal')
@@ -184,32 +186,11 @@ async function placeOrder() {
   if (loading.value) return
   loading.value = true
   try {
-    const result = await $fetch('/api/gem-exchange/place', {
+    await $fetch('/api/gem-exchange/place', {
       method: 'POST',
       body: { side: tradeMode.value, quantity: safeQuantity.value, price: safePrice.value }
     })
     await Promise.all([refresh(), fetchSession()])
-
-    const gemLabel = (n: number) => `${formatNumber(n, false)} gem${n !== 1 ? 's' : ''}`
-    if (result.filled === 0) {
-      toast.add({
-        title: `${result.side === 'buy' ? 'Buy' : 'Sell'} offer placed`,
-        description: `${gemLabel(result.quantity)} @ ${formatNumber(result.price, false)} coins — waiting for a match`,
-        color: 'info'
-      })
-    } else {
-      const avg = result.avgFillPrice ?? result.price
-      const title = result.side === 'buy'
-          ? `Bought ${gemLabel(result.filled)} for ${formatNumber(result.coinsMoved, false)} coins`
-          : `Sold ${gemLabel(result.filled)} for ${formatNumber(result.coinsMoved, false)} coins`
-      toast.add({
-        title,
-        description: result.remaining > 0
-            ? `Avg ${formatNumber(avg, false)} coins — ${gemLabel(result.remaining)} still on offer`
-            : `Avg ${formatNumber(avg, false)} coins`,
-        color: 'success'
-      })
-    }
   } catch (e) {
     toast.add({ title: apiErrorMessage(e, 'Could not place the offer'), color: 'error' })
   } finally {
@@ -224,7 +205,6 @@ async function cancelOrder(orderId: string) {
   try {
     await $fetch('/api/gem-exchange/cancel', { method: 'POST', body: { orderId } })
     await Promise.all([refresh(), fetchSession()])
-    toast.add({ title: 'Offer cancelled — escrow returned', color: 'neutral' })
   } catch (e) {
     toast.add({ title: apiErrorMessage(e, 'Could not cancel the offer'), color: 'error' })
   } finally {
@@ -305,14 +285,14 @@ const visibleTrades = computed(() => {
 
 function tradeActor(trade: typeof visibleTrades.value[number]) {
   return trade.takerSide === 'sell'
-    ? { name: trade.sellerName, emblem: trade.sellerEmblem, action: 'sold to', mine: trade.iSold }
-    : { name: trade.buyerName, emblem: trade.buyerEmblem, action: 'bought from', mine: trade.iBought }
+    ? { name: trade.sellerName, emblem: trade.sellerEmblem, prestige: trade.sellerPrestige, action: 'sold to', mine: trade.iSold }
+    : { name: trade.buyerName, emblem: trade.buyerEmblem, prestige: trade.buyerPrestige, action: 'bought from', mine: trade.iBought }
 }
 
 function tradeCounterparty(trade: typeof visibleTrades.value[number]) {
   return trade.takerSide === 'sell'
-    ? { name: trade.buyerName, emblem: trade.buyerEmblem }
-    : { name: trade.sellerName, emblem: trade.sellerEmblem }
+    ? { name: trade.buyerName, emblem: trade.buyerEmblem, prestige: trade.buyerPrestige }
+    : { name: trade.sellerName, emblem: trade.sellerEmblem, prestige: trade.sellerPrestige }
 }
 
 // ---- Order book depth bars ----
@@ -443,15 +423,17 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                     @click="setQuantity(quantity - 1)"
                 />
                 <UInput
-                    v-model="quantity"
-                    type="number"
-                    min="1"
+                    v-model="quantityText"
+                    autocomplete="off"
                     size="xl"
                     placeholder="1"
                     class="w-full"
                 >
                   <template #leading>
                     <UIcon name="i-lucide-gem" class="size-4 text-cyan-400" />
+                  </template>
+                  <template v-if="amountPreview(quantityText, true)" #trailing>
+                    <span class="text-xs tabular-nums text-muted">{{ amountPreview(quantityText, true) }}</span>
                   </template>
                 </UInput>
                 <UButton
@@ -484,16 +466,17 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                 Price per gem
               </label>
               <UInput
-                  v-model="price"
-                  type="number"
-                  :min="GEM_EXCHANGE_MIN_PRICE"
-                  step="0.01"
+                  v-model="priceText"
+                  autocomplete="off"
                   size="xl"
                   class="w-full"
                   @input="priceTouched = true"
               >
                 <template #leading>
                   <UIcon name="i-lucide-coins" class="size-4 text-yellow-400" />
+                </template>
+                <template v-if="amountPreview(priceText)" #trailing>
+                  <span class="text-xs tabular-nums text-muted">{{ amountPreview(priceText) }}</span>
                 </template>
               </UInput>
               <div class="flex items-center gap-1.5 mt-2">
@@ -757,10 +740,11 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                 :key="order.id"
                 class="flex items-center gap-3 px-4 py-2.5 hover:bg-elevated/50 transition-colors"
             >
-              <ProfileEmblem :emblem="order.userEmblem" :name="order.userName" class="size-8 shrink-0" />
+              <ProfileEmblem :emblem="order.userEmblem" :name="order.userName" :prestige="order.userPrestige" class="size-8 shrink-0" />
 
               <div class="flex-1 min-w-0">
                 <div class="flex items-center gap-1.5 flex-wrap">
+                  <PrestigeBadge :level="order.userPrestige" size="xs" />
                   <span class="text-sm font-semibold truncate">{{ order.userName ?? 'Unknown' }}</span>
                   <UBadge v-if="order.mine" label="You" color="primary" variant="subtle" size="sm" />
                   <span class="text-sm font-semibold" :class="order.side === 'buy' ? 'text-success' : 'text-error'">
@@ -840,8 +824,8 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                 class="flex items-center gap-3 px-4 py-2.5 hover:bg-elevated/50 transition-colors"
             >
               <div class="flex shrink-0 -space-x-2.5">
-                <ProfileEmblem :emblem="tradeActor(trade).emblem" :name="tradeActor(trade).name" class="size-8 ring-2 ring-(--ui-bg)" />
-                <ProfileEmblem :emblem="tradeCounterparty(trade).emblem" :name="tradeCounterparty(trade).name" class="size-8 ring-2 ring-(--ui-bg)" />
+                <ProfileEmblem :emblem="tradeActor(trade).emblem" :name="tradeActor(trade).name" :prestige="tradeActor(trade).prestige" class="size-8 ring-2 ring-(--ui-bg)" />
+                <ProfileEmblem :emblem="tradeCounterparty(trade).emblem" :name="tradeCounterparty(trade).name" :prestige="tradeCounterparty(trade).prestige" class="size-8 ring-2 ring-(--ui-bg)" />
               </div>
               <div class="flex-1 min-w-0">
                 <p class="text-sm truncate">

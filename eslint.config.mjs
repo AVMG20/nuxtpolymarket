@@ -3,6 +3,11 @@ import withNuxt from './.nuxt/eslint.config.mjs'
 
 export default withNuxt(
   {
+    // Vendored WebGL foil renderer from pokemonplaatjes — kept byte-identical
+    // to upstream (only the three import changed), so don't lint it.
+    ignores: ['app/utils/tcg/foil.js', 'app/utils/tcg/tear.js', 'shared/utils/tcg/grading-model.ts']
+  },
+  {
     rules: {
       // Formatting is left to the editor, not enforced by ESLint. These rules
       // conflict wholesale with the existing code style, so keep them off.

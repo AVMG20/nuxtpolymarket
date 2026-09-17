@@ -1,0 +1,1 @@
+ALTER TABLE "town_state" ADD COLUMN "produced" jsonb DEFAULT '{}'::jsonb NOT NULL;

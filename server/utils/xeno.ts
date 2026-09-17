@@ -1,4 +1,4 @@
-import { eq, and, inArray } from 'drizzle-orm'
+import { eq, and, inArray, notExists, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { xenoPlants, xenoPlantsUnlocked, xenoArtifacts, xenoGridSlots, xenoBreederSlots, xenoUpgrades } from '#server/database/schema'
 import { randomChance } from '#shared/utils/random'
@@ -119,25 +119,62 @@ export function computeBreedResult(
   }
 }
 
-/** Create plant instances in inventory */
+/** Create plant instances in inventory. Pass `tx` when called inside a transaction. */
 export async function addPlants(
   userId: string,
   typeId: string,
   speed: number,
   yield_: number,
   quantity: number,
+  tx: DbExecutor = db,
 ) {
   if (quantity < 1) return
-  await db.insert(xenoPlants).values(
+  await tx.insert(xenoPlants).values(
     Array.from({ length: quantity }, () => ({ userId, typeId, speed, yield: yield_ })),
   )
   // This table has no compound unique constraint, so onConflictDoNothing()
   // would only handle duplicate row IDs. Check the permanent unlock first to
   // keep repeated harvests or purchases from creating duplicate unlock rows.
-  const existingUnlock = await db.query.xenoPlantsUnlocked.findFirst({
+  const existingUnlock = await tx.query.xenoPlantsUnlocked.findFirst({
     where: and(eq(xenoPlantsUnlocked.userId, userId), eq(xenoPlantsUnlocked.typeId, typeId))
   })
-  if (!existingUnlock) await db.insert(xenoPlantsUnlocked).values({ userId, typeId })
+  if (!existingUnlock) await tx.insert(xenoPlantsUnlocked).values({ userId, typeId })
+}
+
+/**
+ * Serialise every operation that claims or consumes a user's plant instances.
+ *
+ * Planting picks a free `xenoPlants` row and points a grid slot at it; selling,
+ * crafting and breeding delete free rows. Both decide "free" by reading the
+ * grid, and under READ COMMITTED two concurrent requests read the same
+ * pre-state — so Harvest All with auto-replant planted one row in three slots,
+ * and harvesting one of them deleted the row under the other two (FK SET NULL),
+ * leaving phantom plots. A `FOR UPDATE` lock on the plant row alone does not
+ * close that: Postgres only re-evaluates the WHERE for rows the lock holder
+ * *changed*, and a claim changes the slot, not the plant.
+ *
+ * So take the user's grid slot rows `FOR UPDATE` first, then read. Every read
+ * after this statement runs on a fresh snapshot that includes whatever the
+ * previous holder committed. Call inside a transaction and pass the same `tx`
+ * to every subsequent read and write.
+ */
+export async function lockUserGrid(userId: string, tx: DbExecutor) {
+  await tx.select({ id: xenoGridSlots.id })
+    .from(xenoGridSlots)
+    .where(eq(xenoGridSlots.userId, userId))
+    .orderBy(xenoGridSlots.slotIndex)
+    .for('update')
+}
+
+/**
+ * `xenoPlants` row is not referenced by any grid slot. Put this in the WHERE of
+ * every DELETE that consumes inventory: the free-list read above it can go
+ * stale when a plant request lands in between, and deleting a planted row
+ * fires the FK's ON DELETE SET NULL — leaving a slot with `startedAt` set,
+ * `plantId` null and no plant to show, harvest or remove.
+ */
+function notPlanted(tx: DbExecutor) {
+  return notExists(tx.select({ id: xenoGridSlots.id }).from(xenoGridSlots).where(eq(xenoGridSlots.plantId, xenoPlants.id)))
 }
 
 /**
@@ -145,14 +182,15 @@ export async function addPlants(
  * Used for artifact crafting costs where quality doesn't matter.
  * Throws 400 if insufficient.
  */
-export async function consumePlantsByType(userId: string, typeId: string, quantity: number) {
+export async function consumePlantsByType(userId: string, typeId: string, quantity: number, tx: DbExecutor = db) {
+  await lockUserGrid(userId, tx)
   // Get plants not currently planted in a grid slot
-  const allOfType = await db.query.xenoPlants.findMany({
+  const allOfType = await tx.query.xenoPlants.findMany({
     where: and(eq(xenoPlants.userId, userId), eq(xenoPlants.typeId, typeId)),
   })
   // Exclude ones currently in a grid slot
   const gridPlantIds = new Set(
-    (await db.query.xenoGridSlots.findMany({ where: eq(xenoGridSlots.userId, userId) }))
+    (await tx.query.xenoGridSlots.findMany({ where: eq(xenoGridSlots.userId, userId) }))
       .map(s => s.plantId)
       .filter(Boolean),
   )
@@ -160,9 +198,19 @@ export async function consumePlantsByType(userId: string, typeId: string, quanti
   if (free.length < quantity) {
     throw createError({ statusCode: 400, statusMessage: `Not enough ${typeId} plants (need ${quantity}, have ${free.length})` })
   }
-  const toDelete = free.slice(0, quantity).map(p => p.id)
-  for (const id of toDelete) {
-    await db.delete(xenoPlants).where(eq(xenoPlants.id, id))
+  // One DELETE ... RETURNING is the mutex (same as consumePlantsByStack): a
+  // concurrent craft claiming the same rows deletes fewer than asked and throws
+  // instead of spending a plant twice. Also ~50x fewer round trips than the
+  // old per-row loop for a 50× craft.
+  const deleted = await tx.delete(xenoPlants)
+    .where(and(
+      eq(xenoPlants.userId, userId),
+      inArray(xenoPlants.id, free.slice(0, quantity).map(p => p.id)),
+      notPlanted(tx),
+    ))
+    .returning({ id: xenoPlants.id })
+  if (deleted.length < quantity) {
+    throw createError({ statusCode: 400, statusMessage: `Not enough ${typeId} plants (need ${quantity}, have ${deleted.length})` })
   }
 }
 
@@ -179,6 +227,7 @@ export async function consumePlantsByStack(
   quantity: number,
   tx: DbExecutor = db,
 ) {
+  await lockUserGrid(userId, tx)
   const allOfStack = await tx.query.xenoPlants.findMany({
     where: and(
       eq(xenoPlants.userId, userId),
@@ -203,6 +252,7 @@ export async function consumePlantsByStack(
     .where(and(
       eq(xenoPlants.userId, userId),
       inArray(xenoPlants.id, free.slice(0, quantity).map(p => p.id)),
+      notPlanted(tx),
     ))
     .returning({ id: xenoPlants.id })
   if (deleted.length < quantity) {
@@ -215,18 +265,23 @@ export async function consumeArtifactCharge(
   artifactId: string,
   slotType: 'grid' | 'breeder',
   slotId: string,
+  tx: DbExecutor = db,
 ) {
-  const art = await db.query.xenoArtifacts.findFirst({ where: eq(xenoArtifacts.id, artifactId) })
+  // The decrement happens in the UPDATE itself rather than read → write, so two
+  // harvests racing on the same artifact can't both compute the same "remaining".
+  const [art] = await tx.update(xenoArtifacts)
+    .set({ chargesRemaining: sql`${xenoArtifacts.chargesRemaining} - 1` })
+    .where(eq(xenoArtifacts.id, artifactId))
+    .returning({ chargesRemaining: xenoArtifacts.chargesRemaining })
   if (!art) return
-  const remaining = art.chargesRemaining - 1
-  if (remaining <= 0) {
-    await db.delete(xenoArtifacts).where(eq(xenoArtifacts.id, artifactId))
+  if (art.chargesRemaining <= 0) {
+    // The FK is ON DELETE SET NULL, so removing the artifact also clears the
+    // slot reference — the explicit update just keeps intent obvious.
+    await tx.delete(xenoArtifacts).where(eq(xenoArtifacts.id, artifactId))
     if (slotType === 'grid') {
-      await db.update(xenoGridSlots).set({ artifactId: null }).where(eq(xenoGridSlots.id, slotId))
+      await tx.update(xenoGridSlots).set({ artifactId: null }).where(eq(xenoGridSlots.id, slotId))
     } else {
-      await db.update(xenoBreederSlots).set({ artifactId: null }).where(eq(xenoBreederSlots.id, slotId))
+      await tx.update(xenoBreederSlots).set({ artifactId: null }).where(eq(xenoBreederSlots.id, slotId))
     }
-  } else {
-    await db.update(xenoArtifacts).set({ chargesRemaining: remaining }).where(eq(xenoArtifacts.id, artifactId))
   }
 }

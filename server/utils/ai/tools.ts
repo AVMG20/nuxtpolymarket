@@ -1,6 +1,6 @@
 import { AI_TOOL_CATALOG_BY_NAME } from '#shared/utils/ai-tools'
+import { TOWN_BUILDINGS, TOWN_MAX_BUILDERS, TOWN_RESOURCES } from '#shared/utils/gamelogic/town'
 import { AI_CASINO_MAX_BET, AI_MAX_ROUNDS } from '#shared/utils/limits'
-import type { AiToolCall } from '#shared/utils/ai'
 
 interface OpenRouterTool {
     type: 'function'
@@ -55,7 +55,7 @@ const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [
         type: 'function',
         function: {
             name: 'get_player_overview',
-            description: 'Read a compact live overview of the player\'s Xeno, Colony, Hack Ops, Miner, and Gem Market state. For bank balances, rates, debt, or loan room, use get_bank_status. This does not mutate game state.',
+            description: 'Read a compact live overview of the player\'s Xeno, Colony, Hack Ops, Polytown, and Gem Market state. For bank balances, rates, debt, or loan room, use get_bank_status. This does not mutate game state.',
             parameters: { type: 'object', properties: {}, additionalProperties: false }
         }
     },
@@ -161,7 +161,7 @@ const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [
         type: 'function',
         function: {
             name: 'start_colony_upgrade',
-            description: 'Start one Colony builder upgrade: an upgrade track, the habitat level-up, or species research. Read the player overview first to compare every upgrade, its prerequisites, costs, and whether the builder is busy.',
+            description: 'Start one Colony builder upgrade: an upgrade track, the habitat level-up, or species research. Read the player overview first to compare every upgrade, its prerequisites, costs, and which builders are free.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -268,27 +268,43 @@ const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [
     {
         type: 'function',
         function: {
-            name: 'run_miner_dailies',
-            description: 'Collect available Miner cash, collect whole Factory gems, and open every remaining free Miner lootbox. This never buys paid lootbox opens.',
-            parameters: { type: 'object', properties: {}, additionalProperties: false }
+            name: 'run_town_dailies',
+            description: 'Claim completed Polytown milestones and start upgrades with idle builders.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    upgrades: { type: 'boolean', default: true, description: 'Start building upgrades with idle builders. Set false to only claim milestones.' },
+                    preferTypes: {
+                        type: 'array',
+                        maxItems: 8,
+                        items: { type: 'string', enum: TOWN_BUILDINGS.filter(def => def.kind !== 'road').map(def => def.id) },
+                        description: 'Optional building types to upgrade first. Everything else is still considered after them.'
+                    },
+                    maxUpgrades: { type: 'integer', minimum: 1, maximum: TOWN_MAX_BUILDERS, description: 'Optional cap on upgrades to start. Defaults to every idle builder.' }
+                },
+                additionalProperties: false
+            }
         }
     },
     {
         type: 'function',
         function: {
-            name: 'purchase_miner_upgrades',
-            description: 'Purchase one or more levels of a Miner upgrade. This can spend coins or gems and stops safely at the first failed purchase. Read the player overview first so the player can be told the current level and next cost.',
+            name: 'sell_town_resources',
+            description: 'Sell a percentage of Polytown stock on the town market. Jewels are skipped unless named: they are worth far more converted into gems.',
             parameters: {
                 type: 'object',
                 properties: {
-                    upgrade: {
-                        type: 'string',
-                        enum: ['rig', 'vault', 'factory', 'overclock', 'catalyst', 'lootbox_slot', 'rakeback_unlock'],
-                        description: 'The Miner upgrade or shop unlock to purchase.'
+                    percent: { type: 'number', minimum: 1, maximum: 100, description: 'Share of each selected resource\'s stock to sell, for example 50.' },
+                    resources: {
+                        type: 'array',
+                        minItems: 1,
+                        maxItems: TOWN_RESOURCES.length,
+                        items: { type: 'string', enum: TOWN_RESOURCES.map(resource => resource.id) },
+                        description: 'Optional resource IDs to sell. Omit to sell every stocked resource.'
                     },
-                    levels: { type: 'integer', minimum: 1, maximum: 20, description: 'Number of levels to attempt. Use 1 for rakeback_unlock.' }
+                    keepQuantity: { type: 'integer', minimum: 0, description: 'Optional minimum stock of each resource to keep after the sale.' }
                 },
-                required: ['upgrade', 'levels'],
+                required: ['percent'],
                 additionalProperties: false
             }
         }
@@ -314,41 +330,12 @@ const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [
     {
         type: 'function',
         function: {
-            name: 'play_blackjack',
-            description: 'Play and fully resolve one blackjack hand using basic strategy. This spends the requested coin bet and may double or split when the live balance can cover the additional stake. Use this single tool instead of starting a hand or taking individual blackjack actions.',
-            parameters: {
-                type: 'object',
-                properties: { bet: { type: 'number', minimum: 1, maximum: AI_CASINO_MAX_BET } },
-                required: ['bet'],
-                additionalProperties: false
-            }
-        }
-    },
-    {
-        type: 'function',
-        function: {
-            name: 'play_blackjack_rounds',
-            description: `Play and fully resolve 1 to ${AI_MAX_ROUNDS} blackjack hands with basic strategy, entirely on the server, and return aggregate results. Each hand uses the same base bet and may double or split when the live balance can cover the extra stake. Prefer this over calling play_blackjack repeatedly when the player wants more than one hand.`,
-            parameters: {
-                type: 'object',
-                properties: {
-                    bet: { type: 'number', minimum: 1, maximum: AI_CASINO_MAX_BET, description: 'Base coin bet per hand.' },
-                    rounds: { type: 'integer', minimum: 1, maximum: AI_MAX_ROUNDS, description: 'Number of hands to play.' }
-                },
-                required: ['bet', 'rounds'],
-                additionalProperties: false
-            }
-        }
-    },
-    {
-        type: 'function',
-        function: {
             name: 'call_game_api',
             description: 'Call any authenticated Polynux game API for the current player. Use this for game actions not covered by a purpose-built tool. The exact path and payload are shown to the player for approval. Account, auth, chat, analytics, leaderboard, and AI APIs are not allowed.',
             parameters: {
                 type: 'object',
                 properties: {
-                    path: { type: 'string', description: 'A path beginning with /api/xeno, /api/colony, /api/hack, /api/miner, /api/pirates, /api/gem-exchange, or /api/games.' },
+                    path: { type: 'string', description: 'A path beginning with /api/xeno, /api/colony, /api/hack, /api/town, /api/pirates, /api/gem-exchange, or /api/games.' },
                     method: { type: 'string', enum: ['GET', 'POST'] },
                     body: { type: 'object', description: 'Request JSON for POST calls.', additionalProperties: true }
                 },
@@ -370,11 +357,3 @@ export const AI_TOOLS: OpenRouterTool[] = AI_TOOL_DEFINITIONS.map(tool => {
         }
     }
 })
-
-if (AI_TOOLS.some(tool => !AI_TOOL_CATALOG_BY_NAME[tool.function.name])) {
-    throw new Error('A registered AI tool is missing from the catalogue')
-}
-
-export function toolRequiresConfirmation(toolCall: AiToolCall) {
-    return AI_TOOL_CATALOG_BY_NAME[toolCall.function.name]?.requiresConfirmation ?? true
-}

@@ -5,6 +5,7 @@ import {
   rollOpReward,
   artifactRarityTable,
   collectBonuses,
+  effectiveGemRange,
   ARTIFACT_VALUE,
   AGENT_TRAIT_RANGES,
   AGENT_TRAIT_LABEL,
@@ -87,10 +88,9 @@ describe('artifact drops', () => {
   })
 
   it('keeps every artifact magnitude within the same units as the trait it targets, never overshooting the full range in one apply', () => {
-    // Regression: gem_chance is stored as a 0-1 fraction (0.005-0.05) while every
-    // other percent trait stores a plain percentage number — a magnitude table
-    // using percentage-point units for gem_chance overshot the entire range on a
-    // single Ghost apply and rendered as "+20.0%" instead of "+0.2%".
+    // Regression: a magnitude table whose units don't match the trait's own scale
+    // overshoots the entire range on a single Ghost apply, silently maxing the trait
+    // and rendering nonsense like "+20.0%" where "+0.2%" was meant.
     for (const type of Object.keys(ARTIFACT_VALUE) as AgentTraitType[]) {
       const range = AGENT_TRAIT_RANGES[type]
       const gap = range.max - range.min
@@ -101,7 +101,7 @@ describe('artifact drops', () => {
   })
 
   it('never displays a nonzero artifact add as +0', () => {
-    // Regression: gem_bonus's smallest magnitudes (0.05 Ghost) rounded to "+0 gems"
+    // Regression: the smallest magnitudes (loot_percent's 0.1 Ghost) rounded to "+0"
     // when formatted with the whole-number formatTraitValue instead of formatArtifactAdd.
     for (const type of Object.keys(ARTIFACT_VALUE) as AgentTraitType[]) {
       for (const rarity of RARITY_ORDER) {
@@ -111,21 +111,21 @@ describe('artifact drops', () => {
     }
   })
 
-  it('closes a floor-rolled gem_chance trait in ~5 Phantom applications, matching PLAN.md §4', () => {
-    const range = AGENT_TRAIT_RANGES.gem_chance
+  it('closes a floor-rolled gem_yield trait in ~5 Phantom applications, matching PLAN.md §4', () => {
+    const range = AGENT_TRAIT_RANGES.gem_yield
     const gap = range.max - range.min
-    const phantomAdd = ARTIFACT_VALUE.gem_chance.phantom
+    const phantomAdd = ARTIFACT_VALUE.gem_yield.phantom
     expect(Math.round(gap / phantomAdd)).toBe(5)
   })
 
-  it('always pays out a whole number of bonus gems, even from a fractionally-stacked Bonus Gems artifact trait', () => {
-    // Regression: gems are never fractional anywhere else in the game, but a Bonus
-    // Gems Artifact accumulates in fractional steps (e.g. Ghost +0.05), so a
-    // partially-stacked trait like { gem_bonus: 1.65 } used to leak straight into
-    // the gems payout and the pre-deploy preview as "1.65 gems".
-    const agent = { level: 1, class: 'bruteforce' as AgentClass, traits: [{ type: 'gem_bonus' as AgentTraitType, value: 1.65 }], items: [] as Array<{ mods: ItemMod[] }> }
+  it('always pays out a whole number of gems from a fractionally-stacked Gem Yield trait', () => {
+    // Regression: gems are never fractional anywhere else in the game, but a Gem
+    // Yield Artifact accumulates in fractional steps (e.g. Ghost +1 onto a 10.4
+    // roll), so the multiplied payout has to round rather than leak "12.6 gems"
+    // into the collect screen and the pre-deploy preview.
+    const agent = { level: 1, class: 'bruteforce' as AgentClass, traits: [{ type: 'gem_yield' as AgentTraitType, value: 33.3 }], items: [] as Array<{ mods: ItemMod[] }> }
     const bonuses = collectBonuses([agent])
-    expect(bonuses.gemBonus).toBe(2)
-    expect(Number.isInteger(bonuses.gemBonus)).toBe(true)
+    const gemOp = OP_TEMPLATES.find(t => t.id === 'project_zero')!
+    for (const n of effectiveGemRange(gemOp, bonuses)) expect(Number.isInteger(n)).toBe(true)
   })
 })

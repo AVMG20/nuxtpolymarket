@@ -1,0 +1,1 @@
+ALTER TABLE "town_state" ADD COLUMN "builders" integer DEFAULT 2 NOT NULL;

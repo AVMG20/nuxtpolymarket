@@ -1,0 +1,1 @@
+ALTER TABLE "hack_ops" ADD COLUMN "auto_redeploy" boolean DEFAULT false NOT NULL;

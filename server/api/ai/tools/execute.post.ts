@@ -33,14 +33,16 @@ export default defineEventHandler(async (event) => {
                 body.assistantMessageId!,
                 body.toolCallId!,
                 body.approved!,
-                async (content) => {
-                    await stream.push({ data: JSON.stringify({ type: 'delta', content }) })
-                },
-                async (toolCallId, result) => {
-                    await stream.push({ data: JSON.stringify({ type: 'tool_result', toolCallId, result }) })
-                },
-                async (assistantMessageId) => {
-                    await stream.push({ data: JSON.stringify({ type: 'assistant_message', assistantMessageId }) })
+                {
+                    onText: async (content) => {
+                        await stream.push({ data: JSON.stringify({ type: 'delta', content }) })
+                    },
+                    onAssistantMessage: async (assistantMessageId) => {
+                        await stream.push({ data: JSON.stringify({ type: 'assistant_message', assistantMessageId }) })
+                    },
+                    onToolResolved: async (toolCallId, result) => {
+                        await stream.push({ data: JSON.stringify({ type: 'tool_result', toolCallId, result }) })
+                    }
                 }
             )
             await stream.push({ data: JSON.stringify({ type: 'done', conversationId, ...result }) })

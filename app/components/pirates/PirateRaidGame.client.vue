@@ -153,9 +153,8 @@ async function rushRepair() {
     if (rushing.value || !isRepairing.value) return
     rushing.value = true
     try {
-        const res = await $fetch('/api/pirates/repair/rush', { method: 'POST' })
+        await $fetch('/api/pirates/repair/rush', { method: 'POST' })
         await Promise.all([refresh(), fetchSession()])
-        toast.add({ title: `Repairs rushed for ${res.gemCost} gem${res.gemCost === 1 ? '' : 's'}`, color: 'success' })
     } catch (error: unknown) {
         toast.add({ title: apiErrorMessage(error, 'Failed to rush repair'), color: 'error' })
     } finally {

@@ -88,9 +88,27 @@ export const auth = betterAuth({
                 defaultValue: false,
                 input: false,
             },
+            isPokemonAdmin: {
+                type: 'boolean',
+                required: false,
+                defaultValue: false,
+                input: false,
+            },
             emblem: {
                 type: 'string',
                 required: false,
+                input: false,
+            },
+            prestige: {
+                type: 'number',
+                required: false,
+                defaultValue: 0,
+                input: false,
+            },
+            prestigeTokens: {
+                type: 'number',
+                required: false,
+                defaultValue: 0,
                 input: false,
             },
         }
@@ -101,6 +119,14 @@ export const auth = betterAuth({
 export async function requireUserId(event: H3Event): Promise<string> {
     const session = await auth.api.getSession({headers: event.headers})
     if (!session?.user?.id) throw createError({statusCode: 401, statusMessage: 'Unauthorized'})
+    return session.user.id
+}
+
+/** Session user id for TCG admin endpoints — 401 when signed out, 403 unless isPokemonAdmin. */
+export async function requirePokemonAdmin(event: H3Event): Promise<string> {
+    const session = await auth.api.getSession({headers: event.headers})
+    if (!session?.user?.id) throw createError({statusCode: 401, statusMessage: 'Unauthorized'})
+    if (!session.user.isPokemonAdmin) throw createError({statusCode: 403, statusMessage: 'Forbidden'})
     return session.user.id
 }
 

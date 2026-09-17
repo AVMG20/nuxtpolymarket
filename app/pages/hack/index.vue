@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   RARITY_COLOR, RARITY_LABEL, RARITY_ACCENT,
-  collectBonuses, effectiveCashRange, effectiveGemChance, effectiveItemDropChance, opSuccessChance,
+  collectBonuses, effectiveCashRange, effectiveGemRange, effectiveItemDropChance, opSuccessChance,
   type HackRarity, type AgentClass, type AgentTrait, type ItemMod, type ItemSlot
 } from '#shared/utils/hack-config'
 
@@ -101,6 +101,7 @@ const collectResult = ref<{
   inventoryFull: boolean
   artifacts: Array<{ type: string, rarity: string, count: number }>
   levelUps: Array<{ agentId: string, agentName: string, newLevel: number }>
+  redeploy: { ok: true, opId: string, completesAt: string | Date } | { ok: false, error: string } | null
   templateName: string
   icon: string
 } | null>(null)
@@ -132,12 +133,34 @@ async function collect(op: { id: string, templateId: string }) {
       templateName: template?.name ?? 'Operation',
       icon: template?.icon ?? 'i-lucide-terminal'
     }
+    if (res.redeploy && !res.redeploy.ok) {
+      toast.add({ title: 'Auto-deploy skipped', description: res.redeploy.error, icon: 'i-lucide-repeat', color: 'warning' })
+    }
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     audio.playSfx('deny')
     toast.add({ title: apiErrorMessage(e, 'Collect failed'), color: 'error' })
   } finally {
     collecting.value = null
+  }
+}
+
+// Auto-deploy toggle on a running op — collecting it redeploys the same squad on
+// the same op. Optimistic flip, reverted if the server refuses (op already resolved).
+const togglingRedeploy = ref<string | null>(null)
+async function setAutoRedeploy(op: { id: string, autoRedeploy: boolean }, enabled: boolean) {
+  const previous = op.autoRedeploy
+  op.autoRedeploy = enabled
+  togglingRedeploy.value = op.id
+  try {
+    await $fetch('/api/hack/ops/auto-redeploy', { method: 'POST', body: { opId: op.id, enabled } })
+    audio.playSfx('click')
+  } catch (e: any) {
+    op.autoRedeploy = previous
+    audio.playSfx('deny')
+    toast.add({ title: apiErrorMessage(e, 'Could not update auto-deploy'), color: 'error' })
+  } finally {
+    togglingRedeploy.value = null
   }
 }
 
@@ -188,8 +211,8 @@ const activeOpsPreview = computed(() =>
       preview: {
         successChance: opSuccessChance(power, template.minPower),
         cashRange: effectiveCashRange(template, bonuses),
-        gemChance: effectiveGemChance(template, bonuses),
-        gemBonus: bonuses.gemBonus,
+        gemChance: template.baseGemChance,
+        gemRange: effectiveGemRange(template, bonuses),
         itemDropChance: effectiveItemDropChance(template, bonuses)
       }
     }
@@ -264,24 +287,43 @@ const thumbFailed = ref<Record<string, boolean>>({})
                 </div>
               </div>
             </div>
-            <div class="text-right shrink-0">
-              <template v-if="!isDone(op)">
-                <p class="hack-stat-value-lg text-primary">
-                  {{ formatMs(msLeft(op.completesAt)) }}
-                </p>
-                <p class="text-xs text-muted tabular-nums">
-                  finishes ~{{ formatEndTime(op.completesAt) }}
-                </p>
-              </template>
-              <UButton
-                v-if="isDone(op)"
-                size="sm"
-                color="success"
-                :loading="collecting === op.id"
-                label="Collect"
-                icon="i-lucide-download"
-                @click="collect(op)"
-              />
+            <div class="flex items-center gap-4 shrink-0">
+              <label
+                class="flex items-center gap-2 text-xs cursor-pointer select-none"
+                :class="op.autoRedeploy ? 'text-primary' : 'text-muted'"
+                title="On collect, redeploy this op with the same squad"
+              >
+                <UIcon
+                  name="i-lucide-repeat"
+                  class="size-3.5"
+                />
+                Auto-deploy
+                <USwitch
+                  :model-value="op.autoRedeploy"
+                  size="sm"
+                  :disabled="togglingRedeploy === op.id || collecting === op.id"
+                  @update:model-value="setAutoRedeploy(op, $event)"
+                />
+              </label>
+              <div class="text-right">
+                <template v-if="!isDone(op)">
+                  <p class="hack-stat-value-lg text-primary">
+                    {{ formatMs(msLeft(op.completesAt)) }}
+                  </p>
+                  <p class="text-xs text-muted tabular-nums">
+                    finishes ~{{ formatEndTime(op.completesAt) }}
+                  </p>
+                </template>
+                <UButton
+                  v-if="isDone(op)"
+                  size="sm"
+                  color="success"
+                  :loading="collecting === op.id"
+                  label="Collect"
+                  icon="i-lucide-download"
+                  @click="collect(op)"
+                />
+              </div>
             </div>
           </div>
 
@@ -294,7 +336,7 @@ const thumbFailed = ref<Record<string, boolean>>({})
               v-if="preview.gemChance > 0 && template"
               class="text-cyan-400 tabular-nums"
             >
-              {{ gemLabel(preview.gemChance, [template.baseGemCount[1] + preview.gemBonus, template.baseGemCount[1] + preview.gemBonus]) }}
+              {{ gemLabel(preview.gemChance, preview.gemRange) }}
             </span>
             <span
               v-if="template"

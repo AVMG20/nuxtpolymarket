@@ -1,0 +1,150 @@
+// Meadowbrawl — shared engine types.
+//
+// Logic space is a flat top-down plane (x, y). The renderer foreshortens y by
+// GROUND_YS to fake the 45° camera; every hitbox/telegraph lives in logic
+// space and is projected the same way, so what you see is exactly what hits.
+
+export interface Vec {
+    x: number
+    y: number
+}
+
+export type WeaponId = 'sword' | 'greataxe' | 'spear' | 'daggers' | 'warhammer' | 'scythe'
+
+export type HitShape =
+    | { kind: 'arc', reach: number, halfAngle: number }
+    | { kind: 'thrust', reach: number, width: number }
+    | { kind: 'circle', radius: number }
+
+export interface SwingDef {
+    name: string
+    /** Seconds of anticipation before the hitbox goes live. */
+    windup: number
+    /** Seconds the hitbox is live. */
+    active: number
+    /** Seconds of follow-through. The next combo input cancels this. */
+    recovery: number
+    /** Multiplier of the weapon's base damage. */
+    damage: number
+    shape: HitShape
+    /** Forward lunge distance applied across windup + active. */
+    step: number
+    knockback: number
+    stagger: number
+    /** Visual sweep direction of the blade: 1 clockwise, -1 counter, 0 thrust. */
+    sweep: 1 | -1 | 0
+    finisher?: boolean
+}
+
+export type SpecialKind = 'dash' | 'slam' | 'sweep' | 'blink' | 'leap' | 'whirl'
+
+export type AbilityId =
+    | 'shieldwall' | 'rally'
+    | 'bloodrage' | 'rendingthrow'
+    | 'skewer' | 'javelinrain'
+    | 'smokebomb' | 'fanofknives'
+    | 'ironskin' | 'seismic'
+    | 'soulharvest' | 'deathmark'
+
+export interface AbilityDef {
+    id: AbilityId
+    name: string
+    description: string
+    cooldown: number
+    icon: string
+    /** Multiplier of the weapon's base damage where the ability deals damage. */
+    damage: number
+}
+
+export interface WeaponDef {
+    id: WeaponId
+    name: string
+    /** The class this weapon defines. */
+    className: string
+    classTagline: string
+    tagline: string
+    description: string
+    /** Q and E. */
+    abilities: [AbilityDef, AbilityDef]
+    baseDamage: number
+    /** Seconds after recovery ends during which the chain can still continue. */
+    comboWindow: number
+    swings: SwingDef[]
+    /** Template inserted before the finisher for every "+1 combo hit" stack. */
+    extraSwing: SwingDef
+    /** Every hit of this weapon counts as heavy (breaks shields). */
+    heavy: boolean
+    special: {
+        kind: SpecialKind
+        name: string
+        description: string
+        cooldown: number
+        damage: number
+    }
+    color: string
+}
+
+export type EnemyTypeId = 'grunt' | 'charger' | 'swarmer' | 'shield' | 'ranged' | 'ogre' | 'warlord' | 'briar' | 'knight'
+
+export type Rarity = 'common' | 'rare' | 'epic' | 'legendary' | 'weapon'
+
+/**
+ * What a boon *is*, for the card badge: a plain number that goes up, a
+ * thing that happens on screen, or a bargain with a catch.
+ */
+export type UpgradeKind = 'stat' | 'effect' | 'pact'
+
+/** Elemental school. Stacking one school unlocks its status effect. */
+export type Element = 'fire' | 'ice' | 'shock'
+
+export interface UpgradeDef {
+    id: string
+    name: string
+    /** One short line. Cards are read mid-fight — every word costs. */
+    description: string
+    /** The downside, shown in red. Only pacts have one. */
+    catch?: string
+    rarity: Rarity
+    kind: UpgradeKind
+    element?: Element
+    maxStacks: number
+    icon: string
+}
+
+export interface Offer {
+    upgrade: UpgradeDef
+    /** Stack count the player would be at after taking it. */
+    stack: number
+    /** Set when the offer swaps the equipped weapon. */
+    weapon?: WeaponId
+}
+
+export interface SpawnGroup {
+    time: number
+    type: EnemyTypeId
+    count: number
+    side: 'north' | 'east' | 'south' | 'west'
+}
+
+export type GameEventType =
+    | 'swing' | 'hit' | 'heavyHit' | 'kill' | 'block' | 'shieldBreak' | 'hurt' | 'dodge'
+    | 'special' | 'waveStart' | 'waveClear' | 'upgrade' | 'death' | 'victory' | 'explode'
+    | 'lightning' | 'freeze' | 'burn' | 'telegraph' | 'sprint' | 'eliteSpawn' | 'crit' | 'execute' | 'revive' | 'leap'
+    | 'ability' | 'abilityReady' | 'shieldBlock' | 'ambush' | 'eliteKill' | 'stun'
+    | 'coin' | 'petAbility' | 'petFeather' | 'avatar' | 'chrono' | 'storm' | 'legendary'
+    | 'phantomDraw' | 'phantomStrike' | 'phantomHit'
+    | 'shatter' | 'charge' | 'eclipse' | 'frostwave' | 'phantom' | 'laststand' | 'splash'
+
+export interface GameEvent {
+    type: GameEventType
+    x?: number
+    y?: number
+    power?: number
+    /** Weapon, ability or enemy type that flavours the sound. */
+    variant?: string
+}
+
+export const GROUND_YS = 0.72
+export const ARENA_W = 1500
+export const ARENA_H = 1000
+export const TOTAL_WAVES = 30

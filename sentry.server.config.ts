@@ -1,8 +1,9 @@
 import * as Sentry from '@sentry/nuxt'
 
 // Same variable as the browser SDK: a DSN is a public credential, so there is
-// no reason to carry a second copy under a server-only name.
-const dsn = process.env.NUXT_PUBLIC_SENTRY_DSN
+// no reason to carry a second copy under a server-only name. PROJECT_DSN is the
+// name Argus issues its DSNs under.
+const dsn = process.env.NUXT_PUBLIC_SENTRY_DSN || process.env.PROJECT_DSN
 
 // This file is imported at the very top of the built server entry, so a throw
 // here would stop the server from booting at all. Guard it accordingly.

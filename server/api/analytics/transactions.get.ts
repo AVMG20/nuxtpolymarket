@@ -1,13 +1,8 @@
-import { sql, eq, gte, and, isNull, desc } from 'drizzle-orm'
+import { sql, eq, gte, and, isNull, inArray, desc } from 'drizzle-orm'
 import { db } from '#server/database'
 import { transactions } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-
-// The category list and the daily bars display null-category rows under the
-// label "general", so the client sends that sentinel back when filtering by
-// them. No real category is ever the literal string 'general' (see the
-// credit/debit call sites), so mapping it to `IS NULL` is unambiguous.
-const GENERAL = 'general'
+import { normaliseCategory, prefixesForLabel, GENERAL_LABEL } from '#shared/utils/analytics-categories'
 
 const RECENT_LIMIT = 100
 
@@ -23,8 +18,13 @@ export default defineEventHandler(async (event) => {
     threeDaysAgo.setDate(threeDaysAgo.getDate() - 2)
     threeDaysAgo.setHours(0, 0, 0, 0)
 
+    // Raw categories collapse to one label per game (e.g. every
+    // live-blackjack:* variant is "Blackjack"), so the filter matches on the
+    // normalised prefix rather than the exact stored string.
+    const categoryPrefixSql = sql`lower(split_part(${transactions.category}, ':', 1))`
+
     const categoryFilter = category
-        ? (category === GENERAL ? isNull(transactions.category) : eq(transactions.category, category))
+        ? (category === GENERAL_LABEL ? isNull(transactions.category) : inArray(categoryPrefixSql, prefixesForLabel(category)))
         : undefined
 
     const todayWhere = and(
@@ -94,8 +94,8 @@ export default defineEventHandler(async (event) => {
 
     const categoryStats = Object.values(
         categoryRows.reduce<Record<string, { category: string, credits: number, debits: number, count: number }>>((acc, row) => {
-            const cat = row.category ?? GENERAL
-            const entry = acc[cat] ??= { category: cat, credits: 0, debits: 0, count: 0 }
+            const label = normaliseCategory(row.category)
+            const entry = acc[label] ??= { category: label, credits: 0, debits: 0, count: 0 }
             if (row.type === 'credit') entry.credits += parseFloat(row.total)
             else entry.debits += parseFloat(row.total)
             entry.count += row.count
@@ -129,6 +129,6 @@ export default defineEventHandler(async (event) => {
         categoryStats,
         dailyStats,
         perfSeries,
-        recentTransactions
+        recentTransactions: recentTransactions.map(tx => ({ ...tx, category: normaliseCategory(tx.category) }))
     }
 })

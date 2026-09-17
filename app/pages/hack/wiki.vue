@@ -7,8 +7,8 @@ import {
 } from '#shared/utils/hack-config'
 
 function fmtRange(type: AgentTraitType | ModType, min: number, max: number): string {
-  if (type === 'gem_chance' || type === 'item_chance') return `+${(min * 100).toFixed(1)}% – +${(max * 100).toFixed(1)}%`
-  if (type === 'gem_bonus') return `+${min} – +${max} gems`
+  if (type === 'item_chance') return `+${(min * 100).toFixed(1)}% – +${(max * 100).toFixed(1)}%`
+  if (type === 'gem_yield') return `+${min}% – +${max}% gems`
   if (type === 'xp_flat' || type === 'power_flat') return `+${min} – +${max}`
   return `+${min}% – +${max}%`
 }
@@ -50,7 +50,7 @@ function fmtArtifactRange(type: AgentTraitType): string {
         </div>
         <div class="mt-4 p-3 rounded-lg bg-primary/10 border border-primary/20 text-sm">
           <p class="font-semibold text-primary mb-1">Every op is visible</p>
-          <p class="text-muted">All operations are always listed and openable. You can deploy any op as long as your selected team's success chance is at least 1% — so you can attempt the next tier early and just expect to fail often until you outpower it.</p>
+          <p class="text-muted">All operations are always listed and openable, but you can only deploy one where your selected team reaches at least <strong>50% success</strong> — which is exactly half the op's listed power. You can still reach for the next tier early; you just can't throw a squad at something it has no business attempting.</p>
         </div>
       </UCard>
     </section>
@@ -61,25 +61,50 @@ function fmtArtifactRange(type: AgentTraitType): string {
         <UIcon name="i-lucide-target" class="size-5 text-primary" /> Success Chance
       </h2>
       <UCard>
-        <p class="text-sm mb-3">Success is rolled when you collect a completed op. Agents still gain 30% XP on failure. You need at least <strong>1%</strong> (roughly 11% of the op's power) just to deploy.</p>
+        <p class="text-sm mb-3">Success is rolled when you collect a completed op. Agents still gain 15% XP on failure. Your success chance <strong>is</strong> your share of the op's listed power — meet the requirement and the op is guaranteed, bring half and it's a coin flip.</p>
         <div class="p-3 rounded-lg bg-elevated text-sm mb-3">
-          <code class="text-primary">chance = clamp(0%, 100%, (teamPower / power - 0.1) / 1.3)</code>
+          <code class="text-primary">chance = clamp(0%, 100%, teamPower / power)</code>
         </div>
         <div class="grid grid-cols-2 gap-2 text-sm">
           <div class="p-2 rounded bg-elevated">
-            <p class="text-muted">At 50% of power</p><p class="font-bold text-error">~31%</p>
+            <p class="text-muted">At 50% of power</p><p class="font-bold text-error">50% — the deploy floor</p>
           </div>
           <div class="p-2 rounded bg-elevated">
-            <p class="text-muted">At full power</p><p class="font-bold text-warning">~69%</p>
+            <p class="text-muted">At 75% of power</p><p class="font-bold text-warning">75%</p>
           </div>
           <div class="p-2 rounded bg-elevated">
-            <p class="text-muted">At 1.2× power</p><p class="font-bold text-success">~85%</p>
+            <p class="text-muted">At 90% of power</p><p class="font-bold text-warning">90%</p>
           </div>
           <div class="p-2 rounded bg-elevated">
-            <p class="text-muted">At 1.4× power</p><p class="font-bold text-success">100%</p>
+            <p class="text-muted">At full power</p><p class="font-bold text-success">100%</p>
           </div>
         </div>
         <p class="text-sm text-muted mt-3">Raise it purely with <strong>power</strong>: higher agent levels, <strong>Power</strong> &amp; <strong>Power %</strong> traits, and power gear. There's no flat success bonus.</p>
+      </UCard>
+    </section>
+
+    <!-- Gems -->
+    <section class="space-y-3">
+      <h2 class="text-xl font-bold flex items-center gap-2">
+        <UIcon name="i-lucide-diamond" class="size-5 text-primary" /> Gems
+      </h2>
+      <UCard>
+        <p class="text-sm mb-3">Gems are the endgame currency, and every op pays them on the same two-step roll:</p>
+        <div class="p-3 rounded-lg bg-elevated text-sm mb-3">
+          <code class="text-primary">gems = roll(op's gem range) × (1 + squad Gem Yield)</code>
+          <p class="text-muted mt-2">…but only if the op's own <strong>gem chance</strong> lands first.</p>
+        </div>
+        <div class="space-y-2 text-sm">
+          <ul class="list-disc list-inside space-y-1 text-muted pl-2">
+            <li><strong class="text-default">Gem chance belongs to the op alone.</strong> Nothing you equip can raise it. It climbs from <strong>0.2%</strong> on Bank Skim to <strong>80%</strong> on Project Zero.</li>
+            <li><strong class="text-default">Gem Yield multiplies what the op already pays.</strong> It's summed across the entire squad — every agent's traits, all their gear, and the Social Engineer passive — so a dedicated team can multiply a payout several times over.</li>
+            <li><strong class="text-default">Because it's a multiplier, it's worth far more on harder ops.</strong> Doubling a 1-gem trickle gets you 1 extra gem; doubling Project Zero's haul gets you eight or nine. The same gear is worth vastly more the higher you climb.</li>
+          </ul>
+          <div class="p-3 rounded-lg bg-primary/10 border border-primary/20">
+            <p class="font-semibold text-primary mb-1">Higher ops are always the better gem farm</p>
+            <p class="text-muted">Gems per hour climbs roughly <strong>1,250×</strong> from the bottom of the ladder to the top — it more than doubles at every endgame step, even after accounting for the longer durations and the bigger squads they tie up. Farming a short low-tier op for gems is never correct. If you want gems, run the hardest op you can actually clear.</p>
+          </div>
+        </div>
       </UCard>
     </section>
 
@@ -118,8 +143,7 @@ function fmtArtifactRange(type: AgentTraitType): string {
               <p class="text-muted text-sm mt-0.5">
                 <template v-if="type === 'speed_percent'">Shortens how long this op takes. Combines with this agent's item Speed mods and the Infiltrator class — a perfect agent tops out around 50%. On multi-agent ops each agent's speed is applied one after another on the remaining time (it does not stack into one big number), and an op can never drop below 7% of its base duration — reaching that floor takes a genuinely maxed squad across the board, not one stacked agent.</template>
                 <template v-else-if="type === 'loot_percent'">Increases the cash payout of a successful op. Combines with this agent's item Loot mods and the Cryptographer class — a single agent tops out around 30%, then each agent's loot is summed across the squad.</template>
-                <template v-else-if="type === 'gem_chance'">Adds a flat percentage to the chance an op drops gems. Only matters on ops that can drop gems in the first place.</template>
-                <template v-else-if="type === 'gem_bonus'">Adds flat extra gems to a raid — but only on ops that already award gems, and only when the gem chance roll succeeds. It can never create gems on an op that has none.</template>
+                <template v-else-if="type === 'gem_yield'">Multiplies the gems an op pays out. Gem Yield is summed across the whole squad — every agent's traits, gear and class passive — so a full team of gem-specced agents can multiply a payout many times over. It scales what the op already gives, so it's worth exponentially more on the high-tier ops: it can never create gems on an op that has none, and it never changes the odds of the drop.</template>
                 <template v-else-if="type === 'xp_boost'">This agent earns more XP from every op (up to +50% on a single agent), so it levels up faster. XP is per agent — it's never pooled, so this only ever boosts the agent that carries it.</template>
                 <template v-else-if="type === 'power_flat'">Adds a flat amount to this agent's power — raises success chance and helps unlock tougher ops. Best on low-level agents.</template>
                 <template v-else-if="type === 'power_percent'">Multiplies this agent's whole power (level + gear + flat power) by a percentage. The more invested the agent, the bigger the gain — best on high-level, well-geared agents.</template>
@@ -200,11 +224,10 @@ function fmtArtifactRange(type: AgentTraitType): string {
               <p class="text-muted text-sm mt-0.5">
                 <template v-if="type === 'speed_percent'">Reduces op duration. Combines with the equipped agent's speed traits and class (a single agent tops out around 50%). Multiple agents apply one after another on the remaining time rather than summing.</template>
                 <template v-else-if="type === 'loot_percent'">Multiplies cash rewards from the op. A single agent's total loot tops out around 30%.</template>
-                <template v-else-if="type === 'gem_chance'">Adds flat % to gem drop chance on any op.</template>
+                <template v-else-if="type === 'gem_yield'">Multiplies the gems an op pays out. Stacks with the wearer's Gem Yield trait and the Social Engineer passive, and sums across the whole squad. Only pays on ops that already award gems.</template>
                 <template v-else-if="type === 'xp_flat'">Flat XP added per op completion for the equipped agent.</template>
                 <template v-else-if="type === 'power_flat'">Increases the equipped agent's power rating directly.</template>
                 <template v-else-if="type === 'item_chance'">Raises the op's item-drop chance. Stacks across the squad's gear on top of the op's base drop rate (capped at 90%).</template>
-                <template v-else-if="type === 'gem_bonus'">Adds flat extra gems to a raid — but only on ops that already award gems, and only when the gem chance roll succeeds. Stacks with agent Bonus Gems traits.</template>
               </p>
             </div>
             <span class="font-medium text-primary shrink-0">{{ fmtRange(type as ModType, range.min, range.max) }}</span>
@@ -227,12 +250,12 @@ function fmtArtifactRange(type: AgentTraitType): string {
             <p class="font-semibold mb-1">Where the difficulty curve lives:</p>
             <ul class="list-disc list-inside space-y-1 text-muted">
               <li><strong>The op ladder</strong> — each op pays roughly 1.6× the one before, from a few hundred up to ~5M on the final op, while durations stretch from 1h to 48h.</li>
-              <li><strong>Roster slots</strong> — each extra agent slot multiplies how many ops you run at once, so its cost scales hard (150k → 60M).</li>
+              <li><strong>Roster slots</strong> — each extra agent slot multiplies how many ops you run at once, so its cost scales hard (150k → 600M). The 8th slot is the endgame prize: it's what lets two full 4-agent squads run the top ops simultaneously.</li>
               <li><strong>The rarity ladder</strong> — each crate/recruit tier removes the previous tier's lowest rarity, so a pricier pull always guarantees a better minimum tier. Mod and trait ranges stay identical everywhere.</li>
               <li><strong>Item levels</strong> — every item drops at level 1 and never levels on its own. Upgrading at the Crafting Bench is a gem sink: 1 gem for level 2, scaling to ~51 gems total to max one item at level 20 (+2 power per level).</li>
             </ul>
           </div>
-          <p class="text-muted">Roster (6) and inventory (30) caps keep cheap late-game pulls in check: pull, equip your best roll, and sell the rest. Selling an item only frees a slot and refunds cash — it no longer affects any prices.</p>
+          <p class="text-muted">Roster (8) and inventory (30) caps keep cheap late-game pulls in check: pull, equip your best roll, and sell the rest. Selling an item only frees a slot and refunds cash — it no longer affects any prices.</p>
         </div>
       </UCard>
     </section>

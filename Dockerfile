@@ -26,14 +26,16 @@ FROM oven/bun:1.3.10-alpine
 
 WORKDIR /app
 
-# The schema push runs at container start, not image build: at build time it
-# would need a live database reachable from `docker build`, and a cached layer
-# would silently skip the push against a fresh database. Only the push
-# toolchain is installed here; versions track package.json.
+# Migrations run at container start, not image build: at build time they would
+# need a live database reachable from `docker build`, and a cached layer would
+# silently skip them against a fresh database. Only the migration toolchain is
+# installed here; versions track package.json.
 RUN bun add drizzle-kit@^0.31.10 drizzle-orm@^0.45.1 pg@^8.20.0 dotenv@^17
 
 COPY drizzle.config.ts ./
+COPY drizzle ./drizzle
 COPY server/database/schema.ts ./server/database/schema.ts
+COPY scripts/ensure-preview-db.ts ./scripts/ensure-preview-db.ts
 COPY --chmod=755 docker-entrypoint.sh ./
 COPY --from=builder /app/.output ./.output
 

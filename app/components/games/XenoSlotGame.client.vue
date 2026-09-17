@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { parseAmount } from '#shared/utils/parse-amount'
 import type { XenoSlotResult, BonusWave, Cell, SlotSymbol } from '#shared/utils/gamelogic/xenoslot'
 import { XENOSLOT_LINES, XENOSLOT_MAX_WIN_MULT, XENOSLOT_BUY_BONUS_COST, BONUS_FREE_SPINS, BONUS_TRIGGER_COUNT, XENOSLOT_CELLS, PAYTABLE, SYMBOL_WEIGHTS } from '#shared/utils/gamelogic/xenoslot'
 import { initSlotPixiApp, safeDestroy } from '~/utils/slot-pixi'
@@ -30,7 +31,7 @@ function setBet(v: number) {
   bet.value = clampBet(v)
 }
 function commitBetInput() {
-  setBet(parseInt(betInput.value.replace(/[^\d]/g, ''), 10) || MIN_BET)
+  setBet(parseAmount(betInput.value) ?? MIN_BET)
   betInput.value = String(bet.value)
 }
 function betDown() { setBet(Math.floor(bet.value / 2)) }
@@ -1152,12 +1153,12 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
               </div>
               <div class="readout w-full justify-between">
                 <span class="ctrl-label">Bet</span>
+                <output v-if="amountPreview(betInput)" class="ml-auto text-[10px] tabular-nums text-muted">{{ amountPreview(betInput) }}</output>
                 <input
                   v-model="betInput"
                   :disabled="isSpinning || autoSpinEnabled"
                   aria-label="Bet amount"
                   class="bet-input ctrl-value tabular-nums"
-                  inputmode="numeric"
                   @blur="commitBetInput"
                   @keydown.enter="($event.target as HTMLInputElement).blur()"
                 >

@@ -43,9 +43,8 @@ async function buyPermanentUpgrade(upgradeId: ShapezzPermanentUpgradeId) {
     if (buyingUpgrade.value) return
     buyingUpgrade.value = upgradeId
     try {
-        const response = await $fetch('/api/shapezz/upgrade', { method: 'POST', body: { upgradeId } })
+        await $fetch('/api/shapezz/upgrade', { method: 'POST', body: { upgradeId } })
         await Promise.all([refresh(), fetchSession()])
-        toast.add({ title: `Workshop level ${response.level} installed`, color: 'success' })
     } catch (error: unknown) {
         toast.add({ title: apiErrorMessage(error, 'Workshop upgrade failed'), color: 'error' })
     } finally {
@@ -58,20 +57,14 @@ async function buyWeapon(weapon: NonNullable<typeof state.value>['weapons'][numb
     buyingWeaponId.value = weapon.id
     try {
         if (weapon.owned) {
-            const response = await $fetch('/api/shapezz/equip', { method: 'POST', body: { weaponType: weapon.type } })
+            await $fetch('/api/shapezz/equip', { method: 'POST', body: { weaponType: weapon.type } })
             await refresh()
-            toast.add({ title: `${response.weapon.name} equipped`, color: 'success' })
         } else {
-            const response = await $fetch('/api/shapezz/weapon', {
+            await $fetch('/api/shapezz/weapon', {
                 method: 'POST',
                 body: { weaponType: weapon.type, weaponRarity: weapon.rarity }
             })
             await Promise.all([refresh(), fetchSession()])
-            toast.add({
-                title: `${response.weapon.name} equipped`,
-                description: response.refund > 0 ? `${formatNumber(response.refund)} refunded from your previous ${response.weapon.type}.` : undefined,
-                color: 'success'
-            })
         }
     } catch (error: unknown) {
         toast.add({ title: apiErrorMessage(error, 'Weapon purchase failed'), color: 'error' })

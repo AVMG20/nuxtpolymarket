@@ -39,23 +39,22 @@ const firing = ref<string | null>(null)
 const fireConfirmId = ref<string | null>(null)
 let fireConfirmTimer: ReturnType<typeof setTimeout> | null = null
 
-function requestFire(agentId: string, name: string) {
+function requestFire(agentId: string) {
   if (fireConfirmTimer) clearTimeout(fireConfirmTimer)
   if (fireConfirmId.value === agentId) {
     fireConfirmId.value = null
-    fireAgent(agentId, name)
+    fireAgent(agentId)
     return
   }
   fireConfirmId.value = agentId
   fireConfirmTimer = setTimeout(() => { fireConfirmId.value = null }, 3000)
 }
 
-async function fireAgent(agentId: string, name: string) {
+async function fireAgent(agentId: string) {
   firing.value = agentId
   try {
     await $fetch('/api/hack/agents/fire', { method: 'POST', body: { agentId } })
     relayBark(AGENT_FIRED)
-    toast.add({ title: `${name} dismissed`, color: 'neutral' })
     if (detailAgentId.value === agentId) detailAgentId.value = null
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
@@ -75,7 +74,6 @@ async function setActive(agentId: string, active: boolean) {
   try {
     await $fetch('/api/hack/agents/active', { method: 'POST', body: { agentId, active } })
     relayBark(active ? AGENT_ACTIVATE : AGENT_DEACTIVATE)
-    toast.add({ title: active ? 'Agent activated' : 'Agent moved to storage', color: active ? 'success' : 'neutral' })
     detailAgentId.value = null
     await refresh()
   } catch (e: any) {
@@ -105,7 +103,6 @@ async function expandRoster() {
   try {
     await $fetch('/api/hack/roster/expand', { method: 'POST' })
     relayBark(ROSTER_EXPAND)
-    toast.add({ title: 'Roster expanded', color: 'success' })
     await Promise.all([refresh(), fetchSession()])
   } catch (e: any) {
     audio.playSfx('deny')
@@ -406,7 +403,7 @@ const sortedStoredAgents = computed(() => {
                   :label="fireConfirmId === agent.id ? 'Sure?' : 'Fire'"
                   :loading="firing === agent.id"
                   :disabled="busyAgentIds.has(agent.id)"
-                  @click="requestFire(agent.id, agent.name)"
+                  @click="requestFire(agent.id)"
                 />
               </div>
             </div>
@@ -673,7 +670,7 @@ const sortedStoredAgents = computed(() => {
           :label="fireConfirmId === detailAgent?.id ? 'Sure?' : 'Fire'"
           :loading="firing === detailAgent?.id"
           :disabled="!!detailAgent && busyAgentIds.has(detailAgent.id)"
-          @click="detailAgent && requestFire(detailAgent.id, detailAgent.name)"
+          @click="detailAgent && requestFire(detailAgent.id)"
         />
         <div class="flex items-center gap-2">
           <UButton

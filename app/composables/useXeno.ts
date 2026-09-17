@@ -1,5 +1,10 @@
 import { PLANT_TYPES, ARTIFACT_TYPES, getPlantDisplay } from '#shared/utils/xeno'
 
+interface CallOptions {
+  /** Skip the state refresh — callers batching many requests refresh once at the end. */
+  refresh?: boolean
+}
+
 export const useXeno = () => {
   const toast = useToast()
 
@@ -35,11 +40,10 @@ export const useXeno = () => {
 
   const { fetchSession } = useAuth()
 
-  async function call(url: string, body: Record<string, any>, successMsg: string): Promise<any> {
+  async function call(url: string, body: Record<string, any>, opts: CallOptions = {}): Promise<any> {
     try {
       const res = await $fetch(url, { method: 'POST', body })
-      if (successMsg) toast.add({ title: successMsg, color: 'success' })
-      await refresh()
+      if (opts.refresh !== false) await refresh()
       return res
     } catch (e: any) {
       toast.add({ title: e?.data?.message ?? 'Something went wrong', color: 'error' })
@@ -53,39 +57,39 @@ export const useXeno = () => {
   }
 
   async function unlockGridSlot() {
-    const res = await call('/api/xeno/grid/unlock', {}, 'Grid slot unlocked!')
+    const res = await call('/api/xeno/grid/unlock', {})
     await fetchSession()
     return res
   }
 
   /** Plant a specific stack (typeId + speed + yield) in a slot */
-  async function plantInSlot(slotId: string, typeId: string, speed: number, yield_: number) {
-    return call('/api/xeno/grid/plant', { slotId, typeId, speed, yield: yield_ }, '')
+  async function plantInSlot(slotId: string, typeId: string, speed: number, yield_: number, opts: CallOptions = {}) {
+    return call('/api/xeno/grid/plant', { slotId, typeId, speed, yield: yield_ }, opts)
   }
 
   /** Plant a specific stack (typeId + speed + yield) into every empty slot in one request */
   async function plantAllSlots(typeId: string, speed: number, yield_: number) {
-    return call('/api/xeno/grid/plant-all', { typeId, speed, yield: yield_ }, '')
+    return call('/api/xeno/grid/plant-all', { typeId, speed, yield: yield_ })
   }
 
-  async function harvestSlot(slotId: string) {
-    return call('/api/xeno/grid/harvest', { slotId }, '')
+  async function harvestSlot(slotId: string, opts: CallOptions = {}) {
+    return call('/api/xeno/grid/harvest', { slotId }, opts)
   }
 
   async function removePlant(slotId: string) {
-    return call('/api/xeno/grid/remove-plant', { slotId }, 'Plant removed')
+    return call('/api/xeno/grid/remove-plant', { slotId })
   }
 
   async function attachGridArtifact(slotId: string, artifactId: string) {
-    return call('/api/xeno/grid/attach-artifact', { slotId, artifactId }, 'Artifact attached!')
+    return call('/api/xeno/grid/attach-artifact', { slotId, artifactId })
   }
 
   async function removeGridArtifact(slotId: string) {
-    return call('/api/xeno/grid/remove-artifact', { slotId }, 'Artifact removed')
+    return call('/api/xeno/grid/remove-artifact', { slotId })
   }
 
   async function unlockBreederSlot() {
-    const res = await call('/api/xeno/breeder/unlock', {}, 'Breeder slot unlocked!')
+    const res = await call('/api/xeno/breeder/unlock', {})
     await fetchSession()
     return res
   }
@@ -97,45 +101,43 @@ export const useXeno = () => {
   ) {
     return call('/api/xeno/breeder/start', {
       slotId, plant1TypeId, plant1Speed, plant1Yield, plant2TypeId, plant2Speed, plant2Yield,
-    }, 'Breeding started!')
+    })
   }
 
   async function cancelBreed(slotId: string) {
-    return call('/api/xeno/breeder/cancel', { slotId }, 'Breed cancelled — plants returned.')
+    return call('/api/xeno/breeder/cancel', { slotId })
   }
 
   async function collectBreed(slotId: string) {
-    return call('/api/xeno/breeder/collect', { slotId }, '')
+    return call('/api/xeno/breeder/collect', { slotId })
   }
 
   async function attachBreederArtifact(slotId: string, artifactId: string) {
-    return call('/api/xeno/breeder/attach-artifact', { slotId, artifactId }, 'Artifact attached!')
+    return call('/api/xeno/breeder/attach-artifact', { slotId, artifactId })
   }
 
   async function removeBreederArtifact(slotId: string) {
-    return call('/api/xeno/breeder/remove-artifact', { slotId }, 'Artifact removed')
+    return call('/api/xeno/breeder/remove-artifact', { slotId })
   }
 
-  async function sellPlants(typeId: string, speed: number, yield_: number, quantity: number) {
-    const res = await call('/api/xeno/market/sell', { typeId, speed, yield: yield_, quantity }, '')
-    if (res) toast.add({ title: `Sold ${res.sold} plants for $${formatNumber(res.total, false)}`, color: 'success' })
-    await fetchSession()
+  async function sellPlants(typeId: string, speed: number, yield_: number, quantity: number, opts: CallOptions = {}) {
+    const res = await call('/api/xeno/market/sell', { typeId, speed, yield: yield_, quantity }, opts)
+    if (opts.refresh !== false) await fetchSession()
     return res
   }
 
   async function deleteArtifacts(artifactIds: string[]) {
-    return call('/api/xeno/artifacts/delete', { artifactIds }, 'Artifact deleted')
+    return call('/api/xeno/artifacts/delete', { artifactIds })
   }
 
-  async function buyArtifact(artifactTypeId: string, gemCrafted = false) {
-    const res = await call('/api/xeno/artifacts/buy', { artifactTypeId, gemCrafted }, gemCrafted ? 'Gem-crafted artifact created!' : 'Artifact crafted!')
+  async function buyArtifact(artifactTypeId: string, gemCrafted = false, quantity = 1) {
+    const res = await call('/api/xeno/artifacts/buy', { artifactTypeId, gemCrafted, quantity })
     await fetchSession()
     return res
   }
 
   async function buyPlants(typeId: string, quantity: number) {
-    const res = await call('/api/xeno/market/buy', { typeId, quantity }, '')
-    if (res) toast.add({ title: `Bought ${res.bought} plant(s) for $${formatNumber(res.total, false)}`, color: 'success' })
+    const res = await call('/api/xeno/market/buy', { typeId, quantity })
     await fetchSession()
     return res
   }
@@ -153,7 +155,7 @@ export const useXeno = () => {
   }
 
   async function buyUpgrade(upgradeId: 'mutation' | 'yield' | 'speed') {
-    const res = await call('/api/xeno/upgrades/buy', { upgradeId }, 'Global upgrade purchased!')
+    const res = await call('/api/xeno/upgrades/buy', { upgradeId })
     await fetchSession()
     return res
   }
@@ -192,5 +194,6 @@ export const useXeno = () => {
     buyArtifact,
     deleteArtifacts,
     buyUpgrade,
+    fetchSession,
   }
 }

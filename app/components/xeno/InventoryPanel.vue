@@ -20,8 +20,14 @@ const emit = defineEmits<{
 }>()
 
 const { deleteArtifacts } = useXeno()
+const sound = useXenoSound()
 
 const activeTab = ref<'seeds' | 'artifacts'>('seeds')
+function setTab(t: 'seeds' | 'artifacts') {
+  if (activeTab.value === t) return
+  activeTab.value = t
+  sound.play('select')
+}
 
 function onSelectPlant(item: any) {
   const key = `${item.typeId}:${item.speed}:${item.yield}`
@@ -177,6 +183,18 @@ const sortedInventory = computed(() => {
   })
 })
 
+// ── Seed search ─────────────────────────────────────────────────────────────
+const seedSearch = ref('')
+
+const visibleInventory = computed(() => {
+  const q = seedSearch.value.trim().toLowerCase()
+  if (!q) return sortedInventory.value
+  return sortedInventory.value.filter((item: any) =>
+    String(item.name).toLowerCase().includes(q)
+    || (item.resources ?? []).some((r: any) => String(r.name).toLowerCase().includes(q)),
+  )
+})
+
 function artifactSortValue(stack: { typeId: string; chargesRemaining: number; gemCrafted: boolean; count: number }, key: string): number {
   switch (key) {
     case 'qty': return stack.count
@@ -241,16 +259,16 @@ onUnmounted(() => { if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer) })
     <button
       class="flex-1 py-2.5 text-xs font-semibold uppercase tracking-wider transition-all duration-100"
       :class="activeTab === 'seeds' ? 'text-primary border-b-2 border-primary' : 'text-muted hover:text-default'"
-      @click="activeTab = 'seeds'"
+      @click="setTab('seeds')"
     >
-      Seeds
+      <UIcon name="i-lucide-sprout" class="size-3.5 inline-block -mt-0.5 mr-1" />Seeds
     </button>
     <button
       class="flex-1 py-2.5 text-xs font-semibold uppercase tracking-wider transition-all duration-100 relative"
       :class="activeTab === 'artifacts' ? 'text-primary border-b-2 border-primary' : 'text-muted hover:text-default'"
-      @click="activeTab = 'artifacts'"
+      @click="setTab('artifacts')"
     >
-      Artifacts
+      <UIcon name="i-lucide-gem" class="size-3.5 inline-block -mt-0.5 mr-1" />Artifacts
       <span v-if="freeArtifacts.length" class="absolute top-1.5 right-3 size-5 flex items-center justify-center rounded-full bg-primary text-xs font-bold text-inverted">
         {{ freeArtifacts.length }}
       </span>
@@ -276,6 +294,29 @@ onUnmounted(() => { if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer) })
     />
   </div>
 
+  <!-- Seed search -->
+  <div v-if="activeTab === 'seeds'" class="px-2.5 py-2 border-b border-default shrink-0">
+    <UInput
+      v-model="seedSearch"
+      placeholder="Search plants…"
+      icon="i-lucide-search"
+      size="xs"
+      class="w-full"
+      :ui="{ trailing: 'pe-1' }"
+    >
+      <template v-if="seedSearch" #trailing>
+        <UButton
+          color="neutral"
+          variant="link"
+          size="xs"
+          icon="i-lucide-x"
+          aria-label="Clear search"
+          @click="seedSearch = ''"
+        />
+      </template>
+    </UInput>
+  </div>
+
   <!-- ── Seeds tab ─────────────────────────────────────────── -->
   <div v-if="activeTab === 'seeds'" class="flex-1 overflow-y-auto">
     <div v-if="!inventory.length" class="py-12 text-center px-4">
@@ -284,9 +325,14 @@ onUnmounted(() => { if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer) })
       <p class="text-xs text-muted/50 mt-1">Harvest from the grid first.</p>
     </div>
 
+    <div v-else-if="!visibleInventory.length" class="py-12 text-center px-4">
+      <UIcon name="i-lucide-search-x" class="size-8 text-muted/30 mx-auto mb-2" />
+      <p class="text-sm text-muted">No plants match “{{ seedSearch }}”.</p>
+    </div>
+
     <div v-else class="p-2 grid grid-cols-3 gap-1.5">
       <UTooltip
-        v-for="item in sortedInventory"
+        v-for="item in visibleInventory"
         :key="`${item.typeId}:${item.speed}:${item.yield}`"
         :delay-duration="300"
         :content="{ side: 'left', sideOffset: 8 }"
@@ -308,11 +354,11 @@ onUnmounted(() => { if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer) })
         </template>
 
         <button
-          class="relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden transition-all duration-100"
+          class="xeno-lift relative flex flex-col rounded-xl border aspect-square w-full overflow-hidden"
           :class="[
             tierBg(item.tier),
             item.isHybrid ? 'border-primary/50 ring-1 ring-primary/30' : 'border-default',
-            selectedPlantKey === `${item.typeId}:${item.speed}:${item.yield}` ? 'ring-2 ring-primary' : '',
+            selectedPlantKey === `${item.typeId}:${item.speed}:${item.yield}` ? 'ring-2 ring-primary shadow-[0_0_20px_-6px_var(--ui-primary)] scale-[1.03]' : '',
           ]"
           @click="onSelectPlant(item)"
         >
@@ -370,9 +416,9 @@ onUnmounted(() => { if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer) })
     <div
       v-for="stack in sortedArtifacts"
       :key="stackKeyOf(stack)"
-      class="rounded-xl border cursor-pointer transition-all duration-100 overflow-hidden"
+      class="xeno-lift rounded-xl border cursor-pointer overflow-hidden"
       :class="isStackSelected(stack)
-        ? 'border-primary bg-primary/5 ring-1 ring-primary'
+        ? 'border-primary bg-primary/5 ring-1 ring-primary shadow-[0_0_20px_-6px_var(--ui-primary)]'
         : stack.gemCrafted
           ? 'border-primary/40 bg-primary/5 ring-1 ring-primary/20 hover:border-primary/60'
           : 'border-default bg-elevated hover:border-default/80 hover:bg-elevated/80'"
@@ -380,7 +426,7 @@ onUnmounted(() => { if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer) })
     >
       <!-- Artifact header -->
       <div class="flex items-center gap-2 px-3 pt-2.5 pb-0">
-        <span class="text-lg leading-none shrink-0">{{ getArtifact(stack.typeId)?.emoji }}</span>
+        <span class="xeno-orb size-8 text-base shrink-0" :class="stack.gemCrafted ? 'xeno-orb-gem' : ''">{{ getArtifact(stack.typeId)?.emoji }}</span>
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-1.5">
             <p class="text-xs font-semibold truncate">{{ getArtifact(stack.typeId)?.name }}</p>
