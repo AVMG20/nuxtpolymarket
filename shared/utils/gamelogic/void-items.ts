@@ -66,16 +66,18 @@ export interface VoidDeviceDefinition {
     id: string
     cooldown: number
     duration: number
+    /** What it does, in plain words, for the HUD and the pilot guide. */
+    effect: string
     /** Share of the energy bar it costs to trigger. */
     energy: number
 }
 
 export const VOID_DEVICES: Record<string, VoidDeviceDefinition> = {
-    booster: { id: 'booster', cooldown: 30, duration: 2, energy: 0.3 },
-    decoy: { id: 'decoy', cooldown: 26, duration: 7, energy: 0.35 },
-    sentry: { id: 'sentry', cooldown: 34, duration: 18, energy: 0.4 },
-    cloak: { id: 'cloak', cooldown: 38, duration: 4.5, energy: 0.5 },
-    dilator: { id: 'dilator', cooldown: 48, duration: 5, energy: 0.6 }
+    booster: { id: 'booster', cooldown: 30, duration: 2, energy: 0.3, effect: 'Refills a big chunk of your shield in two seconds. Use it when the shield runs low.' },
+    decoy: { id: 'decoy', cooldown: 26, duration: 7, energy: 0.35, effect: 'Drops a hologram of your ship that enemies shoot at instead of you.' },
+    sentry: { id: 'sentry', cooldown: 34, duration: 18, energy: 0.4, effect: 'Deploys a small turret that shoots nearby hostiles for a while.' },
+    cloak: { id: 'cloak', cooldown: 38, duration: 4.5, energy: 0.5, effect: 'Enemies lose track of you for a few seconds. Firing breaks it; wardens still see you.' },
+    dilator: { id: 'dilator', cooldown: 48, duration: 5, energy: 0.6, effect: 'Slows every enemy and enemy shot around you for a few seconds.' }
 }
 
 export const VOID_MAX_TIER = 5

@@ -9,6 +9,7 @@ import type { Enemy } from './types'
 import { randomFloat } from '#shared/utils/random'
 import { voidResource, type VoidResourceId } from '#shared/utils/gamelogic/void'
 import { VOID_BOUNTY_XP } from '#shared/utils/gamelogic/void-pilot'
+import { VOID_DEVICES, voidItemType } from '#shared/utils/gamelogic/void-items'
 
 export interface ObjectiveView {
     title: string
@@ -153,10 +154,13 @@ export class ObjectiveTracker {
      */
     private buildLessons() {
         const e = this.engine
+        const device = e.config?.device
+        const deviceName = device ? (voidItemType(device.type)?.name ?? 'device') : 'device'
+        const deviceEffect = device ? (VOID_DEVICES[device.type]?.effect ?? '') : ''
         this.lessons = [
-            { id: 'secondary', text: 'Hold E on a hostile, release to fire', hint: 'Keep it under your crosshair until it says LOCKED. Missiles refill every launch.', applies: () => !!e.config?.secondary },
-            { id: 'scan', text: 'Press T to scan', hint: 'Scanning marks hidden caches and data logs nearby. Caches can hold jump fuel.', applies: () => true },
-            { id: 'device', text: 'Press G to trigger your device', hint: 'Devices cost energy and recharge. Your first one tops up your shield.', applies: () => !!e.config?.device },
+            { id: 'secondary', text: 'Hold E on a hostile, release to fire missiles', hint: 'Keep the target under your crosshair until it says LOCKED, then let go. Missiles hit hard and refill every launch.', applies: () => !!e.config?.secondary },
+            { id: 'scan', text: 'Press T to scan for hidden loot', hint: 'A scan reveals hidden caches (extra materials, sometimes jump fuel) and data logs nearby. Fly to the CACHE or DATA LOG markers it leaves.', applies: () => true },
+            { id: 'device', text: `Press G to use your ${deviceName}`, hint: `${deviceEffect} It costs energy and recharges, so save it for a tight spot.`, applies: () => !!device },
             { id: 'map', text: 'Hold Tab to open the sector map', hint: 'The map shows the station, beacons, the jump gate and the warden lair.', applies: () => true },
             { id: 'jump', text: 'Fly into the jump gate', hint: 'Needs a fuel cell. The next zone is tougher and richer; extract at any beacon.', applies: () => e.fuel > 0 }
         ]

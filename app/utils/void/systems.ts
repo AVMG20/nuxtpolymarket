@@ -59,7 +59,7 @@ interface Sentry {
 export interface SystemsHud {
     subsystems: { id: Subsystem, left: number }[]
     secondary: null | { name: string, ammo: number, max: number, lock: number, locked: boolean, ready: number }
-    device: null | { name: string, ready: number, active: boolean }
+    device: null | { name: string, effect: string, ready: number, active: boolean }
     scan: number
     fuel: number
     depth: number
@@ -84,6 +84,7 @@ export class ShipSystems {
     private deviceCd = 0
     private deviceCdMax = 1
     private boostT = 0
+    private deviceExplained = false
     private decoyT = 0
     private decoyTarget: AiTarget | null = null
     private decoyGroup: THREE.Group | null = null
@@ -217,6 +218,11 @@ export class ShipSystems {
         p.energy -= def.energy
         this.deviceCd = this.deviceCdMax
         e.objectives?.onDevice()
+        // The first use each run says what just happened.
+        if (!this.deviceExplained) {
+            this.deviceExplained = true
+            e.events.toast(`${e.itemName(this.device.type)}: ${def.effect}`, 'info')
+        }
         const duration = def.duration * this.device.extra
         const size = voidShip(e.config!.shipId).size
         switch (def.id) {
@@ -298,7 +304,7 @@ export class ShipSystems {
             if (rock.ore) e.particles.glow(rock.pos.x, rock.pos.y, rock.pos.z, _c1.set(0x9fe8ff).multiplyScalar(2), rock.radius * 2.2, 0.7)
         })
         const carrier = e.enemies.find(en => en.alive && en.kind === 'mothership')
-        let msg = found ? `Scan: ${found} signal${found === 1 ? '' : 's'} marked` : 'Scan: nothing new in range'
+        let msg = found ? `Scan: ${found} hidden signal${found === 1 ? '' : 's'} marked. Fly to the CACHE or DATA LOG markers.` : 'Scan: nothing hidden in range. Try again somewhere else.'
         if (carrier && !carrier.data.seen && carrier.pos.distanceTo(p.pos) < range * 2.8) {
             // A vague bearing only: the carrier is found by looking.
             this.carrierHint = { pos: carrier.pos.clone().add(_v1.set(randomFloat() - 0.5, 0, randomFloat() - 0.5).multiplyScalar(500)), life: 10 }
@@ -583,7 +589,7 @@ export class ShipSystems {
                         ready: this.reload > 0 ? Math.max(0, 1 - this.reload * this.weaponRate / (VOID_SECONDARIES[sec.type]!.reload * sec.cycle)) : 1
                     }
                 : null,
-            device: dev ? { name: e.itemName(dev.type), ready: this.deviceCd > 0 ? 1 - this.deviceCd / this.deviceCdMax : 1, active: this.boostT > 0 || this.decoyT > 0 || this.cloakT > 0 || this.dilateT > 0 || this.sentries.length > 0 } : null,
+            device: dev ? { name: e.itemName(dev.type), effect: VOID_DEVICES[dev.type]?.effect ?? '', ready: this.deviceCd > 0 ? 1 - this.deviceCd / this.deviceCdMax : 1, active: this.boostT > 0 || this.decoyT > 0 || this.cloakT > 0 || this.dilateT > 0 || this.sentries.length > 0 } : null,
             scan: this.scanCd > 0 ? 1 - this.scanCd / this.scanCdMax : 1,
             fuel: e.fuel,
             depth: e.depth,

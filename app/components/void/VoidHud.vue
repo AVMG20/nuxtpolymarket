@@ -73,12 +73,12 @@
                     <kbd>E</kbd>{{ hud.systems.secondary.ammo }}/{{ hud.systems.secondary.max }}
                     <i :style="{ width: `${(hud.systems.secondary.lock > 0 ? hud.systems.secondary.lock : hud.systems.secondary.ready) * 100}%` }" />
                 </div>
-                <div v-if="hud.systems.device" class="vr-sys-chip" :class="{ 'vr-sys-on': hud.systems.device.active }" :title="hud.systems.device.name">
-                    <kbd>G</kbd>{{ hud.systems.device.ready >= 1 ? 'Ready' : `${Math.round(hud.systems.device.ready * 100)}%` }}
+                <div v-if="hud.systems.device" class="vr-sys-chip" :class="{ 'vr-sys-on': hud.systems.device.active }" :title="`${hud.systems.device.name}: ${hud.systems.device.effect}`">
+                    <kbd>G</kbd>{{ hud.systems.device.ready >= 1 ? hud.systems.device.name : `${Math.round(hud.systems.device.ready * 100)}%` }}
                     <i :style="{ width: `${hud.systems.device.ready * 100}%` }" />
                 </div>
-                <div class="vr-sys-chip" title="Scan pulse">
-                    <kbd>T</kbd>Scan
+                <div class="vr-sys-chip" title="Scan: marks hidden caches and data logs nearby">
+                    <kbd>T</kbd>Scan for loot
                     <i :style="{ width: `${hud.systems.scan * 100}%` }" />
                 </div>
                 <div class="vr-sys-chip" title="Jump fuel">
