@@ -218,6 +218,48 @@
       "when": 1789456804227,
       "tag": "0030_minor_mongoose",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1789638332485,
+      "tag": "0031_sloppy_wilson_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1789645047971,
+      "tag": "0032_bouncy_outlaw_kid",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1789645303388,
+      "tag": "0033_shiny_wasp",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1789646372413,
+      "tag": "0034_neat_aaron_stack",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1789646910924,
+      "tag": "0035_fast_shatterstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1789646911358,
+      "tag": "0036_clever_mole_man",
+      "breakpoints": true
     }
   ]
 }

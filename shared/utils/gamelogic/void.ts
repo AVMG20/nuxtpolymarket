@@ -1,164 +1,164 @@
-import { randomFloat, randomInt, randomWeighted } from '../random'
-
 // ─── Void Runner ────────────────────────────────────────────────────────────
 //
-// An extraction miner. You undock from the mothership at the centre of the
-// sector, mine rocks and kill patrols for resources, and fly back to the
-// mothership to bank what you're carrying. Everything you're holding when you
-// die is lost, so the whole run is a "one more rock" pressure test — and the
-// ion storm that closes in from the edges at five minutes makes that decision
-// for you eventually.
+// A third-person 3D space shooter. You undock from the station at the centre
+// of a sector, crack ore out of asteroids, strip wrecks and kill whatever gets
+// in the way, then fly back and dock to bank the hold. Die and the hold is gone.
 //
-// The gun and the mining laser are the same hardware. A module you bolt into a
-// hardpoint rolls both combat and mining affixes, so a "weapon" upgrade is
-// always also a mining upgrade, and choosing a loadout means choosing what kind
-// of runner you are.
+// Everything here is shared between the client (the simulation and the
+// hangar UI) and the server (costs, caps and settlement). The client decides
+// what happened in a run; the server decides what that run was allowed to be
+// worth.
 
-export const VOID_STORM_START_MS = 5 * 60 * 1000
-/** By this point the storm has swallowed the entire sector, mothership included. */
-export const VOID_STORM_FULL_MS = 8 * 60 * 1000
-/** Hard ceiling. Anyone still out here has already been in the gas for a minute. */
-export const VOID_RUN_DURATION_MS = 9 * 60 * 1000
+import { VOID_SUPPLIES, VOID_SUPPLY_CARRY, VOID_SUPPLY_STOCK_MAX, voidContractDay, voidContractResetAt, voidContractsFor, voidNormalizeSupplies, voidSupplyCost } from './void-station'
+import {
+    VOID_ITEM_KINDS, VOID_ITEM_TYPES, VOID_MAX_TIER, VOID_MODS, VOID_RARITIES, voidAffix, voidCanCraftTier, voidCraftCost, voidDefenceStats, voidItemPower,
+    voidItemScore, voidItemType, voidItemUpgradeCost, voidMod, voidSalvageValue, voidWeaponFit,
+    type VoidItem, type VoidItemKind, type VoidModId, type VoidWeaponFit
+} from './void-items'
+import { VOID_SKILLS, voidEquippedSkill, voidPilotLevel, voidPilotProgress, voidSkillNodesFor, voidUnlockedSkills, type VoidSkillId } from './void-skills'
 
-/** Storm damage per second at full depth, as a fraction of the player's max hull. */
-export const VOID_STORM_DPS_FRACTION = 0.075
-/** Enemies breathe the same gas, but they only take a quarter of it. */
-export const VOID_STORM_ENEMY_MULT = 0.25
-
-export const VOID_DOCK_RADIUS = 200
-export const VOID_EXTRACT_HOLD_MS = 1200
-
-// ─── Difficulty ramp ────────────────────────────────────────────────────────
-
-/**
- * The sector gets meaner every minute you stay in it, independently of the
- * sector tier. Minute 0 is the baseline; by the time the storm arrives at
- * minute 5 patrols hit about 60% harder, and anyone still out at minute 8 is
- * fighting something close to double-strength.
- */
-export const VOID_RAMP_PER_MINUTE = 0.12
-
-export function voidRampMinute(elapsedMs: number) {
-    return Math.max(0, Math.floor(elapsedMs / 60_000))
-}
-
-/** Multiplier on enemy hp, damage and reward at a given point in the run. */
-export function voidRampMultiplier(elapsedMs: number) {
-    return 1 + voidRampMinute(elapsedMs) * VOID_RAMP_PER_MINUTE
-}
-
-/** Patrols also arrive faster and in greater numbers as the clock runs. */
-export function voidRampSpawnIntervalMult(elapsedMs: number) {
-    return Math.max(0.4, 1 - voidRampMinute(elapsedMs) * 0.075)
-}
-
-export function voidRampExtraEnemies(elapsedMs: number) {
-    return Math.floor(voidRampMinute(elapsedMs) * 0.8)
-}
-
-/** The mid-run capital shows up here, well before the storm. */
-export const VOID_MIDBOSS_SPAWN_MS = 3 * 60 * 1000
+export type { VoidSkillId }
 
 // ─── Resources ──────────────────────────────────────────────────────────────
 
-export type VoidResourceId = 'ferrite' | 'cobalt' | 'iridium' | 'xenite' | 'scrap' | 'circuitry' | 'warpCore'
+export type VoidResourceId = 'ferrite' | 'cobalt' | 'iridium' | 'xenite' | 'scrap' | 'alloy' | 'core'
 
 export interface VoidResourceDefinition {
     id: VoidResourceId
     name: string
-    /** `ore` comes out of rocks and buys the boat; `salvage` drops off kills and buys the guns. */
+    /** `ore` comes out of asteroids, `salvage` out of wrecks and kills. */
     kind: 'ore' | 'salvage'
     color: number
-    icon: string
     description: string
 }
 
 export const VOID_RESOURCES = [
-    { id: 'ferrite', name: 'Ferrite', kind: 'ore', color: 0x9aa6b2, icon: 'i-lucide-hexagon', description: 'Dull grey structural ore. The backbone of every hull plate ever pressed.' },
-    { id: 'cobalt', name: 'Cobalt', kind: 'ore', color: 0x4f8ff7, icon: 'i-lucide-diamond', description: 'Deep blue crystal that holds a shield lattice together.' },
-    { id: 'iridium', name: 'Iridium', kind: 'ore', color: 0xc084fc, icon: 'i-lucide-pyramid', description: 'Violet superdense ore. Slow to cut, worth the exposure.' },
-    { id: 'xenite', name: 'Xenite', kind: 'ore', color: 0x34d399, icon: 'i-lucide-atom', description: 'Living green ore that hums when the laser touches it. Only the deep sectors have it.' },
-    { id: 'scrap', name: 'Scrap', kind: 'salvage', color: 0xf59e0b, icon: 'i-lucide-wrench', description: 'Torn hull plate off dead patrols. Feeds thrusters, weapon cores and targeting gear.' },
-    { id: 'circuitry', name: 'Circuitry', kind: 'salvage', color: 0x22d3ee, icon: 'i-lucide-cpu', description: 'Intact targeting boards pulled from heavier wrecks.' },
-    { id: 'warpCore', name: 'Warp Core', kind: 'salvage', color: 0xf472b6, icon: 'i-lucide-zap', description: 'A still-warm drive core. Only capital ships carry one.' }
+    { id: 'ferrite', name: 'Ferrite', kind: 'ore', color: 0xc9d3dd, description: 'Grey structural ore. Every hull plate starts here.' },
+    { id: 'cobalt', name: 'Cobalt', kind: 'ore', color: 0x4f9dff, description: 'Blue crystal that holds a shield lattice together.' },
+    { id: 'iridium', name: 'Iridium', kind: 'ore', color: 0xc38bff, description: 'Violet superdense ore from the deeper sectors.' },
+    { id: 'xenite', name: 'Xenite', kind: 'ore', color: 0x3dffb0, description: 'Living green ore. It hums when the beam touches it.' },
+    { id: 'scrap', name: 'Scrap', kind: 'salvage', color: 0xffa640, description: 'Torn plating off dead ships and derelicts.' },
+    { id: 'alloy', name: 'Alloy', kind: 'salvage', color: 0x49e6ff, description: 'Military-grade plate. Elites and sealed crates carry it.' },
+    { id: 'core', name: 'Warp Core', kind: 'salvage', color: 0xff4fa8, description: 'A still-warm drive core. Only sector wardens carry one.' }
 ] as const satisfies readonly VoidResourceDefinition[]
 
-export const VOID_RESOURCE_IDS = VOID_RESOURCES.map(r => r.id)
+export const VOID_RESOURCE_IDS: VoidResourceId[] = VOID_RESOURCES.map(r => r.id)
 
 export type VoidResourceBundle = Partial<Record<VoidResourceId, number>>
 
-export function voidResource(id: string) {
+export function voidResource(id: string): VoidResourceDefinition {
     return VOID_RESOURCES.find(r => r.id === id) ?? VOID_RESOURCES[0]
 }
 
-/** Packed colour to CSS, so the UI can use the exact palette the canvas does. */
 export function voidHex(color: number) {
     return `#${color.toString(16).padStart(6, '0')}`
 }
 
-export function voidResourceHex(id: string) {
-    return voidHex(voidResource(id).color)
-}
+/**
+ * Every material quantity (holds, yields, drops, costs) is counted in this
+ * many units per "chunk", so hauls feel generous. Prices are divided by the
+ * same factor, which leaves the actual economy unchanged. Warp cores are
+ * trophies and stay unscaled.
+ */
+export const VOID_UNIT_SCALE = 3
 
-// ─── The market ─────────────────────────────────────────────────────────────
-//
-// Nothing in the sector drops coins. Patrols drop salvage, rocks drop ore, and
-// the only way either becomes money is selling it at the dock — which means
-// every coin you earn had to survive an extraction first.
-//
-// Prices are top-heavy, but only about seventy-five times from the cheap ore to
-// the expensive one — enough that pushing a tier deeper is always the right
-// ambition, not so much that clearing sector 4 once makes every earlier sector
-// worthless. The ladder is roughly four times per ore tier, against cut times
-// that only rise three-fold, so deep ore pays for the garrison sitting on it.
-//
-// Salvage is deliberately the cheap half. Wrecks are what funds the guns in
-// resource terms; they are not supposed to out-earn a rock.
-
+/**
+ * Base coins the market pays per unit, before Trade Contracts. A fresh pilot
+ * makes roughly 10-50k from a five-minute run; the contracts multiply that for
+ * players who put serious coins into them.
+ */
 export const VOID_MARKET_PRICES: Record<VoidResourceId, number> = {
-    ferrite: 400,
-    scrap: 300,
-    cobalt: 1_800,
-    circuitry: 3_200,
-    iridium: 8_000,
-    xenite: 30_000,
-    warpCore: 75_000
+    ferrite: 50,
+    scrap: 40,
+    cobalt: 85,
+    alloy: 125,
+    iridium: 90,
+    xenite: 125,
+    core: 7500
 }
 
-export function voidUnitPrice(id: string) {
-    return VOID_MARKET_PRICES[id as VoidResourceId] ?? 0
+// ─── Trade Contracts ────────────────────────────────────────────────────────
+//
+// A coin-only sink: every level raises what the market pays for every
+// material. It never touches materials, so it cannot speed up progression,
+// only the coins a run turns into.
+
+export const VOID_TRADE_MAX_LEVEL = 10
+
+/** Sell-price multiplier at a Trade Contracts level. */
+export function voidTradeMult(level: number) {
+    return 1 + 0.7 * Math.max(0, Math.min(VOID_TRADE_MAX_LEVEL, Math.floor(level)))
 }
 
-/** Coin value of a bundle at market rates. */
+/** Coins for the next level: 10M for the first, 10B for the tenth. */
+export function voidTradeCost(level: number) {
+    if (level >= VOID_TRADE_MAX_LEVEL) return null
+    const raw = 10_000_000 * Math.pow(1000, level / (VOID_TRADE_MAX_LEVEL - 1))
+    const step = raw >= 1e9 ? 50_000_000 : raw >= 1e8 ? 5_000_000 : 1_000_000
+    return Math.round(raw / step) * step
+}
+
+export function voidSellPrice(id: VoidResourceId, tradeLevel: number) {
+    return Math.round(VOID_MARKET_PRICES[id] * voidTradeMult(tradeLevel))
+}
+
 export function voidBundleValue(bundle: VoidResourceBundle) {
-    return VOID_RESOURCE_IDS.reduce((sum, id) => sum + Math.max(0, Math.floor(bundle[id] ?? 0)) * VOID_MARKET_PRICES[id], 0)
+    return VOID_RESOURCE_IDS.reduce((sum, id) => sum + voidUnits(bundle[id]) * VOID_MARKET_PRICES[id], 0)
 }
 
-/** Total units in a bundle — cargo hold capacity counts every resource the same. */
 export function voidBundleUnits(bundle: VoidResourceBundle) {
-    return VOID_RESOURCE_IDS.reduce((sum, id) => sum + Math.max(0, Math.floor(bundle[id] ?? 0)), 0)
+    return VOID_RESOURCE_IDS.reduce((sum, id) => sum + voidUnits(bundle[id]), 0)
+}
+
+function voidUnits(value: unknown) {
+    const n = Math.floor(Number(value) || 0)
+    return n > 0 ? n : 0
+}
+
+/** Drops zero and junk entries so stored bundles stay tidy. */
+export function voidCleanBundle(bundle: Record<string, unknown> | null | undefined): VoidResourceBundle {
+    const out: VoidResourceBundle = {}
+    for (const id of VOID_RESOURCE_IDS) {
+        const amount = voidUnits(bundle?.[id])
+        if (amount > 0) out[id] = amount
+    }
+    return out
 }
 
 export function voidAddBundles(a: VoidResourceBundle, b: VoidResourceBundle): VoidResourceBundle {
     const out: VoidResourceBundle = {}
     for (const id of VOID_RESOURCE_IDS) {
-        const total = Math.max(0, Math.floor(a[id] ?? 0)) + Math.max(0, Math.floor(b[id] ?? 0))
+        const total = voidUnits(a[id]) + voidUnits(b[id])
         if (total > 0) out[id] = total
     }
     return out
 }
 
 export function voidCanAfford(held: VoidResourceBundle, cost: VoidResourceBundle) {
-    return VOID_RESOURCE_IDS.every(id => (held[id] ?? 0) >= (cost[id] ?? 0))
+    return VOID_RESOURCE_IDS.every(id => voidUnits(held[id]) >= voidUnits(cost[id]))
 }
 
 export function voidSubtractBundle(held: VoidResourceBundle, cost: VoidResourceBundle): VoidResourceBundle {
     const out: VoidResourceBundle = {}
     for (const id of VOID_RESOURCE_IDS) {
-        const left = Math.max(0, Math.floor(held[id] ?? 0)) - Math.max(0, Math.floor(cost[id] ?? 0))
+        const left = voidUnits(held[id]) - voidUnits(cost[id])
         if (left > 0) out[id] = left
     }
     return out
+}
+
+/**
+ * What anything in the shipyard costs. Materials are always part of it, so
+ * coins alone never skip the flying; coins and gems scale hard on top.
+ */
+export interface VoidPrice {
+    resources: VoidResourceBundle
+    coins: number
+    gems: number
+}
+
+export function voidCanAffordPrice(price: VoidPrice, held: VoidResourceBundle, balance: number, gems: number) {
+    return voidCanAfford(held, price.resources) && balance >= price.coins && gems >= price.gems
 }
 
 // ─── Sectors ────────────────────────────────────────────────────────────────
@@ -167,104 +167,61 @@ export interface VoidSectorDefinition {
     tier: number
     name: string
     description: string
-    color: number
-    /** Enemy hp/damage/speed multiplier, before the per-minute ramp. */
+    /** Nebula palette: deep, mid, highlight. */
+    palette: readonly [number, number, number]
+    /** Enemy hp and damage multiplier. */
     threat: number
-    /** How many patrols are alive at once at the start of a run. */
-    baseEnemies: number
-    maxEnemies: number
-    spawnIntervalMs: number
-    /**
-     * Loose clusters of common ore scattered through the sector. The whole field
-     * is deliberately thin — the sector should read as empty space you cross,
-     * not a gravel pit you stand in.
-     */
-    rockFields: number
-    /**
-     * Surveyed rich deposits: the only place the expensive ore exists. Each one
-     * is a long flight from the dock and comes with its own garrison.
-     */
-    depositSites: number
-    /** Ships stationed on each deposit at undock. */
-    depositGuards: number
-    /** Credits and resource drops scale with this. */
-    reward: number
-    /** Ore in this sector takes this much longer to cut. */
-    mineTimeMult: number
-    /** When the sector's heavy capital arrives. The mid-boss is always minute 3. */
-    bossFirstSpawnMs: number
-    /** Power level the hangar wants to see before it stops calling this a bad idea. */
-    recommendedPower: number
+    /** Ore mix by asteroid weight. */
+    ores: Partial<Record<VoidResourceId, number>>
+    /** Name of the warden that guards the sector. Killing it and docking clears the sector. */
+    warden: string
 }
 
 export const VOID_SECTORS = [
     {
         tier: 1,
         name: 'Halcyon Drift',
-        description: 'A picked-over ferrite field on the edge of charted space. Thin patrols, forgiving rocks.',
-        color: 0x38bdf8,
+        description: 'A quiet ferrite belt on the edge of charted space. Scavenger raiders and not much else.',
+        palette: [0x050b1f, 0x1b4a8a, 0x5ec8ff],
         threat: 1,
-        baseEnemies: 4,
-        maxEnemies: 10,
-        spawnIntervalMs: 10_000,
-        rockFields: 10,
-        depositSites: 3,
-        depositGuards: 3,
-        reward: 1,
-        mineTimeMult: 1,
-        bossFirstSpawnMs: 330_000,
-        recommendedPower: 0
+        ores: { ferrite: 80, cobalt: 20 },
+        warden: 'Halcyon Warden'
     },
     {
         tier: 2,
         name: 'Cinder Reach',
-        description: 'Wrecks of an old mining war. Cobalt is common, and so is the patrol that wants it back.',
-        color: 0xf59e0b,
-        threat: 1.7,
-        baseEnemies: 6,
-        maxEnemies: 14,
-        spawnIntervalMs: 8000,
-        rockFields: 9,
-        depositSites: 3,
-        depositGuards: 4,
-        reward: 2.3,
-        mineTimeMult: 1.12,
-        bossFirstSpawnMs: 285_000,
-        recommendedPower: 60
+        description: 'The wreckage of an old mining war. Cobalt runs deep and so do the minefields.',
+        palette: [0x1a0606, 0x8a3412, 0xffb347],
+        threat: 2.1,
+        ores: { ferrite: 45, cobalt: 45, iridium: 10 },
+        warden: 'Cinder Matriarch'
     },
     {
         tier: 3,
         name: 'The Long Dark',
         description: 'No stars, no beacons. Iridium seams and something that hunts by drive signature.',
-        color: 0xa855f7,
-        threat: 2.9,
-        baseEnemies: 8,
-        maxEnemies: 18,
-        spawnIntervalMs: 6400,
-        rockFields: 8,
-        depositSites: 4,
-        depositGuards: 5,
-        reward: 5.2,
-        mineTimeMult: 1.28,
-        bossFirstSpawnMs: 240_000,
-        recommendedPower: 155
+        palette: [0x07030f, 0x3d1670, 0xc07bff],
+        threat: 4,
+        ores: { cobalt: 45, iridium: 45, xenite: 10 },
+        warden: 'The Hollow King'
     },
     {
         tier: 4,
         name: 'Xenite Womb',
-        description: 'The rocks are warm and they move a little. Nothing that flies out here is friendly.',
-        color: 0x34d399,
-        threat: 4.7,
-        baseEnemies: 10,
-        maxEnemies: 22,
-        spawnIntervalMs: 5200,
-        rockFields: 7,
-        depositSites: 4,
-        depositGuards: 6,
-        reward: 11,
-        mineTimeMult: 1.45,
-        bossFirstSpawnMs: 200_000,
-        recommendedPower: 330
+        description: 'The rocks are warm and they move a little. Nothing out here is friendly.',
+        palette: [0x010f0c, 0x0d5c4a, 0x5dffc6],
+        threat: 7,
+        ores: { cobalt: 15, iridium: 45, xenite: 40 },
+        warden: 'Womb Sovereign'
+    },
+    {
+        tier: 5,
+        name: 'The Abyss',
+        description: 'The edge of the map, where the void stares back. Pure xenite and the worst of everything.',
+        palette: [0x0a000c, 0x3e0a33, 0xff5f9a],
+        threat: 12,
+        ores: { iridium: 35, xenite: 65 },
+        warden: 'Abyssal Leviathan'
     }
 ] as const satisfies readonly VoidSectorDefinition[]
 
@@ -274,1135 +231,770 @@ export function voidSector(tier: number): VoidSectorDefinition {
     return VOID_SECTORS.find(s => s.tier === tier) ?? VOID_SECTORS[0]
 }
 
-/**
- * Sector N unlocks by banking a successful extraction out of sector N-1.
- * `highestSectorExtracted` starts at 0, so tier 1 is open to everyone.
- */
-export function voidSectorUnlocked(tier: number, highestSectorExtracted: number) {
-    return tier <= 1 || highestSectorExtracted >= tier - 1
+/** Sector N opens once the warden of sector N-1 has been killed and the kill docked home. */
+export function voidSectorUnlocked(tier: number, highestSectorCleared: number) {
+    return tier >= 1 && tier <= VOID_MAX_SECTOR && tier <= highestSectorCleared + 1
 }
 
-// ─── Rocks ──────────────────────────────────────────────────────────────────
-//
-// Ore comes in two shapes, and the difference is the whole geography of a run.
-//
-// `field` rock drifts loose in small clusters anywhere in the sector. It is the
-// cheap stuff, it is what you cut on the way somewhere, and there is not much
-// of it — crossing empty space between clusters is the normal state of a run.
-//
-// `deposit` rock only ever exists inside a surveyed rich deposit: a handful of
-// sites, all of them a long way from the dock, each with a garrison sitting on
-// it. Iridium and xenite cannot be found any other way, so the expensive ore is
-// never something you stumble over — it is somewhere you decide to go.
-
-export type VoidRockClass = 'field' | 'deposit'
-
-export interface VoidRockDefinition {
-    id: string
-    name: string
-    resource: VoidResourceId
-    /** Loose scatter, or only inside a guarded deposit. */
-    rockClass: VoidRockClass
-    /** Base rock body colour, plus the ore seam colour that glows through it. */
-    color: number
-    shade: number
-    glow: number
-    /** Base milliseconds of held laser to crack it open, before modifiers. */
-    mineMs: number
-    yieldMin: number
-    yieldMax: number
-    radius: number
-    /** Spawn weight per sector tier — index 0 is tier 1. Zero means absent. */
-    weights: readonly number[]
-}
-
-// Yields fall as the ore gets expensive, on top of the longer cut, so the value
-// of a rock per second of held laser climbs by roughly the same four-fold step
-// the price ladder does rather than the twenty-fold one raw price would imply.
-export const VOID_ROCKS: readonly VoidRockDefinition[] = [
-    {
-        id: 'ferrite-node', name: 'Ferrite Node', resource: 'ferrite', rockClass: 'field',
-        color: 0x6b7280, shade: 0x3f4552, glow: 0xd7dee6, mineMs: 7000, yieldMin: 3, yieldMax: 5, radius: 36,
-        weights: [70, 40, 20, 9]
-    },
-    {
-        id: 'cobalt-seam', name: 'Cobalt Seam', resource: 'cobalt', rockClass: 'field',
-        color: 0x334d78, shade: 0x1e2f4d, glow: 0x7cb6ff, mineMs: 11_500, yieldMin: 2, yieldMax: 4, radius: 40,
-        weights: [13, 40, 33, 20]
-    },
-    {
-        id: 'iridium-cluster', name: 'Iridium Cluster', resource: 'iridium', rockClass: 'deposit',
-        color: 0x4c2f78, shade: 0x2e1a4d, glow: 0xd8b4fe, mineMs: 17_000, yieldMin: 2, yieldMax: 4, radius: 44,
-        weights: [3, 15, 33, 32]
-    },
-    {
-        id: 'xenite-bloom', name: 'Xenite Bloom', resource: 'xenite', rockClass: 'deposit',
-        color: 0x134e4a, shade: 0x0b2f2c, glow: 0x5eead4, mineMs: 23_000, yieldMin: 1, yieldMax: 3, radius: 48,
-        weights: [0, 2, 13, 39]
+/** Every resource that can physically be picked up in a sector. */
+export function voidSectorResources(tier: number): Set<VoidResourceId> {
+    const sector = voidSector(tier)
+    const out = new Set<VoidResourceId>(['scrap', 'alloy', 'core'])
+    for (const [id, weight] of Object.entries(sector.ores)) {
+        if ((weight ?? 0) > 0) out.add(id as VoidResourceId)
     }
-]
-
-export function voidRock(id: string): VoidRockDefinition {
-    return VOID_ROCKS.find(r => r.id === id) ?? VOID_ROCKS[0]!
+    return out
 }
 
-export function voidRollRock(tier: number, rockClass: VoidRockClass, rng: () => number = randomFloat): VoidRockDefinition {
-    const index = Math.max(0, Math.min(3, tier - 1))
-    const pool = VOID_ROCKS.filter(rock => rock.rockClass === rockClass && (rock.weights[index] ?? 0) > 0)
-    // Sector 1 has no xenite at all, so a deposit roll there can only be
-    // iridium; the fallback keeps the caller honest if a pool ever empties.
-    if (pool.length === 0) return VOID_ROCKS.find(rock => rock.rockClass === rockClass) ?? VOID_ROCKS[0]!
-    return randomWeighted(pool, rock => rock.weights[index] ?? 0, rng)
-}
+// ─── Turrets ────────────────────────────────────────────────────────────────
 
-/** Rocks per deposit, and how tightly they sit around its centre. */
-export const VOID_DEPOSIT_ROCKS_MIN = 5
-export const VOID_DEPOSIT_ROCKS_MAX = 8
-export const VOID_DEPOSIT_RADIUS = 620
-/** Rocks per loose field cluster. */
-export const VOID_FIELD_ROCKS_MIN = 2
-export const VOID_FIELD_ROCKS_MAX = 4
-export const VOID_FIELD_RADIUS = 460
-/** How long the garrison waits before another wing jumps in on a contested deposit. */
-export const VOID_DEPOSIT_REINFORCE_MS = 60_000
-/**
- * How far outside the ring a reinforcing wing drops in, as a multiple of the
- * site radius, and how much room it has to leave the player. Wings arrive from
- * outside and fly in, so clearing a site actually buys you the room you earned
- * instead of the next one materialising on top of you.
- */
-export const VOID_DEPOSIT_ARRIVAL_RING = [1.2, 1.55] as const
-export const VOID_DEPOSIT_ARRIVAL_CLEARANCE = 820
+export type VoidTurretId = 'pulse' | 'gatling' | 'flak' | 'tesla' | 'beam' | 'missile' | 'mortar' | 'rail'
 
-// ─── Enemies ────────────────────────────────────────────────────────────────
-
-export type VoidEnemyAbility = 'shockwave' | 'railbeam' | 'reinforce' | 'burst' | 'drones' | 'minelayer'
-
-export interface VoidEnemyDefinition {
-    id: string
+export interface VoidTurretDefinition {
+    id: VoidTurretId
     name: string
     description: string
     color: number
-    accentColor: number
-    trimColor: number
-    radius: number
-    hp: number
-    speed: number
-    /** Damage of a single bolt, before sector threat and the minute ramp. */
+    /** Damage per hit (per pellet for flak, per second for beams). */
     damage: number
-    fireGapMs: number
+    /** Shots per second. Beams tick continuously and ignore this. */
+    rate: number
     range: number
-    /** How far it can notice you. Fly outside this and it goes back to drifting. */
-    vision: number
-    /** Turn rate in radians per second — heavies swing around slowly enough to kite. */
-    turnRate: number
-    credits: number
-    drops: { resource: VoidResourceId, min: number, max: number, chance?: number }[]
-    abilities: readonly VoidEnemyAbility[]
-    abilityCooldownMs: number
-    /** Relative spawn weight per sector tier. */
-    weights: readonly number[]
-    /** Capitals never spawn from the normal patrol roll. */
-    boss?: boolean
+    projectileSpeed: number
+    pellets: number
+    spread: number
+    splash: number
+    /** Multiplier on damage against asteroids. */
+    mining: number
 }
 
-export const VOID_ENEMIES: readonly VoidEnemyDefinition[] = [
+export const VOID_TURRETS = [
     {
-        id: 'interceptor',
-        name: 'Interceptor',
-        description: 'Standard corporate patrol. Nothing special, and there are always more.',
-        color: 0xb91c1c, accentColor: 0xfca5a5, trimColor: 0x7f1d1d, radius: 17,
-        hp: 52, speed: 156, damage: 7, fireGapMs: 1150, range: 400, vision: 430, turnRate: 2.6,
-        credits: 16,
-        drops: [{ resource: 'scrap', min: 2, max: 3 }],
-        abilities: [], abilityCooldownMs: 0,
-        weights: [52, 42, 32, 24]
+        id: 'pulse', name: 'Pulse Cannon', description: 'Reliable bolts at a steady clip. Good at everything, great at nothing.',
+        color: 0x5ec8ff, damage: 7.5, rate: 2.6, range: 170, projectileSpeed: 320, pellets: 1, spread: 0.01, splash: 0, mining: 1
     },
     {
-        id: 'stinger',
-        name: 'Stinger',
-        description: 'Light hull strapped to an oversized drive. It will close the gap before you finish the thought.',
-        color: 0xea580c, accentColor: 0xfed7aa, trimColor: 0x9a3412, radius: 13,
-        hp: 30, speed: 272, damage: 5.5, fireGapMs: 720, range: 300, vision: 560, turnRate: 4.4,
-        credits: 18,
-        drops: [{ resource: 'scrap', min: 2, max: 3 }],
-        abilities: [], abilityCooldownMs: 0,
-        weights: [26, 26, 26, 24]
+        id: 'gatling', name: 'Gatling', description: 'A hose of small rounds. Shreds light hulls and anything that stays close.',
+        color: 0xffd35e, damage: 2.4, rate: 11, range: 140, projectileSpeed: 380, pellets: 1, spread: 0.035, splash: 0, mining: 0.8
     },
     {
-        id: 'bulwark',
-        name: 'Bulwark',
-        description: 'A flying wall. Vents a shockwave ring when you get close — outrun it or dive inside it.',
-        color: 0x475569, accentColor: 0xe2e8f0, trimColor: 0x1e293b, radius: 26,
-        hp: 165, speed: 96, damage: 13, fireGapMs: 1500, range: 340, vision: 380, turnRate: 1.3,
-        credits: 38,
-        drops: [{ resource: 'scrap', min: 3, max: 5 }, { resource: 'circuitry', min: 1, max: 2, chance: 0.55 }],
-        abilities: ['shockwave'], abilityCooldownMs: 7800,
-        weights: [14, 18, 22, 24]
+        id: 'flak', name: 'Flak Battery', description: 'Pellet bursts that fill the air. Swarms stop being a problem.',
+        color: 0xff8a3d, damage: 3, rate: 1.3, range: 110, projectileSpeed: 300, pellets: 7, spread: 0.11, splash: 0, mining: 0.6
     },
     {
-        id: 'lancer',
-        name: 'Lancer',
-        description: 'A gun with a cockpit bolted on. Charges a rail beam across half the sector; the charge line is your warning.',
-        color: 0x7c3aed, accentColor: 0xddd6fe, trimColor: 0x4c1d95, radius: 15,
-        hp: 38, speed: 120, damage: 17, fireGapMs: 2400, range: 760, vision: 780, turnRate: 1.9,
-        credits: 34,
-        drops: [{ resource: 'scrap', min: 2, max: 4 }, { resource: 'circuitry', min: 1, max: 2, chance: 0.45 }],
-        abilities: ['railbeam'], abilityCooldownMs: 9500,
-        weights: [8, 14, 20, 28]
+        id: 'tesla', name: 'Tesla Coil', description: 'Short-range lightning that jumps to two more targets.',
+        color: 0x8fb8ff, damage: 9, rate: 1.6, range: 115, projectileSpeed: 0, pellets: 1, spread: 0, splash: 0, mining: 0.6
     },
     {
-        id: 'warden',
-        name: 'Warden',
-        description: 'A drone carrier with far too much armour. Ignores you personally and lets its swarm do the work.',
-        color: 0x0d9488, accentColor: 0x99f6e4, trimColor: 0x134e4a, radius: 30,
-        hp: 235, speed: 84, damage: 9, fireGapMs: 1900, range: 320, vision: 520, turnRate: 1,
-        credits: 46,
-        drops: [{ resource: 'scrap', min: 3, max: 5 }, { resource: 'circuitry', min: 1, max: 2, chance: 0.55 }],
-        abilities: ['drones'], abilityCooldownMs: 9500,
-        weights: [6, 13, 18, 20]
+        id: 'beam', name: 'Cutting Beam', description: 'A continuous beam that melts rock twice as fast as it melts ships.',
+        color: 0x3dffb0, damage: 26, rate: 0, range: 130, projectileSpeed: 0, pellets: 1, spread: 0, splash: 0, mining: 2.2
     },
     {
-        id: 'nettle',
-        name: 'Nettle',
-        description: 'Runs interference and leaves proximity mines in its wake. Chasing one in a straight line is how you die.',
-        color: 0xca8a04, accentColor: 0xfef08a, trimColor: 0x713f12, radius: 16,
-        hp: 66, speed: 172, damage: 8, fireGapMs: 1400, range: 330, vision: 520, turnRate: 2.9,
-        credits: 28,
-        drops: [{ resource: 'scrap', min: 2, max: 4 }],
-        abilities: ['minelayer'], abilityCooldownMs: 5200,
-        weights: [5, 10, 15, 17]
+        id: 'missile', name: 'Swarm Missiles', description: 'Slow homing warheads with a wide blast. Long reach, big numbers.',
+        color: 0xff4f6d, damage: 34, rate: 0.7, range: 300, projectileSpeed: 140, pellets: 1, spread: 0, splash: 14, mining: 0.7
     },
     {
-        // Launched by Wardens, never rolled as a patrol. Individually trivial;
-        // the threat is that there are always six more.
-        id: 'drone',
-        name: 'Warden Drone',
-        description: 'A hand-sized hunter-killer. Almost no health, almost no damage, absolutely relentless.',
-        color: 0x2dd4bf, accentColor: 0xccfbf1, trimColor: 0x0f766e, radius: 8,
-        hp: 13, speed: 224, damage: 2.6, fireGapMs: 950, range: 250, vision: 1400, turnRate: 5,
-        credits: 3,
-        drops: [{ resource: 'scrap', min: 1, max: 1, chance: 0.22 }],
-        abilities: [], abilityCooldownMs: 0,
-        weights: [0, 0, 0, 0]
+        id: 'mortar', name: 'Siege Mortar', description: 'Heavy shells with a huge blast radius. Slow to reload, long reach.',
+        color: 0xffa23d, damage: 42, rate: 0.35, range: 340, projectileSpeed: 170, pellets: 1, spread: 0.01, splash: 26, mining: 1.4
     },
     {
-        id: 'harbinger',
-        name: 'Harbinger',
-        description: 'A fast strike cruiser that jumps in at minute three. Shockwaves, burst salvos, and a small escort wing.',
-        color: 0xc2410c, accentColor: 0xfdba74, trimColor: 0x7c2d12, radius: 40,
-        hp: 520, speed: 118, damage: 15, fireGapMs: 950, range: 500, vision: 950, turnRate: 1.15,
-        credits: 150,
-        drops: [
-            { resource: 'scrap', min: 5, max: 9 },
-            { resource: 'circuitry', min: 2, max: 3 },
-            { resource: 'warpCore', min: 1, max: 1, chance: 0.3 }
-        ],
-        abilities: ['shockwave', 'burst', 'reinforce'], abilityCooldownMs: 6500,
-        weights: [0, 0, 0, 0],
-        boss: true
-    },
-    {
-        id: 'dreadnought',
-        name: 'Dreadnought',
-        description: 'Sector command. Shockwaves, rail beams, and a hangar full of interceptors it is happy to spend.',
-        color: 0x991b1b, accentColor: 0xfecaca, trimColor: 0x450a0a, radius: 60,
-        hp: 1100, speed: 76, damage: 22, fireGapMs: 850, range: 580, vision: 1150, turnRate: 0.85,
-        credits: 320,
-        drops: [
-            { resource: 'scrap', min: 9, max: 15 },
-            { resource: 'circuitry', min: 3, max: 6 },
-            { resource: 'warpCore', min: 1, max: 2, chance: 0.7 }
-        ],
-        abilities: ['shockwave', 'railbeam', 'reinforce', 'burst'], abilityCooldownMs: 5800,
-        weights: [0, 0, 0, 0],
-        boss: true
+        id: 'rail', name: 'Railgun', description: 'Instant slugs that punch through every hull in a line.',
+        color: 0xc38bff, damage: 95, rate: 0.45, range: 360, projectileSpeed: 0, pellets: 1, spread: 0, splash: 0, mining: 1.2
     }
-]
+] as const satisfies readonly VoidTurretDefinition[]
 
-export const VOID_MIDBOSS_ID = 'harbinger'
-export const VOID_BOSS_ID = 'dreadnought'
-export const VOID_DRONE_ID = 'drone'
-/** How many hunter-killers a Warden puts in the air per launch. */
-export const VOID_WARDEN_DRONE_COUNT = 3
-export const VOID_WARDEN_MAX_DRONES = 7
-/** Boss respawn cadence once the sector capital is down. */
-export const VOID_BOSS_RESPAWN_MS = 120_000
+export const VOID_TURRET_IDS: VoidTurretId[] = VOID_TURRETS.map(t => t.id)
 
-export function voidEnemy(id: string): VoidEnemyDefinition {
-    return VOID_ENEMIES.find(e => e.id === id) ?? VOID_ENEMIES[0]!
+export function voidTurret(id: string): VoidTurretDefinition {
+    return VOID_TURRETS.find(t => t.id === id) ?? VOID_TURRETS[0]
 }
 
-export function voidRollEnemy(tier: number, rng: () => number = randomFloat): VoidEnemyDefinition {
-    const index = Math.max(0, Math.min(3, tier - 1))
-    const pool = VOID_ENEMIES.filter(e => !e.boss && (e.weights[index] ?? 0) > 0)
-    return randomWeighted(pool, e => e.weights[index] ?? 0, rng)
+/** Rough sustained damage per second, for the hangar's comparisons. */
+export function voidTurretDps(id: string) {
+    const t = voidTurret(id)
+    return t.rate === 0 ? t.damage : t.damage * t.rate * t.pellets * (t.pellets > 1 ? 0.6 : 1)
+}
+
+// ─── Primary guns ───────────────────────────────────────────────────────────
+//
+// The nose guns you fire yourself. Damage is VOID_GUN_BASE times the type's
+// multiplier times the fitted gun item's power (tier, rarity, level).
+
+export type VoidGunId = 'blaster' | 'autocannon' | 'scatter' | 'plasma' | 'lancer' | 'driver'
+
+export interface VoidGunDefinition {
+    id: VoidGunId
+    name: string
+    description: string
+    color: number
+    /** Multiplier on the hull's gun stat, per projectile (per second for beams). */
+    damage: number
+    rate: number
+    speed: number
+    pellets: number
+    spread: number
+    range: number
+    splash: number
+    /** Hitscan guns pierce every hull on the line. */
+    hitscan: boolean
+    beam: boolean
+}
+
+export const VOID_GUNS = [
+    {
+        id: 'blaster', name: 'Twin Blaster', description: 'Alternating bolts that converge on the crosshair. Honest and reliable.',
+        color: 0xffd08a, damage: 1, rate: 7, speed: 520, pellets: 1, spread: 0, range: 460, splash: 0, hitscan: false, beam: false
+    },
+    {
+        id: 'autocannon', name: 'Autocannon', description: 'Twice the rate of fire at a little over half the punch. Easy to land on fast targets.',
+        color: 0xffe45e, damage: 0.6, rate: 15, speed: 640, pellets: 1, spread: 0.012, range: 430, splash: 0, hitscan: false, beam: false
+    },
+    {
+        id: 'scatter', name: 'Scattergun', description: 'A short-range pellet spread that deletes anything within spitting distance.',
+        color: 0xff9a4d, damage: 0.55, rate: 2.4, speed: 480, pellets: 8, spread: 0.07, range: 170, splash: 0, hitscan: false, beam: false
+    },
+    {
+        id: 'plasma', name: 'Plasma Thrower', description: 'Slow, heavy plasma globes that burst on impact and splash everything nearby.',
+        color: 0x7dff6b, damage: 3.4, rate: 2.2, speed: 300, pellets: 1, spread: 0, range: 380, splash: 12, hitscan: false, beam: false
+    },
+    {
+        id: 'lancer', name: 'Lance Beam', description: 'Hold the trigger for a continuous cutting beam. Brutal on rock and hull alike.',
+        color: 0x6fe3ff, damage: 11, rate: 0, speed: 0, pellets: 1, spread: 0, range: 300, splash: 0, hitscan: true, beam: true
+    },
+    {
+        id: 'driver', name: 'Mass Driver', description: 'A single slug that crosses the sector instantly and punches through every hull in line.',
+        color: 0xd49bff, damage: 9, rate: 0.9, speed: 0, pellets: 1, spread: 0, range: 800, splash: 0, hitscan: true, beam: false
+    }
+] as const satisfies readonly VoidGunDefinition[]
+
+export const VOID_GUN_IDS: VoidGunId[] = VOID_GUNS.map(g => g.id)
+
+export function voidGun(id: string): VoidGunDefinition {
+    return VOID_GUNS.find(g => g.id === id) ?? VOID_GUNS[0]
+}
+
+/** Base bolt damage a T1 common gun multiplies. */
+export const VOID_GUN_BASE = 9
+
+export function voidGunDps(id: string, gunStat = VOID_GUN_BASE) {
+    const g = voidGun(id)
+    return g.beam ? g.damage * gunStat : g.damage * gunStat * g.rate * g.pellets * (g.pellets > 1 ? 0.6 : 1)
 }
 
 // ─── Ships ──────────────────────────────────────────────────────────────────
 
+export type VoidAbilityId = 'blink' | 'tractor' | 'salvo' | 'phase' | 'bulwark' | 'swarm' | 'nova' | 'overdrive' | 'lance'
+
 export interface VoidShipDefinition {
     id: string
     name: string
+    role: string
     description: string
-    speedMult: number
-    turnMult: number
-    cargoMult: number
-    hullMult: number
-    /** Extra multiplier on cut time (below 1 = faster). */
-    miningMult: number
-    /** Hardpoints. Every mounted module contributes its affixes to the whole ship. */
-    turretSlots: number
-    /**
-     * Barrels on the primary weapon. More barrels fire more parallel lanes on
-     * every trigger pull for more total damage — see `voidVolley` — which is a
-     * large part of what you're buying when you buy a bigger hull.
-     */
-    barrels: number
-    radius: number
-    color: number
-    accent: number
-    trim: number
-    cost: { credits: number, resources: VoidResourceBundle, gems?: number }
+    /** Warden kills required before the shipyard will build it. */
     requiresSector: number
-    /** Marks the one hull that is bought rather than earned. */
-    premium?: boolean
+    hull: number
+    shield: number
+    /** Cruise speed, units per second. */
+    speed: number
+    /** Turn rate, radians per second. */
+    agility: number
+    cargo: number
+    turrets: number
+    /** Armour plate and shield generator slots. */
+    armor: number
+    shields: number
+    drones: number
+    /** Ship-specific ability on R. The starter hull has none. */
+    ability: VoidAbilityId | null
+    cost: VoidResourceBundle
+    coins: number
+    gems: number
+    /** Length of the model in world units. Drives the chase camera. */
+    size: number
 }
 
-export const VOID_SHIPS: readonly VoidShipDefinition[] = [
+export const VOID_SHIPS = [
     {
-        id: 'skiff', name: 'Scout Skiff',
-        description: 'The loaner they hand every new runner. One hardpoint, one barrel, gets out of the way quickly.',
-        speedMult: 1, turnMult: 1, cargoMult: 1, hullMult: 1, miningMult: 1,
-        turretSlots: 1, barrels: 1, radius: 17, color: 0x22d3ee, accent: 0xa5f3fc, trim: 0x0e7490,
-        cost: { credits: 0, resources: {} }, requiresSector: 0
+        id: 'sparrow', name: 'Sparrow', role: 'Scout', requiresSector: 0,
+        description: 'A tiny loaner with one belly turret, one plate and one shield. Nimble enough to survive the mistakes you are about to make.',
+        hull: 120, shield: 60, speed: 62, agility: 2.6, cargo: 1000, turrets: 1, armor: 1, shields: 1, drones: 0, ability: null,
+        cost: {}, coins: 0, gems: 0, size: 3.2
     },
     {
-        id: 'courier', name: 'Halcyon Courier',
-        description: 'A hauler chassis with the cargo braces cut out. Quick, roomy enough, thin in a fight.',
-        speedMult: 1.14, turnMult: 1.1, cargoMult: 1.3, hullMult: 0.95, miningMult: 1,
-        turretSlots: 2, barrels: 2, radius: 19, color: 0x3b82f6, accent: 0xbfdbfe, trim: 0x1e3a8a,
-        cost: { credits: 250_000, resources: { ferrite: 120, cobalt: 20 }, gems: 15 }, requiresSector: 1
+        id: 'wasp', name: 'Wasp', role: 'Interceptor', requiresSector: 0,
+        description: 'All engine. Twin turrets and a blink drive that puts you behind whatever was chasing you.',
+        hull: 100, shield: 80, speed: 84, agility: 3.3, cargo: 875, turrets: 2, armor: 1, shields: 1, drones: 0, ability: 'blink',
+        cost: { ferrite: 360, scrap: 240 }, coins: 250_000, gems: 0, size: 3.6
     },
     {
-        id: 'prospector', name: 'Prospector',
-        description: 'Purpose-built rock cutter. Twin laser heads shave a fifth off every cut and the hold is deep.',
-        speedMult: 0.9, turnMult: 0.88, cargoMult: 1.9, hullMult: 1.2, miningMult: 0.8,
-        turretSlots: 2, barrels: 2, radius: 23, color: 0xf59e0b, accent: 0xfef3c7, trim: 0x92400e,
-        cost: { credits: 1_000_000, resources: { ferrite: 350, cobalt: 90 }, gems: 40 }, requiresSector: 1
+        id: 'mule', name: 'Mule', role: 'Hauler', requiresSector: 0,
+        description: 'A flying cargo bay with a mining drone and a tractor pulse that vacuums up everything nearby.',
+        hull: 260, shield: 70, speed: 50, agility: 1.8, cargo: 3750, turrets: 2, armor: 2, shields: 1, drones: 1, ability: 'tractor',
+        cost: { ferrite: 780, cobalt: 90, scrap: 360 }, coins: 500_000, gems: 0, size: 5.2
     },
     {
-        id: 'vanguard', name: 'Vanguard',
-        description: 'Military surplus. Three hardpoints, a triple-barrel spinal mount, and real armour.',
-        speedMult: 1, turnMult: 0.95, cargoMult: 1.35, hullMult: 1.55, miningMult: 1,
-        turretSlots: 3, barrels: 3, radius: 25, color: 0xef4444, accent: 0xfecaca, trim: 0x7f1d1d,
-        cost: { credits: 8_000_000, resources: { ferrite: 800, cobalt: 300, iridium: 50 }, gems: 90 }, requiresSector: 2
+        id: 'kestrel', name: 'Kestrel', role: 'Gunship', requiresSector: 1,
+        description: 'Four turrets and a missile salvo. The first ship that fights back properly.',
+        hull: 220, shield: 120, speed: 64, agility: 2.4, cargo: 1750, turrets: 4, armor: 2, shields: 1, drones: 0, ability: 'salvo',
+        cost: { ferrite: 1200, cobalt: 480, scrap: 780 }, coins: 2_500_000, gems: 0, size: 5
     },
     {
-        id: 'leviathan', name: 'Leviathan',
-        description: 'A mobile refinery with guns. Nothing about it is fast, but nothing empties its hold either.',
-        speedMult: 0.64, turnMult: 0.54, cargoMult: 3.1, hullMult: 2.2, miningMult: 0.88,
-        turretSlots: 4, barrels: 3, radius: 36, color: 0x8b5cf6, accent: 0xede9fe, trim: 0x4c1d95,
-        cost: { credits: 60_000_000, resources: { ferrite: 1800, cobalt: 800, iridium: 240 }, gems: 160 }, requiresSector: 3
+        id: 'phantom', name: 'Phantom', role: 'Striker', requiresSector: 1,
+        description: 'Fast, agile and hard to pin down. Its phase drive turns it intangible for a moment.',
+        hull: 170, shield: 170, speed: 96, agility: 3.4, cargo: 1500, turrets: 3, armor: 2, shields: 1, drones: 0, ability: 'phase',
+        cost: { cobalt: 960, scrap: 1140, alloy: 120 }, coins: 4_000_000, gems: 0, size: 4.6
     },
     {
-        id: 'wraith', name: 'Wraith',
-        description: 'Prototype hull with no plating worth the name. Fastest thing in the sector, and it knows it.',
-        speedMult: 1.52, turnMult: 1.45, cargoMult: 0.95, hullMult: 0.8, miningMult: 0.95,
-        turretSlots: 3, barrels: 2, radius: 18, color: 0x10b981, accent: 0xd1fae5, trim: 0x064e3b,
-        cost: { credits: 150_000_000, resources: { cobalt: 1500, iridium: 600, xenite: 120 }, gems: 250 }, requiresSector: 3
+        id: 'aegis', name: 'Aegis', role: 'Tank', requiresSector: 2,
+        description: 'A slab of armour with six turrets and a shield overcharge that shrugs off anything for a few seconds.',
+        hull: 560, shield: 260, speed: 46, agility: 1.5, cargo: 3000, turrets: 6, armor: 4, shields: 1, drones: 0, ability: 'bulwark',
+        cost: { cobalt: 1560, iridium: 270, scrap: 1800, alloy: 240 }, coins: 15_000_000, gems: 5, size: 7.5
     },
     {
-        id: 'aurelian', name: 'Aurelian Crown',
-        description: 'Obsidian hull, gold filigree, a sapphire drive core that should not exist. Fast, armoured, cavernous and triple-barrelled — there is nothing it is bad at, which is precisely what it costs.',
-        speedMult: 1.32, turnMult: 1.26, cargoMult: 2.3, hullMult: 1.85, miningMult: 0.72,
-        turretSlots: 4, barrels: 3, radius: 27, color: 0x0b1020, accent: 0xfbbf24, trim: 0x1d4ed8,
-        cost: {
-            credits: 10_000_000_000,
-            resources: { iridium: 4000, xenite: 1600, warpCore: 250 },
-            gems: 500
-        }, requiresSector: 0,
-        premium: true
+        id: 'hive', name: 'Hive', role: 'Carrier', requiresSector: 2,
+        description: 'Two turrets and a bay of six attack drones. Launches a second swarm on demand.',
+        hull: 380, shield: 220, speed: 54, agility: 1.8, cargo: 2750, turrets: 2, armor: 3, shields: 1, drones: 6, ability: 'swarm',
+        cost: { cobalt: 1260, iridium: 420, alloy: 420 }, coins: 18_000_000, gems: 5, size: 7
+    },
+    {
+        id: 'seraph', name: 'Seraph', role: 'Vanguard', requiresSector: 3,
+        description: 'Speed and firepower in one frame. Six turrets, two drones and a nova that clears the air around it.',
+        hull: 360, shield: 380, speed: 86, agility: 3, cargo: 2500, turrets: 6, armor: 3, shields: 2, drones: 2, ability: 'nova',
+        cost: { iridium: 1080, xenite: 120, alloy: 660, core: 3 }, coins: 75_000_000, gems: 25, size: 6.5
+    },
+    {
+        id: 'bastion', name: 'Bastion', role: 'Fortress', requiresSector: 4,
+        description: 'Ten turrets, two drones and an overdrive that doubles their fire rate. It turns like a planet.',
+        hull: 1100, shield: 460, speed: 40, agility: 1.1, cargo: 5000, turrets: 10, armor: 5, shields: 2, drones: 2, ability: 'overdrive',
+        cost: { iridium: 1800, xenite: 420, alloy: 1140, core: 6 }, coins: 250_000_000, gems: 60, size: 11
+    },
+    {
+        id: 'leviathan', name: 'Leviathan', role: 'Dreadnought', requiresSector: 5,
+        description: 'Twelve turrets, four drones and a spinal lance that cuts a sector in half. The last ship you will ever need.',
+        hull: 1800, shield: 800, speed: 36, agility: 0.9, cargo: 6500, turrets: 12, armor: 6, shields: 2, drones: 4, ability: 'lance',
+        cost: { iridium: 2700, xenite: 1080, alloy: 1800, core: 12 }, coins: 900_000_000, gems: 150, size: 16
     }
-]
+] as const satisfies readonly VoidShipDefinition[]
+
+export type VoidShipId = (typeof VOID_SHIPS)[number]['id']
+
+export const VOID_SHIP_IDS: string[] = VOID_SHIPS.map(s => s.id)
 
 export function voidShip(id: string): VoidShipDefinition {
-    return VOID_SHIPS.find(s => s.id === id) ?? VOID_SHIPS[0]!
+    return VOID_SHIPS.find(s => s.id === id) ?? VOID_SHIPS[0]
 }
 
-/** Perpendicular spacing between barrel lanes, in world units. */
-export const VOID_LANE_SPACING = 14
-
-/**
- * Resolves a trigger pull into parallel lanes. Total output rises sub-linearly
- * with lane count, so a triple-barrel hull is a real upgrade over a single
- * without being three times the damage — and the wide lanes mean it also
- * sweeps groups rather than drilling one target.
- */
-export function voidVolley(damage: number, barrels: number, multishot: number) {
-    const lanes = Math.max(1, Math.round(barrels + multishot))
-    const total = damage * (1 + (lanes - 1) * 0.4)
-    return { lanes, damagePerShot: total / lanes }
+export interface VoidAbilityDefinition {
+    id: VoidAbilityId
+    name: string
+    description: string
+    cooldown: number
+    duration: number
 }
 
-// ─── Upgrade tracks ─────────────────────────────────────────────────────────
+export const VOID_ABILITIES: Record<VoidAbilityId, VoidAbilityDefinition> = {
+    blink: { id: 'blink', name: 'Blink', description: 'Teleport forward along your aim.', cooldown: 6, duration: 0 },
+    tractor: { id: 'tractor', name: 'Tractor Pulse', description: 'Pull in every pickup in a wide radius.', cooldown: 9, duration: 2.5 },
+    salvo: { id: 'salvo', name: 'Missile Salvo', description: 'Launch eight homing missiles.', cooldown: 10, duration: 0 },
+    phase: { id: 'phase', name: 'Phase Drive', description: 'Become intangible and fast.', cooldown: 11, duration: 2.2 },
+    bulwark: { id: 'bulwark', name: 'Bulwark', description: 'Invulnerable shields for a few seconds.', cooldown: 16, duration: 4 },
+    swarm: { id: 'swarm', name: 'Swarm Launch', description: 'Launch six extra drones for a while.', cooldown: 18, duration: 12 },
+    nova: { id: 'nova', name: 'Nova', description: 'A blast that wrecks everything close.', cooldown: 12, duration: 0 },
+    overdrive: { id: 'overdrive', name: 'Overdrive', description: 'Turrets fire twice as fast.', cooldown: 20, duration: 7 },
+    lance: { id: 'lance', name: 'Spinal Lance', description: 'Charge and fire a sector-splitting beam.', cooldown: 18, duration: 2.5 }
+}
 
-export type VoidUpgradeId = 'thrusters' | 'weaponCore' | 'targeting' | 'plating' | 'deflector' | 'hold' | 'refinery'
+// ─── Station upgrades ───────────────────────────────────────────────────────
+//
+// General systems fitted to every hull you own. Combat power lives in gear
+// (void-items.ts); these cover flying, hauling and mining.
+
+export type VoidUpgradeId = 'engines' | 'cargo' | 'mining' | 'drones'
 
 export interface VoidUpgradeDefinition {
     id: VoidUpgradeId
     name: string
     description: string
-    icon: string
-    /** Enemies fund the offence side, rocks fund the boat. */
-    funding: 'salvage' | 'ore'
     maxLevel: number
-    baseCredits: number
-    creditGrowth: number
-    resourceStep: VoidResourceBundle
-    /** One short line per effect, for the hangar row. */
-    format: (level: number) => string[]
+    /** Human readable effect at a given level. */
+    effect: (level: number) => string
 }
-
-export const VOID_BASE_SPEED = 215
-export const VOID_BASE_HULL = 110
-export const VOID_BASE_CARGO = 55
-export const VOID_BASE_DAMAGE = 10
-export const VOID_BASE_FIRE_GAP_MS = 400
-export const VOID_BASE_WEAPON_RANGE = 520
-export const VOID_BASE_MINING_RANGE = 170
-export const VOID_BASE_MAGNET_RANGE = 240
-export const VOID_BASE_PROJECTILE_SPEED = 900
-export const VOID_BASE_TURN_RATE = 3.5
-export const VOID_BOOST_MULT = 1.85
-// The sector is ten viewports across and the ore worth having sits at the far
-// edges of it, so the burn has to be a travel tool and not just a dodge.
-export const VOID_BOOST_CAPACITY_MS = 3400
-export const VOID_BOOST_RECHARGE_PER_SEC = 1050
-export const VOID_SHIELD_RECHARGE_DELAY_MS = 4000
-
-export const voidSpeedFor = (level: number) => VOID_BASE_SPEED + level * 12
-export const voidDamageFor = (level: number) => VOID_BASE_DAMAGE + level * 2.6
-export const voidFireGapFor = (level: number) => Math.max(110, VOID_BASE_FIRE_GAP_MS * 0.958 ** level)
-export const voidMiningMultFor = (level: number) => Math.max(0.3, 0.955 ** level)
-export const voidWeaponRangeFor = (level: number) => VOID_BASE_WEAPON_RANGE + level * 26
-export const voidMiningRangeFor = (level: number) => VOID_BASE_MINING_RANGE + level * 15
-export const voidCritFor = (level: number) => level * 0.006
-export const voidHullFor = (level: number) => Math.round(VOID_BASE_HULL + level * 15)
-export const voidShieldFor = (level: number) => level <= 0 ? 0 : Math.round(20 + (level - 1) * 16)
-export const voidShieldRegenFor = (level: number) => level <= 0 ? 0 : 3 + level * 1.5
-export const voidCargoFor = (level: number) => Math.round(VOID_BASE_CARGO + level * 28)
-export const voidOreYieldFor = (level: number) => 1 + level * 0.08
-export const voidSalvageYieldFor = (level: number) => 1 + level * 0.09
-export const voidMarketMultFor = (level: number) => 1 + level * 0.05
 
 export const VOID_UPGRADES: readonly VoidUpgradeDefinition[] = [
-    {
-        id: 'weaponCore', name: 'Weapon Core', icon: 'i-lucide-atom',
-        description: 'The reactor behind both the gun and the cutting laser. Raises damage, shortens the firing cycle, and cuts rock faster.',
-        // Deliberately scrap-only: the core track is the spine of the build and
-        // should never be gated behind a drop that only heavies carry.
-        funding: 'salvage', maxLevel: 20,
-        baseCredits: 25_000, creditGrowth: 1.55, resourceStep: { scrap: 20 },
-        format: level => [
-            `${voidDamageFor(level).toFixed(1)} dmg`,
-            `${Math.round(voidFireGapFor(level))} ms cycle`,
-            `${Math.round(voidMiningMultFor(level) * 100)}% cut time`
-        ]
-    },
-    {
-        id: 'targeting', name: 'Targeting Suite', icon: 'i-lucide-scan-line',
-        description: 'Reach and precision. Longer weapon and beam range means cutting a rock from outside a Lancer\'s comfort zone.',
-        funding: 'salvage', maxLevel: 14,
-        baseCredits: 40_000, creditGrowth: 1.78, resourceStep: { scrap: 16, circuitry: 5 },
-        format: level => [
-            `${Math.round(voidWeaponRangeFor(level))} m weapon`,
-            `${Math.round(voidMiningRangeFor(level))} m beam`,
-            `+${(voidCritFor(level) * 100).toFixed(1)}% crit`
-        ]
-    },
-    {
-        id: 'thrusters', name: 'Ion Thrusters', icon: 'i-lucide-rocket',
-        description: 'Cruise and burn speed. The cheapest way to stop dying to things you could simply have left behind.',
-        funding: 'salvage', maxLevel: 16,
-        baseCredits: 25_000, creditGrowth: 1.62, resourceStep: { scrap: 14 },
-        format: level => [`${Math.round(voidSpeedFor(level))} m/s`]
-    },
-    {
-        id: 'plating', name: 'Hull Plating', icon: 'i-lucide-shield-half',
-        description: 'Raw hit points. The storm burns a percentage of max hull, so plating buys time in the gas too.',
-        funding: 'ore', maxLevel: 20,
-        baseCredits: 25_000, creditGrowth: 1.55, resourceStep: { ferrite: 9 },
-        format: level => [`${voidHullFor(level)} hp`]
-    },
-    {
-        id: 'deflector', name: 'Deflector Lattice', icon: 'i-lucide-shield',
-        description: 'A regenerating buffer that soaks hits first and recharges after four seconds without being touched.',
-        funding: 'ore', maxLevel: 14,
-        baseCredits: 45_000, creditGrowth: 1.78, resourceStep: { ferrite: 10, cobalt: 8 },
-        format: level => level === 0
-            ? ['No shield']
-            : [`${voidShieldFor(level)} shield`, `${voidShieldRegenFor(level).toFixed(1)}/s regen`]
-    },
-    {
-        id: 'hold', name: 'Cargo Braces', icon: 'i-lucide-package',
-        description: 'How much you can carry before the hold locks out. A full hold means every rock you cut is wasted.',
-        funding: 'ore', maxLevel: 16,
-        baseCredits: 30_000, creditGrowth: 1.62, resourceStep: { ferrite: 12, cobalt: 6 },
-        format: level => [`${voidCargoFor(level)} units`]
-    },
-    {
-        id: 'refinery', name: 'Refinery Module', icon: 'i-lucide-flask-conical',
-        description: 'Pulls more out of everything you break — ore per rock, salvage per wreck — and squeezes a better price out of the dock.',
-        funding: 'ore', maxLevel: 14,
-        baseCredits: 50_000, creditGrowth: 1.82, resourceStep: { cobalt: 10, iridium: 4 },
-        format: level => [
-            `+${Math.round((voidOreYieldFor(level) - 1) * 100)}% ore`,
-            `+${Math.round((voidSalvageYieldFor(level) - 1) * 100)}% salvage`,
-            `+${Math.round((voidMarketMultFor(level) - 1) * 100)}% sale price`
-        ]
-    }
+    { id: 'engines', name: 'Thruster Array', description: 'Cruise speed, boost and turn rate.', maxLevel: 8, effect: l => `+${l * 8}% speed, +${l * 4}% turn` },
+    { id: 'cargo', name: 'Cargo Systems', description: 'Compressed bays and a stronger tractor.', maxLevel: 10, effect: l => `+${l * 15}% hold, +${l * 20}% pickup range` },
+    { id: 'mining', name: 'Mining Rig', description: 'Cuts rock faster and splits more ore from it.', maxLevel: 8, effect: l => `+${l * 25}% mining` },
+    { id: 'drones', name: 'Drone Bay', description: 'Harder-hitting drones; every third Mk launches one more.', maxLevel: 9, effect: l => `+${l * 20}% drone damage, +${Math.floor(l / 3)} drones` }
 ]
 
-export const VOID_UPGRADE_IDS = VOID_UPGRADES.map(u => u.id)
-
-export function voidUpgrade(id: string): VoidUpgradeDefinition {
-    return VOID_UPGRADES.find(u => u.id === id) ?? VOID_UPGRADES[0]!
+/** Roman numeral mark for a part level (Mk 0 means stock). */
+export function voidMark(level: number) {
+    if (level <= 0) return 'Stock'
+    const numerals: [number, string][] = [[10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']]
+    let n = level
+    let out = ''
+    for (const [v, r] of numerals) {
+        while (n >= v) {
+            out += r
+            n -= v
+        }
+    }
+    return `Mk ${out}`
 }
+
+export const VOID_UPGRADE_IDS: VoidUpgradeId[] = VOID_UPGRADES.map(u => u.id)
 
 export type VoidUpgradeLevels = Record<VoidUpgradeId, number>
 
-/**
- * The old split of nine tracks (separate weapon, reload and mining lines)
- * folded down into these seven. Anyone who already bought levels keeps them:
- * the merged tracks take the best of what fed into them rather than the sum,
- * so nobody is retroactively handed free levels either.
- */
-const VOID_LEGACY_UPGRADE_IDS: Record<VoidUpgradeId, string[]> = {
-    thrusters: ['engine'],
-    weaponCore: ['weapon', 'reload', 'miningSpeed'],
-    targeting: ['miningRange'],
-    plating: ['hull'],
-    deflector: ['shield'],
-    hold: ['cargo'],
-    refinery: ['oreYield']
-}
-
-export function voidNormalizeLevels(levels: Partial<Record<string, number>> | null | undefined): VoidUpgradeLevels {
-    const read = (key: string) => {
-        const raw = Math.floor(Number(levels?.[key] ?? 0))
-        return Number.isFinite(raw) ? Math.max(0, raw) : 0
-    }
+export function voidNormalizeLevels(raw: Record<string, unknown> | null | undefined): VoidUpgradeLevels {
     const out = {} as VoidUpgradeLevels
     for (const upgrade of VOID_UPGRADES) {
-        const legacy = VOID_LEGACY_UPGRADE_IDS[upgrade.id].map(read)
-        const level = Math.max(read(upgrade.id), ...legacy)
-        out[upgrade.id] = Math.min(upgrade.maxLevel, level)
+        const n = Math.floor(Number(raw?.[upgrade.id]) || 0)
+        out[upgrade.id] = Math.max(0, Math.min(upgrade.maxLevel, n))
     }
     return out
 }
 
 /**
- * `null` once the track is maxed.
- *
- * Credits grow geometrically, roughly in step with what a run is worth once you
- * are deep enough to want the level — the first level of anything is one good
- * sector-1 haul, the last is a handful of sector-4 ones.
- *
- * Resources grow far more gently than that. Income in coins climbs with sector,
- * cargo and market rolls all at once, but the *units* you can physically carry
- * home only climb with the hold, so a resource cost that tracked the credit
- * curve would turn every late level into a dedicated farming week.
+ * Upgrade prices climb through the ore ladder: the early levels cost what
+ * sector 1 drops, the late levels need what only the deep sectors have.
  */
-export function voidUpgradeCost(id: VoidUpgradeId, level: number): { credits: number, resources: VoidResourceBundle } | null {
-    const def = voidUpgrade(id)
-    if (level >= def.maxLevel) return null
-    const credits = Math.round(def.baseCredits * def.creditGrowth ** level)
-    const resources: VoidResourceBundle = {}
-    for (const [resourceId, step] of Object.entries(def.resourceStep) as [VoidResourceId, number][]) {
-        resources[resourceId] = Math.round(step * (level + 1) * (1 + level * 0.15))
+export function voidUpgradeCost(id: VoidUpgradeId, level: number): VoidPrice | null {
+    const def = VOID_UPGRADES.find(u => u.id === id)
+    if (!def || level >= def.maxLevel) return null
+    const weight: Record<VoidUpgradeId, number> = { engines: 1, cargo: 1.1, mining: 0.9, drones: 1.2 }
+    const w = weight[id]
+    const g = (base: number, growth: number) => Math.round(base * w * Math.pow(growth, level) / 10) * 10
+    let resources: VoidResourceBundle
+    if (level < 3) resources = { ferrite: g(200, 1.5), scrap: g(120, 1.5) }
+    else if (level < 6) resources = { ferrite: g(200, 1.45), cobalt: g(70, 1.45), alloy: g(10, 1.5) }
+    else resources = voidCleanBundle({ cobalt: g(160, 1.35), iridium: g(50, 1.35), xenite: level >= 8 ? g(10, 1.3) : 0, alloy: g(20, 1.35) })
+    const coins = Math.round(80_000 * w * Math.pow(2.1, level) / 1000) * 1000
+    const gems = level >= def.maxLevel - 2 ? Math.ceil(3 * Math.pow(1.8, level - (def.maxLevel - 2))) : 0
+    return { resources, coins, gems }
+}
+
+// ─── Fit and derived stats ──────────────────────────────────────────────────
+
+/** Item ids fitted to one hull. Null is an empty slot. */
+export interface VoidShipFit {
+    gun: string | null
+    turrets: (string | null)[]
+    armor: (string | null)[]
+    shields: (string | null)[]
+}
+
+/** Normalises a stored fit against the hull's slots and the items that exist. */
+export function voidNormalizeFit(shipId: string, raw: unknown, items: readonly VoidItem[]): VoidShipFit {
+    const ship = voidShip(shipId)
+    const r = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Partial<Record<keyof VoidShipFit, unknown>>
+    const byId = new Map(items.map(i => [i.id, i]))
+    const used = new Set<string>()
+    const pick = (id: unknown, kind: VoidItemKind) => {
+        if (typeof id !== 'string') return null
+        const item = byId.get(id)
+        if (!item || item.kind !== kind || used.has(id)) return null
+        used.add(id)
+        return id
     }
-    return { credits, resources }
-}
-
-// ─── Modules (the gun and the mining laser, in one box) ─────────────────────
-
-export type VoidRarityId = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'unique'
-
-export interface VoidRarityDefinition {
-    id: VoidRarityId
-    name: string
-    color: number
-    hex: string
-    affixCount: number
-    /** Every affix roll is multiplied by this. */
-    power: number
-    cost: { credits: number, resources: VoidResourceBundle }
-    /** One line on what buying at this tier is actually for. */
-    pitch: string
-}
-
-// Every tier rolls a special, so rarity is not "does this do something
-// interesting" — it is how much stat sheet is bolted around the interesting
-// thing. A common is a cheap way to try an effect; a legendary is the same
-// effect with six rolls on it, and rerolling for the ones you want is the
-// entire late game.
-export const VOID_RARITIES = [
-    {
-        id: 'common', name: 'Common', color: 0x94a3b8, hex: '#94a3b8', affixCount: 2, power: 1,
-        cost: { credits: 60_000, resources: { scrap: 22 } },
-        pitch: 'Cheap enough to roll for the effect alone. Two stats attached.'
-    },
-    {
-        id: 'uncommon', name: 'Uncommon', color: 0x4ade80, hex: '#4ade80', affixCount: 3, power: 1.5,
-        cost: { credits: 250_000, resources: { scrap: 75 } },
-        pitch: 'The workhorse roll. Half again the stat weight of a common.'
-    },
-    {
-        id: 'rare', name: 'Rare', color: 0x60a5fa, hex: '#60a5fa', affixCount: 4, power: 2.2,
-        cost: { credits: 1_200_000, resources: { scrap: 190, circuitry: 22 } },
-        pitch: 'First tier that can roll pierce, splash and extra projectiles.'
-    },
-    {
-        id: 'epic', name: 'Epic', color: 0xc084fc, hex: '#c084fc', affixCount: 5, power: 3.2,
-        cost: { credits: 6_000_000, resources: { scrap: 400, circuitry: 85 } },
-        pitch: 'Five rolls at triple weight. Where builds stop being theoretical.'
-    },
-    {
-        id: 'legendary', name: 'Legendary', color: 0xfbbf24, hex: '#fbbf24', affixCount: 6, power: 4.5,
-        cost: { credits: 30_000_000, resources: { circuitry: 240, warpCore: 5 } },
-        pitch: 'Six rolls. You are now hunting for the right six, not for any six.'
-    },
-    {
-        id: 'unique', name: 'Unique', color: 0xf43f5e, hex: '#f43f5e', affixCount: 7, power: 6.2,
-        cost: { credits: 140_000_000, resources: { circuitry: 650, warpCore: 28 } },
-        pitch: 'Seven rolls at six times weight. The ceiling, and priced like it.'
+    const list = (value: unknown, count: number, kind: VoidItemKind) => {
+        const arr = Array.isArray(value) ? value : []
+        return Array.from({ length: count }, (_, i) => pick(arr[i], kind))
     }
-] as const satisfies readonly VoidRarityDefinition[]
-
-export function voidRarity(id: string): VoidRarityDefinition {
-    return VOID_RARITIES.find(r => r.id === id) ?? VOID_RARITIES[0]
-}
-
-export function voidRarityIndex(id: string) {
-    const index = VOID_RARITIES.findIndex(r => r.id === id)
-    return index < 0 ? 0 : index
-}
-
-export type VoidAffixId =
-    | 'damage' | 'fireRate' | 'critChance' | 'critDamage' | 'pierce' | 'multishot'
-    | 'homing' | 'splash' | 'lifesteal' | 'weaponRange' | 'velocity'
-    | 'miningSpeed' | 'miningYield' | 'miningRange'
-    | 'salvageYield' | 'creditYield' | 'magnet'
-    | 'hullCapacity' | 'shieldCapacity' | 'cargoCapacity' | 'thrust'
-
-export type VoidAffixGroup = 'combat' | 'mining' | 'haul' | 'ship'
-
-export interface VoidAffixDefinition {
-    id: VoidAffixId
-    name: string
-    group: VoidAffixGroup
-    /** Roll band before rarity scaling. */
-    min: number
-    max: number
-    integer?: boolean
-    /** Minimum rarity index this affix can appear on. */
-    minRarity: number
-    describe: (value: number) => string
-}
-
-export const VOID_AFFIXES: readonly VoidAffixDefinition[] = [
-    // ── Combat ──
-    { id: 'damage', name: 'Overcharged', group: 'combat', min: 1.8, max: 4.2, minRarity: 0, describe: v => `+${v.toFixed(1)} weapon damage` },
-    { id: 'fireRate', name: 'Rapid', group: 'combat', min: 5, max: 12, minRarity: 0, describe: v => `+${Math.round(v)}% fire rate` },
-    { id: 'weaponRange', name: 'Extended', group: 'combat', min: 6, max: 14, minRarity: 0, describe: v => `+${Math.round(v)}% weapon range` },
-    { id: 'velocity', name: 'Accelerated', group: 'combat', min: 7, max: 16, minRarity: 0, describe: v => `+${Math.round(v)}% projectile speed` },
-    { id: 'critChance', name: 'Precise', group: 'combat', min: 2, max: 5.5, minRarity: 1, describe: v => `+${v.toFixed(1)}% crit chance` },
-    { id: 'critDamage', name: 'Brutal', group: 'combat', min: 10, max: 24, minRarity: 1, describe: v => `+${Math.round(v)}% crit damage` },
-    { id: 'lifesteal', name: 'Vampiric', group: 'combat', min: 0.8, max: 2.1, minRarity: 2, describe: v => `${v.toFixed(1)}% hull leech` },
-    { id: 'pierce', name: 'Piercing', group: 'combat', min: 0.9, max: 1.3, integer: true, minRarity: 3, describe: v => `Pierces ${Math.round(v)} extra target${Math.round(v) === 1 ? '' : 's'}` },
-    { id: 'multishot', name: 'Scattering', group: 'combat', min: 0.5, max: 0.9, integer: true, minRarity: 3, describe: v => `+${Math.round(v)} projectile${Math.round(v) === 1 ? '' : 's'}` },
-    { id: 'homing', name: 'Seeking', group: 'combat', min: 16, max: 38, minRarity: 2, describe: v => `${Math.round(v)}% tracking` },
-    { id: 'splash', name: 'Detonating', group: 'combat', min: 11, max: 24, minRarity: 3, describe: v => `${Math.round(v)} m splash` },
-
-    // ── Mining ──
-    { id: 'miningSpeed', name: 'Honed', group: 'mining', min: 5, max: 12, minRarity: 0, describe: v => `−${Math.round(v)}% cut time` },
-    { id: 'miningYield', name: 'Rich Seam', group: 'mining', min: 5, max: 13, minRarity: 0, describe: v => `+${Math.round(v)}% ore per rock` },
-    { id: 'miningRange', name: 'Far Beam', group: 'mining', min: 7, max: 17, minRarity: 1, describe: v => `+${Math.round(v)}% beam range` },
-
-    // ── Haul ──
-    { id: 'salvageYield', name: 'Scavenging', group: 'haul', min: 6, max: 15, minRarity: 0, describe: v => `+${Math.round(v)}% salvage from kills` },
-    { id: 'creditYield', name: 'Profiteering', group: 'haul', min: 4, max: 10, minRarity: 1, describe: v => `+${Math.round(v)}% market prices` },
-    { id: 'magnet', name: 'Magnetic', group: 'haul', min: 8, max: 20, minRarity: 1, describe: v => `+${Math.round(v)}% pickup radius` },
-
-    // ── Ship ──
-    { id: 'hullCapacity', name: 'Reinforced', group: 'ship', min: 4, max: 10, minRarity: 1, describe: v => `+${Math.round(v)}% max hull` },
-    { id: 'shieldCapacity', name: 'Warded', group: 'ship', min: 6, max: 15, minRarity: 2, describe: v => `+${Math.round(v)}% max shield` },
-    { id: 'cargoCapacity', name: 'Cavernous', group: 'ship', min: 5, max: 12, minRarity: 2, describe: v => `+${Math.round(v)}% cargo hold` },
-    { id: 'thrust', name: 'Overtuned', group: 'ship', min: 3, max: 8, minRarity: 2, describe: v => `+${Math.round(v)}% top speed` }
-]
-
-export function voidAffix(id: string): VoidAffixDefinition {
-    return VOID_AFFIXES.find(a => a.id === id) ?? VOID_AFFIXES[0]!
-}
-
-export const VOID_AFFIX_GROUP_LABEL: Record<VoidAffixGroup, string> = {
-    combat: 'Combat',
-    mining: 'Mining',
-    haul: 'Haul',
-    ship: 'Ship'
-}
-
-// A module's special is the reason to mount it. Every rarity rolls one, from
-// the cheapest common up — a first module should already change how the ship
-// plays, not just add 2.4 damage. What the higher rarities buy is the stat
-// sheet wrapped around the effect, which is what makes the deep end a hunt for
-// the right rolls on the special you already decided to build around.
-//
-// Specials stack. Two modules carrying the same effect compound it, and
-// unrelated effects combine freely, so a four-hardpoint hull is a build rather
-// than four copies of the best drop.
-
-export type VoidSpecialId =
-    | 'rocket-conversion' | 'chain-arc' | 'railgun' | 'swarm-drones' | 'fracture' | 'overclock'
-    | 'void-siphon' | 'singularity' | 'point-defence' | 'bulwark-field' | 'nanites' | 'ghost-drive'
-    | 'harvester' | 'prospectors-eye' | 'deep-drill'
-    | 'tractor-array' | 'salvage-claw' | 'afterburner'
-
-export type VoidSpecialGroup = 'offence' | 'defence' | 'mining' | 'haul' | 'mobility'
-
-export const VOID_SPECIAL_GROUP_LABEL: Record<VoidSpecialGroup, string> = {
-    offence: 'Offence',
-    defence: 'Defence',
-    mining: 'Mining',
-    haul: 'Haul',
-    mobility: 'Mobility'
-}
-
-export interface VoidSpecialDefinition {
-    id: VoidSpecialId
-    name: string
-    description: string
-    icon: string
-    group: VoidSpecialGroup
-    /** The headline number at `count` mounted copies — the engine reads this too. */
-    value: (count: number) => number
-    /** One line describing what `count` copies actually do. */
-    describe: (count: number) => string
+    return {
+        gun: pick(r.gun, 'gun'),
+        turrets: list(r.turrets, ship.turrets, 'turret'),
+        armor: list(r.armor, ship.armor, 'armor'),
+        shields: list(r.shields, ship.shields, 'shield')
+    }
 }
 
 /**
- * Diminishing-returns helper: `first` on one stack, approaching `cap`.
- * Exported because the engine applies several of these itself, and a second
- * hand-written copy of the curve is exactly how a tooltip ends up lying.
+ * Fills a hull's slots with the strongest gear in the hangar. Used when a new
+ * hull is built and by the hangar's auto-fit button.
  */
-export function voidTaper(count: number, first: number, cap: number) {
-    return cap * (1 - (1 - first / cap) ** Math.max(0, count))
-}
-const taper = voidTaper
-
-export const VOID_SPECIALS: readonly VoidSpecialDefinition[] = [
-    // ── Offence ──
-    {
-        id: 'rocket-conversion', name: 'Warhead Conversion', icon: 'i-lucide-rocket', group: 'offence',
-        description: 'Every barrel fires warheads instead of bolts: far more damage, delivered in a blast, at a slower cycle. Extra copies pack the warheads harder.',
-        value: count => 1.6 + Math.max(0, count - 1) * 0.35,
-        describe: count => `+${Math.round((1.6 + (count - 1) * 0.35 - 1) * 100)}% damage in a ${70 + (count - 1) * 34} m blast · 25% slower cycle`
-    },
-    {
-        id: 'chain-arc', name: 'Arc Cascade', icon: 'i-lucide-git-fork', group: 'offence',
-        description: 'Every hit forks to nearby targets. Stacking adds forks and makes each one bite harder — the answer to a Warden emptying its bays at you.',
-        value: count => count * 2,
-        describe: count => `Forks to ${count * 2} targets within 260 m for ${Math.round((0.55 + (count - 1) * 0.12) * 100)}% damage`
-    },
-    {
-        id: 'railgun', name: 'Mass Driver', icon: 'i-lucide-move-right', group: 'offence',
-        description: 'Shots pierce everything they touch and fly flat and fast. Line up a lane through a patrol and hold the trigger.',
-        value: count => 1.6 + Math.max(0, count - 1) * 0.22,
-        describe: count => `Infinite pierce · +${Math.round((0.6 + (count - 1) * 0.22) * 100)}% projectile speed · +${Math.round((count - 1) * 12)}% damage`
-    },
-    {
-        id: 'swarm-drones', name: 'Swarm Rack', icon: 'i-lucide-bug', group: 'offence',
-        description: 'Combat drones orbit your hull and engage on their own. They keep firing while you are holding the mining beam on a rock, which is the entire point.',
-        value: count => Math.min(9, count * 3),
-        describe: count => `${Math.min(9, count * 3)} escort drones engaging within 420 m`
-    },
-    {
-        id: 'fracture', name: 'Fracture Rounds', icon: 'i-lucide-shell', group: 'offence',
-        description: 'Anything you kill comes apart violently, spraying its own wreckage through whatever was flying next to it. Clears a swarm from the inside out.',
-        value: count => 0.5 * count,
-        describe: count => `Kills detonate for ${Math.round(50 * count)}% of the target's hull within ${170 + count * 40} m`
-    },
-    {
-        id: 'overclock', name: 'Overclock Chamber', icon: 'i-lucide-gauge', group: 'offence',
-        description: 'Runs the weapon core past its rating. The cycle time collapses and so does your safety margin — the plating is what pays for it.',
-        value: count => taper(count, 0.3, 0.8),
-        describe: count => `+${Math.round(taper(count, 0.3, 0.8) * 100)}% fire rate · −${Math.round(taper(count, 0.08, 0.3) * 100)}% max hull`
-    },
-
-    // ── Defence ──
-    {
-        id: 'void-siphon', name: 'Void Siphon', icon: 'i-lucide-droplet', group: 'defence',
-        description: 'Bleeds the damage you deal back into your own hull, and strips a fragment of ore off every wreck. The only real sustain in the sector.',
-        value: count => 0.1 + Math.max(0, count - 1) * 0.055,
-        describe: count => `${((0.1 + (count - 1) * 0.055) * 100).toFixed(1)}% of damage dealt repairs your hull · ore fragment on kill`
-    },
-    {
-        id: 'singularity', name: 'Collapse Core', icon: 'i-lucide-circle-dot', group: 'defence',
-        description: 'Every kill leaves a collapsing point behind that drags everything nearby into itself and grinds it down. Kill one thing in a group and the group comes apart.',
-        value: count => count,
-        describe: count => `Kills leave a singularity: ${260 + (count - 1) * 70} m pull, ${Math.round(40 * count)}% weapon damage per tick`
-    },
-    {
-        id: 'point-defence', name: 'Point Defence Net', icon: 'i-lucide-shield-check', group: 'defence',
-        description: 'A close-in battery that swats incoming bolts out of the air. It cannot stop a rail beam or a shockwave, but it makes standing still on a rock survivable.',
-        value: count => 1.5 * count,
-        describe: count => `Shoots down ${(1.5 * count).toFixed(1)} incoming bolts per second within ${170 + count * 40} m`
-    },
-    {
-        id: 'bulwark-field', name: 'Bulwark Field', icon: 'i-lucide-shield-half', group: 'defence',
-        description: 'A standing dampening field. Every hit that lands, lands softer — flat reduction, before shields, before anything.',
-        value: count => taper(count, 0.18, 0.55),
-        describe: count => `All incoming damage reduced by ${Math.round(taper(count, 0.18, 0.55) * 100)}%`
-    },
-    {
-        id: 'nanites', name: 'Repair Nanites', icon: 'i-lucide-heart-pulse', group: 'defence',
-        description: 'Hull repair that runs whenever nothing has hit you for three seconds. Turns a bad fight into something you can walk off instead of aborting the run over.',
-        value: count => 1.5 * count,
-        describe: count => `Repairs ${(1.5 * count).toFixed(1)}% of max hull per second, 3 s after the last hit`
-    },
-    {
-        id: 'ghost-drive', name: 'Ghost Drive', icon: 'i-lucide-ghost', group: 'defence',
-        description: 'Getting hit drops the hull out of phase for a moment and dumps everything into the drive. Being caught out is survivable exactly once per exchange.',
-        value: count => 0.5 + count * 0.35,
-        describe: count => `Taking a hit grants ${(0.5 + count * 0.35).toFixed(2)} s of invulnerability and +${Math.round(taper(count, 0.3, 0.9) * 100)}% speed`
-    },
-
-    // ── Mining ──
-    {
-        id: 'harvester', name: 'Harvest Protocol', icon: 'i-lucide-combine', group: 'mining',
-        description: 'Splits the cutting beam across several rocks at once and drives all of them harder. The difference between clearing a deposit and getting caught in one.',
-        value: count => count,
-        describe: count => `−${Math.round((1 - 0.68 ** count) * 100)}% cut time · strips ${count} extra rock${count === 1 ? '' : 's'} in range`
-    },
-    {
-        id: 'prospectors-eye', name: "Prospector's Eye", icon: 'i-lucide-eye', group: 'mining',
-        description: 'Reads the seam before it cracks and pulls the richer inclusions out whole. A ferrite node occasionally pays out cobalt; a cobalt seam occasionally pays out iridium.',
-        value: count => Math.min(0.95, 0.3 + Math.max(0, count - 1) * 0.24),
-        describe: count => `${Math.round(Math.min(0.95, 0.3 + (count - 1) * 0.24) * 100)}% chance per rock of a unit of the next ore tier up`
-    },
-    {
-        id: 'deep-drill', name: 'Deep Core Drill', icon: 'i-lucide-drill', group: 'mining',
-        description: 'Goes all the way to the core instead of shearing the seam off the surface. Every rock pays out far more, and every rock takes noticeably longer — a deposit build, not a drive-by one.',
-        value: count => 0.45 * count,
-        describe: count => `+${Math.round(45 * count)}% ore per rock · +${Math.round(taper(count, 0.2, 0.6) * 100)}% cut time`
-    },
-
-    // ── Haul and mobility ──
-    {
-        id: 'tractor-array', name: 'Tractor Array', icon: 'i-lucide-magnet', group: 'haul',
-        description: 'A wide-aperture tractor field. Salvage comes to you from most of the screen and stops rotting on the floor while you are busy being shot at.',
-        value: count => 0.9 * count,
-        describe: count => `+${Math.round(90 * count)}% pickup radius · dropped salvage never decays`
-    },
-    {
-        id: 'salvage-claw', name: 'Salvage Claw', icon: 'i-lucide-grab', group: 'haul',
-        description: 'Strips wrecks properly instead of scooping what floats free. More salvage off everything, and the heavier hulls start giving up their targeting boards.',
-        value: count => 0.5 * count,
-        describe: count => `+${Math.round(50 * count)}% salvage from kills · ${Math.round(Math.min(75, 20 * count))}% chance of bonus circuitry`
-    },
-    {
-        id: 'afterburner', name: 'Afterburner Tap', icon: 'i-lucide-flame', group: 'mobility',
-        description: 'Bleeds the weapon core into the drive. The burn lasts far longer and refills far faster, which on a sector this wide is worth more than it sounds.',
-        value: count => 1 / (1 + 0.7 * count),
-        describe: count => `Burn drains ${Math.round((1 / (1 + 0.7 * count)) * 100)}% as fast, recharges +${Math.round(60 * count)}% faster · +${Math.round(taper(count, 0.08, 0.3) * 100)}% top speed`
+export function voidAutoFit(shipId: string, items: readonly VoidItem[]): VoidShipFit {
+    const ship = voidShip(shipId)
+    const best = (kind: VoidItemKind) => items.filter(i => i.kind === kind).sort((a, b) => voidItemScore(b) - voidItemScore(a)).map(i => i.id)
+    const take = (kind: VoidItemKind, count: number) => {
+        const ids = best(kind)
+        return Array.from({ length: count }, (_, i) => ids[i] ?? null)
     }
-]
-
-export function voidSpecial(id: string | null | undefined) {
-    return VOID_SPECIALS.find(s => s.id === id) ?? null
+    return { gun: best('gun')[0] ?? null, turrets: take('turret', ship.turrets), armor: take('armor', ship.armor), shields: take('shield', ship.shields) }
 }
 
-export type VoidSpecialStacks = Partial<Record<VoidSpecialId, number>>
-
-/** How many mounted modules carry this effect. */
-export function voidSpecialStacks(stacks: VoidSpecialStacks, id: VoidSpecialId) {
-    return stacks[id] ?? 0
+export interface VoidLoadout {
+    shipId: string
+    levels: VoidUpgradeLevels
+    fit: VoidShipFit
+    gun: VoidWeaponFit | null
+    turrets: (VoidWeaponFit | null)[]
+    skill: { id: VoidSkillId, nodes: string[] }
 }
-
-/**
- * The headline magnitude of an effect at the number of copies currently
- * mounted, or 0 when it isn't in the build at all. Both the engine and the
- * hangar read effects through here, so a number can never drift between the
- * tooltip and what the ship actually does.
- */
-export function voidSpecialValue(stacks: VoidSpecialStacks, id: VoidSpecialId) {
-    const count = stacks[id] ?? 0
-    if (count <= 0) return 0
-    return (voidSpecial(id)?.value(count)) ?? 0
-}
-
-export interface VoidWeaponInstance {
-    id: string
-    rarityId: VoidRarityId
-    name: string
-    affixes: Partial<Record<VoidAffixId, number>>
-    specialId: VoidSpecialId | null
-    slotIndex: number | null
-}
-
-const VOID_MODULE_NOUNS = ['Repeater', 'Autocannon', 'Lance', 'Pulser', 'Driver', 'Scattergun', 'Emitter', 'Battery', 'Fang', 'Needle', 'Cutter', 'Rig', 'Bore', 'Reaper']
-const VOID_MODULE_PREFIXES = ['Halcyon', 'Cinder', 'Nix', 'Umbral', 'Karrow', 'Deep', 'Sable', 'Vex', 'Orbital', 'Broken', 'Hollow', 'Ashen']
-
-export function rollVoidWeapon(rarityId: VoidRarityId, rng: () => number = randomFloat): Omit<VoidWeaponInstance, 'id' | 'slotIndex'> {
-    const rarity = voidRarity(rarityId)
-    const index = voidRarityIndex(rarityId)
-    const available = VOID_AFFIXES.filter(a => a.minRarity <= index)
-    const chosen: VoidAffixDefinition[] = []
-    for (let i = 0; i < rarity.affixCount && available.length > 0; i++) {
-        const pickIndex = Math.floor(rng() * available.length)
-        chosen.push(available.splice(pickIndex, 1)[0]!)
-    }
-
-    const affixes: Partial<Record<VoidAffixId, number>> = {}
-    for (const affix of chosen) {
-        const raw = (affix.min + rng() * (affix.max - affix.min)) * rarity.power
-        affixes[affix.id] = affix.integer ? Math.max(1, Math.round(raw)) : Math.round(raw * 10) / 10
-    }
-
-    // Every module carries an effect, whatever it cost. What you pay for is the
-    // stat sheet around it.
-    const specialId = VOID_SPECIALS[Math.floor(rng() * VOID_SPECIALS.length)]!.id
-
-    const prefix = VOID_MODULE_PREFIXES[Math.floor(rng() * VOID_MODULE_PREFIXES.length)]!
-    const noun = VOID_MODULE_NOUNS[Math.floor(rng() * VOID_MODULE_NOUNS.length)]!
-    const name = `${prefix} ${noun}`
-
-    return { rarityId, name, affixes, specialId }
-}
-
-/** Stripping a module returns this fraction of what its rarity costs to buy. */
-export const VOID_SALVAGE_RATE = 0.18
-
-export function voidSalvageValue(rarityId: VoidRarityId) {
-    const cost = voidRarity(rarityId).cost
-    const resources: VoidResourceBundle = {}
-    for (const [id, amount] of Object.entries(cost.resources) as [VoidResourceId, number][]) {
-        const value = Math.max(1, Math.round(amount * VOID_SALVAGE_RATE))
-        resources[id] = value
-    }
-    return { credits: Math.round(cost.credits * VOID_SALVAGE_RATE), resources }
-}
-
-// ─── Boss loot ──────────────────────────────────────────────────────────────
-
-/** Chance that a downed capital coughs up a whole module. */
-export const VOID_BOSS_MODULE_DROP_CHANCE = 0.4
-
-/**
- * What a capital can drop, by sector. Deeper sectors don't just drop *more* —
- * they drop *better*, which is the main reason to push into a tier that can
- * kill you rather than farming a safe one.
- */
-const VOID_BOSS_DROP_TABLE: Record<number, readonly (readonly [VoidRarityId, number])[]> = {
-    1: [['common', 56], ['uncommon', 32], ['rare', 11], ['epic', 1]],
-    2: [['common', 26], ['uncommon', 42], ['rare', 24], ['epic', 7], ['legendary', 1]],
-    3: [['uncommon', 26], ['rare', 40], ['epic', 26], ['legendary', 7], ['unique', 1]],
-    4: [['rare', 24], ['epic', 40], ['legendary', 30], ['unique', 6]]
-}
-
-export function voidBossDropTable(tier: number) {
-    return VOID_BOSS_DROP_TABLE[Math.max(1, Math.min(VOID_MAX_SECTOR, tier))] ?? VOID_BOSS_DROP_TABLE[1]!
-}
-
-export function voidRollBossModuleRarity(tier: number, rng: () => number = randomFloat): VoidRarityId {
-    const table = voidBossDropTable(tier)
-    return randomWeighted(table, entry => entry[1], rng)[0]
-}
-
-/**
- * A single readable score for a module, so the inventory can sort and the
- * player can tell at a glance whether a new drop beats what's mounted.
- */
-export function voidModuleScore(weapon: VoidWeaponInstance) {
-    const rarityWeight = (voidRarityIndex(weapon.rarityId) + 1) ** 1.35
-    const affixWeight = Object.values(weapon.affixes).reduce<number>((sum, value) => sum + (value ?? 0), 0)
-    return Math.round(rarityWeight * 8 + affixWeight * 1.6 + (weapon.specialId ? 40 : 0))
-}
-
-// ─── Loadout resolution ─────────────────────────────────────────────────────
 
 export interface VoidDerivedStats {
-    maxHull: number
-    maxShield: number
-    shieldRegenPerSec: number
+    hull: number
+    shield: number
+    shieldRegen: number
+    shieldDelay: number
+    resist: number
+    hullRepair: number
+    defenceMods: VoidModId[]
     speed: number
-    turnRate: number
-    cargoCapacity: number
-    damage: number
-    fireGapMs: number
-    weaponRange: number
-    projectileSpeed: number
-    critChance: number
-    critDamage: number
-    pierce: number
-    multishot: number
-    homing: number
-    splash: number
-    lifesteal: number
-    miningRange: number
-    miningTimeMult: number
-    oreYieldMult: number
-    salvageYieldMult: number
-    marketPriceMult: number
-    magnetRange: number
-    turretSlots: number
-    /** Distinct effects in the build, for display. */
-    specialIds: VoidSpecialId[]
-    /** How many mounted modules carry each effect — the engine reads this. */
-    specialStacks: VoidSpecialStacks
+    boost: number
+    agility: number
+    cargo: number
+    magnet: number
+    /** Gun item power: scales the nose gun, ship abilities and skills. */
+    damageMult: number
+    fireRateMult: number
+    miningMult: number
+    droneDamageMult: number
+    drones: number
+    gun: number
 }
 
-export interface VoidLoadoutInput {
-    levels: VoidUpgradeLevels
-    shipId: string
-    weapons: VoidWeaponInstance[]
+export function voidDerivedStats(shipId: string, levels: VoidUpgradeLevels, fit: VoidShipFit, items: readonly VoidItem[]): VoidDerivedStats {
+    const ship = voidShip(shipId)
+    const l = levels
+    const byId = new Map(items.map(i => [i.id, i]))
+    const armor = fit.armor.map(id => (id ? byId.get(id) : undefined)).filter((i): i is VoidItem => !!i)
+    const shields = fit.shields.map(id => (id ? byId.get(id) : undefined)).filter((i): i is VoidItem => !!i)
+    const defence = voidDefenceStats(ship.hull, ship.shield, armor, shields)
+    const gunItem = fit.gun ? byId.get(fit.gun) : undefined
+    const gunPower = gunItem ? voidWeaponFit(gunItem).power : 0.6
+    return {
+        hull: defence.hull,
+        shield: defence.shield,
+        shieldRegen: defence.shield * defence.regen,
+        shieldDelay: defence.delay,
+        resist: defence.resist,
+        hullRepair: defence.repair,
+        defenceMods: defence.mods,
+        speed: ship.speed * (1 + l.engines * 0.08),
+        boost: 1.9 + l.engines * 0.05,
+        agility: ship.agility * (1 + l.engines * 0.04),
+        cargo: Math.round(ship.cargo * (1 + l.cargo * 0.15)),
+        magnet: 34 * (1 + l.cargo * 0.2) * Math.max(1, ship.size / 5),
+        damageMult: gunPower,
+        fireRateMult: 1,
+        miningMult: 1 + l.mining * 0.25,
+        // Drones ride on the best turret you fitted, so they grow with your gear.
+        droneDamageMult: (1 + l.drones * 0.2) * Math.max(gunPower, ...fit.turrets.map(id => (id && byId.get(id) ? voidItemPower(byId.get(id)!) : 0))),
+        drones: ship.drones + Math.floor(l.drones / 3) * (ship.drones > 0 ? 1 : 0),
+        gun: VOID_GUN_BASE
+    }
+}
+
+/** A single number to compare builds with. */
+export function voidPowerRating(loadout: Pick<VoidLoadout, 'gun' | 'turrets'>, stats: VoidDerivedStats) {
+    const turretDps = loadout.turrets.reduce((sum, t) => sum + (t ? voidTurretDps(t.type) * t.power * t.rate : 0), 0)
+    const gunDps = loadout.gun ? voidGunDps(loadout.gun.type) * loadout.gun.power * loadout.gun.rate : 0
+    const droneDps = stats.drones * 8 * stats.droneDamageMult
+    const defence = (stats.hull * (1 + stats.resist) + stats.shield * 1.2) / 10
+    return Math.round(turretDps + gunDps * 0.5 + droneDps + defence)
+}
+
+// ─── Settlement ─────────────────────────────────────────────────────────────
+
+/** Anything longer is a dead tab, not a run. */
+export const VOID_MAX_RUN_MS = 40 * 60 * 1000
+/** Runs with no finish older than this can be cleared by the next launch. */
+export const VOID_STALE_RUN_MS = 45 * 60 * 1000
+
+/**
+ * The most of each resource an honest run could pick up per minute, before
+ * the sector bonus. Set well above what a player strip-mining the richest
+ * cluster manages (a starter hull fills 1,000 units in about two minutes), so
+ * it only ever bites a forged report.
+ */
+const VOID_UNITS_PER_MINUTE: Record<VoidResourceId, number> = {
+    ferrite: 750,
+    cobalt: 600,
+    iridium: 500,
+    xenite: 600,
+    scrap: 1000,
+    alloy: 300,
+    core: 0
+}
+
+export interface VoidRunReport {
+    extracted: boolean
+    haul: VoidResourceBundle
+    elapsedMs: number
+    kills: number
+    wardenKilled: boolean
+}
+
+export interface VoidSettledRun {
+    haul: VoidResourceBundle
+    units: number
+    value: number
+    elapsedMs: number
+    kills: number
+    wardenKilled: boolean
+    /** True when the report was trimmed by a cap. */
+    trimmed: boolean
 }
 
 /**
- * Every mounted module contributes its whole affix sheet to the ship — combat
- * rolls, mining rolls and haul rolls alike. Modules are not independent guns
- * with independent stats; they are the ship's weapon-and-laser system, and
- * mounting a second one makes the first one better too.
+ * Turns a client report into what the run may bank. Only an extraction banks
+ * anything; the haul is filtered to the sector's resources, capped per minute
+ * of wall-clock time and trimmed to the hold the ship launched with.
  */
-export function voidDerivedStats(input: VoidLoadoutInput): VoidDerivedStats {
-    const ship = voidShip(input.shipId)
-    const levels = input.levels
-    const mounted = input.weapons.filter(w => w.slotIndex !== null && w.slotIndex < ship.turretSlots)
+export function voidSettleRun(report: VoidRunReport, tier: number, cargoCapacity: number, wallElapsedMs: number): VoidSettledRun {
+    const elapsedMs = Math.max(0, Math.min(Math.floor(Number(report.elapsedMs) || 0), wallElapsedMs, VOID_MAX_RUN_MS))
+    const minutes = Math.max(elapsedMs, 0) / 60_000
+    // A warden fight takes time to reach and time to win.
+    const wardenKilled = Boolean(report.wardenKilled) && wallElapsedMs >= 60_000
+    const kills = Math.max(0, Math.min(Math.floor(Number(report.kills) || 0), Math.ceil(minutes * 60) + 10))
 
-    const sum = (id: VoidAffixId) => mounted.reduce((total, weapon) => total + (weapon.affixes[id] ?? 0), 0)
-    const pct = (id: VoidAffixId) => sum(id) / 100
-
-    const specialStacks: VoidSpecialStacks = {}
-    for (const weapon of mounted) {
-        if (!weapon.specialId) continue
-        specialStacks[weapon.specialId] = (specialStacks[weapon.specialId] ?? 0) + 1
+    if (!report.extracted) {
+        return { haul: {}, units: 0, value: 0, elapsedMs, kills, wardenKilled: false, trimmed: false }
     }
-    const specialIds = Object.keys(specialStacks) as VoidSpecialId[]
-    const stack = (id: VoidSpecialId) => specialStacks[id] ?? 0
 
-    // Effects that are pure stat maths resolve here so the hangar sheet and the
-    // ship agree; the ones that need frames (arcs, drones, singularities) are
-    // read off `specialStacks` by the engine instead.
-    const harvester = stack('harvester')
-    const deepDrill = stack('deep-drill')
-    const overclock = stack('overclock')
-    const tractor = stack('tractor-array')
-    const claw = stack('salvage-claw')
-    const afterburner = stack('afterburner')
+    const allowed = voidSectorResources(tier)
+    const sectorBonus = 1 + (tier - 1) * 0.25
+    let trimmed = false
+    const capped: VoidResourceBundle = {}
+    for (const id of VOID_RESOURCE_IDS) {
+        const reported = voidUnits(report.haul?.[id])
+        if (reported <= 0) continue
+        if (!allowed.has(id)) {
+            trimmed = true
+            continue
+        }
+        const ceiling = id === 'core'
+            ? (wardenKilled ? 2 + tier : 0) + Math.floor(minutes / 4)
+            : Math.ceil(VOID_UNITS_PER_MINUTE[id] * sectorBonus * minutes) + 300
+        const amount = Math.min(reported, ceiling)
+        if (amount < reported) trimmed = true
+        if (amount > 0) capped[id] = amount
+    }
+
+    // Trim to the hold, dropping the cheapest material first.
+    const haul: VoidResourceBundle = {}
+    let room = Math.max(0, Math.floor(cargoCapacity))
+    const byValue = VOID_RESOURCE_IDS
+        .filter(id => (capped[id] ?? 0) > 0)
+        .sort((a, b) => VOID_MARKET_PRICES[b] - VOID_MARKET_PRICES[a])
+    for (const id of byValue) {
+        const take = Math.min(capped[id]!, room)
+        if (take < capped[id]!) trimmed = true
+        if (take > 0) haul[id] = take
+        room -= take
+    }
 
     return {
-        maxHull: Math.round(
-            voidHullFor(levels.plating) * ship.hullMult * (1 + pct('hullCapacity'))
-            * (1 - taper(overclock, 0.08, 0.3))
-        ),
-        maxShield: Math.round(voidShieldFor(levels.deflector) * ship.hullMult * (1 + pct('shieldCapacity'))),
-        shieldRegenPerSec: voidShieldRegenFor(levels.deflector),
-        speed: voidSpeedFor(levels.thrusters) * ship.speedMult * (1 + pct('thrust')) * (1 + taper(afterburner, 0.08, 0.3)),
-        turnRate: VOID_BASE_TURN_RATE * ship.turnMult,
-        cargoCapacity: Math.round(voidCargoFor(levels.hold) * ship.cargoMult * (1 + pct('cargoCapacity'))),
-
-        damage: voidDamageFor(levels.weaponCore) + sum('damage'),
-        fireGapMs: Math.max(70, voidFireGapFor(levels.weaponCore) / (1 + pct('fireRate') + taper(overclock, 0.3, 0.8))),
-        weaponRange: voidWeaponRangeFor(levels.targeting) * (1 + pct('weaponRange')),
-        projectileSpeed: VOID_BASE_PROJECTILE_SPEED * (1 + pct('velocity')),
-        critChance: Math.min(0.85, voidCritFor(levels.targeting) + pct('critChance')),
-        critDamage: 1.5 + pct('critDamage'),
-        pierce: Math.round(sum('pierce')),
-        multishot: Math.round(sum('multishot')),
-        homing: Math.min(1, pct('homing')),
-        splash: sum('splash'),
-        lifesteal: pct('lifesteal'),
-
-        miningRange: voidMiningRangeFor(levels.targeting) * (1 + pct('miningRange')),
-        miningTimeMult: Math.max(0.12,
-            voidMiningMultFor(levels.weaponCore) * ship.miningMult * (1 - pct('miningSpeed'))
-            * 0.68 ** harvester
-            * (1 + taper(deepDrill, 0.2, 0.6))
-        ),
-        oreYieldMult: voidOreYieldFor(levels.refinery) * (1 + pct('miningYield') + deepDrill * 0.45),
-        salvageYieldMult: voidSalvageYieldFor(levels.refinery) * (1 + pct('salvageYield') + claw * 0.5),
-        marketPriceMult: voidMarketMultFor(levels.refinery) * (1 + pct('creditYield')),
-        magnetRange: VOID_BASE_MAGNET_RANGE * (1 + pct('magnet') + tractor * 0.9),
-
-        turretSlots: ship.turretSlots,
-        specialIds,
-        specialStacks
+        haul,
+        units: voidBundleUnits(haul),
+        value: voidBundleValue(haul),
+        elapsedMs,
+        kills,
+        wardenKilled,
+        trimmed
     }
 }
 
-/** What each mounted module looks like as an auto-turret. */
-export interface VoidTurretRuntime {
-    id: string
-    rarityId: VoidRarityId
-    name: string
-    color: number
-    /** Turrets fire the ship's pooled damage at a reduced rate — they support, they don't replace your trigger. */
-    damage: number
-    fireGapMs: number
-    range: number
+// ─── Hangar snapshot ────────────────────────────────────────────────────────
+
+/** The persisted fields the hangar needs; matches the `void_state` row. */
+export interface VoidStateSnapshot {
+    userId?: string
+    resources: Record<string, number>
+    ownedShipIds: string[]
+    equippedShipId: string
+    loadouts: Record<string, unknown>
+    upgradeLevels: Record<string, number>
+    highestSectorCleared: number
+    runsPlayed: number
+    extractions: number
+    kills: number
+    wardensKilled: number
+    bestHaulValue: number
+    totalSold: number
+    runStartedAt: Date | null
+    runSector: number | null
+    pilotXp: number
+    tradeLevel: number
+    unlockedSkills: string[]
+    equippedSkill: string
+    skillNodes: Record<string, string[]>
+    supplies?: Record<string, number>
+    contractsDay?: string | null
+    contractsDone?: number[]
+    mods?: Record<string, number>
 }
 
-export const VOID_TURRET_DAMAGE_SHARE = 0.5
-export const VOID_TURRET_CYCLE_MULT = 2.1
+export function voidOwnedShips(s: Pick<VoidStateSnapshot, 'ownedShipIds'>) {
+    return Array.from(new Set(['sparrow', ...(s.ownedShipIds ?? [])]))
+}
 
-export function voidTurretRuntime(weapon: VoidWeaponInstance, stats: VoidDerivedStats): VoidTurretRuntime {
+/** The loadout a row flies with, fully normalised and resolved against gear. */
+export function voidLoadoutFor(s: VoidStateSnapshot, items: readonly VoidItem[], shipId = s.equippedShipId): VoidLoadout {
+    const levels = voidNormalizeLevels(s.upgradeLevels)
+    const fit = voidNormalizeFit(shipId, s.loadouts?.[shipId], items)
+    const byId = new Map(items.map(i => [i.id, i]))
+    const weapon = (id: string | null) => {
+        const item = id ? byId.get(id) : undefined
+        return item ? voidWeaponFit(item) : null
+    }
+    const skillId = voidEquippedSkill(s)
+    const skill = { id: skillId, nodes: voidSkillNodesFor(s.skillNodes, skillId, voidPilotLevel(s.pilotXp ?? 0)) }
+    return { shipId, levels, fit, gun: weapon(fit.gun), turrets: fit.turrets.map(weapon), skill }
+}
+
+export function voidDescribeItem(item: VoidItem, resources: VoidResourceBundle, balance: number, gems: number) {
+    const type = voidItemType(item.type)
+    const upgrade = voidItemUpgradeCost(item)
+    const base = item.kind === 'gun' ? voidGun(item.type) : item.kind === 'turret' ? voidTurret(item.type) : null
+    const power = voidItemPower(item)
+    const a = item.affixes ?? {}
+    let stats: { label: string, value: string }[] = []
+    if (item.kind === 'gun' && base) {
+        const g = base as VoidGunDefinition
+        stats = [
+            { label: 'DPS', value: String(Math.round(voidGunDps(g.id) * power * (1 + (a.damage ?? 0)) * (1 + (a.rate ?? 0)))) },
+            { label: 'Range', value: String(Math.round(g.range * (1 + (a.range ?? 0)))) }
+        ]
+    } else if (item.kind === 'turret' && base) {
+        const t = base as VoidTurretDefinition
+        stats = [
+            { label: 'DPS', value: String(Math.round(voidTurretDps(t.id) * power * (1 + (a.damage ?? 0)) * (1 + (a.rate ?? 0)))) },
+            { label: 'Range', value: String(Math.round(t.range * (1 + (a.range ?? 0)))) }
+        ]
+    } else {
+        const d = item.kind === 'armor' ? voidDefenceStats(0, 0, [item], []) : voidDefenceStats(0, 0, [], [item])
+        stats = item.kind === 'armor'
+            ? [{ label: 'Hull', value: `+${d.hull}` }, ...(d.resist > 0 ? [{ label: 'Resist', value: `${Math.round(d.resist * 100)}%` }] : [])]
+            : [{ label: 'Shield', value: `+${d.shield}` }, { label: 'Recharge', value: `${Math.round(d.regen * 100)}%/s` }]
+    }
     return {
-        id: weapon.id,
-        rarityId: weapon.rarityId,
-        name: weapon.name,
-        color: voidRarity(weapon.rarityId).color,
-        damage: stats.damage * VOID_TURRET_DAMAGE_SHARE,
-        fireGapMs: stats.fireGapMs * VOID_TURRET_CYCLE_MULT,
-        range: stats.weaponRange * 0.85
+        ...item,
+        name: type?.name ?? item.type,
+        color: type?.color ?? 0xffffff,
+        rarityName: VOID_RARITIES[item.rarity]?.name ?? 'Common',
+        rarityColor: VOID_RARITIES[item.rarity]?.color ?? '#fff',
+        score: voidItemScore(item),
+        stats,
+        affixList: Object.entries(a).map(([id, value]) => {
+            const def = voidAffix(id)
+            return { id, name: def?.name ?? id, value, text: `${def?.format === 'pctNeg' ? '-' : '+'}${Math.round(value * 1000) / 10}%` }
+        }),
+        modInfo: voidMod(item.mod),
+        upgradeCost: upgrade,
+        upgradeAffordable: upgrade ? voidCanAffordPrice(upgrade, resources, balance, gems) : false,
+        salvage: voidSalvageValue(item)
     }
 }
 
-// ─── Power level ────────────────────────────────────────────────────────────
-
-/** A single number the hangar uses to say "this sector will kill you". */
-export function voidPowerLevel(input: VoidLoadoutInput) {
-    const levels = input.levels
-    const upgradeScore = VOID_UPGRADES.reduce((sum, def) => sum + levels[def.id] * (def.funding === 'salvage' ? 2.4 : 2), 0)
-    const ship = voidShip(input.shipId)
-    const shipScore = (ship.hullMult + ship.speedMult + ship.cargoMult * 0.4) * 6
-        + ship.turretSlots * 4
-        + (ship.barrels - 1) * 5
-    const moduleScore = input.weapons
-        .filter(w => w.slotIndex !== null)
-        .reduce((sum, w) => sum + voidModuleScore(w) * 0.18, 0)
-    return Math.round(upgradeScore + shipScore + moduleScore)
-}
-
-export function voidRecommendedSector(power: number, highestSectorExtracted: number) {
-    let best = 1
-    for (const sector of VOID_SECTORS) {
-        if (!voidSectorUnlocked(sector.tier, highestSectorExtracted)) break
-        if (power >= sector.recommendedPower) best = sector.tier
+export function voidDescribeState(s: VoidStateSnapshot, balance: number, gems: number, items: readonly VoidItem[]) {
+    const resources = voidCleanBundle(s.resources)
+    const owned = voidOwnedShips(s)
+    const loadout = voidLoadoutFor(s, items)
+    const stats = voidDerivedStats(loadout.shipId, loadout.levels, loadout.fit, items)
+    const pilot = voidPilotProgress(s.pilotXp ?? 0)
+    const unlockedSkills = voidUnlockedSkills(s)
+    const stock = voidNormalizeSupplies(s.supplies)
+    const day = voidContractDay()
+    const maxCraftTier = Math.min(VOID_MAX_TIER, s.highestSectorCleared + 1)
+    return {
+        resources,
+        balance,
+        gems,
+        equippedShipId: s.equippedShipId,
+        loadout,
+        stats,
+        power: voidPowerRating(loadout, stats),
+        highestSectorCleared: s.highestSectorCleared,
+        runsPlayed: s.runsPlayed,
+        extractions: s.extractions,
+        kills: s.kills,
+        wardensKilled: s.wardensKilled,
+        bestHaulValue: s.bestHaulValue,
+        totalSold: s.totalSold,
+        activeRun: s.runStartedAt ? { startedAt: s.runStartedAt, sector: s.runSector ?? 1 } : null,
+        prices: Object.fromEntries(VOID_RESOURCE_IDS.map(id => [id, voidSellPrice(id, s.tradeLevel ?? 0)])) as Record<VoidResourceId, number>,
+        trade: {
+            level: s.tradeLevel ?? 0,
+            maxLevel: VOID_TRADE_MAX_LEVEL,
+            mult: voidTradeMult(s.tradeLevel ?? 0),
+            nextMult: (s.tradeLevel ?? 0) < VOID_TRADE_MAX_LEVEL ? voidTradeMult((s.tradeLevel ?? 0) + 1) : null,
+            cost: voidTradeCost(s.tradeLevel ?? 0),
+            affordable: (voidTradeCost(s.tradeLevel ?? 0) ?? Infinity) <= balance
+        },
+        resourceCatalog: VOID_RESOURCES,
+        abilities: VOID_ABILITIES,
+        pilot,
+        items: items.map(item => voidDescribeItem(item, resources, balance, gems)).sort((a, b) => b.score - a.score),
+        mods: VOID_MODS.map(mod => ({ ...mod, count: Math.max(0, Math.floor(Number(s.mods?.[mod.id]) || 0)) })),
+        crafting: {
+            maxTier: maxCraftTier,
+            rarities: VOID_RARITIES,
+            types: VOID_ITEM_TYPES.map(t => ({ ...t, unlocked: t.minTier <= maxCraftTier })),
+            costs: VOID_ITEM_KINDS.map(kind => ({
+                kind,
+                tiers: [1, 2, 3, 4, 5].map((tier) => {
+                    const price = voidCraftCost(kind, tier)
+                    return { tier, ...price, unlocked: voidCanCraftTier(tier, s.highestSectorCleared), affordable: voidCanAffordPrice(price, resources, balance, gems) }
+                })
+            }))
+        },
+        supplies: VOID_SUPPLIES.map((supply) => {
+            const price = voidSupplyCost(supply.id, s.highestSectorCleared)
+            return { ...supply, stock: stock[supply.id], cost: price, affordable: voidCanAffordPrice(price, resources, balance, gems) }
+        }),
+        supplyCarry: VOID_SUPPLY_CARRY,
+        supplyStockMax: VOID_SUPPLY_STOCK_MAX,
+        contracts: voidContractsFor(s.userId ?? '', day, s.highestSectorCleared, s.tradeLevel ?? 0).map(c => ({
+            ...c,
+            done: s.contractsDay === day && (s.contractsDone ?? []).includes(c.index),
+            affordable: (resources[c.resource] ?? 0) >= c.amount
+        })),
+        contractsReset: voidContractResetAt(),
+        equippedSkill: loadout.skill.id,
+        skills: VOID_SKILLS.map(skill => ({
+            ...skill,
+            unlocked: unlockedSkills.includes(skill.id),
+            available: s.highestSectorCleared >= skill.requiresSector,
+            nodesAllocated: voidSkillNodesFor(s.skillNodes, skill.id, pilot.level),
+            affordable: voidCanAffordPrice({ resources: skill.cost, coins: skill.coins, gems: skill.gems }, resources, balance, gems)
+        })),
+        ships: VOID_SHIPS.map((ship) => {
+            const shipLoadout = voidLoadoutFor(s, items, ship.id)
+            const shipStats = voidDerivedStats(ship.id, shipLoadout.levels, shipLoadout.fit, items)
+            return {
+                ...ship,
+                owned: owned.includes(ship.id),
+                equipped: ship.id === s.equippedShipId,
+                unlocked: s.highestSectorCleared >= ship.requiresSector,
+                affordable: voidCanAffordPrice({ resources: ship.cost, coins: ship.coins, gems: ship.gems }, resources, balance, gems),
+                fit: shipLoadout.fit,
+                turretTypes: shipLoadout.turrets.map(t => t?.type ?? null),
+                stats: shipStats,
+                power: voidPowerRating(shipLoadout, shipStats)
+            }
+        }),
+        upgrades: VOID_UPGRADES.map((upgrade) => {
+            const level = loadout.levels[upgrade.id]
+            const cost = voidUpgradeCost(upgrade.id, level)
+            return {
+                id: upgrade.id,
+                name: upgrade.name,
+                description: upgrade.description,
+                level,
+                maxLevel: upgrade.maxLevel,
+                current: upgrade.effect(level),
+                next: level < upgrade.maxLevel ? upgrade.effect(level + 1) : null,
+                cost,
+                affordable: cost ? voidCanAffordPrice(cost, resources, balance, gems) : false
+            }
+        }),
+        sectors: VOID_SECTORS.map(sector => ({
+            ...sector,
+            unlocked: voidSectorUnlocked(sector.tier, s.highestSectorCleared),
+            cleared: s.highestSectorCleared >= sector.tier,
+            gearTier: sector.tier
+        }))
     }
-    return best
-}
-
-// ─── Payout ─────────────────────────────────────────────────────────────────
-//
-// There is no coin payout for a run. What you extract is material, and the only
-// anti-cheat ceiling that matters is the hold you launched with — you cannot
-// bank more units than the ship could physically carry.
-
-export function voidMaxResourceUnitsForRun(cargoCapacity: number) {
-    return Math.max(0, Math.floor(cargoCapacity))
-}
-
-export function voidRollDrop(min: number, max: number) {
-    return randomInt(min, max)
 }

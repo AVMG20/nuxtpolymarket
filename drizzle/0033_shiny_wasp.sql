@@ -1,0 +1,1 @@
+ALTER TABLE "void_state" ADD COLUMN "trade_level" integer DEFAULT 0 NOT NULL;

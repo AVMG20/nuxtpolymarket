@@ -1,0 +1,532 @@
+<template>
+    <div class="vr-root" :class="{ 'vr-flying': inFlight }">
+        <div ref="viewport" class="absolute inset-0" @click="onViewportClick" />
+
+        <!-- ═══ Hangar ═══ -->
+        <VoidHangar
+            v-if="!inFlight && state"
+            :state="state"
+            :busy="busy"
+            :preview-ship-id="previewShipId"
+            :history="history"
+            :leaderboard="leaderboard"
+            @preview="previewShip"
+            @launch="launch"
+            @equip="equipShip"
+            @buy-ship="buyShip"
+            @set-fit="setFit"
+            @craft="craftItem"
+            @upgrade-item="upgradeItem"
+            @salvage="salvageItem"
+            @socket="socketMod"
+            @buy-supply="buySupply"
+            @claim-contract="claimContract"
+            @upgrade="buyUpgrade"
+            @sell="sell"
+            @unlock-skill="unlockSkill"
+            @equip-skill="equipSkill"
+            @skill-nodes="setSkillNodes"
+            @buy-trade="buyTrade"
+            @tab="onTab"
+            :muted="muted"
+            @sound="(s: VoidSfx) => audio.play(s)"
+            @toggle-mute="muted = !muted"
+        />
+        <div v-else-if="!inFlight && !state" class="vr-loading">
+            <div class="vr-logo">VOID<span>RUNNER</span></div>
+            <div class="vr-loading-bar"><div /></div>
+        </div>
+
+        <!-- ═══ Flight HUD ═══ -->
+        <template v-if="inFlight && hud">
+            <VoidHud :hud="hud" :run="run" :toasts="toasts" :banner="banner" :price-mult="state?.trade.mult ?? 1" />
+
+            <!-- Engage overlay -->
+            <div v-if="!hud.locked && !hud.paused && hud.phase === 'flying' && !summary" class="vr-engage" @click="engage">
+                <div class="vr-engage-card">
+                    <div class="vr-engage-title">Click to take the helm</div>
+                    <div class="vr-controls">
+                        <div v-for="c in controls" :key="c[0]"><kbd>{{ c[0] }}</kbd><span>{{ c[1] }}</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pause -->
+            <div v-if="hud.paused && !summary" class="vr-modal-wrap">
+                <div class="vr-modal">
+                    <div class="vr-modal-title">Paused</div>
+                    <button class="vr-btn vr-btn-primary" @click="engage">Resume</button>
+                    <div class="vr-settings">
+                        <label>Volume <input v-model.number="volume" type="range" min="0" max="1" step="0.05"></label>
+                        <label>Mouse sensitivity <input v-model.number="sensitivity" type="range" min="0.3" max="2.5" step="0.05"></label>
+                        <label>Invert mouse Y <input v-model="invertY" type="checkbox"></label>
+                        <label>High graphics <input v-model="highQuality" type="checkbox"></label>
+                    </div>
+                    <div class="vr-controls vr-controls-compact">
+                        <div v-for="c in controls" :key="c[0]"><kbd>{{ c[0] }}</kbd><span>{{ c[1] }}</span></div>
+                    </div>
+                    <button class="vr-btn vr-btn-danger" @click="abandon">Abandon run (lose the hold)</button>
+                </div>
+            </div>
+        </template>
+
+        <Transition name="vr-fade">
+            <div v-if="launching" class="vr-launch-fade" />
+        </Transition>
+
+        <!-- ═══ Craft reveal ═══ -->
+        <Transition name="vr-reveal">
+            <div v-if="reveal" class="vr-modal-wrap" @click="reveal = null">
+                <div class="vr-reveal" :style="{ '--rc': reveal.rarityColor }" @click.stop>
+                    <div class="vr-reveal-rays" />
+                    <div class="vr-reveal-kicker">{{ reveal.title }}</div>
+                    <div class="vr-reveal-rarity">{{ reveal.rarityName }}</div>
+                    <div class="vr-reveal-name">T{{ reveal.tier }} {{ reveal.name }}</div>
+                    <div class="vr-reveal-stats">
+                        <span v-for="st in reveal.stats" :key="st.label">{{ st.label }} <b>{{ st.value }}</b></span>
+                    </div>
+                    <div v-if="reveal.affixList.length" class="vr-reveal-affixes">
+                        <span v-for="a in reveal.affixList" :key="a.id">{{ a.text }} {{ a.name }}</span>
+                    </div>
+                    <button class="vr-btn vr-btn-primary" @click="reveal = null">Nice</button>
+                </div>
+            </div>
+        </Transition>
+
+        <!-- ═══ Debrief ═══ -->
+        <div v-if="summary" class="vr-modal-wrap">
+            <div class="vr-modal vr-debrief" :class="summary.extracted ? 'vr-good' : 'vr-bad'">
+                <div class="vr-debrief-kicker">{{ summary.extracted ? 'Extraction complete' : 'Signal lost' }}</div>
+                <div class="vr-modal-title">{{ summary.extracted ? 'Hold banked' : 'Ship destroyed' }}</div>
+                <div v-if="summary.sectorCleared" class="vr-cleared">Sector cleared · {{ summary.sectorCleared }}</div>
+                <div class="vr-debrief-stats">
+                    <div><span>Time</span><b>{{ clock(summary.elapsedMs / 1000) }}</b></div>
+                    <div><span>Kills</span><b>{{ summary.kills }}</b></div>
+                    <div><span>Units</span><b>{{ summary.units }}</b></div>
+                    <div><span>Value</span><b>{{ formatNumber(summary.value) }}</b></div>
+                </div>
+                <div v-if="summary.relics.length" class="vr-relics">
+                    <span>Relic caches opened</span>
+                    <b v-for="(r, i) in summary.relics" :key="i" :style="{ color: r.hex }">{{ r.name }}</b>
+                </div>
+                <div v-if="summary.xp > 0" class="vr-xp" :class="{ 'vr-xp-up': summary.levelAfter > summary.levelBefore }">
+                    <span>+{{ formatNumber(summary.xp, false) }} pilot XP</span>
+                    <b v-if="summary.levelAfter > summary.levelBefore">Level {{ summary.levelAfter }}</b>
+                </div>
+                <div v-if="summary.items.length" class="vr-debrief-haul">
+                    <div v-for="item in summary.items" :key="item.id" class="vr-cargo-item">
+                        <i class="vr-gem" :style="{ '--c': item.hex }" />
+                        <span>{{ item.name }}</span>
+                        <b>{{ item.amount }}</b>
+                    </div>
+                </div>
+                <div v-else-if="summary.extracted" class="vr-debrief-empty">Nothing in the hold this time.</div>
+                <div v-else-if="summary.lostValue > 0" class="vr-debrief-lost">Lost with the ship: <b>{{ formatNumber(summary.lostValue) }}</b> worth of cargo</div>
+                <div v-else class="vr-debrief-empty">The hold was empty. Nothing lost but the pride.</div>
+                <div v-if="summary.pending" class="vr-debrief-empty">Filing report…</div>
+                <button class="vr-btn vr-btn-primary" :disabled="summary.pending" @click="closeSummary">Return to hangar</button>
+            </div>
+        </div>
+    </div>
+</template>
+
+<script setup lang="ts">
+import type { InternalApi } from 'nitropack/types'
+import {
+    VOID_RESOURCE_IDS, voidBundleValue, voidHex, voidResource, voidSector, voidShip,
+    type VoidResourceBundle, type VoidTurretId, type VoidUpgradeId
+} from '#shared/utils/gamelogic/void'
+import { voidMod } from '#shared/utils/gamelogic/void-items'
+import { VoidAudio, type VoidSfx } from '~/utils/void/audio'
+import { VoidEngine } from '~/utils/void/engine'
+import type { HudState, RunResult } from '~/utils/void/types'
+import VoidHangar from './VoidHangar.vue'
+import VoidHud from './VoidHud.vue'
+
+export type VoidStatePayload = InternalApi['/api/void/state']['get']
+
+const viewport = ref<HTMLDivElement | null>(null)
+const toast = useToast()
+const { fetchSession } = useAuth()
+
+const state = shallowRef<VoidStatePayload | null>(null)
+const history = shallowRef<InternalApi['/api/void/history']['get']>([])
+const leaderboard = shallowRef<InternalApi['/api/void/leaderboard']['get']>([])
+const busy = ref(false)
+const launching = ref(false)
+const previewShipId = ref<string | null>(null)
+const hud = shallowRef<HudState | null>(null)
+const inFlight = ref(false)
+const run = ref<{ sectorName: string, shipName: string, tier: number } | null>(null)
+const toasts = ref<{ id: number, text: string, tone: string }[]>([])
+const banner = ref<{ id: number, title: string, subtitle: string, tone: string } | null>(null)
+let bannerTimer: ReturnType<typeof setTimeout> | undefined
+const summary = ref<null | {
+    extracted: boolean
+    pending: boolean
+    kills: number
+    elapsedMs: number
+    units: number
+    value: number
+    sectorCleared: string | null
+    lostValue: number
+    xp: number
+    levelBefore: number
+    levelAfter: number
+    relics: { name: string, hex: string }[]
+    items: { id: string, name: string, hex: string, amount: number }[]
+}>(null)
+
+const audio = new VoidAudio()
+let engine: VoidEngine | null = null
+let toastId = 1
+
+const volume = ref(0.7)
+const sensitivity = ref(1)
+const invertY = ref(false)
+const muted = ref(false)
+const highQuality = ref(true)
+
+const reveal = ref<null | { title: string, name: string, tier: number, rarityName: string, rarityColor: string, stats: { label: string, value: string }[], affixList: { id: string, name: string, text: string }[] }>(null)
+
+const controls: [string, string][] = [
+    ['Mouse', 'Steer'],
+    ['W / S', 'Thrust / brake'],
+    ['A / D', 'Strafe'],
+    ['Space / C', 'Rise / sink'],
+    ['Z / X', 'Roll'],
+    ['Shift', 'Boost'],
+    ['LMB', 'Nose guns'],
+    ['Q / RMB', 'Pilot skill'],
+    ['R', 'Ship ability'],
+    ['1 / 2 / 3', 'Supplies'],
+    ['F (hold)', 'Dock at station or beacon'],
+    ['Tab / M', 'Sector map'],
+    ['Esc', 'Pause']
+]
+
+function loadPrefs() {
+    try {
+        const raw = localStorage.getItem('void-runner-prefs')
+        if (!raw) return
+        const prefs = JSON.parse(raw) as { volume?: number, sensitivity?: number, invertY?: boolean, highQuality?: boolean, muted?: boolean }
+        if (typeof prefs.volume === 'number') volume.value = prefs.volume
+        if (typeof prefs.sensitivity === 'number') sensitivity.value = prefs.sensitivity
+        if (typeof prefs.invertY === 'boolean') invertY.value = prefs.invertY
+        if (typeof prefs.highQuality === 'boolean') highQuality.value = prefs.highQuality
+        if (typeof prefs.muted === 'boolean') muted.value = prefs.muted
+    } catch {
+        // storage unavailable
+    }
+}
+
+watch([volume, sensitivity, invertY, highQuality, muted], () => {
+    audio.volume = volume.value
+    audio.setMuted(muted.value)
+    if (engine) {
+        engine.sensitivity = sensitivity.value
+        engine.invertY = invertY.value
+        engine.setQuality(highQuality.value)
+    }
+    try {
+        localStorage.setItem('void-runner-prefs', JSON.stringify({ volume: volume.value, sensitivity: sensitivity.value, invertY: invertY.value, highQuality: highQuality.value, muted: muted.value }))
+    } catch {
+        // storage unavailable
+    }
+})
+
+
+function bundleItems(bundle: VoidResourceBundle) {
+    return VOID_RESOURCE_IDS
+        .filter(id => (bundle[id] ?? 0) > 0)
+        .map(id => ({ id, name: voidResource(id).name, hex: voidHex(voidResource(id).color), amount: bundle[id]! }))
+}
+
+function clock(seconds: number) {
+    const s = Math.max(0, Math.floor(seconds))
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+function pushToast(text: string, tone: string) {
+    const id = toastId++
+    toasts.value = [...toasts.value.slice(-3), { id, text, tone }]
+    setTimeout(() => {
+        toasts.value = toasts.value.filter(t => t.id !== id)
+    }, 3600)
+}
+
+function fail(e: unknown, fallback: string) {
+    audio.play('uiError')
+    toast.add({ title: apiErrorMessage(e, fallback), color: 'error' })
+}
+
+async function refresh() {
+    try {
+        state.value = await apiFetch<VoidStatePayload>('/api/void/state')
+    } catch (e) {
+        fail(e, 'Could not reach the hangar')
+    }
+}
+
+async function loadRecords() {
+    try {
+        const [h, l] = await Promise.all([
+            apiFetch<InternalApi['/api/void/history']['get']>('/api/void/history'),
+            apiFetch<InternalApi['/api/void/leaderboard']['get']>('/api/void/leaderboard')
+        ])
+        history.value = h
+        leaderboard.value = l
+    } catch {
+        // records are optional
+    }
+}
+
+function currentShowroom() {
+    const s = state.value
+    if (!s || !engine) return
+    const shipId = previewShipId.value ?? s.equippedShipId
+    const ship = s.ships.find(x => x.id === shipId) ?? s.ships[0]!
+    const tier = Math.min(5, s.highestSectorCleared + 1)
+    engine.showHangar(ship.id, ship.turretTypes as (VoidTurretId | null)[], ship.stats.drones, tier, lastPaletteTier === tier ? undefined : voidSector(tier).palette)
+    lastPaletteTier = tier
+}
+let lastPaletteTier = -1
+
+function previewShip(shipId: string | null) {
+    previewShipId.value = shipId
+    currentShowroom()
+}
+
+function onTab(tab: string) {
+    if (tab === 'records') void loadRecords()
+}
+
+async function act(fn: () => Promise<unknown>, fallback: string, sfx: VoidSfx = 'uiConfirm') {
+    if (busy.value) return
+    busy.value = true
+    try {
+        await fn()
+        audio.play(sfx)
+        await refresh()
+        currentShowroom()
+    } catch (e) {
+        fail(e, fallback)
+    } finally {
+        busy.value = false
+    }
+}
+
+const equipShip = (shipId: string) => act(() => apiFetch('/api/void/ships/equip', { method: 'POST', body: { shipId } }), 'Could not switch ships').then(() => previewShip(null))
+const buyShip = (shipId: string) => act(() => apiFetch('/api/void/ships/buy', { method: 'POST', body: { shipId } }), 'Could not build that ship', 'levelUp').then(async () => {
+    await fetchSession()
+    previewShip(null)
+})
+const setFit = (shipId: string, fit: unknown) => act(() => apiFetch('/api/void/ships/loadout', { method: 'POST', body: { shipId, fit } }), 'Could not refit', 'ui')
+const lastCraftId = ref<string | null>(null)
+const craftItem = (kind: string, type: string, tier: number) => {
+    lastCraftId.value = null
+    return act(async () => {
+    const res = await apiFetch<InternalApi['/api/void/items/craft']['post']>('/api/void/items/craft', { method: 'POST', body: { kind, type, tier } })
+    lastCraftId.value = res.item.id
+    await fetchSession()
+}, 'Could not craft that', 'uiConfirm').then(() => {
+    // The refreshed state holds the new item with its display info.
+    const item = state.value?.items.find(i => i.id === lastCraftId.value)
+    if (!item) return
+    reveal.value = { title: 'Crafted', name: item.name, tier: item.tier, rarityName: item.rarityName, rarityColor: item.rarityColor, stats: item.stats, affixList: item.affixList }
+    audio.play(item.rarity >= 3 ? 'levelUp' : item.rarity >= 1 ? 'uiConfirm' : 'ui', { pitch: 1 + item.rarity * 0.1 })
+    })
+}
+const upgradeItem = (itemId: string) => act(() => apiFetch('/api/void/items/upgrade', { method: 'POST', body: { itemId } }).then(() => fetchSession()), 'Could not upgrade that', 'levelUp')
+const salvageItem = (itemId: string) => act(() => apiFetch('/api/void/items/salvage', { method: 'POST', body: { itemId } }), 'Could not salvage that', 'pickup')
+const socketMod = (itemId: string, modId: string) => act(() => apiFetch('/api/void/items/socket', { method: 'POST', body: { itemId, modId } }), 'Could not socket that mod', 'levelUp')
+const buySupply = (supplyId: string, count: number) => act(() => apiFetch('/api/void/supplies/buy', { method: 'POST', body: { supplyId, count } }).then(() => fetchSession()), 'Could not buy supplies', 'pickup')
+const claimContract = (index: number) => act(() => apiFetch('/api/void/contracts/claim', { method: 'POST', body: { index } }).then(() => fetchSession()), 'Could not deliver that contract', 'levelUp')
+const buyUpgrade = (upgrade: VoidUpgradeId) => act(() => apiFetch('/api/void/upgrade', { method: 'POST', body: { upgrade } }), 'Could not upgrade', 'levelUp')
+const unlockSkill = (skillId: string) => act(() => apiFetch('/api/void/skills/unlock', { method: 'POST', body: { skillId } }), 'Could not unlock that skill', 'levelUp').then(() => fetchSession())
+const equipSkill = (skillId: string) => act(() => apiFetch('/api/void/skills/equip', { method: 'POST', body: { skillId } }), 'Could not equip that skill', 'ui')
+const setSkillNodes = (skillId: string, nodes: string[]) => act(() => apiFetch('/api/void/skills/nodes', { method: 'POST', body: { skillId, nodes } }), 'Could not update the skill tree', 'ui')
+const buyTrade = () => act(() => apiFetch('/api/void/trade', { method: 'POST' }), 'Could not sign the contract', 'levelUp').then(() => fetchSession())
+const sell = (resource: string, amount: number | 'all') => act(async () => {
+    await apiFetch('/api/void/market/sell', { method: 'POST', body: { resource, amount } })
+    await fetchSession()
+}, 'Could not sell', 'pickup')
+
+async function launch(tier: number) {
+    const s = state.value
+    if (!s || busy.value || !engine) return
+    audio.unlock()
+    // Take the pointer inside the click so the run starts at the helm, not behind an overlay.
+    engine.requestLock()
+    launching.value = true
+    busy.value = true
+    try {
+        let res: InternalApi['/api/void/launch']['post']
+        try {
+            res = await apiFetch<InternalApi['/api/void/launch']['post']>('/api/void/launch', { method: 'POST', body: { sector: tier } })
+        } catch (e) {
+            // A run left open by a closed tab: clear it (it banks nothing) and go.
+            if ((e as { statusCode?: number }).statusCode === 409 || (e as { status?: number }).status === 409) {
+                res = await apiFetch<InternalApi['/api/void/launch']['post']>('/api/void/launch', { method: 'POST', body: { sector: tier, force: true } })
+            } else {
+                throw e
+            }
+        }
+        previewShipId.value = null
+        run.value = { sectorName: res.sector.name, shipName: voidShip(res.loadout.shipId).name, tier }
+        inFlight.value = true
+        engine.startRun({
+            tutorial: s.extractions === 0 && tier === 1,
+            sector: voidSector(tier),
+            shipId: res.loadout.shipId,
+            stats: res.stats,
+            turrets: res.loadout.turrets,
+            levels: res.loadout.levels,
+            gun: res.loadout.gun,
+            skill: res.loadout.skill,
+            supplies: res.supplies
+        })
+    } catch (e) {
+        if (document.pointerLockElement) document.exitPointerLock()
+        fail(e, 'Launch failed')
+    } finally {
+        busy.value = false
+        setTimeout(() => {
+            launching.value = false
+        }, 250)
+    }
+}
+
+function engage() {
+    audio.unlock()
+    engine?.setPaused(false)
+    engine?.requestLock()
+}
+
+function onViewportClick() {
+    if (inFlight.value && hud.value && !hud.value.locked && !hud.value.paused) engage()
+}
+
+async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 'abandoned') {
+    const items = bundleItems(result.haul)
+    summary.value = {
+        extracted: reason === 'extracted',
+        pending: true,
+        kills: result.kills,
+        elapsedMs: result.elapsedMs,
+        units: items.reduce((s, i) => s + i.amount, 0),
+        value: Math.round(voidBundleValue(result.haul) * (state.value?.trade.mult ?? 1)),
+        sectorCleared: null,
+        xp: 0,
+        levelBefore: 0,
+        levelAfter: 0,
+        relics: [],
+        lostValue: reason === 'extracted' ? 0 : Math.round(voidBundleValue(result.lost ?? {}) * (state.value?.trade.mult ?? 1)),
+        items: reason === 'extracted' ? items : bundleItems({})
+    }
+    if (document.pointerLockElement) document.exitPointerLock()
+    try {
+        const res = await apiFetch<InternalApi['/api/void/finish']['post']>('/api/void/finish', {
+            method: 'POST',
+            body: { reason, haul: result.haul, kills: result.kills, wardenKilled: result.wardenKilled, elapsedMs: result.elapsedMs, skillUses: result.skillUses, suppliesUsed: result.suppliesUsed, relics: result.relics }
+        })
+        summary.value = {
+            ...summary.value,
+            pending: false,
+            units: res.units,
+            value: res.coinValue,
+            kills: res.kills,
+            xp: res.xp,
+            levelBefore: res.levelBefore,
+            levelAfter: res.levelAfter,
+            relics: res.relics.map(id => ({ name: voidMod(id)?.name ?? id, hex: voidHex(voidMod(id)?.color ?? 0xffffff) })),
+            sectorCleared: res.sectorCleared,
+            items: bundleItems(res.haul)
+        }
+        if (res.sectorCleared || res.levelAfter > res.levelBefore) audio.play('levelUp')
+    } catch (e) {
+        summary.value = { ...summary.value, pending: false }
+        fail(e, 'Could not file the run report')
+    }
+}
+
+function abandon() {
+    if (!engine) return
+    const result: RunResult = { reason: 'destroyed', haul: {}, lost: { ...engine.cargo }, kills: engine.kills, wardenKilled: false, elapsedMs: Math.round(engine.elapsed * 1000), skillUses: engine.skills?.uses ?? 0, suppliesUsed: { ...engine.suppliesUsed }, relics: 0 }
+    engine.paused = true
+    void finishRun(result, 'abandoned')
+}
+
+async function closeSummary() {
+    summary.value = null
+    inFlight.value = false
+    hud.value = null
+    run.value = null
+    engine?.returnToHangar()
+    await refresh()
+    lastPaletteTier = -1
+    currentShowroom()
+}
+
+onMounted(async () => {
+    // Inside the page's suspense boundary the template ref can bind a tick
+    // after mounted fires, so wait a few frames for it before giving up.
+    for (let i = 0; i < 10 && !viewport.value; i++) {
+        await nextTick()
+        await new Promise(resolve => requestAnimationFrame(resolve))
+    }
+    if (!viewport.value || engine) return
+    loadPrefs()
+    audio.volume = volume.value
+    audio.setMuted(muted.value)
+    engine = new VoidEngine(viewport.value, audio, {
+        hud: (h) => {
+            hud.value = h
+        },
+        toast: (text, tone) => pushToast(text, tone),
+        banner: (title, subtitle, tone) => {
+            banner.value = { id: toastId++, title, subtitle, tone }
+            clearTimeout(bannerTimer)
+            bannerTimer = setTimeout(() => {
+                banner.value = null
+            }, 3400)
+        },
+        end: (result) => {
+            void finishRun(result, result.reason)
+        },
+        pause: () => {
+            if (engine?.player) hud.value = { ...hud.value!, paused: engine.paused }
+        }
+    })
+    engine.sensitivity = sensitivity.value
+    engine.invertY = invertY.value
+    if (!highQuality.value) engine.setQuality(false)
+    await refresh()
+    // A run that never reported back (closed tab) banks nothing; clear it now.
+    if (state.value?.activeRun) {
+        try {
+            await apiFetch('/api/void/finish', { method: 'POST', body: { reason: 'abandoned' } })
+            await refresh()
+        } catch {
+            // the next launch clears it
+        }
+    }
+    currentShowroom()
+    window.addEventListener('pointerdown', unlockAudio, { once: true })
+})
+
+function unlockAudio() {
+    audio.unlock()
+}
+
+onBeforeUnmount(() => {
+    engine?.dispose()
+    engine = null
+    audio.dispose()
+    window.removeEventListener('pointerdown', unlockAudio)
+})
+</script>
+
+<style>
+@import '~/assets/css/void.css';
+</style>

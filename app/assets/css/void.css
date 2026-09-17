@@ -1,0 +1,271 @@
+/* Void Runner — shared game UI styles (hangar + flight HUD). */
+.vr-root {
+    --vr-bg: rgba(6, 12, 24, 0.72);
+    --vr-bg-solid: #070d1a;
+    --vr-line: rgba(120, 190, 255, 0.16);
+    --vr-line-strong: rgba(120, 190, 255, 0.35);
+    --vr-text: #e6f1ff;
+    --vr-muted: rgba(200, 220, 245, 0.55);
+    --vr-accent: #5ec8ff;
+    --vr-good: #3dffb0;
+    --vr-warn: #ffc24d;
+    --vr-bad: #ff4f6d;
+    --vr-gold: #ffd27a;
+    position: relative;
+    height: 100vh;
+    height: 100dvh;
+    width: 100%;
+    overflow: hidden;
+    background: #02040a;
+    color: var(--vr-text);
+    font-family: 'Rajdhani', 'Inter', system-ui, sans-serif;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+}
+.vr-root.vr-flying { cursor: crosshair; }
+.vr-root kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.6em;
+    padding: 0.05em 0.45em;
+    border: 1px solid var(--vr-line-strong);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    font: 600 11px/1.4 'JetBrains Mono', ui-monospace, monospace;
+    color: var(--vr-text);
+    background: rgba(255, 255, 255, 0.04);
+}
+.vr-root .vr-gem {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    transform: rotate(45deg);
+    background: var(--c);
+    box-shadow: 0 0 8px var(--c);
+    border-radius: 1px;
+    flex-shrink: 0;
+}
+
+/* Loading */
+.vr-loading { position: absolute; inset: 0; display: grid; place-content: center; gap: 18px; justify-items: center; }
+.vr-logo { font-size: 44px; font-weight: 700; letter-spacing: 0.35em; color: #fff; text-shadow: 0 0 30px rgba(94, 200, 255, 0.5); }
+.vr-logo span { color: var(--vr-accent); margin-left: 0.3em; }
+.vr-loading-bar { width: 220px; height: 2px; background: rgba(255,255,255,0.08); overflow: hidden; }
+.vr-loading-bar div { width: 40%; height: 100%; background: var(--vr-accent); animation: vr-load 1.1s ease-in-out infinite; }
+@keyframes vr-load { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+
+/* Buttons */
+.vr-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 9px 18px;
+    border: 1px solid var(--vr-line-strong);
+    background: rgba(94, 200, 255, 0.06);
+    color: var(--vr-text);
+    font: 700 13px/1 'Rajdhani', system-ui, sans-serif;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+    transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+    cursor: pointer;
+}
+.vr-btn:hover:not(:disabled) { background: rgba(94, 200, 255, 0.16); border-color: var(--vr-accent); }
+.vr-btn:active:not(:disabled) { transform: translateY(1px); }
+.vr-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.vr-btn-primary { background: linear-gradient(90deg, rgba(94, 200, 255, 0.28), rgba(61, 255, 176, 0.2)); border-color: var(--vr-accent); color: #fff; }
+.vr-btn-primary:hover:not(:disabled) { background: linear-gradient(90deg, rgba(94, 200, 255, 0.45), rgba(61, 255, 176, 0.35)); }
+.vr-btn-danger { border-color: rgba(255, 79, 109, 0.5); background: rgba(255, 79, 109, 0.08); color: #ffb3c0; }
+.vr-btn-danger:hover:not(:disabled) { background: rgba(255, 79, 109, 0.2); border-color: var(--vr-bad); }
+.vr-btn-sm { padding: 6px 10px; font-size: 11px; letter-spacing: 0.1em; }
+
+/* Flight HUD */
+.vr-hud { position: absolute; inset: 0; }
+.vr-hud-tl { position: absolute; left: 28px; top: 24px; }
+.vr-sector-name { font-size: 22px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; text-shadow: 0 0 18px rgba(94, 200, 255, 0.35); }
+.vr-run-meta { display: flex; align-items: center; gap: 10px; margin-top: 2px; font: 600 12px 'JetBrains Mono', monospace; color: var(--vr-muted); }
+.vr-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--vr-muted); }
+.vr-threat { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--vr-muted); }
+.vr-threat-bar { width: 110px; height: 3px; background: rgba(255, 255, 255, 0.08); }
+.vr-threat-bar div { height: 100%; background: linear-gradient(90deg, #ffc24d, #ff4f6d); transition: width 0.5s; }
+.vr-warden-done { margin-top: 10px; font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--vr-good); animation: vr-pulse 1.4s ease-in-out infinite; }
+
+.vr-hud-tc { position: absolute; left: 50%; top: 22px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 10px; width: min(620px, 80vw); }
+.vr-boss { width: 100%; }
+.vr-boss-name { text-align: center; font-size: 13px; font-weight: 700; letter-spacing: 0.4em; text-transform: uppercase; color: #ff9aac; text-shadow: 0 0 14px rgba(255, 79, 109, 0.6); margin-bottom: 6px; }
+.vr-boss-bar { position: relative; height: 6px; background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 79, 109, 0.35); }
+.vr-boss-bar div { height: 100%; background: linear-gradient(90deg, #ff2d55, #ff9a3d); box-shadow: 0 0 14px rgba(255, 60, 90, 0.8); transition: width 0.15s; }
+.vr-boss-bar i { position: absolute; top: -2px; bottom: -2px; width: 1px; background: rgba(255, 255, 255, 0.4); }
+.vr-toasts { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.vr-toast { padding: 6px 16px; background: var(--vr-bg); border-left: 2px solid var(--vr-accent); font-size: 14px; font-weight: 600; letter-spacing: 0.08em; backdrop-filter: blur(6px); }
+.vr-toast-warn { border-color: var(--vr-warn); color: #ffe2a3; }
+.vr-toast-bad { border-color: var(--vr-bad); color: #ffc2cd; }
+.vr-toast-good { border-color: var(--vr-good); color: #b8ffe3; }
+.vr-toast-enter-active, .vr-toast-leave-active { transition: all 0.3s; }
+.vr-toast-enter-from { opacity: 0; transform: translateY(-8px); }
+.vr-toast-leave-to { opacity: 0; }
+
+.vr-hud-bl { position: absolute; left: 28px; bottom: 26px; width: 300px; }
+.vr-ship-line { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.vr-ship-name { font-size: 15px; font-weight: 700; letter-spacing: 0.28em; text-transform: uppercase; }
+.vr-speed { font: 600 16px 'JetBrains Mono', monospace; }
+.vr-speed small { font-size: 10px; color: var(--vr-muted); }
+.vr-meter { display: grid; grid-template-columns: 40px 1fr 44px; align-items: center; gap: 10px; margin-top: 6px; font: 600 11px 'JetBrains Mono', monospace; }
+.vr-meter label { color: var(--vr-muted); letter-spacing: 0.1em; }
+.vr-meter span { text-align: right; }
+.vr-meter-track { height: 8px; background: rgba(255, 255, 255, 0.06); clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
+.vr-meter-track div { height: 100%; transition: width 0.12s; }
+.vr-meter-shield .vr-meter-track div { background: linear-gradient(90deg, #2a8cff, #6fd8ff); box-shadow: 0 0 10px rgba(111, 216, 255, 0.6); }
+.vr-meter-hull .vr-meter-track div { background: linear-gradient(90deg, #d0dae6, #ffffff); }
+.vr-meter-hull.vr-critical .vr-meter-track div { background: linear-gradient(90deg, #ff2d55, #ff7a7a); animation: vr-pulse 0.6s infinite; }
+.vr-ability { display: flex; align-items: center; gap: 10px; margin-top: 14px; opacity: 0.6; }
+.vr-ability.vr-ready { opacity: 1; }
+.vr-ability.vr-active kbd { border-color: var(--vr-gold); color: var(--vr-gold); box-shadow: 0 0 12px rgba(255, 210, 122, 0.5); }
+.vr-ability > div { flex: 1; }
+.vr-ability-name { font-size: 12px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; }
+.vr-ability-track { height: 2px; margin-top: 4px; background: rgba(255, 255, 255, 0.08); }
+.vr-ability-track div { height: 100%; background: var(--vr-gold); }
+
+.vr-hud-br { position: absolute; right: 28px; bottom: 26px; width: 250px; padding: 12px 14px; background: linear-gradient(135deg, rgba(8, 16, 32, 0.6), rgba(8, 16, 32, 0.25)); border-right: 2px solid var(--vr-line-strong); }
+.vr-cargo-head { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase; }
+.vr-cargo-head span:last-child { font-family: 'JetBrains Mono', monospace; letter-spacing: 0; }
+.vr-full { color: var(--vr-warn); animation: vr-pulse 1s infinite; }
+.vr-cargo-track { height: 3px; margin: 7px 0 9px; background: rgba(255, 255, 255, 0.07); }
+.vr-cargo-track div { height: 100%; background: linear-gradient(90deg, var(--vr-accent), var(--vr-good)); transition: width 0.2s; }
+.vr-cargo-list { display: grid; gap: 4px; }
+.vr-cargo-item { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.vr-cargo-item span { flex: 1; color: rgba(230, 241, 255, 0.85); }
+.vr-cargo-item b { font: 600 12px 'JetBrains Mono', monospace; }
+.vr-cargo-empty { font-size: 12px; color: var(--vr-muted); }
+.vr-cargo-value { margin-top: 8px; text-align: right; font: 600 11px 'JetBrains Mono', monospace; color: var(--vr-gold); }
+
+.vr-dock { position: absolute; left: 50%; top: 64%; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; padding: 10px 18px 10px 12px; background: var(--vr-bg); border: 1px solid rgba(61, 255, 176, 0.35); backdrop-filter: blur(6px); }
+.vr-dock-ring { --p: 0; width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: conic-gradient(var(--vr-good) calc(var(--p) * 360deg), rgba(255, 255, 255, 0.08) 0); }
+.vr-dock-ring kbd { background: #07101f; border-radius: 50%; min-width: 30px; height: 30px; }
+.vr-dock-title { font-size: 15px; font-weight: 700; letter-spacing: 0.08em; }
+.vr-dock-sub { font-size: 12px; color: var(--vr-muted); }
+.vr-bounds { position: absolute; left: 50%; top: 30%; transform: translateX(-50%); font-size: 18px; font-weight: 700; letter-spacing: 0.4em; text-transform: uppercase; color: var(--vr-warn); animation: vr-pulse 0.8s infinite; }
+@keyframes vr-pulse { 50% { opacity: 0.45; } }
+
+/* Engage and modals */
+.vr-engage { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(2, 4, 10, 0.2), rgba(2, 4, 10, 0.65)); cursor: pointer; }
+.vr-engage-card { padding: 26px 34px; background: var(--vr-bg); border: 1px solid var(--vr-line-strong); backdrop-filter: blur(10px); text-align: center; }
+.vr-engage-title { font-size: 24px; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase; margin-bottom: 18px; animation: vr-pulse 1.6s infinite; }
+.vr-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 26px; text-align: left; }
+.vr-controls > div { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.vr-controls kbd { min-width: 74px; }
+.vr-controls span { color: rgba(230, 241, 255, 0.8); }
+.vr-controls-compact { margin: 6px 0 4px; gap: 6px 20px; }
+.vr-controls-compact > div { font-size: 12px; }
+.vr-modal-wrap { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(2, 4, 10, 0.6); backdrop-filter: blur(4px); z-index: 30; }
+.vr-modal { display: flex; flex-direction: column; gap: 14px; width: min(520px, calc(100vw - 32px)); padding: 26px 28px; background: linear-gradient(160deg, rgba(10, 20, 40, 0.95), rgba(4, 8, 18, 0.95)); border: 1px solid var(--vr-line-strong); clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px); }
+.vr-modal-title { font-size: 30px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; }
+.vr-settings { display: grid; gap: 10px; font-size: 13px; color: var(--vr-muted); }
+.vr-settings label { display: grid; grid-template-columns: 150px 1fr; align-items: center; gap: 12px; }
+.vr-settings input[type='range'], .vr-settings input[type='checkbox'] { accent-color: var(--vr-accent); justify-self: start; }
+.vr-debrief-kicker { font-size: 12px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--vr-muted); }
+.vr-debrief.vr-good .vr-modal-title { color: var(--vr-good); text-shadow: 0 0 24px rgba(61, 255, 176, 0.4); }
+.vr-debrief.vr-bad .vr-modal-title { color: var(--vr-bad); text-shadow: 0 0 24px rgba(255, 79, 109, 0.4); }
+.vr-cleared { padding: 8px 12px; border: 1px solid rgba(255, 210, 122, 0.5); background: rgba(255, 210, 122, 0.08); color: var(--vr-gold); font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase; }
+.vr-debrief-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.vr-debrief-stats div { padding: 8px 10px; background: rgba(255, 255, 255, 0.03); border: 1px solid var(--vr-line); }
+.vr-debrief-stats span { display: block; font-size: 10px; letter-spacing: 0.25em; text-transform: uppercase; color: var(--vr-muted); }
+.vr-debrief-stats b { font: 600 18px 'JetBrains Mono', monospace; }
+.vr-debrief-haul { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 18px; }
+.vr-debrief-empty { font-size: 14px; color: var(--vr-muted); }
+
+/* Objectives */
+.vr-objectives { width: 300px; margin-top: 14px; padding: 12px 16px 12px 14px; background: linear-gradient(90deg, rgba(8, 16, 32, 0.65), rgba(8, 16, 32, 0.2)); border-left: 2px solid var(--vr-gold); }
+.vr-obj-title { font-size: 11px; font-weight: 700; letter-spacing: 0.35em; text-transform: uppercase; color: var(--vr-gold); margin-bottom: 6px; }
+.vr-obj-step { display: flex; align-items: center; gap: 9px; padding: 3px 0; font-size: 14px; font-weight: 600; color: rgba(230, 241, 255, 0.55); transition: color 0.3s; }
+.vr-obj-step i { width: 9px; height: 9px; border: 1.5px solid currentColor; transform: rotate(45deg); flex-shrink: 0; transition: background 0.3s; }
+.vr-obj-step span { flex: 1; }
+.vr-obj-step b { font: 600 11px 'JetBrains Mono', monospace; color: var(--vr-gold); }
+.vr-obj-active { color: #fff; }
+.vr-obj-active i { border-color: var(--vr-gold); box-shadow: 0 0 8px rgba(255, 210, 122, 0.7); animation: vr-pulse 1.2s infinite; }
+.vr-obj-done { color: var(--vr-good); }
+.vr-obj-done span { text-decoration: line-through; text-decoration-color: rgba(61, 255, 176, 0.5); }
+.vr-obj-done i { background: var(--vr-good); border-color: var(--vr-good); }
+.vr-obj-hint { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--vr-line); font-size: 13px; line-height: 1.35; color: rgba(230, 241, 255, 0.75); }
+.vr-obj-enter-active, .vr-obj-leave-active { transition: all 0.35s; }
+.vr-obj-enter-from { opacity: 0; transform: translateX(12px); }
+.vr-obj-leave-to { opacity: 0; transform: translateX(-12px); }
+
+/* Title banner */
+.vr-banner { position: absolute; left: 50%; top: 24%; transform: translateX(-50%); width: min(760px, 90vw); text-align: center; pointer-events: none; }
+.vr-banner-title { font-size: clamp(34px, 5vw, 60px); font-weight: 700; letter-spacing: 0.28em; text-transform: uppercase; line-height: 1.05; text-shadow: 0 0 30px rgba(94, 200, 255, 0.45); }
+.vr-banner-sub { margin-top: 6px; font-size: 15px; letter-spacing: 0.14em; color: rgba(230, 241, 255, 0.7); }
+.vr-banner-line { height: 1px; margin: 12px auto; width: 70%; background: linear-gradient(90deg, transparent, var(--vr-accent), transparent); }
+.vr-banner-bad .vr-banner-title { color: #ff8d9f; text-shadow: 0 0 30px rgba(255, 60, 90, 0.6); }
+.vr-banner-bad .vr-banner-line { background: linear-gradient(90deg, transparent, var(--vr-bad), transparent); }
+.vr-banner-good .vr-banner-title { color: #9fffd9; text-shadow: 0 0 30px rgba(61, 255, 176, 0.5); }
+.vr-banner-good .vr-banner-line { background: linear-gradient(90deg, transparent, var(--vr-good), transparent); }
+.vr-banner-enter-active { transition: all 0.6s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.vr-banner-leave-active { transition: all 0.8s ease-in; }
+.vr-banner-enter-from { opacity: 0; letter-spacing: 0.6em; transform: translateX(-50%) scale(1.08); }
+.vr-banner-leave-to { opacity: 0; transform: translateX(-50%) translateY(-12px); }
+
+/* Kill streak */
+.vr-streak { position: absolute; left: calc(50% + 70px); top: calc(50% - 60px); display: flex; align-items: baseline; gap: 8px; pointer-events: none; }
+.vr-streak b { font: 700 30px 'Rajdhani', sans-serif; color: #ffd27a; text-shadow: 0 0 16px rgba(255, 180, 60, 0.7); }
+.vr-streak span { font-size: 12px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: rgba(255, 220, 160, 0.85); }
+.vr-streak-enter-active { transition: all 0.25s cubic-bezier(0.2, 1.6, 0.4, 1); }
+.vr-streak-leave-active { transition: opacity 0.3s; }
+.vr-streak-enter-from { opacity: 0; transform: scale(1.6); }
+.vr-streak-leave-to { opacity: 0; }
+
+.vr-debrief-lost { padding: 8px 12px; border-left: 2px solid var(--vr-bad); background: rgba(255, 79, 109, 0.08); font-size: 14px; color: #ffc2cd; }
+.vr-debrief-lost b { font-family: 'JetBrains Mono', monospace; color: #fff; }
+
+.vr-launch-fade { position: absolute; inset: 0; z-index: 40; background: radial-gradient(circle at center, #e8f6ff 0%, #5ec8ff 20%, #02040a 70%); pointer-events: none; }
+.vr-fade-enter-active { transition: opacity 0.15s; }
+.vr-fade-leave-active { transition: opacity 0.6s; }
+.vr-fade-enter-from, .vr-fade-leave-to { opacity: 0; }
+
+.vr-hud-br { transition: border-color 0.3s, box-shadow 0.3s; }
+.vr-hud-br.vr-bump { border-right-color: var(--vr-good); box-shadow: inset -30px 0 40px -30px rgba(61, 255, 176, 0.35); }
+.vr-hud-br.vr-bump .vr-cargo-head span:last-child { color: var(--vr-good); }
+.vr-cargo-item { transition: transform 0.2s, color 0.2s; }
+.vr-cargo-new { transform: translateX(-6px); }
+.vr-cargo-new b { color: #fff; text-shadow: 0 0 10px currentColor; }
+
+.vr-skill { opacity: 0.7; }
+.vr-skill kbd { border-color: color-mix(in srgb, var(--sc) 60%, transparent); color: var(--sc); }
+.vr-skill .vr-ability-track div { background: var(--sc); box-shadow: 0 0 8px var(--sc); }
+.vr-skill.vr-ready kbd { box-shadow: 0 0 10px color-mix(in srgb, var(--sc) 55%, transparent); }
+.vr-skill.vr-active kbd { border-color: #fff; color: #fff; box-shadow: 0 0 14px var(--sc); }
+.vr-skill.vr-active .vr-ability-track div { background: #fff; }
+.vr-skill + .vr-ability { margin-top: 8px; }
+.vr-ability-name small { color: var(--sc); letter-spacing: 0.05em; }
+.vr-xp { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border: 1px solid rgba(94, 200, 255, 0.3); background: rgba(94, 200, 255, 0.06); font-weight: 700; letter-spacing: 0.1em; }
+.vr-xp b { color: var(--vr-gold); letter-spacing: 0.2em; text-transform: uppercase; }
+.vr-xp-up { border-color: rgba(255, 210, 122, 0.55); background: rgba(255, 210, 122, 0.08); animation: vr-pulse 1.4s ease-in-out 2; }
+
+.vr-supplies { display: flex; gap: 6px; margin-top: 10px; }
+.vr-supply { display: flex; align-items: center; gap: 5px; padding: 2px 8px 2px 2px; border: 1px solid color-mix(in srgb, var(--sc) 45%, transparent); background: color-mix(in srgb, var(--sc) 8%, transparent); }
+.vr-supply kbd { min-width: 20px; color: var(--sc); border-color: color-mix(in srgb, var(--sc) 60%, transparent); }
+.vr-supply b { font: 600 12px 'JetBrains Mono', monospace; }
+.vr-supply-out { opacity: 0.35; }
+.vr-relic-count { --sc: #ffd27a; padding-left: 8px; color: var(--vr-gold); animation: vr-pulse 1.6s ease-in-out infinite; }
+.vr-relics { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; padding: 8px 12px; border: 1px solid rgba(255, 210, 122, 0.5); background: rgba(255, 210, 122, 0.08); }
+.vr-relics span { font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase; color: var(--vr-gold); }
+.vr-relics b { font-weight: 700; text-shadow: 0 0 10px currentColor; }
+
+/* Craft reveal */
+.vr-reveal { --rc: #fff; position: relative; display: grid; justify-items: center; gap: 8px; width: min(420px, calc(100vw - 32px)); padding: 30px 26px 22px; overflow: hidden; text-align: center; background: radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--rc) 30%, transparent), rgba(4, 8, 18, 0.96) 65%); border: 1px solid var(--rc); box-shadow: 0 0 60px color-mix(in srgb, var(--rc) 35%, transparent); }
+.vr-reveal-rays { position: absolute; inset: -50%; background: conic-gradient(from 0deg, transparent 0 10deg, color-mix(in srgb, var(--rc) 18%, transparent) 10deg 20deg, transparent 20deg 40deg); animation: vr-spin 8s linear infinite; pointer-events: none; }
+.vr-reveal > *:not(.vr-reveal-rays) { position: relative; }
+.vr-reveal-kicker { font-size: 11px; letter-spacing: 0.4em; text-transform: uppercase; color: var(--vr-muted); }
+.vr-reveal-rarity { font-size: 14px; font-weight: 700; letter-spacing: 0.45em; text-transform: uppercase; color: var(--rc); text-shadow: 0 0 16px var(--rc); }
+.vr-reveal-name { font-size: 30px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; line-height: 1.05; }
+.vr-reveal-stats { display: flex; gap: 14px; font-size: 13px; color: var(--vr-muted); }
+.vr-reveal-stats b { font-family: 'JetBrains Mono', monospace; color: var(--vr-text); }
+.vr-reveal-affixes { display: grid; gap: 2px; font: 600 12px 'JetBrains Mono', monospace; color: #b8ffe3; }
+@keyframes vr-spin { to { transform: rotate(360deg); } }
+.vr-reveal-enter-active { transition: opacity 0.25s; }
+.vr-reveal-enter-active .vr-reveal { animation: vr-pop 0.5s cubic-bezier(0.2, 1.6, 0.4, 1); }
+.vr-reveal-leave-active { transition: opacity 0.2s; }
+.vr-reveal-enter-from, .vr-reveal-leave-to { opacity: 0; }
+@keyframes vr-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }

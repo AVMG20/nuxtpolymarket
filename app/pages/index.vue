@@ -153,7 +153,7 @@ const arcadeGames = [
   },
   {
     name: 'Void Runner',
-    description: 'OPEN BETA — mine asteroids, fight patrols and dock before the ion storm eats the sector',
+    description: 'Third-person space shooter — crack ore, fight wardens and build up to a twelve-turret dreadnought',
     icon: 'i-lucide-rocket',
     to: '/void',
     gradient: 'from-indigo-950 via-purple-950 to-slate-950',

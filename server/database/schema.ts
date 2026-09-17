@@ -236,61 +236,74 @@ export const pirateRunHistory = pgTable('pirate_run_history', {
 export const voidState = pgTable('void_state', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
-  // Every upgrade track, keyed by id. A missing key means level 0 — the map
-  // only stores what has actually been paid for.
-  upgradeLevels: jsonb('upgrade_levels').$type<Record<string, number>>().notNull().default({}),
-  ownedShipIds: jsonb('owned_ship_ids').$type<string[]>().notNull().default(['skiff']),
-  equippedShipId: text('equipped_ship_id').notNull().default('skiff'),
-  // Banked resources, keyed by resource id. Cargo carried mid-run is NOT here
-  // — it only lands in this map when the player docks with the mothership.
+  // Banked materials by resource id. Cargo carried mid-run only lands here on a dock.
   resources: jsonb('resources').$type<Record<string, number>>().notNull().default({}),
+  ownedShipIds: jsonb('owned_ship_ids').$type<string[]>().notNull().default(['sparrow']),
+  equippedShipId: text('equipped_ship_id').notNull().default('sparrow'),
+  // Gear fitted to each hull, keyed by ship id: { gun, turrets[], armor[], shields[] } of item ids.
+  loadouts: jsonb('loadouts').$type<Record<string, unknown>>().notNull().default({}),
+  // Relic mods waiting to be socketed, by mod id.
+  mods: jsonb('mods').$type<Record<string, number>>().notNull().default({}),
+  // Set once the free starter kit has been handed out.
+  starterGranted: boolean('starter_granted').notNull().default(false),
+  upgradeLevels: jsonb('upgrade_levels').$type<Record<string, number>>().notNull().default({}),
+  // 0 until the first warden is killed and docked home.
+  highestSectorCleared: integer('highest_sector_cleared').notNull().default(0),
   runsPlayed: integer('runs_played').notNull().default(0),
   extractions: integer('extractions').notNull().default(0),
-  totalCreditsEarned: integer('total_credits_earned').notNull().default(0),
-  rocksMined: integer('rocks_mined').notNull().default(0),
   kills: integer('kills').notNull().default(0),
-  // 0 means no successful extraction yet, so only sector 1 is open.
-  highestSectorExtracted: integer('highest_sector_extracted').notNull().default(0),
-  bestRunCredits: integer('best_run_credits').notNull().default(0),
-  bestRunUnits: integer('best_run_units').notNull().default(0),
-  bestRunSector: integer('best_run_sector').notNull().default(0),
-  // Set when a launch is authorised, cleared on finish. Elapsed time comes
-  // from this rather than the client, and the snapshots stop a mid-run hangar
-  // visit from raising the payout ceiling for a run already in progress.
+  wardensKilled: integer('wardens_killed').notNull().default(0),
+  bestHaulValue: integer('best_haul_value').notNull().default(0),
+  totalSold: bigint('total_sold', { mode: 'number' }).notNull().default(0),
+  // Set on launch, cleared on finish. The snapshots stop a mid-run refit from
+  // raising what an in-flight run may bank.
   runStartedAt: timestamp('run_started_at'),
-  runSectorSnapshot: integer('run_sector_snapshot'),
-  runPowerSnapshot: integer('run_power_snapshot'),
-  runCargoSnapshot: integer('run_cargo_snapshot')
+  runSector: integer('run_sector'),
+  runShipId: text('run_ship_id'),
+  runCargo: integer('run_cargo'),
+  // Pilot skills: XP drives the level, the level drives points in every tree.
+  pilotXp: integer('pilot_xp').notNull().default(0),
+  // Trade Contracts: a coin-only multiplier on market sell prices.
+  tradeLevel: integer('trade_level').notNull().default(0),
+  // Supplies in stock at the station, and what the current run took with it.
+  supplies: jsonb('supplies').$type<Record<string, number>>().notNull().default({}),
+  runSupplies: jsonb('run_supplies').$type<Record<string, number>>(),
+  // Station contracts completed today (UTC day key + indices).
+  contractsDay: text('contracts_day'),
+  contractsDone: jsonb('contracts_done').$type<number[]>().notNull().default([]),
+  unlockedSkills: jsonb('unlocked_skills').$type<string[]>().notNull().default(['seeker']),
+  equippedSkill: text('equipped_skill').notNull().default('seeker'),
+  skillNodes: jsonb('skill_nodes').$type<Record<string, string[]>>().notNull().default({})
 })
 
-// One row per owned turret. slotIndex is null while it sits in storage, and
-// 0..turretSlots-1 once it's bolted to a hardpoint. Rolled stats live in
-// `affixes` because two turrets of the same rarity are never the same gun.
-export const voidWeapons = pgTable('void_weapons', {
+// Crafted gear. Tier, rarity and affixes are rolled on the server at craft time.
+export const voidItems = pgTable('void_items', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-  rarityId: text('rarity_id').notNull(),
-  name: text('name').notNull(),
+  kind: text('kind').notNull(),
+  type: text('type').notNull(),
+  tier: integer('tier').notNull().default(1),
+  rarity: integer('rarity').notNull().default(0),
+  level: integer('level').notNull().default(0),
   affixes: jsonb('affixes').$type<Record<string, number>>().notNull().default({}),
-  specialId: text('special_id'),
-  slotIndex: integer('slot_index'),
+  mod: text('mod'),
   createdAt: timestamp('created_at').defaultNow().notNull()
-}, t => [index('void_weapons_userId_idx').on(t.userId)])
+}, t => [
+  index('void_items_userId_idx').on(t.userId)
+])
 
 export const voidRunHistory = pgTable('void_run_history', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   sector: integer('sector').notNull().default(1),
-  power: integer('power').notNull().default(0),
+  shipId: text('ship_id').notNull().default('sparrow'),
   durationMs: integer('duration_ms').notNull().default(0),
-  credits: integer('credits').notNull().default(0),
-  units: integer('units').notNull().default(0),
   haul: jsonb('haul').$type<Record<string, number>>().notNull().default({}),
+  haulValue: integer('haul_value').notNull().default(0),
   extracted: boolean('extracted').notNull().default(false),
   reason: text('reason').notNull(),
   kills: integer('kills').notNull().default(0),
-  rocksMined: integer('rocks_mined').notNull().default(0),
-  shipId: text('ship_id').notNull().default('skiff'),
+  wardenKilled: boolean('warden_killed').notNull().default(false),
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [
   index('void_run_history_userId_createdAt_idx').on(t.userId, t.createdAt)
@@ -1574,9 +1587,9 @@ export const userRelations = relations(user, ({ many, one }) => ({
   pirateRunHistory: many(pirateRunHistory),
   shapezzState: one(shapezzState),
   pathwardenState: one(pathwardenState),
-  voidWeapons: many(voidWeapons),
   voidState: one(voidState),
   voidRunHistory: many(voidRunHistory),
+  voidItems: many(voidItems),
   firewallState: one(firewallState)
 }))
 
@@ -1600,8 +1613,8 @@ export const voidStateRelations = relations(voidState, ({ one }) => ({
   user: one(user, { fields: [voidState.userId], references: [user.id] })
 }))
 
-export const voidWeaponsRelations = relations(voidWeapons, ({ one }) => ({
-  user: one(user, { fields: [voidWeapons.userId], references: [user.id] })
+export const voidItemsRelations = relations(voidItems, ({ one }) => ({
+  user: one(user, { fields: [voidItems.userId], references: [user.id] })
 }))
 
 export const voidRunHistoryRelations = relations(voidRunHistory, ({ one }) => ({
