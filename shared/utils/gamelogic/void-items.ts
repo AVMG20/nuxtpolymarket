@@ -14,9 +14,69 @@
 
 import type { VoidResourceBundle, VoidResourceId } from './void'
 
-export type VoidItemKind = 'gun' | 'turret' | 'armor' | 'shield'
+export type VoidItemKind = 'gun' | 'turret' | 'armor' | 'shield' | 'secondary' | 'device'
 
-export const VOID_ITEM_KINDS: VoidItemKind[] = ['gun', 'turret', 'armor', 'shield']
+export const VOID_ITEM_KINDS: VoidItemKind[] = ['gun', 'turret', 'armor', 'shield', 'secondary', 'device']
+
+// ─── Damage types ───────────────────────────────────────────────────────────
+//
+// Energy strips shields and glances off plate; kinetic rounds bounce off
+// shields and tear hulls; explosives are even-handed. Loadouts become a
+// question of what you are fighting, not just DPS.
+
+export type VoidDamageType = 'energy' | 'kinetic' | 'explosive'
+
+export const VOID_DAMAGE_MULT: Record<VoidDamageType, { shield: number, hull: number }> = {
+    energy: { shield: 1.6, hull: 0.95 },
+    kinetic: { shield: 0.65, hull: 1.1 },
+    explosive: { shield: 1, hull: 1 }
+}
+
+export const VOID_DAMAGE_TYPE: Record<string, VoidDamageType> = {
+    blaster: 'energy', autocannon: 'kinetic', scatter: 'kinetic', plasma: 'energy', lancer: 'energy', driver: 'kinetic',
+    pulse: 'energy', gatling: 'kinetic', flak: 'kinetic', tesla: 'energy', beam: 'energy', missile: 'explosive', mortar: 'explosive', rail: 'kinetic',
+    seekers: 'explosive', rockets: 'explosive', torpedo: 'explosive', mines: 'explosive', sentry: 'kinetic'
+}
+
+// ─── Secondary weapons and devices ─────────────────────────────────────────
+
+export interface VoidSecondaryDefinition {
+    id: string
+    /** Damage per warhead at power 1. */
+    damage: number
+    /** Warheads per volley. */
+    volley: number
+    ammo: number
+    /** Seconds between volleys. */
+    reload: number
+    splash: number
+    /** Needs a held lock on a target before it fires. */
+    lock: boolean
+    speed: number
+}
+
+export const VOID_SECONDARIES: Record<string, VoidSecondaryDefinition> = {
+    seekers: { id: 'seekers', damage: 30, volley: 4, ammo: 12, reload: 1.4, splash: 10, lock: true, speed: 150 },
+    rockets: { id: 'rockets', damage: 22, volley: 6, ammo: 8, reload: 1.2, splash: 9, lock: false, speed: 260 },
+    mines: { id: 'mines', damage: 90, volley: 1, ammo: 8, reload: 0.8, splash: 22, lock: false, speed: 0 },
+    torpedo: { id: 'torpedo', damage: 260, volley: 1, ammo: 4, reload: 3, splash: 26, lock: true, speed: 90 }
+}
+
+export interface VoidDeviceDefinition {
+    id: string
+    cooldown: number
+    duration: number
+    /** Share of the energy bar it costs to trigger. */
+    energy: number
+}
+
+export const VOID_DEVICES: Record<string, VoidDeviceDefinition> = {
+    booster: { id: 'booster', cooldown: 30, duration: 2, energy: 0.3 },
+    decoy: { id: 'decoy', cooldown: 26, duration: 7, energy: 0.35 },
+    sentry: { id: 'sentry', cooldown: 34, duration: 18, energy: 0.4 },
+    cloak: { id: 'cloak', cooldown: 38, duration: 4.5, energy: 0.5 },
+    dilator: { id: 'dilator', cooldown: 48, duration: 5, energy: 0.6 }
+}
 
 export const VOID_MAX_TIER = 5
 export const VOID_ITEM_MAX_LEVEL = 10
@@ -87,7 +147,18 @@ export const VOID_ITEM_TYPES: VoidItemType[] = [
     { id: 'bulkhead', kind: 'armor', name: 'Reinforced Bulkhead', description: 'Less hull, but shrugs off part of every hit.', minTier: 1, color: 0xffc27a },
 
     { id: 'deflector', kind: 'shield', name: 'Deflector', description: 'A big shield pool with a steady recharge.', minTier: 1, color: 0x6fd8ff },
-    { id: 'regenerator', kind: 'shield', name: 'Regenerator', description: 'A smaller pool that comes back fast.', minTier: 1, color: 0x7dffd2 }
+    { id: 'regenerator', kind: 'shield', name: 'Regenerator', description: 'A smaller pool that comes back fast.', minTier: 1, color: 0x7dffd2 },
+
+    { id: 'seekers', kind: 'secondary', name: 'Seeker Pods', description: 'Hold E to lock on, release to loose four homing missiles.', minTier: 1, color: 0xff6b4f },
+    { id: 'rockets', kind: 'secondary', name: 'Cluster Rockets', description: 'Press E to dump a spread of fast dumbfire rockets.', minTier: 1, color: 0xffa23d },
+    { id: 'mines', kind: 'secondary', name: 'Proximity Mines', description: 'Press E to drop a mine behind you. Lure pursuers over it.', minTier: 2, color: 0xffd23f },
+    { id: 'torpedo', kind: 'secondary', name: 'Heavy Torpedo', description: 'Hold E to lock, release to launch a slow torpedo that guts big hulls.', minTier: 3, color: 0xff4fa8 },
+
+    { id: 'booster', kind: 'device', name: 'Shield Booster', description: 'Press G to pour energy into your shield.', minTier: 1, color: 0x6fd8ff },
+    { id: 'decoy', kind: 'device', name: 'Holo Decoy', description: 'Press G to drop a hologram that pulls enemy fire.', minTier: 1, color: 0x9fffd9 },
+    { id: 'sentry', kind: 'device', name: 'Sentry Drone', description: 'Press G to deploy an armed sentry that holds position.', minTier: 2, color: 0xffd35e },
+    { id: 'cloak', kind: 'device', name: 'Phase Cloak', description: 'Press G to vanish from enemy sensors. Firing breaks it; bosses see through it.', minTier: 3, color: 0xc49bff },
+    { id: 'dilator', kind: 'device', name: 'Time Dilator', description: 'Press G to slow every enemy and enemy shot around you.', minTier: 4, color: 0x7fd4ff }
 ]
 
 export function voidItemType(id: string) {
@@ -124,7 +195,12 @@ export const VOID_AFFIXES: VoidAffix[] = [
     { id: 'repair', name: 'Hull repair /s', kinds: ['armor'], min: 0.002, max: 0.006, format: 'pct' },
     { id: 'capacity', name: 'Shield', kinds: ['shield'], min: 0.05, max: 0.14, format: 'pct' },
     { id: 'regen', name: 'Recharge', kinds: ['shield'], min: 0.08, max: 0.22, format: 'pct' },
-    { id: 'delay', name: 'Recharge delay', kinds: ['shield'], min: 0.08, max: 0.2, format: 'pctNeg' }
+    { id: 'delay', name: 'Recharge delay', kinds: ['shield'], min: 0.08, max: 0.2, format: 'pctNeg' },
+    { id: 'ammo', name: 'Ammo', kinds: ['secondary'], min: 0.15, max: 0.4, format: 'pct' },
+    { id: 'warhead', name: 'Warhead damage', kinds: ['secondary'], min: 0.06, max: 0.16, format: 'pct' },
+    { id: 'reload', name: 'Reload', kinds: ['secondary'], min: 0.08, max: 0.2, format: 'pctNeg' },
+    { id: 'cooldown', name: 'Cooldown', kinds: ['device'], min: 0.05, max: 0.15, format: 'pctNeg' },
+    { id: 'duration', name: 'Duration', kinds: ['device'], min: 0.08, max: 0.25, format: 'pct' }
 ]
 
 export function voidAffix(id: string) {
@@ -181,12 +257,14 @@ export function voidItemLevelMult(level: number) {
 }
 
 /** Tier, rarity and level folded into one multiplier. */
-export function voidItemPower(item: Pick<VoidItem, 'tier' | 'rarity' | 'level'>) {
-    return voidTierPower(item.tier) * (VOID_RARITIES[item.rarity]?.mult ?? 1) * voidItemLevelMult(item.level)
+export function voidItemPower(item: Pick<VoidItem, 'tier' | 'rarity' | 'level'> & { affixes?: Record<string, number> }) {
+    // A blueprint-built MkII runs a notch hotter than its tier.
+    const mk2 = item.affixes?.mk2 ? 1.12 : 1
+    return voidTierPower(item.tier) * (VOID_RARITIES[item.rarity]?.mult ?? 1) * voidItemLevelMult(item.level) * mk2
 }
 
-export function voidItemName(item: Pick<VoidItem, 'type' | 'tier'>) {
-    return `${voidItemType(item.type)?.name ?? item.type}`
+export function voidItemName(item: Pick<VoidItem, 'type' | 'tier'> & { affixes?: Record<string, number> }) {
+    return `${voidItemType(item.type)?.name ?? item.type}${item.affixes?.mk2 ? ' MkII' : ''}`
 }
 
 // ─── Crafting ───────────────────────────────────────────────────────────────
@@ -202,7 +280,7 @@ const TIER_COINS = [50_000, 400_000, 2_500_000, 10_000_000, 40_000_000]
 const TIER_GEMS = [0, 0, 0, 1, 3]
 /** Upgrade material share per tier: cheap to level early gear, heavier late. */
 const TIER_UPGRADE_SHARE = [0.12, 0.15, 0.18, 0.2, 0.22]
-const KIND_WEIGHT: Record<VoidItemKind, number> = { gun: 1.2, turret: 1, armor: 0.9, shield: 1 }
+const KIND_WEIGHT: Record<VoidItemKind, number> = { gun: 1.2, turret: 1, armor: 0.9, shield: 1, secondary: 1.1, device: 1.3 }
 
 export interface VoidItemPrice {
     resources: VoidResourceBundle
@@ -262,7 +340,7 @@ export function voidCanCraftTier(tier: number, highestSectorCleared: number) {
  * Rolls a crafted item. `rand` is injected so the server can use its CSPRNG
  * and tests can pin outcomes.
  */
-export function voidRollItem(kind: VoidItemKind, type: string, tier: number, rand: () => number): Omit<VoidItem, 'id'> {
+export function voidRollItem(kind: VoidItemKind, type: string, tier: number, rand: () => number, blueprint = false): Omit<VoidItem, 'id'> {
     const total = VOID_RARITIES.reduce((s, r) => s + r.weight, 0)
     let roll = rand() * total
     let rarity = 0
@@ -282,6 +360,15 @@ export function voidRollItem(kind: VoidItemKind, type: string, tier: number, ran
         // Higher rarities roll toward the top of the range.
         const r = Math.min(1, rand() * (1 + rarity * 0.12))
         affixes[pick.id] = Math.round((pick.min + (pick.max - pick.min) * r) * 1000) / 1000
+    }
+    if (blueprint) {
+        affixes.mk2 = 1
+        // A blueprint never produces junk.
+        if (rarity === 0) rarity = 1
+        if (!Object.keys(affixes).some(k => k !== 'mk2') && pool.length) {
+            const pick = pool[Math.floor(rand() * pool.length)]!
+            affixes[pick.id] = Math.round((pick.min + (pick.max - pick.min) * rand()) * 1000) / 1000
+        }
     }
     return { kind, type, tier, rarity, level: 0, affixes, mod: null }
 }
@@ -333,6 +420,11 @@ export interface VoidWeaponFit {
     range: number
     crit: number
     mod: VoidModId | null
+    damageType: VoidDamageType
+    /** Secondary: ammo multiplier. Device: duration multiplier. */
+    extra: number
+    /** Secondary reload or device cooldown multiplier. */
+    cycle: number
 }
 
 export function voidWeaponFit(item: VoidItem): VoidWeaponFit {
@@ -343,11 +435,16 @@ export function voidWeaponFit(item: VoidItem): VoidWeaponFit {
         tier: item.tier,
         rarity: item.rarity,
         level: item.level,
-        power: voidItemPower(item) * (1 + (a.damage ?? 0)),
+        power: voidItemPower(item) * (1 + (a.damage ?? 0) + (a.warhead ?? 0)),
         rate: 1 + (a.rate ?? 0),
         range: 1 + (a.range ?? 0),
         crit: (a.crit ?? 0) + (item.mod === 'prism' ? 0.08 : 0),
-        mod: (voidMod(item.mod)?.kinds.includes(item.kind) ? item.mod : null) as VoidModId | null
+        mod: (voidMod(item.mod)?.kinds.includes(item.kind) ? item.mod : null) as VoidModId | null,
+        damageType: VOID_DAMAGE_TYPE[item.type] ?? 'explosive',
+        extra: item.kind === 'secondary' ? 1 + (a.ammo ?? 0) : 1 + (a.duration ?? 0),
+        cycle: item.kind === 'secondary'
+            ? (1 - (a.reload ?? 0)) / (1 + item.level * 0.02)
+            : (1 - (a.cooldown ?? 0)) * (1 - item.level * 0.025) * (1 - item.rarity * 0.03)
     }
 }
 
@@ -406,6 +503,6 @@ export function voidDefenceStats(baseHull: number, baseShield: number, armor: Vo
 
 /** A single comparable number for an item, used for sorting and the hangar. */
 export function voidItemScore(item: VoidItem) {
-    const affixSum = Object.values(item.affixes ?? {}).reduce((s, v) => s + v, 0)
+    const affixSum = Object.entries(item.affixes ?? {}).reduce((s, [k, v]) => s + (k === 'mk2' ? 0 : v), 0)
     return Math.round(voidItemPower(item) * 100 * (1 + affixSum) + (item.mod ? 25 : 0))
 }

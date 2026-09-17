@@ -1,4 +1,4 @@
-import { and, eq, isNotNull } from 'drizzle-orm'
+import { and, eq, isNotNull, lt } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { voidItems, voidRunHistory, voidState } from '#server/database/schema'
 import { credit, debit, debitGems } from '#server/utils/balance'
@@ -13,6 +13,9 @@ import {
     type VoidItem, type VoidItemKind
 } from '#shared/utils/gamelogic/void-items'
 import { voidPilotLevel, voidRunXp } from '#shared/utils/gamelogic/void-skills'
+import {
+    VOID_BLUEPRINT_KINDS, VOID_DAILY_BLUEPRINTS, VOID_DAILY_MARKS, VOID_PERK_IDS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidRunMarks, type VoidPerkId
+} from '#shared/utils/gamelogic/void-pilot'
 import {
     VOID_CONTRACTS_PER_DAY, VOID_SUPPLY_STOCK_MAX, voidContractDay, voidContractsFor, voidNormalizeSupplies, voidSupplyCost,
     type VoidSupplyId
@@ -48,20 +51,45 @@ export function describeVoidState(s: VoidStateRow, balance: number, gems: number
  * fitted to the Sparrow. Flipping `starterGranted` is the claim, so a burst of
  * first visits grants the kit once.
  */
+const VOID_KIT_VERSION = 2
+
+/**
+ * Pilots who got the kit before secondaries and devices existed receive a
+ * T1 Seeker Pods and Shield Booster once. The version bump is the claim.
+ */
+async function topUpVoidKit(tx: DbExecutor, userId: string) {
+    const [claimed] = await tx.update(voidState).set({ kitVersion: VOID_KIT_VERSION })
+        .where(and(eq(voidState.userId, userId), lt(voidState.kitVersion, VOID_KIT_VERSION)))
+        .returning({ loadouts: voidState.loadouts, equippedShipId: voidState.equippedShipId })
+    if (!claimed) return
+    const kit = await tx.insert(voidItems).values([
+        { userId, kind: 'secondary', type: 'seekers', tier: 1 },
+        { userId, kind: 'device', type: 'booster', tier: 1 }
+    ]).returning({ id: voidItems.id, kind: voidItems.kind })
+    const current = (claimed.loadouts?.[claimed.equippedShipId] ?? {}) as Record<string, unknown>
+    const fit = { ...current, secondary: current.secondary ?? kit.find(k => k.kind === 'secondary')!.id, device: current.device ?? kit.find(k => k.kind === 'device')!.id }
+    await tx.update(voidState).set({ loadouts: { ...(claimed.loadouts ?? {}), [claimed.equippedShipId]: fit } }).where(eq(voidState.userId, userId))
+}
+
 export async function grantVoidStarterKit(userId: string) {
     await db.transaction(async (tx) => {
-        const [claimed] = await tx.update(voidState).set({ starterGranted: true })
+        const [claimed] = await tx.update(voidState).set({ starterGranted: true, kitVersion: VOID_KIT_VERSION })
             .where(and(eq(voidState.userId, userId), eq(voidState.starterGranted, false)))
             .returning({ loadouts: voidState.loadouts })
-        if (!claimed) return
+        if (!claimed) {
+            await topUpVoidKit(tx, userId)
+            return
+        }
         const kit = await tx.insert(voidItems).values([
             { userId, kind: 'gun', type: 'blaster', tier: 1 },
             { userId, kind: 'turret', type: 'pulse', tier: 1 },
             { userId, kind: 'armor', type: 'plating', tier: 1 },
-            { userId, kind: 'shield', type: 'deflector', tier: 1 }
+            { userId, kind: 'shield', type: 'deflector', tier: 1 },
+            { userId, kind: 'secondary', type: 'seekers', tier: 1 },
+            { userId, kind: 'device', type: 'booster', tier: 1 }
         ]).returning({ id: voidItems.id, kind: voidItems.kind })
         const id = (kind: string) => kit.find(k => k.kind === kind)!.id
-        const fit: VoidShipFit = { gun: id('gun'), turrets: [id('turret')], armor: [id('armor')], shields: [id('shield')] }
+        const fit: VoidShipFit = { gun: id('gun'), turrets: [id('turret')], armor: [id('armor')], shields: [id('shield')], secondary: id('secondary'), device: id('device') }
         await tx.update(voidState).set({ loadouts: { ...(claimed.loadouts ?? {}), sparrow: fit } }).where(eq(voidState.userId, userId))
     })
 }
@@ -88,6 +116,9 @@ export interface VoidFinishReport {
     skillUses?: unknown
     suppliesUsed?: unknown
     relics?: unknown
+    depth?: unknown
+    carrierKilled?: unknown
+    lore?: unknown
 }
 
 /**
@@ -115,7 +146,8 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             haul: voidCleanBundle(body.haul as Record<string, unknown>),
             elapsedMs: Number(body.elapsedMs) || 0,
             kills: Number(body.kills) || 0,
-            wardenKilled: body.wardenKilled === true
+            wardenKilled: body.wardenKilled === true,
+            depth: Number(body.depth) || 1
         }, tier, s.runCargo ?? 0, Date.now() - s.runStartedAt.getTime())
 
         const extracted = reason === 'extracted'
@@ -123,7 +155,7 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
         const highestSectorCleared = clearedNow ? Math.min(VOID_MAX_SECTOR, tier) : s.highestSectorCleared
         // Relic caches only come home with the hold. The client reports how
         // many it picked up; the server caps that and rolls what they hold.
-        const relicCount = extracted ? Math.max(0, Math.min(Math.floor(Number(body.relics) || 0), voidRelicCap(settled.elapsedMs, settled.wardenKilled))) : 0
+        const relicCount = extracted ? Math.max(0, Math.min(Math.floor(Number(body.relics) || 0), voidRelicCap(settled.elapsedMs, settled.wardenKilled) + voidNormalizePerks(s.perks).relics)) : 0
         const relics: string[] = []
         const mods = { ...(s.mods ?? {}) }
         for (let i = 0; i < relicCount; i++) {
@@ -131,6 +163,30 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             relics.push(mod)
             mods[mod] = (mods[mod] ?? 0) + 1
         }
+        // Command Marks, a possible blueprint and lore logs only come home with the hold.
+        const depth = voidAllowedDepth(Number(body.depth) || 1, settled.elapsedMs)
+        const carrierKilled = body.carrierKilled === true
+        // Marks and blueprints need a run that actually did something, and are
+        // capped per UTC day: the server cannot see carrier kills or jumps.
+        const today = voidContractDay()
+        const sameDay = s.rewardsDay === today
+        const marksToday = sameDay ? s.marksToday : 0
+        const blueprintsToday = sameDay ? s.blueprintsToday : 0
+        const earnest = settled.kills >= 10 && settled.units >= 100
+        const marks = earnest ? Math.max(0, Math.min(VOID_DAILY_MARKS - marksToday, voidRunMarks({ extracted, wardenKilled: settled.wardenKilled, carrierKilled, depth, elapsedMs: settled.elapsedMs }))) : 0
+        const blueprints = [...(s.blueprints ?? [])]
+        let blueprint: string | null = null
+        const blueprintChance = !extracted || !earnest || blueprintsToday >= VOID_DAILY_BLUEPRINTS ? 0 : (settled.wardenKilled ? 0.25 : 0) + (carrierKilled && settled.elapsedMs >= 240_000 ? 0.25 : 0)
+        if (blueprintChance > 0 && randomFloat() < blueprintChance) {
+            const pool = VOID_ITEM_TYPES.filter(t => VOID_BLUEPRINT_KINDS.includes(t.kind) && t.minTier <= Math.min(5, s.highestSectorCleared + 2) && !blueprints.includes(t.id))
+            if (pool.length) {
+                blueprint = pool[Math.floor(randomFloat() * pool.length)]!.id
+                blueprints.push(blueprint)
+            }
+        }
+        const sectorLore = voidLoreForSector(tier)
+        const reportedLore = Array.isArray(body.lore) ? body.lore.map(String).filter(id => sectorLore.includes(id)) : []
+        const newLore = extracted ? [...new Set(reportedLore)].filter(id => !(s.lore ?? []).includes(id)).slice(0, 3) : []
         // XP is earned whether or not the hold made it home.
         const xp = voidRunXp({
             extracted,
@@ -157,7 +213,13 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             bestHaulValue: Math.max(s.bestHaulValue, settled.value),
             pilotXp: s.pilotXp + xp,
             runSupplies: null,
-            mods
+            mods,
+            marks: s.marks + marks,
+            rewardsDay: today,
+            marksToday: marksToday + marks,
+            blueprintsToday: blueprintsToday + (blueprint ? 1 : 0),
+            blueprints,
+            lore: [...(s.lore ?? []), ...newLore]
         }).where(and(eq(voidState.userId, userId), isNotNull(voidState.runStartedAt)))
             .returning({ userId: voidState.userId })
         if (!claimed) throw createError({ statusCode: 400, statusMessage: 'No active run' })
@@ -188,7 +250,11 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             xp,
             levelBefore: voidPilotLevel(s.pilotXp),
             levelAfter: voidPilotLevel(s.pilotXp + xp),
-            relics
+            relics,
+            marks,
+            blueprint,
+            lore: newLore,
+            depth
         }
     })
 }
@@ -233,7 +299,7 @@ export async function voidBuySupplies(userId: string, id: VoidSupplyId, count: n
         const stock = voidNormalizeSupplies(s.supplies)
         const n = Math.min(count, VOID_SUPPLY_STOCK_MAX - stock[id])
         if (n <= 0) throw createError({ statusCode: 400, statusMessage: 'Stock is full' })
-        const unit = voidSupplyCost(id, s.highestSectorCleared)
+        const unit = voidSupplyCost(id, s.highestSectorCleared, voidNormalizePerks(s.perks).quartermaster > 0)
         const price = {
             resources: Object.fromEntries(Object.entries(unit.resources).map(([k, v]) => [k, v! * n])),
             coins: unit.coins * n,
@@ -270,6 +336,20 @@ export async function voidClaimContract(userId: string, index: number) {
     })
 }
 
+/** Buys one rank of a pilot perk with Command Marks. Lock-then-read on marks and ranks. */
+export async function voidBuyPerk(userId: string, id: VoidPerkId) {
+    if (!VOID_PERK_IDS.includes(id)) throw createError({ statusCode: 400, statusMessage: 'Invalid perk' })
+    return db.transaction(async (tx) => {
+        const s = await getLockedVoidState(tx, userId)
+        const ranks = voidNormalizePerks(s.perks)
+        const cost = voidPerkCost(id, ranks[id])
+        if (cost === null) throw createError({ statusCode: 400, statusMessage: 'Already at max rank' })
+        if (s.marks < cost) throw createError({ statusCode: 400, statusMessage: 'Not enough Command Marks' })
+        await tx.update(voidState).set({ marks: s.marks - cost, perks: { ...ranks, [id]: ranks[id] + 1 } }).where(eq(voidState.userId, userId))
+        return { perk: id, rank: ranks[id] + 1 }
+    })
+}
+
 export async function voidBuyUpgrade(userId: string, id: VoidUpgradeId) {
     return db.transaction(async (tx) => {
         // Lock-then-read: the level is read and written inside the row lock,
@@ -296,7 +376,7 @@ export async function voidCraftItem(userId: string, kind: VoidItemKind, type: st
         const s = await getLockedVoidState(tx, userId)
         if (!voidCanCraftTier(tier, s.highestSectorCleared)) throw createError({ statusCode: 400, statusMessage: `Clear sector ${tier - 1} to craft T${tier}` })
         const resources = await voidCharge(tx, userId, s.resources, voidCraftCost(kind, tier))
-        const rolled = voidRollItem(kind, type, tier, randomFloat)
+        const rolled = voidRollItem(kind, type, tier, randomFloat, (s.blueprints ?? []).includes(type))
         await tx.update(voidState).set({ resources }).where(eq(voidState.userId, userId))
         const [row] = await tx.insert(voidItems).values({ userId, ...rolled }).returning()
         return { item: { ...rolled, id: row!.id } }

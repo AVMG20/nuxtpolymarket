@@ -5,7 +5,10 @@ import {
     voidSectorResources, voidSectorUnlocked, voidSubtractBundle, voidUpgradeCost, type VoidStateSnapshot
 } from '#shared/utils/gamelogic/void'
 import {
-    VOID_ITEM_TYPES, VOID_RARITIES, voidCanCraftTier, voidCraftCost, voidDefenceStats, voidItemUpgradeCost, voidRollBonusAffix, voidRollItem, voidRollMod, voidWeaponFit,
+    VOID_LORE, VOID_PERKS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidRunMarks
+} from '#shared/utils/gamelogic/void-pilot'
+import {
+    VOID_DAMAGE_MULT, VOID_DAMAGE_TYPE, VOID_DEVICES, VOID_SECONDARIES, VOID_ITEM_TYPES, VOID_RARITIES, voidCanCraftTier, voidCraftCost, voidDefenceStats, voidItemUpgradeCost, voidRollBonusAffix, voidRollItem, voidRollMod, voidWeaponFit,
     type VoidItem
 } from '#shared/utils/gamelogic/void-items'
 
@@ -164,7 +167,7 @@ describe('void runner loadouts', () => {
         const gun = item({ id: 'g', kind: 'gun', type: 'blaster' })
         const turret = item({ id: 't' })
         const fit = voidNormalizeFit('wasp', { gun: 't', turrets: ['t', 't', 'x'], armor: ['g'], shields: [] }, [gun, turret])
-        expect(fit).toEqual({ gun: null, turrets: ['t', null], armor: [null], shields: [null] })
+        expect(fit).toEqual({ gun: null, turrets: ['t', null], armor: [null], shields: [null], secondary: null, device: null })
     })
 
     it('auto-fits the strongest gear into every slot', () => {
@@ -240,3 +243,60 @@ describe('void runner settlement', () => {
         expect(real.haul.core).toBe(3)
     })
 })
+
+describe('void runner combat systems', () => {
+    it('makes energy strip shields and kinetic tear hulls', () => {
+        expect(VOID_DAMAGE_MULT.energy.shield).toBeGreaterThan(VOID_DAMAGE_MULT.kinetic.shield)
+        expect(VOID_DAMAGE_MULT.kinetic.hull).toBeGreaterThan(VOID_DAMAGE_MULT.energy.hull)
+        for (const t of VOID_ITEM_TYPES.filter(x => x.kind === 'gun' || x.kind === 'turret' || x.kind === 'secondary')) expect(VOID_DAMAGE_TYPE[t.id], t.id).toBeTruthy()
+    })
+
+    it('defines ballistics for every secondary and device type', () => {
+        for (const t of VOID_ITEM_TYPES.filter(x => x.kind === 'secondary')) expect(VOID_SECONDARIES[t.id], t.id).toBeTruthy()
+        for (const t of VOID_ITEM_TYPES.filter(x => x.kind === 'device')) expect(VOID_DEVICES[t.id], t.id).toBeTruthy()
+    })
+
+    it('builds MkII gear from blueprints: stronger and never common', () => {
+        const plain = voidRollItem('turret', 'pulse', 1, seq([0]))
+        const mk2 = voidRollItem('turret', 'pulse', 1, seq([0]), true)
+        expect(mk2.rarity).toBeGreaterThanOrEqual(1)
+        expect(voidWeaponFit({ ...mk2, id: 'b', rarity: 0 }).power).toBeGreaterThan(voidWeaponFit({ ...plain, id: 'a' }).power)
+    })
+})
+
+describe('void runner pilot meta', () => {
+    it('pays Command Marks only for extractions, and only trusts a carrier kill on a long run', () => {
+        const base = { extracted: true, wardenKilled: true, carrierKilled: false, depth: 1, elapsedMs: 10 * 60_000 }
+        expect(voidRunMarks({ ...base, extracted: false })).toBe(0)
+        expect(voidRunMarks(base)).toBe(2)
+        expect(voidRunMarks({ ...base, carrierKilled: true, elapsedMs: 60_000, wardenKilled: false })).toBe(0)
+        expect(voidRunMarks({ ...base, carrierKilled: true })).toBe(5)
+    })
+
+    it('caps jump depth by elapsed time', () => {
+        expect(voidAllowedDepth(8, 60_000)).toBe(1)
+        expect(voidAllowedDepth(3, 6 * 60_000)).toBe(3)
+        expect(voidAllowedDepth(99, 3_600_000)).toBe(8)
+    })
+
+    it('grows the loot cap with an honest jump depth', () => {
+        const haul = { ferrite: 100_000 }
+        const shallow = voidSettleRun({ extracted: true, haul, elapsedMs: 600_000, kills: 0, wardenKilled: false, depth: 1 }, 1, 1e9, 600_000)
+        const deep = voidSettleRun({ extracted: true, haul, elapsedMs: 600_000, kills: 0, wardenKilled: false, depth: 4 }, 1, 1e9, 600_000)
+        expect(deep.haul.ferrite!).toBeGreaterThan(shallow.haul.ferrite!)
+    })
+
+    it('prices perks per rank and stops at max', () => {
+        for (const perk of VOID_PERKS) {
+            expect(voidPerkCost(perk.id, 0)).toBe(perk.costs[0])
+            expect(voidPerkCost(perk.id, perk.costs.length)).toBeNull()
+        }
+        expect(voidNormalizePerks({ harness: 99, bogus: 3 }).harness).toBe(3)
+    })
+
+    it('only offers lore for the sector being flown', () => {
+        expect(voidLoreForSector(1).every(id => id.startsWith('halcyon') || id === 'relic-1')).toBe(true)
+        expect(VOID_LORE.length).toBeGreaterThanOrEqual(15)
+    })
+})
+

@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { db } from '#server/database'
 import { user, voidItems, voidRunHistory, voidState } from '#server/database/schema'
-import { voidBuySupplies, voidBuyTrade, voidBuyUpgrade, voidClaimContract, voidCraftItem, voidFinishRun, voidSalvageItem, voidSell, voidUpgradeItem } from '#server/utils/void'
+import { voidBuyPerk, voidBuySupplies, voidBuyTrade, voidBuyUpgrade, voidClaimContract, voidCraftItem, voidFinishRun, voidSalvageItem, voidSell, voidUpgradeItem } from '#server/utils/void'
 import { VOID_MARKET_PRICES, voidTradeCost, voidUpgradeCost } from '#shared/utils/gamelogic/void'
 import { voidCraftCost, voidItemUpgradeCost } from '#shared/utils/gamelogic/void-items'
 import { voidContractDay, voidContractsFor, voidSupplyCost } from '#shared/utils/gamelogic/void-station'
@@ -161,6 +161,17 @@ describe.skipIf(SKIP)('void runner value endpoints under a burst', () => {
         expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(2)
         expect((await row_()).supplies).toEqual(expect.objectContaining({ nanites: 2 }))
         expect(await balance()).toBe(0)
+    })
+
+    it('spends Command Marks once per rank under a burst', async () => {
+        await db.update(voidState).set({ marks: 2, perks: {} }).where(eq(voidState.userId, userId))
+
+        const results = await Promise.allSettled(Array.from({ length: 10 }, () => voidBuyPerk(userId, 'harness')))
+
+        expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1)
+        const s = await row_()
+        expect(s.marks).toBe(0)
+        expect(s.perks).toEqual(expect.objectContaining({ harness: 1 }))
     })
 })
 

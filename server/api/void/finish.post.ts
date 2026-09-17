@@ -15,6 +15,9 @@ export default defineEventHandler(async (event) => {
         wardenKilled: body?.wardenKilled,
         skillUses: body?.skillUses,
         suppliesUsed: body?.suppliesUsed,
-        relics: body?.relics
+        relics: body?.relics,
+        depth: body?.depth,
+        carrierKilled: body?.carrierKilled,
+        lore: body?.lore
     })
 })

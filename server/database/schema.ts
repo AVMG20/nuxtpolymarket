@@ -246,6 +246,17 @@ export const voidState = pgTable('void_state', {
   mods: jsonb('mods').$type<Record<string, number>>().notNull().default({}),
   // Set once the free starter kit has been handed out.
   starterGranted: boolean('starter_granted').notNull().default(false),
+  // Bumped when the starter kit grows; older pilots get the new pieces once.
+  kitVersion: integer('kit_version').notNull().default(0),
+  // Daily limits on the rare meta rewards (UTC day key), so forged reports buy little.
+  rewardsDay: text('rewards_day'),
+  marksToday: integer('marks_today').notNull().default(0),
+  blueprintsToday: integer('blueprints_today').notNull().default(0),
+  // Pilot meta: Command Marks and the perks bought with them, blueprints for MkII gear, recovered lore logs.
+  marks: integer('marks').notNull().default(0),
+  perks: jsonb('perks').$type<Record<string, number>>().notNull().default({}),
+  blueprints: jsonb('blueprints').$type<string[]>().notNull().default([]),
+  lore: jsonb('lore').$type<string[]>().notNull().default([]),
   upgradeLevels: jsonb('upgrade_levels').$type<Record<string, number>>().notNull().default({}),
   // 0 until the first warden is killed and docked home.
   highestSectorCleared: integer('highest_sector_cleared').notNull().default(0),

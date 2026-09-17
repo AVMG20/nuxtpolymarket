@@ -42,7 +42,7 @@ export default defineEventHandler(async (event) => {
             await tx.update(voidState).set({ loadouts: s.loadouts }).where(eq(voidState.userId, userId))
         }
         const loadout = voidLoadoutFor(s, items)
-        const stats = voidDerivedStats(loadout.shipId, loadout.levels, loadout.fit, items)
+        const stats = voidDerivedStats(loadout.shipId, loadout.levels, loadout.fit, items, loadout.perks)
         const startedAt = new Date()
         // The ship takes up to a full rack of each supply out of stock.
         const stock = voidNormalizeSupplies(s.supplies)

@@ -1,0 +1,1 @@
+ALTER TABLE "void_state" ADD COLUMN "kit_version" integer DEFAULT 0 NOT NULL;

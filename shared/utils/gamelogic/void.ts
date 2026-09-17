@@ -9,10 +9,11 @@
 // what happened in a run; the server decides what that run was allowed to be
 // worth.
 
+import { VOID_LORE, VOID_PERKS, VOID_ZONES, voidAllowedDepth, voidDepthLoot, voidNormalizePerks, voidPerkCost, type VoidPerkRanks } from './void-pilot'
 import { VOID_SUPPLIES, VOID_SUPPLY_CARRY, VOID_SUPPLY_STOCK_MAX, voidContractDay, voidContractResetAt, voidContractsFor, voidNormalizeSupplies, voidSupplyCost } from './void-station'
 import {
     VOID_ITEM_KINDS, VOID_ITEM_TYPES, VOID_MAX_TIER, VOID_MODS, VOID_RARITIES, voidAffix, voidCanCraftTier, voidCraftCost, voidDefenceStats, voidItemPower,
-    voidItemScore, voidItemType, voidItemUpgradeCost, voidMod, voidSalvageValue, voidWeaponFit,
+    voidItemName, voidItemScore, voidItemType, voidItemUpgradeCost, voidMod, voidSalvageValue, voidWeaponFit, VOID_DAMAGE_TYPE, VOID_DEVICES, VOID_SECONDARIES,
     type VoidItem, type VoidItemKind, type VoidModId, type VoidWeaponFit
 } from './void-items'
 import { VOID_SKILLS, voidEquippedSkill, voidPilotLevel, voidPilotProgress, voidSkillNodesFor, voidUnlockedSkills, type VoidSkillId } from './void-skills'
@@ -582,6 +583,8 @@ export interface VoidShipFit {
     turrets: (string | null)[]
     armor: (string | null)[]
     shields: (string | null)[]
+    secondary: string | null
+    device: string | null
 }
 
 /** Normalises a stored fit against the hull's slots and the items that exist. */
@@ -605,7 +608,9 @@ export function voidNormalizeFit(shipId: string, raw: unknown, items: readonly V
         gun: pick(r.gun, 'gun'),
         turrets: list(r.turrets, ship.turrets, 'turret'),
         armor: list(r.armor, ship.armor, 'armor'),
-        shields: list(r.shields, ship.shields, 'shield')
+        shields: list(r.shields, ship.shields, 'shield'),
+        secondary: pick(r.secondary, 'secondary'),
+        device: pick(r.device, 'device')
     }
 }
 
@@ -620,7 +625,7 @@ export function voidAutoFit(shipId: string, items: readonly VoidItem[]): VoidShi
         const ids = best(kind)
         return Array.from({ length: count }, (_, i) => ids[i] ?? null)
     }
-    return { gun: best('gun')[0] ?? null, turrets: take('turret', ship.turrets), armor: take('armor', ship.armor), shields: take('shield', ship.shields) }
+    return { gun: best('gun')[0] ?? null, turrets: take('turret', ship.turrets), armor: take('armor', ship.armor), shields: take('shield', ship.shields), secondary: best('secondary')[0] ?? null, device: best('device')[0] ?? null }
 }
 
 export interface VoidLoadout {
@@ -629,6 +634,9 @@ export interface VoidLoadout {
     fit: VoidShipFit
     gun: VoidWeaponFit | null
     turrets: (VoidWeaponFit | null)[]
+    secondary: VoidWeaponFit | null
+    device: VoidWeaponFit | null
+    perks: VoidPerkRanks
     skill: { id: VoidSkillId, nodes: string[] }
 }
 
@@ -654,13 +662,15 @@ export interface VoidDerivedStats {
     gun: number
 }
 
-export function voidDerivedStats(shipId: string, levels: VoidUpgradeLevels, fit: VoidShipFit, items: readonly VoidItem[]): VoidDerivedStats {
+export function voidDerivedStats(shipId: string, levels: VoidUpgradeLevels, fit: VoidShipFit, items: readonly VoidItem[], perks?: VoidPerkRanks): VoidDerivedStats {
     const ship = voidShip(shipId)
     const l = levels
     const byId = new Map(items.map(i => [i.id, i]))
     const armor = fit.armor.map(id => (id ? byId.get(id) : undefined)).filter((i): i is VoidItem => !!i)
     const shields = fit.shields.map(id => (id ? byId.get(id) : undefined)).filter((i): i is VoidItem => !!i)
     const defence = voidDefenceStats(ship.hull, ship.shield, armor, shields)
+    defence.hull = Math.round(defence.hull * (1 + (perks?.frame ?? 0) * 0.06))
+    defence.shield = Math.round(defence.shield * (1 + (perks?.capacitor ?? 0) * 0.06))
     const gunItem = fit.gun ? byId.get(fit.gun) : undefined
     const gunPower = gunItem ? voidWeaponFit(gunItem).power : 0.6
     return {
@@ -674,7 +684,7 @@ export function voidDerivedStats(shipId: string, levels: VoidUpgradeLevels, fit:
         speed: ship.speed * (1 + l.engines * 0.08),
         boost: 1.9 + l.engines * 0.05,
         agility: ship.agility * (1 + l.engines * 0.04),
-        cargo: Math.round(ship.cargo * (1 + l.cargo * 0.15)),
+        cargo: Math.round(ship.cargo * (1 + l.cargo * 0.15) * (1 + (perks?.harness ?? 0) * 0.08)),
         magnet: 34 * (1 + l.cargo * 0.2) * Math.max(1, ship.size / 5),
         damageMult: gunPower,
         fireRateMult: 1,
@@ -724,6 +734,8 @@ export interface VoidRunReport {
     elapsedMs: number
     kills: number
     wardenKilled: boolean
+    /** Jump depth the run reached; loot caps grow with it. */
+    depth?: number
 }
 
 export interface VoidSettledRun {
@@ -754,7 +766,7 @@ export function voidSettleRun(report: VoidRunReport, tier: number, cargoCapacity
     }
 
     const allowed = voidSectorResources(tier)
-    const sectorBonus = 1 + (tier - 1) * 0.25
+    const sectorBonus = (1 + (tier - 1) * 0.25) * voidDepthLoot(voidAllowedDepth(report.depth ?? 1, elapsedMs))
     let trimmed = false
     const capped: VoidResourceBundle = {}
     for (const id of VOID_RESOURCE_IDS) {
@@ -824,6 +836,10 @@ export interface VoidStateSnapshot {
     contractsDay?: string | null
     contractsDone?: number[]
     mods?: Record<string, number>
+    marks?: number
+    perks?: Record<string, number>
+    blueprints?: string[]
+    lore?: string[]
 }
 
 export function voidOwnedShips(s: Pick<VoidStateSnapshot, 'ownedShipIds'>) {
@@ -841,7 +857,7 @@ export function voidLoadoutFor(s: VoidStateSnapshot, items: readonly VoidItem[],
     }
     const skillId = voidEquippedSkill(s)
     const skill = { id: skillId, nodes: voidSkillNodesFor(s.skillNodes, skillId, voidPilotLevel(s.pilotXp ?? 0)) }
-    return { shipId, levels, fit, gun: weapon(fit.gun), turrets: fit.turrets.map(weapon), skill }
+    return { shipId, levels, fit, gun: weapon(fit.gun), turrets: fit.turrets.map(weapon), secondary: weapon(fit.secondary), device: weapon(fit.device), perks: voidNormalizePerks(s.perks), skill }
 }
 
 export function voidDescribeItem(item: VoidItem, resources: VoidResourceBundle, balance: number, gems: number) {
@@ -855,13 +871,30 @@ export function voidDescribeItem(item: VoidItem, resources: VoidResourceBundle, 
         const g = base as VoidGunDefinition
         stats = [
             { label: 'DPS', value: String(Math.round(voidGunDps(g.id) * power * (1 + (a.damage ?? 0)) * (1 + (a.rate ?? 0)))) },
-            { label: 'Range', value: String(Math.round(g.range * (1 + (a.range ?? 0)))) }
+            { label: 'Range', value: String(Math.round(g.range * (1 + (a.range ?? 0)))) },
+            { label: 'Type', value: VOID_DAMAGE_TYPE[g.id] ?? 'energy' }
         ]
     } else if (item.kind === 'turret' && base) {
         const t = base as VoidTurretDefinition
         stats = [
             { label: 'DPS', value: String(Math.round(voidTurretDps(t.id) * power * (1 + (a.damage ?? 0)) * (1 + (a.rate ?? 0)))) },
-            { label: 'Range', value: String(Math.round(t.range * (1 + (a.range ?? 0)))) }
+            { label: 'Range', value: String(Math.round(t.range * (1 + (a.range ?? 0)))) },
+            { label: 'Type', value: VOID_DAMAGE_TYPE[t.id] ?? 'energy' }
+        ]
+    } else if (item.kind === 'secondary') {
+        const sec = VOID_SECONDARIES[item.type]!
+        const fit = voidWeaponFit(item)
+        stats = [
+            { label: 'Hit', value: `${Math.round(sec.damage * fit.power)}×${sec.volley}` },
+            { label: 'Ammo', value: String(Math.round(sec.ammo * fit.extra)) },
+            { label: 'Type', value: VOID_DAMAGE_TYPE[item.type] ?? 'explosive' }
+        ]
+    } else if (item.kind === 'device') {
+        const dev = VOID_DEVICES[item.type]!
+        const fit = voidWeaponFit(item)
+        stats = [
+            { label: 'Cooldown', value: `${Math.round(dev.cooldown * fit.cycle)}s` },
+            { label: 'Lasts', value: `${(dev.duration * fit.extra).toFixed(1)}s` }
         ]
     } else {
         const d = item.kind === 'armor' ? voidDefenceStats(0, 0, [item], []) : voidDefenceStats(0, 0, [], [item])
@@ -871,13 +904,14 @@ export function voidDescribeItem(item: VoidItem, resources: VoidResourceBundle, 
     }
     return {
         ...item,
-        name: type?.name ?? item.type,
+        name: voidItemName(item),
+        mk2: !!a.mk2,
         color: type?.color ?? 0xffffff,
         rarityName: VOID_RARITIES[item.rarity]?.name ?? 'Common',
         rarityColor: VOID_RARITIES[item.rarity]?.color ?? '#fff',
         score: voidItemScore(item),
         stats,
-        affixList: Object.entries(a).map(([id, value]) => {
+        affixList: Object.entries(a).filter(([id]) => id !== 'mk2').map(([id, value]) => {
             const def = voidAffix(id)
             return { id, name: def?.name ?? id, value, text: `${def?.format === 'pctNeg' ? '-' : '+'}${Math.round(value * 1000) / 10}%` }
         }),
@@ -892,7 +926,7 @@ export function voidDescribeState(s: VoidStateSnapshot, balance: number, gems: n
     const resources = voidCleanBundle(s.resources)
     const owned = voidOwnedShips(s)
     const loadout = voidLoadoutFor(s, items)
-    const stats = voidDerivedStats(loadout.shipId, loadout.levels, loadout.fit, items)
+    const stats = voidDerivedStats(loadout.shipId, loadout.levels, loadout.fit, items, loadout.perks)
     const pilot = voidPilotProgress(s.pilotXp ?? 0)
     const unlockedSkills = voidUnlockedSkills(s)
     const stock = voidNormalizeSupplies(s.supplies)
@@ -926,6 +960,15 @@ export function voidDescribeState(s: VoidStateSnapshot, balance: number, gems: n
         resourceCatalog: VOID_RESOURCES,
         abilities: VOID_ABILITIES,
         pilot,
+        marks: s.marks ?? 0,
+        perks: VOID_PERKS.map((perk) => {
+            const rank = loadout.perks[perk.id]
+            const cost = voidPerkCost(perk.id, rank)
+            return { id: perk.id, name: perk.name, description: perk.description, icon: perk.icon, rank, maxRank: perk.costs.length, current: perk.effect(rank), next: rank < perk.costs.length ? perk.effect(rank + 1) : null, cost, affordable: cost !== null && (s.marks ?? 0) >= cost }
+        }),
+        blueprints: (s.blueprints ?? []).filter(id => voidItemType(id)).map(id => ({ id, name: voidItemType(id)!.name, kind: voidItemType(id)!.kind })),
+        lore: VOID_LORE.map(entry => ({ ...entry, found: (s.lore ?? []).includes(entry.id) })),
+        zones: VOID_ZONES,
         items: items.map(item => voidDescribeItem(item, resources, balance, gems)).sort((a, b) => b.score - a.score),
         mods: VOID_MODS.map(mod => ({ ...mod, count: Math.max(0, Math.floor(Number(s.mods?.[mod.id]) || 0)) })),
         crafting: {
@@ -941,7 +984,7 @@ export function voidDescribeState(s: VoidStateSnapshot, balance: number, gems: n
             }))
         },
         supplies: VOID_SUPPLIES.map((supply) => {
-            const price = voidSupplyCost(supply.id, s.highestSectorCleared)
+            const price = voidSupplyCost(supply.id, s.highestSectorCleared, loadout.perks.quartermaster > 0)
             return { ...supply, stock: stock[supply.id], cost: price, affordable: voidCanAffordPrice(price, resources, balance, gems) }
         }),
         supplyCarry: VOID_SUPPLY_CARRY,
@@ -962,7 +1005,7 @@ export function voidDescribeState(s: VoidStateSnapshot, balance: number, gems: n
         })),
         ships: VOID_SHIPS.map((ship) => {
             const shipLoadout = voidLoadoutFor(s, items, ship.id)
-            const shipStats = voidDerivedStats(ship.id, shipLoadout.levels, shipLoadout.fit, items)
+            const shipStats = voidDerivedStats(ship.id, shipLoadout.levels, shipLoadout.fit, items, shipLoadout.perks)
             return {
                 ...ship,
                 owned: owned.includes(ship.id),

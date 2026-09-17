@@ -49,13 +49,14 @@ const SUPPLY_RECIPES: VoidResourceBundle[] = [
  * One supply's price. It is built from the deepest sector you can fly, so it
  * stays a real share of every haul instead of fading into pocket change.
  */
-export function voidSupplyCost(id: VoidSupplyId, highestSectorCleared: number) {
+export function voidSupplyCost(id: VoidSupplyId, highestSectorCleared: number, discount = false) {
     const def = VOID_SUPPLIES.find(s => s.id === id) ?? VOID_SUPPLIES[0]!
     const tier = Math.max(1, Math.min(5, highestSectorCleared + 1))
     const recipe = SUPPLY_RECIPES[tier - 1]!
     const resources: VoidResourceBundle = {}
-    for (const [res, amount] of Object.entries(recipe)) resources[res as VoidResourceId] = Math.round(amount! * def.weight)
-    const coins = Math.round(20_000 * Math.pow(3.2, tier - 1) * def.weight / 1000) * 1000
+    const factor = discount ? 0.75 : 1
+    for (const [res, amount] of Object.entries(recipe)) resources[res as VoidResourceId] = Math.round(amount! * def.weight * factor)
+    const coins = Math.round(20_000 * Math.pow(3.2, tier - 1) * def.weight * factor / 1000) * 1000
     return { resources, coins, gems: 0 }
 }
 
