@@ -140,7 +140,7 @@
         <div v-if="summary" class="vr-modal-wrap">
             <div class="vr-modal vr-debrief" :class="summary.extracted ? 'vr-good' : 'vr-bad'">
                 <div class="vr-debrief-kicker">{{ summary.extracted ? 'Extraction complete' : 'Signal lost' }}</div>
-                <div class="vr-modal-title">{{ summary.extracted ? 'Hold banked' : 'Ship destroyed' }}</div>
+                <div class="vr-modal-title">{{ summary.extracted ? (summary.failed ? 'Hold not banked yet' : summary.pending ? 'Banking hold' : 'Hold banked') : 'Ship destroyed' }}</div>
                 <div v-if="summary.sectorCleared" class="vr-cleared">Sector cleared · {{ summary.sectorCleared }}</div>
                 <div class="vr-debrief-stats">
                     <div><span>Time</span><b>{{ clock(summary.elapsedMs / 1000) }}</b></div>
@@ -178,7 +178,10 @@
                 <div v-else-if="summary.extracted" class="vr-debrief-empty">Nothing in the hold this time.</div>
                 <div v-else-if="summary.lostValue > 0" class="vr-debrief-lost">Lost with the ship: <b>{{ formatNumber(summary.lostValue) }}</b> worth of cargo</div>
                 <div v-else class="vr-debrief-empty">The hold was empty. Nothing lost but the pride.</div>
+                <div v-if="summary.trimmed" class="vr-debrief-empty">Part of the hold was over this run's limits and stayed behind.</div>
                 <div v-if="summary.pending" class="vr-debrief-empty">Filing report…</div>
+                <div v-if="summary.failed" class="vr-debrief-lost">The station did not get your report. The hold is kept on this device and filed before your next launch.</div>
+                <button v-if="summary.failed" class="vr-btn" @click="retryReport">Try again</button>
                 <button class="vr-btn vr-btn-primary" :disabled="summary.pending" @click="closeSummary">Return to hangar</button>
             </div>
         </div>
@@ -215,13 +218,16 @@ const launching = ref(false)
 const previewShipId = ref<string | null>(null)
 const hud = shallowRef<HudState | null>(null)
 const inFlight = ref(false)
-const run = ref<{ sectorName: string, shipName: string, tier: number } | null>(null)
+const run = ref<{ sectorName: string, shipName: string, tier: number, startedAt: string } | null>(null)
 const toasts = ref<{ id: number, text: string, tone: string }[]>([])
 const banner = ref<{ id: number, title: string, subtitle: string, tone: string } | null>(null)
 let bannerTimer: ReturnType<typeof setTimeout> | undefined
 const summary = ref<null | {
     extracted: boolean
     pending: boolean
+    /** The server never confirmed the report; the hold waits on this device. */
+    failed: boolean
+    trimmed: boolean
     kills: number
     elapsedMs: number
     units: number
@@ -396,6 +402,91 @@ function saveGuide(lesson: string) {
     }
 }
 
+const REPORT_KEY = 'void-runner-report'
+
+type FinishReason = 'extracted' | 'destroyed' | 'abandoned'
+type FinishBody = Record<string, unknown> & { reason: FinishReason }
+type FinishResponse = InternalApi['/api/void/finish']['post']
+
+/**
+ * A run report the server has not confirmed yet. It is kept until the server
+ * takes it, so a dropped request or a deploy mid-run never costs the hold.
+ */
+function loadPendingReport(): { startedAt: string, body: FinishBody } | null {
+    try {
+        const raw = JSON.parse(localStorage.getItem(REPORT_KEY) ?? 'null') as { startedAt?: unknown, body?: FinishBody } | null
+        return raw && typeof raw.startedAt === 'string' && raw.body ? { startedAt: raw.startedAt, body: raw.body } : null
+    } catch {
+        return null
+    }
+}
+
+function savePendingReport(startedAt: string, body: FinishBody) {
+    try {
+        localStorage.setItem(REPORT_KEY, JSON.stringify({ startedAt, body }))
+    } catch {
+        // storage unavailable
+    }
+}
+
+function clearPendingReport() {
+    try {
+        localStorage.removeItem(REPORT_KEY)
+    } catch {
+        // storage unavailable
+    }
+}
+
+function statusOf(e: unknown) {
+    const err = e as { statusCode?: number, status?: number } | null
+    return err?.statusCode ?? err?.status ?? 0
+}
+
+/** A 4xx is the server's answer about this run; anything else is worth another try. */
+function isFinal(e: unknown) {
+    const status = statusOf(e)
+    return status >= 400 && status < 500
+}
+
+/**
+ * Files a run report, retrying network and server errors. The server banks a
+ * run exactly once, so a retry can never pay twice. Returns null when an
+ * earlier attempt landed but its response was lost.
+ */
+async function fileReport(body: FinishBody): Promise<FinishResponse | null> {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            return await apiFetch<FinishResponse>('/api/void/finish', { method: 'POST', body })
+        } catch (e) {
+            if (attempt > 0 && statusOf(e) === 400) return null
+            if (isFinal(e) || attempt >= 3) throw e
+            await new Promise(resolve => setTimeout(resolve, 1000 * 2 ** attempt))
+        }
+    }
+}
+
+/**
+ * Files the report of a run the server still has open. Throws when it cannot,
+ * so the caller never clears that run (and its hold) by accident.
+ */
+async function flushPendingReport() {
+    const pending = loadPendingReport()
+    if (!pending) return
+    // A report for some other run must never settle the one that is open now.
+    const active = state.value?.activeRun
+    if (active && String(active.startedAt) !== pending.startedAt) {
+        clearPendingReport()
+        return
+    }
+    try {
+        await fileReport(pending.body)
+    } catch (e) {
+        if (!isFinal(e)) throw e
+    }
+    clearPendingReport()
+    await refresh()
+}
+
 watch([volume, sensitivity, invertY, highQuality, reduceFlashes, hangarSpin, muted], () => {
     audio.volume = volume.value
     audio.setMuted(muted.value)
@@ -552,6 +643,8 @@ async function launch(tier: number) {
     launching.value = true
     busy.value = true
     try {
+        // An unfiled report from the last run goes in first; forcing a launch would throw its hold away.
+        await flushPendingReport()
         let res: InternalApi['/api/void/launch']['post']
         try {
             res = await apiFetch<InternalApi['/api/void/launch']['post']>('/api/void/launch', { method: 'POST', body: { sector: tier } })
@@ -566,7 +659,7 @@ async function launch(tier: number) {
         previewShipId.value = null
         gateChoice.value = null
         tradeOpen.value = false
-        run.value = { sectorName: res.sector.name, shipName: voidShip(res.loadout.shipId).name, tier }
+        run.value = { sectorName: res.sector.name, shipName: voidShip(res.loadout.shipId).name, tier, startedAt: String(res.startedAt) }
         inFlight.value = true
         engine.startRun({
             tutorial: s.extractions === 0 && tier === 1,
@@ -606,13 +699,15 @@ function onViewportClick() {
     if (inFlight.value && hud.value && !hud.value.locked && !hud.value.paused) engage()
 }
 
-async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 'abandoned') {
+async function finishRun(result: RunResult, reason: FinishReason) {
     gateChoice.value = null
     tradeOpen.value = false
     const items = bundleItems(result.haul)
     summary.value = {
         extracted: reason === 'extracted',
         pending: true,
+        failed: false,
+        trimmed: false,
         kills: result.kills,
         elapsedMs: result.elapsedMs,
         units: items.reduce((s, i) => s + i.amount, 0),
@@ -633,14 +728,31 @@ async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 
         items: reason === 'extracted' ? items : bundleItems({})
     }
     if (document.pointerLockElement) document.exitPointerLock()
+    const body: FinishBody = { reason, haul: result.haul, kills: result.kills, wardenKilled: result.wardenKilled, elapsedMs: result.elapsedMs, skillUses: result.skillUses, suppliesUsed: result.suppliesUsed, relics: result.relics, gearCaches: result.gearCaches, bonusXp: result.bonusXp, depth: result.depth, carrierKilled: result.carrierKilled, lore: result.lore }
+    if (run.value) savePendingReport(run.value.startedAt, body)
+    await submitReport(body)
+}
+
+async function retryReport() {
+    const pending = loadPendingReport()
+    if (!pending || !summary.value) return
+    summary.value = { ...summary.value, pending: true, failed: false }
+    await submitReport(pending.body)
+}
+
+async function submitReport(body: FinishBody) {
+    if (!summary.value) return
     try {
-        const res = await apiFetch<InternalApi['/api/void/finish']['post']>('/api/void/finish', {
-            method: 'POST',
-            body: { reason, haul: result.haul, kills: result.kills, wardenKilled: result.wardenKilled, elapsedMs: result.elapsedMs, skillUses: result.skillUses, suppliesUsed: result.suppliesUsed, relics: result.relics, gearCaches: result.gearCaches, bonusXp: result.bonusXp, depth: result.depth, carrierKilled: result.carrierKilled, lore: result.lore }
-        })
+        const res = await fileReport(body)
+        clearPendingReport()
+        if (!res) {
+            summary.value = { ...summary.value, pending: false }
+            return
+        }
         summary.value = {
             ...summary.value,
             pending: false,
+            trimmed: res.extracted && res.trimmed,
             units: res.units,
             value: res.coinValue,
             kills: res.kills,
@@ -659,7 +771,8 @@ async function finishRun(result: RunResult, reason: 'extracted' | 'destroyed' | 
         }
         if (res.sectorCleared || res.levelAfter > res.levelBefore) audio.play('levelUp')
     } catch (e) {
-        summary.value = { ...summary.value, pending: false }
+        if (isFinal(e)) clearPendingReport()
+        summary.value = { ...summary.value!, pending: false, failed: !isFinal(e) }
         fail(e, 'Could not file the run report')
     }
 }
@@ -735,8 +848,16 @@ onMounted(async () => {
     if (reduceFlashes.value) engine.setReduceFlashes(true)
     engine.hangarSpin = hangarSpin.value
     await refresh()
-    // A run that never reported back (closed tab or reload) banks nothing; clear it now and say so.
-    if (state.value?.activeRun) {
+    // A report that never reached the server is filed now; a run that never
+    // reported at all (closed tab or reload) banks nothing, so clear it and say so.
+    if (state.value?.activeRun && loadPendingReport()) {
+        try {
+            await flushPendingReport()
+        } catch {
+            toast.add({ title: 'Your last run report is still waiting', description: 'The station could not be reached. It is filed again before your next launch.', color: 'warning' })
+        }
+    }
+    if (state.value?.activeRun && !loadPendingReport()) {
         try {
             await apiFetch('/api/void/finish', { method: 'POST', body: { reason: 'abandoned' } })
             await refresh()
