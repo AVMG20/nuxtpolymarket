@@ -1874,8 +1874,9 @@ export class VoidEngine {
             if (d > range + radius) return false
             return to.dot(t.worldNormal) > -d * 0.15
         }
-        // The crosshair wins when a turret can reach it.
-        if (this.focus?.alive && valid(this.focus.pos, this.focus.radius)) {
+        // The crosshair wins when a turret can reach it — but only on a hostile.
+        // Painting a Coalition patrol or a trader must never open fire for you.
+        if (this.focus?.alive && this.focus.hostile && valid(this.focus.pos, this.focus.radius)) {
             t.target = this.focus
             t.rock = null
             return
