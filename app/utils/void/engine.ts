@@ -239,6 +239,12 @@ export class VoidEngine {
     private nextEnemyId = 1
     focus: Enemy | null = null
     focusRock: Asteroid | null = null
+    /**
+     * Seconds left of "the pilot is mining". Turrets only chew on rock while
+     * this is running, so they never wander off a fight to shoot a pebble, and
+     * they stop as soon as you stop.
+     */
+    private mineIntent = 0
     private focusStick = 0
     outOfBounds = false
     hitMarker = 0
@@ -889,6 +895,7 @@ export class VoidEngine {
         this.skillPressed = false
         this.focus = null
         this.focusRock = null
+        this.mineIntent = 0
         this.asteroids?.clear()
         this.sky?.dispose()
         this.sky = null
@@ -1685,6 +1692,9 @@ export class VoidEngine {
         p.root.updateMatrixWorld(true)
 
         this.fireGun(dt)
+        // Runs down after the pilot stops shooting rock, so the turrets finish
+        // the one they were on rather than cutting off mid-shot.
+        this.mineIntent = Math.max(0, this.mineIntent - dt)
 
         const rateMult = stats.fireRateMult * (p.abilityTime > 0 && p.ability === 'overdrive' ? 2 : 1) * (this.skills?.rateMult ?? 1) * (this.systems?.weaponRate ?? 1)
         let beams = 0
@@ -1744,6 +1754,8 @@ export class VoidEngine {
         p.gunCooldown -= dt * (gun.beam ? 1 : stats.fireRateMult * fit.rate * (this.skills?.rateMult ?? 1) * (this.systems?.weaponRate ?? 1))
         p.gunBeam = false
         if (!this.firing) return
+        // Firing at rock is what tells the turrets to help mine.
+        if (this.focusRock?.alive) this.mineIntent = 2.5
         this.systems?.breakCloak()
         const noseFwd = _v3.copy(FORWARD).applyQuaternion(p.quat)
         const muzzleFor = (side: number) => new THREE.Vector3(side * size * 0.16, -size * 0.03, -size * 0.45).applyMatrix4(p.root.matrixWorld)
@@ -1884,16 +1896,21 @@ export class VoidEngine {
             return
         }
         t.target = null
-        if (this.focusRock?.alive && valid(this.focusRock.pos, this.focusRock.radius)) {
-            t.rock = this.focusRock
-            return
-        }
-        // Idle turrets chew on crates, then ore, in reach.
+        // Idle turrets chew on crates in reach whatever the pilot is doing.
         for (const e of this.enemies) {
             if (e.alive && e.kind === 'crate' && e.group.visible && valid(e.pos, e.radius)) {
                 t.target = e
                 return
             }
+        }
+        // Rock is only a target while the pilot is mining it themselves.
+        if (this.mineIntent <= 0) {
+            t.rock = null
+            return
+        }
+        if (this.focusRock?.alive && valid(this.focusRock.pos, this.focusRock.radius)) {
+            t.rock = this.focusRock
+            return
         }
         if (t.rock?.alive && valid(t.rock.pos, t.rock.radius)) return
         let rock: Asteroid | null = null
