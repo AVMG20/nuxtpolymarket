@@ -200,7 +200,15 @@
 
             <!-- Loadout -->
             <template v-if="tab === 'fitting'">
-                <VoidLoadout :state="state" :busy="busy" @set-fit="(shipId: string, fit: unknown) => $emit('set-fit', shipId, fit)" @craft="setTab('workshop:craft')" />
+                <VoidLoadout
+                    :state="state"
+                    :busy="busy"
+                    @set-fit="(shipId: string, fit: unknown) => $emit('set-fit', shipId, fit)"
+                    @craft="setTab('workshop:craft')"
+                    @upgrade="(id: string) => $emit('upgrade-item', id)"
+                    @salvage="(id: string) => $emit('salvage', id)"
+                    @socket="(id: string, mod: string) => $emit('socket', id, mod)"
+                />
                 <h2 class="vh-h">Supplies <small>Keys 1-3 · every launch takes up to {{ state.supplyCarry }} of each from your store, whether you use them or not</small></h2>
                 <div class="vh-list">
                     <div v-for="s in state.supplies" :key="s.id" class="vh-card" :style="{ '--c': hex(s.color) }">
@@ -632,7 +640,7 @@ const shownSpec = computed(() => {
 })
 const storesValue = computed(() => props.state.resourceCatalog.reduce((sum, r) => sum + held(r.id) * props.state.prices[r.id], 0))
 
-const workshopView = ref<WorkshopView>('gear')
+const workshopView = ref<WorkshopView>('craft')
 
 /** `workshop:craft` opens a tab at a specific view. */
 function setTab(id: string) {
@@ -837,7 +845,7 @@ function stepSector(delta: number) {
 .vh-page-launch { padding: 10px 18px; }
 .vh-page .vh-list { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
 .vh-page .vw-views { top: -20px; margin: -20px 0 12px; padding: 20px 0 10px; }
-.vh-page .vw-craft { max-width: 760px; }
+.vh-page .vw-craft { max-width: 1180px; }
 .vh-page .vw-mods { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
 .vh-page .vh-manual { max-width: 900px; }
 .vh-page .vh-table { max-width: 900px; }

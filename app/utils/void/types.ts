@@ -52,6 +52,8 @@ export interface HudTarget {
     name: string
     hp: number
     maxHp: number
+    shield: number
+    shieldMax: number
     kind: 'enemy' | 'rock' | 'crate'
     detail: string
 }
@@ -75,7 +77,7 @@ export interface HudState {
     kills: number
     elapsed: number
     dock: null | { label: string, progress: number, ready: boolean }
-    warden: null | { name: string, hp: number, maxHp: number }
+    warden: null | { name: string, hp: number, maxHp: number, shield: number, shieldMax: number }
     wardenKilled: boolean
     threat: number
     /** 0-5 stars: how hard the sector is hunting you. */

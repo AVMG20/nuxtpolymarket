@@ -96,7 +96,11 @@
 .vr-boss { width: 100%; }
 .vr-boss-name { text-align: center; font-size: 13px; font-weight: 700; letter-spacing: 0.4em; text-transform: uppercase; color: #ff9aac; text-shadow: 0 0 14px rgba(255, 79, 109, 0.6); margin-bottom: 6px; }
 .vr-boss-bar { position: relative; height: 6px; background: rgba(255, 255, 255, 0.07); border: 1px solid rgba(255, 79, 109, 0.35); }
-.vr-boss-bar div { height: 100%; background: linear-gradient(90deg, #ff2d55, #ff9a3d); box-shadow: 0 0 14px rgba(255, 60, 90, 0.8); transition: width 0.15s; }
+.vr-boss-bar { overflow: hidden; }
+.vr-boss-hull { height: 100%; background: linear-gradient(90deg, #ff2d55, #ff9a3d); box-shadow: 0 0 14px rgba(255, 60, 90, 0.8); transition: width 0.15s; }
+/* The shield lies over the hull, so a full boss reads as solid blue and the red bleeds through as it falls. */
+.vr-boss-shield { position: absolute; left: 0; top: 0; height: 100%; background: linear-gradient(90deg, #4fb8ff, #9fe8ff); box-shadow: 0 0 14px rgba(94, 200, 255, 0.85); transition: width 0.15s; }
+.vr-boss-note { margin-top: 3px; text-align: center; font-size: 10px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; color: #9fe8ff; }
 .vr-boss-bar i { position: absolute; top: -2px; bottom: -2px; width: 1px; background: rgba(255, 255, 255, 0.4); }
 .vr-toasts { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .vr-toast { padding: 6px 16px; background: var(--vr-bg); border-left: 2px solid var(--vr-accent); font-size: 14px; font-weight: 600; letter-spacing: 0.08em; backdrop-filter: blur(6px); }
@@ -157,6 +161,7 @@
 /* Engage and modals */
 .vr-engage { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(2, 4, 10, 0.2), rgba(2, 4, 10, 0.65)); cursor: pointer; }
 .vr-engage-card { padding: 26px 34px; background: var(--vr-bg); border: 1px solid var(--vr-line-strong); backdrop-filter: blur(10px); text-align: center; }
+.vr-reveal-art { margin: 6px auto 10px; }
 .vr-engage-more { margin-top: 14px; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--vr-muted); }
 .vr-engage-title { font-size: 24px; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase; margin-bottom: 18px; animation: vr-pulse 1.6s infinite; }
 .vr-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 26px; text-align: left; }

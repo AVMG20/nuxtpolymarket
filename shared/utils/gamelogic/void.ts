@@ -423,43 +423,43 @@ export const VOID_SHIPS = [
     },
     {
         id: 'wasp', name: 'Wasp', role: 'Interceptor', requiresSector: 0,
-        description: 'All engine. Twin turrets and a blink drive that puts you behind whatever was chasing you.',
-        hull: 100, shield: 80, speed: 84, agility: 3.3, cargo: 1100, turrets: 2, armor: 1, shields: 1, drones: 0, ability: 'blink',
+        description: 'All engine. One turret, no room for more, and a blink drive that puts you behind whatever was chasing you.',
+        hull: 100, shield: 80, speed: 92, agility: 3.7, cargo: 1100, turrets: 1, armor: 1, shields: 1, drones: 0, ability: 'blink',
         cost: { ferrite: 360, scrap: 240 }, coins: 250_000, gems: 0, size: 3.6
     },
     {
         id: 'mule', name: 'Mule', role: 'Hauler', requiresSector: 0,
-        description: 'A flying cargo bay with a mining drone and a tractor pulse that vacuums up everything nearby.',
-        hull: 260, shield: 70, speed: 50, agility: 1.8, cargo: 3750, turrets: 2, armor: 2, shields: 1, drones: 1, ability: 'tractor',
+        description: 'A flying cargo bay with four turret mounts, a mining drone and a tractor pulse that vacuums up everything nearby. It handles like a barge.',
+        hull: 300, shield: 70, speed: 46, agility: 1.6, cargo: 3750, turrets: 4, armor: 2, shields: 1, drones: 1, ability: 'tractor',
         cost: { ferrite: 780, cobalt: 90, scrap: 360 }, coins: 500_000, gems: 0, size: 5.2
     },
     {
         id: 'kestrel', name: 'Kestrel', role: 'Gunship', requiresSector: 1,
-        description: 'Four turrets and a missile salvo. The first ship that fights back properly.',
-        hull: 220, shield: 120, speed: 64, agility: 2.4, cargo: 1750, turrets: 4, armor: 2, shields: 1, drones: 0, ability: 'salvo',
+        description: 'Five turrets and a missile salvo. A gun platform first and a ship second.',
+        hull: 240, shield: 120, speed: 58, agility: 2.1, cargo: 1750, turrets: 5, armor: 2, shields: 1, drones: 0, ability: 'salvo',
         cost: { ferrite: 1200, cobalt: 480, scrap: 780 }, coins: 2_500_000, gems: 0, size: 5
     },
     {
         id: 'phantom', name: 'Phantom', role: 'Striker', requiresSector: 1,
-        description: 'Fast, agile and hard to pin down. Its phase drive turns it intangible for a moment.',
-        hull: 170, shield: 170, speed: 96, agility: 3.4, cargo: 1500, turrets: 3, armor: 2, shields: 1, drones: 0, ability: 'phase',
+        description: 'Fast, agile and hard to pin down. Two turrets are all it carries; its phase drive turns it intangible for a moment.',
+        hull: 170, shield: 170, speed: 100, agility: 3.6, cargo: 1500, turrets: 2, armor: 2, shields: 1, drones: 0, ability: 'phase',
         cost: { cobalt: 960, scrap: 1140, alloy: 120 }, coins: 4_000_000, gems: 0, size: 4.6
     },
     {
         id: 'aegis', name: 'Aegis', role: 'Tank', requiresSector: 2,
-        description: 'A slab of armour with six turrets and a shield overcharge that shrugs off anything for a few seconds.',
-        hull: 560, shield: 260, speed: 46, agility: 1.5, cargo: 3000, turrets: 6, armor: 4, shields: 1, drones: 0, ability: 'bulwark',
+        description: 'A slab of armour with seven turrets and a shield overcharge that shrugs off anything for a few seconds. It does not turn so much as change its mind.',
+        hull: 620, shield: 260, speed: 42, agility: 1.3, cargo: 3000, turrets: 7, armor: 4, shields: 1, drones: 0, ability: 'bulwark',
         cost: { cobalt: 1560, iridium: 270, scrap: 1800, alloy: 240 }, coins: 15_000_000, gems: 5, size: 7.5
     },
     {
         id: 'hive', name: 'Hive', role: 'Carrier', requiresSector: 2,
-        description: 'Two turrets and a bay of six attack drones. Launches a second swarm on demand.',
-        hull: 380, shield: 220, speed: 54, agility: 1.8, cargo: 2750, turrets: 2, armor: 3, shields: 1, drones: 6, ability: 'swarm',
+        description: 'Three turrets and a bay of six attack drones that do the real work. Launches a second swarm on demand.',
+        hull: 380, shield: 220, speed: 52, agility: 1.7, cargo: 2750, turrets: 3, armor: 3, shields: 1, drones: 6, ability: 'swarm',
         cost: { cobalt: 1260, iridium: 420, alloy: 420 }, coins: 18_000_000, gems: 5, size: 7
     },
     {
         id: 'seraph', name: 'Seraph', role: 'Vanguard', requiresSector: 3,
-        description: 'Speed and firepower in one frame. Six turrets, two drones and a nova that clears the air around it.',
+        description: 'Speed and firepower in one frame, which is what it costs. Six turrets, two drones and a nova that clears the air around it.',
         hull: 360, shield: 380, speed: 86, agility: 3, cargo: 2500, turrets: 6, armor: 3, shields: 2, drones: 2, ability: 'nova',
         cost: { iridium: 1080, xenite: 120, alloy: 660, core: 3 }, coins: 75_000_000, gems: 25, size: 6.5
     },
@@ -875,6 +875,7 @@ export function voidDescribeItem(item: VoidItem, resources: VoidResourceBundle, 
         const g = base as VoidGunDefinition
         stats = [
             { label: 'DPS', value: String(Math.round(voidGunDps(g.id) * power * (1 + (a.damage ?? 0)) * (1 + (a.rate ?? 0)))) },
+            { label: 'Rate', value: g.beam ? 'beam' : `${(g.rate * (1 + (a.rate ?? 0))).toFixed(1)}/s` },
             { label: 'Range', value: String(Math.round(g.range * (1 + (a.range ?? 0)))) },
             { label: 'Type', value: VOID_DAMAGE_TYPE[g.id] ?? 'energy' }
         ]
@@ -882,6 +883,7 @@ export function voidDescribeItem(item: VoidItem, resources: VoidResourceBundle, 
         const t = base as VoidTurretDefinition
         stats = [
             { label: 'DPS', value: String(Math.round(voidTurretDps(t.id) * power * (1 + (a.damage ?? 0)) * (1 + (a.rate ?? 0)))) },
+            { label: 'Rate', value: t.rate === 0 ? 'beam' : `${(t.rate * (1 + (a.rate ?? 0))).toFixed(1)}/s` },
             { label: 'Range', value: String(Math.round(t.range * (1 + (a.range ?? 0)))) },
             { label: 'Type', value: VOID_DAMAGE_TYPE[t.id] ?? 'energy' }
         ]

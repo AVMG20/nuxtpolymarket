@@ -166,17 +166,17 @@ describe('void runner loadouts', () => {
     it('drops items that do not exist, do not fit the slot, or are fitted twice', () => {
         const gun = item({ id: 'g', kind: 'gun', type: 'blaster' })
         const turret = item({ id: 't' })
-        const fit = voidNormalizeFit('wasp', { gun: 't', turrets: ['t', 't', 'x'], armor: ['g'], shields: [] }, [gun, turret])
-        expect(fit).toEqual({ gun: null, turrets: ['t', null], armor: [null], shields: [null], secondary: null, device: null })
+        const fit = voidNormalizeFit('mule', { gun: 't', turrets: ['t', 't', 'x'], armor: ['g'], shields: [] }, [gun, turret])
+        expect(fit).toEqual({ gun: null, turrets: ['t', null, null, null], armor: [null, null], shields: [null], secondary: null, device: null })
     })
 
     it('auto-fits the strongest gear into every slot', () => {
         const items = [item({ id: 'weak' }), item({ id: 'strong', tier: 3 }), item({ id: 'a', kind: 'armor', type: 'plating' })]
-        const fit = voidAutoFit('wasp', items)
-        expect(fit.turrets).toEqual(['strong', 'weak'])
-        expect(fit.armor).toEqual(['a'])
-        const stats = voidDerivedStats('wasp', voidNormalizeLevels({}), fit, items)
-        expect(stats.hull).toBeGreaterThan(VOID_SHIPS[1]!.hull)
+        const fit = voidAutoFit('mule', items)
+        expect(fit.turrets).toEqual(['strong', 'weak', null, null])
+        expect(fit.armor).toEqual(['a', null])
+        const stats = voidDerivedStats('mule', voidNormalizeLevels({}), fit, items)
+        expect(stats.hull).toBeGreaterThan(VOID_SHIPS[2]!.hull)
     })
 
     it('describes a fresh hangar with only the loaner owned and sector 1 open', () => {

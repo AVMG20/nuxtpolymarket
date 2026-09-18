@@ -33,9 +33,11 @@
             <div v-if="hud.warden" class="vr-boss">
                 <div class="vr-boss-name">{{ hud.warden.name }}</div>
                 <div class="vr-boss-bar">
-                    <div :style="{ width: `${(hud.warden.hp / hud.warden.maxHp) * 100}%` }" />
+                    <div class="vr-boss-hull" :style="{ width: `${(hud.warden.hp / hud.warden.maxHp) * 100}%` }" />
+                    <div v-if="hud.warden.shieldMax > 0" class="vr-boss-shield" :style="{ width: `${(hud.warden.shield / hud.warden.maxHp) * 100}%` }" />
                     <i style="left: 33%" /><i style="left: 66%" />
                 </div>
+                <div v-if="hud.warden.shield > 0" class="vr-boss-note">Shield holding · energy weapons strip it fastest</div>
             </div>
             <TransitionGroup name="vr-toast" tag="div" class="vr-toasts">
                 <div v-for="t in toasts" :key="t.id" class="vr-toast" :class="`vr-toast-${t.tone}`">{{ t.text }}</div>

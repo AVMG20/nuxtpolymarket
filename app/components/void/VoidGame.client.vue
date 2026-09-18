@@ -122,6 +122,7 @@
                 <div class="vr-reveal" :style="{ '--rc': reveal.rarityColor }" @click.stop>
                     <div class="vr-reveal-rays" />
                     <div class="vr-reveal-kicker">{{ reveal.title }}</div>
+                    <VoidItemArt v-if="reveal.type" :type="reveal.type" :tier="reveal.tier" :rarity-color="reveal.rarityColor" size="lg" class="vr-reveal-art" />
                     <div class="vr-reveal-rarity">{{ reveal.rarityName }}</div>
                     <div class="vr-reveal-name">T{{ reveal.tier }} {{ reveal.name }}</div>
                     <div class="vr-reveal-stats">
@@ -197,6 +198,7 @@ import { VoidEngine } from '~/utils/void/engine'
 import type { HudState, RunResult } from '~/utils/void/types'
 import VoidHangar from './VoidHangar.vue'
 import VoidHud from './VoidHud.vue'
+import VoidItemArt from './VoidItemArt.vue'
 
 export type VoidStatePayload = InternalApi['/api/void/state']['get']
 
@@ -252,7 +254,7 @@ const highQuality = ref(true)
 const reduceFlashes = ref(false)
 const hangarSpin = ref(true)
 
-const reveal = ref<null | { title: string, name: string, tier: number, rarityName: string, rarityColor: string, stats: { label: string, value: string }[], affixList: { id: string, name: string, text: string }[] }>(null)
+const reveal = ref<null | { title: string, name: string, type?: string, tier: number, rarityName: string, rarityColor: string, stats: { label: string, value: string }[], affixList: { id: string, name: string, text: string }[] }>(null)
 
 const gateChoice = ref<{ id: VoidZoneModifier, name: string, description: string, color: number }[] | null>(null)
 const tradeOpen = ref(false)
@@ -521,7 +523,7 @@ const craftItem = (kind: string, type: string, tier: number) => {
     // The refreshed state holds the new item with its display info.
     const item = state.value?.items.find(i => i.id === lastCraftId.value)
     if (!item) return
-    reveal.value = { title: 'Crafted', name: item.name, tier: item.tier, rarityName: item.rarityName, rarityColor: item.rarityColor, stats: item.stats, affixList: item.affixList }
+    reveal.value = { title: 'Crafted', name: item.name, type: item.type, tier: item.tier, rarityName: item.rarityName, rarityColor: item.rarityColor, stats: item.stats, affixList: item.affixList }
     audio.play(item.rarity >= 4 ? 'rareDrop' : item.rarity >= 3 ? 'bounty' : item.rarity >= 1 ? 'levelUp' : 'uiConfirm', { pitch: 1 + item.rarity * 0.06 })
     })
 }

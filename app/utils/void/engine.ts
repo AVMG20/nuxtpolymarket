@@ -1176,7 +1176,25 @@ export class VoidEngine {
         const size = Math.max(3.2, model.radius * 1.2)
         const scale = THREE.MathUtils.clamp(size / 5.5, 0.55, 1.9)
         const slots: TurretSlot[] = []
-        model.hardpoints.forEach((mount, i) => {
+        // A hull can carry more turrets than its model drew mounts for. Spread
+        // the rest along the spine, alternating top and bottom, so every fitted
+        // turret exists and actually fires.
+        const mounts = [...model.hardpoints]
+        for (let k = mounts.length; k < fits.length; k++) {
+            const extra = k - model.hardpoints.length
+            const up = extra % 2 === 0
+            const row = Math.floor(extra / 2)
+            const span = model.radius * 0.75
+            mounts.push({
+                position: new THREE.Vector3(
+                    ((row % 2 === 0 ? 1 : -1) * model.radius) * 0.3,
+                    up ? model.radius * 0.3 : -model.radius * 0.3,
+                    -span + (span * 2 * ((row + 0.5) / Math.max(1, Math.ceil(fits.length / 2))))
+                ),
+                normal: new THREE.Vector3(0, up ? 1 : -1, 0)
+            })
+        }
+        mounts.forEach((mount, i) => {
             const entry = fits[i]
             if (!entry) return
             const fit = typeof entry === 'string' ? null : entry
@@ -3266,9 +3284,9 @@ export class VoidEngine {
         const inZone = !!near && near.dist < near.structure.dockRadius + 25
         let target: HudState['target'] = null
         if (this.focus?.alive) {
-            target = { name: this.focus.name, hp: Math.max(0, this.focus.hp), maxHp: this.focus.maxHp, kind: this.focus.kind === 'crate' ? 'crate' : 'enemy', detail: this.focus.elite ? 'Elite' : '' }
+            target = { name: this.focus.name, hp: Math.max(0, this.focus.hp), maxHp: this.focus.maxHp, shield: this.focus.data.shield ?? 0, shieldMax: this.focus.data.shieldMax ?? 0, kind: this.focus.kind === 'crate' ? 'crate' : 'enemy', detail: this.focus.elite ? 'Elite' : '' }
         } else if (this.focusRock?.alive && this.focusRock.ore) {
-            target = { name: `${voidResource(this.focusRock.ore).name} deposit`, hp: Math.max(0, this.focusRock.hp), maxHp: this.focusRock.maxHp, kind: 'rock', detail: '' }
+            target = { name: `${voidResource(this.focusRock.ore).name} deposit`, hp: Math.max(0, this.focusRock.hp), maxHp: this.focusRock.maxHp, shield: 0, shieldMax: 0, kind: 'rock', detail: '' }
         }
         return {
             phase: this.phase,
@@ -3289,7 +3307,9 @@ export class VoidEngine {
             kills: this.kills,
             elapsed: this.elapsed,
             dock: inZone ? { label: near!.structure.kind === 'station' ? 'Station' : 'Beacon', progress: Math.min(1, this.dockHold / 1.5), ready: true } : null,
-            warden: this.warden?.alive ? { name: cfg.sector.warden, hp: this.warden.hp, maxHp: this.warden.maxHp } : null,
+            warden: this.warden?.alive
+                ? { name: cfg.sector.warden, hp: this.warden.hp, maxHp: this.warden.maxHp, shield: this.warden.data.shield ?? 0, shieldMax: this.warden.data.shieldMax ?? 0 }
+                : null,
             wardenKilled: this.wardenKilled,
             threat: this.threat,
             wanted: this.wanted,

@@ -44,20 +44,24 @@
                             @drop.prevent="onDrop(group, i)"
                         >
                             <template v-if="itemById(id)">
-                                <span class="vl-slot-top">
-                                    <i class="vf-tier">T{{ itemById(id)!.tier }}</i>
-                                    <b>{{ itemById(id)!.name }}</b>
-                                    <em v-if="itemById(id)!.level">+{{ itemById(id)!.level }}</em>
-                                </span>
-                                <span class="vl-slot-sub">
-                                    <span>{{ itemById(id)!.rarityName }}</span>
-                                    <span v-for="st in itemById(id)!.stats.slice(0, 2)" :key="st.label">{{ st.label }} {{ st.value }}</span>
-                                    <UIcon v-if="itemById(id)!.modInfo" name="i-lucide-gem" class="size-3 vl-slot-mod" :style="{ color: itemById(id)!.modInfo!.color ? hex(itemById(id)!.modInfo!.color) : undefined }" :title="itemById(id)!.modInfo!.name" />
+                                <VoidItemArt :type="itemById(id)!.type" :tier="itemById(id)!.tier" :level="itemById(id)!.level" :rarity-color="itemById(id)!.rarityColor" size="sm" />
+                                <span class="vl-slot-text">
+                                    <span class="vl-slot-top">
+                                        <b>{{ itemById(id)!.name }}</b>
+                                        <span v-if="itemById(id)!.modInfo" class="vl-slot-mod" :title="`${itemById(id)!.modInfo!.name}: ${itemById(id)!.modInfo!.description}`"><VoidItemArt :type="itemById(id)!.modInfo!.id" size="sm" flat class="vl-mod-art" /></span>
+                                    </span>
+                                    <span class="vl-slot-sub">
+                                        <span>{{ itemById(id)!.rarityName }}</span>
+                                        <span v-for="st in itemById(id)!.stats.slice(0, 2)" :key="st.label">{{ st.label }} {{ st.value }}</span>
+                                    </span>
                                 </span>
                             </template>
                             <template v-else>
-                                <span class="vl-slot-top"><UIcon name="i-lucide-plus" class="size-4" /><b>Empty {{ group.single.toLowerCase() }} slot</b></span>
-                                <span class="vl-slot-sub"><span>{{ countFor(group.kind) ? 'Click to fit one' : 'None owned yet' }}</span></span>
+                                <span class="vl-slot-blank"><UIcon name="i-lucide-plus" class="size-4" /></span>
+                                <span class="vl-slot-text">
+                                    <span class="vl-slot-top"><b>Empty {{ group.single.toLowerCase() }} slot</b></span>
+                                    <span class="vl-slot-sub"><span>{{ countFor(group.kind) ? 'Click to fit one' : 'None owned yet' }}</span></span>
+                                </span>
                             </template>
                         </button>
                     </div>
@@ -73,6 +77,7 @@
                 <div class="vl-current" :style="currentItem ? { '--rc': currentItem.rarityColor } : {}">
                     <span class="vl-current-label">In this slot</span>
                     <template v-if="currentItem">
+                        <VoidItemArt :type="currentItem.type" :rarity-color="currentItem.rarityColor" size="sm" />
                         <i class="vf-tier">T{{ currentItem.tier }}</i>
                         <b>{{ currentItem.name }}</b>
                         <em v-if="currentItem.level">+{{ currentItem.level }}</em>
@@ -83,33 +88,81 @@
                 </div>
 
                 <div v-if="candidates.length" class="vl-grid">
-                    <button
+                    <div
                         v-for="item in candidates"
                         :key="item.id"
                         class="vl-tile"
                         :class="{ 'vl-tile-here': item.id === currentItem?.id }"
                         :style="{ '--rc': item.rarityColor }"
-                        :disabled="busy"
                         draggable="true"
-                        @click="item.id === currentItem?.id ? undefined : fit(selected.key, selected.index, item.id)"
+                        role="button"
+                        tabindex="0"
+                        @click="item.id === currentItem?.id || busy ? undefined : fit(selected.key, selected.index, item.id)"
+                        @keydown.enter="item.id === currentItem?.id || busy ? undefined : fit(selected.key, selected.index, item.id)"
                         @dragstart="onDragStart($event, item.id)"
                         @dragend="dragged = null; dropTarget = null"
                     >
-                        <span class="vl-tile-head">
-                            <i class="vf-tier">T{{ item.tier }}</i>
-                            <b>{{ item.name }}</b>
-                            <em v-if="item.level">+{{ item.level }}</em>
+                        <VoidItemArt :type="item.type" :tier="item.tier" :level="item.level" :rarity-color="item.rarityColor" size="md" class="vl-tile-art" />
+                        <span class="vl-tile-body">
+                            <span class="vl-tile-head">
+                                <b>{{ item.name }}</b>
+                            </span>
+                            <span class="vl-tile-rarity">{{ item.rarityName }}<template v-if="item.affixList.length"> · {{ item.affixList.length }} bonus</template></span>
+                            <span v-if="item.modInfo" class="vl-tile-mod" :style="{ color: hex(item.modInfo.color) }" :title="item.modInfo.description"><VoidItemArt :type="item.modInfo.id" size="sm" flat class="vl-mod-art" />{{ item.modInfo.name }}</span>
+                            <span class="vl-tile-stats">
+                                <span v-for="st in item.stats" :key="st.label">{{ st.label }} <b>{{ st.value }}</b></span>
+                            </span>
+                            <span class="vl-tile-foot">
+                                <span v-if="item.id === currentItem?.id" class="vl-delta">Equipped here</span>
+                                <span v-else class="vl-delta" :class="deltaClass(item.score)">{{ deltaText(item.score) }}</span>
+                                <small v-if="placedElsewhere(item.id)">{{ placedElsewhere(item.id) }}</small>
+                            </span>
+                            <!-- Levelling, socketing and breaking down all happen here, beside the fitting. -->
+                            <span class="vl-tile-levels" :title="`Level ${item.level} / 10. Levels 5 and 10 each add a bonus stat.`">
+                                <i v-for="n in 10" :key="n" :class="{ 'vl-lv-on': n <= item.level, 'vl-lv-star': n === 5 || n === 10 }" />
+                            </span>
+                            <span class="vl-tile-actions" @click.stop>
+                                <button
+                                    v-if="item.upgradeCost"
+                                    class="vr-btn vr-btn-sm"
+                                    :disabled="busy || !item.upgradeAffordable"
+                                    :title="item.upgradeAffordable ? 'Level this item up' : 'Not enough materials'"
+                                    @click="$emit('upgrade', item.id)"
+                                >
+                                    Level up
+                                </button>
+                                <span v-else class="vl-maxed">Max level</span>
+                                <button
+                                    v-if="modsFor(item.kind).length"
+                                    class="vr-btn vr-btn-sm"
+                                    :disabled="busy"
+                                    title="Socket a relic mod"
+                                    @click="modMenu = modMenu === item.id ? null : item.id"
+                                >
+                                    Mod
+                                </button>
+                                <button
+                                    class="vr-btn vr-btn-sm vr-btn-danger"
+                                    :disabled="busy"
+                                    :title="`Destroys the item and returns ${salvageText(item.salvage)}`"
+                                    @click="salvage(item.id)"
+                                >
+                                    {{ confirmSalvage === item.id ? 'Sure?' : 'Break down' }}
+                                </button>
+                            </span>
+                            <span v-if="item.upgradeCost" class="vl-tile-cost">
+                                <small>Next level</small>
+                                <VoidCost :cost="item.upgradeCost.resources" :held="state.resources" :coins="item.upgradeCost.coins" :gems="item.upgradeCost.gems" :balance="state.balance" :gems-held="state.gems" />
+                            </span>
+                            <span v-if="modMenu === item.id" class="vl-mods" @click.stop>
+                                <button v-for="m in modsFor(item.kind)" :key="m.id" class="vl-mod-opt" :style="{ color: hex(m.color) }" :title="m.description" @click="socket(item.id, m.id)">
+                                    <VoidItemArt :type="m.id" size="sm" flat class="vl-mod-art" />
+                                    <b>{{ m.name }}</b>
+                                    <em>×{{ m.count }}</em>
+                                </button>
+                            </span>
                         </span>
-                        <span class="vl-tile-rarity">{{ item.rarityName }}<template v-if="item.affixList.length"> · {{ item.affixList.length }} bonus</template><template v-if="item.modInfo"> · mod</template></span>
-                        <span class="vl-tile-stats">
-                            <span v-for="st in item.stats" :key="st.label">{{ st.label }} <b>{{ st.value }}</b></span>
-                        </span>
-                        <span class="vl-tile-foot">
-                            <span v-if="item.id === currentItem?.id" class="vl-delta">Equipped here</span>
-                            <span v-else class="vl-delta" :class="deltaClass(item.score)">{{ deltaText(item.score) }}</span>
-                            <small v-if="placedElsewhere(item.id)">{{ placedElsewhere(item.id) }}</small>
-                        </span>
-                    </button>
+                    </div>
                 </div>
                 <div v-else class="vw-empty">
                     <p>You don't own any {{ current.group.label.toLowerCase() }} yet.</p>
@@ -122,8 +175,10 @@
 
 <script setup lang="ts">
 import type { InternalApi } from 'nitropack/types'
-import { voidAutoFit, voidHex } from '#shared/utils/gamelogic/void'
+import { voidAutoFit, voidHex, voidResource } from '#shared/utils/gamelogic/void'
 import type { VoidItem } from '#shared/utils/gamelogic/void-items'
+import VoidCost from './VoidCost.vue'
+import VoidItemArt from './VoidItemArt.vue'
 
 type State = InternalApi['/api/void/state']['get']
 type Kind = 'gun' | 'turret' | 'armor' | 'shield' | 'secondary' | 'device'
@@ -139,7 +194,40 @@ const props = defineProps<{
 const emit = defineEmits<{
     'set-fit': [shipId: string, fit: Fit]
     'craft': []
+    'upgrade': [itemId: string]
+    'salvage': [itemId: string]
+    'socket': [itemId: string, modId: string]
 }>()
+
+const confirmSalvage = ref<string | null>(null)
+const modMenu = ref<string | null>(null)
+
+/** Relic mods you own that fit this kind of gear. */
+function modsFor(kind: string) {
+    return props.state.mods.filter(m => m.count > 0 && m.kinds.includes(kind as never))
+}
+
+function socket(itemId: string, modId: string) {
+    modMenu.value = null
+    emit('socket', itemId, modId)
+}
+
+/** Breaking gear down is destructive, so the button asks once. */
+function salvage(id: string) {
+    if (confirmSalvage.value !== id) {
+        confirmSalvage.value = id
+        setTimeout(() => {
+            if (confirmSalvage.value === id) confirmSalvage.value = null
+        }, 3000)
+        return
+    }
+    confirmSalvage.value = null
+    emit('salvage', id)
+}
+
+function salvageText(bundle: Record<string, number | undefined>) {
+    return Object.entries(bundle).map(([id, n]) => `${n} ${voidResource(id).name}`).join(', ')
+}
 
 const ship = computed(() => props.state.ships.find(s => s.equipped) ?? props.state.ships[0]!)
 const byId = computed(() => new Map(props.state.items.map(i => [i.id, i])))
@@ -289,13 +377,15 @@ function autoFit() {
 .vl-group-head b { font-size: 12px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--vr-text); }
 .vl-group-head small { margin-left: auto; font-size: 11px; color: var(--vr-muted); text-align: right; }
 .vl-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px; }
-.vl-slot { --rc: rgba(255, 255, 255, 0.25); display: flex; flex-direction: column; gap: 3px; min-height: 58px; padding: 8px 10px; text-align: left; background: linear-gradient(135deg, color-mix(in srgb, var(--rc) 14%, transparent), rgba(255, 255, 255, 0.02) 60%); border: 1px solid color-mix(in srgb, var(--rc) 45%, transparent); border-left: 3px solid var(--rc); cursor: pointer; transition: background 0.15s, box-shadow 0.15s, transform 0.1s; }
+.vl-slot { --rc: rgba(255, 255, 255, 0.25); display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 8px 10px; text-align: left; background: linear-gradient(135deg, color-mix(in srgb, var(--rc) 14%, transparent), rgba(255, 255, 255, 0.02) 60%); border: 1px solid color-mix(in srgb, var(--rc) 45%, transparent); border-left: 3px solid var(--rc); cursor: pointer; transition: background 0.15s, box-shadow 0.15s, transform 0.1s; }
 .vl-slot:hover { transform: translateY(-1px); background: linear-gradient(135deg, color-mix(in srgb, var(--rc) 24%, transparent), rgba(255, 255, 255, 0.04) 60%); }
 .vl-slot-empty { border-style: dashed; color: var(--vr-muted); }
 .vl-slot-on { box-shadow: 0 0 0 2px var(--vr-accent), 0 0 22px rgba(94, 200, 255, 0.35); }
 .vl-slot-drop { box-shadow: 0 0 0 2px var(--vr-good), 0 0 22px rgba(61, 255, 176, 0.4); }
 .vl-slot-no { box-shadow: 0 0 0 2px var(--vr-bad); cursor: not-allowed; }
 .vl-slot-mod { filter: drop-shadow(0 0 4px currentColor); }
+.vl-slot-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.vl-slot-blank { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; color: var(--vr-muted); border: 1px dashed var(--vr-line-strong); }
 .vl-slot-top { display: flex; align-items: center; gap: 6px; font-size: 14px; min-width: 0; }
 .vl-slot-top b { font-weight: 700; color: var(--rc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vl-slot-empty .vl-slot-top b { color: var(--vr-muted); }
@@ -310,8 +400,25 @@ function autoFit() {
 .vl-current-stats { font: 600 11px 'JetBrains Mono', monospace; color: var(--vr-muted); }
 .vl-current .vr-btn { margin-left: auto; }
 .vl-current-none { font-size: 13px; color: var(--vr-muted); }
-.vl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
-.vl-tile { --rc: #fff; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; text-align: left; background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 12%, transparent), rgba(255, 255, 255, 0.02) 55%); border: 1px solid color-mix(in srgb, var(--rc) 35%, transparent); border-top: 3px solid var(--rc); cursor: grab; transition: transform 0.1s, box-shadow 0.15s; }
+.vl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.vl-tile-art { align-self: start; }
+.vl-tile-levels { display: flex; gap: 2px; margin-top: 2px; }
+.vl-tile-levels i { flex: 1; height: 3px; background: rgba(255, 255, 255, 0.12); }
+.vl-lv-on { background: var(--rc) !important; }
+.vl-lv-star { box-shadow: 0 0 0 1px rgba(255, 210, 122, 0.5); }
+.vl-tile-cost { display: flex; align-items: center; gap: 8px; margin-top: 2px; font-size: 12px; }
+.vl-tile-cost small { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--vr-muted); }
+.vl-tile-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.vl-maxed { align-self: center; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--vr-good); }
+.vl-mods { display: grid; gap: 4px; margin-top: 6px; padding: 8px; background: rgba(4, 9, 18, 0.85); border: 1px solid var(--vr-line-strong); }
+.vl-mod-opt { display: flex; align-items: center; gap: 8px; padding: 4px 6px; text-align: left; font-size: 13px; cursor: pointer; }
+.vl-mod-opt:hover { background: rgba(255, 255, 255, 0.06); }
+.vl-mod-opt em { margin-left: auto; font-style: normal; font: 600 11px 'JetBrains Mono', monospace; color: var(--vr-muted); }
+.vl-tile-mod { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; cursor: help; }
+.vl-mod-art { width: 18px; height: 18px; }
+.vl-slot-mod { display: inline-flex; cursor: help; }
+.vl-tile-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.vl-tile { --rc: #fff; display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; text-align: left; background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 12%, transparent), rgba(255, 255, 255, 0.02) 55%); border: 1px solid color-mix(in srgb, var(--rc) 35%, transparent); border-top: 3px solid var(--rc); cursor: grab; transition: transform 0.1s, box-shadow 0.15s; }
 .vl-tile:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px color-mix(in srgb, var(--rc) 25%, transparent); }
 .vl-tile:disabled { cursor: default; }
 .vl-tile-here { box-shadow: 0 0 0 1px var(--vr-good); }

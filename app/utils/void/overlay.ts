@@ -53,11 +53,15 @@ function brackets(ctx: CanvasRenderingContext2D, x: number, y: number, r: number
     ctx.stroke()
 }
 
-function bar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, frac: number, color: string) {
+function bar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, frac: number, color: string, shieldFrac = 0) {
     ctx.fillStyle = 'rgba(0,0,0,0.55)'
     ctx.fillRect(x - w / 2 - 1, y - 1, w + 2, 4)
     ctx.fillStyle = color
     ctx.fillRect(x - w / 2, y, w * Math.max(0, Math.min(1, frac)), 2)
+    if (shieldFrac > 0) {
+        ctx.fillStyle = '#6fd8ff'
+        ctx.fillRect(x - w / 2, y, w * Math.min(1, shieldFrac), 2)
+    }
 }
 
 function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, align: CanvasTextAlign = 'center', font = FONT) {
@@ -150,8 +154,8 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, engine: VoidEngine) {
         ctx.globalAlpha = alpha
         if (e.kind === 'warden') continue
         brackets(ctx, s.x, s.y, r, color, focus ? 2 : 1.2)
-        if (e.hp < e.maxHp || focus) bar(ctx, s.x, s.y + r + 6, Math.max(26, r * 1.6), e.hp / e.maxHp, color)
-        if ((e.data.shieldMax ?? 0) > 0 && (e.data.shield! < e.data.shieldMax! || focus)) bar(ctx, s.x, s.y + r + 11, Math.max(26, r * 1.6), e.data.shield! / e.data.shieldMax!, '#6fd8ff')
+        const shieldFrac = (e.data.shieldMax ?? 0) > 0 ? (e.data.shield ?? 0) / e.maxHp : 0
+        if (e.hp < e.maxHp || shieldFrac > 0 || focus) bar(ctx, s.x, s.y + r + 6, Math.max(26, r * 1.6), e.hp / e.maxHp, color, shieldFrac)
         if (focus) {
             label(ctx, `${e.name.toUpperCase()}  ${distText(d)}`, s.x, s.y - r - 10, color)
             if (e.hostile && e.vel.lengthSq() > 1) {

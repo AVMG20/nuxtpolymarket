@@ -1,6 +1,7 @@
 <template>
     <div class="vw">
-        <!-- Three separate jobs, one at a time: what you own, what you can build, what you found. -->
+        <!-- Two jobs: build new gear, and keep track of the mods you have found.
+             Levelling, socketing and breaking down all live in the Loadout. -->
         <nav class="vw-views">
             <button v-for="v in views" :key="v.id" class="vw-view" :class="{ 'vw-on': view === v.id }" @click="setView(v.id)">
                 <UIcon :name="v.icon" class="size-4" />
@@ -9,77 +10,11 @@
             </button>
         </nav>
 
-        <!-- ═══ My gear ═══ -->
-        <template v-if="view === 'gear'">
-            <p class="vw-intro">Everything you own. <b>Level up</b> items to make them stronger, <b>break down</b> spares for materials. Put gear on your ship in the <b>Loadout</b> tab.</p>
-            <div v-if="modPick" class="vw-socket-hint">
-                <UIcon name="i-lucide-gem" class="size-4" />
-                <span>Pick an item with a gold outline to socket the <b>{{ modName(modPick) }}</b>. It replaces any mod already there.</span>
-                <button class="vr-btn vr-btn-sm" @click="modPick = null">Cancel</button>
-            </div>
-            <div class="vw-filter">
-                <button v-for="f in filters" :key="f.id" :class="{ 'vw-on': filter === f.id }" @click="filter = f.id">{{ f.label }}</button>
-            </div>
-            <div class="vh-list">
-                <div
-                    v-for="item in filtered"
-                    :key="item.id"
-                    class="vw-item"
-                    :class="{ 'vw-item-socketable': modPick && modFits(modPick, item.kind), 'vw-item-new': item.id === highlightId }"
-                    :style="{ '--rc': item.rarityColor, '--c': hex(item.color) }"
-                >
-                    <div class="vw-item-head">
-                        <i class="vf-tier">T{{ item.tier }}</i>
-                        <b>{{ item.name }}</b>
-                        <em v-if="item.level">+{{ item.level }}</em>
-                        <span class="vw-rarity">{{ item.rarityName }}</span>
-                    </div>
-                    <div class="vw-item-meta">
-                        <span>{{ kindLabel(item.kind, true) }}</span>
-                        <span v-if="fittedOn(item.id).length" class="vw-fitted"><UIcon name="i-lucide-check" class="size-3" /> On {{ fittedOn(item.id).join(', ') }}</span>
-                        <span v-else class="vw-spare">Spare</span>
-                    </div>
-                    <div class="vw-item-stats">
-                        <span v-for="st in item.stats" :key="st.label">{{ st.label }} <b>{{ st.value }}</b></span>
-                    </div>
-                    <div v-if="item.affixList.length || item.modInfo" class="vw-affixes">
-                        <span v-for="a in item.affixList" :key="a.id">{{ a.text }} {{ a.name }}</span>
-                        <span v-if="item.modInfo" class="vw-socket" :style="{ color: hex(item.modInfo.color) }"><UIcon name="i-lucide-gem" class="size-3" /> {{ item.modInfo.name }}</span>
-                    </div>
-                    <div class="vw-levels" :title="`Level ${item.level} / 10. Levels 5 and 10 each add a bonus stat.`">
-                        <i v-for="n in 10" :key="n" :class="{ 'vw-lv-on': n <= item.level, 'vw-lv-star': n === 5 || n === 10 }" />
-                    </div>
-                    <div class="vh-card-foot">
-                        <span v-if="item.upgradeCost" class="vw-cost">
-                            <small>Next level</small>
-                            <VoidCost :cost="item.upgradeCost.resources" :held="state.resources" :coins="item.upgradeCost.coins" :gems="item.upgradeCost.gems" :balance="state.balance" :gems-held="state.gems" />
-                        </span>
-                        <span v-else class="vh-maxed">Max level</span>
-                        <div class="vw-buttons">
-                            <button v-if="modPick && modFits(modPick, item.kind)" class="vr-btn vr-btn-sm vr-btn-primary" :disabled="busy" @click="socket(item.id)">Socket</button>
-                            <button v-if="item.upgradeCost" class="vr-btn vr-btn-sm" :disabled="busy || !item.upgradeAffordable" :title="item.upgradeAffordable ? 'Level this item up' : 'Not enough materials'" @click="$emit('upgrade', item.id)">Level up</button>
-                            <button
-                                class="vr-btn vr-btn-sm vr-btn-danger"
-                                :disabled="busy"
-                                :title="`Destroys the item and returns ${salvageText(item.salvage)}`"
-                                @click="salvage(item.id)"
-                            >
-                                {{ confirmSalvage === item.id ? 'Sure?' : 'Break down' }}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div v-if="!filtered.length" class="vw-empty">
-                    <p>{{ filter === 'all' ? 'No gear yet.' : `No ${kindLabel(filter).toLowerCase()} yet.` }}</p>
-                    <button class="vr-btn vr-btn-sm vr-btn-primary" @click="setView('craft')">Craft some</button>
-                </div>
-            </div>
-        </template>
-
         <!-- ═══ Craft ═══ -->
-        <template v-else-if="view === 'craft'">
+        <template v-if="view === 'craft'">
             <p class="vw-intro">Build new gear from the materials you bring home. Every craft rolls a random <b>rarity</b>; rarer items get bonus stats. New items appear in <b>My gear</b>.</p>
             <div class="vw-craft">
+                <div class="vw-craft-steps">
                 <div class="vw-step"><i>1</i>What to build</div>
                 <div class="vw-kinds">
                     <button v-for="k in kinds" :key="k.id" class="vw-kind" :class="{ 'vw-on': kind === k.id }" @click="setKind(k.id)">
@@ -100,13 +35,12 @@
                         :title="t.minTier > state.crafting.maxTier ? `Unlocks at T${t.minTier}` : t.description"
                         @click="type = t.id"
                     >
-                        <i class="vh-dotc" />
+                        <VoidItemArt :type="t.id" size="sm" flat />
                         <span>{{ t.name }}</span>
                         <small v-if="t.minTier > 1">T{{ t.minTier }}+</small>
                         <em v-if="blueprintIds.has(t.id)" class="vw-bp" title="Blueprint owned: crafts come out as MkII">MkII</em>
                     </button>
                 </div>
-                <p v-if="selectedType" class="vw-desc">{{ selectedType.description }}</p>
 
                 <div class="vw-step"><i>3</i>Tier<small>Higher tiers are stronger and need rarer materials</small></div>
                 <div class="vw-tiers">
@@ -131,36 +65,50 @@
                     <span v-for="r in state.crafting.rarities" :key="r.name" :style="{ color: r.color }">{{ r.name }} {{ oddsPct(r.weight) }}%</span>
                 </div>
                 <p class="vw-odds-note">Each step up in rarity is stronger and carries one more bonus stat. A lucky T1 roll can beat a plain T2.</p>
-                <div v-if="currentCost" class="vw-cost">
-                    <small>Cost</small>
-                    <VoidCost :cost="currentCost.resources" :held="state.resources" :coins="currentCost.coins" :gems="currentCost.gems" :balance="state.balance" :gems-held="state.gems" />
                 </div>
-                <button class="vr-btn vr-btn-primary vw-craft-go" :disabled="busy || !canCraft" @click="$emit('craft', kind, type, tier)">
-                    <UIcon name="i-lucide-hammer" class="size-4" />
-                    Craft T{{ tier }} {{ selectedType?.name ?? '' }}
-                </button>
-                <p v-if="craftBlocker" class="vw-blocker">{{ craftBlocker }}</p>
+
+                <!-- What you are about to build: the real turret model where we
+                     have one, the drawn silhouette everywhere else. -->
+                <aside class="vw-preview">
+                    <VoidTurretPreview v-if="kind === 'turret' && selectedType" :type="selectedType.id" />
+                    <VoidItemArt v-else-if="selectedType" :type="selectedType.id" :tier="tier" size="lg" class="vw-preview-art" />
+                    <div class="vw-preview-name">
+                        <b>{{ selectedType?.name ?? 'Pick a model' }}</b>
+                        <span v-if="selectedType">T{{ tier }}</span>
+                    </div>
+                    <p v-if="selectedType" class="vw-preview-desc">{{ selectedType.description }}</p>
+                    <em v-if="selectedType && blueprintIds.has(selectedType.id)" class="vw-preview-bp">MkII blueprint owned · 12% stronger, never Common</em>
+                    <div v-if="currentCost" class="vw-cost">
+                        <small>Cost</small>
+                        <VoidCost :cost="currentCost.resources" :held="state.resources" :coins="currentCost.coins" :gems="currentCost.gems" :balance="state.balance" :gems-held="state.gems" />
+                    </div>
+                    <button class="vr-btn vr-btn-primary vw-craft-go" :disabled="busy || !canCraft" @click="$emit('craft', kind, type, tier)">
+                        <UIcon name="i-lucide-hammer" class="size-4" />
+                        Craft T{{ tier }} {{ selectedType?.name ?? '' }}
+                    </button>
+                    <p v-if="craftBlocker" class="vw-blocker">{{ craftBlocker }}</p>
+                </aside>
             </div>
         </template>
 
         <!-- ═══ Relic mods ═══ -->
         <template v-else>
-            <p class="vw-intro">Mods give gear a special effect. Elites, wardens and vaults drop golden <b>relic caches</b>; bring them home to open them. Pick a mod you own, then the item to socket it into.</p>
+            <p class="vw-intro">Mods give gear a special effect. Elites, wardens and vaults drop golden <b>relic caches</b>; bring them home to open them. Socket them onto gear in the <b>Loadout</b> tab.</p>
             <div v-if="ownedMods.length" class="vw-mods">
-                <button v-for="m in ownedMods" :key="m.id" class="vw-mod" :class="{ 'vw-on': modPick === m.id }" :style="{ '--c': hex(m.color) }" @click="pickMod(m.id)">
-                    <UIcon name="i-lucide-gem" class="size-4" />
+                <div v-for="m in ownedMods" :key="m.id" class="vw-mod" :style="{ '--c': hex(m.color) }">
+                    <VoidItemArt :type="m.id" size="md" />
                     <div>
                         <b>{{ m.name }} <small>×{{ m.count }}</small></b>
                         <span>{{ m.description }}</span>
                         <em>Fits {{ m.kinds.map(k => kindLabel(k)).join(' / ') }}</em>
                     </div>
-                </button>
+                </div>
             </div>
             <div v-else class="vw-empty"><p>No mods yet. Kill elites and wardens to find relic caches.</p></div>
             <h3 class="vw-sub">Still to find <small>{{ missingMods.length }}</small></h3>
             <div class="vw-mods">
                 <div v-for="m in missingMods" :key="m.id" class="vw-mod vw-mod-none" :style="{ '--c': hex(m.color) }">
-                    <UIcon name="i-lucide-gem" class="size-4" />
+                    <VoidItemArt :type="m.id" size="md" />
                     <div>
                         <b>{{ m.name }}</b>
                         <span>{{ m.description }}</span>
@@ -177,10 +125,12 @@ import type { InternalApi } from 'nitropack/types'
 import { voidHex, voidResource, type VoidResourceBundle } from '#shared/utils/gamelogic/void'
 import { voidMod } from '#shared/utils/gamelogic/void-items'
 import VoidCost from './VoidCost.vue'
+import VoidItemArt from './VoidItemArt.vue'
+import VoidTurretPreview from './VoidTurretPreview.vue'
 
 type State = InternalApi['/api/void/state']['get']
 type Kind = 'gun' | 'turret' | 'armor' | 'shield' | 'secondary' | 'device'
-export type WorkshopView = 'gear' | 'craft' | 'mods'
+export type WorkshopView = 'craft' | 'mods'
 
 const props = defineProps<{
     state: State
@@ -196,7 +146,7 @@ const emit = defineEmits<{
     socket: [itemId: string, modId: string]
 }>()
 
-const view = defineModel<WorkshopView>('view', { default: 'gear' })
+const view = defineModel<WorkshopView>('view', { default: 'craft' })
 
 const kinds = [
     { id: 'gun' as const, label: 'Guns', single: 'Gun', icon: 'i-lucide-crosshair', hint: 'Your primary gun. You aim and fire it with left mouse.' },
@@ -206,19 +156,14 @@ const kinds = [
     { id: 'secondary' as const, label: 'Secondary', single: 'Secondary', icon: 'i-lucide-rocket', hint: 'Missiles, rockets or mines, fired with E. Ammo refills every launch.' },
     { id: 'device' as const, label: 'Devices', single: 'Device', icon: 'i-lucide-cpu', hint: 'Boosters, decoys and cloaks, triggered with G.' }
 ]
-const filters = [{ id: 'all', label: 'All' }, ...kinds.map(k => ({ id: k.id, label: k.label }))]
 
 const kind = ref<Kind>('turret')
 const type = ref('pulse')
 const tier = ref(Math.max(1, props.state.crafting.maxTier))
-const filter = ref('all')
-const modPick = ref<string | null>(null)
-const confirmSalvage = ref<string | null>(null)
 
 const ownedMods = computed(() => props.state.mods.filter(m => m.count > 0))
 const missingMods = computed(() => props.state.mods.filter(m => !m.count))
 const views = computed(() => [
-    { id: 'gear' as const, label: 'My gear', icon: 'i-lucide-package', count: props.state.items.length },
     { id: 'craft' as const, label: 'Craft', icon: 'i-lucide-hammer', count: null },
     { id: 'mods' as const, label: 'Relic mods', icon: 'i-lucide-gem', count: ownedMods.value.reduce((s, m) => s + m.count, 0) }
 ])
@@ -238,7 +183,6 @@ const craftBlocker = computed(() => {
     return null
 })
 const totalWeight = computed(() => props.state.crafting.rarities.reduce((s, r) => s + r.weight, 0))
-const filtered = computed(() => props.state.items.filter(i => filter.value === 'all' || i.kind === filter.value))
 
 watch(selectedType, (t) => {
     if (t && tier.value < t.minTier) tier.value = Math.min(props.state.crafting.maxTier, t.minTier)
@@ -281,36 +225,6 @@ function fittedOn(itemId: string) {
         .map(s => s.name)
 }
 
-function salvageText(bundle: VoidResourceBundle) {
-    return Object.entries(bundle).map(([id, n]) => `${n} ${voidResource(id).name}`).join(', ')
-}
-
-/** Picking a mod jumps to your gear with the items it fits outlined. */
-function pickMod(id: string) {
-    modPick.value = id
-    filter.value = 'all'
-    view.value = 'gear'
-}
-
-function socket(itemId: string) {
-    if (!modPick.value) return
-    emit('socket', itemId, modPick.value)
-    modPick.value = null
-}
-
-let confirmTimer: ReturnType<typeof setTimeout> | undefined
-function salvage(itemId: string) {
-    if (confirmSalvage.value !== itemId) {
-        confirmSalvage.value = itemId
-        clearTimeout(confirmTimer)
-        confirmTimer = setTimeout(() => {
-            confirmSalvage.value = null
-        }, 2500)
-        return
-    }
-    confirmSalvage.value = null
-    emit('salvage', itemId)
-}
 </script>
 
 <style>
@@ -350,6 +264,24 @@ function salvage(itemId: string) {
 .vw-odds { display: flex; height: 5px; gap: 1px; }
 .vw-odds div { min-width: 3px; }
 .vw-odds-legend { display: flex; flex-wrap: wrap; gap: 2px 10px; font: 600 10px 'JetBrains Mono', monospace; }
+.vw-socket { cursor: help; }
+.vw-socket-art { width: 18px; height: 18px; }
+.vw-craft { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 340px); gap: 18px; align-items: start; }
+.vw-craft-steps { min-width: 0; }
+.vw-preview { position: sticky; top: 12px; display: grid; gap: 8px; padding: 14px; background: linear-gradient(160deg, rgba(94, 200, 255, 0.07), transparent 70%); border: 1px solid var(--vr-line); }
+.vw-preview-art { justify-self: center; }
+.vw-preview-name { display: flex; align-items: baseline; gap: 8px; }
+.vw-preview-name b { font-size: 18px; font-weight: 700; letter-spacing: 0.06em; }
+.vw-preview-name span { font: 700 12px 'JetBrains Mono', monospace; color: var(--vr-muted); }
+.vw-preview-desc { margin: 0; font-size: 13px; line-height: 1.4; color: rgba(230, 241, 255, 0.72); }
+.vw-preview-bp { font-style: normal; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--vr-gold); }
+@media (max-width: 1100px) { .vw-craft { grid-template-columns: minmax(0, 1fr); } .vw-preview { position: static; } }
+.vw-bench { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; padding: 12px 14px; background: linear-gradient(120deg, rgba(94, 200, 255, 0.07), transparent 65%); border: 1px solid var(--vr-line); }
+.vw-bench-art { box-shadow: 0 0 30px rgba(94, 200, 255, 0.12); }
+.vw-bench-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.vw-bench-text b { font-size: 18px; font-weight: 700; letter-spacing: 0.06em; }
+.vw-bench-text span { font-size: 13px; line-height: 1.35; color: rgba(230, 241, 255, 0.7); }
+.vw-bench-text em { font-style: normal; font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--vr-gold); }
 .vw-odds-note { margin: 6px 0 0; font-size: 12px; line-height: 1.35; color: var(--vr-muted); }
 .vw-cost { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .vw-cost > small { font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--vr-muted); }
