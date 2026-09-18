@@ -8,8 +8,8 @@
                 <span class="vr-dot" />
                 <span>{{ hud.kills }} kills</span>
             </div>
-            <div class="vr-threat">
-                <span>Threat</span>
+            <div class="vr-threat" title="Hostile pressure: it rises the longer you stay in a zone.">
+                <span>Pressure</span>
                 <div class="vr-threat-bar"><div :style="{ width: `${Math.round(hud.threat * 100)}%` }" /></div>
             </div>
             <div v-if="hud.systems && hud.systems.depth > 1" class="vr-zone">Jump {{ hud.systems.depth }} · {{ hud.systems.zone }}</div>
@@ -66,7 +66,7 @@
                 </div>
             </div>
             <div v-if="hud.systems?.subsystems.length" class="vr-subsys">
-                <span v-for="s in hud.systems.subsystems" :key="s.id">{{ s.id }} {{ Math.ceil(s.left) }}s</span>
+                <span v-for="s in hud.systems.subsystems" :key="s.id">{{ subsystemName(s.id) }} offline · {{ Math.ceil(s.left) }}s</span>
             </div>
             <div v-if="hud.systems" class="vr-sys">
                 <div v-if="hud.systems.secondary" class="vr-sys-chip" :class="{ 'vr-sys-lock': hud.systems.secondary.locked }" :title="hud.systems.secondary.name">
@@ -167,6 +167,12 @@ const props = defineProps<{
     banner?: { id: number, title: string, subtitle: string, tone: string } | null
     priceMult?: number
 }>()
+
+const SUBSYSTEMS: Record<string, string> = { engines: 'Engines', weapons: 'Weapons', shield: 'Shield' }
+
+function subsystemName(id: string) {
+    return SUBSYSTEMS[id] ?? id
+}
 
 function streakName(n: number) {
     return n >= 12 ? 'Annihilation' : n >= 8 ? 'Rampage' : n >= 5 ? 'Onslaught' : 'Streak'

@@ -344,7 +344,7 @@ export class SkillRunner {
         const p = this.p
         const hell = this.params.hellstorm ? 3 : 1
         const count = Math.round((this.params.count ?? 2) * hell)
-        const damage = (this.params.damage ?? 5) * this.power * this.pct('damagePct') * (this.params.hellstorm ? 0.4 : 1)
+        const damage = (this.params.damage ?? 5) * this.power * this.pct('damagePct') * (this.params.hellstorm ? 0.7 : 1)
         const targets = e.enemies.filter(en => en.alive && en.hostile && en.kind !== 'mine' && en.pos.distanceTo(p.pos) < 450)
             .sort((a, b) => a.pos.distanceToSquared(p.pos) - b.pos.distanceToSquared(p.pos))
         if (e.focus?.alive && e.focus.hostile) {
@@ -418,7 +418,11 @@ export class SkillRunner {
             if (en.kind !== 'warden') {
                 to.normalize()
                 en.vel.addScaledVector(to, (implode ? -0.8 : 1) * knock * (en.kind === 'carrier' || en.kind === 'bulwark' ? 0.3 : 1))
-                if (this.params.stun) en.cooldown = Math.max(en.cooldown, this.params.stun)
+                if (this.params.stun) {
+                    en.cooldown = Math.max(en.cooldown, this.params.stun)
+                    // The real stun: mites, leeches and capital gun crews ignore `cooldown`.
+                    en.data.stunT = Math.max(en.data.stunT ?? 0, this.params.stun)
+                }
             }
         }
         e.asteroids?.query(center, radius, (rock) => {

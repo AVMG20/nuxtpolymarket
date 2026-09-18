@@ -33,7 +33,7 @@ export const VOID_PERKS: VoidPerkDefinition[] = [
     { id: 'link', name: 'Tactical Link', description: 'Faster pilot skill recharge.', icon: 'i-lucide-zap', costs: [4, 8], effect: r => `-${r * 8}% skill cooldown` },
     { id: 'relics', name: 'Relic Hunter', description: 'Relic caches turn up more often.', icon: 'i-lucide-gem', costs: [4, 8], effect: r => `+${r * 40}% relic drops` },
     { id: 'quartermaster', name: 'Quartermaster', description: 'The station stocks supplies for you at a discount.', icon: 'i-lucide-shopping-cart', costs: [5], effect: r => (r ? '-25% supply cost' : 'Full price') },
-    { id: 'revive', name: 'Second Chance', description: 'Once per run, a fatal hit leaves you at 30% hull instead.', icon: 'i-lucide-heart-pulse', costs: [10], effect: r => (r ? 'One revive per run' : 'No revive') }
+    { id: 'revive', name: 'Second Chance', description: 'Once per run, a fatal hit leaves you at 30% hull instead.', icon: 'i-lucide-heart-pulse', costs: [8], effect: r => (r ? 'One revive per run' : 'No revive') }
 ]
 
 export const VOID_PERK_IDS: VoidPerkId[] = VOID_PERKS.map(p => p.id)
@@ -78,6 +78,7 @@ export function voidRunMarks(run: VoidRunTrophies) {
 export const VOID_DAILY_MARKS = 8
 export const VOID_DAILY_BLUEPRINTS = 2
 export const VOID_DAILY_GEAR = 5
+export const VOID_DAILY_RELICS = 10
 
 /** Pilot XP per finished run bounty; a run rolls two. */
 export const VOID_BOUNTY_XP = 40
@@ -160,7 +161,7 @@ export interface VoidZoneDefinition {
 export const VOID_ZONES: VoidZoneDefinition[] = [
     { id: 'calm', name: 'Quiet Space', description: 'Nothing unusual. A breather.', color: 0x5ec8ff },
     { id: 'ion', name: 'Ion Storm', description: 'Shields recharge at half speed, yours and theirs. Enemy shields start drained.', color: 0x7fd4ff },
-    { id: 'radiation', name: 'Radiation Belt', description: 'Hull slowly burns while the shield is down. Ore yields double.', color: 0x9dff5e },
+    { id: 'radiation', name: 'Radiation Belt', description: 'Hull slowly burns while the shield is down. Ore yields half again as much.', color: 0x9dff5e },
     { id: 'pirates', name: 'Pirate Territory', description: 'Far more raiders. Salvage drops half again as much.', color: 0xff6b4f },
     { id: 'graveyard', name: 'Derelict Graveyard', description: 'Wrecks, caches and data logs everywhere. Fewer rocks.', color: 0xc9b38a },
     { id: 'rich', name: 'Rich Veins', description: 'Dense ore fields guarded by more sentinels.', color: 0xffd35e },

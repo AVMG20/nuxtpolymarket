@@ -253,6 +253,7 @@ export const voidState = pgTable('void_state', {
   marksToday: integer('marks_today').notNull().default(0),
   blueprintsToday: integer('blueprints_today').notNull().default(0),
   gearToday: integer('gear_today').notNull().default(0),
+  relicsToday: integer('relics_today').notNull().default(0),
   // Pilot meta: Command Marks and the perks bought with them, blueprints for MkII gear, recovered lore logs.
   marks: integer('marks').notNull().default(0),
   perks: jsonb('perks').$type<Record<string, number>>().notNull().default({}),

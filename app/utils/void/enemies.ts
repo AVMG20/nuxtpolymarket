@@ -498,6 +498,7 @@ function mothershipDeath(engine: VoidEngine, e: Enemy) {
         if (step <= 12) setTimeout(chain, 140)
         else {
             explosion(engine.fx, origin, _v2.set(0, 0, 0), 14, e.glow)
+            engine.audio.play('explosionLarge', { volume: 1.6, pitch: 0.55 })
             engine.rings.spawn(origin, 360, e.glow, 1.8, 3)
             engine.rings.spawn(origin, 220, 0xffffff, 1.2, 2, undefined, 0.04)
             engine.flashes.flash(origin, e.glow, 400, 900, 1.4)
@@ -521,7 +522,8 @@ export function spawnWarden(engine: VoidEngine) {
     w.stateTime = 0
     w.data.volley = 3
     w.data.burst = 1.5
-    w.data.beamTimer = 6
+    // Zero, so the first sweep runs a full cycle and telegraphs before it fires.
+    w.data.beamTimer = 0
     w.data.summon = 10
     w.data.beamAngle = 0
     engine.warden = w
@@ -557,7 +559,10 @@ export function damageEnemy(engine: VoidEngine, e: Enemy, amount: number, point:
     }
     // Hits from Coalition patrols are theirs: no crits, no player bonuses, and the kill is not yours.
     if (source === 'coalition') e.data.coalitionHit = 1
-    else if (source !== 'burn' && source !== 'chain') e.data.coalitionHit = 0
+    else if (source !== 'burn' && source !== 'chain' && source !== 'station') e.data.coalitionHit = 0
+    // The station's guns keep their own kills, so parking at the dock farms nothing.
+    if (source === 'station') e.data.stationHit = 1
+    else if (source !== 'burn' && source !== 'chain') e.data.stationHit = 0
     // Heavy ordnance on a warden follows the boss rules: scaled and capped.
     // Berserker and friends scale every player weapon.
     if (source !== 'station' && source !== 'enemy' && source !== 'skill' && source !== 'burn' && source !== 'chain' && source !== 'coalition' && engine.skills) amount *= engine.skills.outgoingMult
@@ -612,7 +617,7 @@ export function damageEnemy(engine: VoidEngine, e: Enemy, amount: number, point:
         }
         if (e.data.shield! <= 0) {
             engine.rings.spawn(e.pos, e.radius * 2.5, 0x6fd8ff, 0.4, 2.5)
-            engine.audio.play('blink', { distance: point.distanceTo(engine.camera.position) * 0.5, pitch: 1.4, volume: 0.5 })
+            engine.audio.play('shieldBreak', { distance: point.distanceTo(engine.camera.position) * 0.5, pitch: 1.25, volume: 0.7, pan: engine.panOf(e.pos) })
         }
         if (amount <= 0) {
             if (e.hostile && source !== 'station') engine.hitMarker = Math.max(engine.hitMarker, 0.12)
@@ -625,14 +630,15 @@ export function damageEnemy(engine: VoidEngine, e: Enemy, amount: number, point:
     // Player hits can crit for double, shown as a big gold number.
     const burst = !STEADY_SOURCES.has(source)
     if (burst && e.hostile && randomFloat() < 0.12 + (extra?.crit ?? 0)) {
-        amount *= extra?.mod === 'prism' ? 3 : 2
+        amount *= extra?.mod === 'prism' ? 4 : 2
         engine.addFloat(_v1.copy(point).add(_v2.set(0, e.radius * 0.6, 0)), `${Math.round(amount)}!`, '#ffcf4d', 20)
-        engine.audio.play('hit', { pitch: 1.6, volume: 0.8 })
+        engine.audio.play('crit', { distance: point.distanceTo(engine.camera.position), pan: engine.panOf(point), volume: 0.9 })
+        engine.rings.spawn(point, e.radius * 1.1, 0xffcf4d, 0.22, 3.4)
     } else {
         e.data.dmgAcc = (e.data.dmgAcc ?? 0) + amount
     }
     // Heavy ordnance on bosses follows the boss rules, after crits and bonuses: scaled and capped per warhead.
-    if (source === 'secondary' && (e.kind === 'warden' || e.kind === 'mothership')) amount = Math.min(amount * 0.4, e.maxHp * 0.008)
+    if (source === 'secondary' && (e.kind === 'warden' || e.kind === 'mothership')) amount = Math.min(amount * 0.5, e.maxHp * 0.015)
     e.hp -= amount
     // A whole capital hull lighting up white is blinding; it only glints.
     e.flash = e.kind === 'mothership' ? Math.max(e.flash, 0.06) : source === 'beam' || source === 'lance' ? Math.max(e.flash, 0.3) : 1
@@ -698,7 +704,7 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
     e.alive = false
     e.hp = 0
     // A Coalition kill is theirs: the wreck explodes but pays you nothing.
-    const stolen = !!e.data.coalitionHit
+    const stolen = !!e.data.coalitionHit || !!e.data.stationHit
     const distance = e.pos.distanceTo(engine.camera.position)
     if (!silent) {
         if (e.kind === 'mothership') {
@@ -717,7 +723,8 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
         engine.killMarker = 0.35
         engine.streak = engine.streakTimer > 0 ? engine.streak + 1 : 1
         engine.streakTimer = 3
-        if (e.elite) engine.audio.play('levelUp', { volume: 0.4 })
+        if (e.elite) engine.audio.play('bounty', { volume: 0.55 })
+        else if (engine.streak >= 3) engine.audio.play('streak', { pitch: 1 + Math.min(8, engine.streak - 3) * 0.09, volume: 0.5 })
         engine.kills++
         engine.objectives?.onKill(e)
         engine.skills?.onKill(e)
@@ -750,8 +757,8 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
             if (randomFloat() < 0.35) engine.dropFuel(e.pos)
         }
     } else if (e.def && !silent) {
-        const lootMult = e.data.elite ? 2.5 : 1
-        for (const drop of e.def.drops) engine.dropLoot(drop.resource, Math.round(drop.min * lootMult), Math.round(drop.max * lootMult), e.pos, Math.min(1, (drop.chance ?? 1) * lootMult))
+        const lootMult = (e.data.elite ? 2.5 : 1) * engine.streakLoot
+        for (const drop of e.def.drops) engine.dropLoot(drop.resource, Math.round(drop.min * lootMult), Math.round(drop.max * lootMult), e.pos, Math.min(1, (drop.chance ?? 1) * lootMult * (e.kind === 'mite' ? 3 : 1)))
         if (e.data.elite) engine.dropLoot('alloy', 2, 5, e.pos)
     }
     if (e.kind === 'mine' && !silent) mineBlast(engine, e)
@@ -825,6 +832,7 @@ function wardenDeath(engine: VoidEngine, e: Enemy) {
         if (step <= 8) setTimeout(chain, 160)
         else {
             explosion(engine.fx, pos, _v1.set(0, 0, 0), 9, e.glow)
+            engine.audio.play('explosionLarge', { volume: 1.5, pitch: 0.6 })
             engine.rings.spawn(pos, 260, e.glow, 1.6, 3)
             engine.rings.spawn(pos, 160, 0xffffff, 1.1, 2, undefined, 0.04)
             engine.flashes.flash(pos, e.glow, 300, 600, 1.2)
@@ -911,6 +919,8 @@ function faceTowards(e: Enemy, dir: THREE.Vector3, turn: number, dt: number) {
 }
 
 function steer(e: Enemy, desired: THREE.Vector3, accel: number, dt: number) {
+    // Burning to close a gap the player is opening (see `attack`).
+    if ((e.data.chaseT ?? 0) > 0) desired.multiplyScalar(1.6)
     e.vel.lerp(desired, 1 - Math.exp(-accel * dt))
 }
 
@@ -1109,6 +1119,12 @@ export function updateEnemies(engine: VoidEngine, dt: number) {
 }
 
 function idle(e: Enemy, dt: number) {
+    // Drop out of any wind-up when the target is lost, or it fires the instant
+    // the target comes back, with a stale aim and no telegraph.
+    if (e.state !== 'idle') {
+        e.state = 'idle'
+        e.stateTime = 0
+    }
     if (!e.def || e.def.stationary) {
         if (e.kind === 'sentinel') e.group.rotation.y += dt * 0.3
         return
@@ -1129,6 +1145,15 @@ function attack(engine: VoidEngine, e: Enemy, dt: number, dist: number, p: AiTar
     }
     const def = e.def!
     const dmg = def.damage * e.damageMult
+    // Afterburner: a hostile that is being left behind pushes hard for a few
+    // seconds, so boosting away is a retreat rather than a free win.
+    e.data.chaseCd = Math.max(0, (e.data.chaseCd ?? 0) - dt)
+    if ((e.data.chaseT ?? 0) > 0) e.data.chaseT! -= dt
+    else if (!e.data.chaseCd && dist > def.range * 1.15 && dist > (e.data.lastDist ?? dist) + 0.5) {
+        e.data.chaseT = 4
+        e.data.chaseCd = 9
+    }
+    e.data.lastDist = dist
     const toPlayer = _v2.subVectors(p.pos, e.pos)
     const dirToPlayer = toPlayer.clone().normalize()
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(e.group.quaternion)

@@ -87,7 +87,7 @@ export const VOID_SKILLS: VoidSkillDefinition[] = [
             ]
         ],
         ['Cluster Warheads', 'Each missile bursts into 4 bomblets for 30% damage', { cluster: 1 }],
-        ['Hellstorm', 'Triple the missiles at 40% damage, +25% cooldown', { hellstorm: 1, cooldownPct: 0.25 }])
+        ['Hellstorm', 'Triple the missiles at 70% damage', { hellstorm: 1 }])
     },
     {
         id: 'shockwave',

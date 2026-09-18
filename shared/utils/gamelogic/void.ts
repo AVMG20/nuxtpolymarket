@@ -296,11 +296,11 @@ export const VOID_TURRETS = [
     },
     {
         id: 'mortar', name: 'Siege Mortar', description: 'Heavy shells with a huge blast radius. Slow to reload, long reach.',
-        color: 0xffa23d, damage: 42, rate: 0.35, range: 340, projectileSpeed: 170, pellets: 1, spread: 0.01, splash: 26, mining: 1.4
+        color: 0xffa23d, damage: 70, rate: 0.35, range: 340, projectileSpeed: 170, pellets: 1, spread: 0.01, splash: 26, mining: 1.4
     },
     {
         id: 'rail', name: 'Railgun', description: 'Instant slugs that punch through every hull in a line.',
-        color: 0xc38bff, damage: 95, rate: 0.45, range: 360, projectileSpeed: 0, pellets: 1, spread: 0, splash: 0, mining: 1.2
+        color: 0xc38bff, damage: 70, rate: 0.45, range: 360, projectileSpeed: 0, pellets: 1, spread: 0, splash: 0, mining: 1.2
     }
 ] as const satisfies readonly VoidTurretDefinition[]
 
@@ -352,15 +352,15 @@ export const VOID_GUNS = [
     },
     {
         id: 'scatter', name: 'Scattergun', description: 'A short-range pellet spread that deletes anything within spitting distance.',
-        color: 0xff9a4d, damage: 0.55, rate: 2.4, speed: 480, pellets: 8, spread: 0.07, range: 170, splash: 0, hitscan: false, beam: false
+        color: 0xff9a4d, damage: 0.8, rate: 2.4, speed: 480, pellets: 8, spread: 0.07, range: 170, splash: 0, hitscan: false, beam: false
     },
     {
         id: 'plasma', name: 'Plasma Thrower', description: 'Slow, heavy plasma globes that burst on impact and splash everything nearby.',
-        color: 0x7dff6b, damage: 3.4, rate: 2.2, speed: 300, pellets: 1, spread: 0, range: 380, splash: 12, hitscan: false, beam: false
+        color: 0x7dff6b, damage: 4.5, rate: 2.2, speed: 300, pellets: 1, spread: 0, range: 380, splash: 12, hitscan: false, beam: false
     },
     {
         id: 'lancer', name: 'Lance Beam', description: 'Hold the trigger for a continuous cutting beam. Brutal on rock and hull alike.',
-        color: 0x6fe3ff, damage: 11, rate: 0, speed: 0, pellets: 1, spread: 0, range: 300, splash: 0, hitscan: true, beam: true
+        color: 0x6fe3ff, damage: 15, rate: 0, speed: 0, pellets: 1, spread: 0, range: 300, splash: 0, hitscan: true, beam: true
     },
     {
         id: 'driver', name: 'Mass Driver', description: 'A single slug that crosses the sector instantly and punches through every hull in line.',
@@ -424,7 +424,7 @@ export const VOID_SHIPS = [
     {
         id: 'wasp', name: 'Wasp', role: 'Interceptor', requiresSector: 0,
         description: 'All engine. Twin turrets and a blink drive that puts you behind whatever was chasing you.',
-        hull: 100, shield: 80, speed: 84, agility: 3.3, cargo: 875, turrets: 2, armor: 1, shields: 1, drones: 0, ability: 'blink',
+        hull: 100, shield: 80, speed: 84, agility: 3.3, cargo: 1100, turrets: 2, armor: 1, shields: 1, drones: 0, ability: 'blink',
         cost: { ferrite: 360, scrap: 240 }, coins: 250_000, gems: 0, size: 3.6
     },
     {
@@ -734,6 +734,8 @@ export interface VoidRunReport {
     elapsedMs: number
     kills: number
     wardenKilled: boolean
+    /** A carrier kill also pays warp cores, given a run long enough to have fought one. */
+    carrierKilled?: boolean
     /** Jump depth the run reached; loot caps grow with it. */
     depth?: number
 }
@@ -758,8 +760,10 @@ export function voidSettleRun(report: VoidRunReport, tier: number, cargoCapacity
     const elapsedMs = Math.max(0, Math.min(Math.floor(Number(report.elapsedMs) || 0), wallElapsedMs, VOID_MAX_RUN_MS))
     const minutes = Math.max(elapsedMs, 0) / 60_000
     // A warden fight takes time to reach and time to win.
-    const wardenKilled = Boolean(report.wardenKilled) && wallElapsedMs >= 60_000
+    const wardenKilled = Boolean(report.wardenKilled) && wallElapsedMs >= 150_000 + tier * 30_000
     const kills = Math.max(0, Math.min(Math.floor(Number(report.kills) || 0), Math.ceil(minutes * 60) + 10))
+    // A carrier is a long fight at the far end of a zone.
+    const carrierKilled = Boolean(report.carrierKilled) && wallElapsedMs >= 240_000
 
     if (!report.extracted) {
         return { haul: {}, units: 0, value: 0, elapsedMs, kills, wardenKilled: false, trimmed: false }
@@ -777,8 +781,8 @@ export function voidSettleRun(report: VoidRunReport, tier: number, cargoCapacity
             continue
         }
         const ceiling = id === 'core'
-            ? (wardenKilled ? 2 + tier : 0) + Math.floor(minutes / 4)
-            : Math.ceil(VOID_UNITS_PER_MINUTE[id] * sectorBonus * minutes) + 300
+            ? (wardenKilled ? 2 + tier : 0) + (carrierKilled ? 1 + Math.ceil(tier / 2) : 0) + Math.floor(minutes / 4)
+            : Math.ceil(VOID_UNITS_PER_MINUTE[id] * sectorBonus * minutes) + 60
         const amount = Math.min(reported, ceiling)
         if (amount < reported) trimmed = true
         if (amount > 0) capped[id] = amount

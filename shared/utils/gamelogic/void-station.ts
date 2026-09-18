@@ -38,11 +38,11 @@ export const VOID_SUPPLY_CARRY = 3
 export const VOID_SUPPLY_STOCK_MAX = 30
 
 const SUPPLY_RECIPES: VoidResourceBundle[] = [
-    { ferrite: 80, scrap: 50 },
-    { ferrite: 120, cobalt: 60, scrap: 60 },
-    { cobalt: 150, iridium: 50, alloy: 15 },
-    { iridium: 140, xenite: 40, alloy: 25 },
-    { iridium: 200, xenite: 80, alloy: 40 }
+    { ferrite: 25, scrap: 15 },
+    { ferrite: 40, cobalt: 20, scrap: 20 },
+    { cobalt: 50, iridium: 18, alloy: 5 },
+    { iridium: 50, xenite: 14, alloy: 8 },
+    { iridium: 70, xenite: 28, alloy: 14 }
 ]
 
 /**
@@ -56,7 +56,7 @@ export function voidSupplyCost(id: VoidSupplyId, highestSectorCleared: number, d
     const resources: VoidResourceBundle = {}
     const factor = discount ? 0.75 : 1
     for (const [res, amount] of Object.entries(recipe)) resources[res as VoidResourceId] = Math.round(amount! * def.weight * factor)
-    const coins = Math.round(20_000 * Math.pow(3.2, tier - 1) * def.weight * factor / 1000) * 1000
+    const coins = Math.round(4_000 * Math.pow(2.4, tier - 1) * def.weight * factor / 1000) * 1000
     return { resources, coins, gems: 0 }
 }
 

@@ -9,6 +9,7 @@ import type { Enemy } from './types'
 import { randomFloat } from '#shared/utils/random'
 import { voidResource, type VoidResourceId } from '#shared/utils/gamelogic/void'
 import { VOID_BOUNTY_XP } from '#shared/utils/gamelogic/void-pilot'
+import { VOID_SKILLS } from '#shared/utils/gamelogic/void-skills'
 import { VOID_DEVICES, voidItemType } from '#shared/utils/gamelogic/void-items'
 
 export interface ObjectiveView {
@@ -157,7 +158,9 @@ export class ObjectiveTracker {
         const device = e.config?.device
         const deviceName = device ? (voidItemType(device.type)?.name ?? 'device') : 'device'
         const deviceEffect = device ? (VOID_DEVICES[device.type]?.effect ?? '') : ''
+        const skillName = e.config?.skill ? (VOID_SKILLS.find(k => k.id === e.config!.skill.id)?.name ?? 'Your skill') : 'Your skill'
         this.lessons = [
+            { id: 'skill', text: 'Press Q to fire your pilot skill', hint: `${skillName} recharges on its own, so use it the moment a fight turns. Right-click fires it too.`, applies: () => !!e.config?.skill },
             { id: 'secondary', text: 'Hold E on a hostile, release to fire missiles', hint: 'Keep the target under your crosshair until it says LOCKED, then let go. Missiles hit hard and refill every launch.', applies: () => !!e.config?.secondary },
             { id: 'scan', text: 'Press T to scan for hidden loot', hint: 'A scan reveals hidden caches (extra materials, sometimes jump fuel) and data logs nearby. Fly to the CACHE or DATA LOG markers it leaves.', applies: () => true },
             { id: 'device', text: `Press G to use your ${deviceName}`, hint: `${deviceEffect} It costs energy and recharges, so save it for a tight spot.`, applies: () => !!device },
@@ -287,6 +290,20 @@ export class ObjectiveTracker {
         }
     }
 
+    /**
+     * A finished bounty is replaced by a fresh one, each a little bigger than
+     * the last, so there is always something to chase.
+     */
+    private refillBounties() {
+        const taken = new Set(this.bounties.filter(b => !b.paid).map(b => b.kind))
+        const pool = this.bountyPool().filter(b => !taken.has(b.kind))
+        const done = this.bounties.filter(b => b.paid).length
+        while (this.bounties.filter(b => !b.paid).length < 2 && pool.length) {
+            const pick = pool.splice(Math.floor(randomFloat() * pool.length), 1)[0]!
+            this.bounties.push({ ...pick, target: Math.ceil(pick.target * (1 + done * 0.35)), count: 0, paid: false, paidAt: 0 })
+        }
+    }
+
     /** A reactor bounty with no carrier left in the zone becomes something doable. */
     private replaceStaleBounties() {
         const e = this.engine
@@ -317,6 +334,7 @@ export class ObjectiveTracker {
             e.pilotBonusXp += VOID_BOUNTY_XP
             e.events.banner('Bounty complete', `${b.text} · +${VOID_BOUNTY_XP} pilot XP`, 'good')
             e.audio.play('bounty')
+            this.refillBounties()
         }
     }
 

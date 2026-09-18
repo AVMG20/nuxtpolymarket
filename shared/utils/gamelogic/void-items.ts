@@ -190,7 +190,7 @@ export interface VoidAffix {
 export const VOID_AFFIXES: VoidAffix[] = [
     { id: 'damage', name: 'Damage', kinds: ['gun', 'turret'], min: 0.04, max: 0.12, format: 'pct' },
     { id: 'rate', name: 'Fire rate', kinds: ['gun', 'turret'], min: 0.03, max: 0.1, format: 'pct' },
-    { id: 'crit', name: 'Crit chance', kinds: ['gun', 'turret'], min: 0.03, max: 0.08, format: 'pct' },
+    { id: 'crit', name: 'Crit chance', kinds: ['gun', 'turret'], min: 0.06, max: 0.16, format: 'pct' },
     { id: 'range', name: 'Range', kinds: ['gun', 'turret'], min: 0.08, max: 0.2, format: 'pct' },
     { id: 'hull', name: 'Hull', kinds: ['armor'], min: 0.05, max: 0.14, format: 'pct' },
     { id: 'resist', name: 'Damage taken', kinds: ['armor'], min: 0.02, max: 0.05, format: 'pctNeg' },
@@ -228,7 +228,7 @@ export const VOID_MODS: VoidMod[] = [
     { id: 'burn', name: 'Thermite Core', description: 'Hits set targets burning for 40% extra damage over 2s.', kinds: ['gun', 'turret'], color: 0xff7a2e, weight: 10 },
     { id: 'overcharge', name: 'Capacitor Bank', description: 'Every fifth shot hits for triple damage.', kinds: ['gun', 'turret'], color: 0xfff27a, weight: 8 },
     { id: 'frost', name: 'Cryo Shell', description: 'Hits slow hostiles by 30% for 1.5s.', kinds: ['gun', 'turret'], color: 0x9fe8ff, weight: 8 },
-    { id: 'prism', name: 'Prism Lens', description: '+8% crit chance, and crits hit for triple.', kinds: ['gun', 'turret'], color: 0xff7ae6, weight: 5 },
+    { id: 'prism', name: 'Prism Lens', description: '+12% crit chance, and crits hit for quadruple.', kinds: ['gun', 'turret'], color: 0xff7ae6, weight: 5 },
     { id: 'reactive', name: 'Reactive Plating', description: 'Hull hits blast half the damage back at the nearest hostile.', kinds: ['armor'], color: 0xffc27a, weight: 8 },
     { id: 'nanoweave', name: 'Nanoweave', description: 'Slowly repairs 1% hull per second.', kinds: ['armor'], color: 0x7dff9a, weight: 8 },
     { id: 'surge', name: 'Surge Capacitor', description: 'When the shield breaks it refills 50% after 1.5s. Once every 25s.', kinds: ['shield'], color: 0x6fd8ff, weight: 8 },
@@ -276,9 +276,9 @@ const TIER_RECIPES: VoidResourceBundle[] = [
     { ferrite: 250, cobalt: 220, scrap: 120 },
     { cobalt: 420, iridium: 280, alloy: 40 },
     { iridium: 700, xenite: 340, alloy: 120 },
-    { iridium: 800, xenite: 700, alloy: 160, core: 1 }
+    { iridium: 2400, xenite: 2100, alloy: 480, core: 3 }
 ]
-const TIER_COINS = [50_000, 400_000, 2_500_000, 10_000_000, 40_000_000]
+const TIER_COINS = [50_000, 250_000, 1_000_000, 4_000_000, 15_000_000]
 const TIER_GEMS = [0, 0, 0, 1, 3]
 /** Upgrade material share per tier: cheap to level early gear, heavier late. */
 const TIER_UPGRADE_SHARE = [0.12, 0.15, 0.18, 0.2, 0.22]
@@ -463,7 +463,7 @@ export function voidWeaponFit(item: VoidItem): VoidWeaponFit {
         power: voidItemPower(item) * (1 + (a.damage ?? 0) + (a.warhead ?? 0)),
         rate: 1 + (a.rate ?? 0),
         range: 1 + (a.range ?? 0),
-        crit: (a.crit ?? 0) + (item.mod === 'prism' ? 0.08 : 0),
+        crit: (a.crit ?? 0) + (item.mod === 'prism' ? 0.12 : 0),
         mod: (voidMod(item.mod)?.kinds.includes(item.kind) ? item.mod : null) as VoidModId | null,
         damageType: VOID_DAMAGE_TYPE[item.type] ?? 'explosive',
         extra: item.kind === 'secondary' ? 1 + (a.ammo ?? 0) : 1 + (a.duration ?? 0),

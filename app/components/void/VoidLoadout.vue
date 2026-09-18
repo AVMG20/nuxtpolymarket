@@ -7,7 +7,7 @@
                 <b>{{ ship.name }}</b>
             </div>
             <div class="vl-stats">
-                <div><span>Power</span><b>{{ formatNumber(ship.power, false) }}</b></div>
+                <div title="Rough combat rating: gun and turret damage plus hull and shields."><span>Power</span><b>{{ formatNumber(ship.power, false) }}</b></div>
                 <div><span>Hull</span><b>{{ formatNumber(ship.stats.hull) }}</b></div>
                 <div><span>Shield</span><b>{{ formatNumber(ship.stats.shield) }}</b></div>
                 <div v-if="ship.stats.resist > 0"><span>Resist</span><b>{{ Math.round(ship.stats.resist * 100) }}%</b></div>
@@ -68,7 +68,7 @@
             <section class="vl-armory">
                 <h3 class="vl-title">
                     {{ current.group.label }}<template v-if="current.group.slots.length > 1"> · slot {{ selected.index + 1 }}</template>
-                    <small>{{ current.group.hint }}</small>
+                    <small>{{ current.group.hint }} · score is a rough all-round rating, green beats what you have fitted</small>
                 </h3>
                 <div class="vl-current" :style="currentItem ? { '--rc': currentItem.rarityColor } : {}">
                     <span class="vl-current-label">In this slot</span>

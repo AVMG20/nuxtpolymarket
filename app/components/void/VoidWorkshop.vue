@@ -11,7 +11,7 @@
 
         <!-- ═══ My gear ═══ -->
         <template v-if="view === 'gear'">
-            <p class="vw-intro">Everything you own. <b>Level up</b> items to make them stronger, <b>scrap</b> spares for materials. Put gear on your ship in the <b>Loadout</b> tab.</p>
+            <p class="vw-intro">Everything you own. <b>Level up</b> items to make them stronger, <b>break down</b> spares for materials. Put gear on your ship in the <b>Loadout</b> tab.</p>
             <div v-if="modPick" class="vw-socket-hint">
                 <UIcon name="i-lucide-gem" class="size-4" />
                 <span>Pick an item with a gold outline to socket the <b>{{ modName(modPick) }}</b>. It replaces any mod already there.</span>
@@ -64,7 +64,7 @@
                                 :title="`Destroys the item and returns ${salvageText(item.salvage)}`"
                                 @click="salvage(item.id)"
                             >
-                                {{ confirmSalvage === item.id ? 'Sure?' : 'Scrap' }}
+                                {{ confirmSalvage === item.id ? 'Sure?' : 'Break down' }}
                             </button>
                         </div>
                     </div>
@@ -130,6 +130,7 @@
                 <div class="vw-odds-legend">
                     <span v-for="r in state.crafting.rarities" :key="r.name" :style="{ color: r.color }">{{ r.name }} {{ oddsPct(r.weight) }}%</span>
                 </div>
+                <p class="vw-odds-note">Each step up in rarity is stronger and carries one more bonus stat. A lucky T1 roll can beat a plain T2.</p>
                 <div v-if="currentCost" class="vw-cost">
                     <small>Cost</small>
                     <VoidCost :cost="currentCost.resources" :held="state.resources" :coins="currentCost.coins" :gems="currentCost.gems" :balance="state.balance" :gems-held="state.gems" />
@@ -198,7 +199,7 @@ const emit = defineEmits<{
 const view = defineModel<WorkshopView>('view', { default: 'gear' })
 
 const kinds = [
-    { id: 'gun' as const, label: 'Guns', single: 'Gun', icon: 'i-lucide-crosshair', hint: 'Your nose gun. You aim and fire it with left mouse.' },
+    { id: 'gun' as const, label: 'Guns', single: 'Gun', icon: 'i-lucide-crosshair', hint: 'Your primary gun. You aim and fire it with left mouse.' },
     { id: 'turret' as const, label: 'Turrets', single: 'Turret', icon: 'i-lucide-radar', hint: 'Turrets pick targets and fire on their own. Bigger hulls carry more.' },
     { id: 'armor' as const, label: 'Armour', single: 'Armour', icon: 'i-lucide-shield-half', hint: 'Armour adds hull and damage resistance.' },
     { id: 'shield' as const, label: 'Shields', single: 'Shield', icon: 'i-lucide-shield', hint: 'Shields add a pool that absorbs hits first and recharges.' },
@@ -349,6 +350,7 @@ function salvage(itemId: string) {
 .vw-odds { display: flex; height: 5px; gap: 1px; }
 .vw-odds div { min-width: 3px; }
 .vw-odds-legend { display: flex; flex-wrap: wrap; gap: 2px 10px; font: 600 10px 'JetBrains Mono', monospace; }
+.vw-odds-note { margin: 6px 0 0; font-size: 12px; line-height: 1.35; color: var(--vr-muted); }
 .vw-cost { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .vw-cost > small { font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--vr-muted); }
 .vw-craft-go { width: 100%; padding: 12px 18px; font-size: 14px; }

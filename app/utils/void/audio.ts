@@ -10,7 +10,7 @@ export type VoidSfx =
     | 'hit' | 'rockHit' | 'shieldHit' | 'hullHit' | 'explosionSmall' | 'explosionLarge' | 'rockBreak'
     | 'pickup' | 'cargoFull' | 'boost' | 'ability' | 'blink' | 'warning' | 'charge'
     | 'dock' | 'undock' | 'ui' | 'uiConfirm' | 'uiError' | 'wardenAlert' | 'levelUp' | 'lowHull' | 'mineArm'
-    | 'bounty' | 'gear'
+    | 'bounty' | 'gear' | 'crit' | 'shieldBreak' | 'streak' | 'rareDrop'
 
 export class VoidAudio {
     private ctx: AudioContext | null = null
@@ -20,6 +20,8 @@ export class VoidAudio {
     private noiseBuffer!: AudioBuffer
     private lastPlayed = new Map<string, number>()
     private voices = 0
+    /** Distance of the cue being played, read by `air()` while it builds nodes. */
+    private playDistance = 0
     private engineOsc: OscillatorNode | null = null
     private engineOsc2: OscillatorNode | null = null
     private humDetune: OscillatorNode | null = null
@@ -67,8 +69,9 @@ export class VoidAudio {
             this.musicBus = ctx.createGain()
             this.musicBus.gain.value = 0.32
             this.sfxBus.connect(comp)
-            this.musicBus.connect(comp)
             comp.connect(this.master)
+            // Music skips the sfx compressor, or every explosion ducks the score.
+            this.musicBus.connect(this.master)
             this.master.connect(ctx.destination)
 
             const len = ctx.sampleRate * 2
@@ -103,6 +106,18 @@ export class VoidAudio {
         }
     }
 
+    /**
+     * Distance rolls the top off a sound as well as turning it down, so a kill
+     * across the field sits behind the ship instead of on top of it.
+     */
+    private air() {
+        const ctx = this.ctx!
+        const f = ctx.createBiquadFilter()
+        f.type = 'lowpass'
+        f.frequency.value = 19000 / (1 + this.playDistance / 70)
+        return f
+    }
+
     private env(gain: GainNode, t: number, peak: number, attack: number, decay: number) {
         gain.gain.setValueAtTime(0.0001, t)
         gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t + attack)
@@ -120,7 +135,7 @@ export class VoidAudio {
         this.env(g, t, peak, attack, decay)
         const p = ctx.createStereoPanner()
         p.pan.value = Math.max(-1, Math.min(1, pan))
-        osc.connect(g).connect(p).connect(this.sfxBus)
+        osc.connect(g).connect(this.air()).connect(p).connect(this.sfxBus)
         osc.start(t)
         osc.stop(t + attack + decay + 0.05)
         this.track(osc)
@@ -141,7 +156,7 @@ export class VoidAudio {
         this.env(g, t, peak, attack, decay)
         const p = ctx.createStereoPanner()
         p.pan.value = Math.max(-1, Math.min(1, pan))
-        src.connect(filter).connect(g).connect(p).connect(this.sfxBus)
+        src.connect(filter).connect(g).connect(this.air()).connect(p).connect(this.sfxBus)
         src.start(t, Math.random() * 1.5)
         src.stop(t + attack + decay + 0.05)
         this.track(src)
@@ -153,6 +168,7 @@ export class VoidAudio {
      */
     play(sfx: VoidSfx, opts: { distance?: number, pan?: number, pitch?: number, volume?: number } = {}) {
         if (!this.ctx || this.muted) return
+        this.playDistance = Math.max(0, opts.distance ?? 0)
         const falloff = 1 / (1 + Math.max(0, (opts.distance ?? 0) - 20) / 90)
         const v = (opts.volume ?? 1) * falloff
         if (v < 0.03) return
@@ -225,7 +241,7 @@ export class VoidAudio {
                 this.tone('sine', 140 * p, 35, 0.3 * v, 0.003, 0.4, pan)
                 break
             case 'explosionLarge':
-                if (!this.gate(sfx, 0.1)) return
+                if (!this.gate(sfx, 0.18)) return
                 this.noise('lowpass', 1400 * p, 40, 0.6, 0.55 * v, 0.005, 1.6, pan)
                 this.noise('bandpass', 3500, 400, 0.8, 0.18 * v, 0.003, 0.5, pan)
                 this.tone('sine', 90 * p, 22, 0.55 * v, 0.004, 1.3, pan)
@@ -251,40 +267,69 @@ export class VoidAudio {
                 break
             case 'boost':
                 if (!this.gate(sfx, 0.3)) return
-                this.noise('bandpass', 300, 1100, 0.6, 0.1 * v, 0.08, 0.6)
-                this.tone('sine', 55, 95, 0.08 * v, 0.06, 0.5)
+                this.noise('bandpass', 300 * p, 1100 * p, 0.6, 0.1 * v, 0.08, 0.6)
+                this.tone('sine', 55 * p, 95 * p, 0.08 * v, 0.06, 0.5)
                 break
             case 'ability':
                 if (!this.gate(sfx, 0.2)) return
-                this.tone('sawtooth', 200, 1600, 0.08 * v, 0.02, 0.4)
-                this.tone('sine', 400, 3200, 0.07 * v, 0.02, 0.35)
+                this.tone('sawtooth', 200 * p, 1600 * p, 0.08 * v, 0.02, 0.4)
+                this.tone('sine', 400 * p, 3200 * p, 0.07 * v, 0.02, 0.35)
                 this.noise('highpass', 800, 5000, 0.7, 0.1 * v, 0.02, 0.4)
                 break
             case 'blink':
                 if (!this.gate(sfx, 0.2)) return
-                this.tone('sine', 2400, 300, 0.12 * v, 0.002, 0.25)
-                this.noise('bandpass', 6000, 400, 2, 0.14 * v, 0.002, 0.3)
+                this.tone('sine', 2400 * p, 300 * p, 0.12 * v, 0.002, 0.25)
+                this.noise('bandpass', 6000 * p, 400, 2, 0.14 * v, 0.002, 0.3)
+                break
+            case 'shieldBreak':
+                // Glass under pressure: a bright crack that falls away into a hum.
+                if (!this.gate(sfx, 0.15)) return
+                this.noise('bandpass', 5200 * p, 900, 3, 0.2 * v, 0.001, 0.32, pan)
+                this.tone('triangle', 1600 * p, 240 * p, 0.12 * v, 0.002, 0.4, pan)
+                this.tone('sine', 300 * p, 120 * p, 0.09 * v, 0.01, 0.5, pan, 0.05)
+                break
+            case 'crit':
+                // A hard metallic snap that cuts over the normal hit.
+                if (!this.gate(sfx, 0.05)) return
+                this.noise('bandpass', 4200 * p, 1800, 4, 0.16 * v, 0.001, 0.07, pan)
+                this.tone('square', 2400 * p, 900 * p, 0.05 * v, 0.001, 0.09, pan)
+                break
+            case 'streak':
+                // Rises with the streak: `pitch` carries how far in you are.
+                if (!this.gate(sfx, 0.25)) return
+                this.tone('triangle', 520 * p, 520 * p, 0.07 * v, 0.004, 0.1)
+                this.tone('triangle', 780 * p, 780 * p, 0.06 * v, 0.004, 0.16, 0, 0.07)
+                break
+            case 'rareDrop':
+                // Something valuable just fell out: a bell under a slow shimmer.
+                if (!this.gate(sfx, 0.5)) return
+                this.tone('sine', 1320, 1320, 0.09 * v, 0.004, 0.7, pan)
+                this.tone('sine', 1980, 1980, 0.05 * v, 0.01, 0.9, pan, 0.06)
+                this.tone('triangle', 660, 660, 0.07 * v, 0.006, 0.5, pan, 0.02)
+                this.noise('highpass', 3000, 9000, 0.7, 0.05 * v, 0.2, 0.8, pan)
                 break
             case 'warning':
                 if (!this.gate(sfx, 0.5)) return
-                this.tone('square', 740, 740, 0.05 * v, 0.005, 0.12)
-                this.tone('square', 740, 740, 0.05 * v, 0.005, 0.12, 0, 0.2)
+                this.tone('square', 740 * p, 740 * p, 0.05 * v, 0.005, 0.12)
+                this.tone('square', 740 * p, 740 * p, 0.05 * v, 0.005, 0.12, 0, 0.2)
                 break
             case 'charge':
                 if (!this.gate(sfx, 0.3)) return
-                this.tone('sawtooth', 120, 900, 0.07 * v, 0.6, 0.15, pan)
+                this.tone('sawtooth', 120 * p, 900 * p, 0.07 * v, 0.6, 0.15, pan)
                 break
             case 'mineArm':
                 if (!this.gate(sfx, 0.3)) return
                 this.tone('square', 1320, 1320, 0.035 * v, 0.002, 0.05, pan)
                 break
             case 'dock':
+                if (!this.gate(sfx, 0.5)) return
                 this.tone('sine', 523, 523, 0.1 * v, 0.01, 0.35)
                 this.tone('sine', 659, 659, 0.1 * v, 0.01, 0.35, 0, 0.12)
                 this.tone('sine', 784, 784, 0.1 * v, 0.01, 0.6, 0, 0.24)
                 this.tone('sine', 1046, 1046, 0.08 * v, 0.01, 0.9, 0, 0.36)
                 break
             case 'undock':
+                if (!this.gate(sfx, 0.5)) return
                 this.noise('lowpass', 200, 3000, 0.8, 0.25 * v, 0.3, 1.2)
                 this.tone('sawtooth', 50, 180, 0.08 * v, 0.3, 1.2)
                 break
@@ -293,22 +338,26 @@ export class VoidAudio {
                 this.tone('sine', 1500, 1200, 0.04 * v, 0.002, 0.05)
                 break
             case 'uiConfirm':
+                if (!this.gate(sfx, 0.05)) return
                 this.tone('sine', 880, 880, 0.06 * v, 0.003, 0.08)
                 this.tone('sine', 1320, 1320, 0.06 * v, 0.003, 0.14, 0, 0.07)
                 break
             case 'uiError':
+                if (!this.gate(sfx, 0.1)) return
                 this.tone('square', 200, 150, 0.05 * v, 0.003, 0.2)
                 break
             case 'wardenAlert':
+                if (!this.gate(sfx, 2)) return
                 for (let i = 0; i < 3; i++) {
                     this.tone('sawtooth', 110, 90, 0.12 * v, 0.02, 0.5, 0, i * 0.55)
                     this.tone('square', 220, 180, 0.04 * v, 0.02, 0.45, 0, i * 0.55)
                 }
                 break
             case 'levelUp':
-                this.tone('triangle', 660, 660, 0.08 * v, 0.005, 0.12)
-                this.tone('triangle', 990, 990, 0.08 * v, 0.005, 0.2, 0, 0.09)
-                this.tone('sine', 1320, 1320, 0.06 * v, 0.005, 0.4, 0, 0.18)
+                if (!this.gate(sfx, 0.4)) return
+                this.tone('triangle', 660 * p, 660 * p, 0.08 * v, 0.005, 0.12)
+                this.tone('triangle', 990 * p, 990 * p, 0.08 * v, 0.005, 0.2, 0, 0.09)
+                this.tone('sine', 1320 * p, 1320 * p, 0.06 * v, 0.005, 0.4, 0, 0.18)
                 break
             case 'bounty':
                 // A short brass-like fanfare: a low punch under a rising fifth and octave.
@@ -327,8 +376,9 @@ export class VoidAudio {
                 for (let i = 0; i < 4; i++) this.tone('triangle', 1046 * Math.pow(1.26, i), 1046 * Math.pow(1.26, i), 0.045 * v, 0.004, 0.22, 0, 0.08 + i * 0.06)
                 break
             case 'lowHull':
-                if (!this.gate(sfx, 1.1)) return
-                this.tone('sine', 520, 380, 0.07 * v, 0.01, 0.25)
+                if (!this.gate(sfx, 0.5)) return
+                this.tone('sine', 520 * p, 380 * p, 0.07 * v, 0.01, 0.25)
+                if (p > 1.15) this.tone('sine', 520 * p, 380 * p, 0.06 * v, 0.01, 0.2, 0, 0.16)
                 break
         }
     }
@@ -465,6 +515,12 @@ export class VoidAudio {
         this.combatGain.gain.setTargetAtTime(this.combatTarget * 0.9, t, this.combatTarget > this.combatGain.gain.value ? 0.6 : 2.5)
         if (this.combatGain.gain.value < 0.01 && this.combatTarget === 0) return
         const step = 60 / 118 / 2
+        // Coming out of a lull the clock is minutes behind; restart it rather
+        // than scheduling every missed beat into the past at once.
+        if (this.nextBeat < t) {
+            this.nextBeat = t + 0.05
+            this.beat = 0
+        }
         while (this.nextBeat < t + 0.2) {
             this.scheduleBeat(this.nextBeat, this.beat)
             this.nextBeat += step

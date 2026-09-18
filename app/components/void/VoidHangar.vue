@@ -29,11 +29,11 @@
             <button v-if="canFullscreen" class="vh-mute vh-fullscreen" :title="fullscreen ? 'Exit fullscreen (F11)' : 'Fullscreen (F11)'" @click="$emit('toggle-fullscreen')">
                 <UIcon :name="fullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'" class="size-4" />
             </button>
-            <div class="vh-rank" :title="`Pilot level ${state.pilot.level}`">
-                <div class="vh-rank-badge">{{ state.pilot.level }}</div>
+            <div class="vh-pilot" :title="`Pilot level ${state.pilot.level}`">
+                <div class="vh-pilot-badge">{{ state.pilot.level }}</div>
                 <div>
-                    <div class="vh-rank-name">{{ rank.name }}</div>
-                    <div class="vh-rank-bar"><div :style="{ width: `${rank.progress * 100}%` }" /></div>
+                    <div class="vh-pilot-name">{{ rank.name }}</div>
+                    <div class="vh-pilot-bar"><div :style="{ width: `${rank.progress * 100}%` }" /></div>
                 </div>
             </div>
             <div class="vh-wallet">
@@ -63,12 +63,16 @@
                 <div v-if="shown.owned"><span>Power</span><b>{{ formatNumber(shown.power, false) }}</b></div>
                 <div><span>Turrets</span><b>{{ shown.turrets }}</b></div>
                 <div><span>Drones</span><b>{{ shown.stats.drones }}</b></div>
-                <div v-if="shown.ability"><span>Ability</span><b>{{ abilityName(shown.ability) }}</b></div>
+                <div v-if="shown.ability" :title="abilityText(shown.ability)"><span>Ability · R</span><b>{{ abilityName(shown.ability) }}</b></div>
             </div>
-            <!-- In the shipyard the same panel doubles as the spec sheet. -->
-            <div v-if="previewShipId" class="vh-spec">
+            <!-- Spec sheet: bars against the best hull in the game, so it reads at a glance. -->
+            <div class="vh-spec">
                 <div v-for="row in shownSpec" :key="row.label" class="vh-spec-row">
                     <span>{{ row.label }}</span>
+                    <div class="vh-spec-bar">
+                        <div class="vh-spec-fill" :style="{ width: `${row.pct * 100}%` }" />
+                        <i v-if="row.delta" class="vh-spec-mark" :style="{ left: `${row.basePct * 100}%` }" :title="`${equipped.name}: ${row.baseText}`" />
+                    </div>
                     <b>{{ row.value }}</b>
                     <i v-if="row.delta > 0" class="vh-up">+{{ row.deltaText }}</i>
                     <i v-else-if="row.delta < 0" class="vh-down">−{{ row.deltaText }}</i>
@@ -117,8 +121,8 @@
                 <div class="vh-sector-name">{{ currentSector.name }}</div>
                 <div class="vh-sector-ores">
                     <i v-for="(w, id) in currentSector.ores" :key="id" class="vr-gem" :style="{ '--c': resHex(String(id)) }" :title="resName(String(id))" />
-                    <span v-if="gearTier > 0 && gearTier < currentSector.tier - 0.5" class="vh-undergeared" :title="`Your gear averages T${gearTier.toFixed(1)}`">Needs T{{ currentSector.tier }} gear</span>
-                    <span class="vh-threat">Threat ×{{ currentSector.threat }}</span>
+                    <span v-if="gearTier < currentSector.tier - 0.5" class="vh-undergeared" :title="`Your gear averages T${gearTier.toFixed(1)}`">Needs T{{ currentSector.tier }} gear</span>
+                    <span class="vh-threat" :title="`Hostiles here hit ${currentSector.threat}× as hard as sector 1`">Danger ×{{ currentSector.threat }}</span>
                 </div>
             </div>
             <button class="vh-arrow" :disabled="sectorIndex >= state.sectors.length - 1 || !state.sectors[sectorIndex + 1]?.unlocked" @click="stepSector(1)">
@@ -197,7 +201,7 @@
             <!-- Loadout -->
             <template v-if="tab === 'fitting'">
                 <VoidLoadout :state="state" :busy="busy" @set-fit="(shipId: string, fit: unknown) => $emit('set-fit', shipId, fit)" @craft="setTab('workshop:craft')" />
-                <h2 class="vh-h">Supplies <small>Keys 1-3 · each launch loads up to {{ state.supplyCarry }} of each, used or not</small></h2>
+                <h2 class="vh-h">Supplies <small>Keys 1-3 · every launch takes up to {{ state.supplyCarry }} of each from your store, whether you use them or not</small></h2>
                 <div class="vh-list">
                     <div v-for="s in state.supplies" :key="s.id" class="vh-card" :style="{ '--c': hex(s.color) }">
                         <div class="vh-card-head">
@@ -360,7 +364,7 @@
                 <div class="vh-manual">
                     <p><b>The loop.</b> Launch into a sector, crack glowing asteroids for ore, loot wrecks and kills, then dock at the station or a beacon to bank the hold. Die and the hold is gone.</p>
                     <p><b>Gear.</b> Guns, turrets, armour and shields are crafted in the Workshop from the materials of their tier. Every craft rolls a rarity with bonus stats, and every item levels to +10. Each sector you clear opens the next gear tier, and deeper sectors need it.</p>
-                    <p><b>Weapons.</b> Energy weapons strip shields and glance off hull plate; kinetic rounds bounce off shields and tear hulls; explosives are even-handed. Shots to an enemy's engines do extra damage and slow it.</p>
+                    <p><b>Damage types.</b> Energy weapons strip shields and glance off hull plate; kinetic rounds bounce off shields and tear hulls; explosives are even-handed. Shots to an enemy's engines do extra damage and slow it.</p>
                     <p><b>Systems.</b> E fires your secondary (hold to lock on), G triggers your device, T pulses the scanner to mark data logs and hidden caches. Heavy hull hits can knock out engines, weapons or shields for a few seconds; repair nanites fix them.</p>
                     <p><b>Jumps.</b> Every zone has a jump gate. With a fuel cell you pick the next zone from three, each tougher and richer with its own twist. Extract at any beacon to bank the hold.</p>
                     <p><b>Relics.</b> Elites, wardens and vaults sometimes drop a golden relic cache. Bank it at a dock to reveal a mod, then socket it into gear for a unique effect.</p>
@@ -442,7 +446,7 @@
 <script setup lang="ts">
 import type { InternalApi } from 'nitropack/types'
 import {
-    VOID_ABILITIES, voidHex, voidMark, voidResource, voidShip,
+    VOID_ABILITIES, VOID_SHIPS, voidHex, voidMark, voidResource, voidShip,
     type VoidAbilityId, type VoidResourceId, type VoidUpgradeId
 } from '#shared/utils/gamelogic/void'
 import type { VoidSfx } from '~/utils/void/audio'
@@ -601,22 +605,28 @@ const shownSpec = computed(() => {
     const a = voidShip(shown.value.id)
     const b = voidShip(props.state.equippedShipId)
     const rows = [
-        { label: 'Hull', value: a.hull, base: b.hull, round: 0 },
-        { label: 'Shield', value: a.shield, base: b.shield, round: 0 },
-        { label: 'Speed', value: a.speed, base: b.speed, round: 0 },
-        { label: 'Agility', value: a.agility, base: b.agility, round: 1 },
-        { label: 'Cargo', value: a.cargo, base: b.cargo, round: 0 },
-        { label: 'Turrets', value: a.turrets, base: b.turrets, round: 0 },
-        { label: 'Armour', value: a.armor, base: b.armor, round: 0 },
-        { label: 'Shields', value: a.shields, base: b.shields, round: 0 }
+        { label: 'Hull', key: 'hull', value: a.hull, base: b.hull, round: 0 },
+        { label: 'Shield', key: 'shield', value: a.shield, base: b.shield, round: 0 },
+        { label: 'Speed', key: 'speed', value: a.speed, base: b.speed, round: 0 },
+        { label: 'Agility', key: 'agility', value: a.agility, base: b.agility, round: 1 },
+        { label: 'Cargo', key: 'cargo', value: a.cargo, base: b.cargo, round: 0 },
+        { label: 'Turrets', key: 'turrets', value: a.turrets, base: b.turrets, round: 0 },
+        { label: 'Armour', key: 'armor', value: a.armor, base: b.armor, round: 0 },
+        { label: 'Shields', key: 'shields', value: a.shields, base: b.shields, round: 0 }
     ]
+    const text = (v: number, round: number) => (round ? v.toFixed(round) : formatNumber(Math.round(v), v >= 10_000))
     return rows.map((r) => {
         const delta = r.value - r.base
+        // Bars run against the best hull in the game, so every ship reads on one scale.
+        const best = Math.max(...VOID_SHIPS.map(sh => Number(sh[r.key as keyof typeof sh]) || 0))
         return {
             label: r.label,
-            value: r.round ? r.value.toFixed(r.round) : formatNumber(Math.round(r.value), r.value >= 10_000),
+            value: text(r.value, r.round),
+            baseText: text(r.base, r.round),
+            pct: best > 0 ? r.value / best : 0,
+            basePct: best > 0 ? r.base / best : 0,
             delta: shown.value.id === props.state.equippedShipId ? 0 : delta,
-            deltaText: r.round ? Math.abs(delta).toFixed(r.round) : formatNumber(Math.abs(Math.round(delta)), Math.abs(delta) >= 10_000)
+            deltaText: text(Math.abs(delta), r.round)
         }
     })
 })
@@ -673,6 +683,11 @@ function abilityName(id: string | null) {
     return VOID_ABILITIES[id as VoidAbilityId]?.name ?? id
 }
 
+function abilityText(id: string | null) {
+    if (!id) return ''
+    return VOID_ABILITIES[id as VoidAbilityId]?.description ?? ''
+}
+
 function shipName(id: string) {
     return voidShip(id).name
 }
@@ -724,11 +739,11 @@ function stepSector(delta: number) {
 .vh-mute { margin-left: auto; display: grid; place-items: center; width: 30px; height: 30px; color: var(--vr-muted); border: 1px solid var(--vr-line); cursor: pointer; }
 .vh-mute:hover { color: var(--vr-text); border-color: var(--vr-line-strong); }
 .vh-fullscreen { margin-left: -14px; }
-.vh-rank { margin-left: 12px; display: flex; align-items: center; gap: 9px; }
-.vh-rank-badge { display: grid; place-items: center; width: 30px; height: 30px; font: 700 14px 'Rajdhani', sans-serif; color: var(--vr-gold); border: 1px solid rgba(255, 210, 122, 0.5); clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); background: rgba(255, 210, 122, 0.1); }
-.vh-rank-name { font-size: 12px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; white-space: nowrap; }
-.vh-rank-bar { width: 90px; height: 2px; margin-top: 3px; background: rgba(255, 255, 255, 0.1); }
-.vh-rank-bar div { height: 100%; background: var(--vr-gold); }
+.vh-pilot { margin-left: 12px; display: flex; align-items: center; gap: 9px; }
+.vh-pilot-badge { display: grid; place-items: center; width: 30px; height: 30px; font: 700 14px 'Rajdhani', sans-serif; color: var(--vr-gold); border: 1px solid rgba(255, 210, 122, 0.5); clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); background: rgba(255, 210, 122, 0.1); }
+.vh-pilot-name { font-size: 12px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; white-space: nowrap; }
+.vh-pilot-bar { width: 90px; height: 2px; margin-top: 3px; background: rgba(255, 255, 255, 0.1); }
+.vh-pilot-bar div { height: 100%; background: var(--vr-gold); }
 .vh-wallet { margin-left: 14px; display: flex; align-items: center; gap: 14px; }
 .vh-coins { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid rgba(255, 210, 122, 0.35); color: var(--vr-gold); font: 600 14px 'JetBrains Mono', monospace; }
 .vh-gems { border-color: rgba(196, 155, 255, 0.4); color: #d7b8ff; }
@@ -736,7 +751,7 @@ function stepSector(delta: number) {
 .vh-res-chip { display: flex; align-items: center; gap: 6px; font: 600 13px 'JetBrains Mono', monospace; }
 .vh-dim { opacity: 0.4; }
 
-.vh-title { position: absolute; left: 30px; top: 96px; width: min(420px, 34vw); pointer-events: none; }
+.vh-title { position: absolute; left: 30px; top: 92px; bottom: 132px; width: min(420px, 34vw); display: flex; flex-direction: column; align-items: flex-start; overflow: hidden; pointer-events: none; }
 .vh-title-role { font-size: 13px; font-weight: 700; letter-spacing: 0.4em; text-transform: uppercase; color: var(--vr-accent); }
 .vh-title-name { font-size: clamp(44px, 6vw, 76px); line-height: 0.95; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 0 40px rgba(94, 200, 255, 0.25); }
 .vh-title-desc { margin-top: 10px; font-size: 16px; line-height: 1.35; color: rgba(230, 241, 255, 0.75); }
@@ -744,7 +759,7 @@ function stepSector(delta: number) {
 .vh-title-stats span { display: block; font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--vr-muted); }
 .vh-title-stats b { font-size: 20px; font-weight: 700; }
 .vh-title-cta { margin-top: 16px; pointer-events: auto; }
-.vh-steps { margin-top: 18px; padding: 10px 12px; max-width: 380px; display: grid; gap: 4px; background: linear-gradient(90deg, rgba(255, 210, 122, 0.1), transparent); border-left: 2px solid var(--vr-gold); pointer-events: auto; }
+.vh-steps { margin-top: auto; padding: 10px 12px; max-width: 380px; display: grid; gap: 4px; background: linear-gradient(90deg, rgba(255, 210, 122, 0.1), transparent); border-left: 2px solid var(--vr-gold); pointer-events: auto; }
 .vh-step { display: flex; align-items: flex-start; gap: 9px; padding: 3px 0; text-align: left; color: rgba(230, 241, 255, 0.55); cursor: pointer; }
 .vh-step i { width: 9px; height: 9px; margin-top: 5px; border: 1.5px solid currentColor; transform: rotate(45deg); flex-shrink: 0; }
 .vh-step b { display: block; font-size: 14px; font-weight: 700; letter-spacing: 0.04em; }
@@ -754,7 +769,7 @@ function stepSector(delta: number) {
 .vh-step-done { color: var(--vr-good); }
 .vh-step-done b { text-decoration: line-through; text-decoration-color: rgba(61, 255, 176, 0.5); }
 .vh-step-done i { background: var(--vr-good); }
-.vh-goal { margin-top: 18px; padding: 10px 14px; max-width: 360px; background: linear-gradient(90deg, rgba(255, 210, 122, 0.1), transparent); border-left: 2px solid var(--vr-gold); }
+.vh-goal { margin-top: auto; padding: 10px 14px; max-width: 360px; background: linear-gradient(90deg, rgba(255, 210, 122, 0.1), transparent); border-left: 2px solid var(--vr-gold); }
 .vh-goal-kicker { font-size: 10px; font-weight: 700; letter-spacing: 0.35em; text-transform: uppercase; color: var(--vr-gold); }
 .vh-goal-title { font-size: 17px; font-weight: 700; letter-spacing: 0.06em; }
 .vh-goal-need { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 13px; color: rgba(230, 241, 255, 0.75); }
@@ -778,10 +793,13 @@ function stepSector(delta: number) {
 .vh-go:active:not(:disabled) { transform: translateY(1px); }
 .vh-go:disabled { filter: grayscale(0.8) brightness(0.6); cursor: not-allowed; }
 
-.vh-spec { margin-top: 18px; max-width: 340px; padding: 10px 14px; background: linear-gradient(90deg, rgba(94, 200, 255, 0.08), transparent); border-left: 2px solid var(--vr-accent); pointer-events: auto; }
-.vh-spec-row { display: grid; grid-template-columns: 1fr auto 62px; align-items: baseline; gap: 10px; padding: 2px 0; }
-.vh-spec-row span { font-size: 11px; font-weight: 700; letter-spacing: 0.24em; text-transform: uppercase; color: var(--vr-muted); }
-.vh-spec-row b { font: 600 15px 'JetBrains Mono', monospace; }
+.vh-spec { margin-top: 16px; max-width: 360px; padding: 10px 14px; background: linear-gradient(90deg, rgba(94, 200, 255, 0.08), transparent); border-left: 2px solid var(--vr-accent); pointer-events: auto; }
+.vh-spec-row { display: grid; grid-template-columns: 74px minmax(60px, 1fr) 54px 46px; align-items: center; gap: 10px; padding: 3px 0; }
+.vh-spec-bar { position: relative; height: 5px; background: rgba(255, 255, 255, 0.08); }
+.vh-spec-fill { height: 100%; background: linear-gradient(90deg, rgba(94, 200, 255, 0.55), var(--vr-accent)); box-shadow: 0 0 10px rgba(94, 200, 255, 0.35); transition: width 0.25s ease-out; }
+.vh-spec-mark { position: absolute; top: -3px; width: 2px; height: 11px; background: var(--vr-gold); transform: translateX(-1px); }
+.vh-spec-row span { font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--vr-muted); }
+.vh-spec-row b { font: 600 14px 'JetBrains Mono', monospace; text-align: right; }
 .vh-spec-row i { font: 600 12px 'JetBrains Mono', monospace; font-style: normal; text-align: right; }
 .vh-up { color: var(--vr-good); }
 .vh-down { color: var(--vr-bad); }
@@ -914,15 +932,20 @@ function stepSector(delta: number) {
     .vh-top { gap: 14px; }
 }
 @media (max-width: 1650px) {
-    .vh-rank-name, .vh-rank-bar { display: none; }
-    .vh-rank { margin-left: 4px; }
+    .vh-pilot-name, .vh-pilot-bar { display: none; }
+    .vh-pilot { margin-left: 4px; }
     .vh-brand { font-size: 17px; letter-spacing: 0.28em; }
     .vh-tab { padding: 8px 7px; gap: 5px; font-size: 12px; letter-spacing: 0.08em; }
     .vh-wallet { margin-left: 4px; gap: 8px; }
     .vh-coins { padding: 4px 9px; font-size: 13px; }
 }
-@media (max-width: 1400px) {
-    .vh-tab-label, .vh-leave-label { display: none; }
+@media (max-width: 1480px) {
+    .vh-leave-label { display: none; }
+    .vh-tab { padding: 8px 6px; gap: 4px; font-size: 11px; letter-spacing: 0.06em; }
+    .vh-gems { display: none; }
+}
+@media (max-width: 1240px) {
+    .vh-tab-label { display: none; }
     .vh-tab { padding: 8px 9px; }
 }
 @media (max-width: 1100px) {

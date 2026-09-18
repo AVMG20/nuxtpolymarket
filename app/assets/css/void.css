@@ -152,6 +152,7 @@
 /* Engage and modals */
 .vr-engage { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(2, 4, 10, 0.2), rgba(2, 4, 10, 0.65)); cursor: pointer; }
 .vr-engage-card { padding: 26px 34px; background: var(--vr-bg); border: 1px solid var(--vr-line-strong); backdrop-filter: blur(10px); text-align: center; }
+.vr-engage-more { margin-top: 14px; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--vr-muted); }
 .vr-engage-title { font-size: 24px; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase; margin-bottom: 18px; animation: vr-pulse 1.6s infinite; }
 .vr-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 26px; text-align: left; }
 .vr-controls > div { display: flex; align-items: center; gap: 10px; font-size: 14px; }

@@ -1307,7 +1307,7 @@ export class VoidEngine {
         const dev = p.quat.angleTo(this.aimQuat)
         if (dev > maxDev) this.aimQuat.copy(_q2.copy(p.quat).rotateTowards(this.aimQuat, maxDev))
         const agility = stats.agility
-        p.quat.rotateTowards(this.aimQuat, agility * dt * (0.4 + Math.min(1, dev * 3)))
+        p.quat.rotateTowards(this.aimQuat, agility * dt * (0.7 + Math.min(1, dev * 3)))
 
         // Thrust
         const forward = (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0)
@@ -1328,8 +1328,11 @@ export class VoidEngine {
         if (p.tethered > 0) speed *= 0.55
         speed *= this.systems?.speedMult ?? 1
         const local = _v1.set(strafe * 0.65, lift * 0.65, forward > 0 ? -1 : forward < 0 ? 0.45 : 0)
+        // Diagonals used to outrun a straight line; cap the stick at full deflection.
+        if (local.lengthSq() > 1) local.normalize()
         const desired = local.multiplyScalar(speed).applyQuaternion(p.quat)
-        const accel = boosting ? 2.6 : 1.7
+        // Slowing down bites harder than speeding up, or the ship swims.
+        const accel = desired.lengthSq() < p.vel.lengthSq() ? 4 : boosting ? 2.6 : 1.7
         p.vel.lerp(desired, 1 - Math.exp(-accel * dt))
         p.pos.addScaledVector(p.vel, dt)
 
@@ -2372,7 +2375,7 @@ export class VoidEngine {
             rest -= absorbed
             p.shieldBubble.impact(local)
             this.shieldHurt = Math.min(1, this.shieldHurt + 0.35 + amount / 80)
-            this.audio.play('shieldHit')
+            this.audio.play('shieldHit', { pan: this.panOf(from) })
             this.trauma = Math.min(1, this.trauma + Math.min(0.25, amount / 80))
         }
         p.shieldDelay = stats.shieldDelay
@@ -2390,7 +2393,7 @@ export class VoidEngine {
             this.systems?.onHullHit(rest)
             this.hurt = Math.min(1, this.hurt + 0.25 + rest / 60)
             this.trauma = Math.min(1, this.trauma + Math.min(0.5, 0.15 + rest / 40))
-            this.audio.play('hullHit')
+            this.audio.play('hullHit', { pan: this.panOf(from) })
             hitSpark(this.fx, _v2.copy(p.pos).addScaledVector(_v3.subVectors(from, p.pos).normalize(), p.radius), _v3, 0xffa040, 1.5)
             if (p.hull <= 0) this.hullDepleted()
         }
@@ -2502,7 +2505,19 @@ export class VoidEngine {
     /** `quiet` skips the toast when the cache lands right on the ship (bounty rewards). */
     dropGear(pos: THREE.Vector3, quiet = false) {
         this.pickups.push({ pos: pos.clone(), vel: this.randomDir(1).multiplyScalar(6), resource: 'core', amount: 0, life: 120, spin: 0, pulled: false, pullTime: 0, gear: true })
+        this.rareDropFx(pos, 0xc08bff)
         if (!quiet) this.events.toast('Salvaged gear dropped', 'good')
+    }
+
+    /** A rare cache falling out of a wreck: a bell, a ring and a flash of its colour. */
+    private rareDropFx(pos: THREE.Vector3, color: number) {
+        this.audio.play('rareDrop', { distance: pos.distanceTo(this.camera.position), pan: this.panOf(pos) })
+        this.rings.spawn(pos, 7, color, 0.7, 2.6)
+        this.rings.spawn(pos, 12, color, 1.1, 1.6)
+        for (let i = 0; i < 18; i++) {
+            const d = this.randomDir(1).multiplyScalar(6 + Math.random() * 10)
+            this.particles.emit(pos.x, pos.y, pos.z, d.x, d.y, d.z, { life: 1.1, size: 0.5, sizeEnd: 0.1, color, intensity: 3, drag: 1.4 })
+        }
     }
 
     get relicMult() {
@@ -2520,6 +2535,13 @@ export class VoidEngine {
     slowMotion(duration: number, scale: number) {
         this.slowT = Math.max(this.slowT, duration)
         this.slowScale = Math.min(this.slowT > duration ? this.slowScale : 1, scale)
+        // A 60ms hit-stop has no time to ease into anything; snap it or it is mush.
+        if (duration < 0.2) this.timeScale = scale
+    }
+
+    /** Kills in quick succession pay more, up to half again. */
+    get streakLoot() {
+        return 1 + Math.min(0.5, Math.max(0, this.streak - 2) * 0.06)
     }
 
     toggleCockpit() {
@@ -2655,6 +2677,7 @@ export class VoidEngine {
 
     dropRelic(pos: THREE.Vector3) {
         this.pickups.push({ pos: pos.clone(), vel: this.randomDir(1).multiplyScalar(6), resource: 'core', amount: 0, life: 120, spin: 0, pulled: false, pullTime: 0, relic: true })
+        this.rareDropFx(pos, 0xffd35e)
         this.events.toast('Relic cache dropped', 'good')
     }
 
@@ -2682,7 +2705,7 @@ export class VoidEngine {
         const ore = rock.ore!
         const color = ORE_GLOW[ore] ?? 0xffffff
         const tier = this.config!.sector.tier
-        const zoneOre = this.zone === 'radiation' ? 2 : 1
+        const zoneOre = this.zone === 'radiation' ? 1.5 : 1
         const yieldUnits = Math.max(2, Math.round(rock.radius * 0.8 * (0.8 + randomFloat() * 0.4) * this.config!.stats.miningMult * (1 + (tier - 1) * 0.12) * zoneOre * voidDepthLoot(this.depth) * VOID_UNIT_SCALE))
         const stacks = Math.min(12, Math.ceil(yieldUnits / 3))
         let left = yieldUnits

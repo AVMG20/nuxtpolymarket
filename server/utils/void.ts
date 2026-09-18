@@ -14,7 +14,7 @@ import {
 } from '#shared/utils/gamelogic/void-items'
 import { voidPilotLevel, voidRunXp } from '#shared/utils/gamelogic/void-skills'
 import {
-    VOID_BLUEPRINT_KINDS, VOID_DAILY_BLUEPRINTS, VOID_DAILY_MARKS, VOID_PERK_IDS, voidAllowedDepth, voidBountyXp, voidGearCap, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidRunMarks, type VoidPerkId
+    VOID_BLUEPRINT_KINDS, VOID_DAILY_BLUEPRINTS, VOID_DAILY_MARKS, VOID_DAILY_RELICS, VOID_PERK_IDS, voidAllowedDepth, voidBountyXp, voidGearCap, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidRunMarks, type VoidPerkId
 } from '#shared/utils/gamelogic/void-pilot'
 import {
     VOID_CONTRACTS_PER_DAY, VOID_SUPPLY_STOCK_MAX, voidContractDay, voidContractsFor, voidNormalizeSupplies, voidSupplyCost,
@@ -149,6 +149,7 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             elapsedMs: Number(body.elapsedMs) || 0,
             kills: Number(body.kills) || 0,
             wardenKilled: body.wardenKilled === true,
+            carrierKilled: body.carrierKilled === true,
             depth: Number(body.depth) || 1
         }, tier, s.runCargo ?? 0, Date.now() - s.runStartedAt.getTime())
 
@@ -157,7 +158,9 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
         const highestSectorCleared = clearedNow ? Math.min(VOID_MAX_SECTOR, tier) : s.highestSectorCleared
         // Relic caches only come home with the hold. The client reports how
         // many it picked up; the server caps that and rolls what they hold.
-        const relicCount = extracted ? Math.max(0, Math.min(Math.floor(Number(body.relics) || 0), voidRelicCap(settled.elapsedMs, settled.wardenKilled) + voidNormalizePerks(s.perks).relics)) : 0
+        const relicsToday = s.rewardsDay === voidContractDay() ? s.relicsToday : 0
+        const relicRoom = Math.max(0, VOID_DAILY_RELICS - relicsToday)
+        const relicCount = extracted ? Math.max(0, Math.min(Math.floor(Number(body.relics) || 0), voidRelicCap(settled.elapsedMs, settled.wardenKilled) + voidNormalizePerks(s.perks).relics, relicRoom)) : 0
         const relics: string[] = []
         const mods = { ...(s.mods ?? {}) }
         for (let i = 0; i < relicCount; i++) {
@@ -227,6 +230,7 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             marksToday: marksToday + marks,
             blueprintsToday: blueprintsToday + (blueprint ? 1 : 0),
             gearToday: gearToday + gearCount,
+            relicsToday: relicsToday + relicCount,
             blueprints,
             lore: [...(s.lore ?? []), ...newLore]
         }).where(and(eq(voidState.userId, userId), isNotNull(voidState.runStartedAt)))

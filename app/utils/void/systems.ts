@@ -73,6 +73,8 @@ export class ShipSystems {
     // Secondary
     private secondary: VoidWeaponFit | null
     private ammo = 0
+    /** Seconds accumulated toward the next rebuilt warhead. */
+    private ammoT = 0
     private maxAmmo = 0
     private reload = 0
     private secondaryHeld = false
@@ -359,6 +361,17 @@ export class ShipSystems {
         this.scanCd = Math.max(0, this.scanCd - dt)
         this.deviceCd = Math.max(0, this.deviceCd - dt)
         this.reload = Math.max(0, this.reload - dt)
+        // The rack rebuilds a warhead every 12s, so secondaries stay part of the
+        // fight instead of running dry two minutes in.
+        if (this.ammo < this.maxAmmo) {
+            this.ammoT += dt
+            if (this.ammoT >= 12) {
+                this.ammoT = 0
+                this.ammo++
+            }
+        } else {
+            this.ammoT = 0
+        }
         if (this.carrierHint && (this.carrierHint.life -= dt) <= 0) this.carrierHint = null
 
         this.updateLock(dt)
@@ -614,8 +627,10 @@ export class ShipSystems {
         this.pois = []
     }
 
-    /** Clears zone-bound objects before a jump; keeps ammo, cooldowns and lore. */
+    /** Clears zone-bound objects before a jump, and rearms the secondary rack. */
     clearZone() {
+        this.ammo = this.maxAmmo
+        this.ammoT = 0
         this.disposePois()
         this.mines = []
         for (const s of this.sentries) disposeTree(s.group)

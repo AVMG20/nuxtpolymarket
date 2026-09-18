@@ -53,8 +53,9 @@
                 <div class="vr-engage-card">
                     <div class="vr-engage-title">Click to take the helm</div>
                     <div class="vr-controls">
-                        <div v-for="c in controls" :key="c[0]"><kbd>{{ c[0] }}</kbd><span>{{ c[1] }}</span></div>
+                        <div v-for="c in coreControls" :key="c[0]"><kbd>{{ c[0] }}</kbd><span>{{ c[1] }}</span></div>
                     </div>
+                    <div class="vr-engage-more">Esc for the full control list</div>
                 </div>
             </div>
 
@@ -88,7 +89,7 @@
             <div class="vr-modal vr-gate">
                 <div class="vr-debrief-kicker">Jump gate · {{ hud?.systems?.fuel ?? 0 }} fuel</div>
                 <div class="vr-modal-title">Choose a jump</div>
-                <p class="vr-gate-sub">The next zone is tougher and richer. Your hold comes with you. Extract at any beacon.</p>
+                <p class="vr-gate-sub">Jumping spends one fuel cell. The next zone is tougher and richer, your hold comes with you, and there is a beacon to extract from on arrival.</p>
                 <div class="vr-gate-options">
                     <button v-for="z in gateChoice" :key="z.id" class="vr-gate-option" :style="{ '--zc': voidHex(z.color) }" @click="chooseJump(z.id)">
                         <b>{{ z.name }}</b>
@@ -102,7 +103,7 @@
         <!-- ═══ Free Trader ═══ -->
         <div v-if="tradeOpen && inFlight" class="vr-modal-wrap">
             <div class="vr-modal vr-trade">
-                <div class="vr-debrief-kicker">Free Trader · {{ hud?.cargoUnits ?? 0 }} units in hold</div>
+                <div class="vr-debrief-kicker">Free Trader · {{ tradeableUnits }} tradeable units in hold (warp cores never trade)</div>
                 <div class="vr-modal-title">Trade</div>
                 <p class="vr-gate-sub">Pays in cargo, taken from your largest stacks first.</p>
                 <div class="vr-trade-list">
@@ -286,6 +287,15 @@ function closeTrade() {
     engage()
 }
 
+/** The five that get a pilot moving; Esc has the rest. */
+const coreControls: [string, string][] = [
+    ['Mouse', 'Steer'],
+    ['W', 'Thrust'],
+    ['LMB', 'Fire'],
+    ['Q', 'Pilot skill'],
+    ['F (hold)', 'Dock and bank your hold']
+]
+
 const controls: [string, string][] = [
     ['Mouse', 'Steer'],
     ['W / S', 'Thrust / brake'],
@@ -293,7 +303,7 @@ const controls: [string, string][] = [
     ['Space / C', 'Rise / sink'],
     ['Z / X', 'Roll'],
     ['Shift', 'Boost'],
-    ['LMB', 'Nose guns'],
+    ['LMB', 'Primary gun'],
     ['Q / RMB', 'Pilot skill'],
     ['R', 'Ship ability'],
     ['E (hold)', 'Lock on, release to fire missiles'],
@@ -470,6 +480,8 @@ function onTab(tab: string) {
 async function act(fn: () => Promise<unknown>, fallback: string, sfx: VoidSfx = 'uiConfirm') {
     if (busy.value) return
     busy.value = true
+    // The press answers immediately; the result cue follows when the server does.
+    audio.play('ui')
     try {
         await fn()
         audio.play(sfx)
@@ -505,12 +517,12 @@ const craftItem = (kind: string, type: string, tier: number) => {
     const res = await apiFetch<InternalApi['/api/void/items/craft']['post']>('/api/void/items/craft', { method: 'POST', body: { kind, type, tier } })
     lastCraftId.value = res.item.id
     await fetchSession()
-}, 'Could not craft that', 'uiConfirm').then(() => {
+}, 'Could not craft that', 'ui').then(() => {
     // The refreshed state holds the new item with its display info.
     const item = state.value?.items.find(i => i.id === lastCraftId.value)
     if (!item) return
     reveal.value = { title: 'Crafted', name: item.name, tier: item.tier, rarityName: item.rarityName, rarityColor: item.rarityColor, stats: item.stats, affixList: item.affixList }
-    audio.play(item.rarity >= 3 ? 'levelUp' : item.rarity >= 1 ? 'uiConfirm' : 'ui', { pitch: 1 + item.rarity * 0.1 })
+    audio.play(item.rarity >= 4 ? 'rareDrop' : item.rarity >= 3 ? 'bounty' : item.rarity >= 1 ? 'levelUp' : 'uiConfirm', { pitch: 1 + item.rarity * 0.06 })
     })
 }
 const upgradeItem = (itemId: string) => act(() => apiFetch('/api/void/items/upgrade', { method: 'POST', body: { itemId } }).then(() => fetchSession()), 'Could not upgrade that', 'levelUp')

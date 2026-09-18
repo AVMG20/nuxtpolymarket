@@ -288,6 +288,13 @@
       "when": 1789656781447,
       "tag": "0040_omniscient_maginty",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1789715991772,
+      "tag": "0041_vengeful_harpoon",
+      "breakpoints": true
     }
   ]
 }
