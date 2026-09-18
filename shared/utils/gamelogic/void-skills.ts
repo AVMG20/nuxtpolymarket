@@ -60,7 +60,7 @@ function tree(branches: [NodeSpec[], NodeSpec[], NodeSpec[]], left: NodeSpec, ri
 export const VOID_SKILLS: VoidSkillDefinition[] = [
     {
         id: 'seeker',
-        name: 'Seeker Missiles',
+        name: 'Hunter Swarm',
         description: 'Launch homing missiles at the nearest hostiles.',
         color: 0xff6b4f,
         icon: 'i-lucide-rocket',

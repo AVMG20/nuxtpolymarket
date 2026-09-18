@@ -87,6 +87,12 @@ const FINAL_SHADER = {
 /** Projectile tint for socketed relic mods, so a modded gun reads at a glance. */
 const MOD_TINT: Record<string, number> = { chain: 0x8fb8ff, burn: 0xff7a2e, overcharge: 0xfff27a, frost: 0x9fe8ff, prism: 0xff7ae6 }
 
+/** Minutes before time alone starts adding to the hunt. */
+const DIRECTOR_GRACE_MINUTES = 8
+/** Heat at which the sector hunts you as hard as it ever will (wanted level 5). */
+const HEAT_MAX = 50
+/** Heat per wanted star. */
+const HEAT_PER_STAR = HEAT_MAX / 5
 const WORLD_UP = new THREE.Vector3(0, 1, 0)
 const FORWARD = new THREE.Vector3(0, 0, -1)
 export const SECTOR_RADIUS = 2600
@@ -208,6 +214,16 @@ export class VoidEngine {
     shieldHurt = 0
     whiteFlash = 0
     threat = 0
+    /**
+     * How hard the sector is hunting *you*. Kills raise it and quiet minutes
+     * bleed it off, so clearing the wing off a rock and mining in peace stays
+     * calm while a long killing spree brings wings down on your head. It only
+     * drives the hunting waves; the sector's standing patrols are unaffected,
+     * so there is always something to shoot.
+     */
+    heat = 0
+    /** Last wanted level announced, so a change is called out once. */
+    private wantedShown = 0
     private directorTimer = 40
     private patrolTimer = 20
     private dockHold = 0
@@ -784,6 +800,8 @@ export class VoidEngine {
         this.kills = 0
         this.elapsed = 0
         this.threat = 0
+        this.heat = 0
+        this.wantedShown = 0
         this.wardenKilled = false
         this.wardenSpawned = false
         this.warden = null
@@ -1339,8 +1357,10 @@ export class VoidEngine {
         // Sector edge
         const dist = p.pos.length()
         this.outOfBounds = dist > SECTOR_RADIUS
-        if (dist > SECTOR_RADIUS) {
-            const push = _v2.copy(p.pos).normalize().multiplyScalar(-(dist - SECTOR_RADIUS) * 2 * dt)
+        if (dist > SECTOR_RADIUS * 1.6) {
+            // Far out past the charted edge there is nothing but the deep, so a
+            // gentle current keeps the run inside a world that still has content.
+            const push = _v2.copy(p.pos).normalize().multiplyScalar(-(dist - SECTOR_RADIUS * 1.6) * 0.6 * dt)
             p.vel.add(push)
         }
 
@@ -2985,29 +3005,64 @@ export class VoidEngine {
         }
     }
 
+    /** 0-5 stars, the way the pilot sees it. */
+    get wanted() {
+        return Math.min(5, Math.floor(this.heat / HEAT_PER_STAR))
+    }
+
+    /** Calls out a wanted level as it climbs, and the moment it clears. */
+    private announceWanted() {
+        const now = this.wanted
+        if (now === this.wantedShown) return
+        if (now > this.wantedShown) {
+            // At four stars the wings arrive faster than the heat can bleed off,
+            // so in practice there is no shaking them: dock or die.
+            if (now === 4) this.events.banner('Hunted', 'They are coming faster than you can lose them. Bank your hold or die out here.', 'bad')
+            else this.events.toast(`Wanted level ${now}`, now > 4 ? 'bad' : 'warn')
+            this.audio.play(now >= 4 ? 'wardenAlert' : 'warning', { pitch: 1 + now * 0.06 })
+        } else if (now === 0) {
+            this.events.toast('You lost them', 'good')
+        }
+        this.wantedShown = now
+    }
+
     private updateDirector(dt: number) {
         const p = this.player!
         const minutes = this.elapsed / 60
-        this.threat = Math.min(1, minutes / 12)
+        // The first eight minutes are the run: long enough to cross the sector,
+        // find the warden and fight it. Pressure only builds after that.
+        const ramp = Math.max(0, minutes - DIRECTOR_GRACE_MINUTES)
+        // Heat bleeds off on its own, and twice as fast once you have shaken
+        // everyone off your tail: breaking away really does lose them.
+        const hunted = this.enemies.some(e => e.alive && e.hostile && e.aggro && e.pos.distanceTo(p.pos) < 600)
+        // Capped, or a long spree would take minutes of hiding before the first star drops.
+        this.heat = Math.max(0, Math.min(HEAT_MAX, this.heat) - dt * (hunted ? 0.18 : 0.36))
+        this.threat = Math.min(1, this.heat / HEAT_MAX)
+        this.announceWanted()
         this.directorTimer -= dt
         if (this.objectives?.suppressWaves) this.directorTimer = Math.max(this.directorTimer, 20)
+        // A boss fight is the fight; wings stop piling in on top of it.
+        const bossFight = this.enemies.some(e => e.alive && (e.kind === 'warden' || e.kind === 'mothership') && e.pos.distanceTo(p.pos) < 700)
+        if (bossFight) this.directorTimer = Math.max(this.directorTimer, 25)
         if (this.directorTimer <= 0) {
-            this.directorTimer = Math.max(28, 70 - minutes * 4) * (0.8 + randomFloat() * 0.4)
-            const safe = p.pos.length() < 260
-            if (!safe) {
-                const dir = this.randomDir(0.5)
-                spawnPatrol(this, p.pos.clone().addScaledVector(dir, 260 + randomFloat() * 80), true, 1 + Math.floor(minutes / 4))
-                this.events.toast('Hostile wing inbound', 'warn')
-                this.audio.play('warning')
-            }
+            // Waves come a little faster and a little heavier the longer a run
+            // runs, and out past the charted edge they come heavier still.
+            const far = p.pos.length() > SECTOR_RADIUS ? 1 : 0
+            const heat = Math.min(HEAT_MAX, this.heat)
+            this.directorTimer = Math.max(30, 100 - heat * 1.5 - ramp * 4 - far * 12) * (0.8 + randomFloat() * 0.4)
+            const wings = Math.min(4, 1 + Math.floor(heat / 15) + Math.floor(ramp / 6) + far)
+            const dir = this.randomDir(0.5)
+            spawnPatrol(this, p.pos.clone().addScaledVector(dir, 260 + randomFloat() * 80), true, wings)
+            this.events.toast(far ? 'Deep space patrol inbound' : 'Hostile wing inbound', 'warn')
+            this.audio.play('warning')
         }
         this.patrolTimer -= dt
         if (this.patrolTimer <= 0) {
-            this.patrolTimer = 30
+            this.patrolTimer = 16
             // The hidden carrier's group never crowds out ordinary patrols.
             const alive = this.enemies.filter(e => e.alive && e.hostile && e.kind !== 'sentinel' && e.kind !== 'mine' && !e.data.carrier).length
-            if (alive < 18 + this.config!.sector.tier * 2) {
-                const pos = this.randomDir(0.3).multiplyScalar(this.rand(700, 2300))
+            if (alive < 26 + this.config!.sector.tier * 3) {
+                const pos = this.randomDir(0.3).multiplyScalar(this.rand(700, SECTOR_RADIUS * 1.4))
                 if (pos.distanceTo(p.pos) > 500) spawnPatrol(this, pos, false)
             }
         }
@@ -3219,6 +3274,7 @@ export class VoidEngine {
             warden: this.warden?.alive ? { name: cfg.sector.warden, hp: this.warden.hp, maxHp: this.warden.maxHp } : null,
             wardenKilled: this.wardenKilled,
             threat: this.threat,
+            wanted: this.wanted,
             target,
             lowHull: p.hull / cfg.stats.hull < 0.3,
             objectives: this.objectives?.view() ?? null,

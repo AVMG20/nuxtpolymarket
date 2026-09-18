@@ -78,6 +78,8 @@ export interface HudState {
     warden: null | { name: string, hp: number, maxHp: number }
     wardenKilled: boolean
     threat: number
+    /** 0-5 stars: how hard the sector is hunting you. */
+    wanted: number
     target: HudTarget | null
     lowHull: boolean
     outOfBounds: boolean

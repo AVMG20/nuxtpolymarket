@@ -726,6 +726,7 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
         if (e.elite) engine.audio.play('bounty', { volume: 0.55 })
         else if (engine.streak >= 3) engine.audio.play('streak', { pitch: 1 + Math.min(8, engine.streak - 3) * 0.09, volume: 0.5 })
         engine.kills++
+        engine.heat += e.kind === 'warden' || e.kind === 'mothership' ? 10 : e.elite ? 5 : e.kind === 'mite' ? 0.8 : 2
         engine.objectives?.onKill(e)
         engine.skills?.onKill(e)
         // A beat of hit-stop on big kills; a slow-motion moment for bosses.

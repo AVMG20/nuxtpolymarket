@@ -8,9 +8,9 @@
                 <span class="vr-dot" />
                 <span>{{ hud.kills }} kills</span>
             </div>
-            <div class="vr-threat" title="Hostile pressure: it rises the longer you stay in a zone.">
-                <span>Pressure</span>
-                <div class="vr-threat-bar"><div :style="{ width: `${Math.round(hud.threat * 100)}%` }" /></div>
+            <div class="vr-wanted" :class="{ 'vr-wanted-hot': hud.wanted >= 4 }" :title="wantedHint">
+                <span>Wanted</span>
+                <i v-for="n in 5" :key="n" :class="{ 'vr-star-on': n <= hud.wanted }">★</i>
             </div>
             <div v-if="hud.systems && hud.systems.depth > 1" class="vr-zone">Jump {{ hud.systems.depth }} · {{ hud.systems.zone }}</div>
             <div v-if="hud.wardenKilled" class="vr-warden-done">Warden down · dock to claim</div>
@@ -134,7 +134,7 @@
             </div>
         </div>
 
-        <div v-if="hud.outOfBounds" class="vr-bounds">Leaving the sector</div>
+        <div v-if="hud.outOfBounds" class="vr-bounds">Uncharted space · patrols hit harder out here</div>
         <div v-if="hud.trader && hud.phase === 'flying'" class="vr-prompt">Press <kbd>F</kbd> to trade</div>
 
         <Transition name="vr-banner">
@@ -167,6 +167,17 @@ const props = defineProps<{
     banner?: { id: number, title: string, subtitle: string, tone: string } | null
     priceMult?: number
 }>()
+
+const WANTED_HINT = [
+    'Nobody is looking for you. Fight to draw them out.',
+    'A wing is looking for you.',
+    'Patrols are hunting you.',
+    'Heavy wings, coming often.',
+    'They arrive faster than you can lose them. Bank your hold.',
+    'Everything in the sector is coming for you.'
+]
+
+const wantedHint = computed(() => `${WANTED_HINT[props.hud.wanted] ?? ''} Kills raise it; breaking away lowers it.`)
 
 const SUBSYSTEMS: Record<string, string> = { engines: 'Engines', weapons: 'Weapons', shield: 'Shield' }
 

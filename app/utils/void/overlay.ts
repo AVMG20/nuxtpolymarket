@@ -106,6 +106,15 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, engine: VoidEngine) {
     if (engine.trader?.alive && engine.trader.pos.distanceTo(p.pos) < 900) waypoint(ctx, engine, engine.trader.pos, '#9fffd9', 'TRADER', engine.trader.pos.distanceTo(p.pos), 'diamond')
     for (const m of engine.systems?.markers() ?? []) waypoint(ctx, engine, m.pos, m.color, m.label, m.pos.distanceTo(p.pos), 'diamond')
 
+    // When only a couple of hostiles are left, mark them at any range so the
+    // end of a fight is never spent searching an empty sector.
+    const live = engine.enemies.filter(e => e.alive && e.hostile && e.aggro && e.kind !== 'mine' && e.kind !== 'crate')
+    const stragglers = live.length > 0 && live.length <= 2 ? live : []
+    for (const e of stragglers) {
+        const d = e.pos.distanceTo(p.pos)
+        if (d > 700) waypoint(ctx, engine, e.pos, '#ff6b6b', 'HOSTILE', d, 'diamond')
+    }
+
     // ── Enemies
     for (const e of engine.enemies) {
         if (!e.alive || !e.group.visible) continue

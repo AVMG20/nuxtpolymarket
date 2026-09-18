@@ -337,7 +337,7 @@ export class SkillRunner {
         return best
     }
 
-    // ─── Seeker Missiles ───────────────────────────────────────────────────
+    // ─── Hunter Swarm ───────────────────────────────────────────────────
 
     private fireSeekers() {
         const e = this.engine

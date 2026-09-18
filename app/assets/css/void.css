@@ -131,6 +131,11 @@
 .vr-hud-br { position: absolute; right: 28px; bottom: 26px; width: 250px; padding: 12px 14px; background: linear-gradient(135deg, rgba(8, 16, 32, 0.6), rgba(8, 16, 32, 0.25)); border-right: 2px solid var(--vr-line-strong); }
 .vr-cargo-head { display: flex; justify-content: space-between; font-size: 12px; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase; }
 .vr-cargo-head span:last-child { font-family: 'JetBrains Mono', monospace; letter-spacing: 0; }
+.vr-wanted { display: flex; align-items: center; gap: 6px; }
+.vr-wanted span { font-size: 10px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; color: var(--vr-muted); }
+.vr-wanted i { font-size: 13px; font-style: normal; line-height: 1; color: rgba(255, 255, 255, 0.16); transition: color 0.25s, text-shadow 0.25s; }
+.vr-wanted .vr-star-on { color: var(--vr-warn); text-shadow: 0 0 10px rgba(255, 194, 77, 0.8); }
+.vr-wanted-hot .vr-star-on { color: var(--vr-bad); text-shadow: 0 0 12px rgba(255, 79, 109, 0.9); animation: vr-pulse 1.1s infinite; }
 .vr-full { color: var(--vr-warn); animation: vr-pulse 1s infinite; }
 .vr-cargo-track { height: 3px; margin: 7px 0 9px; background: rgba(255, 255, 255, 0.07); }
 .vr-cargo-track div { height: 100%; background: linear-gradient(90deg, var(--vr-accent), var(--vr-good)); transition: width 0.2s; }
