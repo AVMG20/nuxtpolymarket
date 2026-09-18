@@ -60,10 +60,21 @@
             <div class="vh-title-name">{{ shown.name }}</div>
             <p class="vh-title-desc">{{ shown.description }}</p>
             <div class="vh-title-stats">
-                <div><span>Power</span><b>{{ formatNumber(shown.power, false) }}</b></div>
+                <div v-if="shown.owned"><span>Power</span><b>{{ formatNumber(shown.power, false) }}</b></div>
                 <div><span>Turrets</span><b>{{ shown.turrets }}</b></div>
                 <div><span>Drones</span><b>{{ shown.stats.drones }}</b></div>
                 <div v-if="shown.ability"><span>Ability</span><b>{{ abilityName(shown.ability) }}</b></div>
+            </div>
+            <!-- In the shipyard the same panel doubles as the spec sheet. -->
+            <div v-if="previewShipId" class="vh-spec">
+                <div v-for="row in shownSpec" :key="row.label" class="vh-spec-row">
+                    <span>{{ row.label }}</span>
+                    <b>{{ row.value }}</b>
+                    <i v-if="row.delta > 0" class="vh-up">+{{ row.deltaText }}</i>
+                    <i v-else-if="row.delta < 0" class="vh-down">−{{ row.deltaText }}</i>
+                    <i v-else />
+                </div>
+                <p v-if="shown.id !== state.equippedShipId" class="vh-spec-note">Bare frame against the {{ equipped.name }}. Your gear moves across when you fly it.</p>
             </div>
             <div v-if="firstSteps && !previewShipId" class="vh-steps">
                 <div class="vh-goal-kicker">First steps · {{ firstSteps.done }} / {{ firstSteps.steps.length }}</div>
@@ -119,6 +130,53 @@
             </button>
         </section>
 
+        <!-- Hull bay: always beside the pad, so you can swap ships at any time -->
+        <section v-if="tab === 'hangar'" class="vh-yard">
+            <header class="vh-yard-head">
+                <div>
+                    <h1>Shipyard</h1>
+                    <p>{{ ownedCount }} / {{ state.ships.length }} hulls owned</p>
+                </div>
+            </header>
+            <div class="vh-yard-list">
+                <button
+                    v-for="ship in state.ships"
+                    :key="ship.id"
+                    class="vh-yard-ship"
+                    :class="{ 'vh-sel': shown.id === ship.id, 'vh-locked': !ship.unlocked && !ship.owned }"
+                    @click="viewShip(ship.id)"
+                >
+                    <div class="vh-yard-ship-head">
+                        <b>{{ ship.name }}</b>
+                        <span v-if="ship.equipped" class="vh-tag vh-tag-good">Flying</span>
+                        <span v-else-if="ship.owned" class="vh-tag">Owned</span>
+                        <span v-else-if="!ship.unlocked" class="vh-tag vh-tag-bad">Sector {{ ship.requiresSector }}</span>
+                        <span v-else-if="ship.affordable" class="vh-tag vh-tag-good">Can build</span>
+                    </div>
+                    <div class="vh-yard-ship-sub">
+                        <span>{{ ship.role }}</span>
+                        <span>{{ ship.turrets }}T · {{ ship.armor }}A · {{ ship.shields }}S</span>
+                    </div>
+                </button>
+            </div>
+            <footer class="vh-yard-foot">
+                <template v-if="shown.equipped">
+                    <div class="vh-yard-state">You are flying this hull. Launch below when you are ready.</div>
+                </template>
+                <template v-else-if="shown.owned">
+                    <div class="vh-yard-state">Built and docked. Its gear stays fitted.</div>
+                    <button class="vr-btn vr-btn-primary" :disabled="busy" @click="$emit('equip', shown.id)">Fly the {{ shown.name }}</button>
+                </template>
+                <template v-else-if="!shown.unlocked">
+                    <div class="vh-yard-state vh-yard-locked">Clear sector {{ shown.requiresSector }} to unlock this hull.</div>
+                </template>
+                <template v-else>
+                    <VoidCost :cost="shown.cost" :held="state.resources" :coins="shown.coins" :gems="shown.gems" :balance="state.balance" :gems-held="state.gems" />
+                    <button class="vr-btn vr-btn-primary" :disabled="busy || !shown.affordable" @click="$emit('buy-ship', shown.id)">Build the {{ shown.name }}</button>
+                </template>
+            </footer>
+        </section>
+
         <!-- Full-screen page for everything you manage between runs -->
         <section v-if="tab !== 'hangar'" class="vh-page">
             <div class="vh-page-inner">
@@ -169,46 +227,6 @@
                     @salvage="(id: string) => $emit('salvage', id)"
                     @socket="(id: string, mod: string) => $emit('socket', id, mod)"
                 />
-            </template>
-
-            <!-- Shipyard -->
-            <template v-else-if="tab === 'shipyard'">
-                <h2 class="vh-h">Shipyard <small>{{ ownedCount }} / {{ state.ships.length }} owned</small></h2>
-                <div class="vh-list">
-                    <div
-                        v-for="ship in state.ships"
-                        :key="ship.id"
-                        class="vh-card vh-ship"
-                        :class="{ 'vh-sel': shown.id === ship.id, 'vh-locked': !ship.unlocked && !ship.owned }"
-                        title="View this ship in the hangar"
-                        @click="viewShip(ship.id)"
-                    >
-                        <div class="vh-card-head">
-                            <b>{{ ship.name }}</b>
-                            <span class="vh-role">{{ ship.role }}</span>
-                            <span v-if="ship.equipped" class="vh-tag vh-tag-good">Flying</span>
-                            <span v-else-if="ship.owned" class="vh-tag">Owned</span>
-                            <span v-else-if="!ship.unlocked" class="vh-tag vh-tag-bad">Clear sector {{ ship.requiresSector }}</span>
-                        </div>
-                        <div class="vh-kv">
-                            <span>Turrets <b>{{ ship.turrets }}</b></span>
-                            <span>Drones <b>{{ ship.stats.drones }}</b></span>
-                            <span>Hull <b>{{ formatNumber(ship.stats.hull) }}</b></span>
-                            <span>Speed <b>{{ Math.round(ship.stats.speed) }}</b></span>
-                            <span>Cargo <b>{{ ship.stats.cargo }}</b></span>
-                        </div>
-                        <div v-if="!ship.equipped" class="vh-card-foot">
-                            <template v-if="ship.owned">
-                                <span />
-                                <button class="vr-btn vr-btn-sm vr-btn-primary" :disabled="busy" @click.stop="$emit('equip', ship.id)">Fly this</button>
-                            </template>
-                            <template v-else>
-                                <VoidCost :cost="ship.cost" :held="state.resources" :coins="ship.coins" :gems="ship.gems" :balance="state.balance" :gems-held="state.gems" />
-                                <button class="vr-btn vr-btn-sm" :disabled="busy || !ship.unlocked || !ship.affordable" @click.stop="$emit('buy-ship', ship.id)">Build</button>
-                            </template>
-                        </div>
-                    </div>
-                </div>
             </template>
 
             <!-- Station -->
@@ -480,7 +498,6 @@ const tabs = [
     { id: 'hangar', label: 'Hangar', icon: 'i-lucide-warehouse', blurb: '' },
     { id: 'fitting', label: 'Loadout', icon: 'i-lucide-crosshair', blurb: 'Choose the gear your ship flies with. Pick a slot, then the item to put in it.' },
     { id: 'workshop', label: 'Workshop', icon: 'i-lucide-hammer', blurb: 'Craft new gear, level up what you own and socket relic mods.' },
-    { id: 'shipyard', label: 'Shipyard', icon: 'i-lucide-rocket', blurb: 'Build and switch hulls. Bigger hulls carry more turrets, armour and cargo.' },
     { id: 'skills', label: 'Skills', icon: 'i-lucide-sparkles', blurb: 'Your pilot skill on Q. Unlock new skills and spend points as you level up.' },
     { id: 'station', label: 'Station', icon: 'i-lucide-satellite', blurb: 'Permanent perks, daily delivery contracts and systems for every hull.' },
     { id: 'market', label: 'Market', icon: 'i-lucide-coins', blurb: 'Sell the materials you bring home for coins. Trade Contracts raise every price.' },
@@ -531,7 +548,7 @@ const firstSteps = computed(() => {
         { text: 'Craft a new item', hint: 'Workshop, Craft: pick what to build, a model and T1, then Craft. Rarity is random.', done: s.items.length > 6 || s.items.some(i => i.rarity > 0), tab: 'workshop:craft' },
         { text: 'Fit your best gear', hint: 'Loadout: click a hardpoint, then the item with the green score.', done: s.items.some(i => i.level >= 1 || i.rarity > 0) && s.ships.some(sh => sh.owned && [sh.fit.gun, ...sh.fit.turrets].some(id => s.items.find(i => i.id === id && (i.level >= 1 || i.rarity > 0)))), tab: 'fitting' },
         { text: 'Install a ship system', hint: 'Station: Cargo Systems Mk I fits more loot in every run.', done: s.upgrades.some(u => u.level >= 1), tab: 'station' },
-        { text: 'Build your second hull', hint: 'Shipyard: the Wasp is fast, the Mule hauls. Both only need sector 1 materials.', done: s.ships.filter(sh => sh.owned).length >= 2, tab: 'shipyard' },
+        { text: 'Build your second hull', hint: 'Pick the Wasp or the Mule in the hangar bay on the right, then Build. Both only need sector 1 materials.', done: s.ships.filter(sh => sh.owned).length >= 2, tab: null },
         { text: 'Destroy the Halcyon Warden and dock', hint: 'Follow the red skull marker. Bring your best fit and some Repair Nanites.', done: s.highestSectorCleared >= 1, tab: 'fitting' },
         { text: 'Craft your first T2 gear', hint: 'Clearing a sector unlocks the next gear tier in Workshop, Craft.', done: s.items.some(i => i.tier >= 2), tab: 'workshop:craft' }
     ]
@@ -574,6 +591,35 @@ const currentSector = computed(() => props.state.sectors[sectorIndex.value] ?? p
 const equipped = computed(() => props.state.ships.find(s => s.equipped) ?? props.state.ships[0]!)
 const shown = computed(() => props.state.ships.find(s => s.id === (props.previewShipId ?? props.state.equippedShipId)) ?? equipped.value)
 const ownedCount = computed(() => props.state.ships.filter(s => s.owned).length)
+
+/**
+ * The shipyard spec sheet: bare frame against bare frame. Gear is deliberately
+ * left out, or an empty new hull would look weaker than the fitted one you fly
+ * and nobody would ever buy it.
+ */
+const shownSpec = computed(() => {
+    const a = voidShip(shown.value.id)
+    const b = voidShip(props.state.equippedShipId)
+    const rows = [
+        { label: 'Hull', value: a.hull, base: b.hull, round: 0 },
+        { label: 'Shield', value: a.shield, base: b.shield, round: 0 },
+        { label: 'Speed', value: a.speed, base: b.speed, round: 0 },
+        { label: 'Agility', value: a.agility, base: b.agility, round: 1 },
+        { label: 'Cargo', value: a.cargo, base: b.cargo, round: 0 },
+        { label: 'Turrets', value: a.turrets, base: b.turrets, round: 0 },
+        { label: 'Armour', value: a.armor, base: b.armor, round: 0 },
+        { label: 'Shields', value: a.shields, base: b.shields, round: 0 }
+    ]
+    return rows.map((r) => {
+        const delta = r.value - r.base
+        return {
+            label: r.label,
+            value: r.round ? r.value.toFixed(r.round) : formatNumber(Math.round(r.value), r.value >= 10_000),
+            delta: shown.value.id === props.state.equippedShipId ? 0 : delta,
+            deltaText: r.round ? Math.abs(delta).toFixed(r.round) : formatNumber(Math.abs(Math.round(delta)), Math.abs(delta) >= 10_000)
+        }
+    })
+})
 const storesValue = computed(() => props.state.resourceCatalog.reduce((sum, r) => sum + held(r.id) * props.state.prices[r.id], 0))
 
 const workshopView = ref<WorkshopView>('gear')
@@ -636,10 +682,10 @@ function clock(ms: number) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-/** Show a hull on the showroom pad: back to the hangar view with it previewed. */
+/** Put a hull on the showroom pad, beside the bay list it was picked from. */
 function viewShip(id: string) {
     emit('preview', id === props.state.equippedShipId ? null : id)
-    setTab('hangar')
+    emit('sound', 'ui')
 }
 
 /** Esc closes a page and returns to the hangar, unless the browser is using it. */
@@ -732,6 +778,35 @@ function stepSector(delta: number) {
 .vh-go:active:not(:disabled) { transform: translateY(1px); }
 .vh-go:disabled { filter: grayscale(0.8) brightness(0.6); cursor: not-allowed; }
 
+.vh-spec { margin-top: 18px; max-width: 340px; padding: 10px 14px; background: linear-gradient(90deg, rgba(94, 200, 255, 0.08), transparent); border-left: 2px solid var(--vr-accent); pointer-events: auto; }
+.vh-spec-row { display: grid; grid-template-columns: 1fr auto 62px; align-items: baseline; gap: 10px; padding: 2px 0; }
+.vh-spec-row span { font-size: 11px; font-weight: 700; letter-spacing: 0.24em; text-transform: uppercase; color: var(--vr-muted); }
+.vh-spec-row b { font: 600 15px 'JetBrains Mono', monospace; }
+.vh-spec-row i { font: 600 12px 'JetBrains Mono', monospace; font-style: normal; text-align: right; }
+.vh-up { color: var(--vr-good); }
+.vh-down { color: var(--vr-bad); }
+.vh-spec-note { margin-top: 6px; font-size: 11px; line-height: 1.3; color: var(--vr-muted); }
+
+.vh-yard { position: absolute; right: 0; top: 60px; bottom: 0; width: min(380px, 32vw); display: flex; flex-direction: column; background: linear-gradient(270deg, rgba(4, 9, 18, 0.96), rgba(4, 9, 18, 0.82)); border-left: 1px solid var(--vr-line); animation: vh-yard-in 0.2s ease-out; }
+@keyframes vh-yard-in { from { opacity: 0; transform: translateX(14px); } }
+.vh-yard-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px 12px; border-bottom: 1px solid var(--vr-line); }
+.vh-yard-head h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; line-height: 1.1; }
+.vh-yard-head p { margin: 1px 0 0; font-size: 12px; color: var(--vr-muted); }
+.vh-yard-list { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; display: grid; gap: 6px; align-content: start; scrollbar-width: thin; scrollbar-color: rgba(120, 190, 255, 0.25) transparent; }
+.vh-yard-ship { display: block; width: 100%; text-align: left; padding: 9px 12px; background: rgba(255, 255, 255, 0.025); border: 1px solid var(--vr-line); border-left: 2px solid transparent; cursor: pointer; transition: all 0.15s; }
+.vh-yard-ship:hover { background: rgba(255, 255, 255, 0.05); border-color: var(--vr-line-strong); }
+.vh-yard-ship.vh-sel { background: rgba(94, 200, 255, 0.1); border-color: rgba(94, 200, 255, 0.4); border-left-color: var(--vr-accent); }
+.vh-yard-ship.vh-locked { opacity: 0.55; }
+.vh-yard-ship-head { display: flex; align-items: center; gap: 8px; }
+.vh-yard-ship-head b { font-size: 16px; font-weight: 700; letter-spacing: 0.06em; }
+.vh-yard-ship-head .vh-tag { margin-left: auto; }
+.vh-yard-ship-sub { display: flex; justify-content: space-between; gap: 10px; margin-top: 2px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--vr-muted); }
+.vh-yard-ship-sub span:last-child { font-family: 'JetBrains Mono', monospace; letter-spacing: 0; }
+.vh-yard-foot { display: grid; gap: 10px; padding: 14px 16px 18px; border-top: 1px solid var(--vr-line); background: rgba(2, 6, 14, 0.6); }
+.vh-yard-foot .vr-btn { justify-content: center; }
+.vh-yard-state { font-size: 12px; color: var(--vr-muted); }
+.vh-yard-locked { color: var(--vr-warn); }
+
 .vh-page { position: absolute; left: 0; right: 0; top: 60px; bottom: 0; overflow-x: hidden; overflow-y: auto; background: linear-gradient(180deg, #050a14, #03070f); border-top: 1px solid var(--vr-line); scrollbar-width: thin; scrollbar-color: rgba(120, 190, 255, 0.25) transparent; animation: vh-page-in 0.2s ease-out; }
 @keyframes vh-page-in { from { opacity: 0; transform: translateY(8px); } }
 .vh-page-inner { max-width: 1480px; margin: 0 auto; padding: 20px 32px 60px; }
@@ -764,10 +839,8 @@ function stepSector(delta: number) {
 .vh-tag { margin-left: auto; padding: 1px 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; border: 1px solid var(--vr-line-strong); color: var(--vr-muted); white-space: nowrap; }
 .vh-tag-good { border-color: rgba(61, 255, 176, 0.5); color: var(--vr-good); }
 .vh-tag-bad { border-color: rgba(255, 79, 109, 0.4); color: #ff9aac; }
-.vh-role { font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--vr-muted); }
 .vh-sel { border-color: var(--vr-accent) !important; box-shadow: inset 2px 0 0 var(--vr-accent); }
 .vh-locked { opacity: 0.55; }
-.vh-ship { cursor: pointer; }
 .vh-dotc { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); }
 
 .vh-slots { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
