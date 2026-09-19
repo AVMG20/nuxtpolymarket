@@ -6,7 +6,6 @@
                 <UIcon name="i-lucide-chevron-left" class="size-4" />
                 <span class="vh-leave-label">Leave</span>
             </NuxtLink>
-            <div class="vh-brand">VOID<span>RUNNER</span></div>
             <nav class="vh-tabs">
                 <button
                     v-for="t in tabs"
@@ -49,11 +48,12 @@
                     <UIcon name="i-lucide-gem" class="size-4" />
                     <span>{{ formatNumber(state.gems) }}</span>
                 </div>
-                <div class="vh-res">
-                    <div v-for="r in state.resourceCatalog" :key="r.id" class="vh-res-chip" :title="`${r.name}: ${r.description}`" :class="{ 'vh-dim': !held(r.id) }">
-                        <i class="vr-gem" :style="{ '--c': hex(r.color) }" />
-                        <span>{{ formatNumber(held(r.id)) }}</span>
-                    </div>
+            </div>
+            <!-- The hold, on its own line under the wallet so every page can see what you can afford. -->
+            <div class="vh-res">
+                <div v-for="r in state.resourceCatalog" :key="r.id" class="vh-res-chip" :title="`${r.name}: ${r.description}`" :class="{ 'vh-dim': !held(r.id) }">
+                    <i class="vr-gem" :style="{ '--c': hex(r.color) }" />
+                    <span>{{ formatNumber(held(r.id)) }}</span>
                 </div>
             </div>
         </header>
@@ -758,8 +758,6 @@ function stepSector(delta: number) {
 .vh-top { position: absolute; left: 0; right: 0; top: 0; display: flex; align-items: center; gap: 22px; padding: 14px 22px; background: linear-gradient(180deg, rgba(2, 5, 12, 0.85), rgba(2, 5, 12, 0)); }
 .vh-leave { display: flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: var(--vr-muted); transition: color 0.15s; }
 .vh-leave:hover { color: var(--vr-text); }
-.vh-brand { font-size: 20px; font-weight: 700; letter-spacing: 0.4em; white-space: nowrap; }
-.vh-brand span { color: var(--vr-accent); margin-left: 0.25em; }
 .vh-tabs { display: flex; gap: 2px; }
 .vh-tab { display: flex; align-items: center; gap: 7px; padding: 8px 10px; white-space: nowrap; font-size: 13px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--vr-muted); border-bottom: 2px solid transparent; transition: all 0.15s; cursor: pointer; }
 .vh-tab:hover { color: var(--vr-text); }
@@ -775,7 +773,7 @@ function stepSector(delta: number) {
 .vh-wallet { margin-left: 14px; display: flex; align-items: center; gap: 14px; }
 .vh-coins { display: flex; align-items: center; gap: 6px; padding: 5px 12px; border: 1px solid rgba(255, 210, 122, 0.35); color: var(--vr-gold); font: 600 14px 'JetBrains Mono', monospace; }
 .vh-gems { border-color: rgba(196, 155, 255, 0.4); color: #d7b8ff; }
-.vh-res { display: flex; gap: 10px; }
+.vh-res { position: absolute; z-index: 2; right: 22px; top: 56px; display: flex; gap: 14px; padding: 4px 12px; border: 1px solid var(--vr-line); border-radius: 6px; background: rgba(2, 5, 12, 0.6); }
 .vh-res-chip { display: flex; align-items: center; gap: 6px; font: 600 13px 'JetBrains Mono', monospace; }
 .vh-dim { opacity: 0.4; }
 
@@ -836,7 +834,7 @@ function stepSector(delta: number) {
 .vh-down { color: var(--vr-bad); }
 .vh-spec-note { margin-top: 6px; font-size: 11px; line-height: 1.3; color: var(--vr-muted); }
 
-.vh-yard { position: absolute; right: 0; top: 60px; bottom: 0; width: min(380px, 32vw); display: flex; flex-direction: column; background: linear-gradient(270deg, rgba(4, 9, 18, 0.96), rgba(4, 9, 18, 0.82)); border-left: 1px solid var(--vr-line); animation: vh-yard-in 0.2s ease-out; }
+.vh-yard { position: absolute; right: 0; top: 92px; bottom: 0; width: min(380px, 32vw); display: flex; flex-direction: column; background: linear-gradient(270deg, rgba(4, 9, 18, 0.96), rgba(4, 9, 18, 0.82)); border-left: 1px solid var(--vr-line); animation: vh-yard-in 0.2s ease-out; }
 @keyframes vh-yard-in { from { opacity: 0; transform: translateX(14px); } }
 .vh-yard-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px 12px; border-bottom: 1px solid var(--vr-line); }
 .vh-yard-head h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; line-height: 1.1; }
@@ -858,7 +856,7 @@ function stepSector(delta: number) {
 
 .vh-page { position: absolute; left: 0; right: 0; top: 60px; bottom: 0; overflow-x: hidden; overflow-y: auto; background: radial-gradient(1200px 500px at 50% -120px, rgba(94, 200, 255, 0.07), transparent 70%), var(--vr-page); scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.14) transparent; animation: vh-page-in 0.2s ease-out; }
 @keyframes vh-page-in { from { opacity: 0; transform: translateY(8px); } }
-.vh-page-inner { max-width: 1120px; margin: 0 auto; padding: 28px 28px 72px; }
+.vh-page-inner { max-width: 1120px; margin: 0 auto; padding: 48px 28px 72px; }
 .vh-page-wide { max-width: 1400px; }
 .vh-page-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 20px; }
 .vh-page-head h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: 0.04em; line-height: 1.1; }
@@ -956,13 +954,11 @@ function stepSector(delta: number) {
 
 /* Laptop widths: the top bar compacts in steps so nothing runs off screen. */
 @media (max-width: 1850px) {
-    .vh-res { display: none; }
     .vh-top { gap: 14px; }
 }
 @media (max-width: 1650px) {
     .vh-pilot-name, .vh-pilot-bar { display: none; }
     .vh-pilot { margin-left: 4px; }
-    .vh-brand { font-size: 17px; letter-spacing: 0.28em; }
     .vh-tab { padding: 8px 7px; gap: 5px; font-size: 12px; letter-spacing: 0.08em; }
     .vh-wallet { margin-left: 4px; gap: 8px; }
     .vh-coins { padding: 4px 9px; font-size: 13px; }
@@ -970,14 +966,14 @@ function stepSector(delta: number) {
 @media (max-width: 1480px) {
     .vh-leave-label { display: none; }
     .vh-tab { padding: 8px 6px; gap: 4px; font-size: 11px; letter-spacing: 0.06em; }
-    .vh-gems { display: none; }
 }
 @media (max-width: 1240px) {
     .vh-tab-label { display: none; }
     .vh-tab { padding: 8px 9px; }
 }
 @media (max-width: 1100px) {
-    .vh-res { display: none; }
+    .vh-res { gap: 9px; padding: 3px 8px; }
+    .vh-res-chip { font-size: 12px; gap: 4px; }
     .vh-tab-label { display: none; }
     .vh-title { display: none; }
 }
