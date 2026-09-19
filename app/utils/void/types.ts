@@ -177,7 +177,12 @@ export interface Drone {
     group: THREE.Group
     pos: THREE.Vector3
     vel: THREE.Vector3
+    /** Wander phase, so each drone drifts on its own rhythm. */
     angle: number
+    /** Formation spot in the ship's frame it returns to when idle. */
+    slot: THREE.Vector3
+    /** Which way it circles a target (1 or -1). */
+    orbitDir: number
     cooldown: number
     target: Enemy | null
     rock: import('./asteroids').Asteroid | null

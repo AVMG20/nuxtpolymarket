@@ -93,6 +93,11 @@ const DIRECTOR_GRACE_MINUTES = 8
 const HEAT_MAX = 50
 /** Heat per wanted star. */
 const HEAT_PER_STAR = HEAT_MAX / 5
+/** How long turrets and drones keep mining on their own after the pilot shoots a rock. */
+const MINE_INTENT_SECONDS = 8
+/** How far drones stray from the ship to fight or mine before they break off. */
+const DRONE_LEASH = 240
+const DRONE_RANGE = 170
 const WORLD_UP = new THREE.Vector3(0, 1, 0)
 const FORWARD = new THREE.Vector3(0, 0, -1)
 export const SECTOR_RADIUS = 2600
@@ -100,6 +105,7 @@ export const SECTOR_RADIUS = 2600
 const _v1 = new THREE.Vector3()
 const _v2 = new THREE.Vector3()
 const _v3 = new THREE.Vector3()
+const _v4 = new THREE.Vector3()
 const _q1 = new THREE.Quaternion()
 const _q2 = new THREE.Quaternion()
 const _e1 = new THREE.Euler()
@@ -1162,6 +1168,8 @@ export class VoidEngine {
             pos: group.position,
             vel: new THREE.Vector3(),
             angle: randomFloat() * Math.PI * 2,
+            slot: this.droneSlot(p.drones.length, size),
+            orbitDir: randomFloat() < 0.5 ? 1 : -1,
             cooldown: randomFloat(),
             target: null,
             rock: null,
@@ -1772,8 +1780,9 @@ export class VoidEngine {
         p.gunCooldown -= dt * (gun.beam ? 1 : stats.fireRateMult * fit.rate * (this.skills?.rateMult ?? 1) * (this.systems?.weaponRate ?? 1))
         p.gunBeam = false
         if (!this.firing) return
-        // Firing at rock is what tells the turrets to help mine.
-        if (this.focusRock?.alive) this.mineIntent = 2.5
+        // Firing at rock is what tells the turrets and drones to help mine:
+        // for a while after, they strip every ore rock in reach.
+        if (this.focusRock?.alive) this.mineIntent = MINE_INTENT_SECONDS
         this.systems?.breakCloak()
         const noseFwd = _v3.copy(FORWARD).applyQuaternion(p.quat)
         const muzzleFor = (side: number) => new THREE.Vector3(side * size * 0.16, -size * 0.03, -size * 0.45).applyMatrix4(p.root.matrixWorld)
@@ -2130,11 +2139,78 @@ export class VoidEngine {
 
     // ─── Drones ────────────────────────────────────────────────────────────
 
+    /** A formation spot above and behind the ship, fanned out wing by wing. */
+    private droneSlot(index: number, size: number) {
+        const side = index % 2 === 0 ? 1 : -1
+        const row = Math.floor(index / 2)
+        const s = size * 1.1 + 4
+        return new THREE.Vector3(side * s * (0.9 + row * 0.45), s * (0.35 + (row % 2) * 0.25), s * (0.7 + row * 0.55))
+    }
+
+    /**
+     * Drones pick targets the way turrets do: the pilot's hostile target
+     * first, then the nearest hostile, then crates, then ore rock while the
+     * pilot has been mining. They only consider things within their leash of
+     * the ship, so they never wander off after something far away.
+     */
+    private droneRetarget(d: Drone) {
+        const p = this.player!
+        const leash = DRONE_LEASH * DRONE_LEASH
+        d.target = null
+        if (this.focus?.alive && this.focus.hostile && this.focus.pos.distanceToSquared(p.pos) < leash) {
+            d.target = this.focus
+            d.rock = null
+            return
+        }
+        let best = Infinity
+        for (const e of this.enemies) {
+            if (!e.alive || !e.hostile || !e.group.visible) continue
+            const dist = e.pos.distanceToSquared(p.pos)
+            if (dist < leash && dist < best) {
+                best = dist
+                d.target = e
+            }
+        }
+        if (d.target) {
+            d.rock = null
+            return
+        }
+        best = 160 * 160
+        for (const e of this.enemies) {
+            if (!e.alive || e.kind !== 'crate' || !e.group.visible) continue
+            const dist = e.pos.distanceToSquared(p.pos)
+            if (dist < best) {
+                best = dist
+                d.target = e
+            }
+        }
+        if (d.target || this.mineIntent <= 0) {
+            d.rock = null
+            return
+        }
+        if (this.focusRock?.alive) {
+            d.rock = this.focusRock
+            return
+        }
+        if (d.rock?.alive && d.rock.pos.distanceToSquared(p.pos) < 140 * 140) return
+        // Spread out over the field: each drone takes a rock the others have not.
+        const taken = new Set(this.player!.drones.filter(o => o !== d && o.rock).map(o => o.rock))
+        let rockBest = Infinity
+        d.rock = null
+        this.asteroids?.query(p.pos, 140, (r) => {
+            if (!r.ore) return
+            const dist = r.pos.distanceToSquared(p.pos) * (taken.has(r) ? 3 : 1)
+            if (dist < rockBest) {
+                rockBest = dist
+                d.rock = r
+            }
+        })
+    }
+
     private updateDrones(dt: number) {
         const p = this.player!
         const stats = this.config!.stats
         const size = voidShip(this.config!.shipId).size
-        const count = p.drones.length
         p.drones = p.drones.filter((d) => {
             if (d.temporary > 0) {
                 d.temporary -= dt
@@ -2146,72 +2222,112 @@ export class VoidEngine {
             }
             return true
         })
+        // Fast enough to catch a boosting ship, never so fast they teleport.
+        const maxSpeed = Math.max(stats.speed * 2.2, p.vel.length() * 1.35 + 40)
         p.drones.forEach((d, i) => {
-            d.angle += dt * 0.9
-            const a = d.angle + (i / Math.max(1, count)) * Math.PI * 2
-            const orbit = size * 1.2 + 5
-            const home = _v1.set(Math.cos(a) * orbit, Math.sin(a * 2) * size * 0.3 + size * 0.3, Math.sin(a) * orbit).applyQuaternion(p.quat).add(p.pos)
+            d.angle += dt
             d.retarget -= dt
             if (d.retarget <= 0) {
-                d.retarget = 0.4
-                d.target = null
-                d.rock = null
-                let best = Infinity
-                for (const e of this.enemies) {
-                    if (!e.alive || !e.group.visible || (!e.hostile && e.kind !== 'crate')) continue
-                    const dist = e.pos.distanceToSquared(p.pos) + (e.hostile ? 0 : 1e5)
-                    if (dist < 180 * 180 + (e.hostile ? 0 : 1e5) && dist < best) {
-                        best = dist
-                        d.target = e
-                    }
-                }
-                if (!d.target) {
-                    let rockBest = Infinity
-                    this.asteroids?.query(p.pos, 110, (r) => {
-                        if (!r.ore) return
-                        const dist = r.pos.distanceToSquared(p.pos)
-                        if (dist < rockBest) {
-                            rockBest = dist
-                            d.rock = r
-                        }
-                    })
-                }
+                d.retarget = 0.35 + randomFloat() * 0.2
+                this.droneRetarget(d)
             }
-            if (d.target && !d.target.alive) d.target = null
+            if (d.target && (!d.target.alive || d.target.pos.distanceTo(p.pos) > DRONE_LEASH * 1.2)) d.target = null
             if (d.rock && !d.rock.alive) d.rock = null
-            const goal = d.target ? _v2.copy(d.target.pos).lerp(home, 0.65) : d.rock ? _v2.copy(d.rock.pos).lerp(home, 0.5) : home
-            const desired = _v3.subVectors(goal, d.pos).multiplyScalar(3.5)
-            d.vel.lerp(desired, 1 - Math.exp(-5 * dt))
+
+            // Where the drone wants to be: its slot beside the ship when idle,
+            // circling its own target at a stand-off distance when busy.
+            const goal = _v1
+            const fromShip = d.pos.distanceTo(p.pos)
+            const busy = (d.target || d.rock) && fromShip < DRONE_LEASH
+            if (busy) {
+                const tp = d.target?.pos ?? d.rock!.pos
+                const radius = d.target ? d.target.radius : d.rock!.radius
+                const standoff = radius + (d.target ? 38 : 18)
+                // Circle the target on a tilted ring of its own.
+                const orbit = d.angle * 0.7 * d.orbitDir + i * 2.1
+                goal.set(Math.cos(orbit) * standoff, Math.sin(orbit * 0.6 + i) * standoff * 0.35, Math.sin(orbit) * standoff).add(tp)
+                // Stay between the target and the ship rather than on its far side.
+                goal.lerp(p.pos, 0.15)
+            } else {
+                goal.copy(d.slot)
+                // A lazy drift so an idle wing looks alive, not bolted on.
+                goal.x += Math.sin(d.angle * 0.8 + i) * 1.5
+                goal.y += Math.sin(d.angle * 1.3 + i * 2) * 1
+                goal.applyQuaternion(p.quat).add(p.pos)
+                // Lead the ship a little so they keep formation at speed.
+                goal.addScaledVector(p.vel, 0.25)
+            }
+
+            // Arrive: full speed when far, easing in near the goal, matching the ship when idle.
+            const to = _v2.subVectors(goal, d.pos)
+            const dist = to.length()
+            const want = _v3.copy(to).multiplyScalar(Math.min(maxSpeed, dist * 2.2) / Math.max(dist, 0.001))
+            if (!busy) want.addScaledVector(p.vel, Math.max(0, 1 - dist / 12))
+            // Keep a little room from the other drones and the hull.
+            for (const o of p.drones) {
+                if (o === d) continue
+                const away = _v4.subVectors(d.pos, o.pos)
+                const gap = away.length()
+                if (gap > 0.01 && gap < 6) want.addScaledVector(away, (6 - gap) * 4 / gap)
+            }
+            const hull = _v4.subVectors(d.pos, p.pos)
+            const hullGap = hull.length()
+            const minGap = size * 0.9 + 2
+            if (hullGap > 0.01 && hullGap < minGap) want.addScaledVector(hull, (minGap - hullGap) * 6 / hullGap)
+            d.vel.lerp(want, 1 - Math.exp(-3.5 * dt))
+            if (d.vel.length() > maxSpeed) d.vel.setLength(maxSpeed)
             d.pos.addScaledVector(d.vel, dt)
-            const look = d.target?.pos ?? d.rock?.pos
-            if (look) d.group.lookAt(look)
-            else d.group.quaternion.slerp(p.quat, 1 - Math.exp(-4 * dt))
+
+            // Face the target while fighting, otherwise the way it is flying.
+            const look = busy ? (d.target?.pos ?? d.rock?.pos) : null
+            if (look) {
+                _m1.lookAt(d.pos, look, WORLD_UP)
+                _q1.setFromRotationMatrix(_m1)
+                d.group.quaternion.slerp(_q1, 1 - Math.exp(-10 * dt))
+            } else if (d.vel.lengthSq() > 4) {
+                _m1.lookAt(d.pos, _v4.copy(d.pos).add(d.vel), WORLD_UP)
+                _q1.setFromRotationMatrix(_m1)
+                d.group.quaternion.slerp(_q1, 1 - Math.exp(-6 * dt))
+            } else {
+                d.group.quaternion.slerp(p.quat, 1 - Math.exp(-4 * dt))
+            }
             d.trail.update(dt, d.pos)
             d.trail.draw(this.lines, d.pos, 0.6)
 
             d.cooldown -= dt * stats.fireRateMult * (this.skills?.rateMult ?? 1)
-            const targetPos = d.target?.pos ?? d.rock?.pos
-            if (targetPos && d.cooldown <= 0 && d.pos.distanceTo(targetPos) < 190) {
-                d.cooldown = 0.45
-                const dir = _v1.subVectors(targetPos, d.pos).normalize()
-                const color = new THREE.Color(d.temporary > 0 ? 0xffe14f : shipGlow(this.config!.shipId)).multiplyScalar(3)
-                this.projectiles.push({
-                    pos: d.pos.clone(),
-                    vel: dir.multiplyScalar(380),
-                    life: 0.7,
-                    damage: 7 * stats.droneDamageMult,
-                    hostile: false,
-                    color,
-                    width: 0.2,
-                    length: 3.5,
-                    splash: 0,
-                    homing: null,
-                    kind: 'bolt',
-                    mining: 1.4,
-                    source: 'drone'
-                })
-                if (Math.random() < 0.4) this.audio.play('pulse', { distance: d.pos.distanceTo(this.camera.position) * 0.5, volume: 0.3, pitch: 1.4 })
+            if (!busy || d.cooldown > 0) return
+            const target = d.target
+            const aim = _v2
+            if (target) {
+                // Lead a moving target like the turrets do.
+                aim.copy(target.pos)
+                for (let k = 0; k < 2; k++) aim.copy(target.pos).addScaledVector(target.vel, Math.min(1.5, aim.distanceTo(d.pos) / 380))
+            } else {
+                aim.copy(d.rock!.pos)
             }
+            if (d.pos.distanceTo(aim) > DRONE_RANGE) return
+            // Only fire roughly along the nose, so shots read as aimed.
+            const dir = _v3.subVectors(aim, d.pos).normalize()
+            const nose = _v4.set(0, 0, -1).applyQuaternion(d.group.quaternion)
+            if (nose.dot(dir) < 0.8) return
+            d.cooldown = 0.45
+            const color = new THREE.Color(d.temporary > 0 ? 0xffe14f : shipGlow(this.config!.shipId)).multiplyScalar(3)
+            this.projectiles.push({
+                pos: d.pos.clone(),
+                vel: dir.clone().multiplyScalar(380).add(d.vel),
+                life: 0.7,
+                damage: 7 * stats.droneDamageMult,
+                hostile: false,
+                color,
+                width: 0.2,
+                length: 3.5,
+                splash: 0,
+                homing: null,
+                kind: 'bolt',
+                mining: 1.4,
+                source: 'drone'
+            })
+            if (Math.random() < 0.4) this.audio.play('pulse', { distance: d.pos.distanceTo(this.camera.position) * 0.5, volume: 0.3, pitch: 1.4 })
         })
     }
 
