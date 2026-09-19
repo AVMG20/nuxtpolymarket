@@ -186,15 +186,28 @@ describe('void runner loadouts', () => {
         expect(voidGearTier('sparrow', fit, items)).toBe((3 + 3 + 1 + 0) / 4)
     })
 
-    it('makes a T3+ item a large share of the biggest hold, and asks a warden core from T4', () => {
-        const hold = Math.max(...VOID_SHIPS.filter(s => s.requiresSector <= 2).map(s => s.cargo))
-        for (const tier of [3, 4, 5]) {
-            const cost = voidCraftCost('turret', tier).resources
-            const units = Object.entries(cost).reduce((sum, [id, n]) => sum + (id === 'core' ? 0 : n!), 0)
-            expect(units).toBeGreaterThan(hold * 0.4)
+    it('prices each model on its own, with a signature material for the fancier ones', () => {
+        const pulse = voidCraftCost('turret', 4, 'pulse')
+        const rail = voidCraftCost('turret', 4, 'rail')
+        expect(pulse).toEqual(voidCraftCost('turret', 4))
+        expect(rail.coins).toBeGreaterThan(pulse.coins * 1.2)
+        expect(rail.resources.xenite!).toBeGreaterThan(pulse.resources.xenite! * 1.3)
+        expect(voidCraftCost('turret', 2, 'tesla').resources.cobalt!).toBeGreaterThan(voidCraftCost('turret', 2).resources.cobalt!)
+        expect(voidCraftCost('shield', 1, 'regenerator').resources.cobalt).toBeGreaterThan(0)
+        // Levelling and scrapping follow the model's own recipe.
+        expect(voidItemUpgradeCost({ kind: 'turret', type: 'rail', tier: 4, level: 0 })!.coins).toBeGreaterThan(voidItemUpgradeCost({ kind: 'turret', type: 'pulse', tier: 4, level: 0 })!.coins)
+        for (const t of VOID_ITEM_TYPES) expect(Object.values(voidCraftCost(t.kind, t.minTier, t.id).resources).every(n => n! > 0)).toBe(true)
+    })
+
+    it('keeps a craft within one gunship hold so rolls can be repeated, and puts the grind in levelling', () => {
+        const hold = VOID_SHIPS.find(s => s.id === 'kestrel')!.cargo
+        const units = (bundle: Record<string, number | undefined>) => Object.entries(bundle).reduce((sum, [id, n]) => sum + (id === 'core' ? 0 : n!), 0)
+        for (const tier of [3, 4]) {
+            expect(units(voidCraftCost('turret', tier).resources)).toBeLessThan(hold)
+            const levelling = Array.from({ length: 10 }, (_, l) => units(voidItemUpgradeCost({ kind: 'turret', tier, level: l })!.resources)).reduce((a, b) => a + b, 0)
+            expect(levelling).toBeGreaterThan(hold * 4)
         }
-        expect(voidCraftCost('armor', 3).resources.core ?? 0).toBe(0)
-        expect(voidCraftCost('armor', 4).resources.core).toBe(1)
+        expect(voidCraftCost('armor', 4).resources.core ?? 0).toBe(0)
     })
 
     it('describes a fresh hangar with only the loaner owned and sector 1 open', () => {

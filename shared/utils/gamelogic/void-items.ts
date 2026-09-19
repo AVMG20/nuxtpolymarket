@@ -274,19 +274,47 @@ export function voidItemName(item: Pick<VoidItem, 'type' | 'tier'> & { affixes?:
 const TIER_RECIPES: VoidResourceBundle[] = [
     { ferrite: 220, scrap: 80 },
     { ferrite: 250, cobalt: 220, scrap: 120 },
-    // From T3 on one item is about a gunship's whole hold, and T4 up takes a
-    // warden's core, so fitting out a tier is many runs, never one.
-    { cobalt: 900, iridium: 640, alloy: 100 },
-    { iridium: 1700, xenite: 850, alloy: 300, core: 1 },
-    { iridium: 3600, xenite: 3200, alloy: 720, core: 3 }
+    // A craft stays cheap enough to repeat for a better roll: the real cost
+    // of a tier is in levelling the item you decide to keep.
+    { cobalt: 520, iridium: 360, alloy: 50 },
+    { iridium: 900, xenite: 450, alloy: 150 },
+    { iridium: 2600, xenite: 2300, alloy: 500, core: 1 }
 ]
-const TIER_COINS = [50_000, 250_000, 2_000_000, 8_000_000, 30_000_000]
-/** Share of the craft coins the first level costs; lower where the craft price is steep. */
-const TIER_UPGRADE_COINS = [0.08, 0.08, 0.05, 0.05, 0.05]
+const TIER_COINS = [50_000, 250_000, 1_250_000, 5_000_000, 18_000_000]
 const TIER_GEMS = [0, 0, 0, 1, 3]
 /** Upgrade material share per tier: cheap to level early gear, heavier late. */
-const TIER_UPGRADE_SHARE = [0.12, 0.15, 0.13, 0.13, 0.16]
+const TIER_UPGRADE_SHARE = [0.12, 0.15, 0.22, 0.23, 0.22]
 const KIND_WEIGHT: Record<VoidItemKind, number> = { gun: 1.2, turret: 1, armor: 0.9, shield: 1, secondary: 1.1, device: 1.3 }
+
+/**
+ * What a model costs on top of its tier's recipe: a multiplier on the whole
+ * price, and a signature material as a share of the recipe's bulk. The
+ * material follows the sector a model first appears in, so the fancier guns
+ * send you back out for ore the starter kit never asked for.
+ */
+const TYPE_COST: Record<string, { mult: number, extra?: [VoidResourceId, number] }> = {
+    autocannon: { mult: 1.05, extra: ['scrap', 0.15] },
+    scatter: { mult: 1.1, extra: ['alloy', 0.05] },
+    plasma: { mult: 1.15, extra: ['cobalt', 0.2] },
+    lancer: { mult: 1.2, extra: ['iridium', 0.2] },
+    driver: { mult: 1.3, extra: ['xenite', 0.2] },
+    gatling: { mult: 1.05, extra: ['scrap', 0.15] },
+    flak: { mult: 1.1, extra: ['alloy', 0.05] },
+    tesla: { mult: 1.15, extra: ['cobalt', 0.2] },
+    beam: { mult: 1.2, extra: ['iridium', 0.2] },
+    missile: { mult: 1.2, extra: ['alloy', 0.1] },
+    mortar: { mult: 1.25, extra: ['xenite', 0.2] },
+    rail: { mult: 1.3, extra: ['xenite', 0.2] },
+    bulkhead: { mult: 1.1, extra: ['alloy', 0.08] },
+    regenerator: { mult: 1.1, extra: ['cobalt', 0.15] },
+    rockets: { mult: 1.05, extra: ['scrap', 0.15] },
+    mines: { mult: 1.1, extra: ['alloy', 0.05] },
+    torpedo: { mult: 1.2, extra: ['iridium', 0.2] },
+    decoy: { mult: 1.05, extra: ['scrap', 0.15] },
+    sentry: { mult: 1.1, extra: ['alloy', 0.08] },
+    cloak: { mult: 1.2, extra: ['iridium', 0.2] },
+    dilator: { mult: 1.3, extra: ['xenite', 0.2] }
+}
 
 export interface VoidItemPrice {
     resources: VoidResourceBundle
@@ -304,11 +332,20 @@ function scaleBundle(bundle: VoidResourceBundle, factor: number): VoidResourceBu
     return out
 }
 
-export function voidCraftCost(kind: VoidItemKind, tier: number): VoidItemPrice {
+/** The price of a craft. Without a `type` it is the plain recipe of the kind's starter model. */
+export function voidCraftCost(kind: VoidItemKind, tier: number, type?: string): VoidItemPrice {
     const t = Math.max(1, Math.min(VOID_MAX_TIER, tier))
-    const w = KIND_WEIGHT[kind]
+    const model = (type && TYPE_COST[type]) || { mult: 1 }
+    const w = KIND_WEIGHT[kind] * model.mult
+    const recipe = TIER_RECIPES[t - 1]!
+    const resources = scaleBundle(recipe, w)
+    if (model.extra) {
+        const [id, share] = model.extra
+        const bulk = Object.entries(recipe).reduce((sum, [r, n]) => sum + (r === 'core' ? 0 : n!), 0)
+        resources[id] = (resources[id] ?? 0) + Math.max(10, Math.round(bulk * share * KIND_WEIGHT[kind] / 10) * 10)
+    }
     return {
-        resources: scaleBundle(TIER_RECIPES[t - 1]!, w),
+        resources,
         coins: Math.round(TIER_COINS[t - 1]! * w / 1000) * 1000,
         gems: TIER_GEMS[t - 1]!
     }
@@ -318,23 +355,23 @@ export function voidCraftCost(kind: VoidItemKind, tier: number): VoidItemPrice {
  * Levelling an item: the first few levels are cheap, the last few cost as
  * much as a stack of new crafts. Coins climb faster than materials.
  */
-export function voidItemUpgradeCost(item: Pick<VoidItem, 'kind' | 'tier' | 'level'>): VoidItemPrice | null {
+export function voidItemUpgradeCost(item: Pick<VoidItem, 'kind' | 'tier' | 'level'> & { type?: string }): VoidItemPrice | null {
     if (item.level >= VOID_ITEM_MAX_LEVEL) return null
-    const craft = voidCraftCost(item.kind, item.tier)
+    const craft = voidCraftCost(item.kind, item.tier, item.type)
     const share = TIER_UPGRADE_SHARE[Math.max(1, Math.min(VOID_MAX_TIER, item.tier)) - 1]!
     const resources = scaleBundle({ ...craft.resources, core: 0 }, share * Math.pow(1.36, item.level))
     // Deep tiers need a warp core for the final level.
     if (item.tier >= 4 && item.level === 9) resources.core = 1
     return {
         resources,
-        coins: Math.round(craft.coins * TIER_UPGRADE_COINS[Math.max(1, Math.min(VOID_MAX_TIER, item.tier)) - 1]! * Math.pow(1.5, item.level) / 1000) * 1000,
+        coins: Math.round(craft.coins * 0.08 * Math.pow(1.5, item.level) / 1000) * 1000,
         gems: item.tier >= 4 && item.level >= 9 ? TIER_GEMS[item.tier - 1]! : 0
     }
 }
 
 /** Salvage returns a quarter of the craft materials. */
-export function voidSalvageValue(item: Pick<VoidItem, 'kind' | 'tier'>): VoidResourceBundle {
-    const craft = voidCraftCost(item.kind, item.tier)
+export function voidSalvageValue(item: Pick<VoidItem, 'kind' | 'tier'> & { type?: string }): VoidResourceBundle {
+    const craft = voidCraftCost(item.kind, item.tier, item.type)
     return scaleBundle({ ...craft.resources, core: 0 }, 0.25)
 }
 

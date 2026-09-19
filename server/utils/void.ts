@@ -399,7 +399,7 @@ export async function voidCraftItem(userId: string, kind: VoidItemKind, type: st
     return db.transaction(async (tx) => {
         const s = await getLockedVoidState(tx, userId)
         if (!voidCanCraftTier(tier, s.highestSectorCleared)) throw createError({ statusCode: 400, statusMessage: `Clear sector ${tier - 1} to craft T${tier}` })
-        const resources = await voidCharge(tx, userId, s.resources, voidCraftCost(kind, tier))
+        const resources = await voidCharge(tx, userId, s.resources, voidCraftCost(kind, tier, type))
         const rolled = voidRollItem(kind, type, tier, randomFloat, (s.blueprints ?? []).includes(type))
         await tx.update(voidState).set({ resources }).where(eq(voidState.userId, userId))
         const [row] = await tx.insert(voidItems).values({ userId, ...rolled }).returning()
@@ -419,7 +419,7 @@ export async function voidUpgradeItem(userId: string, itemId: string) {
         const s = await getLockedVoidState(tx, userId)
         if (s.runStartedAt) throw createError({ statusCode: 400, statusMessage: 'Dock before upgrading' })
         const item = await lockedItem(tx, userId, itemId)
-        const price = voidItemUpgradeCost({ kind: item.kind as VoidItemKind, tier: item.tier, level: item.level })
+        const price = voidItemUpgradeCost({ kind: item.kind as VoidItemKind, type: item.type, tier: item.tier, level: item.level })
         if (!price) throw createError({ statusCode: 400, statusMessage: 'Already at max level' })
         const resources = await voidCharge(tx, userId, s.resources, price)
         await tx.update(voidState).set({ resources }).where(eq(voidState.userId, userId))
@@ -439,7 +439,7 @@ export async function voidSalvageItem(userId: string, itemId: string) {
         if (s.runStartedAt) throw createError({ statusCode: 400, statusMessage: 'Dock before salvaging' })
         const [row] = await tx.delete(voidItems).where(and(eq(voidItems.id, itemId), eq(voidItems.userId, userId))).returning()
         if (!row) throw createError({ statusCode: 404, statusMessage: 'Item not found' })
-        const refund = voidSalvageValue({ kind: row.kind as VoidItemKind, tier: row.tier })
+        const refund = voidSalvageValue({ kind: row.kind as VoidItemKind, type: row.type, tier: row.tier })
         // Pull it off every hull it was fitted to.
         const loadouts: Record<string, unknown> = {}
         for (const [shipId, raw] of Object.entries(s.loadouts ?? {})) {
