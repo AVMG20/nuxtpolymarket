@@ -1913,8 +1913,8 @@ export class VoidEngine {
         }
         muzzleFlash(this.fx, from, color.getHex(), (gun.pellets > 1 ? 2 : gun.id === 'plasma' ? 2.5 : 1.2) * (overcharged ? 2.5 : 1))
         if (overcharged) this.audio.play('rail', { volume: 0.5, pitch: 1.6 })
-        const sfx: VoidSfx = gun.id === 'scatter' ? 'flak' : gun.id === 'autocannon' ? 'gatling' : gun.id === 'plasma' ? 'missile' : 'gun'
-        this.audio.play(sfx, { volume: 0.7, pitch: gun.id === 'plasma' ? 0.6 : 1 })
+        const sfx: VoidSfx = gun.id === 'scatter' ? 'flak' : gun.id === 'autocannon' ? 'gatling' : gun.id === 'plasma' ? 'plasma' : 'gun'
+        this.audio.play(sfx, { volume: 0.7 })
     }
 
     private pickTurretTarget(t: TurretSlot) {
@@ -2064,14 +2064,14 @@ export class VoidEngine {
                 this.lightning(muzzle, t.rock.pos, def.color)
                 this.damageRock(t.rock, damage * def.mining * this.config!.stats.miningMult, t.rock.pos)
             }
-            this.audio.play('blink', { distance: muzzle.distanceTo(this.camera.position) * 0.4, volume: 0.25, pitch: 2.2 })
+            this.audio.play('tesla', { distance: muzzle.distanceTo(this.camera.position) * 0.4, volume: 0.5 })
             muzzleFlash(this.fx, muzzle, def.color, 1.4)
             return
         }
         const camDist = muzzle.distanceTo(this.camera.position)
         const mortar = def.id === 'mortar'
-        const sfx = ({ pulse: 'pulse', gatling: 'gatling', flak: 'flak', missile: 'missile', rail: 'rail', beam: 'pulse', tesla: 'blink', mortar: 'explosionSmall' } as Record<string, VoidSfx>)[def.id] ?? 'pulse'
-        this.audio.play(sfx, { distance: camDist * 0.3, volume: mortar ? 0.8 : 0.55, pitch: mortar ? 0.6 : 1 })
+        const sfx = ({ pulse: 'pulse', gatling: 'gatling', flak: 'flak', missile: 'missile', rail: 'rail', beam: 'pulse', tesla: 'tesla', mortar: 'mortar' } as Record<string, VoidSfx>)[def.id] ?? 'pulse'
+        this.audio.play(sfx, { distance: camDist * 0.3, volume: mortar ? 0.8 : 0.55 })
 
         if (def.id === 'rail') {
             const dir = _v1.subVectors(targetPos, muzzle).normalize()
@@ -2566,7 +2566,7 @@ export class VoidEngine {
                     const d = this.randomDir(1).multiplyScalar(30 + Math.random() * 30)
                     this.sparks.emit(p.pos.x, p.pos.y, p.pos.z, d.x + p.vel.x, d.y + p.vel.y, d.z + p.vel.z, 0.4, _c1.set(0x9fe8ff).multiplyScalar(3), 0.12)
                 }
-                this.audio.play('blink', { pitch: 0.6, volume: 0.8 })
+                this.audio.play('shieldDown')
                 this.events.toast('Shields down', 'warn')
             }
             rest -= absorbed
@@ -2630,6 +2630,7 @@ export class VoidEngine {
         p.root.visible = false
         p.drones.forEach(d => this.scene.remove(d.group))
         this.audio.play('explosionLarge', { volume: 1.5 })
+        this.audio.play('death')
         this.audio.updateEngine(0, false, 0)
         this.endResult = { reason: 'destroyed', haul: {}, lost: { ...this.cargo }, kills: this.kills, wardenKilled: this.wardenKilled, elapsedMs: Math.round(this.elapsed * 1000), skillUses: this.skills?.uses ?? 0, suppliesUsed: { ...this.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: this.pilotBonusXp, depth: this.depth, carrierKilled: false, lore: [], beaconsCaptured: [...(this.beacons?.captured ?? [])], beaconsDefended: [...(this.beacons?.defended ?? [])] }
         this.events.toast('Ship destroyed. The hold is lost.', 'bad')
@@ -3434,10 +3435,11 @@ export class VoidEngine {
         const inZone = !!near && near.dist < near.structure.dockRadius + 25
         let target: HudState['target'] = null
         if (this.focus?.alive) {
-            target = { name: this.focus.name, hp: Math.max(0, this.focus.hp), maxHp: this.focus.maxHp, shield: this.focus.data.shield ?? 0, shieldMax: this.focus.data.shieldMax ?? 0, kind: this.focus.kind === 'crate' ? 'crate' : 'enemy', detail: this.focus.elite ? 'Elite' : '' }
+            target = { name: this.focus.name, hp: Math.max(0, this.focus.hp), maxHp: this.focus.maxHp, shield: this.focus.data.shield ?? 0, shieldMax: this.focus.data.shieldMax ?? 0, kind: this.focus.kind === 'crate' ? 'crate' : 'enemy', detail: this.focus.elite ? 'Elite' : '', dist: this.focus.pos.distanceTo(p.pos), hostile: this.focus.hostile }
         } else if (this.focusRock?.alive && this.focusRock.ore) {
-            target = { name: `${voidResource(this.focusRock.ore).name} deposit`, hp: Math.max(0, this.focusRock.hp), maxHp: this.focusRock.maxHp, shield: 0, shieldMax: 0, kind: 'rock', detail: '' }
+            target = { name: `${voidResource(this.focusRock.ore).name} deposit`, hp: Math.max(0, this.focusRock.hp), maxHp: this.focusRock.maxHp, shield: 0, shieldMax: 0, kind: 'rock', detail: '', dist: this.focusRock.pos.distanceTo(p.pos), hostile: false }
         }
+        const carrier = this.warden?.alive ? null : this.enemies.find(e => e.alive && e.kind === 'mothership' && e.aggro && e.pos.distanceToSquared(p.pos) < 1500 * 1500)
         return {
             phase: this.phase,
             paused: this.paused,
@@ -3447,6 +3449,7 @@ export class VoidEngine {
             shield: Math.max(0, p.shield),
             maxShield: Math.max(cfg.stats.shield, this.skills?.shieldCap ?? 0),
             energy: p.energy,
+            boosting: p.boosting,
             speed: p.vel.length(),
             cargo: { ...this.cargo },
             cargoUnits: voidBundleUnits(this.cargo),
@@ -3459,7 +3462,9 @@ export class VoidEngine {
             dock: inZone ? { label: near!.structure.kind === 'station' ? 'Station' : 'Beacon', progress: Math.min(1, this.dockHold / 1.5), ready: true } : null,
             warden: this.warden?.alive
                 ? { name: cfg.sector.warden, hp: this.warden.hp, maxHp: this.warden.maxHp, shield: this.warden.data.shield ?? 0, shieldMax: this.warden.data.shieldMax ?? 0 }
-                : null,
+                : carrier
+                    ? { name: carrier.name, hp: carrier.hp, maxHp: carrier.maxHp, shield: 0, shieldMax: 0, carrier: true, locks: ((carrier.group.userData.reactors as Enemy[] | undefined) ?? []).filter(r => r.alive).length }
+                    : null,
             wardenKilled: this.wardenKilled,
             threat: this.threat,
             wanted: this.wanted,

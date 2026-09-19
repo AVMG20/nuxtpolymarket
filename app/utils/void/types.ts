@@ -61,6 +61,9 @@ export interface HudTarget {
     shieldMax: number
     kind: 'enemy' | 'rock' | 'crate'
     detail: string
+    /** Metres from the ship. */
+    dist: number
+    hostile: boolean
 }
 
 export interface HudState {
@@ -72,6 +75,7 @@ export interface HudState {
     shield: number
     maxShield: number
     energy: number
+    boosting: boolean
     speed: number
     cargo: VoidResourceBundle
     cargoUnits: number
@@ -82,7 +86,8 @@ export interface HudState {
     kills: number
     elapsed: number
     dock: null | { label: string, progress: number, ready: boolean }
-    warden: null | { name: string, hp: number, maxHp: number, shield: number, shieldMax: number }
+    /** The boss bar: the sector warden, or the hidden carrier once it is awake. `locks` counts shield reactors still standing. */
+    warden: null | { name: string, hp: number, maxHp: number, shield: number, shieldMax: number, carrier?: boolean, locks?: number }
     wardenKilled: boolean
     threat: number
     /** 0-5 stars: how hard the sector is hunting you. */

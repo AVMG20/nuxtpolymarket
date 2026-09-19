@@ -1,5 +1,5 @@
 <template>
-    <div ref="root" class="vr-root" :class="{ 'vr-flying': inFlight }">
+    <div ref="root" class="vr-root" :class="{ 'vr-flying': inFlight, 'vr-calm': reduceFlashes }">
         <div ref="viewport" class="absolute inset-0" @click="onViewportClick" />
 
         <!-- ═══ Hangar ═══ -->
@@ -49,33 +49,46 @@
             <VoidHud :hud="hud" :run="run" :toasts="toasts" :banner="banner" :price-mult="state?.trade.mult ?? 1" />
 
             <!-- Engage overlay -->
-            <div v-if="!hud.locked && !hud.paused && hud.phase === 'flying' && !summary" class="vr-engage" @click="engage">
-                <div class="vr-engage-card">
-                    <div class="vr-engage-title">Click to take the helm</div>
-                    <div class="vr-controls">
+            <div v-if="!hud.locked && !hud.paused && hud.phase === 'flying' && !summary" class="vx-screen vx-engage" @click="engage">
+                <div class="vx-engage-body">
+                    <div class="vx-engage-ring"><UIcon name="i-lucide-mouse-pointer-click" /></div>
+                    <div class="vx-engage-title">Take the helm</div>
+                    <div class="vx-keys">
                         <div v-for="c in coreControls" :key="c[0]"><kbd>{{ c[0] }}</kbd><span>{{ c[1] }}</span></div>
                     </div>
-                    <div class="vr-engage-more">Esc for the full control list</div>
+                    <div class="vx-engage-more">Esc · all controls</div>
                 </div>
             </div>
 
             <!-- Pause -->
-            <div v-if="hud.paused && !summary && !gateChoice && !tradeOpen" class="vr-modal-wrap">
-                <div class="vr-modal">
-                    <div class="vr-modal-title">Paused</div>
-                    <button class="vr-btn vr-btn-primary" @click="engage">Resume</button>
-                    <div class="vr-settings">
-                        <label>Volume <input v-model.number="volume" type="range" min="0" max="1" step="0.05"></label>
-                        <label>Mouse sensitivity <input v-model.number="sensitivity" type="range" min="0.3" max="2.5" step="0.05"></label>
-                        <label>Invert mouse Y <input v-model="invertY" type="checkbox"></label>
-                        <label>High graphics <input v-model="highQuality" type="checkbox"></label>
-                        <label title="Softer glow, dimmer explosions and faint screen flashes">Reduce flashes <input v-model="reduceFlashes" type="checkbox"></label>
-                        <label v-if="canFullscreen">Fullscreen <input :checked="fullscreen" type="checkbox" @change="onFullscreenCheckbox"></label>
+            <div v-if="hud.paused && !summary && !gateChoice && !tradeOpen" class="vx-screen">
+                <div class="vx-panel vx-pause">
+                    <div class="vx-pause-side">
+                        <div class="vx-kicker">{{ run?.sectorName }}</div>
+                        <div class="vx-title">Paused</div>
+                        <div class="vx-pause-run"><b>{{ run?.shipName }}</b>{{ clock(hud.elapsed) }} · {{ hud.kills }} kills · {{ hud.cargoUnits }} in hold</div>
+                        <button class="vr-btn vr-btn-primary" @click="engage"><UIcon name="i-lucide-play" />Resume</button>
+                        <button class="vr-btn vr-btn-danger" @click="confirmAbandon"><UIcon name="i-lucide-log-out" />{{ abandonArmed ? 'Confirm · lose the hold' : 'Abandon run' }}</button>
                     </div>
-                    <div class="vr-controls vr-controls-compact">
-                        <div v-for="c in controls" :key="c[0]"><kbd>{{ c[0] }}</kbd><span>{{ c[1] }}</span></div>
+                    <div class="vx-pause-main">
+                        <div>
+                            <div class="vx-section-title">Settings</div>
+                            <div class="vx-settings">
+                                <label>Volume <input v-model.number="volume" type="range" min="0" max="1" step="0.05"></label>
+                                <label>Mouse sensitivity <input v-model.number="sensitivity" type="range" min="0.3" max="2.5" step="0.05"></label>
+                                <label>Invert mouse Y <input v-model="invertY" type="checkbox"></label>
+                                <label>High graphics <input v-model="highQuality" type="checkbox"></label>
+                                <label title="Softer glow, dimmer explosions and faint screen flashes">Reduce flashes <input v-model="reduceFlashes" type="checkbox"></label>
+                                <label v-if="canFullscreen">Fullscreen <input :checked="fullscreen" type="checkbox" @change="onFullscreenCheckbox"></label>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="vx-section-title">Controls</div>
+                            <div class="vx-controls">
+                                <div v-for="c in controls" :key="c[0]"><kbd>{{ c[0] }}</kbd><span>{{ c[1] }}</span></div>
+                            </div>
+                        </div>
                     </div>
-                    <button class="vr-btn vr-btn-danger" @click="abandon">Abandon run (lose the hold)</button>
                 </div>
             </div>
         </template>
@@ -85,34 +98,36 @@
         </Transition>
 
         <!-- ═══ Jump gate ═══ -->
-        <div v-if="gateChoice && inFlight" class="vr-modal-wrap">
-            <div class="vr-modal vr-gate">
-                <div class="vr-debrief-kicker">Jump gate · {{ hud?.systems?.fuel ?? 0 }} fuel</div>
-                <div class="vr-modal-title">Choose a jump</div>
-                <p class="vr-gate-sub">Jumping spends one fuel cell. The next zone is tougher and richer, your hold comes with you, and there is a beacon to extract from on arrival.</p>
-                <div class="vr-gate-options">
-                    <button v-for="z in gateChoice" :key="z.id" class="vr-gate-option" :style="{ '--zc': voidHex(z.color) }" @click="chooseJump(z.id)">
+        <div v-if="gateChoice && inFlight" class="vx-screen">
+            <div class="vx-panel" style="--vx-tone: #c07bff">
+                <div class="vx-kicker">Jump gate<span class="vx-fuel"><i v-for="n in hud?.systems?.fuel ?? 0" :key="n" /></span></div>
+                <div class="vx-title">Choose a jump</div>
+                <p class="vx-sub">One fuel cell. Tougher, richer, and your hold comes with you.</p>
+                <div class="vx-choices">
+                    <button v-for="z in gateChoice" :key="z.id" class="vx-choice" :style="{ '--zc': voidHex(z.color) }" @click="chooseJump(z.id)">
+                        <UIcon name="i-lucide-orbit" />
                         <b>{{ z.name }}</b>
                         <span>{{ z.description }}</span>
                     </button>
                 </div>
-                <button class="vr-btn" @click="stayHere">Stay in this zone</button>
+                <div class="vx-row"><button class="vr-btn" @click="stayHere">Stay in this zone</button></div>
             </div>
         </div>
 
         <!-- ═══ Free Trader ═══ -->
-        <div v-if="tradeOpen && inFlight" class="vr-modal-wrap">
-            <div class="vr-modal vr-trade">
-                <div class="vr-debrief-kicker">Free Trader · {{ tradeableUnits }} tradeable units in hold (warp cores never trade)</div>
-                <div class="vr-modal-title">Trade</div>
-                <p class="vr-gate-sub">Pays in cargo, taken from your largest stacks first.</p>
-                <div class="vr-trade-list">
-                    <button v-for="o in tradeOffers" :key="o.id" class="vr-trade-offer" :disabled="tradeableUnits < o.cost" @click="trade(o.id)">
+        <div v-if="tradeOpen && inFlight" class="vx-screen">
+            <div class="vx-panel" style="--vx-tone: #9fffd9">
+                <div class="vx-kicker">Free Trader</div>
+                <div class="vx-title">Trade</div>
+                <p class="vx-sub">{{ tradeableUnits }} units to trade, largest stacks first. Warp cores never trade.</p>
+                <div class="vx-choices">
+                    <button v-for="o in tradeOffers" :key="o.id" class="vx-choice" style="--zc: #9fffd9" :disabled="tradeableUnits < o.cost" @click="trade(o.id)">
+                        <UIcon :name="o.icon" />
                         <b>{{ o.name }}</b>
-                        <span>{{ o.cost }} units</span>
+                        <em>{{ o.cost }} units</em>
                     </button>
                 </div>
-                <button class="vr-btn vr-btn-primary" @click="closeTrade">Done</button>
+                <div class="vx-row"><button class="vr-btn vr-btn-primary" @click="closeTrade">Done</button></div>
             </div>
         </div>
 
@@ -137,56 +152,7 @@
         </Transition>
 
         <!-- ═══ Debrief ═══ -->
-        <div v-if="summary" class="vr-modal-wrap">
-            <div class="vr-modal vr-debrief" :class="summary.extracted ? 'vr-good' : 'vr-bad'">
-                <div class="vr-debrief-kicker">{{ summary.extracted ? 'Extraction complete' : 'Signal lost' }}</div>
-                <div class="vr-modal-title">{{ summary.extracted ? (summary.failed ? 'Hold not banked yet' : summary.pending ? 'Banking hold' : 'Hold banked') : 'Ship destroyed' }}</div>
-                <div v-if="summary.sectorCleared" class="vr-cleared">Sector cleared · {{ summary.sectorCleared }}<template v-if="summary.sectorOpened"> · {{ summary.sectorOpened }} is open</template></div>
-                <div v-if="summary.beacons" class="vr-cleared">{{ summary.beacons }}</div>
-                <div v-if="summary.wardenRejected" class="vr-debrief-empty">The warden kill was not counted: the run was too short for the station to accept it.</div>
-                <div class="vr-debrief-stats">
-                    <div><span>Time</span><b>{{ clock(summary.elapsedMs / 1000) }}</b></div>
-                    <div><span>Kills</span><b>{{ summary.kills }}</b></div>
-                    <div><span>Units</span><b>{{ summary.units }}</b></div>
-                    <div><span>Value</span><b>{{ formatNumber(summary.value) }}</b></div>
-                </div>
-                <div v-if="summary.depth > 1 || summary.marks || summary.blueprint || summary.lore.length" class="vr-relics vr-trophies">
-                    <span v-if="summary.depth > 1">Reached jump {{ summary.depth }}</span>
-                    <b v-if="summary.marks">+{{ summary.marks }} Command Mark{{ summary.marks === 1 ? '' : 's' }}</b>
-                    <b v-if="summary.blueprint">Blueprint: {{ summary.blueprint }} MkII</b>
-                    <b v-for="l in summary.lore" :key="l">Log: {{ l }}</b>
-                </div>
-                <div v-if="summary.gear.length || summary.gearEmpty || summary.gearLost" class="vr-relics vr-gear-loot">
-                    <span>Salvaged gear</span>
-                    <em v-if="summary.gearEmpty">{{ summary.gearEmpty }} cache{{ summary.gearEmpty === 1 ? '' : 's' }} came back empty (run or daily limit)</em>
-                    <em v-if="summary.gearLost">{{ summary.gearLost }} cache{{ summary.gearLost === 1 ? '' : 's' }} lost with the ship</em>
-                    <b v-for="(g, i) in summary.gear" :key="i" :style="{ color: g.color }">{{ g.rarity }} T{{ g.tier }} {{ g.name }}</b>
-                </div>
-                <div v-if="summary.relics.length" class="vr-relics">
-                    <span>Relic caches opened</span>
-                    <b v-for="(r, i) in summary.relics" :key="i" :style="{ color: r.hex }">{{ r.name }}</b>
-                </div>
-                <div v-if="summary.xp > 0" class="vr-xp" :class="{ 'vr-xp-up': summary.levelAfter > summary.levelBefore }">
-                    <span>+{{ formatNumber(summary.xp, false) }} pilot XP</span>
-                    <b v-if="summary.levelAfter > summary.levelBefore">Level {{ summary.levelAfter }}</b>
-                </div>
-                <div v-if="summary.items.length" class="vr-debrief-haul">
-                    <div v-for="item in summary.items" :key="item.id" class="vr-cargo-item">
-                        <i class="vr-gem" :style="{ '--c': item.hex }" />
-                        <span>{{ item.name }}</span>
-                        <b>{{ item.amount }}</b>
-                    </div>
-                </div>
-                <div v-else-if="summary.extracted" class="vr-debrief-empty">Nothing in the hold this time.</div>
-                <div v-else-if="summary.lostValue > 0" class="vr-debrief-lost">Lost with the ship: <b>{{ formatNumber(summary.lostValue) }}</b> worth of cargo</div>
-                <div v-else class="vr-debrief-empty">The hold was empty. Nothing lost but the pride.</div>
-                <div v-if="summary.trimmed" class="vr-debrief-empty">Part of the hold was over this run's limits and stayed behind.</div>
-                <div v-if="summary.pending" class="vr-debrief-empty">Filing report…</div>
-                <div v-if="summary.failed" class="vr-debrief-lost">The station did not get your report. The hold is kept on this device and filed before your next launch.</div>
-                <button v-if="summary.failed" class="vr-btn" @click="retryReport">Try again</button>
-                <button class="vr-btn vr-btn-primary" :disabled="summary.pending" @click="closeSummary">Return to hangar</button>
-            </div>
-        </div>
+        <VoidDebrief v-if="summary" :summary="summary" :xp-before="state?.pilot.xp ?? 0" @close="closeSummary" @retry="retryReport" />
     </div>
 </template>
 
@@ -201,6 +167,7 @@ import { VOID_LORE, voidZone, type VoidZoneModifier } from '#shared/utils/gamelo
 import { VoidAudio, type VoidSfx } from '~/utils/void/audio'
 import { VoidEngine } from '~/utils/void/engine'
 import type { HudState, RunResult } from '~/utils/void/types'
+import VoidDebrief, { type VoidRunSummary } from './VoidDebrief.vue'
 import VoidHangar from './VoidHangar.vue'
 import VoidHud from './VoidHud.vue'
 import VoidItemArt from './VoidItemArt.vue'
@@ -224,34 +191,7 @@ const run = ref<{ sectorName: string, shipName: string, tier: number, startedAt:
 const toasts = ref<{ id: number, text: string, tone: string }[]>([])
 const banner = ref<{ id: number, title: string, subtitle: string, tone: string } | null>(null)
 let bannerTimer: ReturnType<typeof setTimeout> | undefined
-const summary = ref<null | {
-    extracted: boolean
-    pending: boolean
-    /** The server never confirmed the report; the hold waits on this device. */
-    failed: boolean
-    trimmed: boolean
-    kills: number
-    elapsedMs: number
-    units: number
-    value: number
-    sectorCleared: string | null
-    sectorOpened: string | null
-    wardenRejected: boolean
-    beacons: string | null
-    lostValue: number
-    xp: number
-    levelBefore: number
-    levelAfter: number
-    relics: { name: string, hex: string }[]
-    marks: number
-    blueprint: string | null
-    lore: string[]
-    depth: number
-    gear: { name: string, tier: number, color: string, rarity: string }[]
-    gearEmpty: number
-    gearLost: number
-    items: { id: string, name: string, hex: string, amount: number }[]
-}>(null)
+const summary = ref<VoidRunSummary | null>(null)
 
 const audio = new VoidAudio()
 let engine: VoidEngine | null = null
@@ -271,9 +211,9 @@ const gateChoice = ref<{ id: VoidZoneModifier, name: string, description: string
 const tradeOpen = ref(false)
 const tradeableUnits = computed(() => (hud.value?.cargoUnits ?? 0) - (hud.value?.cargo.core ?? 0))
 const tradeOffers = [
-    { id: 'nanites' as const, name: 'Repair Nanites', cost: 150 },
-    { id: 'cell' as const, name: 'Shield Cell', cost: 120 },
-    { id: 'fuel' as const, name: 'Fuel Cell', cost: 250 }
+    { id: 'nanites' as const, name: 'Repair Nanites', cost: 150, icon: 'i-lucide-wrench' },
+    { id: 'cell' as const, name: 'Shield Cell', cost: 120, icon: 'i-lucide-battery-charging' },
+    { id: 'fuel' as const, name: 'Fuel Cell', cost: 250, icon: 'i-lucide-fuel' }
 ]
 
 function chooseJump(id: VoidZoneModifier) {
@@ -824,6 +764,23 @@ async function submitReport(body: FinishBody) {
     }
 }
 
+const abandonArmed = ref(false)
+let abandonTimer: ReturnType<typeof setTimeout> | undefined
+
+/** Abandoning throws the hold away, so the button has to be pressed twice. */
+function confirmAbandon() {
+    clearTimeout(abandonTimer)
+    if (abandonArmed.value) {
+        abandonArmed.value = false
+        abandon()
+        return
+    }
+    abandonArmed.value = true
+    abandonTimer = setTimeout(() => {
+        abandonArmed.value = false
+    }, 3000)
+}
+
 function abandon() {
     if (!engine) return
     const result: RunResult = { reason: 'destroyed', haul: {}, lost: { ...engine.cargo }, kills: engine.kills, wardenKilled: false, elapsedMs: Math.round(engine.elapsed * 1000), skillUses: engine.skills?.uses ?? 0, suppliesUsed: { ...engine.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: engine.pilotBonusXp, depth: engine.depth, carrierKilled: false, lore: [], beaconsCaptured: [...(engine.beacons?.captured ?? [])], beaconsDefended: [...(engine.beacons?.defended ?? [])] }
@@ -951,4 +908,5 @@ onBeforeUnmount(() => {
 
 <style>
 @import '~/assets/css/void.css';
+@import '~/assets/css/void-hud.css';
 </style>

@@ -1,161 +1,215 @@
 <template>
-    <div class="vr-hud pointer-events-none">
-        <!-- Top left: sector and run -->
-        <div class="vr-hud-tl">
-            <div class="vr-sector-name">{{ run?.sectorName }}</div>
-            <div class="vr-run-meta">
-                <span>{{ clock(hud.elapsed) }}</span>
-                <span class="vr-dot" />
-                <span>{{ hud.kills }} kills</span>
+    <div class="vx-hud pointer-events-none" :class="{ 'vx-cockpit': hud.cockpit, 'vx-hurt': hullHit, 'vx-critical': hud.lowHull }">
+        <div class="vx-vignette" />
+
+        <!-- Top left: sector, wanted level, objectives -->
+        <div class="vx-tl">
+            <div class="vx-sector">
+                <i class="vx-sector-mark" />
+                <div>
+                    <div class="vx-sector-name">{{ run?.sectorName }}</div>
+                    <div class="vx-sector-meta">
+                        <span>{{ clock(hud.elapsed) }}</span>
+                        <span><UIcon name="i-lucide-crosshair" />{{ hud.kills }}</span>
+                        <span v-if="hud.systems && hud.systems.depth > 1" class="vx-zone">Jump {{ hud.systems.depth }} · {{ hud.systems.zone }}</span>
+                    </div>
+                </div>
             </div>
-            <div class="vr-wanted" :class="{ 'vr-wanted-hot': hud.wanted >= 4 }" :title="wantedHint">
-                <span>Wanted</span>
-                <i v-for="n in 5" :key="n" :class="{ 'vr-star-on': n <= hud.wanted }">★</i>
+            <div class="vx-wanted" :class="[`vx-wanted-${Math.min(5, hud.wanted)}`, { 'vx-wanted-hot': hud.wanted >= 4 }]">
+                <span class="vx-wanted-label">Wanted</span>
+                <svg v-for="n in 5" :key="`${n}-${n <= hud.wanted}`" viewBox="0 0 20 20" :class="{ 'vx-star-on': n <= hud.wanted }">
+                    <path d="M10 1.2l2.6 5.9 6.4.6-4.8 4.3 1.4 6.3L10 15l-5.6 3.3 1.4-6.3L1 7.7l6.4-.6z" />
+                </svg>
             </div>
-            <div v-if="hud.systems && hud.systems.depth > 1" class="vr-zone">Jump {{ hud.systems.depth }} · {{ hud.systems.zone }}</div>
-            <div v-if="hud.wardenKilled" class="vr-warden-done">Warden down · dock to claim</div>
-            <!-- Objectives -->
-            <div v-if="hud.objectives" class="vr-objectives">
-                <div class="vr-obj-title">{{ hud.objectives.title }}</div>
-                <TransitionGroup name="vr-obj" tag="div">
-                    <div v-for="step in hud.objectives.steps" :key="step.text" class="vr-obj-step" :class="{ 'vr-obj-done': step.done, 'vr-obj-active': step.active }">
+            <div v-if="hud.wardenKilled" class="vx-claim"><UIcon name="i-lucide-trophy" />Warden down · dock to claim</div>
+            <div v-if="hud.objectives" class="vx-obj">
+                <div class="vx-obj-title">{{ hud.objectives.title }}</div>
+                <TransitionGroup name="vx-objstep" tag="div" class="vx-obj-steps">
+                    <div v-for="step in hud.objectives.steps" :key="step.text" class="vx-obj-step" :class="{ 'vx-obj-done': step.done, 'vx-obj-active': step.active }">
                         <i />
                         <span>{{ step.text }}</span>
-                        <b v-if="step.progress">{{ step.progress }}</b>
+                        <b v-if="step.progress && !step.done">{{ step.progress }}</b>
+                        <em v-if="fraction(step.progress) !== null && !step.done" :style="{ '--p': fraction(step.progress) ?? 0 }" />
                     </div>
                 </TransitionGroup>
-                <p v-if="hud.objectives.hint" class="vr-obj-hint">{{ hud.objectives.hint }}</p>
+                <Transition name="vx-swap" mode="out-in">
+                    <p v-if="hud.objectives.hint" :key="hud.objectives.hint" class="vx-obj-hint">{{ hud.objectives.hint }}</p>
+                </Transition>
             </div>
         </div>
 
-        <!-- Top centre: boss, target, toasts -->
-        <div class="vr-hud-tc">
-            <div v-if="hud.warden" class="vr-boss">
-                <div class="vr-boss-name">{{ hud.warden.name }}</div>
-                <div class="vr-boss-bar">
-                    <div class="vr-boss-hull" :style="{ width: `${(hud.warden.hp / hud.warden.maxHp) * 100}%` }" />
-                    <div v-if="hud.warden.shieldMax > 0" class="vr-boss-shield" :style="{ width: `${(hud.warden.shield / hud.warden.maxHp) * 100}%` }" />
-                    <i style="left: 33%" /><i style="left: 66%" />
+        <!-- Top centre: boss bar and target -->
+        <div class="vx-tc">
+            <Transition name="vx-drop">
+                <div v-if="hud.warden" class="vx-boss" :class="{ 'vx-boss-locked': (hud.warden.locks ?? 0) > 0, 'vx-boss-hit': bossHit }">
+                    <div class="vx-boss-head">
+                        <i /><UIcon :name="hud.warden.carrier ? 'i-lucide-ship' : 'i-lucide-skull'" /><span>{{ hud.warden.name }}</span><i />
+                    </div>
+                    <div class="vx-boss-bar">
+                        <div class="vx-boss-ghost" :style="{ width: pct(hud.warden.hp, hud.warden.maxHp) }" />
+                        <div class="vx-boss-hull" :style="{ width: pct(hud.warden.hp, hud.warden.maxHp) }" />
+                        <div v-if="hud.warden.shieldMax > 0" class="vx-boss-shield" :style="{ width: pct(hud.warden.shield, hud.warden.maxHp) }" />
+                        <template v-if="!hud.warden.carrier"><b style="left: 33.3%" /><b style="left: 66.6%" /></template>
+                    </div>
+                    <div class="vx-boss-foot">
+                        <template v-if="hud.warden.carrier">
+                            <span v-if="hud.warden.locks" class="vx-boss-note"><UIcon name="i-lucide-shield" />Reactors</span>
+                            <span class="vx-pips"><i v-for="n in hud.warden.locks ?? 0" :key="n" class="vx-pip-lock" /></span>
+                        </template>
+                        <template v-else>
+                            <span class="vx-pips"><i v-for="n in 3" :key="n" :class="{ 'vx-pip-spent': n < bossPhase, 'vx-pip-now': n === bossPhase }" /></span>
+                            <span v-if="hud.warden.shield > 0" class="vx-boss-note"><UIcon name="i-lucide-shield" />Energy weapons strip it</span>
+                        </template>
+                    </div>
                 </div>
-                <div v-if="hud.warden.shield > 0" class="vr-boss-note">Shield holding · energy weapons strip it fastest</div>
+            </Transition>
+            <Transition name="vx-drop">
+                <div v-if="hud.target && !(hud.warden && hud.target.name === hud.warden.name)" class="vx-target" :class="`vx-target-${targetTone}`">
+                    <svg viewBox="0 0 32 32" class="vx-target-glyph">
+                        <path v-if="hud.target.kind === 'rock'" d="M9 5l12-1 7 9-3 12-12 3-9-8 1-10z" />
+                        <path v-else-if="hud.target.kind === 'crate'" d="M5 10l11-5 11 5v12l-11 5-11-5zM5 10l11 5 11-5M16 15v12" />
+                        <path v-else d="M16 3l4 11 9 8-9-2-4 9-4-9-9 2 9-8z" />
+                    </svg>
+                    <div class="vx-target-body">
+                        <div class="vx-target-line">
+                            <span class="vx-target-name">{{ hud.target.name }}</span>
+                            <em v-if="hud.target.detail">{{ hud.target.detail }}</em>
+                            <b>{{ dist(hud.target.dist) }}</b>
+                        </div>
+                        <div v-if="hud.target.shieldMax > 0" class="vx-target-bar vx-target-shield"><div :style="{ width: pct(hud.target.shield, hud.target.shieldMax) }" /></div>
+                        <div class="vx-target-bar"><div :style="{ width: pct(hud.target.hp, hud.target.maxHp) }" /></div>
+                    </div>
+                </div>
+            </Transition>
+        </div>
+        <TransitionGroup name="vx-toast" tag="div" class="vx-toasts">
+            <div v-for="t in toasts" :key="t.id" class="vx-toast" :class="`vx-toast-${t.tone}`"><i />{{ t.text }}</div>
+        </TransitionGroup>
+
+        <!-- Bottom left: ship vitals -->
+        <div class="vx-bl">
+            <div v-if="hud.systems?.subsystems.length" class="vx-subsys">
+                <span v-for="s in hud.systems.subsystems" :key="s.id"><UIcon name="i-lucide-triangle-alert" />{{ subsystemName(s.id) }} {{ Math.ceil(s.left) }}s</span>
             </div>
-            <TransitionGroup name="vr-toast" tag="div" class="vr-toasts">
-                <div v-for="t in toasts" :key="t.id" class="vr-toast" :class="`vr-toast-${t.tone}`">{{ t.text }}</div>
-            </TransitionGroup>
+            <div class="vx-ship">
+                <span class="vx-ship-name">{{ run?.shipName }}</span>
+                <span class="vx-speed" :class="{ 'vx-speed-boost': hud.boosting }">{{ Math.round(hud.speed) }}<small>m/s</small></span>
+            </div>
+            <div class="vx-vital vx-vital-shield" :class="{ 'vx-vital-hit': shieldHit, 'vx-vital-down': hud.maxShield > 0 && hud.shield <= 0 }">
+                <UIcon name="i-lucide-shield" />
+                <div class="vx-vital-track">
+                    <div class="vx-vital-ghost" :style="{ width: pct(hud.shield, hud.maxShield) }" />
+                    <div class="vx-vital-fill" :style="{ width: pct(hud.shield, hud.maxShield) }" />
+                </div>
+                <b>{{ Math.ceil(hud.shield) }}</b>
+            </div>
+            <div class="vx-vital vx-vital-hull" :class="{ 'vx-vital-hit': hullHit, 'vx-vital-low': hud.lowHull }">
+                <UIcon name="i-lucide-heart-pulse" />
+                <div class="vx-vital-track">
+                    <div class="vx-vital-ghost" :style="{ width: pct(hud.hull, hud.maxHull) }" />
+                    <div class="vx-vital-fill" :style="{ width: pct(hud.hull, hud.maxHull) }" />
+                </div>
+                <b>{{ Math.ceil(hud.hull) }}</b>
+            </div>
         </div>
 
-        <!-- Bottom left: hull / shield -->
-        <div class="vr-hud-bl">
-            <div class="vr-ship-line">
-                <span class="vr-ship-name">{{ run?.shipName }}</span>
-                <span class="vr-speed">{{ Math.round(hud.speed) }} <small>m/s</small></span>
-            </div>
-            <div class="vr-meter vr-meter-shield">
-                <label>SHD</label>
-                <div class="vr-meter-track"><div :style="{ width: pct(hud.shield, hud.maxShield) }" /></div>
-                <span>{{ Math.ceil(hud.shield) }}</span>
-            </div>
-            <div class="vr-meter vr-meter-hull" :class="{ 'vr-critical': hud.lowHull }">
-                <label>HULL</label>
-                <div class="vr-meter-track"><div :style="{ width: pct(hud.hull, hud.maxHull) }" /></div>
-                <span>{{ Math.ceil(hud.hull) }}</span>
-            </div>
-            <div v-if="hud.skill" class="vr-ability vr-skill" :class="{ 'vr-ready': hud.skill.ready >= 1, 'vr-active': hud.skill.active }" :style="{ '--sc': hud.skill.color }">
+        <!-- Bottom centre: action bar -->
+        <div class="vx-bar">
+            <div v-if="hud.skill" class="vx-slot vx-slot-lg" :class="slotState(hud.skill.ready, hud.skill.active)" :style="{ '--c': hud.skill.color, '--p': hud.skill.active ? hud.skill.activeFrac : Math.min(1, hud.skill.ready) }">
+                <div class="vx-slot-face"><UIcon :name="SKILL_ICONS[hud.skill.id] ?? 'i-lucide-sparkles'" /></div>
                 <kbd>Q</kbd>
-                <div>
-                    <div class="vr-ability-name">{{ hud.skill.name }}<small v-if="hud.skill.stacks"> ×{{ hud.skill.stacks }}</small></div>
-                    <div class="vr-ability-track"><div :style="{ width: `${(hud.skill.active ? hud.skill.activeFrac : Math.min(1, hud.skill.ready)) * 100}%` }" /></div>
-                </div>
+                <b v-if="hud.skill.stacks">×{{ hud.skill.stacks }}</b>
+                <span>{{ hud.skill.name }}</span>
             </div>
-            <div v-if="hud.systems?.subsystems.length" class="vr-subsys">
-                <span v-for="s in hud.systems.subsystems" :key="s.id">{{ subsystemName(s.id) }} offline · {{ Math.ceil(s.left) }}s</span>
-            </div>
-            <div v-if="hud.systems" class="vr-sys">
-                <div v-if="hud.systems.secondary" class="vr-sys-chip" :class="{ 'vr-sys-lock': hud.systems.secondary.locked }" :title="hud.systems.secondary.name">
-                    <kbd>E</kbd>{{ hud.systems.secondary.ammo }}/{{ hud.systems.secondary.max }}
-                    <i :style="{ width: `${(hud.systems.secondary.lock > 0 ? hud.systems.secondary.lock : hud.systems.secondary.ready) * 100}%` }" />
-                </div>
-                <div v-if="hud.systems.device" class="vr-sys-chip" :class="{ 'vr-sys-on': hud.systems.device.active }" :title="`${hud.systems.device.name}: ${hud.systems.device.effect}`">
-                    <kbd>G</kbd>{{ hud.systems.device.ready >= 1 ? hud.systems.device.name : `${Math.round(hud.systems.device.ready * 100)}%` }}
-                    <i :style="{ width: `${hud.systems.device.ready * 100}%` }" />
-                </div>
-                <div class="vr-sys-chip" title="Scan: marks hidden caches and data logs nearby">
-                    <kbd>T</kbd>Scan for loot
-                    <i :style="{ width: `${hud.systems.scan * 100}%` }" />
-                </div>
-                <div class="vr-sys-chip" title="Jump fuel">
-                    <UIcon name="i-lucide-fuel" class="size-3" />{{ hud.systems.fuel }}
-                </div>
-            </div>
-            <div class="vr-supplies">
-                <div v-for="s in hud.supplies" :key="s.id" class="vr-supply" :class="{ 'vr-supply-out': !s.count }" :style="{ '--sc': s.color }" :title="s.name">
-                    <kbd>{{ s.key }}</kbd><b>{{ s.count }}</b>
-                </div>
-                <div v-if="hud.relics" class="vr-supply vr-relic-count" title="Relic caches">
-                    <UIcon name="i-lucide-gem" class="size-3" /><b>{{ hud.relics }}</b>
-                </div>
-                <div v-if="hud.gearCaches" class="vr-supply vr-gear-count" title="Salvaged gear caches, opened when you extract">
-                    <UIcon name="i-lucide-package" class="size-3" /><b>{{ hud.gearCaches }}</b>
-                </div>
-            </div>
-            <div v-if="hud.abilityName" class="vr-ability" :class="{ 'vr-ready': hud.abilityReady >= 1, 'vr-active': hud.abilityActive }">
+            <div v-if="hud.abilityName" class="vx-slot vx-slot-lg" :class="slotState(hud.abilityReady, hud.abilityActive)" :style="{ '--c': '#ffd27a', '--p': Math.max(0, Math.min(1, hud.abilityReady)) }">
+                <div class="vx-slot-face"><UIcon name="i-lucide-zap" /></div>
                 <kbd>R</kbd>
-                <div>
-                    <div class="vr-ability-name">{{ hud.abilityName }}</div>
-                    <div class="vr-ability-track"><div :style="{ width: `${Math.min(1, hud.abilityReady) * 100}%` }" /></div>
+                <span>{{ hud.abilityName }}</span>
+            </div>
+            <template v-if="hud.systems">
+                <div v-if="hud.systems.secondary" class="vx-slot" :class="[slotState(hud.systems.secondary.ammo > 0 ? hud.systems.secondary.ready : 0, hud.systems.secondary.locked), { 'vx-slot-locking': hud.systems.secondary.lock > 0 }]" :style="{ '--c': '#ff6b7d', '--p': hud.systems.secondary.lock > 0 ? hud.systems.secondary.lock : hud.systems.secondary.ready }">
+                    <div class="vx-slot-face"><UIcon name="i-lucide-rocket" /></div>
+                    <kbd>E</kbd>
+                    <b>{{ hud.systems.secondary.ammo }}</b>
+                    <span>{{ hud.systems.secondary.locked ? 'Locked' : hud.systems.secondary.name }}</span>
                 </div>
+                <div v-if="hud.systems.device" class="vx-slot" :class="slotState(hud.systems.device.ready, hud.systems.device.active)" :style="{ '--c': '#9fe8ff', '--p': Math.min(1, hud.systems.device.ready) }">
+                    <div class="vx-slot-face"><UIcon name="i-lucide-cpu" /></div>
+                    <kbd>G</kbd>
+                    <span>{{ hud.systems.device.name }}</span>
+                </div>
+                <div class="vx-slot" :class="slotState(hud.systems.scan, false)" :style="{ '--c': '#7dffc8', '--p': Math.min(1, hud.systems.scan) }">
+                    <div class="vx-slot-face"><UIcon name="i-lucide-radar" /></div>
+                    <kbd>T</kbd>
+                    <span>Scan</span>
+                </div>
+            </template>
+            <i v-if="hud.supplies.length" class="vx-bar-split" />
+            <div v-for="s in hud.supplies" :key="s.id" class="vx-slot vx-slot-sm" :class="s.count ? 'vx-slot-ready' : 'vx-slot-empty'" :style="{ '--c': s.color, '--p': 1 }">
+                <div class="vx-slot-face"><UIcon :name="SUPPLY_ICONS[s.id] ?? 'i-lucide-box'" /></div>
+                <kbd>{{ s.key }}</kbd>
+                <b>{{ s.count }}</b>
             </div>
         </div>
 
-        <!-- Bottom right: cargo -->
-        <div class="vr-hud-br" :class="{ 'vr-bump': bump }">
-            <div class="vr-cargo-head">
-                <span>Hold</span>
-                <span :class="{ 'vr-full': hud.cargoUnits >= hud.cargoCap }">{{ hud.cargoUnits }} / {{ hud.cargoCap }}</span>
+        <!-- Bottom right: the hold -->
+        <div class="vx-br" :class="{ 'vx-bump': bump, 'vx-hold-full': holdFull }">
+            <div class="vx-hold-head">
+                <span><UIcon name="i-lucide-container" />{{ holdFull ? 'Hold full' : 'Hold' }}</span>
+                <b>{{ hud.cargoUnits }}<small>/{{ hud.cargoCap }}</small></b>
             </div>
-            <div class="vr-cargo-track"><div :style="{ width: pct(hud.cargoUnits, hud.cargoCap) }" /></div>
-            <div class="vr-cargo-list">
-                <div v-for="item in cargoList" :key="item.id" class="vr-cargo-item" :class="{ 'vr-cargo-new': recent[item.id] }">
+            <div class="vx-hold-gauge" :style="{ '--p': Math.min(1, hud.cargoUnits / Math.max(1, hud.cargoCap)) }"><div /></div>
+            <TransitionGroup name="vx-cargo" tag="div" class="vx-hold-list">
+                <div v-for="item in cargoList" :key="item.id" class="vx-hold-item" :class="{ 'vx-hold-new': recent[item.id] }">
                     <i class="vr-gem" :style="{ '--c': item.hex }" />
                     <span>{{ item.name }}</span>
                     <b>{{ item.amount }}</b>
                 </div>
-                <div v-if="!cargoList.length" class="vr-cargo-empty">Empty. Shoot ore-veined rocks.</div>
-            </div>
-            <div v-if="cargoValue > 0" class="vr-cargo-value">≈ {{ formatNumber(cargoValue) }} coins</div>
-        </div>
-
-        <!-- Dock prompt -->
-        <div v-if="hud.dock && hud.phase === 'flying'" class="vr-dock">
-            <div class="vr-dock-ring" :style="{ '--p': hud.dock.progress }">
-                <kbd>F</kbd>
-            </div>
-            <div>
-                <div class="vr-dock-title">Hold F to dock at {{ hud.dock.label.toLowerCase() }}</div>
-                <div class="vr-dock-sub">Bank {{ hud.cargoUnits }} units<template v-if="hud.wardenKilled"> and claim the sector</template></div>
+            </TransitionGroup>
+            <div class="vx-hold-foot">
+                <span v-if="hud.systems" class="vx-chip vx-chip-fuel" :class="{ 'vx-chip-dim': !hud.systems.fuel }"><UIcon name="i-lucide-fuel" />{{ hud.systems.fuel }}</span>
+                <span v-if="hud.relics" class="vx-chip vx-chip-relic"><UIcon name="i-lucide-gem" />{{ hud.relics }}</span>
+                <span v-if="hud.gearCaches" class="vx-chip vx-chip-gear"><UIcon name="i-lucide-package" />{{ hud.gearCaches }}</span>
+                <span v-if="cargoValue > 0" class="vx-hold-value"><UIcon name="i-lucide-coins" />{{ formatNumber(cargoValue) }}</span>
             </div>
         </div>
 
-        <div v-if="hud.outOfBounds" class="vr-bounds">Uncharted space · patrols hit harder out here</div>
-        <div v-if="hud.trader && hud.phase === 'flying'" class="vr-prompt">Press <kbd>F</kbd> to trade</div>
+        <!-- Prompts above the action bar -->
+        <div class="vx-prompts">
+            <Transition name="vx-rise" mode="out-in">
+                <div v-if="hud.dock && hud.phase === 'flying'" key="dock" class="vx-prompt vx-prompt-dock">
+                    <div class="vx-ring" :style="{ '--p': hud.dock.progress }"><kbd>F</kbd></div>
+                    <div>
+                        <div class="vx-prompt-title">Hold to dock · {{ hud.dock.label }}</div>
+                        <div class="vx-prompt-sub">Bank the hold<template v-if="hud.wardenKilled"> · claim the sector</template></div>
+                    </div>
+                </div>
+                <div v-else-if="hud.trader && hud.phase === 'flying'" key="trade" class="vx-prompt">
+                    <div class="vx-ring"><kbd>F</kbd></div>
+                    <div class="vx-prompt-title">Trade</div>
+                </div>
+            </Transition>
+        </div>
 
-        <Transition name="vr-banner">
-            <div v-if="banner" :key="banner.id" class="vr-banner" :class="`vr-banner-${banner.tone}`">
-                <div class="vr-banner-line" />
-                <div class="vr-banner-title">{{ banner.title }}</div>
-                <div class="vr-banner-sub">{{ banner.subtitle }}</div>
-                <div class="vr-banner-line" />
+        <Transition name="vx-rise">
+            <div v-if="hud.outOfBounds" class="vx-bounds"><UIcon name="i-lucide-triangle-alert" />Uncharted space<small>Patrols hit harder out here</small></div>
+        </Transition>
+
+        <Transition name="vx-banner">
+            <div v-if="banner" :key="banner.id" class="vx-banner" :class="`vx-banner-${banner.tone}`">
+                <div class="vx-banner-rule" />
+                <div class="vx-banner-title">{{ banner.title }}</div>
+                <div class="vx-banner-sub">{{ banner.subtitle }}</div>
+                <div class="vx-banner-rule" />
             </div>
         </Transition>
-        <Transition name="vr-streak">
-            <div v-if="hud.streak" :key="hud.streak" class="vr-streak">
+        <Transition name="vx-streak">
+            <div v-if="hud.streak" :key="hud.streak" class="vx-streak" :class="{ 'vx-streak-big': hud.streak >= 8 }">
                 <b>×{{ hud.streak }}</b>
                 <span>{{ streakName(hud.streak) }}</span>
             </div>
         </Transition>
-
     </div>
-
 </template>
 
 <script setup lang="ts">
@@ -170,18 +224,16 @@ const props = defineProps<{
     priceMult?: number
 }>()
 
-const WANTED_HINT = [
-    'Nobody is looking for you. Fight to draw them out.',
-    'A wing is looking for you.',
-    'Patrols are hunting you.',
-    'Heavy wings, coming often.',
-    'They arrive faster than you can lose them. Bank your hold.',
-    'Everything in the sector is coming for you.'
-]
-
-const wantedHint = computed(() => `${WANTED_HINT[props.hud.wanted] ?? ''} Kills raise it; breaking away lowers it.`)
-
-const SUBSYSTEMS: Record<string, string> = { engines: 'Engines', weapons: 'Weapons', shield: 'Shield' }
+const SKILL_ICONS: Record<string, string> = {
+    seeker: 'i-lucide-rocket',
+    shockwave: 'i-lucide-radio',
+    berserk: 'i-lucide-flame',
+    wingmen: 'i-lucide-send',
+    overdrive: 'i-lucide-gauge',
+    strike: 'i-lucide-satellite-dish'
+}
+const SUPPLY_ICONS: Record<string, string> = { nanites: 'i-lucide-wrench', cell: 'i-lucide-battery-charging', emp: 'i-lucide-zap' }
+const SUBSYSTEMS: Record<string, string> = { engines: 'Engines', weapons: 'Weapons', shields: 'Shields', shield: 'Shields' }
 
 function subsystemName(id: string) {
     return SUBSYSTEMS[id] ?? id
@@ -190,6 +242,51 @@ function subsystemName(id: string) {
 function streakName(n: number) {
     return n >= 12 ? 'Annihilation' : n >= 8 ? 'Rampage' : n >= 5 ? 'Onslaught' : 'Streak'
 }
+
+function slotState(ready: number, active: boolean) {
+    return active ? 'vx-slot-active' : ready >= 1 ? 'vx-slot-ready' : 'vx-slot-cooling'
+}
+
+/** "3/5" style progress as 0-1, so a step can show a bar under its text. */
+function fraction(progress?: string) {
+    const m = progress?.match(/^\s*([\d.]+)\s*\/\s*([\d.]+)/)
+    if (!m) return null
+    return Math.max(0, Math.min(1, Number(m[1]) / Math.max(1, Number(m[2]))))
+}
+
+const bossPhase = computed(() => {
+    const w = props.hud.warden
+    if (!w) return 1
+    const frac = w.hp / Math.max(1, w.maxHp)
+    return frac > 0.66 ? 1 : frac > 0.33 ? 2 : 3
+})
+
+const targetTone = computed(() => {
+    const t = props.hud.target
+    return !t ? 'idle' : t.kind === 'rock' ? 'rock' : t.kind === 'crate' ? 'crate' : !t.hostile ? 'friend' : t.detail ? 'elite' : 'hostile'
+})
+
+const holdFull = computed(() => props.hud.cargoUnits >= props.hud.cargoCap)
+
+/** A one-shot class that drops itself, for hit flashes driven by a falling number. */
+function useFlash(source: () => number, ms: number) {
+    const on = ref(false)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    watch(source, (now, before) => {
+        if (now >= before - 0.5) return
+        on.value = true
+        clearTimeout(timer)
+        timer = setTimeout(() => {
+            on.value = false
+        }, ms)
+    })
+    onBeforeUnmount(() => clearTimeout(timer))
+    return on
+}
+
+const hullHit = useFlash(() => props.hud.hull, 260)
+const shieldHit = useFlash(() => props.hud.shield, 220)
+const bossHit = useFlash(() => (props.hud.warden ? props.hud.warden.hp + props.hud.warden.shield : 0), 160)
 
 const bump = ref(false)
 const recent = ref<Record<string, boolean>>({})
@@ -210,14 +307,16 @@ watch(() => ({ ...props.hud.cargo }), (now, before) => {
         }
     }
     if (!grew) return
-    bump.value = false
-    requestAnimationFrame(() => {
-        bump.value = true
-    })
+    bump.value = true
     clearTimeout(bumpTimer)
     bumpTimer = setTimeout(() => {
         bump.value = false
-    }, 300)
+    }, 320)
+})
+
+onBeforeUnmount(() => {
+    clearTimeout(bumpTimer)
+    for (const t of Object.values(timers)) clearTimeout(t)
 })
 
 const cargoList = computed(() => bundleItems(props.hud.cargo))
@@ -231,6 +330,10 @@ function bundleItems(bundle: VoidResourceBundle) {
 
 function pct(v: number, max: number) {
     return `${Math.max(0, Math.min(100, (v / Math.max(1, max)) * 100))}%`
+}
+
+function dist(d: number) {
+    return d >= 1000 ? `${(d / 1000).toFixed(1)}km` : `${Math.round(d)}m`
 }
 
 function clock(seconds: number) {
