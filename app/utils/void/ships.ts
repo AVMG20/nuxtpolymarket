@@ -201,6 +201,69 @@ function barrel(b: ModelBuilder, l: Livery, pos: Vec3, length: number, r: number
     b.glow(tube(r * 0.6, r * 0.6, 0.02, 8), l.glow, 2.5, [pos[0], pos[1], pos[2] - length * 0.51], [0, 0, 0], [1, 1, 1], mirror)
 }
 
+/** The hull's cross-section at `z`, interpolated between the two sections around it. */
+function sectionAt(sections: Section[], z: number): Section {
+    for (let i = 0; i < sections.length - 1; i++) {
+        const a = sections[i]!
+        const c = sections[i + 1]!
+        if (z < a.z || z > c.z) continue
+        const t = (z - a.z) / (c.z - a.z)
+        const mix = (p: number, q: number) => p + (q - p) * t
+        return { z, w: mix(a.w, c.w), h: mix(a.h, c.h), x: mix(a.x ?? 0, c.x ?? 0), y: mix(a.y ?? 0, c.y ?? 0) }
+    }
+    return { ...(z < sections[0]!.z ? sections[0]! : sections[sections.length - 1]!), z }
+}
+
+/** A painted or lit band hugging a lofted hull between two stations: livery stripes, armour belts, light strips. */
+function band(b: ModelBuilder, sections: Section[], z0: number, z1: number, color: number, shape: [number, number, number], grow = 0.03, glow = 0, mirror = false) {
+    const inner = sections.filter(s => s.z > z0 && s.z < z1)
+    const geo = loft([sectionAt(sections, z0), ...inner, sectionAt(sections, z1)].map(s => ({ ...s, w: s.w + grow, h: s.h + grow })), ...shape)
+    if (glow) b.glow(geo, color, glow, [0, 0, 0], [0, 0, 0], [1, 1, 1], mirror)
+    else b.solid(geo, color, [0, 0, 0], [0, 0, 0], [1, 1, 1], mirror)
+}
+
+/** A turret ring bolted to the hull, with its hardpoint on top. */
+function mount(b: ModelBuilder, l: Livery, pos: Vec3, up = true, mirror = false, r = 0.3) {
+    b.metal(cyl(up ? r : r * 1.2, up ? r * 1.2 : r, 0.1, 8), l.trim, pos, [0, 0, 0], [1, 1, 1], mirror)
+    b.hardpoint([pos[0], pos[1] + (up ? 0.05 : -0.05), pos[2]], [0, up ? 1 : -1, 0], mirror)
+}
+
+/** An armour plate standing on a flank. The outline is (height, z); a positive tilt leans its top inboard. */
+function flankPlate(b: ModelBuilder, color: number, outline: [number, number][], thickness: number, pos: Vec3, tilt = 0, bevel = 0.05) {
+    b.solid(slab(outline, thickness, bevel), color, pos, [0, 0, Math.PI / 2 + tilt], [1, 1, 1], true)
+}
+
+/** A radiator wing reaching out from `pos` along X, its hot coils lit on both faces. */
+function radiator(b: ModelBuilder, l: Livery, pos: Vec3, w: number, d: number, tilt: number, color: number, coils = 4) {
+    const c = Math.cos(tilt)
+    const s = Math.sin(tilt)
+    const at = (u: number, v: number, z: number): Vec3 => [pos[0] + u * c - v * s, pos[1] + u * s + v * c, pos[2] + z]
+    b.metal(block(w, 0.06, d, 0.015), l.trim, at(w / 2, 0, 0), [0, 0, tilt], [1, 1, 1], true)
+    b.metal(new THREE.BoxGeometry(w, 0.1, 0.08), l.metal, at(w / 2, 0, -d / 2), [0, 0, tilt], [1, 1, 1], true)
+    for (let i = 0; i < coils; i++) {
+        const z = -d / 2 + (d * (i + 0.75)) / (coils + 0.5)
+        for (const v of [0.04, -0.04]) b.glow(new THREE.BoxGeometry(w * 0.86, 0.015, d * 0.09), color, 1.7, at(w * 0.52, v, z), [0, 0, tilt], [1, 1, 1], true)
+    }
+}
+
+/** A pressure tank lying along Z: domed ends and metal straps. */
+function tank(b: ModelBuilder, l: Livery, color: number, pos: Vec3, r: number, length: number, mirror = false) {
+    b.solid(tube(r, r, length, 10), color, pos, [0, 0, 0], [1, 1, 1], mirror)
+    for (const end of [-1, 1]) b.solid(ico(r, 1), color, [pos[0], pos[1], pos[2] + end * length / 2], [0, 0, 0], [1, 1, 0.6], mirror)
+    for (const t of [-0.3, 0.3]) b.metal(ring(r * 1.03, r * 0.08, 4, 12), l.metal, [pos[0], pos[1], pos[2] + t * length], [0, 0, 0], [1, 1, 1], mirror)
+}
+
+/** A sensor dish on a short stalk, tipped back to look up and aft. */
+function dish(b: ModelBuilder, l: Livery, pos: Vec3, r: number) {
+    b.metal(cyl(r * 0.12, r * 0.18, r * 0.8, 6), l.trim, [pos[0], pos[1] + r * 0.4, pos[2]])
+    b.metal(new THREE.ConeGeometry(r, r * 0.4, 12, 1, true).rotateX(Math.PI), l.metal, [pos[0], pos[1] + r, pos[2]], [0.6, 0, 0])
+    b.glow(octa(r * 0.14), l.glow, 3, [pos[0], pos[1] + r * 1.15, pos[2] + r * 0.2])
+}
+
+function shade(color: number, f: number) {
+    return new THREE.Color(color).multiplyScalar(f).getHex()
+}
+
 // ─── Hull designs ──────────────────────────────────────────────────────────
 
 export const LIVERIES: Record<string, Livery> = {
@@ -272,67 +335,93 @@ const DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => void> = {
         b.hardpoint([0, 0.25, 0.75], [0, 1, 0])
     },
 
+    // A deep-space tug: a fat cab up front, an open keel behind it, and mismatched
+    // freight boxes clamped to the keel over a pair of slung fuel tanks.
     mule(b, l) {
-        // Cab: a chunky tug nose with a wraparound canopy.
-        b.solid(loft([
-            { z: -2.95, w: 0.5, h: 0.42, y: 0.05 },
-            { z: -2.55, w: 0.88, h: 0.7 },
-            { z: -1.5, w: 1.0, h: 0.8 },
-            { z: -1.15, w: 0.92, h: 0.72 }
-        ], 8, 0.58, Math.PI / 8), l.paint)
+        const TEAL = 0x1f8f8a
+        const CREAM = 0xe8dcc4
+        const OCT: [number, number, number] = [8, 0.58, Math.PI / 8]
+        const cab: Section[] = [
+            { z: -3.0, w: 0.55, h: 0.42, y: 0.02 },
+            { z: -2.6, w: 0.95, h: 0.72 },
+            { z: -1.5, w: 1.08, h: 0.84 },
+            { z: -1.1, w: 0.9, h: 0.7 }
+        ]
+        b.solid(loft(cab, ...OCT), l.paint)
+        band(b, cab, -1.85, -1.55, CREAM, OCT)
+        band(b, cab, -1.5, -1.38, l.trim, OCT, 0.04)
         b.glass(loft([
-            { z: -2.78, w: 0.55, h: 0.12, y: 0.4 },
-            { z: -2.45, w: 0.9, h: 0.2, y: 0.5 },
-            { z: -2.1, w: 0.95, h: 0.2, y: 0.55 }
+            { z: -2.85, w: 0.6, h: 0.13, y: 0.4 },
+            { z: -2.5, w: 0.93, h: 0.22, y: 0.5 },
+            { z: -2.1, w: 0.98, h: 0.2, y: 0.57 }
         ], 8, 0.7), l.glass)
-        b.metal(new THREE.BoxGeometry(0.06, 0.26, 0.5), l.trim, [0, 0.6, -2.42])
-        windows(b, [1.005, 0.3, -2.0], 3, 0.25, 0.14, 'z')
-        windows(b, [-1.005, 0.3, -2.0], 3, 0.25, 0.14, 'z')
-        for (let i = 0; i < 5; i++) b.solid(block(0.2, 0.06, 0.34, 0.01), i % 2 ? l.trim : l.accent, [-0.48 + i * 0.24, -0.52, -2.62], [0.75, 0, 0])
-        // Work lights and mining drills
-        b.glow(new THREE.BoxGeometry(0.22, 0.1, 0.04), 0xfff4d6, 3.2, [0.55, -0.2, -2.93], [0, 0, 0], [1, 1, 1], true)
-        b.metal(block(0.22, 0.22, 1.1, 0.03), l.metal, [0.62, -0.55, -2.6], [0, 0, 0], [1, 1, 1], true)
-        b.metal(new THREE.ConeGeometry(0.2, 0.75, 8).rotateX(-Math.PI / 2), l.trim, [0.62, -0.55, -3.45], [0, 0, 0], [1, 1, 1], true)
-        b.glow(ring(0.17, 0.025, 3, 12), l.glow, 2.6, [0.62, -0.55, -3.2], [0, 0, 0], [1, 1, 1], true)
-        b.glow(ring(0.11, 0.02, 3, 12), l.glow, 2.6, [0.62, -0.55, -3.45], [0, 0, 0], [1, 1, 1], true)
-        // Spine truss
-        b.metal(block(0.16, 0.16, 4.3, 0.02), l.metal, [0.28, 0.2, 0.9], [0, 0, 0], [1, 1, 1], true)
-        b.metal(block(0.16, 0.16, 4.3, 0.02), l.metal, [0.28, -0.3, 0.9], [0, 0, 0], [1, 1, 1], true)
-        for (let i = 0; i < 6; i++) b.metal(new THREE.BoxGeometry(0.62, 0.06, 0.06), l.trim, [0, 0.2 - (i % 2) * 0.5, -0.9 + i * 0.75])
-        // Cargo modules with hazard stripes
-        for (let i = 0; i < 3; i++) {
-            const z = -0.45 + i * 1.18
-            const paint = i === 1 ? l.paint2 : l.paint
-            b.solid(block(0.95, 0.95, 1.05, 0.07), paint, [0.82, -0.02, z], [0, 0, 0], [1, 1, 1], true)
-            b.metal(block(1.0, 0.07, 1.1, 0.02), l.trim, [0.82, 0.47, z], [0, 0, 0], [1, 1, 1], true)
-            b.metal(block(1.0, 0.07, 1.1, 0.02), l.trim, [0.82, -0.51, z], [0, 0, 0], [1, 1, 1], true)
-            for (let k = 0; k < 4; k++) b.solid(new THREE.BoxGeometry(0.02, 0.1, 0.2), k % 2 ? l.trim : l.accent, [1.3, 0.3, z - 0.3 + k * 0.2], [0, 0, 0], [1, 1, 1], true)
-            b.glow(new THREE.BoxGeometry(0.03, 0.12, 0.12), l.glow, 2, [1.31, -0.25, z + 0.35], [0, 0, 0], [1, 1, 1], true)
+        b.metal(new THREE.BoxGeometry(0.06, 0.28, 0.55), l.trim, [0, 0.62, -2.45])
+        b.metal(new THREE.BoxGeometry(0.05, 0.26, 0.5), l.trim, [0.5, 0.58, -2.42], [0, -0.25, 0], [1, 1, 1], true)
+        windows(b, [1.05, 0.3, -2.0], 3, 0.25, 0.14, 'z')
+        windows(b, [-1.05, 0.3, -2.0], 3, 0.25, 0.14, 'z')
+        // Bumper, work lights and the mining drills under the chin.
+        for (let i = 0; i < 5; i++) b.solid(block(0.2, 0.06, 0.34, 0.01), i % 2 ? l.trim : l.accent, [-0.48 + i * 0.24, -0.52, -2.66], [0.75, 0, 0])
+        b.glow(new THREE.BoxGeometry(0.24, 0.1, 0.04), 0xfff4d6, 3.2, [0.55, -0.18, -2.95], [0, 0, 0], [1, 1, 1], true)
+        b.metal(block(0.24, 0.24, 1.2, 0.03), l.metal, [0.62, -0.58, -2.55], [0, 0, 0], [1, 1, 1], true)
+        b.solid(block(0.3, 0.3, 0.3, 0.03), l.accent, [0.62, -0.58, -3.0], [0, 0, 0], [1, 1, 1], true)
+        b.metal(new THREE.ConeGeometry(0.2, 0.8, 8).rotateX(-Math.PI / 2), l.trim, [0.62, -0.58, -3.5], [0, 0, 0], [1, 1, 1], true)
+        b.glow(ring(0.17, 0.025, 3, 12), l.glow, 2.6, [0.62, -0.58, -3.25], [0, 0, 0], [1, 1, 1], true)
+        b.glow(ring(0.1, 0.02, 3, 12), l.glow, 2.6, [0.62, -0.58, -3.55], [0, 0, 0], [1, 1, 1], true)
+        // Keel and the frames the freight clamps to.
+        b.metal(loft([{ z: -1.2, w: 0.36, h: 0.44 }, { z: 2.3, w: 0.36, h: 0.44 }], ...OCT), l.trim)
+        for (const z of [-1.08, 0.05, 1.15, 2.22]) {
+            b.metal(block(2.75, 0.1, 0.1, 0.02), l.metal, [0, 0.52, z])
+            b.metal(block(2.75, 0.1, 0.1, 0.02), l.metal, [0, -0.52, z])
+            b.metal(block(0.1, 1.1, 0.1, 0.02), l.metal, [1.36, 0, z], [0, 0, 0], [1, 1, 1], true)
         }
-        // Crane on the roof
-        b.metal(cyl(0.2, 0.25, 0.15, 10), l.trim, [0, 0.9, -1.55])
-        b.solid(block(0.16, 0.16, 1.4, 0.02), l.accent, [0, 1.05, -1.0], [0.25, 0, 0])
-        b.metal(new THREE.BoxGeometry(0.04, 0.6, 0.04), l.metal, [0, 0.95, -0.35])
-        b.metal(block(0.2, 0.1, 0.2, 0.02), l.trim, [0, 0.62, -0.35])
-        mast(b, [-0.5, 0.78, -1.3], 0.7)
-        // Engine block with radiator fins
-        b.solid(loft([
-            { z: 1.95, w: 0.85, h: 0.62, y: 0.05 },
-            { z: 2.3, w: 1.05, h: 0.75, y: 0.05 },
-            { z: 2.85, w: 1.0, h: 0.7, y: 0.05 },
-            { z: 3.0, w: 0.85, h: 0.6, y: 0.05 }
-        ], 8, 0.55, Math.PI / 8), l.paint2)
-        for (let i = 0; i < 4; i++) {
-            b.metal(slab([[0, 0], [0.5, 0.1], [0.5, 0.5], [0, 0.6]], 0.04, 0.01), l.metal, [0.35 + i * 0.12, 0.72, 2.2], [0, 0, Math.PI / 2], [1, 1, 1], true)
+        seam(b, l.glow, [0, 0.45, 0.55], 3.2, false, 'z', 1.2)
+        // Freight: no two boxes alike.
+        const freight = [[l.paint, TEAL, CREAM], [CREAM, l.paint2, l.paint]]
+        freight.forEach((row, side) => row.forEach((paint, i) => {
+            const x = side ? 0.86 : -0.86
+            const out = side ? 1 : -1
+            const z = -0.52 + i * 1.1
+            b.solid(block(0.92, 0.9, 0.98, 0.06), paint, [x, 0, z])
+            for (let k = 0; k < 5; k++) b.solid(new THREE.BoxGeometry(0.04, 0.74, 0.07), shade(paint, 0.72), [x + out * 0.46, 0, z - 0.36 + k * 0.18])
+            for (let k = 0; k < 4; k++) b.solid(new THREE.BoxGeometry(0.7, 0.04, 0.07), shade(paint, 0.72), [x, 0.45, z - 0.3 + k * 0.2])
+            b.solid(new THREE.BoxGeometry(0.05, 0.16, 0.5), i === 1 ? l.accent : l.trim, [x + out * 0.47, 0.22, z])
+            b.glow(new THREE.BoxGeometry(0.05, 0.08, 0.08), i === 2 ? RED : l.glow, 2.4, [x + out * 0.48, -0.3, z + 0.38])
+        }))
+        tank(b, l, CREAM, [0.86, -0.8, 0.55], 0.3, 2.5, true)
+        b.solid(new THREE.BoxGeometry(0.04, 0.2, 0.9), l.paint, [1.17, -0.8, 0.55], [0, 0, 0], [1, 1, 1], true)
+        // Crane over the freight.
+        b.metal(cyl(0.22, 0.28, 0.2, 10), l.trim, [0, 0.92, -1.5])
+        b.solid(block(0.3, 0.3, 0.4, 0.03), l.accent, [0, 1.12, -1.5])
+        b.solid(block(0.15, 0.15, 2.3, 0.02), l.accent, [0, 1.38, -0.45], [0.22, 0, 0])
+        for (let k = 0; k < 4; k++) b.solid(new THREE.BoxGeometry(0.17, 0.17, 0.12), l.trim, [0, 1.22 + k * 0.105, -1.15 + k * 0.47], [0.22, 0, 0])
+        b.metal(new THREE.BoxGeometry(0.03, 0.62, 0.03), l.metal, [0, 1.3, 0.62])
+        b.metal(block(0.26, 0.08, 0.26, 0.02), l.trim, [0, 0.98, 0.62])
+        b.metal(slab([[0, 0], [0.16, 0.05], [0.12, 0.3], [0, 0.22]], 0.05, 0.01), l.accent, [0.1, 0.98, 0.62], [0, 0, -Math.PI / 2], [1, 1, 1], true)
+        mast(b, [-0.55, 0.8, -1.35], 0.8)
+        dish(b, l, [0.55, 0.8, -1.4], 0.26)
+        // Drive block: stacks, radiator wings and a triple burner.
+        const drive: Section[] = [
+            { z: 2.25, w: 0.9, h: 0.66, y: 0.02 },
+            { z: 2.55, w: 1.12, h: 0.8, y: 0.02 },
+            { z: 3.1, w: 1.05, h: 0.74, y: 0.02 },
+            { z: 3.28, w: 0.88, h: 0.62, y: 0.02 }
+        ]
+        b.solid(loft(drive, ...OCT), l.paint2)
+        band(b, drive, 2.6, 2.78, l.accent, OCT)
+        band(b, drive, 2.86, 2.95, l.trim, OCT)
+        for (const x of [0.3, 0.62]) {
+            b.metal(cyl(0.1, 0.12, 0.6, 8), l.trim, [x, 0.98, 2.8], [0.2, 0, 0], [1, 1, 1], true)
+            b.glow(cyl(0.07, 0.07, 0.02, 8), l.glow, 2.6, [x, 1.28, 2.86], [0.2, 0, 0], [1, 1, 1], true)
         }
-        b.glow(new THREE.BoxGeometry(0.02, 0.02, 0.55), l.glow, 2, [0.35, 1.23, 2.45], [0, 0, 0], [1, 1, 1], true)
-        vent(b, [1.02, 0.1, 2.5], 0.06, 0.4, 0.5, true, 4)
-        nacelle(b, l, [1.05, -0.35, 2.55], 0.24, 0.9, true)
-        b.engine([0.42, 0.25, 3.05], 0.3, true, l.glow)
-        b.engine([0, -0.28, 3.05], 0.3, false, l.glow)
-        navLights(b, 1.35, 0.5, 1.9)
-        b.hardpoint([0, 0.82, -1.95], [0, 1, 0])
-        b.hardpoint([0, -0.36, 0.55], [0, -1, 0])
+        radiator(b, l, [1.05, 0.35, 2.8], 1.25, 0.85, 0.55, 0xff7a2e)
+        vent(b, [1.13, -0.05, 2.8], 0.06, 0.34, 0.5, true, 4)
+        nacelle(b, l, [1.08, -0.5, 2.75], 0.25, 1.0, true)
+        b.engine([0.45, 0.22, 3.32], 0.31, true, l.glow)
+        b.engine([0, -0.3, 3.32], 0.31, false, l.glow)
+        navLights(b, 1.4, 0.55, 2.2)
+        mount(b, l, [0, 0.84, -2.0], true, false, 0.26)
+        mount(b, l, [0, -0.48, 0.6], false, false, 0.26)
+        mount(b, l, [0.86, 0.5, 0.58], true, true, 0.26)
     },
 
     kestrel(b, l) {
@@ -368,6 +457,7 @@ const DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => void> = {
         nacelle(b, l, [0.45, -0.02, 1.75], 0.3, 1.1, true)
         b.hardpoint([1.45, 0.08, 0.5], [0, 1, 0], true)
         b.hardpoint([1.45, -0.08, 0.5], [0, -1, 0], true)
+        b.hardpoint([0, 0.35, 0.3], [0, 1, 0])
     },
 
     phantom(b, l) {
@@ -381,11 +471,11 @@ const DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => void> = {
         b.solid(slab([[0.3, -1.1], [2.3, 0.85], [2.05, 1.3], [0.4, 1.0]], 0.06, 0.02), l.paint, [0, -0.02, 0], [0, 0, 0], [1, 1, 1], true)
         b.solid(slab([[1.6, 0.2], [2.3, 0.85], [2.05, 1.3], [1.5, 0.75]], 0.07, 0.02), l.paint2, [0, -0.015, 0], [0, 0, 0], [1, 1, 1], true)
         // Leading-edge light strips.
-        b.glow(new THREE.BoxGeometry(0.03, 0.03, 2.75), l.glow, 2.6, [1.3, 0.01, -0.13], [0, -0.79, 0], [1, 1, 1], true)
+        b.glow(new THREE.BoxGeometry(0.03, 0.03, 2.7), l.glow, 2.6, [1.3, 0.01, -0.13], [0, 0.797, 0], [1, 1, 1], true)
         b.glow(new THREE.BoxGeometry(0.4, 0.02, 0.02), l.accent, 2.5, [0, 0.27, 0.6])
         // V-tail
         b.solid(slab([[0, 0.3], [0.55, 1.0], [0.45, 1.35], [0, 1.2]], 0.05, 0.015), l.paint2, [0.35, 0.15, 0.2], [0, 0, Math.PI / 2 - 0.65], [1, 1, 1], true)
-        b.glow(new THREE.BoxGeometry(0.02, 0.4, 0.02), l.glow, 2, [0.62, 0.52, 1.55], [0, 0, -0.65], [1, 1, 1], true)
+        b.glow(new THREE.BoxGeometry(0.02, 0.36, 0.02), l.glow, 2, [0.49, 0.34, 1.47], [0, 0, -0.65], [1, 1, 1], true)
         vent(b, [0.45, 0.12, 0.6], 0.3, 0.04, 0.4, true, 2)
         b.metal(block(0.7, 0.12, 0.35, 0.02), l.trim, [0, 0, 1.45])
         b.engine([0.26, 0, 1.55], 0.17, true, l.glow)
@@ -393,86 +483,163 @@ const DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => void> = {
         b.hardpoint([0.95, -0.05, 0.65], [0, -1, 0], true)
     },
 
+    // A shield-bearer: a navy core hull carried between overlapping pauldron
+    // plates, with a projector ring held out ahead of the nose.
     aegis(b, l) {
-        b.solid(loft([
-            { z: -3.4, w: 0.8, h: 0.5, y: -0.1 },
-            { z: -2.6, w: 1.45, h: 0.9 },
-            { z: 0, w: 1.8, h: 1.1 },
-            { z: 2.4, w: 1.7, h: 1.0 },
-            { z: 2.95, w: 1.35, h: 0.78 }
-        ], 8, 0.5, Math.PI / 8), l.paint)
-        // Armoured prow and chamfered side plates.
-        b.solid(slab([[-0.9, -3.8], [0.9, -3.8], [1.5, -2.6], [-1.5, -2.6]], 0.5, 0.08), l.paint2, [0, -0.1, 0])
-        for (let i = 0; i < 3; i++) {
-            const z = -1.5 + i * 1.5
-            b.solid(block(0.3, 1.2, 1.35, 0.08), i === 1 ? l.accent : l.paint2, [1.86, 0.05, z], [0, 0, 0.08], [1, 1, 1], true)
-            b.glow(new THREE.BoxGeometry(0.03, 0.05, 1.0), l.glow, 1.6, [2.02, -0.35, z], [0, 0, 0], [1, 1, 1], true)
+        const GOLD = 0xd9a441
+        const OCT: [number, number, number] = [8, 0.5, Math.PI / 8]
+        const hull: Section[] = [
+            { z: -3.1, w: 0.55, h: 0.42, y: -0.05 },
+            { z: -2.3, w: 1.15, h: 0.82 },
+            { z: 0, w: 1.45, h: 1.05 },
+            { z: 2.4, w: 1.35, h: 0.95 },
+            { z: 3.0, w: 1.05, h: 0.72 }
+        ]
+        b.solid(loft(hull, ...OCT), l.paint)
+        band(b, hull, -2.2, -1.9, l.accent, OCT)
+        band(b, hull, -1.86, -1.78, GOLD, OCT, 0.04)
+        band(b, hull, 1.5, 2.3, l.paint2, OCT)
+        band(b, hull, 2.34, 2.42, GOLD, OCT, 0.04)
+        band(b, hull, -0.04, 0.04, l.glow, OCT, 0.015, 1.4)
+        // Shield projector: a ring on four prongs with a bright emitter at its heart.
+        b.metal(ring(1.0, 0.13, 6, 8), l.trim, [0, -0.05, -3.55], [0, 0, Math.PI / 8])
+        b.glow(ring(0.82, 0.045, 4, 8), l.glow, 2.8, [0, -0.05, -3.6], [0, 0, Math.PI / 8])
+        b.solid(new THREE.TorusGeometry(1.0, 0.15, 6, 2, Math.PI / 4), GOLD, [0, -0.05, -3.55], [0, 0, Math.PI * 0.375])
+        b.solid(new THREE.TorusGeometry(1.0, 0.15, 6, 2, Math.PI / 4), GOLD, [0, -0.05, -3.55], [0, 0, Math.PI * 1.375])
+        for (let i = 0; i < 4; i++) {
+            const a = (i / 4) * Math.PI * 2 + Math.PI / 4
+            b.metal(block(0.16, 0.16, 1.5, 0.03), l.metal, [Math.cos(a) * 0.82, -0.05 + Math.sin(a) * 0.7, -2.9], [Math.sin(a) * 0.22, -Math.cos(a) * 0.22, 0])
         }
-        // Sponsons
-        b.solid(block(0.85, 0.9, 2.3, 0.08), l.paint2, [2.25, 0, -0.5], [0, 0, 0], [1, 1, 1], true)
-        barrel(b, l, [2.25, 0, -2.0], 0.8, 0.09, true)
-        // Bridge
+        b.metal(tube(0.2, 0.32, 0.7, 8), l.trim, [0, -0.05, -3.35])
+        b.glow(octa(0.24), l.glow, 3.5, [0, -0.05, -3.78])
+        // Pauldrons: three kite shields a side, growing aft, each overlapping the next.
+        const kite: [number, number][] = [[0.9, -0.95], [0.9, 0.95], [-0.25, 0.95], [-1.3, 0], [-0.25, -0.95]]
+        for (let i = 0; i < 3; i++) {
+            const k = 0.82 + i * 0.14
+            const x = 2.6 + i * 0.22
+            const z = -1.75 + i * 1.5
+            const face = i === 1 ? l.paint : l.paint2
+            const boss = i === 1 ? l.paint2 : l.paint
+            const scaled = (f: number) => kite.map(([h, d]) => [h * k * f, d * k * f] as [number, number])
+            flankPlate(b, GOLD, scaled(1.06), 0.14, [x - 0.04, 0, z], 0.16, 0.03)
+            flankPlate(b, face, scaled(1), 0.24, [x, 0, z], 0.16, 0.07)
+            flankPlate(b, boss, scaled(0.55), 0.12, [x + 0.15, -0.05, z], 0.16, 0.04)
+            b.glow(new THREE.BoxGeometry(0.04, 0.05, 0.7 * k), l.glow, 2.2, [x + 0.22, 0.1, z], [0, 0, 0.16], [1, 1, 1], true)
+            b.glow(new THREE.BoxGeometry(0.04, 0.6 * k, 0.05), l.glow, 2.2, [x + 0.23, -0.08, z], [0, 0, 0.16], [1, 1, 1], true)
+            for (const d of [-0.7, 0.7]) b.metal(octa(0.07), l.metal, [x + 0.08, 0.68 * k, z + d * k], [0, 0, 0], [1, 1, 1], true)
+            b.metal(block(0.9, 0.22, 0.3, 0.03), l.metal, [2.1 + i * 0.1, -0.1, z + 0.2], [0, 0, 0], [1, 1, 1], true)
+        }
+        // Sponsons tucked behind the plates.
+        b.solid(block(0.85, 0.9, 2.5, 0.08), l.paint2, [1.95, 0, -0.4], [0, 0, 0], [1, 1, 1], true)
+        b.solid(block(0.87, 0.2, 2.0, 0.03), l.paint, [1.95, 0, -0.4], [0, 0, 0], [1, 1, 1], true)
+        barrel(b, l, [1.95, 0.12, -2.0], 0.9, 0.09, true)
+        barrel(b, l, [1.95, -0.16, -1.9], 0.7, 0.07, true)
+        b.engine([1.95, 0, 0.9], 0.3, true, l.glow)
+        // Bridge, then the shield generator dome behind it.
         b.solid(loft([
-            { z: -0.9, w: 0.5, h: 0.2, y: 1.2 },
-            { z: -0.5, w: 0.7, h: 0.35, y: 1.3 },
-            { z: 0.8, w: 0.7, h: 0.35, y: 1.3 },
-            { z: 1.1, w: 0.55, h: 0.25, y: 1.25 }
-        ], 8, 0.55, Math.PI / 8), l.paint2)
-        windows(b, [-0.45, 1.4, -0.72], 7, 0.15, 0.1)
-        mast(b, [0.35, 1.62, 0.7], 1.1)
-        mast(b, [-0.3, 1.62, 0.8], 0.7)
-        vent(b, [0.9, 0.95, 1.8], 0.6, 0.06, 0.8, true, 3)
-        seam(b, l.glow, [0, 1.1, -2.2], 1.6, false, 'z', 0.8)
-        navLights(b, 2.3, 0.5, 0.7)
-        b.engine([0.6, 0.35, 3.05], 0.42, true, l.glow)
-        b.engine([0.6, -0.35, 3.05], 0.38, true, l.glow)
-        greeble(b, l, [0.8, 1.08, 1.5], 0.9, 1.4, 10, 11, true)
-        greeble(b, l, [0.9, 0.96, -1.6], 0.8, 1.2, 8, 12, true)
-        b.hardpoint([0, 1.12, 1.9], [0, 1, 0])
-        b.hardpoint([0, 0.98, -1.7], [0, 1, 0])
-        b.hardpoint([2.25, 0.46, -0.5], [0, 1, 0], true)
-        b.hardpoint([2.25, -0.46, -0.5], [0, -1, 0], true)
+            { z: -1.1, w: 0.45, h: 0.18, y: 1.18 },
+            { z: -0.7, w: 0.7, h: 0.34, y: 1.3 },
+            { z: 0.35, w: 0.7, h: 0.34, y: 1.3 },
+            { z: 0.6, w: 0.55, h: 0.25, y: 1.25 }
+        ], ...OCT), l.paint2)
+        b.glass(new THREE.BoxGeometry(1.1, 0.14, 0.04), l.glass, [0, 1.42, -0.9], [-0.5, 0, 0])
+        windows(b, [-0.45, 1.36, -0.93], 7, 0.15, 0.09)
+        b.solid(new THREE.BoxGeometry(1.42, 0.05, 0.12), GOLD, [0, 1.64, -0.15])
+        mast(b, [0.4, 1.62, 0.3], 1.0)
+        mast(b, [-0.35, 1.62, 0.35], 0.65)
+        b.metal(cyl(0.62, 0.7, 0.16, 12), l.trim, [0, 1.05, 1.25])
+        b.glow(ico(0.46, 1), l.glow, 1.5, [0, 1.12, 1.25], [0, 0, 0], [1, 0.7, 1])
+        for (let i = 0; i < 4; i++) {
+            const a = (i / 4) * Math.PI * 2 + Math.PI / 4
+            b.metal(block(0.1, 0.4, 0.1, 0.02), l.metal, [Math.cos(a) * 0.52, 1.25, 1.25 + Math.sin(a) * 0.52], [Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35])
+        }
+        b.metal(ring(0.5, 0.04, 4, 12), GOLD, [0, 1.42, 1.25], [Math.PI / 2, 0, 0])
+        // Belly keel with a lit trench.
+        b.solid(block(1.5, 0.3, 3.6, 0.08), l.paint2, [0, -1.08, 0.5])
+        seam(b, l.glow, [0.5, -1.24, 0.5], 3.0, true, 'z', 1.4)
+        vent(b, [0.95, 0.98, 2.0], 0.5, 0.06, 0.7, true, 3)
+        greeble(b, l, [0.85, 1.0, -1.6], 0.7, 1.0, 7, 12, true)
+        navLights(b, 3.2, 0.95, 2.4)
+        b.engine([0.55, 0.36, 3.1], 0.42, true, l.glow)
+        b.engine([0.55, -0.4, 3.1], 0.38, true, l.glow)
+        mount(b, l, [0, 0.94, 2.25])
+        mount(b, l, [0, 0.9, -1.75])
+        mount(b, l, [1.95, 0.5, -0.4], true, true)
+        mount(b, l, [1.95, -0.5, -0.4], false, true)
+        mount(b, l, [0, -1.28, 0.6], false)
     },
 
+    // A catamaran carrier: drones fly out through a lit tunnel between the twin
+    // hulls, and each flank is a honeycomb of launch cells.
     hive(b, l) {
-        b.solid(loft([
-            { z: -3.5, w: 0.6, h: 0.3 },
-            { z: -2.8, w: 1.6, h: 0.5 },
-            { z: 2.6, w: 1.75, h: 0.55 },
-            { z: 3.2, w: 1.25, h: 0.45 }
-        ], 8, 0.45, Math.PI / 8), l.paint)
-        // Flight deck with runway lights
-        b.metal(block(2.7, 0.08, 5.6, 0.02), l.trim, [0, 0.56, -0.2])
-        for (let i = 0; i < 8; i++) b.glow(new THREE.BoxGeometry(0.06, 0.02, 0.28), l.glow, 2, [0, 0.61, -2.6 + i * 0.62])
-        seam(b, l.accent, [1.3, 0.61, -0.2], 5.4, true, 'z', 1.2)
-        // Launch bay mouth
-        b.metal(block(1.9, 0.5, 0.2, 0.03), 0x0b0c0f, [0, 0.1, -2.95])
-        b.glow(new THREE.BoxGeometry(1.7, 0.08, 0.02), l.glow, 2.2, [0, 0.28, -3.06])
-        // Side sponsons with bay doors
-        for (const side of [1]) {
-            b.solid(loft([
-                { z: -2.2, w: 0.3, h: 0.3, x: 1.95 * side },
-                { z: -1.6, w: 0.5, h: 0.42, x: 1.95 * side },
-                { z: 2.1, w: 0.5, h: 0.42, x: 1.95 * side },
-                { z: 2.6, w: 0.38, h: 0.32, x: 1.95 * side }
-            ], 8, 0.6, Math.PI / 8), l.paint2, [0, -0.05, 0], [0, 0, 0], [1, 1, 1], true)
+        const CREAM = 0xe9e2cf
+        const OCT: [number, number, number] = [8, 0.5, Math.PI / 8]
+        const hull: Section[] = [
+            { z: -3.8, w: 0.18, h: 0.2, x: 1.55, y: -0.1 },
+            { z: -2.7, w: 0.68, h: 0.62, x: 1.55 },
+            { z: 2.4, w: 0.76, h: 0.66, x: 1.55 },
+            { z: 3.2, w: 0.56, h: 0.48, x: 1.55 }
+        ]
+        b.solid(loft(hull, ...OCT), l.paint, [0, 0, 0], [0, 0, 0], [1, 1, 1], true)
+        // Wasp-striped prows with a lit eye.
+        band(b, hull, -3.55, -3.3, l.paint2, OCT, 0.03, 0, true)
+        band(b, hull, -3.05, -2.8, l.paint2, OCT, 0.03, 0, true)
+        band(b, hull, 2.0, 2.35, l.paint2, OCT, 0.03, 0, true)
+        b.glow(octa(0.1), l.glow, 3.5, [2.05, 0.1, -2.95], [0, 0, 0], [1, 1, 1], true)
+        // Flight deck roof and the tunnel floor.
+        b.metal(block(2.3, 0.14, 5.5, 0.03), l.trim, [0, 0.62, -0.2])
+        b.solid(block(2.0, 0.14, 5.2, 0.03), l.paint, [0, -0.6, -0.1])
+        for (let i = 0; i < 8; i++) b.glow(new THREE.BoxGeometry(0.06, 0.02, 0.28), l.glow, 2, [0, 0.7, -2.6 + i * 0.62])
+        seam(b, l.accent, [1.08, 0.7, -0.2], 5.3, true, 'z', 1.2)
+        b.glow(ring(0.55, 0.025, 3, 6), CREAM, 1.6, [0, 0.7, 1.9], [Math.PI / 2, 0, 0])
+        for (let i = 0; i < 3; i++) b.solid(slab([[0, 0], [0.5, 0.3], [0.5, 0.46], [0, 0.16]], 0.02, 0), CREAM, [0.12, 0.7, -2.7 + i * 0.35], [0, 0, 0], [1, 1, 1], true)
+        // Tunnel: hazard lip, lit walls, guide lights down the floor.
+        for (let i = 0; i < 9; i++) b.solid(block(0.2, 0.16, 0.12, 0.01), i % 2 ? l.trim : l.paint2, [-0.8 + i * 0.2, 0.6, -2.98])
+        b.glow(new THREE.BoxGeometry(1.7, 0.05, 0.03), l.glow, 2.4, [0, 0.49, -2.96])
+        b.metal(block(1.9, 1.1, 0.2, 0.03), 0x0b0c0f, [0, 0, 1.3])
+        b.glow(tube(0.34, 0.34, 0.02, 6), l.glow, 1.8, [0, 0, 1.18])
+        b.metal(ring(0.42, 0.05, 4, 6), l.paint2, [0, 0, 1.17])
+        for (const y of [0.36, -0.36]) b.glow(new THREE.BoxGeometry(0.03, 0.05, 3.9), l.glow, 1.7, [0.84, y, -0.85], [0, 0, 0], [1, 1, 1], true)
+        for (let i = 0; i < 7; i++) b.glow(new THREE.BoxGeometry(0.1, 0.02, 0.1), CREAM, 2, [0, -0.52, -2.5 + i * 0.55])
+        for (let i = 0; i < 4; i++) b.metal(block(0.12, 1.1, 0.12, 0.02), l.metal, [0.86, 0, -2.3 + i * 1.1], [0, 0, 0], [1, 1, 1], true)
+        // Honeycomb launch cells along each flank.
+        for (let row = 0; row < 2; row++) {
+            for (let i = 0; i < 7 - row; i++) {
+                const at: Vec3 = [2.28, 0.2 - row * 0.42, -1.75 + i * 0.5 + row * 0.25]
+                b.solid(cyl(0.28, 0.28, 0.34, 6), l.paint2, at, [0, 0, Math.PI / 2], [1, 1, 1], true)
+                b.metal(cyl(0.22, 0.22, 0.36, 6), 0x0b0c0f, at, [0, 0, Math.PI / 2], [1, 1, 1], true)
+                b.glow(cyl(0.15, 0.15, 0.37, 6), l.glow, (i + row) % 3 === 0 ? 1.5 : 0.65, at, [0, 0, Math.PI / 2], [1, 1, 1], true)
+            }
         }
-        for (let i = 0; i < 3; i++) b.glow(new THREE.BoxGeometry(0.02, 0.3, 0.6), l.glow, 1.6, [2.46, -0.05, -1.0 + i * 1.1], [0, 0, 0], [1, 1, 1], true)
-        // Island
+        // Island on the starboard hull, control blister to port.
+        b.solid(block(0.85, 0.5, 2.0, 0.06), l.paint2, [1.55, 0.92, 0.7])
+        b.solid(block(0.7, 0.45, 1.3, 0.06), l.paint, [1.55, 1.38, 0.55])
+        b.glass(new THREE.BoxGeometry(0.62, 0.16, 0.04), l.glass, [1.55, 1.42, -0.12], [-0.35, 0, 0])
+        windows(b, [1.18, 1.4, 0.1], 5, 0.2, 0.12, 'z')
+        windows(b, [1.92, 1.4, 0.1], 5, 0.2, 0.12, 'z')
+        for (let i = 0; i < 5; i++) b.solid(new THREE.BoxGeometry(0.87, 0.1, 0.12), i % 2 ? l.trim : l.paint2, [1.55, 0.78, -0.1 + i * 0.12])
+        mast(b, [1.75, 1.6, 1.0], 1.2)
+        dish(b, l, [1.35, 1.6, 1.05], 0.3)
         b.solid(loft([
-            { z: 0.1, w: 0.25, h: 0.45, x: 1.15, y: 1.05 },
-            { z: 0.4, w: 0.35, h: 0.5, x: 1.15, y: 1.05 },
-            { z: 1.4, w: 0.35, h: 0.5, x: 1.15, y: 1.05 },
-            { z: 1.6, w: 0.28, h: 0.4, x: 1.15, y: 1.05 }
-        ], 8, 0.5, Math.PI / 8), l.paint2)
-        windows(b, [0.82, 1.35, 0.9], 5, 0.18, 0.12, 'z')
-        mast(b, [1.2, 1.55, 1.2], 1.1)
-        b.metal(new THREE.ConeGeometry(0.25, 0.1, 10, 1, true).rotateX(Math.PI), l.metal, [1.1, 1.7, 0.5], [0.5, 0, 0])
-        navLights(b, 2.45, 0.35, 2.5)
-        b.engine([0.75, 0, 3.3], 0.45, true, l.glow)
-        greeble(b, l, [-0.9, 0.6, 2.2], 0.6, 1.2, 8, 21)
-        b.hardpoint([1.15, 1.56, 0.7], [0, 1, 0])
-        b.hardpoint([0, -0.55, -0.5], [0, -1, 0])
+            { z: -0.6, w: 0.2, h: 0.1, x: -1.55, y: 0.66 },
+            { z: -0.2, w: 0.4, h: 0.24, x: -1.55, y: 0.74 },
+            { z: 0.7, w: 0.4, h: 0.24, x: -1.55, y: 0.74 },
+            { z: 1.0, w: 0.25, h: 0.12, x: -1.55, y: 0.68 }
+        ], 8, 0.7), l.paint2)
+        b.glass(new THREE.BoxGeometry(0.5, 0.1, 0.04), l.glass, [-1.55, 0.86, -0.42], [-0.7, 0, 0])
+        // Canted tail fins.
+        b.solid(slab([[0, 0], [0.9, 0.7], [0.95, 1.35], [0, 1.2]], 0.09, 0.03), l.paint, [1.75, 0.55, 1.9], [0, 0, Math.PI / 2 - 0.35], [1, 1, 1], true)
+        b.solid(slab([[0.62, 0.5], [0.9, 0.7], [0.95, 1.35], [0.62, 1.3]], 0.11, 0.03), l.paint2, [1.75, 0.55, 1.9], [0, 0, Math.PI / 2 - 0.35], [1, 1, 1], true)
+        // Drive house between the hulls.
+        b.solid(loft([{ z: 1.35, w: 0.95, h: 0.62 }, { z: 2.7, w: 0.95, h: 0.6 }, { z: 3.0, w: 0.8, h: 0.48 }], ...OCT), l.paint)
+        vent(b, [0, 0.72, 2.75], 1.2, 0.06, 0.4, false, 3)
+        b.engine([0.42, 0, 3.05], 0.3, true, l.glow)
+        b.engine([1.55, 0, 3.3], 0.45, true, l.glow)
+        navLights(b, 2.35, 0.4, 2.6)
+        greeble(b, l, [-0.7, 0.69, 2.3], 0.5, 0.6, 5, 21)
+        mount(b, l, [1.55, 1.64, 0.55])
+        mount(b, l, [-1.55, 0.67, 1.9])
+        mount(b, l, [0, -0.7, -0.5], false)
     },
 
     seraph(b, l) {
@@ -511,119 +678,223 @@ const DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => void> = {
         b.hardpoint([1.4, -0.01, 1.0], [0, -1, 0], true)
     },
 
+    // A flying fortress: a dagger prow with a triple main battery, casemates
+    // behind armoured skirts, a stepped citadel and twin tail fins over the drives.
     bastion(b, l) {
-        b.solid(loft([
-            { z: -5.4, w: 0.5, h: 0.4, y: -0.3 },
-            { z: -4.3, w: 2.3, h: 1.2 },
-            { z: 0, w: 3.1, h: 1.55 },
-            { z: 4.0, w: 2.95, h: 1.45 },
-            { z: 4.8, w: 2.4, h: 1.15 }
-        ], 8, 0.5, Math.PI / 8), l.paint)
-        // Ram prow
-        b.solid(slab([[-0.4, -6.2], [0.4, -6.2], [2.2, -4.2], [-2.2, -4.2]], 0.7, 0.1), l.paint2, [0, -0.4, 0])
-        b.glow(new THREE.BoxGeometry(3.0, 0.04, 0.04), l.glow, 1.6, [0, -0.02, -4.5])
-        // Broadside gun decks
-        b.solid(block(1.5, 2.0, 7.4, 0.12), l.paint2, [3.35, 0, 0.1], [0, 0, 0], [1, 1, 1], true)
-        b.solid(slab([[-0.6, -1.0], [0.6, -1.0], [0.75, 0.9], [-0.75, 0.9]], 2.0, 0.12), l.paint2, [3.35, 0, -4.2], [0, 0, 0], [1, 1, 1], true)
-        for (let i = 0; i < 5; i++) b.glow(new THREE.BoxGeometry(0.03, 0.18, 0.5), l.glow, 1.8, [4.12, 0.4, -2.6 + i * 1.3], [0, 0, 0], [1, 1, 1], true)
-        seam(b, l.accent, [4.11, -0.55, 0.1], 6.8, true, 'z', 1.4)
-        // Stepped superstructure
-        b.solid(block(2.4, 0.95, 4.2, 0.1), l.paint2, [0, 2.0, 0.4])
-        b.solid(block(1.7, 1.0, 2.4, 0.1), l.paint, [0, 2.98, 1.0])
+        const BRASS = 0xc9973f
+        const OCT: [number, number, number] = [8, 0.5, Math.PI / 8]
+        const hull: Section[] = [
+            { z: -6.4, w: 0.3, h: 0.3, y: -0.35 },
+            { z: -4.3, w: 2.1, h: 1.15, y: -0.05 },
+            { z: 0, w: 3.0, h: 1.5 },
+            { z: 4.0, w: 2.9, h: 1.42 },
+            { z: 4.8, w: 2.35, h: 1.12 }
+        ]
+        const keel: Section[] = [
+            { z: -4.8, w: 0.5, h: 0.3, y: -1.0 },
+            { z: -2.5, w: 1.5, h: 0.6, y: -1.5 },
+            { z: 2.5, w: 1.7, h: 0.65, y: -1.6 },
+            { z: 4.4, w: 1.3, h: 0.5, y: -1.35 }
+        ]
+        b.solid(loft(hull, ...OCT), l.paint)
+        b.solid(loft(keel, ...OCT), l.trim)
+        band(b, hull, -6.4, -5.2, l.paint2, OCT, 0.04)
+        band(b, hull, -5.15, -5.0, BRASS, OCT, 0.05)
+        band(b, hull, -2.0, -1.55, l.paint2, OCT)
+        band(b, hull, 3.3, 3.95, l.paint2, OCT)
+        band(b, hull, 4.0, 4.12, BRASS, OCT, 0.05)
+        band(b, hull, -4.32, -4.26, l.glow, OCT, 0.02, 1.6)
+        band(b, keel, -1.0, -0.92, l.glow, OCT, 0.02, 1.6)
+        band(b, keel, 1.6, 1.68, l.glow, OCT, 0.02, 1.6)
+        // Ram: cheek plates either side of a lit maw.
+        b.solid(slab([[0.25, -6.9], [0.7, -6.9], [2.4, -4.2], [0.9, -4.2]], 0.8, 0.1), l.paint2, [0, -0.4, 0], [0, 0, 0], [1, 1, 1], true)
+        b.solid(slab([[0.3, -6.6], [0.55, -6.6], [1.9, -4.4], [1.1, -4.4]], 0.3, 0.05), BRASS, [0, 0.12, 0], [0, 0, 0], [1, 1, 1], true)
+        b.glow(new THREE.BoxGeometry(0.4, 0.5, 2.0), l.glow, 1.3, [0, -0.4, -5.7])
+        // Main battery on the foredeck.
+        b.metal(cyl(1.0, 1.1, 0.25, 8), l.trim, [0, 1.28, -3.0])
+        b.solid(slab([[-0.85, -0.9], [0.85, -0.9], [0.95, 0.4], [0.6, 0.9], [-0.6, 0.9], [-0.95, 0.4]], 0.6, 0.1), l.paint2, [0, 1.7, -3.0])
+        b.solid(new THREE.BoxGeometry(1.5, 0.08, 0.5), BRASS, [0, 2.02, -2.7])
+        for (const x of [-0.5, 0, 0.5]) barrel(b, l, [x, 1.72, -4.8], 2.2, 0.11)
+        // Casemates with forward guns, behind canted armour skirts.
+        const skirt: [number, number][] = [[-1.2, -1.0], [0.6, -1.0], [1.0, -0.6], [1.0, 0.6], [0.6, 1.0], [-1.2, 1.0], [-1.5, 0]]
+        b.metal(tube(0.3, 0.3, 7.6, 8), l.metal, [3.1, 0, 0.1], [0, 0, 0], [1, 1, 1], true)
+        for (let i = 0; i < 3; i++) {
+            const z = -2.4 + i * 2.5
+            b.solid(block(1.5, 2.0, 2.2, 0.12), i === 1 ? l.paint : l.paint2, [3.3, 0, z], [0, 0, 0], [1, 1, 1], true)
+            b.solid(block(1.54, 0.3, 1.8, 0.04), l.trim, [3.3, -0.35, z], [0, 0, 0], [1, 1, 1], true)
+            flankPlate(b, l.paint2, skirt, 0.2, [4.25, -0.1, z], 0.14, 0.06)
+            flankPlate(b, l.paint, skirt.map(([h, d]) => [h * 0.55, d * 0.6] as [number, number]), 0.12, [4.37, -0.1, z], 0.14, 0.04)
+            b.solid(new THREE.BoxGeometry(0.1, 0.1, 1.5), BRASS, [4.13, 0.88, z], [0, 0, 0.14], [1, 1, 1], true)
+            b.glow(new THREE.BoxGeometry(0.04, 0.12, 0.7), l.glow, 2, [4.46, -0.05, z], [0, 0, 0.14], [1, 1, 1], true)
+            b.glow(new THREE.BoxGeometry(0.2, 0.5, 0.06), l.glow, 1.5, [3.75, 0.2, z + 1.25], [0, 0, 0], [1, 1, 1], true)
+            barrel(b, l, [3.3, 0.45, z - 1.5], 1.2, 0.09, true)
+        }
+        // Bow casemates: stepped wedges with a lit gun slit.
+        b.solid(slab([[-0.6, -1.3], [0.35, -1.3], [0.75, 0.9], [-0.75, 0.9]], 1.5, 0.12), l.paint2, [3.3, 0, -4.4], [0, 0, 0], [1, 1, 1], true)
+        b.solid(slab([[-0.62, -0.5], [0.62, -0.5], [0.78, 0.92], [-0.78, 0.92]], 1.9, 0.1), l.paint, [3.3, 0, -4.4], [0, 0, 0], [1, 1, 1], true)
+        b.solid(slab([[-0.64, -1.0], [0.5, -1.0], [0.62, -0.7], [-0.64, -0.7]], 1.56, 0.04), BRASS, [3.3, 0, -4.4], [0, 0, 0], [1, 1, 1], true)
+        b.glow(new THREE.BoxGeometry(0.7, 0.12, 0.05), l.glow, 2.2, [3.2, 0, -5.72], [0, 0, 0], [1, 1, 1], true)
+        barrel(b, l, [3.2, -0.35, -6.0], 1.0, 0.1, true)
+        // Stepped citadel with buttresses.
+        b.solid(block(2.6, 0.95, 4.4, 0.1), l.paint2, [0, 2.0, 0.4])
+        b.solid(block(1.8, 1.0, 2.6, 0.1), l.paint, [0, 2.98, 1.1])
+        b.solid(block(2.64, 0.12, 4.44, 0.03), BRASS, [0, 2.42, 0.4])
+        b.solid(block(1.84, 0.12, 2.64, 0.03), l.paint2, [0, 3.42, 1.1])
+        b.solid(slab([[0, -1.6], [1.7, 0.6], [1.7, 1.6], [0, 1.0]], 0.22, 0.05), l.paint, [1.0, 1.45, 0.4], [0, 0, Math.PI / 2], [1, 1, 1], true)
         b.solid(loft([
             { z: 0.1, w: 0.55, h: 0.25, y: 3.72 },
-            { z: 0.35, w: 0.75, h: 0.35, y: 3.75 },
-            { z: 1.3, w: 0.75, h: 0.35, y: 3.75 },
+            { z: 0.35, w: 0.8, h: 0.36, y: 3.76 },
+            { z: 1.3, w: 0.8, h: 0.36, y: 3.76 },
             { z: 1.5, w: 0.6, h: 0.28, y: 3.72 }
-        ], 8, 0.5, Math.PI / 8), l.paint2)
-        windows(b, [-0.55, 3.82, 0.22], 8, 0.155, 0.11)
-        windows(b, [-0.95, 2.1, -1.72], 9, 0.24, 0.13)
-        mast(b, [0.4, 4.1, 1.3], 2.2)
-        mast(b, [-0.4, 4.1, 1.35], 1.5)
-        b.metal(new THREE.ConeGeometry(0.4, 0.15, 12, 1, true).rotateX(Math.PI), l.metal, [0, 3.7, 2.2], [0.6, 0, 0])
-        for (let i = 0; i < 4; i++) vent(b, [1.5, 1.6, -0.9 + i * 0.8], 0.06, 0.4, 0.5, true, 3)
-        navLights(b, 4.15, 1.05, 3.6)
+        ], ...OCT), l.paint2)
+        b.glass(new THREE.BoxGeometry(1.3, 0.16, 0.04), l.glass, [0, 3.86, 0.2], [-0.5, 0, 0])
+        windows(b, [-0.55, 3.8, 0.17], 8, 0.155, 0.1)
+        windows(b, [-1.05, 2.1, -1.82], 9, 0.26, 0.13)
+        windows(b, [1.31, 2.05, -1.2], 8, 0.4, 0.14, 'z')
+        windows(b, [-1.31, 2.05, -1.2], 8, 0.4, 0.14, 'z')
+        windows(b, [-0.7, 3.05, -0.22], 6, 0.28, 0.12)
+        mast(b, [0.45, 4.1, 1.2], 2.4)
+        mast(b, [-0.45, 4.1, 1.3], 1.6)
+        dish(b, l, [0, 3.48, 2.95], 0.5)
+        for (let i = 0; i < 4; i++) vent(b, [1.6, 1.62, -0.9 + i * 0.8], 0.06, 0.4, 0.5, true, 3)
+        // Tail fins and drives.
+        b.solid(slab([[0, 0], [2.2, 1.4], [2.4, 2.6], [0, 2.4]], 0.24, 0.06), l.paint2, [2.0, 1.2, 2.3], [0, 0, Math.PI / 2 - 0.2], [1, 1, 1], true)
+        b.solid(slab([[1.5, 0.95], [2.2, 1.4], [2.4, 2.6], [1.5, 2.55]], 0.27, 0.06), BRASS, [2.0, 1.2, 2.3], [0, 0, Math.PI / 2 - 0.2], [1, 1, 1], true)
+        b.glow(new THREE.BoxGeometry(0.05, 1.6, 0.06), l.glow, 2, [2.36, 2.2, 4.95], [0, 0, -0.2], [1, 1, 1], true)
+        b.solid(slab([[0, 0], [1.3, 0.8], [1.3, 2.0], [0, 2.2]], 0.3, 0.06), l.paint2, [0, -2.1, 0.3], [0, 0, -Math.PI / 2])
+        navLights(b, 4.5, 1.0, 3.6)
         b.engine([0, -0.1, 4.95], 0.8, false, l.glow)
         b.engine([1.55, 0.55, 4.9], 0.62, true, l.glow)
         b.engine([1.55, -0.65, 4.9], 0.55, true, l.glow)
-        b.engine([3.35, 0, 3.95], 0.55, true, l.glow)
-        greeble(b, l, [1.8, 1.5, -2.2], 1.4, 3.0, 22, 31, true)
-        greeble(b, l, [3.35, 1.0, 1.0], 1.0, 4.0, 14, 32, true)
-        greeble(b, l, [0.7, 2.5, 1.6], 0.8, 1.8, 10, 33, true)
-        b.hardpoint([0, 2.49, -1.4], [0, 1, 0])
-        b.hardpoint([0, 3.49, 1.95], [0, 1, 0])
-        b.hardpoint([3.35, 1.01, -2.0], [0, 1, 0], true)
-        b.hardpoint([3.35, 1.01, 2.0], [0, 1, 0], true)
-        b.hardpoint([3.35, -1.01, 0], [0, -1, 0], true)
-        b.hardpoint([0, -1.55, -1.0], [0, -1, 0])
-        b.hardpoint([0, -1.45, 3.0], [0, -1, 0])
+        b.engine([3.3, 0, 3.95], 0.55, true, l.glow)
+        greeble(b, l, [1.9, 1.42, -1.6], 1.0, 2.2, 16, 31, true)
+        greeble(b, l, [3.3, 1.0, 0.1], 0.9, 1.4, 8, 32, true)
+        greeble(b, l, [0.75, 2.5, 1.9], 0.5, 1.2, 6, 33, true)
+        mount(b, l, [0, 2.5, -1.2], true, false, 0.42)
+        mount(b, l, [0, 3.5, 2.0], true, false, 0.42)
+        mount(b, l, [3.3, 1.02, -2.4], true, true, 0.42)
+        mount(b, l, [3.3, 1.02, 2.6], true, true, 0.42)
+        mount(b, l, [3.3, -1.02, 0.1], false, true, 0.42)
+        mount(b, l, [0, -2.1, -1.2], false, false, 0.42)
+        mount(b, l, [0, -2.0, 3.6], false, false, 0.42)
     },
 
+    // A dreadnought built around its gun: the spinal lance runs out between two
+    // long prow tines, with swept wings carrying an outrigger hull on each side.
     leviathan(b, l) {
-        b.solid(loft([
-            { z: -7.6, w: 1.1, h: 0.7 },
-            { z: -6.5, w: 2.4, h: 1.5 },
-            { z: -4.0, w: 2.6, h: 1.8 },
-            { z: 3.0, w: 3.2, h: 2.2 },
+        const NAVY = 0x1d3557
+        const GOLD = 0xd8a53c
+        const OCT: [number, number, number] = [8, 0.55, Math.PI / 8]
+        const hull: Section[] = [
+            { z: -7.4, w: 1.0, h: 0.85 },
+            { z: -6.4, w: 2.1, h: 1.5 },
+            { z: -4.0, w: 2.5, h: 1.8 },
+            { z: 3.0, w: 3.1, h: 2.2 },
             { z: 7.0, w: 2.8, h: 2.0 },
-            { z: 8.0, w: 2.2, h: 1.55 }
-        ], 10, 0.55, Math.PI / 10), l.paint)
-        // Hammerhead prow
-        b.solid(slab([[-3.8, -8.4], [3.8, -8.4], [4.4, -6.6], [-4.4, -6.6]], 0.9, 0.14), l.paint2, [0, 0.2, 0])
-        b.glow(new THREE.BoxGeometry(7.2, 0.05, 0.05), l.glow, 1.8, [0, 0.2, -8.45])
-        navLights(b, 4.35, 0.6, -7.5)
-        // Spinal lance under the prow
-        b.metal(tube(0.65, 0.85, 5, 12), l.trim, [0, -1.4, -8.4])
-        for (let i = 0; i < 4; i++) b.glow(ring(0.8, 0.07, 4, 16), l.glow, 2.4, [0, -1.4, -9.8 + i * 1.0])
-        b.glow(tube(0.42, 0.42, 0.1, 12), l.glow, 4, [0, -1.4, -10.93])
-        // Outrigger hulls on struts
-        b.solid(loft([
-            { z: -3.6, w: 0.4, h: 0.5, x: 6 },
-            { z: -2.6, w: 1.05, h: 1.25, x: 6 },
+            { z: 8.0, w: 2.1, h: 1.5 }
+        ]
+        const top = (z: number) => sectionAt(hull, z).h * 0.97
+        b.solid(loft(hull, ...OCT), l.paint)
+        band(b, hull, -6.3, -5.6, NAVY, OCT, 0.04)
+        band(b, hull, -5.55, -5.4, GOLD, OCT, 0.05)
+        band(b, hull, -2.2, -1.2, l.paint2, OCT, 0.04)
+        band(b, hull, 1.2, 1.6, NAVY, OCT, 0.04)
+        band(b, hull, 5.6, 6.9, NAVY, OCT, 0.04)
+        band(b, hull, 6.95, 7.1, GOLD, OCT, 0.05)
+        for (const z of [-4.6, -3.2, -0.4, 0.5, 2.4, 4.6]) band(b, hull, z, z + 0.08, l.glow, OCT, 0.02, 1.5)
+        // Prow tines cradling the lance.
+        const tine: Section[] = [
+            { z: -11.2, w: 0.12, h: 0.2, x: 2.0 },
+            { z: -10.2, w: 0.5, h: 0.65, x: 2.0 },
+            { z: -6.6, w: 0.75, h: 1.0, x: 2.05 },
+            { z: -4.8, w: 0.5, h: 0.75, x: 2.3 }
+        ]
+        b.solid(loft(tine, ...OCT), l.paint, [0, 0, 0], [0, 0, 0], [1, 1, 1], true)
+        band(b, tine, -10.9, -10.3, NAVY, OCT, 0.04, 0, true)
+        band(b, tine, -10.25, -10.1, GOLD, OCT, 0.05, 0, true)
+        band(b, tine, -8.0, -7.4, l.paint2, OCT, 0.04, 0, true)
+        b.glow(new THREE.BoxGeometry(0.05, 0.12, 3.4), l.glow, 2.2, [1.42, 0, -8.6], [0, 0, 0], [1, 1, 1], true)
+        windows(b, [2.78, 0.35, -8.6], 6, 0.45, 0.14, 'z')
+        windows(b, [-2.78, 0.35, -8.6], 6, 0.45, 0.14, 'z')
+        navLights(b, 2.0, 0.3, -11.1)
+        b.metal(tube(0.5, 0.8, 4.2, 12), l.trim, [0, 0, -8.9])
+        for (let i = 0; i < 4; i++) {
+            const z = -10.5 + i * 0.95
+            b.glow(ring(0.78, 0.07, 4, 16), l.glow, 2.4, [0, 0, z])
+            b.metal(block(1.3, 0.16, 0.22, 0.03), l.metal, [0.95, 0, z + 0.3], [0, 0, 0], [1, 1, 1], true)
+        }
+        b.glow(tube(0.36, 0.36, 0.1, 12), l.glow, 4, [0, 0, -11.02])
+        // Swept wings out to the outrigger hulls.
+        b.solid(slab([[2.6, -3.0], [5.3, -0.6], [5.3, 3.6], [2.6, 3.4]], 0.55, 0.12), l.paint2, [0, 0, 0], [0, 0, 0], [1, 1, 1], true)
+        b.solid(slab([[2.9, -2.35], [5.0, -0.5], [5.0, 0.3], [2.9, -1.2]], 0.62, 0.08), NAVY, [0, 0, 0], [0, 0, 0], [1, 1, 1], true)
+        b.glow(new THREE.BoxGeometry(0.06, 0.06, 3.5), l.glow, 2.2, [3.95, 0, -1.85], [0, -0.844, 0], [1, 1, 1], true)
+        for (let i = 0; i < 3; i++) radiator(b, l, [3.2, 0.3, 1.2 + i * 0.9], 1.9, 0.7, 0.0, l.glow, 3)
+        const pod: Section[] = [
+            { z: -4.4, w: 0.2, h: 0.3, x: 6 },
+            { z: -2.8, w: 1.05, h: 1.25, x: 6 },
             { z: 4.4, w: 1.05, h: 1.25, x: 6 },
             { z: 5.2, w: 0.75, h: 0.9, x: 6 }
-        ], 8, 0.55, Math.PI / 8), l.paint, [0, 0, 0], [0, 0, 0], [1, 1, 1], true)
-        b.metal(block(3.2, 0.5, 0.9, 0.06), l.metal, [4.3, 0.2, -1.2], [0, 0, 0], [1, 1, 1], true)
-        b.metal(block(3.2, 0.5, 0.9, 0.06), l.metal, [4.3, -0.2, 2.8], [0, 0, 0], [1, 1, 1], true)
-        seam(b, l.accent, [7.06, 0, 0.8], 6.4, true, 'z', 1.6)
+        ]
+        b.solid(loft(pod, ...OCT), l.paint, [0, 0, 0], [0, 0, 0], [1, 1, 1], true)
+        band(b, pod, -3.6, -3.0, NAVY, OCT, 0.04, 0, true)
+        band(b, pod, -2.95, -2.82, GOLD, OCT, 0.05, 0, true)
+        band(b, pod, 3.2, 4.3, NAVY, OCT, 0.04, 0, true)
+        band(b, pod, 0.6, 0.68, l.glow, OCT, 0.02, 1.5, true)
+        seam(b, l.accent, [7.08, -0.3, 0.8], 6.0, true, 'z', 1.6)
         for (let i = 0; i < 6; i++) b.glow(new THREE.BoxGeometry(0.03, 0.14, 0.4), WINDOW, 1.4, [7.07, 0.45, -1.8 + i * 1.1], [0, 0, 0], [1, 1, 1], true)
-        // Hull ribs and seams
-        for (let i = 0; i < 6; i++) b.metal(block(0.2, 0.25, 0.35, 0.03), l.metal, [2.95, 0.9, -3 + i * 1.8], [0, 0, 0], [1, 1, 1], true)
-        seam(b, l.glow, [2.9, -0.7, 0.5], 10, true, 'z', 1.2)
-        // Superstructure
-        b.solid(block(3.0, 1.2, 5.0, 0.12), l.paint2, [0, 2.7, 3.2])
-        b.solid(block(2.0, 1.2, 3.0, 0.12), l.paint, [0, 3.85, 3.6])
+        b.solid(slab([[0, 0], [1.8, 1.2], [1.9, 2.6], [0, 2.4]], 0.2, 0.05), NAVY, [6, 1.1, 2.4], [0, 0, Math.PI / 2], [1, 1, 1], true)
+        b.solid(slab([[0, 0], [1.3, 1.0], [1.3, 2.2], [0, 2.4]], 0.2, 0.05), NAVY, [6, -1.1, 2.4], [0, 0, -Math.PI / 2], [1, 1, 1], true)
+        b.glow(new THREE.BoxGeometry(0.05, 1.3, 0.06), l.glow, 2, [6, 2.4, 5.0], [0, 0, 0], [1, 1, 1], true)
+        // Dorsal trenches and the citadel.
+        for (const z of [-3.0, 0.3]) b.metal(block(0.5, 0.2, 2.6, 0.04), 0x0d1117, [1.25, top(z + 1.3) - 0.04, z + 1.3], [0, 0, 0], [1, 1, 1], true)
+        seam(b, l.glow, [1.25, top(-1.2) + 0.08, -1.7], 2.4, true, 'z', 2)
+        seam(b, l.glow, [1.25, top(2) + 0.06, 1.6], 2.4, true, 'z', 2)
+        b.solid(block(3.2, 1.2, 5.2, 0.12), l.paint2, [0, 2.7, 3.2])
+        b.solid(block(3.24, 0.14, 5.24, 0.03), NAVY, [0, 3.22, 3.2])
+        b.solid(block(2.1, 1.2, 3.2, 0.12), l.paint, [0, 3.85, 3.6])
+        b.solid(block(2.14, 0.14, 3.24, 0.03), GOLD, [0, 4.36, 3.6])
         b.solid(loft([
             { z: 2.3, w: 0.8, h: 0.3, y: 4.75 },
-            { z: 2.6, w: 1.0, h: 0.45, y: 4.8 },
-            { z: 4.0, w: 1.0, h: 0.45, y: 4.8 },
+            { z: 2.6, w: 1.05, h: 0.46, y: 4.82 },
+            { z: 4.0, w: 1.05, h: 0.46, y: 4.82 },
             { z: 4.3, w: 0.8, h: 0.35, y: 4.75 }
-        ], 8, 0.5, Math.PI / 8), l.paint2)
-        windows(b, [-0.8, 4.9, 2.42], 11, 0.16, 0.11)
-        windows(b, [-1.3, 2.85, 0.68], 11, 0.26, 0.14)
-        b.solid(slab([[0, 0], [0.8, 0.6], [0.7, 3.6], [0, 4]], 0.2, 0.04), l.accent, [0, 3.35, 1.6], [0, 0, Math.PI / 2])
-        mast(b, [0.5, 5.2, 3.9], 3)
-        mast(b, [-0.5, 5.2, 3.7], 2.2)
-        b.metal(new THREE.ConeGeometry(0.6, 0.2, 14, 1, true).rotateX(Math.PI), l.metal, [0, 4.55, 5.1], [0.6, 0, 0])
-        for (let i = 0; i < 5; i++) vent(b, [1.6, 2.3, 1.2 + i * 0.9], 0.08, 0.5, 0.6, true, 3)
-        // Engines
+        ], ...OCT), l.paint2)
+        b.glass(new THREE.BoxGeometry(1.7, 0.2, 0.05), l.glass, [0, 4.95, 2.42], [-0.5, 0, 0])
+        windows(b, [-0.8, 4.86, 2.38], 11, 0.16, 0.1)
+        windows(b, [-1.4, 2.85, 0.58], 11, 0.28, 0.14)
+        windows(b, [1.61, 2.8, 1.0], 10, 0.46, 0.15, 'z')
+        windows(b, [-1.61, 2.8, 1.0], 10, 0.46, 0.15, 'z')
+        windows(b, [1.06, 3.9, 2.3], 6, 0.46, 0.13, 'z')
+        windows(b, [-1.06, 3.9, 2.3], 6, 0.46, 0.13, 'z')
+        b.solid(slab([[0, 0], [2.4, 1.0], [2.2, 3.0], [0, 3.2]], 0.22, 0.05), NAVY, [0, 1.9, 5.4], [0, 0, Math.PI / 2])
+        b.glow(new THREE.BoxGeometry(0.06, 0.06, 2.0), l.glow, 2, [0, 4.24, 7.4], [-0.1, 0, 0])
+        mast(b, [0.55, 5.25, 3.9], 3)
+        mast(b, [-0.55, 5.25, 3.7], 2.2)
+        dish(b, l, [0, 5.28, 3.1], 0.6)
+        for (let i = 0; i < 5; i++) vent(b, [1.72, 2.4, 1.2 + i * 0.9], 0.08, 0.5, 0.6, true, 3)
+        // Ventral hangar between twin keel fins.
+        b.metal(block(1.8, 0.3, 3.0, 0.05), 0x0b0e13, [0, -top(-2.5) + 0.05, -2.5])
+        for (const x of [-0.8, 0.8]) b.glow(new THREE.BoxGeometry(0.06, 0.06, 2.8), l.glow, 2.2, [x, -top(-2.5) - 0.12, -2.5])
+        for (let i = 0; i < 5; i++) b.glow(new THREE.BoxGeometry(0.9, 0.04, 0.08), WINDOW, 1.6, [0, -top(-2.5) - 0.11, -3.6 + i * 0.55])
+        b.solid(slab([[0, 0], [1.6, 1.2], [1.6, 4.6], [0, 5.4]], 0.3, 0.06), NAVY, [1.7, -1.9, 1.2], [0, 0, -Math.PI / 2 + 0.25], [1, 1, 1], true)
+        // Drive cluster in a shroud.
+        b.metal(ring(2.0, 0.2, 6, 8), l.trim, [0, 0, 8.3], [0, 0, Math.PI / 8])
+        b.glow(ring(1.8, 0.04, 4, 8), l.glow, 2, [0, 0, 8.5], [0, 0, Math.PI / 8])
         b.engine([0, 0, 8.1], 1.0, false, l.glow)
-        b.engine([1.55, 0.85, 8.05], 0.8, true, l.glow)
-        b.engine([1.55, -0.95, 8.05], 0.8, true, l.glow)
+        b.engine([1.55, 0.85, 8.05], 0.72, true, l.glow)
+        b.engine([1.55, -0.95, 8.05], 0.72, true, l.glow)
         b.engine([6, 0, 5.4], 0.75, true, l.glow)
-        greeble(b, l, [1.6, 1.85, -2.5], 1.6, 4.0, 30, 41, true)
-        greeble(b, l, [6, 1.25, 0.4], 1.2, 6.0, 22, 42, true)
-        greeble(b, l, [2.0, 2.25, 5.8], 1.2, 2.4, 14, 43, true)
-        greeble(b, l, [1.0, 3.3, 3.2], 0.9, 3.8, 12, 44, true)
-        b.hardpoint([0, 1.64, -6.1], [0, 1, 0])
-        b.hardpoint([0, 1.78, -4.2], [0, 1, 0])
-        b.hardpoint([0, 2.05, -0.8], [0, 1, 0])
-        b.hardpoint([0, 4.46, 5.0], [0, 1, 0])
-        b.hardpoint([6, 1.26, -1.5], [0, 1, 0], true)
-        b.hardpoint([6, 1.26, 2.8], [0, 1, 0], true)
-        b.hardpoint([6, -1.26, 0.6], [0, -1, 0], true)
-        b.hardpoint([0, -2.1, 2.0], [0, -1, 0])
-        b.hardpoint([0, -1.95, 6.2], [0, -1, 0])
+        greeble(b, l, [1.5, 1.72, -4.2], 1.2, 2.0, 16, 41, true)
+        greeble(b, l, [6, 1.22, 0.4], 1.0, 3.0, 14, 42, true)
+        greeble(b, l, [2.0, 2.05, 6.4], 1.0, 1.6, 10, 43, true)
+        greeble(b, l, [1.1, 3.32, 1.4], 0.7, 1.2, 8, 44, true)
+        for (const z of [-6.0, -4.2, -0.8]) mount(b, l, [0, top(z) + 0.04, z], true, false, 0.5)
+        mount(b, l, [0, 4.48, 4.9], true, false, 0.5)
+        mount(b, l, [6, 1.25, -1.5], true, true, 0.5)
+        mount(b, l, [6, 1.25, 2.0], true, true, 0.5)
+        mount(b, l, [6, -1.25, 0.6], false, true, 0.5)
+        mount(b, l, [0, -top(2) - 0.04, 2.0], false, false, 0.5)
+        mount(b, l, [0, -top(6.2) - 0.04, 6.2], false, false, 0.5)
     }
 }
 
