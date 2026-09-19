@@ -1234,11 +1234,11 @@ const starvedGoods = computed(() => Object.entries(town.netPerTick.value)
     .map(([id]) => id))
 
 /**
- * What a free crew should be put on. Whatever makes a good the town is running
- * down comes first, then homes while there are more jobs than residents, then
- * simply the cheapest rung left — lowest tier, lowest level.
+ * Every upgrade a free crew could take, one row per building type (its lowest
+ * level, the cheapest rung), with the facts the advisor weighs: a good the
+ * town is running down that it makes, and homes while jobs outnumber residents.
  */
-const recommendedUpgrades = computed(() => {
+const upgradeCandidates = computed(() => {
     const cap = town.constants.value.maxLevel
     const starved = starvedGoods.value
     const rows: {
@@ -1246,8 +1246,7 @@ const recommendedUpgrades = computed(() => {
         type: string
         name: string
         level: number
-        rank: number
-        order: number
+        tier: number
         resource?: string
         residents: boolean
         cost: { coins: number, resources: Record<string, number> }
@@ -1261,30 +1260,72 @@ const recommendedUpgrades = computed(() => {
         const short = entry.kind === 'industry'
             ? starved.find(id => id in entry.outputs)
             : undefined
-        const residents = short === undefined && entry.kind === 'housing' && workersDemanded.value > popCap.value
         rows.push({
             id: b.id,
             type: b.type,
             name: entry.name,
             level: b.level,
-            rank: short !== undefined ? 0 : residents ? 1 : 2,
-            order: short !== undefined ? starved.indexOf(short) : residents ? 0 : entry.tier,
+            tier: entry.tier,
             resource: short,
-            residents,
+            residents: short === undefined && entry.kind === 'housing' && workersDemanded.value > popCap.value,
             cost: townLevelCost(def, b.level + 1)
         })
     }
-    rows.sort((a, b) => a.rank - b.rank || a.order - b.order || a.level - b.level)
+    rows.sort((a, b) => a.tier - b.tier || a.level - b.level)
     // One row per building type: six houses in a row is not six recommendations.
     const seen = new Set<string>()
-    return rows.filter(r => !seen.has(r.type) && seen.add(r.type)).slice(0, 5)
+    return rows.filter(r => !seen.has(r.type) && seen.add(r.type))
+})
+
+// The suggestions come from classifier.dev (POST /api/town/advisor), which
+// reads the town and picks the upgrades worth doing. It is asked once the
+// town loads and again after each suggestion is taken, not on every tick.
+// A pick that stops being possible drops out; when every pick has, it asks
+// again. A failed ask is not retried until the next suggestion is taken.
+const advisorPicks = ref<string[]>([])
+const advisorStatus = ref<'idle' | 'thinking' | 'ready' | 'failed'>('idle')
+async function askAdvisor() {
+    if (advisorStatus.value === 'thinking' || upgradeCandidates.value.length === 0) return
+    advisorStatus.value = 'thinking'
+    try {
+        const res = await $fetch('/api/town/advisor', {
+            method: 'POST',
+            body: {
+                happiness: happiness.value,
+                mood: mood.value?.name ?? '',
+                jobs: workersDemanded.value,
+                residents: popCap.value,
+                coins: balance.value,
+                buildersFree: buildersFree.value,
+                netPerHour: Object.fromEntries(Object.entries(town.netPerTick.value).map(([id, n]) => [id, perHour(n)])),
+                stock: town.inventory.value,
+                candidates: upgradeCandidates.value.map(r => ({
+                    type: r.type,
+                    level: r.level,
+                    affordable: canAfford(r.cost),
+                    short: r.resource,
+                    residents: r.residents
+                }))
+            }
+        })
+        if (!res.picks) throw new Error('No advice')
+        advisorPicks.value = res.picks
+        advisorStatus.value = 'ready'
+    } catch {
+        advisorStatus.value = 'failed'
+    }
+}
+/** The advisor's picks that are still possible, best first. */
+const recommendedUpgrades = computed(() => {
+    const byType = new Map(upgradeCandidates.value.map(r => [r.type, r]))
+    return advisorPicks.value.flatMap(type => byType.get(type) ?? [])
 })
 
 /** Start one of the recommended upgrades without hunting for the building. */
 function upgradeRecommended(id: string) {
     buildersPop.value = false
     if (buildersFree.value === 0) { openBlocked({ kind: 'upgrade', buildingId: id }); return }
-    run(() => town.upgradeBuilding(id), undefined, 'upgrade')
+    run(() => town.upgradeBuilding(id), () => askAdvisor(), 'upgrade')
 }
 
 /**
@@ -1348,6 +1389,13 @@ const ticksPerHour = computed(() => (3_600_000 / town.constants.value.tickMs) * 
 function perHour(perTick: number) {
     return Math.round(perTick * ticksPerHour.value)
 }
+// Declared here, after everything the advisor reads, since it runs at setup.
+watch(() => town.initialized.value
+    && recommendedUpgrades.value.length === 0
+    && upgradeCandidates.value.length > 0
+    && (advisorStatus.value === 'idle' || advisorStatus.value === 'ready'), (ask) => {
+    if (ask) askAdvisor()
+}, { immediate: true })
 /** Anything too slow to show a whole unit an hour is quoted per day instead. */
 function ioUnit(c: { outputs: Record<string, number> }): 'h' | 'day' {
     return Object.values(c.outputs).some(q => q * ticksPerHour.value < 1) ? 'day' : 'h'
@@ -1636,7 +1684,9 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                         </span>
                                     </span>
                                 </button>
-                                <p v-if="recommendedUpgrades.length === 0" class="g-empty">Nothing to upgrade right now.</p>
+                                <p v-if="recommendedUpgrades.length === 0" class="g-empty">
+                                    {{ upgradeCandidates.length === 0 ? 'Nothing to upgrade right now.' : advisorStatus === 'failed' ? 'No suggestions right now.' : 'Thinking…' }}
+                                </p>
                             </div>
                             <p v-if="town.builders.value.nextGemCost !== null" class="moodpop-foot">
                                 Click the chip to hire another crew for {{ town.builders.value.nextGemCost }} gems.
