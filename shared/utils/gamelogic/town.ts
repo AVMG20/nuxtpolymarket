@@ -56,16 +56,16 @@ export const TOWN_PLOT_COOLDOWNS_MS: readonly number[] = [
 // currency, so it is the one building a town may not have more than two of.
 //
 // The conversion rate is the balance lever. Two mines at level 20 in a Content
-// town dig 57,600 jewels a day; at 3,600 a gem that is 16 gems, and a Thriving
-// town nudges it to 21. Terrain and research raise it like any other workshop,
-// so a maxed board on rocky ground tops out near 37. The old Miner factory
+// town dig 57,600 jewels a day; at 3,400 a gem that is 17 gems, and a Thriving
+// town nudges it to 22. Terrain and research raise it like any other workshop,
+// so a maxed board on rocky ground tops out near 39. The old Miner factory
 // paid 10–16 a day, so this is the same order of income behind a far longer
 // climb: level 20 wants the whole production chain (see TOWN_UPGRADE_BANDS).
 // The warehouse cap is what paces the claiming — a town that never converts or
 // sells fills up and the mine stops, like any other workshop.
 
 /** Jewels the market turns into one gem. */
-export const TOWN_JEWELS_PER_GEM = 3_600
+export const TOWN_JEWELS_PER_GEM = 3_400
 /** Jewel mines a town may own, finished or not. */
 export const TOWN_GEM_MINE_CAP = 2
 /** The second mine costs this much more than the first. */
@@ -709,11 +709,11 @@ export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
     },
     {
         id: 'gemmine', name: 'Jewel Mine', emoji: '💠', color: 0x6a4fc1, tier: 2, kind: 'industry',
-        description: 'Digs jewels, which the market converts into gems. Hungry for hands, and a town may run only two.',
+        description: 'Digs jewels, which the market converts into gems. A town may run only two.',
         maxCount: TOWN_GEM_MINE_CAP,
         cost: { coins: 600_000, resources: { stone: 400, wood: 300 } }, buildMs: 45 * MIN, upgradeMs: 40 * MIN,
         upgradeResources: { stone: 150, bricks: 40 },
-        workers: 5, inputs: {}, outputs: { jewels: 1 }, popCap: 0, happiness: 0, storage: 0
+        workers: 2, inputs: {}, outputs: { jewels: 1 }, popCap: 0, happiness: 0, storage: 0
     },
     {
         id: 'bakery', name: 'Bakery', emoji: '🍞', color: 0xf77f00, tier: 3, kind: 'industry',
