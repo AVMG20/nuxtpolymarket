@@ -3,6 +3,7 @@ import { db } from '#server/database'
 import { pirateState, pirateCannons, user } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { getBalance } from '#server/utils/balance'
+import { canUsePirateAutopilot } from '#server/utils/pirates-autopilot'
 import {
     PIRATE_SHIP_STAT_IDS, PIRATE_MAX_STAT_LEVEL, PIRATE_RUN_DURATION_MS, PIRATE_MAX_CANNON_SLOTS,
     PIRATE_CANNON_SELL_REFUND_RATE,
@@ -20,7 +21,7 @@ export default defineEventHandler(async (event) => {
 
     const [balance, currentUser, existing, cannons] = await Promise.all([
         getBalance(userId),
-        db.query.user.findFirst({ where: eq(user.id, userId), columns: { gems: true } }),
+        db.query.user.findFirst({ where: eq(user.id, userId), columns: { gems: true, email: true } }),
         db.query.pirateState.findFirst({ where: eq(pirateState.userId, userId) }),
         db.query.pirateCannons.findMany({ where: eq(pirateCannons.userId, userId) })
     ])
@@ -73,6 +74,7 @@ export default defineEventHandler(async (event) => {
     return {
         balance,
         gems: currentUser?.gems ?? 0,
+        autopilot: canUsePirateAutopilot(currentUser?.email),
         levels,
         maxLevel: PIRATE_MAX_STAT_LEVEL,
         maxLevels: Object.fromEntries(PIRATE_SHIP_STAT_IDS.map(id => [id, pirateStatMaxLevel(id)])),

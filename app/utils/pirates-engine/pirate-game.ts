@@ -27,6 +27,7 @@ import {
     PIRATE_SHIP_SKINS, PIRATE_POWER_UPS, pirateAbility,
     type PirateEnemyTier, type PiratePowerUpId
 } from '#shared/utils/gamelogic/pirates'
+import type { PirateAutopilotSnapshot } from '#shared/utils/gamelogic/pirates-autopilot'
 import {
     WORLD_W, WORLD_H, BALL_SPEED, PLAYER_CANNON_FIRE_GAP_MS, PICKUP_RADIUS, HOLD_RANGE_FRACTION, ROTATE_LERP, WAYPOINT_REACH_DIST,
     PLAYER_BOMB_RADIUS, ENEMY_POWER_UP_DROP_CHANCE, ENEMY_HEALTH_PACK_DROP_CHANCE, SHIP_RADIUS,
@@ -102,6 +103,9 @@ export class PirateGame {
     private powerUpPickups: PowerUpPickup[] = []
     private healthPackPickups: HealthPackPickup[] = []
     private seaMines: SeaMine[] = []
+    /** Telegraphed enemy blasts still in flight, for the auto-pilot to dodge. */
+    private hazards: { x: number, y: number, r: number, untilMs: number }[] = []
+    private frameHook: ((deltaMS: number) => void) | null = null
     private activePowerUps = new Map<PiratePowerUpId, number | null>()
     private powerUpStacks = new Map<PiratePowerUpId, number>()
     private shieldHp = 0
@@ -322,6 +326,7 @@ export class PirateGame {
         this.healthPackTimerMs = PIRATE_HEALTH_PACK_INTERVAL_MS
         this.seaMineTimerMs = PIRATE_SEA_MINE_INTERVAL_MS
         this.powerUpHudTimerMs = 0
+        this.hazards = []
         this.activePowerUps.clear()
         this.powerUpStacks.clear()
         this.shieldHp = 0
@@ -390,6 +395,58 @@ export class PirateGame {
 
     get isPaused() {
         return this.paused
+    }
+
+    // ─── Auto-pilot ─────────────────────────────────────────────────────────
+
+    /** Called after every simulated frame while a voyage runs. */
+    setFrameHook(hook: ((deltaMS: number) => void) | null) {
+        this.frameHook = hook
+    }
+
+    /** The sea as the auto-pilot sees it, in world coordinates. */
+    autopilotView(): PirateAutopilotSnapshot & { speed: number } {
+        const ammoRangeMult = this.peekShotKind() === 'standard' ? PIRATE_AMMO_RANGE_MULT : 1
+        const rangeMult = 1 + this.powerUpStack('eagle-eye') * 0.25 + this.powerUpStack('keen-sights') * 0.1
+        const kegReady = this.stats.abilityId === 'bomb' && this.playerAbilityCooldownMs <= 0
+        const enemies = [...this.enemies.values()].filter(enemy => !enemy.dead)
+        const nearest = <T extends { x: number, y: number }>(items: T[]) => items.reduce<T | null>((best, item) =>
+            !best || dist(item.x, item.y, this.playerX, this.playerY) < dist(best.x, best.y, this.playerX, this.playerY) ? item : best, null)
+        const at = (p: { x: number, y: number } | null) => p ? { x: p.x, y: p.y } : null
+        return {
+            t: this.elapsedMs,
+            x: this.playerX,
+            y: this.playerY,
+            hull: this.playerHp / Math.max(1, this.stats.maxHp),
+            shield: this.shieldHp,
+            range: this.maxCannonRange * ammoRangeMult * rangeMult,
+            keg: kegReady,
+            speed: this.stats.speed * (1 + this.powerUpStack('reinforced-keel') * 0.1),
+            enemies: enemies.map(enemy => ({ tier: enemy.tier.id, x: enemy.x, y: enemy.y, hp: enemy.hp / enemy.maxHp, range: enemy.tier.range })),
+            hazards: this.hazards.map(({ x, y, r }) => ({ x, y, r })),
+            mines: this.seaMines.map(mine => ({ x: mine.x, y: mine.y })),
+            islands: this.navGrid.islands.map(({ x, y, r }) => ({ x, y, r })),
+            supply: at(nearest(this.powerUpPickups)),
+            repair: at(nearest(this.healthPackPickups)),
+            treasure: at(this.treasure)
+        }
+    }
+
+    /** True when a ship centred here would sit on an island. */
+    autopilotBlocked(x: number, y: number) {
+        return this.pointInIsland(x, y)
+    }
+
+    /** Sail to a point, pathing around islands, without a click marker. */
+    autopilotSail(x: number, y: number) {
+        this.handleWaterClick(x, y, false)
+    }
+
+    /** Right-click the sea. Returns false while the ability is cooling down. */
+    autopilotCastAbility(x: number, y: number) {
+        if (!this.running || this.playerAbilityCooldownMs > 0 || this.consortAtSea) return false
+        this.castPlayerAbility(x, y)
+        return true
     }
 
     /**
@@ -524,6 +581,8 @@ export class PirateGame {
         this.updateSeaMines(deltaMS)
         this.updateSpawning(deltaMS)
         this.updateIdleMotion()
+        if (this.hazards.length) this.hazards = this.hazards.filter(hazard => hazard.untilMs > this.elapsedMs)
+        this.frameHook?.(deltaMS)
 
         if (this.elapsedMs >= this.runDurationMs) this.endGame(true, 'timeout')
     }
@@ -1643,6 +1702,7 @@ export class PirateGame {
         if (!this.running || enemy.dead || this.destroyed) return
         const targetX = this.playerX
         const targetY = this.playerY
+        this.addHazard(targetX, targetY, 58, 900 + 1500)
         const telegraph = new Container()
         const aimLine = new Graphics()
         aimLine.moveTo(enemy.x, enemy.y)
@@ -1756,6 +1816,7 @@ export class PirateGame {
     private launchDriftMine(enemy: Enemy) {
         const targetX = this.playerX
         const targetY = this.playerY
+        this.addHazard(targetX, targetY, 68, 2350)
         const warning = new Graphics()
         warning.circle(0, 0, 68).fill({ color: 0x2563eb, alpha: 0.08 })
         warning.circle(0, 0, 68).stroke({ width: 3, color: 0x60a5fa, alpha: 0.85 })
@@ -1824,6 +1885,7 @@ export class PirateGame {
         const targetX = this.playerX
         const targetY = this.playerY
         const radius = enemy.tier.boss ? 125 : 110
+        this.addHazard(targetX, targetY, radius, 1300)
         const warning = new Graphics()
         warning.circle(0, 0, radius).fill({ color: 0xf97316, alpha: 0.1 })
         warning.circle(0, 0, radius).stroke({ width: 4, color: 0xfb923c, alpha: 0.9 })
@@ -1876,6 +1938,7 @@ export class PirateGame {
             const angle = i / 3 * Math.PI * 2
             const targetX = baseTargetX + Math.cos(angle) * 38
             const targetY = baseTargetY + Math.sin(angle) * 38
+            this.addHazard(targetX, targetY, 42, 1650 + i * 120)
             const warning = new Graphics()
             warning.circle(0, 0, 42).fill({ color: 0x22d3ee, alpha: 0.06 })
             warning.circle(0, 0, 42).stroke({ width: 2, color: 0x67e8f9, alpha: 0.75 })
@@ -1932,6 +1995,10 @@ export class PirateGame {
                 }
             })
         }
+    }
+
+    private addHazard(x: number, y: number, r: number, durationMs: number) {
+        this.hazards.push({ x, y, r, untilMs: this.elapsedMs + durationMs + 150 })
     }
 
     private resolveEnemyAreaAttack(x: number, y: number, radius: number, damage: number, label: string, color: number, heavy = true) {

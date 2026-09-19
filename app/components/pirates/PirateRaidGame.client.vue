@@ -17,6 +17,7 @@ const {
     gameOverVisible, gameOverResult,
     attachCanvas, detachCanvas, startVoyage, pauseVoyage, resumeVoyage, cancelVoyage,
     toggleAmmoMode, closeGameOver,
+    autopilotEnabled, autopilotStatus, toggleAutopilot,
     soundEnabled, soundVolume, playMenuSound
 } = usePirateRun()
 
@@ -45,6 +46,24 @@ const abilityReady = computed(() => abilityCooldownMs.value <= 0 && !abilityLock
 const abilityCooldownPercent = computed(() => {
     if (abilityLocked.value) return 100
     return abilityCooldownTotalMs.value > 0 ? Math.max(0, Math.min(100, abilityCooldownMs.value / abilityCooldownTotalMs.value * 100)) : 0
+})
+const AUTOPILOT_MODE_LABELS = {
+    fight: 'Fighting',
+    kite: 'Kiting',
+    retreat: 'Retreating',
+    supply: 'Grabbing supplies',
+    repair: 'Grabbing repairs',
+    treasure: 'Grabbing treasure',
+    dodge: 'Dodging'
+} as const
+const autopilotLabel = computed(() => {
+    const status = autopilotStatus.value
+    if (!autopilotEnabled.value || !status) return 'Auto-play'
+    return AUTOPILOT_MODE_LABELS[status.mode]
+})
+// Auto-play is limited to a few accounts; drop it if this one lost access.
+watch(() => state.value?.autopilot, (allowed) => {
+    if (!allowed && autopilotEnabled.value) toggleAutopilot()
 })
 const selectedDifficulty = ref(0)
 const difficultySelectItems = computed(() => (state.value?.difficultyOptions ?? []).map(option => ({
@@ -542,6 +561,16 @@ onUnmounted(() => {
                   <div class="h-full rounded-full bg-primary transition-[width] duration-100" :style="{ width: `${100 - abilityCooldownPercent}%` }" />
                 </div>
               </div>
+              <UButton
+                v-if="state.autopilot"
+                :color="autopilotEnabled ? 'primary' : 'neutral'"
+                :variant="autopilotEnabled ? 'solid' : 'subtle'"
+                icon="i-lucide-bot"
+                :label="autopilotLabel"
+                :title="autopilotEnabled && autopilotStatus && !autopilotStatus.jev ? 'Advisor offline, steering on instinct' : undefined"
+                class="w-full justify-center"
+                @click="toggleAutopilot"
+              />
               <UButton color="neutral" variant="subtle" icon="i-lucide-pause" label="Pause" @click="pauseVoyage" />
               <UButton color="error" variant="subtle" icon="i-lucide-flag" label="Retreat" @click="cancelVoyage" />
             </section>
