@@ -439,43 +439,43 @@ export const VOID_SHIPS = [
         id: 'kestrel', name: 'Kestrel', role: 'Gunship', requiresSector: 1,
         description: 'Three heavy turret mounts and a missile salvo. A gun platform first and a ship second.',
         hull: 240, shield: 120, speed: 58, agility: 2.1, cargo: 1750, turrets: 3, armor: 2, shields: 1, drones: 0, ability: 'salvo',
-        cost: { ferrite: 3600, cobalt: 1450, scrap: 2350 }, coins: 2_500_000, gems: 0, turretBonus: 0.15, size: 5
+        cost: { ferrite: 4100, cobalt: 1650, scrap: 2700 }, coins: 2_500_000, gems: 0, turretBonus: 0.15, size: 5
     },
     {
         id: 'phantom', name: 'Phantom', role: 'Striker', requiresSector: 1,
         description: 'Fast, agile and hard to pin down. Two turrets are all it carries; its phase drive turns it intangible for a moment.',
         hull: 170, shield: 170, speed: 100, agility: 3.6, cargo: 1500, turrets: 2, armor: 2, shields: 1, drones: 0, ability: 'phase',
-        cost: { cobalt: 2900, scrap: 3400, alloy: 350 }, coins: 4_000_000, gems: 0, size: 4.6
+        cost: { cobalt: 3300, scrap: 3900, alloy: 400 }, coins: 4_000_000, gems: 0, size: 4.6
     },
     {
         id: 'aegis', name: 'Aegis', role: 'Tank', requiresSector: 2,
         description: 'A slab of armour with three heavy turrets and a shield overcharge that shrugs off anything for a few seconds. It does not turn so much as change its mind.',
         hull: 620, shield: 260, speed: 42, agility: 1.3, cargo: 3000, turrets: 3, armor: 4, shields: 1, drones: 0, ability: 'bulwark',
-        cost: { cobalt: 4700, iridium: 800, scrap: 5400, alloy: 700 }, coins: 15_000_000, gems: 5, turretBonus: 0.15, size: 7.5
+        cost: { cobalt: 6100, iridium: 1050, scrap: 7000, alloy: 900 }, coins: 15_000_000, gems: 5, turretBonus: 0.15, size: 7.5
     },
     {
         id: 'hive', name: 'Hive', role: 'Carrier', requiresSector: 2,
         description: 'Two turrets and a bay of six attack drones that do the real work. Launches a second swarm on demand.',
         hull: 380, shield: 220, speed: 52, agility: 1.7, cargo: 2750, turrets: 2, armor: 3, shields: 1, drones: 6, ability: 'swarm',
-        cost: { cobalt: 3800, iridium: 1250, alloy: 1250 }, coins: 18_000_000, gems: 5, size: 7
+        cost: { cobalt: 4900, iridium: 1600, alloy: 1600 }, coins: 18_000_000, gems: 5, size: 7
     },
     {
         id: 'seraph', name: 'Seraph', role: 'Vanguard', requiresSector: 3,
         description: 'Speed and firepower in one frame, which is what it costs. Two turrets, two drones and a nova that clears the air around it.',
         hull: 360, shield: 380, speed: 86, agility: 3, cargo: 2500, turrets: 2, armor: 3, shields: 2, drones: 2, ability: 'nova',
-        cost: { iridium: 3250, xenite: 350, alloy: 2000, core: 6 }, coins: 75_000_000, gems: 25, size: 6.5
+        cost: { iridium: 4700, xenite: 500, alloy: 2900, core: 9 }, coins: 75_000_000, gems: 25, size: 6.5
     },
     {
         id: 'bastion', name: 'Bastion', role: 'Fortress', requiresSector: 4,
         description: 'Four capital turrets, two drones and an overdrive that doubles their fire rate. It turns like a planet.',
         hull: 1100, shield: 460, speed: 40, agility: 1.1, cargo: 5000, turrets: 4, armor: 5, shields: 2, drones: 2, ability: 'overdrive',
-        cost: { iridium: 5400, xenite: 1250, alloy: 3400, core: 12 }, coins: 250_000_000, gems: 60, turretBonus: 0.25, size: 11
+        cost: { iridium: 8600, xenite: 2000, alloy: 5400, core: 20 }, coins: 250_000_000, gems: 60, turretBonus: 0.25, size: 11
     },
     {
         id: 'leviathan', name: 'Leviathan', role: 'Dreadnought', requiresSector: 5,
         description: 'Six capital turrets, four drones and a spinal lance that cuts a sector in half. The last ship you will ever need.',
         hull: 1800, shield: 800, speed: 36, agility: 0.9, cargo: 6500, turrets: 6, armor: 6, shields: 2, drones: 4, ability: 'lance',
-        cost: { iridium: 8100, xenite: 3250, alloy: 5400, core: 24 }, coins: 900_000_000, gems: 150, turretBonus: 0.3, size: 16
+        cost: { iridium: 14500, xenite: 5800, alloy: 9700, core: 45 }, coins: 900_000_000, gems: 150, turretBonus: 0.3, size: 16
     }
 ] as const satisfies readonly VoidShipDefinition[]
 
@@ -632,6 +632,8 @@ export function voidAutoFit(shipId: string, items: readonly VoidItem[]): VoidShi
 
 export interface VoidLoadout {
     shipId: string
+    /** Hull tier after refits. */
+    shipTier: number
     levels: VoidUpgradeLevels
     fit: VoidShipFit
     gun: VoidWeaponFit | null
@@ -673,8 +675,69 @@ export function voidTurretBonus(ship: { turretBonus?: number }) {
     return ship.turretBonus ?? 0
 }
 
-export function voidDerivedStats(shipId: string, levels: VoidUpgradeLevels, fit: VoidShipFit, items: readonly VoidItem[], perks?: VoidPerkRanks): VoidDerivedStats {
+// ─── Hull refits ────────────────────────────────────────────────────────────
+//
+// A hull is built at the tier of the sector that unlocks it. A refit lifts an
+// older frame a tier at a time so it stays flyable deeper in: tougher, roomier
+// and with harder-hitting mounts, but never more slots, so it keeps its look.
+
+export const VOID_MAX_SHIP_TIER = VOID_MAX_SECTOR + 1
+/** Hull and shield per refit step, compounding. */
+export const VOID_REFIT_DEFENCE = 1.3
+export const VOID_REFIT_CARGO = 1.15
+/** Turret damage added per refit step. */
+export const VOID_REFIT_TURRET = 0.15
+/** A refit costs this share of building a new hull of the target tier. */
+export const VOID_REFIT_PRICE = 0.85
+
+export type VoidShipTiers = Record<string, number>
+
+export function voidShipNativeTier(shipId: string) {
+    return voidShip(shipId).requiresSector + 1
+}
+
+export function voidNormalizeShipTiers(raw: unknown): VoidShipTiers {
+    const out: VoidShipTiers = {}
+    if (!raw || typeof raw !== 'object') return out
+    for (const ship of VOID_SHIPS) {
+        const tier = Math.floor(Number((raw as Record<string, unknown>)[ship.id]))
+        if (tier > ship.requiresSector + 1) out[ship.id] = Math.min(VOID_MAX_SHIP_TIER, tier)
+    }
+    return out
+}
+
+export function voidShipTier(shipId: string, tiers: unknown) {
+    return voidNormalizeShipTiers(tiers)[shipId] ?? voidShipNativeTier(shipId)
+}
+
+/** The bare frame at a tier: the catalogue hull with its refits applied. */
+export function voidShipAtTier(shipId: string, tier: number): VoidShipDefinition {
     const ship = voidShip(shipId)
+    const steps = Math.max(0, Math.min(VOID_MAX_SHIP_TIER, tier) - voidShipNativeTier(shipId))
+    if (!steps) return ship
+    return {
+        ...ship,
+        hull: Math.round(ship.hull * VOID_REFIT_DEFENCE ** steps),
+        shield: Math.round(ship.shield * VOID_REFIT_DEFENCE ** steps),
+        cargo: Math.round(ship.cargo * VOID_REFIT_CARGO ** steps / 50) * 50,
+        turretBonus: voidTurretBonus(ship) + steps * VOID_REFIT_TURRET
+    }
+}
+
+/** Price of lifting a hull to `tier`: most of what the cheapest hull built at that tier costs. */
+export function voidRefitCost(tier: number): VoidPrice | null {
+    const ref = VOID_SHIPS.filter(s => s.requiresSector + 1 === tier).sort((a, b) => a.coins - b.coins)[0]
+    if (!ref) return null
+    const resources: VoidResourceBundle = {}
+    for (const [id, amount] of Object.entries(ref.cost)) {
+        const scaled = (amount as number) * VOID_REFIT_PRICE
+        resources[id as VoidResourceId] = scaled >= 100 ? Math.round(scaled / 50) * 50 : Math.round(scaled)
+    }
+    return { resources, coins: Math.round(ref.coins * VOID_REFIT_PRICE), gems: Math.round(ref.gems * VOID_REFIT_PRICE) }
+}
+
+export function voidDerivedStats(shipId: string, levels: VoidUpgradeLevels, fit: VoidShipFit, items: readonly VoidItem[], perks?: VoidPerkRanks, shipTier?: number): VoidDerivedStats {
+    const ship = voidShipAtTier(shipId, shipTier ?? voidShipNativeTier(shipId))
     const l = levels
     const byId = new Map(items.map(i => [i.id, i]))
     const armor = fit.armor.map(id => (id ? byId.get(id) : undefined)).filter((i): i is VoidItem => !!i)
@@ -945,6 +1008,7 @@ export interface VoidStateSnapshot {
     resources: Record<string, number>
     ownedShipIds: string[]
     equippedShipId: string
+    shipTiers?: Record<string, number>
     loadouts: Record<string, unknown>
     upgradeLevels: Record<string, number>
     highestSectorCleared: number
@@ -987,7 +1051,7 @@ export function voidLoadoutFor(s: VoidStateSnapshot, items: readonly VoidItem[],
     }
     const skillId = voidEquippedSkill(s)
     const skill = { id: skillId, nodes: voidSkillNodesFor(s.skillNodes, skillId, voidPilotLevel(s.pilotXp ?? 0)) }
-    return { shipId, levels, fit, gun: weapon(fit.gun), turrets: fit.turrets.map(weapon), secondary: weapon(fit.secondary), device: weapon(fit.device), perks: voidNormalizePerks(s.perks), skill }
+    return { shipId, shipTier: voidShipTier(shipId, s.shipTiers), levels, fit, gun: weapon(fit.gun), turrets: fit.turrets.map(weapon), secondary: weapon(fit.secondary), device: weapon(fit.device), perks: voidNormalizePerks(s.perks), skill }
 }
 
 export function voidDescribeItem(item: VoidItem, resources: VoidResourceBundle, balance: number, gems: number) {
@@ -1058,7 +1122,7 @@ export function voidDescribeState(s: VoidStateSnapshot, balance: number, gems: n
     const resources = voidCleanBundle(s.resources)
     const owned = voidOwnedShips(s)
     const loadout = voidLoadoutFor(s, items)
-    const stats = voidDerivedStats(loadout.shipId, loadout.levels, loadout.fit, items, loadout.perks)
+    const stats = voidDerivedStats(loadout.shipId, loadout.levels, loadout.fit, items, loadout.perks, loadout.shipTier)
     const pilot = voidPilotProgress(s.pilotXp ?? 0)
     const unlockedSkills = voidUnlockedSkills(s)
     const stock = voidNormalizeSupplies(s.supplies)
@@ -1137,9 +1201,21 @@ export function voidDescribeState(s: VoidStateSnapshot, balance: number, gems: n
         })),
         ships: VOID_SHIPS.map((ship) => {
             const shipLoadout = voidLoadoutFor(s, items, ship.id)
-            const shipStats = voidDerivedStats(ship.id, shipLoadout.levels, shipLoadout.fit, items, shipLoadout.perks)
+            const shipStats = voidDerivedStats(ship.id, shipLoadout.levels, shipLoadout.fit, items, shipLoadout.perks, shipLoadout.shipTier)
+            const tier = shipLoadout.shipTier
+            const refitCost = tier < VOID_MAX_SHIP_TIER ? voidRefitCost(tier + 1) : null
             return {
-                ...ship,
+                ...voidShipAtTier(ship.id, tier),
+                tier,
+                nativeTier: voidShipNativeTier(ship.id),
+                // The next refit: the frame it gives, what it costs and whether the sector that allows it is cleared.
+                refit: refitCost && {
+                    tier: tier + 1,
+                    frame: voidShipAtTier(ship.id, tier + 1),
+                    cost: refitCost,
+                    unlocked: s.highestSectorCleared >= tier,
+                    affordable: voidCanAffordPrice(refitCost, resources, balance, gems)
+                },
                 owned: owned.includes(ship.id),
                 equipped: ship.id === s.equippedShipId,
                 unlocked: s.highestSectorCleared >= ship.requiresSector,

@@ -14,6 +14,7 @@
             @launch="launch"
             @equip="equipShip"
             @buy-ship="buyShip"
+            @refit-ship="refitShip"
             @set-fit="setFit"
             @craft="craftItem"
             @upgrade-item="upgradeItem"
@@ -570,6 +571,7 @@ const buyShip = (shipId: string) => act(() => apiFetch('/api/void/ships/buy', { 
     await fetchSession()
     previewShip(null)
 })
+const refitShip = (shipId: string) => act(() => apiFetch('/api/void/ships/refit', { method: 'POST', body: { shipId } }), 'Could not refit that hull', 'levelUp').then(() => fetchSession())
 const setFit = (shipId: string, fit: unknown) => act(() => apiFetch('/api/void/ships/loadout', { method: 'POST', body: { shipId, fit } }), 'Could not refit', 'ui')
 const lastCraftId = ref<string | null>(null)
 let craftHighlightTimer: ReturnType<typeof setTimeout> | undefined

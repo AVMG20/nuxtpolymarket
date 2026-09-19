@@ -43,7 +43,7 @@
                                 <span class="vl-slot-text">
                                     <span class="vl-slot-top">
                                         <b>{{ itemById(id)!.name }}</b>
-                                        <span v-if="itemById(id)!.modInfo" class="vl-slot-mod" :title="`${itemById(id)!.modInfo!.name}: ${itemById(id)!.modInfo!.description}`"><VoidItemArt :type="itemById(id)!.modInfo!.id" size="sm" flat class="vl-mod-art" /></span>
+                                        <span v-if="itemById(id)!.modInfo" class="vl-slot-mod vl-tip" :data-tip="`${itemById(id)!.modInfo!.name}: ${itemById(id)!.modInfo!.description}`"><VoidItemArt :type="itemById(id)!.modInfo!.id" size="sm" flat class="vl-mod-art" /></span>
                                     </span>
                                     <span class="vl-slot-sub">
                                         <span>{{ itemById(id)!.rarityName }}</span>
@@ -92,7 +92,7 @@
                                 <b>{{ item.name }}</b>
                             </span>
                             <span class="vl-tile-rarity">{{ item.rarityName }}<template v-if="item.affixList.length"> · {{ item.affixList.length }} bonus</template></span>
-                            <span v-if="item.modInfo" class="vl-tile-mod" :style="{ color: hex(item.modInfo.color) }" :title="item.modInfo.description"><VoidItemArt :type="item.modInfo.id" size="sm" flat class="vl-mod-art" />{{ item.modInfo.name }}</span>
+                            <span v-if="item.modInfo" class="vl-tile-mod vl-tip" :style="{ color: hex(item.modInfo.color) }" :data-tip="item.modInfo.description"><VoidItemArt :type="item.modInfo.id" size="sm" flat class="vl-mod-art" />{{ item.modInfo.name }}</span>
                             <span class="vl-tile-stats">
                                 <span v-for="st in item.stats" :key="st.label">{{ st.label }} <b>{{ st.value }}</b></span>
                             </span>
@@ -103,7 +103,7 @@
                             </span>
                             <!-- Levelling, socketing and breaking down all happen here, beside the fitting. -->
                             <span class="vl-tile-levels" :title="`Level ${item.level} / 10. Levels 5 and 10 each add a bonus stat.`">
-                                <i v-for="n in 10" :key="n" :class="{ 'vl-lv-on': n <= item.level, 'vl-lv-star': n === 5 || n === 10 }" />
+                                <i v-for="n in 10" :key="n" :class="{ 'vl-lv-on': n <= item.level }" />
                             </span>
                             <span v-if="item.upgradeCost" class="vl-tile-cost" title="Cost of the next level">
                                 <VoidCost :cost="item.upgradeCost.resources" :held="state.resources" :coins="item.upgradeCost.coins" :gems="item.upgradeCost.gems" :balance="state.balance" :gems-held="state.gems" />
@@ -389,8 +389,7 @@ function autoFit() {
 .vl-tile-foot small { margin-left: auto; font-size: 11px; color: var(--vr-warn); }
 .vl-tile-levels { display: flex; gap: 2px; margin-top: 4px; }
 .vl-tile-levels i { flex: 1; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); }
-.vl-lv-on { background: var(--rc) !important; }
-.vl-lv-star { box-shadow: 0 0 0 1px rgba(255, 210, 122, 0.5); }
+.vl-lv-on { background: var(--vr-good) !important; }
 .vl-tile-cost { display: flex; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--vr-line); font-size: 12px; }
 .vl-tile-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
 .vl-tile-actions .vr-btn:first-child { flex: 1; }
@@ -401,6 +400,10 @@ function autoFit() {
 .vl-mod-opt em { margin-left: auto; font-style: normal; font: 600 11px 'JetBrains Mono', monospace; color: var(--vr-muted); }
 .vl-tile-mod { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; cursor: help; }
 .vl-mod-art { width: 18px; height: 18px; }
+/* Native title tooltips don't show in fullscreen, so mods carry their own. */
+.vl-tip { position: relative; }
+.vl-tip::after { content: attr(data-tip); position: absolute; left: 0; top: calc(100% + 6px); z-index: 30; width: max-content; max-width: 240px; padding: 6px 9px; font-size: 12px; font-weight: 500; line-height: 1.35; letter-spacing: 0; text-transform: none; white-space: normal; color: var(--vr-text, #e6eef7); background: #0b111b; border: 1px solid var(--vr-line-strong); border-radius: 7px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); opacity: 0; pointer-events: none; transition: opacity 0.12s; }
+.vl-tip:hover::after { opacity: 1; }
 
 @media (max-width: 900px) {
     .vl-main { grid-template-columns: minmax(0, 1fr); }

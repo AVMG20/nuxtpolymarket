@@ -1,0 +1,1 @@
+ALTER TABLE "void_state" ADD COLUMN "ship_tiers" jsonb DEFAULT '{}'::jsonb NOT NULL;

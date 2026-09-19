@@ -240,6 +240,8 @@ export const voidState = pgTable('void_state', {
   resources: jsonb('resources').$type<Record<string, number>>().notNull().default({}),
   ownedShipIds: jsonb('owned_ship_ids').$type<string[]>().notNull().default(['sparrow']),
   equippedShipId: text('equipped_ship_id').notNull().default('sparrow'),
+  // Hull tier per ship id, only for hulls refitted above the tier they were built at.
+  shipTiers: jsonb('ship_tiers').$type<Record<string, number>>().notNull().default({}),
   // Gear fitted to each hull, keyed by ship id: { gun, turrets[], armor[], shields[] } of item ids.
   loadouts: jsonb('loadouts').$type<Record<string, unknown>>().notNull().default({}),
   // Relic mods waiting to be socketed, by mod id.

@@ -28,7 +28,7 @@ import {
 import { createSky, SpaceDust, type Sky } from './sky'
 import { buildShip, shipGlow } from './ships'
 import { buildBeacon, buildGate, buildStation, buildWreck } from './structures'
-import { buildDrone, buildTurret } from './turrets'
+import { buildDrone, buildTurret, turretMounts, turretMountScale } from './turrets'
 import { drawOverlay } from './overlay'
 import { ObjectiveTracker } from './objectives'
 import { EventDirector } from './events'
@@ -1203,28 +1203,9 @@ export class VoidEngine {
 
     /** Mounts fitted turrets. Empty hardpoints stay bare. */
     mountTurrets(model: BuiltModel, fits: (VoidWeaponFit | VoidTurretId | null)[], parent: THREE.Object3D, heavy = 0): TurretSlot[] {
-        const size = Math.max(3.2, model.radius * 1.2)
-        // Hulls with a turret bonus carry visibly heavier mounts.
-        const scale = THREE.MathUtils.clamp(size / 5.5, 0.55, 1.9) * (1 + heavy * 0.8)
+        const scale = turretMountScale(model, heavy)
         const slots: TurretSlot[] = []
-        // A hull can carry more turrets than its model drew mounts for. Spread
-        // the rest along the spine, alternating top and bottom, so every fitted
-        // turret exists and actually fires.
-        const mounts = [...model.hardpoints]
-        for (let k = mounts.length; k < fits.length; k++) {
-            const extra = k - model.hardpoints.length
-            const up = extra % 2 === 0
-            const row = Math.floor(extra / 2)
-            const span = model.radius * 0.75
-            mounts.push({
-                position: new THREE.Vector3(
-                    ((row % 2 === 0 ? 1 : -1) * model.radius) * 0.3,
-                    up ? model.radius * 0.3 : -model.radius * 0.3,
-                    -span + (span * 2 * ((row + 0.5) / Math.max(1, Math.ceil(fits.length / 2))))
-                ),
-                normal: new THREE.Vector3(0, up ? 1 : -1, 0)
-            })
-        }
+        const mounts = turretMounts(model, fits.length)
         mounts.forEach((mount, i) => {
             const entry = fits[i]
             if (!entry) return

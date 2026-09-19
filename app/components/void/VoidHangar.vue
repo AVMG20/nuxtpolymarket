@@ -60,13 +60,13 @@
 
         <!-- Ship title over the showroom -->
         <section v-if="tab === 'hangar'" class="vh-title">
-            <div class="vh-title-role">{{ shown.role }} <span v-if="!shown.owned">· preview</span></div>
+            <div class="vh-title-role">{{ shown.role }} · T{{ shown.tier }} <span v-if="!shown.owned">· preview</span></div>
             <div class="vh-title-name">{{ shown.name }}</div>
             <p class="vh-title-desc">{{ shown.description }}</p>
             <div class="vh-title-stats">
                 <div v-if="shown.owned"><span>Power</span><b>{{ formatNumber(shown.power, false) }}</b></div>
                 <div><span>Turrets</span><b>{{ shown.turrets }}</b></div>
-                <div v-if="shownTurretBonus" title="This hull carries heavier turret mounts"><span>Turret damage</span><b>+{{ shownTurretBonus }}%</b></div>
+                <div v-if="shownTurretBonus" title="Heavier turret mounts, from the hull and its refits"><span>Turret damage</span><b>+{{ shownTurretBonus }}%</b></div>
                 <div><span>Drones</span><b>{{ shown.stats.drones }}</b></div>
                 <div v-if="shown.ability" :title="abilityText(shown.ability)"><span>Ability · R</span><b>{{ abilityName(shown.ability) }}</b></div>
             </div>
@@ -76,14 +76,15 @@
                     <span>{{ row.label }}</span>
                     <div class="vh-spec-bar">
                         <div class="vh-spec-fill" :style="{ width: `${row.pct * 100}%` }" />
-                        <i v-if="row.delta" class="vh-spec-mark" :style="{ left: `${row.basePct * 100}%` }" :title="`${equipped.name}: ${row.baseText}`" />
+                        <i v-if="row.delta" class="vh-spec-mark" :style="{ left: `${row.basePct * 100}%` }" :title="`${refitHover ? 'Now' : equipped.name}: ${row.baseText}`" />
                     </div>
                     <b>{{ row.value }}</b>
                     <i v-if="row.delta > 0" class="vh-up">+{{ row.deltaText }}</i>
                     <i v-else-if="row.delta < 0" class="vh-down">−{{ row.deltaText }}</i>
                     <i v-else />
                 </div>
-                <p v-if="shown.id !== state.equippedShipId" class="vh-spec-note">Bare frame against the {{ equipped.name }}. Your gear moves across when you fly it.</p>
+                <p v-if="refitHover && shown.refit" class="vh-spec-note">The {{ shown.name }} refitted to T{{ shown.refit.tier }}. Slots and looks stay the same.</p>
+                <p v-else-if="shown.id !== state.equippedShipId" class="vh-spec-note">Bare frame against the {{ equipped.name }}. Your gear moves across when you fly it.</p>
             </div>
             <div v-if="firstSteps && !previewShipId" class="vh-steps">
                 <div class="vh-goal-kicker">First steps · {{ firstSteps.done }} / {{ firstSteps.steps.length }}</div>
@@ -139,6 +140,15 @@
                 <span>Launch</span>
                 <small>{{ equipped.name }}</small>
             </button>
+            <!-- Refit: lifts the shown hull a tier. Hovering previews the gain on the spec sheet. -->
+            <div v-if="shown.owned && shown.refit" class="vh-refit" @mouseenter="refitHover = true" @mouseleave="refitHover = false">
+                <div class="vh-refit-head"><b>Refit</b><span>T{{ shown.tier }} <UIcon name="i-lucide-arrow-right" class="size-3" /> T{{ shown.refit.tier }}</span></div>
+                <template v-if="shown.refit.unlocked">
+                    <VoidCost :cost="shown.refit.cost.resources" :held="state.resources" :coins="shown.refit.cost.coins" :gems="shown.refit.cost.gems" :balance="state.balance" :gems-held="state.gems" />
+                    <button class="vr-btn vr-btn-sm vr-btn-primary" :disabled="busy || !shown.refit.affordable" @click="$emit('refit-ship', shown.id)">Refit the {{ shown.name }}</button>
+                </template>
+                <div v-else class="vh-refit-locked">Clear sector {{ shown.refit.tier - 1 }} first</div>
+            </div>
         </section>
 
         <!-- Hull bay: always beside the pad, so you can swap ships at any time -->
@@ -165,7 +175,7 @@
                         <span v-else-if="ship.affordable" class="vh-tag vh-tag-good">Can build</span>
                     </div>
                     <div class="vh-yard-ship-sub">
-                        <span>{{ ship.role }}</span>
+                        <span>{{ ship.role }} · <b :class="{ 'vh-refitted': ship.tier > ship.nativeTier }">T{{ ship.tier }}</b></span>
                         <span>{{ ship.turrets }}T · {{ ship.armor }}A · {{ ship.shields }}S</span>
                     </div>
                 </button>
@@ -425,16 +435,43 @@
                 </div>
                 <div class="vh-record-cols">
                     <section class="vp-panel">
-                        <header class="vp-head"><h2>Leaderboard</h2><span>Best single haul</span></header>
-                        <div v-for="row in leaderboard" :key="row.rank" class="vp-row vp-row-slim" :class="{ 'vp-row-me': row.isCurrentUser }">
-                            <span class="vh-rank">{{ row.rank }}</span>
-                            <div class="vp-main"><b>{{ row.name }}</b><small>{{ row.shipName }}<template v-if="row.cleared"> · sector {{ row.cleared }} cleared</template></small></div>
+                        <header class="vp-head"><h2>Leaderboard</h2><span>Deepest sector, then best haul</span></header>
+                        <div class="vh-lb-cols"><span>Pilot</span><span>Power</span><span>Best haul</span></div>
+                        <button
+                            v-for="row in leaderboard"
+                            :key="row.rank"
+                            class="vp-row vp-row-slim vh-lb-row"
+                            :class="{ 'vp-row-me': row.isCurrentUser, 'vh-lb-on': viewed?.rank === row.rank }"
+                            @click="viewedRank = viewedRank === row.rank || row.isCurrentUser ? null : row.rank"
+                        >
+                            <span class="vh-rank" :class="`vh-rank-${row.rank}`">{{ row.rank }}</span>
+                            <div class="vp-main"><b>{{ row.name }}<em>Lv {{ row.pilotLevel }}</em></b><small>{{ row.shipName }}<template v-if="row.cleared"> · sector {{ row.cleared }} cleared</template></small></div>
+                            <span class="vp-num vh-lb-power">{{ formatNumber(row.power, false) }}</span>
                             <span class="vp-num vp-gold">{{ formatNumber(row.bestHaulValue) }}</span>
-                        </div>
+                        </button>
                         <div v-if="!leaderboard.length" class="vh-hint">No runners yet.</div>
                     </section>
-                    <section class="vp-panel">
-                        <header class="vp-head"><h2>Recent runs</h2></header>
+                    <section v-if="viewed" class="vp-panel">
+                        <header class="vp-head">
+                            <h2>{{ viewed.name }}</h2><span>{{ viewed.shipName }} · pilot level {{ viewed.pilotLevel }}</span>
+                            <button class="vh-lb-close" title="Back to your runs" @click="viewedRank = null"><UIcon name="i-lucide-x" class="size-4" /></button>
+                        </header>
+                        <VoidShipPreview :ship-id="viewed.shipId" :turrets="viewed.turretTypes" />
+                        <div class="vh-lb-stats">
+                            <div><span>Power</span><b>{{ formatNumber(viewed.power, false) }}</b><small v-if="powerGap" :class="powerGap > 0 ? 'vh-ko' : 'vh-ok'">{{ powerGap > 0 ? '+' : '−' }}{{ formatNumber(Math.abs(powerGap), false) }} vs you</small></div>
+                            <div><span>Gear</span><b>T{{ viewed.gearTier.toFixed(1) }}</b></div>
+                            <div><span>Hull</span><b>{{ formatNumber(viewed.hull, false) }}</b></div>
+                            <div><span>Shield</span><b>{{ formatNumber(viewed.shield, false) }}</b></div>
+                            <div><span>Kills</span><b>{{ formatNumber(viewed.kills) }}</b></div>
+                            <div><span>Wardens</span><b>{{ viewed.wardensKilled }}</b></div>
+                        </div>
+                        <div v-for="(g, i) in viewedGear" :key="i" class="vp-row vp-row-slim">
+                            <VoidItemArt v-if="g.item" :type="g.item.type" :tier="g.item.tier" :level="g.item.level" :rarity-color="g.item.rarityColor" size="sm" />
+                            <div class="vp-main"><b :style="g.item ? { color: g.item.rarityColor } : {}">{{ g.item?.name ?? 'Empty' }}</b><small>{{ g.slot }}</small></div>
+                        </div>
+                    </section>
+                    <section v-else class="vp-panel">
+                        <header class="vp-head"><h2>Recent runs</h2><span>Pick a pilot to inspect their ship</span></header>
                         <div v-for="r in history" :key="r.id" class="vp-row vp-row-slim">
                             <span class="vh-rank" :class="r.extracted ? 'vh-ok' : 'vh-ko'"><UIcon :name="r.extracted ? 'i-lucide-check' : 'i-lucide-x'" class="size-4" /></span>
                             <div class="vp-main"><b>Sector {{ r.sector }} · {{ shipName(r.shipId) }}</b><small>{{ clock(r.durationMs) }} · {{ r.kills }} kills<template v-if="r.wardenKilled"> · warden</template></small></div>
@@ -460,6 +497,8 @@ import type { VoidSfx } from '~/utils/void/audio'
 import VoidCost from './VoidCost.vue'
 import VoidSkills from './VoidSkills.vue'
 import VoidLoadout from './VoidLoadout.vue'
+import VoidItemArt from './VoidItemArt.vue'
+import VoidShipPreview from './VoidShipPreview.vue'
 import VoidWorkshop, { type WorkshopView } from './VoidWorkshop.vue'
 
 type State = InternalApi['/api/void/state']['get']
@@ -483,6 +522,7 @@ const emit = defineEmits<{
     'launch': [tier: number]
     'equip': [shipId: string]
     'buy-ship': [shipId: string]
+    'refit-ship': [shipId: string]
     'set-fit': [shipId: string, fit: unknown]
     'craft': [kind: string, type: string, tier: number]
     'upgrade-item': [itemId: string]
@@ -629,10 +669,13 @@ const ownedCount = computed(() => props.state.ships.filter(s => s.owned).length)
  * left out, or an empty new hull would look weaker than the fitted one you fly
  * and nobody would ever buy it.
  */
-const shownTurretBonus = computed(() => Math.round(voidTurretBonus(voidShip(shown.value.id)) * 100))
+const refitHover = ref(false)
+const shownTurretBonus = computed(() => Math.round(voidTurretBonus(shown.value) * 100))
 const shownSpec = computed(() => {
-    const a = voidShip(shown.value.id)
-    const b = voidShip(props.state.equippedShipId)
+    // Hovering the refit compares the hull against itself a tier up; otherwise against the hull you fly.
+    const refit = refitHover.value && shown.value.owned ? shown.value.refit : null
+    const a = refit ? refit.frame : shown.value
+    const b = refit ? shown.value : equipped.value
     const rows = [
         { label: 'Hull', key: 'hull', value: a.hull, base: b.hull, round: 0 },
         { label: 'Shield', key: 'shield', value: a.shield, base: b.shield, round: 0 },
@@ -640,22 +683,23 @@ const shownSpec = computed(() => {
         { label: 'Agility', key: 'agility', value: a.agility, base: b.agility, round: 1 },
         { label: 'Cargo', key: 'cargo', value: a.cargo, base: b.cargo, round: 0 },
         { label: 'Turrets', key: 'turrets', value: a.turrets, base: b.turrets, round: 0 },
+        { label: 'Turret dmg', key: 'turretBonus', value: voidTurretBonus(a) * 100, base: voidTurretBonus(b) * 100, round: 0, unit: '%' },
         { label: 'Armour', key: 'armor', value: a.armor, base: b.armor, round: 0 },
         { label: 'Shields', key: 'shields', value: a.shields, base: b.shields, round: 0 }
     ]
-    const text = (v: number, round: number) => (round ? v.toFixed(round) : formatNumber(Math.round(v), v >= 10_000))
+    const text = (v: number, round: number, unit = '') => (round ? v.toFixed(round) : formatNumber(Math.round(v), v >= 10_000)) + unit
     return rows.map((r) => {
         const delta = r.value - r.base
-        // Bars run against the best hull in the game, so every ship reads on one scale.
-        const best = Math.max(...VOID_SHIPS.map(sh => Number(sh[r.key as keyof typeof sh]) || 0))
+        // Bars run against the best hull in the game, so every ship reads on one scale. A refit can run past it.
+        const best = Math.max(...VOID_SHIPS.map(sh => (Number((sh as Record<string, unknown>)[r.key]) || 0) * (r.unit ? 100 : 1)))
         return {
             label: r.label,
-            value: text(r.value, r.round),
-            baseText: text(r.base, r.round),
-            pct: best > 0 ? r.value / best : 0,
-            basePct: best > 0 ? r.base / best : 0,
-            delta: shown.value.id === props.state.equippedShipId ? 0 : delta,
-            deltaText: text(Math.abs(delta), r.round)
+            value: text(r.value, r.round, r.unit),
+            baseText: text(r.base, r.round, r.unit),
+            pct: best > 0 ? Math.min(1, r.value / best) : 0,
+            basePct: best > 0 ? Math.min(1, r.base / best) : 0,
+            delta: !refit && shown.value.id === props.state.equippedShipId ? 0 : delta,
+            deltaText: text(Math.abs(delta), r.round, r.unit)
         }
     })
 })
@@ -716,6 +760,12 @@ function abilityText(id: string | null) {
     if (!id) return ''
     return VOID_ABILITIES[id as VoidAbilityId]?.description ?? ''
 }
+
+// Records: the pilot picked on the leaderboard, whose ship replaces your recent runs.
+const viewedRank = ref<number | null>(null)
+const viewed = computed(() => props.leaderboard.find(r => r.rank === viewedRank.value) ?? null)
+const powerGap = computed(() => (viewed.value ? viewed.value.power - props.state.power : 0))
+const viewedGear = computed(() => (viewed.value ? [{ slot: 'Primary gun', item: viewed.value.gun }, ...viewed.value.turrets.map((item, i) => ({ slot: `Turret ${i + 1}`, item }))] : []))
 
 function shipName(id: string) {
     return voidShip(id).name
@@ -822,6 +872,13 @@ function stepSector(delta: number) {
 .vh-go:hover:not(:disabled) { filter: brightness(1.15); }
 .vh-go:active:not(:disabled) { transform: translateY(1px); }
 .vh-go:disabled { filter: grayscale(0.8) brightness(0.6); cursor: not-allowed; }
+.vh-refit { display: flex; flex-direction: column; justify-content: center; gap: 6px; min-width: 220px; max-width: 320px; margin-left: 8px; padding: 10px 14px; background: rgba(6, 12, 22, 0.78); border: 1px solid var(--vr-line-strong); border-left: 2px solid var(--vr-gold); font-size: 12px; backdrop-filter: blur(6px); transition: border-color 0.15s; }
+.vh-refit:hover { border-color: var(--vr-gold); }
+.vh-refit-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.vh-refit-head b { font-size: 10px; font-weight: 700; letter-spacing: 0.35em; text-transform: uppercase; color: var(--vr-gold); }
+.vh-refit-head span { display: inline-flex; align-items: center; gap: 4px; font: 600 14px 'JetBrains Mono', monospace; }
+.vh-refit-locked { color: var(--vr-muted); }
+.vh-refitted { color: var(--vr-gold); }
 
 .vh-spec { margin-top: 16px; max-width: 360px; padding: 10px 14px; background: linear-gradient(90deg, rgba(94, 200, 255, 0.08), transparent); border-left: 2px solid var(--vr-accent); pointer-events: auto; }
 .vh-spec-row { display: grid; grid-template-columns: 74px minmax(60px, 1fr) 54px 46px; align-items: center; gap: 10px; padding: 3px 0; }
@@ -942,6 +999,22 @@ function stepSector(delta: number) {
 .vh-rank { display: grid; place-items: center; width: 28px; font: 600 13px 'JetBrains Mono', monospace; color: var(--vr-muted); }
 .vh-who small { display: block; font-size: 11px; color: var(--vr-muted); }
 .vh-ok { color: var(--vr-good); }
+.vh-lb-cols { display: flex; gap: 10px; padding: 8px 14px 6px 52px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vr-muted); border-bottom: 1px solid var(--vr-line); }
+.vh-lb-cols span:first-child { flex: 1; }
+.vh-lb-cols span:not(:first-child) { min-width: 72px; text-align: right; }
+.vh-lb-row { width: 100%; text-align: left; cursor: pointer; }
+.vh-lb-on { background: rgba(255, 255, 255, 0.06); box-shadow: inset 2px 0 0 var(--vr-gold); }
+.vh-lb-power { color: var(--vr-accent); }
+.vh-rank-1 { color: #ffd27a; }
+.vh-rank-2 { color: #cfd8e3; }
+.vh-rank-3 { color: #d59a6a; }
+.vh-lb-close { margin-left: auto; display: grid; place-items: center; width: 26px; height: 26px; color: var(--vr-muted); border-radius: 6px; cursor: pointer; }
+.vh-lb-close:hover { color: var(--vr-text); background: rgba(255, 255, 255, 0.08); }
+.vh-lb-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--vr-line); border-bottom: 1px solid var(--vr-line); }
+.vh-lb-stats div { padding: 10px 14px; background: var(--vr-panel); }
+.vh-lb-stats span { display: block; font-size: 12px; color: var(--vr-muted); }
+.vh-lb-stats b { font: 600 17px 'JetBrains Mono', monospace; }
+.vh-lb-stats small { display: block; font-size: 11px; }
 .vh-ko { color: var(--vr-bad); }
 
 .vh-guns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; }
@@ -967,6 +1040,9 @@ function stepSector(delta: number) {
 @media (max-width: 1480px) {
     .vh-leave-label { display: none; }
     .vh-tab { padding: 8px 6px; gap: 4px; font-size: 11px; letter-spacing: 0.06em; }
+}
+@media (max-width: 1400px) {
+    .vh-refit { position: absolute; left: 0; bottom: calc(100% + 8px); margin-left: 0; }
 }
 @media (max-width: 1240px) {
     .vh-tab-label { display: none; }

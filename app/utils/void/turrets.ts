@@ -2,7 +2,7 @@
 
 import * as THREE from 'three'
 import type { VoidTurretId } from '#shared/utils/gamelogic/void'
-import { ModelBuilder, cyl, ico, octa, ring, tube, type TurretModel } from './models'
+import { ModelBuilder, cyl, ico, octa, ring, tube, type BuiltModel, type Hardpoint, type TurretModel } from './models'
 import { type Section, loft, slab, block, RED, GREEN, band, shade } from './ship-kit'
 
 // ─── Turrets ───────────────────────────────────────────────────────────────
@@ -402,4 +402,36 @@ export function buildDrone(color: number): THREE.Group {
     b.metal(tube(0.09, 0.11, 0.08, 8), T_DARK, [0, 0, 0.51])
     b.glow(new THREE.CircleGeometry(0.075, 8), color, 2.4, [0, 0, 0.552])
     return b.build().group
+}
+
+// ─── Mounting ──────────────────────────────────────────────────────────────
+
+/** Turret scale for a hull. Hulls with a turret bonus carry visibly heavier mounts. */
+export function turretMountScale(model: BuiltModel, heavy = 0) {
+    const size = Math.max(3.2, model.radius * 1.2)
+    return THREE.MathUtils.clamp(size / 5.5, 0.55, 1.9) * (1 + heavy * 0.8)
+}
+
+/**
+ * A hull can carry more turrets than its model drew mounts for. The rest are
+ * spread along the spine, alternating top and bottom, so every fitted turret
+ * exists and actually fires.
+ */
+export function turretMounts(model: BuiltModel, count: number): Hardpoint[] {
+    const mounts = [...model.hardpoints]
+    for (let k = mounts.length; k < count; k++) {
+        const extra = k - model.hardpoints.length
+        const up = extra % 2 === 0
+        const row = Math.floor(extra / 2)
+        const span = model.radius * 0.75
+        mounts.push({
+            position: new THREE.Vector3(
+                ((row % 2 === 0 ? 1 : -1) * model.radius) * 0.3,
+                up ? model.radius * 0.3 : -model.radius * 0.3,
+                -span + (span * 2 * ((row + 0.5) / Math.max(1, Math.ceil(count / 2))))
+            ),
+            normal: new THREE.Vector3(0, up ? 1 : -1, 0)
+        })
+    }
+    return mounts
 }

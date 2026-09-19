@@ -302,6 +302,13 @@
       "when": 1789809532289,
       "tag": "0042_heavy_richard_fisk",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1789843463097,
+      "tag": "0043_quick_rocket_raccoon",
+      "breakpoints": true
     }
   ]
 }

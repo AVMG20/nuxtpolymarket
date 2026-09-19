@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
     VOID_SHIPS, VOID_TURRETS, VOID_UPGRADES, VOID_MARKET_PRICES,
     voidApplyBeaconReport, voidBeaconStates, voidCleanBeacons, voidRollBeaconAttack, voidAutoFit, voidBundleValue, voidCanAfford, voidDerivedStats, voidDescribeState, voidLoadoutFor, voidNormalizeFit, voidNormalizeLevels, voidSettleRun,
+    VOID_MAX_SHIP_TIER, voidNormalizeShipTiers, voidRefitCost, voidShipAtTier, voidShipNativeTier, voidShipTier,
     voidGearTier, voidSectorResources, voidSectorUnlocked, voidSubtractBundle, voidUpgradeCost, type VoidStateSnapshot
 } from '#shared/utils/gamelogic/void'
 import {
@@ -177,6 +178,36 @@ describe('void runner loadouts', () => {
         expect(fit.armor).toEqual(['a', null])
         const stats = voidDerivedStats('mule', voidNormalizeLevels({}), fit, items)
         expect(stats.hull).toBeGreaterThan(VOID_SHIPS[2]!.hull)
+    })
+
+    it('refits an old hull a tier up without adding slots', () => {
+        expect(voidShipNativeTier('phantom')).toBe(2)
+        const base = voidShipAtTier('phantom', 2)
+        const refit = voidShipAtTier('phantom', 4)
+        expect(refit.hull).toBeGreaterThan(base.hull)
+        expect(refit.cargo).toBeGreaterThan(base.cargo)
+        expect(refit.turretBonus).toBeCloseTo(0.3)
+        expect([refit.turrets, refit.armor, refit.shields]).toEqual([base.turrets, base.armor, base.shields])
+        const fit = voidNormalizeFit('phantom', null, [])
+        const levels = voidNormalizeLevels({})
+        expect(voidDerivedStats('phantom', levels, fit, [], undefined, 4).turretMult).toBeGreaterThan(voidDerivedStats('phantom', levels, fit, []).turretMult)
+    })
+
+    it('never reads a stored tier below the hull\'s own or above the cap', () => {
+        expect(voidShipTier('aegis', { aegis: 1 })).toBe(3)
+        expect(voidShipTier('wasp', { wasp: 99 })).toBe(VOID_MAX_SHIP_TIER)
+        expect(voidNormalizeShipTiers({ nope: 4, wasp: 'x' })).toEqual({})
+    })
+
+    it('prices a refit just under a new hull of that tier, climbing every tier', () => {
+        const costs = Array.from({ length: VOID_MAX_SHIP_TIER - 1 }, (_, i) => voidRefitCost(i + 2)!)
+        costs.forEach((c, i) => {
+            if (i) expect(c.coins).toBeGreaterThan(costs[i - 1]!.coins)
+        })
+        const aegis = VOID_SHIPS.find(s => s.id === 'aegis')!
+        expect(voidRefitCost(3)!.coins).toBeLessThan(aegis.coins)
+        expect(voidRefitCost(3)!.coins).toBeGreaterThan(aegis.coins * 0.7)
+        expect(voidRefitCost(VOID_MAX_SHIP_TIER + 1)).toBeNull()
     })
 
     it('rates gear across every slot, so bare hardpoints drag the rating down', () => {
