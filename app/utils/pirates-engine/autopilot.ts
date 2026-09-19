@@ -97,7 +97,12 @@ export class PirateAutopilot {
     private destination: PirateAutopilotPoint | null = null
     private status: PirateAutopilotStatus = { mode: 'fight', jev: false, connected: false }
 
-    constructor(private game: PirateGame, private onStatus: (status: PirateAutopilotStatus) => void) {}
+    constructor(
+        private game: PirateGame,
+        private onStatus: (status: PirateAutopilotStatus) => void,
+        /** The advice steering the ship, every think tick. `jev` is false for the helm's own read. */
+        private onAdvice?: (advice: PirateAutopilotAdvice, jev: boolean) => void
+    ) {}
 
     start() {
         if (!this.stopped) return
@@ -190,6 +195,7 @@ export class PirateAutopilot {
         const fresh = this.advice && performance.now() - this.adviceAt < ADVICE_STALE_MS
         const advice = fresh ? this.advice! : localAdvice(view)
         this.setStatus({ jev: !!fresh })
+        this.onAdvice?.(advice, !!fresh)
 
         this.throwKeg(view, advice)
 

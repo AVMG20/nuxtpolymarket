@@ -17,7 +17,7 @@ const {
     gameOverVisible, gameOverResult,
     attachCanvas, detachCanvas, startVoyage, pauseVoyage, resumeVoyage, cancelVoyage,
     toggleAmmoMode, closeGameOver,
-    autopilotEnabled, autopilotStatus, toggleAutopilot,
+    autopilotEnabled, autopilotStatus, autopilotAdvice, toggleAutopilot,
     soundEnabled, soundVolume, playMenuSound
 } = usePirateRun()
 
@@ -60,6 +60,19 @@ const autopilotLabel = computed(() => {
     const status = autopilotStatus.value
     if (!autopilotEnabled.value || !status) return 'Auto-play'
     return AUTOPILOT_MODE_LABELS[status.mode]
+})
+// The auto-play card: each answer steering the ship, as a bar.
+const autopilotRows = computed(() => {
+    const advice = autopilotAdvice.value
+    if (!advice) return []
+    return [
+        { label: 'Danger', value: advice.danger, text: `${Math.round(advice.danger * 100)}%`, bar: 'bg-error' },
+        { label: 'Heading', value: advice.headingConfidence, text: advice.heading ?? '—', bar: 'bg-primary' },
+        { label: 'Supplies', value: advice.grabSupply, text: `${Math.round(advice.grabSupply * 100)}%`, bar: 'bg-success' },
+        { label: 'Repair', value: advice.grabRepair, text: `${Math.round(advice.grabRepair * 100)}%`, bar: 'bg-success' },
+        { label: 'Treasure', value: advice.grabTreasure, text: `${Math.round(advice.grabTreasure * 100)}%`, bar: 'bg-warning' },
+        { label: 'Keg', value: advice.throwKeg, text: `${Math.round(advice.throwKeg * 100)}%`, bar: 'bg-warning' }
+    ]
 })
 // Auto-play is limited to a few accounts; drop it if this one lost access.
 watch(() => state.value?.autopilot, (allowed) => {
@@ -270,6 +283,26 @@ onUnmounted(() => {
         <UCard class="pirate-card-wrapper flex flex-col flex-1 min-h-0" :ui="{ body: 'p-0 sm:p-0 flex flex-col flex-1 min-h-0' }">
           <div class="game-viewport relative w-full overflow-hidden rounded-lg min-h-0 flex-1" :style="isFullscreen ? '' : 'aspect-ratio: 1400 / 820;'">
             <div ref="canvasHost" class="absolute inset-0 flex items-center justify-center overflow-hidden" />
+
+            <!-- Auto-play decisions -->
+            <div
+              v-if="autopilotEnabled && running && autopilotStatus"
+              class="pointer-events-none absolute left-3 top-3 z-20 w-44 space-y-1 rounded-md border border-default bg-default/60 p-2 text-[10px] leading-tight backdrop-blur-[2px]"
+            >
+              <div class="flex items-center justify-between gap-2 font-bold">
+                <span class="flex items-center gap-1 truncate"><UIcon name="i-lucide-bot" class="size-3 text-primary" />{{ autopilotLabel }}</span>
+                <span :class="autopilotStatus.jev ? 'text-primary' : 'text-muted'">{{ autopilotStatus.jev ? 'Jev' : 'Instinct' }}</span>
+              </div>
+              <div v-for="row in autopilotRows" :key="row.label">
+                <div class="flex justify-between gap-2">
+                  <span class="text-muted">{{ row.label }}</span>
+                  <span class="font-semibold tabular-nums">{{ row.text }}</span>
+                </div>
+                <div class="mt-0.5 h-1 overflow-hidden rounded-full bg-accented">
+                  <div class="h-full rounded-full transition-[width] duration-200" :class="row.bar" :style="{ width: `${Math.round(row.value * 100)}%` }" />
+                </div>
+              </div>
+            </div>
 
             <!-- Floating in-game Fullscreen toggle button -->
             <UButton
