@@ -135,6 +135,28 @@ function resetPrice() {
   priceTouched.value = false
 }
 
+// The AI button: Jev picks a good resting price for this offer. It only fills
+// in the price; the player still places the order.
+const suggesting = ref(false)
+
+async function suggestPrice() {
+  if (suggesting.value) return
+  suggesting.value = true
+  try {
+    const res = await $fetch('/api/gem-exchange/advise', {
+      method: 'POST',
+      body: { side: tradeMode.value, quantity: safeQuantity.value }
+    })
+    priceTouched.value = true
+    price.value = res.price
+    if (!res.jev) toast.add({ title: 'The AI couldn\'t decide, so this is the front of the queue', color: 'warning' })
+  } catch (error: unknown) {
+    toast.add({ title: apiErrorMessage(error, 'Couldn\'t suggest a price'), color: 'error' })
+  } finally {
+    suggesting.value = false
+  }
+}
+
 function setQuantity(amount: number) {
   quantity.value = Math.max(1, Math.min(GEM_EXCHANGE_MAX_QUANTITY, Math.floor(amount)))
 }
@@ -487,6 +509,18 @@ const maxAskDepth = computed(() => Math.max(1, ...(data.value?.book.asks ?? []).
                 </UTooltip>
                 <UButton size="xs" color="success" variant="soft" label="+5%" @click="nudgePrice(0.05)" />
                 <UButton size="xs" color="success" variant="soft" label="+20%" @click="nudgePrice(0.20)" />
+                <UTooltip text="Suggest a good price for this offer" :delay-duration="120">
+                  <UButton
+                      size="xs"
+                      color="primary"
+                      variant="soft"
+                      icon="i-lucide-sparkles"
+                      label="AI"
+                      class="ml-auto"
+                      :loading="suggesting"
+                      @click="suggestPrice"
+                  />
+                </UTooltip>
               </div>
             </div>
           </div>
