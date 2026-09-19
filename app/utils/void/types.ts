@@ -9,6 +9,8 @@ import type { Hardpoint, TurretModel } from './models'
 export interface RunConfig {
     sector: VoidSectorDefinition
     shipId: string
+    /** Hull tier after refits: picks the paint. */
+    shipTier?: number
     stats: VoidDerivedStats
     turrets: (VoidWeaponFit | null)[]
     levels: VoidUpgradeLevels

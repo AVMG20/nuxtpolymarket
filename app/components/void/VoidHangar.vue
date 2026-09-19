@@ -65,7 +65,7 @@
             <p class="vh-title-desc">{{ shown.description }}</p>
             <div class="vh-title-stats">
                 <div v-if="shown.owned"><span>Power</span><b>{{ formatNumber(shown.power, false) }}</b></div>
-                <div><span>Turrets</span><b>{{ shown.turrets }}</b></div>
+                <div title="Turret, armour and shield slots"><span>Slots</span><b>{{ shown.turrets }}T · {{ shown.armor }}A · {{ shown.shields }}S</b></div>
                 <div v-if="shownTurretBonus" title="Heavier turret mounts, from the hull and its refits"><span>Turret damage</span><b>+{{ shownTurretBonus }}%</b></div>
                 <div><span>Drones</span><b>{{ shown.stats.drones }}</b></div>
                 <div v-if="shown.ability" :title="abilityText(shown.ability)"><span>Ability · R</span><b>{{ abilityName(shown.ability) }}</b></div>
@@ -140,16 +140,15 @@
                 <span>Launch</span>
                 <small>{{ equipped.name }}</small>
             </button>
-            <!-- Refit: lifts the shown hull a tier. Hovering previews the gain on the spec sheet. -->
-            <div v-if="shown.owned && shown.refit" class="vh-refit" @mouseenter="refitHover = true" @mouseleave="refitHover = false">
-                <div class="vh-refit-head"><b>Refit</b><span>T{{ shown.tier }} <UIcon name="i-lucide-arrow-right" class="size-3" /> T{{ shown.refit.tier }}</span></div>
-                <template v-if="shown.refit.unlocked">
-                    <VoidCost :cost="shown.refit.cost.resources" :held="state.resources" :coins="shown.refit.cost.coins" :gems="shown.refit.cost.gems" :balance="state.balance" :gems-held="state.gems" />
-                    <button class="vr-btn vr-btn-sm vr-btn-primary" :disabled="busy || !shown.refit.affordable" @click="$emit('refit-ship', shown.id)">Refit the {{ shown.name }}</button>
-                </template>
-                <div v-else class="vh-refit-locked">Clear sector {{ shown.refit.tier - 1 }} first</div>
-            </div>
         </section>
+
+        <!-- Refit: lifts the shown hull a tier. Hovering previews the gain on the spec sheet. -->
+        <div v-if="tab === 'hangar' && shown.owned && shown.refit" class="vh-refit" @mouseenter="refitHover = true" @mouseleave="refitHover = false">
+            <div class="vh-refit-head"><b>Refit</b><span>T{{ shown.tier }} <UIcon name="i-lucide-arrow-right" class="size-3" /> T{{ shown.refit.tier }}</span></div>
+            <VoidCost :cost="shown.refit.cost.resources" :held="state.resources" :coins="shown.refit.cost.coins" :gems="shown.refit.cost.gems" :balance="state.balance" :gems-held="state.gems" />
+            <button v-if="shown.refit.unlocked" class="vr-btn vr-btn-sm vr-btn-primary" :disabled="busy || !shown.refit.affordable" @click="$emit('refit-ship', shown.id)">Refit</button>
+            <div v-else class="vh-refit-locked">Clear sector {{ shown.refit.tier - 1 }} first</div>
+        </div>
 
         <!-- Hull bay: always beside the pad, so you can swap ships at any time -->
         <section v-if="tab === 'hangar'" class="vh-yard">
@@ -456,7 +455,7 @@
                             <h2>{{ viewed.name }}</h2><span>{{ viewed.shipName }} · pilot level {{ viewed.pilotLevel }}</span>
                             <button class="vh-lb-close" title="Back to your runs" @click="viewedRank = null"><UIcon name="i-lucide-x" class="size-4" /></button>
                         </header>
-                        <VoidShipPreview :ship-id="viewed.shipId" :turrets="viewed.turretTypes" />
+                        <VoidShipPreview :ship-id="viewed.shipId" :tier="viewed.shipTier" :turrets="viewed.turretTypes" />
                         <div class="vh-lb-stats">
                             <div><span>Power</span><b>{{ formatNumber(viewed.power, false) }}</b><small v-if="powerGap" :class="powerGap > 0 ? 'vh-ko' : 'vh-ok'">{{ powerGap > 0 ? '+' : '−' }}{{ formatNumber(Math.abs(powerGap), false) }} vs you</small></div>
                             <div><span>Gear</span><b>T{{ viewed.gearTier.toFixed(1) }}</b></div>
@@ -523,6 +522,7 @@ const emit = defineEmits<{
     'equip': [shipId: string]
     'buy-ship': [shipId: string]
     'refit-ship': [shipId: string]
+    'refit-preview': [on: boolean]
     'set-fit': [shipId: string, fit: unknown]
     'craft': [kind: string, type: string, tier: number]
     'upgrade-item': [itemId: string]
@@ -621,8 +621,8 @@ const firstSteps = computed(() => {
     if (done === steps.length) return null
     const current = steps.find(x => !x.done)!
     const index = steps.indexOf(current)
-    // Gentle: the step just done, the one to do now and a peek at the next.
-    return { steps, done, current, visible: steps.slice(Math.max(0, index - 1), index + 2) }
+    // Gentle: the one to do now and a peek at the next.
+    return { steps, done, current, visible: steps.slice(index, index + 2) }
 })
 
 /** Average tier over every slot of the equipped hull. */
@@ -670,6 +670,8 @@ const ownedCount = computed(() => props.state.ships.filter(s => s.owned).length)
  * and nobody would ever buy it.
  */
 const refitHover = ref(false)
+// The pad repaints the hull in the refit's colours while the card is hovered.
+watch(refitHover, on => emit('refit-preview', on))
 const shownTurretBonus = computed(() => Math.round(voidTurretBonus(shown.value) * 100))
 const shownSpec = computed(() => {
     // Hovering the refit compares the hull against itself a tier up; otherwise against the hull you fly.
@@ -682,10 +684,7 @@ const shownSpec = computed(() => {
         { label: 'Speed', key: 'speed', value: a.speed, base: b.speed, round: 0 },
         { label: 'Agility', key: 'agility', value: a.agility, base: b.agility, round: 1 },
         { label: 'Cargo', key: 'cargo', value: a.cargo, base: b.cargo, round: 0 },
-        { label: 'Turrets', key: 'turrets', value: a.turrets, base: b.turrets, round: 0 },
-        { label: 'Turret dmg', key: 'turretBonus', value: voidTurretBonus(a) * 100, base: voidTurretBonus(b) * 100, round: 0, unit: '%' },
-        { label: 'Armour', key: 'armor', value: a.armor, base: b.armor, round: 0 },
-        { label: 'Shields', key: 'shields', value: a.shields, base: b.shields, round: 0 }
+        { label: 'Turret dmg', key: 'turretBonus', value: voidTurretBonus(a) * 100, base: voidTurretBonus(b) * 100, round: 0, unit: '%' }
     ]
     const text = (v: number, round: number, unit = '') => (round ? v.toFixed(round) : formatNumber(Math.round(v), v >= 10_000)) + unit
     return rows.map((r) => {
@@ -828,15 +827,15 @@ function stepSector(delta: number) {
 .vh-res-chip { display: flex; align-items: center; gap: 6px; font: 600 13px 'JetBrains Mono', monospace; }
 .vh-dim { opacity: 0.4; }
 
-.vh-title { position: absolute; left: 30px; top: 92px; bottom: 152px; width: min(420px, 34vw); display: flex; flex-direction: column; align-items: flex-start; overflow: hidden; pointer-events: none; }
+.vh-title { position: absolute; left: 30px; top: 92px; bottom: 218px; width: min(420px, 34vw); display: flex; flex-direction: column; align-items: flex-start; overflow: hidden; pointer-events: none; }
 .vh-title-role { font-size: 13px; font-weight: 700; letter-spacing: 0.4em; text-transform: uppercase; color: var(--vr-accent); }
-.vh-title-name { font-size: clamp(44px, 6vw, 76px); line-height: 0.95; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 0 40px rgba(94, 200, 255, 0.25); }
-.vh-title-desc { margin-top: 10px; font-size: 16px; line-height: 1.35; color: rgba(230, 241, 255, 0.75); }
-.vh-title-stats { display: flex; gap: 22px; margin-top: 16px; }
+.vh-title-name { font-size: clamp(38px, 4.4vw, 64px); line-height: 0.95; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 0 40px rgba(94, 200, 255, 0.25); }
+.vh-title-desc { margin-top: 8px; font-size: 14px; line-height: 1.35; color: rgba(230, 241, 255, 0.75); }
+.vh-title-stats { display: flex; flex-wrap: wrap; gap: 4px 22px; margin-top: 12px; }
 .vh-title-stats span { display: block; font-size: 10px; letter-spacing: 0.3em; text-transform: uppercase; color: var(--vr-muted); }
-.vh-title-stats b { font-size: 20px; font-weight: 700; }
+.vh-title-stats b { font-size: 17px; font-weight: 700; white-space: nowrap; }
 .vh-title-cta { margin-top: 16px; pointer-events: auto; }
-.vh-steps { margin-top: auto; padding: 10px 12px; max-width: 380px; display: grid; gap: 4px; background: linear-gradient(90deg, rgba(255, 210, 122, 0.1), transparent); border-left: 2px solid var(--vr-gold); pointer-events: auto; }
+.vh-steps { margin-top: auto; padding: 8px 12px; max-width: 380px; display: grid; gap: 4px; background: linear-gradient(90deg, rgba(255, 210, 122, 0.1), transparent); border-left: 2px solid var(--vr-gold); pointer-events: auto; }
 .vh-step { display: flex; align-items: flex-start; gap: 9px; padding: 3px 0; text-align: left; color: rgba(230, 241, 255, 0.55); cursor: pointer; }
 .vh-step i { width: 9px; height: 9px; margin-top: 5px; border: 1.5px solid currentColor; transform: rotate(45deg); flex-shrink: 0; }
 .vh-step b { display: block; font-size: 14px; font-weight: 700; letter-spacing: 0.04em; }
@@ -872,16 +871,18 @@ function stepSector(delta: number) {
 .vh-go:hover:not(:disabled) { filter: brightness(1.15); }
 .vh-go:active:not(:disabled) { transform: translateY(1px); }
 .vh-go:disabled { filter: grayscale(0.8) brightness(0.6); cursor: not-allowed; }
-.vh-refit { display: flex; flex-direction: column; justify-content: center; gap: 6px; min-width: 220px; max-width: 320px; margin-left: 8px; padding: 10px 14px; background: rgba(6, 12, 22, 0.78); border: 1px solid var(--vr-line-strong); border-left: 2px solid var(--vr-gold); font-size: 12px; backdrop-filter: blur(6px); transition: border-color 0.15s; }
+.vh-refit { position: absolute; right: calc(min(300px, 26vw) + 16px); bottom: 30px; display: flex; flex-direction: column; gap: 6px; min-width: 190px; max-width: 300px; padding: 8px 12px; background: rgba(6, 12, 22, 0.78); border: 1px solid var(--vr-line-strong); border-left: 2px solid var(--vr-gold); font-size: 12px; backdrop-filter: blur(6px); transition: border-color 0.15s; }
 .vh-refit:hover { border-color: var(--vr-gold); }
+/* A disabled button swallows the pointer, which would drop the hover preview while over it. */
+.vh-refit .vr-btn:disabled { pointer-events: none; }
 .vh-refit-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .vh-refit-head b { font-size: 10px; font-weight: 700; letter-spacing: 0.35em; text-transform: uppercase; color: var(--vr-gold); }
 .vh-refit-head span { display: inline-flex; align-items: center; gap: 4px; font: 600 14px 'JetBrains Mono', monospace; }
 .vh-refit-locked { color: var(--vr-muted); }
 .vh-refitted { color: var(--vr-gold); }
 
-.vh-spec { margin-top: 16px; max-width: 360px; padding: 10px 14px; background: linear-gradient(90deg, rgba(94, 200, 255, 0.08), transparent); border-left: 2px solid var(--vr-accent); pointer-events: auto; }
-.vh-spec-row { display: grid; grid-template-columns: 74px minmax(60px, 1fr) 54px 46px; align-items: center; gap: 10px; padding: 3px 0; }
+.vh-spec { margin-top: 12px; width: 100%; max-width: 340px; padding: 7px 14px; background: linear-gradient(90deg, rgba(94, 200, 255, 0.08), transparent); border-left: 2px solid var(--vr-accent); pointer-events: auto; }
+.vh-spec-row { display: grid; grid-template-columns: 74px minmax(60px, 1fr) 54px 46px; align-items: center; gap: 10px; padding: 1px 0; }
 .vh-spec-bar { position: relative; height: 5px; background: rgba(255, 255, 255, 0.08); }
 .vh-spec-fill { height: 100%; background: linear-gradient(90deg, rgba(94, 200, 255, 0.55), var(--vr-accent)); box-shadow: 0 0 10px rgba(94, 200, 255, 0.35); transition: width 0.25s ease-out; }
 .vh-spec-mark { position: absolute; top: -3px; width: 2px; height: 11px; background: var(--vr-gold); transform: translateX(-1px); }
@@ -892,22 +893,22 @@ function stepSector(delta: number) {
 .vh-down { color: var(--vr-bad); }
 .vh-spec-note { margin-top: 6px; font-size: 11px; line-height: 1.3; color: var(--vr-muted); }
 
-.vh-yard { position: absolute; right: 0; top: 92px; bottom: 0; width: min(380px, 32vw); display: flex; flex-direction: column; background: linear-gradient(270deg, rgba(4, 9, 18, 0.96), rgba(4, 9, 18, 0.82)); border-left: 1px solid var(--vr-line); animation: vh-yard-in 0.2s ease-out; }
+.vh-yard { position: absolute; right: 0; top: 92px; bottom: 0; width: min(300px, 26vw); display: flex; flex-direction: column; background: linear-gradient(270deg, rgba(4, 9, 18, 0.96), rgba(4, 9, 18, 0.82)); border-left: 1px solid var(--vr-line); animation: vh-yard-in 0.2s ease-out; }
 @keyframes vh-yard-in { from { opacity: 0; transform: translateX(14px); } }
-.vh-yard-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px 12px; border-bottom: 1px solid var(--vr-line); }
-.vh-yard-head h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; line-height: 1.1; }
+.vh-yard-head { display: flex; align-items: center; gap: 12px; padding: 12px 14px 9px; border-bottom: 1px solid var(--vr-line); }
+.vh-yard-head h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; line-height: 1.1; }
 .vh-yard-head p { margin: 1px 0 0; font-size: 12px; color: var(--vr-muted); }
-.vh-yard-list { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; display: grid; gap: 6px; align-content: start; scrollbar-width: thin; scrollbar-color: rgba(120, 190, 255, 0.25) transparent; }
-.vh-yard-ship { display: block; width: 100%; text-align: left; padding: 9px 12px; background: rgba(255, 255, 255, 0.025); border: 1px solid var(--vr-line); border-left: 2px solid transparent; cursor: pointer; transition: all 0.15s; }
+.vh-yard-list { flex: 1; min-height: 0; overflow-y: auto; padding: 8px; display: grid; gap: 4px; align-content: start; scrollbar-width: thin; scrollbar-color: rgba(120, 190, 255, 0.25) transparent; }
+.vh-yard-ship { display: block; width: 100%; text-align: left; padding: 5px 10px; background: rgba(255, 255, 255, 0.025); border: 1px solid var(--vr-line); border-left: 2px solid transparent; cursor: pointer; transition: all 0.15s; }
 .vh-yard-ship:hover { background: rgba(255, 255, 255, 0.05); border-color: var(--vr-line-strong); }
 .vh-yard-ship.vh-sel { background: rgba(94, 200, 255, 0.1); border-color: rgba(94, 200, 255, 0.4); border-left-color: var(--vr-accent); }
 .vh-yard-ship.vh-locked { opacity: 0.55; }
 .vh-yard-ship-head { display: flex; align-items: center; gap: 8px; }
-.vh-yard-ship-head b { font-size: 16px; font-weight: 700; letter-spacing: 0.06em; }
+.vh-yard-ship-head b { font-size: 14px; font-weight: 700; letter-spacing: 0.06em; }
 .vh-yard-ship-head .vh-tag { margin-left: auto; }
-.vh-yard-ship-sub { display: flex; justify-content: space-between; gap: 10px; margin-top: 2px; font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--vr-muted); }
+.vh-yard-ship-sub { display: flex; justify-content: space-between; gap: 10px; margin-top: 0; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--vr-muted); }
 .vh-yard-ship-sub span:last-child { font-family: 'JetBrains Mono', monospace; letter-spacing: 0; }
-.vh-yard-foot { display: grid; gap: 10px; padding: 14px 16px 18px; border-top: 1px solid var(--vr-line); background: rgba(2, 6, 14, 0.6); }
+.vh-yard-foot { display: grid; gap: 8px; padding: 10px 12px 14px; border-top: 1px solid var(--vr-line); background: rgba(2, 6, 14, 0.6); }
 .vh-yard-foot .vr-btn { justify-content: center; }
 .vh-yard-state { font-size: 12px; color: var(--vr-muted); }
 .vh-yard-locked { color: var(--vr-warn); }
@@ -1041,8 +1042,14 @@ function stepSector(delta: number) {
     .vh-leave-label { display: none; }
     .vh-tab { padding: 8px 6px; gap: 4px; font-size: 11px; letter-spacing: 0.06em; }
 }
-@media (max-width: 1400px) {
-    .vh-refit { position: absolute; left: 0; bottom: calc(100% + 8px); margin-left: 0; }
+@media (max-height: 900px) {
+    .vh-title-desc { display: none; }
+}
+@media (max-height: 760px) {
+    .vh-steps small, .vh-spec-note { display: none; }
+}
+@media (max-width: 1240px) {
+    .vh-refit { bottom: 190px; }
 }
 @media (max-width: 1240px) {
     .vh-tab-label { display: none; }

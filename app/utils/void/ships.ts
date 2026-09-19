@@ -8,6 +8,7 @@
 
 
 import * as THREE from 'three'
+import { voidShipNativeTier } from '#shared/utils/gamelogic/void'
 import { ModelBuilder, cyl, octa, ring, tube, type BuiltModel } from './models'
 import { type Section, loft, slab, block, type Livery, RED, PANEL, SCORCH, HAZARD, navLights, windows, mast, seam, canopy, nacelle, vent, barrel, band, mount, radiator, tank, dish, shade, panelLine, hazard, rcs, aerial, skid, gearBay, intake, thruster, gunFairing, saddle, stripLight } from './ship-kit'
 import { CAPITAL_DESIGNS } from './ships-capital'
@@ -558,13 +559,60 @@ const DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => void> = {
     ...CAPITAL_DESIGNS
 }
 
-export function buildShip(shipId: string): BuiltModel {
+/**
+ * Refit paint: a hull lifted above its own tier is repainted in a darker, meaner
+ * scheme, so a refitted frame reads as one at a glance. One scheme per tier
+ * reached, T2 to T6. The model is untouched.
+ */
+const REFIT_PAINTS: Partial<Livery>[] = [
+    // T2: crimson
+    { paint: 0x4a0f16, paint2: 0x1c1d22, trim: 0x0e0f12, accent: 0xff3b4a, glow: 0xff6a5c, glass: 0x1c0a0b },
+    // T3: midnight
+    { paint: 0x0f1f4a, paint2: 0x1a1d29, trim: 0x0b0e16, accent: 0x2f8cff, glow: 0x5cc8ff, glass: 0x071a22 },
+    // T4: obsidian and gold
+    { paint: 0x121317, paint2: 0x2a2418, trim: 0x08090b, accent: 0xe0b93a, glow: 0xffd66b, glass: 0x141206 },
+    // T5: venom
+    { paint: 0x0e2a22, paint2: 0x15181c, trim: 0x090c0b, accent: 0x2dff9a, glow: 0x7dffc8, glass: 0x08140e },
+    // T6: eclipse
+    { paint: 0x1a0d2e, paint2: 0x0b0b12, trim: 0x07060c, accent: 0xff5fc2, glow: 0xff9be6, glass: 0x230a1c }
+]
+
+/**
+ * Hulls the shared schemes look wrong on get their own run here, one entry per
+ * refit step. The shared set only swaps paint and light, so a hull that leans
+ * on its `metal` and `paint2` (dark frames most of all) goes muddy and grey.
+ * If another hull looks off after a refit, add it here and tint `metal` and
+ * `paint2` along with the paint; do not change REFIT_PAINTS for one ship.
+ */
+const REFIT_PAINTS_BY_SHIP: Record<string, Partial<Livery>[]> = {
+    // Stays a stealth frame: a saturated hull under the same neon edges, never grey.
+    // Blood, abyss, gilded, spectre.
+    phantom: [
+        { paint: 0xa3121f, paint2: 0x5a0c16, trim: 0x16070a, metal: 0x5a2a30, accent: 0xff2a3d, glow: 0xff5a4a, glass: 0x1c0608 },
+        { paint: 0x1446b8, paint2: 0x0c2a70, trim: 0x060e20, metal: 0x2f4478, accent: 0x2fa8ff, glow: 0x6fe0ff, glass: 0x04101f },
+        { paint: 0x15151a, paint2: 0x8a6a1c, trim: 0x08080a, metal: 0xa8862e, accent: 0xe0b93a, glow: 0xffd66b, glass: 0x141206 },
+        { paint: 0xe8e6f2, paint2: 0x8a7cc0, trim: 0x1a1526, metal: 0x6d6690, accent: 0x9b5cff, glow: 0xc49bff, glass: 0x140a24 }
+    ]
+}
+
+export function shipLivery(shipId: string, tier?: number): Livery {
+    const base = LIVERIES[shipId] ?? LIVERIES.sparrow!
+    const steps = (tier ?? 0) - voidShipNativeTier(shipId)
+    if (steps < 1) return base
+    // A hull's own run counts refit steps; the shared set goes by the tier reached,
+    // so a Bastion lifted to T6 wears the T6 paint, not the first one.
+    const own = REFIT_PAINTS_BY_SHIP[shipId]
+    const paint = own ? own[Math.min(steps, own.length) - 1]! : REFIT_PAINTS[Math.min(tier! - 2, REFIT_PAINTS.length - 1)]!
+    return { ...base, ...paint }
+}
+
+/** `tier` is the hull's tier after refits; leave it out for the factory paint. */
+export function buildShip(shipId: string, tier?: number): BuiltModel {
     const b = new ModelBuilder()
-    const livery = LIVERIES[shipId] ?? LIVERIES.sparrow!
-    ;(DESIGNS[shipId] ?? DESIGNS.sparrow!)(b, livery)
+    ;(DESIGNS[shipId] ?? DESIGNS.sparrow!)(b, shipLivery(shipId, tier))
     return b.build()
 }
 
-export function shipGlow(shipId: string) {
-    return (LIVERIES[shipId] ?? LIVERIES.sparrow!).glow
+export function shipGlow(shipId: string, tier?: number) {
+    return shipLivery(shipId, tier).glow
 }

@@ -10,7 +10,7 @@ import { buildTurret, turretMounts, turretMountScale } from '~/utils/void/turret
 import { disposeTree } from '~/utils/void/engine'
 import { voidShip, voidTurret, voidTurretBonus, type VoidTurretId } from '#shared/utils/gamelogic/void'
 
-const props = defineProps<{ shipId: string, turrets: (string | null)[] }>()
+const props = defineProps<{ shipId: string, tier?: number, turrets: (string | null)[] }>()
 
 /** Another pilot's hull with the turrets they fitted, on a slow turntable. */
 const host = ref<HTMLElement | null>(null)
@@ -30,7 +30,7 @@ function build() {
         disposeTree(model)
         model = null
     }
-    const built = buildShip(props.shipId)
+    const built = buildShip(props.shipId, props.tier)
     const root = new THREE.Group()
     root.add(built.group)
     const scale = turretMountScale(built, voidTurretBonus(voidShip(props.shipId)))
@@ -114,7 +114,7 @@ onMounted(() => {
     })
 })
 
-watch(() => [props.shipId, props.turrets.join(',')], () => build())
+watch(() => [props.shipId, props.tier, props.turrets.join(',')], () => build())
 </script>
 
 <style>

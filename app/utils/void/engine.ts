@@ -685,7 +685,7 @@ export class VoidEngine {
 
     // ─── Hangar ────────────────────────────────────────────────────────────
 
-    showHangar(shipId: string, turrets: (VoidTurretId | null)[], drones: number, tier = 1, palette?: readonly [number, number, number]) {
+    showHangar(shipId: string, turrets: (VoidTurretId | null)[], drones: number, tier = 1, palette?: readonly [number, number, number], shipTier?: number) {
         this.phase = 'hangar'
         this.paused = false
         if (!this.hangarSky || palette) {
@@ -701,12 +701,12 @@ export class VoidEngine {
             disposeTree(this.hangarShip)
         }
         for (const d of this.hangarDrones) this.hangarScene.remove(d)
-        const model = buildShip(shipId)
+        const model = buildShip(shipId, shipTier)
         const root = new THREE.Group()
         root.add(model.group)
         this.hangarTurrets = this.mountTurrets(model, turrets, root, voidTurretBonus(voidShip(shipId)))
         this.hangarFlames = []
-        const palette2 = { glow: shipGlow(shipId) }
+        const palette2 = { glow: shipGlow(shipId, shipTier) }
         for (const e of model.engines) {
             const flame = createFlame(e.radius, palette2.glow)
             flame.mesh.position.copy(e.position)
@@ -716,7 +716,7 @@ export class VoidEngine {
         this.hangarShip = root
         this.hangarSize = voidShip(shipId).size
         this.hangarSwap = 1
-        this.rings.spawn(new THREE.Vector3(0, 0.6, 0), 9, shipGlow(shipId), 0.6, 2.5, new THREE.Vector3(0, 1, 0))
+        this.rings.spawn(new THREE.Vector3(0, 0.6, 0), 9, shipGlow(shipId, shipTier), 0.6, 2.5, new THREE.Vector3(0, 1, 0))
         this.hangarScene.add(root)
         this.hangarDrones = Array.from({ length: drones }, () => {
             const d = buildDrone(palette2.glow)
@@ -1107,12 +1107,12 @@ export class VoidEngine {
     private spawnPlayer() {
         const cfg = this.config!
         const ship = voidShip(cfg.shipId)
-        const model = buildShip(cfg.shipId)
+        const model = buildShip(cfg.shipId, cfg.shipTier)
         const root = new THREE.Group()
         root.add(model.group)
         this.heft = Math.pow(THREE.MathUtils.clamp((ship.size - 3.2) / 12.8, 0, 1), 0.7)
         this.turnRate = 0
-        const palette = { glow: shipGlow(cfg.shipId) }
+        const palette = { glow: shipGlow(cfg.shipId, cfg.shipTier) }
         const turrets = this.mountTurrets(model, cfg.turrets, root, voidTurretBonus(ship))
         const flames = model.engines.map((e) => {
             const f = createFlame(e.radius, palette.glow)
@@ -1177,7 +1177,7 @@ export class VoidEngine {
 
     addDrone(temporary: number, wing?: Drone['wing']) {
         const p = this.player!
-        const palette = { glow: wing?.color ?? (temporary > 0 ? 0xffe14f : shipGlow(this.config!.shipId)) }
+        const palette = { glow: wing?.color ?? (temporary > 0 ? 0xffe14f : shipGlow(this.config!.shipId, this.config!.shipTier)) }
         const group = buildDrone(palette.glow)
         const size = voidShip(this.config!.shipId).size
         group.scale.setScalar(Math.max(1, size / 5))
@@ -2323,7 +2323,7 @@ export class VoidEngine {
             const nose = _v4.set(0, 0, -1).applyQuaternion(d.group.quaternion)
             if (nose.dot(dir) < 0.8) return
             d.cooldown = d.wing ? 1 / d.wing.rate : 0.45
-            const color = new THREE.Color(d.wing?.color ?? (d.temporary > 0 ? 0xffe14f : shipGlow(this.config!.shipId))).multiplyScalar(3)
+            const color = new THREE.Color(d.wing?.color ?? (d.temporary > 0 ? 0xffe14f : shipGlow(this.config!.shipId, this.config!.shipTier))).multiplyScalar(3)
             this.projectiles.push({
                 pos: d.pos.clone(),
                 vel: dir.clone().multiplyScalar(380).add(d.vel),
@@ -3345,7 +3345,7 @@ export class VoidEngine {
             // as a long streak down the screen, so only draw it when seen side-on.
             const side = 1 - Math.abs(_v2.copy(FORWARD).applyQuaternion(p.quat).dot(_v3.copy(FORWARD).applyQuaternion(this.camera.quaternion)))
             if (p.alive && side > 0.25) trail.draw(this.lines, world, Math.min(0.6, 0.12 + power * 0.3) * Math.min(1, (side - 0.25) * 2))
-            if (p.alive) this.particles.glow(world.x, world.y, world.z, _c1.set(shipGlow(this.config!.shipId)).multiplyScalar(0.35 * power), e.radius * 3, 0.4)
+            if (p.alive) this.particles.glow(world.x, world.y, world.z, _c1.set(shipGlow(this.config!.shipId, this.config!.shipTier)).multiplyScalar(0.35 * power), e.radius * 3, 0.4)
         })
         // Bank into turns: roll the model (not the physics body) by yaw rate.
         const localAngVel = _v2.copy(FORWARD).applyQuaternion(this.aimQuat)
@@ -3366,7 +3366,7 @@ export class VoidEngine {
 
         this.playerLight.position.copy(p.pos).addScaledVector(_v1.copy(FORWARD).applyQuaternion(p.quat), voidShip(this.config!.shipId).size)
         this.playerLight.intensity = p.alive ? 30 + power * 30 : 0
-        this.playerLight.color.set(shipGlow(this.config!.shipId))
+        this.playerLight.color.set(shipGlow(this.config!.shipId, this.config!.shipTier))
 
         if (p.hull / stats.hull < 0.3 && p.alive) {
             this.lowHullTimer -= dt

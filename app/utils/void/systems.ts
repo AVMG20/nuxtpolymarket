@@ -237,7 +237,7 @@ export class ShipSystems {
                 break
             case 'decoy': {
                 this.decoyT = duration
-                const model = buildShip(e.config!.shipId)
+                const model = buildShip(e.config!.shipId, e.config!.shipTier)
                 const holo = new THREE.MeshBasicMaterial({ color: 0x9fffd9, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
                 model.group.traverse((o) => {
                     const m = o as THREE.Mesh

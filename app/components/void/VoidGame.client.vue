@@ -15,6 +15,7 @@
             @equip="equipShip"
             @buy-ship="buyShip"
             @refit-ship="refitShip"
+            @refit-preview="previewRefit"
             @set-fit="setFit"
             @craft="craftItem"
             @upgrade-item="upgradeItem"
@@ -535,10 +536,17 @@ function currentShowroom() {
     const shipId = previewShipId.value ?? s.equippedShipId
     const ship = s.ships.find(x => x.id === shipId) ?? s.ships[0]!
     const tier = Math.min(5, s.highestSectorCleared + 1)
-    engine.showHangar(ship.id, ship.turretTypes as (VoidTurretId | null)[], ship.stats.drones, tier, lastPaletteTier === tier ? undefined : voidSector(tier).palette)
+    const shipTier = refitPreview.value && ship.owned && ship.refit ? ship.refit.tier : ship.tier
+    engine.showHangar(ship.id, ship.turretTypes as (VoidTurretId | null)[], ship.stats.drones, tier, lastPaletteTier === tier ? undefined : voidSector(tier).palette, shipTier)
     lastPaletteTier = tier
 }
 let lastPaletteTier = -1
+const refitPreview = ref(false)
+function previewRefit(on: boolean) {
+    if (refitPreview.value === on) return
+    refitPreview.value = on
+    currentShowroom()
+}
 
 function previewShip(shipId: string | null) {
     previewShipId.value = shipId
@@ -647,6 +655,7 @@ async function launch(tier: number) {
             tutorial: s.extractions === 0 && tier === 1,
             sector: voidSector(tier),
             shipId: res.loadout.shipId,
+            shipTier: res.loadout.shipTier,
             stats: res.stats,
             turrets: res.loadout.turrets,
             levels: res.loadout.levels,
