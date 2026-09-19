@@ -194,7 +194,7 @@ export const VOID_SECTORS = [
         description: 'The wreckage of an old mining war. Cobalt runs deep and so do the minefields.',
         palette: [0x1a0606, 0x8a3412, 0xffb347],
         threat: 2.1,
-        ores: { ferrite: 45, cobalt: 45, iridium: 10 },
+        ores: { ferrite: 40, cobalt: 40, iridium: 20 },
         warden: 'Cinder Matriarch'
     },
     {
@@ -203,7 +203,7 @@ export const VOID_SECTORS = [
         description: 'No stars, no beacons. Iridium seams and something that hunts by drive signature.',
         palette: [0x07030f, 0x3d1670, 0xc07bff],
         threat: 4,
-        ores: { cobalt: 45, iridium: 45, xenite: 10 },
+        ores: { cobalt: 40, iridium: 42, xenite: 18 },
         warden: 'The Hollow King'
     },
     {
@@ -694,6 +694,18 @@ export function voidDerivedStats(shipId: string, levels: VoidUpgradeLevels, fit:
         drones: ship.drones + Math.floor(l.drones / 3) * (ship.drones > 0 ? 1 : 0),
         gun: VOID_GUN_BASE
     }
+}
+
+/**
+ * Average tier over every gun, turret, armour and generator slot on the hull.
+ * An empty slot counts as nothing, so bare hardpoints drag the rating down.
+ */
+export function voidGearTier(shipId: string, fit: VoidShipFit, items: readonly VoidItem[]) {
+    const ship = voidShip(shipId)
+    const byId = new Map(items.map(i => [i.id, i]))
+    const slots = 1 + ship.turrets + ship.armor + ship.shields
+    const fitted = [fit.gun, ...fit.turrets.slice(0, ship.turrets), ...fit.armor.slice(0, ship.armor), ...fit.shields.slice(0, ship.shields)]
+    return fitted.reduce((sum, id) => sum + ((id ? byId.get(id)?.tier : 0) ?? 0), 0) / slots
 }
 
 /** A single number to compare builds with. */

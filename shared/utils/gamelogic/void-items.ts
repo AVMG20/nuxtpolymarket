@@ -169,10 +169,10 @@ export function voidItemType(id: string) {
 
 /** Base stats for armour and shield types, per tier power. */
 const DEFENCE_BASE: Record<string, { hull?: number, resist?: number, shield?: number, regen?: number, delay?: number }> = {
-    plating: { hull: 60 },
-    bulkhead: { hull: 40, resist: 0.08 },
-    deflector: { shield: 45, regen: 0.12, delay: 2.8 },
-    regenerator: { shield: 28, regen: 0.26, delay: 1.6 }
+    plating: { hull: 100 },
+    bulkhead: { hull: 65, resist: 0.08 },
+    deflector: { shield: 75, regen: 0.12, delay: 2.8 },
+    regenerator: { shield: 45, regen: 0.26, delay: 1.6 }
 }
 
 // ─── Affixes ────────────────────────────────────────────────────────────────
@@ -274,14 +274,18 @@ export function voidItemName(item: Pick<VoidItem, 'type' | 'tier'> & { affixes?:
 const TIER_RECIPES: VoidResourceBundle[] = [
     { ferrite: 220, scrap: 80 },
     { ferrite: 250, cobalt: 220, scrap: 120 },
-    { cobalt: 420, iridium: 280, alloy: 40 },
-    { iridium: 700, xenite: 340, alloy: 120 },
-    { iridium: 2400, xenite: 2100, alloy: 480, core: 3 }
+    // From T3 on one item is about a gunship's whole hold, and T4 up takes a
+    // warden's core, so fitting out a tier is many runs, never one.
+    { cobalt: 900, iridium: 640, alloy: 100 },
+    { iridium: 1700, xenite: 850, alloy: 300, core: 1 },
+    { iridium: 3600, xenite: 3200, alloy: 720, core: 3 }
 ]
-const TIER_COINS = [50_000, 250_000, 1_000_000, 4_000_000, 15_000_000]
+const TIER_COINS = [50_000, 250_000, 2_000_000, 8_000_000, 30_000_000]
+/** Share of the craft coins the first level costs; lower where the craft price is steep. */
+const TIER_UPGRADE_COINS = [0.08, 0.08, 0.05, 0.05, 0.05]
 const TIER_GEMS = [0, 0, 0, 1, 3]
 /** Upgrade material share per tier: cheap to level early gear, heavier late. */
-const TIER_UPGRADE_SHARE = [0.12, 0.15, 0.18, 0.2, 0.22]
+const TIER_UPGRADE_SHARE = [0.12, 0.15, 0.13, 0.13, 0.16]
 const KIND_WEIGHT: Record<VoidItemKind, number> = { gun: 1.2, turret: 1, armor: 0.9, shield: 1, secondary: 1.1, device: 1.3 }
 
 export interface VoidItemPrice {
@@ -323,7 +327,7 @@ export function voidItemUpgradeCost(item: Pick<VoidItem, 'kind' | 'tier' | 'leve
     if (item.tier >= 4 && item.level === 9) resources.core = 1
     return {
         resources,
-        coins: Math.round(craft.coins * 0.08 * Math.pow(1.5, item.level) / 1000) * 1000,
+        coins: Math.round(craft.coins * TIER_UPGRADE_COINS[Math.max(1, Math.min(VOID_MAX_TIER, item.tier)) - 1]! * Math.pow(1.5, item.level) / 1000) * 1000,
         gems: item.tier >= 4 && item.level >= 9 ? TIER_GEMS[item.tier - 1]! : 0
     }
 }

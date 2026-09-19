@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { randomFloat } from '#shared/utils/random'
 import { voidShip } from '#shared/utils/gamelogic/void'
 import { VOID_DAMAGE_MULT, VOID_DAMAGE_TYPE, type VoidDamageType } from '#shared/utils/gamelogic/void-items'
-import { ENEMIES, ENEMY_KINDS, WARDEN_BASE_HP, WARDEN_GLOW, threatDamageMult, threatHpMult, type EnemyKind } from './data'
+import { ENEMIES, ENEMY_KINDS, WARDEN_BASE_HP, WARDEN_GLOW, threatDamageMult, threatHpMult, wardenHpMult, type EnemyKind } from './data'
 import { ShieldBubble, Trail, createFlame, explosion, hitSpark } from './fx'
 import { buildCrate, buildEnemy, buildWarden } from './models'
 import { buildHostile, buildTurret } from './ships'
@@ -128,7 +128,7 @@ export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vec
         const built = buildWarden(cfg.sector.tier, glow)
         group = built.group
         radius = 7.5
-        hp = WARDEN_BASE_HP * threatHpMult(threat)
+        hp = WARDEN_BASE_HP * threatHpMult(threat) * wardenHpMult(cfg.sector.tier)
         name = cfg.sector.warden
         group.userData.ring = built.ring
         group.userData.emitters = built.emitters

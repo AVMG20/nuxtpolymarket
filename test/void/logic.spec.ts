@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
     VOID_SHIPS, VOID_TURRETS, VOID_UPGRADES, VOID_MARKET_PRICES,
     voidAutoFit, voidBundleValue, voidCanAfford, voidDerivedStats, voidDescribeState, voidLoadoutFor, voidNormalizeFit, voidNormalizeLevels, voidSettleRun,
-    voidSectorResources, voidSectorUnlocked, voidSubtractBundle, voidUpgradeCost, type VoidStateSnapshot
+    voidGearTier, voidSectorResources, voidSectorUnlocked, voidSubtractBundle, voidUpgradeCost, type VoidStateSnapshot
 } from '#shared/utils/gamelogic/void'
 import {
     VOID_BOUNTY_XP, VOID_DAILY_GEAR, VOID_LORE, VOID_PERKS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidBountyXp, voidGearCap, voidRunMarks
@@ -177,6 +177,24 @@ describe('void runner loadouts', () => {
         expect(fit.armor).toEqual(['a', null])
         const stats = voidDerivedStats('mule', voidNormalizeLevels({}), fit, items)
         expect(stats.hull).toBeGreaterThan(VOID_SHIPS[2]!.hull)
+    })
+
+    it('rates gear across every slot, so bare hardpoints drag the rating down', () => {
+        // Sparrow: gun, one turret, one plate, one generator.
+        const items = [item({ id: 'g', kind: 'gun', type: 'blaster', tier: 3 }), item({ id: 't', tier: 3 }), item({ id: 'a', kind: 'armor', type: 'plating', tier: 1 })]
+        const fit = voidAutoFit('sparrow', items)
+        expect(voidGearTier('sparrow', fit, items)).toBe((3 + 3 + 1 + 0) / 4)
+    })
+
+    it('makes a T3+ item a large share of the biggest hold, and asks a warden core from T4', () => {
+        const hold = Math.max(...VOID_SHIPS.filter(s => s.requiresSector <= 2).map(s => s.cargo))
+        for (const tier of [3, 4, 5]) {
+            const cost = voidCraftCost('turret', tier).resources
+            const units = Object.entries(cost).reduce((sum, [id, n]) => sum + (id === 'core' ? 0 : n!), 0)
+            expect(units).toBeGreaterThan(hold * 0.4)
+        }
+        expect(voidCraftCost('armor', 3).resources.core ?? 0).toBe(0)
+        expect(voidCraftCost('armor', 4).resources.core).toBe(1)
     })
 
     it('describes a fresh hangar with only the loaner owned and sector 1 open', () => {

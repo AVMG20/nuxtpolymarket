@@ -106,8 +106,19 @@ export function threatHpMult(threat: number) {
     return threat
 }
 
+/**
+ * The first two sectors forgive a thin hull. Past them the curve steepens, so
+ * the deep sectors hit harder than gear of the tier below can soak: armour
+ * and generators of the sector's own tier are what keep a ship alive there.
+ */
 export function threatDamageMult(threat: number) {
-    return Math.pow(threat, 0.78)
+    const gentle = Math.pow(Math.min(threat, 2.1), 0.78)
+    return threat <= 2.1 ? gentle : gentle * Math.pow(threat / 2.1, 1.4)
+}
+
+/** Wardens from the third sector on carry extra hull, so out-tiered guns cannot grind one down. */
+export function wardenHpMult(tier: number) {
+    return 1 + Math.max(0, tier - 2)
 }
 
 /** Loot scales gently with depth so late sectors are worth the risk. */

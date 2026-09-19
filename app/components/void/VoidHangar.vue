@@ -121,8 +121,8 @@
                 <div class="vh-sector-name">{{ currentSector.name }}</div>
                 <div class="vh-sector-ores">
                     <i v-for="(w, id) in currentSector.ores" :key="id" class="vr-gem" :style="{ '--c': resHex(String(id)) }" :title="resName(String(id))" />
-                    <span v-if="gearTier < currentSector.tier - 0.5" class="vh-undergeared" :title="`Your gear averages T${gearTier.toFixed(1)}`">Needs T{{ currentSector.tier }} gear</span>
-                    <span class="vh-threat" :title="`Hostiles here hit ${currentSector.threat}× as hard as sector 1`">Danger ×{{ currentSector.threat }}</span>
+                    <span v-if="gearTier < currentSector.tier - 0.5" class="vh-undergeared" :title="`Every gun, turret, armour and shield slot counts, empty ones as nothing. Yours average T${gearTier.toFixed(1)}`">Needs T{{ currentSector.tier }} gear · yours T{{ gearTier.toFixed(1) }}</span>
+                    <span class="vh-threat" :title="`Hostiles here have ${currentSector.threat}× the hull of sector 1 and hit ${threatDamageMult(currentSector.threat).toFixed(1)}× as hard`">Danger ×{{ currentSector.threat }}</span>
                 </div>
                 <div v-if="nextLocked" class="vh-sector-goal">Destroy {{ currentSector.warden }} and dock to open {{ nextLocked.name }}</div>
             </div>
@@ -454,8 +454,9 @@
 
 <script setup lang="ts">
 import type { InternalApi } from 'nitropack/types'
+import { threatDamageMult } from '~/utils/void/data'
 import {
-    VOID_ABILITIES, VOID_SHIPS, voidHex, voidMark, voidResource, voidShip,
+    VOID_ABILITIES, VOID_SHIPS, voidGearTier, voidHex, voidMark, voidResource, voidShip,
     type VoidAbilityId, type VoidResourceId, type VoidUpgradeId
 } from '#shared/utils/gamelogic/void'
 import type { VoidSfx } from '~/utils/void/audio'
@@ -573,13 +574,8 @@ const firstSteps = computed(() => {
     return { steps, done, current, visible: steps.slice(Math.max(0, index - 1), index + 2) }
 })
 
-/** Average tier of the gear fitted to the equipped hull (0 with nothing fitted). */
-const gearTier = computed(() => {
-    const f = equipped.value.fit
-    const ids = [f.gun, ...f.turrets, ...f.armor, ...f.shields].filter((id): id is string => !!id)
-    const tiers = ids.map(id => props.state.items.find(i => i.id === id)?.tier ?? 0)
-    return tiers.length ? tiers.reduce((a, b) => a + b, 0) / tiers.length : 0
-})
+/** Average tier over every slot of the equipped hull. */
+const gearTier = computed(() => voidGearTier(equipped.value.id, equipped.value.fit, props.state.items))
 
 const nextGoal = computed(() => {
     const s = props.state
