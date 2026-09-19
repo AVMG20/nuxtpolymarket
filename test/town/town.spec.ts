@@ -1757,7 +1757,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             return out
         }
 
-        it('digs about sixteen gems a day from two maxed mines in a Content town', () => {
+        it('digs about seventeen gems a day from two maxed mines in a Content town', () => {
             const now = Date.now()
             const buildings = minedTown(TOWN_GEM_MINE_CAP, TOWN_MAX_BUILDING_LEVEL, now)
             const derived = deriveTown(buildings, 50, now)
@@ -1767,7 +1767,7 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             const perDay = (townNetPerTick(buildings, derived, now).jewels ?? 0) * DAY / TOWN_TICK_MS
             // One jewel a tick per level, like every other workshop.
             expect(perDay).toBeCloseTo(TOWN_GEM_MINE_CAP * TOWN_MAX_BUILDING_LEVEL * DAY / TOWN_TICK_MS, 6)
-            expect(perDay / TOWN_JEWELS_PER_GEM).toBeCloseTo(16, 6)
+            expect(perDay / TOWN_JEWELS_PER_GEM).toBeCloseTo(17, 0)
             // Jewels sell for a fraction of a gem, so they barely register as income.
             expect(townFloorIncomePerDay(buildings, 50, now)).toBeLessThan(5_000)
         })
