@@ -1,6 +1,7 @@
 // Void Runner — mission objectives. A first flight walks new pilots through
 // the basics one step at a time; later tier-1 runs teach the other verbs one
-// at a time through the pilot guide. The panel never shows more than three lines.
+// at a time through the pilot guide. Past sector 1 the panel goes quiet until
+// something is close enough to act on. It never shows more than three lines.
 
 import * as THREE from 'three'
 import type { VoidEngine } from './engine'
@@ -50,6 +51,11 @@ interface Bounty {
 const MAX_LINES = 3
 /** How long a finished line lingers, ticked off, before the next one takes its place. */
 const DONE_LINGER = 2.5
+/** How close something has to be before a seasoned pilot hears about it. */
+const BEACON_NEAR = 900
+const EVENT_NEAR = 1200
+const TRADER_NEAR = 450
+const LAIR_NEAR = 1000
 
 export class ObjectiveTracker {
     tutorial: boolean
@@ -390,6 +396,32 @@ export class ObjectiveTracker {
         }
     }
 
+    /** Beacon fights, sector events and the trader, each only once the pilot is close enough to care. */
+    private nearby(): ObjectiveView['steps'] {
+        const e = this.engine
+        const p = e.player!
+        const lines: ObjectiveView['steps'] = []
+        for (const site of e.beacons?.sites ?? []) {
+            const dist = site.structure.pos.distanceTo(p.pos)
+            if (site.state === 'contested') {
+                lines.push({ text: 'Hold the beacon', done: false, active: true, progress: site.wave ? `wave ${site.wave} / ${site.waves}` : 'incoming' })
+            } else if (site.state === 'attacked' && dist < BEACON_NEAR) {
+                lines.push({ text: 'Drive the raiders off your beacon', done: false, active: true, progress: `${e.beacons!.alive(site)} left` })
+            } else if (site.state === 'hostile' && dist < BEACON_NEAR) {
+                lines.push({ text: 'Clear the beacon guards to capture it', done: false, active: true, progress: `${e.beacons!.alive(site)} left` })
+            }
+        }
+        const event = e.sectorEvents?.view()
+        const eventAt = e.sectorEvents?.marker?.pos
+        if (event && (this.learned || !eventAt || eventAt.distanceTo(p.pos) < EVENT_NEAR)) {
+            lines.push({ text: event.text, done: false, active: true, progress: event.progress })
+        }
+        if (e.trader?.alive && !e.traderInReach() && e.trader.pos.distanceTo(p.pos) < TRADER_NEAR) {
+            lines.push({ text: 'Free Trader nearby: fly alongside to trade', done: false, active: true })
+        }
+        return lines.slice(0, 2)
+    }
+
     view(): ObjectiveView {
         const e = this.engine
         if (this.tutorialRunning) {
@@ -419,16 +451,22 @@ export class ObjectiveTracker {
             hint = lesson.hint
         }
 
-        const event = e.sectorEvents?.view()
-        if (event) lines.push({ text: event.text, done: false, active: true, progress: event.progress })
+        // Things happening around the pilot come first: they are why the panel is worth a glance.
+        lines.push(...this.nearby())
 
-        // One main goal at a time: fill up, then the warden once it shows, then home.
+        // Rookies get the whole run spelled out. Past sector 1 a pilot knows the loop,
+        // so the panel only speaks up when there is something to act on.
+        const rookie = !!this.learned
+        const p = e.player!
         if (units >= cfg.stats.cargo || e.wardenKilled) {
             lines.push({ text: 'Dock to bank the haul', done: false, active: true })
         } else if (e.warden?.alive) {
             lines.push({ text: `Destroy ${cfg.sector.warden}`, done: false, active: true, progress: `${Math.ceil((e.warden.hp / e.warden.maxHp) * 100)}%` })
-        } else {
+        } else if (rookie) {
             lines.push({ text: 'Fill the hold', done: false, active: true, progress: `${units} / ${cfg.stats.cargo}` })
+            lines.push({ text: `Destroy ${cfg.sector.warden}`, done: false, active: false, progress: 'red skull' })
+        } else if (!e.wardenSpawned && p.pos.distanceTo(e.lair) < LAIR_NEAR) {
+            lines.push({ text: `${cfg.sector.warden} lair ahead`, done: false, active: true, progress: `${Math.round(p.pos.distanceTo(e.lair))} m` })
         }
 
         const recent = this.bounties.find(b => b.paid && e.elapsed - b.paidAt < DONE_LINGER)

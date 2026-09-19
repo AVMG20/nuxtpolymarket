@@ -144,7 +144,7 @@ export class BeaconControl {
         return Math.sin(this.engine.time * 3) > 0 ? '#ff4a55' : '#3dffb0'
     }
 
-    private alive(site: BeaconSite) {
+    alive(site: BeaconSite) {
         let n = 0
         for (const en of this.engine.enemies) if (en.alive && en.data.site === site.slot + 1) n++
         return n
