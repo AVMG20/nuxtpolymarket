@@ -689,6 +689,8 @@ export const VOID_REFIT_CARGO = 1.15
 export const VOID_REFIT_TURRET = 0.15
 /** A refit costs this share of building a new hull of the target tier. */
 export const VOID_REFIT_PRICE = 0.85
+/** Gems per refit, by the tier reached (T2 to T6). Kept token-sized: materials are the real price. */
+export const VOID_REFIT_GEMS = [1, 2, 4, 7, 10]
 
 export type VoidShipTiers = Record<string, number>
 
@@ -733,7 +735,7 @@ export function voidRefitCost(tier: number): VoidPrice | null {
         const scaled = (amount as number) * VOID_REFIT_PRICE
         resources[id as VoidResourceId] = scaled >= 100 ? Math.round(scaled / 50) * 50 : Math.round(scaled)
     }
-    return { resources, coins: Math.round(ref.coins * VOID_REFIT_PRICE), gems: Math.round(ref.gems * VOID_REFIT_PRICE) }
+    return { resources, coins: Math.round(ref.coins * VOID_REFIT_PRICE), gems: VOID_REFIT_GEMS[tier - 2] ?? 0 }
 }
 
 export function voidDerivedStats(shipId: string, levels: VoidUpgradeLevels, fit: VoidShipFit, items: readonly VoidItem[], perks?: VoidPerkRanks, shipTier?: number): VoidDerivedStats {
