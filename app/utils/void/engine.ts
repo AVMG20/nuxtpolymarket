@@ -852,7 +852,7 @@ export class VoidEngine {
         this.debris.clear()
 
         this.asteroids?.dispose()
-        this.asteroids = new AsteroidField(8, 170, tier * 7 + 3)
+        this.asteroids = new AsteroidField(tier * 7 + 3)
         scene.add(this.asteroids.group)
         this.depth = 1
         this.zone = 'calm'

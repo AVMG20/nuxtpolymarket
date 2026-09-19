@@ -48,13 +48,92 @@ export const HULL_MATERIAL = withRim(new THREE.MeshStandardMaterial({
     envMapIntensity: 0.6
 }), 0.45)
 
-export const ROCK_MATERIAL = withRim(new THREE.MeshStandardMaterial({
+/**
+ * Asteroid rock. The mesh carries the big forms; the fine grain, pits and
+ * cracks are a procedural bump and albedo in the shader, laid out in the
+ * rock's own space so they turn with it and hold up at any size.
+ */
+export const ROCK_MATERIAL = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    flatShading: true,
     metalness: 0.08,
     roughness: 0.92,
     envMapIntensity: 0.35
-}), 0.35)
+})
+ROCK_MATERIAL.onBeforeCompile = (shader) => {
+    shader.uniforms.uRimColor = RIM_COLOR
+    shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vRockPos;\nvarying float vRockScale;')
+        .replace('#include <begin_vertex>', `
+            #include <begin_vertex>
+            vRockPos = position;
+            #ifdef USE_INSTANCING
+                vRockScale = length(instanceMatrix[0].xyz);
+            #else
+                vRockScale = 1.0;
+            #endif`)
+    shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', `
+            #include <common>
+            uniform vec3 uRimColor;
+            varying vec3 vRockPos;
+            varying float vRockScale;
+            float rockHash(vec3 p) {
+                p = fract(p * 0.3183099 + vec3(0.71, 0.113, 0.419));
+                p *= 17.0;
+                return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+            }
+            float rockNoise(vec3 p) {
+                vec3 i = floor(p);
+                vec3 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                return mix(
+                    mix(mix(rockHash(i), rockHash(i + vec3(1, 0, 0)), f.x), mix(rockHash(i + vec3(0, 1, 0)), rockHash(i + vec3(1, 1, 0)), f.x), f.y),
+                    mix(mix(rockHash(i + vec3(0, 0, 1)), rockHash(i + vec3(1, 0, 1)), f.x), mix(rockHash(i + vec3(0, 1, 1)), rockHash(i + vec3(1, 1, 1)), f.x), f.y),
+                    f.z);
+            }
+            // Soft swells broken by ridged octaves: pitted, weathered stone rather than blobs.
+            const mat3 ROCK_TURN = mat3(0.0, 0.8, 0.6, -0.8, 0.36, -0.48, -0.6, -0.48, 0.64);
+            float rockHeight(vec3 p, float fine) {
+                float h = rockNoise(p * 0.55) * 0.5;
+                float a = 0.4;
+                vec3 q = p * 1.2;
+                for (int i = 0; i < 4; i++) {
+                    float n = rockNoise(q);
+                    float ridge = 1.0 - abs(n * 2.0 - 1.0);
+                    h += a * mix(n, ridge * ridge, 0.55) * (i < 2 ? 1.0 : fine);
+                    q = ROCK_TURN * q * 2.17 + vec3(1.7, 9.2, 3.1);
+                    a *= 0.5;
+                }
+                return h;
+            }`)
+        .replace('#include <color_fragment>', `
+            #include <color_fragment>
+            // A mountain gets proportionally finer grain than a pebble, so neither looks stretched.
+            float rockFreq = 4.2 * max(1.0, vRockScale / 9.0);
+            vec3 rockP = vRockPos * rockFreq;
+            // Drop the finest octaves once they fall below a pixel, or distant rock shimmers.
+            float rockFine = 1.0 - smoothstep(0.05, 0.3, length(fwidth(rockP)));
+            float rockH = rockHeight(rockP, rockFine);
+            float rockPatch = rockNoise(vRockPos * 1.6 + 11.0);
+            diffuseColor.rgb *= (0.5 + rockH * 0.7) * (0.8 + rockPatch * 0.4);`)
+        .replace('#include <normal_fragment_maps>', `
+            #include <normal_fragment_maps>
+            {
+                vec2 dH = vec2(dFdx(rockH), dFdy(rockH)) * vRockScale / rockFreq * 0.34;
+                vec3 sx = dFdx(-vViewPosition);
+                vec3 sy = dFdy(-vViewPosition);
+                vec3 r1 = cross(sy, normal);
+                vec3 r2 = cross(normal, sx);
+                float det = dot(sx, r1) * faceDirection;
+                vec3 grad = sign(det) * (dH.x * r1 + dH.y * r2);
+                normal = normalize(abs(det) * normal - grad);
+            }`)
+        .replace('#include <opaque_fragment>', `
+            float rim = pow(1.0 - saturate(dot(normal, normalize(vViewPosition))), 2.6);
+            outgoingLight += uRimColor * rim * 0.30;
+            #include <opaque_fragment>`)
+}
+ROCK_MATERIAL.customProgramCacheKey = () => 'void-rock'
 
 /** Bare machinery: darker, shinier, catches the environment. */
 export const METAL_MATERIAL = withRim(new THREE.MeshStandardMaterial({
