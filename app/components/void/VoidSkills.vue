@@ -267,3 +267,24 @@ function commit(nodes: string[]) {
 .vk-tip span { color: rgba(230, 241, 255, 0.78); }
 .vk-tip .vk-tip-idle { color: var(--vr-muted); }
 </style>
+
+<style>
+/* Page redesign: skills down the left, the tree on the right. */
+.vh-page .vk { grid-template-columns: 280px minmax(0, 1fr); grid-template-rows: auto 1fr; gap: 16px; margin-top: 0; align-items: start; }
+.vh-page .vk-pilot { grid-column: 1; padding: 14px; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 12px; }
+.vh-page .vk-pilot-head { font-size: 14px; letter-spacing: 0.03em; text-transform: none; }
+.vh-page .vk-xp { border-radius: 2px; overflow: hidden; }
+.vh-page .vk-grid { grid-column: 1; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 6px; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 12px; }
+.vh-page .vk-skill { flex-direction: row; gap: 10px; padding: 10px 12px; background: none; border: 1px solid transparent; border-radius: 8px; }
+.vh-page .vk-skill span { font-size: 15px; text-align: left; }
+.vh-page .vk-skill small { position: static; margin-left: auto; padding: 1px 7px; color: #04121c; background: var(--c); border-radius: 5px; }
+.vh-page .vk-skill:hover { background: rgba(255, 255, 255, 0.05); }
+.vh-page .vk-on { border-color: var(--c); background: color-mix(in srgb, var(--c) 10%, transparent); }
+.vh-page .vk-eq { box-shadow: none; }
+.vh-page .vk-detail { grid-column: 2; grid-row: 1 / span 2; padding: 20px 24px; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 12px; }
+.vh-page .vk-detail-head { font-size: 20px; }
+.vh-page .vk-detail p { font-size: 14px; }
+.vh-page .vk-tree-head { letter-spacing: 0.1em; color: var(--vr-muted); }
+.vh-page .vk-tree { height: 340px; max-width: 560px; margin: 10px auto 0; }
+@media (max-width: 900px) { .vh-page .vk { grid-template-columns: minmax(0, 1fr); } .vh-page .vk-detail { grid-column: 1; grid-row: auto; } }
+</style>

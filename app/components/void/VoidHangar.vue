@@ -20,6 +20,10 @@
                     <span class="vh-tab-label">{{ t.label }}</span>
                 </button>
             </nav>
+            <button v-if="tab !== 'hangar'" class="vh-quick" :disabled="busy || !currentSector.unlocked" :title="`Launch into ${currentSector.name}`" @click="$emit('launch', currentSector.tier)">
+                <UIcon name="i-lucide-rocket" class="size-4" />
+                <span>Launch</span>
+            </button>
             <button class="vh-mute" :title="muted ? 'Unmute' : 'Mute'" @click="$emit('toggle-mute')">
                 <UIcon :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'" class="size-4" />
             </button>
@@ -184,19 +188,10 @@
 
         <!-- Full-screen page for everything you manage between runs -->
         <section v-if="tab !== 'hangar'" class="vh-page">
-            <div class="vh-page-inner">
+            <div class="vh-page-inner" :class="{ 'vh-page-wide': tab === 'fitting' }">
                 <header class="vh-page-head">
-                    <button class="vh-back" title="Back to the hangar (Esc)" @click="setTab('hangar')">
-                        <UIcon name="i-lucide-arrow-left" class="size-4" />
-                        <span>Hangar</span>
-                    </button>
-                    <div class="vh-page-title">
-                        <h1>{{ page.title }}</h1>
-                        <p>{{ page.blurb }}</p>
-                    </div>
-                    <button class="vr-btn vr-btn-primary vh-page-launch" :disabled="busy || !currentSector.unlocked" :title="`Launch into ${currentSector.name}`" @click="$emit('launch', currentSector.tier)">
-                        <UIcon name="i-lucide-rocket" class="size-4" /> Launch · {{ currentSector.name }}
-                    </button>
+                    <h1>{{ page.title }}</h1>
+                    <p>{{ page.blurb }}</p>
                 </header>
 
             <!-- Loadout -->
@@ -210,22 +205,22 @@
                     @salvage="(id: string) => $emit('salvage', id)"
                     @socket="(id: string, mod: string) => $emit('socket', id, mod)"
                 />
-                <h2 class="vh-h">Supplies <small>Keys 1-3 · every launch takes up to {{ state.supplyCarry }} of each from your store, whether you use them or not</small></h2>
-                <div class="vh-list">
-                    <div v-for="s in state.supplies" :key="s.id" class="vh-card" :style="{ '--c': hex(s.color) }">
-                        <div class="vh-card-head">
-                            <kbd>{{ s.key }}</kbd>
-                            <UIcon :name="s.icon" class="size-4 vh-supply-icon" />
-                            <b>{{ s.name }}</b>
-                            <span class="vh-lvl">{{ s.stock }} / {{ state.supplyStockMax }}</span>
+                <section class="vp-panel vp-gap">
+                    <header class="vp-head">
+                        <h2>Supplies</h2>
+                        <span>Keys 1-3 · each launch loads up to {{ state.supplyCarry }} of each</span>
+                    </header>
+                    <div v-for="s in state.supplies" :key="s.id" class="vp-row" :style="{ '--c': hex(s.color) }">
+                        <span class="vp-ico vp-ico-c"><UIcon :name="s.icon" class="size-4" /></span>
+                        <div class="vp-main">
+                            <b>{{ s.name }} <kbd>{{ s.key }}</kbd></b>
+                            <small>{{ s.description }}</small>
                         </div>
-                        <p>{{ s.description }}</p>
-                        <div class="vh-card-foot">
-                            <VoidCost :cost="s.cost.resources" :held="state.resources" :coins="s.cost.coins" :balance="state.balance" />
-                            <button class="vr-btn vr-btn-sm" :disabled="busy || !s.affordable || s.stock >= state.supplyStockMax" @click="$emit('buy-supply', s.id, 1)">Buy</button>
-                        </div>
+                        <span class="vp-num">{{ s.stock }} / {{ state.supplyStockMax }}</span>
+                        <VoidCost :cost="s.cost.resources" :held="state.resources" :coins="s.cost.coins" :balance="state.balance" />
+                        <button class="vr-btn vr-btn-sm" :disabled="busy || !s.affordable || s.stock >= state.supplyStockMax" @click="$emit('buy-supply', s.id, 1)">Buy</button>
                     </div>
-                </div>
+                </section>
             </template>
 
             <!-- Workshop -->
@@ -244,68 +239,69 @@
 
             <!-- Station -->
             <template v-else-if="tab === 'station'">
-                <h2 class="vh-h">Command perks <small>{{ state.marks }} Command Marks · from wardens, carriers and deep jumps</small></h2>
-                <div class="vh-list">
-                    <div v-for="perk in state.perks" :key="perk.id" class="vh-card">
-                        <div class="vh-card-head">
-                            <UIcon :name="perk.icon" class="size-4" />
+                <nav class="vp-seg">
+                    <button v-for="v in stationViews" :key="v.id" :class="{ 'vp-seg-on': stationView === v.id }" @click="stationView = v.id">
+                        {{ v.label }}<small v-if="v.badge">{{ v.badge }}</small>
+                    </button>
+                </nav>
+                <section v-if="stationView === 'perks'" class="vp-panel">
+                    <header class="vp-head">
+                        <h2>Command perks</h2>
+                        <span>Marks come from wardens, carriers and deep jumps</span>
+                        <b class="vp-head-num">{{ state.marks }} marks</b>
+                    </header>
+                    <div v-for="perk in state.perks" :key="perk.id" class="vp-row" :class="{ 'vp-row-done': perk.cost === null }">
+                        <span class="vp-ico"><UIcon :name="perk.icon" class="size-4" /></span>
+                        <div class="vp-main">
                             <b>{{ perk.name }}</b>
-                            <span class="vh-lvl">{{ perk.rank }} / {{ perk.maxRank }}</span>
+                            <small>{{ perk.description }}</small>
                         </div>
-                        <p>{{ perk.description }}</p>
-                        <div class="vh-upg-effect">
-                            <span>{{ perk.current }}</span>
-                            <template v-if="perk.next">
-                                <UIcon name="i-lucide-arrow-right" class="size-3" />
-                                <b>{{ perk.next }}</b>
-                            </template>
-                        </div>
-                        <div v-if="perk.cost !== null" class="vh-card-foot">
-                            <span class="vh-kv"><span>Cost <b>{{ perk.cost }} marks</b></span></span>
+                        <span class="vp-effect" :title="`Now: ${perk.current}`">{{ perk.next ?? perk.current }}</span>
+                        <span class="vp-pips"><i v-for="n in perk.maxRank" :key="n" :class="{ 'vp-pip-on': n <= perk.rank }" /></span>
+                        <template v-if="perk.cost !== null">
+                            <span class="vp-num">{{ perk.cost }} marks</span>
                             <button class="vr-btn vr-btn-sm" :disabled="busy || !perk.affordable" @click="$emit('buy-perk', perk.id)">Buy</button>
-                        </div>
-                        <div v-else class="vh-maxed">Maxed</div>
+                        </template>
+                        <span v-else class="vp-maxed">Maxed</span>
                     </div>
-                </div>
-                <h2 class="vh-h">Station contracts <small>Resets in {{ resetIn }}</small></h2>
-                <div class="vh-list">
-                    <div v-for="c in state.contracts" :key="c.index" class="vh-card vh-contract" :class="{ 'vh-dim': c.done }">
-                        <div class="vh-card-head">
-                            <i class="vr-gem" :style="{ '--c': resHex(c.resource) }" />
-                            <b>Deliver {{ formatNumber(c.amount, false) }} {{ resName(c.resource) }}</b>
-                            <span v-if="c.done" class="vh-tag vh-tag-good">Delivered</span>
+                </section>
+                <section v-else-if="stationView === 'contracts'" class="vp-panel">
+                    <header class="vp-head">
+                        <h2>Delivery contracts</h2>
+                        <span>Pay above market · new ones in {{ resetIn }}</span>
+                    </header>
+                    <div v-for="c in state.contracts" :key="c.index" class="vp-row" :class="{ 'vp-row-done': c.done }">
+                        <span class="vp-ico"><i class="vr-gem" :style="{ '--c': resHex(c.resource) }" /></span>
+                        <div class="vp-main">
+                            <b>{{ formatNumber(c.amount, false) }} {{ resName(c.resource) }}</b>
+                            <small>You hold {{ formatNumber(held(c.resource), false) }}</small>
                         </div>
-                        <div class="vh-card-foot">
-                            <span class="vh-kv"><span>Pays <b>{{ formatNumber(c.coins) }}</b></span><span>XP <b>+{{ c.xp }}</b></span><span>Held <b>{{ formatNumber(held(c.resource)) }}</b></span></span>
-                            <button v-if="!c.done" class="vr-btn vr-btn-sm" :disabled="busy || !c.affordable" @click="$emit('claim-contract', c.index)">Deliver</button>
-                        </div>
+                        <span class="vp-effect">+{{ c.xp }} XP</span>
+                        <span class="vp-num vp-gold">{{ formatNumber(c.coins) }}</span>
+                        <button v-if="!c.done" class="vr-btn vr-btn-sm" :disabled="busy || !c.affordable" @click="$emit('claim-contract', c.index)">Deliver</button>
+                        <span v-else class="vp-maxed">Delivered</span>
                     </div>
-                </div>
-                <h2 class="vh-h">Ship systems <small>Fitted to every hull you own</small></h2>
-                <div class="vh-list">
-                    <div v-for="u in state.upgrades" :key="u.id" class="vh-card">
-                        <div class="vh-card-head">
-                            <b>{{ u.name }}</b>
-                            <span class="vh-lvl">{{ voidMark(u.level) }}<template v-if="u.level < u.maxLevel"> → {{ voidMark(u.level + 1) }}</template></span>
+                </section>
+                <section v-else class="vp-panel">
+                    <header class="vp-head">
+                        <h2>Ship systems</h2>
+                        <span>Fitted to every hull you own</span>
+                    </header>
+                    <div v-for="u in state.upgrades" :key="u.id" class="vp-row" :class="{ 'vp-row-done': !u.cost }">
+                        <span class="vp-ico"><UIcon :name="systemIcons[u.id] ?? 'i-lucide-cog'" class="size-4" /></span>
+                        <div class="vp-main">
+                            <b>{{ u.name }} <em>{{ voidMark(u.level) }}</em></b>
+                            <small>{{ u.description }}</small>
                         </div>
-                        <p>{{ u.description }}</p>
-                        <div class="vh-pips">
-                            <i v-for="n in u.maxLevel" :key="n" :class="{ 'vh-pip-on': n <= u.level }" />
-                        </div>
-                        <div class="vh-upg-effect">
-                            <span>{{ u.current }}</span>
-                            <template v-if="u.next">
-                                <UIcon name="i-lucide-arrow-right" class="size-3" />
-                                <b>{{ u.next }}</b>
-                            </template>
-                        </div>
-                        <div v-if="u.cost" class="vh-card-foot">
+                        <span class="vp-effect" :title="`Now: ${u.current}`">{{ u.next ?? u.current }}</span>
+                        <span class="vp-pips"><i v-for="n in u.maxLevel" :key="n" :class="{ 'vp-pip-on': n <= u.level }" /></span>
+                        <template v-if="u.cost">
                             <VoidCost :cost="u.cost.resources" :held="state.resources" :coins="u.cost.coins" :gems="u.cost.gems" :balance="state.balance" :gems-held="state.gems" />
                             <button class="vr-btn vr-btn-sm" :disabled="busy || !u.affordable" @click="$emit('upgrade', u.id)">Install</button>
-                        </div>
-                        <div v-else class="vh-maxed">Maxed</div>
+                        </template>
+                        <span v-else class="vp-maxed">Maxed</span>
                     </div>
-                </div>
+                </section>
             </template>
 
             <!-- Skills -->
@@ -326,51 +322,50 @@
 
             <!-- Market -->
             <template v-else-if="tab === 'market'">
-                <div class="vh-card vh-trade">
-                    <div class="vh-card-head">
-                        <UIcon name="i-lucide-handshake" class="size-4" />
-                        <b>Trade Contracts</b>
-                        <span class="vh-lvl">{{ state.trade.level }} / {{ state.trade.maxLevel }}</span>
-                    </div>
-                    <div class="vh-pips">
-                        <i v-for="n in state.trade.maxLevel" :key="n" :class="{ 'vh-pip-on': n <= state.trade.level }" />
-                    </div>
-                    <div class="vh-upg-effect">
-                        <span>×{{ state.trade.mult.toFixed(1) }} sell price</span>
-                        <template v-if="state.trade.nextMult">
-                            <UIcon name="i-lucide-arrow-right" class="size-3" />
-                            <b>×{{ state.trade.nextMult.toFixed(1) }}</b>
+                <section class="vp-panel">
+                    <div class="vp-row vp-row-lead">
+                        <span class="vp-ico"><UIcon name="i-lucide-handshake" class="size-4" /></span>
+                        <div class="vp-main">
+                            <b>Trade Contracts <em>{{ state.trade.level }} / {{ state.trade.maxLevel }}</em></b>
+                            <small>Every level raises what the market pays for everything you sell.</small>
+                        </div>
+                        <span class="vp-effect">×{{ state.trade.mult.toFixed(1) }}<template v-if="state.trade.nextMult"> → ×{{ state.trade.nextMult.toFixed(1) }}</template></span>
+                        <span class="vp-pips"><i v-for="n in state.trade.maxLevel" :key="n" :class="{ 'vp-pip-on': n <= state.trade.level }" /></span>
+                        <template v-if="state.trade.cost">
+                            <VoidCost :cost="{}" :held="state.resources" :coins="state.trade.cost" :balance="state.balance" />
+                            <button class="vr-btn vr-btn-sm" :disabled="busy || !state.trade.affordable" @click="$emit('buy-trade')">Sign</button>
                         </template>
+                        <span v-else class="vp-maxed">Maxed</span>
                     </div>
-                    <div v-if="state.trade.cost" class="vh-card-foot">
-                        <VoidCost :cost="{}" :held="state.resources" :coins="state.trade.cost" :balance="state.balance" />
-                        <button class="vr-btn vr-btn-sm" :disabled="busy || !state.trade.affordable" @click="$emit('buy-trade')">Sign</button>
-                    </div>
-                    <div v-else class="vh-maxed">Maxed</div>
-                </div>
-                <div class="vh-list">
-                    <div v-for="r in state.resourceCatalog" :key="r.id" class="vh-card vh-market" :class="{ 'vh-dim': !held(r.id) }">
-                        <div class="vh-card-head">
-                            <i class="vr-gem" :style="{ '--c': hex(r.color) }" />
+                </section>
+                <section class="vp-panel vp-gap">
+                    <header class="vp-head">
+                        <h2>Stores</h2>
+                        <span>Everything you have banked</span>
+                        <b class="vp-head-num vp-gold">{{ formatNumber(storesValue) }}</b>
+                    </header>
+                    <div v-for="r in state.resourceCatalog" :key="r.id" class="vp-row" :class="{ 'vp-row-done': !held(r.id) }">
+                        <span class="vp-ico"><i class="vr-gem" :style="{ '--c': hex(r.color) }" /></span>
+                        <div class="vp-main">
                             <b>{{ r.name }}</b>
-                            <span class="vh-price">{{ formatNumber(state.prices[r.id]) }} / unit</span>
+                            <small>{{ formatNumber(state.prices[r.id]) }} per unit</small>
                         </div>
-                        <div class="vh-card-foot">
-                            <span class="vh-held">{{ formatNumber(held(r.id), false) }} held · {{ formatNumber(held(r.id) * state.prices[r.id]) }}</span>
-                            <div class="vh-sell">
-                                <button class="vr-btn vr-btn-sm" :disabled="busy || held(r.id) < 1" @click="$emit('sell', r.id, Math.min(500, held(r.id)))">Sell 500</button>
-                                <button class="vr-btn vr-btn-sm" :disabled="busy || held(r.id) < 1" @click="$emit('sell', r.id, 'all')">All</button>
-                            </div>
+                        <span class="vp-num">{{ formatNumber(held(r.id), false) }}</span>
+                        <span class="vp-num vp-gold">{{ formatNumber(held(r.id) * state.prices[r.id]) }}</span>
+                        <div class="vh-sell">
+                            <button class="vr-btn vr-btn-sm" :disabled="busy || held(r.id) < 1" @click="$emit('sell', r.id, Math.min(500, held(r.id)))">Sell 500</button>
+                            <button class="vr-btn vr-btn-sm" :disabled="busy || held(r.id) < 1" @click="$emit('sell', r.id, 'all')">Sell all</button>
                         </div>
                     </div>
-                </div>
-                <div class="vh-total">Stores worth <b>{{ formatNumber(storesValue) }}</b> coins</div>
+                </section>
             </template>
 
             <!-- Codex -->
             <template v-else-if="tab === 'codex'">
-                <h2 class="vh-h">Flight manual</h2>
-                <div class="vh-manual">
+                <nav class="vp-seg">
+                    <button v-for="v in codexViews" :key="v.id" :class="{ 'vp-seg-on': codexView === v.id }" @click="codexView = v.id">{{ v.label }}</button>
+                </nav>
+                <div v-if="codexView === 'manual'" class="vh-manual">
                     <p><b>The loop.</b> Launch into a sector, crack glowing asteroids for ore, loot wrecks and kills, then dock at the station or a beacon to bank the hold. Die and the hold is gone.</p>
                     <p><b>Gear.</b> Guns, turrets, armour and shields are crafted in the Workshop from the materials of their tier. Every craft rolls a rarity with bonus stats, and every item levels to +10. Each sector you clear opens the next gear tier, and deeper sectors need it.</p>
                     <p><b>Damage types.</b> Energy weapons strip shields and glance off hull plate; kinetic rounds bounce off shields and tear hulls; explosives are even-handed. Shots to an enemy's engines do extra damage and slow it.</p>
@@ -380,15 +375,16 @@
                     <p><b>Progress.</b> Hulls add slots, skills add a second weapon, station systems improve hauling, and contracts pay a premium for deliveries every day.</p>
                     <p><b>Combat.</b> Turrets pick targets on their own; your crosshair tells them what matters most. Elites carry a gold halo and drop far more loot.</p>
                 </div>
-                <h2 class="vh-h">Data logs <small>{{ state.lore.filter(l => l.found).length }} / {{ state.lore.length }} · scan (T) to find them</small></h2>
-                <div class="vh-list">
-                    <div v-for="entry in state.lore" :key="entry.id" class="vh-card" :class="{ 'vh-locked': !entry.found }">
-                        <div class="vh-card-head"><b>{{ entry.found ? entry.title : 'Undiscovered log' }}</b></div>
-                        <p v-if="entry.found">{{ entry.text }}</p>
+                <template v-else-if="codexView === 'logs'">
+                    <p class="vh-hint vh-hint-top">{{ foundLore.length }} of {{ state.lore.length }} found. Pulse the scanner (T) out in the sectors to mark the rest.</p>
+                    <div class="vh-list">
+                        <div v-for="entry in foundLore" :key="entry.id" class="vh-card">
+                            <div class="vh-card-head"><b>{{ entry.title }}</b></div>
+                            <p>{{ entry.text }}</p>
+                        </div>
                     </div>
-                </div>
-                <h2 class="vh-h">Hostiles</h2>
-                <div class="vh-list">
+                </template>
+                <div v-else-if="codexView === 'hostiles'" class="vh-list">
                     <div v-for="enemy in codex" :key="enemy.kind" class="vh-card" :style="{ '--c': hex(enemy.glow) }">
                         <div class="vh-card-head">
                             <i class="vh-dotc" />
@@ -402,8 +398,7 @@
                         </div>
                     </div>
                 </div>
-                <h2 class="vh-h">Wardens</h2>
-                <div class="vh-list">
+                <div v-else class="vh-list">
                     <div v-for="s in state.sectors" :key="s.tier" class="vh-card" :class="{ 'vh-locked': !s.unlocked }">
                         <div class="vh-card-head">
                             <span class="vh-tier">{{ s.tier }}</span>
@@ -417,7 +412,6 @@
 
             <!-- Records -->
             <template v-else-if="tab === 'records'">
-                <h2 class="vh-h">Service record</h2>
                 <div class="vh-record">
                     <div><span>Runs</span><b>{{ state.runsPlayed }}</b></div>
                     <div><span>Extractions</span><b>{{ state.extractions }}</b></div>
@@ -426,25 +420,25 @@
                     <div><span>Best haul</span><b>{{ formatNumber(state.bestHaulValue) }}</b></div>
                     <div><span>Sold</span><b>{{ formatNumber(state.totalSold) }}</b></div>
                 </div>
-                <h2 class="vh-h">Leaderboard</h2>
-                <div class="vh-table">
-                    <div v-for="row in leaderboard" :key="row.rank" class="vh-row" :class="{ 'vh-me': row.isCurrentUser }">
-                        <span class="vh-rank">{{ row.rank }}</span>
-                        <span class="vh-who">{{ row.name }}<small>{{ row.shipName }}</small></span>
-                        <span>S{{ row.cleared }}</span>
-                        <b>{{ formatNumber(row.bestHaulValue) }}</b>
-                    </div>
-                    <div v-if="!leaderboard.length" class="vh-hint">No runners yet.</div>
-                </div>
-                <h2 class="vh-h">Recent runs</h2>
-                <div class="vh-table">
-                    <div v-for="r in history" :key="r.id" class="vh-row">
-                        <span class="vh-rank" :class="r.extracted ? 'vh-ok' : 'vh-ko'">{{ r.extracted ? '✓' : '✕' }}</span>
-                        <span class="vh-who">S{{ r.sector }} · {{ shipName(r.shipId) }}<small>{{ clock(r.durationMs) }} · {{ r.kills }} kills<template v-if="r.wardenKilled"> · warden</template></small></span>
-                        <span />
-                        <b>{{ formatNumber(r.haulValue) }}</b>
-                    </div>
-                    <div v-if="!history.length" class="vh-hint">No runs logged.</div>
+                <div class="vh-record-cols">
+                    <section class="vp-panel">
+                        <header class="vp-head"><h2>Leaderboard</h2><span>Best single haul</span></header>
+                        <div v-for="row in leaderboard" :key="row.rank" class="vp-row vp-row-slim" :class="{ 'vp-row-me': row.isCurrentUser }">
+                            <span class="vh-rank">{{ row.rank }}</span>
+                            <div class="vp-main"><b>{{ row.name }}</b><small>{{ row.shipName }}<template v-if="row.cleared"> · sector {{ row.cleared }} cleared</template></small></div>
+                            <span class="vp-num vp-gold">{{ formatNumber(row.bestHaulValue) }}</span>
+                        </div>
+                        <div v-if="!leaderboard.length" class="vh-hint">No runners yet.</div>
+                    </section>
+                    <section class="vp-panel">
+                        <header class="vp-head"><h2>Recent runs</h2></header>
+                        <div v-for="r in history" :key="r.id" class="vp-row vp-row-slim">
+                            <span class="vh-rank" :class="r.extracted ? 'vh-ok' : 'vh-ko'"><UIcon :name="r.extracted ? 'i-lucide-check' : 'i-lucide-x'" class="size-4" /></span>
+                            <div class="vp-main"><b>Sector {{ r.sector }} · {{ shipName(r.shipId) }}</b><small>{{ clock(r.durationMs) }} · {{ r.kills }} kills<template v-if="r.wardenKilled"> · warden</template></small></div>
+                            <span class="vp-num" :class="{ 'vp-gold': r.haulValue > 0 }">{{ r.haulValue > 0 ? formatNumber(r.haulValue) : '—' }}</span>
+                        </div>
+                        <div v-if="!history.length" class="vh-hint">No runs logged.</div>
+                    </section>
                 </div>
             </template>
             </div>
@@ -510,15 +504,30 @@ const emit = defineEmits<{
 
 const tabs = [
     { id: 'hangar', label: 'Hangar', icon: 'i-lucide-warehouse', blurb: '' },
-    { id: 'fitting', label: 'Loadout', icon: 'i-lucide-crosshair', blurb: 'Choose the gear your ship flies with. Pick a slot, then the item to put in it.' },
-    { id: 'workshop', label: 'Workshop', icon: 'i-lucide-hammer', blurb: 'Craft new gear, level up what you own and socket relic mods.' },
-    { id: 'skills', label: 'Skills', icon: 'i-lucide-sparkles', blurb: 'Your pilot skill on Q. Unlock new skills and spend points as you level up.' },
-    { id: 'station', label: 'Station', icon: 'i-lucide-satellite', blurb: 'Permanent perks, daily delivery contracts and systems for every hull.' },
-    { id: 'market', label: 'Market', icon: 'i-lucide-coins', blurb: 'Sell the materials you bring home for coins. Trade Contracts raise every price.' },
-    { id: 'codex', label: 'Codex', icon: 'i-lucide-book-open', blurb: 'How the game works, the data logs you found and what hunts you out there.' },
-    { id: 'records', label: 'Records', icon: 'i-lucide-trophy', blurb: 'Your service record, the leaderboard and your recent runs.' }
+    { id: 'fitting', label: 'Loadout', icon: 'i-lucide-crosshair', blurb: 'Pick a slot, then the gear to put in it.' },
+    { id: 'workshop', label: 'Workshop', icon: 'i-lucide-hammer', blurb: 'Build new gear from what you bring home.' },
+    { id: 'skills', label: 'Skills', icon: 'i-lucide-sparkles', blurb: 'One skill rides on Q. Spend points in its tree as you level.' },
+    { id: 'station', label: 'Station', icon: 'i-lucide-satellite', blurb: 'Perks, daily contracts and systems for every hull.' },
+    { id: 'market', label: 'Market', icon: 'i-lucide-coins', blurb: 'Turn materials into coins.' },
+    { id: 'codex', label: 'Codex', icon: 'i-lucide-book-open', blurb: 'How it works and what hunts you out there.' },
+    { id: 'records', label: 'Records', icon: 'i-lucide-trophy', blurb: 'Your service record and the leaderboard.' }
 ]
 const tab = ref('hangar')
+const codexView = ref<'manual' | 'logs' | 'hostiles' | 'wardens'>('manual')
+const codexViews = [
+    { id: 'manual' as const, label: 'Flight manual' },
+    { id: 'logs' as const, label: 'Data logs' },
+    { id: 'hostiles' as const, label: 'Hostiles' },
+    { id: 'wardens' as const, label: 'Wardens' }
+]
+const foundLore = computed(() => props.state.lore.filter(l => l.found))
+const stationView = ref<'perks' | 'contracts' | 'systems'>('perks')
+const stationViews = computed(() => [
+    { id: 'perks' as const, label: 'Perks', badge: props.state.marks ? String(props.state.marks) : '' },
+    { id: 'contracts' as const, label: 'Contracts', badge: String(props.state.contracts.filter(c => !c.done).length || '') },
+    { id: 'systems' as const, label: 'Ship systems', badge: '' }
+])
+const systemIcons: Record<string, string> = { engines: 'i-lucide-flame', cargo: 'i-lucide-package', mining: 'i-lucide-pickaxe', drones: 'i-lucide-bot' }
 const page = computed(() => {
     const t = tabs.find(x => x.id === tab.value) ?? tabs[0]!
     return { title: t.label, blurb: t.blurb }
@@ -761,7 +770,7 @@ function stepSector(delta: number) {
 .vh-res-chip { display: flex; align-items: center; gap: 6px; font: 600 13px 'JetBrains Mono', monospace; }
 .vh-dim { opacity: 0.4; }
 
-.vh-title { position: absolute; left: 30px; top: 92px; bottom: 132px; width: min(420px, 34vw); display: flex; flex-direction: column; align-items: flex-start; overflow: hidden; pointer-events: none; }
+.vh-title { position: absolute; left: 30px; top: 92px; bottom: 152px; width: min(420px, 34vw); display: flex; flex-direction: column; align-items: flex-start; overflow: hidden; pointer-events: none; }
 .vh-title-role { font-size: 13px; font-weight: 700; letter-spacing: 0.4em; text-transform: uppercase; color: var(--vr-accent); }
 .vh-title-name { font-size: clamp(44px, 6vw, 76px); line-height: 0.95; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; text-shadow: 0 0 40px rgba(94, 200, 255, 0.25); }
 .vh-title-desc { margin-top: 10px; font-size: 16px; line-height: 1.35; color: rgba(230, 241, 255, 0.75); }
@@ -836,29 +845,25 @@ function stepSector(delta: number) {
 .vh-yard-state { font-size: 12px; color: var(--vr-muted); }
 .vh-yard-locked { color: var(--vr-warn); }
 
-.vh-page { position: absolute; left: 0; right: 0; top: 60px; bottom: 0; overflow-x: hidden; overflow-y: auto; background: linear-gradient(180deg, #050a14, #03070f); border-top: 1px solid var(--vr-line); scrollbar-width: thin; scrollbar-color: rgba(120, 190, 255, 0.25) transparent; animation: vh-page-in 0.2s ease-out; }
+.vh-page { position: absolute; left: 0; right: 0; top: 60px; bottom: 0; overflow-x: hidden; overflow-y: auto; background: radial-gradient(1200px 500px at 50% -120px, rgba(94, 200, 255, 0.07), transparent 70%), var(--vr-page); scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.14) transparent; animation: vh-page-in 0.2s ease-out; }
 @keyframes vh-page-in { from { opacity: 0; transform: translateY(8px); } }
-.vh-page-inner { max-width: 1480px; margin: 0 auto; padding: 20px 32px 60px; }
-.vh-page-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--vr-line); }
-.vh-back { display: flex; align-items: center; gap: 6px; padding: 8px 12px; font-size: 12px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--vr-muted); border: 1px solid var(--vr-line); cursor: pointer; transition: all 0.15s; }
-.vh-back:hover { color: var(--vr-text); border-color: var(--vr-line-strong); }
-.vh-page-title { flex: 1; min-width: 240px; }
-.vh-page-title h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; line-height: 1.1; }
-.vh-page-title p { margin: 2px 0 0; font-size: 14px; color: rgba(230, 241, 255, 0.7); }
-.vh-page-launch { padding: 10px 18px; }
-.vh-page .vh-list { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
-.vh-page .vw-views { top: -20px; margin: -20px 0 12px; padding: 20px 0 10px; }
-.vh-page .vw-craft { max-width: 1180px; }
+.vh-page-inner { max-width: 1120px; margin: 0 auto; padding: 28px 28px 72px; }
+.vh-page-wide { max-width: 1400px; }
+.vh-page-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 20px; }
+.vh-page-head h1 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: 0.04em; line-height: 1.1; }
+.vh-page-head p { margin: 0; font-size: 14px; color: var(--vr-muted); }
+.vh-quick { margin-left: auto; display: flex; align-items: center; gap: 7px; padding: 7px 14px; font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #04121c; background: linear-gradient(100deg, #5ec8ff, #3dffb0); border-radius: 7px; cursor: pointer; transition: filter 0.15s; }
+.vh-quick:hover:not(:disabled) { filter: brightness(1.12); }
+.vh-quick:disabled { filter: grayscale(0.8) brightness(0.6); cursor: not-allowed; }
+.vh-quick + .vh-mute { margin-left: 0; }
+.vh-page .vh-list { grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
 .vh-page .vw-mods { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
-.vh-page .vh-manual { max-width: 900px; }
-.vh-page .vh-table { max-width: 900px; }
-.vh-page .vh-record { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); max-width: 900px; }
 .vh-supply-icon { color: var(--c); }
-.vh-h { display: flex; align-items: baseline; gap: 10px; margin: 16px 0 10px; font-size: 14px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; }
-.vh-h small { font-size: 11px; letter-spacing: 0.12em; color: var(--vr-muted); text-transform: none; }
-.vh-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; align-items: start; }
-.vh-card { position: relative; display: block; width: 100%; text-align: left; padding: 10px 12px; background: rgba(255, 255, 255, 0.025); border: 1px solid var(--vr-line); transition: border-color 0.15s, background 0.15s; }
-.vh-card:hover { border-color: var(--vr-line-strong); background: rgba(255, 255, 255, 0.045); }
+.vh-h { display: flex; align-items: baseline; gap: 10px; margin: 28px 0 10px; font-size: 16px; font-weight: 700; letter-spacing: 0.03em; }
+.vh-h:first-of-type { margin-top: 0; }
+.vh-h small { font-size: 13px; font-weight: 500; color: var(--vr-muted); }
+.vh-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; align-items: stretch; }
+.vh-card { position: relative; display: block; width: 100%; text-align: left; padding: 14px 16px; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 10px; }
 .vh-card p { margin: 4px 0 6px; font-size: 13px; line-height: 1.3; color: rgba(230, 241, 255, 0.65); }
 .vh-card-head { display: flex; align-items: center; gap: 8px; font-size: 16px; }
 .vh-card-head b { font-weight: 700; letter-spacing: 0.06em; }
@@ -902,7 +907,7 @@ function stepSector(delta: number) {
 
 .vh-price { margin-left: auto; font: 600 12px 'JetBrains Mono', monospace; color: var(--vr-gold); }
 .vh-held { font-size: 12px; color: var(--vr-muted); font-family: 'JetBrains Mono', monospace; }
-.vh-sell { display: flex; gap: 6px; }
+.vh-sell { display: flex; gap: 6px; justify-self: end; }
 .vh-total { margin-top: 14px; text-align: right; font-size: 14px; color: var(--vr-muted); }
 .vh-total b { color: var(--vr-gold); font-family: 'JetBrains Mono', monospace; }
 
@@ -911,19 +916,20 @@ function stepSector(delta: number) {
 .vh-tier { display: grid; place-items: center; width: 22px; height: 22px; font: 700 12px 'JetBrains Mono', monospace; color: var(--s2); border: 1px solid var(--s2); }
 .vh-ores { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; font-size: 12px; }
 .vh-ores span { display: flex; align-items: center; gap: 6px; }
-.vh-hint { margin-top: 10px; font-size: 13px; color: var(--vr-muted); }
-.vh-manual { display: grid; gap: 8px; font-size: 14px; line-height: 1.4; color: rgba(230, 241, 255, 0.78); }
+.vh-hint-top { margin: 0 0 14px !important; }
+.vh-hint { margin-top: 10px; padding: 0 14px 12px; font-size: 13px; color: var(--vr-muted); }
+.vh-manual { columns: 2; column-gap: 32px; padding: 18px 20px; font-size: 14px; line-height: 1.5; color: rgba(230, 241, 255, 0.78); background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 10px; }
+.vh-manual p { margin: 0 0 10px; break-inside: avoid; }
 .vh-manual b { color: #fff; }
 
-.vh-record { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.vh-record div { padding: 8px 10px; border: 1px solid var(--vr-line); background: rgba(255, 255, 255, 0.02); }
-.vh-record span { display: block; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--vr-muted); }
-.vh-record b { font: 600 16px 'JetBrains Mono', monospace; }
-.vh-table { display: grid; gap: 2px; }
-.vh-row { display: grid; grid-template-columns: 26px 1fr 34px 70px; align-items: center; gap: 8px; padding: 6px 8px; font-size: 13px; background: rgba(255, 255, 255, 0.02); }
-.vh-row b { text-align: right; font: 600 12px 'JetBrains Mono', monospace; color: var(--vr-gold); }
+.vh-record { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
+.vh-record div { padding: 14px 16px; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 10px; }
+.vh-record span { display: block; font-size: 12px; color: var(--vr-muted); }
+.vh-record b { font: 600 22px 'JetBrains Mono', monospace; }
+.vh-record-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .vh-record { grid-template-columns: repeat(3, minmax(0, 1fr)); } .vh-record-cols { grid-template-columns: minmax(0, 1fr); } .vh-manual { columns: 1; } }
 .vh-me { box-shadow: inset 2px 0 0 var(--vr-accent); background: rgba(94, 200, 255, 0.08); }
-.vh-rank { font: 600 12px 'JetBrains Mono', monospace; color: var(--vr-muted); }
+.vh-rank { display: grid; place-items: center; width: 28px; font: 600 13px 'JetBrains Mono', monospace; color: var(--vr-muted); }
 .vh-who small { display: block; font-size: 11px; color: var(--vr-muted); }
 .vh-ok { color: var(--vr-good); }
 .vh-ko { color: var(--vr-bad); }

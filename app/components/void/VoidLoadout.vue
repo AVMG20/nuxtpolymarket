@@ -2,10 +2,7 @@
     <div class="vl">
         <!-- Ship summary -->
         <div class="vl-bar">
-            <div class="vl-ship">
-                <span>Flying</span>
-                <b>{{ ship.name }}</b>
-            </div>
+            <b class="vl-ship">{{ ship.name }}</b>
             <div class="vl-stats">
                 <div title="Rough combat rating: gun and turret damage plus hull and shields."><span>Power</span><b>{{ formatNumber(ship.power, false) }}</b></div>
                 <div><span>Hull</span><b>{{ formatNumber(ship.stats.hull) }}</b></div>
@@ -23,13 +20,11 @@
         <div class="vl-main">
             <!-- ═══ Hardpoints ═══ -->
             <section class="vl-frame">
-                <h3 class="vl-title">Hardpoints <small>Click a slot, then pick gear on the right. You can also drag gear onto a slot.</small></h3>
                 <div v-for="group in groups" :key="group.key" class="vl-group">
-                    <div class="vl-group-head">
+                    <div class="vl-group-head" :title="group.hint">
                         <UIcon :name="group.icon" class="size-4" />
                         <b>{{ group.label }}</b>
                         <kbd v-if="group.key_">{{ group.key_ }}</kbd>
-                        <small>{{ group.hint }}</small>
                     </div>
                     <div class="vl-slots">
                         <button
@@ -72,20 +67,9 @@
             <section class="vl-armory">
                 <h3 class="vl-title">
                     {{ current.group.label }}<template v-if="current.group.slots.length > 1"> · slot {{ selected.index + 1 }}</template>
-                    <small>{{ current.group.hint }} · score is a rough all-round rating, green beats what you have fitted</small>
+                    <small>{{ current.group.hint }}</small>
+                    <button v-if="currentItem" class="vr-btn vr-btn-sm vl-unequip" :disabled="busy" @click="fit(selected.key, selected.index, null)">Unequip</button>
                 </h3>
-                <div class="vl-current" :style="currentItem ? { '--rc': currentItem.rarityColor } : {}">
-                    <span class="vl-current-label">In this slot</span>
-                    <template v-if="currentItem">
-                        <VoidItemArt :type="currentItem.type" :rarity-color="currentItem.rarityColor" size="sm" />
-                        <i class="vf-tier">T{{ currentItem.tier }}</i>
-                        <b>{{ currentItem.name }}</b>
-                        <em v-if="currentItem.level">+{{ currentItem.level }}</em>
-                        <span class="vl-current-stats">{{ currentItem.stats.map(s => `${s.label} ${s.value}`).join(' · ') }}</span>
-                        <button class="vr-btn vr-btn-sm" :disabled="busy" @click="fit(selected.key, selected.index, null)">Unequip</button>
-                    </template>
-                    <span v-else class="vl-current-none">Nothing fitted</span>
-                </div>
 
                 <div v-if="candidates.length" class="vl-grid">
                     <div
@@ -121,6 +105,9 @@
                             <span class="vl-tile-levels" :title="`Level ${item.level} / 10. Levels 5 and 10 each add a bonus stat.`">
                                 <i v-for="n in 10" :key="n" :class="{ 'vl-lv-on': n <= item.level, 'vl-lv-star': n === 5 || n === 10 }" />
                             </span>
+                            <span v-if="item.upgradeCost" class="vl-tile-cost" title="Cost of the next level">
+                                <VoidCost :cost="item.upgradeCost.resources" :held="state.resources" :coins="item.upgradeCost.coins" :gems="item.upgradeCost.gems" :balance="state.balance" :gems-held="state.gems" />
+                            </span>
                             <span class="vl-tile-actions" @click.stop>
                                 <button
                                     v-if="item.upgradeCost"
@@ -147,12 +134,8 @@
                                     :title="`Destroys the item and returns ${salvageText(item.salvage)}`"
                                     @click="salvage(item.id)"
                                 >
-                                    {{ confirmSalvage === item.id ? 'Sure?' : 'Break down' }}
+                                    {{ confirmSalvage === item.id ? 'Sure?' : 'Scrap' }}
                                 </button>
-                            </span>
-                            <span v-if="item.upgradeCost" class="vl-tile-cost">
-                                <small>Next level</small>
-                                <VoidCost :cost="item.upgradeCost.resources" :held="state.resources" :coins="item.upgradeCost.coins" :gems="item.upgradeCost.gems" :balance="state.balance" :gems-held="state.gems" />
                             </span>
                             <span v-if="modMenu === item.id" class="vl-mods" @click.stop>
                                 <button v-for="m in modsFor(item.kind)" :key="m.id" class="vl-mod-opt" :style="{ color: hex(m.color) }" :title="m.description" @click="socket(item.id, m.id)">
@@ -356,82 +339,68 @@ function autoFit() {
 </script>
 
 <style>
-.vl { display: grid; gap: 14px; }
-.vl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 12px 16px; border: 1px solid var(--vr-line-strong); background: linear-gradient(100deg, rgba(94, 200, 255, 0.1), rgba(255, 255, 255, 0.02) 60%); }
-.vl-ship span { display: block; font-size: 10px; font-weight: 700; letter-spacing: 0.35em; text-transform: uppercase; color: var(--vr-accent); }
-.vl-ship b { font-size: 26px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
-.vl-stats { display: flex; flex-wrap: wrap; gap: 6px; }
-.vl-stats div { min-width: 86px; padding: 5px 10px; border: 1px solid var(--vr-line); background: rgba(255, 255, 255, 0.03); }
-.vl-stats span { display: block; font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--vr-muted); }
-.vl-stats b { font: 600 16px 'JetBrains Mono', monospace; }
+.vl { display: grid; gap: 16px; }
+.vl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 28px; padding: 12px 18px; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 12px; }
+.vl-ship { font-size: 20px; font-weight: 700; letter-spacing: 0.04em; }
+.vl-stats { display: flex; flex-wrap: wrap; gap: 6px 26px; }
+.vl-stats div { display: flex; align-items: baseline; gap: 8px; }
+.vl-stats span { font-size: 13px; color: var(--vr-muted); }
+.vl-stats b { font: 600 15px 'JetBrains Mono', monospace; }
 .vl-bar-actions { margin-left: auto; }
 
-.vl-main { display: grid; grid-template-columns: minmax(340px, 5fr) minmax(0, 7fr); gap: 14px; align-items: start; }
-.vl-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0 0 10px; font-size: 14px; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase; }
-.vl-title small { font-size: 12px; font-weight: 500; letter-spacing: 0.02em; text-transform: none; color: var(--vr-muted); }
+.vl-main { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.vl-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 4px 0 12px; font-size: 18px; font-weight: 700; letter-spacing: 0.03em; }
+.vl-title small { font-size: 13px; font-weight: 500; color: var(--vr-muted); }
+.vl-unequip { margin-left: auto; }
 
-.vl-frame { position: sticky; top: 12px; padding: 14px; border: 1px solid var(--vr-line-strong); background: radial-gradient(ellipse at 50% 0%, rgba(94, 200, 255, 0.1), transparent 70%), rgba(6, 12, 24, 0.6); clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px); }
-.vl-group { margin-top: 12px; }
-.vl-group:first-of-type { margin-top: 0; }
-.vl-group-head { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; color: var(--vr-accent); }
-.vl-group-head b { font-size: 12px; font-weight: 700; letter-spacing: 0.2em; text-transform: uppercase; color: var(--vr-text); }
-.vl-group-head small { margin-left: auto; font-size: 11px; color: var(--vr-muted); text-align: right; }
-.vl-slots { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px; }
-.vl-slot { --rc: rgba(255, 255, 255, 0.25); display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 8px 10px; text-align: left; background: linear-gradient(135deg, color-mix(in srgb, var(--rc) 14%, transparent), rgba(255, 255, 255, 0.02) 60%); border: 1px solid color-mix(in srgb, var(--rc) 45%, transparent); border-left: 3px solid var(--rc); cursor: pointer; transition: background 0.15s, box-shadow 0.15s, transform 0.1s; }
-.vl-slot:hover { transform: translateY(-1px); background: linear-gradient(135deg, color-mix(in srgb, var(--rc) 24%, transparent), rgba(255, 255, 255, 0.04) 60%); }
-.vl-slot-empty { border-style: dashed; color: var(--vr-muted); }
-.vl-slot-on { box-shadow: 0 0 0 2px var(--vr-accent), 0 0 22px rgba(94, 200, 255, 0.35); }
-.vl-slot-drop { box-shadow: 0 0 0 2px var(--vr-good), 0 0 22px rgba(61, 255, 176, 0.4); }
-.vl-slot-no { box-shadow: 0 0 0 2px var(--vr-bad); cursor: not-allowed; }
-.vl-slot-mod { filter: drop-shadow(0 0 4px currentColor); }
-.vl-slot-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.vl-slot-blank { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; color: var(--vr-muted); border: 1px dashed var(--vr-line-strong); }
+.vl-frame { position: sticky; top: 12px; display: grid; gap: 14px; padding: 16px; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 12px; }
+.vl-group-head { display: flex; align-items: center; gap: 7px; margin-bottom: 6px; color: var(--vr-muted); }
+.vl-group-head b { font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+.vl-slots { display: grid; gap: 5px; }
+.vl-slot { --rc: rgba(255, 255, 255, 0.25); display: flex; align-items: center; gap: 10px; padding: 7px 10px; text-align: left; background: var(--vr-panel-2); border: 1px solid transparent; border-radius: 9px; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.vl-slot:hover { background: rgba(255, 255, 255, 0.08); }
+.vl-slot-empty { background: transparent; border: 1px dashed var(--vr-line-strong); color: var(--vr-muted); }
+.vl-slot-on { border-color: var(--vr-accent); background: rgba(94, 200, 255, 0.1); }
+.vl-slot-drop { border-color: var(--vr-good); background: rgba(61, 255, 176, 0.1); }
+.vl-slot-no { border-color: var(--vr-bad); cursor: not-allowed; }
+.vl-slot-mod { display: inline-flex; cursor: help; filter: drop-shadow(0 0 4px currentColor); }
+.vl-slot-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.vl-slot-blank { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; color: var(--vr-muted); }
 .vl-slot-top { display: flex; align-items: center; gap: 6px; font-size: 14px; min-width: 0; }
 .vl-slot-top b { font-weight: 700; color: var(--rc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vl-slot-empty .vl-slot-top b { color: var(--vr-muted); }
-.vl-slot-top em { font-style: normal; font: 700 12px 'JetBrains Mono', monospace; color: var(--vr-gold); }
-.vl-slot-sub { display: flex; flex-wrap: wrap; gap: 2px 10px; font: 600 11px 'JetBrains Mono', monospace; color: var(--vr-muted); }
+.vl-slot-empty .vl-slot-top b { color: var(--vr-muted); font-weight: 600; }
+.vl-slot-sub { display: flex; flex-wrap: wrap; gap: 0 10px; font: 500 11px 'JetBrains Mono', monospace; color: var(--vr-muted); }
 
 .vl-armory { min-width: 0; }
-.vl-current { --rc: var(--vr-line-strong); display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 12px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--rc) 50%, transparent); border-left: 3px solid var(--rc); background: rgba(255, 255, 255, 0.03); }
-.vl-current-label { font-size: 10px; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase; color: var(--vr-muted); }
-.vl-current b { color: var(--rc); font-size: 15px; }
-.vl-current em { font-style: normal; font: 700 12px 'JetBrains Mono', monospace; color: var(--vr-gold); }
-.vl-current-stats { font: 600 11px 'JetBrains Mono', monospace; color: var(--vr-muted); }
-.vl-current .vr-btn { margin-left: auto; }
-.vl-current-none { font-size: 13px; color: var(--vr-muted); }
-.vl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.vl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+.vl-tile { --rc: #fff; display: flex; align-items: flex-start; gap: 12px; padding: 14px; text-align: left; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 12px; cursor: grab; transition: border-color 0.15s, transform 0.1s; }
+.vl-tile:hover { border-color: color-mix(in srgb, var(--rc) 55%, transparent); transform: translateY(-1px); }
+.vl-tile-here { border-color: var(--vr-good); background: linear-gradient(160deg, rgba(61, 255, 176, 0.07), var(--vr-panel) 60%); }
 .vl-tile-art { align-self: start; }
-.vl-tile-levels { display: flex; gap: 2px; margin-top: 2px; }
-.vl-tile-levels i { flex: 1; height: 3px; background: rgba(255, 255, 255, 0.12); }
+.vl-tile-body { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.vl-tile-head { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 16px; }
+.vl-tile-head b { color: var(--rc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vl-tile-rarity { font-size: 12px; font-weight: 600; color: var(--rc); opacity: 0.85; }
+.vl-tile-stats { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 13px; color: var(--vr-muted); }
+.vl-tile-stats b { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--vr-text); }
+.vl-tile-foot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.vl-delta { font: 700 12px 'JetBrains Mono', monospace; color: var(--vr-muted); }
+.vl-tile-here .vl-delta { color: var(--vr-good); }
+.vl-tile-foot small { margin-left: auto; font-size: 11px; color: var(--vr-warn); }
+.vl-tile-levels { display: flex; gap: 2px; margin-top: 4px; }
+.vl-tile-levels i { flex: 1; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); }
 .vl-lv-on { background: var(--rc) !important; }
 .vl-lv-star { box-shadow: 0 0 0 1px rgba(255, 210, 122, 0.5); }
-.vl-tile-cost { display: flex; align-items: center; gap: 8px; margin-top: 2px; font-size: 12px; }
-.vl-tile-cost small { font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--vr-muted); }
-.vl-tile-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-.vl-maxed { align-self: center; font-size: 11px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--vr-good); }
-.vl-mods { display: grid; gap: 4px; margin-top: 6px; padding: 8px; background: rgba(4, 9, 18, 0.85); border: 1px solid var(--vr-line-strong); }
-.vl-mod-opt { display: flex; align-items: center; gap: 8px; padding: 4px 6px; text-align: left; font-size: 13px; cursor: pointer; }
+.vl-tile-cost { display: flex; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--vr-line); font-size: 12px; }
+.vl-tile-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+.vl-tile-actions .vr-btn:first-child { flex: 1; }
+.vl-maxed { flex: 1; align-self: center; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vr-good); }
+.vl-mods { display: grid; gap: 4px; margin-top: 6px; padding: 8px; background: var(--vr-panel-2); border-radius: 9px; }
+.vl-mod-opt { display: flex; align-items: center; gap: 8px; padding: 4px 6px; text-align: left; font-size: 13px; border-radius: 6px; cursor: pointer; }
 .vl-mod-opt:hover { background: rgba(255, 255, 255, 0.06); }
 .vl-mod-opt em { margin-left: auto; font-style: normal; font: 600 11px 'JetBrains Mono', monospace; color: var(--vr-muted); }
 .vl-tile-mod { display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 700; cursor: help; }
 .vl-mod-art { width: 18px; height: 18px; }
-.vl-slot-mod { display: inline-flex; cursor: help; }
-.vl-tile-body { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.vl-tile { --rc: #fff; display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; text-align: left; background: linear-gradient(160deg, color-mix(in srgb, var(--rc) 12%, transparent), rgba(255, 255, 255, 0.02) 55%); border: 1px solid color-mix(in srgb, var(--rc) 35%, transparent); border-top: 3px solid var(--rc); cursor: grab; transition: transform 0.1s, box-shadow 0.15s; }
-.vl-tile:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px color-mix(in srgb, var(--rc) 25%, transparent); }
-.vl-tile:disabled { cursor: default; }
-.vl-tile-here { box-shadow: 0 0 0 1px var(--vr-good); }
-.vl-tile-head { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 15px; }
-.vl-tile-head b { color: var(--rc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vl-tile-head em { font-style: normal; font: 700 12px 'JetBrains Mono', monospace; color: var(--vr-gold); }
-.vl-tile-rarity { font-size: 10px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--rc); }
-.vl-tile-stats { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--vr-muted); }
-.vl-tile-stats b { font-family: 'JetBrains Mono', monospace; color: var(--vr-text); }
-.vl-tile-foot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin-top: auto; padding-top: 4px; border-top: 1px solid var(--vr-line); }
-.vl-delta { font: 700 12px 'JetBrains Mono', monospace; color: var(--vr-muted); }
-.vl-tile-here .vl-delta { color: var(--vr-good); }
-.vl-tile-foot small { margin-left: auto; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vr-warn); }
 
 @media (max-width: 900px) {
     .vl-main { grid-template-columns: minmax(0, 1fr); }

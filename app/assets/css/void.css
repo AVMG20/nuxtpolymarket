@@ -11,6 +11,10 @@
     --vr-warn: #ffc24d;
     --vr-bad: #ff4f6d;
     --vr-gold: #ffd27a;
+    --vr-page: #070a12;
+    --vr-panel: #0e1422;
+    --vr-panel-2: #151d2e;
+    --vr-soft: rgba(255, 255, 255, 0.07);
     position: relative;
     height: 100vh;
     height: 100dvh;
@@ -323,3 +327,42 @@
 .vf-down { color: var(--vr-bad); }
 .vw-empty { display: grid; justify-items: start; gap: 8px; padding: 14px; font-size: 13px; color: var(--vr-muted); border: 1px dashed var(--vr-line-strong); }
 .vw-empty p { margin: 0; }
+
+/* ─── Hangar pages: calm panels, rows instead of card walls ─── */
+.vh-page { --vr-line: rgba(255, 255, 255, 0.07); --vr-line-strong: rgba(255, 255, 255, 0.16); }
+.vh-page .vr-btn { clip-path: none; border-radius: 7px; letter-spacing: 0.06em; background: rgba(255, 255, 255, 0.05); }
+.vh-page .vr-btn:hover:not(:disabled) { background: rgba(94, 200, 255, 0.16); }
+.vh-page .vr-btn-primary { background: linear-gradient(100deg, rgba(94, 200, 255, 0.3), rgba(61, 255, 176, 0.22)); }
+.vh-page .vr-btn-danger { background: rgba(255, 79, 109, 0.08); }
+.vp-panel { background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 12px; overflow: hidden; }
+.vp-gap { margin-top: 16px; }
+.vp-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; padding: 14px 18px; border-bottom: 1px solid var(--vr-line); }
+.vp-head h2 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0.03em; }
+.vp-head span { font-size: 13px; color: var(--vr-muted); }
+.vp-head-num { margin-left: auto; font: 600 14px 'JetBrains Mono', monospace; color: var(--vr-accent); }
+.vp-row { display: flex; align-items: center; gap: 16px; padding: 11px 18px; border-top: 1px solid var(--vr-line); transition: background 0.12s; }
+.vp-row:first-child, .vp-head + .vp-row { border-top: 0; }
+.vp-row:hover { background: rgba(255, 255, 255, 0.025); }
+.vp-row-slim { padding: 8px 14px; gap: 10px; }
+.vp-row-done { opacity: 0.5; }
+.vp-row-me { background: rgba(94, 200, 255, 0.08); box-shadow: inset 2px 0 0 var(--vr-accent); }
+.vp-ico { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; border-radius: 9px; background: var(--vr-panel-2); color: var(--vr-accent); }
+.vp-ico-c { color: var(--c); }
+.vp-main { flex: 1; min-width: 0; }
+.vp-main b { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; letter-spacing: 0.02em; }
+.vp-main b em { font-style: normal; font: 600 12px 'JetBrains Mono', monospace; color: var(--vr-muted); }
+.vp-main small { display: block; font-size: 13px; line-height: 1.3; color: var(--vr-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vp-effect { flex-shrink: 0; width: 190px; font-size: 13px; font-weight: 600; color: var(--vr-good); text-align: right; }
+.vp-pips { display: flex; gap: 3px; flex-shrink: 0; width: 70px; }
+.vp-pips i { flex: 1; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); }
+.vp-pips .vp-pip-on { background: var(--vr-accent); }
+.vp-num { flex-shrink: 0; min-width: 72px; font: 600 13px 'JetBrains Mono', monospace; text-align: right; color: var(--vr-text); }
+.vp-gold { color: var(--vr-gold); }
+.vp-maxed { flex-shrink: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--vr-gold); }
+.vp-row .vr-btn { flex-shrink: 0; min-width: 78px; }
+.vp-seg { display: inline-flex; gap: 2px; margin-bottom: 16px; padding: 3px; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 10px; }
+.vp-seg button { display: flex; align-items: center; gap: 7px; padding: 7px 16px; font-size: 14px; font-weight: 700; letter-spacing: 0.03em; color: var(--vr-muted); border-radius: 7px; cursor: pointer; transition: color 0.15s, background 0.15s; }
+.vp-seg button:hover { color: var(--vr-text); }
+.vp-seg .vp-seg-on { color: #fff; background: var(--vr-panel-2); box-shadow: inset 0 0 0 1px var(--vr-line-strong); }
+.vp-seg small { padding: 0 6px; font: 700 11px 'JetBrains Mono', monospace; color: #04121c; background: var(--vr-accent); border-radius: 8px; }
+@media (max-width: 900px) { .vp-effect, .vp-pips { display: none; } }

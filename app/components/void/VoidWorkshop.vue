@@ -12,10 +12,9 @@
 
         <!-- ═══ Craft ═══ -->
         <template v-if="view === 'craft'">
-            <p class="vw-intro">Build new gear from the materials you bring home. Every craft rolls a random <b>rarity</b>; rarer items get bonus stats. New items appear in <b>My gear</b>.</p>
             <div class="vw-craft">
                 <div class="vw-craft-steps">
-                <div class="vw-step"><i>1</i>What to build</div>
+                <div class="vw-step">What to build</div>
                 <div class="vw-kinds">
                     <button v-for="k in kinds" :key="k.id" class="vw-kind" :class="{ 'vw-on': kind === k.id }" @click="setKind(k.id)">
                         <UIcon :name="k.icon" class="size-4" />
@@ -24,7 +23,7 @@
                 </div>
                 <p class="vw-desc">{{ kindHint }}</p>
 
-                <div class="vw-step"><i>2</i>Model</div>
+                <div class="vw-step">Model</div>
                 <div class="vw-types">
                     <button
                         v-for="t in typesForKind"
@@ -42,7 +41,7 @@
                     </button>
                 </div>
 
-                <div class="vw-step"><i>3</i>Tier<small>Higher tiers are stronger and need rarer materials</small></div>
+                <div class="vw-step">Tier<small>Clearing a sector opens the next tier</small></div>
                 <div class="vw-tiers">
                     <button
                         v-for="t in tierCosts"
@@ -57,14 +56,6 @@
                     </button>
                 </div>
 
-                <div class="vw-step"><i>4</i>Craft</div>
-                <div class="vw-odds" title="Rarity odds">
-                    <div v-for="r in state.crafting.rarities" :key="r.name" :style="{ flex: r.weight, background: r.color }" :title="`${r.name} ${oddsPct(r.weight)}%`" />
-                </div>
-                <div class="vw-odds-legend">
-                    <span v-for="r in state.crafting.rarities" :key="r.name" :style="{ color: r.color }">{{ r.name }} {{ oddsPct(r.weight) }}%</span>
-                </div>
-                <p class="vw-odds-note">Each step up in rarity is stronger and carries one more bonus stat. A lucky T1 roll can beat a plain T2.</p>
                 </div>
 
                 <!-- What you are about to build: the real turret model where we
@@ -77,6 +68,11 @@
                         <span v-if="selectedType">T{{ tier }}</span>
                     </div>
                     <p v-if="selectedType" class="vw-preview-desc">{{ selectedType.description }}</p>
+                    <div v-if="damage" class="vw-dmg" :class="`vw-dmg-${damage.id}`" :title="`×${damage.shield} against shields, ×${damage.hull} against hull`">
+                        <UIcon :name="damage.icon" class="size-4" />
+                        <b>{{ damage.label }}</b>
+                        <span>{{ damage.note }}</span>
+                    </div>
                     <em v-if="selectedType && blueprintIds.has(selectedType.id)" class="vw-preview-bp">MkII blueprint owned · 12% stronger, never Common</em>
                     <div v-if="currentCost" class="vw-cost">
                         <small>Cost</small>
@@ -87,13 +83,22 @@
                         Craft T{{ tier }} {{ selectedType?.name ?? '' }}
                     </button>
                     <p v-if="craftBlocker" class="vw-blocker">{{ craftBlocker }}</p>
+                    <div class="vw-odds-box" title="Every craft rolls a rarity. Each step up is stronger and carries one more bonus stat.">
+                        <small>Rarity odds</small>
+                        <div class="vw-odds">
+                            <div v-for="r in state.crafting.rarities" :key="r.name" :style="{ flex: r.weight, background: r.color }" :title="`${r.name} ${oddsPct(r.weight)}%`" />
+                        </div>
+                        <div class="vw-odds-legend">
+                            <span v-for="r in state.crafting.rarities" :key="r.name" :style="{ color: r.color }">{{ r.name }} {{ oddsPct(r.weight) }}%</span>
+                        </div>
+                    </div>
                 </aside>
             </div>
         </template>
 
         <!-- ═══ Relic mods ═══ -->
         <template v-else>
-            <p class="vw-intro">Mods give gear a special effect. Elites, wardens and vaults drop golden <b>relic caches</b>; bring them home to open them. Socket them onto gear in the <b>Loadout</b> tab.</p>
+            <p class="vw-intro">Relic caches from elites, wardens and vaults open into mods. Socket them onto gear in the <b>Loadout</b>.</p>
             <div v-if="ownedMods.length" class="vw-mods">
                 <div v-for="m in ownedMods" :key="m.id" class="vw-mod" :style="{ '--c': hex(m.color) }">
                     <VoidItemArt :type="m.id" size="md" />
@@ -122,8 +127,8 @@
 
 <script setup lang="ts">
 import type { InternalApi } from 'nitropack/types'
-import { voidHex, voidResource, type VoidResourceBundle } from '#shared/utils/gamelogic/void'
-import { voidMod } from '#shared/utils/gamelogic/void-items'
+import { voidCanAffordPrice, voidHex, voidResource, type VoidResourceBundle } from '#shared/utils/gamelogic/void'
+import { VOID_DAMAGE_MULT, VOID_DAMAGE_TYPE, voidCraftCost, voidMod, type VoidDamageType } from '#shared/utils/gamelogic/void-items'
 import VoidCost from './VoidCost.vue'
 import VoidItemArt from './VoidItemArt.vue'
 import VoidTurretPreview from './VoidTurretPreview.vue'
@@ -131,6 +136,12 @@ import VoidTurretPreview from './VoidTurretPreview.vue'
 type State = InternalApi['/api/void/state']['get']
 type Kind = 'gun' | 'turret' | 'armor' | 'shield' | 'secondary' | 'device'
 export type WorkshopView = 'craft' | 'mods'
+
+const DAMAGE_NOTES: Record<VoidDamageType, { label: string, note: string, icon: string, shield: number, hull: number }> = {
+    energy: { label: 'Energy', note: 'Strips shields, glances off hull', icon: 'i-lucide-zap', ...VOID_DAMAGE_MULT.energy },
+    kinetic: { label: 'Kinetic', note: 'Tears hull, bounces off shields', icon: 'i-lucide-crosshair', ...VOID_DAMAGE_MULT.kinetic },
+    explosive: { label: 'Explosive', note: 'Even against shields and hull', icon: 'i-lucide-bomb', ...VOID_DAMAGE_MULT.explosive }
+}
 
 const props = defineProps<{
     state: State
@@ -173,7 +184,17 @@ const typesForKind = computed(() => props.state.crafting.types.filter(t => t.kin
 const selectedType = computed(() => typesForKind.value.find(t => t.id === type.value) ?? null)
 const kindHint = computed(() => kinds.find(k => k.id === kind.value)?.hint ?? '')
 const tierCosts = computed(() => props.state.crafting.costs.find(c => c.kind === kind.value)?.tiers ?? [])
-const currentCost = computed(() => tierCosts.value.find(t => t.tier === tier.value) ?? null)
+/** Every model has its own price, so the bench prices the one you picked rather than the kind. */
+const currentCost = computed(() => {
+    const base = tierCosts.value.find(t => t.tier === tier.value)
+    if (!base) return null
+    const price = voidCraftCost(kind.value, tier.value, type.value)
+    return { ...base, ...price, affordable: voidCanAffordPrice(price, props.state.resources, props.state.balance, props.state.gems) }
+})
+const damage = computed(() => {
+    const id = selectedType.value && VOID_DAMAGE_TYPE[selectedType.value.id]
+    return id ? { id, ...DAMAGE_NOTES[id] } : null
+})
 const canCraft = computed(() => !!currentCost.value?.unlocked && !!currentCost.value.affordable && !!selectedType.value && tier.value >= selectedType.value.minTier)
 const craftBlocker = computed(() => {
     if (!selectedType.value) return 'Pick a model.'
@@ -185,7 +206,12 @@ const craftBlocker = computed(() => {
 const totalWeight = computed(() => props.state.crafting.rarities.reduce((s, r) => s + r.weight, 0))
 
 watch(selectedType, (t) => {
-    if (t && tier.value < t.minTier) tier.value = Math.min(props.state.crafting.maxTier, t.minTier)
+    if (!t) return
+    const max = props.state.crafting.maxTier
+    // A model you cannot build yet still shows its real price, at the tier it starts from.
+    if (tier.value < t.minTier) tier.value = t.minTier
+    // Coming back from one of those, drop to the best tier you can actually craft.
+    else if (tier.value > max && t.minTier <= max) tier.value = max
 })
 
 function setView(v: WorkshopView) {
@@ -322,4 +348,45 @@ function fittedOn(itemId: string) {
 .vw-levels .vw-lv-star { height: 5px; margin-top: -1px; outline: 1px solid rgba(255, 210, 122, 0.45); }
 .vw-levels .vw-lv-on { background: var(--vr-gold); box-shadow: 0 0 5px rgba(255, 210, 122, 0.6); }
 .vw-buttons { display: flex; gap: 4px; flex-shrink: 0; margin-left: auto; }
+</style>
+
+<style>
+/* Page redesign: soft panels, pills instead of boxed steps. */
+.vh-page .vw { gap: 0; }
+.vh-page .vw-views { position: static; display: inline-flex; justify-self: start; gap: 2px; margin: 0 0 16px; padding: 3px; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 10px; }
+.vh-page .vw-view { padding: 7px 16px; font-size: 14px; letter-spacing: 0.03em; text-transform: none; border: 0; border-radius: 7px; }
+.vh-page .vw-view.vw-on { background: var(--vr-panel-2); box-shadow: inset 0 0 0 1px var(--vr-line-strong); }
+.vh-page .vw-view small { border-radius: 8px; }
+.vh-page .vw-craft { grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; padding: 0; border: 0; background: none; }
+.vh-page .vw-craft-steps { display: grid; gap: 8px; padding: 18px; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 12px; }
+.vh-page .vw-step { margin-top: 12px; font-size: 12px; letter-spacing: 0.1em; color: var(--vr-muted); }
+.vh-page .vw-step:first-child { margin-top: 0; }
+.vh-page .vw-step small { letter-spacing: 0; }
+.vh-page .vw-kinds { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; }
+.vh-page .vw-kind { padding: 10px 4px; letter-spacing: 0.04em; text-transform: none; font-size: 13px; background: var(--vr-panel-2); border: 1px solid transparent; border-radius: 9px; }
+.vh-page .vw-kind.vw-on { border-color: var(--vr-accent); background: rgba(94, 200, 255, 0.12); }
+.vh-page .vw-desc { font-size: 13px; color: var(--vr-muted); }
+.vh-page .vw-types { gap: 6px; }
+.vh-page .vw-type { padding: 7px 12px; font-size: 13px; background: var(--vr-panel-2); border: 1px solid transparent; border-radius: 9px; }
+.vh-page .vw-type.vw-on { border-color: var(--c); }
+.vh-page .vw-tiers { gap: 6px; }
+.vh-page .vw-tier { padding: 8px 0; background: var(--vr-panel-2); border: 1px solid transparent; border-radius: 9px; }
+.vh-page .vw-tier.vw-on { border-color: var(--vr-gold); }
+.vh-page .vw-preview { padding: 16px; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 12px; }
+.vh-page .vtp { border: 0; border-radius: 9px; overflow: hidden; }
+.vh-page .vw-craft-go { border-radius: 9px; }
+.vw-dmg { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 8px 10px; font-size: 13px; background: var(--vr-panel-2); border-radius: 9px; cursor: help; }
+.vw-dmg b { font-weight: 700; }
+.vw-dmg span { color: var(--vr-muted); }
+.vw-dmg-energy { color: #6fd8ff; }
+.vw-dmg-kinetic { color: #ffd35e; }
+.vw-dmg-explosive { color: #ff8a5e; }
+.vw-odds-box { display: grid; gap: 6px; margin-top: 4px; padding-top: 12px; border-top: 1px solid var(--vr-line); cursor: help; }
+.vw-odds-box > small { font-size: 12px; color: var(--vr-muted); }
+.vh-page .vw-odds { height: 6px; border-radius: 3px; overflow: hidden; }
+.vh-page .vw-mod { padding: 12px; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 10px; cursor: default; }
+.vh-page .vw-mod b { font-size: 14px; }
+.vh-page .vw-mod span { font-size: 12px; }
+.vh-page .vw-empty { border-radius: 10px; }
+@media (max-width: 1100px) { .vh-page .vw-craft { grid-template-columns: minmax(0, 1fr); } .vh-page .vw-kinds { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 </style>
