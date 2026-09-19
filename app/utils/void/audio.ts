@@ -463,18 +463,19 @@ export class VoidAudio {
         this.beamOsc.start()
     }
 
-    /** throttle 0..1; boosting opens the airflow layer. */
-    updateEngine(throttle: number, boosting: boolean, beams: number) {
+    /** throttle 0..1; boosting opens the airflow layer. heft 0..1 drops a big hull's drive into a deeper, louder rumble. */
+    updateEngine(throttle: number, boosting: boolean, beams: number, heft = 0) {
         if (!this.ctx || !this.engineOsc || !this.engineGain || !this.engineFilter) return
         const t = this.ctx.currentTime
         const k = Math.max(0, Math.min(1, throttle))
-        this.engineGain.gain.setTargetAtTime(0.035 + k * 0.03 + (boosting ? 0.02 : 0), t, 0.25)
-        this.engineFilter.frequency.setTargetAtTime(170 + k * 230 + (boosting ? 260 : 0), t, 0.3)
-        this.engineOsc.frequency.setTargetAtTime(38 + k * 8 + (boosting ? 6 : 0), t, 0.4)
-        const hum = 76 + k * 22 + (boosting ? 14 : 0)
+        const deep = 1 - heft * 0.38
+        this.engineGain.gain.setTargetAtTime((0.035 + k * 0.03 + (boosting ? 0.02 : 0)) * (1 + heft * 0.7), t, 0.25)
+        this.engineFilter.frequency.setTargetAtTime((170 + k * 230 + (boosting ? 260 : 0)) * deep, t, 0.3)
+        this.engineOsc.frequency.setTargetAtTime((38 + k * 8 + (boosting ? 6 : 0)) * (1 - heft * 0.2), t, 0.4)
+        const hum = (76 + k * 22 + (boosting ? 14 : 0)) * deep
         this.engineOsc2!.frequency.setTargetAtTime(hum, t, 0.4)
         this.humDetune?.frequency.setTargetAtTime(hum * 1.008, t, 0.4)
-        this.humFilter?.frequency.setTargetAtTime(240 + k * 160, t, 0.3)
+        this.humFilter?.frequency.setTargetAtTime((240 + k * 160) * deep, t, 0.3)
         this.boostGain?.gain.setTargetAtTime(boosting ? 0.45 : 0, t, boosting ? 0.18 : 0.35)
         this.beamGain!.gain.setTargetAtTime(Math.min(0.05, beams * 0.018), t, 0.05)
         this.beamOsc!.frequency.setTargetAtTime(170 + Math.sin(t * 30) * 12, t, 0.02)

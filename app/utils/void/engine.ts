@@ -101,6 +101,8 @@ const DRONE_LEASH = 240
 const DRONE_RANGE = 170
 const WORLD_UP = new THREE.Vector3(0, 1, 0)
 const FORWARD = new THREE.Vector3(0, 0, -1)
+// Chase camera pull-in for heavy hulls, as a share of ship length at full heft.
+const CAM = { back: 0.85, up: 0.14 }
 export const SECTOR_RADIUS = 2600
 
 const _v1 = new THREE.Vector3()
@@ -217,6 +219,9 @@ export class VoidEngine {
     kills = 0
     elapsed = 0
     trauma = 0
+    /** 0 for the smallest hull, 1 for the Leviathan. Drives how heavy the ship flies, looks and sounds. */
+    private heft = 0
+    private turnRate = 0
     hurt = 0
     shieldHurt = 0
     whiteFlash = 0
@@ -1103,6 +1108,8 @@ export class VoidEngine {
         const model = buildShip(cfg.shipId)
         const root = new THREE.Group()
         root.add(model.group)
+        this.heft = Math.pow(THREE.MathUtils.clamp((ship.size - 3.2) / 12.8, 0, 1), 0.7)
+        this.turnRate = 0
         const palette = { glow: shipGlow(cfg.shipId) }
         const turrets = this.mountTurrets(model, cfg.turrets, root)
         const flames = model.engines.map((e) => {
@@ -1369,8 +1376,10 @@ export class VoidEngine {
         const maxDev = THREE.MathUtils.degToRad(38)
         const dev = p.quat.angleTo(this.aimQuat)
         if (dev > maxDev) this.aimQuat.copy(_q2.copy(p.quat).rotateTowards(this.aimQuat, maxDev))
-        const agility = stats.agility
-        p.quat.rotateTowards(this.aimQuat, agility * dt * (0.7 + Math.min(1, dev * 3)))
+        // A heavy hull takes a moment to get its mass swinging; it stops as soon as it is on the aim.
+        const wantTurn = dev < 0.004 ? 0 : stats.agility * (0.7 + Math.min(1, dev * 3))
+        this.turnRate = wantTurn < this.turnRate ? wantTurn : THREE.MathUtils.lerp(this.turnRate, wantTurn, 1 - Math.exp(-(20 - this.heft * 17.5) * dt))
+        p.quat.rotateTowards(this.aimQuat, this.turnRate * dt)
 
         // Thrust
         const forward = (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0)
@@ -1395,7 +1404,8 @@ export class VoidEngine {
         if (local.lengthSq() > 1) local.normalize()
         const desired = local.multiplyScalar(speed).applyQuaternion(p.quat)
         // Slowing down bites harder than speeding up, or the ship swims.
-        const accel = desired.lengthSq() < p.vel.lengthSq() ? 4 : boosting ? 2.6 : 1.7
+        // Mass: a big hull builds speed slowly and carries it a long way.
+        const accel = (desired.lengthSq() < p.vel.lengthSq() ? 4 : boosting ? 2.6 : 1.7) * (1 - this.heft * 0.55)
         p.vel.lerp(desired, 1 - Math.exp(-accel * dt))
         p.pos.addScaledVector(p.vel, dt)
 
@@ -1420,7 +1430,8 @@ export class VoidEngine {
                 p.pos.addScaledVector(n, minD - d)
                 const into = p.vel.dot(n)
                 if (into < 0) {
-                    p.vel.addScaledVector(n, -into * 1.5)
+                    // Small ships ricochet; a capital hull grinds along the rock.
+                    p.vel.addScaledVector(n, -into * (1.5 - this.heft * 0.4))
                     if (-into > 25) {
                         this.damagePlayer((-into - 25) * 0.6, rock.pos)
                         this.trauma = Math.min(1, this.trauma + 0.4)
@@ -1779,7 +1790,7 @@ export class VoidEngine {
             t.recoil = 1
             this.fireTurret(t, damage, t.def.id === 'rail' || t.def.id === 'missile' ? targetPos : aim!)
         }
-        this.audio.updateEngine(Math.min(1, p.vel.length() / Math.max(1, stats.speed)), p.boosting, beams + (p.gunBeam ? 2 : 0))
+        this.audio.updateEngine(Math.min(1, p.vel.length() / Math.max(1, stats.speed)), p.boosting, beams + (p.gunBeam ? 2 : 0), this.heft)
     }
 
     private fireGun(dt: number) {
@@ -3329,9 +3340,12 @@ export class VoidEngine {
         const localAngVel = _v2.copy(FORWARD).applyQuaternion(this.aimQuat)
         _q1.copy(p.quat).invert()
         localAngVel.applyQuaternion(_q1)
-        const bank = THREE.MathUtils.clamp(-localAngVel.x * 1.6, -0.7, 0.7)
-        p.model.group.rotation.z = THREE.MathUtils.lerp(p.model.group.rotation.z, bank, 1 - Math.exp(-5 * dt))
-        p.model.group.rotation.x = THREE.MathUtils.lerp(p.model.group.rotation.x, THREE.MathUtils.clamp(localAngVel.y * 0.6, -0.3, 0.3), 1 - Math.exp(-5 * dt))
+        // Fighters throw themselves into a turn; a capital ship barely leans, and takes its time doing it.
+        const lean = 1 - this.heft * 0.8
+        const leanRate = 1 - Math.exp(-(5 - this.heft * 3.5) * dt)
+        const bank = THREE.MathUtils.clamp(-localAngVel.x * 1.6, -0.7, 0.7) * lean
+        p.model.group.rotation.z = THREE.MathUtils.lerp(p.model.group.rotation.z, bank, leanRate)
+        p.model.group.rotation.x = THREE.MathUtils.lerp(p.model.group.rotation.x, THREE.MathUtils.clamp(localAngVel.y * 0.6, -0.3, 0.3) * lean, leanRate)
 
         const phase = p.abilityTime > 0 && p.ability === 'phase'
         const bulwark = p.abilityTime > 0 && p.ability === 'bulwark'
@@ -3360,10 +3374,12 @@ export class VoidEngine {
         const p = this.player!
         const size = voidShip(this.config!.shipId).size
         const stats = this.config!.stats
-        const back = size * 1.9 + 5.5
-        const up = size * 0.72 + 1.4
+        // Big hulls pull the camera in close and high, so the deck runs out ahead of you and fills the lower screen.
+        const h = this.heft
+        const back = size * (1.9 - h * CAM.back) + 5.5
+        const up = size * (0.72 - h * CAM.up) + 1.4
         const speedFrac = Math.min(2, p.vel.length() / stats.speed)
-        const targetFov = 66 + speedFrac * 5 + (p.boosting ? 9 : 0)
+        const targetFov = 66 + (speedFrac * 5 + (p.boosting ? 9 : 0)) * (1 - h * 0.5)
         if (this.phase !== 'docking') this.fov = THREE.MathUtils.lerp(this.fov, targetFov, 1 - Math.exp(-3 * dt))
         this.camera.fov = this.fov
         this.camera.updateProjectionMatrix()
@@ -3379,7 +3395,7 @@ export class VoidEngine {
             const offset = _v1.set(0, up, back).applyQuaternion(this.camQuat)
             const desired = _v2.copy(p.pos).add(offset)
             // Lag a little behind the ship so speed reads, but never too far.
-            this.camPos.lerp(desired, 1 - Math.exp(-(this.phase === 'docking' ? 2 : 11) * dt))
+            this.camPos.lerp(desired, 1 - Math.exp(-(this.phase === 'docking' ? 2 : 11 - h * 5) * dt))
             const lag = this.camPos.distanceTo(desired)
             if (lag > back * 0.8) this.camPos.lerp(desired, 1 - (back * 0.8) / lag)
             this.camera.position.copy(this.camPos)
@@ -3393,7 +3409,8 @@ export class VoidEngine {
             }
         }
         if (this.trauma > 0) {
-            const s = this.trauma * this.trauma
+            // The same hit rattles a scout far more than a dreadnought.
+            const s = this.trauma * this.trauma * (1 - this.heft * 0.45)
             this.camera.position.x += (Math.random() - 0.5) * s * 1.6
             this.camera.position.y += (Math.random() - 0.5) * s * 1.6
             this.camera.rotateZ((Math.random() - 0.5) * s * 0.04)
