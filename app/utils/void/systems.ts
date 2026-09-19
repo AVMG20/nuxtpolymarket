@@ -9,7 +9,8 @@ import { VOID_DEVICES, VOID_SECONDARIES, type VoidWeaponFit } from '#shared/util
 import { VOID_LORE, voidLoreForSector } from '#shared/utils/gamelogic/void-pilot'
 import { damageEnemy, spawnEnemy } from './enemies'
 import { explosion } from './fx'
-import { buildBeacon, buildShip } from './ships'
+import { buildShip } from './ships'
+import { buildBeacon } from './structures'
 import { disposeTree, type VoidEngine } from './engine'
 import type { Enemy } from './types'
 

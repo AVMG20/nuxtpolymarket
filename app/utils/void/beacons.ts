@@ -9,7 +9,7 @@ import { VOID_BEACON_ORE_BONUS, VOID_BEACON_ZONE_RADIUS, type VoidBeaconState } 
 import { ENEMIES, type EnemyKind } from './data'
 import { spawnEnemy } from './enemies'
 import { mulberry32 } from './models'
-import { buildBeacon } from './ships'
+import { buildBeacon } from './structures'
 import type { Asteroid } from './asteroids'
 import { disposeTree, type Structure, type VoidEngine } from './engine'
 

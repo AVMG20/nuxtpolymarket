@@ -4,7 +4,7 @@
 
 <script setup lang="ts">
 import * as THREE from 'three'
-import { buildTurret } from '~/utils/void/ships'
+import { buildTurret } from '~/utils/void/turrets'
 import { disposeTree } from '~/utils/void/engine'
 import { voidTurret, type VoidTurretId } from '#shared/utils/gamelogic/void'
 

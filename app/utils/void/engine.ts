@@ -26,7 +26,9 @@ import {
     octa, ring, type BuiltModel
 } from './models'
 import { createSky, SpaceDust, type Sky } from './sky'
-import { buildBeacon, buildDrone, buildShip, buildStation, buildTurret, buildWreck, shipGlow } from './ships'
+import { buildShip, shipGlow } from './ships'
+import { buildBeacon, buildStation, buildWreck } from './structures'
+import { buildDrone, buildTurret } from './turrets'
 import { drawOverlay } from './overlay'
 import { ObjectiveTracker } from './objectives'
 import { EventDirector } from './events'
