@@ -42,7 +42,7 @@ function randDir(flatten = 1) {
 
 // ─── Spawning ──────────────────────────────────────────────────────────────
 
-export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vector3, opts: { aggro?: boolean, group?: number, warpIn?: boolean, elite?: boolean } = {}): Enemy {
+export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vector3, opts: { aggro?: boolean, group?: number, warpIn?: boolean, elite?: boolean, glow?: number } = {}): Enemy {
     const cfg = engine.config!
     const threat = cfg.sector.threat
     const def = kind in ENEMIES ? ENEMIES[kind as EnemyKind] : null
@@ -133,11 +133,11 @@ export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vec
         group.userData.ring = built.ring
         group.userData.emitters = built.emitters
     } else {
-        const built = buildHostile(kind, def!.glow, def!.scale) ?? buildEnemy(kind, def!.glow, def!.scale)
+        glow = opts.glow ?? def!.glow
+        const built = buildHostile(kind, glow, def!.scale) ?? buildEnemy(kind, glow, def!.scale)
         group = built.group
         radius = def!.radius
         hp = def!.hp * threatHpMult(threat)
-        glow = def!.glow
         name = def!.name
         engines = built.engines.map(e => e.position.clone())
         engineRadii = built.engines.map(e => e.radius)
@@ -199,7 +199,7 @@ export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vec
         enemy.flames.push(flame)
     }
     // Shields: energy weapons strip them, kinetic rounds tear the hull underneath.
-    const shieldShare = (kind === 'sentinel' ? 0.4 : kind === 'bulwark' ? 0.3 : kind === 'blinker' ? 0.25 : kind === 'carrier' ? 0.35 : kind === 'warden' ? 0.35 : kind === 'battery' ? 0.3 : 0) + (opts.elite ? 0.3 : 0)
+    const shieldShare = (kind === 'sentinel' ? 0.4 : kind === 'bulwark' ? 0.3 : kind === 'blinker' ? 0.25 : kind === 'carrier' ? 0.35 : kind === 'mauler' ? 0.3 : kind === 'ravager' ? 0.2 : kind === 'warden' ? 0.35 : kind === 'battery' ? 0.3 : 0) + (opts.elite ? 0.3 : 0)
     if (shieldShare > 0) {
         enemy.data.shieldMax = Math.round(enemy.maxHp * Math.min(0.6, shieldShare))
         enemy.data.shield = engine.zone === 'ion' ? 0 : enemy.data.shieldMax
@@ -551,7 +551,7 @@ const STEADY_SOURCES = new Set(['beam', 'lance', 'station', 'enemy', 'burn', 'ch
 export function damageEnemy(engine: VoidEngine, e: Enemy, amount: number, point: THREE.Vector3, source: string, extra?: HitExtra) {
     if (!e.alive || amount <= 0) return
     // Traders are untouchable; Coalition ships turn on you when shot.
-    if (e.kind === 'trader') return
+    if (e.kind === 'trader' || e.data.ally) return
     if (e.data.coalition && !e.hostile) {
         // Friendly patrols only turn on you if you shoot them with your own guns.
         if (source !== 'gun') return
@@ -813,7 +813,7 @@ function wardenDeath(engine: VoidEngine, e: Enemy) {
     const cfg = engine.config!
     engine.wardenKilled = true
     engine.warden = null
-    engine.events.banner(`${cfg.sector.warden} destroyed`, 'Dock at the station or a beacon to claim the sector', 'good')
+    engine.events.banner(`${cfg.sector.warden} destroyed`, 'Dock at the station or a beacon you hold to claim the sector', 'good')
     engine.audio.play('explosionLarge', { volume: 2 })
     engine.trauma = 1
     engine.whiteFlash = 0.6
@@ -880,6 +880,8 @@ function updateCoalition(engine: VoidEngine, e: Enemy, dt: number) {
         let best = 480 * 480
         for (const o of engine.enemies) {
             if (!o.alive || !o.hostile || o.kind === 'mine' || CAPITAL.has(o.kind) || o.data.coalition) continue
+            // A beacon's picket stays on its beacon.
+            if (e.data.ally && o.pos.distanceToSquared(e.anchor) > 460 * 460) continue
             const d = o.pos.distanceToSquared(e.pos)
             if (d < best) {
                 best = d
@@ -904,7 +906,7 @@ function updateCoalition(engine: VoidEngine, e: Enemy, dt: number) {
             const dir = lead(e.pos, target.pos, target.vel, 320)
             engine.projectiles.push({
                 pos: e.pos.clone(), vel: dir.multiplyScalar(320), life: 1.2, damage: 9 * engine.config!.sector.threat, hostile: false,
-                color: new THREE.Color(0x5ec8ff).multiplyScalar(3), width: 0.35, length: 5, splash: 0, homing: null, kind: 'bolt', mining: 0, source: 'coalition'
+                color: new THREE.Color(e.data.ally ? 0x3dffb0 : 0x5ec8ff).multiplyScalar(3), width: 0.35, length: 5, splash: 0, homing: null, kind: 'bolt', mining: 0, source: 'coalition'
             })
         }
     }
@@ -1371,6 +1373,70 @@ function attack(engine: VoidEngine, e: Enemy, dt: number, dist: number, p: AiTar
                 const aim = lead(muzzle, p.pos, p.vel, def.projectileSpeed).clone()
                 for (let i = 0; i < 5; i++) fireOrb(engine, muzzle, aim.clone().add(randDir().multiplyScalar(0.12)), def.projectileSpeed, dmg, e.glow, 1)
                 engine.audio.play('enemyShot', { distance: dist, pan: engine.panOf(e.pos), pitch: 0.6 })
+            }
+            break
+        }
+        case 'ravager': {
+            // Circles at gun range and keeps its nose on you; long raking volleys from both sponsons.
+            const orbitR = 150
+            const tangent = _v1.crossVectors(dirToPlayer, UP).normalize().multiplyScalar(e.orbitSign * 0.8)
+            const radial = dirToPlayer.clone().multiplyScalar(THREE.MathUtils.clamp((dist - orbitR) / 70, -1, 1))
+            steer(e, tangent.add(radial).normalize().multiplyScalar(def.speed).addScaledVector(p.vel, 0.3), 0.9, dt)
+            faceTowards(e, dirToPlayer, def.turn, dt)
+            if (e.cooldown <= 0 && dist < def.range && fwd.dot(dirToPlayer) > 0.7) {
+                e.cooldown = def.cooldown
+                e.data.burst = 12
+                e.data.burstTimer = 0
+            }
+            if ((e.data.burst ?? 0) > 0) {
+                e.data.burstTimer = (e.data.burstTimer ?? 0) - dt
+                if (e.data.burstTimer! <= 0) {
+                    e.data.burst!--
+                    e.data.burstTimer = 0.1
+                    const side = e.data.burst! % 2 ? 1 : -1
+                    const muzzle = _v1.set(side * 2.1, e.data.burst! % 4 < 2 ? 0.18 : -0.38, -4.1).multiplyScalar(def.scale).applyQuaternion(e.group.quaternion).add(e.pos)
+                    // Heavier mounts than a raider's: a tighter cone, so holding still under it hurts.
+                    const t = muzzle.distanceTo(p.pos) / def.projectileSpeed
+                    const aim = _v2.copy(p.pos).addScaledVector(p.vel, t * 0.95).sub(muzzle).normalize().add(randDir().multiplyScalar(0.03)).normalize()
+                    fireBolt(engine, muzzle, aim, def.projectileSpeed, dmg, e.glow)
+                    if (e.data.burst! % 2) engine.audio.play('enemyShot', { distance: dist, pan: engine.panOf(e.pos), pitch: 0.8 })
+                }
+            }
+            if (randomFloat() < dt * 0.08) e.orbitSign *= -1
+            break
+        }
+        case 'mauler': {
+            // Holds the long range and lobs a fan of slow plasma; the maw lights up first.
+            const desired = dirToPlayer.clone().multiplyScalar(THREE.MathUtils.clamp((dist - 280) / 80, -0.6, 1) * def.speed)
+            steer(e, desired, 0.5, dt)
+            faceTowards(e, dirToPlayer, def.turn * (e.state === 'charge' ? 0.4 : 1), dt)
+            const maw = _v1.set(0, 0, -5.9).multiplyScalar(def.scale).applyQuaternion(e.group.quaternion).add(e.pos)
+            if (e.state !== 'charge') {
+                if (e.cooldown <= 0 && dist < def.range && fwd.dot(dirToPlayer) > 0.8) {
+                    e.state = 'charge'
+                    e.stateTime = 0
+                    engine.audio.play('charge', { distance: dist * 0.5, pan: engine.panOf(e.pos), pitch: 0.6 })
+                }
+            } else {
+                const k = Math.min(1, e.stateTime / 1.4)
+                engine.particles.glow(maw.x, maw.y, maw.z, _c.copy(e.glow).multiplyScalar(1.5 + k * 3), 5 + k * 12)
+                if (Math.random() < dt * 30) {
+                    const d = randDir().multiplyScalar(10)
+                    engine.particles.emit(maw.x + d.x, maw.y + d.y, maw.z + d.z, -d.x * 2, -d.y * 2, -d.z * 2, { life: 0.4, size: 1.6, sizeEnd: 0, color: e.glow, intensity: 3 })
+                }
+                if (e.stateTime >= 1.4) {
+                    e.state = 'reposition'
+                    e.cooldown = def.cooldown * (0.85 + randomFloat() * 0.3)
+                    const from = maw.clone()
+                    const aim = lead(from, p.pos, p.vel, def.projectileSpeed).clone()
+                    const right = new THREE.Vector3().crossVectors(aim, UP).normalize()
+                    for (let i = -3; i <= 3; i++) {
+                        const d = aim.clone().addScaledVector(right, i * 0.085).addScaledVector(UP, (randomFloat() - 0.5) * 0.06).normalize()
+                        fireOrb(engine, from, d, def.projectileSpeed * (0.95 + randomFloat() * 0.1), dmg, e.glow, 1.7)
+                    }
+                    engine.rings.spawn(from, 26, e.glow.getHex(), 0.4, 2.5)
+                    engine.audio.play('flak', { distance: dist * 0.5, pan: engine.panOf(e.pos), pitch: 0.45, volume: 1.4 })
+                }
             }
             break
         }

@@ -3,7 +3,7 @@
 
 import type { VoidResourceId } from '#shared/utils/gamelogic/void'
 
-export type EnemyKind = 'mite' | 'raider' | 'lancer' | 'bulwark' | 'minelayer' | 'leech' | 'blinker' | 'carrier' | 'sentinel'
+export type EnemyKind = 'mite' | 'raider' | 'lancer' | 'bulwark' | 'minelayer' | 'leech' | 'blinker' | 'carrier' | 'sentinel' | 'ravager' | 'mauler'
 
 export interface EnemyDrop {
     resource: VoidResourceId
@@ -86,6 +86,18 @@ export const ENEMIES: Record<EnemyKind, EnemyDefinition> = {
         hp: 1100, speed: 22, turn: 0.45, scale: 1.6, radius: 10.5, damage: 7, cooldown: 7, range: 260, projectileSpeed: 120,
         glow: 0xff3b6b, drops: [{ resource: 'scrap', min: 14, max: 22 }, { resource: 'alloy', min: 4, max: 8 }],
         weights: [0, 3, 5, 7, 9], group: [1, 1], elite: true
+    },
+    ravager: {
+        kind: 'ravager', name: 'Ravager', tell: 'A gunship that circles you and rakes you with both batteries. Get behind its guns.',
+        hp: 700, speed: 46, turn: 1.1, scale: 2.6, radius: 9, damage: 7, cooldown: 3, range: 260, projectileSpeed: 230,
+        glow: 0xff6a2b, drops: [{ resource: 'scrap', min: 10, max: 16 }, { resource: 'alloy', min: 3, max: 6 }],
+        weights: [3, 7, 9, 10, 10], group: [1, 1]
+    },
+    mauler: {
+        kind: 'mauler', name: 'Mauler', tell: 'A siege cruiser. When its prow lights up a wall of plasma follows: fly across it, not away.',
+        hp: 1500, speed: 24, turn: 0.5, scale: 3.2, radius: 14, damage: 15, cooldown: 6, range: 380, projectileSpeed: 125,
+        glow: 0xff3d8a, drops: [{ resource: 'scrap', min: 18, max: 28 }, { resource: 'alloy', min: 6, max: 10 }],
+        weights: [0, 3, 5, 7, 8], group: [1, 1]
     },
     sentinel: {
         kind: 'sentinel', name: 'Sentinel', tell: 'A static gun platform guarding rich ore. It fires homing orbs.',

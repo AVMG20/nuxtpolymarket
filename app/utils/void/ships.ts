@@ -1462,6 +1462,88 @@ const HOSTILE_DESIGNS: Record<string, (b: ModelBuilder, glow: number) => void> =
         b.hardpoint([16, 4.2, 22], [0.2, 1, 0], true)
         b.hardpoint([6.5, 7, -8], [0, 1, 0], true)
     },
+    /** Gunship: a long flat hull with a gun sponson on each flank and a raked dorsal fin. */
+    ravager(b, glow) {
+        const l = { paint: H_ARMOR, paint2: H_DARK, trim: H_DARK, metal: H_METAL, accent: H_PAINT, glow, glass: 0 }
+        b.solid(loft([
+            { z: -5.6, w: 0.12, h: 0.1, y: -0.1 },
+            { z: -4.2, w: 0.7, h: 0.4 },
+            { z: -1.5, w: 1.25, h: 0.7 },
+            { z: 2.6, w: 1.35, h: 0.8 },
+            { z: 4.6, w: 0.95, h: 0.6 }
+        ], 8, 0.55, Math.PI / 8), H_ARMOR)
+        // Armoured spine and a red command stripe down the nose.
+        b.solid(loft([
+            { z: -3.4, w: 0.35, h: 0.18, y: 0.5 },
+            { z: 0.5, w: 0.6, h: 0.3, y: 0.85 },
+            { z: 3.8, w: 0.5, h: 0.25, y: 0.8 }
+        ], 6, 0.6), H_DARK)
+        b.solid(slab([[-0.3, -5.2], [0.3, -5.2], [0.62, -1.6], [-0.62, -1.6]], 0.06, 0.02), H_PAINT, [0, 0.62, 0])
+        b.glow(new THREE.BoxGeometry(0.7, 0.05, 0.22), glow, 3, [0, 0.98, -0.9])
+        // Flank sponsons, each with a twin battery.
+        b.solid(loft([
+            { z: -2.6, w: 0.3, h: 0.3, x: 2.0 },
+            { z: -1.4, w: 0.55, h: 0.5, x: 2.1 },
+            { z: 1.8, w: 0.6, h: 0.55, x: 2.1 },
+            { z: 2.9, w: 0.35, h: 0.35, x: 1.9 }
+        ], 6, 0.6), H_DARK, [0, -0.1, 0], [0, 0, 0], [1, 1, 1], true)
+        b.metal(block(1.0, 0.3, 1.6, 0.05), H_METAL, [1.45, -0.1, 0.3], [0, 0, 0], [1, 1, 1], true)
+        for (const y of [0.18, -0.38]) barrel(b, l, [2.1, y, -3.0], 2.2, 0.11, true)
+        b.solid(slab([[1.5, -2.2], [2.75, -1.2], [2.75, 1.6], [1.5, 2.4]], 0.08, 0.03), H_PAINT, [0, 0.47, 0], [0, 0, 0], [1, 1, 1], true)
+        for (let i = 0; i < 4; i++) b.glow(new THREE.BoxGeometry(0.04, 0.1, 0.5), glow, 2.2, [2.68, -0.1, -1.0 + i * 0.8], [0, 0, 0], [1, 1, 1], true)
+        // Swept tail planes and a raked fin.
+        b.solid(slab([[1.0, 2.2], [3.4, 4.4], [3.3, 5.0], [0.9, 4.4]], 0.1, 0.03), H_ARMOR, [0, 0.1, 0], [0, 0, -0.12], [1, 1, 1], true)
+        b.solid(slab([[0, 1.2], [0, 4.4], [1.9, 5.0], [1.7, 4.2]], 0.1, 0.03), H_PAINT, [0, 0.7, 0], [0, 0, Math.PI / 2])
+        b.glow(octa(0.14), 0xff3040, 5, [0, 2.75, 4.8])
+        // Windows and belly lights.
+        for (let i = 0; i < 6; i++) b.glow(new THREE.BoxGeometry(0.04, 0.09, 0.32), i % 3 === 0 ? 0xffd9a0 : 0x9fc4ff, 1.8, [1.27, 0.25, -1.4 + i * 0.7], [0, 0, 0], [1, 1, 1], true)
+        b.glow(new THREE.BoxGeometry(0.5, 0.04, 2.6), glow, 1.2, [0, -0.78, 0.6])
+        b.engine([0.62, 0, 4.7], 0.42, true, glow)
+        b.engine([2.0, -0.1, 3.0], 0.26, true, glow)
+    },
+    /** Siege cruiser: a hammerhead prow around a plasma maw, slab armour and a deep keel. */
+    mauler(b, glow) {
+        b.solid(loft([
+            { z: -4.6, w: 1.5, h: 0.9 },
+            { z: -2.8, w: 1.3, h: 1.0 },
+            { z: 0.5, w: 1.6, h: 1.2 },
+            { z: 4.4, w: 1.75, h: 1.25 },
+            { z: 6.4, w: 1.2, h: 0.85 }
+        ], 8, 0.45, Math.PI / 8), H_ARMOR)
+        // Hammerhead: two armoured jaws flanking the maw.
+        b.solid(loft([
+            { z: -7.2, w: 0.45, h: 0.55, x: 2.0 },
+            { z: -5.6, w: 0.95, h: 0.95, x: 2.1 },
+            { z: -3.6, w: 0.9, h: 0.9, x: 1.9 },
+            { z: -2.4, w: 0.4, h: 0.5, x: 1.5 }
+        ], 6, 0.5), H_DARK, [0, 0, 0], [0, 0, 0], [1, 1, 1], true)
+        b.solid(slab([[1.3, -7.0], [2.9, -6.2], [3.0, -3.4], [1.4, -2.8]], 0.12, 0.04), H_PAINT, [0, 0.95, 0], [0, 0, 0], [1, 1, 1], true)
+        b.metal(cyl(1.0, 1.0, 1.6, 12), 0x0c0b0d, [0, 0, -4.9], [Math.PI / 2, 0, 0])
+        for (let i = 0; i < 4; i++) b.glow(ring(0.95 - i * 0.16, 0.05, 4, 24), glow, 2 + i * 0.6, [0, 0, -5.75 + i * 0.3])
+        b.glow(ico(0.42, 1), glow, 4.5, [0, 0, -5.2])
+        for (const side of [1, -1]) b.glow(new THREE.BoxGeometry(0.06, 0.12, 2.6), glow, 2.2, [side * 1.18, 0, -5.4])
+        // Slab armour along the flanks, stepped like roof tiles.
+        for (let i = 0; i < 4; i++) {
+            const z = -1.6 + i * 1.9
+            b.solid(slab([[0, -0.9], [0.5, -0.7], [0.5, 0.9], [0, 0.9]], 1.7, 0.06), i % 2 ? H_DARK : H_METAL, [1.62 + i * 0.05, -0.85, z], [0, 0, 0.14], [1, 1, 1], true)
+            b.glow(new THREE.BoxGeometry(0.04, 0.5, 0.08), glow, 1.8, [2.2 + i * 0.05, 0, z + 0.95], [0, 0, 0], [1, 1, 1], true)
+        }
+        // Citadel, bridge and mast.
+        b.solid(block(2.0, 0.9, 3.4, 0.15), 0x55525c, [0, 1.55, 2.6])
+        b.solid(block(1.3, 0.7, 1.8, 0.12), 0x6d6a74, [0, 2.3, 3.2])
+        b.glow(new THREE.BoxGeometry(1.2, 0.12, 0.05), 0xffd9a0, 3, [0, 2.4, 2.28])
+        b.solid(slab([[-0.5, -1.0], [0.5, -1.0], [0.4, 1.4], [-0.4, 1.4]], 0.12, 0.03), H_PAINT, [0, 2.02, 0.2])
+        b.metal(cyl(0.05, 0.09, 2.2, 5), H_METAL, [0.4, 3.6, 3.6])
+        b.glow(octa(0.13), 0xff3040, 5, [0.4, 4.75, 3.6])
+        b.metal(ico(0.5, 1), 0x9e9aa6, [-0.5, 2.9, 3.8])
+        // Keel and ventral fins.
+        b.solid(slab([[0, -2.5], [0, 5.2], [1.7, 4.4], [1.2, -0.6]], 0.2, 0.05), H_DARK, [0, -1.0, 0], [0, 0, -Math.PI / 2])
+        b.glow(new THREE.BoxGeometry(0.05, 0.08, 4.4), glow, 1.6, [0, -2.55, 2.0])
+        b.solid(slab([[1.5, 3.4], [3.6, 5.6], [3.5, 6.4], [1.3, 5.8]], 0.14, 0.04), H_ARMOR, [0, 0.2, 0], [0, 0, 0.1], [1, 1, 1], true)
+        for (let i = 0; i < 8; i++) b.glow(new THREE.BoxGeometry(0.04, 0.1, 0.36), i % 4 === 0 ? 0xffd9a0 : 0x9fc4ff, 1.8, [1.5, 0.6, -1.8 + i * 0.85], [0, 0, 0], [1, 1, 1], true)
+        b.engine([0, 0.1, 6.5], 0.62, false, glow)
+        b.engine([0.95, -0.2, 6.5], 0.42, true, glow)
+    },
     sentinel(b, glow) {
         b.solid(ico(1.4, 1), H_ARMOR)
         b.solid(ring(2.1, 0.25, 4, 12), H_DARK, [0, 0, 0], [Math.PI / 2, 0, 0])
