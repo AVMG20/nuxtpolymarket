@@ -4,7 +4,8 @@ import { voidState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { ensureVoidState, getLockedVoidState, grantVoidStarterKit, listVoidItems, voidLoadoutFor } from '#server/utils/void'
 import { VOID_SUPPLY_CARRY, VOID_SUPPLY_IDS, voidNormalizeSupplies } from '#shared/utils/gamelogic/void-station'
-import { voidAutoFit, VOID_STALE_RUN_MS, voidDerivedStats, voidSector, voidSectorUnlocked } from '#shared/utils/gamelogic/void'
+import { randomFloat } from '#shared/utils/random'
+import { voidAutoFit, voidBeaconStates, voidCleanBeacons, voidRollBeaconAttack, VOID_STALE_RUN_MS, voidDerivedStats, voidSector, voidSectorUnlocked } from '#shared/utils/gamelogic/void'
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
@@ -52,12 +53,14 @@ export default defineEventHandler(async (event) => {
             taken[id] = Math.min(VOID_SUPPLY_CARRY, stock[id])
             left[id] = stock[id] - taken[id]
         }
+        // Raiders may have moved on a beacon held past its 32 hours. Rolled inside the row lock.
+        const beacons = voidRollBeaconAttack(voidCleanBeacons(s.beacons), tier, startedAt.getTime(), randomFloat)
         const [claimed] = await tx.update(voidState)
-            .set({ runStartedAt: startedAt, runSector: tier, runShipId: loadout.shipId, runCargo: stats.cargo, supplies: left, runSupplies: taken })
+            .set({ beacons, runStartedAt: startedAt, runSector: tier, runShipId: loadout.shipId, runCargo: stats.cargo, supplies: left, runSupplies: taken })
             .where(and(eq(voidState.userId, userId), isNull(voidState.runStartedAt)))
             .returning({ userId: voidState.userId })
         if (!claimed) throw createError({ statusCode: 409, statusMessage: 'A run is already in progress' })
 
-        return { startedAt, sector: voidSector(tier), loadout, stats, supplies: taken }
+        return { startedAt, sector: voidSector(tier), loadout, stats, supplies: taken, beacons: voidBeaconStates(beacons, tier) }
     })
 })

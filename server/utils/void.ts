@@ -20,7 +20,7 @@ import {
     VOID_CONTRACTS_PER_DAY, VOID_SUPPLY_STOCK_MAX, voidContractDay, voidContractsFor, voidNormalizeSupplies, voidSupplyCost,
     type VoidSupplyId
 } from '#shared/utils/gamelogic/void-station'
-import { voidOwnedShips } from '#shared/utils/gamelogic/void'
+import { voidApplyBeaconReport, voidCleanBeacons, voidOwnedShips } from '#shared/utils/gamelogic/void'
 
 export type VoidStateRow = typeof voidState.$inferSelect
 
@@ -121,6 +121,8 @@ export interface VoidFinishReport {
     lore?: unknown
     gearCaches?: unknown
     bonusXp?: unknown
+    beaconsCaptured?: unknown
+    beaconsDefended?: unknown
 }
 
 /**
@@ -208,6 +210,9 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             skillUses: Number(body.skillUses) || 0
         }) + voidBountyXp(body.bonusXp, settled.elapsedMs)
 
+        // Beacons change hands whether or not the hold made it home: the fight was won out there.
+        const beacons = voidApplyBeaconReport(voidCleanBeacons(s.beacons), tier, { captured: body.beaconsCaptured, defended: body.beaconsDefended }, Date.now(), settled.elapsedMs)
+
         // Clearing runStartedAt is the claim: a second finish in flight finds
         // it null and banks nothing.
         const [claimed] = await tx.update(voidState).set({
@@ -232,7 +237,8 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             gearToday: gearToday + gearCount,
             relicsToday: relicsToday + relicCount,
             blueprints,
-            lore: [...(s.lore ?? []), ...newLore]
+            lore: [...(s.lore ?? []), ...newLore],
+            beacons: beacons.records
         }).where(and(eq(voidState.userId, userId), isNotNull(voidState.runStartedAt)))
             .returning({ userId: voidState.userId })
         if (!claimed) throw createError({ statusCode: 400, statusMessage: 'No active run' })
@@ -276,6 +282,8 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             blueprint,
             lore: newLore,
             depth,
+            beaconsCaptured: beacons.captured,
+            beaconsDefended: beacons.defended,
             gear: gear.map(g => ({ name: voidItemName(g), tier: g.tier, rarity: g.rarity })),
             /** Caches picked up that came back empty: over the run or daily limit. */
             gearEmpty: extracted ? Math.min(10, Math.max(0, Math.floor(Number(body.gearCaches) || 0) - gearCount)) : 0

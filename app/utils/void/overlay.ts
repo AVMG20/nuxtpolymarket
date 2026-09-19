@@ -3,7 +3,7 @@
 // Drawn straight onto a canvas every frame so it tracks the 3D scene exactly.
 
 import * as THREE from 'three'
-import { voidResource } from '#shared/utils/gamelogic/void'
+import { VOID_BEACON_ORE_BONUS, VOID_BEACON_ZONE_RADIUS, voidResource } from '#shared/utils/gamelogic/void'
 import type { VoidEngine } from './engine'
 
 const _v = new THREE.Vector3()
@@ -91,8 +91,9 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, engine: VoidEngine) {
     // ── Waypoints: station, beacons, lair
     for (const s of engine.structures) {
         const d = s.pos.distanceTo(p.pos)
-        const color = s.kind === 'station' ? '#5ec8ff' : '#3dffb0'
-        const name = s.kind === 'station' ? 'STATION' : 'BEACON'
+        const site = engine.beacons?.sites.find(b => b.structure === s)
+        const color = site ? engine.beacons!.color(site) : s.kind === 'station' ? '#5ec8ff' : '#3dffb0'
+        const name = site ? engine.beacons!.label(site) : s.kind === 'station' ? 'STATION' : 'BEACON'
         waypoint(ctx, engine, s.pos, color, name, d, s.kind === 'station' ? 'diamond' : 'ring')
     }
     const marker = engine.objectives?.marker
@@ -126,7 +127,7 @@ export function drawOverlay(ctx: CanvasRenderingContext2D, engine: VoidEngine) {
         const focus = engine.focus === e
         if (d > (e.elite ? 1400 : 750) && !focus) continue
         const s = project(engine, e.pos)
-        const color = e.data.coalition ? '#5ec8ff' : e.kind === 'trader' ? '#9fffd9' : e.kind === 'crate' ? '#ffb45e' : e.kind === 'mine' ? '#ffd23f' : e.elite ? '#ff9a3d' : '#ff4a55'
+        const color = e.data.ally ? '#3dffb0' : e.data.coalition ? '#5ec8ff' : e.kind === 'trader' ? '#9fffd9' : e.kind === 'crate' ? '#ffb45e' : e.kind === 'mine' ? '#ffd23f' : e.elite ? '#ff9a3d' : '#ff4a55'
         if (!s.visible) {
             if (e.aggro && e.hostile && d < 450 && e.kind !== 'mine') {
                 const at = edge(engine, e.pos, 46)
@@ -403,13 +404,16 @@ function drawRadar(ctx: CanvasRenderingContext2D, engine: VoidEngine, w: number,
         ctx.fillStyle = color
         ctx.fillRect(px - size / 2, py + stem - size / 2, size, size)
     }
-    for (const s of engine.structures) plot(s.pos, s.kind === 'station' ? '#5ec8ff' : '#3dffb0', 5, true)
+    for (const s of engine.structures) {
+        const site = engine.beacons?.sites.find(b => b.structure === s)
+        plot(s.pos, site ? engine.beacons!.color(site) : s.kind === 'station' ? '#5ec8ff' : '#3dffb0', 5, true)
+    }
     if (!engine.wardenKilled) plot(engine.warden?.pos ?? engine.lair, '#ff4f6d', 6, true)
     for (const w of engine.hazards?.wells ?? []) plot(w.pos, '#ff7ab0', 7, false)
     for (const e of engine.enemies) {
         // Capital ships never show up on scopes: you find them by looking.
         if (!e.alive || e.kind === 'mine' || !e.group.visible || e.data.carrier) continue
-        plot(e.pos, e.kind === 'crate' ? '#ffb45e' : e.aggro ? '#ff4a55' : '#b04850', e.elite ? 4 : 3)
+        plot(e.pos, e.data.ally ? '#3dffb0' : e.data.coalition && !e.hostile ? '#5ec8ff' : e.kind === 'crate' ? '#ffb45e' : e.aggro ? '#ff4a55' : '#b04850', e.elite ? 4 : 3)
     }
     // Player chevron
     ctx.fillStyle = '#ffffff'
@@ -448,6 +452,22 @@ function drawSectorMap(ctx: CanvasRenderingContext2D, engine: VoidEngine, w: num
     ctx.arc(cx, cy, 2600 * scale, 0, Math.PI * 2)
     ctx.stroke()
     ctx.setLineDash([])
+    // Held beacon zones: green, or pulsing to red while raiders are on one.
+    for (const site of engine.beacons?.sites ?? []) {
+        if (site.state !== 'owned' && site.state !== 'attacked') continue
+        const at = to(site.structure.pos)
+        const red = site.state === 'attacked' ? 0.5 + Math.sin(engine.time * 3) * 0.5 : 0
+        const rgb = `${Math.round(61 + (255 - 61) * red)}, ${Math.round(255 + (74 - 255) * red)}, ${Math.round(176 + (85 - 176) * red)}`
+        ctx.fillStyle = `rgba(${rgb}, 0.13)`
+        ctx.strokeStyle = `rgba(${rgb}, 0.6)`
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.arc(at.x, at.y, VOID_BEACON_ZONE_RADIUS * scale, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.stroke()
+        const note = site.state === 'attacked' ? 'UNDER ATTACK' : `+${Math.round(VOID_BEACON_ORE_BONUS * 100)}% ROCKS`
+        label(ctx, note, at.x, at.y - VOID_BEACON_ZONE_RADIUS * scale - 9, `rgba(${rgb}, 0.95)`, 'center', '700 11px "Rajdhani", system-ui, sans-serif')
+    }
     // Ore
     for (const rock of engine.asteroids?.rocks ?? []) {
         const at = to(rock.pos)
@@ -468,7 +488,7 @@ function drawSectorMap(ctx: CanvasRenderingContext2D, engine: VoidEngine, w: num
     for (const e of engine.enemies) {
         if (!e.alive || e.kind === 'mine' || !e.group.visible || e.data.carrier) continue
         const at = to(e.pos)
-        ctx.fillStyle = e.kind === 'crate' ? '#ffb45e' : e.elite ? '#ff9a3d' : e.aggro ? '#ff4a55' : 'rgba(255, 74, 85, 0.45)'
+        ctx.fillStyle = e.data.ally ? '#3dffb0' : e.data.coalition && !e.hostile ? '#5ec8ff' : e.kind === 'crate' ? '#ffb45e' : e.elite ? '#ff9a3d' : e.aggro ? '#ff4a55' : 'rgba(255, 74, 85, 0.45)'
         const r = e.elite ? 3.5 : 2.2
         ctx.beginPath()
         ctx.arc(at.x, at.y, r, 0, Math.PI * 2)
@@ -477,13 +497,14 @@ function drawSectorMap(ctx: CanvasRenderingContext2D, engine: VoidEngine, w: num
     // Structures and the lair
     for (const s of engine.structures) {
         const at = to(s.pos)
-        const color = s.kind === 'station' ? '#5ec8ff' : '#3dffb0'
+        const site = engine.beacons?.sites.find(b => b.structure === s)
+        const color = site ? engine.beacons!.color(site) : s.kind === 'station' ? '#5ec8ff' : '#3dffb0'
         ctx.strokeStyle = color
         ctx.lineWidth = 2
         ctx.beginPath()
         ctx.arc(at.x, at.y, s.kind === 'station' ? 9 : 6, 0, Math.PI * 2)
         ctx.stroke()
-        label(ctx, s.kind === 'station' ? 'STATION' : 'BEACON', at.x, at.y + 18, color, 'center', '700 11px "Rajdhani", system-ui, sans-serif')
+        label(ctx, site ? engine.beacons!.label(site) : s.kind === 'station' ? 'STATION' : 'BEACON', at.x, at.y + 18, color, 'center', '700 11px "Rajdhani", system-ui, sans-serif')
     }
     if (!engine.wardenKilled) {
         const at = to(engine.warden?.pos ?? engine.lair)

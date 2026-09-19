@@ -1,0 +1,1 @@
+ALTER TABLE "void_state" ADD COLUMN "beacons" jsonb DEFAULT '{}'::jsonb NOT NULL;

@@ -259,6 +259,8 @@ export const voidState = pgTable('void_state', {
   perks: jsonb('perks').$type<Record<string, number>>().notNull().default({}),
   blueprints: jsonb('blueprints').$type<string[]>().notNull().default([]),
   lore: jsonb('lore').$type<string[]>().notNull().default([]),
+  // Captured extraction beacons, keyed `sector:slot`; `at` is epoch ms of the capture or last defence.
+  beacons: jsonb('beacons').$type<Record<string, { at: number, attacked?: boolean }>>().notNull().default({}),
   upgradeLevels: jsonb('upgrade_levels').$type<Record<string, number>>().notNull().default({}),
   // 0 until the first warden is killed and docked home.
   highestSectorCleared: integer('highest_sector_cleared').notNull().default(0),

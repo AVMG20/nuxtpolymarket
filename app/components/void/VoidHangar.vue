@@ -128,6 +128,7 @@
                     <span v-if="gearTier < currentSector.tier - 0.5" class="vh-undergeared" :title="`Every gun, turret, armour and shield slot counts, empty ones as nothing. Yours average T${gearTier.toFixed(1)}`">Needs T{{ currentSector.tier }} gear · yours T{{ gearTier.toFixed(1) }}</span>
                     <span class="vh-threat" :title="`Hostiles here have ${currentSector.threat}× the hull of sector 1 and hit ${threatDamageMult(currentSector.threat).toFixed(1)}× as hard`">Danger ×{{ currentSector.threat }}</span>
                 </div>
+                <div class="vh-sector-goal" :class="{ 'vh-beacon-alert': beaconNote.alert }" title="Clear a beacon's guards and hold through the waves to capture it: a safe place to extract, a friendly picket and +10% ore from rocks around it. After 32 hours raiders may come back for it.">{{ beaconNote.text }}</div>
                 <div v-if="nextLocked" class="vh-sector-goal">Destroy {{ currentSector.warden }} and dock to open {{ nextLocked.name }}</div>
             </div>
             <button class="vh-arrow" :disabled="sectorIndex >= state.sectors.length - 1 || !state.sectors[sectorIndex + 1]?.unlocked" @click="stepSector(1)">
@@ -366,7 +367,8 @@
                     <button v-for="v in codexViews" :key="v.id" :class="{ 'vp-seg-on': codexView === v.id }" @click="codexView = v.id">{{ v.label }}</button>
                 </nav>
                 <div v-if="codexView === 'manual'" class="vh-manual">
-                    <p><b>The loop.</b> Launch into a sector, crack glowing asteroids for ore, loot wrecks and kills, then dock at the station or a beacon to bank the hold. Die and the hold is gone.</p>
+                    <p><b>The loop.</b> Launch into a sector, crack glowing asteroids for ore, loot wrecks and kills, then dock at the station or a beacon you hold to bank the hold. Die and the hold is gone.</p>
+                    <p><b>Beacons.</b> Each sector has two beacons in raider hands. Kill the guards, hold through up to four waves and it is yours: an extraction point with a friendly picket and +10% ore from the rocks around it. After 32 hours raiders may come back, and you beat them off alone.</p>
                     <p><b>Gear.</b> Guns, turrets, armour and shields are crafted in the Workshop from the materials of their tier. Every craft rolls a rarity with bonus stats, and every item levels to +10. Each sector you clear opens the next gear tier, and deeper sectors need it.</p>
                     <p><b>Damage types.</b> Energy weapons strip shields and glance off hull plate; kinetic rounds bounce off shields and tear hulls; explosives are even-handed. Shots to an enemy's engines do extra damage and slow it.</p>
                     <p><b>Systems.</b> E fires your secondary (hold to lock on), G triggers your device, T pulses the scanner to mark data logs and hidden caches. Heavy hull hits can knock out engines, weapons or shields for a few seconds; repair nanites fix them.</p>
@@ -607,6 +609,13 @@ const nextGoal = computed(() => {
 
 const currentSector = computed(() => props.state.sectors[sectorIndex.value] ?? props.state.sectors[0]!)
 /** The sector behind this one while it is still shut, so the bar can say what opens it. */
+const beaconNote = computed(() => {
+    const states = currentSector.value.beacons
+    const held = states.filter(b => b !== 'hostile').length
+    const alert = states.includes('attacked')
+    return { alert, text: alert ? `Beacons ${held}/${states.length} · one is under attack` : `Beacons ${held}/${states.length} held` }
+})
+
 const nextLocked = computed(() => {
     const next = props.state.sectors[sectorIndex.value + 1]
     return next && !next.unlocked ? next : null
@@ -805,6 +814,8 @@ function stepSector(delta: number) {
 .vh-undergeared { margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vr-warn); animation: vr-pulse 1.4s infinite; }
 .vh-undergeared + .vh-threat { margin-left: 8px; }
 .vh-sector-goal { margin-top: 6px; font-size: 11px; color: var(--vr-muted); }
+.vh-sector-goal + .vh-sector-goal { margin-top: 2px; }
+.vh-beacon-alert { color: #ff7a5e; }
 .vh-threat { margin-left: auto; font: 600 11px 'JetBrains Mono', monospace; color: var(--vr-muted); }
 .vh-go { display: flex; flex-direction: column; justify-content: center; padding: 0 34px; background: linear-gradient(100deg, #1b8fd6, #19c98c); color: #fff; clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%); cursor: pointer; transition: filter 0.15s, transform 0.1s; box-shadow: 0 0 30px rgba(61, 200, 255, 0.35); }
 .vh-go span { font-size: 26px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; }

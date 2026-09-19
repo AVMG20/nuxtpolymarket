@@ -295,6 +295,13 @@
       "when": 1789715991772,
       "tag": "0041_vengeful_harpoon",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1789809532289,
+      "tag": "0042_heavy_richard_fisk",
+      "breakpoints": true
     }
   ]
 }

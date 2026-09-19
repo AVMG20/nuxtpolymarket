@@ -832,6 +832,99 @@ export function voidSettleRun(report: VoidRunReport, tier: number, cargoCapacity
     }
 }
 
+// ─── Beacons ────────────────────────────────────────────────────────────────
+
+/** Each sector's home zone has this many extraction beacons to capture. */
+export const VOID_BEACON_SLOTS = 2
+/** A captured beacon is left alone for this long; after that raiders may come for it. */
+export const VOID_BEACON_HOLD_MS = 32 * 60 * 60 * 1000
+export const VOID_BEACON_ATTACK_CHANCE = 0.25
+/** Ore broken loose inside a held beacon's zone. */
+export const VOID_BEACON_ORE_BONUS = 0.1
+export const VOID_BEACON_ZONE_RADIUS = 420
+/** A capture is guards plus waves: a run shorter than this per beacon did not fight for one. */
+export const VOID_BEACON_MIN_MS = 60_000
+
+/** Keyed `sector:slot`. `at` is epoch milliseconds of the capture or the last defence. */
+export type VoidBeaconRecords = Record<string, { at: number, attacked?: boolean }>
+export type VoidBeaconState = 'hostile' | 'owned' | 'attacked'
+
+export function voidBeaconKey(tier: number, slot: number) {
+    return `${tier}:${slot}`
+}
+
+export function voidCleanBeacons(raw: unknown): VoidBeaconRecords {
+    const out: VoidBeaconRecords = {}
+    if (!raw || typeof raw !== 'object') return out
+    for (let tier = 1; tier <= VOID_MAX_SECTOR; tier++) {
+        for (let slot = 0; slot < VOID_BEACON_SLOTS; slot++) {
+            const rec = (raw as Record<string, { at?: unknown, attacked?: unknown }>)[voidBeaconKey(tier, slot)]
+            const at = Number(rec?.at)
+            if (rec && Number.isFinite(at) && at > 0) out[voidBeaconKey(tier, slot)] = rec.attacked === true ? { at, attacked: true } : { at }
+        }
+    }
+    return out
+}
+
+/** What the pilot finds at each beacon of a sector. */
+export function voidBeaconStates(records: VoidBeaconRecords, tier: number): VoidBeaconState[] {
+    return Array.from({ length: VOID_BEACON_SLOTS }, (_, slot) => {
+        const rec = records[voidBeaconKey(tier, slot)]
+        return !rec ? 'hostile' : rec.attacked ? 'attacked' : 'owned'
+    })
+}
+
+/**
+ * Rolled on launch. Once a beacon has been held for the full 32 hours, each
+ * visit to its sector has a one in four chance that raiders have moved on one
+ * of them. An attack stands until the pilot beats it off, so relaunching
+ * never rolls it away.
+ */
+export function voidRollBeaconAttack(records: VoidBeaconRecords, tier: number, now: number, rand: () => number): VoidBeaconRecords {
+    const slots = Array.from({ length: VOID_BEACON_SLOTS }, (_, slot) => slot)
+    if (slots.some(slot => records[voidBeaconKey(tier, slot)]?.attacked)) return records
+    const due = slots.filter((slot) => {
+        const rec = records[voidBeaconKey(tier, slot)]
+        return rec && now - rec.at >= VOID_BEACON_HOLD_MS
+    })
+    if (!due.length || rand() >= VOID_BEACON_ATTACK_CHANCE) return records
+    const slot = due[Math.min(due.length - 1, Math.floor(rand() * due.length))]!
+    const key = voidBeaconKey(tier, slot)
+    return { ...records, [key]: { at: records[key]!.at, attacked: true } }
+}
+
+function beaconSlots(raw: unknown) {
+    if (!Array.isArray(raw)) return []
+    return [...new Set(raw.map(Number))].filter(slot => Number.isInteger(slot) && slot >= 0 && slot < VOID_BEACON_SLOTS)
+}
+
+/**
+ * Applies what a run reports about its sector's beacons. A capture only lands
+ * on a beacon the pilot did not hold, a defence only on one under attack, and
+ * both restart the 32 hour clock.
+ */
+export function voidApplyBeaconReport(records: VoidBeaconRecords, tier: number, report: { captured?: unknown, defended?: unknown }, now: number, elapsedMs: number) {
+    const next = { ...records }
+    let room = Math.floor(elapsedMs / VOID_BEACON_MIN_MS)
+    let captured = 0
+    let defended = 0
+    for (const slot of beaconSlots(report.defended)) {
+        const key = voidBeaconKey(tier, slot)
+        if (!next[key]?.attacked || room <= 0) continue
+        next[key] = { at: now }
+        defended++
+        room--
+    }
+    for (const slot of beaconSlots(report.captured)) {
+        const key = voidBeaconKey(tier, slot)
+        if (next[key] || room <= 0) continue
+        next[key] = { at: now }
+        captured++
+        room--
+    }
+    return { records: next, captured, defended }
+}
+
 // ─── Hangar snapshot ────────────────────────────────────────────────────────
 
 /** The persisted fields the hangar needs; matches the `void_state` row. */
@@ -864,6 +957,7 @@ export interface VoidStateSnapshot {
     perks?: Record<string, number>
     blueprints?: string[]
     lore?: string[]
+    beacons?: Record<string, { at: number, attacked?: boolean }>
 }
 
 export function voidOwnedShips(s: Pick<VoidStateSnapshot, 'ownedShipIds'>) {
@@ -1063,7 +1157,8 @@ export function voidDescribeState(s: VoidStateSnapshot, balance: number, gems: n
             ...sector,
             unlocked: voidSectorUnlocked(sector.tier, s.highestSectorCleared),
             cleared: s.highestSectorCleared >= sector.tier,
-            gearTier: sector.tier
+            gearTier: sector.tier,
+            beacons: voidBeaconStates(voidCleanBeacons(s.beacons), sector.tier)
         }))
     }
 }

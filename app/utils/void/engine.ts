@@ -30,6 +30,7 @@ import { buildBeacon, buildDrone, buildShip, buildStation, buildTurret, buildWre
 import { drawOverlay } from './overlay'
 import { ObjectiveTracker } from './objectives'
 import { EventDirector } from './events'
+import { BeaconControl } from './beacons'
 import { SectorHazards } from './hazards'
 import { SkillRunner } from './skills'
 import { ShipSystems } from './systems'
@@ -115,7 +116,7 @@ const AXIS_Z = new THREE.Vector3(0, 0, 1)
 const _c1 = new THREE.Color()
 const _m1 = new THREE.Matrix4()
 
-interface Structure {
+export interface Structure {
     kind: 'station' | 'beacon'
     group: THREE.Group
     pos: THREE.Vector3
@@ -265,6 +266,7 @@ export class VoidEngine {
     private warp = 0
     objectives: ObjectiveTracker | null = null
     sectorEvents: EventDirector | null = null
+    beacons: BeaconControl | null = null
     hazards: SectorHazards | null = null
     skills: SkillRunner | null = null
     supplies: Record<string, number> = {}
@@ -856,6 +858,7 @@ export class VoidEngine {
         this.slowT = 0
         this.baseThreat = config.sector.threat
         this.systems = new ShipSystems(this)
+        this.beacons = null
         this.generateSector()
         this.spawnPlayer()
         this.skills = new SkillRunner(this, config.skill)
@@ -886,6 +889,7 @@ export class VoidEngine {
         this.player = null
         this.hazards?.dispose()
         this.hazards = null
+        this.beacons = null
         this.skills?.dispose()
         this.skills = null
         this.systems?.dispose()
@@ -952,8 +956,11 @@ export class VoidEngine {
             this.structures.push({ kind: 'beacon', group: arrival.group, pos: arrival.group.position, radius: 16, dockRadius: 40, spin: [arrival.ringA, arrival.ringB] })
         }
 
-        const beaconDirs: THREE.Vector3[] = []
-        for (let i = 0; i < 2; i++) {
+        // The home zone's beacons are fixed places the pilot fights for; the first
+        // flight and the zones past a gate keep plain, open ones.
+        this.beacons ??= new BeaconControl(this)
+        const beaconDirs: THREE.Vector3[] = this.depth === 1 && !cfg.tutorial ? this.beacons.setup(cfg.beacons ?? []) : []
+        for (let i = 0; i < 2 && !this.beacons.sites.length; i++) {
             const dir = this.randomDir(0.25)
             const pos = dir.multiplyScalar(this.rand(1300, 1650))
             beaconDirs.push(pos.clone().normalize())
@@ -1010,6 +1017,10 @@ export class VoidEngine {
                     spawnEnemy(this, 'sentinel', center.clone().add(this.randomDir(0.5).multiplyScalar(60)), { aggro: false })
                 }
             }
+        }
+        // Every beacon sits on good rock, so holding one is worth the fight.
+        for (const site of this.beacons?.sites ?? []) {
+            for (let k = 0; k < 2; k++) addCluster(site.structure.pos.clone().add(this.randomDir(0.3).multiplyScalar(this.rand(170, 300))), 90, 12, 0.85)
         }
         // A thin belt around the lair so it reads as a place.
         addCluster(this.lair, 260, 26, 0.35)
@@ -1272,6 +1283,7 @@ export class VoidEngine {
         this.updatePickups(dt)
         this.asteroids?.update(dt)
         this.hazards?.update(dt)
+        this.beacons?.update(dt)
         for (const s of this.structures) {
             s.spin.forEach((o, i) => {
                 o.rotation[i === 1 ? 'x' : 'y'] += dt * (i === 0 ? 0.05 : 0.3)
@@ -2383,7 +2395,7 @@ export class VoidEngine {
                     if (!e.alive || !e.group.visible) continue
                     if (pr.source === 'coalition' && (e.data.coalition || !e.hostile)) continue
                     // Only your own nose guns can hit a friendly Coalition ship.
-                    if (e.data.coalition && !e.hostile && pr.source !== 'gun') continue
+                    if (e.data.ally || (e.data.coalition && !e.hostile && pr.source !== 'gun')) continue
                     if (pr.source !== 'coalition' && e.kind === 'trader') continue
                     if (Math.abs(e.pos.x - from.x) > e.radius + segLen + 2) continue
                     const t = enemyRayHit(e, from, dir, segLen)
@@ -2606,7 +2618,7 @@ export class VoidEngine {
         p.drones.forEach(d => this.scene.remove(d.group))
         this.audio.play('explosionLarge', { volume: 1.5 })
         this.audio.updateEngine(0, false, 0)
-        this.endResult = { reason: 'destroyed', haul: {}, lost: { ...this.cargo }, kills: this.kills, wardenKilled: this.wardenKilled, elapsedMs: Math.round(this.elapsed * 1000), skillUses: this.skills?.uses ?? 0, suppliesUsed: { ...this.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: this.pilotBonusXp, depth: this.depth, carrierKilled: false, lore: [] }
+        this.endResult = { reason: 'destroyed', haul: {}, lost: { ...this.cargo }, kills: this.kills, wardenKilled: this.wardenKilled, elapsedMs: Math.round(this.elapsed * 1000), skillUses: this.skills?.uses ?? 0, suppliesUsed: { ...this.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: this.pilotBonusXp, depth: this.depth, carrierKilled: false, lore: [], beaconsCaptured: [...(this.beacons?.captured ?? [])], beaconsDefended: [...(this.beacons?.defended ?? [])] }
         this.events.toast('Ship destroyed. The hold is lost.', 'bad')
     }
 
@@ -2821,6 +2833,7 @@ export class VoidEngine {
         this.trader = null
         this.hazards?.dispose()
         this.hazards = null
+        this.beacons?.clear()
         this.asteroids?.clear()
         this.systems?.clearZone()
         this.warden = null
@@ -2878,7 +2891,7 @@ export class VoidEngine {
         const color = ORE_GLOW[ore] ?? 0xffffff
         const tier = this.config!.sector.tier
         const zoneOre = this.zone === 'radiation' ? 1.5 : 1
-        const yieldUnits = Math.max(2, Math.round(rock.radius * 0.8 * (0.8 + randomFloat() * 0.4) * this.config!.stats.miningMult * (1 + (tier - 1) * 0.12) * zoneOre * voidDepthLoot(this.depth) * VOID_UNIT_SCALE))
+        const yieldUnits = Math.max(2, Math.round(rock.radius * 0.8 * (0.8 + randomFloat() * 0.4) * this.config!.stats.miningMult * (1 + (tier - 1) * 0.12) * zoneOre * (this.beacons?.oreMult(rock.pos) ?? 1) * voidDepthLoot(this.depth) * VOID_UNIT_SCALE))
         const stacks = Math.min(12, Math.ceil(yieldUnits / 3))
         let left = yieldUnits
         for (let i = 0; i < stacks; i++) {
@@ -3128,7 +3141,9 @@ export class VoidEngine {
             bonusXp: this.pilotBonusXp,
             depth: this.depth,
             carrierKilled: !!this.systems?.carrierKilled,
-            lore: [...(this.systems?.loreFound ?? [])]
+            lore: [...(this.systems?.loreFound ?? [])],
+            beaconsCaptured: [...(this.beacons?.captured ?? [])],
+            beaconsDefended: [...(this.beacons?.defended ?? [])]
         }
         if (document.pointerLockElement) document.exitPointerLock()
     }
@@ -3195,7 +3210,7 @@ export class VoidEngine {
         if (this.objectives?.suppressWaves) this.directorTimer = Math.max(this.directorTimer, 20)
         // A boss fight is the fight; wings stop piling in on top of it.
         const bossFight = this.enemies.some(e => e.alive && (e.kind === 'warden' || e.kind === 'mothership') && e.pos.distanceTo(p.pos) < 700)
-        if (bossFight) this.directorTimer = Math.max(this.directorTimer, 25)
+        if (bossFight || this.beacons?.fighting) this.directorTimer = Math.max(this.directorTimer, 25)
         if (this.directorTimer <= 0) {
             // Waves come a little faster and a little heavier the longer a run
             // runs, and out past the charted edge they come heavier still.

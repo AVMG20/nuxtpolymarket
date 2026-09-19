@@ -142,6 +142,7 @@
                 <div class="vr-debrief-kicker">{{ summary.extracted ? 'Extraction complete' : 'Signal lost' }}</div>
                 <div class="vr-modal-title">{{ summary.extracted ? (summary.failed ? 'Hold not banked yet' : summary.pending ? 'Banking hold' : 'Hold banked') : 'Ship destroyed' }}</div>
                 <div v-if="summary.sectorCleared" class="vr-cleared">Sector cleared · {{ summary.sectorCleared }}<template v-if="summary.sectorOpened"> · {{ summary.sectorOpened }} is open</template></div>
+                <div v-if="summary.beacons" class="vr-cleared">{{ summary.beacons }}</div>
                 <div v-if="summary.wardenRejected" class="vr-debrief-empty">The warden kill was not counted: the run was too short for the station to accept it.</div>
                 <div class="vr-debrief-stats">
                     <div><span>Time</span><b>{{ clock(summary.elapsedMs / 1000) }}</b></div>
@@ -236,6 +237,7 @@ const summary = ref<null | {
     sectorCleared: string | null
     sectorOpened: string | null
     wardenRejected: boolean
+    beacons: string | null
     lostValue: number
     xp: number
     levelBefore: number
@@ -712,6 +714,7 @@ async function launch(tier: number) {
             secondary: res.loadout.secondary,
             device: res.loadout.device,
             perks: res.loadout.perks,
+            beacons: res.beacons,
             loreKnown: s.lore.filter(l => l.found).map(l => l.id),
             // The pilot guide runs until sector 1 is cleared.
             guideLearned: s.highestSectorCleared < 1 ? loadGuide() : null
@@ -753,6 +756,7 @@ async function finishRun(result: RunResult, reason: FinishReason) {
         sectorCleared: null,
         sectorOpened: null,
         wardenRejected: false,
+        beacons: null,
         xp: 0,
         levelBefore: 0,
         levelAfter: 0,
@@ -768,7 +772,7 @@ async function finishRun(result: RunResult, reason: FinishReason) {
         items: reason === 'extracted' ? items : bundleItems({})
     }
     if (document.pointerLockElement) document.exitPointerLock()
-    const body: FinishBody = { reason, haul: result.haul, kills: result.kills, wardenKilled: result.wardenKilled, elapsedMs: result.elapsedMs, skillUses: result.skillUses, suppliesUsed: result.suppliesUsed, relics: result.relics, gearCaches: result.gearCaches, bonusXp: result.bonusXp, depth: result.depth, carrierKilled: result.carrierKilled, lore: result.lore }
+    const body: FinishBody = { reason, haul: result.haul, kills: result.kills, wardenKilled: result.wardenKilled, elapsedMs: result.elapsedMs, skillUses: result.skillUses, suppliesUsed: result.suppliesUsed, relics: result.relics, gearCaches: result.gearCaches, bonusXp: result.bonusXp, depth: result.depth, carrierKilled: result.carrierKilled, lore: result.lore, beaconsCaptured: result.beaconsCaptured, beaconsDefended: result.beaconsDefended }
     if (run.value) savePendingReport(run.value.startedAt, body)
     await submitReport(body)
 }
@@ -809,6 +813,7 @@ async function submitReport(body: FinishBody) {
             sectorCleared: res.sectorCleared,
             sectorOpened: res.sectorOpened,
             wardenRejected: res.wardenRejected,
+            beacons: [res.beaconsCaptured ? `${res.beaconsCaptured} beacon${res.beaconsCaptured > 1 ? 's' : ''} captured` : '', res.beaconsDefended ? 'Beacon defended' : ''].filter(Boolean).join(' · ') || null,
             items: bundleItems(res.haul)
         }
         if (res.sectorCleared || res.levelAfter > res.levelBefore) audio.play('levelUp')
@@ -821,7 +826,7 @@ async function submitReport(body: FinishBody) {
 
 function abandon() {
     if (!engine) return
-    const result: RunResult = { reason: 'destroyed', haul: {}, lost: { ...engine.cargo }, kills: engine.kills, wardenKilled: false, elapsedMs: Math.round(engine.elapsed * 1000), skillUses: engine.skills?.uses ?? 0, suppliesUsed: { ...engine.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: engine.pilotBonusXp, depth: engine.depth, carrierKilled: false, lore: [] }
+    const result: RunResult = { reason: 'destroyed', haul: {}, lost: { ...engine.cargo }, kills: engine.kills, wardenKilled: false, elapsedMs: Math.round(engine.elapsed * 1000), skillUses: engine.skills?.uses ?? 0, suppliesUsed: { ...engine.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: engine.pilotBonusXp, depth: engine.depth, carrierKilled: false, lore: [], beaconsCaptured: [...(engine.beacons?.captured ?? [])], beaconsDefended: [...(engine.beacons?.defended ?? [])] }
     engine.paused = true
     void finishRun(result, 'abandoned')
 }

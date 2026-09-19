@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
     VOID_SHIPS, VOID_TURRETS, VOID_UPGRADES, VOID_MARKET_PRICES,
-    voidAutoFit, voidBundleValue, voidCanAfford, voidDerivedStats, voidDescribeState, voidLoadoutFor, voidNormalizeFit, voidNormalizeLevels, voidSettleRun,
+    voidApplyBeaconReport, voidBeaconStates, voidCleanBeacons, voidRollBeaconAttack, voidAutoFit, voidBundleValue, voidCanAfford, voidDerivedStats, voidDescribeState, voidLoadoutFor, voidNormalizeFit, voidNormalizeLevels, voidSettleRun,
     voidGearTier, voidSectorResources, voidSectorUnlocked, voidSubtractBundle, voidUpgradeCost, type VoidStateSnapshot
 } from '#shared/utils/gamelogic/void'
 import {
@@ -378,5 +378,52 @@ describe('void runner bounties and gear caps', () => {
         expect(voidGearCap({ ...run, elapsedMs: 120_000, carrierKilled: true, wardenKilled: true }, 0)).toBe(1)
         expect(voidGearCap(full, VOID_DAILY_GEAR - 2)).toBe(2)
         expect(voidGearCap(full, VOID_DAILY_GEAR + 3)).toBe(0)
+    })
+})
+
+describe('void beacons', () => {
+    const now = 1_800_000_000_000
+    const hour = 60 * 60 * 1000
+
+    it('reports every beacon as hostile until captured', () => {
+        expect(voidBeaconStates({}, 2)).toEqual(['hostile', 'hostile'])
+        expect(voidBeaconStates({ '2:1': { at: now } }, 2)).toEqual(['hostile', 'owned'])
+        expect(voidBeaconStates({ '2:1': { at: now } }, 3)).toEqual(['hostile', 'hostile'])
+    })
+
+    it('captures only beacons the pilot does not hold, and only in a run long enough', () => {
+        const short = voidApplyBeaconReport({}, 1, { captured: [0, 1] }, now, 90_000)
+        expect(short.captured).toBe(1)
+        const both = voidApplyBeaconReport({}, 1, { captured: [0, 1, 1, 7, -1, 'x'] }, now, 600_000)
+        expect(both.captured).toBe(2)
+        expect(Object.keys(both.records).sort()).toEqual(['1:0', '1:1'])
+        const again = voidApplyBeaconReport(both.records, 1, { captured: [0] }, now + hour, 600_000)
+        expect(again.captured).toBe(0)
+        expect(again.records['1:0']!.at).toBe(now)
+    })
+
+    it('leaves a held beacon alone for 32 hours, then attacks one in four visits', () => {
+        const held = { '3:0': { at: now } }
+        expect(voidRollBeaconAttack(held, 3, now + 31 * hour, () => 0)).toBe(held)
+        expect(voidRollBeaconAttack(held, 3, now + 33 * hour, () => 0.25)).toBe(held)
+        expect(voidRollBeaconAttack(held, 2, now + 33 * hour, () => 0)).toBe(held)
+        const hit = voidRollBeaconAttack(held, 3, now + 33 * hour, () => 0.1)
+        expect(voidBeaconStates(hit, 3)).toEqual(['attacked', 'hostile'])
+    })
+
+    it('keeps an attack standing until it is beaten off, which restarts the clock', () => {
+        const hit = { '3:0': { at: now, attacked: true }, '3:1': { at: now } }
+        expect(voidRollBeaconAttack(hit, 3, now + 40 * hour, () => 0)).toBe(hit)
+        const ignored = voidApplyBeaconReport(hit, 3, { defended: [1] }, now + 40 * hour, 600_000)
+        expect(ignored.defended).toBe(0)
+        const won = voidApplyBeaconReport(hit, 3, { defended: [0] }, now + 40 * hour, 600_000)
+        expect(won.defended).toBe(1)
+        expect(won.records['3:0']).toEqual({ at: now + 40 * hour })
+        expect(voidRollBeaconAttack(won.records, 3, now + 41 * hour, () => 0)['3:0']!.attacked).toBeUndefined()
+    })
+
+    it('drops junk from stored records', () => {
+        expect(voidCleanBeacons({ '1:0': { at: now }, '9:0': { at: now }, '1:5': { at: now }, '2:0': { at: 'x' }, '2:1': null })).toEqual({ '1:0': { at: now } })
+        expect(voidCleanBeacons(null)).toEqual({})
     })
 })

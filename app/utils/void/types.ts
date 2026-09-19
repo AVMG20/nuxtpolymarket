@@ -25,6 +25,8 @@ export interface RunConfig {
     guideLearned?: string[] | null
     /** Walk the pilot through the basics on their first flight. */
     tutorial?: boolean
+    /** What the server says about this sector's two beacons. */
+    beacons?: import('#shared/utils/gamelogic/void').VoidBeaconState[]
 }
 
 export interface RunResult {
@@ -44,6 +46,9 @@ export interface RunResult {
     depth: number
     carrierKilled: boolean
     lore: string[]
+    /** Beacon slots won or held this run. */
+    beaconsCaptured: number[]
+    beaconsDefended: number[]
 }
 
 export type Phase = 'hangar' | 'flying' | 'docking' | 'dead'
