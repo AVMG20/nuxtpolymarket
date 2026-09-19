@@ -141,7 +141,8 @@
             <div class="vr-modal vr-debrief" :class="summary.extracted ? 'vr-good' : 'vr-bad'">
                 <div class="vr-debrief-kicker">{{ summary.extracted ? 'Extraction complete' : 'Signal lost' }}</div>
                 <div class="vr-modal-title">{{ summary.extracted ? (summary.failed ? 'Hold not banked yet' : summary.pending ? 'Banking hold' : 'Hold banked') : 'Ship destroyed' }}</div>
-                <div v-if="summary.sectorCleared" class="vr-cleared">Sector cleared · {{ summary.sectorCleared }}</div>
+                <div v-if="summary.sectorCleared" class="vr-cleared">Sector cleared · {{ summary.sectorCleared }}<template v-if="summary.sectorOpened"> · {{ summary.sectorOpened }} is open</template></div>
+                <div v-if="summary.wardenRejected" class="vr-debrief-empty">The warden kill was not counted: the run was too short for the station to accept it.</div>
                 <div class="vr-debrief-stats">
                     <div><span>Time</span><b>{{ clock(summary.elapsedMs / 1000) }}</b></div>
                     <div><span>Kills</span><b>{{ summary.kills }}</b></div>
@@ -233,6 +234,8 @@ const summary = ref<null | {
     units: number
     value: number
     sectorCleared: string | null
+    sectorOpened: string | null
+    wardenRejected: boolean
     lostValue: number
     xp: number
     levelBefore: number
@@ -403,6 +406,39 @@ function saveGuide(lesson: string) {
 }
 
 const REPORT_KEY = 'void-runner-report'
+const FLYING_KEY = 'void-runner-flying'
+let flyingTimer = 0
+
+/** A heartbeat other tabs can see, so opening the game twice never closes the run being flown. */
+function markFlying(on: boolean) {
+    clearInterval(flyingTimer)
+    const beat = () => {
+        try {
+            localStorage.setItem(FLYING_KEY, String(Date.now()))
+        } catch {
+            // storage unavailable
+        }
+    }
+    try {
+        if (on) {
+            beat()
+            flyingTimer = window.setInterval(beat, 4000)
+        } else {
+            localStorage.removeItem(FLYING_KEY)
+        }
+    } catch {
+        // storage unavailable
+    }
+}
+
+function anotherTabFlying() {
+    if (inFlight.value) return false
+    try {
+        return Date.now() - Number(localStorage.getItem(FLYING_KEY) ?? 0) < 15_000
+    } catch {
+        return false
+    }
+}
 
 type FinishReason = 'extracted' | 'destroyed' | 'abandoned'
 type FinishBody = Record<string, unknown> & { reason: FinishReason }
@@ -650,7 +686,8 @@ async function launch(tier: number) {
             res = await apiFetch<InternalApi['/api/void/launch']['post']>('/api/void/launch', { method: 'POST', body: { sector: tier } })
         } catch (e) {
             // A run left open by a closed tab: clear it (it banks nothing) and go.
-            if ((e as { statusCode?: number }).statusCode === 409 || (e as { status?: number }).status === 409) {
+            if (statusOf(e) === 409) {
+                if (anotherTabFlying()) throw { data: { statusMessage: 'A run is already flying in another tab' } }
                 res = await apiFetch<InternalApi['/api/void/launch']['post']>('/api/void/launch', { method: 'POST', body: { sector: tier, force: true } })
             } else {
                 throw e
@@ -661,6 +698,7 @@ async function launch(tier: number) {
         tradeOpen.value = false
         run.value = { sectorName: res.sector.name, shipName: voidShip(res.loadout.shipId).name, tier, startedAt: String(res.startedAt) }
         inFlight.value = true
+        markFlying(true)
         engine.startRun({
             tutorial: s.extractions === 0 && tier === 1,
             sector: voidSector(tier),
@@ -713,6 +751,8 @@ async function finishRun(result: RunResult, reason: FinishReason) {
         units: items.reduce((s, i) => s + i.amount, 0),
         value: Math.round(voidBundleValue(result.haul) * (state.value?.trade.mult ?? 1)),
         sectorCleared: null,
+        sectorOpened: null,
+        wardenRejected: false,
         xp: 0,
         levelBefore: 0,
         levelAfter: 0,
@@ -767,6 +807,8 @@ async function submitReport(body: FinishBody) {
             gear: res.gear.map(g => ({ name: g.name, tier: g.tier, color: VOID_RARITIES[g.rarity]?.color ?? '#fff', rarity: VOID_RARITIES[g.rarity]?.name ?? 'Common' })),
             gearEmpty: res.gearEmpty,
             sectorCleared: res.sectorCleared,
+            sectorOpened: res.sectorOpened,
+            wardenRejected: res.wardenRejected,
             items: bundleItems(res.haul)
         }
         if (res.sectorCleared || res.levelAfter > res.levelBefore) audio.play('levelUp')
@@ -786,6 +828,7 @@ function abandon() {
 
 async function closeSummary() {
     summary.value = null
+    markFlying(false)
     inFlight.value = false
     hud.value = null
     run.value = null
@@ -798,6 +841,7 @@ async function closeSummary() {
 onMounted(async () => {
     // Registered before any await, so leaving the page early still unbinds it.
     window.addEventListener('beforeunload', warnBeforeLeaving)
+    window.addEventListener('pagehide', stopFlying)
     // Inside the page's suspense boundary the template ref can bind a tick
     // after mounted fires, so wait a few frames for it before giving up.
     for (let i = 0; i < 10 && !viewport.value; i++) {
@@ -857,7 +901,7 @@ onMounted(async () => {
             toast.add({ title: 'Your last run report is still waiting', description: 'The station could not be reached. It is filed again before your next launch.', color: 'warning' })
         }
     }
-    if (state.value?.activeRun && !loadPendingReport()) {
+    if (state.value?.activeRun && !loadPendingReport() && !anotherTabFlying()) {
         try {
             await apiFetch('/api/void/finish', { method: 'POST', body: { reason: 'abandoned' } })
             await refresh()
@@ -877,11 +921,18 @@ function warnBeforeLeaving(e: BeforeUnloadEvent) {
     e.returnValue = ''
 }
 
+/** A reload ends the run for good, so the next load may clear it straight away. */
+function stopFlying() {
+    if (inFlight.value) markFlying(false)
+}
+
 function unlockAudio() {
     audio.unlock()
 }
 
 onBeforeUnmount(() => {
+    if (inFlight.value) markFlying(false)
+    window.removeEventListener('pagehide', stopFlying)
     engine?.dispose()
     engine = null
     audio.dispose()

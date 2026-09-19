@@ -264,6 +264,10 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             kills: settled.kills,
             trimmed: settled.trimmed,
             sectorCleared: clearedNow ? voidSector(tier).name : null,
+            /** The sector this clear opened, when there is a deeper one. */
+            sectorOpened: clearedNow && tier < VOID_MAX_SECTOR ? voidSector(tier + 1).name : null,
+            /** A reported warden kill the run was too short to hold. Never silent: the pilot is told. */
+            wardenRejected: extracted && body.wardenKilled === true && !settled.wardenKilled,
             xp,
             levelBefore: voidPilotLevel(s.pilotXp),
             levelAfter: voidPilotLevel(s.pilotXp + xp),

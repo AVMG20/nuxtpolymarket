@@ -124,6 +124,7 @@
                     <span v-if="gearTier < currentSector.tier - 0.5" class="vh-undergeared" :title="`Your gear averages T${gearTier.toFixed(1)}`">Needs T{{ currentSector.tier }} gear</span>
                     <span class="vh-threat" :title="`Hostiles here hit ${currentSector.threat}× as hard as sector 1`">Danger ×{{ currentSector.threat }}</span>
                 </div>
+                <div v-if="nextLocked" class="vh-sector-goal">Destroy {{ currentSector.warden }} and dock to open {{ nextLocked.name }}</div>
             </div>
             <button class="vh-arrow" :disabled="sectorIndex >= state.sectors.length - 1 || !state.sectors[sectorIndex + 1]?.unlocked" @click="stepSector(1)">
                 <UIcon name="i-lucide-chevron-right" class="size-5" />
@@ -409,7 +410,7 @@
                             <b>{{ s.warden }}</b>
                             <span v-if="s.cleared" class="vh-tag vh-tag-good">Destroyed</span>
                         </div>
-                        <p>Guards {{ s.name }}. Radial barrages, homing missiles, sweeping beams below two thirds hull, and swarms of Mites when cornered.</p>
+                        <p>Guards {{ s.name }}. Destroy it and dock in the same run to clear the sector<template v-if="state.sectors[s.tier]"> and open {{ state.sectors[s.tier]!.name }}</template>. Radial barrages, homing missiles, sweeping beams below two thirds hull, and swarms of Mites when cornered.</p>
                     </div>
                 </div>
             </template>
@@ -600,6 +601,11 @@ const nextGoal = computed(() => {
 })
 
 const currentSector = computed(() => props.state.sectors[sectorIndex.value] ?? props.state.sectors[0]!)
+/** The sector behind this one while it is still shut, so the bar can say what opens it. */
+const nextLocked = computed(() => {
+    const next = props.state.sectors[sectorIndex.value + 1]
+    return next && !next.unlocked ? next : null
+})
 const equipped = computed(() => props.state.ships.find(s => s.equipped) ?? props.state.ships[0]!)
 const shown = computed(() => props.state.ships.find(s => s.id === (props.previewShipId ?? props.state.equippedShipId)) ?? equipped.value)
 const ownedCount = computed(() => props.state.ships.filter(s => s.owned).length)
@@ -793,6 +799,7 @@ function stepSector(delta: number) {
 .vh-sector-ores { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
 .vh-undergeared { margin-left: auto; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--vr-warn); animation: vr-pulse 1.4s infinite; }
 .vh-undergeared + .vh-threat { margin-left: 8px; }
+.vh-sector-goal { margin-top: 6px; font-size: 11px; color: var(--vr-muted); }
 .vh-threat { margin-left: auto; font: 600 11px 'JetBrains Mono', monospace; color: var(--vr-muted); }
 .vh-go { display: flex; flex-direction: column; justify-content: center; padding: 0 34px; background: linear-gradient(100deg, #1b8fd6, #19c98c); color: #fff; clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%); cursor: pointer; transition: filter 0.15s, transform 0.1s; box-shadow: 0 0 30px rgba(61, 200, 255, 0.35); }
 .vh-go span { font-size: 26px; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; }

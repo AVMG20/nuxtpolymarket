@@ -242,6 +242,11 @@ describe('void runner settlement', () => {
         expect(real.wardenKilled).toBe(true)
         expect(real.haul.core).toBe(3)
     })
+
+    it('counts a geared pilot\'s fast sector 4 warden kill', () => {
+        const fast = voidSettleRun({ extracted: true, haul: {}, elapsedMs: minutes(3), kills: 30, wardenKilled: true }, 4, 100, minutes(3))
+        expect(fast.wardenKilled).toBe(true)
+    })
 })
 
 describe('void runner combat systems', () => {

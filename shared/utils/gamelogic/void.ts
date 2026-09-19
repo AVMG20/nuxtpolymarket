@@ -752,6 +752,15 @@ export interface VoidSettledRun {
 }
 
 /**
+ * The shortest run a warden kill can come out of. The lair is a flight away
+ * and the fight takes time, but a geared pilot does both fast, so this only
+ * rules out a kill reported straight off the pad.
+ */
+export function voidWardenMinMs(tier: number) {
+    return 60_000 + tier * 15_000
+}
+
+/**
  * Turns a client report into what the run may bank. Only an extraction banks
  * anything; the haul is filtered to the sector's resources, capped per minute
  * of wall-clock time and trimmed to the hold the ship launched with.
@@ -759,8 +768,7 @@ export interface VoidSettledRun {
 export function voidSettleRun(report: VoidRunReport, tier: number, cargoCapacity: number, wallElapsedMs: number): VoidSettledRun {
     const elapsedMs = Math.max(0, Math.min(Math.floor(Number(report.elapsedMs) || 0), wallElapsedMs, VOID_MAX_RUN_MS))
     const minutes = Math.max(elapsedMs, 0) / 60_000
-    // A warden fight takes time to reach and time to win.
-    const wardenKilled = Boolean(report.wardenKilled) && wallElapsedMs >= 150_000 + tier * 30_000
+    const wardenKilled = Boolean(report.wardenKilled) && wallElapsedMs >= voidWardenMinMs(tier)
     const kills = Math.max(0, Math.min(Math.floor(Number(report.kills) || 0), Math.ceil(minutes * 60) + 10))
     // A carrier is a long fight at the far end of a zone.
     const carrierKilled = Boolean(report.carrierKilled) && wallElapsedMs >= 240_000
