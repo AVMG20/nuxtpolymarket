@@ -8,8 +8,8 @@ import { voidShip } from '#shared/utils/gamelogic/void'
 import { voidSkill, voidSkillCooldown, voidSkillParams, type VoidSkillId } from '#shared/utils/gamelogic/void-skills'
 import type { Asteroid } from './asteroids'
 import { damageEnemy, enemyRayHit } from './enemies'
-import { explosion, hitSpark, Trail } from './fx'
-import { buildShip } from './ships'
+import type { Trail } from './fx';
+import { explosion, hitSpark } from './fx'
 import type { VoidEngine } from './engine'
 import type { Enemy, Projectile } from './types'
 
@@ -22,17 +22,14 @@ const FORWARD = new THREE.Vector3(0, 0, -1)
 const WARDEN_SKILL_MULT = 0.5
 const WARDEN_SKILL_CAP = 0.025
 
+/** An escort drone on its kamikaze dive; until then the engine's drone brain flies it. */
 interface Wingman {
     group: THREE.Group
     pos: THREE.Vector3
     vel: THREE.Vector3
-    slot: number
-    cooldown: number
-    guard: number
     target: Enemy | null
-    retarget: number
     trail: Trail
-    /** Seconds left in a kamikaze dive, or 0. */
+    /** Seconds left in the dive. */
     dive: number
 }
 
@@ -208,12 +205,12 @@ export class SkillRunner {
 
     /** Honour Guard: a wingman can shoot a hostile shot out of the air. */
     intercept(pr: Projectile) {
-        if (this.id !== 'wingmen' || !this.params.guard || !this.wingmen.length) return false
+        if (this.id !== 'wingmen' || !this.params.guard) return false
         const p = this.p
         if (pr.pos.distanceToSquared(p.pos) > 55 * 55) return false
-        const w = this.wingmen.find(x => x.guard <= 0 && x.dive <= 0)
-        if (!w) return false
-        w.guard = 0.5
+        const w = p.drones.find(d => d.wing && d.wing.guard <= 0)
+        if (!w?.wing) return false
+        w.wing.guard = 0.5
         this.engine.tracers.push({ a: w.pos.clone(), b: pr.pos.clone(), color: new THREE.Color(this.color).multiplyScalar(4), life: 0.18, maxLife: 0.18, width: 0.2 })
         hitSpark(this.engine.fx, pr.pos, _v1.subVectors(w.pos, pr.pos).normalize(), this.color, 0.8)
         return true
@@ -292,15 +289,14 @@ export class SkillRunner {
             p.shieldBubble.setColor(0x6fd8ff, 1.6)
         }
         if (this.id === 'wingmen') {
-            for (const w of this.wingmen) {
-                if (this.params.kamikaze) {
-                    w.dive = 2.5
-                    w.target = this.nearestHostile(w.pos, 400)
-                } else {
-                    this.removeWingman(w, false)
-                }
+            const escorts = p.drones.filter(d => d.wing)
+            if (this.params.kamikaze) {
+                // Hand the escorts over from the drone brain to a last dive.
+                p.drones = p.drones.filter(d => !d.wing)
+                for (const d of escorts) this.wingmen.push({ group: d.group, pos: d.pos, vel: d.vel, target: this.nearestHostile(d.pos, 400), trail: d.trail, dive: 2.5 })
+            } else {
+                for (const d of escorts) d.temporary = 0.01
             }
-            if (!this.params.kamikaze) this.wingmen = []
         }
     }
 
@@ -464,26 +460,18 @@ export class SkillRunner {
         const p = this.p
         for (const w of this.wingmen) this.removeWingman(w, false)
         this.wingmen = []
+        for (const d of p.drones) if (d.wing) d.temporary = 0.01
         const count = Math.round(this.params.count ?? 2)
         this.active = this.activeMax = (this.params.duration ?? 15) * this.pct('durationPct')
-        const scale = THREE.MathUtils.clamp(voidShip(e.config!.shipId).size / 5, 0.55, 1.3)
+        // Escorts are the same drones every carrier flies, on loan: same flight brain, their own guns.
+        const damage = (this.params.damage ?? 0.8) * this.power * this.pct('damagePct')
+        const rate = (this.params.rate ?? 3) * this.pct('ratePct')
         for (let i = 0; i < count; i++) {
-            const model = buildShip('wasp')
-            const group = new THREE.Group()
-            model.group.scale.setScalar(scale * 0.8)
-            group.add(model.group)
-            const slot = i
-            const offset = this.slotOffset(slot, count)
-            group.position.copy(offset).applyQuaternion(p.quat).add(p.pos).addScaledVector(_v1.copy(FORWARD).applyQuaternion(p.quat), -40)
-            group.quaternion.copy(p.quat)
-            e.scene.add(group)
-            const w: Wingman = {
-                group, pos: group.position, vel: p.vel.clone(), slot, cooldown: randomFloat() * 0.3, guard: 0,
-                target: null, retarget: 0, trail: new Trail(8, this.color, 0.3, 0.03), dive: 0
-            }
-            w.trail.reset(w.pos)
-            this.wingmen.push(w)
-            e.rings.spawn(w.pos, 10, this.color, 0.5, 2)
+            const d = e.addDrone(this.active + 1, { damage, rate, color: this.color, guard: 0 })
+            d.pos.copy(this.slotOffset(i, count)).applyQuaternion(p.quat).add(p.pos).addScaledVector(_v1.copy(FORWARD).applyQuaternion(p.quat), -40)
+            d.vel.copy(p.vel)
+            d.trail.reset(d.pos)
+            e.rings.spawn(d.pos, 10, this.color, 0.5, 2)
         }
         e.audio.play('undock', { volume: 0.7, pitch: 1.3 })
     }
@@ -496,90 +484,37 @@ export class SkillRunner {
     }
 
     private updateWingmen(dt: number) {
-        if (!this.wingmen.length) return
         const e = this.engine
         const p = this.p
-        const damage = (this.params.damage ?? 0.8) * this.power * this.pct('damagePct')
-        const rate = (this.params.rate ?? 3) * this.pct('ratePct')
         if (this.active > 0 && this.params.shieldRegen && p.alive) {
             const cap = Math.max(this.stats.shield, this.shieldCap)
             p.shield = Math.min(cap, p.shield + this.stats.shield * this.params.shieldRegen * dt)
         }
+        for (const d of p.drones) if (d.wing) d.wing.guard = Math.max(0, d.wing.guard - dt)
+        if (!this.wingmen.length) return
         const keep: Wingman[] = []
         for (const w of this.wingmen) {
-            w.guard = Math.max(0, w.guard - dt)
-            if (w.dive > 0) {
-                w.dive -= dt
-                if (w.target && !w.target.alive) w.target = this.nearestHostile(w.pos, 300)
-                const goal = w.target?.pos ?? _v1.copy(w.pos).addScaledVector(w.vel, 1)
-                const want = _v1.subVectors(goal, w.pos).normalize().multiplyScalar(170)
-                w.vel.lerp(want, 1 - Math.exp(-4 * dt))
-                w.pos.addScaledVector(w.vel, dt)
-                w.group.lookAt(_v2.copy(w.pos).add(w.vel))
-                w.trail.update(dt, w.pos)
-                w.trail.draw(e.lines, w.pos, 1)
-                const hitTarget = w.target && w.pos.distanceTo(w.target.pos) < w.target.radius + 3
-                if (hitTarget || w.dive <= 0 || !w.target) {
-                    const radius = 18
-                    explosion(e.fx, w.pos, w.vel, 1.4, this.color, false)
-                    e.audio.play('explosionSmall', { distance: w.pos.distanceTo(e.camera.position), pan: e.panOf(w.pos) })
-                    for (const en of e.enemies) {
-                        if (!en.alive || !en.hostile) continue
-                        const d = en.pos.distanceTo(w.pos)
-                        if (d < radius + en.radius) this.hit(en, 7 * this.power * this.pct('damagePct') * (1 - 0.5 * d / (radius + en.radius)), en.pos)
-                    }
-                    this.removeWingman(w, true)
-                    continue
-                }
-                keep.push(w)
-                continue
-            }
-
-            w.retarget -= dt
-            if (w.retarget <= 0) {
-                w.retarget = 0.5
-                const t = e.focus?.alive && e.focus.hostile && e.focus.pos.distanceTo(p.pos) < 260 ? e.focus : this.nearestHostile(p.pos, 240)
-                w.target = t
-            }
-            if (w.target && !w.target.alive) w.target = null
-            const home = _v1.copy(this.slotOffset(w.slot, this.wingmen.length)).applyQuaternion(p.quat).add(p.pos)
-            let goal = home
-            if (w.target) {
-                // Swing out toward the target but stay loosely in formation.
-                const a = e.time * 1.4 + w.slot * 2.1
-                goal = _v2.copy(w.target.pos).add(_v1.set(Math.cos(a) * 30, 8, Math.sin(a) * 30)).lerp(home, 0.35)
-            }
-            const desired = _v1.subVectors(goal, w.pos).multiplyScalar(2.2).add(w.target ? _v2.set(0, 0, 0) : p.vel)
-            w.vel.lerp(desired, 1 - Math.exp(-3.5 * dt))
+            w.dive -= dt
+            if (w.target && !w.target.alive) w.target = this.nearestHostile(w.pos, 300)
+            const goal = w.target?.pos ?? _v1.copy(w.pos).addScaledVector(w.vel, 1)
+            const want = _v1.subVectors(goal, w.pos).normalize().multiplyScalar(170)
+            w.vel.lerp(want, 1 - Math.exp(-4 * dt))
             w.pos.addScaledVector(w.vel, dt)
-            const look = w.target ? w.target.pos : _v2.copy(w.pos).addScaledVector(_v1.copy(FORWARD).applyQuaternion(p.quat), 10)
-            _m.lookAt(w.pos, look, _up)
-            _q.setFromRotationMatrix(_m)
-            // lookAt on a matrix points -z at the target, which matches the hull's nose.
-            w.group.quaternion.slerp(_q, 1 - Math.exp(-6 * dt))
+            w.group.lookAt(_v2.copy(w.pos).add(w.vel))
             w.trail.update(dt, w.pos)
-            w.trail.draw(e.lines, w.pos, 0.7)
-
-            w.cooldown -= dt
-            if (w.target && w.cooldown <= 0 && w.pos.distanceTo(w.target.pos) < 230) {
-                w.cooldown = 1 / rate
-                const dir = _v1.subVectors(w.target.pos, w.pos).addScaledVector(w.target.vel, w.pos.distanceTo(w.target.pos) / 420).normalize()
-                e.projectiles.push({
-                    pos: w.pos.clone(),
-                    vel: dir.multiplyScalar(420).add(w.vel),
-                    life: 0.7,
-                    damage,
-                    hostile: false,
-                    color: new THREE.Color(this.color).multiplyScalar(3),
-                    width: 0.25,
-                    length: 4,
-                    splash: 0,
-                    homing: null,
-                    kind: 'bolt',
-                    mining: 1,
-                    source: 'wingman'
-                })
-                if (Math.random() < 0.35) e.audio.play('pulse', { distance: w.pos.distanceTo(e.camera.position) * 0.5, volume: 0.35, pitch: 1.25 })
+            w.trail.draw(e.lines, w.pos, 1)
+            const hitTarget = w.target && w.pos.distanceTo(w.target.pos) < w.target.radius + 3
+            if (hitTarget || w.dive <= 0 || !w.target) {
+                const radius = 18
+                explosion(e.fx, w.pos, w.vel, 1.4, this.color, false)
+                e.audio.play('explosionSmall', { distance: w.pos.distanceTo(e.camera.position), pan: e.panOf(w.pos) })
+                for (const en of e.enemies) {
+                    if (!en.alive || !en.hostile) continue
+                    const d = en.pos.distanceTo(w.pos)
+                    if (d < radius + en.radius) this.hit(en, 7 * this.power * this.pct('damagePct') * (1 - 0.5 * d / (radius + en.radius)), en.pos)
+                }
+                this.removeWingman(w, true)
+                continue
             }
             keep.push(w)
         }

@@ -198,6 +198,8 @@ export interface Drone {
     rock: import('./asteroids').Asteroid | null
     retarget: number
     temporary: number
+    /** Skill-summoned escorts carry their own guns: damage per bolt, shots per second and colour. */
+    wing?: { damage: number, rate: number, color: number, guard: number }
     trail: Trail
 }
 
@@ -212,6 +214,8 @@ export interface Projectile {
     length: number
     splash: number
     homing: Enemy | null
+    /** A missile sent at a rock steers for it the same way. */
+    homingRock?: import('./asteroids').Asteroid | null
     kind: 'bolt' | 'orb' | 'missile' | 'pellet' | 'plasma'
     mining: number
     source: string

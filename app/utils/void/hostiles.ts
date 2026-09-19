@@ -603,7 +603,7 @@ const HOSTILE_DESIGNS: Record<string, (b: ModelBuilder, glow: number) => void> =
             const w = 0.8 + rnd() * 2.6
             const h = 0.5 + rnd() * 1.4
             const d = 1 + rnd() * 4
-            if (hi - lo < 1 || z > 16 && z < 34 && onUpper) continue
+            if (hi - lo < 1 || (z > 16 && z < 34 && onUpper)) continue
             const x = lo + rnd() * (hi - lo)
             // Keep the reactor wells and battery tubs clear.
             if (Math.hypot(x - 14.5, z - 27) < 6 || Math.hypot(x - 11, z + 6) < 4 || Math.hypot(x - 16, z - 22) < 4 || Math.hypot(x - 6.5, z + 8) < 4) continue

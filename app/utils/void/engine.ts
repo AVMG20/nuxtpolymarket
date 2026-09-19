@@ -11,7 +11,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { randomFloat } from '#shared/utils/random'
 import {
-    VOID_ABILITIES, VOID_UNIT_SCALE, voidBundleUnits, voidGun, voidResource, voidShip, voidTurret,
+    VOID_ABILITIES, VOID_UNIT_SCALE, voidBundleUnits, voidGun, voidResource, voidShip, voidTurret, voidTurretBonus,
     type VoidAbilityId, type VoidResourceBundle, type VoidResourceId, type VoidTurretId
 } from '#shared/utils/gamelogic/void'
 import { AsteroidField, ORE_GLOW, raySphere, type Asteroid } from './asteroids'
@@ -27,13 +27,14 @@ import {
 } from './models'
 import { createSky, SpaceDust, type Sky } from './sky'
 import { buildShip, shipGlow } from './ships'
-import { buildBeacon, buildStation, buildWreck } from './structures'
+import { buildBeacon, buildGate, buildStation, buildWreck } from './structures'
 import { buildDrone, buildTurret } from './turrets'
 import { drawOverlay } from './overlay'
 import { ObjectiveTracker } from './objectives'
 import { EventDirector } from './events'
 import { BeaconControl } from './beacons'
 import { SectorHazards } from './hazards'
+import { EnemyThreats } from './threats'
 import { SkillRunner } from './skills'
 import { ShipSystems } from './systems'
 import { VOID_ZONES, voidDepthLoot, voidDepthThreat, voidZone, type VoidZoneModifier } from '#shared/utils/gamelogic/void-pilot'
@@ -104,7 +105,7 @@ const DRONE_RANGE = 170
 const WORLD_UP = new THREE.Vector3(0, 1, 0)
 const FORWARD = new THREE.Vector3(0, 0, -1)
 // Chase camera pull-in for heavy hulls, as a share of ship length at full heft.
-const CAM = { back: 0.85, up: 0.14 }
+const CAM = { back: 0.55, up: 0.12 }
 export const SECTOR_RADIUS = 2600
 
 const _v1 = new THREE.Vector3()
@@ -275,6 +276,7 @@ export class VoidEngine {
     sectorEvents: EventDirector | null = null
     beacons: BeaconControl | null = null
     hazards: SectorHazards | null = null
+    threats = new EnemyThreats(this)
     skills: SkillRunner | null = null
     supplies: Record<string, number> = {}
     suppliesUsed: Record<string, number> = {}
@@ -287,7 +289,7 @@ export class VoidEngine {
     depth = 1
     zone: VoidZoneModifier = 'calm'
     fuel = 1
-    gate: { pos: THREE.Vector3, group: THREE.Group } | null = null
+    gate: { pos: THREE.Vector3, group: THREE.Group, spin: THREE.Object3D } | null = null
     gateOptions: VoidZoneModifier[] | null = null
     private gateCooldown = 0
     private fuelWarn = 0
@@ -702,7 +704,7 @@ export class VoidEngine {
         const model = buildShip(shipId)
         const root = new THREE.Group()
         root.add(model.group)
-        this.hangarTurrets = this.mountTurrets(model, turrets, root)
+        this.hangarTurrets = this.mountTurrets(model, turrets, root, voidTurretBonus(voidShip(shipId)))
         this.hangarFlames = []
         const palette2 = { glow: shipGlow(shipId) }
         for (const e of model.engines) {
@@ -896,6 +898,7 @@ export class VoidEngine {
         this.player = null
         this.hazards?.dispose()
         this.hazards = null
+        this.threats.clear()
         this.beacons = null
         this.skills?.dispose()
         this.skills = null
@@ -1055,18 +1058,15 @@ export class VoidEngine {
         for (let tries = 0; tries < 30 && (gateDir.dot(lairDir) > 0.3 || gateDir.dot(shipDir) > 0.5); tries++) gateDir = this.randomDir(0.2)
         const gatePos = gateDir.multiplyScalar(this.rand(1500, 1900))
         const gateGroup = new THREE.Group()
-        const gateModel = buildBeacon(0xc07bff)
-        gateModel.group.scale.setScalar(4)
+        const gateModel = buildGate(0xc07bff)
         gateGroup.add(gateModel.group)
-        const gateRing = new THREE.Mesh(new THREE.TorusGeometry(38, 1.6, 8, 48), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xc07bff).multiplyScalar(3), toneMapped: false }))
-        gateGroup.add(gateRing)
         gateGroup.position.copy(gatePos)
         gateGroup.lookAt(0, gatePos.y, 0)
         this.scene.add(gateGroup)
         const gateClear: Asteroid[] = []
         field.query(gatePos, 120, rock => gateClear.push(rock))
         for (const rock of gateClear) field.remove(rock)
-        this.gate = { pos: gatePos, group: gateGroup }
+        this.gate = { pos: gatePos, group: gateGroup, spin: gateModel.spin }
 
         // A Free Trader parks near the arrival point, and a Coalition patrol hunts raiders.
         if (!tutorial && randomFloat() < (this.depth === 1 ? 0.45 : 0.7)) {
@@ -1113,7 +1113,7 @@ export class VoidEngine {
         this.heft = Math.pow(THREE.MathUtils.clamp((ship.size - 3.2) / 12.8, 0, 1), 0.7)
         this.turnRate = 0
         const palette = { glow: shipGlow(cfg.shipId) }
-        const turrets = this.mountTurrets(model, cfg.turrets, root)
+        const turrets = this.mountTurrets(model, cfg.turrets, root, voidTurretBonus(ship))
         const flames = model.engines.map((e) => {
             const f = createFlame(e.radius, palette.glow)
             f.mesh.position.copy(e.position)
@@ -1175,10 +1175,10 @@ export class VoidEngine {
         for (let i = 0; i < cfg.stats.drones; i++) this.addDrone(0)
     }
 
-    addDrone(temporary: number) {
+    addDrone(temporary: number, wing?: Drone['wing']) {
         const p = this.player!
-        const palette = { glow: shipGlow(this.config!.shipId) }
-        const group = buildDrone(temporary > 0 ? 0xffe14f : palette.glow)
+        const palette = { glow: wing?.color ?? (temporary > 0 ? 0xffe14f : shipGlow(this.config!.shipId)) }
+        const group = buildDrone(palette.glow)
         const size = voidShip(this.config!.shipId).size
         group.scale.setScalar(Math.max(1, size / 5))
         group.position.copy(p.pos)
@@ -1195,14 +1195,17 @@ export class VoidEngine {
             rock: null,
             retarget: 0,
             temporary,
-            trail: new Trail(10, temporary > 0 ? 0xffe14f : palette.glow, 0.25, 0.03)
+            wing,
+            trail: new Trail(10, palette.glow, 0.25, 0.03)
         })
+        return p.drones[p.drones.length - 1]!
     }
 
     /** Mounts fitted turrets. Empty hardpoints stay bare. */
-    mountTurrets(model: BuiltModel, fits: (VoidWeaponFit | VoidTurretId | null)[], parent: THREE.Object3D): TurretSlot[] {
+    mountTurrets(model: BuiltModel, fits: (VoidWeaponFit | VoidTurretId | null)[], parent: THREE.Object3D, heavy = 0): TurretSlot[] {
         const size = Math.max(3.2, model.radius * 1.2)
-        const scale = THREE.MathUtils.clamp(size / 5.5, 0.55, 1.9)
+        // Hulls with a turret bonus carry visibly heavier mounts.
+        const scale = THREE.MathUtils.clamp(size / 5.5, 0.55, 1.9) * (1 + heavy * 0.8)
         const slots: TurretSlot[] = []
         // A hull can carry more turrets than its model drew mounts for. Spread
         // the rest along the spine, alternating top and bottom, so every fitted
@@ -1229,7 +1232,8 @@ export class VoidEngine {
             const type = (typeof entry === 'string' ? entry : entry.type) as VoidTurretId
             const base = voidTurret(type)
             // Gear scales the type's ballistics: damage by item power, rate and range by affixes.
-            const def = fit ? { ...base, damage: base.damage * fit.power * (base.rate === 0 ? fit.rate : 1), rate: base.rate * fit.rate, range: base.range * fit.range } : base
+            const mountMult = this.config?.stats.turretMult ?? 1
+            const def = fit ? { ...base, damage: base.damage * fit.power * mountMult * (base.rate === 0 ? fit.rate : 1), rate: base.rate * fit.rate, range: base.range * fit.range } : base
             const turretModel = buildTurret(type, def.color)
             turretModel.root.position.copy(mount.position)
             turretModel.root.quaternion.setFromUnitVectors(WORLD_UP, mount.normal)
@@ -1292,6 +1296,7 @@ export class VoidEngine {
         this.updatePickups(dt)
         this.asteroids?.update(dt)
         this.hazards?.update(dt)
+        this.threats.update(dt)
         this.beacons?.update(dt)
         for (const s of this.structures) {
             s.spin.forEach((o, i) => {
@@ -2116,6 +2121,7 @@ export class VoidEngine {
                 length: def.id === 'gatling' ? 4 : def.id === 'flak' ? 2.5 : 5,
                 splash: def.splash,
                 homing: missile ? t.target : null,
+                homingRock: missile && !t.target ? t.rock : null,
                 kind: missile ? 'missile' : mortar ? 'plasma' : def.id === 'flak' ? 'pellet' : 'bolt',
                 mining: def.mining,
                 source: def.id
@@ -2240,7 +2246,7 @@ export class VoidEngine {
             if (d.temporary > 0) {
                 d.temporary -= dt
                 if (d.temporary <= 0) {
-                    explosion(this.fx, d.pos, d.vel, 0.4, 0xffe14f, false)
+                    explosion(this.fx, d.pos, d.vel, 0.4, d.wing?.color ?? 0xffe14f, false)
                     this.scene.remove(d.group)
                     return false
                 }
@@ -2335,13 +2341,13 @@ export class VoidEngine {
             const dir = _v3.subVectors(aim, d.pos).normalize()
             const nose = _v4.set(0, 0, -1).applyQuaternion(d.group.quaternion)
             if (nose.dot(dir) < 0.8) return
-            d.cooldown = 0.45
-            const color = new THREE.Color(d.temporary > 0 ? 0xffe14f : shipGlow(this.config!.shipId)).multiplyScalar(3)
+            d.cooldown = d.wing ? 1 / d.wing.rate : 0.45
+            const color = new THREE.Color(d.wing?.color ?? (d.temporary > 0 ? 0xffe14f : shipGlow(this.config!.shipId))).multiplyScalar(3)
             this.projectiles.push({
                 pos: d.pos.clone(),
                 vel: dir.clone().multiplyScalar(380).add(d.vel),
                 life: 0.7,
-                damage: 7 * stats.droneDamageMult,
+                damage: d.wing?.damage ?? 7 * stats.droneDamageMult,
                 hostile: false,
                 color,
                 width: 0.2,
@@ -2350,7 +2356,7 @@ export class VoidEngine {
                 homing: null,
                 kind: 'bolt',
                 mining: 1.4,
-                source: 'drone'
+                source: d.wing ? 'wingman' : 'drone'
             })
             if (Math.random() < 0.4) this.audio.play('pulse', { distance: d.pos.distanceTo(this.camera.position) * 0.5, volume: 0.3, pitch: 1.4 })
         })
@@ -2372,14 +2378,34 @@ export class VoidEngine {
             if (pr.kind === 'missile') {
                 if (pr.homing && !pr.homing.alive) pr.homing = null
                 const speed = Math.min(pr.hostile ? 110 : 240, pr.vel.length() + dt * 260)
-                if (pr.homing) {
+                if (pr.homingRock && !pr.homingRock.alive) pr.homingRock = null
+                const mark = pr.homing?.pos ?? pr.homingRock?.pos
+                if (mark && !pr.hostile) {
+                    // Lead a mover, and brake into the turn when the mark is off the nose: a missile
+                    // at full burn has a wider turning circle than a parked target and would orbit it.
+                    const to = _v1.subVectors(mark, pr.pos)
+                    const dist = to.length()
+                    if (pr.homing) to.addScaledVector(pr.homing.vel, Math.min(1.2, dist / Math.max(speed, 1)))
+                    const aligned = Math.max(0, to.normalize().dot(_v4.copy(pr.vel).normalize()))
+                    const cruise = speed * (0.4 + 0.6 * aligned)
+                    const turn = 4.5 * (pr.turn ?? 1) * (1 + 60 / Math.max(dist, 12))
+                    pr.vel.lerp(to.multiplyScalar(cruise), 1 - Math.exp(-turn * dt))
+                    pr.vel.setLength(cruise)
+                    if (pr.homing && dist < pr.homing.radius + 2.5) {
+                        this.missileBlast(pr, pr.pos)
+                        continue
+                    }
+                } else if (pr.homing) {
                     const want = _v1.subVectors(pr.homing.pos, pr.pos).normalize().multiplyScalar(speed)
-                    pr.vel.lerp(want, 1 - Math.exp(-(pr.hostile ? 1.8 : 4.5 * (pr.turn ?? 1)) * dt))
+                    pr.vel.lerp(want, 1 - Math.exp(-1.8 * dt))
+                    pr.vel.setLength(speed)
                 } else if (pr.hostile && p?.alive) {
                     const want = _v1.subVectors(p.pos, pr.pos).normalize().multiplyScalar(speed)
                     pr.vel.lerp(want, 1 - Math.exp(-1.4 * dt))
+                    pr.vel.setLength(speed)
+                } else {
+                    pr.vel.setLength(speed)
                 }
-                pr.vel.setLength(speed)
                 if (Math.random() < 0.8) {
                     this.smoke.emit(pr.pos.x, pr.pos.y, pr.pos.z, 0, 0, 0, { life: 0.7, size: 0.8, sizeEnd: 2.6, color: 0x8a8a96, alpha: 0.18, drag: 0 })
                     this.particles.emit(pr.pos.x, pr.pos.y, pr.pos.z, 0, 0, 0, { life: 0.15, size: 1.6, sizeEnd: 0.3, color: 0xffb070, intensity: 2.5, drag: 0 })
@@ -2781,7 +2807,7 @@ export class VoidEngine {
         this.gateCooldown = Math.max(0, this.gateCooldown - dt)
         this.fuelWarn = Math.max(0, this.fuelWarn - dt)
         if (!this.gate || !p?.alive || this.gateOptions || this.gateCooldown > 0) return
-        this.gate.group.rotation.z += dt * 0.4
+        this.gate.spin.rotation.z += dt * 0.4
         const gateDist = p.pos.distanceTo(this.gate.pos)
         // After "Stay", the gate only reopens once you have flown clear of it.
         if (gateDist > 90) this.gateArmed = true
@@ -2847,6 +2873,7 @@ export class VoidEngine {
         this.trader = null
         this.hazards?.dispose()
         this.hazards = null
+        this.threats.clear()
         this.beacons?.clear()
         this.asteroids?.clear()
         this.systems?.clearZone()
@@ -3379,8 +3406,8 @@ export class VoidEngine {
         const stats = this.config!.stats
         // Big hulls pull the camera in close and high, so the deck runs out ahead of you and fills the lower screen.
         const h = this.heft
-        const back = size * (1.9 - h * CAM.back) + 5.5
-        const up = size * (0.72 - h * CAM.up) + 1.4
+        const back = size * (1.55 - h * CAM.back) + 4.4
+        const up = size * (0.66 - h * CAM.up) + 1.2
         const speedFrac = Math.min(2, p.vel.length() / stats.speed)
         const targetFov = 66 + (speedFrac * 5 + (p.boosting ? 9 : 0)) * (1 - h * 0.5)
         if (this.phase !== 'docking') this.fov = THREE.MathUtils.lerp(this.fov, targetFov, 1 - Math.exp(-3 * dt))

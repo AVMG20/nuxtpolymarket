@@ -8,6 +8,7 @@ import { ENEMIES, ENEMY_KINDS, WARDEN_BASE_HP, WARDEN_GLOW, threatDamageMult, th
 import { ShieldBubble, Trail, createFlame, explosion, hitSpark } from './fx'
 import { buildCrate, buildEnemy, buildWarden } from './enemy-models'
 import { buildHostile } from './hostiles'
+import { buildTrader } from './structures'
 import { buildTurret } from './turrets'
 import { ModelBuilder, cyl, ico, ring, type Hardpoint, type TurretModel } from './models'
 import { raySphere } from './asteroids'
@@ -81,9 +82,9 @@ export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vec
         engineRadii = built.engines.map(en => en.radius)
     } else if (kind === 'trader') {
         glow = 0x9fffd9
-        const built = buildEnemy('freighter', glow, 2.4)
+        const built = buildTrader(glow)
         group = built.group
-        radius = 12
+        radius = 16
         hp = 1e9
         name = 'Free Trader'
         engines = built.engines.map(en => en.position.clone())
@@ -1246,6 +1247,7 @@ function attack(engine: VoidEngine, e: Enemy, dt: number, dist: number, p: AiTar
             steer(e, desired, 0.8, dt)
             faceTowards(e, dirToPlayer, def.turn, dt)
             if (e.shield) e.shield.strength = 0.08
+            if (p.isPlayer && engine.threats.ready(e, dt) && dist < 260) engine.threats.callStrike(e, p.pos, p.vel, dmg * 4, 13)
             if (e.cooldown <= 0 && dist < def.range) {
                 e.cooldown = def.cooldown
                 const muzzle = _v1.copy(e.pos).addScaledVector(fwd, e.radius)
@@ -1356,6 +1358,10 @@ function attack(engine: VoidEngine, e: Enemy, dt: number, dist: number, p: AiTar
             const desired = dirToPlayer.clone().multiplyScalar(THREE.MathUtils.clamp((dist - 200) / 80, -0.5, 1) * def.speed)
             steer(e, desired, 0.5, dt)
             faceTowards(e, dirToPlayer, def.turn, dt)
+            // A storm rocket now and then: it turns badly, and fouls the space where it bursts.
+            if (p.isPlayer && engine.threats.ready(e, dt) && dist < 420 && dist > 90) {
+                engine.threats.launchRocket(e, _v1.copy(e.pos).addScaledVector(fwd, e.radius + 2), fwd, dmg * 4, 16)
+            }
             if (e.cooldown <= 0) {
                 e.cooldown = def.cooldown
                 for (let i = 0; i < 4; i++) {
@@ -1384,6 +1390,8 @@ function attack(engine: VoidEngine, e: Enemy, dt: number, dist: number, p: AiTar
             const radial = dirToPlayer.clone().multiplyScalar(THREE.MathUtils.clamp((dist - orbitR) / 70, -1, 1))
             steer(e, tangent.add(radial).normalize().multiplyScalar(def.speed).addScaledVector(p.vel, 0.3), 0.9, dt)
             faceTowards(e, dirToPlayer, def.turn, dt)
+            // Paints a lance strike just ahead of you: break off your line or eat it.
+            if (p.isPlayer && engine.threats.ready(e, dt) && dist < 320) engine.threats.callStrike(e, p.pos, p.vel, dmg * 5, 11)
             if (e.cooldown <= 0 && dist < def.range && fwd.dot(dirToPlayer) > 0.7) {
                 e.cooldown = def.cooldown
                 e.data.burst = 12
@@ -1412,6 +1420,9 @@ function attack(engine: VoidEngine, e: Enemy, dt: number, dist: number, p: AiTar
             steer(e, desired, 0.5, dt)
             faceTowards(e, dirToPlayer, def.turn * (e.state === 'charge' ? 0.4 : 1), dt)
             const maw = _v1.set(0, 0, -5.9).multiplyScalar(def.scale).applyQuaternion(e.group.quaternion).add(e.pos)
+            if (p.isPlayer && e.state !== 'charge' && engine.threats.ready(e, dt) && dist < 460 && dist > 110 && fwd.dot(dirToPlayer) > 0.6) {
+                engine.threats.launchRocket(e, maw, fwd, dmg * 3, 14)
+            }
             if (e.state !== 'charge') {
                 if (e.cooldown <= 0 && dist < def.range && fwd.dot(dirToPlayer) > 0.8) {
                     e.state = 'charge'
