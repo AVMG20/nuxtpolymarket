@@ -343,8 +343,6 @@ export const CAPITAL_DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => voi
         drive(b, l, [0.55, -0.4, 3.1], 0.38, true, 0, l.trim)
         barbette(b, l, [0, 0.92, 2.25], true, false, 0.3)
         barbette(b, l, [0, 0.86, -1.75], true, false, 0.3)
-        barbette(b, l, [1.95, 0.45, -0.4], true, true, 0.28)
-        barbette(b, l, [1.95, -0.45, -0.4], false, true, 0.28)
         barbette(b, l, [0, -1.23, 0.6], false, false, 0.3)
     },
 
@@ -439,7 +437,6 @@ export const CAPITAL_DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => voi
         greeble(b, l, [-0.7, 0.69, 2.3], 0.5, 0.6, 5, 21)
         barbette(b, l, [1.55, 1.6, 0.85], true, false, 0.22)
         barbette(b, l, [-1.55, 0.64, 1.9], true, false, 0.28)
-        barbette(b, l, [0, -0.66, -0.5], false, false, 0.28)
     },
 
     seraph(b, l) {
@@ -502,8 +499,6 @@ export const CAPITAL_DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => voi
         drive(b, l, [0, 0, 2.35], 0.3, false, 8)
         barbette(b, l, [0, 0.36, 0.0], true, false, 0.16)
         barbette(b, l, [0, -0.4, -0.3], false, false, 0.16)
-        barbette(b, l, [1.4, 0.6, 1.0], true, true, 0.15)
-        barbette(b, l, [1.4, 0.0, 1.0], false, true, 0.15)
     },
 
     // A flying fortress: a dagger prow with a triple main battery, casemates
@@ -635,10 +630,6 @@ export const CAPITAL_DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => voi
         barbette(b, l, [0, 2.42, -1.2], true, false, 0.42)
         barbette(b, l, [0, 3.38, 2.0], true, false, 0.42)
         barbette(b, l, [3.3, 1.03, -2.4], true, true, 0.42)
-        barbette(b, l, [3.3, 1.03, 2.6], true, true, 0.42)
-        barbette(b, l, [3.3, -1.03, 0.1], false, true, 0.42)
-        barbette(b, l, [0, -2.08, -1.2], false, false, 0.42)
-        barbette(b, l, [0, -2.0, 3.6], false, false, 0.42)
     },
 
     // A dreadnought built around its gun: the spinal lance runs out between two
@@ -815,9 +806,5 @@ export const CAPITAL_DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => voi
         drive(b, l, [6, 0, 5.4], 0.75, true, 8)
         greeble(b, l, [6, 1.22, -1.9], 0.9, 1.0, 5, 42, true)
         barbette(b, l, [6, 1.2, -1.5], true, true, 0.5)
-        barbette(b, l, [6, 1.2, 2.0], true, true, 0.5)
-        barbette(b, l, [6, -1.2, 0.6], false, true, 0.5)
-        barbette(b, l, [0, -top(2), 2.0], false, false, 0.5)
-        barbette(b, l, [0, -top(6.2), 6.2], false, false, 0.5)
     }
 }

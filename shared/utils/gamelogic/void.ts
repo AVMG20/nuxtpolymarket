@@ -410,6 +410,8 @@ export interface VoidShipDefinition {
     cost: VoidResourceBundle
     coins: number
     gems: number
+    /** Heavier mounts on gun platforms and capital hulls: a share added to every turret's damage. */
+    turretBonus?: number
     /** Length of the model in world units. Drives the chase camera. */
     size: number
 }
@@ -425,55 +427,55 @@ export const VOID_SHIPS = [
         id: 'wasp', name: 'Wasp', role: 'Interceptor', requiresSector: 0,
         description: 'All engine. One turret, no room for more, and a blink drive that puts you behind whatever was chasing you.',
         hull: 100, shield: 80, speed: 92, agility: 3.7, cargo: 1100, turrets: 1, armor: 1, shields: 1, drones: 0, ability: 'blink',
-        cost: { ferrite: 360, scrap: 240 }, coins: 250_000, gems: 0, size: 3.6
+        cost: { ferrite: 1100, scrap: 700 }, coins: 250_000, gems: 0, size: 3.6
     },
     {
         id: 'mule', name: 'Mule', role: 'Hauler', requiresSector: 0,
-        description: 'A flying cargo bay with four turret mounts, a mining drone and a tractor pulse that vacuums up everything nearby. It handles like a barge.',
-        hull: 300, shield: 70, speed: 46, agility: 1.6, cargo: 3750, turrets: 4, armor: 2, shields: 1, drones: 1, ability: 'tractor',
-        cost: { ferrite: 780, cobalt: 90, scrap: 360 }, coins: 500_000, gems: 0, size: 5.2
+        description: 'A flying cargo bay with two turret mounts, a mining drone and a tractor pulse that vacuums up everything nearby. It handles like a barge.',
+        hull: 300, shield: 70, speed: 46, agility: 1.6, cargo: 3750, turrets: 2, armor: 2, shields: 1, drones: 1, ability: 'tractor',
+        cost: { ferrite: 2350, cobalt: 250, scrap: 1100 }, coins: 500_000, gems: 0, size: 5.2
     },
     {
         id: 'kestrel', name: 'Kestrel', role: 'Gunship', requiresSector: 1,
-        description: 'Five turrets and a missile salvo. A gun platform first and a ship second.',
-        hull: 240, shield: 120, speed: 58, agility: 2.1, cargo: 1750, turrets: 5, armor: 2, shields: 1, drones: 0, ability: 'salvo',
-        cost: { ferrite: 1200, cobalt: 480, scrap: 780 }, coins: 2_500_000, gems: 0, size: 5
+        description: 'Three heavy turret mounts and a missile salvo. A gun platform first and a ship second.',
+        hull: 240, shield: 120, speed: 58, agility: 2.1, cargo: 1750, turrets: 3, armor: 2, shields: 1, drones: 0, ability: 'salvo',
+        cost: { ferrite: 3600, cobalt: 1450, scrap: 2350 }, coins: 2_500_000, gems: 0, turretBonus: 0.15, size: 5
     },
     {
         id: 'phantom', name: 'Phantom', role: 'Striker', requiresSector: 1,
         description: 'Fast, agile and hard to pin down. Two turrets are all it carries; its phase drive turns it intangible for a moment.',
         hull: 170, shield: 170, speed: 100, agility: 3.6, cargo: 1500, turrets: 2, armor: 2, shields: 1, drones: 0, ability: 'phase',
-        cost: { cobalt: 960, scrap: 1140, alloy: 120 }, coins: 4_000_000, gems: 0, size: 4.6
+        cost: { cobalt: 2900, scrap: 3400, alloy: 350 }, coins: 4_000_000, gems: 0, size: 4.6
     },
     {
         id: 'aegis', name: 'Aegis', role: 'Tank', requiresSector: 2,
-        description: 'A slab of armour with seven turrets and a shield overcharge that shrugs off anything for a few seconds. It does not turn so much as change its mind.',
-        hull: 620, shield: 260, speed: 42, agility: 1.3, cargo: 3000, turrets: 7, armor: 4, shields: 1, drones: 0, ability: 'bulwark',
-        cost: { cobalt: 1560, iridium: 270, scrap: 1800, alloy: 240 }, coins: 15_000_000, gems: 5, size: 7.5
+        description: 'A slab of armour with three heavy turrets and a shield overcharge that shrugs off anything for a few seconds. It does not turn so much as change its mind.',
+        hull: 620, shield: 260, speed: 42, agility: 1.3, cargo: 3000, turrets: 3, armor: 4, shields: 1, drones: 0, ability: 'bulwark',
+        cost: { cobalt: 4700, iridium: 800, scrap: 5400, alloy: 700 }, coins: 15_000_000, gems: 5, turretBonus: 0.15, size: 7.5
     },
     {
         id: 'hive', name: 'Hive', role: 'Carrier', requiresSector: 2,
-        description: 'Three turrets and a bay of six attack drones that do the real work. Launches a second swarm on demand.',
-        hull: 380, shield: 220, speed: 52, agility: 1.7, cargo: 2750, turrets: 3, armor: 3, shields: 1, drones: 6, ability: 'swarm',
-        cost: { cobalt: 1260, iridium: 420, alloy: 420 }, coins: 18_000_000, gems: 5, size: 7
+        description: 'Two turrets and a bay of six attack drones that do the real work. Launches a second swarm on demand.',
+        hull: 380, shield: 220, speed: 52, agility: 1.7, cargo: 2750, turrets: 2, armor: 3, shields: 1, drones: 6, ability: 'swarm',
+        cost: { cobalt: 3800, iridium: 1250, alloy: 1250 }, coins: 18_000_000, gems: 5, size: 7
     },
     {
         id: 'seraph', name: 'Seraph', role: 'Vanguard', requiresSector: 3,
-        description: 'Speed and firepower in one frame, which is what it costs. Six turrets, two drones and a nova that clears the air around it.',
-        hull: 360, shield: 380, speed: 86, agility: 3, cargo: 2500, turrets: 6, armor: 3, shields: 2, drones: 2, ability: 'nova',
-        cost: { iridium: 1080, xenite: 120, alloy: 660, core: 3 }, coins: 75_000_000, gems: 25, size: 6.5
+        description: 'Speed and firepower in one frame, which is what it costs. Two turrets, two drones and a nova that clears the air around it.',
+        hull: 360, shield: 380, speed: 86, agility: 3, cargo: 2500, turrets: 2, armor: 3, shields: 2, drones: 2, ability: 'nova',
+        cost: { iridium: 3250, xenite: 350, alloy: 2000, core: 6 }, coins: 75_000_000, gems: 25, size: 6.5
     },
     {
         id: 'bastion', name: 'Bastion', role: 'Fortress', requiresSector: 4,
-        description: 'Ten turrets, two drones and an overdrive that doubles their fire rate. It turns like a planet.',
-        hull: 1100, shield: 460, speed: 40, agility: 1.1, cargo: 5000, turrets: 10, armor: 5, shields: 2, drones: 2, ability: 'overdrive',
-        cost: { iridium: 1800, xenite: 420, alloy: 1140, core: 6 }, coins: 250_000_000, gems: 60, size: 11
+        description: 'Four capital turrets, two drones and an overdrive that doubles their fire rate. It turns like a planet.',
+        hull: 1100, shield: 460, speed: 40, agility: 1.1, cargo: 5000, turrets: 4, armor: 5, shields: 2, drones: 2, ability: 'overdrive',
+        cost: { iridium: 5400, xenite: 1250, alloy: 3400, core: 12 }, coins: 250_000_000, gems: 60, turretBonus: 0.25, size: 11
     },
     {
         id: 'leviathan', name: 'Leviathan', role: 'Dreadnought', requiresSector: 5,
-        description: 'Twelve turrets, four drones and a spinal lance that cuts a sector in half. The last ship you will ever need.',
-        hull: 1800, shield: 800, speed: 36, agility: 0.9, cargo: 6500, turrets: 12, armor: 6, shields: 2, drones: 4, ability: 'lance',
-        cost: { iridium: 2700, xenite: 1080, alloy: 1800, core: 12 }, coins: 900_000_000, gems: 150, size: 16
+        description: 'Six capital turrets, four drones and a spinal lance that cuts a sector in half. The last ship you will ever need.',
+        hull: 1800, shield: 800, speed: 36, agility: 0.9, cargo: 6500, turrets: 6, armor: 6, shields: 2, drones: 4, ability: 'lance',
+        cost: { iridium: 8100, xenite: 3250, alloy: 5400, core: 24 }, coins: 900_000_000, gems: 150, turretBonus: 0.3, size: 16
     }
 ] as const satisfies readonly VoidShipDefinition[]
 
@@ -524,7 +526,7 @@ export interface VoidUpgradeDefinition {
 export const VOID_UPGRADES: readonly VoidUpgradeDefinition[] = [
     { id: 'engines', name: 'Thruster Array', description: 'Cruise speed, boost and turn rate.', maxLevel: 8, effect: l => `+${l * 8}% speed, +${l * 4}% turn` },
     { id: 'cargo', name: 'Cargo Systems', description: 'Compressed bays and a stronger tractor.', maxLevel: 10, effect: l => `+${l * 15}% hold, +${l * 20}% pickup range` },
-    { id: 'mining', name: 'Mining Rig', description: 'Cuts rock faster and splits more ore from it.', maxLevel: 8, effect: l => `+${l * 25}% mining` },
+    { id: 'mining', name: 'Mining Rig', description: 'Cuts rock faster and splits more ore from it.', maxLevel: 8, effect: l => `+${l * 10}% mining` },
     { id: 'drones', name: 'Drone Bay', description: 'Harder-hitting drones; every third Mk launches one more.', maxLevel: 9, effect: l => `+${l * 20}% drone damage, +${Math.floor(l / 3)} drones` }
 ]
 
@@ -658,8 +660,17 @@ export interface VoidDerivedStats {
     fireRateMult: number
     miningMult: number
     droneDamageMult: number
+    /** Multiplier on every fitted turret's damage: the fleet-wide mount rating times the hull's bonus. */
+    turretMult: number
     drones: number
     gun: number
+}
+
+/** Hulls carry few turrets, so each mount hits hard. */
+export const VOID_TURRET_MOUNT = 1.5
+
+export function voidTurretBonus(ship: { turretBonus?: number }) {
+    return ship.turretBonus ?? 0
 }
 
 export function voidDerivedStats(shipId: string, levels: VoidUpgradeLevels, fit: VoidShipFit, items: readonly VoidItem[], perks?: VoidPerkRanks): VoidDerivedStats {
@@ -688,9 +699,10 @@ export function voidDerivedStats(shipId: string, levels: VoidUpgradeLevels, fit:
         magnet: 34 * (1 + l.cargo * 0.2) * Math.max(1, ship.size / 5),
         damageMult: gunPower,
         fireRateMult: 1,
-        miningMult: 1 + l.mining * 0.25,
+        miningMult: 1 + l.mining * 0.1,
         // Drones ride on the best turret you fitted, so they grow with your gear.
         droneDamageMult: (1 + l.drones * 0.2) * Math.max(gunPower, ...fit.turrets.map(id => (id && byId.get(id) ? voidItemPower(byId.get(id)!) : 0))),
+        turretMult: VOID_TURRET_MOUNT * (1 + voidTurretBonus(ship)),
         drones: ship.drones + Math.floor(l.drones / 3) * (ship.drones > 0 ? 1 : 0),
         gun: VOID_GUN_BASE
     }
@@ -710,7 +722,7 @@ export function voidGearTier(shipId: string, fit: VoidShipFit, items: readonly V
 
 /** A single number to compare builds with. */
 export function voidPowerRating(loadout: Pick<VoidLoadout, 'gun' | 'turrets'>, stats: VoidDerivedStats) {
-    const turretDps = loadout.turrets.reduce((sum, t) => sum + (t ? voidTurretDps(t.type) * t.power * t.rate : 0), 0)
+    const turretDps = loadout.turrets.reduce((sum, t) => sum + (t ? voidTurretDps(t.type) * t.power * t.rate : 0), 0) * stats.turretMult
     const gunDps = loadout.gun ? voidGunDps(loadout.gun.type) * loadout.gun.power * loadout.gun.rate : 0
     const droneDps = stats.drones * 8 * stats.droneDamageMult
     const defence = (stats.hull * (1 + stats.resist) + stats.shield * 1.2) / 10

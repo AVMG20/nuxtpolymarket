@@ -66,6 +66,7 @@
             <div class="vh-title-stats">
                 <div v-if="shown.owned"><span>Power</span><b>{{ formatNumber(shown.power, false) }}</b></div>
                 <div><span>Turrets</span><b>{{ shown.turrets }}</b></div>
+                <div v-if="shownTurretBonus" title="This hull carries heavier turret mounts"><span>Turret damage</span><b>+{{ shownTurretBonus }}%</b></div>
                 <div><span>Drones</span><b>{{ shown.stats.drones }}</b></div>
                 <div v-if="shown.ability" :title="abilityText(shown.ability)"><span>Ability · R</span><b>{{ abilityName(shown.ability) }}</b></div>
             </div>
@@ -450,13 +451,12 @@
 
 <script setup lang="ts">
 import type { InternalApi } from 'nitropack/types'
-import { threatDamageMult } from '~/utils/void/data'
+import { ENEMIES, threatDamageMult } from '~/utils/void/data'
 import {
-    VOID_ABILITIES, VOID_SHIPS, voidGearTier, voidHex, voidMark, voidResource, voidShip,
+    VOID_ABILITIES, VOID_SHIPS, voidGearTier, voidHex, voidMark, voidResource, voidShip, voidTurretBonus,
     type VoidAbilityId, type VoidResourceId, type VoidUpgradeId
 } from '#shared/utils/gamelogic/void'
 import type { VoidSfx } from '~/utils/void/audio'
-import { ENEMIES } from '~/utils/void/data'
 import VoidCost from './VoidCost.vue'
 import VoidSkills from './VoidSkills.vue'
 import VoidLoadout from './VoidLoadout.vue'
@@ -629,6 +629,7 @@ const ownedCount = computed(() => props.state.ships.filter(s => s.owned).length)
  * left out, or an empty new hull would look weaker than the fitted one you fly
  * and nobody would ever buy it.
  */
+const shownTurretBonus = computed(() => Math.round(voidTurretBonus(voidShip(shown.value.id)) * 100))
 const shownSpec = computed(() => {
     const a = voidShip(shown.value.id)
     const b = voidShip(props.state.equippedShipId)

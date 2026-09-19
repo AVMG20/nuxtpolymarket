@@ -226,7 +226,6 @@ const DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => void> = {
         gunFairing(b, l, [0.17, -0.07, -1.05], 0.6, 0.055, 0.55, true)
         rcs(b, l, [0.09, 0.085, -1.62], true, true, 0.6)
         mount(b, l, [0, -0.2, 0.2], false, false, 0.14)
-        mount(b, l, [0, 0.3, 0.75], true, false, 0.14)
     },
 
     // A deep-space tug: a fat cab up front, an open keel behind it, and mismatched
@@ -357,7 +356,6 @@ const DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => void> = {
         b.glow(octa(0.06), 0xffffff, 3, [0, 0.95, 3.3])
         mount(b, l, [0, 0.84, -2.0], true, false, 0.26)
         mount(b, l, [0, -0.48, 0.6], false, false, 0.26)
-        mount(b, l, [0.86, 0.5, 0.58], true, true, 0.26)
     },
 
     // A gunship: a slab-sided armoured hull with a rotary cannon under the chin,
@@ -431,7 +429,6 @@ const DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => void> = {
         stripLight(b, l.accent, [1.12, WY + 0.098, 0.2], 0.5, 'z', true, 1.8)
         rcs(b, l, [2.05, WY + 0.085, 0.55], true, true, 1.1)
         mount(b, l, [1.45, WY + 0.1, 0.62], true, true, 0.2)
-        mount(b, l, [1.45, WY - 0.1, 0.62], false, true, 0.2)
         // Ordnance: a rocket pod inboard, missiles outboard.
         b.metal(block(0.06, 0.12, 0.4, 0.01), l.metal, [1.0, WY - 0.13, 0.35], [0, 0, 0], [1, 1, 1], true)
         b.metal(tube(0.13, 0.13, 0.8, 10), l.trim, [1.0, WY - 0.31, 0.3], [0, 0, 0], [1, 1, 1], true)
@@ -495,7 +492,8 @@ const DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => void> = {
             { z: -2.5, w: 0.02, h: 0.02 },
             { z: -1.1, w: 0.42, h: 0.18 },
             { z: 0.4, w: 0.85, h: 0.26 },
-            { z: 1.5, w: 0.5, h: 0.14 }
+            { z: 1.45, w: 0.72, h: 0.19 },
+            { z: 2.05, w: 0.5, h: 0.07 }
         ]
         b.solid(loft(hull, ...FACET), l.paint)
         b.metal(tube(0.008, 0.012, 0.4, 5), l.metal, [0, 0, -2.68])
@@ -510,7 +508,6 @@ const DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => void> = {
         b.solid(loft(spine, ...HEX), l.paint2)
         band(b, spine, 0.72, 0.74, PANEL, HEX, 0.004)
         band(b, spine, 0.16, 0.2, l.accent, HEX, 0.004, 1.6)
-        mount(b, l, [0, 0.31, 0.45], true, false, 0.16)
         seam(b, l.glow, [0, 0.295, 1.0], 0.5, false, 'z', 1.2)
         canopy(b, l, -1.38, -0.2, 0.08, 0.17, 0.11)
         b.solid(slab([[0.05, -2.2], [0.3, -1.15], [0.12, -1.2]], 0.05, 0.01), l.paint2, [0, 0.06, 0], [0, 0, 0], [1, 1, 1], true)
@@ -536,22 +533,24 @@ const DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => void> = {
         gearBay(b, l, [0, -0.275, 0.3], 0.44, 0.86)
         hazard(b, [0, -0.272, -0.17], 0.5, 0.05, 6)
         gearBay(b, l, [0, -0.2, -1.0], 0.14, 0.34, false, l.paint2)
+        // Two turrets ride under the wings.
         mount(b, l, [0.95, WY - 0.04, 0.65], false, true, 0.16)
         gunFairing(b, l, [0.3, -0.04, -1.1], 0.6, 0.05, 0.5, true, l.paint2)
         // V-tail.
         b.solid(slab([[0, 0.3], [0.62, 1.0], [0.55, 1.4], [0, 1.22]], 0.05, 0.015), l.paint2, [0.38, 0.15, 0.2], [0, 0, Math.PI / 2 - 0.65], [1, 1, 1], true)
         b.solid(slab([[0.44, 0.8], [0.62, 1.0], [0.55, 1.4], [0.42, 1.36]], 0.06, 0.012), l.trim, [0.38, 0.15, 0.2], [0, 0, Math.PI / 2 - 0.65], [1, 1, 1], true)
         b.glow(new THREE.BoxGeometry(0.02, 0.4, 0.02), l.glow, 2, [0.58, 0.42, 1.56], [0, 0, -0.65], [1, 1, 1], true)
-        // Exhaust trough: the burners sit between two heat-tiled plates with a lit lip.
-        b.metal(block(1.2, 0.06, 0.75, 0.02), l.trim, [0, 0.2, 1.5])
-        b.metal(block(1.3, 0.06, 0.95, 0.02), SCORCH, [0, -0.2, 1.6])
-        for (const x of [-0.6, 0, 0.6]) b.metal(block(0.06, 0.4, 0.7, 0.015), l.trim, [x, 0, 1.5])
-        for (let i = 0; i < 6; i++) b.metal(block(0.18, 0.02, 0.3, 0.005), i % 2 ? 0x2b2622 : 0x4a3d35, [-0.5 + i * 0.2, -0.165, 1.9])
-        b.glow(new THREE.BoxGeometry(1.1, 0.02, 0.02), l.glow, 1.8, [0, 0.235, 1.87])
-        b.glow(new THREE.BoxGeometry(1.2, 0.015, 0.015), l.accent, 1.6, [0, -0.165, 2.07])
-        vent(b, [0.3, 0.235, 1.4], 0.36, 0.03, 0.4, true, 3)
-        b.engine([0.26, 0, 1.55], 0.17, true, l.glow)
-        b.glow(ring(0.165, 0.009, 3, 12), l.glow, 1.5, [0.26, 0, 1.69], [0, 0, 0], [1, 1, 1], true)
+        // Beaver tail: the hull flattens into a blended exhaust deck. The burners sit
+        // recessed under a short upper cowl and blow across a longer heat-tiled shelf.
+        b.solid(slab([[-0.6, 1.15], [0.6, 1.15], [0.4, 1.85], [-0.4, 1.85]], 0.05, 0.015), l.paint2, [0, 0.15, 0])
+        b.metal(slab([[-0.66, 1.3], [0.66, 1.3], [0.44, 2.3], [-0.44, 2.3]], 0.05, 0.015), SCORCH, [0, -0.13, 0])
+        for (const x of [-0.5, 0, 0.5]) b.metal(slab([[0, 1.3], [0.27, 1.3], [0.27, 1.85], [0, 2.2]], 0.05, 0.01), l.trim, [x * 0.92, -0.12, 0], [0, 0, Math.PI / 2])
+        for (let i = 0; i < 5; i++) b.metal(block(0.15, 0.015, 0.28, 0.004), i % 2 ? 0x2b2622 : 0x4a3d35, [-0.34 + i * 0.17, -0.1, 2.08])
+        b.glow(new THREE.BoxGeometry(0.78, 0.015, 0.015), l.glow, 1.8, [0, 0.18, 1.85])
+        b.glow(new THREE.BoxGeometry(0.84, 0.012, 0.012), l.accent, 1.4, [0, -0.1, 2.3])
+        vent(b, [0.28, 0.185, 1.4], 0.3, 0.025, 0.34, true, 3)
+        b.engine([0.25, 0.01, 1.62], 0.13, true, l.glow)
+        b.glow(ring(0.125, 0.008, 3, 12), l.glow, 1.5, [0.25, 0.01, 1.75], [0, 0, 0], [1, 1, 1], true)
     },
 
     // A shield-bearer: a navy core hull carried between overlapping pauldron

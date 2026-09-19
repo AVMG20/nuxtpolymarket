@@ -289,7 +289,7 @@ export class AsteroidField {
         const slot = shape.free.pop()!
         shape.body.count = Math.max(shape.body.count, slot + 1)
         shape.crystals.count = shape.body.count
-        const maxHp = ore ? Math.round(Math.pow(radius, 1.55) * 3.2 * hpMult) : Number.POSITIVE_INFINITY
+        const maxHp = ore ? Math.round(Math.pow(radius, 1.55) * 4 * hpMult) : Number.POSITIVE_INFINITY
         const rock: Asteroid = {
             id: this.nextId++,
             shape: shapeIndex,
