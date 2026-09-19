@@ -5,7 +5,7 @@
 // projecting world points each frame and written straight to the DOM — no
 // per-frame Vue re-render.
 import * as THREE from 'three'
-import { addLandscape, clearLandscape, createMeadowTexture } from '~/utils/town/landscape'
+import { addLandscape, clearLandscape, createCloud, createMeadowTexture } from '~/utils/town/landscape'
 import { animateTownWater } from '~/utils/town/surfaces'
 import { createTerrainOverlay, createWaterLayer, disposeTerrainOverlay, disposeWaterLayer } from '~/utils/town/terrain'
 import { createRoadParts } from '~/utils/town/roads'
@@ -13,7 +13,7 @@ import { townVisualLevel } from '~/utils/town/appearance'
 import { townDragDelta, townKeyboardDelta, townIsTyping, townWheelZoomFactor, townSnapTurn } from '~/utils/town/camera'
 import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, townDragLine, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import { createBuildingModel, townMaterial } from '~/utils/town/models'
+import { createBuildingModel, townMaterial, TOWN_MODEL_VARIANTS } from '~/utils/town/models'
 import { createCar, createTruck, TOWN_VEHICLE_COLORS, TOWN_VEHICLE_SIZE } from '~/utils/town/vehicles'
 
 export interface ScenePlot { id: string, x: number, y: number }
@@ -85,7 +85,8 @@ const props = withDefaults(defineProps<{
     /**
      * Motion-sickness mode. Orthographic view, camera cuts instead of glides,
      * quarter-turn snaps instead of a free orbit, and no ambient motion (still
-     * water, no smoke, no traffic, no bobbing labels). Off, nothing changes.
+     * water, no smoke, no bobbing labels). Traffic still runs: it is slow,
+     * small and stays on the roads. Off, nothing changes.
      */
     reducedMotion?: boolean
 }>(), {
@@ -166,7 +167,7 @@ const perspectiveCamera = new THREE.PerspectiveCamera(FOV, 1, 0.1, 400)
 // parallax goes, which is the point for anyone the perspective swim upsets.
 const orthographicCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, -200, 400)
 let camera: THREE.PerspectiveCamera | THREE.OrthographicCamera = perspectiveCamera
-const sun = new THREE.DirectionalLight(0xffdfac, 3.1)
+const sun = new THREE.DirectionalLight(0xffd9a0, 3.4)
 const plotsGroup = new THREE.Group()
 const buildingsGroup = new THREE.Group()
 const expansionGroup = new THREE.Group()
@@ -178,7 +179,7 @@ const terrainGroup = new THREE.Group()
 const waterGroup = new THREE.Group()
 scene.add(plotsGroup, buildingsGroup, expansionGroup, neighbourGroup, decorGroup, vehicleGroup, waterGroup, terrainGroup, fxGroup)
 
-const SKY = 0xc6d3cc
+const SKY = 0xcfe4ea
 scene.background = new THREE.Color(SKY)
 scene.fog = new THREE.Fog(SKY, 60, 160)
 
@@ -257,7 +258,7 @@ function recenter(animate = true) {
 // ─── Lighting & ground ───────────────────────────────────────────────────────
 
 function setupStatic() {
-    const hemi = new THREE.HemisphereLight(0xdceafa, 0x655339, 1.35)
+    const hemi = new THREE.HemisphereLight(0xe2efff, 0x8a7550, 1.25)
     scene.add(hemi)
     const skyFill = new THREE.DirectionalLight(0xd8e7f1, 0.35)
     skyFill.position.set(-30, 20, -20)
@@ -288,7 +289,7 @@ function setupStatic() {
     scene.add(ground)
 
     // Distant hills in the fog give the horizon some shape.
-    const hillMat = new THREE.MeshStandardMaterial({ color: 0x668b73, roughness: 1, flatShading: true })
+    const hillMat = new THREE.MeshStandardMaterial({ color: 0x6fa05c, roughness: 1, flatShading: true })
     const hillGeo = new THREE.SphereGeometry(1, 8, 6)
     for (let i = 0; i < 14; i++) {
         const a = (i / 14) * Math.PI * 2
@@ -299,24 +300,17 @@ function setupStatic() {
         scene.add(hill)
     }
 
-    // Clouds: flat soft ellipsoids drifting slowly.
-    const cloudMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, transparent: true, opacity: 0.85 })
-    const puffGeo = new THREE.SphereGeometry(1, 7, 5)
-    for (let i = 0; i < 6; i++) {
-        const cloud = new THREE.Group()
-        for (let j = 0; j < 3; j++) {
-            const puff = new THREE.Mesh(puffGeo, cloudMat)
-            puff.position.set(j * 1.6 - 1.6, (j % 2) * 0.3, (j % 2) * 0.6)
-            puff.scale.set(2.2 + j * 0.4, 0.9, 1.6)
-            cloud.add(puff)
-        }
-        cloud.position.set((i - 3) * 34 + (i % 2) * 9, 24 + (i % 3) * 3, -30 + (i % 4) * 18)
+    // Clouds: puffy cumulus drifting slowly, high enough to stay out of the way.
+    for (let i = 0; i < 7; i++) {
+        const cloud = createCloud(i)
+        cloud.scale.setScalar(0.6 + (i % 3) * 0.2)
+        cloud.position.set((i - 3) * 34 + (i % 2) * 9, 30 + (i % 3) * 4, -36 + (i % 4) * 22)
         cloud.userData.drift = 0.4 + (i % 3) * 0.15
         clouds.push(cloud)
         scene.add(cloud)
     }
 }
-const clouds: THREE.Group[] = []
+const clouds: THREE.Mesh[] = []
 
 // ─── Plots ───────────────────────────────────────────────────────────────────
 
@@ -335,13 +329,14 @@ function makePlotTexture(): THREE.CanvasTexture {
     const cell = size / PLOT
     for (let y = 0; y < PLOT; y++) {
         for (let x = 0; x < PLOT; x++) {
-            g.fillStyle = (x + y) % 2 === 0 ? 'rgba(211, 210, 135, 0.055)' : 'rgba(211, 210, 135, 0.025)'
+            // Each tile a slightly different mown green, so the lawn is not one flat sheet.
+            g.fillStyle = `rgba(${hash(x, y, 40) > 0.5 ? '232, 240, 150' : '60, 120, 60'}, ${0.012 + hash(x, y, 41) * 0.03})`
             g.fillRect(x * cell, y * cell, cell, cell)
             // Deterministic grass strokes and tiny clover flecks, baked once.
             for (let i = 0; i < 36; i++) {
                 const gx = x * cell + 4 + hash(x, y, i * 2 + 90) * (cell - 8)
                 const gy = y * cell + 4 + hash(x, y, i * 2 + 91) * (cell - 8)
-                g.strokeStyle = i % 3 ? 'rgba(51, 94, 55, 0.13)' : 'rgba(227, 236, 164, 0.35)'
+                g.strokeStyle = i % 3 ? 'rgba(45, 105, 50, 0.16)' : 'rgba(236, 244, 170, 0.4)'
                 g.lineWidth = 1
                 g.beginPath()
                 g.moveTo(gx - 1.5, gy)
@@ -397,7 +392,7 @@ function rebuildPlots() {
     plotMeshes.clear()
     const tex = makePlotTexture()
     const topMat = new THREE.MeshStandardMaterial({ map: tex, roughness: 1 })
-    const sideMat = new THREE.MeshStandardMaterial({ color: 0x8a6a45, roughness: 1 })
+    const sideMat = new THREE.MeshStandardMaterial({ color: 0x9a6f48, roughness: 1 })
     for (const p of props.plots) {
         const slab = new THREE.Mesh(new THREE.BoxGeometry(PLOT, 0.3, PLOT), [sideMat, sideMat, topMat, sideMat, sideMat, sideMat])
         slab.position.set(p.x * PLOT + PLOT / 2, 0.15, p.y * PLOT + PLOT / 2)
@@ -525,7 +520,7 @@ function rebuildNeighbours() {
             const pending = neighbourPending(b, nowMs)
             const model = b.type === 'road'
                 ? buildRoadModel(roadConnections(wx, wy, roads))
-                : buildingModel(b.type as TownBuildingId, townVisualLevel(Math.max(1, b.level)))
+                : buildingModel(b.type as TownBuildingId, townVisualLevel(Math.max(1, b.level)), tileVariant(wx, wy))
             model.position.set(wx + 0.5, 0.3, wy + 0.5)
             if (b.type !== 'road') {
                 model.rotation.y = b.rotation * Math.PI / 2
@@ -571,6 +566,7 @@ interface BuildingEntry {
     smoke: THREE.Object3D[]
     glow: THREE.Mesh[]
     visualLevel: number
+    variant: number
     modelHeight: number
     wasPending: boolean
     popAt: number
@@ -656,8 +652,13 @@ function flattenModel(group: THREE.Group): THREE.Group {
 }
 
 /** The asset factory batches static parts and caches each type/level pair. */
-function buildingModel(type: TownBuildingId, level = 1): THREE.Group {
-    return createBuildingModel(type, level)
+function buildingModel(type: TownBuildingId, level = 1, variant = 0): THREE.Group {
+    return createBuildingModel(type, level, variant)
+}
+
+/** Which colour scheme a tile's building wears: fixed by where it stands. */
+function tileVariant(wx: number, wy: number) {
+    return Math.floor(hash(Math.floor(wx), Math.floor(wy), 7) * TOWN_MODEL_VARIANTS)
 }
 
 // ─── Roads ───────────────────────────────────────────────────────────────────
@@ -702,18 +703,24 @@ function isPending(b: SceneBuilding, now: number) {
     return b.completesAt > now && (b.level === 0 || b.upgradingTo !== null)
 }
 
-const BASE_SCALE = 1.35
-function levelScale(level: number) {
-    return BASE_SCALE * (1 + Math.min(0.4, Math.max(0, level - 1) * 0.025))
+// Models are authored to fill their tile and grow by stage, so every level
+// draws at the same scale; only construction squashes a building.
+function levelScale(_level: number) {
+    return 1
 }
 
 // Swap only the artwork. Keep selection, rotation, timers and the building's
 // simulation data intact, and bind animation anchors on the new model.
 function syncModelAppearance(e: BuildingEntry, level: number) {
-    if (e.data.type === 'road' || e.visualLevel === level) return
+    if (e.data.type === 'road') return
+    // The colour scheme belongs to the tile, so a moved building changes coat.
+    const pos = worldPos(e.data)
+    const variant = pos ? tileVariant(pos.x, pos.z) : e.variant
+    if (e.visualLevel === level && e.variant === variant) return
     releaseModelGlow(e.model)
     e.group.remove(e.model)
-    e.model = buildingModel(e.data.type as TownBuildingId, level)
+    e.model = buildingModel(e.data.type as TownBuildingId, level, variant)
+    e.variant = variant
     e.model.rotation.y = (e.data.rotation ?? 0) * Math.PI / 2
     e.model.traverse(o => { o.userData.buildingId = e.data.id })
     e.group.add(e.model)
@@ -721,6 +728,12 @@ function syncModelAppearance(e: BuildingEntry, level: number) {
     e.modelHeight = e.model.userData.height as number
     bindModelAnimations(e)
     markShadowsDirty()
+}
+
+/** Each turning part carries its own axis and pace (sails are lazy, blades are not). */
+function spinPart(o: THREE.Object3D, dt: number) {
+    const axis = (o.userData.spinAxis as 'x' | 'y' | 'z' | undefined) ?? 'y'
+    o.rotation[axis] += dt * ((o.userData.spinRate as number | undefined) ?? 4)
 }
 
 function bindModelAnimations(e: BuildingEntry) {
@@ -773,7 +786,7 @@ function syncBuildings() {
             const group = new THREE.Group()
             const model = isRoad
                 ? buildRoadModel(roadConnections(Math.floor(pos.x), Math.floor(pos.z), roads))
-                : buildingModel(b.type as TownBuildingId, displayedLevel(b, now))
+                : buildingModel(b.type as TownBuildingId, displayedLevel(b, now), tileVariant(pos.x, pos.z))
             group.add(model)
             group.userData.buildingId = b.id
             model.traverse((o) => { o.userData.buildingId = b.id })
@@ -782,6 +795,7 @@ function syncBuildings() {
                 data: b, group, model, scaffold: null, bar: null,
                 spin: [], smoke: [], glow: [],
                 visualLevel: displayedLevel(b, now),
+                variant: tileVariant(pos.x, pos.z),
                 modelHeight: (model.userData.height as number | undefined) ?? 0.9,
                 wasPending: isPending(b, now), popAt: 0, baseY: 0.3,
                 nextPopup: performance.now() + Math.random() * props.tickMs,
@@ -1588,7 +1602,6 @@ function nextSpawnDelay() {
 
 /** Whether this zone may release another vehicle right now. */
 function zoneMaySpawn(zone: TrafficZone): boolean {
-    if (props.reducedMotion) return false
     if (zone.own) return true
     if (countNeighbourVehicles() >= MAX_NEIGHBOUR_VEHICLES) return false
     return Math.hypot(zone.cx - cam.tx, zone.cz - cam.tz) < TRAFFIC_SPAWN_RANGE + cam.dist * 0.5
@@ -2457,17 +2470,14 @@ function frame(ms: number) {
 
         // Animation hooks.
         if (staffed) {
-            for (const o of e.spin) {
-                if (b.type === 'mill') o.rotation.z += dt * 1.6 * props.speedMultiplier
-                else o.rotation.y += dt * 4 * props.speedMultiplier
-            }
+            for (const o of e.spin) spinPart(o, dt * props.speedMultiplier)
             if (e.smoke.length && Math.random() < dt * 1.4 * props.speedMultiplier) {
                 const anchor = e.smoke[Math.floor(Math.random() * e.smoke.length)]!
                 anchor.getWorldPosition(tmp)
                 spawn(tmp.clone(), 'smoke')
             }
             if (b.type === 'smithy' && Math.random() < dt * 2) {
-                spawn(new THREE.Vector3(e.group.position.x + 0.25, 0.45, e.group.position.z + 0.4), 'spark')
+                spawn(new THREE.Vector3(e.group.position.x, 0.4, e.group.position.z), 'spark')
             }
             if (b.type === 'gemmine' && Math.random() < dt * 1.5) {
                 spawn(new THREE.Vector3(e.group.position.x + (Math.random() - 0.5) * 0.7, 0.3 + Math.random() * 0.3, e.group.position.z + (Math.random() - 0.5) * 0.7), 'spark')
@@ -2490,10 +2500,7 @@ function frame(ms: number) {
 
     // Neighbours run at the realm's pace, not this town's mood.
     for (const n of neighbourAnims) {
-        for (const o of n.spin) {
-            if (n.type === 'mill') o.rotation.z += dt * 1.6
-            else o.rotation.y += dt * 4
-        }
+        for (const o of n.spin) spinPart(o, dt)
         if (n.smoke.length && Math.random() < dt * 1.4 && Math.hypot(n.x - cam.tx, n.z - cam.tz) < NEIGHBOUR_FX_RANGE) {
             const anchor = n.smoke[Math.floor(Math.random() * n.smoke.length)]!
             anchor.getWorldPosition(tmp)

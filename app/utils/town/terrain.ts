@@ -162,11 +162,11 @@ function paintWater(px: number, py: number): HTMLCanvasElement | null {
                 if (edge < 0) continue
                 const i = ((ty * cell + y) * size + tx * cell + x) * 4
                 let color: number[]
-                if (edge < 0.055) color = [164 + grain * 12, 155 + grain * 11, 119 + grain * 9]
+                if (edge < 0.055) color = [222 + grain * 10, 203 + grain * 9, 146 + grain * 8]
                 else {
                     const depth = Math.min(1, (edge - 0.055) / 0.24)
                     const wave = Math.sin(xx * 29 + Math.sin(zz * 13)) * Math.sin(zz * 39 + xx * 7) * 2
-                    color = [105 - depth * 45 + wave, 158 - depth * 41 + wave, 145 - depth * 24 + wave]
+                    color = [112 - depth * 52 + wave, 200 - depth * 46 + wave, 208 - depth * 28 + wave]
                 }
                 pixels.data[i] = color[0]!
                 pixels.data[i + 1] = color[1]!

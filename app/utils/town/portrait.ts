@@ -3,14 +3,9 @@ import { createBuildingModel } from './models'
 import { townVisualLevel } from './appearance'
 import type { TownBuildingId } from '#shared/utils/gamelogic/town'
 
-// Portraits for buildings the asset pass has not drawn yet.
-//
-// Every other building has a hand-made PNG under public/town/buildings. A
-// building without one used to fall back to an emoji, which reads as a
-// different kind of thing entirely next to twenty rendered buildings. Instead
-// we render its own 3D model once, off screen, and cache the image — so a new
-// building looks like itself the moment its model exists, and swapping in real
-// artwork later needs no code change.
+// Building portraits for menus and panels. Each one is the building's own 3D
+// model rendered once, off screen, and cached as an image — so an icon always
+// matches what stands on the map, at every stage, with no artwork to maintain.
 
 const SIZE = 128
 const cache = new Map<string, string>()
@@ -52,8 +47,8 @@ export function townRenderedPortrait(type: TownBuildingId, level = 1): string | 
 
     // Light it the way the town is lit, so a portrait and the building on the
     // map do not look like two different colour schemes.
-    scene.add(new THREE.AmbientLight(0xffffff, 1.5))
-    const key1 = new THREE.DirectionalLight(0xffffff, 2.2)
+    scene.add(new THREE.HemisphereLight(0xe2efff, 0x8a7550, 1.6))
+    const key1 = new THREE.DirectionalLight(0xffd9a0, 2.6)
     key1.position.set(2, 3, 2)
     scene.add(key1)
     const fill = new THREE.DirectionalLight(0xbfd8ff, 0.7)
