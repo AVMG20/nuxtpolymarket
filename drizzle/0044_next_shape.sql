@@ -1,0 +1,1 @@
+ALTER TABLE "void_run_history" ADD COLUMN "meta" jsonb;

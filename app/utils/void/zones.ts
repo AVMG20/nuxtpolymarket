@@ -355,7 +355,7 @@ export class ZoneAtmosphere {
             e.lightning(from, at, this.color)
             if (target) damageEnemy(e, target, 90 * threat, target.pos, 'zone')
             else {
-                e.damagePlayer(18 * threatDamageMult(threat), rock.pos)
+                e.damagePlayer(18 * threatDamageMult(threat), rock.pos, 'zone')
                 e.trauma = Math.min(1, e.trauma + 0.35)
             }
         } else {

@@ -49,6 +49,7 @@ export interface RunResult {
     carrierKilled: boolean
     tyrantKilled: boolean
     harbingerKilled: boolean
+    telemetry: import('#shared/utils/gamelogic/void-telemetry').VoidRunTelemetry
     lore: string[]
     /** Beacon slots won or held this run. */
     beaconsCaptured: number[]
@@ -230,6 +231,8 @@ export interface Projectile {
     /** Seconds a hostile orb keeps bending towards the pilot before it flies straight. */
     curve?: number
     crit?: number
+    /** Hostile shots: who fired it, for the run's telemetry. */
+    by?: string
     mod?: VoidModId | null
     dtype?: import('#shared/utils/gamelogic/void-items').VoidDamageType
 }

@@ -733,7 +733,7 @@ async function finishRun(result: RunResult, reason: FinishReason) {
         items: reason === 'extracted' ? items : bundleItems({})
     }
     if (document.pointerLockElement) document.exitPointerLock()
-    const body: FinishBody = { reason, haul: result.haul, kills: result.kills, wardenKilled: result.wardenKilled, elapsedMs: result.elapsedMs, skillUses: result.skillUses, suppliesUsed: result.suppliesUsed, relics: result.relics, gearCaches: result.gearCaches, bonusXp: result.bonusXp, depth: result.depth, carrierKilled: result.carrierKilled, tyrantKilled: result.tyrantKilled, harbingerKilled: result.harbingerKilled, lore: result.lore, beaconsCaptured: result.beaconsCaptured, beaconsDefended: result.beaconsDefended }
+    const body: FinishBody = { reason, haul: result.haul, kills: result.kills, wardenKilled: result.wardenKilled, elapsedMs: result.elapsedMs, skillUses: result.skillUses, suppliesUsed: result.suppliesUsed, relics: result.relics, gearCaches: result.gearCaches, bonusXp: result.bonusXp, depth: result.depth, carrierKilled: result.carrierKilled, tyrantKilled: result.tyrantKilled, harbingerKilled: result.harbingerKilled, telemetry: result.telemetry, lore: result.lore, beaconsCaptured: result.beaconsCaptured, beaconsDefended: result.beaconsDefended }
     if (run.value) savePendingReport(run.value.startedAt, body)
     await submitReport(body)
 }
@@ -804,7 +804,7 @@ function confirmAbandon() {
 
 function abandon() {
     if (!engine) return
-    const result: RunResult = { reason: 'destroyed', haul: {}, lost: { ...engine.cargo }, kills: engine.kills, wardenKilled: false, elapsedMs: Math.round(engine.elapsed * 1000), skillUses: engine.skills?.uses ?? 0, suppliesUsed: { ...engine.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: engine.pilotBonusXp, depth: engine.depth, carrierKilled: false, tyrantKilled: false, harbingerKilled: false, lore: [], beaconsCaptured: [...(engine.beacons?.captured ?? [])], beaconsDefended: [...(engine.beacons?.defended ?? [])] }
+    const result: RunResult = { reason: 'destroyed', haul: {}, lost: { ...engine.cargo }, kills: engine.kills, wardenKilled: false, elapsedMs: Math.round(engine.elapsed * 1000), skillUses: engine.skills?.uses ?? 0, suppliesUsed: { ...engine.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: engine.pilotBonusXp, depth: engine.depth, carrierKilled: false, tyrantKilled: false, harbingerKilled: false, telemetry: engine.telemetry.report(), lore: [], beaconsCaptured: [...(engine.beacons?.captured ?? [])], beaconsDefended: [...(engine.beacons?.defended ?? [])] }
     engine.paused = true
     void finishRun(result, 'abandoned')
 }

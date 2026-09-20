@@ -201,7 +201,7 @@ export function updateEventEntity(engine: VoidEngine, e: Enemy, dt: number) {
         }
         const p = engine.player
         if (p?.alive && e.pos.distanceTo(p.pos) < p.radius + e.radius) {
-            engine.damagePlayer(28 * e.damageMult, e.pos)
+            engine.damagePlayer(28 * e.damageMult, e.pos, 'event')
             killEnemy(engine, e)
             return
         }

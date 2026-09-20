@@ -18,6 +18,7 @@ import { disposeTree, segmentSphere, type VoidEngine } from './engine'
 import type { Enemy, HostileKind } from './types'
 import type { AiTarget } from './systems'
 import { eventLoot, updateEventEntity } from './events'
+import { causeOf } from './telemetry'
 
 export const WARDEN_TRIGGER_RANGE = 380
 
@@ -674,6 +675,7 @@ export function damageEnemy(engine: VoidEngine, e: Enemy, amount: number, point:
     // Heavy ordnance on bosses follows the boss rules, after crits and bonuses: scaled and capped per warhead.
     if (source === 'secondary' && (e.kind === 'warden' || e.kind === 'mothership')) amount = Math.min(amount * 0.5, e.maxHp * 0.015)
     e.hp -= amount
+    if (e.elite && source !== 'station' && source !== 'coalition' && source !== 'enemy') engine.telemetry.onBossHit(e, engine.elapsed, engine.depth)
     // A whole capital hull lighting up white is blinding; it only glints.
     e.flash = e.kind === 'mothership' ? Math.max(e.flash, 0.06) : source === 'beam' || source === 'lance' ? Math.max(e.flash, 0.3) : 1
     if (e.hostile && source !== 'station' && source !== 'coalition') engine.hitMarker = Math.max(engine.hitMarker, source === 'beam' ? 0.08 : 0.18)
@@ -761,6 +763,7 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
         if (e.elite) engine.audio.play('bounty', { volume: 0.55 })
         else if (engine.streak >= 3) engine.audio.play('streak', { pitch: 1 + Math.min(8, engine.streak - 3) * 0.09, volume: 0.5 })
         engine.kills++
+        engine.telemetry.onKill(e, engine.elapsed)
         engine.heat += e.kind === 'warden' || e.kind === 'mothership' ? 10 : e.elite ? 5 : e.kind === 'mite' ? 0.8 : 2
         engine.objectives?.onKill(e)
         engine.skills?.onKill(e)
@@ -845,7 +848,7 @@ function mineBlast(engine: VoidEngine, e: Enemy) {
     const p = engine.player
     const radius = 24
     engine.rings.spawn(e.pos, radius * 1.6, 0xffd23f, 0.5, 2.5)
-    if (p?.alive && p.pos.distanceTo(e.pos) < radius + p.radius) engine.damagePlayer(30 * e.damageMult, e.pos)
+    if (p?.alive && p.pos.distanceTo(e.pos) < radius + p.radius) engine.damagePlayer(30 * e.damageMult, e.pos, 'mine')
 }
 
 function wardenDeath(engine: VoidEngine, e: Enemy) {
@@ -1053,6 +1056,10 @@ export function updateEnemies(engine: VoidEngine, dt: number) {
             }
         }
 
+        // Whatever this hostile does to the pilot this frame, and every shot it fires, is filed under its name.
+        const cause = e.hostile ? causeOf(e) : null
+        engine.telemetry.cause = cause
+        const shots = engine.projectiles.length
         switch (e.kind) {
             case 'crate':
                 e.group.rotation.x += dt * 0.2
@@ -1084,6 +1091,7 @@ export function updateEnemies(engine: VoidEngine, dt: number) {
                 else if (!e.aggro || !playerAlive || !target || (e.data.stunT ?? 0) > 0) idle(e, dt)
                 else attack(engine, e, dt, dist, target)
         }
+        if (cause) for (let i = shots; i < engine.projectiles.length; i++) engine.projectiles[i]!.by ??= cause
         if (!e.alive) continue
 
         if (e.kind !== 'sentinel' && e.kind !== 'warden' && e.kind !== 'mothership' && e.kind !== 'battery' && e.kind !== 'reactor' && e.kind !== 'crate' && e.kind !== 'freighter' && e.kind !== 'vault' && e.kind !== 'meteor') {
@@ -1157,6 +1165,7 @@ export function updateEnemies(engine: VoidEngine, dt: number) {
             e.data.dmgAcc = 0
         }
     }
+    engine.telemetry.cause = null
     engine.enemies = enemies.filter(e => e.alive)
 }
 

@@ -96,7 +96,7 @@ export class SectorHazards {
                 if (d < w.radius) {
                     const pull = (1 - d / w.radius) * 70
                     p.vel.addScaledVector(to.normalize(), pull * dt)
-                    if (d < 14) e.damagePlayer(80 * dt, w.pos)
+                    if (d < 14) e.damagePlayer(80 * dt, w.pos, 'hazard')
                     e.trauma = Math.max(e.trauma, (1 - d / w.radius) * 0.35)
                 }
             }

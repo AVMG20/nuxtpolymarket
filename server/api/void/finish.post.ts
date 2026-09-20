@@ -20,6 +20,7 @@ export default defineEventHandler(async (event) => {
         carrierKilled: body?.carrierKilled,
         tyrantKilled: body?.tyrantKilled,
         harbingerKilled: body?.harbingerKilled,
+        telemetry: body?.telemetry,
         lore: body?.lore,
         gearCaches: body?.gearCaches,
         bonusXp: body?.bonusXp,

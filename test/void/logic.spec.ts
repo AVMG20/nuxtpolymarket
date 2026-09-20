@@ -8,6 +8,7 @@ import {
 import {
     VOID_BOUNTY_XP, VOID_DAILY_GEAR, VOID_LORE, VOID_PERKS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidBountyXp, voidCapitalKills, voidGearCap, voidRunMarks
 } from '#shared/utils/gamelogic/void-pilot'
+import { voidCleanTelemetry } from '#shared/utils/gamelogic/void-telemetry'
 import {
     VOID_DAMAGE_MULT, VOID_DAMAGE_TYPE, VOID_DEVICES, VOID_SECONDARIES, VOID_ITEM_TYPES, VOID_RARITIES, voidCanCraftTier, voidCraftCost, voidDefenceStats, voidItemUpgradeCost, voidRollBonusAffix, voidRollItem, voidRollMod, voidRollSalvagedGear, voidWeaponFit,
     type VoidItem
@@ -434,6 +435,34 @@ describe('void runner bounties and gear caps', () => {
         expect(voidGearCap({ ...run, elapsedMs: 120_000, carrierKilled: true, wardenKilled: true }, 0)).toBe(1)
         expect(voidGearCap(full, VOID_DAILY_GEAR - 2)).toBe(2)
         expect(voidGearCap(full, VOID_DAILY_GEAR + 3)).toBe(0)
+    })
+})
+
+describe('void run telemetry', () => {
+    it('bounds a client blob to known shapes, short labels and clamped numbers', () => {
+        const clean = voidCleanTelemetry({
+            kills: { raider: 12, 'DROP TABLE': 5, mauler: -3 },
+            elites: 2.6,
+            damage: { 'tyrant:storm': 1e12, ok: 'junk' },
+            bosses: [
+                { id: 'tyrant', outcome: 'killed', depth: 99, firstHit: 100, lastHit: 400, killedAt: 410, hpLeft: 0, taken: 900 },
+                { id: 'godzilla', outcome: 'killed' }
+            ],
+            zones: Array.from({ length: 40 }, () => ({ zone: 'ion', at: 10 })),
+            death: { by: 'harbinger:pulse', boss: 'harbinger', depth: 2, zone: 'nebula', at: 700 },
+            peakWanted: 9,
+            lowestHull: -1
+        })!
+        expect(clean.kills).toEqual({ raider: 12, mauler: 0 })
+        expect(clean.elites).toBe(3)
+        expect(clean.damage).toEqual({ 'tyrant:storm': 1e8, ok: 0 })
+        expect(clean.bosses).toHaveLength(1)
+        expect(clean.bosses[0]!.depth).toBe(8)
+        expect(clean.zones).toHaveLength(9)
+        expect(clean.death).toEqual({ by: 'harbinger:pulse', boss: 'harbinger', depth: 2, zone: 'nebula', at: 700 })
+        expect(clean.peakWanted).toBe(5)
+        expect(clean.lowestHull).toBe(0)
+        expect(voidCleanTelemetry('junk')).toBeNull()
     })
 })
 

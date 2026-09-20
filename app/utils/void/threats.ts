@@ -9,8 +9,11 @@ import { randomFloat } from '#shared/utils/random'
 import type { VoidEngine } from './engine'
 import { explosion } from './fx'
 import type { Enemy } from './types'
+import { causeOf } from './telemetry'
 
 interface Rocket {
+    /** Who launched it, for the run's telemetry. */
+    by: string
     pos: THREE.Vector3
     vel: THREE.Vector3
     life: number
@@ -19,6 +22,7 @@ interface Rocket {
 }
 
 interface Storm {
+    by: string
     pos: THREE.Vector3
     radius: number
     life: number
@@ -67,7 +71,7 @@ export class EnemyThreats {
     launchRocket(e: Enemy, from: THREE.Vector3, dir: THREE.Vector3, damage: number, cooldown: number) {
         e.data.threatCd = cooldown * (0.85 + randomFloat() * 0.3)
         const color = e.glow.getHex()
-        this.rockets.push({ pos: from.clone(), vel: dir.clone().normalize().multiplyScalar(ROCKET_SPEED * 0.5).add(e.vel), life: 9, damage, color })
+        this.rockets.push({ pos: from.clone(), vel: dir.clone().normalize().multiplyScalar(ROCKET_SPEED * 0.5).add(e.vel), life: 9, damage, color, by: causeOf(e) })
         this.engine.rings.spawn(from, 14, color, 0.45, 3, dir.clone())
         this.engine.audio.play('missile', { distance: from.distanceTo(this.engine.camera.position) * 0.4, pan: this.engine.panOf(from), pitch: 0.5, volume: 1.5 })
         this.engine.audio.play('warning', { volume: 0.7 })
@@ -93,7 +97,7 @@ export class EnemyThreats {
                 const to = _v1.subVectors(p!.pos, r.pos)
                 const dist = to.length()
                 if (dist < Math.max(6, p!.radius + 5)) {
-                    engine.damagePlayer(r.damage, r.pos)
+                    engine.damagePlayer(r.damage, r.pos, `${r.by}:rocket`)
                     this.burst(r)
                     return false
                 }
@@ -134,7 +138,7 @@ export class EnemyThreats {
                 engine.rings.spawn(s.pos, s.radius, s.color, 0.9, 1.2 * fade, new THREE.Vector3(0, 1, 0), 0.05)
                 engine.particles.glow(s.pos.x, s.pos.y, s.pos.z, _c.set(s.color).multiplyScalar(0.35 * fade), s.radius * 0.8, 0.5)
                 if (live && p!.pos.distanceTo(s.pos) < s.radius + p!.radius) {
-                    engine.damagePlayer(s.dps * 0.5, s.pos)
+                    engine.damagePlayer(s.dps * 0.5, s.pos, `${s.by}:storm`)
                     engine.lightning(s.pos.clone(), p!.pos.clone(), s.color)
                 }
             }
@@ -161,7 +165,7 @@ export class EnemyThreats {
             const dist = s.pos.distanceTo(engine.camera.position)
             engine.audio.play('explosionLarge', { distance: dist * 0.4, pan: engine.panOf(s.pos) })
             if (live && p!.pos.distanceTo(s.pos) < s.radius + p!.radius) {
-                engine.damagePlayer(s.damage, s.pos)
+                engine.damagePlayer(s.damage, s.pos, `${causeOf(s.from)}:strike`)
                 engine.trauma = Math.min(1, engine.trauma + 0.5)
             }
             return false
@@ -175,7 +179,7 @@ export class EnemyThreats {
         engine.flashes.flash(r.pos, r.color, 70, 220)
         engine.audio.play('explosionLarge', { distance: r.pos.distanceTo(engine.camera.position) * 0.4, pan: engine.panOf(r.pos) })
         engine.audio.play('tesla', { distance: r.pos.distanceTo(engine.camera.position) * 0.4, pan: engine.panOf(r.pos), volume: 1.3 })
-        this.storms.push({ pos: r.pos.clone(), radius: STORM_RADIUS, life: STORM_LIFE, dps: r.damage * 0.35, color: r.color, tick: 0, arc: 0 })
+        this.storms.push({ pos: r.pos.clone(), radius: STORM_RADIUS, life: STORM_LIFE, dps: r.damage * 0.35, color: r.color, tick: 0, arc: 0, by: r.by })
     }
 
     clear() {

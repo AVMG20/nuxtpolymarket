@@ -43,6 +43,7 @@ import { voidItemType } from '#shared/utils/gamelogic/void-items'
 import { VOID_SUPPLIES } from '#shared/utils/gamelogic/void-station'
 import type { VoidWeaponFit } from '#shared/utils/gamelogic/void-items'
 import { CAPITALS, capitalOf, spawnCapital } from './capitals'
+import { RunTelemetry } from './telemetry'
 import { damageEnemy, enemyRayHit, spawnCoalitionPatrol, spawnEnemy, spawnMothership, spawnTrader, spawnPatrol, spawnWarden, updateCorpses, updateEnemies, WARDEN_TRIGGER_RANGE } from './enemies'
 import type {
     Drone, Enemy, EngineEvents, FloatText, HudState, Phase, Pickup, Projectile, RunConfig, RunResult, Tracer, TurretSlot
@@ -285,6 +286,8 @@ export class VoidEngine {
     beacons: BeaconControl | null = null
     hazards: SectorHazards | null = null
     threats = new EnemyThreats(this)
+    /** What this run reports about itself for balance audits. */
+    telemetry = new RunTelemetry()
     skills: SkillRunner | null = null
     supplies: Record<string, number> = {}
     suppliesUsed: Record<string, number> = {}
@@ -845,6 +848,7 @@ export class VoidEngine {
         this.dockHold = 0
         this.endTimer = 0
         this.endResult = null
+        this.telemetry = new RunTelemetry()
         this.whiteFlash = 0.9
         this.warp = 1.6
         this.fov = 100
@@ -875,6 +879,7 @@ export class VoidEngine {
         scene.add(this.asteroids.group)
         this.depth = 1
         this.zone = 'calm'
+        this.telemetry.enterZone(this.zone, 0)
         this.fuel = 1 + (config.perks?.tanks ?? 0)
         this.gateOptions = null
         this.revived = false
@@ -1483,7 +1488,7 @@ export class VoidEngine {
                     // Small ships ricochet; a capital hull grinds along the rock.
                     p.vel.addScaledVector(n, -into * (1.5 - this.heft * 0.4))
                     if (-into > 25) {
-                        this.damagePlayer((-into - 25) * 0.6, rock.pos)
+                        this.damagePlayer((-into - 25) * 0.6, rock.pos, 'collision')
                         this.trauma = Math.min(1, this.trauma + 0.4)
                         hitSpark(this.fx, _v3.copy(p.pos).addScaledVector(n, -p.radius), n, 0xffc080, 2)
                         this.audio.play('rockHit', { volume: 1.5 })
@@ -2469,7 +2474,7 @@ export class VoidEngine {
                 if (p?.alive && this.phase === 'flying') {
                     const hitR = Math.max(2.2, p.radius) + (pr.kind === 'orb' ? 1 : 0.4)
                     if (segmentSphere(from, to, p.pos, hitR)) {
-                        this.damagePlayer(pr.damage, pr.pos)
+                        this.damagePlayer(pr.damage, pr.pos, pr.by)
                         hitSpark(this.fx, pr.pos, _v1.subVectors(pr.pos, p.pos).normalize(), pr.color, 1.2)
                         consumed = true
                     }
@@ -2549,7 +2554,7 @@ export class VoidEngine {
         this.audio.play('explosionSmall', { distance: point.distanceTo(this.camera.position), pan: this.panOf(point) })
         if (pr.hostile) {
             const p = this.player
-            if (p?.alive && p.pos.distanceTo(point) < radius + p.radius) this.damagePlayer(pr.damage, point)
+            if (p?.alive && p.pos.distanceTo(point) < radius + p.radius) this.damagePlayer(pr.damage, point, pr.by)
             return
         }
         const skill = pr.source === 'skill' ? this.skills : null
@@ -2596,7 +2601,8 @@ export class VoidEngine {
 
     // ─── Damage ────────────────────────────────────────────────────────────
 
-    damagePlayer(amount: number, from: THREE.Vector3) {
+    /** `cause` names the source for the run's telemetry; left out, the hostile whose turn it is takes the blame. */
+    damagePlayer(amount: number, from: THREE.Vector3, cause?: string) {
         const p = this.player
         if (!p?.alive || this.phase !== 'flying' || amount <= 0) return
         if (p.invuln > 0) return
@@ -2604,6 +2610,7 @@ export class VoidEngine {
         if (this.skills) amount = this.skills.onPlayerHit(amount, from)
         const stats = this.config!.stats
         if (amount <= 0) return
+        this.telemetry.onDamage(amount, cause)
         const local = _v1.subVectors(from, p.pos)
         _q1.copy(p.quat).invert()
         local.applyQuaternion(_q1)
@@ -2647,6 +2654,7 @@ export class VoidEngine {
                     this.sparks.emit(p.pos.x, p.pos.y, p.pos.z, d.x + p.vel.x, d.y + p.vel.y, d.z + p.vel.z, 0.4, _c1.set(0x9fe8ff).multiplyScalar(3), 0.12)
                 }
                 this.audio.play('shieldDown')
+                this.telemetry.onShieldBreak()
                 this.events.toast('Shields down', 'warn')
             }
             rest -= absorbed
@@ -2712,7 +2720,7 @@ export class VoidEngine {
         this.audio.play('explosionLarge', { volume: 1.5 })
         this.audio.play('death')
         this.audio.updateEngine(0, false, 0)
-        this.endResult = { reason: 'destroyed', haul: {}, lost: { ...this.cargo }, kills: this.kills, wardenKilled: this.wardenKilled, elapsedMs: Math.round(this.elapsed * 1000), skillUses: this.skills?.uses ?? 0, suppliesUsed: { ...this.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: this.pilotBonusXp, depth: this.depth, carrierKilled: false, tyrantKilled: false, harbingerKilled: false, lore: [], beaconsCaptured: [...(this.beacons?.captured ?? [])], beaconsDefended: [...(this.beacons?.defended ?? [])] }
+        this.endResult = { reason: 'destroyed', haul: {}, lost: { ...this.cargo }, kills: this.kills, wardenKilled: this.wardenKilled, elapsedMs: Math.round(this.elapsed * 1000), skillUses: this.skills?.uses ?? 0, suppliesUsed: { ...this.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: this.pilotBonusXp, depth: this.depth, carrierKilled: false, tyrantKilled: false, harbingerKilled: false, lore: [], telemetry: (this.telemetry.onDeath(this.elapsed, this.depth, this.zone), this.telemetry.report()), beaconsCaptured: [...(this.beacons?.captured ?? [])], beaconsDefended: [...(this.beacons?.defended ?? [])] }
         this.events.toast('Ship destroyed. The hold is lost.', 'bad')
     }
 
@@ -2921,6 +2929,8 @@ export class VoidEngine {
         this.fuel--
         this.depth++
         this.zone = zone
+        this.telemetry.leaveZone()
+        this.telemetry.enterZone(zone, this.elapsed)
         this.gateOptions = null
         this.gateCooldown = 5
         // Tear the old zone down but keep the pilot.
@@ -3074,6 +3084,7 @@ export class VoidEngine {
         this.asteroids!.remove(rock)
         if (this.focusRock === rock) this.focusRock = null
         this.objectives?.onRockBroken()
+        this.telemetry.onRockMined()
         this.hazards?.onRockBroken(rock.pos)
     }
 
@@ -3300,6 +3311,7 @@ export class VoidEngine {
             carrierKilled: !!this.systems?.carrierKilled,
             tyrantKilled: !!this.systems?.tyrantKilled,
             harbingerKilled: !!this.systems?.harbingerKilled,
+            telemetry: this.telemetry.report(),
             lore: [...(this.systems?.loreFound ?? [])],
             beaconsCaptured: [...(this.beacons?.captured ?? [])],
             beaconsDefended: [...(this.beacons?.defended ?? [])]
@@ -3365,6 +3377,7 @@ export class VoidEngine {
         this.heat = Math.max(0, Math.min(HEAT_MAX, this.heat) - dt * (hunted ? 0.18 : 0.36))
         this.threat = Math.min(1, this.heat / HEAT_MAX)
         this.announceWanted()
+        this.telemetry.sample(p.hull / this.config!.stats.hull, this.wanted)
         this.directorTimer -= dt
         if (this.objectives?.suppressWaves) this.directorTimer = Math.max(this.directorTimer, 20)
         // A boss fight is the fight; wings stop piling in on top of it.

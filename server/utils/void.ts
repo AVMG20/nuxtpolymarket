@@ -20,7 +20,8 @@ import {
     VOID_CONTRACTS_PER_DAY, VOID_SUPPLY_STOCK_MAX, voidContractDay, voidContractsFor, voidNormalizeSupplies, voidSupplyCost,
     type VoidSupplyId
 } from '#shared/utils/gamelogic/void-station'
-import { voidApplyBeaconReport, voidCleanBeacons, voidOwnedShips } from '#shared/utils/gamelogic/void'
+import { voidApplyBeaconReport, voidCleanBeacons, voidDerivedStats, voidGearTier, voidLoadoutFor, voidOwnedShips, voidPowerRating } from '#shared/utils/gamelogic/void'
+import { VOID_BALANCE_VERSION, voidCleanTelemetry } from '#shared/utils/gamelogic/void-telemetry'
 
 export type VoidStateRow = typeof voidState.$inferSelect
 
@@ -120,6 +121,8 @@ export interface VoidFinishReport {
     carrierKilled?: unknown
     tyrantKilled?: unknown
     harbingerKilled?: unknown
+    /** The run's own record of itself, kept for balance audits. It pays nothing. */
+    telemetry?: unknown
     lore?: unknown
     gearCaches?: unknown
     bonusXp?: unknown
@@ -254,8 +257,35 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             ? await tx.insert(voidItems).values(gearRolled.map(item => ({ userId, ...item }))).returning({ id: voidItems.id, type: voidItems.type, tier: voidItems.tier, rarity: voidItems.rarity, affixes: voidItems.affixes })
             : []
 
+        // The audit blob: the ship as the server knows it, what this finish granted and the run's telemetry.
+        const items = await listVoidItems(tx, userId)
+        const loadout = voidLoadoutFor(s, items, s.runShipId ?? s.equippedShipId)
+        const stats = voidDerivedStats(loadout.shipId, loadout.levels, loadout.fit, items, loadout.perks, loadout.shipTier)
+        const fitted = (id: string | null) => {
+            const item = id ? items.find(i => i.id === id) : undefined
+            return item ? { type: item.type, tier: item.tier, rarity: item.rarity, level: item.level, mod: item.mod ?? null } : null
+        }
+        const meta = {
+            v: VOID_BALANCE_VERSION,
+            ship: {
+                id: loadout.shipId, tier: loadout.shipTier, power: voidPowerRating(loadout, stats), gearTier: voidGearTier(loadout.shipId, loadout.fit, items),
+                hull: stats.hull, shield: stats.shield, cargo: s.runCargo ?? 0, levels: loadout.levels, skill: loadout.skill.id, pilotLevel: voidPilotLevel(s.pilotXp ?? 0),
+                gun: fitted(loadout.fit.gun), turrets: loadout.fit.turrets.map(fitted), armor: loadout.fit.armor.map(fitted), shields: loadout.fit.shields.map(fitted),
+                secondary: fitted(loadout.fit.secondary), device: fitted(loadout.fit.device)
+            },
+            run: {
+                depth, wallMs: Date.now() - s.runStartedAt.getTime(), trimmed: settled.trimmed, reportedKills: Number(body.kills) || 0,
+                claimed: { warden: body.wardenKilled === true, carrier: carrierKilled, tyrant: tyrantKilled, harbinger: harbingerKilled },
+                accepted: { warden: settled.wardenKilled, ...capitals },
+                skillUses: Number(body.skillUses) || 0, suppliesUsed: voidNormalizeSupplies(body.suppliesUsed as Record<string, unknown> | null),
+                granted: { xp, marks, relics: relics.length, gear: gear.length, blueprint, sectorCleared: clearedNow }
+            },
+            client: voidCleanTelemetry(body.telemetry)
+        }
+
         await tx.insert(voidRunHistory).values({
             userId,
+            meta,
             sector: tier,
             shipId: s.runShipId ?? s.equippedShipId,
             durationMs: settled.elapsedMs,

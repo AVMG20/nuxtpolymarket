@@ -437,7 +437,7 @@ function updatePulse(engine: VoidEngine, e: Enemy, rt: CapitalRuntime, dt: numbe
             e.data.waveHit = 1
             const falloff = 1 - d / PULSE_RANGE
             if (falloff > 0) {
-                engine.damagePlayer(60 * e.damageMult * falloff, core)
+                engine.damagePlayer(60 * e.damageMult * falloff, core, 'harbinger:pulse')
                 p.vel.addScaledVector(_b.subVectors(p.pos, core).normalize(), 120 * falloff)
                 engine.trauma = Math.min(1, engine.trauma + 0.7 * falloff)
             }

@@ -321,6 +321,8 @@ export const voidRunHistory = pgTable('void_run_history', {
   reason: text('reason').notNull(),
   kills: integer('kills').notNull().default(0),
   wardenKilled: boolean('warden_killed').notNull().default(false),
+  // Balance audit blob: the ship that flew, what the server granted and the run's own telemetry.
+  meta: jsonb('meta').$type<Record<string, unknown>>(),
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [
   index('void_run_history_userId_createdAt_idx').on(t.userId, t.createdAt)
