@@ -38,6 +38,7 @@
                             @dragleave="clearDrag()"
                             @drop.prevent="onDrop(group, i)"
                         >
+                            <i v-if="group.slots.length > 1" class="vl-slot-num">{{ i + 1 }}</i>
                             <template v-if="itemById(id)">
                                 <VoidItemArt :type="itemById(id)!.type" :tier="itemById(id)!.tier" :level="itemById(id)!.level" :rarity-color="itemById(id)!.rarityColor" size="sm" />
                                 <span class="vl-slot-text">
@@ -58,6 +59,7 @@
                                     <span class="vl-slot-sub"><span>{{ countFor(group.kind) ? 'Click to fit one' : 'None owned yet' }}</span></span>
                                 </span>
                             </template>
+                            <UIcon name="i-lucide-chevron-right" class="vl-slot-arrow size-4" />
                         </button>
                     </div>
                 </div>
@@ -76,7 +78,7 @@
                         v-for="item in candidates"
                         :key="item.id"
                         class="vl-tile"
-                        :class="{ 'vl-tile-here': item.id === currentItem?.id }"
+                        :class="{ 'vl-tile-here': item.id === currentItem?.id, 'vl-tile-fitted': item.place?.tone === 'fitted' }"
                         :style="{ '--rc': item.rarityColor }"
                         draggable="true"
                         role="button"
@@ -90,16 +92,21 @@
                         <span class="vl-tile-body">
                             <span class="vl-tile-head">
                                 <b>{{ item.name }}</b>
+                                <em v-if="item.place" class="vl-tag" :class="`vl-tag-${item.place.tone}`" :title="item.place.hint">
+                                    <UIcon :name="item.place.icon" class="size-3" />{{ item.place.label }}
+                                </em>
                             </span>
                             <span class="vl-tile-rarity">{{ item.rarityName }}<template v-if="item.affixList.length"> · {{ item.affixList.length }} bonus</template></span>
                             <span v-if="item.modInfo" class="vl-tile-mod vl-tip" :style="{ color: hex(item.modInfo.color) }" :data-tip="item.modInfo.description"><VoidItemArt :type="item.modInfo.id" size="sm" flat class="vl-mod-art" />{{ item.modInfo.name }}</span>
                             <span class="vl-tile-stats">
                                 <span v-for="st in item.stats" :key="st.label">{{ st.label }} <b>{{ st.value }}</b></span>
                             </span>
+                            <!-- Kept on the fitted tile too, empty, so every tile's level bar lines up. -->
                             <span class="vl-tile-foot">
-                                <span v-if="item.id === currentItem?.id" class="vl-delta">Equipped here</span>
-                                <span v-else class="vl-delta" :class="deltaClass(item.score)">{{ deltaText(item.score) }}</span>
-                                <small v-if="placedElsewhere(item.id)">{{ placedElsewhere(item.id) }}</small>
+                                <template v-if="item.id !== currentItem?.id">
+                                    <span class="vl-delta" :class="deltaClass(item.score)">{{ deltaText(item.score) }}</span>
+                                    <small class="vl-equip-hint">{{ item.place?.tone === 'fitted' ? 'Click to move here' : 'Click to equip' }}</small>
+                                </template>
                             </span>
                             <!-- Levelling, socketing and breaking down all happen here, beside the fitting. -->
                             <span class="vl-tile-levels" :title="`Level ${item.level} / 10. Levels 5 and 10 each add a bonus stat.`">
@@ -240,7 +247,8 @@ const current = computed(() => {
 const currentItem = computed(() => itemById(current.value.id))
 const candidates = computed(() => props.state.items
     .filter(i => i.kind === current.value.group.kind)
-    .sort((a, b) => b.score - a.score))
+    .sort((a, b) => b.score - a.score)
+    .map(i => ({ ...i, place: placement(i.id) })))
 
 // A hull swap can shrink a group; keep the selection on a real slot.
 watch(groups, (list) => {
@@ -275,14 +283,17 @@ function deltaClass(score: number) {
     return d > 0 ? 'vf-up' : d < 0 ? 'vf-down' : ''
 }
 
-/** Where else an item sits: another slot on this hull, or another ship. */
-function placedElsewhere(itemId: string) {
+/** Where an item already sits: this slot, another slot on this hull, or another ship. */
+function placement(itemId: string) {
     for (const g of groups.value) {
         const i = g.slots.indexOf(itemId)
-        if (i >= 0 && !(g.key === selected.value.key && i === selected.value.index)) return g.slots.length > 1 ? `Moves from ${g.single} ${i + 1}` : `Moves from ${g.single}`
+        if (i < 0) continue
+        if (g.key === selected.value.key && i === selected.value.index) return { tone: 'here', icon: 'i-lucide-check', label: 'Equipped', hint: 'Fitted in the selected slot' }
+        const label = g.slots.length > 1 ? `${g.single} ${i + 1}` : g.single
+        return { tone: 'fitted', icon: 'i-lucide-check', label, hint: `Already fitted in ${label.toLowerCase()}; picking it moves it here` }
     }
     const other = props.state.ships.find(s => s.owned && !s.equipped && [s.fit.gun, ...s.fit.turrets, ...s.fit.armor, ...s.fit.shields, s.fit.secondary, s.fit.device].includes(itemId))
-    return other ? `Also on ${other.name}` : ''
+    return other ? { tone: 'away', icon: 'i-lucide-rocket', label: other.name, hint: `Also fitted on your ${other.name}` } : null
 }
 
 /** Firefox only starts a drag once data is set, so always fill the transfer. */
@@ -360,12 +371,18 @@ function autoFit() {
 .vl-slot { --rc: rgba(255, 255, 255, 0.25); display: flex; align-items: center; gap: 10px; padding: 7px 10px; text-align: left; background: var(--vr-panel-2); border: 1px solid transparent; border-radius: 9px; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
 .vl-slot:hover { background: rgba(255, 255, 255, 0.08); }
 .vl-slot-empty { background: transparent; border: 1px dashed var(--vr-line-strong); color: var(--vr-muted); }
-.vl-slot-on { border-color: var(--vr-accent); background: rgba(94, 200, 255, 0.1); }
+.vl-slot-empty .vl-slot-blank { border: none; }
+.vl-slot-on { border-color: var(--vr-accent); background: rgba(94, 200, 255, 0.1); box-shadow: inset 3px 0 0 var(--vr-accent); }
 .vl-slot-drop { border-color: var(--vr-good); background: rgba(61, 255, 176, 0.1); }
 .vl-slot-no { border-color: var(--vr-bad); cursor: not-allowed; }
 .vl-slot-mod { display: inline-flex; cursor: help; filter: drop-shadow(0 0 4px currentColor); }
 .vl-slot-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.vl-slot-blank { display: grid; place-items: center; width: 34px; height: 34px; flex-shrink: 0; color: var(--vr-muted); }
+.vl-slot-blank { display: grid; place-items: center; width: 44px; height: 44px; flex-shrink: 0; color: var(--vr-muted); border: 1px dashed var(--vr-line-strong); border-radius: 6px; }
+.vl-slot > .vart-sm { width: 44px; height: 44px; }
+.vl-slot-num { flex-shrink: 0; width: 10px; font: 700 11px 'JetBrains Mono', monospace; font-style: normal; text-align: center; color: var(--vr-muted); }
+.vl-slot-on .vl-slot-num { color: var(--vr-accent); }
+.vl-slot-arrow { flex-shrink: 0; margin-left: auto; color: var(--vr-accent); opacity: 0; transform: translateX(-4px); transition: opacity 0.15s, transform 0.15s; }
+.vl-slot-on .vl-slot-arrow { opacity: 1; transform: none; }
 .vl-slot-top { display: flex; align-items: center; gap: 6px; font-size: 14px; min-width: 0; }
 .vl-slot-top b { font-weight: 700; color: var(--rc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vl-slot-empty .vl-slot-top b { color: var(--vr-muted); font-weight: 600; }
@@ -375,18 +392,24 @@ function autoFit() {
 .vl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .vl-tile { --rc: #fff; display: flex; align-items: flex-start; gap: 12px; padding: 14px; text-align: left; background: var(--vr-panel); border: 1px solid var(--vr-line); border-radius: 12px; cursor: grab; transition: border-color 0.15s, transform 0.1s; }
 .vl-tile:hover { border-color: color-mix(in srgb, var(--rc) 55%, transparent); transform: translateY(-1px); }
-.vl-tile-here { border-color: var(--vr-good); background: linear-gradient(160deg, rgba(61, 255, 176, 0.07), var(--vr-panel) 60%); }
+.vl-tile-here, .vl-tile-here:hover { border-color: var(--vr-good); background: linear-gradient(160deg, rgba(61, 255, 176, 0.1), var(--vr-panel) 60%); box-shadow: 0 0 0 1px var(--vr-good), 0 0 22px rgba(61, 255, 176, 0.12); cursor: default; transform: none; }
+.vl-tile-fitted { border-color: rgba(94, 200, 255, 0.55); background: linear-gradient(160deg, rgba(94, 200, 255, 0.08), var(--vr-panel) 60%); }
 .vl-tile-art { align-self: start; }
+.vl-tile .vl-tile-art { width: 68px; height: 68px; }
+.vl-tag { display: inline-flex; flex-shrink: 0; align-items: center; gap: 4px; margin-left: auto; padding: 2px 7px 2px 5px; font: 700 10px 'Rajdhani', system-ui, sans-serif; font-style: normal; letter-spacing: 0.1em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 999px; }
+.vl-tag-here { color: #04121c; background: var(--vr-good); border-color: var(--vr-good); }
+.vl-tag-fitted { color: var(--vr-accent); background: rgba(94, 200, 255, 0.1); }
+.vl-tag-away { color: var(--vr-warn); background: rgba(255, 194, 77, 0.08); }
 .vl-tile-body { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
 .vl-tile-head { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 16px; }
 .vl-tile-head b { color: var(--rc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vl-tile-rarity { font-size: 12px; font-weight: 600; color: var(--rc); opacity: 0.85; }
 .vl-tile-stats { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 13px; color: var(--vr-muted); }
 .vl-tile-stats b { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: var(--vr-text); }
-.vl-tile-foot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.vl-tile-foot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-height: 18px; }
 .vl-delta { font: 700 12px 'JetBrains Mono', monospace; color: var(--vr-muted); }
-.vl-tile-here .vl-delta { color: var(--vr-good); }
-.vl-tile-foot small { margin-left: auto; font-size: 11px; color: var(--vr-warn); }
+.vl-equip-hint { margin-left: auto; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; color: var(--vr-accent); opacity: 0; transition: opacity 0.15s; }
+.vl-tile:hover .vl-equip-hint, .vl-tile:focus-visible .vl-equip-hint { opacity: 1; }
 .vl-tile-levels { display: flex; gap: 2px; margin-top: 4px; }
 .vl-tile-levels i { flex: 1; height: 3px; border-radius: 2px; background: rgba(255, 255, 255, 0.1); }
 .vl-lv-on { background: var(--vr-good) !important; }
