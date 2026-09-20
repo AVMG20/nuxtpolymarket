@@ -47,6 +47,8 @@ export interface RunResult {
     bonusXp: number
     depth: number
     carrierKilled: boolean
+    tyrantKilled: boolean
+    harbingerKilled: boolean
     lore: string[]
     /** Beacon slots won or held this run. */
     beaconsCaptured: number[]
@@ -88,8 +90,8 @@ export interface HudState {
     kills: number
     elapsed: number
     dock: null | { label: string, progress: number, ready: boolean }
-    /** The boss bar: the sector warden, or the hidden carrier once it is awake. `locks` counts shield reactors still standing. */
-    warden: null | { name: string, hp: number, maxHp: number, shield: number, shieldMax: number, carrier?: boolean, locks?: number }
+    /** The boss bar: the sector warden, or a hidden capital once it is awake. `locks` counts shield reactors still standing, `marks` are the hull fractions where its phases turn. */
+    warden: null | { name: string, hp: number, maxHp: number, shield: number, shieldMax: number, carrier?: boolean, locks?: number, lockLabel?: string, marks?: number[] }
     wardenKilled: boolean
     threat: number
     /** 0-5 stars: how hard the sector is hunting you. */
@@ -113,8 +115,8 @@ export interface HudState {
 export interface EngineEvents {
     hud: (hud: HudState) => void
     toast: (text: string, tone: 'info' | 'warn' | 'good' | 'bad') => void
-    /** Big cinematic title card. */
-    banner: (title: string, subtitle: string, tone: 'info' | 'bad' | 'good') => void
+    /** Big cinematic title card. An arrival past a gate names its zone, so the card can show the zone's chips. */
+    banner: (title: string, subtitle: string, tone: 'info' | 'bad' | 'good', zone?: { id: import('#shared/utils/gamelogic/void-pilot').VoidZoneModifier, depth: number }) => void
     end: (result: RunResult) => void
     /** A warp gate offers these zones for the next jump. */
     gate: (options: import('#shared/utils/gamelogic/void-pilot').VoidZoneModifier[]) => void
@@ -225,6 +227,8 @@ export interface Projectile {
     cluster?: number
     /** Homing turn-rate multiplier. */
     turn?: number
+    /** Seconds a hostile orb keeps bending towards the pilot before it flies straight. */
+    curve?: number
     crit?: number
     mod?: VoidModId | null
     dtype?: import('#shared/utils/gamelogic/void-items').VoidDamageType

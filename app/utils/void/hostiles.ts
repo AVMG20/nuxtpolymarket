@@ -2,7 +2,7 @@
 
 import * as THREE from 'three'
 import { ModelBuilder, cyl, ico, mulberry32, octa, ring, tube, type BuiltModel, type Vec3 } from './models'
-import { loft, slab, block, barrel, band, tank, vent, dish, greeble, radiator, type Livery, type Section } from './ship-kit'
+import { loft, slab, block, barrel, band, tank, vent, dish, greeble, hazard, radiator, type Livery, type Section } from './ship-kit'
 
 // ─── Hostiles ──────────────────────────────────────────────────────────────
 //
@@ -17,6 +17,8 @@ const H_PLATE = 0x403d44
 const H_LIGHT = 0x7f7b86
 const H_PAINT = 0x8e1f2b
 const H_PAINT2 = 0x5c141c
+/** What flies past the jump gates wears violet instead. */
+const V_PAINT = 0x4a2a78
 const H_METAL = 0x6b6670
 const H_VOID = 0x0c0b0d
 const AMBER = 0xffd9a0
@@ -919,6 +921,96 @@ const HOSTILE_DESIGNS: Record<string, (b: ModelBuilder, glow: number) => void> =
         b.solid(block(3.2, 2.0, 0.9, 0.1), H_PLATE, [0, 0, 6.1])
         drive(b, glow, [0, 0.1, 6.5], 0.62)
         drive(b, glow, [0.95, -0.2, 6.5], 0.42, true, H_PLATE)
+    },
+    /**
+     * Void cruiser, only met past a jump gate: a spindle hull carried between two
+     * forward-swept crescent horns. Each horn tip throws the orbs that curve in,
+     * and the tube under the chin is the storm rocket. Violet paint, not raider red.
+     */
+    desolator(b, glow) {
+        const l = { ...livery(glow), accent: V_PAINT }
+        const hull: Section[] = [
+            { z: -5.6, w: 0.1, h: 0.14, y: 0.12 },
+            { z: -4.1, w: 0.62, h: 0.6 },
+            { z: -1.2, w: 1.05, h: 0.98 },
+            { z: 2.4, w: 1.22, h: 1.08 },
+            { z: 4.7, w: 0.85, h: 0.75 }
+        ]
+        b.solid(loft(hull, 8, 0.5, Math.PI / 8), H_ARMOR)
+        band(b, hull, -5.6, -4.6, V_PAINT, [8, 0.5, Math.PI / 8], 0.015)
+        band(b, hull, -3.2, -2.6, H_PLATE, [8, 0.5, Math.PI / 8], 0.04)
+        band(b, hull, -0.5, 0.2, H_LIGHT, [8, 0.5, Math.PI / 8], 0.035)
+        band(b, hull, 0.2, 0.34, glow, [8, 0.5, Math.PI / 8], 0.045, 2.2)
+        band(b, hull, 3.0, 3.6, H_PLATE, [8, 0.5, Math.PI / 8], 0.05)
+        band(b, hull, 4.1, 4.4, H_DARK, [8, 0.5, Math.PI / 8], 0.05)
+        // Armoured spine with a violet command stripe down the nose.
+        b.solid(loft([
+            { z: -3.6, w: 0.3, h: 0.16, y: 0.62 },
+            { z: 0.2, w: 0.62, h: 0.3, y: 1.05 },
+            { z: 4.0, w: 0.5, h: 0.26, y: 0.98 }
+        ], 6, 0.6), H_DARK)
+        b.solid(slab([[-0.26, -5.2], [0.26, -5.2], [0.56, -1.8], [-0.56, -1.8]], 0.06, 0.02), V_PAINT, [0, 0.74, 0], [-0.1, 0, 0])
+        // The horns: one crescent blade a side, swept forward past the nose.
+        const horn: Pt[] = [[0.9, 3.5], [3.6, 2.7], [5.0, 0.3], [5.35, -2.6], [4.75, -5.3], [4.3, -2.9], [3.7, -0.7], [2.3, 0.3], [0.9, -0.8]]
+        b.solid(slab(horn, 0.34, 0.07), H_ARMOR, [0, 0.05, 0], FLAT, ONE, true)
+        b.solid(slab([[3.75, 2.3], [5.0, 0.3], [5.35, -2.6], [4.95, -4.4], [4.72, -2.75], [4.25, -0.3], [3.2, 1.7]], 0.1, 0.03), V_PAINT, [0, 0.27, 0], FLAT, ONE, true)
+        b.solid(slab([[3.75, 2.3], [5.0, 0.3], [5.35, -2.6], [4.95, -4.4], [4.72, -2.75], [4.25, -0.3], [3.2, 1.7]], 0.1, 0.03), H_PLATE, [0, -0.17, 0], FLAT, ONE, true)
+        b.solid(slab([[1.0, 3.1], [3.2, 2.5], [3.0, 1.2], [1.0, 0.2]], 0.12, 0.03), H_PLATE, [0, 0.3, 0], FLAT, ONE, true)
+        groove(b, [2.1, 0.37, 1.7], [1.9, 0.02, 0.05], true, [0, 0.35, 0])
+        groove(b, [2.0, 0.37, 2.5], [1.8, 0.02, 0.05], true, [0, 0.2, 0])
+        // The inner edge of each horn is one long lit seam, brightest at the tip.
+        const seam: [number, number, number, number][] = [[2.95, -0.2, 1.5, -0.62], [4.0, -1.75, 2.2, -0.27], [4.52, -4.05, 2.5, -0.18]]
+        for (const [x, z, len, yaw] of seam) b.glow(box(0.07, 0.12, len), glow, 2.4, [x, 0.05, z], [0, yaw, 0], ONE, true)
+        // Orb emitters in the horn tips: a collar, three claws and the charge itself.
+        b.metal(tube(0.5, 0.42, 0.9, 8), H_DARK, [4.75, 0.05, -5.0], FLAT, ONE, true)
+        b.metal(ring(0.52, 0.09, 4, 12), H_PLATE, [4.75, 0.05, -5.45], FLAT, ONE, true)
+        for (let i = 0; i < 3; i++) {
+            const a = (i / 3) * Math.PI * 2 + Math.PI / 2
+            b.metal(spike(0.11, 0.95, 4), H_METAL, [4.75 + Math.cos(a) * 0.52, 0.05 + Math.sin(a) * 0.52, -5.85], FLAT, ONE, true)
+        }
+        b.glow(ico(0.3, 1), glow, 4.5, [4.75, 0.05, -5.55], FLAT, ONE, true)
+        b.glow(ring(0.36, 0.04, 3, 16), glow, 2.6, [4.75, 0.05, -5.2], FLAT, ONE, true)
+        // Tip fins, so the horns read from the side as well as from above.
+        b.solid(fin([[-0.85, -4.3], [0.95, -3.5], [0.75, -1.2], [-0.6, -1.6]], 0.12, 0.03), H_DARK, [5.3, 0.05, 0], FLAT, ONE, true)
+        slit(b, glow, [5.38, 0.1, -2.6], [0.04, 0.9, 0.1], 2.2, true)
+        b.glow(octa(0.09), BEACON, 4.5, [5.3, 1.05, -3.4], FLAT, ONE, true)
+        // Storm-rocket tube slung under the chin, braced to the keel.
+        b.metal(tube(0.6, 0.68, 3.4, 10), H_DARK, [0, -1.3, -2.1])
+        b.metal(cyl(0.5, 0.5, 3.0, 10), H_VOID, [0, -1.3, -2.32], [Math.PI / 2, 0, 0])
+        b.metal(ring(0.66, 0.11, 4, 10), H_PLATE, [0, -1.3, -3.8])
+        b.metal(ring(0.7, 0.08, 4, 10), H_METAL, [0, -1.3, -1.6])
+        for (let i = 0; i < 3; i++) b.glow(ring(0.5, 0.04, 3, 16), glow, 1.8 + i * 0.7, [0, -1.3, -3.7 + i * 0.3])
+        b.solid(block(0.5, 0.5, 0.8, 0.06), H_PLATE, [0, -0.85, -2.9])
+        b.solid(block(0.6, 0.55, 1.0, 0.06), H_PLATE, [0, -0.95, -0.9])
+        hazard(b, [0, -0.61, -3.55], 0.9, 0.16, 5)
+        // Void core: the lit heart behind the bridge, caged in two rings.
+        b.solid(block(1.0, 0.4, 1.4, 0.07), H_PLATE, [0, 1.5, -0.2])
+        b.solid(block(0.66, 0.26, 0.76, 0.05), H_LIGHT, [0, 1.8, 0])
+        slit(b, AMBER, [0, 1.56, -0.92], [0.78, 0.08, 0.04], 3)
+        mast(b, [0.32, 1.9, 0.2], 0.9, 0.03)
+        dish(b, l, [-0.28, 1.9, 0.15], 0.24)
+        b.metal(cyl(0.62, 0.74, 0.3, 10), H_DARK, [0, 1.4, 2.0])
+        b.glow(ico(0.46, 1), glow, 4, [0, 1.95, 2.0])
+        b.metal(ring(0.66, 0.06, 4, 16), H_METAL, [0, 1.95, 2.0], [Math.PI / 2, 0, 0])
+        b.metal(ring(0.66, 0.06, 4, 16), H_METAL, [0, 1.95, 2.0], [0, Math.PI / 2, 0])
+        // A raked sail aft and a keel blade under it.
+        b.solid(slab([[0, 2.4], [0, 4.6], [2.3, 5.4], [2.1, 4.5]], 0.11, 0.03), V_PAINT, [0, 0.9, 0], [0, 0, Math.PI / 2])
+        b.solid(slab([[0, 2.9], [0, 4.4], [1.0, 4.7], [0.95, 3.7]], 0.17, 0.03), H_DARK, [0, 0.9, 0], [0, 0, Math.PI / 2])
+        slit(b, glow, [0, 2.2, 4.45], [0.14, 0.05, 1.0], 2.2)
+        b.glow(octa(0.13), BEACON, 5, [0, 3.2, 5.2])
+        b.solid(fin([[0, -0.4], [0, 3.9], [-0.75, 3.3], [-0.5, 0.3]], 0.42, 0.06), H_DARK, [0, -0.9, 0])
+        b.glow(box(0.42, 0.04, 2.4), glow, 1.2, [0, -1.66, 1.9])
+        // Deck guns, shoulder vents, windows.
+        deckGun(b, glow, [0.0, 1.0, -2.2], 0.62)
+        deckGun(b, glow, [2.2, 0.36, 0.9], 0.6, true)
+        vent(b, [0.92, 0.55, -1.9], 0.34, 0.2, 0.7, true)
+        for (let i = 0; i < 7; i++) b.glow(box(0.04, 0.09, 0.3), i % 3 === 0 ? AMBER : COLD, 1.8, [1.12, 0.32, -1.3 + i * 0.66], FLAT, ONE, true)
+        greeble(b, l, [0, 1.12, 3.3], 1.2, 0.9, 7, 11)
+        // Engine block: one main drive, two outriggers and a small drive in each horn root.
+        b.solid(block(2.3, 1.2, 0.8, 0.08), H_PLATE, [0, 0, 4.5])
+        drive(b, glow, [0, 0.05, 4.95], 0.56)
+        drive(b, glow, [1.05, -0.1, 4.7], 0.34, true, H_PLATE)
+        drive(b, glow, [2.75, 0.05, 3.25], 0.27, true)
     },
     /** Sentinel: a static gun platform. A siege cannon on an armoured drum over a ringed deck, radiators out to the sides. */
     sentinel(b, glow) {

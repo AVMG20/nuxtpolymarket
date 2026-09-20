@@ -171,7 +171,7 @@ export class ObjectiveTracker {
             { id: 'scan', text: 'Press T to scan for hidden loot', hint: 'A scan reveals hidden caches (extra materials, sometimes jump fuel) and data logs nearby. Fly to the CACHE or DATA LOG markers it leaves.', applies: () => true },
             { id: 'device', text: `Press G to use your ${deviceName}`, hint: `${deviceEffect} It costs energy and recharges, so save it for a tight spot.`, applies: () => !!device },
             { id: 'map', text: 'Hold Tab to open the sector map', hint: 'The map shows the station, beacons, the jump gate and the warden lair.', applies: () => true },
-            { id: 'jump', text: 'Fly into the jump gate', hint: 'Needs a fuel cell. The next zone is tougher and richer; extract at any beacon.', applies: () => e.fuel > 0 }
+            { id: 'jump', text: 'Fly into the jump gate', hint: 'Needs a fuel cell. Every jump is more dangerous than the last; extract at any beacon.', applies: () => e.fuel > 0 }
         ]
     }
 
@@ -278,9 +278,9 @@ export class ObjectiveTracker {
             { kind: 'crates', text: 'Crack salvage crates', target: 4 },
             { kind: 'signals', text: 'Scan and recover a hidden signal', target: 1 },
             { kind: 'jump', text: 'Jump through a gate', target: 1 },
-            { kind: 'reactor', text: 'Destroy a carrier shield reactor', target: 1 }
+            { kind: 'reactor', text: 'Destroy a capital ship shield reactor', target: 1 }
         ]
-        return pool.filter(b => b.kind !== 'reactor' || e.enemies.some(x => x.alive && x.kind === 'mothership'))
+        return pool.filter(b => b.kind !== 'reactor' || e.enemies.some(x => x.alive && x.kind === 'reactor'))
     }
 
     /**
@@ -310,10 +310,10 @@ export class ObjectiveTracker {
         }
     }
 
-    /** A reactor bounty with no carrier left in the zone becomes something doable. */
+    /** A reactor bounty with no reactor left in the zone becomes something doable. */
     private replaceStaleBounties() {
         const e = this.engine
-        if (e.enemies.some(x => x.alive && x.kind === 'mothership')) return
+        if (e.enemies.some(x => x.alive && x.kind === 'reactor')) return
         const pool = this.bountyPool().filter(b => !this.bounties.some(x => x.kind === b.kind))
         this.bounties = this.bounties.map((b) => {
             if (b.paid || b.kind !== 'reactor' || !pool.length) return b

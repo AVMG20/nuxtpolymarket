@@ -4,12 +4,14 @@ import * as THREE from 'three'
 import { randomFloat } from '#shared/utils/random'
 import { voidShip } from '#shared/utils/gamelogic/void'
 import { VOID_DAMAGE_MULT, VOID_DAMAGE_TYPE, type VoidDamageType } from '#shared/utils/gamelogic/void-items'
-import { ENEMIES, ENEMY_KINDS, WARDEN_BASE_HP, WARDEN_GLOW, threatDamageMult, threatHpMult, wardenHpMult, type EnemyKind } from './data'
+import { ENEMIES, ENEMY_KINDS, WARDEN_BASE_HP, WARDEN_GLOW, depthEliteBonus, spawnWeight, threatDamageMult, threatHpMult, wardenHpMult, type EnemyKind } from './data'
 import { ShieldBubble, Trail, createFlame, explosion, hitSpark } from './fx'
 import { buildCrate, buildEnemy, buildWarden } from './enemy-models'
 import { buildHostile } from './hostiles'
 import { buildTrader } from './structures'
 import { buildTurret } from './turrets'
+import { buildCapital, type CapitalId } from './capital-models'
+import { CAPITALS, capitalDeath, capitalOf, capitalShape, capitalWeakSpot, updateCapital, type CapitalSlot } from './capitals'
 import { ModelBuilder, cyl, ico, ring, type Hardpoint, type TurretModel } from './models'
 import { raySphere } from './asteroids'
 import { disposeTree, segmentSphere, type VoidEngine } from './engine'
@@ -38,13 +40,13 @@ const WARDEN_SHOT = new THREE.Color(0xff3d6e)
 
 let groupCounter = 1
 
-function randDir(flatten = 1) {
+export function randDir(flatten = 1) {
     return new THREE.Vector3(randomFloat() - 0.5, (randomFloat() - 0.5) * flatten, randomFloat() - 0.5).normalize()
 }
 
 // ─── Spawning ──────────────────────────────────────────────────────────────
 
-export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vector3, opts: { aggro?: boolean, group?: number, warpIn?: boolean, elite?: boolean, glow?: number } = {}): Enemy {
+export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vector3, opts: { aggro?: boolean, group?: number, warpIn?: boolean, elite?: boolean, glow?: number, capital?: CapitalId, scale?: number } = {}): Enemy {
     const cfg = engine.config!
     const threat = cfg.sector.threat
     const def = kind in ENEMIES ? ENEMIES[kind as EnemyKind] : null
@@ -55,6 +57,8 @@ export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vec
     let engines: THREE.Vector3[] = []
     let engineRadii: number[] = []
     let name: string
+    // Fittings follow the scale of the capital hull they stand on.
+    const hullScale = opts.scale ?? MOTHERSHIP_SCALE
 
     if (kind === 'crate') {
         const built = buildCrate(0xffa640)
@@ -89,6 +93,18 @@ export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vec
         name = 'Free Trader'
         engines = built.engines.map(en => en.position.clone())
         engineRadii = built.engines.map(en => en.radius)
+    } else if (kind === 'mothership' && opts.capital) {
+        const spec = CAPITALS[opts.capital]
+        glow = spec.glow
+        const built = buildCapital(opts.capital, glow)
+        built.group.scale.setScalar(spec.scale)
+        group = built.group
+        radius = built.radius * spec.scale
+        hp = WARDEN_BASE_HP * spec.hull * threatHpMult(threat)
+        name = spec.name
+        engines = built.engines.map(en => en.position.clone())
+        engineRadii = built.engines.map(en => en.radius)
+        group.userData.capitalModel = built
     } else if (kind === 'mothership') {
         glow = 0xff3b3b
         const built = buildHostile('mothership', glow, MOTHERSHIP_SCALE)!
@@ -111,18 +127,18 @@ export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vec
             b.metal(cyl(0.12, 0.18, 2.4, 6), 0x6b6670, [Math.cos(a) * 1.35, 1.6, Math.sin(a) * 1.35])
         }
         group = b.build().group
-        group.scale.setScalar(MOTHERSHIP_SCALE * 1.6)
-        radius = 3.2 * MOTHERSHIP_SCALE
+        group.scale.setScalar(hullScale * 1.6)
+        radius = 3.2 * hullScale
         hp = 1400 * threatHpMult(threat)
         name = 'Shield reactor'
     } else if (kind === 'battery') {
         glow = 0xff5a36
         const turret = buildTurret('rail', glow)
-        turret.root.scale.setScalar(4.5 * MOTHERSHIP_SCALE * 0.75)
+        turret.root.scale.setScalar(4.5 * hullScale * 0.75)
         group = new THREE.Group()
         group.add(turret.root)
         group.userData.turret = turret
-        radius = 3.8 * MOTHERSHIP_SCALE * 0.75
+        radius = 3.8 * hullScale * 0.75
         hp = 900 * threatHpMult(threat)
         name = 'Carrier battery'
     } else if (kind === 'warden') {
@@ -201,7 +217,7 @@ export function spawnEnemy(engine: VoidEngine, kind: HostileKind, pos: THREE.Vec
         enemy.flames.push(flame)
     }
     // Shields: energy weapons strip them, kinetic rounds tear the hull underneath.
-    const shieldShare = (kind === 'sentinel' ? 0.4 : kind === 'bulwark' ? 0.3 : kind === 'blinker' ? 0.25 : kind === 'carrier' ? 0.35 : kind === 'mauler' ? 0.3 : kind === 'ravager' ? 0.2 : kind === 'warden' ? 0.35 : kind === 'battery' ? 0.3 : 0) + (opts.elite ? 0.3 : 0)
+    const shieldShare = (kind === 'sentinel' ? 0.4 : kind === 'bulwark' ? 0.3 : kind === 'blinker' ? 0.25 : kind === 'carrier' ? 0.35 : kind === 'mauler' ? 0.3 : kind === 'desolator' ? 0.3 : kind === 'ravager' ? 0.2 : kind === 'warden' ? 0.35 : kind === 'battery' ? 0.3 : 0) + (opts.elite ? 0.3 : 0)
     if (shieldShare > 0) {
         enemy.data.shieldMax = Math.round(enemy.maxHp * Math.min(0.6, shieldShare))
         enemy.data.shield = engine.zone === 'ion' ? 0 : enemy.data.shieldMax
@@ -253,14 +269,16 @@ function warpFlash(engine: VoidEngine, pos: THREE.Vector3, glow: number, radius:
 
 export function spawnPatrol(engine: VoidEngine, center: THREE.Vector3, hunting: boolean, extraGroups = 0) {
     const tier = engine.config!.sector.tier
-    const pool = ENEMY_KINDS.filter(k => ENEMIES[k].weights[tier - 1]! > 0)
+    // Past a gate the heavies fly more often, and the Desolator only flies there.
+    const weight = (k: EnemyKind) => spawnWeight(k, tier, engine.depth)
+    const pool = ENEMY_KINDS.filter(k => weight(k) > 0)
     const groups = 1 + extraGroups
     for (let g = 0; g < groups; g++) {
-        const total = pool.reduce((s, k) => s + ENEMIES[k].weights[tier - 1]!, 0)
+        const total = pool.reduce((s, k) => s + weight(k), 0)
         let roll = randomFloat() * total
         let kind: EnemyKind = pool[0]!
         for (const k of pool) {
-            roll -= ENEMIES[k].weights[tier - 1]!
+            roll -= weight(k)
             if (roll < 0) {
                 kind = k
                 break
@@ -270,8 +288,8 @@ export function spawnPatrol(engine: VoidEngine, center: THREE.Vector3, hunting: 
         const count = def.group[0] + Math.floor(randomFloat() * (def.group[1] - def.group[0] + 1))
         const groupId = groupCounter++
         const base = center.clone().add(randDir(0.4).multiplyScalar(g * 40))
-        // One ship in a wing may be an elite, more often in the deep sectors.
-        const eliteIndex = kind !== 'mite' && randomFloat() < 0.08 + tier * 0.04 ? Math.floor(randomFloat() * count) : -1
+        // One ship in a wing may be an elite, more often in the deep sectors and with every jump.
+        const eliteIndex = kind !== 'mite' && randomFloat() < 0.08 + tier * 0.04 + depthEliteBonus(engine.depth) + engine.zoneMods.elites ? Math.floor(randomFloat() * count) : -1
         for (let i = 0; i < count; i++) {
             spawnEnemy(engine, kind, base.clone().add(randDir(0.6).multiplyScalar(8 + i * 5)), { aggro: hunting, group: groupId, warpIn: hunting, elite: i === eliteIndex })
         }
@@ -347,18 +365,25 @@ export function enemyRayHit(e: Enemy, from: THREE.Vector3, dir: THREE.Vector3, m
     const coarse = raySphere(from, dir, e.pos, e.radius)
     if (e.kind !== 'mothership' || coarse === null) return coarse
     if (coarse > maxT) return null
+    const shape = capitalShape(e)
+    const scale = shape?.scale ?? MOTHERSHIP_SCALE
+    const inside = shape?.inside ?? insideCarrier
     _hitInv.copy(e.group.matrixWorld).invert()
     _hitA.copy(from).applyMatrix4(_hitInv)
     _hitD.copy(dir).transformDirection(_hitInv)
     const end = Math.min(maxT, coarse + e.radius * 2)
-    for (let t = coarse; t <= end; t += 1.5) {
-        _hitP.copy(_hitA).addScaledVector(_hitD, t).divideScalar(MOTHERSHIP_SCALE)
-        if (insideCarrier(_hitP.x, _hitP.y, _hitP.z)) return t
+    for (let t = coarse; t <= end; t += scale * 0.83) {
+        _hitP.copy(_hitA).addScaledVector(_hitD, t).divideScalar(scale)
+        if (inside(_hitP.x, _hitP.y, _hitP.z)) return t
     }
     return null
 }
 
 function updateMothership(engine: VoidEngine, e: Enemy, dt: number, dist: number) {
+    if (capitalOf(e)) {
+        updateCapital(engine, e, dt, dist)
+        return
+    }
     const p = engine.player
     // A slow, stately orbit around where it was parked.
     e.data.heading! += dt * 0.025
@@ -435,12 +460,15 @@ function updateReactor(engine: VoidEngine, e: Enemy, dt: number) {
         killEnemy(engine, e, true)
         return
     }
-    e.pos.copy(parent.group.localToWorld(_v1.copy(REACTOR_SLOTS[e.data.slot!]!)))
+    // Pylons on a ring stand out along their socket, not along the hull's up.
+    const mount = e.group.userData.mount as CapitalSlot | undefined
+    e.pos.copy(parent.group.localToWorld(_v1.copy(mount?.position ?? REACTOR_SLOTS[e.data.slot!]!)))
     e.group.quaternion.copy(parent.group.quaternion)
+    if (mount) e.group.quaternion.multiply(mount.quat)
     e.group.rotateY(engine.time * 0.8)
     // A beam feeds the hull's shield so the link reads at a glance.
     if (Math.random() < dt * 6) {
-        engine.lines.pushV(e.pos, parent.pos, _c.set(0x6fd8ff).multiplyScalar(1.5), 0.35, 0.6, 0.2)
+        engine.lines.pushV(e.pos, parent.pos, _c.set(mount ? parent.glow : 0x6fd8ff).multiplyScalar(1.5), 0.35, 0.6, 0.2)
     }
 }
 
@@ -456,20 +484,23 @@ function updateBattery(engine: VoidEngine, e: Enemy, dt: number, dist: number) {
         killEnemy(engine, e, true)
         return
     }
-    const hp = (parent.group.userData.hardpoints as Hardpoint[])[e.data.slot!]!
+    const mount = e.group.userData.mount as CapitalSlot | undefined
+    const hp = mount ?? (parent.group.userData.hardpoints as Hardpoint[])[e.data.slot!]!
     e.pos.copy(parent.group.localToWorld(_v1.copy(hp.position)))
     e.group.quaternion.copy(parent.group.quaternion)
+    if (mount) e.group.quaternion.multiply(mount.quat)
     const turret = e.group.userData.turret as TurretModel
     const p = engine.player
     if (!p?.alive || !parent.aggro) return
     // Track the player in the hull's frame.
     const local = parent.group.worldToLocal(_v2.copy(p.pos)).sub(hp.position)
+    if (mount) local.applyQuaternion(_q.copy(mount.quat).invert())
     turret.yaw.rotation.y = Math.atan2(-local.x, -local.z)
     turret.pitch.rotation.x = THREE.MathUtils.clamp(Math.atan2(local.y, Math.hypot(local.x, local.z)), -0.15, 1.3)
     e.cooldown -= dt
     if (e.cooldown <= 0 && dist < 560 && (e.data.stunT ?? 0) <= 0) {
         e.cooldown = 1.5 + randomFloat() * 0.6
-        const from = _v3.copy(e.pos).add(_v1.set(0, 3, 0))
+        const from = _v3.copy(e.pos).add(_v1.set(0, 3, 0).applyQuaternion(e.group.quaternion))
         for (let i = -1; i <= 1; i += 2) {
             fireOrb(engine, from, lead(from, p.pos, p.vel, 190), 190, 13 * e.damageMult, e.glow, 1.3)
         }
@@ -593,6 +624,7 @@ export function damageEnemy(engine: VoidEngine, e: Enemy, amount: number, point:
         if (Math.random() < 0.25) engine.audio.play('shieldHit', { distance: point.distanceTo(engine.camera.position) * 0.5, volume: 0.5, pitch: 0.7 })
         return
     }
+    if (e.kind === 'mothership') amount *= capitalWeakSpot(engine, e, point)
     // Hits to the engines from behind do extra damage and slow the ship.
     if (!STEADY_SOURCES.has(source) && e.def && !CAPITAL.has(e.kind) && e.hostile) {
         const fwd = _v1.set(0, 0, -1).applyQuaternion(e.group.quaternion)
@@ -693,7 +725,7 @@ function turnCoalitionHostile(engine: VoidEngine, e: Enemy) {
     engine.audio.play('warning', { volume: 1 })
 }
 
-function alertGroup(engine: VoidEngine, e: Enemy) {
+export function alertGroup(engine: VoidEngine, e: Enemy) {
     e.aggro = true
     for (const other of engine.enemies) {
         if (!other.alive || other.aggro || !other.hostile) continue
@@ -710,7 +742,8 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
     const distance = e.pos.distanceTo(engine.camera.position)
     if (!silent) {
         if (e.kind === 'mothership') {
-            mothershipDeath(engine, e)
+            if (capitalOf(e)) capitalDeath(engine, e)
+            else mothershipDeath(engine, e)
         } else if (e.kind === 'warden') {
             wardenDeath(engine, e)
         } else {
@@ -734,7 +767,11 @@ export function killEnemy(engine: VoidEngine, e: Enemy, silent = false) {
         // A beat of hit-stop on big kills; a slow-motion moment for bosses.
         if (e.kind === 'warden' || e.kind === 'mothership') engine.slowMotion(1.4, 0.3)
         else if (e.elite) engine.slowMotion(0.06, 0.1)
-        if (e.kind === 'mothership' && engine.systems) engine.systems.carrierKilled = true
+        if (e.kind === 'mothership' && engine.systems) {
+            if (e.data.capital === 2) engine.systems.harbingerKilled = true
+            else if (e.data.capital === 1) engine.systems.tyrantKilled = true
+            else engine.systems.carrierKilled = true
+        }
     }
     if (!silent && e.hostile && !stolen) {
         // Relic caches: rare from elites and carriers, guaranteed from a warden.
@@ -916,20 +953,20 @@ function updateCoalition(engine: VoidEngine, e: Enemy, dt: number) {
 
 // ─── Behaviour ─────────────────────────────────────────────────────────────
 
-function faceTowards(e: Enemy, dir: THREE.Vector3, turn: number, dt: number) {
+export function faceTowards(e: Enemy, dir: THREE.Vector3, turn: number, dt: number) {
     if (dir.lengthSq() < 1e-6) return
     _m.lookAt(_v3.set(0, 0, 0), _v2.copy(dir), UP)
     _q.setFromRotationMatrix(_m)
     e.group.quaternion.rotateTowards(_q, turn * dt)
 }
 
-function steer(e: Enemy, desired: THREE.Vector3, accel: number, dt: number) {
+export function steer(e: Enemy, desired: THREE.Vector3, accel: number, dt: number) {
     // Burning to close a gap the player is opening (see `attack`).
     if ((e.data.chaseT ?? 0) > 0) desired.multiplyScalar(1.6)
     e.vel.lerp(desired, 1 - Math.exp(-accel * dt))
 }
 
-function fireOrb(engine: VoidEngine, from: THREE.Vector3, dir: THREE.Vector3, speed: number, damage: number, color: THREE.ColorRepresentation, size = 1) {
+export function fireOrb(engine: VoidEngine, from: THREE.Vector3, dir: THREE.Vector3, speed: number, damage: number, color: THREE.ColorRepresentation, size = 1) {
     engine.projectiles.push({
         pos: from.clone(),
         vel: dir.clone().normalize().multiplyScalar(speed),
@@ -947,7 +984,7 @@ function fireOrb(engine: VoidEngine, from: THREE.Vector3, dir: THREE.Vector3, sp
     })
 }
 
-function fireBolt(engine: VoidEngine, from: THREE.Vector3, dir: THREE.Vector3, speed: number, damage: number, color: THREE.ColorRepresentation) {
+export function fireBolt(engine: VoidEngine, from: THREE.Vector3, dir: THREE.Vector3, speed: number, damage: number, color: THREE.ColorRepresentation) {
     engine.projectiles.push({
         pos: from.clone(),
         vel: dir.clone().normalize().multiplyScalar(speed),
@@ -965,7 +1002,7 @@ function fireBolt(engine: VoidEngine, from: THREE.Vector3, dir: THREE.Vector3, s
     })
 }
 
-function lead(from: THREE.Vector3, target: THREE.Vector3, targetVel: THREE.Vector3, speed: number) {
+export function lead(from: THREE.Vector3, target: THREE.Vector3, targetVel: THREE.Vector3, speed: number) {
     const t = from.distanceTo(target) / Math.max(1, speed)
     // Enemies lead imperfectly, so a pilot who keeps changing direction gets missed.
     return _lead.copy(target).addScaledVector(targetVel, t * 0.75).sub(from).normalize()
@@ -981,7 +1018,7 @@ export function updateEnemies(engine: VoidEngine, dt: number) {
         if (!e.alive) continue
         if ((e.data.shieldMax ?? 0) > 0 && (e.data.shield ?? 0) < e.data.shieldMax!) {
             e.data.shieldDelay = (e.data.shieldDelay ?? 0) - dt
-            if (e.data.shieldDelay! <= 0) e.data.shield = Math.min(e.data.shieldMax!, e.data.shield! + e.data.shieldMax! * 0.08 * (engine.zone === 'ion' ? 0.5 : 1) * dt)
+            if (e.data.shieldDelay! <= 0) e.data.shield = Math.min(e.data.shieldMax!, e.data.shield! + e.data.shieldMax! * 0.08 * (engine.zone === 'ion' ? 0 : 1) * dt)
         }
         if (e.kind === 'trader') {
             e.group.rotation.y += dt * 0.02
@@ -1006,7 +1043,7 @@ export function updateEnemies(engine: VoidEngine, dt: number) {
         const dist = toPlayer.length()
 
         if (e.hostile && e.kind !== 'warden' && p) {
-            const vision = e.kind === 'sentinel' ? 290 : e.kind === 'mite' ? 260 : 340
+            const vision = (e.kind === 'sentinel' ? 290 : e.kind === 'mite' ? 260 : 340) * engine.zoneMods.vision
             if (!e.aggro && playerAlive && target && dist < vision) alertGroup(engine, e)
             if (e.aggro && dist > 1100 && e.kind !== 'sentinel') e.aggro = false
             // The station's guns keep the dock clear.
@@ -1448,6 +1485,53 @@ function attack(engine: VoidEngine, e: Enemy, dt: number, dist: number, p: AiTar
                     }
                     engine.rings.spawn(from, 26, e.glow.getHex(), 0.4, 2.5)
                     engine.audio.play('flak', { distance: dist * 0.5, pan: engine.panOf(e.pos), pitch: 0.45, volume: 1.4 })
+                }
+            }
+            break
+        }
+        case 'desolator': {
+            // Drifts round you at mid range. Both horn tips charge, then throw void orbs
+            // out wide that curve back in: turn late and they sail past.
+            const tangent = _v1.crossVectors(dirToPlayer, UP).normalize().multiplyScalar(e.orbitSign * 0.5)
+            const radial = dirToPlayer.clone().multiplyScalar(THREE.MathUtils.clamp((dist - 230) / 80, -0.7, 1))
+            steer(e, tangent.add(radial).normalize().multiplyScalar(def.speed), 0.6, dt)
+            faceTowards(e, dirToPlayer, def.turn * (e.state === 'charge' ? 0.5 : 1), dt)
+            if (p.isPlayer && e.state !== 'charge' && engine.threats.ready(e, dt) && dist < 460 && dist > 110 && fwd.dot(dirToPlayer) > 0.6) {
+                const tube = _v1.set(0, -1.3, -4).multiplyScalar(def.scale).applyQuaternion(e.group.quaternion).add(e.pos)
+                engine.threats.launchRocket(e, tube, fwd, dmg * 3, 15)
+            }
+            if (e.state !== 'charge') {
+                if (e.cooldown <= 0 && dist < def.range && fwd.dot(dirToPlayer) > 0.7) {
+                    e.state = 'charge'
+                    e.stateTime = 0
+                    e.data.burst = 0
+                    engine.audio.play('charge', { distance: dist * 0.5, pan: engine.panOf(e.pos), pitch: 1.25 })
+                }
+            } else {
+                const k = Math.min(1, e.stateTime / 0.9)
+                const right = _v2.set(1, 0, 0).applyQuaternion(e.group.quaternion)
+                for (const side of [1, -1]) {
+                    const tip = _v1.set(side * 4.75, 0.05, -5.6).multiplyScalar(def.scale).applyQuaternion(e.group.quaternion).add(e.pos)
+                    engine.particles.glow(tip.x, tip.y, tip.z, _c.copy(e.glow).multiplyScalar(1.5 + k * 3), 4 + k * 8)
+                    // Three pairs, a beat apart, once the charge is up.
+                    if (e.stateTime >= 0.9 + (e.data.burst ?? 0) * 0.32) {
+                        const out = lead(tip, p.pos, p.vel, def.projectileSpeed).clone().addScaledVector(right, side * 0.75).addScaledVector(UP, (randomFloat() - 0.5) * 0.3)
+                        fireOrb(engine, tip, out, def.projectileSpeed, dmg, e.glow, 1.5)
+                        const orb = engine.projectiles[engine.projectiles.length - 1]!
+                        orb.curve = 2.2
+                        orb.life = 6.5
+                        engine.rings.spawn(tip, 9, e.glow.getHex(), 0.3, 2.5)
+                        if (side < 0) {
+                            e.data.burst = (e.data.burst ?? 0) + 1
+                            engine.audio.play('enemyShot', { distance: dist * 0.6, pan: engine.panOf(e.pos), pitch: 0.5, volume: 1.2 })
+                        }
+                    }
+                }
+                if ((e.data.burst ?? 0) >= 3) {
+                    e.state = 'reposition'
+                    e.data.burst = 0
+                    e.cooldown = def.cooldown * (0.85 + randomFloat() * 0.3)
+                    e.orbitSign *= -1
                 }
             }
             break

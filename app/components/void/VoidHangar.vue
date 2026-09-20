@@ -382,7 +382,7 @@
                     <p><b>Gear.</b> Guns, turrets, armour and shields are crafted in the Workshop from the materials of their tier. Every craft rolls a rarity with bonus stats, and every item levels to +10. Each sector you clear opens the next gear tier, and deeper sectors need it.</p>
                     <p><b>Damage types.</b> Energy weapons strip shields and glance off hull plate; kinetic rounds bounce off shields and tear hulls; explosives are even-handed. Shots to an enemy's engines do extra damage and slow it.</p>
                     <p><b>Systems.</b> E fires your secondary (hold to lock on), G triggers your device, T pulses the scanner to mark data logs and hidden caches. Heavy hull hits can knock out engines, weapons or shields for a few seconds; repair nanites fix them.</p>
-                    <p><b>Jumps.</b> Every zone has a jump gate. With a fuel cell you pick the next zone from three, each tougher and richer with its own twist. Extract at any beacon to bank the hold.</p>
+                    <p><b>Jumps.</b> Every zone has a jump gate. With a fuel cell you pick the next zone from three. Each has its own upsides and downsides, and every jump is more dangerous than the last. Extract at any beacon to bank the hold.</p>
                     <p><b>Relics.</b> Elites, wardens and vaults sometimes drop a golden relic cache. Bank it at a dock to reveal a mod, then socket it into gear for a unique effect.</p>
                     <p><b>Progress.</b> Hulls add slots, skills add a second weapon, station systems improve hauling, and contracts pay a premium for deliveries every day.</p>
                     <p><b>Combat.</b> Turrets pick targets on their own; your crosshair tells them what matters most. Elites carry a gold halo and drop far more loot.</p>
@@ -406,7 +406,7 @@
                         <p>{{ enemy.tell }}</p>
                         <div class="vh-kv">
                             <span>Hull <b>{{ enemy.hp }}</b></span>
-                            <span>First seen <b>Sector {{ enemy.firstSector }}</b></span>
+                            <span>First seen <b>{{ enemy.minDepth ? 'Past a jump gate' : `Sector ${enemy.firstSector}` }}</b></span>
                         </div>
                     </div>
                 </div>

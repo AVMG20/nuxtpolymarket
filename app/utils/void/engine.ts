@@ -16,10 +16,10 @@ import {
 } from '#shared/utils/gamelogic/void'
 import { AsteroidField, ORE_GLOW, raySphere, type Asteroid } from './asteroids'
 import type { VoidAudio, VoidSfx } from './audio'
-import { dropMult } from './data'
+import { depthDesolators, depthExtraWing, depthPatrolMult, dropMult } from './data'
 import {
     DebrisSystem, FlashLights, LineBatch, ParticleSystem, RingPool, ShieldBubble, SparkSystem, Trail,
-    createFlame, explosion, hitSpark, muzzleFlash, type FxContext
+    createFlame, explosion, hitSpark, muzzleFlash, type FxContext, type ParticleOpts
 } from './fx'
 import {
     ModelBuilder, RIM_COLOR,
@@ -37,10 +37,12 @@ import { SectorHazards } from './hazards'
 import { EnemyThreats } from './threats'
 import { SkillRunner } from './skills'
 import { ShipSystems } from './systems'
-import { VOID_ZONES, voidDepthLoot, voidDepthThreat, voidZone, type VoidZoneModifier } from '#shared/utils/gamelogic/void-pilot'
+import { ZoneAtmosphere } from './zones'
+import { VOID_ZONE_PLAIN, VOID_ZONES, voidDepthLoot, voidDepthThreat, voidZone, type VoidZoneModifier, type VoidZoneMods } from '#shared/utils/gamelogic/void-pilot'
 import { voidItemType } from '#shared/utils/gamelogic/void-items'
 import { VOID_SUPPLIES } from '#shared/utils/gamelogic/void-station'
 import type { VoidWeaponFit } from '#shared/utils/gamelogic/void-items'
+import { CAPITALS, capitalOf, spawnCapital } from './capitals'
 import { damageEnemy, enemyRayHit, spawnCoalitionPatrol, spawnEnemy, spawnMothership, spawnTrader, spawnPatrol, spawnWarden, updateCorpses, updateEnemies, WARDEN_TRIGGER_RANGE } from './enemies'
 import type {
     Drone, Enemy, EngineEvents, FloatText, HudState, Phase, Pickup, Projectile, RunConfig, RunResult, Tracer, TurretSlot
@@ -107,6 +109,8 @@ const FORWARD = new THREE.Vector3(0, 0, -1)
 // Chase camera pull-in for heavy hulls, as a share of ship length at full heft.
 const CAM = { back: 0.55, up: 0.12 }
 export const SECTOR_RADIUS = 2600
+/** Seconds the jump drive spools between picking a zone at the gate and leaving. */
+const JUMP_SPOOL = 1.3
 
 const _v1 = new THREE.Vector3()
 const _v2 = new THREE.Vector3()
@@ -119,6 +123,9 @@ const AXIS_X = new THREE.Vector3(1, 0, 0)
 const AXIS_Y = new THREE.Vector3(0, 1, 0)
 const AXIS_Z = new THREE.Vector3(0, 0, 1)
 const _c1 = new THREE.Color()
+const _c2 = new THREE.Color()
+// Reused for every void orb drawn, so a Desolator's volley costs no garbage.
+const VOID_MOTE: ParticleOpts = { life: 0.45, size: 1.3, sizeEnd: 0, color: 0xc07bff, intensity: 2.5, drag: 1 }
 const _m1 = new THREE.Matrix4()
 
 export interface Structure {
@@ -272,6 +279,7 @@ export class VoidEngine {
     damageDirs: { from: THREE.Vector3, life: number, shield: boolean, strength: number }[] = []
     killMarker = 0
     private warp = 0
+    private warpRing = 0
     objectives: ObjectiveTracker | null = null
     sectorEvents: EventDirector | null = null
     beacons: BeaconControl | null = null
@@ -295,6 +303,10 @@ export class VoidEngine {
     private fuelWarn = 0
     trader: Enemy | null = null
     private zoneProps: THREE.Object3D[] = []
+    /** The look and ambience of a zone past a gate; the home zone has none. */
+    zoneFx: ZoneAtmosphere | null = null
+    /** Wind-up before a jump: the zone picked at the gate and the seconds left on the spool. */
+    private jumpSpool: { zone: VoidZoneModifier, t: number } | null = null
     private baseThreat = 1
     private revived = false
     cockpit = false
@@ -847,6 +859,9 @@ export class VoidEngine {
         this.sunLight.color.copy(this.sky.sunColor)
         this.fillLight.color.set(config.sector.palette[2])
         this.fillLight.intensity = 0.9
+        // A zone past a gate may have left its own light and dust behind.
+        this.sunLight.intensity = 3
+        this.dust.setLook(0x9fb6d8)
         RIM_COLOR.value.set(config.sector.palette[2]).lerp(new THREE.Color(0xffffff), 0.35).multiplyScalar(0.55)
         scene.add(this.sunLight, this.fillLight, this.playerLight, new THREE.AmbientLight(0x2a3040, 0.9))
         scene.add(this.particles.points, this.smoke.points, this.lines.mesh, this.rings.group, this.debris.mesh, this.flashes.group, this.pickupMesh, this.dust.points, this.dust.lines.mesh)
@@ -908,6 +923,9 @@ export class VoidEngine {
         this.gate = null
         for (const prop of this.zoneProps) disposeTree(prop)
         this.zoneProps = []
+        this.zoneFx?.dispose()
+        this.zoneFx = null
+        this.jumpSpool = null
         this.gateOptions = null
         this.modalOpen = false
         this.trader = null
@@ -953,6 +971,10 @@ export class VoidEngine {
         const accent = cfg.sector.palette[2]
 
         const zone = this.zone
+        const mods = this.zoneMods
+        // Past a gate the zone dresses the whole sector: sky, murk, light, dust and rock.
+        this.zoneFx = this.depth > 1 ? new ZoneAtmosphere(this, zone) : null
+        this.asteroids!.setLook(this.zoneFx?.look.rock[0] ?? 0xffffff, this.zoneFx?.look.rock[1] ?? 1)
         if (this.depth === 1) {
             const station = buildStation(accent)
             this.scene.add(station.group)
@@ -1014,15 +1036,18 @@ export class VoidEngine {
             }
         }
 
-        const clusters = zone === 'graveyard' ? 10 : zone === 'rich' ? 20 : 16
-        const oreBonus = zone === 'rich' ? 0.2 : 0
+        const veins = this.depth > 1 && zone === 'rich'
+        const clusters = Math.round(16 * mods.rocks)
+        const oreBonus = veins ? 0.2 : 0
         for (let i = 0; i < clusters; i++) {
             const dist = this.rand(380, 2350)
             const center = this.randomDir(0.35).multiplyScalar(dist)
             if (center.distanceTo(this.lair) < 350) continue
             const rich = dist > 1300
-            addCluster(center, this.rand(90, 190), Math.round(this.rand(12, 22)), (rich ? 0.75 : 0.5) + oreBonus)
-            if (rich && randomFloat() < (zone === 'rich' ? 0.9 : 0.6) && (tier >= 2 || zone === 'rich')) {
+            // Rich veins pack their rock tight, so a vein reads as one glittering knot.
+            addCluster(center, veins ? this.rand(70, 130) : this.rand(90, 190), Math.round(this.rand(12, 22)), (rich ? 0.75 : 0.5) + oreBonus)
+            // Sentinels sit on the far seams; in rich veins they sit on every one.
+            if ((rich || veins) && randomFloat() < (veins ? 0.9 : 0.6) && (tier >= 2 || veins)) {
                 for (let k = 0; k < 1 + Math.floor(randomFloat() * 2); k++) {
                     spawnEnemy(this, 'sentinel', center.clone().add(this.randomDir(0.5).multiplyScalar(60)), { aggro: false })
                 }
@@ -1068,6 +1093,24 @@ export class VoidEngine {
         for (const rock of gateClear) field.remove(rock)
         this.gate = { pos: gatePos, group: gateGroup, spin: gateModel.spin }
 
+        // Two more capitals hide out here with no marker: a Tyrant in every
+        // zone and, past the first jump, an Eclipse Harbinger. Each parks well
+        // clear of the lair, the gate, the beacons and the other capitals.
+        if (!tutorial) {
+            const avoid = [this.lair, shipAt, gatePos]
+            for (const id of this.depth > 1 ? ['tyrant', 'harbinger'] as const : ['tyrant'] as const) {
+                let at = this.randomDir(0.25).multiplyScalar(this.rand(1350, 1900))
+                for (let tries = 0; tries < 40 && (avoid.some(a => a.distanceTo(at) < 800) || beaconDirs.some(d => d.dot(at) / at.length() > 0.7)); tries++) {
+                    at = this.randomDir(0.25).multiplyScalar(this.rand(1350, 1900))
+                }
+                avoid.push(at)
+                const parked: Asteroid[] = []
+                field.query(at, CAPITALS[id].orbit + 280, rock => parked.push(rock))
+                for (const rock of parked) field.remove(rock)
+                spawnCapital(this, id, at)
+            }
+        }
+
         // A Free Trader parks near the arrival point, and a Coalition patrol hunts raiders.
         if (!tutorial && randomFloat() < (this.depth === 1 ? 0.45 : 0.7)) {
             this.trader = spawnTrader(this, this.randomDir(0.2).multiplyScalar(this.rand(260, 380)))
@@ -1075,32 +1118,49 @@ export class VoidEngine {
         if (!tutorial && randomFloat() < 0.7) spawnCoalitionPatrol(this, this.randomDir(0.3).multiplyScalar(this.rand(700, 1600)))
 
         // Wrecks with salvage crates.
-        for (let i = 0; i < (zone === 'graveyard' ? 16 : 7); i++) {
-            const pos = this.randomDir(0.3).multiplyScalar(this.rand(450, 2200))
+        const graveyard = this.depth > 1 && zone === 'graveyard'
+        for (let i = 0; i < Math.round(7 * mods.wrecks); i++) {
+            // A graveyard's first few wrecks are hulks the size of a station, and solid.
+            const hulk = graveyard && i < 5
+            const pos = this.randomDir(0.3).multiplyScalar(hulk ? this.rand(500, 1700) : this.rand(450, 2200))
+            if (hulk && (pos.distanceTo(gatePos) < 300 || pos.distanceTo(shipAt) < 600 || pos.distanceTo(this.lair) < 400)) continue
             const wreck = buildWreck(Math.floor(randomFloat() * 1e6))
+            const scale = hulk ? this.rand(9, 14) : this.rand(1.5, 2.6)
             wreck.group.position.copy(pos)
             wreck.group.rotation.set(randomFloat() * 6, randomFloat() * 6, randomFloat() * 6)
-            wreck.group.scale.setScalar(this.rand(1.5, 2.6))
+            wreck.group.scale.setScalar(scale)
             this.scene.add(wreck.group)
             this.zoneProps.push(wreck.group)
+            if (hulk) {
+                const solid = wreck.radius * scale * 0.4
+                const crushed: Asteroid[] = []
+                field.query(pos, solid + 30, rock => crushed.push(rock))
+                for (const rock of crushed) field.remove(rock)
+                this.zoneFx?.addSolid(pos, solid)
+            }
             const crates = 2 + Math.floor(randomFloat() * 3)
             for (let k = 0; k < crates; k++) {
-                spawnEnemy(this, 'crate', pos.clone().add(this.randomDir(0.8).multiplyScalar(this.rand(18, 34))), {})
+                spawnEnemy(this, 'crate', pos.clone().add(this.randomDir(0.8).multiplyScalar(hulk ? wreck.radius * scale * 0.4 + this.rand(14, 30) : this.rand(18, 34))), {})
             }
         }
 
         this.hazards = new SectorHazards(this)
         this.hazards.setup()
-        this.systems?.seedZone(zone === 'graveyard')
-        // Zone atmosphere.
-        if (zone === 'nebula' && !this.scene.fog) this.scene.fog = new THREE.FogExp2(new THREE.Color(cfg.sector.palette[1]).multiplyScalar(0.35), 0.0016)
-        if (zone === 'radiation' && !this.scene.fog) this.scene.fog = new THREE.FogExp2(0x1a3a12, 0.0005)
-        if (zone === 'ion' && !this.scene.fog) this.scene.fog = new THREE.FogExp2(0x10283f, 0.0004)
+        this.systems?.seedZone(graveyard, mods.caches)
+        this.zoneFx?.populate()
+        this.applyZoneLook()
 
-        // Initial patrols out in the dark.
-        const groups = Math.round((9 + tier) * (zone === 'pirates' ? 1.6 : 1))
+        // Initial patrols out in the dark: more of them with every jump.
+        const groups = Math.round((9 + tier) * mods.patrols * depthPatrolMult(this.depth))
         for (let i = 0; i < groups; i++) {
             spawnPatrol(this, this.randomDir(0.3).multiplyScalar(this.rand(550, 2300)), false)
+        }
+        // Desolators only fly past a gate, and there is always one out there with its escort.
+        for (let i = 0; i < depthDesolators(this.depth); i++) {
+            const at = this.randomDir(0.3).multiplyScalar(this.rand(700, 1900))
+            const wing = 700_000 + this.nextId()
+            spawnEnemy(this, 'desolator', at, { aggro: false, group: wing })
+            for (let k = 0; k < 2; k++) spawnEnemy(this, 'raider', at.clone().add(this.randomDir(0.5).multiplyScalar(this.rand(30, 50))), { aggro: false, group: wing })
         }
     }
 
@@ -1277,6 +1337,7 @@ export class VoidEngine {
         this.updatePickups(dt)
         this.asteroids?.update(dt)
         this.hazards?.update(dt)
+        this.zoneFx?.update(dt)
         this.threats.update(dt)
         this.beacons?.update(dt)
         for (const s of this.structures) {
@@ -1310,6 +1371,7 @@ export class VoidEngine {
         this.damageDirs = this.damageDirs.filter(d => (d.life -= dt * 1.2) > 0)
         this.killMarker = Math.max(0, this.killMarker - dt)
         this.updateWarp(dt)
+        this.updateJumpSpool(dt)
         this.trauma = Math.max(0, this.trauma - dt * 1.6)
         this.hurt = Math.max(0, this.hurt - dt * 1.8)
         this.shieldHurt = Math.max(0, this.shieldHurt - dt * 2.5)
@@ -1456,9 +1518,9 @@ export class VoidEngine {
             }
         }
         if (p.shieldDelay > 0) p.shieldDelay -= dt
-        else if (p.shield < stats.shield) p.shield = Math.min(stats.shield, p.shield + stats.shieldRegen * dt * (this.systems?.shieldRegenMult ?? 1) * (this.zone === 'ion' ? 0.5 : 1))
+        else if (p.shield < stats.shield) p.shield = Math.min(stats.shield, p.shield + stats.shieldRegen * dt * (this.systems?.shieldRegenMult ?? 1) * this.zoneMods.shieldRegen)
         // Radiation eats the hull whenever the shield is down.
-        if (this.zone === 'radiation' && p.shield <= 0 && p.alive && p.invuln <= 0 && this.phase === 'flying') {
+        if (this.depth > 1 && this.zone === 'radiation' && p.shield <= 0 && p.alive && p.invuln <= 0 && this.phase === 'flying') {
             p.hull -= stats.hull * 0.004 * dt
             if (p.hull <= 0) this.hullDepleted()
         }
@@ -2392,6 +2454,12 @@ export class VoidEngine {
                     this.particles.emit(pr.pos.x, pr.pos.y, pr.pos.z, 0, 0, 0, { life: 0.15, size: 1.6, sizeEnd: 0.3, color: 0xffb070, intensity: 2.5, drag: 0 })
                 }
             }
+            // A Desolator's orbs swing in on the pilot for a moment, then commit to their line.
+            if (pr.curve && pr.curve > 0 && p?.alive) {
+                pr.curve -= step
+                const speed = pr.vel.length()
+                pr.vel.lerp(_v1.subVectors(p.pos, pr.pos).setLength(speed), 1 - Math.exp(-1.7 * step)).setLength(speed)
+            }
             const from = _v2.copy(pr.pos)
             const to = _v3.copy(pr.pos).addScaledVector(pr.vel, step)
             let consumed = false
@@ -2453,6 +2521,11 @@ export class VoidEngine {
                 if (Math.random() < 0.6) this.particles.emit(pr.pos.x, pr.pos.y, pr.pos.z, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6, { life: 0.35, size: 2, sizeEnd: 0, color: pr.color, drag: 2 })
             } else if (pr.kind === 'orb') {
                 this.particles.glow(pr.pos.x, pr.pos.y, pr.pos.z, pr.color, 3.2 * pr.width)
+                // Void orbs: a wide violet halo, shedding motes while they still steer.
+                if (pr.curve !== undefined) {
+                    this.particles.glow(pr.pos.x, pr.pos.y, pr.pos.z, _c2.copy(pr.color).multiplyScalar(0.16), 5.5 * pr.width, 0.6)
+                    if (pr.curve > 0 && Math.random() < 0.5) this.particles.emit(pr.pos.x, pr.pos.y, pr.pos.z, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5, VOID_MOTE)
+                }
                 this.lines.push(tail.x, tail.y, tail.z, pr.pos.x, pr.pos.y, pr.pos.z, pr.color, 0.8, pr.width * 0.3, pr.width * 0.8)
             } else if (pr.kind === 'missile') {
                 this.lines.push(tail.x, tail.y, tail.z, pr.pos.x, pr.pos.y, pr.pos.z, _c1.setRGB(0.8, 0.8, 0.85), 0.8, pr.width * 0.6, pr.width)
@@ -2639,7 +2712,7 @@ export class VoidEngine {
         this.audio.play('explosionLarge', { volume: 1.5 })
         this.audio.play('death')
         this.audio.updateEngine(0, false, 0)
-        this.endResult = { reason: 'destroyed', haul: {}, lost: { ...this.cargo }, kills: this.kills, wardenKilled: this.wardenKilled, elapsedMs: Math.round(this.elapsed * 1000), skillUses: this.skills?.uses ?? 0, suppliesUsed: { ...this.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: this.pilotBonusXp, depth: this.depth, carrierKilled: false, lore: [], beaconsCaptured: [...(this.beacons?.captured ?? [])], beaconsDefended: [...(this.beacons?.defended ?? [])] }
+        this.endResult = { reason: 'destroyed', haul: {}, lost: { ...this.cargo }, kills: this.kills, wardenKilled: this.wardenKilled, elapsedMs: Math.round(this.elapsed * 1000), skillUses: this.skills?.uses ?? 0, suppliesUsed: { ...this.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: this.pilotBonusXp, depth: this.depth, carrierKilled: false, tyrantKilled: false, harbingerKilled: false, lore: [], beaconsCaptured: [...(this.beacons?.captured ?? [])], beaconsDefended: [...(this.beacons?.defended ?? [])] }
         this.events.toast('Ship destroyed. The hold is lost.', 'bad')
     }
 
@@ -2726,7 +2799,7 @@ export class VoidEngine {
     }
 
     get relicMult() {
-        return (1 + (this.config?.perks?.relics ?? 0) * 0.4) * (this.zone === 'nebula' ? 2 : 1)
+        return (1 + (this.config?.perks?.relics ?? 0) * 0.4) * this.zoneMods.relics
     }
 
     itemName(type: string) {
@@ -2735,6 +2808,30 @@ export class VoidEngine {
 
     get zoneName() {
         return voidZone(this.zone).name
+    }
+
+    /** What the zone changes. The home zone, before any jump, plays by the plain rules. */
+    get zoneMods(): VoidZoneMods {
+        return this.depth > 1 ? voidZone(this.zone).mods : VOID_ZONE_PLAIN
+    }
+
+    /** Swaps the sky, fog, lights and dust for the zone's own. Called once a zone past a gate is built. */
+    private applyZoneLook() {
+        const look = this.zoneFx?.look
+        if (!look || !this.config) return
+        this.sky?.dispose()
+        if (this.sky) this.scene.remove(this.sky.group)
+        this.sky = createSky(look.palette, 4000 + this.depth * 131 + Math.floor(randomFloat() * 1000), look.sky)
+        this.scene.add(this.sky.group)
+        this.scene.environment = this.setEnvironment(this.sky)
+        if (look.fog) this.scene.fog = new THREE.FogExp2(look.fog[0], look.fog[1])
+        this.sunLight.position.copy(this.sky.sunDirection).multiplyScalar(100)
+        this.sunLight.color.set(look.sun[0])
+        this.sunLight.intensity = look.sun[1]
+        this.fillLight.color.set(look.fill[0])
+        this.fillLight.intensity = look.fill[1]
+        RIM_COLOR.value.set(look.palette[2]).lerp(_c1.set(0xffffff), 0.35).multiplyScalar(0.55)
+        this.dust.setLook(...look.dust)
     }
 
     slowMotion(duration: number, scale: number) {
@@ -2851,6 +2948,9 @@ export class VoidEngine {
         this.gate = null
         for (const prop of this.zoneProps) disposeTree(prop)
         this.zoneProps = []
+        this.zoneFx?.dispose()
+        this.zoneFx = null
+        this.jumpSpool = null
         this.trader = null
         this.hazards?.dispose()
         this.hazards = null
@@ -2870,16 +2970,51 @@ export class VoidEngine {
         this.patrolTimer = 25
         this.generateSector()
         p.pos.set(0, 20, 90)
-        p.vel.set(0, 0, 0)
+        // The ship drops out of the tunnel still carrying its speed.
+        p.vel.copy(FORWARD).applyQuaternion(p.quat).multiplyScalar(this.config.stats.speed * 1.5)
+        p.invuln = Math.max(p.invuln, 2)
         this.camPos.copy(p.pos)
         p.trails.forEach(t => t.reset(p.pos))
-        this.warp = 1.4
+        this.warp = 2
         this.whiteFlash = 0.8
-        this.fov = 100
+        this.fov = 110
         this.audio.play('undock')
         this.setPaused(false)
-        const def = voidZone(zone)
-        this.events.banner(def.name, `Jump ${this.depth} · ${def.description}`, 'info')
+        // generateSector() built the new zone's atmosphere; the compiler only saw the teardown.
+        ;(this.zoneFx as ZoneAtmosphere | null)?.arrive()
+        this.events.banner(voidZone(zone).name, `Jump ${this.depth}`, 'info', { id: zone, depth: this.depth })
+    }
+
+    /**
+     * What the gate dialog calls: the drive spools for a moment, the ship is
+     * flung down the gate's throat, and only then does the zone change.
+     */
+    startJump(zone: VoidZoneModifier) {
+        const p = this.player
+        if (!p || !this.config || this.fuel < 1 || this.jumpSpool) return
+        this.gateOptions = null
+        this.gateCooldown = 8
+        this.jumpSpool = { zone, t: JUMP_SPOOL }
+        p.invuln = Math.max(p.invuln, JUMP_SPOOL + 1)
+        this.setPaused(false)
+        this.audio.play('charge', { pitch: 0.7, volume: 1.3 })
+    }
+
+    /** The spool: streaks converge on the nose, the view stretches, and the ship surges forward. */
+    private updateJumpSpool(dt: number) {
+        const spool = this.jumpSpool
+        const p = this.player
+        if (!spool || !p) return
+        spool.t -= dt
+        const k = 1 - Math.max(0, spool.t) / JUMP_SPOOL
+        const fwd = _v1.copy(FORWARD).applyQuaternion(p.quat)
+        p.vel.addScaledVector(fwd, (120 + k * 700) * dt)
+        this.fov = Math.min(125, this.fov + dt * 60 * k)
+        this.trauma = Math.max(this.trauma, k * 0.25)
+        this.warpStreaks(dt, k, voidZone(spool.zone).color, true)
+        if (spool.t > 0) return
+        this.jumpSpool = null
+        this.jump(spool.zone)
     }
 
     dropRelic(pos: THREE.Vector3) {
@@ -2912,7 +3047,7 @@ export class VoidEngine {
         const ore = rock.ore!
         const color = ORE_GLOW[ore] ?? 0xffffff
         const tier = this.config!.sector.tier
-        const zoneOre = this.zone === 'radiation' ? 1.5 : 1
+        const zoneOre = this.zoneMods.ore
         const yieldUnits = Math.max(2, Math.round(rock.radius * 0.8 * (0.8 + randomFloat() * 0.4) * this.config!.stats.miningMult * (1 + (tier - 1) * 0.12) * zoneOre * (this.beacons?.oreMult(rock.pos) ?? 1) * voidDepthLoot(this.depth) * VOID_UNIT_SCALE))
         const stacks = Math.min(12, Math.ceil(yieldUnits / 3))
         let left = yieldUnits
@@ -2946,7 +3081,7 @@ export class VoidEngine {
         if (randomFloat() >= chance) return
         const salvage = resource === 'scrap' || resource === 'alloy'
         const mult = dropMult(this.config!.sector.tier) * voidDepthLoot(this.depth)
-            * (salvage && this.zone === 'pirates' ? 1.5 : 1) * (salvage ? 1 + (this.config!.perks?.salvager ?? 0) * 0.15 : 1)
+            * (salvage ? this.zoneMods.salvage : 1) * (salvage ? 1 + (this.config!.perks?.salvager ?? 0) * 0.15 : 1)
         const scale = resource === 'core' ? 1 : mult * VOID_UNIT_SCALE
         const amount = Math.max(1, Math.round((min + randomFloat() * (max - min)) * scale))
         const stacks = Math.min(6, Math.ceil(amount / (resource === 'core' ? 1 : 4)))
@@ -3163,6 +3298,8 @@ export class VoidEngine {
             bonusXp: this.pilotBonusXp,
             depth: this.depth,
             carrierKilled: !!this.systems?.carrierKilled,
+            tyrantKilled: !!this.systems?.tyrantKilled,
+            harbingerKilled: !!this.systems?.harbingerKilled,
             lore: [...(this.systems?.loreFound ?? [])],
             beaconsCaptured: [...(this.beacons?.captured ?? [])],
             beaconsDefended: [...(this.beacons?.defended ?? [])]
@@ -3239,7 +3376,8 @@ export class VoidEngine {
             const far = p.pos.length() > SECTOR_RADIUS ? 1 : 0
             const heat = Math.min(HEAT_MAX, this.heat)
             this.directorTimer = Math.max(30, 100 - heat * 1.5 - ramp * 4 - far * 12) * (0.8 + randomFloat() * 0.4)
-            const wings = Math.min(4, 1 + Math.floor(heat / 15) + Math.floor(ramp / 6) + far)
+            // Every jump past the second adds to the hunt.
+            const wings = Math.min(5, 1 + Math.floor(heat / 15) + Math.floor(ramp / 6) + far + Math.floor((this.depth - 1) / 2))
             const dir = this.randomDir(0.5)
             spawnPatrol(this, p.pos.clone().addScaledVector(dir, 260 + randomFloat() * 80), true, wings)
             this.events.toast(far ? 'Deep space patrol inbound' : 'Hostile wing inbound', 'warn')
@@ -3247,12 +3385,12 @@ export class VoidEngine {
         }
         this.patrolTimer -= dt
         if (this.patrolTimer <= 0) {
-            this.patrolTimer = 16
+            this.patrolTimer = 16 / this.zoneMods.patrols
             // The hidden carrier's group never crowds out ordinary patrols.
             const alive = this.enemies.filter(e => e.alive && e.hostile && e.kind !== 'sentinel' && e.kind !== 'mine' && !e.data.carrier).length
-            if (alive < 26 + this.config!.sector.tier * 3) {
+            if (alive < (26 + this.config!.sector.tier * 3) * this.zoneMods.patrols * depthPatrolMult(this.depth)) {
                 const pos = this.randomDir(0.3).multiplyScalar(this.rand(700, SECTOR_RADIUS * 1.4))
-                if (pos.distanceTo(p.pos) > 500) spawnPatrol(this, pos, false)
+                if (pos.distanceTo(p.pos) > 500) spawnPatrol(this, pos, false, randomFloat() < depthExtraWing(this.depth) ? 1 : 0)
             }
         }
         if (!this.wardenSpawned && !this.objectives?.suppressWaves && p.pos.distanceTo(this.lair) < WARDEN_TRIGGER_RANGE) {
@@ -3292,12 +3430,21 @@ export class VoidEngine {
         if (this.warp <= 0) return
         this.warp -= dt
         const k = Math.max(0, this.warp / 1.6)
+        this.warpStreaks(dt, Math.min(1, k), this.depth > 1 ? voidZone(this.zone).color : this.config!.sector.palette[2], this.depth > 1)
+    }
+
+    /**
+     * The jump tunnel: streaks down the view axis, and for a gate jump a run of
+     * rings in the zone's colour that open out past the canopy. `k` is 0..1.
+     */
+    private warpStreaks(dt: number, k: number, tint: number, tunnel: boolean) {
         const cam = this.camera.position
         const fwd = _v1.copy(FORWARD).applyQuaternion(this.camera.quaternion)
         const right = _v2.set(1, 0, 0).applyQuaternion(this.camera.quaternion)
         const up = _v3.set(0, 1, 0).applyQuaternion(this.camera.quaternion)
-        const color = _c1.set(this.config!.sector.palette[2]).lerp(new THREE.Color(0xffffff), 0.5).multiplyScalar(2.5)
-        for (let i = 0; i < 60; i++) {
+        const color = _c1.set(tint).lerp(_c2.set(0xffffff), 0.4).multiplyScalar(2.5)
+        const count = tunnel ? 90 : 60
+        for (let i = 0; i < count; i++) {
             const a = Math.random() * Math.PI * 2
             const r = 6 + Math.random() * 40
             const ahead = 20 + Math.random() * 160
@@ -3307,6 +3454,12 @@ export class VoidEngine {
             const len = 30 + k * 120
             this.lines.push(x, y, z, x - fwd.x * len, y - fwd.y * len, z - fwd.z * len, color, k * k * 0.8, 0.12)
         }
+        if (!tunnel) return
+        this.warpRing -= dt
+        if (this.warpRing > 0 || k < 0.15) return
+        this.warpRing = 0.09
+        _v4.copy(cam).addScaledVector(fwd, 150)
+        this.rings.spawn(_v4, 120 + Math.random() * 60, tint, 0.55, 0.7 + k * 1.3, fwd, 0.05)
     }
 
 
@@ -3447,7 +3600,9 @@ export class VoidEngine {
         } else if (this.focusRock?.alive && this.focusRock.ore) {
             target = { name: `${voidResource(this.focusRock.ore).name} deposit`, hp: Math.max(0, this.focusRock.hp), maxHp: this.focusRock.maxHp, shield: 0, shieldMax: 0, kind: 'rock', detail: '', dist: this.focusRock.pos.distanceTo(p.pos), hostile: false }
         }
-        const carrier = this.warden?.alive ? null : this.enemies.find(e => e.alive && e.kind === 'mothership' && e.aggro && e.pos.distanceToSquared(p.pos) < 1500 * 1500)
+        // The nearest capital that is awake takes the boss bar.
+        const carrier = this.warden?.alive ? null : this.enemies.filter(e => e.alive && e.kind === 'mothership' && e.aggro && e.pos.distanceToSquared(p.pos) < 1500 * 1500).sort((a, b) => a.pos.distanceToSquared(p.pos) - b.pos.distanceToSquared(p.pos))[0]
+        const capital = carrier ? capitalOf(carrier)?.spec : undefined
         return {
             phase: this.phase,
             paused: this.paused,
@@ -3471,7 +3626,7 @@ export class VoidEngine {
             warden: this.warden?.alive
                 ? { name: cfg.sector.warden, hp: this.warden.hp, maxHp: this.warden.maxHp, shield: this.warden.data.shield ?? 0, shieldMax: this.warden.data.shieldMax ?? 0 }
                 : carrier
-                    ? { name: carrier.name, hp: carrier.hp, maxHp: carrier.maxHp, shield: 0, shieldMax: 0, carrier: true, locks: ((carrier.group.userData.reactors as Enemy[] | undefined) ?? []).filter(r => r.alive).length }
+                    ? { name: carrier.name, hp: carrier.hp, maxHp: carrier.maxHp, shield: 0, shieldMax: 0, carrier: true, locks: ((carrier.group.userData.reactors as Enemy[] | undefined) ?? []).filter(r => r.alive).length, lockLabel: capital ? 'Pylons' : undefined, marks: capital?.marks }
                     : null,
             wardenKilled: this.wardenKilled,
             threat: this.threat,

@@ -3,7 +3,7 @@
 
 import type { VoidResourceId } from '#shared/utils/gamelogic/void'
 
-export type EnemyKind = 'mite' | 'raider' | 'lancer' | 'bulwark' | 'minelayer' | 'leech' | 'blinker' | 'carrier' | 'sentinel' | 'ravager' | 'mauler'
+export type EnemyKind = 'mite' | 'raider' | 'lancer' | 'bulwark' | 'minelayer' | 'leech' | 'blinker' | 'carrier' | 'sentinel' | 'ravager' | 'mauler' | 'desolator'
 
 export interface EnemyDrop {
     resource: VoidResourceId
@@ -36,6 +36,8 @@ export interface EnemyDefinition {
     group: [number, number]
     elite?: boolean
     stationary?: boolean
+    /** Only fielded from this jump depth on. */
+    minDepth?: number
 }
 
 export const ENEMIES: Record<EnemyKind, EnemyDefinition> = {
@@ -99,6 +101,12 @@ export const ENEMIES: Record<EnemyKind, EnemyDefinition> = {
         glow: 0xff3d8a, drops: [{ resource: 'scrap', min: 18, max: 28 }, { resource: 'alloy', min: 6, max: 10 }],
         weights: [0, 3, 5, 7, 8], group: [1, 1]
     },
+    desolator: {
+        kind: 'desolator', name: 'Desolator', tell: 'Only found past a jump gate. Its void orbs swing wide and curve in on you, and its storm rocket fouls the space where it bursts. Turn late and the orbs sail past.',
+        hp: 1100, speed: 34, turn: 0.8, scale: 2.9, radius: 11.5, damage: 10, cooldown: 5, range: 340, projectileSpeed: 95,
+        glow: 0xc07bff, drops: [{ resource: 'scrap', min: 16, max: 26 }, { resource: 'alloy', min: 5, max: 9 }],
+        weights: [3, 5, 6, 7, 8], group: [1, 1], minDepth: 2
+    },
     sentinel: {
         kind: 'sentinel', name: 'Sentinel', tell: 'A static gun platform guarding rich ore. It fires homing orbs.',
         hp: 420, speed: 0, turn: 1.6, scale: 1.7, radius: 5.2, damage: 12, cooldown: 1.7, range: 280, projectileSpeed: 70,
@@ -136,4 +144,41 @@ export function wardenHpMult(tier: number) {
 /** Loot scales gently with depth so late sectors are worth the risk. */
 export function dropMult(tier: number) {
     return 1 + (tier - 1) * 0.25
+}
+
+// ─── Jump depth ─────────────────────────────────────────────────────────────
+//
+// Past a gate the sector fields more wings, heavier hulls and more elites with
+// every jump, on top of the hp and damage in `voidDepthThreat`.
+
+const HEAVY_KINDS: EnemyKind[] = ['carrier', 'ravager', 'mauler', 'desolator']
+
+/** A kind's patrol weight at this jump depth; zero when it does not fly here. */
+export function spawnWeight(kind: EnemyKind, tier: number, depth: number) {
+    const def = ENEMIES[kind]
+    if (depth < (def.minDepth ?? 1)) return 0
+    const base = def.weights[tier - 1] ?? 0
+    const jumps = Math.max(0, depth - 1)
+    if (kind === 'desolator') return base * (1 + (jumps - 1) * 0.5)
+    return HEAVY_KINDS.includes(kind) ? base * (1 + jumps * 0.3) : base
+}
+
+/** How many more patrols a zone holds per jump. */
+export function depthPatrolMult(depth: number) {
+    return 1 + Math.max(0, depth - 1) * 0.12
+}
+
+/** Added to a wing's elite chance per jump. */
+export function depthEliteBonus(depth: number) {
+    return Math.min(0.3, Math.max(0, depth - 1) * 0.05)
+}
+
+/** Chance that a roaming patrol brings a second wing. */
+export function depthExtraWing(depth: number) {
+    return Math.min(0.6, Math.max(0, depth - 1) * 0.15)
+}
+
+/** Desolators that are always somewhere in a jumped zone. */
+export function depthDesolators(depth: number) {
+    return depth < 2 ? 0 : Math.min(3, 1 + Math.floor((depth - 2) / 2))
 }

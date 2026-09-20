@@ -65,6 +65,7 @@ export interface SystemsHud {
     fuel: number
     depth: number
     zone: string
+    zoneId: string
     cloaked: boolean
     dilated: boolean
 }
@@ -102,6 +103,8 @@ export class ShipSystems {
     loreFound = new Set<string>()
     carrierHint: { pos: THREE.Vector3, life: number } | null = null
     carrierKilled = false
+    tyrantKilled = false
+    harbingerKilled = false
 
     constructor(private engine: VoidEngine) {
         const cfg = engine.config!
@@ -291,7 +294,7 @@ export class ShipSystems {
         p.energy -= 0.15
         this.scanCd = this.scanCdMax
         e.objectives?.onScan()
-        const range = this.scanRange * (e.zone === 'nebula' ? 0.5 : 1)
+        const range = this.scanRange * e.zoneMods.scan
         e.rings.spawn(p.pos, range * 0.25, 0x5ec8ff, 1.2, 1.2, undefined, 0.03)
         e.rings.spawn(p.pos, range * 0.12, 0x9fe8ff, 0.8, 2)
         e.audio.play('blink', { pitch: 0.5, volume: 0.8 })
@@ -306,9 +309,10 @@ export class ShipSystems {
         e.asteroids?.query(p.pos, Math.min(range, 600), (rock) => {
             if (rock.ore) e.particles.glow(rock.pos.x, rock.pos.y, rock.pos.z, _c1.set(0x9fe8ff).multiplyScalar(2), rock.radius * 2.2, 0.7)
         })
-        const carrier = e.enemies.find(en => en.alive && en.kind === 'mothership')
+        // The nearest capital nobody has laid eyes on yet.
+        const carrier = e.enemies.filter(en => en.alive && en.kind === 'mothership' && !en.data.seen).sort((a, b) => a.pos.distanceToSquared(p.pos) - b.pos.distanceToSquared(p.pos))[0]
         let msg = found ? `Scan: ${found} hidden signal${found === 1 ? '' : 's'} marked. Fly to the CACHE or DATA LOG markers.` : 'Scan: nothing hidden in range. Try again somewhere else.'
-        if (carrier && !carrier.data.seen && carrier.pos.distanceTo(p.pos) < range * 2.8) {
+        if (carrier && carrier.pos.distanceTo(p.pos) < range * 2.8) {
             // A vague bearing only: the carrier is found by looking.
             this.carrierHint = { pos: carrier.pos.clone().add(_v1.set(randomFloat() - 0.5, 0, randomFloat() - 0.5).multiplyScalar(500)), life: 10 }
             msg = 'Scan: a massive signature, somewhere out there'
@@ -319,7 +323,7 @@ export class ShipSystems {
     // ─── Sector setup ──────────────────────────────────────────────────────
 
     /** Places data logs and hidden caches for a freshly generated zone. */
-    seedZone(graveyard: boolean) {
+    seedZone(graveyard: boolean, cacheMult = 1) {
         const e = this.engine
         this.disposePois()
         const tier = e.config!.sector.tier
@@ -335,7 +339,7 @@ export class ShipSystems {
             const pick = lore.splice(Math.floor(randomFloat() * lore.length), 1)[0]!
             this.pois.push({ kind: 'log', pos, group: beacon.group, loreId: pick, enemy: null, revealed: 0, progress: 0, done: false })
         }
-        const caches = graveyard ? 8 : 4
+        const caches = Math.round(4 * cacheMult)
         for (let i = 0; i < caches; i++) {
             const pos = this.randomSpot(400, 2300)
             const crate = spawnEnemy(e, 'crate', pos, {})
@@ -608,6 +612,7 @@ export class ShipSystems {
             fuel: e.fuel,
             depth: e.depth,
             zone: e.zoneName,
+            zoneId: e.zone,
             cloaked: this.cloakT > 0,
             dilated: this.dilateT > 0
         }

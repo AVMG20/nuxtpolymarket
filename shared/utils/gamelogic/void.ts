@@ -9,7 +9,7 @@
 // what happened in a run; the server decides what that run was allowed to be
 // worth.
 
-import { VOID_LORE, VOID_PERKS, VOID_ZONES, voidAllowedDepth, voidDepthLoot, voidNormalizePerks, voidPerkCost, type VoidPerkRanks } from './void-pilot'
+import { VOID_LORE, VOID_PERKS, VOID_ZONES, voidAllowedDepth, voidCapitalKills, voidDepthLoot, voidNormalizePerks, voidPerkCost, type VoidPerkRanks } from './void-pilot'
 import { VOID_SUPPLIES, VOID_SUPPLY_CARRY, VOID_SUPPLY_STOCK_MAX, voidContractDay, voidContractResetAt, voidContractsFor, voidNormalizeSupplies, voidSupplyCost } from './void-station'
 import {
     VOID_ITEM_KINDS, VOID_ITEM_TYPES, VOID_MAX_TIER, VOID_MODS, VOID_RARITIES, voidAffix, voidCanCraftTier, voidCraftCost, voidDefenceStats, voidItemPower,
@@ -823,8 +823,10 @@ export interface VoidRunReport {
     elapsedMs: number
     kills: number
     wardenKilled: boolean
-    /** A carrier kill also pays warp cores, given a run long enough to have fought one. */
+    /** A capital kill also pays warp cores, given a run long enough to have fought one. */
     carrierKilled?: boolean
+    tyrantKilled?: boolean
+    harbingerKilled?: boolean
     /** Jump depth the run reached; loot caps grow with it. */
     depth?: number
 }
@@ -859,8 +861,8 @@ export function voidSettleRun(report: VoidRunReport, tier: number, cargoCapacity
     const minutes = Math.max(elapsedMs, 0) / 60_000
     const wardenKilled = Boolean(report.wardenKilled) && wallElapsedMs >= voidWardenMinMs(tier)
     const kills = Math.max(0, Math.min(Math.floor(Number(report.kills) || 0), Math.ceil(minutes * 60) + 10))
-    // A carrier is a long fight at the far end of a zone.
-    const carrierKilled = Boolean(report.carrierKilled) && wallElapsedMs >= 240_000
+    // A capital is a long fight at the far end of a zone.
+    const capitals = voidCapitalKills(report, wallElapsedMs)
 
     if (!report.extracted) {
         return { haul: {}, units: 0, value: 0, elapsedMs, kills, wardenKilled: false, trimmed: false }
@@ -878,7 +880,7 @@ export function voidSettleRun(report: VoidRunReport, tier: number, cargoCapacity
             continue
         }
         const ceiling = id === 'core'
-            ? (wardenKilled ? 2 + tier : 0) + (carrierKilled ? 1 + Math.ceil(tier / 2) : 0) + Math.floor(minutes / 4)
+            ? (wardenKilled ? 2 + tier : 0) + (capitals.carrier ? 1 + Math.ceil(tier / 2) : 0) + (capitals.tyrant ? 1 + Math.ceil(tier / 2) : 0) + (capitals.harbinger ? 2 + tier : 0) + Math.floor(minutes / 4)
             : Math.ceil(VOID_UNITS_PER_MINUTE[id] * sectorBonus * minutes) + 60
         const amount = Math.min(reported, ceiling)
         if (amount < reported) trimmed = true

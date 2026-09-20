@@ -21,6 +21,10 @@ uniform vec3 uHigh;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
 uniform float uSeed;
+uniform float uClouds;
+uniform float uStars;
+uniform vec4 uHaze;
+uniform float uFlash;
 varying vec3 vDir;
 
 float hash(vec3 p) {
@@ -53,7 +57,7 @@ void main() {
     vec3 q = vec3(fbm(d * 2.0), fbm(d * 2.0 + vec3(5.2, 1.3, 2.8)), fbm(d * 2.0 + vec3(1.1, 7.4, 3.3)));
     float n = fbm(d * 3.0 + q * 2.2);
     float band = exp(-pow(dot(d, normalize(vec3(0.3, 1.0, 0.2))) * 2.2, 2.0));
-    float cloud = smoothstep(0.28, 0.72, n) * (0.3 + band * 0.9);
+    float cloud = min(1.0, smoothstep(0.28, 0.72, n) * (0.3 + band * 0.9) * uClouds);
     float wisps = smoothstep(0.45, 0.8, fbm(d * 7.0 + q * 3.0)) * band;
     float dark = smoothstep(0.5, 0.7, fbm(d * 5.0 + 11.0)) * 0.55;
 
@@ -66,7 +70,10 @@ void main() {
     vec3 sd = d * 420.0;
     float s = hash(floor(sd));
     float star = step(0.9965, s) * smoothstep(0.5, 0.0, length(fract(sd) - 0.5));
-    col += vec3(star) * (0.6 + 0.8 * hash(floor(sd) + 3.0));
+    col += vec3(star) * (0.6 + 0.8 * hash(floor(sd) + 3.0)) * uStars;
+    // A zone's murk swallows the far sky, and sheet lightning lights the cloud from inside.
+    col = mix(col, uHaze.rgb, uHaze.a * (0.55 + 0.45 * (1.0 - cloud)));
+    if (uFlash > 0.0) col += uHigh * uFlash * (0.15 + cloud * 1.1) * smoothstep(0.35, 0.75, fbm(d * 1.6 + uSeed + floor(uFlash * 3.0)));
 
     // Sun glow.
     float sun = max(0.0, dot(d, uSunDir));
@@ -120,10 +127,21 @@ export interface Sky {
     sunDirection: THREE.Vector3
     sunColor: THREE.Color
     update(camera: THREE.Camera, time: number): void
+    /** Sheet lightning inside the clouds, 0..1. */
+    setFlash(amount: number): void
     dispose(): void
 }
 
-export function createSky(palette: readonly [number, number, number], seed: number): Sky {
+export interface SkyOptions {
+    /** Cloud cover, 1 = a sector's usual sky. */
+    clouds?: number
+    /** Star brightness. */
+    stars?: number
+    /** Murk laid over the whole dome: colour and how much of the sky it takes. */
+    haze?: [number, number]
+}
+
+export function createSky(palette: readonly [number, number, number], seed: number, options: SkyOptions = {}): Sky {
     const rng = mulberry32(seed)
     const group = new THREE.Group()
     const deep = new THREE.Color(palette[0])
@@ -141,7 +159,11 @@ export function createSky(palette: readonly [number, number, number], seed: numb
                 uHigh: { value: high },
                 uSunDir: { value: sunDirection },
                 uSunColor: { value: sunColor },
-                uSeed: { value: rng() * 10 }
+                uSeed: { value: rng() * 10 },
+                uClouds: { value: options.clouds ?? 1 },
+                uStars: { value: options.stars ?? 1 },
+                uHaze: { value: new THREE.Vector4(...new THREE.Color(options.haze?.[0] ?? 0).toArray(), options.haze?.[1] ?? 0) },
+                uFlash: { value: 0 }
             },
             vertexShader: NEBULA_VERT,
             fragmentShader: NEBULA_FRAG,
@@ -181,19 +203,20 @@ export function createSky(palette: readonly [number, number, number], seed: numb
     starGeo.setAttribute('aColor', new THREE.BufferAttribute(colors, 3))
     starGeo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1))
     const starMat = new THREE.ShaderMaterial({
-        uniforms: { uTime: { value: 0 }, uPixelRatio: { value: Math.min(2, window.devicePixelRatio) } },
+        uniforms: { uTime: { value: 0 }, uPixelRatio: { value: Math.min(2, window.devicePixelRatio) }, uGain: { value: (options.stars ?? 1) * (1 - (options.haze?.[1] ?? 0) * 0.8) } },
         vertexShader: /* glsl */`
             attribute vec3 aColor;
             attribute float aSize;
             uniform float uTime;
             uniform float uPixelRatio;
+            uniform float uGain;
             varying vec3 vColor;
             void main() {
                 vec4 mv = modelViewMatrix * vec4(position, 1.0);
                 gl_Position = projectionMatrix * mv;
                 gl_Position.z = gl_Position.w * 0.99999;
                 float tw = 0.75 + 0.25 * sin(uTime * (1.0 + fract(position.x) * 3.0) + position.y);
-                vColor = aColor * tw;
+                vColor = aColor * tw * uGain;
                 gl_PointSize = aSize * uPixelRatio;
             }`,
         fragmentShader: /* glsl */`
@@ -290,6 +313,9 @@ export function createSky(palette: readonly [number, number, number], seed: numb
             starMat.uniforms.uTime!.value = time
             planetGroup.rotation.y += 0.00005
         },
+        setFlash(amount) {
+            (dome.material as THREE.ShaderMaterial).uniforms.uFlash!.value = amount
+        },
         dispose() {
             group.traverse((o) => {
                 const m = o as THREE.Mesh
@@ -375,6 +401,13 @@ export class SpaceDust {
         this.points = new THREE.Points(geo, this.material)
         this.points.frustumCulled = false
         this.lines.mesh.renderOrder = 29
+    }
+
+    /** A zone's own dust: colour, how much of it shows and how coarse it is. */
+    setLook(color: number, opacity = 0.6, size = 0.3) {
+        this.material.uniforms.uColor!.value.set(color)
+        this.material.uniforms.uOpacity!.value = opacity
+        this.material.uniforms.uSize!.value = size
     }
 
     /** `height` in device pixels. */

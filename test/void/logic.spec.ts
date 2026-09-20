@@ -6,7 +6,7 @@ import {
     voidGearTier, voidSectorResources, voidSectorUnlocked, voidSubtractBundle, voidUpgradeCost, type VoidStateSnapshot
 } from '#shared/utils/gamelogic/void'
 import {
-    VOID_BOUNTY_XP, VOID_DAILY_GEAR, VOID_LORE, VOID_PERKS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidBountyXp, voidGearCap, voidRunMarks
+    VOID_BOUNTY_XP, VOID_DAILY_GEAR, VOID_LORE, VOID_PERKS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidBountyXp, voidCapitalKills, voidGearCap, voidRunMarks
 } from '#shared/utils/gamelogic/void-pilot'
 import {
     VOID_DAMAGE_MULT, VOID_DAMAGE_TYPE, VOID_DEVICES, VOID_SECONDARIES, VOID_ITEM_TYPES, VOID_RARITIES, voidCanCraftTier, voidCraftCost, voidDefenceStats, voidItemUpgradeCost, voidRollBonusAffix, voidRollItem, voidRollMod, voidRollSalvagedGear, voidWeaponFit,
@@ -358,6 +358,30 @@ describe('void runner pilot meta', () => {
         expect(voidRunMarks({ ...base, carrierKilled: true })).toBe(5)
     })
 
+    it('only trusts Tyrant and Harbinger kills on runs long and deep enough to have fought them', () => {
+        const base = { extracted: true, wardenKilled: false, carrierKilled: false, depth: 1, elapsedMs: 10 * 60_000 }
+        expect(voidRunMarks({ ...base, tyrantKilled: true })).toBe(3)
+        expect(voidRunMarks({ ...base, tyrantKilled: true, elapsedMs: 3 * 60_000 })).toBe(0)
+        // The Harbinger only exists past a jump.
+        expect(voidRunMarks({ ...base, harbingerKilled: true })).toBe(0)
+        expect(voidRunMarks({ ...base, harbingerKilled: true, depth: 2 })).toBe(5)
+        expect(voidRunMarks({ ...base, harbingerKilled: true, depth: 2, elapsedMs: 5 * 60_000 })).toBe(0)
+        expect(voidCapitalKills({ carrierKilled: true, tyrantKilled: true, harbingerKilled: true, depth: 2 }, 8 * 60_000)).toEqual({ carrier: true, tyrant: true, harbinger: true })
+    })
+
+    it('lets capital kills bank their warp cores and nothing more', () => {
+        const haul = { core: 99 }
+        const plain = voidSettleRun({ extracted: true, haul, elapsedMs: 600_000, kills: 40, wardenKilled: false, depth: 2 }, 3, 1e9, 600_000)
+        const tyrant = voidSettleRun({ extracted: true, haul, elapsedMs: 600_000, kills: 40, wardenKilled: false, tyrantKilled: true, depth: 2 }, 3, 1e9, 600_000)
+        const both = voidSettleRun({ extracted: true, haul, elapsedMs: 600_000, kills: 40, wardenKilled: false, tyrantKilled: true, harbingerKilled: true, depth: 2 }, 3, 1e9, 600_000)
+        expect(plain.haul.core).toBe(2)
+        expect(tyrant.haul.core).toBe(2 + 3)
+        expect(both.haul.core).toBe(2 + 3 + 5)
+        // A Harbinger claimed from the home zone pays nothing.
+        const forged = voidSettleRun({ extracted: true, haul, elapsedMs: 600_000, kills: 40, wardenKilled: false, harbingerKilled: true, depth: 1 }, 3, 1e9, 600_000)
+        expect(forged.haul.core).toBe(2)
+    })
+
     it('caps jump depth by elapsed time', () => {
         expect(voidAllowedDepth(8, 60_000)).toBe(1)
         expect(voidAllowedDepth(3, 6 * 60_000)).toBe(3)
@@ -403,6 +427,7 @@ describe('void runner bounties and gear caps', () => {
         expect(voidGearCap({ ...run, elapsedMs: 90_000 }, 0)).toBe(1)
         expect(voidGearCap({ ...run, elapsedMs: 60 * 60_000 }, 0)).toBe(3)
         expect(voidGearCap(full, 0)).toBe(5)
+        expect(voidGearCap({ ...run, elapsedMs: 5 * 60_000, tyrantKilled: true }, 0)).toBe(3)
         // A run with no kills or cargo banks nothing, whatever it reports.
         expect(voidGearCap({ ...full, earnest: false }, 0)).toBe(0)
         // Boss kills only count on a run long enough to have fought one.

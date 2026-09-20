@@ -13,6 +13,7 @@
                         <span><UIcon name="i-lucide-crosshair" />{{ hud.kills }}</span>
                         <span v-if="hud.systems && hud.systems.depth > 1" class="vx-zone">Jump {{ hud.systems.depth }} · {{ hud.systems.zone }}</span>
                     </div>
+                    <VoidZoneChips v-if="hud.systems && hud.systems.depth > 1" :zone="hud.systems.zoneId" small />
                 </div>
             </div>
             <div class="vx-wanted" :class="[`vx-wanted-${Math.min(5, hud.wanted)}`, { 'vx-wanted-hot': hud.wanted >= 4 }]">
@@ -50,10 +51,11 @@
                         <div class="vx-boss-hull" :style="{ width: pct(hud.warden.hp, hud.warden.maxHp) }" />
                         <div v-if="hud.warden.shieldMax > 0" class="vx-boss-shield" :style="{ width: pct(hud.warden.shield, hud.warden.maxHp) }" />
                         <template v-if="!hud.warden.carrier"><b style="left: 33.3%" /><b style="left: 66.6%" /></template>
+                        <b v-for="m in hud.warden.marks ?? []" :key="m" :style="{ left: `${m * 100}%` }" />
                     </div>
                     <div class="vx-boss-foot">
                         <template v-if="hud.warden.carrier">
-                            <span v-if="hud.warden.locks" class="vx-boss-note"><UIcon name="i-lucide-shield" />Reactors</span>
+                            <span v-if="hud.warden.locks" class="vx-boss-note"><UIcon name="i-lucide-shield" />{{ hud.warden.lockLabel ?? 'Reactors' }}</span>
                             <span class="vx-pips"><i v-for="n in hud.warden.locks ?? 0" :key="n" class="vx-pip-lock" /></span>
                         </template>
                         <template v-else>
@@ -200,6 +202,7 @@
                 <div class="vx-banner-rule" />
                 <div class="vx-banner-title">{{ banner.title }}</div>
                 <div class="vx-banner-sub">{{ banner.subtitle }}</div>
+                <VoidZoneChips v-if="banner.zone" :zone="banner.zone.id" :depth="banner.zone.depth" center />
                 <div class="vx-banner-rule" />
             </div>
         </Transition>
@@ -220,7 +223,7 @@ const props = defineProps<{
     hud: HudState
     run: { sectorName: string, shipName: string } | null
     toasts: { id: number, text: string, tone: string }[]
-    banner?: { id: number, title: string, subtitle: string, tone: string } | null
+    banner?: { id: number, title: string, subtitle: string, tone: string, zone?: { id: string, depth: number } } | null
     priceMult?: number
 }>()
 

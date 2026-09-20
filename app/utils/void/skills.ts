@@ -413,7 +413,7 @@ export class SkillRunner {
             this.hit(en, damage * (implode ? 0.6 + near * 0.7 : near), en.pos)
             if (en.kind !== 'warden') {
                 to.normalize()
-                en.vel.addScaledVector(to, (implode ? -0.8 : 1) * knock * (en.kind === 'carrier' || en.kind === 'bulwark' || en.kind === 'ravager' || en.kind === 'mauler' ? 0.3 : 1))
+                en.vel.addScaledVector(to, (implode ? -0.8 : 1) * knock * (en.kind === 'carrier' || en.kind === 'bulwark' || en.kind === 'ravager' || en.kind === 'mauler' || en.kind === 'desolator' ? 0.3 : 1))
                 if (this.params.stun) {
                     en.cooldown = Math.max(en.cooldown, this.params.stun)
                     // The real stun: mites, leeches and capital gun crews ignore `cooldown`.

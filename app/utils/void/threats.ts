@@ -31,6 +31,8 @@ interface Storm {
 interface Strike {
     pos: THREE.Vector3
     from: Enemy
+    /** Where the targeting line starts when it is not the hostile's centre: a capital's emitter. */
+    origin?: THREE.Vector3
     radius: number
     fuse: number
     damage: number
@@ -71,11 +73,11 @@ export class EnemyThreats {
         this.engine.audio.play('warning', { volume: 0.7 })
     }
 
-    callStrike(e: Enemy, target: THREE.Vector3, targetVel: THREE.Vector3, damage: number, cooldown: number) {
+    callStrike(e: Enemy, target: THREE.Vector3, targetVel: THREE.Vector3, damage: number, cooldown: number, origin?: THREE.Vector3) {
         e.data.threatCd = cooldown * (0.85 + randomFloat() * 0.3)
         // Marked a little ahead of the ship, so flying straight on is the wrong answer.
         const pos = target.clone().addScaledVector(targetVel, 0.9)
-        this.strikes.push({ pos, from: e, radius: STRIKE_RADIUS, fuse: STRIKE_FUSE, damage, color: e.glow.getHex(), pulse: 0 })
+        this.strikes.push({ pos, from: e, origin, radius: STRIKE_RADIUS, fuse: STRIKE_FUSE, damage, color: e.glow.getHex(), pulse: 0 })
         this.engine.audio.play('charge', { distance: 40, pitch: 0.8, volume: 1.2 })
         this.engine.audio.play('warning', { volume: 0.7 })
     }
@@ -149,7 +151,7 @@ export class EnemyThreats {
                 const facing = _v1.subVectors(engine.camera.position, s.pos).normalize()
                 engine.rings.spawn(s.pos, s.radius * (1.05 - k * 0.5), s.color, 0.4, 2 + k * 3, facing.clone(), 0.06)
                 engine.rings.spawn(s.pos, s.radius, 0xffffff, 0.3, 0.8, new THREE.Vector3(0, 1, 0), 0.03)
-                if (s.from.alive) engine.tracers.push({ a: s.from.pos.clone(), b: s.pos.clone(), color: new THREE.Color(s.color).multiplyScalar(1 + k * 3), life: 0.2, maxLife: 0.2, width: 0.15 + k * 0.5 })
+                if (s.from.alive) engine.tracers.push({ a: (s.origin ?? s.from.pos).clone(), b: s.pos.clone(), color: new THREE.Color(s.color).multiplyScalar(1 + k * 3), life: 0.2, maxLife: 0.2, width: 0.15 + k * 0.5 })
             }
             engine.particles.glow(s.pos.x, s.pos.y, s.pos.z, _c.set(s.color).multiplyScalar(0.3 + k * 1.2), 4 + k * 7, 0.7)
             if (s.fuse > 0) return true

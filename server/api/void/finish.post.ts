@@ -18,6 +18,8 @@ export default defineEventHandler(async (event) => {
         relics: body?.relics,
         depth: body?.depth,
         carrierKilled: body?.carrierKilled,
+        tyrantKilled: body?.tyrantKilled,
+        harbingerKilled: body?.harbingerKilled,
         lore: body?.lore,
         gearCaches: body?.gearCaches,
         bonusXp: body?.bonusXp,

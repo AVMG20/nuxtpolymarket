@@ -247,6 +247,7 @@ const _c = new THREE.Color()
 const _q = new THREE.Quaternion()
 const _d = new THREE.Vector3()
 const _o = new THREE.Vector3()
+const _flash = new THREE.Color(1.6, 1.4, 1.2)
 
 export class AsteroidField {
     readonly group = new THREE.Group()
@@ -255,6 +256,17 @@ export class AsteroidField {
     private grid = new Map<number, Asteroid[]>()
     private nextId = 1
     private hidden = new THREE.Matrix4().makeScale(0, 0, 0)
+    /** A zone's cast over the whole field: what the rock is tinted by and how hot the crystals burn. */
+    private tint = new THREE.Color(1, 1, 1)
+    private crystalGain = 1
+
+    /** Set before the field is filled; rocks already placed keep their colour until they are next hit. */
+    setLook(tint: number, crystalGain = 1) {
+        // Only the hue carries over: a dark tint must not turn the field black.
+        this.tint.set(tint)
+        this.tint.multiplyScalar(1.1 / Math.max(0.05, this.tint.r, this.tint.g, this.tint.b))
+        this.crystalGain = crystalGain
+    }
 
     constructor(seed = 1) {
         TIERS.forEach((tier, t) => {
@@ -337,10 +349,10 @@ export class AsteroidField {
     private writeColor(rock: Asteroid) {
         const shape = this.shapes[rock.shape]!
         const flash = rock.flash
-        _c.set(ROCK_TINT[rock.ore ?? 'none']!)
-        if (flash > 0) _c.lerp(new THREE.Color(1.6, 1.4, 1.2), flash * 0.6)
+        _c.set(ROCK_TINT[rock.ore ?? 'none']!).multiply(this.tint)
+        if (flash > 0) _c.lerp(_flash, flash * 0.6)
         shape.body.setColorAt(rock.slot, _c)
-        if (rock.ore) _c.set(ORE_GLOW[rock.ore] ?? 0xffffff).multiplyScalar(1 + flash * 1.5)
+        if (rock.ore) _c.set(ORE_GLOW[rock.ore] ?? 0xffffff).multiplyScalar((1 + flash * 1.5) * this.crystalGain)
         else _c.setRGB(0, 0, 0)
         shape.crystals.setColorAt(rock.slot, _c)
         shape.dirty = true

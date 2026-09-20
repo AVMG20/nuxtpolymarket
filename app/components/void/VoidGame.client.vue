@@ -103,13 +103,18 @@
         <div v-if="gateChoice && inFlight" class="vx-screen">
             <div class="vx-panel" style="--vx-tone: #c07bff">
                 <div class="vx-kicker">Jump gate<span class="vx-fuel"><i v-for="n in hud?.systems?.fuel ?? 0" :key="n" /></span></div>
-                <div class="vx-title">Choose a jump</div>
-                <p class="vx-sub">One fuel cell. Tougher, richer, and your hold comes with you.</p>
+                <div class="vx-title">Jump {{ gateJump.depth }}</div>
+                <div class="vx-zc vx-gate-odds">
+                    <div class="vx-zc-chips">
+                        <i class="vx-zc-up"><UIcon name="i-lucide-chevron-up" />+{{ gateJump.loot }}% loot</i>
+                        <i class="vx-zc-down"><UIcon name="i-lucide-chevron-down" />+{{ gateJump.threat }}% threat</i>
+                    </div>
+                </div>
                 <div class="vx-choices">
                     <button v-for="z in gateChoice" :key="z.id" class="vx-choice" :style="{ '--zc': voidHex(z.color) }" @click="chooseJump(z.id)">
-                        <UIcon name="i-lucide-orbit" />
+                        <UIcon :name="z.icon" />
                         <b>{{ z.name }}</b>
-                        <span>{{ z.description }}</span>
+                        <VoidZoneChips :zone="z.id" :depth="gateJump.depth" />
                     </button>
                 </div>
                 <div class="vx-row"><button class="vr-btn" @click="stayHere">Stay in this zone</button></div>
@@ -165,7 +170,7 @@ import {
     type VoidResourceBundle, type VoidTurretId, type VoidUpgradeId
 } from '#shared/utils/gamelogic/void'
 import { VOID_RARITIES, voidItemType, voidMod } from '#shared/utils/gamelogic/void-items'
-import { VOID_LORE, voidZone, type VoidZoneModifier } from '#shared/utils/gamelogic/void-pilot'
+import { VOID_LORE, voidDepthLoot, voidDepthThreat, voidZone, type VoidZoneDefinition, type VoidZoneModifier } from '#shared/utils/gamelogic/void-pilot'
 import { VoidAudio, type VoidSfx } from '~/utils/void/audio'
 import { VoidEngine } from '~/utils/void/engine'
 import type { HudState, RunResult } from '~/utils/void/types'
@@ -191,7 +196,7 @@ const hud = shallowRef<HudState | null>(null)
 const inFlight = ref(false)
 const run = ref<{ sectorName: string, shipName: string, tier: number, startedAt: string } | null>(null)
 const toasts = ref<{ id: number, text: string, tone: string }[]>([])
-const banner = ref<{ id: number, title: string, subtitle: string, tone: string } | null>(null)
+const banner = ref<{ id: number, title: string, subtitle: string, tone: string, zone?: { id: VoidZoneModifier, depth: number } } | null>(null)
 let bannerTimer: ReturnType<typeof setTimeout> | undefined
 const summary = ref<VoidRunSummary | null>(null)
 
@@ -209,7 +214,12 @@ const hangarSpin = ref(true)
 
 const reveal = ref<null | { title: string, name: string, type?: string, tier: number, rarityName: string, rarityColor: string, stats: { label: string, value: string }[], affixList: { id: string, name: string, text: string }[] }>(null)
 
-const gateChoice = ref<{ id: VoidZoneModifier, name: string, description: string, color: number }[] | null>(null)
+const gateChoice = ref<VoidZoneDefinition[] | null>(null)
+/** The jump on offer: its number, and what it adds over the home zone. */
+const gateJump = computed(() => {
+    const depth = (hud.value?.systems?.depth ?? 1) + 1
+    return { depth, loot: Math.round((voidDepthLoot(depth) - 1) * 100), threat: Math.round((voidDepthThreat(depth) - 1) * 100) }
+})
 const tradeOpen = ref(false)
 const tradeableUnits = computed(() => (hud.value?.cargoUnits ?? 0) - (hud.value?.cargo.core ?? 0))
 const tradeOffers = [
@@ -221,7 +231,7 @@ const tradeOffers = [
 function chooseJump(id: VoidZoneModifier) {
     gateChoice.value = null
     if (!engine?.gateOptions) return
-    engine.jump(id)
+    engine.startJump(id)
     engage()
 }
 
@@ -723,7 +733,7 @@ async function finishRun(result: RunResult, reason: FinishReason) {
         items: reason === 'extracted' ? items : bundleItems({})
     }
     if (document.pointerLockElement) document.exitPointerLock()
-    const body: FinishBody = { reason, haul: result.haul, kills: result.kills, wardenKilled: result.wardenKilled, elapsedMs: result.elapsedMs, skillUses: result.skillUses, suppliesUsed: result.suppliesUsed, relics: result.relics, gearCaches: result.gearCaches, bonusXp: result.bonusXp, depth: result.depth, carrierKilled: result.carrierKilled, lore: result.lore, beaconsCaptured: result.beaconsCaptured, beaconsDefended: result.beaconsDefended }
+    const body: FinishBody = { reason, haul: result.haul, kills: result.kills, wardenKilled: result.wardenKilled, elapsedMs: result.elapsedMs, skillUses: result.skillUses, suppliesUsed: result.suppliesUsed, relics: result.relics, gearCaches: result.gearCaches, bonusXp: result.bonusXp, depth: result.depth, carrierKilled: result.carrierKilled, tyrantKilled: result.tyrantKilled, harbingerKilled: result.harbingerKilled, lore: result.lore, beaconsCaptured: result.beaconsCaptured, beaconsDefended: result.beaconsDefended }
     if (run.value) savePendingReport(run.value.startedAt, body)
     await submitReport(body)
 }
@@ -794,7 +804,7 @@ function confirmAbandon() {
 
 function abandon() {
     if (!engine) return
-    const result: RunResult = { reason: 'destroyed', haul: {}, lost: { ...engine.cargo }, kills: engine.kills, wardenKilled: false, elapsedMs: Math.round(engine.elapsed * 1000), skillUses: engine.skills?.uses ?? 0, suppliesUsed: { ...engine.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: engine.pilotBonusXp, depth: engine.depth, carrierKilled: false, lore: [], beaconsCaptured: [...(engine.beacons?.captured ?? [])], beaconsDefended: [...(engine.beacons?.defended ?? [])] }
+    const result: RunResult = { reason: 'destroyed', haul: {}, lost: { ...engine.cargo }, kills: engine.kills, wardenKilled: false, elapsedMs: Math.round(engine.elapsed * 1000), skillUses: engine.skills?.uses ?? 0, suppliesUsed: { ...engine.suppliesUsed }, relics: 0, gearCaches: 0, bonusXp: engine.pilotBonusXp, depth: engine.depth, carrierKilled: false, tyrantKilled: false, harbingerKilled: false, lore: [], beaconsCaptured: [...(engine.beacons?.captured ?? [])], beaconsDefended: [...(engine.beacons?.defended ?? [])] }
     engine.paused = true
     void finishRun(result, 'abandoned')
 }
@@ -833,12 +843,13 @@ onMounted(async () => {
             hud.value = h
         },
         toast: (text, tone) => pushToast(text, tone),
-        banner: (title, subtitle, tone) => {
-            banner.value = { id: toastId++, title, subtitle, tone }
+        banner: (title, subtitle, tone, zone) => {
+            banner.value = { id: toastId++, title, subtitle, tone, zone }
             clearTimeout(bannerTimer)
+            // An arrival card carries the zone's chips, so it stays up a little longer.
             bannerTimer = setTimeout(() => {
                 banner.value = null
-            }, 3400)
+            }, zone ? 5200 : 3400)
         },
         end: (result) => {
             void finishRun(result, result.reason)

@@ -56,8 +56,24 @@ export interface VoidRunTrophies {
     extracted: boolean
     wardenKilled: boolean
     carrierKilled: boolean
+    tyrantKilled?: boolean
+    harbingerKilled?: boolean
     depth: number
     elapsedMs: number
+}
+
+/**
+ * Capital kills are client claims, so each needs a run long enough to have
+ * found and fought one. The Harbinger only exists past a jump and is the
+ * longest fight in the game.
+ */
+export function voidCapitalKills(run: { carrierKilled?: boolean, tyrantKilled?: boolean, harbingerKilled?: boolean, depth?: number }, elapsedMs: number) {
+    const long = elapsedMs >= 240_000
+    return {
+        carrier: Boolean(run.carrierKilled) && long,
+        tyrant: Boolean(run.tyrantKilled) && long,
+        harbinger: Boolean(run.harbingerKilled) && elapsedMs >= 420_000 && voidAllowedDepth(run.depth ?? 1, elapsedMs) >= 2
+    }
 }
 
 /**
@@ -66,10 +82,12 @@ export interface VoidRunTrophies {
  */
 export function voidRunMarks(run: VoidRunTrophies) {
     if (!run.extracted) return 0
-    const minutes = run.elapsedMs / 60_000
     let marks = 0
+    const capitals = voidCapitalKills(run, run.elapsedMs)
     if (run.wardenKilled) marks += 2
-    if (run.carrierKilled && minutes >= 4) marks += 3
+    if (capitals.carrier) marks += 3
+    if (capitals.tyrant) marks += 3
+    if (capitals.harbinger) marks += 5
     if (voidAllowedDepth(run.depth, run.elapsedMs) >= 3) marks += 1
     return marks
 }
@@ -98,14 +116,15 @@ export function voidBountyXp(reported: unknown, elapsedMs: number) {
  * Salvaged gear caches a run may bank. Only runs that did real work count
  * (kills and cargo), since the client reports the caches: one past ninety
  * seconds and one more per five minutes (three at most), plus one each for a
- * warden and a carrier on runs long enough to have fought them, within what
+ * warden and each capital ship on runs long enough to have fought them, within what
  * is left of the daily limit.
  */
-export function voidGearCap(run: { elapsedMs: number, wardenKilled: boolean, carrierKilled: boolean, earnest: boolean }, gearToday: number) {
+export function voidGearCap(run: { elapsedMs: number, wardenKilled: boolean, carrierKilled: boolean, tyrantKilled?: boolean, harbingerKilled?: boolean, depth?: number, earnest: boolean }, gearToday: number) {
     if (!run.earnest) return 0
     const time = Math.min(3, (run.elapsedMs >= 90_000 ? 1 : 0) + Math.floor(run.elapsedMs / 300_000))
     const long = run.elapsedMs >= 240_000
-    const bosses = (run.wardenKilled && long ? 1 : 0) + (run.carrierKilled && long ? 1 : 0)
+    const capitals = voidCapitalKills(run, run.elapsedMs)
+    const bosses = (run.wardenKilled && long ? 1 : 0) + (capitals.carrier ? 1 : 0) + (capitals.tyrant ? 1 : 0) + (capitals.harbinger ? 1 : 0)
     return Math.max(0, Math.min(VOID_DAILY_GEAR - gearToday, time + bosses))
 }
 
@@ -151,21 +170,55 @@ export function voidLoreForSector(tier: number) {
 
 export type VoidZoneModifier = 'calm' | 'ion' | 'radiation' | 'pirates' | 'graveyard' | 'rich' | 'nebula'
 
+/**
+ * What a zone changes, as multipliers on the plain rules. The engine reads
+ * these, so the chips a pilot sees at the gate and what the zone really does
+ * come from the same place.
+ */
+export interface VoidZoneMods {
+    /** Units per broken rock. */
+    ore: number
+    /** Scrap and alloy from kills and crates. */
+    salvage: number
+    /** Asteroid clusters in the field. */
+    rocks: number
+    /** Patrols at arrival and roaming in afterwards. */
+    patrols: number
+    /** Added to a wing's chance of fielding an elite. */
+    elites: number
+    wrecks: number
+    caches: number
+    relics: number
+    /** Shield recharge, the pilot's. */
+    shieldRegen: number
+    scan: number
+    /** How far hostiles spot the pilot. */
+    vision: number
+}
+
+export const VOID_ZONE_PLAIN: VoidZoneMods = { ore: 1, salvage: 1, rocks: 1, patrols: 1, elites: 0, wrecks: 1, caches: 1, relics: 1, shieldRegen: 1, scan: 1, vision: 1 }
+
 export interface VoidZoneDefinition {
     id: VoidZoneModifier
     name: string
-    description: string
+    icon: string
     color: number
+    /** Upsides and downsides as chips: a few words each, numbers as percentages. */
+    boons: string[]
+    banes: string[]
+    /** Skulls this zone adds to (or takes off) the jump's danger. */
+    danger: number
+    mods: VoidZoneMods
 }
 
 export const VOID_ZONES: VoidZoneDefinition[] = [
-    { id: 'calm', name: 'Quiet Space', description: 'Nothing unusual. A breather.', color: 0x5ec8ff },
-    { id: 'ion', name: 'Ion Storm', description: 'Shields recharge at half speed, yours and theirs. Enemy shields start drained.', color: 0x7fd4ff },
-    { id: 'radiation', name: 'Radiation Belt', description: 'Hull slowly burns while the shield is down. Ore yields half again as much.', color: 0x9dff5e },
-    { id: 'pirates', name: 'Pirate Territory', description: 'Far more raiders. Salvage drops half again as much.', color: 0xff6b4f },
-    { id: 'graveyard', name: 'Derelict Graveyard', description: 'Wrecks, caches and data logs everywhere. Fewer rocks.', color: 0xc9b38a },
-    { id: 'rich', name: 'Rich Veins', description: 'Dense ore fields guarded by more sentinels.', color: 0xffd35e },
-    { id: 'nebula', name: 'Dense Nebula', description: 'Fog halves your sight and scanner. Relic caches drop twice as often.', color: 0xc07bff }
+    { id: 'calm', name: 'Quiet Space', icon: 'i-lucide-moon-star', color: 0x5ec8ff, boons: ['-40% patrols'], banes: ['-20% ore'], danger: -1, mods: { ...VOID_ZONE_PLAIN, patrols: 0.6, ore: 0.8 } },
+    { id: 'ion', name: 'Ion Storm', icon: 'i-lucide-cloud-lightning', color: 0x7fd4ff, boons: ['No enemy shields'], banes: ['-50% shield regen', 'Rock lightning'], danger: 0, mods: { ...VOID_ZONE_PLAIN, shieldRegen: 0.5 } },
+    { id: 'radiation', name: 'Radiation Belt', icon: 'i-lucide-radiation', color: 0x9dff5e, boons: ['+30% ore'], banes: ['Hull burns unshielded'], danger: 0, mods: { ...VOID_ZONE_PLAIN, ore: 1.3 } },
+    { id: 'pirates', name: 'Pirate Territory', icon: 'i-lucide-skull', color: 0xff6b4f, boons: ['+50% salvage'], banes: ['+60% patrols', 'More elites'], danger: 1, mods: { ...VOID_ZONE_PLAIN, salvage: 1.5, patrols: 1.6, elites: 0.12 } },
+    { id: 'graveyard', name: 'Derelict Graveyard', icon: 'i-lucide-ship', color: 0xc9b38a, boons: ['+100% wrecks and caches'], banes: ['-40% rocks', 'Old minefields'], danger: 0, mods: { ...VOID_ZONE_PLAIN, wrecks: 2, caches: 2, rocks: 0.6 } },
+    { id: 'rich', name: 'Rich Veins', icon: 'i-lucide-gem', color: 0xffd35e, boons: ['+10% ore', '+25% rocks'], banes: ['More sentinels'], danger: 1, mods: { ...VOID_ZONE_PLAIN, ore: 1.1, rocks: 1.25 } },
+    { id: 'nebula', name: 'Dense Nebula', icon: 'i-lucide-cloud-fog', color: 0xc07bff, boons: ['+100% relics', '-40% enemy sight'], banes: ['Thick fog', '-50% scanner'], danger: 0, mods: { ...VOID_ZONE_PLAIN, relics: 2, vision: 0.6, scan: 0.5 } }
 ]
 
 export function voidZone(id: string) {
@@ -177,11 +230,21 @@ export function voidAllowedDepth(reported: number, elapsedMs: number) {
     return Math.max(1, Math.min(Math.floor(Number(reported) || 1), 1 + Math.floor(elapsedMs / 150_000), 8))
 }
 
-/** Enemy toughness and loot per jump depth. */
+/**
+ * Enemy toughness per jump depth. Every jump bites harder than the last:
+ * +29%, +66%, +111%, +164% … while loot only climbs a flat fifth a jump, so
+ * going deeper is a risk to weigh rather than free money.
+ */
 export function voidDepthThreat(depth: number) {
-    return 1 + (Math.max(1, depth) - 1) * 0.15
+    const jumps = Math.max(1, depth) - 1
+    return 1 + jumps * 0.25 + jumps * jumps * 0.04
 }
 
 export function voidDepthLoot(depth: number) {
     return 1 + (Math.max(1, depth) - 1) * 0.2
+}
+
+/** Skulls out of five for arriving at `depth` in a zone. */
+export function voidJumpDanger(depth: number, zone: string) {
+    return Math.max(1, Math.min(5, Math.max(1, depth) - 1 + voidZone(zone).danger))
 }

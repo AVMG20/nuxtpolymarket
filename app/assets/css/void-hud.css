@@ -303,6 +303,23 @@
 .vx-fuel i { width: 0.5em; height: 1em; background: #c07bff; box-shadow: 0 0 0.5em rgba(192, 123, 255, 0.9); transform: skewX(-16deg); }
 .vx-row { display: flex; flex-wrap: wrap; gap: 0.8em; }
 
+/* ── Zone chips: a zone's upsides in green, its downsides in red, the jump's danger in skulls */
+.vx-zc { display: grid; gap: 0.6em; justify-items: start; }
+.vx-zc-chips { display: flex; flex-wrap: wrap; gap: 0.35em; }
+.vx-zc-chips i { display: inline-flex; align-items: center; gap: 0.15em; padding: 0.22em 0.6em 0.22em 0.3em; font: 600 0.9em 'Rajdhani', sans-serif; font-style: normal; letter-spacing: 0.06em; line-height: 1.1; white-space: nowrap; border: 1px solid; clip-path: polygon(0 0, 100% 0, 100% calc(100% - 0.4em), calc(100% - 0.4em) 100%, 0 100%); }
+.vx-zc .vx-zc-chips .iconify { width: 1.05em; height: 1.05em; color: inherit; filter: none; }
+.vx-zc-up { color: var(--vr-good); border-color: rgba(61, 255, 176, 0.4); background: rgba(61, 255, 176, 0.1); }
+.vx-zc-down { color: #ff8d9f; border-color: rgba(255, 79, 109, 0.45); background: rgba(255, 79, 109, 0.12); }
+.vx-zc-danger { display: flex; gap: 0.18em; }
+.vx-zc .vx-zc-danger .iconify { width: 1.15em; height: 1.15em; color: rgba(255, 255, 255, 0.14); filter: none; }
+.vx-zc .vx-zc-danger .vx-zc-on { color: var(--vr-bad); filter: drop-shadow(0 0 0.35em rgba(255, 79, 109, 0.8)); }
+.vx-zc-center { justify-items: center; margin-top: 0.8em; }
+.vx-zc-center .vx-zc-chips { justify-content: center; font-size: 1.15em; }
+.vx-zc-center .vx-zc-danger { font-size: 1.3em; }
+.vx-zc-small { margin-top: 0.5em; font-size: 0.82em; opacity: 0.85; }
+.vx-zc-small .vx-zc-chips i { background: rgba(3, 8, 18, 0.55); }
+.vx-gate-odds { font-size: 1.1em; }
+
 /* Debrief */
 .vx-debrief { width: min(50em, 100%); gap: 0.9em; }
 .vx-debrief.vx-good { --vx-tone: var(--vr-good); }
