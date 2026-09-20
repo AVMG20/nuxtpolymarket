@@ -20,6 +20,15 @@ interface LeaderboardUser {
   xenoSpeciesUnlocked: number
   xenoGridSlotsUnlocked: number
   xenoBreederSlotsUnlocked: number
+  townScore: number
+  townMilestones: number
+  townResearch: number
+  voidScore: number
+  voidSectorsCleared: number
+  voidPilotLevel: number
+  voidHulls: number
+  voidSystemLevels: number
+  voidTradeLevel: number
   aiPromptsUsed: number
   battlerRunsWon: number
   battlerRating: number | null
@@ -46,6 +55,21 @@ const rankBg = [
   'bg-gradient-to-r from-slate-500/10 to-slate-400/5 border-slate-500/30',
   'bg-gradient-to-r from-amber-700/10 to-amber-600/5 border-amber-700/30'
 ]
+
+/** Polytown and Void Runner, spelled out the way the score counts them. */
+const newGameRows = computed(() => {
+  const u = selectedUser.value
+  if (!u) return []
+  return [
+    { icon: 'i-lucide-flag', color: 'text-secondary', label: 'Polytown milestones', value: u.townMilestones },
+    { icon: 'i-lucide-flask-conical', color: 'text-secondary', label: 'Polytown research', value: u.townResearch },
+    { icon: 'i-lucide-orbit', color: 'text-highlighted', label: 'Void Runner sectors cleared', value: u.voidSectorsCleared },
+    { icon: 'i-lucide-user-round', color: 'text-highlighted', label: 'Void Runner pilot level', value: u.voidPilotLevel },
+    { icon: 'i-lucide-rocket', color: 'text-highlighted', label: 'Void Runner hulls owned', value: u.voidHulls },
+    { icon: 'i-lucide-wrench', color: 'text-highlighted', label: 'Void Runner station system levels', value: u.voidSystemLevels },
+    { icon: 'i-lucide-handshake', color: 'text-highlighted', label: 'Void Runner trade contracts', value: u.voidTradeLevel }
+  ]
+})
 
 function openDetails(user: LeaderboardUser) {
   selectedUser.value = user
@@ -138,12 +162,12 @@ async function sendGift() {
 
     <UCard v-else-if="users?.length" :ui="{ body: 'p-0 sm:p-0' }">
       <div class="overflow-x-auto">
-        <table class="min-w-[960px] w-full border-collapse text-sm">
+        <table class="min-w-[1040px] w-full border-collapse text-sm">
           <thead class="border-b border-default bg-elevated/50 text-xs font-bold uppercase tracking-wide text-muted">
             <tr>
               <th scope="col" class="w-14 px-3 py-3 text-center"><UTooltip text="Rank"><UIcon name="i-lucide-trophy" class="mx-auto size-4" /></UTooltip></th>
               <th scope="col" class="min-w-44 px-3 py-3 text-left">Player</th>
-              <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Total upgrades"><UIcon name="i-lucide-arrow-big-up-dash" class="size-4" /></UTooltip></th>
+              <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Total upgrades across Colony, Xeno, Polytown and Void Runner"><UIcon name="i-lucide-arrow-big-up-dash" class="size-4" /></UTooltip></th>
               <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Balances"><UIcon name="i-lucide-wallet-cards" class="size-4" /></UTooltip></th>
               <th scope="col" class="px-3 py-3 text-left"><UTooltip text="Game progress"><UIcon name="i-lucide-chart-no-axes-combined" class="size-4" /></UTooltip></th>
             </tr>
@@ -183,7 +207,7 @@ async function sendGift() {
                 </div>
               </td>
               <td class="px-3 py-3">
-                <UTooltip text="Total upgrades">
+                <UTooltip text="Total upgrades across Colony, Xeno, Polytown and Void Runner">
                   <span class="inline-flex items-center gap-1 font-bold tabular-nums text-primary">
                     <UIcon name="i-lucide-arrow-big-up-dash" class="size-3.5" />{{ formatNumber(u.totalUpgrades, false) }}
                   </span>
@@ -207,6 +231,8 @@ async function sendGift() {
                   <UTooltip text="Xeno species"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-sprout" class="size-3.5" />{{ u.xenoSpeciesUnlocked }}</span></UTooltip>
                   <UTooltip text="Xeno grid tiles"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-grid-2x2" class="size-3.5" />{{ u.xenoGridSlotsUnlocked }}</span></UTooltip>
                   <UTooltip text="Xeno breeder slots"><span class="inline-flex items-center gap-1 text-success"><UIcon name="i-lucide-dna" class="size-3.5" />{{ u.xenoBreederSlotsUnlocked }}</span></UTooltip>
+                  <UTooltip :text="`Polytown: ${u.townMilestones} milestones, ${u.townResearch} research`"><span class="inline-flex items-center gap-1 text-secondary"><UIcon name="i-lucide-building-2" class="size-3.5" />{{ u.townScore }}</span></UTooltip>
+                  <UTooltip :text="`Void Runner: ${u.voidSectorsCleared} sectors cleared, pilot level ${u.voidPilotLevel}, ${u.voidHulls} hulls, ${u.voidSystemLevels} system levels, ${u.voidTradeLevel} trade contracts`"><span class="inline-flex items-center gap-1 text-highlighted"><UIcon name="i-lucide-rocket" class="size-3.5" />{{ u.voidScore }}</span></UTooltip>
                   <UTooltip text="AI prompts used"><span class="inline-flex items-center gap-1 text-info"><UIcon name="i-lucide-bot" class="size-3.5" />{{ formatNumber(u.aiPromptsUsed, false) }}</span></UTooltip>
                   <UTooltip :text="`Battler — ${u.battlerRating == null ? 'unrated' : `${u.battlerRating} Elo`}, ${u.battlerRunsWon} runs won, ${u.battlerBattlesWon}–${u.battlerBattlesLost} in battles`">
                     <span class="inline-flex items-center gap-1 text-secondary">
@@ -346,6 +372,11 @@ async function sendGift() {
                 <UIcon name="i-lucide-dna" class="size-4 text-success" />
                 <span class="flex-1 text-sm">Xeno breeder slots unlocked</span>
                 <span class="font-semibold tabular-nums text-success">{{ selectedUser.xenoBreederSlotsUnlocked }}</span>
+              </div>
+              <div v-for="row in newGameRows" :key="row.label" class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
+                <UIcon :name="row.icon" class="size-4" :class="row.color" />
+                <span class="flex-1 text-sm">{{ row.label }}</span>
+                <span class="font-semibold tabular-nums" :class="row.color">{{ row.value }}</span>
               </div>
               <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
                 <UIcon name="i-lucide-bot" class="size-4 text-info" />
