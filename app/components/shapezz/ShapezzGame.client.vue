@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { ShapezzEngine, type ShapezzSnapshot } from '~/utils/shapezz-engine'
+import { ShapezzAutopilot, type ShapezzAutopilotStatus } from '~/utils/shapezz-autopilot'
+import type { ShapezzAutopilotAdvice } from '#shared/utils/gamelogic/shapezz-autopilot'
 import {
     SHAPEZZ_CHECKPOINT_MS,
     shapezzCheckpointPressure,
     shapezzPayoutForRun,
     shapezzRunUpgrade,
     type ShapezzDifficultyId,
-    type ShapezzRunUpgradeId
+    type ShapezzRunUpgradeId,
+    type ShapezzWeaponType
 } from '#shared/utils/gamelogic/shapezz'
 
 definePageMeta({ title: 'SHAPEZZ' })
@@ -52,6 +55,43 @@ const result = ref<null | {
 const bossWarning = ref('')
 let bossWarningTimer: ReturnType<typeof setTimeout> | null = null
 let engine: ShapezzEngine | null = null
+
+// Auto-play: the cube flies itself, asking Laya on this machine for advice.
+// Stays on across runs until switched off; starting a run is still a click.
+const layaUrl = useRuntimeConfig().public.layaUrl
+const autopilotEnabled = ref(false)
+const autopilotStatus = ref<ShapezzAutopilotStatus | null>(null)
+const autopilotAdvice = shallowRef<ShapezzAutopilotAdvice | null>(null)
+/** What auto-play is about to do at a checkpoint, shown before it does it. */
+const autopilotDecision = ref('')
+const activeWeaponType = ref<ShapezzWeaponType>('blaster')
+/** Long enough to read the decision and click something else instead. */
+const AUTOPILOT_DECISION_DELAY_MS = 1500
+let autopilot: ShapezzAutopilot | null = null
+let decisionToken = 0
+const AUTOPILOT_MODE_LABELS = {
+    fight: 'Fighting',
+    dodge: 'Dodging',
+    retreat: 'Retreating',
+    heal: 'Grabbing health'
+} as const
+const autopilotLabel = computed(() => {
+    const status = autopilotStatus.value
+    if (!autopilotEnabled.value || !status) return 'Auto-play'
+    return AUTOPILOT_MODE_LABELS[status.mode]
+})
+const autopilotRows = computed(() => {
+    const advice = autopilotAdvice.value
+    if (!advice) return []
+    const zones = advice.zones
+    const safest = zones ? (Object.entries(zones) as [string, number][]).reduce((a, b) => b[1] > a[1] ? b : a) : null
+    return [
+        { label: 'Danger', value: advice.danger, text: `${Math.round(advice.danger * 100)}%`, bar: 'bg-error' },
+        { label: 'Safest', value: safest?.[1] ?? 0, text: safest?.[0] ?? '—', bar: 'bg-primary' },
+        { label: 'Focus', value: advice.focusConfidence, text: advice.focus ?? 'nearest', bar: 'bg-warning' },
+        { label: 'Health', value: advice.grabHealth, text: `${Math.round(advice.grabHealth * 100)}%`, bar: 'bg-success' }
+    ]
+})
 
 const hpPercent = computed(() => clampPercent(snapshot.value.hp / Math.max(1, snapshot.value.maxHp) * 100))
 const shieldPercent = computed(() => clampPercent(snapshot.value.shield / Math.max(1, snapshot.value.shieldCapacity) * 100))
@@ -150,6 +190,7 @@ async function startRun() {
             body: { difficultyId: selectedDifficultyId.value }
         })
         activeDifficultyId.value = run.difficulty.id
+        activeWeaponType.value = run.weapon.type
         if (!canvas.value) {
             // Unmounted while the request was in flight — release the run the
             // server just opened instead of leaving it blocking the workshop.
@@ -177,6 +218,10 @@ async function startRun() {
             onPause: (value) => { paused.value = value },
             onFps: value => { fps.value = value }
         })
+        if (autopilotEnabled.value) {
+            detachAutopilot()
+            attachAutopilot()
+        }
         // Fetch already reset headStartLevel server-side — the picks bought for
         // this run must be resolved before the simulation itself starts.
         headStartPicksRemaining.value = run.headStartLevel
@@ -191,6 +236,72 @@ async function startRun() {
         starting.value = false
     }
 }
+
+function attachAutopilot() {
+    if (!engine || autopilot) return
+    autopilot = new ShapezzAutopilot(
+        engine,
+        layaUrl,
+        (status) => { autopilotStatus.value = status },
+        (advice) => { autopilotAdvice.value = advice }
+    )
+    autopilot.start()
+}
+
+function detachAutopilot() {
+    decisionToken += 1
+    autopilot?.stop()
+    autopilot = null
+    autopilotStatus.value = null
+    autopilotAdvice.value = null
+    autopilotDecision.value = ''
+}
+
+function toggleAutopilot() {
+    autopilotEnabled.value = !autopilotEnabled.value
+    if (!autopilotEnabled.value) return detachAutopilot()
+    attachAutopilot()
+    // Switched on while a choice screen is already open.
+    void autopilotDecide()
+}
+
+/** Pick the mutation for whichever choice screen is open. Auto-play never cashes out. */
+async function autopilotDecide() {
+    const pilot = autopilot
+    const kind = checkpointOffers.value.length ? 'checkpoint' : headStartOffers.value.length ? 'headStart' : null
+    if (!pilot || !engine || !kind) return
+    const token = ++decisionToken
+    const offers = kind === 'checkpoint' ? checkpointOffers.value : headStartOffers.value
+    const current = engine.getSnapshot()
+    autopilotDecision.value = 'Asking Laya…'
+    const decision = await pilot.decideCheckpoint({
+        offers,
+        upgrades: current.upgrades,
+        weapon: activeWeaponType.value,
+        hull: current.hp / Math.max(1, current.maxHp),
+        damageTaken: pilot.damageThisRound(current.maxHp)
+    })
+    if (token !== decisionToken) return
+    autopilotDecision.value = `${decision.laya ? 'Laya' : 'Instinct'}: taking ${shapezzRunUpgrade(decision.upgrade).name}`
+    await new Promise(resolve => setTimeout(resolve, AUTOPILOT_DECISION_DELAY_MS))
+    // The player may have clicked something themselves, or switched auto-play off.
+    if (token !== decisionToken) return
+    autopilotDecision.value = ''
+    if (kind === 'checkpoint') {
+        if (checkpointOffers.value.includes(decision.upgrade)) chooseUpgrade(decision.upgrade)
+    } else if (headStartOffers.value.includes(decision.upgrade)) {
+        chooseHeadStartUpgrade(decision.upgrade)
+    }
+}
+
+watch([checkpointOffers, headStartOffers], () => {
+    if (autopilot && (checkpointOffers.value.length || headStartOffers.value.length)) void autopilotDecide()
+})
+
+// Auto-play is limited to a few accounts; drop it if this one lost access.
+watch(() => state.value?.autopilot, (allowed) => {
+    if (!allowed && autopilotEnabled.value) toggleAutopilot()
+})
 
 function beginRun() {
     if (!engine) return
@@ -209,6 +320,8 @@ watch(() => checkpointOffers.value.length > 0 || headStartOffers.value.length > 
 
 function chooseHeadStartUpgrade(upgradeId: ShapezzRunUpgradeId) {
     if (!engine) return
+    decisionToken += 1
+    autopilotDecision.value = ''
     engine.applyStartingUpgrade(upgradeId)
     headStartPicksRemaining.value -= 1
     sound.play('upgrade')
@@ -235,6 +348,8 @@ async function buyHeadStart() {
 
 function chooseUpgrade(upgradeId: ShapezzRunUpgradeId) {
     if (!engine || settling.value) return
+    decisionToken += 1
+    autopilotDecision.value = ''
     engine.chooseUpgrade(upgradeId)
     checkpointOffers.value = []
     sound.play('upgrade')
@@ -254,6 +369,7 @@ async function cashOut() {
                 kills: finalSnapshot.kills
             }
         })
+        detachAutopilot()
         engine.destroy()
         engine = null
         running.value = false
@@ -314,6 +430,7 @@ async function settleDefeat(finalSnapshot: ShapezzSnapshot) {
     } catch (error: unknown) {
         toast.add({ title: apiErrorMessage(error, 'Run settlement failed'), color: 'error' })
     } finally {
+        detachAutopilot()
         engine?.destroy()
         engine = null
         running.value = false
@@ -334,6 +451,7 @@ onMounted(() => {
     void clearStaleRun()
 })
 onUnmounted(() => {
+    detachAutopilot()
     engine?.destroy()
     engine = null
     sound.stop()
@@ -411,6 +529,22 @@ onUnmounted(() => {
                     <div class="h-full bg-info shadow-[0_0_14px_var(--ui-info)] transition-[width] duration-100" :style="{ width: `${shieldPercent}%` }" />
                   </div>
                 </template>
+                <!-- Auto-play decisions -->
+                <div v-if="autopilotEnabled && autopilotStatus" class="mt-2.5 space-y-1 border-t border-white/10 pt-2 text-[10px] leading-tight text-white/80">
+                  <div class="flex items-center justify-between gap-2 font-bold">
+                    <span class="flex items-center gap-1 truncate"><UIcon name="i-lucide-bot" class="size-3 text-primary" />{{ autopilotLabel }}</span>
+                    <span :class="autopilotStatus.laya ? 'text-primary' : 'text-white/50'">{{ autopilotStatus.laya ? 'Laya' : 'Instinct' }}</span>
+                  </div>
+                  <div v-for="row in autopilotRows" :key="row.label">
+                    <div class="flex justify-between gap-2">
+                      <span class="text-white/50">{{ row.label }}</span>
+                      <span class="font-semibold tabular-nums">{{ row.text }}</span>
+                    </div>
+                    <div class="mt-0.5 h-1 overflow-hidden rounded-full bg-white/10">
+                      <div class="h-full rounded-full transition-[width] duration-200" :class="row.bar" :style="{ width: `${Math.round(row.value * 100)}%` }" />
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div class="flex gap-2">
@@ -426,6 +560,17 @@ onUnmounted(() => {
                   <p class="text-[9px] font-black uppercase tracking-widest text-white/50">Next mutation</p>
                   <p class="text-lg font-black tabular-nums text-info">{{ Math.ceil(nextMutationMs / 1000) }}s</p>
                 </div>
+                <UButton
+                  v-if="state.autopilot"
+                  icon="i-lucide-bot"
+                  :color="autopilotEnabled ? 'primary' : 'neutral'"
+                  :variant="autopilotEnabled ? 'solid' : 'outline'"
+                  class="pointer-events-auto self-center"
+                  :class="autopilotEnabled ? '' : 'border-white/10 bg-black/55 backdrop-blur-sm'"
+                  :label="autopilotLabel"
+                  :title="autopilotEnabled && autopilotStatus && !autopilotStatus.laya ? 'Laya is not answering, playing on instinct. Start laya_server.py on this machine.' : undefined"
+                  @click="toggleAutopilot"
+                />
                 <UButton
                   :icon="paused ? 'i-lucide-play' : 'i-lucide-pause'"
                   color="neutral"
@@ -475,6 +620,9 @@ onUnmounted(() => {
                 <p class="text-xs font-black uppercase tracking-[0.35em] text-secondary">Checkpoint {{ snapshot.checkpoint }}</p>
                 <h2 class="mt-1 text-2xl font-black text-white sm:text-4xl">GET STRONGER OR GET PAID</h2>
                 <p class="mt-2 text-sm text-white/60">The arena is frozen. Taking a mutation starts the next {{ checkpointSeconds }} seconds with enemies at {{ currentPressure.health.toFixed(1) }}× health and {{ currentPressure.damage.toFixed(1) }}× mutation damage.</p>
+                <p v-if="autopilotDecision" class="mt-3 flex items-center justify-center gap-1.5 text-sm font-bold text-primary">
+                  <UIcon name="i-lucide-bot" class="size-4" /> {{ autopilotDecision }}
+                </p>
               </div>
 
               <div class="grid gap-3 md:grid-cols-3">
@@ -523,6 +671,9 @@ onUnmounted(() => {
                 <p class="text-xs font-black uppercase tracking-[0.35em] text-primary">Head start</p>
                 <h2 class="mt-1 text-2xl font-black text-white sm:text-4xl">CHOOSE YOUR OPENING MOVE</h2>
                 <p class="mt-2 text-sm text-white/60">Pick a mutation before the fight begins. {{ headStartPicksRemaining }} pick{{ headStartPicksRemaining === 1 ? '' : 's' }} left.</p>
+                <p v-if="autopilotDecision" class="mt-3 flex items-center justify-center gap-1.5 text-sm font-bold text-primary">
+                  <UIcon name="i-lucide-bot" class="size-4" /> {{ autopilotDecision }}
+                </p>
               </div>
 
               <div class="grid gap-3 md:grid-cols-3">
@@ -629,6 +780,10 @@ onUnmounted(() => {
                 <p v-else class="mt-2 text-xs text-muted">1 gem per started 10 minutes remaining.</p>
               </div>
               <UButton v-else class="mt-5 w-full justify-center" size="xl" icon="i-lucide-play" label="START THE VIOLENCE" :loading="starting" @click="startRun" />
+              <div v-if="state.autopilot" class="mt-3 flex items-center justify-between gap-3 rounded-lg border border-default bg-elevated px-3 py-2">
+                <span class="flex items-center gap-1.5 text-sm font-semibold"><UIcon name="i-lucide-bot" class="size-4 text-primary" /> Auto-play with Laya</span>
+                <USwitch :model-value="autopilotEnabled" aria-label="Auto-play with Laya" @update:model-value="toggleAutopilot" />
+              </div>
               <p class="mt-3 text-center text-xs text-muted">Move: WASD / arrows · Jump: W / Space · Drop: hold S / Down · Aim: mouse · Fire: hold left click</p>
             </UCard>
           </div>

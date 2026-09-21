@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { shapezzState } from '#server/database/schema'
+import { shapezzState, user } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { canUseAutopilot } from '#server/utils/autopilot'
 import { getBalance } from '#server/utils/balance'
 import { shapezzArsenal } from '#server/utils/shapezz'
 import {
@@ -25,8 +26,9 @@ import {
 
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
-    const [balance, existing] = await Promise.all([
+    const [balance, currentUser, existing] = await Promise.all([
         getBalance(userId),
+        db.query.user.findFirst({ where: eq(user.id, userId), columns: { email: true } }),
         db.query.shapezzState.findFirst({ where: eq(shapezzState.userId, userId) })
     ])
 
@@ -83,6 +85,7 @@ export default defineEventHandler(async (event) => {
         bestSurvivalMs: state.bestSurvivalMs,
         bestKills: state.bestKills,
         bestCheckpoint: state.bestCheckpoint,
+        autopilot: canUseAutopilot(currentUser?.email),
         activeRun: state.runStartedAt ? { startedAt: state.runStartedAt } : null,
         runCooldown: state.lastRunFinishedAt
             ? (() => {

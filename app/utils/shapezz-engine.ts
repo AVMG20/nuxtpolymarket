@@ -19,6 +19,7 @@ import {
     type ShapezzRunUpgradeId,
     type ShapezzWeapon
 } from '#shared/utils/gamelogic/shapezz'
+import type { ShapezzAutopilotView } from '#shared/utils/gamelogic/shapezz-autopilot'
 import type { ShapezzSoundEvent } from '~/utils/shapezz-sounds'
 
 const WIDTH = 1280
@@ -54,6 +55,16 @@ export interface ShapezzSnapshot {
     checkpoint: number
     combo: number
     upgrades: Partial<Record<ShapezzRunUpgradeId, number>>
+}
+
+/** What the auto-pilot holds down this frame, in place of the keyboard and mouse. */
+export interface ShapezzAutopilotInput {
+    move: -1 | 0 | 1
+    jump: boolean
+    drop: boolean
+    aimX: number
+    aimY: number
+    fire: boolean
 }
 
 export interface ShapezzEngineCallbacks {
@@ -192,6 +203,8 @@ export class ShapezzEngine {
     private aim = { x: WIDTH * 0.75, y: HEIGHT * 0.45 }
     private aimVisible = false
     private firing = false
+    private autopilotInput: ShapezzAutopilotInput | null = null
+    private frameHook: ((dt: number) => void) | null = null
     private dropThroughTimer = 0
     private running = false
     private paused = false
@@ -272,8 +285,10 @@ export class ShapezzEngine {
     }
 
     // Without this, enemies keep attacking while the player has no input.
+    // Auto-play is input, so it keeps flying when the window loses focus.
     private windowBlur = () => {
         this.keys.clear()
+        if (this.autopilotInput) return
         this.firing = false
         if (this.running && !this.paused) this.togglePause()
     }
@@ -386,6 +401,60 @@ export class ShapezzEngine {
         return this.snapshot()
     }
 
+    // ─── Auto-pilot ─────────────────────────────────────────────────────────
+
+    /** Called at the start of every simulated frame while a run is live. */
+    setFrameHook(hook: ((dt: number) => void) | null) {
+        this.frameHook = hook
+    }
+
+    /** Take over movement, aim and trigger; null hands them back to the player. */
+    setAutopilotInput(input: ShapezzAutopilotInput | null) {
+        this.autopilotInput = input
+        if (!input) this.firing = false
+    }
+
+    private applyAutopilotInput() {
+        const pilot = this.autopilotInput
+        if (!pilot) return
+        this.aim.x = pilot.aimX
+        this.aim.y = pilot.aimY
+        this.aimVisible = true
+        this.firing = pilot.fire
+        if (pilot.jump && this.player.onGround) this.jump()
+        if (pilot.drop && this.player.onGround) this.dropThroughPlatform()
+    }
+
+    /** The arena as the auto-pilot sees it. */
+    autopilotView(): ShapezzAutopilotView {
+        const velocity = Math.min(4, this.upgrades.hyperVelocity ?? 0)
+        return {
+            elapsedMs: this.elapsedMs,
+            checkpoint: Math.floor(this.elapsedMs / SHAPEZZ_CHECKPOINT_MS),
+            player: { x: this.player.x, y: this.player.y, vx: this.player.vx, vy: this.player.vy, size: this.player.size, onGround: this.player.onGround },
+            hp: Math.max(0, this.player.hp),
+            maxHp: this.stats.maxHp,
+            shield: Math.max(0, this.player.shield),
+            moveSpeed: this.stats.moveSpeed,
+            jumpSpeed: this.stats.jumpSpeed,
+            weapon: {
+                type: this.weapon.type,
+                bulletSpeed: 780 * this.weapon.projectileSpeedMultiplier * Math.pow(1.5, velocity),
+                chainRange: this.weapon.chainRange,
+                explosionRadius: this.weapon.explosionRadius
+            },
+            bulletTime: this.upgrades.bulletTime ?? 0,
+            enemies: this.enemies.filter(enemy => enemy.hp > 0).map(enemy => ({
+                id: enemy.id, type: enemy.type, x: enemy.x, y: enemy.y, vx: enemy.vx, vy: enemy.vy,
+                radius: enemy.radius, hp: enemy.hp / Math.max(1, enemy.maxHp), damage: enemy.damage, speed: enemy.speed
+            })),
+            bullets: this.bullets.filter(bullet => !bullet.friendly).map(({ x, y, vx, vy, radius, damage }) => ({ x, y, vx, vy, radius, damage })),
+            pickups: this.pickups.map(({ x, y, kind, value }) => ({ x, y, kind, value })),
+            platforms: this.platforms.filter(platform => platform.y < FLOOR_Y).map(({ x, y, width }) => ({ x, y, width })),
+            upgrades: { ...this.upgrades }
+        }
+    }
+
     /** Freeze/unfreeze the simulation. No-op outside a live run (checkpoint, game over). */
     togglePause() {
         if (!this.running) return
@@ -443,6 +512,8 @@ export class ShapezzEngine {
     }
 
     private update(dt: number) {
+        this.frameHook?.(dt)
+        this.applyAutopilotInput()
         this.elapsedMs += dt * 1000
         this.fireCooldown -= dt
         this.orbitalCooldown -= dt
@@ -499,12 +570,13 @@ export class ShapezzEngine {
     }
 
     private updatePlayer(dt: number) {
-        const left = this.keys.has('a') || this.keys.has('arrowleft')
-        const right = this.keys.has('d') || this.keys.has('arrowright')
+        const pilot = this.autopilotInput
+        const left = pilot ? pilot.move < 0 : this.keys.has('a') || this.keys.has('arrowleft')
+        const right = pilot ? pilot.move > 0 : this.keys.has('d') || this.keys.has('arrowright')
         this.dropThroughTimer = Math.max(0, this.dropThroughTimer - dt)
         // Holding down keeps every elevated platform pass-through, so the player falls all the way
         // to the floor. The timer only covers a tap that is released before the next frame.
-        const dropping = this.dropThroughTimer > 0 || this.keys.has('s') || this.keys.has('arrowdown')
+        const dropping = this.dropThroughTimer > 0 || (pilot ? pilot.drop : this.keys.has('s') || this.keys.has('arrowdown'))
         const targetVx = (Number(right) - Number(left)) * this.stats.moveSpeed
         const acceleration = this.player.onGround ? 16 : 8
         this.player.vx += (targetVx - this.player.vx) * Math.min(1, dt * acceleration)
