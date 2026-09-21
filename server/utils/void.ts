@@ -132,11 +132,10 @@ export interface VoidFinishReport {
 
 /**
  * Relic caches a run may bank: one once the run passes two minutes, one more
- * per three minutes of flight (a carrier kill drops two), plus the warden's
- * once the run has lasted long enough to have fought one.
+ * per three minutes of flight (a carrier kill drops two), plus the warden's.
  */
 export function voidRelicCap(elapsedMs: number, wardenKilled: boolean) {
-    return Math.min(5, (elapsedMs >= 120_000 ? 1 : 0) + Math.floor(elapsedMs / 180_000) + (wardenKilled && elapsedMs >= 240_000 ? 1 : 0))
+    return Math.min(5, (elapsedMs >= 120_000 ? 1 : 0) + Math.floor(elapsedMs / 180_000) + (wardenKilled ? 1 : 0))
 }
 
 /**

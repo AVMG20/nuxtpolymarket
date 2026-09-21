@@ -2,7 +2,7 @@
 // it pays anything: the server only bounds it and files it next to the run.
 
 /** Bump when a balance change lands, so audits can split runs before and after it. */
-export const VOID_BALANCE_VERSION = '2026-09-20'
+export const VOID_BALANCE_VERSION = '2026-09-21'
 
 export const VOID_BOSS_IDS = ['warden', 'dreadnought', 'tyrant', 'harbinger'] as const
 export type VoidBossId = typeof VOID_BOSS_IDS[number]

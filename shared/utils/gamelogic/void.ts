@@ -9,7 +9,7 @@
 // what happened in a run; the server decides what that run was allowed to be
 // worth.
 
-import { VOID_LORE, VOID_PERKS, VOID_ZONES, voidAllowedDepth, voidCapitalKills, voidDepthLoot, voidNormalizePerks, voidPerkCost, type VoidPerkRanks } from './void-pilot'
+import { VOID_LORE, VOID_MIN_CLAIM_MS, VOID_PERKS, VOID_ZONES, voidAllowedDepth, voidCapitalKills, voidDepthLoot, voidNormalizePerks, voidPerkCost, type VoidPerkRanks } from './void-pilot'
 import { VOID_SUPPLIES, VOID_SUPPLY_CARRY, VOID_SUPPLY_STOCK_MAX, voidContractDay, voidContractResetAt, voidContractsFor, voidNormalizeSupplies, voidSupplyCost } from './void-station'
 import {
     VOID_ITEM_KINDS, VOID_ITEM_TYPES, VOID_MAX_TIER, VOID_MODS, VOID_RARITIES, voidAffix, voidCanCraftTier, voidCraftCost, voidDefenceStats, voidItemPower,
@@ -843,12 +843,12 @@ export interface VoidSettledRun {
 }
 
 /**
- * The shortest run a warden kill can come out of. The lair is a flight away
- * and the fight takes time, but a geared pilot does both fast, so this only
- * rules out a kill reported straight off the pad.
+ * The shortest run a warden kill can come out of. A geared pilot reaches the
+ * lair and wins fast, so this only rules out a kill reported straight off
+ * the pad.
  */
-export function voidWardenMinMs(tier: number) {
-    return 60_000 + tier * 15_000
+export function voidWardenMinMs(_tier: number) {
+    return VOID_MIN_CLAIM_MS
 }
 
 /**

@@ -298,7 +298,7 @@ describe('void runner settlement', () => {
     })
 
     it('refuses warden cores from a run too short to have reached the warden', () => {
-        const quick = voidSettleRun({ extracted: true, haul: { core: 3 }, elapsedMs: 20_000, kills: 1, wardenKilled: true }, 3, 100, 20_000)
+        const quick = voidSettleRun({ extracted: true, haul: { core: 3 }, elapsedMs: 5_000, kills: 1, wardenKilled: true }, 3, 100, 5_000)
         expect(quick.wardenKilled).toBe(false)
         expect(quick.haul.core ?? 0).toBe(0)
         const real = voidSettleRun({ extracted: true, haul: { core: 3 }, elapsedMs: minutes(6), kills: 40, wardenKilled: true }, 3, 100, minutes(6))
@@ -351,22 +351,25 @@ describe('void runner salvaged gear', () => {
 })
 
 describe('void runner pilot meta', () => {
-    it('pays Command Marks only for extractions, and only trusts a carrier kill on a long run', () => {
+    it('pays Command Marks only for extractions, and only trusts a carrier kill past ten seconds', () => {
         const base = { extracted: true, wardenKilled: true, carrierKilled: false, depth: 1, elapsedMs: 10 * 60_000 }
         expect(voidRunMarks({ ...base, extracted: false })).toBe(0)
         expect(voidRunMarks(base)).toBe(2)
-        expect(voidRunMarks({ ...base, carrierKilled: true, elapsedMs: 60_000, wardenKilled: false })).toBe(0)
+        expect(voidRunMarks({ ...base, carrierKilled: true, elapsedMs: 5_000, wardenKilled: false })).toBe(0)
+        expect(voidRunMarks({ ...base, carrierKilled: true, elapsedMs: 60_000, wardenKilled: false })).toBe(3)
         expect(voidRunMarks({ ...base, carrierKilled: true })).toBe(5)
     })
 
-    it('only trusts Tyrant and Harbinger kills on runs long and deep enough to have fought them', () => {
+    it('only trusts Tyrant and Harbinger kills on runs past ten seconds and deep enough to have fought them', () => {
         const base = { extracted: true, wardenKilled: false, carrierKilled: false, depth: 1, elapsedMs: 10 * 60_000 }
         expect(voidRunMarks({ ...base, tyrantKilled: true })).toBe(3)
-        expect(voidRunMarks({ ...base, tyrantKilled: true, elapsedMs: 3 * 60_000 })).toBe(0)
+        expect(voidRunMarks({ ...base, tyrantKilled: true, elapsedMs: 5_000 })).toBe(0)
+        expect(voidRunMarks({ ...base, tyrantKilled: true, elapsedMs: 60_000 })).toBe(3)
         // The Harbinger only exists past a jump.
         expect(voidRunMarks({ ...base, harbingerKilled: true })).toBe(0)
         expect(voidRunMarks({ ...base, harbingerKilled: true, depth: 2 })).toBe(5)
-        expect(voidRunMarks({ ...base, harbingerKilled: true, depth: 2, elapsedMs: 5 * 60_000 })).toBe(0)
+        expect(voidRunMarks({ ...base, harbingerKilled: true, depth: 2, elapsedMs: 5_000 })).toBe(0)
+        expect(voidRunMarks({ ...base, harbingerKilled: true, depth: 2, elapsedMs: 2 * 60_000 })).toBe(5)
         expect(voidCapitalKills({ carrierKilled: true, tyrantKilled: true, harbingerKilled: true, depth: 2 }, 8 * 60_000)).toEqual({ carrier: true, tyrant: true, harbinger: true })
     })
 
@@ -384,7 +387,8 @@ describe('void runner pilot meta', () => {
     })
 
     it('caps jump depth by elapsed time', () => {
-        expect(voidAllowedDepth(8, 60_000)).toBe(1)
+        expect(voidAllowedDepth(8, 5_000)).toBe(1)
+        expect(voidAllowedDepth(3, 60_000)).toBe(3)
         expect(voidAllowedDepth(3, 6 * 60_000)).toBe(3)
         expect(voidAllowedDepth(99, 3_600_000)).toBe(8)
     })
@@ -431,8 +435,9 @@ describe('void runner bounties and gear caps', () => {
         expect(voidGearCap({ ...run, elapsedMs: 5 * 60_000, tyrantKilled: true }, 0)).toBe(3)
         // A run with no kills or cargo banks nothing, whatever it reports.
         expect(voidGearCap({ ...full, earnest: false }, 0)).toBe(0)
-        // Boss kills only count on a run long enough to have fought one.
-        expect(voidGearCap({ ...run, elapsedMs: 120_000, carrierKilled: true, wardenKilled: true }, 0)).toBe(1)
+        // Boss kills count on any run past ten seconds.
+        expect(voidGearCap({ ...run, elapsedMs: 120_000, carrierKilled: true, wardenKilled: true }, 0)).toBe(3)
+        expect(voidGearCap({ ...run, elapsedMs: 5_000, carrierKilled: true, wardenKilled: true }, 0)).toBe(0)
         expect(voidGearCap(full, VOID_DAILY_GEAR - 2)).toBe(2)
         expect(voidGearCap(full, VOID_DAILY_GEAR + 3)).toBe(0)
     })

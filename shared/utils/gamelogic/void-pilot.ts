@@ -63,16 +63,19 @@ export interface VoidRunTrophies {
 }
 
 /**
- * Capital kills are client claims, so each needs a run long enough to have
- * found and fought one. The Harbinger only exists past a jump and is the
- * longest fight in the game.
+ * Boss kills and jumps are client claims. Nobody finds and kills a boss or
+ * clears a jump in under ten seconds, so that is all the server asks for:
+ * real runs last one to five minutes and must never be short-changed.
  */
+export const VOID_MIN_CLAIM_MS = 10_000
+
+/** The Harbinger only exists past a jump. */
 export function voidCapitalKills(run: { carrierKilled?: boolean, tyrantKilled?: boolean, harbingerKilled?: boolean, depth?: number }, elapsedMs: number) {
-    const long = elapsedMs >= 240_000
+    const long = elapsedMs >= VOID_MIN_CLAIM_MS
     return {
         carrier: Boolean(run.carrierKilled) && long,
         tyrant: Boolean(run.tyrantKilled) && long,
-        harbinger: Boolean(run.harbingerKilled) && elapsedMs >= 420_000 && voidAllowedDepth(run.depth ?? 1, elapsedMs) >= 2
+        harbinger: Boolean(run.harbingerKilled) && long && voidAllowedDepth(run.depth ?? 1, elapsedMs) >= 2
     }
 }
 
@@ -122,7 +125,7 @@ export function voidBountyXp(reported: unknown, elapsedMs: number) {
 export function voidGearCap(run: { elapsedMs: number, wardenKilled: boolean, carrierKilled: boolean, tyrantKilled?: boolean, harbingerKilled?: boolean, depth?: number, earnest: boolean }, gearToday: number) {
     if (!run.earnest) return 0
     const time = Math.min(3, (run.elapsedMs >= 90_000 ? 1 : 0) + Math.floor(run.elapsedMs / 300_000))
-    const long = run.elapsedMs >= 240_000
+    const long = run.elapsedMs >= VOID_MIN_CLAIM_MS
     const capitals = voidCapitalKills(run, run.elapsedMs)
     const bosses = (run.wardenKilled && long ? 1 : 0) + (capitals.carrier ? 1 : 0) + (capitals.tyrant ? 1 : 0) + (capitals.harbinger ? 1 : 0)
     return Math.max(0, Math.min(VOID_DAILY_GEAR - gearToday, time + bosses))
@@ -225,9 +228,9 @@ export function voidZone(id: string) {
     return VOID_ZONES.find(z => z.id === id) ?? VOID_ZONES[0]!
 }
 
-/** Deepest jump a run of this length could honestly reach: one jump per two and a half minutes. */
+/** Deepest jump a run of this length could honestly reach: one jump per ten seconds. */
 export function voidAllowedDepth(reported: number, elapsedMs: number) {
-    return Math.max(1, Math.min(Math.floor(Number(reported) || 1), 1 + Math.floor(elapsedMs / 150_000), 8))
+    return Math.max(1, Math.min(Math.floor(Number(reported) || 1), 1 + Math.floor(elapsedMs / VOID_MIN_CLAIM_MS), 8))
 }
 
 /**
