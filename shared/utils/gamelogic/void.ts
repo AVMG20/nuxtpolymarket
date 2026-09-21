@@ -384,7 +384,7 @@ export function voidGunDps(id: string, gunStat = VOID_GUN_BASE) {
 
 // ─── Ships ──────────────────────────────────────────────────────────────────
 
-export type VoidAbilityId = 'blink' | 'tractor' | 'salvo' | 'phase' | 'bulwark' | 'swarm' | 'nova' | 'overdrive' | 'lance'
+export type VoidAbilityId = 'blink' | 'tractor' | 'salvo' | 'phase' | 'bulwark' | 'swarm' | 'nova' | 'overdrive' | 'lance' | 'slipstream'
 
 export interface VoidShipDefinition {
     id: string
@@ -393,6 +393,8 @@ export interface VoidShipDefinition {
     description: string
     /** Warden kills required before the shipyard will build it. */
     requiresSector: number
+    /** A capstone hull: the yard only builds it for a pilot who owns every other ship. */
+    requiresFleet?: boolean
     hull: number
     shield: number
     /** Cruise speed, units per second. */
@@ -472,16 +474,34 @@ export const VOID_SHIPS = [
         cost: { iridium: 8600, xenite: 2000, alloy: 5400, core: 20 }, coins: 250_000_000, gems: 60, turretBonus: 0.25, size: 11
     },
     {
+        id: 'tempest', name: 'Tempest', role: 'Stormrunner', requiresSector: 5,
+        description: 'A strike wedge with a forked prow and two capital engines bolted on top. Three turrets, one drone and a slipstream that outruns anything in the Abyss, with armour thin enough that it has to.',
+        hull: 720, shield: 900, speed: 112, agility: 3.3, cargo: 3200, turrets: 3, armor: 3, shields: 2, drones: 1, ability: 'slipstream',
+        cost: { iridium: 13000, xenite: 6600, alloy: 8200, core: 45 }, coins: 950_000_000, gems: 150, turretBonus: 0.2, size: 9.5
+    },
+    {
         id: 'leviathan', name: 'Leviathan', role: 'Dreadnought', requiresSector: 5,
         description: 'Six capital turrets, four drones and a spinal lance that cuts a sector in half. The last ship you will ever need.',
         hull: 1800, shield: 800, speed: 36, agility: 0.9, cargo: 6500, turrets: 6, armor: 6, shields: 2, drones: 4, ability: 'lance',
         cost: { iridium: 14500, xenite: 5800, alloy: 9700, core: 45 }, coins: 900_000_000, gems: 150, turretBonus: 0.3, size: 16
+    },
+    {
+        id: 'sovereign', name: 'Sovereign', role: 'Flagship', requiresSector: 5, requiresFleet: true,
+        description: 'A sleek obsidian arrowhead trimmed in gold and studded with sapphire, built only for a pilot who already owns every other hull. Six capital turrets, four drones, a nova, and engines no ship this size should have.',
+        hull: 2100, shield: 1200, speed: 68, agility: 2.1, cargo: 7500, turrets: 6, armor: 6, shields: 2, drones: 4, ability: 'nova',
+        cost: { iridium: 42000, xenite: 21000, alloy: 30000, core: 160 }, coins: 5_000_000_000, gems: 500, turretBonus: 0.4, size: 13
     }
 ] as const satisfies readonly VoidShipDefinition[]
 
 export type VoidShipId = (typeof VOID_SHIPS)[number]['id']
 
 export const VOID_SHIP_IDS: string[] = VOID_SHIPS.map(s => s.id)
+
+/** Whether the yard will build this hull: its sector cleared and, for a capstone hull, every other ship owned. */
+export function voidShipUnlocked(ship: VoidShipDefinition, highestSectorCleared: number, owned: readonly string[]) {
+    if (highestSectorCleared < ship.requiresSector) return false
+    return !ship.requiresFleet || VOID_SHIPS.every(other => other.id === ship.id || owned.includes(other.id))
+}
 
 export function voidShip(id: string): VoidShipDefinition {
     return VOID_SHIPS.find(s => s.id === id) ?? VOID_SHIPS[0]
@@ -504,7 +524,8 @@ export const VOID_ABILITIES: Record<VoidAbilityId, VoidAbilityDefinition> = {
     swarm: { id: 'swarm', name: 'Swarm Launch', description: 'Launch six extra drones for a while.', cooldown: 18, duration: 12 },
     nova: { id: 'nova', name: 'Nova', description: 'A blast that wrecks everything close.', cooldown: 12, duration: 0 },
     overdrive: { id: 'overdrive', name: 'Overdrive', description: 'Turrets fire twice as fast.', cooldown: 20, duration: 7 },
-    lance: { id: 'lance', name: 'Spinal Lance', description: 'Charge and fire a sector-splitting beam.', cooldown: 18, duration: 2.5 }
+    lance: { id: 'lance', name: 'Spinal Lance', description: 'Charge and fire a sector-splitting beam.', cooldown: 18, duration: 2.5 },
+    slipstream: { id: 'slipstream', name: 'Slipstream', description: 'Surge to nearly double speed on a full boost tank.', cooldown: 12, duration: 4 }
 }
 
 // ─── Station upgrades ───────────────────────────────────────────────────────
@@ -1225,7 +1246,7 @@ export function voidDescribeState(s: VoidStateSnapshot, balance: number, gems: n
                 },
                 owned: owned.includes(ship.id),
                 equipped: ship.id === s.equippedShipId,
-                unlocked: s.highestSectorCleared >= ship.requiresSector,
+                unlocked: voidShipUnlocked(ship, s.highestSectorCleared, owned),
                 affordable: voidCanAffordPrice({ resources: ship.cost, coins: ship.coins, gems: ship.gems }, resources, balance, gems),
                 fit: shipLoadout.fit,
                 turretTypes: shipLoadout.turrets.map(t => t?.type ?? null),

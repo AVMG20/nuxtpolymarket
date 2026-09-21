@@ -170,7 +170,7 @@
                         <b>{{ ship.name }}</b>
                         <span v-if="ship.equipped" class="vh-tag vh-tag-good">Flying</span>
                         <span v-else-if="ship.owned" class="vh-tag">Owned</span>
-                        <span v-else-if="!ship.unlocked" class="vh-tag vh-tag-bad">Sector {{ ship.requiresSector }}</span>
+                        <span v-else-if="!ship.unlocked" class="vh-tag vh-tag-bad">{{ ship.requiresFleet && state.highestSectorCleared >= ship.requiresSector ? 'Full fleet' : `Sector ${ship.requiresSector}` }}</span>
                         <span v-else-if="ship.affordable" class="vh-tag vh-tag-good">Can build</span>
                     </div>
                     <div class="vh-yard-ship-sub">
@@ -188,7 +188,7 @@
                     <button class="vr-btn vr-btn-primary" :disabled="busy" @click="$emit('equip', shown.id)">Fly the {{ shown.name }}</button>
                 </template>
                 <template v-else-if="!shown.unlocked">
-                    <div class="vh-yard-state vh-yard-locked">Clear sector {{ shown.requiresSector }} to unlock this hull.</div>
+                    <div class="vh-yard-state vh-yard-locked">{{ shown.requiresFleet ? `Own every other ship${state.highestSectorCleared < shown.requiresSector ? ` and clear sector ${shown.requiresSector}` : ''} to unlock this hull.` : `Clear sector ${shown.requiresSector} to unlock this hull.` }}</div>
                 </template>
                 <template v-else>
                     <VoidCost :cost="shown.cost" :held="state.resources" :coins="shown.coins" :gems="shown.gems" :balance="state.balance" :gems-held="state.gems" />
@@ -638,7 +638,7 @@ const nextGoal = computed(() => {
     if (!target) {
         const locked = s.ships.find(ship => !ship.owned)
         if (!locked) return null
-        return { title: `Clear sector ${locked.requiresSector} to unlock the ${locked.name}`, missing: [] as { id: string, name: string, hex: string, amount: number }[] }
+        return { title: locked.requiresFleet && s.highestSectorCleared >= locked.requiresSector ? `Own every other ship to unlock the ${locked.name}` : `Clear sector ${locked.requiresSector} to unlock the ${locked.name}`, missing: [] as { id: string, name: string, hex: string, amount: number }[] }
     }
     const held = s.resources as Record<string, number>
     const missing = Object.entries(target.cost as Record<string, number>)

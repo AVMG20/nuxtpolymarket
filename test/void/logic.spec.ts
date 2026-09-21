@@ -3,7 +3,7 @@ import {
     VOID_SHIPS, VOID_TURRETS, VOID_UPGRADES, VOID_MARKET_PRICES,
     voidApplyBeaconReport, voidBeaconStates, voidCleanBeacons, voidRollBeaconAttack, voidAutoFit, voidBundleValue, voidCanAfford, voidDerivedStats, voidDescribeState, voidLoadoutFor, voidNormalizeFit, voidNormalizeLevels, voidSettleRun,
     VOID_MAX_SHIP_TIER, voidNormalizeShipTiers, voidRefitCost, voidShipAtTier, voidShipNativeTier, voidShipTier,
-    voidGearTier, voidSectorResources, voidSectorUnlocked, voidSubtractBundle, voidUpgradeCost, type VoidStateSnapshot
+    voidGearTier, voidSectorResources, voidSectorUnlocked, voidShip, voidShipUnlocked, voidSubtractBundle, voidUpgradeCost, type VoidStateSnapshot
 } from '#shared/utils/gamelogic/void'
 import {
     VOID_BOUNTY_XP, VOID_DAILY_GEAR, VOID_LORE, VOID_PERKS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidBountyXp, voidCapitalKills, voidGearCap, voidRunMarks, VOID_MAX_RUN_MARKS
@@ -52,7 +52,7 @@ function seq(values: number[]) {
 
 describe('void runner catalogue', () => {
     it('grows from a one-turret scout to a six-turret dreadnought', () => {
-        expect(VOID_SHIPS).toHaveLength(10)
+        expect(VOID_SHIPS).toHaveLength(12)
         expect(VOID_SHIPS[0]!.turrets).toBe(1)
         expect(Math.max(...VOID_SHIPS.map(s => s.turrets))).toBe(6)
         expect(VOID_SHIPS[0]!.cost).toEqual({})
@@ -84,6 +84,19 @@ describe('void runner catalogue', () => {
             expect(Object.keys(ship.cost).length, ship.id).toBeGreaterThan(0)
             expect(ship.coins, ship.id).toBeGreaterThan(0)
         }
+    })
+
+    it('only builds the capstone hull for a pilot who owns every other ship', () => {
+        const sovereign = voidShip('sovereign')
+        const others = VOID_SHIPS.filter(s => s.id !== 'sovereign').map(s => s.id)
+        expect(voidShipUnlocked(sovereign, 5, others)).toBe(true)
+        expect(voidShipUnlocked(sovereign, 5, others.slice(1))).toBe(false)
+        expect(voidShipUnlocked(sovereign, 4, others)).toBe(false)
+        // Ordinary hulls only need their sector.
+        expect(voidShipUnlocked(voidShip('tempest'), 5, ['sparrow'])).toBe(true)
+        expect(voidShipUnlocked(voidShip('tempest'), 4, others)).toBe(false)
+        // A refit still prices off the Leviathan, not the new sector 5 hulls.
+        expect(voidRefitCost(6)!.coins).toBe(Math.round(voidShip('leviathan').coins * 0.85))
     })
 
     it('has a turret item type for every turret definition', () => {
