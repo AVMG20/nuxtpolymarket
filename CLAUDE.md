@@ -60,6 +60,14 @@ Self-check: if the same request runs twice at once, the second one must throw.
 
 Never use `Math.random()` for outcomes, payouts, drops or rolls. Use `#shared/utils/random` instead: `randomFloat()` [0,1), `randomInt(min, max)` inclusive, `randomPick(arr)`, `randomChance(p)`. `Math.random()` is only acceptable for cosmetic effects. Don't roll your own from `crypto.getRandomValues`.
 
+## three.js games
+
+Test on a standard-density monitor (Windows or Linux, dpr 1) as well as a Mac. A game that looks right on Retina can break on a 1440p screen:
+
+- **Clamp shader inputs before `pow`, `log` or `sqrt`.** With MSAA the GPU can shade a thin quad at a pixel centre outside the triangle, which pushes varyings like UVs out of range. `pow(negative, y)` is undefined: Metal returns NaN and drops the pixel, but D3D (Windows) uses the absolute value, so the pixel blows up to white and bloom smears it (Void Runner's white lasers and beacon rings, 2026-09-21). Write `x * x`, not `pow(x, 2.0)`.
+- **Never render below native resolution on dpr 1.** A pixel budget that is fine at dpr 2 (Retina hides the upscale) is visibly blurry at 1:1. Floor the pixel ratio at `min(devicePixelRatio, 1)`, and supersample standard screens (~1.5x) when the scene has thin glows. Let an adaptive scale back off when frames run long, and derive sizes from the renderer's pixel ratio, not `window.devicePixelRatio`.
+- **Give thin lines and point sprites a minimum on-screen size** (about 1.5 to 2 px), and dim them by the area they gained. Sub-pixel geometry otherwise flickers into dots.
+
 ## Schema changes
 
 Edit `schema.ts`, then run `bun run db:generate` (commit the generated `drizzle/NNNN_*.sql`) and `bun run db:migrate`. Deploys run `drizzle-kit migrate`. **Never put `db:push` in the deploy path**: it prompts on destructive diffs, a container can't answer, and it exits 0 having applied nothing (production outage, 2026-08-04). `push` is fine for throwaway local work.
