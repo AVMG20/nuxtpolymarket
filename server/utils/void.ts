@@ -14,7 +14,7 @@ import {
 } from '#shared/utils/gamelogic/void-items'
 import { voidPilotLevel, voidRunXp } from '#shared/utils/gamelogic/void-skills'
 import {
-    VOID_BLUEPRINT_KINDS, VOID_DAILY_BLUEPRINTS, VOID_DAILY_MARKS, VOID_DAILY_RELICS, VOID_PERK_IDS, voidAllowedDepth, voidBountyXp, voidCapitalKills, voidGearCap, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidRunMarks, type VoidPerkId
+    VOID_BLUEPRINT_KINDS, VOID_DAILY_BLUEPRINTS, VOID_DAILY_RELICS, VOID_PERK_IDS, voidAllowedDepth, voidBountyXp, voidCapitalKills, voidGearCap, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidRunMarks, type VoidPerkId
 } from '#shared/utils/gamelogic/void-pilot'
 import {
     VOID_CONTRACTS_PER_DAY, VOID_SUPPLY_STOCK_MAX, voidContractDay, voidContractsFor, voidNormalizeSupplies, voidSupplyCost,
@@ -182,17 +182,17 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
         const tyrantKilled = body.tyrantKilled === true
         const harbingerKilled = body.harbingerKilled === true
         const capitals = voidCapitalKills({ carrierKilled, tyrantKilled, harbingerKilled, depth }, settled.elapsedMs)
-        // Marks and blueprints need a run that actually did something, and are
-        // capped per UTC day: the server cannot see carrier kills or jumps.
+        // Marks are worked out here from the trophy flags, never reported as a
+        // number, so a run pays VOID_MAX_RUN_MARKS at most. Blueprints are
+        // capped per UTC day.
         const today = voidContractDay()
         const sameDay = s.rewardsDay === today
         const marksToday = sameDay ? s.marksToday : 0
         const blueprintsToday = sameDay ? s.blueprintsToday : 0
-        const earnest = settled.kills >= 10 && settled.units >= 100
-        const marks = earnest ? Math.max(0, Math.min(VOID_DAILY_MARKS - marksToday, voidRunMarks({ extracted, wardenKilled: settled.wardenKilled, carrierKilled, tyrantKilled, harbingerKilled, depth, elapsedMs: settled.elapsedMs }))) : 0
+        const marks = voidRunMarks({ extracted, wardenKilled: settled.wardenKilled, carrierKilled, tyrantKilled, harbingerKilled, depth, elapsedMs: settled.elapsedMs })
         const blueprints = [...(s.blueprints ?? [])]
         let blueprint: string | null = null
-        const blueprintChance = !extracted || !earnest || blueprintsToday >= VOID_DAILY_BLUEPRINTS ? 0 : (settled.wardenKilled ? 0.25 : 0) + (capitals.carrier ? 0.25 : 0) + (capitals.tyrant ? 0.25 : 0) + (capitals.harbinger ? 0.35 : 0)
+        const blueprintChance = !extracted || blueprintsToday >= VOID_DAILY_BLUEPRINTS ? 0 : (settled.wardenKilled ? 0.25 : 0) + (capitals.carrier ? 0.25 : 0) + (capitals.tyrant ? 0.25 : 0) + (capitals.harbinger ? 0.35 : 0)
         if (blueprintChance > 0 && randomFloat() < blueprintChance) {
             const pool = VOID_ITEM_TYPES.filter(t => VOID_BLUEPRINT_KINDS.includes(t.kind) && t.minTier <= Math.min(5, s.highestSectorCleared + 2) && !blueprints.includes(t.id))
             if (pool.length) {
@@ -206,7 +206,7 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
         // Salvaged gear: the client reports caches picked up; the server caps
         // them by time, warden and a daily limit, then rolls real items.
         const gearToday = sameDay ? s.gearToday : 0
-        const gearCap = voidGearCap({ elapsedMs: settled.elapsedMs, wardenKilled: settled.wardenKilled, carrierKilled, tyrantKilled, harbingerKilled, depth, earnest }, gearToday)
+        const gearCap = voidGearCap({ elapsedMs: settled.elapsedMs, wardenKilled: settled.wardenKilled, carrierKilled, tyrantKilled, harbingerKilled, depth }, gearToday)
         const gearCount = extracted ? Math.max(0, Math.min(Math.floor(Number(body.gearCaches) || 0), gearCap)) : 0
         const gearRolled = Array.from({ length: gearCount }, () => voidRollSalvagedGear(Math.min(tier, Math.min(5, s.highestSectorCleared + 1)), randomFloat))
         // XP is earned whether or not the hold made it home.

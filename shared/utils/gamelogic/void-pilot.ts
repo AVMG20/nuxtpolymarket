@@ -92,11 +92,13 @@ export function voidRunMarks(run: VoidRunTrophies) {
     if (capitals.tyrant) marks += 3
     if (capitals.harbinger) marks += 5
     if (voidAllowedDepth(run.depth, run.elapsedMs) >= 3) marks += 1
-    return marks
+    return Math.min(marks, VOID_MAX_RUN_MARKS)
 }
 
+/** The most one run can pay: every boss down and depth 3 reached. Marks have no daily cap. */
+export const VOID_MAX_RUN_MARKS = 14
+
 /** Daily caps on the rare meta rewards. */
-export const VOID_DAILY_MARKS = 8
 export const VOID_DAILY_BLUEPRINTS = 2
 export const VOID_DAILY_GEAR = 5
 export const VOID_DAILY_RELICS = 10
@@ -116,14 +118,12 @@ export function voidBountyXp(reported: unknown, elapsedMs: number) {
 }
 
 /**
- * Salvaged gear caches a run may bank. Only runs that did real work count
- * (kills and cargo), since the client reports the caches: one past ninety
- * seconds and one more per five minutes (three at most), plus one each for a
- * warden and each capital ship on runs long enough to have fought them, within what
- * is left of the daily limit.
+ * Salvaged gear caches a run may bank, since the client reports the caches:
+ * one past ninety seconds and one more per five minutes (three at most), plus
+ * one each for a warden and each capital ship, within what is left of the
+ * daily limit.
  */
-export function voidGearCap(run: { elapsedMs: number, wardenKilled: boolean, carrierKilled: boolean, tyrantKilled?: boolean, harbingerKilled?: boolean, depth?: number, earnest: boolean }, gearToday: number) {
-    if (!run.earnest) return 0
+export function voidGearCap(run: { elapsedMs: number, wardenKilled: boolean, carrierKilled: boolean, tyrantKilled?: boolean, harbingerKilled?: boolean, depth?: number }, gearToday: number) {
     const time = Math.min(3, (run.elapsedMs >= 90_000 ? 1 : 0) + Math.floor(run.elapsedMs / 300_000))
     const long = run.elapsedMs >= VOID_MIN_CLAIM_MS
     const capitals = voidCapitalKills(run, run.elapsedMs)

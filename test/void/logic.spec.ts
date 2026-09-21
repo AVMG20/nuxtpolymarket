@@ -6,7 +6,7 @@ import {
     voidGearTier, voidSectorResources, voidSectorUnlocked, voidSubtractBundle, voidUpgradeCost, type VoidStateSnapshot
 } from '#shared/utils/gamelogic/void'
 import {
-    VOID_BOUNTY_XP, VOID_DAILY_GEAR, VOID_LORE, VOID_PERKS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidBountyXp, voidCapitalKills, voidGearCap, voidRunMarks
+    VOID_BOUNTY_XP, VOID_DAILY_GEAR, VOID_LORE, VOID_PERKS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidBountyXp, voidCapitalKills, voidGearCap, voidRunMarks, VOID_MAX_RUN_MARKS
 } from '#shared/utils/gamelogic/void-pilot'
 import { voidCleanTelemetry } from '#shared/utils/gamelogic/void-telemetry'
 import {
@@ -373,6 +373,12 @@ describe('void runner pilot meta', () => {
         expect(voidCapitalKills({ carrierKilled: true, tyrantKilled: true, harbingerKilled: true, depth: 2 }, 8 * 60_000)).toEqual({ carrier: true, tyrant: true, harbinger: true })
     })
 
+    it('never pays more Marks than a full-trophy run, whatever is claimed', () => {
+        const forged = { extracted: true, wardenKilled: true, carrierKilled: true, tyrantKilled: true, harbingerKilled: true, depth: 9999, elapsedMs: 60 * 60_000, marks: 100 }
+        expect(voidRunMarks(forged)).toBe(VOID_MAX_RUN_MARKS)
+        expect(VOID_MAX_RUN_MARKS).toBe(14)
+    })
+
     it('lets capital kills bank their warp cores and nothing more', () => {
         const haul = { core: 99 }
         const plain = voidSettleRun({ extracted: true, haul, elapsedMs: 600_000, kills: 40, wardenKilled: false, depth: 2 }, 3, 1e9, 600_000)
@@ -426,15 +432,13 @@ describe('void runner bounties and gear caps', () => {
     })
 
     it('caps salvaged gear by time, bosses and the daily limit', () => {
-        const run = { elapsedMs: 60_000, wardenKilled: false, carrierKilled: false, earnest: true }
-        const full = { elapsedMs: 10 * 60_000, wardenKilled: true, carrierKilled: true, earnest: true }
+        const run = { elapsedMs: 60_000, wardenKilled: false, carrierKilled: false }
+        const full = { elapsedMs: 10 * 60_000, wardenKilled: true, carrierKilled: true }
         expect(voidGearCap(run, 0)).toBe(0)
         expect(voidGearCap({ ...run, elapsedMs: 90_000 }, 0)).toBe(1)
         expect(voidGearCap({ ...run, elapsedMs: 60 * 60_000 }, 0)).toBe(3)
         expect(voidGearCap(full, 0)).toBe(5)
         expect(voidGearCap({ ...run, elapsedMs: 5 * 60_000, tyrantKilled: true }, 0)).toBe(3)
-        // A run with no kills or cargo banks nothing, whatever it reports.
-        expect(voidGearCap({ ...full, earnest: false }, 0)).toBe(0)
         // Boss kills count on any run past ten seconds.
         expect(voidGearCap({ ...run, elapsedMs: 120_000, carrierKilled: true, wardenKilled: true }, 0)).toBe(3)
         expect(voidGearCap({ ...run, elapsedMs: 5_000, carrierKilled: true, wardenKilled: true }, 0)).toBe(0)
