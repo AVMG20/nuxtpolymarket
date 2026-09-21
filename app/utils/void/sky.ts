@@ -56,7 +56,8 @@ void main() {
     // Domain-warped clouds, concentrated in a band across the sky.
     vec3 q = vec3(fbm(d * 2.0), fbm(d * 2.0 + vec3(5.2, 1.3, 2.8)), fbm(d * 2.0 + vec3(1.1, 7.4, 3.3)));
     float n = fbm(d * 3.0 + q * 2.2);
-    float band = exp(-pow(dot(d, normalize(vec3(0.3, 1.0, 0.2))) * 2.2, 2.0));
+    float bandX = dot(d, normalize(vec3(0.3, 1.0, 0.2))) * 2.2;
+    float band = exp(-bandX * bandX);
     float cloud = min(1.0, smoothstep(0.28, 0.72, n) * (0.3 + band * 0.9) * uClouds);
     float wisps = smoothstep(0.45, 0.8, fbm(d * 7.0 + q * 3.0)) * band;
     float dark = smoothstep(0.5, 0.7, fbm(d * 5.0 + 11.0)) * 0.55;
@@ -129,8 +130,13 @@ export interface Sky {
     update(camera: THREE.Camera, time: number): void
     /** Sheet lightning inside the clouds, 0..1. */
     setFlash(amount: number): void
+    /** The renderer's pixel ratio, so stars keep one size at any render resolution. */
+    setPixelRatio(ratio: number): void
     dispose(): void
 }
+
+/** Star sizes were tuned on a Retina screen, where they drew at 1.35x the render pixel ratio. */
+const STAR_SCALE = 1.35
 
 export interface SkyOptions {
     /** Cloud cover, 1 = a sector's usual sky. */
@@ -203,7 +209,7 @@ export function createSky(palette: readonly [number, number, number], seed: numb
     starGeo.setAttribute('aColor', new THREE.BufferAttribute(colors, 3))
     starGeo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1))
     const starMat = new THREE.ShaderMaterial({
-        uniforms: { uTime: { value: 0 }, uPixelRatio: { value: Math.min(2, window.devicePixelRatio) }, uGain: { value: (options.stars ?? 1) * (1 - (options.haze?.[1] ?? 0) * 0.8) } },
+        uniforms: { uTime: { value: 0 }, uPixelRatio: { value: STAR_SCALE }, uGain: { value: (options.stars ?? 1) * (1 - (options.haze?.[1] ?? 0) * 0.8) } },
         vertexShader: /* glsl */`
             attribute vec3 aColor;
             attribute float aSize;
@@ -316,6 +322,9 @@ export function createSky(palette: readonly [number, number, number], seed: numb
         setFlash(amount) {
             (dome.material as THREE.ShaderMaterial).uniforms.uFlash!.value = amount
         },
+        setPixelRatio(ratio) {
+            starMat.uniforms.uPixelRatio!.value = ratio * STAR_SCALE
+        },
         dispose() {
             group.traverse((o) => {
                 const m = o as THREE.Mesh
@@ -414,6 +423,7 @@ export class SpaceDust {
     setViewport(height: number, fov: number, pixelRatio: number) {
         this.material.uniforms.uScale!.value = height / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2))
         this.material.uniforms.uMaxPx!.value = 3.5 * pixelRatio
+        this.lines.setViewportHeight(height, fov)
     }
 
     /** Wraps dust around the camera and draws velocity streaks. */

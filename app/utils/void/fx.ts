@@ -28,9 +28,15 @@ uniform float uScale;
 void main() {
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = clamp(aSize * uScale / max(0.1, -mv.z), 0.0, 512.0);
+    float size = aSize * uScale / max(0.1, -mv.z);
+    // A sprite under a couple of pixels cannot show its falloff: the GPU
+    // fills whole pixels at full core brightness, so far glows turn into
+    // hard white dots. Draw it at a minimum size and dim it by the area
+    // it gained, which keeps its light and its colour.
+    float drawn = clamp(size, 2.0, 512.0);
+    gl_PointSize = drawn;
     vColor = aColor;
-    vAlpha = aAlpha;
+    vAlpha = aAlpha * min(1.0, (size * size) / (drawn * drawn));
     vShape = aShape;
 }`
 
@@ -323,6 +329,7 @@ attribute vec3 aStart;
 attribute vec3 aEnd;
 attribute vec4 aColor;
 attribute vec2 aWidth;
+uniform float uPxScale;
 varying vec4 vColor;
 varying vec2 vUv;
 void main() {
@@ -341,6 +348,13 @@ void main() {
     // World-space width, but never wider than a sliver of the view: a trail
     // brushing past the lens must not paint the whole screen.
     float w = min(mix(aWidth.x, aWidth.y, position.x), max(0.0, -p.z) * 0.012);
+    // Under a pixel wide the line only catches some pixels and breaks into
+    // dots. Keep it about a pixel and a half wide and dim it by the width it
+    // gained, so its brightness stays the same.
+    float minW = 0.75 * max(0.0, -p.z) / uPxScale;
+    float drawn = max(w, minW);
+    float thin = drawn > 0.0 ? w / drawn : 0.0;
+    w = drawn;
     vec3 toCam = normalize(-p);
     vec3 side = cross(dir, toCam);
     float sideLen = length(side);
@@ -353,7 +367,7 @@ void main() {
     p += side * position.y * w;
     gl_Position = projectionMatrix * vec4(p, 1.0);
     vColor = aColor;
-    vColor.a *= smoothstep(5.0, 16.0, -p.z);
+    vColor.a *= smoothstep(5.0, 16.0, -p.z) * thin;
     vUv = vec2(position.x, position.y);
 }`
 
@@ -361,7 +375,11 @@ const LINE_FRAG = /* glsl */`
 varying vec4 vColor;
 varying vec2 vUv;
 void main() {
-    float across = 1.0 - abs(vUv.y);
+    // With MSAA the GPU can shade a thin line at a pixel centre outside the
+    // quad, extrapolating vUv past the edge. Unclamped, pow() then gets a
+    // negative base: Metal returns NaN (dropped), but D3D takes its absolute
+    // value, so those pixels blew up to white and bloomed on Windows.
+    float across = clamp(1.0 - abs(vUv.y), 0.0, 1.0);
     float core = pow(across, 6.0) * 1.6 + pow(across, 1.6) * 0.5;
     float ends = smoothstep(0.0, 0.08, vUv.x) * smoothstep(1.0, 0.92, vUv.x);
     float a = core * vColor.a * mix(0.6, 1.0, ends);
@@ -407,6 +425,7 @@ export class LineBatch {
         geo.instanceCount = 0
         this.geometry = geo
         const mat = new THREE.ShaderMaterial({
+            uniforms: { uPxScale: { value: 1000 } },
             vertexShader: LINE_VERT,
             fragmentShader: LINE_FRAG,
             defines: soft ? { SOFT: '' } : {},
@@ -421,6 +440,11 @@ export class LineBatch {
         this.mesh = new THREE.Mesh(geo, mat)
         this.mesh.frustumCulled = false
         this.mesh.renderOrder = 30
+    }
+
+    /** Render-target height in pixels, so thin lines keep a minimum on-screen width. */
+    setViewportHeight(h: number, fov: number) {
+        (this.mesh.material as THREE.ShaderMaterial).uniforms.uPxScale!.value = h / (2 * Math.tan(THREE.MathUtils.degToRad(fov) / 2))
     }
 
     /** color is HDR (components may exceed 1). */
@@ -606,7 +630,8 @@ void main() {
     float th = uThickness * (1.0 + wob * 0.4);
     float band = smoothstep(edge - th, edge, r) * (1.0 - smoothstep(edge, edge + 0.014, r));
     band *= band;
-    float hot = exp(-pow((r - edge + 0.004) / (th * 0.16 + 0.003), 2.0));
+    float hotX = (r - edge + 0.004) / (th * 0.16 + 0.003);
+    float hot = exp(-hotX * hotX);
     float wake = smoothstep(edge - th * 4.5, edge, r) * 0.16 * step(r, edge);
     float fade = (1.0 - uProgress) * (1.0 - uProgress);
     float breakup = 0.72 + 0.28 * sin(ang * 23.0 + uSeed * 3.0 + uProgress * 4.0) * sin(ang * 7.0 - uSeed);
@@ -775,7 +800,8 @@ void main() {
         float behind = smoothstep(front, front * 0.55, d);
         float rim = smoothstep(R * 1.25, R * 0.45, d);
         float flicker = step(0.45, fract(w.y + uTime * 4.0)) * (1.0 - w.x);
-        float ring = exp(-pow((d - front) / (R * 0.09), 2.0));
+        float ringX = (d - front) / (R * 0.09);
+        float ring = exp(-ringX * ringX);
         float core = exp(-d * d / (R * R * 0.025)) * pow(1.0 - age, 5.0);
         a += (behind * (w.x * 1.5 + 0.1 + flicker * 0.22) + ring * (0.35 + w.x * 1.6)) * fade * rim + core * 2.2;
         white += core * 1.5 + ring * w.x * fade * rim * 0.5;
