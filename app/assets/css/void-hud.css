@@ -286,6 +286,8 @@
 .vx-settings input[type='checkbox']::after { content: ''; position: absolute; left: 2px; top: 2px; bottom: 2px; width: 1em; background: var(--vr-muted); transition: transform 0.15s, background 0.15s; }
 .vx-settings input[type='checkbox']:checked { background: rgba(94, 200, 255, 0.25); border-color: var(--vr-accent); }
 .vx-settings input[type='checkbox']:checked::after { transform: translateX(1.3em); background: var(--vr-accent); box-shadow: 0 0 0.6em rgba(94, 200, 255, 0.9); }
+.vx-settings select { width: 9em; padding: 0.2em 0.5em; background: rgba(255, 255, 255, 0.08); border: 1px solid var(--vr-line-strong); color: inherit; font: inherit; cursor: pointer; }
+.vx-settings option { background: #0a1020; }
 .vx-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 0.35em 2em; }
 .vx-controls div { display: flex; align-items: center; gap: 0.8em; font-size: 0.98em; color: rgba(230, 241, 255, 0.75); }
 .vx-controls kbd { min-width: 5.6em; }

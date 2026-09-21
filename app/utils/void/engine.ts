@@ -49,6 +49,10 @@ import type {
     Drone, Enemy, EngineEvents, FloatText, HudState, Phase, Pickup, Projectile, RunConfig, RunResult, Tracer, TurretSlot
 } from './types'
 
+const BASE_EXPOSURE = 1.05
+
+export type VoidAntialias = 'off' | 'auto' | 'high'
+
 const FINAL_SHADER = {
     uniforms: {
         tDiffuse: { value: null },
@@ -71,7 +75,13 @@ const FINAL_SHADER = {
         uniform float uVignette;
         uniform float uFlash;
         varying vec2 vUv;
-        float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+        // Arithmetic hash: sin-based hashes lose precision on some GPUs (ANGLE
+        // on Windows) and smear into visible patterns.
+        float hash(vec2 p) {
+            vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+            p3 += dot(p3, p3.yzx + 33.33);
+            return fract((p3.x + p3.y) * p3.z);
+        }
         void main() {
             vec2 c = vUv - 0.5;
             float d2 = dot(c, c);
@@ -86,7 +96,10 @@ const FINAL_SHADER = {
             col = mix(col, col * vec3(1.6, 0.35, 0.3) + vec3(0.08, 0.0, 0.0), uDamage * edge);
             col += vec3(0.05, 0.25, 0.45) * uShield * edge * edge;
             col += vec3(uFlash);
-            col += (hash(vUv * 900.0 + uTime) - 0.5) * 0.018;
+            // Grain scales with the colour: this buffer is linear, so added noise
+            // gets amplified in the shadows by the sRGB encode. One grain per
+            // pixel keeps it equally fine on any screen size.
+            col *= 1.0 + (hash(gl_FragCoord.xy + floor(fract(uTime * 0.37) * 997.0)) - 0.5) * 0.06;
             gl_FragColor = vec4(col, 1.0);
         }`
 }
@@ -358,7 +371,7 @@ export class VoidEngine {
         if (!container) throw new Error('Void Runner needs a mounted container')
         const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', alpha: false })
         renderer.toneMapping = THREE.ACESFilmicToneMapping
-        renderer.toneMappingExposure = 1.05
+        renderer.toneMappingExposure = BASE_EXPOSURE
         renderer.outputColorSpace = THREE.SRGBColorSpace
         renderer.domElement.style.display = 'block'
         container.appendChild(renderer.domElement)
@@ -410,7 +423,6 @@ export class VoidEngine {
 
     // ─── Lifecycle ─────────────────────────────────────────────────────────
 
-    private highQuality = true
     /** Adaptive resolution multiplier, lowered when frames run long. */
     private resScale = 1
     private frameAcc = 0
@@ -419,15 +431,34 @@ export class VoidEngine {
 
     /**
      * Render resolution: the HDR, MSAA and bloom chain costs per pixel, so a
-     * Retina or 1440p screen at full density misses frames and the aim
-     * stutters. Cap the pixel count, then let the adaptive scale trim further.
+     * Retina screen at full density misses frames and the aim stutters. Cap
+     * the pixel count above native density, but never drop below it: on a
+     * 1440p monitor that upscale reads as blur, where Retina hides it.
+     *
+     * A standard-density monitor also needs supersampling: at one render
+     * pixel per screen pixel a far light's white core and coloured halo land
+     * in the same pixel and add up to white, and thin beams break into dots.
+     * Auto renders those screens at the density a Retina laptop gets.
+     *
+     * The adaptive scale trims any of this when frames run long.
      */
     private targetPixelRatio() {
         const area = Math.max(1, this.width * this.height)
-        const cap = this.highQuality ? 1.5 : 1
-        const budget = this.highQuality ? 2.8e6 : 1.8e6
-        const pr = Math.min(window.devicePixelRatio, cap, Math.sqrt(budget / area)) * this.resScale
-        return Math.max(0.5, pr)
+        const dpr = window.devicePixelRatio || 1
+        let pr = Math.max(Math.min(dpr, 1.5, Math.sqrt(2.8e6 / area)), Math.min(dpr, 1))
+        if (this.antialias === 'high') pr = Math.max(pr, 2)
+        else if (this.antialias === 'auto' && dpr < 1.5) pr = Math.max(pr, 1.5)
+        return Math.max(0.5, pr * this.resScale)
+    }
+
+    private antialias: VoidAntialias = 'auto'
+
+    /** Supersampling: `auto` lifts standard-density screens to Retina-like density, `high` renders at 2x everywhere. */
+    setAntialias(mode: VoidAntialias) {
+        if (mode === this.antialias) return
+        this.antialias = mode
+        this.resScale = 1
+        this.resize()
     }
 
     /** Called every frame: steps resolution down when frames run long, back up when there is headroom. */
@@ -474,7 +505,10 @@ export class VoidEngine {
         const pr = this.renderer.getPixelRatio()
         this.particles.setViewportHeight(h * pr, this.camera.fov)
         this.smoke.setViewportHeight(h * pr, this.camera.fov)
+        this.lines.setViewportHeight(h * pr, this.camera.fov)
         this.dust.setViewport(h * pr, this.camera.fov, pr)
+        this.sky?.setPixelRatio(pr)
+        this.hangarSky?.setPixelRatio(pr)
     }
 
     dispose() {
@@ -594,19 +628,33 @@ export class VoidEngine {
         return this.keys.has('Tab') || this.keys.has('KeyM')
     }
 
-    /** Low quality drops bloom and renders at native pixel density. */
-    setQuality(high: boolean) {
-        this.bloom.enabled = high
-        this.highQuality = high
-        this.resScale = 1
-        this.resize()
-    }
-
     /** Softer bloom, a lower brightness ceiling and faint screen flashes for sensitive eyes. */
     setReduceFlashes(on: boolean) {
         this.reduceFlashes = on
-        this.bloom.strength = on ? 0.3 : 0.55
         this.scrubPass.uniforms.uCeiling!.value = on ? 4 : 12
+        this.applyGlow()
+    }
+
+    private glow = 1
+
+    /**
+     * Bloom strength multiplier, 0 turns it off. Bloom spreads over a share of
+     * the screen, so a big monitor throws far more of it at the eye than a
+     * laptop does; players tune it to their screen.
+     */
+    setGlow(amount: number) {
+        this.glow = THREE.MathUtils.clamp(amount, 0, 1.5)
+        this.applyGlow()
+    }
+
+    private applyGlow() {
+        this.bloom.strength = (this.reduceFlashes ? 0.3 : 0.55) * this.glow
+        this.bloom.enabled = this.glow > 0
+    }
+
+    /** Exposure multiplier, for bright desktop monitors or dim laptop screens. */
+    setBrightness(amount: number) {
+        this.renderer.toneMappingExposure = BASE_EXPOSURE * THREE.MathUtils.clamp(amount, 0.6, 1.4)
     }
 
     private onKeyUp = (e: KeyboardEvent) => {
@@ -707,6 +755,7 @@ export class VoidEngine {
             this.hangarSky?.dispose()
             if (this.hangarSky) this.hangarScene.remove(this.hangarSky.group)
             this.hangarSky = createSky(palette ?? [0x050b1f, 0x1b4a8a, 0x5ec8ff], 7 + tier * 13)
+            this.hangarSky.setPixelRatio(this.renderer.getPixelRatio())
             this.hangarScene.add(this.hangarSky.group)
             this.hangarScene.environment = this.setEnvironment(this.hangarSky)
             this.buildHangarSet()
@@ -857,6 +906,7 @@ export class VoidEngine {
         this.scene = scene
         const tier = config.sector.tier
         this.sky = createSky(config.sector.palette, 1000 + tier * 17 + Math.floor(randomFloat() * 1000))
+        this.sky.setPixelRatio(this.renderer.getPixelRatio())
         scene.add(this.sky.group)
         scene.environment = this.setEnvironment(this.sky)
         this.sunLight.position.copy(this.sky.sunDirection).multiplyScalar(100)
@@ -1384,7 +1434,7 @@ export class VoidEngine {
         this.whiteFlash = Math.max(0, this.whiteFlash - dt * 1.4)
         const hullFrac = p.hull / this.config.stats.hull
         this.finalPass.uniforms.uDamage!.value = Math.min(1, this.hurt * 0.8 + (hullFrac < 0.3 && p.alive ? (0.3 - hullFrac) * 1.2 * (0.7 + Math.sin(this.time * 5) * 0.3) : 0))
-        this.finalPass.uniforms.uFlash!.value = Math.min(1, this.whiteFlash) * (this.reduceFlashes ? 0.12 : 0.45)
+        this.finalPass.uniforms.uFlash!.value = Math.min(1, this.whiteFlash) * (this.reduceFlashes ? 0.12 : 0.3)
         this.finalPass.uniforms.uAberration!.value = (p.boosting ? 0.03 : 0) + this.hurt * 0.04 + (p.abilityTime > 0 && p.ability === 'phase' ? 0.05 : 0)
 
         // Combat music follows how many hostiles are actively engaged nearby.
@@ -2830,6 +2880,7 @@ export class VoidEngine {
         this.sky?.dispose()
         if (this.sky) this.scene.remove(this.sky.group)
         this.sky = createSky(look.palette, 4000 + this.depth * 131 + Math.floor(randomFloat() * 1000), look.sky)
+        this.sky.setPixelRatio(this.renderer.getPixelRatio())
         this.scene.add(this.sky.group)
         this.scene.environment = this.setEnvironment(this.sky)
         if (look.fog) this.scene.fog = new THREE.FogExp2(look.fog[0], look.fog[1])
@@ -3596,6 +3647,7 @@ export class VoidEngine {
         const pr = this.renderer.getPixelRatio()
         this.particles.setViewportHeight(this.height * pr, this.camera.fov)
         this.smoke.setViewportHeight(this.height * pr, this.camera.fov)
+        this.lines.setViewportHeight(this.height * pr, this.camera.fov)
         this.dust.setViewport(this.height * pr, this.camera.fov, pr)
     }
 

@@ -79,7 +79,9 @@
                                 <label>Volume <input v-model.number="volume" type="range" min="0" max="1" step="0.05"></label>
                                 <label>Mouse sensitivity <input v-model.number="sensitivity" type="range" min="0.3" max="2.5" step="0.05"></label>
                                 <label>Invert mouse Y <input v-model="invertY" type="checkbox"></label>
-                                <label>High graphics <input v-model="highQuality" type="checkbox"></label>
+                                <label title="Overall picture brightness">Brightness <input v-model.number="brightness" type="range" min="0.6" max="1.4" step="0.05"></label>
+                                <label title="How far bright lights and explosions glow. Big monitors often look best lower">Glow <input v-model.number="glow" type="range" min="0" max="1.5" step="0.05"></label>
+                                <label title="Auto renders standard-density monitors at Retina-like sharpness, so small lights keep their colour and thin beams stay solid">Anti-aliasing <select v-model="antialias"><option value="auto">Auto</option><option value="high">High</option><option value="off">Off</option></select></label>
                                 <label title="Softer glow, dimmer explosions and faint screen flashes">Reduce flashes <input v-model="reduceFlashes" type="checkbox"></label>
                                 <label v-if="canFullscreen">Fullscreen <input :checked="fullscreen" type="checkbox" @change="onFullscreenCheckbox"></label>
                             </div>
@@ -172,7 +174,7 @@ import {
 import { VOID_RARITIES, voidItemType, voidMod } from '#shared/utils/gamelogic/void-items'
 import { VOID_LORE, voidDepthLoot, voidDepthThreat, voidZone, type VoidZoneDefinition, type VoidZoneModifier } from '#shared/utils/gamelogic/void-pilot'
 import { VoidAudio, type VoidSfx } from '~/utils/void/audio'
-import { VoidEngine } from '~/utils/void/engine'
+import { VoidEngine, type VoidAntialias } from '~/utils/void/engine'
 import type { HudState, RunResult } from '~/utils/void/types'
 import VoidDebrief, { type VoidRunSummary } from './VoidDebrief.vue'
 import VoidHangar from './VoidHangar.vue'
@@ -208,8 +210,10 @@ const volume = ref(0.7)
 const sensitivity = ref(1)
 const invertY = ref(false)
 const muted = ref(false)
-const highQuality = ref(true)
 const reduceFlashes = ref(false)
+const brightness = ref(1)
+const glow = ref(1)
+const antialias = ref<VoidAntialias>('auto')
 const hangarSpin = ref(true)
 
 const reveal = ref<null | { title: string, name: string, type?: string, tier: number, rarityName: string, rarityColor: string, stats: { label: string, value: string }[], affixList: { id: string, name: string, text: string }[] }>(null)
@@ -324,12 +328,14 @@ function loadPrefs() {
     try {
         const raw = localStorage.getItem('void-runner-prefs')
         if (!raw) return
-        const prefs = JSON.parse(raw) as { volume?: number, sensitivity?: number, invertY?: boolean, highQuality?: boolean, reduceFlashes?: boolean, hangarSpin?: boolean, muted?: boolean }
+        const prefs = JSON.parse(raw) as { volume?: number, sensitivity?: number, invertY?: boolean, reduceFlashes?: boolean, brightness?: number, glow?: number, antialias?: string, hangarSpin?: boolean, muted?: boolean }
         if (typeof prefs.volume === 'number') volume.value = prefs.volume
         if (typeof prefs.sensitivity === 'number') sensitivity.value = prefs.sensitivity
         if (typeof prefs.invertY === 'boolean') invertY.value = prefs.invertY
-        if (typeof prefs.highQuality === 'boolean') highQuality.value = prefs.highQuality
         if (typeof prefs.reduceFlashes === 'boolean') reduceFlashes.value = prefs.reduceFlashes
+        if (typeof prefs.brightness === 'number') brightness.value = prefs.brightness
+        if (typeof prefs.glow === 'number') glow.value = prefs.glow
+        if (prefs.antialias === 'auto' || prefs.antialias === 'high' || prefs.antialias === 'off') antialias.value = prefs.antialias
         if (typeof prefs.hangarSpin === 'boolean') hangarSpin.value = prefs.hangarSpin
         if (typeof prefs.muted === 'boolean') muted.value = prefs.muted
     } catch {
@@ -477,18 +483,20 @@ async function flushPendingReport() {
     await refresh()
 }
 
-watch([volume, sensitivity, invertY, highQuality, reduceFlashes, hangarSpin, muted], () => {
+watch([volume, sensitivity, invertY, reduceFlashes, brightness, glow, antialias, hangarSpin, muted], () => {
     audio.volume = volume.value
     audio.setMuted(muted.value)
     if (engine) {
         engine.sensitivity = sensitivity.value
         engine.invertY = invertY.value
-        engine.setQuality(highQuality.value)
         engine.setReduceFlashes(reduceFlashes.value)
+        engine.setBrightness(brightness.value)
+        engine.setGlow(glow.value)
+        engine.setAntialias(antialias.value)
         engine.hangarSpin = hangarSpin.value
     }
     try {
-        localStorage.setItem('void-runner-prefs', JSON.stringify({ volume: volume.value, sensitivity: sensitivity.value, invertY: invertY.value, highQuality: highQuality.value, reduceFlashes: reduceFlashes.value, hangarSpin: hangarSpin.value, muted: muted.value }))
+        localStorage.setItem('void-runner-prefs', JSON.stringify({ volume: volume.value, sensitivity: sensitivity.value, invertY: invertY.value, reduceFlashes: reduceFlashes.value, brightness: brightness.value, glow: glow.value, antialias: antialias.value, hangarSpin: hangarSpin.value, muted: muted.value }))
     } catch {
         // storage unavailable
     }
@@ -872,8 +880,10 @@ onMounted(async () => {
     })
     engine.sensitivity = sensitivity.value
     engine.invertY = invertY.value
-    if (!highQuality.value) engine.setQuality(false)
     if (reduceFlashes.value) engine.setReduceFlashes(true)
+    engine.setBrightness(brightness.value)
+    engine.setGlow(glow.value)
+    engine.setAntialias(antialias.value)
     engine.hangarSpin = hangarSpin.value
     await refresh()
     // A report that never reached the server is filed now; a run that never
