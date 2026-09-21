@@ -124,6 +124,8 @@ const WORLD_UP = new THREE.Vector3(0, 1, 0)
 const FORWARD = new THREE.Vector3(0, 0, -1)
 // Chase camera pull-in for heavy hulls, as a share of ship length at full heft.
 const CAM = { back: 0.55, up: 0.12 }
+/** Asteroid health by sector: harder sectors grow tougher rock. Each jump deeper adds as much again as it adds ore. */
+const ROCK_HP = [1, 1.6, 2.65, 4.15, 6.25]
 export const SECTOR_RADIUS = 2600
 /** Seconds the jump drive spools between picking a zone at the gate and leaving. */
 const JUMP_SPOOL = 1.3
@@ -1104,7 +1106,8 @@ export class VoidEngine {
             }
             return ores[0]![0]
         }
-        const hpMult = 1 + (tier - 1) * 0.35
+        // Rock health is set by the sector and the jump depth alone, never by the pilot's gear.
+        const hpMult = (ROCK_HP[tier - 1] ?? ROCK_HP[ROCK_HP.length - 1]!) * voidDepthLoot(this.depth)
         const field = this.asteroids!
 
         const addCluster = (center: THREE.Vector3, radius: number, count: number, oreChance: number) => {
@@ -1994,7 +1997,7 @@ export class VoidEngine {
                 if (Math.random() < dt * 25) hitSpark(this.fx, end, _v2.copy(dir).negate(), gun.color, 0.8)
             }
             if (hitEnemy) damageEnemy(this, hitEnemy, damage * dt, end, 'beam', { dtype: 'energy', mod: Math.random() < dt * 3 ? fit.mod : null })
-            else if (rockHit) this.damageRock(rockHit.rock, damage * dt * 1.8 * stats.miningMult, end)
+            else if (rockHit) this.damageRock(rockHit.rock, damage * dt * 1.25 * stats.miningMult, end)
             p.gunBeam = true
             return
         }
