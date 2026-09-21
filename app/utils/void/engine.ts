@@ -44,7 +44,7 @@ import { VOID_SUPPLIES } from '#shared/utils/gamelogic/void-station'
 import type { VoidWeaponFit } from '#shared/utils/gamelogic/void-items'
 import { CAPITALS, capitalOf, spawnCapital } from './capitals'
 import { RunTelemetry } from './telemetry'
-import { damageEnemy, enemyRayHit, spawnCoalitionPatrol, spawnEnemy, spawnMothership, spawnTrader, spawnPatrol, spawnWarden, updateCorpses, updateEnemies, WARDEN_TRIGGER_RANGE } from './enemies'
+import { damageEnemy, dismissEscort, enemyRayHit, spawnCoalitionPatrol, spawnEscort, spawnEnemy, spawnMothership, spawnTrader, spawnPatrol, spawnWarden, updateCorpses, updateEnemies, WARDEN_TRIGGER_RANGE } from './enemies'
 import type {
     Drone, Enemy, EngineEvents, FloatText, HudState, Phase, Pickup, Projectile, RunConfig, RunResult, Tracer, TurretSlot
 } from './types'
@@ -1836,6 +1836,12 @@ export class VoidEngine {
                 p.abilityCharge = 0
                 this.audio.play('charge', { volume: 2 })
                 break
+            case 'rally':
+                spawnEscort(this)
+                this.rings.spawn(p.pos, 60, 0x3dffb0, 0.9, 2.5)
+                this.rings.spawn(p.pos, 28, 0xffd66b, 0.6, 2)
+                this.flashes.flash(p.pos, 0x3dffb0, 90, 200)
+                break
         }
     }
 
@@ -1882,6 +1888,7 @@ export class VoidEngine {
     private abilityEnd() {
         const p = this.player!
         p.shieldBubble.setColor(0x6fd8ff, 1.6)
+        if (p.ability === 'rally') dismissEscort(this)
     }
 
     // ─── Weapons ───────────────────────────────────────────────────────────
@@ -3089,6 +3096,8 @@ export class VoidEngine {
         this.setPaused(false)
         // generateSector() built the new zone's atmosphere; the compiler only saw the teardown.
         ;(this.zoneFx as ZoneAtmosphere | null)?.arrive()
+        // The Honour Guard jumps with the pilot.
+        if (p.ability === 'rally' && p.abilityTime > 0) spawnEscort(this)
         this.events.banner(voidZone(zone).name, `Jump ${this.depth}`, 'info', { id: zone, depth: this.depth })
     }
 

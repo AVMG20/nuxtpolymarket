@@ -384,7 +384,7 @@ export function voidGunDps(id: string, gunStat = VOID_GUN_BASE) {
 
 // ─── Ships ──────────────────────────────────────────────────────────────────
 
-export type VoidAbilityId = 'blink' | 'tractor' | 'salvo' | 'phase' | 'bulwark' | 'swarm' | 'nova' | 'overdrive' | 'lance' | 'slipstream'
+export type VoidAbilityId = 'blink' | 'tractor' | 'salvo' | 'phase' | 'bulwark' | 'swarm' | 'nova' | 'overdrive' | 'lance' | 'slipstream' | 'rally'
 
 export interface VoidShipDefinition {
     id: string
@@ -487,8 +487,8 @@ export const VOID_SHIPS = [
     },
     {
         id: 'sovereign', name: 'Sovereign', role: 'Flagship', requiresSector: 5, requiresFleet: true,
-        description: 'A sleek obsidian arrowhead trimmed in gold and studded with sapphire, built only for a pilot who already owns every other hull. Six capital turrets, four drones, a nova, and engines no ship this size should have.',
-        hull: 2100, shield: 1200, speed: 68, agility: 2.1, cargo: 7500, turrets: 6, armor: 6, shields: 2, drones: 4, ability: 'nova',
+        description: 'A sleek obsidian arrowhead trimmed in gold and studded with sapphire, built only for a pilot who already owns every other hull. Six capital turrets, four drones, an honour guard it can call from any beacon, and engines no ship this size should have.',
+        hull: 2100, shield: 1200, speed: 68, agility: 2.1, cargo: 7500, turrets: 6, armor: 6, shields: 2, drones: 4, ability: 'rally',
         cost: { iridium: 42000, xenite: 21000, alloy: 30000, core: 160 }, coins: 5_000_000_000, gems: 500, turretBonus: 0.4, size: 13
     }
 ] as const satisfies readonly VoidShipDefinition[]
@@ -525,7 +525,8 @@ export const VOID_ABILITIES: Record<VoidAbilityId, VoidAbilityDefinition> = {
     nova: { id: 'nova', name: 'Nova', description: 'A blast that wrecks everything close.', cooldown: 12, duration: 0 },
     overdrive: { id: 'overdrive', name: 'Overdrive', description: 'Turrets fire twice as fast.', cooldown: 20, duration: 7 },
     lance: { id: 'lance', name: 'Spinal Lance', description: 'Charge and fire a sector-splitting beam.', cooldown: 18, duration: 2.5 },
-    slipstream: { id: 'slipstream', name: 'Slipstream', description: 'Surge to nearly double speed on a full boost tank.', cooldown: 12, duration: 4 }
+    slipstream: { id: 'slipstream', name: 'Slipstream', description: 'Surge to nearly double speed on a full boost tank.', cooldown: 12, duration: 4 },
+    rally: { id: 'rally', name: 'Honour Guard', description: 'Call a beacon picket to fly with you: a warden and two guards for a minute.', cooldown: 90, duration: 60 }
 }
 
 // ─── Station upgrades ───────────────────────────────────────────────────────

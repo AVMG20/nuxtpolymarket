@@ -913,7 +913,71 @@ export function spawnTrader(engine: VoidEngine, pos: THREE.Vector3) {
     return t
 }
 
+const ESCORT_GLOW = 0x3dffb0
+
+/**
+ * The Sovereign's Honour Guard: the same picket a friendly beacon keeps, a
+ * warden and two guards, warped in beside the pilot to fly with them.
+ */
+export function spawnEscort(engine: VoidEngine) {
+    const p = engine.player!
+    const groupId = 9700 + engine.nextId()
+    const kinds: EnemyKind[] = ['ravager', 'raider', 'lancer']
+    kinds.forEach((kind, i) => {
+        const at = p.pos.clone().add(randDir(0.3).multiplyScalar(p.radius + 30 + i * 12))
+        const c = spawnEnemy(engine, kind, at, { aggro: false, group: groupId, warpIn: true, glow: ESCORT_GLOW })
+        c.hostile = false
+        c.data.coalition = 1
+        c.data.ally = 1
+        c.data.escort = 1
+        c.name = i === 0 ? 'Guard Warden' : 'Honour Guard'
+        c.anchor.copy(p.pos)
+        c.vel.copy(p.vel)
+        c.cooldown = 0.5 + randomFloat()
+    })
+}
+
+/** Sends the Honour Guard home when the ability runs out. */
+export function dismissEscort(engine: VoidEngine) {
+    for (const e of engine.enemies) {
+        if (!e.alive || !e.data.escort) continue
+        warpFlash(engine, e.pos, ESCORT_GLOW, e.radius)
+        killEnemy(engine, e, true)
+    }
+}
+
+/** Drifts round the pilot and keeps pace with them, jumping back in if left far behind. */
+function followPilot(engine: VoidEngine, e: Enemy, dt: number) {
+    const p = engine.player!
+    const def = e.def!
+    if (e.pos.distanceToSquared(p.pos) > 800 * 800) {
+        warpFlash(engine, e.pos, ESCORT_GLOW, e.radius)
+        e.pos.copy(p.pos).add(randDir(0.3).multiplyScalar(p.radius + 40))
+        e.vel.copy(p.vel)
+        warpFlash(engine, e.pos, ESCORT_GLOW, e.radius)
+        e.data.slotT = 0
+    }
+    // A new spot round the pilot every few seconds, so the guard wanders rather than holds formation.
+    e.data.slotT = (e.data.slotT ?? 0) - dt
+    if (e.data.slotT! <= 0) {
+        e.data.slotT = 4 + randomFloat() * 5
+        const off = randDir(0.4).multiplyScalar(p.radius + 25 + randomFloat() * 60)
+        e.data.slotX = off.x
+        e.data.slotY = off.y
+        e.data.slotZ = off.z
+    }
+    const to = _v1.set(p.pos.x + e.data.slotX!, p.pos.y + e.data.slotY!, p.pos.z + e.data.slotZ!).sub(e.pos)
+    const d = to.length()
+    // Match the pilot's velocity, then close the gap: gently near the slot, hard when far behind.
+    const desired = _v2.copy(p.vel).addScaledVector(to.normalize(), Math.min(def.speed * 2.5, d * 0.6))
+    steer(e, desired, 1.8, dt)
+    faceTowards(e, desired.lengthSq() > 25 ? desired : e.vel, def.turn, dt)
+}
+
 function updateCoalition(engine: VoidEngine, e: Enemy, dt: number) {
+    const escort = !!e.data.escort && !!engine.player?.alive
+    // The pilot is the Honour Guard's beacon: it guards wherever they are.
+    if (escort) e.anchor.copy(engine.player!.pos)
     e.data.retarget = (e.data.retarget ?? 0) - dt
     let target = e.group.userData.target as Enemy | undefined
     if (!target?.alive || e.data.retarget! <= 0) {
@@ -922,8 +986,8 @@ function updateCoalition(engine: VoidEngine, e: Enemy, dt: number) {
         let best = 480 * 480
         for (const o of engine.enemies) {
             if (!o.alive || !o.hostile || o.kind === 'mine' || CAPITAL.has(o.kind) || o.data.coalition) continue
-            // A beacon's picket stays on its beacon.
-            if (e.data.ally && o.pos.distanceToSquared(e.anchor) > 460 * 460) continue
+            // A beacon's picket stays on its beacon, and an escort stays near the pilot.
+            if (e.data.ally && o.pos.distanceToSquared(e.anchor) > (escort ? 300 * 300 : 460 * 460)) continue
             const d = o.pos.distanceToSquared(e.pos)
             if (d < best) {
                 best = d
@@ -932,7 +996,10 @@ function updateCoalition(engine: VoidEngine, e: Enemy, dt: number) {
         }
         e.group.userData.target = target
     }
-    if (!target) {
+    // An escort breaks off a fight once the pilot pulls away.
+    if (escort && (!target || e.pos.distanceToSquared(engine.player!.pos) > 320 * 320)) {
+        followPilot(engine, e, dt)
+    } else if (!target) {
         idle(e, dt)
     } else {
         const def = e.def!
