@@ -25,7 +25,14 @@ export const LIVERIES: Record<string, Livery> = {
     hive: { paint: 0x2f3239, paint2: 0xe0b93a, trim: 0x17191d, metal: 0x747c87, accent: 0xe0b93a, glow: 0xfff08a, glass: 0x141206 },
     seraph: { paint: 0xf1ede8, paint2: 0xc9c2c9, trim: 0x3a3440, metal: 0x9a93a3, accent: 0xff5fc2, glow: 0xff9be6, glass: 0x230a1c },
     bastion: { paint: 0x4b4f57, paint2: 0x8e2d34, trim: 0x1e2025, metal: 0x767d88, accent: 0xb3343f, glow: 0xff8a7a, glass: 0x1c0a0b },
-    leviathan: { paint: 0xe6eaef, paint2: 0x8d97a4, trim: 0x2a3039, metal: 0x6d7785, accent: 0x2fb7d8, glow: 0x9ff4ff, glass: 0x071a22 }
+    tempest: { paint: 0x1b2a4e, paint2: 0xe9edf2, trim: 0x0b1020, metal: 0x8f9bb0, accent: 0xf2b632, glow: 0x5ff0ff, glass: 0x061522 },
+    leviathan: { paint: 0xe6eaef, paint2: 0x8d97a4, trim: 0x2a3039, metal: 0x6d7785, accent: 0x2fb7d8, glow: 0x9ff4ff, glass: 0x071a22 },
+    sovereign: { paint: 0x15161d, paint2: 0xd9a62e, trim: 0xa87a1e, metal: 0xc9962c, accent: 0x3d8bff, glow: 0x4fa0ff, glass: 0x050d1f }
+}
+
+/** Hulls that shed a drifting aura of motes, in these colours. */
+export const SHIP_AURAS: Record<string, number[]> = {
+    sovereign: [0xffd98a, 0xffb84a, 0xffc860, 0x3d8bff, 0x7fd0ff]
 }
 
 const DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => void> = {

@@ -1,4 +1,4 @@
-// Void Runner — capital player hulls: Aegis, Hive, Seraph, Bastion and Leviathan.
+// Void Runner — capital player hulls: Aegis, Hive, Seraph, Bastion, Tempest, Leviathan and Sovereign.
 //
 // Capital hulls are built in layers so they read as big: a dark structural core,
 // armour shells split into plates over it, machinery trenches in the gaps, stepped
@@ -437,6 +437,179 @@ export const CAPITAL_DESIGNS: Record<string, (b: ModelBuilder, l: Livery) => voi
         greeble(b, l, [-0.7, 0.69, 2.3], 0.5, 0.6, 5, 21)
         barbette(b, l, [1.55, 1.6, 0.85], true, false, 0.22)
         barbette(b, l, [-1.55, 0.64, 1.9], true, false, 0.28)
+    },
+
+    // A strike wedge: a flat angular lifting body behind a forked prow, an
+    // armoured canopy, two big engines carried on top and swept wings that end
+    // in striped end plates.
+    tempest(b, l) {
+        const FLAT: Shape = [8, 0.35, Math.PI / 8]
+        const body: Section[] = [
+            { z: -3.3, w: 0.5, h: 0.14, y: -0.06 },
+            { z: -2.0, w: 1.0, h: 0.32 },
+            { z: -0.2, w: 1.45, h: 0.48, y: 0.02 },
+            { z: 1.8, w: 1.6, h: 0.52, y: 0.04 },
+            { z: 3.2, w: 1.35, h: 0.42 },
+            { z: 3.8, w: 1.0, h: 0.3 }
+        ]
+        const blues = [l.paint, shade(l.paint, 0.82), l.paint, shade(l.paint, 1.25), l.paint2]
+        b.solid(loft(body, ...FLAT), shade(l.paint, 0.45))
+        plating(b, body, -3.25, 3.75, 15, blues, FLAT, 0.025)
+        band(b, body, -2.1, -1.95, l.accent, FLAT, 0.035)
+        band(b, body, -1.9, -1.84, l.glow, FLAT, 0.036, 1.8)
+        band(b, body, 2.95, 3.75, SOOT, FLAT, 0.035)
+        hullLights(b, body, -1.6, 2.8, 0.55, l.glow, 1.0, 0, 0.05)
+        // Forked prow: two prongs reach past a recessed sensor bay.
+        const prong: Section[] = [
+            { z: -5.2, w: 0.03, h: 0.03, x: 0.72, y: -0.14 },
+            { z: -4.2, w: 0.2, h: 0.13, x: 0.78, y: -0.1 },
+            { z: -2.8, w: 0.36, h: 0.2, x: 0.86, y: -0.05 },
+            { z: -1.2, w: 0.34, h: 0.22, x: 0.95 }
+        ]
+        b.solid(loft(prong, ...FLAT), l.paint2, [0, 0, 0], [0, 0, 0], [1, 1, 1], true)
+        b.solid(slab([[0.62, -4.3], [0.95, -4.3], [1.22, -2.9], [0.5, -2.9]], 0.06, 0.015), l.accent, [0, 0.08, 0], [0, 0, 0], [1, 1, 1], true)
+        b.glow(new THREE.BoxGeometry(0.03, 0.03, 2.2), l.glow, 2.4, [0.5, -0.08, -3.6], [0, 0.04, 0], [1, 1, 1], true)
+        b.metal(block(1.0, 0.2, 0.5, 0.03), l.trim, [0, -0.1, -3.2])
+        b.glow(new THREE.BoxGeometry(0.7, 0.07, 0.04), l.glow, 2.6, [0, -0.1, -3.47])
+        barrel(b, l, [0.3, -0.12, -3.5], 1.1, 0.045, true)
+        // Armoured canopy and the spine hump behind it.
+        canopy(b, l, -2.4, -0.4, 0.3, 0.44, 0.28)
+        b.solid(slab([[0.3, -2.0], [0.62, -1.5], [0.62, -0.3], [0.42, -0.3]], 0.22, 0.03), l.paint2, [0, 0.3, 0], [0, 0, 0], [1, 1, 1], true)
+        b.solid(loft([
+            { z: -0.5, w: 0.5, h: 0.2, y: 0.5 },
+            { z: 0.8, w: 0.62, h: 0.3, y: 0.58 },
+            { z: 3.0, w: 0.4, h: 0.16, y: 0.44 }
+        ], ...FLAT), l.paint)
+        seam(b, l.glow, [0, 0.9, 0.9], 2.4, false, 'z', 1.8)
+        antennaFarm(b, l, [0, 0.86, 2.2], 0.15, 3, 0.45, 51)
+        // Swept wings with a lit leading edge, inlaid panels and under-wing guns.
+        const wing: [number, number][] = [[1.3, -0.7], [4.0, 1.9], [4.0, 3.1], [1.4, 3.3]]
+        b.solid(slab(wing, 0.17, 0.05), l.paint, [0, -0.06, 0], [0, 0, -0.06], [1, 1, 1], true)
+        b.solid(slab([[1.7, 0.2], [3.3, 1.75], [3.3, 2.8], [1.7, 2.9]], 0.2, 0.02), l.paint2, [0, -0.075, 0], [0, 0, -0.06], [1, 1, 1], true)
+        b.glow(new THREE.BoxGeometry(0.035, 0.035, 3.7), l.glow, 2.6, [2.66, -0.12, 0.6], [0, 0.804, -0.06], [1, 1, 1], true)
+        for (let i = 0; i < 3; i++) b.glow(new THREE.BoxGeometry(0.03, 0.03, 1.0), l.glow, 2.2, [2.0 + i * 0.55, -0.05 - i * 0.033, 2.3], [0, 0, 0], [1, 1, 1], true)
+        barrel(b, l, [2.5, -0.42, 0.4], 1.5, 0.05, true)
+        b.metal(block(0.22, 0.2, 1.1, 0.03), l.trim, [2.5, -0.36, 1.2], [0, 0, 0], [1, 1, 1], true)
+        // End plates: the wing tips turn up and down into striped fins with a tip cannon.
+        const plate: [number, number][] = [[-0.75, 1.5], [0.85, 2.3], [0.85, 3.5], [-0.75, 3.2]]
+        b.solid(slab(plate, 0.1, 0.03), l.paint2, [4.05, -0.3, 0], [0, 0, Math.PI / 2], [1, 1, 1], true)
+        for (const [x0, x1] of [[-0.45, -0.25], [0.2, 0.4]] as const) {
+            b.solid(slab([[x0, 1.8], [x1, 1.9], [x1, 3.35], [x0, 3.3]], 0.12, 0.01), l.accent, [4.06, -0.3, 0], [0, 0, Math.PI / 2], [1, 1, 1], true)
+        }
+        barrel(b, l, [4.0, -1.0, 1.7], 1.7, 0.055, true)
+        navLights(b, 4.08, 0.6, 2.4)
+        // Two big engines carried on top of the stern, and a core drive between them.
+        for (const z of [1.7, 3.1]) b.metal(block(0.5, 0.3, 0.7, 0.04), l.trim, [0.98, 0.52, z], [0, 0, 0], [1, 1, 1], true)
+        nacelle(b, l, [0.98, 0.95, 2.5], 0.5, 3.0, true)
+        for (const z of [1.5, 2.6, 3.6]) b.metal(ring(0.52, 0.04, 4, 12), l.trim, [0.98, 0.95, z], [0, 0, 0], [1, 1, 1], true)
+        b.glow(new THREE.BoxGeometry(0.02, 0.05, 1.9), l.glow, 2.2, [1.49, 0.95, 2.4], [0, 0, 0], [1, 1, 1], true)
+        b.solid(slab([[0, 2.2], [0.75, 3.3], [0.75, 3.95], [0, 3.85]], 0.07, 0.02), l.paint, [1.3, 1.35, 0], [0, 0, Math.PI / 2 - 0.5], [1, 1, 1], true)
+        b.solid(slab([[0.5, 2.95], [0.75, 3.3], [0.75, 3.95], [0.5, 3.92]], 0.09, 0.02), l.accent, [1.31, 1.35, 0], [0, 0, Math.PI / 2 - 0.5], [1, 1, 1], true)
+        heatGrille(b, l, [0, 0.62, 3.3], 0.5, 0.6, 4, false, l.glow)
+        drive(b, l, [0, 0, 3.95], 0.36, false, 10)
+        // Belly skid plate and the three mounts.
+        b.solid(loft([
+            { z: -2.6, w: 0.5, h: 0.08, y: -0.36 },
+            { z: 0.5, w: 1.0, h: 0.12, y: -0.58 },
+            { z: 3.2, w: 0.8, h: 0.1, y: -0.5 }
+        ], ...FLAT), l.paint2)
+        barbette(b, l, [0, 0.88, 0.6], true, false, 0.17)
+        barbette(b, l, [1.9, -0.3, 1.9], false, true, 0.16)
+    },
+
+    // The capstone: a long smooth arrowhead in obsidian. Gold sweeps flow from the
+    // prow into faired engine pods, a dark canopy sits amidships, thin blade wings
+    // trail low at the stern and sapphires stud every gold line.
+    sovereign(b, l) {
+        const SAPPHIRE = 0x3d8bff
+        const AZURE = 0x7fd0ff
+        const COBALT = 0x2f5bff
+        const ICE = 0x9fe8ff
+        const GEMS = [SAPPHIRE, AZURE, COBALT, ICE]
+        const SMOOTH: Shape = [18, 0.92, 0]
+        const hull: Section[] = [
+            { z: -6.8, w: 0.03, h: 0.03, y: -0.1 },
+            { z: -5.6, w: 0.42, h: 0.2, y: -0.07 },
+            { z: -3.2, w: 1.2, h: 0.52, y: -0.02 },
+            { z: 0, w: 2.05, h: 0.84, y: 0.04 },
+            { z: 3.0, w: 2.55, h: 1.0, y: 0.06 },
+            { z: 5.0, w: 2.35, h: 0.9, y: 0.04 },
+            { z: 6.0, w: 1.65, h: 0.6 }
+        ]
+        const top = (z: number) => {
+            const s = sectionAt(hull, z)
+            return (s.y ?? 0) + s.h
+        }
+        b.solid(loft(hull, ...SMOOTH), shade(l.paint, 0.7))
+        plating(b, hull, -6.6, 5.95, 13, [l.paint, shade(l.paint, 1.25), l.paint, shade(l.paint, 0.8)], SMOOTH, 0.012)
+        // A gold belt runs the whole waterline, with a sapphire line above it and gem studs along it.
+        b.metal(loft(hull.map(s => ({ ...s, w: s.w + 0.035, h: s.h * 0.13 })), ...SMOOTH), l.paint2)
+        b.glow(loft(hull.slice(1).map(s => ({ ...s, w: s.w * 0.985 + 0.02, h: 0.018, y: (s.y ?? 0) + s.h * 0.2 })), ...SMOOTH), l.glow, 1.6)
+        GEMS.forEach((gem, i) => hullLights(b, hull, -5.2 + i * 0.35, 5.6, 1.4, gem, 1.03, 0, 0.1))
+        band(b, hull, 5.3, 5.95, SOOT, SMOOTH, 0.02)
+        // The dorsal spear: a gold blade from the prow to the stern with an obsidian blade laid over it.
+        const spear = (grow: number, lift: number): Section[] => [
+            { z: -6.3 + (1 - grow) * 2, w: 0.04, h: 0.03, y: top(-6.3 + (1 - grow) * 2) + lift - 0.04 },
+            { z: -3.4, w: 0.34 * grow + 0.08, h: 0.06, y: top(-3.4) + lift },
+            { z: -0.2, w: 0.72 * grow + 0.12, h: 0.08, y: top(-0.2) + lift },
+            { z: 3.2, w: 0.95 * grow + 0.14, h: 0.09, y: top(3.2) + lift },
+            { z: 5.6, w: 0.6 * grow + 0.1, h: 0.07, y: top(5.6) + lift }
+        ]
+        b.metal(loft(spear(1, 0), ...SMOOTH), l.paint2)
+        b.solid(loft(spear(0.72, 0.05), ...SMOOTH), l.paint)
+        for (const x of [0.2, 0.42]) b.glow(new THREE.BoxGeometry(0.03, 0.03, 2.2), l.glow, 2, [x, top(3.8) + 0.16, 3.9], [0, 0, 0], [1, 1, 1], true)
+        // Prow: a cut sapphire in a gold collar.
+        b.glow(octa(0.36), SAPPHIRE, 1.3, [0, -0.1, -7.0], [0, 0, 0], [0.6, 0.6, 2.2])
+        b.glow(octa(0.17), 0xd4ecff, 1.8, [0, -0.1, -7.0], [0, 0, 0], [0.6, 0.6, 2.2])
+        b.metal(ring(0.26, 0.05, 4, 10), l.metal, [0, -0.1, -6.6])
+        // The bridge: a low, dark canopy let into the spear.
+        const zc = -1.3
+        const deck = top(zc) + 0.1
+        b.glass(loft([
+            { z: zc - 1.7, w: 0.1, h: 0.03, y: deck - 0.02 },
+            { z: zc - 0.9, w: 0.5, h: 0.2, y: deck + 0.06 },
+            { z: zc, w: 0.66, h: 0.3, y: deck + 0.12 },
+            { z: zc + 1.1, w: 0.5, h: 0.22, y: deck + 0.1 },
+            { z: zc + 1.6, w: 0.16, h: 0.06, y: deck + 0.04 }
+        ], 12, 0.92), 0x04070d)
+        for (const [dz, w, h, dy] of [[-0.9, 0.5, 0.2, 0.06], [0, 0.66, 0.3, 0.12], [1.1, 0.5, 0.22, 0.1]] as const) {
+            b.metal(loft([{ z: zc + dz - 0.02, w: w + 0.012, h: h + 0.012, y: deck + dy }, { z: zc + dz + 0.02, w: w + 0.012, h: h + 0.012, y: deck + dy }], 12, 0.92), l.metal)
+        }
+        b.metal(new THREE.BoxGeometry(0.04, 0.035, 2.3), l.metal, [0, deck + 0.425, zc])
+        b.glow(new THREE.BoxGeometry(0.025, 0.025, 2.4), l.glow, 2.2, [0.7, deck - 0.02, zc], [0, 0, 0], [1, 1, 1], true)
+        // Flank fairings sweep back from the shoulders into the engine pods.
+        const pod: Section[] = [
+            { z: -1.8, w: 0.06, h: 0.05, x: 1.35, y: 0.32 },
+            { z: 0.4, w: 0.34, h: 0.26, x: 2.0, y: 0.34 },
+            { z: 2.6, w: 0.6, h: 0.44, x: 2.65, y: 0.3 },
+            { z: 4.4, w: 0.7, h: 0.52, x: 2.95, y: 0.26 }
+        ]
+        b.solid(loft(pod, ...SMOOTH), l.paint2, [0, 0, 0], [0, 0, 0], [1, 1, 1], true)
+        b.solid(loft(pod.map(s => ({ ...s, w: s.w * 0.7, h: s.h * 0.5, y: (s.y ?? 0) + s.h * 0.62 })), ...SMOOTH), l.paint, [0, 0, 0], [0, 0, 0], [1, 1, 1], true)
+        nacelle(b, l, [2.95, 0.26, 5.2], 0.62, 2.4, true)
+        for (const z of [4.4, 5.3, 6.1]) b.metal(ring(0.64, 0.045, 4, 14), l.metal, [2.95, 0.26, z], [0, 0, 0], [1, 1, 1], true)
+        b.glow(new THREE.BoxGeometry(0.025, 0.05, 2.0), l.glow, 2.2, [3.6, 0.26, 5.0], [0, 0, 0], [1, 1, 1], true)
+        b.glow(octa(0.2), SAPPHIRE, 1.4, [2.95, 1.0, 5.3], [0.5, 0, 0], [0.45, 0.8, 2.6], true)
+        b.metal(block(0.3, 0.12, 0.9, 0.02), l.metal, [2.95, 0.84, 5.2], [0, 0, 0], [1, 1, 1], true)
+        // Thin blade wings trail low from the stern, edged in gold and light.
+        b.solid(slab([[2.3, 1.6], [6.6, 5.4], [6.4, 6.1], [4.2, 5.9], [2.3, 5.0]], 0.1, 0.035), l.paint, [0, -0.42, 0], [0, 0, -0.05], [1, 1, 1], true)
+        b.metal(new THREE.BoxGeometry(0.13, 0.06, 5.6), l.paint2, [4.43, -0.58, 3.55], [0, 0.847, -0.05], [1, 1, 1], true)
+        b.glow(new THREE.BoxGeometry(0.035, 0.035, 5.7), l.glow, 2.4, [4.52, -0.58, 3.45], [0, 0.847, -0.05], [1, 1, 1], true)
+        for (let i = 0; i < 4; i++) b.glow(octa(0.09), GEMS[i]!, 2.4, [3.3 + i * 0.75, -0.42 - i * 0.04, 3.7 + i * 0.62], [0, 0, 0], [1, 1.3, 1], true)
+        navLights(b, 6.5, -0.7, 5.8)
+        // Core drives between the pods.
+        drive(b, l, [0, 0.02, 6.1], 0.6, false, 12, l.paint)
+        drive(b, l, [1.25, 0.02, 6.0], 0.4, true, 8, l.paint)
+        // Belly keel and the six mounts.
+        b.solid(loft([
+            { z: -4.4, w: 0.25, h: 0.08, y: -0.5 },
+            { z: 0.5, w: 0.9, h: 0.14, y: -0.95 },
+            { z: 5.0, w: 0.8, h: 0.12, y: -0.95 }
+        ], ...SMOOTH), l.paint2)
+        barbette(b, l, [0, top(1.3) + 0.12, 1.3], true, false, 0.32)
+        barbette(b, l, [0, top(3.7) + 0.12, 3.7], true, false, 0.36)
+        barbette(b, l, [2.3, 0.66, 1.9], true, true, 0.28)
+        barbette(b, l, [1.3, -0.92, 1.6], false, true, 0.3)
     },
 
     seraph(b, l) {

@@ -26,7 +26,7 @@ import {
     octa, ring, type BuiltModel
 } from './models'
 import { createSky, SpaceDust, type Sky } from './sky'
-import { buildShip, shipGlow } from './ships'
+import { buildShip, shipGlow, SHIP_AURAS } from './ships'
 import { buildBeacon, buildGate, buildStation, buildWreck } from './structures'
 import { buildDrone, buildTurret, turretMounts, turretMountScale } from './turrets'
 import { drawOverlay } from './overlay'
@@ -356,6 +356,7 @@ export class VoidEngine {
 
     // ── Hangar
     private hangarShip: THREE.Group | null = null
+    private hangarShipId = ''
     private hangarTurrets: TurretSlot[] = []
     private hangarDrones: THREE.Group[] = []
     private hangarFlames: { material: THREE.ShaderMaterial }[] = []
@@ -783,6 +784,7 @@ export class VoidEngine {
             this.hangarFlames.push(flame)
         }
         this.hangarShip = root
+        this.hangarShipId = shipId
         this.hangarSize = voidShip(shipId).size
         this.hangarSwap = 1
         this.rings.spawn(new THREE.Vector3(0, 0.6, 0), 9, shipGlow(shipId, shipTier), 0.6, 2.5, new THREE.Vector3(0, 1, 0))
@@ -865,6 +867,7 @@ export class VoidEngine {
             d.position.set(Math.cos(a) * 6.5, 1.8 + Math.sin(a * 2) * 0.6, Math.sin(a) * 6.5)
             d.lookAt(Math.cos(a + 0.1) * 6.5, 1.8, Math.sin(a + 0.1) * 6.5)
         })
+        this.emitAura(this.hangarShipId, ship.position, 5.5, dt)
         // Ambient motes drifting past.
         if (Math.random() < dt * 20) {
             this.particles.emit((Math.random() - 0.5) * 30, -4 + Math.random() * 10, (Math.random() - 0.5) * 30, 0, 0.6, 0, { life: 3, size: 0.15, color: 0x7fc8ff, intensity: 2, drag: 0 })
@@ -1019,6 +1022,29 @@ export class VoidEngine {
 
     private rand(min: number, max: number) {
         return min + randomFloat() * (max - min)
+    }
+
+    /** Drifting motes and a faint haze round a hull that has an aura. Cosmetic, so Math.random is fine. */
+    private emitAura(shipId: string, pos: THREE.Vector3, radius: number, dt: number) {
+        const colors = SHIP_AURAS[shipId]
+        if (!colors) return
+        const want = dt * 70
+        const count = Math.floor(want) + (Math.random() < want % 1 ? 1 : 0)
+        for (let i = 0; i < count; i++) {
+            const d = _v3.set(Math.random() - 0.5, (Math.random() - 0.5) * 0.7, Math.random() - 0.5).normalize().multiplyScalar(radius * (0.45 + Math.random() * 0.65))
+            this.particles.emit(pos.x + d.x, pos.y + d.y, pos.z + d.z, d.x * 0.12, 0.25 + Math.random() * 0.5, d.z * 0.12, {
+                life: 1.1 + Math.random() * 1.2, size: radius * (0.025 + Math.random() * 0.025), sizeEnd: 0, color: colors[Math.floor(Math.random() * colors.length)]!, intensity: 2.2, drag: 0.6
+            })
+        }
+        // Glitter: short, bright sparkles close to the plating.
+        if (Math.random() < dt * 30) {
+            const d = _v3.set(Math.random() - 0.5, (Math.random() - 0.5) * 0.5, Math.random() - 0.5).normalize().multiplyScalar(radius * (0.3 + Math.random() * 0.4))
+            this.particles.emit(pos.x + d.x, pos.y + d.y, pos.z + d.z, 0, 0, 0, { life: 0.25 + Math.random() * 0.2, size: radius * 0.07, sizeEnd: 0, color: 0xfff1c8, intensity: 4 })
+        }
+        if (Math.random() < dt * 10) {
+            const d = _v3.set(Math.random() - 0.5, (Math.random() - 0.5) * 0.4, Math.random() - 0.5).normalize().multiplyScalar(radius * 0.6)
+            this.smoke.emit(pos.x + d.x, pos.y + d.y, pos.z + d.z, d.x * 0.1, 0.2, d.z * 0.1, { life: 2.4, size: radius * 0.35, sizeEnd: radius * 0.9, color: Math.random() < 0.5 ? 0x6a5220 : 0x22406e, alpha: 0.16, drag: 0.4 })
+        }
     }
 
     private randomDir(flatten = 0.3) {
@@ -1440,7 +1466,7 @@ export class VoidEngine {
         const hullFrac = p.hull / this.config.stats.hull
         this.finalPass.uniforms.uDamage!.value = Math.min(1, this.hurt * 0.8 + (hullFrac < 0.3 && p.alive ? (0.3 - hullFrac) * 1.2 * (0.7 + Math.sin(this.time * 5) * 0.3) : 0))
         this.finalPass.uniforms.uFlash!.value = Math.min(1, this.whiteFlash) * (this.reduceFlashes ? 0.12 : 0.3)
-        this.finalPass.uniforms.uAberration!.value = (p.boosting ? 0.03 : 0) + this.hurt * 0.04 + (p.abilityTime > 0 && p.ability === 'phase' ? 0.05 : 0)
+        this.finalPass.uniforms.uAberration!.value = (p.boosting ? 0.03 : 0) + this.hurt * 0.04 + (p.abilityTime > 0 && (p.ability === 'phase' || p.ability === 'slipstream') ? 0.05 : 0)
 
         // Combat music follows how many hostiles are actively engaged nearby.
         let engaged = 0
@@ -1507,6 +1533,7 @@ export class VoidEngine {
         let speed = stats.speed
         if (boosting) speed *= stats.boost
         if (p.abilityTime > 0 && p.ability === 'phase') speed *= 1.5
+        if (p.abilityTime > 0 && p.ability === 'slipstream') speed *= 1.8
         if (p.tethered > 0) speed *= 0.55
         speed *= this.systems?.speedMult ?? 1
         const local = _v1.set(strafe * 0.65, lift * 0.65, forward > 0 ? -1 : forward < 0 ? 0.45 : 0)
@@ -1790,6 +1817,17 @@ export class VoidEngine {
             }
             case 'overdrive':
                 this.rings.spawn(p.pos, 30, 0xff4d4d, 0.6, 2)
+                break
+            case 'slipstream':
+                p.energy = 1
+                p.boostLock = false
+                this.rings.spawn(p.pos, 26, 0x5ff0ff, 0.5, 2.5)
+                this.rings.spawn(p.pos, 14, 0xffffff, 0.35, 2)
+                for (let i = 0; i < 40; i++) {
+                    const d = this.randomDir(1).multiplyScalar(30 + Math.random() * 40).addScaledVector(fwd, -60)
+                    this.sparks.emit(p.pos.x, p.pos.y, p.pos.z, d.x, d.y, d.z, 0.5, _c1.set(0x5ff0ff).multiplyScalar(3), 0.2)
+                }
+                this.audio.play('boost', { volume: 1.6, pitch: 1.3 })
                 break
             case 'lance':
                 p.abilityCharge = 0
@@ -3559,10 +3597,13 @@ export class VoidEngine {
             f.mesh.scale.set(1, 1, 0.6 + power * 1.1)
         }
         p.root.updateMatrixWorld(true)
+        if (p.alive) this.emitAura(this.config!.shipId, p.pos, p.radius, dt)
+        const slip = p.alive && p.abilityTime > 0 && p.ability === 'slipstream'
         p.model.engines.forEach((e, i) => {
             const world = _v1.copy(e.position).applyMatrix4(p.model.group.matrixWorld)
             const trail = p.trails[i]!
             trail.update(dt, world)
+            if (slip) this.particles.emit(world.x, world.y, world.z, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, { life: 0.5, size: e.radius * 2.2, sizeEnd: 0, color: 0x5ff0ff, intensity: 2.5, drag: 1 })
             // From the chase camera a trail points straight into the lens and projects
             // as a long streak down the screen, so only draw it when seen side-on.
             const side = 1 - Math.abs(_v2.copy(FORWARD).applyQuaternion(p.quat).dot(_v3.copy(FORWARD).applyQuaternion(this.camera.quaternion)))
