@@ -98,8 +98,10 @@ const FINAL_SHADER = {
             col += vec3(uFlash);
             // Grain scales with the colour: this buffer is linear, so added noise
             // gets amplified in the shadows by the sRGB encode. One grain per
-            // pixel keeps it equally fine on any screen size.
-            col *= 1.0 + (hash(gl_FragCoord.xy + floor(fract(uTime * 0.37) * 997.0)) - 0.5) * 0.06;
+            // pixel keeps it equally fine on any screen size. A trace of added
+            // noise stays as dither, so dark nebula gradients do not band.
+            float grain = hash(gl_FragCoord.xy + floor(fract(uTime * 0.37) * 997.0)) - 0.5;
+            col = col * (1.0 + grain * 0.05) + grain * 0.004;
             gl_FragColor = vec4(col, 1.0);
         }`
 }
@@ -445,9 +447,12 @@ export class VoidEngine {
     private targetPixelRatio() {
         const area = Math.max(1, this.width * this.height)
         const dpr = window.devicePixelRatio || 1
-        let pr = Math.max(Math.min(dpr, 1.5, Math.sqrt(2.8e6 / area)), Math.min(dpr, 1))
-        if (this.antialias === 'high') pr = Math.max(pr, 2)
-        else if (this.antialias === 'auto' && dpr < 1.5) pr = Math.max(pr, 1.5)
+        const native = Math.min(dpr, 1)
+        let pr = Math.max(Math.min(dpr, 1.5, Math.sqrt(2.8e6 / area)), native)
+        // Supersampling has its own pixel budget, so a 4K monitor at 100%
+        // scaling never asks for a 30-megapixel HDR target.
+        if (this.antialias === 'high') pr = Math.max(pr, Math.min(2, Math.sqrt(16e6 / area)))
+        else if (this.antialias === 'auto' && dpr < 1.5) pr = Math.max(pr, Math.min(1.5, Math.sqrt(9e6 / area)))
         return Math.max(0.5, pr * this.resScale)
     }
 

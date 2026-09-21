@@ -135,8 +135,8 @@ export interface Sky {
     dispose(): void
 }
 
-/** Star sizes were tuned on a Retina screen, where they drew at 1.35x the render pixel ratio. */
-const STAR_SCALE = 1.35
+/** Star sizes were tuned on a Retina laptop: device pixel ratio 2 over a render pixel ratio of about 1.37. */
+const STAR_SCALE = 1.45
 
 export interface SkyOptions {
     /** Cloud cover, 1 = a sector's usual sky. */
