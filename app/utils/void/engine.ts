@@ -124,6 +124,8 @@ const WORLD_UP = new THREE.Vector3(0, 1, 0)
 const FORWARD = new THREE.Vector3(0, 0, -1)
 // Chase camera pull-in for heavy hulls, as a share of ship length at full heft.
 const CAM = { back: 0.55, up: 0.12 }
+/** Furthest the wheel can pull the chase camera back, as a multiple of the default distance. */
+const FLY_ZOOM_MAX = 3
 /** Asteroid health by sector: harder sectors grow tougher rock. Each jump deeper adds as much again as it adds ore. */
 const ROCK_HP = [1, 1.6, 2.65, 4.15, 6.25]
 export const SECTOR_RADIUS = 2600
@@ -370,6 +372,9 @@ export class VoidEngine {
     private hangarDrag = false
     private hangarPitch = 0.18
     private hangarZoom = 1
+    /** How far the wheel has pulled the chase camera back: 1 is the default, and it only zooms out from there. */
+    private flyZoom = 1
+    private flyZoomSmooth = 1
     private hangarSwap = 0
 
     constructor(private container: HTMLElement, public audio: VoidAudio, public events: EngineEvents) {
@@ -697,6 +702,10 @@ export class VoidEngine {
         }
         if (!this.locked) return
         if (e.button === 0) this.firing = true
+        if (e.button === 1) {
+            e.preventDefault()
+            this.flyZoom = 1
+        }
         if (e.button === 2) this.skillPressed = true
     }
 
@@ -709,6 +718,8 @@ export class VoidEngine {
         // Only zoom when the wheel is over the 3D view itself, not a scrolling panel on top of it.
         if (this.phase === 'hangar' && e.target === this.renderer.domElement) {
             this.hangarZoom = THREE.MathUtils.clamp(this.hangarZoom + e.deltaY * 0.0008, 0.6, 1.6)
+        } else if (this.phase === 'flying' && this.locked) {
+            this.flyZoom = THREE.MathUtils.clamp(this.flyZoom + e.deltaY * 0.0012, 1, FLY_ZOOM_MAX)
         }
     }
 
@@ -1279,6 +1290,7 @@ export class VoidEngine {
         this.aimQuat.copy(quat)
         this.camQuat.copy(quat)
         this.camPos.copy(start).add(new THREE.Vector3(0, 6, -30))
+        this.flyZoom = this.flyZoomSmooth = 1
         this.scene.add(root)
 
         // Short: the chase camera sits a few ship lengths back and a long trail would run through the lens.
@@ -3662,8 +3674,9 @@ export class VoidEngine {
         const stats = this.config!.stats
         // Big hulls pull the camera in close and high, so the deck runs out ahead of you and fills the lower screen.
         const h = this.heft
-        const back = size * (1.55 - h * CAM.back) + 4.4
-        const up = size * (0.66 - h * CAM.up) + 1.2
+        this.flyZoomSmooth = THREE.MathUtils.lerp(this.flyZoomSmooth, this.flyZoom, 1 - Math.exp(-8 * dt))
+        const back = (size * (1.55 - h * CAM.back) + 4.4) * this.flyZoomSmooth
+        const up = (size * (0.66 - h * CAM.up) + 1.2) * (1 + (this.flyZoomSmooth - 1) * 0.8)
         const speedFrac = Math.min(2, p.vel.length() / stats.speed)
         const targetFov = 66 + (speedFrac * 5 + (p.boosting ? 9 : 0)) * (1 - h * 0.5)
         if (this.phase !== 'docking') this.fov = THREE.MathUtils.lerp(this.fov, targetFov, 1 - Math.exp(-3 * dt))
@@ -3767,7 +3780,8 @@ export class VoidEngine {
             energyLow: p.energy < 0.2,
             gate: this.gate ? { distance: Math.round(this.gate.pos.distanceTo(p.pos)), fuel: this.fuel } : null,
             trader: this.traderInReach(),
-            cockpit: this.cockpit
+            cockpit: this.cockpit,
+            zoomed: this.flyZoom > 1.02 && !this.cockpit
         }
     }
 

@@ -111,6 +111,8 @@ export interface HudState {
     gate: null | { distance: number, fuel: number }
     trader: boolean
     cockpit: boolean
+    /** The pilot has scrolled the chase camera out past its default distance. */
+    zoomed: boolean
 }
 
 export interface EngineEvents {

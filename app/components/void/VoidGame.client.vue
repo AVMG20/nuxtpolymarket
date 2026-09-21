@@ -279,6 +279,7 @@ const controls: [string, string][] = [
     ['G', 'Device: your gadget, e.g. shield boost'],
     ['T', 'Scan for hidden caches and logs'],
     ['V', 'Cockpit view'],
+    ['Wheel / MMB', 'Zoom out / reset camera'],
     ['1 / 2 / 3', 'Supplies'],
     ['F (hold)', 'Dock · F near a trader to trade'],
     ['Tab / M', 'Sector map'],

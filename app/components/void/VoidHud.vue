@@ -156,6 +156,9 @@
 
         <!-- Bottom right: the hold -->
         <div class="vx-br" :class="{ 'vx-bump': bump, 'vx-hold-full': holdFull }">
+            <Transition name="vx-rise">
+                <div v-if="hud.zoomed && hud.phase === 'flying'" class="vx-zoom"><UIcon name="i-lucide-circle-help" /><kbd>MMB</kbd>Reset camera</div>
+            </Transition>
             <div class="vx-hold-head">
                 <span><UIcon name="i-lucide-container" />{{ holdFull ? 'Hold full' : 'Hold' }}</span>
                 <b>{{ hud.cargoUnits }}<small>/{{ hud.cargoCap }}</small></b>

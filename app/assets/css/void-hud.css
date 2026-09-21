@@ -175,6 +175,9 @@
 
 /* ── Bottom right: the hold */
 .vx-br { position: absolute; right: 2em; bottom: 1.8em; width: 19em; padding: 0.8em 1em 0.7em; background: var(--vx-glass); border-right: 2px solid var(--vx-edge-hot); clip-path: polygon(var(--vx-cut) 0, 100% 0, 100% 100%, 0 100%, 0 var(--vx-cut)); transition: border-color 0.3s, box-shadow 0.3s; }
+.vx-zoom { display: flex; align-items: center; gap: 0.5em; margin-bottom: 0.55em; padding-bottom: 0.45em; font-size: 0.82em; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: var(--vr-muted); border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+.vx-zoom .iconify { color: var(--vr-accent); }
+.vx-zoom kbd { text-shadow: none; }
 .vx-hold-head { display: flex; justify-content: space-between; align-items: baseline; }
 .vx-hold-head span { display: inline-flex; align-items: center; gap: 0.5em; font-size: 0.95em; font-weight: 700; letter-spacing: 0.26em; text-transform: uppercase; }
 .vx-hold-head b { font: 600 1.1em 'JetBrains Mono', monospace; transition: color 0.2s; }
