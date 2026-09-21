@@ -189,7 +189,7 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
         const sameDay = s.rewardsDay === today
         const marksToday = sameDay ? s.marksToday : 0
         const blueprintsToday = sameDay ? s.blueprintsToday : 0
-        const marks = voidRunMarks({ extracted, wardenKilled: settled.wardenKilled, carrierKilled, tyrantKilled, harbingerKilled, depth, elapsedMs: settled.elapsedMs })
+        const marks = voidRunMarks({ extracted, wardenKilled: settled.wardenKilled, carrierKilled, tyrantKilled, harbingerKilled, depth, elapsedMs: settled.elapsedMs, sector: tier })
         const blueprints = [...(s.blueprints ?? [])]
         let blueprint: string | null = null
         const blueprintChance = !extracted || blueprintsToday >= VOID_DAILY_BLUEPRINTS ? 0 : (settled.wardenKilled ? 0.25 : 0) + (capitals.carrier ? 0.25 : 0) + (capitals.tyrant ? 0.25 : 0) + (capitals.harbinger ? 0.35 : 0)

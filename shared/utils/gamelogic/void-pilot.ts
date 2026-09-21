@@ -24,16 +24,16 @@ export interface VoidPerkDefinition {
 }
 
 export const VOID_PERKS: VoidPerkDefinition[] = [
-    { id: 'harness', name: 'Cargo Harness', description: 'Stow more in every hold.', icon: 'i-lucide-package', costs: [2, 4, 8], effect: r => `+${r * 8}% hold` },
-    { id: 'frame', name: 'Reinforced Frame', description: 'Extra bracing on every hull.', icon: 'i-lucide-shield-half', costs: [2, 4, 8], effect: r => `+${r * 6}% hull` },
-    { id: 'capacitor', name: 'Capacitor Tuning', description: 'Squeeze more out of shield generators.', icon: 'i-lucide-shield', costs: [2, 4, 8], effect: r => `+${r * 6}% shield` },
-    { id: 'salvager', name: 'Salvager', description: 'Pull more scrap and alloy from kills and crates.', icon: 'i-lucide-recycle', costs: [3, 6], effect: r => `+${r * 15}% salvage` },
-    { id: 'scanner', name: 'Deep Scanner', description: 'A wider, faster scan pulse.', icon: 'i-lucide-radar', costs: [3], effect: r => (r ? '+50% range, -30% cooldown' : 'Stock scanner') },
-    { id: 'tanks', name: 'Extended Tanks', description: 'Launch with extra jump fuel.', icon: 'i-lucide-fuel', costs: [3, 6], effect: r => `+${r} fuel cell${r === 1 ? '' : 's'} at launch` },
-    { id: 'link', name: 'Tactical Link', description: 'Faster pilot skill recharge.', icon: 'i-lucide-zap', costs: [4, 8], effect: r => `-${r * 8}% skill cooldown` },
-    { id: 'relics', name: 'Relic Hunter', description: 'Relic caches turn up more often.', icon: 'i-lucide-gem', costs: [4, 8], effect: r => `+${r * 40}% relic drops` },
-    { id: 'quartermaster', name: 'Quartermaster', description: 'The station stocks supplies for you at a discount.', icon: 'i-lucide-shopping-cart', costs: [5], effect: r => (r ? '-25% supply cost' : 'Full price') },
-    { id: 'revive', name: 'Second Chance', description: 'Once per run, a fatal hit leaves you at 30% hull instead.', icon: 'i-lucide-heart-pulse', costs: [8], effect: r => (r ? 'One revive per run' : 'No revive') }
+    { id: 'harness', name: 'Cargo Harness', description: 'Stow more in every hold.', icon: 'i-lucide-package', costs: [6, 12, 24], effect: r => `+${r * 8}% hold` },
+    { id: 'frame', name: 'Reinforced Frame', description: 'Extra bracing on every hull.', icon: 'i-lucide-shield-half', costs: [6, 12, 24], effect: r => `+${r * 6}% hull` },
+    { id: 'capacitor', name: 'Capacitor Tuning', description: 'Squeeze more out of shield generators.', icon: 'i-lucide-shield', costs: [6, 12, 24], effect: r => `+${r * 6}% shield` },
+    { id: 'salvager', name: 'Salvager', description: 'Pull more scrap and alloy from kills and crates.', icon: 'i-lucide-recycle', costs: [9, 18], effect: r => `+${r * 15}% salvage` },
+    { id: 'scanner', name: 'Deep Scanner', description: 'A wider, faster scan pulse.', icon: 'i-lucide-radar', costs: [9], effect: r => (r ? '+50% range, -30% cooldown' : 'Stock scanner') },
+    { id: 'tanks', name: 'Extended Tanks', description: 'Launch with extra jump fuel.', icon: 'i-lucide-fuel', costs: [9, 18], effect: r => `+${r} fuel cell${r === 1 ? '' : 's'} at launch` },
+    { id: 'link', name: 'Tactical Link', description: 'Faster pilot skill recharge.', icon: 'i-lucide-zap', costs: [12, 24], effect: r => `-${r * 8}% skill cooldown` },
+    { id: 'relics', name: 'Relic Hunter', description: 'Relic caches turn up more often.', icon: 'i-lucide-gem', costs: [12, 24], effect: r => `+${r * 40}% relic drops` },
+    { id: 'quartermaster', name: 'Quartermaster', description: 'The station stocks supplies for you at a discount.', icon: 'i-lucide-shopping-cart', costs: [15], effect: r => (r ? '-25% supply cost' : 'Full price') },
+    { id: 'revive', name: 'Second Chance', description: 'Once per run, a fatal hit leaves you at 30% hull instead.', icon: 'i-lucide-heart-pulse', costs: [24], effect: r => (r ? 'One revive per run' : 'No revive') }
 ]
 
 export const VOID_PERK_IDS: VoidPerkId[] = VOID_PERKS.map(p => p.id)
@@ -60,6 +60,8 @@ export interface VoidRunTrophies {
     harbingerKilled?: boolean
     depth: number
     elapsedMs: number
+    /** The run's sector tier, from server state (never the client). */
+    sector: number
 }
 
 /**
@@ -80,8 +82,16 @@ export function voidCapitalKills(run: { carrierKilled?: boolean, tyrantKilled?: 
 }
 
 /**
+ * Command Marks multiplier per sector tier. Bosses spawn in every sector, so
+ * without it the easiest sector paid as much as the hardest and farming
+ * sector 1 won (6 Marks in 90 seconds).
+ */
+export const VOID_SECTOR_MARK_MULT = [0.25, 0.5, 1, 1.5, 2] as const
+
+/**
  * Command Marks for a finished run. Only extractions pay. A carrier kill is a
  * client claim, so it needs a run long enough to have found and fought one.
+ * The trophy total scales with the sector and rounds down.
  */
 export function voidRunMarks(run: VoidRunTrophies) {
     if (!run.extracted) return 0
@@ -92,11 +102,12 @@ export function voidRunMarks(run: VoidRunTrophies) {
     if (capitals.tyrant) marks += 3
     if (capitals.harbinger) marks += 5
     if (voidAllowedDepth(run.depth, run.elapsedMs) >= 3) marks += 1
-    return Math.min(marks, VOID_MAX_RUN_MARKS)
+    const tier = Math.min(VOID_SECTOR_MARK_MULT.length, Math.max(1, Math.floor(Number(run.sector) || 1)))
+    return Math.min(Math.floor(marks * VOID_SECTOR_MARK_MULT[tier - 1]!), VOID_MAX_RUN_MARKS)
 }
 
-/** The most one run can pay: every boss down and depth 3 reached. Marks have no daily cap. */
-export const VOID_MAX_RUN_MARKS = 14
+/** The most one run can pay: every boss down and depth 3 reached in the top sector. Marks have no daily cap. */
+export const VOID_MAX_RUN_MARKS = 28
 
 /** Daily caps on the rare meta rewards. */
 export const VOID_DAILY_BLUEPRINTS = 2

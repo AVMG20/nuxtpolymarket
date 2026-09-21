@@ -352,7 +352,7 @@ describe('void runner salvaged gear', () => {
 
 describe('void runner pilot meta', () => {
     it('pays Command Marks only for extractions, and only trusts a carrier kill past ten seconds', () => {
-        const base = { extracted: true, wardenKilled: true, carrierKilled: false, depth: 1, elapsedMs: 10 * 60_000 }
+        const base = { extracted: true, wardenKilled: true, carrierKilled: false, depth: 1, elapsedMs: 10 * 60_000, sector: 3 }
         expect(voidRunMarks({ ...base, extracted: false })).toBe(0)
         expect(voidRunMarks(base)).toBe(2)
         expect(voidRunMarks({ ...base, carrierKilled: true, elapsedMs: 5_000, wardenKilled: false })).toBe(0)
@@ -374,9 +374,18 @@ describe('void runner pilot meta', () => {
     })
 
     it('never pays more Marks than a full-trophy run, whatever is claimed', () => {
-        const forged = { extracted: true, wardenKilled: true, carrierKilled: true, tyrantKilled: true, harbingerKilled: true, depth: 9999, elapsedMs: 60 * 60_000, marks: 100 }
+        const forged = { extracted: true, wardenKilled: true, carrierKilled: true, tyrantKilled: true, harbingerKilled: true, depth: 9999, elapsedMs: 60 * 60_000, sector: 99, marks: 100 }
         expect(voidRunMarks(forged)).toBe(VOID_MAX_RUN_MARKS)
-        expect(VOID_MAX_RUN_MARKS).toBe(14)
+        expect(VOID_MAX_RUN_MARKS).toBe(28)
+    })
+
+    it('pays fewer Marks in easier sectors', () => {
+        // Warden, Tyrant and depth 3 in ninety seconds: the sector 1 farm.
+        const farm = { extracted: true, wardenKilled: true, carrierKilled: false, tyrantKilled: true, depth: 3, elapsedMs: 90_000 }
+        expect([1, 2, 3, 4, 5].map(sector => voidRunMarks({ ...farm, sector }))).toEqual([1, 3, 6, 9, 12])
+        const full = { extracted: true, wardenKilled: true, carrierKilled: true, tyrantKilled: true, harbingerKilled: true, depth: 3, elapsedMs: 10 * 60_000 }
+        expect([1, 2, 3, 4, 5].map(sector => voidRunMarks({ ...full, sector }))).toEqual([3, 7, 14, 21, 28])
+        expect(voidRunMarks({ ...full, sector: 0 })).toBe(3)
     })
 
     it('lets capital kills bank their warp cores and nothing more', () => {

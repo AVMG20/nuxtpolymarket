@@ -258,7 +258,7 @@
                 <section v-if="stationView === 'perks'" class="vp-panel">
                     <header class="vp-head">
                         <h2>Command perks</h2>
-                        <span>Marks come from wardens, carriers and deep jumps</span>
+                        <span>Marks come from bosses and deep jumps, and harder sectors pay more</span>
                         <b class="vp-head-num">{{ state.marks }} marks</b>
                     </header>
                     <div v-for="perk in state.perks" :key="perk.id" class="vp-row" :class="{ 'vp-row-done': perk.cost === null }">
