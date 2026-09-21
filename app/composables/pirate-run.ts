@@ -234,6 +234,7 @@ function setupResizeObserver(host: HTMLDivElement) {
 
 export function usePirateRun() {
     currentToast = useToast()
+    const layaUrl = useRuntimeConfig().public.layaUrl
     currentFetchSession = useAuth().fetchSession
 
     function registerRefresh(refresh: () => Promise<unknown>) {
@@ -388,6 +389,7 @@ export function usePirateRun() {
         if (autopilotEnabled.value) {
             autopilot ??= new PirateAutopilot(
                 game,
+                layaUrl,
                 (status) => { autopilotStatus.value = status },
                 (advice) => { autopilotAdvice.value = advice }
             )

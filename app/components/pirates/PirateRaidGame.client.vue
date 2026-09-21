@@ -291,7 +291,7 @@ onUnmounted(() => {
             >
               <div class="flex items-center justify-between gap-2 font-bold">
                 <span class="flex items-center gap-1 truncate"><UIcon name="i-lucide-bot" class="size-3 text-primary" />{{ autopilotLabel }}</span>
-                <span :class="autopilotStatus.jev ? 'text-primary' : 'text-muted'">{{ autopilotStatus.jev ? 'Jev' : 'Instinct' }}</span>
+                <span :class="autopilotStatus.laya ? 'text-primary' : 'text-muted'">{{ autopilotStatus.laya ? 'Laya' : 'Instinct' }}</span>
               </div>
               <div v-for="row in autopilotRows" :key="row.label">
                 <div class="flex justify-between gap-2">
@@ -600,7 +600,7 @@ onUnmounted(() => {
                 :variant="autopilotEnabled ? 'solid' : 'subtle'"
                 icon="i-lucide-bot"
                 :label="autopilotLabel"
-                :title="autopilotEnabled && autopilotStatus && !autopilotStatus.jev ? 'Advisor offline, steering on instinct' : undefined"
+                :title="autopilotEnabled && autopilotStatus && !autopilotStatus.laya ? 'Laya is not answering, steering on instinct. Start laya_server.py on this machine.' : undefined"
                 class="w-full justify-center"
                 @click="toggleAutopilot"
               />

@@ -3,8 +3,10 @@ import {
 } from '#shared/utils/gamelogic/pirates'
 import {
     pirateEnemiesInReach,
-    pirateHeadingAngle,
+    pirateHeadingOf,
     pirateKegTarget,
+    pirateLayaAdvice,
+    pirateLayaQuestions,
     type PirateAutopilotAdvice,
     type PirateAutopilotEnemy,
     type PirateAutopilotPoint,
@@ -15,30 +17,42 @@ import type { PirateGame } from './pirate-game'
 
 // Auto-play for Pirate Raid. Two loops share the work:
 //
-// - The brain: a few times a second the sea is sent over a socket, and the
-//   server asks Jev how dangerous things are, which heading is open water,
-//   whether each pickup is safe and whether the keg is worth throwing.
-// - The helm: every frame-ish, code scores candidate spots around the ship
-//   (enemy reach, blasts, mines, coast, cannon coverage) weighted by the
-//   brain's latest answers, and sails to the best one. Dodging telegraphed
-//   blasts lives here, since a socket round trip is too slow to react to them.
+// - The brain: up to ten times a second the browser asks Laya, running on the
+//   player's own machine (laya_server.py), how dangerous things are, which
+//   headings are open water, whether each pickup is safe and whether the keg
+//   is worth throwing. One question at a time is in flight, so a slower
+//   machine simply gets fewer answers a second.
+// - The helm: every tick, code scores candidate spots around the ship (enemy
+//   reach, blasts, mines, coast, cannon coverage) weighted by the brain's
+//   latest answers, and sails to the best one. Dodging telegraphed blasts
+//   lives here, since even a fast answer is too slow to react to them.
 //
-// Without fresh advice (socket down, Jev unavailable) the helm judges the same
-// things itself, just less carefully.
+// Laya's judgments are blended with the helm's own read rather than trusted
+// outright: measured on these questions, it ranks situations well but its 50%
+// line wanders. Without fresh answers (Laya not running) the helm steers on
+// its own read alone.
 
 export type PirateAutopilotMode = 'fight' | 'kite' | 'retreat' | 'supply' | 'repair' | 'treasure' | 'dodge'
 
 export interface PirateAutopilotStatus {
     mode: PirateAutopilotMode
-    /** Latest advice came from Jev and is still fresh. */
-    jev: boolean
-    connected: boolean
+    /** Latest advice came from Laya and is still fresh. */
+    laya: boolean
+    /** The last question reached Laya. */
+    online: boolean
 }
 
 type View = PirateAutopilotSnapshot & { speed: number }
 
-const THINK_MS = 120
-const ADVICE_STALE_MS = 1500
+const THINK_MS = 100
+/** At most ten questions a second, and never two at once. */
+const ASK_INTERVAL_MS = 100
+const LAYA_TIMEOUT_MS = 1000
+/** How long to wait before trying again once Laya stops answering. */
+const OFFLINE_RETRY_MS = 3000
+const ADVICE_STALE_MS = 800
+/** Share of each judgment that comes from Laya; the rest is the helm's own read. */
+const LAYA_WEIGHT = 0.6
 const EDGE = 60
 const RINGS = [70, 150, 240]
 const ANGLES = 16
@@ -65,7 +79,7 @@ function enemyWeight(enemy: PirateAutopilotEnemy) {
     return Math.max(0.6, tier.maxDamage * (tier.volley ?? 1) / 14)
 }
 
-/** The helm's own read of the sea when Jev has nothing fresh to say. */
+/** The helm's own read of the sea. */
 function localAdvice(view: View): PirateAutopilotAdvice {
     const pressure = pirateEnemiesInReach(view.enemies, view).reduce((sum, enemy) => sum + enemyWeight(enemy), 0)
     const under = view.hazards.some(hazard => dist(hazard, view) <= hazard.r + 20)
@@ -76,6 +90,7 @@ function localAdvice(view: View): PirateAutopilotAdvice {
         danger,
         heading: null,
         headingConfidence: 0,
+        openWater: null,
         grabSupply: safe(view.supply),
         grabRepair: safe(view.repair),
         grabTreasure: safe(view.treasure),
@@ -83,25 +98,39 @@ function localAdvice(view: View): PirateAutopilotAdvice {
     }
 }
 
+/** Laya's answers leaned on the helm's own read. Headings are Laya's alone. */
+function blend(laya: PirateAutopilotAdvice, local: PirateAutopilotAdvice): PirateAutopilotAdvice {
+    const mix = (a: number, b: number) => a * LAYA_WEIGHT + b * (1 - LAYA_WEIGHT)
+    return {
+        ...laya,
+        danger: mix(laya.danger, local.danger),
+        grabSupply: mix(laya.grabSupply, local.grabSupply),
+        grabRepair: mix(laya.grabRepair, local.grabRepair),
+        grabTreasure: mix(laya.grabTreasure, local.grabTreasure),
+        throwKeg: mix(laya.throwKeg, local.throwKeg)
+    }
+}
+
 export class PirateAutopilot {
-    private ws: WebSocket | null = null
     private stopped = true
-    private reconnectTimer: ReturnType<typeof setTimeout> | null = null
-    private reconnectDelayMs = 1000
-    private seq = 0
+    /** Bumped on stop, so an answer to a question from before a restart is dropped. */
+    private generation = 0
     private inFlight = false
-    private sentAt = 0
+    private askedAt = -Infinity
+    private retryAt = 0
     private advice: PirateAutopilotAdvice | null = null
     private adviceAt = 0
     private thinkTimer = 0
     private destination: PirateAutopilotPoint | null = null
-    private status: PirateAutopilotStatus = { mode: 'fight', jev: false, connected: false }
+    private status: PirateAutopilotStatus = { mode: 'fight', laya: false, online: false }
 
     constructor(
         private game: PirateGame,
+        /** Root of the local Laya API, e.g. http://127.0.0.1:8000. */
+        private layaUrl: string,
         private onStatus: (status: PirateAutopilotStatus) => void,
-        /** The advice steering the ship, every think tick. `jev` is false for the helm's own read. */
-        private onAdvice?: (advice: PirateAutopilotAdvice, jev: boolean) => void
+        /** The advice steering the ship, every think tick. `laya` is false for the helm's own read. */
+        private onAdvice?: (advice: PirateAutopilotAdvice, laya: boolean) => void
     ) {}
 
     start() {
@@ -109,61 +138,22 @@ export class PirateAutopilot {
         this.stopped = false
         this.destination = null
         this.advice = null
+        this.retryAt = 0
         this.onStatus(this.status)
         this.game.setFrameHook(deltaMS => this.frame(deltaMS))
-        this.connect()
     }
 
     stop() {
         this.stopped = true
+        this.generation += 1
         this.game.setFrameHook(null)
-        if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
-        this.reconnectTimer = null
-        this.ws?.close()
-        this.ws = null
         this.inFlight = false
-        this.setStatus({ connected: false, jev: false })
-    }
-
-    private connect() {
-        if (this.stopped) return
-        const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-        const ws = new WebSocket(`${proto}://${location.host}/api/pirates/autopilot`)
-        this.ws = ws
-        ws.onopen = () => {
-            this.reconnectDelayMs = 1000
-            this.inFlight = false
-            this.setStatus({ connected: true })
-        }
-        ws.onmessage = (event) => {
-            let data: { seq?: number, advice?: PirateAutopilotAdvice | null, skipped?: boolean }
-            try {
-                data = JSON.parse(event.data as string)
-            } catch {
-                return
-            }
-            if (data.seq !== this.seq) return
-            this.inFlight = false
-            if (data.advice) {
-                this.advice = data.advice
-                this.adviceAt = performance.now()
-            }
-        }
-        ws.onclose = (event) => {
-            if (this.ws !== ws) return
-            this.ws = null
-            this.inFlight = false
-            this.setStatus({ connected: false })
-            // Signed out, not allowed, or auto-play took over in another tab: stay down.
-            if (this.stopped || event.code === 4401 || event.code === 4403 || event.code === 4409) return
-            this.reconnectTimer = setTimeout(() => this.connect(), this.reconnectDelayMs)
-            this.reconnectDelayMs = Math.min(10_000, this.reconnectDelayMs * 2)
-        }
+        this.setStatus({ online: false, laya: false })
     }
 
     private setStatus(patch: Partial<PirateAutopilotStatus>) {
         const next = { ...this.status, ...patch }
-        if (next.mode === this.status.mode && next.jev === this.status.jev && next.connected === this.status.connected) return
+        if (next.mode === this.status.mode && next.laya === this.status.laya && next.online === this.status.online) return
         this.status = next
         this.onStatus(next)
     }
@@ -178,23 +168,41 @@ export class PirateAutopilot {
         this.think(view)
     }
 
-    /** Send the sea for fresh advice unless a question is already out. */
+    /** Ask Laya about the current sea unless a question is already out. */
     private ask(view: View) {
         const now = performance.now()
-        // A lost reply must not stall the brain forever.
-        if (this.inFlight && now - this.sentAt < 3000) return
-        if (this.ws?.readyState !== WebSocket.OPEN) return
-        const { speed: _speed, ...snap } = view
-        this.seq += 1
+        if (this.inFlight || now - this.askedAt < ASK_INTERVAL_MS || now < this.retryAt) return
         this.inFlight = true
-        this.sentAt = now
-        this.ws.send(JSON.stringify({ seq: this.seq, snap }))
+        this.askedAt = now
+        const generation = this.generation
+        const done = (advice: PirateAutopilotAdvice | null) => {
+            if (generation !== this.generation) return
+            this.inFlight = false
+            if (advice) {
+                this.advice = advice
+                this.adviceAt = performance.now()
+            } else {
+                // Not running, or erroring: stop spamming it and steer on instinct for a while.
+                this.retryAt = performance.now() + OFFLINE_RETRY_MS
+            }
+            this.setStatus({ online: !!advice })
+        }
+        fetch(`${this.layaUrl}/v1/systemone`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ questions: pirateLayaQuestions(view) }),
+            signal: AbortSignal.timeout(LAYA_TIMEOUT_MS)
+        })
+            .then(res => res.ok ? res.json() as Promise<{ answers?: Record<string, { noul?: number }> }> : null)
+            .then(data => done(data?.answers ? pirateLayaAdvice(data.answers) : null))
+            .catch(() => done(null))
     }
 
     private think(view: View) {
         const fresh = this.advice && performance.now() - this.adviceAt < ADVICE_STALE_MS
-        const advice = fresh ? this.advice! : localAdvice(view)
-        this.setStatus({ jev: !!fresh })
+        const local = localAdvice(view)
+        const advice = fresh ? blend(this.advice!, local) : local
+        this.setStatus({ laya: !!fresh })
         this.onAdvice?.(advice, !!fresh)
 
         this.throwKeg(view, advice)
@@ -287,13 +295,12 @@ export class PirateAutopilot {
 
         s -= dist(view, p) / 400
 
-        if (advice.heading && (mode === 'retreat' || mode === 'kite' || advice.danger >= 0.5)) {
-            const moved = dist(view, p)
-            if (moved > 1) {
-                const a = pirateHeadingAngle(advice.heading)
-                const cos = ((p.x - view.x) * Math.cos(a) + (p.y - view.y) * Math.sin(a)) / moved
-                s += cos * advice.headingConfidence * (mode === 'retreat' ? 4 : 1.5)
-            }
+        // Laya judged every heading, so lean toward open water and away from
+        // closed water, hardest when running and a little even mid-fight.
+        if (advice.openWater && dist(view, p) > 1) {
+            const open = advice.openWater[pirateHeadingOf(p.x - view.x, p.y - view.y)]
+            const weight = mode === 'retreat' ? 4 : mode === 'kite' || advice.danger >= 0.5 ? 1.5 : 0.5
+            s += (open - 0.5) * 2 * weight
         }
 
         if (goal) s -= dist(goal, p) / 100 * 4
@@ -302,7 +309,7 @@ export class PirateAutopilot {
 
     private throwKeg(view: View, advice: PirateAutopilotAdvice) {
         if (!view.keg || advice.throwKeg < 0.6) return
-        // Re-aim on the current sea: advice is a few hundred ms old.
+        // Re-aim on the current sea: advice is up to a few hundred ms old.
         const target = pirateKegTarget(view.enemies)
         if (!target || (target.ships < 2 && !target.boss)) return
         this.game.autopilotCastAbility(target.x, target.y)

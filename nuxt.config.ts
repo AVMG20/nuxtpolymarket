@@ -25,7 +25,10 @@ export default defineNuxtConfig({
             // PROJECT_DSN is the name Argus issues its DSNs under; either sets it.
             sentryDsn: process.env.NUXT_PUBLIC_SENTRY_DSN || process.env.PROJECT_DSN || '',
             // The browser fetches card textures straight from the sidecar.
-            pokemonApiBase: 'http://127.0.0.1:8080'
+            pokemonApiBase: 'http://127.0.0.1:8080',
+            // Pirate Raid auto-play asks Laya (laya_server.py) on the player's
+            // own machine, straight from the browser.
+            layaUrl: 'http://127.0.0.1:8000'
         }
     },
     // The casino and pirate raid are canvas-heavy, interactive experiences.
