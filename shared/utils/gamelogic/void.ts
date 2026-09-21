@@ -295,12 +295,12 @@ export const VOID_TURRETS = [
         color: 0xff4f6d, damage: 34, rate: 0.7, range: 300, projectileSpeed: 140, pellets: 1, spread: 0, splash: 14, mining: 0.7
     },
     {
-        id: 'mortar', name: 'Siege Mortar', description: 'Heavy shells with a huge blast radius. Slow to reload, long reach.',
-        color: 0xffa23d, damage: 70, rate: 0.35, range: 340, projectileSpeed: 170, pellets: 1, spread: 0.01, splash: 26, mining: 1.4
+        id: 'mortar', name: 'Siege Mortar', description: 'Heavy lobbed shells with a huge blast radius. The hardest hitter on paper, if the shell lands.',
+        color: 0xffa23d, damage: 95, rate: 0.35, range: 340, projectileSpeed: 170, pellets: 1, spread: 0.01, splash: 26, mining: 1.4
     },
     {
-        id: 'rail', name: 'Railgun', description: 'Instant slugs that punch through every hull in a line.',
-        color: 0xc38bff, damage: 70, rate: 0.45, range: 360, projectileSpeed: 0, pellets: 1, spread: 0, splash: 0, mining: 1.2
+        id: 'rail', name: 'Railgun', description: 'Slow, instant slugs that punch through every hull in a line.',
+        color: 0xc38bff, damage: 70, rate: 0.36, range: 360, projectileSpeed: 0, pellets: 1, spread: 0, splash: 0, mining: 1.2
     }
 ] as const satisfies readonly VoidTurretDefinition[]
 
