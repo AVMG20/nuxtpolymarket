@@ -5,6 +5,7 @@ import { user, voidItems, voidRunHistory, voidState } from '#server/database/sch
 import { voidBuyPerk, voidBuySupplies, voidBuyTrade, voidBuyUpgrade, voidClaimContract, voidCraftItem, voidFinishRun, voidSalvageItem, voidSell, voidUpgradeItem } from '#server/utils/void'
 import { VOID_MARKET_PRICES, voidTradeCost, voidUpgradeCost } from '#shared/utils/gamelogic/void'
 import { voidCraftCost, voidItemUpgradeCost } from '#shared/utils/gamelogic/void-items'
+import { voidPerkCost } from '#shared/utils/gamelogic/void-pilot'
 import { voidContractDay, voidContractsFor, voidSupplyCost } from '#shared/utils/gamelogic/void-station'
 import { cleanupUser, seedUser, SKIP } from '../setup/db-helpers'
 
@@ -164,7 +165,8 @@ describe.skipIf(SKIP)('void runner value endpoints under a burst', () => {
     })
 
     it('spends Command Marks once per rank under a burst', async () => {
-        await db.update(voidState).set({ marks: 2, perks: {} }).where(eq(voidState.userId, userId))
+        // Exactly one rank's worth, so a second purchase can only come from a race.
+        await db.update(voidState).set({ marks: voidPerkCost('harness', 0)!, perks: {} }).where(eq(voidState.userId, userId))
 
         const results = await Promise.allSettled(Array.from({ length: 10 }, () => voidBuyPerk(userId, 'harness')))
 
