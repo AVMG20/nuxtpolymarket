@@ -103,7 +103,9 @@ export function voidRunMarks(run: VoidRunTrophies) {
     if (capitals.harbinger) marks += 5
     if (voidAllowedDepth(run.depth, run.elapsedMs) >= 3) marks += 1
     const tier = Math.min(VOID_SECTOR_MARK_MULT.length, Math.max(1, Math.floor(Number(run.sector) || 1)))
-    return Math.min(Math.floor(marks * VOID_SECTOR_MARK_MULT[tier - 1]!), VOID_MAX_RUN_MARKS)
+    if (marks === 0) return 0
+    // A trophy always pays at least one Mark, so a first warden kill in sector 1 is not worth nothing.
+    return Math.min(Math.max(1, Math.floor(marks * VOID_SECTOR_MARK_MULT[tier - 1]!)), VOID_MAX_RUN_MARKS)
 }
 
 /** The most one run can pay: every boss down and depth 3 reached in the top sector. Marks have no daily cap. */

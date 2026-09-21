@@ -361,7 +361,7 @@ describe('void runner pilot meta', () => {
     })
 
     it('only trusts Tyrant and Harbinger kills on runs past ten seconds and deep enough to have fought them', () => {
-        const base = { extracted: true, wardenKilled: false, carrierKilled: false, depth: 1, elapsedMs: 10 * 60_000 }
+        const base = { extracted: true, wardenKilled: false, carrierKilled: false, depth: 1, elapsedMs: 10 * 60_000, sector: 3 }
         expect(voidRunMarks({ ...base, tyrantKilled: true })).toBe(3)
         expect(voidRunMarks({ ...base, tyrantKilled: true, elapsedMs: 5_000 })).toBe(0)
         expect(voidRunMarks({ ...base, tyrantKilled: true, elapsedMs: 60_000 })).toBe(3)
@@ -386,6 +386,10 @@ describe('void runner pilot meta', () => {
         const full = { extracted: true, wardenKilled: true, carrierKilled: true, tyrantKilled: true, harbingerKilled: true, depth: 3, elapsedMs: 10 * 60_000 }
         expect([1, 2, 3, 4, 5].map(sector => voidRunMarks({ ...full, sector }))).toEqual([3, 7, 14, 21, 28])
         expect(voidRunMarks({ ...full, sector: 0 })).toBe(3)
+        // One trophy always pays a Mark; no trophy pays none.
+        const warden = { extracted: true, wardenKilled: true, carrierKilled: false, depth: 1, elapsedMs: 90_000 }
+        expect(voidRunMarks({ ...warden, sector: 1 })).toBe(1)
+        expect(voidRunMarks({ ...warden, wardenKilled: false, sector: 5 })).toBe(0)
     })
 
     it('lets capital kills bank their warp cores and nothing more', () => {
