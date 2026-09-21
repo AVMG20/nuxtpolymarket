@@ -1034,6 +1034,8 @@ export interface VoidStateSnapshot {
     contractsDone?: number[]
     mods?: Record<string, number>
     marks?: number
+    rewardsDay?: string | null
+    marksToday?: number
     perks?: Record<string, number>
     blueprints?: string[]
     lore?: string[]
@@ -1161,6 +1163,7 @@ export function voidDescribeState(s: VoidStateSnapshot, balance: number, gems: n
         abilities: VOID_ABILITIES,
         pilot,
         marks: s.marks ?? 0,
+        marksToday: s.rewardsDay === day ? s.marksToday ?? 0 : 0,
         perks: VOID_PERKS.map((perk) => {
             const rank = loadout.perks[perk.id]
             const cost = voidPerkCost(perk.id, rank)

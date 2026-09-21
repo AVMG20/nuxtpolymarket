@@ -340,6 +340,7 @@
 .vp-head h2 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: 0.03em; }
 .vp-head span { font-size: 13px; color: var(--vr-muted); }
 .vp-head-num { margin-left: auto; font: 600 14px 'JetBrains Mono', monospace; color: var(--vr-accent); }
+.vp-head-num small { font-size: 12px; font-weight: 500; color: var(--vr-muted); }
 .vp-row { display: flex; align-items: center; gap: 16px; padding: 11px 18px; border-top: 1px solid var(--vr-line); transition: background 0.12s; }
 .vp-row:first-child, .vp-head + .vp-row { border-top: 0; }
 .vp-row:hover { background: rgba(255, 255, 255, 0.025); }
