@@ -54,7 +54,7 @@ export type Face = 'front' | 'back' | 'left' | 'right'
 export const C = {
     cream: 0xf8ead0, ochre: 0xf4c452, terracotta: 0xe4795a, white: 0xfbf8f1, sky: 0x8ec3e6, rose: 0xf2a6a6, mint: 0xa9dcc3, lavender: 0xcdb8f2,
     roofRed: 0xd4382c, roofOrange: 0xec7228, roofBrown: 0x8a4a33, roofBlue: 0x2e6db8, roofDark: 0x4a5266, roofGreen: 0x2c8a6f, roofTeal: 0x239aa9, roofPlum: 0x7e3d95,
-    trim: 0xfdfbf5, timber: 0x4f3220,
+    trim: 0xfdfbf5, timber: 0x4f3220, accent: 0x3b8f96,
     wood: 0xb47a45, woodDark: 0x63391f, woodLight: 0xd8a868, plank: 0xcb9553,
     stone: 0xb8b3a3, stoneDark: 0x6f7370, stoneLight: 0xe0dbc9, cobble: 0xc2b394, paving: 0xd8caa8,
     brick: 0xbe5a38, brickDark: 0x8a3b25, metal: 0x505c68, metalLight: 0x9ba7ae, iron: 0x2f353d,
@@ -68,11 +68,13 @@ export const C = {
 }
 
 /**
- * Roof and cap colour by look (level 1, 5, 10, 15, 20). The same ramp on every
- * building, so a glance at a roof says what tier a plot is: no other colour
- * changes with the tile, only with the level.
+ * Roof colour by look (level 1, 5, 10, 15, 20): terracotta, brick, wine, steel
+ * blue, gold. The same ramp on every building and it only gets richer, so a
+ * glance at a roof says what tier a plot is and a gold street is a flex. No
+ * other colour changes with the tile. Domes and turret caps stay C.accent teal
+ * on every level, which ties the whole town together.
  */
-export const TIER_ROOFS = [C.roofOrange, C.roofRed, C.roofTeal, C.roofBlue, C.roofPlum] as const
+export const TIER_ROOFS = [0xc8664a, 0xb2453a, 0x8f3f5c, 0x3f6494, 0xd6a53f] as const
 
 export function tierRoof(stage: number): number {
     return TIER_ROOFS[Math.max(0, Math.min(TIER_ROOFS.length - 1, stage))]!
