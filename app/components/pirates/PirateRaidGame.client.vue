@@ -17,7 +17,7 @@ const {
     gameOverVisible, gameOverResult,
     attachCanvas, detachCanvas, startVoyage, pauseVoyage, resumeVoyage, cancelVoyage,
     toggleAmmoMode, closeGameOver,
-    autopilotEnabled, autopilotStatus, autopilotAdvice, toggleAutopilot,
+    autopilotEnabled, autopilotStatus, autopilotDecision, toggleAutopilot,
     soundEnabled, soundVolume, playMenuSound
 } = usePirateRun()
 
@@ -47,32 +47,34 @@ const abilityCooldownPercent = computed(() => {
     if (abilityLocked.value) return 100
     return abilityCooldownTotalMs.value > 0 ? Math.max(0, Math.min(100, abilityCooldownMs.value / abilityCooldownTotalMs.value * 100)) : 0
 })
-const AUTOPILOT_MODE_LABELS = {
-    fight: 'Fighting',
-    kite: 'Kiting',
-    retreat: 'Retreating',
-    supply: 'Grabbing supplies',
-    repair: 'Grabbing repairs',
-    treasure: 'Grabbing treasure',
-    dodge: 'Dodging'
-} as const
+function moveLabel(move: NonNullable<typeof autopilotStatus.value>['move']) {
+    if (!move) return 'Laya'
+    if (move.kind === 'sail') return `Laya: sailing ${move.heading}`
+    if (move.kind === 'grab') return `Laya: grabbing the ${move.pickup}`
+    return 'Laya: attacking'
+}
 const autopilotLabel = computed(() => {
     const status = autopilotStatus.value
     if (!autopilotEnabled.value || !status) return 'Auto-play'
-    return AUTOPILOT_MODE_LABELS[status.mode]
+    if (!status.laya) return status.online ? 'Waiting for Laya' : 'Laya offline'
+    return moveLabel(status.move)
 })
-// The auto-play card: each answer steering the ship, as a bar.
+// The auto-play card: Laya's rating of its top moves, highest first, and the keg call.
 const autopilotRows = computed(() => {
-    const advice = autopilotAdvice.value
-    if (!advice) return []
-    return [
-        { label: 'Danger', value: advice.danger, text: `${Math.round(advice.danger * 100)}%`, bar: 'bg-error' },
-        { label: 'Heading', value: advice.headingConfidence, text: advice.heading ?? '—', bar: 'bg-primary' },
-        { label: 'Supplies', value: advice.grabSupply, text: `${Math.round(advice.grabSupply * 100)}%`, bar: 'bg-success' },
-        { label: 'Repair', value: advice.grabRepair, text: `${Math.round(advice.grabRepair * 100)}%`, bar: 'bg-success' },
-        { label: 'Treasure', value: advice.grabTreasure, text: `${Math.round(advice.grabTreasure * 100)}%`, bar: 'bg-warning' },
-        { label: 'Keg', value: advice.throwKeg, text: `${Math.round(advice.throwKeg * 100)}%`, bar: 'bg-warning' }
-    ]
+    const decision = autopilotDecision.value
+    if (!decision) return []
+    const rows = Object.entries(decision.moves)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([key, value]) => ({
+            key,
+            label: key.startsWith('attack_') ? 'attack ship' : key.replace('_', ' '),
+            value,
+            text: `${Math.round(value * 100)}%`,
+            bar: value === Math.max(...Object.values(decision.moves)) ? 'bg-primary' : 'bg-accented'
+        }))
+    if (decision.keg) rows.push({ key: 'keg', label: 'keg', value: 1, text: 'throw', bar: 'bg-warning' })
+    return rows
 })
 // Auto-play is limited to a few accounts; drop it if this one lost access.
 watch(() => state.value?.autopilot, (allowed) => {
@@ -291,9 +293,9 @@ onUnmounted(() => {
             >
               <div class="flex items-center justify-between gap-2 font-bold">
                 <span class="flex items-center gap-1 truncate"><UIcon name="i-lucide-bot" class="size-3 text-primary" />{{ autopilotLabel }}</span>
-                <span :class="autopilotStatus.laya ? 'text-primary' : 'text-muted'">{{ autopilotStatus.laya ? 'Laya' : 'Instinct' }}</span>
+                <span :class="autopilotStatus.laya ? 'text-primary' : 'text-error'">{{ autopilotStatus.laya ? 'Laya' : 'Offline' }}</span>
               </div>
-              <div v-for="row in autopilotRows" :key="row.label">
+              <div v-for="row in autopilotRows" :key="row.key">
                 <div class="flex justify-between gap-2">
                   <span class="text-muted">{{ row.label }}</span>
                   <span class="font-semibold tabular-nums">{{ row.text }}</span>
@@ -600,7 +602,7 @@ onUnmounted(() => {
                 :variant="autopilotEnabled ? 'solid' : 'subtle'"
                 icon="i-lucide-bot"
                 :label="autopilotLabel"
-                :title="autopilotEnabled && autopilotStatus && !autopilotStatus.laya ? 'Laya is not answering, steering on instinct. Start laya_server.py on this machine.' : undefined"
+                :title="autopilotEnabled && autopilotStatus && !autopilotStatus.online ? 'Laya is not answering, so the ship heaves to. Start laya_server.py on this machine.' : undefined"
                 class="w-full justify-center"
                 @click="toggleAutopilot"
               />

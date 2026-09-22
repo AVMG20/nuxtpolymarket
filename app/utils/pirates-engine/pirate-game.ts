@@ -421,8 +421,9 @@ export class PirateGame {
             shield: this.shieldHp,
             range: this.maxCannonRange * ammoRangeMult * rangeMult,
             keg: kegReady,
+            powerUps: [...this.activePowerUps.keys()].reduce((sum, id) => sum + Math.max(1, this.powerUpStack(id)), 0),
             speed: this.stats.speed * (1 + this.powerUpStack('reinforced-keel') * 0.1),
-            enemies: enemies.map(enemy => ({ tier: enemy.tier.id, x: enemy.x, y: enemy.y, hp: enemy.hp / enemy.maxHp, range: enemy.tier.range })),
+            enemies: enemies.map(enemy => ({ id: enemy.id, tier: enemy.tier.id, x: enemy.x, y: enemy.y, hp: enemy.hp / enemy.maxHp, range: enemy.tier.range })),
             hazards: this.hazards.map(({ x, y, r }) => ({ x, y, r })),
             mines: this.seaMines.map(mine => ({ x: mine.x, y: mine.y })),
             islands: this.navGrid.islands.map(({ x, y, r }) => ({ x, y, r })),
@@ -440,6 +441,20 @@ export class PirateGame {
     /** Sail to a point, pathing around islands, without a click marker. */
     autopilotSail(x: number, y: number) {
         this.handleWaterClick(x, y, false)
+    }
+
+    /** The attack order a click on an enemy gives: chase it into range and focus every cannon on it. */
+    autopilotAttack(enemyId: number) {
+        const enemy = this.enemies.get(enemyId)
+        if (!this.running || !enemy || enemy.dead) return false
+        this.attackTargetId = enemyId
+        return true
+    }
+
+    /** Stop where the ship is and drop any attack order. */
+    autopilotHeaveTo() {
+        this.attackTargetId = null
+        this.playerPath = []
     }
 
     /** Right-click the sea. Returns false while the ability is cooling down. */

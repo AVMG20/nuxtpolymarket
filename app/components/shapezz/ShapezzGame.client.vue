@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ShapezzEngine, type ShapezzSnapshot } from '~/utils/shapezz-engine'
 import { ShapezzAutopilot, type ShapezzAutopilotStatus } from '~/utils/shapezz-autopilot'
-import type { ShapezzAutopilotAdvice } from '#shared/utils/gamelogic/shapezz-autopilot'
+import type { ShapezzLayaDecision } from '#shared/utils/gamelogic/shapezz-autopilot'
 import {
     SHAPEZZ_CHECKPOINT_MS,
     shapezzCheckpointPressure,
@@ -56,42 +56,39 @@ const bossWarning = ref('')
 let bossWarningTimer: ReturnType<typeof setTimeout> | null = null
 let engine: ShapezzEngine | null = null
 
-// Auto-play: the cube flies itself, asking Laya on this machine for advice.
+// Auto-play: Laya, running on this machine, plays the run. It picks every move,
+// every target and every mutation; without Laya the cube stands still.
 // Stays on across runs until switched off; starting a run is still a click.
 const layaUrl = useRuntimeConfig().public.layaUrl
 const autopilotEnabled = ref(false)
 const autopilotStatus = ref<ShapezzAutopilotStatus | null>(null)
-const autopilotAdvice = shallowRef<ShapezzAutopilotAdvice | null>(null)
-/** What auto-play is about to do at a checkpoint, shown before it does it. */
+const autopilotLaya = shallowRef<ShapezzLayaDecision | null>(null)
+/** What Laya is about to do at a checkpoint, shown before it does it. */
 const autopilotDecision = ref('')
 const activeWeaponType = ref<ShapezzWeaponType>('blaster')
 /** Long enough to read the decision and click something else instead. */
 const AUTOPILOT_DECISION_DELAY_MS = 1500
+/** How often to ask again at a checkpoint while Laya is down. */
+const AUTOPILOT_CHECKPOINT_RETRY_MS = 2000
 let autopilot: ShapezzAutopilot | null = null
 let decisionToken = 0
-const AUTOPILOT_MODE_LABELS = {
-    fight: 'Fighting',
-    dodge: 'Dodging',
-    retreat: 'Retreating',
-    heal: 'Grabbing health'
+const AUTOPILOT_ACTION_LABELS = {
+    left: 'Laya: running left',
+    right: 'Laya: running right',
+    hold: 'Laya: holding',
+    jump: 'Laya: jumping',
+    drop: 'Laya: dropping down'
 } as const
 const autopilotLabel = computed(() => {
     const status = autopilotStatus.value
     if (!autopilotEnabled.value || !status) return 'Auto-play'
-    return AUTOPILOT_MODE_LABELS[status.mode]
+    if (!status.laya) return status.online ? 'Waiting for Laya' : 'Laya offline'
+    return status.action ? AUTOPILOT_ACTION_LABELS[status.action] : 'Laya'
 })
-const autopilotRows = computed(() => {
-    const advice = autopilotAdvice.value
-    if (!advice) return []
-    const zones = advice.zones
-    const safest = zones ? (Object.entries(zones) as [string, number][]).reduce((a, b) => b[1] > a[1] ? b : a) : null
-    return [
-        { label: 'Danger', value: advice.danger, text: `${Math.round(advice.danger * 100)}%`, bar: 'bg-error' },
-        { label: 'Safest', value: safest?.[1] ?? 0, text: safest?.[0] ?? '—', bar: 'bg-primary' },
-        { label: 'Focus', value: advice.focusConfidence, text: advice.focus ?? 'nearest', bar: 'bg-warning' },
-        { label: 'Health', value: advice.grabHealth, text: `${Math.round(advice.grabHealth * 100)}%`, bar: 'bg-success' }
-    ]
-})
+// Laya's rating of each move it was asked about, highest first.
+const autopilotRows = computed(() => (Object.entries(autopilotLaya.value?.actions ?? {}) as [keyof typeof AUTOPILOT_ACTION_LABELS, number][])
+    .sort((a, b) => b[1] - a[1])
+    .map(([action, value]) => ({ label: action, value, text: `${Math.round(value * 100)}%`, bar: action === autopilotLaya.value?.action ? 'bg-primary' : 'bg-white/40' })))
 
 const hpPercent = computed(() => clampPercent(snapshot.value.hp / Math.max(1, snapshot.value.maxHp) * 100))
 const shieldPercent = computed(() => clampPercent(snapshot.value.shield / Math.max(1, snapshot.value.shieldCapacity) * 100))
@@ -243,7 +240,7 @@ function attachAutopilot() {
         engine,
         layaUrl,
         (status) => { autopilotStatus.value = status },
-        (advice) => { autopilotAdvice.value = advice }
+        (decision) => { autopilotLaya.value = decision }
     )
     autopilot.start()
 }
@@ -253,7 +250,7 @@ function detachAutopilot() {
     autopilot?.stop()
     autopilot = null
     autopilotStatus.value = null
-    autopilotAdvice.value = null
+    autopilotLaya.value = null
     autopilotDecision.value = ''
 }
 
@@ -265,7 +262,11 @@ function toggleAutopilot() {
     void autopilotDecide()
 }
 
-/** Pick the mutation for whichever choice screen is open. Auto-play never cashes out. */
+/**
+ * Let Laya pick the mutation for whichever choice screen is open. Auto-play
+ * never cashes out. While Laya is down nothing is picked: the screen waits for
+ * the player or for Laya to come back.
+ */
 async function autopilotDecide() {
     const pilot = autopilot
     const kind = checkpointOffers.value.length ? 'checkpoint' : headStartOffers.value.length ? 'headStart' : null
@@ -274,7 +275,7 @@ async function autopilotDecide() {
     const offers = kind === 'checkpoint' ? checkpointOffers.value : headStartOffers.value
     const current = engine.getSnapshot()
     autopilotDecision.value = 'Asking Laya…'
-    const decision = await pilot.decideCheckpoint({
+    const upgrade = await pilot.decideUpgrade({
         offers,
         upgrades: current.upgrades,
         weapon: activeWeaponType.value,
@@ -282,15 +283,22 @@ async function autopilotDecide() {
         damageTaken: pilot.damageThisRound(current.maxHp)
     })
     if (token !== decisionToken) return
-    autopilotDecision.value = `${decision.laya ? 'Laya' : 'Instinct'}: taking ${shapezzRunUpgrade(decision.upgrade).name}`
+    if (!upgrade) {
+        autopilotDecision.value = 'Laya is offline: start laya_server.py or pick yourself'
+        setTimeout(() => {
+            if (token === decisionToken) void autopilotDecide()
+        }, AUTOPILOT_CHECKPOINT_RETRY_MS)
+        return
+    }
+    autopilotDecision.value = `Laya: taking ${shapezzRunUpgrade(upgrade).name}`
     await new Promise(resolve => setTimeout(resolve, AUTOPILOT_DECISION_DELAY_MS))
     // The player may have clicked something themselves, or switched auto-play off.
     if (token !== decisionToken) return
     autopilotDecision.value = ''
     if (kind === 'checkpoint') {
-        if (checkpointOffers.value.includes(decision.upgrade)) chooseUpgrade(decision.upgrade)
-    } else if (headStartOffers.value.includes(decision.upgrade)) {
-        chooseHeadStartUpgrade(decision.upgrade)
+        if (checkpointOffers.value.includes(upgrade)) chooseUpgrade(upgrade)
+    } else if (headStartOffers.value.includes(upgrade)) {
+        chooseHeadStartUpgrade(upgrade)
     }
 }
 
@@ -533,7 +541,7 @@ onUnmounted(() => {
                 <div v-if="autopilotEnabled && autopilotStatus" class="mt-2.5 space-y-1 border-t border-white/10 pt-2 text-[10px] leading-tight text-white/80">
                   <div class="flex items-center justify-between gap-2 font-bold">
                     <span class="flex items-center gap-1 truncate"><UIcon name="i-lucide-bot" class="size-3 text-primary" />{{ autopilotLabel }}</span>
-                    <span :class="autopilotStatus.laya ? 'text-primary' : 'text-white/50'">{{ autopilotStatus.laya ? 'Laya' : 'Instinct' }}</span>
+                    <span :class="autopilotStatus.laya ? 'text-primary' : 'text-error'">{{ autopilotStatus.laya ? 'Laya' : 'Offline' }}</span>
                   </div>
                   <div v-for="row in autopilotRows" :key="row.label">
                     <div class="flex justify-between gap-2">
@@ -568,7 +576,7 @@ onUnmounted(() => {
                   class="pointer-events-auto self-center"
                   :class="autopilotEnabled ? '' : 'border-white/10 bg-black/55 backdrop-blur-sm'"
                   :label="autopilotLabel"
-                  :title="autopilotEnabled && autopilotStatus && !autopilotStatus.laya ? 'Laya is not answering, playing on instinct. Start laya_server.py on this machine.' : undefined"
+                  :title="autopilotEnabled && autopilotStatus && !autopilotStatus.online ? 'Laya is not answering, so the cube stands still. Start laya_server.py on this machine.' : undefined"
                   @click="toggleAutopilot"
                 />
                 <UButton

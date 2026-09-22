@@ -1,4 +1,4 @@
-import { PirateAutopilot, PirateGame, type PirateAutopilotAdvice, type PirateAutopilotStatus, type PirateAbilitySound, type PirateActivePowerUp, type PirateShipStats } from '~/utils/pirates-engine'
+import { PirateAutopilot, PirateGame, type PirateLayaDecision, type PirateAutopilotStatus, type PirateAbilitySound, type PirateActivePowerUp, type PirateShipStats } from '~/utils/pirates-engine'
 import type { PirateAbilityId } from '#shared/utils/gamelogic/pirates'
 
 const pirateSound = usePirateSound()
@@ -82,7 +82,7 @@ let autopilot: PirateAutopilot | null = null
 // Auto-play stays on across voyages until the captain takes the helm back.
 const autopilotEnabled = ref(false)
 const autopilotStatus = ref<PirateAutopilotStatus | null>(null)
-const autopilotAdvice = shallowRef<PirateAutopilotAdvice | null>(null)
+const autopilotDecision = shallowRef<PirateLayaDecision | null>(null)
 let resizeObserver: ResizeObserver | null = null
 
 // Rebound on every usePirateRun() call (i.e. every time a page mounts), so an
@@ -391,13 +391,13 @@ export function usePirateRun() {
                 game,
                 layaUrl,
                 (status) => { autopilotStatus.value = status },
-                (advice) => { autopilotAdvice.value = advice }
+                (decision) => { autopilotDecision.value = decision }
             )
             autopilot.start()
         } else {
             autopilot?.stop()
             autopilotStatus.value = null
-            autopilotAdvice.value = null
+            autopilotDecision.value = null
         }
     }
 
@@ -438,7 +438,7 @@ export function usePirateRun() {
         closeGameOver,
         autopilotEnabled,
         autopilotStatus,
-        autopilotAdvice,
+        autopilotDecision,
         toggleAutopilot,
         soundEnabled: pirateSound.soundEnabled,
         soundVolume: pirateSound.soundVolume,
