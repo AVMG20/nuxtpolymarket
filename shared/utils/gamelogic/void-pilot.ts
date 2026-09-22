@@ -120,28 +120,21 @@ export const VOID_DAILY_RELICS = 10
 export const VOID_BOUNTY_XP = 40
 export const VOID_BOUNTIES_PER_RUN = 2
 
-/**
- * Bounty XP the client reports, capped by what the run could have earned:
- * no more than one bounty per minute flown.
- */
-export function voidBountyXp(reported: unknown, elapsedMs: number) {
+/** Bounty XP the client reports. A run rolls two bounties, so that is the most it can pay. */
+export function voidBountyXp(reported: unknown) {
     const earned = Math.max(0, Math.floor(Number(reported) || 0))
-    const cap = VOID_BOUNTY_XP * Math.min(VOID_BOUNTIES_PER_RUN, Math.floor(Math.max(0, elapsedMs) / 60_000))
-    return Math.min(earned, cap)
+    return Math.min(earned, VOID_BOUNTY_XP * VOID_BOUNTIES_PER_RUN)
 }
 
+/** More relic or gear caches than this in one run is a forged report, not a good one. */
+export const VOID_MAX_RUN_CACHES = 20
+
 /**
- * Salvaged gear caches a run may bank, since the client reports the caches:
- * one past ninety seconds and one more per five minutes (three at most), plus
- * one each for a warden and each capital ship, within what is left of the
- * daily limit.
+ * Salvaged gear caches a run may bank: what the client picked up, within the
+ * per-run sanity limit and what is left of the daily limit.
  */
-export function voidGearCap(run: { elapsedMs: number, wardenKilled: boolean, carrierKilled: boolean, tyrantKilled?: boolean, harbingerKilled?: boolean, depth?: number }, gearToday: number) {
-    const time = Math.min(3, (run.elapsedMs >= 90_000 ? 1 : 0) + Math.floor(run.elapsedMs / 300_000))
-    const long = run.elapsedMs >= VOID_MIN_CLAIM_MS
-    const capitals = voidCapitalKills(run, run.elapsedMs)
-    const bosses = (run.wardenKilled && long ? 1 : 0) + (capitals.carrier ? 1 : 0) + (capitals.tyrant ? 1 : 0) + (capitals.harbinger ? 1 : 0)
-    return Math.max(0, Math.min(VOID_DAILY_GEAR - gearToday, time + bosses))
+export function voidGearCap(gearToday: number) {
+    return Math.max(0, Math.min(VOID_DAILY_GEAR - gearToday, VOID_MAX_RUN_CACHES))
 }
 
 /** Blueprints only come from gear kinds the pilot can use. */

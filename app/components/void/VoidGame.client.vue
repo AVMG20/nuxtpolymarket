@@ -718,7 +718,6 @@ async function finishRun(result: RunResult, reason: FinishReason) {
         extracted: reason === 'extracted',
         pending: true,
         failed: false,
-        trimmed: false,
         kills: result.kills,
         elapsedMs: result.elapsedMs,
         units: items.reduce((s, i) => s + i.amount, 0),
@@ -766,7 +765,6 @@ async function submitReport(body: FinishBody) {
         summary.value = {
             ...summary.value,
             pending: false,
-            trimmed: res.extracted && res.trimmed,
             units: res.units,
             value: res.coinValue,
             kills: res.kills,

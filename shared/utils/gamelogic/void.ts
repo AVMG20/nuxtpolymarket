@@ -9,7 +9,7 @@
 // what happened in a run; the server decides what that run was allowed to be
 // worth.
 
-import { VOID_LORE, VOID_MIN_CLAIM_MS, VOID_PERKS, VOID_ZONES, voidAllowedDepth, voidCapitalKills, voidDepthLoot, voidNormalizePerks, voidPerkCost, type VoidPerkRanks } from './void-pilot'
+import { VOID_LORE, VOID_MIN_CLAIM_MS, VOID_PERKS, VOID_ZONES, voidNormalizePerks, voidPerkCost, type VoidPerkRanks } from './void-pilot'
 import { VOID_SUPPLIES, VOID_SUPPLY_CARRY, VOID_SUPPLY_STOCK_MAX, voidContractDay, voidContractResetAt, voidContractsFor, voidNormalizeSupplies, voidSupplyCost } from './void-station'
 import {
     VOID_ITEM_KINDS, VOID_ITEM_TYPES, VOID_MAX_TIER, VOID_MODS, VOID_RARITIES, voidAffix, voidCanCraftTier, voidCraftCost, voidDefenceStats, voidItemPower,
@@ -820,24 +820,10 @@ export function voidPowerRating(loadout: Pick<VoidLoadout, 'gun' | 'turrets'>, s
 
 /** Anything longer is a dead tab, not a run. */
 export const VOID_MAX_RUN_MS = 40 * 60 * 1000
+/** No hold in the game comes close to this; a haul over it is a forged report and is refused outright. */
+export const VOID_MAX_HAUL_UNITS = 100_000
 /** Runs with no finish older than this can be cleared by the next launch. */
 export const VOID_STALE_RUN_MS = 45 * 60 * 1000
-
-/**
- * The most of each resource an honest run could pick up per minute, before
- * the sector bonus. Set well above what a player strip-mining the richest
- * cluster manages (a starter hull fills 1,000 units in about two minutes), so
- * it only ever bites a forged report.
- */
-const VOID_UNITS_PER_MINUTE: Record<VoidResourceId, number> = {
-    ferrite: 750,
-    cobalt: 600,
-    iridium: 500,
-    xenite: 600,
-    scrap: 1000,
-    alloy: 300,
-    core: 0
-}
 
 export interface VoidRunReport {
     extracted: boolean
@@ -860,8 +846,6 @@ export interface VoidSettledRun {
     elapsedMs: number
     kills: number
     wardenKilled: boolean
-    /** True when the report was trimmed by a cap. */
-    trimmed: boolean
 }
 
 /**
@@ -874,62 +858,28 @@ export function voidWardenMinMs(_tier: number) {
 }
 
 /**
- * Turns a client report into what the run may bank. Only an extraction banks
- * anything; the haul is filtered to the sector's resources, capped per minute
- * of wall-clock time and trimmed to the hold the ship launched with.
+ * Turns a client report into what the run banks. Only an extraction banks
+ * anything. The haul is paid exactly as the client counted it: the hold the
+ * player watched fill during the run is the hold that comes home, so the
+ * debrief never shows a different number from the in-flight HUD.
  */
-export function voidSettleRun(report: VoidRunReport, tier: number, cargoCapacity: number, wallElapsedMs: number): VoidSettledRun {
+export function voidSettleRun(report: VoidRunReport, tier: number, wallElapsedMs: number): VoidSettledRun {
     const elapsedMs = Math.max(0, Math.min(Math.floor(Number(report.elapsedMs) || 0), wallElapsedMs, VOID_MAX_RUN_MS))
-    const minutes = Math.max(elapsedMs, 0) / 60_000
     const wardenKilled = Boolean(report.wardenKilled) && wallElapsedMs >= voidWardenMinMs(tier)
-    const kills = Math.max(0, Math.min(Math.floor(Number(report.kills) || 0), Math.ceil(minutes * 60) + 10))
-    // A capital is a long fight at the far end of a zone.
-    const capitals = voidCapitalKills(report, wallElapsedMs)
+    const kills = Math.max(0, Math.floor(Number(report.kills) || 0))
 
     if (!report.extracted) {
-        return { haul: {}, units: 0, value: 0, elapsedMs, kills, wardenKilled: false, trimmed: false }
+        return { haul: {}, units: 0, value: 0, elapsedMs, kills, wardenKilled: false }
     }
 
-    const allowed = voidSectorResources(tier)
-    const sectorBonus = (1 + (tier - 1) * 0.25) * voidDepthLoot(voidAllowedDepth(report.depth ?? 1, elapsedMs))
-    let trimmed = false
-    const capped: VoidResourceBundle = {}
-    for (const id of VOID_RESOURCE_IDS) {
-        const reported = voidUnits(report.haul?.[id])
-        if (reported <= 0) continue
-        if (!allowed.has(id)) {
-            trimmed = true
-            continue
-        }
-        const ceiling = id === 'core'
-            ? (wardenKilled ? 2 + tier : 0) + (capitals.carrier ? 1 + Math.ceil(tier / 2) : 0) + (capitals.tyrant ? 1 + Math.ceil(tier / 2) : 0) + (capitals.harbinger ? 2 + tier : 0) + Math.floor(minutes / 4)
-            : Math.ceil(VOID_UNITS_PER_MINUTE[id] * sectorBonus * minutes) + 60
-        const amount = Math.min(reported, ceiling)
-        if (amount < reported) trimmed = true
-        if (amount > 0) capped[id] = amount
-    }
-
-    // Trim to the hold, dropping the cheapest material first.
-    const haul: VoidResourceBundle = {}
-    let room = Math.max(0, Math.floor(cargoCapacity))
-    const byValue = VOID_RESOURCE_IDS
-        .filter(id => (capped[id] ?? 0) > 0)
-        .sort((a, b) => VOID_MARKET_PRICES[b] - VOID_MARKET_PRICES[a])
-    for (const id of byValue) {
-        const take = Math.min(capped[id]!, room)
-        if (take < capped[id]!) trimmed = true
-        if (take > 0) haul[id] = take
-        room -= take
-    }
-
+    const haul = voidCleanBundle(report.haul)
     return {
         haul,
         units: voidBundleUnits(haul),
         value: voidBundleValue(haul),
         elapsedMs,
         kills,
-        wardenKilled,
-        trimmed
+        wardenKilled
     }
 }
 

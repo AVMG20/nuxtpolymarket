@@ -4,7 +4,7 @@ import { voidItems, voidRunHistory, voidState } from '#server/database/schema'
 import { credit, debit, debitGems } from '#server/utils/balance'
 import { randomFloat } from '#shared/utils/random'
 import {
-    VOID_MAX_SECTOR, VOID_SHIP_IDS, VOID_TRADE_MAX_LEVEL, voidAddBundles, voidCanAfford, voidCleanBundle, voidDescribeState, voidNormalizeFit, voidNormalizeLevels,
+    VOID_MAX_HAUL_UNITS, VOID_MAX_SECTOR, VOID_SHIP_IDS, VOID_TRADE_MAX_LEVEL, voidAddBundles, voidCanAfford, voidCleanBundle, voidDescribeState, voidNormalizeFit, voidNormalizeLevels,
     voidSector, voidSellPrice, voidSettleRun, voidSubtractBundle, voidTradeCost, voidTradeMult, voidUpgradeCost,
     type VoidPrice, type VoidResourceId, type VoidShipFit, type VoidUpgradeId
 } from '#shared/utils/gamelogic/void'
@@ -14,7 +14,7 @@ import {
 } from '#shared/utils/gamelogic/void-items'
 import { voidPilotLevel, voidRunXp } from '#shared/utils/gamelogic/void-skills'
 import {
-    VOID_BLUEPRINT_KINDS, VOID_DAILY_BLUEPRINTS, VOID_DAILY_RELICS, VOID_PERK_IDS, voidAllowedDepth, voidBountyXp, voidCapitalKills, voidGearCap, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidRunMarks, type VoidPerkId
+    VOID_BLUEPRINT_KINDS, VOID_DAILY_BLUEPRINTS, VOID_DAILY_RELICS, VOID_MAX_RUN_CACHES, VOID_PERK_IDS, voidAllowedDepth, voidBountyXp, voidCapitalKills, voidGearCap, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidRunMarks, type VoidPerkId
 } from '#shared/utils/gamelogic/void-pilot'
 import {
     VOID_CONTRACTS_PER_DAY, VOID_SUPPLY_STOCK_MAX, voidContractDay, voidContractsFor, voidNormalizeSupplies, voidSupplyCost,
@@ -131,14 +131,6 @@ export interface VoidFinishReport {
 }
 
 /**
- * Relic caches a run may bank: one once the run passes two minutes, one more
- * per three minutes of flight (a carrier kill drops two), plus the warden's.
- */
-export function voidRelicCap(elapsedMs: number, wardenKilled: boolean) {
-    return Math.min(5, (elapsedMs >= 120_000 ? 1 : 0) + Math.floor(elapsedMs / 180_000) + (wardenKilled ? 1 : 0))
-}
-
-/**
  * Settles the active run. Clearing `runStartedAt` inside the row lock is the
  * claim, so a double-submitted finish banks exactly once.
  */
@@ -159,16 +151,18 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             tyrantKilled: body.tyrantKilled === true,
             harbingerKilled: body.harbingerKilled === true,
             depth: Number(body.depth) || 1
-        }, tier, s.runCargo ?? 0, Date.now() - s.runStartedAt.getTime())
+        }, tier, Date.now() - s.runStartedAt.getTime())
+        if (settled.units > VOID_MAX_HAUL_UNITS) throw createError({ statusCode: 400, statusMessage: 'The station refused this haul: no hold carries that much' })
 
         const extracted = reason === 'extracted'
         const clearedNow = extracted && settled.wardenKilled && tier > s.highestSectorCleared
         const highestSectorCleared = clearedNow ? Math.min(VOID_MAX_SECTOR, tier) : s.highestSectorCleared
         // Relic caches only come home with the hold. The client reports how
-        // many it picked up; the server caps that and rolls what they hold.
+        // many it picked up; the server rolls what they hold, within the
+        // per-run sanity limit and the daily limit.
         const relicsToday = s.rewardsDay === voidContractDay() ? s.relicsToday : 0
         const relicRoom = Math.max(0, VOID_DAILY_RELICS - relicsToday)
-        const relicCount = extracted ? Math.max(0, Math.min(Math.floor(Number(body.relics) || 0), voidRelicCap(settled.elapsedMs, settled.wardenKilled) + voidNormalizePerks(s.perks).relics, relicRoom)) : 0
+        const relicCount = extracted ? Math.max(0, Math.min(Math.floor(Number(body.relics) || 0), VOID_MAX_RUN_CACHES, relicRoom)) : 0
         const relics: string[] = []
         const mods = { ...(s.mods ?? {}) }
         for (let i = 0; i < relicCount; i++) {
@@ -203,10 +197,10 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
         const sectorLore = voidLoreForSector(tier)
         const reportedLore = Array.isArray(body.lore) ? body.lore.map(String).filter(id => sectorLore.includes(id)) : []
         const newLore = extracted ? [...new Set(reportedLore)].filter(id => !(s.lore ?? []).includes(id)).slice(0, 3) : []
-        // Salvaged gear: the client reports caches picked up; the server caps
-        // them by time, warden and a daily limit, then rolls real items.
+        // Salvaged gear: the client reports caches picked up; the server rolls
+        // real items for them, within the daily limit.
         const gearToday = sameDay ? s.gearToday : 0
-        const gearCap = voidGearCap({ elapsedMs: settled.elapsedMs, wardenKilled: settled.wardenKilled, carrierKilled, tyrantKilled, harbingerKilled, depth }, gearToday)
+        const gearCap = voidGearCap(gearToday)
         const gearCount = extracted ? Math.max(0, Math.min(Math.floor(Number(body.gearCaches) || 0), gearCap)) : 0
         const gearRolled = Array.from({ length: gearCount }, () => voidRollSalvagedGear(Math.min(tier, Math.min(5, s.highestSectorCleared + 1)), randomFloat))
         // XP is earned whether or not the hold made it home.
@@ -217,7 +211,7 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             wardenKilled: settled.wardenKilled,
             tier,
             skillUses: Number(body.skillUses) || 0
-        }) + voidBountyXp(body.bonusXp, settled.elapsedMs)
+        }) + voidBountyXp(body.bonusXp)
 
         // Beacons change hands whether or not the hold made it home: the fight was won out there.
         const beacons = voidApplyBeaconReport(voidCleanBeacons(s.beacons), tier, { captured: body.beaconsCaptured, defended: body.beaconsDefended }, Date.now(), settled.elapsedMs)
@@ -273,7 +267,7 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
                 secondary: fitted(loadout.fit.secondary), device: fitted(loadout.fit.device)
             },
             run: {
-                depth, wallMs: Date.now() - s.runStartedAt.getTime(), trimmed: settled.trimmed, reportedKills: Number(body.kills) || 0,
+                depth, wallMs: Date.now() - s.runStartedAt.getTime(), reportedKills: Number(body.kills) || 0,
                 claimed: { warden: body.wardenKilled === true, carrier: carrierKilled, tyrant: tyrantKilled, harbinger: harbingerKilled },
                 accepted: { warden: settled.wardenKilled, ...capitals },
                 skillUses: Number(body.skillUses) || 0, suppliesUsed: voidNormalizeSupplies(body.suppliesUsed as Record<string, unknown> | null),
@@ -304,7 +298,6 @@ export async function voidFinishRun(userId: string, body: VoidFinishReport) {
             coinValue: Math.round(settled.value * voidTradeMult(s.tradeLevel)),
             units: settled.units,
             kills: settled.kills,
-            trimmed: settled.trimmed,
             sectorCleared: clearedNow ? voidSector(tier).name : null,
             /** The sector this clear opened, when there is a deeper one. */
             sectorOpened: clearedNow && tier < VOID_MAX_SECTOR ? voidSector(tier + 1).name : null,

@@ -48,7 +48,6 @@
                 <b v-for="(r, i) in summary.relics" :key="i" :style="{ color: r.hex }">{{ r.name }}</b>
             </div>
             <div v-if="summary.wardenRejected" class="vx-note">The warden kill was not counted: the run was too short for the station to accept it.</div>
-            <div v-if="summary.trimmed" class="vx-note">Part of the hold was over this run's limits and stayed behind.</div>
             <div v-if="summary.pending" class="vx-note vx-filing"><i />Filing report</div>
             <div v-if="summary.failed" class="vx-note vx-note-bad">The station did not get your report. The hold is kept on this device and filed before your next launch.</div>
             <div class="vx-row">
@@ -67,7 +66,6 @@ export interface VoidRunSummary {
     pending: boolean
     /** The server never confirmed the report; the hold waits on this device. */
     failed: boolean
-    trimmed: boolean
     kills: number
     elapsedMs: number
     units: number

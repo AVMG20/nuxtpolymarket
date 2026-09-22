@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-    VOID_SHIPS, VOID_TURRETS, VOID_UPGRADES, VOID_MARKET_PRICES,
+    VOID_SHIPS, VOID_TURRETS, VOID_UPGRADES, VOID_MARKET_PRICES, VOID_MAX_RUN_MS,
     voidApplyBeaconReport, voidBeaconStates, voidCleanBeacons, voidRollBeaconAttack, voidAutoFit, voidBundleValue, voidCanAfford, voidDerivedStats, voidDescribeState, voidLoadoutFor, voidNormalizeFit, voidNormalizeLevels, voidSettleRun,
     VOID_MAX_SHIP_TIER, voidNormalizeShipTiers, voidRefitCost, voidShipAtTier, voidShipNativeTier, voidShipTier,
     voidGearTier, voidSectorResources, voidSectorUnlocked, voidShip, voidShipUnlocked, voidSubtractBundle, voidUpgradeCost, type VoidStateSnapshot
 } from '#shared/utils/gamelogic/void'
 import {
-    VOID_BOUNTY_XP, VOID_DAILY_GEAR, VOID_LORE, VOID_PERKS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidBountyXp, voidCapitalKills, voidGearCap, voidRunMarks, VOID_MAX_RUN_MARKS
+    VOID_BOUNTY_XP, VOID_DAILY_GEAR, VOID_LORE, VOID_PERKS, voidAllowedDepth, voidLoreForSector, voidNormalizePerks, voidPerkCost, voidBountyXp, voidCapitalKills, voidGearCap, voidRunMarks, VOID_MAX_RUN_MARKS, VOID_MAX_RUN_CACHES
 } from '#shared/utils/gamelogic/void-pilot'
 import { voidCleanTelemetry } from '#shared/utils/gamelogic/void-telemetry'
 import {
@@ -277,51 +277,47 @@ describe('void runner settlement', () => {
     const minutes = (n: number) => n * 60_000
 
     it('banks nothing unless the pilot docked', () => {
-        const result = voidSettleRun({ extracted: false, haul: { ferrite: 30 }, elapsedMs: minutes(4), kills: 5, wardenKilled: true }, 1, 40, minutes(4))
+        const result = voidSettleRun({ extracted: false, haul: { ferrite: 30 }, elapsedMs: minutes(4), kills: 5, wardenKilled: true }, 1, minutes(4))
         expect(result.haul).toEqual({})
         expect(result.wardenKilled).toBe(false)
     })
 
-    it('banks an honest haul unchanged', () => {
+    it('banks the haul exactly as the client counted it', () => {
         const haul = { ferrite: 650, cobalt: 100, scrap: 200 }
-        const result = voidSettleRun({ extracted: true, haul, elapsedMs: minutes(3), kills: 9, wardenKilled: false }, 1, 1000, minutes(3))
+        const result = voidSettleRun({ extracted: true, haul, elapsedMs: minutes(3), kills: 9, wardenKilled: false }, 1, minutes(3))
         expect(result.haul).toEqual(haul)
-        expect(result.trimmed).toBe(false)
+        expect(result.units).toBe(950)
         expect(result.value).toBe(voidBundleValue(haul))
     })
 
-    it('drops resources the sector cannot produce', () => {
-        const result = voidSettleRun({ extracted: true, haul: { ferrite: 10, xenite: 50 }, elapsedMs: minutes(5), kills: 0, wardenKilled: false }, 1, 400, minutes(5))
-        expect(voidSectorResources(1).has('xenite')).toBe(false)
-        expect(result.haul).toEqual({ ferrite: 10 })
-        expect(result.trimmed).toBe(true)
+    it('never trims the hold: off-sector ore, cores and big stacks all come home', () => {
+        const haul = { ferrite: 100_000, xenite: 50, core: 99 }
+        const result = voidSettleRun({ extracted: true, haul, elapsedMs: 30_000, kills: 0, wardenKilled: false }, 1, 30_000)
+        expect(result.haul).toEqual(haul)
     })
 
-    it('trims to the hold, keeping the most valuable material', () => {
-        const result = voidSettleRun({ extracted: true, haul: { ferrite: 750, cobalt: 750 }, elapsedMs: minutes(8), kills: 0, wardenKilled: false }, 1, 1000, minutes(8))
-        expect(result.units).toBe(1000)
-        expect(result.haul.cobalt).toBe(750)
-        expect(result.haul.ferrite).toBe(250)
+    it('drops zero, negative and junk entries from the haul', () => {
+        const result = voidSettleRun({ extracted: true, haul: { ferrite: 12.9, cobalt: 0, scrap: -5, bogus: 40 } as never, elapsedMs: minutes(3), kills: 0, wardenKilled: false }, 1, minutes(3))
+        expect(result.haul).toEqual({ ferrite: 12 })
     })
 
-    it('caps a haul to what the elapsed time allows, using the server clock', () => {
-        const forged = voidSettleRun({ extracted: true, haul: { cobalt: 500_000 }, elapsedMs: minutes(30), kills: 0, wardenKilled: false }, 2, 500_000, 30_000)
-        expect(forged.haul.cobalt!).toBeLessThan(2_000)
-        expect(forged.value).toBeLessThan(2_000 * VOID_MARKET_PRICES.cobalt)
-    })
-
-    it('refuses warden cores from a run too short to have reached the warden', () => {
-        const quick = voidSettleRun({ extracted: true, haul: { core: 3 }, elapsedMs: 5_000, kills: 1, wardenKilled: true }, 3, 100, 5_000)
+    it('refuses a warden kill from a run too short to have reached the warden, but still pays its cores', () => {
+        const quick = voidSettleRun({ extracted: true, haul: { core: 3 }, elapsedMs: 5_000, kills: 1, wardenKilled: true }, 3, 5_000)
         expect(quick.wardenKilled).toBe(false)
-        expect(quick.haul.core ?? 0).toBe(0)
-        const real = voidSettleRun({ extracted: true, haul: { core: 3 }, elapsedMs: minutes(6), kills: 40, wardenKilled: true }, 3, 100, minutes(6))
+        expect(quick.haul.core).toBe(3)
+        const real = voidSettleRun({ extracted: true, haul: { core: 3 }, elapsedMs: minutes(6), kills: 40, wardenKilled: true }, 3, minutes(6))
         expect(real.wardenKilled).toBe(true)
         expect(real.haul.core).toBe(3)
     })
 
     it('counts a geared pilot\'s fast sector 4 warden kill', () => {
-        const fast = voidSettleRun({ extracted: true, haul: {}, elapsedMs: minutes(3), kills: 30, wardenKilled: true }, 4, 100, minutes(3))
+        const fast = voidSettleRun({ extracted: true, haul: {}, elapsedMs: minutes(3), kills: 30, wardenKilled: true }, 4, minutes(3))
         expect(fast.wardenKilled).toBe(true)
+    })
+
+    it('clamps elapsed time to the server clock and the run limit', () => {
+        expect(voidSettleRun({ extracted: true, haul: {}, elapsedMs: minutes(30), kills: 0, wardenKilled: false }, 1, minutes(5)).elapsedMs).toBe(minutes(5))
+        expect(voidSettleRun({ extracted: true, haul: {}, elapsedMs: minutes(90), kills: 0, wardenKilled: false }, 1, minutes(90)).elapsedMs).toBe(VOID_MAX_RUN_MS)
     })
 })
 
@@ -405,31 +401,11 @@ describe('void runner pilot meta', () => {
         expect(voidRunMarks({ ...warden, wardenKilled: false, sector: 5 })).toBe(0)
     })
 
-    it('lets capital kills bank their warp cores and nothing more', () => {
-        const haul = { core: 99 }
-        const plain = voidSettleRun({ extracted: true, haul, elapsedMs: 600_000, kills: 40, wardenKilled: false, depth: 2 }, 3, 1e9, 600_000)
-        const tyrant = voidSettleRun({ extracted: true, haul, elapsedMs: 600_000, kills: 40, wardenKilled: false, tyrantKilled: true, depth: 2 }, 3, 1e9, 600_000)
-        const both = voidSettleRun({ extracted: true, haul, elapsedMs: 600_000, kills: 40, wardenKilled: false, tyrantKilled: true, harbingerKilled: true, depth: 2 }, 3, 1e9, 600_000)
-        expect(plain.haul.core).toBe(2)
-        expect(tyrant.haul.core).toBe(2 + 3)
-        expect(both.haul.core).toBe(2 + 3 + 5)
-        // A Harbinger claimed from the home zone pays nothing.
-        const forged = voidSettleRun({ extracted: true, haul, elapsedMs: 600_000, kills: 40, wardenKilled: false, harbingerKilled: true, depth: 1 }, 3, 1e9, 600_000)
-        expect(forged.haul.core).toBe(2)
-    })
-
     it('caps jump depth by elapsed time', () => {
         expect(voidAllowedDepth(8, 5_000)).toBe(1)
         expect(voidAllowedDepth(3, 60_000)).toBe(3)
         expect(voidAllowedDepth(3, 6 * 60_000)).toBe(3)
         expect(voidAllowedDepth(99, 3_600_000)).toBe(8)
-    })
-
-    it('grows the loot cap with an honest jump depth', () => {
-        const haul = { ferrite: 100_000 }
-        const shallow = voidSettleRun({ extracted: true, haul, elapsedMs: 600_000, kills: 0, wardenKilled: false, depth: 1 }, 1, 1e9, 600_000)
-        const deep = voidSettleRun({ extracted: true, haul, elapsedMs: 600_000, kills: 0, wardenKilled: false, depth: 4 }, 1, 1e9, 600_000)
-        expect(deep.haul.ferrite!).toBeGreaterThan(shallow.haul.ferrite!)
     })
 
     it('prices perks per rank and stops at max', () => {
@@ -448,28 +424,17 @@ describe('void runner pilot meta', () => {
 
 
 describe('void runner bounties and gear caps', () => {
-    it('caps reported bounty XP at one bounty per minute flown and two per run', () => {
-        expect(voidBountyXp(999, 30_000)).toBe(0)
-        expect(voidBountyXp(999, 90_000)).toBe(VOID_BOUNTY_XP)
-        expect(voidBountyXp(999, 20 * 60_000)).toBe(VOID_BOUNTY_XP * 2)
-        expect(voidBountyXp(40, 20 * 60_000)).toBe(40)
-        expect(voidBountyXp('junk', 20 * 60_000)).toBe(0)
-        expect(voidBountyXp(-80, 20 * 60_000)).toBe(0)
+    it('caps reported bounty XP at two bounties per run', () => {
+        expect(voidBountyXp(999)).toBe(VOID_BOUNTY_XP * 2)
+        expect(voidBountyXp(40)).toBe(40)
+        expect(voidBountyXp('junk')).toBe(0)
+        expect(voidBountyXp(-80)).toBe(0)
     })
 
-    it('caps salvaged gear by time, bosses and the daily limit', () => {
-        const run = { elapsedMs: 60_000, wardenKilled: false, carrierKilled: false }
-        const full = { elapsedMs: 10 * 60_000, wardenKilled: true, carrierKilled: true }
-        expect(voidGearCap(run, 0)).toBe(0)
-        expect(voidGearCap({ ...run, elapsedMs: 90_000 }, 0)).toBe(1)
-        expect(voidGearCap({ ...run, elapsedMs: 60 * 60_000 }, 0)).toBe(3)
-        expect(voidGearCap(full, 0)).toBe(5)
-        expect(voidGearCap({ ...run, elapsedMs: 5 * 60_000, tyrantKilled: true }, 0)).toBe(3)
-        // Boss kills count on any run past ten seconds.
-        expect(voidGearCap({ ...run, elapsedMs: 120_000, carrierKilled: true, wardenKilled: true }, 0)).toBe(3)
-        expect(voidGearCap({ ...run, elapsedMs: 5_000, carrierKilled: true, wardenKilled: true }, 0)).toBe(0)
-        expect(voidGearCap(full, VOID_DAILY_GEAR - 2)).toBe(2)
-        expect(voidGearCap(full, VOID_DAILY_GEAR + 3)).toBe(0)
+    it('caps salvaged gear by the per-run sanity limit and the daily limit', () => {
+        expect(voidGearCap(0)).toBe(Math.min(VOID_DAILY_GEAR, VOID_MAX_RUN_CACHES))
+        expect(voidGearCap(VOID_DAILY_GEAR - 2)).toBe(2)
+        expect(voidGearCap(VOID_DAILY_GEAR + 3)).toBe(0)
     })
 })
 
