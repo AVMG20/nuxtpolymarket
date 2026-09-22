@@ -4,6 +4,7 @@ import { ShapezzAutopilot, type ShapezzAutopilotStatus } from '~/utils/shapezz-a
 import type { ShapezzLayaDecision } from '#shared/utils/gamelogic/shapezz-autopilot'
 import {
     SHAPEZZ_CHECKPOINT_MS,
+    shapezzBossForCheckpoint,
     shapezzCheckpointPressure,
     shapezzPayoutForRun,
     shapezzRunUpgrade,
@@ -53,6 +54,7 @@ const result = ref<null | {
     capped?: boolean
 }>(null)
 const bossWarning = ref('')
+const bossTitle = ref('')
 let bossWarningTimer: ReturnType<typeof setTimeout> | null = null
 let engine: ShapezzEngine | null = null
 
@@ -103,6 +105,13 @@ const activeUpgrades = computed(() => Object.entries(snapshot.value.upgrades)
     .filter((entry): entry is [ShapezzRunUpgradeId, number] => Number(entry[1]) > 0)
     .map(([id, stacks]) => ({ ...shapezzRunUpgrade(id), stacks })))
 const currentPressure = computed(() => shapezzCheckpointPressure(snapshot.value.checkpoint))
+// Bosses arrive as each even checkpoint starts, so "wave" is the checkpoint being fought, one-based.
+const bossNextWave = computed(() => shapezzBossForCheckpoint(snapshot.value.checkpoint + 1) !== null)
+const bossWaveLabel = computed(() => {
+    if (shapezzBossForCheckpoint(snapshot.value.checkpoint)) return 'Boss wave'
+    if (bossNextWave.value) return 'Boss next'
+    return activeDifficultyId.value
+})
 // This is the same calculation used by server settlement. Never show an
 // unbankable raw loot total as the cash-out offer.
 const cashOffer = computed(() => shapezzPayoutForRun(
@@ -205,13 +214,14 @@ async function startRun() {
                 checkpointOffers.value = offers
                 sound.play('checkpoint')
             },
-            onBoss: (name) => {
+            onBoss: (name, title) => {
                 bossWarning.value = name
+                bossTitle.value = title
                 if (bossWarningTimer) clearTimeout(bossWarningTimer)
                 bossWarningTimer = setTimeout(() => { bossWarning.value = '' }, 4200)
             },
             onGameOver: (value) => { settleDefeat(value) },
-            onSfx: event => sound.play(event),
+            onSfx: (event, options) => sound.play(event, options),
             onPause: (value) => { paused.value = value },
             onFps: value => { fps.value = value }
         })
@@ -561,6 +571,11 @@ onUnmounted(() => {
                   :aria-label="`${fps} frames per second`"
                 >{{ fps }}</span>
                 <div class="rounded-lg border border-white/10 bg-black/55 px-3 py-2 text-center backdrop-blur-sm">
+                  <p class="text-[9px] font-black uppercase tracking-widest text-white/50">Wave</p>
+                  <p class="text-lg font-black tabular-nums text-white">{{ snapshot.checkpoint + 1 }}</p>
+                  <p class="text-[9px] font-bold uppercase tracking-wider" :class="bossNextWave ? 'text-secondary' : 'text-white/40'">{{ bossWaveLabel }}</p>
+                </div>
+                <div class="rounded-lg border border-white/10 bg-black/55 px-3 py-2 text-center backdrop-blur-sm">
                   <p class="text-[9px] font-black uppercase tracking-widest text-white/50">Cash offer</p>
                   <p class="text-lg font-black tabular-nums text-warning" :title="formatNumber(cashOffer, false, 2)">{{ formatNumber(cashOffer) }}</p>
                 </div>
@@ -619,6 +634,7 @@ onUnmounted(() => {
             <div v-if="bossWarning" class="pointer-events-none absolute inset-x-0 top-[38%] text-center">
               <p class="text-xs font-black uppercase tracking-[0.5em] text-secondary">Boss geometry detected</p>
               <p class="shapezz-boss mt-1 text-3xl font-black tracking-tight text-white sm:text-5xl">{{ bossWarning }}</p>
+              <p class="mt-2 text-sm font-bold italic text-white/70">{{ bossTitle }}</p>
             </div>
           </Transition>
 

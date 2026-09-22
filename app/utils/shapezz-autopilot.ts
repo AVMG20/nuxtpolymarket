@@ -219,7 +219,7 @@ export class ShapezzAutopilot {
 
     /** Point the gun at Laya's target, leading it by the shot's travel time. */
     private aimAt(view: ShapezzAutopilotView, target: ShapezzAutopilotEnemy) {
-        if (view.weapon.type === 'arcCoil') return { x: target.x, y: target.y }
+        if (view.weapon.type === 'arcCoil' || view.weapon.type === 'railgun') return { x: target.x, y: target.y }
         const t = dist(target, view.player) / Math.max(1, view.weapon.bulletSpeed)
         return { x: target.x + target.vx * t, y: target.y + target.vy * t }
     }
