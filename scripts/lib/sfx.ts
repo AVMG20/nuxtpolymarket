@@ -1,9 +1,5 @@
 // ElevenLabs sound-effects pipeline: generate a clip, decode it to PCM, and
 // cut a tight normalized one-shot out of it.
-//
-// scripts/generate-shapezz-sounds.ts still carries its own copy of this;
-// migrating it here is a safe follow-up, not something to do while its audio
-// is untouched.
 
 import { readFile, writeFile } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'

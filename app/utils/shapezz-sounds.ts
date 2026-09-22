@@ -1,188 +1,139 @@
-// Single source of truth for SHAPEZZ sound effects — consumed by both
-// in-game playback (app/composables/shapezz-sound.ts) and the generation
-// script (scripts/generate-shapezz-sounds.ts).
-//
-// Every event owns a folder public/shapezz/sound/<event>/ holding numbered
-// variants 1.wav .. SHAPEZZ_SOUND_VARIANTS.wav — playback picks one at
-// random so rapid repeats don't sound like a stuck sample. Variants that get
-// deleted during audit are skipped gracefully; regenerate missing ones with
-// the script.
-//
-// `prompt`, `trim` and `cut` are generation-time only. `cut` picks how the
-// one-shot is extracted from the generated clip: 'peak' anchors on the
-// loudest transient (right for percussive shots and impacts), 'onset'
-// anchors on the first audible sample (right for chimes/jingles/swells whose
-// loudest moment is mid-phrase).
+// SHAPEZZ sound effect events and their mix settings. Every effect is
+// synthesized at play time (app/utils/shapezz-synth.ts) and played through
+// app/composables/shapezz-sound.ts; there are no sample files.
 
 export type ShapezzSoundEvent =
-    | 'shoot-blaster'
-    | 'shoot-launcher'
-    | 'shoot-shotgun'
-    | 'drone-shoot'
-    | 'enemy-shoot'
-    | 'hit-enemy'
-    | 'explosion'
-    | 'enemy-death'
-    | 'boss-spawn'
-    | 'boss-death'
-    | 'player-hurt'
-    | 'player-death'
-    | 'dash'
-    | 'pickup-coin'
-    | 'pickup-health'
-    | 'singularity'
-    | 'checkpoint'
-    | 'upgrade'
-    | 'run-start'
-    | 'cash-out'
+    | 'shoot-blaster' | 'shoot-launcher' | 'shoot-shotgun' | 'shoot-arc'
+    | 'drone-shoot' | 'enemy-shoot' | 'enemy-shoot-heavy' | 'sniper-charge' | 'sniper-fire'
+    | 'hit-enemy' | 'hit-crit' | 'hit-armor' | 'explosion' | 'explosion-big' | 'enemy-death' | 'elite-death'
+    | 'enemy-split' | 'bomber-fuse' | 'enemy-spawn-elite'
+    | 'boss-spawn' | 'boss-attack' | 'boss-laser' | 'boss-phase' | 'boss-death'
+    | 'player-hurt' | 'player-death' | 'shield-gain' | 'shield-hit' | 'dash' | 'land'
+    | 'pickup-coin' | 'pickup-health' | 'singularity' | 'chain-lightning' | 'execute' | 'lance'
+    | 'combo-milestone' | 'checkpoint' | 'upgrade' | 'run-start' | 'cash-out'
 
-export interface ShapezzSoundSpec {
-    /** Text prompt sent to the sound-effects model. */
-    prompt: string
-    /** Seconds of audio kept in the final one-shot. */
-    trim: number
-    /** How the one-shot is anchored inside the generated clip (default 'peak'). */
-    cut?: 'peak' | 'onset'
-}
-
-/** Variants generated (and considered by playback) per event. */
-export const SHAPEZZ_SOUND_VARIANTS = 4
-
-export const SHAPEZZ_SOUND_MANIFEST: Record<ShapezzSoundEvent, ShapezzSoundSpec> = {
-    'shoot-blaster': {
-        prompt: 'Single short sci-fi laser blaster shot, punchy synthetic zap with a bright quick tail, retro arcade video game weapon one-shot',
-        trim: 0.35
-    },
-    'shoot-launcher': {
-        prompt: 'Single heavy sci-fi grenade launcher firing, deep whooshing thump of a large plasma shell, low and powerful with a short rumbling tail, video game weapon one-shot',
-        trim: 0.9
-    },
-    'shoot-shotgun': {
-        prompt: 'Single futuristic energy shotgun blast, wide aggressive burst with crunchy attack and short scattering tail, video game weapon one-shot',
-        trim: 0.55
-    },
-    'drone-shoot': {
-        prompt: 'Single tiny robotic drone laser shot, small light electronic pip with instant decay, quiet secondary weapon in an arcade video game',
-        trim: 0.25
-    },
-    'enemy-shoot': {
-        prompt: 'Single hostile alien turret plasma shot, dull menacing synthetic thud with a low tail, enemy projectile in a video game',
-        trim: 0.4
-    },
-    'hit-enemy': {
-        prompt: 'Single short bullet impact on a hard crystalline shell, tight percussive crack, video game hit marker one-shot',
-        trim: 0.25
-    },
-    'explosion': {
-        prompt: 'Single medium sci-fi plasma explosion, punchy boom with crackling energy debris and a short rumble tail, video game explosion one-shot',
-        trim: 1
-    },
-    'enemy-death': {
-        prompt: 'Single small geometric enemy shattering into pieces, glassy synthetic pop burst with brief sparkling debris, arcade video game kill sound',
-        trim: 0.5
-    },
-    'boss-spawn': {
-        prompt: 'Ominous boss arrival alarm in a sci-fi arcade game, low menacing horn blast with a rising distorted synth swell, threatening and short',
-        trim: 1.5,
-        cut: 'onset'
-    },
-    'boss-death': {
-        prompt: 'Huge sci-fi boss destruction, massive layered explosion with shattering crystal debris and a long deep rumble, climactic video game kill',
-        trim: 1.8
-    },
-    'player-hurt': {
-        prompt: 'Player taking damage in a sci-fi arcade game, sharp distorted electric shock hit with a brief alarm undertone, urgent one-shot',
-        trim: 0.45
-    },
-    'player-death': {
-        prompt: 'Player ship destroyed, deep sad explosion with a descending power-down synth pitch fall, game over moment in an arcade video game',
-        trim: 1.6,
-        cut: 'onset'
-    },
-    'dash': {
-        prompt: 'Quick sci-fi dash whoosh, short airy futuristic swish with a subtle energy shimmer, player movement one-shot in a video game',
-        trim: 0.4
-    },
-    'pickup-coin': {
-        prompt: 'Single bright coin pickup chime, short cheerful metallic ding, classic arcade video game collectible one-shot',
-        trim: 0.3
-    },
-    'pickup-health': {
-        prompt: 'Health pickup in a video game, soft warm ascending two-note healing chime with a gentle glow, positive one-shot',
-        trim: 0.5,
-        cut: 'onset'
-    },
-    'singularity': {
-        prompt: 'Small black hole vortex forming, deep sucking bass whoomp with a swirling reversed air texture, sci-fi video game gravity weapon',
-        trim: 1.2,
-        cut: 'onset'
-    },
-    'checkpoint': {
-        prompt: 'Level up checkpoint reached in an arcade game, short triumphant ascending synth arpeggio chime, bright and rewarding',
-        trim: 1,
-        cut: 'onset'
-    },
-    'upgrade': {
-        prompt: 'Powerful upgrade activating, satisfying electric power-up surge with a rising energized charge and solid click, video game one-shot',
-        trim: 0.8,
-        cut: 'onset'
-    },
-    'run-start': {
-        prompt: 'Game round starting, short energetic sci-fi power-on sweep ending in a confident synth stab, arcade video game start signal',
-        trim: 1,
-        cut: 'onset'
-    },
-    'cash-out': {
-        prompt: 'Big win payout in an arcade game, triumphant short jingle of cascading coins with a bright victorious synth chord, rewarding',
-        trim: 1.5,
-        cut: 'onset'
-    }
+export interface ShapezzSoundOptions {
+    /** Stereo position, -1 (left) .. 1 (right). */
+    pan?: number
+    /** Pitch multiplier, 1 = normal. */
+    pitch?: number
+    /** Extra gain multiplier, 1 = normal. */
+    volume?: number
 }
 
 /** Per-event mix levels relative to the player's volume setting. */
 export const SHAPEZZ_SOUND_LEVELS: Record<ShapezzSoundEvent, number> = {
-    'shoot-blaster': 0.3,
+    'shoot-blaster': 0.22,
     'shoot-launcher': 0.45,
-    'shoot-shotgun': 0.4,
-    'drone-shoot': 0.18,
-    'enemy-shoot': 0.22,
-    'hit-enemy': 0.25,
-    'explosion': 0.5,
-    'enemy-death': 0.35,
+    'shoot-shotgun': 0.38,
+    'shoot-arc': 0.3,
+    'drone-shoot': 0.12,
+    'enemy-shoot': 0.2,
+    'enemy-shoot-heavy': 0.32,
+    'sniper-charge': 0.3,
+    'sniper-fire': 0.42,
+    'hit-enemy': 0.16,
+    'hit-crit': 0.24,
+    'hit-armor': 0.24,
+    'explosion': 0.48,
+    'explosion-big': 0.62,
+    'enemy-death': 0.3,
+    'elite-death': 0.45,
+    'enemy-split': 0.3,
+    'bomber-fuse': 0.22,
+    'enemy-spawn-elite': 0.34,
     'boss-spawn': 0.6,
+    'boss-attack': 0.5,
+    'boss-laser': 0.28,
+    'boss-phase': 0.55,
     'boss-death': 0.7,
-    'player-hurt': 0.55,
-    'player-death': 0.7,
-    'dash': 0.35,
-    'pickup-coin': 0.3,
-    'pickup-health': 0.4,
-    'singularity': 0.45,
-    'checkpoint': 0.5,
-    'upgrade': 0.5,
-    'run-start': 0.5,
-    'cash-out': 0.6
+    'player-hurt': 0.5,
+    'player-death': 0.65,
+    'shield-gain': 0.36,
+    'shield-hit': 0.34,
+    'dash': 0.34,
+    'land': 0.3,
+    'pickup-coin': 0.22,
+    'pickup-health': 0.36,
+    'singularity': 0.5,
+    'chain-lightning': 0.32,
+    'execute': 0.45,
+    'lance': 0.5,
+    'combo-milestone': 0.34,
+    'checkpoint': 0.42,
+    'upgrade': 0.42,
+    'run-start': 0.45,
+    'cash-out': 0.5
 }
 
-/** Minimum ms between plays of the same event — the blaster fires up to 18/s. */
+/** Minimum ms between plays of the same event; the blaster fires up to 18/s. */
 export const SHAPEZZ_SOUND_COOLDOWNS: Record<ShapezzSoundEvent, number> = {
-    'shoot-blaster': 70,
+    'shoot-blaster': 50,
     'shoot-launcher': 120,
     'shoot-shotgun': 110,
+    'shoot-arc': 80,
     'drone-shoot': 60,
-    'enemy-shoot': 90,
-    'hit-enemy': 50,
-    'explosion': 90,
-    'enemy-death': 70,
+    'enemy-shoot': 80,
+    'enemy-shoot-heavy': 140,
+    'sniper-charge': 250,
+    'sniper-fire': 120,
+    'hit-enemy': 40,
+    'hit-crit': 60,
+    'hit-armor': 60,
+    'explosion': 80,
+    'explosion-big': 200,
+    'enemy-death': 50,
+    'elite-death': 200,
+    'enemy-split': 80,
+    'bomber-fuse': 240,
+    'enemy-spawn-elite': 400,
     'boss-spawn': 1000,
+    'boss-attack': 300,
+    'boss-laser': 600,
+    'boss-phase': 1000,
     'boss-death': 1000,
     'player-hurt': 250,
     'player-death': 1000,
+    'shield-gain': 300,
+    'shield-hit': 120,
     'dash': 150,
-    'pickup-coin': 60,
+    'land': 150,
+    'pickup-coin': 45,
     'pickup-health': 200,
     'singularity': 400,
+    'chain-lightning': 100,
+    'execute': 120,
+    'lance': 300,
+    'combo-milestone': 300,
     'checkpoint': 500,
     'upgrade': 300,
     'run-start': 1000,
     'cash-out': 1000
 }
+
+/**
+ * Most voices of one event allowed to ring at once; a new play past the cap
+ * steals the oldest. Events not listed get SHAPEZZ_SOUND_DEFAULT_VOICE_CAP.
+ */
+export const SHAPEZZ_SOUND_VOICE_CAPS: Partial<Record<ShapezzSoundEvent, number>> = {
+    'shoot-blaster': 4,
+    'drone-shoot': 3,
+    'hit-enemy': 4,
+    'hit-crit': 3,
+    'hit-armor': 3,
+    'pickup-coin': 5,
+    'enemy-shoot': 5,
+    'enemy-death': 6,
+    'explosion': 5,
+    'boss-laser': 2,
+    'boss-death': 1,
+    'boss-spawn': 1,
+    'player-death': 1,
+    'cash-out': 1,
+    'run-start': 1
+}
+
+export const SHAPEZZ_SOUND_DEFAULT_VOICE_CAP = 3
+
+/** Most voices of all events ringing at once. */
+export const SHAPEZZ_SOUND_MAX_VOICES = 48

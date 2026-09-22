@@ -1,31 +1,55 @@
-// SHAPEZZ sound playback. Follows the pirate-sound.ts shape (levels,
-// cooldowns, persisted enable/volume) but uses Web Audio instead of
-// HTMLAudioElement: the blaster fires up to 18 shots per second, which needs
-// overlapping playback from a decoded buffer plus a little pitch jitter so
-// rapid fire doesn't sound like a stuck sample.
+// SHAPEZZ sound playback. Every effect is synthesized on the fly
+// (app/utils/shapezz-synth.ts); nothing is fetched. Follows the
+// pirate-sound.ts shape (levels, cooldowns, persisted enable/volume).
 //
-// Each event owns a folder public/shapezz/sound/<event>/ with numbered
-// variant takes; play() picks randomly among the variants that actually
-// loaded, so deleting audited-out files just narrows the pool.
+// Signal chain: voice (level, pan) -> master gain (player volume) ->
+// compressor -> speakers, so dense combat squashes instead of clipping.
+// Voices are capped per event and in total; a play past a cap steals the
+// oldest voice.
 
 import {
     SHAPEZZ_SOUND_COOLDOWNS,
+    SHAPEZZ_SOUND_DEFAULT_VOICE_CAP,
     SHAPEZZ_SOUND_LEVELS,
-    SHAPEZZ_SOUND_MANIFEST,
-    SHAPEZZ_SOUND_VARIANTS,
-    type ShapezzSoundEvent
+    SHAPEZZ_SOUND_MAX_VOICES,
+    SHAPEZZ_SOUND_VOICE_CAPS,
+    type ShapezzSoundEvent,
+    type ShapezzSoundOptions
 } from '~/utils/shapezz-sounds'
+import {
+    SHAPEZZ_SYNTH_DEFAULT_JITTER,
+    SHAPEZZ_SYNTH_JITTER,
+    SHAPEZZ_SYNTH_RECIPES,
+    ShapezzSynthVoice,
+    shapezzPentatonic,
+    shapezzSynthWarmUp
+} from '~/utils/shapezz-synth'
 
 const soundEnabled = ref(true)
 const soundVolume = ref(70)
 
+interface MasterBus {
+    input: GainNode
+    compressor: DynamicsCompressorNode
+}
+
+interface ActiveVoice {
+    event: ShapezzSoundEvent
+    voice: ShapezzSynthVoice
+}
+
 let ctx: AudioContext | null = null
-const loading = new Map<string, Promise<AudioBuffer | null>>()
-/** Resolved decode results — null marks a variant that 404'd or failed. */
-const decoded = new Map<string, AudioBuffer | null>()
+let bus: MasterBus | null = null
+/** Oldest first. */
+const voices: ActiveVoice[] = []
 const lastPlayedAt = new Map<ShapezzSoundEvent, number>()
-const activeSources = new Set<AudioBufferSourceNode>()
 let initialized = false
+
+/** Coin pickups in quick succession climb the pentatonic scale. */
+const COIN_COMBO_RESET_MS = 500
+const COIN_COMBO_MAX_STEP = 7
+let coinStep = -1
+let lastCoinAt = -Infinity
 
 function ensureContext(): AudioContext | null {
     if (!import.meta.client) return null
@@ -37,86 +61,119 @@ function ensureContext(): AudioContext | null {
     return ctx
 }
 
-function loadVariant(event: ShapezzSoundEvent, variant: number): Promise<AudioBuffer | null> {
-    const key = `${event}/${variant}`
-    let cached = loading.get(key)
-    if (cached) return cached
-    cached = (async () => {
-        const context = ensureContext()
-        if (!context) return null
-        try {
-            const res = await fetch(`/shapezz/sound/${key}.wav`)
-            if (!res.ok) return null
-            return await context.decodeAudioData(await res.arrayBuffer())
-        } catch {
-            // Missing variant (not generated, or deleted during audit) —
-            // play() just won't pick it.
-            return null
-        }
-    })().then((buffer) => {
-        decoded.set(key, buffer)
-        return buffer
-    })
-    loading.set(key, cached)
-    return cached
+function masterLevel(): number {
+    return Math.max(0, Math.min(1, soundVolume.value / 100))
 }
 
-function play(event: ShapezzSoundEvent) {
-    if (!import.meta.client || !soundEnabled.value) return
+function ensureBus(context: AudioContext): MasterBus {
+    if (bus) return bus
+    const input = context.createGain()
+    input.gain.value = masterLevel()
+    const compressor = context.createDynamicsCompressor()
+    compressor.threshold.value = -12
+    compressor.knee.value = 8
+    compressor.ratio.value = 12
+    compressor.attack.value = 0.003
+    compressor.release.value = 0.2
+    input.connect(compressor)
+    compressor.connect(context.destination)
+    bus = { input, compressor }
+    return bus
+}
+
+function removeVoice(entry: ActiveVoice) {
+    const index = voices.indexOf(entry)
+    if (index !== -1) voices.splice(index, 1)
+}
+
+function steal(entry: ActiveVoice) {
+    removeVoice(entry)
+    entry.voice.release()
+}
+
+function coinPitch(now: number): number {
+    coinStep = now - lastCoinAt > COIN_COMBO_RESET_MS ? 0 : Math.min(COIN_COMBO_MAX_STEP, coinStep + 1)
+    lastCoinAt = now
+    return Math.pow(2, shapezzPentatonic(coinStep) / 12)
+}
+
+function play(event: ShapezzSoundEvent, options: ShapezzSoundOptions = {}) {
+    if (!import.meta.client || !soundEnabled.value || soundVolume.value <= 0) return
+    const context = ensureContext()
+    if (!context) return
+    if (context.state !== 'running') {
+        // Scheduling on a frozen clock would burst everything out on resume.
+        void context.resume().catch(() => {})
+        return
+    }
     const now = performance.now()
     if (now - (lastPlayedAt.get(event) ?? -Infinity) < SHAPEZZ_SOUND_COOLDOWNS[event]) return
     lastPlayedAt.set(event, now)
 
-    const available: AudioBuffer[] = []
-    for (let variant = 1; variant <= SHAPEZZ_SOUND_VARIANTS; variant++) {
-        const buffer = decoded.get(`${event}/${variant}`)
-        if (buffer) available.push(buffer)
-        else if (buffer === undefined) void loadVariant(event, variant)
+    const cap = SHAPEZZ_SOUND_VOICE_CAPS[event] ?? SHAPEZZ_SOUND_DEFAULT_VOICE_CAP
+    let same = 0
+    for (const entry of voices) if (entry.event === event) same++
+    if (same >= cap) {
+        const oldest = voices.find(entry => entry.event === event)
+        if (oldest) steal(oldest)
     }
-    const context = ensureContext()
-    const buffer = available[Math.floor(Math.random() * available.length)]
-    if (!buffer || !context) return
+    while (voices.length >= SHAPEZZ_SOUND_MAX_VOICES) steal(voices[0]!)
 
-    const source = context.createBufferSource()
-    source.buffer = buffer
-    // ±6% pitch jitter keeps rapid fire from machine-gunning one sample.
-    source.playbackRate.value = 0.94 + Math.random() * 0.12
-    const gain = context.createGain()
-    gain.gain.value = Math.min(1, (soundVolume.value / 100) * SHAPEZZ_SOUND_LEVELS[event])
-    source.connect(gain)
-    gain.connect(context.destination)
-    activeSources.add(source)
-    source.onended = () => activeSources.delete(source)
-    source.start()
+    const jitter = SHAPEZZ_SYNTH_JITTER[event] ?? SHAPEZZ_SYNTH_DEFAULT_JITTER
+    let pitch = (options.pitch ?? 1) * (1 + (Math.random() * 2 - 1) * jitter)
+    if (event === 'pickup-coin') pitch *= coinPitch(now)
+
+    const master = ensureBus(context)
+    const voice = new ShapezzSynthVoice(context, master.input, {
+        level: SHAPEZZ_SOUND_LEVELS[event] * Math.max(0, options.volume ?? 1),
+        pan: options.pan,
+        pitch,
+        start: context.currentTime + 0.005
+    })
+    const entry: ActiveVoice = { event, voice }
+    voice.onDone = () => removeVoice(entry)
+    voices.push(entry)
+    try {
+        SHAPEZZ_SYNTH_RECIPES[event](voice)
+    } catch {
+        voice.release(0)
+    }
+    voice.seal()
 }
 
-/** Stop every in-flight effect when the SHAPEZZ arena is unmounted. */
+/** Silence every in-flight effect at once (arena unmounted, sound disabled). */
 function stop() {
-    for (const source of activeSources) {
-        try {
-            source.stop()
-        } catch {
-            // A source may already have naturally ended between iteration and stop().
-        }
-    }
-    activeSources.clear()
     lastPlayedAt.clear()
+    coinStep = -1
+    lastCoinAt = -Infinity
+    if (!ctx || !bus) return
+    const old = bus
+    bus = null
+    const now = ctx.currentTime
+    old.input.gain.cancelScheduledValues(now)
+    old.input.gain.setValueAtTime(old.input.gain.value, now)
+    old.input.gain.linearRampToValueAtTime(0, now + 0.01)
+    for (const entry of voices.splice(0)) entry.voice.release(0.01)
+    setTimeout(() => {
+        old.input.disconnect()
+        old.compressor.disconnect()
+    }, 60)
 }
 
 /** Resume a suspended AudioContext — call from a user gesture (starting a run). */
 function unlock() {
     const context = ensureContext()
-    if (context && context.state === 'suspended') void context.resume()
+    if (!context) return
+    shapezzSynthWarmUp(context)
+    if (context.state === 'suspended') void context.resume().catch(() => {})
 }
 
-/** Fetch + decode every clip up front so the first shot isn't silent. */
+/** Cheap warm-up: create the context, master bus and noise buffers. */
 function preload() {
-    if (!import.meta.client) return
-    for (const event of Object.keys(SHAPEZZ_SOUND_MANIFEST) as ShapezzSoundEvent[]) {
-        for (let variant = 1; variant <= SHAPEZZ_SOUND_VARIANTS; variant++) {
-            void loadVariant(event, variant)
-        }
-    }
+    const context = ensureContext()
+    if (!context) return
+    shapezzSynthWarmUp(context)
+    ensureBus(context)
 }
 
 function initialize() {
@@ -130,8 +187,14 @@ function initialize() {
     if (storedVolume !== null && Number.isFinite(Number(storedVolume))) {
         soundVolume.value = Math.max(0, Math.min(100, Number(storedVolume)))
     }
-    watch(soundEnabled, enabled => localStorage.setItem('shapezz-sound-enabled', String(enabled)))
-    watch(soundVolume, volume => localStorage.setItem('shapezz-sound-volume', String(volume)))
+    watch(soundEnabled, (enabled) => {
+        localStorage.setItem('shapezz-sound-enabled', String(enabled))
+        if (!enabled) stop()
+    })
+    watch(soundVolume, (volume) => {
+        localStorage.setItem('shapezz-sound-volume', String(volume))
+        if (ctx && bus) bus.input.gain.setTargetAtTime(masterLevel(), ctx.currentTime, 0.02)
+    })
 }
 
 export function useShapezzSound() {
