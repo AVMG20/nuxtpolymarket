@@ -2,7 +2,7 @@
 // park is lawn to the kerb, the bathhouse and theatre are full-width facades.
 
 import type { TownBuildingId } from '#shared/utils/gamelogic/town'
-import { C, ball, box, bush, column, cone, cyl, dome, doorAt, flag, flowerBed, gableRoof, ground, hipRoof, lantern, onFace, roundTree, windowRow, type ModelSpec, type Part } from './kit'
+import { C, ball, box, bush, column, cone, cyl, dome, doorAt, flag, flowerBed, gableRoof, ground, hipRoof, lantern, onFace, roundTree, tierRoof, windowRow, type ModelSpec, type Part } from './kit'
 
 type Factory = (stage: number, variant: number) => ModelSpec
 
@@ -39,14 +39,14 @@ const park: Factory = (stage, variant) => {
     return spec
 }
 
-const bathhouse: Factory = (stage, variant) => {
+const bathhouse: Factory = (stage) => {
     const spec: ModelSpec = { parts: [ground(C.paving)] }
     const parts = spec.parts
-    const tile = [C.roofGreen, 0x3f8ea0, C.roofBlue][variant % 3]!
-    const h = 0.4 + stage * 0.1
+    const tile = tierRoof(stage)
+    const h = 0.5 + stage * 0.13
     const d = 0.58, cz = -0.2
     parts.push(box(0, 0.02, 0, 1, 0.035, 1, C.stoneLight), box(0, 0.055, cz, 0.96, h, d, C.cream), box(0, 0.055 + h - 0.03, cz, 1, 0.04, d + 0.04, C.stoneLight))
-    parts.push(cyl(0, 0.065 + h, cz, 0.5, 0.06, C.white, { seg: 12 }), dome(0, 0.125 + h, cz, 0.48, 0.24, tile, { seg: 12 }), ball(0, 0.35 + h, cz, 0.04, 0.06, C.gold, { seg: 6 }))
+    parts.push(cyl(0, 0.065 + h, cz, 0.54, 0.08, C.white, { seg: 12 }), dome(0, 0.145 + h, cz, 0.52, 0.28, tile, { seg: 12 }), ball(0, 0.41 + h, cz, 0.04, 0.06, C.gold, { seg: 6 }))
     for (const x of [-0.36, -0.12, 0.12, 0.36]) parts.push(...column(x, 0.055, 0.14, h - 0.03, C.white, C.stoneLight))
     parts.push(box(0, 0.055 + h - 0.06, 0.14, 0.92, 0.04, 0.1, C.white), ...onFace('front', 0.96, d, [...doorAt(0, 0.13, 0.22, tile), ...[-0.3, 0.3].map(x => box(x, 0.1, 0.004, 0.13, 0.2, 0.02, 0x7fd6d0, { emissive: 0x2f8f86 }))], 0, cz))
     for (const f of ['back', 'left', 'right'] as const) parts.push(...onFace(f, 0.96, d, windowRow(f === 'back' ? 0.96 : d, 0.15, f === 'back' ? 3 : 2, { h: 0.16, lit: 1 }), 0, cz))
@@ -64,20 +64,20 @@ const theatre: Factory = (stage, variant) => {
     const spec: ModelSpec = { parts: [ground(C.paving)] }
     const parts = spec.parts
     const wall = [C.wine, 0x8a3d5e, 0xa34a3f][variant % 3]!
-    const h = 0.56 + stage * 0.12
+    const h = 0.72 + stage * 0.15
     const d = 0.78, cz = -0.1
     parts.push(box(0, 0.02, cz, 0.96, h, d, wall), box(0, 0.02, cz, 0.98, 0.06, d + 0.02, C.stoneLight), box(0, 0.02 + h - 0.04, cz, 1, 0.045, d + 0.04, C.gold))
-    parts.push(...hipRoof(0, 0.025 + h, cz, 1, d + 0.04, 0.12, C.roofGreen, 0.4))
+    parts.push(...hipRoof(0, 0.025 + h, cz, 1, d + 0.04, 0.12, tierRoof(stage), 0.4))
     // Portico: steps, four columns and a gabled pediment.
     for (let i = 0; i < 3; i++) parts.push(box(0, 0.02 + i * 0.02, 0.41 - i * 0.025, 0.9 - i * 0.04, 0.02, 0.16, C.stoneLight))
-    const porch = 0.4 + stage * 0.06
+    const porch = 0.5 + stage * 0.08
     for (const x of [-0.36, -0.12, 0.12, 0.36]) parts.push(...column(x, 0.08, 0.37, porch, C.white, C.gold))
-    parts.push(box(0, 0.08 + porch, 0.35, 0.9, 0.05, 0.16, C.white), ...gableRoof(0, 0.13 + porch, 0.35, 0.94, 0.2, 0.13, C.roofGreen, 'z', C.cream), ball(0, 0.15 + porch, 0.455, 0.08, 0.08, C.gold, { seg: 6 }))
+    parts.push(box(0, 0.08 + porch, 0.35, 0.9, 0.05, 0.16, C.white), ...gableRoof(0, 0.13 + porch, 0.35, 0.94, 0.2, 0.13, tierRoof(stage), 'z', C.cream), ball(0, 0.15 + porch, 0.455, 0.08, 0.08, C.gold, { seg: 6 }))
     parts.push(...onFace('front', 0.96, d, [...[-0.24, 0, 0.24].map(x => box(x, 0.08, 0.004, 0.13, 0.22, 0.02, C.lit, { emissive: C.litGlow })), ...[-0.12, 0.12].map(x => box(x, 0.12, 0.008, 0.07, 0.2, 0.012, C.gold))], 0, cz))
     for (const f of ['back', 'left', 'right'] as const) parts.push(...onFace(f, 0.96, d, [...windowRow(f === 'back' ? 0.96 : d, 0.12, 3, { h: 0.18, lit: 1 }), ...windowRow(f === 'back' ? 0.96 : d, 0.38, 3, { h: 0.1 })], 0, cz))
     if (stage >= 1) {
         // Fly tower over the stage, and banners out front.
-        parts.push(box(0, 0.025 + h, cz - 0.16, 0.6, 0.26, 0.4, wall), box(0, 0.285 + h, cz - 0.16, 0.64, 0.03, 0.44, C.gold), ...hipRoof(0, 0.315 + h, cz - 0.16, 0.64, 0.44, 0.1, C.roofGreen, 0.16))
+        parts.push(box(0, 0.025 + h, cz - 0.16, 0.6, 0.26, 0.4, wall), box(0, 0.285 + h, cz - 0.16, 0.64, 0.03, 0.44, C.gold), ...hipRoof(0, 0.315 + h, cz - 0.16, 0.64, 0.44, 0.1, tierRoof(stage), 0.16))
         for (const x of [-0.42, 0.38]) parts.push(...flag(x, 0.08, 0.45, wall, 0.4))
         parts.push(...lantern(-0.24, 0.47, 0.06), ...lantern(0.24, 0.47, 0.06))
     }

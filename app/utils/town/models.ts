@@ -70,7 +70,7 @@ function bake(p: Part, ox = 0, oy = 0, oz = 0): THREE.BufferGeometry {
     const source = unit.getAttribute('position')
     const colors = new Float32Array(source.count * 3)
     for (let i = 0; i < source.count; i++) {
-        const light = p.flat ? 1 : 0.8 + 0.2 * (source.getY(i) + 0.5)
+        const light = p.flat ? 1 : 0.7 + 0.3 * (source.getY(i) + 0.5)
         colors[i * 3] = tint.r * light
         colors[i * 3 + 1] = tint.g * light
         colors[i * 3 + 2] = tint.b * light
