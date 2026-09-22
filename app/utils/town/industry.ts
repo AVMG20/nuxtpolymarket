@@ -6,7 +6,7 @@
 import type { TownBuildingId } from '#shared/utils/gamelogic/town'
 import {
     C, ball, barrel, box, bush, chimney, column, cone, coneRoof, crate, crystal, cyl, dome, doorAt, fence, flag, gableRoof, ground,
-    hayBale, hipRoof, lantern, logPile, onFace, pineTree, plankStack, rock, roundTree, sack, shade, silo, windowRow,
+    hayBale, hipRoof, lantern, logPile, onFace, pineTree, plankStack, rock, roundTree, sack, shade, silo, tierRoof, weathervane, windowRow,
     type ModelSpec, type Part, type Spinner
 } from './kit'
 import { HOUSE_Z, townhouse, townhouseWallHeight } from './homes'
@@ -32,21 +32,21 @@ const farm: Factory = (stage, variant) => {
     }
     const barnRed = 0xb4412f
     if (stage === 0) {
-        parts.push(box(-0.33, 0.03, -0.35, 0.26, 0.17, 0.24, C.wood), ...gableRoof(-0.33, 0.2, -0.35, 0.3, 0.28, 0.1, C.roofRed, 'x', C.wood), box(-0.33, 0.03, -0.225, 0.09, 0.12, 0.012, C.woodDark))
+        parts.push(box(-0.33, 0.03, -0.35, 0.26, 0.17, 0.24, C.wood), ...gableRoof(-0.33, 0.2, -0.35, 0.3, 0.28, 0.1, tierRoof(stage), 'x', C.wood), box(-0.33, 0.03, -0.225, 0.09, 0.12, 0.012, C.woodDark))
     } else {
         const bw = stage >= 3 ? 0.4 : 0.36
-        const bh = 0.24 + stage * 0.025
+        const bh = 0.3 + stage * 0.04
         const bx = -0.48 + bw / 2 + 0.01
-        parts.push(box(bx, 0.03, -0.32, bw, bh, 0.32, barnRed), ...gableRoof(bx, 0.03 + bh, -0.32, bw + 0.04, 0.35, 0.15, C.roofBrown, 'z', barnRed))
+        parts.push(box(bx, 0.03, -0.32, bw, bh, 0.32, barnRed), ...gableRoof(bx, 0.03 + bh, -0.32, bw + 0.04, 0.35, 0.15, tierRoof(stage), 'z', barnRed))
         parts.push(box(bx, 0.03, -0.155, 0.15, 0.17, 0.012, C.white), box(bx, 0.03, -0.15, 0.11, 0.15, 0.012, barnRed), box(bx, 0.03 + bh + 0.02, -0.155, 0.07, 0.06, 0.012, C.white))
         const silos = stage >= 4 ? 3 : stage >= 2 ? 2 : 1
-        for (let i = 0; i < silos; i++) parts.push(...silo(bx + bw / 2 + 0.09 + i * 0.155, -0.37, 0.14, 0.3 + stage * 0.04 + (i % 2) * 0.05, C.metalLight, stage >= 4 ? C.gold : C.roofRed, 0.03))
+        for (let i = 0; i < silos; i++) parts.push(...silo(bx + bw / 2 + 0.09 + i * 0.155, -0.37, 0.14, 0.38 + stage * 0.06 + (i % 2) * 0.05, C.metalLight, tierRoof(stage), 0.03))
     }
     if (stage >= 2) parts.push(...hayBale(0.36, 0.17, 0.41, 0.3), ...hayBale(0.2, 0.17, 0.41), ...fence(-0.48, 0.485, 0.48, 0.485))
     if (stage >= 3) {
         // The farmhouse stays a cottage: the field is the building.
-        const floors = stage >= 4 ? 0.3 : 0.2
-        parts.push(box(0.33, 0.03, -0.3, 0.28, floors, 0.3, C.cream), ...gableRoof(0.33, 0.03 + floors, -0.3, 0.32, 0.34, 0.12, C.roofRed, 'x', C.cream))
+        const floors = stage >= 4 ? 0.4 : 0.26
+        parts.push(box(0.33, 0.03, -0.3, 0.28, floors, 0.3, C.cream), ...gableRoof(0.33, 0.03 + floors, -0.3, 0.32, 0.34, 0.12, tierRoof(stage), 'x', C.cream))
         parts.push(...onFace('front', 0.28, 0.3, [...windowRow(0.28, 0.08, 2, { lit: 0 }), ...(stage >= 4 ? windowRow(0.28, 0.2, 2, { lit: 1 }) : [])], 0.33, -0.3))
         chimney(spec, 0.4, 0.03 + floors + 0.04, -0.36, 0.14)
     }
@@ -61,8 +61,8 @@ const farm: Factory = (stage, variant) => {
 const lumber: Factory = (stage, variant) => {
     const spec: ModelSpec = { parts: [ground(0x5d8244)] }
     const parts = spec.parts
-    const grown = 1 + stage * 0.03
-    const stand: [number, number, number][] = [[-0.31, -0.3, 1.25], [-0.07, -0.32, 1.05], [0.16, -0.3, 1.3], [0.36, -0.33, 1], [-0.36, -0.06, 1], [-0.17, -0.1, 0.95], [0.35, -0.06, 1.1], [-0.37, 0.2, 0.95]]
+    const grown = 1 + stage * 0.04
+    const stand: [number, number, number][] = [[-0.3, -0.3, 1.25], [-0.07, -0.31, 1.05], [0.16, -0.29, 1.3], [0.33, -0.33, 1], [-0.34, -0.06, 1], [-0.17, -0.1, 0.95], [0.33, -0.06, 1.1], [-0.35, 0.2, 0.95]]
     stand.forEach(([x, z, s], i) => {
         if (stage >= 3 && (i === 3 || i === 6)) return
         if (stage >= 1 && i === 5) return
@@ -77,7 +77,7 @@ const lumber: Factory = (stage, variant) => {
     if (stage >= 2) parts.push(...logPile(0.22, 0.12, 0.3, 2), box(-0.18, 0.02, 0.38, 0.03, 0.09, 0.03, C.woodDark, { rotZ: 0.4 }), box(-0.1, 0.02, 0.38, 0.03, 0.09, 0.03, C.woodDark, { rotZ: -0.4 }), cyl(-0.14, 0.02, 0.38, 0.05, 0.2, C.wood, { rotZ: Math.PI / 2, seg: 6 }))
     if (stage >= 3) {
         const h = stage >= 4 ? 0.3 : 0.22
-        parts.push(box(0.33, 0.02, -0.2, 0.3, h, 0.34, C.woodDark), ...Array.from({ length: Math.round(h / 0.05) }, (_, i) => box(0.33, 0.035 + i * 0.05, -0.2, 0.31, 0.012, 0.35, C.wood)), ...gableRoof(0.33, 0.02 + h, -0.2, 0.36, 0.4, 0.14, C.roofGreen, 'x', C.woodDark))
+        parts.push(box(0.33, 0.02, -0.2, 0.3, h, 0.34, C.woodDark), ...Array.from({ length: Math.round(h / 0.05) }, (_, i) => box(0.33, 0.035 + i * 0.05, -0.2, 0.31, 0.012, 0.35, C.wood)), ...gableRoof(0.33, 0.02 + h, -0.2, 0.36, 0.4, 0.14, tierRoof(stage), 'x', C.woodDark))
         parts.push(...onFace('front', 0.3, 0.34, [...doorAt(-0.07, 0.08, 0.14), ...windowRow(0.12, 0.08, 1, { w: 0.07, h: 0.08 }).map(p => ({ ...p, x: p.x + 0.08 }))], 0.33, -0.2))
         chimney(spec, 0.4, 0.02 + h + 0.04, -0.28, 0.16, C.stone)
     }
@@ -104,7 +104,7 @@ const quarry: Factory = (stage, variant) => {
         parts.push(box(0.12, 0.2, 0.21, 0.008, mast - 0.2, 0.008, C.iron), box(0.12, 0.14, 0.21, 0.09, 0.07, 0.09, C.stoneLight))
     }
     if (stage >= 2) {
-        parts.push(box(-0.34, 0.29, -0.39, 0.24, 0.16, 0.18, C.stoneLight), ...gableRoof(-0.34, 0.45, -0.39, 0.28, 0.22, 0.09, C.roofDark, 'x', C.stoneLight), box(-0.34, 0.29, -0.297, 0.06, 0.11, 0.01, C.woodDark))
+        parts.push(box(-0.34, 0.29, -0.39, 0.24, 0.16, 0.18, C.stoneLight), ...gableRoof(-0.34, 0.45, -0.39, 0.28, 0.22, 0.09, tierRoof(stage), 'x', C.stoneLight), box(-0.34, 0.29, -0.297, 0.06, 0.11, 0.01, C.woodDark))
     }
     if (stage >= 3) {
         // Ore tubs on a short rail out of the pit.
@@ -130,24 +130,24 @@ function sails(pivot: [number, number, number], span: number): Spinner {
     return { pivot, axis: 'z', rate: 1.6, parts }
 }
 
-const mill: Factory = (stage, variant) => {
+const mill: Factory = (stage) => {
     const spec: ModelSpec = { parts: [ground(C.cobble)] }
     const parts = spec.parts
-    const base = 0.18 + stage * 0.035
-    const tower = 0.5 + stage * 0.09
-    const cap = [C.roofBlue, C.roofRed, C.roofBrown][variant % 3]!
+    const base = 0.2 + stage * 0.04
+    const tower = 0.66 + stage * 0.12
+    const cap = tierRoof(stage)
     // A square granary fills the tile; the tower stands on it.
     parts.push(box(0, 0.02, 0, 0.96, base, 0.96, C.stoneLight), box(0, 0.02, 0, 0.98, 0.05, 0.98, C.stoneDark), box(0, 0.02 + base, 0, 1, 0.03, 1, C.stone), box(0, 0.05 + base, 0, 0.94, 0.025, 0.94, C.paving))
     parts.push(...onFace('front', 0.96, 0.96, [...doorAt(0.3, 0.11, Math.min(0.17, base - 0.02), C.woodDark, false), ...windowRow(0.5, 0.07, 2, { h: 0.08 }).map(p => ({ ...p, x: p.x - 0.17 }))]))
     for (const f of ['left', 'right', 'back'] as const) parts.push(...onFace(f, 0.96, 0.96, windowRow(0.96, 0.07, 3, { h: 0.08, sill: false, lit: 1 })))
     const y0 = 0.075 + base
     for (let i = 0; i < 4; i++) parts.push(cyl(0, y0 + i * tower / 4, 0, 0.6 - i * 0.04, tower / 4, i % 2 ? shade(C.white, -0.04) : C.white, { seg: 10 }))
-    parts.push(...coneRoof(0, y0 + tower, 0, 0.56, 0.2, cap), ...onFace('front', 0.61, 0.61, windowRow(0.12, y0 + tower * 0.18, 1, { w: 0.07, h: 0.1 })))
+    parts.push(...coneRoof(0, y0 + tower, 0, 0.56, 0.26, cap), ball(0, y0 + tower + 0.26, 0, 0.04, 0.05, C.gold, { seg: 5 }), ...onFace('front', 0.61, 0.61, windowRow(0.12, y0 + tower * 0.18, 1, { w: 0.07, h: 0.1, frame: C.trim })))
     if (stage >= 2) parts.push(cyl(0, y0 + tower * 0.42, 0, 0.74, 0.02, C.wood, { seg: 10 }), cyl(0, y0 + tower * 0.42 + 0.06, 0, 0.74, 0.012, C.woodDark, { seg: 10 }))
     parts.push(sack(-0.38, 0.075 + base, 0.38), sack(-0.3, 0.075 + base, 0.4, C.cream), ...(stage >= 1 ? [sack(0.38, 0.075 + base, 0.38), ...barrel(0.38, 0.075 + base, -0.38)] : []))
     if (stage >= 3) parts.push(...crate(-0.38, 0.075 + base, -0.38), ...crate(-0.27, 0.075 + base, -0.4, 0.09), sack(0.3, 0.075 + base, 0.41, C.cream))
-    if (stage >= 4) parts.push(...flag(0, y0 + tower + 0.2, 0, cap, 0.16))
-    const hub = y0 + tower - 0.07
+    if (stage >= 4) parts.push(...flag(0, y0 + tower + 0.3, 0, cap, 0.16))
+    const hub = y0 + tower - 0.1
     const frontZ = 0.3 - 0.04 * 3 / 2 + 0.07
     spec.spinners = [sails([0, hub, frontZ], Math.min(0.94, 2 * (hub - y0 - 0.02)))]
     return spec
@@ -155,11 +155,11 @@ const mill: Factory = (stage, variant) => {
 
 // ─── Sawmill ─────────────────────────────────────────────────────────────────
 
-const sawmill: Factory = (stage, variant) => {
+const sawmill: Factory = (stage) => {
     const spec: ModelSpec = { parts: [ground(0xc7a46c)], spinners: [] }
     const parts = spec.parts
-    const eave = 0.3 + stage * 0.05
-    const roof = [C.roofBrown, C.roofGreen, 0x9c6a3c][variant % 3]!
+    const eave = 0.36 + stage * 0.06
+    const roof = tierRoof(stage)
     const shedW = stage >= 2 ? 0.66 : 0.58
     const sx = -0.49 + shedW / 2
     // Open-fronted cutting shed: back and left walls, posts along the front.
@@ -182,7 +182,7 @@ const sawmill: Factory = (stage, variant) => {
         parts.push(box(sx, 0.02, -0.33, shedW - 0.06, eave, 0.22, C.plank), ...onFace('front', shedW - 0.06, 0.22, windowRow(shedW - 0.1, 0.12, 3, { h: 0.09, lit: 1 }), sx, -0.33))
         chimney(spec, sx - 0.12, 0.02 + eave + 0.06, -0.36, 0.2, C.stone)
     }
-    if (stage >= 4) parts.push(box(sx, 0.02 + eave + 0.2, 0, 0.2, 0.08, 0.7, C.wood), ...gableRoof(sx, 0.02 + eave + 0.28, 0, 0.26, 0.76, 0.08, roof, 'z'), ...flag(sx, 0.02 + eave + 0.36, 0.3, C.roofGreen, 0.14))
+    if (stage >= 4) parts.push(box(sx, 0.02 + eave + 0.2, 0, 0.2, 0.08, 0.7, C.wood), ...gableRoof(sx, 0.02 + eave + 0.28, 0, 0.26, 0.76, 0.08, roof, 'z'), ...flag(sx, 0.02 + eave + 0.36, 0.3, roof, 0.14))
     return spec
 }
 
@@ -210,7 +210,7 @@ const kiln: Factory = (stage) => {
     })
     parts.push(ball(stage >= 2 ? 0.42 : -0.4, 0.02, stage >= 4 ? -0.02 : 0.12, 0.16, 0.1, 0xa8714e, { seg: 6 }))
     if (stage >= 3) {
-        const h = 0.62 + (stage - 3) * 0.14
+        const h = 0.8 + (stage - 3) * 0.18
         parts.push(box(0.4, 0.02, 0.4, 0.15, h, 0.15, C.brick), box(0.4, 0.02, 0.4, 0.18, 0.08, 0.18, C.brickDark), box(0.4, 0.02 + h, 0.4, 0.18, 0.03, 0.18, C.brickDark))
         ;(spec.smoke ??= []).push([0.4, 0.1 + h, 0.4])
     }
@@ -220,19 +220,19 @@ const kiln: Factory = (stage) => {
 // ─── Bakery ──────────────────────────────────────────────────────────────────
 
 const bakery: Factory = (stage, variant) => {
-    const floors = [1, 2, 2, 3, 4][stage]!
+    const floors = [2, 2, 3, 4, 5][stage]!
     const spec = townhouse({
-        floors, wall: [0xf6d9a8, C.rose, C.cream][variant % 3]!, roof: C.roofGreen, shutters: C.shutterBrown,
-        roofKind: 'gableX', doorSide: 1, shop: [0xd9483b, C.white], dressed: stage >= 3, chimneys: 1, chimneyColor: C.white, paving: C.paving
+        floors, wall: [0xf6d9a8, C.rose, C.cream][variant % 3]!, roof: tierRoof(stage), shutters: C.shutterBrown,
+        roofKind: 'gableX', doorSide: 1, shop: [0xd9483b, C.white], dressed: stage >= 3, chimneys: 1, chimneyColor: C.white, paving: C.paving, vane: stage >= 1, turrets: stage >= 4 ? 1 : 0
     })
     const top = 0.02 + townhouseWallHeight(floors)
     // A baker's sign and a fat oven flue mark it out from the houses beside it.
     spec.parts.push(box(0.455, top - 0.12, 0.45, 0.012, 0.012, 0.1, C.iron), cyl(0.455, top - 0.21, 0.47, 0.09, 0.012, C.gold, { rotZ: Math.PI / 2, seg: 10 }), cyl(0.455, top - 0.192, 0.47, 0.045, 0.016, C.woodDark, { rotZ: Math.PI / 2, seg: 8 }))
-    spec.parts.push(box(-0.3, top + 0.02, HOUSE_Z - 0.2, 0.17, 0.3 + stage * 0.03, 0.17, C.white), box(-0.3, top + 0.32 + stage * 0.03, HOUSE_Z - 0.2, 0.2, 0.03, 0.2, C.brick))
-    ;(spec.smoke ??= []).push([-0.3, top + 0.4 + stage * 0.03, HOUSE_Z - 0.2])
+    spec.parts.push(box(-0.3, top + 0.02, HOUSE_Z - 0.2, 0.17, 0.38 + stage * 0.03, 0.17, C.white), box(-0.3, top + 0.4 + stage * 0.03, HOUSE_Z - 0.2, 0.2, 0.03, 0.2, C.brick))
+    ;(spec.smoke ??= []).push([-0.3, top + 0.48 + stage * 0.03, HOUSE_Z - 0.2])
     if (stage >= 1) spec.parts.push(box(-0.12, 0.02, 0.46, 0.4, 0.06, 0.06, C.wood), ...[-0.24, -0.12, 0].map(x => ball(x, 0.08, 0.46, 0.08, 0.04, C.hay, { seg: 6 })))
     if (stage >= 2) spec.parts.push(...barrel(-0.43, 0.02, 0.45, 0.08), sack(-0.36, 0.02, 0.46))
-    if (stage >= 4) spec.parts.push(...flag(0, top + 0.28, HOUSE_Z, 0xd9483b))
+    if (stage >= 4) spec.parts.push(...flag(0, top + 0.4, HOUSE_Z, 0xd9483b))
     return spec
 }
 
@@ -242,7 +242,7 @@ const smithy: Factory = (stage, variant) => {
     const spec: ModelSpec = { parts: [ground(C.stoneDark)] }
     const parts = spec.parts
     const wall = [0x7c8086, 0x8a8378, 0x6f767f][variant % 3]!
-    const h = [0.3, 0.36, 0.52, 0.58, 0.74][stage]!
+    const h = [0.36, 0.44, 0.62, 0.7, 0.88][stage]!
     const d = 0.76, cz = -0.11
     parts.push(box(0, 0.02, cz, 0.96, h, d, wall), box(0, 0.02, cz, 0.98, 0.06, d + 0.02, shade(wall, -0.12)))
     for (const x of [-1, 1]) for (const z of [-1, 1]) parts.push(box(x * 0.46, 0.02, cz + z * (d / 2 - 0.02), 0.06, h, 0.06, shade(wall, 0.1)))
@@ -253,9 +253,9 @@ const smithy: Factory = (stage, variant) => {
         parts.push(box(0, 0.3, cz, 0.98, 0.022, d + 0.02, shade(wall, -0.12)))
         for (const f of ['front', 'back', 'left', 'right'] as const) parts.push(...onFace(f, 0.96, d, windowRow(f === 'left' || f === 'right' ? d : 0.96, 0.37, f === 'front' ? 3 : 2, { h: 0.1, shutters: f === 'front' ? C.shutterBrown : undefined }), 0, cz))
     }
-    parts.push(...gableRoof(0, 0.02 + h, cz, 1, d + 0.06, 0.24, C.roofDark, 'x', wall))
+    parts.push(...gableRoof(0, 0.02 + h, cz, 1, d + 0.06, 0.26, tierRoof(stage), 'x', wall))
     // Forge flue: a heavy stone stack that outgrows the roof as the smithy does.
-    const stack = 0.34 + stage * 0.07
+    const stack = 0.4 + stage * 0.08
     parts.push(box(-0.18, 0.02 + h, cz - 0.16, 0.2, stack, 0.2, C.stone), box(-0.18, 0.02 + h + stack, cz - 0.16, 0.24, 0.035, 0.24, C.stoneDark))
     ;(spec.smoke ??= []).push([-0.18, 0.1 + h + stack, cz - 0.16])
     // Working yard: anvil on its block, quench trough, stock.
@@ -303,7 +303,7 @@ const mine: Factory = (stage) => {
     parts.push(box(0.08, 0.04, 0.41, 0.13, 0.07, 0.11, C.woodDark), box(0.08, 0.11, 0.41, 0.11, 0.03, 0.09, ore))
     for (let i = 0; i <= Math.min(3, stage); i++) parts.push(ball(-0.36 + i * 0.09, 0.02, 0.43 - (i % 2) * 0.07, 0.13, 0.08 + (i % 2) * 0.03, i % 2 ? shade(ore, -0.06) : ore, { seg: 6 }))
     parts.push(...[[-0.3, 0.3, -0.25], [0.12, 0.52, -0.22], [0.4, 0.34, -0.1]].map(([x, y, z]) => rock(x!, y!, z!, 0.1, 0.08, 0.09, ore, 0.7)))
-    if (stage >= 1) headframe(spec, 0.34, 0.3, 0.42 + stage * 0.09, stage >= 4 ? 2 : stage >= 2 ? 1 : 0)
+    if (stage >= 1) headframe(spec, 0.34, 0.3, 0.5 + stage * 0.11, stage >= 4 ? 2 : stage >= 2 ? 1 : 0)
     if (stage >= 2) parts.push(...lantern(-0.12, 0.34))
     if (stage >= 3) {
         // Ore bin on stilts beside the rails.
@@ -326,13 +326,13 @@ const gemmine: Factory = (stage) => {
         [-0.05, 0.5, -0.24, 0.1, 0.24, -0.2], [0.24, 0.44, -0.22, 0.12, 0.3, 0.1], [0.42, 0.03, 0.36, 0.08, 0.18, -0.2], [-0.42, 0.03, 0.44, 0.07, 0.14, 0.1],
         [0.1, 0.56, -0.12, 0.09, 0.22, 0.3], [-0.2, 0.03, 0.42, 0.08, 0.16, -0.3]
     ]
-    const grow = 1 + stage * 0.12
+    const grow = 1.15 + stage * 0.15
     seam.slice(0, 4 + stage * 1.5).forEach(([x, y, z, w, h, tilt], i) => parts.push(crystal(x, y, z, w * grow, h * grow, [C.lilac, C.violet, C.teal][i % 3], tilt)))
     if (stage >= 1) {
         const deck = 0.34
         for (const x of [0.24, 0.44]) for (const z of [0.12, 0.4]) parts.push(box(x, 0.02, z, 0.03, deck + (stage >= 2 ? 0.24 : 0), 0.03, C.woodDark))
         parts.push(box(0.34, deck, 0.26, 0.26, 0.03, 0.34, C.woodLight), crystal(0.34, deck + 0.03, 0.22, 0.06, 0.1, C.lilac), ...crate(0.36, deck + 0.03, 0.34, 0.08))
-        if (stage >= 2) parts.push(...hipRoof(0.34, deck + 0.24, 0.26, 0.34, 0.42, 0.1, C.roofGreen, 0.06))
+        if (stage >= 2) parts.push(...hipRoof(0.34, deck + 0.24, 0.26, 0.34, 0.42, 0.1, tierRoof(stage), 0.06))
     }
     if (stage >= 3) parts.push(...lantern(-0.12, 0.36), box(0.06, 0.36, 0.2, 0.04, 0.36, 0.04, C.woodDark), box(0.06, 0.7, 0.3, 0.05, 0.035, 0.26, C.gold), box(0.06, 0.5, 0.41, 0.008, 0.2, 0.008, C.iron), cyl(0.06, 0.44, 0.41, 0.08, 0.07, C.gold, { seg: 8 }))
     if (stage >= 4) parts.push(crystal(-0.2, 0.66, -0.18, 0.18, 0.44, C.lilac, 0.1), cyl(-0.2, 0.72, -0.18, 0.2, 0.03, C.gold, { seg: 6 }))
@@ -350,16 +350,16 @@ const foundry: Factory = (stage, variant) => {
     const spec: ModelSpec = { parts: [ground(0x5d5f61)] }
     const parts = spec.parts
     const wall = [0x9c3d2c, 0xa6492f, 0x8c3a33][variant % 3]!
-    const h = 0.42 + stage * 0.08
+    const h = 0.5 + stage * 0.1
     const d = 0.7, cz = -0.14
     parts.push(box(0, 0.02, cz, 0.96, h, d, wall), box(0, 0.02, cz, 0.98, 0.07, d + 0.02, C.brickDark), box(0, 0.02 + h - 0.03, cz, 0.98, 0.03, d + 0.02, C.brickDark))
     for (let i = 0; i < 5; i++) parts.push(box(-0.4 + i * 0.2, 0.02, cz + d / 2, 0.05, h, 0.03, C.brickDark))
     // A band of furnace-lit glazing instead of ordinary windows.
     parts.push(...onFace('front', 0.96, d, [box(0.1, 0.2, 0.004, 0.62, 0.09, 0.02, C.fire, { emissive: C.fire }), box(-0.34, 0.02, 0.006, 0.16, 0.2, 0.02, C.iron)], 0, cz))
     for (const f of ['left', 'right', 'back'] as const) parts.push(...onFace(f, 0.96, d, [box(0, 0.2, 0.004, (f === 'back' ? 0.96 : d) - 0.2, 0.08, 0.02, C.fire, { emissive: C.fire })], 0, cz))
-    parts.push(...gableRoof(0, 0.02 + h, cz, 1, d + 0.04, 0.16, C.roofDark, 'x', wall), box(0, 0.02 + h + 0.13, cz, 0.7, 0.07, 0.16, wall), ...gableRoof(0, 0.02 + h + 0.2, cz, 0.76, 0.22, 0.06, C.roofDark, 'x'))
+    parts.push(...gableRoof(0, 0.02 + h, cz, 1, d + 0.04, 0.16, C.roofDark, 'x', wall), box(0, 0.02 + h + 0.13, cz, 0.7, 0.07, 0.16, wall), ...gableRoof(0, 0.02 + h + 0.2, cz, 0.76, 0.22, 0.06, tierRoof(stage), 'x'))
     const stacks = Math.min(4, 2 + Math.floor(stage / 2) + (stage >= 4 ? 1 : 0))
-    for (let i = 0; i < stacks; i++) stack(spec, -0.36 + i * 0.24, cz - 0.2, 0.02 + h, 0.42 + stage * 0.07 + (i % 2) * 0.08, 0.1, C.brick)
+    for (let i = 0; i < stacks; i++) stack(spec, -0.36 + i * 0.24, cz - 0.2, 0.02 + h, 0.5 + stage * 0.09 + (i % 2) * 0.08, 0.1, C.brick)
     // Yard: ingots, a slag heap and the pouring ladle.
     for (let i = 0; i < 3 + stage; i++) parts.push(box(0.22 + (i % 2) * 0.13, 0.02 + Math.floor(i / 2) * 0.035, 0.4, 0.11, 0.03, 0.06, i % 3 ? C.metalLight : C.metal))
     parts.push(ball(-0.36, 0.02, 0.4, 0.2, 0.11, 0x3e4044, { seg: 6 }), cyl(-0.08, 0.02, 0.4, 0.12, 0.1, C.iron, { seg: 8 }), cyl(-0.08, 0.115, 0.4, 0.09, 0.008, C.fire, { seg: 8, emissive: C.fire }))
@@ -376,13 +376,13 @@ const factory: Factory = (stage, variant) => {
     const spec: ModelSpec = { parts: [ground(C.stone)], spinners: [] }
     const parts = spec.parts
     const wall = [0x6d8aa3, 0x7f93a0, 0x5f7f96][variant % 3]!
-    const floors = [1, 1, 2, 2, 3][stage]!
-    const h = 0.3 + (floors - 1) * 0.22 + (stage % 2) * 0.06
+    const floors = [1, 2, 2, 3, 4][stage]!
+    const h = 0.32 + (floors - 1) * 0.26 + (stage % 2) * 0.05
     parts.push(box(0, 0.02, 0, 0.96, h, 0.96, wall), box(0, 0.02, 0, 0.98, 0.07, 0.98, shade(wall, -0.15)))
     for (const x of [-1, 1]) for (const z of [-1, 1]) parts.push(box(x * 0.46, 0.02, z * 0.46, 0.06, h, 0.06, shade(wall, -0.1)))
     parts.push(...onFace('front', 0.96, 0.96, [box(-0.24, 0.02, 0.004, 0.3, 0.21, 0.02, C.iron), ...[0.05, 0.1, 0.15].map(y => box(-0.24, y, 0.012, 0.28, 0.012, 0.012, C.metal)), ...doorAt(0.34, 0.1, 0.18, C.metal, false)]))
     for (let floor = 0; floor < floors; floor++) {
-        const y = (floor ? 0.3 + (floor - 1) * 0.22 : 0) + 0.11
+        const y = (floor ? 0.32 + (floor - 1) * 0.26 : 0) + 0.12
         for (const f of ['front', 'back', 'left', 'right'] as const) {
             if (f === 'front' && floor === 0) continue
             parts.push(...onFace(f, 0.96, 0.96, [box(0, y, 0.004, 0.74, 0.1, 0.02, 0xbfe3f5, { emissive: 0x5aa9d6 }), ...[-0.25, 0, 0.25].map(x => box(x, y, 0.01, 0.015, 0.1, 0.02, shade(wall, -0.15)))]))
@@ -397,7 +397,7 @@ const factory: Factory = (stage, variant) => {
         parts.push(box(0, top + 0.02, z + 0.158 - 0.1, 0.9, 0.09, 0.01, 0xbfe3f5, { emissive: 0x5aa9d6 }))
     }
     const stacks = Math.min(3, 1 + Math.floor((stage + 1) / 2))
-    for (let i = 0; i < stacks; i++) stack(spec, 0.36 - i * 0.2, -0.38, top, 0.4 + stage * 0.06 + i * 0.07, 0.09, C.metalLight, C.roofRed)
+    for (let i = 0; i < stacks; i++) stack(spec, 0.36 - i * 0.2, -0.38, top, 0.5 + stage * 0.08 + i * 0.07, 0.09, C.metalLight, tierRoof(stage))
     if (stage >= 1) parts.push(cyl(-0.3, top + 0.04, 0.3, 0.2, 0.18 + stage * 0.02, C.metalLight, { seg: 10 }), dome(-0.3, top + 0.22 + stage * 0.02, 0.3, 0.2, 0.06, C.metal, { seg: 10 }))
     if (stage >= 2) {
         const pivot: [number, number, number] = [0.3, top + 0.2, 0.3]
@@ -415,13 +415,18 @@ const warehouse: Factory = (stage, variant) => {
     const spec: ModelSpec = { parts: [ground(C.cobble)] }
     const parts = spec.parts
     const timber = [0x8d99ae, 0x9aa38f, 0xa39684][variant % 3]!
-    const h = 0.3 + stage * 0.11
-    const d = 0.82, cz = -0.08
+    const h = 0.42 + stage * 0.14
+    const d = 0.8, cz = -0.08
     parts.push(box(0, 0.02, cz, 0.96, 0.14, d, C.stone), box(0, 0.16, cz, 0.96, h - 0.14, d, timber))
     for (let i = 0; i < 7; i++) parts.push(box(-0.45 + i * 0.15, 0.16, cz + d / 2 + 0.004, 0.02, h - 0.14, 0.012, shade(timber, -0.14)), box(-0.45 + i * 0.15, 0.16, cz - d / 2 - 0.004, 0.02, h - 0.14, 0.012, shade(timber, -0.14)))
     parts.push(...onFace('front', 0.96, d, [box(0, 0.02, 0.004, 0.36, 0.24, 0.02, C.woodDark), box(0, 0.02, 0.014, 0.012, 0.24, 0.012, C.iron), box(0, 0.26, 0.012, 0.42, 0.03, 0.03, C.wood)], 0, cz))
     for (let y = 0.34; y < h - 0.04; y += 0.22) for (const f of ['front', 'back', 'left', 'right'] as const) parts.push(...onFace(f, 0.96, d, windowRow(f === 'left' || f === 'right' ? d : 0.96, y, 3, { h: 0.08, w: 0.09, sill: false }), 0, cz))
-    parts.push(...gableRoof(0, 0.02 + h, cz, 1, d + 0.06, 0.2 + stage * 0.015, C.roofBrown, 'z', timber))
+    parts.push(...gableRoof(0, 0.02 + h, cz, 1, d + 0.04, 0.24 + stage * 0.02, tierRoof(stage), 'z', timber))
+    if (stage >= 3) {
+        // Clock cupola on the ridge.
+        const cy = 0.02 + h + 0.2
+        parts.push(box(0, cy, cz, 0.2, 0.26, 0.2, C.trim), cyl(0, cy + 0.13, cz + 0.1, 0.1, 0.012, C.gold, { rotX: Math.PI / 2, seg: 10 }), ...hipRoof(0, cy + 0.26, cz, 0.26, 0.26, 0.12, tierRoof(stage), 0.04), ...weathervane(0, cy + 0.38, cz, 0.12))
+    }
     // Goods pile up on the loading apron as storage grows.
     const stock = 3 + stage * 2
     for (let i = 0; i < stock; i++) {
@@ -440,25 +445,25 @@ const emporium: Factory = (stage, variant) => {
     const spec: ModelSpec = { parts: [ground(C.paving)] }
     const parts = spec.parts
     const accent = [C.purple, 0x8a3fa0, 0x5f46b8][variant % 3]!
-    const floors = 1 + Math.floor((stage + 1) / 2)
-    const h = 0.34 + (floors - 1) * 0.24
+    const floors = 2 + Math.floor((stage + 1) / 2)
+    const h = 0.34 + (floors - 1) * 0.28
     const d = 0.8, cz = -0.08
     parts.push(box(0, 0.02, 0, 1, 0.04, 1, C.stoneLight), box(0, 0.06, cz, 0.96, h, d, C.white), box(0, 0.06 + h - 0.05, cz, 1, 0.04, d + 0.04, C.gold), box(0, 0.06 + h - 0.01, cz, 0.97, 0.02, d + 0.01, C.stoneLight), box(0, 0.06, cz, 0.98, 0.05, d + 0.02, accent))
-    for (let floor = 1; floor < floors; floor++) parts.push(box(0, 0.06 + 0.3 + (floor - 1) * 0.24, cz, 0.98, 0.025, d + 0.02, C.gold))
+    for (let floor = 1; floor < floors; floor++) parts.push(box(0, 0.06 + 0.32 + (floor - 1) * 0.28, cz, 0.98, 0.025, d + 0.02, C.gold))
     // Colonnade, arched showcase windows and hanging banners.
     const colonnade = 0.3
     for (const x of [-0.42, -0.14, 0.14, 0.42]) parts.push(...column(x, 0.06, 0.4, colonnade, C.white, C.gold))
     parts.push(box(0, 0.06 + colonnade, 0.4, 0.96, 0.05, 0.12, C.white), box(0, 0.11 + colonnade, 0.4, 1, 0.025, 0.14, C.gold))
     parts.push(...onFace('front', 0.96, d, [...doorAt(0, 0.14, 0.2, accent), ...[-0.28, 0.28].map(x => box(x, 0.1, 0.004, 0.18, 0.16, 0.02, 0x7fd6d0, { emissive: 0x2f8f86 }))], 0, cz))
     for (let floor = 0; floor < floors; floor++) {
-        const y = 0.06 + (floor ? 0.36 + (floor - 1) * 0.24 : 0.12)
+        const y = 0.06 + (floor ? 0.4 + (floor - 1) * 0.28 : 0.12)
         for (const f of ['back', 'left', 'right', ...(floor ? ['front' as const] : [])] as const) parts.push(...onFace(f, 0.96, d, windowRow(f === 'left' || f === 'right' ? d : 0.96, y, 3, { h: 0.12, shutters: f === 'front' ? accent : undefined, lit: floor }), 0, cz))
     }
     for (const x of [-0.28, 0.28]) parts.push(box(x, 0.06 + h - 0.26, cz + d / 2 + 0.015, 0.09, 0.2, 0.012, accent), box(x, 0.06 + h - 0.29, cz + d / 2 + 0.015, 0.05, 0.03, 0.012, C.gold))
     const top = 0.07 + h
-    parts.push(cyl(0, top, cz, 0.5, 0.09, C.white, { seg: 12 }), cyl(0, top + 0.09, cz, 0.54, 0.025, C.gold, { seg: 12 }), dome(0, top + 0.115, cz, 0.5, 0.24 + stage * 0.015, C.gold, { seg: 12 }), cyl(0, top + 0.34 + stage * 0.015, cz, 0.06, 0.06, C.white, { seg: 8 }), cone(0, top + 0.4 + stage * 0.015, cz, 0.07, 0.12, 0xfff3b0, { seg: 6, emissive: 0xffe08a }))
-    if (stage >= 2) for (const x of [-0.37, 0.37]) parts.push(cyl(x, top, cz - 0.27, 0.17, 0.14, C.white, { seg: 8 }), dome(x, top + 0.14, cz - 0.27, 0.19, 0.11, accent, { seg: 8 }), ball(x, top + 0.24, cz - 0.27, 0.035, 0.035, C.gold, { seg: 5 }))
-    if (stage >= 4) for (const x of [-0.37, 0.37]) parts.push(cyl(x, top, cz + 0.27, 0.15, 0.1, C.white, { seg: 8 }), dome(x, top + 0.1, cz + 0.27, 0.17, 0.1, accent, { seg: 8 }), ...flag(x, top + 0.19, cz + 0.27, accent, 0.14))
+    parts.push(cyl(0, top, cz, 0.54, 0.1, C.white, { seg: 12 }), cyl(0, top + 0.1, cz, 0.58, 0.025, C.gold, { seg: 12 }), dome(0, top + 0.125, cz, 0.54, 0.28 + stage * 0.015, tierRoof(stage), { seg: 12 }), cyl(0, top + 0.4 + stage * 0.015, cz, 0.06, 0.06, C.white, { seg: 8 }), cone(0, top + 0.46 + stage * 0.015, cz, 0.07, 0.14, 0xfff3b0, { seg: 6, emissive: 0xffe08a }))
+    if (stage >= 2) for (const x of [-0.37, 0.37]) parts.push(cyl(x, top, cz - 0.27, 0.17, 0.14, C.white, { seg: 8 }), dome(x, top + 0.14, cz - 0.27, 0.19, 0.11, tierRoof(stage), { seg: 8 }), ball(x, top + 0.24, cz - 0.27, 0.035, 0.035, C.gold, { seg: 5 }))
+    if (stage >= 4) for (const x of [-0.37, 0.37]) parts.push(cyl(x, top, cz + 0.27, 0.15, 0.1, C.white, { seg: 8 }), dome(x, top + 0.1, cz + 0.27, 0.17, 0.1, tierRoof(stage), { seg: 8 }), ...flag(x, top + 0.19, cz + 0.27, tierRoof(stage), 0.14))
     if (stage >= 1) parts.push(...bush(-0.44, 0.45, 0.1), ...bush(0.44, 0.45, 0.1))
     if (stage >= 3) parts.push(...lantern(-0.28, 0.47), ...lantern(0.28, 0.47))
     return spec
