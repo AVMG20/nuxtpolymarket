@@ -54,7 +54,7 @@ const bathhouse: Factory = (stage) => {
     parts.push(box(0, 0.055, 0.34, 0.84, 0.03, 0.26, C.stoneLight), box(0, 0.075, 0.34, 0.74, 0.012, 0.17, C.water, { flat: true }), box(0, 0.076, 0.34, 0.5, 0.012, 0.06, 0x7cc4d2, { flat: true }))
     for (const x of [-0.45, 0.45]) parts.push(...bush(x, 0.43, 0.09, C.leaf, 0.055))
     if (stage >= 1) {
-        for (const x of [-0.34, 0.34]) parts.push(cyl(x, 0.065 + h, cz - 0.06, 0.2, 0.04, C.white, { seg: 8 }), dome(x, 0.105 + h, cz - 0.06, 0.19, 0.11, tile, { seg: 8 }), ball(x, 0.2 + h, cz - 0.06, 0.03, 0.04, C.gold, { seg: 5 }))
+        for (const x of [-0.34, 0.34]) parts.push(cyl(x, 0.065 + h, cz - 0.06, 0.2, 0.04, C.white, { seg: 8 }), dome(x, 0.105 + h, cz - 0.06, 0.19, 0.11, C.accent, { seg: 8 }), ball(x, 0.2 + h, cz - 0.06, 0.03, 0.04, C.gold, { seg: 5 }))
         parts.push(...lantern(-0.46, 0.2, 0.055), ...lantern(0.46, 0.2, 0.055), box(0, 0.085, 0.34, 0.05, 0.05, 0.05, C.white), ball(0, 0.135, 0.34, 0.04, 0.05, 0xbfe6ec, { seg: 5 }))
     }
     return spec

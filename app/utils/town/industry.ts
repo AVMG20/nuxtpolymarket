@@ -223,15 +223,15 @@ const bakery: Factory = (stage, variant) => {
     const floors = [2, 2, 3, 4, 5][stage]!
     const spec = townhouse({
         floors, wall: [0xf6d9a8, C.rose, C.cream][variant % 3]!, roof: tierRoof(stage), shutters: C.shutterBrown,
-        roofKind: 'gableX', doorSide: 1, shop: [0xd9483b, C.white], dressed: stage >= 3, chimneys: 1, chimneyColor: C.white, paving: C.paving, vane: stage >= 1, turrets: stage >= 4 ? 1 : 0
+        roofKind: 'gable', doorSide: 1, shop: [0xd9483b, C.white], dressed: stage >= 3, chimneys: 1, chimneyColor: C.white, paving: C.paving, vane: stage >= 1, turrets: stage >= 4 ? 1 : 0, dome: stage >= 4 ? 1 : 0
     })
     const top = 0.02 + townhouseWallHeight(floors)
     // A baker's sign and a fat oven flue mark it out from the houses beside it.
     spec.parts.push(box(0.455, top - 0.12, 0.45, 0.012, 0.012, 0.1, C.iron), cyl(0.455, top - 0.21, 0.47, 0.09, 0.012, C.gold, { rotZ: Math.PI / 2, seg: 10 }), cyl(0.455, top - 0.192, 0.47, 0.045, 0.016, C.woodDark, { rotZ: Math.PI / 2, seg: 8 }))
     spec.parts.push(box(-0.3, top + 0.02, HOUSE_Z - 0.2, 0.17, 0.38 + stage * 0.03, 0.17, C.white), box(-0.3, top + 0.4 + stage * 0.03, HOUSE_Z - 0.2, 0.2, 0.03, 0.2, C.brick))
     ;(spec.smoke ??= []).push([-0.3, top + 0.48 + stage * 0.03, HOUSE_Z - 0.2])
-    if (stage >= 1) spec.parts.push(box(-0.12, 0.02, 0.46, 0.4, 0.06, 0.06, C.wood), ...[-0.24, -0.12, 0].map(x => ball(x, 0.08, 0.46, 0.08, 0.04, C.hay, { seg: 6 })))
-    if (stage >= 2) spec.parts.push(...barrel(-0.43, 0.02, 0.45, 0.08), sack(-0.36, 0.02, 0.46))
+    if (stage >= 1) spec.parts.push(box(-0.28, 0.04, 0.24, 0.3, 0.06, 0.06, C.wood), ...[-0.38, -0.28, -0.18].map(x => ball(x, 0.1, 0.24, 0.08, 0.04, C.hay, { seg: 6 })))
+    if (stage >= 2) spec.parts.push(...barrel(-0.06, 0.04, 0.2, 0.08), sack(-0.06, 0.04, 0.3))
     if (stage >= 4) spec.parts.push(...flag(0, top + 0.4, HOUSE_Z, 0xd9483b))
     return spec
 }
@@ -462,8 +462,8 @@ const emporium: Factory = (stage, variant) => {
     for (const x of [-0.28, 0.28]) parts.push(box(x, 0.06 + h - 0.26, cz + d / 2 + 0.015, 0.09, 0.2, 0.012, accent), box(x, 0.06 + h - 0.29, cz + d / 2 + 0.015, 0.05, 0.03, 0.012, C.gold))
     const top = 0.07 + h
     parts.push(cyl(0, top, cz, 0.54, 0.1, C.white, { seg: 12 }), cyl(0, top + 0.1, cz, 0.58, 0.025, C.gold, { seg: 12 }), dome(0, top + 0.125, cz, 0.54, 0.28 + stage * 0.015, tierRoof(stage), { seg: 12 }), cyl(0, top + 0.4 + stage * 0.015, cz, 0.06, 0.06, C.white, { seg: 8 }), cone(0, top + 0.46 + stage * 0.015, cz, 0.07, 0.14, 0xfff3b0, { seg: 6, emissive: 0xffe08a }))
-    if (stage >= 2) for (const x of [-0.37, 0.37]) parts.push(cyl(x, top, cz - 0.27, 0.17, 0.14, C.white, { seg: 8 }), dome(x, top + 0.14, cz - 0.27, 0.19, 0.11, tierRoof(stage), { seg: 8 }), ball(x, top + 0.24, cz - 0.27, 0.035, 0.035, C.gold, { seg: 5 }))
-    if (stage >= 4) for (const x of [-0.37, 0.37]) parts.push(cyl(x, top, cz + 0.27, 0.15, 0.1, C.white, { seg: 8 }), dome(x, top + 0.1, cz + 0.27, 0.17, 0.1, tierRoof(stage), { seg: 8 }), ...flag(x, top + 0.19, cz + 0.27, tierRoof(stage), 0.14))
+    if (stage >= 2) for (const x of [-0.37, 0.37]) parts.push(cyl(x, top, cz - 0.27, 0.17, 0.14, C.white, { seg: 8 }), dome(x, top + 0.14, cz - 0.27, 0.19, 0.11, C.accent, { seg: 8 }), ball(x, top + 0.24, cz - 0.27, 0.035, 0.035, C.gold, { seg: 5 }))
+    if (stage >= 4) for (const x of [-0.37, 0.37]) parts.push(cyl(x, top, cz + 0.27, 0.15, 0.1, C.white, { seg: 8 }), dome(x, top + 0.1, cz + 0.27, 0.17, 0.1, C.accent, { seg: 8 }), ...flag(x, top + 0.19, cz + 0.27, C.gold, 0.14))
     if (stage >= 1) parts.push(...bush(-0.44, 0.45, 0.1), ...bush(0.44, 0.45, 0.1))
     if (stage >= 3) parts.push(...lantern(-0.28, 0.47), ...lantern(0.28, 0.47))
     return spec
