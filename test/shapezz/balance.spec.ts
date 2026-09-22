@@ -53,7 +53,12 @@ describe('SHAPEZZ checkpoint pacing', () => {
     expect(shapezzCheckpointPressure(10).health).toBeGreaterThan(11)
     expect(shapezzCheckpointPressure(12).health).toBeGreaterThan(19)
     expect(shapezzCheckpointPressure(14).health).toBeGreaterThan(31)
-    expect(shapezzCheckpointPressure(14).damage).toBeLessThan(2.2)
+    // The first mutations stay gentle so a fresh account reaches the first boss.
+    expect(shapezzCheckpointPressure(2).health).toBeLessThan(1.7)
+    // Once the arena saturates, hits have to outgrow kill healing or a maxed build never dies.
+    expect(shapezzCheckpointPressure(4).damage).toBeCloseTo(Math.pow(1.055, 4))
+    expect(shapezzCheckpointPressure(10).damage).toBeGreaterThan(4)
+    expect(shapezzCheckpointPressure(14).damage).toBeLessThan(10)
   })
 
   it('adds extra late durability to high selected difficulties without coupling it to player power', () => {
@@ -134,9 +139,9 @@ describe('SHAPEZZ permanent progression', () => {
 })
 
 describe('SHAPEZZ weapons', () => {
-  it('offers four weapon archetypes across five rarity tiers', () => {
-    expect(SHAPEZZ_WEAPONS).toHaveLength(20)
-    expect(new Set(SHAPEZZ_WEAPONS.map(weapon => weapon.type))).toEqual(new Set(['blaster', 'launcher', 'shotgun', 'arcCoil']))
+  it('offers five weapon archetypes across five rarity tiers', () => {
+    expect(SHAPEZZ_WEAPONS).toHaveLength(25)
+    expect(new Set(SHAPEZZ_WEAPONS.map(weapon => weapon.type))).toEqual(new Set(['blaster', 'launcher', 'shotgun', 'arcCoil', 'railgun']))
     expect(new Set(SHAPEZZ_WEAPONS.map(weapon => weapon.rarity))).toEqual(new Set(['common', 'rare', 'epic', 'legendary', 'mythic']))
   })
 
@@ -145,16 +150,17 @@ describe('SHAPEZZ weapons', () => {
     expect(shapezzWeapon('launcher', 'mythic').cost).toBe(50_000_000)
   })
 
-  it('keeps the launcher slow and explosive while shotgun pellets deal full damage at range', () => {
+  it('keeps the launcher slow and explosive while Scatter Array fires small missile volleys', () => {
     const launcher = shapezzWeapon('launcher', 'common')
     const shotgun = shapezzWeapon('shotgun', 'common')
 
     expect(launcher.fireRateMultiplier).toBeLessThan(0.3)
     expect(launcher.explosionRadius).toBe(125)
-    expect(shotgun.pellets).toBe(7)
-    expect(shapezzWeapon('shotgun', 'mythic').pellets).toBe(11)
+    expect(shotgun.pellets).toBe(3)
+    expect(shapezzWeapon('shotgun', 'mythic').pellets).toBe(5)
+    expect(shotgun.explosionRadius).toBe(50)
+    expect(shotgun.explosionRadius).toBeLessThan(launcher.explosionRadius)
     expect(shotgun.minFalloffDamage).toBe(1)
-    expect(shotgun.falloffEnd).toBeGreaterThan(shotgun.falloffStart)
     expect(shotgun.falloffStart).toBeGreaterThan(9000)
   })
 
@@ -166,7 +172,7 @@ describe('SHAPEZZ weapons', () => {
     expect(shapezzExplosionDamageMultiplier(radius, radius)).toBe(SHAPEZZ_LAUNCHER_EDGE_DAMAGE_MULTIPLIER)
   })
 
-  it('keeps Scatter Array close-range DPS in line with the other weapons', () => {
+  it('keeps Scatter Array full-hit DPS in line with the other weapons', () => {
     const baseFireRate = shapezzPlayerStats({ core: 0, overclock: 0, armor: 0, thrusters: 0, magnet: 0, killHeal: 0 }).fireRate
 
     for (const rarity of ['common', 'rare', 'epic', 'legendary', 'mythic'] as const) {
@@ -208,9 +214,10 @@ describe('SHAPEZZ weapons', () => {
   })
 
   it('uses bounded combat pools instead of allowing endgame effects to grow without limit', () => {
-    expect(SHAPEZZ_COMBAT_LIMITS.bullets).toBeLessThanOrEqual(520)
-    expect(SHAPEZZ_COMBAT_LIMITS.particles).toBeLessThanOrEqual(700)
-    expect(SHAPEZZ_COMBAT_LIMITS.enemies).toBeLessThanOrEqual(100)
+    expect(SHAPEZZ_COMBAT_LIMITS.playerBullets).toBeLessThanOrEqual(1200)
+    expect(SHAPEZZ_COMBAT_LIMITS.enemyBullets).toBeLessThanOrEqual(SHAPEZZ_COMBAT_LIMITS.playerBullets)
+    expect(SHAPEZZ_COMBAT_LIMITS.particles).toBeLessThanOrEqual(2000)
+    expect(SHAPEZZ_COMBAT_LIMITS.enemies).toBeLessThanOrEqual(120)
   })
 })
 
@@ -232,18 +239,18 @@ describe('SHAPEZZ new run upgrades', () => {
     expect(ceilingBattery?.stackText).toContain('full-power')
   })
 
-  it('scales Executioner modestly from a 12% starting threshold', () => {
+  it('scales Executioner modestly from an 18% starting threshold', () => {
     expect(shapezzExecutionThreshold(0)).toBe(0)
-    expect(shapezzExecutionThreshold(1)).toBe(0.12)
-    expect(shapezzExecutionThreshold(3)).toBeCloseTo(0.17)
-    expect(shapezzExecutionThreshold(99)).toBe(0.24)
+    expect(shapezzExecutionThreshold(1)).toBe(0.18)
+    expect(shapezzExecutionThreshold(3)).toBeCloseTo(0.24)
+    expect(shapezzExecutionThreshold(99)).toBe(0.3)
   })
 
   it('makes repeated KILLQUAKE stacks trigger sooner with a larger, harder blast', () => {
     const first = shapezzKillShockwaveStats(1)
     const stacked = shapezzKillShockwaveStats(4)
 
-    expect(first.kills).toBe(18)
+    expect(first.kills).toBe(12)
     expect(stacked.kills).toBeLessThan(first.kills)
     expect(stacked.radius).toBeGreaterThan(first.radius)
     expect(stacked.damageMultiplier).toBeGreaterThan(first.damageMultiplier)

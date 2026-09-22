@@ -1,5 +1,6 @@
 import {
     shapezzRunUpgrade,
+    type ShapezzEnemyType,
     type ShapezzRunUpgradeId,
     type ShapezzWeaponType
 } from './shapezz'
@@ -28,7 +29,7 @@ export const SHAPEZZ_ARENA = {
     gravity: 1900
 } as const
 
-export type ShapezzAutopilotEnemyType = 'melee' | 'shooter' | 'tank' | 'dasher' | 'boss'
+export type ShapezzAutopilotEnemyType = ShapezzEnemyType
 
 export interface ShapezzAutopilotEnemy {
     id: number
@@ -175,7 +176,7 @@ function actionState(view: ShapezzAutopilotView, action: ShapezzAutopilotAction)
     const p = view.player
     const hull = strengthWords(view)
     const shots = incomingShots(view)
-    const rammers = view.enemies.filter(enemy => enemy.type !== 'shooter')
+    const rammers = view.enemies.filter(enemy => enemy.type !== 'shooter' && enemy.type !== 'sniper' && enemy.type !== 'warden')
     const nearest = rammers.reduce<ShapezzAutopilotEnemy | null>((best, enemy) => !best || dist(enemy, p) < dist(best, p) ? enemy : best, null)
     if (action === 'left' || action === 'right') {
         const sign = action === 'left' ? -1 : 1
@@ -225,6 +226,11 @@ function targetWords(enemy: ShapezzAutopilotEnemy, view: ShapezzAutopilotView) {
         dasher: 'a fast rammer that lunges at you',
         tank: 'a slow armoured tank that hits hard',
         shooter: 'a gunner that shoots from range',
+        splitter: 'a splitter that bursts into three fast shards when killed',
+        shard: 'a small fast shard that rams you',
+        bomber: 'a bomber that explodes next to you; killing it first blows up its neighbours',
+        sniper: 'a sniper that aims a laser and fires one fast shot',
+        warden: 'a warden that halves the damage its neighbours take; kill it first',
         boss: 'the boss, which fires rings of shots'
     }[enemy.type]
     const side = enemy.x < view.player.x ? 'to the left' : 'to the right'
@@ -339,8 +345,9 @@ export interface ShapezzCheckpointContext {
 const WEAPON_WORDS: Record<ShapezzWeaponType, string> = {
     blaster: 'Pulse Carbine, fast precise single shots',
     launcher: 'Nova Mortar, slow shells with a wide blast',
-    shotgun: 'Scatter Array, a close-range spread of pellets',
-    arcCoil: 'Arc Coil, short-range lightning that leaps between enemies; it fires no projectiles'
+    shotgun: 'Scatter Array, micro-missiles that curve onto enemies near where you aim',
+    arcCoil: 'Arc Coil, short-range lightning that leaps between enemies; it fires no projectiles',
+    railgun: 'Rail Driver, a slow hitscan slug that pierces every enemy on the line; line enemies up'
 }
 
 function buildWords(upgrades: Partial<Record<ShapezzRunUpgradeId, number>>) {

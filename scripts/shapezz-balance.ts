@@ -11,16 +11,17 @@
  * Once spawn rate outruns kill rate the arena fills, the player is cornered and
  * the run is over inside a checkpoint. That is not how a human dies in every
  * run, but it is what decides the *ceiling* of a build, which is the thing the
- * economy is priced against.
+ * economy is priced against. For what real runs do, play them:
+ * `bun run balance:shapezz-playtest` drives the actual engine with a bot.
  */
 
 import {
     INVESTMENT_TIERS, coins, compact, heading, pad, padRight, printTargets, rule, verdict
 } from './lib/balance-report'
 import {
-    SHAPEZZ_CHECKPOINT_MS, SHAPEZZ_COMBAT_LIMITS, SHAPEZZ_DIFFICULTIES, SHAPEZZ_MAX_KILL_HEAL_LEVEL,
+    SHAPEZZ_CHECKPOINT_MS, SHAPEZZ_COMBAT_LIMITS, SHAPEZZ_DIFFICULTIES, SHAPEZZ_ENEMIES, SHAPEZZ_MAX_KILL_HEAL_LEVEL,
     SHAPEZZ_MAX_PERMANENT_LEVEL, SHAPEZZ_PERMANENT_UPGRADES, SHAPEZZ_PERMANENT_UPGRADE_IDS,
-    SHAPEZZ_WEAPONS, shapezzCheckpointPressure, shapezzEnemyCoinValue, shapezzEnemyHealthMultiplier,
+    SHAPEZZ_WEAPONS, shapezzCheckpointPressure, shapezzEnemyCoinValue, shapezzEnemyHealthMultiplier, shapezzEnemyMix,
     shapezzDifficulty, shapezzIntensity, shapezzMaxPayoutForRun, shapezzPermanentUpgradeCost, shapezzPlayerStats,
     shapezzWeapon, shapezzWeaponPointBlankDps,
     type ShapezzDifficultyId, type ShapezzPermanentUpgradeId, type ShapezzWeapon
@@ -29,13 +30,11 @@ import {
 const STEP_MS = 1_000
 const RUN_CAP_MS = 20 * 60_000
 
-/** Enemy mix from `ShapezzEngine.spawnEnemy`, weighted by its roll thresholds. */
-const ENEMY_MIX = [
-    { share: 0.44, hp: 38, damage: 13, reward: 15 },
-    { share: 0.26, hp: 52, damage: 10, reward: 22 },
-    { share: 0.18, hp: 62, damage: 18, reward: 30 },
-    { share: 0.12, hp: 155, damage: 22, reward: 50 }
-] as const
+/** The engine's random spawn mix at this point of the run: every unlocked shape by weight. */
+function enemyMix(elapsedMs: number) {
+    return shapezzEnemyMix(Math.floor(elapsedMs / SHAPEZZ_CHECKPOINT_MS))
+        .map(({ type, share }) => ({ share, ...SHAPEZZ_ENEMIES[type] }))
+}
 
 /**
  * Share of a shape's contact damage that actually lands. The player is mobile
@@ -127,20 +126,20 @@ function spawnRate(elapsedMs: number, difficultyId: ShapezzDifficultyId) {
 function averageEnemyHp(elapsedMs: number, difficultyId: ShapezzDifficultyId) {
     const health = shapezzEnemyHealthMultiplier(elapsedMs, difficultyId)
         * shapezzCheckpointPressure(Math.floor(elapsedMs / SHAPEZZ_CHECKPOINT_MS)).health
-    return ENEMY_MIX.reduce((sum, tier) => sum + tier.share * tier.hp, 0) * health
+    return enemyMix(elapsedMs).reduce((sum, tier) => sum + tier.share * tier.hp, 0) * health
 }
 
 function averageEnemyDamage(elapsedMs: number, difficultyId: ShapezzDifficultyId) {
     const pressure = shapezzCheckpointPressure(Math.floor(elapsedMs / SHAPEZZ_CHECKPOINT_MS))
     const minutes = elapsedMs / 60_000
-    return ENEMY_MIX.reduce((sum, tier) => sum + tier.share * tier.damage, 0)
+    return enemyMix(elapsedMs).reduce((sum, tier) => sum + tier.share * tier.damage, 0)
         * shapezzDifficulty(difficultyId).enemyDamage
         * (1 + minutes * 0.1)
         * pressure.damage
 }
 
 function averageEnemyCoin(elapsedMs: number, difficultyId: ShapezzDifficultyId) {
-    return ENEMY_MIX.reduce(
+    return enemyMix(elapsedMs).reduce(
         (sum, tier) => sum + tier.share * shapezzEnemyCoinValue(tier.reward, elapsedMs, difficultyId),
         0
     )

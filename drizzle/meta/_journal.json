@@ -316,6 +316,13 @@
       "when": 1789893682603,
       "tag": "0044_next_shape",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1790087888610,
+      "tag": "0045_parallel_logan",
+      "breakpoints": true
     }
   ]
 }
