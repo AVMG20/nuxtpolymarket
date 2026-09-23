@@ -1,2175 +1,2183 @@
 <script setup lang="ts">
-import { parseAmount } from '#shared/utils/parse-amount'
-import type { BonusResult, BonusSpinResult, BonusTier, BookOfShadowsResult, Cell, ConnectionWin, SlotSymbol } from '#shared/utils/gamelogic/bookofshadows'
-import { BONUS_TIERS, BOS_BUY_BONUS_COST, BOS_COLS, BOS_MAX_WIN_MULT, BOS_MIN_CONNECTION, BOS_ROWS, BONUS_SPINS, BONUS_RETRIGGER_BOOKS, BONUS_RETRIGGER_SPINS, BONUS_TRIGGER_COUNT, PAYTABLE, SYMBOL_WEIGHTS, playBookOfShadows } from '#shared/utils/gamelogic/bookofshadows'
-import { BOS_BONUS_SHEET_H, BOS_BONUS_SHEET_W, BOS_BONUS_SPRITE_SRC, BOS_BONUS_SYMBOL_META, BOS_SHEET_H, BOS_SHEET_W, BOS_SPRITE_SRC, BOS_SYMBOL_META } from '~/utils/bookofshadows-sprite'
-import { initSlotPixiApp, safeDestroy } from '~/utils/slot-pixi'
-
-definePageMeta({
-  title: 'Book of Shadows'
-})
+import type { BonusResult, BonusTier, BookOfShadowsResult, Cell, SlotSymbol } from '#shared/utils/gamelogic/bookofshadows'
+import {
+  BONUS_RETRIGGER_SPINS,
+  BONUS_SPINS,
+  BONUS_TIERS,
+  BONUS_TRIGGER_COUNT,
+  BOS_BUY_BONUS_COST,
+  BOS_COLS,
+  BOS_MAX_WIN_MULT,
+  PAYTABLE,
+  playBookOfShadows
+} from '#shared/utils/gamelogic/bookofshadows'
+import { bosIconStyle } from '~/utils/bookofshadows-sprite'
+import { BosAudio } from '~/utils/slots/bookofshadows-audio'
+import { BosStage } from '~/utils/slots/bookofshadows-stage'
+import BosAutoplay from './bookofshadows/BosAutoplay.vue'
+import BosBigWin from './bookofshadows/BosBigWin.vue'
+import BosFeatureIntro from './bookofshadows/BosFeatureIntro.vue'
+import BosInfo from './bookofshadows/BosInfo.vue'
 
 const { fetchSession } = useAuth()
+const toast = useToast()
 const { bet, isSpinning, errorMsg, balance, setBalance, history, pushHistory, spin: requestSpin } = useSlotGame<BookOfShadowsResult, { payout: number, bet: number, bonus: boolean }>('bookofshadows')
 
-// --- bet / controls ----------------------------------------------------------
+// --- bet ------------------------------------------------------------------------
 
 const MIN_BET = 1
 const MAX_BET = 100_000_000_000
-const betInput = ref('10')
-const buyBonusCost = computed(() => Math.round(bet.value * BOS_BUY_BONUS_COST * 100) / 100)
+const BIG_WIN_X = 15
+const BET_STEPS: number[] = []
+for (let e = 0; e <= 11; e++) {
+  for (const m of [1, 2, 5]) {
+    const v = m * 10 ** e
+    if (v <= MAX_BET) BET_STEPS.push(v)
+  }
+}
+
+const betDraft = ref(bet.value)
+const betText = useAmountInput(betDraft, { integer: true })
+const betFocused = ref(false)
+watch(bet, (v) => {
+  betDraft.value = v
+})
+
+const buyCost = computed(() => Math.round(bet.value * BOS_BUY_BONUS_COST * 100) / 100)
 const turbo = ref(false)
-const showHelp = ref(false)
+const showInfo = ref(false)
+const showAutoplay = ref(false)
+const confirmBuy = ref(false)
+const soundOpen = ref(false)
 
-const autoSpinEnabled = ref(false)
-const autoSpinsLeft = ref(0)
-const autoSpinPaused = ref(false)
-const showAutoSpinModal = ref(false)
-const AUTO_SPIN_OPTIONS = [10, 25, 50, 100, 250]
-let resumeAutoSpin: (() => void) | null = null
+const auto = reactive({ on: false, left: 0, stopOnFeature: true, stopOnBigWin: false })
 
-watch(bet, (value) => {
-  betInput.value = String(value)
-}, { immediate: true })
+// --- round state ----------------------------------------------------------------
 
-function clampBet(value: number): number {
+const ready = ref(false)
+const winMeter = ref(0)
+const lastWin = ref(0)
+const winFlash = ref(0)
+const feature = reactive({
+  active: false,
+  spin: 0,
+  total: BONUS_SPINS,
+  tier: null as BonusTier | null,
+  locked: [] as number[],
+  won: 0
+})
+const intro = ref<{ tier: BonusTier, spins: number, bet: number } | null>(null)
+const celebration = ref<{ amount: number, bet: number, mode: 'win' | 'feature', spins?: number } | null>(null)
+const retrigger = ref(false)
+const introRef = ref<InstanceType<typeof BosFeatureIntro> | null>(null)
+const bigWinRef = ref<InstanceType<typeof BosBigWin> | null>(null)
+let introResolve: (() => void) | null = null
+let celebrationResolve: (() => void) | null = null
+
+const busy = computed(() => isSpinning.value || feature.active || Boolean(intro.value) || Boolean(celebration.value))
+const locked = computed(() => busy.value || auto.on)
+
+const canvasHost = ref<HTMLDivElement | null>(null)
+const rootEl = ref<HTMLDivElement | null>(null)
+const soundEl = ref<HTMLDivElement | null>(null)
+let stage: BosStage | null = null
+let destroyed = false
+
+const audio = new BosAudio()
+const volume = audio.volume
+const muted = audio.muted
+const music = audio.music
+
+const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
+const pace = (ms: number) => wait(turbo.value ? Math.round(ms * 0.5) : ms)
+
+function fmt(value: number) {
+  return value >= 1e9 ? formatNumber(value) : formatNumber(value, false)
+}
+
+const touchOnly = import.meta.client && window.matchMedia?.('(hover: none)').matches
+
+const statusLine = computed(() => {
+  if (auto.on) return `Autoplay · ${auto.left} left`
+  if (feature.active) return `Free spin ${feature.spin} of ${feature.total}`
+  if (lastWin.value > 0 && !isSpinning.value) return `Last win ${fmt(lastWin.value)}`
+  return touchOnly ? 'Tap spin to play' : 'Press Space to spin'
+})
+
+const TOP_PAYS: SlotSymbol[] = ['book', 'hood', 'scythe', 'orb', 'sword']
+const topTier = BONUS_TIERS.reduce((a, b) => (b.multiplier > a.multiplier ? b : a))
+const DRAW_PREVIEW = [...BONUS_TIERS].sort((a, b) => b.multiplier - a.multiplier).slice(0, 3)
+
+// --- bet controls ---------------------------------------------------------------
+
+function clampBet(value: number) {
   if (!Number.isFinite(value) || value < MIN_BET) return MIN_BET
   return Math.min(MAX_BET, Math.floor(value))
 }
 
-function locked() {
-  return isSpinning.value || showBonusPick.value || bonusRunning.value || autoSpinEnabled.value
-}
-
 function setBet(value: number) {
-  if (locked()) return
+  if (locked.value) return
   bet.value = clampBet(value)
+  confirmBuy.value = false
 }
 
-function commitBetInput() {
-  setBet(parseAmount(betInput.value) ?? MIN_BET)
-  betInput.value = String(bet.value)
-}
-
-function betDown() {
-  setBet(Math.floor(bet.value / 2))
+function commitBet() {
+  betFocused.value = false
+  setBet(betDraft.value)
+  betDraft.value = bet.value
+  betText.value = String(bet.value)
 }
 
 function betUp() {
-  setBet(bet.value * 2)
+  if (locked.value) return
+  audio.synth('bet-up')
+  setBet(BET_STEPS.find(s => s > bet.value) ?? MAX_BET)
 }
 
-function startAutoSpin(count: number) {
-  autoSpinsLeft.value = count
-  autoSpinEnabled.value = true
-  autoSpinPaused.value = false
-  showAutoSpinModal.value = false
-  if (!isSpinning.value) void spin()
+function betDown() {
+  if (locked.value) return
+  audio.synth('bet-down')
+  setBet([...BET_STEPS].reverse().find(s => s < bet.value) ?? MIN_BET)
 }
 
-function stopAutoSpin() {
-  autoSpinEnabled.value = false
-  autoSpinsLeft.value = 0
-  autoSpinPaused.value = false
-  resumeAutoSpin?.()
-  resumeAutoSpin = null
+function maxBet() {
+  if (locked.value) return
+  audio.synth('bet-up')
+  const affordable = [...BET_STEPS].reverse().find(s => s <= balance.value)
+  setBet(affordable ?? MIN_BET)
 }
 
-// --- game state ----------------------------------------------------------------
-
-const ready = ref(false)
-const status = ref('Ready')
-const lastWin = ref(0)
-const totalWin = ref(0)
-const totalWinPulse = ref(false)
-
-const bonusData = ref<BonusResult | null>(null)
-const showBonusPick = ref(false)
-const rolling = ref(false)
-const rolledTier = ref<BonusTier | null>(null)
-const bonusRunning = ref(false)
-const bonusSpinIndex = ref(0)
-const bonusSpinTotal = ref(BONUS_SPINS)
-const bonusTotal = ref(0)
-const skullColumns = ref(0)
-
-const retriggerBanner = ref(false)
-
-const bigWinBanner = ref(false)
-const bigWinLabel = ref('')
-const bigWinAmount = ref(0)
-const bigWinGradient = ref('')
-const bigWinGlow = ref('')
-
-// Advertised max win. The hard cap (BOS_MAX_WIN_MULT) is 20,000× and is still
-// enforced server-side, but the rebalanced tiers keep real wins around ~10,000×
-// — so that's the ceiling we surface to players.
-const BOS_DISPLAY_MAX_WIN = 10000
-const BOS_VOLATILITY = 5
-
-// --- pixi layout ---------------------------------------------------------------
-
-const canvasHost = ref<HTMLDivElement | null>(null)
-const CELL = 108
-const GAP = 9
-const MARGIN = 18
-const REEL_W = BOS_COLS * CELL + (BOS_COLS - 1) * GAP
-const REEL_H = BOS_ROWS * CELL + (BOS_ROWS - 1) * GAP
-const APP_W = REEL_W + MARGIN * 2
-const APP_H = REEL_H + MARGIN * 2
-
-let pixiApp: import('pixi.js').Application | null = null
-let reelSet: import('pixi-reels').ReelSet | null = null
-let linesLayer: import('pixi.js').Graphics | null = null
-let effectsLayer: import('pixi.js').Container | null = null
-let resizeObserver: ResizeObserver | null = null
-let GSAP: typeof import('gsap').gsap | null = null
-let destroyed = false
-
-// While a bonus is running, locked "bonuswild" cells render as an upgraded
-// version of the rolled bonus symbol (blood frame, same sprite) instead of a
-// generic skull.
-let bonusSymbolOverride: SlotSymbol | null = null
-
-// Symbol textures cropped from sprite.png (base grid) and bonus.png (the
-// bonus-tier reveal / locked-column art). Crop rects live in
-// app/utils/bookofshadows-sprite.ts — tune them via /games/bookofshadows-sprite-debug.
-const TEX_BASE: Partial<Record<SlotSymbol, import('pixi.js').Texture>> = {}
-const TEX_BONUS: Partial<Record<SlotSymbol, import('pixi.js').Texture>> = {}
-
-// --- theme: dark grimoire, bone gray, blood red ---------------------------------
-
-interface SymbolVisual {
-  glyph: string
-  glyphSize: number
-  serif: boolean
-  glyphColor: number
-  fill: number
-  rim: number
-  rimAlpha: number
-  label?: string
+function toggleTurbo() {
+  turbo.value = !turbo.value
+  audio.synth('toggle')
+  try {
+    localStorage.setItem('bos_turbo', turbo.value ? '1' : '0')
+  } catch { /* ignore */ }
 }
 
-type SymbolIconStyle = {
-  width: string
-  height: string
-  backgroundImage: string
-  backgroundSize: string
-  backgroundPosition: string
-}
+// --- win meter ------------------------------------------------------------------
 
-const SYMBOL_VISUAL: Record<SlotSymbol, SymbolVisual> = {
-  ten: { glyph: '10', glyphSize: 38, serif: true, glyphColor: 0x6b7280, fill: 0x121417, rim: 0x2b2f36, rimAlpha: 0.9 },
-  jack: { glyph: 'J', glyphSize: 46, serif: true, glyphColor: 0x7d8694, fill: 0x121417, rim: 0x2b2f36, rimAlpha: 0.9 },
-  queen: { glyph: 'Q', glyphSize: 46, serif: true, glyphColor: 0x94a3b8, fill: 0x131519, rim: 0x323843, rimAlpha: 0.9 },
-  king: { glyph: 'K', glyphSize: 46, serif: true, glyphColor: 0xb6bec9, fill: 0x14161a, rim: 0x3a414d, rimAlpha: 0.9 },
-  ace: { glyph: 'A', glyphSize: 46, serif: true, glyphColor: 0xe2e8f0, fill: 0x15171c, rim: 0x4b5563, rimAlpha: 0.95 },
-  sword: { glyph: 'S', glyphSize: 44, serif: false, glyphColor: 0xffffff, fill: 0x15141a, rim: 0x52525b, rimAlpha: 1, label: 'SWORD' },
-  orb: { glyph: 'O', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x161320, rim: 0x5b4a8a, rimAlpha: 1, label: 'ORB' },
-  scythe: { glyph: 'Y', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x0f1a14, rim: 0x2f6b4f, rimAlpha: 1, label: 'SCYTHE' },
-  hood: { glyph: 'H', glyphSize: 48, serif: false, glyphColor: 0xffffff, fill: 0x1c1114, rim: 0x8a3a3a, rimAlpha: 1, label: 'HOOD' },
-  book: { glyph: 'B', glyphSize: 50, serif: false, glyphColor: 0xffffff, fill: 0x1f0d0d, rim: 0xb91c1c, rimAlpha: 1, label: 'BOOK' },
-  bonuswild: { glyph: 'W', glyphSize: 52, serif: false, glyphColor: 0xffffff, fill: 0x230607, rim: 0xef4444, rimAlpha: 1, label: 'WILD' }
-}
+let countRaf = 0
 
-const SYMBOL_NAME: Record<SlotSymbol, string> = {
-  ten: 'Ten',
-  jack: 'Jack',
-  queen: 'Queen',
-  king: 'King',
-  ace: 'Ace',
-  sword: 'Sword',
-  orb: 'Orb',
-  scythe: 'Scythe',
-  hood: 'Hood',
-  book: 'The Book (wild + scatter)',
-  bonuswild: 'Skull Wild (bonus only)' // not shown in the paytable, see PAYTABLE_ROWS
-}
-
-// The Skull Wild (bonuswild) row is intentionally left out — it never lands in
-// the base game and its value only makes sense as "base rate × rolled tier",
-// which the bonus copy explains separately.
-const PAYTABLE_ROWS = (Object.keys(PAYTABLE) as SlotSymbol[])
-  .filter(id => id !== 'bonuswild')
-  .map(id => ({
-    id,
-    name: SYMBOL_NAME[id],
-    pays: PAYTABLE[id]
-  })).reverse()
-
-// Blood-and-bone big win tiers, in × bet of the full round payout.
-const WIN_TIERS = [
-  { threshold: 500, label: 'UNHOLY WIN', from: '#fecaca', to: '#7f1d1d', glow: 'rgba(239,68,68,0.85)' },
-  { threshold: 150, label: 'CURSED WIN', from: '#fca5a5', to: '#991b1b', glow: 'rgba(220,38,38,0.75)' },
-  { threshold: 60, label: 'MEGA WIN', from: '#f87171', to: '#b91c1c', glow: 'rgba(220,38,38,0.65)' },
-  { threshold: 25, label: 'BIG WIN', from: '#e4e4e7', to: '#71717a', glow: 'rgba(228,228,231,0.5)' },
-  { threshold: 10, label: 'DARK WIN', from: '#a1a1aa', to: '#3f3f46', glow: 'rgba(161,161,170,0.45)' }
-] as const
-
-// --- helpers -------------------------------------------------------------------
-
-const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
-const stepDelay = (ms: number) => wait(turbo.value ? Math.round(ms * 0.55) : ms)
-const cellKey = (c: Cell) => `${c.col}:${c.row}`
-
-// The rolled bonus symbol's multiplier — every skull-column (wild) win during
-// the bonus is multiplied by this. Shown as "×8" so it never reads as a flat
-// prize: ordinary-symbol wins are unaffected, only skull-column wins scale.
-const tierMult = (multiplier: number) => `×${multiplier}`
-
-// Odds of rolling a given bonus symbol, derived exactly from its tier weight
-// (not the noisy Monte-Carlo estimate) — so "how rare is the Hood?" is
-// answerable at a glance in the help card. Verified against
-// scripts/bookofshadows-rtp.ts (buyBonus mode).
-const totalTierWeight = BONUS_TIERS.reduce((sum, t) => sum + t.weight, 0)
-const tierChance = (weight: number) => `1 in ${Math.round(totalTierWeight / weight)}`
-
-function symbolIconStyle(symbol: SlotSymbol, bonus = false, size = 30): SymbolIconStyle {
-  const useBonusSheet = (bonus && symbol !== 'ten') || symbol === 'bonuswild'
-  const meta = useBonusSheet
-    ? BOS_BONUS_SYMBOL_META[symbol === 'bonuswild' ? 'book' : symbol as BonusTier['symbol']]
-    : BOS_SYMBOL_META[symbol as Exclude<SlotSymbol, 'bonuswild'>]
-  const src = useBonusSheet ? BOS_BONUS_SPRITE_SRC : BOS_SPRITE_SRC
-  const sheetW = useBonusSheet ? BOS_BONUS_SHEET_W : BOS_SHEET_W
-  const sheetH = useBonusSheet ? BOS_BONUS_SHEET_H : BOS_SHEET_H
-  const [x, y, w, h] = meta.rect
-  const scale = size / Math.max(w, h)
-
-  return {
-    width: `${Math.round(w * scale)}px`,
-    height: `${Math.round(h * scale)}px`,
-    backgroundImage: `url(${src})`,
-    backgroundSize: `${sheetW * scale}px ${sheetH * scale}px`,
-    backgroundPosition: `${-x * scale}px ${-y * scale}px`
+function countWin(target: number, betAmount: number) {
+  cancelAnimationFrame(countRaf)
+  const from = winMeter.value
+  const diff = target - from
+  if (diff <= 0) {
+    winMeter.value = target
+    return
   }
-}
-
-function scaledRect(rect: [number, number, number, number], sourceW: number, sourceH: number, sheetW: number, sheetH: number) {
-  const [x, y, w, h] = rect
-  const sx = sourceW / sheetW
-  const sy = sourceH / sheetH
-
-  return [x * sx, y * sy, w * sx, h * sy] as [number, number, number, number]
-}
-
-function pulseWin() {
-  totalWinPulse.value = true
-  window.setTimeout(() => {
-    totalWinPulse.value = false
-  }, 320)
-}
-
-const tickRuns = new WeakMap<Ref<number>, number>()
-
-function tickNumber(target: Ref<number>, to: number, duration = 320, respectTurbo = true) {
-  const run = (tickRuns.get(target) ?? 0) + 1
-  tickRuns.set(target, run)
-  const from = target.value
+  winFlash.value++
+  const ratio = diff / Math.max(betAmount, 0.0001)
+  const duration = turbo.value ? 380 : Math.min(1900, 480 + Math.log10(1 + ratio) * 650)
   const start = performance.now()
-  const d = respectTurbo && turbo.value ? Math.round(duration * 0.5) : duration
+  let lastTick = 0
   const frame = (now: number) => {
-    if (tickRuns.get(target) !== run) return
-    const t = Math.min(1, (now - start) / d)
-    const eased = 1 - (1 - t) ** 3
-    target.value = Number((from + (to - from) * eased).toFixed(2))
-    if (t < 1) requestAnimationFrame(frame)
-    else target.value = to
-  }
-  requestAnimationFrame(frame)
-}
-
-// The tier multiplier only scales the skull-wild portion; this is exactly what
-// the server pays, so the running total always adds up to the final win.
-function scaledSpinPayout(sp: BonusSpinResult, tier: BonusTier) {
-  return sp.ordinaryPayout + sp.wildPayout * tier.multiplier
-}
-
-// --- audio -----------------------------------------------------------------------
-
-const AUDIO_SRC = {
-  music: '/slots/bookofshadows/background-music.mp3',
-  reel: '/slots/bookofshadows/reel.mp3',
-  button: '/slots/bookofshadows/button.mp3',
-  bonus: '/slots/bookofshadows/bonus.mp3',
-  bigWin: '/slots/bookofshadows/big-win.mp3',
-  drawLine: '/slots/bookofshadows/draw-line-4-sounds.mp3',
-  wildSpawn: '/slots/bookofshadows/wild-spawn.mp3'
-} as const
-
-type SfxKey = keyof typeof AUDIO_SRC
-
-const muted = ref(false)
-const volume = ref(70)
-const MUSIC_VOLUME = 0.4
-
-function applyVolume() {
-  const v = volume.value / 100
-  if (musicGain) musicGain.gain.value = v * MUSIC_VOLUME
-  if (sfxGain) sfxGain.gain.value = v
-}
-
-watch(volume, (value) => {
-  if (import.meta.client) localStorage.setItem('bos_volume', String(value))
-  applyVolume()
-})
-
-let audioCtx: AudioContext | null = null
-let musicGain: GainNode | null = null
-let sfxGain: GainNode | null = null
-let musicSource: AudioBufferSourceNode | null = null
-const buffers: Partial<Record<SfxKey, AudioBuffer>> = {}
-// draw-line-4-sounds.mp3 is four short "line trace" hits back-to-back; sliced
-// into equal offsets so each connection line draws with a random one.
-let drawLineSlices: { offset: number, duration: number }[] = []
-
-async function loadAudio() {
-  if (!import.meta.client) return
-  const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
-  if (!Ctx) return
-  audioCtx = new Ctx()
-  musicGain = audioCtx.createGain()
-  musicGain.connect(audioCtx.destination)
-  sfxGain = audioCtx.createGain()
-  sfxGain.connect(audioCtx.destination)
-  applyVolume()
-
-  await Promise.all(Object.entries(AUDIO_SRC).map(async ([key, url]) => {
-    try {
-      const res = await fetch(url)
-      const arr = await res.arrayBuffer()
-      buffers[key as SfxKey] = await audioCtx!.decodeAudioData(arr)
-    } catch { /* missing/broken asset — that cue just stays silent */ }
-  }))
-
-  const drawBuf = buffers.drawLine
-  if (drawBuf) {
-    const segDuration = drawBuf.duration / 4
-    drawLineSlices = Array.from({ length: 4 }, (_, i) => ({ offset: i * segDuration, duration: segDuration }))
-  }
-}
-
-// The context can only be created/resumed after a user gesture; spin, roll,
-// and the buy-bonus button all qualify.
-function ensureAudio(): AudioContext | null {
-  if (!audioCtx) return null
-  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {})
-  if (!musicSource && !muted.value) startMusic()
-  return audioCtx
-}
-
-function startMusic() {
-  if (!audioCtx || !musicGain || !buffers.music || musicSource) return
-  musicSource = audioCtx.createBufferSource()
-  musicSource.buffer = buffers.music
-  musicSource.loop = true
-  musicSource.connect(musicGain)
-  musicSource.start()
-}
-
-function playSfx(key: Exclude<SfxKey, 'music' | 'drawLine'>) {
-  const ctx = ensureAudio()
-  if (!ctx || !sfxGain || muted.value) return
-  const buf = buffers[key]
-  if (!buf) return
-  const src = ctx.createBufferSource()
-  src.buffer = buf
-  src.connect(sfxGain)
-  src.start()
-}
-
-function playDrawLineSfx() {
-  const ctx = ensureAudio()
-  if (!ctx || !sfxGain || muted.value || !buffers.drawLine || !drawLineSlices.length) return
-  const slice = drawLineSlices[Math.floor(Math.random() * drawLineSlices.length)]!
-  const src = ctx.createBufferSource()
-  src.buffer = buffers.drawLine
-  const gain = ctx.createGain()
-  gain.gain.value = 0.5
-  src.connect(gain)
-  gain.connect(sfxGain)
-  src.start(0, slice.offset, slice.duration)
-}
-
-function toggleMuted() {
-  muted.value = !muted.value
-  if (import.meta.client) localStorage.setItem('bos_muted', muted.value ? '1' : '0')
-  if (muted.value) {
-    musicSource?.stop()
-    musicSource = null
-  } else {
-    ensureAudio()
-  }
-}
-
-// --- pixi setup ------------------------------------------------------------------
-
-async function initPixi() {
-  if (!canvasHost.value || pixiApp) return
-
-  const [pixi, reels, gsapMod] = await Promise.all([
-    import('pixi.js'),
-    import('pixi-reels'),
-    import('gsap')
-  ])
-  if (destroyed) return
-  const { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, Texture } = pixi
-  const { ReelSetBuilder, ReelSymbol, SpeedPresets } = reels
-  GSAP = gsapMod.gsap ?? gsapMod.default
-
-  const [baseSheet, bonusSheet] = await Promise.all([
-    Assets.load(BOS_SPRITE_SRC),
-    Assets.load(BOS_BONUS_SPRITE_SRC)
-  ])
-  for (const [id, meta] of Object.entries(BOS_SYMBOL_META)) {
-    TEX_BASE[id as SlotSymbol] = new Texture({
-      source: baseSheet.source,
-      frame: new Rectangle(...scaledRect(meta.rect, baseSheet.source.width, baseSheet.source.height, BOS_SHEET_W, BOS_SHEET_H))
-    })
-  }
-  for (const [id, meta] of Object.entries(BOS_BONUS_SYMBOL_META)) {
-    TEX_BONUS[id as SlotSymbol] = new Texture({
-      source: bonusSheet.source,
-      frame: new Rectangle(...scaledRect(meta.rect, bonusSheet.source.width, bonusSheet.source.height, BOS_BONUS_SHEET_W, BOS_BONUS_SHEET_H))
-    })
-  }
-
-  class ShadowSymbol extends ReelSymbol {
-    private readonly tile = new Graphics()
-    private readonly sprite = new Sprite()
-
-    private readonly glyph = new Text({
-      text: '',
-      style: { fontFamily: 'system-ui, sans-serif', fontSize: 42, fontWeight: '900', fill: 0xffffff, align: 'center' }
-    })
-
-    private readonly caption = new Text({
-      text: '',
-      style: { fontFamily: 'Inter, ui-sans-serif, system-ui', fontSize: 10, fontWeight: '900', fill: 0x8b8f99, align: 'center', letterSpacing: 2 }
-    })
-
-    private symbol: SlotSymbol = 'ten'
-    private w = CELL
-    private h = CELL
-
-    constructor() {
-      super()
-      this.sprite.anchor.set(0.5)
-      this.glyph.anchor.set(0.5)
-      this.caption.anchor.set(0.5)
-      this.view.addChild(this.tile, this.sprite, this.glyph, this.caption)
+    const k = Math.min(1, (now - start) / duration)
+    winMeter.value = from + diff * (1 - Math.pow(1 - k, 3))
+    if (now - lastTick > 65 && k < 1) {
+      lastTick = now
+      audio.synth('tick', k)
     }
-
-    protected onActivate(symbolId: string): void {
-      this.symbol = symbolId as SlotSymbol
-      this.view.alpha = 1
-      this.view.scale.set(1)
-      this.draw()
-    }
-
-    protected onDeactivate(): void {
-      GSAP?.killTweensOf([this.view, this.view.scale])
-    }
-
-    async playWin(): Promise<void> {
-      if (!GSAP) return
-      await GSAP.to(this.view.scale, { x: 1.1, y: 1.1, duration: 0.12, yoyo: true, repeat: 1, ease: 'power2.out' })
-    }
-
-    stopAnimation(): void {
-      GSAP?.killTweensOf(this.view.scale)
-      this.view.scale.set(1)
-    }
-
-    resize(width: number, height: number): void {
-      this.w = width
-      this.h = height
-      this.draw()
-    }
-
-    private draw() {
-      const isBonusCell = this.symbol === 'bonuswild'
-      const frame = SYMBOL_VISUAL[this.symbol] ?? SYMBOL_VISUAL.ten
-      // Bonus cells wear the blood frame of `bonuswild` but show the rolled
-      // bonus symbol itself — the orb pays, so the orb is what you see.
-      const face = isBonusCell && bonusSymbolOverride ? SYMBOL_VISUAL[bonusSymbolOverride] : frame
-      const texture = isBonusCell && bonusSymbolOverride ? TEX_BONUS[bonusSymbolOverride] : TEX_BASE[this.symbol]
-      const pad = 3
-      const isSpecial = this.symbol === 'book' || isBonusCell
-
-      this.tile.clear()
-      this.tile.roundRect(pad, pad, this.w - pad * 2, this.h - pad * 2, 12)
-      this.tile.fill({ color: frame.fill })
-      this.tile.stroke({ color: frame.rim, width: isSpecial ? 2.5 : 1.5, alpha: frame.rimAlpha })
-      // faint top sheen so tiles read as carved slabs, not flat rects
-      this.tile.roundRect(pad + 3, pad + 3, this.w - pad * 2 - 6, (this.h - pad * 2) * 0.3, 9)
-      this.tile.fill({ color: 0xffffff, alpha: 0.03 })
-      if (isSpecial) {
-        // inner blood glow ring
-        this.tile.roundRect(pad + 2, pad + 2, this.w - pad * 2 - 4, this.h - pad * 2 - 4, 10)
-        this.tile.stroke({ color: frame.rim, width: 4, alpha: 0.18 })
-      }
-
-      if (texture) {
-        const labelReserve = !isBonusCell && frame.label ? 18 : 0
-        const texPad = isBonusCell ? 0 : pad * 6
-        const maxW = this.w - texPad
-        const maxH = this.h - texPad - labelReserve
-        const scale = Math.min(maxW / texture.width, maxH / texture.height)
-        this.sprite.texture = texture
-        this.sprite.scale.set(scale)
-        this.sprite.position.set(this.w / 2, this.h / 2 - (labelReserve ? 7 : 0))
-        this.sprite.visible = true
-        this.glyph.visible = false
-      } else {
-        this.sprite.visible = false
-        this.glyph.visible = true
-        this.glyph.style.fontFamily = face.serif ? 'Georgia, "Times New Roman", serif' : 'system-ui, sans-serif'
-        this.glyph.style.fontSize = face.glyphSize
-        // Royals get a blood-tinted letter in their upgraded bonus form.
-        this.glyph.style.fill = isBonusCell && bonusSymbolOverride && face.serif ? 0xfca5a5 : face.glyphColor
-        this.glyph.text = face.glyph
-      }
-
-      const label = isBonusCell ? undefined : frame.label
-      this.glyph.position.set(this.w / 2, this.h / 2 - (label ? 6 : 0))
-
-      this.caption.text = label ?? ''
-      this.caption.visible = Boolean(label)
-      this.caption.style.fill = isSpecial ? 0xf87171 : 0x8b8f99
-      this.caption.position.set(this.w / 2, this.h - 17)
+    if (k < 1) {
+      countRaf = requestAnimationFrame(frame)
+    } else {
+      winMeter.value = target
+      if (ratio >= 2) audio.synth('count-end')
     }
   }
+  countRaf = requestAnimationFrame(frame)
+}
 
-  pixiApp = await initSlotPixiApp(Application, { width: APP_W, height: APP_H }, () => destroyed)
-  if (!pixiApp) return
-  canvasHost.value.appendChild(pixiApp.canvas)
+// --- overlays -------------------------------------------------------------------
 
-  const initialGrid = playBookOfShadows(1).grid
+function celebrate(amount: number, betAmount: number, mode: 'win' | 'feature', spins?: number) {
+  audio.duck(true)
+  if (amount >= betAmount * BIG_WIN_X) audio.play('bigWin')
+  audio.synth('whoosh')
+  celebration.value = { amount, bet: betAmount, mode, spins }
+  return new Promise<void>((resolve) => {
+    celebrationResolve = resolve
+  })
+}
 
-  reelSet = new ReelSetBuilder()
-    .reels(BOS_COLS)
-    .visibleRows(BOS_ROWS)
-    .symbolSize(CELL, CELL)
-    .symbolGap(GAP, GAP)
-    .symbols((registry) => {
-      for (const id of Object.keys(SYMBOL_WEIGHTS)) registry.register(id, ShadowSymbol, {})
-      registry.register('bonuswild', ShadowSymbol, {}) // bonus-only, placed via setSymbolAt
-    })
-    .weights(SYMBOL_WEIGHTS)
-    .speed('normal', SpeedPresets.NORMAL)
-    .speed('turbo', SpeedPresets.TURBO)
-    .initialSpeed('normal')
-    .initialFrame(initialGrid.map(col => ({ visible: col })))
-    .ticker(pixiApp.ticker)
-    .build()
+function onCelebrationDone() {
+  celebration.value = null
+  audio.duck(false)
+  celebrationResolve?.()
+  celebrationResolve = null
+}
 
-  reelSet.position.set(MARGIN, MARGIN)
-  pixiApp.stage.addChild(reelSet)
+function onIntroDone() {
+  intro.value = null
+  introResolve?.()
+  introResolve = null
+}
 
-  // Each reel kicks off its own spin slightly staggered, so hook the sound to
-  // the reel's own 'spin' phase rather than the shared spin() call — held
-  // reels during the bonus never enter 'spin' and so stay silent.
-  for (let i = 0; i < BOS_COLS; i++) {
-    reelSet.getReel(i).events.on('phase:enter', (phase: string) => {
-      if (phase === 'spin') playSfx('reel')
-    })
+// --- autoplay -------------------------------------------------------------------
+
+function startAuto(settings: { count: number, stopOnFeature: boolean, stopOnBigWin: boolean }) {
+  showAutoplay.value = false
+  auto.on = true
+  auto.left = settings.count
+  auto.stopOnFeature = settings.stopOnFeature
+  auto.stopOnBigWin = settings.stopOnBigWin
+  audio.play('button')
+  if (!busy.value) void spin()
+}
+
+function toggleAutoplay() {
+  if (auto.on) {
+    stopAuto()
+    return
   }
-
-  linesLayer = new Graphics()
-  pixiApp.stage.addChild(linesLayer)
-
-  effectsLayer = new Container()
-  pixiApp.stage.addChild(effectsLayer)
-
-  resizeObserver = new ResizeObserver(resizePixi)
-  resizeObserver.observe(canvasHost.value)
-  resizePixi()
-
-  ready.value = true
+  audio.play('button')
+  showAutoplay.value = true
 }
 
-function resizePixi() {
-  if (!pixiApp || !reelSet || !canvasHost.value) return
-
-  const width = Math.max(300, Math.min(canvasHost.value.clientWidth, APP_W))
-  const height = width * (APP_H / APP_W)
-  pixiApp.renderer.resize(width, height)
-
-  const scale = width / APP_W
-  reelSet.scale.set(scale)
-  reelSet.position.set(MARGIN * scale, MARGIN * scale)
+function stopAuto() {
+  auto.on = false
+  auto.left = 0
 }
 
-function cellCenter(col: number, row: number) {
-  if (!reelSet) return { x: 0, y: 0 }
-  const bounds = reelSet.getCellBounds(col, row)
-  const s = reelSet.scale.x
-  return {
-    x: reelSet.x + (bounds.x + bounds.width / 2) * s,
-    y: reelSet.y + (bounds.y + bounds.height / 2) * s
+// --- feature --------------------------------------------------------------------
+
+async function runFeature(bonus: BonusResult, baseWin: number, betAmount: number) {
+  audio.duck(true)
+  intro.value = { tier: bonus.tier, spins: BONUS_SPINS, bet: betAmount }
+  await new Promise<void>((resolve) => {
+    introResolve = resolve
+  })
+  audio.duck(false)
+  if (destroyed || !stage) return
+
+  const tier = bonus.tier
+  stage.setBonusSymbol(tier.symbol)
+  stage.setLocked([])
+  Object.assign(feature, { active: true, spin: 0, total: BONUS_SPINS, tier, locked: [], won: 0 })
+  let booksAllowed = true
+
+  for (const sp of bonus.spins) {
+    if (destroyed || !stage) return
+    feature.spin++
+    const hold = sp.landedGrid
+      .map((col, i) => (col.every(s => s === 'bonuswild') && !sp.newlyLocked.includes(i) ? i : -1))
+      .filter(i => i >= 0)
+    await stage.spin(sp.landedGrid, { turbo: turbo.value, holdReels: hold, anticipate: booksAllowed })
+
+    for (const col of sp.newlyLocked) {
+      const row = Math.max(0, sp.landedGrid[col]!.findIndex(s => s === 'bonuswild'))
+      audio.synth('column-boom')
+      await stage.expandColumn(col, row, turbo.value)
+      feature.locked = [...feature.locked, col]
+    }
+
+    if (sp.wins.length) {
+      const amounts = sp.wins.map(w => (w.symbol === 'bonuswild' ? w.amount * tier.multiplier : w.amount))
+      const blood = sp.wins.map(w => w.symbol === 'bonuswild')
+      const spinPay = sp.ordinaryPayout + sp.wildPayout * tier.multiplier
+      feature.won += spinPay
+      countWin(baseWin + feature.won, betAmount)
+      audio.synth('win-chime', Math.min(3, Math.floor(Math.log10(1 + spinPay / betAmount) * 2)))
+      await stage.showWins(sp.wins, { turbo: turbo.value, amounts, bloodWins: blood, hold: turbo.value ? 300 : 650 })
+      stage.clearWins()
+    }
+
+    if (sp.retriggered) {
+      booksAllowed = false
+      feature.total += BONUS_RETRIGGER_SPINS
+      retrigger.value = true
+      audio.play('bonus')
+      stage.flash(0x9dff6a, 0.3)
+      await pace(1700)
+      retrigger.value = false
+    }
+    await pace(220)
   }
+  stage.setLocked([])
 }
 
-// --- cell dim / restore -----------------------------------------------------------
+// --- spin -----------------------------------------------------------------------
 
-function allCells(): Cell[] {
+function bookCells(grid: SlotSymbol[][]): Cell[] {
   const cells: Cell[] = []
-  for (let col = 0; col < BOS_COLS; col++) {
-    for (let row = 0; row < BOS_ROWS; row++) cells.push({ col, row })
-  }
+  grid.forEach((col, c) => col.forEach((s, r) => {
+    if (s === 'book') cells.push({ col: c, row: r })
+  }))
   return cells
 }
 
-function resetCellLooks() {
-  if (!reelSet || !GSAP) return
-  for (const { col, row } of allCells()) {
-    const view = reelSet.getReel(col).getSymbolAt(row).view
-    GSAP.killTweensOf(view)
-    view.alpha = 1
-  }
-  linesLayer?.clear()
-  completedSegments = []
-  activePartials = new Map()
-}
-
-async function dimAllExcept(keepKeys: Set<string>) {
-  if (!reelSet || !GSAP) return
-  await Promise.all(allCells().map(cell => new Promise<void>((res) => {
-    const sym = reelSet!.getReel(cell.col).getSymbolAt(cell.row)
-    GSAP!.to(sym.view, { alpha: keepKeys.has(cellKey(cell)) ? 1 : 0.28, duration: 0.25, onComplete: () => res() })
-  })))
-}
-
-async function restoreAlpha() {
-  if (!reelSet || !GSAP) return
-  await Promise.all(allCells().map(cell => new Promise<void>((res) => {
-    const sym = reelSet!.getReel(cell.col).getSymbolAt(cell.row)
-    GSAP!.to(sym.view, { alpha: 1, duration: 0.2, onComplete: () => res() })
-  })))
-}
-
-// --- blood-red connection tracing ---------------------------------------------------
-
-let completedSegments: { from: { x: number, y: number }, to: { x: number, y: number } }[] = []
-let activePartials = new Map<string, { from: { x: number, y: number }, to: { x: number, y: number }, t: number }>()
-let drawnEdgeKeys = new Set<string>()
-
-function winEdges(win: ConnectionWin): [Cell, Cell][] {
-  const edges: [Cell, Cell][] = []
-  for (const a of win.cells) {
-    for (const b of win.cells) {
-      if (b.col === a.col + 1 && Math.abs(b.row - a.row) <= 1) edges.push([a, b])
-    }
-  }
-  return edges
-}
-
-function redrawLines() {
-  if (!linesLayer || !reelSet) return
-  const s = reelSet.scale.x
-  linesLayer.clear()
-  const strokeGlow = { width: 9 * s, color: 0x7f1d1d, alpha: 0.5 }
-  const strokeCore = { width: 3.5 * s, color: 0xef4444, alpha: 0.95 }
-  for (const seg of completedSegments) {
-    linesLayer.moveTo(seg.from.x, seg.from.y).lineTo(seg.to.x, seg.to.y).stroke(strokeGlow)
-    linesLayer.moveTo(seg.from.x, seg.from.y).lineTo(seg.to.x, seg.to.y).stroke(strokeCore)
-  }
-  for (const p of activePartials.values()) {
-    const x = p.from.x + (p.to.x - p.from.x) * p.t
-    const y = p.from.y + (p.to.y - p.from.y) * p.t
-    linesLayer.moveTo(p.from.x, p.from.y).lineTo(x, y).stroke(strokeGlow)
-    linesLayer.moveTo(p.from.x, p.from.y).lineTo(x, y).stroke(strokeCore)
-  }
-}
-
-function drawEdge(a: Cell, b: Cell): Promise<void> {
-  const key = `${a.col}:${a.row}-${b.col}:${b.row}`
-  const from = cellCenter(a.col, a.row)
-  const to = cellCenter(b.col, b.row)
-
-  playDrawLineSfx()
-
-  return new Promise((resolve) => {
-    if (!GSAP) return resolve()
-    const obj = { t: 0 }
-    activePartials.set(key, { from, to, t: 0 })
-    GSAP.to(obj, {
-      t: 1,
-      duration: turbo.value ? 0.07 : 0.12,
-      ease: 'power1.out',
-      onUpdate: () => {
-        const p = activePartials.get(key)
-        if (p) p.t = obj.t
-        redrawLines()
-      },
-      onComplete: () => {
-        activePartials.delete(key)
-        completedSegments.push({ from, to })
-        redrawLines()
-        resolve()
-      }
-    })
-  })
-}
-
-// Traces the connection path column-step by column-step, whole fan at once.
-async function drawConnectionLines(win: ConnectionWin) {
-  const byStartCol = new Map<number, [Cell, Cell][]>()
-  for (const edge of winEdges(win)) {
-    const key = `${edge[0].col}:${edge[0].row}-${edge[1].col}:${edge[1].row}`
-    if (drawnEdgeKeys.has(key)) continue
-    drawnEdgeKeys.add(key)
-    if (!byStartCol.has(edge[0].col)) byStartCol.set(edge[0].col, [])
-    byStartCol.get(edge[0].col)!.push(edge)
-  }
-
-  for (const col of [...byStartCol.keys()].sort((x, y) => x - y)) {
-    await Promise.all(byStartCol.get(col)!.map(([a, b]) => drawEdge(a, b)))
-  }
-}
-
-function clearLines() {
-  linesLayer?.clear()
-  completedSegments = []
-  activePartials = new Map()
-  drawnEdgeKeys = new Set()
-}
-
-// --- effects ----------------------------------------------------------------------
-
-async function screenShake(intensity = 8, duration = 0.3) {
-  if (!reelSet || !GSAP) return
-
-  const target = reelSet
-  const baseX = target.position.x
-  const baseY = target.position.y
-  const steps = 5
-  const tl = GSAP.timeline({ onComplete: () => target.position.set(baseX, baseY) })
-
-  for (let i = 0; i < steps; i++) {
-    const decay = 1 - i / steps
-    tl.to(target.position, {
-      x: baseX + (Math.random() - 0.5) * intensity * decay,
-      y: baseY + (Math.random() - 0.5) * intensity * decay,
-      duration: duration / steps,
-      ease: 'sine.inOut'
-    })
-  }
-  tl.to(target.position, { x: baseX, y: baseY, duration: duration / steps })
-}
-
-async function spawnMoneyPopup(amount: number, cells: Cell[]) {
-  if (!effectsLayer || cells.length === 0 || amount <= 0 || !GSAP) return
-
-  const { Text } = await import('pixi.js')
-  const center = cells.reduce((point, cell) => {
-    const next = cellCenter(cell.col, cell.row)
-    return { x: point.x + next.x, y: point.y + next.y }
-  }, { x: 0, y: 0 })
-  const label = new Text({
-    text: `+${formatNumber(amount, false)}`,
-    style: {
-      fill: 0xfee2e2,
-      fontFamily: 'Inter, ui-sans-serif, system-ui',
-      fontSize: 34,
-      fontWeight: '900',
-      stroke: { color: 0x18181b, width: 6 },
-      dropShadow: { color: 0xdc2626, blur: 12, distance: 0, alpha: 0.9 }
-    }
-  })
-
-  label.anchor.set(0.5)
-  label.position.set(center.x / cells.length, center.y / cells.length)
-  label.scale.set(0.45, 1.35)
-  effectsLayer.addChild(label)
-
-  const drift = (Math.random() - 0.5) * 30
-
-  GSAP.to(label.scale, { x: 1, y: 1, duration: 0.2, ease: 'back.out(2.8)' })
-  GSAP.to(label.position, { x: label.x + drift, y: label.y - 74, duration: 0.9, ease: 'power2.out' })
-  GSAP.to(label, {
-    alpha: 0,
-    duration: 0.22,
-    delay: 0.66,
-    ease: 'power2.in',
-    onComplete: () => label.destroy()
-  })
-}
-
-// Ember-like blood motes bursting from a cell — used when a skull column locks.
-async function spawnBloodBurst(col: number, row: number) {
-  if (!effectsLayer || !GSAP) return
-
-  const { Graphics } = await import('pixi.js')
-  const center = cellCenter(col, row)
-  const colors = [0xef4444, 0x991b1b, 0xfecaca, 0x7f1d1d]
-
-  for (let i = 0; i < 18; i++) {
-    const particle = new Graphics()
-    const angle = (Math.PI * 2 * i) / 18 + Math.random() * 0.4
-    const distance = 42 + Math.random() * 58
-    const size = 2 + Math.random() * 4
-    const duration = 0.4 + Math.random() * 0.25
-
-    particle.circle(0, 0, size)
-    particle.fill({ color: colors[i % colors.length]!, alpha: 0.95 })
-    particle.blendMode = 'add'
-    particle.position.set(center.x, center.y)
-    effectsLayer.addChild(particle)
-
-    GSAP.to(particle.position, {
-      x: center.x + Math.cos(angle) * distance,
-      y: center.y + Math.sin(angle) * distance,
-      duration,
-      ease: 'power3.out'
-    })
-    GSAP.to(particle.scale, { x: 0.2, y: 0.2, duration, ease: 'power2.in' })
-    GSAP.to(particle, { alpha: 0, duration: duration + 0.05, ease: 'power2.in', onComplete: () => particle.destroy() })
-  }
-}
-
-async function showBigWinPopup(totalMultiplier: number, amount: number) {
-  const tier = WIN_TIERS.find(t => totalMultiplier >= t.threshold)
-  if (!tier) return
-
-  bigWinLabel.value = tier.label
-  bigWinGradient.value = `linear-gradient(180deg, ${tier.from}, ${tier.to})`
-  bigWinGlow.value = tier.glow
-  bigWinAmount.value = 0
-  bigWinBanner.value = true
-  playSfx('bigWin')
-
-  tickNumber(bigWinAmount, amount, 1400, false)
-  await wait(2200)
-  bigWinBanner.value = false
-}
-
-// --- base game presentation ---------------------------------------------------------
-
-async function celebrateWins(wins: ConnectionWin[], payout: number) {
-  if (!wins.length || payout <= 0) return
-
-  const winKeys = new Set(wins.flatMap(w => w.cells.map(cellKey)))
-  await dimAllExcept(winKeys)
-
-  clearLines()
-  for (const win of wins) {
-    await drawConnectionLines(win)
-  }
-
-  await spawnMoneyPopup(payout, wins.flatMap(w => w.cells))
-  pulseWin()
-  await stepDelay(650)
-
-  clearLines()
-  await restoreAlpha()
-}
-
-// --- bonus flow ----------------------------------------------------------------------
-
-// Reveals a newly-locked column's skulls outward from the landing cell.
-async function expandColumn(col: number, triggerRow: number) {
-  if (!reelSet) return
-
-  void spawnBloodBurst(col, triggerRow)
-  void screenShake(turbo.value ? 5 : 9, turbo.value ? 0.18 : 0.3)
-
-  const order: number[] = [triggerRow]
-  for (let d = 1; d < BOS_ROWS; d++) {
-    const up = triggerRow - d
-    const down = triggerRow + d
-    if (up >= 0) order.push(up)
-    if (down < BOS_ROWS) order.push(down)
-  }
-
-  for (const row of order) {
-    reelSet.setSymbolAt(col, row, 'bonuswild')
-    const sym = reelSet.getReel(col).getSymbolAt(row)
-    GSAP?.fromTo(sym.view.scale, { x: 1.3, y: 1.3 }, { x: 1, y: 1, duration: 0.18, ease: 'back.out(2)' })
-    playSfx('wildSpawn')
-    await stepDelay(45)
-  }
-
-  skullColumns.value++
-}
-
-async function celebrateBonusSpin(spinResult: BonusSpinResult, tier: BonusTier) {
-  if (!spinResult.wins.length) return
-
-  const winKeys = new Set(spinResult.wins.flatMap(w => w.cells.map(cellKey)))
-  await dimAllExcept(winKeys)
-
-  clearLines()
-  for (const win of spinResult.wins) {
-    await drawConnectionLines(win)
-  }
-
-  const spinPay = scaledSpinPayout(spinResult, tier)
-  await spawnMoneyPopup(spinPay, spinResult.wins.flatMap(w => w.cells))
-  pulseWin()
-  await stepDelay(spinPay > bet.value * 5 ? 700 : 420)
-
-  clearLines()
-  await restoreAlpha()
-}
-
-async function playBonusSpin(bonusSpin: BonusSpinResult, tier: BonusTier) {
-  if (!reelSet) return
-
-  // Fully-locked columns stay put instead of spinning through symbols
-  // they're just going to show again.
-  const holdReels = bonusSpin.landedGrid
-    .map((col: SlotSymbol[], i: number) => (col.every(s => s === 'bonuswild') && !bonusSpin.newlyLocked.includes(i) ? i : -1))
-    .filter((i: number) => i >= 0)
-
-  reelSet.setSpeed(turbo.value ? 'turbo' : 'normal')
-  const spinPromise = reelSet.spin({ holdReels })
-  reelSet.setResult(bonusSpin.landedGrid.map((col: SlotSymbol[]) => ({ visible: col })))
-  await spinPromise
-
-  for (const col of bonusSpin.newlyLocked) {
-    const triggerRow = bonusSpin.landedGrid[col]!.findIndex(s => s === 'bonuswild')
-    await expandColumn(col, triggerRow)
-  }
-
-  await celebrateBonusSpin(bonusSpin, tier)
-}
-
-async function runBonus(bonus: BonusResult) {
-  const tier = bonus.tier
-  bonusSymbolOverride = tier.symbol
-  bonusRunning.value = true
-  bonusTotal.value = 0
-  bonusSpinIndex.value = 0
-  bonusSpinTotal.value = bonus.totalSpins ?? bonus.spins.length
-  skullColumns.value = 0
-
-  let collected = 0
-  for (const bonusSpin of bonus.spins) {
-    bonusSpinIndex.value++
-    status.value = `Bonus spin ${bonusSpinIndex.value}/${bonusSpinTotal.value}`
-    await playBonusSpin(bonusSpin, tier)
-    collected = Number((collected + scaledSpinPayout(bonusSpin, tier)).toFixed(2))
-    tickNumber(bonusTotal, collected, 300)
-    // BOOK retrigger: this spin awarded extra spins — announce it with a full
-    // overlay (same weight as a win banner) so it can't be missed mid-bonus.
-    if (bonusSpin.retriggered) {
-      status.value = `+${BONUS_RETRIGGER_SPINS} spins — books awakened!`
-      retriggerBanner.value = true
-      playSfx('bonus')
-      await stepDelay(1700)
-      retriggerBanner.value = false
-    }
-    await stepDelay(120)
-  }
-
-  // The server settled everything on the triggering call — bonus.totalWin is
-  // exactly what was paid for the bonus, and it matches the collected total.
-  bonusTotal.value = bonus.totalWin
-  status.value = `Bonus over — ${formatNumber(bonus.totalWin, false)}`
-
-  await showBigWinPopup(bonus.totalWin / bet.value, bonus.totalWin)
-
-  bonusRunning.value = false
-}
-
-// Purely cosmetic: the tier was already decided (and paid) server-side.
-async function rollTier() {
-  if (rolling.value || !bonusData.value) return
-  rolling.value = true
-
-  for (let i = 0; i < 12; i++) {
-    rolledTier.value = BONUS_TIERS[Math.floor(Math.random() * BONUS_TIERS.length)]!
-    playSfx('reel')
-    await stepDelay(60 + i * 8)
-  }
-  rolledTier.value = bonusData.value.tier
-  rolling.value = false
-
-  await wait(turbo.value ? Math.round(700 * 0.55) + 150 : 700 + 350)
-  showBonusPick.value = false
-}
-
-// --- spin ------------------------------------------------------------------------------
-
 async function spin(buy = false) {
-  if (!ready.value || showBonusPick.value || bonusRunning.value) return
-  const cost = buy ? buyBonusCost.value : bet.value
-  const balanceBeforeSpin = balance.value
-
-  // Distinguishes "the composable's guard blocked us" (nothing to undo) from
-  // "the fetch failed after we took the bet" (must refund).
+  if (!ready.value || busy.value || !stage) return
+  audio.unlock()
+  confirmBuy.value = false
+  const cost = buy ? buyCost.value : bet.value
+  if (balance.value < cost) {
+    stopAuto()
+    toast.add({ title: 'Not enough coins', description: `This ${buy ? 'feature buy' : 'spin'} costs ${fmt(cost)}.`, color: 'warning' })
+    return
+  }
+  const before = balance.value
   let debited = false
 
   const data = await requestSpin(cost, buy ? { buyBonus: true } : undefined, () => {
-    status.value = buy ? 'Summoning bonus' : 'Spinning'
-    totalWin.value = 0
-    lastWin.value = 0
-    bonusSymbolOverride = null
-    resetCellLooks()
-    setBalance(balanceBeforeSpin - cost)
+    setBalance(before - cost)
     debited = true
+    cancelAnimationFrame(countRaf)
+    winMeter.value = 0
   })
 
   if (!data) {
     if (debited) {
-      status.value = 'Spin failed'
-      setBalance(balanceBeforeSpin)
-      stopAutoSpin()
+      setBalance(before)
+      stopAuto()
+      toast.add({ title: 'Spin failed', description: errorMsg.value || 'Please try again.', color: 'error' })
     }
     return
   }
 
   const result = data.gameData
-
+  const betAmount = result.bet
   try {
-    if (reelSet) {
-      reelSet.setSpeed(turbo.value ? 'turbo' : 'normal')
-      const spinPromise = reelSet.spin()
-      reelSet.setResult(result.grid.map((col: SlotSymbol[]) => ({ visible: col })))
-      await spinPromise
-    }
+    await stage.spin(result.grid, { turbo: turbo.value, anticipate: true })
 
-    tickNumber(totalWin, result.basePayout, 300)
-    await celebrateWins(result.wins, result.basePayout)
+    if (result.wins.length) {
+      countWin(result.basePayout, betAmount)
+      audio.synth('win-chime', Math.min(3, Math.floor(Math.log10(1 + result.basePayout / betAmount) * 2)))
+      await stage.showWins(result.wins, { turbo: turbo.value, amounts: result.wins.map(w => w.amount) })
+      stage.clearWins()
+    }
 
     if (result.bonusTriggered && result.bonus) {
-      // Hold the visible balance at "bet taken" until the bonus plays out —
-      // the win is already settled server-side, revealing it now spoils it.
-      bonusData.value = result.bonus
-      rolledTier.value = null
-      rolling.value = false
-      showBonusPick.value = true
-      status.value = 'The book awakens'
-      playSfx('bonus')
-
-      await new Promise<void>((resolve) => {
-        const stopWatch = watch(showBonusPick, (open) => {
-          if (!open) {
-            stopWatch()
-            resolve()
-          }
-        })
-      })
-
-      await runBonus(result.bonus)
-    } else if (result.basePayout > 0) {
-      await showBigWinPopup(result.basePayout / bet.value, result.basePayout)
+      audio.play('bonus')
+      await stage.celebrateBooks(bookCells(result.grid), turbo.value)
+      await runFeature(result.bonus, result.basePayout, betAmount)
+      const featureWin = Math.max(0, result.payout - result.basePayout)
+      countWin(result.payout, betAmount)
+      await celebrate(featureWin, betAmount, 'feature', feature.total)
+      feature.active = false
+    } else if (result.payout >= betAmount * BIG_WIN_X) {
+      await celebrate(result.payout, betAmount, 'win')
     }
 
-    totalWin.value = result.payout
+    cancelAnimationFrame(countRaf)
+    winMeter.value = result.payout
     lastWin.value = result.payout
-    if (result.payout > 0) pulseWin()
-    if (!result.bonusTriggered) status.value = result.payout > 0 ? 'Paid out' : 'No connection'
-
     pushHistory({ payout: result.payout, bet: cost, bonus: Boolean(result.bonusTriggered) })
-
     setBalance(data.balance)
-    await fetchSession()
+    void fetchSession()
+
+    if (auto.on && ((auto.stopOnFeature && result.bonusTriggered) || (auto.stopOnBigWin && result.payout >= betAmount * BIG_WIN_X))) stopAuto()
   } catch (e) {
+    feature.active = false
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'
     setBalance(data.balance)
-    stopAutoSpin()
+    stopAuto()
   }
 
   isSpinning.value = false
 
-  if (autoSpinEnabled.value) {
-    autoSpinsLeft.value--
-    if (autoSpinsLeft.value > 0 && balance.value >= bet.value) void spin()
-    else stopAutoSpin()
+  if (auto.on && !destroyed) {
+    auto.left--
+    if (auto.left > 0 && balance.value >= bet.value) setTimeout(() => void spin(), turbo.value ? 120 : 320)
+    else stopAuto()
   }
 }
 
-onMounted(() => {
-  if (import.meta.client) {
-    if (localStorage.getItem('bos_muted') === '1') muted.value = true
-    const storedVolume = Number(localStorage.getItem('bos_volume'))
-    if (Number.isFinite(storedVolume) && storedVolume >= 0 && storedVolume <= 100) volume.value = storedVolume
+function spinPress() {
+  audio.unlock()
+  if (auto.on) {
+    audio.play('button')
+    stopAuto()
+    return
   }
-  void loadAudio()
-  initPixi()
+  if (isSpinning.value) {
+    stage?.quickStop()
+    return
+  }
+  audio.play('button')
+  void spin()
+}
+
+function buyPress() {
+  audio.unlock()
+  audio.play('button')
+  if (!confirmBuy.value) {
+    confirmBuy.value = true
+    return
+  }
+  void spin(true)
+}
+
+// --- keyboard + outside clicks ---------------------------------------------------
+
+function isTyping(target: EventTarget | null) {
+  return target instanceof HTMLElement && Boolean(target.closest('input, textarea, select, [contenteditable="true"]'))
+}
+
+function onKeyDown(e: KeyboardEvent) {
+  if (e.code !== 'Space' || isTyping(e.target) || showInfo.value || showAutoplay.value) return
+  e.preventDefault()
+  if (e.repeat) return
+  audio.unlock()
+  if (celebration.value) bigWinRef.value?.skip()
+  else if (intro.value) introRef.value?.press()
+  else spinPress()
+}
+
+// Stop a focused button from also "clicking" on Space.
+function onKeyUp(e: KeyboardEvent) {
+  if (e.code === 'Space' && !isTyping(e.target) && !showInfo.value && !showAutoplay.value) e.preventDefault()
+}
+
+function onPointerDown(e: PointerEvent) {
+  audio.unlock()
+  if (soundOpen.value && soundEl.value && !soundEl.value.contains(e.target as Node)) soundOpen.value = false
+}
+
+// --- lifecycle ------------------------------------------------------------------
+
+onMounted(async () => {
+  try {
+    turbo.value = localStorage.getItem('bos_turbo') === '1'
+  } catch { /* ignore */ }
+  window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('keyup', onKeyUp)
+  window.addEventListener('pointerdown', onPointerDown)
+  void audio.load()
+  if (!canvasHost.value) return
+  stage = await BosStage.create(canvasHost.value, {
+    onReelStart: () => audio.play('reel'),
+    onReelLanded: (_col, booksSoFar, booksOnReel) => {
+      audio.synth('reel-stop')
+      if (booksOnReel > 0) audio.synth('book-land', booksSoFar - 1)
+    },
+    onAnticipate: () => audio.synth('anticipation'),
+    onThreadStep: (step) => {
+      audio.play('drawLine')
+      audio.synth('rune', step)
+    },
+    onWildCell: () => audio.play('wildSpawn')
+  }, playBookOfShadows(1).grid, () => destroyed)
+  if (stage && !destroyed) ready.value = true
 })
 
 onBeforeUnmount(() => {
   destroyed = true
-  resizeObserver?.disconnect()
-  safeDestroy(() => reelSet?.destroy())
-  safeDestroy(() => pixiApp?.destroy(true))
-  reelSet = null
-  pixiApp = null
-  linesLayer = null
-  effectsLayer = null
-  try {
-    musicSource?.stop()
-    void audioCtx?.close()
-  } catch { /* ignore */ }
+  window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('keyup', onKeyUp)
+  window.removeEventListener('pointerdown', onPointerDown)
+  cancelAnimationFrame(countRaf)
+  stage?.destroy()
+  stage = null
+  audio.dispose()
+  introResolve?.()
+  celebrationResolve?.()
 })
 </script>
 
 <template>
-  <div class="bos-shell relative min-h-full overflow-hidden px-2 py-6 text-default sm:px-3">
-    <div class="bos-bg absolute inset-0" />
-    <div class="bos-fog absolute inset-0" />
-    <div class="bos-vignette absolute inset-0" />
+  <div
+    ref="rootEl"
+    class="bos-root"
+    :class="{ 'bos-in-feature': feature.active }"
+  >
+    <div
+      class="bos-scene"
+      aria-hidden="true"
+    >
+      <div class="bos-scene-img" />
+      <div class="bos-scene-tint" />
+      <div class="bos-scene-fog" />
+      <span
+        v-for="i in 14"
+        :key="i"
+        class="bos-scene-ember"
+        :style="{ left: `${(i * 37) % 100}%`, animationDelay: `${(i * 1.7) % 9}s`, animationDuration: `${9 + (i % 5) * 2}s` }"
+      />
+    </div>
 
-    <div class="relative z-[1] mx-auto w-full max-w-7xl">
-      <header class="mb-5 text-center">
-        <p class="bos-eyebrow mb-1.5 text-[11px] font-bold tracking-[0.5em] uppercase">
-          ✦ Open the forbidden pages ✦
-        </p>
-        <h1 class="bos-title text-[42px] leading-none sm:text-[60px]">
-          Book of Shadows
-        </h1>
-        <div class="mt-2.5 flex items-center justify-center gap-2.5">
-          <span class="bos-seam-line" />
-          <UIcon
-            name="i-lucide-skull"
-            class="size-4 shrink-0 text-[#991b1b] drop-shadow-[0_0_8px_rgba(239,68,68,0.6)]"
-          />
-          <span class="bos-seam-line bos-seam-line-flip" />
-        </div>
-        <div class="mt-3 flex flex-wrap items-center justify-center gap-2">
-          <span class="bos-badge bos-badge-blood">
-            <UIcon
-              name="i-lucide-droplets"
-              class="size-3"
-            />
-            {{ formatNumber(BOS_DISPLAY_MAX_WIN, false, 0) }}x max win
-          </span>
-          <span class="bos-badge">
-            <UIcon
-              name="i-lucide-book-open"
-              class="size-3"
-            />
-            {{ BONUS_TRIGGER_COUNT }} books awaken the bonus
-          </span>
-          <span class="bos-badge">
-            <SlotVolatility :level="BOS_VOLATILITY" />
-          </span>
-        </div>
-      </header>
+    <div class="bos-stagewrap">
+      <div class="bos-cabinet">
+        <div class="bos-cab-inner">
+          <div class="bos-plaque-glow" />
 
-      <div class="grid gap-4 xl:grid-cols-[250px_minmax(0,700px)_260px] xl:items-start xl:justify-center">
-        <aside class="order-3 xl:order-1">
-          <div
-            class="bos-panel p-4"
-            :class="{ 'bos-panel-active': bonusRunning }"
-          >
-            <div class="bos-panel-head">
-              <UIcon
-                name="i-lucide-book-open"
-                class="size-3.5"
-              />
-              <span>Grimoire</span>
-            </div>
-
-            <template v-if="bonusRunning && bonusData">
-              <div class="mt-2.5 flex items-center justify-between">
-                <span class="text-[11px] font-bold text-muted">Spin</span>
-                <strong class="bos-value-blood text-sm">{{ bonusSpinIndex }}/{{ bonusSpinTotal }}</strong>
-              </div>
-              <div class="bos-progress mt-2">
-                <div
-                  class="bos-progress-fill"
-                  :style="{ width: `${(bonusSpinIndex / bonusSpinTotal) * 100}%` }"
+          <!-- phone status strip (the side panels collapse into this) -->
+          <div class="bos-strip">
+            <template v-if="feature.active && feature.tier">
+              <span class="bos-strip-item"><em>Spin</em> {{ feature.spin }}/{{ feature.total }}</span>
+              <span class="bos-strip-item">
+                <span
+                  class="bos-strip-icon"
+                  :style="bosIconStyle(feature.tier.symbol, true, 20)"
                 />
+                ×{{ feature.tier.multiplier }}
+              </span>
+              <span class="bos-strip-item"><em>Wilds</em> {{ feature.locked.length }}/{{ BOS_COLS }}</span>
+            </template>
+            <template v-else>
+              <span class="bos-strip-item">
+                <span
+                  class="bos-strip-icon"
+                  :style="bosIconStyle('book', false, 20)"
+                />
+                {{ BONUS_TRIGGER_COUNT }}+ Books = {{ BONUS_SPINS }} free spins
+              </span>
+            </template>
+          </div>
+
+          <aside class="bos-side bos-side-left">
+            <template v-if="feature.active && feature.tier">
+              <div class="bos-panel bos-panel-hot">
+                <p class="bos-panel-title">
+                  Free Spins
+                </p>
+                <p class="bos-spincount">
+                  <strong>{{ feature.spin }}</strong><span>/{{ feature.total }}</span>
+                </p>
+                <div class="bos-progress">
+                  <div :style="{ width: `${(feature.spin / feature.total) * 100}%` }" />
+                </div>
               </div>
-              <div class="mt-3 flex items-center justify-between">
-                <span class="text-[11px] font-bold text-muted">Skull columns</span>
-                <strong class="bos-value-blood text-sm">{{ skullColumns }}/{{ BOS_COLS }}</strong>
-              </div>
-              <div class="mt-3 flex items-center justify-between">
-                <span class="text-[11px] font-bold text-muted">Skull win multiplier</span>
-                <strong class="bos-value-bone inline-flex items-center gap-1.5 text-sm">
-                  <span
-                    class="bos-inline-symbol"
-                    :style="symbolIconStyle(bonusData.tier.symbol, true, 22)"
-                    aria-hidden="true"
-                  />
-                  {{ bonusData.tier.label }} · <span class="bos-value-blood">{{ tierMult(bonusData.tier.multiplier) }}</span>
-                </strong>
-              </div>
-              <div class="mt-4 border-t border-white/5 pt-3 text-center">
-                <span class="text-[10px] font-black tracking-wide uppercase text-muted">Bonus total</span>
-                <strong class="bos-value-blood mt-1 block text-3xl leading-none font-black">
-                  {{ formatNumber(bonusTotal, false) }}
-                </strong>
+              <div class="bos-panel bos-panel-hot">
+                <p class="bos-panel-title">
+                  Drawn symbol
+                </p>
+                <div class="bos-drawn">
+                  <span :style="bosIconStyle(feature.tier.symbol, true, 92)" />
+                  <strong>×{{ feature.tier.multiplier }}</strong>
+                  <em>{{ feature.tier.label }}</em>
+                </div>
               </div>
             </template>
-
             <template v-else>
-              <p class="mt-2.5 text-[11px] leading-relaxed text-muted">
-                Land {{ BONUS_TRIGGER_COUNT }}+ books to awaken {{ BONUS_SPINS }} bonus spins, then
-                roll a bonus symbol that locks its column and pays at its own value.
-              </p>
+              <div class="bos-panel">
+                <p class="bos-panel-title">
+                  Free Spins
+                </p>
+                <div class="bos-books">
+                  <span
+                    v-for="i in BONUS_TRIGGER_COUNT"
+                    :key="i"
+                    :style="bosIconStyle('book', false, 40)"
+                  />
+                </div>
+                <p class="bos-panel-big">
+                  {{ BONUS_TRIGGER_COUNT }}+ Books
+                </p>
+                <p class="bos-panel-sub">
+                  {{ BONUS_SPINS }} free spins with sticky wild columns
+                </p>
+                <div class="bos-draw-preview">
+                  <span
+                    v-for="t in DRAW_PREVIEW"
+                    :key="t.id"
+                    :style="bosIconStyle(t.symbol, true, 34)"
+                  />
+                </div>
+                <p class="bos-panel-sub">
+                  Wild runs pay up to <strong>×{{ topTier.multiplier }}</strong>
+                </p>
+              </div>
+              <div class="bos-panel bos-buy">
+                <template v-if="!confirmBuy">
+                  <button
+                    type="button"
+                    class="bos-buy-btn"
+                    :disabled="!ready || locked || balance < buyCost"
+                    @click="buyPress"
+                  >
+                    <span class="bos-buy-label">Buy Feature</span>
+                    <strong>{{ fmt(buyCost) }}</strong>
+                  </button>
+                </template>
+                <template v-else>
+                  <p class="bos-buy-q">
+                    Buy {{ BONUS_SPINS }} free spins for <strong>{{ fmt(buyCost) }}</strong>?
+                  </p>
+                  <div class="bos-buy-row">
+                    <button
+                      type="button"
+                      class="bos-buy-yes"
+                      :disabled="locked || balance < buyCost"
+                      @click="buyPress"
+                    >
+                      Buy
+                    </button>
+                    <button
+                      type="button"
+                      class="bos-buy-no"
+                      @click="confirmBuy = false"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </template>
+              </div>
+            </template>
+          </aside>
+
+          <div class="bos-reels">
+            <div
+              ref="canvasHost"
+              class="bos-canvas-host"
+            />
+            <div
+              v-if="!ready"
+              class="bos-loading"
+            >
+              <UIcon
+                name="i-lucide-loader-circle"
+                class="size-10 animate-spin"
+              />
+            </div>
+            <Transition name="bos-pop">
+              <div
+                v-if="retrigger"
+                class="bos-retrigger"
+              >
+                <strong>+{{ BONUS_RETRIGGER_SPINS }}</strong>
+                <span>Free spins</span>
+              </div>
+            </Transition>
+          </div>
+
+          <aside class="bos-side bos-side-right">
+            <template v-if="feature.active && feature.tier">
+              <div class="bos-panel bos-panel-hot">
+                <p class="bos-panel-title">
+                  Wild columns
+                </p>
+                <div class="bos-pips">
+                  <span
+                    v-for="c in BOS_COLS"
+                    :key="c"
+                    :class="{ 'bos-pip-on': feature.locked.includes(c - 1) }"
+                  >{{ c }}</span>
+                </div>
+                <p class="bos-panel-title mt-3">
+                  Wild run pays
+                </p>
+                <ul class="bos-mini-pays">
+                  <li
+                    v-for="(p, i) in PAYTABLE.bonuswild"
+                    :key="i"
+                  >
+                    <span>{{ i + 3 }} reels</span>
+                    <strong>{{ fmt(p * feature.tier.multiplier * bet) }}</strong>
+                  </li>
+                </ul>
+              </div>
+              <div class="bos-panel bos-panel-hot">
+                <p class="bos-panel-title">
+                  Feature win
+                </p>
+                <p class="bos-feature-win">
+                  {{ fmt(feature.won) }}
+                </p>
+              </div>
+            </template>
+            <template v-else>
+              <div class="bos-panel">
+                <p class="bos-panel-title">
+                  Top pays · 5 reels
+                </p>
+                <ul class="bos-mini-pays">
+                  <li
+                    v-for="id in TOP_PAYS"
+                    :key="id"
+                  >
+                    <span
+                      class="bos-mini-icon"
+                      :style="bosIconStyle(id, false, 36)"
+                    />
+                    <strong>{{ fmt(PAYTABLE[id][2] * bet) }}</strong>
+                  </li>
+                </ul>
+                <button
+                  type="button"
+                  class="bos-link"
+                  @click="showInfo = true"
+                >
+                  Full paytable
+                </button>
+              </div>
+              <div class="bos-panel">
+                <p class="bos-panel-title">
+                  Max win
+                </p>
+                <p class="bos-panel-big">
+                  {{ formatNumber(BOS_MAX_WIN_MULT, false) }}×
+                </p>
+                <p class="bos-panel-title mt-2">
+                  Volatility
+                </p>
+                <div
+                  class="bos-vol"
+                  aria-label="Volatility 5 of 5"
+                >
+                  <span
+                    v-for="i in 5"
+                    :key="i"
+                  />
+                </div>
+              </div>
+            </template>
+          </aside>
+
+          <BosFeatureIntro
+            v-if="intro"
+            ref="introRef"
+            :tier="intro.tier"
+            :spins="intro.spins"
+            :bet="intro.bet"
+            :auto="auto.on"
+            :fast="turbo"
+            @tick="audio.synth('roll-tick')"
+            @reveal="audio.synth('reveal')"
+            @done="onIntroDone"
+          />
+          <BosBigWin
+            v-if="celebration"
+            ref="bigWinRef"
+            :amount="celebration.amount"
+            :bet="celebration.bet"
+            :mode="celebration.mode"
+            :spins="celebration.spins"
+            :fast="turbo || auto.on"
+            @tier="audio.synth('tier-up', $event)"
+            @tick="audio.synth('tick', $event)"
+            @settled="audio.synth('count-end')"
+            @done="onCelebrationDone"
+          />
+        </div>
+        <div
+          class="bos-frame"
+          aria-hidden="true"
+        />
+      </div>
+
+      <!-- control deck -->
+      <div class="bos-deck">
+        <div class="bos-deck-left">
+          <div class="bos-meter bos-meter-balance">
+            <span>Balance</span>
+            <strong class="bos-full">{{ fmt(balance) }}</strong>
+            <strong class="bos-compact">{{ formatNumber(balance) }}</strong>
+          </div>
+
+          <div
+            class="bos-meter bos-bet"
+            :class="{ 'bos-bet-locked': locked }"
+          >
+            <span>Bet</span>
+            <div class="bos-bet-row">
               <button
                 type="button"
-                class="mt-3 inline-flex items-center gap-1 text-[10px] font-bold text-muted underline-offset-2 hover:underline"
-                @click="showHelp = true"
+                class="bos-step"
+                aria-label="Lower bet"
+                :disabled="locked || bet <= MIN_BET"
+                @click="betDown"
               >
                 <UIcon
-                  name="i-lucide-info"
-                  class="size-3"
+                  name="i-lucide-minus"
+                  class="size-4"
                 />
-                Symbol values &amp; rules
               </button>
-            </template>
-          </div>
-
-          <div class="bos-panel mt-3 p-3">
-            <button
-              class="bos-buy-btn"
-              :disabled="!ready || isSpinning || showBonusPick || bonusRunning || autoSpinEnabled || balance < buyBonusCost"
-              @click="playSfx('button'); spin(true)"
-            >
-              <UIcon
-                name="i-lucide-skull"
-                class="size-4"
-              />
-              Buy bonus · {{ formatNumber(buyBonusCost, false) }}
-            </button>
-          </div>
-        </aside>
-
-        <main class="order-1 xl:order-2">
-          <div class="bos-console overflow-hidden">
-            <div class="bos-reel-area relative overflow-hidden p-1.5 sm:p-2">
-              <div class="bos-reel-sheen pointer-events-none absolute inset-0 z-[2]" />
-              <div
-                ref="canvasHost"
-                class="relative z-[1] mx-auto w-full max-w-[612px] [&>canvas]:!block [&>canvas]:!h-auto [&>canvas]:!w-full"
-              />
-
-              <Transition name="pop">
-                <div
-                  v-if="showBonusPick"
-                  class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-4 bg-[rgba(6,4,5,0.88)] backdrop-blur-[4px]"
-                >
-                  <UIcon
-                    name="i-lucide-skull"
-                    class="size-8 text-[#ef4444] drop-shadow-[0_0_14px_rgba(239,68,68,0.7)]"
-                  />
-                  <p class="bos-awaken-text">
-                    THE BOOK AWAKENS
-                  </p>
-                  <p class="text-xs text-white/50">
-                    Roll your bonus symbol — every skull-column win is multiplied by its value
-                  </p>
-
-                  <div
-                    class="bos-tier-reveal flex flex-col items-center justify-center gap-1"
-                    :class="{ 'bos-tier-reveal-settled': !rolling && rolledTier }"
-                  >
-                    <span
-                      v-if="rolledTier"
-                      class="bos-tier-sprite"
-                      :style="symbolIconStyle(rolledTier.symbol, true, 96)"
-                      aria-hidden="true"
-                    />
-                    <span
-                      v-else
-                      class="bos-tier-placeholder"
-                    >?</span>
-                    <span
-                      v-if="rolledTier"
-                      class="text-center text-[11px] font-bold tracking-wide text-muted uppercase"
-                    >{{ rolledTier.label }}</span>
-                    <span
-                      v-if="rolledTier"
-                      class="bos-tier-reveal-value"
-                    >{{ tierMult(rolledTier.multiplier) }}</span>
-                    <span
-                      v-if="rolledTier"
-                      class="text-center text-[10px] font-bold tracking-wide text-white/45 uppercase"
-                    >skull-column wins</span>
-                  </div>
-
-                  <button
-                    class="bos-roll-btn"
-                    :disabled="rolling || (!rolling && !!rolledTier)"
-                    @click="playSfx('button'); rollTier()"
-                  >
-                    {{ rolling ? 'Rolling…' : rolledTier ? 'Sealed' : 'Roll' }}
-                  </button>
-                </div>
-              </Transition>
-
-              <Transition name="pop">
-                <div
-                  v-if="retriggerBanner"
-                  class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-[rgba(6,4,5,0.86)] backdrop-blur-[4px]"
-                >
-                  <UIcon
-                    name="i-lucide-book-open"
-                    class="size-9 text-[#ef4444] drop-shadow-[0_0_16px_rgba(239,68,68,0.7)]"
-                  />
-                  <p class="bos-awaken-text">
-                    BOOKS AWAKENED
-                  </p>
-                  <strong class="bos-bigwin-amount">
-                    +{{ BONUS_RETRIGGER_SPINS }}
-                  </strong>
-                  <p class="text-xs font-bold tracking-wide text-white/55 uppercase">
-                    extra bonus spins
-                  </p>
-                </div>
-              </Transition>
-
-              <Transition name="pop">
-                <BigWinOverlay
-                  v-if="bigWinBanner"
-                  tint="rgba(6,3,4,0.84)"
-                >
-                  <p
-                    class="bos-bigwin-label"
-                    :style="{ backgroundImage: bigWinGradient, filter: `drop-shadow(0 0 22px ${bigWinGlow})` }"
-                  >
-                    {{ bigWinLabel }}
-                  </p>
-                  <strong class="bos-bigwin-amount">
-                    {{ formatNumber(bigWinAmount, false) }}
-                  </strong>
-                </BigWinOverlay>
-              </Transition>
-
-              <div
-                v-if="!ready && !errorMsg"
-                class="absolute inset-0 z-10 flex items-center justify-center"
+              <input
+                v-model="betText"
+                class="bos-bet-input"
+                inputmode="decimal"
+                aria-label="Bet amount"
+                :disabled="locked"
+                @focus="betFocused = true"
+                @blur="commitBet"
+                @keydown.enter="($event.target as HTMLInputElement).blur()"
+              >
+              <button
+                type="button"
+                class="bos-step"
+                aria-label="Raise bet"
+                :disabled="locked || bet >= MAX_BET"
+                @click="betUp"
               >
                 <UIcon
-                  name="i-lucide-loader-circle"
-                  class="size-10 animate-spin text-[#ef4444]"
+                  name="i-lucide-plus"
+                  class="size-4"
                 />
-              </div>
+              </button>
             </div>
-
-            <div class="grid grid-cols-1 items-center gap-3 border-t border-[#ef4444]/15 bg-background/75 px-3.5 py-3 sm:grid-cols-[1fr_auto_1fr]">
-              <div class="order-2 flex min-w-0 flex-col gap-1.5 sm:order-none">
-                <div class="bos-readout">
-                  <span>Balance</span>
-                  <strong><CoinBalance
-                    :compact="false"
-                    :value="balance"
-                  /></strong>
-                </div>
-                <div class="bos-readout">
-                  <span>Bet</span>
-                  <output v-if="amountPreview(betInput)" class="ml-auto text-[10px] tabular-nums text-muted">{{ amountPreview(betInput) }}</output>
-                  <input
-                    v-model="betInput"
-                    :disabled="locked()"
-                    aria-label="Bet amount"
-                    class="w-24 border-0 bg-transparent text-right text-sm font-black text-highlighted outline-none"
-                    @blur="commitBetInput"
-                    @keydown.enter="($event.target as HTMLInputElement).blur()"
-                  >
-                </div>
-              </div>
-
-              <div
-                class="order-1 min-w-[132px] text-center transition-transform duration-200 sm:order-none"
-                :class="totalWinPulse ? 'scale-[1.08]' : ''"
-              >
-                <span class="text-[10px] font-black tracking-wide uppercase text-muted">{{ bonusRunning ? status : 'Win' }}</span>
-                <strong
-                  class="mt-0.5 block text-3xl leading-none font-black tracking-normal"
-                  :class="(bonusRunning ? bonusTotal : totalWin) > 0 ? 'bos-value-blood' : 'text-muted/40'"
-                >
-                  {{ formatNumber(bonusRunning ? bonusTotal : totalWin, false) }}
-                </strong>
-                <span class="mt-1 block text-[11px] font-bold text-muted">Last {{ formatNumber(lastWin, false) }}</span>
-              </div>
-
-              <div class="order-3 flex items-center justify-end gap-2.5 sm:order-none">
-                <UTooltip text="Halve bet">
-                  <button
-                    class="bos-icon-btn"
-                    :disabled="locked() || bet <= MIN_BET"
-                    @click="playSfx('button'); betDown()"
-                  >
-                    1/2
-                  </button>
-                </UTooltip>
-
-                <div class="flex flex-col items-center gap-1.5">
-                  <button
-                    class="bos-spin-btn"
-                    :disabled="!ready || isSpinning || showBonusPick || bonusRunning || (!autoSpinEnabled && balance < bet)"
-                    @click="playSfx('button'); autoSpinEnabled ? stopAutoSpin() : spin()"
-                  >
-                    <UIcon
-                      v-if="isSpinning"
-                      name="i-lucide-loader-circle"
-                      class="size-5 animate-spin"
-                    />
-                    <span
-                      v-else-if="autoSpinEnabled"
-                      class="flex flex-col items-center gap-0.5 leading-none"
-                    >
-                      <span class="text-[10px]">{{ autoSpinsLeft }}x</span>
-                      <span>STOP</span>
-                    </span>
-                    <span v-else>SPIN</span>
-                  </button>
-                  <button
-                    v-if="!autoSpinEnabled"
-                    class="bos-auto-btn"
-                    :disabled="!ready || isSpinning || showBonusPick || bonusRunning || balance < bet"
-                    @click="playSfx('button'); showAutoSpinModal = true"
-                  >
-                    AUTO
-                  </button>
-                  <button
-                    v-else
-                    class="bos-auto-btn bos-auto-btn-stop"
-                    @click="playSfx('button'); stopAutoSpin()"
-                  >
-                    STOP
-                  </button>
-                </div>
-
-                <UTooltip text="Double bet">
-                  <button
-                    class="bos-icon-btn"
-                    :disabled="locked() || bet >= MAX_BET"
-                    @click="playSfx('button'); betUp()"
-                  >
-                    2x
-                  </button>
-                </UTooltip>
-              </div>
-            </div>
-
-            <div class="flex items-center justify-between gap-3 border-t border-[#ef4444]/10 px-3.5 pt-2.5 pb-3">
-              <div class="flex gap-2">
-                <UTooltip text="Rules & paytable">
-                  <button
-                    class="bos-mini-btn"
-                    @click="playSfx('button'); showHelp = true"
-                  >
-                    <UIcon
-                      name="i-lucide-info"
-                      class="size-4"
-                    />
-                  </button>
-                </UTooltip>
-                <UTooltip text="Turbo">
-                  <button
-                    class="bos-mini-btn"
-                    :class="{ 'bos-mini-btn-active': turbo }"
-                    @click="playSfx('button'); turbo = !turbo"
-                  >
-                    <UIcon
-                      name="i-lucide-zap"
-                      class="size-4"
-                    />
-                  </button>
-                </UTooltip>
-                <UTooltip :text="muted ? 'Unmute' : 'Mute'">
-                  <button
-                    class="bos-mini-btn"
-                    :class="{ 'bos-mini-btn-active': muted }"
-                    @click="toggleMuted"
-                  >
-                    <UIcon
-                      :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'"
-                      class="size-4"
-                    />
-                  </button>
-                </UTooltip>
-                <USlider
-                  v-model="volume"
-                  class="w-20 shrink-0"
-                  :min="0"
-                  :max="100"
-                  :step="5"
-                  :disabled="muted"
-                  size="sm"
-                  color="error"
-                />
-              </div>
-              <p
-                v-if="errorMsg"
-                class="text-xs text-error"
-              >
-                {{ errorMsg }}
-              </p>
-              <p
-                v-else
-                class="text-xs text-muted"
-              >
-                {{ status }} · {{ formatNumber(BOS_DISPLAY_MAX_WIN, false, 0) }}x max
-              </p>
-            </div>
+            <output
+              v-if="betFocused && amountPreview(betText)"
+              class="bos-bet-preview"
+            >{{ amountPreview(betText, true) }}</output>
           </div>
-        </main>
+          <button
+            type="button"
+            class="bos-max"
+            :disabled="locked"
+            @click="maxBet"
+          >
+            Max
+          </button>
+        </div>
 
-        <aside class="order-2 xl:order-3">
-          <div class="bos-panel p-4">
-            <div class="bos-panel-head">
-              <UIcon
-                name="i-lucide-scroll-text"
-                class="size-3.5"
-              />
-              <span>Recent spins</span>
-            </div>
-            <div
-              v-if="history.length"
-              class="mt-3 space-y-1.5"
-            >
-              <div
-                v-for="(item, index) in history"
-                :key="index"
-                class="bos-history-item"
-                :class="item.payout > 0 ? 'bos-history-item-win' : ''"
-              >
-                <UIcon
-                  :name="item.bonus ? 'i-lucide-skull' : 'i-lucide-book-open'"
-                  class="size-3.5 shrink-0"
-                />
-                <span class="min-w-0 flex-1 truncate text-[11px] font-bold tracking-wide text-muted uppercase">
-                  {{ item.bonus ? 'Bonus' : 'Base spin' }}
-                </span>
-                <strong class="text-[13px]">{{ item.payout > 0 ? formatNumber(item.payout, false) : '0.00' }}</strong>
-              </div>
-            </div>
-            <UEmpty
-              v-else
-              class="mt-2"
-              icon="i-lucide-moon"
-              description="No spins yet"
+        <div
+          :key="winFlash"
+          class="bos-win"
+          :class="{ 'bos-win-on': winMeter > 0 }"
+        >
+          <span>{{ feature.active ? 'Total win' : 'Win' }}</span>
+          <strong>{{ fmt(winMeter) }}</strong>
+          <em>{{ statusLine }}</em>
+        </div>
+
+        <div class="bos-deck-right">
+          <button
+            type="button"
+            class="bos-pill bos-pill-buy"
+            :disabled="!ready || locked || balance < buyCost"
+            @click="buyPress"
+          >
+            {{ confirmBuy ? `Confirm ${fmt(buyCost)}` : 'Buy' }}
+          </button>
+          <button
+            type="button"
+            class="bos-pill"
+            :class="{ 'bos-pill-on': auto.on }"
+            :disabled="!ready || (!auto.on && busy)"
+            @click="toggleAutoplay"
+          >
+            <UIcon
+              name="i-lucide-repeat"
+              class="size-4"
             />
+            <span :class="{ 'bos-pill-text': !auto.on }">{{ auto.on ? auto.left : 'Auto' }}</span>
+          </button>
+          <button
+            type="button"
+            class="bos-spin"
+            :class="{ 'bos-spin-busy': isSpinning, 'bos-spin-auto': auto.on }"
+            :disabled="!ready || ((feature.active || !!intro || !!celebration) && !auto.on)"
+            :aria-label="auto.on ? 'Stop autoplay' : isSpinning ? 'Stop reels' : 'Spin'"
+            @click="spinPress"
+          >
+            <span class="bos-spin-ring" />
+            <span class="bos-spin-core">
+              <UIcon
+                v-if="auto.on"
+                name="i-lucide-square"
+                class="size-7"
+              />
+              <UIcon
+                v-else-if="isSpinning"
+                name="i-lucide-hand"
+                class="size-8"
+              />
+              <UIcon
+                v-else
+                name="i-lucide-refresh-cw"
+                class="size-9"
+              />
+            </span>
+          </button>
+          <button
+            type="button"
+            class="bos-pill"
+            :class="{ 'bos-pill-on': turbo }"
+            :aria-pressed="turbo"
+            @click="toggleTurbo"
+          >
+            <UIcon
+              name="i-lucide-zap"
+              class="size-4"
+            />
+            <span class="bos-pill-text">Turbo</span>
+          </button>
+          <button
+            type="button"
+            class="bos-round-btn"
+            aria-label="Paytable and rules"
+            @click="audio.play('button'); showInfo = true"
+          >
+            <UIcon
+              name="i-lucide-scroll-text"
+              class="size-[18px]"
+            />
+          </button>
+          <div
+            ref="soundEl"
+            class="bos-sound"
+          >
+            <button
+              type="button"
+              class="bos-round-btn"
+              :aria-label="muted ? 'Sound off' : 'Sound settings'"
+              @click="soundOpen = !soundOpen"
+            >
+              <UIcon
+                :name="muted || volume === 0 ? 'i-lucide-volume-x' : 'i-lucide-volume-2'"
+                class="size-[18px]"
+              />
+            </button>
+            <Transition name="bos-pop">
+              <div
+                v-if="soundOpen"
+                class="bos-sound-pop"
+              >
+                <label class="bos-sound-row">
+                  <span>Volume</span>
+                  <input
+                    v-model.number="volume"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="5"
+                    :disabled="muted"
+                    aria-label="Volume"
+                  >
+                </label>
+                <button
+                  type="button"
+                  class="bos-sound-toggle"
+                  :class="{ 'bos-on': !muted }"
+                  @click="muted = !muted"
+                >
+                  <span>Sound</span><em>{{ muted ? 'Off' : 'On' }}</em>
+                </button>
+                <button
+                  type="button"
+                  class="bos-sound-toggle"
+                  :class="{ 'bos-on': music }"
+                  @click="music = !music"
+                >
+                  <span>Music</span><em>{{ music ? 'On' : 'Off' }}</em>
+                </button>
+              </div>
+            </Transition>
           </div>
-        </aside>
+
+        </div>
       </div>
     </div>
 
-    <AutoSpinModal
-      v-model:open="showAutoSpinModal"
-      :options="AUTO_SPIN_OPTIONS"
-      @pick="playSfx('button'); startAutoSpin($event)"
+    <BosInfo
+      v-model:open="showInfo"
+      :bet="bet"
+      :history="history"
     />
-
-    <UModal
-      v-model:open="showHelp"
-      title="How Book of Shadows works"
-    >
-      <template #body>
-        <div class="space-y-3 text-sm text-muted">
-          <p>
-            Connections start on the leftmost column and read left to right — a symbol links to the
-            next column in the same row or one row up/down, so paths can zigzag.
-            {{ BOS_MIN_CONNECTION }}+ connected columns pay. The Book substitutes for everything.
-          </p>
-          <p>
-            {{ BONUS_TRIGGER_COUNT }}+ Books anywhere award {{ BONUS_SPINS }} bonus spins. Before they
-            start you roll a bonus symbol — commons roll often, premiums are rare. During the bonus,
-            columns can lock into skull columns (walls of wilds) that stay for the rest of the round.
-            Every win made from those skull columns pays a high wild rate
-            <strong class="text-[#fecaca]">multiplied by your rolled symbol's value</strong> — a ×12
-            Sword pays each skull-column win 12 times that rate, a ×60 Hood pays 60 times. All other
-            symbols pay their normal base rate, unaffected. The dream is to roll a high multiplier,
-            then fill the board with skulls. Landing {{ BONUS_RETRIGGER_BOOKS }} books on a single
-            bonus spin adds {{ BONUS_RETRIGGER_SPINS }} more spins — once per bonus.
-          </p>
-
-          <div>
-            <p class="mb-1.5 text-[11px] font-black tracking-wide text-muted uppercase">
-              Bonus symbol · multiplier &amp; roll odds
-            </p>
-            <div class="grid grid-cols-3 gap-1.5">
-              <div
-                v-for="tier in BONUS_TIERS"
-                :key="tier.id"
-                class="bos-tier-chip"
-              >
-                <span
-                  class="bos-chip-sprite"
-                  :style="symbolIconStyle(tier.symbol, true, 24)"
-                  aria-hidden="true"
-                />
-                <span class="mt-0.5 block text-[10px] font-bold text-muted">{{ tier.label }}</span>
-                <span class="mt-0.5 block text-[11px] font-black text-[#fecaca]">{{ tierMult(tier.multiplier) }}</span>
-                <span class="mt-0.5 block text-[9px] font-bold tracking-wide text-muted/70">{{ tierChance(tier.weight) }}</span>
-              </div>
-            </div>
-          </div>
-          <p>
-            Buy bonus skips straight to the feature for {{ formatNumber(buyBonusCost, false) }}
-            ({{ BOS_BUY_BONUS_COST }}x bet). Top wins reach up to
-            {{ formatNumber(BOS_DISPLAY_MAX_WIN, false, 0) }}x bet.
-          </p>
-
-          <div>
-            <p class="mb-1.5 text-[11px] font-black tracking-wide text-muted uppercase">
-              Symbol payouts · at {{ formatNumber(bet, false) }} bet
-            </p>
-            <div class="overflow-hidden rounded-lg border border-default">
-              <table class="w-full text-left text-xs">
-                <thead>
-                  <tr class="bg-elevated text-[10px] font-black tracking-wide uppercase">
-                    <th class="px-3 py-2">
-                      Symbol
-                    </th>
-                    <th class="px-2 py-2 text-right">
-                      3 cols
-                    </th>
-                    <th class="px-2 py-2 text-right">
-                      4 cols
-                    </th>
-                    <th class="px-3 py-2 text-right">
-                      5 cols
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="row in PAYTABLE_ROWS"
-                    :key="row.id"
-                    class="border-t border-default"
-                  >
-                    <td class="px-3 py-1.5 font-bold">
-                      <span class="inline-flex items-center gap-2">
-                        <span
-                          class="bos-table-sprite"
-                          :style="symbolIconStyle(row.id, false, 22)"
-                          aria-hidden="true"
-                        />
-                        {{ row.name }}
-                      </span>
-                    </td>
-                    <td class="px-2 py-1.5 text-right">
-                      {{ formatNumber(row.pays[0] * bet, false) }}
-                    </td>
-                    <td class="px-2 py-1.5 text-right">
-                      {{ formatNumber(row.pays[1] * bet, false) }}
-                    </td>
-                    <td class="px-3 py-1.5 text-right">
-                      {{ formatNumber(row.pays[2] * bet, false) }}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <p class="text-[11px]">
-            Payouts shown are the amount won at your current bet of {{ formatNumber(bet, false) }},
-            by number of connected columns. Change your bet to see them scale.
-          </p>
-        </div>
-      </template>
-    </UModal>
+    <BosAutoplay
+      v-model:open="showAutoplay"
+      :bet="bet"
+      :balance="balance"
+      @start="startAuto"
+    />
   </div>
 </template>
 
 <style scoped>
-.bos-shell {
-  --bos-blood: #ef4444;
-  --bos-blood-deep: #7f1d1d;
-  --bos-blood-soft: #fecaca;
-  --bos-bone: #d4d4d8;
-  --bos-ash: #27272a;
-  background: var(--ui-bg);
+.bos-root {
+  --gold: #f0c36a;
+  --gold-hi: #ffe6a8;
+  --gold-lo: #8a5a1c;
+  --ink: #0b0705;
+  --parch: #e8d9bd;
+  --blood: #ff4a3a;
+  --arcane: #9dff6a;
+  --u: calc(min(100cqw - 24px, 560px) / 1300);
+
+  position: relative;
+  min-height: 100%;
+  overflow: hidden;
+  container: bosroot / inline-size;
+  background: #070504;
+  color: var(--parch);
 }
 
-.bos-bg {
+/* --- scene ---------------------------------------------------------------- */
+
+.bos-scene {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.bos-scene-img {
+  position: absolute;
+  inset: 0;
+  background: url('/slots/bookofshadows/background.png') center 35% / cover no-repeat;
+  filter: saturate(0.85);
+}
+
+.bos-scene-tint {
+  position: absolute;
+  inset: 0;
   background:
-    radial-gradient(ellipse 80% 55% at 50% 0%, rgba(127, 29, 29, 0.14) 0%, transparent 65%),
-    radial-gradient(ellipse 60% 45% at 18% 88%, rgba(63, 63, 70, 0.22) 0%, transparent 70%),
-    radial-gradient(ellipse 55% 40% at 85% 80%, rgba(127, 29, 29, 0.1) 0%, transparent 70%),
-    linear-gradient(180deg, rgba(11, 11, 13, 0.35) 0%, rgba(9, 9, 11, 0.4) 55%, rgba(5, 5, 6, 0.55) 100%),
-    url('/slots/bookofshadows/background.png') center 30% / cover no-repeat;
+    radial-gradient(ellipse 60% 50% at 50% 42%, rgba(80, 45, 14, 0.25), transparent 70%),
+    radial-gradient(ellipse 120% 90% at 50% 40%, transparent 40%, rgba(3, 2, 1, 0.85) 100%),
+    linear-gradient(180deg, rgba(5, 3, 2, 0.35), rgba(5, 3, 2, 0.7));
+  transition: background 800ms ease;
 }
 
-.bos-fog {
+.bos-in-feature .bos-scene-tint {
   background:
-    radial-gradient(ellipse 42% 26% at 28% 40%, rgba(161, 161, 170, 0.05), transparent 70%),
-    radial-gradient(ellipse 38% 22% at 74% 62%, rgba(161, 161, 170, 0.04), transparent 70%);
-  animation: bos-fog-drift 14s ease-in-out infinite alternate;
+    radial-gradient(ellipse 60% 50% at 50% 42%, rgba(140, 20, 10, 0.35), transparent 70%),
+    radial-gradient(ellipse 120% 90% at 50% 40%, transparent 40%, rgba(8, 1, 1, 0.9) 100%),
+    linear-gradient(180deg, rgba(20, 3, 2, 0.45), rgba(8, 2, 1, 0.75));
 }
 
-@keyframes bos-fog-drift {
+.bos-scene-fog {
+  position: absolute;
+  inset: -10% -20%;
+  background:
+    radial-gradient(ellipse 30% 18% at 20% 70%, rgba(200, 190, 170, 0.07), transparent 70%),
+    radial-gradient(ellipse 35% 20% at 80% 80%, rgba(200, 190, 170, 0.06), transparent 70%);
+  animation: bos-fog 22s ease-in-out infinite alternate;
+}
+
+@keyframes bos-fog {
+  to {
+    transform: translateX(6%);
+  }
+}
+
+.bos-scene-ember {
+  position: absolute;
+  bottom: -10px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ffb45a;
+  box-shadow: 0 0 8px 2px rgba(255, 150, 60, 0.7);
+  opacity: 0;
+  animation: bos-ember linear infinite;
+}
+
+@keyframes bos-ember {
   0% {
-    transform: translateX(-1.5%) translateY(0);
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+
+  10% {
     opacity: 0.8;
   }
 
   100% {
-    transform: translateX(1.5%) translateY(-1%);
-    opacity: 1;
+    opacity: 0;
+    transform: translate(40px, -95vh);
   }
 }
 
-.bos-vignette {
-  background: radial-gradient(ellipse 76% 66% at 50% 38%, transparent 0%, rgba(5, 5, 6, 0.22) 72%, rgba(2, 2, 3, 0.55) 100%);
+/* --- cabinet ----------------------------------------------------------------- */
+
+.bos-stagewrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px 16px;
 }
 
-.bos-title {
-  font-family: Georgia, 'Times New Roman', serif;
+.bos-cabinet {
+  position: relative;
+  width: min(100%, calc((100dvh - 150px) * 1.5), 1500px);
+  aspect-ratio: 1536 / 1024;
+  filter: drop-shadow(0 30px 40px rgba(0, 0, 0, 0.75));
+}
+
+.bos-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: url('/slots/bookofshadows/frame.png') center / 100% 100% no-repeat;
+  pointer-events: none;
+}
+
+.bos-cab-inner {
+  position: absolute;
+  inset: 17.2% 13.6% 12.4% 13.5%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 1.4%;
+  padding: 1.2% 1.4% 1%;
+  border-radius: 6px;
+  background:
+    radial-gradient(ellipse 50% 60% at 50% 50%, rgba(90, 55, 20, 0.35), transparent 75%),
+    linear-gradient(180deg, #120c08, #070504);
+  box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.95);
+  transition: background 600ms ease;
+  container: cab / size;
+}
+
+/* Side panels shrink with short cabinets (laptops) instead of clipping. */
+@container cab (max-height: 560px) {
+  .bos-side {
+    zoom: 0.86;
+  }
+}
+
+@container cab (max-height: 470px) {
+  .bos-side {
+    zoom: 0.74;
+  }
+}
+
+@container cab (max-height: 400px) {
+  .bos-side {
+    zoom: 0.62;
+  }
+}
+
+.bos-in-feature .bos-cab-inner {
+  background:
+    radial-gradient(ellipse 50% 60% at 50% 50%, rgba(140, 25, 12, 0.4), transparent 75%),
+    linear-gradient(180deg, #160806, #070303);
+}
+
+.bos-plaque-glow {
+  position: absolute;
+  left: 50%;
+  top: -22%;
+  width: 46%;
+  height: 26%;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(255, 170, 70, 0.28), transparent 70%);
+  animation: bos-candle 5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 51;
+  mix-blend-mode: screen;
+}
+
+@keyframes bos-candle {
+  0%, 100% {
+    opacity: 0.7;
+  }
+
+  40% {
+    opacity: 1;
+  }
+
+  46% {
+    opacity: 0.55;
+  }
+
+  52% {
+    opacity: 0.95;
+  }
+}
+
+.bos-reels {
+  position: relative;
+  height: 100%;
+  aspect-ratio: 648 / 744;
+  min-height: 0;
+}
+
+.bos-canvas-host {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bos-canvas-host :deep(canvas) {
+  display: block;
+}
+
+.bos-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--gold);
+}
+
+.bos-retrigger {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(20, 40, 8, 0.85), rgba(0, 0, 0, 0.6) 70%);
+  pointer-events: none;
+}
+
+.bos-retrigger strong {
+  font-family: 'Cinzel Decorative', Cinzel, Georgia, serif;
+  font-size: clamp(56px, 8vw, 110px);
+  font-weight: 900;
+  line-height: 1;
+  color: #eaffd8;
+  text-shadow: 0 0 30px rgba(157, 255, 106, 0.8), 0 4px 0 #0b1a04;
+}
+
+.bos-retrigger span {
+  font-family: Cinzel, Georgia, serif;
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #c4ff9e;
+}
+
+/* --- side panels ------------------------------------------------------------ */
+
+.bos-side {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.bos-panel {
+  position: relative;
+  border: 1px solid rgba(214, 170, 90, 0.32);
+  border-radius: 12px;
+  background:
+    radial-gradient(ellipse 100% 60% at 50% 0%, rgba(120, 75, 25, 0.22), transparent 70%),
+    linear-gradient(180deg, rgba(28, 18, 10, 0.92), rgba(10, 6, 4, 0.92));
+  padding: 12px 12px 14px;
+  text-align: center;
+  box-shadow: inset 0 1px 0 rgba(255, 220, 150, 0.1), 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+
+.bos-panel::before,
+.bos-panel::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  width: 6px;
+  height: 6px;
+  rotate: 45deg;
+  background: var(--gold);
+  opacity: 0.6;
+}
+
+.bos-panel::before {
+  left: 6px;
+}
+
+.bos-panel::after {
+  right: 6px;
+}
+
+.bos-panel-hot {
+  border-color: rgba(255, 90, 60, 0.5);
+  background:
+    radial-gradient(ellipse 100% 60% at 50% 0%, rgba(170, 35, 15, 0.3), transparent 70%),
+    linear-gradient(180deg, rgba(34, 12, 8, 0.94), rgba(12, 4, 3, 0.94));
+  box-shadow: inset 0 1px 0 rgba(255, 170, 140, 0.12), 0 0 22px rgba(255, 60, 30, 0.18);
+}
+
+.bos-panel-title {
+  color: #d6b27a;
+  font-family: Cinzel, Georgia, serif;
+  font-size: clamp(10px, 0.85vw, 12px);
   font-weight: 700;
-  letter-spacing: 0.04em;
-  background: linear-gradient(180deg, #fafafa 0%, var(--bos-bone) 34%, #71717a 70%, #2c2c30 100%);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.bos-panel-big {
+  margin-top: 2px;
+  font-family: Cinzel, Georgia, serif;
+  font-size: clamp(18px, 1.7vw, 26px);
+  font-weight: 900;
+  line-height: 1.1;
+  background: linear-gradient(180deg, #fff6d8, #f0c36a 55%, #a86a1c);
   background-clip: text;
   -webkit-background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 26px rgba(239, 68, 68, 0.3));
-  animation: bos-candle-flicker 7s ease-in-out infinite;
+  filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.8));
 }
 
-/* uneven candlelight — the glow breathes and occasionally stutters */
-@keyframes bos-candle-flicker {
-  0%, 100% {
-    filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 26px rgba(239, 68, 68, 0.3));
-  }
-
-  42% {
-    filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 38px rgba(239, 68, 68, 0.45));
-  }
-
-  47% {
-    filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 18px rgba(239, 68, 68, 0.18));
-  }
-
-  52% {
-    filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 34px rgba(239, 68, 68, 0.42));
-  }
-
-  76% {
-    filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 22px rgba(239, 68, 68, 0.24));
-  }
+.bos-panel-sub {
+  margin-top: 4px;
+  color: rgba(232, 217, 189, 0.72);
+  font-size: clamp(11px, 0.85vw, 12.5px);
+  line-height: 1.4;
 }
 
-.bos-eyebrow {
-  color: #71717a;
-  text-shadow: 0 0 12px rgba(239, 68, 68, 0.25);
+.bos-panel-sub strong {
+  color: var(--gold-hi);
 }
 
-.bos-seam-line {
-  height: 1px;
-  width: 110px;
-  background: linear-gradient(90deg, transparent, rgba(153, 27, 27, 0.9));
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.35);
-}
-
-.bos-seam-line-flip {
-  background: linear-gradient(90deg, rgba(153, 27, 27, 0.9), transparent);
-}
-
-.bos-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid rgba(161, 161, 170, 0.22);
-  border-radius: 999px;
-  background: rgba(39, 39, 42, 0.4);
-  padding: 4px 10px;
-  color: var(--bos-bone);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.03em;
-}
-
-.bos-badge-blood {
-  border-color: rgba(239, 68, 68, 0.32);
-  background: rgba(127, 29, 29, 0.2);
-  color: var(--bos-blood-soft);
-}
-
-.bos-console,
-.bos-panel {
-  position: relative;
-  border: 1px solid rgba(113, 113, 122, 0.26);
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(19, 19, 22, 0.94), rgba(7, 7, 9, 0.97));
-  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 42px rgba(127, 29, 29, 0.1);
-  backdrop-filter: blur(10px);
-}
-
-.bos-console {
-  border-top-color: rgba(153, 27, 27, 0.55);
-}
-
-/* a thin blood seam along the top edge, dripping down into the reels */
-.bos-console::before {
-  content: '';
-  position: absolute;
-  z-index: 2;
-  inset: 0 0 auto 0;
-  height: 14px;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse 2.5px 6px at 5% 3px, #7f1d1d 88%, transparent),
-    radial-gradient(ellipse 3px 9px at 14% 3px, #6b1414 88%, transparent),
-    radial-gradient(ellipse 2px 5px at 22% 3px, #7f1d1d 88%, transparent),
-    radial-gradient(ellipse 3.5px 11px at 33% 3px, #801717 88%, transparent),
-    radial-gradient(ellipse 2px 4px at 41% 3px, #6b1414 88%, transparent),
-    radial-gradient(ellipse 3px 8px at 52% 3px, #7f1d1d 88%, transparent),
-    radial-gradient(ellipse 2.5px 5px at 63% 3px, #6b1414 88%, transparent),
-    radial-gradient(ellipse 3px 10px at 74% 3px, #801717 88%, transparent),
-    radial-gradient(ellipse 2px 6px at 83% 3px, #7f1d1d 88%, transparent),
-    radial-gradient(ellipse 3px 8px at 92% 3px, #6b1414 88%, transparent),
-    radial-gradient(ellipse 2px 4px at 98% 3px, #7f1d1d 88%, transparent),
-    linear-gradient(180deg, rgba(127, 29, 29, 0.95) 0 3px, transparent 3px);
-  filter: drop-shadow(0 0 6px rgba(239, 68, 68, 0.3));
-}
-
-.bos-panel-head {
+.bos-books {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--bos-blood);
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  justify-content: center;
+  gap: 2px;
+  margin: 8px 0 4px;
 }
 
-.bos-panel-head span {
-  color: var(--ui-text-muted);
+.bos-books > span {
+  display: block;
+  filter: drop-shadow(0 0 8px rgba(157, 255, 106, 0.55));
+  animation: bos-bob 2.4s ease-in-out infinite;
 }
 
-.bos-panel-active {
-  border-color: rgba(239, 68, 68, 0.5);
-  animation: bos-panel-pulse 1.8s ease-in-out infinite;
+.bos-books > span:nth-child(2) {
+  animation-delay: 0.3s;
 }
 
-@keyframes bos-panel-pulse {
-  0%, 100% {
-    box-shadow: 0 26px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 20px rgba(239, 68, 68, 0.18);
-  }
+.bos-books > span:nth-child(3) {
+  animation-delay: 0.6s;
+}
 
+@keyframes bos-bob {
   50% {
-    box-shadow: 0 26px 80px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 38px rgba(239, 68, 68, 0.38);
+    transform: translateY(-4px);
   }
 }
 
-.bos-value-blood {
-  color: var(--bos-blood-soft);
-  text-shadow: 0 0 16px rgba(239, 68, 68, 0.45);
+.bos-draw-preview {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
 }
 
-.bos-value-bone {
-  color: var(--bos-bone);
+.bos-draw-preview > span {
+  display: block;
+  border-radius: 4px;
+  box-shadow: 0 0 10px rgba(255, 120, 40, 0.35);
 }
 
-.bos-inline-symbol,
-.bos-tier-sprite,
-.bos-chip-sprite,
-.bos-table-sprite {
-  display: inline-block;
-  flex: 0 0 auto;
-  background-repeat: no-repeat;
-  image-rendering: auto;
-}
-
-.bos-inline-symbol,
-.bos-table-sprite {
-  filter: drop-shadow(0 0 5px rgba(239, 68, 68, 0.25));
-}
-
-.bos-tier-sprite {
-  filter: drop-shadow(0 0 12px rgba(239, 68, 68, 0.45));
-}
-
-.bos-chip-sprite {
-  margin: 0 auto;
-  filter: drop-shadow(0 0 7px rgba(239, 68, 68, 0.28));
-}
-
-.bos-progress {
-  position: relative;
-  height: 7px;
-  overflow: hidden;
-  border: 1px solid rgba(239, 68, 68, 0.18);
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.5);
-}
-
-.bos-progress-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #450a0a, var(--bos-blood-deep), var(--bos-blood));
-  box-shadow: 0 0 10px rgba(239, 68, 68, 0.6);
-  transition: width 320ms ease;
-}
-
-.bos-tier-chip {
-  border: 1px solid rgba(113, 113, 122, 0.24);
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.35);
-  padding: 5px 0;
-  color: var(--bos-bone);
-  font-size: 11px;
-  font-weight: 900;
-  text-align: center;
+.bos-buy {
+  padding: 10px;
 }
 
 .bos-buy-btn {
   display: flex;
   width: 100%;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 1px solid rgba(239, 68, 68, 0.45);
-  border-radius: 8px;
-  background: linear-gradient(180deg, rgba(69, 10, 10, 0.7), rgba(24, 24, 27, 0.7));
-  padding: 9px 10px;
-  color: var(--bos-blood-soft);
-  font-size: 12.5px;
-  font-weight: 900;
-  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, opacity 140ms ease;
-}
-
-.bos-buy-btn:not(:disabled):hover {
-  border-color: rgba(239, 68, 68, 0.85);
-  background: linear-gradient(180deg, rgba(127, 29, 29, 0.75), rgba(39, 39, 42, 0.75));
-  transform: translateY(-1px);
-}
-
-.bos-buy-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.bos-reel-area {
-  background:
-    radial-gradient(ellipse 88% 58% at 50% 0%, rgba(127, 29, 29, 0.14), transparent 72%),
-    linear-gradient(180deg, rgba(24, 24, 27, 0.85), rgba(7, 7, 9, 0.97));
-}
-
-.bos-reel-sheen {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 20%),
-    radial-gradient(ellipse 70% 42% at 50% 106%, rgba(0, 0, 0, 0.42), transparent 65%);
-}
-
-.bos-readout {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  border: 1px solid rgba(113, 113, 122, 0.18);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.32);
-  padding: 6px 10px;
-}
-
-.bos-readout span {
-  display: block;
-  color: var(--ui-text-muted);
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.bos-readout strong {
-  min-width: 0;
-  color: var(--ui-text-highlighted);
-  font-size: 14px;
-  font-weight: 950;
-  text-align: right;
-}
-
-.bos-spin-btn,
-.bos-icon-btn,
-.bos-mini-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(113, 113, 122, 0.32);
-  background: rgba(0, 0, 0, 0.48);
-  color: white;
-  font-weight: 950;
-  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease, opacity 140ms ease;
-}
-
-.bos-spin-btn {
-  width: 84px;
-  height: 58px;
-  border-color: rgba(239, 68, 68, 0.75);
-  border-radius: 999px;
-  background: linear-gradient(180deg, #b91c1c, #450a0a);
-  color: #fef2f2;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.5), 0 0 24px rgba(239, 68, 68, 0.35);
-}
-
-.bos-icon-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-}
-
-.bos-mini-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 8px;
-}
-
-.bos-mini-btn-active {
-  border-color: rgba(239, 68, 68, 0.9);
-  background: rgba(239, 68, 68, 0.16);
-}
-
-.bos-spin-btn:disabled,
-.bos-icon-btn:disabled,
-.bos-mini-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.bos-spin-btn:not(:disabled):hover,
-.bos-icon-btn:not(:disabled):hover,
-.bos-mini-btn:not(:disabled):hover {
-  transform: translateY(-1px);
-}
-
-.bos-auto-btn {
-  border: 0;
-  background: none;
-  color: var(--ui-text-muted);
+  gap: 2px;
+  border: 1px solid #f0a35a;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #a3261a, #5a0e08 60%, #300604);
+  padding: 9px 6px;
+  color: #fff1e0;
+  box-shadow: 0 0 18px rgba(255, 80, 40, 0.3), inset 0 1px 0 rgba(255, 210, 180, 0.35);
   cursor: pointer;
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 0.22em;
-  padding: 0;
+  transition: transform 140ms ease, filter 140ms ease;
 }
 
-.bos-auto-btn:hover:not(:disabled) {
-  color: var(--bos-blood);
-}
-
-.bos-auto-btn-stop {
-  color: var(--ui-error);
-}
-
-.bos-history-item {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid rgba(113, 113, 122, 0.14);
-  border-left: 2px solid rgba(113, 113, 122, 0.28);
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.3);
-  padding: 7px 9px;
-  color: var(--ui-text-muted);
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.bos-history-item-win {
-  border-left-color: var(--bos-blood);
-  color: var(--bos-blood-soft);
-}
-
-.bos-awaken-text {
-  font-size: 22px;
-  font-weight: 900;
-  letter-spacing: 0.28em;
-  background: linear-gradient(180deg, #fecaca, #991b1b);
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 18px rgba(239, 68, 68, 0.55));
-}
-
-.bos-tier-placeholder {
-  font-size: 56px;
-  font-weight: 900;
-  line-height: 1;
-  color: var(--bos-bone);
-  opacity: 0.45;
-}
-
-.bos-tier-reveal-value {
-  font-size: 26px;
-  font-weight: 950;
-  line-height: 1;
-  color: var(--bos-blood-soft);
-  text-shadow: 0 0 18px rgba(239, 68, 68, 0.5);
-}
-
-.bos-tier-reveal-settled .bos-tier-sprite {
-  animation: bos-tier-pop 320ms ease;
-}
-
-@keyframes bos-tier-pop {
-  0% {
-    transform: scale(0.8);
-  }
-
-  60% {
-    transform: scale(1.14);
-  }
-
-  100% {
-    transform: scale(1);
-  }
-}
-
-.bos-roll-btn {
-  border: 1px solid rgba(239, 68, 68, 0.65);
-  border-radius: 999px;
-  background: linear-gradient(180deg, #b91c1c, #450a0a);
-  padding: 9px 34px;
-  color: #fef2f2;
-  font-size: 13px;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.5), 0 0 22px rgba(239, 68, 68, 0.35);
-  transition: transform 140ms ease, opacity 140ms ease;
-}
-
-.bos-roll-btn:not(:disabled):hover {
+.bos-buy-btn:hover:not(:disabled) {
   transform: translateY(-1px);
+  filter: brightness(1.15);
 }
 
-.bos-roll-btn:disabled {
+.bos-buy-btn:disabled,
+.bos-buy-yes:disabled {
   cursor: not-allowed;
+  filter: grayscale(0.6);
   opacity: 0.5;
 }
 
-.bos-bigwin-label {
-  font-size: 40px;
-  font-weight: 950;
+.bos-buy-label {
+  font-family: Cinzel, Georgia, serif;
+  font-size: clamp(11px, 0.95vw, 13px);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.bos-buy-btn strong {
+  font-size: clamp(13px, 1.1vw, 16px);
+  font-weight: 900;
+  color: #ffe6a8;
+}
+
+.bos-buy-q {
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.bos-buy-q strong {
+  color: var(--gold-hi);
+}
+
+.bos-buy-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.bos-buy-yes,
+.bos-buy-no {
+  flex: 1;
+  border-radius: 8px;
+  padding: 7px 0;
+  font-family: Cinzel, Georgia, serif;
+  font-size: 12px;
+  font-weight: 900;
   letter-spacing: 0.1em;
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  animation: bos-bigwin-throb 900ms ease-in-out infinite alternate;
+  cursor: pointer;
 }
 
-.bos-bigwin-amount {
-  font-size: 46px;
-  font-weight: 950;
+.bos-buy-yes {
+  border: 1px solid #f0a35a;
+  background: linear-gradient(180deg, #a3261a, #4a0b06);
+  color: #fff1e0;
+}
+
+.bos-buy-no {
+  border: 1px solid rgba(214, 170, 90, 0.35);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--parch);
+}
+
+.bos-spincount {
+  margin-top: 2px;
+  font-family: Cinzel, Georgia, serif;
+  font-weight: 900;
   line-height: 1;
-  color: #fef2f2;
-  text-shadow: 0 0 26px rgba(239, 68, 68, 0.65), 0 3px 0 rgba(0, 0, 0, 0.8);
 }
 
-@keyframes bos-bigwin-throb {
-  0% {
-    transform: scale(1);
+.bos-spincount strong {
+  font-size: clamp(34px, 3.4vw, 52px);
+  color: #fff1e0;
+  text-shadow: 0 0 18px rgba(255, 80, 50, 0.7), 0 3px 0 #1a0402;
+}
+
+.bos-spincount span {
+  font-size: clamp(16px, 1.5vw, 22px);
+  color: rgba(255, 210, 190, 0.6);
+}
+
+.bos-progress {
+  height: 6px;
+  margin-top: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 90, 60, 0.35);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.bos-progress > div {
+  height: 100%;
+  background: linear-gradient(90deg, #5a0e08, #ff4a3a, #ffc08a);
+  box-shadow: 0 0 10px rgba(255, 80, 50, 0.7);
+  transition: width 360ms ease;
+}
+
+.bos-drawn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.bos-drawn > span {
+  display: block;
+  max-width: 100%;
+  filter: drop-shadow(0 0 14px rgba(255, 110, 50, 0.55));
+  animation: bos-bob 3s ease-in-out infinite;
+}
+
+.bos-drawn strong {
+  font-family: Cinzel, Georgia, serif;
+  font-size: clamp(24px, 2.4vw, 36px);
+  font-weight: 900;
+  color: #ffe6a8;
+  text-shadow: 0 0 16px rgba(255, 170, 70, 0.7), 0 3px 0 #1a0a02;
+}
+
+.bos-drawn em {
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 220, 200, 0.7);
+}
+
+.bos-mini-pays {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.bos-mini-pays li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid rgba(214, 170, 90, 0.12);
+  padding: 2px 4px 4px;
+  font-size: clamp(11px, 0.9vw, 13px);
+}
+
+.bos-mini-pays li:last-child {
+  border-bottom: 0;
+}
+
+.bos-mini-pays strong {
+  color: var(--gold-hi);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
+.bos-mini-icon {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.bos-link {
+  margin-top: 8px;
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.bos-vol {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.bos-vol span {
+  width: 14px;
+  height: 14px;
+  rotate: 45deg;
+  border: 1px solid #ff9a6a;
+  background: linear-gradient(135deg, #ff6a3a, #8a1a0a);
+  box-shadow: 0 0 6px rgba(255, 90, 50, 0.6);
+}
+
+.bos-pips {
+  display: flex;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.bos-pips span {
+  display: grid;
+  width: 24px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid rgba(255, 120, 90, 0.35);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 210, 190, 0.45);
+  font-size: 11px;
+  font-weight: 800;
+  transition: all 300ms ease;
+}
+
+.bos-pips .bos-pip-on {
+  border-color: #ffb08a;
+  background: linear-gradient(180deg, #ff6a3a, #7a1206);
+  color: #fff;
+  box-shadow: 0 0 12px rgba(255, 80, 40, 0.8);
+}
+
+.bos-feature-win {
+  margin-top: 4px;
+  font-family: Cinzel, Georgia, serif;
+  font-size: clamp(20px, 2vw, 30px);
+  font-weight: 900;
+  color: #fff1e0;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 16px rgba(255, 80, 50, 0.6);
+}
+
+.bos-strip,
+.bos-compact {
+  display: none;
+}
+
+/* --- deck ------------------------------------------------------------------ */
+
+.bos-deck {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  width: min(100%, 1240px);
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  border: 1px solid rgba(214, 170, 90, 0.45);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 220, 150, 0.06), transparent 40%),
+    linear-gradient(180deg, #1d130b, #0b0705);
+  padding: 10px 14px;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.6), 0 18px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 220, 150, 0.14);
+}
+
+.bos-deck-left,
+.bos-deck-right {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.bos-deck-right {
+  justify-content: flex-end;
+}
+
+.bos-round-btn {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(214, 170, 90, 0.45);
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 30%, #2e2014, #0e0906);
+  color: var(--gold);
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease;
+}
+
+.bos-round-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--gold);
+}
+
+.bos-sound {
+  position: relative;
+}
+
+.bos-sound-pop {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: -8px;
+  z-index: 60;
+  display: grid;
+  width: 210px;
+  gap: 8px;
+  border: 1px solid rgba(214, 170, 90, 0.5);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #21160d, #0e0906);
+  padding: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7);
+}
+
+.bos-sound-row {
+  display: grid;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #d6b27a;
+}
+
+.bos-sound-row input {
+  width: 100%;
+  accent-color: var(--gold);
+}
+
+.bos-sound-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(214, 170, 90, 0.25);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 7px 10px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.bos-sound-toggle em {
+  font-style: normal;
+  color: rgba(232, 217, 189, 0.5);
+}
+
+.bos-sound-toggle.bos-on em {
+  color: var(--gold-hi);
+}
+
+.bos-meter {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border: 1px solid rgba(214, 170, 90, 0.25);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #050302, #120b06);
+  padding: 5px 12px 6px;
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+
+.bos-meter > span {
+  color: #a88a5c;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.bos-meter > strong {
+  overflow: hidden;
+  color: var(--gold-hi);
+  font-size: 16px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bos-meter-balance {
+  flex: 1 1 auto;
+  min-width: 118px;
+  max-width: 200px;
+}
+
+.bos-bet {
+  flex: 0 0 auto;
+}
+
+.bos-bet-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bos-step {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(214, 170, 90, 0.5);
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 30%, #3a2814, #140d07);
+  color: var(--gold-hi);
+  cursor: pointer;
+}
+
+.bos-step:hover:not(:disabled) {
+  border-color: var(--gold);
+  background: radial-gradient(circle at 50% 30%, #5a3c18, #1c1209);
+}
+
+.bos-step:disabled,
+.bos-max:disabled,
+.bos-pill:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.bos-bet-input {
+  width: 92px;
+  border: 0;
+  background: transparent;
+  color: #fff3d0;
+  font-size: 17px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  outline: none;
+}
+
+.bos-bet-input:focus {
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(240, 195, 106, 0.5);
+}
+
+.bos-bet-preview {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  translate: -50% 0;
+  border: 1px solid rgba(214, 170, 90, 0.4);
+  border-radius: 6px;
+  background: #140d07;
+  padding: 2px 8px;
+  color: var(--gold-hi);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.bos-max {
+  flex: 0 0 auto;
+  border: 1px solid rgba(214, 170, 90, 0.45);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #3a2814, #140d07);
+  padding: 9px 10px;
+  color: var(--gold-hi);
+  font-family: Cinzel, Georgia, serif;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.bos-win {
+  display: flex;
+  min-width: 210px;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid rgba(214, 170, 90, 0.35);
+  border-radius: 12px;
+  background: radial-gradient(ellipse at 50% 0%, rgba(110, 70, 20, 0.35), transparent 70%), #070403;
+  padding: 4px 22px 5px;
+  box-shadow: inset 0 2px 10px rgba(0, 0, 0, 0.9);
+}
+
+.bos-win > span {
+  color: #a88a5c;
+  font-family: Cinzel, Georgia, serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+}
+
+.bos-win > strong {
+  color: rgba(255, 230, 168, 0.35);
+  font-family: Cinzel, Georgia, serif;
+  font-size: 30px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.05;
+}
+
+.bos-win-on > strong {
+  color: #fff1c8;
+  text-shadow: 0 0 18px rgba(255, 170, 60, 0.75), 0 2px 0 #2a1204;
+  animation: bos-win-pop 380ms cubic-bezier(0.2, 1.6, 0.4, 1);
+}
+
+@keyframes bos-win-pop {
+  from {
+    transform: scale(1.25);
   }
+}
 
-  100% {
-    transform: scale(1.05);
+.bos-win > em {
+  color: rgba(232, 217, 189, 0.5);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bos-pill {
+  display: inline-flex;
+  height: 40px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(214, 170, 90, 0.45);
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 30%, #2e2014, #0e0906);
+  padding: 0 14px;
+  color: var(--gold-hi);
+  font-family: Cinzel, Georgia, serif;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.bos-pill:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--gold);
+}
+
+.bos-pill-on {
+  border-color: var(--gold);
+  background: radial-gradient(circle at 50% 30%, #7a5418, #2a1a08);
+  box-shadow: 0 0 16px rgba(240, 180, 80, 0.45);
+}
+
+.bos-pill-buy {
+  display: none;
+}
+
+.bos-spin {
+  position: relative;
+  display: grid;
+  width: 92px;
+  height: 92px;
+  flex: 0 0 auto;
+  margin: -24px 0 -24px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+}
+
+.bos-spin-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    conic-gradient(from 0deg, #ffe6a8, #8a5a1c, #f0c36a, #5a3810, #ffe6a8, #8a5a1c, #f0c36a, #5a3810, #ffe6a8);
+  box-shadow: 0 0 0 3px #0b0705, 0 0 26px rgba(240, 170, 60, 0.5), 0 10px 22px rgba(0, 0, 0, 0.7);
+  animation: bos-ring 12s linear infinite;
+}
+
+.bos-spin-core {
+  position: relative;
+  display: grid;
+  width: 78px;
+  height: 78px;
+  place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 28%, #6fbf3a 0%, #2d6a12 42%, #0f2a05 100%);
+  box-shadow: inset 0 3px 6px rgba(255, 255, 255, 0.35), inset 0 -8px 16px rgba(0, 0, 0, 0.6);
+  color: #f4ffe8;
+  filter: drop-shadow(0 0 6px rgba(157, 255, 106, 0.5));
+  transition: transform 120ms ease, filter 160ms ease;
+}
+
+.bos-spin:hover:not(:disabled) .bos-spin-core {
+  filter: drop-shadow(0 0 14px rgba(157, 255, 106, 0.8)) brightness(1.1);
+}
+
+.bos-spin:active:not(:disabled) .bos-spin-core {
+  transform: scale(0.94);
+}
+
+.bos-spin-busy .bos-spin-ring {
+  animation-duration: 1.4s;
+}
+
+.bos-spin-busy .bos-spin-core {
+  background: radial-gradient(circle at 50% 28%, #a0782a 0%, #5a3a10 45%, #2a1805 100%);
+}
+
+.bos-spin-auto .bos-spin-core {
+  background: radial-gradient(circle at 50% 28%, #d8483a 0%, #7a140a 45%, #2a0503 100%);
+}
+
+.bos-spin:disabled {
+  cursor: not-allowed;
+}
+
+.bos-spin:disabled .bos-spin-core {
+  filter: grayscale(0.7) brightness(0.7);
+}
+
+@keyframes bos-ring {
+  to {
+    rotate: 360deg;
   }
 }
 
-.pop-enter-active,
-.pop-leave-active {
-  transition: transform 220ms ease, opacity 220ms ease;
+.bos-pop-enter-active,
+.bos-pop-leave-active {
+  transition: opacity 200ms ease, transform 240ms cubic-bezier(0.2, 1.4, 0.4, 1);
 }
 
-.pop-enter-from,
-.pop-leave-to {
+.bos-pop-enter-from,
+.bos-pop-leave-to {
   opacity: 0;
-  transform: scale(0.92);
+  transform: scale(0.9);
+}
+
+/* --- narrower desktop: tighten the deck ------------------------------------ */
+
+@container bosroot (max-width: 1180px) {
+  .bos-meter-balance {
+    max-width: 150px;
+  }
+
+  .bos-win {
+    min-width: 180px;
+    padding: 4px 14px 5px;
+  }
+
+  .bos-win > strong {
+    font-size: 24px;
+  }
+
+  .bos-pill-text {
+    display: none;
+  }
+
+  .bos-pill {
+    min-width: 40px;
+    justify-content: center;
+    padding: 0 10px;
+  }
+}
+
+/* --- portrait layout (phones, small tablets) ------------------------------- */
+
+@container bosroot (max-width: 860px) {
+  .bos-stagewrap {
+    padding: 8px 12px 16px;
+  }
+
+  .bos-cabinet {
+    width: min(100cqw - 24px, 560px);
+    aspect-ratio: auto;
+    padding: calc(var(--u) * 196) calc(var(--u) * 70) calc(var(--u) * 150);
+  }
+
+  /* 9-slice the same frame so it wraps a portrait window */
+  .bos-frame {
+    inset: 0 calc(var(--u) * -150) 0;
+    border-style: solid;
+    border-color: transparent;
+    border-width: calc(var(--u) * 184) calc(var(--u) * 270) calc(var(--u) * 144);
+    border-image: url('/slots/bookofshadows/frame.png') 184 270 144 stretch;
+    background: none;
+  }
+
+  .bos-cab-inner {
+    position: relative;
+    inset: auto;
+    container-type: normal;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .bos-side {
+    display: none;
+  }
+
+  .bos-strip {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px 14px;
+    border-bottom: 1px solid rgba(214, 170, 90, 0.2);
+    padding: 2px 4px 6px;
+    font-family: Cinzel, Georgia, serif;
+    font-size: 12px;
+    font-weight: 900;
+    color: var(--gold-hi);
+  }
+
+  .bos-strip-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .bos-strip-item em {
+    font-style: normal;
+    color: #a88a5c;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-size: 10px;
+  }
+
+  .bos-strip-icon {
+    display: inline-block;
+  }
+
+  .bos-reels {
+    width: 100%;
+    height: auto;
+  }
+
+  .bos-plaque-glow {
+    top: calc(var(--u) * -190);
+    height: calc(var(--u) * 180);
+  }
+
+  .bos-deck {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 10px;
+  }
+
+  .bos-win {
+    order: -1;
+    width: 100%;
+  }
+
+  .bos-deck-left {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .bos-meter-balance {
+    max-width: none;
+  }
+
+  .bos-deck-right {
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .bos-pill-buy {
+    display: inline-flex;
+    border-color: #f0a35a;
+    background: linear-gradient(180deg, #a3261a, #4a0b06);
+  }
+
+  .bos-spin {
+    width: 84px;
+    height: 84px;
+    margin: 0 2px;
+  }
+
+  .bos-spin-core {
+    width: 70px;
+    height: 70px;
+  }
+
+  .bos-deck-right .bos-pill,
+  .bos-deck-right .bos-round-btn {
+    width: 38px;
+    height: 38px;
+  }
+
+  .bos-pill-buy {
+    width: auto !important;
+    padding: 0 12px;
+  }
+
+  .bos-deck-left {
+    flex-wrap: nowrap;
+    width: 100%;
+  }
+
+  .bos-meter-balance {
+    min-width: 0;
+  }
+
+  .bos-bet-input {
+    width: 64px;
+  }
+}
+
+@container bosroot (max-width: 420px) {
+  .bos-full {
+    display: none;
+  }
+
+  .bos-compact {
+    display: block;
+  }
+
+  .bos-bet-input {
+    width: 76px;
+  }
 }
 </style>

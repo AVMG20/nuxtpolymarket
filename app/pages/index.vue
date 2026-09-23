@@ -19,7 +19,7 @@ const slotGames: {
   },
   {
     name: 'Candy Madness',
-    description: '6×5 cluster-pays cascade with stacking multipliers & free spins',
+    description: '7×7 cluster-pays cascade with stacking multipliers & free spins',
     icon: 'i-lucide-candy',
     to: '/games/candymadness',
     gradient: 'from-pink-950 to-slate-900',
