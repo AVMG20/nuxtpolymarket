@@ -9,6 +9,7 @@ import {
   DIVE_DOGS,
   DIVE_KEY_SPINS,
   FS_AWARD,
+  FS_MAX_SPINS,
   FS_RETRIGGER_SPINS,
   FS_TRIGGER,
   FS_WILD_MULTS,
@@ -153,8 +154,8 @@ const pct = (v: number) => `${(v * 100).toFixed(1)}%`
                 <p>
                   {{ FS_TRIGGER }}, 4 or 5 Safes award {{ FS_AWARD[3] }}, {{ FS_AWARD[4] }} or {{ FS_AWARD[5] }} free spins (about 1 in {{ TPH_STATS.freeSpinsOdds }} spins).
                   Every Wild that lands carries a multiplier and <strong>sticks</strong> until the feature ends.
-                  A win's multiplier is the <strong>sum</strong> of the Wilds in it, so two ×3 Wilds make a ×6 win.
-                  {{ FS_TRIGGER }}+ Safes during the feature add {{ FS_RETRIGGER_SPINS }} spins.
+                  Each way pays the <strong>sum</strong> of the Wild multipliers on it: a way through a ×2 and a ×3 Wild pays ×5. A way without a Wild pays ×1.
+                  {{ FS_TRIGGER }}+ Safes during the feature add {{ FS_RETRIGGER_SPINS }} spins, up to {{ FS_MAX_SPINS }} spins in total.
                 </p>
                 <ul class="tph-pt__tiers">
                   <li v-for="m in multOdds" :key="m.mult">
@@ -171,7 +172,7 @@ const pct = (v: number) => `${(v * 100).toFixed(1)}%`
                   Dumpster Dive
                 </p>
                 <p>
-                  A Dumpster on reels 1, 3 and 5 opens {{ DIVE_BINS }} trash cans (about 1 in {{ TPH_STATS.diveOdds }} spins). Pick cans until a guard dog catches you.
+                  A Dumpster on reels 1, 3 and 5 opens {{ DIVE_BINS }} trash cans (about 1 in {{ TPH_STATS.diveOdds }} spins). Pick cans until a guard dog catches you or only dogs are left.
                   There are {{ DIVE_DOGS }} dogs. Cans can hold:
                 </p>
                 <ul class="tph-pt__items">
@@ -224,7 +225,7 @@ const pct = (v: number) => `${(v * 100).toFixed(1)}%`
               <li>Base wins, the dive and free spins add up. A round pays at most {{ formatNumber(TPH_MAX_WIN_MULT, false) }}× bet; free spins stop once that is reached.</li>
               <li>RTP is measured over {{ TPH_STATS.rounds }} simulated spins of the real game code.</li>
               <li>Every outcome is drawn on the server before the reels start. Turbo, quick stop and skipping never change a result.</li>
-              <li>Space spins. Press it again while the reels turn to stop them early.</li>
+              <li>Space spins. Press it again while the reels turn to stop them early. In the Dumpster Dive it picks cans for you.</li>
             </ul>
           </section>
         </div>

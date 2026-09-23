@@ -10,6 +10,8 @@ import { tphArtDataUrl } from '~/utils/slots/trashpanda-art'
 const props = defineProps<{
   dive: TphDive
   bet: number
+  /** What the dive pays; below `dive.total` only when the max win cuts it. */
+  payout: number
   auto: boolean
   turbo: boolean
   play: (event: TphSoundEvent, intensity?: number) => void
@@ -33,6 +35,8 @@ const finished = ref(false)
 const summary = ref(false)
 const busy = ref(false)
 const autoPick = ref(props.auto)
+/** Space / skip while already auto-picking: pick faster. */
+const fast = ref(false)
 const note = ref('Pick a trash can. Find cash, dodge the guard dogs.')
 const noteTone = ref<'idle' | 'good' | 'bad'>('idle')
 let destroyed = false
@@ -65,7 +69,7 @@ function itemLabel(item: TphDiveItem, ateDonut = false): string {
   }
 }
 
-const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms * (props.turbo ? 0.5 : 1)))
+const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms * (props.turbo ? 0.5 : 1) * (fast.value ? 0.4 : 1)))
 
 function cashTier(value: number) {
   return value >= 50 ? 4 : value >= 25 ? 3 : value >= 10 ? 2 : value >= 5 ? 1 : 0
@@ -168,7 +172,7 @@ function scheduleAuto() {
     // Cosmetic: which can gets opened doesn't change what comes out.
     const i = closed[Math.floor(Math.random() * closed.length)]
     if (i !== undefined) void open(i)
-  }, props.turbo ? 380 : 750)
+  }, (props.turbo ? 380 : 750) * (fast.value ? 0.4 : 1))
 }
 
 function toggleAuto() {
@@ -184,7 +188,12 @@ function hurry() {
     emit('done')
     return
   }
-  if (!autoPick.value) toggleAuto()
+  if (!autoPick.value) {
+    toggleAuto()
+    return
+  }
+  fast.value = true
+  if (!busy.value) scheduleAuto()
 }
 
 defineExpose({ hurry })
@@ -254,7 +263,7 @@ onBeforeUnmount(() => {
           {{ dive.cleared ? 'Clean getaway' : 'Dive over' }}
         </p>
         <p class="tph-dive__total">
-          {{ formatNumber(dive.total) }}
+          {{ formatNumber(payout) }}
         </p>
         <p v-if="dive.keyFound" class="tph-dive__sub">
           + the golden key opens a Night Heist

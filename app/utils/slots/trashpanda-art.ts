@@ -279,75 +279,142 @@ function paintFish(ctx: Ctx) {
     ctx.restore()
 }
 
+/** Point and unit normal on a quadratic curve. */
+function quadAt(p0: [number, number], p1: [number, number], p2: [number, number], t: number) {
+    const u = 1 - t
+    const x = u * u * p0[0] + 2 * u * t * p1[0] + t * t * p2[0]
+    const y = u * u * p0[1] + 2 * u * t * p1[1] + t * t * p2[1]
+    const dx = 2 * u * (p1[0] - p0[0]) + 2 * t * (p2[0] - p1[0])
+    const dy = 2 * u * (p1[1] - p0[1]) + 2 * t * (p2[1] - p1[1])
+    const len = Math.hypot(dx, dy) || 1
+    return { x, y, nx: -dy / len, ny: dx / len }
+}
+
+/** A thick crescent along a quadratic curve between t0 and t1, `width(t)` half-widths. */
+function crescent(p0: [number, number], p1: [number, number], p2: [number, number], t0: number, t1: number, width: (t: number) => number): Path2D {
+    const steps = 36
+    const a: [number, number][] = []
+    const b: [number, number][] = []
+    for (let i = 0; i <= steps; i++) {
+        const t = t0 + (t1 - t0) * i / steps
+        const q = quadAt(p0, p1, p2, t)
+        const w = width(t)
+        a.push([q.x + q.nx * w, q.y + q.ny * w])
+        b.push([q.x - q.nx * w, q.y - q.ny * w])
+    }
+    return path((p) => {
+        p.moveTo(a[0]![0], a[0]![1])
+        for (const [x, y] of a.slice(1)) p.lineTo(x, y)
+        for (const [x, y] of b.reverse()) p.lineTo(x, y)
+        p.closePath()
+    })
+}
+
 function paintBanana(ctx: Ctx) {
     ground(ctx, 128, 222, 100)
-    const inner = '#fff7cc'
-    const peel = linear(ctx, 40, 60, 220, 220, [[0, '#fff27a'], [0.5, '#facc15'], [1, '#eab308']])
-    // Three flaps drooping from the top.
-    const left = path((p) => {
-        p.moveTo(112, 96)
-        p.bezierCurveTo(70, 104, 38, 150, 30, 212)
-        p.bezierCurveTo(52, 214, 70, 200, 82, 176)
-        p.bezierCurveTo(92, 150, 108, 130, 122, 120)
-        p.closePath()
+    // A half-peeled banana: the curved stalk end still in its yellow peel,
+    // the pale fruit sticking up to the right, and three peel strips hanging
+    // off where the peel was pulled back.
+    const P0: [number, number] = [40, 196]
+    const P1: [number, number] = [164, 228]
+    const P2: [number, number] = [222, 60]
+    const RIM = 0.55
+    const peel = linear(ctx, 30, 120, 190, 230, [[0, '#fff27a'], [0.45, '#facc15'], [1, '#e0a800']])
+    const inside = '#fff4c2'
+    const fruitFill = linear(ctx, 150, 40, 210, 170, [[0, '#fffdf2'], [1, '#fbe3a0']])
+
+    // Local frame at the rim: +x runs up the banana, +y is the lower-right side.
+    const rim = quadAt(P0, P1, P2, RIM)
+    const ax = rim.ny
+    const ay = -rim.nx
+    const L = (x: number, y: number): [number, number] => [rim.x + ax * x + rim.nx * y, rim.y + ay * x + rim.ny * y]
+    // A peel strip from the rim (root between y0 and y1) to a tip, with its
+    // pale inner face showing along one edge.
+    const strip = (rootY: number, tip: [number, number], width: number, bend: number, innerSide: 0 | 1) => {
+        const rc = L(0, rootY)
+        const t = L(tip[0], tip[1])
+        const dx = t[0] - rc[0]
+        const dy = t[1] - rc[1]
+        const len = Math.hypot(dx, dy) || 1
+        const ux = -dy / len
+        const uy = dx / len
+        const r0: [number, number] = [rc[0] + ux * width / 2, rc[1] + uy * width / 2]
+        const r1: [number, number] = [rc[0] - ux * width / 2, rc[1] - uy * width / 2]
+        const px = ux * bend
+        const py = uy * bend
+        const c0: [number, number] = [r0[0] + dx * 0.55 + px, r0[1] + dy * 0.55 + py]
+        const c1: [number, number] = [r1[0] + dx * 0.55 + px, r1[1] + dy * 0.55 + py]
+        const shape = path((p) => {
+            p.moveTo(r0[0], r0[1])
+            p.quadraticCurveTo(c0[0], c0[1], t[0], t[1])
+            p.quadraticCurveTo(c1[0], c1[1], r1[0], r1[1])
+            p.closePath()
+        })
+        blob(ctx, shape, peel, '#b98b07', { d: 6 })
+        // Pale inner face along one edge.
+        ctx.save()
+        ctx.clip(shape)
+        ctx.fillStyle = inside
+        const e = innerSide === 0 ? r0 : r1
+        const ec = innerSide === 0 ? c0 : c1
+        const mid: [number, number] = [(r0[0] + r1[0]) / 2 + dx * 0.5 + px * 0.6, (r0[1] + r1[1]) / 2 + dy * 0.5 + py * 0.6]
+        ctx.fill(path((p) => {
+            p.moveTo(e[0], e[1])
+            p.quadraticCurveTo(ec[0], ec[1], t[0], t[1])
+            p.quadraticCurveTo(mid[0], mid[1], (e[0] + (r0[0] + r1[0]) / 2) / 2, (e[1] + (r0[1] + r1[1]) / 2) / 2)
+            p.closePath()
+        }))
+        ctx.restore()
+        ink(ctx, shape)
+    }
+
+    // Back strip, flopped over to the upper left.
+    strip(-20, [-40, -90], 30, 8, 0)
+
+    // The peeled fruit, narrower than the peel, with a round tip.
+    const fruit = crescent(P0, P1, P2, RIM - 0.05, 0.985, (t) => {
+        const end = Math.min(1, (0.985 - t) / 0.12)
+        return 24 * Math.sqrt(Math.max(0.03, end))
     })
-    const right = path((p) => {
-        p.moveTo(144, 96)
-        p.bezierCurveTo(190, 100, 222, 150, 228, 214)
-        p.bezierCurveTo(204, 216, 188, 200, 178, 176)
-        p.bezierCurveTo(168, 150, 150, 130, 134, 120)
-        p.closePath()
+    blob(ctx, fruit, fruitFill, '#efc766', { d: 7, gloss: [184, 104, 5, 20, 0.4], glossAlpha: 0.8 })
+
+    // The unpeeled stalk end.
+    const body = crescent(P0, P1, P2, 0.02, RIM + 0.02, (t) => {
+        const end = Math.min(1, (t - 0.02) / 0.2)
+        return 34 * Math.sqrt(Math.max(0.06, end))
     })
-    const mid = path((p) => {
-        p.moveTo(108, 108)
-        p.bezierCurveTo(100, 150, 104, 196, 128, 226)
-        p.bezierCurveTo(152, 196, 156, 150, 148, 108)
-        p.closePath()
-    })
-    // Body (the fruit's stump) behind the flaps.
-    const body = path((p) => {
-        p.moveTo(104, 120)
-        p.bezierCurveTo(100, 80, 110, 50, 124, 34)
-        p.lineTo(138, 32)
-        p.bezierCurveTo(150, 54, 156, 82, 152, 120)
-        p.closePath()
-    })
-    blob(ctx, body, peel, '#b98b07', { gloss: [118, 70, 7, 24, 0.1] })
-    // Stem nub.
-    blob(ctx, rrect(120, 18, 20, 20, 6), '#7c5a12', '#4a3409', { d: 5, line: 7 })
-    blob(ctx, left, peel, '#b98b07', { d: 10 })
-    blob(ctx, right, peel, '#b98b07', { d: 10 })
-    // Pale inside of the side flaps.
+    blob(ctx, body, peel, '#b98b07', { d: 10, gloss: [96, 188, 26, 7, 0.1] })
+    // Ridge along the peel.
     ctx.save()
-    ctx.clip(left)
-    ctx.fillStyle = inner
-    ctx.fill(path((p) => {
-        p.moveTo(116, 108)
-        p.bezierCurveTo(84, 124, 64, 156, 58, 196)
-        p.bezierCurveTo(74, 186, 90, 150, 124, 124)
-    }))
+    ctx.clip(body)
+    ctx.strokeStyle = 'rgba(150,100,0,0.55)'
+    ctx.lineWidth = 3.5
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    for (let i = 0; i <= 16; i++) {
+        const q = quadAt(P0, P1, P2, 0.08 + (RIM - 0.08) * i / 16)
+        if (i === 0) ctx.moveTo(q.x - q.nx * 9, q.y - q.ny * 9)
+        else ctx.lineTo(q.x - q.nx * 9, q.y - q.ny * 9)
+    }
+    ctx.stroke()
     ctx.restore()
-    ctx.save()
-    ctx.clip(right)
-    ctx.fillStyle = inner
-    ctx.fill(path((p) => {
-        p.moveTo(140, 108)
-        p.bezierCurveTo(172, 124, 192, 156, 198, 196)
-        p.bezierCurveTo(182, 186, 166, 150, 132, 124)
-    }))
-    ctx.restore()
-    ink(ctx, left)
-    ink(ctx, right)
-    blob(ctx, mid, peel, '#b98b07', { d: 10, gloss: [118, 140, 6, 26, 0] })
+    // Dark stalk tip.
+    const tip = quadAt(P0, P1, P2, 0.015)
+    blob(ctx, ellipse(tip.x, tip.y, 9, 11, 0.3), '#5b3d0a', '#3a2606', { d: 4, line: 7 })
     // Brown spots.
     ctx.save()
     ctx.fillStyle = '#7c5a12'
-    for (const [x, y, r] of [[56, 196, 5], [206, 190, 6], [134, 190, 5], [120, 160, 4], [140, 74, 4], [196, 150, 4]] as const) {
+    for (const [t, off, r] of [[0.16, 8, 4], [0.28, 12, 5], [0.4, 6, 4]] as const) {
+        const q = quadAt(P0, P1, P2, t)
         ctx.beginPath()
-        ctx.arc(x, y, r, 0, Math.PI * 2)
+        ctx.arc(q.x + q.nx * off, q.y + q.ny * off, r, 0, Math.PI * 2)
         ctx.fill()
     }
     ctx.restore()
+
+    // Middle strip over the peel, and the front strip hanging to the ground.
+    strip(2, [-72, 18], 28, 6, 0)
+    strip(22, [-24, 80], 30, -8, 1)
 }
 
 function paintCan(ctx: Ctx) {

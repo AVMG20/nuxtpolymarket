@@ -45,6 +45,7 @@ import { TRASH_BAR_THEME } from '~/utils/slots/slot-themes'
 
 type Feature = 'buyFreeSpins' | 'buyDive'
 
+const { fetchSession } = useAuth()
 const { bet, isSpinning, errorMsg, balance, setBalance, history, pushHistory, spin: requestSpin } = useSlotGame<TrashPandaResult, { payout: number, bet: number, bonus: boolean }>('trashpanda')
 const sound = useTrashPandaSound()
 const { soundEnabled, soundVolume, musicVolume } = sound
@@ -126,7 +127,12 @@ const fsSpin = ref(0)
 const fsTotalSpins = ref(0)
 const fsTotal = ref(0)
 const stickyHud = ref<TphStickyWild[]>([])
-const stickySum = computed(() => stickyHud.value.reduce((a, w) => a + w.mult, 0))
+/** Best multiplier a single way can reach now: the biggest sticky wild on each reel, added up. */
+const topWayMult = computed(() => {
+  const best = new Map<number, number>()
+  for (const w of stickyHud.value) best.set(w.col, Math.max(best.get(w.col) ?? 0, w.mult))
+  return [...best.values()].reduce((a, m) => a + m, 0)
+})
 const stickyChips = computed(() => {
   const counts = new Map<number, number>()
   for (const w of stickyHud.value) counts.set(w.mult, (counts.get(w.mult) ?? 0) + 1)
@@ -134,7 +140,7 @@ const stickyChips = computed(() => {
 })
 
 const card = reactive({ show: false, kind: 'fs' as 'fs' | 'fs-end' | 'dive' | 'retrigger', title: '', sub: '', amount: 0 })
-const dive = reactive({ show: false, data: null as TrashPandaResult['dive'] })
+const dive = reactive({ show: false, data: null as TrashPandaResult['dive'], bet: 0, payout: 0 })
 const diveRef = ref<InstanceType<typeof TphDive> | null>(null)
 let diveResolve: (() => void) | null = null
 
@@ -371,6 +377,10 @@ onUnmounted(() => {
   diveResolve?.()
   sound.stopMusic()
   sound.stopEffects()
+  meterTween?.kill()
+  clearFrames()
+  clearFloats()
+  reelGlow(0, false)
   if (GSAP) {
     for (const target of [dimLayer, stageRoot, reelSet]) if (target) GSAP.killTweensOf(target)
   }
@@ -608,8 +618,31 @@ function floatText(x: number, y: number, text: string, color = 0xfde047, size = 
   GSAP.to(t, { alpha: 0, duration: 0.4, delay: 1.1, onComplete: () => t.destroy() })
 }
 
+/** Sticky wild multipliers by "col:row" while a free spin is being shown. */
+let wayMults: Map<string, number> | null = null
+
+/**
+ * Multiplier range over the ways of a win. A way's multiplier is the sum of
+ * the wilds it runs through, so the best way takes the biggest wild on each
+ * reel and the weakest way takes a plain symbol wherever it can.
+ */
+function wayMultRange(w: TphWayWin): { min: number, max: number } | null {
+  if (!wayMults || w.weight === w.ways) return null
+  let min = 0
+  let max = 0
+  for (let col = 0; col < w.length; col++) {
+    const mults = w.cells.filter(c => c.col === col).map(c => wayMults!.get(`${c.col}:${c.row}`) ?? 0)
+    const wilds = mults.filter(m => m > 0)
+    if (!wilds.length) continue
+    max += Math.max(...wilds)
+    if (wilds.length === mults.length) min += Math.min(...wilds)
+  }
+  return { min: Math.max(1, min), max: Math.max(1, max) }
+}
+
 function wayLabel(w: TphWayWin) {
-  const boost = w.weight > w.ways ? ` · wilds ×${formatNumber(w.weight / w.ways, false)}` : ''
+  const range = wayMultRange(w)
+  const boost = range ? ` · wilds ${range.min === range.max ? '' : 'up to '}×${range.max}` : ''
   return `${TPH_SYMBOLS[w.symbol].name} × ${w.length} · ${w.ways} ${w.ways === 1 ? 'way' : 'ways'}${boost} · ${formatNumber(w.amount)}`
 }
 
@@ -818,6 +851,7 @@ async function spin(feature: Feature | null = null) {
       say(errorMsg.value || 'Spin failed', 'warn')
       phase.value = 'idle'
       stopAutoplay()
+      void fetchSession()
     }
     return
   }
@@ -871,6 +905,8 @@ async function spin(feature: Feature | null = null) {
     winning.value = false
     inFreeSpins.value = false
     dive.show = false
+    wayMults = null
+    void fetchSession()
   }
 
   if (destroyed) return
@@ -924,6 +960,8 @@ async function playDive(result: TrashPandaResult) {
   const before = winMeter.value
   diveBase = before
   dive.data = d
+  dive.bet = result.bet
+  dive.payout = result.divePayout
   dive.show = true
   await new Promise<void>((resolve) => { diveResolve = resolve })
   diveResolve = null
@@ -938,7 +976,7 @@ async function playDive(result: TrashPandaResult) {
 let diveBase = 0
 
 function onDivePot(pot: number) {
-  winMeter.value = diveBase + pot * bet.value
+  winMeter.value = diveBase + Math.min(pot * dive.bet, dive.payout)
   winPulse.value++
 }
 
@@ -1014,12 +1052,14 @@ async function playFreeSpins(result: TrashPandaResult) {
           await delay(260)
         }
         stickyHud.value = spin.sticky.map(w => ({ ...w }))
-        say(`Wild sticks! Board total ×${stickySum.value}`, 'bonus')
+        say(`Wild sticks! Best way now ×${topWayMult.value}`, 'bonus')
         await delay(300)
       }
 
       if (spin.wins.length) {
+        wayMults = new Map(spin.sticky.map(w => [`${w.col}:${w.row}`, w.mult]))
         await presentWays(spin.wins, spin.win, result.bet, before + fsTotal.value, false)
+        wayMults = null
       }
       fsTotal.value = spin.runningTotal
       winMeter.value = before + fsTotal.value
@@ -1122,7 +1162,9 @@ const skyline = (() => {
     <div class="tph-stage">
       <div class="tph-cabinet">
         <div class="tph-tape" aria-hidden="true">
-          <span v-for="i in 8" :key="i">POLICE LINE · DO NOT CROSS</span>
+          <div class="tph-tape__track">
+            <span v-for="i in 12" :key="i">POLICE LINE · DO NOT CROSS</span>
+          </div>
         </div>
 
         <header class="tph-marquee">
@@ -1149,7 +1191,7 @@ const skyline = (() => {
                   <span v-for="c in stickyChips" :key="c.mult" class="tph-hud__chip" :style="{ '--c': c.color }">
                     ×{{ c.mult }}<small v-if="c.count > 1" class="tph-hud__count">{{ c.count }}</small>
                   </span>
-                  <span v-if="stickyChips.length" class="tph-hud__sum">= ×{{ stickySum }}</span>
+                  <span v-if="stickyChips.length" class="tph-hud__sum" title="Best way multiplier">best<span class="tph-hud__sum-way"> way</span> ×{{ topWayMult }}</span>
                 </span>
               </div>
               <div class="tph-hud__block">
@@ -1184,7 +1226,8 @@ const skyline = (() => {
               v-if="dive.show && dive.data"
               ref="diveRef"
               :dive="dive.data"
-              :bet="bet"
+              :bet="dive.bet"
+              :payout="dive.payout"
               :auto="autoplay.active"
               :turbo="turbo"
               :play="sound.play"
@@ -1418,31 +1461,41 @@ const skyline = (() => {
   right: -14px;
   top: 2px;
   height: 22px;
-  display: flex;
-  gap: 26px;
   overflow: hidden;
-  white-space: nowrap;
-  align-items: center;
   transform: rotate(-1.2deg);
-  background: repeating-linear-gradient(-45deg, #facc15 0 16px, #1a1030 16px 22px);
+  background: #facc15;
   border-top: 2px solid var(--tph-ink);
   border-bottom: 2px solid var(--tph-ink);
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
 }
 
+/* One plain yellow tape; the text scrolls as a single track. The copies are
+   duplicated, so sliding by half its width loops without a seam. */
+.tph-tape__track {
+  display: flex;
+  width: max-content;
+  height: 100%;
+  align-items: center;
+  animation: tph-tape 40s linear infinite;
+}
+
 .tph-tape span {
   flex-shrink: 0;
-  padding: 0 10px;
+  padding: 0 14px;
   font-family: 'Bangers', sans-serif;
   font-size: 14px;
   letter-spacing: 0.14em;
   color: var(--tph-ink);
-  background: #facc15;
-  animation: tph-tape 18s linear infinite;
+}
+
+.tph-tape span::after {
+  content: '★';
+  margin-left: 28px;
+  font-size: 11px;
 }
 
 @keyframes tph-tape {
-  to { transform: translateX(-100%); }
+  to { transform: translateX(-50%); }
 }
 
 /* ── Marquee ───────────────────────────────────────────────────────────── */
@@ -1812,6 +1865,8 @@ const skyline = (() => {
   .tph-hud__block { padding: 2px 8px; }
   .tph-hud__value { font-size: 15px; }
   .tph-hud__chip { font-size: 12px; }
+  .tph-hud__chips { gap: 5px; }
+  .tph-hud__sum-way { display: none; }
   .tph-badge { font-size: 9.5px; letter-spacing: 0.08em; }
   .tph-badge + .tph-badge::before { margin: 0 7px; }
   .tph-badge--max { display: none; }
@@ -1827,6 +1882,6 @@ const skyline = (() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tph-sky__beam, .tph-tape span, .tph-logo__boss, .tph-card__art { animation: none !important; }
+  .tph-sky__beam, .tph-tape__track, .tph-logo__boss, .tph-card__art { animation: none !important; }
 }
 </style>
