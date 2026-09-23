@@ -649,14 +649,18 @@ function winPop(cells: Cell[], amount: number, multiple: number, seconds: number
     v: amount,
     duration: skipping ? 0 : seconds * speed(),
     ease: 'power1.out',
-    onUpdate: () => { t.text = `+${formatNumber(obj.v)}` },
+    onUpdate: () => {
+      if (!t.destroyed) t.text = `+${formatNumber(obj.v)}`
+    },
     onComplete: () => {
+      if (t.destroyed) return
       t.text = `+${formatNumber(amount)}`
       GSAP!.fromTo(t.scale, { x: 1.18, y: 1.18 }, { x: 1, y: 1, duration: 0.3, ease: 'back.out(3)' })
     }
   })
   return () => {
     count.progress(1)
+    if (t.destroyed) return
     GSAP!.to(t, { y: y - 40, alpha: 0, duration: 0.4, ease: 'power1.in', onComplete: () => t.destroy() })
   }
 }
