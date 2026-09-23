@@ -624,6 +624,14 @@ const rawGroups: CommandPaletteGroup[] = [
         icon: 'i-lucide-party-popper',
         to: '/games/spinata',
         keywords: ['slots', 'spinata', 'pinata', 'fiesta', 'casino', 'spin']
+      },
+      {
+        id: 'trashpanda',
+        label: 'Trash Panda Heist',
+        description: 'Raccoon heist slot with sticky wild free spins and a dumpster pick game',
+        icon: 'i-lucide-trash-2',
+        to: '/games/trashpanda',
+        keywords: ['slots', 'trashpanda', 'trash', 'panda', 'raccoon', 'heist', 'casino', 'spin']
       }
     ]
   }

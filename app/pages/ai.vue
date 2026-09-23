@@ -303,7 +303,8 @@ function toolDescription(call: AiToolCall) {
     play_aethergates_rounds: 'aethergates',
     play_fireinthehole_rounds: 'fireinthehole',
     play_bookofshadows_rounds: 'bookofshadows',
-    play_spinata_rounds: 'spinata'
+    play_spinata_rounds: 'spinata',
+    play_trashpanda_rounds: 'trashpanda'
   }
   const casinoGame = call.function.name === 'play_casino_rounds'
     ? String(args.game ?? 'casino')
