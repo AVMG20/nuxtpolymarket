@@ -126,7 +126,7 @@ function start() {
     <p class="sa-note">
       {{ settings.count }} × {{ formatNumber(spinCost) }} = <b>{{ formatNumber(total) }}</b>
       <template v-if="affordable < settings.count">
-        · your balance covers {{ formatNumber(affordable, false) }}
+        · your balance covers {{ formatNumber(affordable) }}
       </template>
     </p>
 

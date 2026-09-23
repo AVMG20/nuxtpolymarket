@@ -52,7 +52,7 @@ const BET_STEPS = (() => {
 const betLocked = computed(() => isSpinning.value || auto.on)
 const editingBet = ref(false)
 const betDraft = ref(bet.value)
-const betText = useAmountInput(betDraft, { integer: true })
+const betText = useAmountInput(betDraft, { integer: true, shorthand: true })
 const betInputEl = ref<HTMLInputElement>()
 
 function clampBet(v: number) {
@@ -385,7 +385,7 @@ function lineAmount(w: LineWin, betAmt: number, mult: number) {
 
 function lineLabel(w: LineWin, amount: number, mult: number) {
   const m = mult > 1 ? ` ×${mult}` : ''
-  return `Line ${w.line + 1} · ${w.count} ${SYMBOL_NAMES[w.symbol]}${m} · ${formatNumber(amount, false)}`
+  return `Line ${w.line + 1} · ${w.count} ${SYMBOL_NAMES[w.symbol]}${m} · ${formatNumber(amount)}`
 }
 
 /** All winning lines at once, then (when there's time) each line on its own. */
@@ -394,10 +394,10 @@ async function presentLines(lines: LineWin[], betAmt: number, mult: number, opts
   const cells = lines.flatMap(w => w.cells)
   scene.drawLines(lines.map((w, i) => ({ rows: PAYLINES[w.line]!, color: lineColor(i) })), false, 4)
   scene.highlight(cells, 0xffc93c, lines.some(w => w.pay >= 100))
-  if (lines.length === 1) scene.floatAmount(lines[0]!.cells, formatNumber(total, false))
+  if (lines.length === 1) scene.floatAmount(lines[0]!.cells, formatNumber(total))
   winSound(lines)
   sound.synth('sparkle')
-  setMessage(`Win ${formatNumber(total, false)}`, 'win')
+  setMessage(`Win ${formatNumber(total)}`, 'win')
   countWin(opts.meterFrom + total, Math.min(1600, 500 + lines.length * 120))
   const high = lines.filter(w => w.pay >= 142)
   if (high.length) scene.burst(high.flatMap(w => w.cells.slice(0, 1)), 22, 0.9)
@@ -410,7 +410,7 @@ async function presentLines(lines: LineWin[], betAmt: number, mult: number, opts
     const amount = lineAmount(w, betAmt, mult)
     scene.drawLines([{ rows: PAYLINES[w.line]!, color: lineColor(i) }], true, 6)
     scene.highlight(w.cells, lineColor(i))
-    scene.floatAmount(w.cells, formatNumber(amount, false))
+    scene.floatAmount(w.cells, formatNumber(amount))
     sound.synth('line', i)
     setMessage(lineLabel(w, amount, mult), 'line')
     await wait(820)
@@ -429,7 +429,7 @@ async function idleCycle(lines: LineWin[], betAmt: number, mult: number) {
     const amount = lineAmount(w, betAmt, mult)
     scene.drawLines([{ rows: PAYLINES[w.line]!, color: lineColor(i) }], true, 5)
     scene.highlight(w.cells, lineColor(i))
-    scene.floatAmount(w.cells, formatNumber(amount, false))
+    scene.floatAmount(w.cells, formatNumber(amount))
     setMessage(lineLabel(w, amount, mult), 'line')
     i++
     await new Promise(r => setTimeout(r, 1500))
@@ -548,7 +548,7 @@ async function playFreeSpins(result: SpinataResult, meterFrom: number) {
         scene.highlight(cells, 0xff3d7f, true)
         await Promise.all(cells.map((c, k) => {
           const amount = (fs.pinataPrizes[k] ?? 0) * betAmt
-          scene.floatAmount([c], `+${formatNumber(amount, false)}`, 0xff9ad0)
+          scene.floatAmount([c], `+${formatNumber(amount)}`, 0xff9ad0)
           return fly(c, '/slots/spinata/pinata.png', potEl.value, 250 + k * 160).then(() => {
             pot.value += amount
             potPulse.value++
@@ -566,7 +566,7 @@ async function playFreeSpins(result: SpinataResult, meterFrom: number) {
   const fsTotal = result.freeSpinsPayout + result.pinataPotTotal
   const settled = Math.min(fsTotal, Math.max(0, result.payout - meterFrom))
   if (fsTotal > 0) {
-    setMessage(`Free spins won ${formatNumber(settled, false)}`, 'win')
+    setMessage(`Free spins won ${formatNumber(settled)}`, 'win')
     await bigWin.value?.show({
       amount: settled,
       bet: betAmt,
@@ -660,7 +660,7 @@ async function spin(feature?: 'buyBonus') {
       const pay = (SCATTER_PAY[Math.min(r.scatterCount, 5)] ?? 0) * r.bet
       setMessage(`${r.scatterCount} Scatters · ${SPN_FREE_SPINS} free spins`, 'feature')
       if (pay > 0) {
-        scene.floatAmount(r.scatterCells, formatNumber(pay, false), 0xffe066, true)
+        scene.floatAmount(r.scatterCells, formatNumber(pay), 0xffe066, true)
         countWin(meter + pay, 700)
         meter += pay
       }
@@ -682,7 +682,7 @@ async function spin(feature?: 'buyBonus') {
 
     winShown.value = r.payout
     if (r.payout > 0) {
-      setMessage(`Win ${formatNumber(r.payout, false)}`, 'win')
+      setMessage(`Win ${formatNumber(r.payout)}`, 'win')
       balancePulse.value++
       sound.play('balance')
     } else {
@@ -945,7 +945,7 @@ const PICADO = ['#ff2d6f', '#ffb400', '#00c2a8', '#7b3cff', '#ff6a00', '#2ec5ff'
                       Piñata prize
                     </p>
                     <p class="spn-prize__amount">
-                      {{ formatNumber(prize.amount, false) }}
+                      {{ formatNumber(prize.amount) }}
                     </p>
                     <p class="spn-prize__sub">
                       {{ prize.count }} Piñatas · {{ BONUS_PAY[Math.min(prize.count, 5)] }}× bet
@@ -1033,7 +1033,7 @@ const PICADO = ['#ff2d6f', '#ffb400', '#00c2a8', '#7b3cff', '#ff6a00', '#2ec5ff'
                   :key="`pot${potPulse}`"
                   class="spn-card__big spn-bump"
                 >
-                  {{ formatNumber(pot, false) }}
+                  {{ formatNumber(pot) }}
                 </p>
               </template>
               <template v-else>
@@ -1206,7 +1206,7 @@ const PICADO = ['#ff2d6f', '#ffb400', '#00c2a8', '#7b3cff', '#ff6a00', '#2ec5ff'
             :class="{ 'spn-shake': noFunds > 0, 'spn-meter--flash': balancePulse > 0 }"
           >
             <span class="spn-meter__label">Balance</span>
-            <span class="spn-meter__val">{{ formatNumber(balance, false) }}</span>
+            <span class="spn-meter__val">{{ formatNumber(balance) }}</span>
           </div>
 
           <div class="spn-bet">
@@ -1242,7 +1242,7 @@ const PICADO = ['#ff2d6f', '#ffb400', '#00c2a8', '#7b3cff', '#ff6a00', '#2ec5ff'
                   title="Type a bet"
                   @click="editBet"
                 >
-                  {{ formatNumber(bet, false) }}
+                  {{ formatNumber(bet) }}
                 </button>
                 <output
                   v-if="editingBet && amountPreview(betText, true)"
@@ -1262,7 +1262,7 @@ const PICADO = ['#ff2d6f', '#ffb400', '#00c2a8', '#7b3cff', '#ff6a00', '#2ec5ff'
               </button>
             </div>
             <div class="spn-bet__sub">
-              <span>Line {{ formatNumber(lineBet, false) }}</span>
+              <span>Line {{ formatNumber(lineBet) }}</span>
               <button
                 class="spn-maxbet"
                 :disabled="betLocked"
@@ -1314,7 +1314,7 @@ const PICADO = ['#ff2d6f', '#ffb400', '#00c2a8', '#7b3cff', '#ff6a00', '#2ec5ff'
             :class="{ 'spn-meter--hot': winShown > 0 }"
           >
             <span class="spn-meter__label">{{ inFree ? 'Total win' : 'Win' }}</span>
-            <span class="spn-meter__val">{{ formatNumber(winShown, false) }}</span>
+            <span class="spn-meter__val">{{ formatNumber(winShown) }}</span>
           </div>
         </div>
       </section>
@@ -1366,7 +1366,7 @@ const PICADO = ['#ff2d6f', '#ffb400', '#00c2a8', '#7b3cff', '#ff6a00', '#2ec5ff'
             <h2>Buy {{ SPN_FREE_SPINS }} free spins?</h2>
             <p>Costs {{ SPN_BUY_BONUS_COST }}× your bet</p>
             <p class="spn-buyconfirm__cost">
-              {{ formatNumber(buyCost, false) }}
+              {{ formatNumber(buyCost) }}
             </p>
             <div class="spn-buyconfirm__row">
               <button

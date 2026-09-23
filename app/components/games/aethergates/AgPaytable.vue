@@ -248,7 +248,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             <div><dt>Grid</dt><dd>{{ AG_COLS }} reels × {{ AG_ROWS }} rows, pay anywhere</dd></div>
             <div><dt>Minimum win</dt><dd>{{ AG_MIN_MATCH }} matching symbols</dd></div>
             <div><dt>Return to player</dt><dd>about 96–98%</dd></div>
-            <div><dt>Free spins frequency</dt><dd>about 1 in {{ formatNumber(bonusOdds, false, 0) }} paid spins</dd></div>
+            <div><dt>Free spins frequency</dt><dd>about 1 in {{ formatNumber(bonusOdds) }} paid spins</dd></div>
             <div><dt>Maximum win</dt><dd>{{ formatNumber(AG_MAX_WIN_MULT, false, 0) }}× bet per round</dd></div>
           </dl>
           <div class="ag-pt-card">

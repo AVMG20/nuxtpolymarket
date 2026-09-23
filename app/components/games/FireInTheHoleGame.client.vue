@@ -48,7 +48,7 @@ const autoStopOnBonus = ref(false)
 const isAuto = computed(() => autoSpinsLeft.value > 0)
 
 const betDraft = ref(bet.value)
-const betText = useAmountInput(betDraft, { integer: true })
+const betText = useAmountInput(betDraft, { integer: true, shorthand: true })
 const buyCost = computed(() => bet.value * FITH_BUY_BONUS_COST)
 const canSpin = computed(() => isReady.value && !isPlaying.value && balance.value >= bet.value)
 const canBuy = computed(() => isReady.value && !isPlaying.value && !isAuto.value && balance.value >= buyCost.value)
@@ -430,13 +430,14 @@ async function initPixi() {
         .symbolData({ bomb: { zIndex: 10 }, rock: { zIndex: -1 } })
         .tumble({
             fall: { duration: 280, ease: 'power2.in', rowStagger: 28, rowOrder: 'bottomToTop' },
-            dropIn: { duration: 460, ease: 'bounce.out', rowStagger: 34, distance: 'perHole' }
+            // Rocks fall and stop dead: accelerate in, no bounce or squash on landing.
+            dropIn: { duration: 400, ease: 'power2.in', rowStagger: 34, distance: 'perHole' }
         })
         .speed('mine', {
             ...reels.SpeedPresets.NORMAL,
             name: 'mine',
             minimumSpinTime: 520,
-            tumble: { fall: { duration: 240, rowStagger: 22 }, dropIn: { duration: 460, rowStagger: 30 } }
+            tumble: { fall: { duration: 240, rowStagger: 22 }, dropIn: { duration: 400, rowStagger: 30 } }
         })
         .speed('mineTurbo', {
             ...reels.SpeedPresets.TURBO,
@@ -469,11 +470,6 @@ async function initPixi() {
     pixiApp.stage.addChild(world)
     fx = new FithFx(P, pixiApp, fxParent, world)
     fx.glintSource = randomGlintPoint
-
-    reelSet.events.on('cascade:dropIn:symbol', ({ view, duration, signal }) => {
-        const tween = G.fromTo(view.scale, { x: 1.08, y: 0.9 }, { x: 1, y: 1, duration: Math.max(duration / 1800, 0.12), ease: 'power2.out' })
-        signal.addEventListener('abort', () => tween.progress(1), { once: true })
-    })
 
     reelSet.events.on('cascade:dropIn:end', ({ reelIndex }) => onColumnLanded(reelIndex))
 
@@ -722,7 +718,7 @@ async function moneyPopup(amount: number, cells: FireCell[], chain: number) {
     }, { x: 0, y: 0 })
     const s = reelSet?.scale.x ?? 1
     const label = new PIXI.Text({
-        text: `+${formatNumber(amount, false, 2)}`,
+        text: `+${formatNumber(amount)}`,
         style: {
             fill: 0xfff1b8,
             fontFamily: '"Alfa Slab One", Georgia, serif',
@@ -1155,7 +1151,7 @@ async function celebrate(result: FireInTheHoleResult, bought: boolean) {
         sound.play('win-small', { intensity: Math.min(4, Math.floor(multiple)) })
     }
     const spent = bought ? result.cost : result.bet
-    if (result.payout > 0) setMessage(`You won ${formatNumber(result.payout, false, 2)}${result.payout > spent ? '!' : ''}`)
+    if (result.payout > 0) setMessage(`You won ${formatNumber(result.payout)}${result.payout > spent ? '!' : ''}`)
     else setMessage(result.scatterCells.length === FITH_SCATTERS_FOR_BONUS - 1 ? 'So close. Two lanterns.' : 'No luck this time')
 }
 
@@ -1486,7 +1482,7 @@ onBeforeUnmount(() => {
       <div class="fith-deck">
         <div class="fith-meter fith-meter-balance">
           <span class="fith-meter-label">Balance</span>
-          <span class="fith-meter-value">{{ formatNumber(balance, false) }}</span>
+          <span class="fith-meter-value">{{ formatNumber(balance) }}</span>
         </div>
 
         <div class="fith-bet">
@@ -1544,7 +1540,7 @@ onBeforeUnmount(() => {
           <span
             :key="winFlash"
             class="fith-meter-value"
-          >{{ formatNumber(winMeter, false, winMeter > 0 && winMeter < 1000 ? 2 : 0) }}</span>
+          >{{ formatNumber(winMeter) }}</span>
         </div>
 
         <div class="fith-spin-wrap">

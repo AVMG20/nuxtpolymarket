@@ -81,7 +81,7 @@ const at = (mult: number) => formatNumber(mult * props.bet)
     <!-- Paytable -->
     <div v-if="tab === 'pays'">
       <p class="bos-info-lead">
-        Pays for {{ BOS_MIN_CONNECTION }}, 4 or 5 connected reels, shown at your bet of <strong>{{ formatNumber(bet, false) }}</strong>. The small figure is the multiple of your bet.
+        Pays for {{ BOS_MIN_CONNECTION }}, 4 or 5 connected reels, shown at your bet of <strong>{{ formatNumber(bet) }}</strong>. The small figure is the multiple of your bet.
       </p>
       <div class="bos-pay-grid">
         <div
@@ -169,7 +169,7 @@ const at = (mult: number) => formatNumber(mult * props.bet)
       <p>{{ BONUS_RETRIGGER_BOOKS }} Books on a single free spin add <strong>{{ BONUS_RETRIGGER_SPINS }} spins</strong>. This happens at most once per feature; Books stop appearing after it.</p>
 
       <h3>Buy feature</h3>
-      <p>Start the free spins straight away for <strong>{{ BOS_BUY_BONUS_COST }}× bet</strong> ({{ formatNumber(BOS_BUY_BONUS_COST * bet, false) }} at your bet).</p>
+      <p>Start the free spins straight away for <strong>{{ BOS_BUY_BONUS_COST }}× bet</strong> ({{ formatNumber(BOS_BUY_BONUS_COST * bet) }} at your bet).</p>
     </div>
 
     <!-- Rules -->
@@ -221,9 +221,9 @@ const at = (mult: number) => formatNumber(mult * props.bet)
             :key="i"
           >
             <td>{{ h.bonus ? 'Free spins' : 'Spin' }}</td>
-            <td>{{ formatNumber(h.bet, false) }}</td>
+            <td>{{ formatNumber(h.bet) }}</td>
             <td :class="{ 'bos-info-win': h.payout > 0 }">
-              {{ formatNumber(h.payout, false) }}
+              {{ formatNumber(h.payout) }}
             </td>
           </tr>
         </tbody>

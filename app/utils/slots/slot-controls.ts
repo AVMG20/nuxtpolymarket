@@ -82,9 +82,10 @@ export function slotThemeVars(theme: SlotTheme): Record<string, string> {
     }
 }
 
-/** Win and balance figures: whole numbers without decimals, anything else with two. */
-export function slotAmount(value: number, compact = false): string {
-    const rounded = Math.round(value * 100) / 100
-    if (compact) return formatNumber(rounded)
-    return formatNumber(rounded, false, Number.isInteger(rounded) ? 0 : 2)
+/**
+ * Win and balance figures. Always compact (`7,1m`, `15,73B`): players range
+ * from a few thousand coins to billions, and full digits overflow the meters.
+ */
+export function slotAmount(value: number, _compact = true): string {
+    return formatNumber(Math.round(value * 100) / 100)
 }

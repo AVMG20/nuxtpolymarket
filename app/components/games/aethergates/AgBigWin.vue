@@ -123,7 +123,7 @@ onBeforeUnmount(() => {
         class="ag-bigwin-amount"
         :class="{ 'is-landed': !counting }"
       >
-        {{ formatNumber(shown, false, 2) }}
+        {{ formatNumber(shown) }}
       </p>
       <p class="ag-bigwin-mult">
         {{ formatNumber(bet > 0 ? amount / bet : 0, false, 0) }}× bet

@@ -138,7 +138,7 @@ onBeforeUnmount(() => {
           name="i-lucide-coins"
           class="cmbw__coin"
         />
-        {{ formatNumber(shown, false, 2) }}
+        {{ formatNumber(shown) }}
       </p>
       <p class="cmbw__x">
         {{ formatNumber(shown / bet, false) }}× bet

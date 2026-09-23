@@ -102,7 +102,7 @@ const CORES: XenoArtId[] = ['core-2', 'core-5', 'core-10']
           <section v-if="tab === 'pays'" class="space-y-5">
             <p class="xs-pt__lead">
               Line wins pay left to right from the first reel. Amounts are for your current bet of
-              <strong>{{ formatNumber(bet, false) }}</strong>. Only the best win on each line pays.
+              <strong>{{ formatNumber(bet) }}</strong>. Only the best win on each line pays.
             </p>
 
             <div class="xs-pt__premium">
@@ -176,7 +176,7 @@ const CORES: XenoArtId[] = ['core-2', 'core-5', 'core-10']
           <!-- Hold & Win -->
           <section v-else-if="tab === 'bonus'" class="space-y-5">
             <p class="xs-pt__lead">
-              Land {{ BONUS_TRIGGER_COUNT }}+ Portals (about 1 in {{ formatNumber(bonusOdds, false) }} spins). Each Portal becomes a coin and you get
+              Land {{ BONUS_TRIGGER_COUNT }}+ Portals (about 1 in {{ formatNumber(bonusOdds) }} spins). Each Portal becomes a coin and you get
               <strong>{{ BONUS_FREE_SPINS }} bonus spins</strong> on the same grid. Every spin, each empty cell can land a coin, a multiplier core or a UFO.
             </p>
 
@@ -230,7 +230,7 @@ const CORES: XenoArtId[] = ['core-2', 'core-5', 'core-10']
                 <p class="xs-pt__name">
                   Buy bonus
                 </p>
-                <p>Start Hold &amp; Win straight away for {{ XENOSLOT_BUY_BONUS_COST }}× your bet ({{ formatNumber(bet * XENOSLOT_BUY_BONUS_COST, false) }} now), with {{ BONUS_TRIGGER_COUNT }} starting coins.</p>
+                <p>Start Hold &amp; Win straight away for {{ XENOSLOT_BUY_BONUS_COST }}× your bet ({{ formatNumber(bet * XENOSLOT_BUY_BONUS_COST) }} now), with {{ BONUS_TRIGGER_COUNT }} starting coins.</p>
               </div>
             </div>
           </section>
@@ -243,7 +243,7 @@ const CORES: XenoArtId[] = ['core-2', 'core-5', 'core-10']
               <div><dt>RTP</dt><dd>{{ rtp }}</dd></div>
               <div><dt>Volatility</dt><dd>{{ volatility }} / 5</dd></div>
               <div><dt>Max win</dt><dd>{{ formatNumber(XENOSLOT_MAX_WIN_MULT, false) }}× bet</dd></div>
-              <div><dt>Bonus odds</dt><dd>about 1 in {{ formatNumber(bonusOdds, false) }}</dd></div>
+              <div><dt>Bonus odds</dt><dd>about 1 in {{ formatNumber(bonusOdds) }}</dd></div>
             </dl>
             <ul class="xs-pt__list">
               <li>Your bet is split evenly across the {{ XENOSLOT_LINES }} lines.</li>

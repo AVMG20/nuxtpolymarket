@@ -238,7 +238,7 @@ onBeforeUnmount(() => {
         {{ label }}
       </p>
       <p class="bos-bigwin-amount">
-        {{ formatNumber(shown, false) }}
+        {{ formatNumber(shown) }}
       </p>
       <p class="bos-bigwin-mult">
         {{ formatNumber(multiple, false) }}× bet

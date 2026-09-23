@@ -119,7 +119,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
                 </div>
               </div>
               <p class="note">
-                Amounts are for your current bet of {{ formatNumber(bet, false) }}.
+                Amounts are for your current bet of {{ formatNumber(bet) }}.
               </p>
 
               <h3>Cascades</h3>
@@ -196,7 +196,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
               </p>
               <h3>Buy free spins</h3>
               <p>
-                Pay {{ FITH_BUY_BONUS_COST }}x your bet ({{ formatNumber(bet * FITH_BUY_BONUS_COST, false) }}) to start the bonus right away with {{ FITH_STARTING_LINES }} rows open.
+                Pay {{ FITH_BUY_BONUS_COST }}x your bet ({{ formatNumber(bet * FITH_BUY_BONUS_COST) }}) to start the bonus right away with {{ FITH_STARTING_LINES }} rows open.
               </p>
             </template>
 

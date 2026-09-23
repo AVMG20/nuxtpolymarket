@@ -139,7 +139,7 @@ defineExpose({ show, skip, visible })
         >
           {{ tier?.label ?? 'Big Win' }}
         </p>
-        <strong class="amount">{{ formatNumber(shown, false, 2) }}</strong>
+        <strong class="amount">{{ formatNumber(shown) }}</strong>
         <p
           v-if="subtitle"
           class="subtitle"

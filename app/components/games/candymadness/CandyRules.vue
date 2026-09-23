@@ -127,7 +127,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
               <div class="cmr__card">
                 <h4>Buy Free Spins</h4>
                 <p>Costs <b>{{ CM_BUY_FREESPINS_COST }}× bet</b>. Skips the base game and starts {{ CM_FREE_SPINS }} free spins.</p>
-                <span class="cmr__price">{{ formatNumber(bet * CM_BUY_FREESPINS_COST, false) }}</span>
+                <span class="cmr__price">{{ formatNumber(bet * CM_BUY_FREESPINS_COST) }}</span>
               </div>
               <div class="cmr__card">
                 <h4>Bonus Hunter</h4>
@@ -135,7 +135,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
                   Each spin costs <b>{{ CM_BONUS_HUNT_COST }}× bet</b> and always drops at least one lollipop. Free spins
                   land about 1 in {{ formatNumber(CANDY_HUNT_BONUS_ODDS, false) }} spins.
                 </p>
-                <span class="cmr__price">{{ formatNumber(bet * CM_BONUS_HUNT_COST, false) }} / spin</span>
+                <span class="cmr__price">{{ formatNumber(bet * CM_BONUS_HUNT_COST) }} / spin</span>
               </div>
             </div>
 
@@ -190,8 +190,8 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
               </table>
             </div>
             <p class="cmr__note">
-              At your current bet of {{ formatNumber(bet, false) }}, a 15+ cluster of hearts pays
-              {{ formatNumber(bet * (rows[0]?.pays[CANDY_PAY_SIZES.length - 1] ?? 0), false) }} before multipliers.
+              At your current bet of {{ formatNumber(bet) }}, a 15+ cluster of hearts pays
+              {{ formatNumber(bet * (rows[0]?.pays[CANDY_PAY_SIZES.length - 1] ?? 0)) }} before multipliers.
             </p>
           </div>
         </div>

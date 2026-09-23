@@ -110,7 +110,7 @@ defineExpose({ intro, outro })
           {{ formatNumber(multiplier, false, 2) }}x
         </h2>
         <p class="win">
-          {{ formatNumber(amount, false, 2) }}
+          {{ formatNumber(amount) }}
         </p>
         <p class="sub">
           {{ amount > 0 ? 'Added to your balance' : 'The seam ran dry this time' }}

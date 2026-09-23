@@ -54,7 +54,7 @@ function start() {
             <i class="cma__switch" />
           </label>
           <p class="cma__total">
-            Up to <b>{{ formatNumber(total, false) }}</b> over {{ count }} spins
+            Up to <b>{{ formatNumber(total) }}</b> over {{ count }} spins
           </p>
           <div class="cma__actions">
             <button

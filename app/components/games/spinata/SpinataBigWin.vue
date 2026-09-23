@@ -209,7 +209,7 @@ defineExpose({ show, close })
         :class="`spn-bw--${tierKey}`"
         role="dialog"
         aria-live="polite"
-        :aria-label="`${tierLabel}: ${formatNumber(target, false)}`"
+        :aria-label="`${tierLabel}: ${formatNumber(target)}`"
         @click="onTap"
       >
         <div class="spn-bw__backdrop" />
@@ -235,7 +235,7 @@ defineExpose({ show, close })
             </p>
           </Transition>
           <p class="spn-bw__amount">
-            {{ formatNumber(shown, false) }}
+            {{ formatNumber(shown) }}
           </p>
           <p class="spn-bw__mult">
             {{ formatNumber(multiple, false) }}× bet
@@ -250,7 +250,7 @@ defineExpose({ show, close })
               class="spn-bw__row"
             >
               <span>{{ row.label }}</span>
-              <span>{{ formatNumber(row.value, false) }}</span>
+              <span>{{ formatNumber(row.value) }}</span>
             </div>
           </div>
           <p class="spn-bw__hint">

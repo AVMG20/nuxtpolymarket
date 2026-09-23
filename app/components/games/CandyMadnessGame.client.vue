@@ -49,7 +49,7 @@ const { soundEnabled, soundVolume } = sound
 const MIN_BET = 1
 const MAX_BET = 100_000_000_000 // matches the server-side cap in play-game.post.ts
 
-const betText = useAmountInput(bet, { integer: true })
+const betText = useAmountInput(bet, { integer: true, shorthand: true })
 const betEditing = ref(false)
 const betInputEl = ref<HTMLInputElement>()
 
@@ -656,7 +656,7 @@ async function presentClusters(step: TumbleStep, chain: number) {
       sym?.playWin?.()
     }
     const p = clusterCentroid(cl.cells)
-    floatText(p.x, p.y, `+${formatNumber(cl.pay * activeBet, false)}`)
+    floatText(p.x, p.y, `+${formatNumber(cl.pay * activeBet)}`)
   }
   await wait(t(520, 240))
 }
@@ -997,7 +997,7 @@ async function playSequence(seq: TumbleSequence, offset: number, initial: boolea
   // Apply the multiplier sum to the whole sequence.
   const total = seq.win * activeBet
   const mult = Math.max(1, seq.multiplierSum)
-  winEquation.value = `${formatNumber(baseSoFar, false)} × ${formatNumber(mult, false)}`
+  winEquation.value = `${formatNumber(baseSoFar)} × ${formatNumber(mult, false)}`
   await flySpotsToMeter()
   sound.play('mult-apply')
   await countTo(winShown, offset + total, t(900, 400))
@@ -1342,7 +1342,7 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
                       name="i-lucide-coins"
                       class="cm-splash__coin"
                     />
-                    {{ formatNumber(bonusOutroAmount, false, 2) }}
+                    {{ formatNumber(bonusOutroAmount) }}
                   </p>
                   <p class="cm-splash__text">
                     {{ bonusOutroAmount > 0 ? `${formatNumber(bonusOutroAmount / activeBet, false)}× your bet` : 'No win this time' }}
@@ -1445,7 +1445,7 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
                 :key="winPulse"
                 class="cm-meter__win"
                 :class="{ 'is-hot': winShown > 0 }"
-              >{{ formatNumber(winShown, false, 2) }}</span>
+              >{{ formatNumber(winShown) }}</span>
               <span
                 v-if="winEquation"
                 class="cm-meter__eq"
@@ -2125,7 +2125,8 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
   position: relative;
   margin-top: 14px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1.3fr) auto;
+  /* The bet sizes to its content so compact bets like 2,5B never clip. */
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1.2fr) auto;
   grid-template-areas: 'util bal bet win act';
   align-items: center;
   gap: 8px 10px;
@@ -2241,8 +2242,9 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 }
 
 .cm-bet__value, .cm-bet__input {
-  flex: 1;
-  min-width: 0;
+  flex: 1 0 auto;
+  /* Room for compact bets like 2,5B or 999K without clipping. */
+  min-width: 4.6ch;
   font-size: 18px;
   font-weight: 700;
   text-align: center;

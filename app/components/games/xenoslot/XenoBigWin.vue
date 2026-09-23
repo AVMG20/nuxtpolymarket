@@ -38,7 +38,7 @@ const style = computed(() => {
       </p>
     </Transition>
     <p class="xs-bw__amount">
-      {{ formatNumber(amount, false) }}
+      {{ formatNumber(amount) }}
     </p>
     <p class="xs-bw__mult">
       {{ formatNumber(multiple, false) }}× bet

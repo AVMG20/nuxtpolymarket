@@ -63,7 +63,7 @@ const potTotalWeight = PINATA_POT_WEIGHTS.reduce((a, b) => a + b, 0)
 const potOdds = PINATA_POT_PRIZES.map((prize, i) => ({ prize, pct: Math.round((PINATA_POT_WEIGHTS[i]! / potTotalWeight) * 100) }))
 
 function coins(mult: number) {
-  return formatNumber(mult * props.bet, false)
+  return formatNumber(mult * props.bet)
 }
 
 function linePath(rows: number[]) {
@@ -133,7 +133,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
             class="spn-info__body"
           >
             <p class="spn-info__note">
-              Amounts at your current bet of <b>{{ formatNumber(bet, false) }}</b>. Line wins pay left to right on {{ SPN_LINES }} fixed lines, starting on the first reel.
+              Amounts at your current bet of <b>{{ formatNumber(bet) }}</b>. Line wins pay left to right on {{ SPN_LINES }} fixed lines, starting on the first reel.
             </p>
             <div class="spn-pay spn-pay--high">
               <div
@@ -151,7 +151,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
                     v-for="n in [5, 4, 3]"
                     :key="n"
                   >
-                    <span>{{ n }}</span>{{ formatNumber(row.pays[n - 3]! * lineBet, false) }}
+                    <span>{{ n }}</span>{{ formatNumber(row.pays[n - 3]! * lineBet) }}
                   </p>
                 </div>
               </div>
@@ -171,7 +171,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
                     v-for="n in [5, 4, 3]"
                     :key="n"
                   >
-                    <span>{{ n }}</span>{{ formatNumber(row.pays[n - 3]! * lineBet, false) }}
+                    <span>{{ n }}</span>{{ formatNumber(row.pays[n - 3]! * lineBet) }}
                   </p>
                 </div>
               </div>
@@ -193,7 +193,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
               >
               <div>
                 <h3>Scatter: free spins</h3>
-                <p>{{ SPN_SCATTER_TRIGGER }} or more Scatters anywhere start <b>{{ SPN_FREE_SPINS }} free spins</b>, on average once every {{ formatNumber(freeSpinOdds, false) }} spins. Scatters also pay anywhere:</p>
+                <p>{{ SPN_SCATTER_TRIGGER }} or more Scatters anywhere start <b>{{ SPN_FREE_SPINS }} free spins</b>, on average once every {{ formatNumber(freeSpinOdds) }} spins. Scatters also pay anywhere:</p>
                 <p class="spn-feat__pays">
                   <span
                     v-for="n in [3, 4, 5]"

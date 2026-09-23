@@ -72,7 +72,7 @@ const MAX_BET = 100_000_000_000
 const BET_LADDER = agBetLadder(MAX_BET)
 
 const betDraft = ref(bet.value)
-const betText = useAmountInput(betDraft, { integer: true })
+const betText = useAmountInput(betDraft, { integer: true, shorthand: true })
 watch(bet, (v) => {
   betDraft.value = v
 })
@@ -89,7 +89,7 @@ function setBet(v: number, cue?: 'bet-up' | 'bet-down' | 'bet-max') {
 
 function commitBet() {
   setBet(betDraft.value || MIN_BET)
-  betText.value = String(bet.value)
+  betText.value = amountShorthand(bet.value)
 }
 
 function betDown() {
@@ -813,8 +813,8 @@ async function playStep(step: AetherStep, index: number, next: { grid: AetherSym
   for (const w of step.wins) {
     const cx = w.cells.reduce((s, c) => s + cellLocal(c.col, c.row).x, 0) / w.cells.length
     const cy = w.cells.reduce((s, c) => s + cellLocal(c.col, c.row).y, 0) / w.cells.length
-    floatText(formatNumber(w.payMult * resultBet, false, 2), cx, cy, 0xfde68a, 32)
-    names.push(`${w.count}× ${AG_SYMBOL_INFO[w.symbol].name} pays ${formatNumber(w.payMult * resultBet, false, 2)}`)
+    floatText(formatNumber(w.payMult * resultBet), cx, cy, 0xfde68a, 32)
+    names.push(`${w.count}× ${AG_SYMBOL_INFO[w.symbol].name} pays ${formatNumber(w.payMult * resultBet)}`)
   }
   ticker.value = names.join(' · ')
   winBase.value += step.stepPayMult * resultBet
@@ -876,7 +876,7 @@ async function playSequence(seq: AetherSequence, resultBet: number, winOffset: n
     }
     sound.play('meter-hit', { intensity: seq.meterAfter * 4 })
     countWin(winOffset + total, 700)
-    ticker.value = `${formatNumber(base, false, 2)} × ${formatNumber(seq.meterAfter, false, 0)} = ${formatNumber(total, false, 2)}`
+    ticker.value = `${formatNumber(base)} × ${formatNumber(seq.meterAfter, false, 0)} = ${formatNumber(total)}`
     await beat(1100)
     overlay.value = null
     meterApplying.value = false
@@ -1005,7 +1005,7 @@ async function spin(forced?: AetherFeature) {
     winShown.value = result.payout
     winLabel.value = result.bonusTriggered ? 'Total win' : 'Win'
     meter.value = result.bonus?.finalMeter ?? result.base.meterAfter
-    ticker.value = result.payout > 0 ? `You won ${formatNumber(result.payout, false, 2)}` : TIPS[++tipIndex % TIPS.length]!
+    ticker.value = result.payout > 0 ? `You won ${formatNumber(result.payout)}` : TIPS[++tipIndex % TIPS.length]!
     pushHistory({ payout: result.payout, cost: result.cost, bonus: result.bonusTriggered })
     setBalance(data.balance)
     await fetchSession()
@@ -1284,7 +1284,7 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
                   v-if="overlay?.kind === 'apply'"
                   class="ag-apply"
                 >
-                  <span>{{ formatNumber(overlay.base, false, 2) }}</span>
+                  <span>{{ formatNumber(overlay.base) }}</span>
                   <b>× {{ formatNumber(overlay.meter, false, 0) }}</b>
                 </div>
               </Transition>
@@ -1333,7 +1333,7 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
               <span class="ag-fs-label">{{ bonusTier === 'super' ? 'Super bonus' : 'Free spins' }}</span>
               <strong class="ag-fs-count">{{ fsRound }}<small>/{{ fsTotal }}</small></strong>
               <span class="ag-fs-label">Feature win</span>
-              <strong class="ag-fs-win">{{ formatNumber(bonusWin, false, 2) }}</strong>
+              <strong class="ag-fs-win">{{ formatNumber(bonusWin) }}</strong>
             </div>
           </Transition>
           <div
@@ -1424,7 +1424,7 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 
         <div class="ag-lcd is-balance">
           <span class="ag-lcd-label">Balance</span>
-          <strong class="ag-lcd-value">{{ formatNumber(balance, false, 2) }}</strong>
+          <strong class="ag-lcd-value">{{ formatNumber(balance) }}</strong>
         </div>
 
         <div class="ag-bet">
@@ -1481,7 +1481,7 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
           :class="{ 'is-lit': winShown > 0 }"
         >
           <span class="ag-lcd-label">{{ winLabel }}</span>
-          <strong class="ag-lcd-value">{{ formatNumber(winShown, false, 2) }}</strong>
+          <strong class="ag-lcd-value">{{ formatNumber(winShown) }}</strong>
         </div>
 
         <div class="ag-deck-play">
@@ -1602,7 +1602,7 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
             Total win
           </p>
           <p class="ag-moment-big is-amount">
-            {{ formatNumber(overlay.total, false, 2) }}
+            {{ formatNumber(overlay.total) }}
           </p>
           <p class="ag-moment-text">
             {{ overlay.spins }} free spins · final meter ×{{ formatNumber(Math.max(1, overlay.meter), false, 0) }}
@@ -1645,7 +1645,7 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
             ({{ buyConfirm === 'superBonus' ? AG_SCATTER_TRIGGER_SUPER : AG_SCATTER_TRIGGER }} gates guaranteed).
           </p>
           <p class="ag-moment-big is-amount is-cost">
-            {{ formatNumber(costFor(buyConfirm), false, 2) }}
+            {{ formatNumber(costFor(buyConfirm)) }}
           </p>
           <div class="ag-moment-actions">
             <button

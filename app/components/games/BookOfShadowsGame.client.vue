@@ -37,7 +37,7 @@ for (let e = 0; e <= 11; e++) {
 }
 
 const betDraft = ref(bet.value)
-const betText = useAmountInput(betDraft, { integer: true })
+const betText = useAmountInput(betDraft, { integer: true, shorthand: true })
 const betFocused = ref(false)
 watch(bet, (v) => {
   betDraft.value = v
@@ -92,7 +92,7 @@ const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms
 const pace = (ms: number) => wait(turbo.value ? Math.round(ms * 0.5) : ms)
 
 function fmt(value: number) {
-  return value >= 1e9 ? formatNumber(value) : formatNumber(value, false)
+  return formatNumber(value)
 }
 
 const touchOnly = import.meta.client && window.matchMedia?.('(hover: none)').matches
@@ -125,7 +125,7 @@ function commitBet() {
   betFocused.value = false
   setBet(betDraft.value)
   betDraft.value = bet.value
-  betText.value = String(bet.value)
+  betText.value = amountShorthand(bet.value)
 }
 
 function betUp() {
