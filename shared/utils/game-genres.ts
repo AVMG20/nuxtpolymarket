@@ -39,6 +39,7 @@ const GENRE_BY_LABEL: Record<string, Genre> = {
     'Fire in the Hole': 'casino',
     'Book of Shadows': 'casino',
     Spinata: 'casino',
+    'Trash Panda Heist': 'casino',
     Roulette: 'casino',
     Blackjack: 'casino',
     Baccarat: 'casino',

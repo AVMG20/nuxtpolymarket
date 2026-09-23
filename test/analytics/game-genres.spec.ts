@@ -6,7 +6,7 @@ describe('genreForCategory', () => {
     it('puts every casino game in the casino bucket', () => {
         const raw = [
             'dice', 'limbo', 'wheel', 'magichands', 'xenoslot', 'candymadness',
-            'aethergates', 'fireinthehole', 'bookofshadows', 'spinata', 'roulette',
+            'aethergates', 'fireinthehole', 'bookofshadows', 'spinata', 'trashpanda', 'roulette',
             'baccarat', 'casino-holdem', 'three-card-poker', 'blackjack', 'live-blackjack'
         ]
         for (const category of raw) {
@@ -72,7 +72,7 @@ describe('genre tables', () => {
         const mapped = new Set(GENRES.flatMap(labelsForGenre))
         const rawPrefixes = [
             'dice', 'limbo', 'wheel', 'magichands', 'xenoslot', 'candymadness',
-            'aethergates', 'fireinthehole', 'bookofshadows', 'spinata', 'roulette',
+            'aethergates', 'fireinthehole', 'bookofshadows', 'spinata', 'trashpanda', 'roulette',
             'baccarat', 'casino-holdem', 'three-card-poker', 'blackjack', 'live-blackjack',
             'lootbox', 'miner', 'colony', 'shapezz', 'xeno', 'hackops', 'polytown', 'town',
             'tcg', 'meadowbrawl', 'pathwarden', 'pirates', 'firewall', 'call-of-xeno',

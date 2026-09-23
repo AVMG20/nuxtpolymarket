@@ -840,6 +840,7 @@ export async function executeAiTool(event: H3Event, toolCall: AiToolCall): Promi
         case 'play_fireinthehole_rounds':
         case 'play_bookofshadows_rounds':
         case 'play_spinata_rounds':
+        case 'play_trashpanda_rounds':
             return playNamedCasinoRounds(event, toolCall.function.name, args)
         case 'call_game_api': {
             const path = typeof args.path === 'string' ? args.path : ''

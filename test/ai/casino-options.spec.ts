@@ -153,3 +153,14 @@ describe('normalizeCasinoOptions — spinata', () => {
     expect(() => normalizeCasinoOptions('spinata', { feature: 'bonusHunt' }, 100)).toThrow()
   })
 })
+
+describe('normalizeCasinoOptions — trashpanda', () => {
+  it('accepts both bonus buys', () => {
+    expect(normalizeCasinoOptions('trashpanda', { feature: 'buyFreeSpins' }, 100)).toEqual({ feature: 'buyFreeSpins' })
+    expect(normalizeCasinoOptions('trashpanda', { feature: 'buyDive' }, 100)).toEqual({ feature: 'buyDive' })
+  })
+
+  it('rejects any other feature value', () => {
+    expect(() => normalizeCasinoOptions('trashpanda', { feature: 'buyBonus' }, 100)).toThrow()
+  })
+})

@@ -4,7 +4,7 @@ import { getErrorMessage, toolHeaders } from './helpers'
 
 const CASINO_GAMES = new Set([
     'dice', 'limbo', 'wheel', 'magichands', 'xenoslot',
-    'candymadness', 'aethergates', 'fireinthehole', 'bookofshadows', 'spinata'
+    'candymadness', 'aethergates', 'fireinthehole', 'bookofshadows', 'spinata', 'trashpanda'
 ])
 
 const CASINO_TOOL_GAMES: Record<string, CasinoGame> = {
@@ -17,7 +17,8 @@ const CASINO_TOOL_GAMES: Record<string, CasinoGame> = {
     play_aethergates_rounds: 'aethergates',
     play_fireinthehole_rounds: 'fireinthehole',
     play_bookofshadows_rounds: 'bookofshadows',
-    play_spinata_rounds: 'spinata'
+    play_spinata_rounds: 'spinata',
+    play_trashpanda_rounds: 'trashpanda'
 }
 
 const CASINO_OPTION_KEYS = {
@@ -30,7 +31,8 @@ const CASINO_OPTION_KEYS = {
     aethergates: ['feature'],
     fireinthehole: ['buyBonus'],
     bookofshadows: ['buyBonus'],
-    spinata: ['feature']
+    spinata: ['feature'],
+    trashpanda: ['feature']
 } satisfies Record<string, string[]>
 
 type CasinoGame = keyof typeof CASINO_OPTION_KEYS
@@ -109,6 +111,12 @@ export function normalizeCasinoOptions(game: string, raw: unknown, bet: number):
             if (options.feature == null) return undefined
             if (options.feature !== 'buyBonus') invalidCasinoOptions('Spiñata feature must be buyBonus')
             return { feature: 'buyBonus' }
+        }
+        case 'trashpanda': {
+            requireOnlyOptionKeys(options, ['feature'])
+            if (options.feature == null) return undefined
+            if (options.feature !== 'buyFreeSpins' && options.feature !== 'buyDive') invalidCasinoOptions('Trash Panda Heist feature must be buyFreeSpins or buyDive')
+            return { feature: options.feature }
         }
         default:
             invalidCasinoOptions('Unsupported casino game')
