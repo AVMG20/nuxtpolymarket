@@ -1114,8 +1114,9 @@ async function play(buy = false) {
             await celebrateScatters(result.scatterCells)
             await playBonus(result.bonus, buy)
         }
-        winMeter.value = result.payout
+        // Reveal first: the win overlay counts up, then the meter settles.
         await celebrate(result, buy)
+        winMeter.value = result.payout
         pushHistory({ payout: result.payout, bet: result.cost, bonus: Boolean(result.bonus) })
     } catch (error) {
         errorMsg.value = error instanceof Error ? error.message : 'Animation error'

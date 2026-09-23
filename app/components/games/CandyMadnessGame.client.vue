@@ -891,7 +891,8 @@ async function spin(forceFeature?: CandyFeature) {
       await runBonus(result)
     }
 
-    winShown.value = result.payout
+    // The final figure lands on the meter only after the big-win or bonus
+    // outro has revealed it, so the meter never spoils the celebration.
     winEquation.value = ''
     const x = result.payout / result.bet
     if (x >= CANDY_BIG_WIN_AT) {
@@ -899,9 +900,11 @@ async function spin(forceFeature?: CandyFeature) {
     } else if (result.bonusTriggered && result.bonus) {
       await showBonusOutro(result.payout)
     } else if (result.payout > 0) {
+      winShown.value = result.payout
       sound.play(x >= 8 ? 'win-big' : x >= 2 ? 'win-medium' : 'win-small')
       winPulse.value++
     }
+    winShown.value = result.payout
     setBalance(data.balance)
     pushHistory({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered })
   } catch (e) {

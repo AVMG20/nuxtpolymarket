@@ -713,6 +713,9 @@ async function showBigWin(amount: number, multiple: number, base = 0) {
   fx.ring(APP_W / 2, APP_H / 2, 0xfacc15, 380, 0.8, 10)
 
   const seconds = (2.2 + top * 1.4) * (turbo.value ? 0.6 : 1)
+  // The meter may already show the feature's running total; never let the
+  // count-up drag it back down.
+  const meterFloor = winMeter.value
   const obj = { v: 0 }
   await new Promise<void>((resolve) => {
     const tw = GSAP!.to(obj, {
@@ -722,7 +725,7 @@ async function showBigWin(amount: number, multiple: number, base = 0) {
       onUpdate: () => {
         bigWin.amount = obj.v
         bigWin.multiple = obj.v / theBet
-        winMeter.value = base + obj.v
+        winMeter.value = Math.max(meterFloor, base + obj.v)
         sound.play('tick')
         const t = tierFor(obj.v / theBet)
         if (t > bigWin.tier) {
@@ -884,8 +887,9 @@ async function spin(feature: Feature | null = null) {
       autoplay.bonusHit()
       if (result.dive) await playDive(result)
       if (result.freeSpins && !destroyed) await playFreeSpins(result)
+      // The big-win screen counts the meter up itself; setting the final
+      // figure first would spoil the win before the count-up reveals it.
       const multiple = result.payout / result.bet
-      winMeter.value = result.payout
       if (tierFor(multiple) >= 0 && !destroyed) await showBigWin(result.payout, multiple)
     }
 
