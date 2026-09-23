@@ -123,7 +123,7 @@ const DRONE_RANGE = 170
 const WORLD_UP = new THREE.Vector3(0, 1, 0)
 const FORWARD = new THREE.Vector3(0, 0, -1)
 // Chase camera pull-in for heavy hulls, as a share of ship length at full heft.
-const CAM = { back: 0.55, up: 0.12 }
+const CAM = { back: 0.2, up: 0.3 }
 /** Furthest the wheel can pull the chase camera back, as a multiple of the default distance. */
 const FLY_ZOOM_MAX = 3
 /** Asteroid health by sector: harder sectors grow tougher rock. Each jump deeper adds as much again as it adds ore. */
@@ -3672,7 +3672,7 @@ export class VoidEngine {
         const p = this.player!
         const size = voidShip(this.config!.shipId).size
         const stats = this.config!.stats
-        // Big hulls pull the camera in close and high, so the deck runs out ahead of you and fills the lower screen.
+        // Big hulls pull the camera in a little and down, so the whole hull stays in frame and still fills the lower screen.
         const h = this.heft
         this.flyZoomSmooth = THREE.MathUtils.lerp(this.flyZoomSmooth, this.flyZoom, 1 - Math.exp(-8 * dt))
         const back = (size * (1.55 - h * CAM.back) + 4.4) * this.flyZoomSmooth
