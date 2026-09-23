@@ -69,6 +69,13 @@ const bosses = computed(() => (hud.value?.bosses ?? []).map(boss => ({
     status: boss.hidden ? (boss.kind === 'kraken' ? 'Submerged' : 'Blinking') : ''
 })))
 
+// A boss arrival is folded into its health bar at the top (a flash and a
+// slim "incoming" line) instead of a card over the sea. Other announcement
+// kinds keep their floating cards.
+const bossArrival = computed(() => announcements.value.find(item => item.kind === 'boss') ?? null)
+const bossArrivalUnmatched = computed(() => !!bossArrival.value && !bosses.value.some(boss => boss.name === bossArrival.value?.title))
+const floatingAnnouncements = computed(() => announcements.value.filter(item => item.kind !== 'boss'))
+
 const ammoCapacity = computed(() => state.value?.ammo.capacity ?? 0)
 const gemAmmoCapacity = computed(() => state.value?.gemAmmo.capacity ?? 0)
 
@@ -344,8 +351,29 @@ onUnmounted(() => {
           </div>
 
           <!-- Bosses -->
-          <div v-if="bosses.length" class="hud-bosses">
-            <div v-for="boss in bosses" :key="boss.id" class="hud-boss" :class="{ 'is-hidden': boss.hidden }" :style="{ '--accent': boss.accent }">
+          <div v-if="bosses.length || bossArrival" class="hud-bosses">
+            <div
+              v-if="bossArrival && bossArrivalUnmatched"
+              :key="`arrival-${bossArrival.id}`"
+              class="hud-boss is-arriving"
+              :style="{ '--accent': (bossArrival.bossKind && PIRATE_BOSS_ACCENTS[bossArrival.bossKind]) || '#ef4444' }"
+            >
+              <div class="hud-boss-name">
+                <UIcon name="i-lucide-skull" />
+                <span>{{ bossArrival.title }}</span>
+              </div>
+              <div class="hud-boss-incoming">
+                <b>Boss incoming</b>
+                <span v-if="bossArrival.subtitle">{{ bossArrival.subtitle }}</span>
+              </div>
+            </div>
+            <div
+              v-for="boss in bosses"
+              :key="boss.id"
+              class="hud-boss"
+              :class="{ 'is-hidden': boss.hidden, 'is-arriving': bossArrival?.title === boss.name }"
+              :style="{ '--accent': boss.accent }"
+            >
               <div class="hud-boss-name">
                 <UIcon name="i-lucide-skull" />
                 <span>{{ boss.name }}</span>
@@ -354,6 +382,10 @@ onUnmounted(() => {
               <div class="hud-boss-bar">
                 <i :style="{ width: `${boss.hpPct}%` }" />
                 <s v-if="boss.shieldPct > 0" :style="{ width: `${boss.shieldPct}%` }" />
+              </div>
+              <div v-if="bossArrival && bossArrival.title === boss.name" :key="bossArrival.id" class="hud-boss-incoming">
+                <b>Boss incoming</b>
+                <span v-if="bossArrival.subtitle">{{ bossArrival.subtitle }}</span>
               </div>
             </div>
           </div>
@@ -479,21 +511,16 @@ onUnmounted(() => {
           <!-- Announcements -->
           <TransitionGroup name="announce" tag="div" class="hud-announce">
             <div
-              v-for="item in announcements"
+              v-for="item in floatingAnnouncements"
               :key="item.id"
               class="announce"
               :class="`announce--${item.kind}`"
               :style="{
-                '--glow': item.rarity ? pirateRarityHex(item.rarity) : item.bossKind ? (PIRATE_BOSS_ACCENTS[item.bossKind] ?? '#ef4444') : item.kind === 'warning' ? '#f0524f' : item.kind === 'repair' ? '#3ddc97' : '#f3c35a'
+                '--glow': item.rarity ? pirateRarityHex(item.rarity) : item.kind === 'warning' ? '#f0524f' : item.kind === 'repair' ? '#3ddc97' : '#f3c35a'
               }"
               @click="dismissAnnouncement(item.id)"
             >
-              <template v-if="item.kind === 'boss'">
-                <span class="announce-kicker">Boss incoming</span>
-                <span class="announce-title pr-display">{{ item.title }}</span>
-                <span v-if="item.subtitle" class="announce-sub">{{ item.subtitle }}</span>
-              </template>
-              <template v-else-if="item.kind === 'upgrade' && item.powerUpId">
+              <template v-if="item.kind === 'upgrade' && item.powerUpId">
                 <PiratesUpgradeArt :id="item.powerUpId" class="announce-art" />
                 <div class="min-w-0">
                   <span class="announce-kicker">{{ item.rarity ? pirateRarity(item.rarity).name : 'Salvage' }}</span>
@@ -994,6 +1021,57 @@ onUnmounted(() => {
 }
 .hud-boss.is-hidden { opacity: 0.55; }
 
+/* Boss arrival: the bar itself flashes in and a slim line names the threat. */
+.hud-boss.is-arriving { animation: hud-boss-arrive 0.45s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.hud-boss.is-arriving .hud-boss-name span { animation: hud-boss-name-in 0.6s ease-out; }
+.hud-boss.is-arriving .hud-boss-bar { animation: hud-boss-flash 0.55s ease-out 3; }
+.hud-boss-incoming {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.6em;
+  min-width: 0;
+  padding: 0.2em 1.6em;
+  font-size: 0.8em;
+  line-height: 1.3;
+  text-align: center;
+  text-shadow: 0 1px 0 #000, 0 0 6px #000;
+  background: linear-gradient(90deg, transparent, rgba(8, 4, 4, 0.6) 15%, rgba(8, 4, 4, 0.6) 85%, transparent);
+  animation: hud-boss-incoming 2.2s ease-out forwards;
+}
+.hud-boss-incoming b {
+  flex: none;
+  font-family: 'Cinzel', serif;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.hud-boss-incoming span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #eadfc6;
+}
+@keyframes hud-boss-arrive {
+  from { opacity: 0; transform: scaleX(0.6); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes hud-boss-name-in {
+  from { opacity: 0; letter-spacing: 0.35em; filter: brightness(2); }
+  to { opacity: 1; letter-spacing: normal; filter: none; }
+}
+@keyframes hud-boss-flash {
+  0% { filter: brightness(2.2); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 0 0 2px var(--accent), 0 0 28px 2px var(--accent); }
+  100% { filter: none; }
+}
+@keyframes hud-boss-incoming {
+  0% { opacity: 0; transform: translateY(-0.3em); }
+  12%, 82% { opacity: 1; transform: none; }
+  100% { opacity: 0; }
+}
+
 .hud-topleft {
   position: absolute;
   top: 0.9em;
@@ -1313,22 +1391,6 @@ onUnmounted(() => {
 .announce-art { width: 3.6em; height: 3.6em; filter: drop-shadow(0 0 0.6em var(--glow)); }
 .announce-icon { width: 1.6em; height: 1.6em; color: var(--glow); }
 .announce--crate, .announce--repair { padding: 0.45em 0.8em; font-size: 0.9em; }
-.announce--boss {
-  display: grid;
-  justify-items: center;
-  width: 100vw;
-  max-width: none;
-  padding: 1em 2em;
-  border-radius: 0;
-  border-left: 0;
-  border-right: 0;
-  text-align: center;
-  background: linear-gradient(90deg, transparent, rgba(20, 5, 5, 0.92) 18%, rgba(20, 5, 5, 0.92) 82%, transparent);
-  box-shadow: 0 0 60px -10px var(--glow);
-}
-.announce--boss .announce-kicker { font-size: 0.9em; animation: raid-throb 0.8s ease-in-out infinite; }
-.announce--boss .announce-title { font-size: 3.4em; line-height: 1; color: var(--glow); text-shadow: 0 3px 0 #000, 0 0 30px var(--glow); }
-.announce--boss .announce-sub { max-width: 36em; }
 
 .announce-enter-active { transition: opacity 0.3s, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .announce-leave-active { transition: opacity 0.3s, transform 0.3s; position: absolute; }
@@ -1529,6 +1591,8 @@ onUnmounted(() => {
   .hud-ability.is-ready,
   .hud-hull.is-low,
   .hud-tether,
-  .announce--boss .announce-kicker { animation: none; }
+  .hud-boss.is-arriving,
+  .hud-boss.is-arriving .hud-boss-name span,
+  .hud-boss.is-arriving .hud-boss-bar { animation: none; }
 }
 </style>

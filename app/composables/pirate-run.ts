@@ -44,7 +44,7 @@ export interface PirateLiveAnnouncement extends PirateAnnouncement {
 
 /** How long each kind of floating card stays up. */
 const ANNOUNCE_MS: Record<PirateAnnouncement['kind'], number> = {
-    boss: 4800,
+    boss: 2200,
     upgrade: 3400,
     crate: 2600,
     repair: 2200,
