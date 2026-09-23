@@ -45,3 +45,49 @@ export const BOS_BONUS_SYMBOL_META: Record<BosBonusSymbol, { name: string, rect:
     hood: { name: 'Hood', rect: [683, 662, 285, 263] },
     book: { name: 'Book', rect: [370, 368, 283, 259] }
 }
+
+// The crop rects above live in a 1024×1024 "virtual" sheet space; the actual
+// PNGs are these sizes, so every consumer scales rects by real / virtual.
+export const BOS_SPRITE_IMG_W = 1536
+export const BOS_SPRITE_IMG_H = 1024
+export const BOS_BONUS_IMG_W = 1024
+export const BOS_BONUS_IMG_H = 1024
+
+export interface BosSpriteCrop {
+    src: string
+    /** Crop in real image pixels. */
+    rect: [number, number, number, number]
+    imgW: number
+    imgH: number
+}
+
+/** Real-pixel crop of a symbol: the base sheet, or its framed art from the bonus sheet. */
+export function bosSpriteCrop(symbol: SlotSymbol, bonus = false): BosSpriteCrop {
+    const useBonus = (bonus && symbol !== 'ten') || symbol === 'bonuswild'
+    if (useBonus) {
+        const key = (symbol === 'bonuswild' ? 'book' : symbol) as BosBonusSymbol
+        const [x, y, w, h] = BOS_BONUS_SYMBOL_META[key].rect
+        const sx = BOS_BONUS_IMG_W / BOS_BONUS_SHEET_W
+        const sy = BOS_BONUS_IMG_H / BOS_BONUS_SHEET_H
+        return { src: BOS_BONUS_SPRITE_SRC, rect: [x * sx, y * sy, w * sx, h * sy], imgW: BOS_BONUS_IMG_W, imgH: BOS_BONUS_IMG_H }
+    }
+    const [x, y, w, h] = BOS_SYMBOL_META[symbol as BosBaseSymbol].rect
+    const sx = BOS_SPRITE_IMG_W / BOS_SHEET_W
+    const sy = BOS_SPRITE_IMG_H / BOS_SHEET_H
+    return { src: BOS_SPRITE_SRC, rect: [x * sx, y * sy, w * sx, h * sy], imgW: BOS_SPRITE_IMG_W, imgH: BOS_SPRITE_IMG_H }
+}
+
+/** CSS for a sprite-sheet crop that fits inside a `size`×`size` box without distortion. */
+export function bosIconStyle(symbol: SlotSymbol, bonus = false, size = 32): Record<string, string> {
+    const { src, rect, imgW, imgH } = bosSpriteCrop(symbol, bonus)
+    const [x, y, w, h] = rect
+    const scale = size / Math.max(w, h)
+    return {
+        width: `${Math.round(w * scale)}px`,
+        height: `${Math.round(h * scale)}px`,
+        backgroundImage: `url(${src})`,
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: `${imgW * scale}px ${imgH * scale}px`,
+        backgroundPosition: `${-x * scale}px ${-y * scale}px`
+    }
+}

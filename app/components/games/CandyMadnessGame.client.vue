@@ -1,5 +1,4 @@
 <script lang="ts" setup>
-import { parseAmount } from '#shared/utils/parse-amount'
 import type {
   CandyFeature,
   CandyMadnessResult,
@@ -12,35 +11,47 @@ import type {
 import {
   CANDY_KEYS,
   CANDY_WEIGHTS,
-  clusterPayMult,
   CM_BONUS_HUNT_COST,
   CM_BUY_FREESPINS_COST,
-  CM_CELLS,
   CM_COLS,
   CM_FREE_SPINS,
-  CM_MIN_CLUSTER,
-  CM_MULT_CAP,
+  CM_MAX_WIN_MULT,
   CM_ROWS,
-  CM_SCATTER_TRIGGER,
   SCATTER_WEIGHT
 } from '#shared/utils/gamelogic/candymadness'
+import { parseAmount } from '#shared/utils/parse-amount'
 import { initSlotPixiApp, safeDestroy } from '~/utils/slot-pixi'
+import {
+  CANDY_INFO,
+  candyDataUrl,
+  drawCandyCanvas,
+  drawParticleCanvas,
+  hexCss,
+  spotColor,
+  type CandyArtKey,
+  type ParticleKey
+} from '~/utils/slots/candymadness-art'
+import { CANDY_BET_LADDER, CANDY_BIG_WIN_AT, CANDY_BONUS_ODDS } from '~/utils/slots/candymadness-ui'
+import CandyBackdrop from '~/components/games/candymadness/CandyBackdrop.vue'
+import CandyBigWin from '~/components/games/candymadness/CandyBigWin.vue'
+import CandyRules from '~/components/games/candymadness/CandyRules.vue'
+import CandyAutoSpin from '~/components/games/candymadness/CandyAutoSpin.vue'
 
-// Realistic max win shown to players, derived from 2M-spin Monte Carlo runs
-// (scripts/candymadness-rtp.ts — observed max ~2,580x). The configured hard
-// cap (5,000x) is enforced server-side but is a rare, near-unreachable outlier.
-const CM_DISPLAY_MAX_WIN = 3500
-// Volatility rating (1-5 zaps) — see SlotVolatility.vue. Bumped from 2 after
-// removing the apple symbol: hit frequency dropped but the sticky-multiplier
-// tail (esp. in the free-spins bonus) got a lot fatter.
+// Volatility rating (1-5) for SlotVolatility. The sticky multiplier tail in
+// free spins makes this a medium-volatility game.
 const CM_VOLATILITY = 3
 
 const { bet, isSpinning, errorMsg, balance, setBalance, history, pushHistory, spin: requestSpin } = useSlotGame<CandyMadnessResult, { payout: number, bet: number, bonus: boolean }>('candymadness')
+const sound = useCandyMadnessSound()
+const { soundEnabled, soundVolume } = sound
 
-// --- bet control (half / double / free typing — no upper ladder cap)
+// --- bet ---------------------------------------------------------------------
 const MIN_BET = 1
 const MAX_BET = 100_000_000_000 // matches the server-side cap in play-game.post.ts
-const betInput = ref('10')
+
+const betText = useAmountInput(bet, { integer: true, shorthand: true })
+const betEditing = ref(false)
+const betInputEl = ref<HTMLInputElement>()
 
 function clampBet(v: number): number {
   if (!Number.isFinite(v) || v < MIN_BET) return MIN_BET
@@ -48,34 +59,55 @@ function clampBet(v: number): number {
 }
 
 function setBet(v: number) {
-  if (isSpinning.value || autoSpinEnabled.value) return
+  if (betLocked.value) return
   bet.value = clampBet(v)
 }
 
-// Keep the editable field mirrored when bet changes via the ½ / 2× buttons.
-watch(bet, (v) => {
-  betInput.value = String(v)
-}, { immediate: true })
-
-function commitBetInput() {
-  setBet(parseAmount(betInput.value) ?? MIN_BET)
-  betInput.value = String(bet.value)
+function commitBet() {
+  betEditing.value = false
+  bet.value = clampBet(parseAmount(betText.value) ?? MIN_BET)
 }
 
-function betDown() {
-  setBet(Math.floor(bet.value / 2))
+function editBet() {
+  if (betLocked.value) return
+  betEditing.value = true
+  nextTick(() => betInputEl.value?.select())
 }
 
 function betUp() {
-  setBet(bet.value * 2)
+  const next = CANDY_BET_LADDER.find(v => v > bet.value)
+  if (next === undefined || betLocked.value) return
+  setBet(next)
+  sound.play('bet-up', { intensity: CANDY_BET_LADDER.indexOf(next) % 12 })
 }
 
-// --- feature buys
-// Bonus Hunter is a toggle "ante" mode: while on, every spin (and auto-spin)
-// costs CM_BONUS_HUNT_COST × bet and is guaranteed at least one scatter.
+function betDown() {
+  const prev = [...CANDY_BET_LADDER].reverse().find(v => v < bet.value)
+  if (prev === undefined || betLocked.value) return
+  setBet(prev)
+  sound.play('bet-down', { intensity: CANDY_BET_LADDER.indexOf(prev) % 12 })
+}
+
+/** Largest ladder step the balance covers. */
+const maxAffordableBet = computed(() => {
+  const cap = Math.min(MAX_BET, Math.floor(balance.value))
+  const step = [...CANDY_BET_LADDER].reverse().find(v => v <= cap)
+  return step ?? MIN_BET
+})
+
+function betMax() {
+  if (betLocked.value) return
+  setBet(maxAffordableBet.value)
+  sound.play('bet-max')
+}
+
+// --- features ----------------------------------------------------------------
 const huntMode = ref(false)
 const buyFreeSpinsCost = computed(() => bet.value * CM_BUY_FREESPINS_COST)
 const bonusHuntCost = computed(() => bet.value * CM_BONUS_HUNT_COST)
+const spinCost = computed(() => huntMode.value ? bonusHuntCost.value : bet.value)
+const buyArmed = ref(false)
+let buyArmTimer: ReturnType<typeof setTimeout> | null = null
 
 function costFor(feature?: CandyFeature): number {
   if (feature === 'buyFreeSpins') return buyFreeSpinsCost.value
@@ -83,348 +115,382 @@ function costFor(feature?: CandyFeature): number {
   return bet.value
 }
 
-// Cost of a tap on the main SPIN button right now.
-const spinCost = computed(() => huntMode.value ? bonusHuntCost.value : bet.value)
-
 function toggleHunt() {
-  if (isSpinning.value || autoSpinEnabled.value) return
+  if (betLocked.value) return
   huntMode.value = !huntMode.value
+  sound.unlock()
+  sound.play('toggle', { intensity: huntMode.value ? 1 : 0 })
 }
 
-// --- round state
-const turbo = ref(false)
-const showHelp = ref(false)
+function onBuyClick() {
+  if (!ready.value || betLocked.value || balance.value < buyFreeSpinsCost.value) return
+  sound.unlock()
+  if (!buyArmed.value) {
+    buyArmed.value = true
+    sound.play('click')
+    if (buyArmTimer) clearTimeout(buyArmTimer)
+    buyArmTimer = setTimeout(() => (buyArmed.value = false), 4000)
+    return
+  }
+  buyArmed.value = false
+  sound.play('buy')
+  spin('buyFreeSpins')
+}
+
+// --- round / HUD state ---------------------------------------------------------
 const ready = ref(false)
+const turbo = ref(false)
+const showRules = ref(false)
+const showAuto = ref(false)
+const showSound = ref(false)
+/** True while a round's animation is still playing after the server replied. */
+const presenting = ref(false)
 
-const lastWin = ref(0)
-const winFlash = ref(false)
+const winShown = ref(0)
+const winEquation = ref('')
+const winPulse = ref(0)
+const multSum = ref(0)
+const multPulse = ref(0)
+const tumbleCount = ref(0)
+const anticipating = ref(false)
 
-// bonus HUD
 const inBonus = ref(false)
-const bonusBanner = ref(false)
-const bonusSpinsLeft = ref(0)
+const bonusRound = ref(0)
 const bonusTotal = ref(0)
-const bonusStatus = ref('')
+const bonusIntro = ref(false)
+const bonusOutro = ref(false)
+const bonusOutroAmount = ref(0)
+let bonusGate: (() => void) | null = null
 
-const bigWinBanner = ref(false)
-const bigWinLabel = ref('')
-const bigWinAmount = ref(0)
-const bigWinGradient = ref('')
-const bigWinGlow = ref('')
-const bigWinIntensity = ref(1)
+const bigWin = ref<{ amount: number, bet: number, subtitle?: string } | null>(null)
+let bigWinDone: (() => void) | null = null
 
-// --- auto-spin state
+// --- auto spin -----------------------------------------------------------------
 const autoSpinEnabled = ref(false)
 const autoSpinsLeft = ref(0)
-const autoSpinPaused = ref(false)
-const showAutoSpinModal = ref(false)
-const AUTO_SPIN_OPTIONS = [25, 50, 100, 250, 500]
+const autoStopOnBonus = ref(false)
 
-let _resumeAutoSpin: (() => void) | null = null
+const betLocked = computed(() => isSpinning.value || autoSpinEnabled.value || presenting.value)
 
-function startAutoSpin(count: number) {
-  autoSpinsLeft.value = count
+function startAutoSpin(opts: { count: number, stopOnBonus: boolean }) {
+  autoSpinsLeft.value = opts.count
+  autoStopOnBonus.value = opts.stopOnBonus
   autoSpinEnabled.value = true
-  autoSpinPaused.value = false
-  showAutoSpinModal.value = false
-  if (!isSpinning.value) spin()
+  sound.unlock()
+  sound.play('toggle', { intensity: 1 })
+  if (!isSpinning.value && !presenting.value) spin()
 }
 
 function stopAutoSpin() {
   autoSpinEnabled.value = false
   autoSpinsLeft.value = 0
-  autoSpinPaused.value = false
-  _resumeAutoSpin?.()
-  _resumeAutoSpin = null
 }
 
-function onCanvasClick() {
-  if (autoSpinPaused.value) {
-    autoSpinPaused.value = false
-    _resumeAutoSpin?.()
-    _resumeAutoSpin = null
+// --- timing helpers ------------------------------------------------------------
+const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
+const t = (normal: number, fast: number) => turbo.value ? fast : normal
+
+/** Animate a ref to `to` with ticks; resolves when done. */
+function countTo(target: Ref<number>, to: number, ms: number): Promise<void> {
+  const from = target.value
+  if (ms <= 0 || from === to) {
+    target.value = to
+    return Promise.resolve()
   }
+  return new Promise((resolve) => {
+    const start = performance.now()
+    let lastTick = 0
+    let n = 0
+    const step = (now: number) => {
+      if (destroyed) return resolve()
+      const k = Math.min(1, (now - start) / ms)
+      const e = 1 - Math.pow(1 - k, 3)
+      target.value = from + (to - from) * e
+      if (now - lastTick > 65 && k < 1) {
+        lastTick = now
+        sound.play('tick', { intensity: n++ })
+      }
+      if (k < 1) requestAnimationFrame(step)
+      else {
+        target.value = to
+        resolve()
+      }
+    }
+    requestAnimationFrame(step)
+  })
 }
 
-const bonusOdds = computed(() => {
-  const total = CANDY_KEYS.reduce((a, k) => a + CANDY_WEIGHTS[k], 0) + SCATTER_WEIGHT
-  const p = SCATTER_WEIGHT / total
-  const q = 1 - p
-  const choose = (n: number, k: number) => {
-    let r = 1
-    for (let i = 0; i < k; i++) r = r * (
-      n - i
-    ) / (
-      i + 1
-    )
-    return r
-  }
-  let pLess = 0
-  for (let k = 0; k < CM_SCATTER_TRIGGER; k++) pLess += choose(CM_CELLS, k) * p ** k * q ** (
-    CM_CELLS - k
-  )
-  const pTrigger = 1 - pLess
-  return pTrigger > 0 ? Math.round(1 / pTrigger) : 0
-})
-
-// --- sound effects (synthesized with the Web Audio API — no asset files)
-const muted = ref(false)
-let audioCtx: AudioContext | null = null
-
-function toggleMute() {
-  muted.value = !muted.value
-  if (import.meta.client) localStorage.setItem('cm_muted', muted.value ? '1' : '0')
-  if (!muted.value) blip(660, 0.06, 'sine', 0.1) // little "sound on" tick
-}
-
-// The context can only be created after a user gesture; spin/space both qualify.
-function ensureAudio(): AudioContext | null {
-  if (muted.value || !import.meta.client) return null
-  if (!audioCtx) {
-    const Ctx = window.AudioContext ?? (
-      window as any
-    ).webkitAudioContext
-    if (!Ctx) return null
-    audioCtx = new Ctx()
-  }
-  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {})
-  return audioCtx
-}
-
-// A short percussive blip at a fixed pitch.
-function blip(freq: number, dur = 0.12, type: OscillatorType = 'sine', gain = 0.16) {
-  const ctx = ensureAudio()
-  if (!ctx) return
-  const t = ctx.currentTime
-  const osc = ctx.createOscillator()
-  const g = ctx.createGain()
-  osc.type = type
-  osc.frequency.setValueAtTime(freq, t)
-  g.gain.setValueAtTime(0.0001, t)
-  g.gain.exponentialRampToValueAtTime(gain, t + 0.01)
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
-  osc.connect(g).connect(ctx.destination)
-  osc.start(t)
-  osc.stop(t + dur + 0.02)
-}
-
-// A pitch sweep, used for the spin whoosh and win flourish.
-function sweep(from: number, to: number, dur = 0.18, type: OscillatorType = 'triangle', gain = 0.18) {
-  const ctx = ensureAudio()
-  if (!ctx) return
-  const t = ctx.currentTime
-  const osc = ctx.createOscillator()
-  const g = ctx.createGain()
-  osc.type = type
-  osc.frequency.setValueAtTime(from, t)
-  osc.frequency.exponentialRampToValueAtTime(to, t + dur)
-  g.gain.setValueAtTime(0.0001, t)
-  g.gain.exponentialRampToValueAtTime(gain, t + 0.02)
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
-  osc.connect(g).connect(ctx.destination)
-  osc.start(t)
-  osc.stop(t + dur + 0.02)
-}
-
-// Named cues, kept light and candy-ish.
-const sfx = {
-  spin: () => sweep(220, 460, 0.16, 'sawtooth', 0.1),
-  pop: (chain = 1) => blip(420 + Math.min(chain, 12) * 60, 0.11, 'triangle', 0.15),
-  mult: () => blip(720, 0.1, 'square', 0.1),
-  win: () => sweep(480, 920, 0.24, 'triangle', 0.18),
-  bonus: () => [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => blip(f, 0.2, 'triangle', 0.2), i * 110))
-}
-
-onMounted(() => {
-  if (import.meta.client && localStorage.getItem('cm_muted') === '1') muted.value = true
-})
-
-// --- pixi (non-reactive on purpose; Vue proxies break PixiJS objects)
+// --- pixi (non-reactive on purpose; Vue proxies break Pixi objects) ------------
 const canvasWrap = ref<HTMLDivElement>()
 let app: any = null
 let reelSet: any = null
 let REELS: any = null
 let PIXI: any = null
 let GSAP: any = null
-let multLayer: any = null
+let board: any = null
+let cellLayer: any = null
+let spotLayer: any = null
+let spotLabelLayer: any = null
+let fxLayer: any = null
 let particleLayer: any = null
 let floatLayer: any = null
-// Currency multiplier for the sequence currently being replayed (× bet), so
-// cascade pop-ups can show real money values.
-let activeBet = 1
-// The sequence's final multiplier (Σ of all multiplier spots, applied to the
-// whole sequence at the end). Each cluster's true contribution to the win is
-// cl.pay × this, so the cascade pop-ups must include it or they undercount.
-let activeMult = 1
-let activeWinTarget: typeof lastWin | typeof bonusTotal | null = null
-let winDisplayToken = 0
-const TEX: Record<string, any> = {}
+let resizeObserver: ResizeObserver | null = null
 let destroyed = false
+let stageScale = 1
+const TEX: Record<string, any> = {}
+const PTEX: Partial<Record<ParticleKey, any>> = {}
+const liveScatters = new Set<any>()
 
 const CELL = 66
-const GAP = 5
-const REEL_W = CM_COLS * CELL + (
-  CM_COLS - 1
-) * GAP
-const REEL_H = CM_ROWS * CELL + (
-  CM_ROWS - 1
-) * GAP
-const APP_W = REEL_W + 28
-const APP_H = REEL_H + 28
-const OFFSET_X = (
-  APP_W - REEL_W
-) / 2
-const OFFSET_Y = (
-  APP_H - REEL_H
-) / 2
-
-const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms))
-
-// Escalating "big win" showcase shown once a round clears a threshold — tuned
-// below Fire in the Hole's tiers since Candy Madness's max win
-// (CM_DISPLAY_MAX_WIN, 3,500x) is a fraction of that game's.
-const WIN_TIERS = [
-  { threshold: 1200, rank: 6, label: 'ULTRA WIN', from: '#f0abfc', to: '#a855f7', glow: 'rgba(168,85,247,0.75)' },
-  { threshold: 600, rank: 5, label: 'SUPER WIN', from: '#fda4af', to: '#e11d48', glow: 'rgba(225,29,72,0.7)' },
-  { threshold: 300, rank: 4, label: 'MEGA WIN', from: '#fdba74', to: '#ea580c', glow: 'rgba(234,88,12,0.7)' },
-  { threshold: 150, rank: 3, label: 'GREAT WIN', from: '#fde047', to: '#ca8a04', glow: 'rgba(202,138,4,0.65)' },
-  { threshold: 75, rank: 2, label: 'BIG WIN', from: '#86efac', to: '#16a34a', glow: 'rgba(22,163,74,0.6)' },
-  { threshold: 40, rank: 1, label: 'NICE WIN', from: '#7dd3fc', to: '#0284c7', glow: 'rgba(2,132,199,0.55)' }
-] as const
-
-function tickBigWinAmount(to: number, duration = 1400) {
-  const obj = { v: bigWinAmount.value }
-  GSAP.to(obj, {
-    v: to,
-    duration: duration / 1000,
-    ease: 'power3.out',
-    onUpdate: () => { bigWinAmount.value = Number(obj.v.toFixed(2)) }
-  })
-}
-
-async function showBigWinPopup(totalMultiplier: number, amount: number) {
-  const tier = WIN_TIERS.find(t => totalMultiplier >= t.threshold)
-  if (!tier) return
-
-  bigWinLabel.value = tier.label
-  bigWinGradient.value = `linear-gradient(180deg, ${tier.from}, ${tier.to})`
-  bigWinGlow.value = tier.glow
-  bigWinIntensity.value = tier.rank
-  bigWinAmount.value = 0
-  bigWinBanner.value = true
-
-  tickBigWinAmount(amount)
-  await wait(2200)
-  bigWinBanner.value = false
-}
-
+const GAP = 6
+const PAD = 12
+const REEL_W = CM_COLS * CELL + (CM_COLS - 1) * GAP
+const REEL_H = CM_ROWS * CELL + (CM_ROWS - 1) * GAP
+const APP_W = REEL_W + PAD * 2
+const APP_H = REEL_H + PAD * 2
 const SYMBOL_IDS: CandySymbol[] = [...CANDY_KEYS, 'scatter']
+const SPRINKLES = [0xff6fb5, 0xffd23a, 0x5ee0a0, 0x58c4ff, 0xb77bff, 0xffffff]
 
-const GLYPH: Record<CandySymbol, string> = {
-  grape: '🍇', blue: '🫐', banana: '🍌', green: '🍉', orange: '🍊', red: '🍓', scatter: '🍭'
+function cellCenter(col: number, row: number) {
+  return { x: PAD + col * (CELL + GAP) + CELL / 2, y: PAD + row * (CELL + GAP) + CELL / 2 }
 }
 
-const POP_COLOR: Record<CandySymbol, number> = {
-  grape: 0x9b3fc4, blue: 0x2f7fd0, banana: 0xf5c518, green: 0x4caf2e,
-  orange: 0xf0921a, red: 0xe2392a, scatter: 0xff5cae
+function textRes() {
+  return Math.min(4, (app?.renderer?.resolution ?? 1) * stageScale * 1.25)
 }
 
-const PAY_SIZES = [5, 8, 12, 15] as const
-const paytableRows = (
-  [...CANDY_KEYS].reverse()
-).map(sym => (
-  {
-    sym,
-    glyph: GLYPH[sym],
-    pays: PAY_SIZES.map(n => Math.round(clusterPayMult(sym, n) * 1000) / 1000)
+function makeTexture(canvas: HTMLCanvasElement) {
+  const source = new PIXI.CanvasSource({ resource: canvas, autoGenerateMipmaps: true, scaleMode: 'linear' })
+  return new PIXI.Texture({ source })
+}
+
+// --- particles -----------------------------------------------------------------
+interface Particle {
+  s: any
+  vx: number
+  vy: number
+  g: number
+  life: number
+  max: number
+  spin: number
+  s0: number
+  s1: number
+  drag: number
+}
+const particles: Particle[] = []
+const MAX_PARTICLES = 700
+
+interface EmitOptions {
+  vx?: number
+  vy?: number
+  g?: number
+  life: number
+  scale: number
+  scaleTo?: number
+  tint?: number
+  spin?: number
+  add?: boolean
+  alpha?: number
+  drag?: number
+  rot?: number
+}
+
+function emit(key: ParticleKey, x: number, y: number, o: EmitOptions) {
+  if (!particleLayer || particles.length >= MAX_PARTICLES) return
+  const s = new PIXI.Sprite(PTEX[key])
+  s.anchor.set(0.5)
+  s.position.set(x, y)
+  s.tint = o.tint ?? 0xffffff
+  s.alpha = o.alpha ?? 1
+  s.rotation = o.rot ?? Math.random() * Math.PI * 2
+  s.scale.set(o.scale)
+  if (o.add) s.blendMode = 'add'
+  particleLayer.addChild(s)
+  particles.push({ s, vx: o.vx ?? 0, vy: o.vy ?? 0, g: o.g ?? 0, life: o.life, max: o.life, spin: o.spin ?? 0, s0: o.scale, s1: o.scaleTo ?? o.scale, drag: o.drag ?? 0 })
+}
+
+function updateParticles(dt: number) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i]!
+    p.life -= dt
+    if (p.life <= 0) {
+      p.s.destroy()
+      particles.splice(i, 1)
+      continue
+    }
+    const k = 1 - p.life / p.max
+    p.vy += p.g * dt
+    if (p.drag) {
+      const d = Math.max(0, 1 - p.drag * dt)
+      p.vx *= d
+      p.vy *= d
+    }
+    p.s.x += p.vx * dt
+    p.s.y += p.vy * dt
+    p.s.rotation += p.spin * dt
+    p.s.scale.set(p.s0 + (p.s1 - p.s0) * k)
+    p.s.alpha = k < 0.6 ? 1 : 1 - (k - 0.6) / 0.4
   }
-))
-
-const MULT_RAMP: Record<number, number> = {
-  2: 0xf9a8d4, 4: 0xf472b6, 8: 0xec4899, 16: 0xd946ef, 32: 0xa855f7,
-  64: 0x6366f1, 128: 0x3b82f6, 256: 0x22d3ee, 512: 0x22c55e, 1024: 0xf59e0b, 2048: 0xef4444
 }
 
-function multColor(v: number): number {
-  return MULT_RAMP[v] ?? MULT_RAMP[2048]!
+function burst(x: number, y: number, color: number, power = 1) {
+  const lite = turbo.value
+  const shards = lite ? 4 : 7
+  for (let i = 0; i < shards; i++) {
+    const a = Math.random() * Math.PI * 2
+    const v = (110 + Math.random() * 170) * power
+    emit('shard', x, y, { vx: Math.cos(a) * v, vy: Math.sin(a) * v - 90, g: 620, life: 0.55 + Math.random() * 0.35, scale: 0.28 + Math.random() * 0.22, scaleTo: 0.1, tint: color, spin: (Math.random() - 0.5) * 14 })
+  }
+  const spr = lite ? 2 : 5
+  for (let i = 0; i < spr; i++) {
+    const a = Math.random() * Math.PI * 2
+    const v = 80 + Math.random() * 150
+    emit('sprinkle', x, y, { vx: Math.cos(a) * v, vy: Math.sin(a) * v - 120, g: 520, life: 0.7 + Math.random() * 0.4, scale: 0.28, tint: SPRINKLES[Math.floor(Math.random() * SPRINKLES.length)], spin: (Math.random() - 0.5) * 18 })
+  }
+  for (let i = 0; i < 3; i++) {
+    const a = Math.random() * Math.PI * 2
+    const v = 40 + Math.random() * 90
+    emit('star', x, y, { vx: Math.cos(a) * v, vy: Math.sin(a) * v, drag: 3, life: 0.45 + Math.random() * 0.3, scale: 0.35, scaleTo: 0.05, add: true, spin: 4 })
+  }
+  emit('ring', x, y, { life: 0.32, scale: 0.12, scaleTo: 0.75, tint: color, add: true, rot: 0 })
+  emit('glow', x, y, { life: 0.25, scale: 0.6, scaleTo: 1.1, tint: color, add: true, alpha: 0.8 })
 }
 
-// Render an emoji to a texture so it can be used as a reel symbol.
-function makeEmojiTexture(emoji: string) {
-  const size = 256
-  const canvas = document.createElement('canvas')
-  canvas.width = canvas.height = size
-  const ctx = canvas.getContext('2d')!
-  ctx.font = `${Math.floor(size * 0.82)}px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",serif`
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText(emoji, size / 2, size / 2 + size * 0.04)
-  return PIXI.Texture.from(canvas)
-}
-
-// --- candy symbol class
+// --- symbol class --------------------------------------------------------------
 function makeSymbolClass() {
   const { Sprite } = PIXI
   const Base = REELS.ReelSymbol
 
   class CandyTile extends Base {
+    glow = new Sprite()
+    rays = new Sprite()
     sprite = new Sprite()
+    flash = new Sprite()
     w = CELL
     h = CELL
-    _tween: any = null
+    base = 1
+    tl: any = null
 
     constructor() {
       super()
-      this.sprite.anchor.set(0.5)
-      this.view.addChild(this.sprite)
+      for (const s of [this.glow, this.rays, this.sprite, this.flash]) s.anchor.set(0.5)
+      this.glow.blendMode = 'add'
+      this.flash.blendMode = 'add'
+      this.rays.blendMode = 'add'
+      this.view.addChild(this.glow, this.rays, this.sprite, this.flash)
     }
 
-    _render(id: string) {
-      const t = TEX[id]
-      if (!t) return
-      this.sprite.texture = t
-      const max = Math.min(this.w, this.h) * 0.92
-      const s = Math.min(max / t.width, max / t.height)
-      this.sprite.scale.set(s)
-      this.sprite.x = this.w / 2
-      this.sprite.y = this.h / 2
+    render(id: string) {
+      const tex = TEX[id]
+      if (!tex) return
+      this.sprite.texture = tex
+      this.flash.texture = tex
+      this.base = (Math.min(this.w, this.h) * (id === 'scatter' ? 1.08 : 0.94)) / tex.width
+      for (const s of [this.sprite, this.flash]) {
+        s.scale.set(this.base)
+        s.position.set(this.w / 2, this.h / 2)
+        s.rotation = 0
+      }
+      this.sprite.alpha = 1
+      this.flash.alpha = 0
+      this.glow.texture = PTEX.glow
+      this.glow.tint = CANDY_INFO[id as CandySymbol]?.color ?? 0xffffff
+      this.glow.position.set(this.w / 2, this.h / 2)
+      this.glow.scale.set((this.w * 1.5) / 128)
+      this.glow.alpha = 0
+      const isScatter = id === 'scatter'
+      this.rays.visible = isScatter
+      if (isScatter) {
+        this.rays.texture = TEX.rays
+        this.rays.position.set(this.w / 2, this.h / 2)
+        this.rays.scale.set((this.w * 1.25) / TEX.rays.width)
+        this.rays.alpha = 0.75
+        liveScatters.add(this)
+      } else {
+        liveScatters.delete(this)
+      }
     }
 
     onActivate(id: string) {
+      this.kill()
       this.view.alpha = 1
-      this._render(id)
+      this.view.scale.set(1)
+      this.render(id)
     }
 
     onDeactivate() {
-      this._kill()
+      this.kill()
+      liveScatters.delete(this)
     }
 
     resize(w: number, h: number) {
       this.w = w
       this.h = h
-      if (this.symbolId) this._render(this.symbolId)
+      if (this.symbolId) this.render(this.symbolId)
+    }
+
+    kill() {
+      if (this.tl) {
+        this.tl.kill()
+        this.tl = null
+      }
+      this.sprite.scale.set(this.base)
+      this.sprite.rotation = 0
+      this.sprite.alpha = 1
+      this.flash.alpha = 0
+      this.glow.alpha = 0
     }
 
     stopAnimation() {
-      this._kill()
-      this.view.scale.set(1, 1)
+      this.kill()
     }
 
-    _kill() {
-      if (this._tween) {
-        this._tween.kill()
-        this._tween = null
-      }
-      this.view.scale.set(1, 1)
-    }
-
+    /** Wiggle and glow while the cluster is being presented. */
     playWin() {
-      this._kill()
+      this.kill()
       return new Promise<void>((res) => {
-        this._tween = GSAP.to(
-          this.view.scale,
-          { x: 1.14, y: 1.14, duration: 0.12, yoyo: true, repeat: 1, ease: 'sine.inOut', onComplete: res }
-        )
+        const b = this.base
+        this.tl = GSAP.timeline({ onComplete: res })
+          .to(this.glow, { alpha: 0.85, duration: 0.14 }, 0)
+          .to(this.sprite.scale, { x: b * 1.2, y: b * 1.2, duration: 0.14, ease: 'back.out(3)' }, 0)
+          .to(this.sprite, { rotation: 0.16, duration: 0.07, yoyo: true, repeat: 3, ease: 'sine.inOut' }, 0.05)
+          .to(this.sprite.scale, { x: b * 1.1, y: b * 1.1, duration: 0.18, ease: 'sine.out' }, 0.18)
+      })
+    }
+
+    /** Swell, flash white, then pop (particles are spawned by the game). */
+    playDestroy(opts?: { delay?: number, signal?: AbortSignal }) {
+      const signal = opts?.signal
+      const done = () => {
+        this.view.alpha = 0
+        this.sprite.scale.set(this.base)
+        this.sprite.alpha = 1
+        this.flash.alpha = 0
+        this.glow.alpha = 0
+      }
+      if (signal?.aborted) {
+        done()
+        return Promise.resolve()
+      }
+      if (this.tl) this.tl.kill()
+      return new Promise<void>((res) => {
+        const b = this.base
+        const finish = () => {
+          signal?.removeEventListener('abort', abort)
+          done()
+          res()
+        }
+        const abort = () => {
+          this.tl?.kill()
+          finish()
+        }
+        signal?.addEventListener('abort', abort, { once: true })
+        this.flash.scale.set(b * 1.2)
+        this.tl = GSAP.timeline({ onComplete: finish })
+          .to([this.sprite.scale, this.flash.scale], { x: b * 1.34, y: b * 1.34, duration: 0.09, ease: 'power2.out' }, 0)
+          .to(this.flash, { alpha: 0.9, duration: 0.08 }, 0)
+          .to([this.sprite.scale, this.flash.scale], { x: 0, y: 0, duration: 0.12, ease: 'back.in(2)' }, 0.1)
+          .to(this.glow, { alpha: 0, duration: 0.1 }, 0.1)
       })
     }
   }
@@ -432,197 +498,271 @@ function makeSymbolClass() {
   return CandyTile
 }
 
-// --- candy-pop particles
-function spawnPops(step: TumbleStep) {
-  if (!particleLayer) return
-  const { Graphics } = PIXI
-  const count = turbo.value ? 4 : 7
-  for (const wc of step.winCells) {
-    const sym = step.grid[wc.col]?.[wc.row] as CandySymbol | undefined
-    const color = sym
-      ? (
-          POP_COLOR[sym] ?? 0xffffff
-        )
-      : 0xffffff
-    const p = cellLocal(wc.col, wc.row)
-    for (let k = 0; k < count; k++) {
-      const g = new Graphics()
-      g.circle(0, 0, 2.5 + Math.random() * 4)
-        .fill({ color })
-      g.position.set(p.x, p.y)
-      particleLayer.addChild(g)
-      const ang = Math.random() * Math.PI * 2
-      const dist = 16 + Math.random() * 30
-      const dur = 0.4 + Math.random() * 0.25
-      GSAP.to(g, { x: p.x + Math.cos(ang) * dist, y: p.y + Math.sin(ang) * dist - 8, duration: dur, ease: 'power2.out' })
-      GSAP.to(g.scale, { x: 0.1, y: 0.1, duration: dur, ease: 'power1.in' })
-      GSAP.to(g, {
-        alpha: 0, duration: dur, ease: 'power1.in', onComplete: () => {
-          try {
-            g.destroy()
-          } catch { /* ignore */
-          }
-        }
-      })
-    }
-  }
+// --- multiplier spots ----------------------------------------------------------
+interface SpotView { value: number, container: any, tile: any, glow: any, label: any, bg: any, text: any }
+const spots = new Map<string, SpotView>()
+
+function drawSpot(s: SpotView) {
+  const c = spotColor(s.value)
+  s.tile.clear()
+  s.tile.roundRect(-CELL / 2, -CELL / 2, CELL, CELL, 14).fill({ color: c, alpha: 0.26 })
+  s.tile.roundRect(-CELL / 2 + 1.5, -CELL / 2 + 1.5, CELL - 3, CELL - 3, 13).stroke({ color: c, width: 3, alpha: 0.95 })
+  s.glow.tint = c
+  s.text.text = `×${formatNumber(s.value, true)}`
+  const w = Math.max(28, s.text.width + 12)
+  s.bg.clear()
+  s.bg.roundRect(-w, -19, w, 19, 9.5).fill({ color: 0x2a0838, alpha: 0.92 }).stroke({ color: c, width: 2 })
+  s.text.position.set(-w / 2, -9.5)
 }
 
-// --- floating "+win" text for each cascade
-function spawnWinText(step: TumbleStep) {
-  if (!floatLayer || !step.clusters.length) return
-  const { Text } = PIXI
-  for (const cl of step.clusters) {
-    const money = cl.pay * activeBet * activeMult
-    if (money <= 0) continue
+function makeSpot(col: number, row: number, value: number) {
+  const { Container, Graphics, Sprite, Text } = PIXI
+  const p = cellCenter(col, row)
+  const container = new Container()
+  const glow = new Sprite(PTEX.glow)
+  glow.anchor.set(0.5)
+  glow.scale.set((CELL * 1.6) / 128)
+  glow.alpha = 0.35
+  glow.blendMode = 'add'
+  const tile = new Graphics()
+  container.addChild(glow, tile)
+  container.position.set(p.x, p.y)
+  spotLayer.addChild(container)
 
-    // centroid of the cluster's cells
-    let sx = 0
-    let sy = 0
-    for (const c of cl.cells) {
-      const p = cellLocal(c.col, c.row)
-      sx += p.x
-      sy += p.y
-    }
-    const cx = sx / cl.cells.length
-    const cy = sy / cl.cells.length
-
-    const t = new Text({
-      text: `+${formatNumber(money, false)}`,
-      style: {
-        fontFamily: 'system-ui, sans-serif', fontSize: 24, fontWeight: '900', fill: 0xfde047, align: 'center',
-        stroke: { color: 0x7a1296, width: 5, join: 'round' },
-        dropShadow: { color: 0x000000, blur: 4, distance: 2, alpha: 0.5, angle: Math.PI / 2 }
-      }
-    })
-    t.anchor.set(0.5)
-    t.position.set(cx, cy)
-    floatLayer.addChild(t)
-
-    const dur = turbo.value ? 0.95 : 1.6
-    GSAP.fromTo(t.scale, { x: 0.4, y: 0.4 }, { x: 1, y: 1, duration: 0.3, ease: 'back.out(2.6)' })
-    GSAP.to(t, { y: cy - 40, duration: dur, ease: 'power1.out' })
-    GSAP.to(t, {
-      alpha: 0, duration: dur * 0.38, delay: dur * 0.62, ease: 'power1.in', onComplete: () => {
-        try {
-          t.destroy()
-        } catch { /* ignore */
-        }
-      }
-    })
-  }
-}
-
-function addCascadeWin(step: TumbleStep) {
-  const target = activeWinTarget ?? lastWin
-  const token = winDisplayToken
-  const tickDelay = turbo.value ? 45 : 90
-
-  step.clusters.forEach((cl, index) => {
-    const amount = cl.pay * activeBet * activeMult
-    if (amount <= 0) return
-
-    setTimeout(() => {
-      if (token !== winDisplayToken) return
-      target.value += amount
-      if (Object.is(target, lastWin)) winFlash.value = true
-    }, index * tickDelay)
-  })
-}
-
-// --- multiplier badge overlay
-const badges = new Map<string, { value: number, view: any, label: any, bg: any }>()
-
-function cellLocal(col: number, row: number): { x: number, y: number } {
-  return {
-    x: col * (
-      CELL + GAP
-    ) + CELL / 2,
-    y: row * (
-      CELL + GAP
-    ) + CELL / 2
-  }
-}
-
-function styleBadge(b: { value: number, label: any, bg: any }) {
-  const c = multColor(b.value)
-  b.label.text = `×${b.value}`
-  const w = Math.max(46, b.label.width + 14)
-  const h = 34
-  b.bg.clear()
-  b.bg.roundRect(-w / 2, -h / 2, w, h, 10)
-    .fill({ color: c, alpha: 0.22 })
-    .stroke({ color: c, width: 2, alpha: 0.7 })
-}
-
-function makeBadge(col: number, row: number, value: number) {
-  const { Container, Graphics, Text } = PIXI
-  const view = new Container()
+  const label = new Container()
   const bg = new Graphics()
-  const label = new Text({
+  const text = new Text({
     text: '',
+    resolution: textRes(),
+    style: { fontFamily: 'Lilita One, Fredoka, system-ui, sans-serif', fontSize: 15, fill: 0xffffff, stroke: { color: 0x2a0838, width: 3, join: 'round' } }
+  })
+  text.anchor.set(0.5)
+  label.addChild(bg, text)
+  label.position.set(p.x + CELL / 2 + 2, p.y + CELL / 2 + 3)
+  spotLabelLayer.addChild(label)
+
+  const view: SpotView = { value, container, tile, glow, label, bg, text }
+  drawSpot(view)
+  spots.set(`${col}:${row}`, view)
+  GSAP.fromTo(container.scale, { x: 0.3, y: 0.3 }, { x: 1, y: 1, duration: 0.35, ease: 'back.out(2.2)' })
+  GSAP.fromTo(label.scale, { x: 0, y: 0 }, { x: 1, y: 1, duration: 0.35, ease: 'back.out(2.5)', delay: 0.05 })
+}
+
+function bumpSpot(s: SpotView, value: number) {
+  s.value = value
+  drawSpot(s)
+  GSAP.fromTo(s.label.scale, { x: 1.7, y: 1.7 }, { x: 1, y: 1, duration: 0.4, ease: 'back.out(2.5)' })
+  GSAP.fromTo(s.glow, { alpha: 1 }, { alpha: 0.35, duration: 0.5 })
+}
+
+function syncSpots(list: MultSpot[]) {
+  let made = 0
+  let bumped = 0
+  let top = 0
+  for (const s of list) {
+    const existing = spots.get(`${s.col}:${s.row}`)
+    if (!existing) {
+      makeSpot(s.col, s.row, s.value)
+      made++
+    } else if (existing.value !== s.value) {
+      bumpSpot(existing, s.value)
+      bumped++
+    }
+    top = Math.max(top, s.value)
+  }
+  multSum.value = list.reduce((a, s) => a + s.value, 0)
+  if (made || bumped) multPulse.value++
+  const level = Math.log2(Math.max(2, top))
+  if (bumped) sound.play('spot-up', { intensity: level })
+  else if (made) sound.play('spot', { intensity: level })
+}
+
+function clearSpots() {
+  for (const s of spots.values()) {
+    safeDestroy(() => GSAP?.killTweensOf([s.container.scale, s.label.scale, s.glow]))
+    safeDestroy(() => s.container.destroy({ children: true }))
+    safeDestroy(() => s.label.destroy({ children: true }))
+  }
+  spots.clear()
+  multSum.value = 0
+}
+
+/** Stars stream from every spot to the multiplier meter at the top of the board. */
+async function flySpotsToMeter() {
+  const tx = APP_W / 2
+  const ty = 2
+  const dur = t(0.5, 0.3)
+  for (const s of spots.values()) {
+    GSAP.fromTo(s.label.scale, { x: 1.4, y: 1.4 }, { x: 1, y: 1, duration: 0.35, ease: 'back.out(2)' })
+    const star = new PIXI.Sprite(PTEX.star)
+    star.anchor.set(0.5)
+    star.blendMode = 'add'
+    star.tint = spotColor(s.value)
+    star.scale.set(0.45)
+    star.position.set(s.label.x - 14, s.label.y - 10)
+    fxLayer.addChild(star)
+    GSAP.to(star, { x: tx, y: ty, duration: dur, delay: Math.random() * 0.15, ease: 'power2.in', onComplete: () => safeDestroy(() => star.destroy()) })
+    GSAP.to(star.scale, { x: 0.2, y: 0.2, duration: dur, ease: 'power2.in' })
+  }
+  await wait(t(620, 380))
+  multPulse.value++
+}
+
+// --- cluster presentation --------------------------------------------------------
+let currentStep: TumbleStep | undefined
+let currentChain = 0
+let activeBet = 1
+
+function clusterCentroid(cells: Cell[]) {
+  let sx = 0
+  let sy = 0
+  for (const c of cells) {
+    const p = cellCenter(c.col, c.row)
+    sx += p.x
+    sy += p.y
+  }
+  return { x: sx / cells.length, y: sy / cells.length }
+}
+
+function floatText(x: number, y: number, text: string, color = 0xffe38a, size = 22) {
+  const label = new PIXI.Text({
+    text,
+    resolution: textRes(),
     style: {
-      fontFamily: 'system-ui, sans-serif', fontSize: 19, fontWeight: '900', fill: 0xffffff, align: 'center',
-      stroke: { color: 0x2a0612, width: 4, join: 'round' },
-      dropShadow: { color: 0x000000, blur: 3, distance: 1, alpha: 0.55, angle: Math.PI / 2 }
+      fontFamily: 'Lilita One, Fredoka, system-ui, sans-serif',
+      fontSize: size,
+      fill: color,
+      stroke: { color: 0x4a0b3d, width: 5, join: 'round' },
+      dropShadow: { color: 0x000000, blur: 4, distance: 2, alpha: 0.5, angle: Math.PI / 2 }
     }
   })
   label.anchor.set(0.5)
-  view.addChild(bg)
-  view.addChild(label)
-  const p = cellLocal(col, row)
-  view.position.set(p.x, p.y)
-  multLayer.addChild(view)
-  const b = { value, view, label, bg }
-  styleBadge(b)
-  badges.set(`${col}:${row}`, b)
-  GSAP.fromTo(view.scale, { x: 0, y: 0 }, { x: 1, y: 1, duration: 0.3, ease: 'back.out(2)' })
+  label.position.set(x, y)
+  floatLayer.addChild(label)
+  const dur = t(1.5, 0.9)
+  GSAP.fromTo(label.scale, { x: 0.3, y: 0.3 }, { x: 1, y: 1, duration: 0.3, ease: 'back.out(2.6)' })
+  GSAP.to(label, { y: y - 36, duration: dur, ease: 'power1.out' })
+  GSAP.to(label, { alpha: 0, duration: dur * 0.35, delay: dur * 0.65, onComplete: () => safeDestroy(() => label.destroy()) })
 }
 
-function bumpBadge(b: { value: number, view: any, label: any, bg: any }, value: number) {
-  b.value = value
-  styleBadge(b)
-  GSAP.fromTo(b.view.scale, { x: 1.5, y: 1.5 }, { x: 1, y: 1, duration: 0.32, ease: 'back.out(2.5)' })
-}
-
-function syncBadges(spots: MultSpot[]) {
-  for (const s of spots) {
-    const k = `${s.col}:${s.row}`
-    const existing = badges.get(k)
-    if (!existing) makeBadge(s.col, s.row, s.value)
-    else if (existing.value !== s.value) bumpBadge(existing, s.value)
+async function presentClusters(step: TumbleStep, chain: number) {
+  currentStep = step
+  currentChain = chain
+  tumbleCount.value = chain
+  sound.play('cluster', { intensity: chain })
+  for (const cl of step.clusters) {
+    for (const c of cl.cells) {
+      const sym = reelSet.reels[c.col]?.getSymbolAt(c.row)
+      sym?.playWin?.()
+    }
+    const p = clusterCentroid(cl.cells)
+    floatText(p.x, p.y, `+${formatNumber(cl.pay * activeBet)}`)
   }
+  await wait(t(520, 240))
 }
 
-function pulseBadges() {
-  for (const b of badges.values()) {
-    GSAP.fromTo(b.view.scale, { x: 1.28, y: 1.28 }, { x: 1, y: 1, duration: 0.38, ease: 'back.out(2)' })
+function onDestroyStart({ cells }: { cells: { reel: number, row: number }[] }) {
+  const step = currentStep
+  const chain = currentChain
+  sound.play('pop', { intensity: chain })
+  setTimeout(() => {
+    if (destroyed) return
+    for (const c of cells) {
+      const sym = step?.grid[c.reel]?.[c.row] as CandySymbol | undefined
+      const p = cellCenter(c.reel, c.row)
+      burst(p.x, p.y, sym ? CANDY_INFO[sym].color : 0xffffff, 1 + Math.min(chain, 6) * 0.06)
+    }
+  }, 110)
+}
+
+// initial drop sounds / scatter reveal
+let dropping = false
+let scattersSeen = 0
+
+let anticFrom = -1
+
+function onReelLanded(reelIndex: number, symbols: string[]) {
+  if (!dropping) return
+  if (anticFrom > 0 && reelIndex === anticFrom - 1) {
+    anticipating.value = true
+    sound.play('anticipation')
   }
+  sound.play('drop', { intensity: reelIndex, pan: (reelIndex / (CM_COLS - 1)) * 1.2 - 0.6 })
+  symbols.forEach((id, row) => {
+    if (id !== 'scatter' || row >= CM_ROWS) return
+    sound.play('scatter-land', { intensity: scattersSeen++ })
+    const sym = reelSet.reels[reelIndex]?.getSymbolAt(row)
+    sym?.playWin?.()
+  })
 }
 
-function clearBadges() {
-  for (const b of badges.values()) {
-    try {
-      b.view.destroy({ children: true })
-    } catch { /* ignore */
+// --- pixi bootstrap ----------------------------------------------------------------
+function randomGrid(): CandySymbol[][] {
+  // Cosmetic idle board.
+  const total = CANDY_KEYS.reduce((a, k) => a + CANDY_WEIGHTS[k], 0)
+  return Array.from({ length: CM_COLS }, () => Array.from({ length: CM_ROWS }, () => {
+    let r = Math.random() * total
+    for (const k of CANDY_KEYS) {
+      r -= CANDY_WEIGHTS[k]
+      if (r < 0) return k
+    }
+    return 'grape' as CandySymbol
+  }))
+}
+
+function toTargets(grid: CandySymbol[][]) {
+  return grid.map(col => ({ visible: col }))
+}
+
+// Render at the displayed size (never CSS-upscaled) so dpr 1 screens stay sharp.
+function fitCanvas() {
+  if (!app || !canvasWrap.value) return
+  const w = canvasWrap.value.clientWidth
+  if (!w) return
+  const h = Math.round(w * APP_H / APP_W)
+  stageScale = w / APP_W
+  app.renderer.resize(w, h)
+  board.scale.set(stageScale)
+}
+
+function drawCells() {
+  const g = new PIXI.Graphics()
+  for (let c = 0; c < CM_COLS; c++) {
+    for (let r = 0; r < CM_ROWS; r++) {
+      const p = cellCenter(c, r)
+      const x = p.x - CELL / 2
+      const y = p.y - CELL / 2
+      const odd = (c + r) % 2 === 1
+      g.roundRect(x, y, CELL, CELL, 14).fill({ color: odd ? 0xffffff : 0xffd6f0, alpha: odd ? 0.07 : 0.1 })
+      g.roundRect(x + 3, y + 2, CELL - 6, CELL * 0.42, 11).fill({ color: 0xffffff, alpha: 0.05 })
     }
   }
-  badges.clear()
+  cellLayer.addChild(g)
 }
 
-// --- pixi bootstrap
-function toTargets(grid: CandySymbol[][]) {
-  return grid.map(col => (
-    { visible: col }
-  ))
+async function loadFonts() {
+  try {
+    await Promise.race([
+      Promise.all([document.fonts.load('16px "Lilita One"'), document.fonts.load('16px "Fredoka"')]),
+      wait(2500)
+    ])
+  } catch { /* fall back to system fonts */ }
+}
+
+function tickerUpdate(ticker: any) {
+  const dt = Math.min(0.05, ticker.deltaMS / 1000)
+  updateParticles(dt)
+  for (const s of liveScatters) s.rays.rotation += dt * 0.9
 }
 
 onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
   try {
     const [pixi, reels, gsapMod] = await Promise.all([
       import('pixi.js'),
       import('pixi-reels'),
-      import('gsap')
+      import('gsap'),
+      loadFonts()
     ])
     if (destroyed) return
     PIXI = pixi
@@ -633,20 +773,22 @@ onMounted(async () => {
     if (!app) return
     canvasWrap.value?.appendChild(app.canvas)
 
-    await Promise.all(SYMBOL_IDS.map(async (id) => {
-      if (id === 'scatter') {
-        TEX[id] = makeEmojiTexture(GLYPH.scatter)
-        return
-      }
-      TEX[id] = await PIXI.Assets.load(`/slots/candyblast/${id}.png`)
-    }))
-    if (destroyed) {
-      app.destroy(true)
-      return
-    }
+    const artKeys: CandyArtKey[] = [...SYMBOL_IDS, 'rays']
+    for (const id of artKeys) TEX[id] = makeTexture(drawCandyCanvas(id, 256))
+    for (const k of ['dot', 'star', 'sprinkle', 'shard', 'ring', 'glow'] as ParticleKey[]) PTEX[k] = makeTexture(drawParticleCanvas(k))
+
+    board = new PIXI.Container()
+    app.stage.addChild(board)
+    cellLayer = new PIXI.Container()
+    spotLayer = new PIXI.Container()
+    spotLabelLayer = new PIXI.Container()
+    fxLayer = new PIXI.Container()
+    particleLayer = new PIXI.Container()
+    floatLayer = new PIXI.Container()
+    for (const l of [spotLabelLayer, fxLayer, particleLayer, floatLayer]) l.eventMode = 'none'
+    drawCells()
 
     const CandyTile = makeSymbolClass()
-
     const weights: Record<string, number> = { scatter: SCATTER_WEIGHT }
     for (const k of CANDY_KEYS) weights[k] = CANDY_WEIGHTS[k]
 
@@ -660,1198 +802,1721 @@ onMounted(async () => {
       })
       .weights(weights)
       .tumble({
-        fall: { duration: 240, ease: 'sine.in', rowStagger: 0 },
-        dropIn: { duration: 380, ease: 'back.out(1.4)', rowStagger: 40, distance: 'perHole' }
+        fall: { duration: 260, ease: 'power2.in', rowStagger: 0 },
+        dropIn: { duration: 420, ease: 'back.out(1.25)', rowStagger: 35, distance: 'perHole' }
       })
       .speed('normal', REELS.SpeedPresets.NORMAL)
       .speed('turbo', REELS.SpeedPresets.TURBO)
       .ticker(app.ticker)
       .build()
+    reelSet.x = PAD
+    reelSet.y = PAD
 
-    reelSet.x = OFFSET_X
-    reelSet.y = OFFSET_Y
-    app.stage.addChild(reelSet)
-
-    multLayer = new PIXI.Container()
-    multLayer.x = OFFSET_X
-    multLayer.y = OFFSET_Y
-    app.stage.addChild(multLayer)
-
-    particleLayer = new PIXI.Container()
-    particleLayer.x = OFFSET_X
-    particleLayer.y = OFFSET_Y
-    particleLayer.eventMode = 'none'
-    app.stage.addChild(particleLayer)
-
-    // floating "+win" text sits on top of everything
-    floatLayer = new PIXI.Container()
-    floatLayer.x = OFFSET_X
-    floatLayer.y = OFFSET_Y
-    floatLayer.eventMode = 'none'
-    app.stage.addChild(floatLayer)
+    board.addChild(cellLayer, spotLayer, reelSet, spotLabelLayer, fxLayer, particleLayer, floatLayer)
+    reelSet.events.on('cascade:destroy:start', onDestroyStart)
+    reelSet.events.on('spin:reelLanded', onReelLanded)
+    app.ticker.add(tickerUpdate)
 
     reelSet.setResult(toTargets(randomGrid()))
+    fitCanvas()
+    resizeObserver = new ResizeObserver(() => fitCanvas())
+    if (canvasWrap.value) resizeObserver.observe(canvasWrap.value)
     ready.value = true
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : 'Failed to load the slot engine'
   }
 })
 
-onUnmounted(() => {
+onBeforeUnmount(() => {
   destroyed = true
-  try {
-    clearBadges()
-  } catch { /* ignore */
-  }
-  try {
-    multLayer?.destroy?.({ children: true })
-  } catch { /* ignore */
-  }
-  try {
-    particleLayer?.destroy?.({ children: true })
-  } catch { /* ignore */
-  }
-  try {
-    floatLayer?.destroy?.({ children: true })
-  } catch { /* ignore */
+  stopAutoSpin()
+  window.removeEventListener('keydown', onKeydown)
+  resizeObserver?.disconnect()
+  if (buyArmTimer) clearTimeout(buyArmTimer)
+  bonusGate?.()
+  bigWinDone?.()
+  sound.stopAll()
+  safeDestroy(() => app?.ticker?.remove(tickerUpdate))
+  safeDestroy(() => reelSet?.events?.off('cascade:destroy:start', onDestroyStart))
+  safeDestroy(() => reelSet?.events?.off('spin:reelLanded', onReelLanded))
+  for (const p of particles.splice(0)) safeDestroy(() => p.s.destroy())
+  clearSpots()
+  liveScatters.clear()
+  for (const layer of [fxLayer, floatLayer]) {
+    if (layer) safeDestroy(() => GSAP?.killTweensOf(layer.children))
   }
   safeDestroy(() => reelSet?.destroy?.())
-  safeDestroy(() => app?.destroy?.(true))
+  safeDestroy(() => app?.destroy?.(true, { children: true }))
+  for (const tex of [...Object.values(TEX), ...Object.values(PTEX)]) safeDestroy(() => tex.destroy(true))
 })
 
-function randomGrid(): CandySymbol[][] {
-  const grid: CandySymbol[][] = []
-  for (let c = 0; c < CM_COLS; c++) {
-    const col: CandySymbol[] = []
-    for (let r = 0; r < CM_ROWS; r++) col.push(CANDY_KEYS[Math.floor(Math.random() * CANDY_KEYS.length)]!)
-    grid.push(col)
-  }
-  return grid
-}
-
-// --- spin flow
-// One-shot buy: pay the price and drop straight into free spins.
-function buyFreeSpins() {
-  if (!ready.value || isSpinning.value || autoSpinEnabled.value) return
-  if (balance.value < buyFreeSpinsCost.value) return
-  spin('buyFreeSpins')
-}
-
+// --- spin flow ---------------------------------------------------------------------
 async function spin(forceFeature?: CandyFeature) {
-  // An explicit buy wins over the Bonus Hunter toggle.
-  const feature: CandyFeature | undefined = forceFeature ?? (
-    huntMode.value ? 'bonusHunt' : undefined
-  )
+  if (!ready.value || isSpinning.value || presenting.value) return
+  const feature: CandyFeature | undefined = forceFeature ?? (huntMode.value ? 'bonusHunt' : undefined)
   const cost = costFor(feature)
-  if (!ready.value) return
+  sound.unlock()
 
-  const balanceBeforeSpin = balance.value
+  const balanceBefore = balance.value
   let debited = false
 
   const data = await requestSpin(cost, feature ? { feature } : undefined, () => {
-    sfx.spin()
-    lastWin.value = 0
-    winFlash.value = false
-    winDisplayToken++
-    setBalance(balanceBeforeSpin - cost)
+    sound.play('spin')
+    winShown.value = 0
+    winEquation.value = ''
+    tumbleCount.value = 0
+    setBalance(balanceBefore - cost)
     debited = true
   })
 
   if (!data) {
-    if (debited) {
-      setBalance(balanceBeforeSpin)
-      stopAutoSpin()
-    }
+    if (debited) setBalance(balanceBefore)
+    stopAutoSpin()
     return
   }
 
   const result = data.gameData
   activeBet = result.bet
+  presenting.value = true
 
   try {
-    clearBadges()
-    activeWinTarget = lastWin
-    winDisplayToken++
-    const baseWin = await spinAndCascade(result.base)
-    winDisplayToken++
-    lastWin.value = baseWin * result.bet
-    winFlash.value = lastWin.value > 0
+    clearSpots()
+    const baseWin = await playSequence(result.base, 0, true)
+    winShown.value = baseWin
 
     if (result.bonusTriggered && result.bonus) {
-      // Highlight the trigger scatters (bought bonuses now also drop 3 for show).
-      if (result.scatterCells.length) {
-        await reelSet.spotlight.show(result.scatterCells.map((c: Cell) => (
-          { reelIndex: c.col, rowIndex: c.row }
-        )))
-        await wait(700)
-        // show() dims the whole board and never restores it on its own; hide()
-        // removes the dim overlay so the bonus doesn't play out darkened.
-        reelSet.spotlight.hide()
-      }
-      if (autoSpinEnabled.value) {
-        autoSpinPaused.value = true
-        await new Promise<void>((res) => {
-          _resumeAutoSpin = res
-        })
-      }
+      await celebrateScatters(result.scatterCells)
+      if (autoSpinEnabled.value && autoStopOnBonus.value) stopAutoSpin()
+      await openBonusIntro()
       await runBonus(result)
     }
 
-    activeWinTarget = null
-    winDisplayToken++
-    lastWin.value = result.payout
-    winFlash.value = result.payout > 0
-    if (result.payout > 0) sfx.win()
+    winShown.value = result.payout
+    winEquation.value = ''
+    const x = result.payout / result.bet
+    if (x >= CANDY_BIG_WIN_AT) {
+      await showBigWin(result.payout, result.bet, result.bonusTriggered ? 'Free spins total' : undefined)
+    } else if (result.bonusTriggered && result.bonus) {
+      await showBonusOutro(result.payout)
+    } else if (result.payout > 0) {
+      sound.play(x >= 8 ? 'win-big' : x >= 2 ? 'win-medium' : 'win-small')
+      winPulse.value++
+    }
     setBalance(data.balance)
     pushHistory({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered })
   } catch (e) {
-    activeWinTarget = null
-    winDisplayToken++
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'
     setBalance(data.balance)
     stopAutoSpin()
   } finally {
-    activeWinTarget = null
-    winDisplayToken++
     isSpinning.value = false
-    if (autoSpinEnabled.value) {
-      if (autoSpinPaused.value) {
-        await new Promise<void>((res) => {
-          _resumeAutoSpin = res
-        })
-      }
-      if (autoSpinEnabled.value) {
-        autoSpinsLeft.value--
-        if (autoSpinsLeft.value > 0 && balance.value >= spinCost.value) spin()
-        else stopAutoSpin()
-      }
+    presenting.value = false
+    inBonus.value = false
+  }
+
+  if (autoSpinEnabled.value && !destroyed) {
+    autoSpinsLeft.value--
+    if (autoSpinsLeft.value > 0 && balance.value >= spinCost.value) {
+      await wait(t(350, 120))
+      if (autoSpinEnabled.value) spin()
+    } else {
+      stopAutoSpin()
     }
   }
 }
 
-async function spinAndCascade(seq: TumbleSequence): Promise<number> {
-  // The multiplier applies to the whole sequence at the end; surface it on the
-  // per-cluster pop-ups so they reflect the real (multiplied) win, not base pay.
-  activeMult = Math.max(1, seq.multiplierSum)
+/**
+ * Play one tumble sequence. `offset` is what the win meter already shows
+ * (bonus total so far). Returns the currency this sequence paid.
+ */
+async function playSequence(seq: TumbleSequence, offset: number, initial: boolean): Promise<number> {
   reelSet.setSpeed?.(turbo.value ? 'turbo' : 'normal')
   const first = seq.steps[0]?.grid ?? seq.restGrid
+
+  // Anticipation: two lollipops already down with columns still to land.
+  let antic: number[] = []
+  if (initial) {
+    let seen = 0
+    for (let c = 0; c < CM_COLS; c++) {
+      seen += first[c]!.filter(s => s === 'scatter').length
+      if (seen >= 2 && c < CM_COLS - 1) {
+        antic = Array.from({ length: CM_COLS - 1 - c }, (_, i) => c + 1 + i)
+        break
+      }
+    }
+  }
+
+  // Columns drop left to right; after the second lollipop the remaining
+  // columns hold back so the player sweats the third.
+  const step = t(110, 25)
+  const delays: number[] = []
+  for (let c = 0; c < CM_COLS; c++) {
+    const prev = delays[c - 1] ?? -step
+    delays.push(antic.includes(c) ? prev + t(750, 450) : prev + step)
+  }
+  reelSet.setDropOrder(delays)
+  anticFrom = antic[0] ?? -1
+
+  dropping = true
+  scattersSeen = 0
   const spinPromise = reelSet.spin({ mode: 'cascade' })
   reelSet.setResult(toTargets(first))
   await spinPromise
+  dropping = false
+  anticipating.value = false
+  // Refills drop every column together.
+  reelSet.setDropOrder('all')
 
+  let baseSoFar = 0
   await reelSet.runCascade({
     // Unmounting mid-cascade destroys the reels' symbols while this chain is
-    // still awaiting. Reporting no winners ends the cascade cleanly; without
-    // it the next refill phase builds against destroyed symbols and throws.
-    detectWinners: (_g: string[][], lvl: number) =>
-      destroyed
-        ? []
-        : (
-            seq.steps[lvl]?.winCells ?? []
-          ).map((c: Cell) => (
-            { reel: c.col, row: c.row }
-          )),
-    nextGrid: (_g: string[][], _w: any, lvl: number) =>
-      (
-        seq.steps[lvl + 1]?.grid ?? seq.restGrid
-      ) as unknown as string[][],
-    onCascade: ({ chain }: { chain: number }) => onTumble(seq.steps[chain - 1], chain),
-    pauseAfterDestroyMs: turbo.value ? 130 : 300,
+    // still awaiting. Reporting no winners ends the cascade cleanly.
+    detectWinners: async (_g: string[][], lvl: number) => {
+      const step = seq.steps[lvl]
+      if (destroyed || !step) return []
+      await presentClusters(step, lvl + 1)
+      if (destroyed) return []
+      return step.winCells.map((c: Cell) => ({ reel: c.col, row: c.row }))
+    },
+    nextGrid: (_g: string[][], _w: unknown, lvl: number) => (seq.steps[lvl + 1]?.grid ?? seq.restGrid) as unknown as string[][],
+    onCascade: ({ chain }: { chain: number }) => {
+      const step = seq.steps[chain - 1]
+      if (!step) return
+      baseSoFar += step.stepPay * activeBet
+      winShown.value = offset + baseSoFar
+      winPulse.value++
+      syncSpots(step.spotsAfter)
+      setTimeout(() => sound.play('tumble'), t(200, 90))
+    },
+    pauseAfterDestroyMs: t(300, 120),
     maxChain: 64
   })
 
-  if (seq.basePay > 0 && seq.multiplierSum > 1 && badges.size) {
-    pulseBadges()
-    sfx.mult()
-    await wait(turbo.value ? 250 : 550)
-  }
-  return seq.win
+  if (destroyed || seq.basePay <= 0) return 0
+
+  // Apply the multiplier sum to the whole sequence.
+  const total = seq.win * activeBet
+  const mult = Math.max(1, seq.multiplierSum)
+  winEquation.value = `${formatNumber(baseSoFar)} × ${formatNumber(mult, false)}`
+  await flySpotsToMeter()
+  sound.play('mult-apply')
+  await countTo(winShown, offset + total, t(900, 400))
+  winPulse.value++
+  await wait(t(450, 150))
+  winEquation.value = ''
+  return total
 }
 
-function onTumble(step: TumbleStep | undefined, chain = 1) {
-  if (!step) return
-  if (step.winCells.length) sfx.pop(chain)
-  addCascadeWin(step)
-  spawnPops(step)
-  spawnWinText(step)
-  syncBadges(step.spotsAfter)
+async function celebrateScatters(cells: Cell[]) {
+  sound.play('bonus-trigger')
+  for (const c of cells) {
+    const sym = reelSet.reels[c.col]?.getSymbolAt(c.row)
+    sym?.playWin?.()
+    const p = cellCenter(c.col, c.row)
+    for (let i = 0; i < 3; i++) setTimeout(() => !destroyed && burst(p.x, p.y, 0xff6fd1, 1.3), i * 250)
+  }
+  try {
+    await reelSet.spotlight.show(cells.map(c => ({ reelIndex: c.col, rowIndex: c.row })))
+  } catch { /* the board may be torn down mid-show */ }
+  await wait(1300)
+  // show() dims the board and never restores it by itself.
+  safeDestroy(() => reelSet.spotlight.hide())
+}
+
+function openBonusIntro(): Promise<void> {
+  bonusIntro.value = true
+  return new Promise<void>((resolve) => {
+    // Auto spin waits for a tap so the player gets to watch the bonus.
+    const timer = autoSpinEnabled.value ? null : setTimeout(() => bonusGate?.(), 6000)
+    bonusGate = () => {
+      if (timer) clearTimeout(timer)
+      bonusGate = null
+      bonusIntro.value = false
+      bonusOutro.value = false
+      resolve()
+    }
+  })
+}
+
+function closeGate() {
+  sound.unlock()
+  sound.play('click')
+  bonusGate?.()
 }
 
 async function runBonus(result: CandyMadnessResult) {
   const bonus = result.bonus!
+  sound.play('bonus-start')
   inBonus.value = true
-  bonusBanner.value = true
   bonusTotal.value = 0
-  bonusSpinsLeft.value = CM_FREE_SPINS
-  bonusStatus.value = 'Free Spins!'
-  sfx.bonus()
-  clearBadges()
-  await wait(1200)
-  bonusBanner.value = false
+  bonusRound.value = 0
+  winShown.value = 0
+  clearSpots()
+  await wait(700)
 
-  try {
-    for (const fs of bonus.spins) {
-      bonusStatus.value = `Spin ${fs.round} / ${CM_FREE_SPINS}`
-      bonusSpinsLeft.value = CM_FREE_SPINS - fs.round
-      const bonusTotalBeforeSpin = bonusTotal.value
-      activeWinTarget = bonusTotal
-      winDisplayToken++
-      const win = await spinAndCascade(fs.sequence)
-      winDisplayToken++
-      bonusTotal.value = bonusTotalBeforeSpin + win * result.bet
-      await wait(turbo.value ? 150 : 380)
-    }
-
-    bonusTotal.value = result.bonusPayout
-    bonusSpinsLeft.value = 0
-    bonusStatus.value = result.bonusPayout > 0 ? 'Bonus complete!' : 'No win this time'
-    await wait(1400)
-  } finally {
-    clearBadges()
-    inBonus.value = false
+  for (const fs of bonus.spins) {
+    if (destroyed) return
+    bonusRound.value = fs.round
+    tumbleCount.value = 0
+    sound.play('bonus-spin', { intensity: fs.round })
+    const before = bonusTotal.value
+    const win = await playSequence(fs.sequence, before, false)
+    bonusTotal.value = before + win
+    winShown.value = bonusTotal.value
+    await wait(t(500, 200))
   }
+  bonusTotal.value = result.bonusPayout
+  winShown.value = result.bonusPayout
+}
 
-  await showBigWinPopup(result.payout / result.bet, result.payout)
+function showBonusOutro(amount: number): Promise<void> {
+  bonusOutroAmount.value = amount
+  bonusOutro.value = true
+  sound.play('bonus-end')
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(() => bonusGate?.(), autoSpinEnabled.value ? 2800 : 4500)
+    bonusGate = () => {
+      clearTimeout(timer)
+      bonusGate = null
+      bonusOutro.value = false
+      resolve()
+    }
+  })
+}
+
+function showBigWin(amount: number, betAmount: number, subtitle?: string): Promise<void> {
+  bigWin.value = { amount, bet: betAmount, subtitle }
+  return new Promise<void>((resolve) => {
+    bigWinDone = () => {
+      bigWinDone = null
+      bigWin.value = null
+      resolve()
+    }
+  })
+}
+
+function onBigWinDone() {
+  sound.play('bigwin-end')
+  bigWinDone?.()
+}
+
+// --- controls ------------------------------------------------------------------------
+const canSpin = computed(() => ready.value && !isSpinning.value && !presenting.value && balance.value >= spinCost.value)
+
+function onSpinButton() {
+  sound.unlock()
+  if (autoSpinEnabled.value) {
+    stopAutoSpin()
+    sound.play('toggle', { intensity: 0 })
+    return
+  }
+  if (!canSpin.value) return
+  spin()
+}
+
+function toggleTurbo() {
+  turbo.value = !turbo.value
+  sound.unlock()
+  sound.play('toggle', { intensity: turbo.value ? 1 : 0 })
+}
+
+function openAuto() {
+  if (autoSpinEnabled.value) {
+    stopAutoSpin()
+    return
+  }
+  sound.unlock()
+  sound.play('click')
+  showAuto.value = true
+}
+
+function openRules() {
+  sound.unlock()
+  sound.play('click')
+  showRules.value = true
+}
+
+function toggleSound() {
+  soundEnabled.value = !soundEnabled.value
+  if (soundEnabled.value) {
+    sound.unlock()
+    setTimeout(() => sound.play('toggle', { intensity: 1 }), 60)
+  }
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.code === 'Space' && e.target === document.body) {
-    e.preventDefault()
-    if (!autoSpinEnabled.value) spin()
+  if (e.code !== 'Space' || e.repeat) return
+  const el = e.target as HTMLElement | null
+  if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return
+  if (showRules.value || showAuto.value) return
+  e.preventDefault()
+  if (bonusIntro.value || bonusOutro.value) {
+    closeGate()
+    return
   }
+  if (bigWin.value) return
+  onSpinButton()
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+const lollipopUrl = computed(() => ready.value ? candyDataUrl('scatter', 128) : '')
+const heartUrl = computed(() => ready.value ? candyDataUrl('red', 96) : '')
+const spinsLeft = computed(() => Math.max(0, CM_FREE_SPINS - bonusRound.value))
+const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, Math.floor(Math.log2(Math.max(2, multSum.value))))))))
 </script>
 
 <template>
-  <!-- Candy background, scoped to the page (not the sidebar) -->
-  <div class="page-root relative min-h-full flex flex-col items-center justify-start overflow-hidden px-3 pt-10 pb-6">
-    <div class="page-bg" />
-    <div class="page-vignette" />
+  <div
+    class="cm-root"
+    :class="{ 'is-bonus': inBonus }"
+  >
+    <CandyBackdrop :bonus="inBonus" />
 
-    <!-- ── Title (centered over the board) ── -->
-    <div class="cm-title relative z-[1] mb-2 sm:mb-3 text-center">
-      <h1 class="cm-title__text">
-        <span class="cm-title__emoji">🍭</span>
-        Candy Madness
-        <span class="cm-title__emoji">🍬</span>
-      </h1>
-      <div class="mt-2.5 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2">
-        <span class="cm-badge cm-badge--rtp">98% RTP</span>
-        <span class="cm-badge cm-badge--vol"><SlotVolatility :level="CM_VOLATILITY" /></span>
-        <span class="cm-badge cm-badge--cascade">Cascade</span>
-        <span class="cm-badge cm-badge--maxwin">{{ formatNumber(CM_DISPLAY_MAX_WIN, false, 0) }}x max win</span>
-      </div>
-    </div>
-
-    <!-- Game + feature buys. The board stays centered on the page; the buy
-         cards float to its left on desktop so they don't push it off-centre. -->
-    <div class="game-layout relative w-full max-w-[600px] flex flex-col">
-      <!-- ── Feature buy cards: below the board on mobile, floated left on desktop ── -->
-      <div class="order-2 mt-3 lg:mt-0 lg:absolute lg:top-0 lg:right-full lg:mr-4 w-full lg:w-auto flex flex-row lg:flex-col gap-3">
-        <!-- BUY FREE SPINS -->
-        <button
-          :disabled="!ready || autoSpinEnabled || balance < buyFreeSpinsCost"
-          class="group relative w-50 shrink-0 overflow-hidden flex flex-col gap-2 rounded-2xl p-3 text-left text-white cursor-pointer transition bg-gradient-to-b from-pink-500/25 to-[#0a041a]/60 border border-pink-500/45 shadow-[0_10px_30px_rgba(0,0,0,0.55)] hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 disabled:opacity-40 disabled:cursor-default disabled:saturate-[0.6] disabled:translate-y-0"
-          @click="buyFreeSpins"
+    <div class="cm-stage">
+      <header class="cm-logo">
+        <img
+          v-if="lollipopUrl"
+          :src="lollipopUrl"
+          alt=""
+          class="cm-logo__art cm-logo__art--l"
         >
-          <span class="pointer-events-none absolute inset-x-0 -top-1/2 h-2/3 opacity-60 bg-[radial-gradient(ellipse_at_50%_0%,rgba(244,114,182,0.55),transparent_70%)]" />
-
-          <span class="relative flex items-center gap-2">
-            <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-pink-500/20 ring-1 ring-inset ring-pink-400/40 text-base leading-none">
-              🍭
-            </span>
-            <span class="font-black uppercase tracking-wide leading-tight">Buy Free Spins</span>
-          </span>
-
-          <span class="relative text-sm leading-snug text-violet-300/70">
-            Drop straight into {{ CM_FREE_SPINS }} free spins
-          </span>
-
-          <span class="relative mt-auto inline-flex items-center gap-1.5 self-start rounded-lg px-2.5 py-1 font-mono text-[12.5px] font-extrabold bg-black/30 ring-1 ring-inset ring-violet-500/20">
-            <CoinBalance
-              :compact="false"
-              :value="buyFreeSpinsCost"
-            />
-          </span>
-        </button>
-
-        <!-- BONUS HUNTER (toggle) -->
-        <button
-          :class="huntMode ? 'border-sky-400/70 shadow-[0_0_22px_rgba(56,189,248,0.45)]' : 'border-violet-500/35 shadow-[0_10px_30px_rgba(0,0,0,0.55)]'"
-          :disabled="!ready || autoSpinEnabled"
-          class="group relative w-50 shrink-0 overflow-hidden flex flex-col gap-2 rounded-2xl p-3 text-left text-white cursor-pointer transition bg-gradient-to-b from-violet-500/20 to-[#0a041a]/60 border hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 disabled:opacity-40 disabled:cursor-default disabled:saturate-[0.6] disabled:translate-y-0"
-          @click="toggleHunt"
+        <h1 class="cm-logo__title">
+          <span class="cm-logo__candy">Candy</span>
+          <span class="cm-logo__madness">Madness</span>
+        </h1>
+        <img
+          v-if="heartUrl"
+          :src="heartUrl"
+          alt=""
+          class="cm-logo__art cm-logo__art--r"
         >
-          <span
-            :class="huntMode ? 'opacity-100' : 'opacity-50'"
-            class="pointer-events-none absolute inset-x-0 -top-1/2 h-2/3 bg-[radial-gradient(ellipse_at_50%_0%,rgba(56,189,248,0.45),transparent_70%)] transition-opacity"
-          />
-          <span
-            :class="huntMode ? 'text-sky-950 bg-gradient-to-b from-sky-300 to-sky-400 shadow-[0_0_10px_rgba(56,189,248,0.6)]' : 'text-violet-300/60 bg-black/35 ring-1 ring-inset ring-violet-500/25'"
-            class="absolute top-2.5 right-2.5 rounded-full px-1.5 py-0.5 text-xs font-black tracking-wider"
-          >{{ huntMode ? 'ON' : 'OFF' }}</span>
-
-          <span class="relative flex items-center gap-2 pr-8">
-            <span
-              :class="huntMode ? 'bg-sky-400/20 ring-1 ring-inset ring-sky-300/50' : 'bg-violet-500/15 ring-1 ring-inset ring-violet-400/30'"
-              class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-base leading-none transition"
-            >🔍</span>
-            <span class="font-black uppercase tracking-wide leading-tight">Bonus Hunter</span>
-          </span>
-
-          <span class="relative text-sm leading-snug text-violet-300/70">
-            Force a 🍭 every spin — far better bonus odds
-          </span>
-
-          <span class="relative mt-auto inline-flex items-center gap-1.5 self-start rounded-lg px-2.5 py-1 font-mono text-sm font-extrabold bg-black/30 ring-1 ring-inset ring-violet-500/20">
-            <CoinBalance
-              :compact="false"
-              :value="bonusHuntCost"
-            />
-            <span class="text-[9px] font-bold uppercase tracking-wider text-violet-300/50">+/ spin</span>
-          </span>
-        </button>
+      </header>
+      <div class="cm-chips">
+        <span class="cm-chip">98% RTP</span>
+        <span class="cm-chip cm-chip--vol"><SlotVolatility :level="CM_VOLATILITY" /></span>
+        <span class="cm-chip">{{ formatNumber(CM_MAX_WIN_MULT, false) }}× max win</span>
       </div>
 
-      <!-- Slot machine -->
-      <div class="machine order-1 w-full flex flex-col">
-        <!-- ── Reel area: purple gradient ── -->
-        <div
-          class="reel-area relative select-none"
-          @click="onCanvasClick"
-        >
-          <!-- inner sheen / vignette over the grid -->
-          <div class="reel-sheen" />
-          <!-- Bonus banner -->
-          <Transition name="pop">
-            <div
-              v-if="bonusBanner"
-              class="absolute inset-0 z-30 flex items-center justify-center pointer-events-none"
-            >
-              <div class="bonus-banner text-center">
-                <p class="text-3xl font-black text-white tracking-tight drop-shadow-lg">
-                  CANDY MADNESS
-                </p>
-                <p
-                  class="text-sm font-bold mt-1"
-                  style="color: #fce7f3;"
-                >
-                  {{ CM_FREE_SPINS }} free spins — multipliers stay & grow!
-                </p>
-              </div>
-            </div>
-          </Transition>
-
-          <!-- Big win showcase -->
-          <Transition name="pop">
-            <BigWinOverlay
-              v-if="bigWinBanner"
-              tint="rgba(10,2,20,0.82)"
-              :intensity="bigWinIntensity"
-            >
-              <p
-                class="cm-bigwin-label"
-                :style="{ backgroundImage: bigWinGradient, filter: `drop-shadow(0 0 22px ${bigWinGlow})` }"
-              >
-                {{ bigWinLabel }}
-              </p>
-              <strong class="cm-bigwin-amount">
-                {{ formatNumber(bigWinAmount, false) }}
-              </strong>
-            </BigWinOverlay>
-          </Transition>
-
-          <!-- Auto-spin pause overlay -->
-          <Transition name="pop">
-            <div
-              v-if="autoSpinPaused"
-              class="absolute inset-0 z-20 flex items-center justify-center cursor-pointer"
-              style="background: rgba(8,2,20,0.78); backdrop-filter: blur(3px);"
-            >
-              <div class="pause-card text-center px-6 py-4">
-                <p class="font-black text-white text-base">
-                  🍭 Bonus! Tap to play
-                </p>
-                <p
-                  class="text-xs mt-1"
-                  style="color: rgba(216,180,254,0.65);"
-                >
-                  {{ autoSpinsLeft }} spin{{ autoSpinsLeft !== 1 ? 's' : '' }} remaining
-                </p>
-              </div>
-            </div>
-          </Transition>
-
-          <!-- Canvas -->
-          <div
-            ref="canvasWrap"
-            class="relative z-10 w-full [&>canvas]:!w-full [&>canvas]:!h-auto [&>canvas]:block"
-          />
-
-          <!-- Loading -->
-          <div
-            v-if="!ready && !errorMsg"
-            class="absolute inset-0 z-40 flex items-center justify-center"
+      <div class="cm-main">
+        <!-- Feature buys -->
+        <aside class="cm-side cm-side--left">
+          <button
+            class="cm-feature cm-feature--buy"
+            :class="{ 'is-armed': buyArmed }"
+            :disabled="!ready || betLocked || balance < buyFreeSpinsCost"
+            @click="onBuyClick"
           >
-            <UIcon
-              class="size-10 animate-spin"
-              name="i-lucide-loader-circle"
-              style="color: #c084fc;"
-            />
-          </div>
-        </div>
+            <span class="cm-feature__art">
+              <img
+                v-if="lollipopUrl"
+                :src="lollipopUrl"
+                alt=""
+              >
+            </span>
+            <span class="cm-feature__text">
+              <span class="cm-feature__title">{{ buyArmed ? 'Tap to confirm' : 'Buy free spins' }}</span>
+              <span class="cm-feature__desc">{{ CM_FREE_SPINS }} free spins, multipliers stay</span>
+            </span>
+            <span class="cm-feature__price">
+              <UIcon
+                name="i-lucide-coins"
+                class="size-3.5"
+              />
+              {{ formatNumber(buyFreeSpinsCost) }}
+            </span>
+          </button>
 
-        <!-- ── Control bar ── -->
-        <div class="ctrl-bar flex items-center gap-2 sm:gap-4 px-4 py-3.5">
-          <!-- LEFT: icons + credit/bet -->
-          <div class="flex items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
-            <!-- Action icons stacked -->
-            <div class="flex flex-col gap-1.5 shrink-0">
-              <button
-                class="icon-btn"
-                title="Help"
-                @click="showHelp = true"
+          <button
+            class="cm-feature cm-feature--hunt"
+            :class="{ 'is-on': huntMode }"
+            :disabled="!ready || betLocked"
+            :aria-pressed="huntMode"
+            @click="toggleHunt"
+          >
+            <span class="cm-feature__switch"><i /></span>
+            <span class="cm-feature__text">
+              <span class="cm-feature__title">Bonus hunter</span>
+              <span class="cm-feature__desc">A lollipop on every spin</span>
+            </span>
+            <span class="cm-feature__price">
+              <UIcon
+                name="i-lucide-coins"
+                class="size-3.5"
+              />
+              {{ formatNumber(bonusHuntCost) }}<small>/spin</small>
+            </span>
+          </button>
+        </aside>
+
+        <!-- Cabinet -->
+        <div class="cm-cabinet">
+          <div
+            class="cm-frame"
+            :class="{ 'is-anticipating': anticipating }"
+          >
+            <div class="cm-bulbs cm-bulbs--top" />
+            <div class="cm-bulbs cm-bulbs--bottom" />
+
+            <div class="cm-topbar">
+              <div
+                v-if="inBonus"
+                class="cm-pill cm-pill--spins"
               >
-                <UIcon
-                  class="size-3.5"
-                  name="i-lucide-info"
-                />
-              </button>
-              <button
-                :class="{ 'icon-btn--active': turbo }"
-                class="icon-btn"
-                title="Turbo"
-                @click="turbo = !turbo"
+                <span class="cm-pill__label">Free spins</span>
+                <span class="cm-pill__value">{{ spinsLeft }}</span>
+              </div>
+              <div
+                :key="multPulse"
+                class="cm-pill cm-pill--mult"
+                :class="{ 'is-live': multSum > 0 }"
+                :style="{ '--mult-color': multColor }"
               >
-                <UIcon
-                  class="size-3.5"
-                  name="i-lucide-zap"
-                />
-              </button>
-              <button
-                class="icon-btn"
-                :title="muted ? 'Unmute' : 'Mute'"
-                @click="toggleMute"
+                <span class="cm-pill__label">Multiplier</span>
+                <span class="cm-pill__value">×{{ formatNumber(multSum, true) }}</span>
+              </div>
+              <div
+                v-if="tumbleCount > 1"
+                :key="`tumble-${tumbleCount}`"
+                class="cm-pill cm-pill--tumble"
               >
-                <UIcon
-                  class="size-3.5"
-                  :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'"
-                />
-              </button>
+                <span class="cm-pill__label">Tumble</span>
+                <span class="cm-pill__value">{{ tumbleCount }}</span>
+              </div>
             </div>
 
-            <!-- Credit + Bet readouts -->
-            <div class="min-w-0 flex flex-col gap-1.5">
-              <div class="readout w-full flex justify-between">
-                <span class="ctrl-value truncate">
-                  <CoinBalance
-                    :compact="false"
-                    :value="balance"
-                  />
-                </span>
+            <div class="cm-window">
+              <div
+                ref="canvasWrap"
+                class="cm-canvas"
+              />
+
+              <div
+                v-if="!ready && !errorMsg"
+                class="cm-loading"
+              >
+                <UIcon
+                  name="i-lucide-loader-circle"
+                  class="size-10 animate-spin"
+                />
               </div>
-              <div class="readout w-full justify-between">
-                <span class="ctrl-label">Bet</span>
-                <output v-if="amountPreview(betInput)" class="ml-auto text-[10px] tabular-nums text-muted">{{ amountPreview(betInput) }}</output>
+
+              <Transition name="cm-pop">
+                <div
+                  v-if="bonusIntro"
+                  class="cm-splash"
+                  @click="closeGate"
+                >
+                  <div class="cm-splash__rays" />
+                  <img
+                    v-if="lollipopUrl"
+                    :src="lollipopUrl"
+                    alt=""
+                    class="cm-splash__lolly"
+                  >
+                  <p class="cm-splash__kicker">
+                    You won
+                  </p>
+                  <p class="cm-splash__big">
+                    {{ CM_FREE_SPINS }} free spins
+                  </p>
+                  <p class="cm-splash__text">
+                    Multiplier spots stay on the board for every spin.
+                  </p>
+                  <button class="cm-splash__btn">
+                    Start
+                  </button>
+                </div>
+              </Transition>
+
+              <Transition name="cm-pop">
+                <div
+                  v-if="bonusOutro"
+                  class="cm-splash"
+                  @click="closeGate"
+                >
+                  <div class="cm-splash__rays" />
+                  <p class="cm-splash__kicker">
+                    Free spins complete
+                  </p>
+                  <p class="cm-splash__big">
+                    <UIcon
+                      name="i-lucide-coins"
+                      class="cm-splash__coin"
+                    />
+                    {{ formatNumber(bonusOutroAmount) }}
+                  </p>
+                  <p class="cm-splash__text">
+                    {{ bonusOutroAmount > 0 ? `${formatNumber(bonusOutroAmount / activeBet, false)}× your bet` : 'No win this time' }}
+                  </p>
+                  <button class="cm-splash__btn">
+                    Collect
+                  </button>
+                </div>
+              </Transition>
+
+              <Transition name="cm-pop">
+                <CandyBigWin
+                  v-if="bigWin"
+                  :amount="bigWin.amount"
+                  :bet="bigWin.bet"
+                  :subtitle="bigWin.subtitle"
+                  @tier="(i: number) => sound.play('bigwin-tier', { intensity: i })"
+                  @tick="sound.play('tick')"
+                  @done="onBigWinDone"
+                />
+              </Transition>
+            </div>
+          </div>
+
+          <!-- Control deck -->
+          <div class="cm-deck">
+            <div class="cm-meter cm-meter--balance">
+              <span class="cm-meter__label">Balance</span>
+              <span class="cm-meter__value">
+                <UIcon
+                  name="i-lucide-coins"
+                  class="cm-coin"
+                />
+                {{ formatNumber(balance) }}
+              </span>
+            </div>
+
+            <div
+              class="cm-meter cm-meter--bet"
+              :class="{ 'is-locked': betLocked }"
+            >
+              <span class="cm-meter__label">
+                Bet
+                <button
+                  class="cm-max"
+                  :disabled="betLocked || bet === maxAffordableBet"
+                  @click="betMax"
+                >MAX</button>
+              </span>
+              <div class="cm-bet">
+                <button
+                  class="cm-round cm-round--sm"
+                  aria-label="Lower bet"
+                  :disabled="betLocked || bet <= MIN_BET"
+                  @click="betDown"
+                >
+                  <UIcon name="i-lucide-minus" />
+                </button>
                 <input
-                  v-model="betInput"
-                  :disabled="isSpinning || autoSpinEnabled"
+                  v-if="betEditing"
+                  ref="betInputEl"
+                  v-model="betText"
+                  class="cm-bet__input"
                   aria-label="Bet amount"
-                  class="bet-input ctrl-value tabular-nums"
-                  @blur="commitBetInput"
+                  inputmode="decimal"
+                  @blur="commitBet"
                   @keydown.enter="($event.target as HTMLInputElement).blur()"
                 >
-              </div>
-            </div>
-          </div>
-
-          <!-- CENTER: WIN -->
-          <div class="flex flex-col items-center justify-center shrink-0 min-w-[84px]">
-            <div
-              v-if="inBonus"
-              class="text-center"
-            >
-              <p
-                class="text-[9px] uppercase tracking-[0.2em] mb-1"
-                style="color: rgba(216,180,254,0.55);"
-              >
-                {{ bonusStatus }}
-              </p>
-              <p class="text-xl font-black tabular-nums leading-none text-emerald-400 drop-shadow-[0_0_12px_rgba(52,211,153,0.5)]">
-                {{ formatNumber(bonusTotal, false) }}
-              </p>
-            </div>
-
-            <template v-else>
-              <span class="ctrl-label mb-1">Win</span>
-              <Transition
-                mode="out-in"
-                name="pop"
-              >
-                <span
-                  v-if="winFlash && lastWin > 0"
-                  key="win"
-                  class="win-amount"
-                >{{ formatNumber(lastWin, false) }}</span>
-                <span
+                <button
                   v-else
-                  key="idle"
-                  class="win-idle"
-                >0.00</span>
-              </Transition>
-            </template>
-          </div>
-
-          <!-- RIGHT: − SPIN + / AUTO -->
-          <div class="flex items-center gap-2 sm:gap-2.5 flex-1 justify-end">
-            <!-- Halve bet -->
-            <button
-              :disabled="isSpinning || autoSpinEnabled || bet <= MIN_BET"
-              class="adj-btn"
-              title="Halve bet"
-              @click="betDown"
-            >
-              <span class="text-sm font-black leading-none">½</span>
-            </button>
-
-            <!-- SPIN + AUTO stacked -->
-            <div class="flex flex-col items-center gap-1.5">
-              <button
-                :disabled="!ready || balance < spinCost || isSpinning"
-                class="spin-btn"
-                @click="autoSpinEnabled ? stopAutoSpin() : spin()"
-              >
-                <span class="spin-btn__ring" />
-                <UIcon
-                  v-if="isSpinning"
-                  class="size-6 animate-spin relative"
-                  name="i-lucide-loader-circle"
-                />
-                <span
-                  v-else-if="autoSpinEnabled"
-                  class="flex flex-col items-center leading-none relative"
+                  class="cm-bet__value"
+                  title="Type a bet"
+                  :disabled="betLocked"
+                  @click="editBet"
                 >
-                  <span class="text-[10px] tracking-wider opacity-80">{{ autoSpinsLeft }}×</span>
-                  <span class="text-xs font-black">STOP</span>
-                </span>
-                <span
-                  v-else
-                  class="relative"
-                >SPIN</span>
-              </button>
+                  {{ formatNumber(bet) }}
+                </button>
+                <button
+                  class="cm-round cm-round--sm"
+                  aria-label="Raise bet"
+                  :disabled="betLocked || bet >= MAX_BET"
+                  @click="betUp"
+                >
+                  <UIcon name="i-lucide-plus" />
+                </button>
+              </div>
+              <span
+                v-if="betEditing && amountPreview(betText, true)"
+                class="cm-bet__preview"
+              >{{ amountPreview(betText, true) }}</span>
+              <span
+                v-else-if="huntMode"
+                class="cm-bet__preview"
+              >Spin costs {{ formatNumber(spinCost) }}</span>
+            </div>
 
+            <div class="cm-meter cm-meter--win">
+              <span class="cm-meter__label">{{ inBonus ? 'Bonus win' : 'Win' }}</span>
+              <span
+                :key="winPulse"
+                class="cm-meter__win"
+                :class="{ 'is-hot': winShown > 0 }"
+              >{{ formatNumber(winShown) }}</span>
+              <span
+                v-if="winEquation"
+                class="cm-meter__eq"
+              >{{ winEquation }}</span>
+            </div>
+
+            <div class="cm-actions">
               <button
-                v-if="!autoSpinEnabled"
-                :disabled="!ready || balance < spinCost || isSpinning"
-                class="auto-btn"
-                @click="showAutoSpinModal = true"
+                class="cm-round"
+                :class="{ 'is-on': turbo }"
+                title="Turbo"
+                aria-label="Turbo"
+                :aria-pressed="turbo"
+                @click="toggleTurbo"
               >
-                AUTO
+                <UIcon name="i-lucide-zap" />
               </button>
               <button
-                v-else
-                class="auto-btn auto-btn--stop"
-                @click="stopAutoSpin"
+                class="cm-spin"
+                :class="{ 'is-busy': isSpinning || presenting, 'is-auto': autoSpinEnabled }"
+                :disabled="!autoSpinEnabled && !canSpin"
+                :aria-label="autoSpinEnabled ? 'Stop auto spin' : 'Spin'"
+                @click="onSpinButton"
               >
-                STOP
+                <span class="cm-spin__ring" />
+                <span
+                  v-if="autoSpinEnabled"
+                  class="cm-spin__auto"
+                >
+                  <b>{{ autoSpinsLeft }}</b>
+                  <small>STOP</small>
+                </span>
+                <UIcon
+                  v-else
+                  name="i-lucide-rotate-cw"
+                  class="cm-spin__icon"
+                />
+              </button>
+              <button
+                class="cm-round"
+                :class="{ 'is-on': autoSpinEnabled }"
+                title="Auto spin"
+                aria-label="Auto spin"
+                :disabled="!autoSpinEnabled && !canSpin"
+                @click="openAuto"
+              >
+                <UIcon :name="autoSpinEnabled ? 'i-lucide-square' : 'i-lucide-repeat'" />
               </button>
             </div>
 
-            <!-- Double bet -->
-            <button
-              :disabled="isSpinning || autoSpinEnabled || bet >= MAX_BET"
-              class="adj-btn"
-              title="Double bet"
-              @click="betUp"
-            >
-              <span class="text-xs font-black leading-none">2×</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Error strip -->
-        <Transition name="fade-up">
-          <div
-            v-if="errorMsg"
-            class="error-strip flex items-center justify-between gap-3 px-4 py-2"
-          >
-            <p class="text-xs text-red-400">
-              {{ errorMsg }}
-            </p>
-            <button
-              class="text-red-400/50 hover:text-red-300 text-sm transition-colors"
-              @click="errorMsg = ''"
-            >
-              ✕
-            </button>
-          </div>
-        </Transition>
-      </div>
-    </div>
-
-    <!-- History -->
-    <div class="min-h-8">
-      <div
-        v-if="history.length"
-        class="flex gap-1.5 flex-wrap justify-center mt-3"
-      >
-        <span
-          v-for="(h, i) in history"
-          :key="i"
-          :class="h.payout > h.bet ? 'bg-emerald-500/15 text-emerald-400' : 'text-white/20'"
-          class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-mono font-bold"
-          style="background: rgba(255,255,255,0.04);"
-        >
-          <UIcon
-            v-if="h.bonus"
-            class="size-3"
-            name="i-lucide-gift"
-          />
-          {{ h.payout > 0 ? formatNumber(h.payout) : '—' }}
-        </span>
-      </div>
-    </div>
-
-    <!-- Auto-spin modal -->
-    <AutoSpinModal
-      v-model:open="showAutoSpinModal"
-      :options="AUTO_SPIN_OPTIONS"
-      @pick="startAutoSpin($event)"
-    >
-      <template #description>
-        <p class="text-sm text-muted">
-          Select number of spins. Auto-spin pauses before a bonus round so you can watch — tap the board to resume.
-        </p>
-      </template>
-    </AutoSpinModal>
-
-    <!-- Help modal -->
-    <UModal
-      v-model:open="showHelp"
-      title="How Candy Madness works"
-    >
-      <template #body>
-        <div class="space-y-4 text-sm text-muted">
-          <ul class="space-y-1.5 list-disc list-inside">
-            <li>
-              Land <strong class="text-default">{{ CM_MIN_CLUSTER }}+</strong> matching candies connected
-              up/down/left/right to win a <strong class="text-default">cluster</strong>.
-            </li>
-            <li>
-              Winning candies pop and <strong class="text-default">tumble</strong> — new candies drop in, so one spin
-              can chain many wins.
-            </li>
-            <li>
-              Every popped position leaves a <strong class="text-primary">multiplier</strong> starting at <strong
-                class="text-default"
-              >×2</strong>, doubling each time it wins again (up to <strong class="text-default">×{{
-                formatNumber(
-                  CM_MULT_CAP,
-                  true,
-                  0
-                )
-              }}</strong>). When tumbling stops, the <strong class="text-default">sum of all multipliers</strong>
-              multiplies the whole spin's win.
-            </li>
-            <li>
-              Land <strong class="text-default">{{ CM_SCATTER_TRIGGER }}+ 🍭</strong> to win
-              <strong class="text-default">{{ CM_FREE_SPINS }} free spins</strong> (~1 in {{
-                formatNumber(
-                  bonusOdds,
-                  true,
-                  0
-                )
-              }}). During free spins the multipliers <strong class="text-default">stay on the grid and keep
-                growing</strong> all feature long.
-            </li>
-          </ul>
-          <div>
-            <p class="text-xs uppercase tracking-wide text-muted font-medium mb-2">
-              Cluster pays × your bet
-            </p>
-            <div class="rounded-lg border border-default overflow-hidden">
-              <div class="grid grid-cols-[auto_1fr] text-xs text-muted bg-elevated/60 border-b border-default">
-                <div class="px-3 py-1" />
-                <div class="px-3 py-1 flex justify-end gap-3 font-medium">
-                  <span class="w-12 text-right">5</span>
-                  <span class="w-12 text-right">8</span>
-                  <span class="w-12 text-right">12</span>
-                  <span class="w-12 text-right text-default">15+</span>
+            <div class="cm-utils">
+              <button
+                class="cm-util"
+                title="Rules and paytable"
+                aria-label="Rules and paytable"
+                @click="openRules"
+              >
+                <UIcon name="i-lucide-info" />
+              </button>
+              <div
+                class="cm-sound"
+                @mouseleave="showSound = false"
+              >
+                <button
+                  class="cm-util"
+                  :title="soundEnabled ? 'Sound' : 'Sound off'"
+                  aria-label="Sound settings"
+                  @click="showSound = !showSound"
+                >
+                  <UIcon :name="soundEnabled && soundVolume > 0 ? 'i-lucide-volume-2' : 'i-lucide-volume-x'" />
+                </button>
+                <div
+                  v-if="showSound"
+                  class="cm-sound__pop"
+                >
+                  <button
+                    class="cm-sound__toggle"
+                    @click="toggleSound"
+                  >
+                    {{ soundEnabled ? 'Mute' : 'Unmute' }}
+                  </button>
+                  <input
+                    v-model.number="soundVolume"
+                    type="range"
+                    min="0"
+                    max="100"
+                    aria-label="Volume"
+                    :disabled="!soundEnabled"
+                  >
                 </div>
               </div>
-              <div class="grid grid-cols-[auto_1fr] items-center text-sm">
-                <template
-                  v-for="(row, i) in paytableRows"
-                  :key="row.sym"
-                >
-                  <div
-                    :class="i % 2 ? 'bg-elevated/40' : ''"
-                    class="px-3 py-1.5 flex items-center justify-center"
-                  >
-                    <img
-                      :alt="row.sym"
-                      :src="`/slots/candyblast/${row.sym}.png`"
-                      class="h-7 w-7 object-contain"
-                    >
-                  </div>
-                  <div
-                    :class="i % 2 ? 'bg-elevated/40' : ''"
-                    class="px-3 py-1.5 font-mono tabular-nums flex justify-end gap-3"
-                  >
-                    <span class="w-12 text-right text-muted">{{ row.pays[0] }}×</span>
-                    <span class="w-12 text-right text-muted">{{ row.pays[1] }}×</span>
-                    <span class="w-12 text-right text-muted">{{ row.pays[2] }}×</span>
-                    <span class="w-12 text-right font-bold text-default">{{ row.pays[3] }}×</span>
-                  </div>
-                </template>
-              </div>
             </div>
-            <p class="text-[11px] text-muted mt-1.5">
-              Base pays are small on purpose — the stacked multipliers are where the big wins come from.
-            </p>
           </div>
+
+          <Transition name="cm-fade">
+            <div
+              v-if="errorMsg"
+              class="cm-error"
+            >
+              <span>{{ errorMsg }}</span>
+              <button
+                aria-label="Dismiss"
+                @click="errorMsg = ''"
+              >
+                <UIcon name="i-lucide-x" />
+              </button>
+            </div>
+          </Transition>
         </div>
-      </template>
-    </UModal>
+
+        <!-- Info column -->
+        <aside class="cm-side cm-side--right">
+          <div class="cm-panel">
+            <p class="cm-panel__title">
+              How it pays
+            </p>
+            <ul class="cm-panel__list">
+              <li><b>4+</b> matching candies touching side by side</li>
+              <li>Popped squares leave <b>×2</b> spots that double on every repeat pop</li>
+              <li>All spots add up and multiply the spin's win</li>
+              <li><b>3 lollipops</b> = {{ CM_FREE_SPINS }} free spins, about 1 in {{ formatNumber(CANDY_BONUS_ODDS, false) }} spins</li>
+            </ul>
+            <button
+              class="cm-panel__link"
+              @click="openRules"
+            >
+              Full rules and paytable
+            </button>
+          </div>
+          <div
+            v-if="history.length"
+            class="cm-panel"
+          >
+            <p class="cm-panel__title">
+              Last spins
+            </p>
+            <div class="cm-history">
+              <span
+                v-for="(h, i) in history"
+                :key="i"
+                :class="{ win: h.payout > h.bet, bonus: h.bonus }"
+              >
+                <UIcon
+                  v-if="h.bonus"
+                  name="i-lucide-candy"
+                  class="size-3"
+                />
+                {{ h.payout > 0 ? formatNumber(h.payout) : '–' }}
+              </span>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <CandyRules
+      v-model:open="showRules"
+      :bet="bet"
+    />
+    <CandyAutoSpin
+      v-model:open="showAuto"
+      :spin-cost="spinCost"
+      @start="startAutoSpin"
+    />
   </div>
 </template>
 
 <style scoped>
-/* ── Page background, scoped to the main content area ───────────────────── */
-.page-root {
-  /* fill the <main> scroll area so the bg never reaches the sidebar */
+.cm-root {
+  --cm-ink: #2a0838;
+  --cm-pink: #ff5fa8;
+  --cm-pink-hi: #ff9fd3;
+  --cm-gold: #ffd35a;
+  --cm-cream: #fff4fb;
+  position: relative;
   min-height: 100%;
+  overflow: hidden;
+  font-family: 'Fredoka', system-ui, sans-serif;
+  color: var(--cm-cream);
+  isolation: isolate;
 }
 
-.page-bg {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: url('/slots/candyblast/candy_madness_bg.jpg') center / cover no-repeat;
-}
-
-/* dark vignette so the machine pops and the art doesn't compete with it */
-.page-vignette {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  background: radial-gradient(ellipse 70% 60% at 50% 45%, rgba(8, 2, 20, 0.45) 0%, rgba(8, 2, 20, 0.78) 70%, rgba(5, 1, 14, 0.92) 100%);
-}
-
-.page-root > .game-layout {
+.cm-stage {
   position: relative;
   z-index: 1;
-}
-
-.page-root > div:not(.page-bg):not(.page-vignette):not(.game-layout) {
-  position: relative;
-  z-index: 1;
-}
-
-/* ── Title ──────────────────────────────────────────────────────────────── */
-.cm-title__text {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.45rem;
-  font-size: clamp(30px, 6vw, 46px);
-  font-weight: 900;
-  letter-spacing: 0.5px;
-  line-height: 1;
-  /* glossy candy gradient poured top-to-bottom over the letters */
-  background: linear-gradient(180deg, #ffffff 0%, #ffe3f4 26%, #ff86d3 58%, #b06bff 100%);
+  padding: 14px 16px 28px;
+}
+
+/* ── logo ─────────────────────────────────────────────────────────── */
+.cm-logo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.cm-logo__title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25em;
+  font-family: 'Lilita One', system-ui, sans-serif;
+  font-weight: 400;
+  font-size: clamp(34px, 6vw, 56px);
+  line-height: 1.05;
+  letter-spacing: 0.01em;
+  transform: rotate(-2deg);
+}
+
+.cm-logo__candy, .cm-logo__madness {
+  display: inline-block;
   -webkit-background-clip: text;
   background-clip: text;
-  -webkit-text-fill-color: transparent;
   color: transparent;
-  /* candy-shell drop + soft fuchsia glow */
-  filter: drop-shadow(0 2px 0 rgba(122, 18, 150, 0.55))
-  drop-shadow(0 6px 16px rgba(217, 70, 239, 0.5));
+  -webkit-text-stroke: 2px #5a0f45;
+  paint-order: stroke fill;
 }
 
-/* emojis keep their own colour (not clipped by the gradient fill) */
-.cm-title__emoji {
-  -webkit-text-fill-color: initial;
-  filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.45));
+.cm-logo__candy {
+  background-image: linear-gradient(180deg, #fff 0%, #ffd0ea 30%, #ff5fa8 70%, #d81f78 100%);
+  filter: drop-shadow(0 4px 0 #5a0f45) drop-shadow(0 8px 16px rgba(120, 10, 80, 0.45));
 }
 
-.cm-badge {
+.cm-logo__madness {
+  background-image: linear-gradient(180deg, #fffbe0 0%, #ffe38a 35%, #ffb52e 70%, #e07800 100%);
+  filter: drop-shadow(0 4px 0 #5a0f45) drop-shadow(0 8px 16px rgba(120, 60, 0, 0.45));
+  animation: cm-wobble 3.2s ease-in-out infinite;
+}
+
+@keyframes cm-wobble {
+  0%, 100% { transform: rotate(0) translateY(0); }
+  50% { transform: rotate(2deg) translateY(-2px); }
+}
+
+.cm-logo__art {
+  width: clamp(40px, 6vw, 58px);
+  height: auto;
+  filter: drop-shadow(0 4px 6px rgba(80, 0, 60, 0.45));
+}
+
+.cm-logo__art--l { rotate: -18deg; animation: cm-bob 2.6s ease-in-out infinite; }
+.cm-logo__art--r { rotate: 14deg; animation: cm-bob 2.6s ease-in-out -1.3s infinite; }
+
+@keyframes cm-bob {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -5px; }
+}
+
+.cm-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 10px 0 24px;
+}
+
+.cm-chip {
   display: inline-flex;
   align-items: center;
-  padding: 4px 11px;
+  padding: 3px 12px;
   border-radius: 999px;
-  font-size: 11px;
-  font-weight: 800;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.07em;
   color: #fff;
-  background: rgba(10, 4, 26, 0.45);
-  border: 1px solid rgba(232, 121, 249, 0.3);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(2px);
+  background: rgba(58, 10, 74, 0.72);
+  border: 1.5px solid rgba(255, 159, 211, 0.6);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
 
-.cm-badge--rtp {
-  color: #bbf7d0;
-  border-color: rgba(52, 211, 153, 0.5);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(52, 211, 153, 0.28);
+.cm-chip--vol :deep(.text-muted) { color: #f0c8e6; }
+
+/* ── layout ───────────────────────────────────────────────────────── */
+.cm-main {
+  display: grid;
+  grid-template-columns: 1fr minmax(0, 640px) 1fr;
+  gap: 20px;
+  width: 100%;
+  max-width: 1180px;
+  align-items: start;
 }
 
-.cm-badge--vol {
-  color: #bae6fd;
-  border-color: rgba(56, 189, 248, 0.5);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(56, 189, 248, 0.28);
+.cm-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 230px;
 }
 
-.cm-badge--cascade {
-  color: #fbcfe8;
-  border-color: rgba(244, 114, 182, 0.55);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(244, 114, 182, 0.3);
+.cm-side--left { justify-self: end; margin-top: 40px; }
+.cm-side--right { justify-self: start; margin-top: 40px; }
+
+@media (max-width: 1100px) {
+  .cm-main { grid-template-columns: minmax(0, 640px); justify-content: center; }
+  .cm-side--left { order: 2; flex-direction: row; max-width: none; margin-top: 0; justify-self: stretch; }
+  .cm-side--left > * { flex: 1; }
+  .cm-side--right { display: none; }
 }
 
-.cm-badge--maxwin {
-  color: #fde68a;
-  border-color: rgba(250, 204, 21, 0.5);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 0 12px rgba(250, 204, 21, 0.28);
+@media (max-width: 480px) {
+  .cm-side--left { flex-direction: column; }
 }
 
-/* ── Machine shell ──────────────────────────────────────────────────────── */
-.machine {
-  border-radius: 22px;
-  padding: 8px;
-  background: linear-gradient(160deg, rgba(168, 85, 247, 0.25), rgba(76, 29, 149, 0.12) 40%, rgba(10, 4, 26, 0.6));
-  box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.35),
-  inset 0 1px 0 rgba(232, 121, 249, 0.25),
-  0 0 60px rgba(139, 92, 246, 0.25),
-  0 30px 80px rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(2px);
+/* ── feature cards ────────────────────────────────────────────────── */
+.cm-feature {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 12px;
+  border-radius: 20px;
+  text-align: left;
+  cursor: pointer;
+  color: #fff;
+  background: linear-gradient(180deg, #7a1f86 0%, #4a1466 100%);
+  border: 2.5px solid #ff9fd3;
+  box-shadow: 0 5px 0 #2a0838, 0 12px 24px rgba(30, 0, 40, 0.45), inset 0 2px 0 rgba(255, 255, 255, 0.25);
+  transition: transform 0.12s, filter 0.12s, box-shadow 0.12s;
 }
 
-/* ── Reel area ──────────────────────────────────────────────────────────── */
-.reel-area {
-  background: radial-gradient(ellipse 120% 75% at 50% 0%, #7c3aed 0%, #5b21b6 26%, #3b0f7a 52%, #1e0a47 78%, #160835 100%);
-  border-radius: 16px 16px 0 0;
-  box-shadow: inset 0 0 0 1px rgba(232, 121, 249, 0.18), inset 0 2px 18px rgba(0, 0, 0, 0.35);
-  cursor: default;
-  overflow: hidden;
+.cm-feature:not(:disabled):hover { transform: translateY(-2px); filter: brightness(1.08); }
+.cm-feature:not(:disabled):active { transform: translateY(3px); box-shadow: 0 2px 0 #2a0838, 0 6px 12px rgba(30, 0, 40, 0.4); }
+.cm-feature:disabled { opacity: 0.5; cursor: default; filter: saturate(0.6); }
+
+.cm-feature--buy {
+  background: linear-gradient(180deg, #ff6fb5 0%, #c2257a 100%);
+  border-color: #ffe38a;
 }
 
-/* soft inner vignette + top sheen on the grid */
-.reel-sheen {
+.cm-feature--buy.is-armed {
+  animation: cm-armed 0.5s ease-in-out infinite alternate;
+  border-color: #fff;
+}
+
+@keyframes cm-armed {
+  from { box-shadow: 0 5px 0 #2a0838, 0 0 0 0 rgba(255, 227, 138, 0.8); }
+  to { box-shadow: 0 5px 0 #2a0838, 0 0 0 6px rgba(255, 227, 138, 0.25); }
+}
+
+.cm-feature__art {
+  grid-row: span 2;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 70%);
+}
+
+.cm-feature__art img { width: 44px; height: 44px; animation: cm-bob 2.2s ease-in-out infinite; }
+
+.cm-feature__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+
+.cm-feature__title {
+  font-family: 'Lilita One', system-ui, sans-serif;
+  font-size: 17px;
+  letter-spacing: 0.02em;
+  line-height: 1.1;
+  text-shadow: 0 2px 0 rgba(60, 0, 50, 0.5);
+}
+
+.cm-feature__desc {
+  font-size: 12px;
+  line-height: 1.3;
+  color: rgba(255, 240, 250, 0.85);
+}
+
+.cm-feature__price {
+  grid-column: 2;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--cm-gold);
+  background: rgba(42, 8, 56, 0.6);
+  font-variant-numeric: tabular-nums;
+}
+
+.cm-feature__price small { font-size: 10px; opacity: 0.75; margin-left: 1px; }
+
+.cm-feature__switch {
+  grid-row: span 2;
+  position: relative;
+  width: 46px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.35);
+  transition: background 0.2s;
+}
+
+.cm-feature__switch i {
   position: absolute;
-  inset: 0;
-  z-index: 15;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff, #e8d4f2);
+  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.35);
+  transition: transform 0.2s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+
+.cm-feature--hunt.is-on {
+  border-color: #7df5c4;
+  background: linear-gradient(180deg, #1fae78 0%, #0d6b52 100%);
+}
+
+.cm-feature--hunt.is-on .cm-feature__switch { background: #7df5c4; }
+.cm-feature--hunt.is-on .cm-feature__switch i { transform: translateX(20px); }
+
+/* ── cabinet frame ────────────────────────────────────────────────── */
+.cm-cabinet {
+  position: relative;
+  width: 100%;
+  max-width: max(340px, min(640px, calc((100dvh - 250px) * 0.97)));
+  justify-self: center;
+}
+
+.cm-frame {
+  position: relative;
+  padding: 26px 14px 18px;
+  border-radius: 34px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 18%),
+    repeating-linear-gradient(135deg, #ff5fa8 0 16px, #fff4fb 16px 32px);
+  box-shadow:
+    inset 0 0 0 5px var(--cm-gold),
+    inset 0 0 0 8px #b8317b,
+    0 0 0 4px #5a0f45,
+    0 18px 50px rgba(40, 0, 50, 0.55),
+    0 0 60px rgba(255, 95, 168, 0.35);
+  transition: box-shadow 0.4s;
+}
+
+.is-bonus .cm-frame {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 18%),
+    repeating-linear-gradient(135deg, #ffb52e 0 16px, #fff6d8 16px 32px);
+  box-shadow:
+    inset 0 0 0 5px #fff1a8,
+    inset 0 0 0 8px #c77a00,
+    0 0 0 4px #5a2a00,
+    0 18px 50px rgba(40, 0, 50, 0.55),
+    0 0 80px rgba(255, 200, 60, 0.55);
+}
+
+.cm-frame.is-anticipating {
+  animation: cm-antic 0.35s ease-in-out infinite alternate;
+}
+
+@keyframes cm-antic {
+  from { box-shadow: inset 0 0 0 5px var(--cm-gold), inset 0 0 0 8px #b8317b, 0 0 0 4px #5a0f45, 0 0 30px rgba(255, 211, 90, 0.5); }
+  to { box-shadow: inset 0 0 0 5px #fff, inset 0 0 0 8px #ff5fa8, 0 0 0 4px #5a0f45, 0 0 90px rgba(255, 211, 90, 0.95); }
+}
+
+.cm-bulbs {
+  position: absolute;
+  left: 30px;
+  right: 30px;
+  height: 12px;
+  background: radial-gradient(circle, #fff9d6 0 3px, rgba(255, 211, 90, 0.85) 4px, rgba(255, 211, 90, 0) 6.5px) 0 50% / 24px 12px repeat-x;
+  animation: cm-chase 1.2s linear infinite;
   pointer-events: none;
-  background: radial-gradient(ellipse 80% 55% at 50% 110%, rgba(0, 0, 0, 0.35) 0%, transparent 60%),
-  linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 18%);
 }
 
-/* ── Bonus / pause overlays ─────────────────────────────────────────────── */
-.bonus-banner {
-  padding: 20px 32px;
-  border-radius: 18px;
-  transform: rotate(-2deg);
-  background: linear-gradient(135deg, #ec4899, #a855f7);
-  box-shadow: 0 8px 40px rgba(236, 72, 153, 0.55);
+.cm-bulbs--top { top: 8px; }
+.cm-bulbs--bottom { bottom: 3px; animation-direction: reverse; }
+.is-bonus .cm-bulbs { animation-duration: 0.45s; }
+
+@keyframes cm-chase {
+  from { background-position: 0 50%; }
+  to { background-position: 24px 50%; }
 }
 
-.pause-card {
-  border-radius: 14px;
-  background: rgba(18, 6, 38, 0.95);
-  border: 1px solid rgba(139, 92, 246, 0.35);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+.cm-topbar {
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  gap: 6px;
+  white-space: nowrap;
 }
 
-/* ── Control bar ────────────────────────────────────────────────────────── */
-.ctrl-bar {
-  background: linear-gradient(180deg, #150a2e 0%, #0c0420 100%);
-  border-top: 1px solid rgba(168, 85, 247, 0.28);
-  border-radius: 0 0 16px 16px;
-  box-shadow: inset 0 1px 0 rgba(232, 121, 249, 0.12);
-}
-
-/* Credit / Bet readout chips */
-.readout {
+.cm-pill {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.28);
-  box-shadow: inset 0 0 0 1px rgba(168, 85, 247, 0.14);
+  padding: 4px 14px 4px 12px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #5a1a72, #2a0838);
+  border: 2.5px solid var(--cm-gold);
+  box-shadow: 0 4px 0 #1c0426, 0 8px 18px rgba(0, 0, 0, 0.35);
+  animation: cm-pill-in 0.4s cubic-bezier(0.3, 1.8, 0.5, 1);
 }
 
-.ctrl-label {
-  font-size: 9px;
+@keyframes cm-pill-in {
+  from { transform: scale(1.25); }
+  to { transform: scale(1); }
+}
+
+.cm-pill__label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  letter-spacing: 0.18em;
-  font-weight: 700;
-  color: rgba(216, 180, 254, 0.45);
-  flex-shrink: 0;
+  color: #e7c4f5;
 }
 
-.ctrl-value {
-  font-family: ui-monospace, monospace;
-  font-size: 13px;
-  font-weight: 700;
+.cm-pill__value {
+  font-family: 'Lilita One', system-ui, sans-serif;
+  font-size: 20px;
+  line-height: 1;
   color: #fff;
-  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Editable bet field — looks like the readout value, free typing for any stake */
-.bet-input {
+.cm-pill--mult { --mult-color: #ff7ac0; }
+.cm-pill--mult:not(.is-live) .cm-pill__value { color: rgba(255, 255, 255, 0.45); }
+
+.cm-pill--mult.is-live {
+  border-color: var(--mult-color);
+  box-shadow: 0 4px 0 #1c0426, 0 0 22px color-mix(in srgb, var(--mult-color) 70%, transparent);
+}
+
+.cm-pill--mult.is-live .cm-pill__value {
+  color: var(--mult-color);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--mult-color) 60%, transparent);
+}
+
+.cm-pill--spins { border-color: #7df5c4; }
+.cm-pill--spins .cm-pill__value { color: #7df5c4; }
+.cm-pill--tumble .cm-pill__value { color: var(--cm-pink-hi); }
+
+@media (max-width: 480px) {
+  .cm-pill { padding: 3px 10px; gap: 5px; }
+  .cm-pill__label { font-size: 9px; letter-spacing: 0.08em; }
+  .cm-pill__value { font-size: 16px; }
+}
+
+.cm-window {
+  position: relative;
+  border-radius: 22px;
+  overflow: hidden;
+  aspect-ratio: 1 / 1;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 140, 210, 0.28), transparent 70%),
+    radial-gradient(ellipse 70% 50% at 50% 100%, rgba(120, 60, 220, 0.3), transparent 70%),
+    linear-gradient(180deg, #5a1a7a 0%, #36104f 55%, #240a38 100%);
+  box-shadow: inset 0 0 0 3px #2a0838, inset 0 8px 24px rgba(0, 0, 0, 0.55), inset 0 -4px 12px rgba(255, 150, 220, 0.12);
+}
+
+.is-bonus .cm-window {
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 200, 80, 0.3), transparent 70%),
+    radial-gradient(ellipse 70% 50% at 50% 100%, rgba(255, 90, 160, 0.3), transparent 70%),
+    linear-gradient(180deg, #6a1e5a 0%, #3e0f42 55%, #2a0a30 100%);
+}
+
+.cm-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.cm-canvas :deep(canvas) { display: block; }
+
+.cm-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--cm-pink-hi);
+}
+
+/* ── bonus splash ─────────────────────────────────────────────────── */
+.cm-splash {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px;
+  text-align: center;
+  cursor: pointer;
+  overflow: hidden;
+  background: radial-gradient(circle, rgba(90, 14, 90, 0.75), rgba(20, 2, 30, 0.92));
+}
+
+.cm-splash__rays {
+  position: absolute;
+  inset: -50%;
+  background: repeating-conic-gradient(rgba(255, 211, 90, 0.18) 0deg 10deg, transparent 10deg 24deg);
+  mask-image: radial-gradient(circle, #000, transparent 55%);
+  animation: cm-rotate 16s linear infinite;
+}
+
+@keyframes cm-rotate {
+  to { transform: rotate(360deg); }
+}
+
+.cm-splash > :not(.cm-splash__rays) { position: relative; }
+
+.cm-splash__lolly {
+  width: clamp(80px, 22%, 130px);
+  filter: drop-shadow(0 0 30px rgba(255, 111, 209, 0.8));
+  animation: cm-bob 1.8s ease-in-out infinite;
+}
+
+.cm-splash__kicker {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #ffe6f4;
+}
+
+.cm-splash__big {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: 'Lilita One', system-ui, sans-serif;
+  font-size: clamp(38px, 9vw, 70px);
+  line-height: 1.05;
+  background: linear-gradient(180deg, #fff 0%, #ffe38a 40%, #ff9a2e 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-stroke: 2px #5a0f45;
+  paint-order: stroke fill;
+  filter: drop-shadow(0 4px 0 #5a0f45) drop-shadow(0 0 24px rgba(255, 180, 60, 0.7));
+  font-variant-numeric: tabular-nums;
+}
+
+.cm-splash__coin { color: var(--cm-gold); width: 0.8em; height: 0.8em; }
+
+.cm-splash__text {
+  max-width: 320px;
+  font-size: 15px;
+  color: #f4dcf9;
+}
+
+.cm-splash__btn {
+  margin-top: 12px;
+  padding: 12px 38px;
+  border-radius: 999px;
+  font-family: 'Lilita One', system-ui, sans-serif;
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: linear-gradient(180deg, #5ef2a8, #16b86a);
+  box-shadow: 0 5px 0 #0b7a45, 0 10px 24px rgba(0, 0, 0, 0.4), inset 0 2px 0 rgba(255, 255, 255, 0.5);
+  text-shadow: 0 2px 0 rgba(0, 80, 40, 0.6);
+  animation: cm-throb 0.9s ease-in-out infinite alternate;
+}
+
+@keyframes cm-throb {
+  from { transform: scale(1); }
+  to { transform: scale(1.06); }
+}
+
+/* ── control deck ─────────────────────────────────────────────────── */
+.cm-deck {
+  position: relative;
+  margin-top: 14px;
+  display: grid;
+  /* The bet sizes to its content so compact bets like 2,5B never clip. */
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1.2fr) auto;
+  grid-template-areas: 'util bal bet win act';
+  align-items: center;
+  gap: 8px 10px;
+  padding: 12px 14px;
+  border-radius: 26px;
+  background: linear-gradient(180deg, #5a1a72 0%, #36104f 100%);
+  border: 3px solid #ff9fd3;
+  box-shadow: 0 0 0 3px #5a0f45, 0 12px 30px rgba(30, 0, 40, 0.5), inset 0 2px 0 rgba(255, 255, 255, 0.2);
+}
+
+.cm-meter--balance { grid-area: bal; }
+.cm-meter--bet { grid-area: bet; }
+.cm-meter--win { grid-area: win; }
+.cm-actions { grid-area: act; }
+.cm-utils { grid-area: util; }
+
+.cm-meter {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
   min-width: 0;
-  flex: 1;
-  text-align: right;
+  min-height: 62px;
+  padding: 6px 8px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #1c0426, #2c0a3c);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.cm-meter__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #c9a6db;
+}
+
+.cm-meter__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+}
+
+.cm-coin { width: 16px; height: 16px; color: var(--cm-gold); flex: none; }
+
+.cm-meter--win {
+  background: linear-gradient(180deg, #14021c, #2a0838);
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.7), 0 0 0 2px rgba(255, 211, 90, 0.35);
+}
+
+.cm-meter__win {
+  font-family: 'Lilita One', system-ui, sans-serif;
+  font-size: 28px;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.35);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cm-meter__win.is-hot {
+  color: var(--cm-gold);
+  text-shadow: 0 0 16px rgba(255, 200, 60, 0.65), 0 2px 0 #7a3a00;
+  animation: cm-pill-in 0.35s cubic-bezier(0.3, 1.8, 0.5, 1);
+}
+
+.cm-meter__eq {
+  position: absolute;
+  bottom: -9px;
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cm-ink);
+  background: var(--cm-gold);
+  white-space: nowrap;
+  animation: cm-pill-in 0.3s cubic-bezier(0.3, 1.8, 0.5, 1);
+}
+
+.cm-max {
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--cm-ink);
+  background: var(--cm-gold);
+  cursor: pointer;
+}
+
+.cm-max:disabled { opacity: 0.4; cursor: default; }
+
+.cm-bet {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  justify-content: space-between;
+}
+
+.cm-bet__value, .cm-bet__input {
+  /* Fixed room for compact bets like 2,5B or 999K; an input left to size
+     itself would take its default ~20ch width and squeeze the meters. */
+  flex: 0 0 auto;
+  width: 5.2ch;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
   background: transparent;
-  border: none;
-  outline: none;
-  padding: 0;
-  appearance: textfield;
+  cursor: text;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.bet-input:focus {
-  color: #fde047;
+.cm-bet__input {
+  border-radius: 8px;
+  outline: 2px solid var(--cm-gold);
+  background: rgba(255, 255, 255, 0.08);
 }
 
-.bet-input:disabled {
-  opacity: 0.6;
-  cursor: default;
+.cm-bet__value:disabled { cursor: default; }
+
+.cm-bet__preview {
+  position: absolute;
+  bottom: -9px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--cm-ink);
+  background: var(--cm-pink-hi);
+  white-space: nowrap;
 }
 
-.bet-input::-webkit-inner-spin-button,
-.bet-input::-webkit-outer-spin-button {
-  appearance: none;
-  margin: 0;
+.is-locked .cm-bet__value { opacity: 0.6; }
+
+.cm-round {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  font-size: 20px;
+  color: #fff;
+  cursor: pointer;
+  background: radial-gradient(circle at 35% 28%, #a64fc4, #5a1a72 70%);
+  box-shadow: 0 3px 0 #1c0426, inset 0 2px 0 rgba(255, 255, 255, 0.3), 0 0 0 2px rgba(255, 159, 211, 0.55);
+  transition: transform 0.1s, filter 0.1s;
 }
 
-/* Win amount */
-.win-amount {
-  font-size: 22px;
-  font-weight: 900;
+.cm-round--sm { width: 30px; height: 30px; font-size: 15px; box-shadow: 0 2px 0 #1c0426, inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 0 0 1.5px rgba(255, 159, 211, 0.55); }
+.cm-round:not(:disabled):hover { filter: brightness(1.15); }
+.cm-round:not(:disabled):active { transform: translateY(2px); }
+.cm-round:disabled { opacity: 0.4; cursor: default; }
+
+.cm-round.is-on {
+  color: var(--cm-ink);
+  background: radial-gradient(circle at 35% 28%, #fff4c2, #ffc23a 70%);
+  box-shadow: 0 3px 0 #7a4a00, inset 0 2px 0 rgba(255, 255, 255, 0.6), 0 0 16px rgba(255, 211, 90, 0.7);
+}
+
+.cm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cm-spin {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  margin: -18px 0;
+  border-radius: 50%;
+  cursor: pointer;
+  color: #fff;
+  background: radial-gradient(circle at 38% 28%, #fff 0%, #ffb3dc 14%, #ff5fa8 45%, #c2257a 80%, #8a1257 100%);
+  box-shadow:
+    0 6px 0 #5a0f45,
+    0 14px 30px rgba(120, 10, 80, 0.55),
+    0 0 0 4px var(--cm-gold),
+    0 0 0 7px #5a0f45,
+    inset 0 -6px 12px rgba(90, 0, 60, 0.45);
+  transition: transform 0.12s, filter 0.12s, box-shadow 0.12s;
+}
+
+.cm-spin:not(:disabled):hover { filter: brightness(1.08); transform: translateY(-1px) scale(1.02); }
+.cm-spin:not(:disabled):active { transform: translateY(4px); box-shadow: 0 2px 0 #5a0f45, 0 6px 14px rgba(120, 10, 80, 0.5), 0 0 0 4px var(--cm-gold), 0 0 0 7px #5a0f45, inset 0 -6px 12px rgba(90, 0, 60, 0.45); }
+.cm-spin:disabled { cursor: default; }
+.cm-spin:disabled:not(.is-busy) { filter: saturate(0.5) brightness(0.85); }
+
+.cm-spin__ring {
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: repeating-conic-gradient(rgba(255, 255, 255, 0.55) 0deg 15deg, transparent 15deg 45deg);
+  mask-image: radial-gradient(circle, transparent 55%, #000 57%, #000 70%, transparent 72%);
+  opacity: 0.7;
+}
+
+.cm-spin.is-busy .cm-spin__ring { animation: cm-rotate 0.7s linear infinite; }
+.cm-spin:not(:disabled):not(.is-busy) .cm-spin__ring { animation: cm-rotate 8s linear infinite; }
+
+.cm-spin__icon {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  filter: drop-shadow(0 2px 0 rgba(90, 0, 60, 0.6));
+}
+
+.cm-spin.is-busy .cm-spin__icon { animation: cm-rotate 0.6s linear infinite; }
+
+.cm-spin__auto {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   line-height: 1;
-  font-variant-numeric: tabular-nums;
-  color: #fde047;
-  text-shadow: 0 0 18px rgba(250, 204, 21, 0.6), 0 1px 1px rgba(0, 0, 0, 0.4);
+  text-shadow: 0 2px 0 rgba(90, 0, 60, 0.6);
 }
 
-.win-idle {
-  font-size: 22px;
-  font-weight: 900;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  color: rgba(216, 180, 254, 0.18);
+.cm-spin__auto b { font-family: 'Lilita One', system-ui, sans-serif; font-size: 26px; font-weight: 400; }
+.cm-spin__auto small { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; }
+
+.cm-utils {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-/* Info / Turbo icon buttons */
-.icon-btn {
+.cm-util {
+  display: grid;
+  place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.05);
-  color: rgba(216, 180, 254, 0.5);
-  border: 1px solid rgba(168, 85, 247, 0.2);
+  border-radius: 10px;
+  font-size: 17px;
+  color: #e7c4f5;
+  background: rgba(255, 255, 255, 0.07);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 
-.icon-btn:hover {
-  background: rgba(168, 85, 247, 0.18);
-  color: #fff;
-  border-color: rgba(168, 85, 247, 0.4);
-}
+.cm-util:hover { color: #fff; background: rgba(255, 255, 255, 0.14); }
 
-.icon-btn--active {
-  background: rgba(250, 204, 21, 0.18);
-  color: #fde047;
-  border-color: rgba(250, 204, 21, 0.4);
-  box-shadow: 0 0 10px rgba(250, 204, 21, 0.3);
-}
+.cm-sound { position: relative; }
 
-/* Bet adjustment − / + buttons */
-.adj-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(245, 235, 255, 0.85);
-  background: radial-gradient(circle at 50% 30%, #3b1c6b 0%, #25104a 100%);
-  border: 1px solid rgba(168, 85, 247, 0.35);
-  box-shadow: inset 0 1px 0 rgba(232, 121, 249, 0.2), 0 2px 6px rgba(0, 0, 0, 0.4);
-  cursor: pointer;
-  transition: filter 0.15s, transform 0.1s;
-}
-
-.adj-btn:hover:not(:disabled) {
-  filter: brightness(1.3);
-}
-
-.adj-btn:active:not(:disabled) {
-  transform: scale(0.92);
-}
-
-.adj-btn:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-/* SPIN button */
-.spin-btn {
-  position: relative;
-  width: 74px;
-  height: 74px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #fff;
-  background: radial-gradient(circle at 50% 28%, #f5abff 0%, #d946ef 38%, #a21caf 78%, #7a1296 100%);
-  box-shadow: 0 5px 0 #5b0d77,
-  0 10px 28px rgba(217, 70, 239, 0.55),
-  inset 0 2px 4px rgba(255, 255, 255, 0.45);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-  cursor: pointer;
-  transition: transform 0.08s, box-shadow 0.08s, filter 0.15s, opacity 0.15s;
-  border: none;
-  outline: none;
-}
-
-/* glossy ring */
-.spin-btn__ring {
+.cm-sound__pop {
   position: absolute;
-  inset: 5px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, transparent 45%);
-  pointer-events: none;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--cm-ink);
+  border: 2px solid #ff9fd3;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
 }
 
-.spin-btn:hover:not(:disabled) {
-  filter: brightness(1.08);
-}
-
-.spin-btn:active:not(:disabled) {
-  transform: translateY(4px);
-  box-shadow: 0 1px 0 #5b0d77, 0 4px 14px rgba(217, 70, 239, 0.4), inset 0 2px 4px rgba(255, 255, 255, 0.35);
-}
-
-.spin-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-  filter: saturate(0.6);
-}
-
-/* AUTO / STOP text button */
-.auto-btn {
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.24em;
-  font-weight: 800;
-  color: rgba(216, 180, 254, 0.5);
-  background: none;
-  border: none;
+.cm-sound__toggle {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cm-ink);
+  background: var(--cm-gold);
   cursor: pointer;
-  transition: color 0.15s;
-  padding: 0;
 }
 
-.auto-btn:hover:not(:disabled) {
-  color: #e9d5ff;
-}
+.cm-sound__pop input { width: 110px; accent-color: #ff5fa8; }
 
-.auto-btn:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-.auto-btn--stop {
-  color: rgba(248, 113, 113, 0.75);
-}
-
-.auto-btn--stop:hover {
-  color: #f87171;
-}
-
-/* Error strip */
-.error-strip {
-  background: rgba(127, 29, 29, 0.55);
-  border-top: 1px solid rgba(185, 28, 28, 0.4);
-  border-radius: 0 0 16px 16px;
-}
-
-/* ── Transitions ────────────────────────────────────────────────────────── */
-.fade-up-enter-active, .fade-up-leave-active {
-  transition: all 0.2s ease;
-}
-
-.fade-up-enter-from, .fade-up-leave-to {
-  opacity: 0;
-  transform: translateY(5px);
-}
-
-.pop-enter-active {
-  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.pop-leave-active {
-  transition: all 0.18s ease;
-}
-
-.pop-enter-from {
-  opacity: 0;
-  transform: scale(0.7);
-}
-
-.pop-leave-to {
-  opacity: 0;
-  transform: scale(0.9);
-}
-
-.cm-bigwin-label {
-  margin: 0;
-  font-size: calc(26px + var(--tier, 1) * 6px);
-  font-weight: 950;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  background-clip: text;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  animation: cm-bigwin-pop 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both;
-}
-
-.cm-bigwin-amount {
-  font-size: calc(34px + var(--tier, 1) * 9px);
-  font-weight: 950;
-  line-height: 1;
-  color: rgb(253, 242, 248);
-  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.6), 0 0 26px rgba(232, 121, 249, 0.55);
-  animation: cm-bigwin-pop 0.5s 0.08s cubic-bezier(0.2, 1.4, 0.4, 1) both;
-}
-
-@keyframes cm-bigwin-pop {
-  0% {
-    transform: scale(0.4);
-    opacity: 0;
+@media (max-width: 640px) {
+  .cm-stage { padding: 8px 10px 20px; }
+  .cm-frame { padding: 22px 8px 12px; border-radius: 26px; }
+  .cm-window { border-radius: 16px; }
+  .cm-deck {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: 'win win' 'bal bet' 'act act' 'util util';
+    padding: 10px;
   }
-  60% {
-    transform: scale(1.12);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1);
-    opacity: 1;
-  }
+  .cm-actions { justify-content: center; gap: 18px; padding: 16px 0 6px; }
+  .cm-spin { margin: 0; }
+  .cm-utils { flex-direction: row; justify-content: center; }
+  .cm-meter__win { font-size: 26px; }
+}
+
+/* ── side panels ──────────────────────────────────────────────────── */
+.cm-panel {
+  padding: 14px;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(74, 20, 102, 0.92), rgba(42, 8, 56, 0.92));
+  border: 2px solid rgba(255, 159, 211, 0.55);
+  box-shadow: 0 10px 24px rgba(30, 0, 40, 0.4);
+}
+
+.cm-panel__title {
+  font-family: 'Lilita One', system-ui, sans-serif;
+  font-size: 17px;
+  color: var(--cm-gold);
+  margin-bottom: 8px;
+}
+
+.cm-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #ecd3f6;
+}
+
+.cm-panel__list li { padding-left: 14px; position: relative; }
+.cm-panel__list li::before { content: ''; position: absolute; left: 0; top: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--cm-pink); }
+.cm-panel__list b { color: #fff; }
+
+.cm-panel__link {
+  margin-top: 10px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--cm-pink-hi);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.cm-history {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.cm-history span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.45);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.cm-history span.win { color: #7df5c4; background: rgba(63, 224, 160, 0.14); }
+.cm-history span.bonus { color: var(--cm-gold); background: rgba(255, 211, 90, 0.14); }
+
+.cm-error {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 14px;
+  font-size: 13px;
+  color: #ffd0da;
+  background: rgba(120, 0, 30, 0.75);
+  border: 1.5px solid #ff6b8a;
+}
+
+.cm-pop-enter-active { transition: opacity 0.25s, transform 0.35s cubic-bezier(0.3, 1.6, 0.5, 1); }
+.cm-pop-leave-active { transition: opacity 0.2s, transform 0.2s; }
+.cm-pop-enter-from { opacity: 0; transform: scale(1.1); }
+.cm-pop-leave-to { opacity: 0; transform: scale(0.95); }
+.cm-fade-enter-active, .cm-fade-leave-active { transition: opacity 0.2s; }
+.cm-fade-enter-from, .cm-fade-leave-to { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-logo__madness, .cm-logo__art, .cm-bulbs, .cm-spin__ring, .cm-feature__art img { animation: none !important; }
 }
 </style>

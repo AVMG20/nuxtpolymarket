@@ -580,7 +580,7 @@ const rawGroups: CommandPaletteGroup[] = [
       {
         id: 'xenoslot',
         label: 'Xeno Slot',
-        description: 'Alien organism slot machine with expanding bio-reels',
+        description: 'Sci-fi line slot with a Hold & Win coin bonus',
         icon: 'i-lucide-cherry',
         to: '/games/xenoslot',
         keywords: ['slots', 'xenoslot', 'xeno', 'casino', 'reels', 'spin']
