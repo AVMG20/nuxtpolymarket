@@ -618,6 +618,49 @@ function floatText(x: number, y: number, text: string, color = 0xfde047, size = 
   GSAP.to(t, { alpha: 0, duration: 0.4, delay: 1.1, onComplete: () => t.destroy() })
 }
 
+/**
+ * The spin's total, stamped big over the winning cells. It pops in, counts up
+ * alongside the meter and holds until the returned function sends it off.
+ */
+function winPop(cells: Cell[], amount: number, multiple: number, seconds: number): () => void {
+  if (!PIXI || !floatLayer || !GSAP) return () => {}
+  const pts = cells.map(cellCenter)
+  const x = Math.min(APP_W - 150, Math.max(150, pts.reduce((s, p) => s + p.x, 0) / pts.length))
+  const y = Math.min(APP_H - 60, Math.max(60, pts.reduce((s, p) => s + p.y, 0) / pts.length))
+  const size = multiple >= 5 ? 84 : multiple >= 1.5 ? 70 : 58
+  const t = new PIXI.Text({
+    text: `+${formatNumber(0)}`,
+    style: {
+      fontFamily: '"Lilita One", "Arial Black", sans-serif',
+      fontSize: size,
+      fill: multiple >= 1.5 ? 0xfde047 : 0xffffff,
+      stroke: { color: 0x1a1030, width: 12, join: 'round' },
+      dropShadow: { color: 0x1a1030, alpha: 1, blur: 0, distance: 7, angle: Math.PI / 3 }
+    }
+  })
+  t.anchor.set(0.5)
+  t.position.set(x, y)
+  t.rotation = -0.06
+  floatLayer.addChild(t)
+  GSAP.fromTo(t.scale, { x: 0.2, y: 0.2 }, { x: 1, y: 1, duration: 0.45, ease: 'back.out(3)' })
+  fx?.ring(x, y, multiple >= 1.5 ? 0xfacc15 : 0xffffff, size * 2.4, 0.5, 6)
+  const obj = { v: 0 }
+  const count = GSAP.to(obj, {
+    v: amount,
+    duration: skipping ? 0 : seconds * speed(),
+    ease: 'power1.out',
+    onUpdate: () => { t.text = `+${formatNumber(obj.v)}` },
+    onComplete: () => {
+      t.text = `+${formatNumber(amount)}`
+      GSAP!.fromTo(t.scale, { x: 1.18, y: 1.18 }, { x: 1, y: 1, duration: 0.3, ease: 'back.out(3)' })
+    }
+  })
+  return () => {
+    count.progress(1)
+    GSAP!.to(t, { y: y - 40, alpha: 0, duration: 0.4, ease: 'power1.in', onComplete: () => t.destroy() })
+  }
+}
+
 /** Sticky wild multipliers by "col:row" while a free spin is being shown. */
 let wayMults: Map<string, number> | null = null
 
@@ -674,7 +717,11 @@ async function presentWays(wins: TphWayWin[], total: number, theBet: number, bas
   } else {
     sound.play(multiple >= 5 ? 'win-big' : multiple >= 1.5 ? 'win-medium' : 'win-small')
     if (multiple >= 5) fx?.shake(stageRoot!, 5, 0.35)
-    await countWin(base + total, multiple >= 5 ? 1.4 : multiple >= 1.5 ? 0.9 : 0.5)
+    const seconds = multiple >= 5 ? 1.4 : multiple >= 1.5 ? 0.9 : 0.5
+    const dismiss = winPop(cellList, total, multiple, seconds)
+    await countWin(base + total, seconds)
+    await delay(inFreeSpins.value ? 650 : 900)
+    dismiss()
   }
   await delay(inFreeSpins.value ? 450 : 650)
 
