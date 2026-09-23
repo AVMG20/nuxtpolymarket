@@ -2,468 +2,488 @@
 import {
     PIRATE_ENEMY_TIERS,
     PIRATE_POWER_UPS,
+    PIRATE_RARITIES,
+    PIRATE_UPGRADE_EFFECTS as FX,
     PIRATE_ABILITIES,
     PIRATE_ABILITY_MAX_LEVEL,
     PIRATE_MAX_STAT_LEVEL,
     PIRATE_REGEN_MAX_LEVEL,
     PIRATE_REGEN_DELAY_MS,
     PIRATE_REGEN_CYCLE_MS,
+    PIRATE_RUN_DURATION_MS,
+    PIRATE_POWER_UP_INTERVAL_MS,
+    PIRATE_REPAIR_MAX_MS,
     pirateMaxHp, pirateShipSpeed, pirateDefenseRating, pirateAmmoCapacity, pirateRegenRate,
-    type PiratePowerUpId
+    pirateAverageRunPayoutEstimate, pirateCompletionBonus, pirateSurvivalCoinRate, pirateSurvivalCoins,
+    type PirateEnemyAbility, type PiratePowerUpId
 } from '#shared/utils/gamelogic/pirates'
+
+definePageMeta({
+    title: 'Pirate Raid Almanac'
+})
+
+const pct = (value: number) => `${Math.round(value * 100)}%`
+
+// ─── The voyage ─────────────────────────────────────────────────────────────
+
+const PAY_DIFFICULTY = 200
+const payCurve = [1, 2, 3, 4, 5, 6].map(minute => ({
+    minute,
+    banked: pirateSurvivalCoins(minute * 60_000, PAY_DIFFICULTY),
+    rate: pirateSurvivalCoinRate(minute * 60_000, PAY_DIFFICULTY)
+}))
+const payFull = pirateAverageRunPayoutEstimate(PAY_DIFFICULTY)
+const payBonus = pirateCompletionBonus(PAY_DIFFICULTY)
+
+// ─── Ship systems ───────────────────────────────────────────────────────────
 
 const shipSystems = [
     {
         id: 'hull',
         name: 'Hull',
         icon: 'i-lucide-heart',
-        accent: 'text-red-400 bg-red-400/10',
+        color: '#f0524f',
         range: `${pirateMaxHp(1)} → ${pirateMaxHp(PIRATE_MAX_STAT_LEVEL)} HP`,
-        levels: `${PIRATE_MAX_STAT_LEVEL} levels`,
-        description: 'Your total health pool. Every enemy cannonball, bomb, ramming skiff, and sea mine chips away at it, and the voyage ends the instant it hits zero. A bigger hull is the single most reliable way to survive deeper into the run, and it also makes percentage-based hazards like sea mines hurt proportionally less of your bar.'
+        description: 'Your health. Every cannonball, bomb, ram and mine takes a bite, and the voyage ends when it hits zero. Mines hurt by a share of it, so a bigger hull doesn\'t shrink them.'
     },
     {
         id: 'speed',
         name: 'Speed',
         icon: 'i-lucide-wind',
-        accent: 'text-cyan-400 bg-cyan-400/10',
+        color: '#2dd4bf',
         range: `${pirateShipSpeed(1)} → ${pirateShipSpeed(PIRATE_MAX_STAT_LEVEL)} spd`,
-        levels: `${PIRATE_MAX_STAT_LEVEL} levels`,
-        description: 'How fast your ship sails to wherever you tap. Nearly every enemy attack is dodgeable — bombs, missiles, mines, and skiffs all telegraph a marked area before they land — so raw movement speed is what lets you slip out of those circles and kite the final-minute swarm instead of being cornered by it.'
+        description: 'Almost every special attack is marked on the water before it lands. Speed is what gets you out of the circle, and what lets you kite a swarm instead of being cornered.'
     },
     {
         id: 'defense',
-        name: 'Defense',
+        name: 'Armour',
         icon: 'i-lucide-shield',
-        accent: 'text-blue-400 bg-blue-400/10',
+        color: '#6cb8ff',
         range: `${pirateDefenseRating(1)} → ${pirateDefenseRating(PIRATE_MAX_STAT_LEVEL)} def`,
-        levels: `${PIRATE_MAX_STAT_LEVEL} levels`,
-        description: 'Your defense rating in the hit-chance formula. Combat is RuneScape-style: every incoming cannonball rolls its attack rating against your defense roll, and a higher defense makes more of those shots miss outright rather than reducing the size of each hit. It does nothing against unavoidable hazards (mines and telegraphed area attacks) — it only shrugs off direct cannon fire.'
+        description: 'Each enemy cannonball rolls its attack against your armour. More armour means more shots miss outright. It does nothing against marked blasts, rams or mines.'
     },
     {
         id: 'ammoCapacity',
-        name: 'Ammo Hold',
+        name: 'Ammo hold',
         icon: 'i-lucide-package',
-        accent: 'text-amber-400 bg-amber-400/10',
+        color: '#f3c35a',
         range: `${pirateAmmoCapacity(1)} → ${pirateAmmoCapacity(PIRATE_MAX_STAT_LEVEL)} rounds`,
-        levels: `${PIRATE_MAX_STAT_LEVEL} levels`,
-        description: 'How many premium cannonballs the magazine can carry into a voyage. Premium ammo hits harder and reaches farther than the unlimited basic shots your cannons fall back on once it runs dry, so a larger hold keeps your broadside at full strength for longer before you drop back to basic fire.'
+        description: 'How much premium shot you carry. Premium shot hits harder and flies farther; once it runs out your guns keep firing basic shot for free.'
     },
     {
         id: 'regen',
-        name: 'Life Regen',
+        name: 'Regen',
         icon: 'i-lucide-heart-pulse',
-        accent: 'text-rose-400 bg-rose-400/10',
+        color: '#fb7185',
         range: `+${pirateRegenRate(1)} → +${pirateRegenRate(PIRATE_REGEN_MAX_LEVEL)} HP / ${PIRATE_REGEN_CYCLE_MS / 1000}s`,
-        levels: `${PIRATE_REGEN_MAX_LEVEL} levels`,
-        description: `Slow passive hull repair. Every captain owns level 1 (+${pirateRegenRate(1)} hull every ${PIRATE_REGEN_CYCLE_MS / 1000} seconds) for free, upgrading to +${pirateRegenRate(PIRATE_REGEN_MAX_LEVEL)} — at max that works out to roughly one hull per second, because each cycle's healing is spread evenly across it rather than arriving in a lump. Regen kicks in once you have gone ${PIRATE_REGEN_DELAY_MS / 1000} seconds without *taking* a hit; firing your own cannons no longer resets the timer, so you can keep shooting while you repair as long as nothing connects with you.`
+        description: `Slow hull repair that starts after ${PIRATE_REGEN_DELAY_MS / 1000}s without being hit. Firing your own guns doesn't interrupt it.`
     }
 ]
 
-definePageMeta({
-    title: 'Pirate Raid Wiki'
-})
+// ─── Abilities ──────────────────────────────────────────────────────────────
 
-// What each ability's damage actually keys off, so players can see why the
-// upgrade track matters rather than just being told that it does.
+// What each ability's damage keys off, so players can see why levels matter.
 const ABILITY_SCALING: Record<string, string> = {
-    bomb: 'Single wide blast — scales with power & level',
-    seekers: '8 warheads, one every 2s — heaviest single-target hit',
-    consort: 'Escort deals 60% → 80% of your cannon damage',
-    maelstrom: '7 pulses to everything caught — highest total area damage',
-    firestorm: '7 shells scattered at random — highest risk, highest ceiling'
+    bomb: 'One wide blast. Free, shortest cooldown.',
+    seekers: '8 homing warheads, one every 2s. Heaviest single-target hits.',
+    consort: 'An escort firing your best cannon. Cooldown starts when it sinks.',
+    maelstrom: '7 pulses that drag ships inward. Most total damage on a packed fleet.',
+    firestorm: '7 shells scattered at random over a huge zone. High risk, high ceiling.',
+    tidal: 'A wall of water: one heavy hit and a shove to every ship, and it erases enemy shot and mines.'
 }
 
 const playerAbilities = PIRATE_ABILITIES.map(ability => ({
     ...ability,
-    scaling: ABILITY_SCALING[ability.id] ?? ''
+    scaling: ABILITY_SCALING[ability.id] ?? '',
+    accent: pirateAbilityHex(ability.id)
 }))
 
-const wildPowerUps = new Set<PiratePowerUpId>([
-    'razor-orbit',
-    'starburst-battery',
-    'chain-tempest',
-    'ghost-armada',
-    'blood-tide'
-])
+// ─── Salvage ────────────────────────────────────────────────────────────────
 
-const powerUpDetails: Record<PiratePowerUpId, string> = {
-    'broadside-fury': 'Multiplies the damage ceiling of every equipped cannon. Multiple stacks combine, making this one of the cleanest ways to keep pace with late-run enemy health.',
-    'quick-fuse': 'Cuts time between cannon shots. It affects every gun port independently and combines with Rapid Loader, up to the global reload-speed limit.',
-    'eagle-eye': 'Extends cannon targeting range. Your ship can begin firing sooner and can hold a safer distance from short-range enemies.',
-    'iron-plating': 'Raises the defense rating used when enemy cannon attacks roll to hit. It reduces how often ordinary cannonballs connect rather than reducing direct hazard damage.',
-    'tide-shield': 'Immediately adds 20 shield points. The shield absorbs incoming damage before the hull and remains until depleted; repeated pickups refill and enlarge it up to 100.',
-    'titan-shot': 'Makes periodic cannonballs enormous, dealing triple damage with a heavy impact. More stacks reduce the number of normal shots required before each Titan Shot.',
-    'blast-powder': 'Makes periodic cannonballs explosive. The primary hit gains bonus damage and nearby enemies take splash damage; stacks make explosions trigger more often.',
-    'deadeye': 'Improves the attack rating of every cannon, increasing its chance to overcome enemy defense. Especially useful against Ironclads, bosses, and late-run scaling.',
-    'rapid-loader': 'A long-duration reload upgrade. Each stack gives another 10% reload speed and combines with Quick Fuse for extremely dense broadsides.',
-    'keen-sights': 'A long-duration range upgrade. It is smaller per stack than Eagle’s Eye but lasts much longer and can build into a dependable ranged setup.',
-    'reinforced-keel': 'Raises sailing speed by 10% per stack. Faster movement makes targeted circles, missiles, mines, and the final swarm easier to escape.',
-    'lucky-shot': 'Adds 8% cannon damage per stack for a long duration. It is less explosive than Broadside Fury, but its long uptime makes it a reliable build foundation.',
-    'razor-orbit': 'Summons spinning blades around your ship. Nearby enemies are repeatedly damaged; stacks add blades, increase damage, and make the orbit strike faster.',
-    'starburst-battery': 'Automatically fires ten shots in a full circle. Each ray can acquire an enemy along its path; stacks increase damage and shorten the time between bursts.',
-    'chain-tempest': 'Periodically releases automatic lightning from your ship and chains it through nearby enemies. Stacks add targets, increase damage, and reduce its cooldown.',
-    'ghost-armada': 'Summons spectral escort boats that orbit the player and automatically fire at nearby targets. Stacks add escorts and accelerate their volleys.',
-    'blood-tide': 'For a short window, every enemy you hit restores one point of your hull. Healing cannot exceed maximum hull.'
+const UPGRADE_DETAIL: Record<PiratePowerUpId, string[]> = {
+    'oak-planking': [`+${pct(FX.oakHullPerStack)} max hull per stack, and the new planking comes repaired.`],
+    'quick-hands': [`Every gun reloads ${pct(FX.quickHandsReloadPerStack)} faster per stack.`],
+    'following-wind': [`+${pct(FX.followingWindSpeedPerStack)} sailing speed per stack and a sharper helm. Under full sail, ${pct(FX.followingWindEvasionPerStack)} of cannon fire per stack misses you.`],
+    'crows-nest': [`+${pct(FX.crowsNestRangePerStack)} cannon range and +${pct(FX.crowsNestAccuracyPerStack)} accuracy per stack.`],
+    'tide-ward': [`A shield worth ${pct(FX.tideWardShieldPerStack)} of max hull per stack. It absorbs hits first and refills after ${FX.tideWardRechargeDelayMs / 1000}s without being hit.`],
+    'blast-powder': [`Hits deal +${pct(FX.blastDirect[0])} damage and splash ${pct(FX.blastSplash[0])} of it within ${FX.blastRadius[0]} of the target.`, `Second stack: +${pct(FX.blastDirect[1])}, splashing ${pct(FX.blastSplash[1])} within ${FX.blastRadius[1]}.`],
+    'stormglass': [`${pct(FX.stormChance[0])} of hits arc lightning through up to ${FX.stormJumps} more ships within ${FX.stormRange}, each taking ${pct(FX.stormDamage)} damage.`, `Second stack: ${pct(FX.stormChance[1])} of hits.`],
+    'ghost-crew': [`A spectral sloop sails with you, its ${FX.ghostCrewGuns} guns firing copies of your best cannon at ${pct(FX.ghostCrewDamage)} damage. A second stack adds a second sloop.`],
+    'titan-shot': [`Every ${FX.titanEvery}th shot is a titan ball: ${FX.titanDamage}x damage and a shockwave that hits everything within ${FX.titanRadius}.`],
+    'krakens-heart': [`+${pct(FX.heartDamage)} damage on everything, every enemy hull's worth of damage you deal mends ${(FX.heartLifesteal * 100).toFixed(1)}% of your own max hull, and your ability recharges ${pct(FX.heartCooldown)} faster.`]
 }
 
-const enemyAbilities = [
-    {
-        id: 'skiffs',
-        name: 'Kamikaze Skiffs',
-        icon: 'i-lucide-sailboat',
-        usedBy: 'Sloop, Razor Skiff, and the Dreadnought',
-        description: 'Deploys three small boats toward positions around your location. A skiff explodes if it reaches its marked circle or rams your ship while travelling, so crossing its route is dangerous.'
-    },
-    {
-        id: 'mine',
-        name: 'Drift Mine',
-        icon: 'i-lucide-circle-dot-dashed',
-        usedBy: 'Brigantine, Cobalt Ironclad, and the Dreadnought',
-        description: 'Launches a slow spinning mine toward your position. It damages its final marked area and also detonates immediately if your ship touches its moving path.'
-    },
-    {
-        id: 'bomb',
-        name: 'Frenzy Bomb',
-        icon: 'i-lucide-bomb',
-        usedBy: 'Crimson Corsair, Frigate, Man-o’-War, Ghost Ship, and the Dreadnought',
-        description: 'Lobs a large bomb at your captured position. Its wide warning circle is the blast radius; leave the circle before the bomb lands.'
-    },
-    {
-        id: 'sniper',
-        name: 'Longshot Missile',
-        icon: 'i-lucide-crosshair',
-        usedBy: 'Longshot Schooner and the Dreadnought',
-        description: 'Draws an aiming line and locks a circular target before firing. The projectile damages on contact anywhere along its route as well as at the locked destination.'
-    }
-]
+const rarityGroups = PIRATE_RARITIES.map(rarity => ({
+    ...rarity,
+    hex: pirateHex(rarity.color),
+    chance: rarity.weight / PIRATE_RARITIES.reduce((sum, r) => sum + r.weight, 0),
+    upgrades: PIRATE_POWER_UPS.filter(upgrade => upgrade.rarity === rarity.id)
+}))
 
-const enemyInfo: Record<string, { role: string, ability: string, sprite: string, behavior: string }> = {
-    sloop: {
-        role: 'Starter raider',
-        ability: 'Kamikaze Skiffs',
-        sprite: '/pirates/sprites/raider-ship.png',
-        behavior: 'A light, common ship with modest cannons. It becomes dangerous in groups because every Sloop can deploy three ramming skiffs.'
-    },
-    razorskiff: {
-        role: 'High-speed chaser',
-        ability: 'Kamikaze Skiffs',
-        sprite: '/pirates/sprites/raider-ship.png',
-        behavior: 'The fastest regular enemy. It rapidly closes distance, fires at short range, and adds more small attack boats to an already crowded sea.'
-    },
-    corsair: {
-        role: 'Frenzy attacker',
-        ability: 'Frenzy Bomb',
-        sprite: '/pirates/sprites/dps-raider.png',
-        behavior: 'A fragile damage dealer that fires three-shot volleys and throws large area bombs. Sink it quickly when several warning circles overlap.'
-    },
-    brigantine: {
-        role: 'Balanced mine layer',
-        ability: 'Drift Mine',
-        sprite: '/pirates/sprites/raider-ship.png',
-        behavior: 'A balanced midweight vessel with solid hull and frequent cannon fire. Its slow mines punish sailing carelessly across the battlefield.'
-    },
-    sniper: {
-        role: 'Long-range specialist',
-        ability: 'Longshot Missile',
-        sprite: '/pirates/sprites/sniper-ship.png',
-        behavior: 'Low hull, very long range, and extremely high single-hit damage. Watch its aiming line and avoid both the missile itself and its locked circle.'
-    },
-    ironclad: {
-        role: 'Armored tank',
-        ability: 'Drift Mine',
-        sprite: '/pirates/sprites/tank-raider.png',
-        behavior: 'Slow but exceptionally tough, with high defense and 300 base hull. It occupies your cannons while its mines restrict safe movement.'
-    },
-    frigate: {
-        role: 'Heavy frenzy ship',
-        ability: 'Frenzy Bomb',
-        sprite: '/pirates/sprites/dps-raider.png',
-        behavior: 'A durable three-shot attacker with strong range and fast reloads. Its bombs force movement while its broadside punishes predictable routes.'
-    },
-    manowar: {
-        role: 'Late-run artillery',
-        ability: 'Frenzy Bomb',
-        sprite: '/pirates/sprites/dps-raider.png',
-        behavior: 'A powerful late-run warship with heavy damage, long range, and rapid three-shot volleys. Prioritize it before the final overrun becomes crowded.'
-    },
-    ghostship: {
-        role: 'Elite glass cannon',
-        ability: 'Frenzy Bomb',
-        sprite: '/pirates/sprites/raider-ship.png',
-        behavior: 'A rare, fast elite with excellent accuracy, high damage, and very quick reloads. It pays well but can tear through an unattended hull.'
-    },
-    dreadnought: {
-        role: 'Boss flagship',
-        ability: 'Random: all four abilities',
-        sprite: '/pirates/sprites/tank-raider.png',
-        behavior: 'A massive boss with 560 base hull and three-shot broadsides. It randomly chooses any enemy ability, and two Dreadnoughts may be active during the final 45 seconds.'
-    }
+// ─── Enemies ────────────────────────────────────────────────────────────────
+
+const ENEMY_ABILITY_INFO: Record<PirateEnemyAbility, { name: string, icon: string, description: string }> = {
+    skiffs: { name: 'Kamikaze Skiffs', icon: 'i-lucide-sailboat', description: 'Three small boats race for marked spots around you and explode on arrival, or on contact if you cross their path.' },
+    bomb: { name: 'Frenzy Bomb', icon: 'i-lucide-bomb', description: 'A lobbed bomb aimed where you were. The warning circle is the blast. Leave it.' },
+    mine: { name: 'Drift Mine', icon: 'i-lucide-circle-dot-dashed', description: 'A slow spinning mine that homes on your position and blows up on contact or at its mark.' },
+    sniper: { name: 'Longshot', icon: 'i-lucide-crosshair', description: 'A reticle tightens on a spot, then a heavy round flies down the marked lane. It hits anything in its path.' },
+    ram: { name: 'Fire Ram', icon: 'i-lucide-flame', description: 'The fire ship lights its fuse when it gets close and charges. It explodes on contact, or when sunk nearby.' },
+    harpoon: { name: 'Harpoon', icon: 'i-lucide-link', description: 'A marked line, then a harpoon. If it hits, you are tethered and slowed for a few seconds.' },
+    mortar: { name: 'Mortar Volley', icon: 'i-lucide-target', description: 'Three shells lobbed from far away at marked spots around you. Keep moving.' },
+    ward: { name: 'Tide Ward', icon: 'i-lucide-shield', description: 'Shields every ship around the Tidecaller for part of its hull. Sink the Tidecaller first.' },
+    tentacles: { name: 'Tentacle Slam', icon: 'i-lucide-waves', description: 'Tentacles rise from marked water and slam down.' },
+    ink: { name: 'Ink Cloud', icon: 'i-lucide-cloud', description: 'Black ink spreads over the sea, slowing everything that sails through it.' },
+    whirlpool: { name: 'Whirlpool', icon: 'i-lucide-tornado', description: 'A vortex that drags your ship toward the Kraken.' },
+    blink: { name: 'Blink', icon: 'i-lucide-sparkles', description: 'The Phantom fades out and reappears somewhere else on the sea.' },
+    summon: { name: 'Raise the Dead', icon: 'i-lucide-ghost', description: 'Ghost escorts rise around the admiral. They fade when it sinks.' },
+    spiral: { name: 'Spiral Volley', icon: 'i-lucide-loader', description: 'A ring of spectral shot spirals outward. Find the gap.' }
 }
 
-const enemies = PIRATE_ENEMY_TIERS.map(enemy => ({ ...enemy, ...enemyInfo[enemy.id]! }))
+const enemyAbilities = (Object.keys(ENEMY_ABILITY_INFO) as PirateEnemyAbility[]).map(id => ({
+    id,
+    ...ENEMY_ABILITY_INFO[id],
+    usedBy: PIRATE_ENEMY_TIERS.filter(tier => tier.abilities.includes(id)).map(tier => tier.name).join(', ')
+}))
 
-function durationLabel(durationMs: number | null) {
-    if (durationMs === null) return 'Until depleted'
-    return `${durationMs / 1000}s`
-}
+const regularEnemies = PIRATE_ENEMY_TIERS.filter(tier => !tier.boss)
+const bosses = PIRATE_ENEMY_TIERS.filter(tier => tier.boss).map(tier => ({ ...tier, accent: PIRATE_BOSS_ACCENTS[tier.boss!] ?? '#ef4444' }))
 
-function unlockLabel(unlockAtMs: number, boss?: boolean) {
-    if (boss) return 'Boss clock'
+function unlockLabel(unlockAtMs: number) {
     if (unlockAtMs === 0) return 'From launch'
-    const minutes = Math.floor(unlockAtMs / 60_000)
-    const seconds = Math.floor((unlockAtMs % 60_000) / 1000)
-    return minutes ? `${minutes}m ${seconds ? `${seconds}s` : ''}`.trim() : `${seconds}s`
+    return `From ${pirateClock(unlockAtMs)}`
 }
+
+const sections = [
+    { id: 'voyage', label: 'The voyage', icon: 'i-lucide-hourglass' },
+    { id: 'ship', label: 'Ship', icon: 'i-lucide-ship' },
+    { id: 'abilities', label: 'Abilities', icon: 'i-lucide-wand-sparkles' },
+    { id: 'salvage', label: 'Salvage', icon: 'i-lucide-package-open' },
+    { id: 'tricks', label: 'Enemy tricks', icon: 'i-lucide-bomb' },
+    { id: 'bestiary', label: 'Bestiary', icon: 'i-lucide-skull' },
+    { id: 'bosses', label: 'Bosses', icon: 'i-lucide-crown' }
+]
 </script>
 
 <template>
-  <UContainer class="space-y-10">
-    <header class="flex flex-wrap items-end justify-between gap-4">
+  <div class="mx-auto w-full max-w-7xl space-y-12 px-3 sm:px-6">
+    <header class="space-y-4">
       <div>
-        <h1 class="flex items-center gap-2 text-2xl font-bold">
-          <UIcon name="i-lucide-book-open" class="size-6 text-primary" />
-          Pirate Wiki
+        <p class="pr-heading text-xs">
+          The Captain's
+        </p>
+        <h1 class="pr-display text-5xl leading-none sm:text-6xl">
+          Almanac
         </h1>
-        <p class="mt-1 max-w-2xl text-sm text-muted">
-          Everything that can empower or sink you during a six-minute voyage.
+        <p class="pr-muted mt-2 max-w-2xl text-sm">
+          Everything that can make you rich or send you to the bottom in six minutes at sea.
         </p>
       </div>
-      <div class="flex flex-wrap gap-2">
-        <UButton size="sm" color="neutral" variant="subtle" to="#ship-systems" icon="i-lucide-ship" label="Ship systems" />
-        <UButton size="sm" color="neutral" variant="subtle" to="#abilities" icon="i-lucide-wand-sparkles" label="Abilities" />
-        <UButton size="sm" color="neutral" variant="subtle" to="#power-ups" icon="i-lucide-sparkles" label="Power-ups" />
-        <UButton size="sm" color="neutral" variant="subtle" to="#enemy-abilities" icon="i-lucide-bomb" label="Enemy abilities" />
-        <UButton size="sm" color="neutral" variant="subtle" to="#bestiary" icon="i-lucide-skull" label="Bestiary" />
-      </div>
+      <nav class="flex flex-wrap gap-2">
+        <a v-for="section in sections" :key="section.id" :href="`#${section.id}`" class="pr-btn pr-btn--wood pr-btn--sm">
+          <UIcon :name="section.icon" class="size-4" />{{ section.label }}
+        </a>
+      </nav>
     </header>
 
-    <section id="ship-systems" class="scroll-mt-6 space-y-4">
+    <!-- The voyage -->
+    <section id="voyage" class="scroll-mt-6 space-y-4">
       <div>
-        <p class="text-xs font-bold uppercase tracking-wider text-primary">
+        <p class="pr-heading text-xs">
+          Pay & peril
+        </p>
+        <h2 class="pr-display text-3xl">
+          The voyage
+        </h2>
+      </div>
+      <div class="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
+        <div class="pr-parchment p-5 text-sm leading-relaxed">
+          <p class="font-bold" style="font-family: Cinzel, serif">
+            You're paid for staying afloat.
+          </p>
+          <p class="mt-2">
+            A voyage lasts {{ PIRATE_RUN_DURATION_MS / 60_000 }} minutes. Coins land every second you survive and the rate climbs as the
+            voyage goes on, so the last minutes are worth the most. Sinking ships doesn't pay; it keeps you alive.
+          </p>
+          <p class="mt-2">
+            Survive the full voyage and you also earn the <b>completion bonus</b>. Sink early and you keep what you earned up to that point. <b>Letters of Marque</b> in the Armory multiply all of it: +20% per level, up to ×3.
+          </p>
+          <p class="mt-2">
+            Higher difficulty pays more per second and brings tougher, busier fleets. Whatever hull you lose puts the ship in dry dock
+            afterward, up to {{ PIRATE_REPAIR_MAX_MS / 3_600_000 }} hours for a sinking. Gems rush the repairs.
+          </p>
+          <p class="mt-2">
+            A salvage crate drifts in about every {{ PIRATE_POWER_UP_INTERVAL_MS / 1000 }} seconds. Bosses always drop an epic or better.
+          </p>
+        </div>
+        <div class="pr-panel p-5">
+          <p class="pr-heading text-[11px]">
+            Pay at difficulty {{ PAY_DIFFICULTY }}
+          </p>
+          <div class="mt-3 space-y-2">
+            <div v-for="row in payCurve" :key="row.minute" class="flex items-center gap-3 text-sm">
+              <span class="w-12 font-bold pr-muted">{{ row.minute }}:00</span>
+              <div class="pr-bar h-2.5 flex-1">
+                <i :style="{ width: `${row.banked / payFull * 100}%` }" />
+              </div>
+              <span class="w-16 text-right font-bold">{{ formatNumber(row.banked) }}</span>
+              <span class="w-16 text-right text-xs text-[var(--pr-emerald)]">+{{ formatNumber(row.rate) }}/s</span>
+            </div>
+          </div>
+          <div class="pr-divider my-4" />
+          <div class="flex justify-between text-sm">
+            <span class="pr-muted">Completion bonus</span>
+            <b class="pr-gold">+{{ formatNumber(payBonus) }}</b>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Ship systems -->
+    <section id="ship" class="scroll-mt-6 space-y-4">
+      <div>
+        <p class="pr-heading text-xs">
           Shipwright
         </p>
-        <h2 class="mt-1 text-xl font-bold">
+        <h2 class="pr-display text-3xl">
           Ship systems
         </h2>
-        <p class="mt-1 text-sm text-muted">
-          The four core stats and life regen are upgraded with coins in the Armory between voyages. Ranges below span level 1 to max.
+        <p class="pr-muted mt-1 text-sm">
+          Upgraded with coins in the Armory between voyages. Ranges span level 1 to max.
         </p>
       </div>
-
-      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <UCard v-for="system in shipSystems" :key="system.id" :ui="{ body: 'p-4' }">
-          <div class="flex items-start gap-3">
-            <div class="flex size-11 shrink-0 items-center justify-center rounded-xl" :class="system.accent">
+      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div v-for="system in shipSystems" :key="system.id" class="pr-panel p-4">
+          <div class="flex items-center gap-3">
+            <div class="grid size-10 shrink-0 place-items-center rounded-full pr-glow" :style="{ '--glow': system.color, 'color': system.color }">
               <UIcon :name="system.icon" class="size-5" />
             </div>
-            <div class="min-w-0 flex-1">
+            <div class="min-w-0">
               <h3 class="font-bold">
                 {{ system.name }}
               </h3>
-              <p class="mt-0.5 text-xs font-semibold text-primary">
+              <p class="text-[11px] font-bold" :style="{ color: system.color }">
                 {{ system.range }}
               </p>
             </div>
           </div>
-          <p class="mt-3 text-xs leading-relaxed text-muted">
+          <p class="pr-muted mt-3 text-xs leading-relaxed">
             {{ system.description }}
           </p>
-          <div class="mt-3 flex gap-2 border-t border-default pt-3">
-            <UBadge color="neutral" variant="subtle" size="sm" icon="i-lucide-trending-up" :label="system.levels" />
-          </div>
-        </UCard>
+        </div>
       </div>
     </section>
 
+    <!-- Abilities -->
     <section id="abilities" class="scroll-mt-6 space-y-4">
       <div>
-        <p class="text-xs font-bold uppercase tracking-wider text-primary">
+        <p class="pr-heading text-xs">
           Captain's arsenal
         </p>
-        <h2 class="mt-1 text-xl font-bold">
-          Right-click abilities
+        <h2 class="pr-display text-3xl">
+          Abilities
         </h2>
-        <p class="mt-1 text-sm text-muted">
-          One ability may be equipped per voyage, fired by right-clicking the sea. Every ability has its own
-          {{ PIRATE_ABILITY_MAX_LEVEL }}-level upgrade track bought with coins in the Armory. Levels raise damage
-          <em>and</em> cut the cooldown, so a fully upgraded technique still deletes opening waves at the highest
-          difficulty instead of falling off. The cooldown floors are deliberately long — no ability is meant to have
-          anywhere near permanent uptime.
+        <p class="pr-muted mt-1 max-w-3xl text-sm">
+          Equip one per voyage and cast it with right-click or Space at the cursor. Each has {{ PIRATE_ABILITY_MAX_LEVEL }} levels; every level
+          adds damage and shortens the cooldown.
         </p>
       </div>
-
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <UCard v-for="ability in playerAbilities" :key="ability.id" :ui="{ body: 'p-4' }">
-          <div class="flex items-start gap-3">
-            <div class="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <UIcon :name="ability.icon" class="size-5" />
-            </div>
-            <div class="min-w-0 flex-1">
-              <h3 class="font-bold">
-                {{ ability.name }}
-              </h3>
-              <p class="mt-0.5 text-xs font-semibold text-primary">
-                {{ ability.scaling }}
-              </p>
+        <div v-for="ability in playerAbilities" :key="ability.id" class="pr-panel flex gap-4 p-4">
+          <PiratesAbilityArt :id="ability.id" class="size-20 shrink-0" />
+          <div class="min-w-0">
+            <h3 class="pr-display text-2xl leading-tight" :style="{ color: ability.accent }">
+              {{ ability.name }}
+            </h3>
+            <p class="text-[11px] font-bold pr-gold">
+              {{ ability.scaling }}
+            </p>
+            <p class="pr-muted mt-1.5 text-xs leading-relaxed">
+              {{ ability.description }}
+            </p>
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              <span class="pr-tag" :style="{ '--tag': ability.accent }">
+                <UIcon name="i-lucide-timer" class="size-3" />{{ ability.cooldownMs / 1000 }}s → {{ ability.minCooldownMs / 1000 }}s
+              </span>
+              <span class="pr-tag" style="--tag: #93a8b6">{{ ability.cost ? `${formatNumber(ability.cost)} coins` : 'Free' }}</span>
             </div>
           </div>
-          <p class="mt-3 text-xs leading-relaxed text-muted">
-            {{ ability.description }}
-          </p>
-          <div class="mt-3 flex flex-wrap gap-2 border-t border-default pt-3">
-            <UBadge color="neutral" variant="subtle" size="sm" icon="i-lucide-timer" :label="`${ability.cooldownMs / 1000}s → ${ability.minCooldownMs / 1000}s cooldown`" />
-            <UBadge color="neutral" variant="subtle" size="sm" icon="i-lucide-trending-up" :label="`${PIRATE_ABILITY_MAX_LEVEL} levels`" />
-          </div>
-        </UCard>
+        </div>
       </div>
     </section>
 
-    <section id="power-ups" class="scroll-mt-6 space-y-4">
+    <!-- Salvage -->
+    <section id="salvage" class="scroll-mt-6 space-y-4">
       <div>
-        <p class="text-xs font-bold uppercase tracking-wider text-primary">
-          Supply drops
+        <p class="pr-heading text-xs">
+          Flotsam & fortune
         </p>
-        <h2 class="mt-1 text-xl font-bold">
-          Power-ups
+        <h2 class="pr-display text-3xl">
+          Salvage upgrades
         </h2>
-        <p class="mt-1 text-sm text-muted">
-          A drop appears every 25 seconds. Duplicate drops stack up to their cap and refresh timed effects.
+        <p class="pr-muted mt-1 max-w-3xl text-sm">
+          Sail over a crate to open it. Each holds one upgrade that lasts for the rest of the voyage, and some stack. The glow tells you the rarity
+          before you get there.
         </p>
       </div>
-
-      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <UCard v-for="power in PIRATE_POWER_UPS" :key="power.id" :ui="{ body: 'p-4' }">
-          <div class="flex items-start gap-3">
-            <div class="flex size-11 shrink-0 items-center justify-center rounded-xl bg-elevated text-xl">
-              {{ power.icon }}
-            </div>
-            <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-center gap-1.5">
-                <h3 class="font-bold">
-                  {{ power.name }}
+      <div class="space-y-5">
+        <div v-for="group in rarityGroups" :key="group.id">
+          <div class="mb-2 flex items-center gap-3">
+            <span class="pr-tag" :style="{ '--tag': group.hex }">{{ group.name }}</span>
+            <span class="pr-dim text-[11px]">{{ Math.round(group.chance * 100) }}% of crates</span>
+            <div class="h-px flex-1" :style="{ background: `linear-gradient(90deg, ${group.hex}66, transparent)` }" />
+          </div>
+          <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div
+              v-for="upgrade in group.upgrades"
+              :key="upgrade.id"
+              class="pr-sea-panel pr-glow flex gap-4 p-4"
+              :style="{ '--glow': `${group.hex}88` }"
+            >
+              <PiratesUpgradeArt :id="upgrade.id" class="size-20 shrink-0" :style="{ filter: `drop-shadow(0 0 10px ${group.hex}66)` }" />
+              <div class="min-w-0">
+                <h3 class="text-lg font-black" :style="{ color: group.hex }">
+                  {{ upgrade.name }}
                 </h3>
-                <UBadge :color="wildPowerUps.has(power.id) ? 'primary' : 'neutral'" variant="subtle" size="sm" :label="wildPowerUps.has(power.id) ? 'Wild' : 'Core'" />
+                <p class="pr-dim text-[11px] font-bold uppercase tracking-wider">
+                  {{ upgrade.maxStacks > 1 ? `Stacks ${upgrade.maxStacks}×` : 'Unique' }}
+                </p>
+                <p v-for="(line, index) in UPGRADE_DETAIL[upgrade.id]" :key="index" class="mt-1 text-xs leading-relaxed" :class="index ? 'pr-muted' : ''">
+                  {{ line }}
+                </p>
               </div>
-              <p class="mt-0.5 text-xs font-semibold text-primary">
-                {{ power.description }}
-              </p>
             </div>
           </div>
-          <p class="mt-3 text-xs leading-relaxed text-muted">
-            {{ powerUpDetails[power.id] }}
-          </p>
-          <div class="mt-3 flex gap-2 border-t border-default pt-3">
-            <UBadge color="neutral" variant="subtle" size="sm" icon="i-lucide-timer" :label="durationLabel(power.durationMs)" />
-            <UBadge color="neutral" variant="subtle" size="sm" icon="i-lucide-layers" :label="`Max x${power.maxStacks}`" />
-          </div>
-        </UCard>
+        </div>
       </div>
     </section>
 
-    <section id="enemy-abilities" class="scroll-mt-6 space-y-4">
+    <!-- Enemy tricks -->
+    <section id="tricks" class="scroll-mt-6 space-y-4">
       <div>
-        <p class="text-xs font-bold uppercase tracking-wider text-error">
-          Dodge mechanics
+        <p class="pr-heading text-xs">
+          Know your enemy
         </p>
-        <h2 class="mt-1 text-xl font-bold">
-          Enemy abilities
+        <h2 class="pr-display text-3xl">
+          Enemy tricks
         </h2>
-        <p class="mt-1 text-sm text-muted">
-          Bosses may randomly use any ability. Moving projectiles can damage on contact before reaching their marked destination.
+        <p class="pr-muted mt-1 text-sm">
+          Almost every special attack is marked on the water first. Red rings mean move.
         </p>
       </div>
-
-      <div class="grid gap-3 md:grid-cols-2">
-        <UCard v-for="ability in enemyAbilities" :key="ability.id" :ui="{ body: 'p-4' }">
-          <div class="flex gap-3">
-            <div class="flex size-10 shrink-0 items-center justify-center rounded-lg bg-error/10 text-error">
-              <UIcon :name="ability.icon" class="size-5" />
-            </div>
-            <div>
-              <h3 class="font-bold">
-                {{ ability.name }}
-              </h3>
-              <p class="text-[11px] font-semibold text-error">
-                {{ ability.usedBy }}
-              </p>
-            </div>
+      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div v-for="trick in enemyAbilities" :key="trick.id" class="pr-panel flex gap-3 p-4">
+          <div class="grid size-10 shrink-0 place-items-center rounded-full pr-glow text-[var(--pr-blood)]" style="--glow: #f0524f88">
+            <UIcon :name="trick.icon" class="size-5" />
           </div>
-          <p class="mt-3 text-sm leading-relaxed text-muted">
-            {{ ability.description }}
-          </p>
-        </UCard>
+          <div class="min-w-0">
+            <h3 class="font-bold">
+              {{ trick.name }}
+            </h3>
+            <p class="pr-muted mt-0.5 text-xs leading-relaxed">
+              {{ trick.description }}
+            </p>
+            <p class="pr-dim mt-1.5 text-[11px]">
+              {{ trick.usedBy }}
+            </p>
+          </div>
+        </div>
       </div>
     </section>
 
+    <!-- Bestiary -->
     <section id="bestiary" class="scroll-mt-6 space-y-4">
       <div>
-        <p class="text-xs font-bold uppercase tracking-wider text-warning">
-          Enemy fleet
+        <p class="pr-heading text-xs">
+          Hostile sails
         </p>
-        <h2 class="mt-1 text-xl font-bold">
+        <h2 class="pr-display text-3xl">
           Bestiary
         </h2>
-        <p class="mt-1 text-sm text-muted">
-          Values below are base stats. Enemy hull, damage, accuracy, and defense scale with voyage time and your ship power.
+        <p class="pr-muted mt-1 text-sm">
+          Base stats before difficulty and voyage time scale them up.
         </p>
       </div>
-
-      <div class="grid gap-4 lg:grid-cols-2">
-        <UCard v-for="enemy in enemies" :key="enemy.id" :class="enemy.boss ? 'ring-2 ring-error/50' : ''" :ui="{ body: 'p-0' }">
-          <div class="grid sm:grid-cols-[180px_1fr]">
-            <div class="relative flex min-h-40 items-center justify-center overflow-hidden border-b border-default bg-gradient-to-br from-info/10 via-elevated to-error/10 p-6 sm:border-b-0 sm:border-r">
-              <img :src="enemy.sprite" :alt="`${enemy.name} enemy ship`" class="w-full max-w-40 object-contain drop-shadow-xl" :class="enemy.boss ? 'scale-125' : ''">
-              <UBadge class="absolute left-2 top-2" :color="enemy.boss ? 'error' : 'neutral'" variant="solid" size="sm" :label="unlockLabel(enemy.unlockAtMs, enemy.boss)" />
+      <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div v-for="enemy in regularEnemies" :key="enemy.id" class="pr-panel overflow-hidden">
+          <div class="relative h-28" :style="{ background: `radial-gradient(ellipse at center, ${pirateHex(enemy.color)}33, transparent 70%), linear-gradient(180deg, #0f2b3d, #0a1a27)` }">
+            <PiratesShipPreview :tier-id="enemy.id" class="size-full" />
+            <span class="pr-tag absolute left-3 top-3" style="--tag: #93a8b6">{{ unlockLabel(enemy.unlockAtMs) }}</span>
+          </div>
+          <div class="p-4">
+            <h3 class="text-lg font-black" :style="{ color: pirateHex(enemy.color) }">
+              {{ enemy.name }}
+            </h3>
+            <p class="pr-muted text-xs">
+              {{ enemy.role }}
+            </p>
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              <span v-for="trick in enemy.abilities" :key="trick" class="pr-tag" style="--tag: #f0524f">
+                <UIcon :name="ENEMY_ABILITY_INFO[trick].icon" class="size-3" />{{ ENEMY_ABILITY_INFO[trick].name }}
+              </span>
             </div>
-
-            <div class="p-4">
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <h3 class="font-bold">
-                    {{ enemy.name }}
-                  </h3>
-                  <p class="text-xs font-semibold text-primary">
-                    {{ enemy.role }}
-                  </p>
-                </div>
-                <UBadge color="error" variant="subtle" size="sm" icon="i-lucide-zap" :label="enemy.ability" />
+            <div class="mt-3 grid grid-cols-6 gap-1 text-center">
+              <div class="pr-inset px-1 py-1">
+                <p class="pr-dim text-[9px] font-bold uppercase">Hull</p><p class="text-sm font-black">{{ enemy.hp }}</p>
               </div>
-
-              <p class="mt-3 text-xs leading-relaxed text-muted">
-                {{ enemy.behavior }}
-              </p>
-
-              <div class="mt-4 grid grid-cols-3 gap-2 border-t border-default pt-3 text-center">
-                <div>
-                  <p class="text-[9px] font-bold uppercase tracking-wide text-muted">Hull</p>
-                  <p class="text-sm font-black tabular-nums">{{ enemy.hp }}</p>
-                </div>
-                <div>
-                  <p class="text-[9px] font-bold uppercase tracking-wide text-muted">Defense</p>
-                  <p class="text-sm font-black tabular-nums">{{ enemy.defense }}</p>
-                </div>
-                <div>
-                  <p class="text-[9px] font-bold uppercase tracking-wide text-muted">Max hit</p>
-                  <p class="text-sm font-black tabular-nums">{{ enemy.maxDamage }}</p>
-                </div>
-                <div>
-                  <p class="text-[9px] font-bold uppercase tracking-wide text-muted">Range</p>
-                  <p class="text-sm font-black tabular-nums">{{ enemy.range }}</p>
-                </div>
-                <div>
-                  <p class="text-[9px] font-bold uppercase tracking-wide text-muted">Speed</p>
-                  <p class="text-sm font-black tabular-nums">{{ enemy.speed }}</p>
-                </div>
-                <div>
-                  <p class="text-[9px] font-bold uppercase tracking-wide text-muted">Reload</p>
-                  <p class="text-sm font-black tabular-nums">{{ (enemy.reloadMs / 1000).toFixed(1) }}s</p>
-                </div>
+              <div class="pr-inset px-1 py-1">
+                <p class="pr-dim text-[9px] font-bold uppercase">Def</p><p class="text-sm font-black">{{ enemy.defense }}</p>
+              </div>
+              <div class="pr-inset px-1 py-1">
+                <p class="pr-dim text-[9px] font-bold uppercase">Hit</p><p class="text-sm font-black">{{ enemy.maxDamage || '—' }}</p>
+              </div>
+              <div class="pr-inset px-1 py-1">
+                <p class="pr-dim text-[9px] font-bold uppercase">Range</p><p class="text-sm font-black">{{ enemy.range || '—' }}</p>
+              </div>
+              <div class="pr-inset px-1 py-1">
+                <p class="pr-dim text-[9px] font-bold uppercase">Speed</p><p class="text-sm font-black">{{ enemy.speed }}</p>
+              </div>
+              <div class="pr-inset px-1 py-1">
+                <p class="pr-dim text-[9px] font-bold uppercase">Reload</p><p class="text-sm font-black">{{ enemy.maxDamage ? `${(enemy.reloadMs / 1000).toFixed(1)}s` : '—' }}</p>
               </div>
             </div>
           </div>
-        </UCard>
+        </div>
       </div>
     </section>
-  </UContainer>
+
+    <!-- Bosses -->
+    <section id="bosses" class="scroll-mt-6 space-y-4">
+      <div>
+        <p class="pr-heading text-xs">
+          Here be monsters
+        </p>
+        <h2 class="pr-display text-3xl">
+          Bosses
+        </h2>
+        <p class="pr-muted mt-1 text-sm">
+          Bosses surface on their own clock and never the same one twice in a row. At high difficulty two can be at sea in the final minutes.
+        </p>
+      </div>
+      <div class="grid gap-4 lg:grid-cols-3">
+        <div v-for="boss in bosses" :key="boss.id" class="pr-panel pr-glow overflow-hidden" :style="{ '--glow': `${boss.accent}99` }">
+          <div class="h-44" :style="{ background: `radial-gradient(ellipse at center, ${boss.accent}40, transparent 70%), linear-gradient(180deg, #0f2b3d, #050e17)` }">
+            <PiratesShipPreview :tier-id="boss.id" animate class="size-full" />
+          </div>
+          <div class="p-5">
+            <h3 class="pr-display text-3xl leading-tight" :style="{ color: boss.accent }">
+              {{ boss.name }}
+            </h3>
+            <p class="pr-muted mt-1 text-xs leading-relaxed">
+              {{ boss.role }}
+            </p>
+            <div class="mt-3 flex flex-wrap gap-1.5">
+              <span v-for="trick in boss.abilities" :key="trick" class="pr-tag" :style="{ '--tag': boss.accent }">
+                <UIcon :name="ENEMY_ABILITY_INFO[trick].icon" class="size-3" />{{ ENEMY_ABILITY_INFO[trick].name }}
+              </span>
+            </div>
+            <div class="mt-3 flex flex-wrap gap-3 text-xs">
+              <span><span class="pr-dim">Hull</span> <b>{{ boss.hp }}</b></span>
+              <span><span class="pr-dim">Armour</span> <b>{{ boss.defense }}</b></span>
+              <span><span class="pr-dim">Earliest</span> <b>{{ boss.unlockAtMs ? pirateClock(boss.unlockAtMs) : 'Any time' }}</b></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
 </template>

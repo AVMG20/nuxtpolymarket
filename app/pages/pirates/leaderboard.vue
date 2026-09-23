@@ -5,86 +5,126 @@ definePageMeta({
 
 const { data: captains, pending } = await useFetch('/api/pirates/leaderboard')
 
-const rankStyles = [
-    'border-warning/40 bg-warning/10',
-    'border-default bg-elevated',
-    'border-warning/20 bg-warning/5'
-]
+// Gold, silver and bronze for the podium.
+const RANK_COLORS = ['#f3c35a', '#cbd5e1', '#d08a4f']
 
 </script>
 
 <template>
-  <UContainer class="space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="flex items-center gap-2 text-2xl font-bold">
-          <UIcon name="i-lucide-trophy" class="size-6 text-warning" />
-          Pirate Raid Hall of Captains
-        </h1>
-        <p class="mt-0.5 text-sm text-muted">
-          Ranked by the highest six-minute difficulty completed. Failed and abandoned voyages never enter the board.
-        </p>
-      </div>
-    </div>
+  <div class="mx-auto w-full max-w-6xl space-y-6 px-3 sm:px-6">
+    <header>
+      <p class="pr-heading text-xs">
+        Hall of
+      </p>
+      <h1 class="pr-display text-5xl leading-none sm:text-6xl">
+        Legends
+      </h1>
+      <p class="pr-muted mt-2 text-sm">
+        Ranked by the highest difficulty survived for all six minutes. Sunk and abandoned voyages never count.
+      </p>
+    </header>
 
-    <LeaderboardSkeleton v-if="pending" height="h-28" />
+    <div v-if="pending" class="space-y-2">
+      <div v-for="i in 6" :key="i" class="pr-skeleton h-24" />
+    </div>
 
     <div v-else-if="captains?.length" class="space-y-2">
-      <UCard
+      <div
         v-for="(captain, index) in captains"
         :key="captain.rank"
-        :class="[index < 3 ? rankStyles[index] : '', captain.isCurrentUser ? 'ring-1 ring-inset ring-primary/40' : '']"
-        :ui="{ body: 'p-3 sm:p-4' }"
+        class="pr-panel legend-row"
+        :class="{ 'pr-glow': index < 3 || captain.isCurrentUser }"
+        :style="{ '--glow': index < 3 ? RANK_COLORS[index] : '#2dd4bf', '--rank': RANK_COLORS[index] ?? '#5f7686' }"
       >
-        <div class="grid items-center gap-3 sm:grid-cols-[40px_minmax(190px,1fr)_repeat(3,minmax(80px,0.45fr))]">
-          <div class="flex size-10 items-center justify-center rounded-full border border-default bg-default text-lg font-black tabular-nums">
-            <UIcon v-if="index === 0" name="i-lucide-crown" class="size-6 text-warning" />
-            <span v-else>#{{ captain.rank }}</span>
-          </div>
+        <div class="legend-rank">
+          <UIcon v-if="index === 0" name="i-lucide-crown" class="size-6" />
+          <span v-else>{{ captain.rank }}</span>
+        </div>
 
-          <div class="flex min-w-0 items-center gap-3">
-            <div class="flex h-20 w-32 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-default bg-gradient-to-br from-info/15 via-elevated to-primary/10 p-2">
-              <img :src="captain.skin.sprite" :alt="captain.skin.name" class="h-full w-full object-contain drop-shadow-lg">
-            </div>
-            <div class="min-w-0">
-              <p class="flex items-center gap-1.5 truncate font-bold">
-                <PrestigeBadge :level="captain.prestige" size="xs" /> {{ captain.name }}
-                <LeaderboardYouBadge :show="captain.isCurrentUser" />
-              </p>
-              <p class="truncate text-xs text-muted">
-                {{ captain.skin.name }}
-              </p>
-              <UBadge v-if="captain.skin.id === 'crown-of-tides'" class="mt-1" color="warning" variant="subtle" size="sm" icon="i-lucide-gem" label="Ultimate flex" />
-            </div>
+        <div class="flex min-w-0 items-center gap-3">
+          <div class="legend-ship">
+            <PiratesShipPreview :skin-id="captain.skin.id" :animate="index === 0" class="h-full w-full" />
           </div>
-
-          <div class="flex items-center justify-between gap-2 sm:block sm:text-center">
-            <span class="text-[10px] font-bold uppercase tracking-wide text-muted sm:block">Difficulty</span>
-            <span class="text-lg font-black tabular-nums text-primary">{{ captain.difficulty }}</span>
-          </div>
-          <div class="flex items-center justify-between gap-2 sm:block sm:text-center">
-            <span class="text-[10px] font-bold uppercase tracking-wide text-muted sm:block">Ship power</span>
-            <span class="text-lg font-black tabular-nums">{{ captain.power }}</span>
-          </div>
-          <div class="flex items-center justify-between gap-2 sm:block sm:text-right">
-            <span class="text-[10px] font-bold uppercase tracking-wide text-muted sm:block">Loot secured</span>
-            <CoinBalance :value="captain.loot" class="justify-end text-lg font-black tabular-nums" />
+          <div class="min-w-0">
+            <p class="flex items-center gap-1.5 truncate font-bold">
+              <PrestigeBadge :level="captain.prestige" size="xs" /> {{ captain.name }}
+              <LeaderboardYouBadge :show="captain.isCurrentUser" />
+            </p>
+            <p class="pr-muted truncate text-xs">
+              {{ captain.skin.name }}
+            </p>
+            <span v-if="captain.skin.id === 'crown-of-tides'" class="pr-tag mt-1"><UIcon name="i-lucide-gem" class="size-3" />Ultimate flex</span>
           </div>
         </div>
-      </UCard>
+
+        <div class="legend-stat">
+          <span>Difficulty</span>
+          <b class="pr-gold">{{ captain.difficulty }}</b>
+        </div>
+        <div class="legend-stat">
+          <span>Ship power</span>
+          <b>{{ captain.power }}</b>
+        </div>
+        <div class="legend-stat sm:text-right">
+          <span>Best haul</span>
+          <CoinBalance :value="captain.loot" class="text-lg font-black sm:justify-end" />
+        </div>
+      </div>
     </div>
 
-    <UCard v-else>
-      <div class="py-10 text-center">
-        <UIcon name="i-lucide-waves" class="mx-auto size-10 text-muted" />
-        <p class="mt-3 font-semibold">
-          No captains have returned yet
-        </p>
-        <p class="mt-1 text-sm text-muted">
-          Complete all six minutes at difficulty 0 to claim the first place on the board.
-        </p>
-        <UButton class="mt-4" to="/pirates" icon="i-lucide-anchor" label="Set Sail" />
-      </div>
-    </UCard>
-  </UContainer>
+    <div v-else class="pr-parchment py-12 text-center">
+      <UIcon name="i-lucide-waves" class="mx-auto size-10 opacity-60" />
+      <p class="mt-3 text-xl font-bold" style="font-family: Cinzel, serif">
+        No legends yet
+      </p>
+      <p class="mt-1 text-sm opacity-75">
+        Survive all six minutes at difficulty 0 to take the first place.
+      </p>
+      <PiratesButton class="mt-4" variant="gold" to="/pirates" icon="i-lucide-sailboat" label="Set sail" />
+    </div>
+  </div>
 </template>
+
+<style scoped>
+.legend-row {
+  display: grid;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.8rem 1rem;
+}
+@media (min-width: 640px) {
+  .legend-row { grid-template-columns: 44px minmax(190px, 1fr) repeat(3, minmax(80px, 0.45fr)); }
+}
+.legend-rank {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 999px;
+  font-family: 'Cinzel', serif;
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: var(--rank);
+  background: radial-gradient(circle, color-mix(in srgb, var(--rank) 20%, transparent), rgba(0, 0, 0, 0.4));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--rank) 70%, transparent);
+}
+.legend-ship {
+  width: 7.5rem;
+  height: 4.75rem;
+  flex-shrink: 0;
+  border-radius: 0.6rem;
+  background: radial-gradient(ellipse at 50% 60%, rgba(45, 212, 191, 0.15), transparent 70%), linear-gradient(180deg, #0f2b3d, #081723);
+  box-shadow: inset 0 0 0 1px rgba(201, 151, 60, 0.3);
+}
+.legend-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.legend-stat span { font-size: 10px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: #5f7686; }
+.legend-stat b { font-size: 1.15rem; font-weight: 900; }
+@media (min-width: 640px) {
+  .legend-stat { display: grid; justify-content: stretch; text-align: center; }
+}
+</style>

@@ -1,4 +1,7 @@
-import { PirateAutopilot, PirateGame, type PirateLayaDecision, type PirateAutopilotStatus, type PirateAbilitySound, type PirateActivePowerUp, type PirateShipStats } from '~/utils/pirates-engine'
+import { PirateAutopilot, PirateGame, type PirateLayaDecision, type PirateAutopilotStatus } from '~/utils/pirates-engine'
+import type {
+    PirateAnnouncement, PirateGameOverResult, PirateHudState, PirateShipStats, PirateSoundEvent, SoundOptions
+} from '~/utils/pirates-engine/types'
 import type { PirateAbilityId } from '#shared/utils/gamelogic/pirates'
 
 const pirateSound = usePirateSound()
@@ -25,57 +28,43 @@ interface PirateStateSnapshot {
     cannons: { slotIndex: number, tierId: string, attackRating: number, maxDamage: number, reloadMs: number, range: number, shotColor: number, shotTrail: boolean }[]
 }
 
-export interface PirateGameOverInfo {
-    survived: boolean
-    reason: 'timeout' | 'defeat' | 'cancelled'
-    coins: number
+/** The engine's end-of-voyage report plus what the server actually paid out. */
+export interface PirateGameOverInfo extends PirateGameOverResult {
     awarded: number
+    runCoins: number
     completionBonus: number
-    capped: boolean
-    kills: number
-    shotsFired: number
-    abilitiesUsed: number
-    sunkByType: { id: string, name: string, count: number }[]
-    maxCombo: number
-    elapsedMs: number
     repairMs: number
     difficulty: number
     completed: boolean
 }
 
-const hp = ref(0)
-const maxHp = ref(0)
-const coins = ref(0)
-const ammo = ref(0)
-const gemAmmo = ref(0)
-const preferGem = ref(false)
-const abilityCooldownMs = ref(0)
-const abilityCooldownTotalMs = ref(15_000)
-// Unavailable but not ticking down — the consort holds this while its escort
-// is still alive, since its cooldown only starts once the escort sinks.
-const abilityLocked = ref(false)
-const remainingMs = ref(0)
+export interface PirateLiveAnnouncement extends PirateAnnouncement {
+    id: number
+}
+
+/** How long each kind of floating card stays up. */
+const ANNOUNCE_MS: Record<PirateAnnouncement['kind'], number> = {
+    boss: 4800,
+    upgrade: 3400,
+    crate: 2600,
+    repair: 2200,
+    warning: 3000
+}
+const MAX_ANNOUNCEMENTS = 3
+
+/** Letters of Marque multiplier for the voyage in progress. */
+let payMultiplier = 1
+const hud = shallowRef<PirateHudState | null>(null)
 const running = ref(false)
 const paused = ref(false)
 const starting = ref(false)
-const killFeed = ref<{ id: number, text: string }[]>([])
-const activePowerUps = ref<PirateActivePowerUp[]>([])
-const nextPowerUpMs = ref(30_000)
-const nextHealthPackMs = ref(45_000)
-const powerUpNotice = ref<{ title: string, collected: boolean } | null>(null)
-let powerUpNoticeTimeout: ReturnType<typeof setTimeout> | null = null
-let killFeedSeq = 0
-
-const combo = ref(0)
-const comboVisible = ref(false)
-let comboTimeout: ReturnType<typeof setTimeout> | null = null
-
-const bossName = ref('')
-const bossVisible = ref(false)
-let bossTimeout: ReturnType<typeof setTimeout> | null = null
+const preferGem = ref(false)
+const announcements = ref<PirateLiveAnnouncement[]>([])
+let announceSeq = 0
 
 const gameOverVisible = ref(false)
 const gameOverResult = ref<PirateGameOverInfo | null>(null)
+const submitting = ref(false)
 
 let game: PirateGame | null = null
 let autopilot: PirateAutopilot | null = null
@@ -84,6 +73,7 @@ const autopilotEnabled = ref(false)
 const autopilotStatus = ref<PirateAutopilotStatus | null>(null)
 const autopilotDecision = shallowRef<PirateLayaDecision | null>(null)
 let resizeObserver: ResizeObserver | null = null
+let lastTension = -1
 
 // Rebound on every usePirateRun() call (i.e. every time a page mounts), so an
 // engine callback that fires later — after the player has navigated to a
@@ -93,58 +83,43 @@ let currentToast: ReturnType<typeof useToast> | null = null
 let currentFetchSession: (() => Promise<unknown>) | null = null
 let currentRefresh: (() => Promise<unknown>) | null = null
 
-function pushKillFeed(text: string) {
-    const id = killFeedSeq++
-    killFeed.value = [...killFeed.value, { id, text }].slice(-4)
-    setTimeout(() => { killFeed.value = killFeed.value.filter(k => k.id !== id) }, 3000)
+function setTension(value: number) {
+    if (value === lastTension) return
+    lastTension = value
+    pirateSound.setTension(value)
 }
 
-function showCombo(count: number) {
-    combo.value = count
-    comboVisible.value = true
-    if (comboTimeout) clearTimeout(comboTimeout)
-    comboTimeout = setTimeout(() => { comboVisible.value = false }, 2500)
+function announce(announcement: PirateAnnouncement) {
+    // Crates are visible on the sea (glowing in their rarity colour) and a
+    // collected upgrade appears in the HUD row, hover it for details. Cards
+    // for either in the middle of the sea only got in the way.
+    if (announcement.kind === 'upgrade' || announcement.kind === 'crate') return
+    const id = announceSeq++
+    // A newer card of the same kind replaces the old one (two crate notices
+    // in a row, or a second boss) rather than stacking up copies.
+    const others = announcements.value.filter(item => item.kind !== announcement.kind || announcement.kind === 'upgrade')
+    announcements.value = [...others, { ...announcement, id }].slice(-MAX_ANNOUNCEMENTS)
+    setTimeout(() => {
+        announcements.value = announcements.value.filter(item => item.id !== id)
+    }, ANNOUNCE_MS[announcement.kind])
 }
 
-function showBossWarning(name: string) {
-    bossName.value = name
-    bossVisible.value = true
-    if (bossTimeout) clearTimeout(bossTimeout)
-    bossTimeout = setTimeout(() => { bossVisible.value = false }, 4000)
+function dismissAnnouncement(id: number) {
+    announcements.value = announcements.value.filter(item => item.id !== id)
 }
 
-function showPowerUpNotice(title: string, collected: boolean) {
-    powerUpNotice.value = { title, collected }
-    if (powerUpNoticeTimeout) clearTimeout(powerUpNoticeTimeout)
-    powerUpNoticeTimeout = setTimeout(() => { powerUpNotice.value = null }, collected ? 2600 : 4200)
-}
-
-async function handleGameOver(result: {
-    survived: boolean
-    coins: number
-    elapsedMs: number
-    ammoUsed: number
-    gemAmmoUsed: number
-    kills: number
-    shotsFired: number
-    abilitiesUsed: number
-    sunkByType: { id: string, name: string, count: number }[]
-    maxCombo: number
-    reason: 'timeout' | 'defeat' | 'cancelled'
-    hullDamageFraction: number
-}) {
+async function handleGameOver(result: PirateGameOverResult) {
     pirateSound.stopAmbience()
-    pirateSound.stopKrakenLoop()
+    pirateSound.play('maelstrom-loop-stop')
+    setTension(0)
     running.value = false
     paused.value = false
-    comboVisible.value = false
-    activePowerUps.value = []
-    powerUpNotice.value = null
+    announcements.value = []
+    submitting.value = true
     try {
         const res = await $fetch('/api/pirates/finish-run', {
             method: 'POST',
             body: {
-                coins: result.coins,
                 survived: result.survived,
                 ammoUsed: result.ammoUsed,
                 gemAmmoUsed: result.gemAmmoUsed,
@@ -156,71 +131,51 @@ async function handleGameOver(result: {
             }
         })
         gameOverResult.value = {
-            survived: result.survived,
-            reason: result.reason,
-            coins: result.coins,
-            awarded: res.awarded,
-            completionBonus: res.completionBonus ?? 0,
-            capped: res.capped,
-            kills: result.kills,
-            shotsFired: result.shotsFired,
-            abilitiesUsed: result.abilitiesUsed,
-            sunkByType: result.sunkByType,
-            maxCombo: result.maxCombo,
+            ...result,
             elapsedMs: res.elapsedMs,
+            awarded: res.awarded,
+            runCoins: res.runCoins,
+            completionBonus: res.completionBonus ?? 0,
             repairMs: res.repairTotalMs ?? 0,
             difficulty: res.difficulty,
             completed: res.completed
         }
         gameOverVisible.value = true
         await Promise.all([currentRefresh?.(), currentFetchSession?.()])
-    } catch (e: any) {
-        currentToast?.add({ title: e.data?.message ?? 'Failed to submit voyage results', color: 'error' })
+    } catch (e: unknown) {
+        currentToast?.add({ title: apiErrorMessage(e, 'Failed to submit voyage results'), color: 'error' })
+    } finally {
+        submitting.value = false
     }
 }
 
 function buildCallbacks() {
     return {
-        onHpChange: (h: number, mh: number) => { hp.value = h; maxHp.value = mh },
-        onCoinsChange: (c: number) => { coins.value = c },
-        onAmmoChange: (a: number, g: number) => { ammo.value = a; gemAmmo.value = g },
-        onAbilityCooldownChange: (remaining: number, total: number, locked?: boolean) => {
-            abilityCooldownMs.value = remaining
-            abilityCooldownTotalMs.value = total
-            abilityLocked.value = locked ?? false
+        onHud: (next: PirateHudState) => {
+            // The sim knows base survival pay; Letters of Marque scale it on
+            // the server at settlement, so the HUD applies the same factor.
+            hud.value = payMultiplier === 1 ? next : { ...next, coins: Math.floor(next.coins * payMultiplier), coinRate: next.coinRate * payMultiplier }
+            preferGem.value = next.preferGem
+            if (running.value) setTension(next.bosses.length ? 1 : 0.35)
         },
-        onTimeChange: (_elapsed: number, remaining: number) => { remainingMs.value = remaining },
-        onGameOver: (result: Parameters<typeof handleGameOver>[0]) => { handleGameOver(result) },
-        onCannonFire: () => pirateSound.play('cannon-fire'),
-        onCannonImpact: () => pirateSound.play('cannon-impact'),
-        onShipHit: () => pirateSound.play('ship-hit'),
-        onAbilitySound: (sound: PirateAbilitySound) => {
-            if (sound === 'kraken-loop-start') pirateSound.startKrakenLoop()
-            else if (sound === 'kraken-loop-stop') pirateSound.stopKrakenLoop()
-            else pirateSound.play(sound)
-        },
-        onKill: (tierName: string, reward: number) => {
-            pirateSound.play('enemy-sunk')
-            pushKillFeed(reward > 0 ? `Sunk a ${tierName} (+${reward} banked)` : `Sunk a ${tierName}`)
-        },
-        onCombo: (count: number) => showCombo(count),
-        onBossSpawn: (name: string) => showBossWarning(name),
-        onPowerUpsChange: (powerUps: PirateActivePowerUp[], nextDropMs: number, nextRepairMs: number) => {
-            activePowerUps.value = powerUps
-            nextPowerUpMs.value = nextDropMs
-            nextHealthPackMs.value = nextRepairMs
-        },
-        onPowerUpSpawn: (name: string) => showPowerUpNotice(`${name} sighted — sail to collect it!`, false),
-        onPowerUpCollected: (name: string) => {
-            pirateSound.play(name.startsWith('Reinforced Keel') ? 'speed-boost' : 'power-up')
-            showPowerUpNotice(`${name} activated!`, true)
-        },
-        onHealthPackSpawn: () => showPowerUpNotice('Hull repair pack sighted — sail to collect it!', false),
-        onHealthPackCollected: (amount: number) => {
-            pirateSound.play('power-up')
-            showPowerUpNotice(`Hull repaired by ${amount}!`, true)
-        },
-        onTreasureCollected: () => pirateSound.play('treasure-pickup')
+        onGameOver: (result: PirateGameOverResult) => { handleGameOver(result) },
+        onAnnounce: (announcement: PirateAnnouncement) => announce(announcement),
+        onSound: (sound: PirateSoundEvent, options?: SoundOptions) => pirateSound.play(sound, options)
+    }
+}
+
+function statsFromState(state: PirateStateSnapshot): PirateShipStats {
+    return {
+        maxHp: state.stats.maxHp,
+        speed: state.stats.speed,
+        defenseRating: state.stats.defenseRating,
+        regenRate: state.stats.regenRate,
+        ammo: state.ammo.count,
+        gemAmmo: state.gemAmmo.count,
+        skinId: state.equippedSkinId,
+        abilityId: state.equippedAbilityId,
+        abilityLevel: state.equippedAbilityLevel ?? 1,
+        cannons: state.cannons.map(c => ({ slotIndex: c.slotIndex, tierId: c.tierId, attackRating: c.attackRating, maxDamage: c.maxDamage, reloadMs: c.reloadMs, range: c.range, shotColor: c.shotColor, shotTrail: c.shotTrail }))
     }
 }
 
@@ -255,6 +210,7 @@ export function usePirateRun() {
         if (game) {
             if (stateRef.value?.equippedSkinId) game.setPlayerSkin(stateRef.value.equippedSkinId)
             game.attach(host)
+            game.resize(host.clientWidth, host.clientHeight)
             setupResizeObserver(host)
             return
         }
@@ -263,7 +219,7 @@ export function usePirateRun() {
 
         if (stateRef.value.activeRun) {
             try {
-                await $fetch('/api/pirates/finish-run', { method: 'POST', body: { coins: 0, survived: false, abandoned: true } })
+                await $fetch('/api/pirates/finish-run', { method: 'POST', body: { survived: false, abandoned: true } })
                 await refresh()
             } catch {
                 // ignore — state.get will still surface the lock if this failed
@@ -272,21 +228,9 @@ export function usePirateRun() {
 
         const state = stateRef.value
         if (!state) return
-        game = new PirateGame(buildCallbacks(), {
-            maxHp: state.stats.maxHp,
-            speed: state.stats.speed,
-            defenseRating: state.stats.defenseRating,
-            regenRate: state.stats.regenRate,
-            ammo: state.ammo.count,
-            gemAmmo: state.gemAmmo.count,
-            skinId: state.equippedSkinId,
-            abilityId: state.equippedAbilityId,
-            abilityLevel: state.equippedAbilityLevel ?? 1,
-            cannons: state.cannons.map(c => ({ slotIndex: c.slotIndex, tierId: c.tierId, attackRating: c.attackRating, maxDamage: c.maxDamage, reloadMs: c.reloadMs, range: c.range, shotColor: c.shotColor, shotTrail: c.shotTrail }))
-        } satisfies PirateShipStats)
-
+        game = new PirateGame(buildCallbacks(), statsFromState(state))
         await game.mount(host)
-        game.resize(host.clientWidth)
+        game.resize(host.clientWidth, host.clientHeight)
         setupResizeObserver(host)
     }
 
@@ -298,37 +242,27 @@ export function usePirateRun() {
             game.pause()
             pirateSound.stopEffects()
             // The page owns the sea ambience. Tear it down rather than merely
-            // pausing it so a pending seagull callback cannot survive a route
-            // change and play on unrelated pages.
+            // pausing it so nothing keeps playing on unrelated pages.
             pirateSound.stopAmbience()
-            pirateSound.pauseKrakenLoop()
+            pirateSound.play('maelstrom-loop-stop')
+            setTension(0)
             running.value = false
             paused.value = true
         }
     }
 
-    async function startVoyage(state: { cannons: unknown[], ammo: { count: number }, gemAmmo: { count: number } }, difficulty: number) {
+    async function startVoyage(state: PirateStateSnapshot, difficulty: number) {
         if (!game || running.value || paused.value || starting.value) return
         if (state.cannons.length === 0) return
         starting.value = true
         try {
             const res = await $fetch('/api/pirates/start-run', { method: 'POST', body: { difficulty } })
-            hp.value = res.stats.maxHp
-            maxHp.value = res.stats.maxHp
-            coins.value = 0
-            ammo.value = res.ammo
-            gemAmmo.value = res.gemAmmo
+            payMultiplier = res.payMultiplier ?? 1
             preferGem.value = false
-            abilityCooldownMs.value = 0
-            abilityLocked.value = false
-            remainingMs.value = res.runDurationMs
-            killFeed.value = []
-            activePowerUps.value = []
-            nextPowerUpMs.value = 30_000
-            nextHealthPackMs.value = 45_000
-            powerUpNotice.value = null
-            comboVisible.value = false
+            announcements.value = []
             gameOverVisible.value = false
+            gameOverResult.value = null
+            hud.value = null
             running.value = true
             paused.value = false
             game.start({
@@ -344,8 +278,10 @@ export function usePirateRun() {
                 cannons: res.cannons
             }, res.power, res.difficulty)
             pirateSound.startAmbience()
-        } catch (e: any) {
-            currentToast?.add({ title: e.data?.message ?? 'Failed to set sail', color: 'error' })
+            setTension(0.35)
+        } catch (e: unknown) {
+            running.value = false
+            currentToast?.add({ title: apiErrorMessage(e, 'Failed to set sail'), color: 'error' })
         } finally {
             starting.value = false
         }
@@ -355,7 +291,7 @@ export function usePirateRun() {
         if (!game || !running.value) return
         game.pause()
         pirateSound.pauseAmbience()
-        pirateSound.pauseKrakenLoop()
+        setTension(0)
         running.value = false
         paused.value = true
     }
@@ -364,14 +300,18 @@ export function usePirateRun() {
         if (!game || !paused.value) return
         game.resume()
         pirateSound.startAmbience()
-        pirateSound.resumeKrakenLoop()
         paused.value = false
         running.value = true
+        setTension(hud.value?.bosses.length ? 1 : 0.35)
     }
 
-    /** Ends the voyage early by player choice — banks whatever's been earned so far. */
+    /** Ends the voyage early by player choice — banks the survival pay earned so far. */
     function cancelVoyage() {
         game?.cancel()
+    }
+
+    function castAbility() {
+        if (running.value) game?.castAbility()
     }
 
     function toggleAmmoMode() {
@@ -402,28 +342,14 @@ export function usePirateRun() {
     }
 
     return {
-        hp,
-        maxHp,
-        coins,
-        ammo,
-        gemAmmo,
-        preferGem,
-        abilityCooldownMs,
-        abilityCooldownTotalMs,
-        abilityLocked,
-        remainingMs,
+        hud,
         running,
         paused,
         starting,
-        killFeed,
-        activePowerUps,
-        nextPowerUpMs,
-        nextHealthPackMs,
-        powerUpNotice,
-        combo,
-        comboVisible,
-        bossName,
-        bossVisible,
+        submitting,
+        preferGem,
+        announcements,
+        dismissAnnouncement,
         gameOverVisible,
         gameOverResult,
         hasActiveVoyage: computed(() => running.value || paused.value),
@@ -434,6 +360,7 @@ export function usePirateRun() {
         pauseVoyage,
         resumeVoyage,
         cancelVoyage,
+        castAbility,
         toggleAmmoMode,
         closeGameOver,
         autopilotEnabled,

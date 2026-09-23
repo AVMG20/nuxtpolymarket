@@ -26,156 +26,148 @@ function dateLabel(value: string | Date) {
 
 function outcome(voyage: NonNullable<typeof voyages.value>[number]) {
     if (voyage.survived || voyage.reason === 'timeout') {
-        return { label: 'Survived', icon: 'i-lucide-shield-check', color: 'success' as const }
+        return { label: 'Made it home', icon: 'i-lucide-crown', color: '#3ddc97' }
     }
     if (voyage.reason === 'cancelled') {
-        return { label: 'Returned early', icon: 'i-lucide-flag', color: 'neutral' as const }
+        return { label: 'Turned for port', icon: 'i-lucide-flag', color: '#93a8b6' }
     }
-    return { label: 'Ship sunk', icon: 'i-lucide-skull', color: 'error' as const }
+    return { label: 'Sunk', icon: 'i-lucide-skull', color: '#f0524f' }
 }
 </script>
 
 <template>
-  <UContainer class="space-y-6">
-    <div class="flex flex-wrap items-center justify-between gap-3">
+  <div class="mx-auto w-full max-w-6xl space-y-6 px-3 sm:px-6">
+    <header class="flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 class="flex items-center gap-2 text-2xl font-bold">
-          <UIcon name="i-lucide-scroll-text" class="size-6 text-primary" />
-          Captain's Log
+        <p class="pr-heading text-xs">
+          The captain's
+        </p>
+        <h1 class="pr-display text-5xl leading-none sm:text-6xl">
+          Log
         </h1>
-        <p class="mt-0.5 text-sm text-muted">
-          Your latest 50 server-verified voyages, newest first.
+        <p class="pr-muted mt-2 text-sm">
+          Your last 50 voyages, newest first.
         </p>
       </div>
-      <UButton color="neutral" variant="subtle" icon="i-lucide-refresh-cw" label="Refresh" :loading="pending" @click="refresh()" />
-    </div>
+      <PiratesButton variant="wood" icon="i-lucide-refresh-cw" label="Refresh" :loading="pending" @click="refresh()" />
+    </header>
 
     <div v-if="pending" class="space-y-3">
       <div class="grid gap-3 sm:grid-cols-3">
-        <USkeleton v-for="i in 3" :key="i" class="h-24 rounded-xl" />
+        <div v-for="i in 3" :key="i" class="pr-skeleton h-24" />
       </div>
-      <USkeleton v-for="i in 8" :key="i" class="h-32 rounded-xl" />
+      <div v-for="i in 6" :key="i" class="pr-skeleton h-28" />
     </div>
 
     <template v-else-if="voyages?.length">
       <div class="grid gap-3 sm:grid-cols-3">
-        <UCard :ui="{ body: 'p-4' }">
-          <div class="flex items-center gap-3">
-            <div class="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <UIcon name="i-lucide-map" class="size-5" />
-            </div>
-            <div>
-              <p class="text-xs font-bold uppercase tracking-wide text-muted">Voyages shown</p>
-              <p class="text-xl font-black tabular-nums">{{ formatNumber(voyages.length, false, 0) }}</p>
-            </div>
+        <div class="pr-panel flex items-center gap-3 p-4">
+          <div class="grid size-11 place-items-center rounded-full pr-glow text-[var(--pr-teal)]" style="--glow: #2dd4bf">
+            <UIcon name="i-lucide-map" class="size-5" />
           </div>
-        </UCard>
-        <UCard :ui="{ body: 'p-4' }">
-          <div class="flex items-center gap-3">
-            <div class="flex size-10 items-center justify-center rounded-lg bg-warning/10 text-warning">
-              <UIcon name="i-lucide-coins" class="size-5" />
-            </div>
-            <div>
-              <p class="text-xs font-bold uppercase tracking-wide text-muted">Loot secured</p>
-              <CoinBalance :value="totalLoot" class="text-xl font-black tabular-nums" />
-            </div>
+          <div>
+            <p class="pr-dim text-[10px] font-bold uppercase tracking-wider">Voyages</p>
+            <p class="text-2xl font-black">{{ formatNumber(voyages.length, false, 0) }}</p>
           </div>
-        </UCard>
-        <UCard :ui="{ body: 'p-4' }">
-          <div class="flex items-center gap-3">
-            <div class="flex size-10 items-center justify-center rounded-lg bg-success/10 text-success">
-              <UIcon name="i-lucide-skull" class="size-5" />
-            </div>
-            <div>
-              <p class="text-xs font-bold uppercase tracking-wide text-muted">Ships sunk · best time</p>
-              <p class="text-xl font-black tabular-nums">{{ formatNumber(totalKills, true, 0) }} · {{ durationLabel(bestSurvivalMs) }}</p>
-            </div>
+        </div>
+        <div class="pr-panel flex items-center gap-3 p-4">
+          <div class="grid size-11 place-items-center rounded-full pr-glow text-[var(--pr-gold)]" style="--glow: #f3c35a">
+            <UIcon name="i-lucide-coins" class="size-5" />
           </div>
-        </UCard>
+          <div>
+            <p class="pr-dim text-[10px] font-bold uppercase tracking-wider">Coins earned</p>
+            <CoinBalance :value="totalLoot" class="text-2xl font-black" />
+          </div>
+        </div>
+        <div class="pr-panel flex items-center gap-3 p-4">
+          <div class="grid size-11 place-items-center rounded-full pr-glow text-[var(--pr-blood)]" style="--glow: #f0524f">
+            <UIcon name="i-lucide-skull" class="size-5" />
+          </div>
+          <div>
+            <p class="pr-dim text-[10px] font-bold uppercase tracking-wider">Ships sunk · best time</p>
+            <p class="text-2xl font-black">{{ formatNumber(totalKills, true, 0) }} · {{ durationLabel(bestSurvivalMs) }}</p>
+          </div>
+        </div>
       </div>
 
       <div class="space-y-2">
-        <UCard
+        <div
           v-for="voyage in voyages"
           :key="voyage.id"
-          class="overflow-hidden"
-          :ui="{ body: 'p-3 sm:p-4' }"
+          class="pr-panel log-row"
+          :style="{ '--tone': outcome(voyage).color }"
         >
-          <div class="flex flex-col gap-4 lg:flex-row lg:items-center">
-            <div class="flex min-w-0 items-center gap-3 lg:w-2/5">
-              <div class="flex h-24 w-36 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-default bg-gradient-to-br from-info/15 via-elevated to-primary/10 p-2.5 shadow-sm">
-                <img :src="voyage.skin.sprite" :alt="voyage.skin.name" class="h-full w-full object-contain drop-shadow-lg">
-              </div>
-              <div class="min-w-0">
-                <div class="flex flex-wrap items-center gap-1.5">
-                  <UBadge v-bind="outcome(voyage)" variant="subtle" size="sm" />
-                  <UBadge color="primary" variant="subtle" size="sm" :label="`Difficulty ${voyage.difficulty}`" />
-                  <span class="text-[10px] font-bold uppercase tracking-wide text-muted">Recent #{{ voyage.recentNumber }}</span>
-                </div>
-                <p class="mt-1.5 truncate text-base font-bold">{{ voyage.skin.name }}</p>
-                <p class="truncate text-xs text-muted">{{ dateLabel(voyage.createdAt) }}</p>
-                <UBadge
-                  class="mt-2"
-                  color="neutral"
-                  variant="subtle"
-                  size="sm"
-                  icon="i-lucide-crosshair"
-                  :label="`${formatNumber(voyage.shotsFired, true, 0)} shots fired`"
-                />
-              </div>
+          <div class="flex min-w-0 items-center gap-3 lg:w-2/5">
+            <div class="log-ship">
+              <PiratesShipPreview :skin-id="voyage.skin.id" class="h-full w-full" />
             </div>
-
-            <div class="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
-              <div class="rounded-xl bg-elevated/60 px-3 py-3">
-                <div class="flex items-center gap-1.5 text-muted">
-                  <UIcon name="i-lucide-timer" class="size-3.5" />
-                  <span class="text-[10px] font-bold uppercase tracking-wide">Survived</span>
-                </div>
-                <p class="mt-1 text-xl font-black tabular-nums">{{ durationLabel(voyage.durationMs) }}</p>
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="pr-tag" :style="{ '--tag': outcome(voyage).color }"><UIcon :name="outcome(voyage).icon" class="size-3" />{{ outcome(voyage).label }}</span>
+                <span class="pr-tag">Difficulty {{ voyage.difficulty }}</span>
               </div>
-              <div class="rounded-xl bg-primary/10 px-3 py-3">
-                <div class="flex items-center gap-1.5 text-primary">
-                  <UIcon name="i-lucide-gauge" class="size-3.5" />
-                  <span class="text-[10px] font-bold uppercase tracking-wide">Power</span>
-                </div>
-                <p class="mt-1 text-xl font-black tabular-nums text-primary">{{ voyage.power }}</p>
-              </div>
-              <div class="rounded-xl bg-elevated/60 px-3 py-3">
-                <div class="flex items-center gap-1.5 text-muted">
-                  <UIcon name="i-lucide-skull" class="size-3.5" />
-                  <span class="text-[10px] font-bold uppercase tracking-wide">Ships sunk</span>
-                </div>
-                <p class="mt-1 text-xl font-black tabular-nums">{{ formatNumber(voyage.kills, true, 0) }}</p>
-              </div>
-              <div class="rounded-xl bg-warning/10 px-3 py-3">
-                <div class="flex items-center gap-1.5 text-warning">
-                  <UIcon name="i-lucide-coins" class="size-3.5" />
-                  <span class="text-[10px] font-bold uppercase tracking-wide">Loot</span>
-                </div>
-                <CoinBalance :value="voyage.loot" class="mt-1 text-xl font-black tabular-nums" />
-              </div>
+              <p class="mt-1.5 truncate font-bold">{{ voyage.skin.name }}</p>
+              <p class="pr-dim truncate text-xs">#{{ voyage.recentNumber }} · {{ dateLabel(voyage.createdAt) }} · {{ formatNumber(voyage.shotsFired, true, 0) }} shots</p>
             </div>
           </div>
-        </UCard>
+
+          <div class="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4">
+            <div class="pr-inset px-3 py-2">
+              <p class="pr-dim text-[10px] font-bold uppercase tracking-wider">Afloat</p>
+              <p class="text-xl font-black">{{ durationLabel(voyage.durationMs) }}</p>
+            </div>
+            <div class="pr-inset px-3 py-2">
+              <p class="pr-dim text-[10px] font-bold uppercase tracking-wider">Power</p>
+              <p class="text-xl font-black text-[var(--pr-teal)]">{{ voyage.power }}</p>
+            </div>
+            <div class="pr-inset px-3 py-2">
+              <p class="pr-dim text-[10px] font-bold uppercase tracking-wider">Sunk</p>
+              <p class="text-xl font-black">{{ formatNumber(voyage.kills, true, 0) }}</p>
+            </div>
+            <div class="pr-inset px-3 py-2">
+              <p class="pr-dim text-[10px] font-bold uppercase tracking-wider">Coins</p>
+              <CoinBalance :value="voyage.loot" class="text-xl font-black" />
+            </div>
+          </div>
+        </div>
       </div>
     </template>
 
-    <UAlert
-      v-else-if="error"
-      color="error"
-      variant="subtle"
-      icon="i-lucide-circle-alert"
-      title="Could not load the captain's log"
-      description="Try refreshing the page in a moment."
-    />
+    <div v-else-if="error" class="pr-panel flex items-center gap-3 p-4 text-sm text-[var(--pr-blood)]">
+      <UIcon name="i-lucide-circle-alert" class="size-5" />
+      Could not load the captain's log. Try refreshing in a moment.
+    </div>
 
-    <UCard v-else>
-      <div class="py-10 text-center">
-        <UIcon name="i-lucide-scroll-text" class="mx-auto size-10 text-muted" />
-        <p class="mt-3 font-semibold">Your captain's log is empty</p>
-        <p class="mt-1 text-sm text-muted">Complete a voyage and its results will appear here.</p>
-        <UButton class="mt-4" to="/pirates" icon="i-lucide-anchor" label="Set Sail" />
-      </div>
-    </UCard>
-  </UContainer>
+    <div v-else class="pr-parchment py-12 text-center">
+      <UIcon name="i-lucide-scroll-text" class="mx-auto size-10 opacity-60" />
+      <p class="mt-3 text-xl font-bold" style="font-family: Cinzel, serif">
+        The log is empty
+      </p>
+      <p class="mt-1 text-sm opacity-75">
+        Finish a voyage and it will be written here.
+      </p>
+      <PiratesButton class="mt-4" variant="gold" to="/pirates" icon="i-lucide-sailboat" label="Set sail" />
+    </div>
+  </div>
 </template>
+
+<style scoped>
+.log-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0.85rem 1rem 0.85rem 1.1rem;
+  border-left: 3px solid var(--tone);
+}
+@media (min-width: 1024px) {
+  .log-row { flex-direction: row; align-items: center; }
+}
+.log-ship {
+  width: 8.5rem;
+  height: 5.5rem;
+  flex-shrink: 0;
+  border-radius: 0.7rem;
+  background: radial-gradient(ellipse at 50% 60%, rgba(45, 212, 191, 0.15), transparent 70%), linear-gradient(180deg, #0f2b3d, #081723);
+  box-shadow: inset 0 0 0 1px rgba(201, 151, 60, 0.3);
+}
+</style>
