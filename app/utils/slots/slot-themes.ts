@@ -109,3 +109,21 @@ export const SPINATA_BAR_THEME: SlotTheme = {
     font: 'system-ui, -apple-system, \'Segoe UI\', sans-serif',
     numberFont: '\'Lilita One\', \'Arial Black\', sans-serif'
 }
+
+/** Trash Panda Heist: loot gold on alley-night indigo. */
+export const TRASH_BAR_THEME: SlotTheme = {
+    accent: '#facc15',
+    accentDeep: '#b45309',
+    onAccent: '#1a1030',
+    surface: 'rgba(16, 10, 38, 0.72)',
+    control: 'rgba(196, 181, 253, 0.12)',
+    line: 'rgba(196, 181, 253, 0.2)',
+    text: '#f5f3ff',
+    muted: '#a8a2cf',
+    win: '#fde047',
+    buy: '#22c55e',
+    onBuy: '#052e16',
+    panel: '#191034',
+    font: '\'Fredoka\', system-ui, sans-serif',
+    numberFont: '\'Lilita One\', \'Fredoka\', system-ui, sans-serif'
+}

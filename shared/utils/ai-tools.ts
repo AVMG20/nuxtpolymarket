@@ -29,6 +29,7 @@ export const AI_TOOL_CATALOG = [
     { name: 'play_fireinthehole_rounds', description: 'Play 1 to 200 Fire in the Hole rounds. This spends coins.', wikiDescription: 'Play a bounded Fire in the Hole session.', requiresConfirmation: true, capability: 'casino' },
     { name: 'play_bookofshadows_rounds', description: 'Play 1 to 200 Book of Shadows rounds. This spends coins.', wikiDescription: 'Play a bounded Book of Shadows session.', requiresConfirmation: true, capability: 'casino' },
     { name: 'play_spinata_rounds', description: 'Play 1 to 200 Spiñata rounds. This spends coins.', wikiDescription: 'Play a bounded Spiñata session.', requiresConfirmation: true, capability: 'casino' },
+    { name: 'play_trashpanda_rounds', description: 'Play 1 to 200 Trash Panda Heist rounds. This spends coins.', wikiDescription: 'Play a bounded Trash Panda Heist session.', requiresConfirmation: true, capability: 'casino' },
     { name: 'call_game_api', description: 'Call any authenticated Polynux game API for the current player. Use this only for game actions not covered by a purpose-built tool. The exact path and payload are shown to the player for approval. Account, auth, chat, analytics, leaderboard, and AI APIs are not allowed.', wikiDescription: 'Use another allowed game action not listed above.', requiresConfirmation: true, capability: 'api' }
 ] as const
 

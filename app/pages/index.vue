@@ -49,6 +49,14 @@ const slotGames: {
     gradient: 'from-orange-950 to-slate-900',
     iconColor: 'text-orange-400',
   },
+  {
+    name: 'Trash Panda Heist',
+    description: '5×4 reels, 1,024 ways, sticky multiplier-wild free spins & a Dumpster Dive pick game',
+    icon: 'i-lucide-trash-2',
+    to: '/games/trashpanda',
+    gradient: 'from-indigo-950 to-slate-900',
+    iconColor: 'text-yellow-400'
+  },
 ]
 
 const casinoGames = [

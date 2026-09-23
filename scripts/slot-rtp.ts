@@ -10,7 +10,7 @@
 //
 // Run:  bun run scripts/slot-rtp.ts <game> [rounds] [feature] [--fast]
 //
-//   game     aethergates | bookofshadows | candymadness | fireinthehole | xenoslot
+//   game     aethergates | bookofshadows | candymadness | fireinthehole | trashpanda | xenoslot
 //   rounds   number of rounds to simulate (defaults per game, see PROFILES)
 //   feature  a feature-buy token valid for that game (see PROFILES), omit for base spins
 //   --fast   swap crypto.getRandomValues for Math.random before importing the
@@ -104,6 +104,62 @@ function fithExtra(mod: any): ExtraTracker {
     }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function trashPandaExtra(_mod: any): ExtraTracker {
+    let rounds = 0
+    let cost = 0
+    let dives = 0
+    let dive = 0
+    let keyFs = 0
+    let keyPay = 0
+    let scatterFs = 0
+    let scatterPay = 0
+    let retriggers = 0
+    let fsSpins = 0
+    const fsPays: number[] = []
+    const divePays: number[] = []
+
+    return {
+        collect(r) {
+            rounds++
+            cost += r.cost
+            if (r.dive) {
+                dives++
+                dive += r.divePayout
+                divePays.push(r.divePayout / r.bet)
+            }
+            const fs = r.freeSpins
+            if (!fs) return
+            fsSpins += fs.spins.length
+            if (fs.spins.some((s: { retrigger: number }) => s.retrigger > 0)) retriggers++
+            fsPays.push(r.freeSpinsPayout / r.bet)
+            if (fs.source === 'key') {
+                keyFs++
+                keyPay += r.freeSpinsPayout
+            } else {
+                scatterFs++
+                scatterPay += r.freeSpinsPayout
+            }
+        },
+        report() {
+            const q = (arr: number[], f: number) => {
+                const s = [...arr].sort((a, b) => a - b)
+                return (s[Math.floor(f * (s.length - 1))] ?? 0).toFixed(1)
+            }
+            const mean = (arr: number[]) => (arr.reduce((a, b) => a + b, 0) / Math.max(1, arr.length)).toFixed(1)
+            console.log('\nfeature split:')
+            console.log(`  dumpster dive:       ${pct(dive / cost)} RTP   1 in ${dives ? (rounds / dives).toFixed(0) : '—'}   avg ${mean(divePays)}x  median ${q(divePays, 0.5)}x`)
+            console.log(`  free spins (safes):  ${pct(scatterPay / cost)} RTP   1 in ${scatterFs ? (rounds / scatterFs).toFixed(0) : '—'}`)
+            console.log(`  free spins (key):    ${pct(keyPay / cost)} RTP   1 in ${keyFs ? (rounds / keyFs).toFixed(0) : '—'}`)
+            const n = scatterFs + keyFs
+            if (n) {
+                console.log(`  free spins avg ${mean(fsPays)}x  p10 ${q(fsPays, 0.1)}x  median ${q(fsPays, 0.5)}x  p90 ${q(fsPays, 0.9)}x  p99 ${q(fsPays, 0.99)}x`)
+                console.log(`  avg spins per feature ${(fsSpins / n).toFixed(2)}, retriggered ${pct(retriggers / n)}`)
+            }
+        }
+    }
+}
+
 const PROFILES: Record<string, RtpProfile> = {
     aethergates: {
         modulePath: '../shared/utils/gamelogic/aethergates',
@@ -145,6 +201,18 @@ const PROFILES: Record<string, RtpProfile> = {
         defaultRounds: 2_000_000,
         features: { buyBonus: { buyBonus: true } },
         extra: fithExtra
+    },
+    trashpanda: {
+        modulePath: '../shared/utils/gamelogic/trashpanda',
+        playExport: 'playTrashPanda',
+        maxWinExport: 'TPH_MAX_WIN_MULT',
+        defaultBet: 1,
+        defaultRounds: 10_000_000,
+        features: {
+            buyFreeSpins: { feature: 'buyFreeSpins' },
+            buyDive: { feature: 'buyDive' }
+        },
+        extra: trashPandaExtra
     },
     xenoslot: {
         modulePath: '../shared/utils/gamelogic/xenoslot',
