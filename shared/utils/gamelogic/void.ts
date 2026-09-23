@@ -488,8 +488,8 @@ export const VOID_SHIPS = [
     {
         id: 'sovereign', name: 'Sovereign', role: 'Flagship', requiresSector: 5, requiresFleet: true,
         description: 'A sleek obsidian arrowhead trimmed in gold and studded with sapphire, built only for a pilot who already owns every other hull. Six capital turrets, four drones, an honour guard it can call from any beacon, and engines no ship this size should have.',
-        hull: 2100, shield: 1200, speed: 68, agility: 2.1, cargo: 7500, turrets: 6, armor: 6, shields: 2, drones: 4, ability: 'rally',
-        cost: { iridium: 42000, xenite: 21000, alloy: 30000, core: 160 }, coins: 5_000_000_000, gems: 500, turretBonus: 0.4, size: 13
+        hull: 2100, shield: 1200, speed: 80, agility: 2.5, cargo: 7500, turrets: 6, armor: 6, shields: 2, drones: 4, ability: 'rally',
+        cost: { iridium: 34000, xenite: 16000, alloy: 24000, core: 110 }, coins: 2_500_000_000, gems: 500, turretBonus: 0.4, size: 13
     }
 ] as const satisfies readonly VoidShipDefinition[]
 
