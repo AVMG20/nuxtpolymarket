@@ -181,6 +181,8 @@ export const pirateState = pgTable('pirate_state', {
   // 1 — every owned ability starts there, so the map only stores what has
   // actually been paid for.
   abilityLevels: jsonb('ability_levels').$type<Record<string, number>>().notNull().default({}),
+  // Letters of Marque: permanent multiplier on every voyage's pay (see pirateMarqueMultiplier).
+  marqueLevel: integer('marque_level').notNull().default(0),
   // Set when a voyage starts, cleared on finish. Server computes elapsed time
   // from this instead of trusting the client, and snapshots the power level
   // so mid-run upgrades can't raise the finish-run payout ceiling.

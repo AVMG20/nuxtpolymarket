@@ -27,8 +27,7 @@ const base: PirateAutopilotSnapshot = {
     mines: [],
     islands: [],
     supply: null,
-    repair: null,
-    treasure: null
+    repair: null
 }
 
 let nextId = 1
@@ -75,7 +74,7 @@ describe('pirate laya questions', () => {
     })
 
     it('leaves out headings straight into the coast', () => {
-        const questions = pirateLayaQuestions({ ...base, x: 60, y: 760 })
+        const questions = pirateLayaQuestions({ ...base, x: 60, y: 965 })
         expect(questions.sail_west).toBeUndefined()
         expect(questions.sail_south).toBeUndefined()
         expect(questions['sail_north-east']!.state).toContain('toward the open middle of the sea')

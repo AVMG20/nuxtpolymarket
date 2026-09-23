@@ -1,0 +1,1 @@
+ALTER TABLE "pirate_state" ADD COLUMN "marque_level" integer DEFAULT 0 NOT NULL;

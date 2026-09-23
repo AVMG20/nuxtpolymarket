@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
         return {
             ...row,
             recentNumber: index + 1,
-            skin: { id: skin.id, name: skin.name, sprite: skin.sprite }
+            skin: { id: skin.id, name: skin.name }
         }
     })
 })

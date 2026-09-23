@@ -13,7 +13,8 @@ import {
     pirateSlotUnlockCost, pirateCannonTier, piratePowerLevel, pirateRepairRushGemCost, pirateAmmoPricePerUnit,
     PIRATE_SHIP_SKINS, PIRATE_ABILITIES, pirateAbility,
     PIRATE_ABILITY_MAX_LEVEL, pirateAbilityUpgradeCost, pirateClampAbilityLevel, pirateAbilityCooldownMs,
-    pirateRecommendedDifficulty, pirateDifficultyOptions, pirateAverageRunPayoutEstimate, pirateCompletionBonus
+    pirateRecommendedDifficulty, pirateDifficultyOptions, pirateAverageRunPayoutEstimate, pirateCompletionBonus,
+    PIRATE_MARQUE_MAX_LEVEL, pirateMarqueMultiplier, pirateMarqueUpgradeCost
 } from '#shared/utils/gamelogic/pirates'
 
 export default defineEventHandler(async (event) => {
@@ -70,6 +71,7 @@ export default defineEventHandler(async (event) => {
     const abilityLevels = s.abilityLevels ?? {}
     const recommendedDifficulty = pirateRecommendedDifficulty(s.highestCompletedDifficulty)
     const difficultyOptions = pirateDifficultyOptions(Math.max(power, recommendedDifficulty))
+    const payMultiplier = pirateMarqueMultiplier(s.marqueLevel)
 
     return {
         balance,
@@ -109,8 +111,8 @@ export default defineEventHandler(async (event) => {
         recommendedDifficulty,
         difficultyOptions: difficultyOptions.map(difficulty => ({
             difficulty,
-            estimatedLoot: pirateAverageRunPayoutEstimate(difficulty),
-            completionBonus: pirateCompletionBonus(difficulty),
+            estimatedLoot: Math.floor(pirateAverageRunPayoutEstimate(difficulty) * payMultiplier),
+            completionBonus: Math.floor(pirateCompletionBonus(difficulty) * payMultiplier),
             completed: difficulty <= s.highestCompletedDifficulty
         })),
         skins: PIRATE_SHIP_SKINS.map(skin => ({ ...skin, owned: ownedSkinIds.includes(skin.id), equipped: skin.id === s.equippedSkinId })),
@@ -132,6 +134,14 @@ export default defineEventHandler(async (event) => {
         }),
         equippedAbilityId,
         equippedAbilityLevel: pirateClampAbilityLevel(abilityLevels[equippedAbilityId] ?? 1),
+        marque: {
+            level: s.marqueLevel,
+            maxLevel: PIRATE_MARQUE_MAX_LEVEL,
+            multiplier: payMultiplier,
+            maxMultiplier: pirateMarqueMultiplier(PIRATE_MARQUE_MAX_LEVEL),
+            nextMultiplier: s.marqueLevel < PIRATE_MARQUE_MAX_LEVEL ? pirateMarqueMultiplier(s.marqueLevel + 1) : null,
+            cost: pirateMarqueUpgradeCost(s.marqueLevel)
+        },
         runDurationMs: PIRATE_RUN_DURATION_MS,
         activeRun: s.runStartedAt ? { startedAt: s.runStartedAt } : null,
         repair: {

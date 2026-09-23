@@ -22,6 +22,7 @@
     "balance:firewall": "bun scripts/firewall-balance.ts",
     "balance:pathwarden": "bun scripts/pathwarden-balance.ts",
     "balance:pirates": "bun scripts/pirates-balance.ts",
+    "balance:pirates-playtest": "bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/pirates-playtest.ts",
     "balance:shapezz": "bun scripts/shapezz-balance.ts",
     "balance:shapezz-playtest": "bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/shapezz-playtest.ts",
     "balance:compare": "bun scripts/economy-compare.ts",

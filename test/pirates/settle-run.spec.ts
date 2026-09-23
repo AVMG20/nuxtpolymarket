@@ -4,7 +4,7 @@ import {
   PIRATE_RUN_DURATION_MS,
   PIRATE_REPAIR_MAX_MS,
   pirateCompletionBonus,
-  pirateMaxPayoutForRun,
+  pirateSurvivalCoins,
   pirateRepairDurationMs
 } from '#shared/utils/gamelogic/pirates'
 
@@ -30,6 +30,7 @@ function makeState(overrides: Partial<PirateSettlementState> = {}): PirateSettle
     equippedSkinId: 'crimson-privateer',
     hullRepairUntil: null,
     hullRepairTotalMs: 0,
+    marqueLevel: 0,
     ...overrides
   }
 }
@@ -40,7 +41,6 @@ function makeReport(overrides: Partial<PirateRunReport> = {}): PirateRunReport {
     survived: true,
     reason: 'timeout',
     reportedElapsedMs: 0,
-    reportedCoins: 0,
     reportedKills: 10,
     reportedShotsFired: 50,
     reportedAmmoUsed: 0,
@@ -59,7 +59,6 @@ describe('settlePirateRun — abandoned runs', () => {
     const result = settlePirateRun(state, makeReport({
       abandoned: true,
       reportedElapsedMs: 90_000,
-      reportedCoins: 50_000,
       reportedAmmoUsed: 20,
       reportedGemAmmoUsed: 5,
       reportedHullDamageFraction: 0.5
@@ -112,40 +111,44 @@ describe('settlePirateRun — elapsed time clamping', () => {
   })
 })
 
-describe('settlePirateRun — payout anti-cheat cap', () => {
-  it('clamps reported coins to the max plausible payout for the run', () => {
+describe('settlePirateRun — survival pay', () => {
+  it('pays by survival time and difficulty, ignoring anything the client claims', () => {
     const state = makeState()
     const elapsedMs = 120_000
     const now = RUN_STARTED_AT.getTime() + elapsedMs
-    const maxPayout = pirateMaxPayoutForRun(elapsedMs, DIFFICULTY, 0)
 
     const result = settlePirateRun(state, makeReport({
       survived: false,
       reason: 'defeat',
-      reportedElapsedMs: elapsedMs,
-      reportedCoins: maxPayout + 1_000_000
+      reportedElapsedMs: elapsedMs
     }), now)
 
-    expect(result.runCoins).toBe(maxPayout)
-    expect(result.capped).toBe(true)
+    expect(result.runCoins).toBe(pirateSurvivalCoins(elapsedMs, DIFFICULTY))
+    expect(result.awarded).toBe(result.runCoins)
   })
 
-  it('does not cap coins that stay under the plausible ceiling', () => {
+  it('scales survival pay and the completion bonus by the Letters of Marque level', () => {
+    const state = makeState({ marqueLevel: 5 })
+    const now = RUN_STARTED_AT.getTime() + PIRATE_RUN_DURATION_MS
+
+    const result = settlePirateRun(state, makeReport({ reportedElapsedMs: PIRATE_RUN_DURATION_MS }), now)
+
+    expect(result.runCoins).toBe(Math.floor(pirateSurvivalCoins(PIRATE_RUN_DURATION_MS, DIFFICULTY) * 2))
+    expect(result.completionBonus).toBe(Math.floor(pirateCompletionBonus(DIFFICULTY) * 2))
+  })
+
+  it('pays for the clamped elapsed time, not a claimed longer voyage', () => {
     const state = makeState()
-    const elapsedMs = 120_000
-    const now = RUN_STARTED_AT.getTime() + elapsedMs
-    const maxPayout = pirateMaxPayoutForRun(elapsedMs, DIFFICULTY, 0)
-    const reportedCoins = Math.floor(maxPayout / 2)
+    const now = RUN_STARTED_AT.getTime() + 30_000
 
     const result = settlePirateRun(state, makeReport({
       survived: false,
       reason: 'defeat',
-      reportedElapsedMs: elapsedMs,
-      reportedCoins
+      reportedElapsedMs: PIRATE_RUN_DURATION_MS
     }), now)
 
-    expect(result.runCoins).toBe(reportedCoins)
-    expect(result.capped).toBe(false)
+    expect(result.elapsedMs).toBe(30_000)
+    expect(result.runCoins).toBe(pirateSurvivalCoins(30_000, DIFFICULTY))
   })
 })
 
@@ -157,8 +160,7 @@ describe('settlePirateRun — completion bonus', () => {
     const result = settlePirateRun(state, makeReport({
       survived: true,
       reason: 'timeout',
-      reportedElapsedMs: PIRATE_RUN_DURATION_MS,
-      reportedCoins: 0
+      reportedElapsedMs: PIRATE_RUN_DURATION_MS
     }), now)
 
     expect(result.completed).toBe(true)
@@ -275,8 +277,7 @@ describe('settlePirateRun — best-run tiebreaks', () => {
     const result = settlePirateRun(state, makeReport({
       survived: false,
       reason: 'defeat',
-      reportedElapsedMs: 70_000,
-      reportedCoins: 1
+      reportedElapsedMs: 70_000
     }), now)
 
     expect(result.bestSurvivalMs).toBe(70_000)
@@ -287,17 +288,14 @@ describe('settlePirateRun — best-run tiebreaks', () => {
   it('breaks a tied survival time on higher loot', () => {
     const state = makeState({ bestSurvivalMs: 60_000, bestRunLoot: 500, bestRunPower: 100 })
     const now = RUN_STARTED_AT.getTime() + 60_000
-    const maxPayout = pirateMaxPayoutForRun(60_000, DIFFICULTY, 0)
-
     const result = settlePirateRun(state, makeReport({
       survived: false,
       reason: 'defeat',
-      reportedElapsedMs: 60_000,
-      reportedCoins: maxPayout
+      reportedElapsedMs: 60_000
     }), now)
 
     expect(result.bestSurvivalMs).toBe(60_000)
-    expect(result.bestRunLoot).toBe(maxPayout)
+    expect(result.bestRunLoot).toBe(pirateSurvivalCoins(60_000, DIFFICULTY))
     expect(result.bestRunPower).toBe(state.runPowerSnapshot)
   })
 
@@ -308,8 +306,7 @@ describe('settlePirateRun — best-run tiebreaks', () => {
     const result = settlePirateRun(state, makeReport({
       survived: false,
       reason: 'defeat',
-      reportedElapsedMs: 60_000,
-      reportedCoins: 1
+      reportedElapsedMs: 60_000
     }), now)
 
     expect(result.bestRunLoot).toBe(999_999_999)

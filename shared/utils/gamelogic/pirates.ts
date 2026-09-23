@@ -11,17 +11,38 @@ export const PIRATE_TIMELINE_SCALE = PIRATE_RUN_DURATION_MS / PIRATE_LEGACY_RUN_
 export const PIRATE_OVERRUN_START_MS = PIRATE_RUN_DURATION_MS * 0.75
 export const PIRATE_LATE_BOSS_PHASE_MS = PIRATE_RUN_DURATION_MS * 0.875
 
+/**
+ * The sea, in world units. The whole map is always in view (scaled to fit), so
+ * this is also the design canvas every range and radius is measured against.
+ */
+export const PIRATE_WORLD_W = 1750
+export const PIRATE_WORLD_H = 1025
+
 function pirateTimelineMs(ms: number) {
   return Math.round(ms * PIRATE_TIMELINE_SCALE)
 }
 
+/**
+ * Ships are drawn procedurally (app/utils/pirates-engine/ships.ts), so a skin
+ * is just a palette: planking, deck, trim, sails and an accent that lights the
+ * lanterns and figurehead. `glow` skins add a soft aura around the hull.
+ */
+export interface PirateSkinPalette {
+  hull: number
+  deck: number
+  trim: number
+  sail: number
+  accent: number
+  glow?: boolean
+}
+
 export const PIRATE_SHIP_SKINS = [
-  { id: 'starter', name: 'Golden Brigantine', cost: 0, sprite: '/pirates/sprites/player-ship.png', description: 'The dependable brig every captain starts with.' },
-  { id: 'crimson-privateer', name: 'Crimson Privateer', cost: 50, sprite: '/pirates/sprites/skin-crimson-privateer.png', description: 'Polished mahogany, silver trim, and privateer-red sails.' },
-  { id: 'emerald-serpent', name: 'Emerald Serpent', cost: 250, sprite: '/pirates/sprites/skin-emerald-serpent.png', description: 'Jade lacquer, silver scales, and an ornate serpent prow.' },
-  { id: 'royal-aether', name: 'Royal Aether', cost: 1000, sprite: '/pirates/sprites/skin-royal-aether.png', description: 'A regal warship lined with luminous violet crystals.' },
-  { id: 'crown-of-tides', name: 'Crown of Tides', cost: 10_000, sprite: '/pirates/sprites/skin-crown-of-tides.png', description: 'Pure gold and sapphire excess. The ultimate captain flex.' }
-] as const
+  { id: 'starter', name: 'Golden Brigantine', cost: 0, palette: { hull: 0x7a4a24, deck: 0xc08a55, trim: 0xf4c542, sail: 0xf3ead2, accent: 0xfacc15 }, description: 'The dependable brig every captain starts with.' },
+  { id: 'crimson-privateer', name: 'Crimson Privateer', cost: 50, palette: { hull: 0x4a1414, deck: 0x9a4a2c, trim: 0xd9dde3, sail: 0xc0262d, accent: 0xf8fafc }, description: 'Polished mahogany, silver trim, and privateer-red sails.' },
+  { id: 'emerald-serpent', name: 'Emerald Serpent', cost: 250, palette: { hull: 0x0b3d33, deck: 0x1f6f5c, trim: 0xc7d2da, sail: 0x2fbf8a, accent: 0x6ee7b7 }, description: 'Jade lacquer, silver scales, and an ornate serpent prow.' },
+  { id: 'royal-aether', name: 'Royal Aether', cost: 1000, palette: { hull: 0x241046, deck: 0x46207e, trim: 0xe9d5ff, sail: 0x6d3fd1, accent: 0xc084fc, glow: true }, description: 'A regal warship lined with luminous violet crystals.' },
+  { id: 'crown-of-tides', name: 'Crown of Tides', cost: 10_000, palette: { hull: 0xa9791a, deck: 0xe8b93a, trim: 0x1d4ed8, sail: 0xfdf3d0, accent: 0x60a5fa, glow: true }, description: 'Pure gold and sapphire excess. The ultimate captain flex.' }
+] as const satisfies readonly { id: string, name: string, cost: number, palette: PirateSkinPalette, description: string }[]
 
 export type PirateShipSkinId = typeof PIRATE_SHIP_SKINS[number]['id']
 
@@ -41,22 +62,37 @@ export const PIRATE_ABILITIES = [
   { id: 'bomb', name: 'Powder Keg', cost: 0, cooldownMs: 30_000, minCooldownMs: 20_000, icon: 'i-lucide-bomb', accent: 'warning', description: 'Lob a heavy keg that explodes in a wide area.' },
   { id: 'seekers', name: "Hunter's Chain", cost: 250_000, cooldownMs: 46_000, minCooldownMs: 32_000, icon: 'i-lucide-rocket', accent: 'error', description: 'Bind eight spectral warheads into orbit; one launches every two seconds at your nearest foe for heavy single-target damage.' },
   { id: 'consort', name: 'Ghostly Consort', cost: 250_000, cooldownMs: 42_000, minCooldownMs: 28_000, icon: 'i-lucide-ship', accent: 'info', description: 'Summon an allied escort that shadows your ship and fires your best cannon at reduced damage. It can be shot down — and the cooldown only starts once it sinks.' },
-  { id: 'maelstrom', name: "Kraken's Maw", cost: 250_000, cooldownMs: 56_000, minCooldownMs: 36_000, icon: 'i-lucide-tornado', accent: 'primary', description: 'Open a damaging whirlpool that drags nearby ships toward its center.' },
-  { id: 'firestorm', name: 'Hellfire Barrage', cost: 250_000, cooldownMs: 48_000, minCooldownMs: 33_000, icon: 'i-lucide-flame', accent: 'warning', description: 'Saturate a huge stretch of sea with seven devastating shells. Each lands somewhere random inside the zone — a gamble that can wipe a fleet or hit nothing but water.' }
+  { id: 'maelstrom', name: "Kraken's Maw", cost: 250_000, cooldownMs: 50_000, minCooldownMs: 32_000, icon: 'i-lucide-tornado', accent: 'primary', description: 'Open a damaging whirlpool that drags nearby ships toward its center.' },
+  { id: 'firestorm', name: 'Hellfire Barrage', cost: 250_000, cooldownMs: 44_000, minCooldownMs: 30_000, icon: 'i-lucide-flame', accent: 'warning', description: 'Saturate a huge stretch of sea with seven devastating shells. Each lands somewhere random inside the zone — a gamble that can wipe a fleet or hit nothing but water.' },
+  { id: 'tidal', name: 'Rogue Wave', cost: 250_000, cooldownMs: 40_000, minCooldownMs: 28_000, icon: 'i-lucide-waves', accent: 'info', description: 'Roll a towering wave out toward the cursor. It smashes every ship in its path, shoves them back, and washes away enemy shot and mines.' }
 ] as const
+
+// ─── Rogue Wave ─────────────────────────────────────────────────────────────
+// A wide wall of water that rolls out from the ship toward the aim point. It
+// is the defensive pick: every ship it passes takes one heavy hit and is
+// shoved back, and it erases enemy projectiles and sea mines along the way.
+export const PIRATE_ROGUE_WAVE_LENGTH = 560
+export const PIRATE_ROGUE_WAVE_WIDTH = 300
+export const PIRATE_ROGUE_WAVE_SPEED = 620
+export const PIRATE_ROGUE_WAVE_KNOCKBACK = 170
+
+/** Damage the Rogue Wave deals to each ship it rolls over. */
+export function pirateRogueWaveDamage(power: number, level = 1) {
+  return Math.max(62, Math.round((55 + power * 0.72) * pirateAbilityLevelMultiplier(level)))
+}
 
 // ─── Hellfire Barrage ───────────────────────────────────────────────────────
 // A deliberate gamble. The marked zone is enormous, but the seven shells
 // scatter randomly inside it, so a lucky cluster deletes a fleet while an
 // unlucky spread mostly geysers seawater. Damage per shell is correspondingly
 // high to make the gamble worth taking.
-export const PIRATE_HELLFIRE_ZONE_RADIUS = 330
-export const PIRATE_HELLFIRE_SHELL_COUNT = 7
-export const PIRATE_HELLFIRE_BLAST_RADIUS = 96
+export const PIRATE_HELLFIRE_ZONE_RADIUS = 270
+export const PIRATE_HELLFIRE_SHELL_COUNT = 8
+export const PIRATE_HELLFIRE_BLAST_RADIUS = 110
 
 /** Damage of a single Hellfire shell. */
 export function pirateHellfireShellDamage(power: number, level = 1) {
-  return Math.max(28, Math.round((22 + power * 0.29) * pirateAbilityLevelMultiplier(level)))
+  return Math.max(80, Math.round((70 + power * 0.93) * pirateAbilityLevelMultiplier(level)))
 }
 
 // ─── Ability levels ─────────────────────────────────────────────────────────
@@ -112,7 +148,7 @@ export const PIRATE_HUNTER_CHAIN_INTERVAL_MS = 2000
 
 /** Damage per Hunter's Chain warhead. */
 export function pirateHunterChainDamage(power: number, level = 1) {
-  return Math.max(30, Math.round((25 + power * 0.32) * pirateAbilityLevelMultiplier(level)))
+  return Math.max(8, Math.round((6 + power * 0.072) * pirateAbilityLevelMultiplier(level)))
 }
 
 // ─── Powder Keg ─────────────────────────────────────────────────────────────
@@ -121,17 +157,20 @@ export function pirateHunterChainDamage(power: number, level = 1) {
 
 /** Powder Keg blast damage. */
 export function pirateBombDamage(power: number, level = 1) {
-  return Math.max(25, Math.round((18 + power * 0.24) * pirateAbilityLevelMultiplier(level)))
+  return Math.max(60, Math.round((43 + power * 0.58) * pirateAbilityLevelMultiplier(level)))
 }
 
 // ─── Kraken's Maw ───────────────────────────────────────────────────────────
 // Seven pulses over ~4 seconds, each hitting everything in the whirlpool while
 // dragging it inward. Per-pulse damage is small; the total across a packed
 // fleet is the largest of any ability.
+export const PIRATE_MAELSTROM_RADIUS = 215
+/** Share of the distance to the eye each pulse drags a ship. */
+export const PIRATE_MAELSTROM_PULL = 0.2
 
 /** Damage of a single Kraken's Maw pulse. */
 export function pirateMaelstromPulseDamage(power: number, level = 1) {
-  return Math.max(10, Math.round((8 + power * 0.10) * pirateAbilityLevelMultiplier(level)))
+  return Math.max(34, Math.round((30 + power * 0.38) * pirateAbilityLevelMultiplier(level)))
 }
 
 // ─── Ghostly Consort ────────────────────────────────────────────────────────
@@ -154,17 +193,17 @@ export function pirateConsortStatFraction(level = 1) {
  * doubling of the player's broadside.
  */
 export function pirateConsortDamageFraction(level = 1) {
-  return 0.6 + (pirateClampAbilityLevel(level) - 1) * 0.05
+  return 0.8 + (pirateClampAbilityLevel(level) - 1) * 0.05
 }
 
 /** Fraction of the captain's max hull the escort is built with. */
 export function pirateConsortHpFraction(level = 1) {
-  return 0.075 + (pirateClampAbilityLevel(level) - 1) * 0.01875
+  return 0.2 + (pirateClampAbilityLevel(level) - 1) * 0.05
 }
 
 /** Gun ports on the escort — a second one opens up at level 3. */
 export function pirateConsortCannonCount(level = 1) {
-  return pirateClampAbilityLevel(level) >= 3 ? 2 : 1
+  return 2 + Math.floor((pirateClampAbilityLevel(level) - 1) / 2)
 }
 
 export type PirateAbilityId = typeof PIRATE_ABILITIES[number]['id']
@@ -174,54 +213,121 @@ export function pirateAbility(id: string) {
   return PIRATE_ABILITIES.find(ability => ability.id === id) ?? PIRATE_ABILITIES[0]
 }
 
+// ─── Salvage upgrades ───────────────────────────────────────────────────────
+// Crates found at sea hold one upgrade each. They last for the rest of the
+// voyage, so a handful of pickups shapes the whole run into a build. There are
+// deliberately few of them and every one changes how the ship plays; the
+// rarity decides how often a crate rolls it and the colour it glows.
+
+export const PIRATE_RARITIES = [
+  { id: 'common', name: 'Common', color: 0xa1a1aa, weight: 44 },
+  { id: 'uncommon', name: 'Uncommon', color: 0x4ade80, weight: 28 },
+  { id: 'rare', name: 'Rare', color: 0x60a5fa, weight: 16 },
+  { id: 'epic', name: 'Epic', color: 0xc084fc, weight: 9 },
+  { id: 'legendary', name: 'Legendary', color: 0xfacc15, weight: 3 }
+] as const
+
+export type PirateRarity = typeof PIRATE_RARITIES[number]['id']
+
+export function pirateRarity(id: PirateRarity) {
+  return PIRATE_RARITIES.find(rarity => rarity.id === id)!
+}
+
 export type PiratePowerUpId =
-  | 'broadside-fury'
-  | 'quick-fuse'
-  | 'eagle-eye'
-  | 'iron-plating'
-  | 'tide-shield'
-  | 'titan-shot'
+  | 'oak-planking'
+  | 'quick-hands'
+  | 'following-wind'
+  | 'crows-nest'
+  | 'tide-ward'
   | 'blast-powder'
-  | 'deadeye'
-  | 'rapid-loader'
-  | 'keen-sights'
-  | 'reinforced-keel'
-  | 'lucky-shot'
-  | 'razor-orbit'
-  | 'starburst-battery'
-  | 'chain-tempest'
-  | 'ghost-armada'
-  | 'blood-tide'
+  | 'stormglass'
+  | 'ghost-crew'
+  | 'titan-shot'
+  | 'krakens-heart'
 
 export interface PiratePowerUpDefinition {
   id: PiratePowerUpId
   name: string
-  description: string
+  rarity: PirateRarity
+  /** Lucide icon shown on the crate label and the HUD chip. */
   icon: string
-  color: number
-  durationMs: number | null
+  /** One line per stack level, so the HUD and wiki can say exactly what the next pickup adds. */
+  description: string
   maxStacks: number
 }
 
 export const PIRATE_POWER_UPS: PiratePowerUpDefinition[] = [
-  { id: 'broadside-fury', name: 'Broadside Fury', description: '+20% cannon damage per stack', icon: '🔥', color: 0xf97316, durationMs: pirateTimelineMs(45_000), maxStacks: 4 },
-  { id: 'quick-fuse', name: 'Quick Fuse', description: 'Cannons reload 20% faster per stack', icon: '⚡', color: 0xfacc15, durationMs: pirateTimelineMs(40_000), maxStacks: 3 },
-  { id: 'eagle-eye', name: "Eagle's Eye", description: '+25% cannon range per stack', icon: '🔭', color: 0x60a5fa, durationMs: pirateTimelineMs(60_000), maxStacks: 3 },
-  { id: 'iron-plating', name: 'Iron Plating', description: '+30% defense per stack', icon: '⚓', color: 0x94a3b8, durationMs: pirateTimelineMs(60_000), maxStacks: 3 },
-  { id: 'tide-shield', name: 'Tide Shield', description: '+20 rechargeable shield per stack', icon: '🛡️', color: 0x22d3ee, durationMs: null, maxStacks: 5 },
-  { id: 'titan-shot', name: 'Titan Shot', description: 'Stacks make massive shots more frequent', icon: '💥', color: 0xa78bfa, durationMs: pirateTimelineMs(90_000), maxStacks: 4 },
-  { id: 'blast-powder', name: 'Blast Powder', description: 'Stacks make explosive shots more frequent', icon: '🧨', color: 0xef4444, durationMs: pirateTimelineMs(72_000), maxStacks: 3 },
-  { id: 'deadeye', name: 'Deadeye', description: '+22% cannon accuracy per stack', icon: '🎯', color: 0x4ade80, durationMs: pirateTimelineMs(60_000), maxStacks: 3 },
-  { id: 'rapid-loader', name: 'Rapid Loader', description: '+10% reload speed per stack', icon: '⏱️', color: 0xfde047, durationMs: pirateTimelineMs(120_000), maxStacks: 5 },
-  { id: 'keen-sights', name: 'Keen Sights', description: '+10% range per stack', icon: '👁️', color: 0x7dd3fc, durationMs: pirateTimelineMs(155_000), maxStacks: 5 },
-  { id: 'reinforced-keel', name: 'Reinforced Keel', description: '+10% sailing speed per stack', icon: '⛵', color: 0x34d399, durationMs: pirateTimelineMs(155_000), maxStacks: 5 },
-  { id: 'lucky-shot', name: 'Lucky Shot', description: '+8% cannon damage per stack', icon: '🍀', color: 0x86efac, durationMs: pirateTimelineMs(130_000), maxStacks: 5 },
-  { id: 'razor-orbit', name: 'Razor Orbit', description: 'Spinning blades shred nearby ships', icon: '🪚', color: 0xf87171, durationMs: pirateTimelineMs(65_000), maxStacks: 4 },
-  { id: 'starburst-battery', name: 'Starburst Battery', description: 'Fires ten cannonballs in every direction', icon: '☀️', color: 0xfbbf24, durationMs: pirateTimelineMs(42_000), maxStacks: 4 },
-  { id: 'chain-tempest', name: 'Chain Tempest', description: 'Automatic lightning tears through fleets', icon: '🌩️', color: 0x38bdf8, durationMs: pirateTimelineMs(55_000), maxStacks: 4 },
-  { id: 'ghost-armada', name: 'Ghost Armada', description: 'Spectral escorts orbit and fire for you', icon: '👻', color: 0xc4b5fd, durationMs: pirateTimelineMs(105_000), maxStacks: 4 },
-  { id: 'blood-tide', name: 'Blood Tide', description: 'Every enemy hit restores 1 hull', icon: '🩸', color: 0xfb7185, durationMs: pirateTimelineMs(32_000), maxStacks: 1 }
+  { id: 'oak-planking', name: 'Oak Planking', rarity: 'common', icon: 'i-lucide-shield-plus', description: '+25% max hull, repaired on pickup', maxStacks: 3 },
+  { id: 'quick-hands', name: 'Quick Hands', rarity: 'common', icon: 'i-lucide-timer-reset', description: 'Cannons reload 20% faster', maxStacks: 3 },
+  { id: 'following-wind', name: 'Following Wind', rarity: 'common', icon: 'i-lucide-wind', description: '+20% sailing speed; under full sail 15% of cannon fire misses you', maxStacks: 2 },
+  { id: 'crows-nest', name: "Crow's Nest", rarity: 'uncommon', icon: 'i-lucide-telescope', description: '+20% cannon range and +25% accuracy', maxStacks: 2 },
+  { id: 'tide-ward', name: 'Tide Ward', rarity: 'uncommon', icon: 'i-lucide-shield', description: 'A shield worth 20% of max hull that refills after 5s unhit', maxStacks: 2 },
+  { id: 'blast-powder', name: 'Blast Powder', rarity: 'rare', icon: 'i-lucide-bomb', description: 'Hits deal +20% damage and splash 60% of it around the target', maxStacks: 2 },
+  { id: 'stormglass', name: 'Stormglass', rarity: 'epic', icon: 'i-lucide-zap', description: 'Hits may arc lightning through up to 4 nearby ships', maxStacks: 2 },
+  { id: 'ghost-crew', name: 'Ghost Crew', rarity: 'epic', icon: 'i-lucide-ghost', description: 'A spectral sloop sails with you, firing your best cannon', maxStacks: 2 },
+  { id: 'titan-shot', name: 'Titan Shot', rarity: 'legendary', icon: 'i-lucide-circle-dot', description: 'Every 5th shot is a titan ball: 5x damage and a shockwave', maxStacks: 1 },
+  { id: 'krakens-heart', name: "Kraken's Heart", rarity: 'legendary', icon: 'i-lucide-heart-pulse', description: '+35% damage, sinking ships mends your hull, abilities recharge 30% faster', maxStacks: 1 }
 ]
+
+export function piratePowerUp(id: PiratePowerUpId) {
+  return PIRATE_POWER_UPS.find(powerUp => powerUp.id === id)!
+}
+
+// Per-stack effect sizes. The engine and the wiki both read these, so the
+// numbers a player reads are the numbers the game uses.
+export const PIRATE_UPGRADE_EFFECTS = {
+  oakHullPerStack: 0.25,
+  quickHandsReloadPerStack: 0.2,
+  followingWindSpeedPerStack: 0.2,
+  /** Share of enemy cannonballs that miss a ship sailing at 60%+ of its top speed, per stack. */
+  followingWindEvasionPerStack: 0.15,
+  crowsNestRangePerStack: 0.2,
+  crowsNestAccuracyPerStack: 0.25,
+  tideWardShieldPerStack: 0.2,
+  tideWardRechargeDelayMs: 5000,
+  /** Splash damage fraction and radius at 1 and 2 stacks. */
+  blastSplash: [0.6, 0.9] as const,
+  /** Extra damage on the struck hull itself, at 1 and 2 stacks. */
+  blastDirect: [0.2, 0.35] as const,
+  blastRadius: [100, 130] as const,
+  /** Chance a hit arcs, jumps and damage fraction per jump at 1 and 2 stacks. */
+  stormChance: [0.5, 0.75] as const,
+  stormJumps: 4,
+  stormDamage: 1,
+  stormRange: 400,
+  ghostCrewDamage: 0.7,
+  /** Barrels on each Ghost Crew sloop. */
+  ghostCrewGuns: 2,
+  titanEvery: 5,
+  titanDamage: 5,
+  titanRadius: 120,
+  heartDamage: 0.35,
+  // Healing is measured in ships, not raw damage: dealing a whole hull's worth
+  // of damage to enemies mends this share of your own max hull. Plain damage
+  // lifesteal scaled with the broadside, so on a maxed ship it out-healed a
+  // difficulty-1000 fleet outright.
+  heartLifesteal: 0.012,
+  heartCooldown: 0.3
+} as const
+
+/**
+ * Roll a crate: pick a rarity by weight among rarities that still have an
+ * upgrade below its stack cap, then an upgrade within it. `minRarity` lifts
+ * the floor (bosses always drop epic or better). Null once everything is maxed.
+ */
+export function pirateRollPowerUp(stacks: Partial<Record<PiratePowerUpId, number>>, minRarity: PirateRarity = 'common', rng: () => number = randomFloat): PiratePowerUpDefinition | null {
+  const floor = PIRATE_RARITIES.findIndex(rarity => rarity.id === minRarity)
+  const open = (rarity: PirateRarity) => PIRATE_POWER_UPS.filter(p => p.rarity === rarity && (stacks[p.id] ?? 0) < p.maxStacks)
+  const rarities = PIRATE_RARITIES.filter((rarity, index) => index >= floor && open(rarity.id).length > 0)
+  if (!rarities.length) {
+    if (floor > 0) return pirateRollPowerUp(stacks, 'common', rng)
+    return null
+  }
+  const rarity = randomWeighted(rarities, r => r.weight, rng)
+  const pool = open(rarity.id)
+  return pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))]!
+}
+
 // A 6-minute real-time roguelike skirmish. Ship-level upgrades (hull, speed,
 // defense, ammo capacity) are bought directly; attack power instead comes from
 // equipping cannons (up to 8 gun ports) bought from the armory, each with its
@@ -254,8 +360,12 @@ export function pirateStatMaxLevel(statId: PirateShipStatId) {
 }
 export const PIRATE_DIFFICULTY_STEP = 50
 export const PIRATE_MAX_DIFFICULTY = 1000
-export const PIRATE_POWER_UP_INTERVAL_MS = pirateTimelineMs(25_000)
-export const PIRATE_POWER_UP_LIFESPAN_MS = pirateTimelineMs(22_000)
+/** A salvage crate drifts in on this clock; kills and bosses add more. */
+export const PIRATE_POWER_UP_INTERVAL_MS = 32_000
+export const PIRATE_POWER_UP_LIFESPAN_MS = 22_000
+/** Chance an ordinary sinking leaves a crate behind. Bosses always drop an epic or better. */
+export const PIRATE_POWER_UP_KILL_DROP_CHANCE = 0.04
+export const PIRATE_HEALTH_PACK_KILL_DROP_CHANCE = 0.05
 export const PIRATE_HEALTH_PACK_INTERVAL_MS = pirateTimelineMs(45_000)
 export const PIRATE_HEALTH_PACK_LIFESPAN_MS = pirateTimelineMs(22_000)
 export const PIRATE_SEA_MINE_INTERVAL_MS = pirateTimelineMs(10_000)
@@ -507,20 +617,43 @@ export function pirateRollAttack(attackRating: number, defenseRating: number, ma
 }
 
 // ─── Enemy tiers ────────────────────────────────────────────────────────────
+
+/**
+ * Special attacks, each on its own cooldown alongside the tier's cannons.
+ * - skiffs: three small ramming skiffs aimed around the player.
+ * - bomb: a lobbed frenzy bomb with a wide telegraphed blast.
+ * - mine: a slow drift mine homing on the player's position.
+ * - sniper: a telegraphed long-range shot at a fixed, dodgeable point.
+ * - ram: the hull itself is the weapon. It lights its fuse near the player,
+ *   charges and explodes on contact (or when sunk close by).
+ * - harpoon: a telegraphed line; a hit tethers the player, slowing them.
+ * - mortar: three shells lobbed at marked spots around the player.
+ * - ward: shields every nearby enemy hull for a share of its max hull.
+ * - tentacles / ink / whirlpool: the Kraken's slams, blinding ink and drag.
+ * - blink / summon / spiral: the Phantom Admiral's teleport, ghost escorts
+ *   and a spiralling ring of spectral shot.
+ */
+export type PirateEnemyAbility =
+  | 'skiffs' | 'bomb' | 'mine' | 'sniper'
+  | 'ram' | 'harpoon' | 'mortar' | 'ward'
+  | 'tentacles' | 'ink' | 'whirlpool'
+  | 'blink' | 'summon' | 'spiral'
+
+export type PirateBossKind = 'dreadnought' | 'kraken' | 'phantom'
+
 export interface PirateEnemyTier {
   id: string
   name: string
-  /** Elapsed run time (ms) before this tier can spawn. */
+  /** Elapsed run time (ms) before this tier can spawn. For bosses, the earliest it may surface. */
   unlockAtMs: number
   hp: number
   defense: number
   attackRating: number
+  /** Cannon damage ceiling. 0 for hulls without cannons (fire ships). */
   maxDamage: number
   range: number
   speed: number
   reloadMs: number
-  coinMin: number
-  coinMax: number
   color: number
   /** Relative spawn weight once unlocked (elites use a low weight). */
   weight: number
@@ -529,26 +662,49 @@ export interface PirateEnemyTier {
   /** Visual scale of the ship art (default 1). */
   sizeScale?: number
   /** Bosses spawn on their own timer, never from the regular weighted pool. */
-  boss?: boolean
-  /** Snipers telegraph a high-damage shot at a fixed, dodgeable impact point. */
-  sniper?: boolean
+  boss?: PirateBossKind
+  /** Special attacks this tier rolls between (empty for plain gunships). */
+  abilities: PirateEnemyAbility[]
+  /** One line for the wiki and the boss banner. */
+  role: string
 }
 
-// Hull damage gates how often a captain can sail again (see the repair system
-// below), so individual kills can remain meaningful without making short,
-// deliberately over-tiered voyages the best source of income.
+// No kill pays coins any more (the voyage pays by the second), so tiers only
+// describe the fight. Hull damage still gates how often a captain can sail
+// again (see the repair system below).
 export const PIRATE_ENEMY_TIERS: PirateEnemyTier[] = [
-  { id: 'sloop', name: 'Sloop', unlockAtMs: 0, hp: 30, defense: 5, attackRating: 14, maxDamage: 10, range: 160, speed: 90, reloadMs: 2300, coinMin: 300, coinMax: 500, color: 0x8b8f96, weight: 10, sizeScale: 0.82 },
-  { id: 'razorskiff', name: 'Razor Skiff', unlockAtMs: pirateTimelineMs(25_000), hp: 55, defense: 8, attackRating: 28, maxDamage: 12, range: 145, speed: 390, reloadMs: 1750, coinMin: 650, coinMax: 950, color: 0xf97316, weight: 3.5, sizeScale: 0.76 },
-  { id: 'corsair', name: 'Crimson Corsair', unlockAtMs: pirateTimelineMs(40_000), hp: 50, defense: 8, attackRating: 24, maxDamage: 11, range: 250, speed: 135, reloadMs: 2700, coinMin: 800, coinMax: 1200, color: 0xef4444, weight: 5, volley: 3, sizeScale: 0.9 },
-  { id: 'brigantine', name: 'Brigantine', unlockAtMs: pirateTimelineMs(55_000), hp: 80, defense: 12, attackRating: 24, maxDamage: 18, range: 220, speed: 110, reloadMs: 1900, coinMin: 600, coinMax: 900, color: 0x5b7a9e, weight: 8, sizeScale: 0.94 },
-  { id: 'sniper', name: 'Longshot Schooner', unlockAtMs: pirateTimelineMs(70_000), hp: 35, defense: 5, attackRating: 62, maxDamage: 55, range: 560, speed: 72, reloadMs: 4800, coinMin: 1500, coinMax: 2200, color: 0xa855f7, weight: 2, sizeScale: 0.8, sniper: true },
-  { id: 'ironclad', name: 'Cobalt Ironclad', unlockAtMs: pirateTimelineMs(90_000), hp: 300, defense: 32, attackRating: 20, maxDamage: 12, range: 200, speed: 70, reloadMs: 2100, coinMin: 1400, coinMax: 2000, color: 0x3b82f6, weight: 4, sizeScale: 1.14 },
-  { id: 'frigate', name: 'Frigate', unlockAtMs: pirateTimelineMs(130_000), hp: 160, defense: 20, attackRating: 36, maxDamage: 30, range: 300, speed: 125, reloadMs: 1600, coinMin: 1100, coinMax: 1600, color: 0xc06a2c, weight: 6, sizeScale: 1.05 },
-  { id: 'manowar', name: "Man-o'-War", unlockAtMs: pirateTimelineMs(215_000), hp: 260, defense: 30, attackRating: 50, maxDamage: 42, range: 380, speed: 105, reloadMs: 1400, coinMin: 1800, coinMax: 2600, color: 0x8b2635, weight: 4, sizeScale: 1.2 },
-  { id: 'ghostship', name: 'Ghost Ship', unlockAtMs: pirateTimelineMs(260_000), hp: 200, defense: 26, attackRating: 58, maxDamage: 48, range: 340, speed: 155, reloadMs: 1100, coinMin: 3000, coinMax: 4400, color: 0x2ecc9c, weight: 1.5, sizeScale: 1.02 },
-  { id: 'dreadnought', name: 'The Dreadnought', unlockAtMs: 0, hp: 560, defense: 30, attackRating: 52, maxDamage: 32, range: 310, speed: 78, reloadMs: 2000, coinMin: 7600, coinMax: 11000, color: 0x991b1b, weight: 0, volley: 3, sizeScale: 1.55, boss: true }
+  { id: 'sloop', name: 'Sloop', unlockAtMs: 0, hp: 30, defense: 5, attackRating: 14, maxDamage: 10, range: 160, speed: 90, reloadMs: 2300, color: 0x8b8f96, weight: 10, sizeScale: 0.82, abilities: ['skiffs'], role: 'Light raider that swarms in numbers.' },
+  { id: 'razorskiff', name: 'Razor Skiff', unlockAtMs: pirateTimelineMs(25_000), hp: 55, defense: 8, attackRating: 28, maxDamage: 12, range: 145, speed: 390, reloadMs: 1750, color: 0xf97316, weight: 3.5, sizeScale: 0.76, abilities: ['skiffs'], role: 'Blisteringly fast knife-fighter.' },
+  { id: 'fireship', name: 'Fire Ship', unlockAtMs: pirateTimelineMs(35_000), hp: 45, defense: 6, attackRating: 30, maxDamage: 0, range: 0, speed: 200, reloadMs: 99_000, color: 0xdc2626, weight: 2.6, sizeScale: 0.84, abilities: ['ram'], role: 'A burning hulk packed with powder. Sink it before it reaches you.' },
+  { id: 'corsair', name: 'Crimson Corsair', unlockAtMs: pirateTimelineMs(50_000), hp: 50, defense: 8, attackRating: 24, maxDamage: 11, range: 250, speed: 135, reloadMs: 2700, color: 0xef4444, weight: 5, volley: 3, sizeScale: 0.9, abilities: ['bomb'], role: 'Rattles off three-shot spreads.' },
+  { id: 'brigantine', name: 'Brigantine', unlockAtMs: pirateTimelineMs(85_000), hp: 80, defense: 12, attackRating: 24, maxDamage: 18, range: 220, speed: 110, reloadMs: 1900, color: 0x5b7a9e, weight: 8, sizeScale: 0.94, abilities: ['mine'], role: 'The fleet workhorse. Seeds drift mines.' },
+  { id: 'sniper', name: 'Longshot Schooner', unlockAtMs: pirateTimelineMs(95_000), hp: 35, defense: 5, attackRating: 62, maxDamage: 55, range: 560, speed: 72, reloadMs: 4800, color: 0xa855f7, weight: 2, sizeScale: 0.8, abilities: ['sniper'], role: 'Fragile, but its marked shots hit like a truck.' },
+  { id: 'ironclad', name: 'Cobalt Ironclad', unlockAtMs: pirateTimelineMs(110_000), hp: 300, defense: 32, attackRating: 20, maxDamage: 12, range: 200, speed: 70, reloadMs: 2100, color: 0x3b82f6, weight: 4, sizeScale: 1.14, abilities: ['mine'], role: 'Armoured tank that shrugs off weak guns.' },
+  { id: 'harpooner', name: 'Harpooner', unlockAtMs: pirateTimelineMs(125_000), hp: 95, defense: 14, attackRating: 34, maxDamage: 14, range: 260, speed: 115, reloadMs: 2200, color: 0x0d9488, weight: 3, sizeScale: 0.96, abilities: ['harpoon'], role: 'Tethers your ship with a harpoon line, slowing you to a crawl.' },
+  { id: 'frigate', name: 'Frigate', unlockAtMs: pirateTimelineMs(130_000), hp: 160, defense: 20, attackRating: 36, maxDamage: 30, range: 300, speed: 125, reloadMs: 1600, color: 0xc06a2c, weight: 6, sizeScale: 1.05, abilities: ['bomb'], role: 'Heavy guns and frenzy bombs.' },
+  { id: 'mortar', name: 'Mortar Barge', unlockAtMs: pirateTimelineMs(160_000), hp: 150, defense: 16, attackRating: 40, maxDamage: 22, range: 540, speed: 58, reloadMs: 3900, color: 0x78716c, weight: 2.4, sizeScale: 1.08, abilities: ['mortar'], role: 'Lobs marked mortar shells from far away. Keep moving.' },
+  { id: 'tidecaller', name: 'Tidecaller', unlockAtMs: pirateTimelineMs(190_000), hp: 120, defense: 18, attackRating: 26, maxDamage: 12, range: 280, speed: 95, reloadMs: 2400, color: 0x22d3ee, weight: 2, sizeScale: 0.98, abilities: ['ward'], role: 'Shields the ships around it. Sink it first.' },
+  { id: 'manowar', name: "Man-o'-War", unlockAtMs: pirateTimelineMs(215_000), hp: 260, defense: 30, attackRating: 50, maxDamage: 42, range: 380, speed: 105, reloadMs: 1400, color: 0x8b2635, weight: 4, sizeScale: 1.2, abilities: ['bomb'], role: 'A floating fortress with a long reach.' },
+  { id: 'ghostship', name: 'Ghost Ship', unlockAtMs: pirateTimelineMs(260_000), hp: 200, defense: 26, attackRating: 58, maxDamage: 48, range: 340, speed: 155, reloadMs: 1100, color: 0x2ecc9c, weight: 1.5, sizeScale: 1.02, abilities: ['bomb'], role: 'Fast, spectral and relentless.' },
+  { id: 'dreadnought', name: 'The Dreadnought', unlockAtMs: 0, hp: 560, defense: 30, attackRating: 52, maxDamage: 32, range: 310, speed: 78, reloadMs: 2000, color: 0x991b1b, weight: 0, volley: 3, sizeScale: 1.55, boss: 'dreadnought', abilities: ['sniper', 'mine', 'bomb', 'skiffs'], role: 'A massive warship that throws every trick in the fleet at you.' },
+  { id: 'kraken', name: 'The Kraken', unlockAtMs: pirateTimelineMs(200_000), hp: 820, defense: 26, attackRating: 48, maxDamage: 30, range: 330, speed: 0, reloadMs: 2600, color: 0x7c3aed, weight: 0, sizeScale: 1.7, boss: 'kraken', abilities: ['tentacles', 'ink', 'whirlpool'], role: 'Surfaces beneath the fleet, slams tentacles down on marked water and dives to strike elsewhere.' },
+  { id: 'phantom', name: 'The Phantom Admiral', unlockAtMs: pirateTimelineMs(280_000), hp: 640, defense: 34, attackRating: 58, maxDamage: 26, range: 380, speed: 120, reloadMs: 1800, color: 0x5eead4, weight: 0, volley: 2, sizeScale: 1.5, boss: 'phantom', abilities: ['blink', 'summon', 'spiral'], role: 'A spectral flagship that blinks across the sea, raises ghost escorts and fires spiralling rings of shot.' }
 ]
+
+export const PIRATE_BOSS_TIERS = PIRATE_ENEMY_TIERS.filter(tier => tier.boss)
+
+/**
+ * Which boss surfaces next: any boss unlocked by now, never the same one twice
+ * in a row while there is a choice. Difficulty unlocks the later bosses a
+ * little sooner, the same head start regular tiers get.
+ */
+export function pirateRollBoss(elapsedMs: number, difficulty: number, previous: string | null, rng: () => number = randomFloat): PirateEnemyTier {
+  const effectiveElapsedMs = elapsedMs + pirateDifficultyT(difficulty) * pirateTimelineMs(40_000)
+  const unlocked = PIRATE_BOSS_TIERS.filter(tier => effectiveElapsedMs >= tier.unlockAtMs)
+  const fresh = unlocked.filter(tier => tier.id !== previous)
+  const pool = fresh.length ? fresh : unlocked.length ? unlocked : [PIRATE_BOSS_TIERS[0]!]
+  return pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))]!
+}
 
 // ─── Boss cadence ───────────────────────────────────────────────────────────
 // A Dreadnought surfaces on its own clock (independent of the concurrency
@@ -585,6 +741,9 @@ export function pirateBossFirstSpawnMs(difficulty: number) {
  *   the hit-chance formula degenerates (always-miss / always-hit) when
  *   ratings run away at the upper end of the selector.
  */
+export const PIRATE_OPENING_GRACE_MS = 120_000
+export const PIRATE_OPENING_GRACE_DMG = 0.6
+
 export function pirateDifficultyMultiplier(elapsedMs: number, difficulty: number) {
   const t = Math.min(1.05, elapsedMs / PIRATE_RUN_DURATION_MS)
   const overBase = Math.max(0, difficulty - PIRATE_BASE_POWER)
@@ -602,7 +761,11 @@ export function pirateDifficultyMultiplier(elapsedMs: number, difficulty: number
   // produce much more incoming DPS through accuracy, population, and faster
   // reloads, but an ordinary cannonball no longer scales into a one-shot.
   const difficultyDmgMult = 1 + Math.sqrt(overBase) * 0.02
-  const dmgMult = timeDmgMult * difficultyDmgMult
+  // Opening grace: ships that sail out in the first two minutes hit softer, so
+  // a fresh captain gets a moment to learn the helm before the fleet bites.
+  // Survival pays by the second, and this is where a new ship earns it.
+  const openingGrace = PIRATE_OPENING_GRACE_DMG + (1 - PIRATE_OPENING_GRACE_DMG) * Math.min(1, elapsedMs / PIRATE_OPENING_GRACE_MS)
+  const dmgMult = timeDmgMult * difficultyDmgMult * openingGrace
 
   const statMult = Math.min(2.3, 1 + (hpMult - 1) * 0.1)
 
@@ -616,24 +779,9 @@ export function pirateEnemyReloadMultiplier(elapsedMs: number, difficulty: numbe
   return Math.max(0.66, 0.96 - pT * 0.1 - t * 0.12)
 }
 
-// Global multiplier on coins earned during a run. The late-weighted functions
-// below do most of the progression work; this modest reduction keeps Pirate
-// income near a comparable six-minute Shapezz run.
+// Global multiplier on survival pay. Keeps a Pirate voyage near a comparable
+// six-minute Shapezz run.
 export const PIRATE_PAYOUT_SCALE = 3.2
-
-/**
- * Kill value is deliberately back-loaded. Selected difficulty adds almost
- * nothing to an opening kill, then becomes valuable as the voyage reaches the
- * dangerous fleet and boss phases. This prevents starting an oversized voyage,
- * surviving briefly, and cashing its full difficulty premium.
- */
-export function pirateRewardMultiplier(elapsedMs: number, difficulty: number) {
-  const t = Math.min(1, Math.max(0, elapsedMs / PIRATE_RUN_DURATION_MS))
-  const overBase = Math.max(0, difficulty - PIRATE_BASE_POWER)
-  const timeValue = 0.75 + Math.pow(t, 1.6) * 1.85
-  const difficultyValue = overBase * 0.009 * Math.pow(t, 1.8)
-  return (timeValue + difficultyValue) * PIRATE_PAYOUT_SCALE
-}
 
 /**
  * Normalized 0..1 position across the full difficulty selector. Population
@@ -701,14 +849,6 @@ export function pirateSeaMineDamageFraction(elapsedMs: number) {
   return 0.1 + Math.pow(t, 1.35) * 0.2
 }
 
-// ─── Kill combos ────────────────────────────────────────────────────────────
-// Sinking ships back-to-back chains a combo: each link adds a coin bonus on
-// top of the kill reward, capped so it stays a nice ramp rather than the
-// dominant income source.
-export const PIRATE_COMBO_WINDOW_MS = pirateTimelineMs(6000)
-export const PIRATE_COMBO_BONUS_PER_STACK = 0.1
-export const PIRATE_COMBO_MAX_STACKS = 5
-
 /**
  * Weighted-random pick among non-boss tiers unlocked at `elapsedMs`. Difficulty
  * grants up to a 30-second tier head start, enough to vary early waves without
@@ -721,50 +861,42 @@ export function pirateRollEnemyTier(elapsedMs: number, difficulty = 0, rng: () =
   return randomWeighted(pool, t => t.weight, rng)
 }
 
-// ─── Treasure ───────────────────────────────────────────────────────────────
-export const PIRATE_TREASURE_MIN_INTERVAL_MS = pirateTimelineMs(25_000)
-export const PIRATE_TREASURE_MAX_INTERVAL_MS = pirateTimelineMs(40_000)
-export const PIRATE_TREASURE_LIFESPAN_MS = pirateTimelineMs(20_000)
+// ─── Survival pay ───────────────────────────────────────────────────────────
+// A voyage pays by the second, not by the kill. The rate starts low and climbs
+// the longer the ship stays afloat, so the money is heavily back-loaded: a
+// captain who sets out on an oversized voyage and sinks early takes home very
+// little, while one who survives the whole thing earns the full haul plus the
+// completion bonus. Because the payout is a pure function of survival time
+// and the difficulty snapshotted at start-run, the server computes it itself;
+// the client's own coin counter is only a display.
 
-export function pirateTreasureReward(elapsedMs: number, difficulty = 0, rng: () => number = randomFloat) {
-  const t = Math.min(1, Math.max(0, elapsedMs / PIRATE_RUN_DURATION_MS))
-  const difficultyValue = 1 + Math.max(0, difficulty - PIRATE_BASE_POWER) * 0.006 * Math.pow(t, 1.8)
-  const base = (1600 + t * 1400) * difficultyValue
-  const variance = 0.8 + rng() * 0.4
-  return Math.round(base * variance * PIRATE_PAYOUT_SCALE)
-}
-
-// ─── Server-side anti-cheat clamp ──────────────────────────────────────────
-// The combat itself is simulated client-side (it's a real-time skill game), so
-// finish-run can't be fully re-verified server-side. Instead we bound the
-// payout to what's plausible for the elapsed wall-clock time and the power
-// level snapshotted at run start, with generous slack over the expected
-// average haul so skilled/lucky runs are never clipped in practice.
-
-/** Full-voyage average rate used for estimates and the anti-cheat ceiling. */
+/** Full-voyage average rate, per second, before the completion bonus. */
 function pirateRunPayoutRatePerSecond(difficulty: number) {
   return (80 + pirateNormalizeDifficulty(difficulty) * 2.4) * PIRATE_PAYOUT_SCALE / PIRATE_TIMELINE_SCALE
 }
 
 /**
- * Cumulative share of a full voyage's earning headroom. Only about 4% is
- * available after one minute, 13% after two, and 69% after five.
+ * Cumulative share of a full voyage's pay banked after `elapsedMs`. Only about
+ * 4% arrives in the first minute, 13% after two and 69% after five.
  */
 export function pirateRunPayoutProgress(elapsedMs: number) {
   const t = Math.min(1, Math.max(0, elapsedMs / PIRATE_RUN_DURATION_MS))
   return t * 0.15 + Math.pow(t, 2.2) * 0.85
 }
 
-export function pirateMaxPayoutForRun(elapsedMs: number, difficulty: number, gemAmmoUsed = 0) {
-  const fullRunSeconds = PIRATE_RUN_DURATION_MS / 1000
-  const fullRunHeadroom = pirateRunPayoutRatePerSecond(difficulty) * fullRunSeconds * 1.6
-  // Gem shots noticeably accelerate the kill rate, so each one spent raises
-  // the plausible-haul ceiling a little. Ordinary loot headroom follows the
-  // same late-weighted curve as the live kill rewards.
-  return Math.round(fullRunHeadroom * pirateRunPayoutProgress(elapsedMs) + gemAmmoUsed * 100)
+/** Coins banked by surviving `elapsedMs` of a voyage at this difficulty. */
+export function pirateSurvivalCoins(elapsedMs: number, difficulty: number) {
+  return Math.floor(pirateAverageRunPayoutEstimate(difficulty) * pirateRunPayoutProgress(elapsedMs))
 }
 
-/** Rough expected in-run haul for one full voyage, before its completion bonus. */
+/** The current pay rate in coins per second, for the HUD. */
+export function pirateSurvivalCoinRate(elapsedMs: number, difficulty: number) {
+  const t = Math.min(1, Math.max(0, elapsedMs / PIRATE_RUN_DURATION_MS))
+  const progressPerT = 0.15 + 0.85 * 2.2 * Math.pow(t, 1.2)
+  return pirateAverageRunPayoutEstimate(difficulty) * progressPerT / (PIRATE_RUN_DURATION_MS / 1000)
+}
+
+/** Expected pay for one full voyage, before its completion bonus. */
 export function pirateAverageRunPayoutEstimate(difficulty: number) {
   return Math.round(pirateRunPayoutRatePerSecond(difficulty) * (PIRATE_RUN_DURATION_MS / 1000))
 }
@@ -779,8 +911,6 @@ export const PIRATE_COMPLETION_BONUS_RATE = 0.9
 export function pirateCompletionBonus(difficulty: number) {
   return Math.round(pirateAverageRunPayoutEstimate(difficulty) * PIRATE_COMPLETION_BONUS_RATE)
 }
-
-export const PIRATE_MIN_RUN_MS_FOR_PAYOUT = 3000
 
 // ─── Hull repair ────────────────────────────────────────────────────────────
 // Taking damage isn't free anymore: coming back from a voyage puts the ship
@@ -801,4 +931,34 @@ export const PIRATE_REPAIR_RUSH_MS_PER_GEM = 10 * 60 * 1000
 /** One gem clears each started ten-minute block of remaining dry-dock time. */
 export function pirateRepairRushGemCost(remainingMs: number) {
   return Math.max(0, Math.ceil(Math.max(0, remainingMs) / PIRATE_REPAIR_RUSH_MS_PER_GEM))
+}
+
+// ─── Letters of Marque ──────────────────────────────────────────────────────
+// A permanent investment in the voyage itself: every level raises the pay for
+// each second at sea (and the completion bonus) by 20%, up to ×3 at level 10.
+// Each level is priced at five times the extra pay it adds to a full clear at
+// the difficulty a captain typically sails by then (100 per level), so it pays
+// for itself in about five voyages there. Because pay itself grows with
+// difficulty, the prices climb steeply, from 233k to 6.5m (33m for the set).
+// A maxed charter on a difficulty-1000 clear lands near 22m, inside the
+// site-wide ceiling of 20-50m for a single game.
+export const PIRATE_MARQUE_MAX_LEVEL = 10
+export const PIRATE_MARQUE_STEP = 0.2
+export const PIRATE_MARQUE_PAYBACK_VOYAGES = 5
+export const PIRATE_MARQUE_DIFFICULTY_PER_LEVEL = 100
+
+/** Pay multiplier at a Letters of Marque level (×1 at 0, ×3 at 10). */
+export function pirateMarqueMultiplier(level: number) {
+  const clamped = Math.max(0, Math.min(PIRATE_MARQUE_MAX_LEVEL, Math.floor(Number.isFinite(level) ? level : 0)))
+  return 1 + clamped * PIRATE_MARQUE_STEP
+}
+
+/** Coin cost to go from `level` to `level + 1`, rounded to three significant figures. Null at max. */
+export function pirateMarqueUpgradeCost(level: number): number | null {
+  if (level >= PIRATE_MARQUE_MAX_LEVEL) return null
+  const difficulty = Math.max(0, level) * PIRATE_MARQUE_DIFFICULTY_PER_LEVEL
+  const fullClear = pirateAverageRunPayoutEstimate(difficulty) + pirateCompletionBonus(difficulty)
+  const raw = fullClear * PIRATE_MARQUE_STEP * PIRATE_MARQUE_PAYBACK_VOYAGES
+  const magnitude = Math.pow(10, Math.floor(Math.log10(raw)) - 2)
+  return Math.round(raw / magnitude) * magnitude
 }

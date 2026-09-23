@@ -1,4 +1,4 @@
-import { PIRATE_ENEMY_TIERS, PIRATE_RUN_DURATION_MS } from './pirates'
+import { PIRATE_ENEMY_TIERS, PIRATE_RUN_DURATION_MS, PIRATE_WORLD_H, PIRATE_WORLD_W } from './pirates'
 
 // Pirate Raid auto-play, played by Laya: a decision model the player runs on
 // their own machine (laya_server.py). Several times a second the sea is
@@ -18,8 +18,8 @@ import { PIRATE_ENEMY_TIERS, PIRATE_RUN_DURATION_MS } from './pirates'
 // format), so each one sees only the facts it judges. Nothing here grants or
 // spends value.
 
-export const PIRATE_AUTOPILOT_WORLD_W = 1400
-export const PIRATE_AUTOPILOT_WORLD_H = 820
+export const PIRATE_AUTOPILOT_WORLD_W = PIRATE_WORLD_W
+export const PIRATE_AUTOPILOT_WORLD_H = PIRATE_WORLD_H
 /** Mirrors PLAYER_BOMB_RADIUS in the engine. */
 export const PIRATE_AUTOPILOT_KEG_RADIUS = 145
 /** Enemy ships offered as attack orders, and ship groups offered as keg targets, per tick. */
@@ -81,10 +81,9 @@ export interface PirateAutopilotSnapshot {
     islands: PirateAutopilotIsland[]
     supply: PirateAutopilotPoint | null
     repair: PirateAutopilotPoint | null
-    treasure: PirateAutopilotPoint | null
 }
 
-export const PIRATE_AUTOPILOT_PICKUPS = ['supply', 'repair', 'treasure'] as const
+export const PIRATE_AUTOPILOT_PICKUPS = ['supply', 'repair'] as const
 export type PirateAutopilotPickup = typeof PIRATE_AUTOPILOT_PICKUPS[number]
 
 export type PirateAutopilotMove =
@@ -189,13 +188,13 @@ function distanceWords(d: number) {
 
 function isHeavy(id: string) {
     const tier = tierOf(id)
-    return !tier.boss && (!!tier.sniper || tier.maxDamage >= 30 || tier.hp >= 150)
+    return !tier.boss && (tier.abilities.includes('sniper') || tier.maxDamage >= 30 || tier.hp >= 150)
 }
 
 function roleWords(id: string) {
     const tier = tierOf(id)
     if (tier.boss) return 'the flagship boss'
-    if (tier.sniper) return 'a long-range sniper'
+    if (tier.abilities.includes('sniper')) return 'a long-range sniper'
     if (isHeavy(id)) return 'a heavy warship'
     if (tier.speed >= 300) return 'a fast raider'
     return 'a light ship'
@@ -282,8 +281,7 @@ function sectorState(snap: PirateAutopilotSnapshot, heading: PirateAutopilotHead
 
 const PICKUP_WORDS: Record<PirateAutopilotPickup, string> = {
     supply: 'supply drop with a power-up that adds damage or survivability',
-    repair: 'repair kit',
-    treasure: 'treasure chest'
+    repair: 'repair kit'
 }
 
 /** Distance from p to the straight route between a and b. */

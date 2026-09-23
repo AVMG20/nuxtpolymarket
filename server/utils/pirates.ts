@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import type { DbExecutor } from '#server/database'
 import { pirateState } from '#server/database/schema'
-import { PIRATE_RUN_DURATION_MS, pirateMaxPayoutForRun, pirateRepairDurationMs, pirateCompletionBonus } from '#shared/utils/gamelogic/pirates'
+import { PIRATE_RUN_DURATION_MS, pirateSurvivalCoins, pirateRepairDurationMs, pirateCompletionBonus, pirateMarqueMultiplier } from '#shared/utils/gamelogic/pirates'
 
 export async function getLockedPirateState(tx: DbExecutor, userId: string) {
     const [state] = await tx.select().from(pirateState).where(eq(pirateState.userId, userId)).for('update')
@@ -27,6 +27,7 @@ export interface PirateSettlementState {
     equippedSkinId: string
     hullRepairUntil: Date | null
     hullRepairTotalMs: number
+    marqueLevel: number
 }
 
 export interface PirateRunReport {
@@ -34,7 +35,6 @@ export interface PirateRunReport {
     survived: boolean
     reason: string
     reportedElapsedMs: number
-    reportedCoins: number
     reportedKills: number
     reportedShotsFired: number
     reportedAmmoUsed: number
@@ -44,7 +44,7 @@ export interface PirateRunReport {
 
 /** Pure finish-run settlement: derives the state update and payout from the locked row, the client's report, and the server clock. */
 export function settlePirateRun(s: PirateSettlementState, report: PirateRunReport, now: number) {
-    const { abandoned, survived, reason, reportedElapsedMs, reportedCoins, reportedAmmoUsed, reportedGemAmmoUsed, reportedHullDamageFraction } = report
+    const { abandoned, survived, reason, reportedElapsedMs, reportedAmmoUsed, reportedGemAmmoUsed, reportedHullDamageFraction } = report
 
     // Wall-clock elapsed, clamped to the run length (plus a small grace window
     // for network latency), bounds how much time could plausibly have been
@@ -61,13 +61,17 @@ export function settlePirateRun(s: PirateSettlementState, report: PirateRunRepor
 
     const ammoUsed = abandoned ? 0 : Math.min(reportedAmmoUsed, s.ammoCount)
     const gemAmmoUsed = abandoned ? 0 : Math.min(reportedGemAmmoUsed, s.gemAmmoCount)
-    const maxPayout = abandoned ? 0 : pirateMaxPayoutForRun(elapsedMs, difficulty, gemAmmoUsed)
-    // Coins collected during the run, clamped by the anti-cheat ceiling.
-    const runCoins = Math.min(reportedCoins, maxPayout)
+    // Voyages pay by the second survived, so the server derives the haul
+    // itself from the clamped elapsed time and the difficulty snapshotted at
+    // start-run. Nothing the client reports about coins is trusted.
+    // Letters of Marque scale the whole haul, survival pay and completion
+    // bonus alike. Its level can't change mid-voyage, so the locked row is
+    // the level the voyage sailed with.
+    const payMultiplier = pirateMarqueMultiplier(s.marqueLevel)
+    const runCoins = abandoned ? 0 : Math.floor(pirateSurvivalCoins(elapsedMs, difficulty) * payMultiplier)
     const completed = !abandoned && survived && reason === 'timeout' && elapsedMs >= PIRATE_RUN_DURATION_MS - 1000
-    // Completing the full voyage adds a flat bonus on top, sized server-side so
-    // the anti-cheat cap never clips it.
-    const completionBonus = completed ? pirateCompletionBonus(difficulty) : 0
+    // Completing the full voyage adds a flat bonus on top.
+    const completionBonus = completed ? Math.floor(pirateCompletionBonus(difficulty) * payMultiplier) : 0
     const awarded = runCoins + completionBonus
 
     const hullDamageFraction = abandoned ? 0 : (reason === 'defeat' ? 1 : reportedHullDamageFraction)
@@ -99,7 +103,6 @@ export function settlePirateRun(s: PirateSettlementState, report: PirateRunRepor
         awarded,
         completionBonus,
         runCoins,
-        capped: runCoins < reportedCoins,
         elapsedMs,
         completed,
         ammoUsed,

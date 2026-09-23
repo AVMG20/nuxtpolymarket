@@ -9,7 +9,6 @@ export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
 
     const body = await readBody(event)
-    const reportedCoins = Math.max(0, Math.floor(Number(body?.coins) || 0))
     const reportedAmmoUsed = Math.max(0, Math.floor(Number(body?.ammoUsed) || 0))
     const reportedGemAmmoUsed = Math.max(0, Math.floor(Number(body?.gemAmmoUsed) || 0))
     const reportedKills = Math.min(10_000, Math.max(0, Math.floor(Number(body?.kills) || 0)))
@@ -45,7 +44,6 @@ export default defineEventHandler(async (event) => {
             survived,
             reason,
             reportedElapsedMs,
-            reportedCoins,
             reportedKills,
             reportedShotsFired,
             reportedAmmoUsed,
@@ -94,8 +92,8 @@ export default defineEventHandler(async (event) => {
 
         return {
             awarded: result.awarded,
+            runCoins: result.runCoins,
             completionBonus: result.completionBonus,
-            capped: result.capped,
             elapsedMs: result.elapsedMs,
             survived,
             completed: result.completed,

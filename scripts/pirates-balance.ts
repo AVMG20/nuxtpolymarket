@@ -23,8 +23,8 @@ import {
     PIRATE_MAX_CANNON_SLOTS, PIRATE_MAX_DIFFICULTY, PIRATE_RUN_DURATION_MS, PIRATE_SHIP_STAT_IDS,
     pirateAbilityUpgradeCost, pirateAverageRunPayoutEstimate, pirateCannonDps, pirateCannonTier,
     pirateCompletionBonus, pirateDefenseRating, pirateDifficultyMultiplier, pirateEnemyReloadMultiplier,
-    pirateHitChance, pirateMaxHp, pirateMaxConcurrentEnemies, pirateMaxPayoutForRun,
-    pirateRegenRate, pirateRewardMultiplier, pirateSlotUnlockCost, pirateStatMaxLevel,
+    pirateHitChance, pirateMaxHp, pirateMaxConcurrentEnemies, pirateSurvivalCoins,
+    pirateRegenRate, pirateSlotUnlockCost, pirateStatMaxLevel,
     pirateStatUpgradeCost, piratePowerLevel, PIRATE_REGEN_CYCLE_MS,
     type PirateShipStatId
 } from '../shared/utils/gamelogic/pirates'
@@ -118,12 +118,14 @@ function fleetProfile(elapsedMs: number) {
         defense: mean(tier => tier.defense),
         attack: mean(tier => tier.attackRating),
         damage: mean(tier => tier.maxDamage),
-        reloadMs: mean(tier => tier.reloadMs),
-        coin: mean(tier => (tier.coinMin + tier.coinMax) / 2)
+        reloadMs: mean(tier => tier.reloadMs)
     }
 }
 
 interface VoyageResult { survivedMs: number, completed: boolean, collected: number, banked: number }
+
+// Voyages pay by the second survived (pirateSurvivalCoins), so the model only
+// needs to know how long the ship stays afloat; kills just keep it alive.
 
 function simulateVoyage(build: Build, difficulty: number): VoyageResult {
     const maxHp = pirateMaxHp(build.levels.hull)
@@ -131,7 +133,6 @@ function simulateVoyage(build: Build, difficulty: number): VoyageResult {
     const regenPerSecond = pirateRegenRate(build.levels.regen) / (PIRATE_REGEN_CYCLE_MS / 1000)
     let hp = maxHp
     let elapsedMs = 0
-    let collected = 0
     while (elapsedMs < PIRATE_RUN_DURATION_MS && hp > 0) {
         const seconds = STEP_MS / 1000
         const scale = pirateDifficultyMultiplier(elapsedMs, difficulty)
@@ -143,12 +144,11 @@ function simulateVoyage(build: Build, difficulty: number): VoyageResult {
             (sum, id) => sum + pirateCannonDps(pirateCannonTier(id), enemyDefense),
             0
         ) * BROADSIDE_UPTIME
-        const kills = Math.min(
-            pirateMaxConcurrentEnemies(elapsedMs, difficulty),
-            (broadside / enemyHp) * seconds
-        )
-        collected += kills * fleet.coin * pirateRewardMultiplier(elapsedMs, difficulty)
-
+        // Return fire assumes the fleet is always at its cap; the broadside
+        // only matters to whether the ship outlasts it, which the per-second
+        // pay then rewards.
+        void broadside
+        void enemyHp
         const alive = pirateMaxConcurrentEnemies(elapsedMs, difficulty)
         const shotsPerSecond = alive / ((fleet.reloadMs * pirateEnemyReloadMultiplier(elapsedMs, difficulty)) / 1000)
         const incoming = shotsPerSecond
@@ -159,9 +159,9 @@ function simulateVoyage(build: Build, difficulty: number): VoyageResult {
         elapsedMs += STEP_MS
     }
     const completed = hp > 0
-    const banked = Math.min(Math.round(collected), pirateMaxPayoutForRun(elapsedMs, difficulty))
-        + (completed ? pirateCompletionBonus(difficulty) : 0)
-    return { survivedMs: elapsedMs, completed, collected: Math.round(collected), banked }
+    const collected = pirateSurvivalCoins(elapsedMs, difficulty)
+    const banked = collected + (completed ? pirateCompletionBonus(difficulty) : 0)
+    return { survivedMs: elapsedMs, completed, collected, banked }
 }
 
 const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.floor((ms % 60_000) / 1000)).padStart(2, '0')}`
@@ -199,14 +199,14 @@ for (const tier of INVESTMENT_TIERS) {
 }
 
 heading('Headroom and completion bonus by difficulty')
-console.log(`${padRight('difficulty', 12)}${pad('avg haul', 14)}${pad('run ceiling', 14)}${pad('completion', 14)}${pad('clean clear', 16)}`)
+console.log(`${padRight('difficulty', 12)}${pad('avg haul', 14)}${pad('survival pay', 14)}${pad('completion', 14)}${pad('clean clear', 16)}`)
 rule(70)
 for (const difficulty of DIFFICULTIES) {
     const estimate = pirateAverageRunPayoutEstimate(difficulty)
     console.log(
         padRight(String(difficulty), 12)
         + pad(coins(estimate), 14)
-        + pad(coins(pirateMaxPayoutForRun(PIRATE_RUN_DURATION_MS, difficulty)), 14)
+        + pad(coins(pirateSurvivalCoins(PIRATE_RUN_DURATION_MS, difficulty)), 14)
         + pad(coins(pirateCompletionBonus(difficulty)), 14)
         + pad(coins(estimate + pirateCompletionBonus(difficulty)), 16)
     )

@@ -33,7 +33,7 @@ export default defineEventHandler(async (event) => {
             difficulty: row.difficulty,
             power: row.power,
             loot: row.loot,
-            skin: { id: skin.id, name: skin.name, sprite: skin.sprite }
+            skin: { id: skin.id, name: skin.name }
         }
     })
 })

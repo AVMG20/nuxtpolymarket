@@ -7,8 +7,14 @@ import {
   pirateAmmoPricePerUnit,
   pirateAverageRunPayoutEstimate,
   pirateCompletionBonus,
-  pirateMaxPayoutForRun,
-  pirateRewardMultiplier,
+  pirateSurvivalCoins,
+  pirateSurvivalCoinRate,
+  pirateRollBoss,
+  pirateRollPowerUp,
+  PIRATE_POWER_UPS,
+  PIRATE_MARQUE_MAX_LEVEL,
+  pirateMarqueMultiplier,
+  pirateMarqueUpgradeCost,
   pirateRepairRushGemCost,
   pirateNormalizeDifficulty,
   piratePowerLevel,
@@ -54,10 +60,13 @@ describe('pirate difficulty at tier 366', () => {
 
   it('does not unlock midgame tanks in the first minute', () => {
     const alwaysLastRoll = () => 0.999999
+    // The first minute is light raiders and fire ships; brigantines, snipers
+    // and ironclads arrive over the second.
     expect(pirateRollEnemyTier(0, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('sloop')
-    expect(pirateRollEnemyTier(45_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('sniper')
-    expect(pirateRollEnemyTier(50_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('sniper')
-    expect(pirateRollEnemyTier(60_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('ironclad')
+    expect(pirateRollEnemyTier(45_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('corsair')
+    expect(pirateRollEnemyTier(50_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('corsair')
+    expect(pirateRollEnemyTier(60_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('brigantine')
+    expect(pirateRollEnemyTier(75_000, TEST_DIFFICULTY, alwaysLastRoll).id).toBe('ironclad')
   })
 })
 
@@ -113,7 +122,7 @@ describe('pirate selectable difficulty and premium ammo', () => {
   it('keeps the six-minute voyage near a comparable Shapezz payout', () => {
     expect(PIRATE_RUN_DURATION_MS).toBe(6 * 60_000)
     expect(pirateAverageRunPayoutEstimate(0)).toBe(122_880)
-    expect(pirateMaxPayoutForRun(PIRATE_RUN_DURATION_MS, 0)).toBe(196_608)
+    expect(pirateSurvivalCoins(PIRATE_RUN_DURATION_MS, 0)).toBe(122_880)
     expect(pirateCompletionBonus(0)).toBe(110_592)
 
     // Both games run about six minutes at full length and both are meant to
@@ -127,23 +136,21 @@ describe('pirate selectable difficulty and premium ammo', () => {
     expect(piratePower200Clear).toBeLessThan(shapezzSurgeSixMinutes * 1.6)
   })
 
-  it('back-loads loot headroom instead of rewarding brief oversized voyages', () => {
-    const fullRunCap = pirateMaxPayoutForRun(PIRATE_RUN_DURATION_MS, 200)
+  it('back-loads survival pay instead of rewarding brief oversized voyages', () => {
+    const fullRun = pirateSurvivalCoins(PIRATE_RUN_DURATION_MS, 200)
 
     expect(pirateRunPayoutProgress(60_000)).toBeLessThan(0.05)
     expect(pirateRunPayoutProgress(120_000)).toBeLessThan(0.13)
-    expect(pirateMaxPayoutForRun(60_000, 200)).toBeLessThan(fullRunCap * 0.05)
-    expect(pirateMaxPayoutForRun(120_000, 200)).toBeLessThan(fullRunCap * 0.13)
-    expect(pirateMaxPayoutForRun(300_000, 200)).toBeLessThan(fullRunCap * 0.7)
+    expect(pirateSurvivalCoins(60_000, 200)).toBeLessThan(fullRun * 0.05)
+    expect(pirateSurvivalCoins(300_000, 200)).toBeLessThan(fullRun * 0.7)
+    expect(pirateCompletionBonus(200)).toBeGreaterThan(pirateAverageRunPayoutEstimate(200) * 0.85)
   })
 
-  it('phases the selected difficulty premium into the late voyage', () => {
-    const earlyPremium = pirateRewardMultiplier(60_000, 350) / pirateRewardMultiplier(60_000, 0)
-    const latePremium = pirateRewardMultiplier(PIRATE_RUN_DURATION_MS, 350) / pirateRewardMultiplier(PIRATE_RUN_DURATION_MS, 0)
-
-    expect(earlyPremium).toBeLessThan(1.15)
-    expect(latePremium).toBeGreaterThan(2)
-    expect(pirateCompletionBonus(200)).toBeGreaterThan(pirateAverageRunPayoutEstimate(200) * 0.85)
+  it('pays a climbing rate every second that sums to the survival haul', () => {
+    let summed = 0
+    for (let ms = 0; ms < PIRATE_RUN_DURATION_MS; ms += 100) summed += pirateSurvivalCoinRate(ms + 50, 350) * 0.1
+    expect(summed / pirateSurvivalCoins(PIRATE_RUN_DURATION_MS, 350)).toBeCloseTo(1, 2)
+    expect(pirateSurvivalCoinRate(300_000, 350)).toBeGreaterThan(pirateSurvivalCoinRate(60_000, 350) * 3)
   })
 
   it('charges one gem per started ten minutes to rush dry-dock repairs', () => {
@@ -162,11 +169,49 @@ describe('pirate selectable difficulty and premium ammo', () => {
 
 describe('pirate boss balance', () => {
   it('is kiteable and less durable while using specials frequently', () => {
-    const boss = PIRATE_ENEMY_TIERS.find(tier => tier.boss)!
+    const boss = PIRATE_ENEMY_TIERS.find(tier => tier.boss === 'dreadnought')!
     expect(boss.hp).toBe(560)
     expect(boss.range).toBe(310)
     expect(boss.maxDamage).toBe(32)
     expect(PIRATE_BOSS_DAMAGE_MULT).toBe(0.3)
     expect(PIRATE_BOSS_ABILITY_COOLDOWN_MAX_MS).toBeLessThan(6000)
+  })
+})
+
+describe('pirate bosses and salvage', () => {
+  it('only surfaces the Dreadnought early and never repeats a boss while there is a choice', () => {
+    expect(pirateRollBoss(60_000, 0, null).id).toBe('dreadnought')
+    for (let i = 0; i < 20; i++) expect(pirateRollBoss(PIRATE_RUN_DURATION_MS, 0, 'kraken').id).not.toBe('kraken')
+  })
+
+  it('rolls crates within their stack caps and honours the boss rarity floor', () => {
+    const allMaxed = Object.fromEntries(PIRATE_POWER_UPS.map(p => [p.id, p.maxStacks]))
+    expect(pirateRollPowerUp(allMaxed)).toBeNull()
+    for (let i = 0; i < 30; i++) {
+      const drop = pirateRollPowerUp({}, 'epic')!
+      expect(['epic', 'legendary']).toContain(drop.rarity)
+    }
+    const onlyOak = { ...allMaxed, 'oak-planking': 0 }
+    expect(pirateRollPowerUp(onlyOak, 'epic')!.id).toBe('oak-planking')
+  })
+})
+
+describe('pirate Letters of Marque', () => {
+  const fullClear = (difficulty: number) => pirateSurvivalCoins(PIRATE_RUN_DURATION_MS, difficulty) + pirateCompletionBonus(difficulty)
+
+  it('keeps a maxed charter on a top-difficulty clear within the 20-50m ceiling', () => {
+    const top = fullClear(1000) * pirateMarqueMultiplier(PIRATE_MARQUE_MAX_LEVEL)
+    expect(top).toBeGreaterThan(15_000_000)
+    expect(top).toBeLessThan(50_000_000)
+  })
+
+  it('pays each level back in about five full voyages at the difficulty sailed at that stage', () => {
+    for (let level = 0; level < PIRATE_MARQUE_MAX_LEVEL; level++) {
+      const extraPerVoyage = fullClear(level * 100) * 0.2
+      const voyages = pirateMarqueUpgradeCost(level)! / extraPerVoyage
+      expect(voyages).toBeGreaterThan(4.5)
+      expect(voyages).toBeLessThan(5.5)
+    }
+    expect(pirateMarqueUpgradeCost(PIRATE_MARQUE_MAX_LEVEL)).toBeNull()
   })
 })
