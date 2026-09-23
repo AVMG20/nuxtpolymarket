@@ -685,7 +685,7 @@ function floatAmount(x: number, y: number, text: string, color = 0xfde047, size 
 }
 
 function lineLabel(win: LineWin) {
-  return `Line ${win.line + 1} · ${win.count}× ${XENO_SYMBOLS[win.symbol].name} · ${formatNumber(win.amount, false)}`
+  return `Line ${win.line + 1} · ${win.count}× ${XENO_SYMBOLS[win.symbol].name} · ${formatNumber(win.amount)}`
 }
 
 async function presentLineWins(result: XenoSlotResult) {
@@ -702,7 +702,7 @@ async function presentLineWins(result: XenoSlotResult) {
     const p = cellCenter(c)
     fx?.burst(p.x, p.y, { count: multiple >= 5 ? 14 : 8, colors: [0xfde047, 0xffffff, 0xa3e635], speed: 240 })
   }
-  say(lines.length > 1 ? `${lines.length} lines win ${formatNumber(result.basePayout, false)}` : lineLabel(lines[0]!), 'win')
+  say(lines.length > 1 ? `${lines.length} lines win ${formatNumber(result.basePayout)}` : lineLabel(lines[0]!), 'win')
 
   const tier = tierFor(multiple)
   if (tier >= 0) {
@@ -726,7 +726,7 @@ async function presentLineWins(result: XenoSlotResult) {
       spotlight(l.cells)
       sound.play('line-show', l.line)
       const mid = cellCenter(l.cells[Math.floor((l.cells.length - 1) / 2)]!)
-      floatAmount(mid.x, mid.y, `+${formatNumber(l.amount, false)}`)
+      floatAmount(mid.x, mid.y, `+${formatNumber(l.amount)}`)
       say(lineLabel(l), 'win')
       await delay(1000)
     }
@@ -873,7 +873,7 @@ async function spin(buy = false) {
     winMeter.value = result.payout
     setBalance(data.balance)
     pushHistory({ payout: result.payout, bet: result.cost, bonus: result.bonusTriggered })
-    if (result.payout > 0 && !result.bonusTriggered) say(`You won ${formatNumber(result.payout, false)}`, 'win')
+    if (result.payout > 0 && !result.bonusTriggered) say(`You won ${formatNumber(result.payout)}`, 'win')
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'
     setBalance(data.balance)
@@ -1093,7 +1093,7 @@ async function playBonus(result: XenoSlotResult) {
   bonusOutro.value = true
   if (dimLayer) void tween(dimLayer, { alpha: 0.6, duration: 0.3 })
   sound.play('bonus-end')
-  say(bonus.bonusPayout > 0 ? `Hold & Win paid ${formatNumber(bonus.bonusPayout, false)}` : 'No UFO landed. The coins stay behind', bonus.bonusPayout > 0 ? 'win' : 'idle')
+  say(bonus.bonusPayout > 0 ? `Hold & Win paid ${formatNumber(bonus.bonusPayout)}` : 'No UFO landed. The coins stay behind', bonus.bonusPayout > 0 ? 'win' : 'idle')
   if (bonus.bonusPayout > 0) fx?.burst(APP_W / 2, APP_H / 2, { count: 60, kind: 'mix', speed: 520, colors: [0xfde047, 0xffffff, 0xf0abfc] })
   await delay(2400)
   bonusOutro.value = false
@@ -1331,7 +1331,7 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
                     Bonus complete
                   </p>
                   <p class="xs-card__amount" :class="{ 'is-zero': bonusOutroAmount <= 0 }">
-                    {{ formatNumber(bonusOutroAmount, false) }}
+                    {{ formatNumber(bonusOutroAmount) }}
                   </p>
                   <p class="xs-card__sub">
                     {{ bonusOutroAmount > 0 ? 'collected by the UFOs' : 'No UFO landed this time' }}
@@ -1665,35 +1665,39 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
   94% { opacity: 0.55; }
 }
 
+/* Game facts as one quiet line of text, dot-separated, instead of a row of chips. */
 .xs-badges {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 6px;
+  align-items: center;
+  column-gap: 0;
+  row-gap: 4px;
 }
 
-.xs-badges, .xs-hud { min-height: 40px; align-content: center; }
+.xs-badges, .xs-hud { min-height: 28px; align-content: center; }
 
 .xs-badge {
   display: inline-flex;
   align-items: center;
   gap: 1px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: #ddd6fe;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(167, 139, 250, 0.3);
+  color: rgba(221, 214, 254, 0.62);
 }
 
-.xs-badge--hot {
-  color: #fdf4ff;
-  border-color: rgba(240, 171, 252, 0.6);
-  box-shadow: 0 0 12px rgba(217, 70, 239, 0.35);
+.xs-badge + .xs-badge::before {
+  content: '';
+  width: 3px;
+  height: 3px;
+  margin: 0 12px;
+  border-radius: 50%;
+  background: rgba(167, 139, 250, 0.5);
 }
+
+.xs-badge--hot { color: #f0abfc; }
 
 .xs-badge--vol :deep(.iconify) { color: rgba(167, 139, 250, 0.35); }
 .xs-badge--vol :deep(.is-on) { color: #facc15; filter: drop-shadow(0 0 3px rgba(250, 204, 21, 0.8)); }
@@ -1873,23 +1877,20 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
 .xs-card__amount.is-zero { color: #a78bfa; text-shadow: none; }
 
 /* ── Ticker ────────────────────────────────────────────────────────────── */
+/* Status line: plain text under the reels, framed only by a hairline. */
 .xs-ticker {
-  margin: 10px 4px 0;
-  height: 30px;
+  position: relative;
+  margin: 8px 4px 0;
+  height: 26px;
   display: grid;
   place-items: center;
   overflow: hidden;
-  border-radius: 10px;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
   white-space: nowrap;
-  color: #c4b5fd;
-  background:
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 2px, transparent 2px 4px),
-    rgba(0, 0, 0, 0.5);
-  box-shadow: inset 0 0 0 1px rgba(167, 139, 250, 0.2), inset 0 2px 8px rgba(0, 0, 0, 0.6);
+  color: rgba(196, 181, 253, 0.8);
 }
 
 .xs-ticker > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0 10px; }
@@ -1910,7 +1911,7 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
   50% { box-shadow: 0 8px 22px rgba(0, 0, 0, 0.6), 0 0 36px rgba(163, 230, 53, 0.65); }
 }
 
-.xs-bar { margin-top: 12px; }
+.xs-bar { margin-top: 6px; }
 
 .xs-error {
   display: flex;
@@ -1974,30 +1975,31 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
 
 /* ── Narrow cabinets (phones, small windows) ───────────────────────────── */
 @container xs-cab (max-width: 620px) {
-  
 
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
+
+
+
+
+
+
+
+
+
+
+
+
+
   .xs-marquee { justify-content: center; }
   .xs-badges { justify-content: center; }
 }
 
 @container xs-cab (max-width: 440px) {
   .xs-cabinet { padding: 10px; }
-  
-  
-  .xs-badge { padding: 3px 8px; font-size: 9px; }
-  
+
+
+  .xs-badge { font-size: 9px; letter-spacing: 0.1em; }
+  .xs-badge + .xs-badge::before { margin: 0 7px; }
+
   .xs-ticker { font-size: 10px; letter-spacing: 0.08em; }
 }
 

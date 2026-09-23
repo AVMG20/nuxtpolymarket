@@ -91,7 +91,7 @@ const autoOn = computed(() => props.autoLeft > 0)
 // --- bet -------------------------------------------------------------------
 const editing = ref(false)
 const draft = ref(props.bet)
-const draftText = useAmountInput(draft, { integer: true })
+const draftText = useAmountInput(draft, { integer: true, shorthand: true })
 const betInput = ref<HTMLInputElement>()
 const betPreview = computed(() => (editing.value ? amountPreview(draftText.value, true) : ''))
 
@@ -241,8 +241,8 @@ onBeforeUnmount(() => {
     :style="themeStyle"
   >
     <div class="sc-grid">
-      <!-- Row 1 on phones: balance · bet · win -->
-      <div class="sc-row sc-row--meters">
+      <!-- Balance and win, read left to right -->
+      <div class="sc-zone sc-zone--meters">
         <div
           :key="`bal${balanceShake}`"
           class="sc-meter sc-a-bal"
@@ -254,7 +254,28 @@ onBeforeUnmount(() => {
             <span class="sc-narrow">{{ slotAmount(balance, true) }}</span>
           </span>
         </div>
+        <span class="sc-divider" aria-hidden="true" />
+        <div
+          ref="winEl"
+          class="sc-meter sc-meter--win sc-a-win"
+          :class="{ 'is-hot': win > 0 }"
+          aria-live="polite"
+        >
+          <span class="sc-label">{{ winLabel }}</span>
+          <span
+            :key="`win${winPulse}`"
+            class="sc-value"
+            :class="{ 'is-pop': winPulse > 0 && win > 0 }"
+          >{{ slotAmount(win) }}</span>
+          <span
+            v-if="winNote"
+            class="sc-meter__note"
+          >{{ winNote }}</span>
+        </div>
+      </div>
 
+      <!-- Bet · SPIN · auto/turbo, with the spin button dead centre -->
+      <div class="sc-zone sc-zone--play">
         <div
           class="sc-bet sc-a-bet"
           :class="{ 'is-locked': betLocked }"
@@ -333,29 +354,91 @@ onBeforeUnmount(() => {
             <span class="sc-tile__label">Max</span>
           </button>
         </div>
-
-        <div
-          ref="winEl"
-          class="sc-meter sc-meter--win sc-a-win"
-          :class="{ 'is-hot': win > 0 }"
-          aria-live="polite"
+        <button
+          type="button"
+          class="sc-spin sc-a-spin"
+          :class="[`is-${autoOn ? 'auto' : spinMode}`]"
+          :disabled="spinBlocked"
+          :aria-label="spinLabel"
+          @click="pressSpin"
         >
-          <span class="sc-label">{{ winLabel }}</span>
-          <span
-            :key="`win${winPulse}`"
-            class="sc-value"
-            :class="{ 'is-pop': winPulse > 0 && win > 0 }"
-          >{{ slotAmount(win) }}</span>
-          <span
-            v-if="winNote"
-            class="sc-meter__note"
-          >{{ winNote }}</span>
+          <span class="sc-spin__face">
+            <template v-if="autoOn">
+              <span class="sc-spin__count">{{ autoLeft }}</span>
+              <span class="sc-spin__text">Stop</span>
+            </template>
+            <template v-else-if="spinMode === 'stop'">
+              <UIcon
+                name="i-lucide-square"
+                class="sc-spin__icon sc-spin__icon--sm"
+              />
+              <span class="sc-spin__text">Stop</span>
+            </template>
+            <template v-else-if="spinMode === 'skip'">
+              <UIcon
+                name="i-lucide-fast-forward"
+                class="sc-spin__icon sc-spin__icon--sm"
+              />
+              <span class="sc-spin__text">Skip</span>
+            </template>
+            <UIcon
+              v-else-if="spinMode === 'wait'"
+              name="i-lucide-loader-circle"
+              class="sc-spin__icon animate-spin"
+            />
+            <UIcon
+              v-else
+              name="i-lucide-rotate-cw"
+              class="sc-spin__icon sc-spin__icon--turn"
+            />
+          </span>
+        </button>
+        <div class="sc-mods">
+          <button
+            type="button"
+            class="sc-tile sc-a-auto"
+            :class="{ 'is-on': autoOn }"
+            :disabled="!autoOn && autoDisabled"
+            :aria-label="autoOn ? 'Stop autoplay' : 'Autoplay'"
+            @click="pressAuto"
+          >
+            <UIcon
+              :name="autoOn ? 'i-lucide-square' : 'i-lucide-repeat'"
+              class="sc-tile__icon"
+            />
+            <span class="sc-tile__label">{{ autoOn ? 'Stop' : 'Auto' }}</span>
+          </button>
+          <button
+            type="button"
+            class="sc-tile sc-a-turbo"
+            :class="{ 'is-on': turbo }"
+            :aria-pressed="turbo"
+            aria-label="Turbo"
+            @click="emit('toggle-turbo')"
+          >
+            <UIcon
+              name="i-lucide-zap"
+              class="sc-tile__icon"
+            />
+            <span class="sc-tile__label">Turbo</span>
+          </button>
         </div>
       </div>
 
-      <!-- Row 2 on phones: info · sound · auto · SPIN · turbo · buy -->
-      <div class="sc-row sc-row--play">
-        <div class="sc-side sc-side--left">
+      <!-- Buy bonus and the quiet utilities -->
+      <div class="sc-zone sc-zone--extra">
+        <button
+          v-if="buys.length"
+          type="button"
+          class="sc-buy sc-a-buy"
+          :disabled="buyDisabled"
+          :aria-label="`Buy bonus, ${buyPrice}`"
+          @click="pressBuy"
+        >
+          <span class="sc-buy__label">Buy bonus</span>
+          <span class="sc-buy__price">{{ buyPrice }}</span>
+        </button>
+        <div class="sc-utils">
           <button
             type="button"
             class="sc-icon sc-a-info"
@@ -368,7 +451,6 @@ onBeforeUnmount(() => {
               class="size-5"
             />
           </button>
-
           <div
             ref="soundWrap"
             class="sc-sound sc-a-sound"
@@ -442,90 +524,6 @@ onBeforeUnmount(() => {
               </div>
             </Transition>
           </div>
-
-          <button
-            type="button"
-            class="sc-tile sc-a-auto"
-            :class="{ 'is-on': autoOn }"
-            :disabled="!autoOn && autoDisabled"
-            :aria-label="autoOn ? 'Stop autoplay' : 'Autoplay'"
-            @click="pressAuto"
-          >
-            <UIcon
-              :name="autoOn ? 'i-lucide-square' : 'i-lucide-repeat'"
-              class="sc-tile__icon"
-            />
-            <span class="sc-tile__label">{{ autoOn ? 'Stop' : 'Auto' }}</span>
-          </button>
-        </div>
-
-        <button
-          type="button"
-          class="sc-spin sc-a-spin"
-          :class="[`is-${autoOn ? 'auto' : spinMode}`]"
-          :disabled="spinBlocked"
-          :aria-label="spinLabel"
-          @click="pressSpin"
-        >
-          <span class="sc-spin__face">
-            <template v-if="autoOn">
-              <span class="sc-spin__count">{{ autoLeft }}</span>
-              <span class="sc-spin__text">Stop</span>
-            </template>
-            <template v-else-if="spinMode === 'stop'">
-              <UIcon
-                name="i-lucide-square"
-                class="sc-spin__icon sc-spin__icon--sm"
-              />
-              <span class="sc-spin__text">Stop</span>
-            </template>
-            <template v-else-if="spinMode === 'skip'">
-              <UIcon
-                name="i-lucide-fast-forward"
-                class="sc-spin__icon sc-spin__icon--sm"
-              />
-              <span class="sc-spin__text">Skip</span>
-            </template>
-            <UIcon
-              v-else-if="spinMode === 'wait'"
-              name="i-lucide-loader-circle"
-              class="sc-spin__icon animate-spin"
-            />
-            <UIcon
-              v-else
-              name="i-lucide-rotate-cw"
-              class="sc-spin__icon sc-spin__icon--turn"
-            />
-          </span>
-        </button>
-
-        <div class="sc-side sc-side--right">
-          <button
-            type="button"
-            class="sc-tile sc-a-turbo"
-            :class="{ 'is-on': turbo }"
-            :aria-pressed="turbo"
-            aria-label="Turbo"
-            @click="emit('toggle-turbo')"
-          >
-            <UIcon
-              name="i-lucide-zap"
-              class="sc-tile__icon"
-            />
-            <span class="sc-tile__label">Turbo</span>
-          </button>
-
-          <button
-            v-if="buys.length"
-            type="button"
-            class="sc-buy sc-a-buy"
-            :disabled="buyDisabled"
-            :aria-label="`Buy bonus, ${buyPrice}`"
-            @click="pressBuy"
-          >
-            <span class="sc-buy__label">Buy bonus</span>
-            <span class="sc-buy__price">{{ buyPrice }}</span>
-          </button>
         </div>
       </div>
     </div>
@@ -557,31 +555,44 @@ onBeforeUnmount(() => {
   font-family: var(--sc-font);
 }
 
-/* Wide cabinets, one row:
-   info · balance · bet · max · SPIN · auto · turbo · BUY BONUS · win · sound
-   The row and side wrappers only group things for the phone layout. */
+/* Wide cabinets, one row in three zones:
+   balance · win  |  bet · SPIN · auto/turbo  |  buy bonus · info/sound
+   The outer columns share the leftover width equally, so the spin button
+   always sits in the middle of the cabinet. */
 .sc-grid {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto auto minmax(0, 1fr) auto;
-  grid-template-areas: 'info bal bet spin auto turbo buy win sound';
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  column-gap: 8px;
-  padding: 10px 14px;
+  column-gap: 16px;
+  padding: 12px 16px;
   border-radius: 22px;
   background: var(--sc-surface);
 }
 
-.sc-row, .sc-side { display: contents; }
+.sc-zone { display: flex; min-width: 0; align-items: center; }
+.sc-zone--meters { gap: 14px; }
+.sc-zone--extra { justify-content: flex-end; gap: 10px; }
 
-.sc-a-info { grid-area: info; }
-.sc-a-bal { grid-area: bal; }
-.sc-a-bet { grid-area: bet; }
-.sc-a-spin { grid-area: spin; margin: 0 8px; }
-.sc-a-auto { grid-area: auto; }
-.sc-a-turbo { grid-area: turbo; }
-.sc-a-buy { grid-area: buy; }
-.sc-a-win { grid-area: win; }
-.sc-a-sound { grid-area: sound; }
+/* Bet and the auto/turbo pair get equal-width halves around the spin. */
+.sc-zone--play {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
+}
+
+.sc-zone--play > .sc-bet { justify-self: end; }
+.sc-mods { display: flex; justify-self: start; gap: 6px; }
+.sc-utils { display: flex; flex-direction: column; gap: 2px; }
+.sc-utils .sc-icon { width: 30px; height: 30px; }
+.sc-utils .sc-icon :deep(svg), .sc-utils .sc-icon > span { width: 17px; height: 17px; }
+
+.sc-divider {
+  width: 1px;
+  height: 34px;
+  flex-shrink: 0;
+  background: var(--sc-line, color-mix(in srgb, var(--sc-text) 14%, transparent));
+}
 
 /* ── meters ─────────────────────────────────────────────────────────── */
 .sc-meter {
@@ -589,10 +600,9 @@ onBeforeUnmount(() => {
   min-width: 0;
   flex-direction: column;
   gap: 1px;
-  padding: 0 8px;
+  padding: 0;
 }
 
-.sc-meter--win { align-items: flex-end; text-align: right; }
 
 .sc-label {
   font-size: 10px;
@@ -975,59 +985,53 @@ onBeforeUnmount(() => {
   40%, 80% { transform: translateX(4px); }
 }
 
-/* ── mid widths: tighter one row ─────────────────────────────────────── */
+/* ── mid widths: same zones, tighter ────────────────────────────────── */
 @container sc (max-width: 900px) {
-  .sc-grid { column-gap: 6px; padding: 8px 10px; }
-  .sc-tile { width: 48px; height: 46px; }
-  .sc-buy { min-width: 100px; height: 46px; padding: 0 10px; }
+  .sc-grid { column-gap: 10px; padding: 10px 12px; }
+  .sc-zone--play { column-gap: 10px; }
+  .sc-zone--meters { gap: 10px; }
+  .sc-tile { width: 46px; height: 46px; }
+  .sc-buy { min-width: 96px; height: 46px; padding: 0 10px; }
   .sc-buy__price { font-size: 14px; }
   .sc-value { font-size: 16px; }
   .sc-wide { display: none; }
   .sc-narrow { display: inline; }
   .sc-spin { width: 76px; height: 76px; }
-  .sc-a-spin { margin: 0 4px; }
-  .sc-bet__value, .sc-bet__input { width: 62px; }
-  .sc-meter { padding: 0 4px; }
+  .sc-bet__value, .sc-bet__input { width: 58px; }
 }
 
-/* ── phones: two rows ───────────────────────────────────────────────── */
-@container sc (max-width: 600px) {
+/* ── phones: meters on top, the play row, then buy + utilities ──────── */
+@container sc (max-width: 640px) {
   .sc-grid {
     display: flex;
     flex-direction: column;
+    align-items: stretch;
     gap: 10px;
-    padding: 10px 8px 8px;
+    padding: 10px 10px 12px;
     border-radius: 18px;
   }
 
-  .sc-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-    align-items: center;
-    column-gap: 4px;
-  }
-
-  .sc-row--meters { align-items: start; }
-  .sc-grid :is(.sc-a-info, .sc-a-bal, .sc-a-bet, .sc-a-spin, .sc-a-auto, .sc-a-turbo, .sc-a-buy, .sc-a-win, .sc-a-sound) { grid-area: auto; }
-  .sc-side { display: flex; align-items: center; gap: 5px; }
-  .sc-side--left { justify-content: flex-end; }
-  .sc-side--right { justify-content: flex-start; }
+  .sc-zone--meters { justify-content: space-between; padding: 0 4px; }
+  .sc-zone--meters .sc-divider { display: none; }
+  .sc-zone--meters .sc-meter--win { align-items: flex-end; text-align: right; }
+  /* Too narrow for equal halves around the spin: pack the row and centre it. */
+  .sc-zone--play { display: flex; justify-content: center; gap: 6px; }
+  .sc-bet { gap: 4px; }
+  .sc-zone--extra { justify-content: stretch; }
+  .sc-zone--extra .sc-buy { flex: 1; min-width: 0; height: 42px; flex-direction: row; gap: 10px; }
+  .sc-utils { flex-direction: row; gap: 6px; }
+  .sc-utils .sc-icon { width: 42px; height: 42px; border-radius: 12px; color: var(--sc-text); background: var(--sc-control); }
   .sc-bet { padding-bottom: 12px; }
   .sc-value { font-size: 15px; }
   .sc-label { font-size: 9px; letter-spacing: 0.12em; }
   .sc-tile { width: 44px; height: 44px; border-radius: 12px; }
   .sc-tile__label { font-size: 9px; }
   .sc-tile--max { width: 40px; }
-  .sc-icon { width: 36px; height: 36px; color: var(--sc-text); background: var(--sc-control); }
   .sc-spin { width: 70px; height: 70px; padding: 4px; }
-  .sc-a-spin { margin: 0 4px; }
   .sc-spin__icon { width: 28px; height: 28px; }
   .sc-step { width: 28px; height: 28px; }
-  .sc-bet__value, .sc-bet__input { width: 56px; font-size: 15px; }
-  .sc-buy { min-width: 0; width: 84px; height: 44px; padding: 0 4px; border-radius: 12px; }
-  .sc-buy__label { font-size: 8.5px; letter-spacing: 0.06em; }
-  .sc-buy__price { font-size: 13px; }
-  .sc-sound__panel { right: auto; left: 0; }
+  .sc-bet__value, .sc-bet__input { width: 52px; font-size: 15px; }
+  .sc-sound__panel { right: 0; left: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {
