@@ -684,6 +684,53 @@ function floatAmount(x: number, y: number, text: string, color = 0xfde047, size 
   GSAP.to(t, { alpha: 0, duration: 0.4, delay: 1.1, onComplete: () => t.destroy() })
 }
 
+/**
+ * The spin's total, stamped big over the winning cells. It pops in, counts up
+ * alongside the meter and holds until the returned function sends it off.
+ */
+function winPop(cells: Cell[], amount: number, multiple: number, seconds: number): () => void {
+  if (!PIXI || !floatLayer || !GSAP) return () => {}
+  const pts = cells.map(cellCenter)
+  const x = Math.min(APP_W - 160, Math.max(160, pts.reduce((s, p) => s + p.x, 0) / pts.length))
+  const y = Math.min(APP_H - 60, Math.max(60, pts.reduce((s, p) => s + p.y, 0) / pts.length))
+  const size = multiple >= 5 ? 88 : multiple >= 1.5 ? 74 : 62
+  const t = new PIXI.Text({
+    text: `+${formatNumber(0)}`,
+    style: {
+      fontFamily: '"Chakra Petch", system-ui, sans-serif',
+      fontSize: size,
+      fontWeight: '700',
+      fill: multiple >= 1.5 ? 0xfde047 : 0xffffff,
+      stroke: { color: 0x14052b, width: 10, join: 'round' },
+      dropShadow: { color: multiple >= 1.5 ? 0xa3e635 : 0x22d3ee, alpha: 0.8, blur: 18, distance: 0 }
+    }
+  })
+  t.anchor.set(0.5)
+  t.position.set(x, y)
+  floatLayer.addChild(t)
+  GSAP.fromTo(t.scale, { x: 0.2, y: 0.2 }, { x: 1, y: 1, duration: 0.45, ease: 'back.out(3)' })
+  fx?.ring(x, y, multiple >= 1.5 ? 0xa3e635 : 0x22d3ee, size * 2.4, 0.5, 6)
+  const obj = { v: 0 }
+  const count = GSAP.to(obj, {
+    v: amount,
+    duration: skipping ? 0 : seconds * speed(),
+    ease: 'power1.out',
+    onUpdate: () => {
+      if (!t.destroyed) t.text = `+${formatNumber(obj.v)}`
+    },
+    onComplete: () => {
+      if (t.destroyed) return
+      t.text = `+${formatNumber(amount)}`
+      GSAP!.fromTo(t.scale, { x: 1.18, y: 1.18 }, { x: 1, y: 1, duration: 0.3, ease: 'back.out(3)' })
+    }
+  })
+  return () => {
+    count.progress(1)
+    if (t.destroyed) return
+    GSAP!.to(t, { y: y - 40, alpha: 0, duration: 0.4, ease: 'power1.in', onComplete: () => t.destroy() })
+  }
+}
+
 function lineLabel(win: LineWin) {
   return `Line ${win.line + 1} · ${win.count}× ${XENO_SYMBOLS[win.symbol].name} · ${formatNumber(win.amount)}`
 }
@@ -713,7 +760,11 @@ async function presentLineWins(result: XenoSlotResult) {
   } else {
     sound.play(multiple >= 5 ? 'win-big' : multiple >= 1.5 ? 'win-medium' : 'win-small')
     if (multiple >= 5) fx?.shake(stageRoot!, 5, 0.35)
-    await countWin(result.basePayout, multiple >= 5 ? 1.6 : multiple >= 1.5 ? 1.0 : 0.6)
+    const seconds = multiple >= 5 ? 1.6 : multiple >= 1.5 ? 1.0 : 0.6
+    const dismiss = winPop([...cells.values()], result.basePayout, multiple, seconds)
+    await countWin(result.basePayout, seconds)
+    await delay(900)
+    dismiss()
   }
   await delay(700)
 
@@ -736,7 +787,7 @@ async function presentLineWins(result: XenoSlotResult) {
 }
 
 /** Escalating big-win count-up: dims the reels, rains coins, climbs through the tiers. */
-async function showBigWin(amount: number, multiple: number) {
+async function showBigWin(amount: number, multiple: number, base = 0) {
   const top = tierFor(multiple)
   if (top < 0 || !GSAP || !fx || !dimLayer || !stageRoot) return
   skipping = false
@@ -761,7 +812,7 @@ async function showBigWin(amount: number, multiple: number) {
       onUpdate: () => {
         bigWin.amount = obj.v
         bigWin.multiple = obj.v / theBet
-        winMeter.value = obj.v
+        winMeter.value = base + obj.v
         sound.play('tick')
         const t = tierFor(obj.v / theBet)
         if (t > bigWin.tier) {
@@ -784,7 +835,7 @@ async function showBigWin(amount: number, multiple: number) {
   })
   bigWin.amount = amount
   bigWin.multiple = multiple
-  winMeter.value = amount
+  winMeter.value = base + amount
   sound.play('bigwin-end')
   fx.burst(APP_W / 2, APP_H / 2, { count: 70, kind: 'mix', speed: 640, colors: [0xfde047, 0xffffff] })
   skipping = false
@@ -1087,8 +1138,19 @@ async function playBonus(result: XenoSlotResult) {
   }
   if (destroyed) return
 
-  // 5. Outro card.
+  // 5. A big haul goes straight into the escalating count-up, so the total
+  // isn't spoiled first. Anything smaller gets the outro card.
   skipping = false
+  const base = Math.min(result.basePayout, result.payout)
+  const multiple = (result.payout - base) / result.bet
+  if (tierFor(multiple) >= 0) {
+    say('Hold & Win complete', 'win')
+    inBonus.value = false
+    sound.setBonusMusic(false)
+    await showBigWin(result.payout - base, multiple, base)
+    winMeter.value = result.payout
+    return
+  }
   bonusOutroAmount.value = bonus.bonusPayout
   bonusOutro.value = true
   if (dimLayer) void tween(dimLayer, { alpha: 0.6, duration: 0.3 })
@@ -1101,10 +1163,6 @@ async function playBonus(result: XenoSlotResult) {
   inBonus.value = false
   sound.setBonusMusic(false)
   await countWin(result.payout, 0.8)
-
-  const multiple = bonus.bonusPayout / result.bet
-  if (tierFor(multiple) >= 0) await showBigWin(bonus.bonusPayout, multiple)
-  winMeter.value = result.payout
 }
 
 // Each core zaps its neighbours: lightning to every coin it boosts, new value, then it fades.
@@ -1436,7 +1494,7 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
   --xs-ink: #0a0518;
   --xs-text: #ede9fe;
   --xs-dim: #a78bfa;
-  --xs-chrome: linear-gradient(135deg, #f5f3ff 0%, #a78bfa 18%, #312e81 40%, #c4b5fd 58%, #4c1d95 78%, #ede9fe 100%);
+  --xs-chrome: linear-gradient(180deg, rgba(196, 181, 253, 0.55) 0%, rgba(139, 92, 246, 0.28) 30%, rgba(76, 29, 149, 0.2) 70%, rgba(167, 139, 250, 0.4) 100%);
   position: relative;
   min-height: 100%;
   display: flex;
@@ -1564,16 +1622,15 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
   position: relative;
   padding: 14px 16px 16px;
   border-radius: 30px;
-  border: 3px solid transparent;
+  border: 1px solid transparent;
   background:
     radial-gradient(ellipse 90% 40% at 50% 0%, rgba(168, 85, 247, 0.25), transparent 70%) padding-box,
     linear-gradient(180deg, #1d1040 0%, #120828 45%, #0b0519 100%) padding-box,
     var(--xs-chrome) border-box;
   box-shadow:
-    0 0 0 1px #05020d,
     0 30px 60px rgba(0, 0, 0, 0.6),
-    0 0 60px rgba(139, 92, 246, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    0 0 60px rgba(139, 92, 246, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
   container-type: inline-size;
   container-name: xs-cab;
   transition: box-shadow 0.6s;
@@ -1581,10 +1638,9 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
 
 .is-bonus .xs-cabinet {
   box-shadow:
-    0 0 0 1px #05020d,
     0 30px 60px rgba(0, 0, 0, 0.6),
-    0 0 90px rgba(217, 70, 239, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    0 0 90px rgba(217, 70, 239, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 /* Chasing marquee bulbs along the top edge. */
@@ -1742,31 +1798,25 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
 /* ── Reel window ───────────────────────────────────────────────────────── */
 .xs-window {
   position: relative;
-  padding: 6px;
-  border-radius: 24px;
-  background: linear-gradient(180deg, #4c1d95, #1e1b4b 40%, #312e81 60%, #6d28d9);
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.8),
-    0 0 24px rgba(168, 85, 247, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  padding: 1.5px;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(196, 181, 253, 0.7), rgba(124, 58, 237, 0.35) 45%, rgba(124, 58, 237, 0.35) 55%, rgba(167, 139, 250, 0.6));
+  box-shadow: 0 0 28px rgba(168, 85, 247, 0.3), 0 12px 30px rgba(0, 0, 0, 0.45);
   transition: box-shadow 0.4s;
 }
 
 .xs-window[data-xs-winning='true'] {
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.8),
-    0 0 36px rgba(250, 204, 21, 0.55),
-    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  box-shadow: 0 0 36px rgba(250, 204, 21, 0.45), 0 12px 30px rgba(0, 0, 0, 0.45);
 }
 
 .is-bonus .xs-window {
-  background: linear-gradient(180deg, #c026d3, #4a044e 40%, #701a75 60%, #e879f9);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 0 40px rgba(217, 70, 239, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  background: linear-gradient(180deg, rgba(245, 208, 254, 0.8), rgba(192, 38, 211, 0.4) 50%, rgba(232, 121, 249, 0.7));
+  box-shadow: 0 0 40px rgba(217, 70, 239, 0.5), 0 12px 30px rgba(0, 0, 0, 0.45);
 }
 
 .xs-window__inner {
   position: relative;
-  border-radius: 18px;
+  border-radius: 20.5px;
   overflow: hidden;
   background:
     radial-gradient(ellipse 70% 60% at 50% 40%, #1a0d3a, #07031a 80%);
@@ -1911,7 +1961,16 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
   50% { box-shadow: 0 8px 22px rgba(0, 0, 0, 0.6), 0 0 36px rgba(163, 230, 53, 0.65); }
 }
 
-.xs-bar { margin-top: 6px; }
+/* The controls sit on the cabinet itself, split off by a hairline, not boxed in a second card. */
+.xs-bar {
+  margin-top: 6px;
+  border-top: 1px solid rgba(196, 181, 253, 0.1);
+}
+
+.xs-bar :deep(.sc-grid) {
+  background: transparent;
+  padding: 14px 6px 4px;
+}
 
 .xs-error {
   display: flex;
