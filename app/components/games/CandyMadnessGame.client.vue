@@ -2140,6 +2140,15 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
   box-shadow: 0 0 0 3px #5a0f45, 0 12px 30px rgba(30, 0, 40, 0.5), inset 0 2px 0 rgba(255, 255, 255, 0.2);
 }
 
+/* On wide screens the deck runs past the reel frame, at least 640px wide, so the meters get room. */
+@media (min-width: 1101px) {
+  .cm-deck {
+    margin-inline: min(-48px, calc((100% - 640px) / 2));
+    padding: 14px 18px;
+    gap: 8px 14px;
+  }
+}
+
 .cm-meter--balance { grid-area: bal; }
 .cm-meter--bet { grid-area: bet; }
 .cm-meter--win { grid-area: win; }
