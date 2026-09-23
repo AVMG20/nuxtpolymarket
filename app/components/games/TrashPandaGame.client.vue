@@ -2,14 +2,14 @@
 // Trash Panda Heist: a 5×4, 1024-ways slot with sticky multiplier-wild free
 // spins (Night Heist) and a pick game (Dumpster Dive). The server decides
 // every outcome (shared/utils/gamelogic/trashpanda.ts); this component only
-// presents it. All artwork is painted procedurally
+// presents it. Artwork shares vector paths between SVGs and reel textures
 // (~/utils/slots/trashpanda-art) and every sound is synthesized
 // (~/composables/trashpanda-sound), so the game loads no image or audio files.
 import type { Container, Graphics, Sprite, Texture } from 'pixi.js'
 import type { Cell, TphFreeSpin, TphStickyWild, TphSymbol, TphWayWin, TrashPandaResult } from '#shared/utils/gamelogic/trashpanda'
 import {
   BASE_REEL_WEIGHTS,
-  DIVE_REELS,
+  DIVE_TRIGGER,
   FS_TRIGGER,
   TPH_BUY_DIVE_COST,
   TPH_BUY_FREE_SPINS_COST,
@@ -19,6 +19,7 @@ import {
   TPH_WAYS
 } from '#shared/utils/gamelogic/trashpanda'
 import { initSlotPixiApp, safeDestroy } from '~/utils/slot-pixi'
+import { suspenseStopDelays, teaseReelSpeed } from '~/utils/slots/reel-suspense'
 import {
   TPH_SYMBOLS,
   TPH_WILD_COLORS,
@@ -328,8 +329,10 @@ function buildStage() {
       for (const id of REEL_IDS) r.register(id, TphReelSymbol, {})
     })
     .weights(weights)
-    .speed('normal', { ...R.SpeedPresets.NORMAL, spinSpeed: 34, stopDelay: 150, bounceDistance: 28, bounceDuration: 360, anticipationDelay: 1400 })
-    .speed('turbo', { ...R.SpeedPresets.TURBO, anticipationDelay: 650 })
+    // Suspense is timed with stop delays (suspenseStopDelays), not the
+    // library's anticipation phase, which runs every teased reel at once.
+    .speed('normal', { ...R.SpeedPresets.NORMAL, spinSpeed: 34, stopDelay: 150, bounceDistance: 28, bounceDuration: 360, anticipationDelay: 0 })
+    .speed('turbo', { ...R.SpeedPresets.TURBO, anticipationDelay: 0 })
     .initialFrame(INITIAL_GRID.map(col => ({ visible: col })))
     .ticker(app!.ticker)
     .build()
@@ -338,6 +341,7 @@ function buildStage() {
   reelSet.zIndex = 10
   stageRoot.addChild(reelSet)
   reelSet.events.on('spin:reelLanded', onReelLanded)
+  reelSet.events.on('skip:requested', onSlam)
   reelSet.events.on('pin:overlayCreated', (_pin: unknown, overlay: any) => overlay?.showSharp?.())
 
   anticLayer = new P.Container()
@@ -483,6 +487,17 @@ let landedCount = 0
 let safesSeen = 0
 let binsSeen = 0
 let roundGrid: TphSymbol[][] | null = null
+/** The player slammed the reels: every reel lands now, so no more teasing. */
+let slammed = false
+
+function onSlam() {
+  slammed = true
+  reelGlow(0, false)
+  for (let col = 0; col < TPH_COLS; col++) {
+    const reel = reelSet?.getReel(col)
+    if (reel) GSAP?.killTweensOf(reel)
+  }
+}
 
 function reelGlow(col: number, on: boolean, color = 0xfacc15) {
   if (!anticLayer || !PIXI || !GSAP) return
@@ -503,10 +518,34 @@ function reelGlow(col: number, on: boolean, color = 0xfacc15) {
   fx?.burst(x + CELL / 2, PAD_Y + REEL_H, { count: 18, kind: 'spark', speed: 380, cone: 0.6, colors: [color, 0xffffff], gravity: -80 })
 }
 
+/** Scatters that keep the tease going: another safe adds spins up to five, a third dumpster opens the dive. */
+function teaseKind(safes: number, bins: number, diveAllowed: boolean): 'safe' | 'bin' | 'both' | null {
+  const safe = safes >= FS_TRIGGER - 1 && safes < 5
+  const bin = diveAllowed && bins === DIVE_TRIGGER - 1
+  return safe && bin ? 'both' : safe ? 'safe' : bin ? 'bin' : null
+}
+
+const SAFE_WORDS = ['', '', 'Two safes', 'Three safes', 'Four safes']
+
+function teaseLine(kind: 'safe' | 'bin' | 'both', safes: number): string {
+  if (kind === 'both') return 'Safes and dumpsters... one more!'
+  if (kind === 'bin') return 'Two dumpsters... one more!'
+  return safes >= FS_TRIGGER ? `${SAFE_WORDS[safes]}! One more for extra spins...` : 'Two safes... one more!'
+}
+
+/** Keep the scatters that count lit and dim everything else that has landed. */
+function teaseDim(on: boolean) {
+  forEachView((view, col, row) => {
+    const sym = roundGrid?.[col]?.[row]
+    view.alpha = on && col < landedCount && sym !== 'safe' && sym !== 'bin' ? 0.45 : 1
+  })
+}
+
 function onReelLanded(reelIndex: number) {
   landedCount++
   sound.play('reel-stop', reelIndex)
   sound.setWhir((TPH_COLS - landedCount) / TPH_COLS)
+  const diveAllowed = !inFreeSpins.value
   const col = roundGrid?.[reelIndex]
   if (col) {
     col.forEach((sym, row) => {
@@ -516,33 +555,61 @@ function onReelLanded(reelIndex: number) {
         sound.play('scatter-land', Math.min(4, safesSeen), 0.02)
         fx?.ring(p.x, p.y, 0xfacc15, 80, 0.5, 5)
         fx?.burst(p.x, p.y, { count: 12, colors: [0xfde047, 0xffffff], speed: 240 })
-      } else if (sym === 'bin' && !inFreeSpins.value) {
+      } else if (sym === 'bin' && diveAllowed) {
+        binsSeen++
         sound.play('bin-land', binsSeen)
         fx?.ring(p.x, p.y, 0x4ade80, 70, 0.45, 4)
+        fx?.burst(p.x, p.y, { count: 10, colors: [0x86efac, 0xffffff], speed: 220 })
       }
     })
-    if (!inFreeSpins.value && col.includes('bin') && (DIVE_REELS as readonly number[]).includes(reelIndex)) binsSeen++
   }
   reelGlow(reelIndex, false)
   const next = reelIndex + 1
-  if (anticipation.includes(next)) {
-    const binTease = next === 4 && binsSeen >= 2 && safesSeen < FS_TRIGGER - 1
-    reelGlow(next, true, binTease ? 0x4ade80 : 0xfacc15)
-    sound.play('anticipation')
-    say(binTease ? 'Two dumpsters... one more!' : `${safesSeen} safes... one more!`, 'bonus')
+  if (anticipation.includes(next) && !slammed) {
+    const kind = teaseKind(safesSeen, binsSeen, diveAllowed) ?? 'safe'
+    const t = teaseTiming()
+    reelGlow(next, true, kind === 'bin' ? 0x4ade80 : 0xfacc15)
+    teaseReelSpeed(GSAP!, reelSet?.getReel(next), reelSet?.speed?.active?.spinSpeed ?? 34, t.tease)
+    teaseDim(true)
+    // Pulse the scatters that count toward the feature.
+    for (let c = 0; c <= reelIndex; c++) {
+      roundGrid?.[c]?.forEach((sym, row) => {
+        if (sym !== 'safe' && !(sym === 'bin' && kind !== 'safe')) return
+        const p = cellCenter({ col: c, row })
+        fx?.ring(p.x, p.y, sym === 'bin' ? 0x4ade80 : 0xfacc15, 90, 0.6, 4)
+      })
+    }
+    sound.play('anticipation', t.tease / 1000)
+    say(teaseLine(kind, safesSeen), 'bonus')
+  } else if (anticipation.length) {
+    teaseDim(false)
   }
 }
 
-/** Reels that spin long: after the second safe, and reel 5 when reels 1 and 3 hold dumpsters. */
+/** Reels that spin long: every reel after two safes (up to five) or two dumpsters. */
 function anticipationReels(grid: TphSymbol[][], diveAllowed: boolean): number[] {
-  const out = new Set<number>()
+  const out: number[] = []
   let safes = 0
+  let bins = 0
   for (let col = 0; col < grid.length; col++) {
-    if (safes >= FS_TRIGGER - 1) out.add(col)
+    if (col > 0 && teaseKind(safes, bins, diveAllowed)) out.push(col)
     safes += grid[col]!.filter(s => s === 'safe').length
+    bins += grid[col]!.filter(s => s === 'bin').length
   }
-  if (diveAllowed && grid[0]!.includes('bin') && grid[2]!.includes('bin')) out.add(4)
-  return [...out].sort((a, b) => a - b)
+  return out
+}
+
+/** Stop-delay timing for the current speed; turbo is faster but still teases. */
+function teaseTiming() {
+  return turbo.value ? { step: 0, tease: 750 } : { step: 150, tease: 1300 }
+}
+
+/** Queue the landing order: plain reels together, each teased reel on its own beat. */
+function armSuspense(grid: TphSymbol[][], diveAllowed: boolean) {
+  slammed = false
+  anticipation = anticipationReels(grid, diveAllowed)
+  reelSet.setAnticipation([])
+  reelSet.setStopDelays(suspenseStopDelays(TPH_COLS, anticipation, teaseTiming()))
 }
 
 // --- win presentation ---------------------------------------------------------
@@ -855,16 +922,16 @@ async function spinTo(grid: TphSymbol[][], display: string[][], diveAllowed: boo
   sound.startWhir()
   reelSet.setSpeed(turbo.value ? 'turbo' : 'normal')
   reelSpin = reelSet.spin()
-  anticipation = anticipationReels(grid, diveAllowed)
+  armSuspense(grid, diveAllowed)
   await delay(120)
   reelSet.setResult(display.map(col => ({ visible: col })))
-  reelSet.setAnticipation(anticipation)
   resultSet = true
   await reelSpin
   resultSet = false
   reelsMoving = false
   sound.stopWhir()
   reelGlow(0, false)
+  teaseDim(false)
 }
 
 async function spin(feature: Feature | null = null) {
@@ -898,6 +965,8 @@ async function spin(feature: Feature | null = null) {
   if (!data) {
     if (debited) {
       setBalance(balanceBefore)
+      anticipation = []
+      reelSet.setStopDelays(suspenseStopDelays(TPH_COLS, [], teaseTiming()))
       reelSet.setResult(reelSet.getVisibleGrid().map((col: string[]) => ({ visible: col })))
       await reelSpin
       reelsMoving = false
@@ -913,15 +982,15 @@ async function spin(feature: Feature | null = null) {
   const result = data.gameData
   try {
     roundGrid = result.grid
-    anticipation = anticipationReels(result.grid, true)
+    armSuspense(result.grid, true)
     reelSet.setResult(result.grid.map((col: TphSymbol[]) => ({ visible: col })))
-    reelSet.setAnticipation(anticipation)
     resultSet = true
     await reelSpin
     reelsMoving = false
     resultSet = false
     sound.stopWhir()
     reelGlow(0, false)
+    teaseDim(false)
     if (destroyed) return
     phase.value = 'presenting'
     skipping = false
@@ -999,7 +1068,7 @@ function onSpinButton() {
 async function playDive(result: TrashPandaResult) {
   const d = result.dive!
   skipping = false
-  say('Three dumpsters. Time for a Dumpster Dive!', 'bonus')
+  say(`${result.bins.length} dumpsters. Time for a Dumpster Dive!`, 'bonus')
   sound.play('dive-trigger')
   spotlight(result.bins)
   for (const c of result.bins) {
@@ -1223,6 +1292,7 @@ const skyline = (() => {
         </div>
 
         <header class="tph-marquee">
+          <p class="tph-marquee__eyebrow">Small paws. Big plans.</p>
           <div class="tph-logo">
             <img v-if="bossArt" :src="bossArt" alt="" class="tph-logo__boss">
             <div class="tph-logo__text">
@@ -1269,7 +1339,10 @@ const skyline = (() => {
             <div ref="canvasWrap" class="tph-canvas" />
 
             <div v-if="!ready && !loadError" class="tph-overlay">
-              <UIcon class="size-10 animate-spin" name="i-lucide-loader-circle" />
+              <div class="flex flex-col items-center gap-3" role="status">
+                <UIcon class="size-8 animate-spin text-primary" name="i-lucide-loader-circle" />
+                <span class="text-sm text-muted">Assembling the crew…</span>
+              </div>
             </div>
             <div v-if="loadError" class="tph-overlay">
               <p class="tph-card__sub">
@@ -1394,23 +1467,25 @@ const skyline = (() => {
 </template>
 
 <style scoped>
+.tph-marquee__eyebrow { font-size: 9px; text-transform: uppercase; letter-spacing: 0.24em; font-weight: 600; color: var(--ui-text-muted); }
+
 /* ── Page & night city ─────────────────────────────────────────────────── */
 .tph-page {
-  --tph-ink: #1a1030;
-  --tph-gold: #facc15;
-  --tph-green: #4ade80;
-  --tph-text: #f5f3ff;
+  --tph-ink: var(--ui-bg);
+  --tph-gold: var(--ui-warning);
+  --tph-green: var(--ui-success);
+  --tph-text: var(--ui-text-highlighted);
   position: relative;
   min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 18px 12px 28px;
+  padding: 28px 16px 32px;
   overflow: hidden;
   isolation: isolate;
   color: var(--tph-text);
   font-family: 'Fredoka', system-ui, sans-serif;
-  background: #0b0720;
+  background: var(--ui-bg);
 }
 
 .tph-sky {
@@ -1418,10 +1493,7 @@ const skyline = (() => {
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background:
-    radial-gradient(ellipse 70% 45% at 50% -10%, rgba(99, 102, 241, 0.35), transparent 70%),
-    radial-gradient(circle at 85% 12%, rgba(250, 204, 21, 0.12), transparent 30%),
-    linear-gradient(180deg, #151036 0%, #0e0a26 55%, #0a0618 100%);
+  background: radial-gradient(ellipse 80% 65% at 50% 15%, color-mix(in srgb, var(--ui-primary) 13%, transparent), transparent 75%), var(--ui-bg);
   transition: filter 0.8s;
 }
 
@@ -1486,42 +1558,31 @@ const skyline = (() => {
 
 .tph-cabinet {
   position: relative;
-  padding: 26px 16px 16px;
-  border-radius: 28px;
-  border: 4px solid var(--tph-ink);
-  background:
-    radial-gradient(ellipse 90% 40% at 50% 0%, rgba(250, 204, 21, 0.16), transparent 70%),
-    linear-gradient(180deg, #2a1d57 0%, #1c1340 45%, #140d30 100%);
-  box-shadow:
-    0 0 0 3px #3b2a78,
-    0 0 0 7px var(--tph-ink),
-    0 26px 60px rgba(0, 0, 0, 0.6),
-    0 0 60px rgba(99, 102, 241, 0.3);
+  padding: 26px 14px 14px;
+  border-radius: 24px;
+  border: 1px solid var(--ui-border-accented);
+  background: linear-gradient(160deg, var(--ui-bg-elevated), var(--ui-bg));
+  box-shadow: 0 24px 64px color-mix(in srgb, var(--ui-bg-inverted) 12%, transparent);
   container-type: inline-size;
   container-name: tph-cab;
   transition: box-shadow 0.6s;
 }
 
 .is-bonus .tph-cabinet {
-  box-shadow:
-    0 0 0 3px #b45309,
-    0 0 0 7px var(--tph-ink),
-    0 26px 60px rgba(0, 0, 0, 0.6),
-    0 0 80px rgba(250, 204, 21, 0.45);
+  box-shadow: 0 0 0 1px var(--ui-warning), 0 16px 64px color-mix(in srgb, var(--ui-warning) 18%, transparent);
 }
 
 .tph-tape {
   position: absolute;
-  left: -14px;
-  right: -14px;
-  top: 2px;
-  height: 22px;
+  left: 20px;
+  right: 20px;
+  top: -8px;
+  height: 19px;
   overflow: hidden;
-  transform: rotate(-1.2deg);
-  background: #facc15;
-  border-top: 2px solid var(--tph-ink);
-  border-bottom: 2px solid var(--tph-ink);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+  transform: rotate(-0.8deg);
+  background: var(--ui-warning);
+  border-radius: 3px;
+  color: var(--ui-bg);
 }
 
 /* One plain yellow tape; the text scrolls as a single track. The copies are
@@ -1531,7 +1592,6 @@ const skyline = (() => {
   width: max-content;
   height: 100%;
   align-items: center;
-  animation: tph-tape 40s linear infinite;
 }
 
 .tph-tape span {
@@ -1559,7 +1619,7 @@ const skyline = (() => {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  padding: 8px 6px 10px;
+  padding: 4px 6px 14px;
 }
 
 .tph-logo {
@@ -1570,10 +1630,9 @@ const skyline = (() => {
 }
 
 .tph-logo__boss {
-  width: clamp(54px, 11cqw, 78px);
+  width: clamp(64px, 12cqw, 90px);
   height: auto;
-  filter: drop-shadow(0 4px 0 rgba(0, 0, 0, 0.35));
-  animation: tph-bob 3s ease-in-out infinite;
+  transform: rotate(-5deg);
 }
 
 .tph-logo__text {
@@ -1584,31 +1643,22 @@ const skyline = (() => {
 
 .tph-logo__word {
   font-family: 'Bangers', 'Arial Black', sans-serif;
-  font-size: clamp(34px, 8cqw, 60px);
+  font-size: clamp(34px, 8cqw, 58px);
   line-height: 1;
-  letter-spacing: 0.04em;
-  color: #fde047;
-  background: linear-gradient(180deg, #ffffff 0%, #fef08a 30%, #facc15 60%, #f59e0b 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  -webkit-text-stroke: 3px var(--tph-ink);
-  paint-order: stroke fill;
-  filter: drop-shadow(4px 5px 0 var(--tph-ink));
+  letter-spacing: 0.025em;
+  color: var(--ui-text-highlighted);
   transform: rotate(-2deg);
 }
 
 .tph-logo__stamp {
-  margin-left: 10px;
-  padding: 2px 10px 0;
+  margin-left: 12px;
+  padding: 3px 10px 1px;
   font-family: 'Bangers', sans-serif;
-  font-size: clamp(20px, 4.4cqw, 32px);
+  font-size: clamp(20px, 4.4cqw, 30px);
   letter-spacing: 0.12em;
-  color: #fff;
-  background: #dc2626;
-  border: 3px solid var(--tph-ink);
-  border-radius: 8px;
-  box-shadow: 3px 4px 0 var(--tph-ink);
+  color: var(--ui-bg);
+  background: var(--ui-primary);
+  border-radius: 5px;
   transform: rotate(6deg);
 }
 
@@ -1634,7 +1684,7 @@ const skyline = (() => {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(221, 214, 254, 0.62);
+  color: var(--ui-text-muted);
 }
 
 .tph-badge + .tph-badge::before {
@@ -1646,8 +1696,8 @@ const skyline = (() => {
   background: rgba(250, 204, 21, 0.5);
 }
 
-.tph-badge--hot { color: #fde047; }
-.tph-badge--green { color: #86efac; }
+.tph-badge--hot { color: var(--ui-warning); }
+.tph-badge--green { color: var(--ui-success); }
 
 .tph-hud {
   display: flex;
@@ -1732,11 +1782,11 @@ const skyline = (() => {
 /* ── Reel window ───────────────────────────────────────────────────────── */
 .tph-window {
   position: relative;
-  padding: 6px;
-  border-radius: 22px;
-  background: linear-gradient(180deg, #fde047, #b45309 50%, #facc15);
-  border: 3px solid var(--tph-ink);
-  box-shadow: 0 6px 0 var(--tph-ink), 0 0 24px rgba(250, 204, 21, 0.25);
+  padding: 3px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--ui-primary) 45%, var(--ui-border));
+  border: 1px solid var(--ui-border-accented);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--ui-bg-inverted) 10%, transparent);
   transition: box-shadow 0.4s;
 }
 
@@ -1750,7 +1800,7 @@ const skyline = (() => {
   position: relative;
   border-radius: 15px;
   overflow: hidden;
-  background: radial-gradient(ellipse 70% 60% at 50% 40%, #1f1646, #0e0a24 80%);
+  background: var(--ui-bg);
   border: 3px solid var(--tph-ink);
   container-type: inline-size;
 }
@@ -1836,20 +1886,18 @@ const skyline = (() => {
 
 /* ── Ticker ────────────────────────────────────────────────────────────── */
 .tph-ticker {
-  margin: 10px 4px 0;
-  height: 24px;
+  margin: 12px 4px 4px;
+  min-height: 30px;
   display: grid;
   place-items: center;
-  overflow: hidden;
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  color: rgba(221, 214, 254, 0.8);
+  padding: 5px 0;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: center;
+  color: var(--ui-text-muted);
 }
 
-.tph-ticker > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0 10px; }
+.tph-ticker > span { max-width: 100%; padding: 0 10px; }
 .tph-ticker.is-win { color: #fde047; }
 .tph-ticker.is-bonus { color: #86efac; }
 .tph-ticker.is-warn { color: #fca5a5; }

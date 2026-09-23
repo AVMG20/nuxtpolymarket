@@ -18,7 +18,7 @@
 //   long run keeps getting richer; this is where the big wins come from.
 //
 // ── Dumpster Dive (pick game) ────────────────────────────────────────────────
-//   A DUMPSTER on reels 1, 3 and 5 at once opens a 12-bin pick game. Bins hide
+//   3+ DUMPSTER scatters anywhere open a 12-bin pick game. Bins hide
 //   cash (× bet), a Double (doubles the pot), a Donut (the next guard dog eats
 //   it instead of ending the game), a Golden Key (awards Night Heist free spins
 //   after the dive) and two Guard Dogs. The dive ends on an uneaten dog or once
@@ -57,15 +57,15 @@ export const PAYTABLE: Record<TphPaySymbol, [number, number, number]> = {
 
 type Weights = Record<TphSymbol, number>
 
-const BASE_COMMON = { fish: 170, banana: 170, can: 170, apple: 170, pizza: 150, donut: 140, cash: 90, bag: 70, gem: 52, boss: 38, safe: 21 }
+const BASE_COMMON = { fish: 170, banana: 170, can: 170, apple: 170, pizza: 150, donut: 140, cash: 90, bag: 70, gem: 52, boss: 38, safe: 21, bin: 27.5 }
 
-// Per-reel weights. WILD sits on reels 2-5, DUMPSTER on reels 1, 3 and 5.
+// Per-reel weights. WILD sits on reels 2-5; SAFE and DUMPSTER land anywhere.
 export const BASE_REEL_WEIGHTS: Weights[] = [
-    { ...BASE_COMMON, wild: 0, bin: 78 },
-    { ...BASE_COMMON, wild: 12, bin: 0 },
-    { ...BASE_COMMON, wild: 12, bin: 78 },
-    { ...BASE_COMMON, wild: 12, bin: 0 },
-    { ...BASE_COMMON, wild: 12, bin: 78 }
+    { ...BASE_COMMON, wild: 0 },
+    { ...BASE_COMMON, wild: 12 },
+    { ...BASE_COMMON, wild: 12 },
+    { ...BASE_COMMON, wild: 12 },
+    { ...BASE_COMMON, wild: 12 }
 ]
 
 const FS_COMMON = { fish: 0, banana: 0, can: 170, apple: 170, pizza: 150, donut: 140, cash: 90, bag: 70, gem: 52, boss: 38, safe: 17, bin: 0 }
@@ -95,8 +95,8 @@ export const FS_WILD_MULTS: { mult: number, weight: number }[] = [
     { mult: 10, weight: 2 }
 ]
 
-/** Reels that must each show a DUMPSTER to start the dive. */
-export const DIVE_REELS = [0, 2, 4] as const
+/** DUMPSTERs anywhere that start the dive. */
+export const DIVE_TRIGGER = 3
 export const DIVE_BINS = 12
 export const DIVE_DOGS = 2
 /** Free spins the Golden Key awards. */
@@ -343,10 +343,6 @@ export function evaluateWays(grid: TphSymbol[][], bet: number, mults?: Map<strin
     return wins
 }
 
-function binsTriggered(grid: TphSymbol[][]): boolean {
-    return DIVE_REELS.every(col => grid[col]!.includes('bin'))
-}
-
 function awardFor(scatters: number): number {
     if (scatters >= 5) return FS_AWARD[5]
     if (scatters === 4) return FS_AWARD[4]
@@ -480,7 +476,8 @@ function runDive(bet: number, rng: Rng): TphDive {
 function forcedGrid(feature: TphFeature, rng: Rng): TphSymbol[][] {
     const grid = drawGrid(BASE_PLAIN_TABLES, rng)
     if (feature === 'buyDive') {
-        for (const col of DIVE_REELS) grid[col]![Math.floor(rng() * TPH_ROWS)] = 'bin'
+        const cols = shuffle([0, 1, 2, 3, 4], rng).slice(0, DIVE_TRIGGER)
+        for (const col of cols) grid[col]![Math.floor(rng() * TPH_ROWS)] = 'bin'
     } else {
         const cols = shuffle([0, 1, 2, 3, 4], rng).slice(0, FS_TRIGGER)
         for (const col of cols) grid[col]![Math.floor(rng() * TPH_ROWS)] = 'safe'
@@ -507,7 +504,7 @@ export function playTrashPandaWith(bet: number, options: Record<string, unknown>
 
     const basePayout = Math.min(maxWin, round4(wins.reduce((a, w) => a + w.amount, 0)))
 
-    const diveOn = binsTriggered(grid)
+    const diveOn = bins.length >= DIVE_TRIGGER
     let dive: TphDive | null = null
     let divePayout = 0
     if (diveOn) {

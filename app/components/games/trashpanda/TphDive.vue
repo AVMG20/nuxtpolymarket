@@ -239,6 +239,7 @@ onBeforeUnmount(() => {
         :aria-label="can.item ? itemLabel(can.item, can.ateDonut) : `Trash can ${i + 1}`"
         @click="open(i)"
       >
+        <span v-if="can.state === 'closed'" class="tph-can__number" aria-hidden="true">{{ String(i + 1).padStart(2, '0') }}</span>
         <img v-if="can.state === 'closed' || can.state === 'opening'" :src="art.can" alt="" class="tph-can__img">
         <template v-else-if="can.item">
           <img :src="itemArt(can.item)" alt="" class="tph-can__img tph-can__item">
@@ -248,7 +249,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="tph-dive__foot">
-      <p class="tph-dive__note" :class="`is-${noteTone}`">
+      <p class="tph-dive__note" :class="`is-${noteTone}`" role="status">
         {{ note }}
       </p>
       <button v-if="!finished" type="button" class="tph-dive__auto" :class="{ 'is-on': autoPick }" @click="toggleAuto">
@@ -258,7 +259,7 @@ onBeforeUnmount(() => {
     </div>
 
     <Transition name="tph-dive-pop">
-      <div v-if="summary" class="tph-dive__summary" @click="emit('done')">
+      <div v-if="summary" class="tph-dive__summary">
         <p class="tph-dive__kicker">
           {{ dive.cleared ? 'Clean getaway' : 'Dive over' }}
         </p>
@@ -268,23 +269,25 @@ onBeforeUnmount(() => {
         <p v-if="dive.keyFound" class="tph-dive__sub">
           + the golden key opens a Night Heist
         </p>
+        <UButton class="mt-3" color="primary" trailing-icon="i-lucide-arrow-right" @click="emit('done')">Continue</UButton>
       </div>
     </Transition>
   </div>
 </template>
 
 <style scoped>
+.tph-can__number { position: absolute; top: 7px; left: 9px; font-size: clamp(9px, 1.8cqw, 12px); font-variant-numeric: tabular-nums; color: var(--ui-primary); opacity: 0.7; }
+.tph-can:focus-visible, .tph-dive__auto:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 2px; }
+
 .tph-dive {
   position: absolute;
   inset: 0;
   z-index: 25;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px 12px;
-  background:
-    radial-gradient(ellipse 80% 55% at 50% 40%, rgba(74, 222, 128, 0.16), transparent 70%),
-    linear-gradient(180deg, rgba(14, 9, 34, 0.94), rgba(10, 6, 24, 0.97));
+  gap: 10px;
+  padding: 14px;
+  background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--ui-primary) 10%, transparent), transparent 70%), var(--ui-bg);
   container-type: inline-size;
   font-family: 'Fredoka', system-ui, sans-serif;
 }
@@ -298,14 +301,10 @@ onBeforeUnmount(() => {
 
 .tph-dive__title {
   font-family: 'Bangers', 'Arial Black', sans-serif;
-  font-size: clamp(24px, 5.2cqw, 40px);
+  font-size: clamp(24px, 5.2cqw, 38px);
   line-height: 1;
   letter-spacing: 0.04em;
-  color: #86efac;
-  -webkit-text-stroke: 2px #1a1030;
-  paint-order: stroke fill;
-  text-shadow: 3px 4px 0 #1a1030;
-  transform: rotate(-2deg);
+  color: var(--ui-primary);
 }
 
 .tph-dive__stats {
@@ -318,13 +317,14 @@ onBeforeUnmount(() => {
   display: inline-flex;
   align-items: baseline;
   gap: 8px;
-  padding: 4px 12px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.45);
-  border: 2px solid rgba(250, 204, 21, 0.5);
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: var(--ui-bg-elevated);
+  border: 1px solid var(--ui-border-accented);
   font-family: 'Lilita One', sans-serif;
   font-size: clamp(16px, 3.6cqw, 24px);
-  color: #fde047;
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-primary);
   animation: tph-pot 0.4s cubic-bezier(0.2, 1.8, 0.4, 1);
 }
 
@@ -334,7 +334,7 @@ onBeforeUnmount(() => {
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: #d9d3f5;
+  color: var(--ui-text-muted);
 }
 
 @keyframes tph-pot {
@@ -360,7 +360,7 @@ onBeforeUnmount(() => {
 .tph-dive__perk.is-on {
   opacity: 1;
   filter: none;
-  border-color: #fde047;
+  border-color: var(--ui-primary);
   box-shadow: 0 0 14px rgba(250, 204, 21, 0.6);
 }
 
@@ -379,7 +379,8 @@ onBeforeUnmount(() => {
   place-items: center;
   min-height: 0;
   border-radius: 14px;
-  background: radial-gradient(ellipse at 50% 80%, rgba(255, 255, 255, 0.06), transparent 70%);
+  background: color-mix(in srgb, var(--ui-primary) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ui-primary) 22%, transparent);
   transition: transform 0.15s, background 0.2s;
 }
 
@@ -429,9 +430,9 @@ onBeforeUnmount(() => {
   border: 1.5px solid rgba(255, 255, 255, 0.2);
 }
 
-.has-dog .tph-can__label { color: #fda4af; }
-.has-cash .tph-can__label { color: #fde047; }
-.has-key .tph-can__label, .has-double .tph-can__label { color: #f5d0fe; }
+.has-dog .tph-can__label { color: var(--ui-error); }
+.has-cash .tph-can__label { color: var(--ui-primary); }
+.has-key .tph-can__label, .has-double .tph-can__label { color: var(--ui-secondary); }
 
 @keyframes tph-rattle {
   0%, 100% { transform: rotate(0); }
@@ -459,11 +460,11 @@ onBeforeUnmount(() => {
   min-width: 0;
   font-size: clamp(12px, 2.4cqw, 15px);
   font-weight: 600;
-  color: #d9d3f5;
+  color: var(--ui-text-muted);
 }
 
-.tph-dive__note.is-good { color: #fde047; }
-.tph-dive__note.is-bad { color: #fda4af; }
+.tph-dive__note.is-good { color: var(--ui-primary); }
+.tph-dive__note.is-bad { color: var(--ui-error); }
 
 .tph-dive__auto {
   display: inline-flex;
@@ -473,13 +474,13 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   font-size: 13px;
   font-weight: 700;
-  color: #f5f3ff;
-  background: rgba(196, 181, 253, 0.14);
-  border: 1.5px solid rgba(196, 181, 253, 0.3);
+  color: var(--ui-text-highlighted);
+  background: var(--ui-bg-elevated);
+  border: 1px solid var(--ui-border-accented);
   white-space: nowrap;
 }
 
-.tph-dive__auto.is-on { background: rgba(34, 197, 94, 0.25); border-color: #4ade80; }
+.tph-dive__auto.is-on { background: color-mix(in srgb, var(--ui-primary) 12%, transparent); border-color: var(--ui-primary); }
 
 .tph-dive__summary {
   position: absolute;
@@ -488,32 +489,29 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  background: radial-gradient(ellipse at 50% 50%, rgba(12, 6, 30, 0.9), rgba(12, 6, 30, 0.7) 60%, rgba(12, 6, 30, 0.4));
-  cursor: pointer;
+  gap: 6px;
+  padding: 16px;
+  text-align: center;
+  background: color-mix(in srgb, var(--ui-bg) 95%, transparent);
 }
 
 .tph-dive__kicker {
   font-family: 'Bangers', sans-serif;
   font-size: clamp(22px, 5cqw, 36px);
   letter-spacing: 0.06em;
-  color: #86efac;
-  -webkit-text-stroke: 2px #1a1030;
-  paint-order: stroke fill;
+  color: var(--ui-primary);
 }
 
 .tph-dive__total {
   font-family: 'Lilita One', sans-serif;
   font-size: clamp(38px, 10cqw, 72px);
-  color: #fde047;
-  -webkit-text-stroke: 4px #1a1030;
-  paint-order: stroke fill;
-  text-shadow: 3px 5px 0 #1a1030, 0 0 24px rgba(250, 204, 21, 0.6);
+  font-variant-numeric: tabular-nums;
+  color: var(--ui-text-highlighted);
 }
 
 .tph-dive__sub {
   font-weight: 700;
-  color: #f5d0fe;
+  color: var(--ui-secondary);
 }
 
 .tph-dive-pop-enter-active { transition: opacity 0.25s, transform 0.35s cubic-bezier(0.2, 1.5, 0.4, 1); }
@@ -521,6 +519,12 @@ onBeforeUnmount(() => {
 
 @container (max-width: 420px) {
   .tph-dive { padding: 8px; gap: 6px; }
+  .tph-dive__head { gap: 6px; }
+  .tph-dive__stats { gap: 4px; }
+  .tph-dive__pot { gap: 4px; padding: 4px 8px; }
+  .tph-dive__pot-label { display: none; }
+  .tph-dive__grid { gap: 4px; }
+  .tph-dive__title { font-size: 21px; }
   .tph-dive__perk { width: 28px; height: 28px; }
   .tph-dive__perk img { width: 20px; height: 20px; }
   .tph-dive__auto { padding: 4px 10px; font-size: 12px; }

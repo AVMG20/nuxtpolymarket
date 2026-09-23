@@ -2,20 +2,20 @@
 // (SlotControlBar); only these values differ.
 import type { SlotTheme } from '~/utils/slots/slot-controls'
 
-/** Xeno Slot: neon lime on deep violet. */
+/** Xeno Slot: semantic cockpit controls around the illustrated space stage. */
 export const XENO_BAR_THEME: SlotTheme = {
-    accent: '#a3e635',
-    accentDeep: '#3f6212',
-    onAccent: '#0b1a02',
-    surface: 'rgba(6, 2, 18, 0.62)',
-    control: 'rgba(167, 139, 250, 0.14)',
-    line: 'rgba(196, 181, 253, 0.2)',
-    text: '#ede9fe',
-    muted: '#a78bfa',
-    win: '#fde047',
-    buy: '#e879f9',
-    onBuy: '#1d0526',
-    panel: '#150a31',
+    accent: 'var(--ui-primary)',
+    accentDeep: 'color-mix(in srgb, var(--ui-primary) 65%, var(--ui-bg))',
+    onAccent: 'var(--ui-bg)',
+    surface: 'var(--ui-bg-muted)',
+    control: 'var(--ui-bg-elevated)',
+    line: 'var(--ui-border-accented)',
+    text: 'var(--ui-text-highlighted)',
+    muted: 'var(--ui-text-muted)',
+    win: 'var(--ui-primary)',
+    buy: 'var(--ui-secondary)',
+    onBuy: 'var(--ui-bg)',
+    panel: 'var(--ui-bg)',
     font: '\'Orbitron\', system-ui, sans-serif',
     numberFont: '\'Chakra Petch\', system-ui, sans-serif'
 }
@@ -110,20 +110,20 @@ export const SPINATA_BAR_THEME: SlotTheme = {
     numberFont: '\'Lilita One\', \'Arial Black\', sans-serif'
 }
 
-/** Trash Panda Heist: loot gold on alley-night indigo. */
+/** Trash Panda Heist: semantic controls around the illustrated night stage. */
 export const TRASH_BAR_THEME: SlotTheme = {
-    accent: '#facc15',
-    accentDeep: '#b45309',
-    onAccent: '#1a1030',
-    surface: 'rgba(16, 10, 38, 0.72)',
-    control: 'rgba(196, 181, 253, 0.12)',
-    line: 'rgba(196, 181, 253, 0.2)',
-    text: '#f5f3ff',
-    muted: '#a8a2cf',
-    win: '#fde047',
-    buy: '#22c55e',
-    onBuy: '#052e16',
-    panel: '#191034',
+    accent: 'var(--ui-primary)',
+    accentDeep: 'color-mix(in srgb, var(--ui-primary) 65%, var(--ui-bg))',
+    onAccent: 'var(--ui-bg)',
+    surface: 'var(--ui-bg-muted)',
+    control: 'var(--ui-bg-elevated)',
+    line: 'var(--ui-border-accented)',
+    text: 'var(--ui-text-highlighted)',
+    muted: 'var(--ui-text-muted)',
+    win: 'var(--ui-primary)',
+    buy: 'var(--ui-primary)',
+    onBuy: 'var(--ui-bg)',
+    panel: 'var(--ui-bg)',
     font: '\'Fredoka\', system-ui, sans-serif',
     numberFont: '\'Lilita One\', \'Fredoka\', system-ui, sans-serif'
 }

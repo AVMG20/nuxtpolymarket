@@ -330,7 +330,7 @@ function stopSpinSounds() {
 }
 
 scene.events = {
-  onReelStopping(i) {
+  onAnticipate(i) {
     if (anticipating.has(i) && !anticipationLoop) anticipationLoop = sound.play('anticipation', { loop: true })
   },
   onReelLanded(i, symbols) {

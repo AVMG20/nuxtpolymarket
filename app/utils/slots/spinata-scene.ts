@@ -10,6 +10,8 @@ import type { ReelSet, SpeedProfile } from 'pixi-reels'
 import type { Cell, SpinSymbol } from '#shared/utils/gamelogic/spinata'
 import { SYMBOL_WEIGHTS } from '#shared/utils/gamelogic/spinata'
 import { initSlotPixiApp, safeDestroy } from '~/utils/slot-pixi'
+import { suspenseStopDelays, teaseReelSpeed } from '~/utils/slots/reel-suspense'
+import type { SuspenseTiming } from '~/utils/slots/reel-suspense'
 
 type PixiModule = typeof import('pixi.js')
 type ReelsModule = typeof import('pixi-reels')
@@ -69,6 +71,8 @@ interface WinTile {
 
 export interface SpinataSceneEvents {
     onReelStopping?: (reel: number) => void
+    /** A reel starts its suspense tease (the reel before it just landed). */
+    onAnticipate?: (reel: number) => void
     onReelLanded?: (reel: number, symbols: string[]) => void
 }
 
@@ -351,10 +355,17 @@ export class SpinataScene {
 
         this.reelSet.events.on('spin:stopping', (i: number) => {
             this.events.onReelStopping?.(i)
-            if (this.anticipationSet.has(i)) this.startAnticipation(i)
+            // A teased first reel has no reel before it to hand the tease over.
+            if (i === 0 && this.anticipationSet.has(0)) this.beginTease(0)
+        })
+        // Slam: stop teasing so a running slow-down tween can't move landed reels.
+        this.reelSet.events.on('skip:requested', () => {
+            this.slammed = true
+            for (const reel of this.reelSet?.reels ?? []) this.gsap.killTweensOf(reel)
         })
         this.reelSet.events.on('spin:reelLanded', (i: number, symbols: string[]) => {
             this.stopAnticipation(i)
+            if (this.anticipationSet.has(i + 1)) this.beginTease(i + 1)
             for (let row = 0; row < ROWS; row++) {
                 if (SPECIAL.has(symbols[row] ?? '')) this.tileAt(i, row)?.land()
             }
@@ -505,6 +516,19 @@ export class SpinataScene {
 
     private anticipationSet = new Set<number>()
     private spinPromise: Promise<unknown> | null = null
+    private slammed = false
+
+    /** Suspense per speed mode: plain reels land `step` ms apart, teased ones `tease` ms. */
+    private suspenseTiming(): SuspenseTiming {
+        return { step: this.reelSet?.speed.active.stopDelay ?? 0, tease: this.turbo ? 650 : 1300 }
+    }
+
+    private beginTease(reel: number) {
+        if (this.slammed || !this.reelSet) return
+        this.startAnticipation(reel)
+        this.events.onAnticipate?.(reel)
+        teaseReelSpeed(this.gsap, this.reelSet.reels[reel], this.reelSet.speed.active.spinSpeed, this.suspenseTiming().tease)
+    }
 
     /** Start the reels; land them later with land(). */
     startSpin() {
@@ -512,7 +536,11 @@ export class SpinataScene {
         this.clearWins()
         this.reelSet.setSpeed(this.turbo ? 'turbo' : 'normal')
         this.anticipationSet.clear()
+        this.slammed = false
+        // pixi-reels' own anticipation runs every teased reel at once, so the
+        // tease is timed with stop delays instead (see reel-suspense.ts).
         this.reelSet.setAnticipation([])
+        this.reelSet.setStopDelays(suspenseStopDelays(COLS, [], this.suspenseTiming()))
         this.spinPromise = this.reelSet.spin()
     }
 
@@ -521,7 +549,7 @@ export class SpinataScene {
         if (!this.reelSet) return
         if (!this.spinPromise) this.startSpin()
         this.anticipationSet = new Set(anticipate)
-        this.reelSet.setAnticipation(anticipate)
+        this.reelSet.setStopDelays(suspenseStopDelays(COLS, anticipate, this.suspenseTiming()))
         this.reelSet.setResult(grid.map(col => ({ visible: col })))
         await this.spinPromise
         this.spinPromise = null

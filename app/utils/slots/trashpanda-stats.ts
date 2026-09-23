@@ -4,16 +4,16 @@
 // shared/utils/gamelogic/trashpanda.ts changes.
 export const TPH_STATS = {
     rounds: '20 million',
-    rtp: 0.9741,
-    baseRtp: 0.3132,
-    diveRtp: 0.1693,
+    rtp: 0.9812,
+    baseRtp: 0.3315,
+    diveRtp: 0.1461,
     /** Scatter-triggered plus golden-key free spins. */
-    freeSpinsRtp: 0.4916,
-    buyFreeSpinsRtp: 0.9753,
-    buyDiveRtp: 0.9741,
+    freeSpinsRtp: 0.5036,
+    buyFreeSpinsRtp: 0.9757,
+    buyDiveRtp: 0.9768,
     /** Share of spins that pay anything. */
-    hitRate: 0.444,
-    diveOdds: 100,
-    freeSpinsOdds: 255,
+    hitRate: 0.46,
+    diveOdds: 116,
+    freeSpinsOdds: 246,
     volatility: 4
 } as const

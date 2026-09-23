@@ -26,26 +26,31 @@ const style = computed(() => {
 </script>
 
 <template>
-  <div class="tph-bw" :style="style" @click="$emit('skip')">
-    <div class="tph-bw__rays" />
+  <button type="button" class="tph-bw" :style="style" aria-label="Skip win count-up" @click="$emit('skip')">
+    <span class="tph-bw__rays" aria-hidden="true" />
     <Transition name="tph-bw-label" mode="out-in">
-      <p :key="label" class="tph-bw__label">
+      <span :key="label" class="tph-bw__label">
         {{ label }}
-      </p>
+      </span>
     </Transition>
-    <p class="tph-bw__amount">
+    <span class="tph-bw__amount">
       {{ formatNumber(amount) }}
-    </p>
-    <p class="tph-bw__mult">
+    </span>
+    <span class="tph-bw__mult">
       {{ formatNumber(multiple, false) }}× bet
-    </p>
-  </div>
+    </span>
+    <span class="tph-bw__hint">Tap to skip count-up</span>
+  </button>
 </template>
 
 <style scoped>
+.tph-bw__hint { position: relative; margin-top: 18px; font-family: 'Fredoka', sans-serif; font-size: 11px; letter-spacing: 0.08em; color: var(--ui-primary); }
+.tph-bw:focus-visible { outline: 3px solid var(--ui-primary); outline-offset: -6px; }
+
 .tph-bw {
   position: absolute;
   inset: 0;
+  width: 100%;
   z-index: 40;
   display: flex;
   flex-direction: column;

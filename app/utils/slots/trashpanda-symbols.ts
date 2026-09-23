@@ -72,7 +72,7 @@ export function makeTphSymbols(d: TphSymbolDeps) {
             this.halo.width = this.w * 1.6
             this.halo.height = this.h * 1.6
             this.plate.clear()
-            this.plate.roundRect(-this.w / 2, -this.h / 2, this.w, this.h, 14).fill({ color: 0x241a4c })
+            this.plate.roundRect(-this.w / 2, -this.h / 2, this.w, this.h, 14).fill({ color: 0x1a303e })
         }
 
         setArt(texture: Texture | undefined) {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Xeno Slot: a 5×3, 5-line slot with a Hold & Win collector bonus. The server
 // decides every outcome (shared/utils/gamelogic/xenoslot.ts); this component
-// only presents it. All artwork is painted procedurally
+// only presents it. Artwork shares vector paths between SVGs and reel textures
 // (~/utils/slots/xenoslot-art) and every sound is synthesized
 // (~/composables/xenoslot-sound), so the game loads no image or audio files.
 import type { Container, Graphics, Sprite, Text, Texture } from 'pixi.js'
@@ -30,6 +30,7 @@ import XenoBigWin from '~/components/games/xenoslot/XenoBigWin.vue'
 import SlotControlBar from '~/components/slots/SlotControlBar.vue'
 import type { SlotAutoSettings, SlotBuyOption, SlotSpinMode } from '~/utils/slots/slot-controls'
 import { XENO_BAR_THEME } from '~/utils/slots/slot-themes'
+import { suspenseStopDelays, teaseReelSpeed } from '~/utils/slots/reel-suspense'
 
 // Shown in the header and rules. The volatility rating sits a tier below
 // Fire in the Hole, whose max win is twice as high.
@@ -322,6 +323,11 @@ function buildStage() {
   stageRoot.addChild(reelSet)
 
   reelSet.events.on('spin:reelLanded', onReelLanded)
+  // Slam: stop teasing so a running slow-down tween can't move landed reels.
+  reelSet.events.on('skip:requested', () => {
+    slammed = true
+    for (const reel of reelSet.reels) GSAP?.killTweensOf(reel)
+  })
 
   anticLayer = new P.Container()
   anticLayer.zIndex = 15
@@ -488,7 +494,21 @@ function countWin(to: number, seconds: number): Promise<void> {
 
 // --- reel events -------------------------------------------------------------
 let anticipation: number[] = []
+let slammed = false
 let landedCount = 0
+
+// pixi-reels' own anticipation runs every teased reel at once, so the tease is
+// timed with stop delays instead: plain reels `step` ms apart, each teased reel
+// `tease` ms after the one before it (see reel-suspense.ts).
+function suspenseTiming() {
+  const active = reelSet?.speed.active
+  return { step: active?.stopDelay ?? 0, tease: active?.name === 'turbo' ? 650 : 1300 }
+}
+
+function setSuspense(teased: number[]) {
+  reelSet.setAnticipation([])
+  reelSet.setStopDelays(suspenseStopDelays(5, teased, suspenseTiming()))
+}
 let scattersSeen = 0
 let roundGrid: SlotSymbol[][] | null = null
 
@@ -527,10 +547,11 @@ function onReelLanded(reelIndex: number) {
     })
   }
   reelGlow(reelIndex, false)
-  if (anticipation.includes(reelIndex + 1)) {
+  if (anticipation.includes(reelIndex + 1) && !slammed) {
     reelGlow(reelIndex + 1, true)
     sound.play('anticipation')
     say(`${scattersSeen} portals... one more!`, 'bonus')
+    teaseReelSpeed(GSAP!, reelSet.getReel(reelIndex + 1), reelSet.speed.active.spinSpeed, suspenseTiming().tease)
   }
 }
 
@@ -872,6 +893,8 @@ async function spin(buy = false) {
     say(buy ? 'Bonus bought. Opening the portals' : 'Good luck!')
     reelsMoving = true
     reelSet.setSpeed(turbo.value ? 'turbo' : 'normal')
+    slammed = false
+    setSuspense([])
     reelSpin = reelSet.spin()
   })
 
@@ -895,8 +918,8 @@ async function spin(buy = false) {
   try {
     roundGrid = result.grid
     anticipation = anticipationReels(result.grid)
+    setSuspense(anticipation)
     reelSet.setResult(result.grid.map((col: SlotSymbol[]) => ({ visible: col })))
-    reelSet.setAnticipation(anticipation)
     resultSet = true
     await reelSpin
     reelsMoving = false
@@ -1302,11 +1325,15 @@ const spinMode = computed<SlotSpinMode>(() => {
   if (phase.value !== 'idle') return 'skip'
   return 'spin'
 })
+const xenoTheme = {
+  '--ui-primary': 'var(--color-lime-400)',
+  '--ui-secondary': 'var(--color-violet-400)'
+}
 const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
 </script>
 
 <template>
-  <div class="xs-page" :class="{ 'is-bonus': inBonus }">
+  <div class="xs-page" :style="xenoTheme" :class="{ 'is-bonus': inBonus }">
     <!-- Deep-space backdrop -->
     <div class="xs-sky" aria-hidden="true">
       <div class="xs-sky__stars" />
@@ -1321,6 +1348,7 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
         <div class="xs-lights" aria-hidden="true" />
 
         <header class="xs-marquee">
+          <p class="xs-marquee__eyebrow">Deep-space salvage</p>
           <div class="xs-logo">
             <img v-if="ufoArt" :src="ufoArt" alt="" class="xs-logo__ufo">
             <h1 class="xs-logo__word">
@@ -1357,7 +1385,10 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
             <div class="xs-window__glass" aria-hidden="true" />
 
             <div v-if="!ready && !loadError" class="xs-overlay xs-overlay--loading">
-              <UIcon class="size-10 animate-spin" name="i-lucide-loader-circle" />
+              <div class="flex flex-col items-center gap-3" role="status">
+                <UIcon class="size-8 animate-spin text-primary" name="i-lucide-loader-circle" />
+                <span class="text-sm text-muted">Preparing for launch...</span>
+              </div>
             </div>
             <div v-if="loadError" class="xs-overlay">
               <p class="xs-card__sub">
@@ -1378,6 +1409,7 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
                   <p class="xs-card__sub">
                     {{ BONUS_FREE_SPINS }} spins. Coins stick, cores multiply, a UFO collects.
                   </p>
+                  <UButton class="mt-4" trailing-icon="i-lucide-arrow-right" @click.stop="requestSkip">Enter Hold &amp; Win</UButton>
                 </div>
               </div>
             </Transition>
@@ -1394,6 +1426,7 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
                   <p class="xs-card__sub">
                     {{ bonusOutroAmount > 0 ? 'collected by the UFOs' : 'No UFO landed this time' }}
                   </p>
+                  <UButton class="mt-4" trailing-icon="i-lucide-arrow-right" @click.stop="requestSkip">Continue</UButton>
                 </div>
               </div>
             </Transition>
@@ -1484,28 +1517,32 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
 </template>
 
 <style scoped>
+.xs-marquee__eyebrow { font-family: var(--font-sans), sans-serif; font-size: 10px; text-transform: uppercase; letter-spacing: 0.24em; color: var(--ui-text-muted); }
+
 /* ── Page & deep-space backdrop ─────────────────────────────────────────── */
 .xs-page {
-  --xs-violet: #8b5cf6;
+  --xs-shell: color-mix(in srgb, var(--ui-secondary) 22%, var(--ui-bg));
+  --xs-shell-deep: color-mix(in srgb, var(--ui-secondary) 9%, var(--ui-bg));
+  --xs-violet: var(--ui-secondary);
   --xs-magenta: #d946ef;
   --xs-cyan: #22d3ee;
   --xs-lime: #a3e635;
   --xs-gold: #facc15;
   --xs-ink: #0a0518;
-  --xs-text: #ede9fe;
-  --xs-dim: #a78bfa;
+  --xs-text: var(--ui-text-highlighted);
+  --xs-dim: var(--ui-text-muted);
   --xs-chrome: linear-gradient(180deg, rgba(196, 181, 253, 0.55) 0%, rgba(139, 92, 246, 0.28) 30%, rgba(76, 29, 149, 0.2) 70%, rgba(167, 139, 250, 0.4) 100%);
   position: relative;
   min-height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 18px 12px 28px;
+  padding: 24px 14px 28px;
   overflow: hidden;
   isolation: isolate;
   color: var(--xs-text);
   font-family: 'Orbitron', system-ui, sans-serif;
-  background: #05020d;
+  background: var(--ui-bg);
   container-type: inline-size;
   container-name: xs-page;
 }
@@ -1620,17 +1657,11 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
 /* ── Cabinet ───────────────────────────────────────────────────────────── */
 .xs-cabinet {
   position: relative;
-  padding: 14px 16px 16px;
-  border-radius: 30px;
-  border: 1px solid transparent;
-  background:
-    radial-gradient(ellipse 90% 40% at 50% 0%, rgba(168, 85, 247, 0.25), transparent 70%) padding-box,
-    linear-gradient(180deg, #1d1040 0%, #120828 45%, #0b0519 100%) padding-box,
-    var(--xs-chrome) border-box;
-  box-shadow:
-    0 30px 60px rgba(0, 0, 0, 0.6),
-    0 0 60px rgba(139, 92, 246, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  padding: 18px 14px 14px;
+  border-radius: 24px;
+  border: 1px solid color-mix(in srgb, var(--ui-secondary) 40%, var(--ui-border));
+  background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--ui-secondary) 20%, transparent), transparent 70%), linear-gradient(180deg, var(--xs-shell), var(--xs-shell-deep));
+  box-shadow: 0 24px 64px color-mix(in srgb, var(--ui-bg-inverted) 12%, transparent);
   container-type: inline-size;
   container-name: xs-cab;
   transition: box-shadow 0.6s;
@@ -1646,21 +1677,16 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
 /* Chasing marquee bulbs along the top edge. */
 .xs-lights {
   position: absolute;
-  left: 26px;
-  right: 26px;
-  top: 5px;
-  height: 6px;
-  border-radius: 999px;
-  background-image: radial-gradient(circle, #fde68a 0 2px, rgba(250, 204, 21, 0.25) 2.5px, transparent 3.5px);
-  background-size: 18px 6px;
-  filter: drop-shadow(0 0 3px rgba(250, 204, 21, 0.8));
-  animation: xs-chase 0.9s steps(3) infinite;
+  left: 32px;
+  right: 32px;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--ui-primary), var(--ui-secondary), transparent);
 }
 
 .is-bonus .xs-lights {
-  background-image: radial-gradient(circle, #f5d0fe 0 2px, rgba(217, 70, 239, 0.35) 2.5px, transparent 3.5px);
-  filter: drop-shadow(0 0 4px rgba(217, 70, 239, 0.9));
-  animation-duration: 0.45s;
+  background: var(--ui-secondary);
+  box-shadow: 0 0 12px var(--ui-secondary);
 }
 
 @keyframes xs-chase {
@@ -1679,41 +1705,31 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
 .xs-logo {
   position: relative;
   display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 0 58px;
+  align-items: center;
+  gap: 14px;
 }
 
 .xs-logo__ufo {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 50px;
-  height: 50px;
-  margin-top: -28px;
-  animation: xs-bob 2.6s ease-in-out infinite;
-  filter: drop-shadow(0 0 8px rgba(94, 234, 212, 0.7));
+  width: clamp(60px, 12cqw, 86px);
+  height: auto;
 }
 
 .xs-logo__word {
   font-family: 'Audiowide', sans-serif;
-  font-size: clamp(30px, 6cqw, 46px);
+  font-size: clamp(32px, 7cqw, 52px);
   line-height: 1;
   letter-spacing: 0.06em;
-  background: linear-gradient(180deg, #ffffff 0%, #ecfccb 28%, #a3e635 52%, #22d3ee 78%, #0e7490 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  filter: drop-shadow(0 2px 0 #1a0b2e) drop-shadow(0 0 16px rgba(163, 230, 53, 0.55));
+  color: var(--ui-text-highlighted);
 }
 
 .xs-logo__slot {
+  padding: 5px 9px;
+  border: 1px solid var(--ui-primary);
+  border-radius: 5px;
   font-family: 'Audiowide', sans-serif;
-  font-size: clamp(14px, 2.4cqw, 19px);
-  letter-spacing: 0.5em;
-  color: #fdf4ff;
-  text-shadow: 0 0 4px #f0abfc, 0 0 12px #d946ef, 0 0 24px #a21caf;
-  animation: xs-flicker 6s infinite;
+  font-size: clamp(12px, 2.4cqw, 17px);
+  letter-spacing: 0.2em;
+  color: var(--ui-primary);
 }
 
 @keyframes xs-flicker {
@@ -1753,7 +1769,7 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
   background: rgba(167, 139, 250, 0.5);
 }
 
-.xs-badge--hot { color: #f0abfc; }
+.xs-badge--hot { color: var(--ui-secondary); }
 
 .xs-badge--vol :deep(.iconify) { color: rgba(167, 139, 250, 0.35); }
 .xs-badge--vol :deep(.is-on) { color: #facc15; filter: drop-shadow(0 0 3px rgba(250, 204, 21, 0.8)); }
@@ -1798,10 +1814,11 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
 /* ── Reel window ───────────────────────────────────────────────────────── */
 .xs-window {
   position: relative;
-  padding: 1.5px;
-  border-radius: 22px;
-  background: linear-gradient(180deg, rgba(196, 181, 253, 0.7), rgba(124, 58, 237, 0.35) 45%, rgba(124, 58, 237, 0.35) 55%, rgba(167, 139, 250, 0.6));
-  box-shadow: 0 0 28px rgba(168, 85, 247, 0.3), 0 12px 30px rgba(0, 0, 0, 0.45);
+  padding: 3px;
+  border: 1px solid var(--ui-border-accented);
+  border-radius: 19px;
+  background: color-mix(in srgb, var(--ui-secondary) 65%, var(--ui-border));
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--ui-bg-inverted) 10%, transparent);
   transition: box-shadow 0.4s;
 }
 
@@ -1861,17 +1878,13 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
 
 .xs-card {
   position: relative;
-  max-width: 440px;
-  padding: 22px 28px 24px;
-  border-radius: 22px;
+  max-width: 460px;
+  padding: 24px;
+  border-radius: 20px;
   text-align: center;
-  border: 2px solid transparent;
-  background:
-    radial-gradient(ellipse at 50% 0%, rgba(217, 70, 239, 0.4), transparent 65%) padding-box,
-    linear-gradient(180deg, rgba(36, 16, 74, 0.96), rgba(12, 5, 30, 0.96)) padding-box,
-    linear-gradient(135deg, #f5d0fe, #a21caf 30%, #3b0764 55%, #f0abfc 80%, #86198f) border-box;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7), 0 0 60px rgba(217, 70, 239, 0.45);
-  cursor: pointer;
+  background: var(--ui-bg);
+  border: 1px solid var(--ui-border-accented);
+  box-shadow: 0 16px 48px color-mix(in srgb, var(--ui-bg-inverted) 20%, transparent);
 }
 
 .xs-card--bonus { padding-top: 54px; }
@@ -1929,21 +1942,19 @@ const volatilityPips = Array.from({ length: 5 }, (_, i) => i < XS_VOLATILITY)
 /* ── Ticker ────────────────────────────────────────────────────────────── */
 /* Status line: plain text under the reels, framed only by a hairline. */
 .xs-ticker {
-  position: relative;
-  margin: 8px 4px 0;
-  height: 26px;
+  margin: 12px 4px 4px;
+  min-height: 30px;
   display: grid;
   place-items: center;
-  overflow: hidden;
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  color: rgba(196, 181, 253, 0.8);
+  padding: 5px 0;
+  font-family: var(--font-sans), sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+  color: var(--ui-text-muted);
 }
 
-.xs-ticker > span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; padding: 0 10px; }
+.xs-ticker > span { max-width: 100%; padding: 0 10px; }
 .xs-ticker.is-win { color: #fde68a; text-shadow: 0 0 8px rgba(250, 204, 21, 0.7); }
 .xs-ticker.is-bonus { color: #f5d0fe; text-shadow: 0 0 8px rgba(217, 70, 239, 0.8); }
 .xs-ticker.is-warn { color: #fca5a5; }

@@ -107,6 +107,8 @@ let currentStep: FireCascadeStep | undefined
 let latestResult: FireInTheHoleResult | null = null
 let scattersSeen = 0
 let countScattersOnLand = false
+/** Column after which the drop teases, one column at a time, or -1. */
+let teaseAfter = -1
 let destroyed = false
 let winRun = 0
 
@@ -645,6 +647,11 @@ function onColumnLanded(col: number) {
     sound.play('land', { col, intensity: col / (FITH_COLS - 1) })
     const bottom = cellCenter({ col, row: Math.max(0, activeLines.value - 1) })
     fx?.landingDust(bottom.x, bottom.y + cellSize() * 0.45, cellSize())
+    // The tease follows the drop: light the next column as each one lands.
+    if (teaseAfter >= 0 && col >= teaseAfter) {
+        if (col + 1 < FITH_COLS) showAnticipation(col + 1)
+        else hideAnticipation()
+    }
 
     if (!countScattersOnLand) return
     const count = visibleScatterCount()
@@ -772,18 +779,16 @@ function anticipationColumn(grid: FireSymbol[][], rows: number) {
     return -1
 }
 
-function showAnticipation(fromCol: number) {
+function showAnticipation(col: number) {
     if (!anticipationLayer || !reelSet || !gsap) return
     const g = anticipationLayer
     const s = reelSet.scale.x
     g.clear()
-    for (let col = fromCol; col < FITH_COLS; col++) {
-        const top = reelSet.getCellBounds(col, 0)
-        const x = reelSet.x + top.x * s
-        const h = (SYMBOL_SIZE + SYMBOL_GAP) * s * activeLines.value
-        g.roundRect(x - 3 * s, reelSet.y + top.y * s - 3 * s, top.width * s + 6 * s, h, 16 * s).fill({ color: 0xff8a1a, alpha: 0.22 })
-        g.roundRect(x - 3 * s, reelSet.y + top.y * s - 3 * s, top.width * s + 6 * s, h, 16 * s).stroke({ color: 0xffc04a, alpha: 0.9, width: 3 * s })
-    }
+    const top = reelSet.getCellBounds(col, 0)
+    const x = reelSet.x + top.x * s
+    const h = (SYMBOL_SIZE + SYMBOL_GAP) * s * activeLines.value
+    g.roundRect(x - 3 * s, reelSet.y + top.y * s - 3 * s, top.width * s + 6 * s, h, 16 * s).fill({ color: 0xff8a1a, alpha: 0.22 })
+    g.roundRect(x - 3 * s, reelSet.y + top.y * s - 3 * s, top.width * s + 6 * s, h, 16 * s).stroke({ color: 0xffc04a, alpha: 0.9, width: 3 * s })
     anticipationTween?.kill()
     g.alpha = 0
     anticipationTween = gsap.to(g, { alpha: 1, duration: 0.25, yoyo: true, repeat: -1, ease: 'sine.inOut' })
@@ -811,16 +816,16 @@ async function dropGrid(grid: FireSymbol[][], opts: { anticipate: boolean }) {
         return col * step + extra
     })
     reelSet.setDropOrder(delays)
+    teaseAfter = antCol
     const done = reelSet.spin({ mode: 'cascade', timeoutMs: 12000 })
     await sleep(speed(140))
     reelSet.setResult(gridToTargets(grid))
-    let antTimer: ReturnType<typeof setTimeout> | null = null
-    if (antCol >= 0) {
-        antTimer = setTimeout(() => showAnticipation(antCol + 1), delays[antCol]! + speed(520))
+    try {
+        await done
+    } finally {
+        teaseAfter = -1
+        hideAnticipation()
     }
-    await done
-    if (antTimer) clearTimeout(antTimer)
-    hideAnticipation()
     reelSet.setDropOrder('ltr', turbo.value ? 12 : 30)
 }
 

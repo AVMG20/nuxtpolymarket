@@ -241,14 +241,16 @@ const recipes: Record<TphSoundEvent, Recipe> = {
         v.noise({ color: 'pink', freq: 600, to: 120, dur: 0.18, gain: 0.35 })
         pluck(v, blues(2 + Math.round(count) * 2), 0.05, 0.3, 0.3)
     },
-    'anticipation': (v) => {
-        const dur = 1.8
+    // Intensity is the tease length in seconds (defaults to 1.8).
+    'anticipation': (v, seconds) => {
+        const dur = seconds > 0 ? seconds : 1.8
+        const k = dur / 1.8
         const bp = v.filter({ type: 'bandpass', freq: 300, to: 2400, glide: dur, q: 5 })
         v.tone({ type: 'sawtooth', freq: blues(0, -24), to: blues(0, -12), glide: dur, attack: dur * 0.8, dur: 0.35, gain: 0.3, dest: bp })
         v.noise({ filter: 'highpass', freq: 1800, to: 6800, glide: dur, attack: dur * 0.85, dur: 0.3, gain: 0.14 })
         // Tiptoe steps that speed up.
         const steps = [0, 0.4, 0.75, 1.05, 1.3, 1.5, 1.66]
-        steps.forEach((t, i) => pluck(v, blues(i % 2 ? 3 : 0, -12), t, 0.12, 0.3 + i * 0.03))
+        steps.forEach((t, i) => pluck(v, blues(i % 2 ? 3 : 0, -12), t * k, 0.12, 0.3 + i * 0.03))
     },
     'win-small': (v) => {
         pluck(v, blues(4), 0, 0.2, 0.4)

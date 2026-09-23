@@ -30,26 +30,31 @@ const style = computed(() => {
 </script>
 
 <template>
-  <div class="xs-bw" :style="style" @click="$emit('skip')">
-    <div class="xs-bw__rays" />
+  <button type="button" class="xs-bw" :style="style" aria-label="Skip win count-up" @click="$emit('skip')">
+    <span class="xs-bw__rays" aria-hidden="true" />
     <Transition name="xs-bw-label" mode="out-in">
-      <p :key="label" class="xs-bw__label">
+      <span :key="label" class="xs-bw__label">
         {{ label }}
-      </p>
+      </span>
     </Transition>
-    <p class="xs-bw__amount">
+    <span class="xs-bw__amount">
       {{ formatNumber(amount) }}
-    </p>
-    <p class="xs-bw__mult">
+    </span>
+    <span class="xs-bw__mult">
       {{ formatNumber(multiple, false) }}× bet
-    </p>
-  </div>
+    </span>
+    <span class="xs-bw__hint">Tap to skip count-up</span>
+  </button>
 </template>
 
 <style scoped>
+.xs-bw__hint { position: relative; margin-top: 16px; font-size: 11px; color: var(--ui-primary); }
+.xs-bw:focus-visible { outline: 3px solid var(--ui-primary); outline-offset: -6px; }
+
 .xs-bw {
   position: absolute;
   inset: 0;
+  width: 100%;
   z-index: 40;
   display: flex;
   flex-direction: column;

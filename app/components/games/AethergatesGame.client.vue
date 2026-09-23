@@ -714,11 +714,12 @@ function onReelLanded(col: number) {
   const orbs = dropMults.filter(m => m.col === col)
   if (orbs.length) sound.play('orb-land', { intensity: Math.max(...orbs.map(o => o.value)), pan })
   clearAnticipationCol(col)
-  const pending = anticCols.filter(c => !landed.has(c))
-  if (!anticShown && pending.length && gatesSeen >= AG_SCATTER_TRIGGER - 1) {
+  // The tease follows the drop: light only the next column still to land.
+  const next = anticCols.find(c => !landed.has(c))
+  if (next !== undefined && gatesSeen >= AG_SCATTER_TRIGGER - 1) {
+    setAnticipation([next])
+    if (!anticShown) sound.play('anticipation')
     anticShown = true
-    setAnticipation(pending)
-    sound.play('anticipation')
   }
 }
 

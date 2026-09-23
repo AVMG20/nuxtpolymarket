@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
     DIVE_BINS,
-    DIVE_REELS,
+    DIVE_TRIGGER,
     FS_AWARD,
     FS_MAX_SPINS,
     PAYTABLE,
@@ -44,11 +44,9 @@ function checkRound(r: TrashPandaResult) {
     expect(r.payout).toBeCloseTo(round4(r.basePayout + r.divePayout + r.freeSpinsPayout), 3)
     expect(r.payout).toBeLessThanOrEqual(r.maxWin + 1e-6)
     expect(r.basePayout).toBeCloseTo(r.wins.reduce((a, w) => a + w.amount, 0), 3)
-    // No wild on the first reel, dumpsters only on reels 1, 3 and 5.
+    // No wild on the first reel; 3+ dumpsters anywhere start the dive.
     expect(r.grid[0]).not.toContain('wild')
-    for (let col = 0; col < TPH_COLS; col++) {
-        if (!(DIVE_REELS as readonly number[]).includes(col)) expect(r.grid[col]).not.toContain('bin')
-    }
+    expect(r.dive !== null).toBe(r.bins.length >= DIVE_TRIGGER)
     if (r.dive) {
         const d = r.dive
         expect(d.picks.length + d.leftovers.length).toBe(DIVE_BINS)
@@ -217,10 +215,10 @@ describe('RTP sanity (seeded Monte Carlo)', () => {
             base += r.basePayout
         }
         // The full figure is measured with scripts/slot-rtp.ts over 20M spins
-        // (97.4%); the band here only catches a broken table or feature.
+        // (98.1%); the band here only catches a broken table or feature.
         expect(pay / cost).toBeGreaterThan(0.85)
         expect(pay / cost).toBeLessThan(1.1)
-        expect(base / cost).toBeGreaterThan(0.29)
-        expect(base / cost).toBeLessThan(0.34)
+        expect(base / cost).toBeGreaterThan(0.3)
+        expect(base / cost).toBeLessThan(0.36)
     })
 })
