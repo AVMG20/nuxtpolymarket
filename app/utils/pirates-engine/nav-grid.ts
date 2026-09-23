@@ -2,21 +2,24 @@ import { CELL, GRID_H, GRID_W, ISLAND_COUNT_MAX, ISLAND_COUNT_MIN, SHIP_RADIUS, 
 import { dist, randRange, segPointDist } from './math'
 import type { Island } from './types'
 
+const ISLAND_KINDS: Island['kind'][] = ['tropical', 'tropical', 'volcanic', 'ruins', 'rock']
+
 /** Randomly place non-overlapping islands, keeping the player spawn clear. */
 export function generateIslandLayout(): Island[] {
     const islands: Island[] = []
     const count = Math.round(randRange(ISLAND_COUNT_MIN, ISLAND_COUNT_MAX))
     let attempts = 0
-    while (islands.length < count && attempts < 200) {
+    while (islands.length < count && attempts < 300) {
         attempts++
-        const r = randRange(42, 78)
-        const x = randRange(r + 90, WORLD_W - r - 90)
-        const y = randRange(r + 90, WORLD_H - r - 90)
+        const kind = ISLAND_KINDS[Math.floor(randRange(0, ISLAND_KINDS.length))]!
+        const r = kind === 'rock' ? randRange(30, 46) : randRange(48, 86)
+        const x = randRange(r + 100, WORLD_W - r - 100)
+        const y = randRange(r + 100, WORLD_H - r - 100)
         // Keep the player spawn and neighbouring islands clear so no ship
         // can start boxed in.
-        if (dist(x, y, WORLD_W / 2, WORLD_H / 2) < r + 170) continue
-        if (islands.some(i => dist(x, y, i.x, i.y) < i.r + r + 150)) continue
-        islands.push({ x, y, r })
+        if (dist(x, y, WORLD_W / 2, WORLD_H / 2) < r + 200) continue
+        if (islands.some(i => dist(x, y, i.x, i.y) < i.r + r + 160)) continue
+        islands.push({ x, y, r, kind, seed: Math.floor(randRange(1, 1_000_000)) })
     }
     return islands
 }

@@ -1,15 +1,43 @@
+import { randomFloat } from '#shared/utils/random'
+
+export const TAU = Math.PI * 2
+
+/** Signed shortest turn from `from` to `to`, in (-PI, PI]. */
+export function angleDiff(from: number, to: number) {
+    let diff = (to - from) % TAU
+    if (diff > Math.PI) diff -= TAU
+    if (diff <= -Math.PI) diff += TAU
+    return diff
+}
+
 export function lerpAngle(from: number, to: number, t: number) {
-    let diff = ((to - from + Math.PI) % (Math.PI * 2)) - Math.PI
-    if (diff < -Math.PI) diff += Math.PI * 2
-    return from + diff * t
+    return from + angleDiff(from, to) * t
+}
+
+/** Turn `from` toward `to` by at most `maxStep` radians. */
+export function turnToward(from: number, to: number, maxStep: number) {
+    const diff = angleDiff(from, to)
+    if (Math.abs(diff) <= maxStep) return to
+    return from + Math.sign(diff) * maxStep
 }
 
 export function dist(x1: number, y1: number, x2: number, y2: number) {
     return Math.hypot(x2 - x1, y2 - y1)
 }
 
+export function dist2(x1: number, y1: number, x2: number, y2: number) {
+    const dx = x2 - x1
+    const dy = y2 - y1
+    return dx * dx + dy * dy
+}
+
+/** Uniform in [min, max). Backed by the shared CSPRNG, so it is safe for outcomes. */
 export function randRange(min: number, max: number) {
-    return min + Math.random() * (max - min)
+    return min + randomFloat() * (max - min)
+}
+
+export function clamp(value: number, min: number, max: number) {
+    return value < min ? min : value > max ? max : value
 }
 
 /** Shortest distance from segment (a→b) to point p. */
