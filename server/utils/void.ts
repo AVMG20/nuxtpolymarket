@@ -482,7 +482,16 @@ export async function voidSalvageItem(userId: string, itemId: string) {
         for (const [shipId, raw] of Object.entries(s.loadouts ?? {})) {
             const fit = raw as Partial<VoidShipFit>
             const strip = (list: unknown) => (Array.isArray(list) ? list.map(x => (x === itemId ? null : x)) : [])
-            loadouts[shipId] = { gun: fit.gun === itemId ? null : fit.gun ?? null, turrets: strip(fit.turrets), armor: strip(fit.armor), shields: strip(fit.shields) }
+            const one = (id: string | null | undefined) => (id === itemId ? null : id ?? null)
+            loadouts[shipId] = {
+                ...fit,
+                gun: one(fit.gun),
+                turrets: strip(fit.turrets),
+                armor: strip(fit.armor),
+                shields: strip(fit.shields),
+                secondary: one(fit.secondary),
+                device: one(fit.device)
+            }
         }
         await tx.update(voidState).set({ resources: voidAddBundles(voidCleanBundle(s.resources), refund), loadouts }).where(eq(voidState.userId, userId))
         return { itemId, refund }
