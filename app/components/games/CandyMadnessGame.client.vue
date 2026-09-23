@@ -2242,9 +2242,11 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 }
 
 .cm-bet__value, .cm-bet__input {
-  flex: 1 0 auto;
-  /* Room for compact bets like 2,5B or 999K without clipping. */
-  min-width: 4.6ch;
+  /* Fixed room for compact bets like 2,5B or 999K; an input left to size
+     itself would take its default ~20ch width and squeeze the meters. */
+  flex: 0 0 auto;
+  width: 5.2ch;
+  min-width: 0;
   font-size: 18px;
   font-weight: 700;
   text-align: center;
