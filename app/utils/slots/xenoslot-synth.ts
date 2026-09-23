@@ -470,11 +470,11 @@ export class XenoReelWhir implements XenoLoopHandle {
     stop(fade = 0.12) {
         if (this.stopped) return
         this.stopped = true
-        teardown(this.ctx, this.output, this.sources, this.nodes, fade)
+        teardown(this.ctx, this.output, [], this.nodes, fade)
     }
 }
 
-// Chords of the ambient bed, semitones from A3 (A minor 9 → F maj 7 → C add 9 → E minor 7).
+// Chords of the ambient bed, semitones from A4 (A minor 9 → F maj 7 → C add 9 → E minor 7).
 const PAD_CHORDS = [
     [0, 7, 10, 14],
     [-4, 3, 7, 12],
@@ -489,21 +489,14 @@ const PAD_BONUS_CHORDS = [
 ]
 
 /**
- * Ambient music bed: a four-voice pad of detuned saws through a slowly
- * breathing low-pass, a sub on the chord root, and sparse glassy plinks sent
- * through a feedback delay. Bonus mode brightens the filter, swaps to Lydian
- * voicings and adds a pulsing bass.
+ * Ambient music bed: sparse glassy plinks on the current chord, sent through a
+ * feedback delay. There is no sustained pad or bass, so nothing hums under the
+ * game. Bonus mode swaps to Lydian voicings and plinks faster.
  */
 export class XenoAmbient implements XenoLoopHandle {
     private readonly output: GainNode
-    private readonly filter: BiquadFilterNode
     private readonly delay: DelayNode
     private readonly feedback: GainNode
-    private readonly pulseGain: GainNode
-    private readonly pads: OscillatorNode[][] = []
-    private readonly sub: OscillatorNode
-    private readonly pulse: OscillatorNode
-    private readonly sources: AudioScheduledSourceNode[] = []
     private readonly nodes: AudioNode[] = []
     private chordTimer: ReturnType<typeof setTimeout> | null = null
     private plinkTimer: ReturnType<typeof setTimeout> | null = null
@@ -518,46 +511,6 @@ export class XenoAmbient implements XenoLoopHandle {
         this.output.gain.linearRampToValueAtTime(level, now + 3)
         this.output.connect(destination)
 
-        this.filter = ctx.createBiquadFilter()
-        this.filter.type = 'lowpass'
-        this.filter.frequency.value = 620
-        this.filter.Q.value = 2
-        const padGain = ctx.createGain()
-        padGain.gain.value = 0.12
-        this.filter.connect(padGain).connect(this.output)
-        const breathe = lfo(ctx, 0.06, 260, this.filter.frequency)
-
-        const chord = PAD_CHORDS[0]!
-        for (const semis of chord) {
-            const pair: OscillatorNode[] = []
-            for (const detune of [-8, 8]) {
-                const osc = ctx.createOscillator()
-                osc.type = 'sawtooth'
-                osc.frequency.value = note(semis - 12)
-                osc.detune.value = detune
-                osc.connect(this.filter)
-                pair.push(osc)
-                this.sources.push(osc)
-            }
-            this.pads.push(pair)
-        }
-
-        this.sub = ctx.createOscillator()
-        this.sub.frequency.value = note(chord[0]! - 24)
-        const subGain = ctx.createGain()
-        subGain.gain.value = 0.16
-        this.sub.connect(subGain).connect(this.output)
-
-        // Bonus pulse: a sine bass gated by a square LFO, silent until bonus mode.
-        this.pulse = ctx.createOscillator()
-        this.pulse.frequency.value = note(chord[0]! - 24)
-        const gate = ctx.createGain()
-        gate.gain.value = 0.5
-        this.pulseGain = ctx.createGain()
-        this.pulseGain.gain.value = 0
-        this.pulse.connect(gate).connect(this.pulseGain).connect(this.output)
-        const gateLfo = lfo(ctx, 4, 0.5, gate.gain, 'square')
-
         this.delay = ctx.createDelay(1)
         this.delay.delayTime.value = 0.42
         this.feedback = ctx.createGain()
@@ -566,10 +519,7 @@ export class XenoAmbient implements XenoLoopHandle {
         wet.gain.value = 0.5
         this.delay.connect(this.feedback).connect(this.delay)
         this.delay.connect(wet).connect(this.output)
-
-        this.sources.push(this.sub, this.pulse, breathe.osc, gateLfo.osc)
-        this.nodes.push(this.filter, padGain, subGain, gate, this.pulseGain, this.delay, this.feedback, wet, breathe.amount, gateLfo.amount, ...this.sources)
-        for (const src of this.sources) (src as OscillatorNode).start(now)
+        this.nodes.push(this.delay, this.feedback, wet)
 
         this.scheduleChord()
         this.schedulePlink()
@@ -578,32 +528,16 @@ export class XenoAmbient implements XenoLoopHandle {
     setBonus(bonus: boolean) {
         if (this.stopped || this.bonus === bonus) return
         this.bonus = bonus
-        const now = this.ctx.currentTime
-        this.filter.frequency.setTargetAtTime(bonus ? 1500 : 620, now, 0.6)
-        this.pulseGain.gain.setTargetAtTime(bonus ? 0.1 : 0, now, 0.4)
-        this.applyChord(0.5)
     }
 
     private chords() {
         return this.bonus ? PAD_BONUS_CHORDS : PAD_CHORDS
     }
 
-    private applyChord(glide = 1.4) {
-        const chords = this.chords()
-        const chord = chords[this.chord % chords.length]!
-        const now = this.ctx.currentTime
-        chord.forEach((semis, i) => {
-            for (const osc of this.pads[i] ?? []) osc.frequency.setTargetAtTime(note(semis - 12), now, glide / 3)
-        })
-        this.sub.frequency.setTargetAtTime(note(chord[0]! - 24), now, glide / 3)
-        this.pulse.frequency.setTargetAtTime(note(chord[0]! - 24), now, 0.05)
-    }
-
     private scheduleChord() {
         this.chordTimer = setTimeout(() => {
             if (this.stopped) return
             this.chord++
-            this.applyChord()
             this.scheduleChord()
         }, this.bonus ? 4000 : 8000)
     }
@@ -632,6 +566,6 @@ export class XenoAmbient implements XenoLoopHandle {
         this.stopped = true
         if (this.chordTimer) clearTimeout(this.chordTimer)
         if (this.plinkTimer) clearTimeout(this.plinkTimer)
-        teardown(this.ctx, this.output, this.sources, this.nodes, fade)
+        teardown(this.ctx, this.output, [], this.nodes, fade)
     }
 }
