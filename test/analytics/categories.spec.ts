@@ -61,7 +61,7 @@ describe('prefixesForLabel', () => {
             'blackjack', 'live-blackjack', 'lootbox', 'gems', 'gem market', 'gem exchange',
             'miner', 'xeno', 'pirates', 'hackops', 'rakeback', 'colony', 'dice', 'limbo',
             'bank', 'shapezz', 'wheel', 'xenoslot', 'aethergates', 'bookofshadows',
-            'fireinthehole', 'candymadness', 'magichands', 'spinata', 'trashpanda', 'polymasters', 'aviamasters', 'roulette',
+            'fireinthehole', 'candymadness', 'magichands', 'spinata', 'trashpanda', 'polymasters', 'aviamasters', 'emberportals', 'roulette',
             'casino-holdem', 'three-card-poker', 'baccarat'
         ]
         for (const prefix of rawPrefixes) {

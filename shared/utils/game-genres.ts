@@ -41,6 +41,7 @@ const GENRE_BY_LABEL: Record<string, Genre> = {
     Spinata: 'casino',
     'Trash Panda Heist': 'casino',
     PolyMasters: 'casino',
+    'Ember Portals': 'casino',
     Roulette: 'casino',
     Blackjack: 'casino',
     Baccarat: 'casino',

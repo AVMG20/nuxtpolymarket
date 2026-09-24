@@ -10,7 +10,7 @@
 //
 // Run:  bun run scripts/slot-rtp.ts <game> [rounds] [feature] [--fast]
 //
-//   game     aethergates | bookofshadows | candymadness | fireinthehole | trashpanda | xenoslot
+//   game     aethergates | bookofshadows | candymadness | emberportals | fireinthehole | trashpanda | xenoslot
 //   rounds   number of rounds to simulate (defaults per game, see PROFILES)
 //   feature  a feature-buy token valid for that game (see PROFILES), omit for base spins
 //   --fast   swap crypto.getRandomValues for Math.random before importing the
@@ -160,6 +160,47 @@ function trashPandaExtra(_mod: any): ExtraTracker {
     }
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function emberPortalsExtra(_mod: any): ExtraTracker {
+    let rounds = 0
+    let fsCount = 0
+    let fsSpins = 0
+    let retriggers = 0
+    let tumbles = 0
+    let topPortal = 0
+    const portalPeaks: number[] = []
+    const fsPays: number[] = []
+
+    return {
+        collect(r) {
+            rounds++
+            tumbles += r.base.tumbles.length
+            const fs = r.freeSpins
+            if (!fs) return
+            fsCount++
+            fsSpins += fs.spins.length
+            if (fs.spins.some((s: { retrigger: number }) => s.retrigger > 0)) retriggers++
+            fsPays.push(r.freeSpinsPayout / r.bet)
+            const last = fs.spins[fs.spins.length - 1]
+            const peak = Math.max(0, ...(last?.wildsEnd ?? []).map((w: { mult: number }) => w.mult))
+            portalPeaks.push(peak)
+            topPortal = Math.max(topPortal, peak)
+        },
+        report() {
+            const q = (arr: number[], f: number) => {
+                const s = [...arr].sort((a, b) => a - b)
+                return (s[Math.floor(f * (s.length - 1))] ?? 0).toFixed(1)
+            }
+            const mean = (arr: number[]) => (arr.reduce((a, b) => a + b, 0) / Math.max(1, arr.length)).toFixed(1)
+            console.log(`\navg winning tumbles per base spin: ${(tumbles / rounds).toFixed(3)}`)
+            if (!fsCount) return
+            console.log(`free spins avg ${mean(fsPays)}x  p10 ${q(fsPays, 0.1)}x  median ${q(fsPays, 0.5)}x  p90 ${q(fsPays, 0.9)}x  p99 ${q(fsPays, 0.99)}x`)
+            console.log(`avg spins per feature ${(fsSpins / fsCount).toFixed(2)}, retriggered ${pct(retriggers / fsCount)}`)
+            console.log(`biggest portal at feature end: median ×${q(portalPeaks, 0.5)}  p99 ×${q(portalPeaks, 0.99)}  max ×${topPortal}`)
+        }
+    }
+}
+
 const PROFILES: Record<string, RtpProfile> = {
     aethergates: {
         modulePath: '../shared/utils/gamelogic/aethergates',
@@ -192,6 +233,18 @@ const PROFILES: Record<string, RtpProfile> = {
             buyFreeSpins: { feature: 'buyFreeSpins' },
             bonusHunt: { feature: 'bonusHunt' }
         }
+    },
+    emberportals: {
+        modulePath: '../shared/utils/gamelogic/emberportals',
+        playExport: 'playEmberPortals',
+        maxWinExport: 'EP_MAX_WIN_MULT',
+        defaultBet: 1,
+        defaultRounds: 2_000_000,
+        features: {
+            ante: { ante: true },
+            buy: { feature: 'buy' }
+        },
+        extra: emberPortalsExtra
     },
     fireinthehole: {
         modulePath: '../shared/utils/gamelogic/fireinthehole',
@@ -278,6 +331,8 @@ const bucketCounts = new Array(BUCKETS.length).fill(0)
 
 let totalCost = 0
 let totalPayout = 0
+// Per-round return (payout / cost) moments, for the standard error.
+let retSq = 0
 let basePayoutSum = 0
 let bonusPayoutSum = 0
 let bonusTriggers = 0
@@ -313,6 +368,7 @@ for (let i = 0; i < rounds; i++) {
 
     totalCost += cost
     totalPayout += r.payout
+    retSq += (r.payout / cost) ** 2
     basePayoutSum += r.basePayout
     bonusPayoutSum += r.payout - r.basePayout
     if (r.payout > cost) wins++
@@ -336,6 +392,11 @@ for (let i = 0; i < rounds; i++) {
 console.log(`game:               ${gameKey}`)
 console.log(`rounds:             ${rounds.toLocaleString()}${featureToken ? `  (feature: ${featureToken})` : ''}${fast ? '  [--fast entropy]' : ''}`)
 console.log(`total RTP:          ${pct(totalPayout / totalCost)}`)
+// Every round in one run costs the same, so the RTP is the mean per-round
+// return and its standard error is sd / sqrt(rounds).
+const meanRet = totalPayout / totalCost
+const se = Math.sqrt(Math.max(0, retSq / rounds - meanRet ** 2) / rounds)
+console.log(`  std error:        ±${pct(se)}  (95%: ${pct(meanRet - 1.96 * se)} – ${pct(meanRet + 1.96 * se)})`)
 console.log(`  base RTP:         ${pct(basePayoutSum / totalCost)}`)
 console.log(`  bonus RTP:        ${pct(bonusPayoutSum / totalCost)}`)
 console.log(`bonus trigger:      ${pct(bonusTriggers / rounds)}  (1 in ${bonusTriggers ? (rounds / bonusTriggers).toFixed(0) : '—'})`)

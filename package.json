@@ -27,6 +27,7 @@
     "balance:shapezz-playtest": "bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/shapezz-playtest.ts",
     "balance:compare": "bun scripts/economy-compare.ts",
     "balance:polymasters": "bun scripts/polymasters-rtp.ts",
+    "balance:emberportals": "bun scripts/slot-rtp.ts emberportals",
     "tcg:rarity-audit": "bun scripts/tcg-rarity-audit.ts"
   },
   "dependencies": {

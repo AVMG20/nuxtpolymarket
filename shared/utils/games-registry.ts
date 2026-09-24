@@ -10,6 +10,7 @@ import { playBookOfShadows } from './gamelogic/bookofshadows'
 import { playSpinata } from './gamelogic/spinata'
 import { playTrashPanda } from './gamelogic/trashpanda'
 import { playPolyMasters } from './gamelogic/polymasters'
+import { playEmberPortals } from './gamelogic/emberportals'
 
 export interface GameResult {
   payout: number
@@ -56,6 +57,9 @@ export const GAMES_REGISTRY: Record<string, GameDefinition> = {
   },
   polymasters: {
     play: playPolyMasters
+  },
+  emberportals: {
+    play: playEmberPortals
   }
 }
 
