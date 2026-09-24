@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { AG_ORB_TIERS, agOrbTier } from '~/utils/slots/aethergates-art'
 
-// The multiplier meter: a gilded medallion whose glass orb takes the colour
-// of the orb tier its total has reached. `hit` bumps it when an orb lands.
+// An orbital meter that takes the colour of the collected multiplier tier.
+// Keep the target ref stable: particles fly to this element when an orb lands.
 
 const props = defineProps<{
   value: number
@@ -55,83 +55,70 @@ watch(() => props.hit, () => {
 
 <style scoped>
 .ag-meter {
-  --tier: #60a5fa;
-  display: flex;
+display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 14px;
 }
 
 .ag-meter-label {
-  font-family: 'Cinzel', Georgia, serif;
-  font-size: 12px;
-  font-weight: 900;
+font-size: 9px;
+  font-weight: 500;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #fde68a;
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6);
+  color: var(--ag-muted);
 }
 
 .ag-meter-medallion {
-  position: relative;
-  width: 150px;
-  height: 150px;
+position: relative;
+  width: 138px;
+  height: 138px;
 }
 
 .ag-meter-ring {
-  position: absolute;
+position: absolute;
   inset: 0;
-  border-radius: 999px;
-  background:
-    conic-gradient(from 200deg, #fff6c9, #d99a26, #7a4a0c, #f7cf62, #fffbe6, #b7791f, #fff6c9);
-  box-shadow:
-    0 10px 24px rgba(0, 0, 0, 0.6),
-    0 0 0 2px #3b1d00,
-    inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--ag-gold) 45%, transparent);
+  background: conic-gradient(from 210deg, transparent, color-mix(in srgb, var(--ag-gold) 10%, transparent), transparent);
 }
 
 .ag-meter-ring::after {
-  content: '';
+content: '';
   position: absolute;
-  inset: 5px;
-  border-radius: 999px;
-  border: 2px dotted rgba(59, 29, 0, 0.55);
+  inset: 7px;
+  border-radius: 50%;
+  border: 1px dashed color-mix(in srgb, var(--ag-gold) 25%, transparent);
 }
 
 .ag-meter-orb {
-  position: absolute;
-  inset: 14px;
+position: absolute;
+  inset: 16px;
   display: grid;
   place-items: center;
-  border-radius: 999px;
-  background:
-    radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.9), transparent 22%),
-    radial-gradient(circle at 50% 55%, color-mix(in srgb, var(--tier) 70%, white 10%), color-mix(in srgb, var(--tier) 45%, #0b0a2a) 62%, #070618 100%);
-  box-shadow: inset 0 -10px 22px rgba(0, 0, 0, 0.55), inset 0 0 0 2px #3b1d00;
-  filter: saturate(0.6) brightness(0.85);
-  transition: filter 300ms ease;
+  border-radius: 50%;
+  border: 1px solid var(--ag-line);
+  background: radial-gradient(circle at 50% 70%, color-mix(in srgb, var(--ag-accent) 12%, var(--ag-night)), var(--ag-night));
+  transition: box-shadow 300ms ease, background 300ms ease;
 }
 
 .is-live .ag-meter-orb {
-  filter: none;
-  box-shadow: inset 0 -10px 22px rgba(0, 0, 0, 0.55), inset 0 0 0 2px #3b1d00, 0 0 36px color-mix(in srgb, var(--tier) 80%, transparent);
+background: radial-gradient(circle at 50% 70%, color-mix(in srgb, var(--tier) 28%, var(--ag-night)), var(--ag-night));
+  box-shadow: 0 0 28px color-mix(in srgb, var(--tier) 25%, transparent);
 }
 
 .ag-meter-value {
-  font-family: 'Cinzel', Georgia, serif;
-  font-size: 38px;
-  font-weight: 900;
+font-family: 'Cinzel', Georgia, serif;
+  font-size: 34px;
+  font-weight: 700;
   line-height: 1;
-  color: #fffbeb;
-  -webkit-text-stroke: 1.5px #1a0f02;
-  paint-order: stroke fill;
-  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.55), 0 0 18px var(--tier);
+  color: var(--ag-gold);
 }
 
 .ag-meter-hint {
-  font-size: 11px;
-  font-weight: 700;
-  color: rgba(224, 231, 255, 0.6);
+font-size: 10px;
+  line-height: 1.6;
+  color: var(--ag-muted);
   text-align: center;
 }
 
@@ -170,16 +157,16 @@ watch(() => props.hit, () => {
   }
 
   .ag-meter-medallion {
-    width: 84px;
-    height: 84px;
+    width: 56px;
+    height: 56px;
   }
 
   .ag-meter-orb {
-    inset: 9px;
+    inset: 6px;
   }
 
   .ag-meter-value {
-    font-size: 22px;
+    font-size: 19px;
   }
 
   .ag-meter-label {
@@ -192,5 +179,9 @@ watch(() => props.hit, () => {
     max-width: 110px;
     text-align: left;
   }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-bump,
+  .is-applying .ag-meter-medallion { animation: none; }
 }
 </style>

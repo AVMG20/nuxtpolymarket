@@ -52,7 +52,7 @@ useHead({
   link: [
     { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
     { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
-    { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&family=Cinzel+Decorative:wght@700;900&display=swap' }
+    { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&display=swap' }
   ]
 })
 
@@ -400,7 +400,8 @@ function fitResolution() {
 }
 
 function buildTextures(res: number) {
-  const size = Math.min(384, Math.ceil(CELL * res))
+  // Keep detailed art sharp when resizing from a narrow view to a large display.
+  const size = Math.max(384, Math.min(512, Math.ceil(CELL * res * 1.5)))
   for (const id of [...AETHER_PAY_SYMBOLS]) TEX[id] = PIXI.Texture.from(agSymbolCanvas(id, size))
   TEX.gate = PIXI.Texture.from(agGateFrameCanvas(size))
   TEX.portal = PIXI.Texture.from(agPortalCanvas(size))
@@ -578,8 +579,8 @@ function drawBoard() {
     for (let r = 0; r < AG_ROWS; r++) {
       const x = PAD + c * (CELL + GAP)
       const y = PAD + r * (CELL + GAP)
-      g.roundRect(x, y, CELL, CELL, 14).fill({ color: 0x0c0a2e, alpha: 0.5 })
-      g.roundRect(x + 0.5, y + 0.5, CELL - 1, CELL - 1, 14).stroke({ color: 0xfcd34d, alpha: 0.1, width: 1.5 })
+      g.roundRect(x, y, CELL, CELL, 10).fill({ color: 0xb7d3e8, alpha: 0.025 })
+      g.roundRect(x + 0.5, y + 0.5, CELL - 1, CELL - 1, 10).stroke({ color: 0xb7d3e8, alpha: 0.055, width: 0.7 })
     }
   }
   return g
@@ -1206,11 +1207,13 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
         <div class="ag-marquee-logo">
           <AgLogo :bonus="inBonus" />
         </div>
+        <p class="ag-marquee-caption">An opening to the extraordinary</p>
       </header>
 
       <div class="ag-stage">
         <!-- feature buys -->
         <aside class="ag-buys">
+          <p class="ag-section-label">Enter the gates</p>
           <button
             class="ag-buy"
             :disabled="locked || !ready || balance < buyFreeCost"
@@ -1254,12 +1257,12 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
         </aside>
 
         <!-- reels -->
-        <section class="ag-cabinet">
+        <section class="ag-cabinet" aria-label="Aether Gates reels">
+          <div class="ag-board-heading">
+            <span>{{ inBonus ? 'The gates are open' : 'Realm of aether' }}</span>
+            <span>{{ AG_MIN_MATCH }}+ matching symbols to win</span>
+          </div>
           <div class="ag-frame">
-            <span class="ag-corner is-tl" />
-            <span class="ag-corner is-tr" />
-            <span class="ag-corner is-bl" />
-            <span class="ag-corner is-br" />
             <div
               class="ag-window"
               @click="overlay && overlay.kind !== 'apply' ? dismissOverlay() : undefined"
@@ -1358,7 +1361,7 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
               v-else
               class="ag-history-empty"
             >
-              No rounds yet
+              Your journey begins with a spin.
             </p>
           </div>
         </aside>
@@ -1681,15 +1684,23 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 
 <style scoped>
 .ag-root {
-  --gold-1: #fff6c9;
-  --gold-2: #f5c44c;
-  --gold-3: #b7791f;
-  --gold-4: #5a2e02;
-  --ink: #0b0724;
+  --ag-night: color-mix(in srgb, var(--ui-color-neutral-950) 92%, var(--ui-info));
+  --ag-panel: color-mix(in srgb, var(--ag-night) 92%, var(--ui-info));
+  --ag-text: var(--ui-color-neutral-100);
+  --ag-muted: var(--ui-color-neutral-400);
+  --ag-gold: color-mix(in srgb, var(--ui-warning) 35%, var(--ag-text));
+  --ag-accent: color-mix(in srgb, var(--ui-info) 65%, var(--ag-text));
+  --ag-line: color-mix(in srgb, var(--ag-accent) 16%, transparent);
+  --gold-1: var(--ag-gold);
+  --gold-2: var(--ag-gold);
+  --gold-3: var(--ui-warning);
+  --gold-4: var(--ag-night);
+  --ink: var(--ag-night);
   position: relative;
   min-height: 100%;
   overflow: hidden;
-  color: #e0e7ff;
+  color: var(--ag-text);
+  color-scheme: dark;
   isolation: isolate;
 }
 
@@ -1707,30 +1718,63 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 18px;
   width: 100%;
-  max-width: 1240px;
+  max-width: 1320px;
   margin: 0 auto;
-  padding: 10px 16px 24px;
+  padding: 30px 28px 36px;
 }
+
+.ag-root button:focus-visible,
+.ag-root input:focus-visible {
+  outline: 2px solid var(--ag-accent);
+  outline-offset: 4px;
+}
+
+.ag-marquee-caption {
+  color: var(--ag-muted);
+  font-size: 10px;
+  letter-spacing: 0.19em;
+  text-transform: uppercase;
+}
+
+.ag-section-label,
+.ag-board-heading {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ag-muted);
+}
+
+.ag-section-label { margin-bottom: 5px; }
+.ag-board-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 4px 12px;
+}
+.ag-board-heading span:first-child { color: var(--ag-gold); }
 
 /* marquee ------------------------------------------------------------------- */
 .ag-marquee {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 12px;
 }
 
 .ag-marquee-logo {
-  width: min(430px, 78vw);
-  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.55));
+  width: min(310px, 78vw);
 }
 
 /* stage ----------------------------------------------------------------------- */
 .ag-stage {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr) 200px;
+  grid-template-columns: 190px minmax(0, 1fr) 190px;
   grid-template-areas: 'buys cabinet status';
-  gap: 18px;
+  gap: 24px;
   align-items: start;
 }
 
@@ -1739,7 +1783,7 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-top: 24px;
+  padding-top: 5px;
 }
 
 .ag-cabinet {
@@ -1752,81 +1796,73 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 16px;
-  padding-top: 18px;
+  gap: 24px;
+  padding-top: 34px;
 }
 
 /* feature buttons ----------------------------------------------------------- */
 .ag-buy {
   position: relative;
   display: grid;
-  grid-template-columns: 52px 1fr;
+  grid-template-columns: 44px 1fr;
   grid-template-rows: auto auto auto;
   column-gap: 10px;
+  row-gap: 4px;
   align-items: center;
-  padding: 12px 12px 12px 10px;
-  border-radius: 16px;
-  border: 2px solid #3b1d00;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.12), transparent 40%),
-    linear-gradient(160deg, #3b2aa0, #1b1257 60%, #120c3a);
-  box-shadow: 0 0 0 2px #c9942d inset, 0 10px 24px rgba(0, 0, 0, 0.5);
+  padding: 18px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--ag-line);
+  background: linear-gradient(130deg, color-mix(in srgb, var(--ag-accent) 9%, var(--ag-night)), var(--ag-panel));
   text-align: left;
-  transition: transform 140ms ease, filter 140ms ease;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
 }
 
 .ag-buy.is-super {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.14), transparent 40%),
-    linear-gradient(160deg, #a0266a, #5b0f3f 60%, #2e0620);
+  border-color: color-mix(in srgb, var(--ag-gold) 24%, transparent);
+  background: linear-gradient(130deg, color-mix(in srgb, var(--ag-gold) 9%, var(--ag-night)), var(--ag-panel));
 }
 
 .ag-buy.is-chance {
   grid-template-columns: 1fr auto;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 40%),
-    linear-gradient(160deg, #1d3b63, #0f1f3a);
+  margin-top: 4px;
+  background: color-mix(in srgb, var(--ag-panel) 80%, transparent);
 }
 
 .ag-buy:not(:disabled):hover {
   transform: translateY(-2px);
-  filter: brightness(1.12);
+  border-color: var(--ag-gold);
 }
 
 .ag-buy:disabled {
-  filter: grayscale(0.6) brightness(0.7);
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 .ag-buy-icon {
   grid-row: 1 / span 3;
-  width: 52px;
+  width: 44px;
   height: 52px;
-  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.5));
+  object-fit: contain;
 }
 
 .ag-buy-title {
-  font-family: 'Cinzel', Georgia, serif;
-  font-size: 13px;
-  font-weight: 900;
-  line-height: 1.1;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--gold-1);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ag-text);
 }
 
 .ag-buy-sub {
   font-size: 11px;
-  font-weight: 700;
-  color: rgba(224, 231, 255, 0.65);
+  color: var(--ag-muted);
 }
 
 .ag-buy-cost {
-  font-size: 20px;
-  font-weight: 900;
-  line-height: 1.1;
-  color: #fde68a;
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--ag-gold);
 }
 
 .ag-buy.is-chance .ag-buy-sub,
@@ -1835,17 +1871,17 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 }
 
 .ag-buy-cost.is-small {
-  font-size: 13px;
-  color: rgba(254, 243, 199, 0.85);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ag-muted);
 }
 
 .ag-switch {
   position: relative;
-  width: 40px;
-  height: 22px;
+  width: 32px;
+  height: 20px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.5);
-  box-shadow: inset 0 0 0 1.5px rgba(253, 230, 138, 0.4);
+  background: var(--ag-line);
   transition: background 160ms ease;
 }
 
@@ -1853,97 +1889,55 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   border-radius: 999px;
-  background: linear-gradient(180deg, #fff, #cbd5e1);
+  background: var(--ag-text);
   transition: transform 160ms ease;
 }
 
 .ag-buy.is-on .ag-switch {
-  background: linear-gradient(180deg, #fcd34d, #b7791f);
+  background: var(--ui-info);
 }
 
 .ag-buy.is-on .ag-switch span {
-  transform: translateX(18px);
+  transform: translateX(12px);
 }
 
 .ag-buy.is-on {
-  box-shadow: 0 0 0 2px #fcd34d inset, 0 0 24px rgba(252, 211, 77, 0.4), 0 10px 24px rgba(0, 0, 0, 0.5);
+  border-color: var(--ag-accent);
 }
 
 /* reel frame ------------------------------------------------------------------ */
 .ag-frame {
   position: relative;
-  padding: 12px;
-  border-radius: 26px;
-  background:
-    linear-gradient(135deg, var(--gold-1), var(--gold-2) 18%, var(--gold-3) 36%, #fbe9a8 50%, var(--gold-3) 64%, var(--gold-2) 82%, var(--gold-1));
-  box-shadow:
-    0 0 0 2px #2a1402,
-    0 0 0 6px rgba(20, 10, 40, 0.8),
-    0 30px 70px rgba(0, 0, 0, 0.65),
-    0 0 90px rgba(252, 211, 77, 0.22);
-  transition: box-shadow 600ms ease;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--ag-gold) 35%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--ag-panel) 85%, transparent);
+  box-shadow: 0 20px 70px color-mix(in srgb, var(--ag-night) 70%, transparent), inset 0 0 0 3px var(--ag-night);
+  transition: border-color 600ms ease, box-shadow 600ms ease;
 }
 
 .is-bonus .ag-frame {
-  background:
-    linear-gradient(135deg, #f5d0fe, #c084fc 18%, #6d28d9 36%, #e9d5ff 50%, #6d28d9 64%, #c084fc 82%, #f5d0fe);
-  box-shadow:
-    0 0 0 2px #1e0a3c,
-    0 0 0 6px rgba(20, 10, 40, 0.8),
-    0 30px 70px rgba(0, 0, 0, 0.65),
-    0 0 110px rgba(168, 85, 247, 0.55);
-  animation: ag-frame-pulse 2.4s ease-in-out infinite alternate;
+  border-color: var(--ag-accent);
+  box-shadow: 0 0 45px color-mix(in srgb, var(--ag-accent) 18%, transparent);
 }
 
-.ag-corner {
-  position: absolute;
-  z-index: 3;
-  width: 34px;
-  height: 34px;
-  border-radius: 999px;
-  background: radial-gradient(circle at 35% 30%, #fff, #a5f3fc 25%, #0891b2 60%, #083344);
-  box-shadow: 0 0 0 3px #2a1402, 0 0 0 6px var(--gold-2), 0 0 18px rgba(103, 232, 249, 0.8);
-}
 
-.ag-corner.is-tl {
-  top: -10px;
-  left: -10px;
-}
 
-.ag-corner.is-tr {
-  top: -10px;
-  right: -10px;
-}
 
-.ag-corner.is-bl {
-  bottom: -10px;
-  left: -10px;
-}
 
-.ag-corner.is-br {
-  bottom: -10px;
-  right: -10px;
-}
 
 .ag-window {
   position: relative;
   overflow: hidden;
-  border-radius: 16px;
-  background:
-    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(99, 102, 241, 0.35), transparent 70%),
-    radial-gradient(ellipse 70% 50% at 50% 110%, rgba(236, 72, 153, 0.18), transparent 70%),
-    linear-gradient(180deg, #17104a, #0a0726);
-  box-shadow: inset 0 0 0 2px #2a1402, inset 0 12px 30px rgba(0, 0, 0, 0.7);
+  border-radius: 11px;
+  background: linear-gradient(160deg, var(--ag-panel), var(--ag-night));
 }
 
 .is-bonus .ag-window {
-  background:
-    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(192, 38, 211, 0.4), transparent 70%),
-    radial-gradient(ellipse 70% 50% at 50% 110%, rgba(34, 211, 238, 0.2), transparent 70%),
-    linear-gradient(180deg, #2a0f52, #0d0628);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--ui-secondary) 16%, var(--ag-night)), var(--ag-night));
 }
 
 .ag-canvas {
@@ -1964,7 +1958,8 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
   inset: 0;
   z-index: 2;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), transparent 18%);
+  border: 1px solid var(--ag-line);
+  border-radius: inherit;
 }
 
 .ag-loading {
@@ -2051,19 +2046,12 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 
 .ag-ticker {
   margin: 12px auto 0;
-  max-width: 92%;
-  padding: 6px 18px;
-  border-radius: 999px;
-  border: 1px solid rgba(253, 230, 138, 0.3);
-  background: linear-gradient(180deg, rgba(20, 12, 60, 0.85), rgba(8, 5, 30, 0.85));
+  min-height: 24px;
+  padding: 4px 8px;
   text-align: center;
-  font-size: 13px;
-  font-weight: 700;
-  color: #fef3c7;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ag-muted);
 }
 
 /* status column ------------------------------------------------------------- */
@@ -2107,20 +2095,17 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 }
 
 .ag-history {
-  padding: 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(253, 230, 138, 0.2);
-  background: rgba(8, 5, 30, 0.6);
-  backdrop-filter: blur(6px);
+  padding: 18px 0;
+  border-top: 1px solid var(--ag-line);
 }
 
 .ag-history-title {
-  margin-bottom: 6px;
-  font-size: 10px;
-  font-weight: 900;
+  margin-bottom: 12px;
+  font-size: 9px;
+  font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: rgba(253, 230, 138, 0.8);
+  color: var(--ag-muted);
 }
 
 .ag-history ul {
@@ -2149,30 +2134,35 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 
 .ag-history-empty {
   font-size: 12px;
-  color: rgba(224, 231, 255, 0.45);
+  line-height: 1.7;
+  color: var(--ag-muted);
 }
 
 /* control deck ---------------------------------------------------------------- */
 .ag-deck {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto;
-  grid-template-areas: 'tools balance bet win play';
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'balance bet win play'
+    'tools tools tools tools';
+  width: calc(100% - 428px);
+  margin-inline: auto;
   align-items: center;
-  gap: 14px;
-  margin-top: 6px;
-  padding: 12px 16px;
-  border-radius: 22px;
-  border: 2px solid #2a1402;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.1), transparent 35%),
-    linear-gradient(180deg, #2a1c66, #120b35);
-  box-shadow: 0 0 0 2px #c9942d inset, 0 20px 40px rgba(0, 0, 0, 0.55);
+  gap: 10px 12px;
+  padding: 14px 16px 10px;
+  border-radius: 16px;
+  border: 1px solid var(--ag-line);
+  background: color-mix(in srgb, var(--ag-panel) 90%, transparent);
+  box-shadow: 0 16px 40px color-mix(in srgb, var(--ag-night) 40%, transparent);
 }
 
 .ag-deck-tools {
   grid-area: tools;
   display: flex;
+  justify-content: center;
   gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--ag-line);
 }
 
 .ag-tool-wrap {
@@ -2182,14 +2172,13 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 .ag-tool {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 999px;
-  border: 1.5px solid rgba(253, 230, 138, 0.4);
-  background: radial-gradient(circle at 40% 30%, #3d3190, #150e3c);
-  color: #fde68a;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45);
-  transition: transform 120ms ease, background 120ms ease;
+  width: 32px;
+  height: 28px;
+  border-radius: 10px;
+  border: 1px solid var(--ag-line);
+  background: transparent;
+  color: var(--ag-muted);
+  transition: color 120ms ease, background 120ms ease;
 }
 
 .ag-tool:hover {
@@ -2197,9 +2186,8 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 }
 
 .ag-tool.is-on {
-  background: radial-gradient(circle at 40% 30%, #fde68a, #d97706);
-  color: #2a1402;
-  box-shadow: 0 0 18px rgba(252, 211, 77, 0.6);
+  background: color-mix(in srgb, var(--ag-accent) 12%, transparent);
+  color: var(--ag-accent);
 }
 
 .ag-volume {
@@ -2232,11 +2220,9 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 5px;
   min-width: 0;
-  padding: 6px 14px 7px;
-  border-radius: 14px;
-  background: linear-gradient(180deg, #05030f, #120b2e);
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8), 0 0 0 1.5px rgba(253, 230, 138, 0.35);
+  padding: 6px 12px;
 }
 
 .ag-lcd.is-balance {
@@ -2249,15 +2235,15 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 }
 
 .ag-lcd.is-win.is-lit {
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8), 0 0 0 1.5px #fcd34d, 0 0 24px rgba(252, 211, 77, 0.45);
+  color: var(--ag-gold);
 }
 
 .ag-lcd-label {
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.2em;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: rgba(253, 230, 138, 0.75);
+  color: var(--ag-muted);
 }
 
 .ag-lcd-value {
@@ -2265,16 +2251,15 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 22px;
-  font-weight: 900;
+  font-size: 23px;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
-  line-height: 1.15;
-  color: #fff;
+  line-height: 1.2;
+  color: var(--ag-text);
 }
 
 .ag-lcd.is-win .ag-lcd-value {
-  color: #fde68a;
-  text-shadow: 0 0 14px rgba(252, 211, 77, 0.5);
+  color: var(--ag-gold);
 }
 
 .ag-bet {
@@ -2286,7 +2271,10 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 
 .ag-lcd.is-bet {
   position: relative;
-  width: 132px;
+  width: 104px;
+  border: 1px solid var(--ag-line);
+  background: var(--ag-night);
+  border-radius: 10px;
 }
 
 .ag-lcd-input {
@@ -2296,10 +2284,10 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
   background: transparent;
   text-align: center;
   font-size: 22px;
-  font-weight: 900;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   line-height: 1.15;
-  color: #fff;
+  color: var(--ag-text);
 }
 
 .ag-lcd-input:disabled {
@@ -2317,19 +2305,17 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 .ag-round-btn {
   display: grid;
   place-items: center;
-  width: 40px;
+  width: 34px;
   height: 40px;
-  border-radius: 999px;
-  border: 2px solid #2a1402;
-  background: radial-gradient(circle at 40% 30%, #fff6c9, #f5c44c 45%, #b7791f);
-  color: #2a1402;
-  box-shadow: 0 3px 0 #5a2e02, 0 6px 12px rgba(0, 0, 0, 0.45);
-  transition: transform 100ms ease;
+  border-radius: 8px;
+  border: 1px solid var(--ag-line);
+  background: transparent;
+  color: var(--ag-text);
+  transition: background 100ms ease;
 }
 
 .ag-round-btn:active:not(:disabled) {
-  transform: translateY(2px);
-  box-shadow: 0 1px 0 #5a2e02, 0 3px 8px rgba(0, 0, 0, 0.45);
+  background: var(--ag-line);
 }
 
 .ag-round-btn:disabled,
@@ -2341,15 +2327,12 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 
 .ag-max {
   height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1.5px solid rgba(253, 230, 138, 0.5);
-  background: rgba(0, 0, 0, 0.35);
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.14em;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #fde68a;
+  color: var(--ag-muted);
 }
 
 .ag-deck-play {
@@ -2364,44 +2347,33 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-  width: 54px;
-  height: 54px;
-  border-radius: 999px;
-  border: 2px solid #2a1402;
-  background: radial-gradient(circle at 40% 30%, #4f46e5, #1e1b6b);
-  color: #e0e7ff;
-  font-size: 10px;
-  font-weight: 900;
+  gap: 4px;
+  width: 44px;
+  height: 48px;
+  border-radius: 10px;
+  border: 1px solid var(--ag-line);
+  color: var(--ag-muted);
+  font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  box-shadow: 0 0 0 2px rgba(253, 230, 138, 0.5), 0 6px 12px rgba(0, 0, 0, 0.45);
 }
 
 .ag-auto.is-on {
-  background: radial-gradient(circle at 40% 30%, #fb7185, #9f1239);
-  color: #fff;
-  font-size: 13px;
+  background: color-mix(in srgb, var(--ui-error) 18%, var(--ag-night));
+  color: var(--ag-text);
 }
 
 .ag-spin {
   position: relative;
   display: grid;
   place-items: center;
-  width: 92px;
-  height: 92px;
-  border-radius: 999px;
-  border: 3px solid #2a1402;
-  background:
-    radial-gradient(circle at 38% 28%, #fffbe6 0 8%, transparent 30%),
-    radial-gradient(circle at 50% 50%, #fde68a, #f59e0b 55%, #b45309 80%, #7c2d12);
-  color: #3b1d00;
-  box-shadow:
-    0 0 0 5px #c9942d,
-    0 0 0 7px #2a1402,
-    0 7px 0 7px #5a2e02,
-    0 18px 30px rgba(0, 0, 0, 0.6),
-    0 0 40px rgba(252, 211, 77, 0.45);
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: 1px solid var(--ag-gold);
+  background: var(--ag-gold);
+  color: var(--ag-night);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--ag-gold) 8%, transparent);
   transition: transform 110ms ease, filter 160ms ease;
 }
 
@@ -2419,9 +2391,8 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 }
 
 .ag-spin-arrows {
-  width: 52px;
-  height: 52px;
-  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.6));
+  width: 36px;
+  height: 36px;
 }
 
 .ag-spin.is-spinning .ag-spin-arrows {
@@ -2429,10 +2400,9 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 }
 
 .ag-spin.is-auto {
-  background:
-    radial-gradient(circle at 38% 28%, #fff 0 8%, transparent 30%),
-    radial-gradient(circle at 50% 50%, #fda4af, #e11d48 55%, #881337);
-  color: #fff;
+  background: var(--ui-error);
+  border-color: var(--ui-error);
+  color: var(--ag-text);
 }
 
 .ag-spin-stop {
@@ -2599,16 +2569,6 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
   }
 }
 
-@keyframes ag-frame-pulse {
-  to {
-    box-shadow:
-      0 0 0 2px #1e0a3c,
-      0 0 0 6px rgba(20, 10, 40, 0.8),
-      0 30px 70px rgba(0, 0, 0, 0.65),
-      0 0 150px rgba(168, 85, 247, 0.8);
-  }
-}
-
 @keyframes ag-apply-slam {
   0% {
     transform: scale(2.4);
@@ -2647,12 +2607,14 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 @media (max-width: 1023px) {
   .ag-shell {
     gap: 8px;
-    padding: 8px 12px 20px;
+    padding: 20px 14px 24px;
   }
 
   .ag-marquee-logo {
     width: min(300px, 70vw);
   }
+
+  .ag-section-label { display: none; }
 
   /* Flatten the stage so the deck sits right under the reels and the buys go last. */
   .ag-stage {
@@ -2669,6 +2631,7 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
 
   .ag-deck {
     order: 3;
+    width: 100%;
   }
 
   .ag-status {
@@ -2723,29 +2686,30 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
   }
 
   .ag-frame {
-    padding: 8px;
-    border-radius: 20px;
+    padding: 5px;
+    border-radius: 14px;
   }
 
-  .ag-corner {
-    width: 22px;
-    height: 22px;
-    box-shadow: 0 0 0 2px #2a1402, 0 0 0 4px var(--gold-2), 0 0 12px rgba(103, 232, 249, 0.8);
-  }
 
   .ag-deck {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       'balance win'
-      'bet bet'
-      'tools play';
+      'bet play'
+      'tools tools';
     gap: 10px;
     padding: 12px;
   }
 
   .ag-bet {
-    justify-content: center;
+    justify-content: flex-start;
+    gap: 5px;
   }
+
+  .ag-deck-tools { justify-content: center; }
+  .ag-deck-play { gap: 10px; }
+  .ag-lcd.is-bet { width: 76px; }
+  .ag-lcd-hint { bottom: -13px; }
 
   .ag-deck-play {
     justify-content: flex-end;
@@ -2757,23 +2721,33 @@ const canSpin = computed(() => ready.value && !overlayBusy.value && (isSpinning.
   }
 
   .ag-spin {
-    width: 78px;
-    height: 78px;
+    width: 60px;
+    height: 60px;
   }
 
   .ag-spin-arrows {
-    width: 44px;
-    height: 44px;
+    width: 34px;
+    height: 34px;
   }
 }
 
 @media (max-width: 420px) {
+  .ag-board-heading { font-size: 8px; letter-spacing: 0.04em; }
+  .ag-max { display: none; }
+  .ag-round-btn { width: 28px; }
   .ag-buy-title {
     font-size: 11px;
   }
 
   .ag-lcd.is-bet {
-    width: 110px;
+    width: 64px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 </style>
