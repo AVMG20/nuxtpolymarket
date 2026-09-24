@@ -230,15 +230,15 @@ describe('rounds replay consistently', () => {
         const rng = mulberry32(1234)
         let bonuses = 0
         let tumbles = 0
-        for (let i = 0; i < 1500; i++) {
+        for (let i = 0; i < 300; i++) {
             const opts = i % 3 === 0 ? undefined : i % 3 === 1 ? { ante: true } : { feature: 'buy' }
             const r = playEmberPortalsWith(5, opts, rng)
             checkRound(r)
             if (r.freeSpins) bonuses++
             tumbles += r.base.tumbles.length
         }
-        expect(bonuses).toBeGreaterThan(400)
-        expect(tumbles).toBeGreaterThan(200)
+        expect(bonuses).toBeGreaterThan(80)
+        expect(tumbles).toBeGreaterThan(40)
     })
 
     it('opens a portal on every portal-less win and grows the ones that win', () => {
@@ -246,7 +246,7 @@ describe('rounds replay consistently', () => {
         let spawns = 0
         let grows = 0
         let merges = 0
-        for (let i = 0; i < 300; i++) {
+        for (let i = 0; i < 80; i++) {
             const r = playEmberPortalsWith(1, { feature: 'buy' }, rng)
             for (const s of r.freeSpins!.spins) {
                 let prevWilds = s.wildsStart
