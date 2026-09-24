@@ -1,0 +1,18 @@
+/* Shared by the cabinet and portalled dialogs, in either site color mode. */
+.candy-theme {
+  --candy-accent: color-mix(in oklch, var(--ui-error) 62%, var(--ui-secondary));
+  --candy-violet: color-mix(in oklch, var(--candy-accent) 55%, var(--ui-secondary));
+  --candy-bg: color-mix(in srgb, var(--ui-bg) 90%, var(--candy-violet));
+  --candy-surface: color-mix(in srgb, var(--ui-bg-elevated) 85%, var(--candy-violet));
+  --candy-elevated: color-mix(in srgb, var(--ui-bg-elevated) 88%, var(--candy-accent));
+  --candy-border: color-mix(in srgb, var(--candy-accent) 22%, var(--ui-border));
+  --candy-soft: color-mix(in srgb, var(--candy-accent) 18%, var(--candy-surface));
+  color: var(--ui-text);
+  font-family: 'Fredoka', system-ui, sans-serif;
+}
+
+.candy-theme button:focus-visible,
+.candy-theme input:focus-visible {
+  outline: 2px solid var(--candy-accent);
+  outline-offset: 3px;
+}
