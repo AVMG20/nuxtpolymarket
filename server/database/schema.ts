@@ -8,6 +8,7 @@ import type { FirewallRunSave } from '#shared/utils/gamelogic/firewall'
 import type { GmOffer, GmShopItem } from '#shared/utils/gamelogic/gold-miner'
 import type { CallOfXenoRunSave } from '#shared/utils/gamelogic/call-of-xeno-save'
 import type { MeadowbrawlRunSave } from '#shared/utils/gamelogic/meadowbrawl-meta'
+import type { HoldfastRunStats } from '#shared/utils/holdfast/meta'
 import type {
   TcgSheetLayout,
   TcgPackTemplateSlot,
@@ -380,6 +381,32 @@ export const meadowbrawlRuns = pgTable('meadowbrawl_runs', {
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [
   index('meadowbrawl_runs_userId_createdAt_idx').on(t.userId, t.createdAt)
+])
+
+// ─── HOLDFAST ────────────────────────────────────────────────────────────
+
+/**
+ * One row per Holdfast run. The sim runs on the client; the server only
+ * tracks runs for the leaderboard, and nothing here moves coins or gems.
+ * A run is open while `finishedAt` is null. Finishing it is the claim, and a
+ * run the player walked away from is closed as `abandoned` with 0 survived.
+ */
+export const holdfastRuns = pgTable('holdfast_runs', {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    difficulty: text('difficulty').notNull(),
+    seed: integer('seed').notNull(),
+    startedAt: timestamp('started_at').defaultNow().notNull(),
+    finishedAt: timestamp('finished_at'),
+    survivedMs: integer('survived_ms'),
+    won: boolean('won').notNull().default(false),
+    // The reported survival beat what the wall clock allowed and was cut down to it.
+    clamped: boolean('clamped').notNull().default(false),
+    abandoned: boolean('abandoned').notNull().default(false),
+    stats: jsonb('stats').$type<HoldfastRunStats>()
+}, t => [
+    index('holdfast_runs_difficulty_survivedMs_idx').on(t.difficulty, t.survivedMs),
+    index('holdfast_runs_userId_idx').on(t.userId)
 ])
 
 // ─── SHAPEZZ ─────────────────────────────────────────────────────────────
@@ -1703,6 +1730,10 @@ export const meadowbrawlStateRelations = relations(meadowbrawlState, ({ one }) =
 
 export const callOfXenoStateRelations = relations(callOfXenoState, ({ one }) => ({
   user: one(user, { fields: [callOfXenoState.userId], references: [user.id] })
+}))
+
+export const holdfastRunsRelations = relations(holdfastRuns, ({ one }) => ({
+    user: one(user, { fields: [holdfastRuns.userId], references: [user.id] })
 }))
 
 // ─── Polytown ─────────────────────────────────────────────────────────────────

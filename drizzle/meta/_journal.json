@@ -337,6 +337,13 @@
       "when": 1790254951909,
       "tag": "0047_bright_sleepwalker",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790275005478,
+      "tag": "0048_dapper_richard_fisk",
+      "breakpoints": true
     }
   ]
 }
