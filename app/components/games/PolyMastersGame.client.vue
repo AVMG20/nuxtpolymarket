@@ -1,19 +1,19 @@
 <script setup lang="ts">
-// Aviamasters: a crash game. A biplane takes off from a carrier, flies through
+// PolyMasters: a crash game. A biplane takes off from a carrier, flies through
 // adders, multipliers, rockets and boosters, and lands on the island (pays the
 // Counter Balance) or splashes into the sea. The server decides and settles the
-// whole round (shared/utils/gamelogic/aviamasters.ts); the Pixi scene
-// (~/utils/aviamasters) only plays the returned flight back. Every model is
+// whole round (shared/utils/gamelogic/polymasters.ts); the Pixi scene
+// (~/utils/polymasters) only plays the returned flight back. Every model is
 // painted with Canvas2D and every sound is synthesised, so it loads no assets.
-import { GameScene } from '~/utils/aviamasters/scene'
-import AviaTopBar from '~/components/games/aviamasters/AviaTopBar.vue'
-import AviaBoosterBar from '~/components/games/aviamasters/AviaBoosterBar.vue'
-import AviaControlBar from '~/components/games/aviamasters/AviaControlBar.vue'
-import AviaResultOverlay from '~/components/games/aviamasters/AviaResultOverlay.vue'
-import AviaRulesModal from '~/components/games/aviamasters/AviaRulesModal.vue'
-import AviaLoadingScreen from '~/components/games/aviamasters/AviaLoadingScreen.vue'
+import { GameScene } from '~/utils/polymasters/scene'
+import PmTopBar from '~/components/games/polymasters/PmTopBar.vue'
+import PmBoosterBar from '~/components/games/polymasters/PmBoosterBar.vue'
+import PmControlBar from '~/components/games/polymasters/PmControlBar.vue'
+import PmResultOverlay from '~/components/games/polymasters/PmResultOverlay.vue'
+import PmRulesModal from '~/components/games/polymasters/PmRulesModal.vue'
+import PmLoadingScreen from '~/components/games/polymasters/PmLoadingScreen.vue'
 
-const game = provideAviamastersGame()
+const game = providePolyMastersGame()
 const { state, attachScene, sceneHooks, speedMult, play, dismissResult } = game
 
 const root = ref<HTMLDivElement>()
@@ -82,28 +82,28 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="root" class="avia" :class="{ 'is-fullscreen': isFullscreen }">
+  <div ref="root" class="pm" :class="{ 'is-fullscreen': isFullscreen }">
     <div ref="host" class="stage" />
     <div class="hud">
-      <AviaTopBar :fullscreen="isFullscreen" :fullscreen-supported="fullscreenSupported" @toggle-fullscreen="toggleFullscreen" />
-      <AviaBoosterBar :icons="icons" />
-      <AviaResultOverlay />
-      <AviaControlBar ref="controls" />
+      <PmTopBar :fullscreen="isFullscreen" :fullscreen-supported="fullscreenSupported" @toggle-fullscreen="toggleFullscreen" />
+      <PmBoosterBar :icons="icons" />
+      <PmResultOverlay />
+      <PmControlBar ref="controls" />
     </div>
-    <Transition name="avia-toast">
+    <Transition name="pm-toast">
       <div v-if="state.toast" class="toast panel" role="alert">{{ state.toast }}</div>
     </Transition>
-    <AviaRulesModal v-if="state.showRules" :icons="icons" />
-    <Transition name="avia-fade" :duration="600">
-      <AviaLoadingScreen v-if="!state.ready" />
+    <PmRulesModal v-if="state.showRules" :icons="icons" />
+    <Transition name="pm-fade" :duration="600">
+      <PmLoadingScreen v-if="!state.ready" />
     </Transition>
   </div>
 </template>
 
 <style scoped>
-.avia {
+.pm {
   position: relative;
-  container: avia / size;
+  container: pm / size;
   /* windowed: 16:9, sized so the whole game fits under the page chrome */
   width: min(100%, calc((100svh - 8rem) * 16 / 9));
   aspect-ratio: 16 / 9;
@@ -117,14 +117,14 @@ onBeforeUnmount(() => {
   background: #071a36;
 }
 @media (max-width: 720px) {
-  .avia {
+  .pm {
     width: 100%;
     aspect-ratio: auto;
     height: calc(100svh - 7rem);
     min-height: 560px;
   }
 }
-.avia.is-fullscreen {
+.pm.is-fullscreen {
   width: 100%;
   height: 100%;
   aspect-ratio: auto;
@@ -159,27 +159,27 @@ onBeforeUnmount(() => {
   max-width: calc(100% - 32px);
   text-align: center;
 }
-.avia-toast-enter-active,
-.avia-toast-leave-active {
+.pm-toast-enter-active,
+.pm-toast-leave-active {
   transition: all 0.25s;
 }
-.avia-toast-enter-from,
-.avia-toast-leave-to {
+.pm-toast-enter-from,
+.pm-toast-leave-to {
   opacity: 0;
   transform: translate(-50%, 20px);
 }
-.avia-fade-leave-active {
+.pm-fade-leave-active {
   transition: opacity 0.6s;
   pointer-events: none;
 }
-.avia-fade-leave-to {
+.pm-fade-leave-to {
   opacity: 0;
 }
 </style>
 
 <style>
 /* Game theme, scoped to the game box so it never leaks into the rest of the app. */
-.avia {
+.pm {
   --gold-1: #fff6c2;
   --gold-2: #ffd54a;
   --gold-3: #f2a51c;
@@ -202,13 +202,13 @@ onBeforeUnmount(() => {
   -webkit-user-select: none;
   touch-action: manipulation;
 }
-.avia *,
-.avia *::before,
-.avia *::after {
+.pm *,
+.pm *::before,
+.pm *::after {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
 }
-.avia button {
+.pm button {
   font-family: inherit;
   color: inherit;
   border: 0;
@@ -216,21 +216,21 @@ onBeforeUnmount(() => {
   cursor: pointer;
   padding: 0;
 }
-.avia button:disabled {
+.pm button:disabled {
   cursor: not-allowed;
 }
-.avia .display {
+.pm .display {
   font-family: var(--display);
   letter-spacing: 0.02em;
 }
-.avia .gold-text {
+.pm .gold-text {
   background: linear-gradient(180deg, #fffbe0 0%, #ffe066 38%, #f5a623 62%, #fff0a8 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   filter: drop-shadow(0 3px 0 #6a3a00) drop-shadow(0 6px 10px rgba(0, 0, 0, 0.45));
 }
-.avia .panel {
+.pm .panel {
   background: linear-gradient(180deg, rgba(20, 52, 96, 0.86), rgba(6, 20, 44, 0.9));
   border: 1px solid var(--glass-edge);
   box-shadow:
@@ -240,14 +240,14 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
-.avia .label {
+.pm .label {
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: rgba(190, 220, 255, 0.75);
 }
-.avia .round-btn {
+.pm .round-btn {
   display: grid;
   place-items: center;
   width: 40px;
@@ -262,20 +262,20 @@ onBeforeUnmount(() => {
     transform 0.12s,
     filter 0.12s;
 }
-.avia .round-btn:hover:not(:disabled) {
+.pm .round-btn:hover:not(:disabled) {
   filter: brightness(1.15);
 }
-.avia .round-btn:active:not(:disabled) {
+.pm .round-btn:active:not(:disabled) {
   transform: scale(0.92);
 }
-.avia .round-btn:disabled {
+.pm .round-btn:disabled {
   opacity: 0.4;
 }
-.avia .round-btn svg {
+.pm .round-btn svg {
   width: 20px;
   height: 20px;
 }
-@keyframes avia-shine {
+@keyframes pm-shine {
   0% {
     transform: translateX(-120%) skewX(-20deg);
   }

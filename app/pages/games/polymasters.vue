@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import AviamastersGame from '~/components/games/AviamastersGame.client.vue'
+import PolyMastersGame from '~/components/games/PolyMastersGame.client.vue'
 
 useHead({
-  title: 'Aviamasters',
+  title: 'PolyMasters',
   link: [
     { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
     { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
@@ -14,7 +14,7 @@ useHead({
 <template>
   <div class="px-3 py-4 sm:px-6 sm:py-6">
     <ClientOnly>
-      <AviamastersGame />
+      <PolyMastersGame />
       <template #fallback>
         <div class="mx-auto aspect-video min-h-[480px] w-full max-w-[calc((100svh-8rem)*16/9)] animate-pulse rounded-xl bg-elevated" />
       </template>

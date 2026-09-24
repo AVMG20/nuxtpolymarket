@@ -213,7 +213,7 @@ function planeBody(): Texture {
       c.textAlign = 'center'
       c.textBaseline = 'middle'
       c.fillStyle = '#1f3f7a'
-      c.fillText('A2', 112, 82.6)
+      c.fillText('PM', 112, 82.6)
       c.textAlign = 'start'
       c.textBaseline = 'alphabetic'
       // panel seams
@@ -1235,7 +1235,7 @@ function island(): Texture {
     c.fill()
     c.font = `20px ${FONT}`
     c.fillStyle = '#d61d26'
-    c.fillText('AVIA', hx + 56, R - 70)
+    c.fillText('POLY', hx + 56, R - 70)
 
     // control tower
     const cx = 330

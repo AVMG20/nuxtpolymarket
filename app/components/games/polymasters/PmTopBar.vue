@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { sfx } from '~/utils/aviamasters/audio'
+import { sfx } from '~/utils/polymasters/audio'
 
 defineProps<{ fullscreen: boolean, fullscreenSupported: boolean }>()
 const emit = defineEmits<{ 'toggle-fullscreen': [] }>()
 
-const { state, money, setSfx, setMusic } = useAviamastersGame()
+const { state, money, setSfx, setMusic } = usePolyMastersGame()
 
 function toggleFullscreen() {
   sfx.click()
@@ -30,7 +30,7 @@ function chipClass(m: number) {
         <ellipse cx="58" cy="20" rx="2" ry="12" fill="rgba(255,255,255,.7)" />
       </svg>
       <div class="logo-text">
-        <span class="display gold-text">AVIA</span>
+        <span class="display gold-text">POLY</span>
         <span class="two display">MASTERS</span>
       </div>
     </div>
@@ -195,7 +195,7 @@ function chipClass(m: number) {
 .chip-move {
   transition: transform 0.3s;
 }
-@container avia (max-width: 720px) {
+@container pm (max-width: 720px) {
   .logo-text .display {
     font-size: 24px;
   }
@@ -216,7 +216,7 @@ function chipClass(m: number) {
     gap: 6px;
   }
 }
-@container avia (max-width: 400px) {
+@container pm (max-width: 400px) {
   .logo-text .display {
     font-size: 20px;
   }

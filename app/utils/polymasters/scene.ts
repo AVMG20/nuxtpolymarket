@@ -16,7 +16,7 @@ import {
   SPACING,
   ISLAND_TOP
 } from './flight'
-import type { AviaBooster as Booster, AviaRoundOutcome as RoundOutcome } from '#shared/utils/gamelogic/aviamasters'
+import type { PmBooster as Booster, PmRoundOutcome as RoundOutcome } from '#shared/utils/gamelogic/polymasters'
 import { sfx } from './audio'
 
 const H = 1080

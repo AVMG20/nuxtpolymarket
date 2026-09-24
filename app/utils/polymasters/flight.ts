@@ -2,7 +2,7 @@
  * Turns a RoundOutcome into a world-space flight script: a smooth path y(x), the x of
  * every event, what boosters are active where, and where the flight ends.
  */
-import { AVIA_MAX_LEVEL as MAX_LEVEL, type AviaBooster as Booster, type AviaFlightEvent as FlightEvent, type AviaRoundOutcome as RoundOutcome } from '#shared/utils/gamelogic/aviamasters'
+import { PM_MAX_LEVEL as MAX_LEVEL, type PmBooster as Booster, type PmFlightEvent as FlightEvent, type PmRoundOutcome as RoundOutcome } from '#shared/utils/gamelogic/polymasters'
 import { ISLAND_RUNWAY_X0, ISLAND_RUNWAY_Y, ISLAND_WATER_Y, CARRIER_DECK_Y, CARRIER_WATER_Y } from './art'
 import { PLANE_WHEEL_OFFSET } from './plane'
 
