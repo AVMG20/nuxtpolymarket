@@ -3,7 +3,21 @@ import { db } from '#server/database'
 import { user, transactions, bankHistory, bankState, townPlots } from '#server/database/schema'
 import { townPlotIsFlat, townSpiralCoords } from '#shared/utils/gamelogic/town'
 
-export const SKIP = !process.env.DATABASE_URL
+// The DB specs seed, mutate and delete rows, so they only ever run against a
+// database on this machine (local compose, or the CI service container). A
+// DATABASE_URL pointing anywhere else skips them rather than touching real data.
+const LOCAL_DB_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
+
+function isLocalDatabase(url: string | undefined) {
+    if (!url) return false
+    try {
+        return LOCAL_DB_HOSTS.has(new URL(url).hostname)
+    } catch {
+        return false
+    }
+}
+
+export const SKIP = !isLocalDatabase(process.env.DATABASE_URL)
 
 export async function seedUser(id: string, { balance = '0', gems = 0 }: { balance?: string, gems?: number } = {}) {
     await db.insert(user).values({
