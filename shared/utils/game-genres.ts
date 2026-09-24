@@ -40,6 +40,8 @@ const GENRE_BY_LABEL: Record<string, Genre> = {
     'Book of Shadows': 'casino',
     Spinata: 'casino',
     'Trash Panda Heist': 'casino',
+    PolyMasters: 'casino',
+    'Ember Portals': 'casino',
     Roulette: 'casino',
     Blackjack: 'casino',
     Baccarat: 'casino',
@@ -65,9 +67,10 @@ const GENRE_BY_LABEL: Record<string, Genre> = {
     Firewall: 'active',
     Meadowbrawl: 'active',
     TCG: 'active',
-    // Not in the sidebar: the TCG battler, and a standalone active game.
+    // Not in the sidebar: the TCG battler, and standalone active games.
     Battler: 'active',
     'Storm the House': 'active',
+    'Gold Miner': 'active',
 
     // Economy — platform flows, not games
     Bank: 'economy',

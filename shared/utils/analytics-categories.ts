@@ -31,6 +31,10 @@ const CATEGORY_LABELS: Record<string, string> = {
     magichands: 'Magic Hands',
     spinata: 'Spinata',
     trashpanda: 'Trash Panda Heist',
+    polymasters: 'PolyMasters',
+    // Rounds played before the rename to PolyMasters.
+    aviamasters: 'PolyMasters',
+    emberportals: 'Ember Portals',
     roulette: 'Roulette',
     'casino-holdem': 'Casino Hold\'em',
     'three-card-poker': 'Three Card Poker',
@@ -39,6 +43,7 @@ const CATEGORY_LABELS: Record<string, string> = {
     meadowbrawl: 'Meadowbrawl',
     pathwarden: 'Pathwarden',
     firewall: 'Firewall',
+    'gold-miner': 'Gold Miner',
     'call-of-xeno': 'Call of Xeno',
     'storm-the-house': 'Storm the House',
     'voxel-arena': 'Voxel Arena',

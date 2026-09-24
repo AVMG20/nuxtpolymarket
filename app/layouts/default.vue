@@ -63,7 +63,9 @@ const slotItems: NavigationMenuItem[] = [
   { label: 'Fire in the Hole', class: 'mb-1', icon: 'i-lucide-flame', to: '/games/fireinthehole' },
   { label: 'Book of Shadows', class: 'mb-1', icon: 'i-lucide-book-open', to: '/games/bookofshadows' },
   { label: 'Spiñata Slots', class: 'mb-1', icon: 'i-lucide-party-popper', to: '/games/spinata' },
-  { label: 'Trash Panda Heist', class: 'mb-1', icon: 'i-lucide-trash-2', to: '/games/trashpanda' }
+  { label: 'Trash Panda Heist', class: 'mb-1', icon: 'i-lucide-trash-2', to: '/games/trashpanda' },
+  { label: 'Ember Portals', class: 'mb-1', icon: 'i-lucide-orbit', to: '/games/emberportals' },
+  { label: 'PolyMasters', class: 'mb-1', icon: 'i-lucide-plane', to: '/games/polymasters' }
 ]
 
 const casinoItems: NavigationMenuItem[] = [

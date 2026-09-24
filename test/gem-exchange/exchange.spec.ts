@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { eq, inArray, or } from 'drizzle-orm'
+import { and, eq, inArray, or } from 'drizzle-orm'
 import { db } from '#server/database'
 import { user, gemOrders, gemTrades } from '#server/database/schema'
 import { getBalance } from '#server/utils/balance'
@@ -22,11 +22,13 @@ async function openOrders(id: string) {
     })
 }
 
-// These specs share one exchange book with whatever else uses the database
-// (a running dev server included). Cancel every open order — refunding its
-// owner's escrow properly — so a stray real offer can never cross a test one.
+// Only ever touch the test players' own offers. Cancelling the whole book once
+// wiped every real offer on the exchange whenever the suite ran against a
+// shared database.
 async function clearBook() {
-    const open = await db.query.gemOrders.findMany({ where: eq(gemOrders.status, 'open') })
+    const open = await db.query.gemOrders.findMany({
+        where: and(inArray(gemOrders.userId, USERS), eq(gemOrders.status, 'open'))
+    })
     for (const order of open) {
         await cancelGemOrder(order.userId, order.id).catch(() => {})
     }

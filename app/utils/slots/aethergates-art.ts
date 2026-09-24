@@ -1,5 +1,5 @@
 // Aether Gates artwork, drawn procedurally with Canvas 2D. Nothing is
-// fetched: every symbol, multiplier orb and the sky-temple backdrop is built
+// fetched: every symbol and multiplier orb is built
 // from paths, gradients and facet shading at whatever pixel size the caller
 // asks for, so it stays crisp at any device pixel ratio.
 //
@@ -149,32 +149,6 @@ function bevel(ctx: Ctx, path: Path2D, fill: string | CanvasGradient, px: number
     ctx.restore()
 }
 
-/** A round metal rod: dark outline, gold body, shade below and a hot highlight. */
-function tube(ctx: Ctx, path: Path2D, width: number, px: number, body?: string | CanvasGradient) {
-    ctx.save()
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    shadow(ctx, px, 0.06, 0.035)
-    ctx.strokeStyle = '#2b1703'
-    ctx.lineWidth = width + 0.05
-    ctx.stroke(path)
-    noShadow(ctx)
-    ctx.strokeStyle = body ?? gold(ctx)
-    ctx.lineWidth = width
-    ctx.stroke(path)
-    ctx.save()
-    ctx.translate(0.012, 0.02)
-    ctx.strokeStyle = 'rgba(110, 55, 0, 0.45)'
-    ctx.lineWidth = width * 0.45
-    ctx.stroke(path)
-    ctx.restore()
-    ctx.translate(-0.012, -0.018)
-    ctx.strokeStyle = 'rgba(255, 252, 225, 0.85)'
-    ctx.lineWidth = width * 0.24
-    ctx.stroke(path)
-    ctx.restore()
-}
-
 /** Shiny ball (finials, pearls). */
 function sphere(ctx: Ctx, x: number, y: number, r: number, px: number, light: string, mid: string, dark: string) {
     ctx.save()
@@ -191,10 +165,6 @@ function sphere(ctx: Ctx, x: number, y: number, r: number, px: number, light: st
     ctx.strokeStyle = 'rgba(40, 20, 0, 0.7)'
     ctx.stroke(circle(x, y, r))
     ctx.restore()
-}
-
-function goldSphere(ctx: Ctx, x: number, y: number, r: number, px: number) {
-    sphere(ctx, x, y, r, px, '#fff1a8', '#e0a12a', '#6d4108')
 }
 
 /** Four-point twinkle. */
@@ -229,115 +199,82 @@ function scalePts(pts: Pt[], c: Pt, k: number): Pt[] {
     return pts.map(([x, y]) => [c[0] + (x - c[0]) * k, c[1] + (y - c[1]) * k])
 }
 
-/**
- * A cut gem: the outline is split into rings (outer girdle -> table) and every
- * band between two rings is cut into triangular facets, each lit by how much
- * it faces the top-left light. The table gets a glossy gradient, a specular
- * streak and a twinkle.
- */
-function gem(ctx: Ctx, outline: Pt[], center: Pt, style: GemStyle, px: number, rings: number[] = [1, 0.74, 0.5], bezel = true) {
+/** Layered cuts, internal reflections and a polished edge, rendered at the
+ * texture's full resolution. Facets follow the silhouette rather than noise. */
+function gem(ctx: Ctx, outline: Pt[], center: Pt, style: GemStyle, px: number, rings: number[] = [1, 0.62], bezel = true) {
     const { hue, sat, light } = style
     const outer = poly(outline)
-
-    // Soft coloured aura so a main stone reads on a dark board.
+    const shoulder = scalePts(outline, center, 0.9)
+    const tablePts = scalePts(outline, center, rings[1] ?? 0.62)
     const radius = Math.max(...outline.map(([x, y]) => Math.hypot(x - center[0], y - center[1])))
-    if (radius > 0.4) {
-        ctx.save()
-        const aura = ctx.createRadialGradient(center[0], center[1], radius * 0.2, center[0], center[1], radius * 1.35)
-        aura.addColorStop(0, hsl(hue, sat, 60, 0.3))
-        aura.addColorStop(1, hsl(hue, sat, 50, 0))
-        ctx.fillStyle = aura
-        ctx.fill(circle(center[0], center[1], radius * 1.35))
-        ctx.restore()
-    }
-
-    if (bezel) {
-        const setting = poly(scalePts(outline, center, 1.1))
-        bevel(ctx, setting, gold(ctx), px, { depth: 0.024 })
-    }
-
     ctx.save()
-    shadow(ctx, px, 0.05, 0.02, 'rgba(0,0,0,0.6)')
+    shadow(ctx, px, 0.13, 0.075, hsl(hue, 80, 6, 0.75))
     ctx.fillStyle = hsl(hue, sat, light - 22)
     ctx.fill(outer)
-    ctx.restore()
+    noShadow(ctx)
 
+    // A slim polished girdle catches the light around the entire stone.
+    const edge = ctx.createLinearGradient(-0.7, -0.9, 0.6, 0.8)
+    edge.addColorStop(0, hsl(hue, 30, 96))
+    edge.addColorStop(0.35, hsl(hue, sat - 20, light + 15))
+    edge.addColorStop(0.65, hsl(hue, sat, light - 24))
+    edge.addColorStop(1, hsl(hue, sat - 10, light + 8))
+    ctx.fillStyle = edge
+    ctx.fill(outer)
     const n = outline.length
-    for (let r = 0; r < rings.length - 1; r++) {
-        const a = scalePts(outline, center, rings[r]!)
-        const b = scalePts(outline, center, rings[r + 1]!)
-        for (let i = 0; i < n; i++) {
-            const j = (i + 1) % n
-            const mx = (a[i]![0] + a[j]![0]) / 2 - center[0]
-            const my = (a[i]![1] + a[j]![1]) / 2 - center[1]
-            const len = Math.hypot(mx, my) || 1
-            const lambert = (mx / len) * LIGHT[0] + (my / len) * LIGHT[1]
-            const band = r === 0 ? 0 : 6
-            const l1 = light + lambert * 20 + band + 4
-            const l2 = light + lambert * 16 + band - 6
-            ctx.fillStyle = hsl(hue, sat, l1)
-            ctx.fill(poly([a[i]!, a[j]!, b[j]!]))
-            ctx.fillStyle = hsl(hue, sat, l2)
-            ctx.fill(poly([a[i]!, b[j]!, b[i]!]))
-        }
-        ctx.save()
-        ctx.lineWidth = 0.008
-        ctx.strokeStyle = 'rgba(255,255,255,0.22)'
-        for (let i = 0; i < n; i++) {
-            ctx.beginPath()
-            ctx.moveTo(a[i]![0], a[i]![1])
-            ctx.lineTo(b[i]![0], b[i]![1])
-            ctx.stroke()
-        }
-        ctx.stroke(poly(b))
-        ctx.restore()
-    }
-
-    // Table: glossy face with star facets.
-    const tablePts = scalePts(outline, center, rings[rings.length - 1]!)
-    const table = poly(tablePts)
-    const tg = ctx.createLinearGradient(center[0] - 0.4, center[1] - 0.5, center[0] + 0.4, center[1] + 0.5)
-    tg.addColorStop(0, hsl(hue, sat, light + 26))
-    tg.addColorStop(0.5, hsl(hue, sat, light + 6))
-    tg.addColorStop(1, hsl(hue, sat, light - 8))
-    ctx.fillStyle = tg
-    ctx.fill(table)
     for (let i = 0; i < n; i++) {
         const j = (i + 1) % n
-        ctx.fillStyle = i % 2 ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'
-        ctx.fill(poly([center, tablePts[i]!, tablePts[j]!]))
+        const a = shoulder[i]!
+        const b = shoulder[j]!
+        const c = tablePts[i]!
+        const d = tablePts[j]!
+        const lightAngle = a[0] * LIGHT[0] + a[1] * LIGHT[1]
+        const facet = ctx.createLinearGradient(a[0], a[1], d[0], d[1])
+        facet.addColorStop(0, hsl(hue, sat - 12, light + lightAngle * 27 + 8))
+        facet.addColorStop(1, hsl(hue, sat, light + lightAngle * 15 - 12))
+        ctx.fillStyle = facet
+        ctx.fill(poly([a, b, d, c]))
+        ctx.fillStyle = hsl(hue + (i % 2 ? 5 : -5), sat, light + lightAngle * 18 + (i % 3 === 0 ? 17 : -8), 0.65)
+        ctx.fill(poly([a, d, c]))
     }
 
-    // Specular streak across the table.
+    const face = ctx.createLinearGradient(-0.4, -0.7, 0.35, 0.65)
+    face.addColorStop(0, hsl(hue, sat - 22, light + 31))
+    face.addColorStop(0.34, hsl(hue, sat, light + 9))
+    face.addColorStop(0.7, hsl(hue + 5, sat, light - 7))
+    face.addColorStop(1, hsl(hue, sat, light - 23))
+    ctx.fillStyle = face
+    ctx.fill(poly(tablePts))
+    // Offset pavilion reflections give the transparent centre depth.
+    const culet: Pt = [center[0] + radius * 0.13, center[1] + radius * 0.22]
+    for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n
+        ctx.fillStyle = i % 3 === 0 ? 'rgba(235,250,255,0.2)' : 'rgba(6,12,40,0.1)'
+        ctx.fill(poly([tablePts[i]!, tablePts[j]!, culet]))
+    }
     ctx.save()
     ctx.clip(outer)
-    ctx.translate(center[0] - 0.18, center[1] - 0.22)
-    ctx.rotate(-0.7)
-    const sg = ctx.createLinearGradient(0, -0.12, 0, 0.12)
-    sg.addColorStop(0, 'rgba(255,255,255,0)')
-    sg.addColorStop(0.5, 'rgba(255,255,255,0.5)')
-    sg.addColorStop(1, 'rgba(255,255,255,0)')
-    ctx.fillStyle = sg
-    ctx.fillRect(-0.7, -0.12, 1.4, 0.24)
+    const sheen = ctx.createLinearGradient(-0.5, -0.7, 0.45, 0.6)
+    sheen.addColorStop(0, 'rgba(255,255,255,0)')
+    sheen.addColorStop(0.23, 'rgba(255,255,255,0.04)')
+    sheen.addColorStop(0.28, 'rgba(255,255,255,0.42)')
+    sheen.addColorStop(0.31, 'rgba(255,255,255,0.08)')
+    sheen.addColorStop(0.48, 'rgba(255,255,255,0)')
+    ctx.fillStyle = sheen
+    ctx.fillRect(-1, -1, 2, 2)
     ctx.restore()
-
-    // Girdle rim: bright top-left, dark outline.
-    ctx.save()
-    const rim = ctx.createLinearGradient(-0.8, -0.8, 0.8, 0.8)
-    rim.addColorStop(0, 'rgba(255,255,255,0.9)')
-    rim.addColorStop(0.5, 'rgba(255,255,255,0.1)')
-    rim.addColorStop(1, 'rgba(255,255,255,0)')
     ctx.lineJoin = 'round'
-    ctx.lineWidth = 0.02
-    ctx.strokeStyle = rim
+    ctx.lineWidth = bezel ? 0.018 : 0.012
+    ctx.strokeStyle = edge
     ctx.stroke(outer)
-    ctx.lineWidth = 0.012
-    ctx.strokeStyle = hsl(hue, sat, 12, 0.9)
-    ctx.stroke(outer)
+    ctx.lineWidth = 0.009
+    ctx.strokeStyle = 'rgba(235,250,255,0.45)'
+    ctx.stroke(poly(tablePts))
+    if (radius > 0.4) {
+        const top = shoulder.reduce((best, point) => point[0] + point[1] < best[0] + best[1] ? point : best, shoulder[0]!)
+        twinkle(ctx, top[0], top[1], 0.065, px, '#f2fcff', 0.9)
+    }
     ctx.restore()
-
-    const tl = tablePts.reduce((best, p) => (p[0] + p[1] < best[0] + best[1] ? p : best), tablePts[0]!)
-    twinkle(ctx, tl[0] + (center[0] - tl[0]) * 0.25, tl[1] + (center[1] - tl[1]) * 0.25, Math.min(0.2, Math.max(0.05, radius * 0.28)), px)
 }
 
 function octagon(w: number, h: number, c: number, cy = 0): Pt[] {
@@ -355,7 +292,7 @@ function roundGem(r: number, n: number, cx = 0, cy = 0, rot = 0): Pt[] {
 
 function heartGem(scale: number, cy = 0): Pt[] {
     const pts: Pt[] = []
-    const n = 26
+    const n = 20
     for (let i = 0; i < n; i++) {
         const t = (i / n) * Math.PI * 2
         const x = 16 * Math.sin(t) ** 3
@@ -389,276 +326,138 @@ function trillionGem(r: number, bulge: number, cy = 0): Pt[] {
 // --- symbol recipes ------------------------------------------------------------
 
 function drawEmerald(ctx: Ctx, px: number) {
-    gem(ctx, octagon(0.54, 0.74, 0.2), [0, 0], { hue: 150, sat: 78, light: 40 }, px, [1, 0.78, 0.56, 0.38])
+    gem(ctx, octagon(0.54, 0.74, 0.2), [0, 0], { hue: 150, sat: 78, light: 40 }, px, [1, 0.64])
 }
 
 function drawSapphire(ctx: Ctx, px: number) {
-    gem(ctx, roundGem(0.74, 16), [0, 0], { hue: 216, sat: 88, light: 46 }, px, [1, 0.7, 0.44])
+    gem(ctx, roundGem(0.74, 12, 0, 0, Math.PI / 12), [0, 0], { hue: 216, sat: 88, light: 46 }, px, [1, 0.55])
 }
 
 function drawAmethyst(ctx: Ctx, px: number) {
-    gem(ctx, heartGem(0.86, 0.02), [0, 0.08], { hue: 278, sat: 72, light: 48 }, px, [1, 0.72, 0.46])
+    gem(ctx, heartGem(0.86, 0.02), [0, 0.08], { hue: 278, sat: 72, light: 48 }, px, [1, 0.62])
 }
 
 function drawRuby(ctx: Ctx, px: number) {
-    gem(ctx, trillionGem(0.9, 0.16, 0.12), [0, 0.12], { hue: 352, sat: 84, light: 46 }, px, [1, 0.7, 0.42])
+    gem(ctx, trillionGem(0.85, 0.04, 0.1), [0, 0.12], { hue: 352, sat: 84, light: 46 }, px, [1, 0.7, 0.42])
+}
+
+/** Sculpted metal: warm shadows, broad reflections and narrow polished edges. */
+function relic(ctx: Ctx, path: Path2D, px: number) {
+    const metal = ctx.createLinearGradient(-0.6, -0.8, 0.6, 0.9)
+    metal.addColorStop(0, '#fff8df')
+    metal.addColorStop(0.2, '#f5d591')
+    metal.addColorStop(0.39, '#b8863e')
+    metal.addColorStop(0.5, '#f4db9b')
+    metal.addColorStop(0.64, '#d9ac57')
+    metal.addColorStop(0.84, '#94602d')
+    metal.addColorStop(1, '#e5bf71')
+    bevel(ctx, path, metal, px, { depth: 0.03, outline: '#54371e', outlineWidth: 0.022, light: '#fff4cc', dark: 'rgba(73,36,13,0.8)' })
+    ctx.save()
+    ctx.clip(path)
+    const reflection = ctx.createLinearGradient(-0.65, 0, 0.65, 0)
+    reflection.addColorStop(0, 'rgba(255,249,220,0)')
+    reflection.addColorStop(0.24, 'rgba(255,249,220,0.45)')
+    reflection.addColorStop(0.35, 'rgba(255,249,220,0)')
+    reflection.addColorStop(0.72, 'rgba(58,24,3,0.18)')
+    reflection.addColorStop(1, 'rgba(255,249,220,0.2)')
+    ctx.fillStyle = reflection
+    ctx.fill(path)
+    ctx.restore()
+}
+
+function engraving(ctx: Ctx, path: Path2D, width = 0.025) {
+    ctx.save()
+    ctx.strokeStyle = '#fff0c2'
+    ctx.globalAlpha = 0.7
+    ctx.lineWidth = width
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.stroke(path)
+    ctx.restore()
 }
 
 function drawLyre(ctx: Ctx, px: number) {
-    ctx.scale(1.14, 1.04)
-    // Arms curl out and back in at the top.
-    const arms = new Path2D()
-    arms.moveTo(-0.26, 0.5)
-    arms.bezierCurveTo(-0.66, 0.34, -0.7, -0.18, -0.4, -0.44)
-    arms.bezierCurveTo(-0.26, -0.56, -0.3, -0.8, -0.52, -0.76)
-    arms.moveTo(0.26, 0.5)
-    arms.bezierCurveTo(0.66, 0.34, 0.7, -0.18, 0.4, -0.44)
-    arms.bezierCurveTo(0.26, -0.56, 0.3, -0.8, 0.52, -0.76)
-    tube(ctx, arms, 0.13, px)
-
-    // Violet enamel sound box.
-    const box = new Path2D()
-    box.moveTo(-0.4, 0.44)
-    box.quadraticCurveTo(0, 0.36, 0.4, 0.44)
-    box.bezierCurveTo(0.42, 0.66, 0.24, 0.84, 0, 0.86)
-    box.bezierCurveTo(-0.24, 0.84, -0.42, 0.66, -0.4, 0.44)
-    box.closePath()
-    const enamel = ctx.createLinearGradient(0, 0.36, 0, 0.9)
-    enamel.addColorStop(0, '#d8b4fe')
-    enamel.addColorStop(0.4, '#7e22ce')
-    enamel.addColorStop(1, '#3b0764')
-    bevel(ctx, box, enamel, px, { depth: 0.022 })
-    tube(ctx, box, 0.045, px)
-
-    // Strings.
-    ctx.save()
-    ctx.lineCap = 'round'
-    for (let i = 0; i < 5; i++) {
-        const x = -0.2 + i * 0.1
-        ctx.strokeStyle = 'rgba(40, 20, 0, 0.6)'
-        ctx.lineWidth = 0.028
-        ctx.beginPath()
-        ctx.moveTo(x, -0.38)
-        ctx.lineTo(x * 1.1, 0.46)
-        ctx.stroke()
-        const sg = ctx.createLinearGradient(0, -0.4, 0, 0.5)
-        sg.addColorStop(0, '#fffbe6')
-        sg.addColorStop(0.5, '#fde68a')
-        sg.addColorStop(1, '#fff7d6')
-        ctx.strokeStyle = sg
-        ctx.lineWidth = 0.014
-        ctx.stroke()
+    const body = new Path2D('M-.55 -.7 Q-.82 -.25 -.55 .35 Q-.4 .72 0 .78 Q.4 .72 .55 .35 Q.82 -.25 .55 -.7 L.37 -.63 Q.57 -.13 .35 .28 Q0 .7 -.35 .28 Q-.57 -.13 -.37 -.63 Z')
+    relic(ctx, body, px)
+    relic(ctx, new Path2D('M-.56 -.55 Q0 -.7 .56 -.55 L.53 -.43 Q0 -.54 -.53 -.43 Z'), px)
+    const strings = new Path2D()
+    for (let i = -2; i <= 2; i++) {
+        strings.moveTo(i * 0.12, -0.48)
+        strings.lineTo(i * 0.1, 0.5 - Math.abs(i) * 0.05)
     }
-    ctx.restore()
-
-    // Yoke across the top.
-    const yoke = new Path2D()
-    yoke.moveTo(-0.46, -0.4)
-    yoke.quadraticCurveTo(0, -0.5, 0.46, -0.4)
-    tube(ctx, yoke, 0.1, px)
-
-    gem(ctx, roundGem(0.12, 10, 0, 0.62), [0, 0.62], { hue: 200, sat: 90, light: 50 }, px, [1, 0.5], true)
-    goldSphere(ctx, -0.53, -0.76, 0.075, px)
-    goldSphere(ctx, 0.53, -0.76, 0.075, px)
-    goldSphere(ctx, 0, -0.47, 0.06, px)
+    engraving(ctx, strings, 0.022)
+    engraving(ctx, new Path2D('M-.5 -.49 Q-.69 -.12 -.43 .37 Q0 .91 .43 .37 Q.69 -.12 .5 -.49'), 0.014)
+    for (let i = -2; i <= 2; i++) sphere(ctx, i * 0.12, -0.51, 0.025, px, '#fff7db', '#c39245', '#664119')
+    relic(ctx, new Path2D('M-.22 .5 Q0 .41 .22 .5 L.17 .65 Q0 .76 -.17 .65 Z'), px)
+    gem(ctx, [[0, 0.42], [0.12, 0.56], [0, 0.7], [-0.12, 0.56]], [0, 0.56], { hue: 186, sat: 70, light: 45 }, px)
 }
 
 function drawHelm(ctx: Ctx, px: number) {
-    // Crimson crest fanning over the dome.
-    const crest = new Path2D()
-    crest.moveTo(-0.6, -0.2)
-    crest.bezierCurveTo(-0.72, -0.8, -0.2, -1, 0, -0.98)
-    crest.bezierCurveTo(0.2, -1, 0.72, -0.8, 0.6, -0.2)
-    crest.bezierCurveTo(0.44, -0.58, -0.44, -0.58, -0.6, -0.2)
-    crest.closePath()
-    const red = ctx.createLinearGradient(0, -1, 0, -0.2)
-    red.addColorStop(0, '#fca5a5')
-    red.addColorStop(0.35, '#dc2626')
-    red.addColorStop(1, '#6b0f0f')
-    bevel(ctx, crest, red, px, { outline: '#2a0505', light: 'rgba(255,220,220,0.6)', dark: 'rgba(40,0,0,0.6)' })
+    const crest = new Path2D('M-.56 -.37 Q-.6 -.94 0 -.94 Q.6 -.94 .56 -.37 L.35 -.45 Q0 -.72 -.35 -.45 Z')
+    const red = ctx.createLinearGradient(-0.5, -0.9, 0.4, -0.3)
+    red.addColorStop(0, '#ef9b96')
+    red.addColorStop(1, '#883c58')
+    bevel(ctx, crest, red, px, { outline: '#5d2437', depth: 0.025 })
     ctx.save()
     ctx.clip(crest)
-    ctx.lineWidth = 0.014
-    for (let i = 0; i <= 22; i++) {
-        const a = Math.PI + (i / 22) * Math.PI
-        ctx.strokeStyle = i % 2 ? 'rgba(255,200,200,0.35)' : 'rgba(60,0,0,0.45)'
-        ctx.beginPath()
-        ctx.moveTo(0, -0.2)
-        ctx.lineTo(Math.cos(a) * 1.1, -0.2 + Math.sin(a) * 1.1)
-        ctx.stroke()
+    for (let i = 0; i < 19; i++) {
+        const angle = Math.PI + i / 18 * Math.PI
+        const plume = new Path2D()
+        plume.moveTo(Math.cos(angle) * 0.33, -0.35 + Math.sin(angle) * 0.35)
+        plume.lineTo(Math.cos(angle) * 0.64, -0.35 + Math.sin(angle) * 0.65)
+        engraving(ctx, plume, i % 2 ? 0.012 : 0.022)
     }
     ctx.restore()
-
-    // Dark interior behind the openings.
-    ctx.fillStyle = '#12070a'
-    ctx.fill(poly([[-0.3, -0.2], [0.3, -0.2], [0.26, 0.9], [-0.26, 0.9]]))
-
-    const helm = new Path2D()
-    helm.moveTo(0, -0.64)
-    helm.bezierCurveTo(0.44, -0.64, 0.64, -0.4, 0.64, -0.02)
-    helm.lineTo(0.62, 0.4)
-    helm.bezierCurveTo(0.6, 0.66, 0.46, 0.86, 0.24, 0.9)
-    helm.lineTo(0.14, 0.9)
-    helm.lineTo(0.12, 0.3)
-    helm.quadraticCurveTo(0, 0.24, -0.12, 0.3)
-    helm.lineTo(-0.14, 0.9)
-    helm.lineTo(-0.24, 0.9)
-    helm.bezierCurveTo(-0.46, 0.86, -0.6, 0.66, -0.62, 0.4)
-    helm.lineTo(-0.64, -0.02)
-    helm.bezierCurveTo(-0.64, -0.4, -0.44, -0.64, 0, -0.64)
-    helm.closePath()
-    bevel(ctx, helm, gold(ctx, -0.7, 0.9, -0.5, 0.5), px, { depth: 0.035 })
-
-    // Almond eye holes either side of the nose guard.
-    for (const s of [-1, 1]) {
-        const eye = new Path2D()
-        eye.moveTo(s * 0.07, -0.08)
-        eye.bezierCurveTo(s * 0.2, -0.2, s * 0.44, -0.14, s * 0.52, -0.02)
-        eye.bezierCurveTo(s * 0.4, 0.08, s * 0.2, 0.1, s * 0.08, 0.12)
-        eye.closePath()
-        ctx.save()
-        const eg = ctx.createLinearGradient(0, -0.2, 0, 0.12)
-        eg.addColorStop(0, '#000000')
-        eg.addColorStop(1, '#2a0d10')
-        ctx.fillStyle = eg
-        ctx.fill(eye)
-        ctx.lineWidth = 0.022
-        ctx.strokeStyle = 'rgba(255, 240, 190, 0.8)'
-        ctx.translate(0, 0.012)
-        ctx.stroke(eye)
-        ctx.restore()
+    const helmet = new Path2D('M0 -.62 Q.58 -.62 .6 -.08 L.51 .63 L.22 .82 L.2 .22 L.43 .07 L.1 -.01 L.08 .51 L-.08 .51 L-.1 -.01 L-.43 .07 L-.2 .22 L-.22 .82 L-.51 .63 L-.6 -.08 Q-.58 -.62 0 -.62 Z')
+    relic(ctx, helmet, px)
+    engraving(ctx, new Path2D('M0 -.55 L0 -.14 M-.48 -.18 Q0 -.39 .48 -.18 M-.43 .31 L-.38 .58 M.43 .31 L.38 .58'))
+    for (const side of [-1, 1]) {
+        for (let i = 0; i < 3; i++) sphere(ctx, side * (0.44 - i * 0.025), 0.27 + i * 0.13, 0.02, px, '#fff1bd', '#ce9b4c', '#69401c')
     }
-
-    // Brow ridge and centre stone.
-    const brow = new Path2D()
-    brow.moveTo(-0.58, -0.2)
-    brow.quadraticCurveTo(0, -0.42, 0.58, -0.2)
-    tube(ctx, brow, 0.06, px)
-    const ridge = new Path2D()
-    ridge.moveTo(0, -0.62)
-    ridge.lineTo(0, -0.34)
-    tube(ctx, ridge, 0.05, px)
-    gem(ctx, octagon(0.08, 0.1, 0.035, -0.3), [0, -0.3], { hue: 205, sat: 90, light: 52 }, px, [1, 0.5], true)
-
-    // Rivets along the cheek guards.
-    for (const s of [-1, 1]) {
-        for (let i = 0; i < 3; i++) goldSphere(ctx, s * (0.48 - i * 0.04), 0.3 + i * 0.18, 0.03, px)
-    }
+    gem(ctx, [[0, -0.48], [0.075, -0.36], [0, -0.23], [-0.075, -0.36]], [0, -0.36], { hue: 190, sat: 75, light: 45 }, px)
 }
 
 function drawSun(ctx: Ctx, px: number) {
-    // Alternating long and short rays.
-    const rays = new Path2D()
-    const n = 16
-    for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 - Math.PI / 2
-        const len = i % 2 ? 0.8 : 0.97
-        const w = i % 2 ? 0.1 : 0.13
-        rays.moveTo(Math.cos(a - w) * 0.5, Math.sin(a - w) * 0.5)
-        rays.lineTo(Math.cos(a) * len, Math.sin(a) * len)
-        rays.lineTo(Math.cos(a + w) * 0.5, Math.sin(a + w) * 0.5)
-        rays.closePath()
-    }
-    const rg = ctx.createRadialGradient(0, 0, 0.4, 0, 0, 1)
-    rg.addColorStop(0, '#fff3b0')
-    rg.addColorStop(0.5, '#f5b829')
-    rg.addColorStop(1, '#b45309')
-    bevel(ctx, rays, rg, px, { depth: 0.02 })
-
-    const disc = circle(0, 0, 0.58)
-    bevel(ctx, disc, gold(ctx, -0.6, 0.6, -0.4, 0.4), px, { depth: 0.035 })
-
-    // Engraved ring of dots.
-    for (let i = 0; i < 20; i++) {
-        const a = (i / 20) * Math.PI * 2
-        goldSphere(ctx, Math.cos(a) * 0.5, Math.sin(a) * 0.5, 0.026, px)
-    }
-
-    const face = circle(0, 0, 0.42)
-    const fg = ctx.createRadialGradient(-0.12, -0.14, 0.02, 0, 0, 0.44)
-    fg.addColorStop(0, '#fff7cc')
-    fg.addColorStop(0.45, '#fbbf24')
-    fg.addColorStop(1, '#c2410c')
-    ctx.save()
-    ctx.fillStyle = fg
-    ctx.fill(face)
-    ctx.lineWidth = 0.03
-    ctx.strokeStyle = '#5a2e02'
-    ctx.stroke(face)
-    ctx.restore()
-
-    // Inner flame swirl.
-    ctx.save()
-    ctx.clip(face)
-    ctx.lineWidth = 0.02
     for (let i = 0; i < 8; i++) {
-        const a = (i / 8) * Math.PI * 2
-        ctx.strokeStyle = 'rgba(255, 245, 200, 0.45)'
-        ctx.beginPath()
-        ctx.moveTo(Math.cos(a) * 0.2, Math.sin(a) * 0.2)
-        ctx.quadraticCurveTo(Math.cos(a + 0.5) * 0.36, Math.sin(a + 0.5) * 0.36, Math.cos(a + 0.2) * 0.44, Math.sin(a + 0.2) * 0.44)
-        ctx.stroke()
+        ctx.save()
+        ctx.rotate(i * Math.PI / 4)
+        relic(ctx, new Path2D('M0 -.88 L.09 -.54 L0 -.45 L-.09 -.54 Z'), px)
+        ctx.restore()
     }
-    ctx.restore()
-
-    gem(ctx, roundGem(0.2, 12), [0, 0], { hue: 24, sat: 95, light: 50 }, px, [1, 0.62, 0.36], true)
+    relic(ctx, circle(0, 0, 0.46), px)
+    ctx.fillStyle = '#253e50'
+    ctx.fill(circle(0, 0, 0.36))
+    const enamel = ctx.createRadialGradient(-0.12, -0.16, 0.01, 0, 0, 0.36)
+    enamel.addColorStop(0, '#5c8799')
+    enamel.addColorStop(0.5, '#233e53')
+    enamel.addColorStop(1, '#0b192d')
+    ctx.fillStyle = enamel
+    ctx.fill(circle(0, 0, 0.35))
+    engraving(ctx, circle(0, 0, 0.3), 0.014)
+    for (let i = 0; i < 24; i++) {
+        const a = i * Math.PI / 12
+        const mark = new Path2D()
+        mark.moveTo(Math.cos(a) * 0.38, Math.sin(a) * 0.38)
+        mark.lineTo(Math.cos(a) * 0.42, Math.sin(a) * 0.42)
+        engraving(ctx, mark, 0.01)
+    }
+    relic(ctx, new Path2D('M0 -.27 L.07 -.07 L.27 0 L.07 .07 L0 .27 L-.07 .07 L-.27 0 L-.07 -.07 Z'), px)
 }
 
 function drawCrown(ctx: Ctx, px: number) {
-    // Velvet cap behind the points.
-    const cap = new Path2D()
-    cap.moveTo(-0.62, 0.2)
-    cap.bezierCurveTo(-0.6, -0.5, 0.6, -0.5, 0.62, 0.2)
-    cap.closePath()
-    const vg = ctx.createRadialGradient(-0.15, -0.25, 0.05, 0, 0, 0.8)
-    vg.addColorStop(0, '#fb7185')
-    vg.addColorStop(0.5, '#9f1239')
-    vg.addColorStop(1, '#3f0716')
-    ctx.fillStyle = vg
-    ctx.fill(cap)
-
-    // Five points.
-    const pts: Pt[] = [
-        [-0.74, 0.24], [-0.82, -0.3], [-0.5, -0.02], [-0.4, -0.56], [-0.16, -0.14], [0, -0.8],
-        [0.16, -0.14], [0.4, -0.56], [0.5, -0.02], [0.82, -0.3], [0.74, 0.24]
-    ]
-    const points = new Path2D()
-    pts.forEach(([x, y], i) => (i ? points.lineTo(x, y) : points.moveTo(x, y)))
-    points.lineTo(0, 0.3)
-    points.closePath()
-    bevel(ctx, points, gold(ctx, -0.8, 0.3, -0.5, 0.5), px, { depth: 0.032 })
-
-    // Band.
-    const band = new Path2D()
-    band.moveTo(-0.78, 0.16)
-    band.quadraticCurveTo(0, 0.3, 0.78, 0.16)
-    band.lineTo(0.72, 0.62)
-    band.quadraticCurveTo(0, 0.76, -0.72, 0.62)
-    band.closePath()
-    bevel(ctx, band, gold(ctx, 0.1, 0.8, -0.2, 0.2), px, { depth: 0.035 })
-    const trim = new Path2D()
-    trim.moveTo(-0.74, 0.26)
-    trim.quadraticCurveTo(0, 0.4, 0.74, 0.26)
-    trim.moveTo(-0.72, 0.54)
-    trim.quadraticCurveTo(0, 0.68, 0.72, 0.54)
-    ctx.save()
-    ctx.lineWidth = 0.016
-    ctx.strokeStyle = 'rgba(70,35,0,0.7)'
-    ctx.stroke(trim)
-    ctx.restore()
-
-    // Pearls on the tips.
-    for (const [x, y] of [pts[1]!, pts[3]!, pts[7]!, pts[9]!]) sphere(ctx, x, y - 0.04, 0.07, px, '#ffffff', '#e2e8f0', '#64748b')
-    sphere(ctx, 0, -0.86, 0.08, px, '#ffffff', '#e2e8f0', '#64748b')
-
-    // Stones on the band and the centre point.
-    gem(ctx, octagon(0.15, 0.13, 0.05, 0.45), [0, 0.45], { hue: 214, sat: 90, light: 48 }, px, [1, 0.6], true)
-    for (const s of [-1, 1]) {
-        gem(ctx, roundGem(0.085, 10, s * 0.38, 0.42), [s * 0.38, 0.42], { hue: 350, sat: 85, light: 48 }, px, [1, 0.5], true)
-        gem(ctx, roundGem(0.06, 8, s * 0.62, 0.38), [s * 0.62, 0.38], { hue: 150, sat: 80, light: 42 }, px, [1, 0.5], true)
+    const crown = new Path2D('M-.64 .43 L-.8 -.39 L-.38 -.06 L0 -.77 L.38 -.06 L.8 -.39 L.64 .43 Z')
+    relic(ctx, crown, px)
+    ctx.fillStyle = '#253e50'
+    ctx.fill(new Path2D('M-.55 .2 Q0 .33 .55 .2 L.5 .43 Q0 .56 -.5 .43 Z'))
+    relic(ctx, new Path2D('M-.65 .49 Q0 .64 .65 .49 L.62 .64 Q0 .79 -.62 .64 Z'), px)
+    engraving(ctx, new Path2D('M-.64 -.17 L-.47 .08 M0 -.54 L0 -.12 M.64 -.17 L.47 .08'))
+    gem(ctx, [[0, -0.03], [0.16, 0.19], [0, 0.42], [-0.16, 0.19]], [0, 0.19], { hue: 190, sat: 70, light: 50 }, px)
+    for (const side of [-1, 1]) {
+        gem(ctx, roundGem(0.075, 8, side * 0.36, 0.33), [side * 0.36, 0.33], { hue: 190, sat: 75, light: 45 }, px)
+        sphere(ctx, side * 0.8, -0.39, 0.05, px, '#fff6cf', '#d6ab60', '#74502a')
     }
-    gem(ctx, [[0, -0.52], [0.1, -0.34], [0, -0.16], [-0.1, -0.34]], [0, -0.34], { hue: 190, sat: 90, light: 55 }, px, [1, 0.5], true)
-    twinkle(ctx, 0.08, -0.9, 0.22, px, '#fff7c2')
+    engraving(ctx, new Path2D('M-.56 .6 Q0 .73 .56 .6'), 0.013)
+    twinkle(ctx, 0, -0.82, 0.1, px, '#fff0c2')
 }
 
 function drawGateFrame(ctx: Ctx, px: number) {
@@ -972,209 +771,4 @@ export function agSymbolDataUrl(id: AetherSymbol | `orb-${number}`, size = 128):
     const url = canvas.toDataURL('image/png')
     urlCache.set(key, url)
     return url
-}
-
-// --- backdrop -----------------------------------------------------------------
-
-function mulberry32(seed: number) {
-    let a = seed
-    return () => {
-        a |= 0
-        a = (a + 0x6D2B79F5) | 0
-        let t = Math.imul(a ^ (a >>> 15), 1 | a)
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-    }
-}
-
-function cloud(ctx: Ctx, x: number, y: number, w: number, h: number, rnd: () => number, top: string, bottom: string) {
-    const puffs = 7
-    for (let i = 0; i < puffs; i++) {
-        const px = x + (rnd() - 0.5) * w
-        const py = y + (rnd() - 0.5) * h * 0.5
-        const r = h * (0.45 + rnd() * 0.55)
-        const g = ctx.createRadialGradient(px, py - r * 0.35, r * 0.1, px, py, r)
-        g.addColorStop(0, top)
-        g.addColorStop(0.6, bottom)
-        g.addColorStop(1, 'rgba(0,0,0,0)')
-        ctx.fillStyle = g
-        ctx.beginPath()
-        ctx.arc(px, py, r, 0, Math.PI * 2)
-        ctx.fill()
-    }
-}
-
-/** A temple on a floating rock: silhouette with warm rim light on the tops. */
-function floatingTemple(ctx: Ctx, x: number, y: number, s: number, rnd: () => number, cols: number) {
-    // Rock underside.
-    ctx.save()
-    const rock = new Path2D()
-    rock.moveTo(x - s * 1.05, y)
-    rock.lineTo(x + s * 1.05, y)
-    rock.bezierCurveTo(x + s * 0.9, y + s * 0.5, x + s * 0.4, y + s * 0.7, x + s * 0.08, y + s * 1.3)
-    rock.bezierCurveTo(x - s * 0.2, y + s * 0.8, x - s * 0.8, y + s * 0.5, x - s * 1.05, y)
-    rock.closePath()
-    const rg = ctx.createLinearGradient(0, y, 0, y + s * 1.3)
-    rg.addColorStop(0, '#3a2352')
-    rg.addColorStop(1, '#0f0a22')
-    ctx.fillStyle = rg
-    ctx.fill(rock)
-    ctx.strokeStyle = 'rgba(255, 190, 120, 0.35)'
-    ctx.lineWidth = Math.max(1, s * 0.012)
-    ctx.beginPath()
-    ctx.moveTo(x - s * 1.05, y)
-    ctx.lineTo(x + s * 1.05, y)
-    ctx.stroke()
-    // Hanging roots / vines.
-    ctx.strokeStyle = 'rgba(20, 12, 40, 0.8)'
-    for (let i = 0; i < 6; i++) {
-        const vx = x + (rnd() - 0.5) * s * 1.4
-        ctx.beginPath()
-        ctx.moveTo(vx, y + s * 0.1)
-        ctx.quadraticCurveTo(vx + s * 0.05, y + s * 0.5, vx - s * 0.03, y + s * (0.5 + rnd() * 0.5))
-        ctx.stroke()
-    }
-    ctx.restore()
-
-    // Temple.
-    const base = y - s * 0.02
-    const w = s * 1.6
-    const colH = s * 0.8
-    const body = '#2a1a46'
-    const rim = 'rgba(255, 196, 120, 0.75)'
-    ctx.fillStyle = body
-    ctx.fillRect(x - w / 2 - s * 0.06, base - s * 0.1, w + s * 0.12, s * 0.1)
-    ctx.fillRect(x - w / 2, base - s * 0.16, w, s * 0.06)
-    const colW = w / (cols * 2 - 1)
-    for (let i = 0; i < cols; i++) {
-        const cx = x - w / 2 + i * colW * 2
-        ctx.fillStyle = body
-        ctx.fillRect(cx, base - s * 0.16 - colH, colW, colH)
-        ctx.fillStyle = rim
-        ctx.fillRect(cx, base - s * 0.16 - colH, Math.max(1, colW * 0.18), colH)
-    }
-    const entab = base - s * 0.16 - colH
-    ctx.fillStyle = body
-    ctx.fillRect(x - w / 2 - s * 0.05, entab - s * 0.12, w + s * 0.1, s * 0.12)
-    ctx.beginPath()
-    ctx.moveTo(x - w / 2 - s * 0.08, entab - s * 0.12)
-    ctx.lineTo(x, entab - s * 0.45)
-    ctx.lineTo(x + w / 2 + s * 0.08, entab - s * 0.12)
-    ctx.closePath()
-    ctx.fill()
-    ctx.strokeStyle = rim
-    ctx.lineWidth = Math.max(1, s * 0.015)
-    ctx.beginPath()
-    ctx.moveTo(x - w / 2 - s * 0.08, entab - s * 0.12)
-    ctx.lineTo(x, entab - s * 0.45)
-    ctx.lineTo(x + w / 2 + s * 0.08, entab - s * 0.12)
-    ctx.stroke()
-    // Warm light from inside.
-    const glow = ctx.createRadialGradient(x, base - colH * 0.5, 0, x, base - colH * 0.5, w * 0.6)
-    glow.addColorStop(0, 'rgba(255, 200, 120, 0.35)')
-    glow.addColorStop(1, 'rgba(255, 200, 120, 0)')
-    ctx.fillStyle = glow
-    ctx.fillRect(x - w, base - colH * 1.5, w * 2, colH * 1.6)
-}
-
-/**
- * The sky temple: a dusk sky over a sea of clouds, a sun blazing behind the
- * cabinet and floating temples either side. Drawn in CSS pixels; the caller
- * scales the context for the device pixel ratio.
- */
-export function drawAgBackdrop(ctx: Ctx, w: number, h: number) {
-    const rnd = mulberry32(7331)
-    const sky = ctx.createLinearGradient(0, 0, 0, h)
-    sky.addColorStop(0, '#07061c')
-    sky.addColorStop(0.28, '#1b1147')
-    sky.addColorStop(0.5, '#4a1f6b')
-    sky.addColorStop(0.66, '#a4476e')
-    sky.addColorStop(0.76, '#f08a5d')
-    sky.addColorStop(0.84, '#6b3570')
-    sky.addColorStop(1, '#170d2c')
-    ctx.fillStyle = sky
-    ctx.fillRect(0, 0, w, h)
-
-    // Stars.
-    for (let i = 0; i < 260; i++) {
-        const x = rnd() * w
-        const y = rnd() ** 1.6 * h * 0.6
-        const r = 0.4 + rnd() * 1.3
-        ctx.globalAlpha = (1 - y / (h * 0.6)) * (0.35 + rnd() * 0.65)
-        ctx.fillStyle = rnd() > 0.85 ? '#c7d2fe' : '#ffffff'
-        ctx.beginPath()
-        ctx.arc(x, y, r, 0, Math.PI * 2)
-        ctx.fill()
-    }
-    ctx.globalAlpha = 1
-
-    // Aurora veils.
-    ctx.save()
-    ctx.globalCompositeOperation = 'screen'
-    for (const [x, y, r, c] of [[0.2, 0.18, 0.5, 'rgba(99, 102, 241, 0.22)'], [0.78, 0.12, 0.45, 'rgba(34, 211, 238, 0.14)'], [0.55, 0.35, 0.6, 'rgba(192, 132, 252, 0.16)']] as const) {
-        const g = ctx.createRadialGradient(x * w, y * h, 0, x * w, y * h, r * Math.max(w, h))
-        g.addColorStop(0, c)
-        g.addColorStop(1, 'rgba(0,0,0,0)')
-        ctx.fillStyle = g
-        ctx.fillRect(0, 0, w, h)
-    }
-    ctx.restore()
-
-    // Sun behind the cabinet with god rays.
-    const sx = w / 2
-    const sy = h * 0.74
-    const big = Math.max(w, h)
-    ctx.save()
-    ctx.globalCompositeOperation = 'screen'
-    for (let i = 0; i < 18; i++) {
-        const a = -Math.PI + (i / 17) * Math.PI + (rnd() - 0.5) * 0.08
-        const spread = 0.025 + rnd() * 0.04
-        const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, big)
-        g.addColorStop(0, 'rgba(255, 214, 150, 0.2)')
-        g.addColorStop(1, 'rgba(255, 214, 150, 0)')
-        ctx.fillStyle = g
-        ctx.beginPath()
-        ctx.moveTo(sx, sy)
-        ctx.lineTo(sx + Math.cos(a - spread) * big, sy + Math.sin(a - spread) * big)
-        ctx.lineTo(sx + Math.cos(a + spread) * big, sy + Math.sin(a + spread) * big)
-        ctx.closePath()
-        ctx.fill()
-    }
-    const sun = ctx.createRadialGradient(sx, sy, 0, sx, sy, big * 0.45)
-    sun.addColorStop(0, 'rgba(255, 244, 214, 0.95)')
-    sun.addColorStop(0.08, 'rgba(255, 200, 120, 0.7)')
-    sun.addColorStop(0.35, 'rgba(240, 120, 110, 0.25)')
-    sun.addColorStop(1, 'rgba(0,0,0,0)')
-    ctx.fillStyle = sun
-    ctx.fillRect(0, 0, w, h)
-    ctx.restore()
-
-    // Distant cloud ridges.
-    for (let i = 0; i < 16; i++) {
-        cloud(ctx, rnd() * w, h * (0.62 + rnd() * 0.08), w * 0.2, h * 0.08, rnd, 'rgba(255, 170, 150, 0.35)', 'rgba(120, 60, 120, 0.25)')
-    }
-
-    // Floating temples.
-    const unit = Math.min(w, h)
-    floatingTemple(ctx, w * 0.1, h * 0.46, unit * 0.12, rnd, 5)
-    floatingTemple(ctx, w * 0.9, h * 0.4, unit * 0.1, rnd, 4)
-    floatingTemple(ctx, w * 0.24, h * 0.24, unit * 0.05, rnd, 3)
-    floatingTemple(ctx, w * 0.8, h * 0.18, unit * 0.045, rnd, 3)
-
-    // Sea of clouds.
-    for (let layer = 0; layer < 3; layer++) {
-        const y = h * (0.8 + layer * 0.08)
-        for (let i = 0; i < 14; i++) {
-            cloud(ctx, (i / 13) * w + (rnd() - 0.5) * w * 0.1, y, w * 0.18, h * (0.1 + layer * 0.03), rnd,
-                layer === 0 ? 'rgba(255, 190, 170, 0.55)' : layer === 1 ? 'rgba(200, 140, 190, 0.5)' : 'rgba(110, 70, 150, 0.6)',
-                layer === 0 ? 'rgba(160, 90, 150, 0.35)' : 'rgba(60, 30, 90, 0.4)')
-        }
-    }
-
-    // Vignette.
-    const v = ctx.createRadialGradient(w / 2, h * 0.5, Math.min(w, h) * 0.3, w / 2, h * 0.5, Math.max(w, h) * 0.8)
-    v.addColorStop(0, 'rgba(0,0,0,0)')
-    v.addColorStop(1, 'rgba(3, 2, 12, 0.75)')
-    ctx.fillStyle = v
-    ctx.fillRect(0, 0, w, h)
 }

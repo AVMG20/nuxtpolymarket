@@ -41,6 +41,8 @@ export default defineNuxtConfig({
         // The Miner idle game is retired; Polytown's gem mines took over gem income.
         '/miner': { redirect: '/polytown' },
         '/miner/**': { redirect: '/polytown' },
+        // The crash game launched as Aviamasters and was renamed PolyMasters.
+        '/games/aviamasters': { redirect: '/games/polymasters' },
         '/games/**': { ssr: false },
         '/pirates/**': { ssr: false },
         '/void': { ssr: false },

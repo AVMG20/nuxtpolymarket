@@ -127,3 +127,24 @@ export const TRASH_BAR_THEME: SlotTheme = {
     font: '\'Fredoka\', system-ui, sans-serif',
     numberFont: '\'Lilita One\', \'Fredoka\', system-ui, sans-serif'
 }
+
+/**
+ * Ember Portals: the bar docks into the carved stone cabinet, so its own
+ * surface is transparent; gold trim, fire-orange actions, teal runes.
+ */
+export const EMBER_BAR_THEME: SlotTheme = {
+    accent: '#ff8a1f',
+    accentDeep: '#b8390c',
+    onAccent: '#2a0a02',
+    surface: 'transparent',
+    control: 'rgba(12, 10, 36, 0.72)',
+    line: 'rgba(232, 181, 74, 0.35)',
+    text: '#f4ecd8',
+    muted: '#b9a57a',
+    win: '#ffc247',
+    buy: '#ff8a1f',
+    onBuy: '#2a0a02',
+    panel: '#16123a',
+    font: '\'Nunito\', system-ui, sans-serif',
+    numberFont: '\'Cinzel\', Georgia, serif'
+}

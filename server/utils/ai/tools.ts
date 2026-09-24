@@ -48,7 +48,11 @@ const CASINO_TOOLS: OpenRouterTool[] = [
     casinoRoundTool('fireinthehole', { buyBonus: { type: 'boolean', description: 'Set true only when the player explicitly requests a bonus buy.' } }),
     casinoRoundTool('bookofshadows', { buyBonus: { type: 'boolean', description: 'Set true only when the player explicitly requests a bonus buy.' } }),
     casinoRoundTool('spinata', { feature: { type: 'string', enum: ['buyBonus'], description: 'Set only when the player explicitly requests a bonus buy.' } }),
-    casinoRoundTool('trashpanda', { feature: { type: 'string', enum: ['buyFreeSpins', 'buyDive'], description: 'Set only when the player explicitly requests that bonus buy.' } })
+    casinoRoundTool('trashpanda', { feature: { type: 'string', enum: ['buyFreeSpins', 'buyDive'], description: 'Set only when the player explicitly requests that bonus buy.' } }),
+    casinoRoundTool('emberportals', {
+        feature: { type: 'string', enum: ['buy'], description: 'Set only when the player explicitly requests a free spins buy.' },
+        ante: { type: 'boolean', description: 'Set true only when the player explicitly asks for the extra scatter chance (costs 1.25× bet).' }
+    })
 ]
 
 const AI_TOOL_DEFINITIONS: OpenRouterTool[] = [

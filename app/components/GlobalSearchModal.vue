@@ -632,6 +632,22 @@ const rawGroups: CommandPaletteGroup[] = [
         icon: 'i-lucide-trash-2',
         to: '/games/trashpanda',
         keywords: ['slots', 'trashpanda', 'trash', 'panda', 'raccoon', 'heist', 'casino', 'spin']
+      },
+      {
+        id: 'emberportals',
+        label: 'Ember Portals',
+        description: 'Cluster tumble slot with growing portal wilds and sticky free spins',
+        icon: 'i-lucide-orbit',
+        to: '/games/emberportals',
+        keywords: ['slots', 'emberportals', 'ember', 'portal', 'portals', 'fire', 'cluster', 'tumble', 'casino', 'spin']
+      },
+      {
+        id: 'polymasters',
+        label: 'PolyMasters',
+        description: 'Crash game: fly through multipliers, dodge rockets and land on the island',
+        icon: 'i-lucide-plane',
+        to: '/games/polymasters',
+        keywords: ['slots', 'polymasters', 'plane', 'crash', 'aviator', 'rocket', 'casino', 'fly']
       }
     ]
   }

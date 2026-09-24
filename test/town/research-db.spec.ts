@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { eq, inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { townState, townResearch, townInventory } from '#server/database/schema'
@@ -11,7 +11,7 @@ import {
     startTownResearch
 } from '#server/utils/town-research'
 import { getTownResearch, TOWN_RESEARCH } from '#shared/utils/gamelogic/town-research'
-import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
+import { SKIP, cleanupUser, lockTownRealm, seedUser } from '../setup/db-helpers'
 
 const OWNER = 'test-town-research-owner'
 const USERS = [OWNER]
@@ -58,9 +58,17 @@ async function windClockBack(id: string) {
 }
 
 describe.skipIf(SKIP)('polytown research (database)', () => {
+    // One shared realm: hold it for this file so a sibling spec cannot plant
+    // or delete plots midway through a test here (db-helpers, lockTownRealm).
+    let releaseRealm: () => Promise<void>
+    beforeAll(async () => { releaseRealm = await lockTownRealm() }, 120_000)
+
     beforeEach(cleanup)
     afterEach(cleanup)
-    afterAll(async () => { await db.$client.end() })
+    afterAll(async () => {
+        await releaseRealm()
+        await db.$client.end()
+    })
 
     it('starts a project, charges for it, and puts a clock on the town', async () => {
         await foundRich(OWNER)

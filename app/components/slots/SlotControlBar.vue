@@ -27,6 +27,8 @@ const props = withDefaults(defineProps<{
   /** Small line under the bet, e.g. the line bet or an ante cost. */
   betHint?: string
   win: number
+  /** False hides the win meter, for games that show the win on the board. */
+  showWin?: boolean
   winLabel?: string
   /** Small line under the win, e.g. "120 × 4". */
   winNote?: string
@@ -51,6 +53,7 @@ const props = withDefaults(defineProps<{
   interceptSpace?: () => boolean
 }>(), {
   betHint: '',
+  showWin: true,
   winLabel: 'Win',
   winNote: '',
   winPulse: 0,
@@ -254,8 +257,9 @@ onBeforeUnmount(() => {
             <span class="sc-narrow">{{ slotAmount(balance, true) }}</span>
           </span>
         </div>
-        <span class="sc-divider" aria-hidden="true" />
+        <span v-if="showWin" class="sc-divider" aria-hidden="true" />
         <div
+          v-if="showWin"
           ref="winEl"
           class="sc-meter sc-meter--win sc-a-win"
           :class="{ 'is-hot': win > 0 }"

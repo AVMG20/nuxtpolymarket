@@ -1,4 +1,5 @@
 <script lang="ts" setup>
+import '~/assets/css/candy-madness.css'
 import type {
   CandyFeature,
   CandyMadnessResult,
@@ -733,8 +734,8 @@ function drawCells() {
       const x = p.x - CELL / 2
       const y = p.y - CELL / 2
       const odd = (c + r) % 2 === 1
-      g.roundRect(x, y, CELL, CELL, 14).fill({ color: odd ? 0xffffff : 0xffd6f0, alpha: odd ? 0.07 : 0.1 })
-      g.roundRect(x + 3, y + 2, CELL - 6, CELL * 0.42, 11).fill({ color: 0xffffff, alpha: 0.05 })
+      g.roundRect(x, y, CELL, CELL, 10).fill({ color: odd ? 0xffffff : 0xffd6f0, alpha: odd ? 0.04 : 0.065 })
+      g.roundRect(x, y, CELL, CELL, 10).stroke({ color: 0xffffff, alpha: 0.055, width: 1 })
     }
   }
   cellLayer.addChild(g)
@@ -774,7 +775,7 @@ onMounted(async () => {
     canvasWrap.value?.appendChild(app.canvas)
 
     const artKeys: CandyArtKey[] = [...SYMBOL_IDS, 'rays']
-    for (const id of artKeys) TEX[id] = makeTexture(drawCandyCanvas(id, 256))
+    for (const id of artKeys) TEX[id] = makeTexture(drawCandyCanvas(id, 384))
     for (const k of ['dot', 'star', 'sprinkle', 'shard', 'ring', 'glow'] as ParticleKey[]) PTEX[k] = makeTexture(drawParticleCanvas(k))
 
     board = new PIXI.Container()
@@ -1169,7 +1170,7 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 
 <template>
   <div
-    class="cm-root"
+    class="cm-root candy-theme"
     :class="{ 'is-bonus': inBonus }"
   >
     <CandyBackdrop :bonus="inBonus" />
@@ -1202,6 +1203,7 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
       <div class="cm-main">
         <!-- Feature buys -->
         <aside class="cm-side cm-side--left">
+          <p class="cm-section-label">Bonus features</p>
           <button
             class="cm-feature cm-feature--buy"
             :class="{ 'is-armed': buyArmed }"
@@ -1256,9 +1258,10 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
             class="cm-frame"
             :class="{ 'is-anticipating': anticipating }"
           >
-            <div class="cm-bulbs cm-bulbs--top" />
-            <div class="cm-bulbs cm-bulbs--bottom" />
-
+            <div class="cm-machine-heading">
+              <span>{{ inBonus ? 'BONUS BATCH' : 'FRESH BATCH' }}</span>
+              <span>4+ connected candies to pop</span>
+            </div>
             <div class="cm-topbar">
               <div
                 v-if="inBonus"
@@ -1473,7 +1476,6 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
                 :aria-label="autoSpinEnabled ? 'Stop auto spin' : 'Spin'"
                 @click="onSpinButton"
               >
-                <span class="cm-spin__ring" />
                 <span
                   v-if="autoSpinEnabled"
                   class="cm-spin__auto"
@@ -1486,6 +1488,7 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
                   name="i-lucide-rotate-cw"
                   class="cm-spin__icon"
                 />
+                <span v-if="!autoSpinEnabled" class="cm-spin__label">{{ isSpinning || presenting ? 'Popping!' : 'Spin' }}</span>
               </button>
               <button
                 class="cm-round"
@@ -1618,16 +1621,21 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 
 <style scoped>
 .cm-root {
-  --cm-ink: #2a0838;
-  --cm-pink: #ff5fa8;
-  --cm-pink-hi: #ff9fd3;
-  --cm-gold: #ffd35a;
-  --cm-cream: #fff4fb;
+  --cm-ink: var(--ui-text-highlighted);
+  --cm-pink: var(--candy-accent);
+  --cm-pink-hi: color-mix(in srgb, var(--cm-pink) 32%, var(--ui-bg-elevated));
+  --cm-gold: color-mix(in srgb, var(--ui-warning) 36%, var(--ui-bg-elevated));
+  --cm-mint: color-mix(in srgb, var(--ui-success) 24%, var(--ui-bg-elevated));
+  --cm-cream: var(--candy-surface);
+  --cm-paper: var(--candy-bg);
+  --cm-board: color-mix(in srgb, var(--ui-bg) 94%, var(--cm-pink));
+  --cm-line: var(--candy-border);
+  --cm-muted: var(--ui-text-muted);
   position: relative;
   min-height: 100%;
   overflow: hidden;
   font-family: 'Fredoka', system-ui, sans-serif;
-  color: var(--cm-cream);
+  color: var(--cm-ink);
   isolation: isolate;
 }
 
@@ -1637,62 +1645,56 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 14px 16px 28px;
+  padding: 26px 28px 40px;
 }
 
 /* ── logo ─────────────────────────────────────────────────────────── */
 .cm-logo {
+  filter: drop-shadow(0 8px 18px color-mix(in srgb, var(--cm-pink) 32%, transparent));
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 4px;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 2px;
 }
 
 .cm-logo__title {
   display: flex;
   align-items: baseline;
-  gap: 0.25em;
+  gap: 0.2em;
   font-family: 'Lilita One', system-ui, sans-serif;
   font-weight: 400;
-  font-size: clamp(34px, 6vw, 56px);
-  line-height: 1.05;
-  letter-spacing: 0.01em;
-  transform: rotate(-2deg);
+  font-size: clamp(42px, 5.5vw, 72px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
 }
 
 .cm-logo__candy, .cm-logo__madness {
   display: inline-block;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-stroke: 2px #5a0f45;
-  paint-order: stroke fill;
 }
 
 .cm-logo__candy {
-  background-image: linear-gradient(180deg, #fff 0%, #ffd0ea 30%, #ff5fa8 70%, #d81f78 100%);
-  filter: drop-shadow(0 4px 0 #5a0f45) drop-shadow(0 8px 16px rgba(120, 10, 80, 0.45));
+  color: var(--cm-pink);
+  -webkit-text-stroke: 1px color-mix(in srgb, var(--cm-pink) 60%, var(--ui-text-highlighted));
 }
 
 .cm-logo__madness {
-  background-image: linear-gradient(180deg, #fffbe0 0%, #ffe38a 35%, #ffb52e 70%, #e07800 100%);
-  filter: drop-shadow(0 4px 0 #5a0f45) drop-shadow(0 8px 16px rgba(120, 60, 0, 0.45));
-  animation: cm-wobble 3.2s ease-in-out infinite;
+  color: color-mix(in srgb, var(--candy-violet) 35%, var(--cm-ink));
 }
 
-@keyframes cm-wobble {
-  0%, 100% { transform: rotate(0) translateY(0); }
-  50% { transform: rotate(2deg) translateY(-2px); }
-}
 
 .cm-logo__art {
-  width: clamp(40px, 6vw, 58px);
+  width: 54px;
+  filter: drop-shadow(0 5px 7px color-mix(in srgb, var(--cm-pink) 45%, transparent));
   height: auto;
-  filter: drop-shadow(0 4px 6px rgba(80, 0, 60, 0.45));
 }
 
-.cm-logo__art--l { rotate: -18deg; animation: cm-bob 2.6s ease-in-out infinite; }
-.cm-logo__art--r { rotate: 14deg; animation: cm-bob 2.6s ease-in-out -1.3s infinite; }
+.cm-logo__art--l {
+  rotate: -12deg;
+}
+.cm-logo__art--r {
+  rotate: 10deg;
+}
 
 @keyframes cm-bob {
   0%, 100% { translate: 0 0; }
@@ -1703,122 +1705,126 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 6px;
-  margin: 10px 0 24px;
+  gap: 16px;
+  margin: 16px 0 24px;
 }
 
 .cm-chip {
+  padding: 5px 11px;
+  border: 1px solid var(--cm-line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--cm-cream) 86%, transparent);
   display: inline-flex;
   align-items: center;
-  padding: 3px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: #fff;
-  background: rgba(58, 10, 74, 0.72);
-  border: 1.5px solid rgba(255, 159, 211, 0.6);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  color: var(--cm-muted);
 }
 
-.cm-chip--vol :deep(.text-muted) { color: #f0c8e6; }
+.cm-chip--vol :deep(.text-muted) {
+  color: var(--cm-muted);
+}
 
 /* ── layout ───────────────────────────────────────────────────────── */
 .cm-main {
   display: grid;
-  grid-template-columns: 1fr minmax(0, 640px) 1fr;
-  gap: 20px;
+  grid-template-columns: 210px minmax(0, 760px) 210px;
+  grid-template-areas: 'features cabinet guide';
+  gap: 24px;
   width: 100%;
-  max-width: 1180px;
+  max-width: 1228px;
   align-items: start;
 }
 
 .cm-side {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   width: 100%;
-  max-width: 230px;
+  min-width: 0;
 }
 
-.cm-side--left { justify-self: end; margin-top: 40px; }
-.cm-side--right { justify-self: start; margin-top: 40px; }
-
-@media (max-width: 1100px) {
-  .cm-main { grid-template-columns: minmax(0, 640px); justify-content: center; }
-  .cm-side--left { order: 2; flex-direction: row; max-width: none; margin-top: 0; justify-self: stretch; }
-  .cm-side--left > * { flex: 1; }
-  .cm-side--right { display: none; }
+.cm-side--left {
+  grid-area: features;
+  padding-top: 20px;
 }
-
-@media (max-width: 480px) {
-  .cm-side--left { flex-direction: column; }
+.cm-side--right {
+  grid-area: guide;
+  padding-top: 20px;
 }
 
 /* ── feature cards ────────────────────────────────────────────────── */
 .cm-feature {
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--cm-paper) 50%, transparent), inset 0 1px 0 color-mix(in srgb, var(--ui-text-highlighted) 16%, transparent);
   position: relative;
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 36px 1fr;
   align-items: center;
-  gap: 8px 10px;
-  padding: 12px;
-  border-radius: 20px;
+  gap: 10px;
+  padding: 18px 14px;
+  border-radius: 14px;
   text-align: left;
   cursor: pointer;
-  color: #fff;
-  background: linear-gradient(180deg, #7a1f86 0%, #4a1466 100%);
-  border: 2.5px solid #ff9fd3;
-  box-shadow: 0 5px 0 #2a0838, 0 12px 24px rgba(30, 0, 40, 0.45), inset 0 2px 0 rgba(255, 255, 255, 0.25);
-  transition: transform 0.12s, filter 0.12s, box-shadow 0.12s;
+  color: var(--cm-ink);
+  background: linear-gradient(155deg, color-mix(in srgb, var(--cm-mint) 70%, var(--cm-paper)), var(--cm-paper));
+  border: 1px solid color-mix(in srgb, var(--ui-success) 42%, var(--cm-line));
+  transition: transform 0.15s, border-color 0.15s;
 }
 
-.cm-feature:not(:disabled):hover { transform: translateY(-2px); filter: brightness(1.08); }
-.cm-feature:not(:disabled):active { transform: translateY(3px); box-shadow: 0 2px 0 #2a0838, 0 6px 12px rgba(30, 0, 40, 0.4); }
+.cm-feature:not(:disabled):hover {
+  transform: translateY(-2px);
+  border-color: var(--cm-pink);
+}
+.cm-feature:not(:disabled):active {
+  transform: translateY(0);
+}
 .cm-feature:disabled { opacity: 0.5; cursor: default; filter: saturate(0.6); }
 
 .cm-feature--buy {
-  background: linear-gradient(180deg, #ff6fb5 0%, #c2257a 100%);
-  border-color: #ffe38a;
+  border-color: color-mix(in srgb, var(--cm-pink) 55%, var(--cm-line));
+  background: linear-gradient(155deg, color-mix(in srgb, var(--cm-pink) 24%, var(--cm-cream)), var(--cm-paper));
 }
 
 .cm-feature--buy.is-armed {
   animation: cm-armed 0.5s ease-in-out infinite alternate;
-  border-color: #fff;
+  border-color: var(--cm-pink);
 }
 
 @keyframes cm-armed {
-  from { box-shadow: 0 5px 0 #2a0838, 0 0 0 0 rgba(255, 227, 138, 0.8); }
-  to { box-shadow: 0 5px 0 #2a0838, 0 0 0 6px rgba(255, 227, 138, 0.25); }
+  from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--cm-pink) 25%, transparent); }
+  to { box-shadow: 0 0 0 4px color-mix(in srgb, var(--cm-pink) 8%, transparent); }
 }
 
 .cm-feature__art {
   grid-row: span 2;
-  width: 46px;
-  height: 46px;
+  width: 36px;
+  height: 44px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0) 70%);
 }
 
-.cm-feature__art img { width: 44px; height: 44px; animation: cm-bob 2.2s ease-in-out infinite; }
+.cm-feature__art img {
+  width: 36px;
+  height: 44px;
+  object-fit: contain;
+}
 
 .cm-feature__text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 
 .cm-feature__title {
   font-family: 'Lilita One', system-ui, sans-serif;
-  font-size: 17px;
-  letter-spacing: 0.02em;
-  line-height: 1.1;
-  text-shadow: 0 2px 0 rgba(60, 0, 50, 0.5);
+  font-size: 20px;
+  font-weight: 400;
+  line-height: 1.25;
+  color: var(--cm-ink);
 }
 
 .cm-feature__desc {
-  font-size: 12px;
-  line-height: 1.3;
-  color: rgba(255, 240, 250, 0.85);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--cm-muted);
 }
 
 .cm-feature__price {
@@ -1826,13 +1832,11 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
   justify-self: start;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--cm-gold);
-  background: rgba(42, 8, 56, 0.6);
+  gap: 5px;
+  font-family: 'Lilita One', system-ui, sans-serif;
+  font-weight: 400;
+  font-size: 22px;
+  color: var(--cm-ink);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1841,11 +1845,10 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 .cm-feature__switch {
   grid-row: span 2;
   position: relative;
-  width: 46px;
-  height: 26px;
+  width: 32px;
+  height: 20px;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.35);
-  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.35);
+  background: var(--cm-line);
   transition: background 0.2s;
 }
 
@@ -1853,56 +1856,58 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
   position: absolute;
   top: 3px;
   left: 3px;
-  width: 20px;
-  height: 20px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #fff, #e8d4f2);
-  box-shadow: 0 2px 3px rgba(0, 0, 0, 0.35);
-  transition: transform 0.2s cubic-bezier(0.3, 1.6, 0.5, 1);
+  background: var(--ui-text-highlighted);
+  transition: transform 0.2s;
 }
 
 .cm-feature--hunt.is-on {
-  border-color: #7df5c4;
-  background: linear-gradient(180deg, #1fae78 0%, #0d6b52 100%);
+  background: linear-gradient(155deg, color-mix(in srgb, var(--ui-success) 30%, var(--cm-cream)), var(--cm-paper));
+  border-color: color-mix(in srgb, var(--ui-success) 50%, var(--cm-line));
 }
 
-.cm-feature--hunt.is-on .cm-feature__switch { background: #7df5c4; }
-.cm-feature--hunt.is-on .cm-feature__switch i { transform: translateX(20px); }
+.cm-feature--hunt.is-on .cm-feature__switch {
+  background: var(--ui-success);
+}
+.cm-feature--hunt.is-on .cm-feature__switch i {
+  transform: translateX(12px);
+}
 
 /* ── cabinet frame ────────────────────────────────────────────────── */
 .cm-cabinet {
+  grid-area: cabinet;
   position: relative;
   width: 100%;
-  max-width: max(340px, min(640px, calc((100dvh - 250px) * 0.97)));
-  justify-self: center;
+  min-width: 0;
 }
 
 .cm-frame {
   position: relative;
-  padding: 26px 14px 18px;
-  border-radius: 34px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 18%),
-    repeating-linear-gradient(135deg, #ff5fa8 0 16px, #fff4fb 16px 32px);
-  box-shadow:
-    inset 0 0 0 5px var(--cm-gold),
-    inset 0 0 0 8px #b8317b,
-    0 0 0 4px #5a0f45,
-    0 18px 50px rgba(40, 0, 50, 0.55),
-    0 0 60px rgba(255, 95, 168, 0.35);
-  transition: box-shadow 0.4s;
+  padding: 16px 12px 12px;
+  border-radius: 20px 20px 0 0;
+  border: 2px solid color-mix(in srgb, var(--cm-pink) 45%, var(--cm-line));
+  border-bottom: 0;
+  background: linear-gradient(150deg, color-mix(in srgb, var(--cm-pink) 18%, var(--cm-cream)), var(--cm-cream) 46%, color-mix(in srgb, var(--candy-violet) 20%, var(--cm-cream)));
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--cm-pink) 8%, transparent), 0 22px 55px color-mix(in srgb, var(--cm-pink) 14%, transparent), inset 0 2px 0 color-mix(in srgb, var(--ui-text-highlighted) 20%, transparent);
+  transition: background 0.4s;
+}
+
+.cm-frame::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 12px;
+  right: 12px;
+  height: 5px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--cm-gold) 72%, var(--ui-text-highlighted)) 1.5px, transparent 2px) 0 0 / 22px 5px repeat-x;
+  opacity: .78;
+  pointer-events: none;
 }
 
 .is-bonus .cm-frame {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 18%),
-    repeating-linear-gradient(135deg, #ffb52e 0 16px, #fff6d8 16px 32px);
-  box-shadow:
-    inset 0 0 0 5px #fff1a8,
-    inset 0 0 0 8px #c77a00,
-    0 0 0 4px #5a2a00,
-    0 18px 50px rgba(40, 0, 50, 0.55),
-    0 0 80px rgba(255, 200, 60, 0.55);
+  background: color-mix(in srgb, var(--cm-gold) 22%, var(--cm-cream));
 }
 
 .cm-frame.is-anticipating {
@@ -1910,49 +1915,33 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 }
 
 @keyframes cm-antic {
-  from { box-shadow: inset 0 0 0 5px var(--cm-gold), inset 0 0 0 8px #b8317b, 0 0 0 4px #5a0f45, 0 0 30px rgba(255, 211, 90, 0.5); }
-  to { box-shadow: inset 0 0 0 5px #fff, inset 0 0 0 8px #ff5fa8, 0 0 0 4px #5a0f45, 0 0 90px rgba(255, 211, 90, 0.95); }
+  from { border-color: var(--cm-pink); }
+  to { border-color: var(--ui-warning); }
 }
 
-.cm-bulbs {
-  position: absolute;
-  left: 30px;
-  right: 30px;
-  height: 12px;
-  background: radial-gradient(circle, #fff9d6 0 3px, rgba(255, 211, 90, 0.85) 4px, rgba(255, 211, 90, 0) 6.5px) 0 50% / 24px 12px repeat-x;
-  animation: cm-chase 1.2s linear infinite;
-  pointer-events: none;
-}
 
-.cm-bulbs--top { top: 8px; }
-.cm-bulbs--bottom { bottom: 3px; animation-direction: reverse; }
-.is-bonus .cm-bulbs { animation-duration: 0.45s; }
 
-@keyframes cm-chase {
-  from { background-position: 0 50%; }
-  to { background-position: 24px 50%; }
-}
 
 .cm-topbar {
-  position: absolute;
-  top: -16px;
-  left: 50%;
-  transform: translateX(-50%);
+  position: relative;
   z-index: 5;
   display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
   gap: 6px;
-  white-space: nowrap;
+  margin: 10px 0 12px;
 }
 
 .cm-pill {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 14px 4px 12px;
+  padding: 5px 12px;
   border-radius: 999px;
-  background: linear-gradient(180deg, #5a1a72, #2a0838);
-  border: 2.5px solid var(--cm-gold);
-  box-shadow: 0 4px 0 #1c0426, 0 8px 18px rgba(0, 0, 0, 0.35);
+  background: linear-gradient(160deg, color-mix(in srgb, var(--candy-violet) 30%, var(--cm-paper)), var(--cm-paper));
+  border: 1px solid color-mix(in srgb, var(--cm-pink) 35%, var(--cm-line));
+  color: var(--cm-ink);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ui-text-highlighted) 12%, transparent), 0 3px 9px color-mix(in srgb, var(--cm-paper) 55%, transparent);
   animation: cm-pill-in 0.4s cubic-bezier(0.3, 1.8, 0.5, 1);
 }
 
@@ -1962,37 +1951,45 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 }
 
 .cm-pill__label {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #e7c4f5;
+  color: var(--cm-muted);
 }
 
 .cm-pill__value {
   font-family: 'Lilita One', system-ui, sans-serif;
-  font-size: 20px;
+  font-size: 21px;
   line-height: 1;
-  color: #fff;
+  color: var(--cm-ink);
   font-variant-numeric: tabular-nums;
 }
 
 .cm-pill--mult { --mult-color: #ff7ac0; }
-.cm-pill--mult:not(.is-live) .cm-pill__value { color: rgba(255, 255, 255, 0.45); }
+.cm-pill--mult:not(.is-live) .cm-pill__value {
+  color: var(--cm-muted);
+}
 
 .cm-pill--mult.is-live {
-  border-color: var(--mult-color);
-  box-shadow: 0 4px 0 #1c0426, 0 0 22px color-mix(in srgb, var(--mult-color) 70%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--cm-pink) 28%, transparent);
+  border-color: color-mix(in srgb, var(--cm-pink) 70%, var(--cm-line));
+  background: color-mix(in srgb, var(--cm-pink) 30%, var(--cm-cream));
 }
 
 .cm-pill--mult.is-live .cm-pill__value {
-  color: var(--mult-color);
-  text-shadow: 0 0 12px color-mix(in srgb, var(--mult-color) 60%, transparent);
+  color: var(--cm-ink);
 }
 
-.cm-pill--spins { border-color: #7df5c4; }
-.cm-pill--spins .cm-pill__value { color: #7df5c4; }
-.cm-pill--tumble .cm-pill__value { color: var(--cm-pink-hi); }
+.cm-pill--spins {
+  background: var(--cm-mint);
+}
+.cm-pill--spins .cm-pill__value {
+  color: var(--cm-ink);
+}
+.cm-pill--tumble .cm-pill__value {
+  color: var(--cm-ink);
+}
 
 @media (max-width: 480px) {
   .cm-pill { padding: 3px 10px; gap: 5px; }
@@ -2002,21 +1999,16 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 
 .cm-window {
   position: relative;
-  border-radius: 22px;
+  border-radius: 15px;
   overflow: hidden;
   aspect-ratio: 1 / 1;
-  background:
-    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 140, 210, 0.28), transparent 70%),
-    radial-gradient(ellipse 70% 50% at 50% 100%, rgba(120, 60, 220, 0.3), transparent 70%),
-    linear-gradient(180deg, #5a1a7a 0%, #36104f 55%, #240a38 100%);
-  box-shadow: inset 0 0 0 3px #2a0838, inset 0 8px 24px rgba(0, 0, 0, 0.55), inset 0 -4px 12px rgba(255, 150, 220, 0.12);
+  border: 3px solid color-mix(in srgb, var(--cm-pink) 32%, var(--cm-line));
+  background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--cm-pink) 10%, var(--cm-board)), var(--cm-board));
+  box-shadow: inset 0 6px 16px color-mix(in srgb, var(--cm-paper) 50%, transparent), 0 5px 14px color-mix(in srgb, var(--cm-paper) 55%, transparent);
 }
 
 .is-bonus .cm-window {
-  background:
-    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(255, 200, 80, 0.3), transparent 70%),
-    radial-gradient(ellipse 70% 50% at 50% 100%, rgba(255, 90, 160, 0.3), transparent 70%),
-    linear-gradient(180deg, #6a1e5a 0%, #3e0f42 55%, #2a0a30 100%);
+  background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--cm-pink) 22%, var(--cm-board)), var(--cm-board));
 }
 
 .cm-canvas {
@@ -2126,34 +2118,50 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 /* ── control deck ─────────────────────────────────────────────────── */
 .cm-deck {
   position: relative;
-  margin-top: 14px;
   display: grid;
-  /* The bet sizes to its content so compact bets like 2,5B never clip. */
-  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1.2fr) auto;
-  grid-template-areas: 'util bal bet win act';
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-areas: 'bal bet win' 'util act act';
   align-items: center;
-  gap: 8px 10px;
-  padding: 12px 14px;
-  border-radius: 26px;
-  background: linear-gradient(180deg, #5a1a72 0%, #36104f 100%);
-  border: 3px solid #ff9fd3;
-  box-shadow: 0 0 0 3px #5a0f45, 0 12px 30px rgba(30, 0, 40, 0.5), inset 0 2px 0 rgba(255, 255, 255, 0.2);
+  gap: 14px 10px;
+  padding: 10px 14px 16px;
+  border-radius: 0 0 20px 20px;
+  background: linear-gradient(150deg, var(--cm-cream), color-mix(in srgb, var(--candy-violet) 17%, var(--cm-cream)));
+  border: 2px solid color-mix(in srgb, var(--cm-pink) 45%, var(--cm-line));
+  border-top: 0;
+  box-shadow: 0 22px 40px color-mix(in srgb, var(--cm-pink) 12%, transparent);
 }
 
-/* On wide screens the deck runs past the reel frame, at least 640px wide, so the meters get room. */
-@media (min-width: 1101px) {
-  .cm-deck {
-    margin-inline: min(-48px, calc((100% - 640px) / 2));
-    padding: 14px 18px;
-    gap: 8px 14px;
-  }
+.cm-deck::after {
+  content: '';
+  position: absolute;
+  bottom: 6px;
+  left: 14px;
+  right: 14px;
+  height: 4px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--cm-gold) 60%, var(--ui-text-highlighted)) 1px, transparent 2px) 0 0 / 22px 4px repeat-x;
+  opacity: .55;
+  pointer-events: none;
 }
 
 .cm-meter--balance { grid-area: bal; }
 .cm-meter--bet { grid-area: bet; }
-.cm-meter--win { grid-area: win; }
-.cm-actions { grid-area: act; }
-.cm-utils { grid-area: util; }
+.cm-meter.cm-meter--win {
+  grid-area: win;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--cm-mint) 65%, var(--cm-paper)), var(--cm-paper));
+}
+.cm-actions {
+  grid-area: act;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.cm-utils {
+  grid-area: util;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+}
 
 .cm-meter {
   position: relative;
@@ -2161,24 +2169,26 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 4px;
   min-width: 0;
-  min-height: 62px;
-  padding: 6px 8px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, #1c0426, #2c0a3c);
-  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6), 0 1px 0 rgba(255, 255, 255, 0.15);
+  min-height: 74px;
+  align-self: stretch;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--cm-paper);
+  border: 1px solid var(--cm-line);
 }
 
 .cm-meter__label {
+  min-height: 18px;
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #c9a6db;
+  color: var(--cm-muted);
 }
 
 .cm-meter__value {
@@ -2187,26 +2197,29 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
   gap: 5px;
   max-width: 100%;
   overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
-  color: #fff;
+  color: var(--cm-ink);
 }
 
-.cm-coin { width: 16px; height: 16px; color: var(--cm-gold); flex: none; }
-
-.cm-meter--win {
-  background: linear-gradient(180deg, #14021c, #2a0838);
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.7), 0 0 0 2px rgba(255, 211, 90, 0.35);
+.cm-coin {
+  width: 15px;
+  height: 15px;
+  color: var(--cm-ink);
+  flex: none;
 }
+
+
 
 .cm-meter__win {
   font-family: 'Lilita One', system-ui, sans-serif;
-  font-size: 28px;
-  line-height: 1.05;
+  font-size: 27px;
+  line-height: 1.1;
   font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--cm-ink);
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2214,8 +2227,7 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 }
 
 .cm-meter__win.is-hot {
-  color: var(--cm-gold);
-  text-shadow: 0 0 16px rgba(255, 200, 60, 0.65), 0 2px 0 #7a3a00;
+  color: var(--ui-success);
   animation: cm-pill-in 0.35s cubic-bezier(0.3, 1.8, 0.5, 1);
 }
 
@@ -2254,15 +2266,13 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 }
 
 .cm-bet__value, .cm-bet__input {
-  /* Fixed room for compact bets like 2,5B or 999K; an input left to size
-     itself would take its default ~20ch width and squeeze the meters. */
-  flex: 0 0 auto;
+  flex: 0 1 auto;
   width: 5.2ch;
   min-width: 0;
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 500;
   text-align: center;
-  color: #fff;
+  color: var(--cm-ink);
   font-variant-numeric: tabular-nums;
   background: transparent;
   cursor: text;
@@ -2296,76 +2306,67 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
   display: grid;
   place-items: center;
   flex: none;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  font-size: 20px;
-  color: #fff;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  font-size: 18px;
+  color: var(--cm-ink);
   cursor: pointer;
-  background: radial-gradient(circle at 35% 28%, #a64fc4, #5a1a72 70%);
-  box-shadow: 0 3px 0 #1c0426, inset 0 2px 0 rgba(255, 255, 255, 0.3), 0 0 0 2px rgba(255, 159, 211, 0.55);
-  transition: transform 0.1s, filter 0.1s;
+  background: var(--cm-paper);
+  border: 1px solid var(--cm-line);
+  transition: transform 0.1s;
 }
 
-.cm-round--sm { width: 30px; height: 30px; font-size: 15px; box-shadow: 0 2px 0 #1c0426, inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 0 0 1.5px rgba(255, 159, 211, 0.55); }
+.cm-round--sm {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 15px;
+  box-shadow: none;
+}
 .cm-round:not(:disabled):hover { filter: brightness(1.15); }
 .cm-round:not(:disabled):active { transform: translateY(2px); }
 .cm-round:disabled { opacity: 0.4; cursor: default; }
 
 .cm-round.is-on {
   color: var(--cm-ink);
-  background: radial-gradient(circle at 35% 28%, #fff4c2, #ffc23a 70%);
-  box-shadow: 0 3px 0 #7a4a00, inset 0 2px 0 rgba(255, 255, 255, 0.6), 0 0 16px rgba(255, 211, 90, 0.7);
+  background: var(--cm-gold);
 }
 
-.cm-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
+
 
 .cm-spin {
+  box-shadow: 0 5px 0 color-mix(in srgb, var(--cm-pink) 45%, var(--cm-paper)), 0 10px 25px color-mix(in srgb, var(--cm-pink) 35%, transparent);
   position: relative;
-  display: grid;
-  place-items: center;
-  width: 92px;
-  height: 92px;
-  margin: -18px 0;
-  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 160px;
+  height: 56px;
+  border-radius: 16px;
   cursor: pointer;
-  color: #fff;
-  background: radial-gradient(circle at 38% 28%, #fff 0%, #ffb3dc 14%, #ff5fa8 45%, #c2257a 80%, #8a1257 100%);
-  box-shadow:
-    0 6px 0 #5a0f45,
-    0 14px 30px rgba(120, 10, 80, 0.55),
-    0 0 0 4px var(--cm-gold),
-    0 0 0 7px #5a0f45,
-    inset 0 -6px 12px rgba(90, 0, 60, 0.45);
-  transition: transform 0.12s, filter 0.12s, box-shadow 0.12s;
+  color: var(--ui-text-inverted);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--cm-pink) 60%, var(--ui-text-highlighted)), var(--cm-pink) 55%, color-mix(in srgb, var(--cm-pink) 75%, var(--cm-paper)));
+  transition: transform 0.12s, filter 0.12s;
 }
 
-.cm-spin:not(:disabled):hover { filter: brightness(1.08); transform: translateY(-1px) scale(1.02); }
-.cm-spin:not(:disabled):active { transform: translateY(4px); box-shadow: 0 2px 0 #5a0f45, 0 6px 14px rgba(120, 10, 80, 0.5), 0 0 0 4px var(--cm-gold), 0 0 0 7px #5a0f45, inset 0 -6px 12px rgba(90, 0, 60, 0.45); }
+.cm-spin:not(:disabled):hover {
+  filter: brightness(1.06);
+}
+.cm-spin:not(:disabled):active {
+  transform: translateY(3px);
+  box-shadow: 0 2px 0 color-mix(in srgb, var(--cm-pink) 45%, var(--cm-paper));
+}
 .cm-spin:disabled { cursor: default; }
 .cm-spin:disabled:not(.is-busy) { filter: saturate(0.5) brightness(0.85); }
 
-.cm-spin__ring {
-  position: absolute;
-  inset: 8px;
-  border-radius: 50%;
-  background: repeating-conic-gradient(rgba(255, 255, 255, 0.55) 0deg 15deg, transparent 15deg 45deg);
-  mask-image: radial-gradient(circle, transparent 55%, #000 57%, #000 70%, transparent 72%);
-  opacity: 0.7;
-}
 
-.cm-spin.is-busy .cm-spin__ring { animation: cm-rotate 0.7s linear infinite; }
-.cm-spin:not(:disabled):not(.is-busy) .cm-spin__ring { animation: cm-rotate 8s linear infinite; }
 
 .cm-spin__icon {
   position: relative;
-  width: 40px;
-  height: 40px;
-  filter: drop-shadow(0 2px 0 rgba(90, 0, 60, 0.6));
+  width: 26px;
+  height: 26px;
 }
 
 .cm-spin.is-busy .cm-spin__icon { animation: cm-rotate 0.6s linear infinite; }
@@ -2382,25 +2383,23 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 .cm-spin__auto b { font-family: 'Lilita One', system-ui, sans-serif; font-size: 26px; font-weight: 400; }
 .cm-spin__auto small { font-size: 11px; font-weight: 700; letter-spacing: 0.14em; }
 
-.cm-utils {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+
 
 .cm-util {
   display: grid;
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: 8px;
   font-size: 17px;
-  color: #e7c4f5;
-  background: rgba(255, 255, 255, 0.07);
+  color: var(--cm-muted);
   cursor: pointer;
 }
 
-.cm-util:hover { color: #fff; background: rgba(255, 255, 255, 0.14); }
+.cm-util:hover {
+  color: var(--cm-ink);
+  background: var(--cm-paper);
+}
 
 .cm-sound { position: relative; }
 
@@ -2414,8 +2413,8 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
   gap: 10px;
   padding: 8px 12px;
   border-radius: 14px;
-  background: var(--cm-ink);
-  border: 2px solid #ff9fd3;
+  background: var(--cm-cream);
+  border: 1px solid var(--cm-line);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
 }
 
@@ -2431,57 +2430,45 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 
 .cm-sound__pop input { width: 110px; accent-color: #ff5fa8; }
 
-@media (max-width: 640px) {
-  .cm-stage { padding: 8px 10px 20px; }
-  .cm-frame { padding: 22px 8px 12px; border-radius: 26px; }
-  .cm-window { border-radius: 16px; }
-  .cm-deck {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    grid-template-areas: 'win win' 'bal bet' 'act act' 'util util';
-    padding: 10px;
-  }
-  .cm-actions { justify-content: center; gap: 18px; padding: 16px 0 6px; }
-  .cm-spin { margin: 0; }
-  .cm-utils { flex-direction: row; justify-content: center; }
-  .cm-meter__win { font-size: 26px; }
-}
-
 /* ── side panels ──────────────────────────────────────────────────── */
 .cm-panel {
-  padding: 14px;
-  border-radius: 20px;
-  background: linear-gradient(180deg, rgba(74, 20, 102, 0.92), rgba(42, 8, 56, 0.92));
-  border: 2px solid rgba(255, 159, 211, 0.55);
-  box-shadow: 0 10px 24px rgba(30, 0, 40, 0.4);
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--cm-pink) 28%, var(--cm-line));
+  border-radius: 14px;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--candy-violet) 15%, var(--cm-cream)), var(--cm-cream));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--cm-paper) 55%, transparent);
 }
 
 .cm-panel__title {
   font-family: 'Lilita One', system-ui, sans-serif;
-  font-size: 17px;
-  color: var(--cm-gold);
-  margin-bottom: 8px;
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--cm-ink);
+  margin-bottom: 14px;
 }
 
 .cm-panel__list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   font-size: 13px;
-  line-height: 1.4;
-  color: #ecd3f6;
+  line-height: 1.6;
+  color: var(--cm-muted);
 }
 
 .cm-panel__list li { padding-left: 14px; position: relative; }
 .cm-panel__list li::before { content: ''; position: absolute; left: 0; top: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--cm-pink); }
-.cm-panel__list b { color: #fff; }
+.cm-panel__list b {
+  color: var(--cm-ink);
+}
 
 .cm-panel__link {
-  margin-top: 10px;
-  font-size: 12.5px;
-  font-weight: 700;
-  color: var(--cm-pink-hi);
+  margin-top: 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cm-ink);
   text-decoration: underline;
-  text-underline-offset: 3px;
+  text-underline-offset: 4px;
   cursor: pointer;
 }
 
@@ -2495,17 +2482,23 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 2px 8px;
-  border-radius: 999px;
+  padding: 3px 8px;
+  border-radius: 6px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
-  color: rgba(255, 255, 255, 0.45);
-  background: rgba(0, 0, 0, 0.25);
+  color: var(--cm-muted);
+  background: var(--cm-line);
 }
 
-.cm-history span.win { color: #7df5c4; background: rgba(63, 224, 160, 0.14); }
-.cm-history span.bonus { color: var(--cm-gold); background: rgba(255, 211, 90, 0.14); }
+.cm-history span.win {
+  color: var(--cm-ink);
+  background: var(--cm-mint);
+}
+.cm-history span.bonus {
+  color: var(--cm-ink);
+  background: var(--cm-gold);
+}
 
 .cm-error {
   margin-top: 10px;
@@ -2529,6 +2522,85 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 .cm-fade-enter-from, .cm-fade-leave-to { opacity: 0; }
 
 @media (prefers-reduced-motion: reduce) {
-  .cm-logo__madness, .cm-logo__art, .cm-bulbs, .cm-spin__ring, .cm-feature__art img { animation: none !important; }
+  .cm-logo__art, .cm-feature__art img, .cm-frame.is-anticipating, .cm-feature--buy.is-armed, .cm-spin.is-busy .cm-spin__icon { animation: none !important; }
+}
+.cm-eyebrow,
+.cm-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--cm-muted);
+}
+.cm-section-label { margin: 0 0 2px; }
+.cm-machine-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid color-mix(in srgb, var(--cm-pink) 50%, var(--cm-line));
+  border-radius: 11px;
+  background: linear-gradient(100deg, color-mix(in srgb, var(--cm-pink) 33%, var(--cm-paper)), color-mix(in srgb, var(--candy-violet) 32%, var(--cm-paper)));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ui-text-highlighted) 16%, transparent);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--cm-ink);
+}
+.cm-machine-heading span:first-child {
+  font-family: 'Lilita One', system-ui, sans-serif;
+  font-size: 19px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+}
+.cm-spin__label {
+  font-family: 'Lilita One', system-ui, sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+}
+.is-bonus .cm-deck {
+  background: color-mix(in srgb, var(--cm-gold) 22%, var(--cm-cream));
+}
+.cm-root button:focus-visible,
+.cm-root input:focus-visible { outline: 3px solid var(--cm-pink); outline-offset: 4px; }
+
+@media (max-width: 1284px) {
+  .cm-main { grid-template-columns: minmax(0, 760px); grid-template-areas: 'cabinet' 'features' 'guide'; justify-content: center; }
+  .cm-side--left { display: grid; grid-template-columns: 1fr 1fr; padding-top: 0; }
+  .cm-section-label { grid-column: 1 / -1; }
+  .cm-side--right { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding-top: 0; }
+}
+@media (max-width: 540px) {
+  .cm-stage { padding: 20px 12px 30px; }
+  .cm-logo { gap: 4px; }
+  .cm-logo__art { width: 28px; }
+  .cm-logo__title { font-size: clamp(30px, 8vw, 42px); }
+  .cm-chips { gap: 12px; margin: 14px 0 20px; }
+  .cm-chip { font-size: 9px; }
+  .cm-frame { padding: 12px 7px 7px; border-radius: 16px 16px 0 0; }
+  .cm-window { border-radius: 12px; }
+  .cm-machine-heading { font-size: 8px; gap: 4px; padding: 6px 9px; min-height: 30px; }
+  .cm-machine-heading span:first-child { font-size: 14px; }
+  .cm-deck { padding: 10px 8px 14px; gap: 12px 5px; border-radius: 0 0 16px 16px; }
+  .cm-meter { padding: 6px 4px; min-height: 60px; }
+  .cm-meter__value, .cm-bet__value, .cm-bet__input { font-size: 16px; }
+  .cm-meter__win { font-size: 21px; }
+  .cm-meter__value .cm-coin { display: none; }
+  .cm-meter__label { font-size: 8px; letter-spacing: 0.07em; gap: 3px; }
+  .cm-bet { gap: 3px; }
+  .cm-bet__value, .cm-bet__input { width: 4.7ch; }
+  .cm-actions { gap: 8px; }
+  .cm-round { width: 32px; height: 34px; }
+  .cm-round--sm { width: 24px; height: 26px; }
+  .cm-spin { width: 100px; height: 44px; }
+  .cm-side--left { gap: 10px; }
+  .cm-feature { grid-template-columns: 1fr; padding: 14px 10px; gap: 8px; }
+  .cm-feature__art { display: none; }
+  .cm-feature__switch { grid-row: auto; }
+  .cm-feature__title { font-size: 14px; }
+  .cm-feature__desc { font-size: 11px; }
+  .cm-feature__price { grid-column: 1; font-size: 18px; }
+  .cm-side--right { grid-template-columns: 1fr; gap: 0; }
 }
 </style>

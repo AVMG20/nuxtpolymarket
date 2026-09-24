@@ -1,74 +1,41 @@
 <script setup lang="ts">
-import { drawAgBackdrop } from '~/utils/slots/aethergates-art'
-
-// The sky temple behind the cabinet: a canvas painting redrawn on resize,
-// with slow CSS light rays and drifting motes on top. During free spins the
-// scene shifts to a stormy violet.
-
 defineProps<{ bonus?: boolean }>()
 
-const root = ref<HTMLDivElement>()
-const canvas = ref<HTMLCanvasElement>()
-let observer: ResizeObserver | null = null
-let timer: ReturnType<typeof setTimeout> | null = null
-
-function paint() {
-  const el = root.value
-  const cv = canvas.value
-  if (!el || !cv) return
-  const w = Math.max(1, el.clientWidth)
-  const h = Math.max(1, el.clientHeight)
-  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1))
-  cv.width = Math.round(w * dpr)
-  cv.height = Math.round(h * dpr)
-  const ctx = cv.getContext('2d')
-  if (!ctx) return
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  drawAgBackdrop(ctx, w, h)
-}
-
-// Cosmetic positions for the drifting motes.
-const motes = Array.from({ length: 26 }, (_, i) => ({
+// Fixed decorative positions avoid layout shifts and random render differences.
+const stars = Array.from({ length: 48 }, (_, i) => ({
   left: `${(i * 37.3) % 100}%`,
-  delay: `${-((i * 1.7) % 14)}s`,
-  duration: `${12 + (i % 7) * 2}s`,
-  size: `${2 + (i % 4)}px`
+  top: `${(i * 23.7) % 100}%`,
+  opacity: 0.15 + (i % 5) * 0.1,
+  size: i % 6 === 0 ? '3px' : '1px'
 }))
-
-onMounted(() => {
-  paint()
-  observer = new ResizeObserver(() => {
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(paint, 120)
-  })
-  if (root.value) observer.observe(root.value)
-})
-
-onBeforeUnmount(() => {
-  observer?.disconnect()
-  if (timer) clearTimeout(timer)
-})
 </script>
 
 <template>
-  <div
-    ref="root"
-    class="ag-backdrop"
-    :class="{ 'is-bonus': bonus }"
-    aria-hidden="true"
-  >
-    <canvas
-      ref="canvas"
-      class="ag-backdrop-canvas"
-    />
-    <div class="ag-rays" />
-    <div class="ag-storm" />
-    <span
-      v-for="(m, i) in motes"
-      :key="i"
-      class="ag-mote"
-      :style="{ left: m.left, animationDelay: m.delay, animationDuration: m.duration, width: m.size, height: m.size }"
-    />
+  <div class="ag-backdrop" :class="{ 'is-bonus': bonus }" aria-hidden="true">
+    <div class="ag-nebula" />
+    <svg class="ag-orrery" viewBox="0 0 1200 1000" fill="none">
+      <g stroke="currentColor">
+        <circle cx="600" cy="480" r="410" stroke-width="0.7" />
+        <circle cx="600" cy="480" r="430" stroke-width="0.5" stroke-dasharray="2 12" />
+        <circle cx="600" cy="480" r="470" stroke-width="0.5" />
+        <ellipse cx="600" cy="480" rx="550" ry="230" transform="rotate(-35 600 480)" stroke-width="0.5" />
+        <path d="M600 0v45M600 915v45M120 480h35M1045 480h35" />
+      </g>
+      <g fill="currentColor">
+        <path d="m236 200 4 10 10 4-10 4-4 10-4-10-10-4 10-4ZM995 655l4 10 10 4-10 4-4 10-4-10-10-4 10-4Z" />
+        <circle cx="976" cy="315" r="4" />
+        <circle cx="235" cy="666" r="3" />
+      </g>
+    </svg>
+    <svg class="ag-horizon" viewBox="0 0 1600 500" preserveAspectRatio="xMidYMax slice" fill="none">
+      <path d="M0 180 170 240 290 200 480 355 640 290 810 355 1100 185 1300 230 1450 120 1600 180V500H0Z" fill="currentColor" opacity="0.12" />
+      <path d="M0 325 220 290 450 430 700 355 950 430 1210 280 1400 345 1600 300V500H0Z" fill="currentColor" opacity="0.18" />
+      <g stroke="currentColor" stroke-width="2" opacity="0.2">
+        <path d="M80 240V130H210V240M65 130l80-40 80 40ZM70 245H220M95 240V145M125 240V145M165 240V145M195 240V145" />
+        <path d="M1380 210V100H1510V210M1365 100l80-40 80 40ZM1370 215H1520M1395 210V115M1425 210V115M1465 210V115M1495 210V115" />
+      </g>
+    </svg>
+    <span v-for="(star, i) in stars" :key="i" class="ag-star" :style="{ left: star.left, top: star.top, opacity: star.opacity, width: star.size, height: star.size }" />
   </div>
 </template>
 
@@ -77,104 +44,44 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background: #120b2e;
+  background: var(--ag-night);
+  pointer-events: none;
 }
-
-.ag-backdrop-canvas {
+.ag-nebula {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  transition: filter 1.2s ease;
+  background:
+    radial-gradient(ellipse at 48% 15%, color-mix(in srgb, var(--ag-accent) 13%, transparent), transparent 60%),
+    radial-gradient(ellipse at 80% 85%, color-mix(in srgb, var(--ui-secondary) 10%, transparent), transparent 55%);
+  transition: opacity 1s ease;
 }
-
-.ag-rays {
+.ag-orrery {
   position: absolute;
+  width: min(1300px, 140%);
+  height: 110%;
   left: 50%;
-  top: 74%;
-  width: 240vmax;
-  height: 240vmax;
-  transform: translate(-50%, -50%);
-  background: repeating-conic-gradient(from 0deg, rgba(255, 220, 160, 0.07) 0deg 4deg, transparent 4deg 13deg);
-  mask-image: radial-gradient(circle, black 0%, transparent 42%);
-  animation: ag-rays-turn 90s linear infinite;
-  mix-blend-mode: screen;
+  top: -5%;
+  transform: translateX(-50%);
+  color: var(--ag-gold);
+  opacity: 0.18;
 }
-
-.ag-storm {
+.ag-horizon {
   position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse at 50% 30%, rgba(76, 29, 149, 0.2), rgba(8, 6, 30, 0.75));
-  opacity: 0;
-  transition: opacity 1.2s ease;
+  bottom: 0;
+  width: 100%;
+  height: 50%;
+  color: var(--ag-accent);
 }
-
-.is-bonus .ag-storm {
-  opacity: 1;
-  animation: ag-storm-flash 7s ease-in-out infinite;
-}
-
-.is-bonus .ag-backdrop-canvas {
-  filter: hue-rotate(-35deg) saturate(1.2) brightness(0.8);
-}
-
-.ag-mote {
+.ag-star {
   position: absolute;
-  bottom: -10px;
-  border-radius: 999px;
-  background: radial-gradient(circle, #fff7d6, rgba(252, 211, 77, 0.6) 50%, transparent 70%);
-  box-shadow: 0 0 8px rgba(252, 211, 77, 0.6);
-  animation-name: ag-mote-rise;
-  animation-timing-function: linear;
-  animation-iteration-count: infinite;
-  opacity: 0;
+  border-radius: 50%;
+  background: var(--ag-text);
 }
-
-.is-bonus .ag-mote {
-  background: radial-gradient(circle, #ecfeff, rgba(103, 232, 249, 0.7) 50%, transparent 70%);
-  box-shadow: 0 0 8px rgba(103, 232, 249, 0.7);
+.is-bonus .ag-nebula {
+  opacity: 0.5;
 }
-
-@keyframes ag-rays-turn {
-  to {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-}
-
-@keyframes ag-mote-rise {
-  0% {
-    transform: translate(0, 0);
-    opacity: 0;
-  }
-  10% {
-    opacity: 0.9;
-  }
-  100% {
-    transform: translate(40px, -105vh);
-    opacity: 0;
-  }
-}
-
-@keyframes ag-storm-flash {
-  0%, 88%, 100% {
-    background-color: transparent;
-  }
-  90% {
-    background-color: rgba(165, 243, 252, 0.12);
-  }
-  92% {
-    background-color: transparent;
-  }
-  94% {
-    background-color: rgba(165, 243, 252, 0.08);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ag-rays,
-  .ag-mote,
-  .is-bonus .ag-storm {
-    animation: none;
-  }
+.is-bonus .ag-orrery {
+  color: var(--ui-secondary);
+  opacity: 0.4;
 }
 </style>
