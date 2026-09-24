@@ -530,6 +530,14 @@ const rawGroups: CommandPaletteGroup[] = [
         icon: 'i-lucide-boxes',
         to: '/voxel-arena',
         keywords: ['voxel', 'arena', 'shooter', 'slasher', 'waves', 'survival', 'roguelike', 'upgrades', 'titan']
+      },
+      {
+        id: 'holdfast',
+        label: 'Holdfast',
+        description: 'Low-poly castle defence RTS: survive 25 minutes of raiders',
+        icon: 'i-lucide-shield-check',
+        to: '/holdfast',
+        keywords: ['holdfast', 'castle', 'defence', 'defense', 'rts', 'strategy', 'keep', 'walls', 'archers', 'warriors', 'bloodmoon', 'survival']
       }
     ]
   },

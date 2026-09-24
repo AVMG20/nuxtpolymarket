@@ -48,6 +48,7 @@ const activeGameItems: NavigationMenuItem[] = [
   { label: 'Void Runner', class: 'mb-1', icon: 'i-lucide-rocket', to: '/void' },
   { label: 'Pirate Raid', class: 'mb-1', icon: 'i-lucide-anchor', to: '/pirates' },
   { label: 'Pathwarden', class: 'mb-1', icon: 'i-lucide-castle', to: '/pathwarden' },
+  { label: 'Holdfast', class: 'mb-1', icon: 'i-lucide-shield-check', to: '/holdfast' },
   { label: 'SHAPEZZ', class: 'mb-1', icon: 'i-lucide-shapes', to: '/shapezz' },
   { label: 'Call of Xeno', class: 'mb-1', icon: 'i-lucide-skull', to: '/call-of-xeno' },
   { label: 'Voxel Arena', class: 'mb-1', icon: 'i-lucide-boxes', to: '/voxel-arena' },

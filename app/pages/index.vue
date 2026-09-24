@@ -160,6 +160,14 @@ const arcadeGames = [
     iconColor: 'text-teal-300'
   },
   {
+    name: 'Holdfast',
+    description: 'Low-poly castle defence RTS — build, wall up and command packs of warriors and archers against endless raiders. Survive 25 minutes.',
+    icon: 'i-lucide-shield-check',
+    to: '/holdfast',
+    gradient: 'from-amber-950 via-stone-900 to-emerald-950',
+    iconColor: 'text-amber-300'
+  },
+  {
     name: 'SHAPEZZ',
     description: 'Endless platform-shooter mayhem with stackable mutations and 45-second cash-outs',
     icon: 'i-lucide-shapes',
