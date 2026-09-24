@@ -57,6 +57,14 @@ const slotGames: {
     gradient: 'from-indigo-950 to-slate-900',
     iconColor: 'text-yellow-400'
   },
+  {
+    name: 'Aviamasters',
+    description: 'Crash game: fly through multipliers, dodge rockets and land on the island to cash out',
+    icon: 'i-lucide-plane',
+    to: '/games/aviamasters',
+    gradient: 'from-sky-950 to-slate-900',
+    iconColor: 'text-sky-400'
+  },
 ]
 
 const casinoGames = [

@@ -40,6 +40,7 @@ const GENRE_BY_LABEL: Record<string, Genre> = {
     'Book of Shadows': 'casino',
     Spinata: 'casino',
     'Trash Panda Heist': 'casino',
+    Aviamasters: 'casino',
     Roulette: 'casino',
     Blackjack: 'casino',
     Baccarat: 'casino',
