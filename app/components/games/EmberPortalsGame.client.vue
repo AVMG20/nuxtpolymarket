@@ -2611,7 +2611,7 @@ const portalChipColor = (m: number) => tierCss(m).glow
   padding: 2px 12px 4px;
   border-radius: 999px;
   font-family: var(--ep-number);
-  font-size: 28px;
+  font-size: 34px;
   font-weight: 900;
   line-height: 1.1;
   white-space: nowrap;
@@ -2624,7 +2624,7 @@ const portalChipColor = (m: number) => tierCss(m).glow
   box-shadow: 0 0 0 1.5px var(--c), 0 0 16px var(--c), 0 4px 12px rgba(0, 0, 0, 0.6);
 }
 
-.ep-flyers :deep(.ep-flyer.is-big) { font-size: 36px; }
+.ep-flyers :deep(.ep-flyer.is-big) { font-size: 44px; }
 
 /* ── Transitions & keyframes ─────────────────────────────────────────── */
 .ep-fade-enter-active, .ep-fade-leave-active { transition: opacity 0.25s, transform 0.25s; }
@@ -2726,8 +2726,8 @@ const portalChipColor = (m: number) => tierCss(m).glow
   .ep-center > .ep-wd { margin: 12px 0 34px; }
   .ep-deck :deep(.sc-value), .ep-deck :deep(.sc-bet__value) { font-size: 17px; }
   .ep-deck :deep(.sc-spin) { width: 76px; height: 76px; margin: -18px 0 -4px; padding: 10px; }
-  .ep-flyers :deep(.ep-flyer) { font-size: 18px; }
-  .ep-flyers :deep(.ep-flyer.is-big) { font-size: 24px; }
+  .ep-flyers :deep(.ep-flyer) { font-size: 22px; }
+  .ep-flyers :deep(.ep-flyer.is-big) { font-size: 28px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
