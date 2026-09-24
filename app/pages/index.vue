@@ -58,6 +58,14 @@ const slotGames: {
     iconColor: 'text-yellow-400'
   },
   {
+    name: 'Ember Portals',
+    description: '7×7 cluster tumbles with wandering portal wilds that grow, merge and stay open through free spins',
+    icon: 'i-lucide-orbit',
+    to: '/games/emberportals',
+    gradient: 'from-orange-950 to-slate-900',
+    iconColor: 'text-orange-400'
+  },
+  {
     name: 'PolyMasters',
     description: 'Crash game: fly through multipliers, dodge rockets and land on the island to cash out',
     icon: 'i-lucide-plane',
