@@ -1687,6 +1687,7 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
   width: 54px;
   filter: drop-shadow(0 5px 7px color-mix(in srgb, var(--cm-pink) 45%, transparent));
   height: auto;
+  animation: cm-bob 3s ease-in-out infinite;
 }
 
 .cm-logo__art--l {
@@ -1694,6 +1695,7 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 }
 .cm-logo__art--r {
   rotate: 10deg;
+  animation-delay: -1.5s;
 }
 
 @keyframes cm-bob {
@@ -1903,7 +1905,13 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
   height: 5px;
   background: radial-gradient(circle, color-mix(in srgb, var(--cm-gold) 72%, var(--ui-text-highlighted)) 1.5px, transparent 2px) 0 0 / 22px 5px repeat-x;
   opacity: .78;
+  animation: cm-lights 3s ease-in-out infinite alternate;
   pointer-events: none;
+}
+
+@keyframes cm-lights {
+  from { opacity: .45; }
+  to { opacity: .9; }
 }
 
 .is-bonus .cm-frame {
@@ -2522,7 +2530,7 @@ const multColor = computed(() => hexCss(spotColor(2 ** Math.max(1, Math.min(11, 
 .cm-fade-enter-from, .cm-fade-leave-to { opacity: 0; }
 
 @media (prefers-reduced-motion: reduce) {
-  .cm-logo__art, .cm-feature__art img, .cm-frame.is-anticipating, .cm-feature--buy.is-armed, .cm-spin.is-busy .cm-spin__icon { animation: none !important; }
+  .cm-logo__art, .cm-feature__art img, .cm-frame::before, .cm-frame.is-anticipating, .cm-feature--buy.is-armed, .cm-spin.is-busy .cm-spin__icon { animation: none !important; }
 }
 .cm-eyebrow,
 .cm-section-label {

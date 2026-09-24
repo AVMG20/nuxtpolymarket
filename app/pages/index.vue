@@ -190,6 +190,14 @@ const arcadeGames = [
     to: '/voxel-arena',
     gradient: 'from-indigo-950 via-slate-950 to-cyan-950',
     iconColor: 'text-cyan-300'
+  },
+  {
+    name: 'Pixel Crusade',
+    description: 'Idle pixel-art brawler — auto-fight monsters, upgrade your hits and prestige into stronger classes',
+    icon: 'i-lucide-sword',
+    to: '/pixel-crusade',
+    gradient: 'from-violet-950 via-indigo-950 to-amber-950',
+    iconColor: 'text-amber-300'
   }
 ]
 

@@ -30,12 +30,12 @@ defineProps<{ bonus?: boolean }>()
         <path d="M83 365c17-25 43-33 61-35m1239-12c20-30 44-40 68-42" stroke="var(--ui-text-highlighted)" stroke-width="7" stroke-linecap="round" opacity=".15" />
       </g>
 
-      <g fill="var(--cm-gold)" opacity=".48">
+      <g class="cm-backdrop__spark cm-backdrop__spark--gold" fill="var(--cm-gold)" opacity=".48">
         <path d="m279 204 5 14 14 5-14 5-5 14-5-14-14-5 14-5ZM1299 169l4 12 12 4-12 4-4 12-4-12-12-4 12-4Z" />
         <circle cx="354" cy="313" r="3" /><circle cx="1247" cy="272" r="3" />
         <circle cx="1513" cy="154" r="2" /><circle cx="63" cy="236" r="2" />
       </g>
-      <g fill="var(--cm-pink)" opacity=".4">
+      <g class="cm-backdrop__spark cm-backdrop__spark--pink" fill="var(--cm-pink)" opacity=".4">
         <path d="m339 139 3 9 9 3-9 3-3 9-3-9-9-3 9-3ZM1210 101l3 10 10 3-10 3-3 10-3-10-10-3 10-3Z" />
         <circle cx="196" cy="211" r="3" /><circle cx="1373" cy="185" r="3" />
       </g>
@@ -75,6 +75,14 @@ defineProps<{ bonus?: boolean }>()
   height: min(85%, 800px);
 }
 
+.cm-backdrop__spark { animation: cm-twinkle 4s ease-in-out infinite alternate; }
+.cm-backdrop__spark--pink { animation-delay: -2s; }
+
+@keyframes cm-twinkle {
+  from { opacity: .25; }
+  to { opacity: .68; }
+}
+
 .is-bonus {
   background:
     radial-gradient(ellipse at 50% 26%, color-mix(in srgb, var(--cm-gold) 18%, transparent), transparent 68%),
@@ -84,5 +92,9 @@ defineProps<{ bonus?: boolean }>()
 @media (max-width: 700px) {
   .cm-backdrop__land { width: 180%; left: -40%; }
   .cm-backdrop__lolly { opacity: .55; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cm-backdrop__spark { animation: none; }
 }
 </style>

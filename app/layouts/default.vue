@@ -41,7 +41,8 @@ const idleGameItems: NavigationMenuItem[] = [
   { label: 'Xeno', class: 'mb-1', icon: 'i-lucide-sprout', to: '/xeno' },
   { label: 'Hack Ops', class: 'mb-1', icon: 'i-lucide-terminal', to: '/hack' },
   { label: 'Colony', class: 'mb-1', icon: 'i-lucide-bug', to: '/colony' },
-  { label: 'Polytown', class: 'mb-1', icon: 'i-lucide-building-2', to: '/polytown' }
+  { label: 'Polytown', class: 'mb-1', icon: 'i-lucide-building-2', to: '/polytown' },
+  { label: 'Pixel Crusade', class: 'mb-1', icon: 'i-lucide-sword', to: '/pixel-crusade' }
 ]
 
 const activeGameItems: NavigationMenuItem[] = [
