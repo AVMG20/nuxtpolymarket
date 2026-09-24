@@ -19,7 +19,8 @@ A play-money gaming site. Players earn and spend **coins** (`user.balance`) and 
 
 ## Client
 
-- `useAuth()` gives `{ user, fetchSession, signOut }`. `user.value.balance` is a numeric string, so use `parseFloat` for comparisons. Call `fetchSession()` after anything that changes balance or gems.
+- `useAuth()` gives `{ user, balanceNum, setBalance, fetchSession, signOut }`. `user.value.balance` is a numeric string, so use `parseFloat` (or `balanceNum`) for comparisons.
+- **When the response carries the new balance, use `setBalance(data.balance)`, not `fetchSession()`.** `/api/games/play-game` always returns it, so slots and casino games never refetch the session per round: a get-session call on every spin (autoplay, turbo) floods better-auth and logs the player out. Apply it only once the round's animations and win reveal are done (the same point a refetch used to run), or the balance spoils the win. `useSlotGame` settles the pending balance itself if the game unmounts mid-spin. Reserve `fetchSession()` for actions whose response doesn't include the balance or gems.
 - `formatNumber(value, compact = true)` for every coin and gem amount shown.
 - Coin and gem inputs accept `10k`/`2.5m` shorthand: bind `useAmountInput(ref)` to the input and show `amountPreview(text)` as a trailing hint.
 - `apiFetch` for typed API calls; `apiErrorMessage(e, fallback)` for error text.
