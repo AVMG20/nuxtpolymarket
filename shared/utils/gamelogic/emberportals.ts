@@ -18,7 +18,9 @@
 //     that cluster once it has paid.
 //   • A wild in a win grows by +1 and jumps to a random cell of that win.
 //   • Wilds that share a win (directly, or through clusters that share a
-//     wild) merge into one portal whose multiplier is their sum + 1.
+//     wild) merge into one portal whose multiplier is their product (×5 and
+//     ×3 become ×15). A merge always gains at least what growing would have
+//     (sum + 1), so folding in a ×1 portal is never a loss.
 //   Base game portals close when the tumble sequence ends.
 //
 // ── Free spins ──────────────────────────────────────────────────────────────
@@ -55,14 +57,14 @@ export const EP_BRACKETS = [5, 6, 7, 8, 9, 10, 11, 13, 15] as const
 
 /** Pays × bet per cluster, one column per bracket in EP_BRACKETS. */
 export const PAYTABLE: Record<EpPaySymbol, number[]> = {
-    ember: [0.6, 0.8, 1, 1.25, 1.5, 2.5, 5, 10, 25],
-    rune: [0.8, 1, 1.25, 1.5, 2, 3, 6, 12, 30],
-    potion: [1, 1.25, 1.5, 2, 2.5, 4, 8, 15, 40],
-    hourglass: [1.25, 1.5, 2, 2.5, 3, 5, 10, 20, 50],
-    chalice: [1.5, 2, 2.5, 3, 5, 6, 12, 30, 80],
-    amulet: [2, 2.5, 3, 5, 6, 10, 20, 50, 125],
-    grimoire: [2.5, 3, 5, 6, 10, 15, 30, 75, 250],
-    phoenix: [3, 5, 6, 10, 15, 25, 50, 125, 500]
+    ember: [0.3, 0.4, 0.5, 0.7, 0.8, 1.4, 2.8, 5.5, 14],
+    rune: [0.4, 0.5, 0.7, 0.8, 1.1, 1.6, 3.3, 6.6, 16],
+    potion: [0.5, 0.7, 0.8, 1.1, 1.4, 2.2, 4.4, 8, 22],
+    hourglass: [0.7, 0.8, 1.1, 1.4, 1.6, 2.8, 5.5, 11, 28],
+    chalice: [0.8, 1.1, 1.4, 1.6, 2.8, 3.3, 6.6, 16, 44],
+    amulet: [1.1, 1.4, 1.6, 2.8, 3.3, 5.5, 11, 28, 70],
+    grimoire: [1.4, 1.6, 2.8, 3.3, 5.5, 8, 16, 40, 140],
+    phoenix: [1.6, 2.8, 3.3, 5.5, 8, 14, 28, 70, 275]
 }
 
 export function bracketIndex(size: number): number {
@@ -80,11 +82,11 @@ type Weights = Record<EpPaySymbol | 'scatter', number>
 
 const BASE_PAY = { ember: 150, rune: 145, potion: 135, hourglass: 125, chalice: 100, amulet: 85, grimoire: 70, phoenix: 55 }
 
-export const BASE_WEIGHTS: Weights = { ...BASE_PAY, scatter: 5.55 }
-/** Ante: same symbols, free spins trigger about 1.6× as often. */
-export const ANTE_WEIGHTS: Weights = { ...BASE_PAY, scatter: 6.54 }
+export const BASE_WEIGHTS: Weights = { ...BASE_PAY, scatter: 6.51 }
+/** Ante: same symbols, free spins trigger about 1.35× as often. */
+export const ANTE_WEIGHTS: Weights = { ...BASE_PAY, scatter: 7.28 }
 /** Free spins drop the embers, so clusters (and portals) land more often. */
-export const FS_WEIGHTS: Weights = { ember: 0, rune: 200, potion: 160, hourglass: 140, chalice: 110, amulet: 90, grimoire: 70, phoenix: 50, scatter: 4 }
+export const FS_WEIGHTS: Weights = { ember: 0, rune: 218, potion: 160, hourglass: 140, chalice: 110, amulet: 90, grimoire: 70, phoenix: 50, scatter: 4 }
 
 export const FS_TRIGGER = 3
 /** Free spins for 3, 4, 5, 6 and 7+ scatters. */
@@ -95,7 +97,7 @@ export const FS_MAX_SPINS = 60
 /** Ante bet cost, × bet. */
 export const EP_ANTE_COST = 1.25
 /** Free-spins buy cost, × bet. */
-export const EP_BUY_COST = 101
+export const EP_BUY_COST = 100
 
 export function fsAward(scatters: number): number {
     if (scatters < FS_TRIGGER) return 0
@@ -390,7 +392,9 @@ export function runTumbles(
             const group = [...ids2].map(id => byId.get(id)!).sort((a, b) => b.mult - a.mult || a.id - b.id)
             const keep = group[0]!
             const sum = group.reduce((a, w) => a + w.mult, 0)
-            const mult = Math.min(EP_WILD_MAX_MULT, sum + 1)
+            const product = group.reduce((a, w) => a * w.mult, 1)
+            const grown = group.length > 1 ? Math.max(product, sum + 1) : sum + 1
+            const mult = Math.min(EP_WILD_MAX_MULT, grown)
             for (const w of group) {
                 nextWilds.delete(w.id)
                 removed.add(key(w.col, w.row))

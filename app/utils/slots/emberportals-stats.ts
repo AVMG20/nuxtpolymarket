@@ -4,14 +4,14 @@
 // shared/utils/gamelogic/emberportals.ts changes.
 export const EP_STATS = {
     rounds: '100 million',
-    rtp: 0.977,
-    baseRtp: 0.5463,
-    freeSpinsRtp: 0.4307,
-    anteRtp: 0.9793,
-    buyRtp: 0.9799,
+    rtp: 0.978,
+    baseRtp: 0.2872,
+    freeSpinsRtp: 0.6909,
+    anteRtp: 0.9788,
+    buyRtp: 0.975,
     /** Share of spins with at least one winning cluster. */
     hitRate: 0.26,
-    freeSpinsOdds: 235,
-    anteFreeSpinsOdds: 150,
-    volatility: 4
+    freeSpinsOdds: 152,
+    anteFreeSpinsOdds: 113,
+    volatility: 5
 } as const

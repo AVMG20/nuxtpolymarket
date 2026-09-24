@@ -59,11 +59,16 @@ function checkSpin(spin: EpSpin, bet: number) {
         expect(t.grid).toEqual(grid)
         expect(t.clusters.length).toBeGreaterThan(0)
         const clusters = findClusters(grid, wildMap(wilds), bet)
-        expect(t.clusters).toEqual(clusters)
+        // The step that hits the max win scales its amounts down; the rest match exactly.
+        const full = round4(clusters.reduce((a, c) => a + c.amount, 0))
+        const capped = t.win < full - 1e-6
+        const strip = (cs: typeof clusters) => cs.map(({ amount: _amount, ...c }) => c)
+        expect(strip(t.clusters)).toEqual(strip(clusters))
         for (const c of t.clusters) {
             expect(c.size).toBeGreaterThanOrEqual(EP_MIN_CLUSTER)
-            expect(c.amount).toBeCloseTo(clusterPay(c.symbol, c.size) * bet * c.mult, 3)
+            if (!capped) expect(c.amount).toBeCloseTo(clusterPay(c.symbol, c.size) * bet * c.mult, 3)
         }
+        expect(t.win).toBeCloseTo(t.clusters.reduce((a, c) => a + c.amount, 0), 2)
         total = round4(total + t.win)
 
         // Portals: no two on one cell, all within the cap.
@@ -240,11 +245,22 @@ describe('rounds replay consistently', () => {
         const rng = mulberry32(99)
         let spawns = 0
         let grows = 0
+        let merges = 0
         for (let i = 0; i < 300; i++) {
             const r = playEmberPortalsWith(1, { feature: 'buy' }, rng)
             for (const s of r.freeSpins!.spins) {
+                let prevWilds = s.wildsStart
                 for (const t of s.tumbles) {
                     for (const ch of t.wildChanges) {
+                        if (ch.kind === 'grow' && ch.merged.length) {
+                            // Merges multiply, and never give less than sum + 1.
+                            const before = new Map([...prevWilds].map(w => [w.id, w.mult]))
+                            const mults = [ch.id, ...ch.merged].map(id => before.get(id)!)
+                            const product = mults.reduce((a, m) => a * m, 1)
+                            const sum = mults.reduce((a, m) => a + m, 0)
+                            expect(ch.mult).toBe(Math.min(EP_WILD_MAX_MULT, Math.max(product, sum + 1)))
+                            merges++
+                        }
                         if (ch.kind === 'spawn') {
                             spawns++
                             expect(ch.mult).toBe(1)
@@ -256,11 +272,13 @@ describe('rounds replay consistently', () => {
                         // The portal lands inside one of the step's clusters.
                         expect(t.clusters.some(c => c.cells.some(cell => cell.col === ch.to.col && cell.row === ch.to.row))).toBe(true)
                     }
+                    prevWilds = t.wilds
                 }
             }
         }
         expect(spawns).toBeGreaterThan(0)
         expect(grows).toBeGreaterThan(0)
+        expect(merges).toBeGreaterThan(0)
     })
 
     it('stops free spins at the max win and keeps cluster amounts consistent', () => {
