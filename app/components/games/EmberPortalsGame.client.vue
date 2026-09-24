@@ -234,9 +234,9 @@ function tierColors(i: number) {
   return { ring: hex(t.ring), core: hex(t.core), glow: hex(t.glow), flames: t.flames.map(hex) }
 }
 
-/** Flame size and rate, 0..1: ×1 barely smoulders, ×128+ roars. */
+/** Flame size and rate, 0..1: ×1 barely smoulders, ×500+ roars. */
 function flameIntensity(mult: number) {
-  return Math.min(1, 0.15 + Math.log2(mult + 1) / 7.5)
+  return Math.min(1, 0.15 + Math.log2(mult + 1) / 10.5)
 }
 
 // --- geometry -----------------------------------------------------------------
