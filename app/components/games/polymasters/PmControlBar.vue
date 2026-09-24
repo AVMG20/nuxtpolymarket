@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { AVIA_SAFE_LANDING_COST as SAFE_LANDING_COST } from '#shared/utils/gamelogic/aviamasters'
+import { PM_SAFE_LANDING_COST as SAFE_LANDING_COST } from '#shared/utils/gamelogic/polymasters'
 import { parseAmount } from '#shared/utils/parse-amount'
 import { amountShorthand } from '~/composables/amount-input'
-import { sfx } from '~/utils/aviamasters/audio'
+import { sfx } from '~/utils/polymasters/audio'
 
-const { state, balance, money, stake, betLocked, changeBet, setBet, setSpeed, toggleSafe, play, startAuto, stopAuto, dismissResult } = useAviamastersGame()
-const SPEEDS = AVIA_SPEEDS
-const AUTO_OPTIONS = AVIA_AUTO_OPTIONS
+const { state, balance, money, stake, betLocked, changeBet, setBet, setSpeed, toggleSafe, play, startAuto, stopAuto, dismissResult } = usePolyMastersGame()
+const SPEEDS = PM_SPEEDS
+const AUTO_OPTIONS = PM_AUTO_OPTIONS
 const BET_PRESETS = [10, 100, 1_000, 10_000, 100_000, 1_000_000]
 
 const bar = ref<HTMLElement>()
@@ -29,7 +29,7 @@ const betText = ref(money(state.bet))
 const betPreview = computed(() => {
   if (!betFocused.value) return ''
   const v = Math.floor(parseAmount(betText.value) ?? 0)
-  return v >= AVIA_MIN_BET ? money(v) : ''
+  return v >= PM_MIN_BET ? money(v) : ''
 })
 
 function onBetFocus(e: FocusEvent) {
@@ -42,7 +42,7 @@ function onBetFocus(e: FocusEvent) {
 
 function onBetInput() {
   const v = Math.floor(parseAmount(betText.value) ?? 0)
-  if (v >= AVIA_MIN_BET && v !== state.bet) setBet(v)
+  if (v >= PM_MIN_BET && v !== state.bet) setBet(v)
 }
 
 function onBetBlur() {
@@ -66,7 +66,7 @@ function pickBet(v: number) {
 
 function maxBet() {
   const perBet = state.safe ? SAFE_LANDING_COST : 1
-  pickBet(Math.max(AVIA_MIN_BET, Math.floor(balance.value / perBet)))
+  pickBet(Math.max(PM_MIN_BET, Math.floor(balance.value / perBet)))
 }
 
 function onPointerDown(e: PointerEvent) {
@@ -107,7 +107,7 @@ function chooseAuto(n: number) {
     <div ref="betGroup" class="group bet panel">
       <div class="label">{{ state.safe ? `Bet · stake ${money(stake())}` : 'Bet' }}</div>
       <div class="row">
-        <button class="round-btn" :disabled="locked || state.bet <= AVIA_MIN_BET" aria-label="Decrease bet" @click="changeBet(-1)">
+        <button class="round-btn" :disabled="locked || state.bet <= PM_MIN_BET" aria-label="Decrease bet" @click="changeBet(-1)">
           <svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="3" rx="1.5" fill="currentColor" /></svg>
         </button>
         <input
@@ -125,7 +125,7 @@ function chooseAuto(n: number) {
           @keydown.enter="endBetEdit"
           @keydown.esc="endBetEdit"
         >
-        <button class="round-btn" :disabled="locked || state.bet >= AVIA_MAX_BET" aria-label="Increase bet" @click="changeBet(1)">
+        <button class="round-btn" :disabled="locked || state.bet >= PM_MAX_BET" aria-label="Increase bet" @click="changeBet(1)">
           <svg viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="3" rx="1.5" fill="currentColor" /><rect x="10.5" y="5" width="3" height="14" rx="1.5" fill="currentColor" /></svg>
         </button>
       </div>
@@ -478,7 +478,7 @@ function chooseAuto(n: number) {
   inset: 0;
   width: 40%;
   background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
-  animation: avia-shine 2.8s ease-in-out infinite;
+  animation: pm-shine 2.8s ease-in-out infinite;
 }
 .safe-btn.on {
   background: linear-gradient(180deg, #aef2ff, #22a8e0 55%, #0b4f7a);
@@ -512,7 +512,7 @@ function chooseAuto(n: number) {
   opacity: 0.85;
 }
 
-@container avia (max-width: 1160px) {
+@container pm (max-width: 1160px) {
   .bar {
     grid-template-columns: 1fr auto 1fr;
     grid-template-areas:
@@ -544,7 +544,7 @@ function chooseAuto(n: number) {
 .short {
   display: none;
 }
-@container avia (max-width: 720px) and (orientation: portrait) {
+@container pm (max-width: 720px) and (orientation: portrait) {
   .bar {
     grid-template-columns: minmax(0, 1fr) 84px minmax(0, 1fr);
     grid-template-areas:
@@ -701,7 +701,7 @@ function chooseAuto(n: number) {
     font-size: 9px;
   }
 }
-@container avia (max-height: 600px) {
+@container pm (max-height: 600px) {
   .bar {
     grid-template-columns: auto auto 1fr auto auto;
     grid-template-areas: 'bal bet play speed extras';

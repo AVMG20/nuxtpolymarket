@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import type { AviaBooster } from '#shared/utils/gamelogic/aviamasters'
+import type { PmBooster } from '#shared/utils/gamelogic/polymasters'
 
-const { state } = useAviamastersGame()
+const { state } = usePolyMastersGame()
 
 defineProps<{ icons: Record<string, string> }>()
 
-const names: Record<AviaBooster, [string, string]> = {
+const names: Record<PmBooster, [string, string]> = {
   nitro: ['Nitro', 'Rockets bounce off'],
   laser: ['Laser Gun', 'Shoots rockets down'],
   magnet: ['Magnet', 'Pulls in multipliers'],
@@ -91,7 +91,7 @@ const names: Record<AviaBooster, [string, string]> = {
   opacity: 0;
   transform: translateX(-40px);
 }
-@container avia (max-width: 720px) {
+@container pm (max-width: 720px) {
   .boosters {
     top: 92px;
     left: 8px;

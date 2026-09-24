@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { sfx } from '~/utils/aviamasters/audio'
-import { AVIA_TIERS } from '~/composables/aviamasters'
+import { sfx } from '~/utils/polymasters/audio'
+import { PM_TIERS } from '~/composables/polymasters'
 
-const { state, money, dismissResult } = useAviamastersGame()
-const TIERS = AVIA_TIERS
+const { state, money, dismissResult } = usePolyMastersGame()
+const TIERS = PM_TIERS
 
 const shown = ref(0)
 let raf = 0

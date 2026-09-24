@@ -2,7 +2,7 @@
   <div class="loading">
     <div class="sun" />
     <div class="title">
-      <span class="display gold-text">AVIA</span>
+      <span class="display gold-text">POLY</span>
       <span class="display two">MASTERS</span>
     </div>
     <div class="bar"><div class="fill" /></div>

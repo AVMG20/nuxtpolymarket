@@ -31,7 +31,9 @@ const CATEGORY_LABELS: Record<string, string> = {
     magichands: 'Magic Hands',
     spinata: 'Spinata',
     trashpanda: 'Trash Panda Heist',
-    aviamasters: 'Aviamasters',
+    polymasters: 'PolyMasters',
+    // Rounds played before the rename to PolyMasters.
+    aviamasters: 'PolyMasters',
     roulette: 'Roulette',
     'casino-holdem': 'Casino Hold\'em',
     'three-card-poker': 'Three Card Poker',

@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { AVIA_MAX_WIN as MAX_WIN, AVIA_SAFE_LANDING_COST as SAFE_LANDING_COST, AVIA_TARGET_RTP as TARGET_RTP } from '#shared/utils/gamelogic/aviamasters'
-import { sfx } from '~/utils/aviamasters/audio'
+import { PM_MAX_WIN as MAX_WIN, PM_SAFE_LANDING_COST as SAFE_LANDING_COST, PM_TARGET_RTP as TARGET_RTP } from '#shared/utils/gamelogic/polymasters'
+import { sfx } from '~/utils/polymasters/audio'
 
 defineProps<{ icons: Record<string, string> }>()
 
-const { state, money } = useAviamastersGame()
-const SPEEDS = AVIA_SPEEDS
+const { state, money } = usePolyMastersGame()
+const SPEEDS = PM_SPEEDS
 
 function close() {
   sfx.click()
@@ -26,7 +26,7 @@ function close() {
         <div><span class="label">RTP</span><b class="display">~{{ (TARGET_RTP * 100).toFixed(2) }}%</b></div>
         <div><span class="label">Max win</span><b class="display">x{{ MAX_WIN.toLocaleString() }}</b></div>
         <div><span class="label">Hit rate</span><b class="display">1 in 2.5</b></div>
-        <div><span class="label">Bets</span><b class="display">{{ money(AVIA_MIN_BET) }} – {{ money(AVIA_MAX_BET) }}</b></div>
+        <div><span class="label">Bets</span><b class="display">{{ money(PM_MIN_BET) }} – {{ money(PM_MAX_BET) }}</b></div>
       </div>
 
       <section>
@@ -217,7 +217,7 @@ kbd {
     opacity: 0;
   }
 }
-@container avia (max-width: 720px) {
+@container pm (max-width: 720px) {
   .facts,
   .grid {
     grid-template-columns: repeat(2, 1fr);

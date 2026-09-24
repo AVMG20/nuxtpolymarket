@@ -1,6 +1,6 @@
-// shared/utils/gamelogic/aviamasters.ts
+// shared/utils/gamelogic/polymasters.ts
 //
-// "Aviamasters": a crash-style game. A biplane takes off from an aircraft
+// "PolyMasters": a crash-style game. A biplane takes off from an aircraft
 // carrier, flies through adders, multipliers, rockets and boosters, and either
 // lands on the island (paying its Counter Balance) or splashes into the sea.
 //
@@ -13,64 +13,64 @@
 //   - The Counter Balance starts equal to the bet (1 bet unit).
 //   - Adders +1 / +2 / +5 / +10 add that many bets; multipliers ×2..×5 multiply
 //     the counter.
-//   - Altitude runs over levels 0..AVIA_MAX_LEVEL. Adders and multipliers lift
+//   - Altitude runs over levels 0..PM_MAX_LEVEL. Adders and multipliers lift
 //     the plane one level; every unblocked rocket halves the counter and drops
-//     it AVIA_HIT_DROP levels. A hit at the lowest level sends the plane into
+//     it PM_HIT_DROP levels. A hit at the lowest level sends the plane into
 //     the sea (round lost), unless a Life Buoy bounces it back (normal mode) or
 //     Safe Landing skims it off the water.
 //   - The final landing is easier from higher up.
 //   - Boosters: Nitro (rockets bounce off), Laser Gun (shoots rockets down),
 //     Magnet (fewer rockets, pulls the plane toward the island), Life Buoy
 //     (bounces the plane back after it touches water, once per flight).
-//   - Max win AVIA_MAX_WIN × bet: the round ends at once when the counter
+//   - Max win PM_MAX_WIN × bet: the round ends at once when the counter
 //     reaches it.
-//   - Safe Landing costs AVIA_SAFE_LANDING_COST × bet and always lands.
+//   - Safe Landing costs PM_SAFE_LANDING_COST × bet and always lands.
 //
 // ── Fairness ─────────────────────────────────────────────────────────────────
-//   Both modes are tuned to AVIA_TARGET_RTP and must stay inside
-//   AVIA_RTP_BAND. `bun run balance:aviamasters` measures both modes with the
+//   Both modes are tuned to PM_TARGET_RTP and must stay inside
+//   PM_RTP_BAND. `bun run balance:polymasters` measures both modes with the
 //   production play function and fails when either leaves the band;
 //   `--tune` re-solves the rocket (normal) and multiplier (safe) weights.
 
 import { randomFloat } from '../random'
 
-export const AVIA_MAX_WIN = 1000
-export const AVIA_SAFE_LANDING_COST = 50
-export const AVIA_TARGET_RTP = 0.9775
-/** RTP both modes must measure inside, checked by scripts/aviamasters-rtp.ts. */
-export const AVIA_RTP_BAND = { min: 0.97, max: 0.985 } as const
+export const PM_MAX_WIN = 1000
+export const PM_SAFE_LANDING_COST = 50
+export const PM_TARGET_RTP = 0.9775
+/** RTP both modes must measure inside, checked by scripts/polymasters-rtp.ts. */
+export const PM_RTP_BAND = { min: 0.97, max: 0.985 } as const
 
 /** Altitude levels (0 = skimming the waves). */
-export const AVIA_MAX_LEVEL = 7
+export const PM_MAX_LEVEL = 7
 /** Levels lost per rocket hit. */
-export const AVIA_HIT_DROP = 2
+export const PM_HIT_DROP = 2
 /** Extra landing chance per altitude level at the end of the flight. */
-export const AVIA_LAND_PER_LEVEL = 0.05
+export const PM_LAND_PER_LEVEL = 0.05
 
-export type AviaBooster = 'nitro' | 'laser' | 'magnet' | 'buoy'
-export type AviaMode = 'normal' | 'safe'
+export type PmBooster = 'nitro' | 'laser' | 'magnet' | 'buoy'
+export type PmMode = 'normal' | 'safe'
 
 /** What happened to a plane hit at the lowest level. */
-export type AviaFall = null | 'crash' | 'rescue' | 'skim'
+export type PmFall = null | 'crash' | 'rescue' | 'skim'
 
 /** `counter` is in bet units; `level` is the altitude after the event. */
-export type AviaFlightEvent =
+export type PmFlightEvent =
     | { kind: 'add', value: number, counter: number, level: number }
     | { kind: 'mul', value: number, counter: number, level: number }
-    | { kind: 'rocket', counter: number, blocked: null | 'nitro' | 'laser', level: number, fall: AviaFall }
-    | { kind: 'booster', booster: AviaBooster, counter: number, level: number }
+    | { kind: 'rocket', counter: number, blocked: null | 'nitro' | 'laser', level: number, fall: PmFall }
+    | { kind: 'booster', booster: PmBooster, counter: number, level: number }
 
-export type AviaLanding = 'island' | 'water' | 'buoy' | 'max' | 'crash'
+export type PmLanding = 'island' | 'water' | 'buoy' | 'max' | 'crash'
 
-export interface AviaRoundOutcome {
-    mode: AviaMode
-    events: AviaFlightEvent[]
-    landing: AviaLanding
+export interface PmRoundOutcome {
+    mode: PmMode
+    events: PmFlightEvent[]
+    landing: PmLanding
     /** Counter when the plane comes down (bet units). */
     counter: number
     /** Payout in bet units (0 in the sea). */
     win: number
-    /** Stake in bet units (1, or AVIA_SAFE_LANDING_COST with Safe Landing). */
+    /** Stake in bet units (1, or PM_SAFE_LANDING_COST with Safe Landing). */
     cost: number
     /** Altitude at the end of the flight (absent after a crash or max win). */
     level?: number
@@ -78,22 +78,22 @@ export interface AviaRoundOutcome {
     startLevel: number
 }
 
-export interface AviamastersResult {
+export interface PolyMastersResult {
     bet: number
     cost: number
-    mode: AviaMode
-    outcome: AviaRoundOutcome
+    mode: PmMode
+    outcome: PmRoundOutcome
     payout: number
     won: boolean
     maxWin: number
     [key: string]: unknown
 }
 
-export type AviaRng = () => number
+export type PmRng = () => number
 
 type Weighted<T> = [T, number][]
 
-export interface AviaModeConfig {
+export interface PmModeConfig {
     /** Events always generated before the landing roll. */
     minEvents: number
     /** Probability of another event after minEvents (geometric tail). */
@@ -105,8 +105,8 @@ export interface AviaModeConfig {
     booster: number
     addValues: Weighted<number>
     mulValues: Weighted<number>
-    boosters: Weighted<AviaBooster>
-    /** Chance the final descent reaches the island from level 0 (+AVIA_LAND_PER_LEVEL per level). */
+    boosters: Weighted<PmBooster>
+    /** Chance the final descent reaches the island from level 0 (+PM_LAND_PER_LEVEL per level). */
     landChance: number
     /** Extra landing chance after carrying a Magnet. */
     magnetLandBonus: number
@@ -114,10 +114,10 @@ export interface AviaModeConfig {
     startLevel: number
 }
 
-// `rocket` (normal) and `mul` (safe) are solved by `bun run balance:aviamasters
-// --tune` for AVIA_TARGET_RTP; landChance is set for a ~40% hit rate. Everything
+// `rocket` (normal) and `mul` (safe) are solved by `bun run balance:polymasters
+// --tune` for PM_TARGET_RTP; landChance is set for a ~40% hit rate. Everything
 // else is design.
-export const AVIA_NORMAL: AviaModeConfig = {
+export const PM_NORMAL: PmModeConfig = {
     minEvents: 3,
     continueChance: 0.6,
     maxEvents: 40,
@@ -134,7 +134,7 @@ export const AVIA_NORMAL: AviaModeConfig = {
     startLevel: 5
 }
 
-export const AVIA_SAFE: AviaModeConfig = {
+export const PM_SAFE: PmModeConfig = {
     minEvents: 10,
     continueChance: 0.88,
     maxEvents: 60,
@@ -160,7 +160,7 @@ const MAGNET_ROCKET_FACTOR = 0.25
 const round6 = (v: number) => Math.round(v * 1e6) / 1e6
 const round4 = (v: number) => Math.round(v * 1e4) / 1e4
 
-function pick<T>(rng: AviaRng, table: Weighted<T>): T {
+function pick<T>(rng: PmRng, table: Weighted<T>): T {
     let total = 0
     for (const [, w] of table) total += w
     let r = rng() * total
@@ -172,8 +172,8 @@ function pick<T>(rng: AviaRng, table: Weighted<T>): T {
 }
 
 /** Plays one flight in bet units. Exported for the RTP script and tests. */
-export function playAviaRound(rng: AviaRng, mode: AviaMode, cfg: AviaModeConfig = mode === 'safe' ? AVIA_SAFE : AVIA_NORMAL): AviaRoundOutcome {
-    const events: AviaFlightEvent[] = []
+export function playPmRound(rng: PmRng, mode: PmMode, cfg: PmModeConfig = mode === 'safe' ? PM_SAFE : PM_NORMAL): PmRoundOutcome {
+    const events: PmFlightEvent[] = []
     let counter = 1
     let magnet = 0
     let nitro = 0
@@ -182,7 +182,7 @@ export function playAviaRound(rng: AviaRng, mode: AviaMode, cfg: AviaModeConfig 
     let buoy = false
     let buoyOffered = false
     let level = cfg.startLevel
-    const cost = mode === 'safe' ? AVIA_SAFE_LANDING_COST : 1
+    const cost = mode === 'safe' ? PM_SAFE_LANDING_COST : 1
 
     for (let i = 0; i < cfg.maxEvents; i++) {
         if (i >= cfg.minEvents && rng() >= cfg.continueChance) break
@@ -203,20 +203,20 @@ export function playAviaRound(rng: AviaRng, mode: AviaMode, cfg: AviaModeConfig 
         if (kind === 'add') {
             const v = pick(rng, cfg.addValues)
             counter = round6(counter + v)
-            level = Math.min(AVIA_MAX_LEVEL, level + 1)
-            events.push({ kind: 'add', value: v, counter: Math.min(counter, AVIA_MAX_WIN), level })
+            level = Math.min(PM_MAX_LEVEL, level + 1)
+            events.push({ kind: 'add', value: v, counter: Math.min(counter, PM_MAX_WIN), level })
         } else if (kind === 'mul') {
             const v = pick(rng, cfg.mulValues)
             counter = round6(counter * v)
-            level = Math.min(AVIA_MAX_LEVEL, level + 1)
-            events.push({ kind: 'mul', value: v, counter: Math.min(counter, AVIA_MAX_WIN), level })
+            level = Math.min(PM_MAX_LEVEL, level + 1)
+            events.push({ kind: 'mul', value: v, counter: Math.min(counter, PM_MAX_WIN), level })
         } else if (kind === 'rocket') {
             if (shielded) {
                 events.push({ kind: 'rocket', counter, blocked: shielded, level, fall: null })
             } else {
                 counter = round6(counter / 2)
                 if (level > 0) {
-                    level = Math.max(0, level - AVIA_HIT_DROP)
+                    level = Math.max(0, level - PM_HIT_DROP)
                     events.push({ kind: 'rocket', counter, blocked: null, level, fall: null })
                 } else if (mode === 'safe') {
                     // Safe Landing never touches the sea: the plane skims off the water and climbs back
@@ -245,28 +245,28 @@ export function playAviaRound(rng: AviaRng, mode: AviaMode, cfg: AviaModeConfig 
             events.push({ kind: 'booster', booster: b, counter, level })
         }
 
-        if (counter >= AVIA_MAX_WIN) {
-            return { mode, events, landing: 'max', counter: AVIA_MAX_WIN, win: AVIA_MAX_WIN, cost, startLevel: cfg.startLevel }
+        if (counter >= PM_MAX_WIN) {
+            return { mode, events, landing: 'max', counter: PM_MAX_WIN, win: PM_MAX_WIN, cost, startLevel: cfg.startLevel }
         }
     }
 
-    let landing: AviaLanding
+    let landing: PmLanding
     if (cfg.alwaysLand) {
         landing = 'island'
     } else {
-        const chance = Math.min(0.97, cfg.landChance + level * AVIA_LAND_PER_LEVEL + (hadMagnet ? cfg.magnetLandBonus : 0))
+        const chance = Math.min(0.97, cfg.landChance + level * PM_LAND_PER_LEVEL + (hadMagnet ? cfg.magnetLandBonus : 0))
         landing = rng() < chance ? 'island' : buoy ? 'buoy' : 'water'
     }
     const win = landing === 'water' ? 0 : counter
     return { mode, events, landing, counter, win, cost, level, startLevel: cfg.startLevel }
 }
 
-export function playAviamastersWith(bet: number, options: Record<string, unknown> | undefined, rng: AviaRng): AviamastersResult {
+export function playPolyMastersWith(bet: number, options: Record<string, unknown> | undefined, rng: PmRng): PolyMastersResult {
     if (!Number.isFinite(bet) || bet <= 0) {
         throw createError({ statusCode: 400, message: 'Invalid bet amount' })
     }
-    const mode: AviaMode = options?.mode === 'safe' ? 'safe' : 'normal'
-    const outcome = playAviaRound(rng, mode)
+    const mode: PmMode = options?.mode === 'safe' ? 'safe' : 'normal'
+    const outcome = playPmRound(rng, mode)
     const cost = round4(bet * outcome.cost)
     const payout = round4(outcome.win * bet)
     return {
@@ -276,10 +276,10 @@ export function playAviamastersWith(bet: number, options: Record<string, unknown
         outcome,
         payout,
         won: payout > cost,
-        maxWin: bet * AVIA_MAX_WIN
+        maxWin: bet * PM_MAX_WIN
     }
 }
 
-export function playAviamasters(bet: number, options?: Record<string, unknown>): AviamastersResult {
-    return playAviamastersWith(bet, options, randomFloat)
+export function playPolyMasters(bet: number, options?: Record<string, unknown>): PolyMastersResult {
+    return playPolyMastersWith(bet, options, randomFloat)
 }

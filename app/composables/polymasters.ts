@@ -1,82 +1,82 @@
-// Aviamasters round flow: bet, balance, autoplay and history around the Pixi
-// scene. The server decides every round (shared/utils/gamelogic/aviamasters.ts
+// PolyMasters round flow: bet, balance, autoplay and history around the Pixi
+// scene. The server decides every round (shared/utils/gamelogic/polymasters.ts
 // via /api/games/play-game) and settles stake and win in one transaction before
 // the plane takes off; this store only plays the returned flight back and
 // reveals the settled balance once the plane has come down.
 import type { InjectionKey } from 'vue'
 import {
-  AVIA_MAX_WIN,
-  AVIA_SAFE_LANDING_COST,
-  type AviaBooster,
-  type AviaLanding,
-  type AviamastersResult
-} from '#shared/utils/gamelogic/aviamasters'
+  PM_MAX_WIN,
+  PM_SAFE_LANDING_COST,
+  type PmBooster,
+  type PmLanding,
+  type PolyMastersResult
+} from '#shared/utils/gamelogic/polymasters'
 import { CASINO_MAX_BET } from '#shared/utils/limits'
-import { sfx } from '~/utils/aviamasters/audio'
-import type { GameScene } from '~/utils/aviamasters/scene'
+import { sfx } from '~/utils/polymasters/audio'
+import type { GameScene } from '~/utils/polymasters/scene'
 
-export const AVIA_MIN_BET = 1
-export const AVIA_MAX_BET = CASINO_MAX_BET
-export const AVIA_SPEEDS = [
+export const PM_MIN_BET = 1
+export const PM_MAX_BET = CASINO_MAX_BET
+export const PM_SPEEDS = [
   { id: 1, label: 'Slow', mult: 1.09375 },
   { id: 2, label: 'Normal', mult: 1.5625 },
   { id: 3, label: 'Fast', mult: 2.5 },
   { id: 4, label: 'Ultra Turbo', mult: 4.0625 }
 ]
-export const AVIA_AUTO_OPTIONS = [10, 25, 50, 100]
-export const AVIA_TIERS = ['WIN', 'BIG WIN', 'MEGA WIN', 'EPIC WIN', 'MAX WIN'] as const
+export const PM_AUTO_OPTIONS = [10, 25, 50, 100]
+export const PM_TIERS = ['WIN', 'BIG WIN', 'MEGA WIN', 'EPIC WIN', 'MAX WIN'] as const
 
 const BET_LADDER: number[] = []
 for (let e = 0; e <= 11; e++) for (const m of [1, 2, 5]) BET_LADDER.push(m * 10 ** e)
 
-const PREFS_KEY = 'aviamasters.prefs.v1'
+const PREFS_KEY = 'polymasters.prefs.v1'
 
-export type AviaCounterKind = 'add' | 'mul' | 'rocket' | 'blocked' | 'booster' | 'start'
+export type PmCounterKind = 'add' | 'mul' | 'rocket' | 'blocked' | 'booster' | 'start'
 
-export interface AviaRoundResult {
+export interface PmRoundResult {
   win: number
   cost: number
   mult: number
-  landing: AviaLanding
+  landing: PmLanding
   tier: number
 }
 
-export interface AviaHistoryItem {
+export interface PmHistoryItem {
   id: number
   mult: number
   win: number
-  landing: AviaLanding
+  landing: PmLanding
   safe: boolean
 }
 
-interface AviaPrefs {
+interface PmPrefs {
   bet: number
   speed: number
   sfx: boolean
   music: boolean
 }
 
-function loadPrefs(): Partial<AviaPrefs> {
+function loadPrefs(): Partial<PmPrefs> {
   try {
-    return JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<AviaPrefs>
+    return JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<PmPrefs>
   } catch {
     return {}
   }
 }
 
 function clampBet(v: number) {
-  if (!Number.isFinite(v) || v < AVIA_MIN_BET) return AVIA_MIN_BET
-  return Math.min(AVIA_MAX_BET, Math.floor(v))
+  if (!Number.isFinite(v) || v < PM_MIN_BET) return PM_MIN_BET
+  return Math.min(PM_MAX_BET, Math.floor(v))
 }
 
-function createAviamastersGame() {
+function createPolyMastersGame() {
   const { balanceNum: balance, setBalance, fetchSession } = useAuth()
   const prefs = loadPrefs()
 
   const state = reactive({
     ready: false,
     bet: clampBet(prefs.bet ?? 10),
-    speed: AVIA_SPEEDS.some(s => s.id === prefs.speed) ? prefs.speed! : 2,
+    speed: PM_SPEEDS.some(s => s.id === prefs.speed) ? prefs.speed! : 2,
     safe: false,
     phase: 'idle' as 'idle' | 'flying' | 'result',
     flightPhase: '',
@@ -84,10 +84,10 @@ function createAviamastersGame() {
     roundBet: 0,
     counter: 0,
     counterUnits: 1,
-    pulse: { kind: 'start' as AviaCounterKind, value: 0, id: 0 },
-    boosters: [] as AviaBooster[],
-    result: null as AviaRoundResult | null,
-    history: [] as AviaHistoryItem[],
+    pulse: { kind: 'start' as PmCounterKind, value: 0, id: 0 },
+    boosters: [] as PmBooster[],
+    result: null as PmRoundResult | null,
+    history: [] as PmHistoryItem[],
     auto: { active: false, left: 0 },
     sfx: prefs.sfx ?? true,
     music: prefs.music ?? true,
@@ -102,11 +102,11 @@ function createAviamastersGame() {
   let resultTimer = 0
 
   const money = (v: number) => formatNumber(v)
-  const stake = () => state.bet * (state.safe ? AVIA_SAFE_LANDING_COST : 1)
+  const stake = () => state.bet * (state.safe ? PM_SAFE_LANDING_COST : 1)
 
   function persist() {
     try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify({ bet: state.bet, speed: state.speed, sfx: state.sfx, music: state.music } satisfies AviaPrefs))
+      localStorage.setItem(PREFS_KEY, JSON.stringify({ bet: state.bet, speed: state.speed, sfx: state.sfx, music: state.music } satisfies PmPrefs))
     } catch {
       /* storage unavailable */
     }
@@ -118,13 +118,13 @@ function createAviamastersGame() {
   }
 
   const sceneHooks = {
-    onCounter(units: number, kind: AviaCounterKind, value = 0) {
+    onCounter(units: number, kind: PmCounterKind, value = 0) {
       state.counterUnits = units
       state.counter = units * state.roundBet
       scene?.setMoney(money(state.counter))
       state.pulse = { kind, value, id: state.pulse.id + 1 }
     },
-    onBoosters(active: AviaBooster[]) {
+    onBoosters(active: PmBooster[]) {
       state.boosters = active
     },
     onPhase(p: string) {
@@ -133,7 +133,7 @@ function createAviamastersGame() {
   }
 
   function speedMult() {
-    return AVIA_SPEEDS.find(s => s.id === state.speed)?.mult ?? 1
+    return PM_SPEEDS.find(s => s.id === state.speed)?.mult ?? 1
   }
 
   /** In-game message; also used for errors, since page toasts are hidden in fullscreen. */
@@ -155,8 +155,8 @@ function createAviamastersGame() {
   function changeBet(dir: number) {
     if (betLocked()) return
     const next = dir > 0
-      ? BET_LADDER.find(v => v > state.bet) ?? AVIA_MAX_BET
-      : [...BET_LADDER].reverse().find(v => v < state.bet) ?? AVIA_MIN_BET
+      ? BET_LADDER.find(v => v > state.bet) ?? PM_MAX_BET
+      : [...BET_LADDER].reverse().find(v => v < state.bet) ?? PM_MIN_BET
     setBet(next)
     sfx.click()
   }
@@ -196,7 +196,7 @@ function createAviamastersGame() {
   }
 
   function tierFor(mult: number, costUnits: number): number {
-    if (mult >= AVIA_MAX_WIN) return 4
+    if (mult >= PM_MAX_WIN) return 4
     const r = mult / costUnits
     return r >= 100 ? 3 : r >= 20 ? 2 : r >= 5 ? 1 : 0
   }
@@ -223,11 +223,11 @@ function createAviamastersGame() {
     const before = balance.value
     setBalance(before - cost)
 
-    let data: { gameData: AviamastersResult, balance: number }
+    let data: { gameData: PolyMastersResult, balance: number }
     try {
-      data = await apiFetch<{ gameData: AviamastersResult, balance: number }>('/api/games/play-game', {
+      data = await apiFetch<{ gameData: PolyMastersResult, balance: number }>('/api/games/play-game', {
         method: 'POST',
-        body: { bet, game: 'aviamasters', options: { mode: safe ? 'safe' : 'normal' } }
+        body: { bet, game: 'polymasters', options: { mode: safe ? 'safe' : 'normal' } }
       })
     } catch (e) {
       if (disposed) return
@@ -322,19 +322,19 @@ function createAviamastersGame() {
   }
 }
 
-export type AviamastersGame = ReturnType<typeof createAviamastersGame>
+export type PolyMastersGame = ReturnType<typeof createPolyMastersGame>
 
-const AVIAMASTERS_KEY: InjectionKey<AviamastersGame> = Symbol('aviamasters')
+const POLYMASTERS_KEY: InjectionKey<PolyMastersGame> = Symbol('polymasters')
 
 /** Creates the game for the root component and shares it with the HUD. */
-export function provideAviamastersGame() {
-  const game = createAviamastersGame()
-  provide(AVIAMASTERS_KEY, game)
+export function providePolyMastersGame() {
+  const game = createPolyMastersGame()
+  provide(POLYMASTERS_KEY, game)
   return game
 }
 
-export function useAviamastersGame() {
-  const game = inject(AVIAMASTERS_KEY)
-  if (!game) throw new Error('useAviamastersGame() needs provideAviamastersGame() in a parent')
+export function usePolyMastersGame() {
+  const game = inject(POLYMASTERS_KEY)
+  if (!game) throw new Error('usePolyMastersGame() needs providePolyMastersGame() in a parent')
   return game
 }

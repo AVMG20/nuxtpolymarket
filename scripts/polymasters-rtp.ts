@@ -1,35 +1,35 @@
-// scripts/aviamasters-rtp.ts
+// scripts/polymasters-rtp.ts
 //
-// RTP check for Aviamasters. Plays both modes through the production play
+// RTP check for PolyMasters. Plays both modes through the production play
 // function (crypto RNG, the same code path /api/games/play-game runs) and
-// fails when either mode's RTP leaves AVIA_RTP_BAND.
+// fails when either mode's RTP leaves PM_RTP_BAND.
 //
-//   bun run balance:aviamasters                 # 10M rounds per mode
-//   bun run balance:aviamasters 50000000        # 50M rounds per mode
-//   bun run balance:aviamasters 10000000 safe   # one mode only
-//   bun run balance:aviamasters --tune          # re-solve the tuned weights
+//   bun run balance:polymasters                 # 10M rounds per mode
+//   bun run balance:polymasters 50000000        # 50M rounds per mode
+//   bun run balance:polymasters 10000000 safe   # one mode only
+//   bun run balance:polymasters --tune          # re-solve the tuned weights
 //
 // --tune solves the rocket weight (normal) and the multiplier weight (safe) for
-// AVIA_TARGET_RTP by bisection on a seeded RNG (common random numbers, so every
+// PM_TARGET_RTP by bisection on a seeded RNG (common random numbers, so every
 // probe sees the same draws), then prints the values to paste into
-// shared/utils/gamelogic/aviamasters.ts. Always re-run the plain check after.
+// shared/utils/gamelogic/polymasters.ts. Always re-run the plain check after.
 
 import {
-    AVIA_MAX_WIN,
-    AVIA_NORMAL,
-    AVIA_RTP_BAND,
-    AVIA_SAFE,
-    AVIA_TARGET_RTP,
-    playAviaRound,
-    playAviamasters,
-    type AviaMode,
-    type AviaModeConfig,
-    type AviaRng
-} from '../shared/utils/gamelogic/aviamasters'
+    PM_MAX_WIN,
+    PM_NORMAL,
+    PM_RTP_BAND,
+    PM_SAFE,
+    PM_TARGET_RTP,
+    playPmRound,
+    playPolyMasters,
+    type PmMode,
+    type PmModeConfig,
+    type PmRng
+} from '../shared/utils/gamelogic/polymasters'
 
 const pct = (n: number) => (100 * n).toFixed(3) + '%'
 
-function mulberry32(seed: number): AviaRng {
+function mulberry32(seed: number): PmRng {
     let a = seed
     return () => {
         a |= 0
@@ -42,7 +42,7 @@ function mulberry32(seed: number): AviaRng {
 
 const EDGES = [0, 1, 2, 5, 10, 20, 50, 100, 250, 500, 1000]
 
-function check(mode: AviaMode, rounds: number): boolean {
+function check(mode: PmMode, rounds: number): boolean {
     let cost = 0
     let payout = 0
     let payout2 = 0
@@ -55,7 +55,7 @@ function check(mode: AviaMode, rounds: number): boolean {
     const started = performance.now()
 
     for (let i = 0; i < rounds; i++) {
-        const r = playAviamasters(1, { mode })
+        const r = playPolyMasters(1, { mode })
         cost += r.cost
         payout += r.payout
         payout2 += r.payout * r.payout
@@ -77,13 +77,13 @@ function check(mode: AviaMode, rounds: number): boolean {
     const sd = Math.sqrt(payout2 / rounds - mean * mean)
     const rtp = mean / stake
     const ci = (1.96 * sd) / Math.sqrt(rounds) / stake
-    const ok = rtp >= AVIA_RTP_BAND.min && rtp <= AVIA_RTP_BAND.max
+    const ok = rtp >= PM_RTP_BAND.min && rtp <= PM_RTP_BAND.max
 
     console.log(`\n=== ${mode.toUpperCase()} — ${rounds.toLocaleString()} rounds (${((performance.now() - started) / 1000).toFixed(1)}s)`)
-    console.log(`RTP            ${pct(rtp)}  ± ${pct(ci)} (95% CI)   band ${pct(AVIA_RTP_BAND.min)} – ${pct(AVIA_RTP_BAND.max)}  ${ok ? 'PASS' : 'FAIL'}`)
+    console.log(`RTP            ${pct(rtp)}  ± ${pct(ci)} (95% CI)   band ${pct(PM_RTP_BAND.min)} – ${pct(PM_RTP_BAND.max)}  ${ok ? 'PASS' : 'FAIL'}`)
     console.log(`Hit rate       ${pct(hits / rounds)}  (1 in ${(rounds / hits).toFixed(2)})`)
     console.log(`Volatility SD  ${(sd / stake).toFixed(2)} × stake`)
-    console.log(`Max wins x${AVIA_MAX_WIN} 1 in ${maxWins ? Math.round(rounds / maxWins).toLocaleString() : '∞'}`)
+    console.log(`Max wins x${PM_MAX_WIN} 1 in ${maxWins ? Math.round(rounds / maxWins).toLocaleString() : '∞'}`)
     console.log(`Events/round   ${(events / rounds).toFixed(2)}`)
     console.log('Landings       ' + Object.entries(landings).map(([k, v]) => `${k} ${pct(v / rounds)}`).join(' · '))
     console.log('Boosters/round ' + Object.entries(boosters).map(([k, v]) => `${k} ${(v / rounds).toFixed(4)}`).join(' · '))
@@ -97,12 +97,12 @@ function check(mode: AviaMode, rounds: number): boolean {
     return ok
 }
 
-function seededRtp(cfg: AviaModeConfig, mode: AviaMode, rounds: number, seed: number) {
+function seededRtp(cfg: PmModeConfig, mode: PmMode, rounds: number, seed: number) {
     const rng = mulberry32(seed)
     let win = 0
     let cost = 0
     for (let i = 0; i < rounds; i++) {
-        const r = playAviaRound(rng, mode, cfg)
+        const r = playPmRound(rng, mode, cfg)
         win += r.win
         cost += r.cost
     }
@@ -112,19 +112,19 @@ function seededRtp(cfg: AviaModeConfig, mode: AviaMode, rounds: number, seed: nu
 function solve(lo: number, hi: number, f: (x: number) => number, increasing: boolean) {
     for (let i = 0; i < 24; i++) {
         const mid = (lo + hi) / 2
-        if ((f(mid) < AVIA_TARGET_RTP) === increasing) lo = mid
+        if ((f(mid) < PM_TARGET_RTP) === increasing) lo = mid
         else hi = mid
     }
     return (lo + hi) / 2
 }
 
 function tune(rounds: number) {
-    console.log(`Tuning for RTP ${pct(AVIA_TARGET_RTP)} with ${rounds.toLocaleString()} seeded rounds per probe…`)
+    console.log(`Tuning for RTP ${pct(PM_TARGET_RTP)} with ${rounds.toLocaleString()} seeded rounds per probe…`)
     // More rockets → lower RTP; more multipliers → higher RTP.
-    const rocket = +solve(20, 200, x => seededRtp({ ...AVIA_NORMAL, rocket: x }, 'normal', rounds, 1), false).toFixed(3)
-    console.log(`normal  rocket: ${rocket}   (check seed: ${pct(seededRtp({ ...AVIA_NORMAL, rocket }, 'normal', rounds, 7))})`)
-    const mul = +solve(1, 40, x => seededRtp({ ...AVIA_SAFE, mul: x }, 'safe', rounds, 1), true).toFixed(3)
-    console.log(`safe    mul:    ${mul}   (check seed: ${pct(seededRtp({ ...AVIA_SAFE, mul }, 'safe', rounds, 7))})`)
+    const rocket = +solve(20, 200, x => seededRtp({ ...PM_NORMAL, rocket: x }, 'normal', rounds, 1), false).toFixed(3)
+    console.log(`normal  rocket: ${rocket}   (check seed: ${pct(seededRtp({ ...PM_NORMAL, rocket }, 'normal', rounds, 7))})`)
+    const mul = +solve(1, 40, x => seededRtp({ ...PM_SAFE, mul: x }, 'safe', rounds, 1), true).toFixed(3)
+    console.log(`safe    mul:    ${mul}   (check seed: ${pct(seededRtp({ ...PM_SAFE, mul }, 'safe', rounds, 7))})`)
 }
 
 const args = process.argv.slice(2)
@@ -135,12 +135,12 @@ if (args.includes('--tune')) {
 } else {
     const rounds = Number(positional[0] ?? 10_000_000)
     if (!Number.isFinite(rounds) || rounds <= 0) throw new Error(`Invalid rounds "${positional[0]}"`)
-    const only = positional[1] as AviaMode | undefined
+    const only = positional[1] as PmMode | undefined
     if (only && only !== 'normal' && only !== 'safe') throw new Error(`Unknown mode "${only}"`)
-    const modes: AviaMode[] = only ? [only] : ['normal', 'safe']
+    const modes: PmMode[] = only ? [only] : ['normal', 'safe']
     const results = modes.map(m => check(m, rounds))
     if (results.includes(false)) {
-        console.error(`\nRTP outside ${pct(AVIA_RTP_BAND.min)} – ${pct(AVIA_RTP_BAND.max)}`)
+        console.error(`\nRTP outside ${pct(PM_RTP_BAND.min)} – ${pct(PM_RTP_BAND.max)}`)
         process.exit(1)
     }
 }

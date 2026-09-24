@@ -634,12 +634,12 @@ const rawGroups: CommandPaletteGroup[] = [
         keywords: ['slots', 'trashpanda', 'trash', 'panda', 'raccoon', 'heist', 'casino', 'spin']
       },
       {
-        id: 'aviamasters',
-        label: 'Aviamasters',
+        id: 'polymasters',
+        label: 'PolyMasters',
         description: 'Crash game: fly through multipliers, dodge rockets and land on the island',
         icon: 'i-lucide-plane',
-        to: '/games/aviamasters',
-        keywords: ['slots', 'aviamasters', 'plane', 'crash', 'aviator', 'rocket', 'casino', 'fly']
+        to: '/games/polymasters',
+        keywords: ['slots', 'polymasters', 'plane', 'crash', 'aviator', 'rocket', 'casino', 'fly']
       }
     ]
   }
