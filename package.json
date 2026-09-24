@@ -26,6 +26,7 @@
     "balance:shapezz": "bun scripts/shapezz-balance.ts",
     "balance:shapezz-playtest": "bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/shapezz-playtest.ts",
     "balance:compare": "bun scripts/economy-compare.ts",
+    "balance:aviamasters": "bun scripts/aviamasters-rtp.ts",
     "tcg:rarity-audit": "bun scripts/tcg-rarity-audit.ts"
   },
   "dependencies": {

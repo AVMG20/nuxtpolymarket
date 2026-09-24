@@ -45,6 +45,7 @@ describe('normaliseCategory', () => {
         expect(normaliseCategory('casino-holdem')).toBe('Casino Hold\'em')
         expect(normaliseCategory('three-card-poker')).toBe('Three Card Poker')
         expect(normaliseCategory('baccarat')).toBe('Baccarat')
+        expect(normaliseCategory('aviamasters')).toBe('Aviamasters')
     })
 
     it('falls back to a readable Title Case for unrecognised categories', () => {
@@ -60,7 +61,7 @@ describe('prefixesForLabel', () => {
             'blackjack', 'live-blackjack', 'lootbox', 'gems', 'gem market', 'gem exchange',
             'miner', 'xeno', 'pirates', 'hackops', 'rakeback', 'colony', 'dice', 'limbo',
             'bank', 'shapezz', 'wheel', 'xenoslot', 'aethergates', 'bookofshadows',
-            'fireinthehole', 'candymadness', 'magichands', 'spinata', 'trashpanda', 'roulette',
+            'fireinthehole', 'candymadness', 'magichands', 'spinata', 'trashpanda', 'aviamasters', 'roulette',
             'casino-holdem', 'three-card-poker', 'baccarat'
         ]
         for (const prefix of rawPrefixes) {

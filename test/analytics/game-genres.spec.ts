@@ -6,7 +6,7 @@ describe('genreForCategory', () => {
     it('puts every casino game in the casino bucket', () => {
         const raw = [
             'dice', 'limbo', 'wheel', 'magichands', 'xenoslot', 'candymadness',
-            'aethergates', 'fireinthehole', 'bookofshadows', 'spinata', 'trashpanda', 'roulette',
+            'aethergates', 'fireinthehole', 'bookofshadows', 'spinata', 'trashpanda', 'aviamasters', 'roulette',
             'baccarat', 'casino-holdem', 'three-card-poker', 'blackjack', 'live-blackjack'
         ]
         for (const category of raw) {
