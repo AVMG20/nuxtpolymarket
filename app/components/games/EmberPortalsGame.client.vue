@@ -987,8 +987,12 @@ function flyToWin(x: number, y: number, text: string, color: string, big = false
     }
   })
   tl.set(el, { x: sx, y: sy, xPercent: -50, yPercent: -50, scale: 0.2, opacity: 0 })
-  tl.to(el, { scale: 1.15, opacity: 1, duration: 0.22 * speed(), ease: 'back.out(3)' })
-  tl.to(el, { x: tx, y: ty, scale: 0.55, duration: 0.55 * speed(), ease: 'power2.in' }, `+=${0.3 * speed()}`)
+  // Pop in, hold over the cluster long enough to read, then fly to the win.
+  tl.to(el, { scale: 1.15, opacity: 1, duration: 0.25 * speed(), ease: 'back.out(3)' })
+  tl.to(el, { scale: 1, duration: 0.2 * speed(), ease: 'sine.out' })
+  // The hold only half-scales with turbo so the amount is still readable there.
+  tl.to(el, { y: sy - 10, duration: 0.4 + 0.3 * speed(), ease: 'sine.out' })
+  tl.to(el, { x: tx, y: ty, scale: 0.55, duration: 0.6 * speed(), ease: 'power2.in' })
   flyerTweens.add(tl)
 }
 
@@ -2515,6 +2519,15 @@ const portalChipColor = (m: number) => tierCss(m).glow
   background: rgba(3, 2, 10, 0.7);
   box-shadow: inset 0 0 0 1.5px rgba(232, 181, 74, 0.65), inset 0 -3px 6px rgba(0, 0, 0, 0.6);
   color: #f5cf6a;
+  transition: background 0.2s, box-shadow 0.2s, color 0.2s;
+}
+
+/* Turbo / auto on: the circle lights up like a small portal. */
+.ep-deck :deep(.sc-tile.is-on),
+.ep-deck :deep(.sc-tile.is-on:hover:not(:disabled)) {
+  background: radial-gradient(circle at 50% 30%, #ffe0a0 0%, #ff8a1f 50%, #9a2a06 100%);
+  box-shadow: inset 0 0 0 1.5px #ffe7a8, inset 0 2px 0 rgba(255, 255, 255, 0.4), 0 0 16px rgba(255, 138, 31, 0.75);
+  color: #2a0a02;
 }
 
 /* The spin button is a portal: the tier-0 ring turns slowly behind it and
@@ -2595,12 +2608,20 @@ const portalChipColor = (m: number) => tierCss(m).glow
   position: absolute;
   left: 0;
   top: 0;
+  padding: 2px 12px 4px;
+  border-radius: 999px;
   font-family: var(--ep-number);
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 900;
+  line-height: 1.1;
   white-space: nowrap;
-  color: #fff;
-  text-shadow: 0 2px 0 #000, 0 0 10px var(--c), 0 0 22px var(--c);
+  color: #ffe28a;
+  -webkit-text-stroke: 5px #1a0804;
+  paint-order: stroke fill;
+  text-shadow: 0 2px 0 #000, 0 0 14px rgba(255, 170, 40, 0.8);
+  /* A dark lozenge rimmed in the cluster's colour keeps the amount readable over bright symbols. */
+  background: radial-gradient(ellipse at 50% 40%, rgba(24, 10, 6, 0.92), rgba(8, 3, 2, 0.8));
+  box-shadow: 0 0 0 1.5px var(--c), 0 0 16px var(--c), 0 4px 12px rgba(0, 0, 0, 0.6);
 }
 
 .ep-flyers :deep(.ep-flyer.is-big) { font-size: 36px; }
