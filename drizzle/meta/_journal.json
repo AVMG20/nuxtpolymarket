@@ -330,6 +330,13 @@
       "when": 1790150405312,
       "tag": "0046_thin_gladiator",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1790254951909,
+      "tag": "0047_bright_sleepwalker",
+      "breakpoints": true
     }
   ]
 }

@@ -43,6 +43,7 @@ const CATEGORY_LABELS: Record<string, string> = {
     meadowbrawl: 'Meadowbrawl',
     pathwarden: 'Pathwarden',
     firewall: 'Firewall',
+    'gold-miner': 'Gold Miner',
     'call-of-xeno': 'Call of Xeno',
     'storm-the-house': 'Storm the House',
     'voxel-arena': 'Voxel Arena',
