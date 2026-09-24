@@ -164,3 +164,17 @@ describe('normalizeCasinoOptions — trashpanda', () => {
     expect(() => normalizeCasinoOptions('trashpanda', { feature: 'buyBonus' }, 100)).toThrow()
   })
 })
+
+describe('normalizeCasinoOptions — emberportals', () => {
+  it('accepts the buy and the ante', () => {
+    expect(normalizeCasinoOptions('emberportals', { feature: 'buy' }, 100)).toEqual({ feature: 'buy' })
+    expect(normalizeCasinoOptions('emberportals', { ante: true }, 100)).toEqual({ ante: true })
+    expect(normalizeCasinoOptions('emberportals', { ante: false }, 100)).toBeUndefined()
+  })
+
+  it('rejects unknown values', () => {
+    expect(() => normalizeCasinoOptions('emberportals', { feature: 'buyFreeSpins' }, 100)).toThrow()
+    expect(() => normalizeCasinoOptions('emberportals', { ante: 'yes' }, 100)).toThrow()
+    expect(() => normalizeCasinoOptions('emberportals', { bonus: true }, 100)).toThrow()
+  })
+})

@@ -4,7 +4,7 @@ import { getErrorMessage, toolHeaders } from './helpers'
 
 const CASINO_GAMES = new Set([
     'dice', 'limbo', 'wheel', 'magichands', 'xenoslot',
-    'candymadness', 'aethergates', 'fireinthehole', 'bookofshadows', 'spinata', 'trashpanda'
+    'candymadness', 'aethergates', 'fireinthehole', 'bookofshadows', 'spinata', 'trashpanda', 'emberportals'
 ])
 
 const CASINO_TOOL_GAMES: Record<string, CasinoGame> = {
@@ -18,7 +18,8 @@ const CASINO_TOOL_GAMES: Record<string, CasinoGame> = {
     play_fireinthehole_rounds: 'fireinthehole',
     play_bookofshadows_rounds: 'bookofshadows',
     play_spinata_rounds: 'spinata',
-    play_trashpanda_rounds: 'trashpanda'
+    play_trashpanda_rounds: 'trashpanda',
+    play_emberportals_rounds: 'emberportals'
 }
 
 const CASINO_OPTION_KEYS = {
@@ -32,7 +33,8 @@ const CASINO_OPTION_KEYS = {
     fireinthehole: ['buyBonus'],
     bookofshadows: ['buyBonus'],
     spinata: ['feature'],
-    trashpanda: ['feature']
+    trashpanda: ['feature'],
+    emberportals: ['feature', 'ante']
 } satisfies Record<string, string[]>
 
 type CasinoGame = keyof typeof CASINO_OPTION_KEYS
@@ -117,6 +119,13 @@ export function normalizeCasinoOptions(game: string, raw: unknown, bet: number):
             if (options.feature == null) return undefined
             if (options.feature !== 'buyFreeSpins' && options.feature !== 'buyDive') invalidCasinoOptions('Trash Panda Heist feature must be buyFreeSpins or buyDive')
             return { feature: options.feature }
+        }
+        case 'emberportals': {
+            requireOnlyOptionKeys(options, ['feature', 'ante'])
+            if (options.feature != null && options.feature !== 'buy') invalidCasinoOptions('Ember Portals feature must be buy')
+            if (options.ante != null && typeof options.ante !== 'boolean') invalidCasinoOptions('Ember Portals ante must be a boolean')
+            if (options.feature === 'buy') return { feature: 'buy' }
+            return options.ante ? { ante: true } : undefined
         }
         default:
             invalidCasinoOptions('Unsupported casino game')
