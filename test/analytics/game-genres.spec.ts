@@ -26,7 +26,7 @@ describe('genreForCategory', () => {
 
     it('puts the active games in the active bucket', () => {
         const sidebar = ['pathwarden', 'pirates', 'shapezz', 'call-of-xeno', 'voxel-arena', 'firewall', 'meadowbrawl', 'tcg']
-        for (const category of [...sidebar, 'battler', 'storm-the-house']) {
+        for (const category of [...sidebar, 'battler', 'storm-the-house', 'gold-miner']) {
             expect(genreForCategory(category), category).toBe('active')
         }
     })
@@ -75,7 +75,7 @@ describe('genre tables', () => {
             'aethergates', 'fireinthehole', 'bookofshadows', 'spinata', 'trashpanda', 'emberportals', 'roulette',
             'baccarat', 'casino-holdem', 'three-card-poker', 'blackjack', 'live-blackjack',
             'lootbox', 'miner', 'colony', 'shapezz', 'xeno', 'hackops', 'polytown', 'town',
-            'tcg', 'meadowbrawl', 'pathwarden', 'pirates', 'firewall', 'call-of-xeno',
+            'tcg', 'meadowbrawl', 'pathwarden', 'pirates', 'firewall', 'gold-miner', 'call-of-xeno',
             'battler', 'storm-the-house', 'voxel-arena', 'bank', 'gems', 'gem market',
             'gem exchange', 'rakeback', 'prestige', 'draft', 'assets'
         ]

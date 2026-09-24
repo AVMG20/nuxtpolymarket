@@ -5,6 +5,7 @@ import type {
   PathwardenMapPlan
 } from '#shared/types/pathwarden-save'
 import type { FirewallRunSave } from '#shared/utils/gamelogic/firewall'
+import type { GmOffer, GmShopItem } from '#shared/utils/gamelogic/gold-miner'
 import type { CallOfXenoRunSave } from '#shared/utils/gamelogic/call-of-xeno-save'
 import type { MeadowbrawlRunSave } from '#shared/utils/gamelogic/meadowbrawl-meta'
 import type {
@@ -516,6 +517,37 @@ export const firewallRuns = pgTable('firewall_runs', {
   saveVersion: integer('save_version').notNull(),
   runState: jsonb('run_state').$type<FirewallRunSave>().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
+})
+
+// ─── GOLD MINER ──────────────────────────────────────────────────────────
+
+// Lifetime stats plus the one run a player can have going. `phase` is null
+// between runs; while it is set, every run column below it is live. Levels,
+// bags and the shop all roll off `secret`, which never leaves the server: the
+// client only gets the current level's layout seed once that level is dealt.
+export const goldMinerState = pgTable('gold_miner_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  bestLevel: integer('best_level').notNull().default(0),
+  bestPayout: numeric('best_payout', { precision: 19, scale: 4 }).notNull().default('0'),
+  totalStaked: numeric('total_staked', { precision: 19, scale: 4 }).notNull().default('0'),
+  totalPaid: numeric('total_paid', { precision: 19, scale: 4 }).notNull().default('0'),
+  phase: text('phase').$type<'level' | 'shop'>(),
+  stake: numeric('stake', { precision: 19, scale: 4 }).notNull().default('0'),
+  secret: integer('secret').notNull().default(0),
+  level: integer('level').notNull().default(0),
+  cash: integer('cash').notNull().default(0),
+  dynamite: integer('dynamite').notNull().default(0),
+  strength: boolean('strength').notNull().default(false),
+  clover: boolean('clover').notNull().default(false),
+  book: boolean('book').notNull().default(false),
+  polish: boolean('polish').notNull().default(false),
+  // When the level clock starts (a few seconds after the level is dealt, for the intro card).
+  levelStartsAt: timestamp('level_starts_at'),
+  offers: jsonb('offers').$type<GmOffer[]>().notNull().default([]),
+  bought: jsonb('bought').$type<GmShopItem[]>().notNull().default([]),
   updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
 })
 
@@ -1613,7 +1645,8 @@ export const userRelations = relations(user, ({ many, one }) => ({
   voidState: one(voidState),
   voidRunHistory: many(voidRunHistory),
   voidItems: many(voidItems),
-  firewallState: one(firewallState)
+  firewallState: one(firewallState),
+  goldMinerState: one(goldMinerState)
 }))
 
 export const minerStateRelations = relations(minerState, ({ one }) => ({
@@ -1658,6 +1691,10 @@ export const firewallStateRelations = relations(firewallState, ({ one }) => ({
 
 export const firewallRunsRelations = relations(firewallRuns, ({ one }) => ({
   user: one(user, { fields: [firewallRuns.userId], references: [user.id] })
+}))
+
+export const goldMinerStateRelations = relations(goldMinerState, ({ one }) => ({
+  user: one(user, { fields: [goldMinerState.userId], references: [user.id] })
 }))
 
 export const meadowbrawlStateRelations = relations(meadowbrawlState, ({ one }) => ({
