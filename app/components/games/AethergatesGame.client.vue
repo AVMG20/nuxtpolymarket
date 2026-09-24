@@ -56,7 +56,6 @@ useHead({
   ]
 })
 
-const { fetchSession } = useAuth()
 const toast = useToast()
 const sound = useAethergatesSound()
 const { soundEnabled, soundVolume } = sound
@@ -1009,7 +1008,6 @@ async function spin(forced?: AetherFeature) {
     ticker.value = result.payout > 0 ? `You won ${formatNumber(result.payout)}` : TIPS[++tipIndex % TIPS.length]!
     pushHistory({ payout: result.payout, cost: result.cost, bonus: result.bonusTriggered })
     setBalance(data.balance)
-    await fetchSession()
     if (autoLeft.value > 0 && autoSettings.stopOnWin > 0 && result.totalWinMult >= autoSettings.stopOnWin) stopAuto()
   } catch (e) {
     errorMsg.value = e instanceof Error ? e.message : 'Animation error'

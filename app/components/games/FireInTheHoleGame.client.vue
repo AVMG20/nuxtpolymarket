@@ -18,7 +18,6 @@ const cabinet = ref<HTMLDivElement | null>(null)
 const winOverlay = ref<InstanceType<typeof FithWinOverlay> | null>(null)
 const bonusBanner = ref<InstanceType<typeof FithBonusBanner> | null>(null)
 
-const { fetchSession } = useAuth()
 const { bet, isSpinning: isPlaying, errorMsg, balance, setBalance, history, pushHistory, spin: requestSpin } = useSlotGame<FireInTheHoleResult, { payout: number, bet: number, bonus: boolean }>('fireinthehole')
 const sound = useFireInTheHoleSound()
 const { soundEnabled, soundVolume } = sound
@@ -1132,7 +1131,6 @@ async function play(buy = false) {
         isPlaying.value = false
         chainIndex.value = -1
     }
-    void fetchSession()
 
     if (autoSpinsLeft.value > 0 && !destroyed) {
         autoSpinsLeft.value--

@@ -19,7 +19,6 @@ import BosBigWin from './bookofshadows/BosBigWin.vue'
 import BosFeatureIntro from './bookofshadows/BosFeatureIntro.vue'
 import BosInfo from './bookofshadows/BosInfo.vue'
 
-const { fetchSession } = useAuth()
 const toast = useToast()
 const { bet, isSpinning, errorMsg, balance, setBalance, history, pushHistory, spin: requestSpin } = useSlotGame<BookOfShadowsResult, { payout: number, bet: number, bonus: boolean }>('bookofshadows')
 
@@ -365,7 +364,6 @@ async function spin(buy = false) {
     lastWin.value = result.payout
     pushHistory({ payout: result.payout, bet: cost, bonus: Boolean(result.bonusTriggered) })
     setBalance(data.balance)
-    void fetchSession()
 
     if (auto.on && ((auto.stopOnFeature && result.bonusTriggered) || (auto.stopOnBigWin && result.payout >= betAmount * BIG_WIN_X))) stopAuto()
   } catch (e) {

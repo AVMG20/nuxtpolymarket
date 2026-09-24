@@ -1,9 +1,12 @@
 // Shared scaffolding for the slot games: bet + spin-guard + POST to
 // /api/games/play-game. Unlike useCasinoGame, the guard cost isn't always
 // `bet` (buy-bonus spins cost a multiple of it), so callers pass it in.
-// Like useCasinoGame, balance/history are never written here — slots debit
-// optimistically before the fetch and settle after the reveal animation,
-// both at call sites this composable does not control.
+// Like useCasinoGame, balance/history are normally written by the caller —
+// slots debit optimistically before the fetch and settle with the response's
+// balance after the reveal animation. Never fetchSession() per spin: the
+// response already carries the balance, and hammering get-session logs the
+// player out. The one exception is unmounting mid-spin: the reveal never
+// finishes, so the pending balance is applied here instead.
 
 interface SpinResponse<TResult> {
   gameData: TResult
@@ -15,13 +18,29 @@ interface SpinResponse<TResult> {
 const HISTORY_LIMIT = 10
 
 export function useSlotGame<TResult, THistory extends Record<string, unknown> = Record<string, unknown>>(game: string) {
-  const { balanceNum: balance, setBalance } = useAuth()
+  const { balanceNum: balance, setBalance: writeBalance } = useAuth()
 
   const bet = ref(10)
   const isSpinning = ref(false)
   const errorMsg = ref('')
   // ref() would unwrap THistory into UnwrapRefSimple and reject the entries pushed below.
   const history = ref([]) as Ref<THistory[]>
+
+  // Server balance from a spin whose reveal hasn't settled yet. Any caller
+  // write (the settle after the animation) clears it.
+  let pendingBalance: number | null = null
+  let disposed = false
+
+  function setBalance(value: number | string) {
+    pendingBalance = null
+    return writeBalance(value)
+  }
+
+  onScopeDispose(() => {
+    disposed = true
+    if (pendingBalance !== null) void writeBalance(pendingBalance)
+    pendingBalance = null
+  })
 
   function pushHistory(entry: THistory) {
     history.value.unshift(entry)
@@ -38,10 +57,13 @@ export function useSlotGame<TResult, THistory extends Record<string, unknown> = 
     onStart?.()
 
     try {
-      return await $fetch('/api/games/play-game', {
+      const data = await $fetch('/api/games/play-game', {
         method: 'POST',
         body: { bet: bet.value, game, options }
       }) as SpinResponse<TResult>
+      if (disposed) void writeBalance(data.balance)
+      else pendingBalance = data.balance
+      return data
     } catch (e: unknown) {
       isSpinning.value = false
       errorMsg.value = e instanceof Error ? e.message : 'Something went wrong'

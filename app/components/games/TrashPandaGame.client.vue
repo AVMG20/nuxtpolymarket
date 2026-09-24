@@ -46,7 +46,6 @@ import { TRASH_BAR_THEME } from '~/utils/slots/slot-themes'
 
 type Feature = 'buyFreeSpins' | 'buyDive'
 
-const { fetchSession } = useAuth()
 const { bet, isSpinning, errorMsg, balance, setBalance, history, pushHistory, spin: requestSpin } = useSlotGame<TrashPandaResult, { payout: number, bet: number, bonus: boolean }>('trashpanda')
 const sound = useTrashPandaSound()
 const { soundEnabled, soundVolume, musicVolume } = sound
@@ -974,7 +973,6 @@ async function spin(feature: Feature | null = null) {
       say(errorMsg.value || 'Spin failed', 'warn')
       phase.value = 'idle'
       stopAutoplay()
-      void fetchSession()
     }
     return
   }
@@ -1030,7 +1028,6 @@ async function spin(feature: Feature | null = null) {
     inFreeSpins.value = false
     dive.show = false
     wayMults = null
-    void fetchSession()
   }
 
   if (destroyed) return
