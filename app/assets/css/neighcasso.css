@@ -1,0 +1,228 @@
+/* Neighcasso Derby: crayon-on-notebook chrome shared by the editor, the stable
+   and the main game page. Not registered globally; import it from the page.
+
+   The paper stays cream in both site themes, so anything drawn on .nc-paper
+   uses the fixed --nc-ink colours. Text outside the paper should keep using
+   the site's semantic tokens. */
+
+.nc-root {
+    --nc-font: 'Comic Neue', 'Chalkboard SE', 'Comic Sans MS', cursive;
+    --nc-paper: #fdf6e3;
+    --nc-paper-deep: #f6ead0;
+    --nc-ink: #2b2118;
+    --nc-ink-soft: #6b5a48;
+    --nc-rule: rgba(88, 140, 205, 0.2);
+    --nc-margin: rgba(226, 87, 76, 0.35);
+    --nc-pink: #ff9ec7;
+    --nc-yellow: #ffd84d;
+    --nc-mint: #8fe3b0;
+    --nc-blue: #9cc9ff;
+    --nc-red: #ff8a7a;
+    --nc-lilac: #c9b3ff;
+    --nc-wobble: 255px 15px 225px 15px / 15px 225px 15px 255px;
+    --nc-wobble-alt: 15px 225px 15px 255px / 255px 15px 225px 15px;
+    --nc-wobble-soft: 20px 8px 24px 6px / 6px 22px 8px 20px;
+    font-family: var(--nc-font);
+}
+
+/* Cream notebook page with faint ruled lines and a red margin. */
+.nc-paper {
+    color: var(--nc-ink);
+    background-color: var(--nc-paper);
+    background-image:
+        linear-gradient(90deg, transparent 2.1rem, var(--nc-margin) 2.1rem, var(--nc-margin) calc(2.1rem + 1.5px), transparent calc(2.1rem + 1.5px)),
+        repeating-linear-gradient(180deg, transparent 0, transparent 27px, var(--nc-rule) 27px, var(--nc-rule) 28px);
+}
+
+/* Ruled lines only, no margin: for small cards. */
+.nc-paper-plain {
+    color: var(--nc-ink);
+    background-color: var(--nc-paper);
+    background-image: repeating-linear-gradient(180deg, transparent 0, transparent 21px, var(--nc-rule) 21px, var(--nc-rule) 22px);
+}
+
+/* Hand-drawn wobbly border. */
+.nc-doodle {
+    border: 3px solid var(--nc-ink);
+    border-radius: var(--nc-wobble);
+    box-shadow: 3px 4px 0 rgba(43, 33, 24, 0.85);
+}
+
+.nc-doodle-alt {
+    border: 3px solid var(--nc-ink);
+    border-radius: var(--nc-wobble-alt);
+    box-shadow: -3px 4px 0 rgba(43, 33, 24, 0.85);
+}
+
+/* Subtler wobble for big panels, where the strong radii would eat content. */
+.nc-doodle-soft {
+    border: 2.5px solid var(--nc-ink);
+    border-radius: var(--nc-wobble-soft);
+    box-shadow: 2px 3px 0 rgba(43, 33, 24, 0.8);
+}
+
+.nc-dashed {
+    border: 2.5px dashed var(--nc-ink-soft);
+    border-radius: var(--nc-wobble-alt);
+}
+
+.nc-tilt-l { transform: rotate(-1.2deg); }
+.nc-tilt-r { transform: rotate(1.1deg); }
+
+/* Sticker-like button. Colour variants below; .is-active marks the picked tool. */
+.nc-sticker {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.4rem 0.8rem;
+    font-family: var(--nc-font);
+    font-weight: 700;
+    font-size: 0.95rem;
+    line-height: 1.1;
+    color: var(--nc-ink);
+    background: #fff;
+    border: 2.5px solid var(--nc-ink);
+    border-radius: var(--nc-wobble-soft);
+    box-shadow: 2px 3px 0 var(--nc-ink);
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.12s ease, box-shadow 0.12s ease, background-color 0.12s ease;
+}
+
+.nc-sticker:nth-of-type(odd) { border-radius: var(--nc-wobble-soft); }
+.nc-sticker:nth-of-type(even) { border-radius: 8px 20px 6px 24px / 22px 6px 20px 8px; }
+
+.nc-sticker:hover:not(:disabled) {
+    transform: translate(-1px, -1px) rotate(-1.5deg);
+    box-shadow: 3px 4px 0 var(--nc-ink);
+}
+
+.nc-sticker:active:not(:disabled) {
+    transform: translate(2px, 3px);
+    box-shadow: 0 0 0 var(--nc-ink);
+}
+
+.nc-sticker:focus-visible {
+    outline: 3px dashed var(--nc-blue);
+    outline-offset: 3px;
+}
+
+.nc-sticker:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    box-shadow: 1px 1px 0 var(--nc-ink);
+}
+
+.nc-sticker.is-active {
+    background: var(--nc-yellow);
+    transform: rotate(-2deg) translateY(-1px);
+    box-shadow: 3px 4px 0 var(--nc-ink);
+}
+
+.nc-sticker-sm {
+    padding: 0.25rem 0.55rem;
+    font-size: 0.82rem;
+    box-shadow: 1.5px 2px 0 var(--nc-ink);
+}
+
+.nc-sticker-lg {
+    padding: 0.6rem 1.2rem;
+    font-size: 1.15rem;
+}
+
+.nc-sticker-pink { background: var(--nc-pink); }
+.nc-sticker-yellow { background: var(--nc-yellow); }
+.nc-sticker-mint { background: var(--nc-mint); }
+.nc-sticker-blue { background: var(--nc-blue); }
+.nc-sticker-red { background: var(--nc-red); }
+.nc-sticker-lilac { background: var(--nc-lilac); }
+
+/* Marker-style heading with a scribbled underline. */
+.nc-title {
+    font-family: var(--nc-font);
+    font-weight: 800;
+    letter-spacing: 0.01em;
+    line-height: 1.1;
+}
+
+.nc-scribble {
+    background-image: linear-gradient(transparent 62%, rgba(255, 216, 77, 0.75) 62%, rgba(255, 216, 77, 0.75) 88%, transparent 88%);
+    padding: 0 0.15em;
+}
+
+.nc-hint {
+    color: var(--nc-ink-soft);
+    font-size: 0.85rem;
+}
+
+/* Text input drawn like a box on the page. */
+.nc-input {
+    font-family: var(--nc-font);
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--nc-ink);
+    background: #fffdf6;
+    border: 2.5px solid var(--nc-ink);
+    border-radius: 6px 18px 5px 16px / 16px 5px 18px 6px;
+    padding: 0.4rem 0.7rem;
+    outline: none;
+    min-width: 0;
+}
+
+.nc-input::placeholder { color: var(--nc-ink-soft); opacity: 0.7; }
+.nc-input:focus { box-shadow: 0 0 0 3px var(--nc-blue); }
+
+/* Little label, like a price tag. */
+.nc-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.05rem 0.5rem;
+    font-family: var(--nc-font);
+    font-weight: 700;
+    font-size: 0.78rem;
+    color: var(--nc-ink);
+    background: #fff;
+    border: 2px solid var(--nc-ink);
+    border-radius: 999px 40px 999px 30px;
+}
+
+/* A strip of masking tape across the top of a card. */
+.nc-tape {
+    position: relative;
+}
+
+.nc-tape::before {
+    content: '';
+    position: absolute;
+    top: -10px;
+    left: 50%;
+    width: 64px;
+    height: 20px;
+    transform: translateX(-50%) rotate(-3deg);
+    background: rgba(255, 236, 170, 0.8);
+    border-left: 1px dashed rgba(43, 33, 24, 0.25);
+    border-right: 1px dashed rgba(43, 33, 24, 0.25);
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* Inline error scrawl. */
+.nc-error {
+    color: #c0392b;
+    font-weight: 700;
+    font-size: 0.88rem;
+}
+
+@keyframes nc-wiggle {
+    0%, 100% { transform: rotate(-1.5deg); }
+    50% { transform: rotate(1.5deg); }
+}
+
+.nc-wiggle { animation: nc-wiggle 1.2s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+    .nc-wiggle { animation: none; }
+    .nc-sticker { transition: none; }
+}

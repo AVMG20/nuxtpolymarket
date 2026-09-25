@@ -77,7 +77,8 @@ const casinoItems: NavigationMenuItem[] = [
   { label: 'Roulette', class: 'mb-1', icon: 'i-lucide-circle-dot', to: '/games/roulette' },
   { label: 'Baccarat', class: 'mb-1', icon: 'i-lucide-diamond', to: '/games/baccarat' },
   { label: 'Three Card Poker', class: 'mb-1', icon: 'i-lucide-gem', to: '/games/three-card-poker' },
-  { label: 'Casino Hold\'em', class: 'mb-1', icon: 'i-lucide-club', to: '/games/casino-holdem' }
+  { label: 'Casino Hold\'em', class: 'mb-1', icon: 'i-lucide-club', to: '/games/casino-holdem' },
+  { label: 'Neighcasso Derby', class: 'mb-1', icon: 'i-lucide-brush', to: '/games/neighcasso' }
 ]
 
 const adminItems: NavigationMenuItem[] = [
