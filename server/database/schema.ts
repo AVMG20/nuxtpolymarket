@@ -20,6 +20,7 @@ import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
 import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
 import type { NcDrawing } from '#shared/utils/neighcasso/types'
+import type { NavLayout } from '#shared/utils/nav-layout'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -57,6 +58,19 @@ export const emblemHistory = pgTable(
   },
   table => [index('emblem_history_userId_createdAt_idx').on(table.userId, table.createdAt)]
 )
+
+// The player's sidebar arrangement (shared/utils/nav-layout.ts). One row per
+// user, written whole on every change.
+export const userNavLayout = pgTable('user_nav_layout', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  layout: jsonb('layout').$type<NavLayout>().notNull(),
+  updatedAt: timestamp('updated_at')
+    .defaultNow()
+    .$onUpdate(() => /* @__PURE__ */ new Date())
+    .notNull()
+})
 
 export const transactions = pgTable(
   'transactions',
