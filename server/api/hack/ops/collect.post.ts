@@ -149,12 +149,11 @@ export default defineEventHandler(async (event) => {
     let redeploy: { ok: true; opId: string; completesAt: Date } | { ok: false; error: string } | null = null
     if (claimed.autoRedeploy) {
       try {
-        // Nested transaction = savepoint, so a failed insert cannot poison the
-        // outer transaction that holds the payout.
-        const next = await tx.transaction(sp => dispatchHackOp(sp, userId, op.templateId, agentIds, {
+        // dispatchHackOp runs in its own savepoint, so a refused deploy cannot poison the payout.
+        const next = await dispatchHackOp(tx, userId, op.templateId, agentIds, {
           instant: Boolean(useRuntimeConfig(event).devMode),
           autoRedeploy: true,
-        }))
+        })
         redeploy = { ok: true, opId: next.opId, completesAt: next.completesAt }
       } catch (e: any) {
         redeploy = { ok: false, error: e?.statusMessage ?? 'Redeploy failed' }
