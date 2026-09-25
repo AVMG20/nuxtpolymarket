@@ -337,6 +337,13 @@
       "when": 1790254951909,
       "tag": "0047_bright_sleepwalker",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1790330824082,
+      "tag": "0048_nosy_marten_broadcloak",
+      "breakpoints": true
     }
   ]
 }

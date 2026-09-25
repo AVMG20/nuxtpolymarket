@@ -19,6 +19,7 @@ import type {
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
 import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
+import type { NcDrawing } from '#shared/utils/neighcasso/types'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -689,6 +690,25 @@ export const tableWagers = pgTable(
     createdAt: timestamp('created_at').defaultNow().notNull()
   },
   table => [index('table_wagers_settled_createdAt_idx').on(table.settled, table.createdAt)]
+)
+
+/**
+ * Neighcasso Derby horses: a player's saved doodles. The id doubles as the
+ * share link, so anyone signed in can view (and copy) a horse by id.
+ */
+export const neighcassoHorses = pgTable(
+  'neighcasso_horses',
+  {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    drawing: jsonb('drawing').$type<NcDrawing>().notNull(),
+    wins: integer('wins').notNull().default(0),
+    races: integer('races').notNull().default(0),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull()
+  },
+  table => [index('neighcasso_horses_userId_idx').on(table.userId, table.updatedAt)]
 )
 
 // ─── Xeno ──────────────────────────────────────────────────────────────────
