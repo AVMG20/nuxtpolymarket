@@ -1,14 +1,14 @@
 <script lang="ts" setup>
-import type { NavigationMenuItem } from '@nuxt/ui'
 import packageJson from '../../package.json'
 
 const { user, signOut: authSignOut, fetchSession } = useAuth()
+const navLayout = useNavLayout()
 await fetchSession()
 
 // The bank's cut follows the player around the app, so the wallet in the footer
 // turns red wherever they are — the tooltip is the only place it's explained.
 const { inDebt: bankGarnishing, refresh: refreshBankStatus } = useBankStatus()
-if (user.value) await refreshBankStatus()
+if (user.value) await Promise.all([refreshBankStatus(), navLayout.load()])
 const appConfig = useAppConfig()
 const softStudio = useSoftStudio()
 const open = ref(true)
@@ -24,66 +24,15 @@ watch(() => route.fullPath, () => {
   }
 })
 
+function customizeSidebar() {
+  menuOpen.value = false
+  open.value = true
+  navLayout.editing.value = true
+}
+
 async function signOut() {
   await authSignOut({ redirectTo: '/login' })
 }
-
-const platformItems: NavigationMenuItem[] = [
-  { label: 'Games', class: 'mb-1', icon: 'i-lucide-house', to: '/' },
-  { label: 'AI Assistant', class: 'mb-1', icon: 'i-lucide-bot', to: '/ai' },
-  { label: 'Gem Exchange', class: 'mb-1', icon: 'i-lucide-gem', to: '/gem-exchange' },
-  { label: 'Bank', class: 'mb-1', icon: 'i-lucide-landmark', to: '/bank' },
-  { label: 'Leaderboard', class: 'mb-1', icon: 'i-lucide-trophy', to: '/leaderboard' },
-  { label: 'Changelog', class: 'mb-1', icon: 'i-lucide-scroll-text', to: '/changelog' }
-]
-
-const idleGameItems: NavigationMenuItem[] = [
-  { label: 'Xeno', class: 'mb-1', icon: 'i-lucide-sprout', to: '/xeno' },
-  { label: 'Hack Ops', class: 'mb-1', icon: 'i-lucide-terminal', to: '/hack' },
-  { label: 'Colony', class: 'mb-1', icon: 'i-lucide-bug', to: '/colony' },
-  { label: 'Polytown', class: 'mb-1', icon: 'i-lucide-building-2', to: '/polytown' }
-]
-
-const activeGameItems: NavigationMenuItem[] = [
-  { label: 'Void Runner', class: 'mb-1', icon: 'i-lucide-rocket', to: '/void' },
-  { label: 'Pirate Raid', class: 'mb-1', icon: 'i-lucide-anchor', to: '/pirates' },
-  { label: 'Pathwarden', class: 'mb-1', icon: 'i-lucide-castle', to: '/pathwarden' },
-  { label: 'SHAPEZZ', class: 'mb-1', icon: 'i-lucide-shapes', to: '/shapezz' },
-  { label: 'Call of Xeno', class: 'mb-1', icon: 'i-lucide-skull', to: '/call-of-xeno' },
-  { label: 'Voxel Arena', class: 'mb-1', icon: 'i-lucide-boxes', to: '/voxel-arena' },
-  { label: 'Firewall', class: 'mb-1', icon: 'i-lucide-shield-half', to: '/firewall' },
-  { label: 'Meadowbrawl', class: 'mb-1', icon: 'i-lucide-swords', to: '/meadowbrawl' },
-  { label: 'TCG', class: 'mb-1', icon: 'i-lucide-layers', to: '/tcg' }
-]
-
-const slotItems: NavigationMenuItem[] = [
-  { label: 'Xeno Slot', class: 'mb-1', icon: 'i-lucide-cherry', to: '/games/xenoslot' },
-  { label: 'Candy Madness', class: 'mb-1', icon: 'i-lucide-lollipop', to: '/games/candymadness' },
-  { label: 'Aether Gates', class: 'mb-1', icon: 'i-lucide-zap', to: '/games/aethergates' },
-  { label: 'Fire in the Hole', class: 'mb-1', icon: 'i-lucide-flame', to: '/games/fireinthehole' },
-  { label: 'Book of Shadows', class: 'mb-1', icon: 'i-lucide-book-open', to: '/games/bookofshadows' },
-  { label: 'Spiñata Slots', class: 'mb-1', icon: 'i-lucide-party-popper', to: '/games/spinata' },
-  { label: 'Trash Panda Heist', class: 'mb-1', icon: 'i-lucide-trash-2', to: '/games/trashpanda' },
-  { label: 'Ember Portals', class: 'mb-1', icon: 'i-lucide-orbit', to: '/games/emberportals' },
-  { label: 'PolyMasters', class: 'mb-1', icon: 'i-lucide-plane', to: '/games/polymasters' }
-]
-
-const casinoItems: NavigationMenuItem[] = [
-  { label: 'Dice', class: 'mb-1', icon: 'i-lucide-dices', to: '/games/dice' },
-  { label: 'Limbo', class: 'mb-1', icon: 'i-lucide-trending-up', to: '/games/limbo' },
-  { label: 'Wheel', class: 'mb-1', icon: 'i-lucide-loader-pinwheel', to: '/games/wheel' },
-  { label: 'Magic Hands', class: 'mb-1', icon: 'i-lucide-hand', to: '/games/magichands' },
-  { label: 'Live Blackjack', class: 'mb-1', icon: 'i-lucide-spade', to: '/games/live-blackjack' },
-  { label: 'Roulette', class: 'mb-1', icon: 'i-lucide-circle-dot', to: '/games/roulette' },
-  { label: 'Baccarat', class: 'mb-1', icon: 'i-lucide-diamond', to: '/games/baccarat' },
-  { label: 'Three Card Poker', class: 'mb-1', icon: 'i-lucide-gem', to: '/games/three-card-poker' },
-  { label: 'Casino Hold\'em', class: 'mb-1', icon: 'i-lucide-club', to: '/games/casino-holdem' },
-  { label: 'Neighcasso Derby', class: 'mb-1', icon: 'i-lucide-brush', to: '/games/neighcasso' }
-]
-
-const adminItems: NavigationMenuItem[] = [
-  { label: 'TCG Admin', class: 'mb-1', icon: 'i-lucide-layers', to: '/tcg-admin' }
-]
 
 const primaryColors = [
   'red', 'orange', 'amber', 'yellow', 'lime', 'green',
@@ -139,25 +88,28 @@ const globalSearch = useGlobalSearch()
       rail
       :ui="{
         header: 'px-3 pt-3 pb-3 flex-col items-stretch gap-2.5 min-h-14',
-        body: 'p-3 gap-0',
+        body: 'p-3 gap-0 [scrollbar-width:thin]',
         footer: 'flex-col items-stretch gap-2 p-3'
       }"
     >
       <!-- Header -->
       <template #header="{ state, close }">
         <div class="flex items-center justify-between gap-2 w-full">
-          <div class="flex items-center gap-2 min-w-0">
-            <UIcon
-              class="size-5 shrink-0 text-primary"
-              name="i-lucide-gamepad-2"
-            />
+          <NuxtLink to="/" class="flex items-center gap-2.5 min-w-0" :class="state === 'collapsed' ? 'mx-auto' : ''">
+            <span class="grid size-8 shrink-0 place-items-center rounded-lg bg-primary/15 ring ring-inset ring-primary/25">
+              <UIcon
+                class="size-4.5 text-primary"
+                name="i-lucide-gamepad-2"
+              />
+            </span>
             <span
               v-if="state !== 'collapsed'"
-              class="flex-1 truncate text-lg font-bold text-primary"
+              class="flex min-w-0 items-baseline gap-1.5"
             >
-              Polynux
+              <span class="truncate text-base font-bold tracking-tight text-highlighted">Polynux</span>
+              <span class="text-[10px] font-medium text-dimmed tabular-nums">{{ siteVersion }}</span>
             </span>
-          </div>
+          </NuxtLink>
           <!-- Mobile close -->
           <UButton
             class="lg:hidden shrink-0"
@@ -202,90 +154,7 @@ const globalSearch = useGlobalSearch()
 
       <!-- Nav content -->
       <template #default="{ state }">
-
-        <p
-          v-if="state !== 'collapsed'"
-          class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1"
-        >
-          Platform
-        </p>
-        <UNavigationMenu
-          :collapsed="state === 'collapsed'"
-          :items="platformItems"
-          orientation="vertical"
-        />
-
-        <USeparator class="my-3" />
-
-        <p
-          v-if="state !== 'collapsed'"
-          class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1"
-        >
-          Idle Games
-        </p>
-        <UNavigationMenu
-          :collapsed="state === 'collapsed'"
-          :items="idleGameItems"
-          orientation="vertical"
-        />
-
-        <USeparator class="my-3" />
-
-        <p
-          v-if="state !== 'collapsed'"
-          class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1"
-        >
-          Active Games
-        </p>
-        <UNavigationMenu
-          :collapsed="state === 'collapsed'"
-          :items="activeGameItems"
-          orientation="vertical"
-        />
-
-        <USeparator class="my-3" />
-
-        <p
-          v-if="state !== 'collapsed'"
-          class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1"
-        >
-          Casino
-        </p>
-        <UNavigationMenu
-          :collapsed="state === 'collapsed'"
-          :items="casinoItems"
-          orientation="vertical"
-        />
-
-        <USeparator class="my-3" />
-
-        <p
-          v-if="state !== 'collapsed'"
-          class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1"
-        >
-          Slots
-        </p>
-        <UNavigationMenu
-          :collapsed="state === 'collapsed'"
-          :items="slotItems"
-          orientation="vertical"
-        />
-
-        <template v-if="user?.isPokemonAdmin">
-          <USeparator class="my-3" />
-
-          <p
-            v-if="state !== 'collapsed'"
-            class="text-xs font-semibold text-muted uppercase tracking-wider px-2 mb-1"
-          >
-            Admin
-          </p>
-          <UNavigationMenu
-            :collapsed="state === 'collapsed'"
-            :items="adminItems"
-            orientation="vertical"
-          />
-        </template>
+        <AppSidebarNav :rail="state === 'collapsed'" />
       </template>
 
       <!-- Footer -->
@@ -293,7 +162,7 @@ const globalSearch = useGlobalSearch()
         <!-- Balance: full row when expanded -->
         <div
           v-if="state !== 'collapsed'"
-          class="flex items-center justify-between px-3"
+          class="flex items-center justify-between rounded-lg bg-elevated/50 px-3 py-2 ring ring-inset ring-default"
         >
           <span class="font-semibold text-sm">
             <CoinBalance :value="user?.balance" :danger="bankGarnishing" :tooltip="BANK_DEBT_WARNING" />
@@ -424,6 +293,15 @@ const globalSearch = useGlobalSearch()
               <USeparator class="my-1" />
 
               <div class="px-1 py-0.5">
+                <UButton
+                  block
+                  class="justify-start"
+                  color="neutral"
+                  icon="i-lucide-sliders-horizontal"
+                  label="Customize sidebar"
+                  variant="ghost"
+                  @click="customizeSidebar"
+                />
                 <UButton
                   block
                   class="justify-start"
