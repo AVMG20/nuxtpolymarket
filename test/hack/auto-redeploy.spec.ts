@@ -43,6 +43,16 @@ describe.skipIf(SKIP)('dispatchHackOp', () => {
             .rejects.toThrow('Agent is already on an op')
     })
 
+    it('sends a squad out once when the same deploy fires in parallel', async () => {
+        const agent = await seedAgent()
+        const results = await Promise.allSettled(Array.from({ length: 5 }, () =>
+            dispatchHackOp(db, USER, 'port_scan', [agent.id], { instant: true })))
+
+        expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1)
+        const running = await db.query.hackOps.findMany({ where: and(eq(hackOps.userId, USER), eq(hackOps.collected, false)) })
+        expect(running).toHaveLength(1)
+    })
+
     it('refuses agents in storage, duplicates and unknown agents', async () => {
         const stored = await seedAgent(false)
         await expect(dispatchHackOp(db, USER, 'port_scan', [stored.id], { instant: true }))
