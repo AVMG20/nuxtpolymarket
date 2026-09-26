@@ -9,9 +9,10 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { TownBuildingId } from '#shared/utils/gamelogic/town'
 import { townVisualLevel, townVisualStage } from './appearance'
-import { shade, type ModelSpec, type Part } from './kit'
-import { houseModel } from './homes'
+import { paintAs, shade, type ModelSpec, type Part } from './kit'
+import { bakeryModel, emporiumModel, houseModel } from './homes'
 import { INDUSTRY_MODELS } from './industry'
+import { RESOURCE_MODELS } from './resources'
 import { CIVIC_MODELS } from './civic'
 
 export { shade }
@@ -146,6 +147,9 @@ export type TownModelFactory = (stage: number, variant: number) => ModelSpec
 
 const MODELS: Partial<Record<TownBuildingId, TownModelFactory>> = {
     house: houseModel,
+    bakery: bakeryModel,
+    emporium: emporiumModel,
+    ...RESOURCE_MODELS,
     ...INDUSTRY_MODELS,
     ...CIVIC_MODELS
 }
@@ -155,6 +159,11 @@ export const TOWN_MODEL_VARIANTS = 12
 
 const prototypes = new Map<string, THREE.Group>()
 
+/** The raw part list behind a building's look, for previews and checks. */
+export function townModelSpec(type: TownBuildingId, stage: number, variant = 0): ModelSpec {
+    return paintAs(type, () => (MODELS[type] ?? MODELS.park!)(stage, variant))
+}
+
 /** A fresh instance of a building model; geometry and static materials are shared. */
 export function createBuildingModel(type: TownBuildingId, requestedLevel = 1, variant = 0): THREE.Group {
     const level = type === 'road' ? 1 : townVisualLevel(requestedLevel)
@@ -163,8 +172,7 @@ export function createBuildingModel(type: TownBuildingId, requestedLevel = 1, va
     let proto = prototypes.get(key)
     if (!proto) {
         // A building nobody has modelled yet borrows the park rather than crashing.
-        const model = MODELS[type] ?? MODELS.park!
-        proto = buildTownModel(model(townVisualStage(level), look))
+        proto = buildTownModel(townModelSpec(type, townVisualStage(level), look))
         proto.userData.visualLevel = level
         proto.userData.visualStage = townVisualStage(level)
         proto.userData.height = new THREE.Box3().setFromObject(proto).max.y

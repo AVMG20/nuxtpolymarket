@@ -80,6 +80,86 @@ export function tierRoof(stage: number): number {
     return TIER_ROOFS[Math.max(0, Math.min(TIER_ROOFS.length - 1, stage))]!
 }
 
+/**
+ * The fixed colour scheme of a look. Every building of a stage wears the same
+ * one, whatever tile it stands on, so a player's plots read as their tier from
+ * across the map: timber and plaster, brick, rose stucco, white stone, then
+ * marble and gold. A building may keep its own identity colour (a red kiln, a
+ * golden field) but takes its roof, trim and banner from here.
+ */
+export interface TierLook {
+    roof: number
+    /** Plaster for houses and house-like walls. */
+    wall: number
+    /** Second wall tone: wings, upper storeys, outbuildings. */
+    wall2: number
+    /** Cornices, window frames, corner stones. */
+    trim: number
+    /** Shutters, doors and painted woodwork. */
+    paint: number
+    /** Flags and banners that fly from stage 2 up. */
+    banner: number
+    /** Finials, weathervanes, railings: iron early, gold at the top. */
+    metal: number
+}
+
+export const TIER_LOOKS: readonly TierLook[] = [
+    { roof: TIER_ROOFS[0], wall: 0xf1e2c4, wall2: 0xd9b98c, trim: 0x8a5a36, paint: 0x2f7d52, banner: 0xc8664a, metal: C.iron },
+    { roof: TIER_ROOFS[1], wall: 0xf2c76a, wall2: 0xc9674a, trim: 0xfdfbf5, paint: 0x2f5aa0, banner: 0xb2453a, metal: C.iron },
+    { roof: TIER_ROOFS[2], wall: 0xf0b3a6, wall2: 0xfbeee4, trim: 0xfdfbf5, paint: 0x6d2f45, banner: 0x8f3f5c, metal: 0x9ba7ae },
+    { roof: TIER_ROOFS[3], wall: 0xeef0ee, wall2: 0xbfd3e6, trim: 0xe0dbc9, paint: 0x2b4c78, banner: 0x3f6494, metal: 0xc9d3da },
+    { roof: TIER_ROOFS[4], wall: 0xfdfaf2, wall2: 0xf3e3bc, trim: 0xf0be4a, paint: 0x1f3a5f, banner: 0x7e3d95, metal: 0xf0be4a }
+]
+
+/**
+ * Each building type's own materials, the same at every level and on every
+ * tile, so a street reads as bakery, smithy, mill at a glance: a red barn, a
+ * sooty foundry, a whitewashed mill. Houses have none: they wear the tier
+ * scheme and carry the level signal for the whole town. Other buildings show
+ * their level by height, shape and the tier's trim, banners and gold. Roof
+ * hues stay clear of the house ramp (terracotta, brick, wine, steel, gold).
+ */
+export const BUILDING_LOOKS: Partial<Record<string, Pick<TierLook, 'roof' | 'wall' | 'wall2'>>> = {
+    bakery: { roof: 0xe27d9c, wall: 0xf6dcb0, wall2: 0xb8703f },
+    emporium: { roof: 0x7e3d95, wall: 0xf1ebf7, wall2: 0xcdb8f2 },
+    mill: { roof: 0x5aa0d8, wall: 0xf6f2e8, wall2: 0xd8c7a0 },
+    sawmill: { roof: 0x6f9a3c, wall: 0xb47a45, wall2: 0x7a5132 },
+    kiln: { roof: 0xe57a2c, wall: 0xbe5a38, wall2: 0x8a3b25 },
+    smithy: { roof: 0x3c4350, wall: 0x7d8078, wall2: 0x4f5459 },
+    foundry: { roof: 0x7b4a33, wall: 0x9c3d2c, wall2: 0x5b3a2e },
+    factory: { roof: 0x8d949b, wall: 0xcbc4b6, wall2: 0x6f7a84 },
+    farm: { roof: 0x55606c, wall: 0xc23b2e, wall2: 0xf1e2c4 },
+    lumber: { roof: 0x2f6b4c, wall: 0x8a5a36, wall2: 0x5c3a22 },
+    quarry: { roof: 0xa89f8c, wall: 0xd6cdb6, wall2: 0x9a9282 },
+    mine: { roof: 0x4b4b55, wall: 0x8a7760, wall2: 0x5a4c3e },
+    gemmine: { roof: 0x6a3fa0, wall: 0x6e5c86, wall2: 0x43365c },
+    warehouse: { roof: 0xb58a55, wall: 0x9c7c5a, wall2: 0x6b4e35 },
+    bathhouse: { roof: 0x2f9fb8, wall: 0xeaf5f6, wall2: 0xa8d8e0 },
+    theatre: { roof: 0x9c2f55, wall: 0xf3dcc8, wall2: 0xb8475f }
+}
+
+let painting: string | undefined
+
+/**
+ * Build a model in `type`'s own materials: every tierLook() call made while
+ * `build` runs returns the tier scheme with that type's roof and walls. Models are built
+ * synchronously, so this never leaks into another building.
+ */
+export function paintAs<T>(type: string, build: () => T): T {
+    painting = type
+    try {
+        return build()
+    } finally {
+        painting = undefined
+    }
+}
+
+export function tierLook(stage: number): TierLook {
+    const look = TIER_LOOKS[Math.max(0, Math.min(TIER_LOOKS.length - 1, stage))]!
+    const own = painting === undefined ? undefined : BUILDING_LOOKS[painting]
+    return own ? { ...look, ...own } : look
+}
+
 /** Lighten (+) or darken (−) by a lightness step, judged in sRGB so dark tones don't collapse to black. */
 export function shade(color: number, amount: number): number {
     const c = new THREE.Color(color)
