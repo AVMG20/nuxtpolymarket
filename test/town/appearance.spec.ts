@@ -43,13 +43,29 @@ describe('Polytown building artwork', () => {
         })
     }
 
-    it('gives houses different coats from tile to tile', () => {
-        const colours = new Set<string>()
-        for (let variant = 0; variant < TOWN_MODEL_VARIANTS; variant++) {
-            const body = createBuildingModel('house', 5, variant).children[0] as THREE.Mesh
-            colours.add(Array.from(body.geometry.getAttribute('color').array.slice(0, 600)).join())
+    for (const def of TOWN_BUILDINGS.filter(b => b.kind !== 'road')) {
+        it(`${def.name}: grows taller with every look`, () => {
+            const heights = TOWN_VISUAL_LEVELS.filter(level => level <= townBuildingMaxLevel(def)).map(level => createBuildingModel(def.id, level).userData.height as number)
+            heights.slice(1).forEach((height, i) => expect(height).toBeGreaterThan(heights[i]! + 0.05))
+        })
+    }
+
+    it('paints a look the same on every tile, so a plot shows its tier', () => {
+        const palette = (variant: number) => {
+            const colours = new Set<string>()
+            createBuildingModel('house', 10, variant).traverse((o) => {
+                if (!(o instanceof THREE.Mesh)) return
+                const c = o.geometry.getAttribute('color')
+                for (let i = 0; i < c.count; i++) colours.add(new THREE.Color(c.getX(i), c.getY(i), c.getZ(i)).getHexString())
+            })
+            return colours
         }
-        expect(colours.size).toBeGreaterThan(5)
+        const first = palette(0)
+        for (let variant = 1; variant < TOWN_MODEL_VARIANTS; variant++) {
+            const other = palette(variant)
+            const shared = [...other].filter(c => first.has(c)).length
+            expect(shared / other.size).toBeGreaterThan(0.9)
+        }
     })
 
     it('keeps roads at their single appearance and the mill turning', () => {
