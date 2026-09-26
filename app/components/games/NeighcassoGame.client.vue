@@ -28,7 +28,10 @@ const table = useLiveTable<NcSeatState, NcSharedState, NcAction>('neighcasso')
 const { state, mySeat, seated, skew, balance } = table
 
 watch(table.lastError, (message) => {
-    if (message) toast.add({ title: message, color: 'error' })
+    if (!message) return
+    toast.add({ title: message, color: 'error' })
+    // A refused sit must not leave the horse and bet waiting on a later seat.
+    seatPending.value = false
     table.lastError.value = ''
 })
 
@@ -237,14 +240,23 @@ watch(() => mySeat.value?.game.bet, (bet) => {
 const myReady = computed(() => !!mySeat.value?.votedStart)
 const myHorseName = computed(() => mySeat.value?.game.horseName || pickedHorse.value?.name || '')
 
+/** Set by a sit, cleared once the seat shows up: the horse and bet follow it then. */
+const seatPending = ref(false)
+
 function sitAt(index: number) {
     if (seated.value || !inLobby.value) return
+    seatPending.value = true
     table.sit(index)
-    // The socket processes these in order, so the horse and bet land on the
-    // seat the sit just claimed.
-    if (prefs.value.horseId) table.act({ type: 'horse', horseId: prefs.value.horseId })
-    if (betAmount.value >= 1) table.act({ type: 'bet', amount: betAmount.value })
 }
+
+// Sent after the snapshot confirms the seat rather than straight after the
+// sit, so a refused sit is one error instead of three.
+watch(mySeat, (seat) => {
+    if (!seat || !seatPending.value) return
+    seatPending.value = false
+    if (prefs.value.horseId && !seat.game.horseId) table.act({ type: 'horse', horseId: prefs.value.horseId })
+    if (betAmount.value >= 1 && !seat.game.bet) table.act({ type: 'bet', amount: betAmount.value })
+})
 
 function pickHorse(horse: NcHorse) {
     pickedHorse.value = horse

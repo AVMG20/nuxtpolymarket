@@ -64,7 +64,8 @@ export class NeighcassoTable extends LiveTable<NcSeatState, NcSharedState, NcAct
         // Any size goes; the player's own balance is the ceiling.
         maxBet: Number.MAX_SAFE_INTEGER,
         disconnectGrace: 60_000,
-        disconnectGraceIdle: 20_000
+        disconnectGraceIdle: 20_000,
+        seatNeedsBalance: false
     }
 
     protected race: NcRaceScript | null = null
