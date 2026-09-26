@@ -11,13 +11,11 @@ import {
     B, Entry, bossStates, drive, finish, bz, ball, chain, tentacle, spikes, mouth, speckle,
     limbT, reach, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, arc, poly, q, wv
 } from './boss-kit'
+import { dome } from './surface'
 
 const R = Math.round
 
 const HIDE: Mat = [C.brown0, C.brown1, C.brown2]
-const BARK: Mat = [C.brown0, C.brown1, C.brown2]
-const ROT: Mat = [C.olive0, C.olive1, C.olive2]
-const LEECH: Mat = [C.red0, C.brown1, C.olive1]
 const SCALE_RED: Mat = [C.red1, C.orange, C.gold2]
 const OBSIDIAN: Mat = [C.void, C.stone0, C.stone1]
 const ICE: Mat = [C.blue1, C.cyan, C.frost]
@@ -351,56 +349,184 @@ function ramHorn(s: Surface, cx: number, cy: number, r: number, w: number, m: Ma
 
 // ═══════════════════════════════════════════════════════════════ 2 · Mirewood
 
-/** Mother Leech — rearing out of black water, a ringed maw at the top, her brood around her. */
+// Stage 5: Mother Leech, a leech the size of a cypress rearing out of the black water, her head
+// a lamprey's sucker ringed with teeth and her brood clinging to her. Stage 10: Rotheart, the
+// Sunken Elder, the oldest cypress of the drowned forest risen on its roots, rotted hollow at
+// the heart, where something green still glows.
+
+const LEECH_SKIN: Mat = [C.olive0, C.olive1, C.olive2]
+const LEECH_LIP: Mat = [C.red0, C.red1, C.red2]
+const BROOD: Mat = [C.olive0, C.olive1, C.orange]
+const BARK_OLD: Mat = [C.brown0, C.brown1, C.brown2]
+const MOSS: Mat = [C.green1, C.green2, C.olive2]
+
+/** Point on the quadratic curve (x0,y0)→(cx,cy)→(x1,y1) at u, into P. */
+function bez(x0: number, y0: number, cx: number, cy: number, x1: number, y1: number, u: number): void {
+    const a = (1 - u) * (1 - u)
+    const b = 2 * (1 - u) * u
+    const c = u * u
+    P.x = a * x0 + b * cx + c * x1
+    P.y = a * y0 + b * cy + c * y1
+}
+
+/**
+ * Mother Leech: a great striped leech rearing out of the black water in an S, glistening, two
+ * rows of orange spots down her back and ring after ring of segment, her brood clinging to her
+ * flanks. Her head flares into a lamprey's sucker: a ring of lip round rings of hooked teeth
+ * round a throat, pursed at rest, gaping on the strike and the roar, a crescent of eyespots
+ * over it. She sways, draws back, and strikes down at the front rank.
+ */
 export const MOTHER_LEECH: CreatureDef = {
     name: 'Mother Leech', size: 96, shadow: 0, accent: C.red2,
     states: bossStates(1.1, 1.6, 2.0),
     draw(s, st, t) {
         drive(this, st, t, 12, 1.6)
-        const x = s.ax - 8 - B.kb
+        const x = s.ax - 10 - B.kb
         const y = s.ay
         const sway = wv(t, 1.6, 3)
-        const tx = x + 8 + sway + B.lunge + R(B.die * 10)
-        const ty = y - 54 + R(bz(0, -6, 8)) + R(B.die * 34)
-        chain(s, x - 4, y + 2, x - 22, y - 26, tx, ty, 11, 8, LEECH, 18, C.orange)
-        // segment rings
-        for (let i = 1; i < 9; i++) {
-            const u = i / 9
-            const cx = (1 - u) * (1 - u) * (x - 4) + 2 * (1 - u) * u * (x - 22) + u * u * tx
-            const cy = (1 - u) * (1 - u) * (y + 2) + 2 * (1 - u) * u * (y - 26) + u * u * ty
-            arc(s, cx, cy, 10 - u * 3, -0.6, 1.2, C.red0)
+        const hx = x + 14 + sway + B.lunge + R(B.die * 12)
+        const hy = y - 60 + R(bz(0, -8, 12)) + R(B.die * 36)
+        const x0 = x - 6
+        const y0 = y + 3
+        const cx = x - 26
+        const cy = y - 30
+        // the body: fat at the water, tapering a little to the neck, glossy on the lit side
+        chain(s, x0, y0, cx, cy, hx - 4, hy + 6, 12, 8, LEECH_SKIN, 20)
+        // two gold stripes running the length of her back, broken by the segments
+        for (let i = 2; i < 96; i++) {
+            const u = i / 100
+            bez(x0, y0, cx, cy, hx - 4, hy + 6, u)
+            const r = 12 - u * 4
+            if (i % 8 === 0) continue
+            px(s, R(P.x - r * 0.62), R(P.y - r * 0.05), C.gold1)
+            px(s, R(P.x - r * 0.2), R(P.y - r * 0.6), C.orange)
+            if (i % 8 === 4) px(s, R(P.x - r * 0.4), R(P.y - r * 0.4), C.olive2)
         }
-        // the maw
-        const open = B.strike || B.roar ? 7 : B.wind > 0.5 ? 5 : 4
-        disc(s, tx + 3, ty, 8, LEECH[1])
-        disc(s, tx + 4, ty, open, C.red1)
-        disc(s, tx + 4, ty, open - 2, C.ink)
-        for (let i = 0; i < 10; i++) {
-            const a = (i / 10) * Math.PI * 2
-            px(s, tx + 4 + R(Math.cos(a) * (open - 1)), ty + R(Math.sin(a) * (open - 1)), C.bone1)
+        for (let i = 1; i < 12; i++) {
+            const u = i / 12
+            bez(x0, y0, cx, cy, hx - 4, hy + 6, u)
+            const r = 12 - u * 4
+            arc(s, P.x, P.y, r - 0.5, -1.2, 1.5, C.olive0) // segment ring
+            if (i % 2 === 0) px(s, R(P.x - r * 0.3), R(P.y - r * 0.8), C.teal3) // a wet highlight
         }
-        if (open > 5) for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2 + 0.3; px(s, tx + 4 + R(Math.cos(a) * (open - 3)), ty + R(Math.sin(a) * (open - 3)), C.white) }
-        // a crown of small eyes around the maw
-        const eye = B.hurt ? C.ink : C.gold2
-        px(s, tx - 2, ty - 6, eye); px(s, tx + 2, ty - 8, eye); px(s, tx + 7, ty - 7, eye)
+        // her brood, clinging to her flanks and squirming
+        const k = fr(t, 6, 4)
+        for (const [u, side] of [[0.25, 1], [0.5, -1], [0.72, 1]] as const) {
+            bez(x0, y0, cx, cy, hx - 4, hy + 6, u)
+            const bx = P.x + side * (11 - u * 4)
+            const by = P.y
+            const w = (k + R(u * 8)) & 1
+            chain(s, bx, by, bx + side * (5 + w), by + 4, bx + side * 3, by + 10, 3, 2, BROOD, 7)
+            for (let j = 1; j < 4; j++) px(s, R(bx + side * (3 + j * 0.6)), by + 2 + j * 2, C.gold1)
+            px(s, R(bx + side * 3), by + 11, C.red2)
+        }
+        // the sucker: a ring of lip round rings of hooked teeth round the throat
+        const open = B.strike || B.roar ? 1 : B.wind > 0.4 ? 0.7 : 0.35
+        const sr = R(9 + open * 3)
+        const mx = hx + 3
+        const my = hy
+        disc(s, mx - 2, my + 1, sr + 1, LEECH_SKIN[0])
+        disc(s, mx, my, sr, LEECH_LIP[1])
+        disc(s, mx - 1, my - 1, sr - 1, LEECH_LIP[2])
+        disc(s, mx, my, sr - 2, LEECH_LIP[0])
+        const throat = Math.max(1, R(sr * open * 0.55))
+        disc(s, mx, my, throat + 2, C.red1)
+        disc(s, mx, my, throat, C.ink)
+        // the teeth turn slowly inward while she gapes, like a lamprey's
+        const turn = B.strike || B.roar ? q(t) * 2 : 0
+        for (const [rr, n, c] of [[sr - 2.5, 14, C.bone1], [sr - 4.5, 10, C.white], [throat + 1.5, 7, C.bone1]] as const) {
+            if (rr < 1.5) continue
+            for (let i = 0; i < n; i++) {
+                const a = (i / n) * Math.PI * 2 + turn
+                px(s, mx + R(Math.cos(a) * rr), my + R(Math.sin(a) * rr), c)
+            }
+        }
+        // slime drooling off the lower lip
+        const drip = fr(t, 5, 4)
+        line(s, mx - 2, my + sr, mx - 2, my + sr + 2 + drip, C.teal2)
+        px(s, mx + 3, my + sr + 1 + (drip >> 1), C.teal3)
+        // a crescent of eyespots over the sucker
+        const eye = B.hurt ? C.ink : (B.glow > 0.5 ? C.gold3 : C.gold2)
+        for (let i = 0; i < 5; i++) {
+            const a = -Math.PI * (0.35 + i * 0.13)
+            const ex = mx - 4 + R(Math.cos(a) * (sr + 3))
+            const ey = my + R(Math.sin(a) * (sr + 3))
+            px(s, ex, ey, C.ink)
+            px(s, ex, ey - 1, eye)
+        }
         finish(s, Entry.Rise, 0)
     },
     fx(dst, st, t, x, y, dir) {
-        // black water and the brood, un-outlined so she rises out of it
-        const rx = 30
-        ditherEllipse(dst, x - dir * 6, y - 1, rx, 3, C.void, 16)
-        ditherEllipse(dst, x - dir * 6, y - 2, rx - 4, 2, C.night0, 16)
+        // black water and the rest of the brood, un-outlined so she rises out of it
+        const rx = 32
+        ditherEllipse(dst, x - dir * 8, y - 1, rx, 3, C.void, 16)
+        ditherEllipse(dst, x - dir * 8, y - 2, rx - 5, 2, C.night0, 16)
         const k = fr(t, 10, 8)
-        for (let i = 0; i < 5; i++) dst.set(x - dir * (6 - rx + 6 + ((i * 11 + k * 3) % (rx * 2 - 8))), y - 3, C.teal1)
+        for (let i = 0; i < 6; i++) dst.set(x - dir * (8 - rx + 6 + ((i * 11 + k * 3) % (rx * 2 - 8))), y - 3, i & 1 ? C.teal1 : C.teal2)
         for (let i = 0; i < 3; i++) {
-            const bx = x + dir * (-26 + i * 18) + (((k + i * 3) & 3) - 1)
-            for (let j = 0; j < 4; j++) dst.set(bx + dir * j, y - 3 - ((j + k + i) & 1), j === 3 ? C.orange : C.red0)
+            const bx = x + dir * (-28 + i * 18) + (((k + i * 3) & 3) - 1)
+            for (let j = 0; j < 5; j++) dst.set(bx + dir * j, y - 3 - ((j + k + i) & 1), j === 4 ? C.orange : C.olive1)
         }
-        if (B.roar || B.strike) for (let i = 0; i < 4; i++) dst.set(x + dir * (18 + i * 3), y - 56 + ((i * 5 + k) % 7), C.teal3)
+        // ripples spreading where she broke the surface
+        const ring = (k % 8) * 3
+        for (let i = -1; i <= 1; i += 2) dst.set(x - dir * 8 + i * (10 + ring), y - 2, C.teal3)
+        if (B.roar || B.strike) for (let i = 0; i < 5; i++) dst.set(x + dir * (20 + i * 3), y - 60 + ((i * 5 + k) % 9), C.teal3)
     }
 }
 
-/** Rotheart, the Sunken Elder — a drowned tree-giant with a heart gone to rot and glowing. */
+/** Ridge every base-shade pixel in a box into bark: dark furrows and lit ridges running up it. */
+function barkGrain(s: Surface, x0: number, y0: number, w: number, h: number): void {
+    for (let y = y0; y < y0 + h; y++) {
+        for (let x = x0; x < x0 + w; x++) {
+            if (s.get(x, y) !== BARK_OLD[1]) continue
+            const k = (x + Math.floor(Math.sin(y * 0.18 + x * 0.3) * 1.5)) & 3
+            if (k === 0) s.set(x, y, BARK_OLD[0])
+            else if (k === 2 && ((y >> 1) & 3) !== 0) s.set(x, y, BARK_OLD[2])
+        }
+    }
+}
+
+/** A curtain of hanging moss from (x, y) across `w`: strands of uneven length, swaying. */
+function mossCurtain(s: Surface, x: number, y: number, w: number, len: number, t: number, seed: number): void {
+    for (let i = 0; i < w; i++) {
+        const l = R(len * (0.4 + 0.6 * ((i * 7 + seed) % 5) / 4))
+        const sway = R(wv(t, 2.0, 1, i * 0.1))
+        line(s, x + i, y, x + i + sway, y + l, i % 3 === 0 ? MOSS[0] : i % 3 === 1 ? MOSS[1] : MOSS[2])
+    }
+}
+
+/**
+ * A root-claw hand at (x, y): a knot of a wrist, long root fingers curling down and forward.
+ * `grip` 0 (open) … 1 (curled).
+ */
+function rootHand(s: Surface, x: number, y: number, grip: number): void {
+    ball(s, x, y, 4, 3, BARK_OLD)
+    for (let i = 0; i < 4; i++) {
+        const a = 0.5 + i * 0.35 - grip * 0.4
+        const len = 8 + (i & 1) * 2
+        let fx = x + Math.cos(a) * 3
+        let fy = y + Math.sin(a) * 3
+        for (let j = 0; j < 3; j++) {
+            const aa = a + j * (0.35 + grip * 0.5)
+            const nx = fx + Math.cos(aa) * len / 3
+            const ny = fy + Math.sin(aa) * len / 3
+            line(s, R(fx), R(fy), R(nx), R(ny), j === 0 ? BARK_OLD[1] : BARK_OLD[0], j === 0 ? 2 : 1)
+            fx = nx
+            fy = ny
+        }
+        px(s, R(fx), R(fy), C.bone0)
+    }
+}
+
+/**
+ * Rotheart, the Sunken Elder: the oldest cypress of the drowned forest, risen on its roots. A
+ * hunched trunk of twisted bark stands on buttress roots splayed into the water; long arms hang
+ * nearly to the surface, curtained in moss, with root-claw hands. The chest is rotted hollow,
+ * ribbed with roots, and the heart in it glows a sick green among luminous mushrooms. The face is
+ * the bark itself: a heavy brow over deep sockets lit green, a long split mouth with a beard of
+ * moss and roots, and a crown of dead branches hung with moss. He raises an arm and brings it
+ * down on the front rank.
+ */
 export const ROTHEART: CreatureDef = {
     name: 'Rotheart, the Sunken Elder', size: 128, shadow: 0, accent: C.green4,
     states: bossStates(1.4, 2.0, 2.4),
@@ -408,62 +534,134 @@ export const ROTHEART: CreatureDef = {
         drive(this, st, t, 6, 2.0)
         const x = s.ax - 4 + B.lunge - B.kb
         const y = s.ay
-        const topY = y - 88 + B.breath + R(B.die * 12)
-        const lean = R(B.die * 8)
-        // far branch-arm
-        limbT(s, x - 12, topY + 20, x - 30, topY + 44, 8, 4, BARK)
-        for (let i = 0; i < 4; i++) line(s, x - 18 - i * 3, topY + 28 + i * 4, x - 18 - i * 3, topY + 36 + i * 5, C.olive2)
-        // root legs splaying into the water
-        for (const [rx, dx] of [[-10, -14], [-4, -4], [4, 6], [10, 16]] as const) limbT(s, x + rx, topY + 64, x + dx, y, 6, 3, BARK)
-        // trunk
-        quad(s, x - 15 + lean, topY, x + 13 + lean, topY, x + 16, topY + 68, x - 17, topY + 68, BARK[1])
-        quad(s, x - 15 + lean, topY, x - 9 + lean, topY, x - 11, topY + 68, x - 17, topY + 68, BARK[0])
-        for (let i = 0; i < 6; i++) line(s, x - 8 + i * 4 + lean, topY + 4, x - 9 + i * 4, topY + 66, i & 1 ? C.brown0 : C.brown2)
-        speckle(s, x - 15, topY, 30, 68, ROT, 5)
-        ditherEllipse(s, x, topY + 56, 15, 10, C.olive1, 6) // waterline rot
-        // the heart: a hollow in the chest, glowing sick green, pulsing
-        const hy = topY + 30
-        ellipse(s, x + 3 + lean, hy, 7, 9, C.ink)
-        const pulse = (fr(t, 5, 2) || B.glow > 0.5) ? 1 : 0
-        disc(s, x + 3 + lean, hy, 3 + pulse, C.green3)
-        disc(s, x + 3 + lean, hy, 1 + pulse, C.green4)
-        px(s, x + 2 + lean, hy - 1, C.white)
-        for (let i = 0; i < 4; i++) line(s, x + 3 + lean, hy, x - 3 + i * 4 + lean, hy + 9, C.olive2) // rot veins
-        // face: hollow eyes and a split mouth in the bark
-        const eye = B.hurt ? C.olive1 : C.green4
-        ellipse(s, x - 2 + lean, topY + 10, 3, 2, C.ink); px(s, x - 1 + lean, topY + 10, eye)
-        ellipse(s, x + 8 + lean, topY + 10, 3, 2, C.ink); px(s, x + 9 + lean, topY + 10, eye)
-        if (B.roar || B.strike) mouth(s, x + lean, topY + 16, 10, 4, C.olive0, C.bone0)
-        else line(s, x + lean, topY + 17, x + 10 + lean, topY + 16, C.ink)
-        // dead crown of branches with sparse leaves
-        for (let i = -2; i <= 2; i++) {
-            const bx = x + i * 6 + lean
-            line(s, bx, topY + 2, bx + i * 3, topY - 14 - (i & 1) * 4, C.brown1, 2)
-            px(s, bx + i * 3 - 1, topY - 15 - (i & 1) * 4, C.olive2)
-            px(s, bx + i * 3 + 1, topY - 13 - (i & 1) * 4, C.olive1)
+        const sink = R(B.die * 14)
+        const hunch = R(B.breath + bz(0, -2, 3))
+        const hipY = y - 30 + sink
+        const shY = y - 78 + hunch + sink
+        const hx = x + 6 + R(bz(0, -2, 4))
+        const hy = shY - 8
+        const pulse = fr(t, 5, 2) === 1 || B.glow > 0.5
+        const flick = fr(t, 10, 4)
+
+        // the far arm, hanging, moss trailing off it
+        limbT(s, x - 14, shY + 4, x - 24, shY + 34, 9, 7, BARK_OLD)
+        limbT(s, x - 24, shY + 34, x - 22, shY + 62, 7, 5, BARK_OLD)
+        rootHand(s, x - 22, shY + 64, 0.3)
+        mossCurtain(s, x - 28, shY + 12, 8, 18, t, 3)
+        // buttress roots splayed into the water, bent like knees
+        for (const [kx, ky, fx, w, far] of [[-18, -16, -26, 8, true], [16, -18, 24, 8, true], [-9, -12, -14, 11, false], [8, -13, 13, 11, false]] as const) {
+            const m: Mat = far ? [C.brown0, C.brown0, C.brown1] : BARK_OLD
+            limbT(s, x + (kx > 0 ? 5 : -5), hipY, x + kx, y + ky + sink * 0.3, w, w - 2, m)
+            limbT(s, x + kx, y + ky + sink * 0.3, x + fx, y, w - 2, w + 2, m)
         }
-        // front branch-arm with moss: raise and slam
-        const sx = x + 14 + lean
-        const sy = topY + 16
-        const a = bz(0.8, -1.6, 1.2)
-        reach(sx, sy, a, 34)
-        limbT(s, sx, sy, P.x, P.y, 9, 4, BARK)
-        line(s, P.x, P.y, P.x + 5, P.y + 4, C.brown1, 2)
-        line(s, P.x, P.y, P.x + 6, P.y - 2, C.brown1)
+        // the trunk: hunched forward from the hips to a broad yoke of shoulders
+        quad(s, x - 13, hipY, x + 13, hipY, x + 22, shY + 2, x - 18, shY + 4, BARK_OLD[1])
+        ball(s, x + 2, shY + 4, 20, 9, BARK_OLD)
+        rect(s, x - 13, hipY - 2, 26, 6, BARK_OLD[1])
+        barkGrain(s, x - 24, shY - 6, 48, hipY - shY + 10)
+        ditherEllipse(s, x, hipY + 2, 14, 5, C.olive1, 7) // the waterline rot
+        // the hollow of the chest, ribbed with roots, the heart glowing in it
+        const cy = shY + 24
+        ditherEllipse(s, x + 3, cy + 1, 15, 17, C.green1, pulse ? 7 : 4) // the glow on the bark round it
+        ellipse(s, x + 3, cy, 11, 14, BARK_OLD[0])
+        ellipse(s, x + 3, cy + 1, 9, 12, C.ink)
+        ditherEllipse(s, x + 3, cy + 2, 7, 9, C.olive0, 10)
+        ditherEllipse(s, x + 3, cy + 2, 5, 6, C.green1, pulse ? 12 : 8)
+        disc(s, x + 3, cy + 2, pulse ? 5 : 4, C.green2)
+        disc(s, x + 3, cy + 2, pulse ? 3 : 2, C.green3)
+        disc(s, x + 3, cy + 2, 1.5, pulse ? C.white : C.green4)
+        for (let i = 0; i < 4; i++) line(s, x - 6 + i * 6, cy - 10, x - 4 + i * 5, cy + 11, BARK_OLD[1], 2) // root ribs
+        for (let i = 0; i < 3; i++) line(s, x + 3, cy + 2, x - 2 + i * 5, cy + 12, C.olive2) // rot veins
+        // luminous mushrooms clustered round the rim of the hollow
+        for (const [mx, my, r] of [[-7, -9, 2], [-8, -4, 1.5], [12, 6, 2.5], [13, 11, 1.5], [-6, 10, 2]] as const) {
+            rect(s, x + mx + 3, cy + my + 1, 1, 2, C.bone1)
+            dome(s, x + mx + 3, cy + my + 1, r, r, C.green3)
+            px(s, x + mx + 2, cy + my, C.green4)
+        }
+        // moss draped off the shoulders
+        mossCurtain(s, x - 19, shY + 2, 7, 12, t, 7)
+        mossCurtain(s, x + 15, shY + 2, 7, 10, t, 11)
+
+        // the crown of dead branches, spreading like antlers, hung with moss
+        for (const [bx, a, len] of [[-12, -2.3, 24], [-4, -1.9, 30], [6, -1.4, 28], [14, -0.9, 22]] as const) {
+            const sx = hx + bx
+            reach(sx, hy - 8, a, len)
+            line(s, sx, hy - 8, R(P.x), R(P.y), C.brown1, 2)
+            const mx = sx + (P.x - sx) * 0.6
+            const my = hy - 8 + (P.y - hy + 8) * 0.6
+            line(s, R(mx), R(my), R(mx + Math.cos(a + 0.9) * 8), R(my + Math.sin(a + 0.9) * 8), C.brown1)
+            line(s, R(mx), R(my), R(mx + Math.cos(a - 0.8) * 7), R(my + Math.sin(a - 0.8) * 7), C.brown0)
+            for (let i = 0; i < 3; i++) line(s, R(mx + i * 2 - 2), R(my + 1), R(mx + i * 2 - 2), R(my + 4 + ((i + flick) & 1) * 3), MOSS[i % 3]!)
+        }
+        // the head: part of the trunk, a heavy brow, deep sockets lit green, a long split mouth
+        // the head is the broken top of the trunk: tapering up to a jagged, splintered crown
+        poly(s, [-14, 14, 14, 14, 13, -4, 9, -10, 6, -7, 2, -13, -3, -8, -7, -12, -12, -5], hx, hy, BARK_OLD[1])
+        poly(s, [-14, 14, -8, 14, -9, -6, -12, -5], hx, hy, BARK_OLD[0])
+        barkGrain(s, hx - 15, hy - 14, 30, 30)
+        for (const [dx, dy] of [[9, -10], [2, -13], [-7, -12]] as const) px(s, hx + dx, hy + dy, C.bone0) // splinters
+        // a heavy brow overhanging deep sockets, green light pooled in them
+        line(s, hx - 10, hy - 1, hx - 2, hy + 1, BARK_OLD[2])
+        line(s, hx + 3, hy + 1, hx + 11, hy - 1, BARK_OLD[2])
+        line(s, hx - 10, hy, hx - 2, hy + 2, BARK_OLD[0])
+        line(s, hx + 3, hy + 2, hx + 11, hy, BARK_OLD[0])
+        const eye = B.hurt ? C.olive1 : B.glow > 0.5 ? C.white : C.green4
+        for (const ex of [hx - 5, hx + 6]) {
+            ellipse(s, ex, hy + 3, 3.5, 2.5, C.ink)
+            rect(s, ex - 1, hy + 3, 3, 1, C.green3)
+            px(s, ex, hy + 3, eye)
+            px(s, ex, hy + 5, C.green2) // light running down the bark like a tear
+        }
+        const gape = B.roar || B.strike ? 5 : B.wind > 0.5 ? 2 : 0
+        line(s, hx - 6, hy + 9, hx + 9, hy + 8, C.ink)
+        if (gape) {
+            rect(s, hx - 5, hy + 9, 13, gape, C.ink)
+            ditherEllipse(s, hx + 1, hy + 10 + (gape >> 1), 4, gape >> 1, C.green3, pulse ? 8 : 5)
+            for (let i = 0; i < 6; i++) px(s, hx - 4 + i * 2, hy + 9, C.bone0)
+        }
+        // a short beard of moss and roots hanging from the jaw
+        mossCurtain(s, hx - 6, hy + 10 + gape, 13, 7, t, 5)
+        for (let i = 0; i < 3; i++) line(s, hx - 3 + i * 4, hy + 11 + gape, hx - 4 + i * 4, hy + 16 + gape + (i & 1) * 2, C.brown1)
+
+        // The near arm, from a shoulder set out past the edge of the head so the raise clears the
+        // face: hanging nearly to the water at rest, lifted up and out with the elbow bent back on
+        // the wind-up, then swung over in an arc that brings the hand down on the ground in front.
+        const sx = x + 24
+        const sy = shY + 10
+        const a1 = bz(1.35, -0.8, 0.9)
+        // The lift leads with the elbow while the hand still hangs, and the hand only comes up at
+        // the top: the forearm's rise is eased in behind the upper arm's. Swung as one straight
+        // pole, the arm poked out level at the party halfway up.
+        const a2 = B.wind > 0 ? 1.5 - 3.4 * B.wind ** 2.5 : a1 + bz(0.15, -1.1, 0.35)
+        reach(sx, sy, a1, 26)
+        const ex = P.x
+        const ey = P.y
+        reach(ex, ey, a2, 29)
+        limbT(s, sx, sy, ex, ey, 12, 9, BARK_OLD)
+        limbT(s, ex, ey, P.x, P.y, 9, 6, BARK_OLD)
+        ball(s, ex, ey, 5, 5, BARK_OLD)
+        barkGrain(s, Math.min(sx, ex, P.x) - 7, Math.min(sy, ey, P.y) - 7, Math.abs(Math.max(sx, ex, P.x) - Math.min(sx, ex, P.x)) + 14, Math.abs(Math.max(sy, ey, P.y) - Math.min(sy, ey, P.y)) + 14)
+        ball(s, sx, sy, 7, 6, BARK_OLD) // the knot of the shoulder
+        px(s, sx - 3, sy - 3, BARK_OLD[2])
+        rootHand(s, P.x, P.y, B.strike ? 1 : B.wind > 0 ? 0.2 : 0.4)
         for (let i = 1; i < 5; i++) {
-            const mx = sx + (P.x - sx) * i / 5
-            const my = sy + (P.y - sy) * i / 5
-            line(s, mx, my + 2, mx, my + 6 + (i & 1) * 3, C.olive2)
+            const mx = sx + (ex - sx) * i / 5
+            const my = sy + (ey - sy) * i / 5
+            line(s, R(mx), R(my + 3), R(mx) + R(wv(t, 2.0, 1, i * 0.2)), R(my + 8 + (i & 1) * 4), MOSS[i % 3]!)
         }
-        finish(s, Entry.Rise, 10)
+        finish(s, Entry.Rise, 14)
     },
     fx(dst, st, t, x, y, dir) {
-        ditherEllipse(dst, x, y - 1, 36, 3, C.void, 16)
-        ditherEllipse(dst, x, y - 2, 30, 2, C.teal0, 12)
+        ditherEllipse(dst, x, y - 1, 40, 3, C.void, 16)
+        ditherEllipse(dst, x, y - 2, 34, 2, C.teal0, 12)
         const k = fr(t, 10, 10)
-        for (let i = 0; i < 4; i++) dst.set(x + dir * (-26 + ((i * 17 + k * 5) % 52)), y - 3, C.teal2)
-        // spores drifting up from the heart
-        for (let i = 0; i < 3; i++) dst.set(x + dir * (3 + ((i * 7 + k) % 9) - 4), y - 58 - ((k * 3 + i * 9) % 30), C.green3)
+        for (let i = 0; i < 5; i++) dst.set(x + dir * (-30 + ((i * 17 + k * 5) % 60)), y - 3, C.teal2)
+        // spores rising from the heart, and wisps circling the crown
+        for (let i = 0; i < 4; i++) dst.set(x + dir * (3 + ((i * 7 + k) % 11) - 5), y - 52 - ((k * 3 + i * 9) % 34), i & 1 ? C.green3 : C.green4)
+        for (let i = 0; i < 3; i++) {
+            const a = (k / 10 + i / 3) * Math.PI * 2
+            dst.set(x + dir * (6 + R(Math.cos(a) * 22)), y - 104 + R(Math.sin(a) * 6), C.green4)
+        }
+        if (st === 'attack' && B.strike) for (let i = 0; i < 10; i++) dst.set(x + dir * (34 + i * 2), y - (i % 3) - 1, i & 1 ? C.teal3 : C.white)
     }
 }
 

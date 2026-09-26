@@ -156,29 +156,51 @@ const brambleGoblin: WorldSkin = {
     blade: M.iron, haft: M.wood, gem: M.nature, gemStyle: Gem.Totem, accent: C.green4
 }
 
-// 2 · Mirewood — Bog Lurker: a hunched frog-thing of black water and hanging moss.
+// 2 · Mirewood — Bog Lurker: a hunched frog-man of the drowned forest. A wide flat head thrust
+// forward with gold eyes bulging on top and a long lipless mouth, a pale belly, warts down the
+// back, a mantle of bog moss over the shoulders and a reed belt with a bone charm.
 const bogLurker: WorldSkin = {
-    legLen: 7, torsoLen: 8,
-    skin: [C.teal0, C.teal1, C.olive1],
+    legLen: 6, torsoLen: 8,
+    skin: [C.teal0, C.teal1, C.teal2],
     head: (s, x, y, p, t) => {
-        ellipse(s, x + 1, y - 3, 5, 3, C.teal1)
-        rect(s, x - 2, y - 2, 7, 2, C.olive1)
-        disc(s, x + 1, y - 6, 1.5, C.teal1); disc(s, x + 4, y - 6, 1.5, C.teal1) // eye bulbs
-        eyes(s, x + 1, y - 6, C.green4, p); eyes(s, x + 4, y - 6, C.green4, p)
-        rect(s, x + 1, y - 1, 5, 1, C.teal0)
-        // moss hanging off the brow
-        for (let i = -3; i <= 1; i++) line(s, x + i, y - 5, x + i, y - 3 + ((i * 3) & 1), C.olive2)
-        if ((Math.floor(t * 3) & 3) === 0) px(s, x + 5, y + 1, C.teal3) // drip
+        // the skull, low and wide, and the broad jaw under it
+        ellipse(s, x + 1, y - 4, 6, 3, C.teal1)
+        ellipse(s, x + 2, y - 1, 6, 2, C.teal1)
+        rect(s, x - 2, y - 7, 6, 1, C.teal2) // wet sheen along the crown
+        rect(s, x - 3, y, 9, 1, C.olive2) // pale throat
+        // the long mouth, turned down at the corner
+        line(s, x - 2, y - 2, x + 7, y - 2, C.ink)
+        px(s, x + 7, y - 1, C.ink)
+        px(s, x + 8, y - 3, C.teal0) // nostril
+        px(s, x - 2, y - 5, C.teal0); px(s, x + 1, y - 6, C.teal0); px(s, x - 4, y - 3, C.teal0) // spots
+        // eyes bulging on top of the head, gold with a dark bar of a pupil
+        disc(s, x + 1, y - 7, 2, C.teal1)
+        disc(s, x + 5, y - 7, 2, C.teal1)
+        rect(s, x + 1, y - 8, 2, 2, C.gold2); rect(s, x + 5, y - 8, 2, 2, C.gold2)
+        eyes(s, x + 2, y - 8, C.ink, p); eyes(s, x + 6, y - 8, C.ink, p)
+        px(s, x + 1, y - 8, C.gold3); px(s, x + 5, y - 8, C.gold3)
+        // moss hanging off the back of the head
+        for (let i = 0; i < 3; i++) line(s, x - 5 + i, y - 5, x - 5 + i, y - 2 + (i & 1) * 2, i & 1 ? C.green2 : C.olive1)
+        if ((Math.floor(t * 3) & 3) === 0) px(s, x + 7, y + 1, C.teal3) // a drip off the lip
     },
     torso: (s, x, y) => {
         rect(s, x - 4, y, 8, 8, C.teal1)
         rect(s, x - 4, y, 2, 8, C.teal0)
-        rect(s, x - 1, y + 2, 4, 5, C.olive1) // belly
-        for (let i = 0; i < 4; i++) line(s, x - 4 + i * 2, y, x - 4 + i * 2, y + 3 + (i & 1) * 2, C.olive2) // moss drape
-        px(s, x + 2, y + 3, C.olive2)
+        rect(s, x, y + 2, 4, 5, C.olive2) // pale belly
+        px(s, x + 2, y + 3, C.gold3)
+        px(s, x - 3, y + 4, C.teal2); px(s, x - 2, y + 6, C.teal2) // warts down the back
+        // a mantle of bog moss over the shoulders, strands hanging from it
+        rect(s, x - 4, y, 8, 2, C.green1)
+        rect(s, x - 3, y, 6, 1, C.green2)
+        for (let i = 0; i < 4; i++) line(s, x - 4 + i * 2, y + 2, x - 4 + i * 2, y + 3 + (i & 1) * 2, i & 1 ? C.green2 : C.olive1)
+        // a reed belt and a bone charm
+        rect(s, x - 4, y + 6, 8, 1, C.brown1)
+        px(s, x - 2, y + 6, C.olive2); px(s, x + 1, y + 6, C.olive2)
+        px(s, x + 2, y + 7, C.bone1)
     },
-    pants: C.teal1, pantsDk: C.teal0, boot: C.olive0, bootHi: C.olive1,
-    arm: C.teal1, armLow: C.teal1, armBack: C.teal0, armBackLow: C.teal0, hand: C.olive1,
+    // teal legs, wide webbed feet
+    pants: C.teal1, pantsDk: C.teal0, boot: C.teal0, bootHi: C.teal2,
+    arm: C.teal1, armLow: C.teal1, armBack: C.teal0, armBackLow: C.teal0, hand: C.teal2,
     blade: M.bone, haft: M.darkwood, gem: M.sea, gemStyle: Gem.Orb, accent: C.teal3,
     ambient: (dst, t) => { if ((Math.floor(t * 4) & 3) === 1) dst.set(fxX(J.bx + 3), fxY(J.oy - 1), C.teal2) }
 }

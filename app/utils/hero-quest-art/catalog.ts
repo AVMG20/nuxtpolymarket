@@ -92,7 +92,9 @@ export interface ArtAsset {
  * world background was locked. The next round is 1; the earlier rounds are recorded in
  * art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
+    { n: 1, label: 'Mirewood roster', prefixes: ['enemy/world_mirewood', 'boss/world_mirewood', 'superboss/world_mirewood'] }
+]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
