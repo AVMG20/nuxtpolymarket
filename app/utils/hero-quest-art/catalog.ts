@@ -87,24 +87,12 @@ export interface ArtAsset {
  * Review rounds: each restyle pass lists the asset IDs it touched (by prefix), so the
  * gallery can show one round's changes on their own. Newest last.
  *
- * The count has restarted three times, all on 2026-09-25/26: once the chibi style was
- * adopted, again once the Hero designs were locked, and again once World 1 was locked. The
- * next round is 1; the earlier rounds are recorded in art-style.md.
+ * The count has restarted four times, all on 2026-09-25/26: once the chibi style was adopted,
+ * again once the Hero designs were locked, again once World 1 was locked, and again once every
+ * world background was locked. The next round is 1; the earlier rounds are recorded in
+ * art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    {
-        n: 1,
-        label: 'backgrounds',
-        prefixes: ['world_mirewood', 'world_cinderpass', 'world_rimeholt', 'world_sunken_amarath', 'world_duskspire',
-            'world_the_bonefields', 'world_the_shattered_sky', 'world_the_brink', 'world_the_void'].map(id => `bg/world/${id}`)
-    },
-    { n: 2, label: 'foreground & volcanoes', prefixes: ['bg/world/world_thornwick_vale', 'bg/world/world_cinderpass'] },
-    { n: 3, label: 'Rimeholt mountains', prefixes: ['bg/world/world_rimeholt'] },
-    { n: 4, label: 'Bonefields giants', prefixes: ['bg/world/world_the_bonefields'] },
-    { n: 5, label: 'Shattered Sky islands & clouds', prefixes: ['bg/world/world_the_shattered_sky'] },
-    { n: 6, label: 'The Brink', prefixes: ['bg/world/world_the_brink'] },
-    { n: 7, label: 'Void upgrade', prefixes: ['bg/world/world_the_void'] }
-]
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
