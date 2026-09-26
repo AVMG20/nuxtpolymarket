@@ -10,10 +10,11 @@
 import { Ease, Phase, step, type Clip } from './anim'
 import { C } from './palette'
 import type { Surface} from './surface';
-import { line, px, rect, disc, ellipse, tri, dither, bayer } from './surface'
+import { line, px, rect, disc, ellipse, tri, dither, bayer, poly } from './surface'
 import { HP, J, fxX, fxY, hclip, hitClip, deathClip, rest, type Look, type Painter } from './rig'
 import { robeSkirt, smear, sparks, streak } from './hero-parts'
 import { M, tip, sword, axe, bow, staff, Gem, type Mat } from './weapons'
+import type { EnemyStyle } from '../../../shared/utils/hero-quest/content/worlds'
 
 export const ENEMY_WEAPONS = ['sword', 'axe', 'bow', 'staff'] as const
 export type EnemyWeapon = typeof ENEMY_WEAPONS[number]
@@ -205,32 +206,65 @@ const bogLurker: WorldSkin = {
     ambient: (dst, t) => { if ((Math.floor(t * 4) & 3) === 1) dst.set(fxX(J.bx + 3), fxY(J.oy - 1), C.teal2) }
 }
 
-// 3 · Cinderpass — Cinder Kobold: small scaled dog-faces, ash-caked, a candle on the helmet.
+// 3 · Cinderpass — Cinder Kobold: a scaled little dog-lizard of the ash mines. A big head with a
+// long snout, gold eyes, horns swept back and a fin of an ear, a dented miner's helmet with a
+// candle guttering on it; a soot-black leather apron over gold belly scales, a rope belt with a
+// pouch, a pick slung across the back and a whip of a tail.
 const cinderKobold: WorldSkin = {
     legLen: 6, torsoLen: 7,
     skin: [C.red1, C.orange, C.gold2],
-    back: (s, x, y) => { line(s, x - 3, y + 7, x - 8, y + 11, C.red1, 2); px(s, x - 9, y + 12, C.orange) }, // tail
+    back: (s, x, y) => {
+        // the pick across the back, head over the shoulder
+        line(s, x - 4, y + 7, x + 1, y - 2, C.brown1)
+        line(s, x - 1, y - 3, x + 3, y - 1, C.steel2)
+        px(s, x - 2, y - 4, C.steel1)
+        // the tail, curling up at the tip
+        line(s, x - 3, y + 7, x - 7, y + 10, C.red1, 2)
+        line(s, x - 7, y + 10, x - 10, y + 9, C.red1)
+        px(s, x - 11, y + 8, C.orange)
+    },
     head: (s, x, y, p, t) => {
-        ellipse(s, x, y - 4, 3, 3, C.red1)
-        rect(s, x + 1, y - 4, 5, 3, C.orange) // snout
-        px(s, x + 5, y - 4, C.ink)
-        rect(s, x + 2, y - 2, 4, 1, C.red1)
-        eyes(s, x + 1, y - 5, C.gold3, p)
-        px(s, x - 3, y - 6, C.red1); px(s, x - 4, y - 7, C.red1) // horn nub
-        // ash dusting
-        px(s, x - 1, y - 3, C.stone3); px(s, x + 3, y - 3, C.stone3)
-        // miner helmet with a candle
-        rect(s, x - 3, y - 8, 6, 2, C.steel1); px(s, x - 1, y - 8, C.steel2)
-        rect(s, x, y - 10, 1, 2, C.bone1)
-        px(s, x, y - 11 - (Math.floor(t * 8) & 1), C.gold2)
+        // horns swept back, and the fin of an ear
+        line(s, x - 2, y - 7, x - 6, y - 9, C.bone1)
+        px(s, x - 7, y - 9, C.bone0)
+        tri(s, x - 3, y - 5, x - 3, y - 2, x - 7, y - 4, C.red2)
+        line(s, x - 3, y - 4, x - 6, y - 4, C.red1)
+        // skull and the long snout, lit along the ridge
+        ellipse(s, x, y - 4, 4, 3.5, C.red1)
+        // a tapering reptile snout, lit along the ridge, and the lower jaw under it
+        poly(s, [0, -6, 4, -6, 8, -4, 8, -3, 0, -2], x + 1, y, C.orange)
+        line(s, x + 2, y - 6, x + 8, y - 4, C.gold2)
+        px(s, x + 8, y - 4, C.ink) // nostril
+        rect(s, x + 1, y - 2, 6, 1, C.red1)
+        line(s, x + 2, y - 2, x + 7, y - 3, C.ink)
+        px(s, x + 3, y - 2, C.white); px(s, x + 6, y - 3, C.white) // teeth
+        // a gold eye with a slit pupil under a heavy brow
+        rect(s, x - 1, y - 7, 4, 1, C.red0)
+        rect(s, x, y - 6, 2, 2, C.gold3)
+        eyes(s, x + 1, y - 6, C.ink, p)
+        // the dented miner's helmet and its candle
+        ellipse(s, x - 1, y - 7, 4, 2, C.steel1)
+        rect(s, x - 5, y - 6, 9, 1, C.steel0)
+        px(s, x - 3, y - 8, C.steel2); px(s, x + 1, y - 7, C.steel0)
+        rect(s, x - 1, y - 11, 2, 3, C.bone1)
+        px(s, x - 1, y - 9, C.bone0) // wax run
+        const flick = Math.floor(t * 8) & 1
+        px(s, x - 1 + flick, y - 12, C.gold2)
+        px(s, x, y - 13 - flick, C.gold3)
     },
     torso: (s, x, y) => {
         rect(s, x - 3, y, 7, 7, C.orange)
         rect(s, x - 3, y, 1, 7, C.red1)
-        rect(s, x - 1, y + 1, 3, 5, C.gold2) // belly scales
-        px(s, x - 1, y + 2, C.orange); px(s, x + 1, y + 4, C.orange)
-        rect(s, x - 3, y + 5, 7, 1, C.brown1)
-        dither(s, x - 3, y, 7, 3, C.stone3, 3) // ash
+        rect(s, x, y + 1, 3, 5, C.gold2) // belly scales
+        px(s, x + 1, y + 2, C.gold1); px(s, x, y + 4, C.gold1)
+        // the soot-black leather apron over them, strapped at the neck
+        rect(s, x - 2, y + 2, 4, 5, C.brown0)
+        rect(s, x - 2, y + 2, 4, 1, C.brown1)
+        line(s, x - 2, y, x + 1, y + 2, C.brown0)
+        px(s, x - 1, y + 5, C.stone2) // ash on it
+        // a rope belt and a pouch
+        rect(s, x - 3, y + 5, 7, 1, C.brown2)
+        rect(s, x + 2, y + 5, 2, 2, C.brown1)
     },
     pants: C.orange, pantsDk: C.red1, boot: C.red0, bootHi: C.red1,
     arm: C.orange, armLow: C.orange, armBack: C.red1, armBackLow: C.red1, hand: C.red1,
@@ -239,6 +273,138 @@ const cinderKobold: WorldSkin = {
         const k = step(t, 10, 8)
         dst.set(fxX(J.bx - 3 + (k % 5)), fxY(J.topY - 4 - k), k & 1 ? C.orange : C.gold2)
     }
+}
+
+// 3 · Cinderpass — Slag Golem (heavy): cooled slag-iron from the kobolds' forges walking, a craggy
+// lump of a head with a glowing slit, a broad cracked chest with a molten core, rough shoulders
+// shedding embers. Blue-grey iron, so it reads off the pass's brown-grey basalt.
+const slagGolem: WorldSkin = {
+    legLen: 7, torsoLen: 9,
+    skin: [C.steel0, C.steel1, C.steel2],
+    head: (s, x, y, p, t) => {
+        // a craggy lump of a head, no neck, lit on top
+        poly(s, [-4, 0, -5, -4, -3, -7, 1, -8, 4, -7, 5, -3, 5, 0], x, y, C.steel1)
+        poly(s, [-4, 0, -5, -4, -3, -7, -2, 0], x, y, C.steel0)
+        line(s, x - 2, y - 7, x + 3, y - 7, C.steel2)
+        px(s, x + 3, y - 3, C.steel2); px(s, x - 1, y - 1, C.steel2)
+        rect(s, x, y - 5, 5, 2, C.ink) // the slit
+        const on = p[HP.flash]! < 0.5
+        rect(s, x + 1, y - 5, 3, 1, on ? C.lava1 : C.ink)
+        px(s, x + 2, y - 5, on ? C.gold2 : C.ink)
+        line(s, x - 2, y - 7, x, y - 2, C.lava0) // a crack down the brow
+        if ((Math.floor(t * 4) & 3) === 0) px(s, x + 3, y - 1, C.orange) // molten drip
+    },
+    torso: (s, x, y) => {
+        // a broad trunk of slag, craggy at the edges and patched with lighter rock
+        poly(s, [-5, 0, 6, 0, 6, 5, 5, 9, -4, 9, -6, 5], x, y, C.steel1)
+        poly(s, [-5, 0, -3, 0, -3, 9, -4, 9, -6, 5], x, y, C.steel0)
+        rect(s, x - 1, y + 6, 3, 2, C.steel2); px(s, x + 4, y + 7, C.steel2)
+        // rough rock heaped on the shoulders
+        poly(s, [-7, 2, -6, -2, -3, -2, -2, 2], x, y, C.steel2)
+        poly(s, [3, 2, 4, -2, 7, -1, 7, 2], x, y, C.steel2)
+        px(s, x - 5, y - 2, C.steel3); px(s, x + 5, y - 2, C.steel3)
+        // the molten core, and the seams running out of it
+        disc(s, x + 1, y + 4, 2.5, C.lava1)
+        disc(s, x + 1, y + 4, 1, C.gold2)
+        px(s, x + 1, y + 4, C.gold3)
+        line(s, x, y + 5, x - 3, y + 8, C.lava1)
+        line(s, x + 2, y + 3, x + 5, y + 1, C.lava1)
+        line(s, x, y + 3, x - 3, y + 1, C.lava0)
+        line(s, x + 3, y + 5, x + 5, y + 8, C.lava0)
+    },
+    pants: C.steel1, pantsDk: C.steel0, boot: C.steel0, bootHi: C.steel1,
+    arm: C.steel1, armLow: C.steel1, armBack: C.steel0, armBackLow: C.steel0, hand: C.steel2,
+    blade: M.obsidian, haft: M.darkwood, gem: M.lava, gemStyle: Gem.Flame, accent: C.lava1,
+    ambient: (dst, t) => {
+        const k = step(t, 10, 6)
+        dst.set(fxX(J.bx + 4), fxY(J.topY - 2 - k * 2), k & 1 ? C.orange : C.lava1)
+    }
+}
+
+// 3 · Cinderpass — Ash Imp (ranged): a small charred devil of the vents, big-eared and grinning,
+// bone horns, bat wings and a barbed tail, dusted in ash, loosing from a bone bow.
+const ashImp: WorldSkin = {
+    legLen: 5, torsoLen: 6,
+    skin: [C.red0, C.red1, C.red2],
+    back: (s, x, y, _p, t) => {
+        // bat wings beating a little, and the barbed tail
+        const beat = Math.floor(t * 6) & 1
+        tri(s, x - 1, y + 1, x - 10, y - 5 - beat, x - 8, y + 4, C.red0)
+        line(s, x - 1, y + 1, x - 10, y - 5 - beat, C.red1)
+        line(s, x - 5, y - 1, x - 7, y + 3, C.red1)
+        line(s, x - 2, y + 6, x - 7, y + 9, C.red0)
+        tri(s, x - 8, y + 8, x - 8, y + 11, x - 10, y + 9, C.red1)
+    },
+    head: (s, x, y, p) => {
+        ellipse(s, x, y - 4, 4, 3.5, C.red1)
+        // big pointed ears and bone horns
+        tri(s, x - 3, y - 5, x - 2, y - 3, x - 8, y - 8, C.red1)
+        line(s, x - 3, y - 5, x - 7, y - 7, C.red2)
+        line(s, x - 1, y - 7, x - 2, y - 10, C.bone1)
+        line(s, x + 2, y - 7, x + 3, y - 10, C.bone1)
+        // a hooked nose and the grin, fangs showing
+        px(s, x + 4, y - 4, C.red2); px(s, x + 5, y - 3, C.red1)
+        line(s, x, y - 2, x + 4, y - 2, C.ink)
+        px(s, x + 1, y - 1, C.white); px(s, x + 3, y - 1, C.white)
+        rect(s, x + 1, y - 6, 3, 1, C.red0) // brow
+        eyes(s, x + 2, y - 5, C.gold3, p)
+        px(s, x - 2, y - 6, C.stone3); px(s, x + 1, y - 7, C.stone3) // ash
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 6, 6, C.red1)
+        rect(s, x - 3, y, 1, 6, C.red0)
+        px(s, x, y + 2, C.red2); px(s, x + 1, y + 3, C.red2)
+        rect(s, x - 3, y + 5, 6, 2, C.brown0) // a scrap of loincloth
+        px(s, x - 2, y + 1, C.stone3); px(s, x + 1, y, C.stone3)
+    },
+    pants: C.red1, pantsDk: C.red0, boot: C.red0, bootHi: C.red1,
+    arm: C.red1, armLow: C.red1, armBack: C.red0, armBackLow: C.red0, hand: C.red2,
+    blade: M.obsidian, haft: M.bone, gem: M.lava, gemStyle: Gem.Flame, accent: C.orange
+}
+
+// 3 · Cinderpass — Salamander Firecaller (caster): a tall crimson fire salamander with gold spots,
+// a wide flat head with bulging gold eyes and a crest of living flame, in a dark indigo robe with
+// gold trim and a string of bone beads, calling fire from a flame-headed staff.
+const salamanderFirecaller: WorldSkin = {
+    legLen: 8, torsoLen: 8,
+    skin: [C.red0, C.red1, C.gold2],
+    back: (s, x, y) => {
+        // the spotted tail curling out from under the robe
+        line(s, x - 3, y + 14, x - 9, y + 18, C.red1, 2)
+        px(s, x - 6, y + 16, C.gold2); px(s, x - 9, y + 17, C.gold2)
+    },
+    head: (s, x, y, p, t) => {
+        // the crest of living flame, flickering
+        const k = Math.floor(t * 10) & 3
+        for (let i = 0; i < 4; i++) {
+            const h = 3 + ((i + k) % 3)
+            tri(s, x - 3 + i * 2, y - 7, x - 1 + i * 2, y - 7, x - 4 + i * 2, y - 7 - h, i & 1 ? C.orange : C.lava1)
+            px(s, x - 3 + i * 2, y - 8, C.gold2)
+        }
+        // a wide flat head, blotched gold, the mouth a long line
+        ellipse(s, x + 1, y - 4, 6, 3, C.red1)
+        rect(s, x + 2, y - 3, 6, 2, C.red1)
+        line(s, x - 3, y - 4, x + 5, y - 6, C.red2) // the lit crown
+        line(s, x - 1, y - 2, x + 8, y - 2, C.ink)
+        px(s, x + 7, y - 1, C.red1) // the tongue's tip
+        rect(s, x - 3, y - 4, 2, 2, C.gold2); rect(s, x + 5, y - 4, 2, 1, C.gold2); px(s, x, y - 1, C.gold2)
+        // bulging gold eyes on top of the head
+        disc(s, x + 3, y - 6, 2, C.red1)
+        rect(s, x + 2, y - 7, 3, 2, C.gold3)
+        eyes(s, x + 3, y - 7, C.ink, p)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 7, 8, C.night2)
+        rect(s, x - 3, y, 1, 8, C.night1)
+        line(s, x + 3, y, x + 3, y + 7, C.gold1) // trim
+        // a string of bone beads
+        for (let i = 0; i < 4; i++) px(s, x - 2 + i * 2, y + 1 + (i & 1), C.bone1)
+        rect(s, x - 3, y + 6, 7, 1, C.gold1)
+    },
+    lower: (s, x, hipY, _p, t) => robeSkirt(s, x, hipY, J.oy - 1, [C.night1, C.night2, C.night3], C.gold1, (Math.floor(t * 2) & 1) - 0.5, C.red1, 0),
+    pants: C.night2, pantsDk: C.night1, boot: C.red0, bootHi: C.red1,
+    arm: C.red1, armLow: C.night2, armBack: C.red0, armBackLow: C.night1, hand: C.red2,
+    blade: M.obsidian, haft: M.darkwood, gem: M.lava, gemStyle: Gem.Flame, accent: C.orange
 }
 
 // 4 · Rimeholt — Frostbound Raider: frost-pale skin, fur, horned helm hung with icicles.
@@ -480,10 +646,24 @@ const voidThrall: WorldSkin = {
 }
 
 /** World skins in world order; index 0 is World 1. */
-export const WORLD_SKINS: readonly WorldSkin[] = [
-    brambleGoblin, bogLurker, cinderKobold, frostboundRaider, drownedSailor,
-    hollowAcolyte, restlessLegionnaire, skyshardWisp, unravelledKnight, voidThrall
+/** A world whose other creatures are not designed yet: its one skin on all four rigs. */
+function one(w: WorldSkin): Readonly<Record<EnemyWeapon, WorldSkin>> {
+    return { sword: w, axe: w, bow: w, staff: w }
+}
+
+/**
+ * Each world's roster on the four rigs (`content/worlds.ts` names them: melee on the sword,
+ * heavy on the axe, ranged on the bow, caster on the staff).
+ */
+export const WORLD_ROSTERS: readonly Readonly<Record<EnemyWeapon, WorldSkin>>[] = [
+    one(brambleGoblin), one(bogLurker),
+    { sword: cinderKobold, axe: slagGolem, bow: ashImp, staff: salamanderFirecaller },
+    one(frostboundRaider), one(drownedSailor),
+    one(hollowAcolyte), one(restlessLegionnaire), one(skyshardWisp), one(unravelledKnight), one(voidThrall)
 ]
+
+/** Which of a world's roster styles each rig draws. */
+export const WEAPON_STYLE: Readonly<Record<EnemyWeapon, EnemyStyle>> = { sword: 'melee', axe: 'heavy', bow: 'ranged', staff: 'caster' }
 
 // ── Composition ────────────────────────────────────────────────────────────────────
 
@@ -503,7 +683,7 @@ export function enemyLook(world: number, kind: EnemyWeapon): Look {
     const key = `${world}:${kind}`
     const hit = LOOKS.get(key)
     if (hit) return hit
-    const w = WORLD_SKINS[world - 1]
+    const w = WORLD_ROSTERS[world - 1]?.[kind]
     if (!w) throw new Error(`No enemy skin for world ${world}`)
     const look: Look = {
         skin: w.skin, pants: w.pants, pantsDk: w.pantsDk, boot: w.boot, bootHi: w.bootHi,

@@ -387,8 +387,13 @@ function parentName(parentId: string | null) {
                 {{ world.theme }}
               </div>
             </td>
-            <td class="py-1.5 px-3 text-muted">
-              {{ world.enemyName }}
+            <td class="py-1.5 px-3 align-top">
+              <div class="text-default">
+                {{ world.hordeName }}
+              </div>
+              <div class="text-muted max-w-xs">
+                {{ Object.values(world.roster).join(', ') }}
+              </div>
             </td>
             <td class="py-1.5 px-3 text-muted">
               {{ world.bossName }}

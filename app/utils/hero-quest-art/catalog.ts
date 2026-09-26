@@ -14,7 +14,7 @@ import { Actor } from './rig'
 import { HERO_ART, HERO_GAIT, HERO_STATES } from './heroes'
 import { CHASSIS, CHAMPION_STATES, CHAMPION_ART_IDS, championLook } from './champions'
 import { DISCIPLE_CLIPS, DISCIPLE_LOOK, RAISED_DEAD_CLIPS, RAISED_DEAD_LOOK, SUMMON_STATES, WOLF } from './summons'
-import { ENEMY_RIGS, ENEMY_STATES, ENEMY_WEAPONS, ELITE_MARK, drawEliteMark, enemyLook } from './enemies'
+import { ENEMY_RIGS, ENEMY_STATES, ENEMY_WEAPONS, ELITE_MARK, WEAPON_STYLE, drawEliteMark, enemyLook } from './enemies'
 import { drawCreature, stateFrames, type CreatureDef } from './creature'
 import { BOSS_STATES } from './boss-kit'
 import { BOSSES_A } from './bosses-a'
@@ -93,7 +93,8 @@ export interface ArtAsset {
  * art-style.md.
  */
 export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    { n: 1, label: 'Mirewood roster', prefixes: ['enemy/world_mirewood', 'boss/world_mirewood', 'superboss/world_mirewood'] }
+    { n: 1, label: 'Mirewood roster', prefixes: ['enemy/world_mirewood', 'boss/world_mirewood', 'superboss/world_mirewood'] },
+    { n: 2, label: 'Cinderpass roster', prefixes: ['enemy/world_cinderpass', 'boss/world_cinderpass', 'superboss/world_cinderpass'] }
 ]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
@@ -182,15 +183,15 @@ function enemyAssets(): ArtAsset[] {
     WORLDS.forEach(world => {
         for (const w of ENEMY_WEAPONS) {
             for (const st of ENEMY_STATES) {
-                out.push(actorAsset(`enemy/${world.id}/${w}/${st}`, 'enemies', `${world.index}. ${world.name} — ${world.enemyName}`,
-                    `${w} · ${TITLE[st]}`, () => enemyLook(world.index, w), ENEMY_RIGS[w][st], -1))
+                out.push(actorAsset(`enemy/${world.id}/${w}/${st}`, 'enemies', `${world.index}. ${world.name} — ${world.hordeName}`,
+                    `${world.roster[WEAPON_STYLE[w]]} (${w}) · ${TITLE[st]}`, () => enemyLook(world.index, w), ENEMY_RIGS[w][st], -1))
             }
         }
     })
     // the elite mark, shown once per world on the sword rig's idle
     WORLDS.forEach(world => {
         out.push(actorAsset(`enemy/${world.id}/elite/idle`, 'enemies', 'Elite mark (one treatment, every world)',
-            `${world.enemyName} — elite`, () => enemyLook(world.index, 'sword'), ENEMY_RIGS.sword.idle, -1, ELITE_MARK,
+            `${world.roster.melee} — elite`, () => enemyLook(world.index, 'sword'), ENEMY_RIGS.sword.idle, -1, ELITE_MARK,
             (dst, t) => drawEliteMark(dst, SPRITE / 2, FOOT - 36, t)))
     })
     return out

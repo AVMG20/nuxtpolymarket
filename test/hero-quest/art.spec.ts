@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { allArt, ART_ROUNDS } from '../../app/utils/hero-quest-art/catalog'
 import { PALETTE, PALETTE_RGB, SCENERY, SCENERY_RAMPS, C, luma } from '../../app/utils/hero-quest-art/palette'
 import { WORLD_SCENES, SW, SH, FLOOR_Y, FIGHT_BAND } from '../../app/utils/hero-quest-art/scenery'
-import { enemyLook } from '../../app/utils/hero-quest-art/enemies'
+import { ENEMY_WEAPONS, enemyLook } from '../../app/utils/hero-quest-art/enemies'
 import { Surface } from '../../app/utils/hero-quest-art/surface'
 import { HERO_ART, HERO_STATES } from '../../app/utils/hero-quest-art/heroes'
 import { hasChampionSkin } from '../../app/utils/hero-quest-art/champions'
@@ -147,9 +147,11 @@ describe('Hero Quest palette tiers', () => {
         expect(tiered.length).toBeGreaterThan(0)
         for (const scene of tiered) {
             const index = WORLDS.findIndex(w => w.id === scene.id) + 1
-            const look = enemyLook(index, 'sword')
-            // the colours that make an enemy's silhouette read: mid and light skin, clothes
-            const body = [look.skin[1], look.skin[2], look.pants, look.arm]
+            // the colours that make each of the world's creatures read: mid and light skin, clothes
+            const body = ENEMY_WEAPONS.flatMap(kind => {
+                const look = enemyLook(index, kind)
+                return [look.skin[1], look.skin[2], look.pants, look.arm]
+            })
             const s = new Surface(SW, SH, 0, 0)
             for (const t of [0, 0.8]) {
                 s.clear()

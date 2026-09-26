@@ -14,7 +14,8 @@
  * start again stronger.
  *
  * **Naming rules the UI depends on:**
- * - `enemyName` pluralises with a plain "s" (`RunPosition` renders "Bramble Goblins defeated").
+ * - `hordeName` names a whole pack ("Bramble Warband ×5"), so it reads as a group, never
+ *   pluralised.
  * - Boss names never start with "The", because sentences read "Fight Old Gnarlhide" and
  *   "Old Gnarlhide blocks the way".
  * - No name reuses a Champion given name or title, so a boss is never mistaken for a pull.
@@ -28,6 +29,10 @@ import { STAGES_PER_WORLD, WORLD_COUNT } from '../constants'
 import { stageArchetype } from '../settle'
 import type { StageArchetype } from '../types'
 
+/** The four fighting styles a world's roster covers. */
+export const ENEMY_STYLES = ['melee', 'heavy', 'ranged', 'caster'] as const
+export type EnemyStyle = typeof ENEMY_STYLES[number]
+
 export interface WorldDefinition {
     /** Stable string ID — save data references this, never the array index. */
     id: string
@@ -36,8 +41,13 @@ export interface WorldDefinition {
     name: string
     /** One line of setting — the brief the world's background and roster art are drawn from. */
     theme: string
-    /** Trash and elite mobs. Flavour only; stats come from the curve. */
-    enemyName: string
+    /** What a wave of trash and elites is called as a whole: shown over the pack. */
+    hordeName: string
+    /**
+     * The four creatures a wave draws from, one per fighting style (the client draws them on the
+     * sword, axe, bow and staff rigs). Flavour only: stats come from the curve, not the creature.
+     */
+    roster: Readonly<Record<EnemyStyle, string>>
     bossName: string
     superBossName: string
 }
@@ -48,7 +58,8 @@ export const WORLDS: readonly WorldDefinition[] = [
         index: 1,
         name: 'Thornwick Vale',
         theme: 'Frontier farmland at the edge of the kingdom, where the first cracks have turned the hedgerows feral.',
-        enemyName: 'Bramble Goblin',
+        hordeName: 'Bramble Warband',
+        roster: { melee: 'Bramble Goblin', heavy: 'Thornhide Hobgoblin', ranged: 'Scarecrow Stalker', caster: 'Hedge-Witch' },
         bossName: 'Old Gnarlhide',
         superBossName: 'Gorsecrown, King of Hedges'
     },
@@ -57,7 +68,8 @@ export const WORLDS: readonly WorldDefinition[] = [
         index: 2,
         name: 'Mirewood',
         theme: 'A drowned forest of black water and hanging moss, rotting from the roots up.',
-        enemyName: 'Bog Lurker',
+        hordeName: 'Mire Brood',
+        roster: { melee: 'Bog Lurker', heavy: 'Peat Brute', ranged: 'Reed Spitter', caster: 'Bog Crone' },
         bossName: 'Mother Leech',
         superBossName: 'Rotheart, the Sunken Elder'
     },
@@ -66,7 +78,8 @@ export const WORLDS: readonly WorldDefinition[] = [
         index: 3,
         name: 'Cinderpass',
         theme: 'A volcanic mountain pass choked with ash, held by kobold clans and the thing they worship.',
-        enemyName: 'Cinder Kobold',
+        hordeName: 'Cinder Clan',
+        roster: { melee: 'Cinder Kobold', heavy: 'Slag Golem', ranged: 'Ash Imp', caster: 'Salamander Firecaller' },
         bossName: 'Slagjaw',
         superBossName: 'Pyrrhax, the Molten Wyrm'
     },
@@ -75,7 +88,8 @@ export const WORLDS: readonly WorldDefinition[] = [
         index: 4,
         name: 'Rimeholt',
         theme: 'A frozen northern hold whose raiders swore themselves to a cold that does not end.',
-        enemyName: 'Frostbound Raider',
+        hordeName: 'Frost Host',
+        roster: { melee: 'Frostbound Raider', heavy: 'Rime Troll', ranged: 'Snowfield Huntress', caster: 'Rune Skald' },
         bossName: 'Jarl Hrimgar',
         superBossName: 'Vinterhel, the Glacier Titan'
     },
@@ -84,7 +98,8 @@ export const WORLDS: readonly WorldDefinition[] = [
         index: 5,
         name: 'Sunken Amarath',
         theme: 'The drowned capital of a sea-empire, its dead still keeping the tides.',
-        enemyName: 'Drowned Sailor',
+        hordeName: 'Drowned Crew',
+        roster: { melee: 'Drowned Sailor', heavy: 'Barnacle Brute', ranged: 'Harpoon Siren', caster: 'Tide Priestess' },
         bossName: 'Tidecaller Nerine',
         superBossName: 'Queen Maerith of the Deep'
     },
@@ -93,7 +108,8 @@ export const WORLDS: readonly WorldDefinition[] = [
         index: 6,
         name: 'Duskspire',
         theme: 'A city of mage-towers held at twilight since its archmage opened a door to the Void.',
-        enemyName: 'Hollow Acolyte',
+        hordeName: 'Hollow Conclave',
+        roster: { melee: 'Hollow Acolyte', heavy: 'Spire Gargoyle', ranged: 'Spellbound Construct', caster: 'Riftbound Magus' },
         bossName: 'Magister Halvane',
         superBossName: 'Archmage Ithren, the Door-Opener'
     },
@@ -102,7 +118,8 @@ export const WORLDS: readonly WorldDefinition[] = [
         index: 7,
         name: 'The Bonefields',
         theme: 'An ancient battlefield where the fallen of a forgotten war rise to fight it again.',
-        enemyName: 'Restless Legionnaire',
+        hordeName: 'Restless Legion',
+        roster: { melee: 'Restless Legionnaire', heavy: 'Barrow Ghoul', ranged: 'Bone Archer', caster: 'Ossuary Priest' },
         bossName: 'Grave Marshal Korr',
         superBossName: 'Ossuar, the Thousand-Bone Host'
     },
@@ -111,7 +128,8 @@ export const WORLDS: readonly WorldDefinition[] = [
         index: 8,
         name: 'The Shattered Sky',
         theme: 'Islands of torn-loose stone adrift in a storm the Void has unmoored.',
-        enemyName: 'Skyshard Wisp',
+        hordeName: 'Storm Swarm',
+        roster: { melee: 'Skyshard Wisp', heavy: 'Thunderhead Golem', ranged: 'Harpy Raider', caster: 'Squall Caller' },
         bossName: 'Stormcrown Roc',
         superBossName: 'Zephyrax, Breaker of Heavens'
     },
@@ -120,7 +138,8 @@ export const WORLDS: readonly WorldDefinition[] = [
         index: 9,
         name: 'The Brink',
         theme: 'The last ground at the edge of the world, where the storm has burned out, the sky has gone to stars and everything left is falling toward the Void.',
-        enemyName: 'Unravelled Knight',
+        hordeName: 'Unravelled Host',
+        roster: { melee: 'Unravelled Knight', heavy: 'Tethered Brute', ranged: 'Starfall Archer', caster: 'Last Seer' },
         bossName: 'Sister Vesper, the Forgotten',
         superBossName: 'Liminus, the Last Door'
     },
@@ -129,7 +148,8 @@ export const WORLDS: readonly WorldDefinition[] = [
         index: 10,
         name: 'The Void',
         theme: 'Nothing, pressing in — where every crack leads, and where each run ends before it begins again.',
-        enemyName: 'Void Thrall',
+        hordeName: 'Void Horde',
+        roster: { melee: 'Void Thrall', heavy: 'Void Maw', ranged: 'Starved Wraith', caster: 'Void Augur' },
         bossName: 'Void Herald',
         superBossName: 'Nihil, the Hunger at the End'
     }
@@ -147,9 +167,9 @@ export function getWorld(index: number): WorldDefinition {
 
 /**
  * Display name for whatever is being fought at a position — the archetype picks which of the
- * world's three names applies. Elites share the trash roster's name because they *are* the
- * trash roster, stat-buffed (`core-progression-and-prestige.md` §1); the client marks them
- * as elite rather than renaming them.
+ * world's names applies. A trash or elite stage shows the horde's name: a wave mixes the
+ * world's roster, and elites *are* that roster, stat-buffed (`core-progression-and-prestige.md`
+ * §1); the client marks them as elite rather than renaming them.
  */
 export function enemyNameAt(world: number, stage: number): { name: string; archetype: StageArchetype } {
     const archetype = stageArchetype(stage)
@@ -160,7 +180,7 @@ export function enemyNameAt(world: number, stage: number): { name: string; arche
         case 'super_boss':
             return { name: definition.superBossName, archetype }
         default:
-            return { name: definition.enemyName, archetype }
+            return { name: definition.hordeName, archetype }
     }
 }
 

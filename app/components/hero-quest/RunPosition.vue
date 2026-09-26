@@ -78,7 +78,7 @@ const runProgress = computed(() => (props.run.progress.cleared / props.run.progr
 
     <div v-if="!run.atBossGate">
       <div class="flex items-center justify-between text-xs text-muted mb-1">
-        <span>{{ run.enemyName }}s defeated</span>
+        <span>Foes defeated</span>
         <span>{{ run.killCount }} / {{ run.killsRequired }}</span>
       </div>
       <UProgress

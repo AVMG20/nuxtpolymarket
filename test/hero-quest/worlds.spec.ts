@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { WORLDS, enemyNameAt, getWorld, runProgress } from '#shared/utils/hero-quest/content/worlds'
+import { WORLDS, ENEMY_STYLES, enemyNameAt, getWorld, runProgress } from '#shared/utils/hero-quest/content/worlds'
 import { CHAMPIONS } from '#shared/utils/hero-quest/content/champions'
 import {
     BOSS_STAGE,
@@ -36,7 +36,8 @@ describe('hero-quest worlds', () => {
 
     it('names every enemy role and gives every world a theme', () => {
         for (const world of WORLDS) {
-            expect(world.enemyName.length, world.id).toBeGreaterThan(0)
+            expect(world.hordeName.length, world.id).toBeGreaterThan(0)
+            for (const style of ENEMY_STYLES) expect(world.roster[style].length, `${world.id} ${style}`).toBeGreaterThan(0)
             expect(world.bossName.length, world.id).toBeGreaterThan(0)
             expect(world.superBossName.length, world.id).toBeGreaterThan(0)
             expect(world.theme.length, world.id).toBeGreaterThan(0)
@@ -44,7 +45,7 @@ describe('hero-quest worlds', () => {
     })
 
     it('never uses a name twice across worlds', () => {
-        const names = WORLDS.flatMap(world => [world.name, world.enemyName, world.bossName, world.superBossName])
+        const names = WORLDS.flatMap(world => [world.name, world.hordeName, ...ENEMY_STYLES.map(style => world.roster[style]), world.bossName, world.superBossName])
         expect(new Set(names).size).toBe(names.length)
     })
 
@@ -60,7 +61,7 @@ describe('hero-quest worlds', () => {
     it('never reuses a Champion given name or title, so a boss cannot be mistaken for a pull', () => {
         const championWords = new Set(CHAMPIONS.flatMap(champion => [champion.givenName, champion.title]).map(word => word.toLowerCase()))
         for (const world of WORLDS) {
-            for (const name of [world.enemyName, world.bossName, world.superBossName]) {
+            for (const name of [world.hordeName, ...ENEMY_STYLES.map(style => world.roster[style]), world.bossName, world.superBossName]) {
                 const clashes = name.split(/[\s,]+/).filter(word => championWords.has(word.toLowerCase()))
                 expect(clashes, `${world.id}: ${name}`).toEqual([])
             }
@@ -82,13 +83,13 @@ describe('hero-quest worlds', () => {
         it('keeps the trash name for elites — they are the same roster, stat-buffed', () => {
             const world = getWorld(1)
             for (let stage = ELITE_STAGE_MIN; stage <= ELITE_STAGE_MAX; stage++) {
-                expect(enemyNameAt(1, stage)).toEqual({ name: world.enemyName, archetype: 'elite' })
+                expect(enemyNameAt(1, stage)).toEqual({ name: world.hordeName, archetype: 'elite' })
             }
         })
 
         it('uses the trash name on wave stages', () => {
             expect(enemyNameAt(3, 1).archetype).toBe('wave')
-            expect(enemyNameAt(3, 1).name).toBe(getWorld(3).enemyName)
+            expect(enemyNameAt(3, 1).name).toBe(getWorld(3).hordeName)
         })
     })
 

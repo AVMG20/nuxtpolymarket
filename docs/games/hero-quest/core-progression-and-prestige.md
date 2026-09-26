@@ -182,16 +182,16 @@ Starting point: `BASE_CURRENCY = 100`, `CURRENCY_GROWTH = 2` → 100 / 200 / 400
 
 | # | World | Theme | Enemies | Boss | Super boss |
 |---|---|---|---|---|---|
-| 1 | Thornwick Vale | Frontier farmland at the edge of the kingdom, where the first cracks have turned the hedgerows feral | Bramble Goblin | Old Gnarlhide | Gorsecrown, King of Hedges |
-| 2 | Mirewood | A drowned forest of black water and hanging moss, rotting from the roots up | Bog Lurker | Mother Leech | Rotheart, the Sunken Elder |
-| 3 | Cinderpass | A volcanic mountain pass choked with ash, held by kobold clans and the thing they worship | Cinder Kobold | Slagjaw | Pyrrhax, the Molten Wyrm |
-| 4 | Rimeholt | A frozen northern hold whose raiders swore themselves to a cold that does not end | Frostbound Raider | Jarl Hrimgar | Vinterhel, the Glacier Titan |
-| 5 | Sunken Amarath | The drowned capital of a sea-empire, its dead still keeping the tides | Drowned Sailor | Tidecaller Nerine | Queen Maerith of the Deep |
-| 6 | Duskspire | A city of mage-towers held at twilight since its archmage opened a door to the Void | Hollow Acolyte | Magister Halvane | Archmage Ithren, the Door-Opener |
-| 7 | The Bonefields | An ancient battlefield where the fallen of a forgotten war rise to fight it again | Restless Legionnaire | Grave Marshal Korr | Ossuar, the Thousand-Bone Host |
-| 8 | The Shattered Sky | Islands of torn-loose stone adrift in a storm the Void has unmoored | Skyshard Wisp | Stormcrown Roc | Zephyrax, Breaker of Heavens |
-| 9 | The Brink | The last ground at the edge of the world, where the storm has burned out, the sky has gone to stars and everything left is falling toward the Void | Unravelled Knight | Sister Vesper, the Forgotten | Liminus, the Last Door |
-| 10 | The Void | Nothing, pressing in — where every crack leads, and where each run ends before it begins again | Void Thrall | Void Herald | Nihil, the Hunger at the End |
+| 1 | Thornwick Vale | Frontier farmland at the edge of the kingdom, where the first cracks have turned the hedgerows feral | Bramble Warband: Bramble Goblin, Thornhide Hobgoblin, Scarecrow Stalker, Hedge-Witch | Old Gnarlhide | Gorsecrown, King of Hedges |
+| 2 | Mirewood | A drowned forest of black water and hanging moss, rotting from the roots up | Mire Brood: Bog Lurker, Peat Brute, Reed Spitter, Bog Crone | Mother Leech | Rotheart, the Sunken Elder |
+| 3 | Cinderpass | A volcanic mountain pass choked with ash, held by kobold clans and the thing they worship | Cinder Clan: Cinder Kobold, Slag Golem, Ash Imp, Salamander Firecaller | Slagjaw | Pyrrhax, the Molten Wyrm |
+| 4 | Rimeholt | A frozen northern hold whose raiders swore themselves to a cold that does not end | Frost Host: Frostbound Raider, Rime Troll, Snowfield Huntress, Rune Skald | Jarl Hrimgar | Vinterhel, the Glacier Titan |
+| 5 | Sunken Amarath | The drowned capital of a sea-empire, its dead still keeping the tides | Drowned Crew: Drowned Sailor, Barnacle Brute, Harpoon Siren, Tide Priestess | Tidecaller Nerine | Queen Maerith of the Deep |
+| 6 | Duskspire | A city of mage-towers held at twilight since its archmage opened a door to the Void | Hollow Conclave: Hollow Acolyte, Spire Gargoyle, Spellbound Construct, Riftbound Magus | Magister Halvane | Archmage Ithren, the Door-Opener |
+| 7 | The Bonefields | An ancient battlefield where the fallen of a forgotten war rise to fight it again | Restless Legion: Restless Legionnaire, Barrow Ghoul, Bone Archer, Ossuary Priest | Grave Marshal Korr | Ossuar, the Thousand-Bone Host |
+| 8 | The Shattered Sky | Islands of torn-loose stone adrift in a storm the Void has unmoored | Storm Swarm: Skyshard Wisp, Thunderhead Golem, Harpy Raider, Squall Caller | Stormcrown Roc | Zephyrax, Breaker of Heavens |
+| 9 | The Brink | The last ground at the edge of the world, where the storm has burned out, the sky has gone to stars and everything left is falling toward the Void | Unravelled Host: Unravelled Knight, Tethered Brute, Starfall Archer, Last Seer | Sister Vesper, the Forgotten | Liminus, the Last Door |
+| 10 | The Void | Nothing, pressing in — where every crack leads, and where each run ends before it begins again | Void Horde: Void Thrall, Void Maw, Starved Wraith, Void Augur | Void Herald | Nihil, the Hunger at the End |
 
 The source of truth is `shared/utils/hero-quest/content/worlds.ts`; the wiki's Content page renders it, and `asset-list.md` §1.4 mirrors this table as the art brief — where it also locks that **every enemy is styled to its world**. Names only — stats come from Section 1. Enemies have no abilities of their own yet. No tier bumps or visual re-theming between prestiges — this keeps art scope minimal for a small team. Difficulty is communicated entirely through the stat curve (Section 1), not through visual differentiation between prestiges.
 
