@@ -426,7 +426,9 @@ export class BattleDemo {
             u.wait = 0.5 + Math.random() * 1.2
             if (!u.boss && active) {
                 const slot = i - PARTY
-                u.rig = (slot + this.wave) % 4
+                // rotate by trash waves, not all waves: boss waves come between them, so rotating by
+                // the wave count only ever shifted the roster by two and half of it never led as elite
+                u.rig = (slot + (this.wave >> 1)) % 4
                 u.frames = this.rigFrames[u.rig]!
                 u.shot = RIG_SHOTS[u.rig]!
                 u.elite = slot === 1
