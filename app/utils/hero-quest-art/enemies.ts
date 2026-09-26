@@ -157,6 +157,117 @@ const brambleGoblin: WorldSkin = {
     blade: M.iron, haft: M.wood, gem: M.nature, gemStyle: Gem.Totem, accent: C.green4
 }
 
+// 1 · Thornwick Vale — Thornhide Hobgoblin (heavy): the goblins' hulking cousin, reddish-brown
+// and tusked, a heavy brow, studded leather with a bramble-wrapped spiked pauldron and a necklace
+// of boar tusks.
+const thornhideHobgoblin: WorldSkin = {
+    legLen: 7, torsoLen: 9,
+    skin: [C.skin0, C.brown2, C.skin1],
+    head: (s, x, y, p) => {
+        tri(s, x - 3, y - 6, x - 3, y - 3, x - 8, y - 7, C.skin0) // ear
+        ellipse(s, x, y - 4, 5, 4, C.brown2)
+        rect(s, x + 1, y - 7, 3, 2, C.skin1) // the lit crown
+        rect(s, x - 1, y - 6, 6, 1, C.skin0) // heavy brow
+        eyes(s, x + 3, y - 5, C.gold2, p)
+        rect(s, x + 4, y - 4, 3, 2, C.brown2); px(s, x + 6, y - 3, C.skin0) // flat nose
+        rect(s, x + 1, y - 1, 5, 1, C.ink)
+        px(s, x + 2, y - 2, C.white); px(s, x + 5, y - 2, C.white) // tusks
+        // a topknot bound in bramble
+        rect(s, x - 2, y - 10, 3, 2, C.brown0)
+        px(s, x - 1, y - 11, C.green1); px(s, x + 1, y - 10, C.red2)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 5, y, 10, 9, C.brown1)
+        rect(s, x - 5, y, 2, 9, C.brown0)
+        for (let i = 0; i < 3; i++) { px(s, x - 1 + i * 2, y + 3, C.steel2); px(s, x + i * 2, y + 6, C.steel2) } // studs
+        // a spiked pauldron bound in bramble
+        ellipse(s, x + 2, y + 1, 4, 2, C.steel1)
+        for (let i = 0; i < 3; i++) tri(s, x - 1 + i * 3, y, x + 1 + i * 3, y, x + i * 3, y - 3, C.steel2)
+        line(s, x - 1, y + 2, x + 5, y, C.green1)
+        px(s, x + 3, y + 1, C.red2)
+        // a necklace of boar tusks
+        for (let i = 0; i < 3; i++) px(s, x - 2 + i * 2, y + 1 + (i & 1), C.bone1)
+        rect(s, x - 5, y + 8, 10, 1, C.brown0)
+    },
+    pants: C.brown1, pantsDk: C.brown0, boot: C.brown0, bootHi: C.brown1,
+    arm: C.brown2, armLow: C.brown2, armBack: C.skin0, armBackLow: C.skin0, hand: C.skin1,
+    blade: M.iron, haft: M.wood, gem: M.nature, gemStyle: Gem.Totem, accent: C.red2
+}
+
+// 1 · Thornwick Vale — Scarecrow Stalker (ranged): a scarecrow come down off its pole. A stitched
+// burlap head with glowing button eyes under a floppy straw hat, a patched coat, straw poking out
+// at the neck and cuffs, loosing from a crooked bow.
+const scarecrowStalker: WorldSkin = {
+    legLen: 7, torsoLen: 8,
+    skin: [C.bone0, C.bone0, C.bone1],
+    head: (s, x, y, p, t) => {
+        // straw bursting out under the sack at the neck
+        for (let i = 0; i < 4; i++) line(s, x - 2 + i * 2, y, x - 3 + i * 2, y + 2, C.gold2)
+        ellipse(s, x, y - 4, 4, 4, C.bone1)
+        rect(s, x - 4, y - 3, 1, 3, C.bone0)
+        line(s, x - 1, y - 1, x + 4, y - 1, C.brown1) // the stitched mouth
+        for (let i = 0; i < 3; i++) px(s, x + i * 2, y, C.brown1)
+        const glow = (Math.floor(t * 3) & 3) !== 0 && p[HP.flash]! < 0.5
+        px(s, x + 1, y - 4, glow ? C.gold3 : C.brown0); px(s, x + 3, y - 4, glow ? C.gold3 : C.brown0) // button eyes
+        // the floppy straw hat, brim drooping
+        rect(s, x - 6, y - 8, 12, 1, C.gold1)
+        px(s, x - 6, y - 7, C.gold1); px(s, x + 5, y - 7, C.gold1)
+        rect(s, x - 3, y - 11, 6, 3, C.gold1)
+        rect(s, x - 3, y - 9, 6, 1, C.red1) // the band
+        px(s, x - 2, y - 11, C.gold2)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 7, 8, C.brown2)
+        rect(s, x - 3, y, 1, 8, C.brown1)
+        rect(s, x - 1, y + 2, 2, 2, C.red1); rect(s, x + 2, y + 5, 2, 2, C.blue1) // patches
+        px(s, x, y + 2, C.bone1); px(s, x + 3, y + 5, C.bone1) // a stitch on each
+        rect(s, x - 3, y + 6, 7, 1, C.brown0) // a rope belt
+        px(s, x - 3, y + 7, C.gold2); px(s, x + 3, y + 8, C.gold2) // straw at the hem
+    },
+    pants: C.brown1, pantsDk: C.brown0, boot: C.brown0, bootHi: C.brown1,
+    arm: C.brown2, armLow: C.brown2, armBack: C.brown1, armBackLow: C.brown1, hand: C.gold2,
+    blade: M.iron, haft: M.darkwood, gem: M.nature, gemStyle: Gem.Totem, accent: C.gold3
+}
+
+// 1 · Thornwick Vale — Hedge-Witch (caster): a hunched goblin crone with a long nose, a pointed
+// hat of woven brown straw set with leaves and berries, a cloak of hedge leaves over a berry-red
+// dress, calling on the antler totem. The dress keeps her off the green of the meadow.
+const hedgeWitch: WorldSkin = {
+    legLen: 6, torsoLen: 7,
+    skin: [C.green1, C.green2, C.green3],
+    head: (s, x, y, p) => {
+        tri(s, x - 3, y - 5, x - 3, y - 3, x - 7, y - 6, C.green1) // ear
+        ellipse(s, x, y - 4, 3.5, 3.5, C.green2)
+        line(s, x + 3, y - 4, x + 7, y - 2, C.green2) // the long nose
+        px(s, x + 7, y - 2, C.green1); px(s, x + 5, y - 3, C.green3)
+        eyes(s, x + 1, y - 5, C.gold3, p)
+        rect(s, x, y - 1, 3, 1, C.green0)
+        for (let i = 0; i < 3; i++) line(s, x - 3 + i, y - 3, x - 4 + i, y + 1, C.steel2) // grey hair
+        // the pointed hat, woven with leaves and berries, its tip bent over
+        rect(s, x - 5, y - 7, 10, 1, C.brown1)
+        tri(s, x - 3, y - 7, x + 3, y - 7, x - 2, y - 14, C.brown1)
+        line(s, x - 2, y - 14, x - 5, y - 13, C.brown1)
+        line(s, x - 1, y - 12, x + 2, y - 8, C.brown2) // the weave
+        px(s, x - 1, y - 9, C.green3); px(s, x + 1, y - 8, C.green2)
+        px(s, x - 2, y - 10, C.red2); px(s, x, y - 8, C.red2)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 7, 7, C.red1)
+        rect(s, x - 3, y, 1, 7, C.red0)
+        // the cloak of leaves, layered
+        for (let i = 0; i < 4; i++) {
+            px(s, x - 2 + i * 2, y + 1, C.green2)
+            px(s, x - 3 + i * 2, y + 3, C.green3)
+            px(s, x - 2 + i * 2, y + 5, C.green2)
+        }
+        px(s, x + 2, y + 2, C.red2); px(s, x - 1, y + 4, C.red3) // berries
+    },
+    lower: (s, x, hipY, _p, t) => robeSkirt(s, x, hipY, J.oy - 1, [C.red0, C.red1, C.red2], C.green2, (Math.floor(t * 2) & 1) - 0.5, C.brown0, 0),
+    pants: C.red1, pantsDk: C.red0, boot: C.brown0, bootHi: C.brown1,
+    arm: C.green2, armLow: C.red1, armBack: C.green1, armBackLow: C.red0, hand: C.green3,
+    blade: M.iron, haft: M.wood, gem: M.nature, gemStyle: Gem.Totem, accent: C.green4
+}
+
 // 2 · Mirewood — Bog Lurker: a hunched frog-man of the drowned forest. A wide flat head thrust
 // forward with gold eyes bulging on top and a long lipless mouth, a pale belly, warts down the
 // back, a mantle of bog moss over the shoulders and a reed belt with a bone charm.
@@ -204,6 +315,100 @@ const bogLurker: WorldSkin = {
     arm: C.teal1, armLow: C.teal1, armBack: C.teal0, armBackLow: C.teal0, hand: C.teal2,
     blade: M.bone, haft: M.darkwood, gem: M.sea, gemStyle: Gem.Orb, accent: C.teal3,
     ambient: (dst, t) => { if ((Math.floor(t * 4) & 3) === 1) dst.set(fxX(J.bx + 3), fxY(J.oy - 1), C.teal2) }
+}
+
+// 2 · Mirewood — Peat Brute (heavy): a hulking bog troll, grey-violet and warty under clods of
+// peat, moss hanging off its shoulders and a mushroom growing out of its back, a heavy jaw and
+// small eyes lit green. Kept off the brown and dark green of the bog it wades through.
+const peatBrute: WorldSkin = {
+    legLen: 7, torsoLen: 9,
+    skin: [C.stone1, C.stone2, C.stone3],
+    head: (s, x, y, p) => {
+        ellipse(s, x + 1, y - 4, 5, 4, C.stone2)
+        rect(s, x - 3, y - 7, 6, 1, C.stone3) // the lit crown
+        rect(s, x, y - 5, 5, 1, C.stone1) // brow
+        eyes(s, x + 2, y - 4, C.green4, p); eyes(s, x + 4, y - 4, C.green4, p)
+        rect(s, x + 1, y - 1, 6, 2, C.stone1) // the heavy jaw
+        px(s, x + 2, y - 2, C.bone1); px(s, x + 5, y - 2, C.bone1) // underbite fangs
+        px(s, x - 2, y - 3, C.stone3); px(s, x - 3, y - 5, C.stone1) // warts
+        rect(s, x - 3, y - 8, 3, 2, C.brown1) // a clod of peat on the head
+        px(s, x - 2, y - 9, C.green2)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 5, y, 10, 9, C.stone2)
+        rect(s, x - 5, y, 2, 9, C.stone1)
+        px(s, x + 1, y + 3, C.stone3); px(s, x - 1, y + 6, C.stone3); px(s, x + 3, y + 7, C.stone1) // warts
+        // clods of peat and hanging moss on the shoulders
+        rect(s, x - 5, y, 5, 2, C.brown1); rect(s, x + 2, y + 1, 3, 2, C.brown1)
+        for (let i = 0; i < 4; i++) line(s, x - 5 + i * 3, y + 2, x - 5 + i * 3, y + 4 + (i & 1) * 2, C.green2)
+        // a mushroom growing out of its back
+        rect(s, x - 6, y + 3, 1, 2, C.bone1)
+        rect(s, x - 8, y + 2, 4, 1, C.red1); px(s, x - 7, y + 2, C.bone1)
+    },
+    pants: C.stone2, pantsDk: C.stone1, boot: C.stone1, bootHi: C.stone2,
+    arm: C.stone2, armLow: C.stone2, armBack: C.stone1, armBackLow: C.stone1, hand: C.stone3,
+    blade: M.bone, haft: M.darkwood, gem: M.sea, gemStyle: Gem.Orb, accent: C.green4
+}
+
+// 2 · Mirewood — Reed Spitter (ranged): a lanky thing woven of dry reeds, a cattail for a head
+// with two pale eyes in it, reed fronds for hair, shooting thorns from a bent-reed bow.
+const reedSpitter: WorldSkin = {
+    legLen: 8, torsoLen: 8,
+    skin: [C.brown2, C.gold1, C.gold2],
+    head: (s, x, y, p, t) => {
+        // reed fronds sprouting off the top, swaying
+        const sway = Math.floor(t * 2) & 1
+        line(s, x - 1, y - 7, x - 4 - sway, y - 12, C.gold1)
+        line(s, x + 1, y - 7, x + 2 + sway, y - 13, C.gold2)
+        // the cattail head, brown and furred
+        ellipse(s, x + 1, y - 4, 3, 4, C.brown2)
+        rect(s, x + 2, y - 7, 1, 6, C.brown3)
+        eyes(s, x + 2, y - 5, C.bone1, p); eyes(s, x + 3, y - 3, C.bone1, p)
+        // the reed stalk of a neck
+        rect(s, x, y - 1, 2, 2, C.gold1)
+    },
+    torso: (s, x, y) => {
+        // a narrow weave of reeds
+        rect(s, x - 2, y, 5, 8, C.gold1)
+        for (let i = 0; i < 5; i++) line(s, x - 2 + i, y, x - 2 + i, y + 7, i & 1 ? C.brown3 : C.gold1)
+        for (let k = 1; k < 8; k += 3) rect(s, x - 2, y + k, 5, 1, C.brown2) // the binding
+        px(s, x + 2, y + 2, C.gold2)
+    },
+    pants: C.gold1, pantsDk: C.brown2, boot: C.brown2, bootHi: C.gold1,
+    arm: C.gold1, armLow: C.gold1, armBack: C.brown2, armBackLow: C.brown2, hand: C.gold2,
+    blade: M.bone, haft: M.wood, gem: M.sea, gemStyle: Gem.Orb, accent: C.gold3
+}
+
+// 2 · Mirewood — Bog Crone (caster): a stooped grey hag with long stringy hair and a hooked nose,
+// a shawl of moss over violet rags, calling up the black water with an orb-headed staff.
+const bogCrone: WorldSkin = {
+    legLen: 6, torsoLen: 7,
+    skin: [C.stone1, C.stone2, C.stone3],
+    head: (s, x, y, p) => {
+        ellipse(s, x, y - 4, 3.5, 3.5, C.stone3)
+        line(s, x + 3, y - 4, x + 6, y - 2, C.stone3) // the hooked nose
+        px(s, x + 6, y - 1, C.stone2)
+        eyes(s, x + 1, y - 5, C.teal3, p)
+        rect(s, x, y - 1, 3, 1, C.stone1)
+        px(s, x + 2, y - 3, C.stone1) // a wart
+        // long stringy hair falling from under a hood of moss
+        ellipse(s, x - 1, y - 7, 5, 2, C.green1)
+        for (let i = 0; i < 4; i++) line(s, x - 4 + i, y - 6, x - 5 + i, y + 1 + (i & 1) * 2, C.bone0)
+        px(s, x + 2, y - 8, C.green2); px(s, x - 3, y - 8, C.green2)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 7, 7, C.purple1)
+        rect(s, x - 3, y, 1, 7, C.purple0)
+        // the shawl of moss over the shoulders
+        rect(s, x - 3, y, 7, 3, C.green1)
+        for (let i = 0; i < 4; i++) px(s, x - 3 + i * 2, y + 3, C.green2)
+        px(s, x + 1, y + 1, C.green2)
+        rect(s, x - 1, y + 4, 2, 1, C.bone1) // a bone clasp
+    },
+    lower: (s, x, hipY, _p, t) => robeSkirt(s, x, hipY, J.oy - 1, [C.purple0, C.purple1, C.purple2], C.green1, (Math.floor(t * 2) & 1) - 0.5, C.stone1, 0),
+    pants: C.purple1, pantsDk: C.purple0, boot: C.stone1, bootHi: C.stone2,
+    arm: C.stone2, armLow: C.purple1, armBack: C.stone1, armBackLow: C.purple0, hand: C.stone3,
+    blade: M.bone, haft: M.darkwood, gem: M.sea, gemStyle: Gem.Orb, accent: C.teal3
 }
 
 // 3 · Cinderpass — Cinder Kobold: a scaled little dog-lizard of the ash mines. A big head with a
@@ -656,7 +861,8 @@ function one(w: WorldSkin): Readonly<Record<EnemyWeapon, WorldSkin>> {
  * heavy on the axe, ranged on the bow, caster on the staff).
  */
 export const WORLD_ROSTERS: readonly Readonly<Record<EnemyWeapon, WorldSkin>>[] = [
-    one(brambleGoblin), one(bogLurker),
+    { sword: brambleGoblin, axe: thornhideHobgoblin, bow: scarecrowStalker, staff: hedgeWitch },
+    { sword: bogLurker, axe: peatBrute, bow: reedSpitter, staff: bogCrone },
     { sword: cinderKobold, axe: slagGolem, bow: ashImp, staff: salamanderFirecaller },
     one(frostboundRaider), one(drownedSailor),
     one(hollowAcolyte), one(restlessLegionnaire), one(skyshardWisp), one(unravelledKnight), one(voidThrall)

@@ -94,7 +94,12 @@ export interface ArtAsset {
  */
 export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
     { n: 1, label: 'Mirewood roster', prefixes: ['enemy/world_mirewood', 'boss/world_mirewood', 'superboss/world_mirewood'] },
-    { n: 2, label: 'Cinderpass roster', prefixes: ['enemy/world_cinderpass', 'boss/world_cinderpass', 'superboss/world_cinderpass'] }
+    { n: 2, label: 'Cinderpass roster', prefixes: ['enemy/world_cinderpass', 'boss/world_cinderpass', 'superboss/world_cinderpass'] },
+    {
+        n: 3,
+        label: 'Thornwick & Mirewood rosters',
+        prefixes: ['axe', 'bow', 'staff'].flatMap(r => [`enemy/world_thornwick_vale/${r}`, `enemy/world_mirewood/${r}`])
+    }
 ]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
