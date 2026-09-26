@@ -667,140 +667,352 @@ export const ROTHEART: CreatureDef = {
 
 // ═══════════════════════════════════════════════════════════════ 3 · Cinderpass
 
-/** Slagjaw — the kobold war-chief, his lower jaw replaced with a plate of glowing slag. */
+// Stage 5: Slagjaw, the kobolds' war-chief, a head taller and three times the girth of his
+// clan, in black iron, his lower jaw a plate of cooling slag. Stage 10: Pyrrhax, the Molten
+// Wyrm the kobolds worship, rising out of the lava lake at the heart of the pass.
+
+const IRON_BLACK: Mat = [C.void, C.stone0, C.stone1]
+const WYRM_HORN: Mat = [C.stone1, C.stone2, C.stone3]
+
+/** Molten seams across a dark plate: a jagged line of lava with a hot core that pulses. */
+function seam(s: Surface, x0: number, y0: number, x1: number, y1: number, hot: boolean): void {
+    const n = Math.max(2, R(Math.hypot(x1 - x0, y1 - y0) / 3))
+    let px0 = x0
+    let py0 = y0
+    for (let i = 1; i <= n; i++) {
+        const u = i / n
+        const nx = x0 + (x1 - x0) * u + (i < n ? ((i * 7) % 3) - 1 : 0)
+        const ny = y0 + (y1 - y0) * u + (i < n ? ((i * 5) % 3) - 1 : 0)
+        line(s, R(px0), R(py0), R(nx), R(ny), C.lava1)
+        if (hot && i & 1) px(s, R(nx), R(ny), C.gold2)
+        px0 = nx
+        py0 = ny
+    }
+}
+
+/**
+ * Slagjaw, the kobolds' war-chief: the clan's own long-snouted, horned face on a body three times
+ * their girth, in a black iron breastplate cracked with molten seams, spiked pauldrons, a crown of
+ * iron spikes, a scorched cape and a belt of trophy skulls. His lower jaw is a plate of slag,
+ * dark metal glowing through a molten seam and dripping. He swings a slag hammer, an iron block
+ * banded round a cracked, glowing core, up over his head and down onto the front rank.
+ */
 export const SLAGJAW: CreatureDef = {
-    name: 'Slagjaw', size: 96, shadow: 18, accent: C.lava1,
+    name: 'Slagjaw', size: 96, shadow: 20, accent: C.lava1,
     states: bossStates(1.2, 1.2, 1.8),
     draw(s, st, t) {
         drive(this, st, t, 8, 1.2)
-        const x = s.ax - 4 + B.lunge - B.kb
+        const x = s.ax - 6 + B.lunge - B.kb
         const y = s.ay
         const crouch = R(B.wind * 3 + (B.strike ? 4 : B.rec * 3) + B.die * 10)
         const hip = y - 22 + crouch + B.bob
-        const top = hip - 22
-        // tail
-        chain(s, x - 8, hip - 2, x - 24, hip + 4, x - 30, y - 6 + wv(t, 1.2, 2), 4, 1.5, SCALE_RED, 10)
-        // digitigrade legs
-        for (const [lx, c] of [[-5, SCALE_RED[0]], [6, SCALE_RED[1]]] as const) {
-            line(s, x + lx, hip, x + lx - 4, hip + 10 - R(crouch / 2), c, 4)
-            line(s, x + lx - 4, hip + 10 - R(crouch / 2), x + lx + 1, y - 2, c, 3)
-            rect(s, x + lx - 1, y - 2, 6, 2, C.ink)
+        const top = hip - 24
+        const flap = fr(t, 5, 3)
+        const hot = fr(t, 5, 2) === 1 || B.glow > 0.5
+
+        // the scorched cape behind him, ragged at the hem and stirring in the heat
+        poly(s, [-6, 0, 6, 0, 4, 30, -2, 32 + flap, -8, 29, -12, 31 - flap, -14, 26], x - 4, top + 2, C.red0)
+        line(s, x - 10, top + 4, x - 17, top + 27, C.brown0)
+        for (let i = 0; i < 4; i++) px(s, x - 16 + i * 4, top + 30 + ((i + flap) & 1), C.lava0) // embers in the hem
+        // the tail, thick and banded
+        chain(s, x - 8, hip - 2, x - 26, hip + 2, x - 32, y - 5 + wv(t, 1.2, 2), 5, 2, SCALE_RED, 12)
+        for (let i = 1; i < 4; i++) px(s, x - 12 - i * 6, hip + 1 + i, C.red0)
+        // digitigrade legs in iron greaves
+        for (const [lx, far] of [[-6, true], [6, false]] as const) {
+            const m = far ? C.red1 : C.orange
+            line(s, x + lx, hip, x + lx - 5, hip + 10 - R(crouch / 2), m, 5)
+            line(s, x + lx - 5, hip + 10 - R(crouch / 2), x + lx + 1, y - 2, m, 4)
+            rect(s, x + lx - 3, hip + 11 - R(crouch / 2), 5, 7, far ? IRON_BLACK[0] : IRON_BLACK[1]) // greave
+            px(s, x + lx - 2, hip + 12 - R(crouch / 2), C.stone2)
+            rect(s, x + lx - 2, y - 2, 8, 2, C.ink)
+            for (let i = 0; i < 3; i++) px(s, x + lx + 3 + i, y - 1, C.bone1) // claws
         }
-        // body
-        ball(s, x, top + 12, 12, 13, SCALE_RED)
-        ellipse(s, x + 3, top + 15, 6, 8, C.gold2) // belly plates
-        for (let i = 0; i < 4; i++) rect(s, x - 2, top + 9 + i * 4, 10, 1, C.gold1)
-        // war harness and a trophy skull
-        line(s, x - 10, top + 2, x + 10, top + 18, C.brown0, 2)
-        rect(s, x - 11, hip - 3, 22, 3, C.brown1)
-        rect(s, x - 2, hip - 2, 5, 4, C.bone1); px(s, x - 1, hip - 1, C.ink); px(s, x + 1, hip - 1, C.ink)
-        dither(s, x - 12, top, 24, 8, C.stone3, 3) // ash
-        // back arm
-        limbT(s, x - 8, top + 4, x - 10, top + 16, 5, 4, [C.red0, C.red1, C.orange])
-        // head: kobold snout, horn crown, the slag jaw
-        const hx = x + 6
-        const hy = top - 6 + R(B.die * 4)
+        // the barrel of a body, gold belly scales, then the black iron breastplate over it
+        ball(s, x, top + 14, 14, 15, SCALE_RED)
+        ellipse(s, x + 4, top + 18, 7, 9, C.gold2)
+        for (let i = 0; i < 4; i++) rect(s, x, top + 13 + i * 4, 9, 1, C.gold1)
+        poly(s, [-12, 0, 10, 0, 12, 12, 6, 20, -8, 20, -13, 10], x - 1, top + 2, IRON_BLACK[1])
+        poly(s, [-12, 0, -4, 0, -6, 20, -8, 20, -13, 10], x - 1, top + 2, IRON_BLACK[0])
+        line(s, x - 12, top + 2, x + 9, top + 2, IRON_BLACK[2])
+        seam(s, x - 8, top + 6, x + 6, top + 11, hot)
+        seam(s, x - 4, top + 14, x + 8, top + 18, hot)
+        // the belt and its trophies: small skulls of goblin and kobold
+        rect(s, x - 13, hip - 4, 26, 4, C.brown0)
+        rect(s, x - 13, hip - 4, 26, 1, C.brown1)
+        for (const [sx, c] of [[-9, C.bone1], [-2, C.bone0], [5, C.bone1]] as const) {
+            rect(s, x + sx, hip - 2, 4, 4, c)
+            px(s, x + sx + 1, hip - 1, C.ink); px(s, x + sx + 3, hip - 1, C.ink)
+            px(s, x + sx + 1, hip + 2, C.ink)
+        }
+        // spiked pauldrons
+        for (const [px0, far] of [[-10, true], [9, false]] as const) {
+            ball(s, x + px0, top + 2, 6, 4, far ? [C.void, C.void, C.stone0] : IRON_BLACK)
+            for (let i = 0; i < 3; i++) tri(s, x + px0 - 4 + i * 4, top - 1, x + px0 - 2 + i * 4, top - 1, x + px0 - 3 + i * 4, top - 6, far ? C.stone0 : C.stone1)
+        }
+
+        // the head: the clan's long snout and horns, bigger and scarred, crowned in iron
+        const hx = x + 7
+        const hy = top - 7 + R(B.die * 4)
+        tri(s, hx - 5, hy - 3, hx - 5, hy + 2, hx - 12, hy - 2, C.red1) // ear fin
         ball(s, hx, hy, 8, 7, SCALE_RED)
-        rect(s, hx + 4, hy - 3, 10, 5, C.orange) // snout
-        rect(s, hx + 4, hy - 3, 10, 1, C.gold2)
-        px(s, hx + 13, hy - 2, C.ink)
+        poly(s, [0, -5, 7, -5, 15, -2, 15, 1, 0, 2], hx + 3, hy, C.orange)
+        line(s, hx + 4, hy - 5, hx + 17, hy - 2, C.gold2)
+        px(s, hx + 17, hy - 2, C.ink)
         const eye = B.hurt ? C.ink : (B.glow > 0.4 ? C.white : C.gold3)
-        rect(s, hx + 2, hy - 5, 3, 1, C.red0)
-        px(s, hx + 4, hy - 4, eye)
-        // slag jaw: dark metal with lava seams, dripping
+        rect(s, hx + 1, hy - 6, 5, 1, C.red0)
+        rect(s, hx + 2, hy - 5, 2, 2, eye)
+        px(s, hx + 3, hy - 5, C.ink)
+        line(s, hx - 1, hy - 7, hx + 4, hy - 2, C.red0) // a scar across the eye
+        // the slag jaw: a plate of dark metal glowing through a molten seam, dripping
         const jaw = B.roar || B.strike ? 3 : 1
-        rect(s, hx + 3, hy + 2 + jaw, 12, 4, C.stone1)
-        rect(s, hx + 3, hy + 2 + jaw, 12, 1, C.stone2)
-        line(s, hx + 5, hy + 4 + jaw, hx + 13, hy + 4 + jaw, C.lava1)
-        px(s, hx + 8, hy + 3 + jaw, C.gold2)
-        if (jaw > 1) rect(s, hx + 5, hy + 2, 9, jaw, C.lava0)
-        px(s, hx + 10, hy + 6 + jaw + (fr(t, 6, 3)), C.orange)
-        // horn crown
-        for (let i = 0; i < 4; i++) { line(s, hx - 5 + i * 3, hy - 6, hx - 7 + i * 3, hy - 11 - (i & 1) * 2, C.bone1, 2); px(s, hx - 7 + i * 3, hy - 12 - (i & 1) * 2, C.white) }
-        // the slag hammer
-        const sx = x + 8
-        const sy = top + 4
-        const a = bz(-1.1, -2.7, 0.9)
-        reach(sx, sy, a, 12)
-        const hx2 = P.x
-        const hy2 = P.y
-        limbT(s, sx, sy, hx2, hy2, 6, 4, SCALE_RED)
-        reach(hx2, hy2, a - 0.2, 20)
-        line(s, hx2, hy2, P.x, P.y, C.brown1, 2)
-        const nx = -Math.sin(a - 0.2)
-        const ny = Math.cos(a - 0.2)
-        quad(s, P.x - nx * 7, P.y - ny * 7, P.x + nx * 7, P.y + ny * 7, P.x + nx * 7 + Math.cos(a) * 7, P.y + ny * 7 + Math.sin(a) * 7,
-            P.x - nx * 7 + Math.cos(a) * 7, P.y - ny * 7 + Math.sin(a) * 7, C.stone1)
-        line(s, P.x - nx * 5 + Math.cos(a) * 3, P.y - ny * 5 + Math.sin(a) * 3, P.x + nx * 5 + Math.cos(a) * 3, P.y + ny * 5 + Math.sin(a) * 3, C.lava1)
-        px(s, P.x + Math.cos(a) * 3, P.y + Math.sin(a) * 3, C.gold3)
-        rect(s, hx2 - 2, hy2 - 2, 4, 4, C.red1)
+        if (jaw > 1) rect(s, hx + 4, hy + 2, 11, jaw, C.lava0)
+        rect(s, hx + 2, hy + 2 + jaw, 14, 5, IRON_BLACK[1])
+        rect(s, hx + 2, hy + 2 + jaw, 14, 1, IRON_BLACK[2])
+        rect(s, hx + 2, hy + 6 + jaw, 14, 1, IRON_BLACK[0])
+        seam(s, hx + 4, hy + 4 + jaw, hx + 15, hy + 4 + jaw, hot)
+        for (let i = 0; i < 4; i++) px(s, hx + 5 + i * 3, hy + 2 + jaw, C.bone1) // teeth set in the slag
+        const drip = fr(t, 6, 4)
+        px(s, hx + 12, hy + 7 + jaw + drip, drip < 2 ? C.gold2 : C.lava1)
+        px(s, hx + 7, hy + 7 + jaw + (drip >> 1), C.lava1)
+        // horns and a crown of iron spikes
+        for (let i = 0; i < 2; i++) {
+            line(s, hx - 4 + i * 5, hy - 6, hx - 10 + i * 5, hy - 12, C.bone1, 2)
+            px(s, hx - 11 + i * 5, hy - 13, C.white)
+        }
+        rect(s, hx - 6, hy - 8, 12, 2, IRON_BLACK[1])
+        for (let i = 0; i < 4; i++) tri(s, hx - 6 + i * 3, hy - 8, hx - 4 + i * 3, hy - 8, hx - 5 + i * 3, hy - 12 - (i & 1) * 2, C.stone2)
+
+        // The slag hammer, in both hands: at rest it lies back over his shoulder, the grip in
+        // front of his chest; the wind-up lifts it up over his head, the strike brings it down
+        // in front of him, and the recovery swings it back up onto the shoulder.
+        const ga = bz(-2.5, -1.75, 0.6)
+        const gx = bz(x + 9, x + 5, x + 17)
+        const gy = bz(top + 12, top - 6, top + 16)
+        const dx = Math.cos(ga)
+        const dy = Math.sin(ga)
+        const nx = -dy
+        const ny = dx
+        const hdx = gx + dx * 24
+        const hdy = gy + dy * 24
+        const H = (u: number, v: number): [number, number] => [hdx + dx * u + nx * v, hdy + dy * u + ny * v]
+        const hammer = () => {
+            line(s, R(gx - dx * 3), R(gy - dy * 3), R(hdx), R(hdy), C.brown1, 2)
+            px(s, R(gx - dx * 3), R(gy - dy * 3), C.stone2) // the pommel cap
+            const [a0x, a0y] = H(-2, -9)
+            const [a1x, a1y] = H(-2, 9)
+            const [a2x, a2y] = H(9, 9)
+            const [a3x, a3y] = H(9, -9)
+            quad(s, a0x, a0y, a1x, a1y, a2x, a2y, a3x, a3y, IRON_BLACK[1])
+            for (const u of [0, 7]) {
+                const [b0x, b0y] = H(u, -9)
+                const [b1x, b1y] = H(u, 9)
+                line(s, R(b0x), R(b0y), R(b1x), R(b1y), C.stone2)
+            }
+            const [k0x, k0y] = H(3.5, -6)
+            const [k1x, k1y] = H(3.5, 6)
+            seam(s, k0x, k0y, k1x, k1y, true)
+            const [ccx, ccy] = H(3.5, 0)
+            disc(s, ccx, ccy, 2, hot ? C.gold2 : C.lava1)
+            px(s, R(ccx), R(ccy), hot ? C.white : C.gold3)
+        }
+        // resting on the shoulder, the hammer's head lies behind him, so the body goes over it
+        const behind = ga < -2.1
+        if (behind) {
+            const keep = new Uint8Array(s.data)
+            hammer()
+            for (let i = 0; i < s.data.length; i++) if (keep[i]) s.data[i] = keep[i]!
+        }
+        // the far arm on the lower grip, the near arm higher up the haft
+        const far: Mat = [C.red0, C.red1, C.orange]
+        limbT(s, x - 8, top + 5, gx - dx * 1, gy - dy * 1, 6, 5, far)
+        ball(s, gx - dx, gy - dy, 3, 3, far)
+        if (!behind) hammer()
+        else line(s, R(gx - dx * 3), R(gy - dy * 3), R(gx + dx * 8), R(gy + dy * 8), C.brown1, 2)
+        const nhx = gx + dx * 6
+        const nhy = gy + dy * 6
+        limbT(s, x + 9, top + 4, nhx, nhy, 7, 5, SCALE_RED)
+        ball(s, nhx, nhy, 3, 3, SCALE_RED)
         finish(s, Entry.Drop, 8)
     },
     fx(dst, st, t, x, y, dir) {
         if (st === 'attack' && B.strike) {
-            for (let i = 0; i < 8; i++) { dst.set(x + dir * (26 + i * 2), y - 1 - (i % 3), i & 1 ? C.lava1 : C.gold2); dst.set(x + dir * (24 + i), y - 4 - i, C.orange) }
+            for (let i = 0; i < 10; i++) { dst.set(x + dir * (26 + i * 2), y - 1 - (i % 3), i & 1 ? C.lava1 : C.gold2); dst.set(x + dir * (24 + i), y - 4 - i, C.orange) }
         }
-        if (st === 'entry' && B.ent > 0.95) for (let i = 0; i < 10; i++) dst.set(x + dir * (-20 + i * 4), y - (i & 1), C.stone3)
+        if (st === 'entry' && B.ent > 0.95) for (let i = 0; i < 12; i++) dst.set(x + dir * (-22 + i * 4), y - (i & 1), C.stone3)
         const k = fr(t, 10, 12)
-        dst.set(x + dir * (4 + (k % 5)), y - 50 - k * 2, C.orange)
+        dst.set(x + dir * (6 + (k % 5)), y - 54 - k * 2, C.orange)
+        dst.set(x + dir * (-4 + (k % 3)), y - 40 - k, C.stone2) // smoke off the cape
     }
 }
 
-/** Pyrrhax, the Molten Wyrm — the thing the kobolds worship, rising from a lake of lava. */
+/**
+ * A wyrm's wing from the shoulder (x, y), reaching back: an arm bone to the wrist, four finger
+ * bones fanning out from it, and dark membrane stretched between them, veined with fire.
+ * `spread` 0 (folded low) … 1 (raised and open); `far` draws the wing behind the neck darker.
+ */
+function batWing(s: Surface, x: number, y: number, span: number, spread: number, far: boolean): void {
+    const bone = far ? C.void : C.stone1
+    const skin = far ? C.red0 : C.lava0
+    const vein = far ? C.lava0 : C.lava1
+    const wx = x - span * 0.35
+    const wy = y - span * (0.2 + 0.4 * spread)
+    const tips: readonly (readonly [number, number])[] = [
+        [wx - span * 0.55, wy - span * 0.2 * spread - 3],
+        [wx - span * 0.65, wy + span * 0.12],
+        [wx - span * 0.5, wy + span * 0.4],
+        [wx - span * 0.2, wy + span * 0.55]
+    ]
+    const bx = x - span * 0.1
+    const by = y + span * 0.3
+    // the membrane, then the fire in its veins, then the bones over it
+    for (let i = 0; i < tips.length - 1; i++) tri(s, wx, wy, tips[i]![0], tips[i]![1], tips[i + 1]![0], tips[i + 1]![1], skin)
+    tri(s, x, y, wx, wy, tips[3]![0], tips[3]![1], skin)
+    tri(s, x, y, tips[3]![0], tips[3]![1], bx, by, skin)
+    for (let i = 0; i < tips.length - 1; i++) {
+        const mx = (tips[i]![0] + tips[i + 1]![0]) / 2
+        const my = (tips[i]![1] + tips[i + 1]![1]) / 2
+        line(s, R(wx), R(wy), R(wx + (mx - wx) * 0.8), R(wy + (my - wy) * 0.8), vein)
+    }
+    line(s, R(x), R(y), R(wx), R(wy), bone, 2)
+    for (const [tx, ty] of tips) line(s, R(wx), R(wy), R(tx), R(ty), bone)
+    disc(s, wx, wy, 1.5, bone)
+    tri(s, wx - 1, wy - 1, wx + 1, wy - 1, wx - 2, wy - 5, bone) // the claw at the wrist
+}
+
+/**
+ * Pyrrhax, the Molten Wyrm, the dragon the kobolds worship: so large that his hindquarters and
+ * tail run on past the edge of the screen. A long body armoured in obsidian scale and cracked
+ * with magma, standing on four clawed legs; spikes down the spine; a glowing belly up the chest
+ * and neck; two great wings half-folded over his back that spread as he rears. The head, on an
+ * S of neck, is long and horned, the jaw hinged open on a throat of magma, teeth like glass,
+ * eyes blazing. He rears back and breathes fire.
+ */
 export const PYRRHAX: CreatureDef = {
-    name: 'Pyrrhax, the Molten Wyrm', size: 128, shadow: 0, accent: C.lava1,
+    name: 'Pyrrhax, the Molten Wyrm', size: 256, shadow: 70, accent: C.lava1,
     states: bossStates(1.4, 1.8, 2.2),
     draw(s, st, t) {
         drive(this, st, t, 10, 1.8)
-        const x = s.ax - 10 - B.kb
+        const x = s.ax - B.kb
         const y = s.ay
-        const sway = wv(t, 1.8, 3)
-        const hx = x + 16 + sway + R(bz(0, -10, 10)) + R(B.die * 14)
-        const hy = y - 82 + R(bz(0, -8, 6)) + R(B.die * 60) + B.breath
-        // coils behind
-        chain(s, x - 30, y, x - 40, y - 26, x - 16, y - 20, 9, 7, OBSIDIAN, 12, C.lava1)
-        // neck rising out of the lava
-        chain(s, x - 2, y + 2, x - 34, y - 50, hx - 6, hy + 6, 14, 8, OBSIDIAN, 20, C.lava1)
-        // magma cracks along the neck
-        for (let i = 2; i < 18; i += 2) {
-            const u = i / 20
-            const cx = (1 - u) * (1 - u) * (x - 2) + 2 * (1 - u) * u * (x - 34) + u * u * (hx - 6)
-            const cy = (1 - u) * (1 - u) * (y + 2) + 2 * (1 - u) * u * (y - 50) + u * u * (hy + 6)
-            px(s, cx - 3, cy - 2, C.lava1); px(s, cx - 2, cy - 3, C.orange)
-            if (i % 4 === 0) { tri(s, cx - 10, cy - 6, cx - 6, cy - 9, cx - 13, cy - 13, C.lava0); px(s, cx - 12, cy - 12, C.orange) } // dorsal fins
+        const hot = fr(t, 5, 2) === 1 || B.glow > 0.5
+        const rear = R(bz(0, 8, -6)) // he draws his head back on the wind-up, thrusts it on the breath
+        const lift = R(bz(0, 6, 2)) + B.breath
+        const sink = R(B.die * 14)
+        const spread = B.roar || B.wind > 0.3 ? 1 : B.strike ? 0.7 : 0.3 + wv(t, 1.8, 1) * 0.05
+        const bodyY = y - 44 + sink + B.breath
+
+        // the tail, out past the edge of the frame, and the far legs
+        chain(s, x - 96, bodyY - 2, x - 140, bodyY + 16, x - 176, bodyY - 4 + wv(t, 1.8, 3), 13, 7, OBSIDIAN, 18)
+        const leg = (hx: number, hy: number, kx: number, ky: number, fx: number, far: boolean) => {
+            const m: Mat = far ? [C.void, C.void, C.stone0] : OBSIDIAN
+            limbT(s, hx, hy, kx, ky, far ? 12 : 14, far ? 9 : 11, m)
+            limbT(s, kx, ky, fx, y - 2, far ? 9 : 11, far ? 7 : 8, m)
+            ball(s, kx, ky, far ? 5 : 6, far ? 5 : 6, m)
+            rect(s, fx - 6, y - 4, 14, 4, m[0])
+            for (let i = 0; i < 3; i++) line(s, fx + 3 + i * 3, y - 3, fx + 5 + i * 3, y, C.bone1)
         }
-        // head: a long wedge
-        const open = B.strike || B.roar ? 6 : B.wind > 0.5 ? 3 : 1
-        poly(s, [-8, -6, 6, -9, 20, -4, 22, 0, -6, 2], hx, hy, OBSIDIAN[1])
-        poly(s, [-6, 2 + open, 20, 2 + open, 18, 6 + open, -4, 7], hx, hy, OBSIDIAN[0])
-        if (open > 1) { quad(s, hx - 4, hy + 2, hx + 20, hy + 1, hx + 18, hy + 2 + open, hx - 4, hy + 2 + open, C.lava0); rect(s, hx, hy + 2, 16, 1, C.gold2) }
-        line(s, hx - 6, hy - 5, hx + 18, hy - 3, OBSIDIAN[2])
-        for (let i = 0; i < 5; i++) { px(s, hx + 2 + i * 4, hy + 1, C.bone1); px(s, hx + 3 + i * 4, hy + 2 + open, C.bone1) } // teeth
-        // horns sweeping back
-        line(s, hx - 4, hy - 6, hx - 18, hy - 16, C.stone2, 3)
-        line(s, hx - 18, hy - 16, hx - 24, hy - 15, C.stone3, 2)
-        line(s, hx + 2, hy - 8, hx - 8, hy - 20, C.stone2, 2)
-        const eye = B.hurt ? C.ink : C.gold3
-        rect(s, hx + 6, hy - 6, 4, 2, C.lava1); px(s, hx + 8, hy - 6, eye)
-        px(s, hx + 20, hy - 3, C.lava1) // nostril glow
-        finish(s, Entry.Rise, 0)
+        leg(x - 84, bodyY + 2, x - 70, y - 22, x - 80, true)
+        leg(x - 28, bodyY, x - 18, y - 22, x - 12, true)
+        // the far wing, behind the body
+        batWing(s, x - 52, bodyY - 18 - lift, 84, spread, true)
+
+        // the body: a long barrel of obsidian scale, magma in its cracks, spikes down the spine
+        for (let i = 0; i < 9; i++) {
+            const sx = x - 100 + i * 10
+            const sy = bodyY - 20 + R(Math.sin(i * 0.5) * 2)
+            tri(s, sx - 4, sy + 4, sx + 3, sy + 4, sx - 3, sy - 8 - (i & 1) * 3, C.stone0)
+            px(s, sx - 3, sy - 8 - (i & 1) * 3, C.lava1)
+        }
+        ellipse(s, x - 58, bodyY, 48, 20, OBSIDIAN[0])
+        ellipse(s, x - 59, bodyY - 2, 46, 17, OBSIDIAN[1])
+        ellipse(s, x - 70, bodyY - 10, 26, 5, OBSIDIAN[2])
+        ellipse(s, x - 50, bodyY + 12, 34, 5, C.lava0) // the belly's glow along the underside
+        for (let i = 0; i < 7; i++) rect(s, x - 82 + i * 9, bodyY + 12, 6, 2, i & 1 ? C.orange : C.gold1)
+        seam(s, x - 96, bodyY - 4, x - 70, bodyY + 2, hot)
+        seam(s, x - 62, bodyY - 8, x - 36, bodyY - 2, hot)
+        seam(s, x - 44, bodyY + 4, x - 20, bodyY - 4, hot)
+        for (let i = 0; i < 10; i++) px(s, x - 94 + i * 8, bodyY - 6 + (i & 1) * 8, C.stone2) // scale glints
+        // the near hind leg, a great haunch
+        ball(s, x - 84, bodyY + 2, 17, 15, OBSIDIAN)
+        seam(s, x - 92, bodyY - 4, x - 78, bodyY + 10, hot)
+        leg(x - 82, bodyY + 8, x - 66, y - 20, x - 74, false)
+
+        // the near wing, raised off the back so the body still reads under it; the neck goes in front
+        batWing(s, x - 40, bodyY - 20 - lift, 58, spread, false)
+        // the neck, an S from the chest to the head, fins down its back, belly glowing up its front
+        const nx0 = x - 22
+        const ny0 = bodyY - 6
+        const ncx = x - 4
+        const ncy = bodyY - 44
+        const hx = x + 22 - rear + R(wv(t, 1.8, 2))
+        const hy = y - 80 - lift + sink * 3
+        const nx1 = hx - 10
+        const ny1 = hy + 6
+        for (let i = 3; i < 16; i += 2) {
+            const u = i / 18
+            bez(nx0, ny0, ncx, ncy, nx1, ny1, u)
+            const r = 12 - u * 4
+            tri(s, P.x - r * 0.9, P.y - r * 0.1, P.x - r * 0.5, P.y - r * 0.8, P.x - r * 1.5, P.y - r * 0.9, C.stone0)
+            px(s, R(P.x - r * 1.5), R(P.y - r * 0.9), C.lava1)
+        }
+        chain(s, nx0, ny0, ncx, ncy, nx1, ny1, 13, 8, OBSIDIAN, 18)
+        for (let i = 1; i < 16; i++) {
+            const u = i / 16
+            bez(nx0, ny0, ncx, ncy, nx1, ny1, u)
+            const r = 13 - u * 5
+            rect(s, R(P.x + r * 0.3), R(P.y + r * 0.2), R(r * 0.55), 2, i & 1 ? C.orange : C.gold1)
+            if (i % 4 === 2) seam(s, P.x - r * 0.6, P.y - r * 0.3, P.x - r * 0.1, P.y + r * 0.1, hot)
+        }
+        // the near foreleg, planted in front
+        leg(x - 24, bodyY + 2, x - 12, y - 24, x - 4, false)
+
+        // the head: a long horned wedge, the jaw hinged open on a throat of magma
+        const open = B.strike || B.roar ? 9 : B.wind > 0.5 ? 5 : 2
+        chain(s, hx - 4, hy - 7, hx - 16, hy - 20, hx - 30, hy - 18, 3, 1, WYRM_HORN, 10)
+        chain(s, hx + 2, hy - 9, hx - 6, hy - 24, hx - 18, hy - 26, 2.5, 1, WYRM_HORN, 10)
+        poly(s, [-8, 2, 22, 2 + open, 20, 6 + open, -6, 8], hx, hy, OBSIDIAN[0])
+        line(s, hx - 6, hy + 7, hx + 19, hy + 6 + open, C.orange)
+        if (open > 2) {
+            poly(s, [-4, 1, 22, 0, 21, 2 + open, -4, 3 + open * 0.5], hx, hy, C.lava0)
+            ditherEllipse(s, hx + 6, hy + 2 + open * 0.5, 9, open * 0.4, C.gold2, hot ? 12 : 8)
+            px(s, hx + 3, hy + 2 + R(open * 0.4), C.white)
+        }
+        ball(s, hx, hy - 2, 11, 8, OBSIDIAN)
+        poly(s, [0, -8, 20, -5, 28, -2, 27, 1, 0, 2], hx + 2, hy, OBSIDIAN[1])
+        line(s, hx - 6, hy - 9, hx + 28, hy - 4, OBSIDIAN[2])
+        seam(s, hx - 6, hy - 3, hx + 14, hy - 5, hot)
+        px(s, hx + 28, hy - 2, C.lava1); px(s, hx + 27, hy - 3, C.gold2)
+        for (let i = 0; i < 7; i++) {
+            px(s, hx + 4 + i * 3, hy + 2, C.bone1)
+            px(s, hx + 4 + i * 3, hy + 3, C.bone1)
+            if (open > 2) px(s, hx + 3 + i * 3, hy + 1 + open, C.bone1)
+        }
+        rect(s, hx + 5, hy - 8, 7, 1, OBSIDIAN[0])
+        for (let i = 0; i < 3; i++) tri(s, hx + 3 + i * 3, hy - 9, hx + 5 + i * 3, hy - 9, hx + 2 + i * 3, hy - 13, C.stone0)
+        const eye = B.hurt ? C.ink : hot ? C.white : C.gold3
+        rect(s, hx + 7, hy - 7, 4, 2, C.lava1)
+        rect(s, hx + 8, hy - 7, 2, 1, eye)
+        for (let i = 0; i < 3; i++) tri(s, hx - 6 + i * 4, hy + 7, hx - 4 + i * 4, hy + 7, hx - 6 + i * 4, hy + 12, C.stone0)
+        const drip = fr(t, 6, 4)
+        px(s, hx + 14, hy + 7 + open + drip, drip < 2 ? C.gold2 : C.lava1)
+        finish(s, Entry.Drop, 10)
     },
     fx(dst, st, t, x, y, dir) {
-        ditherEllipse(dst, x - dir * 12, y - 1, 44, 3, C.lava0, 16)
-        ditherEllipse(dst, x - dir * 12, y - 2, 38, 2, C.lava1, 10)
         const k = fr(t, 10, 8)
-        for (let i = 0; i < 6; i++) dst.set(x + dir * (-50 + ((i * 13 + k * 5) % 76)), y - 3 - (i & 1), i & 1 ? C.gold2 : C.orange)
+        // lava dripped from him cooling round his feet, and embers rising off his back
+        ditherEllipse(dst, x - dir * 20, y - 1, 34, 2, C.lava0, 8)
+        for (let i = 0; i < 6; i++) dst.set(x - dir * (-10 + i * 16 + (k & 1)), y - 60 - ((k * 3 + i * 7) % 30), i & 1 ? C.orange : C.gold2)
         if ((st === 'attack' && (B.strike || B.rec > 0.6)) || B.roar) {
-            // fire breath: a widening cone of flame from the jaw
-            const hx = x + dir * (22 + (st === 'attack' ? 10 : 0))
-            const hy = y - 80 + (st === 'attack' ? 6 : 0)
-            for (let i = 0; i < 40; i++) {
+            // fire breath: a widening cone of flame from the jaw, down onto the front rank
+            const hx = x + dir * (48 + (st === 'attack' ? 6 : 0))
+            const hy = y - 78
+            for (let i = 0; i < 56; i++) {
                 const d = 2 + i * 1.3
-                const spread = d * 0.35
-                const off = Math.sin(i * 7.3 + k) * spread
-                const c = i < 8 ? C.gold3 : i < 18 ? C.gold2 : i < 28 ? C.orange : C.lava1
-                dst.set(hx + dir * R(d), R(hy + d * 0.5 + off), c)
-                dst.set(hx + dir * R(d), R(hy + d * 0.5 + off + 1), i < 20 ? C.white : c)
+                const w = d * 0.35
+                const off = Math.sin(i * 7.3 + k) * w
+                const c = i < 8 ? C.gold3 : i < 22 ? C.gold2 : i < 36 ? C.orange : C.lava1
+                dst.set(hx + dir * R(d), R(hy + d * 0.7 + off), c)
+                dst.set(hx + dir * R(d), R(hy + d * 0.7 + off + 1), i < 24 ? C.white : c)
             }
         }
     }
