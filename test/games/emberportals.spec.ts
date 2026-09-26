@@ -107,7 +107,8 @@ function checkRound(r: EmberPortalsResult) {
     if (r.mode !== 'buy') expect(r.bonusTriggered).toBe(r.base.scatters.length >= FS_TRIGGER)
     if (r.freeSpins) {
         const fs = r.freeSpins
-        let wilds: EpWild[] = []
+        // Portals from the triggering spin carry into the feature.
+        let wilds: EpWild[] = r.base.wildsEnd
         let total = 0
         for (const s of fs.spins) {
             // Portals carry over from one free spin to the next.
@@ -279,6 +280,18 @@ describe('rounds replay consistently', () => {
         expect(spawns).toBeGreaterThan(0)
         expect(grows).toBeGreaterThan(0)
         expect(merges).toBeGreaterThan(0)
+    })
+
+    it('carries the triggering spin\'s portals into the free spins', () => {
+        const rng = mulberry32(11)
+        let carried = 0
+        for (let i = 0; i < 200 && carried < 5; i++) {
+            const r = playEmberPortalsWith(1, { feature: 'buy' }, rng)
+            if (!r.base.wildsEnd.length) continue
+            carried++
+            expect(r.freeSpins!.spins[0]!.wildsStart).toEqual(r.base.wildsEnd)
+        }
+        expect(carried).toBe(5)
     })
 
     it('stops free spins at the max win and keeps cluster amounts consistent', () => {

@@ -21,7 +21,8 @@
 //     wild) merge into one portal whose multiplier is their product (×5 and
 //     ×3 become ×15). A merge always gains at least what growing would have
 //     (sum + 1), so folding in a ×1 portal is never a loss.
-//   Base game portals close when the tumble sequence ends.
+//   Base game portals close when the tumble sequence ends, unless the spin
+//   triggers the free spins: then they carry into the feature.
 //
 // ── Free spins ──────────────────────────────────────────────────────────────
 //   3-7 SCATTERs on the settled screen award 10/12/14/16/18 free spins.
@@ -42,7 +43,7 @@ export const EP_COLS = 7
 export const EP_ROWS = 7
 export const EP_MIN_CLUSTER = 5
 export const EP_MAX_WIN_MULT = 10_000
-export const EP_WILD_MAX_MULT = 2500
+export const EP_WILD_MAX_MULT = 256
 /** Safety bound on tumbles in one spin. */
 export const EP_MAX_TUMBLES = 200
 
@@ -82,9 +83,9 @@ type Weights = Record<EpPaySymbol | 'scatter', number>
 
 const BASE_PAY = { ember: 150, rune: 145, potion: 135, hourglass: 125, chalice: 100, amulet: 85, grimoire: 70, phoenix: 55 }
 
-export const BASE_WEIGHTS: Weights = { ...BASE_PAY, scatter: 6.51 }
+export const BASE_WEIGHTS: Weights = { ...BASE_PAY, scatter: 6.4 }
 /** Ante: same symbols, free spins trigger about 1.35× as often. */
-export const ANTE_WEIGHTS: Weights = { ...BASE_PAY, scatter: 7.28 }
+export const ANTE_WEIGHTS: Weights = { ...BASE_PAY, scatter: 7.12 }
 /** Free spins drop the embers, so clusters (and portals) land more often. */
 export const FS_WEIGHTS: Weights = { ember: 0, rune: 218, potion: 160, hourglass: 140, chalice: 110, amulet: 90, grimoire: 70, phoenix: 50, scatter: 4 }
 
@@ -97,7 +98,7 @@ export const FS_MAX_SPINS = 60
 /** Ante bet cost, × bet. */
 export const EP_ANTE_COST = 1.25
 /** Free-spins buy cost, × bet. */
-export const EP_BUY_COST = 100
+export const EP_BUY_COST = 103
 
 export function fsAward(scatters: number): number {
     if (scatters < FS_TRIGGER) return 0
@@ -471,9 +472,18 @@ export function runTumbles(
 
 // --- free spins ---------------------------------------------------------------
 
-export function runFreeSpins(bet: number, awarded: number, source: EpFreeSpins['source'], room: number, rng: Rng, ids: IdSource = { next: 1 }): EpFreeSpins {
+/** `startWilds` are the portals the triggering spin left open; they carry into the feature. */
+export function runFreeSpins(
+    bet: number,
+    awarded: number,
+    source: EpFreeSpins['source'],
+    room: number,
+    rng: Rng,
+    ids: IdSource = { next: 1 },
+    startWilds: EpWild[] = []
+): EpFreeSpins {
     const spins: EpFreeSpin[] = []
-    let wilds: EpWild[] = []
+    let wilds = startWilds.map(w => ({ ...w }))
     let totalSpins = Math.min(awarded, FS_MAX_SPINS)
     let total = 0
     let capped = false
@@ -548,7 +558,7 @@ export function playEmberPortalsWith(bet: number, options: Record<string, unknow
     let freeSpinsPayout = 0
     const room = round4(maxWin - basePayout)
     if (bonusTriggered && room > 0) {
-        freeSpins = runFreeSpins(bet, fsAward(scatterCount), mode === 'buy' ? 'buy' : 'scatter', room, rng, ids)
+        freeSpins = runFreeSpins(bet, fsAward(scatterCount), mode === 'buy' ? 'buy' : 'scatter', room, rng, ids, base.wildsEnd)
         freeSpinsPayout = freeSpins.total
     }
 
