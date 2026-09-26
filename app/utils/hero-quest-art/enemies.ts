@@ -612,40 +612,155 @@ const salamanderFirecaller: WorldSkin = {
     blade: M.obsidian, haft: M.darkwood, gem: M.lava, gemStyle: Gem.Flame, accent: C.orange
 }
 
-// 4 · Rimeholt — Frostbound Raider: frost-pale skin, fur, horned helm hung with icicles.
+// 4 · Rimeholt — Frostbound Raider (melee): a raider who swore himself to the cold. Frost-pale
+// skin with a band of blue woad across the eyes, a horned helm hung with icicles, a braided beard
+// white with rime, a fur mantle over mail, a painted round shield slung on the back.
 const frostboundRaider: WorldSkin = {
     legLen: 8, torsoLen: 9,
     skin: [C.night3, C.haze, C.frost],
+    back: (s, x, y) => {
+        // the round shield slung on the back, painted in halves, an iron boss
+        disc(s, x - 4, y + 5, 5, C.brown1)
+        disc(s, x - 4, y + 5, 4, C.red1)
+        tri(s, x - 8, y + 5, x, y + 5, x - 4, y + 1, C.bone1)
+        disc(s, x - 4, y + 5, 1.5, C.steel2)
+    },
     head: (s, x, y, p) => {
-        rect(s, x - 2, y - 7, 5, 7, C.haze)
-        rect(s, x + 1, y - 6, 2, 4, C.frost)
-        px(s, x + 3, y - 3, C.frost)
-        eyes(s, x + 2, y - 4, C.cyan, p)
-        rect(s, x - 1, y - 2, 5, 3, C.white) // frosted beard
-        px(s, x + 1, y + 1, C.frost); px(s, x + 3, y + 1, C.frost); px(s, x + 2, y + 2, C.cyan)
-        rect(s, x - 3, y - 10, 7, 3, C.steel1)
-        rect(s, x - 3, y - 7, 2, 4, C.steel0)
+        ellipse(s, x, y - 4, 4, 4, C.haze)
+        rect(s, x + 1, y - 6, 3, 3, C.frost)
+        rect(s, x - 2, y - 5, 7, 2, C.blue1) // the woad across the eyes
+        eyes(s, x + 2, y - 5, C.cyan, p)
+        px(s, x + 4, y - 3, C.haze) // nose
+        // the beard, braided and white with rime
+        rect(s, x - 1, y - 2, 5, 3, C.white)
+        line(s, x + 1, y + 1, x + 1, y + 4, C.frost); line(s, x + 3, y + 1, x + 3, y + 3, C.frost)
+        px(s, x + 1, y + 4, C.cyan); px(s, x + 3, y + 3, C.cyan)
+        // the helm, its horns, icicles off the brim
+        ellipse(s, x, y - 8, 4, 2.5, C.steel1)
+        rect(s, x - 4, y - 7, 9, 1, C.steel0)
         px(s, x - 1, y - 10, C.steel2)
-        px(s, x - 4, y - 10, C.bone1); px(s, x - 5, y - 11, C.bone1); px(s, x - 5, y - 12, C.white)
-        px(s, x + 3, y - 10, C.bone1); px(s, x + 4, y - 11, C.bone1); px(s, x + 4, y - 12, C.white)
-        px(s, x - 2, y - 6, C.cyan); px(s, x - 2, y - 5, C.frost) // icicle
+        line(s, x - 4, y - 8, x - 7, y - 12, C.bone1); px(s, x - 7, y - 13, C.white)
+        line(s, x + 4, y - 8, x + 6, y - 12, C.bone1); px(s, x + 6, y - 13, C.white)
+        px(s, x - 3, y - 6, C.cyan); px(s, x - 3, y - 5, C.frost) // icicle
+        px(s, x + 4, y - 6, C.frost)
     },
     torso: (s, x, y) => {
-        rect(s, x - 4, y, 8, 9, C.brown2)
-        rect(s, x - 4, y, 1, 9, C.brown1)
+        rect(s, x - 4, y, 8, 9, C.steel1) // mail
+        for (let k = 1; k < 9; k += 2) for (let i = -3; i < 4; i += 2) px(s, x + i + (k & 2 ? 1 : 0), y + k, C.steel2)
+        rect(s, x - 4, y, 1, 9, C.steel0)
         rect(s, x - 5, y - 1, 10, 3, C.bone1) // fur mantle
-        px(s, x - 4, y + 2, C.bone0); px(s, x - 1, y + 2, C.bone1); px(s, x + 3, y + 2, C.bone0)
-        dither(s, x - 5, y - 1, 10, 3, C.white, 3)
-        rect(s, x - 4, y + 6, 8, 1, C.blue0)
-        px(s, x + 1, y + 6, C.cyan)
+        px(s, x - 4, y + 2, C.bone0); px(s, x - 1, y + 2, C.white); px(s, x + 3, y + 2, C.bone0)
+        rect(s, x - 4, y + 6, 8, 1, C.brown1) // belt
+        px(s, x, y + 6, C.gold2)
     },
-    pants: C.stone2, pantsDk: C.stone1, boot: C.bone0, bootHi: C.bone1,
-    arm: C.brown2, armLow: C.haze, armBack: C.brown1, armBackLow: C.night3, hand: C.brown1,
+    pants: C.brown2, pantsDk: C.brown1, boot: C.bone0, bootHi: C.bone1,
+    arm: C.brown2, armLow: C.haze, armBack: C.brown1, armBackLow: C.night3, hand: C.haze,
     blade: M.ice, haft: M.darkwood, gem: M.ice, gemStyle: Gem.Crystal, accent: C.cyan,
     ambient: (dst, t) => {
         const k = step(t, 10, 10)
         dst.set(fxX(J.bx - 6 + ((k * 3) % 13)), fxY(J.topY - 6 + k * 2), C.white)
     }
+}
+
+// 4 · Rimeholt — Rime Troll (heavy): a big shaggy frost troll, blue-skinned under a mane of white
+// fur hung with icicles, a long nose over tusks, small eyes glinting cyan.
+const rimeTroll: WorldSkin = {
+    legLen: 8, torsoLen: 10,
+    skin: [C.blue0, C.blue1, C.blue2],
+    head: (s, x, y, p) => {
+        // the mane first, falling round the head and down the back
+        ellipse(s, x - 1, y - 4, 6, 5, C.white)
+        for (let i = 0; i < 4; i++) line(s, x - 5 + i * 2, y - 1, x - 6 + i * 2, y + 3 + (i & 1) * 2, i & 1 ? C.frost : C.white)
+        ellipse(s, x + 2, y - 4, 4, 3.5, C.blue1)
+        rect(s, x + 1, y - 7, 3, 1, C.blue2)
+        // the long nose, the tusks, the eyes
+        line(s, x + 4, y - 4, x + 8, y - 2, C.blue2)
+        px(s, x + 8, y - 1, C.blue1)
+        rect(s, x + 1, y - 1, 5, 1, C.ink)
+        px(s, x + 2, y - 2, C.white); px(s, x + 5, y - 2, C.white)
+        eyes(s, x + 3, y - 5, C.cyan, p)
+        px(s, x - 3, y - 8, C.cyan); px(s, x - 3, y - 7, C.frost) // icicles in the mane
+        px(s, x + 1, y - 9, C.frost)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 5, y, 11, 10, C.blue1)
+        rect(s, x - 5, y, 2, 10, C.blue0)
+        rect(s, x + 1, y + 3, 4, 5, C.blue2) // the lit belly
+        // the white mane running down the back and shoulders
+        rect(s, x - 6, y - 1, 8, 4, C.white)
+        for (let i = 0; i < 3; i++) px(s, x - 5 + i * 3, y + 3, C.frost)
+        rect(s, x - 5, y + 8, 11, 2, C.bone0) // a loincloth of hide
+        px(s, x - 1, y + 9, C.bone1)
+    },
+    pants: C.blue1, pantsDk: C.blue0, boot: C.white, bootHi: C.frost,
+    arm: C.blue1, armLow: C.blue1, armBack: C.blue0, armBackLow: C.blue0, hand: C.blue2,
+    blade: M.ice, haft: M.darkwood, gem: M.ice, gemStyle: Gem.Crystal, accent: C.cyan
+}
+
+// 4 · Rimeholt — Snowfield Huntress (ranged): a hunter in white winter furs, a fur-lined hood
+// thrown back off a dark braid, blue war paint on the cheeks, a quiver across her back.
+const snowfieldHuntress: WorldSkin = {
+    legLen: 8, torsoLen: 8,
+    skin: [C.skin0, C.skin1, C.skin2],
+    back: (s, x, y) => {
+        line(s, x - 4, y + 7, x + 1, y - 2, C.brown1, 2) // the quiver
+        px(s, x + 1, y - 3, C.white); px(s, x + 2, y - 3, C.bone1); px(s, x, y - 3, C.cyan) // fletching
+    },
+    head: (s, x, y, p) => {
+        // the hood thrown back, fur-lined, and the dark braid falling from it
+        ellipse(s, x - 2, y - 4, 5, 4, C.bone1)
+        dither(s, x - 7, y - 8, 10, 8, C.white, 8)
+        line(s, x - 3, y - 2, x - 4, y + 5, C.brown0, 2)
+        px(s, x - 4, y + 6, C.red1)
+        ellipse(s, x + 1, y - 4, 3.5, 3.5, C.skin1)
+        rect(s, x, y - 7, 3, 2, C.brown0) // hair
+        eyes(s, x + 2, y - 4, C.ink, p)
+        line(s, x + 1, y - 3, x + 3, y - 3, C.blue1) // war paint
+        px(s, x + 4, y - 3, C.skin0)
+        px(s, x + 2, y - 1, C.red1) // lips
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 7, 8, C.bone1)
+        rect(s, x - 3, y, 1, 8, C.bone0)
+        line(s, x - 3, y, x + 3, y + 6, C.brown1) // the quiver strap
+        rect(s, x - 3, y + 6, 7, 1, C.brown1)
+        dither(s, x - 3, y + 7, 7, 2, C.white, 8) // the fur hem
+    },
+    pants: C.brown2, pantsDk: C.brown1, boot: C.white, bootHi: C.bone1,
+    arm: C.bone1, armLow: C.bone1, armBack: C.bone0, armBackLow: C.bone0, hand: C.skin1,
+    blade: M.ice, haft: M.wood, gem: M.ice, gemStyle: Gem.Crystal, accent: C.cyan
+}
+
+// 4 · Rimeholt — Rune Skald (caster): the hold's old bard and seer, a long white beard under a
+// bearskin hood, a deep red cloak edged in gold, calling the cold down with a staff of runes that
+// glow cyan.
+const runeSkald: WorldSkin = {
+    legLen: 7, torsoLen: 8,
+    skin: [C.skin0, C.skin1, C.skin2],
+    head: (s, x, y, p, t) => {
+        // the bearskin hood, the bear's own head over his brow
+        ellipse(s, x - 1, y - 5, 5, 4, C.brown1)
+        ellipse(s, x + 1, y - 8, 4, 2, C.brown2)
+        px(s, x + 4, y - 8, C.ink); px(s, x - 3, y - 10, C.brown1); px(s, x + 2, y - 10, C.brown1) // the bear's snout and ears
+        ellipse(s, x + 1, y - 4, 3, 3, C.skin1)
+        eyes(s, x + 2, y - 5, C.cyan, p)
+        // the long white beard, and a rune glowing on his brow
+        tri(s, x - 1, y - 3, x + 4, y - 3, x + 1, y + 5, C.white)
+        line(s, x + 1, y - 2, x + 1, y + 3, C.frost)
+        px(s, x + 1, y - 6, (Math.floor(t * 3) & 1) ? C.cyan : C.frost)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 7, 8, C.red1)
+        rect(s, x - 3, y, 1, 8, C.red0)
+        line(s, x + 3, y, x + 3, y + 7, C.gold1) // the gold edge
+        rect(s, x - 4, y - 1, 9, 2, C.brown1) // the bearskin over the shoulders
+        for (let i = 0; i < 3; i++) px(s, x - 2 + i * 2, y + 3, C.cyan) // runes stitched on the chest
+        rect(s, x - 3, y + 6, 7, 1, C.gold1)
+    },
+    lower: (s, x, hipY, _p, t) => robeSkirt(s, x, hipY, J.oy - 1, [C.red0, C.red1, C.red2], C.gold1, (Math.floor(t * 2) & 1) - 0.5, C.brown0, 0),
+    pants: C.red1, pantsDk: C.red0, boot: C.brown0, bootHi: C.brown1,
+    arm: C.red1, armLow: C.red1, armBack: C.red0, armBackLow: C.red0, hand: C.skin1,
+    blade: M.ice, haft: M.darkwood, gem: M.ice, gemStyle: Gem.Crystal, accent: C.cyan
 }
 
 // 5 · Sunken Amarath — Drowned Sailor: bloated grey-green, barnacled, still in the tricorne.
@@ -864,7 +979,8 @@ export const WORLD_ROSTERS: readonly Readonly<Record<EnemyWeapon, WorldSkin>>[] 
     { sword: brambleGoblin, axe: thornhideHobgoblin, bow: scarecrowStalker, staff: hedgeWitch },
     { sword: bogLurker, axe: peatBrute, bow: reedSpitter, staff: bogCrone },
     { sword: cinderKobold, axe: slagGolem, bow: ashImp, staff: salamanderFirecaller },
-    one(frostboundRaider), one(drownedSailor),
+    { sword: frostboundRaider, axe: rimeTroll, bow: snowfieldHuntress, staff: runeSkald },
+    one(drownedSailor),
     one(hollowAcolyte), one(restlessLegionnaire), one(skyshardWisp), one(unravelledKnight), one(voidThrall)
 ]
 

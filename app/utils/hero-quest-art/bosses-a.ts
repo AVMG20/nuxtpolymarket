@@ -8,8 +8,8 @@ import { fr } from './creature'
 import type { Mat } from './weapons'
 import type { Surface } from './surface'
 import {
-    B, Entry, bossStates, drive, finish, bz, ball, chain, tentacle, spikes, mouth, speckle,
-    limbT, reach, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, arc, poly, q, wv
+    B, Entry, bossStates, drive, finish, bz, ball, chain, tentacle, spikes, mouth,
+    limbT, reach, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, arc, poly, q, wv, hash2
 } from './boss-kit'
 import { dome } from './surface'
 
@@ -18,9 +18,6 @@ const R = Math.round
 const HIDE: Mat = [C.brown0, C.brown1, C.brown2]
 const SCALE_RED: Mat = [C.red1, C.orange, C.gold2]
 const OBSIDIAN: Mat = [C.void, C.stone0, C.stone1]
-const ICE: Mat = [C.blue1, C.cyan, C.frost]
-const GLACIER: Mat = [C.blue0, C.blue1, C.blue2]
-const FUR: Mat = [C.bone0, C.bone1, C.white]
 const SEA_SKIN: Mat = [C.teal1, C.teal2, C.teal3]
 const DEEP: Mat = [C.teal0, C.teal1, C.teal2]
 const KRAKEN: Mat = [C.purple0, C.purple1, C.night3]
@@ -1020,138 +1017,450 @@ export const PYRRHAX: CreatureDef = {
 
 // ═══════════════════════════════════════════════════════════════ 4 · Rimeholt
 
-/** Jarl Hrimgar — the raider-king of the endless cold, beard of icicles, a great axe of ice. */
+// Stage 5: Jarl Hrimgar, the raider-king who swore the hold to the cold, in a bearskin and a
+// crowned helm, leaning on an axe of ice. Stage 10: Vinterhel, the Glacier Titan, a mountain of
+// rock and glacier ice that got up and walked, with a cold star for a heart.
+
+const JARL_SKIN: Mat = [C.night3, C.haze, C.frost]
+const BEARSKIN: Mat = [C.brown0, C.brown1, C.brown2]
+const MAIL: Mat = [C.steel0, C.steel1, C.steel2]
+const TITAN_ROCK: Mat = [C.stone1, C.stone2, C.stone3]
+
+/** The elbow of a two-bone limb from shoulder (sx, sy) to hand (hx, hy), bending toward `bend` (±1), into P. */
+function elbow(sx: number, sy: number, hx: number, hy: number, l1: number, l2: number, bend: number): void {
+    const dx = hx - sx
+    const dy = hy - sy
+    const d = Math.max(1, Math.min(l1 + l2 - 0.5, Math.hypot(dx, dy)))
+    const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d)
+    const h = Math.sqrt(Math.max(0, l1 * l1 - a * a))
+    const ux = dx / d
+    const uy = dy / d
+    P.x = sx + ux * a - uy * h * bend
+    P.y = sy + uy * a + ux * h * bend
+}
+
+/** Ringed mail: every base-shade pixel in the box turned into rows of rings, lit on the upper left. */
+function mailRings(s: Surface, x0: number, y0: number, w: number, h: number): void {
+    for (let y = y0; y < y0 + h; y++) {
+        for (let x = x0; x < x0 + w; x++) {
+            if (s.get(x, y) !== MAIL[1]) continue
+            const odd = (y & 1) === 1
+            if (!odd && ((x + (y >> 1)) & 1) === 0) s.set(x, y, MAIL[2])
+            else if (odd && ((x + (y >> 1)) & 1) === 1) s.set(x, y, MAIL[0])
+        }
+    }
+}
+
+/**
+ * Jarl Hrimgar, the raider-king: broad in a bearskin cloak, the bear's head worn on his near
+ * shoulder; a domed helm banded in a gold crown with cheek guards and curving horns; a face lit
+ * frost-pale with a band of woad across the eyes, a drooping moustache and a long beard white
+ * with rime, two braids of it bound in gold rings; a barrel chest in ringed mail with a studded
+ * baldric, a red tunic edged in gold below the hauberk, cross-gartered wool trousers and
+ * fur-cuffed boots. At rest he leans on his great axe of ice, its head planted beside him and
+ * both hands on the haft; he heaves it up over his head, leaning back, and cleaves down.
+ */
 export const JARL_HRIMGAR: CreatureDef = {
-    name: 'Jarl Hrimgar', size: 96, shadow: 18, accent: C.cyan,
+    name: 'Jarl Hrimgar', size: 96, shadow: 20, accent: C.cyan,
     states: bossStates(1.2, 1.6, 2.0),
     draw(s, st, t) {
         drive(this, st, t, 8, 1.6)
-        const x = s.ax - 4 + B.lunge - B.kb
+        const x = s.ax - 6 + B.lunge - B.kb
         const y = s.ay
-        const crouch = R(B.strike ? 5 : B.rec * 4 + B.die * 12)
-        const hip = y - 26 + crouch + B.bob
-        const top = hip - 24
+        const crouch = R(B.strike ? 4 : B.rec * 3 + B.die * 12)
+        const hip = y - 27 + crouch + B.bob
+        const sy = hip - 21
+        const lean = R(bz(0, -2, 3))
         const walk = st === 'entry' ? fr(t, 6, 2) : 0
-        // cloak behind
-        quad(s, x - 10, top, x - 2, top, x - 8, y - 6, x - 22, y - 4, C.bone0)
-        dither(s, x - 22, y - 16, 18, 12, C.white, 5)
-        // legs: fur boots
-        limbT(s, x - 4, hip, x - 7 - walk * 3, y - 6, 7, 6, [C.stone1, C.stone2, C.stone3])
-        limbT(s, x + 5, hip, x + 7 + walk * 3, y - 6, 7, 6, [C.stone2, C.stone3, C.bone0])
-        rect(s, x - 11 - walk * 3, y - 8, 8, 8, C.bone1); rect(s, x + 4 + walk * 3, y - 8, 8, 8, C.white)
-        // body: mail and a fur mantle
-        rect(s, x - 11, top + 4, 22, 22, C.steel1)
-        dither(s, x - 11, top + 4, 22, 22, C.steel2, 8)
-        rect(s, x - 11, hip - 4, 22, 3, C.brown1)
-        rect(s, x - 2, hip - 4, 5, 3, C.gold2)
-        ball(s, x, top + 4, 15, 6, FUR)
-        dither(s, x - 14, top + 2, 28, 6, C.bone0, 5)
-        // back arm
-        limbT(s, x - 10, top + 6, x - 12, top + 22, 6, 5, [C.night3, C.haze, C.frost])
-        // head: frost-pale, a beard of icicles, horned helm
-        const hx = x + 3
-        const hy = top - 4 + R(B.die * 6)
-        rect(s, hx - 5, hy - 10, 11, 10, C.haze)
-        rect(s, hx + 1, hy - 9, 4, 7, C.frost)
+        const flap = fr(t, 5, 3)
+        const sway = wv(t, 1.6, 1)
+
+        // the bearskin cloak, hanging from the shoulders behind him, its hem ragged fur
+        const cx = x - 6 + lean
+        poly(s, [-8, 0, 10, 0, 8, 36, 0, 38 + flap, -8, 36, -14, 38 - flap, -18, 32], cx, sy, BEARSKIN[1])
+        poly(s, [-8, 0, -2, 0, -8, 36, -14, 38 - flap, -18, 32], cx, sy, BEARSKIN[0])
+        for (let i = 0; i < 6; i++) line(s, cx - 15 + i * 4, sy + 10 + (i & 1) * 6, cx - 16 + i * 4, sy + 16 + (i & 1) * 6, BEARSKIN[0])
+        for (let i = 0; i < 7; i++) px(s, cx - 17 + i * 4, sy + 37 + ((i + flap) & 1), BEARSKIN[2])
+
+        // legs: wool trousers cross-gartered to the knee, boots with fur cuffs
+        const leg = (lx: number, fx: number, far: boolean) => {
+            const m: Mat = far ? [C.stone0, C.stone1, C.stone2] : [C.stone1, C.stone2, C.stone3]
+            limbT(s, x + lx, hip + 2, x + fx, y - 7, 8, 6, m)
+            for (let k = 0; k < 3; k++) {
+                const gy = hip + 10 + k * 4
+                const gx = x + lx + (fx - lx) * (gy - hip) / (y - 7 - hip)
+                line(s, R(gx - 3), gy, R(gx + 3), gy + 2, far ? C.brown0 : C.brown1)
+            }
+            const bx = x + fx
+            poly(s, [-4, -8, 4, -8, 5, -2, 8, -1, 8, 0, -5, 0], bx, y, far ? C.brown0 : C.brown1)
+            rect(s, bx - 4, y - 1, 13, 1, C.ink) // the sole
+            ellipse(s, bx, y - 8, 5, 2, far ? C.bone0 : C.bone1) // the fur cuff
+            px(s, bx - 3, y - 9, C.white)
+        }
+        leg(-4, -6 - walk * 3, true)
+        leg(5, 6 + walk * 3, false)
+        // the red tunic below the hauberk, split at the front, gold at the hem
+        poly(s, [-12, 0, 12, 0, 13, 11, 2, 11, 0, 7, -2, 11, -12, 11], x + lean, hip - 3, C.red1)
+        poly(s, [-12, 0, -6, 0, -6, 11, -12, 11], x + lean, hip - 3, C.red0)
+        rect(s, x - 12 + lean, hip + 7, 14, 1, C.gold1); rect(s, x + 2 + lean, hip + 7, 11, 1, C.gold1)
+        // the hauberk: a barrel chest tapering to the waist, its hem scalloped
+        const tx = x + lean
+        poly(s, [-14, 2, -10, -2, 10, -2, 14, 2, 12, 20, 11, 24, -11, 24, -12, 20], tx, sy + 2, MAIL[1])
+        poly(s, [-14, 2, -10, -2, -6, -2, -8, 24, -11, 24, -12, 20], tx, sy + 2, MAIL[0])
+        mailRings(s, tx - 14, sy, 29, 27)
+        for (let i = 0; i < 7; i++) px(s, tx - 10 + i * 3, sy + 26, MAIL[0])
+        line(s, tx + 12, sy + 4, tx + 11, sy + 22, MAIL[2]) // the lit flank
+        // the studded baldric across the chest, the wide belt, the gold buckle
+        line(s, tx - 10, sy + 2, tx + 9, sy + 18, C.brown1, 2)
+        for (let i = 0; i < 4; i++) px(s, tx - 7 + i * 5, sy + 5 + i * 4, C.gold2)
+        rect(s, tx - 12, hip - 6, 25, 4, C.brown0)
+        rect(s, tx - 12, hip - 6, 25, 1, C.brown1)
+        rect(s, tx - 3, hip - 7, 7, 6, C.gold0)
+        rect(s, tx - 2, hip - 6, 5, 4, C.gold2)
+        px(s, tx - 1, hip - 5, C.gold3); px(s, tx + 1, hip - 4, C.gold1)
+
+        // the far arm, reaching across to the lower grip
+        const ga = bz(1.35, -1.9, 0.75)
+        const gx = bz(x + 15, x + 6, x + 19) + lean
+        const gy = bz(sy + 13, sy - 10, sy + 17)
+        const dx = Math.cos(ga)
+        const dy = Math.sin(ga)
+        const fsx = tx - 10
+        const fsy = sy + 3
+        elbow(fsx, fsy, gx - dx, gy - dy, 11, 11, -1)
+        const fex = P.x
+        const fey = P.y
+        limbT(s, fsx, fsy, fex, fey, 7, 6, [C.steel0, C.steel0, C.steel1])
+        limbT(s, fex, fey, gx - dx, gy - dy, 6, 5, [C.night3, C.night3, C.haze])
+        ball(s, gx - dx, gy - dy, 3, 3, [C.night3, C.night3, C.haze])
+
+        // the head: frost-pale under the helm, woad across the eyes
+        const hx = tx + 3
+        const hy = sy - 4 + R(B.die * 6)
+        ellipse(s, hx, hy - 7, 6, 7, JARL_SKIN[1])
+        ellipse(s, hx + 2, hy - 8, 3, 4, JARL_SKIN[2])
+        rect(s, hx - 5, hy - 9, 11, 3, C.blue1)
+        rect(s, hx - 5, hy - 9, 11, 1, C.blue2)
         const eye = B.hurt ? C.ink : (B.glow > 0.5 ? C.white : C.cyan)
-        rect(s, hx + 2, hy - 7, 3, 1, C.night3); px(s, hx + 4, hy - 6, eye)
-        for (let i = 0; i < 6; i++) { const len = 5 + (i * 3) % 6; line(s, hx - 3 + i * 2, hy - 2, hx - 3 + i * 2 + (i & 1), hy - 2 + len, i & 1 ? C.frost : C.white, 2); px(s, hx - 3 + i * 2 + (i & 1), hy - 1 + len, C.cyan) }
+        rect(s, hx, hy - 8, 2, 1, C.ink); rect(s, hx + 3, hy - 8, 2, 1, C.ink)
+        px(s, hx + 1, hy - 8, eye); px(s, hx + 4, hy - 8, eye)
+        line(s, hx - 1, hy - 10, hx + 5, hy - 10, C.bone0) // frosted brows
+        poly(s, [0, 0, 3, 3, 0, 3], hx + 5, hy - 7, JARL_SKIN[1]) // the nose
+        px(s, hx + 6, hy - 5, JARL_SKIN[0])
+        // the beard, white with rime, strands running down it, a moustache drooping over it
+        poly(s, [-5, 0, 7, 0, 6, 6, 2, 12, -2, 11, -5, 6], hx, hy - 4, C.white)
+        for (let i = 0; i < 4; i++) line(s, hx - 3 + i * 3, hy - 2, hx - 2 + i * 3, hy + 5, C.frost)
+        line(s, hx, hy - 4, hx + 6, hy - 4, C.frost)
+        px(s, hx + 6, hy - 3, C.white); px(s, hx - 1, hy - 3, C.white)
         if (B.roar || B.strike) rect(s, hx + 1, hy - 3, 4, 2, C.ink)
-        rect(s, hx - 6, hy - 15, 13, 6, C.steel2); rect(s, hx - 5, hy - 16, 11, 1, C.steel3)
-        rect(s, hx - 6, hy - 10, 13, 1, C.steel1)
-        px(s, hx + 6, hy - 9, C.steel2); px(s, hx + 6, hy - 8, C.steel1) // nasal
-        for (const d of [-1, 1]) { line(s, hx + d * 6, hy - 14, hx + d * 10, hy - 20, C.bone1, 2); line(s, hx + d * 10, hy - 20, hx + d * 9, hy - 25, C.white, 2) }
-        // the ice axe
-        const sx = x + 8
-        const sy = top + 6
-        const a = bz(-1.2, -2.6, 0.7)
-        reach(sx, sy, a, 13)
-        const gx = P.x
-        const gy = P.y
-        limbT(s, sx, sy, gx, gy, 7, 5, [C.night3, C.haze, C.frost])
-        reach(gx, gy, a - 0.1, 26)
-        line(s, gx - Math.cos(a) * 5, gy - Math.sin(a) * 5, P.x, P.y, C.brown1, 2)
-        const nx = -Math.sin(a)
-        const ny = Math.cos(a)
-        tri(s, P.x, P.y, P.x - Math.cos(a) * 8, P.y - Math.sin(a) * 8, P.x - nx * 10 - Math.cos(a) * 3, P.y - ny * 10 - Math.sin(a) * 3, C.cyan)
-        tri(s, P.x, P.y, P.x - nx * 10 - Math.cos(a) * 3, P.y - ny * 10 - Math.sin(a) * 3, P.x - nx * 8 + Math.cos(a) * 4, P.y - ny * 8 + Math.sin(a) * 4, C.frost)
-        line(s, P.x - nx * 9 - Math.cos(a) * 3, P.y - ny * 9 - Math.sin(a) * 3, P.x - nx * 7 + Math.cos(a) * 4, P.y - ny * 7 + Math.sin(a) * 4, C.white)
-        rect(s, gx - 2, gy - 2, 5, 5, C.brown1)
+        const br = R(sway * 0.5)
+        for (const bx of [hx - 1, hx + 4]) {
+            line(s, bx, hy + 6, bx + br, hy + 15, C.frost, 2)
+            rect(s, bx - 1 + br, hy + 9, 3, 1, C.gold2)
+            rect(s, bx - 1 + br, hy + 13, 3, 1, C.gold1)
+            px(s, bx + br, hy + 16, C.cyan)
+        }
+        // the helm: a dome with a crown band, a nasal and cheek guards, curving horns
+        for (const d of [-1, 1]) {
+            const hbx = hx + d * 7
+            // out from the helm and up, curling in at the tip
+            for (let i = 0; i <= 12; i++) {
+                const u = i / 12
+                const ox = hbx + d * (u * 9 - u * u * 5)
+                const oy = hy - 13 - u * 15 + u * u * 3
+                disc(s, ox, oy, 2 - u * 1.2, i >= 11 ? C.white : C.bone1)
+                if (i % 3 === 1) px(s, R(ox), R(oy + 1), C.bone0) // ridges
+            }
+        }
+        ellipse(s, hx, hy - 14, 8, 5, C.steel2)
+        ellipse(s, hx - 2, hy - 16, 4, 2, C.steel3)
+        rect(s, hx - 8, hy - 14, 17, 3, C.gold1)
+        rect(s, hx - 8, hy - 14, 17, 1, C.gold2)
+        for (let i = 0; i < 4; i++) tri(s, hx - 6 + i * 4, hy - 14, hx - 4 + i * 4, hy - 14, hx - 5 + i * 4, hy - 17, C.gold2)
+        rect(s, hx + 6, hy - 11, 2, 4, C.steel2) // the nasal
+        rect(s, hx - 7, hy - 11, 3, 6, C.steel1) // the cheek guard
+        px(s, hx - 6, hy - 10, C.steel3)
+
+        // the bear's head, worn on the near shoulder
+        const bx = tx + 10
+        const by = sy + 1
+        ball(s, bx, by, 6, 5, BEARSKIN)
+        tri(s, bx - 4, by - 3, bx - 1, by - 4, bx - 4, by - 7, BEARSKIN[1]) // the ear
+        px(s, bx - 3, by - 5, BEARSKIN[0])
+        ellipse(s, bx + 6, by + 1, 4, 2.5, BEARSKIN[1])
+        ellipse(s, bx + 7, by + 1, 2, 1.5, C.brown3) // the muzzle
+        px(s, bx + 10, by, C.ink) // the nose
+        for (let i = 0; i < 3; i++) px(s, bx + 5 + i * 2, by + 3, C.white) // teeth
+        px(s, bx + 2, by - 1, C.ink); px(s, bx + 3, by - 1, C.gold2) // the glass eye
+
+        // The great axe, both hands on the haft: planted head-down beside him at rest, heaved up
+        // over his head on the wind-up, cleaving down on the strike.
+        const nx = -dy
+        const ny = dx
+        const ax = gx + dx * 33
+        const ay = gy + dy * 33
+        line(s, R(gx - dx * 4), R(gy - dy * 4), R(ax), R(ay), C.brown1, 2)
+        line(s, R(gx - dx * 4 + nx), R(gy - dy * 4 + ny), R(ax + nx), R(ay + ny), C.brown2)
+        for (let k = 0; k < 4; k++) {
+            const wx = gx + dx * (k * 2)
+            const wy = gy + dy * (k * 2)
+            line(s, R(wx - nx * 1.5), R(wy - ny * 1.5), R(wx + nx * 1.5), R(wy + ny * 1.5), C.brown0) // the grip wrap
+        }
+        disc(s, gx - dx * 4, gy - dy * 4, 1.5, C.steel2) // the butt cap
+        const side = ga > 0 ? 1 : -1
+        const E = (u: number, v: number): [number, number] => [ax + dx * u + nx * v * side, ay + dy * u + ny * v * side]
+        const Q = (pts: number[], c: number) => {
+            const out: number[] = []
+            for (let i = 0; i < pts.length; i += 2) { const [qx, qy] = E(pts[i]!, pts[i + 1]!); out.push(qx, qy) }
+            for (let i = 2; i + 3 < out.length; i += 2) tri(s, out[0]!, out[1]!, out[i]!, out[i + 1]!, out[i + 2]!, out[i + 3]!, c)
+        }
+        // the bearded blade: dark along the back, bright facets, a white cutting edge
+        Q([-5, 1, 3, 1, 6, 15, -3, 16, -17, 19, -10, 6], C.cyan)
+        Q([-5, 1, 3, 1, 1, 6, -6, 6], C.blue2)
+        Q([1, 7, 6, 15, -3, 16, -1, 9], C.frost)
+        Q([-10, 9, -3, 15, -15, 18], C.frost)
+        const [c0x, c0y] = E(6, 15)
+        const [c1x, c1y] = E(-3, 16)
+        const [c2x, c2y] = E(-17, 19)
+        line(s, R(c0x), R(c0y), R(c1x), R(c1y), C.white)
+        line(s, R(c1x), R(c1y), R(c2x), R(c2y), C.white)
+        const [k0x, k0y] = E(-2, 5)
+        const [k1x, k1y] = E(-6, 12)
+        line(s, R(k0x), R(k0y), R(k1x), R(k1y), C.blue1) // a flaw deep in the ice
+        // the iron socket binding it to the haft, and the back spike
+        Q([-6, -2, 4, -2, 4, 2, -6, 2], C.steel1)
+        const [s0x, s0y] = E(-6, -2)
+        const [s1x, s1y] = E(4, -2)
+        line(s, R(s0x), R(s0y), R(s1x), R(s1y), C.steel2)
+        Q([-2, -2, 2, -2, 0, -7], C.cyan)
+
+        // the near arm on the upper grip: a mail sleeve, a leather bracer, a gold arm ring, a fist
+        const hx2 = gx + dx * 7
+        const hy2 = gy + dy * 7
+        const nsx = tx + 11
+        const nsy = sy + 4
+        elbow(nsx, nsy, hx2, hy2, 11, 11, 1)
+        const nex = P.x
+        const ney = P.y
+        limbT(s, nsx, nsy, nex, ney, 8, 7, MAIL)
+        mailRings(s, R(Math.min(nsx, nex)) - 5, R(Math.min(nsy, ney)) - 5, R(Math.abs(nex - nsx)) + 10, R(Math.abs(ney - nsy)) + 10)
+        limbT(s, nex, ney, hx2, hy2, 7, 6, JARL_SKIN)
+        const mx = nex + (hx2 - nex) * 0.55
+        const my = ney + (hy2 - ney) * 0.55
+        disc(s, mx, my, 3, C.brown1) // the bracer
+        px(s, R(mx) - 1, R(my) - 1, C.brown2)
+        disc(s, nex + (hx2 - nex) * 0.2, ney + (hy2 - ney) * 0.2, 2, C.gold1) // the arm ring
+        ball(s, hx2, hy2, 3.5, 3.5, JARL_SKIN)
+        px(s, R(hx2) + 1, R(hy2) - 1, JARL_SKIN[0]) // knuckles
         finish(s, Entry.Walk, 10)
     },
     fx(dst, st, t, x, y, dir) {
         const k = fr(t, 10, 20)
         for (let i = 0; i < 5; i++) dst.set(x + dir * (-30 + ((i * 17 + k * 3) % 60)), y - 80 + ((k * 4 + i * 23) % 76), C.white)
-        if (st === 'attack' && B.strike) for (let i = 0; i < 8; i++) dst.set(x + dir * (22 + i * 2), y - 1 - (i % 3), i & 1 ? C.frost : C.cyan)
-        if (B.roar) for (let i = 0; i < 3; i++) dst.set(x + dir * (14 + i * 3), y - 56 - i, C.frost)
+        // frost breathing off the axe head at rest
+        if (st === 'idle') for (let i = 0; i < 3; i++) dst.set(x + dir * (8 + ((k + i * 5) % 7)), y - 4 - ((k * 2 + i * 3) % 8), C.frost)
+        if (st === 'attack' && B.strike) for (let i = 0; i < 12; i++) { dst.set(x + dir * (22 + i * 2), y - 1 - (i % 3), i & 1 ? C.frost : C.cyan); dst.set(x + dir * (22 + ((i * 7) % 16)), y - 3 - ((i * 5) % 9), C.white) } // shards of ice thrown up
+        if (B.roar) for (let i = 0; i < 4; i++) dst.set(x + dir * (14 + i * 3), y - 56 - i, C.frost)
     }
 }
 
-/** Vinterhel, the Glacier Titan — a mountain of faceted ice with a cold star for a heart. */
+/** A small snowy pine, standing on a titan's shoulder to show how big he is. */
+function titanPine(s: Surface, x: number, y: number, h: number): void {
+    tri(s, x - R(h * 0.35), y, x + R(h * 0.35), y, x, y - h, C.green0)
+    line(s, x, y - h, x - R(h * 0.3), y - 2, C.white)
+    px(s, x, y + 1, C.brown0)
+}
+
+/**
+ * A crag of the titan's rock: a lumpy boulder of overlapping lobes, shaded low and to the right,
+ * lit on its upper left, cracked, and dusted with snow along its top when `snow` is set.
+ */
+function crag(s: Surface, x: number, y: number, rx: number, ry: number, seed: number, snow: boolean, far = false): void {
+    const m: Mat = far ? [C.stone0, C.stone1, C.stone2] : TITAN_ROCK
+    const lobes = 3
+    for (let i = 0; i < lobes; i++) {
+        const lx = x + (hash2(seed, i) - 0.5) * rx * 0.8
+        const ly = y + (hash2(seed + 1, i) - 0.5) * ry * 0.6
+        ellipse(s, lx, ly, rx * (0.6 + hash2(seed + 2, i) * 0.3), ry * (0.6 + hash2(seed + 3, i) * 0.3), m[0])
+    }
+    ellipse(s, x, y, rx, ry, m[0])
+    ellipse(s, x - 1, y - 1, rx - 1.5, ry - 1.5, m[1])
+    ellipse(s, x - rx * 0.3, y - ry * 0.35, rx * 0.45, ry * 0.35, m[2])
+    // cracks, and the light catching their upper lips
+    for (let i = 0; i < 2; i++) {
+        const cx0 = x + (hash2(seed + 4, i) - 0.5) * rx
+        const cy0 = y + (hash2(seed + 5, i) - 0.5) * ry * 0.8
+        const cx1 = cx0 + (hash2(seed + 6, i) - 0.3) * rx * 0.6
+        const cy1 = cy0 + ry * 0.4
+        line(s, R(cx0), R(cy0), R(cx1), R(cy1), C.ink)
+        line(s, R(cx0) - 1, R(cy0), R(cx1) - 1, R(cy1), m[2])
+    }
+    if (snow) {
+        for (let a = Math.PI * 1.1; a < Math.PI * 1.85; a += 0.08) px(s, x + Math.cos(a) * (rx - 1), y + Math.sin(a) * (ry - 1), C.white)
+        for (let a = Math.PI * 1.25; a < Math.PI * 1.7; a += 0.1) px(s, x + Math.cos(a) * (rx - 2), y + Math.sin(a) * (ry - 2), C.frost)
+    }
+}
+
+/**
+ * A chunk of glacier ice: a slanted prism with a lit face, a mid face and a dark face, a white
+ * ridge where the light catches it and a frost streak inside. `a` tilts it.
+ */
+function crystal(s: Surface, x: number, y: number, w: number, h: number, a: number): void {
+    const ca = Math.cos(a)
+    const sa = Math.sin(a)
+    const T = (u: number, v: number): [number, number] => [x + u * ca - v * sa, y + u * sa + v * ca]
+    const [p0x, p0y] = T(0, -h)
+    const [p1x, p1y] = T(-w, -h * 0.5)
+    const [p2x, p2y] = T(-w, h * 0.5)
+    const [p3x, p3y] = T(0, h)
+    const [p4x, p4y] = T(w, h * 0.5)
+    const [p5x, p5y] = T(w, -h * 0.5)
+    const [mx, my] = T(w * 0.1, -h * 0.1)
+    tri(s, p0x, p0y, p1x, p1y, mx, my, C.cyan)
+    tri(s, p1x, p1y, p2x, p2y, mx, my, C.cyan)
+    tri(s, p2x, p2y, p3x, p3y, mx, my, C.blue2)
+    tri(s, p0x, p0y, mx, my, p5x, p5y, C.blue2)
+    tri(s, p5x, p5y, mx, my, p4x, p4y, C.blue1)
+    tri(s, p4x, p4y, mx, my, p3x, p3y, C.blue1)
+    line(s, R(p1x), R(p1y), R(p0x), R(p0y), C.white)
+    line(s, R(p0x), R(p0y), R(mx), R(my), C.frost)
+    const [f0x, f0y] = T(-w * 0.5, -h * 0.2)
+    const [f1x, f1y] = T(-w * 0.2, h * 0.5)
+    line(s, R(f0x), R(f0y), R(f1x), R(f1y), C.frost)
+}
+
+/** A hanging icicle: two pixels wide at the root, tapering to a bright tip. */
+function icicle(s: Surface, x: number, y: number, len: number): void {
+    line(s, x, y, x, y + len, C.cyan)
+    line(s, x + 1, y, x + 1, y + R(len * 0.55), C.frost)
+    px(s, x, y + len, C.white)
+}
+
+/**
+ * Vinterhel, the Glacier Titan: a mountain that got up and walked. He is built of crags of rock
+ * dusted with snow and crusted with chunks of glacier ice, lit from the upper left: legs of
+ * stacked boulders iced at the knee, feet like snow-capped outcrops trailing icicles; a hunched
+ * body of massed crag with a cavity of crystal in the chest where a cold star burns; shoulders
+ * that are two snow-capped peaks with pines on them. His head is a craggy block jutting low
+ * between the peaks: an overhanging brow, sockets lit cold, a knuckle of rock for a nose, a
+ * crevice of a mouth and a beard of long icicles, under a crown of crystal spires. One arm hangs,
+ * its fist a cluster of knuckle boulders; the other lifts elbow-first and brings it down.
+ */
 export const VINTERHEL: CreatureDef = {
-    name: 'Vinterhel, the Glacier Titan', size: 128, shadow: 34, accent: C.cyan,
+    name: 'Vinterhel, the Glacier Titan', size: 256, shadow: 60, accent: C.cyan,
     states: bossStates(1.5, 2.0, 2.4),
     draw(s, st, t) {
         drive(this, st, t, 6, 2.0)
-        const x = s.ax - 2 + B.lunge - B.kb
+        const x = s.ax - 4 + B.lunge - B.kb
         const y = s.ay
-        const top = y - 96 + B.breath + R(B.die * 20)
-        const shard = (x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, m: Mat) => {
-            tri(s, x0, y0, x1, y1, x2, y2, m[1])
-            line(s, x0, y0, x1, y1, m[2])
-            line(s, x1, y1, x2, y2, m[0])
+        const sink = R(B.die * 22)
+        const hip = y - 38 + sink
+        const shY = y - 80 + B.breath + sink
+        const pulse = fr(t, 4, 2) === 1 || B.glow > 0.5
+        const fist = (fx: number, fy: number, far: boolean, seed: number) => {
+            crag(s, fx, fy, 10, 9, seed, false, far)
+            for (let i = 0; i < 3; i++) crag(s, fx + 5, fy - 5 + i * 5, 4, 3.5, seed + 10 + i, false, far) // knuckles
+            for (let i = 0; i < 3; i++) icicle(s, R(fx - 6 + i * 5), R(fy + 7), 3 + (i & 1) * 3)
         }
-        // legs: two pillars of glacier
-        for (const [lx, m] of [[-14, GLACIER], [10, ICE]] as const) {
-            quad(s, x + lx - 7, top + 62, x + lx + 7, top + 62, x + lx + 9, y, x + lx - 9, y, m[1])
-            line(s, x + lx - 7, top + 62, x + lx - 9, y, m[2])
-            line(s, x + lx + 3, top + 70, x + lx - 2, y - 6, m[0])
+
+        // the far arm, hanging: shoulder, upper arm, a crystal at the elbow, forearm, fist
+        crag(s, x - 38, shY + 26, 9, 12, 41, false, true)
+        crystal(s, x - 42, shY + 38, 5, 6, 0.3)
+        crag(s, x - 43, shY + 50, 8, 11, 42, false, true)
+        fist(x - 40, shY + 64, true, 43)
+        // the legs: a thigh boulder, a crystal knee, a shin boulder, a snow-capped outcrop of a foot
+        for (const [lx, far, seed] of [[-18, true, 51], [18, false, 61]] as const) {
+            crag(s, x + lx, hip + 6, 13, 11, seed, false, far)
+            crag(s, x + lx - (far ? 1 : -1), y - 16, 11, 11, seed + 1, false, far)
+            crystal(s, x + lx, hip + 17, 7, 6, far ? -0.2 : 0.2)
+            crag(s, x + lx + 2, y - 5, 15, 6, seed + 2, true, far)
+            for (let i = 0; i < 4; i++) icicle(s, x + lx - 9 + i * 6, y - 3, 2 + (i & 1) * 2)
         }
-        // back fist
-        const bfx = x - 30
-        const bfy = top + 56 + R(bz(0, -4, 4))
-        limbT(s, x - 18, top + 20, bfx, bfy, 12, 9, GLACIER)
-        ball(s, bfx, bfy + 4, 8, 8, GLACIER)
-        // body: stacked facets
-        shard(x - 26, top + 22, x + 24, top + 16, x, top + 70, ICE)
-        shard(x - 26, top + 22, x, top + 70, x - 18, top + 60, GLACIER)
-        shard(x - 18, top + 8, x + 20, top + 4, x + 24, top + 30, ICE)
-        shard(x - 18, top + 8, x + 24, top + 30, x - 26, top + 26, GLACIER)
-        dither(s, x - 22, top + 40, 40, 24, C.blue0, 3)
-        // cold star heart
-        const pulse = fr(t, 4, 2) || B.glow > 0.5 ? 1 : 0
-        disc(s, x + 2, top + 34, 5 + pulse, C.cyan)
-        disc(s, x + 2, top + 34, 3, C.frost)
-        px(s, x + 2, top + 34, C.white)
-        for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + 0.4; line(s, x + 2, top + 34, x + 2 + Math.cos(a) * (9 + pulse), top + 34 + Math.sin(a) * (9 + pulse), C.frost) }
-        // head: a crown of icicle spires with a visor of blue
-        const hx = x + 6
-        const hy = top + 2
-        shard(hx - 12, hy, hx + 14, hy - 2, hx + 2, hy - 20, ICE)
-        tri(s, hx - 10, hy - 6, hx - 6, hy - 6, hx - 12, hy - 22, C.frost)
-        tri(s, hx + 6, hy - 10, hx + 10, hy - 8, hx + 12, hy - 26, C.frost)
-        tri(s, hx - 2, hy - 14, hx + 4, hy - 14, hx + 1, hy - 30, C.white)
-        rect(s, hx - 4, hy - 8, 14, 3, C.blue0)
-        const eye = B.hurt ? C.blue1 : C.white
-        rect(s, hx + 2, hy - 7, 3, 1, eye); rect(s, hx + 7, hy - 7, 2, 1, eye)
-        if (B.roar || B.strike) rect(s, hx + 1, hy - 3, 8, 2, C.blue0)
-        // front fist: raise and hammer down
-        const sx = x + 20
-        const sy = top + 14
-        const a = bz(1.0, -1.4, 1.35)
-        reach(sx, sy, a, 34)
-        limbT(s, sx, sy, P.x, P.y, 13, 10, ICE)
-        ball(s, P.x + 2, P.y + 3, 10, 9, ICE)
-        line(s, P.x - 4, P.y - 2, P.x + 6, P.y - 4, C.white)
-        speckle(s, x - 28, top, 56, 70, [C.blue2, C.cyan, C.white], 21)
-        finish(s, Entry.Rise, 16)
+        // the body: massed crag from the hips to the shoulders
+        crag(s, x - 2, shY + 44, 30, 16, 71, false)
+        crag(s, x + 2, shY + 24, 40, 22, 72, false)
+        crag(s, x - 28, shY + 18, 14, 14, 73, true)
+        crag(s, x + 30, shY + 16, 14, 14, 74, true)
+        // chunks of glacier crusting it
+        crystal(s, x - 30, shY + 34, 8, 10, -0.4)
+        crystal(s, x - 20, shY + 46, 7, 8, 0.2)
+        crystal(s, x + 30, shY + 34, 9, 11, 0.5)
+        crystal(s, x + 20, shY + 48, 7, 9, -0.3)
+        crystal(s, x - 8, shY + 52, 6, 7, 0.1)
+        // the cavity of crystal in the chest, the cold star burning in it
+        const cx = x + 8
+        const cy = shY + 30
+        ellipse(s, cx, cy, 11, 9, C.blue0)
+        for (let i = 0; i < 6; i++) {
+            const a = i * Math.PI / 3 + 0.2
+            crystal(s, cx + Math.cos(a) * 9, cy + Math.sin(a) * 7, 3, 4, a + Math.PI / 2)
+        }
+        ditherEllipse(s, cx, cy, 9, 7, C.cyan, pulse ? 9 : 6)
+        disc(s, cx, cy, pulse ? 4 : 3, C.frost)
+        px(s, cx, cy, C.white)
+        for (let i = 0; i < 4; i++) {
+            const a = i * Math.PI / 2 + 0.4
+            line(s, cx, cy, R(cx + Math.cos(a) * (6 + (pulse ? 2 : 0))), R(cy + Math.sin(a) * (5 + (pulse ? 2 : 0))), C.white)
+        }
+        // the shoulders: two snow-capped peaks, rocky faces, pines growing on them
+        for (const [px0, h, far] of [[-30, 32, true], [30, 36, false]] as const) {
+            const bx = x + px0
+            poly(s, [-19, 8, -6, -h, 3, -h + 4, 19, 8], bx, shY, far ? C.stone1 : C.stone2)
+            poly(s, [-6, -h, 3, -h + 4, 19, 8, 5, 8], bx, shY, far ? C.stone0 : C.stone1)
+            line(s, bx - 6, shY - h, bx - 17, shY + 6, far ? C.stone2 : C.stone3)
+            line(s, bx - 1, shY - h + 10, bx + 4, shY + 4, C.ink) // a gully
+            poly(s, [-10, -h + 10, -6, -h, 3, -h + 4, 7, -h + 12, 2, -h + 9, -2, -h + 13, -6, -h + 9], bx, shY, C.white)
+            poly(s, [-6, -h, 3, -h + 4, 7, -h + 12, 2, -h + 9], bx, shY, C.frost)
+            titanPine(s, bx - 14, shY + 4, 8)
+            titanPine(s, bx + 11, shY + 3, 10)
+            titanPine(s, bx + 15, shY + 6, 7)
+        }
+
+        // the head: a craggy block jutting low between the peaks
+        const hx = x + 12
+        const hy = shY + 2 + R(bz(0, -3, 5))
+        crag(s, hx, hy, 19, 15, 81, false)
+        crag(s, hx + 2, hy - 7, 18, 6, 82, true) // the brow, overhanging, snow on it
+        for (const [sx0, h] of [[-12, 12], [-4, 22], [5, 18], [13, 11]] as const) crystal(s, hx + sx0, hy - 14 - h * 0.5, 3, h * 0.5, 0)
+        // the sockets, lit cold, glowing out onto the rock round them
+        const eye = B.hurt ? C.blue1 : B.glow > 0.5 ? C.white : C.frost
+        for (const ex of [hx - 4, hx + 10]) {
+            ditherEllipse(s, ex, hy - 1, 5, 3, C.cyan, 6)
+            ellipse(s, ex, hy - 1, 3, 2, C.ink)
+            rect(s, ex - 1, hy - 1, 3, 1, eye)
+        }
+        crag(s, hx + 16, hy + 3, 4, 3, 83, false) // the nose
+        const gape = B.roar || B.strike ? 5 : 0
+        rect(s, hx - 6, hy + 6, 20, 2 + gape, C.ink)
+        if (gape) ditherEllipse(s, hx + 4, hy + 8 + (gape >> 1), 8, gape >> 1, C.cyan, 8)
+        for (let i = 0; i < 9; i++) icicle(s, hx - 8 + i * 3, hy + 8 + gape, 9 + ((i * 5) % 8))
+
+        // the near arm: raised on the wind-up, brought down on the strike
+        const sx = x + 34
+        const sy = shY + 12
+        const a1 = bz(1.2, -1.4, 0.9)
+        const a2 = B.wind > 0 ? 1.4 - 3.2 * B.wind ** 2 : a1 + bz(0.2, -1.2, 0.5)
+        reach(sx, sy, a1, 30)
+        const ex = P.x
+        const ey = P.y
+        reach(ex, ey, a2, 28)
+        const hx2 = P.x
+        const hy2 = P.y
+        for (let i = 1; i <= 2; i++) crag(s, sx + (ex - sx) * i / 3, sy + (ey - sy) * i / 3, 10, 10, 90 + i, false)
+        crystal(s, ex, ey, 7, 7, a1)
+        for (let i = 1; i <= 2; i++) crag(s, ex + (hx2 - ex) * i / 3, ey + (hy2 - ey) * i / 3, 9, 9, 95 + i, false)
+        fist(hx2, hy2, false, 99)
+        crag(s, sx, sy, 12, 11, 89, true) // the knot of the shoulder, over the arm's root
+        finish(s, Entry.Rise, 22)
     },
     fx(dst, st, t, x, y, dir) {
         const k = fr(t, 10, 20)
-        for (let i = 0; i < 6; i++) dst.set(x + dir * (-40 + ((i * 17 + k * 3) % 80)), y - 110 + ((k * 5 + i * 23) % 106), i & 1 ? C.white : C.frost)
+        // snow swirling round him
+        for (let i = 0; i < 10; i++) dst.set(x + dir * (-60 + ((i * 17 + k * 3) % 120)), y - 110 + ((k * 5 + i * 23) % 106), i & 1 ? C.white : C.frost)
+        if (B.roar) for (let i = 0; i < 8; i++) dst.set(x + dir * (22 + i * 3), y - 76 + ((i * 3 + k) % 5), i & 1 ? C.frost : C.white) // frost breath
         if (st === 'attack' && B.strike) {
-            for (let i = 0; i < 12; i++) dst.set(x + dir * (40 + i * 2), y - (i % 4), i & 1 ? C.frost : C.white)
-            for (let i = 0; i < 5; i++) { dst.set(x + dir * (44 + i * 4), y - 3 - i, C.cyan); dst.set(x + dir * (45 + i * 4), y - 4 - i, C.white) }
+            for (let i = 0; i < 16; i++) dst.set(x + dir * (44 + i * 2), y - (i % 4), i & 1 ? C.frost : C.white)
+            for (let i = 0; i < 8; i++) dst.set(x + dir * (46 + ((i * 7) % 22)), y - 3 - ((i * 5) % 12), i & 1 ? C.cyan : C.white) // shards thrown up
         }
     }
 }
