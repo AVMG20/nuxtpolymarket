@@ -15,8 +15,6 @@ const R = Math.round
 
 const VIOLET: Mat = [C.purple0, C.purple1, C.purple2]
 const VOIDM: Mat = [C.ink, C.void, C.purple0]
-const BONE: Mat = [C.bone0, C.bone1, C.white]
-const RUST_ARMOR: Mat = [C.stone0, C.stone1, C.brown2]
 const STONE: Mat = [C.stone1, C.stone2, C.stone3]
 const STORM: Mat = [C.night2, C.night3, C.haze]
 const FEATHER: Mat = [C.stone1, C.stone2, C.steel2]
@@ -605,138 +603,573 @@ export const ARCHMAGE_ITHREN: CreatureDef = {
 
 // ═══════════════════════════════════════════════════════════════ 7 · The Bonefields
 
-/** Grave Marshal Korr — the forgotten war's general, still carrying its banner. */
+// Stage 5: Grave Marshal Korr, the forgotten war's first dead, a hunched mass of fused skeletons
+// under a black shroud with a sword of bone. Stage 10: Ossuar, the Thousand-Bone Host, a crowned
+// skeleton king crawling on its hands out of a pool of darkness. (Both after Dark Souls, the
+// user's call: Gravelord Nito and High Lord Wolnir.)
+
+const SHROUD: Mat = [C.ink, C.void, C.night1]
+
+/** A small skull at (x, y), two sockets and a jaw; `lit` whitens its crown. */
+function skullBit(s: Surface, x: number, y: number, lit: boolean): void {
+    rect(s, x - 2, y - 2, 5, 4, C.bone1)
+    rect(s, x - 1, y + 2, 3, 1, C.bone0)
+    if (lit) line(s, x - 1, y - 2, x + 1, y - 2, C.white)
+    px(s, x - 1, y, C.ink); px(s, x + 1, y, C.ink)
+    px(s, x, y + 1, C.bone0)
+}
+
+/** A long bone from (x0, y0) to (x1, y1), `w` thick, knobbed at both ends, lit along its top. */
+function longBone(s: Surface, x0: number, y0: number, x1: number, y1: number, w: number): void {
+    line(s, x0, y0, x1, y1, C.bone0, w)
+    line(s, x0, y0 - 1, x1, y1 - 1, C.bone1, Math.max(1, w - 1))
+    for (const [ex, ey] of [[x0, y0], [x1, y1]] as const) { disc(s, ex, ey, w * 0.8, C.bone0); disc(s, ex - 0.5, ey - 0.5, w * 0.55, C.bone1) }
+}
+
+/** Dark miasma pooled at (x, y) over `rx`, thinning at its edge, wisps curling up off it. */
+function miasma(s: Surface, x: number, y: number, rx: number, ry: number, t: number): void {
+    ditherEllipse(s, x, y, rx + 4, ry + 2, C.purple0, 5)
+    ditherEllipse(s, x, y, rx, ry, C.void, 10)
+    ditherEllipse(s, x, y, rx * 0.7, ry * 0.7, C.ink, 14)
+    for (let i = 0; i < 6; i++) {
+        const k = (t * 0.6 + i / 6) % 1
+        const wx = x - rx + ((i * 37) % (rx * 2))
+        const wy = y - k * 18
+        if (k < 0.8) { px(s, R(wx + Math.sin(k * 6 + i) * 2), R(wy), i & 1 ? C.void : C.purple0); px(s, R(wx + Math.sin(k * 6 + i) * 2), R(wy) + 1, C.ink) }
+    }
+}
+
+/**
+ * A skull at (x, y) facing forward, `r` across: a shaded cranium, deep sockets, a nasal hole, a
+ * row of teeth. `dim` shades it as one half-buried in the dark.
+ */
+function skull(s: Surface, x: number, y: number, r: number, dim: boolean): void {
+    ellipse(s, x, y - r * 0.2, r, r * 0.85, dim ? C.bone0 : C.bone1)
+    ellipse(s, x - r * 0.35, y + r * 0.1, r * 0.6, r * 0.6, dim ? C.stone2 : C.bone0) // the shade on its back and cheek
+    if (!dim) line(s, R(x - r * 0.4), R(y - r), R(x + r * 0.4), R(y - r), C.white)
+    ellipse(s, x + r * 0.15, y, r * 0.3, r * 0.35, C.ink)
+    ellipse(s, x + r * 0.7, y, r * 0.22, r * 0.35, C.ink)
+    px(s, x + r * 0.45, y + r * 0.45, C.ink)
+    for (let i = 0; i < 3; i++) px(s, x + r * (0.1 + i * 0.3), y + r * 0.75, i & 1 ? C.ink : dim ? C.bone0 : C.bone1)
+}
+
+/** Korr's sword grip and blade angle, written into KS. */
+const KS = { gx: 0, gy: 0, a: 0 }
+const KORR_REST = { dx: 18, dy: 34, a: 0.7 }
+/** The swing runs round a circle about his shoulder, the grip this far out, lagging the blade by GRIP_LAG. */
+const KORR_SWING = { sx: 8, sy: 17, r: 18 }
+const GRIP_LAG = -0.3
+const KORR_BACK = { a: -2.4 }
+const KORR_END = { a: 0.9 }
+
+/**
+ * Korr's sword on its swoop, `p` 0 → 1: the blade sweeps an arc from the backswing over his hump,
+ * up over the top and down in front, the grip travelling a circle round his shoulder.
+ */
+function korrSwoop(x: number, top: number, p: number): void {
+    KS.a = KORR_BACK.a + (KORR_END.a - KORR_BACK.a) * p
+    const ga = KS.a + GRIP_LAG
+    KS.gx = x + KORR_SWING.sx + Math.cos(ga) * KORR_SWING.r
+    KS.gy = top + KORR_SWING.sy + Math.sin(ga) * KORR_SWING.r
+}
+
+/**
+ * Grave Marshal Korr, the forgotten war's first dead, a grave lord: tall and hunched like a
+ * vulture, high shoulders, the head low and forward between them. A black shroud hangs off him in
+ * long torn strips, open down the front on a column of fused ribcages, spines and tangled arm bones
+ * with skulls half-buried in them, and shreds at the ground into tendrils that fade into miasma; a
+ * dark haze hangs round him. His head is a gaunt, angular skull deep in the cowl, pinpoints of
+ * green in its sockets; skulls are fused into the cowl behind it and ribs rise from it like a crown
+ * of spikes. His far arm hangs long with clawed fingers. He carries a long, jagged greatsword made
+ * of fused bones and sweeps it up and down onto the front rank.
+ */
 export const GRAVE_MARSHAL_KORR: CreatureDef = {
-    name: 'Grave Marshal Korr', size: 96, shadow: 16, accent: C.green4,
+    name: 'Grave Marshal Korr', size: 128, shadow: 0, accent: C.green4,
     states: bossStates(1.2, 1.6, 2.0),
     draw(s, st, t) {
         drive(this, st, t, 8, 1.6)
         const x = s.ax - 4 + B.lunge - B.kb
         const y = s.ay
-        const crouch = R(B.strike ? 4 : B.rec * 3 + B.die * 14)
-        const hip = y - 24 + crouch + B.bob
-        const top = hip - 22
-        // banner on his back: a pole and a torn red flag
-        line(s, x - 8, top - 26, x - 6, hip + 4, C.brown1, 2)
-        const flap = fr(t, 5, 3)
-        poly(s, [0, 0, -16, 2 + flap, -14, 8, -18, 14 - flap, 0, 12], x - 8, top - 24, C.red1)
-        line(s, x - 8, top - 24, x - 22, top - 22 + flap, C.red2)
-        px(s, x - 12, top - 18, C.bone1); px(s, x - 13, top - 19, C.bone1) // sigil
-        // cape
-        quad(s, x - 8, top + 2, x, top + 2, x - 6, y - 4, x - 20, y - 2 + flap, C.red1)
-        line(s, x - 8, top + 2, x - 20, y - 2 + flap, C.red0)
-        // legs: bone in black greaves
-        limbT(s, x - 3, hip, x - 6, y - 3, 6, 5, RUST_ARMOR)
-        limbT(s, x + 5, hip, x + 7, y - 3, 6, 5, [C.stone1, C.stone2, C.gold1])
-        // armour over a ribcage
-        rect(s, x - 10, top + 2, 20, 20, C.stone1)
-        rect(s, x - 10, top + 2, 20, 2, C.gold1)
-        for (let i = 0; i < 3; i++) { rect(s, x - 7, top + 8 + i * 4, 14, 1, C.bone1); px(s, x - 8, top + 8 + i * 4, C.bone0) }
-        rect(s, x - 1, top + 6, 2, 16, C.bone1)
-        disc(s, x + 1, top + 12, 2, C.green3) // soul-fire in the ribs
-        px(s, x + 1, top + 12, C.green4)
-        ball(s, x + 8, top + 3, 5, 3, [C.stone0, C.stone1, C.gold1]) // pauldron
-        rect(s, x - 10, hip - 3, 20, 3, C.brown0)
-        // back arm
-        limbT(s, x - 8, top + 4, x - 12, top + 18, 4, 3, BONE)
-        // skull in a crested helm
-        const hx = x + 3
-        const hy = top + 2 + R(B.die * 4)
-        rect(s, hx - 5, hy - 11, 10, 11, C.bone1)
-        rect(s, hx - 4, hy - 1, 8, 2, C.bone0)
-        for (let i = 0; i < 4; i++) px(s, hx - 3 + i * 2, hy - 1, C.ink)
-        rect(s, hx + 1, hy - 7, 3, 3, C.ink)
-        glowEye(s, hx + 2, hy - 6, B.hurt ? C.white : C.green4, C.green2)
-        px(s, hx + 4, hy - 3, C.ink)
-        rect(s, hx - 6, hy - 14, 12, 5, C.stone1)
-        rect(s, hx - 6, hy - 14, 12, 1, C.gold1)
-        rect(s, hx - 6, hy - 10, 2, 7, C.stone0)
-        for (let i = 0; i < 7; i++) line(s, hx - 5 + i * 2, hy - 15, hx - 7 + i * 2, hy - 20 - (i === 3 ? 2 : 0), i & 1 ? C.red2 : C.red1, 2) // crest
-        // greatsword
-        const sx = x + 8
-        const sy = top + 6
-        const a = bz(-1.2, -2.6, 0.6)
-        reach(sx, sy, a, 12)
-        const gx = P.x
-        const gy = P.y
-        limbT(s, sx, sy, gx, gy, 4, 3, BONE)
-        reach(gx, gy, a, 30)
-        line(s, gx, gy, P.x, P.y, C.steel1, 3)
-        line(s, gx + Math.sin(a), gy - Math.cos(a), P.x + Math.sin(a), P.y - Math.cos(a), C.steel2)
-        px(s, P.x, P.y, C.white)
-        line(s, gx - Math.sin(a) * 4, gy + Math.cos(a) * 4, gx + Math.sin(a) * 4, gy - Math.cos(a) * 4, C.gold1, 2)
+        const sag = R(B.strike ? 3 : B.rec * 2 + B.die * 12)
+        const top = y - 60 + sag + B.bob
+        const sway = wv(t, 1.4, 2)
+        // the haze of the grave hanging round him, and the miasma he stands in
+        ditherEllipse(s, x + 1, top + 26, 26, 36, C.purple0, 2)
+        miasma(s, x - 2, y - 2, 22, 4, t)
+        // the far arm hanging long behind him, its fingers long claws
+        longBone(s, x - 14, top + 6, x - 22, top + 24, 3)
+        longBone(s, x - 22, top + 24, x - 21 + sway, top + 40, 2)
+        for (let i = 0; i < 4; i++) {
+            line(s, x - 21 + sway, top + 40, x - 24 + i * 2 + sway, top + 49, C.bone0)
+            px(s, x - 24 + i * 2 + sway, top + 50, C.ink) // the claw tips
+        }
+        // the shroud: a hunched mass falling from high shoulders, torn into long strips
+        // the hump of his back rises above his head; he narrows toward the ground
+        poly(s, [-15, 4, -9, -9, 1, -7, 10, 4, 15, 16, 16, 34, 13, 50, -12, 52, -15, 34, -17, 16], x, top, SHROUD[0])
+        for (let i = 0; i < 6; i++) {
+            // the tears between the strips, and the dusk catching their folds
+            const sx0 = x - 15 + i * 5
+            line(s, sx0, top + 10 + (i & 1) * 6, sx0 - 1 + (i & 1), top + 50, C.void)
+            if (i < 3) line(s, sx0 + 2, top + 16 + i * 3, sx0 + 2, top + 40, C.night1)
+        }
+        // the column of the dead down the open front: fused ribcages, a spine, tangled arm bones
+        ellipse(s, x + 4, top + 30, 8, 20, C.ink)
+        line(s, x + 3, top + 12, x + 4, top + 48, C.bone0)
+        for (const [ry, w] of [[16, 6], [30, 5]] as const) {
+            for (let i = 0; i < 4; i++) {
+                arc(s, x + 4, top + ry + i * 3, w, Math.PI * 1.1, Math.PI * 1.9, C.bone1)
+                px(s, x + 4 - w, top + ry + 1 + i * 3, C.bone0)
+            }
+        }
+        longBone(s, x - 1, top + 40, x + 9, top + 34, 1.5)
+        longBone(s, x + 8, top + 44, x + 1, top + 48, 1.5)
+        skull(s, x + 1, top + 25, 3, true)
+        skull(s, x + 6, top + 42, 3.5, false)
+        skull(s, x - 1, top + 47, 3, true)
+        // the front edge of the shroud falling open over it, ragged, lit along its edge
+        poly(s, [10, 3, 16, 16, 18, 34, 16, 50, 11, 50, 13, 40, 10, 30, 12, 20, 8, 10], x, top, SHROUD[1])
+        for (let i = 0; i < 4; i++) tri(s, x + 10 + (i & 1), top + 18 + i * 8, x + 13, top + 20 + i * 8, x + 8, top + 22 + i * 8, SHROUD[1])
+        line(s, x + 10, top + 3, x + 16, top + 16, SHROUD[2]); line(s, x + 16, top + 16, x + 18, top + 34, SHROUD[2])
+        line(s, x - 15, top + 4, x - 9, top - 9, SHROUD[2]); line(s, x - 9, top - 9, x + 1, top - 7, SHROUD[2]) // the rim of dusk on the hump of his back
+        // the dead fused into the hump: great ribs arching back off it, a giant's spine under the shroud
+        for (let i = 0; i < 3; i++) {
+            const r = 11 + i * 4
+            arc(s, x + 2, top + 4, r, Math.PI * 1.12, Math.PI * 1.5 - i * 0.04, C.bone0)
+            arc(s, x + 2, top + 3, r, Math.PI * 1.15, Math.PI * 1.48 - i * 0.04, C.bone1)
+            px(s, R(x + 2 + Math.cos(Math.PI * 1.12) * r), R(top + 4 + Math.sin(Math.PI * 1.12) * r), C.white) // the broken end
+        }
+        skull(s, x - 10, top - 5, 4, true)
+        skull(s, x - 4, top - 8, 3.5, false)
+        skull(s, x - 14, top + 3, 3, true)
+        // the hem shredded into tendrils trailing into the miasma
+        for (let i = 0; i < 10; i++) {
+            const hx0 = x - 16 + i * 3.6 + R(Math.sin(t * 3 + i) * 1)
+            const len = 4 + ((i * 7) % 5)
+            tri(s, hx0 - 2, top + 49, hx0 + 2, top + 49, hx0 + R(sway / 2) + (i & 1 ? 1 : -1), top + 51 + len, i & 1 ? C.void : C.ink)
+        }
+        dither(s, x - 18, top + 52, 36, 6, C.void, 6)
+        // the cowl, peaked back, skulls fused into it and ribs rising from it like a crown of spikes
+        const hx = x + 12
+        const hy = top + 12 + R(bz(0, -2, 3))
+        poly(s, [-12, -4, -6, -12, 2, -11, 7, -5, 8, 4, 4, 11, -8, 11], hx, hy, SHROUD[0])
+        line(s, hx - 6, hy - 12, hx + 2, hy - 11, SHROUD[2]); line(s, hx + 2, hy - 11, hx + 7, hy - 5, SHROUD[2])
+        // the face: a gaunt, angular skull deep in the cowl, the cowl's shadow over its brow
+        ellipse(s, hx + 2, hy, 7, 9, C.ink) // the opening of the cowl
+        poly(s, [-4, -7, 4, -8, 8, -4, 8, 2, 6, 6, 5, 10, 0, 10, -3, 7, -4, 1], hx, hy, C.bone1)
+        poly(s, [-4, -7, -1, -7, -1, 7, -3, 7, -4, 1], hx, hy, C.bone0)
+        line(s, hx + 5, hy + 3, hx + 5, hy + 7, C.bone0) // the hollow under the cheekbone
+        dither(s, hx - 4, hy - 8, 13, 3, C.ink, 8) // the cowl's shadow over the brow
+        line(s, hx - 1, hy - 4, hx + 8, hy - 4, C.bone0) // the brow ridge
+        rect(s, hx, hy - 3, 3, 4, C.ink); rect(s, hx + 5, hy - 3, 2, 4, C.ink) // the sockets, deep
+        if (!B.hurt) ditherDisc(s, hx + 3, hy - 1, 3, C.green2, 3 + R(B.glow * 5))
+        px(s, hx + 1, hy - 2, B.hurt ? C.white : C.green4); px(s, hx + 5, hy - 2, B.hurt ? C.white : C.green3)
+        tri(s, hx + 3, hy + 3, hx + 4, hy + 1, hx + 4, hy + 3, C.ink) // the nasal hole
+        const open = B.strike || B.roar ? 3 : 0
+        rect(s, hx, hy + 6, 6, 1 + open, C.ink)
+        for (let i = 0; i < 3; i++) px(s, hx + i * 2, hy + 6, C.bone1) // the teeth
+        if (open) { line(s, hx, hy + 7 + open, hx + 5, hy + 7 + open, C.bone0); for (let i = 0; i < 3; i++) px(s, hx + 1 + i * 2, hy + 6 + open, C.bone1) }
+        // The sword of fused bones: rested low before it, drawn back over his hump (an overhead lift
+        // would cross his face), then a slice rather than a stab: the blade swoops through an arc
+        // over the top and down in front, a trail behind its tip, and follows through low.
+        const u = st === 'attack' ? q(t) / this.states.attack!.dur : 0
+        let swoop = -1
+        if (st === 'attack' && u >= 0.4 && u < 0.6) {
+            swoop = sm(Math.min(1, (u - 0.4) / 0.1))
+            korrSwoop(x, top, swoop)
+        } else if (st === 'attack' && u >= 0.6) {
+            // the recovery, from the follow-through back to rest
+            korrSwoop(x, top, 1)
+            const r = sm((u - 0.6) / 0.4)
+            KS.gx += (x + KORR_REST.dx - KS.gx) * r
+            KS.gy += (top + KORR_REST.dy - KS.gy) * r
+            KS.a += (KORR_REST.a - KS.a) * r
+        } else {
+            // The backswing, from rest to the start of the circle, low like a reaper's: the blade
+            // swings down and back past his legs and up behind him, so it never crosses his face.
+            // The hand leads and the blade lags, which keeps the tip off the ground as it passes.
+            korrSwoop(x, top, 0)
+            const gw = Math.sqrt(B.wind)
+            KS.gx = x + KORR_REST.dx + (KS.gx - x - KORR_REST.dx) * gw
+            KS.gy = top + KORR_REST.dy + (KS.gy - top - KORR_REST.dy) * gw
+            KS.a = KORR_REST.a + (KS.a + Math.PI * 2 - KORR_REST.a) * B.wind * B.wind
+        }
+        const gx = R(KS.gx)
+        const gy = R(KS.gy)
+        const a = KS.a
+        if (swoop > 0) {
+            // the trail: where the tip and the blade's middle have just been, thinning behind
+            let prev: number[] | null = null
+            for (let k = 0; k <= 24; k++) {
+                const pk = swoop - k * 0.025
+                if (pk < 0) break
+                korrSwoop(x, top, pk)
+                const tdx = Math.cos(KS.a)
+                const tdy = Math.sin(KS.a)
+                // a solid smear from the blade's middle out to its tip, brightest at the edge
+                const pts = [44, 42, 40, 38, 36, 34, 32, 30, 28].map(d => [R(KS.gx + tdx * d), R(KS.gy + tdy * d)] as const)
+                if (prev) {
+                    const fade = k / 24
+                    for (let j = 0; j < pts.length; j++) {
+                        const c = j < 2 ? (fade < 0.3 ? C.white : fade < 0.65 ? C.bone1 : C.stone3) : j < 5 ? (fade < 0.45 ? C.bone1 : C.stone3) : C.stone3
+                        // the smear thins toward its tail and toward the blade's middle
+                        if (fade < 0.35 - j * 0.03 || bayer(pts[j]![0], pts[j]![1], R(12 - fade * 12 - j))) line(s, prev[j * 2]!, prev[j * 2 + 1]!, pts[j]![0], pts[j]![1], c)
+                    }
+                }
+                prev = pts.flat()
+            }
+        }
+        const dx = Math.cos(a)
+        const dy = Math.sin(a)
+        const nx = -dy
+        const ny = dx
+        // the arm from under the cowl, bent at the elbow, thick enough to read against the ribs
+        elbow(x + KORR_SWING.sx, top + KORR_SWING.sy, gx, gy, 11, 11, 1)
+        longBone(s, x + KORR_SWING.sx, top + KORR_SWING.sy, P.x, P.y, 3)
+        longBone(s, P.x, P.y, gx, gy, 2.5)
+        const L = 40
+        // the blade: a spine of fused vertebrae, jagged with ribs and teeth down one edge
+        line(s, R(gx), R(gy), R(gx + dx * L), R(gy + dy * L), C.bone0, 4)
+        line(s, R(gx - nx), R(gy - ny), R(gx + dx * L - nx), R(gy + dy * L - ny), C.bone1, 2)
+        for (let i = 3; i < L; i += 4) {
+            const bx = gx + dx * i
+            const by = gy + dy * i
+            px(s, R(bx), R(by), C.ink) // the joints between the vertebrae
+            line(s, R(bx + nx * 2), R(by + ny * 2), R(bx + nx * 4 + dx * 2), R(by + ny * 4 + dy * 2), C.bone0) // a rib jutting off the edge
+            if ((i >> 2) % 3 === 1) skullBit(s, R(bx - nx), R(by - ny), false)
+        }
+        tri(s, gx + dx * L - nx * 2, gy + dy * L - ny * 2, gx + dx * L + nx * 2, gy + dy * L + ny * 2, gx + dx * (L + 6), gy + dy * (L + 6), C.bone1)
+        line(s, R(gx - dx * 7), R(gy - dy * 7), R(gx), R(gy), C.bone0, 2) // the hilt, a thighbone
+        disc(s, gx - dx * 8, gy - dy * 8, 2, C.bone1)
+        // the hand: bony fingers wrapped round the hilt, knuckles lit
+        disc(s, gx - dx * 1.5, gy - dy * 1.5, 2, C.bone0)
+        for (let i = 0; i < 3; i++) {
+            const fx = gx - dx * (i * 1.6 - 1)
+            const fy = gy - dy * (i * 1.6 - 1)
+            line(s, R(fx - nx * 2.5), R(fy - ny * 2.5), R(fx + nx * 2.5), R(fy + ny * 2.5), C.bone0)
+            px(s, R(fx + nx * 2.5), R(fy + ny * 2.5), C.bone1)
+        }
         finish(s, Entry.Rise, 12)
     },
     fx(dst, st, t, x, y, dir) {
-        if (st === 'attack' && B.strike) for (let i = 0; i < 8; i++) dst.set(x + dir * (22 + i * 2), y - (i % 3), i & 1 ? C.bone1 : C.stone3)
-        if (st === 'entry' && B.ent < 1) for (let i = 0; i < 10; i++) dst.set(x + dir * (-14 + i * 3), y - 1 - (i & 1), i & 1 ? C.brown2 : C.bone0)
+        if (st === 'attack' && B.strike) {
+            // the sweep: bone and dark thrown up where the blade bites
+            for (let i = 0; i < 12; i++) dst.set(x + dir * (40 + i * 2), y - (i % 3), i & 1 ? C.bone1 : C.purple0)
+            for (let i = 0; i < 6; i++) dst.set(x + dir * (44 + i * 3), y - 3 - ((i * 5) % 7), i & 1 ? C.void : C.green3)
+        }
         const k = fr(t, 10, 8)
-        dst.set(x + dir * 4, y - 60 - k * 2, C.green3)
+        for (let i = 0; i < 3; i++) dst.set(x + dir * (-8 + i * 8), y - 20 - ((k * 3 + i * 9) % 30), i & 1 ? C.purple0 : C.void)
     }
 }
 
-/** Ossuar, the Thousand-Bone Host — the dead of the whole war, fused into one walking mound. */
+/**
+ * A great skeletal arm from the shoulder (sx, sy) through the elbow (ex, ey) to the wrist (wx, wy):
+ * a thick upper bone, the two bones of the forearm side by side, gold bangles stacked at the wrist.
+ */
+function royalArm(s: Surface, sx: number, sy: number, ex: number, ey: number, wx: number, wy: number, w: number): void {
+    longBone(s, sx, sy, ex, ey, w)
+    const L = Math.hypot(wx - ex, wy - ey) || 1
+    const nx = -(wy - ey) / L
+    const ny = (wx - ex) / L
+    longBone(s, ex + nx * w * 0.4, ey + ny * w * 0.4, wx + nx * w * 0.3, wy + ny * w * 0.3, w * 0.6)
+    longBone(s, ex - nx * w * 0.4, ey - ny * w * 0.4, wx - nx * w * 0.3, wy - ny * w * 0.3, w * 0.55)
+    for (let i = 0; i < 3; i++) {
+        // the bangles, heavy gold, lit on top
+        const bx = wx - (wx - ex) / L * (3 + i * 3)
+        const by = wy - (wy - ey) / L * (3 + i * 3)
+        line(s, R(bx - nx * (w + 1)), R(by - ny * (w + 1)), R(bx + nx * (w + 1)), R(by + ny * (w + 1)), C.gold1, 2)
+        px(s, R(bx - nx * w), R(by - ny * w - 1), C.gold3)
+        if (i === 1) px(s, R(bx), R(by), C.red2) // a jewel set in the middle one
+    }
+}
+
+/**
+ * A skeletal hand at the wrist (wx, wy) pointing along `a`: a palm of small bones and five long
+ * fingers of two joints each, fanned by `spread` and bent by `curl`, dark claws at the tips.
+ */
+function boneHand(s: Surface, wx: number, wy: number, a: number, spread: number, curl: number, k = 1): void {
+    const px0 = wx + Math.cos(a) * 4 * k
+    const py0 = wy + Math.sin(a) * 4 * k
+    disc(s, px0, py0, 4 * k, C.bone0)
+    disc(s, px0 - 0.5, py0 - 0.5, 3 * k, C.bone1)
+    for (let i = 0; i < 5; i++) {
+        const fa = a + (i - 2) * spread
+        const kx = px0 + Math.cos(fa) * 8 * k
+        const ky = py0 + Math.sin(fa) * 8 * k
+        const ta = fa + curl
+        const tx = kx + Math.cos(ta) * 6 * k
+        const ty = ky + Math.sin(ta) * 6 * k
+        longBone(s, px0, py0, kx, ky, (i === 0 ? 1.5 : 2) * k)
+        longBone(s, kx, ky, tx, ty, 1.5 * k)
+        px(s, R(tx + Math.cos(ta) * 1.5 * k), R(ty + Math.sin(ta) * 1.5 * k), C.ink) // the claw
+    }
+}
+
+/**
+ * Ossuar, the Thousand-Bone Host: a colossal crowned skeleton crawling on its hands out of a
+ * swirling mass of darkness at its back, pale souls adrift in it. Its spine arches up from the dark
+ * to high shoulders, spiked vertebrae, a ribcage hanging beneath; a royal robe, dark with a gold
+ * hem, is draped over its back and torn into strips down its side. Its great skull thrusts forward
+ * low under a tall gold crown of spires, the sockets deep with pinpoints of green, a long upper jaw
+ * of teeth and a hinged lower one. Its arms are massive, the forearm's two bones side by side,
+ * gold bangles stacked at the wrists, the hands long-fingered. The far hand stays planted; the
+ * near one rears high above its crown, fingers spread, and slams down flat on the front rank.
+ */
 export const OSSUAR: CreatureDef = {
-    name: 'Ossuar, the Thousand-Bone Host', size: 128, shadow: 36, accent: C.green4,
+    name: 'Ossuar, the Thousand-Bone Host', size: 256, shadow: 0, accent: C.green4,
     states: bossStates(1.5, 2.0, 2.6),
     draw(s, st, t) {
-        drive(this, st, t, 6, 2.0)
-        const x = s.ax - 2 + B.lunge - B.kb
+        // barely lunges: at his size a lunge only pushes the skull into the front rank
+        drive(this, st, t, 2, 2.0)
+        // Large and low: the camera shows about 106 px above the floor, so it grows along the
+        // ground instead, its back running off the edge of the stage into the dark.
+        // set back so his resting hand stays clear of the party; the slam reaches forward onto it
+        const x = s.ax - 44 + B.lunge - B.kb
         const y = s.ay
-        const top = y - 84 + B.breath + R(B.die * 24)
-        // far arms
-        limbT(s, x - 18, top + 30, x - 34, top + 56, 7, 5, BONE)
-        limbT(s, x - 34, top + 56, x - 30, y - 6, 5, 4, BONE)
-        // the mound: layered skulls and bones
-        ball(s, x, top + 50, 34, 30, [C.bone0, C.bone0, C.bone1], false)
-        dither(s, x - 34, top + 56, 68, 26, C.stone2, 5)
-        for (let i = 0; i < 26; i++) {
-            const bx = x - 28 + R(hash2(5, i) * 56)
-            const by = top + 26 + R(hash2(6, i) * 50)
-            if (s.get(bx, by) === 0) continue
-            if (i % 3 === 0) { line(s, bx - 4, by, bx + 4, by + (i & 1 ? 2 : -2), C.bone1, 2); px(s, bx - 5, by, C.white); px(s, bx + 5, by + (i & 1 ? 2 : -2), C.white) } else {
-                rect(s, bx - 2, by - 2, 5, 4, C.bone1); px(s, bx - 1, by - 1, C.ink); px(s, bx + 1, by - 1, C.ink); px(s, bx, by + 1, C.bone0)
+        const sink = R(B.die * 50)
+        // the body sits 12 px down so the crown and the arch of the back clear the HUD; the planted
+        // hands stay on the ground
+        const hv = B.breath + sink + 12
+        // the darkness at its back, swirling, souls adrift in it, running off the edge
+        for (let i = 0; i < 9; i++) {
+            const a = q(t) * 0.7 + i * 0.7
+            const bx = x - 104 + Math.cos(a) * (12 + (i % 3) * 10) + (i % 3) * 8
+            const by = y - 36 - i * 6 + Math.sin(a) * 7 + sink
+            ditherEllipse(s, bx, by, 32 - i * 1.5, 24 - i, C.purple0, 5)
+            ditherEllipse(s, bx + 3, by + 3, 26 - i * 1.5, 19 - i, C.void, 11)
+            ditherEllipse(s, bx + 4, by + 4, 17 - i, 12 - i * 0.7, C.ink, 14)
+        }
+        for (let i = 0; i < 8; i++) {
+            // the souls: pale faces in the dark, drifting up
+            const k = (q(t) * 0.25 + i / 8) % 1
+            const sx0 = x - 132 + ((i * 29) % 70)
+            const sy0 = y - 16 - k * 80 + sink
+            px(s, sx0, sy0, C.haze); px(s, sx0 + 2, sy0, C.haze); px(s, sx0 + 1, sy0 + 2, C.night3)
+        }
+        // the far arm, planted: the hand flat on the ground ahead, fingers splayed
+        royalArm(s, x + 14, y - 82 + hv, x - 8, y - 46 + hv, x + 40, y - 16, 8)
+        boneHand(s, x + 40, y - 16, 0.3, 0.26, 0.5, 1.6)
+        // the spine arching back from high shoulders into the dark, spiked, the ribcage under it
+        const spine: number[] = []
+        for (let i = 0; i < 15; i++) {
+            const u = i / 14
+            const fall = Math.pow(Math.max(0, (u - 0.25) / 0.75), 1.3)
+            spine.push(x + 22 - u * 150, y - 86 - Math.sin(Math.min(1, u / 0.25) * Math.PI / 2) * 8 + fall * 64 + hv)
+        }
+        for (let i = 1; i < 11; i++) {
+            // the ribs, hanging from the spine and curving forward under it
+            const rx0 = spine[i * 2]!
+            const ry0 = spine[i * 2 + 1]!
+            const drop = 28 + Math.sin(i / 10 * Math.PI) * 14
+            longBone(s, rx0, ry0 + 3, rx0 + 8, ry0 + drop * 0.6, 3)
+            longBone(s, rx0 + 8, ry0 + drop * 0.6, rx0 + 13, ry0 + drop, 2)
+        }
+        for (let i = 0; i < 15; i++) {
+            const vx = spine[i * 2]!
+            const vy = spine[i * 2 + 1]!
+            ellipse(s, vx, vy, 7, 5.5, C.bone0)
+            ellipse(s, vx - 1, vy - 1.5, 5, 3.5, C.bone1)
+            tri(s, vx - 3, vy - 4, vx + 2, vy - 4, vx - 4, vy - 13, C.bone1) // the spinous process
+            px(s, vx - 4, vy - 13, C.white)
+        }
+        // the royal robe draped over its back, hanging in a curtain down its side, a gold hem
+        const flap = wv(t, 1.1, 2)
+        const robe: number[] = []
+        for (let i = 0; i < 15; i++) robe.push(spine[i * 2]!, spine[i * 2 + 1]! - 6)
+        const hem = (i: number) => Math.min(y - 24, spine[i * 2 + 1]! + 20 + ((i * 7) % 3) * 7 + (i % 4 === 1 ? -10 : 0))
+        for (let i = 14; i >= 0; i--) robe.push(spine[i * 2]! + 6 + (i & 1 ? R(flap) : 0), hem(i))
+        poly(s, robe, 0, 0, C.night0)
+        for (let i = 1; i < 14; i++) {
+            // the folds: wedges of lit and shadowed cloth following the drape down from the spine
+            const fx = spine[i * 2]!
+            const fy = spine[i * 2 + 1]! - 2
+            const hy0 = hem(i)
+            if (i % 2 === 0) tri(s, fx - 1, fy, fx + 3, fy, fx + 5 + (i & 2 ? R(flap) : 0), hy0 - 3, C.night1)
+            else tri(s, fx - 2, fy + 2, fx + 1, fy + 2, fx + 2, hy0 - 1, C.void)
+            if (i % 4 === 0) line(s, fx + 1, fy + 1, fx + 4, hy0 - 6, C.night2) // the lit crest of a fold
+        }
+        // a tear through the cloth, the ribs showing in it
+        const tx0 = spine[10]! + 4
+        const ty0 = spine[11]! + 10
+        poly(s, [-4, 0, 3, -2, 6, 4, 2, 9, -3, 7], tx0, ty0, C.ink)
+        for (let i = 0; i < 3; i++) line(s, tx0 - 2 + i * 2, ty0 + i * 2, tx0 + i * 2, ty0 + 5 + i, C.bone0)
+        // the gold edge along the spine, and the embroidered border along the hem
+        for (let i = 0; i < 14; i++) line(s, spine[i * 2]!, spine[i * 2 + 1]! - 6, spine[i * 2 + 2]!, spine[i * 2 + 3]! - 6, C.gold0)
+        for (let i = 0; i < 14; i++) {
+            const ax = spine[i * 2]! + 6
+            const ay = Math.min(y - 30, spine[i * 2 + 1]! + 16)
+            const bx = spine[i * 2 + 2]! + 6
+            const by = Math.min(y - 30, spine[i * 2 + 3]! + 16)
+            line(s, ax, ay, bx, by, C.gold0)
+            line(s, ax, ay + 1, bx, by + 1, C.gold1)
+            line(s, ax, ay + 3, bx, by + 3, C.gold0)
+            // the stitched motif between its lines: a lozenge and a point, in turn
+            const mx = R((ax + bx) / 2)
+            const my = R((ay + by) / 2) + 2
+            if (i & 1) { px(s, mx, my, C.gold3); px(s, mx - 1, my, C.purple2); px(s, mx + 1, my, C.purple2) } else px(s, mx, my, C.gold2)
+        }
+        // the royal sigil embroidered on its side: a small gold crown over a skull
+        const gx0 = spine[8]! + 2
+        const gy0 = spine[9]! + 12
+        line(s, gx0 - 4, gy0, gx0 + 4, gy0, C.gold1)
+        for (let i = 0; i < 3; i++) tri(s, gx0 - 4 + i * 4, gy0, gx0 - 2 + i * 4, gy0, gx0 - 3 + i * 4, gy0 - 3 - (i === 1 ? 1 : 0), C.gold2)
+        rect(s, gx0 - 2, gy0 + 2, 5, 4, C.gold1); px(s, gx0 - 1, gy0 + 3, C.night0); px(s, gx0 + 1, gy0 + 3, C.night0)
+        // the brooch fastening the robe at the shoulder
+        const bx0 = spine[0]! - 2
+        const by0 = spine[1]! + 2
+        disc(s, bx0, by0, 3.5, C.gold1); disc(s, bx0 - 0.5, by0 - 0.5, 2.5, C.gold2)
+        disc(s, bx0, by0, 1.6, C.red1); px(s, bx0 - 1, by0 - 1, C.red3)
+        for (let i = 0; i < 4; i++) px(s, R(bx0 + Math.cos(i * Math.PI / 2 + 0.78) * 4), R(by0 + Math.sin(i * Math.PI / 2 + 0.78) * 4), C.gold3)
+        for (let i = 1; i < 14; i++) {
+            // the torn edge: long tatters hanging off the hem, swaying, gold at their ends
+            const tx = spine[i * 2]! + 4
+            const ty = hem(i) - 2
+            const len = 8 + ((i * 5) % 4) * 3
+            const sw = R(flap * (i & 1 ? 1 : -1))
+            tri(s, tx - 3, ty, tx + 3, ty, tx + sw, ty + len, i & 1 ? C.night0 : C.void)
+            px(s, tx + sw, ty + len, C.gold1)
+            if (i % 3 === 0) line(s, tx - 2, ty, tx + 2, ty, C.gold1)
+        }
+        for (let i = 0; i < 4; i++) {
+            const bx = x - 118 - i * 8 + R(Math.sin(q(t) * 1.2 + i) * 4)
+            const by = y - 30 - i * 7 + sink
+            ditherEllipse(s, bx, by, 20 - i * 2, 16 - i * 2, C.void, 10)
+            ditherEllipse(s, bx + 3, by + 3, 13 - i * 2, 10 - i * 2, C.ink, 14)
+        }
+        // the neck, vertebrae running forward to the skull
+        for (let i = 0; i < 4; i++) { const nx0 = x + 26 + i * 6; const ny0 = y - 84 + i * 3 + hv; ellipse(s, nx0, ny0, 5, 4, C.bone0); px(s, nx0 - 1, ny0 - 3, C.bone1) }
+        // the great skull, thrust forward low
+        const hx = x + 66
+        const hy = y - 62 + hv + R(bz(0, -4, 6))
+        const open = B.strike || B.roar ? 9 : B.wind * 3
+        ellipse(s, hx - 5, hy - 9, 22, 18, C.bone0) // the cranium
+        ellipse(s, hx - 6, hy - 12, 20, 15, C.bone1)
+        arc(s, hx - 6, hy - 12, 17, Math.PI * 1.15, Math.PI * 1.6, C.white) // the light across its dome
+        arc(s, hx - 6, hy - 12, 16, Math.PI * 1.2, Math.PI * 1.5, C.white)
+        ellipse(s, hx - 18, hy - 2, 8, 11, C.bone0) // the shade on its back
+        arc(s, hx - 18, hy - 2, 7, Math.PI * 0.55, Math.PI * 1.3, C.brown2) // old bone shades warm
+        arc(s, hx - 18, hy - 2, 6, Math.PI * 0.6, Math.PI * 1.25, C.brown2)
+        // the sutures and the cracks of great age across the cranium, pitting
+        for (let i = 0; i < 6; i++) px(s, hx - 20 + i * 3, hy - 17 + ((i * 5) % 3) - (i & 1), C.brown2)
+        line(s, hx - 4, hy - 24, hx - 6, hy - 18, C.ink); line(s, hx - 6, hy - 18, hx - 3, hy - 14, C.ink); line(s, hx - 3, hy - 14, hx - 5, hy - 10, C.brown2)
+        line(s, hx - 14, hy - 12, hx - 10, hy - 9, C.brown2)
+        for (const [ox, oy] of [[-12, -16], [-2, -20], [-16, -8], [-8, -6], [2, -14]] as const) px(s, hx + ox, hy + oy, C.bone0)
+        // the temple's hollow behind the eye, the cheekbone's arch running back to the ear hole
+        ellipse(s, hx - 5, hy - 2, 5, 6, C.bone0)
+        ellipse(s, hx - 5, hy + 1, 2, 3, C.brown2)
+        ellipse(s, hx - 11, hy + 5, 2, 2.5, C.ink) // the ear hole
+        poly(s, [3, -9, 25, -6, 28, 5, 25, 13, 3, 13], hx, hy, C.bone1) // the long upper jaw
+        line(s, hx - 9, hy + 4, hx + 4, hy + 5, C.bone1) // the cheekbone's arch
+        line(s, hx - 9, hy + 5, hx + 4, hy + 6, C.bone0)
+        line(s, hx + 4, hy - 7, hx + 24, hy - 5, C.bone0) // the shadow under the brow
+        line(s, hx + 3, hy - 9, hx + 25, hy - 6, C.bone0) // the brow ridge
+        line(s, hx + 3, hy - 10, hx + 22, hy - 8, C.white)
+        // the sockets, deep, rimmed, pinpoints of green burning in them
+        ellipse(s, hx + 6, hy - 2, 7.5, 7, C.bone0)
+        ellipse(s, hx + 19, hy - 2, 5.5, 7, C.bone0)
+        ellipse(s, hx + 6, hy - 2, 6.5, 6, C.ink)
+        ellipse(s, hx + 19, hy - 2, 4.5, 6, C.ink)
+        arc(s, hx + 6, hy - 1, 7, Math.PI * 0.2, Math.PI * 0.8, C.white) // the lit lower rims
+        arc(s, hx + 19, hy - 1, 5, Math.PI * 0.25, Math.PI * 0.75, C.bone1)
+        if (!B.hurt && B.glow > 0.3) { ditherDisc(s, hx + 6, hy - 2, 7, C.green2, 3 + R(B.glow * 3)); ditherDisc(s, hx + 19, hy - 2, 5, C.green2, 3 + R(B.glow * 3)) }
+        glowEye(s, hx + 7, hy - 1, B.hurt ? C.white : C.green4, C.green2, true)
+        glowEye(s, hx + 19, hy - 1, B.hurt ? C.white : C.green4, C.green2)
+        line(s, hx + 10, hy + 5, hx + 14, hy + 8, C.bone0) // the cheek below the socket
+        poly(s, [13, 4, 16, 4, 17, 9, 14, 10, 12, 9], hx, hy, C.ink) // the nasal cavity
+        line(s, hx + 14, hy + 4, hx + 14, hy + 9, C.bone0) // the septum
+        line(s, hx + 4, hy + 11, hx + 26, hy + 11, C.bone0) // the gumline
+        for (let i = 0; i < 11; i++) {
+            // the upper teeth: long and uneven, canines longest, two missing
+            if (i === 3 || i === 8) { rect(s, hx + 4 + i * 2, hy + 12, 2, 3, C.ink); continue }
+            const len = i === 2 || i === 9 ? 6 : 4 - (i & 1)
+            rect(s, hx + 4 + i * 2, hy + 12, 1, len, C.bone1)
+            px(s, hx + 4 + i * 2, hy + 12, C.white)
+            px(s, hx + 5 + i * 2, hy + 12, C.ink)
+        }
+        // the lower jaw, hinged at the back, dropping open on the slam and the roar
+        const jo = R(open)
+        poly(s, [-9, 13, 27, 14 + jo, 26, 20 + jo, 3, 21 + jo, -9, 18], hx, hy, C.bone0)
+        line(s, hx - 8, hy + 14, hx + 26, hy + 15 + jo, C.bone1)
+        for (let i = 0; i < 10; i++) { rect(s, hx + 6 + i * 2, hy + 11 + jo, 1, 3, C.bone1); px(s, hx + 7 + i * 2, hy + 12 + jo, C.ink) } // the lower teeth
+        if (jo > 2) rect(s, hx + 5, hy + 17, 20, jo - 2, C.ink)
+        // The crown: a tall gold band sat back on the skull, scrollwork along it, a ruby in a bezel at
+        // its centre with a sapphire and an emerald beside it, pearls along its lower edge; spires
+        // tipped with jewels between trefoils; chains of gold hung with jewels off its sides.
+        for (const [cx0, ln] of [[-22, 12], [7, 9]] as const) {
+            // the jewelled chains swinging off the band
+            const sw = R(wv(t, 1.3, 1))
+            for (let k = 0; k < ln; k++) px(s, hx + cx0 + (k * sw) / ln, hy - 22 + k, k & 1 ? C.gold1 : C.gold2)
+            disc(s, hx + cx0 + sw, hy - 21 + ln, 1.3, C.red1); px(s, hx + cx0 + sw, hy - 22 + ln, C.red3)
+        }
+        poly(s, [-22, -20, 8, -24, 8, -31, -22, -27], hx, hy, C.gold1)
+        line(s, hx - 22, hy - 27, hx + 8, hy - 31, C.gold3)
+        line(s, hx - 22, hy - 20, hx + 8, hy - 24, C.gold0)
+        for (let i = 0; i < 15; i++) {
+            // the scrollwork, and the pearls under it
+            const sx0 = hx - 21 + i * 2
+            const sy0 = hy - 24 - R(i * 2 * 4 / 30)
+            px(s, sx0, sy0 - (i % 3 === 0 ? 1 : 0), i % 3 === 0 ? C.gold3 : C.gold0)
+            if (i & 1) px(s, sx0, sy0 + 3, C.white)
+        }
+        for (const [ox, gem, lit, r] of [[-15, C.blue1, C.blue2, 1.6], [-7, C.red1, C.red3, 2.4], [1, C.green2, C.green4, 1.6]] as const) {
+            // the stones, each in a bezel of dark gold
+            const gy0 = hy - 25 - R((ox + 22) * 4 / 30)
+            disc(s, hx + ox, gy0, r + 1, C.gold0)
+            disc(s, hx + ox, gy0, r, gem)
+            px(s, hx + ox - 1, gy0 - 1, lit); px(s, hx + ox - 1, gy0 - 1 - (r > 2 ? 1 : 0), C.white)
+        }
+        for (let i = 0; i < 8; i++) {
+            const cx = hx - 21 + i * 4
+            const by = hy - 27 - R(i * 0.5)
+            if (i & 1) {
+                // a trefoil
+                tri(s, cx - 1.5, by, cx + 1.5, by, cx - 0.5, by - 5, C.gold2)
+                disc(s, cx - 1, by - 6, 1.3, C.gold2); disc(s, cx - 2.5, by - 4, 1, C.gold2); disc(s, cx + 0.5, by - 4, 1, C.gold2)
+                px(s, R(cx - 1), by - 7, C.gold3)
+                continue
+            }
+            const h = i === 4 ? 15 : 11
+            tri(s, cx - 2, by, cx + 2, by, cx - 1, by - h, C.gold2)
+            line(s, R(cx), by, R(cx - 1), by - h + 1, C.gold3)
+            disc(s, cx - 1, by - h - 1, 1.2, i === 4 ? C.green4 : i === 0 ? C.blue2 : C.red2) // the jewel on its tip
+            px(s, R(cx - 1.5), by - h - 2, C.white)
+        }
+        // the near arm: rears high above its crown, fingers spread, and slams down flat
+        // the shoulder sits on the torso at the front of the ribcage, beside the far one, not at the
+        // base of the skull; a shoulder blade and a ball joint anchor it there
+        const nsx = x + 18
+        const nsy = y - 76 + hv
+        ellipse(s, nsx - 6, nsy - 3, 9, 6, C.bone0)
+        ellipse(s, nsx - 7, nsy - 5, 7, 3.5, C.bone1)
+        line(s, nsx - 14, nsy - 1, nsx + 1, nsy - 7, C.stone3) // the ridge of the blade
+        const wxr = x + 100 + R(bz(0, -14, 16))
+        const wyr = y - 16 + R(bz(0, -70, 2)) // the raised hand stays under the top of the camera
+        elbow(nsx, nsy, wxr, wyr, 52, 56, B.wind > 0.3 ? -1 : 1)
+        royalArm(s, nsx, nsy, P.x, P.y, wxr, wyr, 9)
+        disc(s, nsx, nsy, 6, C.bone0); disc(s, nsx - 1, nsy - 1, 4.5, C.bone1); px(s, nsx - 3, nsy - 4, C.white) // the ball of the shoulder
+        const fa = B.wind > 0.3 ? -1.1 : 0.3
+        boneHand(s, wxr, wyr, fa, B.wind > 0.3 ? 0.4 : 0.28, B.wind > 0.3 ? 0.2 : 0.5, 1.7)
+        if (B.strike) {
+            // the smear of the hand coming down
+            for (let i = 1; i < 7; i++) {
+                const ty = wyr - i * 12
+                for (let k = -8; k <= 18; k += 2) if (bayer(wxr + k, ty, 12 - i * 2)) px(s, wxr + k, ty, i < 3 ? C.bone1 : C.stone3)
             }
         }
-        // ribcage chest with green soul-fire
-        const cx = x + 4
-        const cy = top + 34
-        ellipse(s, cx, cy, 12, 10, C.ink)
-        for (let i = 0; i < 4; i++) arc(s, cx, cy - 2 + i * 4, 11, -0.3, Math.PI + 0.3, C.bone1)
-        rect(s, cx - 1, cy - 9, 3, 18, C.bone1)
-        const pulse = fr(t, 5, 2)
-        disc(s, cx + 2, cy + 1, 4 + pulse, C.green2)
-        disc(s, cx + 2, cy + 1, 2 + pulse, C.green4)
-        // the great skull on top, with horns
-        const hx = x + 8
-        const hy = top + 10 + R(bz(0, -4, 6))
-        ellipse(s, hx, hy, 11, 10, C.bone1)
-        ellipse(s, hx - 3, hy - 3, 6, 5, C.white)
-        rect(s, hx - 6, hy + 7, 14, 5, C.bone0)
-        const open = B.strike || B.roar ? 3 : 0
-        rect(s, hx - 4, hy + 8 + open, 12, 3, C.bone1)
-        if (open) rect(s, hx - 4, hy + 8, 12, open, C.ink)
-        for (let i = 0; i < 6; i++) px(s, hx - 4 + i * 2, hy + 8 + open, C.ink)
-        ellipse(s, hx + 1, hy, 3, 3, C.ink)
-        ellipse(s, hx + 8, hy, 2, 3, C.ink)
-        glowEye(s, hx + 1, hy, B.hurt ? C.white : C.green4, C.green2, true)
-        glowEye(s, hx + 8, hy, B.hurt ? C.white : C.green4, C.green2)
-        tri(s, hx + 5, hy + 4, hx + 7, hy + 4, hx + 6, hy + 6, C.ink)
-        for (const d of [-1, 1]) { line(s, hx + d * 9, hy - 6, hx + d * 16, hy - 14, C.bone0, 3); line(s, hx + d * 16, hy - 14, hx + d * 14, hy - 22, C.bone1, 2) }
-        // near arms: a big one that slams
-        const sx = x + 22
-        const sy = top + 30
-        const a = bz(1.0, -1.3, 1.3)
-        reach(sx, sy, a, 36)
-        limbT(s, sx, sy, P.x, P.y, 9, 6, BONE)
-        for (let i = 0; i < 4; i++) line(s, P.x, P.y, P.x + 4 + i * 2, P.y + 4 + (i & 1) * 2, C.bone1, 2) // claw-fingers
-        limbT(s, x + 10, top + 58, x + 22, y - 4, 6, 5, BONE)
-        finish(s, Entry.Rise, 14)
+        finish(s, Entry.Rise, 0)
     },
     fx(dst, st, t, x, y, dir) {
-        if (st === 'attack' && B.strike) for (let i = 0; i < 12; i++) dst.set(x + dir * (40 + i * 2), y - (i % 4), i & 1 ? C.bone1 : C.stone3)
+        if (st === 'attack' && B.strike) {
+            // the slam: the ground cracks, bone and dark thrown up, soul-fire bursting
+            const hx = x + dir * 84
+            for (let i = 0; i < 18; i++) dst.set(hx + dir * (-8 + i * 2), y - (i % 4), i & 1 ? C.bone1 : C.stone3)
+            for (let i = 0; i < 12; i++) dst.set(hx + dir * (-6 + i * 3), y - 4 - ((i * 7) % 15), i & 1 ? C.green4 : C.void)
+            for (let i = 0; i < 9; i++) {
+                const a = -Math.PI * (0.1 + i * 0.1)
+                dst.set(hx + dir * R(Math.cos(a) * 14), y + R(Math.sin(a) * 8), i & 1 ? C.white : C.bone1)
+            }
+        }
         const k = fr(t, 10, 10)
-        for (let i = 0; i < 3; i++) dst.set(x + dir * (-10 + i * 12), y - 56 - ((k * 3 + i * 7) % 24), C.green3)
+        for (let i = 0; i < 3; i++) dst.set(x - dir * (40 + i * 20), y - 20 - ((k * 3 + i * 7) % 40), i & 1 ? C.purple0 : C.haze)
     }
 }
 

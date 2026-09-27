@@ -1070,39 +1070,173 @@ const riftboundMagus: WorldSkin = {
     blade: M.voidm, haft: M.darkwood, gem: M.voidm, gemStyle: Gem.Crystal, accent: C.pink
 }
 
-// 7 · The Bonefields — Restless Legionnaire: bones in rusted legion kit, crest still red.
+// 7 · The Bonefields — Restless Legionnaire (melee): a skull in a rusted bronze legion helm with a
+// red crest and cheek guards, green soul-fire in the sockets, ribs showing under a banded bronze
+// cuirass over a red tunic, a tattered red cloak, a rusted gladius.
 const restlessLegionnaire: WorldSkin = {
     legLen: 8, torsoLen: 9,
     skin: [C.bone0, C.bone1, C.white],
-    back: (s, x, y, p, t) => {
-        for (let i = 0; i < 10; i++) rect(s, x - 5 - (i >> 2) - (Math.floor(t * 3) & 1) * (i >> 3), y + i, 3, 1, i > 7 ? C.red0 : C.red1) // tattered cloak
+    back: (s, x, y, _p, t) => {
+        // the tattered cloak, torn at the hem and stirring
+        const f = Math.floor(t * 3) & 1
+        for (let i = 0; i < 11; i++) rect(s, x - 5 - (i >> 2) - f * (i >> 3), y + i, 3, 1, i > 8 ? C.red0 : i & 1 ? C.red1 : C.red2)
+        px(s, x - 8 - f, y + 11, C.red0)
     },
     head: (s, x, y, p) => {
-        rect(s, x - 2, y - 7, 5, 6, C.bone1)
-        rect(s, x - 1, y - 1, 4, 1, C.bone0) // jaw
-        px(s, x, y - 1, C.ink); px(s, x + 2, y - 1, C.ink)
-        rect(s, x + 1, y - 5, 2, 2, C.ink)
+        // the skull
+        ellipse(s, x + 1, y - 4, 3.5, 3.5, C.bone1)
+        px(s, x + 2, y - 6, C.white)
+        rect(s, x + 1, y - 5, 2, 2, C.ink) // the socket
         eyes(s, x + 2, y - 5, C.green4, p)
-        px(s, x + 3, y - 3, C.ink)
-        // rusted helm with a crest
-        rect(s, x - 3, y - 9, 6, 3, C.brown2)
-        rect(s, x - 3, y - 7, 1, 5, C.brown1)
-        px(s, x - 1, y - 9, C.orange)
-        rect(s, x - 3, y - 11, 6, 2, C.red1)
-        px(s, x - 4, y - 11, C.red0); px(s, x - 1, y - 12, C.red2)
+        px(s, x + 4, y - 3, C.ink) // the nose hole
+        rect(s, x, y - 1, 4, 1, C.bone0) // the jaw
+        px(s, x + 1, y - 1, C.ink); px(s, x + 3, y - 1, C.ink)
+        // the legion helm: a bronze bowl, a neck guard, a cheek guard, a red crest front to back
+        ellipse(s, x, y - 7, 4, 2.5, C.brown2)
+        line(s, x - 3, y - 8, x + 2, y - 9, C.orange) // the lit bronze
+        rect(s, x - 4, y - 7, 2, 4, C.brown1) // the neck guard
+        rect(s, x + 3, y - 6, 1, 3, C.brown1) // the cheek guard
+        px(s, x - 1, y - 7, C.green2) // verdigris
+        for (let i = 0; i < 7; i++) rect(s, x - 3 + i, y - 11 + (i === 0 || i === 6 ? 1 : 0), 1, 2, i & 1 ? C.red1 : C.red2)
+        line(s, x - 3, y - 11, x + 3, y - 11, C.red3)
     },
     torso: (s, x, y) => {
-        // rib cage behind rusted segmented plate
-        rect(s, x - 4, y, 8, 9, C.bone0)
-        for (let i = 0; i < 3; i++) rect(s, x - 4, y + 1 + i * 2, 8, 1, C.brown2)
-        rect(s, x - 4, y, 8, 1, C.orange)
-        rect(s, x - 1, y, 2, 9, C.bone1) // spine
-        rect(s, x - 4, y + 7, 8, 2, C.red1) // skirt strips
-        px(s, x - 3, y + 8, C.red0); px(s, x, y + 8, C.red0); px(s, x + 3, y + 8, C.red0)
+        rect(s, x - 4, y, 8, 9, C.red1) // the tunic
+        // the ribs, showing where the cuirass has rusted through
+        rect(s, x - 4, y, 8, 5, C.ink)
+        for (let i = 0; i < 3; i++) line(s, x - 3, y + 1 + i * 2, x + 3, y + 1 + i * 2, C.bone1)
+        rect(s, x - 1, y, 2, 6, C.bone0) // the spine
+        // the banded cuirass, what is left of it
+        rect(s, x - 4, y, 3, 5, C.brown1); line(s, x - 4, y, x - 2, y, C.orange)
+        for (let i = 0; i < 2; i++) line(s, x - 4, y + 5 + i * 2, x + 3, y + 5 + i * 2, i ? C.brown1 : C.brown2)
+        px(s, x + 2, y + 5, C.orange)
+        rect(s, x - 4, y - 1, 3, 2, C.brown2) // the shoulder plate
+        // the pteruges: red strips below the belt
+        for (let i = 0; i < 4; i++) rect(s, x - 4 + i * 2, y + 8, 1, 2, i & 1 ? C.red0 : C.red1)
     },
     pants: C.bone1, pantsDk: C.bone0, boot: C.brown1, bootHi: C.brown2,
     arm: C.bone1, armLow: C.bone1, armBack: C.bone0, armBackLow: C.bone0, hand: C.bone1,
     blade: M.rust, haft: M.darkwood, gem: M.nature, gemStyle: Gem.Skull, accent: C.green4
+}
+
+// 7 · The Bonefields — Barrow Ghoul (heavy): a hunched thing out of the barrows, grave-pale green,
+// bald with pointed ears and a fanged jaw, wrapped in a torn burial shroud, an iron collar with a
+// length of broken chain, long black claws.
+const barrowGhoul: WorldSkin = {
+    legLen: 7, torsoLen: 10,
+    skin: [C.olive1, C.olive2, C.green3],
+    back: (s, x, y, _p, t) => {
+        // the broken chain hanging off the collar behind
+        const f = Math.floor(t * 2) & 1
+        for (let i = 0; i < 5; i++) px(s, x - 4 - (i >> 1) - f * (i >> 2), y + 1 + i * 2, i & 1 ? C.steel1 : C.steel2)
+    },
+    head: (s, x, y, p) => {
+        tri(s, x - 2, y - 6, x - 2, y - 3, x - 7, y - 8, C.olive1) // the pointed ear
+        ellipse(s, x + 1, y - 4, 4, 4, C.olive2)
+        ellipse(s, x, y - 6, 2, 1.5, C.green3) // the lit crown of the bald head
+        line(s, x + 1, y - 6, x + 4, y - 5, C.olive0) // the heavy brow
+        eyes(s, x + 3, y - 5, C.gold3, p)
+        px(s, x + 5, y - 4, C.olive1) // the nose
+        // the jaw, hanging open on fangs
+        rect(s, x + 1, y - 2, 5, 2, C.ink)
+        px(s, x + 2, y - 2, C.white); px(s, x + 4, y - 2, C.white); px(s, x + 3, y - 1, C.white)
+        rect(s, x, y, 5, 1, C.olive1)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 5, y, 10, 10, C.olive2)
+        rect(s, x - 5, y, 3, 10, C.olive1)
+        for (let i = 0; i < 2; i++) line(s, x - 1, y + 3 + i * 2, x + 3, y + 3 + i * 2, C.olive1) // the ribs through the skin
+        // the burial shroud wound round it, torn
+        line(s, x - 5, y + 1, x + 4, y + 6, C.bone1); line(s, x - 5, y + 2, x + 4, y + 7, C.bone0)
+        poly(s, [-5, 6, 4, 8, 3, 10, -5, 10], x, y, C.bone1)
+        px(s, x - 2, y + 10, C.bone0); px(s, x + 1, y + 10, C.bone1)
+        // the iron collar
+        rect(s, x - 3, y - 1, 7, 2, C.steel1)
+        line(s, x - 3, y - 1, x + 3, y - 1, C.steel2)
+    },
+    pants: C.bone0, pantsDk: C.stone2, boot: C.olive1, bootHi: C.olive2,
+    arm: C.olive2, armLow: C.olive2, armBack: C.olive1, armBackLow: C.olive1, hand: C.ink,
+    blade: M.rust, haft: M.darkwood, gem: M.nature, gemStyle: Gem.Claw, accent: C.gold3
+}
+
+// 7 · The Bonefields — Bone Archer (ranged): a skeleton under a dark green hooded cloak, eyes lit
+// in the shadow of the hood, a quiver of fletched arrows on its back, a bone-tipped bow.
+const boneArcher: WorldSkin = {
+    legLen: 8, torsoLen: 8,
+    skin: [C.bone0, C.bone1, C.white],
+    back: (s, x, y) => {
+        // the quiver, arrows fletched red
+        rect(s, x - 5, y - 2, 2, 8, C.brown1)
+        line(s, x - 5, y - 2, x - 5, y + 5, C.brown2)
+        for (let i = 0; i < 3; i++) { line(s, x - 5 + i, y - 3, x - 6 + i, y - 5, C.bone0); px(s, x - 6 + i, y - 6, C.red2) }
+    },
+    head: (s, x, y, p) => {
+        // the hood, pointed, falling to the shoulders
+        ellipse(s, x, y - 5, 5, 5, C.green0)
+        tri(s, x - 4, y - 6, x - 1, y - 10, x - 7, y - 3, C.green0)
+        line(s, x - 3, y - 9, x + 2, y - 10, C.green1) // the lit fold
+        line(s, x + 3, y - 9, x + 5, y - 6, C.green1)
+        // the skull in the hood's shadow
+        ellipse(s, x + 2, y - 4, 3, 3.5, C.ink)
+        ellipse(s, x + 3, y - 4, 2, 3, C.bone0)
+        px(s, x + 4, y - 6, C.bone1)
+        px(s, x + 3, y - 5, C.ink)
+        eyes(s, x + 3, y - 5, C.green4, p)
+        rect(s, x + 2, y - 1, 3, 1, C.bone0); px(s, x + 3, y - 1, C.ink) // the teeth
+    },
+    torso: (s, x, y) => {
+        // the cloak over the shoulders, the ribs under it
+        rect(s, x - 4, y, 8, 8, C.ink)
+        for (let i = 0; i < 3; i++) line(s, x - 1, y + 1 + i * 2, x + 3, y + 1 + i * 2, C.bone1)
+        rect(s, x - 1, y, 1, 7, C.bone0)
+        poly(s, [-5, -1, 0, -1, -2, 8, -5, 8], x, y, C.green0)
+        line(s, x - 5, y - 1, x - 5, y + 8, C.green1)
+        rect(s, x - 4, y + 6, 8, 1, C.brown1) // the belt
+        px(s, x + 2, y + 6, C.gold1)
+    },
+    pants: C.bone1, pantsDk: C.bone0, boot: C.brown0, bootHi: C.brown1,
+    arm: C.bone1, armLow: C.bone1, armBack: C.bone0, armBackLow: C.bone0, hand: C.bone1,
+    blade: M.bone, haft: M.darkwood, gem: M.nature, gemStyle: Gem.Skull, accent: C.green4
+}
+
+// 7 · The Bonefields — Ossuary Priest (caster): a skeletal priest of the ossuaries in violet
+// vestments trimmed in gold with a black stole, a tall mitre with a skull on it, a rosary of bone beads, a
+// staff crowned with a skull burning green.
+const ossuaryPriest: WorldSkin = {
+    legLen: 7, torsoLen: 8,
+    skin: [C.bone0, C.bone1, C.white],
+    head: (s, x, y, p) => {
+        // the skull
+        ellipse(s, x + 1, y - 4, 3.5, 3.5, C.bone1)
+        px(s, x + 2, y - 6, C.white)
+        rect(s, x + 1, y - 5, 2, 2, C.ink)
+        eyes(s, x + 2, y - 5, C.green4, p)
+        px(s, x + 4, y - 3, C.ink)
+        rect(s, x, y - 1, 4, 1, C.bone0)
+        px(s, x + 1, y - 1, C.ink); px(s, x + 3, y - 1, C.ink)
+        // the tall mitre, split at the top, a gold band and a skull stitched on the front
+        poly(s, [-3, -6, 4, -6, 3, -13, 0, -11, -2, -14], x, y, C.night0)
+        line(s, x - 2, y - 14, x - 3, y - 7, C.purple1); line(s, x + 3, y - 13, x + 4, y - 7, C.purple1)
+        rect(s, x - 3, y - 7, 8, 1, C.gold1)
+        line(s, x, y - 13, x + 1, y - 8, C.gold1) // the gold seam
+        px(s, x + 1, y - 10, C.bone1); px(s, x + 2, y - 10, C.bone1); px(s, x + 1, y - 9, C.bone0)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 7, 8, C.purple1)
+        rect(s, x - 3, y, 2, 8, C.purple0)
+        line(s, x + 3, y, x + 3, y + 7, C.purple2) // the lit fold
+        // the black stole with gold edges
+        rect(s, x + 1, y, 2, 8, C.night0)
+        line(s, x + 1, y, x + 1, y + 7, C.gold1)
+        // the rosary of bone beads, a skull pendant
+        for (let i = 0; i < 4; i++) px(s, x - 2 + i, y + 1 + (i & 1), C.bone1)
+        px(s, x, y + 4, C.bone1); px(s, x, y + 5, C.bone0)
+        rect(s, x - 3, y + 6, 7, 1, C.gold1)
+    },
+    lower: (s, x, hipY, _p, t) => robeSkirt(s, x, hipY, J.oy - 1, [C.purple0, C.purple1, C.purple2], C.gold1, (Math.floor(t * 2) & 1) - 0.5, C.bone0, 0),
+    pants: C.purple1, pantsDk: C.purple0, boot: C.bone0, bootHi: C.bone1,
+    arm: C.purple1, armLow: C.purple1, armBack: C.purple0, armBackLow: C.purple0, hand: C.bone1,
+    blade: M.bone, haft: M.darkwood, gem: M.nature, gemStyle: Gem.Skull, accent: C.green4
 }
 
 // 8 · The Shattered Sky — Skyshard Wisp: a floating shard of storm-lit stone with a tail of wind.
@@ -1224,7 +1358,8 @@ export const WORLD_ROSTERS: readonly Readonly<Record<EnemyWeapon, WorldSkin>>[] 
     { sword: frostboundRaider, axe: rimeTroll, bow: snowfieldHuntress, staff: runeSkald },
     { sword: drownedSailor, axe: barnacleBrute, bow: harpoonSiren, staff: tidePriestess },
     { sword: hollowAcolyte, axe: spireGargoyle, bow: spellboundConstruct, staff: riftboundMagus },
-    one(restlessLegionnaire), one(skyshardWisp), one(unravelledKnight), one(voidThrall)
+    { sword: restlessLegionnaire, axe: barrowGhoul, bow: boneArcher, staff: ossuaryPriest },
+    one(skyshardWisp), one(unravelledKnight), one(voidThrall)
 ]
 
 /** Which of a world's roster styles each rig draws. */
