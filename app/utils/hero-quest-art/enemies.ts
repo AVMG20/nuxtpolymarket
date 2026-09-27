@@ -10,7 +10,7 @@
 import { Ease, Phase, step, type Clip } from './anim'
 import { C } from './palette'
 import type { Surface} from './surface';
-import { line, px, rect, disc, ellipse, tri, dither, bayer, poly, arc } from './surface'
+import { line, px, rect, disc, ellipse, tri, dither, poly, arc } from './surface'
 import { HP, J, fxX, fxY, hclip, hitClip, deathClip, rest, type Look, type Painter } from './rig'
 import { robeSkirt, smear, sparks, streak } from './hero-parts'
 import { M, tip, sword, axe, bow, staff, Gem, type Mat } from './weapons'
@@ -26,6 +26,7 @@ const CA = Phase.Cast
 const RE = Phase.Recover
 const enum EFX { None, Smear, Release, Burst }
 const is = (p: Float32Array, k: EFX) => Math.round(p[HP.fxk]!) === k
+const R = Math.round
 
 // ── The four rigs ──────────────────────────────────────────────────────────────────
 
@@ -1513,37 +1514,219 @@ const squallCaller: WorldSkin = {
     }
 }
 
-// 9 · The Brink — Unravelled Knight: armour with no one in it, coming apart thread by thread.
+// 9 · The Brink — Unravelled Knight (melee): a knight's plate in cold silver with no one in it, stars
+// where the face should be behind the visor slit, a faded blue tabard with a gold star, plates come
+// loose on the dark inside, gold threads unravelling off it and streaming back toward the Void.
 const unravelledKnight: WorldSkin = {
     legLen: 8, torsoLen: 9,
-    skin: [C.stone2, C.stone3, C.steel3],
+    skin: [C.steel1, C.steel2, C.steel3],
+    back: (s, x, y, _p, t) => {
+        // the threads, drawn back toward the Void
+        const f = Math.floor(t * 4) & 1
+        for (let i = 0; i < 4; i++) {
+            const y0 = y + 1 + i * 2
+            line(s, x - 3, y0, x - 7 - i * 2, y0 - 3 + i - f, i & 1 ? C.gold1 : C.gold2)
+            px(s, x - 8 - i * 2, y0 - 4 + i - f, i & 1 ? C.bone1 : C.white)
+        }
+    },
     head: (s, x, y, p, t) => {
-        rect(s, x - 3, y - 9, 7, 9, C.stone3)
-        rect(s, x - 3, y - 9, 2, 9, C.stone2)
-        rect(s, x, y - 5, 4, 1, C.ink)
-        px(s, x + 3, y - 5, p[HP.flash]! > 0.5 ? C.white : C.haze)
-        rect(s, x + 1, y - 9, 1, 8, C.steel3)
-        // gaps where it has come undone
-        for (let i = 0; i < 6; i++) if (bayer(i * 3, i, 6)) px(s, x - 2 + (i % 4), y - 8 + i, C.void)
-        const f = Math.floor(t * 3) & 1
-        line(s, x - 3, y - 2, x - 5, y + 3 + f, C.haze) // a loose thread
+        // the great helm, lit along its crown, a ridge down the front
+        rect(s, x - 3, y - 10, 7, 10, C.steel2)
+        rect(s, x - 3, y - 10, 2, 10, C.steel1)
+        line(s, x - 2, y - 10, x + 3, y - 10, C.steel3)
+        line(s, x + 2, y - 9, x + 2, y - 1, C.steel3)
+        // the visor slit, nothing in it but the stars
+        rect(s, x, y - 7, 4, 2, C.ink)
+        const tw = Math.floor(t * 5) % 3
+        px(s, x + 1 + tw, y - 7, C.white)
+        eyes(s, x + 3, y - 6, C.frost, p)
+        px(s, x + 3, y - 3, C.ink); px(s, x + 1, y - 3, C.ink) // the breaths
+        // the crest: a tattered pennon of the same faded blue, fraying
+        tri(s, x - 2, y - 11, x + 2, y - 11, x - 6, y - 14, C.blue1)
+        line(s, x - 6, y - 14, x - 9, y - 13, C.gold2)
+        // a plate come undone over the ear, the dark inside
+        px(s, x - 2, y - 5, C.void); px(s, x - 1, y - 4, C.void)
     },
-    torso: (s, x, y, p, t) => {
-        rect(s, x - 4, y, 8, 9, C.stone3)
-        rect(s, x - 4, y, 1, 9, C.stone2)
-        rect(s, x + 1, y + 1, 1, 4, C.steel3)
-        dither(s, x - 2, y + 3, 5, 5, C.void, 5)
-        const f = Math.floor(t * 3) & 1
-        line(s, x - 2, y + 8, x - 3, y + 12 + f, C.haze)
-        line(s, x + 2, y + 8, x + 3, y + 11 - f, C.bone0)
-        line(s, x - 4, y + 3, x - 6, y + 6 + f, C.pink)
+    torso: (s, x, y, _p, t) => {
+        rect(s, x - 4, y, 8, 9, C.steel2)
+        rect(s, x - 4, y, 2, 9, C.steel1)
+        line(s, x - 2, y, x + 3, y, C.steel3)
+        rect(s, x - 4, y - 1, 3, 2, C.steel3) // the pauldron's lit edge
+        // the faded tabard, a gold edge and star
+        rect(s, x - 1, y + 2, 4, 8, C.blue1)
+        line(s, x - 1, y + 2, x - 1, y + 9, C.gold1)
+        px(s, x + 1, y + 4, C.gold2); px(s, x, y + 4, C.gold1); px(s, x + 2, y + 4, C.gold1); px(s, x + 1, y + 3, C.gold1); px(s, x + 1, y + 5, C.gold1)
+        px(s, x, y + 9, C.blue0); px(s, x + 2, y + 10, C.blue1) // the torn hem
+        // a gap where a plate has come loose: the dark and a star
+        rect(s, x - 4, y + 5, 2, 3, C.ink)
+        if (Math.floor(t * 3) & 1) px(s, x - 3, y + 6, C.white)
+        rect(s, x - 4, y + 7, 8, 1, C.steel1) // the belt
     },
-    pants: C.stone3, pantsDk: C.stone2, boot: C.stone2, bootHi: C.steel3,
-    arm: C.stone3, armLow: C.stone2, armBack: C.stone2, armBackLow: C.stone1, hand: C.stone2,
-    blade: [C.stone2, C.stone3, C.bone1], haft: M.obsidian, gem: [C.night3, C.haze, C.white], gemStyle: Gem.Moon, accent: C.haze,
+    pants: C.steel2, pantsDk: C.steel1, boot: C.steel1, bootHi: C.steel3,
+    arm: C.steel2, armLow: C.steel2, armBack: C.steel1, armBackLow: C.steel1, hand: C.steel1,
+    blade: M.steel, haft: M.darkwood, gem: M.ice, gemStyle: Gem.Moon, accent: C.frost,
     ambient: (dst, t) => {
+        // a thread come loose, drifting up and away
         const k = step(t, 10, 12)
-        dst.set(fxX(J.bx - 4 + (k % 4)), fxY(J.topY + 4 - k), C.haze)
+        dst.set(fxX(J.bx - 4 - (k >> 1)), fxY(J.topY + 4 - k), k & 1 ? C.gold2 : C.bone1)
+    }
+}
+
+// 9 · The Brink — Tethered Brute (heavy): a shackled giant chained to a stake so it will not fall
+// away with everything else, a bald scarred head with an iron muzzle riveted over its jaw and eyes
+// lit frost, an iron collar and manacles, pebbles lifting off the ground round it.
+const tetheredBrute: WorldSkin = {
+    legLen: 7, torsoLen: 11,
+    skin: [C.skin0, C.skin1, C.skin2],
+    back: (s, x, y, _p, t) => {
+        // the chain from its collar down to the stake behind it, pulled taut
+        const sy = J.oy
+        const sx = x - 13
+        const f = Math.floor(t * 4) & 1
+        for (let i = 0; i <= 8; i++) {
+            const u = i / 8
+            px(s, R(x - 3 + (sx - x + 3) * u), R(y + (sy - 3 - y) * u) - (i === 4 ? f : 0), i & 1 ? C.steel1 : C.steel2)
+        }
+        rect(s, sx - 1, sy - 4, 2, 4, C.brown1) // the stake
+        px(s, sx - 1, sy - 4, C.brown2)
+        rect(s, sx - 2, sy - 3, 4, 1, C.steel1) // its ring
+    },
+    head: (s, x, y, p) => {
+        ellipse(s, x + 1, y - 4, 4.5, 4.5, C.skin1)
+        ellipse(s, x, y - 6, 2.5, 1.5, C.skin2) // the lit crown of the bald head
+        line(s, x + 1, y - 6, x + 5, y - 5, C.skin0) // the heavy brow
+        px(s, x + 3, y - 5, C.ink)
+        eyes(s, x + 4, y - 5, C.frost, p)
+        line(s, x - 2, y - 7, x - 1, y - 4, C.red1) // a scar
+        // the iron muzzle over its jaw, riveted
+        rect(s, x, y - 3, 6, 3, C.steel1)
+        line(s, x, y - 3, x + 5, y - 3, C.steel2)
+        px(s, x + 1, y - 2, C.steel3); px(s, x + 4, y - 2, C.steel3)
+        if (p[HP.mouth]! > 0.5) line(s, x + 2, y - 1, x + 5, y - 1, C.ink) // straining against it
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 5, y, 10, 11, C.skin1)
+        rect(s, x - 5, y, 3, 11, C.skin0)
+        line(s, x - 1, y + 2, x + 3, y + 3, C.skin0) // the chest
+        line(s, x, y + 5, x + 3, y + 5, C.skin0)
+        px(s, x + 1, y + 1, C.skin2); px(s, x + 2, y + 1, C.skin2)
+        line(s, x + 2, y + 6, x + 4, y + 8, C.red1) // a scar
+        // the iron collar and a ring for the chain
+        rect(s, x - 4, y - 1, 8, 2, C.steel1)
+        line(s, x - 4, y - 1, x + 3, y - 1, C.steel3)
+        px(s, x - 4, y + 1, C.steel2)
+        // a hide belt and a ragged loincloth
+        rect(s, x - 5, y + 8, 10, 1, C.brown0)
+        rect(s, x - 2, y + 9, 5, 3, C.brown2)
+        px(s, x - 1, y + 11, C.brown1); px(s, x + 2, y + 11, C.brown1)
+    },
+    pants: C.skin1, pantsDk: C.skin0, boot: C.steel1, bootHi: C.steel2,
+    arm: C.skin1, armLow: C.skin1, armBack: C.skin0, armBackLow: C.skin0, hand: C.steel1,
+    blade: M.iron, haft: M.darkwood, gem: M.ice, gemStyle: Gem.Moon, accent: C.frost,
+    ambient: (dst, t) => {
+        // pebbles lifting off the ground round it as the world lets go
+        const k = step(t, 10, 10)
+        for (let i = 0; i < 2; i++) {
+            const kk = (k + i * 5) % 10
+            dst.set(fxX(J.bx - 6 + i * 11), fxY(J.oy - 1 - kk), C.stone2)
+        }
+    }
+}
+
+// 9 · The Brink — Starfall Archer (ranged): an archer of the last watch in a deep blue cloak sewn
+// with stars, long silver hair streaming back, a star on a silver circlet, gold eyes, a silver bow
+// and a quiver of arrows tipped with falling stars.
+const starfallArcher: WorldSkin = {
+    legLen: 8, torsoLen: 8,
+    skin: [C.skin0, C.skin1, C.skin2],
+    back: (s, x, y, _p, t) => {
+        // the starry cloak falling behind her, the quiver over it, the arrows tipped with stars
+        poly(s, [-1, -1, -4, -1, -9, 11, -3, 12], x, y, C.blue0)
+        line(s, x - 4, y - 1, x - 9, y + 11, C.blue1)
+        const tw = Math.floor(t * 4) % 3
+        for (const [sx, sy, k] of [[-5, 3, 0], [-7, 8, 1], [-4, 9, 2]] as const) px(s, x + sx, y + sy, k === tw ? C.white : C.gold2)
+        rect(s, x - 5, y - 2, 2, 7, C.steel1)
+        for (let i = 0; i < 2; i++) { line(s, x - 5 + i, y - 3, x - 6 + i, y - 6, C.bone0); px(s, x - 6 + i, y - 7, i ? C.gold3 : C.white) }
+    },
+    head: (s, x, y, p) => {
+        // long silver hair streaming back
+        for (let i = 0; i < 4; i++) line(s, x - 2, y - 7 + i * 2, x - 8 - (i & 1), y - 5 + i * 3, i & 1 ? C.bone1 : C.white)
+        ellipse(s, x, y - 5, 3.5, 3.5, C.bone1)
+        // the face
+        ellipse(s, x + 2, y - 4, 2.5, 3, C.skin1)
+        px(s, x + 3, y - 6, C.skin2)
+        px(s, x + 4, y - 4, C.gold3)
+        eyes(s, x + 3, y - 4, C.gold2, p)
+        px(s, x + 3, y - 1, C.skin0)
+        // the silver circlet with a star on the brow
+        line(s, x - 2, y - 8, x + 3, y - 7, C.steel3)
+        px(s, x + 3, y - 8, C.gold3); px(s, x + 3, y - 9, C.white); px(s, x + 2, y - 8, C.gold2); px(s, x + 4, y - 8, C.gold2)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 7, 8, C.blue1)
+        rect(s, x - 3, y, 2, 8, C.blue0)
+        line(s, x + 3, y, x + 3, y + 7, C.blue2)
+        rect(s, x + 1, y - 1, 3, 2, C.steel2) // the silver pauldron
+        px(s, x + 1, y - 1, C.steel3)
+        px(s, x, y + 2, C.gold3) // the star brooch
+        rect(s, x - 3, y + 6, 7, 1, C.steel1)
+        px(s, x + 1, y + 6, C.gold2)
+    },
+    pants: C.blue1, pantsDk: C.blue0, boot: C.steel1, bootHi: C.steel2,
+    arm: C.blue1, armLow: C.skin1, armBack: C.blue0, armBackLow: C.skin0, hand: C.skin1,
+    blade: [C.gold1, C.gold2, C.gold3], haft: [C.steel1, C.steel2, C.steel3], gem: M.ice, gemStyle: Gem.Moon, accent: C.gold3,
+    ambient: (dst, t) => {
+        // a mote of starlight turning round her
+        const a = step(t, 10, 12) / 12 * Math.PI * 2
+        dst.set(fxX(J.bx + R(Math.cos(a) * 7)), fxY(J.topY + 2 + R(Math.sin(a) * 4)), C.gold3)
+    }
+}
+
+// 9 · The Brink — Last Seer (caster): the last who still sees what is coming, blind, an ivory hood
+// and robes trimmed in gold, a blue blindfold embroidered with a gold eye that opens when it casts,
+// a stole marked with stars, a small astrolabe at the breast, a staff crowned with a moon.
+const lastSeer: WorldSkin = {
+    legLen: 7, torsoLen: 8,
+    skin: [C.skin0, C.skin1, C.skin2],
+    head: (s, x, y, p) => {
+        // the ivory hood, lit along its rim
+        ellipse(s, x, y - 5, 4.5, 5, C.bone0)
+        tri(s, x - 4, y - 6, x - 1, y - 11, x - 6, y - 2, C.bone0)
+        line(s, x - 3, y - 9, x + 3, y - 9, C.bone1)
+        line(s, x + 3, y - 8, x + 4, y - 3, C.white)
+        // the face, gaunt, lit on the cheek
+        ellipse(s, x + 2, y - 4, 2.5, 3.5, C.skin1)
+        px(s, x + 3, y - 2, C.skin2)
+        px(s, x + 4, y - 1, C.skin0)
+        // the blindfold, a gold eye on it that opens on the cast
+        rect(s, x - 1, y - 6, 6, 2, C.blue1)
+        line(s, x - 1, y - 6, x + 4, y - 6, C.blue2)
+        const open = p[HP.glow]! > 0.3
+        px(s, x + 3, y - 5, open ? C.white : C.gold1); px(s, x + 2, y - 5, C.gold2); px(s, x + 4, y - 5, C.gold2)
+        if (open) px(s, x + 3, y - 6, C.gold3)
+        if (p[HP.flash]! > 0.5) px(s, x + 3, y - 5, C.ink)
+    },
+    torso: (s, x, y, _p, t) => {
+        rect(s, x - 3, y, 7, 8, C.bone1)
+        rect(s, x - 3, y, 2, 8, C.bone0)
+        line(s, x + 3, y, x + 3, y + 7, C.white)
+        // the blue stole, marked with stars
+        rect(s, x + 1, y, 2, 8, C.blue1)
+        px(s, x + 1, y + 2, C.gold2); px(s, x + 2, y + 5, C.gold2)
+        // the astrolabe at the breast, its ring turning
+        const k = Math.floor(t * 4) & 3
+        px(s, x - 1, y + 3, C.gold2)
+        px(s, x - 1 + [0, 1, 0, -1][k]!, y + 3 + [-1, 0, 1, 0][k]!, C.gold3)
+        rect(s, x - 3, y + 6, 7, 1, C.gold1)
+    },
+    lower: (s, x, hipY, _p, t) => robeSkirt(s, x, hipY, J.oy - 1, [C.bone0, C.bone1, C.white], C.gold1, (Math.floor(t * 2) & 1) - 0.5, C.gold1, 0),
+    pants: C.bone1, pantsDk: C.bone0, boot: C.gold1, bootHi: C.gold2,
+    arm: C.bone1, armLow: C.bone1, armBack: C.bone0, armBackLow: C.bone0, hand: C.skin1,
+    blade: M.gold, haft: M.darkwood, gem: [C.gold1, C.gold2, C.gold3], gemStyle: Gem.Moon, accent: C.gold3,
+    ambient: (dst, t) => {
+        // a star of a constellation turning over its head
+        const a = step(t, 10, 16) / 16 * Math.PI * 2
+        dst.set(fxX(J.headX + 1 + R(Math.cos(a) * 6)), fxY(J.headY - 12 + R(Math.sin(a) * 2)), C.white)
     }
 }
 
@@ -1596,7 +1779,8 @@ export const WORLD_ROSTERS: readonly Readonly<Record<EnemyWeapon, WorldSkin>>[] 
     { sword: hollowAcolyte, axe: spireGargoyle, bow: spellboundConstruct, staff: riftboundMagus },
     { sword: restlessLegionnaire, axe: barrowGhoul, bow: boneArcher, staff: ossuaryPriest },
     { sword: skyshardWisp, axe: thunderheadGolem, bow: harpyRaider, staff: squallCaller },
-    one(unravelledKnight), one(voidThrall)
+    { sword: unravelledKnight, axe: tetheredBrute, bow: starfallArcher, staff: lastSeer },
+    one(voidThrall)
 ]
 
 /** Which of a world's roster styles each rig draws. */

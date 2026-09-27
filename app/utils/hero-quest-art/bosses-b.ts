@@ -6,7 +6,7 @@ import type { CreatureDef } from './creature'
 import { CF, fr, sm, span } from './creature'
 import type { Mat } from './weapons'
 import {
-    B, Entry, bossStates, drive, finish, bz, ball, tentacle, glowEye, wing, speckle,
+    B, Entry, bossStates, drive, finish, bz, ball, tentacle, glowEye, wing,
     limbT, reach, elbow, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, ring, arc, poly, q, wv, bayer, hash2
 } from './boss-kit'
 import { Surface, ditherDisc } from './surface'
@@ -16,7 +16,6 @@ const R = Math.round
 const VIOLET: Mat = [C.purple0, C.purple1, C.purple2]
 const VOIDM: Mat = [C.ink, C.void, C.purple0]
 const STONE: Mat = [C.stone1, C.stone2, C.stone3]
-const FADED: Mat = [C.stone2, C.stone3, C.bone0]
 
 /** Void interior: black speckled with stars that twinkle on the frame grid. */
 function voidFill(s: Parameters<CreatureDef['draw']>[0], x: number, y: number, w: number, h: number, t: number, seed: number): void {
@@ -338,11 +337,18 @@ function voidDoor(s: Surface, dx: number, floor: number, t: number, glow: boolea
  * `open` 0..1 widens it into the door, the line still burning down its middle as it parts.
  */
 function riftDoor(s: Surface, dx: number, floor: number, t: number, rise: number, open: number, glow: boolean): void {
-    const H = 112
+    rift(s, dx, floor, rise, open, 112, 34, d => voidDoor(d, dx, floor, t, glow))
+}
+
+/**
+ * A door painted by `paint` coming and going as a rift, `H` tall and `W` wide each side of `dx`:
+ * the line of light rising with `rise`, the door opening out of it with `open`.
+ */
+function rift(s: Surface, dx: number, floor: number, rise: number, open: number, H: number, W: number, paint: (d: Surface) => void): void {
     if (open > 0.02) {
         const d = scratch('door', s)
-        voidDoor(d, dx, floor, t, glow)
-        const half = 34 * open
+        paint(d)
+        const half = W * open
         for (let X = Math.floor(dx - half); X <= Math.ceil(dx + half); X++) {
             const sx = R(dx + (X - dx) / open)
             if (sx < 0 || sx >= d.w) continue
@@ -1629,107 +1635,358 @@ export const ZEPHYRAX: CreatureDef = {
 
 // ═══════════════════════════════════════════════════════════════ 9 · The Brink
 
-/** Sister Vesper, the Forgotten — a veiled nun no one remembers, fraying at the hem. */
+// Stage 5: Sister Vesper, the Forgotten, who kept the last light at the edge of the world until no
+// one remembered her. Stage 10: Liminus, the Last Door: the door Ithren opened, come alive.
+
+const HABIT: Mat = [C.steel0, C.steel1, C.steel2]
+const PORCELAIN: Mat = [C.steel2, C.steel3, C.white]
+const SCAPULAR: Mat = [C.blue0, C.blue1, C.blue2]
+
+/**
+ * Sister Vesper, the Forgotten: a nun floating at the edge of the world, her face worn smooth as
+ * porcelain by being forgotten, silver tears down it, a cracked halo behind her head with pieces
+ * drifting off it. A white wimple, a black veil streaming back, a cold grey habit with a dark
+ * scapular, its hem coming undone into threads with the stars showing through the holes. One hand
+ * at her breast on a rosary, the other holding out a lantern of cold white light. She lifts the
+ * lantern, her eyes open, and she swings it at the party, loosing a wave of its light.
+ */
 export const SISTER_VESPER: CreatureDef = {
-    name: 'Sister Vesper, the Forgotten', size: 96, shadow: 10, hover: 1, accent: C.haze,
+    name: 'Sister Vesper, the Forgotten', size: 96, shadow: 10, hover: 1, accent: C.frost,
     states: bossStates(1.2, 2.0, 2.0),
     draw(s, st, t) {
         drive(this, st, t, 6, 2.0)
-        const x = s.ax - 2 + B.lunge - B.kb
+        const x = s.ax - 4 + B.lunge - B.kb
         const y = s.ay
-        const hover = -10 + wv(t, 2.0, 2) + R(B.die * 12)
-        const top = y - 56 + hover
-        // habit: long, grey, fraying into threads at the hem
-        quad(s, x - 9, top + 12, x + 7, top + 12, x + 12, top + 44, x - 15, top + 44, FADED[1])
-        quad(s, x - 9, top + 12, x - 3, top + 12, x - 8, top + 44, x - 15, top + 44, FADED[0])
-        for (let i = 0; i < 14; i++) {
-            const tx = x - 15 + i * 2
-            const len = 4 + ((i * 7) % 9) + fr(t, 3, 2)
-            line(s, tx, top + 44, tx - 1 + ((i & 1) * 2), top + 44 + len, i % 3 ? C.stone3 : C.bone0)
+        const hover = -12 + wv(t, 2.0, 2) + R(B.die * 12)
+        const top = y - 62 + hover
+        const ph = q(t) / 2.0 * Math.PI * 2
+        const flut = R(Math.sin(ph * 2) * 1.5)
+        const hx = x + 3
+        const hy = top + 9
+        // the cracked halo, pieces of it drifting off
+        for (let a = 0; a < Math.PI * 2; a += 0.08) {
+            if ((a > 0.5 && a < 0.9) || (a > 3.6 && a < 4.1)) continue
+            px(s, R(hx - 2 + Math.cos(a) * 11), R(hy - 2 + Math.sin(a) * 11), a > 1 && a < 2.6 ? C.steel3 : C.frost)
         }
-        rect(s, x - 9, top + 22, 16, 2, C.stone2)
-        // prayer beads
-        for (let i = 0; i < 7; i++) px(s, x - 5 + i, top + 25 + (i % 3 === 1 ? 1 : 0), C.bone1)
-        px(s, x - 2, top + 28, C.bone1); px(s, x - 2, top + 29, C.bone1)
-        // veil and wimple
-        ellipse(s, x, top + 6, 9, 10, C.bone0)
-        rect(s, x - 9, top + 6, 3, 18, C.bone0)
-        ellipse(s, x + 2, top + 6, 5, 6, C.stone3) // veiled face
-        dither(s, x - 2, top + 1, 9, 10, C.bone1, 6)
-        const eye = B.hurt ? C.white : C.frost
-        px(s, x + 3, top + 5, eye); px(s, x + 5, top + 5, C.haze)
-        if (B.roar || B.strike) { rect(s, x + 3, top + 8, 3, 3, C.ink) }
-        // back hand at prayer
-        limbT(s, x - 6, top + 14, x - 1, top + 22, 3, 3, FADED)
-        // lantern held out
+        for (let i = 0; i < 3; i++) {
+            const k = (q(t) * 0.5 + i / 3) % 1
+            px(s, R(hx + 6 + k * 6), R(hy - 10 - k * 8 - i), k < 0.6 ? C.frost : C.steel3)
+        }
+        // the black veil streaming back off her head, torn at its end
+        poly(s, [-5, -8, -2, 4, -8, 30, -18, 34 + flut, -22, 20 + flut, -14, 2], hx, hy, C.night0)
+        poly(s, [-5, -8, -8, -4, -16, 8 + flut, -12, 0], hx, hy, C.void)
+        line(s, hx - 5, hy - 8, hx - 14, hy + 2, C.steel1) // the lit rim
+        line(s, hx - 14, hy + 2, hx - 22, hy + 20 + flut, C.steel1)
+        for (let i = 0; i < 3; i++) tri(s, hx - 18 + i * 4, hy + 32 + flut, hx - 15 + i * 4, hy + 32 + flut, hx - 18 + i * 3, hy + 38 + flut + (i & 1) * 2, C.night0)
+        // the habit: a long bell from the shoulders, folds lit on the left with a sheen down them
+        const hy0 = top + 16
+        poly(s, [-8, 0, 8, 0, 12, 40, -14, 40], x, hy0, HABIT[1])
+        poly(s, [-8, 0, -4, 0, -8, 40, -14, 40], x, hy0, HABIT[0])
+        for (const [fx, c] of [[-6, HABIT[2]], [5, HABIT[0]], [9, HABIT[2]]] as const) line(s, x + fx, top + 20, x + fx + (fx < 0 ? -3 : 2), top + 55, c)
+        dither(s, x - 7, top + 22, 3, 28, C.steel3, 3)
+        // the hem band: gold lines and a run of embroidered diamonds between them
+        line(s, x - 14, top + 50, x + 12, top + 50, C.gold1)
+        line(s, x - 14, top + 54, x + 12, top + 54, C.gold1)
+        for (let i = 0; i < 7; i++) {
+            const bx = x - 12 + i * 4
+            px(s, bx, top + 51, C.gold2); px(s, bx - 1, top + 52, C.gold2); px(s, bx + 1, top + 52, C.gold3); px(s, bx, top + 53, C.gold2)
+            px(s, bx + 2, top + 52, C.steel3)
+        }
+        // the scapular, deep blue edged in gold, a lantern-star embroidered on it and stars below
+        poly(s, [-1, 0, 5, 0, 6, 34, -3, 34], x, hy0, SCAPULAR[0])
+        line(s, x + 4, hy0, x + 5, top + 50, SCAPULAR[1])
+        line(s, x - 1, hy0, x - 3, top + 50, C.gold1)
+        line(s, x + 5, hy0, x + 6, top + 50, C.gold1)
+        line(s, x - 3, top + 50, x + 6, top + 50, C.gold2)
+        const sgx = x + 2
+        const sgy = top + 36
+        const tw = fr(t, 4, 2)
+        line(s, sgx, sgy - 3, sgx, sgy + 3, C.gold2); line(s, sgx - 3, sgy, sgx + 3, sgy, C.gold2)
+        px(s, sgx - 1, sgy - 1, C.gold1); px(s, sgx + 1, sgy - 1, C.gold1); px(s, sgx - 1, sgy + 1, C.gold1); px(s, sgx + 1, sgy + 1, C.gold1)
+        px(s, sgx, sgy, tw ? C.white : C.frost)
+        for (const [ox, oy] of [[0, 42], [3, 45], [1, 47]] as const) px(s, x + ox, top + oy, C.steel3)
+        // the hem coming undone: holes with the stars in them, threads drawn off it
+        for (const [ox, oy, w, h] of [[-9, 32, 5, 4], [2, 35, 4, 5], [-2, 27, 3, 3]] as const) {
+            ellipse(s, x + ox + w / 2, top + 16 + oy + h / 2, w / 2 + 0.5, h / 2, C.ink)
+            voidFill(s, x + ox, top + 16 + oy, w, h, t, 17)
+        }
+        // the cincture, knotted at the hip, its cord hanging and swaying, a silver tassel on it
+        line(s, x - 10, top + 31, x + 9, top + 31, C.gold1)
+        line(s, x - 10, top + 30, x + 9, top + 30, C.gold2)
+        const cs = R(Math.sin(ph) * 1)
+        disc(s, x + 7, top + 31, 1.5, C.gold2)
+        line(s, x + 7, top + 32, x + 8 + cs, top + 41, C.gold1)
+        rect(s, x + 7 + cs, top + 41, 3, 3, C.steel3); px(s, x + 8 + cs, top + 44, C.steel2)
+        for (let i = 0; i < 13; i++) {
+            const tx = x - 14 + i * 2
+            const len = 3 + ((i * 7) % 7) + fr(t, 3, 2)
+            line(s, tx, top + 56, tx - 2 - (i & 1), top + 56 + len, i % 3 ? HABIT[1] : C.bone0)
+        }
+        for (let i = 0; i < 4; i++) {
+            const k = (q(t) * 0.7 + i / 4) % 1
+            line(s, x - 12 + i * 6 - R(k * 8), top + 54 - R(k * 14), x - 14 + i * 6 - R(k * 10), top + 52 - R(k * 18), i & 1 ? C.bone1 : C.steel3)
+        }
+        // the far hand at her breast on the rosary, a wide sleeve
+        limbT(s, x - 5, top + 18, x, top + 27, 5, 5, HABIT)
+        ellipse(s, x + 1, top + 27, 2, 1.5, PORCELAIN[1])
+        for (let i = 0; i < 6; i++) px(s, x - 3 + i, top + 24 + (i === 2 || i === 3 ? 1 : 0), C.bone1)
+        line(s, x + 1, top + 28, x + 1, top + 32, C.bone0); px(s, x, top + 30, C.bone0); px(s, x + 2, top + 30, C.bone0) // the cross
+        // the capelet over her shoulders, blue edged in gold, a frost stone at its clasp
+        poly(s, [-10, 0, 9, 0, 11, 7, 6, 9, 0, 8, -6, 9, -12, 7], x, top + 14, SCAPULAR[1])
+        poly(s, [-10, 0, -4, 0, -6, 9, -12, 7], x, top + 14, SCAPULAR[0])
+        line(s, x - 12, top + 21, x - 6, top + 23, C.gold2); line(s, x - 6, top + 23, x, top + 22, C.gold2); line(s, x, top + 22, x + 6, top + 23, C.gold2); line(s, x + 6, top + 23, x + 11, top + 21, C.gold2)
+        line(s, x - 8, top + 15, x + 6, top + 15, SCAPULAR[2])
+        disc(s, x + 3, top + 17, 1.5, C.gold1); px(s, x + 3, top + 17, C.frost)
+        // the wimple and the face, worn smooth
+        ellipse(s, hx - 1, hy + 1, 7, 8, C.white)
+        ellipse(s, hx - 2, hy + 2, 6, 7, C.steel3)
+        rect(s, hx - 6, hy + 6, 12, 5, C.white) // the wimple under the chin
+        line(s, hx - 6, hy + 10, hx + 5, hy + 10, C.steel3)
+        line(s, hx - 6, hy - 6, hx + 4, hy - 7, C.white) // the band across the brow
+        ellipse(s, hx + 1, hy + 1, 3.5, 4.5, PORCELAIN[1])
+        line(s, hx + 3, hy - 3, hx + 4, hy + 2, PORCELAIN[2])
+        line(s, hx - 2, hy + 2, hx - 1, hy + 4, PORCELAIN[1]) // the shade of the cheek
+        px(s, hx + 5, hy + 1, PORCELAIN[1]) // the nose
+        const open = B.strike || B.roar || B.wind > 0.5
+        if (open && !B.hurt) {
+            // the eyes open, burning cold, and the mouth with them
+            ditherDisc(s, hx + 2, hy, 3, C.frost, 3 + R(B.glow * 4))
+            px(s, hx + 1, hy, C.white); px(s, hx + 4, hy, C.frost)
+            rect(s, hx + 2, hy + 3, 2, 2 + (B.strike || B.roar ? 1 : 0), C.ink)
+        } else {
+            line(s, hx, hy, hx + 1, hy, PORCELAIN[0]); px(s, hx + 4, hy, PORCELAIN[0]) // the closed lids, barely there
+            line(s, hx - 1, hy - 2, hx + 1, hy - 2, PORCELAIN[1]) // the brow
+        }
+        line(s, hx + 1, hy + 1, hx + 1, hy + 4, C.steel3) // the silver tear
+        // the veil over the head
+        poly(s, [-7, -4, -3, -9, 3, -9, 6, -6, 5, -4, -1, -6, -6, -1], hx, hy, C.night0)
+        line(s, hx - 3, hy - 9, hx + 3, hy - 9, C.steel1)
+        // the near arm and the lantern, swinging on its chain: held out, lifted, swung at the party
         const sx = x + 6
-        const sy = top + 14
-        const lx = sx + R(bz(6, 2, 16))
-        const ly = sy + R(bz(8, 2, 2))
-        limbT(s, sx, sy, lx, ly - 2, 3, 3, FADED)
-        line(s, lx, ly - 2, lx, ly + 2, C.stone1)
-        rect(s, lx - 3, ly + 2, 7, 7, C.stone1)
-        rect(s, lx - 2, ly + 3, 5, 5, fr(t, 5, 2) || B.glow > 0.5 ? C.frost : C.cyan)
-        px(s, lx, ly + 5, C.white)
-        rect(s, lx - 3, ly + 9, 7, 1, C.stone0)
+        const sy = top + 18
+        const swing = st === 'idle' || st === 'entry' ? Math.sin(ph) * 0.15 : 0
+        const lx = sx + R(bz(9, 2, 18))
+        const ly = sy + R(bz(6, -14, 2))
+        limbT(s, sx, sy, lx, ly, 5, 4, HABIT)
+        line(s, R(sx + (lx - sx) * 0.8), R(sy + (ly - sy) * 0.8) - 2, R(sx + (lx - sx) * 0.8), R(sy + (ly - sy) * 0.8) + 2, C.gold2) // the gold cuff
+        ellipse(s, lx, ly, 1.5, 1.5, PORCELAIN[1])
+        const cx = lx + R(Math.sin(swing) * 6)
+        const cy = ly + 6
+        line(s, lx, ly, cx, cy, C.steel2)
+        const lit = B.glow > 0.3 || fr(t, 5, 3) > 0
+        ditherDisc(s, cx, cy + 6, 8 + R(B.glow * 4), C.frost, lit ? 4 + R(B.glow * 5) : 2)
+        tri(s, cx - 3, cy + 1, cx + 3, cy + 1, cx, cy - 1, C.steel1) // the cap
+        rect(s, cx - 3, cy + 1, 7, 9, C.steel0)
+        rect(s, cx - 2, cy + 2, 5, 7, lit ? C.frost : C.cyan)
+        line(s, cx, cy + 2, cx, cy + 8, C.steel0) // the frame
+        px(s, cx - 1, cy + 6, C.white); px(s, cx + 1, cy + 5, C.white)
+        rect(s, cx - 3, cy + 10, 7, 1, C.steel1)
         finish(s, Entry.Fade)
     },
     fx(dst, st, t, x, y, dir) {
         const k = fr(t, 10, 16)
-        for (let i = 0; i < 4; i++) dst.set(x + dir * (-8 + ((i * 7 + k) % 18)), y - 10 - ((k * 3 + i * 11) % 40), i & 1 ? C.haze : C.pink) // threads coming loose
-        if ((st === 'attack' && B.strike) || B.roar) for (let r = 4; r < 20; r += 5) for (let a = -0.8; a <= 0.8; a += 0.2) dst.set(x + dir * R(12 + Math.cos(a) * r), y - 48 + R(Math.sin(a) * r), r % 2 ? C.frost : C.haze)
+        for (let i = 0; i < 4; i++) dst.set(x - dir * (6 + ((i * 7 + k) % 16)), y - 12 - ((k * 3 + i * 11) % 40), i & 1 ? C.steel3 : C.bone1) // threads drifting off
+        if ((st === 'attack' && B.strike) || B.roar) {
+            // a wave of the lantern's cold light rolling at the party
+            for (let r = 6; r < 34; r += 7) for (let a = -0.7; a <= 0.7; a += 0.12) {
+                dst.set(x + dir * R(20 + Math.cos(a) * r), y - 38 + R(Math.sin(a) * r), r % 2 ? C.frost : C.white)
+            }
+        }
     }
 }
 
-/** Liminus, the Last Door — not a guardian of a door; the door itself, with an eye. */
-export const LIMINUS: CreatureDef = {
-    name: 'Liminus, the Last Door', size: 128, shadow: 30, accent: C.pink,
-    states: bossStates(1.5, 2.0, 2.4),
-    draw(s, st, t) {
-        drive(this, st, t, 4, 2.0)
-        const x = s.ax + B.lunge - B.kb
-        const y = s.ay
-        const top = y - 104 + B.breath + R(B.die * 20)
-        const lean = R(B.die * 6)
-        // the arch: two pillars and a pointed lintel
-        const w = 22
-        rect(s, x - w - 8 + lean, top + 24, 10, y - top - 24, STONE[1])
-        rect(s, x + w - 2 + lean, top + 24, 10, y - top - 24, STONE[1])
-        rect(s, x - w - 8 + lean, top + 24, 2, y - top - 24, STONE[2])
-        rect(s, x + w + 6 + lean, top + 24, 2, y - top - 24, STONE[0])
-        tri(s, x - w - 8 + lean, top + 26, x + w + 8 + lean, top + 26, x + lean, top - 6, STONE[1])
-        tri(s, x - w + 2 + lean, top + 26, x + w - 2 + lean, top + 26, x + lean, top + 6, C.ink)
-        rect(s, x - w + 2 + lean, top + 24, 2 * w - 3, y - top - 24, C.ink)
-        // the inside of the door — colour gone, stars, a thread-pale horizon
-        voidFill(s, x - w + 2 + lean, top + 6, 2 * w - 3, y - top - 6, t, 11)
-        const glow = B.glow > 0.3 ? 8 : 3
-        dither(s, x - w + 2 + lean, y - 20, 2 * w - 3, 20, C.haze, glow)
-        // keystone eye: opens on the wind-up
-        const ex = x + lean
-        const ey = top + 2
-        rect(s, ex - 6, ey - 6, 12, 11, STONE[2])
-        const lid = B.strike || B.roar ? 4 : B.wind > 0.3 ? 3 : st === 'death' ? 0 : 2
-        ellipse(s, ex, ey, 5, lid, C.white)
-        if (lid > 0) { disc(s, ex + 1, ey, Math.min(2, lid), B.hurt ? C.ink : C.pink); px(s, ex + 1, ey, C.ink) } else line(s, ex - 4, ey, ex + 4, ey, C.ink)
-        speckle(s, x - w - 8, top - 6, 2 * w + 16, y - top, STONE, 9)
-        // threads unravelling off the edges
-        const f = fr(t, 4, 2)
-        for (let i = 0; i < 5; i++) {
-            line(s, x + w + 8 + lean, top + 34 + i * 12, x + w + 14 + lean + ((i + f) & 1) * 2, top + 40 + i * 12 + f * 2, i & 1 ? C.haze : C.pink)
-            line(s, x - w - 8 + lean, top + 40 + i * 12, x - w - 13 + lean, top + 46 + i * 12 - f, i & 1 ? C.bone0 : C.haze)
+// ── Liminus ──
+
+/** Where Liminus's near hand is this frame and how it lies, set by `liminusBody` for `fx`. */
+const LH = { x: 0, y: 0 }
+
+/** One carved block of the door, its top-left at (x, y): lit on its top and left, shaded right and below. */
+function block(s: Surface, x: number, y: number, w: number, h: number, rune: number): void {
+    rect(s, x, y, w, h, STONE[1])
+    line(s, x, y, x + w - 1, y, STONE[2])
+    line(s, x, y, x, y + h - 1, STONE[2])
+    line(s, x + w - 1, y + 1, x + w - 1, y + h - 1, STONE[0])
+    line(s, x + 1, y + h - 1, x + w - 1, y + h - 1, STONE[0])
+    if (rune) {
+        const cx = x + (w >> 1)
+        const cy = y + (h >> 1)
+        px(s, cx, cy - 1, rune); px(s, cx - 1, cy, rune); px(s, cx + 1, cy, rune); px(s, cx, cy + 1, rune)
+    }
+}
+
+/**
+ * A hand of the door's stone floating free, the palm at (cx, cy), the fingers along `a`: a palm
+ * block with a rune, four fingers of three knuckled stones each, curled by `curl` toward the palm,
+ * and a thumb. `dim` shades it as the far one.
+ */
+function stoneHand(s: Surface, cx: number, cy: number, a: number, curl: number, spread: number, dim: boolean, rune: number): void {
+    const z = 1.8
+    const dx = Math.cos(a)
+    const dy = Math.sin(a)
+    const nx = -dy
+    const ny = dx
+    const m: Mat = dim ? [C.void, C.stone0, C.stone1] : STONE
+    quad(s, cx - dx * 4 * z - nx * 5 * z, cy - dy * 4 * z - ny * 5 * z, cx + dx * 4 * z - nx * 5 * z, cy + dy * 4 * z - ny * 5 * z, cx + dx * 4 * z + nx * 5 * z, cy + dy * 4 * z + ny * 5 * z, cx - dx * 4 * z + nx * 5 * z, cy - dy * 4 * z + ny * 5 * z, m[1])
+    line(s, R(cx - dx * 4 * z - nx * 5 * z), R(cy - dy * 4 * z - ny * 5 * z), R(cx + dx * 4 * z - nx * 5 * z), R(cy + dy * 4 * z - ny * 5 * z), m[2])
+    line(s, R(cx - dx * 4 * z + nx * 5 * z), R(cy - dy * 4 * z + ny * 5 * z), R(cx + dx * 4 * z + nx * 5 * z), R(cy + dy * 4 * z + ny * 5 * z), m[0])
+    if (rune) { px(s, R(cx), R(cy), rune); px(s, R(cx + nx), R(cy + ny), rune); px(s, R(cx - dx), R(cy - dy), rune) }
+    for (let i = 0; i < 4; i++) {
+        let fx = cx + dx * 4 * z + nx * (i - 1.5) * (2.8 + spread) * z
+        let fy = cy + dy * 4 * z + ny * (i - 1.5) * (2.8 + spread) * z
+        let fa = a + (i - 1.5) * spread * 0.2
+        for (let j = 0; j < 3; j++) {
+            // a finger of three stones, tapering, a dark seam at each knuckle
+            const len = (i === 0 || i === 3 ? 2.6 : 3.2) * z
+            const ex = fx + Math.cos(fa) * len
+            const ey = fy + Math.sin(fa) * len
+            limbT(s, fx, fy, ex, ey, 3.4 - j * 0.4, 3 - j * 0.4, m)
+            px(s, R(ex), R(ey), m[0])
+            fx = ex + Math.cos(fa) * 0.6
+            fy = ey + Math.sin(fa) * 0.6
+            fa += curl * 0.7
         }
-        // two floating stone hands
-        const hy = y - 44 + wv(t, 2.0, 2)
-        const ha = bz(0, -14, 10)
-        ball(s, x + w + 18 + lean + R(ha * 0.4), hy + R(ha), 6, 5, STONE)
-        ball(s, x - w - 18 + lean, hy + 4, 6, 5, STONE)
-        finish(s, Entry.Rise, 12)
+    }
+    const ta = a + 1.2
+    const tx = cx - nx * 5 * z + Math.cos(ta) * 4 * z
+    const ty = cy - ny * 5 * z + Math.sin(ta) * 4 * z
+    // the thumb, two stones out from the side of the palm
+    limbT(s, cx - nx * 4 * z, cy - ny * 4 * z, tx, ty, 3.6, 3.2, m)
+    limbT(s, tx, ty, tx + Math.cos(ta + curl) * 3 * z, ty + Math.sin(ta + curl) * 3 * z, 3.2, 2.6, m)
+}
+
+/**
+ * Liminus whole, sill on `y` and centred on `dx`: the door's arch of carved blocks floating a
+ * little apart as the world lets go of them, runes pulsing up the pillars, the keystone an eye that
+ * looks about and opens wide on the attack, the Void wheeling inside; its two hands floating at its
+ * sides. `lift` 0..1 sets the blocks drifting up and apart as it dies.
+ */
+function liminusBody(s: Surface, st: string, dx: number, y: number, t: number, lift: number): void {
+    const ph = q(t) / 2.0 * Math.PI * 2
+    const dw = 30
+    const archY = y - 74
+    const drift = (i: number) => R(Math.sin(ph + i * 1.3) * 1 - lift * (6 + (i * 7) % 11) * (1 + i * 0.1))
+    const spin = st === 'attack' ? 1.4 + B.glow * 3 : 1.4
+    // the inside: the dark, the stars, the three-armed vortex round a glowing heart
+    ellipse(s, dx, archY, dw, 16, C.ink)
+    rect(s, dx - dw, archY, dw * 2 + 1, y - archY - 2, C.ink)
+    voidFill(s, dx - dw, archY - 16, dw * 2 + 1, y - archY + 14, t, 23)
+    const heartY = archY + 26
+    for (let arm = 0; arm < 3; arm++) {
+        for (let k = 0; k < 26; k++) {
+            const r = k * (dw / 26) * 1.1 * (1 - lift)
+            const a = q(t) * spin + arm * (Math.PI * 2 / 3) + k * 0.22
+            const vx = dx + Math.cos(a) * r
+            const vy = heartY + Math.sin(a) * r * 1.4
+            if (Math.abs(vx - dx) > dw || vy < archY - 12) continue
+            const c = k < 6 ? C.pink : k & 1 ? C.purple2 : C.purple1
+            px(s, vx, vy, c); px(s, vx + 1, vy, c)
+        }
+    }
+    ditherDisc(s, dx, heartY, 5 + R(B.glow * 5), C.pink, 5 + R(B.glow * 6))
+    disc(s, dx, heartY, 2 + R(B.glow), C.white)
+    // the pillars, block on block, a little apart and bobbing, a rune on every other one pulsing up
+    const pulse = fr(t, 4, 4)
+    for (const side of [-1, 1]) {
+        const px0 = side < 0 ? dx - dw - 8 : dx + dw + 1
+        for (let i = 0; i < 8; i++) {
+            const by = y - 9 - i * 9
+            if (by < archY - 2) break
+            const rune = (i + (side < 0 ? 0 : 1)) % 2 === 0 ? ((i + pulse) % 4 === 0 ? C.pink : C.purple2) : 0
+            block(s, px0 + (side * (i & 1)), by + drift(i + (side < 0 ? 0 : 9)), 8, 8, rune)
+        }
+    }
+    // the arch: voussoirs round the top, each a block set on the curve and floating off it
+    for (let k = 0; k < 9; k++) {
+        if (k === 4) continue
+        const a0 = Math.PI + (k / 9) * Math.PI
+        const a1 = Math.PI + ((k + 1) / 9) * Math.PI - 0.04
+        const f = drift(k + 20)
+        const pts = [
+            dx + Math.cos(a0) * dw, archY + Math.sin(a0) * 16 + f, dx + Math.cos(a0) * (dw + 8), archY + Math.sin(a0) * 23 + f,
+            dx + Math.cos(a1) * (dw + 8), archY + Math.sin(a1) * 23 + f, dx + Math.cos(a1) * dw, archY + Math.sin(a1) * 16 + f
+        ]
+        poly(s, pts, 0, 0, STONE[1])
+        line(s, R(pts[2]!), R(pts[3]!), R(pts[4]!), R(pts[5]!), STONE[2])
+        line(s, R(pts[0]!), R(pts[1]!), R(pts[6]!), R(pts[7]!), STONE[0])
+        if (k % 3 === 1) px(s, R((pts[0]! + pts[4]!) / 2), R((pts[1]! + pts[5]!) / 2), (k + pulse) % 4 === 0 ? C.pink : C.purple2)
+    }
+    // the plinth
+    rect(s, dx - dw - 11, y - 3, dw * 2 + 23, 3, STONE[0])
+    line(s, dx - dw - 11, y - 3, dx + dw + 11, y - 3, STONE[2])
+    // the keystone, an eye cut in it that looks about and opens wide on the attack
+    const ky = archY - 27 + drift(30)
+    block(s, dx - 7, ky, 15, 13, 0)
+    line(s, dx - 5, ky - 2, dx + 5, ky - 2, C.stone3)
+    const open = st === 'death' ? R(3 * (1 - B.die)) : B.strike || B.roar ? 4 : B.wind > 0.3 ? 4 : B.hurt ? 1 : 3
+    const ex = dx
+    const ey = ky + 6
+    if (B.glow > 0.3) ditherDisc(s, ex, ey, 9, C.pink, R(B.glow * 7))
+    ellipse(s, ex, ey, 5, open + 0.5, C.ink)
+    if (open > 0) {
+        ellipse(s, ex, ey, 5, open, C.white)
+        const look = st === 'idle' ? R(Math.sin(ph) * 2) : 2
+        disc(s, ex + look, ey, Math.min(2.5, open), B.hurt ? C.ink : C.pink)
+        rect(s, ex + look, ey - 1, 1, 3, C.ink)
+        px(s, ex - 2, ey - 1, C.white)
+    } else line(s, ex - 4, ey, ex + 4, ey, C.stone3)
+    line(s, ex - 6, ey - open - 1, ex + 6, ey - open - 1, STONE[0]) // the lid
+    // stones lifting off round it as the edge of the world lets go
+    for (let i = 0; i < 5; i++) {
+        const k = (q(t) * 0.3 + i / 5) % 1
+        const sx = dx - dw - 16 + ((i * 29) % (dw * 2 + 32))
+        const sy = y - 6 - k * 90 - lift * 20
+        if (k < 0.85) { rect(s, sx, sy, 2 + (i & 1), 2, STONE[1]); px(s, sx, sy, STONE[2]) }
+    }
+    // the hands: the far one floating behind its side, the near one out at the party
+    const bob = wv(t, 2.0, 2)
+    stoneHand(s, dx - dw - 16, y - 48 + bob + drift(40), -1.9, 0.15, 0.3, true, 0)
+    const lx = dx + dw + 18 + R(bz(0, -6, 2))
+    const lyy = y - 42 + bob + R(bz(0, -34, 32)) + drift(41)
+    const la = st === 'attack' ? bz(-1.4, -2.0, 0.1) : -1.4 + Math.sin(ph) * 0.1
+    const curl = st === 'attack' ? bz(0.12, 0.9, -0.05) : 0.12
+    stoneHand(s, lx, lyy, la, curl, B.strike ? 0.8 : 0.3, false, B.glow > 0.3 ? C.pink : C.purple2)
+    LH.x = lx - s.ax
+    LH.y = lyy - s.ay
+}
+
+const LIMINUS_STATES = bossStates(1.5, 2.0, 2.6)
+
+/**
+ * Liminus, the Last Door: not a guardian of a door but the door itself, the one Ithren opened,
+ * waiting at the edge of the world with the Void wheeling inside it. It arrives as it did for
+ * Ithren, a line of light rising and parting into the door; its keystone eye looks about; the
+ * blocks of it float a little apart, and its hands float free at its sides. It opens its eye wide
+ * and the vortex races as it lifts its near hand, then brings it down flat on the front rank. As it
+ * dies its stones drift up and apart into the dark.
+ */
+export const LIMINUS: CreatureDef = {
+    name: 'Liminus, the Last Door', size: 128, shadow: 0, accent: C.pink,
+    states: LIMINUS_STATES,
+    draw(s, st, t) {
+        drive(this, st, t, 0, 2.0)
+        const x = s.ax - 6 - B.kb
+        const y = s.ay
+        if (st === 'entry') {
+            const u = q(t) / LIMINUS_STATES.entry.dur
+            const rise = Math.min(1, u / 0.14)
+            const open = sm(span(u, 0.14, 0.5))
+            if (open < 1) rift(s, x, y, rise, open, 104, 64, d => liminusBody(d, 'idle', x, y, t, 0))
+            else liminusBody(s, st, x, y, t, 0)
+            B.ent = 1
+        } else {
+            liminusBody(s, st, x, y, t, B.die)
+        }
+        finish(s, Entry.Fade, 0)
     },
     fx(dst, st, t, x, y, dir) {
-        const k = fr(t, 10, 8)
-        for (let i = 0; i < 3; i++) dst.set(x + dir * (-20 + ((i * 17 + k * 5) % 40)), y - 110 - ((k * 2 + i * 5) % 12), C.haze)
-        if ((st === 'attack' && (B.strike || B.rec > 0.5)) || B.roar) {
-            for (let i = 0; i < 44; i++) for (let j = -2; j <= 2; j++) if ((i + j) % 3) dst.set(x + dir * (4 + i), y - 102 + j + R(Math.sin(i * 0.4) * 1), j === 0 ? C.white : C.pink)
+        if (st === 'attack' && B.strike) {
+            // the hand comes down: the ground cracks with the Void's light and stone flies
+            const gx = x + dir * LH.x
+            for (let i = 0; i < 14; i++) {
+                const a = i / 14 * Math.PI
+                dst.set(R(gx + Math.cos(a) * (8 + (i & 1) * 5)), R(y - 2 - Math.sin(a) * (3 + (i % 3) * 2)), i & 1 ? C.stone2 : C.pink)
+            }
+            for (let i = 0; i < 8; i++) { dst.set(gx + dir * (i - 4) * 3, y, C.pink); dst.set(gx + dir * (i - 4) * 3 + 1, y - 1, C.white) }
         }
     }
 }

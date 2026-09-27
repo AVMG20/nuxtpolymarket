@@ -104,7 +104,8 @@ export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly
     { n: 5, label: 'Sunken Amarath roster', prefixes: ['enemy/world_sunken_amarath', 'boss/world_sunken_amarath', 'superboss/world_sunken_amarath'] },
     { n: 6, label: 'Duskspire roster', prefixes: ['enemy/world_duskspire', 'boss/world_duskspire', 'superboss/world_duskspire'] },
     { n: 7, label: 'Bonefields roster', prefixes: ['enemy/world_the_bonefields', 'boss/world_the_bonefields', 'superboss/world_the_bonefields'] },
-    { n: 8, label: 'Shattered Sky roster', prefixes: ['enemy/world_the_shattered_sky', 'boss/world_the_shattered_sky', 'superboss/world_the_shattered_sky'] }
+    { n: 8, label: 'Shattered Sky roster', prefixes: ['enemy/world_the_shattered_sky', 'boss/world_the_shattered_sky', 'superboss/world_the_shattered_sky'] },
+    { n: 9, label: 'Brink roster', prefixes: ['enemy/world_the_brink', 'boss/world_the_brink', 'superboss/world_the_brink'] }
 ]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
