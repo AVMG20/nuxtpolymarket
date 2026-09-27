@@ -63,17 +63,20 @@ export function pz(rest: number, w: number, s: number): number {
     return A.wind > 0 ? rest + (w - rest) * A.wind : rest + (s - rest) * A.rec
 }
 
+/** How long a hit or a death flashes white, whatever the frame rate: a fixed beat, not one frame. */
+const FLASH_SECONDS = 0.1
+
 /** Hit recoil: flash on the first frame, knock back `kb` px, easing out over the state. */
 export function hitPhase(t: number, dur: number): number {
     const u = q(t) / dur
-    CF.flash = q(t) < 1 / ANIM_FPS
+    CF.flash = q(t) < FLASH_SECONDS
     return Math.round((1 - u) * 3)
 }
 
 /** Death: collapse progress 0..1 over the first 55%, then a dissolve to nothing. */
 export function deathPhase(t: number, dur: number): number {
     const u = q(t) / dur
-    if (q(t) < 1 / ANIM_FPS) CF.flash = true
+    if (q(t) < FLASH_SECONDS) CF.flash = true
     if (u > 0.55) CF.fade = Math.min(16, Math.round((u - 0.55) / 0.45 * 17))
     return sm(Math.min(1, u / 0.55))
 }

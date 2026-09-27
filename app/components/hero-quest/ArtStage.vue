@@ -18,6 +18,8 @@ const world = ref(1)
 const classId = ref<ClassId>('class_sorcerer')
 const paused = ref(false)
 const fullscreen = ref(false)
+const fps = useHqArtFps()
+const fpsItems = HQ_ART_FPS_OPTIONS.map(n => ({ label: n === 30 ? `${n} fps · default` : `${n} fps`, value: n }))
 
 const worldItems = WORLDS.map(w => ({ label: `${w.index}. ${w.name}`, value: w.index }))
 const classItems = CLASS_NODES.map(c => ({ label: c.name, value: c.id }))
@@ -54,7 +56,8 @@ async function toggleFullscreen() {
   else await wrap.value?.requestFullscreen()
 }
 
-watch([world, classId], () => demo.setup(world.value, classId.value))
+// a new rate rebuilds every asset, so the stage re-bakes its frames from them
+watch([world, classId, fps], () => demo.setup(world.value, classId.value))
 watch(paused, p => { demo.paused = p })
 // the presenter is sized to its frame, so a new camera gets a new one
 watch(camera, (id) => {
@@ -106,6 +109,12 @@ onBeforeUnmount(() => {
         :items="cameraItems"
         size="xs"
         class="w-40"
+      />
+      <USelect
+        v-model="fps"
+        :items="fpsItems"
+        size="xs"
+        class="w-36"
       />
       <UButton
         size="xs"

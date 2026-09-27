@@ -457,6 +457,11 @@ export function registerArt(p: Provider): void {
 
 let cache: ArtAsset[] | null = null
 
+/** Drop the built assets, so the next `allArt()` builds them again at the current `ANIM_FPS`. */
+export function resetArt(): void {
+    cache = null
+}
+
 export function allArt(): readonly ArtAsset[] {
     if (!cache) {
         cache = PROVIDERS.flatMap(p => p())

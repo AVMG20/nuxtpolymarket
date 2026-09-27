@@ -10,24 +10,29 @@ import { allArt, ART_GROUPS, ART_ROUNDS, type ArtGroup } from '~/utils/hero-ques
  */
 if (!import.meta.dev) throw createError({ statusCode: 404, statusMessage: 'Not found' })
 
-const assets = allArt()
+// rebuilt when the stage's rate changes, so the thumbnails play at it too
+const fps = useHqArtFps()
+const assets = computed(() => {
+  void fps.value
+  return allArt()
+})
 /**
  * Review rounds, newest first. The page opens on the latest round's changes across every
  * group, so they can be judged together; an asset shows under the round that last changed it.
  * With no round open it opens on the first group.
  */
-const rounds = [...ART_ROUNDS].reverse().map(r => ({ ...r, count: assets.filter(a => a.round === r.n).length }))
+const rounds = computed(() => [...ART_ROUNDS].reverse().map(r => ({ ...r, count: assets.value.filter(a => a.round === r.n).length })))
 const GROUP_LABEL = Object.fromEntries(ART_GROUPS.map(g => [g.id, g.label])) as Record<ArtGroup, string>
-const group = ref<ArtGroup | number>(rounds[0]?.n ?? ART_GROUPS[0]!.id)
+const group = ref<ArtGroup | number>(rounds.value[0]?.n ?? ART_GROUPS[0]!.id)
 const query = ref('')
 
-const counts = computed(() => Object.fromEntries(ART_GROUPS.map(g => [g.id, assets.filter(a => a.group === g.id).length])))
+const counts = computed(() => Object.fromEntries(ART_GROUPS.map(g => [g.id, assets.value.filter(a => a.group === g.id).length])))
 
 const sections = computed(() => {
   const q = query.value.trim().toLowerCase()
   const inRound = typeof group.value === 'number'
-  const out = new Map<string, typeof assets[number][]>()
-  for (const a of assets) {
+  const out = new Map<string, typeof assets.value[number][]>()
+  for (const a of assets.value) {
     if (inRound ? a.round !== group.value : a.group !== group.value) continue
     if (q && !a.label.toLowerCase().includes(q) && !a.id.includes(q) && !a.section.toLowerCase().includes(q)) continue
     const key = inRound ? `${GROUP_LABEL[a.group]} · ${a.section}` : a.section
@@ -103,7 +108,7 @@ const sections = computed(() => {
         <div class="grid gap-2 grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
           <HeroQuestArtCard
             v-for="a in list"
-            :key="a.id"
+            :key="`${fps}:${a.id}`"
             :asset="a"
             :class="a.w >= 150 && a.w >= a.h * 1.5 ? 'sm:col-span-2' : ''"
           />

@@ -2,13 +2,20 @@
 //
 // A pose is a fixed-length Float32Array of parameters (hand position, weapon angle, lean…).
 // A clip is a list of keyframes over those parameters; sampling eases between keys and then
-// the drawer rounds to whole pixels. Sampling time is quantized to ANIM_FPS first, so motion
-// steps like hand-drawn frames (the 8–12 fps pixel feel) even though the loop runs at 60 Hz.
+// the drawer rounds to whole pixels. Sampling time is quantized to ANIM_FPS first, 30 fps: smooth
+// enough that big motions glide, while whole pixels and held poses keep the pixel feel.
 //
 // Sampling writes into a caller-owned pose and never allocates.
 
-/** Frame rate every sprite animation is authored and exported at. */
-export const ANIM_FPS = 10
+/** Frame rate every sprite animation is sampled and exported at: 30 (10 until 2026-09-27). The art gallery can change it to compare. */
+// a live binding on purpose: every importer reads the rate the gallery last set
+// eslint-disable-next-line import/no-mutable-exports
+export let ANIM_FPS = 30
+
+/** Resample every animation at `fps`. Dev comparison only; assets built before the call keep their old rate, so rebuild them (`resetArt`). */
+export function setAnimFps(fps: number): void {
+    ANIM_FPS = fps
+}
 
 export const enum Ease { Linear, InOut, Out, In, Back, Hold }
 
