@@ -168,6 +168,8 @@ interface Unit {
     hold: number
     /** Ticks left of the struck jolt, a 1 px shudder. */
     jolt: number
+    /** Ticks left of a white flash drawn over the body: a boss struck mid-swing, which keeps swinging. */
+    flash: number
     /** When (in `t`) this body's strike began, for the afterimages' brief window. */
     strikeAt: number
     state: U
@@ -409,7 +411,7 @@ export class BattleDemo {
             frames: [idle!, attack!, cast ?? attack!, hit!, death!, entry ?? idle!, idle!, move ?? idle!],
             clips: [null, clips[0] ?? null, clips[1] ?? null],
             impact: [0, clips[0]?.impact ?? 0.45 * attack!.frames.length / ANIM_FPS, clips[1]?.impact ?? 0.45 * (cast ?? attack!).frames.length / ANIM_FPS],
-            vfx, accent: C.red3, shot: null, shots: 1, rig: -1, hold: 0, jolt: 0, strikeAt: -1,
+            vfx, accent: C.red3, shot: null, shots: 1, rig: -1, hold: 0, jolt: 0, flash: 0, strikeAt: -1,
             state: U.Idle, t: 0, wait: 0.5 + Math.random() * 1.2, fired: false, hp: 4, phase: Phase.Idle, stack: 0
         }
     }
@@ -426,6 +428,7 @@ export class BattleDemo {
             u.fired = false
             u.hold = 0
             u.jolt = 0
+            u.flash = 0
             u.wait = 0.5 + Math.random() * 1.2
             if (!u.boss && active) {
                 const slot = i - PARTY
@@ -561,8 +564,18 @@ export class BattleDemo {
         if (k >= this.flash) { this.flash = k; this.flashColor = color }
     }
 
-    /** A body takes a hit: straight onto its white flash frame, held and shuddering. */
+    /**
+     * A body takes a hit: straight onto its white flash frame, held and shuddering. A boss already
+     * swinging keeps swinging, as the big ones do: it flashes and shudders, hitching for a tick,
+     * but the hit no longer cancels the attack (it used to, before the swing ever landed).
+     */
     private struck(tgt: Unit, hold: number): void {
+        if (tgt.boss && tgt.state === U.Attack) {
+            tgt.flash = 3
+            tgt.hold = 1
+            tgt.jolt = hold + 4
+            return
+        }
         tgt.state = U.Hit
         tgt.t = HIT_FLASH_AT
         tgt.hold = hold
@@ -712,6 +725,7 @@ export class BattleDemo {
         for (let i = 0; i < this.units.length; i++) {
             const u = this.units[i]!
             if (u.jolt > 0) u.jolt--
+            if (u.flash > 0) u.flash--
             if (u.hold > 0) { u.hold--; continue }
             u.t += dt
             const b = u.frames[u.state]!
@@ -739,7 +753,9 @@ export class BattleDemo {
                     break
                 }
                 case U.Hit:
-                    if (u.t >= dur) { u.state = U.Idle; u.t = 0; u.wait = 0.3 + Math.random() }
+                    // a boss answers a flinch with a swing; restarting its wait let the party's steady
+                    // hits keep it from ever attacking
+                    if (u.t >= dur) { u.state = U.Idle; u.t = 0; u.wait = u.boss ? 0.4 : 0.3 + Math.random() }
                     break
                 case U.Death: {
                     // it staggers and falls as authored, then shatters where it would dissolve
@@ -844,6 +860,7 @@ export class BattleDemo {
                     ghostAt(s, b, u.t, x - dir * 3, u.y, u.accent)
                 }
                 blitAt(s, b, u.t, x, u.y, fade, u.elite && u.state !== U.Death && fade === 0 ? ELITE_MARK : CLEAR, lit ? u.accent : CLEAR, dir)
+                if (u.flash > 0) ghostAt(s, b, u.t, x, u.y, C.white)
                 if (u.elite && u.state !== U.Death) drawEliteMark(s, u.x + u.ox, u.y - 36, this.time)
             }
         }
