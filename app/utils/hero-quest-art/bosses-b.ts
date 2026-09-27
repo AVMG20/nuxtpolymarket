@@ -3,12 +3,13 @@
 
 import { C } from './palette'
 import type { CreatureDef } from './creature'
-import { fr } from './creature'
+import { CF, fr, sm, span } from './creature'
 import type { Mat } from './weapons'
 import {
     B, Entry, bossStates, drive, finish, bz, ball, chain, tentacle, glowEye, wing, speckle,
-    limbT, reach, P, rect, px, line, disc, ellipse, tri, quad, dither, ring, arc, poly, q, wv, bayer, hash2
+    limbT, reach, elbow, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, ring, arc, poly, q, wv, bayer, hash2
 } from './boss-kit'
+import { Surface, ditherDisc } from './surface'
 
 const R = Math.round
 
@@ -37,7 +38,70 @@ function voidFill(s: Parameters<CreatureDef['draw']>[0], x: number, y: number, w
 
 // ═══════════════════════════════════════════════════════════════ 6 · Duskspire
 
-/** Magister Halvane — a floating mage-lord with his grimoires orbiting him. */
+// Stage 5: Magister Halvane, master of the tower schools, floating with his grimoires orbiting
+// him. Stage 10: Archmage Ithren, the Door-Opener, holding open the door he opened to the Void.
+
+const SKIN: Mat = [C.skin0, C.skin1, C.skin2]
+const BOOKS: readonly Mat[] = [[C.red0, C.red1, C.red2], [C.teal0, C.teal1, C.teal2], [C.blue0, C.blue1, C.blue2]]
+
+/** A grimoire at (x, y): a cover with a darker spine, gold corners and a sigil; `open` fans its pages. */
+function grimoire(s: Surface, x: number, y: number, m: Mat, open: number, t: number): void {
+    if (open > 0.5) {
+        // flung open, pages fanning in the draught of the spell
+        const flap = Math.floor(t * 12) & 1
+        quad(s, x, y + 4, x - 7, y - 1, x - 7, y - 6, x, y - 1, m[1])
+        quad(s, x, y + 4, x + 7, y - 1, x + 7, y - 6, x, y - 1, m[0])
+        quad(s, x, y + 3, x - 6, y - 1, x - 6, y - 5 - flap, x, y - 1, C.bone1)
+        quad(s, x, y + 3, x + 6, y - 1, x + 6, y - 5 + flap, x, y - 1, C.white)
+        line(s, x - 4, y - 2, x - 2, y - 1, C.pink); line(s, x + 2, y - 2, x + 4, y - 3, C.cyan) // the lit script
+        return
+    }
+    rect(s, x - 4, y - 4, 9, 8, m[1])
+    rect(s, x - 4, y - 4, 2, 8, m[0]) // the spine
+    line(s, x - 2, y - 4, x + 4, y - 4, m[2])
+    rect(s, x + 4, y - 3, 1, 6, C.bone1) // the page edges
+    px(s, x - 2, y - 4, C.gold2); px(s, x + 4, y + 3, C.gold1); px(s, x - 2, y + 3, C.gold1); px(s, x + 4, y - 4, C.gold2)
+    // the sigil: a gold ring round a lit point
+    px(s, x + 1, y - 2, C.gold2); px(s, x - 1, y, C.gold2); px(s, x + 3, y, C.gold1); px(s, x + 1, y + 2, C.gold1)
+    px(s, x + 1, y, C.cyan)
+}
+
+/**
+ * A robed arm from the shoulder (sx, sy) to the wrist (wx, wy), bending at the elbow toward `bend`:
+ * a fitted upper sleeve, a forearm flaring into a bell sleeve whose cloth hangs below it, the
+ * opening lined dark with a gold cuff. Leaves where the hand comes out in P.
+ */
+function robedArm(s: Surface, sx: number, sy: number, wx: number, wy: number, bend: number, m: Mat, t: number): void {
+    elbow(sx, sy, wx, wy, 9, 9, bend)
+    const ex = P.x
+    const ey = P.y
+    limbT(s, sx, sy, ex, ey, 5, 4, m)
+    // the drape of the bell sleeve, hanging from under the forearm
+    const d = Math.floor(t * 4) & 1
+    const mx = ex + (wx - ex) * 0.35
+    const my = ey + (wy - ey) * 0.35
+    tri(s, mx, my + 1, wx, wy + 2, wx - 2 + d, wy + 8, m[0])
+    tri(s, mx, my + 1, wx - 2 + d, wy + 8, mx - 1, my + 4, m[0])
+    line(s, R(mx - 1), R(my + 4), R(wx - 2 + d), R(wy + 8), C.gold1)
+    limbT(s, ex, ey, wx, wy, 4, 6, m)
+    // the opening: dark lining inside a gold cuff
+    const ux = (wx - ex) / (Math.hypot(wx - ex, wy - ey) || 1)
+    const uy = (wy - ey) / (Math.hypot(wx - ex, wy - ey) || 1)
+    line(s, R(wx - uy * 3), R(wy + ux * 3), R(wx + uy * 3), R(wy - ux * 3), C.gold1)
+    line(s, R(wx - uy * 2 + ux), R(wy + ux * 2 + uy), R(wx + uy * 2 + ux), R(wy - ux * 2 + uy), C.night1)
+    P.x = wx + ux * 2
+    P.y = wy + uy * 2
+}
+
+/**
+ * Magister Halvane, master of Duskspire's schools: floating in arcane robes, violet with a night-blue
+ * panel of glowing runes down the front, moons and stars stitched in gold, a rune-lit hem trailing
+ * off into smoke; a standing collar and a star-pinned mantle, a sigil medallion at his belt, a
+ * twilight cape full of stars. The tall bent hat of his order, banded in runes; a long stranded
+ * beard, bushy white brows over eyes lit pink. His grimoires orbit him. The staff, a gold crescent
+ * cradling a star, stands in his far hand behind him; the near hand holds an arcane orb out at the
+ * party, draws it back as the books fly open, and thrusts it to loose a bolt at the front rank.
+ */
 export const MAGISTER_HALVANE: CreatureDef = {
     name: 'Magister Halvane', size: 96, shadow: 12, hover: 1, accent: C.pink,
     states: bossStates(1.2, 1.8, 1.8),
@@ -48,57 +112,139 @@ export const MAGISTER_HALVANE: CreatureDef = {
         const hover = -8 + wv(t, 1.8, 2) + R(B.die * 10)
         const hip = y - 22 + hover
         const top = hip - 22
-        // grimoires behind him (the far half of the orbit)
+        const sway = wv(t, 1.2, 2)
+        const open = B.wind > 0.3 || B.strike || B.rec > 0.4 || B.roar ? 1 : 0
+        const rune = fr(t, 5, 6)
+        // the grimoires orbiting him, one full turn per idle loop so it closes seamlessly; the far
+        // half of the orbit goes behind
+        const spin = (Math.PI * 2) / this.states.idle!.dur
         const orbit = (front: boolean) => {
             for (let i = 0; i < 3; i++) {
-                const a = q(t) * 2.2 + i * (Math.PI * 2 / 3)
+                const a = q(t) * spin + i * (Math.PI * 2 / 3)
                 const z = Math.sin(a)
                 if ((z > 0) !== front) continue
-                const bx = x + R(Math.cos(a) * 20)
-                const by = top + 10 + R(z * 4)
-                rect(s, bx - 3, by - 2, 6, 5, i === 0 ? C.red1 : i === 1 ? C.teal1 : C.purple1)
-                rect(s, bx - 3, by + 2, 6, 1, C.bone1)
-                px(s, bx, by, C.gold2)
+                grimoire(s, x + R(Math.cos(a) * 26), top + 12 + R(z * 6), front ? BOOKS[i]! : [C.void, BOOKS[i]![0], BOOKS[i]![1]], open, t + i * 0.3)
             }
         }
         orbit(false)
-        // robe to a tattered hem, hovering
-        quad(s, x - 10, top + 6, x + 8, top + 6, x + 12, hip + 18, x - 16, hip + 18, VIOLET[1])
-        quad(s, x - 10, top + 6, x - 4, top + 6, x - 8, hip + 18, x - 16, hip + 18, VIOLET[0])
-        line(s, x + 3, top + 6, x + 8, hip + 18, C.purple2)
-        for (let i = 0; i < 6; i++) tri(s, x - 16 + i * 5, hip + 18, x - 12 + i * 5, hip + 18, x - 14 + i * 5, hip + 22 + (i & 1), VIOLET[i & 1 ? 0 : 1])
-        rect(s, x - 11, hip - 2, 20, 2, C.gold1)
-        rect(s, x - 9, top + 6, 16, 3, C.night2) // twilight mantle
-        dither(s, x - 9, top + 6, 16, 3, C.night3, 6)
-        // back hand with a spell
-        limbT(s, x - 8, top + 10, x - 14, top + 22, 4, 3, VIOLET)
-        disc(s, x - 15, top + 24, 2, B.glow > 0.3 ? C.pink : C.purple2)
-        // head: long white beard, the tall hat of his order
+        // the twilight cape streaming behind him, full of stars
+        poly(s, [-5, 0, 0, 0, -6, 20, -18 + sway, 38, -24 + sway, 34, -12, 18], x, top, C.night1)
+        poly(s, [-5, 0, -2, 0, -8, 20, -18 + sway, 36, -21 + sway, 34, -11, 18], x, top, C.night2)
+        line(s, x - 5, top, x - 11, top + 18, C.night3)
+        for (let i = 0; i < 6; i++) px(s, x - 8 - (i * 5) % 13 + R(sway * i / 6), top + 8 + i * 5, i & 1 ? C.white : C.frost)
+        // the standing collar, behind his head
+        poly(s, [-7, 1, -1, 0, -4, -9, -10, -6], x, top, C.purple0)
+        line(s, x - 7, top + 1, x - 10, top - 6, C.gold1); line(s, x - 10, top - 6, x - 4, top - 9, C.gold2)
+        line(s, x - 6, top - 1, x - 8, top - 5, C.cyan)
+        // the staff in the far hand, behind him: lifted on the wind-up, tipped forward on the strike
+        const shx = x - 15
+        const shy = top + 14 + R(sway / 2) + R(bz(0, -6, 0))
+        const sa = bz(-1.62, -1.62, -1.5)
+        const sdx = Math.cos(sa)
+        const sdy = Math.sin(sa)
+        line(s, R(shx - sdx * 20), R(shy - sdy * 20), R(shx + sdx * 26), R(shy + sdy * 26), C.brown1, 2)
+        line(s, R(shx - sdx * 20 + 1), R(shy - sdy * 20), R(shx + sdx * 26 + 1), R(shy + sdy * 26), C.brown2)
+        px(s, R(shx - sdx * 20), R(shy - sdy * 20), C.gold2)
+        const cx = shx + sdx * 30
+        const cy = shy + sdy * 30
+        arc(s, cx, cy, 4, sa + 0.9, sa + 2 * Math.PI - 0.9, C.gold1)
+        arc(s, cx, cy, 3.4, sa + 1.1, sa + 2 * Math.PI - 1.1, C.gold2)
+        tri(s, cx - 2, cy, cx + 2, cy, cx, cy - 3, C.pink); tri(s, cx - 2, cy, cx + 2, cy, cx, cy + 3, C.pink) // the star it cradles
+        line(s, R(cx) - 3, R(cy), R(cx) + 3, R(cy), C.pink)
+        px(s, cx, cy, C.white)
+        robedArm(s, x - 4, top + 3, shx + 3, shy + 1, -1, [C.purple0, C.purple1, C.purple1], t)
+        // the fist round the staff
+        disc(s, shx, shy, 2, C.skin0)
+        line(s, shx - 1, shy - 1, shx + 1, shy - 1, C.skin1)
+        // the robe, shaped and lit, its hem trailing off into violet smoke
+        poly(s, [-7, 0, 7, 0, 9, 20, 12, 34, -14, 34, -10, 20], x, top, VIOLET[1])
+        poly(s, [-7, 0, -3, 0, -4, 20, -5, 34, -14, 34, -10, 20], x, top, VIOLET[0])
+        line(s, x + 6, top + 2, x + 11, top + 32, C.purple2)
+        // moons and stars stitched in gold across the skirt
+        for (const [ox, oy] of [[-8, 24], [-2, 28], [7, 26], [-10, 30], [5, 30]] as const) px(s, x + ox, top + oy, C.gold2)
+        disc(s, x - 5, top + 25, 2, C.gold3); disc(s, x - 4, top + 24, 1.6, VIOLET[0]) // a crescent moon
+        // the panel of runes down the front, night blue between gold lines, glowing in turn
+        poly(s, [1, 0, 5, 0, 8, 33, -1, 33], x, top, C.night1)
+        line(s, x + 1, top, x - 1, top + 33, C.gold1); line(s, x + 5, top, x + 8, top + 33, C.gold1)
+        for (let i = 0; i < 6; i++) {
+            const gx = x + 3 + R(i * 0.25)
+            const gy = top + 5 + i * 5
+            const c = (i + rune) % 3 === 0 ? C.white : i & 1 ? C.cyan : C.pink
+            px(s, gx, gy, c); px(s, gx - 1, gy + 1, c); px(s, gx + 1, gy + 1, c); if (i & 1) px(s, gx, gy + 2, c)
+        }
+        // the hem band, runes glowing along it
+        rect(s, x - 13, top + 32, 25, 2, C.gold1)
+        for (let i = 0; i < 7; i++) px(s, x - 12 + i * 4, top + 32, (i + rune) % 3 === 0 ? C.white : i & 1 ? C.pink : C.cyan)
+        for (let i = 0; i < 6; i++) {
+            const wx = x - 12 + i * 4 + R(Math.sin(t * 3 + i) * 1.5)
+            tri(s, wx - 2, top + 34, wx + 2, top + 34, wx + R(sway), top + 40 + (i & 1) * 3, i & 1 ? C.purple0 : C.purple1)
+        }
+        dither(s, x - 14, top + 38, 26, 6, C.purple0, 5)
+        // the belt and the sigil medallion of the order
+        rect(s, x - 8, top + 17, 16, 2, C.gold0)
+        line(s, x - 8, top + 17, x + 7, top + 17, C.gold1)
+        ring(s, x + 3, top + 18, 3, C.gold2)
+        disc(s, x + 3, top + 18, 2, C.night1)
+        px(s, x + 3, top + 18, rune & 1 ? C.white : C.pink); px(s, x + 3, top + 16, C.cyan); px(s, x + 5, top + 18, C.cyan)
+        // the mantle over his shoulders, pointed, gold-edged, pinned with stars
+        poly(s, [-8, -1, 8, -1, 9, 5, 5, 8, 1, 6, -3, 8, -8, 5], x, top, C.night2)
+        poly(s, [-8, -1, -3, -1, -3, 8, -8, 5], x, top, C.night1)
+        line(s, x - 8, top + 5, x - 3, top + 8, C.gold1); line(s, x - 3, top + 8, x + 1, top + 6, C.gold1)
+        line(s, x + 1, top + 6, x + 5, top + 8, C.gold1); line(s, x + 5, top + 8, x + 9, top + 5, C.gold1)
+        px(s, x - 6, top + 1, C.gold3); px(s, x + 6, top + 1, C.gold3) // the star pins
+        // the near arm holding the arcane orb out at the party, elbow down, under the beard: drawn
+        // back as the orb gathers, thrust to loose it
+        const gx = x + 17 + R(bz(0, -6, 4))
+        const gy = top + 8 + R(bz(0, -5, -2))
+        robedArm(s, x + 5, top + 2, gx, gy, 1, VIOLET, t)
+        const hax = P.x
+        const hay = P.y
+        disc(s, hax, hay, 2, C.skin1)
+        px(s, hax + 2, hay - 1, C.skin1); px(s, hax + 2, hay + 1, C.skin0) // the fingers cupped under the orb
+        // the head: a long nose, bushy white brows, eyes lit pink, a long stranded beard
         const hx = x + 2
-        const hy = top + 4
-        rect(s, hx - 4, hy - 9, 8, 9, C.skin1)
-        rect(s, hx, hy - 8, 3, 6, C.skin2)
-        const eye = B.hurt ? C.ink : (B.glow > 0.5 ? C.pink : C.ink)
-        px(s, hx + 2, hy - 6, eye); rect(s, hx + 1, hy - 7, 3, 1, C.white)
-        tri(s, hx - 3, hy - 3, hx + 5, hy - 3, hx + 1, hy + 14, C.bone1) // beard
-        line(s, hx + 1, hy - 2, hx + 1, hy + 12, C.white)
-        if (B.roar || B.strike) rect(s, hx + 1, hy - 2, 3, 2, C.ink)
-        rect(s, hx - 7, hy - 10, 15, 2, C.purple1) // brim
-        quad(s, hx - 5, hy - 10, hx + 5, hy - 10, hx + 1, hy - 26, hx - 1, hy - 26, C.purple1)
-        line(s, hx + 1, hy - 25, hx + 4, hy - 11, C.purple2)
-        rect(s, hx - 5, hy - 12, 10, 2, C.gold1)
-        px(s, hx, hy - 18, C.gold3); px(s, hx - 1, hy - 21, C.pink)
-        // staff arm
-        const sx = x + 6
-        const sy = top + 10
-        const a = bz(-1.4, -1.7, -0.3)
-        const gx = sx + R(bz(4, 2, 10))
-        const gy = sy + R(bz(8, 2, 4))
-        limbT(s, sx, sy, gx, gy, 4, 3, VIOLET)
-        reach(gx, gy, a, 20)
-        line(s, gx - Math.cos(a) * 12, gy - Math.sin(a) * 12, P.x, P.y, C.brown2, 2)
-        tri(s, P.x - 3, P.y, P.x + 3, P.y, P.x, P.y - 8, C.pink)
-        px(s, P.x, P.y - 5, C.white)
+        const hy = top - 1
+        ball(s, hx + 1, hy - 6, 5, 6, SKIN)
+        rect(s, hx + 3, hy - 8, 3, 3, C.skin2) // the lit cheek
+        px(s, hx + 6, hy - 7, C.skin1); px(s, hx + 7, hy - 6, C.skin1); px(s, hx + 7, hy - 5, C.skin0) // the nose
+        const eye = B.hurt ? C.ink : B.glow > 0.5 ? C.white : C.pink
+        if (!B.hurt && B.glow > 0.3) ditherDisc(s, hx + 4, hy - 8, 3, C.pink, 3 + R(B.glow * 4))
+        rect(s, hx + 3, hy - 8, 2, 1, C.ink); px(s, hx + 4, hy - 8, eye)
+        line(s, hx + 1, hy - 10, hx + 6, hy - 10, C.white); line(s, hx + 6, hy - 10, hx + 8, hy - 11, C.bone1) // the brows
+        // the beard falls in strands over the mantle to the belt
+        poly(s, [-3, -4, 6, -4, 5, 4, 2, 17, 0, 9, -2, 4], hx, hy, C.bone1)
+        poly(s, [-3, -4, 0, -4, 0, 9, -2, 4], hx, hy, C.bone0)
+        for (let i = 0; i < 3; i++) line(s, hx + 1 + i * 2, hy - 2, hx + 1 + i, hy + 8 + i * 3, C.white)
+        line(s, hx + 3, hy - 4, hx + 8, hy - 3, C.white); px(s, hx + 8, hy - 2, C.bone1) // the moustache
+        if (B.roar || B.strike) rect(s, hx + 3, hy - 3, 3, 2, C.ink)
+        // the tall hat of his order, the tip bent back, a band of runes, moons and stars on it
+        const hty = hy - 3
+        ellipse(s, hx, hty - 11, 10, 2, C.purple0)
+        line(s, hx - 9, hty - 12, hx + 9, hty - 12, C.purple1)
+        poly(s, [-6, -12, 6, -12, 2, -26, -3, -33, -10, -35, -5, -27], hx, hty, C.purple1)
+        poly(s, [-6, -12, -2, -12, -3, -26, -5, -27], hx, hty, C.purple0)
+        line(s, hx + 5, hty - 13, hx + 1, hty - 27, C.purple2)
+        rect(s, hx - 6, hty - 15, 12, 2, C.gold1)
+        line(s, hx - 6, hty - 15, hx + 5, hty - 15, C.gold2)
+        for (let i = 0; i < 3; i++) px(s, hx - 4 + i * 4, hty - 14, (i + rune) % 3 === 0 ? C.white : C.cyan) // the runes on the band
+        disc(s, hx, hty - 21, 2.2, C.gold3); disc(s, hx + 1, hty - 22, 1.8, C.purple1) // a crescent moon
+        px(s, hx - 2, hty - 25, C.gold2); px(s, hx + 2, hty - 18, C.gold2); px(s, hx - 3, hty - 19, C.gold2) // stars
+        px(s, hx - 10, hty - 36, C.gold3); px(s, hx - 11, hty - 35, C.gold2) // the star at the tip
+        const ox = hax + 3
+        const oy = hay - 3
+        const power = Math.max(B.glow, 0.25)
+        ditherDisc(s, ox, oy, 5 + power * 3, C.purple2, 3 + R(power * 5))
+        disc(s, ox, oy, 3.5, C.purple1)
+        disc(s, ox - 0.5, oy - 0.5, 2.8, C.purple2)
+        disc(s, ox - 1, oy - 1, 1.6, C.pink)
+        px(s, ox - 1, oy - 2, C.white)
+        if (B.glow > 0.5) { px(s, ox, oy - 1, C.white); px(s, ox - 2, oy - 1, C.white) }
+        // the rune ring turning round it
+        const ra = q(t) * spin * 2
+        for (let i = 0; i < 6; i++) {
+            const a = ra + i * Math.PI / 3
+            px(s, R(ox + Math.cos(a) * 6), R(oy + Math.sin(a) * 2.2), Math.sin(a) > 0 ? C.cyan : C.frost)
+        }
         orbit(true)
         finish(s, Entry.Fade)
     },
@@ -106,80 +252,353 @@ export const MAGISTER_HALVANE: CreatureDef = {
         const k = fr(t, 10, 10)
         for (let i = 0; i < 3; i++) dst.set(x + dir * (-12 + ((i * 11 + k * 3) % 26)), y - 60 + ((k * 5 + i * 13) % 50), C.pink)
         if ((st === 'attack' && B.strike) || B.roar) {
+            // the bolt off the orb, a burst where it leaves
+            const bx = x + dir * 28
+            const by = y - 47
             for (let i = 0; i < 14; i++) {
                 const a = (i / 14) * Math.PI * 2
-                dst.set(x + dir * 22 + R(Math.cos(a) * 6), y - 68 + R(Math.sin(a) * 6), i & 1 ? C.white : C.pink)
+                dst.set(bx + R(Math.cos(a) * 7), by + R(Math.sin(a) * 7), i & 1 ? C.white : C.cyan)
+            }
+            for (let i = 0; i < 18; i++) {
+                dst.set(bx + dir * (6 + i * 2), by + R(i * 1.4), i % 3 ? C.pink : C.white)
+                dst.set(bx + dir * (6 + i * 2), by + R(i * 1.4) + 1, C.purple2)
             }
         }
     }
 }
 
-/** Archmage Ithren, the Door-Opener — floating before the door he opened, the Void behind it. */
+const SILVER: Mat = [C.bone0, C.bone1, C.white]
+const ASH: Mat = [C.stone2, C.stone3, C.bone0]
+const VOID_IRON: Mat = [C.void, C.stone0, C.stone1]
+
+/** Offscreen buffers for the door and for Ithren, so each can be grown, shrunk and dissolved whole. */
+const SCRATCH: Record<string, Surface> = {}
+function scratch(key: string, like: Surface): Surface {
+    let b = SCRATCH[key]
+    if (!b || b.w !== like.w || b.h !== like.h) b = SCRATCH[key] = new Surface(like.w, like.h, like.ax, like.ay)
+    b.data.fill(0)
+    return b
+}
+
+/**
+ * The door to the Void at full width, its sill on `floor` and centred on `dx`: an arch of carved
+ * stone blocks lit on the left, a keystone cut as an eye, a pink rune on every other block pulsing
+ * up the pillars, a plinth, cracks spreading from its frame; inside, the Void wheeling in a
+ * three-armed vortex round a glowing heart. It is drawn only while Ithren comes and goes: the
+ * door is a boss of its own further on.
+ */
+function voidDoor(s: Surface, dx: number, floor: number, t: number, glow: boolean): void {
+    const dw = 26
+    const archY = floor - 92
+    ellipse(s, dx, archY, dw + 8, 20, STONE[0])
+    ellipse(s, dx - 1, archY - 1, dw + 7, 19, STONE[1])
+    ellipse(s, dx, archY, dw, 14, C.ink)
+    rect(s, dx - dw, archY, dw * 2 + 1, floor - archY, C.ink)
+    voidFill(s, dx - dw, archY - 14, dw * 2 + 1, floor - archY + 14, t, 7)
+    for (let arm = 0; arm < 3; arm++) {
+        for (let k = 0; k < 26; k++) {
+            const r = k * (dw / 26) * 1.1
+            const a = q(t) * 1.4 + arm * (Math.PI * 2 / 3) + k * 0.22
+            const vx = dx + Math.cos(a) * r
+            const vy = archY + 30 + Math.sin(a) * r * 1.4
+            if (Math.abs(vx - dx) > dw || vy < archY - 10) continue
+            const c = k < 6 ? C.pink : k & 1 ? C.purple2 : C.purple1
+            px(s, vx, vy, c); px(s, vx + 1, vy, c)
+        }
+    }
+    ditherDisc(s, dx, archY + 30, 5, C.pink, 5)
+    disc(s, dx, archY + 30, 2, C.white)
+    const pulse = fr(t, 4, 4)
+    for (const side of [-1, 1]) {
+        const px0 = side < 0 ? dx - dw - 7 : dx + dw + 1
+        rect(s, px0, archY, 7, floor - archY, STONE[1])
+        rect(s, px0, archY, 1, floor - archY, side < 0 ? STONE[2] : STONE[1])
+        rect(s, px0 + 6, archY, 1, floor - archY, STONE[0])
+        for (let by = archY + 2, i = 0; by < floor - 2; by += 9, i++) {
+            line(s, px0, by, px0 + 6, by, STONE[0])
+            line(s, px0 + 1, by + 1, px0 + 5, by + 1, STONE[2])
+            if ((i + (side < 0 ? 0 : 1)) % 2 === 0) {
+                const lit = (i + pulse) % 4 === 0 ? C.pink : C.purple2
+                px(s, px0 + 3, by + 3, lit); px(s, px0 + 2, by + 4, lit); px(s, px0 + 4, by + 4, lit); px(s, px0 + 3, by + 5, lit)
+            }
+        }
+    }
+    for (let k = 1; k < 8; k++) {
+        const a = Math.PI + (k / 8) * Math.PI
+        line(s, R(dx + Math.cos(a) * dw), R(archY + Math.sin(a) * 14), R(dx + Math.cos(a) * (dw + 7)), R(archY + Math.sin(a) * 20), STONE[0])
+    }
+    for (let a = Math.PI * 1.1; a < Math.PI * 1.6; a += 0.04) px(s, R(dx + Math.cos(a) * (dw + 6)), R(archY + Math.sin(a) * 19), STONE[2])
+    poly(s, [-4, 0, 4, 0, 5, -8, -5, -8], dx, archY - 13, STONE[2])
+    line(s, dx - 5, archY - 21, dx + 5, archY - 21, C.stone3)
+    ellipse(s, dx, archY - 17, 3, 1.5, C.ink); px(s, dx, archY - 17, glow ? C.white : C.pink)
+    rect(s, dx - dw - 10, floor - 3, dw * 2 + 21, 3, STONE[0])
+    line(s, dx - dw - 10, floor - 3, dx + dw + 10, floor - 3, STONE[2])
+    line(s, dx + dw + 8, archY + 30, dx + dw + 14, archY + 36, C.purple2); px(s, dx + dw + 11, archY + 33, C.pink)
+    line(s, dx - dw - 8, archY + 52, dx - dw - 14, archY + 58, C.purple2); px(s, dx - dw - 11, archY + 55, C.pink)
+}
+
+/**
+ * The door coming and going as a rift: `rise` 0..1 grows a line of light up from the floor, then
+ * `open` 0..1 widens it into the door, the line still burning down its middle as it parts.
+ */
+function riftDoor(s: Surface, dx: number, floor: number, t: number, rise: number, open: number, glow: boolean): void {
+    const H = 112
+    if (open > 0.02) {
+        const d = scratch('door', s)
+        voidDoor(d, dx, floor, t, glow)
+        const half = 34 * open
+        for (let X = Math.floor(dx - half); X <= Math.ceil(dx + half); X++) {
+            const sx = R(dx + (X - dx) / open)
+            if (sx < 0 || sx >= d.w) continue
+            for (let Y = 0; Y < d.h; Y++) {
+                const c = d.data[Y * d.w + sx]!
+                if (c) s.set(X, Y, c)
+            }
+        }
+    }
+    if (rise > 0 && open < 0.9) {
+        // the line of light, glowing, thinning out as the door opens round it
+        const top = R(floor - H * rise)
+        const bright = 1 - open
+        ditherEllipse(s, dx, (floor + top) / 2, 3 + bright * 2, (floor - top) / 2 + 2, C.purple2, R(3 + bright * 5))
+        line(s, dx - 1, top + 2, dx - 1, floor, C.pink)
+        line(s, dx + 1, top + 2, dx + 1, floor, C.pink)
+        line(s, dx, top, dx, floor, C.white)
+    }
+}
+
+/** Blit `src` into `dst` shrunk by `k` about (fx, fy), landing that point on (tx, ty), dithered to `level` of 16. */
+function warp(dst: Surface, src: Surface, fx: number, fy: number, tx: number, ty: number, k: number, level: number): void {
+    for (let Y = 0; Y < src.h; Y++) {
+        for (let X = 0; X < src.w; X++) {
+            const c = src.data[Y * src.w + X]!
+            if (!c) continue
+            const dx = R(tx + (X - fx) * k)
+            const dy = R(ty + (Y - fy) * k)
+            if (level < 16 && !bayer(dx, dy, level)) continue
+            dst.set(dx, dy, c)
+        }
+    }
+}
+
+/**
+ * Ithren himself: tall, gaunt and ashen, floating. An angular face with sharp cheekbones, a hooked
+ * nose and a pointed white goatee, brows drawn down over sunken eyes burning pink; long white hair
+ * down his back; a tall crown of void-iron spikes set with pink gems under a double ring of turning
+ * runes; a spiked collar and spiked pauldrons of void-iron rimmed in gold; a black open coat trimmed
+ * in gold over violet robes, a tabard of glowing runes, a gold belt with an eye medallion and gem
+ * chains; the hem spiked in gold and coming apart into the dark. The far hand is raised back, the
+ * Void crackling off its claws; the near hand draws the Void into an orb and throws it.
+ */
+function ithrenBody(s: Surface, x: number, y: number, t: number): void {
+    const hover = -4 + wv(t, 2.0, 2)
+    const hip = y - 30 + hover
+    const top = hip - 32
+    const sway = wv(t, 1.4, 2)
+    const rune = fr(t, 5, 6)
+    const hx = x + 1
+    const hy = top - 3
+    // the double ring of runes turning behind his head, the inner one against the outer
+    for (let i = 0; i < 16; i++) {
+        const a = q(t) * 0.8 + i * Math.PI / 8
+        px(s, R(hx + Math.cos(a) * 17), R(hy - 13 + Math.sin(a) * 17), i % 4 === 0 ? C.pink : C.purple2)
+        if (i % 4 === 0) px(s, R(hx + Math.cos(a) * 19), R(hy - 13 + Math.sin(a) * 19), C.purple1)
+    }
+    for (let i = 0; i < 10; i++) {
+        const a = -q(t) * 1.2 + i * Math.PI / 5
+        px(s, R(hx + Math.cos(a) * 13), R(hy - 13 + Math.sin(a) * 13), (i + rune) % 5 === 0 ? C.white : C.purple1)
+    }
+    // long white hair falling down his back, the ends stirring
+    const hs = wv(t, 1.6, 2)
+    poly(s, [0, -21, -8, -20, -11, -10, -12, 4, -15, 16 + hs, -11, 18, -8, 14 + hs, -5, 4, -2, -4], hx, hy, SILVER[1])
+    poly(s, [-6, -15, -9, -8, -10, 6, -12, 16 + hs, -9, 16, -7, 6, -4, -2], hx, hy, SILVER[0])
+    for (let i = 0; i < 3; i++) line(s, hx - 3 - i * 2, hy - 19 + i, hx - 7 - i * 2, hy + 12 + (i & 1) * 3 + hs, C.white)
+    // the spiked collar of the Void fanning behind his head, rimmed in gold
+    poly(s, [-13, 4, -4, 2, -8, -14, -12, -24, -15, -12, -21, -18, -17, -2], x, top, C.void)
+    poly(s, [13, 4, 5, 2, 10, -12, 15, -20, 16, -8, 21, -12, 17, 2], x, top, C.void)
+    line(s, x - 12, top - 24, x - 8, top - 14, C.gold1); line(s, x - 21, top - 18, x - 15, top - 12, C.gold1)
+    line(s, x + 15, top - 20, x + 10, top - 12, C.gold1); line(s, x + 21, top - 12, x + 16, top - 8, C.gold1)
+    for (const [ox, oy] of [[-11, -8], [-14, -4], [-9, -2], [12, -6], [15, -2]] as const) px(s, x + ox, top + oy, (ox + oy) & 1 ? C.white : C.pink)
+    // the far pauldron, behind
+    poly(s, [-15, 6, -6, 0, -8, -4, -12, -10, -14, -3, -19, -6, -17, 2], x, top, VOID_IRON[1])
+    line(s, x - 15, top + 6, x - 6, top, C.gold1)
+    // the far hand raised back, the Void crackling off its claws
+    const bhx = x - 20
+    const bhy = top - 6 + R(sway / 2) - R(B.glow * 3)
+    robedArm(s, x - 9, top + 3, bhx, bhy, 1, [C.void, C.purple0, C.purple1], t)
+    const fhx = P.x
+    const fhy = P.y
+    disc(s, fhx, fhy, 2, ASH[1])
+    for (let i = 0; i < 3; i++) { line(s, R(fhx), R(fhy), R(fhx - 2 + i * 2), R(fhy - 4), ASH[1]); px(s, R(fhx - 2 + i * 2), R(fhy - 5), C.ink) } // the claws
+    for (let i = 0; i < 5; i++) {
+        const a = -Math.PI / 2 + (i - 2) * 0.5 + Math.sin(t * 9 + i) * 0.3
+        const r = 4 + ((fr(t, 10, 4) + i) % 4)
+        px(s, R(fhx + Math.cos(a) * r), R(fhy - 3 + Math.sin(a) * r), i & 1 ? C.pink : C.purple2)
+    }
+    // the black coat, open over violet robes, trimmed in gold, flaring to a spiked hem
+    poly(s, [-13, 0, 13, 0, 16, 26, 22, 48, -24, 48, -17, 26], x, top, C.void)
+    poly(s, [-13, 0, -6, 0, -8, 26, -9, 48, -24, 48, -17, 26], x, top, C.ink)
+    line(s, x + 11, top + 2, x + 19, top + 44, C.purple0) // the lit fold
+    poly(s, [-4, 2, 7, 2, 11, 48, -7, 48], x, top, VIOLET[1]) // the robes where the coat falls open
+    poly(s, [-4, 2, 0, 2, -2, 48, -7, 48], x, top, VIOLET[0])
+    line(s, x - 4, top + 2, x - 7, top + 47, C.gold1); line(s, x + 7, top + 2, x + 11, top + 47, C.gold1)
+    line(s, x - 5, top + 2, x - 8, top + 47, C.gold0); line(s, x + 8, top + 2, x + 12, top + 47, C.gold0)
+    // the tabard of runes down the front, glowing in turn
+    poly(s, [-1, 20, 6, 20, 7, 42, 2, 46, -2, 42], x, top, C.night1)
+    line(s, x - 1, top + 20, x - 2, top + 42, C.gold2); line(s, x + 6, top + 20, x + 7, top + 42, C.gold2)
+    for (let i = 0; i < 4; i++) {
+        const gx = x + 2 + (i & 1)
+        const gy = top + 24 + i * 5
+        const c = (i + rune) % 3 === 0 ? C.white : i & 1 ? C.pink : C.purple2
+        px(s, gx, gy, c); px(s, gx - 1, gy + 1, c); px(s, gx + 1, gy + 1, c)
+    }
+    // the hem: a band of gold spikes, then the robe coming apart into the dark with stars in it
+    rect(s, x - 23, top + 46, 45, 2, C.gold1)
+    for (let i = 0; i < 11; i++) tri(s, x - 22 + i * 4, top + 46, x - 20 + i * 4, top + 46, x - 21 + i * 4, top + 43, C.gold2)
+    for (let i = 0; i < 11; i++) {
+        const wx = x - 22 + i * 4 + R(Math.sin(t * 3 + i) * 1.5)
+        tri(s, wx - 2, top + 48, wx + 2, top + 48, wx + R(sway), top + 54 + (i & 1) * 3, i & 1 ? C.void : C.purple0)
+        if (i % 3 === 1) px(s, wx, top + 50, C.white)
+    }
+    line(s, x - 12, top + 30, x - 9, top + 42, C.purple2); px(s, x - 10, top + 36, C.white) // a crack of the Void in the coat
+    // the belt, the eye medallion, and chains of gems swinging off it
+    rect(s, x - 14, top + 18, 29, 3, C.gold0)
+    line(s, x - 14, top + 18, x + 14, top + 18, C.gold2)
+    disc(s, x + 3, top + 19, 3.5, C.gold1)
+    ellipse(s, x + 3, top + 19, 2.5, 1.5, C.ink)
+    px(s, x + 3, top + 19, B.glow > 0.3 ? C.white : C.pink)
+    for (let c = 0; c < 2; c++) {
+        const cx0 = x - 10 + c * 4
+        for (let i = 0; i < 5; i++) px(s, R(cx0 + i * 1.5 + Math.sin(t * 2 + c) * 0.5), top + 21 + R(Math.sin(i / 4 * Math.PI) * 3), C.gold2)
+        disc(s, cx0 + 3, top + 25, 1, c ? C.purple2 : C.pink)
+    }
+    // the gorget at his throat
+    poly(s, [-5, 0, 6, 0, 4, 4, -3, 4], x, top - 1, C.gold1)
+    line(s, x - 4, top - 1, x + 5, top - 1, C.gold3)
+    px(s, x + 1, top + 1, C.pink)
+    // the head: long and angular, ashen, lit on its front, a hooked nose, sharp cheekbones
+    poly(s, [-6, -20, 1, -23, 6, -21, 8, -15, 12, -10, 8, -9, 8, -5, 5, -1, 3, 2, -1, 0, -5, -4, -7, -11], hx, hy, ASH[1])
+    poly(s, [-6, -20, -3, -21, -4, -11, -1, -2, -1, 0, -5, -4, -7, -11], hx, hy, ASH[0])
+    line(s, hx + 1, hy - 21, hx + 6, hy - 19, ASH[2]) // the lit brow of the skull
+    px(s, hx + 6, hy - 10, ASH[2]); px(s, hx + 7, hy - 11, ASH[2]) // the cheekbone
+    line(s, hx + 3, hy - 9, hx + 4, hy - 3, ASH[0]) // the hollow under it
+    line(s, hx + 8, hy - 14, hx + 12, hy - 10, ASH[2]); px(s, hx + 10, hy - 9, ASH[0]) // the hooked nose
+    // sunken eyes burning under brows drawn down toward the nose
+    const eye = B.hurt ? C.ink : B.glow > 0.5 ? C.white : C.pink
+    if (!B.hurt && B.glow > 0.3) ditherDisc(s, hx + 5, hy - 15, 3, C.pink, 2 + R(B.glow * 5))
+    rect(s, hx + 3, hy - 15, 5, 2, C.ink)
+    rect(s, hx + 4, hy - 15, 3, 1, eye); if (!B.hurt) px(s, hx + 5, hy - 15, C.white)
+    line(s, hx + 2, hy - 18, hx + 8, hy - 16, C.white); line(s, hx + 2, hy - 17, hx + 7, hy - 16, C.bone0)
+    // the sneer, or teeth bared
+    if (B.roar || B.strike) { rect(s, hx + 5, hy - 6, 4, 2, C.ink); px(s, hx + 5, hy - 6, C.white); px(s, hx + 7, hy - 6, C.white) } else line(s, hx + 5, hy - 5, hx + 8, hy - 6, ASH[0])
+    poly(s, [0, -2, 7, -2, 5, 4, 2, 10, 1, 3], hx, hy, C.bone1) // the goatee
+    line(s, hx + 3, hy - 1, hx + 2, hy + 8, C.white)
+    // the crown of void-iron: a band and five spikes cut apart, lit on one edge, gold-tipped,
+    // pink gems at their feet
+    poly(s, [-7, -19, 9, -22, 9, -25, -7, -22], hx, hy, VOID_IRON[1])
+    line(s, hx - 7, hy - 22, hx + 9, hy - 25, C.gold1)
+    line(s, hx - 7, hy - 19, hx + 9, hy - 22, C.gold0)
+    for (let i = 0; i < 5; i++) {
+        const cx = hx - 5 + i * 3.5
+        const h = i === 2 ? 14 : i & 1 ? 11 : 7
+        const by = hy - 22 - R(i * 0.7)
+        const tx = cx - (4 - i) * 0.4
+        tri(s, cx - 1.2, by, cx + 1.2, by, tx, by - h, VOID_IRON[2])
+        line(s, R(cx - 1), by, R(tx), by - h + 1, C.stone2)
+        px(s, R(tx), by - h, C.gold3)
+        px(s, R(cx), by + 1, i === 2 ? C.white : C.pink)
+    }
+    // the near arm: the Void drawn into an orb on the wind-up, thrown on the strike
+    const gx = x + 22 + R(bz(0, -7, 6))
+    const gy = top + 12 + R(bz(0, -10, -5))
+    robedArm(s, x + 10, top + 3, gx, gy, 1, [C.void, C.ink, C.purple0], t)
+    const hax = P.x
+    const hay = P.y
+    disc(s, hax, hay, 2, ASH[1])
+    for (let i = 0; i < 3; i++) { line(s, R(hax), R(hay), R(hax + 3), R(hay - 2 + i * 2), ASH[1]); px(s, R(hax + 4), R(hay - 2 + i * 2), C.ink) } // the claws
+    // the near pauldron over the shoulder: spikes swept back, a gem in its heart
+    poly(s, [5, 6, 16, 6, 18, 0, 15, -5, 12, -12, 10, -4, 6, -8, 4, -1], x, top, VOID_IRON[1])
+    poly(s, [5, 6, 16, 6, 17, 2, 6, 2], x, top, VOID_IRON[0])
+    line(s, x + 4, top - 1, x + 18, top, C.gold1)
+    line(s, x + 5, top + 6, x + 16, top + 6, C.gold1)
+    px(s, x + 12, top - 12, C.gold3); px(s, x + 6, top - 8, C.gold3)
+    disc(s, x + 11, top + 3, 1.5, C.pink); px(s, x + 11, top + 2, C.white)
+    const orb = B.wind > 0 ? B.wind : B.strike ? 1 : B.glow
+    if (orb > 0.1) {
+        const ox = hax + 5
+        const oy = hay - 2
+        ditherDisc(s, ox, oy, 3 + orb * 4, C.purple2, 6)
+        disc(s, ox, oy, 1 + orb * 2.5, C.void)
+        px(s, ox, oy, C.white); px(s, ox + 1, oy - 1, C.pink)
+        arc(s, ox, oy, 2 + orb * 2.5, q(t) * 8, q(t) * 8 + 3, C.pink)
+    }
+}
+
+const ITHREN_STATES = { ...bossStates(1.5, 2.0, 2.6), death: { dur: 2.4, loop: false } }
+
+/**
+ * Archmage Ithren, the Door-Opener, who opened the door to the Void. The door comes with him only
+ * as he arrives and as he dies: on his entry a line of light rises out of nothing and widens into
+ * the door, he comes out of its heart, and it closes behind him; on his death it opens again and
+ * pulls him back in, then snaps shut. Otherwise he fights alone, since the door is a boss of its
+ * own further on.
+ */
 export const ARCHMAGE_ITHREN: CreatureDef = {
     name: 'Archmage Ithren, the Door-Opener', size: 128, shadow: 18, hover: 1, accent: C.purple2,
-    states: bossStates(1.5, 2.0, 2.6),
+    states: ITHREN_STATES,
     draw(s, st, t) {
         drive(this, st, t, 4, 2.0)
         const x = s.ax - 4 + B.lunge - B.kb
         const y = s.ay
-        // the door: a stone arch whose opening widens as he arrives
-        const open = st === 'entry' ? B.ent : 1 - B.die * 0.8
-        const dw = R(12 + open * 14)
-        const dx = x - 20
-        const dTop = y - 108
-        rect(s, dx - dw - 6, dTop + 16, 6, 92, STONE[1])
-        rect(s, dx + dw, dTop + 16, 6, 92, STONE[1])
-        ellipse(s, dx, dTop + 18, dw + 6, 18, STONE[1])
-        ellipse(s, dx, dTop + 18, dw, 15, C.ink)
-        rect(s, dx - dw, dTop + 18, dw * 2 + 1, 90, C.ink)
-        voidFill(s, dx - dw, dTop + 3, dw * 2 + 1, 105, t, 7)
-        for (let i = 0; i < 6; i++) { px(s, dx - dw - 3, dTop + 24 + i * 14, STONE[2]); px(s, dx + dw + 2, dTop + 30 + i * 14, STONE[0]) }
-        speckle(s, dx - dw - 6, dTop, dw * 2 + 12, 108, STONE, 3)
-        // cracks of violet running out of the door
-        line(s, dx + dw + 6, dTop + 40, dx + dw + 14, dTop + 46, C.purple2)
-        line(s, dx - dw - 6, dTop + 70, dx - dw - 12, dTop + 74, C.purple2)
-        // Ithren
-        const hover = -10 + wv(t, 2.0, 2) + R(B.die * 12)
-        const hip = y - 30 + hover
-        const top = hip - 30
-        quad(s, x - 13, top + 8, x + 11, top + 8, x + 16, hip + 26, x - 18, hip + 26, VIOLET[1])
-        quad(s, x - 13, top + 8, x - 5, top + 8, x - 9, hip + 26, x - 18, hip + 26, VIOLET[0])
-        rect(s, x - 2, top + 10, 4, 40, C.gold1) // gold panel
-        for (let i = 0; i < 5; i++) px(s, x, top + 14 + i * 8, C.purple2)
-        for (let i = 0; i < 7; i++) tri(s, x - 18 + i * 5, hip + 26, x - 14 + i * 5, hip + 26, x - 16 + i * 5, hip + 31 + (i & 1), VIOLET[i & 1]!)
-        // void cracks in the robe itself
-        line(s, x - 8, hip, x - 4, hip + 18, C.ink); px(s, x - 6, hip + 8, C.white)
-        // high collar
-        tri(s, x - 14, top + 10, x - 4, top + 8, x - 12, top - 12, C.void)
-        tri(s, x + 12, top + 10, x + 4, top + 8, x + 12, top - 10, C.void)
-        // both hands raised, holding the door open
-        const ha = bz(-2.2, -2.5, -0.2)
-        limbT(s, x - 10, top + 12, x - 22, top - 4, 5, 4, VIOLET)
-        disc(s, x - 23, top - 6, 2, C.skin1)
-        reach(x + 10, top + 12, ha, 18)
-        limbT(s, x + 10, top + 12, P.x, P.y, 5, 4, VIOLET)
-        disc(s, P.x, P.y, 2, C.skin1)
-        disc(s, P.x + 1, P.y - 1, B.glow > 0.3 ? 4 : 2, B.glow > 0.3 ? C.pink : C.purple2)
-        // gaunt face, burning eyes, a circlet
-        const hx = x + 1
-        const hy = top + 6
-        rect(s, hx - 4, hy - 10, 9, 10, C.skin1)
-        rect(s, hx - 4, hy - 10, 2, 10, C.skin0)
-        rect(s, hx + 1, hy - 9, 3, 7, C.skin2)
-        const eye = B.hurt ? C.ink : C.pink
-        rect(s, hx + 1, hy - 6, 3, 1, C.purple0); px(s, hx + 3, hy - 6, eye); px(s, hx + 3, hy - 7, C.white)
-        line(s, hx - 1, hy - 2, hx + 4, hy - 2, C.skin0)
-        if (B.roar || B.strike) rect(s, hx + 1, hy - 3, 3, 2, C.ink)
-        rect(s, hx - 5, hy - 12, 11, 2, C.gold1); px(s, hx + 1, hy - 13, C.purple2); px(s, hx + 1, hy - 14, C.pink)
-        rect(s, hx - 5, hy - 10, 3, 8, C.bone1) // long white hair
-        finish(s, Entry.Fade)
+        const dx = x - 26
+        const heartY = y - 54
+        const body = () => { const b = scratch('ithren', s); ithrenBody(b, x, y, t); return b }
+        if (st === 'entry') {
+            // the rift rises and opens, he comes out of its heart, and it closes behind him
+            const u = q(t) / ITHREN_STATES.entry.dur
+            const rise = Math.min(1, u / 0.12)
+            const open = u < 0.62 ? sm(span(u, 0.12, 0.3)) : 1 - sm(span(u, 0.62, 0.75))
+            const lineOut = u < 0.75 ? 1 : 1 - span(u, 0.75, 0.8)
+            if (lineOut > 0) riftDoor(s, dx, y, t, rise * lineOut, open, true)
+            const e = sm(span(u, 0.3, 0.62))
+            if (e > 0) warp(s, body(), x, heartY, dx + (x - dx) * e, heartY, 0.2 + 0.8 * e, R(4 + 12 * e))
+            B.ent = 1
+        } else if (st === 'death') {
+            // the rift opens again behind him and pulls him in, then snaps shut
+            CF.fade = 0
+            const u = q(t) / ITHREN_STATES.death.dur
+            const rise = Math.min(1, span(u, 0.04, 0.14))
+            const open = u < 0.72 ? sm(span(u, 0.14, 0.3)) : 1 - sm(span(u, 0.72, 0.84))
+            const lineOut = u < 0.84 ? 1 : 1 - span(u, 0.84, 0.92)
+            if (lineOut > 0 && rise > 0) riftDoor(s, dx, y, t, rise * lineOut, open, false)
+            const p = sm(span(u, 0.3, 0.7))
+            if (p < 1) warp(s, body(), x, heartY, x + (dx - x) * p, heartY + R(Math.sin(p * Math.PI) * -4), 1 - 0.85 * p, R(16 - 13 * p))
+            if (p > 0 && p < 1) {
+                // streaks of him torn loose and drawn into the heart
+                for (let i = 0; i < 10; i++) {
+                    const k = (i / 10 + q(t) * 2) % 1
+                    const sx = x + 4 - (x + 4 - dx) * k + ((i * 7) % 11) - 5
+                    const sy = heartY - 30 + ((i * 13) % 60) * (1 - k)
+                    px(s, sx, sy, i & 1 ? C.pink : C.purple2)
+                }
+            }
+        } else {
+            ithrenBody(s, x, y, t)
+        }
+        finish(s, Entry.Fade, 0)
     },
     fx(dst, st, t, x, y, dir) {
+        if (st === 'death') return
         const k = fr(t, 10, 12)
         for (let i = 0; i < 4; i++) dst.set(x - dir * (20 + ((i * 7 + k) % 30) - 15), y - 100 + ((i * 29 + k * 7) % 90), i & 1 ? C.pink : C.purple2)
         if ((st === 'attack' && (B.strike || B.rec > 0.5)) || B.roar) {
-            for (let i = 0; i < 40; i++) dst.set(x + dir * (20 + i), y - 76 + R(Math.sin(i * 0.5 + k) * 2), i % 3 ? C.pink : C.white)
-            for (let i = 0; i < 40; i++) dst.set(x + dir * (20 + i), y - 77 + R(Math.sin(i * 0.5 + k) * 2), C.purple2)
+            // the orb thrown as a beam of the Void, violet-edged, a pink core
+            for (let i = 0; i < 44; i++) {
+                const yy = y - 57 + R(Math.sin(i * 0.5 + k) * 2)
+                dst.set(x + dir * (30 + i), yy - 1, C.purple2)
+                dst.set(x + dir * (30 + i), yy, i % 3 ? C.void : C.white)
+                dst.set(x + dir * (30 + i), yy + 1, C.pink)
+            }
         }
     }
 }

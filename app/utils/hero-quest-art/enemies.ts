@@ -905,32 +905,169 @@ const tidePriestess: WorldSkin = {
     blade: M.rust, haft: M.darkwood, gem: M.sea, gemStyle: Gem.Moon, accent: C.cyan
 }
 
-// 6 · Duskspire — Hollow Acolyte: robes, and nothing inside the hood but two points of light.
+// 6 · Duskspire — Hollow Acolyte (melee): a deep violet robe and a peaked hood lit along its rim,
+// nothing inside but the dark and two points of light; a gold-trimmed stole, a void-glass sickle.
 const hollowAcolyte: WorldSkin = {
     legLen: 8, torsoLen: 9,
     skin: [C.void, C.ink, C.purple0],
-    head: (s, x, y, p) => {
-        rect(s, x - 3, y - 9, 7, 9, C.purple1)
-        rect(s, x - 4, y - 7, 2, 8, C.purple0)
-        rect(s, x - 2, y - 10, 4, 1, C.purple1)
-        rect(s, x - 1, y - 7, 4, 6, C.ink) // the empty hood
-        px(s, x + 3, y - 6, C.purple1)
-        if (p[HP.flash]! > 0.5) { px(s, x, y - 5, C.white); px(s, x + 2, y - 5, C.white) } else {
-            px(s, x, y - 5, C.pink); px(s, x + 2, y - 5, C.pink)
-        }
-        px(s, x - 1, y - 9, C.purple2)
+    head: (s, x, y, p, t) => {
+        // the hood, peaked and falling back over the shoulders, lit along its rim
+        ellipse(s, x, y - 5, 5, 5, C.purple1)
+        tri(s, x - 5, y - 6, x - 1, y - 10, x - 7, y - 2, C.purple1)
+        px(s, x - 4, y - 11, C.purple1); px(s, x - 5, y - 12, C.purple2) // the peak
+        line(s, x - 4, y - 9, x + 1, y - 10, C.purple2)
+        line(s, x + 2, y - 10, x + 4, y - 8, C.pink) // the rim of twilight on the hood's edge
+        rect(s, x - 5, y - 5, 2, 5, C.purple0)
+        // nothing inside but the dark, two points of light, and their glow
+        ellipse(s, x + 2, y - 4, 3, 4, C.ink)
+        const lit = p[HP.flash]! > 0.5
+        dither(s, x, y - 7, 5, 4, C.purple0, 4 + (Math.floor(t * 2) & 1) * 2)
+        px(s, x + 1, y - 5, lit ? C.white : C.pink); px(s, x + 3, y - 5, lit ? C.white : C.pink)
+        if (!lit) px(s, x + 3, y - 6, C.white)
     },
     torso: (s, x, y) => {
         rect(s, x - 4, y, 8, 9, C.purple1)
-        rect(s, x - 4, y, 1, 9, C.purple0)
-        rect(s, x + 1, y, 1, 9, C.purple2)
-        rect(s, x - 1, y + 2, 1, 5, C.night3) // stole
-        px(s, x - 1, y + 4, C.gold2)
+        rect(s, x - 4, y, 2, 9, C.purple0)
+        line(s, x + 2, y, x + 2, y + 8, C.purple2) // the lit fold
+        // the stole, gold-edged, a rune stitched at its end
+        rect(s, x - 1, y, 2, 8, C.night2)
+        line(s, x - 1, y, x - 1, y + 8, C.gold1)
+        px(s, x, y + 6, C.pink); px(s, x, y + 7, C.gold2)
+        rect(s, x - 4, y + 5, 8, 1, C.gold0) // the cord belt
+        px(s, x + 3, y + 5, C.gold2)
     },
-    lower: (s, x, hipY, p, t) => robeSkirt(s, x, hipY, J.oy - 1, [C.purple0, C.purple1, C.purple2], C.night2, (Math.floor(t * 2) & 1) - 0.5, C.ink, 0),
+    lower: (s, x, hipY, _p, t) => robeSkirt(s, x, hipY, J.oy - 1, [C.purple0, C.purple1, C.purple2], C.gold1, (Math.floor(t * 2) & 1) - 0.5, C.ink, 0),
     pants: C.purple0, pantsDk: C.void, boot: C.ink, bootHi: C.void,
     arm: C.purple1, armLow: C.purple1, armBack: C.purple0, armBackLow: C.purple0, hand: C.ink,
     blade: M.voidm, haft: M.obsidian, gem: M.voidm, gemStyle: Gem.Crystal, accent: C.pink
+}
+
+// 6 · Duskspire — Spire Gargoyle (heavy): a gargoyle of black basalt pried off the towers and set
+// walking, horned and fanged, bat wings folded on its back, pink rune-light burning through cracks.
+const spireGargoyle: WorldSkin = {
+    legLen: 7, torsoLen: 10,
+    skin: [C.void, C.stone0, C.stone1],
+    back: (s, x, y, _p, t) => {
+        // the folded bat wings, a claw at each wrist, twitching
+        const tw = Math.floor(t * 2) & 1
+        tri(s, x - 3, y, x - 11, y - 5 - tw, x - 8, y + 9, C.stone0)
+        tri(s, x - 3, y + 1, x - 9, y - 3 - tw, x - 7, y + 7, C.purple0)
+        line(s, x - 3, y, x - 11, y - 5 - tw, C.stone2)
+        px(s, x - 12, y - 6 - tw, C.bone0) // the wrist claw
+        for (let i = 0; i < 3; i++) line(s, x - 10 + i, y - 4 - tw, x - 9 + i * 1, y + 7 - i, C.void) // the wing fingers
+    },
+    head: (s, x, y, p) => {
+        // ridged horns swept back, a pointed ear, a heavy brow over a fanged muzzle
+        line(s, x - 1, y - 8, x - 4, y - 12, C.stone2); line(s, x - 4, y - 12, x - 7, y - 12, C.stone2); px(s, x - 8, y - 11, C.bone0)
+        line(s, x + 1, y - 8, x, y - 13, C.stone1); px(s, x - 1, y - 14, C.bone0)
+        tri(s, x - 3, y - 6, x - 3, y - 3, x - 7, y - 7, C.stone1)
+        ellipse(s, x, y - 4, 4, 4, C.stone1)
+        ellipse(s, x - 1, y - 6, 2, 1.5, C.stone2)
+        rect(s, x, y - 7, 4, 1, C.stone3) // the lit brow
+        rect(s, x + 2, y - 4, 4, 3, C.stone1) // the muzzle
+        line(s, x + 2, y - 4, x + 5, y - 4, C.stone2)
+        rect(s, x + 2, y - 1, 4, 1, C.ink)
+        px(s, x + 3, y - 2, C.white); px(s, x + 5, y - 2, C.white) // fangs
+        px(s, x + 1, y - 5, C.purple2); px(s, x + 2, y - 5, C.pink)
+        eyes(s, x + 3, y - 5, C.white, p)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 5, y, 10, 10, C.stone1)
+        rect(s, x - 5, y, 2, 10, C.stone0)
+        ellipse(s, x + 1, y + 3, 3, 2, C.stone2) // the carved chest
+        line(s, x - 2, y, x + 4, y, C.stone3) // the lit shoulders
+        line(s, x - 3, y + 7, x + 3, y + 7, C.void) // the belly ridge
+        // the rune cracks burning pink
+        line(s, x - 1, y + 1, x + 1, y + 4, C.pink); line(s, x + 1, y + 4, x, y + 8, C.purple2)
+        px(s, x + 3, y + 6, C.pink)
+        rect(s, x - 5, y + 9, 10, 1, C.void)
+    },
+    pants: C.stone1, pantsDk: C.stone0, boot: C.stone0, bootHi: C.stone1,
+    arm: C.stone1, armLow: C.stone1, armBack: C.stone0, armBackLow: C.stone0, hand: C.stone2,
+    blade: M.obsidian, haft: M.obsidian, gem: M.voidm, gemStyle: Gem.Claw, accent: C.pink
+}
+
+// 6 · Duskspire — Spellbound Construct (ranged): a brass automaton the mages built to guard their
+// towers, a domed helm with a glowing visor slit, rivets, a crystal finial, an arcane core in its chest.
+const spellboundConstruct: WorldSkin = {
+    legLen: 8, torsoLen: 9,
+    skin: [C.gold0, C.gold1, C.gold2],
+    head: (s, x, y, p, t) => {
+        ellipse(s, x, y - 5, 4, 5, C.gold1)
+        ellipse(s, x - 1, y - 7, 2, 2, C.gold2) // the lit dome
+        px(s, x - 2, y - 8, C.gold3)
+        rect(s, x - 4, y - 3, 8, 3, C.gold0) // the jaw plate
+        // the visor slit, glowing
+        const lit = p[HP.flash]! > 0.5
+        rect(s, x, y - 5, 5, 1, C.ink)
+        rect(s, x + 1, y - 5, 3, 1, lit ? C.white : C.cyan)
+        if (Math.floor(t * 3) & 1) px(s, x + 4, y - 5, C.frost)
+        px(s, x - 3, y - 4, C.gold2); px(s, x + 2, y - 2, C.gold2) // rivets
+        // the crystal finial
+        line(s, x, y - 10, x, y - 11, C.gold0)
+        tri(s, x - 1, y - 11, x + 1, y - 11, x, y - 14, C.cyan)
+        px(s, x, y - 13, C.white)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 4, y, 8, 9, C.gold1)
+        rect(s, x - 4, y, 2, 9, C.gold0)
+        line(s, x + 3, y, x + 3, y + 8, C.gold2)
+        // the arcane core, a crystal behind a ring of brass
+        disc(s, x + 1, y + 3, 2, C.gold0)
+        disc(s, x + 1, y + 3, 1.2, C.cyan)
+        px(s, x + 1, y + 3, C.white)
+        for (const [rx, ry] of [[-3, 1], [-3, 6], [2, 7], [3, 1]] as const) px(s, x + rx, y + ry, C.gold3) // rivets
+        rect(s, x - 4, y + 6, 8, 1, C.gold0) // the waist seam
+        line(s, x - 2, y + 7, x - 2, y + 8, C.steel2) // a pipe
+    },
+    pants: C.gold0, pantsDk: C.brown1, boot: C.gold0, bootHi: C.gold1,
+    arm: C.gold1, armLow: C.gold0, armBack: C.gold0, armBackLow: C.brown1, hand: C.gold2,
+    blade: M.arcane, haft: M.bronze, gem: M.arcane, gemStyle: Gem.Crystal, accent: C.cyan
+}
+
+// 6 · Duskspire — Riftbound Magus (caster): a tower mage half taken by the Void he studied, in
+// indigo and gold, a rift torn across his face with stars inside it, shards of it circling his head.
+const riftboundMagus: WorldSkin = {
+    legLen: 7, torsoLen: 8,
+    skin: [C.skin0, C.skin1, C.skin2],
+    head: (s, x, y, p, t) => {
+        // the high collar behind the head
+        tri(s, x - 5, y, x - 1, y - 1, x - 6, y - 8, C.blue0)
+        // grey hair swept back off the brow into a tail
+        ellipse(s, x - 2, y - 5, 3, 4, C.steel2)
+        tri(s, x - 4, y - 6, x - 3, y - 2, x - 8, y - 1, C.steel2)
+        line(s, x - 4, y - 8, x - 7, y - 3, C.steel3)
+        ellipse(s, x + 1, y - 4, 4, 4.5, C.skin1)
+        rect(s, x + 2, y - 7, 3, 3, C.skin2) // the lit brow and cheek
+        px(s, x + 5, y - 4, C.skin1) // the nose
+        line(s, x - 2, y - 8, x + 3, y - 9, C.steel3) // the hairline
+        // the rift across his face: a jagged tear with the Void inside it
+        line(s, x, y - 8, x + 1, y - 6, C.ink); line(s, x + 1, y - 6, x, y - 4, C.ink); line(s, x, y - 4, x + 2, y - 1, C.ink)
+        px(s, x + 1, y - 7, C.purple2); px(s, x, y - 4, C.white)
+        eyes(s, x + 3, y - 5, C.pink, p)
+        line(s, x + 3, y - 1, x + 4, y - 1, C.skin0)
+        // shards of the Void circling his head
+        const a = t * 3
+        for (let i = 0; i < 3; i++) {
+            const sx = Math.round(x + Math.cos(a + i * 2.1) * 7)
+            const sy = Math.round(y - 7 + Math.sin(a + i * 2.1) * 2)
+            px(s, sx, sy, i === 0 ? C.pink : C.purple2); px(s, sx, sy - 1, C.void)
+        }
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 7, 8, C.blue1)
+        rect(s, x - 3, y, 2, 8, C.blue0)
+        line(s, x + 3, y, x + 3, y + 7, C.gold1) // the gold edge
+        rect(s, x - 4, y - 1, 9, 2, C.blue0) // the mantle
+        line(s, x - 4, y - 1, x + 4, y - 1, C.gold1)
+        px(s, x + 1, y + 1, C.gold2); px(s, x + 1, y + 2, C.pink) // the clasp, and the Void creeping out of it
+        line(s, x, y + 3, x - 1, y + 5, C.ink); px(s, x - 1, y + 4, C.purple2)
+        rect(s, x - 3, y + 6, 7, 1, C.gold1)
+    },
+    lower: (s, x, hipY, _p, t) => robeSkirt(s, x, hipY, J.oy - 1, [C.blue0, C.blue1, C.blue2], C.gold1, (Math.floor(t * 2) & 1) - 0.5, C.ink, 0),
+    pants: C.blue1, pantsDk: C.blue0, boot: C.ink, bootHi: C.night2,
+    arm: C.blue1, armLow: C.blue1, armBack: C.blue0, armBackLow: C.blue0, hand: C.skin1,
+    blade: M.voidm, haft: M.darkwood, gem: M.voidm, gemStyle: Gem.Crystal, accent: C.pink
 }
 
 // 7 · The Bonefields — Restless Legionnaire: bones in rusted legion kit, crest still red.
@@ -1086,7 +1223,8 @@ export const WORLD_ROSTERS: readonly Readonly<Record<EnemyWeapon, WorldSkin>>[] 
     { sword: cinderKobold, axe: slagGolem, bow: ashImp, staff: salamanderFirecaller },
     { sword: frostboundRaider, axe: rimeTroll, bow: snowfieldHuntress, staff: runeSkald },
     { sword: drownedSailor, axe: barnacleBrute, bow: harpoonSiren, staff: tidePriestess },
-    one(hollowAcolyte), one(restlessLegionnaire), one(skyshardWisp), one(unravelledKnight), one(voidThrall)
+    { sword: hollowAcolyte, axe: spireGargoyle, bow: spellboundConstruct, staff: riftboundMagus },
+    one(restlessLegionnaire), one(skyshardWisp), one(unravelledKnight), one(voidThrall)
 ]
 
 /** Which of a world's roster styles each rig draws. */

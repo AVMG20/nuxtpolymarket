@@ -9,7 +9,7 @@ import type { Mat } from './weapons'
 import type { Surface } from './surface'
 import {
     B, Entry, bossStates, drive, finish, bz, ball, chain, spikes, mouth,
-    limbT, reach, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, arc, poly, q, wv, hash2
+    limbT, reach, elbow, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, arc, poly, q, wv, hash2
 } from './boss-kit'
 import { dome, ditherDisc } from './surface'
 
@@ -1022,19 +1022,6 @@ const JARL_SKIN: Mat = [C.night3, C.haze, C.frost]
 const BEARSKIN: Mat = [C.brown0, C.brown1, C.brown2]
 const MAIL: Mat = [C.steel0, C.steel1, C.steel2]
 const TITAN_ROCK: Mat = [C.stone1, C.stone2, C.stone3]
-
-/** The elbow of a two-bone limb from shoulder (sx, sy) to hand (hx, hy), bending toward `bend` (±1), into P. */
-function elbow(sx: number, sy: number, hx: number, hy: number, l1: number, l2: number, bend: number): void {
-    const dx = hx - sx
-    const dy = hy - sy
-    const d = Math.max(1, Math.min(l1 + l2 - 0.5, Math.hypot(dx, dy)))
-    const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d)
-    const h = Math.sqrt(Math.max(0, l1 * l1 - a * a))
-    const ux = dx / d
-    const uy = dy / d
-    P.x = sx + ux * a - uy * h * bend
-    P.y = sy + uy * a + ux * h * bend
-}
 
 /** Ringed mail: every base-shade pixel in the box turned into rows of rings, lit on the upper left. */
 function mailRings(s: Surface, x0: number, y0: number, w: number, h: number): void {

@@ -255,6 +255,19 @@ export function limbT(s: Surface, x0: number, y0: number, x1: number, y1: number
     line(s, x0 - ox, y0 - oy - 0.5, x1 - ox, y1 - oy - 0.5, m[2])
 }
 
+/** The elbow of a two-bone limb from shoulder (sx, sy) to hand (hx, hy), bending toward `bend` (±1), into P. */
+export function elbow(sx: number, sy: number, hx: number, hy: number, l1: number, l2: number, bend: number): void {
+    const dx = hx - sx
+    const dy = hy - sy
+    const d = Math.max(1, Math.min(l1 + l2 - 0.5, Math.hypot(dx, dy)))
+    const a = (l1 * l1 - l2 * l2 + d * d) / (2 * d)
+    const h = Math.sqrt(Math.max(0, l1 * l1 - a * a))
+    const ux = dx / d
+    const uy = dy / d
+    P.x = sx + ux * a - uy * h * bend
+    P.y = sy + uy * a + ux * h * bend
+}
+
 /** Point on an arm of length `len` from (x, y) at angle a — scratch output in P. */
 export const P = { x: 0, y: 0 }
 export function reach(x: number, y: number, a: number, len: number): void {
