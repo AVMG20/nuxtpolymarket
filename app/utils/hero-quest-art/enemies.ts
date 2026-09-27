@@ -10,7 +10,7 @@
 import { Ease, Phase, step, type Clip } from './anim'
 import { C } from './palette'
 import type { Surface} from './surface';
-import { line, px, rect, disc, ellipse, tri, dither, poly, arc } from './surface'
+import { line, px, rect, disc, ellipse, tri, dither, poly, arc, hash2 } from './surface'
 import { HP, J, fxX, fxY, hclip, hitClip, deathClip, rest, type Look, type Painter } from './rig'
 import { robeSkirt, smear, sparks, streak } from './hero-parts'
 import { M, tip, sword, axe, bow, staff, Gem, type Mat } from './weapons'
@@ -1730,40 +1730,194 @@ const lastSeer: WorldSkin = {
     }
 }
 
-// 10 · The Void — Void Thrall: a hole in the shape of a soldier, rimmed in violet.
+/** Stars twinkling in whatever is already painted in the box at (x, y): the Void showing through a body. */
+function starsIn(s: Surface, x: number, y: number, w: number, h: number, t: number, seed: number): void {
+    const tw = Math.floor(t * 5)
+    for (let yy = y; yy < y + h; yy++) {
+        for (let xx = x; xx < x + w; xx++) {
+            if (!s.get(xx, yy)) continue
+            const r = hash2(xx * 7 + seed, yy * 13)
+            if (r < 0.07) s.set(xx, yy, (Math.floor(r * 100) + tw) % 3 ? C.white : C.pink)
+        }
+    }
+}
+
+// 10 · The Void — Void Thrall (melee): a soldier of some world the Void took, now a hole in the
+// shape of one: the stars showing through, rimmed violet toward the light, pink eyes; the scraps of
+// the armour it wore still stuck to it, a helm's brim and crest, a pauldron, a belt and buckle;
+// a blade of void-glass.
 const voidThrall: WorldSkin = {
     legLen: 8, torsoLen: 9,
     skin: [C.ink, C.void, C.purple0],
     head: (s, x, y, p, t) => {
-        rect(s, x - 2, y - 8, 6, 8, C.void)
-        tri(s, x - 3, y - 7, x - 1, y - 7, x - 4, y - 12, C.void) // spikes
-        tri(s, x, y - 8, x + 2, y - 8, x + 1, y - 13, C.void)
-        eyes(s, x + 2, y - 5, C.pink, p)
-        px(s, x + 3, y - 5, C.pink)
-        rect(s, x + 1, y - 2, 3, 1, C.purple2)
-        if ((Math.floor(t * 5) & 3) === 0) px(s, x - 1, y - 4, C.white) // a star inside
+        ellipse(s, x + 1, y - 4, 3.5, 4, C.void)
+        line(s, x - 2, y - 7, x + 1, y - 8, C.purple2) // the rim of light
+        starsIn(s, x - 3, y - 8, 8, 8, t, 3)
+        // the helm it wore, dented, a broken crest
+        rect(s, x - 3, y - 9, 7, 2, C.steel1)
+        line(s, x - 3, y - 9, x + 3, y - 9, C.steel2)
+        rect(s, x + 4, y - 8, 1, 3, C.steel1) // the nasal, bent
+        line(s, x - 2, y - 10, x - 5, y - 13, C.red1); px(s, x - 5, y - 13, C.red2)
+        // the eyes, pink, and a mouth that is only more dark
+        px(s, x + 2, y - 5, C.pink)
+        eyes(s, x + 4, y - 5, C.pink, p)
+        rect(s, x + 1, y - 2, 3, 1, C.ink)
     },
-    torso: (s, x, y, p, t) => {
+    torso: (s, x, y, _p, t) => {
         rect(s, x - 4, y, 8, 9, C.void)
-        line(s, x - 2, y + 1, x + 1, y + 7, C.purple1) // crack
-        px(s, x, y + 4, C.pink)
-        const k = Math.floor(t * 4) & 3
-        px(s, x - 3 + k, y + 2 + (k & 1) * 4, C.white)
-        px(s, x + 2, y + 1 + k, C.haze)
+        line(s, x - 4, y, x - 4, y + 8, C.purple2)
+        line(s, x - 3, y, x + 2, y, C.purple2)
+        starsIn(s, x - 4, y, 8, 9, t, 5)
+        // the pauldron still on its shoulder, the belt and a gold buckle
+        rect(s, x - 4, y - 1, 4, 3, C.steel1)
+        line(s, x - 4, y - 1, x - 1, y - 1, C.steel3)
+        rect(s, x - 4, y + 6, 8, 1, C.brown1)
+        px(s, x + 1, y + 6, C.gold2)
+        // a crack of pink light where it is coming apart
+        line(s, x + 1, y + 1, x + 2, y + 4, C.pink)
     },
-    pants: C.void, pantsDk: C.ink, boot: C.ink, bootHi: C.purple0,
+    pants: C.void, pantsDk: C.ink, boot: C.steel0, bootHi: C.steel1,
     arm: C.void, armLow: C.void, armBack: C.ink, armBackLow: C.ink, hand: C.purple0,
-    blade: M.voidm, haft: [C.ink, C.void, C.purple0], gem: M.voidm, gemStyle: Gem.Orb, accent: C.purple2,
+    blade: M.voidm, haft: [C.ink, C.void, C.purple0], gem: M.voidm, gemStyle: Gem.Orb, accent: C.pink,
     ambient: (dst, t) => {
+        // flakes of it coming loose and drifting up
         const k = step(t, 10, 6)
         for (let i = 0; i < 2; i++) dst.set(fxX(J.bx - 5 + i * 9 - (k >> 1)), fxY(J.oy - 3 - k * 2 - i * 5), i ? C.purple2 : C.pink)
     }
 }
 
-/** World skins in world order; index 0 is World 1. */
-/** A world whose other creatures are not designed yet: its one skin on all four rigs. */
-function one(w: WorldSkin): Readonly<Record<EnemyWeapon, WorldSkin>> {
-    return { sword: w, axe: w, bow: w, staff: w }
+// 10 · The Void — Void Maw (heavy): a hulking thing of the dark whose chest is one great mouth,
+// ringed in teeth, a pink gullet glowing in it; a small head sunk between hunched shoulders and
+// crowded with eyes; long arms and claws.
+const voidMaw: WorldSkin = {
+    legLen: 7, torsoLen: 11,
+    skin: [C.ink, C.void, C.purple0],
+    head: (s, x, y, p) => {
+        ellipse(s, x + 1, y - 3, 3.5, 3.5, C.void)
+        line(s, x - 2, y - 6, x + 2, y - 7, C.purple2)
+        // eyes crowded on it, blinking
+        const shut = p[HP.flash]! > 0.5
+        for (const [ex, ey] of [[0, -5], [4, -4], [-1, -2]] as const) px(s, x + ex, y + ey, shut ? C.ink : C.pink)
+        px(s, x + 2, y - 3, shut ? C.ink : C.white); px(s, x + 3, y - 3, shut ? C.ink : C.pink)
+    },
+    torso: (s, x, y, p, t) => {
+        // hunched shoulders rising round the head
+        ellipse(s, x, y + 5, 6, 7, C.void)
+        ellipse(s, x - 4, y, 3.5, 3, C.void)
+        ellipse(s, x + 4, y, 3.5, 3, C.void)
+        line(s, x - 6, y, x - 2, y - 2, C.purple2)
+        line(s, x - 6, y + 1, x - 6, y + 8, C.purple0)
+        // the mouth in its chest, rimmed in violet, teeth all round, the gullet glowing, gaping on the roar
+        const open = p[HP.mouth]! > 0.5 || p[HP.glow]! > 0.5 ? 1 : 0
+        const k = Math.floor(t * 4) & 1
+        ellipse(s, x + 1, y + 6, 5, 4 + open, C.purple2)
+        ellipse(s, x + 1, y + 6, 4, 3 + open, C.ink)
+        ellipse(s, x + 1, y + 7, 2, 1 + open, k ? C.pink : C.purple1)
+        px(s, x + 1, y + 7, C.white)
+        for (let i = 0; i < 4; i++) {
+            px(s, x - 2 + i * 2, y + 3 - open, C.white); px(s, x - 2 + i * 2, y + 4 - open, C.bone1)
+            px(s, x - 1 + i * 2, y + 9 + open, C.white); px(s, x - 1 + i * 2, y + 8 + open, C.bone1)
+        }
+    },
+    pants: C.void, pantsDk: C.ink, boot: C.ink, bootHi: C.purple0,
+    arm: C.void, armLow: C.void, armBack: C.ink, armBackLow: C.ink, hand: C.bone1,
+    blade: M.voidm, haft: [C.ink, C.void, C.purple0], gem: M.voidm, gemStyle: Gem.Orb, accent: C.pink
+}
+
+// 10 · The Void — Starved Wraith (ranged): a gaunt wraith hollowed by hunger, a tattered black hood
+// over a pale starved face with hollow cheeks, pink eyes and a jaw hanging open, its robe trailing
+// away into smoke where its legs should be, loosing pink arrows from a bow of black glass.
+const starvedWraith: WorldSkin = {
+    legLen: 8, torsoLen: 8,
+    skin: [C.steel1, C.steel2, C.steel3],
+    back: (s, x, y, _p, t) => {
+        // the hood's tattered tail blown back
+        const f = Math.floor(t * 4) & 1
+        poly(s, [-2, -9, -3, 0, -9, 4 + f, -8, -3, -11, -6 + f], x, y, C.void)
+        line(s, x - 2, y - 9, x - 11, y - 6 + f, C.purple2)
+    },
+    head: (s, x, y, p) => {
+        // the hood, pointed and ragged
+        ellipse(s, x, y - 5, 4.5, 5, C.void)
+        tri(s, x - 3, y - 8, x + 1, y - 11, x - 6, y - 12, C.void)
+        line(s, x - 3, y - 9, x + 3, y - 9, C.purple2)
+        // the face deep in it: gaunt, hollow-cheeked, the jaw hanging open
+        ellipse(s, x + 2, y - 4, 2.5, 3.5, C.steel2)
+        px(s, x + 3, y - 6, C.steel3)
+        line(s, x + 1, y - 3, x + 1, y - 1, C.steel1) // the hollow of the cheek
+        rect(s, x + 1, y - 6, 1, 1, C.ink)
+        eyes(s, x + 3, y - 5, C.pink, p)
+        rect(s, x + 3, y - 2, 2, 2 + (p[HP.mouth]! > 0.5 ? 1 : 0), C.ink)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 7, 8, C.void)
+        line(s, x - 3, y, x - 3, y + 7, C.purple2)
+        // ribs showing through a tear, a cord belt
+        rect(s, x, y + 1, 3, 4, C.ink)
+        for (let i = 0; i < 2; i++) line(s, x, y + 2 + i * 2, x + 2, y + 2 + i * 2, C.steel2)
+        rect(s, x - 3, y + 6, 7, 1, C.purple0)
+    },
+    lower: (s, x, hipY, _p, t) => {
+        // the robe trailing away into smoke
+        const k = Math.floor(t * 6) & 3
+        for (let i = 0; i < 9; i++) {
+            const w = Math.max(0, 4 - (i >> 1))
+            const sx = x - (i >> 1) + ((i + k) & 1)
+            rect(s, sx - w, hipY + i, w * 2 + 1, 1, i < 4 ? C.void : C.ink)
+            if (w > 1 && ((i + k) & 3) === 0) px(s, sx - w, hipY + i, C.purple0)
+        }
+        for (let i = 0; i < 3; i++) px(s, x - 5 - i * 2 + (k & 1), hipY + 6 + i, C.purple0)
+    },
+    pants: C.void, pantsDk: C.ink, boot: C.ink, bootHi: C.void,
+    arm: C.void, armLow: C.steel2, armBack: C.ink, armBackLow: C.steel1, hand: C.steel2,
+    blade: [C.purple2, C.pink, C.white], haft: [C.ink, C.void, C.purple1], gem: M.voidm, gemStyle: Gem.Orb, accent: C.pink,
+    ambient: (dst, t) => {
+        // smoke curling off the trail of the robe
+        const k = step(t, 10, 8)
+        dst.set(fxX(J.bx - 6 - (k >> 1)), fxY(J.oy - 2 - k), k & 1 ? C.purple0 : C.void)
+    }
+}
+
+// 10 · The Void — Void Augur (caster): a prophet of the end in a tall black hood, where its face
+// should be a small black hole turning in a ring of light, eyes drifting round it; black robes with
+// pink runes down the front and a gold hem; a staff crowned with an eye.
+const voidAugur: WorldSkin = {
+    legLen: 7, torsoLen: 8,
+    skin: [C.ink, C.void, C.purple0],
+    head: (s, x, y, p, t) => {
+        // the tall hood
+        ellipse(s, x, y - 5, 4.5, 5.5, C.void)
+        tri(s, x - 4, y - 7, x + 2, y - 9, x - 3, y - 16, C.void)
+        line(s, x - 3, y - 15, x + 2, y - 9, C.purple2)
+        // the hole where its face should be, turning in a ring of light
+        ellipse(s, x + 2, y - 4, 3.5, 4, C.ink)
+        const a = t * 6
+        arc(s, x + 2, y - 4, 2.5, a, a + 3.6, C.pink)
+        arc(s, x + 2, y - 4, 2.5, a + 3.6, a + 5.2, C.white)
+        px(s, x + 2, y - 4, p[HP.glow]! > 0.3 ? C.white : C.ink)
+        if (p[HP.flash]! > 0.5) px(s, x + 2, y - 4, C.white)
+    },
+    torso: (s, x, y, _p, t) => {
+        rect(s, x - 3, y, 7, 8, C.void)
+        line(s, x - 3, y, x - 3, y + 7, C.purple2)
+        // runes down the front, glowing in turn
+        const k = Math.floor(t * 4) % 3
+        for (let i = 0; i < 3; i++) { const c = i === k ? C.pink : C.purple0; px(s, x + 1, y + 1 + i * 2, c); px(s, x + 2, y + 2 + i * 2, c) }
+        rect(s, x - 3, y + 6, 7, 1, C.gold1)
+    },
+    lower: (s, x, hipY, _p, t) => robeSkirt(s, x, hipY, J.oy - 1, [C.ink, C.void, C.purple0], C.gold1, (Math.floor(t * 2) & 1) - 0.5, C.void, 0),
+    pants: C.void, pantsDk: C.ink, boot: C.void, bootHi: C.purple0,
+    arm: C.void, armLow: C.void, armBack: C.ink, armBackLow: C.ink, hand: C.steel2,
+    blade: M.voidm, haft: [C.ink, C.void, C.purple0], gem: [C.purple1, C.pink, C.white], gemStyle: Gem.Orb, accent: C.pink,
+    ambient: (dst, t) => {
+        // eyes drifting round it, opening and closing
+        const a = step(t, 10, 20) / 20 * Math.PI * 2
+        for (let i = 0; i < 2; i++) {
+            const ex = J.headX + 1 + R(Math.cos(a + i * Math.PI) * 9)
+            const ey = J.headY - 6 + R(Math.sin(a + i * Math.PI) * 3)
+            dst.set(fxX(ex), fxY(ey), C.white); dst.set(fxX(ex + 1), fxY(ey), C.pink)
+        }
+    }
 }
 
 /**
@@ -1780,7 +1934,7 @@ export const WORLD_ROSTERS: readonly Readonly<Record<EnemyWeapon, WorldSkin>>[] 
     { sword: restlessLegionnaire, axe: barrowGhoul, bow: boneArcher, staff: ossuaryPriest },
     { sword: skyshardWisp, axe: thunderheadGolem, bow: harpyRaider, staff: squallCaller },
     { sword: unravelledKnight, axe: tetheredBrute, bow: starfallArcher, staff: lastSeer },
-    one(voidThrall)
+    { sword: voidThrall, axe: voidMaw, bow: starvedWraith, staff: voidAugur }
 ]
 
 /** Which of a world's roster styles each rig draws. */

@@ -6,15 +6,14 @@ import type { CreatureDef } from './creature'
 import { CF, fr, sm, span } from './creature'
 import type { Mat } from './weapons'
 import {
-    B, Entry, bossStates, drive, finish, bz, ball, tentacle, glowEye, wing,
-    limbT, reach, elbow, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, ring, arc, poly, q, wv, bayer, hash2
+    B, Entry, bossStates, drive, finish, bz, ball, tentacle, glowEye,
+    limbT, elbow, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, ring, arc, poly, q, wv, bayer, hash2
 } from './boss-kit'
 import { Surface, ditherDisc } from './surface'
 
 const R = Math.round
 
 const VIOLET: Mat = [C.purple0, C.purple1, C.purple2]
-const VOIDM: Mat = [C.ink, C.void, C.purple0]
 const STONE: Mat = [C.stone1, C.stone2, C.stone3]
 
 /** Void interior: black speckled with stars that twinkle on the frame grid. */
@@ -1190,10 +1189,10 @@ const HEAD_WHITE: Mat = [C.steel2, C.steel3, C.white]
 /**
  * A great wing from the shoulder (sx, sy) along `a`, `L` long: secondaries falling back off the
  * arm, primaries fanning from the wrist with the longest at the leading edge, coverts over their
- * roots in scalloped rows, a lit leading edge and a zigzag of lightning down its length that
- * flares with `flare`.
+ * roots in scalloped rows, a lit leading edge and, unless `bolt` is off, a zigzag of lightning
+ * down its length that flares with `flare`.
  */
-function rocWing(s: Surface, sx: number, sy: number, a: number, L: number, m: Mat, tip: number, flare: number): void {
+function rocWing(s: Surface, sx: number, sy: number, a: number, L: number, m: Mat, tip: number, flare: number, bolt = true): void {
     const dx = Math.cos(a)
     const dy = Math.sin(a)
     const ta = a - Math.PI / 2
@@ -1237,6 +1236,7 @@ function rocWing(s: Surface, sx: number, sy: number, a: number, L: number, m: Ma
     // the leading edge, lit
     line(s, R(sx), R(sy), R(wx), R(wy), m[2], 2)
     line(s, R(wx), R(wy), R(wx + dx * L * 0.3), R(wy + dy * L * 0.3), m[2])
+    if (!bolt) return
     // the thunderbird's mark: a zigzag of lightning down the wing
     let zx = sx + Math.cos(ta) * 4
     let zy = sy + Math.sin(ta) * 4
@@ -1993,112 +1993,326 @@ export const LIMINUS: CreatureDef = {
 
 // ═══════════════════════════════════════════════════════════════ 10 · The Void
 
-/** Void Herald — the winged thing that announces the end, sounding a bone horn. */
+// Stage 5: the Void Herald, the winged thing that announces the end, sounding a horn. Stage 10:
+// Nihil, the Hunger at the End, a mouth the size of the sky with eyes all round it.
+
+const VOID_WING: Mat = [C.ink, C.void, C.purple0]
+const VOID_WING_FAR: Mat = [C.ink, C.ink, C.void]
+
+/** Stars pricked into whatever is already painted in the box at (x, y), a few of them pink. */
+function sprinkle(s: Surface, x: number, y: number, w: number, h: number, t: number, seed: number, density: number): void {
+    const tw = fr(t, 5, 3)
+    for (let yy = y; yy < y + h; yy++) {
+        for (let xx = x; xx < x + w; xx++) {
+            if (!s.get(xx, yy)) continue
+            const r = hash2(xx * 7 + seed, yy * 13)
+            if (r < density) s.set(xx, yy, (Math.floor(r * 1000) + tw) % 3 ? C.white : C.pink)
+        }
+    }
+}
+
+/** The Herald's horn bell this frame, sprite-local from the anchor, and where it points. */
+const HB = { x: 0, y: 0, a: 0 }
+
+/**
+ * The Void Herald, the thing that announces the end: four great wings of the dark, feathered and
+ * pricked with stars, their tips burning pink; a halo of black fire; a black cowl round a smooth
+ * gold mask with no face on it but a slit of pink light; long robes of the starfield bound in gold
+ * down the front and at the hem, trailing off into nothing. It holds a long horn of bone banded in
+ * gold, lifts it to the mask as its wings rise, and sounds it at the party.
+ */
 export const VOID_HERALD: CreatureDef = {
-    name: 'Void Herald', size: 96, shadow: 12, hover: 1, accent: C.purple2,
-    states: bossStates(1.2, 1.6, 2.0),
+    name: 'Void Herald', size: 128, shadow: 12, hover: 1, accent: C.pink,
+    states: bossStates(1.3, 1.6, 2.0),
     draw(s, st, t) {
         drive(this, st, t, 4, 1.6)
-        const x = s.ax - 2 + B.lunge - B.kb
+        const x = s.ax - 6 + B.lunge - B.kb
         const y = s.ay
-        const hover = -12 + wv(t, 1.6, 2) + R(B.die * 14)
-        const top = y - 56 + hover
-        const flap = Math.sin(q(t) * Math.PI * 2 / 1.6)
-        // four wings, starred
-        wing(s, x - 2, top + 8, 30, flap * 0.6 + 0.5, VOIDM, false)
-        wing(s, x - 2, top + 14, 24, flap * 0.6 - 0.4, VOIDM, false)
-        // halo of black fire
-        ring(s, x + 2, top - 6, 11, C.purple1)
-        ring(s, x + 2, top - 6, 10, C.void)
-        // body: a tall slender shape, violet-rimmed
-        quad(s, x - 6, top + 6, x + 6, top + 6, x + 4, top + 50, x - 10, top + 50, C.void)
-        line(s, x + 6, top + 6, x + 4, top + 50, C.purple2)
-        line(s, x - 6, top + 6, x - 10, top + 50, C.purple0)
-        for (let i = 0; i < 5; i++) px(s, x - 3 + ((i * 3) % 6), top + 12 + i * 8, (fr(t, 4, 2) + i) & 1 ? C.white : C.haze) // stars inside
-        tri(s, x - 10, top + 50, x + 4, top + 50, x - 4, top + 58, C.void)
-        // head: smooth, eyeless but for one line of light
-        ellipse(s, x + 2, top, 5, 7, C.void)
-        line(s, x + 2, top - 1, x + 6, top - 1, B.hurt ? C.white : C.pink)
-        line(s, x + 6, top - 5, x + 6, top + 4, C.purple2)
-        // back arm down, front arm raising the horn
-        limbT(s, x - 4, top + 10, x - 8, top + 26, 3, 2, VOIDM)
-        const a = bz(0.6, -0.7, -0.15)
-        reach(x + 4, top + 10, a, 10)
-        limbT(s, x + 4, top + 10, P.x, P.y, 3, 2, VOIDM)
-        const hx = P.x
-        const hy = P.y
-        reach(hx, hy, a - 0.6, 14)
-        line(s, hx, hy, P.x, P.y, C.bone1, 2)
-        disc(s, P.x, P.y, 2.5, C.bone0)
-        disc(s, P.x, P.y, 1.2, C.ink)
-        line(s, hx, hy, P.x, P.y + 1, C.bone0)
-        finish(s, Entry.Fade)
+        const hover = -10 + wv(t, 1.6, 2) + R(B.die * 14)
+        const top = y - 74 + hover
+        const beat = st === 'idle' || st === 'entry' ? Math.sin(q(t) / 1.6 * Math.PI * 2) : 0
+        const lift = st === 'attack' ? bz(0, 0.6, 0.9) : beat * 0.25
+        // the wings: an upper pair raised, a lower pair swept down, the far ones behind
+        const wx = x - 3
+        const wy = top + 19
+        rocWing(s, wx + 2, wy - 1, -1.75 - 0.2 * (1 - lift) + 0.35, 34, VOID_WING_FAR, C.purple2, 0, false)
+        rocWing(s, wx + 2, wy + 4, 2.55 - lift * 0.3 + 0.3, 24, VOID_WING_FAR, C.purple2, 0, false)
+        rocWing(s, wx, wy, -1.95 - 0.25 * (1 - lift), 40, VOID_WING, C.pink, 0, false)
+        rocWing(s, wx, wy + 6, 2.6 - lift * 0.35, 28, VOID_WING, C.pink, 0, false)
+        sprinkle(s, x - 50, top - 30, 50, 90, t, 41, 0.035)
+        // the halo of black fire, a thin ring of light inside it
+        const hx = x + 3
+        const hy = top + 8
+        const fk = fr(t, 10, 4)
+        for (let i = 0; i < 16; i++) {
+            const a = (i / 16) * Math.PI * 2
+            const len = 3 + ((i + fk) % 4 === 0 ? 3 : (i + fk) % 2)
+            const bx = hx - 3 + Math.cos(a) * 12
+            const by = hy - 2 + Math.sin(a) * 12
+            line(s, R(bx), R(by), R(bx + Math.cos(a) * len), R(by + Math.sin(a) * len), (i + fk) % 3 ? C.void : C.purple0)
+            px(s, R(bx + Math.cos(a) * len), R(by + Math.sin(a) * len), (i + fk) % 5 === 0 ? C.pink : C.purple0)
+        }
+        ring(s, hx - 3, hy - 2, 12, C.ink)
+        ring(s, hx - 3, hy - 2, 11, (B.glow > 0.3 || fk === 0) ? C.white : C.pink)
+        // the robes: the starfield bound in gold, trailing off into nothing
+        const rt = top + 16
+        const trail = R(Math.sin(q(t) / 1.6 * Math.PI * 2 + 1) * 2)
+        poly(s, [-7, 0, 7, 0, 10, 36, 4, 44, -6, 48 + trail, -14, 52 + trail, -12, 36], x, rt, C.void)
+        voidFill(s, x - 14, rt, 25, 53, t, 43)
+        line(s, x - 7, rt, x - 12, rt + 36, C.purple2) // the rim of light
+        line(s, x + 7, rt, x + 10, rt + 36, C.purple0)
+        // the orphrey down the front, gold, a pink stone set in it
+        poly(s, [2, 0, 6, 0, 8, 38, 3, 40], x, rt, C.gold1)
+        line(s, x + 2, rt, x + 3, rt + 40, C.gold2)
+        for (let i = 0; i < 4; i++) px(s, x + 5, rt + 8 + i * 8, C.gold3)
+        disc(s, x + 5, rt + 5, 1.5, C.pink); px(s, x + 5, rt + 4, C.white)
+        line(s, x - 12, rt + 36, x + 10, rt + 36, C.gold2) // the hem band
+        line(s, x - 12, rt + 37, x + 10, rt + 37, C.gold1)
+        for (let i = 0; i < 5; i++) tri(s, x - 14 + i * 3, rt + 46 + trail, x - 12 + i * 3, rt + 46 + trail, x - 16 + i * 2, rt + 54 + trail + (i & 1) * 3, C.void) // the tatters
+        // the far arm hanging in its wide sleeve
+        limbT(s, x - 5, rt + 2, x - 9, rt + 20, 5, 6, VOID_WING)
+        line(s, x - 12, rt + 21, x - 6, rt + 21, C.gold1)
+        // the cowl, and in it the gold mask with no face but a slit of light
+        ellipse(s, hx - 1, hy, 7, 8, C.ink)
+        ellipse(s, hx - 2, hy, 6, 7, C.void)
+        line(s, hx - 7, hy - 3, hx - 3, hy - 8, C.purple2)
+        ellipse(s, hx + 1, hy + 1, 4, 5.5, C.gold1)
+        ellipse(s, hx + 1, hy, 3, 4.5, C.gold2)
+        line(s, hx, hy - 4, hx + 2, hy - 4, C.gold3)
+        line(s, hx + 4, hy - 2, hx + 4, hy + 3, C.gold0)
+        const slit = B.hurt ? C.white : (B.glow > 0.3 ? C.white : C.pink)
+        line(s, hx - 1, hy, hx + 4, hy, C.ink)
+        line(s, hx, hy, hx + 3, hy, slit)
+        if (B.glow > 0.3) ditherDisc(s, hx + 2, hy, 4, C.pink, R(B.glow * 6))
+        // the near arm and the horn: held low, raised to the mask, sounded at the party
+        const sx = x + 4
+        const sy = rt + 3
+        const hdx = x + R(bz(9, 7, 10))
+        const hdy = rt + R(bz(16, -3, 0))
+        limbT(s, sx, sy, hdx, hdy, 5, 5, VOID_WING)
+        line(s, hdx - 1, hdy - 2, hdx + 1, hdy + 2, C.gold2) // the cuff
+        const ha = bz(0.5, -0.75, -0.12)
+        const L = 22
+        HB.a = ha
+        let bx = hdx
+        let by = hdy
+        for (let i = 0; i <= 12; i++) {
+            // the horn curving from the mouthpiece to the bell, widening, banded in gold
+            const u = i / 12
+            const a = ha - 0.35 + u * 0.5
+            const nx = hdx + Math.cos(ha) * L * u + Math.cos(a + Math.PI / 2) * Math.sin(u * Math.PI) * 3
+            const ny = hdy + Math.sin(ha) * L * u + Math.sin(a + Math.PI / 2) * Math.sin(u * Math.PI) * 3
+            const w = 1 + u * u * 4
+            disc(s, nx, ny, w, i % 4 === 2 ? C.gold1 : C.bone0)
+            disc(s, nx - 0.5, ny - 0.5, Math.max(0.5, w - 1), i % 4 === 2 ? C.gold2 : C.bone1)
+            bx = nx
+            by = ny
+        }
+        ellipse(s, bx, by, 2.5, 4, C.ink) // the mouth of the bell
+        px(s, R(bx - 1), R(by - 3), C.white)
+        disc(s, hdx + 1, hdy, 2, C.steel2) // the hand
+        HB.x = bx - s.ax
+        HB.y = by - s.ay
+        finish(s, Entry.Drop, 0)
     },
     fx(dst, st, t, x, y, dir) {
         const k = fr(t, 10, 10)
-        for (let i = 0; i < 3; i++) dst.set(x + dir * (-20 + ((i * 13 + k * 3) % 40)), y - 20 - ((k * 5 + i * 9) % 50), C.purple2)
+        for (let i = 0; i < 3; i++) dst.set(x + dir * (-20 + ((i * 13 + k * 3) % 40)), y - 30 - ((k * 5 + i * 9) % 50), i & 1 ? C.purple0 : C.pink) // embers of the black fire
         if ((st === 'attack' && (B.strike || B.rec > 0.4)) || B.roar) {
-            for (let r = 4; r <= 28; r += 6) {
+            // the horn's call rolling out from the bell at the party
+            const bx = x + dir * HB.x
+            const by = y + HB.y
+            for (let r = 5; r <= 35; r += 7) {
                 const rr = r + (k % 3) * 2
-                for (let a = -0.7; a <= 0.7; a += 0.12) dst.set(x + dir * R(24 + Math.cos(a) * rr), y - 48 + R(Math.sin(a) * rr), r % 12 ? C.pink : C.white)
+                for (let a = -0.6; a <= 0.6; a += 0.1) dst.set(bx + dir * R(Math.cos(a) * rr), by + R(Math.sin(a) * rr), r % 14 === 5 ? C.white : C.pink)
             }
         }
     }
 }
 
-/** Nihil, the Hunger at the End — a mouth the size of the sky, with eyes all round it. */
+// ── Nihil ──
+
+/** Nihil's maw this frame, sprite-local from the anchor. */
+const NM = { x: 0, y: 0 }
+
+/**
+ * One eye of Nihil's at (x, y), `r` across: white, a pink iris with a slit pupil looking toward
+ * the party, a lid of the dark; `open` 0..1 widens it, 0 shuts it.
+ */
+function nihilEye(s: Surface, x: number, y: number, r: number, open: number): void {
+    const h = Math.max(0, r * 0.65 * open)
+    ellipse(s, x, y, r + 1, r * 0.65 + 1, C.ink)
+    if (h < 0.5) { line(s, R(x - r), R(y), R(x + r), R(y), C.purple0); return }
+    ellipse(s, x, y, r, h, C.white)
+    const ir = Math.max(1, Math.min(r * 0.55, h))
+    disc(s, x + r * 0.3, y, ir, C.pink)
+    line(s, R(x + r * 0.35), R(y - ir + 1), R(x + r * 0.35), R(y + ir - 1), C.ink)
+    px(s, R(x - r * 0.3), R(y - h * 0.5), C.white)
+    arc(s, x, y - 1, r + 1, Math.PI * 1.1, Math.PI * 1.9, C.purple2) // the lid, lit
+}
+
+/**
+ * Nihil whole, `x`/`y` its anchor: a hide of the starfield risen out of a pool of the dark, lumped
+ * and rimmed in violet, cracks of pink light across it, eyes of every size opening all over it,
+ * tendrils rising round it; on its front the maw, rings of teeth grinding round each other down
+ * into a pink gullet and the black hole at its heart. `open` sizes the maw.
+ */
+function nihilBody(s: Surface, st: string, x: number, y: number, t: number, open: number): void {
+    const ph = q(t) / 2.4 * Math.PI * 2
+    const cx = x - 34
+    // it floats clear of the glass, bobbing; its hide is squashed by V so the lift doesn't raise its top into the HUD
+    const V = 0.86
+    const cy = y - 58 + wv(t, 2.4, 2)
+    // the pool of the dark it rises out of, cracks of the Void running out across the glass
+    ditherEllipse(s, cx + 6, y - 1, 82, 7, C.purple0, 6)
+    ellipse(s, cx + 6, y - 1, 70, 5, C.ink)
+    for (let i = 0; i < 7; i++) {
+        const a = Math.PI + (i / 6) * Math.PI
+        line(s, R(cx + 6 + Math.cos(a) * 70), y - 1, R(cx + 6 + Math.cos(a) * (84 + (i % 3) * 6)), y - 1 + (i & 1), C.pink)
+    }
+    // tendrils hanging from its underside, trailing down into nothing
+    for (let i = 0; i < 5; i++) tentacle(s, cx - 56 + i * 20, cy + 30 - (i === 2 ? 4 : 0), Math.PI / 2 + 0.25 - i * 0.12, 16 + (i % 2) * 6, 6, ph + i * 1.3, [C.ink, C.void, C.purple0], C.purple2)
+    // the mass: lumped, rimmed in violet toward the light, the starfield in it
+    const lumps = ([[0, 0, 62, 46], [-30, -18, 34, 30], [18, -26, 32, 24], [-44, 14, 30, 30], [30, 16, 30, 28]] as const).map(([lx, ly, rx, ry]) => [lx, ly * V, rx, ry * V] as const)
+    for (const [lx, ly, rx, ry] of lumps) ellipse(s, cx + lx, cy + ly, rx, ry, C.ink)
+    for (const [lx, ly, rx, ry] of lumps) ellipse(s, cx + lx - 1, cy + ly - 1, rx - 2, ry - 2, C.void)
+    voidFill(s, cx - 76, cy - 56, 140, 110, t, 29)
+    // the rim of violet light along its top, which is all that shows it against the dark
+    for (const [lx, ly, rx, ry] of lumps) {
+        for (let an = Math.PI * 0.95; an < Math.PI * 2.05; an += 0.02) {
+            const ex = R(cx + lx + Math.cos(an) * (rx - 2))
+            const ey = R(cy + ly + Math.sin(an) * (ry - 2))
+            if (s.get(ex, ey - 2) === 0 || s.get(ex, ey - 3) === 0) { s.set(ex, ey, C.purple2); s.set(ex, ey + 1, C.purple0) }
+        }
+    }
+    // cracks of pink light across the hide
+    for (let i = 0; i < 5; i++) {
+        let kx = cx - 50 + i * 22
+        let ky = cy + R((-30 + (i % 3) * 18) * V)
+        for (let j = 0; j < 5; j++) {
+            const nx = kx + 3 + R(hash2(i, j) * 4)
+            const ny = ky + R((hash2(i + 9, j) - 0.4) * 6)
+            line(s, kx, ky, nx, ny, (j + fr(t, 4, 5)) % 5 === 0 ? C.white : C.purple1)
+            kx = nx
+            ky = ny
+        }
+    }
+    // eyes of every size opening all over it
+    const wide = st === 'attack' ? 1 + B.wind * 0.3 : 1
+    const eyes = [[-8, -38, 5], [16, -44, 3], [-30, -30, 4], [-48, -10, 5], [-22, -8, 3], [-58, 16, 3], [8, -26, 2.5], [-40, 34, 4], [30, -20, 3], [-12, 30, 2.5], [-62, -22, 2.5], [22, 32, 3], [-2, -52, 2.5], [-26, 16, 6]] as const
+    for (let i = 0; i < eyes.length; i++) {
+        const [ex, ey, r] = eyes[i]!
+        const blink = B.hurt || (fr(t, 3, 23) === i % 23 && st !== 'attack')
+        nihilEye(s, cx + ex, cy + R(ey * V), r * 1.35, blink ? 0 : wide)
+    }
+    // the maw on its front, its lip rimmed in violet
+    const mx = cx + 40
+    const my = cy + 4
+    const rx = 17 * open
+    const ry = 28 * open
+    ellipse(s, mx, my, rx + 4, ry + 4, C.void)
+    ellipse(s, mx, my, rx + 2, ry + 2, C.purple1)
+    arc(s, mx, my, Math.max(rx, ry) + 3, Math.PI * 1.2, Math.PI * 1.7, C.pink)
+    ellipse(s, mx, my, rx, ry, C.ink)
+    // the gullet glowing far down in it, the black hole at its heart
+    ditherEllipse(s, mx, my, rx * 0.55, ry * 0.55, C.purple1, 8)
+    ditherEllipse(s, mx, my, rx * 0.35, ry * 0.35, C.pink, 6 + R(B.glow * 6))
+    disc(s, mx, my, Math.max(1, 3 * open), C.ink)
+    const sw = q(t) * 5
+    arc(s, mx, my, Math.max(2, 4 * open), sw, sw + 3.4, C.white)
+    arc(s, mx, my, Math.max(2, 4 * open), sw + 3.4, sw + 5.4, C.pink)
+    // rings of teeth grinding round each other, pointing in, dark throat between them
+    for (let ringi = 0; ringi < 3; ringi++) {
+        const k = [1, 0.62, 0.38][ringi]!
+        const depth = [0.28, 0.16, 0.1][ringi]!
+        const n = [13, 10, 7][ringi]!
+        const spin = q(t) * (ringi & 1 ? -0.6 : 0.6) + ringi * 0.4
+        for (let i = 0; i < n; i++) {
+            const a = spin + (i / n) * Math.PI * 2
+            const ox = mx + Math.cos(a) * rx * k
+            const oy = my + Math.sin(a) * ry * k
+            const ix = mx + Math.cos(a) * rx * (k - depth)
+            const iy = my + Math.sin(a) * ry * (k - depth)
+            const ta = a + Math.PI / 2
+            const w = [2.4, 1.6, 1.1][ringi]!
+            tri(s, ox + Math.cos(ta) * w, oy + Math.sin(ta) * w, ox - Math.cos(ta) * w, oy - Math.sin(ta) * w, ix, iy, ringi === 0 ? C.bone1 : ringi === 1 ? C.bone0 : C.stone3)
+            if (ringi === 0) px(s, R(ix), R(iy), C.white)
+        }
+    }
+    // tendrils rising in front at the sides of the maw, reaching for the party
+    for (const [tx, ty, a] of [[mx - 22, cy + 30, 0.7], [mx + 6, cy + 26, 0.35]] as const) tentacle(s, tx, ty, a - (st === 'attack' ? B.wind * 0.4 : 0), 34, 4, ph + tx, [C.ink, C.void, C.purple0], C.pink)
+    NM.x = mx - s.ax
+    NM.y = my - s.ay
+}
+
+const NIHIL_STATES = { ...bossStates(1.6, 2.4, 2.8), death: { dur: 2.4, loop: false } }
+
+/**
+ * Nihil, the Hunger at the End: what waits where every crack leads, a mouth the size of the sky.
+ * It rises out of a pool of the dark in the glass, a hide of the starfield with eyes of every size
+ * opening all over it and tendrils rising round it; its maw is rings of teeth grinding round each
+ * other down to the black hole at its heart. It gapes wide and draws everything in, then lunges
+ * and bites the front rank. When it dies it collapses into a single point and winks out, the way
+ * each run ends before it begins again.
+ */
 export const NIHIL: CreatureDef = {
-    name: 'Nihil, the Hunger at the End', size: 128, shadow: 0, accent: C.pink,
-    states: bossStates(1.6, 2.4, 2.8),
+    name: 'Nihil, the Hunger at the End', size: 256, shadow: 0, accent: C.pink,
+    states: NIHIL_STATES,
     draw(s, st, t) {
-        drive(this, st, t, 8, 2.4)
-        const x = s.ax - 2 + B.lunge - B.kb
+        drive(this, st, t, 10, 2.4)
+        const x = s.ax - 10 + B.lunge - B.kb
         const y = s.ay
-        const cy = y - 56 + B.breath + R(B.die * 20)
-        const ph = q(t) * 1.8
-        // tendrils trailing down into nothing
-        for (let i = 0; i < 6; i++) tentacle(s, x - 26 + i * 10, cy + 36, Math.PI / 2 + (i - 2.5) * 0.18, 26, 3, ph + i, [C.ink, C.void, C.purple1])
-        // the mass
-        ellipse(s, x, cy, 50, 44, C.ink)
-        ellipse(s, x - 2, cy - 2, 47, 41, C.void)
-        voidFill(s, x - 50, cy - 44, 100, 88, t, 21)
-        // a violet rim-light on the upper edge
-        arc(s, x, cy, 49, Math.PI * 1.05, Math.PI * 1.95, C.purple2)
-        arc(s, x, cy, 48, Math.PI * 1.15, Math.PI * 1.85, C.purple1)
-        // the maw: a ring of teeth that opens on the wind-up and snaps on the strike
-        const open = B.strike ? 26 : B.wind > 0 ? 14 + R(B.wind * 12) : B.roar ? 24 : 12 + wv(t, 2.4, 2)
-        const mx = x + 10
-        ellipse(s, mx, cy + 4, open * 0.8, open * 0.55, C.ink)
-        ellipse(s, mx, cy + 4, open * 0.6, open * 0.4, C.purple0)
-        disc(s, mx, cy + 4, Math.max(1, open * 0.15), C.pink)
-        for (let i = 0; i < 18; i++) {
-            const a = (i / 18) * Math.PI * 2
-            const tx = mx + R(Math.cos(a) * open * 0.8)
-            const ty = cy + 4 + R(Math.sin(a) * open * 0.55)
-            const ix = mx + R(Math.cos(a) * open * 0.6)
-            const iy = cy + 4 + R(Math.sin(a) * open * 0.4)
-            tri(s, tx - 1, ty, tx + 1, ty, ix, iy, C.bone1)
-            px(s, ix, iy, C.white)
+        const open = st === 'attack' ? bz(0.8, 1.2, 0.35) : B.roar ? 1.2 : 0.8 + wv(t, 2.4, 1) * 0.04
+        if (st === 'death') {
+            // it collapses into a point at the heart of its maw, then winks out
+            CF.fade = 0
+            const u = q(t) / NIHIL_STATES.death.dur
+            const p = sm(span(u, 0.05, 0.75))
+            const b = scratch('nihil', s)
+            nihilBody(b, 'idle', x, y, t, 0.8)
+            const fx0 = NM.x + s.ax
+            const fy0 = NM.y + s.ay
+            if (p < 1) warp(s, b, fx0, fy0, fx0, fy0, 1 - p * 0.98, R(16 - p * 10))
+            if (u > 0.7 && u < 0.86) {
+                // the point it became, flaring
+                const f = 1 - Math.abs(u - 0.78) / 0.08
+                ditherDisc(s, fx0, fy0, 3 + f * 8, C.pink, R(4 + f * 8))
+                disc(s, fx0, fy0, 1 + f * 2, C.white)
+            }
+        } else {
+            nihilBody(s, st, x, y, t, open)
         }
-        // eyes all around
-        for (let i = 0; i < 9; i++) {
-            const a = -Math.PI * 0.95 + i * 0.26 + (i > 4 ? 0.6 : 0)
-            const r = 36 + ((i * 7) % 5)
-            const ex = x + R(Math.cos(a) * r * 0.9)
-            const ey = cy + R(Math.sin(a) * r * 0.8)
-            const blink = (fr(t, 3, 11) === i) || B.hurt
-            ellipse(s, ex, ey, 3, blink ? 0 : 2, C.white)
-            if (!blink) { px(s, ex + 1, ey, C.pink); px(s, ex + 1, ey - 1, C.ink) }
-        }
-        finish(s, Entry.Grow, 0)
+        finish(s, Entry.Rise, 0)
     },
     fx(dst, st, t, x, y, dir) {
+        if (st === 'death') return
+        const mx = x + dir * NM.x
+        const my = y + NM.y
         const k = fr(t, 10, 12)
-        for (let i = 0; i < 6; i++) {
-            // matter being pulled in toward the maw
-            const a = i * 1.1 + k * 0.2
-            const r = 60 - ((k * 4 + i * 9) % 40)
-            dst.set(x + dir * (10 + R(Math.cos(a) * r)), y - 52 + R(Math.sin(a) * r * 0.7), i & 1 ? C.haze : C.purple2)
+        if (st === 'attack' && B.wind > 0.2) {
+            // everything being drawn in toward the maw
+            for (let i = 0; i < 16; i++) {
+                const u = ((k / 12 + i / 16) * 2) % 1
+                const sx = mx + dir * (70 - u * 64)
+                const sy = my - 34 + ((i * 17) % 68) * (1 - u)
+                dst.set(R(sx), R(sy), i & 1 ? C.white : C.pink)
+                dst.set(R(sx + dir), R(sy), C.purple2)
+            }
+        }
+        if (st === 'attack' && B.strike) {
+            // the bite landing on the front rank: teeth-white shards and the dark thrown up
+            const gx = x + dir * 44
+            for (let i = 0; i < 14; i++) {
+                const a = i / 14 * Math.PI * 2
+                dst.set(R(gx + Math.cos(a) * (6 + (i & 1) * 5)), R(y - 16 + Math.sin(a) * (8 + (i % 3) * 3)), i & 1 ? C.white : C.pink)
+            }
+        } else if (st !== 'attack') {
+            // matter drifting in toward the maw
+            for (let i = 0; i < 5; i++) {
+                const a = i * 1.3 + k * 0.2
+                const r = 70 - ((k * 4 + i * 9) % 44)
+                dst.set(mx + dir * R(Math.cos(a) * r), my + R(Math.sin(a) * r * 0.6), i & 1 ? C.purple2 : C.pink)
+            }
         }
     }
 }
