@@ -2,14 +2,17 @@
 // the edge of the world. See bosses-a.ts for the shared conventions.
 
 import { C } from './palette'
-import type { CreatureDef } from './creature'
+import type { BossSpecial, CreatureDef } from './creature'
 import { CF, fr, sm, span } from './creature'
 import type { Mat } from './weapons'
 import {
-    B, Entry, bossStates, drive, finish, bz, ball, tentacle, glowEye,
+    B, Entry, bossStates, withSpecial, spAttack, drive, finish, bz, ball, tentacle, glowEye,
     limbT, elbow, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, ring, arc, poly, q, wv, bayer, hash2
 } from './boss-kit'
 import { Surface, ditherDisc } from './surface'
+import { blast, shockRing } from './vfx-cinematic'
+import { rune as runeGlyph, RUNES, bolt as boltFx, star as starFx } from './vfx-kit'
+import { sq, sp, chest, debris, spike, crack, pit, drain, BONE6, STORM6, VOID6 } from './special-kit'
 
 const R = Math.round
 
@@ -96,11 +99,53 @@ function robedArm(s: Surface, sx: number, sy: number, wx: number, wy: number, be
  * cradling a star, stands in his far hand behind him; the near hand holds an arcane orb out at the
  * party, draws it back as the books fly open, and thrusts it to loose a bolt at the front rank.
  */
+/**
+ * Grimoire Storm: the grimoires orbiting him all fly open at once and fire, rune after rune, each
+ * curving in along its own path onto the party, the books spinning faster as the storm builds.
+ */
+const GRIMOIRE_STORM: BossSpecial = {
+    name: 'Grimoire Storm', tint: 'night0', hits: [1.0, 1.16, 1.32, 1.48, 1.64, 1.8], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        const cx = st.bx + 2 * -d
+        const cy = st.by - 40
+        const cols = [C.pink, C.cyan, C.gold3]
+        for (let i = 0; i < 12; i++) {
+            const p = st.party[i % st.party.length]!
+            const t0 = 0.55 + i * 0.1
+            const land = t0 + 0.4
+            const u = (q - t0) / (land - t0)
+            if (u < 0 || u > 1) continue
+            // leaving from a book on the orbit, bowing up or down as it comes in
+            const a = i * 2.1 + t0 * 4
+            const x0 = cx + Math.cos(a) * 26
+            const y0 = cy + Math.sin(a) * 6
+            const bow = (i & 1 ? -1 : 1) * 22
+            const x = x0 + (p.x - x0) * u
+            const y = y0 + (chest(p) - y0) * u + Math.sin(u * Math.PI) * bow
+            const c = cols[i % 3]!
+            for (let k = 1; k < 5; k++) {
+                const v = Math.max(0, u - k * 0.04)
+                s.set(R(x0 + (p.x - x0) * v), R(y0 + (chest(p) - y0) * v + Math.sin(v * Math.PI) * bow), k < 3 ? c : C.purple1)
+            }
+            runeGlyph(s, R(x) - 2, R(y) - 2, RUNES[i % RUNES.length]!, c)
+            s.set(R(x), R(y), C.white)
+        }
+        st.party.forEach((p, i) => {
+            for (const k of [i, i + 6]) blast(s, p.x, chest(p), t, 0.95 + k * 0.1, 6, 0.4, VOID6, 301 + k, 'arcane')
+        })
+    }
+}
+
 export const MAGISTER_HALVANE: CreatureDef = {
     name: 'Magister Halvane', size: 96, shadow: 12, hover: 1, accent: C.pink,
-    states: bossStates(1.2, 1.8, 1.8),
+    states: withSpecial(bossStates(1.2, 1.8, 1.8), 2.4),
+    special: GRIMOIRE_STORM,
     draw(s, st, t) {
         drive(this, st, t, 4, 1.8)
+        // the books flung open and held open while the storm lasts
+        if (st === 'special') spAttack(0.22, 0.28, 0.8, 2)
         const x = s.ax - 2 + B.lunge - B.kb
         const y = s.ay
         const hover = -8 + wv(t, 1.8, 2) + R(B.die * 10)
@@ -111,7 +156,8 @@ export const MAGISTER_HALVANE: CreatureDef = {
         const rune = fr(t, 5, 6)
         // the grimoires orbiting him, one full turn per idle loop so it closes seamlessly; the far
         // half of the orbit goes behind
-        const spin = (Math.PI * 2) / this.states.idle!.dur
+        // one turn per idle loop; the storm whips them round three times as fast
+        const spin = (Math.PI * 2) / this.states.idle!.dur * (st === 'special' ? 3 : 1)
         const orbit = (front: boolean) => {
             for (let i = 0; i < 3; i++) {
                 const a = q(t) * spin + i * (Math.PI * 2 / 3)
@@ -535,20 +581,92 @@ function ithrenBody(s: Surface, x: number, y: number, t: number): void {
     }
 }
 
-const ITHREN_STATES = { ...bossStates(1.5, 2.0, 2.6), death: { dur: 2.4, loop: false } }
+const ITHREN_STATES = withSpecial({ ...bossStates(1.5, 2.0, 2.6), death: { dur: 2.4, loop: false } }, 2.9)
+
+/** A beam of the Void from (x0, y0) to (x1, y1), `fade` 0..1 thinning it: violet edges, a white core. */
+function voidBeam(s: Surface, x0: number, y0: number, x1: number, y1: number, fade: number): void {
+    // outermost first, so the white core is drawn last and stays on top
+    for (const w of [-4, 4, -3, 3, -2, 2, -1, 1, 0]) {
+        if (Math.abs(w) > 4 * fade) continue
+        const c = w === 0 ? C.white : Math.abs(w) === 1 ? C.frost : Math.abs(w) === 2 ? C.pink : Math.abs(w) === 3 ? C.purple2 : C.purple1
+        line(s, R(x0) + w, R(y0), R(x1) + w, R(y1), c)
+    }
+}
+
+/** A point `u` 0..1 along a row of the party, walked through its bodies in order: where a beam is aimed. */
+const AIM = { x: 0, y: 0 }
+function alongRow(row: readonly { readonly x: number, readonly y: number }[], u: number): void {
+    const k = Math.max(0, Math.min(1, u)) * (row.length - 1)
+    const a = row[Math.floor(k)]!
+    const b = row[Math.min(row.length - 1, Math.floor(k) + 1)]!
+    const f = k - Math.floor(k)
+    AIM.x = a.x + (b.x - a.x) * f
+    AIM.y = a.y - 8 + (b.y - a.y) * f
+}
 
 /**
- * Archmage Ithren, the Door-Opener, who opened the door to the Void. The door comes with him only
- * as he arrives and as he dies: on his entry a line of light rises out of nothing and widens into
- * the door, he comes out of its heart, and it closes behind him; on his death it opens again and
- * pulls him back in, then snaps shut. Otherwise he fights alone, since the door is a boss of its
- * own further on.
+ * Void Nova: he raises his hand and the Void pours in to a point over it, a black star swelling in
+ * a ring of pink fire; then it collapses and bursts into two beams that sweep the party, one along
+ * the front row and one along the back row the other way, crossing as they go.
  */
+const VOID_NOVA: BossSpecial = {
+    // each beam crosses the middle of its row halfway through; the hits follow the beams
+    name: 'Void Nova', tint: 'purple0', hits: [1.3, 1.32, 1.85, 1.87, 2.4, 2.42], spread: true, order: [1, 5, 0, 3, 2, 4],
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        const sx = st.bx + d * 20
+        const sy = st.by - 92
+        // the Void pouring in to it
+        if (q < 1.15) for (let i = 0; i < 18; i++) {
+            const u = ((q * 1.4 + i / 18) % 1)
+            const a = i * 2.4
+            const r = 40 * (1 - u)
+            s.set(R(sx + Math.cos(a) * r), R(sy + Math.sin(a) * r * 0.7), u > 0.7 ? C.pink : i & 1 ? C.purple2 : C.purple1)
+        }
+        // the star swelling, then collapsing to a point as it fires
+        // the star swelling into a portal, held open while the beams pour out of it, closing after
+        const grow = sp(t, 0.2, 1.1)
+        const close = sp(t, 2.5, 2.8)
+        const r = (3 + 9 * grow - (q > 1.2 ? 2 : 0)) * (1 - close)
+        if (r > 0.5) {
+            ditherDisc(s, sx, sy, r + 4, C.purple1, 6)
+            disc(s, sx, sy, r + 1, C.pink)
+            disc(s, sx, sy, r, C.ink)
+            // the Void turning inside it, and the rim burning
+            const spin = q * (q > 1.2 ? 9 : 5)
+            arc(s, sx, sy, r * 0.6, spin, spin + 2.4, C.purple2)
+            arc(s, sx, sy, r * 0.35, -spin, -spin + 2, C.pink)
+            px(s, sx, sy, C.white)
+            for (let i = 0; i < 8; i++) { const a = spin + i * 0.8; px(s, R(sx + Math.cos(a) * (r + 2)), R(sy + Math.sin(a) * (r + 2)), i & 1 ? C.white : C.pink) }
+        }
+        shockRing(s, sx, sy, t, 1.2, 0.4, 2, 26, C.white)
+        // the two beams: the front row swept from its far rank to its near one, the back row the other way
+        if (q >= 1.22 && q < 2.6) {
+            const byX = [...st.party].sort((a, b) => b.x - a.x)
+            const front = byX.slice(0, 3).sort((a, b) => a.y - b.y)
+            const back = byX.slice(3).sort((a, b) => b.y - a.y)
+            const u = (q - 1.3) / 1.1
+            const fade = Math.min(1, (2.6 - q) / 0.2)
+            for (const [row, seed] of [[front, 0], [back, 20]] as const) {
+                alongRow(row, u)
+                voidBeam(s, sx, sy, AIM.x, AIM.y, fade)
+                blast(s, AIM.x, AIM.y, t, Math.floor(q * 10) / 10, 7, 0.3, VOID6, 311 + seed + Math.floor(q * 10), 'arcane')
+            }
+        }
+    }
+}
+
 export const ARCHMAGE_ITHREN: CreatureDef = {
     name: 'Archmage Ithren, the Door-Opener', size: 128, shadow: 18, hover: 1, accent: C.purple2,
     states: ITHREN_STATES,
+    // broken apart as the door snaps shut behind him, not while it is pulling him in
+    shatterAt: 1.87,
+    special: VOID_NOVA,
     draw(s, st, t) {
         drive(this, st, t, 4, 2.0)
+        // the hand raised while the star gathers, thrown forward as it fires
+        if (st === 'special') spAttack(0.4, 0.45, 0.86, 3)
         const x = s.ax - 4 + B.lunge - B.kb
         const y = s.ay
         const dx = x - 26
@@ -686,11 +804,73 @@ function korrSwoop(x: number, top: number, p: number): void {
  * of spikes. His far arm hangs long with clawed fingers. He carries a long, jagged greatsword made
  * of fused bones and sweeps it up and down onto the front rank.
  */
+/**
+ * Gravelord's Toll: he lifts the bone sword high, point down, and drives it deep into the earth;
+ * soul-fire runs out through the ground from the blade, and spikes of bone burst up out of it under
+ * every one of the party, then sink back.
+ */
+const GRAVELORDS_TOLL: BossSpecial = {
+    name: 'Gravelord\'s Toll', tint: 'night0', hits: [1.2, 1.28, 1.36, 1.44, 1.52, 1.6], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        const bx = st.bx + d * 24
+        shockRing(s, bx, st.by - 1, t, 1.08, 0.5, 4, 30, C.green4, true)
+        debris(s, bx, st.by - 2, st.by, t, 1.08, 12, 90, 'bone', 401)
+        st.party.forEach((p, i) => {
+            const t0 = 1.16 + i * 0.08
+            crack(s, bx, st.by - 1, p.x, p.y - 1, sp(t, 1.08, t0), 411 + i, C.green2, C.green4)
+            const rise = sp(t, t0, t0 + 0.1) * (1 - sp(t, 2.1, 2.5))
+            if (rise <= 0) return
+            pit(s, p.x, p.y, 8, C.ink, C.purple0)
+            for (let k = 0; k < 5; k++) {
+                // a cluster of bone spikes, the tallest in the middle, leaning out
+                const off = (k - 2) * 4
+                const h = R(rise * (22 - Math.abs(k - 2) * 5 + hash2(i, k) * 4))
+                spike(s, p.x + off, p.y, h, 2, off * 0.5, C.bone0, C.bone1, C.white)
+            }
+            if (q < t0 + 0.3) debris(s, p.x, p.y - 2, p.y, t, t0, 8, 90, 'bone', 421 + i, 0.5)
+            blast(s, p.x, chest(p), t, t0 + 0.04, 7, 0.45, BONE6, 431 + i, 'nature')
+            for (let k = 0; k < 3; k++) {
+                const u = ((q - t0) * 1.2 + k / 3) % 1
+                s.set(R(p.x - 6 + k * 6), R(p.y - 4 - u * 16), u < 0.5 ? C.green4 : C.green2)
+            }
+        })
+    }
+}
+
+/** Where Korr's grip is held on the thrust: lifted high in front of him, and driven down with the blade buried. */
+const KORR_RAISED = { dx: 32, dy: 4 }
+const KORR_DRIVEN = { dx: 24, dy: 34 }
+
+/** Korr's sword on the thrust, `u` 0 → 1 through the special, into KS: lift point-down, drive, hold, pull free. */
+function korrThrust(x: number, top: number, u: number): void {
+    const down = Math.PI / 2
+    const lerp = (ax: number, ay: number, bx: number, by: number, r: number) => { KS.gx = x + ax + (bx - ax) * r; KS.gy = top + ay + (by - ay) * r }
+    if (u < 0.34) {
+        const r = sm(u / 0.34)
+        lerp(KORR_REST.dx, KORR_REST.dy, KORR_RAISED.dx, KORR_RAISED.dy, r)
+        KS.a = KORR_REST.a + (down - KORR_REST.a) * r
+    } else if (u < 0.42) {
+        lerp(KORR_RAISED.dx, KORR_RAISED.dy, KORR_DRIVEN.dx, KORR_DRIVEN.dy, sm((u - 0.34) / 0.08))
+        KS.a = down
+    } else if (u < 0.78) {
+        lerp(KORR_DRIVEN.dx, KORR_DRIVEN.dy, KORR_DRIVEN.dx, KORR_DRIVEN.dy, 0)
+        KS.a = down
+    } else {
+        const r = sm((u - 0.78) / 0.22)
+        lerp(KORR_DRIVEN.dx, KORR_DRIVEN.dy, KORR_REST.dx, KORR_REST.dy, r)
+        KS.a = down + (KORR_REST.a - down) * r
+    }
+}
+
 export const GRAVE_MARSHAL_KORR: CreatureDef = {
     name: 'Grave Marshal Korr', size: 128, shadow: 0, accent: C.green4,
-    states: bossStates(1.2, 1.6, 2.0),
+    states: withSpecial(bossStates(1.2, 1.6, 2.0), 2.6),
+    special: GRAVELORDS_TOLL,
     draw(s, st, t) {
         drive(this, st, t, 8, 1.6)
+        if (st === 'special') spAttack(0.34, 0.42, 0.78, 2)
         const x = s.ax - 4 + B.lunge - B.kb
         const y = s.ay
         const sag = R(B.strike ? 3 : B.rec * 2 + B.die * 12)
@@ -774,12 +954,16 @@ export const GRAVE_MARSHAL_KORR: CreatureDef = {
         // The sword of fused bones: rested low before it, drawn back over his hump (an overhead lift
         // would cross his face), then a slice rather than a stab: the blade swoops through an arc
         // over the top and down in front, a trail behind its tip, and follows through low.
-        const u = st === 'attack' ? q(t) / this.states.attack!.dur : 0
+        const swinging = st === 'attack'
+        const u = swinging ? q(t) / this.states.attack!.dur : 0
         let swoop = -1
-        if (st === 'attack' && u >= 0.4 && u < 0.6) {
+        if (st === 'special') {
+            // the special is a thrust, not the swing: point down, driven deep into the ground
+            korrThrust(x, top, B.sp)
+        } else if (swinging && u >= 0.4 && u < 0.6) {
             swoop = sm(Math.min(1, (u - 0.4) / 0.1))
             korrSwoop(x, top, swoop)
-        } else if (st === 'attack' && u >= 0.6) {
+        } else if (swinging && u >= 0.6) {
             // the recovery, from the follow-through back to rest
             korrSwoop(x, top, 1)
             const r = sm((u - 0.6) / 0.4)
@@ -843,6 +1027,11 @@ export const GRAVE_MARSHAL_KORR: CreatureDef = {
         tri(s, gx + dx * L - nx * 2, gy + dy * L - ny * 2, gx + dx * L + nx * 2, gy + dy * L + ny * 2, gx + dx * (L + 6), gy + dy * (L + 6), C.bone1)
         line(s, R(gx - dx * 7), R(gy - dy * 7), R(gx), R(gy), C.bone0, 2) // the hilt, a thighbone
         disc(s, gx - dx * 8, gy - dy * 8, 2, C.bone1)
+        if (st === 'special') {
+            // driven in: whatever of the blade is below the ground is buried, soul-fire where it went in
+            for (let yy = y; yy < s.h; yy++) for (let xx = gx - 8; xx <= gx + 8; xx++) s.set(xx, yy, 0)
+            if (gy + 46 > y) { line(s, gx - 4, y - 1, gx + 4, y - 1, C.green3); px(s, gx, y - 2, C.green4) }
+        }
         // the hand: bony fingers wrapped round the hilt, knuckles lit
         disc(s, gx - dx * 1.5, gy - dy * 1.5, 2, C.bone0)
         for (let i = 0; i < 3; i++) {
@@ -917,12 +1106,80 @@ function boneHand(s: Surface, wx: number, wy: number, a: number, spread: number,
  * gold bangles stacked at the wrists, the hands long-fingered. The far hand stays planted; the
  * near one rears high above its crown, fingers spread, and slams down flat on the front rank.
  */
+/** A small skull tumbling at (x, y), rolled by `a`. */
+function tumblingSkull(s: Surface, x: number, y: number, a: number): void {
+    disc(s, x, y, 2.5, C.bone1)
+    px(s, R(x + Math.cos(a) * 1.2), R(y + Math.sin(a) * 1.2), C.ink)
+    px(s, R(x + Math.cos(a + 1.2) * 1.2), R(y + Math.sin(a + 1.2) * 1.2), C.ink)
+    px(s, R(x - 1), R(y - 2), C.white)
+}
+
+/**
+ * Bone Tide: his jaw drops wide and the thousand dead pour out of it, a torrent of bones and skulls
+ * spilling down onto the ground and rolling on across it over the party, soul-fire in among them.
+ */
+const BONE_TIDE: BossSpecial = {
+    name: 'Bone Tide', tint: 'night0', hits: [1.3, 1.42, 1.54, 1.66, 1.78, 1.9], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        const mx = st.bx + d * 42
+        const my = st.by - 40
+        const far = st.party[st.party.length - 1]!.x + d * 12
+        // the flood itself: a pale band of bone and dust along the ground under the tumbling dead
+        const head = mx + d * 6 + (far - mx - d * 6) * sp(t, 0.95, 1.95)
+        const ebb = sp(t, 2.1, 2.6)
+        if (q > 0.95 && ebb < 1) {
+            const x0 = Math.min(mx, head)
+            const x1 = Math.max(mx, head)
+            for (const p of st.party) dither(s, R(x0), p.y - 5, R(x1 - x0), 6, C.bone0, R(10 * (1 - ebb)))
+        }
+        for (let i = 0; i < 130; i++) {
+            const t0 = 0.75 + (i % 43) * 0.024 + Math.floor(i / 43) * 0.01
+            const life = 1.3
+            const u = (q - t0) / life
+            if (u < 0 || u > 1) continue
+            const lane = st.party[i % st.party.length]!.y - (i % 3)
+            let x: number
+            let y: number
+            if (u < 0.2) {
+                // pouring out of the jaw, down to the ground
+                const v = u / 0.2
+                x = mx + d * 6 * v
+                y = my + (lane - my) * v * v
+            } else {
+                // rolling on across the ground, bouncing, out past the party
+                const v = (u - 0.2) / 0.8
+                x = mx + d * 6 + (far - mx - d * 6) * v + (hash2(i, 1) - 0.5) * 8
+                y = lane - Math.abs(Math.sin(v * 9 + i)) * 4 * (1 - v)
+            }
+            if (i % 5 === 0) tumblingSkull(s, R(x), R(y), q * 9 + i)
+            else {
+                // a long bone, knobbed at both ends, turning as it tumbles
+                const a = q * 6 + i
+                const ex = Math.cos(a) * 3
+                const ey = Math.sin(a) * 1.5
+                line(s, R(x - ex), R(y - ey), R(x + ex), R(y + ey), i % 3 ? C.bone1 : C.bone0)
+                s.set(R(x - ex), R(y - ey) - 1, C.white); s.set(R(x + ex), R(y + ey) - 1, C.bone1)
+            }
+            if (i % 7 === 0) s.set(R(x), R(y) - 3, C.green4)
+        }
+        st.party.forEach((p, i) => blast(s, p.x, chest(p) + 4, t, 1.3 + i * 0.12, 7, 0.45, BONE6, 441 + i, 'bone'))
+    }
+}
+
 export const OSSUAR: CreatureDef = {
     name: 'Ossuar, the Thousand-Bone Host', size: 256, shadow: 0, accent: C.green4,
-    states: bossStates(1.5, 2.0, 2.6),
+    states: withSpecial(bossStates(1.5, 2.0, 2.6), 2.6),
+    special: BONE_TIDE,
     draw(s, st, t) {
         // barely lunges: at his size a lunge only pushes the skull into the front rank
         drive(this, st, t, 2, 2.0)
+        if (st === 'special') {
+            // the jaw dropped wide as the dead pour out of it, the sockets burning
+            B.roar = B.sp > 0.25 && B.sp < 0.85
+            B.glow = B.roar ? 1 : 0
+        }
         // Large and low: the camera shows about 106 px above the floor, so it grows along the
         // ground instead, its back running off the edge of the stage into the dark.
         // set back so his resting hand stays clear of the party; the slam reaches forward onto it
@@ -1144,9 +1401,10 @@ export const OSSUAR: CreatureDef = {
         ellipse(s, nsx - 6, nsy - 3, 9, 6, C.bone0)
         ellipse(s, nsx - 7, nsy - 5, 7, 3.5, C.bone1)
         line(s, nsx - 14, nsy - 1, nsx + 1, nsy - 7, C.stone3) // the ridge of the blade
-        const wxr = x + 100 + R(bz(0, -14, 16))
+        // at rest the hand lies well short of the front rank; the slam still lands on it
+        const wxr = x + 72 + R(bz(0, 10, 44))
         const wyr = y - 16 + R(bz(0, -70, 2)) // the raised hand stays under the top of the camera
-        elbow(nsx, nsy, wxr, wyr, 52, 56, B.wind > 0.3 ? -1 : 1)
+        elbow(nsx, nsy, wxr, wyr, 48, 52, B.wind > 0.3 ? -1 : 1)
         royalArm(s, nsx, nsy, P.x, P.y, wxr, wyr, 9)
         disc(s, nsx, nsy, 6, C.bone0); disc(s, nsx - 1, nsy - 1, 4.5, C.bone1); px(s, nsx - 3, nsy - 4, C.white) // the ball of the shoulder
         const fa = B.wind > 0.3 ? -1.1 : 0.3
@@ -1280,16 +1538,64 @@ function rocLeg(s: Surface, hx: number, hy: number, a: number, open: number, far
  * which its own lightning rises as a crown. It rears with its wings high, then beats down and
  * rakes the front rank with its talons as a bolt falls from the crown.
  */
+/**
+ * Thunderstrike Dive: the Roc beats its way up out of sight, the sky crackling where it went; then
+ * it drops out of the storm in a column of lightning onto the front rank, talons first, and the
+ * lightning arcs on from body to body through the party.
+ */
+const THUNDERSTRIKE_DIVE: BossSpecial = {
+    name: 'Thunderstrike Dive', tint: 'night0', hits: [1.3, 1.36, 1.42, 1.48, 1.54, 1.6], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        // the middle of the party, where the column comes down
+        const mx = st.party.reduce((a, p) => a + p.x, 0) / st.party.length
+        const my = st.party.reduce((a, p) => a + p.y, 0) / st.party.length
+        // the sky crackling while it is up there, out of sight
+        if (q > 0.6 && q < 1.05 && (Math.floor(q * 12) & 1)) boltFx(s, mx + 30, 0, mx + 20, 30, t, 501, C.white, C.gold3, 5)
+        // the column of lightning it drops in
+        if (q > 1.05 && q < 1.4) {
+            const x = mx + (1.3 - Math.min(1.3, q)) * 40
+            for (let k = 0; k < 3; k++) boltFx(s, x + (k - 1) * 6, 0, mx + (k - 1) * 3, my - 4, t + k * 0.1, 511 + k, C.white, k === 1 ? C.gold3 : C.cyan, 6)
+            dither(s, R(x) - 9, 0, 18, my, C.frost, q > 1.25 ? 6 : 3)
+        }
+        blast(s, mx, my - 8, t, 1.28, 16, 0.6, STORM6, 521, 'storm', true)
+        shockRing(s, mx, my - 1, t, 1.28, 0.55, 6, 48, C.white, true)
+        // the lightning arcing out from where it struck to every one of them
+        st.party.forEach((p, i) => {
+            const t0 = 1.3 + i * 0.06
+            if (q > t0 - 0.06 && q < t0 + 0.12) boltFx(s, mx, my - 8, p.x, chest(p), t, 531 + i, C.white, C.cyan, 4)
+            blast(s, p.x, chest(p), t, t0, 7, 0.4, STORM6, 541 + i, 'storm')
+        })
+    }
+}
+
 export const STORMCROWN_ROC: CreatureDef = {
-    name: 'Stormcrown Roc', size: 128, shadow: 20, hover: 1, accent: C.gold3,
-    states: bossStates(1.1, 1.2, 1.8),
+    name: 'Stormcrown Roc', size: 160, shadow: 20, hover: 1, accent: C.gold3,
+    states: withSpecial(bossStates(1.1, 1.2, 1.8), 2.4),
+    special: THUNDERSTRIKE_DIVE,
     draw(s, st, t) {
         drive(this, st, t, 12, 1.2)
         const beat = st === 'idle' || st === 'entry' ? Math.sin(q(t) / 1.2 * Math.PI * 2) : 0
+        // the dive: beat up out of sight, drop out of the storm onto the front rank, climb back
+        let spx = 0
+        let spy = 0
+        let spLift = 0
+        if (st === 'special') {
+            const u = B.sp
+            B.wind = 0; B.strike = false; B.rec = 0
+            if (u < 0.28) { spy = -sm(u / 0.28) * 130; spLift = Math.sin(q(t) * 22) * 0.9 } else if (u < 0.44) { spy = -200 } else if (u < 0.54) {
+                const v = sm((u - 0.44) / 0.1)
+                spx = 34 * v; spy = -130 + 156 * v; spLift = -1; B.strike = true; B.rec = 1
+            } else if (u < 0.68) { spx = 34; spy = 26; spLift = 0.9; B.strike = true; B.rec = 1 } else {
+                const v = sm((u - 0.68) / 0.32)
+                spx = 34 * (1 - v); spy = 26 * (1 - v); spLift = 0.55 + Math.sin(q(t) * 12) * 0.4
+            }
+            B.glow = u > 0.44 && u < 0.68 ? 1 : 0.4
+        }
         // the wings: raised in a V at rest, beating slowly; high on the wind-up, down on the strike
-        const lift = st === 'death' ? -0.6 - B.die * 0.4 : st === 'attack' ? bz(0.55, 1, -1) : 0.55 + beat * 0.35
-        const x = s.ax - 6 + B.lunge - B.kb + R(bz(0, -4, 6))
-        const y = s.ay - 42 + R(bz(0, -4, 8)) - R(beat * 2) + R(B.die * 30)
+        const lift = st === 'death' ? -0.6 - B.die * 0.4 : st === 'special' ? spLift : st === 'attack' ? bz(0.55, 1, -1) : 0.55 + beat * 0.35
+        const x = s.ax - 6 + B.lunge - B.kb + R(bz(0, -4, 6)) + R(spx)
+        const y = s.ay - 42 + R(bz(0, -4, 8)) - R(beat * 2) + R(B.die * 30) + R(spy)
         const a = -1.8 - (1 - lift) * 0.62
         const flare = B.glow
         // the far wing, behind everything
@@ -1303,8 +1609,9 @@ export const STORMCROWN_ROC: CreatureDef = {
             px(s, R(ex), R(ey), C.steel3); px(s, R(ex) + 1, R(ey), C.white)
         }
         // the far leg
-        const reachLeg = st === 'attack' ? bz(1.7, 2.3, 0.5) : 1.75 + B.die * 0.6
-        const open = st === 'attack' ? (B.strike ? 1 : B.rec * 0.6) : 0
+        const swinging = st === 'attack' || st === 'special'
+        const reachLeg = swinging ? bz(1.7, 2.3, 0.5) : 1.75 + B.die * 0.6
+        const open = swinging ? (B.strike ? 1 : B.rec * 0.6) : 0
         rocLeg(s, x + 1, y + 7, reachLeg + 0.15, open, true)
         // the body: storm-dark plumage in scalloped rows, the breast pale and barred
         ball(s, x, y, 16, 11, PLUME)
@@ -1393,6 +1700,43 @@ const MANE: readonly number[] = [C.white, C.frost, C.steel3]
 
 /** Zephyrax's mouth this frame, sprite-local from the anchor: where the breath leaves from. */
 const ZM = { x: 0, y: 0 }
+/** And the tip of his near antler, where the special's bolt climbs out of. */
+const ZH = { x: 0, y: 0 }
+
+/**
+ * Break the Heavens: he rears back, lightning gathering and crackling in his antlers; a bolt climbs
+ * out of them into the sky and the storm closes overhead; then the heavens break and lightning
+ * rains down on each of the party.
+ */
+const BREAK_THE_HEAVENS: BossSpecial = {
+    name: 'Break the Heavens', tint: 'night0', hits: [1.2, 1.34, 1.48, 1.62, 1.76, 1.9], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        const px0 = st.bx + d * ZH.x
+        const py0 = st.by + ZH.y
+        // the storm closing overhead
+        const dark = sp(t, 0.3, 0.9) * (1 - sp(t, 2.2, 2.6))
+        if (dark > 0) dither(s, 0, 0, s.w, 34, C.night0, R(dark * 10))
+        // the bolt climbing out of the antlers into the sky
+        if (q > 0.35 && q < 1.1) boltFx(s, px0, py0, px0 + d * 10, 0, t, 601, C.white, C.cyan, 5)
+        // the strikes, one onto each of them, with stray ones between
+        st.party.forEach((p, i) => {
+            const t0 = 1.2 + i * 0.14
+            if (q > t0 - 0.06 && q < t0 + 0.1) {
+                boltFx(s, p.x + 8 - i * 3, 0, p.x, chest(p), t, 611 + i, C.white, C.cyan, 6)
+                boltFx(s, p.x + 8 - i * 3, 0, p.x - 1, chest(p), t + 0.05, 621 + i, C.frost, C.blue2, 7)
+            }
+            blast(s, p.x, chest(p), t, t0, 9, 0.5, STORM6, 631 + i, 'storm')
+            if (q > t0) pit(s, p.x, p.y, 5 * (1 - sp(t, 2.2, 2.6)), C.stone0, C.stone1)
+        })
+        for (let k = 0; k < 4; k++) {
+            const t0 = 1.27 + k * 0.2
+            const x = st.party[0]!.x - 20 + k * 22
+            if (q > t0 && q < t0 + 0.08) boltFx(s, x + 6, 0, x, st.party[0]!.y, t, 641 + k, C.frost, C.blue2, 6)
+        }
+    }
+}
 
 /** Catmull-Rom through `pts` (x, y pairs), `per` samples a segment, into `out` as x, y pairs. */
 function spline(pts: readonly number[], per: number, out: number[]): void {
@@ -1437,14 +1781,18 @@ function stormBank(s: Surface, x: number, y: number, w: number, seed: number, fl
  * with a hind claw gripping the grass, rises in a crest and runs down a long neck to the head held
  * low and forward. Teal scales lit along the back, a ribbed belly of gold and bone, a white mane
  * streaming off its back and head, gold antlers, long whiskers trailing from the snout, eyes lit
- * white. Its fore-claw holds the dragon's pearl, a globe of lightning. It rears back as the pearl
- * charges, then lunges and breathes a torrent of lightning and wind onto the front rank.
+ * white. It rears back as lightning gathers and crackles in its antlers, then lunges and breathes a
+ * torrent of lightning and wind onto the front rank.
  */
 export const ZEPHYRAX: CreatureDef = {
     name: 'Zephyrax, Breaker of Heavens', size: 256, shadow: 0, accent: C.cyan,
-    states: bossStates(1.5, 2.0, 2.4),
+    states: withSpecial(bossStates(1.5, 2.0, 2.4), 2.6),
+    special: BREAK_THE_HEAVENS,
     draw(s, st, t) {
         drive(this, st, t, 3, 2.0)
+        // the head reared back while the lightning gathers in the antlers
+        if (st === 'special') spAttack(0.42, 0.48, 0.82, 2)
+        const raise = st === 'special' ? sm(Math.min(1, Math.max(0, (B.sp - 0.05) / 0.3))) * (1 - sm(Math.min(1, Math.max(0, (B.sp - 0.85) / 0.15)))) : 0
         // set back so the head, held low and forward, stays clear of the party
         const x = s.ax - 20 + B.lunge - B.kb
         const y = s.ay + R(B.die * 30)
@@ -1514,37 +1862,18 @@ export const ZEPHYRAX: CreatureDef = {
         // mist rolling round the low loop, and the bank the tail pours out of
         for (let i = 0; i < 4; i++) ditherEllipse(s, x - 92 + i * 16, y - 5, 12, 4, C.haze, 3)
         stormBank(s, x - 116, y - 88, 40, 913, flash)
-        // the fore-claw holding the dragon's pearl
-        const fi = Math.round(n * 0.86)
-        const sx0 = SPINE[fi * 2]!
-        const sy0 = SPINE[fi * 2 + 1]! + 4
-        const pgx = x + 10 + R(bz(0, -4, 6))
-        const pgy = y - 24 + R(bz(0, -4, 2))
-        elbow(sx0, sy0, pgx - 3, pgy - 5, 10, 10, -1)
-        limbT(s, sx0, sy0, P.x, P.y, 5, 4, SKYSCALE)
-        limbT(s, P.x, P.y, pgx - 3, pgy - 5, 4, 3, SKYSCALE)
-        const charge = st === 'attack' ? Math.max(B.wind, B.strike ? 1 : 0) : 0
-        if (charge > 0.2) ditherDisc(s, pgx, pgy, 9, C.cyan, R(charge * 7))
-        disc(s, pgx, pgy, 5, C.blue1)
-        disc(s, pgx - 0.5, pgy - 0.5, 4, charge > 0.5 ? C.frost : C.cyan)
-        const sw = q(t) * 6
-        arc(s, pgx, pgy, 3, sw, sw + 2.2, C.white)
-        arc(s, pgx, pgy, 2, sw + 3, sw + 4.6, C.blue2)
-        px(s, pgx - 2, pgy - 2, C.white)
-        for (let i = 0; i < 3; i++) {
-            // the claws closed round it
-            const ca = -2.2 + i * 0.9
-            line(s, R(pgx + Math.cos(ca) * 3), R(pgy + Math.sin(ca) * 3 - 2), R(pgx + Math.cos(ca) * 6), R(pgy + Math.sin(ca) * 6), C.gold1, 2)
-            px(s, R(pgx + Math.cos(ca) * 6), R(pgy + Math.sin(ca) * 6), C.ink)
-        }
+        // lightning gathers in the antlers as he charges, for the breath and for the special
+        const charge = st === 'attack' || st === 'special' ? Math.max(B.wind, B.strike ? 1 : 0, raise) : 0
         // the head, low and forward at the end of the neck
         const hx = SPINE[(n - 1) * 2]! + 6
         const hy = SPINE[(n - 1) * 2 + 1]! + 2
         const open = B.strike ? 6 : B.roar ? 5 : st === 'attack' ? R(B.rec * 4) : 0
-        // the far antler, darker
-        line(s, hx - 5, hy - 8, hx - 12, hy - 16, C.gold0, 2)
-        line(s, hx - 12, hy - 16, hx - 19, hy - 19, C.gold0, 2)
-        line(s, hx - 11, hy - 15, hx - 10, hy - 22, C.gold0)
+        // the far antler, darker, lit blue while he charges
+        const lit = charge > 0.3
+        const farC = lit ? C.blue2 : C.gold0
+        line(s, hx - 5, hy - 8, hx - 12, hy - 16, farC, 2)
+        line(s, hx - 12, hy - 16, hx - 19, hy - 19, farC, 2)
+        line(s, hx - 11, hy - 15, hx - 10, hy - 22, farC)
         // the mane streaming back off the head and jaw
         for (let i = 0; i < 6; i++) {
             const my = hy - 6 + i * 3
@@ -1574,13 +1903,28 @@ export const ZEPHYRAX: CreatureDef = {
         rect(s, hx + 4, hy - 4, 2, 1, B.hurt ? C.ink : C.white)
         px(s, hx + 6, hy - 4, B.hurt ? C.ink : C.cyan)
         if (B.glow > 0.3 && !B.hurt) ditherDisc(s, hx + 5, hy - 4, 4, C.cyan, R(B.glow * 6))
-        // the near antler, gold, branching back
-        line(s, hx - 3, hy - 7, hx - 10, hy - 15, C.gold1, 2)
-        line(s, hx - 10, hy - 15, hx - 18, hy - 18, C.gold1, 2)
-        line(s, hx - 3, hy - 8, hx - 10, hy - 16, C.gold3)
-        line(s, hx - 9, hy - 14, hx - 8, hy - 22, C.gold1, 2)
-        line(s, hx - 15, hy - 17, hx - 16, hy - 24, C.gold1, 2)
-        px(s, hx - 8, hy - 23, C.gold3); px(s, hx - 16, hy - 25, C.gold3); px(s, hx - 19, hy - 18, C.gold3)
+        // the near antler, gold, branching back; charging, it burns with lightning, sparks jumping its tines
+        if (lit) ditherDisc(s, hx - 11, hy - 17, 12, C.cyan, R(charge * 6))
+        const flick = fr(t, 20, 2) === 1
+        const beam = lit ? (flick ? C.white : C.cyan) : C.gold1
+        const edge = lit ? C.white : C.gold3
+        line(s, hx - 3, hy - 7, hx - 10, hy - 15, beam, 2)
+        line(s, hx - 10, hy - 15, hx - 18, hy - 18, beam, 2)
+        line(s, hx - 3, hy - 8, hx - 10, hy - 16, lit ? C.frost : C.gold3)
+        line(s, hx - 9, hy - 14, hx - 8, hy - 22, beam, 2)
+        line(s, hx - 15, hy - 17, hx - 16, hy - 24, beam, 2)
+        px(s, hx - 8, hy - 23, edge); px(s, hx - 16, hy - 25, edge); px(s, hx - 19, hy - 18, edge)
+        if (lit) {
+            // sparks jumping between the tines
+            const k = fr(t, 20, 3)
+            const tips = [[-8, -23], [-16, -25], [-19, -18]] as const
+            const [ax, ay] = tips[k]!
+            const [bx2, by2] = tips[(k + 1) % 3]!
+            line(s, hx + ax, hy + ay - 2, R(hx + (ax + bx2) / 2), hy + Math.min(ay, by2) - 5, C.white)
+            line(s, R(hx + (ax + bx2) / 2), hy + Math.min(ay, by2) - 5, hx + bx2, hy + by2 - 2, C.frost)
+        }
+        ZH.x = hx - 16 - s.ax
+        ZH.y = hy - 25 - s.ay
         // the whiskers, trailing back from the snout and waving
         for (const [wx, wy, lift] of [[18, 2, 1], [16, -3, -1]] as const) {
             let ox = hx + wx
@@ -1650,11 +1994,57 @@ const SCAPULAR: Mat = [C.blue0, C.blue1, C.blue2]
  * at her breast on a rosary, the other holding out a lantern of cold white light. She lifts the
  * lantern, her eyes open, and she swings it at the party, loosing a wave of its light.
  */
+/** Vesper's lantern this frame, sprite-local from the anchor. */
+const VL9 = { x: 0, y: 0 }
+
+/**
+ * Vigil of the Forgotten: she lifts the lantern high and its cold light spreads out over the party;
+ * where it falls, their colour drains out of them as they are forgotten, and pale threads come
+ * unwound from her hem and wind round each of them, binding them.
+ */
+const VIGIL_OF_THE_FORGOTTEN: BossSpecial = {
+    name: 'Vigil of the Forgotten', tint: 'night0', hits: [1.3, 1.42, 1.54, 1.66, 1.78, 1.9], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        const lx = st.bx + d * VL9.x
+        const ly = st.by + VL9.y
+        // the light spreading from the lantern
+        const u = sp(t, 0.6, 1.4)
+        const fade = 1 - sp(t, 2.1, 2.5)
+        if (u > 0 && fade > 0) {
+            for (let r = 0; r < 2; r++) shockRing(s, lx, ly, t, 0.6 + r * 0.3, 0.8, 4, 60, r ? C.steel3 : C.frost)
+            ditherDisc(s, lx, ly, 6 + u * 12, C.frost, R(4 * fade))
+        }
+        st.party.forEach((p, i) => {
+            const t0 = 1.2 + i * 0.12
+            // their colour draining out as the light reaches them, coming back as it fades
+            drain(s, p.x - 12, p.y - 36, 24, 38, R(sp(t, t0 - 0.15, t0 + 0.2) * 16 * fade))
+            // the threads winding round them, back to her
+            const wind = sp(t, t0, t0 + 0.4) * fade
+            if (wind > 0) {
+                for (let k = 0; k < 24 * wind; k++) {
+                    const a = k * 0.9 + q * 3
+                    s.set(R(p.x + Math.cos(a) * 7), R(p.y - 4 - k * 1.1 + Math.sin(a) * 1.5), Math.sin(a) > 0 ? C.bone1 : C.steel3)
+                }
+                for (let k = 0; k < 12; k++) {
+                    const v = k / 12
+                    if (hash2(i, k) < wind) s.set(R(p.x + (lx - p.x) * v), R(p.y - 20 + (ly - p.y + 20) * v + Math.sin(v * Math.PI) * 8), C.steel3)
+                }
+            }
+            blast(s, p.x, chest(p), t, t0, 6, 0.45, STORM6, 701 + i, 'frost')
+        })
+    }
+}
+
 export const SISTER_VESPER: CreatureDef = {
     name: 'Sister Vesper, the Forgotten', size: 96, shadow: 10, hover: 1, accent: C.frost,
-    states: bossStates(1.2, 2.0, 2.0),
+    states: withSpecial(bossStates(1.2, 2.0, 2.0), 2.6),
+    special: VIGIL_OF_THE_FORGOTTEN,
     draw(s, st, t) {
         drive(this, st, t, 6, 2.0)
+        // the lantern lifted high and held while its light spreads, the eyes opening
+        if (st === 'special') spAttack(0.3, 0.36, 0.8, 3)
         const x = s.ax - 4 + B.lunge - B.kb
         const y = s.ay
         const hover = -12 + wv(t, 2.0, 2) + R(B.die * 12)
@@ -1765,9 +2155,11 @@ export const SISTER_VESPER: CreatureDef = {
         const sx = x + 6
         const sy = top + 18
         const swing = st === 'idle' || st === 'entry' ? Math.sin(ph) * 0.15 : 0
-        const lx = sx + R(bz(9, 2, 18))
-        const ly = sy + R(bz(6, -14, 2))
+        const lx = sx + R(st === 'special' ? bz(9, 2, 6) : bz(9, 2, 18))
+        const ly = sy + R(st === 'special' ? bz(6, -14, -16) : bz(6, -14, 2))
         limbT(s, sx, sy, lx, ly, 5, 4, HABIT)
+        VL9.x = lx - s.ax
+        VL9.y = ly + 11 - s.ay
         line(s, R(sx + (lx - sx) * 0.8), R(sy + (ly - sy) * 0.8) - 2, R(sx + (lx - sx) * 0.8), R(sy + (ly - sy) * 0.8) + 2, C.gold2) // the gold cuff
         ellipse(s, lx, ly, 1.5, 1.5, PORCELAIN[1])
         const cx = lx + R(Math.sin(swing) * 6)
@@ -1949,21 +2341,78 @@ function liminusBody(s: Surface, st: string, dx: number, y: number, t: number, l
     LH.y = lyy - s.ay
 }
 
-const LIMINUS_STATES = bossStates(1.5, 2.0, 2.6)
+const LIMINUS_STATES = withSpecial(bossStates(1.5, 2.0, 2.6), 2.8)
 
 /**
- * Liminus, the Last Door: not a guardian of a door but the door itself, the one Ithren opened,
- * waiting at the edge of the world with the Void wheeling inside it. It arrives as it did for
- * Ithren, a line of light rising and parting into the door; its keystone eye looks about; the
- * blocks of it float a little apart, and its hands float free at its sides. It opens its eye wide
- * and the vortex races as it lifts its near hand, then brings it down flat on the front rank. As it
- * dies its stones drift up and apart into the dark.
+ * The Door Opens: its eye opens wide and the vortex inside it races; a bomb of the Void swells in
+ * its heart, a ball of the dark full of stars in a ring of pink fire, trembling and flaring as it
+ * charges; then it shoots straight out and crashes into the middle of the party, leaving the dark
+ * pooled under them.
  */
+const THE_DOOR_OPENS: BossSpecial = {
+    name: 'The Door Opens', tint: 'purple0', hits: [1.52, 1.56, 1.6, 1.64, 1.68, 1.72], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        const hx0 = st.bx + d * -6
+        const hy0 = st.by - 48
+        const mx = st.party.reduce((a, p) => a + p.x, 0) / st.party.length
+        const my = st.party.reduce((a, p) => a + p.y, 0) / st.party.length - 12
+        // the bomb: swelling in the door's heart, trembling and flaring as it charges, then shot
+        // straight out, fast, into the middle of them
+        const grow = sp(t, 0.35, 1.2)
+        const fly = sp(t, 1.36, 1.5) * sp(t, 1.36, 1.5)
+        if (grow > 0 && q < 1.5) {
+            const pulse = q < 1.36 && grow > 0.5 ? (Math.floor(q * 16) & 1) : 0
+            const shake = q < 1.36 && grow > 0.7 ? (Math.floor(q * 30) % 3) - 1 : 0
+            const r = 2 + grow * 11 + pulse
+            const x = hx0 + (mx - hx0) * fly + shake
+            const y = hy0 + (my - hy0) * fly
+            if (fly <= 0) for (let i = 0; i < 12; i++) {
+                // the Void spiralling into it as it swells
+                const u = ((q * 1.5 + i / 12) % 1)
+                const a = i * 2.4 + q * 4
+                s.set(R(x + Math.cos(a) * (r + 18 * (1 - u))), R(y + Math.sin(a) * (r + 18 * (1 - u))), u > 0.7 ? C.pink : C.purple2)
+            }
+            if (pulse) ditherDisc(s, x, y, r + 9, C.pink, 5)
+            if (fly > 0) for (let k = 1; k < 9; k++) {
+                // the dark streaming off behind it
+                const v = Math.max(0, fly - k * 0.08)
+                disc(s, hx0 + (mx - hx0) * v, hy0 + (my - hy0) * v, r * (1 - k * 0.1), k < 3 ? C.purple0 : C.void)
+            }
+            ditherDisc(s, x, y, r + 5, C.purple1, 6)
+            disc(s, x, y, r + 1.5, C.pink)
+            disc(s, x, y, r, C.ink)
+            for (let i = 0; i < r * 1.5; i++) {
+                const a = hash2(i, 1) * Math.PI * 2
+                const rr = hash2(i, 2) * (r - 1)
+                if ((Math.floor(q * 8) + i) % 3) s.set(R(x + Math.cos(a) * rr), R(y + Math.sin(a) * rr), i & 1 ? C.white : C.pink)
+            }
+            arc(s, x, y, r - 1, Math.PI * 1.1, Math.PI * 1.5, C.purple2) // the dark lit on its top
+        }
+        // the burst on the middle of them, and the dark left pooled under them
+        if (q > 1.5 && q < 1.58) disc(s, mx, my, 14, C.white)
+        blast(s, mx, my, t, 1.5, 26, 0.7, VOID6, 721, 'shadow')
+        shockRing(s, mx, my, t, 1.5, 0.6, 10, 64, C.white)
+        shockRing(s, mx, my + 12, t, 1.52, 0.6, 8, 56, C.pink, true)
+        const pool = sp(t, 1.5, 1.7) * (1 - sp(t, 2.3, 2.8))
+        if (pool > 0) st.party.forEach(p => pit(s, p.x, p.y, 9 * pool, C.ink, C.purple0))
+        st.party.forEach((p, i) => blast(s, p.x, chest(p), t, 1.52 + i * 0.04, 7, 0.45, VOID6, 731 + i, 'shadow'))
+    }
+}
+
 export const LIMINUS: CreatureDef = {
     name: 'Liminus, the Last Door', size: 128, shadow: 0, accent: C.pink,
     states: LIMINUS_STATES,
+    special: THE_DOOR_OPENS,
     draw(s, st, t) {
         drive(this, st, t, 0, 2.0)
+        if (st === 'special') {
+            // the eye wide and burning, the vortex racing, a hand lifted to beckon
+            const on = sm(Math.min(1, B.sp / 0.25)) * (1 - sm(Math.max(0, (B.sp - 0.8) / 0.2)))
+            B.wind = on * 0.6
+            B.glow = on
+        }
         const x = s.ax - 6 - B.kb
         const y = s.ay
         if (st === 'entry') {
@@ -2021,17 +2470,56 @@ const HB = { x: 0, y: 0, a: 0 }
  * down the front and at the hem, trailing off into nothing. It holds a long horn of bone banded in
  * gold, lifts it to the mask as its wings rise, and sounds it at the party.
  */
+/**
+ * Last Trumpet: the Herald spreads its four wings wide and sounds the horn up at the sky; the call
+ * rolls up into the dark, the stars answer, and they come down in a fast barrage, burning pink,
+ * every one of the party struck twice.
+ */
+const LAST_TRUMPET: BossSpecial = {
+    name: 'Last Trumpet', tint: 'purple0', hits: Array.from({ length: 12 }, (_, k) => 1.2 + k * 0.07), spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        const bx = st.bx + d * HB.x
+        const by = st.by + HB.y
+        // the call rolling up out of the bell into the sky
+        for (let r = 0; r < 3; r++) shockRing(s, bx, by, t, 0.45 + r * 0.16, 0.6, 3, 30, r & 1 ? C.pink : C.white)
+        // the stars answering, twinkling up there, then coming down one after another
+        for (let k = 0; k < 12; k++) {
+            const p = st.party[k % st.party.length]!
+            const hit = 1.2 + k * 0.07
+            const sx0 = p.x - d * (34 + (k % 4) * 8) + (k % 3 - 1) * 5
+            const sy0 = 4 + (k % 4) * 5
+            if (q > 0.7 && q < hit - 0.25) starFx(s, R(sx0), sy0, Math.floor(q * 12 + k) & 1 ? 2 : 1, C.pink)
+            const u = sp(t, hit - 0.25, hit)
+            if (u > 0 && u < 1) {
+                const x = sx0 + (p.x - sx0) * u
+                const y = sy0 + (chest(p) - sy0) * u * u
+                for (let j = 1; j < 7; j++) {
+                    const v = Math.max(0, u - j * 0.035)
+                    s.set(R(sx0 + (p.x - sx0) * v), R(sy0 + (chest(p) - sy0) * v * v), j < 3 ? C.pink : j < 5 ? C.purple2 : C.purple1)
+                }
+                starFx(s, R(x), R(y), 3, C.pink)
+            }
+            blast(s, p.x + (k < 6 ? -2 : 2), chest(p) - (k < 6 ? 0 : 3), t, hit, 7, 0.35, VOID6, 801 + k, 'shadow')
+        }
+    }
+}
+
 export const VOID_HERALD: CreatureDef = {
     name: 'Void Herald', size: 128, shadow: 12, hover: 1, accent: C.pink,
-    states: bossStates(1.3, 1.6, 2.0),
+    states: withSpecial(bossStates(1.3, 1.6, 2.0), 2.6),
+    special: LAST_TRUMPET,
     draw(s, st, t) {
         drive(this, st, t, 4, 1.6)
+        // the wings flung wide and held, the horn lifted to the mask and raised to the sky
+        if (st === 'special') spAttack(0.3, 0.34, 0.86, 0)
         const x = s.ax - 6 + B.lunge - B.kb
         const y = s.ay
         const hover = -10 + wv(t, 1.6, 2) + R(B.die * 14)
         const top = y - 74 + hover
         const beat = st === 'idle' || st === 'entry' ? Math.sin(q(t) / 1.6 * Math.PI * 2) : 0
-        const lift = st === 'attack' ? bz(0, 0.6, 0.9) : beat * 0.25
+        const lift = st === 'attack' ? bz(0, 0.6, 0.9) : st === 'special' ? bz(0, 0.6, 1.0) : beat * 0.25
         // the wings: an upper pair raised, a lower pair swept down, the far ones behind
         const wx = x - 3
         const wy = top + 19
@@ -2091,7 +2579,7 @@ export const VOID_HERALD: CreatureDef = {
         const hdy = rt + R(bz(16, -3, 0))
         limbT(s, sx, sy, hdx, hdy, 5, 5, VOID_WING)
         line(s, hdx - 1, hdy - 2, hdx + 1, hdy + 2, C.gold2) // the cuff
-        const ha = bz(0.5, -0.75, -0.12)
+        const ha = st === 'special' ? bz(0.5, -0.75, -1.35) : bz(0.5, -0.75, -0.12)
         const L = 22
         HB.a = ha
         let bx = hdx
@@ -2198,7 +2686,7 @@ function nihilBody(s: Surface, st: string, x: number, y: number, t: number, open
         }
     }
     // eyes of every size opening all over it
-    const wide = st === 'attack' ? 1 + B.wind * 0.3 : 1
+    const wide = st === 'attack' || st === 'special' ? 1 + B.wind * 0.3 : 1
     const eyes = [[-8, -38, 5], [16, -44, 3], [-30, -30, 4], [-48, -10, 5], [-22, -8, 3], [-58, 16, 3], [8, -26, 2.5], [-40, 34, 4], [30, -20, 3], [-12, 30, 2.5], [-62, -22, 2.5], [22, 32, 3], [-2, -52, 2.5], [-26, 16, 6]] as const
     for (let i = 0; i < eyes.length; i++) {
         const [ex, ey, r] = eyes[i]!
@@ -2245,7 +2733,56 @@ function nihilBody(s: Surface, st: string, x: number, y: number, t: number, open
     NM.y = my - s.ay
 }
 
-const NIHIL_STATES = { ...bossStates(1.6, 2.4, 2.8), death: { dur: 2.4, loop: false } }
+const NIHIL_STATES = withSpecial({ ...bossStates(1.6, 2.4, 2.8), death: { dur: 2.4, loop: false } }, 2.8)
+
+/**
+ * Devour: it gapes impossibly wide; the dark closes in on everything but its maw, and all of it
+ * streams in, light and stars and the party's own colour torn off them; then the maw snaps shut on
+ * the party and the dark lets go.
+ */
+const DEVOUR: BossSpecial = {
+    name: 'Devour', tint: 'void', hits: [1.62, 1.67, 1.72, 1.77, 1.82, 1.87], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        const mx = st.bx + d * NM.x
+        const my = st.by + NM.y
+        // the dark closing in on everything but the maw, then letting go after the bite
+        const close = sp(t, 0.3, 1.5) * (1 - sp(t, 1.75, 2.4))
+        if (close > 0) {
+            const r = 320 - close * 210
+            for (let y = 0; y < s.h; y++) {
+                for (let x = 0; x < s.w; x++) {
+                    const dd = Math.hypot(x - mx, (y - my) * 1.3) - r
+                    if (dd > 0 && bayer(x, y, Math.min(16, R(dd / 3)))) s.set(x, y, C.ink)
+                }
+            }
+        }
+        // everything streaming in: stars, light, and wisps torn off the party
+        if (q > 0.3 && q < 1.65) {
+            for (let i = 0; i < 40; i++) {
+                const u = ((q - 0.3) * 1.3 + i / 40) % 1
+                const a = i * 2.39
+                const r0 = 150
+                const x = mx + Math.cos(a) * r0 * (1 - u)
+                const y = my + Math.sin(a) * r0 * 0.6 * (1 - u)
+                s.set(R(x), R(y), u > 0.8 ? C.white : i % 3 ? C.pink : C.purple2)
+                s.set(R(x + Math.cos(a) * 2), R(y + Math.sin(a) * 1.2), C.purple1)
+            }
+            st.party.forEach((p, i) => {
+                for (let k = 0; k < 4; k++) {
+                    const u = ((q - 0.5) * 1.5 + k / 4 + i * 0.1) % 1
+                    if (q < 0.5) continue
+                    s.set(R(p.x + (mx - p.x) * u), R(chest(p) + (my - chest(p)) * u + Math.sin(u * 6 + i) * 3), k & 1 ? C.white : C.pink)
+                }
+            })
+        }
+        // the bite: a white flash in the maw and a shock rolling out over the party
+        if (q > 1.6 && q < 1.68) disc(s, mx, my, 10, C.white)
+        shockRing(s, mx, my, t, 1.6, 0.5, 8, 60, C.white)
+        st.party.forEach((p, i) => blast(s, p.x, chest(p), t, 1.62 + i * 0.05, 8, 0.5, VOID6, 811 + i, 'shadow'))
+    }
+}
 
 /**
  * Nihil, the Hunger at the End: what waits where every crack leads, a mouth the size of the sky.
@@ -2258,11 +2795,21 @@ const NIHIL_STATES = { ...bossStates(1.6, 2.4, 2.8), death: { dur: 2.4, loop: fa
 export const NIHIL: CreatureDef = {
     name: 'Nihil, the Hunger at the End', size: 256, shadow: 0, accent: C.pink,
     states: NIHIL_STATES,
+    // broken apart as the point it collapsed into winks out, after the whole collapse has played
+    shatterAt: 2.04,
+    special: DEVOUR,
     draw(s, st, t) {
         drive(this, st, t, 10, 2.4)
         const x = s.ax - 10 + B.lunge - B.kb
         const y = s.ay
-        const open = st === 'attack' ? bz(0.8, 1.2, 0.35) : B.roar ? 1.2 : 0.8 + wv(t, 2.4, 1) * 0.04
+        if (st === 'special') spAttack(0.56, 0.6, 0.72, 10)
+        // the special gapes it impossibly wide before the snap
+        let open = st === 'attack' ? bz(0.8, 1.2, 0.35) : B.roar ? 1.2 : 0.8 + wv(t, 2.4, 1) * 0.04
+        if (st === 'special') {
+            if (B.sp < 0.56) open = 0.8 + 0.65 * sm(Math.min(1, B.sp / 0.4))
+            else if (B.sp < 0.72) open = 0.35
+            else open = 0.35 + 0.45 * sm((B.sp - 0.72) / 0.28)
+        }
         if (st === 'death') {
             // it collapses into a point at the heart of its maw, then winks out
             CF.fade = 0

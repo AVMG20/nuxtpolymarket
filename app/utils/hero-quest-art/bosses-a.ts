@@ -3,15 +3,17 @@
 // Bosses are 96px buffers, super bosses 128px and the most elaborate thing in their world.
 
 import { C } from './palette'
-import type { CreatureDef } from './creature'
-import { fr } from './creature'
+import type { BossSpecial, CreatureDef } from './creature'
+import { fr, sm } from './creature'
 import type { Mat } from './weapons'
 import type { Surface } from './surface'
 import {
-    B, Entry, bossStates, drive, finish, bz, ball, chain, spikes, mouth,
+    B, Entry, bossStates, withSpecial, spAttack, drive, finish, bz, ball, chain, spikes, mouth,
     limbT, reach, elbow, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, arc, poly, q, wv, hash2
 } from './boss-kit'
 import { dome, ditherDisc } from './surface'
+import { blast, blob, shockRing } from './vfx-cinematic'
+import { sq, sp, hitTarget, chest, debris, spike, flames, crack, pit, DUST6, FIRE6, FROST6, ROT6, WATER6 } from './special-kit'
 
 const R = Math.round
 
@@ -56,20 +58,57 @@ function cleaver(s: Surface, hx: number, hy: number, a: number): void {
 }
 
 /**
+ * Tusk Charge: the boar paws the ground, dust kicking up behind it, then charges through the front
+ * rank in a wake of dust and knocks the two nearest flying.
+ */
+const TUSK_CHARGE: BossSpecial = {
+    name: 'Tusk Charge', tint: 'dusk0', hits: [1.0, 1.12], spread: true,
+    fx(s, t, st) {
+        const d = st.dir
+        // pawing: dust kicked up behind it
+        for (let k = 0; k < 3; k++) debris(s, st.bx - d * 18, st.by - 2, st.by, t, 0.1 + k * 0.22, 7, 60, 'dust', 11 + k, 0.5)
+        // the charge: a wake of dust streaming behind the boar's head as it closes
+        const u = sp(t, 0.78, 1.06)
+        if (u > 0 && u < 1) {
+            const hx = st.bx + d * (26 + 30 * u)
+            for (let i = 0; i < 12; i++) {
+                const len = 6 + (i * 7) % 10
+                const y = st.by - 3 - (i * 5) % 18
+                const x0 = hx - d * (8 + (i * 11) % 30)
+                line(s, R(x0), y, R(x0 - d * len), y, i & 1 ? C.bone1 : C.stone3)
+            }
+        }
+        // the impact: the front two knocked flying, the ground torn up round them
+        for (let i = 0; i < 2; i++) {
+            const p = hitTarget(st, i, true)
+            const t0 = 1.0 + i * 0.12
+            blast(s, p.x, chest(p), t, t0, 10, 0.55, DUST6, 71 + i, 'dust')
+            debris(s, p.x, p.y - 2, p.y, t, t0, 12, 110, 'dust', 81 + i)
+        }
+        const f = st.party[0]!
+        shockRing(s, f.x, f.y - 1, t, 1.0, 0.5, 4, 30, C.white, true)
+        debris(s, st.bx + d * 50, st.by - 1, st.by, t, 1.35, 10, 70, 'dust', 91, 0.6) // the skid back
+    }
+}
+
+/**
  * Old Gnarlhide, saddled and harnessed, the goblins' chieftain on his back in a
  * scrap-iron helm under a bramble crown, a bone mantle, a heavy cleaver, and a tattered war
  * banner on a pole behind him. The boar charges; the rider chops as it lands.
  */
 export const OLD_GNARLHIDE: CreatureDef = {
-    name: 'Old Gnarlhide', size: 96, shadow: 24, accent: C.red2,
-    states: bossStates(1.1, 1.4, 1.8),
+    name: 'Old Gnarlhide', size: 128, shadow: 24, accent: C.red2,
+    states: withSpecial(bossStates(1.1, 1.4, 1.8), 2.2),
+    special: TUSK_CHARGE,
     draw(s, st, t) {
         drive(this, st, t, 12, 1.4)
+        // the charge: pawing and rearing on the wind-up, then a gallop of 30px through the front rank
+        if (st === 'special') spAttack(0.36, 0.48, 0.6, 30)
         const x = s.ax - 8 + B.lunge - B.kb
         const y = s.ay
         const charge = B.wind > 0 ? B.wind : B.strike ? 1 : B.rec
         const by = y - 16 + B.breath + R(B.die * 4)
-        const step = st === 'entry' ? fr(t, 8, 4) : B.strike ? 1 : 0
+        const step = st === 'entry' || (st === 'special' && B.sp > 0.3 && B.sp < 0.62) ? fr(t, st === 'special' ? 14 : 8, 4) : B.strike ? 1 : 0
         const flap = fr(t, 4, 2)
 
         // the rider's seat, and the banner pole strapped behind it
@@ -191,6 +230,42 @@ function weave(s: Surface, x0: number, y0: number, w: number, h: number): void {
 }
 
 /**
+ * Wicker Blaze: the gorse-fire in his ribs roars up as he raises his arm, then he drives his fist
+ * into the ground; a seam of fire runs out to the party and burning thorns burst up under each of
+ * them in turn, nearest first, and keep burning.
+ */
+const WICKER_BLAZE: BossSpecial = {
+    name: 'Wicker Blaze', tint: 'dusk0', hits: [1.28, 1.38, 1.48, 1.58, 1.68, 1.78], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        // embers pouring up out of the ribcage as the fire rises
+        if (q < 1.2) for (let i = 0; i < 10; i++) {
+            const u = ((q * 1.6 + i / 10) % 1)
+            s.set(R(st.bx - d * (2 - (i * 7) % 12)), R(st.by - 66 - u * 44), u < 0.4 ? C.gold3 : u < 0.7 ? C.orange : C.lava1)
+        }
+        // the seam of fire running from his fist to the party
+        const near = st.party[0]!
+        crack(s, st.bx + d * 22, st.by - 1, near.x, near.y - 1, sp(t, 1.1, 1.28), 31, C.lava1, C.gold3)
+        crack(s, st.bx + d * 22, st.by - 1, st.party[st.party.length - 1]!.x, st.party[st.party.length - 1]!.y - 1, sp(t, 1.1, 1.5), 37, C.lava1, C.gold2)
+        // burning thorns bursting up under each of them in turn
+        st.party.forEach((p, i) => {
+            const t0 = 1.22 + i * 0.1
+            const g = sp(t, t0, t0 + 0.12)
+            if (g <= 0) return
+            flames(s, p.x, p.y, 20, t, t0 + 0.08, 2.6, 41 + i, 12)
+            for (let k = 0; k < 5; k++) {
+                const off = (k - 2) * 4 + (hash2(i, k) - 0.5) * 2
+                const h = R(g * (10 + hash2(i + 7, k) * 10))
+                spike(s, R(p.x + off), p.y, h, 1.6, (k - 2) * 2, C.brown1, C.brown3, q > t0 + 0.2 ? C.gold3 : C.bone1)
+            }
+            blast(s, p.x, chest(p), t, t0 + 0.05, 7, 0.45, FIRE6, 51 + i, 'ember')
+            debris(s, p.x, p.y - 4, p.y, t, t0, 6, 80, 'ember', 61 + i)
+        })
+    }
+}
+
+/**
  * Gorsecrown, King of Hedges, the Wicker King: a hollow giant woven from hedge-wood on human lines, long in the leg, a
  * broad woven trunk from a yoke of shoulders straight down to the hips, and jointed arms. His
  * head is a goat skull carved from pale wood, ram's horns curling round it with gorse at their
@@ -199,9 +274,12 @@ function weave(s: Surface, x0: number, y0: number, w: number, h: number): void {
  */
 export const GORSECROWN: CreatureDef = {
     name: 'Gorsecrown, King of Hedges', size: 128, shadow: 24, accent: C.gold2,
-    states: bossStates(1.4, 1.8, 2.2),
+    states: withSpecial(bossStates(1.4, 1.8, 2.2), 2.6),
+    special: WICKER_BLAZE,
     draw(s, st, t) {
         drive(this, st, t, 6, 1.8)
+        // the fist raised as the fire in him roars, then driven into the ground
+        if (st === 'special') spAttack(0.4, 0.45, 0.62, 4)
         const x = s.ax - 6 + B.lunge - B.kb
         const y = s.ay
         const sink = R(B.die * 12)
@@ -363,6 +441,59 @@ function bez(x0: number, y0: number, cx: number, cy: number, x1: number, y1: num
     P.y = a * y0 + b * cy + c * y1
 }
 
+/** A leechling at (x, y), wriggling on `ph`, facing `dir`: a striped little slug with a gold spot. */
+function leechling(s: Surface, x: number, y: number, ph: number, dir: number): void {
+    for (let i = 0; i < 8; i++) {
+        const lx = R(x - dir * i)
+        const ly = R(y + Math.sin(ph + i * 0.8) * 1.2)
+        const w = i === 0 || i === 7 ? 1 : 2
+        s.set(lx, ly, C.ink)
+        s.set(lx, ly - 1, i === 0 ? C.red2 : i % 3 === 1 ? C.olive1 : C.red1)
+        if (w > 1) s.set(lx, ly - 2, i === 3 || i === 5 ? C.gold2 : C.red2)
+        s.set(lx, ly - w - 1, C.ink)
+    }
+}
+
+/**
+ * Brood Swarm: she rears and swells, then gapes and spews her brood: leechlings arc out over the
+ * water, land, and squirm across the ground to the party, each one latching on to a body in turn.
+ */
+const BROOD_SWARM: BossSpecial = {
+    name: 'Brood Swarm', tint: 'dusk0', hits: [1.7, 1.8, 1.9, 2.0, 2.1, 2.2], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        const mx = st.bx + d * 8
+        const my = st.by - 50
+        for (let i = 0; i < 12; i++) {
+            const p = st.party[i % st.party.length]!
+            const t0 = 1.0 + (i % 6) * 0.04
+            const land = 1.3 + (i % 4) * 0.04
+            // where it lands, short of the party, then the crawl to its target
+            const lx = st.bx + d * (18 + hash2(i, 3) * 30)
+            const ly = p.y - 1 - (i & 1)
+            if (q < t0) continue
+            if (q < land) {
+                const u = (q - t0) / (land - t0)
+                const x = mx + (lx - mx) * u
+                const y = my + (ly - my) * u - Math.sin(u * Math.PI) * 18
+                leechling(s, x, y, q * 20 + i, d)
+                continue
+            }
+            const reach = 1.6 + (i % 6) * 0.1
+            const u = Math.min(1, (q - land) / (reach - land))
+            const x = lx + (p.x + d * 3 - lx) * u
+            if (u < 1) { leechling(s, x, ly, q * 18 + i, d); continue }
+            // latched on and climbing
+            const up = Math.min(8, (q - reach) * 20)
+            leechling(s, p.x + (i & 1 ? 2 : -2), p.y - 4 - up, q * 14 + i, i & 1 ? 1 : -1)
+        }
+        // the spew: slime thrown out of her gape
+        debris(s, mx, my, st.by, t, 1.0, 10, 70, 'poison', 21, 0.6)
+        st.party.forEach((p, i) => blast(s, p.x, chest(p), t, 1.7 + i * 0.1, 5, 0.4, ROT6, 31 + i, 'blood'))
+    }
+}
+
 /**
  * Mother Leech: a great striped leech rearing out of the black water in an S, glistening, two
  * rows of orange spots down her back and ring after ring of segment, her brood clinging to her
@@ -372,9 +503,12 @@ function bez(x0: number, y0: number, cx: number, cy: number, x1: number, y1: num
  */
 export const MOTHER_LEECH: CreatureDef = {
     name: 'Mother Leech', size: 96, shadow: 0, accent: C.red2,
-    states: bossStates(1.1, 1.6, 2.0),
+    states: withSpecial(bossStates(1.1, 1.6, 2.0), 2.5),
+    special: BROOD_SWARM,
     draw(s, st, t) {
         drive(this, st, t, 12, 1.6)
+        // rearing back and swelling, then the gape as she spews her brood
+        if (st === 'special') spAttack(0.4, 0.46, 0.6, 6)
         const x = s.ax - 10 - B.kb
         const y = s.ay
         const sway = wv(t, 1.6, 3)
@@ -513,6 +647,41 @@ function rootHand(s: Surface, x: number, y: number, grip: number): void {
 }
 
 /**
+ * Drowning Mire: he brings his arm down into the water, and the black mire wells up under each of
+ * the party in turn, roots bursting out of it and coiling round them to drag them under, green
+ * bubbles rising.
+ */
+const DROWNING_MIRE: BossSpecial = {
+    name: 'Drowning Mire', tint: 'night0', hits: [1.4, 1.5, 1.6, 1.7, 1.8, 1.9], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        // the ripple running out from where his arm struck the water
+        shockRing(s, st.bx + d * 20, st.by - 1, t, 1.15, 0.6, 4, 40, C.teal3, true)
+        st.party.forEach((p, i) => {
+            const t0 = 1.25 + i * 0.1
+            const g = sp(t, t0, t0 + 0.2)
+            if (g <= 0) return
+            const fade = 1 - sp(t, 2.3, 2.7)
+            // the mire welling up under them
+            pit(s, p.x, p.y, 4 + g * 10 * fade, C.ink, C.teal0)
+            if (fade > 0.3) for (let k = 0; k < 4; k++) {
+                // roots coiling up out of it round them
+                const h = R(g * (12 + hash2(i, k) * 8) * fade)
+                const off = (k - 1.5) * 5
+                spike(s, R(p.x + off), p.y, h, 1.4, -off * 0.6 + Math.sin(q * 6 + k) * 2, C.brown0, C.brown2, C.green3)
+            }
+            blast(s, p.x, chest(p) + 6, t, t0 + 0.12, 6, 0.5, WATER6, 41 + i, 'water')
+            // bubbles rising out of the black water
+            for (let k = 0; k < 3; k++) {
+                const u = ((q - t0) * 1.5 + k / 3) % 1
+                if (fade > 0.2) s.set(R(p.x - 6 + k * 6), R(p.y - 2 - u * 12), u < 0.5 ? C.green3 : C.olive2)
+            }
+        })
+    }
+}
+
+/**
  * Rotheart, the Sunken Elder: the oldest cypress of the drowned forest, risen on its roots. A
  * hunched trunk of twisted bark stands on buttress roots splayed into the water; long arms hang
  * nearly to the surface, curtained in moss, with root-claw hands. The chest is rotted hollow,
@@ -523,9 +692,12 @@ function rootHand(s: Surface, x: number, y: number, grip: number): void {
  */
 export const ROTHEART: CreatureDef = {
     name: 'Rotheart, the Sunken Elder', size: 128, shadow: 0, accent: C.green4,
-    states: bossStates(1.4, 2.0, 2.4),
+    states: withSpecial(bossStates(1.4, 2.0, 2.4), 2.8),
+    special: DROWNING_MIRE,
     draw(s, st, t) {
         drive(this, st, t, 6, 2.0)
+        // the arm raised high, then brought down into the water
+        if (st === 'special') spAttack(0.38, 0.44, 0.6, 3)
         const x = s.ax - 4 + B.lunge - B.kb
         const y = s.ay
         const sink = R(B.die * 14)
@@ -685,6 +857,28 @@ function seam(s: Surface, x0: number, y0: number, x1: number, y1: number, hot: b
 }
 
 /**
+ * Molten Quake: the hammer goes up over his head and comes down on the ground; the ground cracks
+ * and lava runs out along the crack to the party, bursting up under each of them in turn.
+ */
+const MOLTEN_QUAKE: BossSpecial = {
+    name: 'Molten Quake', tint: 'dusk0', hits: [1.3, 1.4, 1.5, 1.6, 1.7, 1.8], spread: true,
+    fx(s, t, st) {
+        const d = st.dir
+        const hx = st.bx + d * 20
+        // the hammer landing: a flat shock and slag thrown up
+        shockRing(s, hx, st.by - 1, t, 1.1, 0.5, 4, 34, C.gold3, true)
+        debris(s, hx, st.by - 2, st.by, t, 1.1, 14, 110, 'ember', 71)
+        st.party.forEach((p, i) => {
+            const t0 = 1.22 + i * 0.1
+            crack(s, hx, st.by - 1, p.x, p.y - 1, sp(t, 1.1, t0), 81 + i, C.lava0, C.lava1)
+            blast(s, p.x, p.y - 4, t, t0, 9, 0.55, FIRE6, 91 + i, 'ember', true)
+            debris(s, p.x, p.y - 2, p.y, t, t0, 8, 100, 'ember', 101 + i)
+            flames(s, p.x, p.y, 12, t, t0 + 0.1, 2.4, 111 + i, 7)
+        })
+    }
+}
+
+/**
  * Slagjaw, the kobolds' war-chief: the clan's own long-snouted, horned face on a body three times
  * their girth, in a black iron breastplate cracked with molten seams, spiked pauldrons, a crown of
  * iron spikes, a scorched cape and a belt of trophy skulls. His lower jaw is a plate of slag,
@@ -693,9 +887,12 @@ function seam(s: Surface, x0: number, y0: number, x1: number, y1: number, hot: b
  */
 export const SLAGJAW: CreatureDef = {
     name: 'Slagjaw', size: 96, shadow: 20, accent: C.lava1,
-    states: bossStates(1.2, 1.2, 1.8),
+    states: withSpecial(bossStates(1.2, 1.2, 1.8), 2.4),
+    special: MOLTEN_QUAKE,
     draw(s, st, t) {
         drive(this, st, t, 8, 1.2)
+        // the hammer heaved high and held, then brought down on the ground
+        if (st === 'special') spAttack(0.42, 0.46, 0.62, 6)
         const x = s.ax - 6 + B.lunge - B.kb
         const y = s.ay
         const crouch = R(B.wind * 3 + (B.strike ? 4 : B.rec * 3) + B.die * 10)
@@ -874,6 +1071,39 @@ function batWing(s: Surface, x: number, y: number, span: number, spread: number,
 }
 
 /**
+ * Inferno: he rears back, the magma in his throat and belly blazing, then breathes a torrent of
+ * fire and sweeps it along the whole party from front to back, leaving the ground burning.
+ */
+const INFERNO: BossSpecial = {
+    name: 'Inferno', tint: 'dusk0', hits: [1.2, 1.38, 1.56, 1.74, 1.92, 2.1], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        const mx = st.bx + d * 50
+        const my = st.by - 76
+        // the breath held: its target sweeps from the nearest to the furthest
+        if (q >= 1.05 && q < 2.3) {
+            const u = Math.min(1, (q - 1.1) / 1.0)
+            const k = Math.max(0, u) * (st.party.length - 1)
+            const a = st.party[Math.floor(k)]!
+            const b = st.party[Math.min(st.party.length - 1, Math.floor(k) + 1)]!
+            const f = k - Math.floor(k)
+            const tx = a.x + (b.x - a.x) * f
+            const ty = a.y - 8 + (b.y - a.y) * f
+            const fade = Math.min(1, (2.3 - q) / 0.2)
+            for (let i = 0; i <= 16; i++) {
+                const v = i / 16
+                const wob = Math.sin(q * 30 + i) * v * 3
+                blob(s, mx + (tx - mx) * v, my + (ty - my) * v + wob, (2 + v * 10) * fade, 0.08 + v * 0.35, FIRE6, 17 + i + Math.floor(q * 20))
+            }
+            debris(s, tx, ty + 6, ty + 8, t, Math.floor(q * 8) / 8, 6, 90, 'ember', 23 + Math.floor(q * 8), 0.4)
+        }
+        // the ground left burning where it passed
+        st.party.forEach((p, i) => flames(s, p.x, p.y, 20, t, 1.15 + i * 0.18, 2.8, 131 + i, 12))
+    }
+}
+
+/**
  * Pyrrhax, the Molten Wyrm, the dragon the kobolds worship: so large that his hindquarters and
  * tail run on past the edge of the screen. A long body armoured in obsidian scale and cracked
  * with magma, standing on four clawed legs; spikes down the spine; a glowing belly up the chest
@@ -883,9 +1113,12 @@ function batWing(s: Surface, x: number, y: number, span: number, spread: number,
  */
 export const PYRRHAX: CreatureDef = {
     name: 'Pyrrhax, the Molten Wyrm', size: 256, shadow: 70, accent: C.lava1,
-    states: bossStates(1.4, 1.8, 2.2),
+    states: withSpecial(bossStates(1.4, 1.8, 2.2), 2.8),
+    special: INFERNO,
     draw(s, st, t) {
         drive(this, st, t, 10, 1.8)
+        // a long rear with the magma blazing, then the breath held while it sweeps the line
+        if (st === 'special') spAttack(0.36, 0.4, 0.82, 6)
         const x = s.ax - B.kb
         const y = s.ay
         const hot = fr(t, 5, 2) === 1 || B.glow > 0.5
@@ -1044,13 +1277,47 @@ function mailRings(s: Surface, x0: number, y0: number, w: number, h: number): vo
  * fur-cuffed boots. At rest he leans on his great axe of ice, its head planted beside him and
  * both hands on the haft; he heaves it up over his head, leaning back, and cleaves down.
  */
+/**
+ * Winter's Cleave: he heaves the ice axe up, leaps, and brings it down on the ground; a line of ice
+ * spikes bursts out of the frozen ground and marches through the party.
+ */
+const WINTERS_CLEAVE: BossSpecial = {
+    name: 'Winter\'s Cleave', tint: 'night0', hits: [1.22, 1.3, 1.38, 1.46, 1.54, 1.62], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        const hx = st.bx + d * 18
+        shockRing(s, hx, st.by - 1, t, 1.1, 0.5, 4, 30, C.frost, true)
+        debris(s, hx, st.by - 2, st.by, t, 1.1, 12, 100, 'frost', 141)
+        // the spikes marching out, ahead of the hits and on through each of the party
+        const far = st.party[st.party.length - 1]!
+        for (let k = 0; k < 16; k++) {
+            const u = k / 15
+            const x = hx + (far.x - 8 - hx) * u
+            const y = st.by + (far.y - st.by) * u
+            const t0 = 1.1 + u * 0.55
+            const g = sp(t, t0, t0 + 0.08)
+            const melt = 1 - sp(t, 2.0 + u * 0.2, 2.4)
+            if (g <= 0 || melt <= 0) continue
+            const h = R(g * melt * (8 + hash2(k, 5) * 10))
+            spike(s, R(x), R(y), h, 2.2, (hash2(k, 6) - 0.5) * 6, C.blue1, C.frost, C.white)
+            if (q < t0 + 0.2) debris(s, x, y - 2, y, t, t0, 3, 60, 'frost', 151 + k, 0.4)
+        }
+        st.party.forEach((p, i) => blast(s, p.x, chest(p), t, 1.22 + i * 0.08, 7, 0.45, FROST6, 161 + i, 'frost'))
+    }
+}
+
 export const JARL_HRIMGAR: CreatureDef = {
     name: 'Jarl Hrimgar', size: 96, shadow: 20, accent: C.cyan,
-    states: bossStates(1.2, 1.6, 2.0),
+    states: withSpecial(bossStates(1.2, 1.6, 2.0), 2.4),
+    special: WINTERS_CLEAVE,
     draw(s, st, t) {
         drive(this, st, t, 8, 1.6)
+        // the axe heaved up, a leap, and the cleave down onto the ground
+        if (st === 'special') spAttack(0.42, 0.46, 0.62, 10)
+        const leap = st === 'special' ? R(Math.sin(Math.PI * Math.min(1, Math.max(0, (B.sp - 0.28) / 0.18))) * 12) : 0
         const x = s.ax - 6 + B.lunge - B.kb
-        const y = s.ay
+        const y = s.ay - leap
         const crouch = R(B.strike ? 4 : B.rec * 3 + B.die * 12)
         const hip = y - 27 + crouch + B.bob
         const sy = hip - 21
@@ -1330,11 +1597,56 @@ function icicle(s: Surface, x: number, y: number, len: number): void {
  * crevice of a mouth and a beard of long icicles, under a crown of crystal spires. One arm hangs,
  * its fist a cluster of knuckle boulders; the other lifts elbow-first and brings it down.
  */
+/** A boulder of glacier ice at (x, y), `r` across, turning with `a`: a lit face, a shaded face, snow on top. */
+function iceBoulder(s: Surface, x: number, y: number, r: number, a: number): void {
+    disc(s, x, y, r, C.blue1)
+    disc(s, x - 1, y - 1, r - 1, C.cyan)
+    const ca = Math.cos(a)
+    const sa = Math.sin(a)
+    line(s, R(x - ca * r * 0.7), R(y - sa * r * 0.7), R(x + ca * r * 0.7), R(y + sa * r * 0.7), C.blue2)
+    ellipse(s, x - 1, y - r * 0.6, r * 0.7, r * 0.35, C.white)
+    px(s, R(x - r * 0.4), R(y - r * 0.2), C.frost)
+}
+
+/**
+ * Avalanche: he rears up and brings both fists down on the ground; the mountainside answers, and
+ * boulders of glacier ice and snow come crashing down onto the party out of the sky.
+ */
+const AVALANCHE: BossSpecial = {
+    name: 'Avalanche', tint: 'night0', hits: [1.5, 1.64, 1.78, 1.92, 2.06, 2.2], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        shockRing(s, st.bx + d * 30, st.by - 1, t, 1.15, 0.6, 6, 50, C.frost, true)
+        debris(s, st.bx + d * 30, st.by - 2, st.by, t, 1.15, 16, 120, 'frost', 171)
+        // snow sliding down out of the sky as the mountain lets go
+        if (q > 1.1 && q < 2.6) for (let i = 0; i < 40; i++) {
+            const u = ((q - 1.1) * 0.9 + hash2(i, 1)) % 1
+            s.set(R(st.bx - 150 + hash2(i, 2) * 170 - u * 20 * d), R(-10 + u * (st.by + 10)), i % 3 ? C.white : C.frost)
+        }
+        // the boulders, each falling onto one of them
+        st.party.forEach((p, i) => {
+            const hit = 1.5 + i * 0.14
+            const u = sp(t, hit - 0.45, hit)
+            if (u > 0 && u < 1) {
+                const x = p.x + d * 30 * (1 - u)
+                const y = p.y - 150 * (1 - u * u) - 10
+                iceBoulder(s, R(x), R(y), 6 + (i % 3), q * 8 + i)
+            }
+            blast(s, p.x, p.y - 8, t, hit, 11, 0.6, FROST6, 181 + i, 'frost')
+            debris(s, p.x, p.y - 2, p.y, t, hit, 10, 110, 'frost', 191 + i)
+        })
+    }
+}
+
 export const VINTERHEL: CreatureDef = {
     name: 'Vinterhel, the Glacier Titan', size: 256, shadow: 60, accent: C.cyan,
-    states: bossStates(1.5, 2.0, 2.4),
+    states: withSpecial(bossStates(1.5, 2.0, 2.4), 2.8),
+    special: AVALANCHE,
     draw(s, st, t) {
         drive(this, st, t, 6, 2.0)
+        // a fist raised high and brought down on the ground, the mountain answering
+        if (st === 'special') spAttack(0.38, 0.42, 0.58, 4)
         const x = s.ax - 4 + B.lunge - B.kb
         const y = s.ay
         const sink = R(B.die * 22)
@@ -1525,11 +1837,186 @@ function krakenArm(s: Surface, x: number, y: number, a: number, len: number, w: 
  * lines. One hand holds a trident of gold with curved, barbed side prongs; the other raises a
  * conch. She lifts the trident and thrusts it, calling the tide down on the front rank.
  */
+/** How far ahead of the peak a breaker's lip comes down, fully curled, as a share of its height. */
+const LIP_REACH = 0.12
+
+/**
+ * A breaking wave rolling toward `dir`, its peak over `fx` on the ground `gy`, `h` tall: one body of
+ * water with one surface. It is built round the tube, a hollow of radius `ri` sitting on the ground
+ * under the peak: behind the peak the back slopes away down to the ground; over the peak the same
+ * surface carries on forward and down round the tube as the lip, thick at the peak and thinning as
+ * it curls, `curl` 0 → 1 wrapping it from standing up to pitched down onto the ground ahead; the
+ * back of the tube is the wave's own concave face. Filled in bands of teal by height, the inside of
+ * the tube in shadow, foam along wherever the water meets open air above it.
+ */
+function breaker(s: Surface, fx: number, gy: number, h: number, curl: number, dir: number, q: number): void {
+    if (h < 4) return
+    const ri = h * (0.12 + 0.18 * curl)
+    const cy = gy - ri
+    const ro0 = h - ri
+    const top = -Math.PI / 2
+    const end = top + curl * Math.PI * 0.9
+    const back = 88
+    // the outer radius round the tube, thinning from the peak to the lip's tip
+    const roAt = (th: number): number => {
+        const u = end > top ? Math.max(0, Math.min(1, (th - top) / (end - top))) : 0
+        return ro0 - (ro0 - ri - 3) * u
+    }
+    const water = (X: number, y: number): boolean => {
+        if (y >= gy) return false
+        const dy = y - cy
+        const rho = Math.hypot(X, dy)
+        if (rho < ri) return false // the tube
+        if (X <= 0) {
+            // the back: an S from the ground up to the peak, level at the top so it rolls straight
+            // over into the lip, the swell running in it fading out toward the peak
+            const u = -X / back
+            return u <= 1 && y >= gy - h * (1 - u * u * (3 - 2 * u)) - Math.sin(X * 0.3 + q * 8) * 1.2 * Math.min(1, u * 4)
+        }
+        const th = Math.atan2(dy, X)
+        return th >= top && th <= end && rho < roAt(th)
+    }
+    const inTube = (X: number, y: number): boolean => y < gy && Math.hypot(X, y - cy) < ri
+    const x1 = Math.ceil(ro0 + 2)
+    for (let y = Math.floor(gy - h - 2); y < gy; y++) {
+        for (let X = -back; X <= x1; X++) {
+            if (!water(X, y)) continue
+            const v = (gy - y) / h + Math.sin(X * 0.25 - y * 0.15 + q * 6) * 0.06
+            let c: number = v > 0.78 ? C.teal3 : v > 0.5 ? C.teal2 : v > 0.24 ? C.teal1 : C.teal0
+            const rho = Math.hypot(X, y - cy)
+            if (!water(X, y - 1) && !inTube(X, y - 1)) {
+                // the surface: foam, whitest over the peak and along the lip
+                c = X > -10 ? C.white : (X + Math.floor(q * 16)) % 6 === 0 ? C.white : C.frost
+            } else if (rho < ri + 1.8 && y < cy + ri * 0.5) c = C.teal0 // the inside of the tube, in its own shadow
+            else if (rho < ri + 3 && y < cy + ri * 0.5 && c === C.teal3) c = C.teal2
+            s.set(R(fx + dir * X), y, c)
+        }
+    }
+    // the hollow of the tube, dark where the lip closes over it
+    if (curl > 0.35) {
+        for (let y = Math.floor(cy - ri); y < gy; y++) {
+            for (let X = Math.floor(-ri); X <= ri; X++) {
+                if (!inTube(X, y) || ((X + y) & 1)) continue
+                const th = Math.atan2(y - cy, X)
+                if (th < end && X < ri * 0.6) s.set(R(fx + dir * X), y, C.void)
+            }
+        }
+    }
+    // spray blown off the peak and the lip's tip as it goes over
+    const tr = ri + 1.5
+    const tx = fx + dir * Math.cos(end) * tr
+    const ty = cy + Math.sin(end) * tr
+    for (let i = 0; i < 12; i++) {
+        const u = ((q * 2.2 + i / 12) % 1)
+        if (curl > 0.2) s.set(R(tx + dir * (u * 8 + (i % 3))), R(ty - 2 - u * 8 + (i % 4)), u < 0.5 ? C.white : C.frost)
+        s.set(R(fx - dir * (i * 3 + u * 6)), R(gy - h - 2 - u * 4 + (i % 2)), u < 0.4 ? C.white : C.frost)
+    }
+}
+
+/**
+ * Whitewater surging out from where a wave broke at `x` on the ground `gy`, `age` 0..1: a band of
+ * foam racing on ahead, its top boiling in lumps of white over the teal of the water under it, a
+ * thin sheet of water running out in front, thinning and breaking into holes as it spreads.
+ */
+function whitewater(s: Surface, x: number, gy: number, dir: number, age: number, q: number): void {
+    if (age <= 0 || age >= 1) return
+    // it surges on past the break and back across what it broke over
+    const front = x + dir * (10 + 50 * (1 - (1 - age) * (1 - age)))
+    const back = x - dir * (18 + 46 * (1 - (1 - age) * (1 - age)))
+    const peak = 24 * Math.pow(1 - age, 0.8)
+    const f = Math.floor(q * 14)
+    const n = Math.abs(front - back)
+    // the sheet running out ahead of it
+    line(s, R(front), gy - 1, R(front + dir * 12 * (1 - age)), gy - 1, C.teal3)
+    for (let k = 0; k <= n; k += 3) {
+        const u = k / n
+        const xx = back + dir * k
+        // highest just behind the front, where it is still breaking, lumps boiling frame to frame
+        const h = peak * (0.3 + 0.7 * Math.sin(u * Math.PI)) * (0.7 + 0.3 * hash2(k, f))
+        const r = 2 + h * 0.32
+        const cy = gy - h * 0.55
+        disc(s, xx, cy + r * 0.5, r, C.teal2)
+        disc(s, xx, cy, r * 0.85, age < 0.55 ? C.white : C.frost)
+        disc(s, xx + 1, cy + r * 0.3, r * 0.45, C.frost)
+        if (age > 0.45 && hash2(k, f + 3) < (age - 0.4) * 1.6) disc(s, xx, cy + 1, r * 0.4, C.teal2) // breaking into holes
+        if (hash2(k, f + 7) < 0.3) s.set(R(xx), R(cy - r - 1), C.white) // spray off the top
+    }
+}
+
+/**
+ * Siren's Call: she lifts the conch to her lips and sounds it; the sea answers, and a great wave
+ * rises behind her and waits; she flicks the trident at the party and on that beat it sets off,
+ * rolling on over the plaza and over the party, and breaks just past them: its
+ * lip pitches down, a sheet of spray bursts up where it lands, and the wave collapses into
+ * whitewater that surges back across them all.
+ */
+const SIRENS_CALL: BossSpecial = {
+    name: 'Siren\'s Call', tint: 'night0', hits: [2.16, 2.22, 2.28, 2.34, 2.4, 2.46], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        const d = st.dir
+        // the call rolling out of the conch
+        for (let r = 0; r < 3; r++) shockRing(s, st.bx + d * 6, st.by - 50, t, 0.4 + r * 0.18, 0.5, 3, 22, C.teal3)
+        const gy = Math.max(...st.party.map(p => p.y)) + 2
+        const H = 58
+        // it waits risen behind her until she flicks the trident at `go`, and sets off on that beat
+        const go = 1.12
+        const crash = 2.15
+        // it rolls over the party and breaks just past the back row, the crest standing short of
+        // that by the lip's reach, so the whitewater starts where the lip's tip comes down
+        const far = st.party[st.party.length - 1]!.x
+        const land = far + d * 8
+        const crestAt = land - d * H * LIP_REACH
+        if (q > 0.7 && q < crash + 0.35) {
+            const rise = sp(t, 0.6, 1.1)
+            const roll = sp(t, go, crash)
+            const fx = st.bx - d * 26 + (crestAt - (st.bx - d * 26)) * sm(roll)
+            const curl = sp(t, go + 0.5, crash)
+            const fall = sp(t, crash, crash + 0.35)
+            // once it has broken the wave sinks into its own whitewater, the lip lying pitched on the ground
+            breaker(s, fx, gy, H * rise * (1 - fall), curl, d, q)
+        }
+        // the break: a sheet of spray bursting up where it lands, thrown water falling back, the
+        // whitewater surging back across them
+        const age = sp(t, crash, crash + 1.0)
+        if (age > 0 && age < 0.7) {
+            const lift = Math.sin(Math.min(1, age / 0.25) * Math.PI / 2) * (1 - Math.max(0, age - 0.25) / 0.45)
+            for (let i = 0; i < 16; i++) {
+                const off = (i - 7.5) * 2.2
+                const h = lift * (26 + hash2(i, 5) * 22) * (1 - Math.abs(off) / 22)
+                const lean = off * 0.5 - d * 3
+                const top = gy - 4 - h
+                line(s, R(land + off), gy - 4, R(land + off + lean), R(top), i & 1 ? C.frost : C.teal3)
+                s.set(R(land + off + lean), R(top), C.white)
+                s.set(R(land + off + lean * 1.2), R(top - 2 - hash2(i, 6) * 4), C.white)
+            }
+        }
+        debris(s, land, gy - 10, gy, t, crash + 0.1, 40, 220, 'water', 251, 1.1)
+        debris(s, land + d * 8, gy - 6, gy, t, crash + 0.18, 20, 150, 'water', 252, 0.9)
+        whitewater(s, land, gy, d, age, q)
+        st.party.forEach((p, i) => {
+            // each of them struck by the water: a splash thrown up off them, foam ringing their feet
+            const t0 = 2.16 + i * 0.06
+            debris(s, p.x, chest(p), p.y, t, t0, 10, 110, 'water', 201 + i, 0.6)
+            shockRing(s, p.x, p.y - 1, t, t0, 0.4, 3, 12, C.white, true)
+        })
+    }
+}
+
 export const TIDECALLER_NERINE: CreatureDef = {
     name: 'Tidecaller Nerine', size: 96, shadow: 0, accent: C.teal3,
-    states: bossStates(1.2, 1.6, 2.0),
+    states: withSpecial(bossStates(1.2, 1.6, 2.0), 3.3),
+    special: SIRENS_CALL,
     draw(s, st, t) {
         drive(this, st, t, 8, 1.6)
+        if (st === 'special') {
+            // the conch raised to her lips and sounded, then the trident thrust with the wave
+            // the conch sounded first; then the trident drawn back and flicked at the party at 1.12 s,
+            // the beat the wave sets off on, and held there while it rolls
+            spAttack(0.34, 0.37, 0.5, 4)
+            B.roar = B.sp > 0.09 && B.sp < 0.27
+            if (B.sp < 0.27) { B.wind = 0; B.lunge = 0; B.glow = 0 } else if (B.sp < 0.34) B.wind = sm((B.sp - 0.27) / 0.07)
+        }
         const x = s.ax - 4 + B.lunge - B.kb
         const y = s.ay
         const float = -8 + wv(t, 1.6, 2) + R(B.die * 14)
@@ -1715,11 +2202,44 @@ export const TIDECALLER_NERINE: CreatureDef = {
  * tentacle stays low on the floor, and the forward one is her whip, coiled back and lashed out
  * along the ground at the front rank with a crack at its tip.
  */
+/**
+ * Kraken's Embrace: she draws her arms back, and tentacles burst up out of the plaza under every
+ * one of the party, coil round them and squeeze, then whip down and slam them into the stones.
+ */
+const KRAKENS_EMBRACE: BossSpecial = {
+    name: 'Kraken\'s Embrace', tint: 'night0', hits: [1.3, 1.38, 1.46, 1.54, 1.62, 1.7], spread: true,
+    fx(s, t, st) {
+        const q = sq(t)
+        st.party.forEach((p, i) => {
+            const t0 = 0.95 + i * 0.07
+            const rise = sp(t, t0, t0 + 0.3)
+            if (rise <= 0 || q > 2.6) return
+            const slam = sp(t, 1.95, 2.1)
+            const sink = sp(t, 2.3, 2.6)
+            const side = i & 1 ? -1 : 1
+            // the tentacle rising beside them and curling over and round them, then whipping down
+            const len = R((10 + 26 * rise) * (1 - sink))
+            const a = -Math.PI / 2 - side * (0.2 + slam * 1.2)
+            if (len > 2) krakenArm(s, p.x + side * 7, p.y, a, len, 5, q * 4 + i, side * (2.6 - slam * 2.2), false)
+            pit(s, p.x + side * 7, p.y, 5, C.ink, C.teal0)
+            if (rise > 0 && q < t0 + 0.2) debris(s, p.x + side * 7, p.y - 2, p.y, t, t0, 6, 80, 'water', 221 + i, 0.5)
+            blast(s, p.x, chest(p), t, 1.3 + i * 0.08, 6, 0.4, WATER6, 231 + i, 'water')
+            // the slam: water and stone thrown up where they come down
+            blast(s, p.x, p.y - 3, t, 2.08, 9, 0.5, WATER6, 241 + i, 'water', true)
+        })
+        const f = st.party[0]!
+        shockRing(s, f.x, f.y - 1, t, 2.08, 0.5, 4, 36, C.white, true)
+    }
+}
+
 export const QUEEN_MAERITH: CreatureDef = {
     name: 'Queen Maerith of the Deep', size: 256, shadow: 0, accent: C.teal3,
-    states: bossStates(1.5, 2.0, 2.4),
+    states: withSpecial(bossStates(1.5, 2.0, 2.4), 2.8),
+    special: KRAKENS_EMBRACE,
     draw(s, st, t) {
         drive(this, st, t, 6, 2.0)
+        // arms drawn back as her tentacles rise under the party, flung open as they slam
+        if (st === 'special') spAttack(0.66, 0.72, 0.84, 4)
         const x = s.ax - 2 + B.lunge - B.kb
         const y = s.ay
         const ph = q(t) * 2.2

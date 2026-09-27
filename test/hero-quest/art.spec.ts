@@ -46,13 +46,14 @@ describe('Hero Quest art coverage', () => {
                 for (const st of ['idle', 'attack', 'hit', 'death']) expect(ids.has(`enemy/${w.id}/${rig}/${st}`), `${w.id} ${rig} ${st}`).toBe(true)
             }
             expect(ids.has(`enemy/${w.id}/elite/idle`)).toBe(true)
-            for (const st of ['idle', 'attack', 'hit', 'death', 'entry']) {
+            // every boss also has a special: its body, and the whole of it staged against the party
+            for (const st of ['idle', 'attack', 'hit', 'death', 'entry', 'special', 'special_stage']) {
                 expect(ids.has(`boss/${w.id}/${st}`), `boss ${w.id} ${st}`).toBe(true)
                 expect(ids.has(`superboss/${w.id}/${st}`), `super ${w.id} ${st}`).toBe(true)
             }
             expect(ids.has(`bg/world/${w.id}`), `background ${w.id}`).toBe(true)
         }
-        expect(count('boss/') + count('superboss/')).toBe(100)
+        expect(count('boss/') + count('superboss/')).toBe(140)
     })
 
     it('has a custom VFX for all 62 abilities — 16 Hero, 28 Champion, 18 Training Grounds actives', () => {
@@ -89,7 +90,8 @@ describe('Hero Quest art coverage', () => {
             // a death's last frame is legitimately empty; some frame of every asset is not
             expect(drew, a.id).toBe(true)
         }
-    })
+        // three frames of every asset, the full-scene special previews among them: seconds, not the default 5
+    }, 30_000)
 
     it('tags every review round onto assets that exist', () => {
         // a typo in a round's prefix list would silently drop that asset from the gallery filter
@@ -133,6 +135,8 @@ describe('Hero Quest palette tiers', () => {
         const bodies = ['hero/', 'champion/', 'summon/', 'enemy/', 'boss/', 'superboss/', 'raid/', 'arena/']
         for (const a of allArt()) {
             if (!bodies.some(p => a.id.startsWith(p))) continue
+            // a special's staged preview is a scene with the boss in it, on a scenery backdrop
+            if (a.id.endsWith('/special_stage')) continue
             const s = new Surface(a.w, a.h, 0, 0)
             for (const f of new Set([0, a.frames >> 1])) {
                 s.clear()

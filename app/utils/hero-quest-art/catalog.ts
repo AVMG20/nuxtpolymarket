@@ -17,6 +17,7 @@ import { DISCIPLE_CLIPS, DISCIPLE_LOOK, RAISED_DEAD_CLIPS, RAISED_DEAD_LOOK, SUM
 import { ENEMY_RIGS, ENEMY_STATES, ENEMY_WEAPONS, ELITE_MARK, WEAPON_STYLE, drawEliteMark, enemyLook } from './enemies'
 import { drawCreature, stateFrames, type CreatureDef } from './creature'
 import { BOSS_STATES } from './boss-kit'
+import { drawSpecialPreview, PREVIEW_VIEW } from './special-kit'
 import { BOSSES_A } from './bosses-a'
 import { BOSSES_B } from './bosses-b'
 import { VFX, MULTI_STRIKE, drawMultiStrike, drawVfxStage } from './vfx'
@@ -106,7 +107,8 @@ export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly
     { n: 7, label: 'Bonefields roster', prefixes: ['enemy/world_the_bonefields', 'boss/world_the_bonefields', 'superboss/world_the_bonefields'] },
     { n: 8, label: 'Shattered Sky roster', prefixes: ['enemy/world_the_shattered_sky', 'boss/world_the_shattered_sky', 'superboss/world_the_shattered_sky'] },
     { n: 9, label: 'Brink roster', prefixes: ['enemy/world_the_brink', 'boss/world_the_brink', 'superboss/world_the_brink'] },
-    { n: 10, label: 'Void roster', prefixes: ['enemy/world_the_void', 'boss/world_the_void', 'superboss/world_the_void'] }
+    { n: 10, label: 'Void roster', prefixes: ['enemy/world_the_void', 'boss/world_the_void', 'superboss/world_the_void'] },
+    { n: 11, label: 'Boss specials', prefixes: WORLDS.flatMap(w => [`boss/${w.id}/special`, `superboss/${w.id}/special`]) }
 ]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
@@ -149,7 +151,7 @@ export function creatureAsset(id: string, group: ArtGroup, section: string, labe
     }
 }
 
-const TITLE: Record<string, string> = { idle: 'Idle', attack: 'Basic Attack', cast: 'Skill cast', hit: 'Hit', death: 'Death', move: 'Move', entry: 'Entry' }
+const TITLE: Record<string, string> = { idle: 'Idle', attack: 'Basic Attack', cast: 'Skill cast', hit: 'Hit', death: 'Death', move: 'Move', entry: 'Entry', special: 'Special' }
 
 // ── Characters ─────────────────────────────────────────────────────────────────────
 
@@ -215,9 +217,18 @@ function bossAssets(): ArtAsset[] {
     pairs.forEach(([boss, sup], i) => {
         const world = WORLDS[i]!
         for (const [def, kind] of [[boss, 'boss'], [sup, 'super']] as const) {
+            const base = `${kind === 'boss' ? 'boss' : 'superboss'}/${world.id}`
             for (const st of BOSS_STATES) {
-                out.push(creatureAsset(`${kind === 'boss' ? 'boss' : 'superboss'}/${world.id}/${st}`, 'bosses', `${world.index}. ${world.name}`,
-                    `${def.name} — ${TITLE[st]}`, def, st, -1))
+                out.push(creatureAsset(`${base}/${st}`, 'bosses', `${world.index}. ${world.name}`, `${def.name} — ${TITLE[st]}`, def, st, -1))
+            }
+            if (def.special) {
+                // the body on its own, then the whole special staged against the party
+                out.push(creatureAsset(`${base}/special`, 'bosses', `${world.index}. ${world.name}`, `${def.name} — Special: ${def.special.name}`, def, 'special', -1))
+                out.push({
+                    id: `${base}/special_stage`, group: 'bosses', section: `${world.index}. ${world.name}`, label: `${def.name} — ${def.special.name} (staged)`,
+                    w: PREVIEW_VIEW.w, h: PREVIEW_VIEW.h, frames: stateFrames(def, 'special'), fps: ANIM_FPS, loop: false, opaque: true,
+                    render: (dst, f) => drawSpecialPreview(dst, def, f / ANIM_FPS)
+                })
             }
         }
     })

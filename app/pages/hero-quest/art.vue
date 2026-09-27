@@ -10,12 +10,7 @@ import { allArt, ART_GROUPS, ART_ROUNDS, type ArtGroup } from '~/utils/hero-ques
  */
 if (!import.meta.dev) throw createError({ statusCode: 404, statusMessage: 'Not found' })
 
-// rebuilt when the stage's rate changes, so the thumbnails play at it too
-const fps = useHqArtFps()
-const assets = computed(() => {
-  void fps.value
-  return allArt()
-})
+const assets = computed(() => allArt())
 /**
  * Review rounds, newest first. The page opens on the latest round's changes across every
  * group, so they can be judged together; an asset shows under the round that last changed it.
@@ -108,7 +103,7 @@ const sections = computed(() => {
         <div class="grid gap-2 grid-cols-[repeat(auto-fill,minmax(180px,1fr))]">
           <HeroQuestArtCard
             v-for="a in list"
-            :key="`${fps}:${a.id}`"
+            :key="a.id"
             :asset="a"
             :class="a.w >= 150 && a.w >= a.h * 1.5 ? 'sm:col-span-2' : ''"
           />

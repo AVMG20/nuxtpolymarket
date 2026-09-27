@@ -10,7 +10,7 @@
 // live stage uses to stack its damage numbers, and `tint` is the colour the scene dims
 // toward while the skill plays (see presentation.ts).
 
-import { C, type ColorName } from './palette'
+import { C, type ColorName, type RampName } from './palette'
 import { disc, ellipseRing, ditherEllipse, hash2, line, rect, type Surface } from './surface'
 import { VL, pr, qt, inWin, eo, burst, motes, R } from './vfx-kit'
 import { Actor } from './rig'
@@ -39,7 +39,7 @@ const CHEST = FLOOR - 14
 // ── Kit ────────────────────────────────────────────────────────────────────────────
 
 /** A 6-step element ramp, white-hot first: [white, hot, bright, mid, deep, rim]. */
-type Ramp6 = readonly [number, number, number, number, number, number]
+export type Ramp6 = readonly [number, number, number, number, number, number]
 
 const FIRE: Ramp6 = [C.white, C.gold3, C.gold2, C.orange, C.lava1, C.red1]
 const BLOOD: Ramp6 = [C.white, C.red3, C.red2, C.red2, C.red1, C.red0]
@@ -93,7 +93,7 @@ function arcBand(d: Surface, cx: number, cy: number, r: number, a0: number, a1: 
 }
 
 /** A thin expanding ring — the white shock outline the video puts round every blast. */
-function shockRing(d: Surface, x: number, y: number, t: number, t0: number, dur: number, r0: number, r1: number, c: number, flat = false): void {
+export function shockRing(d: Surface, x: number, y: number, t: number, t0: number, dur: number, r0: number, r1: number, c: number, flat = false): void {
     const u = (qt(t) - t0) / dur
     if (u < 0 || u >= 1) return
     const r = r0 + (r1 - r0) * eo(u)
@@ -232,12 +232,12 @@ function groundFire(d: Surface, x: number, w: number, t: number, t0: number, t1:
 function u8(n: number): boolean { return (n & 3) === 0 }
 
 /** Sparks flung from (x, y) that fall and bounce off the floor as they cool. */
-function sparksOut(d: Surface, x: number, y: number, t: number, t0: number, n: number, spd: number, seed: number, ramp: 'ember' | 'blood' | 'gold' | 'spark'): void {
+function sparksOut(d: Surface, x: number, y: number, t: number, t0: number, n: number, spd: number, seed: number, ramp: RampName): void {
     burst(d, x, y, t, t0, n, spd, ramp, seed, 0.9, 110, -Math.PI / 2, Math.PI * 1.3, 2)
 }
 
 /** The whole impact package: flash, blob, shock ring, sparks. */
-function blast(d: Surface, x: number, y: number, t: number, t0: number, r: number, life: number, ramp: Ramp6, seed: number, sparkRamp: 'ember' | 'blood' | 'gold' | 'spark', flat = false): void {
+export function blast(d: Surface, x: number, y: number, t: number, t0: number, r: number, life: number, ramp: Ramp6, seed: number, sparkRamp: RampName, flat = false): void {
     const age = (qt(t) - t0) / life
     if (age < 0) return
     if (age < 0.08) disc(d, x, y, r * 0.6, C.white)

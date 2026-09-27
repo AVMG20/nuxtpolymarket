@@ -1,8 +1,8 @@
 // A live battle vignette built from the finished assets — the proof that they play together.
 //
-// Party on the left (the Hero in any class plus five Champions), a wave of six of the chosen
-// world's trash on the right with an elite among them, and every other wave one of that world's
-// two bosses making its entrance: the boss, then the super boss, in turn. Both sides stand on the 3 front / 3 back formation grid, which the
+// Party on the left (the Hero in any class plus five Champions), and on the right whichever wave
+// the viewer picked (`WaveKind`), fought over and over: six of the chosen world's trash with an
+// elite among them, the world's boss, or its super boss, each making its entrance. Both sides stand on the 3 front / 3 back formation grid, which the
 // side-on camera shows as three ranks of two. Each unit runs the state machine the art is
 // authored for:
 //
@@ -22,6 +22,11 @@
 // freeze it over and over), each impact of a Hero skill, the last kill of a wave, and a boss.
 // See JUICE. The dead shatter into their own pixels; bodies winding up are rim-lit in their
 // accent colour, and casters leave afterimages.
+//
+// A boss with a special (presentation only: bosses have no abilities in the game yet) opens with
+// it and uses it now and then after, presented like a Hero skill turned on the party: the scene
+// tinted, everyone else holding, its hits landing on its own clock. Skills and specials put up no
+// name; a boss's own name goes up in the banner halfway through its entrance.
 //
 // Between waves the party marches: it holds its marks and plays its gait while the scenery
 // parallax-scrolls past and the next wave closes in from the right edge.
@@ -49,35 +54,54 @@ import { drawSkillBanner, tintLut, applyTint } from './presentation'
 import { CLASS_BY_ID } from '../../../shared/utils/hero-quest/content/classes'
 import { CHAMPION_BY_ID, CHAMPIONS } from '../../../shared/utils/hero-quest/content/champions'
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
+import type { BossSpecial } from './creature'
+import { BOSSES_A } from './bosses-a'
+import { BOSSES_B } from './bosses-b'
+import { STAGE } from './special-kit'
 
 export const DEMO_W = SW
 export const DEMO_H = SH
 
 /**
- * What the player sees of the scene. The stage always composes the full SW×SH scene; a closer
- * camera crops a 16:9 window around the fight and hands that on, and because the display blits
- * at the largest integer scale that fits, a smaller window is bigger pixels — Pixel Crusade's
- * close-up (it runs at 256×144). No art changes size. The windows are placed on the formation:
- * both sides span x 79–250 and stand on y 122–154, with the millpond below to y 180.
+ * What the player sees of the scene. The stage always composes the full SW×SH scene; a camera
+ * crops a 16:9 window of it and hands that on, and because the display blits at the largest
+ * integer scale that fits, a smaller window is bigger pixels. No art changes size. `zoom3` is the
+ * camera for the regular stages (the user's choice, 2026-09-25), placed on the formation: both
+ * sides span x 79–250 and stand on y 122–154, with the millpond below to y 180. `zoom1`, the whole
+ * scene, is kept for the raid bosses to come, which it gives room to be bigger.
  */
 export const CAMERAS = {
-    zoom1: { label: 'Zoom 1 · wide', x: 0, y: 0, w: SW, h: SH },
-    zoom2: { label: 'Zoom 2 · close', x: 53, y: 54, w: 224, h: 126 },
-    // between the two: one integer step of pixel size either side (6×, 7×, 8× on a 1080p screen)
-    zoom3: { label: 'Zoom 3 · between', x: 29, y: 27, w: 272, h: 153 },
-    tight: { label: 'Tight', x: 69, y: 72, w: 192, h: 108 }
+    zoom1: { label: 'Wide', x: 0, y: 0, w: SW, h: SH },
+    zoom3: { label: 'Stage', x: 29, y: 27, w: 272, h: 153 }
 } as const
 export type CameraId = keyof typeof CAMERAS
 
-/** VL (the VFX stage) is placed inside the scene so effects line up with bodies. */
-const OX = 64
 /**
- * The near rank stands a little below the scenery's floor line. That is what buys the ranks
- * their extra spacing without shoving the rear one up into the hedgerow, and the field runs
- * deep enough to take it.
+ * VL (the VFX stage) is placed inside the scene so effects line up with bodies. The near rank
+ * stands a little below the scenery's floor line (`STAGE.oy`). That is what buys the ranks their
+ * extra spacing without shoving the rear one up into the hedgerow, and the field runs deep
+ * enough to take it.
  */
-const BATTLE_FLOOR = FLOOR_Y + 4
-const OY = BATTLE_FLOOR - VL.floor
+const OX = STAGE.ox
+const OY = STAGE.oy
+/** How often a boss reaches for its special once it has opened with it. */
+const SPECIAL_CHANCE = 0.3
+/** How long a boss's name stays up once it goes up, halfway through its entrance. */
+const NAME_FOR = 2.2
+
+/** Which wave the stage fights, over and over: a pack of trash with its elite, the boss, or the super boss. */
+export type WaveKind = 'regular' | 'boss' | 'superboss'
+export const WAVE_KINDS: readonly { id: WaveKind, label: string }[] = [
+    { id: 'regular', label: 'Regular + elite' },
+    { id: 'boss', label: 'Boss' },
+    { id: 'superboss', label: 'Super boss' }
+]
+
+/**
+ * Hits to bring each down. Generous, since the stage is for watching the animations play out, and
+ * picking the wave means there is no longer any waiting for a boss to come round.
+ */
+const TOUGHNESS = { trash: 9, elite: 18, boss: 30, superboss: 42 } as const
 
 /** A formation mark in VL space: `x` horizontal, `y` chest height, `g` the ground it stands on. */
 type Mark = { readonly x: number, readonly y: number, readonly g: number }
@@ -182,8 +206,15 @@ interface Unit {
     stack: number
 }
 
-/** A Hero skill being presented: banner up, scene tinted, hits landing on its own clock. */
-interface Cine { def: CinematicVfx, banner: string, lut: Uint8Array, t: number, next: number, first: Unit | null }
+/**
+ * A Hero skill or a boss special being presented: scene tinted, hits landing on its own clock. A
+ * special (`special` set) draws its own effect and hits the party.
+ */
+interface Cine {
+    lut: Uint8Array, t: number, next: number, first: Unit | null
+    hits: readonly number[], spread: boolean, dur: number, special: BossSpecial | null
+}
+
 
 interface Fx { live: boolean, def: VfxDef | null, t: number }
 interface Proj {
@@ -332,8 +363,22 @@ export class BattleDemo {
     private numCursor = 0
     private world = 1
     private classId = 'class_beginner'
+    /** The wave being fought, set with `setup`. */
+    waveKind: WaveKind = 'regular'
     /** Frame tables for the world's boss and super boss, swapped onto the one boss body. */
     private bossFrames: Baked[][] = []
+    /** The world's boss and super boss specials, in step with `bossFrames`, and the one on the stage. */
+    private bossSpecials: (BossSpecial | null)[] = []
+    private bossSpecial: BossSpecial | null = null
+    /** The world's boss and super boss by name, the one on the stage, and how long its name has been up (−1: not yet). */
+    private bossNames: string[] = []
+    private bossName = ''
+    private nameT = -1
+    /** Whether the boss on the stage has opened with its special yet. */
+    private bossOpened = false
+    /** Where the fight stands for a special's effect, reused every frame. */
+    private spParty = Array.from({ length: PARTY }, () => ({ x: 0, y: 0 }))
+    private spStage = { bx: 0, by: 0, dir: -1, party: this.spParty }
     private trash: Baked[][] = []
     private rigFrames: Baked[][] = []
     paused = false
@@ -344,10 +389,11 @@ export class BattleDemo {
     private label = ''
     private labels: string[] = []
 
-    /** Rebuild for a world (1–10) and a Hero class. Bakes every frame the stage will show. */
-    setup(world: number, classId: string): void {
+    /** Rebuild for a world (1–10), a Hero class and a wave. Bakes every frame the stage will show. */
+    setup(world: number, classId: string, waveKind: WaveKind = this.waveKind): void {
         this.world = world
         this.classId = classId
+        this.waveKind = waveKind
         const w = WORLDS[world - 1]!
         this.scene = WORLD_SCENES[world - 1]!
         const hero = HERO_ART[classId]!
@@ -378,9 +424,17 @@ export class BattleDemo {
         // the world's trash on three rigs, the middle one elite
         const rigs: EnemyWeapon[] = ['sword', 'axe', 'staff', 'bow']
         this.trash = rigs.map(r => ['idle', 'attack', 'hit', 'death'].map(st => bake(artById(`enemy/${w.id}/${r}/${st}`)!)))
-        this.bossFrames = [`boss/${w.id}`, `superboss/${w.id}`].map(kind => {
+        const pair = [...BOSSES_A, ...BOSSES_B][world - 1]!
+        this.bossSpecials = pair.map(def => def.special ?? null)
+        this.bossNames = pair.map(def => def.name.toUpperCase())
+        this.bossFrames = [`boss/${w.id}`, `superboss/${w.id}`].map((kind, k) => {
             const b = ['idle', 'attack', 'hit', 'death', 'entry'].map(st => bake(artById(`${kind}/${st}`)!))
-            return [b[0]!, b[1]!, b[1]!, b[2]!, b[3]!, b[4]!, b[0]!]
+            // the special plays in the Cast slot; without one the boss only ever swings
+            const special = pair[k]!.special ? bake(artById(`${kind}/special`)!) : b[1]!
+            // a death that collapses or shrinks on purpose says when to break it apart
+            const at = pair[k]!.shatterAt
+            if (at !== undefined) FADE_START.set(b[3]!, Math.min(b[3]!.frames.length - 1, Math.round(at * b[3]!.fps)))
+            return [b[0]!, b[1]!, special, b[2]!, b[3]!, b[4]!, b[0]!]
         })
         // frame tables per rig, built once so a wave only swaps references
         this.rigFrames = this.trash.map(rig => [rig[0]!, rig[1]!, rig[1]!, rig[2]!, rig[3]!, rig[0]!, rig[0]!])
@@ -391,8 +445,8 @@ export class BattleDemo {
         this.units = [heroUnit, ...champs, ...foes, boss]
         for (const u of [...foes, boss]) u.state = U.Gone
         const name = w.name.toUpperCase()
-        const bossLabels = ['BOSS', 'SUPER BOSS']
-        this.labels = Array.from({ length: 99 }, (_, i) => `${name}  WAVE ${i + 1}${i % 2 ? '  ' + bossLabels[(i >> 1) % bossLabels.length] : ''}`)
+        const suffix = waveKind === 'boss' ? '  BOSS' : waveKind === 'superboss' ? '  SUPER BOSS' : ''
+        this.labels = Array.from({ length: 99 }, (_, i) => `${name}  WAVE ${i + 1}${suffix}`)
         this.wave = 0
         this.bossDue = null
         this.spawnWave()
@@ -417,9 +471,8 @@ export class BattleDemo {
     }
 
     private spawnWave(): void {
-        // boss waves alternate with trash, so both bosses come round quickly for review
-        const bossWave = this.wave % 2 === 1
-        const which = (this.wave >> 1) % this.bossFrames.length
+        const bossWave = this.waveKind !== 'regular'
+        const which = this.waveKind === 'superboss' ? 1 : 0
         for (let i = PARTY; i < this.units.length; i++) {
             const u = this.units[i]!
             const active = u.boss ? bossWave : !bossWave
@@ -432,17 +485,20 @@ export class BattleDemo {
             u.wait = 0.5 + Math.random() * 1.2
             if (!u.boss && active) {
                 const slot = i - PARTY
-                // rotate by trash waves, not all waves: boss waves come between them, so rotating by
-                // the wave count only ever shifted the roster by two and half of it never led as elite
-                u.rig = (slot + (this.wave >> 1)) % 4
+                // rotate the roster each wave, so every creature takes its turn in the elite slot
+                u.rig = (slot + this.wave) % 4
                 u.frames = this.rigFrames[u.rig]!
                 u.shot = RIG_SHOTS[u.rig]!
                 u.elite = slot === 1
-                u.hp = u.elite ? 6 : 3
+                u.hp = u.elite ? TOUGHNESS.elite : TOUGHNESS.trash
             }
             if (u.boss && active) {
                 u.frames = this.bossFrames[which]!
-                u.hp = which & 1 ? 14 : 10
+                this.bossSpecial = this.bossSpecials[which]!
+                this.bossOpened = false
+                this.bossName = this.bossNames[which]!
+                this.nameT = -1
+                u.hp = which & 1 ? TOUGHNESS.superboss : TOUGHNESS.boss
                 // sliding in with the scroll would play its entry off-screen, so it waits for the march to end
                 if (this.march > 0) { u.state = U.Gone; this.bossDue = u }
             }
@@ -508,32 +564,50 @@ export class BattleDemo {
         u.fired = true // hits come from the skill's own clock, not the clip's impact
         this.playFx(u.vfx)
         for (let i = 0; i < this.units.length; i++) this.units[i]!.stack = 0
-        this.cine = { def, banner: def.name.toUpperCase(), lut: tintLut(def.cinematic.tint), t: 0, next: 0, first: null }
+        const k = def.cinematic
+        this.cine = { lut: tintLut(k.tint), t: 0, next: 0, first: null, hits: k.hits, spread: k.spread, dur: def.dur, special: null }
+    }
+
+    /** Start presenting a boss's special: its body plays the Cast slot, its effect and hits run on the special's clock. */
+    private startSpecial(sp: BossSpecial, u: Unit): void {
+        u.fired = true
+        for (let i = 0; i < this.units.length; i++) this.units[i]!.stack = 0
+        const b = u.frames[U.Cast]!
+        this.cine = { lut: tintLut(sp.tint), t: 0, next: 0, first: null, hits: sp.hits, spread: sp.spread, dur: b.frames.length / b.fps, special: sp }
     }
 
     /** One of the skill's impacts: damage the next target, stack its number, total at the end. */
     private cineHit(c: Cine, i: number): void {
-        let n = 0
-        for (let k = 0; k < this.units.length; k++) if (standing(this.units[k]!)) n++
-        if (!n) return
-        let pick = c.def.cinematic.spread ? i % n : 0
         let tgt = this.units[0]!
-        for (let k = 0; k < this.units.length; k++) {
-            const u = this.units[k]!
-            if (standing(u) && pick-- === 0) { tgt = u; break }
+        if (c.special) {
+            // a special lands on the party, nearest first, walking the line if it spreads
+            const party = this.units.slice(0, PARTY).filter(standingAny).sort((a, b) => b.x - a.x)
+            if (!party.length) return
+            const k = c.special.order?.[i] ?? (c.spread ? i : 0)
+            tgt = party[k % party.length]!
+        } else {
+            let n = 0
+            for (let k = 0; k < this.units.length; k++) if (standing(this.units[k]!)) n++
+            if (!n) return
+            let pick = c.spread ? i % n : 0
+            for (let k = 0; k < this.units.length; k++) {
+                const u = this.units[k]!
+                if (standing(u) && pick-- === 0) { tgt = u; break }
+            }
         }
         if (!c.first) c.first = tgt
         const top = tgt.y - (tgt.boss ? 52 : 40)
-        this.number(tgt.x, top - tgt.stack * 7, 'normal', true)
+        this.number(tgt.x, top - tgt.stack * 7, c.special ? 'crit' : 'normal', true)
         tgt.stack++
-        this.particles.burst(tgt.x, tgt.y - 14, 16, 80, 0.6, 'ember', 140, tgt.y)
+        this.particles.burst(tgt.x, tgt.y - 14, 16, 80, 0.6, c.special ? 'blood' : 'ember', 140, tgt.y)
         tgt.hp -= 2
+        if (tgt.side === 0) tgt.hp = Math.max(1, tgt.hp) // the party doesn't die in the showcase
         this.stopFor(JUICE.skill.freeze, true)
         this.shake(JUICE.skill.shake, JUICE.skill.shakeFor)
         if (i === 0) this.flashFor(JUICE.skill.flash, C.white)
         if (tgt.hp <= 0) this.kill(tgt)
         else this.struck(tgt, JUICE.hit.hold)
-        if (i === c.def.cinematic.hits.length - 1) {
+        if (i === c.hits.length - 1) {
             const f = c.first
             this.number(f.x + 6, f.y - (f.boss ? 52 : 40) - f.stack * 7 - 8, 'total', true)
         }
@@ -570,7 +644,8 @@ export class BattleDemo {
      * but the hit no longer cancels the attack (it used to, before the swing ever landed).
      */
     private struck(tgt: Unit, hold: number): void {
-        if (tgt.boss && tgt.state === U.Attack) {
+        // a boss swings through a hit, and plays its special through one too
+        if (tgt.boss && (tgt.state === U.Attack || tgt.state === U.Cast)) {
             tgt.flash = 3
             tgt.hold = 1
             tgt.jolt = hold + 4
@@ -584,6 +659,8 @@ export class BattleDemo {
 
     /** A body goes down: the kill ring, then a freeze and shake sized to what it meant. */
     private kill(tgt: Unit): void {
+        // a boss felled mid-special takes its special down with it
+        if (tgt.boss && this.cine?.special) this.cine = null
         tgt.state = U.Death
         tgt.t = 0
         tgt.hold = 0
@@ -735,11 +812,14 @@ export class BattleDemo {
                     u.phase = Phase.Idle
                     // everyone holds while a Hero skill has the stage
                     if (!this.cine && !this.march && u.t >= u.wait && this.target(u.side)) {
-                        const cast = u.side === 0 ? Math.random() < 0.3 : false
+                        // a boss opens with its special, then reaches for it now and then
+                        const special = u.boss && this.bossSpecial !== null && (!this.bossOpened || Math.random() < SPECIAL_CHANCE)
+                        const cast = u.side === 0 ? Math.random() < 0.3 : special
                         u.state = cast ? U.Cast : U.Attack
                         u.t = 0
                         u.fired = false
                         if (cast && i === 0 && this.heroCine) this.startCine(this.heroCine, u)
+                        if (special) { this.bossOpened = true; this.startSpecial(this.bossSpecial!, u) }
                     }
                     break
                 case U.Attack:
@@ -764,6 +844,8 @@ export class BattleDemo {
                     break
                 }
                 case U.Entry:
+                    // a boss's name goes up halfway through its entrance
+                    if (u.boss && this.nameT < 0 && u.t >= dur * 0.5) this.nameT = 0
                     if (u.t >= (u.boss ? dur : 0.6)) { u.state = U.Idle; u.t = 0 }
                     break
                 case U.Move:
@@ -771,12 +853,13 @@ export class BattleDemo {
                     break
             }
         }
+        if (this.nameT >= 0 && this.nameT < NAME_FOR) this.nameT += dt
         const c = this.cine
         if (c) {
             c.t += dt
-            const hits = c.def.cinematic.hits
+            const hits = c.hits
             while (c.next < hits.length && c.t >= hits[c.next]!) this.cineHit(c, c.next++)
-            if (c.t >= c.def.dur + 0.3) this.cine = null
+            if (c.t >= c.dur + 0.3) this.cine = null
         }
         // march to the next battle once the pack is down
         if (this.march > 0) {
@@ -838,7 +921,7 @@ export class BattleDemo {
         this.scene.draw(s, this.scroll, this.time)
         const c = this.cine
         // the scene dims toward the skill's colour, stepping in and out through the dither
-        const tint = c ? Math.min(16, Math.floor(Math.min(c.t / 0.2, (c.def.dur + 0.3 - c.t) / 0.3) * 16)) : 0
+        const tint = c ? Math.min(16, Math.floor(Math.min(c.t / 0.2, (c.dur + 0.3 - c.t) / 0.3) * 16)) : 0
         if (c) applyTint(s, c.lut, tint)
         // Painter's order: furthest rank first, each nearer one drawn over it. Within a rank the
         // old right-to-left walk stands, so party and enemies overlap the way they always did.
@@ -853,7 +936,7 @@ export class BattleDemo {
                 const x = u.x + u.ox + (u.jolt > 0 ? ((u.jolt >> 1) & 1 ? dir : -dir) : 0)
                 const acting = u.state === U.Attack || u.state === U.Cast
                 // rim-lit while winding up and striking, and the Hero for as long as he casts his skill
-                const lit = acting && (u.phase === Phase.Charge || u.phase === Phase.Cast || (i === 0 && this.cine !== null))
+                const lit = acting && (u.phase === Phase.Charge || u.phase === Phase.Cast || (i === 0 && this.cine !== null && !this.cine.special) || (u.boss && this.cine?.special != null))
                 // a caster's strike leaves two afterimages behind it, for a moment
                 if (u.state === U.Cast && u.phase === Phase.Cast && u.t - u.strikeAt < AFTERIMAGE_FOR) {
                     ghostAt(s, b, u.t, x - dir * 6, u.y, C.night3)
@@ -877,6 +960,7 @@ export class BattleDemo {
                 }
             }
         }
+        if (c?.special && c.t < c.dur) this.drawSpecial(s, c)
         for (let i = 0; i < this.projs.length; i++) { const p = this.projs[i]!; if (p.live && p.delay <= 0) drawProj(s, p) }
         for (let i = 0; i < this.rings.length; i++) {
             const r = this.rings[i]!
@@ -917,8 +1001,19 @@ export class BattleDemo {
             for (let y = 0; y < cam.h; y++) out.data.set(s.data.subarray((cam.y + y) * s.w + cam.x, (cam.y + y) * s.w + cam.x + cam.w), y * cam.w)
         }
         textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
-        if (c && c.t < c.def.dur) drawSkillBanner(out, c.banner, cam.w / 2, 14, c.t)
+        if (this.nameT >= 0 && this.nameT < NAME_FOR) drawSkillBanner(out, this.bossName, cam.w / 2, 14, this.nameT, true)
         return out
+    }
+
+    /** A boss special's effect, drawn over the fight where the boss and the party stand now. */
+    private drawSpecial(s: Surface, c: Cine): void {
+        const boss = this.units[this.units.length - 1]!
+        const st = this.spStage
+        st.bx = boss.x + boss.ox
+        st.by = boss.y
+        for (let i = 0; i < PARTY; i++) { const u = this.units[i]!; this.spParty[i]!.x = u.x + u.ox; this.spParty[i]!.y = u.y }
+        this.spParty.sort((a, b) => b.x - a.x)
+        c.special!.fx(s, c.t, st)
     }
 }
 

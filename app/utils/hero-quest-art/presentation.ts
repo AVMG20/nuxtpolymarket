@@ -15,13 +15,17 @@ import { qt, R } from './vfx-kit'
 const BANNER_TMP = new Surface(200, 9, 0, 0)
 /** Top-to-bottom gold ramp for the letters: bright crown, deep base. */
 const LETTER_RAMP = [C.gold3, C.gold3, C.gold3, C.gold2, C.gold2, C.gold1, C.gold1]
+/** A boss's special gets its banner in blood red, so it never reads as one of the party's skills. */
+const BOSS_RAMP = [C.red3, C.red3, C.red3, C.red2, C.red2, C.red1, C.red1]
 
 /**
  * The skill's name in gradient gold letters with a dark outline and drop shadow, between
  * two rules that shoot outward. `t` is seconds since the skill fired: the first frame
  * flashes white, the rules grow over 0.2 s.
  */
-export function drawSkillBanner(s: Surface, text: string, cx: number, y: number, t: number): void {
+export function drawSkillBanner(s: Surface, text: string, cx: number, y: number, t: number, boss = false): void {
+    const letters = boss ? BOSS_RAMP : LETTER_RAMP
+    const rule = boss ? [C.red2, C.red0, C.red3] : [C.gold2, C.gold0, C.gold3]
     const q = qt(t)
     const w = textWidth(text, 'big')
     const x0 = R(cx - w / 2)
@@ -31,10 +35,10 @@ export function drawSkillBanner(s: Surface, text: string, cx: number, y: number,
     if (len > 0) {
         for (const side of [-1, 1]) {
             const a = side < 0 ? x0 - 4 - len : x0 + w + 4
-            rect(s, a, y + 3, len, 1, C.gold2)
-            rect(s, a, y + 4, len, 1, C.gold0)
+            rect(s, a, y + 3, len, 1, rule[0]!)
+            rect(s, a, y + 4, len, 1, rule[1]!)
             const tipX = side < 0 ? a - 1 : a + len
-            rect(s, tipX, y + 2, 1, 3, C.gold3)
+            rect(s, tipX, y + 2, 1, 3, rule[2]!)
             s.set(tipX - side, y + 3, C.white)
         }
     }
@@ -58,7 +62,7 @@ export function drawSkillBanner(s: Surface, text: string, cx: number, y: number,
     for (let yy = 0; yy < BANNER_TMP.h; yy++) {
         for (let xx = 0; xx < w + 2; xx++) {
             if (BANNER_TMP.data[yy * BANNER_TMP.w + xx] === 0) continue
-            s.set(x0 + xx - 1, y + yy - 1, flash ? C.white : LETTER_RAMP[Math.min(LETTER_RAMP.length - 1, yy - 1)]!)
+            s.set(x0 + xx - 1, y + yy - 1, flash ? C.white : letters[Math.min(letters.length - 1, yy - 1)]!)
         }
     }
 }

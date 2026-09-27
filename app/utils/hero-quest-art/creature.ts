@@ -7,10 +7,38 @@
 // sprite buffer facing right; CreatureActor stamps it with outline, flash, dissolve and flip.
 
 import { ANIM_FPS, frameTime } from './anim'
-import { C, CLEAR } from './palette'
+import { C, CLEAR, type ColorName } from './palette'
 import { Surface, StampStyle, stamp, ditherEllipse } from './surface'
 
 export interface StateSpec { dur: number, loop: boolean }
+
+/** Where a boss and the party stand while a special plays, in the space its effect draws in. */
+export interface SpecialStage {
+    /** The boss's anchor (its feet), and the way it faces: −1, toward the party on its left. */
+    bx: number
+    by: number
+    dir: number
+    /** The party's feet, nearest the boss first. */
+    party: readonly { readonly x: number, readonly y: number }[]
+}
+
+/**
+ * A boss's special attack, presentation only (bosses have no abilities in the game yet): its body
+ * plays the `special` state while `fx` draws what it throws at the party, live over the stage.
+ * The stage presents it like a Hero skill: a banner, the scene dimmed toward `tint`, everyone else
+ * holding, and `hits` landing on the party on the special's own clock.
+ */
+export interface BossSpecial {
+    name: string
+    tint: ColorName
+    /** Seconds into the special at which each impact lands. */
+    hits: readonly number[]
+    /** The hits walk along the party rather than all landing on the nearest. */
+    spread: boolean
+    /** Which party member (nearest first) each hit lands on, when the effect reaches them in its own order. */
+    order?: readonly number[]
+    fx(s: Surface, t: number, st: SpecialStage): void
+}
 
 export interface CreatureDef {
     name: string
@@ -25,6 +53,14 @@ export interface CreatureDef {
     draw(s: Surface, st: string, t: number): void
     /** Scene-space effects after stamping; (x, y) is the scene anchor, `dir` 1 or −1. */
     fx?(dst: Surface, st: string, t: number, x: number, y: number, dir: number): void
+    /** A special attack; `states` then carries a `special` state for the body's part of it. */
+    special?: BossSpecial
+    /**
+     * Seconds into its death at which the live stage breaks it apart. Left out, the stage finds the
+     * frame where the body starts dissolving; a death that shrinks or collapses on purpose sets it,
+     * or it would be shattered before its death had played out.
+     */
+    shatterAt?: number
     accent: number
 }
 

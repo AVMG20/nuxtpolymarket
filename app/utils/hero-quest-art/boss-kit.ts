@@ -28,11 +28,18 @@ export const B = {
     roar: false,
     /** 0..1 generic "power" for glows: wind-up, strike and roar light it. */
     glow: 0,
+    /** Progress 0 → 1 through a special; each boss choreographs its own body against it. */
+    sp: 0,
     t: 0
 }
 
 export const BOSS_STATES = ['idle', 'attack', 'hit', 'death', 'entry'] as const
 export type BossState = typeof BOSS_STATES[number]
+
+/** Add a special of `dur` seconds to a boss's states. */
+export function withSpecial<S extends Record<string, StateSpec>>(states: S, dur: number): S & { special: StateSpec } {
+    return { ...states, special: { dur, loop: false } }
+}
 
 export function bossStates(attack = 1.2, idle = 1.6, entry = 2.0): Record<BossState, StateSpec> {
     return {
@@ -48,7 +55,7 @@ export function bossStates(attack = 1.2, idle = 1.6, entry = 2.0): Record<BossSt
 export function drive(def: CreatureDef, st: string, t: number, reach: number, idlePeriod = 1.6): void {
     B.t = t
     B.bob = 0; B.breath = 0; B.wind = 0; B.strike = false; B.rec = 0; B.lunge = 0
-    B.kb = 0; B.hurt = false; B.die = 0; B.ent = 1; B.roar = false; B.glow = 0
+    B.kb = 0; B.hurt = false; B.die = 0; B.ent = 1; B.roar = false; B.glow = 0; B.sp = 0
     const dur = def.states[st]!.dur
     switch (st) {
         case 'idle':
@@ -68,12 +75,30 @@ export function drive(def: CreatureDef, st: string, t: number, reach: number, id
             B.die = deathPhase(t, dur)
             B.hurt = B.die < 0.9
             break
+        case 'special':
+            B.sp = Math.min(1, q(t) / dur)
+            break
         case 'entry':
             B.ent = sm(span(t, 0, dur * 0.7))
             B.roar = q(t) >= dur * 0.7 && q(t) < dur * 0.95
             B.glow = B.roar ? 1 : 0
             break
     }
+}
+
+/**
+ * Play a special as a big attack on the boss's own pose: wind up until `w`, strike (lunging out
+ * `reach` px by `s`), hold the strike until `h`, then recover. `w`, `s` and `h` are fractions
+ * of the special. Call after `drive`; the body's `bz` blends then follow it.
+ */
+export function spAttack(w: number, s: number, h: number, reach: number): void {
+    const u = B.sp
+    B.wind = 0; B.strike = false; B.rec = 0
+    if (u < w) { B.wind = sm(u / w); B.lunge = -Math.round(B.wind * 3) } else if (u < h) {
+        B.strike = true; B.rec = 1
+        B.lunge = Math.round(reach * (u < s ? sm((u - w) / (s - w)) : 1))
+    } else { B.rec = 1 - sm((u - h) / (1 - h)); B.lunge = Math.round(reach * B.rec) }
+    B.glow = Math.max(B.wind, B.strike ? 1 : B.rec * 0.6)
 }
 
 /** Apply the entry style and the death sink to the painted buffer. */
