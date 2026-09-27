@@ -763,41 +763,146 @@ const runeSkald: WorldSkin = {
     blade: M.ice, haft: M.darkwood, gem: M.ice, gemStyle: Gem.Crystal, accent: C.cyan
 }
 
-// 5 · Sunken Amarath — Drowned Sailor: bloated grey-green, barnacled, still in the tricorne.
+// 5 · Sunken Amarath — Drowned Sailor (melee): bloated sea-green, barnacled at the jaw, still in his
+// tricorne with seaweed dripping off the brim, a torn striped shirt, a rusted cutlass.
 const drownedSailor: WorldSkin = {
     legLen: 8, torsoLen: 9,
     skin: [C.teal0, C.teal2, C.teal3],
     head: (s, x, y, p) => {
-        rect(s, x - 2, y - 7, 6, 7, C.teal2)
-        rect(s, x + 1, y - 6, 2, 4, C.teal3)
-        px(s, x + 4, y - 3, C.teal2)
-        eyes(s, x + 2, y - 4, C.white, p)
-        px(s, x + 2, y - 5, C.teal0)
-        rect(s, x + 1, y - 1, 3, 1, C.teal0)
-        px(s, x - 1, y - 3, C.bone1); px(s, x, y - 2, C.bone0) // barnacles
-        // tricorne
-        rect(s, x - 5, y - 8, 11, 1, C.stone1)
-        rect(s, x - 3, y - 10, 7, 2, C.stone1)
-        px(s, x - 5, y - 9, C.stone1); px(s, x + 5, y - 9, C.stone1)
-        rect(s, x - 3, y - 9, 7, 1, C.gold0)
-        line(s, x - 3, y - 7, x - 5, y - 3, C.olive2) // seaweed
+        ellipse(s, x + 1, y - 4, 4, 4, C.teal2)
+        rect(s, x + 2, y - 6, 3, 3, C.teal3) // the bloated, lit cheek
+        px(s, x + 5, y - 3, C.teal2) // nose
+        rect(s, x + 1, y - 6, 3, 1, C.teal1)
+        eyes(s, x + 3, y - 5, C.white, p)
+        line(s, x + 1, y - 1, x + 4, y - 1, C.teal0)
+        px(s, x - 2, y - 2, C.bone1); px(s, x - 1, y - 1, C.bone1); px(s, x, y - 1, C.white) // barnacles
+        // the tricorne, and seaweed dripping off its brim
+        rect(s, x - 5, y - 8, 12, 1, C.night1)
+        poly(s, [-3, 0, 4, 0, 3, -3, -2, -3], x, y - 8, C.night1)
+        px(s, x - 5, y - 9, C.night1); px(s, x + 6, y - 9, C.night1)
+        rect(s, x - 3, y - 9, 7, 1, C.gold1) // the braid
+        line(s, x - 4, y - 7, x - 5, y - 3, C.green2)
+        line(s, x + 6, y - 7, x + 6, y - 4, C.green1)
     },
     torso: (s, x, y) => {
         rect(s, x - 4, y, 8, 9, C.bone1)
-        for (let i = 0; i < 4; i++) rect(s, x - 4, y + 1 + i * 2, 8, 1, C.blue1) // striped shirt
-        rect(s, x - 4, y, 1, 9, C.bone0)
-        rect(s, x + 1, y + 4, 3, 3, C.teal2) // torn hole
+        for (let i = 0; i < 4; i++) rect(s, x - 4, y + 1 + i * 2, 8, 1, C.blue1) // the striped shirt
+        rect(s, x - 4, y, 1, 9, C.steel2)
+        poly(s, [0, 0, 3, 1, 2, 4, -1, 3], x + 1, y + 3, C.teal2) // a tear, the drowned skin through it
         px(s, x + 2, y + 5, C.teal0)
-        rect(s, x - 4, y + 7, 8, 1, C.brown0)
-        px(s, x - 2, y + 2, C.bone0); px(s, x - 3, y + 6, C.bone1) // barnacles
+        rect(s, x - 4, y + 7, 8, 1, C.night1) // the sash
+        px(s, x - 3, y + 2, C.bone1); px(s, x - 2, y + 5, C.white) // barnacles
     },
-    pants: C.blue0, pantsDk: C.night0, boot: C.brown0, bootHi: C.brown1,
-    arm: C.bone1, armLow: C.teal2, armBack: C.bone0, armBackLow: C.teal1, hand: C.teal2,
+    pants: C.blue0, pantsDk: C.night0, boot: C.night1, bootHi: C.night2,
+    arm: C.bone1, armLow: C.teal2, armBack: C.steel2, armBackLow: C.teal1, hand: C.teal2,
     blade: M.rust, haft: M.darkwood, gem: M.sea, gemStyle: Gem.Moon, accent: C.teal3,
     ambient: (dst, t) => {
         const k = step(t, 10, 9)
         if (k < 6) dst.set(fxX(J.headX + 5), fxY(J.headY - 8 - k * 2), C.teal3)
     }
+}
+
+// 5 · Sunken Amarath — Barnacle Brute (heavy): a hulking drowned thing grown over with red crab
+// shell, its head a shell helm with eyes on stalks, barnacles crusting its shoulders.
+const barnacleBrute: WorldSkin = {
+    legLen: 8, torsoLen: 10,
+    skin: [C.red0, C.red1, C.red2],
+    head: (s, x, y, p) => {
+        // the eyes on their stalks
+        line(s, x, y - 7, x - 1, y - 10, C.red1); line(s, x + 3, y - 7, x + 4, y - 10, C.red1)
+        disc(s, x - 1, y - 11, 1.2, C.ink); disc(s, x + 4, y - 11, 1.2, C.ink)
+        eyes(s, x - 1, y - 11, C.gold3, p); eyes(s, x + 4, y - 11, C.gold3, p)
+        // the shell helm, ridged, lit on top
+        ellipse(s, x + 1, y - 4, 6, 4, C.red1)
+        line(s, x - 3, y - 7, x + 5, y - 7, C.red3)
+        for (let i = 0; i < 3; i++) px(s, x - 2 + i * 3, y - 5, C.red0) // ridges
+        // the mouthparts under it
+        rect(s, x + 1, y - 1, 5, 2, C.teal1)
+        for (let i = 0; i < 3; i++) px(s, x + 2 + i * 2, y, C.teal3)
+        px(s, x - 3, y - 3, C.bone1); px(s, x - 4, y - 2, C.white) // barnacles
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 5, y, 11, 10, C.teal1) // the drowned hide under the shell
+        // plates of crab shell over the chest and belly
+        ellipse(s, x + 1, y + 3, 5, 3, C.red1)
+        ellipse(s, x + 1, y + 7, 4, 2, C.red1)
+        line(s, x - 3, y + 1, x + 4, y + 1, C.red3)
+        line(s, x - 2, y + 6, x + 4, y + 6, C.red2)
+        // barnacles crusting the shoulders
+        for (const [bx, by] of [[-5, 0], [-3, -1], [4, 0], [6, 1], [-5, 2]] as const) { px(s, x + bx, y + by, C.bone1); px(s, x + bx + 1, y + by, C.white) }
+        rect(s, x - 5, y + 9, 11, 1, C.teal0)
+    },
+    pants: C.teal1, pantsDk: C.teal0, boot: C.red0, bootHi: C.red1,
+    arm: C.red1, armLow: C.teal1, armBack: C.red0, armBackLow: C.teal0, hand: C.red2,
+    blade: M.rust, haft: M.darkwood, gem: M.sea, gemStyle: Gem.Moon, accent: C.red3
+}
+
+// 5 · Sunken Amarath — Harpoon Siren (ranged): a siren of the drowned harbour, sea-green with fins
+// for ears and long violet hair, a scaled blue sheath from hip to ankle, loosing harpoons.
+const harpoonSiren: WorldSkin = {
+    legLen: 8, torsoLen: 8,
+    skin: [C.teal1, C.teal2, C.teal3],
+    head: (s, x, y, p, t) => {
+        // the long violet hair streaming back, and the fin of an ear
+        const drift = Math.floor(t * 3) & 1
+        ellipse(s, x - 2, y - 4, 4, 4, C.purple1)
+        for (let i = 0; i < 4; i++) line(s, x - 4 + i, y - 2, x - 7 + i - drift, y + 5 + (i & 1) * 2, i & 1 ? C.purple2 : C.purple1)
+        ellipse(s, x + 1, y - 4, 3.5, 3.5, C.teal2)
+        rect(s, x + 1, y - 6, 3, 2, C.teal3)
+        tri(s, x - 2, y - 5, x - 2, y - 2, x - 5, y - 6, C.cyan) // the fin
+        line(s, x - 2, y - 4, x - 4, y - 5, C.teal3)
+        eyes(s, x + 2, y - 5, C.gold2, p)
+        px(s, x + 2, y - 1, C.teal0)
+        px(s, x + 3, y - 2, C.teal0) // gill slits
+        rect(s, x - 1, y - 8, 4, 1, C.purple2) // the hair over her brow
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 7, 8, C.teal2)
+        rect(s, x - 3, y, 1, 8, C.teal1)
+        // a shell bodice and a string of pearls
+        ellipse(s, x, y + 2, 2, 1.5, C.pink); ellipse(s, x + 3, y + 2, 2, 1.5, C.pink)
+        for (let i = 0; i < 4; i++) px(s, x - 2 + i * 2, y, C.white)
+        // the scaled sheath from the hip
+        rect(s, x - 3, y + 5, 7, 3, C.blue1)
+        for (let i = 0; i < 3; i++) px(s, x - 2 + i * 2, y + 6, C.blue2)
+    },
+    pants: C.blue1, pantsDk: C.blue0, boot: C.cyan, bootHi: C.teal3,
+    arm: C.teal2, armLow: C.teal2, armBack: C.teal1, armBackLow: C.teal1, hand: C.teal3,
+    blade: M.rust, haft: M.darkwood, gem: M.sea, gemStyle: Gem.Moon, accent: C.cyan
+}
+
+// 5 · Sunken Amarath — Tide Priestess (caster): a priestess of the drowned temple, pale and
+// drowned, in white-and-gold robes, a headdress of red coral, the moon-gem staff of the tides.
+const tidePriestess: WorldSkin = {
+    legLen: 7, torsoLen: 8,
+    skin: [C.teal1, C.teal2, C.teal3],
+    head: (s, x, y, p) => {
+        // the headdress of coral branching up behind the head
+        for (let i = 0; i < 4; i++) {
+            line(s, x - 3 + i * 2, y - 7, x - 5 + i * 3, y - 12 - (i & 1) * 2, C.red2)
+            px(s, x - 5 + i * 3, y - 13 - (i & 1) * 2, C.red3)
+        }
+        // the white veil over the head, the face under it
+        ellipse(s, x - 1, y - 4, 5, 4.5, C.white)
+        ellipse(s, x + 1, y - 4, 3, 3.5, C.teal2)
+        rect(s, x + 1, y - 6, 3, 2, C.teal3)
+        eyes(s, x + 2, y - 5, C.cyan, p)
+        px(s, x + 2, y - 2, C.teal0)
+        rect(s, x - 3, y - 8, 7, 1, C.gold2) // the circlet
+        px(s, x, y - 8, C.cyan)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 7, 8, C.white)
+        rect(s, x - 3, y, 1, 8, C.steel2)
+        line(s, x, y, x, y + 7, C.gold1) // the gold panel down the front
+        rect(s, x - 3, y + 5, 7, 1, C.gold1) // the girdle
+        px(s, x, y + 5, C.cyan)
+        for (let i = 0; i < 3; i++) px(s, x - 2 + i * 2, y + 1, C.gold2) // the collar
+    },
+    lower: (s, x, hipY, _p, t) => robeSkirt(s, x, hipY, J.oy - 1, [C.steel2, C.steel3, C.white], C.gold1, (Math.floor(t * 2) & 1) - 0.5, C.teal1, 0),
+    pants: C.steel3, pantsDk: C.steel2, boot: C.teal1, bootHi: C.teal2,
+    arm: C.white, armLow: C.teal2, armBack: C.steel3, armBackLow: C.teal1, hand: C.teal3,
+    blade: M.rust, haft: M.darkwood, gem: M.sea, gemStyle: Gem.Moon, accent: C.cyan
 }
 
 // 6 · Duskspire — Hollow Acolyte: robes, and nothing inside the hood but two points of light.
@@ -980,7 +1085,7 @@ export const WORLD_ROSTERS: readonly Readonly<Record<EnemyWeapon, WorldSkin>>[] 
     { sword: bogLurker, axe: peatBrute, bow: reedSpitter, staff: bogCrone },
     { sword: cinderKobold, axe: slagGolem, bow: ashImp, staff: salamanderFirecaller },
     { sword: frostboundRaider, axe: rimeTroll, bow: snowfieldHuntress, staff: runeSkald },
-    one(drownedSailor),
+    { sword: drownedSailor, axe: barnacleBrute, bow: harpoonSiren, staff: tidePriestess },
     one(hollowAcolyte), one(restlessLegionnaire), one(skyshardWisp), one(unravelledKnight), one(voidThrall)
 ]
 

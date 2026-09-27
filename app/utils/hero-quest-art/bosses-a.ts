@@ -8,19 +8,16 @@ import { fr } from './creature'
 import type { Mat } from './weapons'
 import type { Surface } from './surface'
 import {
-    B, Entry, bossStates, drive, finish, bz, ball, chain, tentacle, spikes, mouth,
+    B, Entry, bossStates, drive, finish, bz, ball, chain, spikes, mouth,
     limbT, reach, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, arc, poly, q, wv, hash2
 } from './boss-kit'
-import { dome } from './surface'
+import { dome, ditherDisc } from './surface'
 
 const R = Math.round
 
 const HIDE: Mat = [C.brown0, C.brown1, C.brown2]
 const SCALE_RED: Mat = [C.red1, C.orange, C.gold2]
 const OBSIDIAN: Mat = [C.void, C.stone0, C.stone1]
-const SEA_SKIN: Mat = [C.teal1, C.teal2, C.teal3]
-const DEEP: Mat = [C.teal0, C.teal1, C.teal2]
-const KRAKEN: Mat = [C.purple0, C.purple1, C.night3]
 
 // ═══════════════════════════════════════════════════════════════ 1 · Thornwick Vale
 
@@ -1467,7 +1464,80 @@ export const VINTERHEL: CreatureDef = {
 
 // ═══════════════════════════════════════════════════════════════ 5 · Sunken Amarath
 
-/** Tidecaller Nerine — a drowned siren-priestess who still calls the tide, trident in hand. */
+// Stage 5: Tidecaller Nerine, a drowned siren-priestess who still calls the tide, trident in one
+// hand and a conch in the other. Stage 10: Queen Maerith of the Deep, the drowned empire's last
+// queen, a kraken below the waist.
+
+const SEA_SKIN: Mat = [C.teal1, C.teal2, C.teal3]
+const KRAKEN: Mat = [C.purple0, C.purple1, C.purple2]
+const HAIR: Mat = [C.ink, C.teal0, C.teal1]
+const SEAFOAM: Mat = [C.teal3, C.frost, C.white]
+
+/** A translucent fin trailing off a forearm from (x0, y0) to (x1, y1), hanging `drop` below it. */
+function forearmFin(s: Surface, x0: number, y0: number, x1: number, y1: number, drop: number, t: number): void {
+    const mx = (x0 + x1) / 2
+    const my = (y0 + y1) / 2
+    for (let k = 0; k < 4; k++) {
+        const bx = x0 + (x1 - x0) * k / 4
+        const by = y0 + (y1 - y0) * k / 4
+        const tx = x0 - drop * 0.27 + k * drop * 0.18 + wv(t, 1.1, 1)
+        const ty = y0 + drop + k * drop * 0.14
+        tri(s, bx, by, mx, my, tx, ty, k & 1 ? C.teal2 : C.teal1)
+        line(s, R(bx), R(by), R(tx), R(ty), C.cyan)
+    }
+    if (drop > 8) ditherEllipse(s, R(x0 + 1), R(y0 + drop * 0.8), drop * 0.36, drop * 0.27, C.frost, 4)
+}
+
+/**
+ * A tapered tentacle from (x, y) setting off along `a`: it curls further toward its tip, waving
+ * with `ph`, shaded along its length, suckers along its underside, a lit ridge along its top, the
+ * tip shading to pink. `far` draws it darker, behind.
+ */
+function krakenArm(s: Surface, x: number, y: number, a: number, len: number, w: number, ph: number, curl: number, far: boolean): void {
+    const m: Mat = far ? [C.void, C.purple0, C.purple1] : KRAKEN
+    let cx = x
+    let cy = y
+    const pts: number[] = []
+    for (let i = 0; i <= len; i++) {
+        const u = i / len
+        const ang = a + Math.sin(ph + u * 2.6) * 0.5 * u + curl * u * u
+        cx += Math.cos(ang)
+        cy += Math.sin(ang)
+        pts.push(cx, cy, ang)
+    }
+    for (let i = 0; i < pts.length; i += 3) {
+        const u = i / pts.length
+        const r = Math.max(0.6, w * (1 - u * 0.88))
+        disc(s, pts[i]!, pts[i + 1]!, r, m[0])
+    }
+    for (let i = 0; i < pts.length; i += 3) {
+        const u = i / pts.length
+        const r = Math.max(0.5, w * (1 - u * 0.88) - 1)
+        disc(s, pts[i]! - 0.4, pts[i + 1]! - 0.4, r, u > 0.8 ? (far ? C.purple1 : C.pink) : m[1])
+    }
+    for (let i = 0; i < pts.length; i += 3) {
+        const u = i / pts.length
+        const r = w * (1 - u * 0.88)
+        const ang = pts[i + 2]!
+        // the lit ridge along the top, the suckers along the underside
+        if (r > 1.5 && (i / 3) % 2 === 0) px(s, pts[i]! + Math.sin(ang) * r * 0.6, pts[i + 1]! - Math.cos(ang) * r * 0.6, m[2])
+        if (r > 2 && (i / 3) % 4 === 1) {
+            const sx = pts[i]! - Math.sin(ang) * r * 0.55
+            const sy = pts[i + 1]! + Math.cos(ang) * r * 0.55
+            px(s, sx, sy, far ? C.purple1 : C.pink)
+            px(s, sx + 0.5, sy + 0.5, far ? C.void : C.purple0)
+        }
+    }
+}
+
+/**
+ * Tidecaller Nerine, the drowned siren-priestess: a slender mermaid risen on a whirl of water, a
+ * scaled tail shading from teal to blue down an S to a great translucent fluke, a pale stripe down
+ * its belly; a shell bodice, a pearl necklace and a gold belt hung with pearls; long wavy hair
+ * streaming back threaded with shells, a crown of branching red coral; a face in profile with gill
+ * lines. One hand holds a trident of gold with curved, barbed side prongs; the other raises a
+ * conch. She lifts the trident and thrusts it, calling the tide down on the front rank.
+ */
 export const TIDECALLER_NERINE: CreatureDef = {
     name: 'Tidecaller Nerine', size: 96, shadow: 0, accent: C.teal3,
     states: bossStates(1.2, 1.6, 2.0),
@@ -1475,112 +1545,404 @@ export const TIDECALLER_NERINE: CreatureDef = {
         drive(this, st, t, 8, 1.6)
         const x = s.ax - 4 + B.lunge - B.kb
         const y = s.ay
-        const float = -6 + wv(t, 1.6, 2) + R(B.die * 12)
-        const hip = y - 26 + float
-        const top = hip - 20
-        // tail coiled beneath, fin at the end
-        chain(s, x - 2, hip, x - 18, y - 6 + float, x + 4, y - 8 + float, 7, 3, SEA_SKIN, 14, C.teal3)
-        tri(s, x + 4, y - 8 + float, x + 12, y - 16 + float, x + 12, y - 2 + float, C.teal1)
-        line(s, x + 5, y - 8 + float, x + 12, y - 14 + float, C.teal3)
-        for (let i = 0; i < 5; i++) px(s, x - 12 + i * 3, y - 6 + float - (i & 1), C.teal3) // scales
-        // flowing hair behind
-        for (let i = 0; i < 6; i++) tentacle(s, x - 2, top - 10, 2.2 + i * 0.12, 18 + i * 2, 2, q(t) * 3 + i, [C.teal0, C.teal1, C.teal3])
-        // torso: shell and pearls
-        ball(s, x, top + 10, 8, 11, SEA_SKIN)
-        rect(s, x - 6, top + 4, 12, 4, C.bone1)
-        px(s, x - 3, top + 5, C.pink); px(s, x + 2, top + 5, C.pink)
-        for (let i = 0; i < 5; i++) px(s, x - 4 + i * 2, top + 1 + (i & 1), C.white) // pearls
-        rect(s, x - 7, hip - 3, 14, 3, C.gold1)
-        // back arm with the conch
-        limbT(s, x - 6, top + 4, x - 12, top + 12, 3, 3, SEA_SKIN)
-        tri(s, x - 16, top + 10, x - 10, top + 8, x - 14, top + 18, C.bone1)
-        px(s, x - 13, top + 12, C.pink)
-        // head: pale drowned face, coral crown
+        const float = -8 + wv(t, 1.6, 2) + R(B.die * 14)
+        const hip = y - 30 + float
+        const top = hip - 18
+        const ph = q(t) * 3
+        const flick = wv(t, 0.8, 2)
+
+        // seafoam-white hair billowing up and back in the water, shells and pearls threaded through it
+        ellipse(s, x - 2, top - 9, 7, 6, SEAFOAM[0])
+        for (let i = 0; i < 4; i++) {
+            const sway = Math.sin(ph + i * 1.4) * 3
+            const ex = x - 16 - i * 5 + sway
+            const ey = top - 24 + i * 7 - sway
+            chain(s, x - 1, top - 10 + i * 2, x - 6 - i * 3 + sway, top - 20 + i * 2, ex, ey, 5 - i * 0.5, 1, SEAFOAM, 24)
+            if (i === 1) { disc(s, R((x + ex) / 2 - 3), R((top + ey) / 2 - 6), 1.5, C.pink); px(s, R((x + ex) / 2 - 3), R((top + ey) / 2 - 7), C.white) }
+            if (i === 3) px(s, R((x + ex) / 2 - 2), R((top + ey) / 2 - 4), C.teal2)
+        }
+        // the tail: an S from the hips to the fluke, scaled, shading teal to blue, a pale belly
+        const tx0 = x
+        const ty0 = hip
+        const tcx = x - 20
+        const tcy = y - 8 + float
+        const tx1 = x + 6
+        const ty1 = y - 4 + float
+        for (let i = 0; i <= 22; i++) {
+            const u = i / 22
+            bez(tx0, ty0, tcx, tcy, tx1, ty1, u)
+            const r = 7 - u * 4
+            disc(s, P.x, P.y, r, u < 0.5 ? C.teal1 : C.blue1)
+        }
+        for (let i = 0; i <= 22; i++) {
+            const u = i / 22
+            bez(tx0, ty0, tcx, tcy, tx1, ty1, u)
+            const r = 7 - u * 4
+            disc(s, P.x - 0.5, P.y - 0.5, r - 1, u < 0.5 ? C.teal2 : C.blue2)
+            if (i % 2 === 0 && r > 3) { px(s, P.x - r * 0.3, P.y - r * 0.5, u < 0.5 ? C.teal3 : C.cyan); px(s, P.x + r * 0.2, P.y - r * 0.2, u < 0.5 ? C.teal1 : C.blue1) } // scales
+            if (r > 3) px(s, P.x + r * 0.5, P.y + r * 0.5, C.teal3) // the pale belly
+        }
+        // the fluke, translucent, ribbed with rays
+        const fx = tx1 + 2
+        const fy = ty1
+        for (const [dy, len] of [[-1, 12], [1, 11]] as const) {
+            for (let k = 0; k < 6; k++) {
+                const a = -0.3 * dy + (k - 2.5) * 0.18 * dy + flick * 0.05
+                const ex = fx + Math.cos(a) * len
+                const ey = fy + Math.sin(a) * len * 0.9 + dy * k * 1.4
+                line(s, fx, fy, R(ex), R(ey), k & 1 ? C.cyan : C.teal3)
+            }
+        }
+        ditherEllipse(s, fx + 6, fy, 7, 8, C.frost, 5)
+        // the far arm raising the conch
+        const conchUp = B.roar ? 1 : 0.3
+        const cx = x - 6
+        const cy = top + 8 - R(conchUp * 8)
+        elbow(x - 5, top + 3, cx, cy, 7, 7, -1)
+        limbT(s, x - 5, top + 3, P.x, P.y, 3, 3, [C.teal1, C.teal1, C.teal2])
+        forearmFin(s, P.x, P.y, cx, cy, 6, t)
+        limbT(s, P.x, P.y, cx, cy, 3, 2.5, [C.teal1, C.teal1, C.teal2])
+        poly(s, [0, -4, 5, -1, 3, 4, -2, 3, -3, 0], cx - 3, cy, C.bone1)
+        line(s, cx - 3, cy - 3, cx + 1, cy + 3, C.pink)
+        px(s, cx + 2, cy - 1, C.white)
+        // the torso: a slender waist up to the shoulders, the shell bodice, pearls, the gold belt
+        chain(s, x, hip, x - 1, top + 12, x + 1, top + 2, 6, 7, SEA_SKIN, 10)
+        for (const [sx, lit] of [[x, false], [x + 5, true]] as const) {
+            ellipse(s, sx, top + 7, 3, 2.5, lit ? C.pink : C.purple2)
+            for (let k = 0; k < 3; k++) line(s, sx, top + 9, sx - 2 + k * 2, top + 5, lit ? C.white : C.pink)
+            px(s, sx, top + 9, C.bone1)
+        }
+        line(s, x, top + 5, x + 5, top + 5, C.gold2) // the chain between the shells
+        line(s, x - 3, top + 3, x + 6, top + 4, C.gold1)
+        for (let i = 0; i < 6; i++) px(s, x - 3 + i * 2, top + 3 + (i === 0 || i === 5 ? 0 : 1), C.white)
+        disc(s, x + 2, top + 5, 1.2, C.cyan); px(s, x + 2, top + 5, C.white) // the pendant
+        for (let i = 0; i < 4; i++) px(s, x - 3 + i, top + 1 - (i >> 1), C.frost); for (let i = 0; i < 3; i++) px(s, x + 4 + i, top + 1, C.frost) // the light from above on her shoulders
+        rect(s, x - 6, hip - 3, 13, 2, C.gold1)
+        rect(s, x - 6, hip - 3, 13, 1, C.gold2)
+        for (let i = 0; i < 3; i++) line(s, x - 4 + i * 4, hip - 1, x - 4 + i * 4, hip + 2 + (i & 1), C.white) // pearl strands
+        // the head: a face in profile, gill lines, eyes under a dark lash, the coral crown
+        // the head: larger, a clear face lit from the water above, a fin for an ear, glowing eyes
         const hx = x + 2
         const hy = top - 2
-        ball(s, hx, hy - 5, 5, 6, SEA_SKIN)
-        rect(s, hx + 1, hy - 8, 3, 4, C.teal3)
-        const eye = B.hurt ? C.ink : C.white
-        px(s, hx + 3, hy - 6, eye); px(s, hx + 2, hy - 7, C.teal0)
-        if (B.roar || B.strike) rect(s, hx + 2, hy - 2, 2, 2, C.ink)
-        for (let i = 0; i < 4; i++) { line(s, hx - 3 + i * 2, hy - 10, hx - 4 + i * 2, hy - 15 - (i & 1) * 2, C.red2); px(s, hx - 5 + i * 2, hy - 14, C.red3) }
-        // front arm and the trident
-        const sx = x + 5
-        const sy = top + 4
-        const a = bz(-1.3, -2.2, -0.05)
-        const hand = bz(0, -3, 10)
-        const gx = sx + 4 + hand
-        const gy = sy + 6 + R(bz(0, -6, -3))
-        limbT(s, sx, sy, gx, gy, 3, 3, SEA_SKIN)
-        reach(gx, gy, a, 26)
-        line(s, gx - Math.cos(a) * 10, gy - Math.sin(a) * 10, P.x, P.y, C.gold1, 2)
-        const nx = -Math.sin(a)
-        const ny = Math.cos(a)
-        line(s, P.x - nx * 4, P.y - ny * 4, P.x + nx * 4, P.y + ny * 4, C.gold2)
-        for (const d of [-4, 0, 4]) { line(s, P.x + nx * d, P.y + ny * d, P.x + nx * d + Math.cos(a) * 6, P.y + ny * d + Math.sin(a) * 6, d === 0 ? C.gold3 : C.gold2); px(s, P.x + nx * d + Math.cos(a) * 6, P.y + ny * d + Math.sin(a) * 6, C.white) }
-        px(s, gx, gy, C.teal3)
+        for (let k = 0; k < 4; k++) {
+            const a = -Math.PI * (0.6 + k * 0.11) + Math.sin(ph + k) * 0.06
+            tri(s, hx - 3, hy - 6, R(hx - 3 + Math.cos(a) * 8), R(hy - 6 + Math.sin(a) * 8), R(hx - 3 + Math.cos(a + 0.35) * 6), R(hy - 6 + Math.sin(a + 0.35) * 6), k & 1 ? C.teal2 : C.teal1)
+            line(s, hx - 3, hy - 6, R(hx - 3 + Math.cos(a) * 8), R(hy - 6 + Math.sin(a) * 8), C.cyan)
+        }
+        ball(s, hx, hy - 6, 7, 7, SEA_SKIN)
+        ellipse(s, hx + 3, hy - 7, 4, 5, C.teal3) // the lit face
+        for (let i = 0; i < 6; i++) {
+            const a = -Math.PI * (0.3 + i * 0.09)
+            px(s, R(hx + Math.cos(a) * 6.5), R(hy - 6 + Math.sin(a) * 7), C.frost)
+        }
+        ellipse(s, hx - 4, hy - 11, 4, 2, C.frost) // the seafoam hair swept back off her brow
+        line(s, hx - 7, hy - 10, hx - 1, hy - 13, C.white)
+        px(s, hx + 7, hy - 6, C.teal3); px(s, hx + 7, hy - 5, C.teal2) // the nose
+        const eye = B.hurt ? C.ink : B.glow > 0.5 ? C.white : C.cyan
+        if (!B.hurt) ditherDisc(s, hx + 4, hy - 8, 4, C.cyan, 4 + R(B.glow * 5))
+        ellipse(s, hx + 4, hy - 8, 2.5, 1.5, C.ink)
+        rect(s, hx + 3, hy - 9, 3, 2, eye)
+        if (!B.hurt) px(s, hx + 4, hy - 9, C.white)
+        line(s, hx + 2, hy - 11, hx + 6, hy - 10, C.teal0) // the brow
+        if (B.roar || B.strike) {
+            rect(s, hx + 4, hy - 3, 3, 2, C.ink)
+            px(s, hx + 4, hy - 3, C.white); px(s, hx + 6, hy - 3, C.white)
+        } else {
+            line(s, hx + 4, hy - 3, hx + 6, hy - 3, C.teal0)
+            px(s, hx + 5, hy - 2, C.red2)
+        }
+        for (let i = 0; i < 3; i++) line(s, hx - 2, hy - 7 + i * 2, hx - 1, hy - 6 + i * 2, C.teal0) // gills
+        // the crown of branching red coral, pearls caught in it
+        for (let i = 0; i < 5; i++) {
+            const bx = hx - 5 + i * 2.5
+            const h = i === 2 ? 14 : i & 1 ? 11 : 8
+            const tx = bx + (i - 2) * 1.5
+            line(s, R(bx), hy - 12, R(tx), hy - 12 - h, C.red2)
+            line(s, R((bx + tx) / 2), hy - 12 - R(h / 2), R((bx + tx) / 2 + (i < 2 ? -3 : 3)), hy - 14 - R(h / 2), C.red2)
+            px(s, R(tx), hy - 13 - h, C.red3)
+            px(s, R((bx + tx) / 2 + (i < 2 ? -3 : 3)), hy - 15 - R(h / 2), C.red3)
+        }
+        line(s, hx - 5, hy - 12, hx + 5, hy - 12, C.red1)
+        disc(s, hx, hy - 13, 1.2, C.white)
+        // the near arm and the trident: raised on the wind-up, thrust on the strike
+        const a = bz(-1.3, -2.1, -0.1)
+        const gx = x + 9 + R(bz(0, -3, 8))
+        const gy = top + 10 + R(bz(0, -8, -4))
+        elbow(x + 5, top + 3, gx, gy, 7, 7, 1)
+        limbT(s, x + 5, top + 3, P.x, P.y, 3, 3, SEA_SKIN)
+        forearmFin(s, P.x, P.y, gx, gy, 7, t)
+        limbT(s, P.x, P.y, gx, gy, 3, 2.5, SEA_SKIN)
+        const dx = Math.cos(a)
+        const dy = Math.sin(a)
+        const nx = -dy
+        const ny = dx
+        line(s, R(gx - dx * 12), R(gy - dy * 12), R(gx + dx * 22), R(gy + dy * 22), C.gold1, 2)
+        line(s, R(gx - dx * 12 + nx), R(gy - dy * 12 + ny), R(gx + dx * 22 + nx), R(gy + dy * 22 + ny), C.gold2)
+        const ex = gx + dx * 22
+        const ey = gy + dy * 22
+        disc(s, ex, ey, 1.8, C.white) // the pearl at the socket
+        line(s, R(ex - nx * 5), R(ey - ny * 5), R(ex + nx * 5), R(ey + ny * 5), C.gold2, 2)
+        line(s, R(ex), R(ey), R(ex + dx * 11), R(ey + dy * 11), C.gold3, 2) // the centre spear
+        for (const d of [-1, 1]) {
+            // a side prong curving out and in again, barbed
+            const bx = ex + nx * 5 * d
+            const by = ey + ny * 5 * d
+            const mx = bx + dx * 5 + nx * d * 1.5
+            const my = by + dy * 5 + ny * d * 1.5
+            line(s, R(bx), R(by), R(mx), R(my), C.gold2)
+            line(s, R(mx), R(my), R(mx + dx * 4 - nx * d), R(my + dy * 4 - ny * d), C.gold2)
+            px(s, R(mx + dx * 4 - nx * d), R(my + dy * 4 - ny * d), C.white)
+            px(s, R(mx - nx * d), R(my - ny * d), C.gold1) // the barb
+        }
+        px(s, R(ex + dx * 11), R(ey + dy * 11), C.white)
+        ball(s, gx, gy, 2, 2, SEA_SKIN)
         finish(s, Entry.Rise, 0)
     },
     fx(dst, st, t, x, y, dir) {
-        // a spiral of water under her
+        // the whirl of water she rises on
         const k = fr(t, 10, 8)
-        ditherEllipse(dst, x, y - 1, 20, 2, C.teal0, 16)
-        for (let i = 0; i < 16; i++) {
-            const a = (i / 16) * Math.PI * 2 + k * 0.4
-            const r = 6 + (i % 8) * 2
-            dst.set(x + R(Math.cos(a) * r), y - 3 + R(Math.sin(a) * r * 0.25), i & 1 ? C.teal3 : C.teal2)
+        ditherEllipse(dst, x, y - 1, 22, 2, C.teal0, 16)
+        for (let i = 0; i < 20; i++) {
+            const a = (i / 20) * Math.PI * 2 + k * 0.4
+            const r = 5 + (i % 10) * 2
+            dst.set(x + R(Math.cos(a) * r), y - 3 - (i % 5) * 2 + R(Math.sin(a) * r * 0.2), i & 1 ? C.teal3 : C.cyan)
         }
-        if ((st === 'attack' && B.strike) || B.roar) for (let i = 0; i < 16; i++) dst.set(x + dir * (34 + i * 2), y - 38 - R(Math.sin(i * 0.8 + k) * 2), i & 1 ? C.white : C.teal3)
+        if ((st === 'attack' && B.strike) || B.roar) {
+            // the tide she calls: a wave rolling out at the front rank
+            for (let i = 0; i < 18; i++) {
+                const h = R(Math.sin(i / 17 * Math.PI) * 10)
+                dst.set(x + dir * (30 + i * 2), y - 2 - h, i & 1 ? C.white : C.teal3)
+                dst.set(x + dir * (30 + i * 2), y - 1 - h + 2, C.teal2)
+            }
+        }
     }
 }
 
-/** Queen Maerith of the Deep — the drowned empire's last queen, a kraken below the waist. */
+/**
+ * Queen Maerith of the Deep, the drowned empire's last queen: a kraken below the waist, eight
+ * great tentacles sprawled across the plaza, spotted and suckered, shading to pink at the tips,
+ * the far ones reaching off past the edge of the screen. From the mantle she rises regal: a gown
+ * of kelp under a bodice of drowned gold set with pearls, pauldrons of shell, a long neck; hair
+ * floating up round her in the water, black-green, threaded with pearls; a tall crown of gold
+ * with pearl and coral spikes; large eyes lit from within. She holds a pearl sceptre; every
+ * tentacle stays low on the floor, and the forward one is her whip, coiled back and lashed out
+ * along the ground at the front rank with a crack at its tip.
+ */
 export const QUEEN_MAERITH: CreatureDef = {
-    name: 'Queen Maerith of the Deep', size: 128, shadow: 0, accent: C.teal3,
+    name: 'Queen Maerith of the Deep', size: 256, shadow: 0, accent: C.teal3,
     states: bossStates(1.5, 2.0, 2.4),
     draw(s, st, t) {
         drive(this, st, t, 6, 2.0)
-        const x = s.ax - 6 + B.lunge - B.kb
+        const x = s.ax - 2 + B.lunge - B.kb
         const y = s.ay
-        const ph = q(t) * 2.5
-        const top = y - 74 + B.breath + R(B.die * 24)
-        // tentacles on the floor, far ones first
-        for (let i = 0; i < 3; i++) tentacle(s, x - 6 + i * 3, top + 52, Math.PI * (0.9 - i * 0.12), 30, 4, ph + i, KRAKEN, C.pink)
-        // hair: long, black-green, pearls threaded through
-        for (let i = 0; i < 7; i++) tentacle(s, x - 4, top - 18, 2.0 + i * 0.13, 30 + (i % 3) * 5, 2.5, ph * 0.6 + i, [C.ink, C.teal0, C.teal1])
-        // body
-        ball(s, x, top + 30, 14, 24, DEEP)
-        ball(s, x + 1, top + 14, 12, 12, SEA_SKIN)
-        rect(s, x - 11, top + 22, 22, 5, C.gold1) // girdle of drowned gold
-        for (let i = 0; i < 6; i++) px(s, x - 10 + i * 4, top + 24, i & 1 ? C.white : C.teal3)
-        // near tentacles over the body
-        for (let i = 0; i < 3; i++) tentacle(s, x + 2 + i * 4, top + 50, Math.PI * (0.18 - i * 0.12), 32, 4.5, ph + 3 + i, KRAKEN, C.pink)
-        // back arm and pearl sceptre
-        limbT(s, x - 10, top + 8, x - 20, top + 26, 5, 4, SEA_SKIN)
-        line(s, x - 20, top + 30, x - 22, top + 4, C.gold1, 2)
-        disc(s, x - 22, top + 2, 3, C.white); px(s, x - 23, top + 1, C.teal3)
-        // head and the great crown
-        const hx = x + 3
-        const hy = top
-        ball(s, hx, hy - 6, 8, 9, SEA_SKIN)
-        rect(s, hx + 2, hy - 10, 5, 6, C.teal3)
-        const eye = B.hurt ? C.ink : (B.glow > 0.5 ? C.white : C.teal3)
-        rect(s, hx + 3, hy - 8, 3, 1, C.teal0); px(s, hx + 5, hy - 8, eye)
-        if (B.roar || B.strike) rect(s, hx + 3, hy - 3, 3, 2, C.ink); else px(s, hx + 4, hy - 3, C.teal0)
-        rect(s, hx - 7, hy - 16, 15, 3, C.gold1)
-        for (let i = 0; i < 5; i++) { tri(s, hx - 7 + i * 3, hy - 16, hx - 5 + i * 3, hy - 16, hx - 6 + i * 3, hy - 23 - (i === 2 ? 4 : 0), C.gold2); px(s, hx - 6 + i * 3, hy - 22 - (i === 2 ? 4 : 0), C.white) }
-        px(s, hx, hy - 15, C.pink)
-        // the striking tentacle: rises and slams
-        const a = bz(-0.2, -1.9, 0.6)
-        tentacle(s, x + 12, top + 36, a, 44, 5, ph * 0.3, KRAKEN, C.pink)
+        const ph = q(t) * 2.2
+        const sink = R(B.die * 30)
+        const mantleY = y - 26 + sink + B.breath
+        const top = y - 78 + B.breath + sink
+
+        // the far tentacles, sprawled back along the floor, tips curling up
+        krakenArm(s, x - 14, mantleY + 12, Math.PI * 0.98, 72, 9, ph, 1.2, true)
+        krakenArm(s, x - 6, mantleY + 14, Math.PI * 0.88, 58, 8, ph + 1, -1.0, true)
+        krakenArm(s, x + 10, mantleY + 14, Math.PI * 0.04, 54, 8, ph + 2, -1.3, true)
+        const wx = x + 1
+        // hair billowing up and back in the water in heavy locks, lit from above, pearls in it
+        ellipse(s, wx - 8, top - 14, 13, 11, HAIR[0])
+        for (let i = 0; i < 5; i++) {
+            const sway = Math.sin(ph + i * 1.3) * 4
+            const ex = wx - 34 - i * 8 + sway
+            const ey = top - 42 + i * 9 - sway
+            chain(s, wx - 2, top - 10 + i * 2, wx - 10 - i * 6 + sway, top - 34 + i * 3, ex, ey, 9 - i * 0.7, 1, HAIR, 36)
+            if (i < 3) px(s, R(wx - 10 - i * 3), R(top - 30 + i * 5), C.frost) // the light from above on the top locks
+            if (i % 2 === 0) { disc(s, R((wx + ex) / 2 - 6), R((top + ey) / 2 - 12), 1.2, C.white); px(s, R((wx + ex) / 2 - 6), R((top + ey) / 2 - 13), C.frost) }
+        }
+        // the collar of fins fanning out behind her head and shoulders: kraken-purple webbing on
+        // pink rays, the spine tips bright, so her teal head reads against it
+        const cx0 = wx - 1
+        const cy0 = top + 8
+        const rays: number[] = []
+        for (let k = 0; k <= 10; k++) {
+            const a = -Math.PI * (0.02 + k * 0.096)
+            const len = 38 + (k & 1 ? 4 : 0) + Math.sin(ph + k * 0.8) * 2 + R(B.glow * 3)
+            rays.push(cx0 + Math.cos(a) * len, cy0 + Math.sin(a) * len * 0.95)
+        }
+        for (let k = 0; k < 10; k++) {
+            const [ax, ay, bx, by] = [rays[k * 2]!, rays[k * 2 + 1]!, rays[k * 2 + 2]!, rays[k * 2 + 3]!]
+            // the web sags between the spines
+            const mx = (ax + bx) / 2 + (cx0 - (ax + bx) / 2) * 0.16
+            const my = (ay + by) / 2 + (cy0 - (ay + by) / 2) * 0.16
+            tri(s, cx0, cy0, ax, ay, mx, my, k & 1 ? C.purple1 : C.purple0)
+            tri(s, cx0, cy0, mx, my, bx, by, k & 1 ? C.purple1 : C.purple0)
+            ditherEllipse(s, R(mx * 0.75 + cx0 * 0.25), R(my * 0.75 + cy0 * 0.25), 4, 3, C.purple2, 6)
+        }
+        for (let k = 0; k <= 10; k++) {
+            const ax = rays[k * 2]!
+            const ay = rays[k * 2 + 1]!
+            line(s, cx0, cy0, R(ax), R(ay), C.pink)
+            px(s, R(ax), R(ay), C.white)
+            px(s, R(ax + (ax - cx0) * 0.04), R(ay + (ay - cy0) * 0.04), B.glow > 0.5 ? C.white : C.cyan)
+        }
+        // the mantle: the kraken's body under her, spotted, its underside paler
+        ellipse(s, x, mantleY + 6, 32, 18, KRAKEN[0])
+        ellipse(s, x - 1, mantleY + 4, 30, 16, KRAKEN[1])
+        ellipse(s, x - 9, mantleY - 2, 14, 6, KRAKEN[2])
+        ellipse(s, x + 4, mantleY + 16, 22, 4, C.pink)
+        for (let i = 0; i < 12; i++) disc(s, x - 24 + i * 4, mantleY + ((i * 7) % 5) * 3 - 2, (i & 1) + 0.8, C.purple0)
+        // the near tentacles, curling forward and back across the plaza
+        krakenArm(s, x - 16, mantleY + 16, Math.PI * 0.92, 50, 10, ph + 3, 1.5, false)
+        // The whip: the forward tentacle, kept low on the floor like the rest. It coils back on the
+        // wind-up and lashes out straight along the ground at the front rank, a wave running down
+        // it, then curls back to rest.
+        // the lash is full on the strike frame itself, so the crack lands with the tip
+        const lash = B.strike ? 1 : B.wind > 0 ? 0 : B.rec
+        const coil = B.strike ? 0 : B.wind
+        const whipLen = R(58 - 18 * coil + 22 * lash)
+        const whipCurl = -1.4 - 1.8 * coil + 1.25 * lash
+        const whipWave = lash > 0 ? ph * 6 : ph + 4
+        krakenArm(s, x + 16, mantleY + 16, Math.PI * (0.06 + 0.06 * coil - 0.06 * lash), whipLen, 10, whipWave, whipCurl, false)
+        krakenArm(s, x + 4, mantleY + 18, Math.PI * 0.28, 36, 9, ph + 5, -2.2, false)
+        // the skirt of kelp flaring from her waist over the mantle, the bodice of gold above it
+        poly(s, [-8, 0, 8, 0, 22, 22, 8, 26, -6, 24, -22, 22], wx, top + 34, C.green1)
+        poly(s, [-8, 0, -3, 0, -8, 25, -22, 22], wx, top + 34, C.green0)
+        for (let i = 0; i < 9; i++) {
+            const fx = wx - 20 + i * 5
+            line(s, R(wx - 6 + i * 1.5), top + 36, fx, top + 58 + (i & 1) * 3, i & 1 ? C.green2 : C.green1)
+            px(s, fx, top + 59 + (i & 1) * 3, C.green2)
+        }
+        // the waist and a broad torso, the bodice of drowned gold set with pearls
+        chain(s, wx, top + 36, wx - 1, top + 26, wx, top + 14, 8, 12, SEA_SKIN, 8)
+        poly(s, [-15, 0, 15, 0, 11, 18, 0, 22, -11, 18], wx, top + 14, C.gold1)
+        poly(s, [-15, 0, -6, 0, -6, 21, -11, 18], wx, top + 14, C.gold0)
+        line(s, wx - 14, top + 15, wx + 14, top + 15, C.gold2)
+        line(s, wx + 3, top + 17, wx + 10, top + 29, C.gold2) // the lit edge of the plate
+        for (let i = 0; i < 8; i++) px(s, wx - 10 + i * 3, top + 19 + (i & 1) * 3, C.white)
+        const jewel = B.glow > 0.5 ? C.white : C.cyan
+        disc(s, wx + 1, top + 27, 3.5, C.teal1); disc(s, wx + 1, top + 27, 2.5, C.teal3); px(s, wx, top + 26, jewel); px(s, wx + 1, top + 26, C.white)
+        // the far arm holding the pearl sceptre upright
+        elbow(wx - 15, top + 16, wx - 22, top + 34, 11, 11, -1)
+        limbT(s, wx - 15, top + 16, P.x, P.y, 6, 5, [C.teal0, C.teal1, C.teal2])
+        limbT(s, P.x, P.y, wx - 22, top + 34, 5, 4, [C.teal0, C.teal1, C.teal2])
+        line(s, wx - 23, top + 50, wx - 24, top + 4, C.gold1, 2)
+        line(s, wx - 22, top + 50, wx - 23, top + 4, C.gold2)
+        disc(s, wx - 24, top + 1, 4, C.white)
+        disc(s, wx - 25, top, 2, C.frost)
+        for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2; px(s, R(wx - 24 + Math.cos(a) * 6), R(top + 1 + Math.sin(a) * 6), C.gold2) }
+        // scallop shells for pauldrons, ridges fanning out from the hinge, the near one lit from above
+        for (const [sxo, far] of [[-14, true], [14, false]] as const) {
+            const px0 = wx + sxo
+            const py0 = top + 18
+            for (let k = 0; k < 8; k++) {
+                const a = -Math.PI * (0.1 + k * 0.115)
+                const ex = px0 + Math.cos(a) * 11
+                const ey = py0 + Math.sin(a) * 9
+                tri(s, px0, py0, ex, ey, px0 + Math.cos(a - 0.13) * 11, py0 + Math.sin(a - 0.13) * 9, far ? C.bone0 : k & 1 ? C.bone1 : C.white)
+                line(s, px0, py0, R(ex), R(ey), far ? C.brown2 : C.pink)
+                if (!far && k > 1 && k < 6) px(s, R(ex), R(ey) - 1, C.frost)
+            }
+            rect(s, px0 - 3, py0 - 1, 7, 2, far ? C.bone0 : C.bone1) // the hinge
+        }
+        // the neck, gill slits down its side
+        rect(s, wx - 3, top + 2, 8, 13, C.teal2)
+        rect(s, wx + 2, top + 2, 3, 13, C.teal3)
+        for (let i = 0; i < 3; i++) line(s, wx - 2, top + 5 + i * 3, wx, top + 6 + i * 3, C.teal0)
+        // the head: large, lit from the water above, a fin for an ear, eyes burning through a halo
+        const hx = wx + 2
+        const hy = top + 2
+        // the ear fin, behind the cheek
+        for (let k = 0; k < 5; k++) {
+            const a = -Math.PI * (0.62 + k * 0.1) + Math.sin(ph + k) * 0.05
+            tri(s, hx - 5, hy - 9, R(hx - 5 + Math.cos(a) * 11), R(hy - 9 + Math.sin(a) * 11), R(hx - 5 + Math.cos(a + 0.3) * 9), R(hy - 9 + Math.sin(a + 0.3) * 9), k & 1 ? C.teal2 : C.teal1)
+            line(s, hx - 5, hy - 9, R(hx - 5 + Math.cos(a) * 11), R(hy - 9 + Math.sin(a) * 11), C.cyan)
+        }
+        ball(s, hx, hy - 9, 12, 13, SEA_SKIN)
+        ellipse(s, hx + 5, hy - 10, 6, 8, C.teal3) // the lit face
+        for (let i = 0; i < 9; i++) {
+            // the rim of light from the water above, round the crown of the head
+            const a = -Math.PI * (0.25 + i * 0.07)
+            px(s, R(hx + Math.cos(a) * 11), R(hy - 9 + Math.sin(a) * 12), C.frost)
+        }
+        px(s, hx + 12, hy - 9, C.teal3); px(s, hx + 12, hy - 8, C.teal2); px(s, hx + 11, hy - 7, C.teal2) // the nose
+        const eye = B.hurt ? C.ink : B.glow > 0.5 ? C.white : C.cyan
+        if (!B.hurt) ditherDisc(s, hx + 7, hy - 12, 6, C.cyan, 5 + R(B.glow * 5))
+        ellipse(s, hx + 7, hy - 12, 3.5, 2, C.ink)
+        rect(s, hx + 5, hy - 13, 5, 2, eye)
+        if (!B.hurt) rect(s, hx + 7, hy - 13, 2, 2, C.white)
+        line(s, hx + 3, hy - 15, hx + 10, hy - 14, C.teal0) // the brow, drawn down
+        line(s, hx + 4, hy - 16, hx + 9, hy - 16, C.teal1)
+        // the lips, parted on the strike and the roar, needle teeth
+        if (B.roar || B.strike) {
+            rect(s, hx + 6, hy - 4, 5, 3, C.ink)
+            for (let i = 0; i < 3; i++) px(s, hx + 6 + i * 2, hy - 4, C.white)
+            line(s, hx + 6, hy - 1, hx + 10, hy - 1, C.red2)
+        } else {
+            line(s, hx + 6, hy - 4, hx + 10, hy - 4, C.teal0)
+            line(s, hx + 7, hy - 3, hx + 9, hy - 3, C.red2)
+            px(s, hx + 8, hy - 3, C.pink)
+        }
+        for (let i = 0; i < 3; i++) line(s, hx - 3, hy - 9 + i * 3, hx, hy - 7 + i * 3, C.teal0) // gills
+        // the crown: tall, gold, spiked with pearls and branching red coral
+        rect(s, hx - 11, hy - 22, 23, 4, C.gold1)
+        rect(s, hx - 11, hy - 22, 23, 1, C.gold2)
+        for (let i = 0; i < 4; i++) px(s, hx - 8 + i * 6, hy - 20, C.white)
+        for (let i = 0; i < 7; i++) {
+            const cx = hx - 10 + i * 3.4
+            const h = i === 3 ? 15 : i & 1 ? 11 : 7
+            tri(s, cx - 1.5, hy - 22, cx + 1.5, hy - 22, cx, hy - 22 - h, i === 3 ? C.gold3 : C.gold2)
+            line(s, R(cx - 1), hy - 23, R(cx), hy - 21 - h, C.gold1)
+            px(s, R(cx), hy - 22 - h, i === 3 ? C.white : i & 1 ? C.white : C.red3)
+        }
+        for (const d of [-1, 1]) {
+            // coral branching off the crown's sides
+            const bx = hx + d * 11
+            line(s, bx, hy - 21, bx + d * 5, hy - 28, C.red2)
+            line(s, bx + d * 2, hy - 24, bx + d * 7, hy - 25, C.red2)
+            px(s, bx + d * 5, hy - 29, C.red3); px(s, bx + d * 7, hy - 26, C.red3)
+        }
+        disc(s, hx, hy - 20, 2, C.teal3); px(s, hx - 1, hy - 21, C.white)
+        // the near arm reaching out at the party, a fin trailing off the forearm, a clawed hand:
+        // drawn back on the wind-up and flung open on the lash
+        const sx = wx + 14
+        const sy = top + 17
+        const hax = wx + 32 + R(bz(0, -10, 8))
+        const hay = top + 30 + B.breath + R(bz(0, -18, -6))
+        elbow(sx, sy, hax, hay, 13, 13, 1)
+        const ex = P.x
+        const ey = P.y
+        limbT(s, sx, sy, ex, ey, 6, 5, SEA_SKIN)
+        forearmFin(s, ex, ey, hax, hay, 11, t)
+        limbT(s, ex, ey, hax, hay, 5, 4, SEA_SKIN)
+        ball(s, hax, hay, 4, 4, SEA_SKIN)
+        const da = Math.atan2(hay - ey, hax - ex)
+        const open = B.strike ? 0.35 : B.wind > 0 ? -0.1 : 0.15
+        for (let k = 0; k < 4; k++) {
+            // the fingers, long and jointed, hooked claws at their tips
+            const a = da - 0.65 + k * (0.38 + open * 0.3)
+            const jx = hax + Math.cos(a) * 5
+            const jy = hay + Math.sin(a) * 5
+            const tx = jx + Math.cos(a + 0.5) * 4
+            const ty = jy + Math.sin(a + 0.5) * 4
+            line(s, R(hax), R(hay), R(jx), R(jy), C.teal2, k === 0 ? 1 : 2)
+            line(s, R(jx), R(jy), R(tx), R(ty), C.teal2)
+            px(s, R(tx), R(ty), C.bone1)
+            px(s, R(tx + Math.cos(a + 1.2)), R(ty + Math.sin(a + 1.2)), C.white)
+        }
         finish(s, Entry.Rise, 0)
     },
     fx(dst, st, t, x, y, dir) {
-        ditherEllipse(dst, x, y - 1, 46, 3, C.teal0, 16)
+        ditherEllipse(dst, x, y - 1, 56, 3, C.teal0, 16)
         const k = fr(t, 10, 10)
-        for (let i = 0; i < 5; i++) dst.set(x + dir * (-40 + ((i * 19 + k * 7) % 80)), y - 3, C.teal3)
-        for (let i = 0; i < 3; i++) dst.set(x + dir * (-20 + i * 16), y - 90 - ((k * 4 + i * 11) % 30), C.teal3) // rising bubbles
-        if (st === 'attack' && B.strike) for (let i = 0; i < 10; i++) dst.set(x + dir * (44 + i * 3), y - 2 - (i % 4), i & 1 ? C.white : C.teal3)
+        for (let i = 0; i < 6; i++) dst.set(x + dir * (-50 + ((i * 19 + k * 7) % 100)), y - 3, C.teal3)
+        for (let i = 0; i < 4; i++) dst.set(x + dir * (-24 + i * 14), y - 100 - ((k * 4 + i * 11) % 30), C.teal3) // rising bubbles
+        if (st === 'attack' && B.strike) {
+            // the crack at the whip's tip: a bright arc, and water thrown up off the plaza
+            const tx = x + dir * 94
+            const ty = y - 11
+            for (let i = 0; i < 9; i++) {
+                const a = -Math.PI * 0.5 + (i - 4) * 0.28
+                dst.set(tx + dir * R(Math.cos(a) * 7), ty + R(Math.sin(a) * 7), i & 1 ? C.white : C.cyan)
+            }
+            dst.set(tx, ty, C.white)
+            for (let i = 0; i < 10; i++) dst.set(tx + dir * (-8 + i * 2), y - 2 - ((i * 5) % 7), i & 1 ? C.teal3 : C.white)
+        }
     }
 }
 

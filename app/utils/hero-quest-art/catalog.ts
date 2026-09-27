@@ -100,7 +100,8 @@ export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly
         label: 'Thornwick & Mirewood rosters',
         prefixes: ['axe', 'bow', 'staff'].flatMap(r => [`enemy/world_thornwick_vale/${r}`, `enemy/world_mirewood/${r}`])
     },
-    { n: 4, label: 'Rimeholt roster', prefixes: ['enemy/world_rimeholt', 'boss/world_rimeholt', 'superboss/world_rimeholt'] }
+    { n: 4, label: 'Rimeholt roster', prefixes: ['enemy/world_rimeholt', 'boss/world_rimeholt', 'superboss/world_rimeholt'] },
+    { n: 5, label: 'Sunken Amarath roster', prefixes: ['enemy/world_sunken_amarath', 'boss/world_sunken_amarath', 'superboss/world_sunken_amarath'] }
 ]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
