@@ -6,7 +6,7 @@ import type { CreatureDef } from './creature'
 import { CF, fr, sm, span } from './creature'
 import type { Mat } from './weapons'
 import {
-    B, Entry, bossStates, drive, finish, bz, ball, chain, tentacle, glowEye, wing, speckle,
+    B, Entry, bossStates, drive, finish, bz, ball, tentacle, glowEye, wing, speckle,
     limbT, reach, elbow, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, ring, arc, poly, q, wv, bayer, hash2
 } from './boss-kit'
 import { Surface, ditherDisc } from './surface'
@@ -16,8 +16,6 @@ const R = Math.round
 const VIOLET: Mat = [C.purple0, C.purple1, C.purple2]
 const VOIDM: Mat = [C.ink, C.void, C.purple0]
 const STONE: Mat = [C.stone1, C.stone2, C.stone3]
-const STORM: Mat = [C.night2, C.night3, C.haze]
-const FEATHER: Mat = [C.stone1, C.stone2, C.steel2]
 const FADED: Mat = [C.stone2, C.stone3, C.bone0]
 
 /** Void interior: black speckled with stars that twinkle on the frame grid. */
@@ -1175,108 +1173,456 @@ export const OSSUAR: CreatureDef = {
 
 // ═══════════════════════════════════════════════════════════════ 8 · The Shattered Sky
 
-/** Stormcrown Roc — a thunderbird wearing a crown of its own lightning. */
-export const STORMCROWN_ROC: CreatureDef = {
-    name: 'Stormcrown Roc', size: 96, shadow: 18, hover: 1, accent: C.gold3,
-    states: bossStates(1.1, 1.0, 1.8),
-    draw(s, st, t) {
-        drive(this, st, t, 14, 1.0)
-        const x = s.ax - 4 + B.lunge - B.kb
-        const dive = R(bz(0, -8, 14))
-        const y = s.ay - 34 + wv(t, 1.0, 3) + dive + R(B.die * 30)
-        const flap = st === 'death' ? -0.5 : Math.sin(q(t) * Math.PI * 2 / (st === 'attack' ? 0.5 : 1.0)) * (B.strike ? 0.3 : 1)
-        // far wing
-        wing(s, x - 4, y - 6, 34, flap, [C.stone0, C.stone1, C.stone2], true)
-        // tail
-        for (let i = 0; i < 4; i++) line(s, x - 12, y + 2, x - 24 - i, y + 8 + i * 3, i & 1 ? C.stone1 : C.steel2, 2)
-        // body
-        ball(s, x, y, 14, 10, FEATHER)
-        dither(s, x - 12, y + 3, 24, 6, C.bone0, 6) // pale breast
-        // talons, reaching forward on the strike
-        const ta = B.strike ? 0.2 : 1.3
-        for (const [lx, c] of [[-2, C.gold1], [5, C.gold2]] as const) {
-            reach(x + lx, y + 8, ta, 12)
-            line(s, x + lx, y + 8, P.x, P.y, c, 2)
-            for (let i = -1; i <= 1; i++) line(s, P.x, P.y, P.x + 3 + i, P.y + 2 + i * 2, C.ink)
+// Stage 5: Stormcrown Roc, the thunderbird of the broken sky, wearing a crown of its own
+// lightning. Stage 10: Zephyrax, Breaker of Heavens, a sky-dragon coiling through the storm.
+
+const PLUME: Mat = [C.night0, C.night1, C.night2]
+const PLUME_FAR: Mat = [C.ink, C.void, C.night0]
+const BREAST: Mat = [C.steel1, C.steel2, C.steel3]
+const HEAD_WHITE: Mat = [C.steel2, C.steel3, C.white]
+
+/**
+ * A great wing from the shoulder (sx, sy) along `a`, `L` long: secondaries falling back off the
+ * arm, primaries fanning from the wrist with the longest at the leading edge, coverts over their
+ * roots in scalloped rows, a lit leading edge and a zigzag of lightning down its length that
+ * flares with `flare`.
+ */
+function rocWing(s: Surface, sx: number, sy: number, a: number, L: number, m: Mat, tip: number, flare: number): void {
+    const dx = Math.cos(a)
+    const dy = Math.sin(a)
+    const ta = a - Math.PI / 2
+    const wx = sx + dx * L * 0.42
+    const wy = sy + dy * L * 0.42
+    for (let i = 0; i < 6; i++) {
+        // the secondaries, falling back off the arm
+        const u = 0.1 + i * 0.17
+        const bx = sx + (wx - sx) * u
+        const by = sy + (wy - sy) * u
+        const len = L * (0.36 - i * 0.012)
+        const fa = ta + 0.35 - i * 0.05
+        limbT(s, bx, by, bx + Math.cos(fa) * len, by + Math.sin(fa) * len, 5, 2, m)
+        px(s, R(bx + Math.cos(fa) * len), R(by + Math.sin(fa) * len), tip)
+    }
+    for (let i = 6; i >= 0; i--) {
+        // the primaries, fanning from the wrist, the fingered tips pale
+        const fa = a - i * 0.2
+        const len = L * (0.62 - i * 0.035)
+        const ex = wx + Math.cos(fa) * len
+        const ey = wy + Math.sin(fa) * len
+        limbT(s, wx, wy, ex, ey, 5, 2, m)
+        px(s, R(ex), R(ey), tip)
+        px(s, R(ex - Math.cos(fa) * 2), R(ey - Math.sin(fa) * 2), tip === C.white ? C.steel3 : m[2])
+    }
+    // the coverts over the roots, in scalloped rows
+    const c1x = wx + Math.cos(ta) * 7
+    const c1y = wy + Math.sin(ta) * 7
+    const c0x = sx + Math.cos(ta + 0.3) * 11
+    const c0y = sy + Math.sin(ta + 0.3) * 11
+    poly(s, [sx, sy, wx, wy, c1x, c1y, c0x, c0y], 0, 0, m[1])
+    for (let r = 0; r < 3; r++) {
+        for (let i = 0; i < 6; i++) {
+            const u = (i + (r & 1) * 0.5) / 6
+            const k = 2 + r * 3
+            const qx = sx + (wx - sx) * u + Math.cos(ta) * k
+            const qy = sy + (wy - sy) * u + Math.sin(ta) * k
+            px(s, R(qx), R(qy), m[2]); px(s, R(qx + Math.cos(ta)), R(qy + Math.sin(ta)), m[0])
         }
-        // head, beak and the lightning crown
-        const hx = x + 14
-        const hy = y - 8
-        ball(s, hx, hy, 7, 6, FEATHER)
-        tri(s, hx + 5, hy - 2, hx + 5, hy + 3, hx + 14, hy + 3, C.gold2)
-        tri(s, hx + 5, hy + 1, hx + 12, hy + 3, hx + 11, hy + 5, C.gold1)
-        if (B.roar || B.strike) tri(s, hx + 6, hy + 2, hx + 12, hy + 4, hx + 6, hy + 5, C.ink)
-        const eye = B.hurt ? C.ink : C.gold3
-        px(s, hx + 3, hy - 2, eye); px(s, hx + 2, hy - 3, C.ink)
-        const k = fr(t, 10, 2)
-        for (let i = 0; i < 4; i++) {
-            const bx = hx - 5 + i * 3
-            line(s, bx, hy - 6, bx + (k ? 1 : -1), hy - 10 - (i & 1) * 2, C.gold3)
-            line(s, bx + (k ? 1 : -1), hy - 10 - (i & 1) * 2, bx, hy - 13 - (i & 1) * 3, C.white)
-        }
-        // near wing
-        wing(s, x + 2, y - 4, 30, flap, FEATHER, true)
-        finish(s, Entry.Drop, 0)
-    },
-    fx(dst, st, t, x, y, dir) {
-        const k = fr(t, 10, 6)
-        if (k === 0 || B.roar) {
-            // a crackle jumping from the crown
-            let lx = x + dir * 8
-            for (let yy = y - 64; yy > y - 90; yy--) { if ((yy & 3) === 0) lx += dir * (((yy * 7) & 2) - 1); dst.set(lx, yy, (yy & 1) ? C.gold3 : C.white) }
-        }
-        if (st === 'attack' && B.strike) for (let i = 0; i < 10; i++) dst.set(x + dir * (30 + i * 2), y - 36 + (i & 1), C.white)
+    }
+    // the leading edge, lit
+    line(s, R(sx), R(sy), R(wx), R(wy), m[2], 2)
+    line(s, R(wx), R(wy), R(wx + dx * L * 0.3), R(wy + dy * L * 0.3), m[2])
+    // the thunderbird's mark: a zigzag of lightning down the wing
+    let zx = sx + Math.cos(ta) * 4
+    let zy = sy + Math.sin(ta) * 4
+    const mark = flare > 0.5 ? C.white : flare > 0 ? C.cyan : C.blue2
+    for (let i = 1; i <= 5; i++) {
+        const u = i / 5
+        const side = i & 1 ? 3 : -1
+        const nx = sx + (wx + dx * L * 0.25 - sx) * u + Math.cos(ta) * (4 + side)
+        const ny = sy + (wy + dy * L * 0.25 - sy) * u + Math.sin(ta) * (4 + side)
+        line(s, R(zx), R(zy), R(nx), R(ny), mark)
+        zx = nx
+        zy = ny
     }
 }
 
-/** Zephyrax, Breaker of Heavens — a storm-dragon coiling through the broken islands. */
-export const ZEPHYRAX: CreatureDef = {
-    name: 'Zephyrax, Breaker of Heavens', size: 128, shadow: 20, hover: 1, accent: C.cyan,
-    states: bossStates(1.4, 2.0, 2.2),
+/** A roc's leg from the hip along `a`: a feathered thigh, a gold scaled shank, talons open by `open`. */
+function rocLeg(s: Surface, hx: number, hy: number, a: number, open: number, far: boolean): void {
+    const kx = hx + Math.cos(a) * 7
+    const ky = hy + Math.sin(a) * 7
+    limbT(s, hx, hy, kx, ky, 6, 4, far ? PLUME_FAR : PLUME)
+    const fa = a - 0.3 + open * 0.2
+    const fx = kx + Math.cos(fa) * 8
+    const fy = ky + Math.sin(fa) * 8
+    line(s, R(kx), R(ky), R(fx), R(fy), far ? C.gold0 : C.gold1, 2)
+    for (let i = 1; i < 4; i++) px(s, R(kx + (fx - kx) * i / 4), R(ky + (fy - ky) * i / 4), far ? C.gold1 : C.gold2) // the scales
+    // three talons forward and one back, curled at rest and flung open on the strike
+    for (let i = -1; i <= 2; i++) {
+        const ta = i === 2 ? fa + Math.PI * 0.9 : fa - 0.9 + i * (0.35 + open * 0.35) - (1 - open) * 0.6
+        const tx = fx + Math.cos(ta) * 5
+        const ty = fy + Math.sin(ta) * 5
+        line(s, R(fx), R(fy), R(tx), R(ty), far ? C.gold0 : C.gold1, 2)
+        const ca = ta + 0.9 * (1 - open * 0.5)
+        line(s, R(tx), R(ty), R(tx + Math.cos(ca) * 3), R(ty + Math.sin(ca) * 3), C.ink)
+    }
+}
+
+/**
+ * Stormcrown Roc, the thunderbird of the broken sky: a vast eagle in storm-dark plumage, its wings
+ * raised in a V with a zigzag of lightning down each, a pale barred breast, a white head with a
+ * heavy brow over a burning gold eye and a great hooked beak, and on its head a gold circlet from
+ * which its own lightning rises as a crown. It rears with its wings high, then beats down and
+ * rakes the front rank with its talons as a bolt falls from the crown.
+ */
+export const STORMCROWN_ROC: CreatureDef = {
+    name: 'Stormcrown Roc', size: 128, shadow: 20, hover: 1, accent: C.gold3,
+    states: bossStates(1.1, 1.2, 1.8),
     draw(s, st, t) {
-        drive(this, st, t, 12, 2.0)
-        const x = s.ax - 6 - B.kb
-        const y = s.ay
-        const ph = q(t) * Math.PI
-        const hx = x + 18 + R(bz(0, -10, 14)) + wv(t, 2.0, 2)
-        const hy = y - 80 + R(bz(0, -8, 8)) + R(B.die * 50) + wv(t, 2.0, 2, 0.3)
-        // floating island fragments
-        for (const [ix, iy, w] of [[-44, -30, 10], [30, -98, 7], [-30, -104, 6]] as const) {
-            const bob = wv(t, 2.0, 1, ix * 0.01)
-            tri(s, x + ix - w, y + iy + bob, x + ix + w, y + iy + bob, x + ix, y + iy + w + 4 + bob, C.stone1)
-            rect(s, x + ix - w, y + iy - 2 + bob, w * 2, 2, C.green2)
-            px(s, x + ix - w + 2, y + iy - 3 + bob, C.green3)
+        drive(this, st, t, 12, 1.2)
+        const beat = st === 'idle' || st === 'entry' ? Math.sin(q(t) / 1.2 * Math.PI * 2) : 0
+        // the wings: raised in a V at rest, beating slowly; high on the wind-up, down on the strike
+        const lift = st === 'death' ? -0.6 - B.die * 0.4 : st === 'attack' ? bz(0.55, 1, -1) : 0.55 + beat * 0.35
+        const x = s.ax - 6 + B.lunge - B.kb + R(bz(0, -4, 6))
+        const y = s.ay - 42 + R(bz(0, -4, 8)) - R(beat * 2) + R(B.die * 30)
+        const a = -1.8 - (1 - lift) * 0.62
+        const flare = B.glow
+        // the far wing, behind everything
+        rocWing(s, x + 2, y - 10, a + 0.45, 40, PLUME_FAR, C.night1, flare * 0.5)
+        // the tail, a fan of long feathers barred pale at the tips
+        for (let i = 0; i < 5; i++) {
+            const ta = 2.55 - i * 0.12 + (st === 'attack' ? B.wind * 0.3 : 0)
+            const ex = x - 13 + Math.cos(ta) * (18 + (i & 1) * 3)
+            const ey = y + 4 + Math.sin(ta) * (18 + (i & 1) * 3)
+            limbT(s, x - 13, y + 4, ex, ey, 5, 3, i & 1 ? PLUME : PLUME_FAR)
+            px(s, R(ex), R(ey), C.steel3); px(s, R(ex) + 1, R(ey), C.white)
         }
-        // the long body looping behind and up
-        chain(s, x - 40, y - 20, x - 10 + Math.sin(ph) * 6, y + 6, x + 10, y - 30, 5, 9, STORM, 16, C.frost)
-        chain(s, x + 10, y - 30, x + 34, y - 60, hx - 6, hy + 6, 9, 7, STORM, 16, C.frost)
-        // tail end with a wind-fin
-        tri(s, x - 40, y - 20, x - 50, y - 28, x - 48, y - 12, C.haze)
-        // small wings
-        wing(s, x + 22, y - 46, 22, Math.sin(ph * 2), [C.night1, C.night2, C.cyan], false)
-        // head
-        const open = B.strike || B.roar ? 5 : 1
-        poly(s, [-8, -5, 8, -7, 20, -2, 20, 1, -6, 2], hx, hy, STORM[1])
-        poly(s, [-6, 2 + open, 18, 2 + open, 16, 5 + open, -4, 6], hx, hy, STORM[0])
-        if (open > 1) quad(s, hx - 4, hy + 2, hx + 18, hy + 1, hx + 16, hy + 2 + open, hx - 4, hy + 2 + open, C.blue0)
-        line(s, hx - 6, hy - 4, hx + 18, hy - 2, C.haze)
-        const eye = B.hurt ? C.ink : C.white
-        rect(s, hx + 5, hy - 5, 4, 2, C.cyan); px(s, hx + 7, hy - 5, eye)
-        // lightning horns
-        const k = fr(t, 10, 2)
-        for (const d of [0, 5]) {
-            line(s, hx - 4 + d, hy - 6, hx - 10 + d, hy - 12, C.cyan, 2)
-            line(s, hx - 10 + d, hy - 12, hx - 7 + d + k, hy - 18, C.frost, 2)
-            line(s, hx - 7 + d + k, hy - 18, hx - 14 + d, hy - 23, C.white)
+        // the far leg
+        const reachLeg = st === 'attack' ? bz(1.7, 2.3, 0.5) : 1.75 + B.die * 0.6
+        const open = st === 'attack' ? (B.strike ? 1 : B.rec * 0.6) : 0
+        rocLeg(s, x + 1, y + 7, reachLeg + 0.15, open, true)
+        // the body: storm-dark plumage in scalloped rows, the breast pale and barred
+        ball(s, x, y, 16, 11, PLUME)
+        for (let r = 0; r < 4; r++) {
+            for (let i = 0; i < 6; i++) {
+                const fx = x - 12 + i * 4 + (r & 1) * 2
+                const fy = y - 7 + r * 4
+                if (Math.hypot((fx - x) / 15, (fy - y) / 10) < 1) { px(s, fx, fy, PLUME[2]); px(s, fx + 1, fy + 1, PLUME[0]) }
+            }
         }
+        ellipse(s, x + 7, y + 3, 9, 8, BREAST[1])
+        ellipse(s, x + 5, y + 1, 5, 5, BREAST[2])
+        for (let r = 0; r < 4; r++) for (let i = 0; i < 3; i++) {
+            // the chevron bars across the breast
+            const bx = x + 2 + i * 4 + (r & 1) * 2
+            const by = y + r * 3
+            px(s, bx, by, BREAST[0]); px(s, bx + 1, by + 1, BREAST[0]); px(s, bx + 2, by, BREAST[0])
+        }
+        // the near leg, the talons open and reaching on the strike
+        rocLeg(s, x + 6, y + 8, reachLeg, open, false)
+        // the neck: white hackles swept back over the shoulders
+        const hx = x + 16 + R(bz(0, -2, 4))
+        const hy = y - 13 + R(bz(0, -3, 4))
+        for (let i = 0; i < 5; i++) {
+            const nx0 = hx - 3 - i
+            const ny0 = hy - 2 + i * 3
+            tri(s, nx0, ny0, nx0 + 2, ny0 + 3, nx0 - 9 - i, ny0 + 5 + i, i & 1 ? HEAD_WHITE[0] : HEAD_WHITE[1])
+        }
+        // the head, white, lit above
+        ball(s, hx, hy, 7, 6, HEAD_WHITE)
+        // the beak: a great gold hook, the lower bill dropping open on the strike and the roar
+        const gape = B.strike || B.roar ? 3 : 0
+        poly(s, [4, 1, 10, 2 + gape, 5, 4 + gape], hx, hy, C.gold1)
+        poly(s, [4, -3, 10, -2, 13, 0, 14, 3, 12, 5, 11, 2, 4, 2], hx, hy, C.gold2)
+        line(s, hx + 5, hy - 3, hx + 11, hy - 2, C.gold3)
+        line(s, hx + 12, hy + 5, hx + 14, hy + 3, C.gold0)
+        rect(s, hx + 3, hy - 3, 2, 5, C.gold1) // the cere
+        px(s, hx + 6, hy - 1, C.gold0) // the nostril
+        if (gape) quad(s, hx + 5, hy + 2, hx + 10, hy + 2, hx + 9, hy + 2 + gape, hx + 5, hy + 3, C.ink)
+        // the eye under a heavy brow
+        line(s, hx - 2, hy - 4, hx + 4, hy - 2, C.steel1, 2)
+        rect(s, hx + 1, hy - 2, 2, 2, B.hurt ? C.white : C.gold3)
+        px(s, hx + 2, hy - 1, C.ink)
+        if (flare > 0.3 && !B.hurt) ditherDisc(s, hx + 2, hy - 1, 3, C.gold2, R(flare * 6))
+        // the crown: a gold circlet, its own lightning rising out of it in spikes
+        line(s, hx - 6, hy - 5, hx + 2, hy - 6, C.gold1, 2)
+        line(s, hx - 6, hy - 6, hx + 2, hy - 7, C.gold3)
+        px(s, hx - 2, hy - 6, C.cyan) // a storm-glass set in it
+        const k = fr(t, 10, 3)
+        for (let i = 0; i < 5; i++) {
+            const cx = hx - 6 + i * 2
+            const cy = hy - 7
+            const h = (i & 1 ? 6 : 9) + (flare > 0.3 ? 4 : 0) - (i === 0 || i === 4 ? 2 : 0)
+            const j = (k + i) % 3 - 1
+            line(s, cx, cy, cx + j, cy - (h >> 1), C.gold3)
+            line(s, cx + j, cy - (h >> 1), cx - j, cy - h, flare > 0.3 || (k + i) % 3 === 0 ? C.white : C.gold2)
+        }
+        // the near wing
+        rocWing(s, x + 2, y - 8, a, 46, PLUME, C.steel3, flare)
         finish(s, Entry.Drop, 0)
     },
     fx(dst, st, t, x, y, dir) {
-        const k = fr(t, 10, 8)
-        for (let i = 0; i < 6; i++) { const yy = y - 110 + ((i * 19 + k * 9) % 100); dst.set(x + dir * (-50 + ((i * 23) % 90)), yy, C.haze); dst.set(x + dir * (-49 + ((i * 23) % 90)), yy + 1, C.night3) }
-        if ((st === 'attack' && (B.strike || B.rec > 0.5)) || B.roar) {
-            let ly = y - 78
-            for (let i = 0; i < 50; i++) { if ((i & 3) === 0) ly += ((i * 13 + k) & 2) - 1; dst.set(x + dir * (40 + i), ly, i & 1 ? C.cyan : C.white); dst.set(x + dir * (40 + i), ly + 1, C.frost) }
+        if (st !== 'death' && (fr(t, 10, 7) === 0 || B.roar)) {
+            // a crackle leaping off the crown
+            let lx = x + dir * 10
+            for (let yy = y - 72; yy > y - 96; yy--) { if ((yy & 3) === 0) lx += dir * (((yy * 7) & 2) - 1); dst.set(lx, yy, (yy & 1) ? C.gold3 : C.white) }
+        }
+        if (st === 'attack' && B.strike) {
+            // the bolt: out of the crown's storm onto the front rank, a flash where it lands
+            const gx = x + dir * 44
+            let lx = gx - dir * 6
+            for (let yy = y - 100; yy <= y; yy++) {
+                if ((yy & 3) === 0) lx += ((yy * 13) & 4) ? 2 : -2
+                dst.set(lx, yy, C.white); dst.set(lx + 1, yy, C.white); dst.set(lx - 1, yy, C.gold3); dst.set(lx + 2, yy, C.cyan)
+            }
+            for (let i = 0; i < 10; i++) {
+                const a = i / 10 * Math.PI
+                dst.set(R(lx + Math.cos(a) * (5 + (i & 1) * 3)), R(y - Math.sin(a) * (3 + (i & 1) * 2)), i & 1 ? C.gold3 : C.white)
+            }
+        }
+    }
+}
+
+const SKYSCALE: Mat = [C.teal0, C.teal1, C.teal2]
+const MANE: readonly number[] = [C.white, C.frost, C.steel3]
+
+/** Zephyrax's mouth this frame, sprite-local from the anchor: where the breath leaves from. */
+const ZM = { x: 0, y: 0 }
+
+/** Catmull-Rom through `pts` (x, y pairs), `per` samples a segment, into `out` as x, y pairs. */
+function spline(pts: readonly number[], per: number, out: number[]): void {
+    out.length = 0
+    const n = pts.length / 2
+    for (let i = 0; i < n - 1; i++) {
+        const i0 = Math.max(0, i - 1)
+        const i3 = Math.min(n - 1, i + 2)
+        for (let k = 0; k < per; k++) {
+            const u = k / per
+            const u2 = u * u
+            const u3 = u2 * u
+            for (let c = 0; c < 2; c++) {
+                const p0 = pts[i0 * 2 + c]!
+                const p1 = pts[i * 2 + c]!
+                const p2 = pts[(i + 1) * 2 + c]!
+                const p3 = pts[i3 * 2 + c]!
+                out.push(0.5 * (2 * p1 + (-p0 + p2) * u + (2 * p0 - 5 * p1 + 4 * p2 - p3) * u2 + (-p0 + 3 * p1 - 3 * p2 + p3) * u3))
+            }
+        }
+    }
+    out.push(pts[pts.length - 2]!, pts[pts.length - 1]!)
+}
+const SPINE: number[] = []
+
+/** A storm cloud bank at (x, y): billows dark underneath and lit on top, lightning flickering in it on `flash`. */
+function stormBank(s: Surface, x: number, y: number, w: number, seed: number, flash: boolean): void {
+    for (let i = 0; i < 6; i++) {
+        const bx = x - w / 2 + hash2(seed, i) * w
+        const by = y + (hash2(seed + 1, i) - 0.5) * 8
+        const r = 7 + hash2(seed + 2, i) * 6
+        disc(s, bx, by, r, C.night1)
+        disc(s, bx - 1, by - 1.5, r - 1.5, flash ? C.night3 : C.night2)
+        arc(s, bx - 1, by - 1.5, r - 1.5, Math.PI * 1.1, Math.PI * 1.7, flash ? C.frost : C.night3)
+        px(s, R(bx - r * 0.45), R(by - r * 0.8), flash ? C.white : C.haze)
+    }
+}
+
+/**
+ * Zephyrax, Breaker of Heavens: a sky-dragon of the old tales, too long for the stage, pouring out
+ * of the storm. Its tail comes down out of the clouds behind, its body loops low over the island
+ * with a hind claw gripping the grass, rises in a crest and runs down a long neck to the head held
+ * low and forward. Teal scales lit along the back, a ribbed belly of gold and bone, a white mane
+ * streaming off its back and head, gold antlers, long whiskers trailing from the snout, eyes lit
+ * white. Its fore-claw holds the dragon's pearl, a globe of lightning. It rears back as the pearl
+ * charges, then lunges and breathes a torrent of lightning and wind onto the front rank.
+ */
+export const ZEPHYRAX: CreatureDef = {
+    name: 'Zephyrax, Breaker of Heavens', size: 256, shadow: 0, accent: C.cyan,
+    states: bossStates(1.5, 2.0, 2.4),
+    draw(s, st, t) {
+        drive(this, st, t, 3, 2.0)
+        // set back so the head, held low and forward, stays clear of the party
+        const x = s.ax - 20 + B.lunge - B.kb
+        const y = s.ay + R(B.die * 30)
+        const ph = q(t) / 2.0 * Math.PI * 2
+        const k = fr(t, 10, 9)
+        const flash = k === 0 || B.roar
+        // the head: rest, reared back on the wind-up, thrust forward on the strike
+        const hdx = R(bz(0, -9, 8)) + R(B.die * -6)
+        const hdy = R(bz(0, -10, 6)) + R(B.die * 14)
+        // the storm behind it
+        stormBank(s, x - 104, y - 98, 56, 911, flash)
+        stormBank(s, x - 50, y - 108, 44, 912, false)
+        // the spine: out of the clouds, down to a low loop, up to the crest and down the neck
+        const base = [-116, -106, -104, -80, -92, -42, -74, -18, -52, -24, -38, -54, -22, -74, 0, -72, 12, -60, 20, -52]
+        const pts: number[] = []
+        for (let i = 0; i < base.length / 2; i++) {
+            const w = i >= 8 ? (i - 7) / 2 : 0
+            const sway = i > 0 && i < 8 ? Math.sin(ph + i * 0.9) * 3 : 0
+            pts.push(x + base[i * 2]! + hdx * w, y + base[i * 2 + 1]! + R(sway) + hdy * w)
+        }
+        spline(pts, 8, SPINE)
+        const n = SPINE.length / 2
+        const radius = (u: number) => u < 0.55 ? 4 + 9 * (u / 0.55) : 13 - 4 * ((u - 0.55) / 0.45)
+        const nrm = (i: number) => {
+            const a = Math.max(0, i - 1)
+            const b = Math.min(n - 1, i + 1)
+            const tx = SPINE[b * 2]! - SPINE[a * 2]!
+            const ty = SPINE[b * 2 + 1]! - SPINE[a * 2 + 1]!
+            const L = Math.hypot(tx, ty) || 1
+            return [tx / L, ty / L] as const
+        }
+        // the hind claw, gripping the island under the low loop
+        const hi = Math.round(n * 0.36)
+        const hx0 = SPINE[hi * 2]!
+        const hy0 = SPINE[hi * 2 + 1]!
+        limbT(s, hx0, hy0, hx0 + 6, y - 7, 5, 4, SKYSCALE)
+        for (let i = 0; i < 3; i++) { line(s, hx0 + 6, y - 5, hx0 + 3 + i * 4, y - 1, C.gold1, 2); px(s, hx0 + 4 + i * 4, y, C.ink) }
+        // the body, in passes: the dark of it, the lit scales, the ribbed belly, the mane
+        for (let i = 0; i < n; i++) disc(s, SPINE[i * 2]!, SPINE[i * 2 + 1]!, radius(i / (n - 1)), SKYSCALE[0])
+        for (let i = 0; i < n; i++) {
+            const [tx, ty] = nrm(i)
+            const r = radius(i / (n - 1))
+            disc(s, SPINE[i * 2]! + ty * 0.8, SPINE[i * 2 + 1]! - tx * 0.8, Math.max(1, r - 1.5), SKYSCALE[1])
+        }
+        for (let i = 0; i < n; i++) {
+            const [tx, ty] = nrm(i)
+            const r = radius(i / (n - 1))
+            const X = SPINE[i * 2]!
+            const Y = SPINE[i * 2 + 1]!
+            // the belly, on the inside of the curl
+            if (r > 4) line(s, R(X - ty * (r - 3.5)), R(Y + tx * (r - 3.5)), R(X - ty * (r - 0.8)), R(Y + tx * (r - 0.8)), i % 3 === 0 ? C.gold1 : i % 3 === 1 ? C.bone1 : C.gold2)
+            // the scales along the back, lit
+            if (i % 3 === 0 && r > 3) {
+                px(s, R(X + ty * r * 0.35), R(Y - tx * r * 0.35), SKYSCALE[2])
+                px(s, R(X + ty * r * 0.65), R(Y - tx * r * 0.65), C.teal3)
+            }
+        }
+        for (let i = 4; i < n - 2; i += 3) {
+            // the mane streaming off the back, swept toward the tail and fluttering
+            const [tx, ty] = nrm(i)
+            const r = radius(i / (n - 1))
+            const X = SPINE[i * 2]! + ty * (r - 1)
+            const Y = SPINE[i * 2 + 1]! - tx * (r - 1)
+            const len = 5 + (i % 2) * 2 + R(Math.sin(ph * 2 + i) * 1)
+            tri(s, X - tx * 2, Y - ty * 2, X + tx * 2, Y + ty * 2, X + ty * len - tx * 5, Y - tx * len - ty * 5, MANE[(i / 3) % 3 | 0]!)
+        }
+        // mist rolling round the low loop, and the bank the tail pours out of
+        for (let i = 0; i < 4; i++) ditherEllipse(s, x - 92 + i * 16, y - 5, 12, 4, C.haze, 3)
+        stormBank(s, x - 116, y - 88, 40, 913, flash)
+        // the fore-claw holding the dragon's pearl
+        const fi = Math.round(n * 0.86)
+        const sx0 = SPINE[fi * 2]!
+        const sy0 = SPINE[fi * 2 + 1]! + 4
+        const pgx = x + 10 + R(bz(0, -4, 6))
+        const pgy = y - 24 + R(bz(0, -4, 2))
+        elbow(sx0, sy0, pgx - 3, pgy - 5, 10, 10, -1)
+        limbT(s, sx0, sy0, P.x, P.y, 5, 4, SKYSCALE)
+        limbT(s, P.x, P.y, pgx - 3, pgy - 5, 4, 3, SKYSCALE)
+        const charge = st === 'attack' ? Math.max(B.wind, B.strike ? 1 : 0) : 0
+        if (charge > 0.2) ditherDisc(s, pgx, pgy, 9, C.cyan, R(charge * 7))
+        disc(s, pgx, pgy, 5, C.blue1)
+        disc(s, pgx - 0.5, pgy - 0.5, 4, charge > 0.5 ? C.frost : C.cyan)
+        const sw = q(t) * 6
+        arc(s, pgx, pgy, 3, sw, sw + 2.2, C.white)
+        arc(s, pgx, pgy, 2, sw + 3, sw + 4.6, C.blue2)
+        px(s, pgx - 2, pgy - 2, C.white)
+        for (let i = 0; i < 3; i++) {
+            // the claws closed round it
+            const ca = -2.2 + i * 0.9
+            line(s, R(pgx + Math.cos(ca) * 3), R(pgy + Math.sin(ca) * 3 - 2), R(pgx + Math.cos(ca) * 6), R(pgy + Math.sin(ca) * 6), C.gold1, 2)
+            px(s, R(pgx + Math.cos(ca) * 6), R(pgy + Math.sin(ca) * 6), C.ink)
+        }
+        // the head, low and forward at the end of the neck
+        const hx = SPINE[(n - 1) * 2]! + 6
+        const hy = SPINE[(n - 1) * 2 + 1]! + 2
+        const open = B.strike ? 6 : B.roar ? 5 : st === 'attack' ? R(B.rec * 4) : 0
+        // the far antler, darker
+        line(s, hx - 5, hy - 8, hx - 12, hy - 16, C.gold0, 2)
+        line(s, hx - 12, hy - 16, hx - 19, hy - 19, C.gold0, 2)
+        line(s, hx - 11, hy - 15, hx - 10, hy - 22, C.gold0)
+        // the mane streaming back off the head and jaw
+        for (let i = 0; i < 6; i++) {
+            const my = hy - 6 + i * 3
+            const fl = R(Math.sin(ph * 2 + i * 1.3) * 2)
+            tri(s, hx - 4, my - 2, hx - 4, my + 2, hx - 20 - (i & 1) * 5, my - 4 + i + fl, MANE[i % 3]!)
+        }
+        // the lower jaw, dropping open, a row of teeth, the throat lit on the breath
+        poly(s, [2, 3, 19, 4 + open, 18, 7 + open, 2, 8], hx, hy, SKYSCALE[0])
+        line(s, hx + 3, hy + 7, hx + 17, hy + 6 + open, C.bone1) // the pale underjaw
+        if (open) {
+            quad(s, hx + 4, hy + 2, hx + 19, hy + 1, hx + 18, hy + 3 + open, hx + 4, hy + 4, B.strike ? C.frost : C.ink)
+            for (let i = 0; i < 5; i++) { px(s, hx + 6 + i * 3, hy + 2, C.white); px(s, hx + 7 + i * 3, hy + 3 + open, C.white) }
+        }
+        // the skull and the long snout, lit along the top
+        ellipse(s, hx, hy, 9, 7, SKYSCALE[0])
+        ellipse(s, hx - 1, hy - 1, 8, 6, SKYSCALE[1])
+        poly(s, [3, -6, 20, -3, 23, 0, 22, 3, 4, 3], hx, hy, SKYSCALE[1])
+        line(s, hx + 3, hy - 6, hx + 20, hy - 3, SKYSCALE[2])
+        line(s, hx - 5, hy - 6, hx + 2, hy - 7, SKYSCALE[2])
+        px(s, hx + 21, hy - 1, C.teal3)
+        rect(s, hx + 19, hy - 2, 2, 1, C.ink) // the nostril
+        for (let i = 0; i < 4; i++) px(s, hx + 6 + i * 4, hy + 1, C.teal0) // the scales along the lip
+        line(s, hx + 4, hy + 3, hx + 21, hy + 3, C.gold2) // the gold of the lip
+        // the eye under a heavy brow, lit white
+        line(s, hx - 1, hy - 7, hx + 9, hy - 5, SKYSCALE[0], 2)
+        rect(s, hx + 3, hy - 4, 4, 2, C.ink)
+        rect(s, hx + 4, hy - 4, 2, 1, B.hurt ? C.ink : C.white)
+        px(s, hx + 6, hy - 4, B.hurt ? C.ink : C.cyan)
+        if (B.glow > 0.3 && !B.hurt) ditherDisc(s, hx + 5, hy - 4, 4, C.cyan, R(B.glow * 6))
+        // the near antler, gold, branching back
+        line(s, hx - 3, hy - 7, hx - 10, hy - 15, C.gold1, 2)
+        line(s, hx - 10, hy - 15, hx - 18, hy - 18, C.gold1, 2)
+        line(s, hx - 3, hy - 8, hx - 10, hy - 16, C.gold3)
+        line(s, hx - 9, hy - 14, hx - 8, hy - 22, C.gold1, 2)
+        line(s, hx - 15, hy - 17, hx - 16, hy - 24, C.gold1, 2)
+        px(s, hx - 8, hy - 23, C.gold3); px(s, hx - 16, hy - 25, C.gold3); px(s, hx - 19, hy - 18, C.gold3)
+        // the whiskers, trailing back from the snout and waving
+        for (const [wx, wy, lift] of [[18, 2, 1], [16, -3, -1]] as const) {
+            let ox = hx + wx
+            let oy = hy + wy
+            for (let j = 1; j < 16; j++) {
+                const nx = hx + wx - j * 2.3
+                const ny = hy + wy + j * 0.5 * lift + Math.sin(ph * 2 + j * 0.45) * 2 + (lift > 0 ? j * 0.3 : -j * 0.2)
+                line(s, R(ox), R(oy), R(nx), R(ny), j < 11 ? C.gold3 : C.gold2)
+                ox = nx
+                oy = ny
+            }
+        }
+        ZM.x = hx + 20 - s.ax
+        ZM.y = hy + 3 - s.ay
+        finish(s, Entry.Drop, 0)
+    },
+    fx(dst, st, t, x, y, dir) {
+        if (!(st === 'attack' && (B.strike || B.rec > 0.6)) && !B.roar) return
+        // the breath: a torrent of wind and lightning from the jaws onto the front rank
+        const mx = x + dir * ZM.x
+        const my = y + ZM.y
+        const gx = x + dir * 44
+        const gy = y - 4
+        const k = fr(t, 20, 4)
+        for (let i = 0; i < 3; i++) {
+            let lx = mx
+            let ly = my
+            for (let j = 1; j <= 10; j++) {
+                const u = j / 10
+                const nx = mx + (gx - mx) * u + (j < 10 ? (((j * 7 + i * 5 + k) % 5) - 2) * 2 : 0)
+                const ny = my + (gy - my) * u + (i - 1) * 4 * u + (j < 10 ? (((j * 3 + i + k) % 3) - 1) * 2 : 0)
+                let sx = lx
+                let sy = ly
+                const steps = Math.max(Math.abs(nx - lx), Math.abs(ny - ly))
+                for (let m = 0; m <= steps; m++) {
+                    sx = R(lx + (nx - lx) * m / steps)
+                    sy = R(ly + (ny - ly) * m / steps)
+                    dst.set(sx, sy, i === 1 ? C.white : C.cyan)
+                    if (i === 1) dst.set(sx, sy + 1, C.frost)
+                }
+                lx = nx
+                ly = ny
+            }
+        }
+        for (let i = 0; i < 12; i++) {
+            // the wind streaks and the burst where it lands
+            const a = i / 12 * Math.PI
+            dst.set(R(gx + Math.cos(a) * (6 + (i & 1) * 4)), R(gy + 4 - Math.sin(a) * (4 + (i % 3) * 2)), i & 1 ? C.white : C.cyan)
         }
     }
 }

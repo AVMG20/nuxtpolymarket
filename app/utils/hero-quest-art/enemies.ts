@@ -10,7 +10,7 @@
 import { Ease, Phase, step, type Clip } from './anim'
 import { C } from './palette'
 import type { Surface} from './surface';
-import { line, px, rect, disc, ellipse, tri, dither, bayer, poly } from './surface'
+import { line, px, rect, disc, ellipse, tri, dither, bayer, poly, arc } from './surface'
 import { HP, J, fxX, fxY, hclip, hitClip, deathClip, rest, type Look, type Painter } from './rig'
 import { robeSkirt, smear, sparks, streak } from './hero-parts'
 import { M, tip, sword, axe, bow, staff, Gem, type Mat } from './weapons'
@@ -1239,41 +1239,277 @@ const ossuaryPriest: WorldSkin = {
     blade: M.bone, haft: M.darkwood, gem: M.nature, gemStyle: Gem.Skull, accent: C.green4
 }
 
-// 8 · The Shattered Sky — Skyshard Wisp: a floating shard of storm-lit stone with a tail of wind.
+// 8 · The Shattered Sky — Skyshard Wisp (melee): a wisp of the storm wearing a shard of the broken
+// sky for a face, a jagged mask of storm-glass with gold eyes burning through it, wind streaming
+// back off it, a heart of lightning in a body of wind, a tail of wind for legs, a glass blade.
 const skyshardWisp: WorldSkin = {
-    legLen: 8, torsoLen: 9,
-    skin: [C.stone1, C.stone2, C.stone3],
+    legLen: 8, torsoLen: 8,
+    skin: [C.blue1, C.blue2, C.cyan],
+    back: (s, x, y, _p, t) => {
+        // wind streaming back off the head and shoulders
+        const f = Math.floor(t * 6) % 3
+        for (let i = 0; i < 4; i++) {
+            const yy = y - 9 + i * 3
+            const len = 5 + ((i + f) % 3) * 2
+            line(s, x - 2, yy, x - 2 - len, yy + 2 + (i & 1), i & 1 ? C.blue2 : C.cyan)
+            px(s, x - 3 - len, yy + 3 + (i & 1), C.frost)
+        }
+    },
+    head: (s, x, y, p, t) => {
+        // the shard: storm-glass split into facets, lit on its upper left, cracked through
+        poly(s, [-3, 0, 4, 0, 5, -4, 3, -11, 1, -8, -1, -13, -4, -6], x, y, C.blue2)
+        poly(s, [-4, -6, -1, -13, 0, -8, -1, -3, -3, 0], x, y, C.cyan)
+        line(s, x - 3, y - 6, x - 1, y - 12, C.frost)
+        tri(s, x + 1, y, x + 4, y, x + 5, y - 4, C.blue1)
+        line(s, x + 1, y - 8, x + 3, y - 11, C.frost)
+        // the eyes burning through, a crack of light running up from them
+        rect(s, x + 1, y - 6, 4, 2, C.blue0)
+        px(s, x + 2, y - 6, C.gold2)
+        eyes(s, x + 4, y - 6, C.gold3, p)
+        line(s, x + 1, y - 7, x, y - 10, C.white)
+        // splinters of it circling
+        const a = t * 5
+        px(s, Math.round(x + 1 + Math.cos(a) * 7), Math.round(y - 6 + Math.sin(a) * 3), C.frost)
+        px(s, Math.round(x + 1 - Math.cos(a) * 7), Math.round(y - 6 - Math.sin(a) * 3), C.cyan)
+    },
+    torso: (s, x, y, p, t) => {
+        // a body of wind wrapping round itself, streaks travelling down it
+        const k = Math.floor(t * 8) & 3
+        for (let i = 0; i < 8; i++) {
+            const w = i < 5 ? 4 : 3
+            rect(s, x - w, y + i, w * 2 + 1, 1, i < 2 ? C.blue2 : C.blue1)
+            px(s, x - w + ((i * 3 + k * 2) % (w * 2 + 1)), y + i, (i + k) & 1 ? C.cyan : C.blue2)
+        }
+        line(s, x - 4, y, x - 1, y, C.frost) // the lit shoulder
+        // the heart of lightning
+        const hot = p[HP.glow]! > 0.3 || k === 0
+        line(s, x, y + 2, x + 2, y + 4, hot ? C.white : C.gold3)
+        line(s, x + 2, y + 4, x, y + 5, hot ? C.white : C.gold3)
+        line(s, x, y + 5, x + 1, y + 7, C.gold2)
+        if (hot) { px(s, x - 1, y + 3, C.gold2); px(s, x + 3, y + 5, C.gold2) }
+    },
+    lower: (s, x, hipY, _p, t) => {
+        // a tail of wind instead of legs, twisting to a point that curls back
+        const k = Math.floor(t * 8) & 3
+        for (let i = 0; i < 10; i++) {
+            const w = Math.max(0, 3 - (i >> 1))
+            const sx = x - Math.round(i * 0.5) + (((i + k) & 3) === 0 ? 1 : 0)
+            rect(s, sx - w, hipY + i, w * 2 + 1, 1, C.blue1)
+            if (w > 0) px(s, sx - w + ((i + k) % (w * 2 + 1)), hipY + i, (i + k) & 1 ? C.cyan : C.frost)
+        }
+        line(s, x - 5, hipY + 9, x - 7, hipY + 7, C.cyan)
+        px(s, x - 8, hipY + 6, C.frost)
+    },
+    pants: C.blue1, pantsDk: C.blue0, boot: C.blue1, bootHi: C.cyan,
+    arm: C.blue2, armLow: C.blue2, armBack: C.blue1, armBackLow: C.blue1, hand: C.frost,
+    blade: M.ice, haft: M.obsidian, gem: M.ice, gemStyle: Gem.Crystal, accent: C.gold3,
+    ambient: (dst, t) => {
+        // static jumping off the shard now and then
+        const k = step(t, 10, 7)
+        if (k === 0) { dst.set(fxX(J.headX + 3), fxY(J.headY - 14), C.white); dst.set(fxX(J.headX + 4), fxY(J.headY - 15), C.gold3) }
+    }
+}
+
+const BILLOW_LIT: Mat = [C.night2, C.night3, C.haze]
+const BILLOW_DARK: Mat = [C.night0, C.night1, C.night2]
+
+/**
+ * A billow of storm cloud at (x, y): shaded underneath, lit along its top toward the upper left.
+ * The upper billows of a thunderhead catch the light (`BILLOW_LIT`); the lower ones sit in its shadow.
+ */
+function billow(s: Surface, x: number, y: number, r: number, m: Mat = BILLOW_LIT): void {
+    disc(s, x, y, r, m[0])
+    disc(s, x - 0.5, y - 1, r - 1, m[1])
+    arc(s, x - 0.5, y - 1, r - 1, Math.PI * 1.05, Math.PI * 1.7, m[2])
+    arc(s, x - 0.5, y - 1.5, r - 1.5, Math.PI * 1.15, Math.PI * 1.55, m[2])
+    px(s, Math.round(x - r * 0.45), Math.round(y - r * 0.75), m === BILLOW_LIT ? C.white : m[2])
+}
+
+// 8 · The Shattered Sky — Thunderhead Golem (heavy): a storm cloud that stood up and walked, piled
+// billows lit on top and dark underneath, heaped high at the shoulders; its head a boulder torn off
+// an island, sunk between them, gold eyes under a carved brow; lightning crackling in its chest
+// and through the rock, rain falling out of it.
+const thunderheadGolem: WorldSkin = {
+    legLen: 7, torsoLen: 11,
+    skin: [C.night2, C.night3, C.haze],
     head: (s, x, y, p) => {
-        tri(s, x - 3, y - 1, x + 4, y - 1, x + 1, y - 10, C.stone2)
-        tri(s, x - 3, y - 1, x + 1, y - 1, x + 1, y - 10, C.stone1)
-        line(s, x + 1, y - 9, x + 2, y - 3, C.stone3)
-        eyes(s, x + 2, y - 5, C.cyan, p)
-        px(s, x + 1, y - 5, C.white)
-        line(s, x - 1, y - 3, x, y - 7, C.cyan) // crack
+        // a boulder torn off an island, lit on its upper left, a heavy carved brow
+        poly(s, [-2, 0, 5, 0, 7, -3, 6, -8, 2, -10, -2, -8, -3, -4], x, y, C.stone2)
+        poly(s, [-2, -8, 2, -10, 4, -9, 0, -7, -2, -4], x, y, C.stone3)
+        tri(s, x + 3, y, x + 6, y, x + 7, y - 3, C.stone1)
+        line(s, x + 1, y - 7, x + 7, y - 6, C.stone1) // the brow, its shadow over the eyes
+        line(s, x + 2, y - 6, x + 6, y - 5, C.stone1)
+        px(s, x + 3, y - 5, C.gold2)
+        eyes(s, x + 6, y - 5, C.gold3, p)
+        // lightning crackling through a crack in it
+        line(s, x - 1, y - 9, x + 1, y - 6, C.gold2); line(s, x + 1, y - 6, x, y - 3, C.gold1)
+        // a crackle of a mouth
+        if (p[HP.mouth]! > 0.5) { rect(s, x + 3, y - 3, 4, 2, C.ink); line(s, x + 3, y - 3, x + 6, y - 2, C.gold3) } else line(s, x + 3, y - 2, x + 6, y - 2, C.stone1)
+    },
+    torso: (s, x, y, p, t) => {
+        // piled billows, drawn from the bottom up so each lit top rides over the shade below it,
+        // heaped highest at the shoulders
+        for (const [bx, by, r] of [[-2, 12, 3.5], [3, 12, 3.5], [-5, 8, 3.5], [5, 7, 4]] as const) billow(s, x + bx, y + by, r, BILLOW_DARK)
+        for (const [bx, by, r] of [[0, 6, 5], [-6, 1, 4.5], [6, 1, 4.5], [-3, -2, 3.5]] as const) billow(s, x + bx, y + by, r)
+        // lightning crackling in its chest, flaring on the swing
+        const k = Math.floor(t * 10) % 5
+        const hot = p[HP.glow]! > 0.3 || k === 0
+        line(s, x - 3, y + 4, x, y + 6, hot ? C.white : C.gold2)
+        line(s, x, y + 6, x - 1, y + 8, hot ? C.white : C.gold2)
+        line(s, x - 1, y + 8, x + 2, y + 10, hot ? C.gold3 : C.gold1)
+        if (hot) { px(s, x - 4, y + 3, C.gold3); px(s, x + 1, y + 5, C.gold3); px(s, x + 3, y + 10, C.gold2) }
+        // a boulder torn off an island bound into the shoulder
+        ellipse(s, x + 2, y + 1, 3, 2.5, C.stone1)
+        ellipse(s, x + 1, y, 2, 1.5, C.stone2)
+        px(s, x, y - 1, C.stone3)
+        line(s, x - 1, y + 3, x + 5, y + 2, C.brown1) // a root still hanging off it
+    },
+    pants: C.night2, pantsDk: C.night1, boot: C.stone1, bootHi: C.stone2,
+    arm: C.night2, armLow: C.night3, armBack: C.night1, armBackLow: C.night2, hand: C.stone2,
+    blade: M.ice, haft: M.darkwood, gem: M.ice, gemStyle: Gem.Crystal, accent: C.gold3,
+    ambient: (dst, t) => {
+        // rain falling out of it
+        const k = step(t, 10, 6)
+        for (let i = 0; i < 3; i++) {
+            const yy = J.hipY + 1 + ((k * 2 + i * 5) % 8)
+            dst.set(fxX(J.bx - 4 + i * 4), fxY(yy), C.frost)
+            dst.set(fxX(J.bx - 4 + i * 4), fxY(yy + 1), C.cyan)
+        }
+    }
+}
+
+// 8 · The Shattered Sky — Harpy Raider (ranged): a harpy off the high rocks, a sharp face with a
+// bird's gold eye and blue war paint, a crest of long red feathers swept back, tawny barred wings
+// folded behind her, a feathered breast, bird legs with talons, loosing from a horn bow.
+const harpyRaider: WorldSkin = {
+    legLen: 7, torsoLen: 8,
+    skin: [C.skin0, C.skin1, C.skin2],
+    back: (s, x, y, _p, t) => {
+        // the wing, folded with its wrist raised over her shoulder, stirring: barred coverts, a lit
+        // leading edge, long primaries sweeping down behind her, pale at the tips
+        const f = Math.floor(t * 3) & 1
+        const wx = x - 5
+        const wy = y - 12 - f
+        for (let i = 0; i < 5; i++) {
+            const ex = x - 14 + i * 2
+            const ey = y + 7 - i * 2
+            line(s, wx - i, wy + 2 + i, ex, ey, i & 1 ? C.brown1 : C.brown0, 2)
+            px(s, ex, ey + 1, C.bone1); px(s, ex - 1, ey + 1, C.bone0)
+        }
+        poly(s, [-1, 1, wx - x + 1, wy - y, wx - x - 3, wy - y + 1, -10, -1, -6, 4], x, y, C.brown2)
+        line(s, x - 1, y, wx + 1, wy, C.brown3)
+        px(s, wx, wy - 1, C.brown3)
+        for (let i = 0; i < 3; i++) line(s, wx - 1 + i, wy + 3 + i * 2, wx - 5 + i, wy + 5 + i * 2, C.brown1) // the bars
+    },
+    head: (s, x, y, p) => {
+        // the crest: long red feathers swept back from the brow
+        for (let i = 0; i < 4; i++) {
+            line(s, x + 1 - i, y - 8 + i, x - 6 - i * 2, y - 11 + i * 2, i & 1 ? C.red1 : C.red2)
+            px(s, x - 7 - i * 2, y - 11 + i * 2, i & 1 ? C.red2 : C.red3)
+        }
+        // the face, sharp, lit on the brow and cheek
+        ellipse(s, x + 1, y - 4, 3.5, 4, C.skin1)
+        line(s, x, y - 7, x + 3, y - 7, C.skin2)
+        px(s, x + 3, y - 3, C.skin2)
+        px(s, x + 5, y - 4, C.skin1) // the nose
+        rect(s, x - 2, y - 8, 5, 2, C.red2) // the crest where it meets the brow
+        line(s, x - 2, y - 8, x + 2, y - 8, C.red3)
+        // a bird's eye, gold round a black pupil, and blue paint under it
+        px(s, x + 2, y - 5, C.gold3)
+        eyes(s, x + 3, y - 5, C.ink, p)
+        line(s, x + 1, y - 3, x + 3, y - 3, C.blue2)
+        px(s, x + 3, y - 1, C.skin0) // the mouth
+        px(s, x - 1, y - 3, C.gold2) // a gold ring in the ear
     },
     torso: (s, x, y) => {
-        tri(s, x - 5, y, x + 5, y, x, y + 10, C.stone2)
-        tri(s, x - 5, y, x, y, x, y + 10, C.stone1)
-        line(s, x - 1, y + 1, x + 2, y + 6, C.cyan)
-        px(s, x + 1, y + 3, C.white)
-        px(s, x + 3, y + 1, C.stone3)
+        // a feathered breast, scalloped pale, a strap across it with a gold buckle
+        rect(s, x - 3, y, 7, 8, C.brown2)
+        rect(s, x - 3, y, 2, 8, C.brown1)
+        for (let i = 0; i < 3; i++) { px(s, x + 1, y + 2 + i * 2, C.bone1); px(s, x + 3, y + 1 + i * 2, C.bone1); px(s, x + 2, y + 3 + i * 2, C.brown3) }
+        line(s, x - 3, y + 1, x + 3, y + 6, C.brown0)
+        px(s, x, y + 3, C.gold2)
+        // a ruff of red at the neck
+        rect(s, x - 2, y - 1, 5, 1, C.red1)
+        px(s, x + 1, y - 1, C.red2)
     },
-    lower: (s, x, hipY, p, t) => {
-        // a tail of wind instead of legs, hovering
-        const k = Math.floor(t * 8) & 3
-        for (let i = 0; i < 7; i++) {
-            const w = Math.max(0, 3 - (i >> 1))
-            const sx = x - (i >> 1) + ((i + k) & 1)
-            rect(s, sx - w, hipY + 2 + i, w * 2 + 1, 1, i < 3 ? C.haze : C.night3)
+    lower: (s, x, hipY) => {
+        // bird legs: feathered thighs, bare yellow shanks bending back at the hock, talons
+        for (const far of [true, false]) {
+            const fx = far ? J.bfx : J.ffx
+            const fy = far ? J.bfy : J.ffy
+            ellipse(s, x + (far ? -1 : 1), hipY + 2, 2.5, 2.5, far ? C.brown1 : C.brown2)
+            const hx = fx - 1
+            const hy = fy - 3
+            line(s, x + (far ? -1 : 1), hipY + 4, hx, hy, far ? C.gold0 : C.gold1)
+            line(s, hx, hy, fx, fy - 1, far ? C.gold0 : C.gold1)
+            // three toes forward, one back, black claws
+            line(s, fx, fy, fx + 2, fy, far ? C.gold0 : C.gold1)
+            px(s, fx + 3, fy, C.ink); px(s, fx - 1, fy, C.ink)
         }
-        px(s, x - 4, hipY + 9, C.frost)
     },
-    pants: C.haze, pantsDk: C.night3, boot: C.haze, bootHi: C.frost,
-    arm: C.stone2, armLow: C.stone3, armBack: C.stone1, armBackLow: C.stone2, hand: C.cyan,
-    blade: M.ice, haft: M.obsidian, gem: M.ice, gemStyle: Gem.Crystal, accent: C.cyan,
+    pants: C.brown2, pantsDk: C.brown1, boot: C.gold1, bootHi: C.gold2,
+    arm: C.brown2, armLow: C.skin1, armBack: C.brown1, armBackLow: C.skin0, hand: C.skin1,
+    blade: [C.steel1, C.steel2, C.steel3], haft: [C.bone0, C.bone1, C.white], gem: M.ice, gemStyle: Gem.Crystal, accent: C.red3
+}
+
+// 8 · The Shattered Sky — Squall Caller (caster): a priest of the storm in deep blue, hooded, a gold
+// beaked mask with eyes lit cyan, white feathers blowing off the hood, wind-scarves streaming back,
+// calling the squall down on a staff of pale wood crowned with a shard of lightning-glass.
+const squallCaller: WorldSkin = {
+    legLen: 7, torsoLen: 8,
+    skin: [C.skin0, C.skin1, C.skin2],
+    back: (s, x, y, _p, t) => {
+        // the wind-scarves, streaming back and snapping
+        const f = Math.floor(t * 6) % 3
+        for (let i = 0; i < 2; i++) {
+            const y0 = y + 1 + i * 3
+            for (let k = 0; k < 9; k++) {
+                const wy = y0 + Math.round(Math.sin((k + f * 2) * 0.9 + i) * 1)
+                rect(s, x - 3 - k, wy, 1, 2, k > 6 ? C.steel3 : i ? C.frost : C.white)
+            }
+        }
+    },
+    head: (s, x, y, p) => {
+        // the hood, peaked, lit blue along its rim
+        ellipse(s, x, y - 5, 4.5, 5, C.blue0)
+        tri(s, x - 4, y - 7, x, y - 10, x - 6, y - 11, C.blue0)
+        line(s, x - 4, y - 9, x + 3, y - 9, C.blue2)
+        line(s, x + 3, y - 9, x + 4, y - 4, C.blue1)
+        // feathers blowing off the hood
+        for (let i = 0; i < 3; i++) { line(s, x - 3 - i, y - 10 + i, x - 7 - i * 2, y - 12 + i * 2, i & 1 ? C.frost : C.white) }
+        // the beaked mask, gold, hooked, the eye lit through it
+        rect(s, x, y - 7, 4, 6, C.gold1)
+        line(s, x, y - 7, x + 3, y - 7, C.gold3)
+        poly(s, [3, -6, 8, -4, 7, -2, 3, -2], x, y, C.gold2)
+        line(s, x + 3, y - 6, x + 7, y - 4, C.gold3)
+        px(s, x + 7, y - 2, C.gold0) // the hook
+        px(s, x + 1, y - 5, C.ink)
+        eyes(s, x + 2, y - 5, C.cyan, p)
+    },
+    torso: (s, x, y) => {
+        rect(s, x - 3, y, 7, 8, C.blue1)
+        rect(s, x - 3, y, 2, 8, C.blue0)
+        line(s, x + 3, y, x + 3, y + 7, C.blue2)
+        // the scarf round the shoulders and a gold clasp
+        rect(s, x - 3, y, 7, 2, C.frost)
+        line(s, x - 3, y, x + 3, y, C.white)
+        px(s, x + 1, y + 1, C.gold2)
+        // the sash with a lightning mark stitched on it
+        rect(s, x - 3, y + 6, 7, 1, C.gold1)
+        line(s, x + 1, y + 2, x, y + 4, C.gold2); px(s, x + 1, y + 5, C.gold2)
+    },
+    lower: (s, x, hipY, _p, t) => robeSkirt(s, x, hipY, J.oy - 1, [C.blue0, C.blue1, C.blue2], C.frost, -1 - (Math.floor(t * 3) & 1), C.gold1, 0),
+    pants: C.blue1, pantsDk: C.blue0, boot: C.gold1, bootHi: C.gold2,
+    arm: C.blue1, armLow: C.blue1, armBack: C.blue0, armBackLow: C.blue0, hand: C.skin1,
+    blade: M.ice, haft: [C.bone0, C.bone1, C.white], gem: [C.blue2, C.cyan, C.white], gemStyle: Gem.Crystal, accent: C.cyan,
     ambient: (dst, t) => {
-        const k = step(t, 10, 6)
-        if (k === 0) { dst.set(fxX(J.bx + 2), fxY(J.topY - 12), C.white); dst.set(fxX(J.bx + 3), fxY(J.topY - 11), C.cyan) }
+        // gusts whipping past it
+        const k = step(t, 10, 8)
+        for (let i = 0; i < 2; i++) {
+            const gx = J.bx + 8 - ((k * 3 + i * 11) % 20)
+            const gy = J.topY - 4 + i * 9
+            dst.set(fxX(gx), fxY(gy), C.frost); dst.set(fxX(gx - 1), fxY(gy), C.frost); dst.set(fxX(gx - 2), fxY(gy), C.steel3)
+        }
     }
 }
 
@@ -1359,7 +1595,8 @@ export const WORLD_ROSTERS: readonly Readonly<Record<EnemyWeapon, WorldSkin>>[] 
     { sword: drownedSailor, axe: barnacleBrute, bow: harpoonSiren, staff: tidePriestess },
     { sword: hollowAcolyte, axe: spireGargoyle, bow: spellboundConstruct, staff: riftboundMagus },
     { sword: restlessLegionnaire, axe: barrowGhoul, bow: boneArcher, staff: ossuaryPriest },
-    one(skyshardWisp), one(unravelledKnight), one(voidThrall)
+    { sword: skyshardWisp, axe: thunderheadGolem, bow: harpyRaider, staff: squallCaller },
+    one(unravelledKnight), one(voidThrall)
 ]
 
 /** Which of a world's roster styles each rig draws. */
