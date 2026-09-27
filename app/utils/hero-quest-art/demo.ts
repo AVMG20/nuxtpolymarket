@@ -323,6 +323,8 @@ export class BattleDemo {
     private waveTimer = 0
     /** Seconds left in the march to the next battle; 0 when a fight is on. */
     private march = 0
+    /** A boss waiting out the march, to make its entrance once the party stands on its ground. */
+    private bossDue: Unit | null = null
     /** How far the world has travelled, in px — what every scenery layer parallaxes against. */
     private scroll = 0
     private numCursor = 0
@@ -390,6 +392,7 @@ export class BattleDemo {
         const bossLabels = ['BOSS', 'SUPER BOSS']
         this.labels = Array.from({ length: 99 }, (_, i) => `${name}  WAVE ${i + 1}${i % 2 ? '  ' + bossLabels[(i >> 1) % bossLabels.length] : ''}`)
         this.wave = 0
+        this.bossDue = null
         this.spawnWave()
         this.particles.clear()
         for (const f of this.fx) f.live = false
@@ -437,6 +440,8 @@ export class BattleDemo {
             if (u.boss && active) {
                 u.frames = this.bossFrames[which]!
                 u.hp = which & 1 ? 14 : 10
+                // sliding in with the scroll would play its entry off-screen, so it waits for the march to end
+                if (this.march > 0) { u.state = U.Gone; this.bossDue = u }
             }
         }
         this.wave++
@@ -473,6 +478,7 @@ export class BattleDemo {
             u.ox = 0
             if (i < PARTY && u.state === U.Move) { u.state = U.Idle; u.t = 0; u.wait = 0.3 + Math.random() * 0.8 }
         }
+        if (this.bossDue) { this.bossDue.state = U.Entry; this.bossDue.t = 0; this.bossDue = null }
     }
 
     private target(side: 0 | 1): Unit | null {
