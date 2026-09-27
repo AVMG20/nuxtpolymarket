@@ -6,7 +6,7 @@
 //
 // IDs are paths — `hero/class_warrior/attack` — and become the exported file names.
 
-import { ANIM_FPS, frameCount } from './anim'
+import { ANIM_FPS, AUTHORED_FPS, frameCount } from './anim'
 import { C, CLEAR, RARITY_COLORS, TRAIT_GRADES, SCENERY, SCENERY_RAMPS, type ColorName } from './palette'
 import { drawText } from './font'
 import type { Surface } from './surface'
@@ -34,7 +34,7 @@ import { ARTIFACTS } from '../../../shared/utils/hero-quest/content/artifacts'
 import { GEAR } from '../../../shared/utils/hero-quest/content/gear'
 import { NUMBER_STYLES, drawNumberPop, drawNumberAtlas, numberAtlasWidth, numberHeight, drawPartyFrame, drawCooldown, drawEnrageTimer, drawAddWaveSpawn, drawPhaseShift, drawRevealBase, REVEAL_LUT, REVEAL_SIZE } from './feedback'
 import { Surface as Surf, blit, rect } from './surface'
-import { WORLD_SCENES, SW, SH, BG_FRAMES, composeScene } from './scenery'
+import { WORLD_SCENES, SW, SH, BG_LOOP, composeScene } from './scenery'
 import { drawWorldMap, TAB_BACKGROUNDS, CHROME, drawLogo, drawAppIcon, drawSplash } from './ui-art'
 import { GILDED_WARLORD, DRILLMASTER, BURIED_COLOSSUS, DIG_SCARAB, RELIC_SHARD, ANVIL_HEART, RAMPANT, TRAINING_DUMMY } from './raids'
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
@@ -338,9 +338,10 @@ function frameAssets(): ArtAsset[] {
     return out
 }
 
+/** A fixed-frame-count asset (a UI or feedback loop): its frames were counted at the authored rate, so it plays at `fps` = that rate unless the caller scales its count to another. */
 function anim(id: string, group: ArtGroup, section: string, label: string, w: number, h: number, frames: number, loop: boolean,
-    draw: (dst: Surface, t: number, f: number) => void, underlay?: (dst: Surface) => void): ArtAsset {
-    return { id, group, section, label, w, h, frames, fps: ANIM_FPS, loop, render: (dst, f) => draw(dst, f / ANIM_FPS, f), underlay }
+    draw: (dst: Surface, t: number, f: number) => void, underlay?: (dst: Surface) => void, fps = AUTHORED_FPS): ArtAsset {
+    return { id, group, section, label, w, h, frames, fps, loop, render: (dst, f) => draw(dst, f / fps, f), underlay }
 }
 
 const REVEAL_TMP = new Surf(REVEAL_SIZE, REVEAL_SIZE, 0, 0)
@@ -379,8 +380,11 @@ function revealAssets(): ArtAsset[] {
 }
 
 function backgroundAssets(): ArtAsset[] {
+    // the 1.6 s loop baked at ANIM_FPS, so smooth motion gets its in-betweens at the same speed;
+    // what steps on the loop's 16 frames (loopFrame) still steps on them
+    const frames = Math.round(BG_LOOP * ANIM_FPS)
     return WORLD_SCENES.map((scene, i) => ({
-        ...anim(`bg/world/${scene.id}`, 'backgrounds', 'World backgrounds', `${WORLDS[i]!.index}. ${WORLDS[i]!.name}`, SW, SH, BG_FRAMES, true, (d, t) => composeScene(scene, d, 0, t)),
+        ...anim(`bg/world/${scene.id}`, 'backgrounds', 'World backgrounds', `${WORLDS[i]!.index}. ${WORLDS[i]!.name}`, SW, SH, frames, true, (d, t) => composeScene(scene, d, 0, t), undefined, ANIM_FPS),
         opaque: true
     }))
 }

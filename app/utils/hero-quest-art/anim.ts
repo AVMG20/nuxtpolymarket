@@ -12,6 +12,13 @@
 // eslint-disable-next-line import/no-mutable-exports
 export let ANIM_FPS = 30
 
+/**
+ * The rate art with a fixed frame count was authored at, and still plays at: world backgrounds
+ * (a 16-frame loop), UI and feedback loops. They stay at 10 whatever ANIM_FPS is, or a higher
+ * rate squeezes their loops and they run too fast.
+ */
+export const AUTHORED_FPS = 10
+
 /** Resample every animation at `fps`. Dev comparison only; assets built before the call keep their old rate, so rebuild them (`resetArt`). */
 export function setAnimFps(fps: number): void {
     ANIM_FPS = fps

@@ -57,8 +57,8 @@ export const VL = {
 }
 
 /**
- * The motion clock. Exported strips and the gallery sample effects and scenery on the 10 fps
- * frame grid, so a baked loop closes and matches the sprites' held frames. The live stage turns
+ * The motion clock. Exported strips and the gallery sample effects on the ANIM_FPS frame grid
+ * and scenery on its authored 10 fps loop, so a baked loop closes and matches the held frames. The live stage turns
  * `smooth` on while it draws them, so they move at its 60 Hz instead, against the stepped
  * bodies. Only the live stage sets it, and only around its own draw calls.
  */

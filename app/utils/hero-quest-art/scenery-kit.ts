@@ -6,14 +6,14 @@ import { C, shadeLut } from './palette'
 import type { Surface } from './surface'
 import { rect, line, disc, tri, dither, ditherDisc, hash2 } from './surface'
 import { clock, qt } from './vfx-kit'
-import { ANIM_FPS } from './anim'
+import { AUTHORED_FPS } from './anim'
 
 export const SW = 320
 export const SH = 180
 /** Frames in a world background's loop; every motion in a scene must repeat within it. */
 export const BG_FRAMES = 16
-/** The loop in seconds. A scene's motion is written as phase = t / BG_LOOP so it closes. */
-export const BG_LOOP = BG_FRAMES / ANIM_FPS
+/** The loop in seconds, at the authored 10 fps. A scene's motion is written as phase = t / BG_LOOP so it closes. */
+export const BG_LOOP = BG_FRAMES / AUTHORED_FPS
 /** The floor line characters stand on. */
 export const FLOOR_Y = 150
 /**
