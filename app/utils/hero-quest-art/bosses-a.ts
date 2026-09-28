@@ -9,7 +9,7 @@ import type { Mat } from './weapons'
 import type { Surface } from './surface'
 import {
     B, Entry, bossStates, withSpecial, spAttack, drive, finish, bz, ball, chain, spikes, mouth,
-    limbT, reach, elbow, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, arc, poly, q, wv, hash2
+    limbT, reach, elbow, waterline, drawPool, type Pool, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, arc, poly, q, wv, hash2
 } from './boss-kit'
 import { dome, ditherDisc } from './surface'
 import { blast, blob, shockRing } from './vfx-cinematic'
@@ -427,6 +427,8 @@ function ramHorn(s: Surface, cx: number, cy: number, r: number, w: number, m: Ma
 // the heart, where something green still glows.
 
 const LEECH_SKIN: Mat = [C.olive0, C.olive1, C.olive2]
+/** The black water she rears out of. */
+const LEECH_POOL: Pool = { dx: -8, rx: 32, ry: 3 }
 const LEECH_LIP: Mat = [C.red0, C.red1, C.red2]
 const BROOD: Mat = [C.olive0, C.olive1, C.orange]
 const BARK_OLD: Mat = [C.brown0, C.brown1, C.brown2]
@@ -583,11 +585,12 @@ export const MOTHER_LEECH: CreatureDef = {
             px(s, ex, ey - 1, eye)
         }
         finish(s, Entry.Rise, 0)
+        waterline(s, LEECH_POOL)
     },
     fx(dst, st, t, x, y, dir) {
         // black water and the rest of the brood, un-outlined so she rises out of it
-        const rx = 32
-        ditherEllipse(dst, x - dir * 8, y - 1, rx, 3, C.void, 16)
+        const rx = LEECH_POOL.rx
+        drawPool(dst, LEECH_POOL, x, y, dir, C.void)
         ditherEllipse(dst, x - dir * 8, y - 2, rx - 5, 2, C.night0, 16)
         const k = fr(t, 10, 8)
         for (let i = 0; i < 6; i++) dst.set(x - dir * (8 - rx + 6 + ((i * 11 + k * 3) % (rx * 2 - 8))), y - 3, i & 1 ? C.teal1 : C.teal2)
@@ -2232,6 +2235,9 @@ const KRAKENS_EMBRACE: BossSpecial = {
     }
 }
 
+/** The water she rises out of, spread across the plaza. */
+const MAERITH_POOL: Pool = { dx: 0, rx: 56, ry: 3 }
+
 export const QUEEN_MAERITH: CreatureDef = {
     name: 'Queen Maerith of the Deep', size: 256, shadow: 0, accent: C.teal3,
     states: withSpecial(bossStates(1.5, 2.0, 2.4), 2.8),
@@ -2433,9 +2439,10 @@ export const QUEEN_MAERITH: CreatureDef = {
             px(s, R(tx + Math.cos(a + 1.2)), R(ty + Math.sin(a + 1.2)), C.white)
         }
         finish(s, Entry.Rise, 0)
+        waterline(s, MAERITH_POOL)
     },
     fx(dst, st, t, x, y, dir) {
-        ditherEllipse(dst, x, y - 1, 56, 3, C.teal0, 16)
+        drawPool(dst, MAERITH_POOL, x, y, dir, C.teal0)
         const k = fr(t, 10, 10)
         for (let i = 0; i < 6; i++) dst.set(x + dir * (-50 + ((i * 19 + k * 7) % 100)), y - 3, C.teal3)
         for (let i = 0; i < 4; i++) dst.set(x + dir * (-24 + i * 14), y - 100 - ((k * 4 + i * 11) % 30), C.teal3) // rising bubbles

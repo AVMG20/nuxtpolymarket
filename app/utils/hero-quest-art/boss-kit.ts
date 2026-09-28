@@ -116,6 +116,41 @@ export function finish(s: Surface, style: Entry, sinkOnDeath = 6): void {
     if (B.die > 0) shift(s, 0, Math.round(B.die * sinkOnDeath), s.ay)
 }
 
+/** A pool a boss rises out of: its centre `dx` from the anchor and its radii, as `ditherEllipse` fills it. */
+export interface Pool { dx: number, rx: number, ry: number }
+
+/** Paint a boss's pool into the scene, under its anchor (x, y) facing `dir`. */
+export function drawPool(dst: Surface, p: Pool, x: number, y: number, dir: number, c: number): void {
+    ditherEllipse(dst, x + dir * p.dx, y - 1, p.rx, p.ry, c, 16)
+}
+
+/**
+ * Cut a body off at the front rim of the pool it rises out of: in every column the pool spans,
+ * nothing below the rim survives, so the body goes into the water instead of on through it and
+ * out underneath. Call after `finish`, in the buffer's own facing-right space; the stamp's
+ * outline then lands on the rim, where the pool (drawn in `fx`, over the body) covers it.
+ */
+export function waterline(s: Surface, p: Pool): void {
+    const cx = s.ax + p.dx
+    const cy = s.ay - 1
+    const iry = Math.max(1, Math.floor(p.ry))
+    // walked from the front rim up: each row cuts only the columns the rows below it did not reach
+    for (let dy = iry; dy >= -iry; dy--) {
+        const half = rimHalf(p, dy)
+        const inner = dy < iry ? rimHalf(p, dy + 1) : -1
+        for (let x = cx - half; x <= cx + half; x++) {
+            if (x < 0 || x >= s.w || Math.abs(x - cx) <= inner) continue
+            for (let y = Math.max(0, cy + dy); y < s.h; y++) s.data[y * s.w + x] = 0
+        }
+    }
+}
+
+/** Half the width of a pool's row `dy` from its centre, as `ditherEllipse` fills it. */
+function rimHalf(p: Pool, dy: number): number {
+    const k = 1 - (dy * dy) / ((p.ry + 0.5) * (p.ry + 0.5))
+    return Math.floor(p.rx * Math.sqrt(Math.max(0, k)) + 0.35)
+}
+
 /** Shift every pixel by (dx, dy) in place; pixels pushed below `floor` are cut. */
 export function shift(s: Surface, dx: number, dy: number, floor: number): void {
     if (dx === 0 && dy === 0) return
