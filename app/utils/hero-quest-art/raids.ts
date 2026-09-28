@@ -11,7 +11,8 @@
 //                    die, only land, stand and take hits (raid-dummy.ts)
 //   reinforced_boss  Dig-site: the Deepcoil, a tunnel wyrm rising out of the dig in an S, and its
 //                    two add waves, burrow grubs and ore beetles (raid-wyrm.ts)
-//   phased_boss      Forge: the Anvil Heart, a walking forge hotter each phase (raid-anvil.ts)
+//   three bosses     Forge: back to back, the forge's ranks, the Apprentice, the Journeyman and the
+//                    Forgemaster (raid-forge.ts)
 //   rampaging_boss   Trait: the Rampant, unkillable: no Death ever plays and no HP bar exists, so
 //                    its level is drawn on the body, each tier bigger, more horned, more lit
 //                    (raid-rampant.ts)
@@ -24,7 +25,7 @@ import { rect, px, disc, q } from './boss-kit'
 export { GILDED_WARLORD } from './raid-warlord'
 export { GREAT_DUMMY, DUMMY_IMPACT } from './raid-dummy'
 export { DEEPCOIL, BURROW_GRUB, ORE_BEETLE } from './raid-wyrm'
-export { ANVIL_HEART } from './raid-anvil'
+export { FORGE_APPRENTICE, FORGE_JOURNEYMAN, FORGE_MASTER } from './raid-forge'
 export { RAMPANT, RAMPAGE_TIERS, RAMPAGE_ROAR, RAMPAGE_SLAM } from './raid-rampant'
 
 const R = Math.round

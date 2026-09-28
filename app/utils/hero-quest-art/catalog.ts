@@ -38,7 +38,7 @@ import { Surface as Surf, blit, rect } from './surface'
 import { WORLD_SCENES, SW, SH, BG_LOOP, composeScene } from './scenery'
 import { drawWorldMap, TAB_BACKGROUNDS, CHROME, drawSplash } from './ui-art'
 import { drawLogo, LOGO_W, LOGO_H, LOGO_LOOP } from './logos'
-import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, BURROW_GRUB, ORE_BEETLE, ANVIL_HEART, RAMPANT, TRAINING_DUMMY } from './raids'
+import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, BURROW_GRUB, ORE_BEETLE, FORGE_APPRENTICE, FORGE_JOURNEYMAN, FORGE_MASTER, RAMPANT, TRAINING_DUMMY } from './raids'
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
@@ -60,7 +60,8 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     // split out of Raids & Arena to lock on their own, ahead of the other raids
     { id: 'guild_raid', label: 'Guild Raid', locked: true },
     { id: 'dig_site_raid', label: 'Dig-site Raid', locked: true },
-    { id: 'trait_raid', label: 'Trait Raid', locked: true },
+    // unlocked again 2026-09-29 for its specials (the user)
+    { id: 'trait_raid', label: 'Trait Raid' },
     { id: 'training_raid', label: 'Training Grounds Raid', locked: true },
     { id: 'vfx', label: 'Ability VFX' },
     { id: 'feedback', label: 'Combat feedback' },
@@ -107,7 +108,7 @@ export interface ArtAsset {
  * 2026-09-28), so the next round is 5; every earlier round is recorded in art-style.md.
  */
 export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    { n: 5, label: 'Raid bosses', prefixes: ['raid/forge'] }
+    { n: 5, label: 'Raid bosses', prefixes: ['raid/forge', 'raid/trait'] }
 ]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
@@ -234,6 +235,9 @@ function bossAssets(): ArtAsset[] {
     return out
 }
 
+/** The Forge raid's bosses in the order they come, keyed as their assets are (`raid/forge/<id>/…`). */
+export const FORGE_BOSSES = [['apprentice', FORGE_APPRENTICE], ['journeyman', FORGE_JOURNEYMAN], ['master', FORGE_MASTER]] as const
+
 function raidAssets(): ArtAsset[] {
     const out: ArtAsset[] = []
     const five = (id: string, section: string, def: CreatureDef, group: ArtGroup = 'raids') => {
@@ -261,10 +265,8 @@ function raidAssets(): ArtAsset[] {
     for (const [id, def] of [['burrow_grub', BURROW_GRUB], ['ore_beetle', ORE_BEETLE]] as const) {
         for (const st of ['idle', 'attack', 'death']) out.push(creatureAsset(`raid/dig_site/add_${id}/${st}`, 'dig_site_raid', 'Dig-site Raid · add wave', `${def.name} — ${TITLE[st]}`, def, st, -1))
     }
-    ANVIL_HEART.forEach((def, i) => {
-        const states = i === 0 ? ['entry', 'idle', 'attack', 'hit'] : i === 2 ? ['idle', 'attack', 'hit', 'death'] : ['idle', 'attack', 'hit']
-        for (const st of states) out.push(creatureAsset(`raid/forge/phase${i + 1}/${st}`, 'raids', `Forge Raid · phased_boss — phase ${i + 1}`, `${def.name} — ${TITLE[st]}`, def, st, -1))
-    })
+    // the Forge's three bosses, back to back
+    FORGE_BOSSES.forEach(([id, def], i) => five(`forge/${id}`, `Forge Raid · boss ${i + 1} of 3`, def))
     RAMPANT.forEach((def, i) => {
         const states = i < RAMPANT.length - 1 ? ['idle', 'attack', 'hit', 'escalate'] : ['idle', 'attack', 'hit']
         for (const st of states) out.push(creatureAsset(`raid/trait/rampage${i + 1}/${st}`, 'trait_raid', `Trait Raid · rampaging_boss — rampage ${i + 1}`, `${def.name} — ${st === 'escalate' ? 'Escalation' : TITLE[st]}`, def, st, -1))

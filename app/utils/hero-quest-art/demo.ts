@@ -41,7 +41,7 @@ import { C, CLEAR, RAMP, type RampName } from './palette'
 import { Surface, bayer, ring } from './surface'
 import { textOut } from './font'
 import { Particles } from './particles'
-import { artById, bake, type Baked } from './catalog'
+import { artById, bake, FORGE_BOSSES, type Baked } from './catalog'
 import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
@@ -57,7 +57,7 @@ import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 import { specialState, specialsOf, type BossSpecial } from './creature'
 import { BOSSES_A } from './bosses-a'
 import { BOSSES_B } from './bosses-b'
-import { GILDED_WARLORD, GREAT_DUMMY, DUMMY_IMPACT, DEEPCOIL, ANVIL_HEART, RAMPANT, RAMPAGE_ROAR, RAMPAGE_SLAM } from './raids'
+import { GILDED_WARLORD, GREAT_DUMMY, DUMMY_IMPACT, DEEPCOIL, RAMPANT, RAMPAGE_ROAR, RAMPAGE_SLAM } from './raids'
 import { STAGE } from './special-kit'
 import { ENTRY_SETTLED } from './boss-kit'
 
@@ -576,8 +576,9 @@ export class BattleDemo {
         let tables: Baked[][]
         let name: string
         if (id === 'forge') {
-            tables = [1, 2, 3].map(p => table(`raid/forge/phase${p}`, p === 1 ? 'raid/forge/phase1/entry' : null, 'raid/forge/phase3/death'))
-            name = ANVIL_HEART[0].name
+            // three bosses back to back, each a table of its own
+            tables = FORGE_BOSSES.map(([b]) => table(`raid/forge/${b}`, `raid/forge/${b}/entry`, `raid/forge/${b}/death`))
+            name = FORGE_BOSSES[0][1].name
         } else if (id === 'trait') {
             tables = RAMPANT.map((_, i) => table(`raid/trait/rampage${i + 1}`, i < RAMPANT.length - 1 ? `raid/trait/rampage${i + 1}/escalate` : null, null))
             name = RAMPANT[0]!.name
@@ -598,23 +599,13 @@ export class BattleDemo {
     }
 
     /**
-     * A raid boss takes `dmg`, before the kill check: the Forge's Anvil Heart heats into its next phase
-     * at two thirds and a third of its HP; the Trait raid's Rampant never falls, and every
+     * A raid boss takes `dmg`, before the kill check: the Trait raid's Rampant never falls, and every
      * RAMPAGE_EVERY hits it plays its escalation beat, untouchable, and comes out a tier up.
      */
     private raidHurt(u: Unit, dmg: number): void {
         const r = this.raid
         if (!r) return
-        if (r.id === 'forge') {
-            const phase = u.hp > TOUGHNESS.raid * 2 / 3 ? 0 : u.hp > TOUGHNESS.raid / 3 ? 1 : 2
-            if (phase > r.at) {
-                r.at = phase
-                u.frames = r.tables[phase]!
-                this.announce(`PHASE ${phase + 1}`)
-                this.flashFor(0.6, C.orange)
-                this.shake(JUICE.bossDown.shake, 0.4)
-            }
-        } else if (r.id === 'training_grounds') {
+        if (r.id === 'training_grounds') {
             u.hp = Math.max(1, u.hp)
         } else if (r.id === 'trait') {
             u.hp = Math.max(1, u.hp)
@@ -1105,7 +1096,21 @@ export class BattleDemo {
                 case U.Death: {
                     // it staggers and falls as authored, then shatters where it would dissolve
                     const fs = fadeStart(b)
-                    if (frameIndex(b, u.t) >= fs || u.t >= dur) this.shatter(u, b, b.frames[Math.max(0, fs - 1)]!)
+                    if (frameIndex(b, u.t) >= fs || u.t >= dur) {
+                        this.shatter(u, b, b.frames[Math.max(0, fs - 1)]!)
+                        // the Forge: as one of its bosses falls, the next comes out
+                        const r = this.raid
+                        if (u.boss && r?.id === 'forge' && r.at < r.tables.length - 1) {
+                            r.at++
+                            u.frames = r.tables[r.at]!
+                            u.state = U.Entry
+                            u.t = 0
+                            u.hp = TOUGHNESS.raid
+                            this.bossName = FORGE_BOSSES[r.at]![1].name.toUpperCase()
+                            this.nameT = -1
+                            this.nameFor = NAME_BASE + NAME_PER_CHAR * this.bossName.length
+                        }
+                    }
                     break
                 }
                 case U.Entry:
