@@ -20,7 +20,7 @@ export interface TownBuildingView {
     district: { residents: number, jobs: number, employed: number } | null
     /**
      * Durations quoted by the server, which is the only place that knows this
-     * town's mood and research. Never recompute these on the client.
+     * town's mood and monuments. Never recompute these on the client.
      */
     jobMs: number | null
     nextUpgradeMs: number | null
@@ -60,7 +60,7 @@ export interface TownCatalogEntry {
     emoji: string
     color: number
     tier: number
-    kind: 'road' | 'housing' | 'civic' | 'storage' | 'industry'
+    kind: 'road' | 'housing' | 'civic' | 'storage' | 'industry' | 'monument'
     description: string
     cost: { coins: number, resources: Record<string, number> }
     buildMs: number
@@ -77,6 +77,8 @@ export interface TownCatalogEntry {
     maxLevel: number
     /** The most of this building a town may own; unset means no limit. */
     maxCount?: number
+    /** Tiles per side of its square footprint; unset means one. */
+    size?: number
 }
 
 export interface TownResourceView {
@@ -145,25 +147,6 @@ export interface TownMoodView {
     storage: number
 }
 
-export interface TownResearchProject {
-    id: string
-    branch: string
-    step: number
-    name: string
-    description: string
-    durationMs: number
-    coins: number
-    resources: Record<string, number>
-    done: boolean
-    unlocked: boolean
-}
-
-export interface TownResearchBoard {
-    active: { researchId: string, completesAt: number } | null
-    done: string[]
-    projects: TownResearchProject[]
-}
-
 export interface TownState {
     initialized: boolean
     serverNow: number
@@ -191,6 +174,7 @@ export interface TownState {
         parks: number
         industry: number
         crowding: number
+        monuments: number
         layout: { parks: number, industry: number, residents: number, residentsWithPark: number, residentsWithIndustry: number }
     }
     mood?: TownMoodView
@@ -208,6 +192,11 @@ export interface TownState {
     world?: { towns: TownNeighbourPlot[], listings: { plotId: string, x: number, y: number, ownerName: string, price: number }[] }
     plotRefundShare?: number
     builders?: { owned: number, busy: number, nextGemCost: number | null }
+    /** The building the monument crew is raising right now, if any. */
+    monumentJob?: string | null
+    monumentBonus?: { output: number, supplyTiles: number, buildTime: number, popPerHouseLevel: number, happiness: number, storage: number }
+    /** Monument stages carried over from research, by monument id. */
+    monumentCredit?: Record<string, number>
     buildings?: TownBuildingView[]
     inventory?: Record<string, number>
     myOrders?: TownOrderView[]
@@ -241,16 +230,10 @@ export const useTown = () => {
     const milestones = computed(() => state.value?.milestones ?? [])
     /** Build crews: how many the town owns, how many are on a job, what the next costs. */
     const builders = computed(() => state.value?.builders ?? { owned: 3, busy: 0, nextGemCost: null })
-
-    // Research is its own endpoint: the board is long and changes rarely, so it
-    // has no business being refetched with every settle. It is still fetched
-    // once on load, because the dock shows a dot while a project is running and
-    // that has to be right before anybody opens the window.
-    const { data: researchBoard, refresh: refreshResearch } = useAsyncData<TownResearchBoard | null>(
-        'town-research',
-        () => $fetch<TownResearchBoard>('/api/town/research' as string),
-        { server: false, default: () => null }
-    )
+    /** The monument crew's one job: the id of the monument going up, or null while it is free. */
+    const monumentJob = computed(() => state.value?.monumentJob ?? null)
+    /** Stages carried over from research: placing that monument puts it up at this stage, free. */
+    const monumentCredit = computed(() => state.value?.monumentCredit ?? {})
     const buildersFree = computed(() => Math.max(0, builders.value.owned - builders.value.busy))
     const claimableMilestones = computed(() => milestones.value.filter(m => m.complete && !m.claimed))
     const unlockedTiers = computed(() => new Set(state.value?.unlockedTiers ?? [0, 1]))
@@ -324,8 +307,8 @@ export const useTown = () => {
         constants,
         milestones,
         builders,
-        researchBoard,
-        refreshResearch,
+        monumentJob,
+        monumentCredit,
         buildersFree,
         claimableMilestones,
         unlockedTiers,
@@ -364,7 +347,6 @@ export const useTown = () => {
         buyPlotFromPlayer: (plotId: string, expectedPrice: number) => call<{ plotId: string, price: number }>('/api/town/plot/buy-from-player', { plotId, expectedPrice }),
         buyPlot: (x: number, y: number) => call<{ plotId: string, price: number }>('/api/town/plot/buy', { x, y }),
         hireBuilder: () => call<{ builders: number, gems: number }>('/api/town/builder'),
-        startResearch: (researchId: string) => call<{ researchId: string, completesAt: number }>('/api/town/research/start', { researchId }),
         sellToFloor: (resource: string, quantity: number) =>
             call<{ total: number, quantity: number, toPlayers: number, toHall: number, filledByPlayers: number }>('/api/town/market/sell-floor', { resource, quantity }),
         convertJewels: (gems: number) => call<{ gems: number, jewels: number }>('/api/town/market/convert', { gems }),

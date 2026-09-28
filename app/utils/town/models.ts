@@ -8,12 +8,14 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { TownBuildingId } from '#shared/utils/gamelogic/town'
-import { townVisualLevel, townVisualStage } from './appearance'
+import { townSceneLevel, townVisualStage } from './appearance'
 import { paintAs, shade, type ModelSpec, type Part } from './kit'
 import { bakeryModel, emporiumModel, houseModel } from './homes'
 import { INDUSTRY_MODELS } from './industry'
 import { RESOURCE_MODELS } from './resources'
 import { CIVIC_MODELS } from './civic'
+import { MONUMENT_MODELS } from './monuments'
+import { isTownMonumentId } from '#shared/utils/gamelogic/town-monuments'
 
 export { shade }
 export type { Part }
@@ -151,7 +153,8 @@ const MODELS: Partial<Record<TownBuildingId, TownModelFactory>> = {
     emporium: emporiumModel,
     ...RESOURCE_MODELS,
     ...INDUSTRY_MODELS,
-    ...CIVIC_MODELS
+    ...CIVIC_MODELS,
+    ...MONUMENT_MODELS
 }
 
 /** How many colour variants a building has; the scene picks one per tile. */
@@ -166,15 +169,18 @@ export function townModelSpec(type: TownBuildingId, stage: number, variant = 0):
 
 /** A fresh instance of a building model; geometry and static materials are shared. */
 export function createBuildingModel(type: TownBuildingId, requestedLevel = 1, variant = 0): THREE.Group {
-    const level = type === 'road' ? 1 : townVisualLevel(requestedLevel)
-    const look = ((Math.floor(variant) % TOWN_MODEL_VARIANTS) + TOWN_MODEL_VARIANTS) % TOWN_MODEL_VARIANTS
+    const level = type === 'road' ? 1 : townSceneLevel(type, requestedLevel)
+    // A monument draws every stage as its own look and wears one colour scheme.
+    const monument = isTownMonumentId(type)
+    const stage = monument ? level : townVisualStage(level)
+    const look = monument ? 0 : ((Math.floor(variant) % TOWN_MODEL_VARIANTS) + TOWN_MODEL_VARIANTS) % TOWN_MODEL_VARIANTS
     const key = `${type}:${level}:${look}`
     let proto = prototypes.get(key)
     if (!proto) {
         // A building nobody has modelled yet borrows the park rather than crashing.
-        proto = buildTownModel(townModelSpec(type, townVisualStage(level), look))
+        proto = buildTownModel(townModelSpec(type, stage, look))
         proto.userData.visualLevel = level
-        proto.userData.visualStage = townVisualStage(level)
+        proto.userData.visualStage = stage
         proto.userData.height = new THREE.Box3().setFromObject(proto).max.y
         prototypes.set(key, proto)
     }

@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { TOWN_BUILDINGS, townBuildingMaxLevel } from '#shared/utils/gamelogic/town'
 import { createBuildingModel, TOWN_MODEL_VARIANTS } from '../../app/utils/town/models'
 import { TOWN_VISUAL_LEVELS, townVisualLevel, townVisualStage } from '../../app/utils/town/appearance'
+import { TOWN_MONUMENT_STAGES } from '#shared/utils/gamelogic/town-monuments'
 
 function signature(model: THREE.Group) {
     let vertices = 0
@@ -22,7 +23,10 @@ describe('Polytown building artwork', () => {
         expect([0, NaN, 3, 7, 12, 19, 500].map(townVisualLevel)).toEqual([1, 1, 1, 5, 10, 15, 20])
     })
 
-    for (const def of TOWN_BUILDINGS.filter(b => b.kind !== 'road')) {
+    const ORDINARY = TOWN_BUILDINGS.filter(b => b.kind !== 'road' && b.kind !== 'monument')
+    const MONUMENTS = TOWN_BUILDINGS.filter(b => b.kind === 'monument')
+
+    for (const def of ORDINARY) {
         it(`${def.name}: every look it can reach is distinct and stays on its tile`, () => {
             const signatures = new Set<string>()
             const looks = TOWN_VISUAL_LEVELS.filter(level => level <= townBuildingMaxLevel(def))
@@ -43,7 +47,25 @@ describe('Polytown building artwork', () => {
         })
     }
 
-    for (const def of TOWN_BUILDINGS.filter(b => b.kind !== 'road')) {
+    for (const def of MONUMENTS) {
+        it(`${def.name}: every stage is its own look and stays on its footprint`, () => {
+            const size = def.size ?? 1
+            const signatures = new Set<string>()
+            for (let stage = 0; stage <= TOWN_MONUMENT_STAGES; stage++) {
+                const model = createBuildingModel(def.id, stage)
+                const bounds = new THREE.Box3().setFromObject(model)
+                expect(bounds.max.y).toBeGreaterThan(0)
+                // Paved edge to edge, and nothing spills onto the next tile over.
+                expect(bounds.max.x - bounds.min.x).toBeGreaterThan(size - 0.05)
+                expect(Math.max(bounds.max.x, -bounds.min.x, bounds.max.z, -bounds.min.z)).toBeLessThanOrEqual(size / 2 + 0.04)
+                expect(model.userData.visualLevel).toBe(stage)
+                signatures.add(signature(model))
+            }
+            expect(signatures.size).toBe(TOWN_MONUMENT_STAGES + 1)
+        })
+    }
+
+    for (const def of ORDINARY) {
         it(`${def.name}: grows taller with every look`, () => {
             const heights = TOWN_VISUAL_LEVELS.filter(level => level <= townBuildingMaxLevel(def)).map(level => createBuildingModel(def.id, level).userData.height as number)
             heights.slice(1).forEach((height, i) => expect(height).toBeGreaterThan(heights[i]! + 0.05))

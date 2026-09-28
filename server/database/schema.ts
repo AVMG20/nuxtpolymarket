@@ -1767,9 +1767,12 @@ export const townState = pgTable('town_state', {
   builders: integer('builders').notNull().default(3),
   /** Per building, per resource: fractions of a unit made but not yet handed over, carried between ticks. Written under the state lock. */
   carry: jsonb('carry').$type<Record<string, Record<string, number>>>().notNull().default({}),
-  /** The research project running right now, if any. Only ever one at a time. */
-  researchId: text('research_id'),
-  researchCompletesAt: timestamp('research_completes_at'),
+  /**
+   * Monument stages carried over from the retired research board, by monument
+   * id: placing that monument puts it up at this stage at once, free. Taken
+   * with a conditional update when it is used, so it can only be spent once.
+   */
+  monumentCredit: jsonb('monument_credit').$type<Record<string, number>>().notNull().default({}),
   createdAt: timestamp('created_at').defaultNow().notNull()
 })
 
@@ -1787,20 +1790,6 @@ export const townRealm = pgTable('town_realm', {
   /** Lowest spiral index that might still be free. */
   foundingCursor: integer('founding_cursor').notNull().default(0)
 })
-
-/**
- * A finished research project. The unique (user, project) pair is the guard:
- * settling a finished project inserts here, and a second concurrent settle
- * conflicts instead of granting the effect twice.
- */
-export const townResearch = pgTable('town_research', {
-  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-  researchId: text('research_id').notNull(),
-  completedAt: timestamp('completed_at').defaultNow().notNull()
-}, table => [
-  unique('town_research_user_project').on(table.userId, table.researchId)
-])
 
 /**
  * One 8x8 plot on the shared endless grid. The unique (x, y) constraint is the
@@ -1913,7 +1902,7 @@ export const townTrades = pgTable('town_trades', {
 
 /**
  * What happened to a town while its mayor was not looking: a build or upgrade
- * that finished, a project banked, a resting offer another mayor took. The
+ * that finished, a resting offer another mayor took. The
  * notification centre lists these newest first. Nothing tracks read state.
  *
  * `createdAt` is the moment the thing happened, not the moment it was written
@@ -1923,7 +1912,7 @@ export const townTrades = pgTable('town_trades', {
 export const townEvents = pgTable('town_events', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-  kind: text('kind').notNull(), // 'built' | 'upgraded' | 'research' | 'trade'
+  kind: text('kind').notNull(), // 'built' | 'upgraded' | 'trade'
   data: jsonb('data').$type<TownEventData>().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [index('town_events_user_createdAt_idx').on(t.userId, t.createdAt)])

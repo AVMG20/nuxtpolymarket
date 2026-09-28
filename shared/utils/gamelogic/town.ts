@@ -9,6 +9,16 @@
 // (~50k coins/day at floor); a full tier-6 chain over several plots lands in
 // the hundreds of millions per day after months, matching Colony/Xeno maxes.
 
+import {
+    TOWN_MONUMENTS,
+    TOWN_MONUMENT_STAGES,
+    getTownMonument,
+    townMonumentEffect,
+    townMonumentStageCost,
+    townMonumentStageMs,
+    type TownMonumentId
+} from './town-monuments'
+
 export const TOWN_PLOT_SIZE = 8
 export const TOWN_TILES_PER_PLOT = TOWN_PLOT_SIZE * TOWN_PLOT_SIZE
 
@@ -57,8 +67,8 @@ export const TOWN_PLOT_COOLDOWNS_MS: readonly number[] = [
 //
 // The conversion rate is the balance lever. Two mines at level 20 in a Content
 // town dig 57,600 jewels a day; at 3,400 a gem that is 17 gems, and a Thriving
-// town nudges it to 22. Terrain and research raise it like any other workshop,
-// so a maxed board on rocky ground tops out near 39. The old Miner factory
+// town nudges it to 22. Terrain and the Eiffel Tower raise it like any other
+// workshop, so a finished tower on rocky ground tops out near 39. The old Miner factory
 // paid 10–16 a day, so this is the same order of income behind a far longer
 // climb: level 20 wants the whole production chain (see TOWN_UPGRADE_BANDS).
 // The warehouse cap is what paces the claiming — a town that never converts or
@@ -266,8 +276,8 @@ export function townMaxBuildMs(def: { tier: number }): number {
  * front-loaded — a park is worth most the day it opens and each level adds
  * a little — and every tier reaches Thriving (90+) on the tallest park it can
  * build once its needs are met: tier 1 on a level-2 park and grain, tier 2 on
- * a level-8 park and bricks, tier 3 and up on more than it can use. Research
- * is slack on top, not a requirement.
+ * a level-8 park and bricks, tier 3 and up on more than it can use. The
+ * Colosseum is slack on top, not a requirement.
  */
 export const TOWN_HAPPINESS_START = 50
 export const TOWN_HAPPINESS_BASE_TARGET = 55
@@ -472,7 +482,7 @@ export const TOWN_NEEDS: readonly TownNeedDef[] = [
     { resource: 'tools', name: 'Tools', perPop: 300, minPop: 200, happiness: 3, food: false, description: 'Workers wear tools out. Keep a stock and they work happier.' },
     // ~356 residents per unit: 9% at the margin. The first luxury a tick is a
     // level-1 emporium's whole output, so it waits for a town well past the
-    // tier-6 gate, where it is an eighth of the hands (less with research).
+    // tier-6 gate, where it is an eighth of the hands (less with a Colosseum).
     { resource: 'luxuries', name: 'Luxuries', perPop: 4_000, minPop: 3_000, happiness: 6, food: false, description: 'The finer things. A luxury town is a delighted town.' }
 ]
 
@@ -523,8 +533,9 @@ export function townReachableTier(buildings: TownSimBuilding[], now: number): nu
     let best = 1
     for (const b of buildings) {
         if (!isBuilt(b, now)) continue
-        const tier = BUILDING_BY_ID.get(b.type)!.tier
-        if (tier > best) best = tier
+        const def = BUILDING_BY_ID.get(b.type)!
+        // A monument makes nothing, so it says nothing about what the town can stock.
+        if (def.kind !== 'monument' && def.tier > best) best = def.tier
     }
     return best
 }
@@ -560,11 +571,12 @@ export const TOWN_BUILDING_IDS = [
     'bakery', 'smithy',
     'mine', 'foundry',
     'factory',
-    'emporium'
+    'emporium',
+    'pyramid', 'colosseum', 'lighthouse', 'arc', 'eiffel'
 ] as const
 export type TownBuildingId = typeof TOWN_BUILDING_IDS[number]
 
-export type TownBuildingKind = 'road' | 'housing' | 'civic' | 'storage' | 'industry'
+export type TownBuildingKind = 'road' | 'housing' | 'civic' | 'storage' | 'industry' | 'monument'
 
 export interface TownBuildingDef {
     id: TownBuildingId
@@ -586,6 +598,8 @@ export interface TownBuildingDef {
     maxLevel?: number
     /** The most of this building a town may own, finished or not. Unset means no limit. */
     maxCount?: number
+    /** Tiles per side of its square footprint. Unset means one tile. */
+    size?: number
     /** Level-1 build cost. Later levels scale coins by TOWN_LEVEL_COST_GROWTH and goods by the steeper TOWN_LEVEL_RESOURCE_GROWTH. */
     cost: { coins: number, resources: TownResourceBag }
     /** Extra resources every upgrade (level >= 2) needs, scaled like the rest of the cost. Puts goods back into the town. */
@@ -614,6 +628,14 @@ export interface TownBuildingDef {
 
 const MIN = 60_000
 const HOUR = 60 * MIN
+
+const MONUMENT_COLORS: Record<TownMonumentId, number> = {
+    pyramid: 0xd9b45a,
+    colosseum: 0xc9a27a,
+    lighthouse: 0xe8e0cc,
+    arc: 0xd8d0bf,
+    eiffel: 0x8a6a4a
+}
 
 export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
     {
@@ -756,7 +778,17 @@ export const TOWN_BUILDINGS: readonly TownBuildingDef[] = [
         cost: { coins: 900_000_000, resources: { machines: 100, steel: 1000, tools: 800, bread: 1000 } }, buildMs: 24 * HOUR, upgradeMs: 48 * HOUR,
         upgradeResources: { machines: 40, steel: 300 },
         workers: 12, inputs: { machines: 2, bread: 4, tools: 2 }, outputs: { luxuries: 1 }, popCap: 0, happiness: 0, storage: 0
-    }
+    },
+    // Monuments: one of each, several tiles wide, raised in stages by their own
+    // crew. Costs, timers and perks live in town-monuments.ts.
+    ...TOWN_MONUMENTS.map((m): TownBuildingDef => ({
+        id: m.id, name: m.name, emoji: m.emoji, color: MONUMENT_COLORS[m.id], tier: m.tier, kind: 'monument',
+        description: m.perk,
+        size: m.size, maxCount: 1, maxLevel: TOWN_MONUMENT_STAGES,
+        cost: townMonumentStageCost(m, 1), buildMs: townMonumentStageMs(1), upgradeMs: townMonumentStageMs(2),
+        upgradeResources: {},
+        workers: 0, inputs: {}, outputs: {}, popCap: 0, happiness: 0, storage: 0
+    }))
 ]
 
 const BUILDING_BY_ID = new Map(TOWN_BUILDINGS.map(b => [b.id, b]))
@@ -804,6 +836,8 @@ export function townNextUpgradeBand(level: number): typeof TOWN_UPGRADE_BANDS[nu
  * it was built to fix.
  */
 export function townLevelCost(def: TownBuildingDef, level: number): { coins: number, resources: TownResourceBag } {
+    const monument = getTownMonument(def.id)
+    if (monument) return townMonumentStageCost(monument, level)
     const factor = Math.pow(TOWN_LEVEL_COST_GROWTH, level - 1)
     const goodsFactor = Math.pow(TOWN_LEVEL_RESOURCE_GROWTH, level - 1)
     const resources = scaleBag(def.cost.resources, goodsFactor)
@@ -849,12 +883,17 @@ export function townBuildingMaxLevel(def: TownBuildingDef): number {
 }
 
 /** Build/upgrade duration in ms for reaching `level`. Pass the town's happiness to apply the mood's build-time perk. */
-export function townLevelBuildMs(def: TownBuildingDef, level: number, happiness?: number, research: TownResearchBonus = TOWN_NO_RESEARCH): number {
+export function townLevelBuildMs(def: TownBuildingDef, level: number, happiness?: number, bonus: TownBonus = TOWN_NO_BONUS): number {
     const mood = happiness === undefined ? 1 : townMood(happiness).buildTime
+    // A monument stage keeps its own clock and only answers to the three-day
+    // wall, not to its tier's: the late stages are meant to take that long.
+    if (def.kind === 'monument') {
+        return Math.min(TOWN_MAX_BUILD_MS, Math.round(townMonumentStageMs(level) * mood * (1 - bonus.buildTime)))
+    }
     const base = level <= 1 ? def.buildMs : def.upgradeMs * Math.pow(TOWN_LEVEL_TIME_GROWTH, level - 2)
-    // Research shortens the job before the tier wall is applied, so a maxed
-    // Construction branch really does bring a three-day build under the cap.
-    const shortened = base * mood * (1 - research.buildTime)
+    // The Great Pyramid shortens the job before the tier wall is applied, so a
+    // finished one really does bring a three-day build under the cap.
+    const shortened = base * mood * (1 - bonus.buildTime)
     return Math.min(townMaxBuildMs(def), Math.round(shortened))
 }
 
@@ -878,15 +917,28 @@ export function townBuilderGemCost(owned: number): number | null {
     return TOWN_BUILDER_GEM_COSTS[Math.max(0, owned - TOWN_FREE_BUILDERS)] ?? null
 }
 
+function townJobRunning(b: TownSimBuilding, now: number): boolean {
+    return b.completesAt > now && (b.level === 0 || b.upgradingTo !== null)
+}
+
 /**
  * Crews on a job right now. A building counts while its clock is still
  * running, whether that is the first build or an upgrade — roads finish
- * instantly, so they never tie one up.
+ * instantly, so they never tie one up. Monuments have their own crew and
+ * never take one of these.
  */
 export function townBuildersBusy(buildings: TownSimBuilding[], now: number): number {
     let busy = 0
-    for (const b of buildings) if (b.completesAt > now && (b.level === 0 || b.upgradingTo !== null)) busy++
+    for (const b of buildings) if (townJobRunning(b, now) && !getTownMonument(b.type)) busy++
     return busy
+}
+
+/**
+ * The monument crew works one stage at a time across every monument, so this
+ * is the one running now, or null when the crew is free.
+ */
+export function townMonumentJob(buildings: TownSimBuilding[], now: number): TownSimBuilding | null {
+    return buildings.find(b => townJobRunning(b, now) && getTownMonument(b.type) !== undefined) ?? null
 }
 
 /** Crews standing idle, never below zero. */
@@ -1138,12 +1190,11 @@ export const TOWN_SUPPLY_FALLOFF_TILES = 16
 export const TOWN_SUPPLY_MIN_EFFICIENCY = 0.3
 
 /**
- * What finished research adds to a town. Declared here rather than imported so
- * the rules module stays free of the research board: the shape matches what
- * townResearchEffects() returns, and a town that has researched nothing simply
- * passes TOWN_NO_RESEARCH.
+ * What a town's monuments add to it, summed over every stage that stands.
+ * Worked out from the buildings themselves (see townMonumentBonus), so a stage
+ * that finishes halfway through a settle counts from the tick it finished.
  */
-export interface TownResearchBonus {
+export interface TownBonus {
     /** Extra share of output from every workshop. */
     output: number
     /** Extra road tiles a supplier covers at full rate. */
@@ -1158,13 +1209,44 @@ export interface TownResearchBonus {
     storage: number
 }
 
-export const TOWN_NO_RESEARCH: TownResearchBonus = {
+export const TOWN_NO_BONUS: TownBonus = {
     output: 0,
     supplyTiles: 0,
     buildTime: 0,
     popPerHouseLevel: 0,
     happiness: 0,
     storage: 0
+}
+
+/**
+ * Everything the town's monuments give right now. A monument counts once its
+ * first stage stands and only while a road reaches its front, like any other
+ * building; a stage still going up gives nothing until it is done.
+ */
+export function townMonumentBonus(buildings: TownSimBuilding[], now: number): TownBonus {
+    const total: TownBonus = { ...TOWN_NO_BONUS }
+    for (const b of buildings) {
+        const monument = getTownMonument(b.type)
+        if (!monument || !isBuilt(b, now) || !townRoadAccess(buildings, b)) continue
+        for (const [key, value] of Object.entries(townMonumentEffect(monument, effectiveLevel(b, now))) as [keyof TownBonus, number][]) {
+            total[key] += value
+        }
+    }
+    // Shares are summed as floats; round once so 0.39999999999999997 never
+    // reaches the screen or makes two equal towns compare unequal.
+    for (const key of Object.keys(total) as (keyof TownBonus)[]) {
+        total[key] = Math.round(total[key] * 10_000) / 10_000
+    }
+    return total
+}
+
+/** Monument stages standing, summed over the town: what the wonder milestones count. */
+export function townMonumentStages(buildings: TownSimBuilding[], now: number): number {
+    let stages = 0
+    for (const b of buildings) {
+        if (getTownMonument(b.type) && isBuilt(b, now)) stages += effectiveLevel(b, now)
+    }
+    return stages
 }
 
 /** How much of a delivery survives the trip. */
@@ -1388,8 +1470,6 @@ export interface TownSimState {
     lastSettledAt: number
     inventory: TownResourceBag
     buildings: TownSimBuilding[]
-    /** What the town's finished research adds. Absent means none of it. */
-    research?: TownResearchBonus
     /** Fractional goods each workshop has made but not yet finished. Absent means none. */
     carry?: TownCarry
 }
@@ -1432,6 +1512,7 @@ export interface TownDerived {
         parks: number
         industry: number
         crowding: number
+        monuments: number
         layout: TownLayoutScore
     }
 }
@@ -1484,11 +1565,84 @@ export function townRoadAt(buildings: TownSimBuilding[], wx: number, wy: number)
     return buildings.some(b => b.type === 'road' && b.wx === wx && b.wy === wy)
 }
 
+// ─── Footprints ──────────────────────────────────────────────────────────────
+// Most buildings stand on one tile. A monument covers a square of them, stored
+// by its lowest corner (the anchor): the row's tile is that corner, and the
+// rest of the square is implied by the building's size. Footprints are square,
+// so turning a building only moves its door, never the ground it covers.
+
+/** Tiles per side a building of `type` covers. */
+export function townBuildingSize(type: string): number {
+    return BUILDING_BY_ID.get(type as TownBuildingId)?.size ?? 1
+}
+
+/** Every tile a `size`-wide footprint anchored at (wx, wy) covers. */
+export function townFootprint(wx: number, wy: number, size = 1): { wx: number, wy: number }[] {
+    const tiles: { wx: number, wy: number }[] = []
+    for (let dy = 0; dy < size; dy++) for (let dx = 0; dx < size; dx++) tiles.push({ wx: wx + dx, wy: wy + dy })
+    return tiles
+}
+
+/**
+ * The tiles just outside the footprint's front edge: the road it opens onto
+ * can be any of them. A one-tile building has exactly townFrontTile.
+ */
+export function townFrontTiles(wx: number, wy: number, rotation: number, size = 1): { wx: number, wy: number }[] {
+    if (size <= 1) return [townFrontTile(wx, wy, rotation)]
+    const r = ((rotation % 4) + 4) % 4
+    const tiles: { wx: number, wy: number }[] = []
+    for (let i = 0; i < size; i++) {
+        if (r === 0) tiles.push({ wx: wx + i, wy: wy + size })
+        else if (r === 1) tiles.push({ wx: wx + size, wy: wy + i })
+        else if (r === 2) tiles.push({ wx: wx + i, wy: wy - 1 })
+        else tiles.push({ wx: wx - 1, wy: wy + i })
+    }
+    return tiles
+}
+
+/** The front tiles of a standing building. */
+function frontTilesOf(b: TownSimBuilding): { wx: number, wy: number }[] {
+    return townFrontTiles(b.wx!, b.wy!, b.rotation ?? 0, townBuildingSize(b.type))
+}
+
+/** Every tile something stands on, as "x,y". Buildings without a tile are skipped. */
+export function townTakenTiles(buildings: TownSimBuilding[], except?: ReadonlySet<string>): Set<string> {
+    const taken = new Set<string>()
+    for (const b of buildings) {
+        if (b.wx === undefined || b.wy === undefined || except?.has(b.id)) continue
+        for (const t of townFootprint(b.wx, b.wy, townBuildingSize(b.type))) taken.add(`${t.wx},${t.wy}`)
+    }
+    return taken
+}
+
+/** Whether a building's footprint covers (wx, wy). */
+export function townCovers(b: { type: string, wx?: number, wy?: number }, wx: number, wy: number): boolean {
+    if (b.wx === undefined || b.wy === undefined) return false
+    const size = townBuildingSize(b.type)
+    return wx >= b.wx && wx < b.wx + size && wy >= b.wy && wy < b.wy + size
+}
+
+/**
+ * Why a `size`-wide footprint cannot go down at (wx, wy): a tile already taken,
+ * water, or a square that would straddle two plots. A footprint always stands
+ * on one plot, so selling or listing land never cuts a monument in half.
+ */
+function footprintIssue(taken: ReadonlySet<string>, wx: number, wy: number, size: number): string | null {
+    if (size > 1 && (Math.floor(wx / TOWN_PLOT_SIZE) !== Math.floor((wx + size - 1) / TOWN_PLOT_SIZE)
+        || Math.floor(wy / TOWN_PLOT_SIZE) !== Math.floor((wy + size - 1) / TOWN_PLOT_SIZE))) {
+        return 'It has to fit on one plot'
+    }
+    for (const t of townFootprint(wx, wy, size)) {
+        if (taken.has(`${t.wx},${t.wy}`)) return size > 1 ? 'Something is in the way' : 'That tile is already taken'
+        if (getTownTerrain(townTerrainAt(t.wx, t.wy)).blocked) return 'You cannot build on water'
+    }
+    return null
+}
+
 /** Rotation that faces an adjacent road, preferring the order S, E, N, W — or null if none. */
-export function townAutoFacing(buildings: TownSimBuilding[], wx: number, wy: number): number | null {
+export function townAutoFacing(buildings: TownSimBuilding[], wx: number, wy: number, size = 1): number | null {
     for (let r = 0; r < 4; r++) {
-        const f = townFrontTile(wx, wy, r)
-        if (townRoadAt(buildings, f.wx, f.wy)) return r
+        if (townFrontTiles(wx, wy, r, size).some(f => townRoadAt(buildings, f.wx, f.wy))) return r
     }
     return null
 }
@@ -1498,13 +1652,17 @@ export function townAutoFacing(buildings: TownSimBuilding[], wx: number, wy: num
  * Shared by the client (ghost colour) and the server (the real check).
  */
 export function townPlacementIssue(buildings: TownSimBuilding[], def: TownBuildingDef, wx: number, wy: number, rotation: number): string | null {
-    if (buildings.some(b => b.wx === wx && b.wy === wy)) return 'That tile is already taken'
-    if (getTownTerrain(townTerrainAt(wx, wy)).blocked) return 'You cannot build on water'
+    const size = def.size ?? 1
+    const ground = footprintIssue(townTakenTiles(buildings), wx, wy, size)
+    if (ground) return ground
     // A road can start anywhere. It only does anything once it joins homes to
     // jobs, and the staffing rules are what enforce that, not the placement.
     if (def.kind === 'road') return null
-    const front = townFrontTile(wx, wy, rotation)
-    if (!townRoadAt(buildings, front.wx, front.wy)) return 'Needs a road at its front door — rotate with R or build a road first'
+    if (!townFrontTiles(wx, wy, rotation, size).some(f => townRoadAt(buildings, f.wx, f.wy))) {
+        return size > 1
+            ? 'Needs a road along its front — rotate with R or build a road first'
+            : 'Needs a road at its front door — rotate with R or build a road first'
+    }
     return null
 }
 
@@ -1555,18 +1713,14 @@ export interface TownGroupMove { id: string, wx: number, wy: number, rotation: n
 export function townGroupMoveIssue(buildings: TownSimBuilding[], moves: TownGroupMove[]): string | null {
     if (moves.length === 0) return 'Nothing to move'
     const byId = new Map(buildings.map(b => [b.id, b]))
-    const moving = new Set(moves.map(m => m.id))
-    const taken = new Set<string>()
-    for (const b of buildings) {
-        if (moving.has(b.id)) continue
-        if (b.wx !== undefined && b.wy !== undefined) taken.add(`${b.wx},${b.wy}`)
-    }
+    const taken = townTakenTiles(buildings, new Set(moves.map(m => m.id)))
     for (const m of moves) {
-        if (!byId.has(m.id)) return 'Building not found'
-        const key = `${m.wx},${m.wy}`
-        if (taken.has(key)) return 'That tile is already taken'
-        if (getTownTerrain(townTerrainAt(m.wx, m.wy)).blocked) return 'You cannot build on water'
-        taken.add(key)
+        const b = byId.get(m.id)
+        if (!b) return 'Building not found'
+        const size = townBuildingSize(b.type)
+        const issue = footprintIssue(taken, m.wx, m.wy, size)
+        if (issue) return issue
+        for (const t of townFootprint(m.wx, m.wy, size)) taken.add(`${t.wx},${t.wy}`)
     }
     return null
 }
@@ -1579,16 +1733,14 @@ export function townGroupMoveIssue(buildings: TownSimBuilding[], moves: TownGrou
 export function townRoadAccess(buildings: TownSimBuilding[], b: TownSimBuilding): boolean {
     if (b.type === 'road') return true
     if (b.wx === undefined || b.wy === undefined) return true
-    const f = townFrontTile(b.wx, b.wy, b.rotation ?? 0)
-    return townRoadAt(buildings, f.wx, f.wy)
+    return frontTilesOf(b).some(f => townRoadAt(buildings, f.wx, f.wy))
 }
 
 /** Buildings whose front door opens onto (wx, wy) — what removing that road would cut off. */
 export function townBuildingsFronting(buildings: TownSimBuilding[], wx: number, wy: number): TownSimBuilding[] {
     return buildings.filter((b) => {
         if (b.type === 'road' || b.wx === undefined || b.wy === undefined) return false
-        const f = townFrontTile(b.wx, b.wy, b.rotation ?? 0)
-        return f.wx === wx && f.wy === wy
+        return frontTilesOf(b).some(f => f.wx === wx && f.wy === wy)
     })
 }
 
@@ -1652,10 +1804,9 @@ export function townDistricts(buildings: TownSimBuilding[]): Map<string, string>
             result.set(b.id, TOWN_DISTRICT_ANYWHERE)
             continue
         }
-        const key = b.type === 'road'
-            ? `${b.wx},${b.wy}`
-            : (() => { const f = townFrontTile(b.wx, b.wy, b.rotation ?? 0); return `${f.wx},${f.wy}` })()
-        const district = districtOfTile.get(key)
+        // A wide building joins the first network along its front edge.
+        const keys = b.type === 'road' ? [`${b.wx},${b.wy}`] : frontTilesOf(b).map(f => `${f.wx},${f.wy}`)
+        const district = keys.map(k => districtOfTile.get(k)).find(d => d !== undefined)
         if (district !== undefined) result.set(b.id, district)
     }
     return result
@@ -1796,10 +1947,9 @@ export function townTierUnlocked(
     buildings: TownSimBuilding[],
     tier: number,
     now: number,
-    produced: TownResourceBag = {},
-    research: TownResearchBonus = TOWN_NO_RESEARCH
+    produced: TownResourceBag = {}
 ): boolean {
-    return townTierRequirement(buildings, tier, now, produced, research) === null
+    return townTierRequirement(buildings, tier, now, produced) === null
 }
 
 export interface TownTierLock {
@@ -1824,18 +1974,23 @@ export function townTierRequirement(
     buildings: TownSimBuilding[],
     tier: number,
     now: number,
-    produced: TownResourceBag = {},
-    research: TownResearchBonus = TOWN_NO_RESEARCH
+    produced: TownResourceBag = {}
 ): TownTierLock | null {
     if (tier <= 1) return null
-    const hasPrevious = buildings.some(b => isBuilt(b, now) && BUILDING_BY_ID.get(b.type)!.tier === tier - 1)
+    // A monument is not a workshop of its tier: raising one proves nothing
+    // about running the chain below it.
+    const hasPrevious = buildings.some((b) => {
+        const def = BUILDING_BY_ID.get(b.type)!
+        return isBuilt(b, now) && def.kind !== 'monument' && def.tier === tier - 1
+    })
+    const extraPerHouse = townMonumentBonus(buildings, now).popPerHouseLevel
     let pop = 0
     for (const b of buildings) {
         if (!isBuilt(b, now) || !townRoadAccess(buildings, b)) continue
         const def = BUILDING_BY_ID.get(b.type)!
-        // The same sum deriveTown does: residents a Civics project added are
+        // The same sum deriveTown does: residents the Colosseum added are
         // real residents, and the gate has to see the ones already at work.
-        pop += (def.popCap + (def.popCap > 0 ? research.popPerHouseLevel : 0)) * effectiveLevel(b, now)
+        pop += (def.popCap + (def.popCap > 0 ? extraPerHouse : 0)) * effectiveLevel(b, now)
     }
     const popRequired = TOWN_TIER_POP_REQUIREMENT[tier] ?? 0
     const req = TOWN_TIER_PRODUCTION_REQUIREMENT[tier]
@@ -1975,9 +2130,9 @@ export function deriveTown(
     happiness: number,
     now: number,
     satisfied: TownSatisfied = {},
-    network?: TownSupplyNetwork,
-    research: TownResearchBonus = TOWN_NO_RESEARCH
+    network?: TownSupplyNetwork
 ): TownDerived {
+    const bonus = townMonumentBonus(buildings, now)
     let popCap = 0
     let happinessTarget = TOWN_HAPPINESS_BASE_TARGET
     let storageCap = TOWN_BASE_STORAGE
@@ -1990,7 +2145,7 @@ export function deriveTown(
         .sort((a, z) => a.b.createdAt - z.b.createdAt)
 
     for (const { def, level } of built) {
-        popCap += (def.popCap + (def.popCap > 0 ? research.popPerHouseLevel : 0)) * level
+        popCap += (def.popCap + (def.popCap > 0 ? bonus.popPerHouseLevel : 0)) * level
         if (def.kind === 'industry') industryTiles++
         workersDemanded += townWorkersFor(def, level)
     }
@@ -2003,7 +2158,7 @@ export function deriveTown(
     // Parks and workshops only count through the homes they reach (see
     // townLayoutScore) — a civic building nobody lives near adds nothing.
     happinessTarget += layout.parks - layout.industry - crowding + needsScore
-    happinessTarget = Math.max(0, Math.min(100, happinessTarget + research.happiness))
+    happinessTarget = Math.max(0, Math.min(100, happinessTarget + bonus.happiness))
 
     // People walk to work along the roads, so each road network staffs itself
     // out of the houses on it. Within a network residents are handed out
@@ -2014,7 +2169,7 @@ export function deriveTown(
     for (const { b, def, level } of built) {
         const id = districtOf.get(b.id) ?? TOWN_DISTRICT_ANYWHERE
         const d = districts.get(id) ?? { residents: 0, jobs: 0, employed: 0 }
-        d.residents += (def.popCap + (def.popCap > 0 ? research.popPerHouseLevel : 0)) * level
+        d.residents += (def.popCap + (def.popCap > 0 ? bonus.popPerHouseLevel : 0)) * level
         d.jobs += townWorkersFor(def, level)
         districts.set(id, d)
     }
@@ -2031,11 +2186,11 @@ export function deriveTown(
         if (def.storage > 0) storageCap += Math.floor(def.storage * level * ratio)
     }
     // Applied once the warehouses have reported what they can actually hold.
-    storageCap = Math.round(storageCap * townMood(happiness).storage * (1 + research.storage))
+    storageCap = Math.round(storageCap * townMood(happiness).storage * (1 + bonus.storage))
 
     // Road distances are the expensive half and never change mid-settle, so a
     // caller walking many ticks passes the network in rather than rebuilding it.
-    const supply = townSupply(builtSims, staffing, network ?? townSupplyNetwork(buildings, now), now, research.supplyTiles)
+    const supply = townSupply(builtSims, staffing, network ?? townSupplyNetwork(buildings, now), now, bonus.supplyTiles)
     // Terrain rides on the same ratio as staffing and supply rather than being
     // bolted onto the output bag afterwards. Everything that quotes a rate —
     // the tick loop, the net-per-tick preview, the income estimate — reads
@@ -2048,7 +2203,7 @@ export function deriveTown(
     for (const { b, def } of built) {
         if (def.kind !== 'industry') continue
         const staff = staffing.get(b.id) ?? 0
-        throughput.set(b.id, staff * (supply.get(b.id)?.ratio ?? 1) * townTerrainMultiplier(def.id, b.wx, b.wy) * (1 + research.output))
+        throughput.set(b.id, staff * (supply.get(b.id)?.ratio ?? 1) * townTerrainMultiplier(def.id, b.wx, b.wy) * (1 + bonus.output))
     }
 
     return {
@@ -2072,6 +2227,7 @@ export function deriveTown(
             parks: layout.parks,
             industry: -layout.industry || 0,
             crowding: -crowding || 0,
+            monuments: bonus.happiness,
             layout
         }
     }
@@ -2118,10 +2274,6 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
         if (c && Object.keys(c).length > 0) carry[b.id] = { ...c }
     }
 
-    // Research never changes mid-window: a project that finishes while the
-    // player is away is banked by settleTownResearch before this runs.
-    const research = state.research ?? TOWN_NO_RESEARCH
-
     let happiness = state.happiness
     let progress = state.tickProgressMs
     let ticks = 0
@@ -2134,7 +2286,7 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
     // Buildings do not move mid-settle, so the road distances behind the supply
     // chains are walked once here instead of on every tick.
     const network = townSupplyNetwork(buildings, now)
-    let derived = deriveTown(buildings, happiness, cursor, satisfied, network, research)
+    let derived = deriveTown(buildings, happiness, cursor, satisfied, network)
     let guard = 0
     while (elapsed > 0 && guard++ < 100_000) {
         const needMs = (TOWN_TICK_MS - progress) / derived.speedMultiplier
@@ -2150,7 +2302,7 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
         ticks++
 
         // Re-derive at this instant so newly finished buildings join the tick.
-        derived = deriveTown(buildings, happiness, cursor, satisfied, network, research)
+        derived = deriveTown(buildings, happiness, cursor, satisfied, network)
 
         for (const b of buildings) {
             if (!isBuilt(b, cursor)) continue
@@ -2198,10 +2350,10 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
         }
 
         // Happiness drifts toward the target computed from this tick's town.
-        const target = deriveTown(buildings, happiness, cursor, satisfied, network, research).happinessTarget
+        const target = deriveTown(buildings, happiness, cursor, satisfied, network).happinessTarget
         if (happiness < target) happiness = Math.min(target, happiness + TOWN_HAPPINESS_DRIFT_PER_TICK)
         else if (happiness > target) happiness = Math.max(target, happiness - TOWN_HAPPINESS_DRIFT_PER_TICK)
-        derived = deriveTown(buildings, happiness, cursor, satisfied, network, research)
+        derived = deriveTown(buildings, happiness, cursor, satisfied, network)
     }
 
     // Bake finished builds/upgrades into levels so the caller can persist them.
@@ -2240,10 +2392,9 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
 export function townFloorIncomePerDay(
     buildings: TownSimBuilding[],
     happiness: number,
-    now: number,
-    research: TownResearchBonus = TOWN_NO_RESEARCH
+    now: number
 ): number {
-    const derived = deriveTown(buildings, happiness, now, {}, undefined, research)
+    const derived = deriveTown(buildings, happiness, now)
     const ticksPerDay = (24 * 60 * 60_000) / TOWN_TICK_MS * derived.speedMultiplier
     let perTick = 0
     for (const b of buildings) {
@@ -2304,8 +2455,8 @@ export interface TownMilestoneSnapshot {
     buildingCount: number
     /** Completed road tiles. */
     roadCount: number
-    /** Research projects finished. */
-    researchDone: number
+    /** Monument stages standing, summed over every monument. */
+    monumentStages: number
     /** Every need the town is asked for was supplied on the last tick. */
     needsSatisfied: boolean
 }
@@ -2385,7 +2536,7 @@ export const TOWN_MILESTONES: readonly TownMilestoneDef[] = [
     { id: 'merchant', title: 'Merchant', description: 'Earn 1M coins selling to the town hall.', emoji: '🏪', reward: 0, gems: 8, tier: 3, chain: 'merchant', step: 3, progress: atLeast(s => s.coinsEarned, 1_000_000) },
     { id: 'build-50', title: 'A Town', description: 'Have 50 buildings standing.', emoji: '🏙️', reward: 0, gems: 3, tier: 3, chain: 'buildings', step: 2, progress: atLeast(s => s.buildingCount, 50) },
     { id: 'road-80', title: 'Grid Plan', description: 'Lay 80 road tiles.', emoji: '🚧', reward: 0, gems: 3, tier: 3, chain: 'roads', step: 2, progress: atLeast(s => s.roadCount, 80) },
-    { id: 'research-5', title: 'First Findings', description: 'Finish 5 research projects.', emoji: '🔬', reward: 0, gems: 3, tier: 3, chain: 'research', step: 1, progress: atLeast(s => s.researchDone, 5) },
+    { id: 'research-5', title: 'Cornerstone', description: 'Finish 5 monument stages.', emoji: '🏛️', reward: 0, gems: 3, tier: 3, chain: 'monuments', step: 1, progress: atLeast(s => s.monumentStages, 5) },
     { id: 'industry-12', title: 'Workshop District', description: 'Run 12 industry buildings at once.', emoji: '🏗️', reward: 0, gems: 3, tier: 3, chain: 'industry', step: 2, progress: atLeast(s => s.industryCount, 12) },
     // ── Tier 4 ────────────────────────────────────────────────────────────────
     { id: 'deep-dig', title: 'Deep Dig', description: 'Build an Iron Mine.', emoji: '⛏️', reward: 0, gems: 10, tier: 4, progress: built('mine') },
@@ -2402,7 +2553,7 @@ export const TOWN_MILESTONES: readonly TownMilestoneDef[] = [
     { id: 'level-15', title: 'Master Builder', description: 'Upgrade any building to level 15.', emoji: '🏗️', reward: 0, gems: 8, tier: 5, chain: 'levels', step: 3, progress: atLeast(s => s.maxLevel, 15) },
     { id: 'build-150', title: 'A City', description: 'Have 150 buildings standing.', emoji: '🌆', reward: 0, gems: 8, tier: 5, chain: 'buildings', step: 3, progress: atLeast(s => s.buildingCount, 150) },
     { id: 'civic-10', title: 'Civic Pride', description: 'Have 10 civic buildings standing.', emoji: '🎭', reward: 0, gems: 6, tier: 5, chain: 'civic', step: 2, progress: atLeast(civicCount, 10) },
-    { id: 'research-15', title: 'Half the Board', description: 'Finish 15 research projects.', emoji: '🔬', reward: 0, gems: 6, tier: 5, chain: 'research', step: 2, progress: atLeast(s => s.researchDone, 15) },
+    { id: 'research-15', title: 'Wonder of the World', description: 'Finish 15 monument stages.', emoji: '🏛️', reward: 0, gems: 6, tier: 5, chain: 'monuments', step: 2, progress: atLeast(s => s.monumentStages, 15) },
     { id: 'industry-30', title: 'Heavy Industry', description: 'Run 30 industry buildings at once.', emoji: '🏭', reward: 0, gems: 8, tier: 5, chain: 'industry', step: 3, progress: atLeast(s => s.industryCount, 30) },
     // ── Tier 6: the long tail ─────────────────────────────────────────────────
     { id: 'tycoon', title: 'Tycoon', description: 'Build an Emporium.', emoji: '💎', reward: 150_000_000, gems: 40, tier: 6, progress: built('emporium') },
@@ -2411,7 +2562,9 @@ export const TOWN_MILESTONES: readonly TownMilestoneDef[] = [
     { id: 'level-20', title: 'Sky High', description: 'Upgrade any building to level 20.', emoji: '🚀', reward: 50_000_000, gems: 14, tier: 6, chain: 'levels', step: 4, progress: atLeast(s => s.maxLevel, 20) },
     { id: 'pop-800', title: 'Metropolis', description: 'House 800 residents.', emoji: '🌃', reward: 50_000_000, gems: 12, tier: 6, chain: 'population', step: 4, progress: atLeast(s => s.popCap, 800) },
     { id: 'land-6', title: 'Whole Valley', description: 'Own 6 plots.', emoji: '🧭', reward: 25_000_000, gems: 10, tier: 6, chain: 'land', step: 3, progress: atLeast(s => s.plotsBought, 6) },
-    { id: 'research-30', title: 'Whole Board', description: 'Finish all 30 research projects.', emoji: '🎓', reward: 50_000_000, gems: 12, tier: 6, chain: 'research', step: 3, progress: atLeast(s => s.researchDone, 30) },
+    // The ids predate monuments: they were the research board's, and keeping
+    // them means a mayor who already claimed one cannot claim it again.
+    { id: 'research-30', title: 'Wonders of the World', description: 'Finish every stage of all five monuments.', emoji: '🗼', reward: 50_000_000, gems: 12, tier: 6, chain: 'monuments', step: 3, progress: atLeast(s => s.monumentStages, TOWN_MONUMENTS.length * TOWN_MONUMENT_STAGES) },
     { id: 'full-chain', title: 'Full Chain', description: 'Own at least one of every industry building.', emoji: '🔗', reward: 100_000_000, gems: 14, tier: 6, progress: s => ({ current: INDUSTRY_BUILDING_IDS.filter(id => (s.builtByType[id] ?? 0) > 0).length, target: INDUSTRY_BUILDING_IDS.length }) },
     { id: 'self-sufficient', title: 'Self-sufficient', description: 'Supply every need the town asks for.', emoji: '🍽️', reward: 25_000_000, gems: 10, tier: 6, progress: s => ({ current: s.needsSatisfied ? 1 : 0, target: 1 }) }
 ]
@@ -2451,7 +2604,7 @@ export function townMilestoneSnapshot(
     plotsBought: number,
     coinsEarned: number,
     now: number,
-    extra: { researchDone?: number, needsSatisfied?: boolean } = {}
+    extra: { needsSatisfied?: boolean } = {}
 ): TownMilestoneSnapshot {
     const builtByType: Partial<Record<TownBuildingId, number>> = {}
     let maxLevel = 0
@@ -2478,7 +2631,7 @@ export function townMilestoneSnapshot(
         industryCount,
         buildingCount,
         roadCount,
-        researchDone: extra.researchDone ?? 0,
+        monumentStages: townMonumentStages(buildings, now),
         needsSatisfied: extra.needsSatisfied ?? false
     }
 }

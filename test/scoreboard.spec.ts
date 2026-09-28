@@ -1,22 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import { townScore, voidScore } from '#shared/utils/gamelogic/scoreboard'
 import { TOWN_MILESTONES } from '#shared/utils/gamelogic/town'
-import { TOWN_RESEARCH } from '#shared/utils/gamelogic/town-research'
+import { TOWN_MONUMENTS, TOWN_MONUMENT_STAGES } from '#shared/utils/gamelogic/town-monuments'
 import { VOID_MAX_SECTOR, VOID_SHIP_IDS, VOID_TRADE_MAX_LEVEL, VOID_UPGRADES } from '#shared/utils/gamelogic/void'
 import { VOID_MAX_PILOT_LEVEL, voidXpForLevel } from '#shared/utils/gamelogic/void-skills'
 
 const pilot = { runsPlayed: 3, highestSectorCleared: 2, pilotXp: 0, ownedShipIds: ['sparrow', 'wasp'], upgradeLevels: { cargo: 3, engines: 1 }, tradeLevel: 1 }
 
 describe('scoreboard: Polytown', () => {
-    it('counts each known milestone and research project once', () => {
+    it('counts each known milestone once, and each monument by the stages it stands at', () => {
         const m = TOWN_MILESTONES[0]!.id
-        const r = TOWN_RESEARCH[0]!.id
-        expect(townScore([m, m, 'retired-milestone'], [r, 'retired-project'])).toEqual({ milestones: 1, research: 1, total: 2 })
+        const monuments = [{ type: 'pyramid', level: 3 }, { type: 'pyramid', level: 2 }, { type: 'house', level: 20 }, { type: 'arc', level: 99 }]
+        expect(townScore([m, m, 'retired-milestone'], monuments)).toEqual({ milestones: 1, monuments: 3 + TOWN_MONUMENT_STAGES, total: 4 + TOWN_MONUMENT_STAGES })
     })
 
-    it('tops out at every milestone plus every project', () => {
-        const full = townScore(TOWN_MILESTONES.map(m => m.id), TOWN_RESEARCH.map(r => r.id))
-        expect(full.total).toBe(TOWN_MILESTONES.length + TOWN_RESEARCH.length)
+    it('tops out at every milestone plus every stage of every monument', () => {
+        const full = townScore(TOWN_MILESTONES.map(m => m.id), TOWN_MONUMENTS.map(m => ({ type: m.id, level: TOWN_MONUMENT_STAGES })))
+        expect(full.total).toBe(TOWN_MILESTONES.length + TOWN_MONUMENTS.length * TOWN_MONUMENT_STAGES)
     })
 })
 

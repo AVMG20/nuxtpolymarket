@@ -1,6 +1,6 @@
 /**
  * What a Polytown notification carries. The server writes these as a building,
- * upgrade or project finishes and as resting offers get taken; the client
+ * upgrade finishes and as resting offers get taken; the client
  * renders them from the catalog, so only ids travel.
  */
 export type TownEventData =
@@ -8,8 +8,6 @@ export type TownEventData =
     | { kind: 'built', type: string, level: number }
     /** An upgrade finished. */
     | { kind: 'upgraded', type: string, level: number }
-    /** A research project was banked. */
-    | { kind: 'research', researchId: string }
     /**
      * Another mayor took some or all of a resting offer. `side` is the offer
      * owner's side; `coins` is what changed hands for this fill; `done` says

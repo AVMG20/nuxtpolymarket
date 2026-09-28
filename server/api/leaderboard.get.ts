@@ -1,17 +1,18 @@
 import { count, countDistinct, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { getSessionUserId } from '#server/utils/auth'
-import { user, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders, tcgBattlerRun, tcgBattlerRating, townState, townResearch, voidState } from '#server/database/schema'
+import { user, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders, tcgBattlerRun, tcgBattlerRating, townState, townBuildings, voidState } from '#server/database/schema'
 import { getGemGuidePrice } from '#server/utils/gem-exchange'
 import { bailoutRemaining, debtFloor, growBankBalance, isBailoutActive } from '#shared/utils/gamelogic/bank'
 import { PLANT_TYPES } from '#shared/utils/xeno'
 import { equippedAgentPower, type EquippableItemRow } from '#server/utils/hack'
 import { townScore, voidScore } from '#shared/utils/gamelogic/scoreboard'
+import { TOWN_MONUMENT_IDS } from '#shared/utils/gamelogic/town-monuments'
 
 export default defineEventHandler(async (event) => {
   const sessionUserId = await getSessionUserId(event)
   const xenoSpeciesIds = [...new Set(PLANT_TYPES.map(plant => plant.id))]
-  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts, battlerTotals, battlerRatings, townRows, townResearchRows, voidRows] = await Promise.all([
+  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts, battlerTotals, battlerRatings, townRows, townMonumentRows, voidRows] = await Promise.all([
     db
       .select({
         id: user.id,
@@ -85,7 +86,9 @@ export default defineEventHandler(async (event) => {
       .groupBy(tcgBattlerRun.userId),
     db.select({ userId: tcgBattlerRating.userId, rating: tcgBattlerRating.rating }).from(tcgBattlerRating),
     db.select({ userId: townState.userId, milestonesClaimed: townState.milestonesClaimed }).from(townState),
-    db.select({ userId: townResearch.userId, researchId: townResearch.researchId }).from(townResearch),
+    db.select({ userId: townBuildings.userId, type: townBuildings.type, level: townBuildings.level })
+      .from(townBuildings)
+      .where(inArray(townBuildings.type, [...TOWN_MONUMENT_IDS])),
     db
       .select({
         userId: voidState.userId,
@@ -121,13 +124,13 @@ export default defineEventHandler(async (event) => {
   const aiPromptsByUser = new Map(aiPromptCounts.map(row => [row.userId, row.n]))
   const battlerByUser = new Map(battlerTotals.map(row => [row.userId, row]))
   const battlerRatingByUser = new Map(battlerRatings.map(row => [row.userId, row.rating]))
-  const townResearchByUser = new Map<string, string[]>()
-  for (const row of townResearchRows) {
-    const list = townResearchByUser.get(row.userId)
-    if (list) list.push(row.researchId)
-    else townResearchByUser.set(row.userId, [row.researchId])
+  const townMonumentsByUser = new Map<string, { type: string, level: number }[]>()
+  for (const row of townMonumentRows) {
+    const list = townMonumentsByUser.get(row.userId)
+    if (list) list.push(row)
+    else townMonumentsByUser.set(row.userId, [row])
   }
-  const townByUser = new Map(townRows.map(row => [row.userId, townScore(row.milestonesClaimed ?? [], townResearchByUser.get(row.userId) ?? [])]))
+  const townByUser = new Map(townRows.map(row => [row.userId, townScore(row.milestonesClaimed ?? [], townMonumentsByUser.get(row.userId) ?? [])]))
   const voidByUser = new Map(voidRows.map(row => [row.userId, voidScore(row)]))
 
   return users
@@ -190,7 +193,7 @@ export default defineEventHandler(async (event) => {
         xenoBreederSlotsUnlocked,
         townScore: town?.total ?? 0,
         townMilestones: town?.milestones ?? 0,
-        townResearch: town?.research ?? 0,
+        townMonuments: town?.monuments ?? 0,
         voidScore: voidRunner?.total ?? 0,
         voidSectorsCleared: voidRunner?.sectors ?? 0,
         voidPilotLevel: voidRunner?.pilotLevel ?? 0,

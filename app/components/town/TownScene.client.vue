@@ -9,9 +9,10 @@ import { addLandscape, clearLandscape, createCloud, createMeadowTexture } from '
 import { animateTownWater } from '~/utils/town/surfaces'
 import { createTerrainOverlay, createWaterLayer, disposeTerrainOverlay, disposeWaterLayer } from '~/utils/town/terrain'
 import { createRoadParts } from '~/utils/town/roads'
-import { townVisualLevel } from '~/utils/town/appearance'
+import { townSceneLevel } from '~/utils/town/appearance'
 import { townDragDelta, townKeyboardDelta, townIsTyping, townWheelZoomFactor, townSnapTurn } from '~/utils/town/camera'
-import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, townDragLine, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
+import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, townFrontTiles, townBuildingSize, townCovers, townDragLine, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
+import { TOWN_MONUMENT_STAGES, isTownMonumentId } from '#shared/utils/gamelogic/town-monuments'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { createBuildingModel, townMaterial, TOWN_MODEL_VARIANTS } from '~/utils/town/models'
 import { createCar, createTruck, TOWN_VEHICLE_COLORS, TOWN_VEHICLE_SIZE } from '~/utils/town/vehicles'
@@ -486,7 +487,7 @@ function rebuildNeighbours() {
     let sig = ''
     for (const n of props.neighbours) {
         sig += `${n.id}@${n.x},${n.y},${n.listPrice ?? ''},${n.ownerName}:`
-        for (const b of n.buildings) sig += `${b.type},${b.tileX},${b.tileY},${b.rotation},${townVisualLevel(b.level)},${neighbourPending(b, nowMs) ? 1 : 0};`
+        for (const b of n.buildings) sig += `${b.type},${b.tileX},${b.tileY},${b.rotation},${townSceneLevel(b.type, b.level)},${neighbourPending(b, nowMs) ? 1 : 0};`
         sig += '|'
     }
     if (sig === neighbourSig) return
@@ -518,24 +519,27 @@ function rebuildNeighbours() {
             const wx = n.x * PLOT + b.tileX
             const wy = n.y * PLOT + b.tileY
             const pending = neighbourPending(b, nowMs)
+            const size = townBuildingSize(b.type)
+            // A monument site shows how far it has got; anything else is drawn as the building it will be.
             const model = b.type === 'road'
                 ? buildRoadModel(roadConnections(wx, wy, roads))
-                : buildingModel(b.type as TownBuildingId, townVisualLevel(Math.max(1, b.level)), tileVariant(wx, wy))
-            model.position.set(wx + 0.5, 0.3, wy + 0.5)
+                : buildingModel(b.type as TownBuildingId, townSceneLevel(b.type, isTownMonumentId(b.type) ? b.level : Math.max(1, b.level)), tileVariant(wx, wy))
+            model.position.set(wx + size / 2, 0.3, wy + size / 2)
             if (b.type !== 'road') {
                 model.rotation.y = b.rotation * Math.PI / 2
                 // A site is a stub of a building inside a scaffold, the same way
                 // your own reads — half the fun of a shared realm is watching the
                 // plot next door go up.
-                const grown = pending ? levelScale(Math.max(1, b.level)) * (b.level === 0 ? 0.35 : 0.85) : levelScale(b.level)
+                // A monument shows its progress in its stages, so it is never squashed.
+                const grown = pending && size === 1 ? levelScale(Math.max(1, b.level)) * (b.level === 0 ? 0.35 : 0.85) : levelScale(b.level)
                 model.scale.set(levelScale(Math.max(1, b.level)), grown, levelScale(Math.max(1, b.level)))
                 if (pending) {
-                    const scaffold = makeScaffold(((model.userData.height as number | undefined) ?? 0.9) * levelScale(Math.max(1, b.level)) + 0.15)
-                    scaffold.position.set(wx + 0.5, 0.3, wy + 0.5)
+                    const scaffold = makeScaffold(((model.userData.height as number | undefined) ?? 0.9) * levelScale(Math.max(1, b.level)) + 0.15, size)
+                    scaffold.position.set(wx + size / 2, 0.3, wy + size / 2)
                     scaffold.traverse((o) => { o.userData.neighbourBuilding = { plotId: n.id, ownerName: n.ownerName, type: b.type, level: b.level } })
                     neighbourGroup.add(scaffold)
                 }
-                const anim: NeighbourAnim = { type: b.type, x: wx + 0.5, z: wy + 0.5, spin: [], smoke: [], glow: [] }
+                const anim: NeighbourAnim = { type: b.type, x: wx + size / 2, z: wy + size / 2, spin: [], smoke: [], glow: [] }
                 model.traverse((o) => {
                     if (o.name === 'spin') anim.spin.push(o)
                     if (o.name === 'smoke') anim.smoke.push(o)
@@ -582,13 +586,15 @@ interface BuildingEntry {
 const entries = new Map<string, BuildingEntry>()
 const plotById = computed(() => new Map(props.plots.map(p => [p.id, p])))
 
+/** The middle of a building's footprint: a tile's centre, or the centre of a monument's square. */
 function worldPos(b: SceneBuilding): { x: number, z: number } | null {
     const p = plotById.value.get(b.plotId)
     if (!p) return null
-    return { x: p.x * PLOT + b.tileX + 0.5, z: p.y * PLOT + b.tileY + 0.5 }
+    const half = townBuildingSize(b.type) / 2
+    return { x: p.x * PLOT + b.tileX + half, z: p.y * PLOT + b.tileY + half }
 }
 
-function makeScaffold(height = 0.9): THREE.Group {
+function makeScaffold(height = 0.9, size = 1): THREE.Group {
     const g = new THREE.Group()
     const mat = townMaterial(0xc8a165)
     for (const [x, z] of [[-0.42, -0.42], [0.42, -0.42], [-0.42, 0.42], [0.42, 0.42]] as const) {
@@ -605,6 +611,7 @@ function makeScaffold(height = 0.9): THREE.Group {
         }
     }
     g.scale.y = Math.max(1, height / 0.9)
+    g.scale.x = g.scale.z = size
     return g
 }
 
@@ -754,7 +761,7 @@ function releaseModelGlow(model: THREE.Group) {
 }
 
 function displayedLevel(b: SceneBuilding, now: number) {
-    return townVisualLevel(!isPending(b, now) && b.upgradingTo !== null ? Math.max(b.level, b.upgradingTo) : b.level)
+    return townSceneLevel(b.type, !isPending(b, now) && b.upgradingTo !== null ? Math.max(b.level, b.upgradingTo) : b.level)
 }
 
 /** Hidden in place because it is on the cursor — alone, or as part of a selection. */
@@ -813,7 +820,7 @@ function syncBuildings() {
         e.group.visible = !isBeingMoved(b.id)
         const pending = isPending(b, now)
         if (pending && !e.scaffold) {
-            e.scaffold = makeScaffold(e.modelHeight * levelScale(b.level) + 0.15)
+            e.scaffold = makeScaffold(e.modelHeight * levelScale(b.level) + 0.15, townBuildingSize(b.type))
             e.group.add(e.scaffold)
         }
         if (!pending && e.scaffold) {
@@ -851,7 +858,9 @@ function rebuildGhost() {
     hideGhost()
     if (!props.ghostType || !getTownBuilding(props.ghostType)) return
     const ghostDef = getTownBuilding(props.ghostType)!
-    ghost = ghostDef.kind === 'road' ? buildRoadModel([false, false, false, false]) : buildingModel(props.ghostType as TownBuildingId, props.ghostLevel)
+    // A monument is previewed finished, so the player sees what they are starting.
+    const ghostLevel = ghostDef.kind === 'monument' ? TOWN_MONUMENT_STAGES : props.ghostLevel
+    ghost = ghostDef.kind === 'road' ? buildRoadModel([false, false, false, false]) : buildingModel(props.ghostType as TownBuildingId, ghostLevel)
     ghost.traverse((o) => {
         if (o instanceof THREE.Mesh) {
             const m = (o.material as THREE.MeshStandardMaterial).clone()
@@ -929,18 +938,31 @@ function showIssue(text: string | null, x: number, z: number) {
  * the run's last tile, and the issue label stays down: the pads on the ground
  * are the authority then, and a single-tile message would contradict them.
  */
-function placeGhostAt(x: number, z: number, painting = false) {
+/** The tile the cursor last held the ghost on, so a rotate can put it straight back. */
+let ghostCursor: { x: number, z: number } | null = null
+
+function placeGhostAt(cursorX: number, cursorZ: number, painting = false) {
+    ghostCursor = { x: cursorX, z: cursorZ }
+    const def = props.ghostType ? getTownBuilding(props.ghostType) : null
+    const size = def?.size ?? 1
+    const half = size / 2
+    // A wide building is held by its middle, so it lands where the cursor points.
+    const x = cursorX - Math.floor(size / 2)
+    const z = cursorZ - Math.floor(size / 2)
     if (ghost) {
         ghost.visible = true
-        ghost.position.set(x + 0.5, 0.3, z + 0.5)
+        ghost.position.set(x + half, 0.3, z + half)
     }
     ghostPad.visible = true
-    ghostPad.position.set(x + 0.5, 0.325, z + 0.5)
-    const def = props.ghostType ? getTownBuilding(props.ghostType) : null
+    ghostPad.position.set(x + half, 0.325, z + half)
+    ghostPad.scale.set(size, size, 1)
     if (def && def.kind !== 'road') {
-        const f = townFrontTile(x, z, props.ghostRotation)
+        // The arrow sits in the middle of the row of tiles the front opens onto.
+        const front = townFrontTiles(x, z, props.ghostRotation, size)
+        const fx = front.reduce((sum, f) => sum + f.wx, 0) / front.length
+        const fz = front.reduce((sum, f) => sum + f.wy, 0) / front.length
         frontMarker.visible = true
-        frontMarker.position.set(f.wx + 0.5, 0.33, f.wy + 0.5)
+        frontMarker.position.set(fx + 0.5, 0.33, fz + 0.5)
         frontMarker.rotation.z = -props.ghostRotation * Math.PI / 2 + Math.PI
     } else {
         frontMarker.visible = false
@@ -950,7 +972,7 @@ function placeGhostAt(x: number, z: number, painting = false) {
         showIssue(null, 0, 0)
     } else {
         tintGhost(!props.ghostIssue)
-        showIssue(props.ghostIssue, x + 0.5, z + 0.5)
+        showIssue(props.ghostIssue, x + half, z + half)
     }
 }
 
@@ -1072,6 +1094,7 @@ function syncSelectionRings() {
         }
         ring.visible = true
         ring.position.set(e.group.position.x, 0.325, e.group.position.z)
+        ring.scale.setScalar(townBuildingSize(e.data.type))
         i++
     }
     for (let j = i; j < selectionRings.length; j++) selectionRings[j]!.visible = false
@@ -1115,7 +1138,7 @@ function hidePads() {
 const moveGhostGroup = new THREE.Group()
 buildingsGroup.add(moveGhostGroup)
 let moveGhostMats: THREE.MeshStandardMaterial[] = []
-let moveGhostItems: { holder: THREE.Object3D, dx: number, dy: number }[] = []
+let moveGhostItems: { holder: THREE.Object3D, dx: number, dy: number, half: number }[] = []
 /** Last tile the block hovered, so a rebuild (a rotate) can put it straight back. */
 let moveGhostAnchor: { wx: number, wy: number } | null = null
 
@@ -1133,7 +1156,7 @@ function rebuildMoveGhosts() {
     for (const g of wanted) {
         const def = getTownBuilding(g.type)
         if (!def) continue
-        const model = def.kind === 'road' ? buildRoadModel([false, false, false, false]) : buildingModel(g.type as TownBuildingId, townVisualLevel(Math.max(1, g.level)))
+        const model = def.kind === 'road' ? buildRoadModel([false, false, false, false]) : buildingModel(g.type as TownBuildingId, townSceneLevel(g.type, def.kind === 'monument' ? g.level : Math.max(1, g.level)))
         model.rotation.y = def.kind === 'road' ? 0 : g.rotation * Math.PI / 2
         model.scale.setScalar(def.kind === 'road' ? 1 : levelScale(Math.max(1, g.level)))
         model.traverse((o) => {
@@ -1151,7 +1174,7 @@ function rebuildMoveGhosts() {
         const holder = new THREE.Group()
         holder.add(model)
         moveGhostGroup.add(holder)
-        moveGhostItems.push({ holder, dx: g.dx, dy: g.dy })
+        moveGhostItems.push({ holder, dx: g.dx, dy: g.dy, half: (def.size ?? 1) / 2 })
     }
     tintMoveGhosts(!props.moveIssue)
     moveGhostGroup.visible = false
@@ -1169,7 +1192,7 @@ function placeMoveGhostsAt(wx: number, wy: number) {
     if (moveGhostItems.length === 0) return
     moveGhostAnchor = { wx, wy }
     moveGhostGroup.visible = true
-    for (const item of moveGhostItems) item.holder.position.set(wx + item.dx + 0.5, 0.3, wy + item.dy + 0.5)
+    for (const item of moveGhostItems) item.holder.position.set(wx + item.dx + item.half, 0.3, wy + item.dy + item.half)
     tintMoveGhosts(!props.moveIssue)
     showPads(moveGhostItems.map(i => ({ wx: wx + i.dx, wy: wy + i.dy })), () => !props.moveIssue)
 }
@@ -1876,7 +1899,9 @@ function isDescendant(o: THREE.Object3D, root: THREE.Object3D) {
 }
 
 function tileOccupied(tile: TileRef) {
-    return props.buildings.some(b => b.plotId === tile.plotId && b.tileX === tile.tileX && b.tileY === tile.tileY)
+    const plot = plotById.value.get(tile.plotId)
+    if (!plot) return false
+    return props.buildings.some(b => b.plotId === tile.plotId && townCovers({ type: b.type, wx: b.tileX, wy: b.tileY }, tile.tileX, tile.tileY))
 }
 
 // ─── Input ───────────────────────────────────────────────────────────────────
@@ -2518,7 +2543,7 @@ function frame(ms: number) {
     if (sel) {
         ring.visible = true
         ring.position.set(sel.group.position.x, 0.32, sel.group.position.z)
-        const s = still ? 1 : 1 + Math.sin(ms / 300) * 0.05
+        const s = (still ? 1 : 1 + Math.sin(ms / 300) * 0.05) * townBuildingSize(sel.data.type)
         ring.scale.set(s, s, s)
     } else {
         ring.visible = false
@@ -2681,9 +2706,9 @@ watch(() => [props.ghostType, props.ghostLevel], rebuildGhost)
 watch(() => props.keyboardEnabled, clearMovement)
 watch(() => props.ghostRotation, (value) => {
     if (ghost) ghost.rotation.y = value * Math.PI / 2
-    if (ghost?.visible) placeGhostAt(Math.floor(ghost.position.x), Math.floor(ghost.position.z))
+    if (ghost?.visible && ghostCursor) placeGhostAt(ghostCursor.x, ghostCursor.z)
 })
-watch(() => props.ghostIssue, () => { if (ghost?.visible) placeGhostAt(Math.floor(ghost.position.x), Math.floor(ghost.position.z)) })
+watch(() => props.ghostIssue, () => { if (ghost?.visible && ghostCursor) placeGhostAt(ghostCursor.x, ghostCursor.z) })
 watch(() => props.movingId, () => { for (const e of entries.values()) e.group.visible = !isBeingMoved(e.data.id) })
 watch(() => props.moveGhosts, () => {
     if (!props.moveGhosts?.length) moveGhostAnchor = null

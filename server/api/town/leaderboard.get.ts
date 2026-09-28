@@ -1,10 +1,9 @@
 import { inArray } from 'drizzle-orm'
 import { db } from '#server/database'
 import { getSessionUserId } from '#server/utils/auth'
-import { townState, townBuildings, townPlots, townResearch, user } from '#server/database/schema'
+import { townState, townBuildings, townPlots, user } from '#server/database/schema'
 import { toSim } from '#server/utils/town'
-import { townFloorIncomePerDay, deriveTown, getTownBuilding, TOWN_NO_RESEARCH } from '#shared/utils/gamelogic/town'
-import { townResearchEffects } from '#shared/utils/gamelogic/town-research'
+import { townFloorIncomePerDay, deriveTown, getTownBuilding } from '#shared/utils/gamelogic/town'
 
 const LIMIT = 25
 /**
@@ -53,11 +52,10 @@ export default defineEventHandler(async (event) => {
     if (!states.length) return { rows: [], me: null }
 
     const userIds = states.map(s => s.userId)
-    const [users, buildings, plots, research] = await Promise.all([
+    const [users, buildings, plots] = await Promise.all([
         db.select({ id: user.id, name: user.name, emblem: user.emblem, prestige: user.prestige }).from(user).where(inArray(user.id, userIds)),
         db.select().from(townBuildings).where(inArray(townBuildings.userId, userIds)),
-        db.select().from(townPlots).where(inArray(townPlots.userId, userIds)),
-        db.select().from(townResearch).where(inArray(townResearch.userId, userIds))
+        db.select().from(townPlots).where(inArray(townPlots.userId, userIds))
     ])
     const userMap = new Map(users.map(u => [u.id, u]))
     const plotMap = new Map(plots.map(p => [p.id, p]))
@@ -69,37 +67,26 @@ export default defineEventHandler(async (event) => {
         if (list) list.push(b)
         else buildingsByUser.set(b.userId, [b])
     }
-    const researchIdsByUser = new Map<string, string[]>()
-    for (const r of research) {
-        const list = researchIdsByUser.get(r.userId)
-        if (list) list.push(r.researchId)
-        else researchIdsByUser.set(r.userId, [r.researchId])
-    }
-    // A researched town really does earn more, so the board has to rank it that way.
-    const researchByUser = new Map<string, ReturnType<typeof townResearchEffects>>()
-    for (const id of userIds) {
-        researchByUser.set(id, townResearchEffects(researchIdsByUser.get(id) ?? []))
-    }
 
     const rows = states.map((s) => {
         const player = userMap.get(s.userId)
         if (!player) return null
         const mine = buildingsByUser.get(s.userId) ?? []
         const sim = mine.map(b => toSim(b, plotMap.get(b.plotId)))
-        const research = researchByUser.get(s.userId) ?? TOWN_NO_RESEARCH
-        const derived = deriveTown(sim, s.happiness, now, {}, undefined, research)
+        // Monuments are buildings, so the derive already counts what they give.
+        const derived = deriveTown(sim, s.happiness, now)
         let maxTier = 0
         for (const b of mine) {
             if (b.level === 0) continue
-            const tier = getTownBuilding(b.type)?.tier ?? 0
-            if (tier > maxTier) maxTier = tier
+            const def = getTownBuilding(b.type)
+            if (def && def.kind !== 'monument' && def.tier > maxTier) maxTier = def.tier
         }
         return {
             userId: s.userId,
             name: player.name,
             emblem: player.emblem,
             prestige: player.prestige,
-            incomePerDay: townFloorIncomePerDay(sim, s.happiness, now, research),
+            incomePerDay: townFloorIncomePerDay(sim, s.happiness, now),
             buildings: mine.filter(b => b.level > 0).length,
             plots: s.plotsBought,
             popCap: derived.popCap,

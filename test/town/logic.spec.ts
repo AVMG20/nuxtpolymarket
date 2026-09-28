@@ -9,7 +9,6 @@ import {
     TOWN_HOUSE_CHEER_MAX,
     townBuildingMaxLevel,
     townCivicCheer,
-    TOWN_NO_RESEARCH,
     TOWN_INDUSTRY_NUISANCE,
     TOWN_INDUSTRY_PENALTY_SCALE,
     TOWN_LEVEL_COST_GROWTH,
@@ -58,6 +57,8 @@ import {
     townBuildingsFronting,
     townEffectRadius,
     townFrontTile,
+    townFrontTiles,
+    townBuildingSize,
     townHousesWithin,
     townIndustryNuisance,
     townDistricts,
@@ -96,7 +97,7 @@ import {
     type TownSimState,
     type TownBuildingDef
 } from '#shared/utils/gamelogic/town'
-import { TOWN_RESEARCH } from '#shared/utils/gamelogic/town-research'
+import { TOWN_MONUMENTS, TOWN_MONUMENT_STAGES } from '#shared/utils/gamelogic/town-monuments'
 
 const T0 = 1_700_000_000_000
 
@@ -159,8 +160,7 @@ function connected(buildings: TownSimBuilding[]): TownSimBuilding[] {
     const roads = new Map<string, TownSimBuilding>()
     for (const b of buildings) {
         if (b.type === 'road' || b.wx === undefined || b.wy === undefined) continue
-        const f = townFrontTile(b.wx, b.wy, b.rotation ?? 0)
-        roads.set(`${f.wx},${f.wy}`, road(f.wx, f.wy))
+        for (const f of townFrontTiles(b.wx, b.wy, b.rotation ?? 0, townBuildingSize(b.type))) roads.set(`${f.wx},${f.wy}`, road(f.wx, f.wy))
     }
     return [...buildings, ...roads.values()]
 }
@@ -1053,12 +1053,13 @@ describe('deriveTown', () => {
 
         const miserable = deriveTown(connected([...houses, ...farms, bakery, smithy]), 50, T0, {})
         expect(miserable.popCap).toBeGreaterThanOrEqual(BREAD.minPop)
-        // One home with a maxed park on its doorstep, fed, and every point of
-        // happiness the research board has to give: well past the ceiling.
+        // One home with a maxed park on its doorstep, fed, and a finished
+        // Colosseum across town: well past the ceiling.
         const blissful = deriveTown(connected([
             at('house', 'house', 0, 0, { rotation: 2, createdAt: T0 - 1000 }),
-            at('park', 'park', 1, 0, { level: 12, rotation: 2, createdAt: T0 - 900 })
-        ]), 50, T0, { wheat: true }, undefined, { ...TOWN_NO_RESEARCH, happiness: 40 })
+            at('park', 'park', 1, 0, { level: 12, rotation: 2, createdAt: T0 - 900 }),
+            at('colosseum', 'colosseum', 40, 40, { level: TOWN_MONUMENT_STAGES })
+        ]), 50, T0, { wheat: true })
 
         expect(miserable.happinessBreakdown.industry).toBeLessThan(0)
         expect(miserable.happinessBreakdown.crowding).toBe(-TOWN_HAPPINESS_CROWDING_PENALTY)
@@ -1499,9 +1500,10 @@ describe('happiness ladder', () => {
         const smoggy = connected([
             ...[0, 1, 2].map(x => at(`house${x}`, 'house', x, 1, { level: 20, rotation: 2, createdAt: T0 - 2000 + x })),
             at('park', 'park', 3, 1, { level: 8, rotation: 2, createdAt: T0 - 1500 }),
-            at('factory', 'factory', 1, 1 + townIndustryNuisance(factory).radius - 1, { rotation: 0, createdAt: T0 - 1000 })
+            at('factory', 'factory', 1, 1 + townIndustryNuisance(factory).radius - 1, { rotation: 0, createdAt: T0 - 1000 }),
+            at('colosseum', 'colosseum', 40, 40, { level: TOWN_MONUMENT_STAGES })
         ])
-        const town = deriveTown(smoggy, 50, T0, { wheat: true, bricks: true, bread: true, tools: true }, undefined, { ...TOWN_NO_RESEARCH, happiness: 16 })
+        const town = deriveTown(smoggy, 50, T0, { wheat: true, bricks: true, bread: true, tools: true })
 
         expect(town.happinessBreakdown.layout.residentsWithIndustry).toBe(town.happinessBreakdown.layout.residents)
         expect(town.happinessBreakdown.parks).toBe(townCivicCheer(getTownBuilding('park')!, 8))
@@ -2164,25 +2166,34 @@ describe('milestones', () => {
         // Roads are their own count, and a site still going up is in neither.
         expect(snap.roadCount).toBe(3)
         expect(snap.buildingCount).toBe(3)
-        // Nothing was handed in for the fields the caller has to supply.
-        expect(snap.researchDone).toBe(0)
+        // No monument stands, and the caller handed in nothing about needs.
+        expect(snap.monumentStages).toBe(0)
         expect(snap.needsSatisfied).toBe(false)
     })
 
-    it('takes research and needs from what the caller measured', () => {
+    it('takes needs from what the caller measured', () => {
         const derived = deriveTown([], 50, T0)
-        const snap = townMilestoneSnapshot([], derived, 50, 1, 0, T0, { researchDone: 7, needsSatisfied: true })
-        expect(snap.researchDone).toBe(7)
+        const snap = townMilestoneSnapshot([], derived, 50, 1, 0, T0, { needsSatisfied: true })
         expect(snap.needsSatisfied).toBe(true)
     })
 
-    it('completes the research chain on the count of finished projects', () => {
-        expect(complete('research-5', snapshot([], { researchDone: 4 }))).toBe(false)
-        expect(complete('research-5', snapshot([], { researchDone: 5 }))).toBe(true)
-        expect(complete('research-15', snapshot([], { researchDone: 5 }))).toBe(false)
-        expect(complete('research-30', snapshot([], { researchDone: TOWN_RESEARCH.length }))).toBe(true)
-        // The last step is the whole board, not a number that outruns it.
-        expect(getTownMilestone('research-30')!.progress(snapshot([])).target).toBe(TOWN_RESEARCH.length)
+    it('counts the monument stages that stand, not the one going up', () => {
+        const snap = snapshot([
+            built('pyramid', 'pyramid', { level: 3 }),
+            built('arc', 'arc', { level: 2, upgradingTo: 3, completesAt: T0 + 60_000 }),
+            built('site', 'eiffel', { level: 0, completesAt: T0 + 60_000 })
+        ])
+        expect(snap.monumentStages).toBe(5)
+    })
+
+    it('completes the monument chain on the count of stages standing', () => {
+        expect(complete('research-5', snapshot([], { monumentStages: 4 }))).toBe(false)
+        expect(complete('research-5', snapshot([], { monumentStages: 5 }))).toBe(true)
+        expect(complete('research-15', snapshot([], { monumentStages: 5 }))).toBe(false)
+        const all = TOWN_MONUMENTS.length * TOWN_MONUMENT_STAGES
+        expect(complete('research-30', snapshot([], { monumentStages: all }))).toBe(true)
+        // The last step is every stage of every monument, not a number that outruns it.
+        expect(getTownMilestone('research-30')!.progress(snapshot([])).target).toBe(all)
     })
 
     it('completes the building and road chains off their own counts', () => {

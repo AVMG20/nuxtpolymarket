@@ -14,6 +14,7 @@ import {
     TOWN_PARK_RADIUS,
     TOWN_MAX_BUILDERS,
     townBuildersBusy,
+    townMonumentJob,
     townBuilderGemCost,
     TOWN_HOUSE_CHEER_MAX,
     TOWN_SUPPLY_FULL_TILES,
@@ -94,10 +95,9 @@ export default defineEventHandler(async (event) => {
 
     // One breadth-first pass over the roads serves both derives below.
     const network = townSupplyNetwork(sim, now)
-    // Every rate below is derived with the same bonus the settle just paid.
-    const derived = deriveTown(sim, state.happiness, now, settled.satisfied, network, settled.research)
-    const unlockedTiers = [0, 1, 2, 3, 4, 5, 6].filter(t => townTierUnlocked(sim, t, now, state.produced, settled.research))
-    const tierLocks = Object.fromEntries([2, 3, 4, 5, 6].map(t => [t, townTierRequirement(sim, t, now, state.produced, settled.research)]))
+    const derived = deriveTown(sim, state.happiness, now, settled.satisfied, network)
+    const unlockedTiers = [0, 1, 2, 3, 4, 5, 6].filter(t => townTierUnlocked(sim, t, now, state.produced))
+    const tierLocks = Object.fromEntries([2, 3, 4, 5, 6].map(t => [t, townTierRequirement(sim, t, now, state.produced)]))
     const maxTier = Math.max(...unlockedTiers)
 
     // The bar's ceiling: what the town would score with every need it could
@@ -106,11 +106,13 @@ export default defineEventHandler(async (event) => {
     for (const need of TOWN_NEEDS) {
         if (townNeedExpected(need, derived.popCap, derived.reachableTier)) reachable[need.resource] = true
     }
-    const happinessPotential = deriveTown(sim, state.happiness, now, reachable, network, settled.research).happinessTarget
+    const happinessPotential = deriveTown(sim, state.happiness, now, reachable, network).happinessTarget
 
     const countsByType: Record<string, number> = {}
     for (const b of sim) countsByType[b.type] = (countsByType[b.type] ?? 0) + 1
-    const nextCost = Object.fromEntries(TOWN_BUILDINGS.map(def => [def.id, townPlaceCost(def, countsByType[def.id] ?? 0)]))
+    const credit = state.monumentCredit
+    // A monument the town has research credit for goes up free.
+    const nextCost = Object.fromEntries(TOWN_BUILDINGS.map(def => [def.id, credit[def.id] ? { coins: 0, resources: {} } : townPlaceCost(def, countsByType[def.id] ?? 0)]))
     const mood = townMood(state.happiness)
     const nextMood = townNextMood(state.happiness)
 
@@ -159,7 +161,7 @@ export default defineEventHandler(async (event) => {
             expected: townNeedExpected(n, derived.popCap, derived.reachableTier),
             producible: (getTownResource(n.resource)?.tier ?? 1) <= maxTier
         })),
-        floorIncomePerDay: townFloorIncomePerDay(sim, state.happiness, now, settled.research),
+        floorIncomePerDay: townFloorIncomePerDay(sim, state.happiness, now),
         netPerTick: townNetPerTick(sim, derived, now),
         tickProgressMs: state.tickProgressMs,
         lastSettledAt: state.lastSettledAt.getTime(),
@@ -179,6 +181,12 @@ export default defineEventHandler(async (event) => {
             busy: townBuildersBusy(settled.sim, now),
             nextGemCost: townBuilderGemCost(state.builders)
         },
+        /** The monument crew's one job, if it has one. */
+        monumentJob: townMonumentJob(settled.sim, now)?.id ?? null,
+        /** What the town's monuments give right now. */
+        monumentBonus: settled.bonus,
+        /** Monument stages carried over from research, waiting for the monument to be placed. */
+        monumentCredit: credit,
         plotPurchase: plotPurchaseInfo(state, now, plots.length),
         expansions,
         buildings: buildings.map(b => ({
@@ -200,13 +208,13 @@ export default defineEventHandler(async (event) => {
             // how many posts it has. Null while the building is cut off.
             district: derived.districts.get(derived.districtOf.get(b.id) ?? '') ?? null,
             // Durations come from the server, because only the server knows
-            // this town's mood and research. A client that recomputed them
+            // this town's mood and monuments. A client that recomputed them
             // would draw a progress bar that disagrees with its own clock.
             jobMs: b.level === 0 || b.upgradingTo !== null
-                ? townLevelBuildMs(getTownBuilding(b.type)!, b.upgradingTo ?? 1, state.happiness, settled.research)
+                ? townLevelBuildMs(getTownBuilding(b.type)!, b.upgradingTo ?? 1, state.happiness, settled.bonus)
                 : null,
             nextUpgradeMs: b.level > 0 && b.level < townBuildingMaxLevel(getTownBuilding(b.type)!)
-                ? townLevelBuildMs(getTownBuilding(b.type)!, b.level + 1, state.happiness, settled.research)
+                ? townLevelBuildMs(getTownBuilding(b.type)!, b.level + 1, state.happiness, settled.bonus)
                 : null
         })),
         inventory,
