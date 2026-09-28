@@ -6,15 +6,16 @@
 
 import { C, RARITY_COLORS, TRAIT_GRADES, TRAIT_GRADE_COLORS } from './palette'
 import { Surface, rect, px, line, disc, ring, tri, ellipse, dither, ditherDisc, ditherEllipse, poly, arc, hash2, bayer, blit } from './surface'
-import { drawText, textWidth } from './font'
+import { drawText } from './font'
 import { qt } from './vfx-kit'
+import { drawLogo } from './logos'
 import { SW, SH, WORLD_SCENES  } from './scenery'
 import { Actor } from './rig'
 import { HERO_ART } from './heroes'
 import { championLook, CHASSIS } from './champions'
 import { glyph } from './icon-kit'
 import { ARTIFACT_ICONS, CURRENCY_ICONS } from './icons-items'
-import { classNodeIcon, traitFrame } from './icons-misc'
+import { traitFrame } from './icons-misc'
 import { sword, shield, staff, bow, axe, M, ShieldStyle, Gem } from './weapons'
 import type { Mat } from './weapons'
 
@@ -435,39 +436,12 @@ export const CHROME: readonly Chrome[] = [
  * The wordmark. ⚠ `asset-list.md` §6: "HeroQuest" is an existing, actively republished board
  * game — resolve the name before shipping this. The logo is text, so a rename is one string.
  */
-export const GAME_TITLE = 'HERO QUEST'
-
-export function drawLogo(s: Surface, x: number, y: number, t: number, scale = 2): void {
-    const w = textWidth(GAME_TITLE, 'big', scale)
-    // plate, crossed swords behind
-    sword(s, x - w / 2 - 4, y + 20, -0.6, 26, M.steel, M.gold, C.brown1)
-    sword(s, x + w / 2 + 4, y + 20, Math.PI + 0.6, 26, M.steel, M.gold, C.brown1)
-    drawText(s, GAME_TITLE, x, y, C.gold2, { font: 'big', scale, align: 1, shadow: 2, shadowColor: C.red0, bevel: C.gold3 })
-    // a glint sweeping across the letters
-    const gx = R(x - w / 2 + ((qt(t) * 60) % (w + 40)) - 20)
-    for (let k = 0; k < 14 * scale; k++) { const xx = gx + (k >> 1); const yy = y + k; if (s.get(xx, yy) === C.gold2) s.set(xx, yy, C.white) }
-    drawText(s, 'AN IDLE ADVENTURE', x, y + 7 * scale + 6, C.bone1, { align: 1, shadow: 1 })
-}
-
-/** App icon: the rookie's face and a sword on a gold shield, 32×32. */
-export function drawAppIcon(s: Surface): void {
-    const W = s.w
-    disc(s, W / 2, W / 2, W / 2 - 1, C.ink)
-    disc(s, W / 2, W / 2, W / 2 - 2, C.gold1)
-    disc(s, W / 2, W / 2, W / 2 - 4, C.night1)
-    sword(s, W - 7, W - 3, -2.2, 26, M.steel, M.gold, C.brown1)
-    const tile = TILE
-    tile.clear()
-    classNodeIcon(tile, 'class_beginner', 'beginner', 0)
-    blit(s, tile, (W - 24) / 2, (W - 24) / 2)
-}
-
 /** Splash / loading screen at scene resolution: Thornwick at dusk, the rookie, the logo. */
 export function drawSplash(s: Surface, t: number): void {
     WORLD_SCENES[0]!.draw(s, qt(t) * 20, t)
     dither(s, 0, 0, SW, SH, C.night0, 6)
     CHROME_ACTOR.draw(s, 80, 150, HERO_ART.class_beginner!.look, HERO_ART.class_beginner!.clips.idle, t)
-    drawLogo(s, SW / 2 + 20, 44, t, 3)
+    drawLogo(s, SW / 2 + 20, 40, t)
     const dots = Math.floor(qt(t) * 3) % 4
     drawText(s, 'LOADING' + '.'.repeat(dots), SW / 2 + 20, 132, C.bone1, { align: 1, shadow: 1 })
     rect(s, SW / 2 - 40, 142, 120, 5, C.ink)

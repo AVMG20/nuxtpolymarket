@@ -36,7 +36,8 @@ import { GEAR } from '../../../shared/utils/hero-quest/content/gear'
 import { NUMBER_STYLES, drawNumberPop, drawNumberAtlas, numberAtlasWidth, numberHeight, drawPartyFrame, drawCooldown, drawEnrageTimer, drawAddWaveSpawn, drawPhaseShift, drawRevealBase, REVEAL_LUT, REVEAL_SIZE } from './feedback'
 import { Surface as Surf, blit, rect } from './surface'
 import { WORLD_SCENES, SW, SH, BG_LOOP, composeScene } from './scenery'
-import { drawWorldMap, TAB_BACKGROUNDS, CHROME, drawLogo, drawAppIcon, drawSplash } from './ui-art'
+import { drawWorldMap, TAB_BACKGROUNDS, CHROME, drawSplash } from './ui-art'
+import { drawLogo, LOGO_W, LOGO_H, LOGO_LOOP } from './logos'
 import { GILDED_WARLORD, DRILLMASTER, BURIED_COLOSSUS, DIG_SCARAB, RELIC_SHARD, ANVIL_HEART, RAMPANT, TRAINING_DUMMY } from './raids'
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
@@ -62,7 +63,7 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'frames', label: 'Frames & badges', locked: true },
     { id: 'backgrounds', label: 'Backgrounds', locked: true },
     { id: 'ui', label: 'UI chrome' },
-    { id: 'branding', label: 'Branding' }
+    { id: 'branding', label: 'Branding', locked: true }
 ]
 
 export interface ArtAsset {
@@ -97,8 +98,8 @@ export interface ArtAsset {
  * adopted, again once the Hero designs were locked, again once World 1 was locked, and again once
  * every world background was locked), and again on 2026-09-28, once the Heroes, Champions,
  * Summons, Enemies, Bosses and Backgrounds were all locked. The sixth pass's Rounds 1–3 were
- * approved and taken off when Frames & badges locked (also 2026-09-28), so the next round is 4;
- * every earlier round is recorded in art-style.md.
+ * approved and taken off when Frames & badges locked, and Round 4 when Branding locked (both also
+ * 2026-09-28), so the next round is 5; every earlier round is recorded in art-style.md.
  */
 export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
@@ -453,9 +454,9 @@ function uiAssets(): ArtAsset[] {
 
 function brandingAssets(): ArtAsset[] {
     return [
-        anim('branding/logo', 'branding', 'Branding', 'Hero Quest logo (name pending — see trademark note)', 200, 64, 16, true, (d, t) => drawLogo(d, 100, 14, t, 2)),
-        still('branding/app_icon', 'branding', 'Branding', 'App icon', 32, 32, d => drawAppIcon(d)),
-        { ...anim('branding/splash', 'branding', 'Branding', 'Splash / loading screen', SW, SH, 20, true, (d, t) => drawSplash(d, t)), opaque: true }
+        anim('branding/logo', 'branding', 'Branding', 'Hero Quest logo (name pending — see trademark note)', LOGO_W, LOGO_H, Math.round(LOGO_LOOP * AUTHORED_FPS), true, (d, t) => drawLogo(d, LOGO_W / 2, 12, t)),
+        // as long as the logo's loop, so its glint and sparkles close
+        { ...anim('branding/splash', 'branding', 'Branding', 'Splash / loading screen', SW, SH, Math.round(LOGO_LOOP * AUTHORED_FPS), true, (d, t) => drawSplash(d, t)), opaque: true }
     ]
 }
 

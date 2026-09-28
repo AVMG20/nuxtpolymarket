@@ -1060,7 +1060,7 @@ One shared flash recolored per rarity tier, not a bespoke cinematic per tier.
 ## 6. Branding
 
 - [ ] Hero Quest logo
-- [ ] App icon
+- [x] ~~App icon~~ dropped 2026-09-28: no use on the platform (`asset-list.md` §6)
 - [ ] Splash / loading screen
 
 > ⚠ Trademark: HeroQuest is an existing, actively-republished board game with mobile ports.

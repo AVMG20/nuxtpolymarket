@@ -222,7 +222,7 @@ Unchanged, listed for completeness:
 ## 6. Branding
 
 - Hero Quest logo
-- App icon
+- ~~App icon~~ **Dropped 2026-09-28** (the user's call): Hero Quest is a page inside polynux, not an app of its own. The sidebar and home page show every game with a Lucide icon, the site has one favicon and no web-app manifest, so an icon had nowhere to go. Draw one if the game ever ships standalone.
 - Splash/loading screen
 
 *(Trademark note stands from before — HeroQuest is an existing, actively-republished board game with mobile ports. Worth resolving before branding assets are produced.)*
