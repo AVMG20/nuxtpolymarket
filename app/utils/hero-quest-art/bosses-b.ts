@@ -2402,7 +2402,7 @@ const THE_DOOR_OPENS: BossSpecial = {
 }
 
 export const LIMINUS: CreatureDef = {
-    name: 'Liminus, the Last Door', size: 128, shadow: 0, accent: C.pink,
+    name: 'Liminus, the Last Door', size: 152, shadow: 0, accent: C.pink,
     states: LIMINUS_STATES,
     special: THE_DOOR_OPENS,
     draw(s, st, t) {
@@ -2419,7 +2419,7 @@ export const LIMINUS: CreatureDef = {
             const u = q(t) / LIMINUS_STATES.entry.dur
             const rise = Math.min(1, u / 0.14)
             const open = sm(span(u, 0.14, 0.5))
-            if (open < 1) rift(s, x, y, rise, open, 104, 64, d => liminusBody(d, 'idle', x, y, t, 0))
+            if (open < 1) rift(s, x, y, rise, open, 104, 68, d => liminusBody(d, 'idle', x, y, t, 0))
             else liminusBody(s, st, x, y, t, 0)
             B.ent = 1
         } else {
