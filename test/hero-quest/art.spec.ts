@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { allArt, ART_ROUNDS } from '../../app/utils/hero-quest-art/catalog'
+import { allArt, ART_GROUPS, ART_ROUNDS } from '../../app/utils/hero-quest-art/catalog'
 import { PALETTE, PALETTE_RGB, SCENERY, SCENERY_RAMPS, C, luma } from '../../app/utils/hero-quest-art/palette'
 import { WORLD_SCENES, SW, SH, FLOOR_Y, FIGHT_BAND } from '../../app/utils/hero-quest-art/scenery'
 import { ENEMY_WEAPONS, enemyLook } from '../../app/utils/hero-quest-art/enemies'
@@ -99,6 +99,12 @@ describe('Hero Quest art coverage', () => {
             for (const p of r.prefixes) expect(allArt().some(a => a.id.startsWith(p)), `${r.label}: ${p}`).toBe(true)
             expect(allArt().filter(a => a.round === r.n).length, r.label).toBeGreaterThan(0)
         }
+    })
+
+    it('keeps review rounds off locked art', () => {
+        // a locked group is settled: reopening it is a decision (unlock it in ART_GROUPS), not a round's side effect
+        const locked = new Set(ART_GROUPS.filter(g => g.locked).map(g => g.id))
+        for (const a of allArt()) if (a.round !== undefined) expect(locked.has(a.group), `${a.id} is locked`).toBe(false)
     })
 
     it('uses unique, path-shaped ids', () => {

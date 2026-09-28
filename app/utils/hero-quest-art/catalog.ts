@@ -44,18 +44,23 @@ export type ArtGroup =
     | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids'
     | 'vfx' | 'feedback' | 'icons' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
-export const ART_GROUPS: readonly { id: ArtGroup, label: string }[] = [
-    { id: 'heroes', label: 'Hero' },
-    { id: 'champions', label: 'Champions' },
-    { id: 'summons', label: 'Summons' },
-    { id: 'enemies', label: 'Enemies' },
-    { id: 'bosses', label: 'Bosses' },
+/**
+ * The gallery's groups. `locked` marks art whose design is settled (the user's call, 2026-09-28):
+ * the gallery files it apart so it doesn't pull the eye, and no review round may touch it without
+ * unlocking it first.
+ */
+export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }[] = [
+    { id: 'heroes', label: 'Hero', locked: true },
+    { id: 'champions', label: 'Champions', locked: true },
+    { id: 'summons', label: 'Summons', locked: true },
+    { id: 'enemies', label: 'Enemies', locked: true },
+    { id: 'bosses', label: 'Bosses', locked: true },
     { id: 'raids', label: 'Raids & Arena' },
     { id: 'vfx', label: 'Ability VFX' },
     { id: 'feedback', label: 'Combat feedback' },
     { id: 'icons', label: 'Icons' },
     { id: 'frames', label: 'Frames & badges' },
-    { id: 'backgrounds', label: 'Backgrounds' },
+    { id: 'backgrounds', label: 'Backgrounds', locked: true },
     { id: 'ui', label: 'UI chrome' },
     { id: 'branding', label: 'Branding' }
 ]
@@ -88,43 +93,13 @@ export interface ArtAsset {
  * Review rounds: each restyle pass lists the asset IDs it touched (by prefix), so the
  * gallery can show one round's changes on their own. Newest last.
  *
- * The count has restarted four times, all on 2026-09-25/26: once the chibi style was adopted,
- * again once the Hero designs were locked, again once World 1 was locked, and again once every
- * world background was locked. The next round is 1; the earlier rounds are recorded in
- * art-style.md.
+ * The count has restarted five times: four times on 2026-09-25/26 (once the chibi style was
+ * adopted, again once the Hero designs were locked, again once World 1 was locked, and again once
+ * every world background was locked), and again on 2026-09-28, once the Heroes, Champions,
+ * Summons, Enemies, Bosses and Backgrounds were all locked. The next round is 1; the earlier rounds
+ * are recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    { n: 1, label: 'Mirewood roster', prefixes: ['enemy/world_mirewood', 'boss/world_mirewood', 'superboss/world_mirewood'] },
-    { n: 2, label: 'Cinderpass roster', prefixes: ['enemy/world_cinderpass', 'boss/world_cinderpass', 'superboss/world_cinderpass'] },
-    {
-        n: 3,
-        label: 'Thornwick & Mirewood rosters',
-        prefixes: ['axe', 'bow', 'staff'].flatMap(r => [`enemy/world_thornwick_vale/${r}`, `enemy/world_mirewood/${r}`])
-    },
-    { n: 4, label: 'Rimeholt roster', prefixes: ['enemy/world_rimeholt', 'boss/world_rimeholt', 'superboss/world_rimeholt'] },
-    { n: 5, label: 'Sunken Amarath roster', prefixes: ['enemy/world_sunken_amarath', 'boss/world_sunken_amarath', 'superboss/world_sunken_amarath'] },
-    { n: 6, label: 'Duskspire roster', prefixes: ['enemy/world_duskspire', 'boss/world_duskspire', 'superboss/world_duskspire'] },
-    { n: 7, label: 'Bonefields roster', prefixes: ['enemy/world_the_bonefields', 'boss/world_the_bonefields', 'superboss/world_the_bonefields'] },
-    { n: 8, label: 'Shattered Sky roster', prefixes: ['enemy/world_the_shattered_sky', 'boss/world_the_shattered_sky', 'superboss/world_the_shattered_sky'] },
-    { n: 9, label: 'Brink roster', prefixes: ['enemy/world_the_brink', 'boss/world_the_brink', 'superboss/world_the_brink'] },
-    { n: 10, label: 'Void roster', prefixes: ['enemy/world_the_void', 'boss/world_the_void', 'superboss/world_the_void'] },
-    { n: 11, label: 'Boss specials', prefixes: WORLDS.flatMap(w => [`boss/${w.id}/special`, `superboss/${w.id}/special`]) },
-    {
-        n: 12,
-        label: 'Live-stage boss pass',
-        prefixes: [
-            // cut off at their water; the whole body, in every state
-            'boss/world_mirewood/', 'superboss/world_sunken_amarath/',
-            // the shadow gathering under a boss coming down from the sky
-            'superboss/world_cinderpass/entry', 'boss/world_the_shattered_sky/entry', 'boss/world_the_void/entry',
-            // Liminus's wider canvas, Nihil's pool opening as a portal
-            'superboss/world_the_brink/', 'superboss/world_the_void/',
-            // room round the swings that ran off their canvas (Slagjaw's shadow is in here too), and Halvane's hat
-            'superboss/world_mirewood/', 'boss/world_cinderpass/', 'boss/world_rimeholt/', 'boss/world_sunken_amarath/',
-            'boss/world_duskspire/', 'superboss/world_duskspire/', 'boss/world_the_bonefields/', 'boss/world_the_shattered_sky/special'
-        ]
-    }
-]
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }

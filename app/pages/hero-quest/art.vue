@@ -14,11 +14,14 @@ const assets = computed(() => allArt())
 /**
  * Review rounds, newest first. The page opens on the latest round's changes across every
  * group, so they can be judged together; an asset shows under the round that last changed it.
- * With no round open it opens on the first group.
+ * With no round open it opens on the first group still in review.
  */
 const rounds = computed(() => [...ART_ROUNDS].reverse().map(r => ({ ...r, count: assets.value.filter(a => a.round === r.n).length })))
 const GROUP_LABEL = Object.fromEntries(ART_GROUPS.map(g => [g.id, g.label])) as Record<ArtGroup, string>
-const group = ref<ArtGroup | number>(rounds.value[0]?.n ?? ART_GROUPS[0]!.id)
+/** Groups still in review, up front; locked ones are filed apart so they don't pull the eye. */
+const openGroups = ART_GROUPS.filter(g => !g.locked)
+const lockedGroups = ART_GROUPS.filter(g => g.locked)
+const group = ref<ArtGroup | number>(rounds.value[0]?.n ?? openGroups[0]!.id)
 const query = ref('')
 
 const counts = computed(() => Object.fromEntries(ART_GROUPS.map(g => [g.id, assets.value.filter(a => a.group === g.id).length])))
@@ -53,41 +56,64 @@ const sections = computed(() => {
       <HeroQuestArtStage />
     </ClientOnly>
 
-    <div class="flex flex-wrap items-center gap-1">
-      <UButton
-        v-for="r in rounds"
-        :key="r.n"
-        size="xs"
-        icon="i-lucide-sparkles"
-        :variant="group === r.n ? 'solid' : 'outline'"
-        color="primary"
-        @click="group = r.n"
-      >
-        {{ r.label }}
-        <span class="text-[10px] opacity-70 tabular-nums">{{ r.count }}</span>
-      </UButton>
-      <USeparator
-        orientation="vertical"
-        class="h-5 mx-1"
-      />
-      <UButton
-        v-for="g in ART_GROUPS"
-        :key="g.id"
-        size="xs"
-        :variant="group === g.id ? 'solid' : 'soft'"
-        :color="group === g.id ? 'primary' : 'neutral'"
-        @click="group = g.id"
-      >
-        {{ g.label }}
-        <span class="text-[10px] opacity-70 tabular-nums">{{ counts[g.id] }}</span>
-      </UButton>
-      <UInput
-        v-model="query"
-        size="xs"
-        icon="i-lucide-search"
-        placeholder="Filter"
-        class="ml-auto w-48"
-      />
+    <div class="space-y-2">
+      <div class="flex flex-wrap items-center gap-1">
+        <UButton
+          v-for="r in rounds"
+          :key="r.n"
+          size="xs"
+          icon="i-lucide-sparkles"
+          :variant="group === r.n ? 'solid' : 'outline'"
+          color="primary"
+          @click="group = r.n"
+        >
+          {{ r.label }}
+          <span class="text-[10px] opacity-70 tabular-nums">{{ r.count }}</span>
+        </UButton>
+        <USeparator
+          v-if="rounds.length"
+          orientation="vertical"
+          class="h-5 mx-1"
+        />
+        <UButton
+          v-for="g in openGroups"
+          :key="g.id"
+          size="xs"
+          :variant="group === g.id ? 'solid' : 'soft'"
+          :color="group === g.id ? 'primary' : 'neutral'"
+          @click="group = g.id"
+        >
+          {{ g.label }}
+          <span class="text-[10px] opacity-70 tabular-nums">{{ counts[g.id] }}</span>
+        </UButton>
+        <UInput
+          v-model="query"
+          size="xs"
+          icon="i-lucide-search"
+          placeholder="Filter"
+          class="ml-auto w-48"
+        />
+      </div>
+      <div class="flex flex-wrap items-center gap-1">
+        <span class="flex items-center gap-1 text-xs text-dimmed mr-1">
+          <UIcon
+            name="i-lucide-lock"
+            class="size-3"
+          />
+          Locked
+        </span>
+        <UButton
+          v-for="g in lockedGroups"
+          :key="g.id"
+          size="xs"
+          :variant="group === g.id ? 'solid' : 'ghost'"
+          :color="group === g.id ? 'primary' : 'neutral'"
+          @click="group = g.id"
+        >
+          {{ g.label }}
+          <span class="text-[10px] opacity-70 tabular-nums">{{ counts[g.id] }}</span>
+        </UButton>
+      </div>
     </div>
 
     <ClientOnly>
