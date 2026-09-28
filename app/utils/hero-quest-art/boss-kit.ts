@@ -12,6 +12,9 @@ import type { Mat } from './weapons'
 
 export const enum Entry { Rise, Drop, Walk, Fade, Grow }
 
+/** The fraction of an entry by which the boss has fully arrived; the roar runs from here. */
+export const ENTRY_SETTLED = 0.7
+
 /** Pose values for the boss being drawn this frame. */
 export const B = {
     bob: 0,
@@ -79,8 +82,8 @@ export function drive(def: CreatureDef, st: string, t: number, reach: number, id
             B.sp = Math.min(1, q(t) / dur)
             break
         case 'entry':
-            B.ent = sm(span(t, 0, dur * 0.7))
-            B.roar = q(t) >= dur * 0.7 && q(t) < dur * 0.95
+            B.ent = sm(span(t, 0, dur * ENTRY_SETTLED))
+            B.roar = q(t) >= dur * ENTRY_SETTLED && q(t) < dur * 0.95
             B.glow = B.roar ? 1 : 0
             break
     }

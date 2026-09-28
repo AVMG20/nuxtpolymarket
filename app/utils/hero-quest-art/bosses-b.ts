@@ -6,10 +6,10 @@ import type { BossSpecial, CreatureDef } from './creature'
 import { CF, fr, sm, span } from './creature'
 import type { Mat } from './weapons'
 import {
-    B, Entry, bossStates, withSpecial, spAttack, drive, finish, bz, ball, tentacle, glowEye,
+    B, Entry, ENTRY_SETTLED, bossStates, withSpecial, spAttack, drive, finish, shift, bz, ball, tentacle, glowEye,
     limbT, elbow, P, rect, px, line, disc, ellipse, tri, quad, dither, ditherEllipse, ring, arc, poly, q, wv, bayer, hash2
 } from './boss-kit'
-import { Surface, ditherDisc } from './surface'
+import { Surface, ditherDisc, ellipseRing } from './surface'
 import { blast, shockRing } from './vfx-cinematic'
 import { rune as runeGlyph, RUNES, bolt as boltFx, star as starFx } from './vfx-kit'
 import { sq, sp, chest, debris, spike, crack, pit, drain, BONE6, STORM6, VOID6 } from './special-kit'
@@ -2645,19 +2645,38 @@ function nihilEye(s: Surface, x: number, y: number, r: number, open: number): vo
  * tendrils rising round it; on its front the maw, rings of teeth grinding round each other down
  * into a pink gullet and the black hole at its heart. `open` sizes the maw.
  */
+/** Where Nihil's pool sits from the anchor: under its body at rest, and fixed there as the body lunges. */
+const NIHIL_POOL_DX = -28
+
+/**
+ * The pool of the dark Nihil rises out of, a portal in the glass: it opens out of a point (`open`
+ * 0 → 1) with its rim burning pink as it spreads, cracks of the Void running out across the glass
+ * once it is open. Stays where it opened; the body over it lunges and bobs on its own.
+ */
+function nihilPool(s: Surface, x: number, y: number, open: number): void {
+    if (open <= 0) return
+    const px0 = x + NIHIL_POOL_DX
+    const py = y - 1
+    ditherEllipse(s, px0, py, 82 * open, Math.max(1, 7 * open), C.purple0, 6)
+    ellipse(s, px0, py, 70 * open, Math.max(1, 5 * open), C.ink)
+    if (open < 1) {
+        // the rim of the opening, burning as it spreads
+        ellipseRing(s, px0, py, 70 * open, Math.max(1, 5 * open), C.pink)
+        ellipseRing(s, px0, py, 70 * open + 1, Math.max(1, 5 * open), C.white)
+        return
+    }
+    for (let i = 0; i < 7; i++) {
+        const a = Math.PI + (i / 6) * Math.PI
+        line(s, R(px0 + Math.cos(a) * 70), py, R(px0 + Math.cos(a) * (84 + (i % 3) * 6)), py + (i & 1), C.pink)
+    }
+}
+
 function nihilBody(s: Surface, st: string, x: number, y: number, t: number, open: number): void {
     const ph = q(t) / 2.4 * Math.PI * 2
     const cx = x - 34
     // it floats clear of the glass, bobbing; its hide is squashed by V so the lift doesn't raise its top into the HUD
     const V = 0.86
     const cy = y - 58 + wv(t, 2.4, 2)
-    // the pool of the dark it rises out of, cracks of the Void running out across the glass
-    ditherEllipse(s, cx + 6, y - 1, 82, 7, C.purple0, 6)
-    ellipse(s, cx + 6, y - 1, 70, 5, C.ink)
-    for (let i = 0; i < 7; i++) {
-        const a = Math.PI + (i / 6) * Math.PI
-        line(s, R(cx + 6 + Math.cos(a) * 70), y - 1, R(cx + 6 + Math.cos(a) * (84 + (i % 3) * 6)), y - 1 + (i & 1), C.pink)
-    }
     // tendrils hanging from its underside, trailing down into nothing
     for (let i = 0; i < 5; i++) tentacle(s, cx - 56 + i * 20, cy + 30 - (i === 2 ? 4 : 0), Math.PI / 2 + 0.25 - i * 0.12, 16 + (i % 2) * 6, 6, ph + i * 1.3, [C.ink, C.void, C.purple0], C.purple2)
     // the mass: lumped, rimmed in violet toward the light, the starfield in it
@@ -2733,6 +2752,11 @@ function nihilBody(s: Surface, st: string, x: number, y: number, t: number, open
     NM.y = my - s.ay
 }
 
+/** The fraction of Nihil's entry its pool takes to open, before the body starts rising out of it. */
+const NIHIL_POOL_OPENS = 0.3
+/** How far it rises out of its pool: about its own height above the glass, so it starts to show at once. */
+const NIHIL_HEIGHT = 116
+
 const NIHIL_STATES = withSpecial({ ...bossStates(1.6, 2.4, 2.8), death: { dur: 2.4, loop: false } }, 2.8)
 
 /**
@@ -2802,6 +2826,8 @@ export const NIHIL: CreatureDef = {
         drive(this, st, t, 10, 2.4)
         const x = s.ax - 10 + B.lunge - B.kb
         const y = s.ay
+        // the pool stays where it opened, whatever the body over it does
+        const poolX = s.ax - 10
         if (st === 'special') spAttack(0.56, 0.6, 0.72, 10)
         // the special gapes it impossibly wide before the snap
         let open = st === 'attack' ? bz(0.8, 1.2, 0.35) : B.roar ? 1.2 : 0.8 + wv(t, 2.4, 1) * 0.04
@@ -2819,6 +2845,8 @@ export const NIHIL: CreatureDef = {
             nihilBody(b, 'idle', x, y, t, 0.8)
             const fx0 = NM.x + s.ax
             const fy0 = NM.y + s.ay
+            // the pool closes behind it as it goes
+            nihilPool(s, poolX, y, 1 - p)
             if (p < 1) warp(s, b, fx0, fy0, fx0, fy0, 1 - p * 0.98, R(16 - p * 10))
             if (u > 0.7 && u < 0.86) {
                 // the point it became, flaring
@@ -2826,7 +2854,21 @@ export const NIHIL: CreatureDef = {
                 ditherDisc(s, fx0, fy0, 3 + f * 8, C.pink, R(4 + f * 8))
                 disc(s, fx0, fy0, 1 + f * 2, C.white)
             }
+        } else if (st === 'entry') {
+            // the pool opens out of a point, then it rises out of it, cut off at the pool's surface
+            const u = q(t) / NIHIL_STATES.entry.dur
+            nihilPool(s, poolX, y, sm(span(u, 0, NIHIL_POOL_OPENS)))
+            const rise = sm(span(u, NIHIL_POOL_OPENS * 0.8, ENTRY_SETTLED))
+            if (rise > 0) {
+                const b = scratch('nihil', s)
+                nihilBody(b, st, x, y, t, open)
+                shift(b, 0, R((1 - rise) * NIHIL_HEIGHT), b.ay)
+                for (let i = 0; i < b.data.length; i++) if (b.data[i]) s.data[i] = b.data[i]!
+            }
+            // its rise is its own, so finish must not raise it again
+            B.ent = 1
         } else {
+            nihilPool(s, poolX, y, 1)
             nihilBody(s, st, x, y, t, open)
         }
         finish(s, Entry.Rise, 0)
