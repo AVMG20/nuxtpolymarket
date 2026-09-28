@@ -25,7 +25,7 @@ export { GILDED_WARLORD } from './raid-warlord'
 export { GREAT_DUMMY, DUMMY_IMPACT } from './raid-dummy'
 export { DEEPCOIL, BURROW_GRUB, ORE_BEETLE } from './raid-wyrm'
 export { ANVIL_HEART } from './raid-anvil'
-export { RAMPANT, RAMPAGE_TIERS } from './raid-rampant'
+export { RAMPANT, RAMPAGE_TIERS, RAMPAGE_ROAR, RAMPAGE_SLAM } from './raid-rampant'
 
 const R = Math.round
 

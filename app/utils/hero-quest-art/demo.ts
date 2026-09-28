@@ -57,7 +57,7 @@ import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 import { specialState, specialsOf, type BossSpecial } from './creature'
 import { BOSSES_A } from './bosses-a'
 import { BOSSES_B } from './bosses-b'
-import { GILDED_WARLORD, GREAT_DUMMY, DUMMY_IMPACT, DEEPCOIL, ANVIL_HEART, RAMPANT } from './raids'
+import { GILDED_WARLORD, GREAT_DUMMY, DUMMY_IMPACT, DEEPCOIL, ANVIL_HEART, RAMPANT, RAMPAGE_ROAR, RAMPAGE_SLAM } from './raids'
 import { STAGE } from './special-kit'
 import { ENTRY_SETTLED } from './boss-kit'
 
@@ -624,7 +624,8 @@ export class BattleDemo {
                 r.escalating = true
                 u.state = U.Entry
                 u.t = 0
-                this.shake(JUICE.bossDown.shake, 0.5)
+                // it gathers itself: a pink wash as the beat begins; the weight comes on the slam
+                this.flashFor(0.3, C.pink)
             }
         }
     }
@@ -1115,12 +1116,33 @@ export class BattleDemo {
                         this.shake(JUICE.bossDown.shake, 0.5)
                         this.particles.burst(u.x, u.y - 4, 24, 90, 0.7, 'dust', 60, u.y)
                     }
+                    // a Trait raid's escalation: the roar shakes the stage; the slam stops it dead, throws
+                    // it about, washes it white, slows it, knocks the party back, and calls the new rampage
+                    if (u.boss && this.raid?.escalating) {
+                        const r = this.raid
+                        if (u.t >= RAMPAGE_ROAR && u.t - dt < RAMPAGE_ROAR) this.shake(2, 0.45)
+                        if (u.t >= RAMPAGE_SLAM && u.t - dt < RAMPAGE_SLAM) {
+                            this.stopFor(JUICE.bossDown.freeze + 4, true)
+                            this.shake(JUICE.bossDown.shake + 1, 0.9)
+                            this.flashFor(1, C.white)
+                            this.slowmo = Math.max(this.slowmo, 0.6)
+                            this.announce(`RAMPAGE ${r.at + 2}`)
+                            this.particles.burst(u.x - 30, u.y - 4, 30, 120, 0.9, 'dust', 60, u.y)
+                            for (let k = 0; k < PARTY; k++) {
+                                const p = this.units[k]!
+                                if (!standingAny(p)) continue
+                                this.struck(p, JUICE.crit.hold)
+                                this.particles.burst(p.x, p.y - 2, 6, 40, 0.5, 'dust', 40, p.y)
+                            }
+                        }
+                    }
                     if (u.t >= (u.boss ? dur : 0.6)) {
                         u.state = U.Idle
                         u.t = 0
                         // a Trait raid's escalation beat plays in the Entry slot; it ends a tier up
                         const r = this.raid
-                        if (u.boss && r?.escalating) { r.escalating = false; r.at++; u.frames = r.tables[r.at]!; this.announce(`RAMPAGE ${r.at + 1}`) }
+                        // its banner went up on the slam
+                        if (u.boss && r?.escalating) { r.escalating = false; r.at++; u.frames = r.tables[r.at]! }
                     }
                     break
                 case U.Move:

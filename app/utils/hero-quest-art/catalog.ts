@@ -42,7 +42,7 @@ import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, BURROW_GRUB, ORE_BEETLE, ANVIL_H
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
-    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'training_raid'
+    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid'
     | 'vfx' | 'feedback' | 'icons' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
@@ -60,6 +60,7 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     // split out of Raids & Arena to lock on their own, ahead of the other raids
     { id: 'guild_raid', label: 'Guild Raid', locked: true },
     { id: 'dig_site_raid', label: 'Dig-site Raid', locked: true },
+    { id: 'trait_raid', label: 'Trait Raid', locked: true },
     { id: 'training_raid', label: 'Training Grounds Raid', locked: true },
     { id: 'vfx', label: 'Ability VFX' },
     { id: 'feedback', label: 'Combat feedback' },
@@ -106,7 +107,7 @@ export interface ArtAsset {
  * 2026-09-28), so the next round is 5; every earlier round is recorded in art-style.md.
  */
 export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    { n: 5, label: 'Raid bosses', prefixes: ['raid/forge', 'raid/trait'] }
+    { n: 5, label: 'Raid bosses', prefixes: ['raid/forge'] }
 ]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
@@ -266,7 +267,7 @@ function raidAssets(): ArtAsset[] {
     })
     RAMPANT.forEach((def, i) => {
         const states = i < RAMPANT.length - 1 ? ['idle', 'attack', 'hit', 'escalate'] : ['idle', 'attack', 'hit']
-        for (const st of states) out.push(creatureAsset(`raid/trait/rampage${i + 1}/${st}`, 'raids', `Trait Raid · rampaging_boss — rampage ${i + 1}`, `${def.name} — ${st === 'escalate' ? 'Escalation' : TITLE[st]}`, def, st, -1))
+        for (const st of states) out.push(creatureAsset(`raid/trait/rampage${i + 1}/${st}`, 'trait_raid', `Trait Raid · rampaging_boss — rampage ${i + 1}`, `${def.name} — ${st === 'escalate' ? 'Escalation' : TITLE[st]}`, def, st, -1))
     })
     out.push(creatureAsset('arena/training_dummy/static', 'raids', 'Arena training dummy', 'Static pose', TRAINING_DUMMY, 'static', -1))
     out.push(creatureAsset('arena/training_dummy/hit', 'raids', 'Arena training dummy', 'Hit reaction', TRAINING_DUMMY, 'hit', -1))
