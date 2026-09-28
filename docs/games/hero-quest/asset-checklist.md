@@ -549,7 +549,7 @@ the boss arriving. Drop to 4 if it does not earn its keep in playtest (`asset-li
 No reuse between them, and none with the campaign roster. (`asset-list.md` §1.5)
 
 - [ ] Guild Raid boss — `solo_boss`
-- [ ] Training Grounds Raid boss — `solo_boss` — same fight type as the Guild Raid, still a fully separate design
+- [ ] Training Grounds Raid boss — `training_dummy` — a massive static training dummy: Entry (falls from the sky), Idle and Hit only, no Attack or Death
 - [ ] Dig-site Raid boss — `reinforced_boss` — plus its own add-wave enemy designs (count not yet specified)
 - [ ] Forge Raid boss — `phased_boss` — needs a visually distinct state per HP-threshold phase
 - [ ] Trait Raid boss — `rampaging_boss` — unkillable, so no death animation ever plays; needs its own visual language with no HP bar (`raid-system.md` §7)

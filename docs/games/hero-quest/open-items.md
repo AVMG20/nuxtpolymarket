@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#31** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`.
+**#32** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
@@ -33,6 +33,7 @@ read the older rule in the doc named in the middle column, it is superseded.**
 | 23 | `gold-economy.md` §9's prestige→calendar anchors; ~235M/hr at month 3 | Gold is paced on **wall-clock account age**. The anchors are gone. Still open below |
 | 25 | `core-progression-and-prestige.md` §2 and `idle-mechanics.md` §5: a failed boss is re-engaged **manually** | Bosses engage **automatically** while `document.visibilityState` is `visible`. A hidden tab, a closed app and an offline settle never engage one, so Void Shards still cannot come from idle time. The 400 on an early client engage is routine — **do not soften it server-side** |
 | 29 | `economy-and-currencies.md` §5 source 2: a time-gated free Seal grant | **Removed.** Free Seals come only from milestones and (later) raid clears; the free 10-pull entitlement is the only thing a clock hands out |
+| 31 | `raid-system.md` §1/§7, `asset-list.md`, `economy-and-currencies.md` §9: the Training Grounds Raid is a `solo_boss` fight, its Keys spent only on a win | It is a **`training_dummy`**: a static dummy that can't die or attack, the result being the damage dealt before the timer ends (2026-09-28, the user's call). How that meets Keys, the ladder and rewards is still open below |
 
 ---
 
@@ -46,6 +47,16 @@ Every raid auto-applies a preferred Loadout on engage (`loadouts.md` §4). Arena
 
 ### 3. Boss/Raid fight crit model — seeded or averaged?
 `tech-architecture.md` §4c/§9 recommends seeded RNG crits for live boss and raid fights, but it's a recommendation, not a lock. **As built, boss fights roll seeded crits** (`fight.ts`). The question is whether that stays — with `BOSS_HP_MULT` sized so gates are not decided within a couple of seconds, the variance matters less than it did.
+
+### 31. Training Grounds Raid as a damage race — how it fits the raid rules — **new 2026-09-28**
+The user made the Training Grounds Raid a `training_dummy` fight: a static dummy that can't die and can't attack, scored on the damage the party lands before a timer runs out (`raid-system.md` §7 *Training Dummy*). The art is built (the Great Dummy, `art-style.md` Round 5). `raid-system.md` was written for fights that end in a win, a wipe or a death, so these are undecided:
+
+1. **Keys.** No win to gate on, so the win-only spend (§3) can't apply. Rampaging Boss's rule would be the precedent: a Key spent on every entry.
+2. **The ladder.** There is no level to select or clear (§2). Is the result the damage itself, or a level the damage reaches on a threshold curve?
+3. **Rewards.** `raidRewardGranted(level)` (§6) needs a level. A damage race needs either damage → level thresholds or its own damage → Skill Seals curve. Damage is Decimal and grows exponentially with the account, so the curve has to be too.
+4. **Quick-clear.** Reclaim the personal best for a Key, as Rampaging does (§4)?
+5. **The dummy's stats.** Does it have DEF, so mitigation counts, and is that fixed per the "static difficulty" rule (§2)?
+6. **The timer.** A new constant (for example `RAID_DUMMY_SECONDS`, `// UNTUNED ╧`), separate from `RAID_ENRAGE_SECONDS`. The art page's live stage uses 20 s for viewing only.
 
 ---
 

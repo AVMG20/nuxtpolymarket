@@ -125,7 +125,7 @@ gameplay decision, not an art one, and would add the fifth state above.
 | Raid | Fight Type | Notes |
 |---|---|---|
 | Guild Raid | `solo_boss` | |
-| Training Grounds Raid | `solo_boss` | Same fight type as Guild Raid, still a fully separate design |
+| Training Grounds Raid | `training_dummy` | A massive static training dummy: Entry (falls from the sky, stake into the ground), Idle and Hit only. No Attack, no Death (2026-09-28, `open-items.md` #31) |
 | Dig-site Raid | `reinforced_boss` | Boss + its own add-wave enemy designs |
 | Forge Raid | `phased_boss` | Needs a visually distinct state per HP-threshold phase |
 | Trait Raid | `rampaging_boss` | Unkillable by design — no death animation ever plays; needs its own visual language since no HP bar exists (`raid-system.md` §7) |
