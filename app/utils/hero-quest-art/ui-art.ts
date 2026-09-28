@@ -459,7 +459,7 @@ export function drawAppIcon(s: Surface): void {
     const tile = TILE
     tile.clear()
     classNodeIcon(tile, 'class_beginner', 'beginner', 0)
-    blit(s, tile, (W - 24) / 2 - 1, (W - 24) / 2 - 1)
+    blit(s, tile, (W - 24) / 2, (W - 24) / 2)
 }
 
 /** Splash / loading screen at scene resolution: Thornwick at dusk, the rookie, the logo. */

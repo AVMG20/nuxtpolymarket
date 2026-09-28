@@ -8,7 +8,7 @@
 //                        generic stat debuff, which covers every StatusKind in status.ts
 
 import { C, RARITY_COLORS, TRAIT_GRADES, TRAIT_GRADE_COLORS, type TraitGrade } from './palette'
-import { Surface, blit } from './surface'
+import { Surface } from './surface'
 import { drawText } from './font'
 import { Actor } from './rig'
 import { HERO_ART } from './heroes'
@@ -83,7 +83,12 @@ export const ARCHETYPE_BADGES: Readonly<Record<string, Glyph>> = {
 
 const BUST = new Surface(64, 64, 32, 58)
 const BUST_ACTOR = new Actor(64)
-const CROP = new Surface(20, 20, 0, 0)
+/**
+ * The centre of the chibi head on the bust (hair to chin, rows 35–45; columns 26–39), which the
+ * crop puts on the medallion's centre. Headgear rises above it and is trimmed by the rim.
+ */
+const HEAD_X = 32
+const HEAD_Y = 40
 
 const LINE_BG: Readonly<Record<string, Mat>> = {
     beginner: [C.gold0, C.gold1, C.gold2],
@@ -100,20 +105,17 @@ export function classNodeIcon(s: Surface, classId: string, line: 'beginner' | 'w
     disc(s, 12, 12, 10, tier >= 3 ? C.gold2 : m[1])
     disc(s, 12, 12, tier >= 2 ? 8 : 9, m[0])
     if (tier >= 2) ring(s, 12, 12, 9, m[2])
-    ditherDisc(s, 12, 9, 6, m[1], 5)
+    ditherDisc(s, 12, 11, 6, m[1], 5)
     BUST.clear()
     BUST_ACTOR.draw(BUST, 32, 58, art.look, art.clips.idle, 0, 1, 0, false)
-    // crop head and shoulders: head top ≈ y 29, shoulders ≈ y 44
-    const crop = CROP
-    crop.clear()
-    for (let y = 0; y < 20; y++) for (let x = 0; x < 20; x++) crop.set(x, y, BUST.get(22 + x, 26 + y))
-    // keep the bust inside the medallion
-    for (let y = 0; y < 20; y++) for (let x = 0; x < 20; x++) {
-        const dx = x + 2 - 12
-        const dy = y + 3 - 12
-        if (dx * dx + dy * dy > 100) crop.set(x, y, 0)
+    // the head and shoulders, the head centred on the medallion and kept inside it
+    for (let y = 0; y < 24; y++) {
+        for (let x = 0; x < 24; x++) {
+            if ((x - 12) * (x - 12) + (y - 12) * (y - 12) > 100) continue
+            const c = BUST.get(HEAD_X - 12 + x, HEAD_Y - 12 + y)
+            if (c) s.set(x, y, c)
+        }
     }
-    blit(s, crop, 2, 3)
     if (tier >= 3) { px(s, 12, 1, C.white); px(s, 11, 1, C.gold3); px(s, 13, 1, C.gold3) }
 }
 
