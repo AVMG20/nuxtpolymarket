@@ -4,6 +4,7 @@ import { createBuildingModel } from '../../app/utils/town/models'
 import { createRoadParts } from '../../app/utils/town/roads'
 import { TOWN_VISUAL_LEVELS } from '../../app/utils/town/appearance'
 import { TOWN_BUILDINGS, townBuildingMaxLevel, type TownBuildingId } from '../../shared/utils/gamelogic/town'
+import { TOWN_MONUMENTS, TOWN_MONUMENT_STAGES } from '../../shared/utils/gamelogic/town-monuments'
 
 const query = new URLSearchParams(location.search)
 const num = (key: string, fallback: number) => Number(query.get(key) ?? fallback)
@@ -41,8 +42,19 @@ function place(model: THREE.Object3D, x: number, z: number) {
 // ?b=house: one building, a column per stage and a row per tile variant, so
 // the tier ramp and the per-tile variety can be judged side by side.
 // ?town=1: six neighbouring towns, each a block of mixed buildings at one tier.
+// ?monuments=1: every monument, a row each, from staked site to finished wonder.
 const only = TOWN_BUILDINGS.find(b => b.id === query.get('b'))
-if (only) {
+if (query.get('monuments')) {
+    let z = 0
+    for (const m of TOWN_MONUMENTS) {
+        for (let stage = 0; stage <= TOWN_MONUMENT_STAGES; stage++) {
+            const model = createBuildingModel(m.id, stage)
+            model.position.set(stage * (m.size + 0.6) + m.size / 2, 0, z + m.size / 2)
+            scene.add(model)
+        }
+        z += m.size + 1
+    }
+} else if (only) {
     for (let v = 0; v < num('variants', 6); v++) {
         TOWN_VISUAL_LEVELS.forEach((level, col) => level <= townBuildingMaxLevel(only) && place(createBuildingModel(only.id, level, v), col, v * 2))
         for (let col = 0; col < 5; col++) place(createRoadParts([false, true, false, true]), col, v * 2 + 1)
@@ -56,7 +68,7 @@ if (only) {
     }
 } else {
     // One row per building, one column per stage, a road along the front of each.
-    const buildings = TOWN_BUILDINGS.filter(b => b.kind !== 'road')
+    const buildings = TOWN_BUILDINGS.filter(b => b.kind !== 'road' && b.kind !== 'monument')
     buildings.forEach((def, row) => {
         const z = row * 2
         TOWN_VISUAL_LEVELS.forEach((level, col) => {
