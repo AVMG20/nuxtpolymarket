@@ -108,7 +108,22 @@ export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly
     { n: 8, label: 'Shattered Sky roster', prefixes: ['enemy/world_the_shattered_sky', 'boss/world_the_shattered_sky', 'superboss/world_the_shattered_sky'] },
     { n: 9, label: 'Brink roster', prefixes: ['enemy/world_the_brink', 'boss/world_the_brink', 'superboss/world_the_brink'] },
     { n: 10, label: 'Void roster', prefixes: ['enemy/world_the_void', 'boss/world_the_void', 'superboss/world_the_void'] },
-    { n: 11, label: 'Boss specials', prefixes: WORLDS.flatMap(w => [`boss/${w.id}/special`, `superboss/${w.id}/special`]) }
+    { n: 11, label: 'Boss specials', prefixes: WORLDS.flatMap(w => [`boss/${w.id}/special`, `superboss/${w.id}/special`]) },
+    {
+        n: 12,
+        label: 'Live-stage boss pass',
+        prefixes: [
+            // cut off at their water; the whole body, in every state
+            'boss/world_mirewood/', 'superboss/world_sunken_amarath/',
+            // the shadow gathering under a boss coming down from the sky
+            'superboss/world_cinderpass/entry', 'boss/world_the_shattered_sky/entry', 'boss/world_the_void/entry',
+            // Liminus's wider canvas, Nihil's pool opening as a portal
+            'superboss/world_the_brink/', 'superboss/world_the_void/',
+            // room round the swings that ran off their canvas (Slagjaw's shadow is in here too), and Halvane's hat
+            'superboss/world_mirewood/', 'boss/world_cinderpass/', 'boss/world_rimeholt/', 'boss/world_sunken_amarath/',
+            'boss/world_duskspire/', 'superboss/world_duskspire/', 'boss/world_the_bonefields/', 'boss/world_the_shattered_sky/special'
+        ]
+    }
 ]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
