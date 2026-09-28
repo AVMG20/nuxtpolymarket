@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BattleDemo, CAMERAS, WAVE_KINDS, type WaveKind } from '~/utils/hero-quest-art/demo'
+import { BattleDemo, CAMERAS, WAVE_KINDS, cameraFor, type WaveKind } from '~/utils/hero-quest-art/demo'
 import { Presenter, startLoop } from '~/utils/hero-quest-art/canvas'
 import { CLASS_NODES } from '#shared/utils/hero-quest/content/classes'
 import { WORLDS } from '#shared/utils/hero-quest/content/worlds'
@@ -7,18 +7,18 @@ import type { ClassId } from '#shared/utils/hero-quest/types'
 
 /**
  * The live battle vignette: every unit on the IDLE → CHARGE → CAST → RECOVER loop, drawn at
- * 320×180, cropped to the stage camera and blitted at the largest integer scale that fits —
- * fullscreen included.
+ * 320×180, cropped to the wave's camera (the Stage camera, or the whole scene for a raid) and
+ * blitted at the largest integer scale that fits — fullscreen included.
  */
 const wrap = ref<HTMLDivElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
-const CAM = CAMERAS.zoom3
-const cssSize = ref<{ width: number, height: number }>({ width: CAM.w, height: CAM.h })
+const cssSize = ref<{ width: number, height: number }>({ width: CAMERAS.zoom3.w, height: CAMERAS.zoom3.h })
 const world = ref(1)
 const classId = ref<ClassId>('class_sorcerer')
 const paused = ref(false)
 const fullscreen = ref(false)
 const waveKind = ref<WaveKind>('regular')
+const cam = computed(() => CAMERAS[cameraFor(waveKind.value)])
 const waveItems = WAVE_KINDS.map(k => ({ label: k.label, value: k.id }))
 
 const worldItems = WORLDS.map(w => ({ label: `${w.index}. ${w.name}`, value: w.index }))
@@ -32,7 +32,7 @@ let observer: ResizeObserver | null = null
 function fit() {
   if (!wrap.value || !presenter) return
   const r = wrap.value.getBoundingClientRect()
-  cssSize.value = presenter.fit(r.width, fullscreen.value ? r.height : r.width * CAM.h / CAM.w, window.devicePixelRatio || 1)
+  cssSize.value = presenter.fit(r.width, fullscreen.value ? r.height : r.width * cam.value.h / cam.value.w, window.devicePixelRatio || 1)
 }
 
 function onFullscreenChange() {
@@ -45,13 +45,18 @@ async function toggleFullscreen() {
   else await wrap.value?.requestFullscreen()
 }
 
-// a new world, class or wave restarts the fight on it
-watch([world, classId, waveKind], () => demo.setup(world.value, classId.value, waveKind.value))
+// a new world, class or wave restarts the fight on it; a raid brings the whole-scene camera
+watch([world, classId, waveKind], () => {
+  demo.setup(world.value, classId.value, waveKind.value)
+  if (presenter && (presenter.w !== cam.value.w || presenter.h !== cam.value.h)) {
+    presenter = new Presenter(canvas.value!, cam.value.w, cam.value.h)
+    fit()
+  }
+})
 watch(paused, p => { demo.paused = p })
 
 onMounted(() => {
-  presenter = new Presenter(canvas.value!, CAM.w, CAM.h)
-  demo.camera = 'zoom3'
+  presenter = new Presenter(canvas.value!, cam.value.w, cam.value.h)
   demo.setup(world.value, classId.value, waveKind.value)
   stop = startLoop(dt => demo.update(dt), () => presenter!.present(demo.render()))
   observer = new ResizeObserver(fit)

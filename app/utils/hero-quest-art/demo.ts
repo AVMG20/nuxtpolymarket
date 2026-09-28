@@ -57,6 +57,7 @@ import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 import type { BossSpecial } from './creature'
 import { BOSSES_A } from './bosses-a'
 import { BOSSES_B } from './bosses-b'
+import { GILDED_WARLORD, DRILLMASTER, BURIED_COLOSSUS, ANVIL_HEART, RAMPANT } from './raids'
 import { STAGE } from './special-kit'
 import { ENTRY_SETTLED } from './boss-kit'
 
@@ -94,19 +95,40 @@ const SPECIAL_CHANCE = 0.3
 const NAME_BASE = 1.4
 const NAME_PER_CHAR = 0.08
 
-/** Which wave the stage fights, over and over: a pack of trash with its elite, the boss, or the super boss. */
-export type WaveKind = 'regular' | 'boss' | 'superboss'
+/** A raid, keyed as its assets are (`raid/<id>/…`). */
+export type RaidId = 'guild' | 'training_grounds' | 'dig_site' | 'forge' | 'trait'
+/**
+ * Which wave the stage fights, over and over: a pack of trash with its elite, the boss, the super
+ * boss, or one of the raids. A raid boss is too big for the Stage camera, so a raid is watched on
+ * the whole scene (`cameraFor`).
+ */
+export type WaveKind = 'regular' | 'boss' | 'superboss' | `raid_${RaidId}`
 export const WAVE_KINDS: readonly { id: WaveKind, label: string }[] = [
     { id: 'regular', label: 'Regular + elite' },
     { id: 'boss', label: 'Boss' },
-    { id: 'superboss', label: 'Super boss' }
+    { id: 'superboss', label: 'Super boss' },
+    { id: 'raid_guild', label: 'Raid · Guild' },
+    { id: 'raid_training_grounds', label: 'Raid · Training Grounds' },
+    { id: 'raid_dig_site', label: 'Raid · Dig-site' },
+    { id: 'raid_forge', label: 'Raid · Forge' },
+    { id: 'raid_trait', label: 'Raid · Trait' }
 ]
+export function raidOf(kind: WaveKind): RaidId | null {
+    return kind.startsWith('raid_') ? kind.slice(5) as RaidId : null
+}
+/** The camera a wave is watched on: the whole scene for a raid, the Stage camera otherwise. */
+export function cameraFor(kind: WaveKind): CameraId {
+    return raidOf(kind) ? 'zoom1' : 'zoom3'
+}
+/** Seconds between a Dig-site raid's add waves, and hits between a Trait raid's escalations. */
+const ADD_WAVE_EVERY = 7
+const RAMPAGE_EVERY = 10
 
 /**
  * Hits to bring each down. Generous, since the stage is for watching the animations play out, and
  * picking the wave means there is no longer any waiting for a boss to come round.
  */
-const TOUGHNESS = { trash: 9, elite: 18, boss: 30, superboss: 42 } as const
+const TOUGHNESS = { trash: 9, elite: 18, boss: 30, superboss: 42, raid: 60 } as const
 
 /** A formation mark in VL space: `x` horizontal, `y` chest height, `g` the ground it stands on. */
 type Mark = { readonly x: number, readonly y: number, readonly g: number }
@@ -201,6 +223,9 @@ interface Unit {
     flash: number
     /** Px it is drawn below its ground (`CreatureDef.lower`); `y` stays the rank it stands in. */
     sit: number
+    /** Px above its ground where a hit lands, and where its numbers stack: a raid boss's are far higher. */
+    chest: number
+    crown: number
     /** When (in `t`) this body's strike began, for the afterimages' brief window. */
     strikeAt: number
     state: U
@@ -389,6 +414,12 @@ export class BattleDemo {
     private nameFor = 0
     /** Whether the boss on the stage has opened with its special yet. */
     private bossOpened = false
+    /**
+     * A raid wave: its boss's frame tables (one per Forge phase or Trait rampage tier, else one), which
+     * is up, and for the Dig-site its adds' tables and the time to the next add wave; for the Trait
+     * raid the hits taken toward the next escalation, and whether one is playing.
+     */
+    private raid: { id: RaidId, name: string, tables: Baked[][], at: number, adds: Baked[][], next: number, hits: number, escalating: boolean } | null = null
     /** Where the fight stands for a special's effect, reused every frame. */
     private spParty = Array.from({ length: PARTY }, () => ({ x: 0, y: 0 }))
     private spStage = { bx: 0, by: 0, dir: -1, party: this.spParty }
@@ -453,14 +484,23 @@ export class BattleDemo {
         })
         // frame tables per rig, built once so a wave only swaps references
         this.rigFrames = this.trash.map(rig => [rig[0]!, rig[1]!, rig[1]!, rig[2]!, rig[3]!, rig[0]!, rig[0]!])
+        this.raid = this.bakeRaid(raidOf(waveKind))
+        this.camera = cameraFor(waveKind)
         // a fixed pool: a wave of six trash bodies and one boss, reset in place each wave
         const foes = [0, 1, 2, 3, 4, 5].map(i => this.unit(1, VL.foes[i]!, this.rigFrames[i % 4]!, [ENEMY_RIGS.sword.attack], null))
-        const boss = this.unit(1, VL.foes[1], this.bossFrames[0]!, [], null, 6)
+        // a raid boss stands on the near rank, well back, its bulk filling the right of the scene
+        const boss = this.raid
+            ? this.unit(1, VL.foes[0], this.raid.tables[0]!, [], null, 22)
+            : this.unit(1, VL.foes[1], this.bossFrames[0]!, [], null, 6)
         boss.boss = true
+        // the Dig-site's adds climb out in front of the Colossus, not inside him
+        if (this.raid?.id === 'dig_site') for (let k = 0; k < 3; k++) foes[k]!.x -= 44
+        boss.chest = this.raid ? 64 : 30
+        boss.crown = this.raid ? 112 : 52
         this.units = [heroUnit, ...champs, ...foes, boss]
         for (const u of [...foes, boss]) u.state = U.Gone
         const name = w.name.toUpperCase()
-        const suffix = waveKind === 'boss' ? '  BOSS' : waveKind === 'superboss' ? '  SUPER BOSS' : ''
+        const suffix = this.raid ? `  ${this.raid.id.replace('_', ' ').toUpperCase()} RAID` : waveKind === 'boss' ? '  BOSS' : waveKind === 'superboss' ? '  SUPER BOSS' : ''
         this.labels = Array.from({ length: 99 }, (_, i) => `${name}  WAVE ${i + 1}${suffix}`)
         this.wave = 0
         this.bossDue = null
@@ -483,8 +523,99 @@ export class BattleDemo {
             frames: [idle!, attack!, cast ?? attack!, hit!, death!, entry ?? idle!, idle!, move ?? idle!],
             clips: [null, clips[0] ?? null, clips[1] ?? null],
             impact: [0, clips[0]?.impact ?? 0.45 * attack!.frames.length / ANIM_FPS, clips[1]?.impact ?? 0.45 * (cast ?? attack!).frames.length / ANIM_FPS],
-            vfx, accent: C.red3, shot: null, shots: 1, rig: -1, hold: 0, jolt: 0, flash: 0, sit: 0, strikeAt: -1,
+            vfx, accent: C.red3, shot: null, shots: 1, rig: -1, hold: 0, jolt: 0, flash: 0, sit: 0, chest: 14, crown: 40, strikeAt: -1,
             state: U.Idle, t: 0, wait: 0.5 + Math.random() * 1.2, fired: false, hp: 4, phase: Phase.Idle, stack: 0
+        }
+    }
+
+    /**
+     * Bake a raid's boss, one frame table per Forge phase or Trait rampage tier (one for the rest), and
+     * the Dig-site's adds; null for a wave that is not a raid. A table follows the unit's slots: idle,
+     * attack, cast (the attack again: raid bosses have no specials), hit, death, entry, idle. The Forge
+     * dies only in its last phase and enters only in its first; each Trait tier's escalation plays in
+     * its entry slot, and it has no death.
+     */
+    private bakeRaid(id: RaidId | null): BattleDemo['raid'] {
+        if (!id) return null
+        const b = (asset: string) => bake(artById(asset)!)
+        const table = (base: string, entry: string | null, death: string | null, idleForHit = false): Baked[] => {
+            const idle = b(`${base}/idle`)
+            const attack = b(`${base}/attack`)
+            return [idle, attack, attack, idleForHit ? idle : b(`${base}/hit`), death ? b(death) : idle, entry ? b(entry) : idle, idle]
+        }
+        let tables: Baked[][]
+        let name: string
+        if (id === 'forge') {
+            tables = [1, 2, 3].map(p => table(`raid/forge/phase${p}`, p === 1 ? 'raid/forge/phase1/entry' : null, 'raid/forge/phase3/death'))
+            name = ANVIL_HEART[0].name
+        } else if (id === 'trait') {
+            tables = RAMPANT.map((_, i) => table(`raid/trait/rampage${i + 1}`, i < RAMPANT.length - 1 ? `raid/trait/rampage${i + 1}/escalate` : null, null))
+            name = RAMPANT[0]!.name
+        } else {
+            tables = [table(`raid/${id}`, `raid/${id}/entry`, `raid/${id}/death`)]
+            name = { guild: GILDED_WARLORD, training_grounds: DRILLMASTER, dig_site: BURIED_COLOSSUS }[id].name
+        }
+        const adds = id === 'dig_site' ? ['dig_scarab', 'relic_shard'].map(a => table(`raid/dig_site/add_${a}`, null, `raid/dig_site/add_${a}/death`, true)) : []
+        return { id, name: name.split(' — ')[0]!.toUpperCase(), tables, at: 0, adds, next: 0, hits: 0, escalating: false }
+    }
+
+    /**
+     * A raid boss takes `dmg`, before the kill check: the Forge's Anvil Heart heats into its next phase
+     * at two thirds and a third of its HP; the Trait raid's Rampant never falls, and every
+     * RAMPAGE_EVERY hits it plays its escalation beat, untouchable, and comes out a tier up.
+     */
+    private raidHurt(u: Unit, dmg: number): void {
+        const r = this.raid
+        if (!r) return
+        if (r.id === 'forge') {
+            const phase = u.hp > TOUGHNESS.raid * 2 / 3 ? 0 : u.hp > TOUGHNESS.raid / 3 ? 1 : 2
+            if (phase > r.at) {
+                r.at = phase
+                u.frames = r.tables[phase]!
+                this.announce(`PHASE ${phase + 1}`)
+                this.flashFor(0.6, C.orange)
+                this.shake(JUICE.bossDown.shake, 0.4)
+            }
+        } else if (r.id === 'trait') {
+            u.hp = Math.max(1, u.hp)
+            r.hits += dmg
+            if (r.hits >= RAMPAGE_EVERY && r.at < r.tables.length - 1 && !r.escalating && u.state !== U.Entry) {
+                r.hits = 0
+                r.escalating = true
+                u.state = U.Entry
+                u.t = 0
+                this.shake(JUICE.bossDown.shake, 0.5)
+            }
+        }
+    }
+
+    /** Put `text` up in the boss banner, the way its name goes up on its entrance. */
+    private announce(text: string): void {
+        this.bossName = text
+        this.nameT = 0
+        this.nameFor = NAME_BASE + NAME_PER_CHAR * text.length
+    }
+
+    /** A Dig-site add wave: scarabs and relic shards climb out onto the empty marks before the Colossus. */
+    private raidAdds(r: NonNullable<BattleDemo['raid']>, dt: number): void {
+        const boss = this.units[this.units.length - 1]!
+        if (!standingAny(boss) || this.cine) return
+        r.next -= dt
+        if (r.next > 0) return
+        r.next = ADD_WAVE_EVERY
+        for (let k = 0; k < 3; k++) {
+            const u = this.units[PARTY + k]!
+            if (u.state !== U.Gone) continue
+            u.frames = r.adds[k & 1]!
+            u.state = U.Entry
+            u.t = 0
+            u.hp = TOUGHNESS.trash
+            u.elite = false
+            u.rig = -1
+            // the shards loose bolts of relic light; the scarabs close and bite
+            u.shot = k & 1 ? bolt('frost') : null
+            u.wait = 0.8 + Math.random()
+            u.fired = false
         }
     }
 
@@ -511,15 +642,17 @@ export class BattleDemo {
                 u.hp = u.elite ? TOUGHNESS.elite : TOUGHNESS.trash
             }
             if (u.boss && active) {
-                u.frames = this.bossFrames[which]!
-                this.bossSpecial = this.bossSpecials[which]!
+                const r = this.raid
+                if (r) { r.at = 0; r.hits = 0; r.escalating = false; r.next = ADD_WAVE_EVERY / 2 }
+                u.frames = r ? r.tables[0]! : this.bossFrames[which]!
+                this.bossSpecial = r ? null : this.bossSpecials[which]!
                 this.bossOpened = false
-                this.bossName = this.bossNames[which]!
+                this.bossName = r ? r.name : this.bossNames[which]!
                 this.nameT = -1
                 this.nameFor = NAME_BASE + NAME_PER_CHAR * this.bossName.length
-                this.bossScrollsIn = this.bossScrolls[which]!
-                u.sit = this.bossLower[which]!
-                u.hp = which & 1 ? TOUGHNESS.superboss : TOUGHNESS.boss
+                this.bossScrollsIn = r ? false : this.bossScrolls[which]!
+                u.sit = r ? 0 : this.bossLower[which]!
+                u.hp = r ? TOUGHNESS.raid : which & 1 ? TOUGHNESS.superboss : TOUGHNESS.boss
                 // sliding in with the scroll would play its entry off-screen, so it waits for the march
                 // to end; one already standing in the world comes into view with the ground instead
                 if (this.march > 0) { u.state = this.bossScrollsIn ? U.Idle : U.Gone; this.bossDue = u }
@@ -625,12 +758,13 @@ export class BattleDemo {
             }
         }
         if (!c.first) c.first = tgt
-        const top = tgt.y - (tgt.boss ? 52 : 40)
+        const top = tgt.y - tgt.crown
         this.number(tgt.x, top - tgt.stack * 7, c.special ? 'crit' : 'normal', true)
         tgt.stack++
         this.particles.burst(tgt.x, tgt.y - 14, 16, 80, 0.6, c.special ? 'blood' : 'ember', 140, tgt.y)
         tgt.hp -= 2
         if (tgt.side === 0) tgt.hp = Math.max(1, tgt.hp) // the party doesn't die in the showcase
+        if (tgt.boss) this.raidHurt(tgt, 2)
         this.stopFor(JUICE.skill.freeze, true)
         this.shake(JUICE.skill.shake, JUICE.skill.shakeFor)
         if (i === 0) this.flashFor(JUICE.skill.flash, C.white)
@@ -638,7 +772,7 @@ export class BattleDemo {
         else this.struck(tgt, JUICE.hit.hold)
         if (i === c.hits.length - 1) {
             const f = c.first
-            this.number(f.x + 6, f.y - (f.boss ? 52 : 40) - f.stack * 7 - 8, 'total', true)
+            this.number(f.x + 6, f.y - f.crown - f.stack * 7 - 8, 'total', true)
         }
     }
 
@@ -673,6 +807,8 @@ export class BattleDemo {
      * but the hit no longer cancels the attack (it used to, before the swing ever landed).
      */
     private struck(tgt: Unit, hold: number): void {
+        // mid-escalation the Rampant only flashes: the beat plays out
+        if (tgt.state === U.Entry) { tgt.flash = 3; return }
         // a boss swings through a hit, and plays its special through one too
         if (tgt.boss && (tgt.state === U.Attack || tgt.state === U.Cast)) {
             tgt.flash = 3
@@ -693,7 +829,7 @@ export class BattleDemo {
         tgt.state = U.Death
         tgt.t = 0
         tgt.hold = 0
-        const y = tgt.y - (tgt.boss ? 30 : 14)
+        const y = tgt.y - tgt.chest
         this.ringAt(tgt.x + tgt.ox, y, tgt.boss)
         this.particles.burst(tgt.x, tgt.y - 10, 18, 40, 0.8, 'dust', 60, tgt.y)
         let left = 0
@@ -725,7 +861,7 @@ export class BattleDemo {
         const ox = Math.round(u.x + u.ox) - b.ax
         const oy = Math.round(u.y + u.sit) - b.ay
         const cx = u.x + u.ox
-        const cy = u.y - (u.boss ? 30 : 12)
+        const cy = u.y - u.chest
         const away = u.side ? 1 : -1
         for (let sy = 0; sy < src.h; sy += 2) {
             for (let sx = 0; sx < src.w; sx += 2) {
@@ -778,7 +914,7 @@ export class BattleDemo {
         const x0 = u.x + u.ox + dir * 9
         const y0 = u.y - 15
         const x1 = tgt.x + tgt.ox
-        const y1 = tgt.y - (tgt.boss ? 30 : 14)
+        const y1 = tgt.y - tgt.chest
         const arrow = p.kind === 'arrow'
         const speed = arrow ? 260 : p.kind === 'quarrel' ? 360 : 170
         const dur = Math.max(0.12, Math.abs(x1 - x0) / speed)
@@ -798,13 +934,14 @@ export class BattleDemo {
             tgt = next
         }
         const roll = Math.random()
-        const y = tgt.y - (tgt.boss ? 30 : 14)
+        const y = tgt.y - tgt.chest
         if (roll < 0.08) { this.number(tgt.x, y - 8, 'miss'); return }
         const crit = cast || roll > 0.82
         this.number(tgt.x, y - 8, crit ? 'crit' : 'normal')
         this.particles.burst(tgt.x - (tgt.side ? 4 : -4), y, crit ? 14 : 8, crit ? 70 : 45, 0.5, tgt.side ? 'spark' : 'blood', 120, tgt.y)
         tgt.hp -= crit ? 2 : 1
         if (tgt.side === 0) tgt.hp = Math.max(1, tgt.hp) // the party doesn't die in the showcase
+        if (tgt.boss) this.raidHurt(tgt, crit ? 2 : 1)
         const hold = crit ? JUICE.crit.hold : JUICE.hit.hold
         if (melee) u.hold = hold // the swing connects: the striker stops on it too
         // only the Hero's own crits shake the screen: with twelve bodies trading blows, everyone's would never stop
@@ -875,13 +1012,20 @@ export class BattleDemo {
                 case U.Entry:
                     // a boss's name goes up halfway through its entrance
                     if (u.boss && this.nameT < 0 && u.t >= dur * 0.5) this.nameT = 0
-                    if (u.t >= (u.boss ? dur : 0.6)) { u.state = U.Idle; u.t = 0 }
+                    if (u.t >= (u.boss ? dur : 0.6)) {
+                        u.state = U.Idle
+                        u.t = 0
+                        // a Trait raid's escalation beat plays in the Entry slot; it ends a tier up
+                        const r = this.raid
+                        if (u.boss && r?.escalating) { r.escalating = false; r.at++; u.frames = r.tables[r.at]!; this.announce(`RAMPAGE ${r.at + 1}`) }
+                    }
                     break
                 case U.Move:
                 case U.Gone:
                     break
             }
         }
+        if (this.raid?.id === 'dig_site' && !this.march) this.raidAdds(this.raid, dt)
         if (this.nameT >= 0 && this.nameT < this.nameFor) this.nameT += dt
         const c = this.cine
         if (c) {
