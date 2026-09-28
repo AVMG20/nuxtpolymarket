@@ -54,10 +54,10 @@ import { drawSkillBanner, tintLut, applyTint } from './presentation'
 import { CLASS_BY_ID } from '../../../shared/utils/hero-quest/content/classes'
 import { CHAMPION_BY_ID, CHAMPIONS } from '../../../shared/utils/hero-quest/content/champions'
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
-import type { BossSpecial } from './creature'
+import { specialState, specialsOf, type BossSpecial } from './creature'
 import { BOSSES_A } from './bosses-a'
 import { BOSSES_B } from './bosses-b'
-import { GILDED_WARLORD, DRILLMASTER, BURIED_COLOSSUS, ANVIL_HEART, RAMPANT } from './raids'
+import { GILDED_WARLORD, GREAT_DUMMY, DUMMY_IMPACT, BURIED_COLOSSUS, ANVIL_HEART, RAMPANT } from './raids'
 import { STAGE } from './special-kit'
 import { ENTRY_SETTLED } from './boss-kit'
 
@@ -123,6 +123,13 @@ export function cameraFor(kind: WaveKind): CameraId {
 /** Seconds between a Dig-site raid's add waves, and hits between a Trait raid's escalations. */
 const ADD_WAVE_EVERY = 7
 const RAMPAGE_EVERY = 10
+/**
+ * A Training Grounds round: seconds the party has to hit the dummy, and how long TIME UP holds
+ * before it dissolves (from `DUMMY_FADE_AT`) and the party marches on to the next.
+ */
+const DUMMY_ROUND = 20
+const DUMMY_HOLD = 2.2
+const DUMMY_FADE_AT = 1.5
 
 /**
  * Hits to bring each down. Generous, since the stage is for watching the animations play out, and
@@ -268,6 +275,15 @@ const NUM_TEXT: Readonly<Record<string, readonly string[]>> = {
     heal: ['+356', '+120', '+88'],
     miss: ['MISS'],
     total: ['48.2K', '31.7K', '52.9K', '44.1K']
+}
+/** What each damage text is worth, for the Training Grounds tally. */
+const NUM_VALUE = new Map([...NUM_TEXT.normal!, ...NUM_TEXT.crit!].map(t => [t, parseFloat(t) * (t.includes('K') ? 1000 : 1)]))
+
+/** A damage total the way the numbers show it: 950, 12.4K, 1.20M. */
+function compact(n: number): string {
+    if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`
+    if (n >= 1e3) return `${(n / 1e3).toFixed(1)}K`
+    return String(Math.round(n))
 }
 
 function frameAt(b: Baked, t: number): Surface {
@@ -417,9 +433,18 @@ export class BattleDemo {
     /**
      * A raid wave: its boss's frame tables (one per Forge phase or Trait rampage tier, else one), which
      * is up, and for the Dig-site its adds' tables and the time to the next add wave; for the Trait
-     * raid the hits taken toward the next escalation, and whether one is playing.
+     * raid the hits taken toward the next escalation, and whether one is playing. For the Training
+     * Grounds: seconds left on the round, the damage landed, and seconds since TIME UP (−1: running).
+     * A raid boss with specials has a frame table per special (its body in the Cast slot), taken in turn.
      */
-    private raid: { id: RaidId, name: string, tables: Baked[][], at: number, adds: Baked[][], next: number, hits: number, escalating: boolean } | null = null
+    private raid: {
+        id: RaidId, name: string, tables: Baked[][], at: number, adds: Baked[][], next: number, hits: number, escalating: boolean
+        clock: number, dmg: number, over: number
+        specials: readonly BossSpecial[], spTables: Baked[][], spNext: number
+    } | null = null
+    /** The Training Grounds' timer and damage readout, rebuilt only when either changes. */
+    private tally = ''
+    private tallyKey = -1
     /** Where the fight stands for a special's effect, reused every frame. */
     private spParty = Array.from({ length: PARTY }, () => ({ x: 0, y: 0 }))
     private spStage = { bx: 0, by: 0, dir: -1, party: this.spParty }
@@ -495,8 +520,10 @@ export class BattleDemo {
         boss.boss = true
         // the Dig-site's adds climb out in front of the Colossus, not inside him
         if (this.raid?.id === 'dig_site') for (let k = 0; k < 3; k++) foes[k]!.x -= 44
-        boss.chest = this.raid ? 64 : 30
-        boss.crown = this.raid ? 112 : 52
+        // the dummy's target sits high on its chest, and its bucket higher than any raid boss's crown
+        const dummy = this.raid?.id === 'training_grounds'
+        boss.chest = dummy ? 78 : this.raid ? 64 : 30
+        boss.crown = dummy ? 140 : this.raid ? 112 : 52
         this.units = [heroUnit, ...champs, ...foes, boss]
         for (const u of [...foes, boss]) u.state = U.Gone
         const name = w.name.toUpperCase()
@@ -533,7 +560,7 @@ export class BattleDemo {
      * the Dig-site's adds; null for a wave that is not a raid. A table follows the unit's slots: idle,
      * attack, cast (the attack again: raid bosses have no specials), hit, death, entry, idle. The Forge
      * dies only in its last phase and enters only in its first; each Trait tier's escalation plays in
-     * its entry slot, and it has no death.
+     * its entry slot, and it has no death. The Training Grounds dummy has only idle, hit and entry.
      */
     private bakeRaid(id: RaidId | null): BattleDemo['raid'] {
         if (!id) return null
@@ -551,12 +578,20 @@ export class BattleDemo {
         } else if (id === 'trait') {
             tables = RAMPANT.map((_, i) => table(`raid/trait/rampage${i + 1}`, i < RAMPANT.length - 1 ? `raid/trait/rampage${i + 1}/escalate` : null, null))
             name = RAMPANT[0]!.name
+        } else if (id === 'training_grounds') {
+            // the dummy only lands, stands and takes hits: its idle fills the attack and death slots
+            const idle = b('raid/training_grounds/idle')
+            tables = [[idle, idle, idle, b('raid/training_grounds/hit'), idle, b('raid/training_grounds/entry'), idle]]
+            name = GREAT_DUMMY.name
         } else {
             tables = [table(`raid/${id}`, `raid/${id}/entry`, `raid/${id}/death`)]
-            name = { guild: GILDED_WARLORD, training_grounds: DRILLMASTER, dig_site: BURIED_COLOSSUS }[id].name
+            name = { guild: GILDED_WARLORD, dig_site: BURIED_COLOSSUS }[id].name
         }
         const adds = id === 'dig_site' ? ['dig_scarab', 'relic_shard'].map(a => table(`raid/dig_site/add_${a}`, null, `raid/dig_site/add_${a}/death`, true)) : []
-        return { id, name: name.split(' — ')[0]!.toUpperCase(), tables, at: 0, adds, next: 0, hits: 0, escalating: false }
+        const def = id === 'guild' ? GILDED_WARLORD : null
+        const specials = def ? specialsOf(def) : []
+        const spTables = specials.map((_, n) => tables[0]!.map((f, k) => k === 2 ? b(`raid/${id}/${specialState(n)}`) : f))
+        return { id, name: name.split(' — ')[0]!.toUpperCase(), tables, at: 0, adds, next: 0, hits: 0, escalating: false, clock: DUMMY_ROUND, dmg: 0, over: -1, specials, spTables, spNext: 0 }
     }
 
     /**
@@ -576,6 +611,8 @@ export class BattleDemo {
                 this.flashFor(0.6, C.orange)
                 this.shake(JUICE.bossDown.shake, 0.4)
             }
+        } else if (r.id === 'training_grounds') {
+            u.hp = Math.max(1, u.hp)
         } else if (r.id === 'trait') {
             u.hp = Math.max(1, u.hp)
             r.hits += dmg
@@ -619,6 +656,26 @@ export class BattleDemo {
         }
     }
 
+    /**
+     * A Training Grounds round: the clock runs while the dummy stands, TIME UP goes up when it runs
+     * out, and after DUMMY_HOLD the dummy is taken off so the party marches on to the next one.
+     */
+    private dummyRound(r: NonNullable<BattleDemo['raid']>, dt: number): void {
+        const boss = this.units[this.units.length - 1]!
+        if (r.over >= 0) {
+            r.over += dt
+            if (r.over >= DUMMY_HOLD && boss.state !== U.Gone) boss.state = U.Gone
+        } else if (standingAny(boss)) {
+            r.clock = Math.max(0, r.clock - dt)
+            if (r.clock === 0) { r.over = 0; this.announce('TIME UP') }
+        }
+        const key = Math.ceil(r.clock) * 1e9 + r.dmg
+        if (key !== this.tallyKey) {
+            this.tallyKey = key
+            this.tally = `${compact(r.dmg)} DMG  0:${String(Math.ceil(r.clock)).padStart(2, '0')}`
+        }
+    }
+
     private spawnWave(): void {
         const bossWave = this.waveKind !== 'regular'
         const which = this.waveKind === 'superboss' ? 1 : 0
@@ -643,9 +700,9 @@ export class BattleDemo {
             }
             if (u.boss && active) {
                 const r = this.raid
-                if (r) { r.at = 0; r.hits = 0; r.escalating = false; r.next = ADD_WAVE_EVERY / 2 }
+                if (r) { r.at = 0; r.hits = 0; r.escalating = false; r.next = ADD_WAVE_EVERY / 2; r.clock = DUMMY_ROUND; r.dmg = 0; r.over = -1 }
                 u.frames = r ? r.tables[0]! : this.bossFrames[which]!
-                this.bossSpecial = r ? null : this.bossSpecials[which]!
+                this.bossSpecial = r ? r.specials[0] ?? null : this.bossSpecials[which]!
                 this.bossOpened = false
                 this.bossName = r ? r.name : this.bossNames[which]!
                 this.nameT = -1
@@ -710,7 +767,7 @@ export class BattleDemo {
         return null
     }
 
-    private number(x: number, y: number, kind: 'normal' | 'crit' | 'heal' | 'miss' | 'total', hold = false): void {
+    private number(x: number, y: number, kind: 'normal' | 'crit' | 'heal' | 'miss' | 'total', hold = false): string {
         const n = this.nums[this.numCursor]!
         this.numCursor = (this.numCursor + 1) % this.nums.length
         const list = NUM_TEXT[kind]!
@@ -719,6 +776,13 @@ export class BattleDemo {
         n.dx = hold ? 0 : Math.round((Math.random() - 0.5) * 8)
         n.style = kind === 'normal' ? NUMBER_STYLES[0]! : kind === 'crit' || kind === 'total' ? NUMBER_STYLES[1]! : kind === 'heal' ? NUMBER_STYLES[2]! : NUMBER_STYLES[3]!
         n.text = list[Math.floor(Math.random() * list.length)]!
+        return n.text
+    }
+
+    /** Add a hit's shown damage to the Training Grounds tally, while its round is running. */
+    private count(tgt: Unit, text: string): void {
+        const r = this.raid
+        if (r?.id === 'training_grounds' && tgt.boss && r.over < 0) r.dmg += NUM_VALUE.get(text) ?? 0
     }
 
     /** Start presenting the Hero's skill: the VFX runs from the first frame of the cast. */
@@ -759,7 +823,7 @@ export class BattleDemo {
         }
         if (!c.first) c.first = tgt
         const top = tgt.y - tgt.crown
-        this.number(tgt.x, top - tgt.stack * 7, c.special ? 'crit' : 'normal', true)
+        this.count(tgt, this.number(tgt.x, top - tgt.stack * 7, c.special ? 'crit' : 'normal', true))
         tgt.stack++
         this.particles.burst(tgt.x, tgt.y - 14, 16, 80, 0.6, c.special ? 'blood' : 'ember', 140, tgt.y)
         tgt.hp -= 2
@@ -937,7 +1001,7 @@ export class BattleDemo {
         const y = tgt.y - tgt.chest
         if (roll < 0.08) { this.number(tgt.x, y - 8, 'miss'); return }
         const crit = cast || roll > 0.82
-        this.number(tgt.x, y - 8, crit ? 'crit' : 'normal')
+        this.count(tgt, this.number(tgt.x, y - 8, crit ? 'crit' : 'normal'))
         this.particles.burst(tgt.x - (tgt.side ? 4 : -4), y, crit ? 14 : 8, crit ? 70 : 45, 0.5, tgt.side ? 'spark' : 'blood', 120, tgt.y)
         tgt.hp -= crit ? 2 : 1
         if (tgt.side === 0) tgt.hp = Math.max(1, tgt.hp) // the party doesn't die in the showcase
@@ -965,6 +1029,7 @@ export class BattleDemo {
         if (this.freezeGap > 0) this.freezeGap -= dt
         if (this.slowmo > 0) { this.slowmo -= dt; dt *= 0.35 }
         this.time += dt
+        const dummy = this.raid?.id === 'training_grounds' ? this.raid : null
         for (let i = 0; i < this.units.length; i++) {
             const u = this.units[i]!
             if (u.jolt > 0) u.jolt--
@@ -977,7 +1042,8 @@ export class BattleDemo {
                 case U.Idle:
                     u.phase = Phase.Idle
                     // everyone holds while a Hero skill has the stage
-                    if (!this.cine && !this.march && u.t >= u.wait && this.target(u.side)) {
+                    // the Training Grounds dummy never swings, and nobody swings at it once time is up
+                    if (!this.cine && !this.march && u.t >= u.wait && this.target(u.side) && !(dummy && (u.boss || dummy.over >= 0))) {
                         // a boss opens with its special, then reaches for it now and then
                         const special = u.boss && this.bossSpecial !== null && (!this.bossOpened || Math.random() < SPECIAL_CHANCE)
                         const cast = u.side === 0 ? Math.random() < 0.3 : special
@@ -985,7 +1051,18 @@ export class BattleDemo {
                         u.t = 0
                         u.fired = false
                         if (cast && i === 0 && this.heroCine) this.startCine(this.heroCine, u)
-                        if (special) { this.bossOpened = true; this.startSpecial(this.bossSpecial!, u) }
+                        if (special) {
+                            // a raid boss with several specials takes them in turn, its body swapped into the Cast slot
+                            const r = this.raid
+                            if (r?.specials.length) {
+                                const n = r.spNext
+                                this.bossSpecial = r.specials[n]!
+                                u.frames = r.spTables[n]!
+                                r.spNext = (n + 1) % r.specials.length
+                            }
+                            this.bossOpened = true
+                            this.startSpecial(this.bossSpecial!, u)
+                        }
                     }
                     break
                 case U.Attack:
@@ -1012,6 +1089,11 @@ export class BattleDemo {
                 case U.Entry:
                     // a boss's name goes up halfway through its entrance
                     if (u.boss && this.nameT < 0 && u.t >= dur * 0.5) this.nameT = 0
+                    // the dummy's stake hits the ground: the whole stage jumps
+                    if (u.boss && dummy && u.t >= DUMMY_IMPACT && u.t - dt < DUMMY_IMPACT) {
+                        this.shake(JUICE.bossDown.shake, 0.5)
+                        this.particles.burst(u.x, u.y - 4, 24, 90, 0.7, 'dust', 60, u.y)
+                    }
                     if (u.t >= (u.boss ? dur : 0.6)) {
                         u.state = U.Idle
                         u.t = 0
@@ -1026,6 +1108,7 @@ export class BattleDemo {
             }
         }
         if (this.raid?.id === 'dig_site' && !this.march) this.raidAdds(this.raid, dt)
+        if (dummy && !this.march) this.dummyRound(dummy, dt)
         if (this.nameT >= 0 && this.nameT < this.nameFor) this.nameT += dt
         const c = this.cine
         if (c) {
@@ -1104,7 +1187,9 @@ export class BattleDemo {
                 const u = this.units[i]!
                 if (u.state === U.Gone || u.y !== gy) continue
                 const b = u.frames[u.state]!
-                const fade = u.state === U.Entry && !u.boss ? Math.max(0, 16 - Math.floor(u.t * 30)) : 0
+                // adds fade in; the Training Grounds dummy, with no death, dissolves once its round is done
+                const done = u.boss && this.raid?.id === 'training_grounds' ? this.raid.over - DUMMY_FADE_AT : -1
+                const fade = u.state === U.Entry && !u.boss ? Math.max(0, 16 - Math.floor(u.t * 30)) : done > 0 ? Math.min(16, Math.floor(done * 24)) : 0
                 const dir = u.side ? -1 : 1
                 const x = u.x + u.ox + (u.jolt > 0 ? ((u.jolt >> 1) & 1 ? dir : -dir) : 0)
                 const acting = u.state === U.Attack || u.state === U.Cast
@@ -1174,6 +1259,7 @@ export class BattleDemo {
             for (let y = 0; y < cam.h; y++) out.data.set(s.data.subarray((cam.y + y) * s.w + cam.x, (cam.y + y) * s.w + cam.x + cam.w), y * cam.w)
         }
         textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
+        if (this.raid?.id === 'training_grounds') textOut(out, this.tally, cam.w - 6, 5, this.raid.clock <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
         if (this.nameT >= 0 && this.nameT < this.nameFor) drawSkillBanner(out, this.bossName, cam.w / 2, 14, this.nameT, true, this.nameFor - this.nameT)
         return out
     }

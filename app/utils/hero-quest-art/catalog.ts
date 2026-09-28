@@ -15,9 +15,9 @@ import { HERO_ART, HERO_GAIT, HERO_STATES } from './heroes'
 import { CHASSIS, CHAMPION_STATES, CHAMPION_ART_IDS, championLook } from './champions'
 import { DISCIPLE_CLIPS, DISCIPLE_LOOK, RAISED_DEAD_CLIPS, RAISED_DEAD_LOOK, SUMMON_STATES, WOLF } from './summons'
 import { ENEMY_RIGS, ENEMY_STATES, ENEMY_WEAPONS, ELITE_MARK, WEAPON_STYLE, drawEliteMark, enemyLook } from './enemies'
-import { bufferSize, drawCreature, stateFrames, type CreatureDef } from './creature'
+import { bufferSize, drawCreature, specialState, specialsOf, stateFrames, type CreatureDef } from './creature'
 import { BOSS_STATES } from './boss-kit'
-import { drawSpecialPreview, PREVIEW_VIEW } from './special-kit'
+import { drawSpecialPreview, PREVIEW_VIEW, PREVIEW_RAID_VIEW } from './special-kit'
 import { BOSSES_A } from './bosses-a'
 import { BOSSES_B } from './bosses-b'
 import { VFX, MULTI_STRIKE, drawMultiStrike, drawVfxStage } from './vfx'
@@ -38,11 +38,11 @@ import { Surface as Surf, blit, rect } from './surface'
 import { WORLD_SCENES, SW, SH, BG_LOOP, composeScene } from './scenery'
 import { drawWorldMap, TAB_BACKGROUNDS, CHROME, drawSplash } from './ui-art'
 import { drawLogo, LOGO_W, LOGO_H, LOGO_LOOP } from './logos'
-import { GILDED_WARLORD, DRILLMASTER, BURIED_COLOSSUS, DIG_SCARAB, RELIC_SHARD, ANVIL_HEART, RAMPANT, TRAINING_DUMMY } from './raids'
+import { GILDED_WARLORD, GREAT_DUMMY, BURIED_COLOSSUS, DIG_SCARAB, RELIC_SHARD, ANVIL_HEART, RAMPANT, TRAINING_DUMMY } from './raids'
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
-    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids'
+    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'training_raid'
     | 'vfx' | 'feedback' | 'icons' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
@@ -57,6 +57,9 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'enemies', label: 'Enemies', locked: true },
     { id: 'bosses', label: 'Bosses', locked: true },
     { id: 'raids', label: 'Raids & Arena' },
+    // split out of Raids & Arena to lock on their own, ahead of the other raids
+    { id: 'guild_raid', label: 'Guild Raid', locked: true },
+    { id: 'training_raid', label: 'Training Grounds Raid', locked: true },
     { id: 'vfx', label: 'Ability VFX' },
     { id: 'feedback', label: 'Combat feedback' },
     { id: 'icons', label: 'Icons' },
@@ -102,7 +105,7 @@ export interface ArtAsset {
  * 2026-09-28), so the next round is 5; every earlier round is recorded in art-style.md.
  */
 export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    { n: 5, label: 'Raid bosses', prefixes: ['raid/'] }
+    { n: 5, label: 'Raid bosses', prefixes: ['raid/dig_site', 'raid/forge', 'raid/trait'] }
 ]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
@@ -231,11 +234,22 @@ function bossAssets(): ArtAsset[] {
 
 function raidAssets(): ArtAsset[] {
     const out: ArtAsset[] = []
-    const five = (id: string, section: string, def: CreatureDef) => {
-        for (const st of BOSS_STATES) out.push(creatureAsset(`raid/${id}/${st}`, 'raids', section, `${def.name} — ${TITLE[st]}`, def, st, -1))
+    const five = (id: string, section: string, def: CreatureDef, group: ArtGroup = 'raids') => {
+        for (const st of BOSS_STATES) out.push(creatureAsset(`raid/${id}/${st}`, group, section, `${def.name} — ${TITLE[st]}`, def, st, -1))
     }
-    five('guild', 'Guild Raid · solo_boss', GILDED_WARLORD)
-    five('training_grounds', 'Training Grounds Raid · solo_boss', DRILLMASTER)
+    five('guild', 'Guild Raid · solo_boss', GILDED_WARLORD, 'guild_raid')
+    // his two specials: each body on its own, then the whole of it staged against the party
+    specialsOf(GILDED_WARLORD).forEach((sp, n) => {
+        const st = specialState(n)
+        out.push(creatureAsset(`raid/guild/${st}`, 'guild_raid', 'Guild Raid · solo_boss', `${GILDED_WARLORD.name} — Special: ${sp.name}`, GILDED_WARLORD, st, -1))
+        out.push({
+            id: `raid/guild/${st}_stage`, group: 'guild_raid', section: 'Guild Raid · solo_boss', label: `${GILDED_WARLORD.name} — ${sp.name} (staged)`,
+            w: PREVIEW_RAID_VIEW.w, h: PREVIEW_RAID_VIEW.h, frames: stateFrames(GILDED_WARLORD, st), fps: ANIM_FPS, loop: false, opaque: true,
+            render: (dst, f) => drawSpecialPreview(dst, GILDED_WARLORD, f / ANIM_FPS, n, true)
+        })
+    })
+    // it can't attack or die, so it has only these three
+    for (const st of ['entry', 'idle', 'hit']) out.push(creatureAsset(`raid/training_grounds/${st}`, 'training_raid', 'Training Grounds Raid · training_dummy', `${GREAT_DUMMY.name} — ${TITLE[st]}`, GREAT_DUMMY, st, -1))
     five('dig_site', 'Dig-site Raid · reinforced_boss', BURIED_COLOSSUS)
     for (const [id, def] of [['dig_scarab', DIG_SCARAB], ['relic_shard', RELIC_SHARD]] as const) {
         for (const st of ['idle', 'attack', 'death']) out.push(creatureAsset(`raid/dig_site/add_${id}/${st}`, 'raids', 'Dig-site Raid · add wave', `${def.name} — ${TITLE[st]}`, def, st, -1))

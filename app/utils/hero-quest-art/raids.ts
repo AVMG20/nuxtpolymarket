@@ -6,8 +6,9 @@
 // in raid-kit.ts:
 //
 //   solo_boss        Guild: the Gilded Warlord, a knight-king mounted on an armoured warhorse
-//                    (raid-warlord.ts). Training Grounds: the Drillmaster, a six-armed wooden pell
-//                    on an iron turntable (raid-drillmaster.ts)
+//                    (raid-warlord.ts)
+//   training_dummy   Training Grounds: the Great Dummy, a giant straw dummy that can't attack or
+//                    die, only land, stand and take hits (raid-dummy.ts)
 //   reinforced_boss  Dig-site: the Buried Colossus, a king's bust dug half out of the excavation,
 //                    and its two add waves (raid-colossus.ts)
 //   phased_boss      Forge: the Anvil Heart, a walking forge hotter each phase (raid-anvil.ts)
@@ -21,7 +22,7 @@ import { hitPhase } from './creature'
 import { rect, px, disc, q } from './boss-kit'
 
 export { GILDED_WARLORD } from './raid-warlord'
-export { DRILLMASTER } from './raid-drillmaster'
+export { GREAT_DUMMY, DUMMY_IMPACT } from './raid-dummy'
 export { BURIED_COLOSSUS, DIG_SCARAB, RELIC_SHARD } from './raid-colossus'
 export { ANVIL_HEART } from './raid-anvil'
 export { RAMPANT, RAMPAGE_TIERS } from './raid-rampant'
