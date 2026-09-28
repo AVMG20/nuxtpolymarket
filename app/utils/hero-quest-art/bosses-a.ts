@@ -695,6 +695,10 @@ const DROWNING_MIRE: BossSpecial = {
  */
 export const ROTHEART: CreatureDef = {
     name: 'Rotheart, the Sunken Elder', size: 128, shadow: 0, accent: C.green4,
+    // his crown of branches ran off the top of the camera
+    lower: 6,
+    // for the arm he swings out at the front rank
+    room: 19,
     states: withSpecial(bossStates(1.4, 2.0, 2.4), 2.8),
     special: DROWNING_MIRE,
     draw(s, st, t) {
@@ -890,6 +894,8 @@ const MOLTEN_QUAKE: BossSpecial = {
  */
 export const SLAGJAW: CreatureDef = {
     name: 'Slagjaw', size: 96, shadow: 20, accent: C.lava1,
+    // for the hammer brought down in front of him
+    room: 6,
     states: withSpecial(bossStates(1.2, 1.2, 1.8), 2.4),
     special: MOLTEN_QUAKE,
     draw(s, st, t) {
@@ -1312,6 +1318,8 @@ const WINTERS_CLEAVE: BossSpecial = {
 
 export const JARL_HRIMGAR: CreatureDef = {
     name: 'Jarl Hrimgar', size: 96, shadow: 20, accent: C.cyan,
+    // for the great axe heaved overhead and cleaved down in front of him
+    room: 9,
     states: withSpecial(bossStates(1.2, 1.6, 2.0), 2.4),
     special: WINTERS_CLEAVE,
     draw(s, st, t) {
@@ -2008,6 +2016,8 @@ const SIRENS_CALL: BossSpecial = {
 
 export const TIDECALLER_NERINE: CreatureDef = {
     name: 'Tidecaller Nerine', size: 96, shadow: 0, accent: C.teal3,
+    // for the trident thrust at the front rank, and the wave it rolls out
+    room: 16,
     states: withSpecial(bossStates(1.2, 1.6, 2.0), 3.3),
     special: SIRENS_CALL,
     draw(s, st, t) {

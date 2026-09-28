@@ -15,7 +15,7 @@ import { HERO_ART, HERO_GAIT, HERO_STATES } from './heroes'
 import { CHASSIS, CHAMPION_STATES, CHAMPION_ART_IDS, championLook } from './champions'
 import { DISCIPLE_CLIPS, DISCIPLE_LOOK, RAISED_DEAD_CLIPS, RAISED_DEAD_LOOK, SUMMON_STATES, WOLF } from './summons'
 import { ENEMY_RIGS, ENEMY_STATES, ENEMY_WEAPONS, ELITE_MARK, WEAPON_STYLE, drawEliteMark, enemyLook } from './enemies'
-import { drawCreature, stateFrames, type CreatureDef } from './creature'
+import { bufferSize, drawCreature, stateFrames, type CreatureDef } from './creature'
 import { BOSS_STATES } from './boss-kit'
 import { drawSpecialPreview, PREVIEW_VIEW } from './special-kit'
 import { BOSSES_A } from './bosses-a'
@@ -141,7 +141,7 @@ function actorAsset(id: string, group: ArtGroup, section: string, label: string,
 }
 
 export function creatureAsset(id: string, group: ArtGroup, section: string, label: string, def: CreatureDef, st: string, facing: 1 | -1 = -1, pad = 0): ArtAsset {
-    const size = def.size + pad * 2
+    const size = bufferSize(def) + pad * 2
     return {
         id, group, section, label, w: size, h: size, frames: stateFrames(def, st), fps: ANIM_FPS, loop: def.states[st]!.loop,
         ax: size / 2, ay: size - (def.foot ?? 6) - pad,

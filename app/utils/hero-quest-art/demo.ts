@@ -199,6 +199,8 @@ interface Unit {
     jolt: number
     /** Ticks left of a white flash drawn over the body: a boss struck mid-swing, which keeps swinging. */
     flash: number
+    /** Px it is drawn below its ground (`CreatureDef.lower`); `y` stays the rank it stands in. */
+    sit: number
     /** When (in `t`) this body's strike began, for the afterimages' brief window. */
     strikeAt: number
     state: U
@@ -378,6 +380,8 @@ export class BattleDemo {
     /** Whether the world's boss and super boss scroll into view with the scenery (`CreatureDef.scrollsIn`), and the one on the stage. */
     private bossScrolls: boolean[] = []
     private bossScrollsIn = false
+    /** How far below its mark the world's boss and super boss stand (`CreatureDef.lower`). */
+    private bossLower: number[] = []
     /** The world's boss and super boss by name, the one on the stage, and how long its name has been up (−1: not yet). */
     private bossNames: string[] = []
     private bossName = ''
@@ -437,6 +441,7 @@ export class BattleDemo {
         this.bossSpecials = pair.map(def => def.special ?? null)
         this.bossNames = pair.map(def => def.name.toUpperCase())
         this.bossScrolls = pair.map(def => def.scrollsIn ?? false)
+        this.bossLower = pair.map(def => def.lower ?? 0)
         this.bossFrames = [`boss/${w.id}`, `superboss/${w.id}`].map((kind, k) => {
             const b = ['idle', 'attack', 'hit', 'death', 'entry'].map(st => bake(artById(`${kind}/${st}`)!))
             // the special plays in the Cast slot; without one the boss only ever swings
@@ -478,7 +483,7 @@ export class BattleDemo {
             frames: [idle!, attack!, cast ?? attack!, hit!, death!, entry ?? idle!, idle!, move ?? idle!],
             clips: [null, clips[0] ?? null, clips[1] ?? null],
             impact: [0, clips[0]?.impact ?? 0.45 * attack!.frames.length / ANIM_FPS, clips[1]?.impact ?? 0.45 * (cast ?? attack!).frames.length / ANIM_FPS],
-            vfx, accent: C.red3, shot: null, shots: 1, rig: -1, hold: 0, jolt: 0, flash: 0, strikeAt: -1,
+            vfx, accent: C.red3, shot: null, shots: 1, rig: -1, hold: 0, jolt: 0, flash: 0, sit: 0, strikeAt: -1,
             state: U.Idle, t: 0, wait: 0.5 + Math.random() * 1.2, fired: false, hp: 4, phase: Phase.Idle, stack: 0
         }
     }
@@ -513,6 +518,7 @@ export class BattleDemo {
                 this.nameT = -1
                 this.nameFor = NAME_BASE + NAME_PER_CHAR * this.bossName.length
                 this.bossScrollsIn = this.bossScrolls[which]!
+                u.sit = this.bossLower[which]!
                 u.hp = which & 1 ? TOUGHNESS.superboss : TOUGHNESS.boss
                 // sliding in with the scroll would play its entry off-screen, so it waits for the march
                 // to end; one already standing in the world comes into view with the ground instead
@@ -717,7 +723,7 @@ export class BattleDemo {
      */
     private shatter(u: Unit, b: Baked, src: Surface): void {
         const ox = Math.round(u.x + u.ox) - b.ax
-        const oy = Math.round(u.y) - b.ay
+        const oy = Math.round(u.y + u.sit) - b.ay
         const cx = u.x + u.ox
         const cy = u.y - (u.boss ? 30 : 12)
         const away = u.side ? 1 : -1
@@ -735,7 +741,7 @@ export class BattleDemo {
                 const wy = oy + sy
                 const vx = (wx - cx) * rnd(2, 5) + away * rnd(20, 70)
                 const vy = (wy - cy) * rnd(1.5, 4) - rnd(60, 150)
-                this.particles.spawnShard(wx, wy, vx, vy, rnd(0.6, 1.1), c, 380, 0.4, u.y + rnd(1, 7))
+                this.particles.spawnShard(wx, wy, vx, vy, rnd(0.6, 1.1), c, 380, 0.4, u.y + u.sit + rnd(1, 7))
             }
         }
         this.particles.burst(cx, cy, 14, 160, 0.3, 'spark', 0, 0)
@@ -962,11 +968,11 @@ export class BattleDemo {
                 const lit = acting && (u.phase === Phase.Charge || u.phase === Phase.Cast || (i === 0 && this.cine !== null && !this.cine.special) || (u.boss && this.cine?.special != null))
                 // a caster's strike leaves two afterimages behind it, for a moment
                 if (u.state === U.Cast && u.phase === Phase.Cast && u.t - u.strikeAt < AFTERIMAGE_FOR) {
-                    ghostAt(s, b, u.t, x - dir * 6, u.y, C.night3)
-                    ghostAt(s, b, u.t, x - dir * 3, u.y, u.accent)
+                    ghostAt(s, b, u.t, x - dir * 6, u.y + u.sit, C.night3)
+                    ghostAt(s, b, u.t, x - dir * 3, u.y + u.sit, u.accent)
                 }
-                blitAt(s, b, u.t, x, u.y, fade, u.elite && u.state !== U.Death && fade === 0 ? ELITE_MARK : CLEAR, lit ? u.accent : CLEAR, dir)
-                if (u.flash > 0) ghostAt(s, b, u.t, x, u.y, C.white)
+                blitAt(s, b, u.t, x, u.y + u.sit, fade, u.elite && u.state !== U.Death && fade === 0 ? ELITE_MARK : CLEAR, lit ? u.accent : CLEAR, dir)
+                if (u.flash > 0) ghostAt(s, b, u.t, x, u.y + u.sit, C.white)
                 if (u.elite && u.state !== U.Death) drawEliteMark(s, u.x + u.ox, u.y - 36, this.time)
             }
         }
@@ -1033,7 +1039,7 @@ export class BattleDemo {
         const boss = this.units[this.units.length - 1]!
         const st = this.spStage
         st.bx = boss.x + boss.ox
-        st.by = boss.y
+        st.by = boss.y + boss.sit
         for (let i = 0; i < PARTY; i++) { const u = this.units[i]!; this.spParty[i]!.x = u.x + u.ox; this.spParty[i]!.y = u.y }
         this.spParty.sort((a, b) => b.x - a.x)
         c.special!.fx(s, c.t, st)

@@ -45,6 +45,12 @@ export interface CreatureDef {
     /** Sprite buffer size (square) and the feet anchor's distance from its bottom edge. */
     size: number
     foot?: number
+    /**
+     * Extra buffer round the body, on each side and twice over at the top, for a swing that
+     * reaches past `size`. The anchor keeps its place on the body and the entries still travel by
+     * `size`, so room changes nothing but what gets cut off.
+     */
+    room?: number
     /** Shadow half-width on the floor; 0 for none. Flyers set `hover`. */
     shadow: number
     hover?: number
@@ -67,6 +73,8 @@ export interface CreatureDef {
      * the party stands on its ground. Its full entry is still drawn, for the gallery.
      */
     scrollsIn?: boolean
+    /** Px the live stage stands it below its mark: a tall body brought down clear of the top of the camera. */
+    lower?: number
     accent: number
 }
 
@@ -149,12 +157,17 @@ function bufFor(size: number, foot: number): Surface {
 
 const STYLE = new StampStyle()
 
+/** The side of the square buffer a creature is drawn into: its size, and any room round it. */
+export function bufferSize(def: CreatureDef): number {
+    return def.size + 2 * (def.room ?? 0)
+}
+
 /**
  * Draw creature `def` in state `st` at `t` onto `dst`, anchor (x, y). `facing` −1 mirrors
  * (a boss faces left toward the party). `mark` adds a halo outline.
  */
 export function drawCreature(dst: Surface, x: number, y: number, def: CreatureDef, st: string, t: number, facing: 1 | -1 = 1, mark: number = CLEAR): void {
-    const s = bufFor(def.size, def.foot ?? 6)
+    const s = bufFor(bufferSize(def), def.foot ?? 6)
     s.clear()
     CF.flash = false
     CF.fade = 0

@@ -33,7 +33,9 @@ export const B = {
     glow: 0,
     /** Progress 0 → 1 through a special; each boss choreographs its own body against it. */
     sp: 0,
-    t: 0
+    t: 0,
+    /** The boss's `size`, which its entry travels by, whatever room its buffer has round it. */
+    size: 0
 }
 
 export const BOSS_STATES = ['idle', 'attack', 'hit', 'death', 'entry'] as const
@@ -57,6 +59,7 @@ export function bossStates(attack = 1.2, idle = 1.6, entry = 2.0): Record<BossSt
 /** Resolve the state into B. `def` supplies the durations. */
 export function drive(def: CreatureDef, st: string, t: number, reach: number, idlePeriod = 1.6): void {
     B.t = t
+    B.size = def.size
     B.bob = 0; B.breath = 0; B.wind = 0; B.strike = false; B.rec = 0; B.lunge = 0
     B.kb = 0; B.hurt = false; B.die = 0; B.ent = 1; B.roar = false; B.glow = 0; B.sp = 0
     const dur = def.states[st]!.dur
@@ -109,14 +112,14 @@ export function finish(s: Surface, style: Entry, sinkOnDeath = 6): void {
     if (B.ent < 1) {
         const u = 1 - B.ent
         switch (style) {
-            case Entry.Rise: shift(s, 0, Math.round(u * s.h * 0.7), s.ay); break
+            case Entry.Rise: shift(s, 0, Math.round(u * B.size * 0.7), s.ay); break
             case Entry.Drop:
-                shift(s, 0, -Math.round(u * s.h), s.h)
+                shift(s, 0, -Math.round(u * B.size), s.h)
                 if (u > 0.1) CF.fade = Math.round(u * 6)
                 // the shadow gathers under it as it comes down
                 CF.shadow = 0.15 + 0.85 * B.ent
                 break
-            case Entry.Walk: shift(s, -Math.round(u * s.w * 0.45), 0, s.h); break
+            case Entry.Walk: shift(s, -Math.round(u * B.size * 0.45), 0, s.h); break
             case Entry.Fade: CF.fade = Math.round(u * 16); break
             case Entry.Grow: CF.fade = Math.round(u * 12); shift(s, 0, Math.round(u * 10), s.ay); break
         }

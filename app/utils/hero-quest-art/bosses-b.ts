@@ -140,6 +140,8 @@ const GRIMOIRE_STORM: BossSpecial = {
 
 export const MAGISTER_HALVANE: CreatureDef = {
     name: 'Magister Halvane', size: 96, shadow: 12, hover: 1, accent: C.pink,
+    // for the tip of his hat, and the bolt he looses from his orb
+    room: 20,
     states: withSpecial(bossStates(1.2, 1.8, 1.8), 2.4),
     special: GRIMOIRE_STORM,
     draw(s, st, t) {
@@ -659,6 +661,8 @@ const VOID_NOVA: BossSpecial = {
 
 export const ARCHMAGE_ITHREN: CreatureDef = {
     name: 'Archmage Ithren, the Door-Opener', size: 128, shadow: 18, hover: 1, accent: C.purple2,
+    // for the beam of the Void he throws at the front rank
+    room: 9,
     states: ITHREN_STATES,
     // broken apart as the door snaps shut behind him, not while it is pulling him in
     shatterAt: 1.87,
@@ -866,6 +870,8 @@ function korrThrust(x: number, top: number, u: number): void {
 
 export const GRAVE_MARSHAL_KORR: CreatureDef = {
     name: 'Grave Marshal Korr', size: 128, shadow: 0, accent: C.green4,
+    // for the swoop of the bone sword out in front of him
+    room: 12,
     states: withSpecial(bossStates(1.2, 1.6, 2.0), 2.6),
     special: GRAVELORDS_TOLL,
     draw(s, st, t) {
@@ -1573,6 +1579,8 @@ const THUNDERSTRIKE_DIVE: BossSpecial = {
 
 export const STORMCROWN_ROC: CreatureDef = {
     name: 'Stormcrown Roc', size: 160, shadow: 20, hover: 1, accent: C.gold3,
+    // for the top of the bolt its special calls down
+    room: 1,
     states: withSpecial(bossStates(1.1, 1.2, 1.8), 2.4),
     special: THUNDERSTRIKE_DIVE,
     draw(s, st, t) {
