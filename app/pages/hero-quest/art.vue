@@ -10,6 +10,12 @@ import { allArt, ART_GROUPS, ART_ROUNDS, type ArtGroup } from '~/utils/hero-ques
  */
 if (!import.meta.dev) throw createError({ statusCode: 404, statusMessage: 'Not found' })
 
+// Keep the scrollbar's space whether it shows or not. The live stage snaps to the largest integer
+// scale that fits its width, so on a page about one screen tall (a small round) the scrollbar
+// appearing cost the stage a scale step, the page came up short, the scrollbar went, the stage grew
+// back, and the whole page shook.
+useHead({ htmlAttrs: { style: 'scrollbar-gutter: stable' } })
+
 const assets = computed(() => allArt())
 /**
  * Review rounds, newest first. The page opens on the latest round's changes across every
