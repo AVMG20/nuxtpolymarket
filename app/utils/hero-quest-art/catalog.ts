@@ -27,7 +27,7 @@ import { drawSkillBanner } from './presentation'
 import { ICON, SMALL_ICON, glyph, squareFrame, circleFrame, crestFrame, itemTile } from './icon-kit'
 import { CLASS_SKILL_ICONS, CHAMPION_ABILITY_ICONS, TRAINING_SKILL_ICONS } from './icons-abilities'
 import { ARTIFACT_ICONS, GEAR_ICONS, CURRENCY_ICONS, CURRENCY_LABELS } from './icons-items'
-import { FRAME, rarityFrame, traitFrame, ARCHETYPE_BADGES, archetypeBadge, classNodeIcon, STATUS_ICONS, drawStatusIcon } from './icons-misc'
+import { FRAME, rarityFrame, traitFrame, traitFramePreview, TRAIT_FRAME_W, TRAIT_FRAME_H, ARCHETYPE_BADGES, archetypeBadge, classNodeIcon, STATUS_ICONS, drawStatusIcon } from './icons-misc'
 import { CLASS_NODES, classPath, CLASS_BY_ID  } from '../../../shared/utils/hero-quest/content/classes'
 import { CHAMPION_ABILITY_POOL, CHAMPION_BY_ID, championDisplayName, abilityId  } from '../../../shared/utils/hero-quest/content/champions'
 import { SKILLS } from '../../../shared/utils/hero-quest/content/skills'
@@ -334,7 +334,12 @@ function frameAssets(): ArtAsset[] {
     for (const r of ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic']) {
         out.push(still(`frame/rarity/${r}`, 'frames', 'Rarity frames', r, FRAME, FRAME, dst => rarityFrame(dst, r)))
     }
-    for (const g of TRAIT_GRADES) out.push(still(`frame/trait/grade_${g.toLowerCase()}`, 'frames', 'Trait grade frames', `Grade ${g}`, ICON, ICON, dst => traitFrame(dst, g)))
+    for (const g of TRAIT_GRADES) {
+        out.push({
+            ...still(`frame/trait/grade_${g.toLowerCase()}`, 'frames', 'Trait grade frames', `Grade ${g}`, TRAIT_FRAME_W, TRAIT_FRAME_H, dst => traitFrame(dst, g)),
+            underlay: dst => traitFramePreview(dst, g)
+        })
+    }
     for (const id of Object.keys(ARCHETYPE_BADGES)) out.push(still(`badge/archetype/${id}`, 'frames', 'Archetype badges', id, SMALL_ICON, SMALL_ICON, dst => archetypeBadge(dst, id)))
     for (const node of CLASS_NODES) {
         out.push(still(`icon/class/${node.id}`, 'frames', 'Class-tree node icons', node.name, ICON, ICON,

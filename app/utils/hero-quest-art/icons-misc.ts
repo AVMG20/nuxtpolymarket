@@ -7,7 +7,7 @@
 //  15 status icons       the ten the list names plus taunt, reflect, redirect, regen and the
 //                        generic stat debuff, which covers every StatusKind in status.ts
 
-import { C, RARITY_COLORS, TRAIT_GRADES, TRAIT_GRADE_COLORS, type TraitGrade } from './palette'
+import { C, RARITY_COLORS, TRAIT_GRADES, TRAIT_GRADE_COLORS, luma, type TraitGrade } from './palette'
 import { Surface } from './surface'
 import { drawText } from './font'
 import { Actor } from './rig'
@@ -20,54 +20,194 @@ import { ABILITY_ICON_PARTS as P } from './icons-abilities'
 
 export const FRAME = 32
 
+/**
+ * A bevelled band `band` px deep round the box (x0, y0, w, h): ink along its outer and inner edges,
+ * `lit` along the top and left and `shade` along the bottom and right just inside the outer edge,
+ * `mid` below that and `accent` (when set) on the row just inside the inner edge.
+ */
+function bevelBand(s: Surface, x0: number, y0: number, w: number, h: number, band: number,
+    lit: number, mid: number, shade: number, accent = -1): void {
+    for (let y = y0; y < y0 + h; y++) {
+        for (let x = x0; x < x0 + w; x++) {
+            const nearTL = Math.min(y - y0, x - x0)
+            const nearBR = Math.min(y0 + h - 1 - y, x0 + w - 1 - x)
+            const d = Math.min(nearTL, nearBR)
+            if (d >= band) continue
+            if (d === 0 || d === band - 1) px(s, x, y, C.ink)
+            else if (d === 1) px(s, x, y, nearTL <= nearBR ? lit : shade)
+            else if (d === band - 2 && accent >= 0) px(s, x, y, accent)
+            else px(s, x, y, mid)
+        }
+    }
+}
+
+/** A round gem set in ink at (x, y): its body dark → light toward the upper left, one glint. */
+function gem(s: Surface, x: number, y: number, r: number, m: Mat): void {
+    disc(s, x, y, r + 1, C.ink)
+    disc(s, x, y, r, m[0])
+    if (r >= 2) disc(s, x - 0.5, y - 0.5, r - 1, m[1])
+    else px(s, x, y, m[1])
+    px(s, x - (r >= 2 ? 1 : 0), y - 1, C.white)
+}
+
+/** A square stud set in ink at (x, y), lit on its upper left. */
+function stud(s: Surface, x: number, y: number, m: Mat): void {
+    rect(s, x - 2, y - 2, 5, 5, C.ink)
+    rect(s, x - 1, y - 1, 3, 3, m[1])
+    px(s, x - 1, y - 1, m[2]); px(s, x, y - 1, m[2]); px(s, x - 1, y, m[2])
+    px(s, x + 1, y + 1, m[0])
+}
+
+/** A small cut gem, 5×5 in ink: a round disc of this size reads as a plus. */
+const SMALL_GEM = ['.kkk.', 'kwbbk', 'kbbak', 'kbaak', '.kkk.'] as const
+
+/** A lozenge gem, 4×4 in ink, for the middle of an edge. */
+const LOZENGE = ['.kk.', 'kwbk', 'kbak', '.kk.'] as const
+
+/** A crown for the top edge of a Mythic frame; outlined in ink when it is stamped. */
+const CROWN = [
+    'w...ww...w',
+    'Y..YYYY..Y',
+    'YYYYrrYYYY',
+    'YYYYrrYYYY',
+    'GGGGGGGGGG'
+] as const
+
+/** The gems each rarity sets in its corners from Rare up, and in its edges from Epic up: its own colour, never another's. */
+const RARITY_GEMS: readonly (readonly [Mat, Mat] | null)[] = [
+    null, null,
+    [[C.blue1, C.blue2, C.white], [C.blue1, C.blue2, C.white]],
+    [[C.purple1, C.pink, C.white], [C.purple1, C.pink, C.white]],
+    [[C.gold1, C.gold3, C.white], [C.gold1, C.gold3, C.white]],
+    [[C.red1, C.red3, C.white], [C.red1, C.red3, C.white]]
+]
+
+/**
+ * A rarity frame, hollow round a 24×24 icon. Every tier is a bevelled band lit from the upper left,
+ * and each dresses it more: Uncommon sets studs in the corners, Rare round gems, Epic adds a lozenge
+ * to the middle of each edge and brackets inside the corners, Legendary goes to a deeper band with an
+ * inner line, and Mythic crowns it and sets flames flickering up its sides. Every tier keeps to its
+ * own ramp, stones included, and everything stays inside the 32 px, so nothing is cut off.
+ */
 export function rarityFrame(s: Surface, rarity: string, t = 0): void {
     const tier = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic'].indexOf(rarity)
     const m = RARITY_COLORS[rarity]!
     const W = FRAME
-    rect(s, 0, 0, W, 2 + (tier >= 3 ? 1 : 0), C.ink); rect(s, 0, W - 3, W, 3, C.ink)
-    rect(s, 0, 0, 3, W, C.ink); rect(s, W - 3, 0, 3, W, C.ink)
-    rect(s, 1, 1, W - 2, 1, m[2]); rect(s, 1, W - 2, W - 2, 1, m[0])
-    rect(s, 1, 1, 1, W - 2, m[1]); rect(s, W - 2, 1, 1, W - 2, m[0])
-    rect(s, 2, 2, W - 4, 1, m[1]); rect(s, 2, 2, 1, W - 4, m[1])
-    // corners grow with the tier
-    for (const [cx, cy] of [[2, 2], [W - 3, 2], [2, W - 3], [W - 3, W - 3]] as const) {
-        if (tier >= 1) { rect(s, cx - 1, cy - 1, 3, 3, m[1]); px(s, cx, cy, m[2]) }
-        if (tier >= 2) { disc(s, cx, cy, 2, m[1]); px(s, cx, cy, C.white) }
-        if (tier >= 3) { line(s, cx, cy, cx + (cx < 16 ? 6 : -6), cy, m[2]); line(s, cx, cy, cx, cy + (cy < 16 ? 6 : -6), m[2]) }
-    }
-    if (tier >= 4) {
-        // wings over the top corners
-        for (const d of [-1, 1]) {
-            const cx = d < 0 ? 3 : W - 4
-            for (let i = 0; i < 4; i++) line(s, cx, 3, cx - d * (4 + i), -1 + i * 2, i === 0 ? C.white : m[2])
+    if (tier === 0) bevelBand(s, 0, 0, W, W, 3, m[2], m[1], m[0])
+    else if (tier < 4) bevelBand(s, 0, 0, W, W, 4, m[2], m[1], m[0])
+    else if (tier === 4) bevelBand(s, 0, 0, W, W, 5, C.gold3, m[1], m[0], C.gold3)
+    else bevelBand(s, 0, 0, W, W, 5, C.red3, m[1], m[0], m[2])
+    const inner = tier >= 4 ? 5 : 4
+    if (tier >= 3) {
+        // brackets inside each corner, pointing along the edges
+        const c = tier === 4 ? C.gold3 : tier === 5 ? C.red3 : m[2]
+        for (const [x, y, dx, dy] of [[inner, inner, 1, 1], [W - 1 - inner, inner, -1, 1], [inner, W - 1 - inner, 1, -1], [W - 1 - inner, W - 1 - inner, -1, -1]] as const) {
+            line(s, x, y, x + dx * 3, y, c)
+            line(s, x, y, x, y + dy * 3, c)
         }
     }
+    const gems = RARITY_GEMS[tier]
+    for (const [x, y] of [[2, 2], [W - 3, 2], [2, W - 3], [W - 3, W - 3]] as const) if (tier === 1) stud(s, x, y, m)
+    // corner gems sit a pixel in, so their ink setting clears the edge
+    if (gems) for (const [x, y] of [[3, 3], [W - 4, 3], [3, W - 4], [W - 4, W - 4]] as const) gem(s, x, y, 2, gems[0])
+    if (gems && tier >= 3) {
+        // a lozenge on the middle of each edge (the 4×4 map centres half a pixel up and left of its point)
+        const [a, b, w] = gems[1]
+        const key = { k: C.ink, w, b, a }
+        pixelMap(s, W / 2, 2, LOZENGE, key)
+        pixelMap(s, W / 2, W - 2, LOZENGE, key)
+        pixelMap(s, 2, W / 2, LOZENGE, key)
+        pixelMap(s, W - 2, W / 2, LOZENGE, key)
+    }
     if (tier >= 5) {
-        // a crown on the top edge and flames licking up the sides
-        for (let i = 0; i < 3; i++) tri(s, 12 + i * 4, 1, 14 + i * 4, 1, 13 + i * 4, -3 + (i === 1 ? -1 : 0), C.gold2)
-        rect(s, 12, 0, 9, 2, C.gold1)
+        glyph(s, (g, x, y) => pixelMap(g, x, y, CROWN, { w: C.white, Y: C.red3, G: C.red1, r: C.red0 }), W / 2, 3)
+        // flames licking up the sides, in the band's middle row
         const f = Math.floor(t * 8) & 1
-        for (let i = 0; i < 4; i++) { px(s, 0, 8 + i * 5 + f, C.orange); px(s, W - 1, 10 + i * 5 - f, C.orange) }
+        for (let i = 0; i < 5; i++) {
+            const y = 8 + i * 4 + ((i + f) & 1)
+            for (const x of [2, W - 3]) { px(s, x, y, C.red2); px(s, x, y - 1, C.red3) }
+        }
     }
 }
 
 // ── Trait-grade frames (24×24 with a grade badge) ──────────────────────────────────
 
+/** Grade letters, 3×5: the small font's S broke into dashes at this size. */
+const GRADE_GLYPHS: Readonly<Record<string, readonly string[]>> = {
+    F: ['###', '#..', '##.', '#..', '#..'],
+    E: ['###', '#..', '##.', '#..', '###'],
+    D: ['##.', '#.#', '#.#', '#.#', '##.'],
+    C: ['.##', '#..', '#..', '#..', '.##'],
+    B: ['##.', '#.#', '##.', '#.#', '##.'],
+    A: ['.#.', '#.#', '###', '#.#', '#.#'],
+    S: ['###', '#..', '###', '..#', '###']
+}
+
+/**
+ * A trait slot's frame: wide enough for the longest effect string in the small font ("HERO SKILL DMG
+ * +600%", 79 px) to clear the deeper SS and SSS band and the gem on its right end.
+ */
+export const TRAIT_FRAME_W = 116
+export const TRAIT_FRAME_H = 20
+/** Where the grade tab ends and the text begins: the divider's column. Wide enough that SSS keeps 3 px each side inside the deeper band. */
+const TRAIT_TAB = 22
+
+/**
+ * A trait-grade frame: a slot for one trait's effect string. A bevelled band in the grade's ramp,
+ * the grade on a bevelled tab at the left, a divider, and a hollow text area the UI fills. Every
+ * ornament sits at the ends or on the divider, never along the long edges, so the frame stretches
+ * sideways (a nine-slice) for a longer or shorter string. The dressing climbs with the grade: studs
+ * in the corners from D, cut gems from A, lozenges on the divider from S, one on the right end too
+ * from SS, and a pink inner line at SSS.
+ */
 export function traitFrame(s: Surface, grade: TraitGrade): void {
     const m = TRAIT_GRADE_COLORS[grade]
     const tier = TRAIT_GRADES.indexOf(grade)
-    rect(s, 0, 0, 24, 24, C.ink)
-    rect(s, 1, 1, 22, 22, m[0])
-    rect(s, 2, 2, 20, 20, C.night0)
-    dither(s, 2, 2, 20, 20, m[0], 3)
-    rect(s, 1, 1, 22, 1, m[2]); rect(s, 1, 1, 1, 22, m[1])
-    if (tier >= 6) { for (const [x, y] of [[1, 1], [22, 1], [1, 22]] as const) { disc(s, x, y, 2, m[2]); px(s, x, y, C.white) } }
-    // grade badge, bottom-right
-    const text = grade
-    const w = text.length * 4 + 3
-    rect(s, 23 - w, 15, w + 1, 9, C.ink)
-    rect(s, 24 - w, 16, w - 1, 7, m[1])
-    drawText(s, text, 24 - w + 2, 17, tier >= 8 ? C.ink : C.white, { shadow: 0 })
+    const W = TRAIT_FRAME_W
+    const H = TRAIT_FRAME_H
+    if (tier >= 7) bevelBand(s, 0, 0, W, H, 4, m[2], m[1], m[0], tier >= 8 ? C.pink : m[2])
+    else bevelBand(s, 0, 0, W, H, 3, m[2], m[1], m[0])
+    // the grade tab, bevelled, and the divider between it and the text
+    const b = tier >= 7 ? 4 : 3
+    rect(s, b, b, TRAIT_TAB - b, H - b * 2, m[1])
+    rect(s, b, b, TRAIT_TAB - b, 1, m[2])
+    rect(s, b, H - b - 1, TRAIT_TAB - b, 1, m[0])
+    rect(s, TRAIT_TAB, 1, 1, H - 2, C.ink)
+    rect(s, TRAIT_TAB - 1, b, 1, H - b * 2, m[0])
+    // centred on the tab's face, which runs from the band to the shaded column by the divider
+    const n = grade.length
+    const tw = n * 4 - 1
+    const tx = b + Math.floor((TRAIT_TAB - 1 - b - tw) / 2)
+    const dark = luma(m[1]) < 150
+    for (let i = 0; i < n; i++) {
+        const rows = GRADE_GLYPHS[grade[i]!]!
+        for (let y = 0; y < 5; y++) {
+            for (let x = 0; x < 3; x++) if (rows[y]![x] === '#') px(s, tx + i * 4 + x, 8 + y, dark ? C.white : C.ink)
+        }
+    }
+    for (const [x, y] of [[2, 2], [W - 3, 2], [2, H - 3], [W - 3, H - 3]] as const) {
+        if (tier >= 5) pixelMap(s, x, y, SMALL_GEM, { k: C.ink, w: C.white, b: m[2], a: m[1] })
+        else if (tier >= 2) stud(s, x, y, m)
+    }
+    if (tier >= 6) {
+        const key = { k: C.ink, w: C.white, b: m[2], a: m[1] }
+        // the 4×4 map centres half a pixel up and left of its point, so this sits astride the divider
+        pixelMap(s, TRAIT_TAB + 1, 2, LOZENGE, key)
+        pixelMap(s, TRAIT_TAB + 1, H - 2, LOZENGE, key)
+        if (tier >= 7) pixelMap(s, W - 2, H / 2, LOZENGE, key)
+    }
+}
+
+/** A real effect string per grade (ATK and Hero Skill DMG share their values, `traits.md` §4), for the gallery's preview. */
+const TRAIT_SAMPLES: Readonly<Record<TraitGrade, string>> = {
+    F: 'ATK +10%', E: 'HERO SKILL DMG +25%', D: 'ATK +35%', C: 'HERO SKILL DMG +50%', B: 'ATK +70%',
+    A: 'HERO SKILL DMG +100%', S: 'ATK +150%', SS: 'HERO SKILL DMG +300%', SSS: 'HERO SKILL DMG +600%'
+}
+
+/** Preview only, under the hollow frame: the dark field the UI puts behind it and a sample effect string. */
+export function traitFramePreview(s: Surface, grade: TraitGrade): void {
+    rect(s, TRAIT_TAB + 1, 1, TRAIT_FRAME_W - TRAIT_TAB - 2, TRAIT_FRAME_H - 2, C.night0)
+    drawText(s, TRAIT_SAMPLES[grade], TRAIT_TAB + 4, 8, C.bone1, { shadow: 0 })
 }
 
 // ── Archetype badges (16×16) ───────────────────────────────────────────────────────
