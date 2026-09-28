@@ -101,7 +101,9 @@ export interface ArtAsset {
  * approved and taken off when Frames & badges locked, and Round 4 when Branding locked (both also
  * 2026-09-28), so the next round is 5; every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
+    { n: 5, label: 'Raid bosses', prefixes: ['raid/'] }
+]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
