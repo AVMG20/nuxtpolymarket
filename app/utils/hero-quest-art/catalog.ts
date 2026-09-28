@@ -59,7 +59,7 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'vfx', label: 'Ability VFX' },
     { id: 'feedback', label: 'Combat feedback' },
     { id: 'icons', label: 'Icons' },
-    { id: 'frames', label: 'Frames & badges' },
+    { id: 'frames', label: 'Frames & badges', locked: true },
     { id: 'backgrounds', label: 'Backgrounds', locked: true },
     { id: 'ui', label: 'UI chrome' },
     { id: 'branding', label: 'Branding' }
@@ -96,8 +96,9 @@ export interface ArtAsset {
  * The count has restarted five times: four times on 2026-09-25/26 (once the chibi style was
  * adopted, again once the Hero designs were locked, again once World 1 was locked, and again once
  * every world background was locked), and again on 2026-09-28, once the Heroes, Champions,
- * Summons, Enemies, Bosses and Backgrounds were all locked. The next round is 1; the earlier rounds
- * are recorded in art-style.md.
+ * Summons, Enemies, Bosses and Backgrounds were all locked. The sixth pass's Rounds 1–3 were
+ * approved and taken off when Frames & badges locked (also 2026-09-28), so the next round is 4;
+ * every earlier round is recorded in art-style.md.
  */
 export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
