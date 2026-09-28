@@ -9,10 +9,10 @@ import TownMarketPanel from '~/components/town/TownMarketPanel.vue'
 import TownMilestonesPanel from '~/components/town/TownMilestonesPanel.vue'
 import TownLeaderboardPanel from '~/components/town/TownLeaderboardPanel.vue'
 import TownEventsPanel from '~/components/town/TownEventsPanel.vue'
-import TownResearchPanel from '~/components/town/TownResearchPanel.vue'
 import { formatTownDuration } from '~/utils/town-format'
 import { townTerrainCss } from '~/utils/town/terrain'
-import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, townEffectRadius, townCivicCheer, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, townEffectRadius, townCivicCheer, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, townBuildingSize, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import { getTownMonument, townBonusLabel, townBonusLines, townBonusValue, townMonumentEffect } from '#shared/utils/gamelogic/town-monuments'
 import type { TownBuildingView } from '~/composables/useTown'
 import type { SceneTile, SceneMoveGhost } from '~/components/town/TownScene.client.vue'
 
@@ -32,7 +32,7 @@ onMounted(() => { clock = setInterval(() => { now.value = Date.now() + town.serv
 onBeforeUnmount(() => { if (clock) clearInterval(clock) })
 
 // ── UI state ──
-type Window = 'market' | 'goals' | 'mayors' | 'land' | 'research' | 'events' | null
+type Window = 'market' | 'goals' | 'mayors' | 'land' | 'events' | null
 const windowOpen = ref<Window>(null)
 const buildOpen = ref(false)
 const buildTier = ref(0)
@@ -97,8 +97,6 @@ function openWindow(w: Window) {
     closeHudPopovers()
     if (redesign.value) return
     if (windowOpen.value === w) { closeAll(); return }
-    // The board is its own fetch, so pull it fresh the moment it is opened.
-    if (w === 'research') town.refreshResearch()
     windowOpen.value = w
     buildOpen.value = false
     ghostType.value = null
@@ -129,9 +127,24 @@ function closeAll() {
 }
 
 // ── Build ──
-const tiers = computed(() => [...new Set(town.catalog.value.map(c => c.tier))].sort((a, b) => a - b))
-const tierEntries = computed(() => town.catalog.value.filter(c => c.tier === buildTier.value))
-function tierLocked(t: number) { return !town.unlockedTiers.value.has(t) }
+/** The build strip's last tab: the monuments, whatever tier each opens at. */
+const MONUMENT_TAB = -1
+const tiers = computed(() => [...new Set(town.catalog.value.filter(c => c.kind !== 'monument').map(c => c.tier))].sort((a, b) => a - b))
+const tierEntries = computed(() => buildTier.value === MONUMENT_TAB
+    ? town.catalog.value.filter(c => c.kind === 'monument')
+    : town.catalog.value.filter(c => c.tier === buildTier.value && c.kind !== 'monument'))
+function tierLocked(t: number) { return t !== MONUMENT_TAB && !town.unlockedTiers.value.has(t) }
+/** Stages this town carried over from research for a monument: it goes up at that stage, free. */
+function monumentCredit(type: string) { return town.monumentCredit.value[type] ?? 0 }
+/** A card is shut while its tier is, unless research already paid for it. */
+function cardLocked(c: { id: string, tier: number }) { return tierLocked(c.tier) && !monumentCredit(c.id) }
+/** The monument crew raises one stage at a time; this is what it is on, if anything. */
+const monumentJob = computed(() => town.buildings.value.find(b => b.id === town.monumentJob.value) ?? null)
+const monumentCrewNote = computed(() => {
+    const job = monumentJob.value
+    if (!job) return null
+    return `The monument crew is on the ${town.catalogById.value.get(job.type)?.name ?? job.type} for another ${formatTownDuration(Math.max(0, job.completesAt - now.value))}`
+})
 /** The unmet conditions of a locked tier, in plain words. */
 function tierLockText(t: number): string {
     const lock = town.tierLocks.value[t]
@@ -162,9 +175,14 @@ function pickBuild(type: string) {
         toast.add({ title: capped, color: 'neutral' })
         return
     }
-    // Roads go up instantly and need nobody; everything else needs a free crew.
+    // Roads go up instantly and need nobody; monuments have their own crew;
+    // everything else needs a free builder.
     const def = town.catalogById.value.get(type)
-    if (def && def.kind !== 'road' && buildersFree.value === 0) {
+    if (def?.kind === 'monument' && !monumentCredit(type) && monumentCrewNote.value) {
+        toast.add({ title: monumentCrewNote.value, color: 'warning' })
+        return
+    }
+    if (def && def.kind !== 'road' && def.kind !== 'monument' && buildersFree.value === 0) {
         openBlocked({ kind: 'build', type })
         return
     }
@@ -188,7 +206,27 @@ function startMove() {
     buildOpen.value = false
 }
 
-async function onSelectTile(tile: { plotId: string, tileX: number, tileY: number }) {
+/**
+ * A wide building is held by its middle: the tile under the cursor is the
+ * centre of its footprint, and this is the corner the server stores it by. A
+ * corner that falls on land the town does not own keeps the cursor's plot, and
+ * the placement rules then say it does not fit.
+ */
+function anchorTile<T extends { plotId: string, tileX: number, tileY: number }>(tile: T): T & { wx: number, wy: number } {
+    const plot = plotById.value.get(tile.plotId)
+    const wx = (plot?.x ?? 0) * TOWN_PLOT_SIZE + tile.tileX
+    const wy = (plot?.y ?? 0) * TOWN_PLOT_SIZE + tile.tileY
+    const off = ghostType.value && !moveSelection.value ? Math.floor(townBuildingSize(ghostType.value) / 2) : 0
+    if (off === 0) return { ...tile, wx, wy }
+    const ax = wx - off
+    const ay = wy - off
+    const home = town.plots.value.find(p => p.x === Math.floor(ax / TOWN_PLOT_SIZE) && p.y === Math.floor(ay / TOWN_PLOT_SIZE)) ?? plot
+    if (!home) return { ...tile, wx, wy }
+    return { ...tile, plotId: home.id, tileX: ax - home.x * TOWN_PLOT_SIZE, tileY: ay - home.y * TOWN_PLOT_SIZE, wx: ax, wy: ay }
+}
+
+async function onSelectTile(cursorTile: { plotId: string, tileX: number, tileY: number }) {
+    const tile = anchorTile(cursorTile)
     sound.unlock()
     if (redesign.value) { placeDraft(tile); return }
     if (moveSelection.value) {
@@ -224,7 +262,8 @@ async function onSelectTile(tile: { plotId: string, tileX: number, tileY: number
     }
 }
 
-function onHoverTile(tile: { plotId: string, tileX: number, tileY: number, wx: number, wy: number } | null) {
+function onHoverTile(cursorTile: { plotId: string, tileX: number, tileY: number, wx: number, wy: number } | null) {
+    const tile = cursorTile ? anchorTile(cursorTile) : null
     hoveredTile.value = tile
     // Auto-face the nearest road when the current rotation has none in front,
     // so most placements never need the R key.
@@ -233,7 +272,7 @@ function onHoverTile(tile: { plotId: string, tileX: number, tileY: number, wx: n
     if (!def || def.kind === 'road') return
     const others = movingId.value ? simBuildings.value.filter(b => b.id !== movingId.value) : simBuildings.value
     if (townPlacementIssue(others, getTownBuilding(def.id)!, tile.wx, tile.wy, ghostRotation.value) === null) return
-    const auto = townAutoFacing(others, tile.wx, tile.wy)
+    const auto = townAutoFacing(others, tile.wx, tile.wy, def.size ?? 1)
     if (auto !== null) ghostRotation.value = auto
 }
 
@@ -400,9 +439,13 @@ function dropTrayPick() {
     movingId.value = null
 }
 
-/** Only the ground is judged while redesigning: a tile taken, or water. The road def asks nothing else. */
-function groundIssue(wx: number, wy: number) {
-    return townPlacementIssue(simBuildings.value, ROAD_DEF, wx, wy, 0)
+/**
+ * Only the ground is judged while redesigning: a tile taken, water, or a wide
+ * footprint that would straddle two plots. The road def asks nothing else.
+ */
+function groundIssue(wx: number, wy: number, type = 'road', layout = simBuildings.value) {
+    const size = townBuildingSize(type)
+    return townPlacementIssue(layout, size > 1 ? { ...ROAD_DEF, size } : ROAD_DEF, wx, wy, 0)
 }
 
 /** Put the piece on the cursor down on this tile, or say why not. */
@@ -415,7 +458,7 @@ function placeDraft(tile: { plotId: string, tileX: number, tileY: number }) {
     }
     const plot = plotById.value.get(tile.plotId)
     if (!plot) return
-    const issue = groundIssue(plot.x * TOWN_PLOT_SIZE + tile.tileX, plot.y * TOWN_PLOT_SIZE + tile.tileY)
+    const issue = groundIssue(plot.x * TOWN_PLOT_SIZE + tile.tileX, plot.y * TOWN_PLOT_SIZE + tile.tileY, ghostType.value)
     if (issue) {
         sound.play('error')
         toast.add({ title: issue, color: 'warning' })
@@ -446,7 +489,8 @@ function putDown(tile: { plotId: string, tileX: number, tileY: number }, rotatio
 }
 
 /** A drag while redesigning: each tile judged against the ones before it, like a fresh road run. */
-function planDraftTiles(tiles: SceneTile[]) {
+function planDraftTiles(cursorTiles: SceneTile[]) {
+    const tiles = cursorTiles.map(anchorTile)
     const type = ghostType.value
     const def = type ? getTownBuilding(type) : null
     if (!def || !trayPick.value || tiles.length === 0) return []
@@ -456,10 +500,10 @@ function planDraftTiles(tiles: SceneTile[]) {
     for (const tile of tiles) {
         let rotation = ghostRotation.value
         if (def.kind !== 'road' && townPlacementIssue(layout, def, tile.wx, tile.wy, rotation) !== null) {
-            const auto = townAutoFacing(layout, tile.wx, tile.wy)
+            const auto = townAutoFacing(layout, tile.wx, tile.wy, def.size ?? 1)
             if (auto !== null) rotation = auto
         }
-        const ok = left > 0 && townPlacementIssue(layout, ROAD_DEF, tile.wx, tile.wy, 0) === null
+        const ok = left > 0 && groundIssue(tile.wx, tile.wy, def.id, layout) === null
         out.push({ tile, rotation, ok, coins: 0 })
         if (ok) {
             left--
@@ -568,7 +612,7 @@ const selNextLevel = computed(() => (selectedBuilding.value?.level ?? 0) + 1)
 const selMaxLevel = computed(() => selectedEntry.value?.maxLevel ?? town.constants.value.maxLevel)
 const selCanUpgrade = computed(() => !!selectedBuilding.value && !selPending.value && selectedBuilding.value.level > 0 && selectedBuilding.value.level < selMaxLevel.value)
 const selUpgradeCost = computed(() => selDef.value ? townLevelCost(selDef.value, selNextLevel.value) : { coins: 0, resources: {} })
-// The server quotes this: only it knows the town's mood and its research.
+// The server quotes this: only it knows the town's mood and its monuments.
 const selUpgradeMs = computed(() => selectedBuilding.value?.nextUpgradeMs ?? 0)
 /** Residents this building wants. Warehouses want them too, not just workshops. */
 const selWorkersWanted = computed(() => selDef.value && selectedBuilding.value
@@ -628,7 +672,7 @@ const ghostIssue = computed<string | null>(() => {
     const def = getTownBuilding(ghostType.value)
     if (!def) return null
     // A relocation only asks about the ground; a fresh build also wants a door.
-    if (redesign.value) return groundIssue(tile.wx, tile.wy)
+    if (redesign.value) return groundIssue(tile.wx, tile.wy, def.id)
     if (movingId.value) return townGroupMoveIssue(simBuildings.value, [{ id: movingId.value, wx: tile.wx, wy: tile.wy, rotation: ghostRotation.value }])
     return townPlacementIssue(simBuildings.value, def, tile.wx, tile.wy, ghostRotation.value)
 })
@@ -638,7 +682,8 @@ const ghostIssue = computed<string | null>(() => {
 // before it in the same drag would create, so a street connects to itself and
 // the pads on the ground read exactly as the server will decide.
 
-function planTiles(tiles: SceneTile[]) {
+function planTiles(cursorTiles: SceneTile[]) {
+    const tiles = cursorTiles.map(anchorTile)
     const type = ghostType.value
     const def = type ? getTownBuilding(type) : null
     if (!def || tiles.length === 0) return []
@@ -652,10 +697,11 @@ function planTiles(tiles: SceneTile[]) {
     for (const tile of tiles) {
         let rotation = ghostRotation.value
         if (def.kind !== 'road' && townPlacementIssue(layout, def, tile.wx, tile.wy, rotation) !== null) {
-            const auto = townAutoFacing(layout, tile.wx, tile.wy)
+            const auto = townAutoFacing(layout, tile.wx, tile.wy, def.size ?? 1)
             if (auto !== null) rotation = auto
         }
         let ok = townPlacementIssue(layout, def, tile.wx, tile.wy, rotation) === null
+            && townBuildingCountIssue(def, counts.get(def.id) ?? 0) === null
         const cost = townPlaceCost(def, counts.get(def.id) ?? 0)
         if (ok && (cost.coins > coinsLeft || Object.entries(cost.resources).some(([id, q]) => (goodsLeft[id] ?? 0) < q))) ok = false
         const coins = ok ? cost.coins : 0
@@ -778,7 +824,9 @@ function clearSelection() {
 
 /** The Delete key or the toolbar's Demolish on a selection. */
 const confirmBulk = ref<{ ids: string[] } | null>(null)
-function demolishMany(ids: string[]) {
+function demolishMany(all: string[]) {
+    // Monuments stand for good, so a band that caught one leaves it be.
+    const ids = all.filter(id => !getTownMonument(sceneBuildings.value.find(b => b.id === id)?.type ?? ''))
     if (ids.length === 0) return
     sound.unlock()
     confirmBulk.value = { ids }
@@ -915,6 +963,10 @@ function selRate(perLevel: number) {
     if (!b) return '0'
     return ioRate(perLevel * b.level * (b.throughput ?? 1), selUnit.value)
 }
+/** The selected building's monument, when it is one. */
+const selMonument = computed(() => selectedBuilding.value ? getTownMonument(selectedBuilding.value.type) ?? null : null)
+/** What the selected monument gives now, in words. */
+const selMonumentNow = computed(() => selMonument.value && selectedBuilding.value ? townBonusLines(townMonumentEffect(selMonument.value, selectedBuilding.value.level)) : [])
 /** Hovering Upgrade swaps the cost for what the next level changes. */
 const previewUpgrade = ref(false)
 /** Before → after for the next level, at today's staffing and supply. */
@@ -924,6 +976,16 @@ const selUpgradePreview = computed(() => {
     if (!b || !e || e.kind === 'road') return []
     const next = b.level + 1
     const rows: { id?: string, ico?: string, label: string, from: string, to: string, up: boolean, tip?: string }[] = []
+    if (selMonument.value) {
+        // One line per perk the next stage adds: what the town has, and what it will have.
+        const gained = selMonument.value.stages[b.level] ?? {}
+        const before = townMonumentEffect(selMonument.value, b.level)
+        const after = townMonumentEffect(selMonument.value, next)
+        for (const key of Object.keys(gained) as (keyof typeof gained)[]) {
+            rows.push({ ico: 'i-lucide-landmark', label: townBonusLabel(key), from: before[key] ? townBonusValue(key, before[key]) : '0', to: townBonusValue(key, after[key] ?? 0), up: true })
+        }
+        return rows
+    }
     if (e.kind === 'industry') {
         const rate = (q: number, level: number) => ioRate(q * level * (b.throughput ?? 1), selUnit.value)
         for (const [id, q] of Object.entries(e.outputs)) {
@@ -975,7 +1037,9 @@ const selSupplyFix = computed(() => {
 function upgradeSelected() {
     const b = selectedBuilding.value
     if (!b) return
-    if (buildersFree.value === 0) { openBlocked({ kind: 'upgrade', buildingId: b.id }); return }
+    if (selMonument.value) {
+        if (monumentCrewNote.value) { toast.add({ title: monumentCrewNote.value, color: 'warning' }); return }
+    } else if (buildersFree.value === 0) { openBlocked({ kind: 'upgrade', buildingId: b.id }); return }
     run(() => town.upgradeBuilding(b.id), undefined, 'upgrade')
 }
 function rushSelected() {
@@ -1175,6 +1239,7 @@ const scoreRows = computed(() => {
     }
     if (b.parks) rows.push({ label: 'Parks', icon: 'i-lucide-trees', points: b.parks, hint: `${formatNumber(b.layout.residentsWithPark)} of ${formatNumber(b.layout.residents)} residents live near one. Averaged over every home.` })
     if (b.industry) rows.push({ label: 'Industry', icon: 'i-lucide-factory', points: b.industry, hint: `${formatNumber(b.layout.residentsWithIndustry)} residents live beside workshops. Averaged over every home, no ceiling.` })
+    if (b.monuments) rows.push({ label: 'Colosseum', icon: 'i-lucide-landmark', points: b.monuments, hint: 'Felt by the whole town' })
     if (b.crowding) rows.push({ label: 'Overcrowded', icon: 'i-lucide-users', points: b.crowding, hint: 'More jobs than residents' })
     if (starving.value) rows.push({ label: 'Starving', icon: 'i-lucide-frown', points: -12, hint: 'No food in store at all' })
     return rows
@@ -1252,7 +1317,7 @@ const upgradeCandidates = computed(() => {
     for (const b of town.buildings.value) {
         const entry = town.catalogById.value.get(b.type)
         const def = getTownBuilding(b.type)
-        if (!entry || !def || entry.kind === 'road') continue
+        if (!entry || !def || entry.kind === 'road' || entry.kind === 'monument') continue
         if (b.level <= 0 || b.upgradingTo !== null || b.completesAt > now.value) continue
         if (b.level >= (entry.maxLevel ?? cap)) continue
         const cost = townLevelCost(def, b.level + 1)
@@ -1286,7 +1351,7 @@ function upgradeRecommended(id: string) {
  * wait without hunting for the building on the map.
  */
 const runningJobs = computed(() => town.buildings.value
-    .filter(b => b.completesAt > now.value && (b.level === 0 || b.upgradingTo !== null))
+    .filter(b => b.completesAt > now.value && (b.level === 0 || b.upgradingTo !== null) && !getTownMonument(b.type))
     .map(b => ({
         id: b.id,
         name: town.catalogById.value.get(b.type)?.name ?? b.type,
@@ -1319,14 +1384,6 @@ async function rushAndContinue() {
     await run(() => town.rushBuilding(job.id), undefined, 'rush')
     if (next.kind === 'build') pickBuild(next.type)
     else await run(() => town.upgradeBuilding(next.buildingId), undefined, 'upgrade')
-}
-/** A dot on the dock while something is in the lab. */
-const researchRunning = computed(() => !!town.researchBoard.value?.active)
-function startResearch(id: string) {
-    run(() => town.startResearch(id), () => {
-        town.refreshResearch()
-        town.refresh()
-    }, 'upgrade')
 }
 
 function hireBuilder() {
@@ -1452,7 +1509,6 @@ function onKey(e: KeyboardEvent) {
     else if (e.key === 'h' || e.key === 'H') openMarket()
     else if (e.key === 't' || e.key === 'T') openWindow('goals')
     else if (e.key === 'l' || e.key === 'L') openWindow('mayors')
-    else if (e.key === 'c' || e.key === 'C') openWindow('research')
     else if (e.key === 'p' || e.key === 'P') openWindow('land')
     else if (e.key === 'g' || e.key === 'G') toggleTerrain()
 }
@@ -1748,7 +1804,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 <button v-if="town.initialized.value" class="g-icon" :class="redesign ? 'is-on' : ''" data-tip-below="Redesign — pick the whole town up and lay it out again" @click="redesign ? cancelRedesign() : startRedesign()">
                     <UIcon name="i-lucide-pencil-ruler" />
                 </button>
-                <button class="g-icon" :class="windowOpen === 'events' ? 'is-on' : ''" data-tip-below="What happened — finished builds, research, filled offers" @click="openWindow('events')">
+                <button class="g-icon" :class="windowOpen === 'events' ? 'is-on' : ''" data-tip-below="What happened — finished builds, monument stages, filled offers" @click="openWindow('events')">
                     <UIcon name="i-lucide-bell" />
                 </button>
                 <button class="g-icon" data-tip-below="How to play" @click="helpOpen = true">
@@ -1901,8 +1957,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <div class="min-w-0 flex-1">
                             <div class="card-title">
                                 <b>{{ selectedEntry.name }}</b>
-                                <span v-if="selectedBuilding.level > 0 && selectedEntry.kind !== 'road'" class="g-tag" :data-tip="`This one tops out at level ${selMaxLevel}.`">
-                                    Lv {{ selectedBuilding.level }}<span class="g-sub">/{{ selMaxLevel }}</span>
+                                <span v-if="selectedBuilding.level > 0 && selectedEntry.kind !== 'road'" class="g-tag" :data-tip="selMonument ? `Finished at stage ${selMaxLevel}.` : `This one tops out at level ${selMaxLevel}.`">
+                                    {{ selMonument ? 'Stage' : 'Lv' }} {{ selectedBuilding.level }}<span class="g-sub">/{{ selMaxLevel }}</span>
                                     <template v-if="selectedBuilding.upgradingTo"><UIcon name="i-lucide-arrow-right" />{{ selectedBuilding.upgradingTo }}</template>
                                 </span>
                                 <span v-else class="g-tag">Site</span>
@@ -1921,7 +1977,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <div v-if="selPending" class="card-row">
                             <div class="flex-1">
                                 <div class="card-progress-head">
-                                    <span class="g-label"><UIcon name="i-lucide-hammer" />{{ selectedBuilding.level === 0 ? 'Under construction' : 'Upgrading' }}</span>
+                                    <span class="g-label"><UIcon name="i-lucide-hammer" />{{ selectedBuilding.level === 0 ? 'Under construction' : selMonument ? `Stage ${selectedBuilding.upgradingTo}` : 'Upgrading' }}</span>
                                     <b>{{ formatTownDuration(selRemaining) }}</b>
                                 </div>
                                 <div class="g-progress"><i :style="{ width: `${Math.round(100 * (1 - selRemaining / Math.max(1, selectedBuilding.jobMs ?? 1)))}%` }" /></div>
@@ -1936,7 +1992,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <button class="g-btn g-btn-sm" data-tip="The build carries on wherever you put it." :disabled="busy" @click="startMove">
                                 <UIcon name="i-lucide-move" />Move<kbd>M</kbd>
                             </button>
-                            <button class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." @click="confirmDemolish = true">
+                            <button v-if="!selMonument" class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." @click="confirmDemolish = true">
                                 <UIcon name="i-lucide-trash-2" />Demolish
                             </button>
                         </div>
@@ -1986,6 +2042,9 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     <UIcon name="i-lucide-ruler" />{{ townEffectRadius(getTownBuilding(selectedEntry.id)!) }} tiles
                                 </span>
                             </div>
+                            <div v-else-if="selMonument" class="card-stats">
+                                <span v-for="line in selMonumentNow" :key="line" class="g-tag g-tag-green" data-tip="Felt town-wide while a road reaches it."><UIcon name="i-lucide-landmark" />{{ line }}</span>
+                            </div>
                             <div v-else-if="selectedEntry.kind === 'storage'" class="card-stats">
                                 <span class="g-tag" :class="(selectedBuilding.staffing ?? 0) >= 0.99 ? 'g-tag-green' : ''" data-tip="A warehouse holds only what its crew can manage, so an unstaffed one holds nothing.">
                                     <UIcon name="i-lucide-package" />+{{ formatNumber(Math.floor(selectedEntry.storage * selectedBuilding.level * (selectedBuilding.staffing ?? 0))) }} per good
@@ -2011,7 +2070,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 <div class="upgrade-faces">
                                     <div v-if="selUpgradePreview.length" class="upgrade-info" :class="previewUpgrade ? '' : 'is-hidden'" :aria-hidden="!previewUpgrade">
                                         <div class="upgrade-head">
-                                            <span class="g-label">Level {{ selectedBuilding.level }} → {{ selNextLevel }}</span>
+                                            <span class="g-label">{{ selMonument ? 'Stage' : 'Level' }} {{ selectedBuilding.level }} → {{ selNextLevel }}</span>
                                             <span v-if="selectedEntry.kind === 'industry'" class="g-sub">per {{ selUnit === 'day' ? 'day' : 'hour' }}</span>
                                         </div>
                                         <div class="upgrade-cost">
@@ -2026,7 +2085,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     </div>
                                     <div class="upgrade-info" :class="previewUpgrade && selUpgradePreview.length ? 'is-hidden' : ''" :aria-hidden="previewUpgrade && selUpgradePreview.length > 0">
                                         <div class="upgrade-head">
-                                            <span class="g-label">Level {{ selNextLevel }}</span>
+                                            <span class="g-label">{{ selMonument ? 'Stage' : 'Level' }} {{ selNextLevel }}</span>
                                             <span class="g-sub"><UIcon name="i-lucide-clock" />{{ formatTownDuration(selUpgradeMs) }}</span>
                                         </div>
                                         <div class="upgrade-cost">
@@ -2038,6 +2097,20 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     </div>
                                 </div>
                                 <button
+                                    v-if="selMonument"
+                                    class="g-btn g-btn-primary g-btn-sm"
+                                    :disabled="busy || !canAfford(selUpgradeCost) || !!monumentCrewNote"
+                                    :data-tip="monumentCrewNote ?? (canAfford(selUpgradeCost) ? 'Monuments have their own crew, one stage at a time.' : 'You are short on what is marked red.')"
+                                    @mouseenter="previewUpgrade = true"
+                                    @mouseleave="previewUpgrade = false"
+                                    @focus="previewUpgrade = true"
+                                    @blur="previewUpgrade = false"
+                                    @click="upgradeSelected"
+                                >
+                                    <UIcon name="i-lucide-landmark" />Build
+                                </button>
+                                <button
+                                    v-else
                                     class="g-btn g-btn-primary g-btn-sm"
                                     :disabled="busy || !canAfford(selUpgradeCost)"
                                     :data-tip="buildersFree === 0 ? 'Every builder is on a job — click to free one.' : canAfford(selUpgradeCost) ? undefined : 'You are short on what is marked red.'"
@@ -2051,14 +2124,14 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 </button>
                             </div>
                             <div v-else-if="selectedEntry.kind !== 'road'" class="g-tag g-tag-gold card-maxed">
-                                <UIcon name="i-lucide-medal" />Fully upgraded
+                                <UIcon name="i-lucide-medal" />{{ selMonument ? 'Complete' : 'Fully upgraded' }}
                             </div>
 
                             <div class="card-actions">
                                 <button class="g-btn g-btn-sm" data-tip="Free. Away from a road it stops working until one reaches it." :disabled="busy" @click="startMove">
                                     <UIcon name="i-lucide-move" />Move<kbd>M</kbd>
                                 </button>
-                                <button class="g-btn g-btn-sm g-btn-danger" data-tip="Nothing is refunded." @click="confirmDemolish = true">
+                                <button v-if="!selMonument" class="g-btn g-btn-sm g-btn-danger" data-tip="Nothing is refunded." @click="confirmDemolish = true">
                                     <UIcon name="i-lucide-trash-2" />Demolish
                                 </button>
                             </div>
@@ -2074,6 +2147,9 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <button v-for="t in tiers" :key="t" class="strip-tab" :class="[buildTier === t ? 'is-active' : '', tierLocked(t) ? 'is-locked' : '']" @click="buildTier = t; sound.play('click')">
                             <UIcon v-if="tierLocked(t)" name="i-lucide-lock" />{{ tierName(t) }}
                         </button>
+                        <button class="strip-tab" :class="buildTier === MONUMENT_TAB ? 'is-active' : ''" @click="buildTier = MONUMENT_TAB; sound.play('click')">
+                            <UIcon name="i-lucide-landmark" />Monuments
+                        </button>
                         <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="toggleBuild"><UIcon name="i-lucide-x" /></button>
                     </div>
                     <div v-if="tierLocked(buildTier) && tierLockText(buildTier)" class="strip-lock">
@@ -2084,19 +2160,19 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             v-for="c in tierEntries"
                             :key="c.id"
                             class="bcard"
-                            :class="[ghostType === c.id && !movingId ? 'is-active' : '', canAfford(town.nextCost.value[c.id] ?? c.cost) && !tierLocked(c.tier) && !countIssue(c.id) && (c.kind === 'road' || buildersFree > 0) ? '' : 'is-dim']"
-                            :disabled="tierLocked(c.tier)"
+                            :class="[ghostType === c.id && !movingId ? 'is-active' : '', canAfford(town.nextCost.value[c.id] ?? c.cost) && !cardLocked(c) && !countIssue(c.id) && (c.kind === 'road' || (c.kind === 'monument' ? !monumentCrewNote || monumentCredit(c.id) > 0 : buildersFree > 0)) ? '' : 'is-dim']"
+                            :disabled="cardLocked(c)"
                             :style="{ '--accent': hex(c.color) }"
                             @click="pickBuild(c.id)"
                         >
                             <span v-if="town.countsByType.value[c.id] || c.maxCount" class="bcard-count">×{{ town.countsByType.value[c.id] ?? 0 }}<template v-if="c.maxCount">/{{ c.maxCount }}</template></span>
                             <span class="bcard-art">
-                                <TownAsset v-if="c.kind !== 'road'" :id="c.id" kind="building" />
+                                <TownAsset v-if="c.kind !== 'road'" :id="c.id" kind="building" :level="c.kind === 'monument' ? c.maxLevel : 1" />
                                 <UIcon v-else name="i-lucide-route" />
                             </span>
                             <b
                                 class="bcard-name"
-                                :data-tip="countIssue(c.id) ?? ((town.countsByType.value[c.id] ?? 0) ? `You own ${town.countsByType.value[c.id]}${c.maxCount ? ` of ${c.maxCount}` : ''} — each extra one costs more` : (c.maxCount ? `A town may run ${c.maxCount}` : ''))"
+                                :data-tip="c.kind === 'monument' ? (monumentCredit(c.id) ? `Your research carries over: it goes up at stage ${monumentCredit(c.id)} at once, free` : tierLocked(c.tier) ? `Opens at tier ${c.tier}` : countIssue(c.id) ?? c.description) : countIssue(c.id) ?? ((town.countsByType.value[c.id] ?? 0) ? `You own ${town.countsByType.value[c.id]}${c.maxCount ? ` of ${c.maxCount}` : ''} — each extra one costs more` : (c.maxCount ? `A town may run ${c.maxCount}` : ''))"
                             >{{ c.name }}</b>
                             <span class="bcard-cost" :class="balance >= (town.nextCost.value[c.id]?.coins ?? c.cost.coins) ? '' : 'bad'">
                                 <TownCoin />{{ formatNumber(town.nextCost.value[c.id]?.coins ?? c.cost.coins) }}
@@ -2107,7 +2183,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 </span>
                             </span>
                             <span class="bcard-meta">
-                                <span v-if="c.kind === 'road'"><UIcon name="i-lucide-zap" />instant</span>
+                                <span v-if="c.kind === 'road' || monumentCredit(c.id)"><UIcon name="i-lucide-zap" />instant</span>
                                 <span v-else :data-tip="`Upgrades take ${formatTownDuration(Math.round(c.upgradeMs * (mood?.buildTime ?? 1)))} and up`">
                                     <UIcon name="i-lucide-clock" />{{ formatTownDuration(Math.round(c.buildMs * (mood?.buildTime ?? 1))) }}
                                 </span>
@@ -2115,6 +2191,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 <span v-if="c.popCap"><UIcon name="i-lucide-house" />+{{ c.popCap }}</span>
                                 <span v-if="c.happiness" :data-tip="`To each home in reach, plus ${c.happinessPerLevel ?? 0} a level`"><UIcon name="i-lucide-smile" />+{{ c.happiness }}</span>
                                 <span v-if="c.storage"><UIcon name="i-lucide-package" />+{{ formatNumber(c.storage) }}</span>
+                                <span v-if="c.size" data-tip="Tiles it covers"><UIcon name="i-lucide-grid-2x2" />{{ c.size }}×{{ c.size }}</span>
+                                <span v-if="monumentCredit(c.id)" class="is-credit"><UIcon name="i-lucide-gift" />Stage {{ monumentCredit(c.id) }}</span>
                             </span>
                             <span v-if="Object.keys(c.outputs).length" class="bcard-io" :data-tip="`Per ${ioUnit(c) === 'day' ? 'day' : 'hour'} at level 1`">
                                 <template v-if="Object.keys(c.inputs).length">
@@ -2184,6 +2262,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <div v-if="!redesign" class="dock g-panel">
                 <button class="dock-btn" :class="buildOpen ? 'is-active' : ''" @click="toggleBuild">
                     <UIcon name="i-lucide-hammer" class="dock-ico" /><span>Build</span><kbd>B</kbd>
+                    <span v-if="Object.keys(town.monumentCredit.value).length" class="dock-dot" data-tip="Your research carried over: a monument is waiting to be placed" />
                 </button>
                 <button class="dock-btn" :class="windowOpen === 'market' ? 'is-active' : ''" @click="openMarket()">
                     <UIcon name="i-lucide-store" class="dock-ico" /><span>Market</span><kbd>H</kbd>
@@ -2194,10 +2273,6 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 </button>
                 <button class="dock-btn" :class="windowOpen === 'land' ? 'is-active' : ''" @click="openWindow('land')">
                     <UIcon name="i-lucide-map" class="dock-ico" /><span>Land</span><kbd>P</kbd>
-                </button>
-                <button class="dock-btn" :class="windowOpen === 'research' ? 'is-active' : ''" @click="openWindow('research')">
-                    <UIcon name="i-lucide-microscope" class="dock-ico" /><span>Research</span><kbd>C</kbd>
-                    <span v-if="researchRunning" class="dock-dot" />
                 </button>
                 <button class="dock-btn" :class="windowOpen === 'mayors' ? 'is-active' : ''" @click="openWindow('mayors')">
                     <UIcon name="i-lucide-crown" class="dock-ico" /><span>Mayors</span><kbd>L</kbd>
@@ -2232,16 +2307,6 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <TownMilestonesPanel v-else-if="windowOpen === 'goals'" :milestones="town.milestones.value" :busy="busy" @claim="claimMilestone" @close="closeAll" />
                         <TownLeaderboardPanel v-else-if="windowOpen === 'mayors'" @close="closeAll" />
                         <TownEventsPanel v-else-if="windowOpen === 'events'" :catalog-by-id="town.catalogById.value" :resource-by-id="town.resourceById.value" :tick="stateTick" @close="closeAll" />
-                        <TownResearchPanel
-                            v-else-if="windowOpen === 'research'"
-                            :board="town.researchBoard.value"
-                            :inventory="town.inventory.value"
-                            :balance="balance"
-                            :now="now"
-                            :busy="busy"
-                            @start="startResearch"
-                            @close="closeAll"
-                        />
 
                         <div v-else-if="windowOpen === 'land'" class="flex h-full min-h-0 flex-col">
                             <div class="g-window-head">
@@ -2365,8 +2430,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     <dd>Caps each good. Full storage halts production — sell, or build warehouses.</dd>
                                     <dt><UIcon name="i-lucide-mountain" />Terrain</dt>
                                     <dd>Soil, woodland and rock make the matching building a quarter faster; water cannot be built on. <kbd>G</kbd> shows the map.</dd>
-                                    <dt><UIcon name="i-lucide-microscope" />Research</dt>
-                                    <dd>Thirty projects in five branches, one at a time, 12 hours to 3 days each: output, build speed, supply reach, residents, prices.</dd>
+                                    <dt><UIcon name="i-lucide-landmark" />Monuments</dt>
+                                    <dd>Five wonders, one of each, raised in eight stages by their own crew. Every stage adds a town-wide perk: output, build speed, supply reach, happiness and residents, storage.</dd>
                                 </dl>
                             </div>
 
@@ -2391,7 +2456,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 <p class="help-keys">
                                     <kbd>WASD</kbd> move <kbd>Q</kbd><kbd>E</kbd> turn <kbd>R</kbd> rotate <kbd>M</kbd> move <kbd>Del</kbd> demolish
                                     <kbd>B</kbd> build <kbd>H</kbd> market <kbd>T</kbd> goals <kbd>L</kbd> mayors
-                                    <kbd>P</kbd> land <kbd>C</kbd> research <kbd>G</kbd> terrain <kbd>Esc</kbd> back
+                                    <kbd>P</kbd> land <kbd>G</kbd> terrain <kbd>Esc</kbd> back
                                 </p>
                             </div>
                         </div>
@@ -3435,6 +3500,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .bcard-res span, .bcard-io span { display: inline-flex; align-items: center; gap: 3px; }
 .bcard-meta { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px 7px; font-size: 10px; color: var(--g-muted); font-variant-numeric: tabular-nums; }
 .bcard-meta span { display: inline-flex; align-items: center; gap: 3px; }
+.bcard-meta .is-credit { color: var(--g-green); font-weight: 700; }
 .bcard-io { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--g-text-2); font-variant-numeric: tabular-nums; }
 .bcard-io .is-out { color: var(--g-green); }
 

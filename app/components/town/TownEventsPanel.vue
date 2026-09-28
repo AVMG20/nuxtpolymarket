@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import TownAsset from '~/components/town/TownAsset.vue'
 import TownCoin from '~/components/town/TownCoin.vue'
-import { getTownResearch } from '#shared/utils/gamelogic/town-research'
+import { isTownMonumentId } from '#shared/utils/gamelogic/town-monuments'
 import { TOWN_EVENTS_PAGE, TOWN_EVENTS_MAX_PAGE, type TownEvent } from '#shared/utils/gamelogic/town-events'
 
 const props = defineProps<{
@@ -93,19 +93,18 @@ function fmtPrice(p: number) {
         </div>
         <div class="g-window-body">
             <div v-if="!loaded" class="flex justify-center py-8"><span class="g-spinner" /></div>
-            <div v-else-if="events.length === 0" class="g-empty">Nothing yet. Finished builds, banked research and filled offers show up here.</div>
+            <div v-else-if="events.length === 0" class="g-empty">Nothing yet. Finished builds, monument stages and filled offers show up here.</div>
             <div v-else class="space-y-1.5">
                 <div v-for="e in events" :key="e.id" class="g-row ev" :class="`is-${e.data.kind}`">
                     <span class="ev-ico">
                         <TownAsset v-if="e.data.kind === 'built' || e.data.kind === 'upgraded'" :id="e.data.type" kind="building" :level="e.data.level" />
                         <TownAsset v-else-if="e.data.kind === 'trade'" :id="e.data.resource" />
-                        <UIcon v-else name="i-lucide-microscope" />
                     </span>
                     <div class="min-w-0 flex-1">
                         <div class="ev-title">
                             <template v-if="e.data.kind === 'built'">{{ buildingName(e.data.type) }} built</template>
+                            <template v-else-if="e.data.kind === 'upgraded' && isTownMonumentId(e.data.type)">{{ buildingName(e.data.type) }} stage {{ e.data.level }} finished</template>
                             <template v-else-if="e.data.kind === 'upgraded'">{{ buildingName(e.data.type) }} is now level {{ e.data.level }}</template>
-                            <template v-else-if="e.data.kind === 'research'">{{ getTownResearch(e.data.researchId)?.name ?? e.data.researchId }} researched</template>
                             <template v-else-if="e.data.side === 'buy'">Bought {{ formatNumber(e.data.quantity) }} {{ resourceName(e.data.resource) }}</template>
                             <template v-else>Sold {{ formatNumber(e.data.quantity) }} {{ resourceName(e.data.resource) }}</template>
                         </div>
@@ -134,7 +133,6 @@ function fmtPrice(p: number) {
     display: inline-flex; align-items: center; justify-content: center;
     border-radius: 10px; background: var(--g-fill-2); font-size: 20px;
 }
-.ev.is-research .ev-ico { color: var(--g-accent); }
 .ev-title { font-size: 13px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ev-sub {
     margin-top: 1px;
