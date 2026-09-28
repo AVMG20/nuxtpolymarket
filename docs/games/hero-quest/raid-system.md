@@ -21,7 +21,7 @@ Status: **Locked** — decisions confirmed, ready to reference for implementatio
 | Guild Raid | Champions (Guild) | Guild Seals | Guild Keys | `solo_boss` |
 | Training Grounds Raid | Skills | Skill Seals | Skill Keys | `training_dummy` (2026-09-28, `open-items.md` #31) |
 | Dig-site Raid | Artifacts | Excavation Seals | Excavation Keys | `reinforced_boss` |
-| Forge Raid | Gear (The Forge) | Forge Seals | Forge Keys | `phased_boss` |
+| Forge Raid | Gear (The Forge) | Forge Seals | Forge Keys | `boss_gauntlet` (was `phased_boss` until 2026-09-29, `open-items.md` #32) |
 | Trait Raid | — standalone, item 8 (Traits) | Trait Gems | Trait Keys | `rampaging_boss` |
 
 **Key names are locked** — mirroring each raid's existing Seal-name convention (`<prefix> Seals` → `<prefix> Keys`). **Fight Type assignment is locked** — see Section 7 for each type's mechanics. Training Grounds was `solo_boss` alongside Guild until 2026-09-28, when it became `training_dummy` (the user's call, `open-items.md` #31); nothing about the structure requires unique assignments.
@@ -109,6 +109,7 @@ Renamed from `sealsRewarded`/`RAID_SEAL_BASE`/`RAID_SEAL_GROWTH` — not every r
 | `reinforced_boss` | Reinforced Boss | Boss unit + periodic add-wave spawns on a timer/HP trigger. Forces split attention — naturally pressure-tests party composition (does the party have an answer for adds without dropping boss damage). |
 | `phased_boss` | Phased Boss | Single boss, HP-threshold crossings trigger phase changes (new attack pattern, a mechanic that must be answered within the phase). Tests build flexibility — naturally pressure-tests skill loadout choices. |
 | `rampaging_boss` | Rampaging Boss | No HP pool — boss is fully unkillable by design. See dedicated subsection below. |
+| `boss_gauntlet` | Boss Gauntlet | Three bosses back to back, each walking out as the last falls. See dedicated subsection below. |
 | `training_dummy` | Training Dummy | A static dummy that can't die and can't attack. The result is the damage the party lands before the timer ends. See dedicated subsection below. |
 
 **Raid → Fight Type assignment is locked** — see Section 1's roster table. Per-tier mechanic *content* (specific add-wave patterns, phase specifics, exact timer values) is still deferred to implementation, same "structure now, content later" convention already used for Champion abilities and Artifact effects.
@@ -139,6 +140,12 @@ raidRampageBossPower(level)     = RAID_RAMPAGE_POWER_BASE × RAID_RAMPAGE_POWER_
 2. **Quick-clear reclaims your current PB (Section 4, reinterpreted).** Same pattern as everywhere else in the doc — spend a Key, instantly re-grant the reward for your best-ever level, no re-run of the full escalation required.
 
 **No longer an exception:** Key consumption (Section 3) now has a clean general answer for this type — a Key is spent on every entry, unconditionally, since there's no win state to gate on. That falls directly out of Section 3's Key rule rather than needing its own bespoke carve-out.
+
+### Boss Gauntlet
+
+**Decided 2026-09-29 (the user's call), for the Forge Raid:** in place of one boss changing through three phases, **three bosses back to back**, each coming out as the last falls: the forge's own ranks, **the Apprentice** (an ogre striker with a sledgehammer), **the Journeyman** (a clockwork automaton whose hammer arm is a piston) and **the Forgemaster** (the giant master smith, the finale). The art is `raid-forge.ts` (`art-style.md` Round 5). `phased_boss` is no longer assigned to any raid.
+
+**Still open, `open-items.md` #32:** how the rules above (the enrage timer, what counts as a win for the Key, the difficulty and reward curves) apply to three bosses rather than one.
 
 ### Training Dummy
 
@@ -175,7 +182,7 @@ Locked: **5 raids in current scope** — 4 gacha-paired (Guild/Training Grounds/
 
 **Key names are locked** (Section 1): Guild Keys, Skill Keys, Excavation Keys, Forge Keys, Trait Keys — one per raid, mirroring each raid's Seal-name convention.
 
-**Fight Type assignment is locked** (Section 1): Guild Raid → `solo_boss`, Training Grounds Raid → `training_dummy` (was `solo_boss` until 2026-09-28, `open-items.md` #31), Dig-site Raid → `reinforced_boss`, Forge Raid → `phased_boss`, Trait Raid → `rampaging_boss`. Per-tier mechanic content for the three timer-based types is still deferred to implementation.
+**Fight Type assignment is locked** (Section 1): Guild Raid → `solo_boss`, Training Grounds Raid → `training_dummy` (was `solo_boss` until 2026-09-28, `open-items.md` #31), Dig-site Raid → `reinforced_boss`, Forge Raid → `boss_gauntlet` (was `phased_boss` until 2026-09-29, `open-items.md` #32), Trait Raid → `rampaging_boss`. Per-tier mechanic content for the three timer-based types is still deferred to implementation.
 
 **Attempts are now gated by a dedicated Key currency per raid (Section 3), replacing the earlier abstract attempts counter.** 3 Keys/day, banks to 21, per-raid prestige-shop upgrade track. For defeatable-boss raids (`solo_boss`/`reinforced_boss`/`phased_boss`), a Key is spent only on a win — exactly how attempts worked before. For `rampaging_boss`, a Key is spent on every entry unconditionally, since there's no win state to gate on — this cleanly replaces the earlier "consumed on new-PB" carve-out with a rule that holds generally across all five raids. Keys are first-class currencies and can be granted by other systems later (events, milestones) beyond the daily trickle — flagged as a future source, not designed here.
 

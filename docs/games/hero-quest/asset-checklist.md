@@ -551,7 +551,7 @@ No reuse between them, and none with the campaign roster. (`asset-list.md` §1.5
 - [ ] Guild Raid boss — `solo_boss`
 - [ ] Training Grounds Raid boss — `training_dummy` — a massive static training dummy: Entry (falls from the sky), Idle and Hit only, no Attack or Death
 - [ ] Dig-site Raid boss — `reinforced_boss` — plus its own add-wave enemy designs (count not yet specified)
-- [ ] Forge Raid boss — `phased_boss` — needs a visually distinct state per HP-threshold phase
+- [ ] Forge Raid bosses — `boss_gauntlet` — the Apprentice, the Journeyman and the Forgemaster, back to back, each a full set
 - [ ] Trait Raid boss — `rampaging_boss` — unkillable, so no death animation ever plays; needs its own visual language with no HP bar (`raid-system.md` §7)
 
 ### 1.6 Arena Training Dummy 🎞️ — 1 animation
@@ -685,7 +685,7 @@ named types are below and the remainder lands when the range is settled. **This 
 - [ ] Cooldown radial-fill overlay 🖼️ — per equipped skill icon
 - [ ] Boss enrage-timer UI 🖼️ — 3 of the 4 raid fight types
 - [ ] Reinforced Boss add-wave spawn VFX 🎞️ — Dig-site Raid
-- [ ] Phased Boss phase-transition VFX 🎞️ — Forge Raid
+- [ ] Boss-gauntlet hand-over VFX 🎞️ — Forge Raid
 
 > Artifact proc feedback was **cut** 2026-09-17 — log-only, no art. Nothing to build.
 

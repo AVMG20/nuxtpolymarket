@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#32** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28.
+**#33** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
@@ -34,6 +34,7 @@ read the older rule in the doc named in the middle column, it is superseded.**
 | 25 | `core-progression-and-prestige.md` §2 and `idle-mechanics.md` §5: a failed boss is re-engaged **manually** | Bosses engage **automatically** while `document.visibilityState` is `visible`. A hidden tab, a closed app and an offline settle never engage one, so Void Shards still cannot come from idle time. The 400 on an early client engage is routine — **do not soften it server-side** |
 | 29 | `economy-and-currencies.md` §5 source 2: a time-gated free Seal grant | **Removed.** Free Seals come only from milestones and (later) raid clears; the free 10-pull entitlement is the only thing a clock hands out |
 | 31 | `raid-system.md` §1/§7, `asset-list.md`, `economy-and-currencies.md` §9: the Training Grounds Raid is a `solo_boss` fight, its Keys spent only on a win | It is a **`training_dummy`**: a static dummy that can't die or attack, the result being the damage dealt before the timer ends (2026-09-28, the user's call). How that meets Keys, the ladder and rewards is still open below |
+| 32 | `raid-system.md` §1/§7, `asset-list.md`, `asset-checklist.md`: the Forge Raid is one `phased_boss` whose phases change at HP thresholds | It is a **`boss_gauntlet`**: three bosses back to back, the Apprentice, the Journeyman and the Forgemaster (2026-09-29, the user's call). How the timer, Keys and curves apply is still open below |
 
 ---
 
@@ -58,6 +59,14 @@ The user made the Training Grounds Raid a `training_dummy` fight: a static dummy
 5. **The dummy's stats.** Does it have DEF, so mitigation counts, and is that fixed per the "static difficulty" rule (§2)?
 6. **The timer.** A new constant (for example `RAID_DUMMY_SECONDS`, `// UNTUNED ╧`), separate from `RAID_ENRAGE_SECONDS`. The art page's live stage uses 20 s for viewing only.
 
+
+### 32. Forge Raid as three bosses back to back — how it fits the raid rules — **new 2026-09-29**
+The user made the Forge Raid a `boss_gauntlet`: the Apprentice, the Journeyman and the Forgemaster, each coming out as the last falls (`raid-system.md` §7 *Boss Gauntlet*). The art is built (`raid-forge.ts`). `raid-system.md` was written for one boss per fight, so these are undecided:
+
+1. **The timer.** One `RAID_ENRAGE_SECONDS` for all three, or one per boss?
+2. **A win.** Is a Key spent only for downing all three, or does reaching the second or third boss count for something?
+3. **Difficulty.** Does `raidDifficulty(level)` set all three alike, or does each step up in its own right, the Forgemaster hardest?
+4. **Rewards.** One `raidRewardGranted(level)` for the full clear, or a share per boss downed?
 ---
 
 ## 🔴 Genuinely undesigned — full passes, not edits

@@ -151,7 +151,7 @@ Resolves the "entry currency" concept introduced in `raid-system.md` §3 (Locked
 **Source:** daily grant, **3 Keys/day per raid**, banking up to a week's worth (21) at the current rate — the time-gated-grant shape the Seal daily grant used to share (§5.2, since removed; Keys keep the pattern because a raid attempt is a session, not a currency balance). A prestige-shop upgrade raises the daily grant rate per raid (`core-progression-and-prestige.md` §4 cross-doc note), with the bank cap scaling to match. Keys are a first-class currency, so beyond this daily trickle they're also a valid reward payout for *other* systems later (events, milestones, etc.) — flagged as a future source, not designed here.
 
 **Sinks (locked, from `raid-system.md` §3–4):**
-- **Guild Raid, Dig-site Raid, Forge Raid** (`solo_boss`/`reinforced_boss`/`phased_boss` fight types) — a Key is spent only on a **win**: a fresh clear or a quick-clear of the frontier level. A loss costs nothing; retry freely.
+- **Guild Raid, Dig-site Raid, Forge Raid** (`solo_boss`/`reinforced_boss`/`boss_gauntlet` fight types; what a win is across the Forge's three bosses is open, `open-items.md` #32) — a Key is spent only on a **win**: a fresh clear or a quick-clear of the frontier level. A loss costs nothing; retry freely.
 - **Training Grounds Raid** (`training_dummy` since 2026-09-28) — **open, `open-items.md` #31.** A damage race against a dummy that can't die has no win to gate on, so its Skill Key spend is undecided.
 - **Trait Raid** (`rampaging_boss` fight type) — a Key is spent on **every single entry, unconditionally**, since there's no win state to gate consumption on.
 

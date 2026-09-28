@@ -127,7 +127,7 @@ gameplay decision, not an art one, and would add the fifth state above.
 | Guild Raid | `solo_boss` | |
 | Training Grounds Raid | `training_dummy` | A massive static training dummy: Entry (falls from the sky, stake into the ground), Idle and Hit only. No Attack, no Death (2026-09-28, `open-items.md` #31) |
 | Dig-site Raid | `reinforced_boss` | Boss + its own add-wave enemy designs |
-| Forge Raid | `phased_boss` | Needs a visually distinct state per HP-threshold phase |
+| Forge Raid | `boss_gauntlet` | Three bosses back to back: the Apprentice, the Journeyman, the Forgemaster, each with its own full set (2026-09-29, `open-items.md` #32) |
 | Trait Raid | `rampaging_boss` | Unkillable by design — no death animation ever plays; needs its own visual language since no HP bar exists (`raid-system.md` §7) |
 
 ### 1.6 Arena Training Dummy 🎞️ — **Locked: static, with a simple hit-reaction only**
@@ -158,7 +158,7 @@ Hunter (triple-strike) and Beast Master (quad-strike) reuse the Archer-path sing
 | Cooldown radial-fill overlay 🖼️ | Per equipped skill icon |
 | Boss enrage-timer UI 🖼️ | 3 of 4 raid fight types |
 | Reinforced Boss add-wave spawn VFX 🎞️ | Dig-site Raid |
-| Phased Boss phase-transition VFX 🎞️ | Forge Raid |
+| Boss-gauntlet hand-over (the next boss coming out) 🎞️ | Forge Raid |
 | ~~Artifact proc feedback~~ | **Cut 2026-09-17 — log-only, no art.** The six chance-based Artifact effects (Lucky Dig, Windfall, Chain Reaction, Double Cast, Slipstream, Quick Study) surface in the numeric log and nowhere else. Artifacts are passive-only everywhere else in the game; a proc flash would be the one exception, and it would fire often enough to become visual noise during an idle fight nobody is watching |
 
 ---
