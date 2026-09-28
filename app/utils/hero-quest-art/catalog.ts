@@ -38,11 +38,11 @@ import { Surface as Surf, blit, rect } from './surface'
 import { WORLD_SCENES, SW, SH, BG_LOOP, composeScene } from './scenery'
 import { drawWorldMap, TAB_BACKGROUNDS, CHROME, drawSplash } from './ui-art'
 import { drawLogo, LOGO_W, LOGO_H, LOGO_LOOP } from './logos'
-import { GILDED_WARLORD, GREAT_DUMMY, BURIED_COLOSSUS, DIG_SCARAB, RELIC_SHARD, ANVIL_HEART, RAMPANT, TRAINING_DUMMY } from './raids'
+import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, BURROW_GRUB, ORE_BEETLE, ANVIL_HEART, RAMPANT, TRAINING_DUMMY } from './raids'
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
-    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'training_raid'
+    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'training_raid'
     | 'vfx' | 'feedback' | 'icons' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
@@ -59,6 +59,7 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'raids', label: 'Raids & Arena' },
     // split out of Raids & Arena to lock on their own, ahead of the other raids
     { id: 'guild_raid', label: 'Guild Raid', locked: true },
+    { id: 'dig_site_raid', label: 'Dig-site Raid', locked: true },
     { id: 'training_raid', label: 'Training Grounds Raid', locked: true },
     { id: 'vfx', label: 'Ability VFX' },
     { id: 'feedback', label: 'Combat feedback' },
@@ -105,7 +106,7 @@ export interface ArtAsset {
  * 2026-09-28), so the next round is 5; every earlier round is recorded in art-style.md.
  */
 export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    { n: 5, label: 'Raid bosses', prefixes: ['raid/dig_site', 'raid/forge', 'raid/trait'] }
+    { n: 5, label: 'Raid bosses', prefixes: ['raid/forge', 'raid/trait'] }
 ]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
@@ -237,22 +238,27 @@ function raidAssets(): ArtAsset[] {
     const five = (id: string, section: string, def: CreatureDef, group: ArtGroup = 'raids') => {
         for (const st of BOSS_STATES) out.push(creatureAsset(`raid/${id}/${st}`, group, section, `${def.name} — ${TITLE[st]}`, def, st, -1))
     }
-    five('guild', 'Guild Raid · solo_boss', GILDED_WARLORD, 'guild_raid')
-    // his two specials: each body on its own, then the whole of it staged against the party
-    specialsOf(GILDED_WARLORD).forEach((sp, n) => {
-        const st = specialState(n)
-        out.push(creatureAsset(`raid/guild/${st}`, 'guild_raid', 'Guild Raid · solo_boss', `${GILDED_WARLORD.name} — Special: ${sp.name}`, GILDED_WARLORD, st, -1))
-        out.push({
-            id: `raid/guild/${st}_stage`, group: 'guild_raid', section: 'Guild Raid · solo_boss', label: `${GILDED_WARLORD.name} — ${sp.name} (staged)`,
-            w: PREVIEW_RAID_VIEW.w, h: PREVIEW_RAID_VIEW.h, frames: stateFrames(GILDED_WARLORD, st), fps: ANIM_FPS, loop: false, opaque: true,
-            render: (dst, f) => drawSpecialPreview(dst, GILDED_WARLORD, f / ANIM_FPS, n, true)
+    // a raid boss's specials: each body on its own, then the whole of it staged, against the party
+    // and among any adds it has
+    const specials = (id: string, section: string, def: CreatureDef, group: ArtGroup, adds: readonly CreatureDef[] = []) => {
+        specialsOf(def).forEach((sp, n) => {
+            const st = specialState(n)
+            out.push(creatureAsset(`raid/${id}/${st}`, group, section, `${def.name} — Special: ${sp.name}`, def, st, -1))
+            out.push({
+                id: `raid/${id}/${st}_stage`, group, section, label: `${def.name} — ${sp.name} (staged)`,
+                w: PREVIEW_RAID_VIEW.w, h: PREVIEW_RAID_VIEW.h, frames: stateFrames(def, st), fps: ANIM_FPS, loop: false, opaque: true,
+                render: (dst, f) => drawSpecialPreview(dst, def, f / ANIM_FPS, n, true, adds)
+            })
         })
-    })
+    }
+    five('guild', 'Guild Raid · solo_boss', GILDED_WARLORD, 'guild_raid')
+    specials('guild', 'Guild Raid · solo_boss', GILDED_WARLORD, 'guild_raid')
     // it can't attack or die, so it has only these three
     for (const st of ['entry', 'idle', 'hit']) out.push(creatureAsset(`raid/training_grounds/${st}`, 'training_raid', 'Training Grounds Raid · training_dummy', `${GREAT_DUMMY.name} — ${TITLE[st]}`, GREAT_DUMMY, st, -1))
-    five('dig_site', 'Dig-site Raid · reinforced_boss', BURIED_COLOSSUS)
-    for (const [id, def] of [['dig_scarab', DIG_SCARAB], ['relic_shard', RELIC_SHARD]] as const) {
-        for (const st of ['idle', 'attack', 'death']) out.push(creatureAsset(`raid/dig_site/add_${id}/${st}`, 'raids', 'Dig-site Raid · add wave', `${def.name} — ${TITLE[st]}`, def, st, -1))
+    five('dig_site', 'Dig-site Raid · reinforced_boss', DEEPCOIL, 'dig_site_raid')
+    specials('dig_site', 'Dig-site Raid · reinforced_boss', DEEPCOIL, 'dig_site_raid', [BURROW_GRUB, ORE_BEETLE, BURROW_GRUB])
+    for (const [id, def] of [['burrow_grub', BURROW_GRUB], ['ore_beetle', ORE_BEETLE]] as const) {
+        for (const st of ['idle', 'attack', 'death']) out.push(creatureAsset(`raid/dig_site/add_${id}/${st}`, 'dig_site_raid', 'Dig-site Raid · add wave', `${def.name} — ${TITLE[st]}`, def, st, -1))
     }
     ANVIL_HEART.forEach((def, i) => {
         const states = i === 0 ? ['entry', 'idle', 'attack', 'hit'] : i === 2 ? ['idle', 'attack', 'hit', 'death'] : ['idle', 'attack', 'hit']

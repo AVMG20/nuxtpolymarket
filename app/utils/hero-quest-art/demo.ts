@@ -57,7 +57,7 @@ import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 import { specialState, specialsOf, type BossSpecial } from './creature'
 import { BOSSES_A } from './bosses-a'
 import { BOSSES_B } from './bosses-b'
-import { GILDED_WARLORD, GREAT_DUMMY, DUMMY_IMPACT, BURIED_COLOSSUS, ANVIL_HEART, RAMPANT } from './raids'
+import { GILDED_WARLORD, GREAT_DUMMY, DUMMY_IMPACT, DEEPCOIL, ANVIL_HEART, RAMPANT } from './raids'
 import { STAGE } from './special-kit'
 import { ENTRY_SETTLED } from './boss-kit'
 
@@ -447,7 +447,10 @@ export class BattleDemo {
     private tallyKey = -1
     /** Where the fight stands for a special's effect, reused every frame. */
     private spParty = Array.from({ length: PARTY }, () => ({ x: 0, y: 0 }))
-    private spStage = { bx: 0, by: 0, dir: -1, party: this.spParty }
+    /** The boss's adds still standing, for a special that works on them; pooled so the loop allocates nothing. */
+    private spAddPool = Array.from({ length: PARTY }, () => ({ x: 0, y: 0 }))
+    private spAdds: { x: number, y: number }[] = []
+    private spStage = { bx: 0, by: 0, dir: -1, party: this.spParty, adds: this.spAdds }
     private trash: Baked[][] = []
     private rigFrames: Baked[][] = []
     paused = false
@@ -518,7 +521,7 @@ export class BattleDemo {
             ? this.unit(1, VL.foes[0], this.raid.tables[0]!, [], null, 22)
             : this.unit(1, VL.foes[1], this.bossFrames[0]!, [], null, 6)
         boss.boss = true
-        // the Dig-site's adds climb out in front of the Colossus, not inside him
+        // the Dig-site's adds crawl out in front of the Deepcoil, not inside it
         if (this.raid?.id === 'dig_site') for (let k = 0; k < 3; k++) foes[k]!.x -= 44
         // the dummy's target sits high on its chest, and its bucket higher than any raid boss's crown
         const dummy = this.raid?.id === 'training_grounds'
@@ -585,10 +588,10 @@ export class BattleDemo {
             name = GREAT_DUMMY.name
         } else {
             tables = [table(`raid/${id}`, `raid/${id}/entry`, `raid/${id}/death`)]
-            name = { guild: GILDED_WARLORD, dig_site: BURIED_COLOSSUS }[id].name
+            name = { guild: GILDED_WARLORD, dig_site: DEEPCOIL }[id].name
         }
-        const adds = id === 'dig_site' ? ['dig_scarab', 'relic_shard'].map(a => table(`raid/dig_site/add_${a}`, null, `raid/dig_site/add_${a}/death`, true)) : []
-        const def = id === 'guild' ? GILDED_WARLORD : null
+        const adds = id === 'dig_site' ? ['burrow_grub', 'ore_beetle'].map(a => table(`raid/dig_site/add_${a}`, null, `raid/dig_site/add_${a}/death`, true)) : []
+        const def = id === 'guild' ? GILDED_WARLORD : id === 'dig_site' ? DEEPCOIL : null
         const specials = def ? specialsOf(def) : []
         const spTables = specials.map((_, n) => tables[0]!.map((f, k) => k === 2 ? b(`raid/${id}/${specialState(n)}`) : f))
         return { id, name: name.split(' — ')[0]!.toUpperCase(), tables, at: 0, adds, next: 0, hits: 0, escalating: false, clock: DUMMY_ROUND, dmg: 0, over: -1, specials, spTables, spNext: 0 }
@@ -633,7 +636,7 @@ export class BattleDemo {
         this.nameFor = NAME_BASE + NAME_PER_CHAR * text.length
     }
 
-    /** A Dig-site add wave: scarabs and relic shards climb out onto the empty marks before the Colossus. */
+    /** A Dig-site add wave: burrow grubs and ore beetles crawl out onto the empty marks before the Deepcoil. */
     private raidAdds(r: NonNullable<BattleDemo['raid']>, dt: number): void {
         const boss = this.units[this.units.length - 1]!
         if (!standingAny(boss) || this.cine) return
@@ -649,8 +652,8 @@ export class BattleDemo {
             u.hp = TOUGHNESS.trash
             u.elite = false
             u.rig = -1
-            // the shards loose bolts of relic light; the scarabs close and bite
-            u.shot = k & 1 ? bolt('frost') : null
+            // the beetles spit molten ore; the grubs close and bite
+            u.shot = k & 1 ? bolt('ember') : null
             u.wait = 0.8 + Math.random()
             u.fired = false
         }
@@ -805,6 +808,22 @@ export class BattleDemo {
     /** One of the skill's impacts: damage the next target, stack its number, total at the end. */
     private cineHit(c: Cine, i: number): void {
         let tgt = this.units[0]!
+        // a special that strengthens the boss's adds lands on them, walking the line: it mends them
+        if (c.special?.target === 'adds') {
+            let n = 0
+            for (let k = PARTY; k < this.units.length - 1; k++) if (standingAny(this.units[k]!)) n++
+            if (!n) return
+            let pick = i % n
+            for (let k = PARTY; k < this.units.length - 1; k++) {
+                const u = this.units[k]!
+                if (standingAny(u) && pick-- === 0) { tgt = u; break }
+            }
+            this.number(tgt.x, tgt.y - tgt.crown, 'heal', true)
+            this.particles.burst(tgt.x, tgt.y - 10, 14, 50, 0.7, 'arcane', 0, tgt.y)
+            tgt.hp += 3
+            if (i === 0) this.flashFor(0.3, C.pink)
+            return
+        }
         if (c.special) {
             // a special lands on the party, nearest first, walking the line if it spreads
             const party = this.units.slice(0, PARTY).filter(standingAny).sort((a, b) => b.x - a.x)
@@ -1055,7 +1074,9 @@ export class BattleDemo {
                             // a raid boss with several specials takes them in turn, its body swapped into the Cast slot
                             const r = this.raid
                             if (r?.specials.length) {
-                                const n = r.spNext
+                                // one that works on its adds waits until there are adds to work on
+                                let n = r.spNext
+                                for (let k = 0; k < r.specials.length && r.specials[n]!.target === 'adds' && !this.addsStanding(); k++) n = (n + 1) % r.specials.length
                                 this.bossSpecial = r.specials[n]!
                                 u.frames = r.spTables[n]!
                                 r.spNext = (n + 1) % r.specials.length
@@ -1264,6 +1285,12 @@ export class BattleDemo {
         return out
     }
 
+    /** Whether any of the boss's adds are standing. */
+    private addsStanding(): boolean {
+        for (let k = PARTY; k < this.units.length - 1; k++) if (standingAny(this.units[k]!)) return true
+        return false
+    }
+
     /** A boss special's effect, drawn over the fight where the boss and the party stand now. */
     private drawSpecial(s: Surface, c: Cine): void {
         const boss = this.units[this.units.length - 1]!
@@ -1272,6 +1299,15 @@ export class BattleDemo {
         st.by = boss.y + boss.sit
         for (let i = 0; i < PARTY; i++) { const u = this.units[i]!; this.spParty[i]!.x = u.x + u.ox; this.spParty[i]!.y = u.y }
         this.spParty.sort((a, b) => b.x - a.x)
+        this.spAdds.length = 0
+        for (let i = PARTY; i < this.units.length - 1; i++) {
+            const u = this.units[i]!
+            if (!standingAny(u)) continue
+            const a = this.spAddPool[this.spAdds.length]!
+            a.x = u.x + u.ox
+            a.y = u.y
+            this.spAdds.push(a)
+        }
         c.special!.fx(s, c.t, st)
     }
 }

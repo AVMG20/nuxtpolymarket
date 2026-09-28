@@ -9,8 +9,8 @@
 //                    (raid-warlord.ts)
 //   training_dummy   Training Grounds: the Great Dummy, a giant straw dummy that can't attack or
 //                    die, only land, stand and take hits (raid-dummy.ts)
-//   reinforced_boss  Dig-site: the Buried Colossus, a king's bust dug half out of the excavation,
-//                    and its two add waves (raid-colossus.ts)
+//   reinforced_boss  Dig-site: the Deepcoil, a tunnel wyrm rising out of the dig in an S, and its
+//                    two add waves, burrow grubs and ore beetles (raid-wyrm.ts)
 //   phased_boss      Forge: the Anvil Heart, a walking forge hotter each phase (raid-anvil.ts)
 //   rampaging_boss   Trait: the Rampant, unkillable: no Death ever plays and no HP bar exists, so
 //                    its level is drawn on the body, each tier bigger, more horned, more lit
@@ -23,7 +23,7 @@ import { rect, px, disc, q } from './boss-kit'
 
 export { GILDED_WARLORD } from './raid-warlord'
 export { GREAT_DUMMY, DUMMY_IMPACT } from './raid-dummy'
-export { BURIED_COLOSSUS, DIG_SCARAB, RELIC_SHARD } from './raid-colossus'
+export { DEEPCOIL, BURROW_GRUB, ORE_BEETLE } from './raid-wyrm'
 export { ANVIL_HEART } from './raid-anvil'
 export { RAMPANT, RAMPAGE_TIERS } from './raid-rampant'
 
