@@ -64,8 +64,11 @@ export interface CreatureDef {
     accent: number
 }
 
-/** Per-frame flags a drawer sets (reset before each draw). */
-export const CF = { flash: false, fade: 0, rim: CLEAR as number, lut: null as Uint8Array | null }
+/**
+ * Per-frame flags a drawer sets (reset before each draw). `shadow` scales the floor shadow's
+ * size and darkness, 0..1: a body coming down from the sky casts a small, faint one at first.
+ */
+export const CF = { flash: false, fade: 0, rim: CLEAR as number, lut: null as Uint8Array | null, shadow: 1 }
 
 // ── Phase helpers ──────────────────────────────────────────────────────────────────
 
@@ -151,8 +154,11 @@ export function drawCreature(dst: Surface, x: number, y: number, def: CreatureDe
     CF.fade = 0
     CF.rim = CLEAR
     CF.lut = null
+    CF.shadow = 1
     def.draw(s, st, t)
-    if (def.shadow > 0 && CF.fade < 12) ditherEllipse(dst, x, y, def.shadow, Math.max(1, def.shadow >> 3), C.ink, def.hover ? 5 : 9)
+    const rx = Math.round(def.shadow * CF.shadow)
+    const level = Math.round((def.hover ? 5 : 9) * CF.shadow)
+    if (rx > 0 && level > 0 && CF.fade < 12) ditherEllipse(dst, x, y, rx, Math.max(1, rx >> 3), C.ink, level)
     const style = STYLE.reset()
     style.flip = facing === -1
     style.flash = CF.flash ? C.white : CLEAR

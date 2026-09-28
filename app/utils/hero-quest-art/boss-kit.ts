@@ -107,7 +107,12 @@ export function finish(s: Surface, style: Entry, sinkOnDeath = 6): void {
         const u = 1 - B.ent
         switch (style) {
             case Entry.Rise: shift(s, 0, Math.round(u * s.h * 0.7), s.ay); break
-            case Entry.Drop: shift(s, 0, -Math.round(u * s.h), s.h); if (u > 0.1) CF.fade = Math.round(u * 6); break
+            case Entry.Drop:
+                shift(s, 0, -Math.round(u * s.h), s.h)
+                if (u > 0.1) CF.fade = Math.round(u * 6)
+                // the shadow gathers under it as it comes down
+                CF.shadow = 0.15 + 0.85 * B.ent
+                break
             case Entry.Walk: shift(s, -Math.round(u * s.w * 0.45), 0, s.h); break
             case Entry.Fade: CF.fade = Math.round(u * 16); break
             case Entry.Grow: CF.fade = Math.round(u * 12); shift(s, 0, Math.round(u * 10), s.ay); break
