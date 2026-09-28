@@ -1,5 +1,5 @@
 import { TOWN_MILESTONES } from './town'
-import { TOWN_RESEARCH } from './town-research'
+import { TOWN_MONUMENT_STAGES, isTownMonumentId } from './town-monuments'
 import { VOID_MAX_SECTOR, VOID_SHIP_IDS, VOID_TRADE_MAX_LEVEL, voidNormalizeLevels } from './void'
 import { voidPilotLevel } from './void-skills'
 
@@ -15,19 +15,28 @@ import { voidPilotLevel } from './void-skills'
  */
 
 const MILESTONE_IDS = new Set(TOWN_MILESTONES.map(m => m.id))
-const RESEARCH_IDS = new Set(TOWN_RESEARCH.map(r => r.id))
 
 export interface TownScore {
     milestones: number
-    research: number
+    monuments: number
     total: number
 }
 
-/** Milestones claimed plus research finished. Ids the game no longer has don't count. */
-export function townScore(milestonesClaimed: readonly string[], researchIds: readonly string[]): TownScore {
+/**
+ * Milestones claimed plus monument stages standing. A monument can be moved
+ * but never torn down, so its stages are as permanent as a milestone. Ids the
+ * game no longer has don't count, and each monument counts once, capped at
+ * its last stage.
+ */
+export function townScore(milestonesClaimed: readonly string[], monuments: readonly { type: string, level: number }[]): TownScore {
     const milestones = new Set(milestonesClaimed.filter(id => MILESTONE_IDS.has(id))).size
-    const research = new Set(researchIds.filter(id => RESEARCH_IDS.has(id))).size
-    return { milestones, research, total: milestones + research }
+    const best = new Map<string, number>()
+    for (const m of monuments) {
+        if (!isTownMonumentId(m.type)) continue
+        best.set(m.type, Math.max(best.get(m.type) ?? 0, Math.max(0, Math.min(TOWN_MONUMENT_STAGES, m.level))))
+    }
+    const stages = [...best.values()].reduce((sum, n) => sum + n, 0)
+    return { milestones, monuments: stages, total: milestones + stages }
 }
 
 export interface VoidScoreInput {

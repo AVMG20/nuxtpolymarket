@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, lte, notInArray, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townResearch, townRealm, townEvents } from '#server/database/schema'
+import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townRealm, townEvents } from '#server/database/schema'
 import { credit, creditGems, debit, debitGems } from '#server/utils/balance'
 import { pruneTownEvents, recordTownEvent } from '#server/utils/town-events'
 import { matchGemOrder } from '#shared/utils/gamelogic/gem-exchange'
@@ -28,7 +28,9 @@ import {
     townSpiralCoords,
     townPlotIsFlat,
     townFloorPrice,
-    type TownResearchBonus,
+    type TownBonus,
+    townMonumentBonus,
+    townMonumentJob,
     townCeilingPrice,
     TOWN_MAX_ORDER_PRICE,
     townOrderTotal,
@@ -58,7 +60,7 @@ import {
     type TownSimBuilding,
     type TownSatisfied
 } from '#shared/utils/gamelogic/town'
-import { townResearchEffects } from '#shared/utils/gamelogic/town-research'
+import { TOWN_MONUMENT_IDS, isTownMonumentId } from '#shared/utils/gamelogic/town-monuments'
 
 const CATEGORY = 'polytown'
 /**
@@ -189,57 +191,11 @@ export interface SettledTown {
     /** Which needs the last tick could supply. */
     satisfied: TownSatisfied
     /**
-     * What this town's research is worth. Handed back so every caller derives
-     * with the same bonus the settle just paid out — a rate quoted without it
-     * is a number the player would catch us lying about.
+     * What this town's monuments are worth right now. Handed back so every
+     * build timer quoted after the settle uses the same Great Pyramid the
+     * player sees on the map.
      */
-    research: TownResearchBonus
-    /** Project ids this town has finished — the research milestones count them. */
-    researchDone: string[]
-}
-
-/**
- * Bank the running project if its clock has run out. Lives here rather than in
- * the research module because the settle has to do it first, under the same
- * town_state lock, before it reads the bonus for the window it is about to pay.
- *
- * The insert is the guard: a second caller conflicts on the unique
- * (user, project) pair and changes nothing.
- */
-export async function bankFinishedResearch(
-    tx: DbExecutor,
-    userId: string,
-    state: typeof townState.$inferSelect,
-    now = Date.now()
-) {
-    if (!state.researchId || !state.researchCompletesAt) return
-    if (state.researchCompletesAt.getTime() > now) return
-    const banked = await tx.insert(townResearch)
-        .values({ userId, researchId: state.researchId })
-        .onConflictDoNothing()
-        .returning({ id: townResearch.id })
-    await tx.update(townState)
-        .set({ researchId: null, researchCompletesAt: null })
-        .where(and(eq(townState.id, state.id), eq(townState.researchId, state.researchId)))
-    // Only the caller that won the insert tells the mayor; the loser changed nothing.
-    if (banked.length) await recordTownEvent(tx, userId, { kind: 'research', researchId: state.researchId }, state.researchCompletesAt.getTime())
-}
-
-/**
- * What this player's finished research is worth, read inside the caller's
- * transaction. Research changes at most once every twelve hours, so this is a
- * cheap read next to everything else a settle does.
- */
-export async function getResearchBonus(tx: DbExecutor, userId: string): Promise<TownResearchBonus> {
-    return townResearchEffects(await getResearchDoneIds(tx, userId))
-}
-
-/** Project ids this player has finished, read inside the caller's transaction. */
-export async function getResearchDoneIds(tx: DbExecutor, userId: string): Promise<string[]> {
-    const rows = await tx.select({ researchId: townResearch.researchId })
-        .from(townResearch)
-        .where(eq(townResearch.userId, userId))
-    return rows.map(r => r.researchId)
+    bonus: TownBonus
 }
 
 /**
@@ -263,12 +219,6 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
     const inventory = await getInventory(userId, tx, true)
     const { plots, byId } = await getPlotMap(userId, tx)
     const simBefore = rows.map(row => toSim(row, byId.get(row.plotId)))
-    // A project that finished while the player was away has to be banked
-    // before the window is settled, or the whole offline stretch is paid at
-    // the un-researched rate and the bonus is quietly lost.
-    await bankFinishedResearch(tx, userId, state, now)
-    const researchDone = await getResearchDoneIds(tx, userId)
-    const research = townResearchEffects(researchDone)
 
     const result = settleTown({
         happiness: state.happiness,
@@ -276,7 +226,6 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
         lastSettledAt: state.lastSettledAt.getTime(),
         inventory,
         buildings: simBefore,
-        research,
         carry: state.carry
     }, now)
 
@@ -347,8 +296,7 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
         delta: result.delta,
         elapsedMs: Math.min(now - state.lastSettledAt.getTime(), TOWN_MAX_OFFLINE_MS),
         satisfied: result.satisfied,
-        research,
-        researchDone
+        bonus: townMonumentBonus(sim, now)
     }
 }
 
@@ -783,7 +731,7 @@ export async function placeBuildings(userId: string, items: TownPlacement[]) {
 
     return db.transaction(async (tx) => {
         const now = Date.now()
-        const { sim, state, research, inventory } = await settleTownState(tx, userId, now)
+        const { sim, state, bonus, inventory } = await settleTownState(tx, userId, now)
         const { byId: plotsById } = await getPlotMap(userId, tx)
         const purse = await townPurse(tx, userId, inventory)
 
@@ -804,7 +752,11 @@ export async function placeBuildings(userId: string, items: TownPlacement[]) {
             const plot = plotsById.get(item.plotId)
             if (!plot) { note('That plot is not yours'); continue }
 
-            const lock = townTierRequirement(layout, def.tier, now, state.produced, research)
+            // Monument stages carried over from research: the monument goes up
+            // at that stage at once, free, and whatever tier the town is at.
+            const credit = def.kind === 'monument' ? Math.max(0, Math.floor(state.monumentCredit[def.id] ?? 0)) : 0
+
+            const lock = credit > 0 ? null : townTierRequirement(layout, def.tier, now, state.produced)
             if (lock) {
                 note(lock.needsBuilding
                     ? `Finish a tier ${def.tier - 1} building first`
@@ -824,16 +776,19 @@ export async function placeBuildings(userId: string, items: TownPlacement[]) {
             const issue = townPlacementIssue(layout, def, wx, wy, rotation)
             if (issue) { note(issue); continue }
 
-            // Roads go up instantly and need nobody; everything else needs a crew.
+            // Roads go up instantly and need nobody; monuments have their own
+            // crew; everything else needs a builder.
             const instant = def.kind === 'road'
-            if (!instant && buildersLeft <= 0) { note('Every builder is busy'); continue }
+            const monument = def.kind === 'monument'
+            if (monument && !credit && townMonumentJob(layout, now)) { note('The monument crew is busy'); continue }
+            if (!instant && !monument && buildersLeft <= 0) { note('Every builder is busy'); continue }
 
             // The n-th copy costs more: count every existing one, finished or not.
-            const cost = townPlaceCost(def, counts.get(def.id) ?? 0)
+            const cost = credit > 0 ? { coins: 0, resources: {} } : townPlaceCost(def, counts.get(def.id) ?? 0)
             const short = purse.shortOf(cost)
             if (short) { note(short); continue }
 
-            const buildMs = instant ? 0 : townLevelBuildMs(def, 1, state.happiness, research)
+            const buildMs = instant ? 0 : townLevelBuildMs(def, 1, state.happiness, bonus)
             // The unique (plot, tile) constraint is the occupancy guard, and the
             // insert comes first: a tile lost to a concurrent build must not be
             // paid for.
@@ -845,19 +800,30 @@ export async function placeBuildings(userId: string, items: TownPlacement[]) {
                     tileX: item.tileX,
                     tileY: item.tileY,
                     rotation,
-                    level: instant ? 1 : 0,
-                    completesAt: new Date(now + buildMs)
+                    level: instant ? 1 : credit,
+                    completesAt: new Date(credit > 0 ? now : now + buildMs)
                 })
                 .onConflictDoNothing()
                 .returning()
             if (!building) { note('That tile is already taken'); continue }
+
+            if (credit > 0) {
+                // Spend the credit only once the tile is won. The key's presence
+                // is the guard, so two placements racing for it cannot both land
+                // a free monument; the loser rolls the whole call back.
+                const [spent] = await tx.update(townState)
+                    .set({ monumentCredit: sql`${townState.monumentCredit} - ${def.id}::text` })
+                    .where(and(eq(townState.id, state.id), sql`${townState.monumentCredit} ? ${def.id}`))
+                    .returning({ id: townState.id })
+                if (!spent) throw createError({ statusCode: 409, statusMessage: 'That research credit was just used' })
+            }
 
             if (cost.coins > 0) await debit(userId, cost.coins.toFixed(4), CATEGORY, tx)
             await spendBag(tx, userId, cost.resources)
             purse.spend(cost)
 
             counts.set(def.id, (counts.get(def.id) ?? 0) + 1)
-            if (!instant) buildersLeft--
+            if (!instant && !monument) buildersLeft--
             layout.push(toSim(building, plot))
             touchedPlots.add(item.plotId)
             placed.push({
@@ -1085,10 +1051,16 @@ export async function moveBuilding(userId: string, buildingId: string, plotId: s
     return { buildingId, plotId, tileX, tileY, rotation }
 }
 
+/** Why nobody can start an upgrade on a building of `kind` right now, or null. */
+function upgradeCrewIssue(kind: string, sim: TownSimBuilding[], builders: number, now: number): string | null {
+    if (kind === 'monument') return townMonumentJob(sim, now) ? 'The monument crew is busy' : null
+    return townBuildersFree(sim, builders, now) <= 0 ? 'Every builder is busy' : null
+}
+
 export async function upgradeBuilding(userId: string, buildingId: string) {
     return db.transaction(async (tx) => {
         const now = Date.now()
-        const { buildings, state, sim, research } = await settleTownState(tx, userId, now)
+        const { buildings, state, sim, bonus } = await settleTownState(tx, userId, now)
         const building = buildings.find(b => b.id === buildingId)
         if (!building) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
         if (building.level === 0) throw createError({ statusCode: 400, statusMessage: 'Still under construction' })
@@ -1097,15 +1069,14 @@ export async function upgradeBuilding(userId: string, buildingId: string) {
         const def = getTownBuilding(building.type)!
         if (def.kind === 'road') throw createError({ statusCode: 400, statusMessage: 'Roads have no levels' })
         if (building.level >= townBuildingMaxLevel(def)) throw createError({ statusCode: 400, statusMessage: 'Already at max level' })
-        if (townBuildersFree(sim, state.builders, now) <= 0) {
-            throw createError({ statusCode: 400, statusMessage: 'Every builder is busy' })
-        }
+        const crewIssue = upgradeCrewIssue(def.kind, sim, state.builders, now)
+        if (crewIssue) throw createError({ statusCode: 400, statusMessage: crewIssue })
         const nextLevel = building.level + 1
         const cost = townLevelCost(def, nextLevel)
         if (cost.coins > 0) await debit(userId, cost.coins.toFixed(4), CATEGORY, tx)
         await spendBag(tx, userId, cost.resources)
 
-        const completesAt = new Date(now + townLevelBuildMs(def, nextLevel, state.happiness, research))
+        const completesAt = new Date(now + townLevelBuildMs(def, nextLevel, state.happiness, bonus))
         const [updated] = await tx.update(townBuildings)
             .set({ upgradingTo: nextLevel, completesAt })
             .where(and(eq(townBuildings.id, buildingId), eq(townBuildings.level, building.level), sql`${townBuildings.upgradingTo} is null`))
@@ -1140,11 +1111,16 @@ export async function rushBuilding(userId: string, buildingId: string) {
     })
 }
 
+/** Monuments stand for good: the billions sunk into one cannot be bulldozed by a slip of the mouse. */
+const NOT_A_MONUMENT = notInArray(townBuildings.type, [...TOWN_MONUMENT_IDS])
+
 export async function demolishBuilding(userId: string, buildingId: string) {
     return db.transaction(async (tx) => {
-        await settleTownState(tx, userId)
+        const { buildings } = await settleTownState(tx, userId)
+        const target = buildings.find(b => b.id === buildingId)
+        if (target && isTownMonumentId(target.type)) throw createError({ statusCode: 400, statusMessage: 'Monuments cannot be demolished' })
         const [deleted] = await tx.delete(townBuildings)
-            .where(and(eq(townBuildings.id, buildingId), eq(townBuildings.userId, userId)))
+            .where(and(eq(townBuildings.id, buildingId), eq(townBuildings.userId, userId), NOT_A_MONUMENT))
             .returning({ id: townBuildings.id, type: townBuildings.type })
         if (!deleted) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
         return { buildingId: deleted.id, type: deleted.type }
@@ -1161,9 +1137,9 @@ export async function demolishBuildings(userId: string, buildingIds: string[]) {
         // The DELETE is the guard: whatever comes back is what this call removed,
         // so a tile already cleared by another request is simply not in the list.
         const deleted = await tx.delete(townBuildings)
-            .where(and(inArray(townBuildings.id, ids), eq(townBuildings.userId, userId)))
+            .where(and(inArray(townBuildings.id, ids), eq(townBuildings.userId, userId), NOT_A_MONUMENT))
             .returning({ id: townBuildings.id, type: townBuildings.type })
-        if (deleted.length === 0) throw createError({ statusCode: 404, statusMessage: 'Nothing left to demolish' })
+        if (deleted.length === 0) throw createError({ statusCode: 400, statusMessage: 'Nothing left to demolish — monuments stay standing' })
         return { demolished: deleted.map(d => d.id), types: deleted.map(d => d.type) }
     })
 }
@@ -1183,9 +1159,10 @@ export async function upgradeBuildings(userId: string, buildingIds: string[]) {
 
     return db.transaction(async (tx) => {
         const now = Date.now()
-        const { buildings, state, sim, research, inventory } = await settleTownState(tx, userId, now)
+        const { buildings, state, sim, bonus, inventory } = await settleTownState(tx, userId, now)
         const purse = await townPurse(tx, userId, inventory)
         let buildersLeft = townBuildersFree(sim, state.builders, now)
+        let monumentCrewFree = townMonumentJob(sim, now) === null
         const started: { buildingId: string, level: number, completesAt: number }[] = []
         let firstIssue: string | null = null
         const note = (why: string) => { if (!firstIssue) firstIssue = why }
@@ -1198,13 +1175,15 @@ export async function upgradeBuildings(userId: string, buildingIds: string[]) {
             const def = getTownBuilding(building.type)!
             if (def.kind === 'road') { note('Roads have no levels'); continue }
             if (building.level >= townBuildingMaxLevel(def)) { note('Already at max level'); continue }
-            if (buildersLeft <= 0) { note('Every builder is busy'); continue }
+            const monument = def.kind === 'monument'
+            if (monument && !monumentCrewFree) { note('The monument crew is busy'); continue }
+            if (!monument && buildersLeft <= 0) { note('Every builder is busy'); continue }
 
             const nextLevel = building.level + 1
             const cost = townLevelCost(def, nextLevel)
             const short = purse.shortOf(cost)
             if (short) { note(short); continue }
-            const completesAt = new Date(now + townLevelBuildMs(def, nextLevel, state.happiness, research))
+            const completesAt = new Date(now + townLevelBuildMs(def, nextLevel, state.happiness, bonus))
             // The conditional UPDATE claims the upgrade; only then is anything charged.
             const [updated] = await tx.update(townBuildings)
                 .set({ upgradingTo: nextLevel, completesAt })
@@ -1220,7 +1199,8 @@ export async function upgradeBuildings(userId: string, buildingIds: string[]) {
             await spendBag(tx, userId, cost.resources)
             purse.spend(cost)
 
-            buildersLeft--
+            if (monument) monumentCrewFree = false
+            else buildersLeft--
             started.push({ buildingId: id, level: nextLevel, completesAt: completesAt.getTime() })
         }
 
@@ -1247,12 +1227,11 @@ async function recordEarnings(tx: DbExecutor, userId: string, coins: number) {
 
 // ─── Milestones ──────────────────────────────────────────────────────────────
 
-type MilestoneInput = Pick<SettledTown, 'state' | 'sim' | 'inventory' | 'satisfied' | 'research' | 'researchDone'>
+type MilestoneInput = Pick<SettledTown, 'state' | 'sim' | 'inventory' | 'satisfied'>
 
 export function milestoneSnapshotFor(settled: MilestoneInput, now: number) {
-    const derived = deriveTown(settled.sim, settled.state.happiness, now, settled.satisfied, undefined, settled.research)
+    const derived = deriveTown(settled.sim, settled.state.happiness, now, settled.satisfied)
     return townMilestoneSnapshot(settled.sim, derived, settled.state.happiness, settled.state.plotsBought, parseFloat(settled.state.coinsEarned), now, {
-        researchDone: settled.researchDone.length,
         needsSatisfied: townAllNeedsSatisfied(settled.satisfied)
     })
 }
@@ -1864,7 +1843,6 @@ export async function deleteTownForUser(userId: string, tx: DbExecutor = db) {
     await tx.delete(townBuildings).where(eq(townBuildings.userId, userId))
     await tx.delete(townInventory).where(eq(townInventory.userId, userId))
     await tx.delete(townPlots).where(eq(townPlots.userId, userId))
-    await tx.delete(townResearch).where(eq(townResearch.userId, userId))
     await tx.delete(townEvents).where(eq(townEvents.userId, userId))
     await tx.delete(townState).where(eq(townState.userId, userId))
 }
