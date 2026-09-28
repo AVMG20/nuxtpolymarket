@@ -58,6 +58,7 @@ import type { BossSpecial } from './creature'
 import { BOSSES_A } from './bosses-a'
 import { BOSSES_B } from './bosses-b'
 import { STAGE } from './special-kit'
+import { ENTRY_SETTLED } from './boss-kit'
 
 export const DEMO_W = SW
 export const DEMO_H = SH
@@ -374,6 +375,9 @@ export class BattleDemo {
     /** The world's boss and super boss specials, in step with `bossFrames`, and the one on the stage. */
     private bossSpecials: (BossSpecial | null)[] = []
     private bossSpecial: BossSpecial | null = null
+    /** Whether the world's boss and super boss scroll into view with the scenery (`CreatureDef.scrollsIn`), and the one on the stage. */
+    private bossScrolls: boolean[] = []
+    private bossScrollsIn = false
     /** The world's boss and super boss by name, the one on the stage, and how long its name has been up (−1: not yet). */
     private bossNames: string[] = []
     private bossName = ''
@@ -432,6 +436,7 @@ export class BattleDemo {
         const pair = [...BOSSES_A, ...BOSSES_B][world - 1]!
         this.bossSpecials = pair.map(def => def.special ?? null)
         this.bossNames = pair.map(def => def.name.toUpperCase())
+        this.bossScrolls = pair.map(def => def.scrollsIn ?? false)
         this.bossFrames = [`boss/${w.id}`, `superboss/${w.id}`].map((kind, k) => {
             const b = ['idle', 'attack', 'hit', 'death', 'entry'].map(st => bake(artById(`${kind}/${st}`)!))
             // the special plays in the Cast slot; without one the boss only ever swings
@@ -454,7 +459,10 @@ export class BattleDemo {
         this.labels = Array.from({ length: 99 }, (_, i) => `${name}  WAVE ${i + 1}${suffix}`)
         this.wave = 0
         this.bossDue = null
-        this.spawnWave()
+        this.march = 0
+        // a boss that scrolls into view has to be marched up to, even on the first wave
+        if (waveKind !== 'regular' && this.bossScrolls[waveKind === 'superboss' ? 1 : 0]) this.startMarch()
+        else this.spawnWave()
         this.particles.clear()
         for (const f of this.fx) f.live = false
         for (const n of this.nums) n.live = false
@@ -504,9 +512,11 @@ export class BattleDemo {
                 this.bossName = this.bossNames[which]!
                 this.nameT = -1
                 this.nameFor = NAME_BASE + NAME_PER_CHAR * this.bossName.length
+                this.bossScrollsIn = this.bossScrolls[which]!
                 u.hp = which & 1 ? TOUGHNESS.superboss : TOUGHNESS.boss
-                // sliding in with the scroll would play its entry off-screen, so it waits for the march to end
-                if (this.march > 0) { u.state = U.Gone; this.bossDue = u }
+                // sliding in with the scroll would play its entry off-screen, so it waits for the march
+                // to end; one already standing in the world comes into view with the ground instead
+                if (this.march > 0) { u.state = this.bossScrollsIn ? U.Idle : U.Gone; this.bossDue = u }
             }
         }
         this.wave++
@@ -543,7 +553,14 @@ export class BattleDemo {
             u.ox = 0
             if (i < PARTY && u.state === U.Move) { u.state = U.Idle; u.t = 0; u.wait = 0.3 + Math.random() * 0.8 }
         }
-        if (this.bossDue) { this.bossDue.state = U.Entry; this.bossDue.t = 0; this.bossDue = null }
+        if (this.bossDue) {
+            const u = this.bossDue
+            const entry = u.frames[U.Entry]!
+            u.state = U.Entry
+            // one that scrolled into view has already arrived: it only roars
+            u.t = this.bossScrollsIn ? ENTRY_SETTLED * entry.frames.length / entry.fps : 0
+            this.bossDue = null
+        }
     }
 
     private target(side: 0 | 1): Unit | null {

@@ -1170,6 +1170,8 @@ const BONE_TIDE: BossSpecial = {
 
 export const OSSUAR: CreatureDef = {
     name: 'Ossuar, the Thousand-Bone Host', size: 256, shadow: 0, accent: C.green4,
+    // too big to rise out of the ground: his back already runs off into the dark as he comes into view
+    scrollsIn: true,
     states: withSpecial(bossStates(1.5, 2.0, 2.6), 2.6),
     special: BONE_TIDE,
     draw(s, st, t) {

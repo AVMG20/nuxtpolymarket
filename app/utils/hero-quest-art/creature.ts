@@ -61,6 +61,12 @@ export interface CreatureDef {
      * or it would be shattered before its death had played out.
      */
     shatterAt?: number
+    /**
+     * Already standing in the world rather than arriving: the live stage scrolls it into view with
+     * the scenery during the march, and it plays only the settled end of its entry (the roar) once
+     * the party stands on its ground. Its full entry is still drawn, for the gallery.
+     */
+    scrollsIn?: boolean
     accent: number
 }
 
