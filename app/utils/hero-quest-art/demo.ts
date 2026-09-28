@@ -86,8 +86,12 @@ const OX = STAGE.ox
 const OY = STAGE.oy
 /** How often a boss reaches for its special once it has opened with it. */
 const SPECIAL_CHANCE = 0.3
-/** How long a boss's name stays up once it goes up, halfway through its entrance. */
-const NAME_FOR = 2.2
+/**
+ * How long a boss's name stays up once it goes up, halfway through its entrance: a base, and a
+ * beat more per letter, so a long name can be read before it goes.
+ */
+const NAME_BASE = 1.4
+const NAME_PER_CHAR = 0.08
 
 /** Which wave the stage fights, over and over: a pack of trash with its elite, the boss, or the super boss. */
 export type WaveKind = 'regular' | 'boss' | 'superboss'
@@ -374,6 +378,7 @@ export class BattleDemo {
     private bossNames: string[] = []
     private bossName = ''
     private nameT = -1
+    private nameFor = 0
     /** Whether the boss on the stage has opened with its special yet. */
     private bossOpened = false
     /** Where the fight stands for a special's effect, reused every frame. */
@@ -498,6 +503,7 @@ export class BattleDemo {
                 this.bossOpened = false
                 this.bossName = this.bossNames[which]!
                 this.nameT = -1
+                this.nameFor = NAME_BASE + NAME_PER_CHAR * this.bossName.length
                 u.hp = which & 1 ? TOUGHNESS.superboss : TOUGHNESS.boss
                 // sliding in with the scroll would play its entry off-screen, so it waits for the march to end
                 if (this.march > 0) { u.state = U.Gone; this.bossDue = u }
@@ -853,7 +859,7 @@ export class BattleDemo {
                     break
             }
         }
-        if (this.nameT >= 0 && this.nameT < NAME_FOR) this.nameT += dt
+        if (this.nameT >= 0 && this.nameT < this.nameFor) this.nameT += dt
         const c = this.cine
         if (c) {
             c.t += dt
@@ -1001,7 +1007,7 @@ export class BattleDemo {
             for (let y = 0; y < cam.h; y++) out.data.set(s.data.subarray((cam.y + y) * s.w + cam.x, (cam.y + y) * s.w + cam.x + cam.w), y * cam.w)
         }
         textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
-        if (this.nameT >= 0 && this.nameT < NAME_FOR) drawSkillBanner(out, this.bossName, cam.w / 2, 14, this.nameT, true)
+        if (this.nameT >= 0 && this.nameT < this.nameFor) drawSkillBanner(out, this.bossName, cam.w / 2, 14, this.nameT, true, this.nameFor - this.nameT)
         return out
     }
 

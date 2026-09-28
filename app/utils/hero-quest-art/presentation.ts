@@ -18,19 +18,25 @@ const LETTER_RAMP = [C.gold3, C.gold3, C.gold3, C.gold2, C.gold2, C.gold1, C.gol
 /** A boss's special gets its banner in blood red, so it never reads as one of the party's skills. */
 const BOSS_RAMP = [C.red3, C.red3, C.red3, C.red2, C.red2, C.red1, C.red1]
 
+/** How long the rules take to shoot out, or draw back in, and how long the letters flash white. */
+const RULE_GROW = 0.2
+const LETTER_FLASH = 0.1
+
 /**
  * The skill's name in gradient gold letters with a dark outline and drop shadow, between
  * two rules that shoot outward. `t` is seconds since the skill fired: the first frame
- * flashes white, the rules grow over 0.2 s.
+ * flashes white, the rules grow over 0.2 s. `left` is seconds until it comes down, which plays
+ * the same in reverse: the rules draw back in, then a last white flash.
  */
-export function drawSkillBanner(s: Surface, text: string, cx: number, y: number, t: number, boss = false): void {
+export function drawSkillBanner(s: Surface, text: string, cx: number, y: number, t: number, boss = false, left = Infinity): void {
     const letters = boss ? BOSS_RAMP : LETTER_RAMP
     const rule = boss ? [C.red2, C.red0, C.red3] : [C.gold2, C.gold0, C.gold3]
     const q = qt(t)
+    const out = qt(Math.max(0, left))
     const w = textWidth(text, 'big')
     const x0 = R(cx - w / 2)
     // rules first, so the letters' outline cuts them
-    const grow = Math.min(1, q / 0.2)
+    const grow = Math.min(1, q / RULE_GROW, Math.max(0, out - LETTER_FLASH) / RULE_GROW)
     const len = R(30 * grow)
     if (len > 0) {
         for (const side of [-1, 1]) {
@@ -45,7 +51,7 @@ export function drawSkillBanner(s: Surface, text: string, cx: number, y: number,
     // letters: render white into scratch, then outline, shadow and recolour by row
     BANNER_TMP.clear()
     textOut(BANNER_TMP, text, 1, 1, C.white, 'big', 1, 0, 0, C.ink, -1)
-    const flash = q < 0.1
+    const flash = q < LETTER_FLASH || out < LETTER_FLASH
     for (let yy = 0; yy < BANNER_TMP.h; yy++) {
         for (let xx = 0; xx < w + 2; xx++) {
             if (BANNER_TMP.data[yy * BANNER_TMP.w + xx] === 0) continue
