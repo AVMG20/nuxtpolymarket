@@ -62,6 +62,11 @@ export interface CreatureDef {
     /** A special attack; `states` then carries a `special` state for the body's part of it. */
     special?: BossSpecial
     /**
+     * Every special, for a boss with more than one (a raid boss); the nth plays `specialState(n)`.
+     * Set it instead of `special`.
+     */
+    specials?: readonly BossSpecial[]
+    /**
      * Seconds into its death at which the live stage breaks it apart. Left out, the stage finds the
      * frame where the body starts dissolving; a death that shrinks or collapses on purpose sets it,
      * or it would be shattered before its death had played out.
@@ -76,6 +81,16 @@ export interface CreatureDef {
     /** Px the live stage stands it below its mark: a tall body brought down clear of the top of the camera. */
     lower?: number
     accent: number
+}
+
+/** A boss's specials, one or many. */
+export function specialsOf(def: CreatureDef): readonly BossSpecial[] {
+    return def.specials ?? (def.special ? [def.special] : [])
+}
+
+/** The state the nth special's body plays: `special`, then `special2`, `special3`… */
+export function specialState(n: number): string {
+    return n ? `special${n + 1}` : 'special'
 }
 
 /**

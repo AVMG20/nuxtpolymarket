@@ -10,7 +10,7 @@ import { Surface, rect, line, disc, ditherEllipse, hash2, bayer } from './surfac
 import { VL, pr, qt, R } from './vfx-kit'
 import type { Ramp6 } from './vfx-cinematic'
 import { FLOOR_Y, SW, SH } from './scenery-kit'
-import { drawCreature, type CreatureDef, type SpecialStage } from './creature'
+import { drawCreature, specialsOf, specialState, type CreatureDef, type SpecialStage } from './creature'
 import { TRAINING_DUMMY } from './raids'
 
 /** Where the VFX stage sits in the scene (the live stage's origin), and the boss's offset from its mark. */
@@ -19,11 +19,18 @@ export const STAGE = { ox: 64, oy: FLOOR_Y + 4 - VL.floor, bossDx: 6 } as const
 /** The window the gallery preview shows: the live stage's chosen camera (Zoom 3). */
 const VIEW = { x: 29, y: 27, w: 272, h: 153 } as const
 
+/**
+ * A raid boss is previewed as the live stage fights it: on the whole-scene camera, standing on the
+ * near rank well back (demo.ts gives it the same mark and offset).
+ */
+const RAID_VIEW = { x: 0, y: 0, w: SW, h: SH } as const
+const RAID_DX = 22
+
 /** The fight as the gallery previews it: the boss on its mark, the party on theirs. */
-export function previewStage(): SpecialStage {
-    const m = VL.foes[1]!
+export function previewStage(raid = false): SpecialStage {
+    const m = raid ? VL.foes[0] : VL.foes[1]!
     const party = VL.allies.map(a => ({ x: STAGE.ox + a.x, y: STAGE.oy + a.g })).sort((a, b) => b.x - a.x)
-    return { bx: STAGE.ox + m.x + STAGE.bossDx, by: STAGE.oy + m.g, dir: -1, party }
+    return { bx: STAGE.ox + m.x + (raid ? RAID_DX : STAGE.bossDx), by: STAGE.oy + m.g, dir: -1, party }
 }
 
 /** The party member the `i`th hit of a special lands on: walking the line if `spread`, else the nearest. */
@@ -40,25 +47,27 @@ export const sq = qt
 const PREVIEW = new Surface(SW, SH, 0, 0)
 
 /**
- * A special in the gallery, frame at `t`: a dark stage, the training dummy standing in on each
+ * A boss's `n`th special in the gallery, frame at `t`: a dark stage, the training dummy standing in on each
  * party mark facing the boss, the boss playing its special and the effect over them all, cropped
  * to the live stage's camera.
  */
-export function drawSpecialPreview(dst: Surface, def: CreatureDef, t: number): void {
+export function drawSpecialPreview(dst: Surface, def: CreatureDef, t: number, n = 0, raid = false): void {
     const s = PREVIEW
-    const st = previewStage()
+    const st = previewStage(raid)
+    const VIEW = raid ? RAID_VIEW : PREVIEW_VIEW
     // scenery colours, as the live stage has behind the fight, so effects that recolour bodies leave it be
     rect(s, 0, 0, SW, SH, C.slate0)
     for (let y = 0; y < FLOOR_Y - 30; y += 4) rect(s, 0, y, SW, 2, C.slate1)
     rect(s, 0, FLOOR_Y - 30, SW, SH - FLOOR_Y + 30, C.rock0)
     rect(s, 0, FLOOR_Y - 30, SW, 1, C.slate2)
     for (const p of [...st.party].sort((a, b) => a.y - b.y)) drawCreature(s, p.x, p.y, TRAINING_DUMMY, 'static', 0, 1)
-    drawCreature(s, st.bx, st.by, def, 'special', t, -1)
-    def.special!.fx(s, t, st)
+    drawCreature(s, st.bx, st.by, def, specialState(n), t, -1)
+    specialsOf(def)[n]!.fx(s, t, st)
     for (let y = 0; y < VIEW.h; y++) dst.data.set(s.data.subarray((VIEW.y + y) * SW + VIEW.x, (VIEW.y + y) * SW + VIEW.x + VIEW.w), y * dst.w)
 }
 
 export const PREVIEW_VIEW = VIEW
+export const PREVIEW_RAID_VIEW = RAID_VIEW
 
 // ── Effect kit ─────────────────────────────────────────────────────────────────────
 // Scene-space pieces the specials share. All take absolute times on the special's clock.

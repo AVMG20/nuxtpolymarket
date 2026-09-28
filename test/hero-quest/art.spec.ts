@@ -142,7 +142,7 @@ describe('Hero Quest palette tiers', () => {
         for (const a of allArt()) {
             if (!bodies.some(p => a.id.startsWith(p))) continue
             // a special's staged preview is a scene with the boss in it, on a scenery backdrop
-            if (a.id.endsWith('/special_stage')) continue
+            if (/\/special\d*_stage$/.test(a.id)) continue
             const s = new Surface(a.w, a.h, 0, 0)
             for (const f of new Set([0, a.frames >> 1])) {
                 s.clear()

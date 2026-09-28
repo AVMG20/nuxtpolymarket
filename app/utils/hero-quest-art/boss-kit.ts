@@ -82,6 +82,7 @@ export function drive(def: CreatureDef, st: string, t: number, reach: number, id
             B.hurt = B.die < 0.9
             break
         case 'special':
+        case 'special2':
             B.sp = Math.min(1, q(t) / dur)
             break
         case 'entry':
