@@ -12,8 +12,8 @@ import { Surface } from './surface'
 import { drawText } from './font'
 import { Actor } from './rig'
 import { HERO_ART } from './heroes'
-import { M, sword, shield, ShieldStyle, type Mat } from './weapons'
-import { type Glyph, rect, px, line, disc, ring, tri, ellipse, dither, ditherDisc, poly, arc } from './icon-kit'
+import { M, shield, ShieldStyle, type Mat } from './weapons'
+import { type Glyph, glyph, rect, px, line, disc, ring, tri, ellipse, dither, ditherDisc, poly } from './icon-kit'
 import { ABILITY_ICON_PARTS as P } from './icons-abilities'
 
 // ── Rarity frames (32×32, hollow) ──────────────────────────────────────────────────
@@ -72,11 +72,109 @@ export function traitFrame(s: Surface, grade: TraitGrade): void {
 
 // ── Archetype badges (16×16) ───────────────────────────────────────────────────────
 
+/** Paint a pixel map centred on (x, y); '.' is left empty. */
+function pixelMap(g: Surface, x: number, y: number, rows: readonly string[], key: Readonly<Record<string, number>>): void {
+    const x0 = x - (rows[0]!.length >> 1)
+    const y0 = y - (rows.length >> 1)
+    rows.forEach((row, j) => { for (let i = 0; i < row.length; i++) if (row[i] !== '.') px(g, x0 + i, y0 + j, key[row[i]!]!) })
+}
+
+/** A broadsword point up: a blade lit down its left edge, a gold crossguard and pommel, a leather grip. */
+const BROADSWORD = [
+    '...w...',
+    '..wsd..',
+    '..wsd..',
+    '..wsd..',
+    '..wsd..',
+    '..wsd..',
+    'GGGGGgg',
+    '...b...',
+    '...G...'
+] as const
+
+/** A heater shield, lit down its left half, bordered in gold and charged with a gold cross. */
+const HEATER = [
+    'GGGgggg',
+    'GwsYdtg',
+    'GYYYYyg',
+    'GssYdtg',
+    'GssYdtg',
+    '.GsYtg.',
+    '..GYg..',
+    '...g...'
+] as const
+
+/** An eye of the arcane: an almond of white round a pink-lit iris and a slit pupil. */
+const ARCANE_EYE = [
+    '..wwwww..',
+    '.wwqkpwb.',
+    'wwwqkpwwb',
+    '.bwqkpwb.',
+    '..bbbbb..'
+] as const
+
+const BADGE_KEY: Readonly<Record<string, number>> = {
+    w: C.white, s: C.steel3, t: C.steel1, d: C.steel2, g: C.gold1, G: C.gold3, Y: C.gold3, y: C.gold2, b: C.bone1,
+    p: C.purple2, q: C.pink, k: C.ink
+}
+/** The sword's grip, which shares `b` with the eye's shaded white. */
+const SWORD_KEY: Readonly<Record<string, number>> = { ...BADGE_KEY, b: C.brown1 }
+
+/** A plus with a bevel: lit where its top or left edge is open, shaded where its bottom or right is. */
+function bevelledCross(g: Surface, x: number, y: number): void {
+    const inCross = (i: number, j: number) => (Math.abs(i) <= 1 && Math.abs(j) <= 4) || (Math.abs(j) <= 1 && Math.abs(i) <= 4)
+    for (let j = -4; j <= 4; j++) {
+        for (let i = -4; i <= 4; i++) {
+            if (!inCross(i, j)) continue
+            const shade = !inCross(i + 1, j) || !inCross(i, j + 1)
+            px(g, x + i, y + j, shade ? C.green3 : C.white)
+        }
+    }
+    px(g, x, y, C.gold3)
+}
+
+/** The symbol on each archetype's badge; `archetypeBadge` sets it in its medallion. */
 export const ARCHETYPE_BADGES: Readonly<Record<string, Glyph>> = {
-    damage: (g, x, y) => { disc(g, x, y, 7, C.red1); sword(g, x - 4, y + 4, -0.8, 9, M.steel, M.gold, C.brown1); sword(g, x + 4, y + 4, -2.35, 9, M.steel, M.gold, C.brown1) },
-    tank: (g, x, y) => { disc(g, x, y, 7, C.blue1); shield(g, x, y, ShieldStyle.Kite, M.steel, [C.steel1, C.steel2, C.steel3], C.gold2) },
-    support: (g, x, y) => { disc(g, x, y, 7, C.green1); rect(g, x - 1, y - 5, 3, 11, C.white); rect(g, x - 5, y - 1, 11, 3, C.white); rect(g, x, y - 4, 1, 9, C.green4) },
-    control: (g, x, y) => { disc(g, x, y, 7, C.purple1); ellipse(g, x, y, 5, 3, C.white); disc(g, x, y, 2, C.purple2); px(g, x, y, C.ink); arc(g, x, y, 6, 0.3, 2.8, C.pink) }
+    damage: (g, x, y) => pixelMap(g, x, y, BROADSWORD, SWORD_KEY),
+    tank: (g, x, y) => pixelMap(g, x, y, HEATER, BADGE_KEY),
+    support: (g, x, y) => bevelledCross(g, x, y),
+    control: (g, x, y) => pixelMap(g, x, y, ARCANE_EYE, BADGE_KEY)
+}
+
+/** Each archetype's field, dark → light. */
+const ARCHETYPE_FIELD: Readonly<Record<string, Mat>> = {
+    damage: [C.red0, C.red1, C.red2],
+    tank: [C.blue0, C.blue1, C.blue2],
+    support: [C.green0, C.green1, C.green2],
+    control: [C.purple0, C.purple1, C.purple2]
+}
+
+/**
+ * An archetype badge, 16×16: a medallion in the archetype's colour, its gold rim and its field lit
+ * from the upper left, with the archetype's symbol outlined on it.
+ */
+export function archetypeBadge(s: Surface, id: string): void {
+    const m = ARCHETYPE_FIELD[id]!
+    for (let y = 0; y < 16; y++) {
+        for (let x = 0; x < 16; x++) {
+            const dx = x - 8
+            const dy = y - 8
+            const d = Math.hypot(dx, dy)
+            if (d > 7.4) continue
+            // toward the light (upper left) +1, away from it −1
+            const light = d > 0 ? -(dx + dy) / (d * Math.SQRT2) : 0
+            let c: number
+            if (d > 6.5) c = C.ink
+            else if (d > 5.4) c = light > 0.99 ? C.white : light > 0.3 ? C.gold3 : light > -0.4 ? C.gold2 : C.gold1
+            // the field bevelled: a lit arc under the rim at the upper left, a shadowed one at the lower right
+            else if (d > 4.4 && light < -0.2) c = m[0]
+            else if (d > 4.4 && light > 0.3) c = m[2]
+            else c = m[1]
+            px(s, x, y, c)
+        }
+    }
+    if (id === 'support') ditherDisc(s, 8, 8, 5, C.green2, 6) // the glow the cross gives off
+    glyph(s, ARCHETYPE_BADGES[id]!, 8, 8, true)
 }
 
 // ── Class-node icons: the Hero's bust per class ────────────────────────────────────
