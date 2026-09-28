@@ -20,6 +20,8 @@ export interface SpecialStage {
     dir: number
     /** The party's feet, nearest the boss first. */
     party: readonly { readonly x: number, readonly y: number }[]
+    /** The feet of the boss's adds still standing, for a special that works on them. */
+    adds?: readonly { readonly x: number, readonly y: number }[]
 }
 
 /**
@@ -35,6 +37,11 @@ export interface BossSpecial {
     hits: readonly number[]
     /** The hits walk along the party rather than all landing on the nearest. */
     spread: boolean
+    /**
+     * Who its `hits` land on: the party (the default), or the boss's own adds, for a special that
+     * strengthens them rather than striking anyone. The stage only reaches for it while adds stand.
+     */
+    target?: 'party' | 'adds'
     /** Which party member (nearest first) each hit lands on, when the effect reaches them in its own order. */
     order?: readonly number[]
     fx(s: Surface, t: number, st: SpecialStage): void

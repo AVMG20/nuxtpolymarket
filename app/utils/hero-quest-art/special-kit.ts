@@ -25,6 +25,8 @@ const VIEW = { x: 29, y: 27, w: 272, h: 153 } as const
  */
 const RAID_VIEW = { x: 0, y: 0, w: SW, h: SH } as const
 const RAID_DX = 22
+/** How far in front of their marks a raid boss's adds stand (demo.ts moves them the same). */
+const ADD_BACK = 44
 
 /** The fight as the gallery previews it: the boss on its mark, the party on theirs. */
 export function previewStage(raid = false): SpecialStage {
@@ -47,13 +49,16 @@ export const sq = qt
 const PREVIEW = new Surface(SW, SH, 0, 0)
 
 /**
- * A boss's `n`th special in the gallery, frame at `t`: a dark stage, the training dummy standing in on each
+ * A boss's `n`th special in the gallery, frame at `t`, with `adds` standing before it: a dark stage, the training dummy standing in on each
  * party mark facing the boss, the boss playing its special and the effect over them all, cropped
  * to the live stage's camera.
  */
-export function drawSpecialPreview(dst: Surface, def: CreatureDef, t: number, n = 0, raid = false): void {
+export function drawSpecialPreview(dst: Surface, def: CreatureDef, t: number, n = 0, raid = false, adds: readonly CreatureDef[] = []): void {
     const s = PREVIEW
     const st = previewStage(raid)
+    // its adds on the near marks in front of it, as the live stage sets them out
+    const marks = adds.map((_, k) => ({ x: STAGE.ox + VL.foes[k]!.x - ADD_BACK, y: STAGE.oy + VL.foes[k]!.g }))
+    st.adds = marks
     const VIEW = raid ? RAID_VIEW : PREVIEW_VIEW
     // scenery colours, as the live stage has behind the fight, so effects that recolour bodies leave it be
     rect(s, 0, 0, SW, SH, C.slate0)
@@ -61,6 +66,7 @@ export function drawSpecialPreview(dst: Surface, def: CreatureDef, t: number, n 
     rect(s, 0, FLOOR_Y - 30, SW, SH - FLOOR_Y + 30, C.rock0)
     rect(s, 0, FLOOR_Y - 30, SW, 1, C.slate2)
     for (const p of [...st.party].sort((a, b) => a.y - b.y)) drawCreature(s, p.x, p.y, TRAINING_DUMMY, 'static', 0, 1)
+    for (let k = marks.length - 1; k >= 0; k--) drawCreature(s, marks[k]!.x, marks[k]!.y, adds[k]!, 'idle', t, -1)
     drawCreature(s, st.bx, st.by, def, specialState(n), t, -1)
     specialsOf(def)[n]!.fx(s, t, st)
     for (let y = 0; y < VIEW.h; y++) dst.data.set(s.data.subarray((VIEW.y + y) * SW + VIEW.x, (VIEW.y + y) * SW + VIEW.x + VIEW.w), y * dst.w)
