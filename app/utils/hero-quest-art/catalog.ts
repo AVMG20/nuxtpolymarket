@@ -68,7 +68,8 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     // the Forgemaster, the last of them, locked as Hephaestus (2026-09-29, the user)
     { id: 'forge_master', label: 'Forge Raid · The Forgemaster', locked: true },
     { id: 'vfx', label: 'Ability VFX' },
-    { id: 'feedback', label: 'Combat feedback' },
+    // the damage numbers, the party frames, the cooldown radial and the enrage timer (2026-09-29, the user)
+    { id: 'feedback', label: 'Combat feedback', locked: true },
     { id: 'icons', label: 'Icons' },
     { id: 'frames', label: 'Frames & badges', locked: true },
     { id: 'backgrounds', label: 'Backgrounds', locked: true },
