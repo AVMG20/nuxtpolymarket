@@ -41,7 +41,7 @@ import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, BURROW_GRUB, ORE_BEETLE, FORGE_A
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
-    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons'
+    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons'
     | 'vfx' | 'feedback' | 'icons' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
@@ -72,6 +72,7 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'feedback', label: 'Combat feedback', locked: true },
     // split out of Icons to lock on their own, ahead of the other icon families (2026-09-29, the user)
     { id: 'class_skill_icons', label: 'Icons · Class-tree skills', locked: true },
+    { id: 'training_skill_icons', label: 'Icons · Training Grounds skills', locked: true },
     { id: 'icons', label: 'Icons' },
     { id: 'frames', label: 'Frames & badges', locked: true },
     { id: 'backgrounds', label: 'Backgrounds', locked: true },
@@ -396,7 +397,7 @@ function iconAssets(): ArtAsset[] {
     for (const sk of SKILLS) {
         const g = TRAINING_SKILL_ICONS[sk.id]
         if (!g) continue
-        out.push(still(`icon/skill/${sk.id}`, 'icons', `Training Grounds skills (circular) — ${sk.type}`, `${sk.name} (${sk.rarity})`, ICON, ICON,
+        out.push(still(`icon/skill/${sk.id}`, 'training_skill_icons', `Training Grounds skills (circular) — ${sk.type}`, `${sk.name} (${sk.rarity})`, ICON, ICON,
             dst => { circleFrame(dst, RARITY_COLORS[sk.rarity]!); glyph(dst, g, 12, 12) }))
     }
     for (const arch of ['damage', 'tank', 'support', 'control'] as const) {
