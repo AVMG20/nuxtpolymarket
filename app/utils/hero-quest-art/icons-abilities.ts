@@ -3,7 +3,7 @@
 
 import { C } from './palette'
 import type { Surface } from './surface'
-import { M, sword, axe, hammer, shield, arrow, dagger, antlers, ShieldStyle, type Mat } from './weapons'
+import { M, sword, axe, hammer, shield, arrow, antlers, ShieldStyle, type Mat } from './weapons'
 import { type Glyph, CLEAR, rect, px, line, disc, ring, tri, ellipse, poly, arc } from './icon-kit'
 
 const R = Math.round
@@ -270,28 +270,122 @@ export const CHAMPION_ABILITY_ICONS: Readonly<Record<string, Glyph>> = {
 
 // ── Training Grounds skills (circular) ─────────────────────────────────────────────
 
+/** A pixel map at (x, y), its top-left `ox`, `oy` from there: one character per pixel, '.' clear. */
+function pix(g: Surface, x: number, y: number, ox: number, oy: number, rows: readonly string[], key: Readonly<Record<string, number>>): void {
+    for (let r = 0; r < rows.length; r++) {
+        for (let k = 0; k < rows[r]!.length; k++) {
+            const c = key[rows[r]![k]!]
+            if (c !== undefined) px(g, x + ox + k, y + oy + r, c)
+        }
+    }
+}
+
+/** A clenched fist seen from the side, knuckles to the right, thumb across the front, a leather wrap at the wrist. */
+const FIST = [
+    '.mmmmmm..',
+    'mhhhhhhm.',
+    'mmmmmmhhm',
+    'mmmmmmddd',
+    'mmmmmmhhm',
+    'mmmmmmddd',
+    'mmmmmmhhm',
+    'mtttttddm',
+    '.mttttmm.',
+    '..ccccc..'
+] as const
+
+/** A pickaxe along angle `a` from its butt at (x, y): a haft, and a head curving back to two points. */
+function pickaxe(g: Surface, x: number, y: number, a: number, len: number): void {
+    const ux = Math.cos(a)
+    const uy = Math.sin(a)
+    const hx = x + ux * len
+    const hy = y + uy * len
+    line(g, x, y, hx, hy, C.brown2, 2)
+    const at = (u: number, v: number): [number, number] => [hx + ux * u - uy * v, hy + uy * u + ux * v]
+    const pts = [at(2, 0), at(1, 7), at(-2, 9), at(-1, 6), at(-1, 0), at(-1, -6), at(-2, -9), at(1, -7)].flat()
+    poly(g, pts, 0, 0, C.steel2)
+    const [ax, ay] = at(2, 0)
+    const [bx, by] = at(1, -7)
+    const [cx, cy] = at(1, 7)
+    line(g, bx, by, ax, ay, C.steel3); line(g, ax, ay, cx, cy, C.steel3)
+}
+
+/** A crown set with gems: five points tipped with pearls, a band of ruby, sapphire and emerald. */
+function jeweledCrown(g: Surface, x: number, y: number): void {
+    rect(g, x - 8, y, 17, 5, C.gold1)
+    for (let i = 0; i < 5; i++) {
+        const px_ = x - 8 + i * 4
+        tri(g, px_, y, px_ + 1 + (i === 4 ? 0 : 0), y, px_ + (i === 4 ? 0 : 0), y - 5 - (i === 2 ? 2 : i & 1 ? 0 : 1), C.gold2)
+        tri(g, px_ - 1, y + 1, px_ + 2, y + 1, px_, y - 5 - (i === 2 ? 2 : i & 1 ? 0 : 1), C.gold2)
+        const top = y - 7 - (i === 2 ? 2 : i & 1 ? 0 : 1)
+        rect(g, px_ - 1, top, 2, 2, C.white); px(g, px_, top + 1, C.bone0)
+    }
+    rect(g, x - 8, y, 17, 1, C.gold3)
+    rect(g, x - 8, y + 4, 17, 1, C.gold0)
+    disc(g, x, y + 2, 1.5, C.red2); px(g, x, y + 1, C.red3)
+    for (const [dx, c, hi] of [[-5, C.blue2, C.cyan], [5, C.green3, C.green4]] as const) { rect(g, x + dx - 1, y + 1, 3, 3, c); px(g, x + dx - 1, y + 1, hi) }
+}
+
 export const TRAINING_SKILL_ICONS: Readonly<Record<string, Glyph>> = {
-    skill_quick_strike: (g, x, y) => { dagger(g, x - 4, y + 4, -0.8, M.steel, C.brown1); for (let i = 0; i < 3; i++) line(g, x - 8 + i * 2, y + 2 - i * 3, x - 3 + i * 2, y + 2 - i * 3, C.white) },
-    skill_steadying_breath: (g, x, y) => { for (let i = 0; i < 3; i++) arc(g, x, y, 3 + i * 3, Math.PI * 1.2, Math.PI * 1.8 + 1.5, i === 0 ? C.white : C.frost) },
-    skill_coin_toss: (g, x, y) => { coin(g, x + 1, y - 2, 5); arc(g, x - 3, y + 4, 6, Math.PI * 0.6, Math.PI * 1.1, C.gold3) },
+    skill_quick_strike: (g, x, y) => { for (let i = 0; i < 3; i++) line(g, x - 10 + i * 2, y + 3 - i * 4, x - 5 + i * 2, y + 3 - i * 4, C.white); sword(g, x - 5, y + 7, -0.8, 17, M.steel, M.gold, C.brown1) },
+    skill_steadying_breath: (g, x, y) => {
+        // the cartoon sigh of relief: a puff of breath, and the lines it was blown out along
+        for (const [dx, dy, r] of [[-1, 1, 3], [2, -1, 4], [6, -2, 3], [6, 2, 3], [2, 3, 3]] as const) disc(g, x + dx, y + dy, r, C.frost)
+        for (const [dx, dy, r] of [[-1, 0, 2], [2, -2, 3], [6, -3, 2], [5, 1, 2]] as const) disc(g, x + dx, y + dy, r, C.white)
+        for (const dy of [-3, 0, 3]) line(g, x - 10, y + dy + 1, x - 6 + (dy ? 0 : 1), y + dy + 1, C.frost)
+    },
+    skill_coin_toss: (g, x, y) => {
+        // a coin flipped high, three arcs shrinking away behind it down to the left
+        coin(g, x + 3, y - 3, 5)
+        for (const [dx, dy, r, c] of [[-1, 2, 4, C.gold3], [-5, 5, 3, C.gold2], [-8, 8, 2, C.gold1]] as const) arc(g, x + dx, y + dy, r, Math.PI * 0.55, Math.PI * 1.2, c)
+    },
     skill_marching_drill: (g, x, y) => { for (let i = 0; i < 3; i++) { rect(g, x - 7 + i * 5, y - 5 + (i & 1), 3, 10, C.brown2); px(g, x - 6 + i * 5, y - 6 + (i & 1), C.steel3) } rect(g, x - 9, y + 6, 18, 1, C.stone3) },
     skill_iron_discipline: (g, x, y) => { rect(g, x - 5, y - 5, 11, 11, C.steel2); rect(g, x - 5, y - 5, 11, 2, C.steel3); rect(g, x - 1, y - 3, 3, 7, C.steel1); px(g, x - 4, y - 4, C.white) },
     skill_apprentices_ledger: (g, x, y) => book(g, x, y, C.brown2, C.bone1),
-    skill_focused_blow: (g, x, y) => { rect(g, x - 4, y - 2, 7, 6, C.skin1); rect(g, x - 4, y - 2, 7, 1, C.skin2); for (let i = 0; i < 3; i++) px(g, x - 3 + i * 2, y + 3, C.skin0); for (let i = 0; i < 4; i++) { const a = -0.9 + i * 0.6; line(g, x + 5 + Math.cos(a) * 2, y + 1 + Math.sin(a) * 2, x + 5 + Math.cos(a) * 6, y + 1 + Math.sin(a) * 6, C.gold3) } },
-    skill_adrenaline_surge: (g, x, y) => { heart(g, x, y - 1, 4, C.red2, C.red3); line(g, x - 9, y + 1, x - 4, y + 1, C.white); line(g, x - 4, y + 1, x - 2, y - 3, C.white); line(g, x - 2, y - 3, x, y + 4, C.white); line(g, x, y + 4, x + 2, y + 1, C.white); line(g, x + 2, y + 1, x + 8, y + 1, C.white) },
-    skill_prospectors_instinct: (g, x, y) => { line(g, x - 6, y + 7, x + 3, y - 2, C.brown2, 2); arc(g, x + 3, y - 2, 6, Math.PI * 1.1, Math.PI * 1.9, C.steel2); sparkle(g, x + 6, y + 4, 3, C.gold3) },
+    skill_focused_blow: (g, x, y) => {
+        // one heavy punch: a fist landing, the impact bursting off its knuckles
+        pix(g, x, y, -7, -5, FIST, { m: C.skin1, h: C.skin2, d: C.skin0, t: C.skin2, c: C.brown2 })
+        for (const a of [-1.1, -0.45, 0.2, 0.85]) line(g, x + 4 + Math.cos(a) * 3, y + Math.sin(a) * 3, x + 4 + Math.cos(a) * 7, y + Math.sin(a) * 7, a === -0.45 || a === 0.2 ? C.white : C.gold3)
+        for (const dy of [-4, 0, 4]) line(g, x - 11, y + dy, x - 9, y + dy, C.frost)
+    },
+    skill_adrenaline_surge: (g, x, y) => {
+        // the heart pounding: a trace that spikes clean off the top and bottom
+        heart(g, x, y - 1, 4, C.red1, C.red2)
+        const pts = [[-11, 2], [-6, 2], [-4, 5], [-1, -10], [2, 9], [4, 2], [11, 2]] as const
+        for (let i = 0; i < pts.length - 1; i++) line(g, x + pts[i]![0], y + pts[i]![1], x + pts[i + 1]![0], y + pts[i + 1]![1], C.white)
+        px(g, x - 1, y - 10, C.red3)
+    },
+    skill_prospectors_instinct: (g, x, y) => { pickaxe(g, x - 7, y + 8, -0.8, 11); disc(g, x + 6, y + 6, 2, C.gold2); px(g, x + 5, y + 5, C.gold3); sparkle(g, x + 8, y + 1, 2, C.gold3) },
     skill_sharpened_reflexes: (g, x, y) => { eye(g, x, y, C.cyan); line(g, x - 8, y - 5, x - 4, y - 3, C.white); line(g, x + 8, y - 5, x + 4, y - 3, C.white) },
     skill_endurance_training: (g, x, y) => { rect(g, x - 8, y - 1, 17, 3, C.steel2); rect(g, x - 8, y - 4, 3, 9, C.stone1); rect(g, x + 6, y - 4, 3, 9, C.stone1); rect(g, x - 10, y - 3, 2, 7, C.stone2); rect(g, x + 9, y - 3, 2, 7, C.stone2) },
     skill_scholars_notes: (g, x, y) => { rect(g, x - 5, y - 7, 11, 14, C.bone1); for (let i = 0; i < 4; i++) line(g, x - 3, y - 4 + i * 3, x + 3, y - 4 + i * 3, C.stone2); line(g, x + 3, y + 7, x + 8, y - 3, C.brown2); px(g, x + 8, y - 4, C.ink) },
     skill_piercing_focus: (g, x, y) => { ring(g, x, y, 6, C.cyan); line(g, x - 9, y, x + 9, y, C.white); line(g, x, y - 9, x, y + 9, C.frost); px(g, x, y, C.red2) },
-    skill_vigor_renewal: (g, x, y) => { swirl(g, x, y, 9, C.green4, C.green3); rect(g, x - 1, y - 3, 3, 7, C.white); rect(g, x - 3, y - 1, 7, 3, C.white) },
-    skill_gamblers_strike: (g, x, y) => { rect(g, x - 6, y - 4, 9, 9, C.white); rect(g, x - 6, y + 4, 9, 1, C.bone0); px(g, x - 4, y - 2, C.red1); px(g, x - 2, y, C.red1); px(g, x, y + 2, C.red1); sword(g, x + 2, y + 6, -1.1, 10, M.steel, M.gold, C.brown1) },
+    skill_vigor_renewal: (g, x, y) => { swirl(g, x, y, 10, C.green4, C.green2); rect(g, x - 2, y - 6, 5, 13, C.ink); rect(g, x - 6, y - 2, 13, 5, C.ink); rect(g, x - 1, y - 5, 3, 11, C.white); rect(g, x - 5, y - 1, 11, 3, C.white) },
+    skill_gamblers_strike: (g, x, y) => {
+        rect(g, x - 8, y - 2, 9, 9, C.white); rect(g, x - 8, y + 6, 9, 1, C.bone0); px(g, x - 6, y, C.red1); px(g, x - 4, y + 2, C.red1); px(g, x - 2, y + 4, C.red1)
+        // a stiletto: a narrow blade tapering to a needle point
+        const a = -0.85
+        const ux = Math.cos(a)
+        const uy = Math.sin(a)
+        const gx = x + 1
+        const gy = y + 4
+        poly(g, [gx - uy * 1.5, gy + ux * 1.5, gx + uy * 1.5, gy - ux * 1.5, gx + ux * 12, gy + uy * 12], 0, 0, C.steel2)
+        line(g, gx, gy, gx + ux * 12, gy + uy * 12, C.steel3)
+        line(g, gx - uy * 3, gy + ux * 3, gx + uy * 3, gy - ux * 3, C.gold2)
+        line(g, gx, gy, gx - ux * 4, gy - uy * 4, C.brown1)
+    },
     skill_battle_focus: (g, x, y) => { ring(g, x, y, 8, C.red2); ring(g, x, y, 5, C.red1); disc(g, x, y, 2, C.white); line(g, x + 3, y - 3, x + 9, y - 9, C.brown2); tri(g, x + 1, y - 1, x + 4, y - 1, x + 1, y - 4, C.steel3) },
     skill_fortified_resolve: (g, x, y) => { shield(g, x, y, ShieldStyle.Kite, M.steel, [C.blue0, C.blue1, C.blue2], C.gold2); upArrow(g, x + 6, y + 3, C.gold3, 7) },
     skill_merchants_eye: (g, x, y) => { eye(g, x, y - 1, C.gold2); coin(g, x + 5, y + 5, 3) },
-    skill_twin_strike: (g, x, y) => { sword(g, x - 6, y + 6, -0.8, 13, M.steel, M.gold, C.brown1); sword(g, x + 6, y + 6, -2.35, 13, M.steel, M.gold, C.brown1) },
-    skill_battlefield_surge: (g, x, y) => { for (let i = 0; i < 3; i++) arc(g, x, y + 7, 4 + i * 3, Math.PI * 1.1, Math.PI * 1.9, i === 0 ? C.white : C.orange); upArrow(g, x, y - 2, C.gold3, 8) },
-    skill_treasure_hunters_gambit: (g, x, y) => { rect(g, x - 7, y - 1, 15, 8, C.brown2); rect(g, x - 7, y - 5, 15, 4, C.brown1); rect(g, x - 7, y - 1, 15, 1, C.gold1); rect(g, x - 1, y - 1, 3, 3, C.gold2); coin(g, x - 3, y - 8, 2); coin(g, x + 3, y - 9, 2) },
+    skill_twin_strike: (g, x, y) => { sword(g, x - 8, y + 8, -0.8, 18, M.steel, M.gold, C.brown1); sword(g, x + 8, y + 8, -2.35, 18, M.steel, M.gold, C.brown1) },
+    skill_battlefield_surge: (g, x, y) => {
+        // healing on the charge: a green cross dashing forward, speed streaming off it
+        for (const [dy, c] of [[-4, C.gold3], [0, C.white], [4, C.gold3]] as const) line(g, x - 11, y + dy, x - 5 + (dy ? 0 : 2), y + dy, c)
+        rect(g, x - 1, y - 7, 5, 15, C.green2); rect(g, x - 5, y - 3, 13, 5, C.green2)
+        rect(g, x, y - 6, 3, 13, C.green4); rect(g, x - 4, y - 2, 11, 3, C.green4)
+        rect(g, x + 1, y - 5, 1, 11, C.white)
+    },
+    skill_treasure_hunters_gambit: (g, x, y) => { rect(g, x - 5, y + 1, 11, 6, C.brown2); rect(g, x - 5, y - 2, 11, 3, C.brown1); rect(g, x - 5, y + 1, 11, 1, C.gold1); rect(g, x, y + 1, 2, 2, C.gold2); coin(g, x - 5, y - 6, 2); coin(g, x, y - 8, 2); coin(g, x + 5, y - 6, 2) },
     skill_veterans_instincts: (g, x, y) => { rect(g, x - 5, y - 5, 11, 4, C.gold1); for (let i = 0; i < 3; i++) tri(g, x - 5 + i * 5, y + 1 + i, x + 1 + i * 5 - 5, y + 1 + i, x - 2 + i * 5 - 1, y + 6 + i, C.red1); line(g, x - 5, y - 2, x + 5, y - 2, C.gold3) },
     skill_warlords_ledger: (g, x, y) => { book(g, x, y, C.red1, C.bone1); px(g, x - 3, y - 6, C.gold2); px(g, x + 3, y - 6, C.gold2) },
     skill_adaptive_plating: (g, x, y) => { for (let i = 0; i < 3; i++) { rect(g, x - 7 + i * 2, y - 6 + i * 4, 13 - i * 2, 4, i === 0 ? C.steel3 : i === 1 ? C.steel2 : C.steel1); px(g, x - 6 + i * 2, y - 5 + i * 4, C.white) } },
@@ -301,9 +395,19 @@ export const TRAINING_SKILL_ICONS: Readonly<Record<string, Glyph>> = {
     skill_grandmasters_focus: (g, x, y) => { ring(g, x, y, 8, C.purple2); ring(g, x, y, 5, C.gold2); eye(g, x, y, C.purple2) },
     skill_tycoons_vault: (g, x, y) => { rect(g, x - 7, y - 6, 15, 13, C.steel1); rect(g, x - 6, y - 5, 13, 11, C.steel2); ring(g, x, y, 4, C.steel3); line(g, x, y, x + 3, y - 3, C.gold2); px(g, x, y, C.gold3) },
     skill_unbreakable_will: (g, x, y) => { poly(g, [0, -9, 7, -5, 6, 3, 0, 9, -6, 3, -7, -5], x, y, C.steel2); poly(g, [0, -6, 4, -3, 4, 2, 0, 6, -4, 2, -4, -3], x, y, C.gold2); px(g, x - 1, y - 3, C.white) },
-    skill_ragnarok_strike: (g, x, y) => { sword(g, x, y + 9, -Math.PI / 2, 15, M.lava, M.gold, C.brown0, true); for (let i = 0; i < 4; i++) px(g, x - 6 + i * 4, y + 8 - (i & 1) * 2, C.orange); flame(g, x, y + 7, 4, C.lava1, C.orange, C.gold3) },
-    skill_aegis_of_renewal: (g, x, y) => { shield(g, x, y, ShieldStyle.Round, M.gold, M.sea, C.white); ring(g, x, y, 10, C.teal3); rect(g, x - 1, y - 2, 3, 5, C.white) },
-    skill_kings_ransom: (g, x, y) => { crown(g, x, y - 2); coin(g, x - 5, y + 6, 2); coin(g, x + 1, y + 7, 2); coin(g, x + 6, y + 5, 2) },
+    skill_ragnarok_strike: (g, x, y) => {
+        // a greatsword wreathed in fire: short tongues flickering up both edges, embers thrown off it
+        sword(g, x, y + 9, -Math.PI / 2, 18, M.lava, M.gold, C.brown0, true)
+        for (const [dx, dy] of [[-3, 2], [3, -1], [-3, -4], [3, -7], [-2, -10]] as const) tri(g, x + dx, y + dy + 1, x + dx + (dx < 0 ? -1 : 1), y + dy + 1, x + dx + (dx < 0 ? -1 : 1), y + dy - 2, dy < -5 ? C.gold3 : C.orange)
+        for (const [dx, dy] of [[-7, -4], [7, -8], [-6, -10], [6, 1]] as const) px(g, x + dx, y + dy, C.gold3)
+    },
+    skill_aegis_of_renewal: (g, x, y) => {
+        // a kite shield bearing a white cross, cleansing sparkles round it
+        shield(g, x, y, ShieldStyle.Kite, M.gold, [C.teal1, C.teal2, C.teal3], C.gold3)
+        rect(g, x - 1, y - 4, 3, 9, C.white); rect(g, x - 3, y - 2, 7, 3, C.white)
+        sparkle(g, x - 8, y - 6, 2, C.teal3); sparkle(g, x + 8, y - 3, 2, C.teal3); sparkle(g, x + 7, y + 7, 1, C.white)
+    },
+    skill_kings_ransom: (g, x, y) => jeweledCrown(g, x, y + 2),
     skill_ascendants_grace: (g, x, y) => { for (const d of [-1, 1]) for (let i = 0; i < 4; i++) line(g, x + d * 2, y + 2, x + d * (6 + i), y - 6 + i * 3, i === 0 ? C.white : C.gold3); disc(g, x, y + 2, 2, C.gold2); ellipse(g, x, y - 8, 4, 1, C.gold3) },
     skill_emperors_treasury: (g, x, y) => { for (let r = 0; r < 3; r++) for (let i = 0; i <= r; i++) coin(g, x - r * 3 + i * 6, y - 4 + r * 4, 3); crown(g, x, y - 9) },
     skill_immortal_vanguard: (g, x, y) => { shield(g, x, y + 1, ShieldStyle.Tower, M.gold, M.blood, C.gold3); sword(g, x - 7, y + 7, -1.2, 14, M.steel, M.gold, C.brown0); ellipse(g, x, y - 10, 5, 1, C.gold3) }
