@@ -22,8 +22,7 @@ import { BOSSES_A } from './bosses-a'
 import { BOSSES_B } from './bosses-b'
 import { VFX, MULTI_STRIKE, drawMultiStrike, drawVfxStage } from './vfx'
 import { VL } from './vfx-kit'
-import { CINEMATIC_BY_ID, CINEMATIC_VFX, cinematicStage } from './vfx-cinematic'
-import { drawSkillBanner } from './presentation'
+import { CINEMATIC_BY_ID, cinematicStage } from './vfx-cinematic'
 import { ICON, SMALL_ICON, glyph, squareFrame, circleFrame, crestFrame, itemTile } from './icon-kit'
 import { CLASS_SKILL_ICONS, CHAMPION_ABILITY_ICONS, TRAINING_SKILL_ICONS } from './icons-abilities'
 import { ARTIFACT_ICONS, GEAR_ICONS, CURRENCY_ICONS, CURRENCY_LABELS } from './icons-items'
@@ -33,7 +32,7 @@ import { CHAMPION_ABILITY_POOL, CHAMPION_BY_ID, championDisplayName, abilityId  
 import { SKILLS } from '../../../shared/utils/hero-quest/content/skills'
 import { ARTIFACTS } from '../../../shared/utils/hero-quest/content/artifacts'
 import { GEAR } from '../../../shared/utils/hero-quest/content/gear'
-import { NUMBER_STYLES, drawNumberPop, drawNumberAtlas, numberAtlasWidth, numberHeight, drawPartyFrame, drawCooldown, drawEnrageTimer, drawAddWaveSpawn, drawPhaseShift, drawRevealBase, REVEAL_LUT, REVEAL_SIZE } from './feedback'
+import { NUMBER_STYLES, drawNumberPop, drawNumberAtlas, numberAtlasWidth, numberHeight, drawPartyFrame, drawCooldown, drawEnrageTimer, drawRevealBase, REVEAL_LUT, REVEAL_SIZE } from './feedback'
 import { Surface as Surf, blit, rect, rowSpan, ROWS } from './surface'
 import { WORLD_SCENES, SW, SH, BG_LOOP, composeScene } from './scenery'
 import { drawWorldMap, TAB_BACKGROUNDS, CHROME, drawSplash } from './ui-art'
@@ -459,17 +458,12 @@ function feedbackAssets(): ArtAsset[] {
         const w = numberAtlasWidth(st)
         out.push(still(`feedback/number/${st.id}_atlas`, 'feedback', 'Damage numbers', `${st.label} — glyph atlas`, w, numberHeight(st) + 7, d => drawNumberAtlas(d, st)))
     }
-    out.push(anim('feedback/party_frame', 'feedback', 'HP bar + party frame', 'Portrait, HP (taking a hit), status pips', 72, 22, 10, false, (d, t) => drawPartyFrame(d, t)))
+    out.push(anim('feedback/party_frame', 'feedback', 'HP bar + party frame', 'The Hero, gold rim: portrait, HP (taking a hit), status pips', 72, 22, 10, false, (d, t) => drawPartyFrame(d, t)))
+    out.push(anim('feedback/party_frame_champion', 'feedback', 'HP bar + party frame', 'A Champion, steel rim', 72, 22, 10, false, (d, t) => drawPartyFrame(d, t, 0.6, 0.15, false)))
     const sample = CLASS_SKILL_ICONS.skill_whirlwind!
-    out.push(anim('feedback/cooldown', 'feedback', 'Cooldown radial overlay', 'Sweep over an equipped skill icon', ICON, ICON, 13, true, (d, _t, f) => drawCooldown(d, Math.min(1, f / 12)),
+    out.push(anim('feedback/cooldown', 'feedback', 'Cooldown radial overlay', 'Sweep over an equipped skill icon', ICON, ICON, 16, true, (d, _t, f) => drawCooldown(d, f / 12),
         d => { squareFrame(d, LINE_M.warrior); glyph(d, sample, 12, 12) }))
     out.push(anim('feedback/enrage_timer', 'feedback', 'Boss enrage timer', 'Draining → low → enraged', 88, 14, 16, false, (d, t, f) => drawEnrageTimer(d, f / 14, t)))
-    out.push(anim('feedback/add_wave_spawn', 'feedback', 'Raid VFX', 'Reinforced Boss add-wave spawn (Dig-site)', 64, 48, 12, false, (d, t) => drawAddWaveSpawn(d, t)))
-    for (const v of CINEMATIC_VFX) {
-        out.push(anim(`feedback/skill_banner/${v.id}`, 'feedback', 'Skill banner', `${v.name} — ${v.owner}`, 160, 16, 8, false,
-            (d, t) => drawSkillBanner(d, v.name.toUpperCase(), 80, 4, t)))
-    }
-    out.push(anim('feedback/phase_transition', 'feedback', 'Raid VFX', 'Phased Boss phase transition (Forge)', 96, 96, 12, false, (d, t) => drawPhaseShift(d, t)))
     return out
 }
 

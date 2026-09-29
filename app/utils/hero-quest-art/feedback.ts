@@ -2,14 +2,14 @@
 //
 // Damage numbers: four styles (normal, crit, heal, miss), each an animated pop plus a glyph
 // atlas the battle can typeset from. The party frame, cooldown sweep and enrage timer are
-// pixel UI pieces; the add-wave burrow and the phase shift are raid VFX. The gacha reveal is
-// ONE flash drawn on a neutral ramp and recoloured per rarity by a palette map — the locked
-// "one shared flash, recolored per rarity tier", not six cinematics.
+// pixel UI pieces. The gacha reveal is ONE flash drawn on a neutral ramp and recoloured per
+// rarity by a palette map — the locked "one shared flash, recolored per rarity tier", not six
+// cinematics.
 
-import { C, type ColorName } from './palette'
-import { Surface, rect, px, line, disc, ring, tri, ditherDisc, rampLut, hash2 } from './surface'
-import { drawText, fontHeight, textRamp, textWidth, type FontName } from './font'
-import { qt, pr, burst, shock, star, R } from './vfx-kit'
+import { C, shadeLut, type ColorName } from './palette'
+import { Surface, rect, px, line, disc, ring, tri, rampLut, hash2 } from './surface'
+import { drawText, fontHeight, textOut, textRamp, textWidth, type FontName } from './font'
+import { qt, pr, star, R } from './vfx-kit'
 import { classNodeIcon, STATUS_ICONS  } from './icons-misc'
 
 // ── Damage numbers ─────────────────────────────────────────────────────────────────
@@ -89,117 +89,207 @@ export function numberAtlasWidth(style: NumberStyle): number {
 
 // ── Party frame + HP bar ───────────────────────────────────────────────────────────
 
+export const PARTY_FRAME_W = 72
+export const PARTY_FRAME_H = 22
+
+/** What one party member's frame shows. */
+export interface PartyMember {
+    /** HP left, 0 → 1. */
+    hp: number
+    /** HP just lost, drawn on past `hp`: white while `flash`, then red as it drains. */
+    lost: number
+    flash: boolean
+    /** Struck this moment: the portrait's rim flashes red. */
+    hurt: boolean
+    /** The Hero's frame is rimmed in gold, a Champion's in steel. */
+    hero: boolean
+    level: number
+    /** Status ids (STATUS_ICONS), the first three shown as pips. */
+    statuses: readonly string[]
+    /** Draws the member's 18×18 head at (x, y). */
+    portrait: (s: Surface, x: number, y: number) => void
+}
+
+/** The pips' 5×5 glyphs, drawn over a coloured disc; a status without one shows its disc alone. */
+const PIP_GLYPHS: Readonly<Record<string, readonly string[]>> = {
+    shield: ['XXXXX', 'XXXXX', 'XXXXX', '.XXX.', '..X..'],
+    buff: ['..X..', '.XXX.', 'XXXXX', '..X..', '..X..'],
+    weaken: ['..X..', '..X..', 'XXXXX', '.XXX.', '..X..'],
+    burn: ['..X..', '.XX..', '.XXX.', 'XXXXX', '.XXX.'],
+    regen: ['..X..', '..X..', 'XXXXX', '..X..', '..X..'],
+    stun: ['X...X', '.X.X.', '..X..', '.X.X.', 'X...X']
+}
+
+/** A bar's fill rows, dark to light: its base, its body and the lit line along its top. */
+type BarRamp = readonly [number, number, number]
+
+/** Fill a 6-row bar at (x, y), `w` wide: lit along its top, shadowed along its base. */
+function barFill(s: Surface, x: number, y: number, w: number, ramp: BarRamp): void {
+    if (w <= 0) return
+    rect(s, x, y, w, 6, ramp[1])
+    rect(s, x, y, w, 1, ramp[2])
+    rect(s, x, y + 4, w, 2, ramp[0])
+    px(s, x + w - 1, y + 1, ramp[2])
+}
+
+const HP_GOOD: BarRamp = [C.green1, C.green2, C.green4]
+const HP_MID: BarRamp = [C.gold1, C.gold2, C.gold3]
+const HP_LOW: BarRamp = [C.red0, C.red1, C.red2]
+const LOST_FLASH: BarRamp = [C.steel3, C.white, C.white]
+const LOST_DRAIN: BarRamp = [C.red1, C.red2, C.red3]
+
+/** A 72×22 party frame at (ox, oy): portrait, HP bar, status pips, level. */
+export function drawPartyFrameAt(s: Surface, ox: number, oy: number, m: PartyMember): void {
+    // the panel: bevelled, lit along its top edge
+    rect(s, ox, oy, 72, 22, C.ink)
+    rect(s, ox + 1, oy + 1, 70, 20, C.night2)
+    rect(s, ox + 1, oy + 1, 70, 1, C.night3)
+    rect(s, ox + 1, oy + 20, 70, 1, C.night0)
+    // the portrait, rimmed gold for the Hero and steel for a Champion, red as a hit lands
+    rect(s, ox + 2, oy + 2, 18, 18, C.night1)
+    m.portrait(s, ox + 2, oy + 2)
+    const lit = m.hurt ? C.red3 : m.hero ? C.gold3 : C.steel3
+    const dark = m.hurt ? C.red1 : m.hero ? C.gold1 : C.steel1
+    rect(s, ox + 1, oy + 1, 20, 1, lit); rect(s, ox + 1, oy + 1, 1, 20, lit)
+    rect(s, ox + 1, oy + 20, 20, 1, dark); rect(s, ox + 20, oy + 1, 1, 20, dark)
+    // HP, and the stretch just lost after it
+    const W = 46
+    rect(s, ox + 23, oy + 3, W + 2, 8, C.ink)
+    rect(s, ox + 24, oy + 4, W, 6, C.night0)
+    rect(s, ox + 24, oy + 4, W, 1, C.night1)
+    const hp = Math.max(0, Math.min(1, m.hp))
+    barFill(s, ox + 24, oy + 4, R(W * Math.min(1, hp + m.lost)), m.flash ? LOST_FLASH : LOST_DRAIN)
+    barFill(s, ox + 24, oy + 4, R(W * hp), hp > 0.5 ? HP_GOOD : hp > 0.2 ? HP_MID : HP_LOW)
+    for (let i = 1; i < 5; i++) rect(s, ox + 24 + R(W * i / 5), oy + 5, 1, 4, C.night0) // segment ticks
+    // status pips: a disc per status, its glyph on it
+    for (let i = 0; i < Math.min(3, m.statuses.length); i++) {
+        const id = m.statuses[i]!
+        const hostile = STATUS_ICONS.find(x => x.id === id)?.hostile ?? false
+        const cx = ox + 27 + i * 8
+        const cy = oy + 16
+        disc(s, cx, cy, 4, C.ink)
+        disc(s, cx, cy, 3, hostile ? C.red0 : C.teal0)
+        const g = PIP_GLYPHS[id]
+        if (!g) continue
+        for (let y = 0; y < 5; y++) for (let x = 0; x < 5; x++) {
+            if (g[y]![x] === 'X') px(s, cx - 2 + x, cy - 2 + y, y < 2 ? (hostile ? C.gold3 : C.white) : (hostile ? C.orange : C.teal3))
+        }
+    }
+    const w = textOut(s, String(m.level), ox + 70, oy + 13, C.bone1, 'small', 1, 2, 1, C.ink, -1)
+    textOut(s, 'LV', ox + 68 - w, oy + 13, C.gold2, 'small', 1, 2, 1, C.ink, -1)
+}
+
 const PORTRAIT = new Surface(24, 24, 0, 0)
 
-/** A 72×22 party frame: portrait, name bar, HP bar with a damage-chunk flash, status pips. */
-export function drawPartyFrame(s: Surface, t: number, hpFrom = 0.9, hpTo = 0.35): void {
-    rect(s, 0, 0, 72, 22, C.ink)
-    rect(s, 1, 1, 70, 20, C.night1)
-    rect(s, 1, 1, 70, 1, C.night3)
-    // portrait
-    const p = PORTRAIT
-    p.clear()
-    classNodeIcon(p, 'class_knight', 'warrior', 2)
-    for (let y = 0; y < 20; y++) for (let x = 0; x < 20; x++) { const c = p.get(x + 2, y + 2); if (c) s.set(x + 1, y + 1, c) }
-    // HP: drains from → to over the clip, a white chunk trailing where damage landed
-    const u = pr(t, 0.2, 0.5)
-    const hp = hpFrom + (hpTo - hpFrom) * u
+/** The gallery's portrait: the Knight's class icon, cropped to the frame. */
+function knightPortrait(s: Surface, x: number, y: number): void {
+    PORTRAIT.clear()
+    classNodeIcon(PORTRAIT, 'class_knight', 'warrior', 2)
+    for (let py = 0; py < 18; py++) for (let px_ = 0; px_ < 18; px_++) { const c = PORTRAIT.get(px_ + 3, py + 3); if (c) s.set(x + px_, y + py, c) }
+}
+
+/** The gallery's frame: the Hero taking a hit, HP draining from → to over the clip, the lost stretch flashing then draining. */
+export function drawPartyFrame(s: Surface, t: number, hpFrom = 0.9, hpTo = 0.35, hero = true): void {
+    const q = qt(t)
+    const hp = hpFrom + (hpTo - hpFrom) * pr(t, 0.2, 0.5)
     const lag = hpFrom + (hpTo - hpFrom) * pr(t, 0.5, 0.9)
-    const W = 46
-    rect(s, 23, 5, W + 2, 6, C.ink)
-    rect(s, 24, 6, W, 4, C.red0)
-    const col = hp > 0.5 ? [C.green1, C.green3] : hp > 0.2 ? [C.gold1, C.gold2] : [C.red1, C.red2]
-    rect(s, 24, 6, R(W * lag), 4, u > 0 && u < 1 ? C.white : C.red3)
-    rect(s, 24, 6, R(W * hp), 4, col[0]!)
-    rect(s, 24, 6, R(W * hp), 1, col[1]!)
-    for (let i = 1; i < 5; i++) px(s, 24 + R(W * i / 5), 9, C.ink) // segment ticks
-    // status pips
-    const shown = ['shield', 'buff', 'burn']
-    shown.forEach((id, i) => {
-        const st = STATUS_ICONS.find(x => x.id === id)!
-        const m = st.hostile ? [C.red0, C.red2] : [C.teal0, C.teal2]
-        rect(s, 24 + i * 7, 13, 6, 6, m[0]!); rect(s, 25 + i * 7, 14, 4, 4, m[1]!)
-        px(s, 26 + i * 7, 15, C.white)
+    drawPartyFrameAt(s, 0, 0, {
+        hp, lost: lag - hp, flash: q < 0.45, hurt: q >= 0.2 && q < 0.4, hero, level: hero ? 42 : 38,
+        statuses: hero ? ['shield', 'buff', 'burn'] : ['regen', 'weaken'], portrait: knightPortrait
     })
-    drawText(s, 'LV 42', 70, 14, C.bone1, { align: 2, shadow: 1 })
 }
 
 // ── Cooldown radial ────────────────────────────────────────────────────────────────
 
-/** A 24×24 overlay: dark wedge sweeping clockwise off the icon; flashes when ready. */
-export function drawCooldown(s: Surface, u: number): void {
-    const ready = u >= 1
-    for (let y = 0; y < 24; y++) for (let x = 0; x < 24; x++) {
-        const dx = x - 11.5
-        const dy = y - 11.5
-        let a = Math.atan2(dx, -dy) / (Math.PI * 2)
-        if (a < 0) a += 1
-        if (!ready && a >= u && ((x + y) & 1) === 0) s.set(x, y, C.ink)
-    }
-    if (!ready) {
+/** How the icon still cooling down is dimmed: darkened toward the night. */
+const COOLDOWN_DIM = shadeLut(0.55, 'night0', 0.15)
+/** The icon frame's border, left undimmed so the tile keeps its edge. */
+const COOLDOWN_INSET = 2
+
+/**
+ * A 24×24 overlay on the skill icon already drawn in `s`: the part still cooling down dimmed, a
+ * wedge clearing clockwise from the top behind a gold edge, the seconds left in its middle.
+ * `u` is 0 → 1 across the cooldown; past 1 it is ready, and a glint crosses the icon by 4/3.
+ */
+export function drawCooldown(s: Surface, u: number, secs = 3): void {
+    if (u < 1) {
+        for (let y = COOLDOWN_INSET; y < 24 - COOLDOWN_INSET; y++) for (let x = COOLDOWN_INSET; x < 24 - COOLDOWN_INSET; x++) {
+            let a = Math.atan2(x - 11.5, 11.5 - y) / (Math.PI * 2)
+            if (a < 0) a += 1
+            if (a >= u) s.set(x, y, COOLDOWN_DIM[s.get(x, y)] || C.night0)
+        }
+        // the sweep's edge, from the middle out to the frame's border, a spark where it meets it
         const a = u * Math.PI * 2
-        line(s, 12, 12, 12 + Math.sin(a) * 13, 12 - Math.cos(a) * 13, C.white)
-    } else {
-        rect(s, 0, 0, 24, 1, C.white); rect(s, 0, 23, 24, 1, C.white); rect(s, 0, 0, 1, 24, C.white); rect(s, 23, 0, 1, 24, C.white)
-        star(s, 20, 3, 2, C.gold3)
+        const dx = Math.sin(a)
+        const dy = -Math.cos(a)
+        const len = (11.5 - COOLDOWN_INSET) / Math.max(Math.abs(dx), Math.abs(dy))
+        line(s, 12, 12, 12 + dx * len, 12 + dy * len, C.gold3)
+        px(s, 12 + dx * len, 12 + dy * len, C.white)
+        drawText(s, String(Math.ceil((1 - u) * secs)), 12, 9, C.white, { align: 1, shadow: 2 })
+        return
     }
+    // ready: a bright rim, and a glint crossing it corner to corner
+    const g = Math.min(1, (u - 1) * 3)
+    rect(s, 0, 0, 24, 1, C.gold3); rect(s, 0, 23, 24, 1, C.gold1); rect(s, 0, 0, 1, 24, C.gold3); rect(s, 23, 0, 1, 24, C.gold1)
+    px(s, 0, 0, C.white)
+    const k = -8 + g * 40
+    for (let i = 0; i < 24; i++) {
+        const x = R(k - i)
+        if (x >= 1 && x < 23 && i >= 1 && i < 23) { px(s, x, i, C.white); if (x + 1 < 23) px(s, x + 1, i, C.gold3) }
+    }
+    if (g < 0.5) star(s, 20, 3, 2, C.white)
 }
 
 // ── Boss enrage timer ──────────────────────────────────────────────────────────────
+
+/** The skull the timer runs down to: # its outline, o bone, s bone in shadow, e its eyes. */
+const SKULL = [
+    '..#####..',
+    '.#ooooo#.',
+    '#oooooos#',
+    '#oeeoees#',
+    '#oeeoees#',
+    '#ooo#oss#',
+    '.#oooss#.',
+    '..#o#o#..',
+    '...###...'
+] as const
 
 /** An 88×14 timer bar: hourglass, draining bar, skull. `u` 0 → 1 is time spent; 1 = enraged. */
 export function drawEnrageTimer(s: Surface, u: number, t: number): void {
     const low = u > 0.75
     const enraged = u >= 1
     const pulse = Math.floor(qt(t) * 6) & 1
-    rect(s, 0, 0, 88, 14, C.ink)
-    rect(s, 1, 1, 86, 12, enraged ? C.red0 : C.night1)
-    // hourglass
-    rect(s, 3, 2, 7, 1, C.gold1); rect(s, 3, 11, 7, 1, C.gold1)
-    tri(s, 4, 3, 8, 3, 6, 7, C.frost); tri(s, 4, 10, 8, 10, 6, 7, C.frost)
-    tri(s, 5, 4 + R(u * 2), 7, 4 + R(u * 2), 6, 7, C.gold2); rect(s, 5, 10 - R(u * 2), 3, R(u * 2) + 1, C.gold2)
-    // bar
-    rect(s, 13, 4, 60, 6, C.ink)
-    const left = R(58 * (1 - Math.min(1, u)))
-    const col = enraged ? C.red2 : low ? (pulse ? C.red2 : C.orange) : C.gold2
-    rect(s, 14, 5, left, 4, col)
-    rect(s, 14, 5, left, 1, enraged ? C.red3 : C.gold3)
-    // skull at the end, lighting up as it closes in
-    const sk = low ? C.red3 : C.bone0
-    disc(s, 80, 6, 4, sk); rect(s, 78, 9, 5, 2, sk)
-    px(s, 78, 6, C.ink); px(s, 81, 6, C.ink); px(s, 79, 10, C.ink)
-    if (enraged) for (let i = 0; i < 5; i++) px(s, 76 + i * 2, 1 - ((i + pulse) & 1), C.orange)
-}
-
-// ── Raid VFX: add-wave burrow, phase shift ─────────────────────────────────────────
-
-/** 64×48: the ground cracks and bursts as a Dig-site add wave surfaces. */
-export function drawAddWaveSpawn(s: Surface, t: number): void {
-    const x = 32
-    const y = 42
-    const u = pr(t, 0, 0.4)
-    for (let i = 0; i < 6; i++) {
-        const a = Math.PI + i * (Math.PI / 5)
-        line(s, x, y, x + Math.cos(a) * 14 * u, y + Math.sin(a) * 3 * u + 1, C.brown0)
+    // the panel: bevelled, its edge burning red once enraged
+    rect(s, 0, 0, 88, 14, enraged && pulse ? C.red2 : C.ink)
+    rect(s, 1, 1, 86, 12, enraged ? C.red0 : C.night2)
+    rect(s, 1, 1, 86, 1, enraged ? C.red1 : C.night3)
+    rect(s, 1, 12, 86, 1, C.night0)
+    // the hourglass: gold caps and posts, glass, the sand running from the top bulb to the bottom
+    const sand = Math.min(1, u)
+    rect(s, 2, 2, 9, 2, C.gold1); rect(s, 2, 2, 9, 1, C.gold3)
+    rect(s, 2, 10, 9, 2, C.gold1); rect(s, 2, 10, 9, 1, C.gold2)
+    rect(s, 3, 4, 1, 6, C.gold0); rect(s, 9, 4, 1, 6, C.gold0)
+    tri(s, 4, 4, 8, 4, 6, 7, C.frost); tri(s, 4, 9, 8, 9, 6, 7, C.frost)
+    if (sand < 1) tri(s, 5, 4 + R(sand * 2), 7, 4 + R(sand * 2), 6, 7, C.gold2)
+    rect(s, 5, 9 - R(sand * 2), 3, R(sand * 2) + 1, C.gold2)
+    if (!enraged) px(s, 6, 8, pulse ? C.gold3 : C.gold2)
+    // the bar: a trough, the time left lit along its top, its leading edge bright
+    rect(s, 13, 3, 60, 8, C.ink)
+    rect(s, 14, 4, 58, 6, C.night0)
+    const left = enraged ? 58 : R(58 * (1 - sand))
+    barFill(s, 14, 4, left, enraged ? [C.red1, C.red2, pulse ? C.orange : C.red3] : low ? (pulse ? [C.red1, C.red2, C.red3] : [C.lava0, C.orange, C.gold3]) : [C.gold1, C.gold2, C.gold3])
+    if (!enraged && left > 0) rect(s, 13 + left, 4, 1, 6, C.white)
+    for (let i = 1; i < 4; i++) rect(s, 14 + R(58 * i / 4), 5, 1, 4, C.night0)
+    // the skull at its end: bone, its eyes kindling as the time runs out, red and blazing when enraged
+    const bone = enraged ? [C.red3, C.red2] : [C.bone1, C.bone0]
+    const eye = enraged ? (pulse ? C.gold3 : C.orange) : low ? (pulse ? C.lava1 : C.red1) : C.ink
+    for (let y = 0; y < SKULL.length; y++) for (let x = 0; x < 9; x++) {
+        const ch = SKULL[y]![x]
+        if (ch === '.') continue
+        px(s, 76 + x, 3 + y, ch === '#' ? C.ink : ch === 'o' ? bone[0]! : ch === 's' ? bone[1]! : eye)
     }
-    if (qt(t) > 0.35) {
-        ditherDisc(s, x, y - 2, 8 * pr(t, 0.35, 0.6), C.brown1, 10)
-        burst(s, x, y - 2, t, 0.4, 24, 70, 'dust', 3, 0.7, 140, -Math.PI / 2, 1.8, 2)
-        burst(s, x, y - 2, t, 0.45, 10, 50, 'gold', 4, 0.5, 100, -Math.PI / 2, 1.2)
-        shock(s, x, y, t, 0.4, 0.5, 4, 26, 'ash', true, 2)
-    }
-}
-
-/** 96×96: the Forge boss crossing an HP threshold — a heat flash and a ring of sparks. */
-export function drawPhaseShift(s: Surface, t: number): void {
-    const x = 48
-    const y = 60
-    const u = pr(t, 0, 0.3)
-    if (qt(t) < 0.4) ditherDisc(s, x, y - 10, 10 + u * 30, C.gold3, R(12 - u * 8))
-    shock(s, x, y - 10, t, 0.1, 0.6, 6, 44, 'fire', false, 3)
-    shock(s, x, y, t, 0.15, 0.6, 4, 44, 'ember', true, 2)
-    burst(s, x, y - 10, t, 0.1, 30, 110, 'spark', 5, 0.8, 80, 0, Math.PI * 2, 2)
-    if (qt(t) > 0.3) for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4; const r = 20 + pr(t, 0.3, 1) * 20; line(s, x + Math.cos(a) * (r - 6), y - 10 + Math.sin(a) * (r - 6), x + Math.cos(a) * r, y - 10 + Math.sin(a) * r, i & 1 ? C.orange : C.gold3) }
+    if (enraged) for (let i = 0; i < 5; i++) px(s, 77 + i * 2, 2 - ((i + pulse) & 1), i & 1 ? C.gold3 : C.orange)
 }
 
 // ── Gacha reveal ───────────────────────────────────────────────────────────────────

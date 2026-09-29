@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BattleDemo, CAMERAS, WAVE_KINDS, cameraFor, type WaveKind } from '~/utils/hero-quest-art/demo'
+import { BattleDemo, CAMERAS, PARTY_BAND_H, WAVE_KINDS, cameraFor, type WaveKind } from '~/utils/hero-quest-art/demo'
 import { Presenter, startLoop } from '~/utils/hero-quest-art/canvas'
 import { CLASS_NODES } from '#shared/utils/hero-quest/content/classes'
 import { WORLDS } from '#shared/utils/hero-quest/content/worlds'
@@ -12,13 +12,15 @@ import type { ClassId } from '#shared/utils/hero-quest/types'
  */
 const wrap = ref<HTMLDivElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
-const cssSize = ref<{ width: number, height: number }>({ width: CAMERAS.zoom3.w, height: CAMERAS.zoom3.h })
+const cssSize = ref<{ width: number, height: number }>({ width: CAMERAS.zoom3.w, height: CAMERAS.zoom3.h + PARTY_BAND_H })
 const world = ref(1)
 const classId = ref<ClassId>('class_sorcerer')
 const paused = ref(false)
 const fullscreen = ref(false)
 const waveKind = ref<WaveKind>('regular')
 const cam = computed(() => CAMERAS[cameraFor(waveKind.value)])
+// the camera's view with the party's frames under it
+const viewH = computed(() => cam.value.h + PARTY_BAND_H)
 const waveItems = WAVE_KINDS.map(k => ({ label: k.label, value: k.id }))
 
 const worldItems = WORLDS.map(w => ({ label: `${w.index}. ${w.name}`, value: w.index }))
@@ -32,7 +34,7 @@ let observer: ResizeObserver | null = null
 function fit() {
   if (!wrap.value || !presenter) return
   const r = wrap.value.getBoundingClientRect()
-  cssSize.value = presenter.fit(r.width, fullscreen.value ? r.height : r.width * cam.value.h / cam.value.w, window.devicePixelRatio || 1)
+  cssSize.value = presenter.fit(r.width, fullscreen.value ? r.height : r.width * viewH.value / cam.value.w, window.devicePixelRatio || 1)
 }
 
 function onFullscreenChange() {
@@ -48,17 +50,17 @@ async function toggleFullscreen() {
 // a new world, class or wave restarts the fight on it; a raid brings the whole-scene camera
 watch([world, classId, waveKind], () => {
   demo.setup(world.value, classId.value, waveKind.value)
-  if (presenter && (presenter.w !== cam.value.w || presenter.h !== cam.value.h)) {
-    presenter = new Presenter(canvas.value!, cam.value.w, cam.value.h)
+  if (presenter && (presenter.w !== cam.value.w || presenter.h !== viewH.value)) {
+    presenter = new Presenter(canvas.value!, cam.value.w, viewH.value)
     fit()
   }
 })
 watch(paused, p => { demo.paused = p })
 
 onMounted(() => {
-  presenter = new Presenter(canvas.value!, cam.value.w, cam.value.h)
+  presenter = new Presenter(canvas.value!, cam.value.w, viewH.value)
   demo.setup(world.value, classId.value, waveKind.value)
-  stop = startLoop(dt => demo.update(dt), () => presenter!.present(demo.render()))
+  stop = startLoop(dt => demo.update(dt), () => presenter!.present(demo.renderWithParty()))
   observer = new ResizeObserver(fit)
   observer.observe(wrap.value!)
   document.addEventListener('fullscreenchange', onFullscreenChange)

@@ -38,15 +38,16 @@
 
 import { ANIM_FPS, Phase, phaseAt, type Clip } from './anim'
 import { C, CLEAR, RAMP, type RampName } from './palette'
-import { Surface, bayer, ring } from './surface'
+import { Surface, bayer, rect, ring } from './surface'
 import { textOut } from './font'
 import { Particles } from './particles'
 import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type BakeJob } from './catalog'
 import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
-import { NUMBER_STYLES, drawNumberAt, type NumberStyle } from './feedback'
-import { VL, clock } from './vfx-kit'
+import { NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, drawNumberAt, drawPartyFrameAt, type NumberStyle, type PartyMember } from './feedback'
+import { VL, clock, R } from './vfx-kit'
+import { J } from './rig'
 import { VFX_BY_ID, type VfxDef } from './vfx'
 import { SW, SH, FLOOR_Y, SCROLL_PERIOD, WORLD_SCENES, reflectWater, type WorldScene } from './scenery'
 import { CINEMATIC_BY_ID, type CinematicVfx } from './vfx-cinematic'
@@ -159,6 +160,56 @@ type Mark = { readonly x: number, readonly y: number, readonly g: number }
 /** Party size, and so the index in `units` where the enemy wave starts. */
 const PARTY = 6
 
+/** The party's HP on its frames, in hits: an ally takes 1 or 2 a hit and never drops below 1. */
+const PARTY_HP = 12
+/** HP a second the party wins back, so the front rank isn't left on its last hit all wave. */
+const PARTY_REGEN = 0.8
+/** Seconds the stretch of HP just lost shows white on a frame, then how fast it drains (share of the bar a second). */
+const LOST_HOLD = 0.35
+const LOST_DRAIN = 0.6
+/** The levels the frames show, Hero first: the stage has none of its own. */
+const SHOWCASE_LEVELS = [42, 40, 38, 41, 36, 39] as const
+/** The party band under the stage: two rows of three frames, the gap between them and the margin round them. */
+const BAND_GAP = 2
+const BAND_PAD = 3
+export const PARTY_BAND_H = 2 * PARTY_FRAME_H + BAND_GAP + 2 * BAND_PAD
+/** A frame's portrait: 18×18 round the face of the body's first idle frame. */
+const HEAD = 18
+/**
+ * Where the face sits from the neck the rig drew the head on. Every head puts its eye four
+ * columns in front of its neck and its face in its bottom six rows, whatever headgear it wears.
+ */
+const FACE_DX = 1
+const FACE_DY = -5
+
+/** Crop `asset`'s portrait, centred on its face: a tall hat is cut at the top rather than pushing the face down. */
+function headOf(asset: string): Surface {
+    const a = artById(`${asset}/idle`)!
+    const src = new Surface(a.w, a.h, 0, 0)
+    J.headY = -1
+    a.render(src, 0)
+    const head = new Surface(HEAD, HEAD, 0, 0)
+    // a body not on the rig leaves no neck: fall back to the top of what was drawn
+    let cy = J.headY + FACE_DY
+    let cx = J.headX + FACE_DX
+    if (J.headY < 0) {
+        let top = 0
+        while (top < src.h && !src.data.subarray(top * src.w, (top + 1) * src.w).some(c => c !== CLEAR)) top++
+        cy = top + (HEAD >> 1)
+        cx = a.ax ?? a.w >> 1
+    }
+    const x0 = R(cx) - (HEAD >> 1)
+    const y0 = R(cy) - (HEAD >> 1)
+    for (let y = 0; y < HEAD; y++) for (let x = 0; x < HEAD; x++) head.set(x, y, src.get(x0 + x, y0 + y))
+    return head
+}
+
+function headAt(head: Surface): PartyMember['portrait'] {
+    return (s, x, y) => {
+        for (let hy = 0; hy < HEAD; hy++) for (let hx = 0; hx < HEAD; hx++) { const c = head.data[hy * HEAD + hx]!; if (c !== CLEAR) s.set(x + hx, y + hy, c) }
+    }
+}
+
 /** Which ally marks the Champions take: the Hero holds the near front mark, they take the rest. */
 const CHAMP_MARKS = [0, 1, 3, 4, 5] as const
 
@@ -256,6 +307,10 @@ interface Unit {
     wait: number
     fired: boolean
     hp: number
+    /** The party's frames: HP shown (0 → 1), where the lost stretch has drained to, and how long it stays white. */
+    shown: number
+    lag: number
+    lagHold: number
     phase: Phase
     /** Numbers stacked on this unit by the skill playing now. */
     stack: number
@@ -484,6 +539,10 @@ export class BattleDemo {
     camera: CameraId = 'zoom3'
     /** One reusable window per camera, so switching allocates nothing in the loop. */
     private views = Object.fromEntries(Object.entries(CAMERAS).map(([id, c]) => [id, new Surface(c.w, c.h, 0, 0)])) as Record<CameraId, Surface>
+    /** Each camera's view with the party band under it. */
+    private partyViews = Object.fromEntries(Object.entries(CAMERAS).map(([id, c]) => [id, new Surface(c.w, c.h + PARTY_BAND_H, 0, 0)])) as Record<CameraId, Surface>
+    /** The party's frames, Hero first, refilled from their units each render. */
+    private members: PartyMember[] = []
     /** HUD label, rebuilt only when the wave changes — never inside the loop. */
     private label = ''
     private labels: string[] = []
@@ -557,6 +616,10 @@ export class BattleDemo {
         boss.crown = dummy ? 140 : this.raid ? 112 : 52
         this.units = [heroUnit, ...champs, ...foes, boss]
         for (const u of [...foes, boss]) u.state = U.Gone
+        for (const u of [heroUnit, ...champs]) u.hp = PARTY_HP
+        this.members = [`hero/${classId}`, ...roster.map(id => `champion/${id}`)].map((asset, i) => ({
+            hp: 1, lost: 0, flash: false, hurt: false, hero: i === 0, level: SHOWCASE_LEVELS[i]!, statuses: [], portrait: headAt(headOf(asset))
+        }))
         const name = w.name.toUpperCase()
         const suffix = this.raid ? `  ${this.raid.id.replace('_', ' ').toUpperCase()} RAID` : waveKind === 'boss' ? '  BOSS' : waveKind === 'superboss' ? '  SUPER BOSS' : ''
         this.labels = Array.from({ length: 99 }, (_, i) => `${name}  WAVE ${i + 1}${suffix}`)
@@ -582,7 +645,7 @@ export class BattleDemo {
             clips: [null, clips[0] ?? null, clips[1] ?? null],
             impact: [0, clips[0]?.impact ?? 0.45 * attack!.frames.length / ANIM_FPS, clips[1]?.impact ?? 0.45 * (cast ?? attack!).frames.length / ANIM_FPS],
             vfx, accent: C.red3, shot: null, shots: 1, rig: -1, hold: 0, jolt: 0, flash: 0, sit: 0, chest: 14, crown: 40, strikeAt: -1,
-            state: U.Idle, t: 0, wait: 0.5 + Math.random() * 1.2, fired: false, hp: 4, phase: Phase.Idle, stack: 0
+            state: U.Idle, t: 0, wait: 0.5 + Math.random() * 1.2, fired: false, hp: 4, shown: 1, lag: 1, lagHold: 0, phase: Phase.Idle, stack: 0
         }
     }
 
@@ -679,6 +742,7 @@ export class BattleDemo {
         this.bossFrames = []
         this.trash = []
         this.rigFrames = []
+        this.members = []
         for (const p of this.projs) { p.live = false; p.from = null; p.to = null }
         this.scene = null
     }
@@ -758,6 +822,8 @@ export class BattleDemo {
     }
 
     private spawnWave(): void {
+        // the party comes to each wave whole
+        for (let i = 0; i < PARTY; i++) this.units[i]!.hp = PARTY_HP
         const bossWave = this.waveKind !== 'regular'
         const which = this.waveKind === 'superboss' ? 1 : 0
         for (let i = PARTY; i < this.units.length; i++) {
@@ -1127,6 +1193,7 @@ export class BattleDemo {
         if (this.freezeGap > 0) this.freezeGap -= dt
         if (this.slowmo > 0) { this.slowmo -= dt; dt *= 0.35 }
         this.time += dt
+        this.drainFrames(dt)
         const dummy = this.raid?.id === 'training_grounds' ? this.raid : null
         for (let i = 0; i < this.units.length; i++) {
             const u = this.units[i]!
@@ -1405,6 +1472,44 @@ export class BattleDemo {
         if (this.raid?.id === 'training_grounds') textOut(out, this.tally, cam.w - 6, 5, this.raid.clock <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
         if (this.nameT >= 0 && this.nameT < this.nameFor) drawSkillBanner(out, this.bossName, cam.w / 2, 14, this.nameT, true, this.nameFor - this.nameT)
         return out
+    }
+
+    /**
+     * The stage with the party's frames under it, two rows of three, Hero first: the battle view's
+     * layout. The band is as wide as the camera, so it scales with the stage.
+     */
+    renderWithParty(): Surface {
+        const view = this.render()
+        const out = this.partyViews[this.camera]
+        out.data.set(view.data)
+        const y0 = view.h
+        rect(out, 0, y0, out.w, PARTY_BAND_H, C.night0)
+        rect(out, 0, y0, out.w, 1, C.night2)
+        const x0 = (out.w - 3 * PARTY_FRAME_W - 2 * BAND_GAP) >> 1
+        for (let i = 0; i < this.members.length; i++) {
+            const u = this.units[i]!
+            const m = this.members[i]!
+            m.hp = u.shown
+            m.lost = u.lag - u.shown
+            m.flash = u.lagHold > 0
+            m.hurt = u.state === U.Hit
+            drawPartyFrameAt(out, x0 + (i % 3) * (PARTY_FRAME_W + BAND_GAP), y0 + BAND_PAD + Math.floor(i / 3) * (PARTY_FRAME_H + BAND_GAP), m)
+        }
+        return out
+    }
+
+    /** The frames' HP follows the party's, which heals slowly: a hit leaves its stretch white a moment, then drains it. */
+    private drainFrames(dt: number): void {
+        for (let i = 0; i < Math.min(PARTY, this.units.length); i++) {
+            const u = this.units[i]!
+            u.hp = Math.min(PARTY_HP, u.hp + dt * PARTY_REGEN)
+            const hp = u.hp / PARTY_HP
+            if (hp < u.shown) u.lagHold = LOST_HOLD
+            u.shown = hp
+            if (u.lagHold > 0) u.lagHold -= dt
+            else u.lag = Math.max(u.shown, u.lag - dt * LOST_DRAIN)
+            if (u.lag < u.shown) u.lag = u.shown
+        }
     }
 
     /** Whether any of the boss's adds are standing. */
