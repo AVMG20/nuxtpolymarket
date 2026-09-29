@@ -4,7 +4,7 @@
 import { C } from './palette'
 import type { Surface } from './surface'
 import { M, sword, axe, hammer, shield, arrow, dagger, antlers, ShieldStyle, type Mat } from './weapons'
-import { type Glyph, rect, px, line, disc, ring, tri, ellipse, poly, arc } from './icon-kit'
+import { type Glyph, CLEAR, rect, px, line, disc, ring, tri, ellipse, poly, arc } from './icon-kit'
 
 const R = Math.round
 
@@ -111,28 +111,60 @@ export const CLASS_SKILL_ICONS: Readonly<Record<string, Glyph>> = {
         sword(g, x - 1, y + 1, -0.8, 10, M.steel, M.bronze, C.brown1)
     },
     skill_threatening_roar: (g, x, y) => {
-        // a roaring mouth, fangs and all
-        ellipse(g, x - 3, y, 6, 6, C.red1)
-        ellipse(g, x - 3, y + 1, 4, 4, C.red0)
-        tri(g, x - 7, y - 3, x - 5, y - 3, x - 6, y + 1, C.white); tri(g, x - 1, y - 3, x + 1, y - 3, x, y + 1, C.white)
-        tri(g, x - 5, y + 5, x - 3, y + 5, x - 4, y + 2, C.bone1)
-        waves(g, x + 3, y, 3, C.red3)
+        // a barbarian in profile, facing right: horned helm, jaw dropped wide, the roar rolling out ahead of him
+        const hx = x - 3
+        const hy = y + 1
+        poly(g, [-3, -5, -6, -6, -8, -9, -7, -10, -5, -8, -2, -6], hx, hy, C.bone1)
+        poly(g, [1, -6, 2, -9, 4, -9, 4, -7, 3, -5], hx, hy, C.bone1)
+        ellipse(g, hx + 1, hy, 4, 4, C.skin1)
+        tri(g, hx + 4, hy - 2, hx + 7, hy + 1, hx + 4, hy + 1, C.skin1)
+        ellipse(g, hx, hy - 4, 5, 3, C.steel2)
+        rect(g, hx - 5, hy - 3, 10, 1, C.steel1)
+        line(g, hx + 1, hy - 2, hx + 3, hy - 1, C.ink)
+        px(g, hx + 2, hy, C.white)
+        poly(g, [-3, 1, -3, 6, 0, 9, 3, 8, 1, 5, 0, 2], hx, hy, C.brown2)
+        tri(g, hx + 2, hy + 3, hx + 7, hy + 2, hx + 7, hy + 7, C.red0)
+        line(g, hx + 4, hy + 3, hx + 6, hy + 2, C.white)
+        for (const [r, c] of [[6, C.white], [8, C.red3]] as const) arc(g, hx + 5, hy + 4, r, -0.55, 0.55, c)
     },
     skill_enrage: (g, x, y) => {
-        flame(g, x, y + 2, 10, C.red1, C.red2, C.orange)
-        line(g, x - 4, y - 1, x - 1, y + 1, C.ink); line(g, x + 4, y - 1, x + 1, y + 1, C.ink)
-        px(g, x - 2, y + 2, C.gold3); px(g, x + 2, y + 2, C.gold3)
+        // powering up: a spiked aura bursting upward round a dark figure, red outside, gold where it hugs the body
+        const spikes = [[-8, -3], [-5, -8], [-2, -10], [2, -10], [5, -8], [8, -3]] as const
+        for (const [tx, ty] of spikes) tri(g, x + tx * 0.6 - 3, y + 6, x + tx * 0.6 + 3, y + 6, x + tx, y + ty, C.red1)
+        ellipse(g, x, y + 4, 8, 6, C.red1)
+        for (const [tx, ty] of spikes) tri(g, x + tx * 0.5 - 2, y + 6, x + tx * 0.5 + 2, y + 6, x + tx * 0.75, y + ty * 0.75, C.orange)
+        ellipse(g, x, y + 4, 6, 5, C.orange)
+        ellipse(g, x, y + 2, 5, 7, C.gold3)
+        ellipse(g, x, y + 3, 3, 5, C.white)
+        // the figure: head, shoulders, fists thrown up
+        disc(g, x, y - 2, 1.5, C.ink)
+        poly(g, [-2, 1, 2, 1, 1, 9, -1, 9], x, y, C.ink)
+        line(g, x - 2, y + 1, x - 4, y - 3, C.ink); line(g, x + 2, y + 1, x + 4, y - 3, C.ink)
+        // the charge streaking up off it
+        for (const [sx, top] of [[-7, -5], [-3, -9], [3, -9], [7, -5]] as const) line(g, x + sx, y + top + 3, x + sx, y + top, C.white)
     },
     skill_shockwave: (g, x, y) => {
-        sword(g, x, y + 6, -Math.PI / 2, 13, M.steel, M.gold, C.brown0)
-        for (let i = 0; i < 3; i++) { arc(g, x, y + 8, 4 + i * 3, Math.PI * 1.05, Math.PI * 1.95, i === 0 ? C.white : C.cyan) }
-        rect(g, x - 9, y + 8, 19, 1, C.stone3)
+        // a blade-wave: a blue crescent flung off the sword, flying right
+        disc(g, x + 2, y, 8, C.blue1)
+        disc(g, x + 1, y, 7, C.cyan)
+        disc(g, x - 3, y, 8, CLEAR)
+        arc(g, x + 2, y, 8, -0.95, 0.95, C.white)
+        for (const dy of [-5, 0, 5]) line(g, x - 3, y + dy, x - 1 + (dy ? 0 : 1), y + dy, C.frost)
+        sword(g, x - 7, y + 8, -Math.PI / 2, 16, M.steel, M.gold, C.brown0)
     },
     skill_disciple: (g, x, y) => {
-        ellipse(g, x, y - 7, 5, 1, C.gold3)
-        rect(g, x - 4, y - 5, 8, 12, C.bone1); rect(g, x - 4, y - 5, 2, 12, C.bone0)
-        rect(g, x - 2, y - 4, 4, 4, C.skin1); px(g, x + 1, y - 2, C.ink)
-        rect(g, x - 1, y + 1, 2, 5, C.gold2); rect(g, x - 2, y + 2, 4, 1, C.gold2)
+        // a hooded acolyte in a pale robe under a halo, hands clasped, tending the party
+        poly(g, [-8, 10, -6, 3, -3, 1, 3, 1, 6, 3, 8, 10], x, y, C.bone1)
+        poly(g, [2, 1, 6, 3, 8, 10, 3, 10], x, y, C.bone0)
+        ellipse(g, x, y - 3, 5, 5, C.bone1)
+        tri(g, x - 2, y - 7, x + 2, y - 7, x, y - 10, C.bone1)
+        ellipse(g, x + 2, y - 3, 3, 5, C.bone0)
+        ellipse(g, x, y - 2, 3, 3, C.brown1)
+        rect(g, x - 2, y - 1, 4, 3, C.skin1)
+        px(g, x - 1, y - 1, C.ink); px(g, x + 1, y - 1, C.ink)
+        rect(g, x - 1, y + 3, 3, 4, C.skin1); rect(g, x, y + 3, 1, 4, C.skin0); px(g, x - 1, y + 3, C.skin2)
+        ellipse(g, x, y - 11, 5, 1.5, C.gold3); ellipse(g, x, y - 11, 3, 0.5, CLEAR)
+        rect(g, x + 7, y - 7, 1, 5, C.green4); rect(g, x + 5, y - 5, 5, 1, C.green4); px(g, x + 7, y - 5, C.white)
     },
     skill_ethereal_bouncebolt: (g, x, y) => {
         line(g, x - 8, y + 6, x - 3, y - 4, C.purple2); line(g, x - 3, y - 4, x + 2, y + 4, C.purple2); line(g, x + 2, y + 4, x + 7, y - 6, C.pink)
@@ -164,12 +196,26 @@ export const CLASS_SKILL_ICONS: Readonly<Record<string, Glyph>> = {
         px(g, x - 7, y + 5, C.green4); px(g, x + 6, y + 4, C.green4)
     },
     skill_piercing_arrow: (g, x, y) => {
-        ring(g, x - 3, y, 4, C.green3); ring(g, x + 4, y, 3, C.green2)
-        arrow(g, x + 9, y, 0, C.brown3, C.white, C.green4)
-        line(g, x - 10, y, x + 2, y, C.brown3)
+        // through two targets and out, on a long needle of a head
+        ring(g, x - 4, y, 4, C.green3); ring(g, x + 2, y, 3, C.green2)
+        line(g, x - 11, y, x + 4, y, C.brown3)
+        line(g, x - 11, y - 2, x - 9, y, C.green4); line(g, x - 11, y + 2, x - 9, y, C.green4)
+        tri(g, x + 3, y - 2, x + 3, y + 2, x + 11, y, C.steel2)
+        line(g, x + 3, y - 2, x + 11, y, C.white)
+        px(g, x + 11, y, C.white)
     },
     skill_fan_of_arrows: (g, x, y) => {
-        for (let i = -1; i <= 1; i++) arrow(g, x + 7, y + i * 6, i * 0.4, C.brown3, C.steel3, C.white)
+        // three arrows loosed at once, spreading from the bow
+        const ox = x - 8
+        const oy = y
+        for (const a of [-0.72, 0, 0.72]) {
+            const tx = ox + Math.cos(a) * 15
+            const ty = oy + Math.sin(a) * 15
+            line(g, ox + Math.cos(a) * 4, oy + Math.sin(a) * 4, tx, ty, C.brown3)
+            tri(g, tx - Math.cos(a) * 3 - Math.sin(a) * 2, ty - Math.sin(a) * 3 + Math.cos(a) * 2, tx - Math.cos(a) * 3 + Math.sin(a) * 2, ty - Math.sin(a) * 3 - Math.cos(a) * 2, tx + Math.cos(a), ty + Math.sin(a), C.steel3)
+            px(g, R(tx + Math.cos(a)), R(ty + Math.sin(a)), C.white)
+            px(g, R(ox + Math.cos(a) * 4 - Math.sin(a)), R(oy + Math.sin(a) * 4 + Math.cos(a)), C.green4)
+        }
     },
     skill_arrow_rain: (g, x, y) => {
         for (let i = 0; i < 4; i++) arrow(g, x - 6 + i * 4, y + 2 + (i & 1) * 5, Math.PI / 2 - 0.2, C.brown3, C.gold3, C.white)
