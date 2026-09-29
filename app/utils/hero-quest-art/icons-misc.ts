@@ -13,7 +13,7 @@ import { drawText } from './font'
 import { Actor } from './rig'
 import { HERO_ART } from './heroes'
 import { M, shield, ShieldStyle, type Mat } from './weapons'
-import { type Glyph, glyph, rect, px, line, disc, ring, tri, ellipse, dither, ditherDisc, poly } from './icon-kit'
+import { type Glyph, glyph, rect, px, line, disc, ring, tri, ellipse, ditherDisc, poly } from './icon-kit'
 import { ABILITY_ICON_PARTS as P } from './icons-abilities'
 
 // ── Rarity frames (32×32, hollow) ──────────────────────────────────────────────────
@@ -120,7 +120,8 @@ export function rarityFrame(s: Surface, rarity: string, t = 0): void {
         pixelMap(s, W - 2, W / 2, LOZENGE, key)
     }
     if (tier >= 5) {
-        glyph(s, (g, x, y) => pixelMap(g, x, y, CROWN, { w: C.white, Y: C.red3, G: C.red1, r: C.red0 }), W / 2, 3)
+        // Frames & badges is locked: its glyphs keep the look they were approved in, unlit
+        glyph(s, (g, x, y) => pixelMap(g, x, y, CROWN, { w: C.white, Y: C.red3, G: C.red1, r: C.red0 }), W / 2, 3, false, C.ink, false)
         // flames licking up the sides, in the band's middle row
         const f = Math.floor(t * 8) & 1
         for (let i = 0; i < 5; i++) {
@@ -314,7 +315,7 @@ export function archetypeBadge(s: Surface, id: string): void {
         }
     }
     if (id === 'support') ditherDisc(s, 8, 8, 5, C.green2, 6) // the glow the cross gives off
-    glyph(s, ARCHETYPE_BADGES[id]!, 8, 8, true)
+    glyph(s, ARCHETYPE_BADGES[id]!, 8, 8, true, C.ink, false)
 }
 
 // ── Class-node icons: the Hero's bust per class ────────────────────────────────────
@@ -359,12 +360,16 @@ export function classNodeIcon(s: Surface, classId: string, line: 'beginner' | 'w
 
 // ── Status icons (16×16) ───────────────────────────────────────────────────────────
 
+/** A status tile: hostile red, friendly teal, bevelled like the 24px frames, a solid spotlight behind the glyph. */
 function statusTile(g: Surface, hostile: boolean): void {
     const m: Mat = hostile ? [C.red0, C.red1, C.red2] : [C.teal0, C.teal1, C.teal2]
     rect(g, 0, 0, 16, 16, C.ink)
-    rect(g, 1, 1, 14, 14, m[0])
-    rect(g, 1, 1, 14, 1, m[2])
-    dither(g, 1, 8, 14, 7, C.ink, 4)
+    rect(g, 1, 1, 14, 14, m[1])
+    rect(g, 1, 1, 14, 1, m[2]); rect(g, 1, 1, 1, 14, m[2])
+    rect(g, 1, 14, 14, 1, m[0]); rect(g, 14, 1, 1, 14, m[0])
+    rect(g, 2, 2, 12, 12, C.ink)
+    rect(g, 3, 3, 10, 10, C.night0)
+    disc(g, 8, 8, 4, m[0])
 }
 
 export interface StatusIcon { id: string, label: string, hostile: boolean, glyph: Glyph }
