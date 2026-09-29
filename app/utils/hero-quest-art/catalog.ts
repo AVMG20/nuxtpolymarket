@@ -73,7 +73,8 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'icons', label: 'Icons' },
     { id: 'frames', label: 'Frames & badges', locked: true },
     { id: 'backgrounds', label: 'Backgrounds', locked: true },
-    { id: 'ui', label: 'UI chrome' },
+    // parked until the real screens are built: redrawn against their layouts then (2026-09-29, the user)
+    { id: 'ui', label: 'UI chrome · parked' },
     { id: 'branding', label: 'Branding', locked: true }
 ]
 
