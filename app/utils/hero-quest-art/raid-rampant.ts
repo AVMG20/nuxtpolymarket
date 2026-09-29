@@ -10,7 +10,7 @@ import { C } from './palette'
 import type { BossSpecial, CreatureDef } from './creature'
 import { CF, fr, sm } from './creature'
 import { B, drive, elbow, P, bayer, px, line, disc, tri, poly, taper, ellipse, q, hash2 } from './boss-kit'
-import { mask, vol, eachPx, selOut, type Mat5 } from './raid-kit'
+import { mask, vol, eachPx, selOut, bounds, BOX, type Mat5 } from './raid-kit'
 import { debris, spike, sp, sq, hitTarget, chest, VOID6 } from './special-kit'
 import { blast, shockRing } from './vfx-cinematic'
 
@@ -235,17 +235,24 @@ function rampantDraw(tier: number, s: S, st: string, t: number, def: CreatureDef
     const dy = py0 + r.dy
     const c = Math.cos(r.ang)
     const sn = Math.sin(r.ang)
-    // every pixel of the buffer, taken back through the turn to the curled body (nearest pixel)
-    for (let y = 0; y < s.h; y++) {
-        for (let x = 0; x < s.w; x++) {
+    // its shadow thins while it is off the ground
+    CF.shadow = 1 - 0.8 * r.air
+    // every pixel the turned body can reach, taken back through the turn to it (nearest pixel):
+    // the disc round the pivot out to the curled body's farthest corner
+    if (!bounds(src, true)) return
+    const reach = Math.ceil(Math.max(...[BOX.x0, BOX.x1 + 1].flatMap(bx => [BOX.y0, BOX.y1 + 1].map(by => Math.hypot(bx - px0, by - py0))))) + 1
+    const ya = Math.max(0, Math.floor(dy - reach))
+    const yb = Math.min(s.h - 1, Math.ceil(dy + reach))
+    const xa = Math.max(0, Math.floor(dx - reach))
+    const xb = Math.min(s.w - 1, Math.ceil(dx + reach))
+    for (let y = ya; y <= yb; y++) {
+        for (let x = xa; x <= xb; x++) {
             const rx = x - dx
             const ry = y - dy
             const v = src.get(R(px0 + rx * c + ry * sn), R(py0 - rx * sn + ry * c))
             if (v) s.set(x, y, v)
         }
     }
-    // its shadow thins while it is off the ground
-    CF.shadow = 1 - 0.8 * r.air
 }
 
 function rampantBody(tier: number, s: S, st: string, t: number, def: CreatureDef): void {

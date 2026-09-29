@@ -338,6 +338,34 @@ export class StampStyle {
     }
 }
 
+/**
+ * The first and last rows of `s` holding anything, into ROWS; false when it is empty. Found a word at
+ * a time (a word straddling two rows only widens the span), so skipping the empty rows of a big,
+ * mostly empty buffer costs a fraction of scanning it.
+ */
+export const ROWS = { y0: 0, y1: -1 }
+const WORDS = new WeakMap<Uint8Array, Uint32Array>()
+export function rowSpan(s: Surface): boolean {
+    const d = s.data
+    let q = WORDS.get(d)
+    if (!q && !(d.byteOffset & 3)) { q = new Uint32Array(d.buffer, d.byteOffset, d.length >> 2); WORDS.set(d, q) }
+    let first = -1
+    let last = -1
+    if (q) {
+        const n = q.length
+        for (let i = 0; i < n; i++) if (q[i]) { first = i << 2; break }
+        for (let i = n - 1; i >= 0; i--) if (q[i]) { last = (i << 2) + 3; break }
+        // the bytes past the last whole word
+        for (let i = n << 2; i < d.length; i++) if (d[i]) { if (first < 0) first = i; last = i }
+    } else {
+        for (let i = 0; i < d.length; i++) if (d[i]) { if (first < 0) first = i; last = i }
+    }
+    if (first < 0) { ROWS.y0 = 0; ROWS.y1 = -1; return false }
+    ROWS.y0 = Math.floor(first / s.w)
+    ROWS.y1 = Math.min(s.h - 1, Math.floor(last / s.w))
+    return true
+}
+
 function srcAt(src: Surface, x: number, y: number, flip: boolean): number {
     if (flip) x = 2 * src.ax - x
     if (x < 0 || y < 0 || x >= src.w || y >= src.h) return CLEAR
@@ -354,10 +382,12 @@ export function stamp(dst: Surface, src: Surface, x: number, y: number, st: Stam
     const oy = R(y) - src.ay
     const flip = st.flip
     const pad = st.halo !== CLEAR ? 2 : 1
+    // only the rows the sprite is in, and its outline and halo round them
+    if (!rowSpan(src)) return
     const x0 = Math.max(0, ox - pad)
-    const y0 = Math.max(0, oy - pad)
+    const y0 = Math.max(0, oy + ROWS.y0 - pad)
     const x1 = Math.min(dst.w, ox + src.w + pad)
-    const y1 = Math.min(dst.h, oy + src.h + pad)
+    const y1 = Math.min(dst.h, oy + ROWS.y1 + 1 + pad)
     const dis = st.dissolve
     const d = dst.data
     for (let yy = y0; yy < y1; yy++) {

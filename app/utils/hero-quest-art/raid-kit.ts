@@ -6,9 +6,37 @@
 // shadowed edge a reflected rim, so a part stands off whatever it is drawn over. Detail (seams,
 // rivets, grain, glints) goes on top by hand.
 
-import { Surface, bayer } from './surface'
+import { Surface, bayer, rowSpan, ROWS } from './surface'
 
 const MASKS = new Map<string, Surface>()
+
+/**
+ * The rows of `m` holding anything, into BOX (and its columns, if `cols`); false when it is empty.
+ * A raid boss's parts are each drawn into a mask the size of its whole buffer, so shading one by
+ * scanning every pixel cost 90% of a bake; skipping to the rows in use leaves the output the same.
+ */
+export const BOX = { x0: 0, y0: 0, x1: -1, y1: -1 }
+export function bounds(m: Surface, cols = false): boolean {
+    const d = m.data
+    const w = m.w
+    if (!rowSpan(m)) { BOX.x0 = 0; BOX.x1 = -1; BOX.y0 = 0; BOX.y1 = -1; return false }
+    BOX.y0 = ROWS.y0
+    BOX.y1 = ROWS.y1
+    BOX.x0 = 0
+    BOX.x1 = w - 1
+    if (cols) {
+        let x0 = w
+        let x1 = -1
+        for (let y = BOX.y0; y <= BOX.y1; y++) {
+            const row = y * w
+            for (let x = 0; x < x0; x++) if (d[row + x]) { x0 = x; break }
+            for (let x = w - 1; x > x1; x--) if (d[row + x]) { x1 = x; break }
+        }
+        BOX.x0 = x0
+        BOX.x1 = x1
+    }
+    return true
+}
 
 /** A cleared scratch mask the size of `like`, one per key so a part can be masked inside another. */
 export function mask(like: Surface, key = 'm'): Surface {
@@ -36,7 +64,9 @@ export function vol(s: Surface, m: Surface, mat: Mat5, reach = 12, bias = 0): vo
     const h = m.h
     const d = m.data
     const n = mat.ramp.length
-    for (let y = 0; y < h; y++) {
+    if (!bounds(m)) return
+    const y1 = BOX.y1
+    for (let y = BOX.y0; y <= y1; y++) {
         for (let x = 0; x < w; x++) {
             if (!d[y * w + x]) continue
             let dl = 1
@@ -68,7 +98,9 @@ export function vol(s: Surface, m: Surface, mat: Mat5, reach = 12, bias = 0): vo
 export function eachPx(m: Surface, fn: (x: number, y: number, edge: boolean, below: boolean) => void): void {
     const w = m.w
     const d = m.data
-    for (let y = 1; y < m.h - 1; y++) {
+    if (!bounds(m)) return
+    const y1 = Math.min(m.h - 2, BOX.y1)
+    for (let y = Math.max(1, BOX.y0); y <= y1; y++) {
         for (let x = 1; x < w - 1; x++) {
             const i = y * w + x
             if (!d[i]) continue
