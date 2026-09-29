@@ -11,7 +11,7 @@ import { createTerrainOverlay, createWaterLayer, disposeTerrainOverlay, disposeW
 import { createRoadParts } from '~/utils/town/roads'
 import { townSceneLevel } from '~/utils/town/appearance'
 import { townDragDelta, townKeyboardDelta, townIsTyping, townWheelZoomFactor, townSnapTurn } from '~/utils/town/camera'
-import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, townFrontTiles, townBuildingSize, townCovers, townDragLine, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
+import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, townFrontTiles, townBuildingSize, townFootprintAnchor, townCovers, townDragLine, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
 import { TOWN_MONUMENT_STAGES, isTownMonumentId } from '#shared/utils/gamelogic/town-monuments'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { createBuildingModel, townMaterial, TOWN_MODEL_VARIANTS } from '~/utils/town/models'
@@ -946,9 +946,8 @@ function placeGhostAt(cursorX: number, cursorZ: number, painting = false) {
     const def = props.ghostType ? getTownBuilding(props.ghostType) : null
     const size = def?.size ?? 1
     const half = size / 2
-    // A wide building is held by its middle, so it lands where the cursor points.
-    const x = cursorX - Math.floor(size / 2)
-    const z = cursorZ - Math.floor(size / 2)
+    // Hold wide buildings by their middle, shifting them inside the plot at its edges.
+    const { wx: x, wy: z } = townFootprintAnchor(cursorX, cursorZ, size)
     if (ghost) {
         ghost.visible = true
         ghost.position.set(x + half, 0.3, z + half)
@@ -1862,7 +1861,7 @@ const pointerNdc = new THREE.Vector2()
 let hoveredBuildingId: string | null = null
 
 type NeighbourInfo = { plotId: string, ownerName: string, type?: string, level?: number }
-type Pick = { kind: 'building', id: string } | { kind: 'tile', tile: TileRef, x: number, z: number } | { kind: 'expansion', x: number, y: number, free: boolean } | { kind: 'listing', listing: { id: string, ownerName: string, price: number } } | { kind: 'neighbour', info: NeighbourInfo } | null
+type Pick = { kind: 'building', id: string, x: number, z: number } | { kind: 'tile', tile: TileRef, x: number, z: number } | { kind: 'expansion', x: number, y: number, free: boolean } | { kind: 'listing', listing: { id: string, ownerName: string, price: number } } | { kind: 'neighbour', info: NeighbourInfo } | null
 
 function pick(sx: number, sy: number): Pick {
     pointerNdc.set((sx / viewW) * 2 - 1, -(sy / viewH) * 2 + 1)
@@ -1870,7 +1869,7 @@ function pick(sx: number, sy: number): Pick {
     const hits = raycaster.intersectObjects([buildingsGroup, plotsGroup, expansionGroup, neighbourGroup], true)
     for (const h of hits) {
         const id = h.object.userData.buildingId as string | undefined
-        if (id && (!ghost || !isDescendant(h.object, ghost))) return { kind: 'building', id }
+        if (id && (!ghost || !isDescendant(h.object, ghost))) return { kind: 'building', id, x: Math.floor(h.point.x), z: Math.floor(h.point.z) }
         const plotId = h.object.userData.plotId as string | undefined
         if (plotId) {
             const p = plotById.value.get(plotId)
@@ -1986,7 +1985,7 @@ function tileUnder(hit: Pick): SceneTile | null {
     if (hit?.kind === 'tile') return { ...hit.tile, wx: hit.x, wy: hit.z }
     if (hit?.kind === 'building') {
         const e = entries.get(hit.id)
-        return e ? tileOfEntry(e) : null
+        return tileAtWorld(hit.x, hit.z) ?? (e ? tileOfEntry(e) : null)
     }
     return null
 }
@@ -2352,18 +2351,16 @@ function updateHover(sx: number, sy: number) {
     }
     if (hit?.kind === 'building' && ghost) {
         // Placing over an existing building: show the ghost there, blocked.
-        const e = entries.get(hit.id)
-        if (e) {
-            const wx = Math.floor(e.group.position.x)
-            const wy = Math.floor(e.group.position.z)
+        const target = tileUnder(hit)
+        if (target) {
             setHoverBuilding(null)
             setHoverSlot(null)
-            setHoverTile({ plotId: e.data.plotId, tileX: e.data.tileX, tileY: e.data.tileY, wx, wy })
+            setHoverTile(target)
             hoverTile.visible = false
-            placeGhostAt(wx, wy)
+            placeGhostAt(target.wx, target.wy)
             if (ghostRadiusMesh) {
                 ghostRadiusMesh.visible = true
-                ghostRadiusMesh.position.set(wx + 0.5, 0.335, wy + 0.5)
+                ghostRadiusMesh.position.set(target.wx + 0.5, 0.335, target.wy + 0.5)
             }
             canvas.value!.style.cursor = 'not-allowed'
             return

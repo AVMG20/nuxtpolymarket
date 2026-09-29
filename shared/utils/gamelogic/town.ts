@@ -1583,6 +1583,18 @@ export function townFootprint(wx: number, wy: number, size = 1): { wx: number, w
     return tiles
 }
 
+/** Anchor a cursor-held footprint inside the plot under the cursor. */
+export function townFootprintAnchor(wx: number, wy: number, size = 1): { wx: number, wy: number } {
+    if (size <= 1) return { wx, wy }
+    const plotX = Math.floor(wx / TOWN_PLOT_SIZE) * TOWN_PLOT_SIZE
+    const plotY = Math.floor(wy / TOWN_PLOT_SIZE) * TOWN_PLOT_SIZE
+    const offset = Math.floor(size / 2)
+    return {
+        wx: Math.max(plotX, Math.min(wx - offset, plotX + TOWN_PLOT_SIZE - size)),
+        wy: Math.max(plotY, Math.min(wy - offset, plotY + TOWN_PLOT_SIZE - size))
+    }
+}
+
 /**
  * The tiles just outside the footprint's front edge: the road it opens onto
  * can be any of them. A one-tile building has exactly townFrontTile.

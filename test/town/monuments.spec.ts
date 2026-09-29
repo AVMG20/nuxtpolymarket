@@ -5,6 +5,7 @@ import {
     townBuildersBusy,
     townBuildingsFronting,
     townDistricts,
+    townFootprintAnchor,
     townFrontTiles,
     townGroupMoveIssue,
     townLevelBuildMs,
@@ -132,6 +133,14 @@ describe('monument footprints', () => {
 
     it('has to fit on one plot', () => {
         expect(townPlacementIssue([road(ox + 6, oy)], pyramid, ox + 6, oy + 1, 2)).toMatch(/one plot/)
+    })
+
+    it('keeps a cursor-held monument inside the plot at its edges', () => {
+        expect(townFootprintAnchor(ox, oy, 3)).toEqual({ wx: ox, wy: oy })
+        expect(townFootprintAnchor(ox + 7, oy + 7, 3)).toEqual({ wx: ox + 5, wy: oy + 5 })
+        expect(townFootprintAnchor(ox + 8, oy + 4, 3)).toEqual({ wx: ox + 8, wy: oy + 3 })
+        const anchor = townFootprintAnchor(ox + 7, oy + 4, 3)
+        expect(townPlacementIssue([], pyramid, anchor.wx, anchor.wy, 0)).toBeNull()
     })
 
     it('can be placed without a road, but only connects along its front', () => {
