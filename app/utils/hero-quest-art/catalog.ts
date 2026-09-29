@@ -42,7 +42,7 @@ import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, BURROW_GRUB, ORE_BEETLE, FORGE_A
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
-    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid'
+    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman'
     | 'vfx' | 'feedback' | 'icons' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
@@ -63,6 +63,9 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     // unlocked 2026-09-29 for its specials, and locked again with them (the user)
     { id: 'trait_raid', label: 'Trait Raid', locked: true },
     { id: 'training_raid', label: 'Training Grounds Raid', locked: true },
+    // the Forge's first two bosses, locked ahead of the Forgemaster (2026-09-29, the user)
+    { id: 'forge_apprentice', label: 'Forge Raid · The Apprentice', locked: true },
+    { id: 'forge_journeyman', label: 'Forge Raid · The Journeyman', locked: true },
     { id: 'vfx', label: 'Ability VFX' },
     { id: 'feedback', label: 'Combat feedback' },
     { id: 'icons', label: 'Icons' },
@@ -108,7 +111,7 @@ export interface ArtAsset {
  * 2026-09-28), so the next round is 5; every earlier round is recorded in art-style.md.
  */
 export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    { n: 5, label: 'Raid bosses', prefixes: ['raid/forge'] }
+    { n: 5, label: 'Raid bosses', prefixes: ['raid/forge/master'] }
 ]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
@@ -326,8 +329,9 @@ function raidAssets(): ArtAsset[] {
     }
     // the Forge's three bosses, back to back
     FORGE_BOSSES.forEach(([id, def], i) => {
-        five(`forge/${id}`, `Forge Raid · boss ${i + 1} of 3`, def)
-        specials(`forge/${id}`, `Forge Raid · boss ${i + 1} of 3`, def, 'raids')
+        const group: ArtGroup = id === 'apprentice' ? 'forge_apprentice' : id === 'journeyman' ? 'forge_journeyman' : 'raids'
+        five(`forge/${id}`, `Forge Raid · boss ${i + 1} of 3`, def, group)
+        specials(`forge/${id}`, `Forge Raid · boss ${i + 1} of 3`, def, group)
     })
     RAMPANT.forEach((def, i) => {
         const states = i < RAMPANT.length - 1 ? ['idle', 'attack', 'hit', 'escalate'] : ['idle', 'attack', 'hit']
