@@ -1103,15 +1103,31 @@ function forgeHammer(s: Surface, gx: number, gy: number, ga: number): void {
     selOut(s, hm, C.brown0)
     const nx = -sa
     const ny = ca
+    // the grain down the haft, a leather wrap above the fist, an iron cap on its butt and a bronze collar under the head
+    line(s, gx + ca * 9 + nx, gy + sa * 9 + ny, hx - ca * 9 + nx, hy - sa * 9 + ny, C.brown1)
+    for (const k of [7, 10, 13]) line(s, gx + ca * k - nx * 2, gy + sa * k - ny * 2, gx + ca * (k + 2) + nx * 2, gy + sa * (k + 2) + ny * 2, C.brown0)
+    for (const k of [8.5, 11.5]) px(s, gx + ca * k - nx, gy + sa * k - ny, C.brown3)
+    disc(s, gx - ca * 8, gy - sa * 8, 2, C.steel1)
+    px(s, gx - ca * 9 - nx, gy - sa * 9 - ny, C.steel3)
+    line(s, hx - ca * 9 - nx * 3, hy - sa * 9 - ny * 3, hx - ca * 9 + nx * 3, hy - sa * 9 + ny * 3, C.gold1, 2)
+    px(s, hx - ca * 9 - nx * 2, hy - sa * 9 - ny * 2, C.gold3)
     const hw = 11
     const hl = 6
     const im = mask(s, 'mhhead')
     poly(im, [hx + nx * hw - ca * hl, hy + ny * hw - sa * hl, hx + nx * hw + ca * hl, hy + ny * hw + sa * hl, hx - nx * hw + ca * hl, hy - ny * hw + sa * hl, hx - nx * hw - ca * hl, hy - ny * hw - sa * hl], 0, 0, 1)
     vol(s, im, IRON, 6)
     selOut(s, im, C.steel0)
-    // both faces worn bright, and the bronze band round its middle
-    for (const d of [-1, 1]) line(s, hx + nx * hw * d - ca * hl, hy + ny * hw * d - sa * hl, hx + nx * hw * d + ca * hl, hy + ny * hw * d + sa * hl, C.steel3, 2)
+    // both faces worn bright behind a bevelled rim, the cheeks grooved either side of the bronze
+    // band, rivets in the band, and the haft's wedge showing in the eye
+    const across = (w: number, l0: number, l1: number, c: number, t = 1): void => line(s, hx + nx * w + ca * l0, hy + ny * w + sa * l0, hx + nx * w + ca * l1, hy + ny * w + sa * l1, c, t)
+    for (const d of [-1, 1]) {
+        across(hw * d, -hl, hl, C.steel3, 2)
+        across((hw - 2.5) * d, 1 - hl, hl - 1, C.steel0)
+        across(4 * d, 1 - hl, hl - 1, C.steel1)
+    }
     line(s, hx - ca * hl, hy - sa * hl, hx + ca * hl, hy + sa * hl, C.gold1, 2)
+    for (const k of [-3, 3]) px(s, hx + ca * k, hy + sa * k, C.gold3)
+    line(s, hx + ca * (hl - 1) - nx, hy + sa * (hl - 1) - ny, hx + ca * (hl - 1) + nx, hy + sa * (hl - 1) + ny, C.brown1)
 }
 
 /** The hammer's head along its haft from his grip, and its weight's middle: what it spins about when thrown. */
@@ -1151,21 +1167,19 @@ const bez = (a: number, b: number, c: number, d: number, u: number): number => {
  */
 const BLADE_REST = [44, -72, -1.3] as const
 const BLADE_WIND = [38, -126, -2.0] as const
-const BLADE_STRIKE = [60, -82, 0.55] as const
+/** The slash lands with his arm at full stretch from the shoulder. */
+const BLADE_STRIKE = [71, -73, 0.55] as const
 /** The blade laid flat across the anvil for the Shower. */
 const BLADE_FLAT = [30, -64, -0.05] as const
-/**
- * At rest the hammer hangs head down from his fist, out beside his thigh.
- * Raised from rest, it swings up behind him, so those blends start from the same angle a whole turn back.
- */
-const HAMMER_REST = [-48, -64, 2.16] as const
-const HAMMER_REST_WOUND = [HAMMER_REST[0], HAMMER_REST[1], HAMMER_REST[2] - Math.PI * 2] as const
+/** At rest his arm swings a little forward from the shoulder, the hammer's head up and pointing forward. */
+const HAMMER_REST = [-36, -59, 2.16 - Math.PI] as const
 /** Raised up his near side, so the arm never sweeps across his face. */
 const HAMMER_UP = [-42, -140, -2.2] as const
 /** The grip that brings a face of the head down on the blade lying on the anvil. */
 const HAMMER_HIT = [28, -80, 0.35] as const
 const HAMMER_BACK = [-44, -116, -3.3] as const
-const HAMMER_THROWN = [30, -96, 0] as const
+/** The throw lets go with his arm at full stretch from the shoulder. */
+const HAMMER_THROWN = [34, -95, 0] as const
 /** His front shoulder, which the blade's sweep swings about; the blade's length from his fist. */
 const FRONT_SHOULDER_FM = [30, -108] as const
 const BLADE_LEN = 50
@@ -1321,7 +1335,7 @@ const mixPose = (a: Pose3, b: Pose3, k: number): [number, number, number] => [a[
 function fmHammerPose(st: string, t: number): [number, number, number] | null {
     const q0 = q(t)
     if (st === 'special') {
-        if (q0 < 0.55) return mixPose(HAMMER_REST_WOUND, HAMMER_UP, sm(span(0.1, 0.55, q0)))
+        if (q0 < 0.55) return mixPose(HAMMER_REST, HAMMER_UP, sm(span(0.1, 0.55, q0)))
         for (let k = 0; k < SPARK_STRIKES.length; k++) {
             const ts = SPARK_STRIKES[k]!
             const next = SPARK_STRIKES[k + 1]
@@ -1333,7 +1347,7 @@ function fmHammerPose(st: string, t: number): [number, number, number] | null {
         return mixPose(HAMMER_HIT, HAMMER_REST, sm(span(SPARK_STRIKES[2] + 0.1, SPARK_DUR - 0.05, q0)))
     }
     if (st === 'special2') {
-        if (q0 < 0.6) return mixPose(HAMMER_REST_WOUND, HAMMER_BACK, sm(span(0.05, 0.6, q0)))
+        if (q0 < 0.6) return mixPose(HAMMER_REST, HAMMER_BACK, sm(span(0.05, 0.6, q0)))
         if (q0 < THROW_RELEASE) return mixPose(HAMMER_BACK, HAMMER_THROWN, sm(span(0.6, THROW_RELEASE, q0)))
         // his hand held out after it, then braced for the catch, jolted by it, and back to rest
         if (q0 < THROW_CATCH) return [...HAMMER_THROWN]
@@ -1519,7 +1533,23 @@ export const FORGE_MASTER: CreatureDef = {
             selOut(s, em, C.blue0)
             // the drape's folds from the shoulder, and the pleats of the skirt
             for (const [a0, b0, a1, b1] of [[-16, -116, 12, -90], [-22, -110, 4, -80], [-28, -100, -8, -74]] as const) { const [p0x, p0y] = up(a0, b0); const [p1x, p1y] = up(a1, b1); line(s, p0x, p0y, p1x, p1y, C.steel0) }
-            for (const kx of [-18, -6, 6, 18]) { const [a, b] = up(kx, -58); const [c, d] = up(kx + 1, -36); line(s, a, b, c, d, C.steel0) }
+            for (const [a0, b0, a1, b1] of [[-15, -116, 13, -91], [-21, -109, 5, -81], [-27, -99, -7, -75]] as const) { const [p0x, p0y] = up(a0, b0); const [p1x, p1y] = up(a1, b1); line(s, p0x, p0y, p1x, p1y, C.steel2) }
+            for (const kx of [-18, -6, 6, 18]) {
+                const [a, b] = up(kx, -58)
+                const [c, d] = up(kx + 1, -36)
+                line(s, a, b, c, d, C.steel0)
+                line(s, a + 1, b + 2, c + 1, d, C.steel2)
+            }
+            // the linen bloused over the belt, shadowed under it
+            for (let k = -26; k <= 26; k += 2) { const [a, b] = up(k, -58); if (em.get(R(a), R(b))) px(s, a, b, C.blue0) }
+            // a woven border round the hem: a blue band with a stitched line of gold through it
+            for (let k = -30; k <= 30; k++) {
+                const [a, b] = up(k, -40)
+                if (!em.get(R(a), R(b))) continue
+                px(s, a, b - 1, C.blue0)
+                px(s, a, b, k % 3 === 0 ? C.gold1 : C.blue1)
+                px(s, a, b + 1, C.blue1)
+            }
             { const [a, b] = up(-28, -37); const [c, d] = up(28, -37); line(s, a, b, c, d, C.blue0) }
             // the leather sash across his chest over it, from the shoulder to his hip
             const [s0x, s0y] = up(-16, -120)
@@ -1632,6 +1662,30 @@ export const FORGE_MASTER: CreatureDef = {
                 line(s, kx + 4, k0y + 4, kx + 2, k0y + 4, C.olive0)
                 px(s, kx + 1, k0y + 1, C.bone1)
             }
+            // the band the key is cut in
+            for (const ly of [-25, -13]) { const [a, b] = an(PLINTH_X0 + 2, ly); const [c] = an(PLINTH_X1 - 2, ly); line(s, a, b, c, b, C.olive0) }
+            // weathered stone: flecks and pits, a crack down from its corner, a chip off its foot, and
+            // soot on its top round the anvil's foot
+            for (let i = 0; i < 26; i++) {
+                const [a, b] = an(PLINTH_X0 + hash2(i, 21) * (PLINTH_X1 - PLINTH_X0), PLINTH_TOP + 4 + hash2(i, 23) * (-PLINTH_TOP - 10))
+                if (pm.get(R(a), R(b))) px(s, a, b, i % 3 ? C.olive1 : C.bone1)
+            }
+            {
+                const crack = [[PLINTH_X1 - 5, PLINTH_TOP + 4], [PLINTH_X1 - 8, PLINTH_TOP + 8], [PLINTH_X1 - 6, PLINTH_TOP + 11], [PLINTH_X1 - 9, PLINTH_TOP + 15]] as const
+                for (let k = 0; k < crack.length - 1; k++) {
+                    const [a, b] = an(crack[k]![0], crack[k]![1])
+                    const [c, d] = an(crack[k + 1]![0], crack[k + 1]![1])
+                    line(s, a, b, c, d, C.olive0)
+                    px(s, a + 1, b, C.bone1)
+                }
+            }
+            { const [a, b] = an(PLINTH_X0 - 3, -3); line(s, a, b, a + 3, b, C.olive0); px(s, a + 1, b - 1, C.olive0) }
+            for (let lx = PLINTH_X0 + 2; lx < PLINTH_X1; lx++) {
+                for (let ly = PLINTH_TOP - 3; ly <= PLINTH_TOP - 1; ly++) {
+                    const [a, b] = an(lx, ly)
+                    if (pm.get(R(a), R(b)) && bayer(R(a), R(b), 8 - Math.abs(lx - 44) / 3)) px(s, a, b, C.olive0)
+                }
+            }
             // the anvil: a flared foot on the pedestal, a waist, the body square at its heel and its
             // horn reaching out toward the party
             const am = mask(s, 'anvil')
@@ -1644,6 +1698,26 @@ export const FORGE_MASTER: CreatureDef = {
             // its face, lit along the top by the hot blade, and the hardy hole at its heel
             { const [a, b] = an(ANVIL_X0, ANVIL_TOP); const [c, d] = an(ANVIL_X1 + 18, ANVIL_TOP + 4); line(s, a, b, c - 18, b, C.brown3); line(s, c - 18, b, c, d, C.brown3); line(s, a + 10, b, c - 22, b, C.orange) }
             { const [a, b] = an(ANVIL_X0 + 6, ANVIL_TOP + 2); px(s, a, b, C.ink); px(s, a + 1, b, C.ink) }
+            // a steel face plate on its top, dented where he works, the round pritchel hole by the
+            // hardy, and the step down to the horn
+            { const [a, b] = an(ANVIL_X0 + 1, ANVIL_TOP + 1); const [c] = an(ANVIL_X1 - 1, ANVIL_TOP + 1); line(s, a, b, c, b, C.steel1); line(s, a, b + 1, c, b + 1, C.brown0) }
+            for (const lx of [30, 37, 41, 50]) { const [a, b] = an(lx, ANVIL_TOP + 1); px(s, a, b, C.steel3) }
+            { const [a, b] = an(ANVIL_X0 + 11, ANVIL_TOP + 2); px(s, a, b, C.ink) }
+            { const [a, b] = an(ANVIL_X1, ANVIL_TOP + 1); line(s, a, b, a, b + 6, C.brown0); px(s, a - 1, b, C.brown3) }
+            // the heel's lower edge caught by the light, the waist in its shadow
+            { const [a, b] = an(ANVIL_X0 + 7, -50); const [c] = an(ANVIL_X1 - 9, -50); line(s, a, b, c, b, C.brown3) }
+            { const [a, b] = an(36, -48); const [c] = an(52, -48); line(s, a, b, c, b, C.brown0) }
+            // his mark struck into its side: a gold boss between two rivets
+            {
+                const [a, b] = an((ANVIL_X0 + ANVIL_X1) / 2, -55)
+                disc(s, a, b, 2.5, C.gold1)
+                px(s, a - 1, b - 1, C.gold3)
+                px(s, a + 1, b + 1, C.gold0)
+                for (const d of [-9, 9]) { px(s, a + d, b, C.brown3); px(s, a + d, b + 1, C.brown0) }
+            }
+            // the foot's flare lit along its top, and the arch cut under it between its feet
+            { const [a, b] = an(33, -45); const [c] = an(55, -45); line(s, a, b, c, b, C.brown3) }
+            { const [a, b] = an(38, PLINTH_TOP - 4); const [c] = an(50, PLINTH_TOP - 4); line(s, a, b, c, b, C.ink); line(s, a + 2, b - 1, c - 2, b - 1, C.ink) }
         }
 
         // ── the sword he is finishing, in his blade fist: a straight leaf-shaped blade of bright steel
@@ -1705,11 +1779,12 @@ export const FORGE_MASTER: CreatureDef = {
             elbow(sx, sy, Hx, Hy, 30, 28, 1)
             const ex = P.x
             const ey = P.y
-            if (held) forgeHammer(s, Hx, Hy, hang)
             arm('mbarm', sx, sy, ex, ey, Hx, Hy, true)
             // a gold armlet round the bicep, a band at the wrist
             band(sx + (ex - sx) * 0.6, sy + (ey - sy) * 0.6, ex - sx, ey - sy, 9)
             band(ex + (Hx - ex) * 0.75, ey + (Hy - ey) * 0.75, Hx - ex, Hy - ey, 7)
+            // the hammer over his arm, and only his fist over the hammer
+            if (held) forgeHammer(s, Hx, Hy, hang)
             grip('mbfist', Hx, Hy, hang, true)
         }
 
