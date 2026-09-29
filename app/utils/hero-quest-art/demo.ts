@@ -54,7 +54,7 @@ import { drawSkillBanner, tintLut, applyTint } from './presentation'
 import { CLASS_BY_ID } from '../../../shared/utils/hero-quest/content/classes'
 import { CHAMPION_BY_ID, CHAMPIONS } from '../../../shared/utils/hero-quest/content/champions'
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
-import { specialState, specialsOf, type BossSpecial } from './creature'
+import { specialState, specialsOf, type BossSpecial, type CreatureDef } from './creature'
 import { BOSSES_A } from './bosses-a'
 import { BOSSES_B } from './bosses-b'
 import { GILDED_WARLORD, GREAT_DUMMY, DUMMY_IMPACT, DEEPCOIL, RAMPANT, RAMPAGE_ROAR, RAMPAGE_SLAM } from './raids'
@@ -129,6 +129,8 @@ const RAMPAGE_EVERY = 10
  * while it plays, instead of holding the page for seconds when the raid is picked.
  */
 const BAKE_BUDGET = 4
+/** How far behind the near rank's mark a raid boss stands (special-kit.ts previews it the same), less its own `advance`. */
+const RAID_BOSS_DX = 22
 /**
  * A Training Grounds round: seconds the party has to hit the dummy, and how long TIME UP holds
  * before it dissolves (from `DUMMY_FADE_AT`) and the party marches on to the next.
@@ -447,6 +449,8 @@ export class BattleDemo {
         id: RaidId, name: string, tables: Baked[][], at: number, adds: Baked[][], next: number, hits: number, escalating: boolean
         clock: number, dmg: number, over: number
         specials: readonly (readonly BossSpecial[])[], spTables: Baked[][][], spNext: number
+        /** The boss behind each table, where it is known: for how far in front of its mark it stands. */
+        defs: readonly (CreatureDef | undefined)[]
     } | null = null
 
     /** The Training Grounds' timer and damage readout, rebuilt only when either changes. */
@@ -528,7 +532,7 @@ export class BattleDemo {
         const foes = [0, 1, 2, 3, 4, 5].map(i => this.unit(1, VL.foes[i]!, this.rigFrames[i % 4]!, [ENEMY_RIGS.sword.attack], null))
         // a raid boss stands on the near rank, well back, its bulk filling the right of the scene
         const boss = this.raid
-            ? this.unit(1, VL.foes[0], this.raid.tables[0]!, [], null, 22)
+            ? this.unit(1, VL.foes[0], this.raid.tables[0]!, [], null, RAID_BOSS_DX - (this.raid.defs[0]?.advance ?? 0))
             : this.unit(1, VL.foes[1], this.bossFrames[0]!, [], null, 6)
         boss.boss = true
         // the Dig-site's adds crawl out in front of the Deepcoil, not inside it
@@ -625,7 +629,7 @@ export class BattleDemo {
         }))
         // baked in the order they come: each table with its specials, the next tier or boss after
         this.jobs.sort((a, c) => a.table - c.table)
-        return { id, name: name.split(' — ')[0]!.toUpperCase(), tables, at: 0, adds, next: 0, hits: 0, escalating: false, clock: DUMMY_ROUND, dmg: 0, over: -1, specials, spTables, spNext: 0 }
+        return { id, name: name.split(' — ')[0]!.toUpperCase(), tables, at: 0, adds, next: 0, hits: 0, escalating: false, clock: DUMMY_ROUND, dmg: 0, over: -1, specials, spTables, spNext: 0, defs: tables.map((_, k) => defs[k]) }
     }
 
     /** Bake in the background for up to BAKE_BUDGET ms: the raid's later tables, in the order they come. */
@@ -1171,6 +1175,8 @@ export class BattleDemo {
                         if (u.boss && r?.id === 'forge' && r.at < r.tables.length - 1) {
                             r.at++
                             this.finishBaking(r.at)
+                            // each stands where its own reach wants it
+                            u.x = OX + VL.foes[0].x + RAID_BOSS_DX - (r.defs[r.at]?.advance ?? 0)
                             u.frames = r.tables[r.at]!
                             u.state = U.Entry
                             u.t = 0

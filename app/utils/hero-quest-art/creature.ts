@@ -74,6 +74,11 @@ export interface CreatureDef {
      */
     specials?: readonly BossSpecial[]
     /**
+     * How far in front of its raid mark a raid boss stands, in px: a small one comes in closer, so
+     * its blows reach the party. The live stage and the gallery's staged specials both honour it.
+     */
+    advance?: number
+    /**
      * Seconds into its death at which the live stage breaks it apart. Left out, the stage finds the
      * frame where the body starts dissolving; a death that shrinks or collapses on purpose sets it,
      * or it would be shattered before its death had played out.

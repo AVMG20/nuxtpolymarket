@@ -29,10 +29,10 @@ const RAID_DX = 22
 const ADD_BACK = 44
 
 /** The fight as the gallery previews it: the boss on its mark, the party on theirs. */
-export function previewStage(raid = false): SpecialStage {
+export function previewStage(raid = false, advance = 0): SpecialStage {
     const m = raid ? VL.foes[0] : VL.foes[1]!
     const party = VL.allies.map(a => ({ x: STAGE.ox + a.x, y: STAGE.oy + a.g })).sort((a, b) => b.x - a.x)
-    return { bx: STAGE.ox + m.x + (raid ? RAID_DX : STAGE.bossDx), by: STAGE.oy + m.g, dir: -1, party }
+    return { bx: STAGE.ox + m.x + (raid ? RAID_DX - advance : STAGE.bossDx), by: STAGE.oy + m.g, dir: -1, party }
 }
 
 /** The party member the `i`th hit of a special lands on: walking the line if `spread`, else the nearest. */
@@ -55,7 +55,7 @@ const PREVIEW = new Surface(SW, SH, 0, 0)
  */
 export function drawSpecialPreview(dst: Surface, def: CreatureDef, t: number, n = 0, raid = false, adds: readonly CreatureDef[] = []): void {
     const s = PREVIEW
-    const st = previewStage(raid)
+    const st = previewStage(raid, raid ? def.advance ?? 0 : 0)
     // its adds on the near marks in front of it, as the live stage sets them out
     const marks = adds.map((_, k) => ({ x: STAGE.ox + VL.foes[k]!.x - ADD_BACK, y: STAGE.oy + VL.foes[k]!.g }))
     st.adds = marks
