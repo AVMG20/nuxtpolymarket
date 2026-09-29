@@ -1,162 +1,189 @@
 <template>
-    <div class="relative h-screen w-full select-none overflow-hidden bg-black">
+    <div class="dark relative h-screen w-full select-none overflow-hidden bg-black">
         <div ref="viewport" class="absolute inset-0" />
+
+        <!-- Shared SVG filters: scratched chalk / blood strokes for the round counter. -->
+        <svg class="pointer-events-none absolute size-0" aria-hidden="true">
+            <defs>
+                <filter id="cox-scratch" x="-15%" y="-15%" width="130%" height="130%">
+                    <feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="4" result="warp" />
+                    <feDisplacementMap in="SourceGraphic" in2="warp" scale="3.2" result="rough" />
+                    <feTurbulence type="fractalNoise" baseFrequency="0.55" numOctaves="1" seed="9" result="grain" />
+                    <feColorMatrix in="grain" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.7 1.95" result="holes" />
+                    <feComposite in="rough" in2="holes" operator="in" />
+                </filter>
+            </defs>
+        </svg>
 
         <!-- Floating damage and point numbers, projected from world space. -->
         <div class="pointer-events-none absolute inset-0 overflow-hidden">
             <div
                 v-for="popup in popups"
                 :key="popup.id"
-                class="absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-mono font-bold tabular-nums drop-shadow-[0_2px_3px_rgba(0,0,0,0.9)]"
+                class="cox-stencil absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-bold tabular-nums drop-shadow-[0_2px_3px_rgba(0,0,0,0.9)]"
                 :style="{ left: popup.left + 'px', top: popup.top + 'px', opacity: popup.opacity, color: popup.color, fontSize: popup.size + 'px' }"
             >{{ popup.text }}</div>
         </div>
 
-        <div class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 180px 40px rgba(0,0,0,0.75)" />
-        <div
-            class="pointer-events-none absolute inset-0"
-            :style="{ opacity: hurtVeil, boxShadow: 'inset 0 0 200px 70px rgba(190,10,10,0.9)' }"
-        />
+        <!-- The vignette, the red damage edge and the low-health desaturation live in the post pass. Only the insta-kill wash stays here. -->
+        <div v-if="instakillOn" class="cox-instakill pointer-events-none absolute inset-0" />
 
-        <!-- Directional damage indicators, rotated toward the source. -->
+        <!-- Directional damage indicators: a blood-red arc toward the source. -->
         <div
             v-for="mark in hurtMarks"
             :key="mark.id"
             class="pointer-events-none absolute inset-0 flex items-center justify-center"
             :style="{ transform: `rotate(${mark.angle}deg)`, opacity: Math.min(1, mark.life * 1.3) }"
         >
-            <div class="relative size-80">
-                <div class="absolute left-1/2 top-0 h-9 w-28 -translate-x-1/2 rounded-t-full border-x-4 border-t-4 border-red-500/80 drop-shadow-[0_0_6px_rgba(220,38,38,0.8)]" />
-            </div>
+            <svg class="size-[min(78vh,36rem)] overflow-visible" viewBox="0 0 320 320" fill="none">
+                <path d="M96 40 A140 140 0 0 1 224 40" stroke="rgba(120,0,0,0.55)" stroke-width="30" stroke-linecap="round" class="cox-arc-soft" />
+                <path d="M100 38 A140 140 0 0 1 220 38" stroke="#b30f0f" stroke-width="12" stroke-linecap="round" class="cox-arc-core" />
+                <path d="M110 34 A140 140 0 0 1 210 34" stroke="#ff5a4d" stroke-width="3" stroke-linecap="round" opacity="0.8" />
+            </svg>
         </div>
-
-        <div v-if="lowHealth" class="pointer-events-none absolute inset-0 animate-pulse" style="box-shadow: inset 0 0 260px 90px rgba(140,0,0,0.55)" />
-        <div
-            v-if="instakillOn"
-            class="pointer-events-none absolute inset-0"
-            style="box-shadow: inset 0 0 200px 60px rgba(255,60,60,0.28)"
-        />
 
         <!-- Crosshair -->
         <div v-if="phase === 'playing' && locked" class="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div class="relative size-16">
-                <span
-                    v-for="(rot, i) in [0, 90, 180, 270]"
-                    :key="i"
-                    class="absolute left-1/2 top-1/2 h-2.5 w-0.5 origin-center rounded-full transition-colors"
-                    :class="hitMarker > 0 ? 'bg-red-400' : 'bg-white/80'"
-                    :style="{ transform: `rotate(${rot}deg) translateY(${-crossGap}px) translateX(-50%)` }"
-                />
-                <span class="absolute left-1/2 top-1/2 size-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/70" />
-                <span
-                    v-if="hitMarker > 0"
-                    class="absolute inset-0 flex items-center justify-center text-lg font-bold"
-                    :class="lastHitKind === 'weak' ? 'text-amber-300' : lastHitKind === 'head' ? 'text-amber-200' : 'text-red-400'"
-                    :style="{ opacity: hitMarker / 0.18 }"
-                >✕</span>
+            <div class="relative size-28">
+                <div class="absolute inset-0" :style="{ opacity: crossFade }">
+                    <span
+                        v-for="(rot, i) in [0, 90, 180, 270]"
+                        :key="i"
+                        class="cox-tick absolute left-1/2 top-1/2 h-2.5 w-[2px] origin-center rounded-full bg-white/85"
+                        :style="{ transform: `rotate(${rot}deg) translateY(${-crossGapHud}px) translateX(-50%)` }"
+                    />
+                    <span class="absolute left-1/2 top-1/2 size-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/80 shadow-[0_0_0_1px_rgba(0,0,0,0.5)]" />
+                </div>
+                <!-- Hitmarker: a four-tick X. White on body, gold on head/weak, big red on a kill. -->
+                <div v-if="hitMarker > 0" class="absolute inset-0" :class="'cox-hit-' + hitTone" :style="{ opacity: Math.min(1, hitMarker / 0.18) }">
+                    <span
+                        v-for="rot in [45, 135, 225, 315]"
+                        :key="rot"
+                        class="cox-hit-tick absolute left-1/2 top-1/2 origin-center rounded-full"
+                        :style="{ transform: `rotate(${rot}deg) translateY(${hitTone === 'kill' ? -10 : -7}px) translateX(-50%) scale(${hitTone === 'kill' ? 1.45 : 1})` }"
+                    />
+                </div>
             </div>
         </div>
 
         <!-- HUD -->
-        <div v-if="phase !== 'menu'" class="pointer-events-none absolute inset-0 p-5 font-mono text-white sm:p-6">
-            <!-- Vitals: bottom-left, where a shooter keeps it -->
-            <div class="absolute bottom-5 left-5 sm:bottom-6 sm:left-6">
-                <div class="rounded-lg border border-white/10 bg-black/55 px-4 py-3 backdrop-blur-sm">
-                    <div class="flex items-center gap-1.5 text-[9px] uppercase tracking-[0.35em]" :class="lowHealth ? 'text-red-400' : 'text-zinc-500'">
-                        <UIcon name="i-lucide-heart-pulse" class="size-3.5" :class="lowHealth ? 'animate-pulse' : ''" />
-                        Vitals
-                    </div>
-                    <div class="mt-1 flex items-baseline gap-1.5">
-                        <span class="text-4xl font-black leading-none tabular-nums" :class="lowHealth ? 'text-red-500' : 'text-zinc-50'">
-                            {{ Math.ceil(health) }}
-                        </span>
-                        <span class="text-xs font-bold text-zinc-500">/ {{ maxHealth }}</span>
-                    </div>
-                    <!-- segmented bar: fill + segment dividers over it -->
-                    <div class="relative mt-2 h-2 w-52 overflow-hidden rounded-sm bg-white/10">
-                        <div
-                            class="h-full transition-[width] duration-100"
-                            :class="lowHealth ? 'bg-red-500' : 'bg-emerald-400'"
-                            :style="{ width: (health / maxHealth * 100) + '%' }"
-                        />
-                        <div class="absolute inset-0" style="background-image: repeating-linear-gradient(90deg, transparent 0 calc(10% - 2px), rgba(0,0,0,0.65) calc(10% - 2px) 10%)" />
-                    </div>
-                </div>
-
-                <!-- Perks -->
-                <div v-if="ownedPerks.length" class="mt-2.5 flex gap-2">
+        <div v-if="phase !== 'menu'" class="pointer-events-none absolute inset-0 p-4 font-mono text-white sm:p-6">
+            <!-- Bottom-left: perks, round counter, slim health -->
+            <div class="absolute bottom-4 left-4 sm:bottom-6 sm:left-6">
+                <div v-if="ownedPerks.length" class="mb-3 flex gap-2">
                     <div
                         v-for="perk in ownedPerks"
                         :key="perk.id"
-                        class="flex size-11 items-center justify-center rounded-lg border-2 text-[10px] font-black uppercase shadow-lg backdrop-blur-sm"
-                        :style="{ borderColor: perkCss(perk.color), color: perkCss(perk.color), background: perkCss(perk.color) + '26' }"
+                        class="cox-perk"
+                        :style="{ '--perk': perkCss(perk.color) }"
+                        :title="perk.name"
                     >
-                        {{ perkShort(perk.id) }}
+                        <svg viewBox="0 0 24 24" class="size-6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                            <path :d="perkGlyphs[perk.id]" />
+                        </svg>
+                        <span class="cox-perk-tag">{{ perkShort(perk.id) }}</span>
+                    </div>
+                </div>
+
+                <div class="flex items-end gap-4">
+                    <!-- Round: chalk tally marks for 1-5, then a distressed numeral -->
+                    <div class="cox-round" :class="specialRound ? 'cox-round-special' : ''" :style="roundStyle">
+                        <div :key="round" class="cox-round-pulse">
+                            <svg v-if="round <= 5" class="cox-tally" viewBox="0 0 92 64" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round">
+                                <g filter="url(#cox-scratch)">
+                                    <path
+                                        v-for="i in Math.min(round, 4)"
+                                        :key="i"
+                                        :d="`M${8 + (i - 1) * 17 + tallyJitter[i - 1]!.dx} ${7 + tallyJitter[i - 1]!.top} L${9 + (i - 1) * 17 + tallyJitter[i - 1]!.dx * 1.6} ${57 - tallyJitter[i - 1]!.bot}`"
+                                    />
+                                    <path v-if="round >= 5" d="M2 46 L66 12" stroke-width="5.5" />
+                                </g>
+                            </svg>
+                            <span v-else class="cox-round-num">{{ round }}</span>
+                        </div>
+                        <div class="cox-round-label">
+                            <span>Round</span>
+                            <span class="cox-round-chip">{{ runDifficultyName }}</span>
+                        </div>
+                    </div>
+
+                    <div class="mb-1 w-44 sm:w-52">
+                        <div class="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.25em]" :class="lowHealth ? 'text-red-400' : 'text-zinc-400'">
+                            <span class="flex items-center gap-1">
+                                <UIcon name="i-lucide-heart-pulse" class="size-3.5" :class="lowHealth ? 'animate-pulse' : ''" />
+                                Vitals
+                            </span>
+                            <span class="cox-stencil text-sm tabular-nums" :class="lowHealth ? 'text-red-500' : 'text-zinc-100'">{{ Math.ceil(health) }}</span>
+                        </div>
+                        <div class="mt-1 flex gap-[3px]" :class="lowHealth ? 'animate-pulse' : ''">
+                            <span v-for="(seg, i) in healthSegments" :key="i" class="cox-seg">
+                                <span class="cox-seg-fill" :class="lowHealth ? 'bg-red-600' : 'bg-emerald-400'" :style="{ width: seg * 100 + '%' }" />
+                            </span>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <!-- Top-left: active power-ups and deployed equipment -->
-            <div class="absolute left-5 top-5 space-y-1.5 sm:left-6 sm:top-6">
+            <div class="absolute left-4 top-4 space-y-1.5 sm:left-6 sm:top-6">
                 <div
                     v-for="buff in activePowerUps"
                     :key="buff.id"
-                    class="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-widest backdrop-blur-sm"
-                    :style="{ color: buff.color, borderColor: buff.color + '55', background: buff.color + '14' }"
+                    class="cox-chip"
+                    :style="{ color: buff.color, borderColor: buff.color + '66', '--chip': buff.color }"
                 >
-                    <span class="inline-block size-1.5 animate-pulse rounded-full" :style="{ background: buff.color }" />
+                    <span class="inline-block size-1.5 animate-pulse rounded-full" :style="{ background: buff.color, boxShadow: '0 0 6px ' + buff.color }" />
                     {{ buff.name }}
-                    <span class="tabular-nums opacity-60">{{ Math.ceil(buff.remaining) }}s</span>
+                    <span class="tabular-nums opacity-70">{{ Math.ceil(buff.remaining) }}s</span>
                 </div>
                 <div
                     v-for="unit in activeEquipment"
                     :key="unit.key"
-                    class="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-widest backdrop-blur-sm"
-                    :style="{ color: unit.color, borderColor: unit.color + '55', background: unit.color + '14' }"
+                    class="cox-chip"
+                    :style="{ color: unit.color, borderColor: unit.color + '66', '--chip': unit.color }"
                 >
                     <UIcon :name="unit.icon" class="size-3.5" />
                     {{ unit.label }}
-                    <span class="tabular-nums opacity-60">{{ Math.ceil(unit.remaining) }}s</span>
+                    <span class="tabular-nums opacity-70">{{ Math.ceil(unit.remaining) }}s</span>
                 </div>
             </div>
 
-            <!-- Top-right: points, then combat state -->
-            <div class="absolute right-5 top-5 text-right sm:right-6 sm:top-6">
-                <div class="text-4xl font-black leading-none tabular-nums text-amber-300 drop-shadow-[0_2px_6px_rgba(251,191,36,0.25)]">
-                    {{ points.toLocaleString() }}
+            <!-- Top-right: combat state -->
+            <div class="absolute right-4 top-4 flex flex-col items-end gap-1.5 sm:right-6 sm:top-6">
+                <div class="cox-panel-sm flex items-center gap-2 px-3 py-1.5" :class="enemiesLeft > 0 ? 'text-red-400' : 'text-zinc-500'">
+                    <UIcon name="i-lucide-skull" class="size-4" :class="enemiesLeft > 0 ? 'animate-pulse' : ''" />
+                    <span class="cox-stencil text-xl tabular-nums leading-none">{{ enemiesLeft }}</span>
+                    <span class="text-[10px] font-bold uppercase tracking-[0.25em] text-zinc-500">hostiles</span>
                 </div>
-                <div class="mt-0.5 text-[9px] uppercase tracking-[0.35em] text-zinc-500">Points</div>
-
-                <div class="mt-4 border-r-2 pr-2" :class="specialRound ? 'border-fuchsia-500' : 'border-red-600'">
-                    <div class="text-[9px] uppercase tracking-[0.35em] text-zinc-500">Round</div>
-                    <div class="text-4xl font-black leading-none tabular-nums" :class="specialRound ? 'text-fuchsia-400' : 'text-red-500'">
-                        {{ round }}
-                    </div>
-                    <div class="mt-0.5 flex items-center justify-end gap-1 text-[9px] uppercase tracking-[0.2em] text-zinc-500">
-                        <span class="rounded-sm border border-white/10 bg-white/5 px-1.5 py-px">{{ runDifficultyName }}</span>
-                    </div>
-                </div>
-
-                <div class="mt-2.5 flex items-center justify-end gap-1.5 text-[11px] font-bold uppercase tracking-[0.2em]" :class="enemiesLeft > 0 ? 'text-red-400' : 'text-zinc-600'">
-                    <UIcon name="i-lucide-skull" class="size-3.5" :class="enemiesLeft > 0 ? 'animate-pulse' : ''" />
-                    <span class="tabular-nums">{{ enemiesLeft }}</span>
-                    <span class="text-zinc-500">hostiles</span>
-                </div>
-                <div v-if="modifierName" class="mt-1.5 flex items-center justify-end gap-1 rounded-sm border border-cyan-400/30 bg-cyan-400/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.25em] text-cyan-300">
-                    <UIcon name="i-lucide-radio" class="size-3" />
+                <div v-if="modifierName" class="cox-chip !border-cyan-400/40 !text-cyan-300" style="--chip: #22d3ee">
+                    <UIcon name="i-lucide-radio" class="size-3.5" />
                     {{ modifierName }}
                 </div>
             </div>
 
-            <!-- Weapon + ammo: bottom-right -->
-            <div class="absolute bottom-5 right-5 text-right sm:bottom-6 sm:right-6">
+            <!-- Right: points stack (CoD style, increments fly out), then the weapon -->
+            <div class="absolute bottom-4 right-4 flex flex-col items-end gap-2.5 sm:bottom-6 sm:right-6">
+                <div class="cox-points relative">
+                    <div class="pointer-events-none absolute bottom-full right-0 h-40 w-40">
+                        <span
+                            v-for="f in pointFloaters"
+                            :key="f.id"
+                            class="cox-float cox-stencil absolute bottom-0 right-0 whitespace-nowrap text-2xl font-bold tabular-nums"
+                            :class="f.gain ? 'text-amber-300' : 'text-red-400'"
+                            :style="{ '--fx': f.x + 'px' }"
+                        >{{ f.text }}</span>
+                    </div>
+                    <div class="cox-stencil cox-points-num text-right tabular-nums">{{ points.toLocaleString() }}</div>
+                    <div class="text-right text-[9px] font-bold uppercase tracking-[0.4em] text-zinc-500">Points</div>
+                </div>
+
                 <div class="flex items-end justify-end gap-2.5">
                     <!-- Carried equipment: a miniature of the unit, deploy key at its foot -->
                     <div v-if="equipmentStock.length" class="flex items-end gap-1.5">
                         <div
                             v-for="(item, i) in equipmentStock"
                             :key="i"
-                            class="relative flex flex-col items-center rounded-md border border-white/10 bg-black/55 px-1.5 pb-3.5 pt-1 backdrop-blur-sm"
+                            class="cox-panel-sm relative flex flex-col items-center px-1.5 pb-3.5 pt-1"
                             :style="{ color: perkCss(CALL_OF_XENO_EQUIPMENT[item].color) }"
                         >
                             <svg v-if="item === 'sentry'" class="size-9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
@@ -174,129 +201,125 @@
                                 <circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none" />
                                 <circle cx="12" cy="12" r="7.2" stroke-dasharray="3 2.4" />
                             </svg>
-                            <span class="absolute bottom-1 left-1/2 -translate-x-1/2 rounded-sm border border-white/25 bg-zinc-900 px-1 text-[9px] font-bold leading-none text-zinc-100">E</span>
+                            <span class="cox-key absolute bottom-1 left-1/2 -translate-x-1/2">E</span>
                         </div>
                     </div>
-                    <div class="rounded-lg border border-white/10 bg-black/55 px-4 py-3 backdrop-blur-sm">
-                    <div class="flex items-center justify-end gap-2">
-                        <span class="text-xs font-black uppercase tracking-[0.2em]" :class="deathMachineHud ? 'text-orange-300' : papTier === 3 ? 'text-pink-300' : papTier === 2 ? 'text-cyan-300' : papTier === 1 ? 'text-purple-300' : 'text-zinc-100'">
-                            {{ weaponName }}
-                        </span>
-                        <span
-                            v-if="papTier > 0"
-                            class="rounded-sm border px-1.5 py-px text-[9px] font-black tracking-[0.15em]"
-                            :class="papTier === 3 ? 'border-pink-400/50 text-pink-300' : papTier === 2 ? 'border-cyan-400/50 text-cyan-300' : 'border-purple-400/50 text-purple-300'"
-                        >PaP {{ papTier }}/3</span>
-                    </div>
-                    <div class="mt-1 flex items-baseline justify-end gap-2">
-                        <template v-if="deathMachineHud">
-                            <span class="text-5xl font-black leading-none text-orange-300">∞</span>
-                        </template>
-                        <template v-else>
-                            <span class="text-5xl font-black leading-none tabular-nums" :class="!reloading && magAmmo === 0 ? 'text-red-500 animate-pulse' : reloading ? 'text-zinc-400' : 'text-zinc-50'">{{ magAmmo }}</span>
-                            <span class="text-lg font-bold tabular-nums text-zinc-500">/ {{ reserveAmmo }}</span>
-                        </template>
-                    </div>
-                    <!-- Ammo bar: amber = rounds left; while reloading the same
-                         bar fills muted-orange with the reload progress, so
-                         the card never grows and the state is read in place. -->
-                    <div class="relative mt-2 h-2 w-44 overflow-hidden rounded-sm bg-white/10">
-                        <div
-                            v-if="reloading"
-                            class="h-full animate-pulse bg-orange-400/60"
-                            :style="{ width: reloadFraction + '%', animationDuration: '1.6s' }"
-                        />
-                        <div
-                            v-else
-                            class="h-full transition-[width] duration-150"
-                            :class="magFraction <= 25 ? 'bg-red-500' : 'bg-amber-300/90'"
-                            :style="{ width: magFraction + '%' }"
-                        />
-                        <div class="absolute inset-0" style="background-image: repeating-linear-gradient(90deg, transparent 0 calc(20% - 2px), rgba(0,0,0,0.65) calc(20% - 2px) 20%)" />
-                    </div>
-                    <!-- Fixed-height status row: reserve every state a line, so
-                         the card below never jumps. -->
-                    <div class="mt-1.5 flex h-4 items-center justify-end">
-                        <span v-if="reloading || deathMachineHud" class="text-[10px] font-bold uppercase tracking-[0.25em]" :class="deathMachineHud ? 'text-orange-300/80' : 'text-zinc-600'">{{ deathMachineHud ? 'Belt fed' : '—' }}</span>
-                        <span v-else-if="magAmmo === 0 && reserveAmmo > 0" class="text-[10px] font-bold uppercase tracking-[0.25em] text-red-400 animate-pulse">
-                            Reload [R]
-                        </span>
-                        <span v-else-if="magAmmo === 0 && reserveAmmo === 0" class="text-[10px] font-bold uppercase tracking-[0.25em] text-red-500 animate-pulse">
-                            No ammo
-                        </span>
+
+                    <!-- Weapon card: name, PaP tier, magazine / reserve, ammo bar, state row -->
+                    <div class="cox-panel-sm cox-weapon min-w-56 px-4 py-3" :data-state="ammoState">
+                        <div class="flex items-center justify-end gap-2">
+                            <span
+                                v-if="papTier > 0"
+                                class="cox-pap"
+                                :class="papTier === 3 ? 'border-pink-400/60 text-pink-300' : papTier === 2 ? 'border-cyan-400/60 text-cyan-300' : 'border-purple-400/60 text-purple-300'"
+                            >PaP {{ papTier }}/3</span>
+                            <span class="cox-stencil text-base tracking-[0.14em]" :class="deathMachineHud ? 'text-orange-300' : papTier === 3 ? 'text-pink-300' : papTier === 2 ? 'text-cyan-300' : papTier === 1 ? 'text-purple-300' : 'text-zinc-100'">
+                                {{ weaponName }}
+                            </span>
+                        </div>
+                        <div class="mt-1 flex items-baseline justify-end gap-2">
+                            <template v-if="deathMachineHud">
+                                <span class="cox-stencil cox-mag text-orange-300">∞</span>
+                            </template>
+                            <template v-else>
+                                <span class="cox-stencil cox-mag tabular-nums" :class="ammoState === 'empty' || ammoState === 'dry' ? 'animate-pulse text-red-500' : ammoState === 'low' ? 'text-red-400' : ammoState === 'reload' ? 'text-zinc-500' : 'text-zinc-50'">{{ magAmmo }}</span>
+                                <span class="cox-stencil text-xl tabular-nums text-zinc-500">/ {{ reserveAmmo }}</span>
+                            </template>
+                        </div>
+                        <!-- Ammo bar: amber = rounds left; while reloading the same bar fills with the reload progress. -->
+                        <div class="relative mt-2 h-1.5 overflow-hidden rounded-[1px] bg-white/10">
+                            <div
+                                v-if="reloading"
+                                class="h-full animate-pulse bg-orange-400/70"
+                                :style="{ width: reloadFraction + '%', animationDuration: '1.2s' }"
+                            />
+                            <div
+                                v-else
+                                class="h-full transition-[width] duration-150"
+                                :class="magFraction <= 25 ? 'bg-red-500' : 'bg-amber-300/90'"
+                                :style="{ width: magFraction + '%' }"
+                            />
+                            <div class="absolute inset-0" style="background-image: repeating-linear-gradient(90deg, transparent 0 calc(10% - 1px), rgba(0,0,0,0.7) calc(10% - 1px) 10%)" />
+                        </div>
+                        <!-- Fixed-height status row so the card never jumps. -->
+                        <div class="mt-1.5 flex h-4 items-center justify-end text-[10px] font-bold uppercase tracking-[0.25em]">
+                            <span v-if="ammoState === 'belt'" class="text-orange-300/80">Belt fed</span>
+                            <span v-else-if="ammoState === 'reload'" class="text-orange-300/90">Reloading</span>
+                            <span v-else-if="ammoState === 'empty'" class="animate-pulse text-red-400">Reload [R]</span>
+                            <span v-else-if="ammoState === 'dry'" class="animate-pulse text-red-500">No ammo</span>
+                            <span v-else-if="ammoState === 'low'" class="text-red-400/90">Low ammo</span>
+                        </div>
                     </div>
                 </div>
-                </div>
-                <div v-if="stowedName" class="mt-2 inline-flex items-center gap-2 rounded-md border border-white/10 bg-black/55 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400 backdrop-blur-sm">
-                    <span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-px text-zinc-200">Q</span>
+                <div v-if="stowedName" class="cox-panel-sm inline-flex items-center gap-2 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400">
+                    <span class="cox-key">Q</span>
                     {{ stowedName }}
                 </div>
             </div>
 
             <div
                 v-if="prompt"
-                class="absolute left-1/2 top-[60%] -translate-x-1/2 rounded-md border px-4 py-2 text-center text-sm font-medium backdrop-blur-sm"
-                :class="promptAffordable ? 'border-white/15 bg-black/70 text-zinc-100' : 'border-red-500/40 bg-red-950/60 text-red-300'"
+                class="cox-panel-sm absolute left-1/2 top-[60%] -translate-x-1/2 px-5 py-2 text-center text-sm font-medium"
+                :class="promptAffordable ? 'text-zinc-100' : '!border-red-500/50 !bg-red-950/70 text-red-300'"
             >
                 {{ prompt }}
             </div>
 
             <Transition enter-active-class="transition duration-300" enter-from-class="opacity-0 scale-90" leave-active-class="transition duration-500" leave-to-class="opacity-0">
-                <div v-if="banner" class="absolute left-1/2 top-[20%] -translate-x-1/2 text-center">
+                <div v-if="banner" class="absolute left-1/2 top-[18%] w-max max-w-[90vw] -translate-x-1/2 text-center">
                     <div
-                        class="text-5xl font-black uppercase tracking-[0.2em] drop-shadow-[0_3px_8px_rgba(0,0,0,0.9)]"
-                        :style="{ color: bannerColor }"
+                        class="cox-stencil cox-banner text-4xl uppercase tracking-[0.22em] sm:text-6xl"
+                        :style="{ color: bannerColor, '--banner': bannerColor }"
                     >{{ banner }}</div>
-                    <div v-if="subBanner" class="mt-1 text-sm uppercase tracking-[0.3em] text-white/50">{{ subBanner }}</div>
+                    <div class="cox-hazard mx-auto mt-2 h-1 w-3/4 opacity-70" />
+                    <div v-if="subBanner" class="mt-2 text-sm uppercase tracking-[0.3em] text-white/60 drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)]">{{ subBanner }}</div>
                 </div>
             </Transition>
 
-            <div v-if="!powerOn" class="absolute left-1/2 top-5 flex -translate-x-1/2 items-center gap-1.5 rounded-md border border-amber-400/25 bg-black/60 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.3em] text-amber-300/70 backdrop-blur-sm sm:top-6">
+            <div v-if="!powerOn" class="cox-chip absolute left-1/2 top-4 -translate-x-1/2 !border-amber-400/40 !text-amber-300/80 sm:top-6" style="--chip: #fbbf24">
                 <UIcon name="i-lucide-zap-off" class="size-3.5" />
                 Power offline
             </div>
 
-            <button
-                class="pointer-events-auto absolute bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-1.5 rounded border border-white/10 bg-black/50 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-zinc-500 backdrop-blur-sm transition-colors hover:text-zinc-200 sm:bottom-6"
-                @click="toggleMute"
-            >
-                <UIcon :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'" class="size-3.5" />
-                {{ muted ? 'Sound off [M]' : 'Sound on [M]' }}
-            </button>
+            <!-- Bottom-centre: torch state and the mute toggle -->
+            <div class="absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-2 sm:bottom-6">
+                <div
+                    class="cox-panel-sm flex items-center gap-1.5 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em]"
+                    :class="flashlightOn ? 'text-amber-200' : 'text-zinc-600'"
+                >
+                    <UIcon name="i-lucide-flashlight" class="size-3.5" :class="flashlightOn ? 'drop-shadow-[0_0_5px_rgba(253,230,138,0.9)]' : ''" />
+                    <span class="cox-key">{{ HUD_TORCH_KEY }}</span>
+                    {{ flashlightOn ? 'Torch on' : 'Torch off' }}
+                </div>
+                <button
+                    class="cox-panel-sm pointer-events-auto flex items-center gap-1.5 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-zinc-500 transition-colors hover:text-zinc-200"
+                    @click="toggleMute"
+                >
+                    <UIcon :name="muted ? 'i-lucide-volume-x' : 'i-lucide-volume-2'" class="size-3.5" />
+                    {{ muted ? 'Sound off [M]' : 'Sound on [M]' }}
+                </button>
+            </div>
         </div>
 
         <!-- Intro menu: full game menu -->
-        <div
-            v-if="phase === 'menu'"
-            class="absolute inset-0 overflow-y-auto bg-black/80 p-4 backdrop-blur-sm sm:p-8"
-            style="background-image: radial-gradient(ellipse at 30% 20%, rgba(220,38,38,0.08), transparent 55%)"
-        >
+        <div v-if="phase === 'menu'" class="cox-backdrop absolute inset-0 overflow-y-auto p-3 sm:p-8">
             <div class="mx-auto my-auto flex min-h-full w-full max-w-6xl items-center font-mono">
-                <div class="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/90 shadow-[0_0_120px_rgba(0,0,0,0.9)]">
-                    <!-- scanlines -->
-                    <div
-                        class="pointer-events-none absolute inset-0 z-10 opacity-[0.35]"
-                        style="background-image: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,0.3) 2px 4px)"
-                    />
+                <div class="cox-panel relative w-full overflow-hidden rounded-md">
+                    <div class="cox-hazard h-2" />
+                    <div class="cox-scan pointer-events-none absolute inset-0 z-10" />
 
                     <!-- top strip -->
-                    <div class="relative flex items-center justify-between gap-4 border-b border-white/10 bg-black/60 px-5 py-3">
-                        <div class="flex items-center gap-1">
-                            <button
-                                class="rounded-sm px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.2em] transition-colors"
-                                :class="menuTab === 'loadout' ? 'bg-white/10 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'"
-                                @click="menuTab = 'loadout'"
-                            >Loadout</button>
-                            <button
-                                class="flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.2em] transition-colors"
-                                :class="menuTab === 'leaderboard' ? 'bg-white/10 text-zinc-100' : 'text-zinc-500 hover:text-zinc-300'"
-                                @click="menuTab = 'leaderboard'"
-                            >
-                                <UIcon name="i-lucide-trophy" class="size-3" />
-                                Leaderboard
-                            </button>
-                        </div>
-                        <div v-if="!guestMode" class="flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-400/10 px-3.5 py-1.5 text-sm text-amber-300">
+                    <div class="relative flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-black/50 px-4 py-2.5 sm:px-5">
+                        <UTabs
+                            :model-value="menuTab"
+                            :items="menuTabs"
+                            :content="false"
+                            variant="pill"
+                            size="xs"
+                            color="neutral"
+                            @update:model-value="menuTab = $event as 'loadout' | 'leaderboard'"
+                        />
+                        <div v-if="!guestMode" class="flex items-center gap-2 rounded-sm border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-sm text-amber-300">
                             <UIcon name="i-lucide-coins" class="size-4" />
                             <span class="font-bold tabular-nums">{{ formatCoins(metaBalance) }}</span>
                             <span class="text-[9px] uppercase tracking-[0.25em] text-amber-300/50">reserves</span>
@@ -309,18 +332,25 @@
 
                     <div v-if="menuTab === 'loadout'" class="grid lg:grid-cols-[5fr_7fr]">
                         <!-- LEFT: the game at a glance -->
-                        <div class="relative border-b border-white/10 p-7 sm:p-9 lg:border-b-0 lg:border-r">
-                            <h1 class="bg-gradient-to-b from-zinc-50 via-zinc-300 to-zinc-600 bg-clip-text text-5xl font-black uppercase leading-[0.95] tracking-tight text-transparent sm:text-6xl">
+                        <div class="relative border-b border-white/10 p-5 sm:p-9 lg:border-b-0 lg:border-r">
+                            <div class="flex items-center gap-2">
+                                <UBadge color="error" variant="subtle" size="sm" icon="i-lucide-biohazard" class="cox-stencil tracking-[0.2em]">Quarantine</UBadge>
+                                <UBadge color="neutral" variant="outline" size="sm" class="cox-stencil tracking-[0.2em]">{{ mapName }}</UBadge>
+                            </div>
+                            <h1 class="cox-stencil cox-title mt-4 text-5xl uppercase leading-[0.92] sm:text-7xl">
                                 Call<br>of Xeno
                             </h1>
+                            <p class="mt-3 max-w-xs text-[11px] leading-relaxed text-zinc-400">
+                                {{ mapName }} went dark three nights ago. The power is off, the doors are chained and something is tearing through the windows.
+                            </p>
 
                             <!-- Perks -->
                             <div class="mt-7">
-                                <div class="text-[9px] uppercase tracking-[0.4em] text-zinc-600">Perks — on with the power</div>
+                                <div class="cox-label">Perks — on with the power</div>
                                 <div class="mt-2.5 space-y-1.5">
-                                    <div v-for="perk in CALL_OF_XENO_PERK_LIST" :key="perk.id" class="flex items-center justify-between gap-3 rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5">
+                                    <div v-for="perk in CALL_OF_XENO_PERK_LIST" :key="perk.id" class="flex items-center justify-between gap-3 rounded-sm border border-white/10 bg-white/[0.03] px-3 py-1.5">
                                         <span class="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-zinc-200">
-                                            <span class="size-2 rounded-full" :style="{ backgroundColor: perkCss(perk.color) }" />
+                                            <span class="size-2 rounded-full" :style="{ backgroundColor: perkCss(perk.color), boxShadow: '0 0 6px ' + perkCss(perk.color) }" />
                                             {{ perk.name }}
                                         </span>
                                         <span class="text-right text-[10px] leading-tight text-zinc-500">{{ perk.description }}</span>
@@ -330,7 +360,7 @@
 
                             <!-- Weapons -->
                             <div class="mt-6">
-                                <div class="text-[9px] uppercase tracking-[0.4em] text-zinc-600">Weapons — walls and the box</div>
+                                <div class="cox-label">Weapons — walls and the box</div>
                                 <div class="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
                                     <div v-for="weapon in CALL_OF_XENO_WEAPON_LIST" :key="weapon.id" class="flex items-baseline justify-between gap-2 border-b border-white/5 pb-0.5">
                                         <span class="font-bold uppercase tracking-wide text-zinc-300">{{ weapon.name }}</span>
@@ -341,7 +371,7 @@
 
                             <!-- Pay rates -->
                             <div class="mt-6">
-                                <div class="text-[9px] uppercase tracking-[0.4em] text-zinc-600">Points</div>
+                                <div class="cox-label">Points</div>
                                 <div class="mt-2 flex flex-wrap gap-1.5 text-[10px]">
                                     <span class="rounded-sm border border-white/10 bg-white/[0.04] px-2 py-1 text-zinc-300">hit <span class="font-bold text-amber-300">+10</span></span>
                                     <span class="rounded-sm border border-white/10 bg-white/[0.04] px-2 py-1 text-zinc-300">kill <span class="font-bold text-amber-300">+100</span></span>
@@ -370,37 +400,38 @@
                         </div>
 
                         <!-- RIGHT: deployment -->
-                        <div class="max-h-[70vh] overflow-y-auto p-7 sm:p-9 lg:max-h-[75vh]">
+                        <div class="max-h-[70vh] overflow-y-auto p-5 sm:p-9 lg:max-h-[75vh]">
                             <!-- crashed-run resume -->
-                            <div v-if="resumableSave && resumableRun" class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-400/30 bg-cyan-400/[0.07] px-4 py-3.5">
+                            <div v-if="resumableSave && resumableRun" class="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-sm border border-cyan-400/30 bg-cyan-400/[0.07] px-4 py-3.5">
                                 <div class="min-w-0">
-                                    <div class="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.3em] text-cyan-300">
+                                    <div class="cox-stencil flex items-center gap-2 text-sm uppercase tracking-[0.2em] text-cyan-300">
                                         <UIcon name="i-lucide-rotate-ccw" class="size-4" />
                                         Deployment in progress
                                     </div>
                                     <div class="mt-1 text-[11px] leading-relaxed text-zinc-400">
                                         You went dark on round {{ resumableSave.round }} of
                                         <span class="font-bold uppercase">{{ resumableDifficultyName }}</span>
-                                        — pick up where the outpost lost you. A fresh deploy abandons it.
+                                        — pick up where {{ mapName }} lost you. A fresh deploy abandons it.
                                     </div>
                                 </div>
-                                <button
-                                    class="flex shrink-0 items-center gap-2 rounded-lg bg-cyan-500 px-5 py-2.5 text-[11px] font-black uppercase tracking-[0.2em] text-black transition-colors hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
+                                <UButton
+                                    color="info"
+                                    class="cox-stencil shrink-0 uppercase tracking-[0.15em]"
+                                    :icon="deploying ? 'i-lucide-loader-circle' : 'i-lucide-play'"
+                                    :loading="deploying"
                                     :disabled="deploying"
+                                    :label="`Resume — Round ${resumableSave.round}`"
                                     @click="resumeRun()"
-                                >
-                                    <UIcon :name="deploying ? 'i-lucide-loader-circle' : 'i-lucide-play'" class="size-3.5" :class="deploying ? 'animate-spin' : ''" />
-                                    Resume — Round {{ resumableSave.round }}
-                                </button>
+                                />
                             </div>
 
                             <!-- difficulty -->
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center gap-2 text-[9px] uppercase tracking-[0.4em] text-zinc-500">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="cox-label">
                                     <UIcon name="i-lucide-swords" class="size-3.5 text-zinc-400" />
                                     Select difficulty
                                 </div>
-                                <span class="text-[9px] uppercase tracking-[0.2em] text-zinc-600">
+                                <span class="text-right text-[9px] uppercase tracking-[0.2em] text-zinc-600">
                                     cash rate {{ payoutRateLabel }} of points earned
                                 </span>
                             </div>
@@ -408,10 +439,8 @@
                                 <button
                                     v-for="difficulty in metaDifficulties"
                                     :key="difficulty.id"
-                                    class="group relative rounded-xl border p-3.5 text-left transition-all disabled:cursor-not-allowed"
-                                    :class="selectedDifficulty === difficulty.id && difficulty.unlocked
-                                        ? 'border-amber-400/60 bg-amber-400/10 shadow-[0_0_24px_rgba(251,191,36,0.12)]'
-                                        : 'border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]'"
+                                    class="cox-card group relative p-3.5 text-left disabled:cursor-not-allowed"
+                                    :class="selectedDifficulty === difficulty.id && difficulty.unlocked ? 'cox-card-on' : ''"
                                     :disabled="!difficulty.unlocked || cooldownRemainingMs > 0"
                                     @click="selectedDifficulty = difficulty.id"
                                 >
@@ -423,12 +452,12 @@
                                         />
                                         <span
                                             v-if="difficulty.unlocked"
-                                            class="font-bold tabular-nums"
+                                            class="cox-stencil text-lg tabular-nums"
                                             :class="selectedDifficulty === difficulty.id ? 'text-amber-300' : 'text-zinc-400'"
                                         >×{{ difficulty.reward }}</span>
                                         <UIcon v-else name="i-lucide-lock" class="size-3.5 text-zinc-600" />
                                     </div>
-                                    <div class="mt-2.5 text-sm font-bold uppercase tracking-wider" :class="difficulty.unlocked ? 'text-zinc-100' : 'text-zinc-500'">
+                                    <div class="cox-stencil mt-2.5 text-base uppercase tracking-[0.12em]" :class="difficulty.unlocked ? 'text-zinc-100' : 'text-zinc-500'">
                                         {{ difficulty.name }}
                                     </div>
                                     <div class="mt-1 text-[10px] leading-relaxed text-zinc-500">
@@ -443,20 +472,20 @@
 
                             <!-- upgrades -->
                             <div v-if="!guestMode" class="mt-7">
-                                <div class="flex items-center justify-between">
-                                    <div class="flex items-center gap-2 text-[9px] uppercase tracking-[0.4em] text-zinc-500">
+                                <div class="flex items-center justify-between gap-2">
+                                    <div class="cox-label">
                                         <UIcon name="i-lucide-chevrons-up" class="size-3.5 text-zinc-400" />
                                         Permanent upgrades
                                     </div>
-                                    <span class="text-[9px] uppercase tracking-[0.2em] text-zinc-600">carry over between runs</span>
+                                    <span class="text-right text-[9px] uppercase tracking-[0.2em] text-zinc-600">carry over between runs</span>
                                 </div>
                                 <div class="mt-3 space-y-2">
                                     <div
                                         v-for="upgrade in metaUpgrades"
                                         :key="upgrade.id"
-                                        class="flex items-center gap-3.5 rounded-xl border border-white/10 bg-white/[0.03] px-3.5 py-3 transition-colors hover:border-white/20"
+                                        class="cox-card flex items-center gap-3.5 px-3.5 py-3"
                                     >
-                                        <div class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/50">
+                                        <div class="flex size-10 shrink-0 items-center justify-center rounded-sm border border-white/10 bg-black/50">
                                             <UIcon :name="upgradeIcons[upgrade.id]" class="size-5 text-amber-300/90" />
                                         </div>
                                         <div class="min-w-0 flex-1">
@@ -467,23 +496,22 @@
                                                     <span
                                                         v-for="i in upgrade.max"
                                                         :key="i"
-                                                        class="h-1.5 w-2 rounded-full"
+                                                        class="h-1.5 w-2 rounded-[1px]"
                                                         :class="i <= upgrade.level ? 'bg-amber-400' : 'bg-white/15'"
                                                     />
                                                 </span>
                                             </div>
                                             <div class="mt-0.5 truncate text-[11px] text-zinc-500">{{ upgrade.description }}</div>
                                         </div>
-                                        <button
-                                            class="shrink-0 rounded-md border px-3 py-1.5 text-xs font-bold tabular-nums transition-colors disabled:cursor-not-allowed"
-                                            :class="upgrade.cost !== null && metaBalance >= upgrade.cost
-                                                ? 'border-amber-400/50 text-amber-300 hover:bg-amber-400/15'
-                                                : 'border-white/10 text-zinc-600'"
+                                        <UButton
+                                            size="sm"
+                                            variant="outline"
+                                            :color="upgrade.cost !== null && metaBalance >= upgrade.cost ? 'warning' : 'neutral'"
+                                            class="shrink-0 tabular-nums"
                                             :disabled="upgrade.cost === null || metaBalance < upgrade.cost"
+                                            :label="upgrade.cost === null ? 'MAX' : formatCoins(upgrade.cost)"
                                             @click="buyUpgrade(upgrade.id)"
-                                        >
-                                            {{ upgrade.cost === null ? 'MAX' : formatCoins(upgrade.cost) }}
-                                        </button>
+                                        />
                                     </div>
                                 </div>
 
@@ -502,21 +530,19 @@
 
                                 <!-- starting sidearm picker -->
                                 <div class="mt-6">
-                                    <div class="flex items-center justify-between">
-                                        <div class="flex items-center gap-2 text-[9px] uppercase tracking-[0.4em] text-zinc-500">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <div class="cox-label">
                                             <UIcon name="i-lucide-crosshair" class="size-3.5 text-zinc-400" />
                                             Starting sidearm
                                         </div>
-                                        <span class="text-[9px] uppercase tracking-[0.2em] text-zinc-600">M1911 always carried</span>
+                                        <span class="text-right text-[9px] uppercase tracking-[0.2em] text-zinc-600">M1911 always carried</span>
                                     </div>
-                                    <div class="mt-3 grid grid-cols-4 gap-2.5">
+                                    <div class="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
                                         <button
                                             v-for="choice in sidearmChoices"
                                             :key="choice.id"
-                                            class="group relative rounded-xl border p-3 text-center transition-all disabled:cursor-not-allowed"
-                                            :class="choice.id === chosenSidearm && choice.unlocked
-                                                ? 'border-amber-400/60 bg-amber-400/10 shadow-[0_0_20px_rgba(251,191,36,0.1)]'
-                                                : 'border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]'"
+                                            class="cox-card group relative p-3 text-center disabled:cursor-not-allowed"
+                                            :class="choice.id === chosenSidearm && choice.unlocked ? 'cox-card-on' : ''"
                                             :disabled="!choice.unlocked || cooldownRemainingMs > 0"
                                             @click="chosenSidearm = choice.id"
                                         >
@@ -525,7 +551,7 @@
                                                 class="mx-auto size-4"
                                                 :class="choice.unlocked ? 'text-zinc-300' : 'text-zinc-600'"
                                             />
-                                            <div class="mt-2 text-[11px] font-bold uppercase tracking-wider" :class="choice.unlocked ? 'text-zinc-100' : 'text-zinc-500'">
+                                            <div class="cox-stencil mt-2 text-sm uppercase tracking-wider" :class="choice.unlocked ? 'text-zinc-100' : 'text-zinc-500'">
                                                 {{ CALL_OF_XENO_WEAPONS[choice.id].name }}
                                             </div>
                                             <div v-if="choice.unlocked" class="mt-1 font-mono text-[9px] tabular-nums text-zinc-500">
@@ -546,7 +572,7 @@
                             </div>
 
                             <!-- guest sign-in note -->
-                            <div v-else class="mt-7 flex items-center gap-3.5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-4">
+                            <div v-else class="cox-card mt-7 flex items-center gap-3.5 px-4 py-4">
                                 <UIcon name="i-lucide-user-round" class="size-5 shrink-0 text-zinc-500" />
                                 <div class="text-[11px] leading-relaxed text-zinc-500">
                                     Sign in to bank cash from your runs, buy permanent upgrades and
@@ -557,13 +583,12 @@
                     </div>
 
                     <!-- leaderboard tab -->
-                    <div v-else class="relative p-7 sm:p-9">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center gap-2 text-[10px] uppercase tracking-[0.5em] text-amber-400/90">
-                                <span class="h-px w-8 bg-amber-400/70" />
+                    <div v-else class="relative p-5 sm:p-9">
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="cox-label !text-amber-400/90">
                                 Best runs
                             </div>
-                            <span class="text-[9px] uppercase tracking-[0.2em] text-zinc-600">ranked by difficulty, then rounds</span>
+                            <span class="text-right text-[9px] uppercase tracking-[0.2em] text-zinc-600">ranked by difficulty, then rounds</span>
                         </div>
 
                         <div v-if="leaderboardLoading" class="flex items-center justify-center gap-2 py-16 text-xs uppercase tracking-[0.3em] text-zinc-500">
@@ -573,8 +598,8 @@
                         <div v-else-if="!leaderboard?.length" class="py-16 text-center text-xs uppercase tracking-[0.3em] text-zinc-600">
                             No runs on the board yet — be the first.
                         </div>
-                        <div v-else class="mt-5 overflow-hidden rounded-xl border border-white/10">
-                            <div class="grid grid-cols-[3rem_1fr_7rem_4.5rem_6rem] items-center gap-2 border-b border-white/10 bg-white/[0.04] px-4 py-2 text-[9px] font-bold uppercase tracking-[0.25em] text-zinc-500">
+                        <div v-else class="mt-5 overflow-x-auto rounded-sm border border-white/10">
+                            <div class="grid min-w-[30rem] grid-cols-[3rem_1fr_7rem_4.5rem_6rem] items-center gap-2 border-b border-white/10 bg-white/[0.04] px-4 py-2 text-[9px] font-bold uppercase tracking-[0.25em] text-zinc-500">
                                 <span>#</span>
                                 <span>Operator</span>
                                 <span>Difficulty</span>
@@ -584,10 +609,10 @@
                             <div
                                 v-for="entry in leaderboard"
                                 :key="entry.rank"
-                                class="grid grid-cols-[3rem_1fr_7rem_4.5rem_6rem] items-center gap-2 border-b border-white/5 px-4 py-2.5 text-[13px] last:border-b-0"
+                                class="grid min-w-[30rem] grid-cols-[3rem_1fr_7rem_4.5rem_6rem] items-center gap-2 border-b border-white/5 px-4 py-2.5 text-[13px] last:border-b-0"
                                 :class="entry.isCurrentUser ? 'bg-amber-400/[0.07]' : 'hover:bg-white/[0.02]'"
                             >
-                                <span class="font-black tabular-nums" :class="entry.rank <= 3 ? 'text-amber-300' : 'text-zinc-500'">{{ entry.rank }}</span>
+                                <span class="cox-stencil text-base tabular-nums" :class="entry.rank <= 3 ? 'text-amber-300' : 'text-zinc-500'">{{ entry.rank }}</span>
                                 <span class="flex items-center gap-2 truncate font-bold" :class="entry.isCurrentUser ? 'text-amber-300' : 'text-zinc-200'">
                                     <UIcon v-if="entry.rank === 1" name="i-lucide-crown" class="size-3.5 shrink-0 text-amber-400" />
                                     {{ entry.name }}
@@ -595,33 +620,36 @@
                                 <span class="text-[10px] font-bold uppercase tracking-[0.15em]" :class="difficultyAccent[entry.difficulty] ?? 'text-zinc-400'">
                                     {{ entry.difficulty }}
                                 </span>
-                                <span class="text-right font-black tabular-nums text-zinc-100">{{ entry.rounds }}</span>
+                                <span class="cox-stencil text-right text-base tabular-nums text-zinc-100">{{ entry.rounds }}</span>
                                 <span class="text-right tabular-nums text-zinc-400">{{ formatDuration(entry.durationSeconds) }}</span>
                             </div>
                         </div>
                     </div>
 
                     <!-- footer deploy bar -->
-                    <div class="relative flex flex-wrap items-center justify-between gap-4 border-t border-white/10 bg-black/60 px-5 py-4">
+                    <div class="relative flex flex-wrap items-center justify-between gap-4 border-t border-white/10 bg-black/60 px-4 py-4 sm:px-5">
                         <div class="min-w-0 text-[11px]">
-                            <p v-if="menuError" class="rounded border border-red-500/40 bg-red-950/40 px-3 py-2 text-xs text-red-300">
+                            <p v-if="menuError" class="rounded-sm border border-red-500/40 bg-red-950/40 px-3 py-2 text-xs text-red-300">
                                 {{ menuError }}
                             </p>
                             <p v-else-if="cooldownRemainingMs > 0" class="flex items-center gap-2 text-amber-300/80">
                                 <UIcon name="i-lucide-clock" class="size-4" />
-                                Outpost resupplying — next deployment in {{ cooldownLabel }}.
+                                {{ mapName }} resupplying — next deployment in {{ cooldownLabel }}.
                             </p>
                             <p v-else class="text-zinc-600">Your mouse is captured while playing. Esc gives it back.</p>
                         </div>
-                        <button
-                            class="group flex items-center gap-3 rounded-lg bg-red-600 px-9 py-3.5 text-sm font-black uppercase tracking-[0.3em] text-white shadow-[0_0_36px_rgba(220,38,38,0.35)] transition-all hover:bg-red-500 hover:shadow-[0_0_46px_rgba(220,38,38,0.5)] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+                        <UButton
+                            size="xl"
+                            color="error"
+                            class="cox-cta cox-stencil px-9 uppercase tracking-[0.3em]"
+                            :icon="staleRunConflict ? 'i-lucide-trash-2' : 'i-lucide-chevrons-right'"
+                            :loading="deploying"
                             :disabled="deploying || (!guestMode && cooldownRemainingMs > 0)"
+                            :label="deploying ? 'Deploying' : staleRunConflict ? 'Abandon run & deploy' : 'Deploy'"
                             @click="begin()"
-                        >
-                            <UIcon :name="deploying ? 'i-lucide-loader-circle' : staleRunConflict ? 'i-lucide-trash-2' : 'i-lucide-chevrons-right'" class="size-4" :class="deploying ? 'animate-spin' : 'transition-transform group-hover:translate-x-0.5'" />
-                            {{ deploying ? 'Deploying' : staleRunConflict ? 'Abandon run & deploy' : 'Deploy' }}
-                        </button>
+                        />
                     </div>
+                    <div class="cox-hazard h-2" />
                 </div>
             </div>
         </div>
@@ -631,9 +659,10 @@
             v-if="workbenchOpen"
             class="pointer-events-none absolute inset-0 flex items-center justify-end bg-black/25 p-4 sm:p-8"
         >
-            <div class="pointer-events-auto w-full max-w-md overflow-hidden rounded-2xl border border-amber-400/25 bg-zinc-950/95 font-mono shadow-[0_0_80px_rgba(0,0,0,0.85)] backdrop-blur-sm">
-                <div class="flex items-center justify-between gap-4 border-b border-white/10 bg-black/60 px-5 py-3">
-                    <div class="flex items-center gap-2.5 text-[10px] uppercase tracking-[0.35em] text-zinc-500">
+            <div class="cox-panel pointer-events-auto relative w-full max-w-md overflow-hidden rounded-md font-mono">
+                <div class="cox-hazard h-1.5" />
+                <div class="flex items-center justify-between gap-4 border-b border-white/10 bg-black/50 px-5 py-3">
+                    <div class="cox-stencil flex items-center gap-2.5 text-sm uppercase tracking-[0.25em] text-zinc-400">
                         <UIcon name="i-lucide-wrench" class="size-4 text-amber-400/90" />
                         Workbench // Equipment
                     </div>
@@ -643,7 +672,7 @@
                             {{ points.toLocaleString() }}
                         </span>
                         <button
-                            class="rounded-md border border-white/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400 transition-colors hover:text-zinc-100"
+                            class="rounded-sm border border-white/10 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-400 transition-colors hover:text-zinc-100"
                             @click="closeWorkbench()"
                         >F close</button>
                     </div>
@@ -653,12 +682,10 @@
                     <div
                         v-for="(row, index) in equipmentRows"
                         :key="row.equipment.id"
-                        class="flex items-center gap-3.5 rounded-xl border px-3.5 py-3"
-                        :class="row.affordable
-                            ? 'border-white/10 bg-white/[0.03] transition-colors hover:border-amber-400/40'
-                            : 'border-white/5 bg-white/[0.01] opacity-60'"
+                        class="cox-card flex items-center gap-3.5 px-3.5 py-3"
+                        :class="row.affordable ? '' : 'opacity-60'"
                     >
-                        <div class="flex size-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-black/50">
+                        <div class="flex size-10 shrink-0 items-center justify-center rounded-sm border border-white/10 bg-black/50">
                             <UIcon :name="equipmentIcons[row.equipment.id]" class="size-5 text-amber-300/90" />
                         </div>
                         <div class="min-w-0 flex-1">
@@ -670,17 +697,17 @@
                             </div>
                             <div class="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{{ row.equipment.description }}</div>
                         </div>
-                        <button
-                            class="flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-bold tabular-nums transition-colors disabled:cursor-not-allowed"
-                            :class="row.affordable
-                                ? 'border-amber-400/50 text-amber-300 hover:bg-amber-400/15'
-                                : 'border-white/10 text-zinc-600'"
+                        <UButton
+                            size="sm"
+                            variant="outline"
+                            :color="row.affordable ? 'warning' : 'neutral'"
+                            class="shrink-0 tabular-nums"
                             :disabled="!row.affordable"
                             @click="buyEquipment(row.equipment.id)"
                         >
                             <span class="text-[9px] opacity-60">{{ index + 1 }}</span>
                             {{ row.equipment.cost.toLocaleString() }}
-                        </button>
+                        </UButton>
                     </div>
                     <p class="pt-1 text-center text-[10px] uppercase tracking-[0.25em] text-red-400/70">
                         The horde does not wait — F close · E deploy · slots {{ equipmentStock.length }}/{{ runEffects.equipmentSlots }}
@@ -692,40 +719,36 @@
         <!-- Pause / death -->
         <div
             v-else-if="phase === 'over' || (phase === 'playing' && !locked && !relockPending)"
-            class="absolute inset-0 overflow-y-auto bg-black/85 p-4 backdrop-blur-sm sm:p-8"
-            style="background-image: radial-gradient(ellipse at 30% 20%, rgba(220,38,38,0.07), transparent 55%)"
+            class="cox-backdrop absolute inset-0 overflow-y-auto p-3 sm:p-8"
         >
             <div class="mx-auto my-auto flex min-h-full w-full max-w-2xl items-center font-mono">
-                <div class="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-zinc-950/90 shadow-[0_0_120px_rgba(0,0,0,0.9)]">
-                    <!-- scanlines -->
-                    <div
-                        class="pointer-events-none absolute inset-0 z-10 opacity-[0.35]"
-                        style="background-image: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0,0,0,0.3) 2px 4px)"
-                    />
+                <div class="cox-panel relative w-full overflow-hidden rounded-md">
+                    <div class="cox-hazard h-2" />
+                    <div class="cox-scan pointer-events-none absolute inset-0 z-10" />
 
                     <!-- top strip -->
-                    <div class="relative flex items-center justify-between gap-4 border-b border-white/10 bg-black/60 px-5 py-3">
-                        <div class="flex items-center gap-2.5 text-[10px] uppercase tracking-[0.35em] text-zinc-500">
+                    <div class="relative flex flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-black/50 px-5 py-3">
+                        <div class="cox-stencil flex items-center gap-2.5 text-sm uppercase tracking-[0.25em] text-zinc-400">
                             <UIcon :name="phase === 'over' ? 'i-lucide-skull' : 'i-lucide-pause'" class="size-4" :class="phase === 'over' ? 'text-red-500/90' : 'text-zinc-400'" />
-                            Outpost 13 // {{ phase === 'over' ? 'After Action' : 'Standby' }}
+                            {{ mapName }} // {{ phase === 'over' ? 'After Action' : 'Standby' }}
                         </div>
                         <div class="flex items-center gap-2">
-                            <span class="rounded-sm border border-white/10 bg-white/5 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.2em] text-zinc-400">Round {{ round }}</span>
-                            <span class="rounded-sm border border-white/10 bg-white/5 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.2em] text-zinc-400">{{ runDifficultyName }}</span>
+                            <UBadge color="neutral" variant="subtle" size="sm" class="cox-stencil tracking-[0.15em]">Round {{ round }}</UBadge>
+                            <UBadge color="neutral" variant="outline" size="sm" class="cox-stencil tracking-[0.15em]">{{ runDifficultyName }}</UBadge>
                         </div>
                     </div>
 
-                    <div class="relative p-7 sm:p-9">
+                    <div class="relative p-5 sm:p-9">
                         <template v-if="phase === 'over'">
-                            <h1 class="text-center text-5xl font-black uppercase tracking-tight text-red-500 drop-shadow-[0_2px_12px_rgba(220,38,38,0.35)]">
+                            <h1 class="cox-stencil cox-death text-center text-6xl uppercase sm:text-7xl">
                                 You Died
                             </h1>
-                            <p class="mt-1.5 text-center text-[11px] uppercase tracking-[0.3em] text-zinc-500">
+                            <p class="mt-2 text-center text-[11px] uppercase tracking-[0.3em] text-zinc-500">
                                 Overrun on round {{ round }} · {{ runDifficultyName }}
                             </p>
 
                             <!-- Cash settlement -->
-                            <div v-if="payoutResult" class="mx-auto mt-6 max-w-sm rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3.5 text-left text-sm">
+                            <div v-if="payoutResult" class="cox-card mx-auto mt-6 max-w-sm px-4 py-3.5 text-left text-sm">
                                 <div class="flex items-center justify-between text-zinc-500">
                                     <span class="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em]">
                                         <UIcon name="i-lucide-trophy" class="size-3.5" />
@@ -742,7 +765,7 @@
                                         <UIcon name="i-lucide-coins" class="size-3.5" />
                                         Cash paid out
                                     </span>
-                                    <span class="text-2xl font-black tabular-nums text-amber-300">
+                                    <span class="cox-stencil text-3xl tabular-nums text-amber-300">
                                         +{{ payoutResult.awarded.toLocaleString() }}
                                     </span>
                                 </div>
@@ -764,25 +787,25 @@
                             </p>
                         </template>
                         <template v-else>
-                            <h1 class="text-center text-4xl font-black uppercase tracking-tight text-zinc-100">Paused</h1>
+                            <h1 class="cox-stencil cox-title text-center text-5xl uppercase">Paused</h1>
                             <div class="mt-4 flex flex-wrap items-center justify-center gap-3 text-sm">
-                                <span class="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-zinc-300">
+                                <span class="flex items-center gap-1.5 rounded-sm border border-white/10 bg-white/[0.03] px-3 py-1.5 text-zinc-300">
                                     <UIcon name="i-lucide-swords" class="size-4 text-red-400" />
                                     Round <span class="font-black tabular-nums">{{ round }}</span>
                                 </span>
-                                <span class="flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-zinc-300">
+                                <span class="flex items-center gap-1.5 rounded-sm border border-white/10 bg-white/[0.03] px-3 py-1.5 text-zinc-300">
                                     <UIcon name="i-lucide-coins" class="size-4 text-amber-400/80" />
                                     <span class="font-black tabular-nums text-amber-300">{{ points.toLocaleString() }}</span>
                                     <span class="text-[10px] uppercase tracking-[0.2em] text-zinc-500">points</span>
                                 </span>
                             </div>
-                            <div v-if="pausePayoutPreview" class="mx-auto mt-3 max-w-sm rounded-xl border border-amber-400/20 bg-amber-400/[0.07] px-4 py-3">
+                            <div v-if="pausePayoutPreview" class="mx-auto mt-3 max-w-sm rounded-sm border border-amber-400/20 bg-amber-400/[0.07] px-4 py-3">
                                 <div class="flex items-center justify-between gap-3">
                                     <span class="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.25em] text-amber-300/80">
                                         <UIcon name="i-lucide-banknote" class="size-3.5" />
                                         Run value if you die now
                                     </span>
-                                    <span class="text-2xl font-black tabular-nums text-amber-300">
+                                    <span class="cox-stencil text-3xl tabular-nums text-amber-300">
                                         {{ pausePayoutPreview.awarded.toLocaleString() }}
                                     </span>
                                 </div>
@@ -800,50 +823,55 @@
 
                             <div v-if="phase === 'playing'" class="mx-auto mt-4 flex max-w-sm items-center justify-between gap-3">
                                 <span class="text-[10px] uppercase tracking-[0.25em] text-zinc-600">Esc to resume</span>
-                                <button
-                                    class="flex items-center gap-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-amber-300 transition-colors hover:bg-amber-400/20"
+                                <UButton
+                                    color="warning"
+                                    variant="outline"
+                                    class="cox-stencil uppercase tracking-[0.15em]"
+                                    :icon="exiting ? 'i-lucide-loader-circle' : 'i-lucide-log-out'"
+                                    :loading="exiting"
                                     :disabled="exiting"
+                                    :label="exiting ? 'Cashing out' : 'Cash out & exit'"
                                     @click="exitRun()"
-                                >
-                                    <UIcon :name="exiting ? 'i-lucide-loader-circle' : 'i-lucide-log-out'" class="size-3.5" :class="exiting ? 'animate-spin' : ''" />
-                                    {{ exiting ? 'Cashing out' : 'Cash out & exit' }}
-                                </button>
+                                />
                             </div>
                         </template>
 
                         <div v-if="phase !== 'over'" class="mx-auto mt-8 grid max-w-sm grid-cols-2 gap-x-6 gap-y-2 text-left text-[12px] text-zinc-500">
-                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">WASD</span> move</div>
-                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">Space</span> jump</div>
-                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">Shift</span> sprint</div>
-                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">LMB</span> fire</div>
-                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">RMB</span> aim</div>
-                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">R</span> reload</div>
-                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">Q</span> swap weapon</div>
-                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">E</span> deploy equipment</div>
-                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">F</span> buy / board up</div>
-                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">V</span> knife</div>
-                            <div><span class="rounded-sm border border-white/15 bg-white/5 px-1.5 py-0.5 font-bold text-zinc-200">Esc</span> pause</div>
+                            <div><span class="cox-key">WASD</span> move</div>
+                            <div><span class="cox-key">Space</span> jump</div>
+                            <div><span class="cox-key">Shift</span> sprint</div>
+                            <div><span class="cox-key">LMB</span> fire</div>
+                            <div><span class="cox-key">RMB</span> aim</div>
+                            <div><span class="cox-key">R</span> reload</div>
+                            <div><span class="cox-key">Q</span> swap weapon</div>
+                            <div><span class="cox-key">E</span> deploy equipment</div>
+                            <div><span class="cox-key">F</span> buy / board up</div>
+                            <div><span class="cox-key">V</span> knife</div>
+                            <div><span class="cox-key">Esc</span> pause</div>
                         </div>
 
-                        <p v-if="initError" class="mx-auto mt-6 max-w-md rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2 text-center text-xs text-red-300">
+                        <p v-if="initError" class="mx-auto mt-6 max-w-md rounded-sm border border-red-500/40 bg-red-950/40 px-3 py-2 text-center text-xs text-red-300">
                             Could not start the renderer: {{ initError }}
                         </p>
                     </div>
 
                     <!-- footer -->
-                    <div class="relative flex items-center justify-between gap-4 border-t border-white/10 bg-black/60 px-5 py-4">
+                    <div class="relative flex flex-wrap items-center justify-between gap-4 border-t border-white/10 bg-black/60 px-5 py-4">
                         <p class="text-[10px] uppercase tracking-[0.2em] text-zinc-600">
                             {{ phase === 'over' ? 'The horde does not wait.' : 'Your mouse is captured while playing. Esc gives it back.' }}
                         </p>
-                        <button
-                            class="group flex shrink-0 items-center gap-3 rounded-lg bg-red-600 px-8 py-3 text-sm font-black uppercase tracking-[0.3em] text-white shadow-[0_0_36px_rgba(220,38,38,0.35)] transition-all hover:bg-red-500 hover:shadow-[0_0_46px_rgba(220,38,38,0.5)] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+                        <UButton
+                            size="xl"
+                            color="error"
+                            class="cox-cta cox-stencil shrink-0 px-8 uppercase tracking-[0.3em]"
+                            :icon="'i-lucide-chevrons-right'"
+                            :loading="deploying"
                             :disabled="deploying"
+                            :label="phase === 'over' ? (guestMode ? 'Run It Back' : `Back to ${mapName}`) : 'Resume'"
                             @click="phase === 'over' ? restart() : begin()"
-                        >
-                            <UIcon :name="deploying ? 'i-lucide-loader-circle' : 'i-lucide-chevrons-right'" class="size-4" :class="deploying ? 'animate-spin' : 'transition-transform group-hover:translate-x-0.5'" />
-                            {{ phase === 'over' ? (guestMode ? 'Run It Back' : 'Back to Outpost') : 'Resume' }}
-                        </button>
+                        />
                     </div>
+                    <div class="cox-hazard h-2" />
                 </div>
             </div>
         </div>
@@ -1062,6 +1090,104 @@ const equipmentIcons: Record<CallOfXenoEquipmentId, string> = {
 }
 const summary = shallowRef<{ label: string, value: string }[]>([])
 const initError = ref('')
+
+// Remaster HUD signals: written by the gameplay code, read by the template.
+/** Display name of the map, shown on the menus. */
+const mapName = ref('Depot 9')
+/** Helmet torch state. */
+const flashlightOn = ref(true)
+/** True when the last hit that raised `hitMarker` killed its target. */
+const hitKill = ref(false)
+/** Counts down from 1 to 0 over the round-change transition. */
+const roundFlip = ref(0)
+/** Aim-down-sights blend, 0 to 1, for hiding the crosshair while scoped. */
+const aimAmount = ref(0)
+/** Sprinting right now, for widening/hiding the crosshair. */
+const sprintingHud = ref(false)
+
+// HUD presentation helpers
+/** Key label shown on the torch chip. */
+const HUD_TORCH_KEY = 'F'
+
+const menuTabs = [
+    { label: 'Loadout', value: 'loadout', icon: 'i-lucide-crosshair' },
+    { label: 'Leaderboard', value: 'leaderboard', icon: 'i-lucide-trophy' }
+]
+
+/** Hand-drawn wobble per tally stroke (x drift, top and bottom inset). */
+const tallyJitter = [
+    { dx: -0.6, top: 0, bot: 2 },
+    { dx: 0.8, top: 2, bot: 0 },
+    { dx: -0.3, top: 1, bot: 3 },
+    { dx: 0.9, top: 3, bot: 1 }
+]
+
+/** Drives the round counter's flash-white-then-bleed-back CSS via `--rf`. */
+const roundStyle = computed(() => ({ '--rf': String(Math.min(1, Math.max(0, roundFlip.value))) }))
+
+/** Ten health segments, each 0 to 1 full. */
+const healthSegments = computed(() => {
+    const filled = Math.max(0, Math.min(1, health.value / Math.max(1, maxHealth.value))) * 10
+    return Array.from({ length: 10 }, (_, i) => Math.max(0, Math.min(1, filled - i)))
+})
+
+/** Crosshair gap, opened up while sprinting. */
+const crossGapHud = computed(() => crossGap.value + (sprintingHud.value ? 7 : 0))
+/** Reticle fades out as the sights come up and is gone by 0.6. */
+const crossFade = computed(() => Math.max(0, 1 - aimAmount.value / 0.6))
+
+const hitTone = computed<'body' | 'crit' | 'kill'>(() => {
+    if (hitKill.value) return 'kill'
+    return lastHitKind.value === 'body' ? 'body' : 'crit'
+})
+
+/** Weapon card state: drives colours and the status row. */
+const ammoState = computed<'ok' | 'low' | 'empty' | 'dry' | 'reload' | 'belt'>(() => {
+    if (deathMachineHud.value) return 'belt'
+    if (reloading.value) return 'reload'
+    if (magAmmo.value === 0) return reserveAmmo.value > 0 ? 'empty' : 'dry'
+    return magFraction.value <= 25 ? 'low' : 'ok'
+})
+
+/** One 24x24 stroke glyph per perk. */
+const perkGlyphs: Record<CallOfXenoPerkId, string> = {
+    juggernog: 'M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6zM12 8v7M8.5 11.5h7',
+    speedcola: 'M13.5 2.5L5.5 13.5h6l-1 8 8-11h-6z',
+    doubletap: 'M6.5 20v-9l2.2-4 2.2 4v9zM13.1 20v-9l2.2-4 2.2 4v9z',
+    quickrevive: 'M9.5 4h5v5.5H20v5h-5.5V20h-5v-5.5H4v-5h5.5z',
+    deadshot: 'M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zM12 1.5v5M12 17.5v5M1.5 12h5M17.5 12h5',
+    phdflopper: 'M12 3l1.8 4.6 4.7-2.1-2.1 4.7L21 12l-4.6 1.8 2.1 4.7-4.7-2.1L12 21l-1.8-4.6-4.7 2.1 2.1-4.7L3 12l4.6-1.8-2.1-4.7 4.7 2.1z'
+}
+
+interface PointFloater {
+    id: number
+    text: string
+    gain: boolean
+    x: number
+}
+const pointFloaters = shallowRef<PointFloater[]>([])
+let floaterId = 0
+const floaterTimers = new Set<ReturnType<typeof setTimeout>>()
+
+// CoD-style +10 / -750 increments flying off the points stack.
+watch(points, (now, before) => {
+    const delta = Math.round(now - before)
+    if (phase.value !== 'playing' || delta === 0) return
+    const id = ++floaterId
+    const gain = delta > 0
+    const x = ((id * 37) % 5 - 2) * 9
+    pointFloaters.value = [...pointFloaters.value.slice(-7), { id, text: `${gain ? '+' : '-'}${Math.abs(delta).toLocaleString()}`, gain, x }]
+    const timer = setTimeout(() => {
+        floaterTimers.delete(timer)
+        pointFloaters.value = pointFloaters.value.filter(f => f.id !== id)
+    }, 1000)
+    floaterTimers.add(timer)
+})
+
+onBeforeUnmount(() => {
+    for (const timer of floaterTimers) clearTimeout(timer)
+    floaterTimers.clear()
+})
 
 // ---------------------------------------------------------------------------
 // Account meta-progression (upgrades, difficulties, payouts)
@@ -5071,3 +5197,324 @@ onBeforeUnmount(() => {
     boxPreview = null
 })
 </script>
+
+<style scoped>
+/* Call of Xeno HUD and menus: night-shift warehouse under quarantine. */
+.cox-stencil {
+    font-family: 'Stencil Std', 'Stencil', 'Saira Stencil One', 'Black Ops One', Impact, Haettenschweiler, 'Arial Narrow Bold', 'Arial Narrow', sans-serif;
+    font-synthesis-weight: none;
+    letter-spacing: 0.06em;
+}
+
+.cox-hazard {
+    background: repeating-linear-gradient(-45deg, #d6a100 0 10px, #141414 10px 20px);
+    opacity: 0.85;
+}
+
+.cox-scan {
+    background-image: repeating-linear-gradient(0deg, transparent 0 2px, rgba(0, 0, 0, 0.3) 2px 4px);
+    opacity: 0.3;
+}
+
+/* ---------- in-world panels ---------- */
+.cox-panel-sm {
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-left: 2px solid rgba(255, 255, 255, 0.22);
+    border-radius: 3px;
+    background:
+        repeating-linear-gradient(0deg, transparent 0 2px, rgba(0, 0, 0, 0.16) 2px 3px),
+        linear-gradient(180deg, rgba(14, 14, 16, 0.74), rgba(6, 6, 8, 0.78));
+    backdrop-filter: blur(3px);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+}
+
+.cox-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0.65rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--chip, #fff) 12%, rgba(6, 6, 8, 0.72));
+    backdrop-filter: blur(3px);
+    font-family: 'Stencil Std', 'Stencil', 'Saira Stencil One', Impact, Haettenschweiler, 'Arial Narrow', sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.cox-key {
+    display: inline-block;
+    padding: 0 5px;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-bottom-width: 2px;
+    border-radius: 2px;
+    background: #18181b;
+    color: #f4f4f5;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.5;
+}
+
+.cox-instakill {
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(255, 60, 60, 0.14) 100%);
+}
+
+/* ---------- damage arcs ---------- */
+.cox-arc-soft {
+    filter: blur(9px);
+}
+.cox-arc-core {
+    filter: drop-shadow(0 0 6px rgba(200, 0, 0, 0.9));
+}
+
+/* ---------- crosshair ---------- */
+.cox-tick {
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+    transition: transform 0.08s ease-out;
+}
+.cox-hit-tick {
+    width: 2.5px;
+    height: 9px;
+    background: #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+.cox-hit-crit .cox-hit-tick {
+    height: 10px;
+    background: #fbbf24;
+    box-shadow: 0 0 6px rgba(251, 191, 36, 0.85), 0 0 0 1px rgba(0, 0, 0, 0.6);
+}
+.cox-hit-kill .cox-hit-tick {
+    width: 3.5px;
+    height: 12px;
+    background: #ef2b2b;
+    box-shadow: 0 0 9px rgba(239, 43, 43, 0.95), 0 0 0 1px rgba(0, 0, 0, 0.65);
+}
+
+/* ---------- round counter ---------- */
+.cox-round {
+    --col: #a10d0d;
+    --glow: 220, 20, 20;
+    --rf: 0;
+    position: relative;
+    color: color-mix(in srgb, #ffffff calc(var(--rf) * 100%), var(--col));
+}
+.cox-round-special {
+    --col: #a21caf;
+    --glow: 217, 70, 239;
+}
+.cox-round-pulse {
+    display: flex;
+    min-width: 5.5rem;
+    min-height: 4rem;
+    align-items: flex-end;
+    transform-origin: 20% 100%;
+    animation: cox-round-pulse 1s ease-out;
+    filter: drop-shadow(0 0 calc(6px + var(--rf) * 22px) rgba(var(--glow), 0.7)) brightness(calc(1 + var(--rf) * 0.9));
+    transform: scale(calc(1 + var(--rf) * 0.12));
+}
+.cox-tally {
+    width: clamp(5rem, 11vh, 6.6rem);
+    overflow: visible;
+}
+.cox-round-num {
+    font-family: 'Permanent Marker', 'Marker Felt', 'Chalkduster', 'Segoe Print', 'Bradley Hand', 'Comic Sans MS', cursive;
+    font-size: clamp(3.6rem, 10vh, 5.6rem);
+    line-height: 0.9;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 2px 3px 0 rgba(0, 0, 0, 0.85), 0 0 14px rgba(var(--glow), 0.55);
+    filter: url(#cox-scratch);
+}
+.cox-round-label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.15rem;
+    color: rgba(255, 255, 255, 0.45);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+}
+.cox-round-chip {
+    padding: 0 0.35rem;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.05);
+    letter-spacing: 0.15em;
+}
+@keyframes cox-round-pulse {
+    0% { transform: scale(1.35); opacity: 0.2; }
+    35% { transform: scale(1.08); opacity: 1; }
+    60% { transform: scale(1.18); }
+    100% { transform: scale(1); }
+}
+
+/* ---------- health ---------- */
+.cox-seg {
+    position: relative;
+    display: block;
+    flex: 1;
+    height: 6px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.12);
+    transform: skewX(-18deg);
+}
+.cox-seg-fill {
+    display: block;
+    height: 100%;
+    transition: width 0.1s;
+}
+
+/* ---------- perks ---------- */
+.cox-perk {
+    position: relative;
+    display: flex;
+    width: 2.75rem;
+    height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid var(--perk);
+    border-radius: 9999px;
+    background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--perk) 38%, #121212), #09090b 78%);
+    color: var(--perk);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--perk) 50%, transparent), inset 0 0 8px rgba(0, 0, 0, 0.7);
+}
+.cox-perk-tag {
+    position: absolute;
+    bottom: -0.35rem;
+    left: 50%;
+    padding: 0 3px;
+    transform: translateX(-50%);
+    border: 1px solid color-mix(in srgb, var(--perk) 60%, transparent);
+    border-radius: 2px;
+    background: #09090b;
+    font-size: 7px;
+    font-weight: 900;
+    line-height: 1.35;
+    letter-spacing: 0.08em;
+}
+
+/* ---------- points and weapon ---------- */
+.cox-points-num {
+    color: #fcd34d;
+    font-size: clamp(2rem, 4.6vh, 3.1rem);
+    line-height: 1;
+    text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.85), 0 0 18px rgba(251, 191, 36, 0.3);
+}
+.cox-float {
+    animation: cox-float 1s ease-out forwards;
+    text-shadow: 1px 2px 0 rgba(0, 0, 0, 0.85);
+}
+@keyframes cox-float {
+    0% { transform: translate(0, 0) scale(0.8); opacity: 0; }
+    12% { opacity: 1; transform: translate(0, -6px) scale(1.15); }
+    100% { transform: translate(var(--fx, 0), -92px) scale(0.9); opacity: 0; }
+}
+.cox-mag {
+    font-size: clamp(2.6rem, 6vh, 3.8rem);
+    line-height: 0.95;
+}
+.cox-pap {
+    padding: 0 0.35rem;
+    border: 1px solid;
+    border-radius: 2px;
+    font-size: 9px;
+    font-weight: 900;
+    letter-spacing: 0.15em;
+    line-height: 1.5;
+}
+.cox-weapon {
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.cox-weapon[data-state='low'],
+.cox-weapon[data-state='empty'],
+.cox-weapon[data-state='dry'] {
+    border-color: rgba(239, 68, 68, 0.5);
+    box-shadow: 0 0 18px rgba(220, 38, 38, 0.22), inset 0 0 22px rgba(120, 0, 0, 0.3);
+}
+.cox-weapon[data-state='reload'] {
+    border-color: rgba(251, 146, 60, 0.4);
+}
+
+/* ---------- banner ---------- */
+.cox-banner {
+    text-shadow: 0 3px 0 rgba(0, 0, 0, 0.85), 0 0 26px color-mix(in srgb, var(--banner, #dc2626) 55%, transparent);
+}
+
+/* ---------- menus ---------- */
+.cox-backdrop {
+    background:
+        radial-gradient(ellipse at 28% 12%, rgba(190, 20, 20, 0.18), transparent 55%),
+        radial-gradient(ellipse at center, rgba(0, 0, 0, 0.55), rgba(0, 0, 0, 0.93) 92%);
+    backdrop-filter: blur(9px) saturate(0.6);
+}
+.cox-panel {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: linear-gradient(180deg, rgba(20, 20, 22, 0.94), rgba(9, 9, 11, 0.96));
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), 0 30px 120px rgba(0, 0, 0, 0.9), inset 0 0 90px rgba(0, 0, 0, 0.55);
+}
+.cox-panel::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.07;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+.cox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #a1a1aa;
+    font-family: 'Stencil Std', 'Stencil', 'Saira Stencil One', Impact, Haettenschweiler, 'Arial Narrow', sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+}
+.cox-label::before {
+    content: '';
+    width: 14px;
+    height: 8px;
+    flex: none;
+    background: repeating-linear-gradient(-45deg, #d6a100 0 3px, #141414 3px 6px);
+}
+.cox-title {
+    color: #ece9e3;
+    letter-spacing: 0.04em;
+    text-shadow: 3px 3px 0 rgba(120, 10, 10, 0.75), 0 2px 0 #000, 0 0 34px rgba(220, 38, 38, 0.35);
+    filter: url(#cox-scratch);
+}
+.cox-death {
+    color: #b91c1c;
+    text-shadow: 3px 3px 0 rgba(0, 0, 0, 0.85), 0 0 34px rgba(220, 38, 38, 0.55);
+    filter: url(#cox-scratch);
+}
+.cox-card {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.03);
+    transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+}
+.cox-card:not(:disabled):hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.06);
+}
+.cox-card-on,
+.cox-card-on:not(:disabled):hover {
+    border-color: rgba(251, 191, 36, 0.65);
+    background: rgba(251, 191, 36, 0.09);
+    box-shadow: 0 0 24px rgba(251, 191, 36, 0.12), inset 3px 0 0 #fbbf24;
+}
+.cox-cta {
+    box-shadow: 0 0 36px rgba(220, 38, 38, 0.4);
+}
+
+@media (max-height: 760px) {
+    .cox-banner {
+        font-size: 2.25rem;
+    }
+}
+</style>
