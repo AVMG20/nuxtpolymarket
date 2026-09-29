@@ -270,6 +270,8 @@ function raidAssets(): ArtAsset[] {
     RAMPANT.forEach((def, i) => {
         const states = i < RAMPANT.length - 1 ? ['idle', 'attack', 'hit', 'escalate'] : ['idle', 'attack', 'hit']
         for (const st of states) out.push(creatureAsset(`raid/trait/rampage${i + 1}/${st}`, 'trait_raid', `Trait Raid · rampaging_boss — rampage ${i + 1}`, `${def.name} — ${st === 'escalate' ? 'Escalation' : TITLE[st]}`, def, st, -1))
+        // each tier has its own specials, sized to its body
+        specials(`trait/rampage${i + 1}`, `Trait Raid · rampaging_boss — rampage ${i + 1}`, def, 'trait_raid')
     })
     out.push(creatureAsset('arena/training_dummy/static', 'raids', 'Arena training dummy', 'Static pose', TRAINING_DUMMY, 'static', -1))
     out.push(creatureAsset('arena/training_dummy/hit', 'raids', 'Arena training dummy', 'Hit reaction', TRAINING_DUMMY, 'hit', -1))

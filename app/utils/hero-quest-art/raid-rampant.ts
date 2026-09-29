@@ -7,12 +7,12 @@
 // hide burning hotter; on the escalation beat it rears and roars and grows into the next. No Death.
 
 import { C } from './palette'
-import type { CreatureDef } from './creature'
-import { fr, sm } from './creature'
+import type { BossSpecial, CreatureDef } from './creature'
+import { CF, fr, sm } from './creature'
 import { B, drive, elbow, P, bayer, px, line, disc, tri, poly, taper, ellipse, q, hash2 } from './boss-kit'
 import { mask, vol, eachPx, selOut, type Mat5 } from './raid-kit'
-import { debris, spike } from './special-kit'
-import { shockRing } from './vfx-cinematic'
+import { debris, spike, sp, sq, hitTarget, chest, VOID6 } from './special-kit'
+import { blast, shockRing } from './vfx-cinematic'
 
 const R = Math.round
 
@@ -56,6 +56,153 @@ function escFlare(t: number): boolean {
     return q0 >= RAMPAGE_ROAR - 0.1 && q0 < RAMPAGE_SLAM + 0.3
 }
 
+/**
+ * Its two specials, in seconds. Rolling Crash: it crouches, springs at ROLL_LEAP curling into a ball
+ * and somersaults forward, slams its armoured back down onto the party at ROLL_HIT, bounces off, and
+ * rolls on round to land on its feet on its mark at ROLL_LAND. Shard Storm: it arches its hump while
+ * its mane flares, then bucks at STORM_BUCK and the mane's crystals fly, one more wave each tier.
+ */
+const ROLL_DUR = 2.1
+const ROLL_LEAP = 0.4
+const ROLL_HIT = 0.85
+/** The contact: a short squash against them, the spin slowing, before it bounces off. */
+const ROLL_OFF = 0.95
+const ROLL_LAND = 1.55
+/** How far in front of its mark its back meets the party, and how high each hop arcs. */
+const ROLL_REACH = 100
+const ROLL_ARC = 32
+const ROLL_BOUNCE = 30
+/** Its angle through the roll (a whole forward turn), at leap, contact, bouncing off and landing: its back faces down and forward on contact. */
+const ROLL_KEYS = [[ROLL_LEAP, 0], [ROLL_HIT, Math.PI * 0.75], [ROLL_OFF, Math.PI * 0.75 + 0.35], [ROLL_LAND, Math.PI * 2]] as const
+const STORM_BUCK = 0.6
+/** Each tier throws one more wave, each wave one crystal at every one of the party. */
+const STORM_WAVE = 0.42
+const STORM_PER_WAVE = 6
+const STORM_STAGGER = 0.04
+/** A thrown crystal's time from launch to landing, its climb out of sight, and its fall. */
+const STORM_FLIGHT = 0.55
+const STORM_UP = 0.18
+const STORM_FALL = 0.22
+/** When the Storm's last wave bucks at `tier`, and how long its Storm runs. */
+const stormLast = (tier: number): number => STORM_BUCK + tier * STORM_WAVE
+const stormDur = (tier: number): number => stormLast(tier) + STORM_STAGGER * STORM_PER_WAVE + STORM_FLIGHT + 1.0
+
+/** Where the body is through a special: how far it rears (− is head down), its lunge, jaw, glow, its hump arched, the mane spent, a shiver, and how far it is curled into a ball. */
+interface SpPose { rear: number, lunge: number, open: number, glow: number, arch: number, spent: number, shiver: number, curl: number }
+const POSE: SpPose = { rear: 0, lunge: 0, open: 0, glow: 0, arch: 0, spent: 0, shiver: 0, curl: 0 }
+
+const span = (a: number, b: number, v: number): number => Math.min(1, Math.max(0, (v - a) / (b - a)))
+
+/** The body's scale at `tier`, as `rampantDraw` sizes it. */
+const tierSize = (tier: number): number => 0.8 + tier * 0.06
+
+/** The roll's pivot at rest, from the anchor: the middle of the ball it curls into. */
+const pivotX = (sz: number): number => -6 + 5 * sz
+const pivotY = (sz: number): number => -84 * sz
+/** How far the ball's back sits from its middle: what meets the party. */
+const backR = (sz: number): number => 41 * sz
+
+/**
+ * A monotone cubic through `keys` ([time, value]), easing out to a stop at the last: the roll's
+ * angle, so its spin runs on without a hitch through every key.
+ */
+function smoothKeys(keys: readonly (readonly [number, number])[], t: number, v0: number): number {
+    const n = keys.length
+    if (t <= keys[0]![0]) return keys[0]![1]
+    if (t >= keys[n - 1]![0]) return keys[n - 1]![1]
+    const sl = (i: number) => (keys[i + 1]![1] - keys[i]![1]) / (keys[i + 1]![0] - keys[i]![0])
+    const slope = (i: number) => i === 0 ? v0 : i === n - 1 ? 0 : (sl(i - 1) + sl(i)) / 2
+    let i = 0
+    while (t > keys[i + 1]![0]) i++
+    const [t0, a0] = keys[i]!
+    const [t1, a1] = keys[i + 1]!
+    const h = t1 - t0
+    const u = (t - t0) / h
+    const u2 = u * u
+    const u3 = u2 * u
+    return (2 * u3 - 3 * u2 + 1) * a0 + (u3 - 2 * u2 + u) * h * slope(i) + (-2 * u3 + 3 * u2) * a1 + (u3 - u2) * h * slope(i + 1)
+}
+
+/** Where the roll has it at `q0` seconds: its pivot's offset from rest (forward +, down +), its angle, and how curled it is. */
+const ROLL = { dx: 0, dy: 0, ang: 0, curl: 0, air: 0 }
+function rollAt(q0: number, sz: number): typeof ROLL {
+    const r = ROLL
+    // where its middle is when its back meets them: as low as it goes with its mane's tips just
+    // grazing the ground, so the back comes down onto them
+    const hx = ROLL_REACH - backR(sz) * Math.SQRT1_2 - pivotX(sz)
+    const hy = -(62 * sz + 2) - pivotY(sz)
+    // on the ground (the crouch it springs from, the landing) it stays on its feet: the pose carries those
+    if (q0 < ROLL_LEAP) { r.dx = 0; r.dy = 0 } else if (q0 < ROLL_HIT) {
+        const u = (q0 - ROLL_LEAP) / (ROLL_HIT - ROLL_LEAP)
+        r.dx = hx * u
+        r.dy = hy * u - ROLL_ARC * 4 * u * (1 - u)
+    } else if (q0 < ROLL_OFF) {
+        // pressed into them
+        const v = Math.sin(Math.PI * (q0 - ROLL_HIT) / (ROLL_OFF - ROLL_HIT))
+        r.dx = hx + 4 * v
+        r.dy = hy + 3 * v
+    } else if (q0 < ROLL_LAND) {
+        const u = (q0 - ROLL_OFF) / (ROLL_LAND - ROLL_OFF)
+        r.dx = hx * (1 - u)
+        r.dy = hy * (1 - u) - ROLL_BOUNCE * 4 * u * (1 - u)
+    } else {
+        // it lands on its feet, and the pose takes the weight
+        r.dx = 0
+        r.dy = 0
+    }
+    r.ang = smoothKeys(ROLL_KEYS, q0, 2)
+    r.curl = sm(span(ROLL_LEAP - 0.02, ROLL_LEAP + 0.15, q0)) * (1 - sm(span(ROLL_LAND - 0.25, ROLL_LAND - 0.03, q0)))
+    r.air = sm(span(ROLL_LEAP, ROLL_LEAP + 0.1, q0)) * (1 - sm(span(ROLL_LAND - 0.1, ROLL_LAND, q0)))
+    return r
+}
+
+function rollPose(t: number, sz: number): SpPose {
+    const p = POSE
+    const q0 = q(t)
+    const r = rollAt(q0, sz)
+    p.arch = 0; p.spent = 0; p.shiver = 0; p.lunge = 0
+    p.curl = r.curl
+    // head down into the crouch, then tucked; the landing's weight dips it, and it looks up again
+    const land = sm(span(ROLL_LAND, ROLL_LAND + 0.07, q0)) * (1 - sm(span(ROLL_LAND + 0.07, ROLL_DUR - 0.1, q0)))
+    p.rear = -0.4 * sm(span(0, 0.3, q0)) * (1 - r.curl) * (q0 < ROLL_LEAP ? 1 : 0) - 0.3 * land
+    p.open = q0 > ROLL_HIT - 0.05 && q0 < ROLL_OFF + 0.1 ? 1 : 0.2
+    p.glow = Math.max(span(0.1, ROLL_LEAP, q0) * (q0 < ROLL_LAND ? 1 : 0), 1 - span(ROLL_LAND, ROLL_DUR, q0) * 2) * (q0 > 0.1 ? 1 : 0)
+    return p
+}
+
+function stormPose(t: number, tier: number): SpPose {
+    const p = POSE
+    const q0 = q(t)
+    p.lunge = 0; p.curl = 0
+    if (q0 < STORM_BUCK) {
+        // it gathers: head down, the hump arching up, shivering as the mane fills with light
+        const u = sm(span(0, STORM_BUCK, q0))
+        p.rear = -0.3 * u
+        p.arch = u
+        p.open = 0.2
+        p.glow = u
+        p.spent = 0
+        p.shiver = q0 > 0.3 ? ((Math.floor(q0 * 20) & 1) ? 1 : -1) : 0
+    } else {
+        // a buck for each wave: the back snaps up and the head tosses; after the last it settles
+        const last = stormLast(tier)
+        const w = Math.min(tier, Math.floor((q0 - STORM_BUCK) / STORM_WAVE))
+        const tw = STORM_BUCK + w * STORM_WAVE
+        const bump = span(tw, tw + 0.08, q0) * (1 - sm(span(tw + 0.08, tw + 0.35, q0)))
+        const settle = sm(span(last + 0.1, last + 0.8, q0))
+        p.rear = (-0.3 + 0.7 * bump) * (1 - settle)
+        p.arch = (1 + 0.6 * bump) * (1 - settle)
+        p.open = Math.max(bump, 0.2) * (1 - settle * 0.8)
+        p.glow = 1 - settle
+        // each buck throws the mane; between waves it half grows back, after the last all the way
+        const thrown = (w ? 0.5 : 0) + (1 - (w ? 0.5 : 0)) * span(tw, tw + 0.06, q0)
+        p.spent = w < tier ? thrown - 0.5 * sm(span(tw + 0.1, tw + STORM_WAVE, q0)) : thrown * (1 - sm(span(tw + 0.4, tw + 1.1, q0)))
+        p.shiver = 0
+    }
+    p.lunge = -2 * p.arch
+    return p
+}
+
 const HIDE: Mat5 = { ramp: [C.void, C.night1, C.night2, C.night3], hi: C.purple2, rim: C.purple0 }
 const BONE: Mat5 = { ramp: [C.bone0, C.bone0, C.bone1, C.white], hi: C.white, rim: C.bone0 }
 const OLD_BONE: Mat5 = { ramp: [C.stone1, C.bone0, C.bone0, C.bone1], hi: C.bone1, rim: C.stone1 }
@@ -72,27 +219,68 @@ const VEIN = [C.purple1, C.purple2, C.pink, C.pink, C.white] as const
 
 type S = Parameters<CreatureDef['draw']>[0]
 
+/**
+ * The Rampant at `t` into `st`. Through the Rolling Crash the body is drawn curled into a scratch
+ * buffer and turned about the ball's middle as one piece, carried along the roll's path.
+ */
 function rampantDraw(tier: number, s: S, st: string, t: number, def: CreatureDef): void {
+    if (st !== 'special') { rampantBody(tier, s, st, t, def); return }
+    const sz = tierSize(tier)
+    const src = mask(s, 'roll')
+    rampantBody(tier, src, st, t, def)
+    const r = rollAt(q(t), sz)
+    const px0 = s.ax + pivotX(sz)
+    const py0 = s.ay + pivotY(sz)
+    const dx = px0 + r.dx
+    const dy = py0 + r.dy
+    const c = Math.cos(r.ang)
+    const sn = Math.sin(r.ang)
+    // every pixel of the buffer, taken back through the turn to the curled body (nearest pixel)
+    for (let y = 0; y < s.h; y++) {
+        for (let x = 0; x < s.w; x++) {
+            const rx = x - dx
+            const ry = y - dy
+            const v = src.get(R(px0 + rx * c + ry * sn), R(py0 - rx * sn + ry * c))
+            if (v) s.set(x, y, v)
+        }
+    }
+    // its shadow thins while it is off the ground
+    CF.shadow = 1 - 0.8 * r.air
+}
+
+function rampantBody(tier: number, s: S, st: string, t: number, def: CreatureDef): void {
     drive(def, st, t, 16, 1.2 - tier * 0.08)
     // the escalation beat grows it into the next tier, on the slam
     const esc = st === 'escalate'
     const up = esc ? escUp(t) : 0
     if (esc && escFlare(t)) B.glow = 1
+    // its specials play on poses of their own
+    const pose = st === 'special' ? rollPose(t, tierSize(tier)) : st === 'special2' ? stormPose(t, tier) : null
+    if (pose) { B.lunge = R(pose.lunge); B.glow = pose.glow }
+    // the Storm's mane blinks white as it fills with light
+    const storming = st === 'special2' && q(t) > 0.25 && q(t) < STORM_BUCK + 0.06
     const lv = tier + up
     const sz = 0.8 + lv * 0.06
-    const x = s.ax - 6 + B.lunge - B.kb
+    const x = s.ax - 6 + B.lunge - B.kb + (pose?.shiver ?? 0)
     const y = s.ay
     const br = B.breath
     const pulse = (Math.sin(q(t) * 5) + 1) / 2
     // flaring on the roar, as bright as they go
-    const cr = CRYSTAL[esc && escFlare(t) ? 4 : Math.min(4, Math.round(lv))]!
+    const cr = CRYSTAL[(esc && escFlare(t)) || (storming && Math.floor(q(t) * 12) & 1) ? 4 : Math.min(4, Math.round(lv))]!
     const vein = VEIN[esc && escFlare(t) ? 4 : Math.min(4, Math.round(lv))]!
     // a point on the body, scaled from its feet
     const L = (dx: number, dy: number): [number, number] => [x + dx * sz, y + dy * sz]
     // it rears on the escalation and the wind-up, and drives its horns down on the strike
-    const rear = esc ? escRear(t) : B.wind
-    // the escalation is its big beat: the head goes up much further than on a wind-up
-    const lift = rear * (st === 'escalate' ? 30 : 16) - (B.strike ? 8 : B.rec * 5)
+    const rear = esc ? escRear(t) : pose ? pose.rear : B.wind
+    // the escalation is its big beat: the head goes up much further than on a wind-up; the gore's
+    // hook heaves it up hard
+    const curl = pose?.curl ?? 0
+    // curled into a ball, its head is tucked down and back into its chest
+    const lift = rear * (esc ? 30 : 16) - (B.strike ? 8 : B.rec * 5) - curl * 12
+    const tuck = curl * 12
+    const arch = pose?.arch ?? 0
+    // a point `u` of the way from a to b: its legs and tail drawn in as it curls
+    const mix = (a: number, b: number): number => a + (b - a) * curl
 
     // ── a leg: two bones out of the shoulder, three out of the hip, a bone cap on each joint that
     //    shows, a broad padded foot and three heavy claws; the forelegs lift and tuck as it rears ──
@@ -112,7 +300,8 @@ function rampantDraw(tier: number, s: S, st: string, t: number, def: CreatureDef
         if (fore) {
             const tuck = Math.max(0, rear) * (far ? 14 : 18)
             const [sx, sy] = L(20 + ox, -68 - rear * 8)
-            ;[fx, fy] = L(26 + ox + rear * 8, -4 - tuck)
+            // tucked up under its chest as it curls
+            ;[fx, fy] = L(mix(26 + ox + rear * 8, 8 + ox), mix(-4 - tuck, -40))
             elbow(sx, sy, fx, fy, 33 * sz, 37 * sz, 1)
             const ex = P.x
             const ey = P.y
@@ -127,9 +316,10 @@ function rampantDraw(tier: number, s: S, st: string, t: number, def: CreatureDef
             joints.push([ex, ey, 10 * sz, true], [wx, wy, 7 * sz, false])
         } else {
             const [hx, hy] = L(-40 + ox, -64)
-            const [kx, ky] = L(-28 + ox, -40)
-            const [jx, jy] = L(-50 + ox, -22)
-            ;[fx, fy] = L(-44 + ox, -4)
+            // drawn up under its belly as it curls
+            const [kx, ky] = L(mix(-28 + ox, -14 + ox), mix(-40, -50))
+            const [jx, jy] = L(mix(-50 + ox, -30 + ox), mix(-22, -40))
+            ;[fx, fy] = L(mix(-44 + ox, -12 + ox), mix(-4, -38))
             taper(m, hx, hy, kx, ky, 38 * sz, 26 * sz, 1)
             taper(m, kx, ky, jx, jy, 25 * sz, 16 * sz, 1)
             taper(m, jx, jy, fx, fy, 16 * sz, 19 * sz, 1)
@@ -178,12 +368,12 @@ function rampantDraw(tier: number, s: S, st: string, t: number, def: CreatureDef
         taper(body, hx, hy, bx, by, 40 * sz, 60 * sz, 1)
         const [gx, gy] = L(2, -60 + br)
         ellipse(body, gx, gy, 24 * sz, 14 * sz, 1)
-        const [ux, uy] = L(10, -96 + br - rear * 10)
+        const [ux, uy] = L(10, -96 + br - rear * 10 - arch * 4)
         disc(body, ux, uy, 29 * sz, 1)
         const [shx, shy] = L(20, -70 + br - rear * 8)
         ellipse(body, shx, shy, 23 * sz, 27 * sz, 1)
         const [n0x, n0y] = L(26, -80 + br - rear * 9)
-        const [n1x, n1y] = L(48, -62 + br - lift)
+        const [n1x, n1y] = L(48 - tuck, -62 + br - lift)
         taper(body, n0x, n0y, n1x, n1y, 40 * sz, 30 * sz, 1)
         vol(s, body, HIDE, 24)
         shag(s, body)
@@ -218,8 +408,9 @@ function rampantDraw(tier: number, s: S, st: string, t: number, def: CreatureDef
         const m = mask(s, 'tail')
         const sw = Math.sin(q(t) * 2) * 4
         const [a, b] = L(-54, -68 + br)
-        const [c, d] = L(-78, -56 + sw)
-        const [e, f] = L(-88, -34 + sw)
+        // curled up over its back into the ball
+        const [c, d] = L(mix(-78, -72), mix(-56 + sw, -92))
+        const [e, f] = L(mix(-88, -56), mix(-34 + sw, -118))
         taper(m, a, b, c, d, 22 * sz, 12 * sz, 1)
         disc(m, a, b, 10 * sz, 1)
         taper(m, c, d, e, f, 12 * sz, 7 * sz, 1)
@@ -255,7 +446,8 @@ function rampantDraw(tier: number, s: S, st: string, t: number, def: CreatureDef
         const [bx] = L(-36 + u * 68, 0)
         const by = backAt(bx)
         if (by < 0) continue
-        const h = (10 + Math.sin(u * Math.PI) * (9 + lv * 4)) * sz * (0.8 + hash2(i, 3) * 0.4)
+        // thrown by the Storm, stubs left that grow back
+        const h = (10 + Math.sin(u * Math.PI) * (9 + lv * 4)) * sz * (0.8 + hash2(i, 3) * 0.4) * (1 - (pose?.spent ?? 0) * 0.75)
         crystal(s, bx, by + 4, -Math.PI / 2 - 0.45 + u * 0.5 + (hash2(i, 7) - 0.5) * 0.3, h, (5 + lv * 0.6) * sz, cr, (pulse + u) % 1)
     }
 
@@ -294,9 +486,9 @@ function rampantDraw(tier: number, s: S, st: string, t: number, def: CreatureDef
     //    ridge down to the nostrils, a real lower jaw, a maw lit from inside, curved boar tusks ──
     {
         // a point on the head, lifted as it rears (the snout a little less)
-        const Hp = (dx: number, dy: number): [number, number] => { const [a, b] = L(dx, dy + br); return [a, b - lift * (dx > 60 ? 0.8 : 1)] }
+        const Hp = (dx: number, dy: number): [number, number] => { const [a, b] = L(dx - tuck, dy + br); return [a, b - lift * (dx > 60 ? 0.8 : 1)] }
         // the lower jaw, which drops on the roar and the strike
-        const open = Math.min(1.3, (esc ? Math.max(0, rear) * 1.3 : 0) + (B.strike ? 1 : 0) + B.wind * 0.3)
+        const open = pose ? pose.open : Math.min(1.3, (esc ? Math.max(0, rear) * 1.3 : 0) + (B.strike ? 1 : 0) + B.wind * 0.3)
         const drop = open * 9
         // the far tusk, behind everything on the head
         {
@@ -391,11 +583,10 @@ function rampantDraw(tier: number, s: S, st: string, t: number, def: CreatureDef
         // horns: a great pair sweeping forward, another pair behind them every two tiers
         const pairs = 1 + Math.floor(lv / 2)
         for (let p = pairs - 1; p >= 0; p--) {
-            const [ax, ay] = L(40 - p * 9, -80 - p * 3 + br)
+            const [ax, ay] = L(40 - p * 9 - tuck, -80 - p * 3 + br)
             horn(s, ax, ay - lift, (40 + p * 6 + lv * 3) * sz, (9 - p) * sz, p > 0)
         }
     }
-
 }
 
 /** Shaggy hide over what is drawn in `m`: short strokes raked back. */
@@ -545,13 +736,152 @@ function escalationFx(dst: S, t: number, x: number, y: number, dir: number, sz: 
     }
 }
 
+/**
+ * Rolling Crash: it crouches and springs, curling into a ball, somersaults forward and slams its
+ * armoured back down onto the three nearest, bounces off, and rolls on round to land on its feet.
+ */
+function rollingCrash(tier: number): BossSpecial {
+    const sz = tierSize(tier)
+    const sp0: BossSpecial = {
+        name: 'Rolling Crash', tint: 'night1', hits: [ROLL_HIT + 0.01, ROLL_HIT + 0.03, ROLL_HIT + 0.05], spread: true,
+        fx(s, t, st) {
+            const d = st.dir
+            const u = sq(t)
+            const r = rollAt(u, sz)
+            // the ball's middle in the scene
+            const cx = st.bx + d * (pivotX(sz) + r.dx)
+            const cy = st.by + pivotY(sz) + r.dy
+            // it springs off the ground, and lands on it again
+            for (const [t0, seed] of [[ROLL_LEAP, 11], [ROLL_LAND, 13]] as const) {
+                debris(s, st.bx - d * 20, st.by - 1, st.by, t, t0, 10, 80, 'dust', seed, 0.6)
+                debris(s, st.bx + d * 30, st.by - 1, st.by, t, t0, 10, 80, 'dust', seed + 1, 0.6)
+                shockRing(s, st.bx + d * 6, st.by, t, t0, 0.4, 10, 80, C.bone0, true)
+            }
+            // the spin: arcs of crystal light trailing round the ball while it is in the air
+            if (r.air > 0.5 && (u < ROLL_HIT - 0.02 || u > ROLL_OFF)) {
+                const rr = 52 * sz
+                for (let k = 0; k < 3; k++) {
+                    const lead = r.ang + k * Math.PI * 2 / 3
+                    for (let i = 0; i < 24; i++) {
+                        const a = lead - i * 0.04
+                        const c = i < 3 ? C.white : i < 10 ? C.pink : i < 17 ? C.purple2 : C.purple1
+                        if (i >= 17 && (i & 1)) continue
+                        for (const w of [0, 3]) s.set(R(cx + d * Math.cos(a) * (rr - w)), R(cy + Math.sin(a) * (rr - w)), c)
+                    }
+                }
+            }
+            // the crash: where its back comes down on them, a burst of crystal and a ring along the ground
+            if (u >= ROLL_HIT - 0.02) {
+                const r0 = rollAt(ROLL_HIT, sz)
+                const kx = st.bx + d * (pivotX(sz) + r0.dx + backR(sz) * Math.SQRT1_2)
+                const ky = st.by + pivotY(sz) + r0.dy + backR(sz) * Math.SQRT1_2
+                blast(s, kx, ky, t, ROLL_HIT, 20, 0.5, VOID6, 71, 'arcane')
+                shockRing(s, kx, st.by, t, ROLL_HIT, 0.5, 8, 90, C.white, true)
+                shockRing(s, kx, st.by, t, ROLL_HIT + 0.06, 0.45, 6, 70, C.pink, true)
+                debris(s, kx, ky, st.by, t, ROLL_HIT, 18, 160, 'arcane', 73, 0.9)
+                debris(s, kx, st.by - 1, st.by, t, ROLL_HIT, 14, 110, 'dust', 75, 0.8)
+            }
+            for (let i = 0; i < sp0.hits.length; i++) {
+                const pt = hitTarget(st, i, true)
+                blast(s, pt.x, chest(pt), t, sp0.hits[i]!, 11, 0.45, VOID6, 81 + i, 'arcane')
+            }
+        }
+    }
+    return sp0
+}
+
+/**
+ * Shard Storm: it arches its hump while its mane fills with light, then bucks, and the mane's
+ * crystals fly up high over the party and rain down on them, walking the line; more each tier. They
+ * stick in the ground where they land and sink away.
+ */
+function shardStorm(tier: number): BossSpecial {
+    const sz = tierSize(tier)
+    // one wave per tier, each a crystal at every one of the party
+    const n = STORM_PER_WAVE * (tier + 1)
+    const launch = (i: number): number => STORM_BUCK + 0.02 + Math.floor(i / STORM_PER_WAVE) * STORM_WAVE + (i % STORM_PER_WAVE) * STORM_STAGGER
+    const sp0: BossSpecial = {
+        name: 'Shard Storm', tint: 'night1', spread: true,
+        hits: Array.from({ length: n }, (_, i) => launch(i) + STORM_FLIGHT),
+        fx(s, t, st) {
+            const d = st.dir
+            const u = sq(t)
+            const W = (dx: number, dy: number): [number, number] => [st.bx + d * (dx * sz - 6), st.by + dy * sz]
+            // light drawn in to the mane from all round as it gathers
+            const [mx, my] = W(4, -112)
+            const g = sp(u, 0.05, STORM_BUCK)
+            if (g > 0 && g < 1) {
+                for (let i = 0; i < 22; i++) {
+                    const a = hash2(i, 41) * Math.PI * 2
+                    const r = (1 - ((g * 1.8 + hash2(i, 43)) % 1)) * 70
+                    s.set(R(mx + Math.cos(a) * r * 1.3), R(my + Math.sin(a) * r * 0.6), i % 3 ? C.pink : C.white)
+                }
+            }
+            // each buck throws light up off its back
+            const w = Math.max(0, Math.min(tier, Math.floor((u - STORM_BUCK) / STORM_WAVE)))
+            const b = sp(u, STORM_BUCK + w * STORM_WAVE, STORM_BUCK + w * STORM_WAVE + 0.25)
+            if (b > 0 && b < 1) {
+                for (let i = 0; i < 9; i++) {
+                    const [rx, ry] = W(-30 + i * 7.5, -(104 + Math.sin(i / 8 * Math.PI) * 18))
+                    const r0 = b * 30
+                    line(s, rx, ry - r0, rx, ry - r0 - 8 * (1 - b), i & 1 ? C.white : C.pink)
+                }
+            }
+            for (let i = 0; i < n; i++) {
+                const t0 = launch(i)
+                const t1 = t0 + STORM_FLIGHT
+                const pt = hitTarget(st, i, true)
+                // off the mane, spread along its back, straight up and out of sight
+                const v = hash2(i, 47)
+                const [ox, oy] = W(-30 + v * 60, -(100 + Math.sin(v * Math.PI) * 22))
+                const ex = pt.x + (hash2(i, 53) - 0.5) * 10
+                const ey = pt.y - 3
+                const up = sp(u, t0, t0 + STORM_UP)
+                if (up > 0 && up < 1) {
+                    const lean = (hash2(i, 59) - 0.5) * 12
+                    const was = Math.max(0, up - 0.2)
+                    shard(s, ox + lean * up, oy - (oy + 20) * up, ox + lean * was, oy - (oy + 20) * was, 5 + tier)
+                }
+                // then down out of the sky onto them, steep, slanting in from behind them
+                const dn = sp(u, t1 - STORM_FALL, t1)
+                if (dn > 0 && dn < 1) {
+                    const sx = ex + d * 28
+                    const sy = -12
+                    const k = dn * dn
+                    const k0 = Math.max(0, dn - 0.25) ** 2
+                    shard(s, sx + (ex - sx) * k, sy + (ey - sy) * k, sx + (ex - sx) * k0, sy + (ey - sy) * k0, 7 + tier)
+                }
+                // where it lands: a blast over them, and the crystal stuck in the ground, sinking away
+                blast(s, ex, ey - 6, t, t1, 9, 0.4, VOID6, 61 + i, 'arcane')
+                const stuck = sp(u, t1, t1 + 0.1) * (1 - sp(u, t1 + 0.5, t1 + 0.9))
+                if (stuck > 0) spike(s, R(ex), R(pt.y + 1), R((8 + tier) * stuck), 2, R((hash2(i, 61) - 0.5) * 4), C.purple1, C.pink, C.white)
+            }
+        }
+    }
+    return sp0
+}
+
+/** A thrown crystal at (x, y), come from (bx, by): a streak behind it, then the crystal pointing the way it flies. */
+function shard(s: S, x: number, y: number, bx: number, by: number, len: number): void {
+    line(s, bx, by, x, y, C.purple1)
+    const a = Math.atan2(y - by, x - bx)
+    const ca = Math.cos(a)
+    const sa = Math.sin(a)
+    line(s, x - ca * len * 1.6, y - sa * len * 1.6, x - ca * len, y - sa * len, C.purple2)
+    tri(s, x - ca * len - sa * 2, y - sa * len + ca * 2, x - ca * len + sa * 2, y - sa * len - ca * 2, x + ca * 2, y + sa * 2, C.pink)
+    line(s, x - ca * len, y - sa * len, x + ca, y + sa, C.white)
+}
+
 function rampantDef(tier: number): CreatureDef {
     const def: CreatureDef = {
-        name: `The Rampant — rampage ${tier + 1}`, size: 256, room: 12, shadow: 64, accent: C.pink,
+        // room for the Rolling Crash, which carries the ball well out in front of it
+        name: `The Rampant — rampage ${tier + 1}`, size: 256, room: 34, shadow: 64, accent: C.pink,
         states: {
             idle: { dur: 1.2, loop: true }, attack: { dur: 1.2, loop: false }, hit: { dur: 0.5, loop: false },
-            escalate: { dur: ESC_DUR, loop: false }
+            escalate: { dur: ESC_DUR, loop: false },
+            special: { dur: ROLL_DUR, loop: false }, special2: { dur: stormDur(tier), loop: false }
         },
+        specials: [rollingCrash(tier), shardStorm(tier)],
         draw: (s, st, t) => rampantDraw(tier, s, st, t, def),
         fx(dst, st, t, x, y, dir) {
             // the aura ring IS the level read — no HP bar exists for this boss

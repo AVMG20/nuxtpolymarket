@@ -440,8 +440,9 @@ export class BattleDemo {
     private raid: {
         id: RaidId, name: string, tables: Baked[][], at: number, adds: Baked[][], next: number, hits: number, escalating: boolean
         clock: number, dmg: number, over: number
-        specials: readonly BossSpecial[], spTables: Baked[][], spNext: number
+        specials: readonly (readonly BossSpecial[])[], spTables: Baked[][][], spNext: number
     } | null = null
+
     /** The Training Grounds' timer and damage readout, rebuilt only when either changes. */
     private tally = ''
     private tallyKey = -1
@@ -559,11 +560,12 @@ export class BattleDemo {
     }
 
     /**
-     * Bake a raid's boss, one frame table per Forge phase or Trait rampage tier (one for the rest), and
+     * Bake a raid's boss, one frame table per Forge boss or Trait rampage tier (one for the rest), and
      * the Dig-site's adds; null for a wave that is not a raid. A table follows the unit's slots: idle,
-     * attack, cast (the attack again: raid bosses have no specials), hit, death, entry, idle. The Forge
-     * dies only in its last phase and enters only in its first; each Trait tier's escalation plays in
-     * its entry slot, and it has no death. The Training Grounds dummy has only idle, hit and entry.
+     * attack, cast (the attack again), hit, death, entry, idle; a boss with specials gets a copy of its
+     * table per special, with that special's body in the cast slot, and each Trait tier has its own,
+     * sized to its body. Each Trait tier's escalation plays in its entry slot, and it has no death.
+     * The Training Grounds dummy has only idle, hit and entry.
      */
     private bakeRaid(id: RaidId | null): BattleDemo['raid'] {
         if (!id) return null
@@ -592,9 +594,11 @@ export class BattleDemo {
             name = { guild: GILDED_WARLORD, dig_site: DEEPCOIL }[id].name
         }
         const adds = id === 'dig_site' ? ['burrow_grub', 'ore_beetle'].map(a => table(`raid/dig_site/add_${a}`, null, `raid/dig_site/add_${a}/death`, true)) : []
-        const def = id === 'guild' ? GILDED_WARLORD : id === 'dig_site' ? DEEPCOIL : null
-        const specials = def ? specialsOf(def) : []
-        const spTables = specials.map((_, n) => tables[0]!.map((f, k) => k === 2 ? b(`raid/${id}/${specialState(n)}`) : f))
+        // the boss behind each table, where it has specials, and where its assets are
+        const defs = id === 'trait' ? RAMPANT : id === 'guild' ? [GILDED_WARLORD] : id === 'dig_site' ? [DEEPCOIL] : []
+        const base = (k: number) => id === 'trait' ? `raid/trait/rampage${k + 1}` : `raid/${id}`
+        const specials = tables.map((_, k) => defs[k] ? specialsOf(defs[k]) : [])
+        const spTables = tables.map((tb, k) => specials[k]!.map((_, n) => tb.map((f, j) => j === 2 ? b(`${base(k)}/${specialState(n)}`) : f)))
         return { id, name: name.split(' — ')[0]!.toUpperCase(), tables, at: 0, adds, next: 0, hits: 0, escalating: false, clock: DUMMY_ROUND, dmg: 0, over: -1, specials, spTables, spNext: 0 }
     }
 
@@ -610,7 +614,8 @@ export class BattleDemo {
         } else if (r.id === 'trait') {
             u.hp = Math.max(1, u.hp)
             r.hits += dmg
-            if (r.hits >= RAMPAGE_EVERY && r.at < r.tables.length - 1 && !r.escalating && u.state !== U.Entry) {
+            // it escalates once a special it is playing is done
+            if (r.hits >= RAMPAGE_EVERY && r.at < r.tables.length - 1 && !r.escalating && u.state !== U.Entry && u.state !== U.Cast) {
                 r.hits = 0
                 r.escalating = true
                 u.state = U.Entry
@@ -697,7 +702,7 @@ export class BattleDemo {
                 const r = this.raid
                 if (r) { r.at = 0; r.hits = 0; r.escalating = false; r.next = ADD_WAVE_EVERY / 2; r.clock = DUMMY_ROUND; r.dmg = 0; r.over = -1 }
                 u.frames = r ? r.tables[0]! : this.bossFrames[which]!
-                this.bossSpecial = r ? r.specials[0] ?? null : this.bossSpecials[which]!
+                this.bossSpecial = r ? r.specials[0]![0] ?? null : this.bossSpecials[which]!
                 this.bossOpened = false
                 this.bossName = r ? r.name : this.bossNames[which]!
                 this.nameT = -1
@@ -1065,13 +1070,14 @@ export class BattleDemo {
                         if (special) {
                             // a raid boss with several specials takes them in turn, its body swapped into the Cast slot
                             const r = this.raid
-                            if (r?.specials.length) {
+                            const list = r?.specials[r.at]
+                            if (r && list?.length) {
                                 // one that works on its adds waits until there are adds to work on
-                                let n = r.spNext
-                                for (let k = 0; k < r.specials.length && r.specials[n]!.target === 'adds' && !this.addsStanding(); k++) n = (n + 1) % r.specials.length
-                                this.bossSpecial = r.specials[n]!
-                                u.frames = r.spTables[n]!
-                                r.spNext = (n + 1) % r.specials.length
+                                let n = r.spNext % list.length
+                                for (let k = 0; k < list.length && list[n]!.target === 'adds' && !this.addsStanding(); k++) n = (n + 1) % list.length
+                                this.bossSpecial = list[n]!
+                                u.frames = r.spTables[r.at]![n]!
+                                r.spNext = (n + 1) % list.length
                             }
                             this.bossOpened = true
                             this.startSpecial(this.bossSpecial!, u)
