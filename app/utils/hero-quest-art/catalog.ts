@@ -325,7 +325,10 @@ function raidAssets(): ArtAsset[] {
         for (const st of ['idle', 'attack', 'death']) out.push(creatureAsset(`raid/dig_site/add_${id}/${st}`, 'dig_site_raid', 'Dig-site Raid · add wave', `${def.name} — ${TITLE[st]}`, def, st, -1))
     }
     // the Forge's three bosses, back to back
-    FORGE_BOSSES.forEach(([id, def], i) => five(`forge/${id}`, `Forge Raid · boss ${i + 1} of 3`, def))
+    FORGE_BOSSES.forEach(([id, def], i) => {
+        five(`forge/${id}`, `Forge Raid · boss ${i + 1} of 3`, def)
+        specials(`forge/${id}`, `Forge Raid · boss ${i + 1} of 3`, def, 'raids')
+    })
     RAMPANT.forEach((def, i) => {
         const states = i < RAMPANT.length - 1 ? ['idle', 'attack', 'hit', 'escalate'] : ['idle', 'attack', 'hit']
         for (const st of states) out.push(creatureAsset(`raid/trait/rampage${i + 1}/${st}`, 'trait_raid', `Trait Raid · rampaging_boss — rampage ${i + 1}`, `${def.name} — ${st === 'escalate' ? 'Escalation' : TITLE[st]}`, def, st, -1))

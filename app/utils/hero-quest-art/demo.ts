@@ -618,8 +618,8 @@ export class BattleDemo {
         }
         const adds = id === 'dig_site' ? ['burrow_grub', 'ore_beetle'].map(a => table(`raid/dig_site/add_${a}`, null, `raid/dig_site/add_${a}/death`, true)) : []
         // the boss behind each table, where it has specials, and where its assets are
-        const defs = id === 'trait' ? RAMPANT : id === 'guild' ? [GILDED_WARLORD] : id === 'dig_site' ? [DEEPCOIL] : []
-        const base = (k: number) => id === 'trait' ? `raid/trait/rampage${k + 1}` : `raid/${id}`
+        const defs = id === 'trait' ? RAMPANT : id === 'forge' ? FORGE_BOSSES.map(([, d]) => d) : id === 'guild' ? [GILDED_WARLORD] : id === 'dig_site' ? [DEEPCOIL] : []
+        const base = (k: number) => id === 'trait' ? `raid/trait/rampage${k + 1}` : id === 'forge' ? `raid/forge/${FORGE_BOSSES[k]![0]}` : `raid/${id}`
         const specials = tables.map((_, k) => defs[k] ? specialsOf(defs[k]) : [])
         const spTables = tables.map((tb, k) => specials[k]!.map((_, n) => {
             later = k
@@ -1177,6 +1177,10 @@ export class BattleDemo {
                             this.finishBaking(r.at)
                             // each stands where its own reach wants it
                             u.x = OX + VL.foes[0].x + RAID_BOSS_DX - (r.defs[r.at]?.advance ?? 0)
+                            // it opens with a special of its own
+                            this.bossSpecial = r.specials[r.at]![0] ?? null
+                            this.bossOpened = false
+                            r.spNext = 0
                             u.frames = r.tables[r.at]!
                             u.state = U.Entry
                             u.t = 0
