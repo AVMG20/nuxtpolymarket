@@ -373,6 +373,12 @@ function frameIndex(b: Baked, t: number): number {
  * instead of letting it fade. Worked out once per strip.
  */
 const FADE_START = new WeakMap<Baked, number>()
+
+/** A Hero's or Champion's strips in a unit's order, its idle standing in as its entry: baked once, not twice. */
+function bakeAlly(base: string): Baked[] {
+    const [idle, attack, cast, hit, death, move] = ['idle', 'attack', 'cast', 'hit', 'death', 'move'].map(st => bake(artById(`${base}/${st}`)!))
+    return [idle!, attack!, cast!, hit!, death!, idle!, move!]
+}
 function fadeStart(b: Baked): number {
     let f = FADE_START.get(b)
     if (f !== undefined) return f
@@ -491,7 +497,7 @@ export class BattleDemo {
         const w = WORLDS[world - 1]!
         this.scene = WORLD_SCENES[world - 1]!
         const hero = HERO_ART[classId]!
-        const heroFrames = ['idle', 'attack', 'cast', 'hit', 'death', 'idle', 'move'].map(st => bake(artById(`hero/${classId}/${st}`)!))
+        const heroFrames = bakeAlly(`hero/${classId}`)
         const skill = CLASS_BY_ID[classId as keyof typeof CLASS_BY_ID]!.skill.id
         const heroUnit = this.unit(0, VL.allies[2], heroFrames, [hero.clips.attack, hero.clips.cast], VFX_BY_ID[skill] ?? null)
         heroUnit.accent = hero.look.accent
@@ -508,7 +514,7 @@ export class BattleDemo {
         const roster = [pick('tank', 1), pick('damage', 2), pick('support', 3), pick('control', 4), pick('damage', 5)]
         const champs = roster.map((id, i) => {
             const def = CHAMPION_BY_ID[id]!
-            const frames = ['idle', 'attack', 'cast', 'hit', 'death', 'idle', 'move'].map(st => bake(artById(`champion/${id}/${st}`)!))
+            const frames = bakeAlly(`champion/${id}`)
             const ability = def.abilities[0]!.id
             const u = this.unit(0, VL.allies[CHAMP_MARKS[i]!]!, frames, [CHASSIS[def.archetype].attack, CHASSIS[def.archetype].cast], VFX_BY_ID[ability] ?? null)
             u.accent = championLook(id).accent
