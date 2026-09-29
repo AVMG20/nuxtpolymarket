@@ -102,7 +102,9 @@ export type RaidId = 'guild' | 'training_grounds' | 'dig_site' | 'forge' | 'trai
  * boss, or one of the raids. A raid boss is too big for the Stage camera, so a raid is watched on
  * the whole scene (`cameraFor`).
  */
-export type WaveKind = 'regular' | 'boss' | 'superboss' | `raid_${RaidId}`
+export type WaveKind = 'regular' | 'boss' | 'superboss' | `raid_${RaidId}` | `forge_${ForgeBossId}`
+/** One of the Forge raid's three bosses, fought on its own (`forge_<id>`), to look at each in turn. */
+export type ForgeBossId = typeof FORGE_BOSSES[number][0]
 export const WAVE_KINDS: readonly { id: WaveKind, label: string }[] = [
     { id: 'regular', label: 'Regular + elite' },
     { id: 'boss', label: 'Boss' },
@@ -111,10 +113,16 @@ export const WAVE_KINDS: readonly { id: WaveKind, label: string }[] = [
     { id: 'raid_training_grounds', label: 'Raid · Training Grounds' },
     { id: 'raid_dig_site', label: 'Raid · Dig-site' },
     { id: 'raid_forge', label: 'Raid · Forge' },
+    ...FORGE_BOSSES.map(([id, def]) => ({ id: `forge_${id}` as const, label: `Forge · ${def.name}` })),
     { id: 'raid_trait', label: 'Raid · Trait' }
 ]
 export function raidOf(kind: WaveKind): RaidId | null {
+    if (kind.startsWith('forge_')) return 'forge'
     return kind.startsWith('raid_') ? kind.slice(5) as RaidId : null
+}
+/** The Forge boss a `forge_<id>` wave fights on its own; null for any other wave. */
+export function forgeBossOf(kind: WaveKind): ForgeBossId | null {
+    return kind.startsWith('forge_') ? kind.slice(6) as ForgeBossId : null
 }
 /** The camera a wave is watched on: the whole scene for a raid, the Stage camera otherwise. */
 export function cameraFor(kind: WaveKind): CameraId {
@@ -526,7 +534,7 @@ export class BattleDemo {
         })
         // frame tables per rig, built once so a wave only swaps references
         this.rigFrames = this.trash.map(rig => [rig[0]!, rig[1]!, rig[1]!, rig[2]!, rig[3]!, rig[0]!, rig[0]!])
-        this.raid = this.bakeRaid(raidOf(waveKind))
+        this.raid = this.bakeRaid(raidOf(waveKind), forgeBossOf(waveKind))
         this.camera = cameraFor(waveKind)
         // a fixed pool: a wave of six trash bodies and one boss, reset in place each wave
         const foes = [0, 1, 2, 3, 4, 5].map(i => this.unit(1, VL.foes[i]!, this.rigFrames[i % 4]!, [ENEMY_RIGS.sword.attack], null))
@@ -580,7 +588,7 @@ export class BattleDemo {
      * sized to its body. Each Trait tier's escalation plays in its entry slot, and it has no death.
      * The Training Grounds dummy has only idle, hit and entry.
      */
-    private bakeRaid(id: RaidId | null): BattleDemo['raid'] {
+    private bakeRaid(id: RaidId | null, solo: ForgeBossId | null = null): BattleDemo['raid'] {
         if (!id) return null
         // a table after the first (a later Trait tier or Forge boss) bakes in the background
         let later = -1
@@ -600,10 +608,12 @@ export class BattleDemo {
         }
         let tables: Baked[][]
         let name: string
+        // the Forge's bosses in the order they come: all three, or the one picked to fight alone
+        const forge = FORGE_BOSSES.filter(([b]) => !solo || b === solo)
         if (id === 'forge') {
             // three bosses back to back, each a table of its own
-            tables = FORGE_BOSSES.map(([b], k) => table(`raid/forge/${b}`, `raid/forge/${b}/entry`, `raid/forge/${b}/death`, false, k))
-            name = FORGE_BOSSES[0][1].name
+            tables = forge.map(([b], k) => table(`raid/forge/${b}`, `raid/forge/${b}/entry`, `raid/forge/${b}/death`, false, k))
+            name = forge[0]![1].name
         } else if (id === 'trait') {
             tables = RAMPANT.map((_, i) => table(`raid/trait/rampage${i + 1}`, i < RAMPANT.length - 1 ? `raid/trait/rampage${i + 1}/escalate` : null, null, false, i))
             name = RAMPANT[0]!.name
@@ -618,8 +628,8 @@ export class BattleDemo {
         }
         const adds = id === 'dig_site' ? ['burrow_grub', 'ore_beetle'].map(a => table(`raid/dig_site/add_${a}`, null, `raid/dig_site/add_${a}/death`, true)) : []
         // the boss behind each table, where it has specials, and where its assets are
-        const defs = id === 'trait' ? RAMPANT : id === 'forge' ? FORGE_BOSSES.map(([, d]) => d) : id === 'guild' ? [GILDED_WARLORD] : id === 'dig_site' ? [DEEPCOIL] : []
-        const base = (k: number) => id === 'trait' ? `raid/trait/rampage${k + 1}` : id === 'forge' ? `raid/forge/${FORGE_BOSSES[k]![0]}` : `raid/${id}`
+        const defs = id === 'trait' ? RAMPANT : id === 'forge' ? forge.map(([, d]) => d) : id === 'guild' ? [GILDED_WARLORD] : id === 'dig_site' ? [DEEPCOIL] : []
+        const base = (k: number) => id === 'trait' ? `raid/trait/rampage${k + 1}` : id === 'forge' ? `raid/forge/${forge[k]![0]}` : `raid/${id}`
         const specials = tables.map((_, k) => defs[k] ? specialsOf(defs[k]) : [])
         const spTables = tables.map((tb, k) => specials[k]!.map((_, n) => {
             later = k
@@ -1185,7 +1195,7 @@ export class BattleDemo {
                             u.state = U.Entry
                             u.t = 0
                             u.hp = TOUGHNESS.raid
-                            this.bossName = FORGE_BOSSES[r.at]![1].name.toUpperCase()
+                            this.bossName = r.defs[r.at]!.name.toUpperCase()
                             this.nameT = -1
                             this.nameFor = NAME_BASE + NAME_PER_CHAR * this.bossName.length
                         }
