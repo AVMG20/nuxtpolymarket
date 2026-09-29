@@ -42,7 +42,7 @@ import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, BURROW_GRUB, ORE_BEETLE, FORGE_A
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
-    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman'
+    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master'
     | 'vfx' | 'feedback' | 'icons' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
@@ -66,6 +66,8 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     // the Forge's first two bosses, locked ahead of the Forgemaster (2026-09-29, the user)
     { id: 'forge_apprentice', label: 'Forge Raid · The Apprentice', locked: true },
     { id: 'forge_journeyman', label: 'Forge Raid · The Journeyman', locked: true },
+    // the Forgemaster, the last of them, locked as Hephaestus (2026-09-29, the user)
+    { id: 'forge_master', label: 'Forge Raid · The Forgemaster', locked: true },
     { id: 'vfx', label: 'Ability VFX' },
     { id: 'feedback', label: 'Combat feedback' },
     { id: 'icons', label: 'Icons' },
@@ -108,11 +110,10 @@ export interface ArtAsset {
  * every world background was locked), and again on 2026-09-28, once the Heroes, Champions,
  * Summons, Enemies, Bosses and Backgrounds were all locked. The sixth pass's Rounds 1–3 were
  * approved and taken off when Frames & badges locked, and Round 4 when Branding locked (both also
- * 2026-09-28), so the next round is 5; every earlier round is recorded in art-style.md.
+ * 2026-09-28), and Round 5 when the last Forge boss locked (2026-09-29), so the next round is 6;
+ * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    { n: 5, label: 'Raid bosses', prefixes: ['raid/forge/master'] }
-]
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
@@ -329,7 +330,7 @@ function raidAssets(): ArtAsset[] {
     }
     // the Forge's three bosses, back to back
     FORGE_BOSSES.forEach(([id, def], i) => {
-        const group: ArtGroup = id === 'apprentice' ? 'forge_apprentice' : id === 'journeyman' ? 'forge_journeyman' : 'raids'
+        const group: ArtGroup = id === 'apprentice' ? 'forge_apprentice' : id === 'journeyman' ? 'forge_journeyman' : 'forge_master'
         five(`forge/${id}`, `Forge Raid · boss ${i + 1} of 3`, def, group)
         specials(`forge/${id}`, `Forge Raid · boss ${i + 1} of 3`, def, group)
     })
