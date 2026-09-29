@@ -41,7 +41,7 @@ import { C, CLEAR, RAMP, type RampName } from './palette'
 import { Surface, bayer, ring } from './surface'
 import { textOut } from './font'
 import { Particles } from './particles'
-import { artById, bake, FORGE_BOSSES, type Baked } from './catalog'
+import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type BakeJob } from './catalog'
 import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
@@ -123,6 +123,12 @@ export function cameraFor(kind: WaveKind): CameraId {
 /** Seconds between a Dig-site raid's add waves, and hits between a Trait raid's escalations. */
 const ADD_WAVE_EVERY = 7
 const RAMPAGE_EVERY = 10
+/**
+ * Milliseconds of each tick spent baking in the background. A raid bakes only what it opens with
+ * up front (the Trait raid's first tier, the Forge's first boss); the rest bakes a frame at a time
+ * while it plays, instead of holding the page for seconds when the raid is picked.
+ */
+const BAKE_BUDGET = 4
 /**
  * A Training Grounds round: seconds the party has to hit the dummy, and how long TIME UP holds
  * before it dissolves (from `DUMMY_FADE_AT`) and the party marches on to the next.
@@ -454,6 +460,8 @@ export class BattleDemo {
     private spStage = { bx: 0, by: 0, dir: -1, party: this.spParty, adds: this.spAdds }
     private trash: Baked[][] = []
     private rigFrames: Baked[][] = []
+    /** Frames still baking in the background, in the order they are needed, each tagged with its raid table. */
+    private jobs: (BakeJob & { table: number })[] = []
     paused = false
     camera: CameraId = 'zoom3'
     /** One reusable window per camera, so switching allocates nothing in the loop. */
@@ -464,6 +472,7 @@ export class BattleDemo {
 
     /** Rebuild for a world (1–10), a Hero class and a wave. Bakes every frame the stage will show. */
     setup(world: number, classId: string, waveKind: WaveKind = this.waveKind): void {
+        this.jobs.length = 0
         this.world = world
         this.classId = classId
         this.waveKind = waveKind
@@ -569,20 +578,30 @@ export class BattleDemo {
      */
     private bakeRaid(id: RaidId | null): BattleDemo['raid'] {
         if (!id) return null
-        const b = (asset: string) => bake(artById(asset)!)
-        const table = (base: string, entry: string | null, death: string | null, idleForHit = false): Baked[] => {
+        // a table after the first (a later Trait tier or Forge boss) bakes in the background
+        let later = -1
+        const b = (asset: string): Baked => {
+            if (later < 1) return bake(artById(asset)!)
+            const j = Object.assign(bakeLater(artById(asset)!), { table: later })
+            this.jobs.push(j)
+            return j.baked
+        }
+        const table = (base: string, entry: string | null, death: string | null, idleForHit = false, k = 0): Baked[] => {
+            later = k
             const idle = b(`${base}/idle`)
             const attack = b(`${base}/attack`)
-            return [idle, attack, attack, idleForHit ? idle : b(`${base}/hit`), death ? b(death) : idle, entry ? b(entry) : idle, idle]
+            const out = [idle, attack, attack, idleForHit ? idle : b(`${base}/hit`), death ? b(death) : idle, entry ? b(entry) : idle, idle]
+            later = -1
+            return out
         }
         let tables: Baked[][]
         let name: string
         if (id === 'forge') {
             // three bosses back to back, each a table of its own
-            tables = FORGE_BOSSES.map(([b]) => table(`raid/forge/${b}`, `raid/forge/${b}/entry`, `raid/forge/${b}/death`))
+            tables = FORGE_BOSSES.map(([b], k) => table(`raid/forge/${b}`, `raid/forge/${b}/entry`, `raid/forge/${b}/death`, false, k))
             name = FORGE_BOSSES[0][1].name
         } else if (id === 'trait') {
-            tables = RAMPANT.map((_, i) => table(`raid/trait/rampage${i + 1}`, i < RAMPANT.length - 1 ? `raid/trait/rampage${i + 1}/escalate` : null, null))
+            tables = RAMPANT.map((_, i) => table(`raid/trait/rampage${i + 1}`, i < RAMPANT.length - 1 ? `raid/trait/rampage${i + 1}/escalate` : null, null, false, i))
             name = RAMPANT[0]!.name
         } else if (id === 'training_grounds') {
             // the dummy only lands, stands and takes hits: its idle fills the attack and death slots
@@ -598,8 +617,35 @@ export class BattleDemo {
         const defs = id === 'trait' ? RAMPANT : id === 'guild' ? [GILDED_WARLORD] : id === 'dig_site' ? [DEEPCOIL] : []
         const base = (k: number) => id === 'trait' ? `raid/trait/rampage${k + 1}` : `raid/${id}`
         const specials = tables.map((_, k) => defs[k] ? specialsOf(defs[k]) : [])
-        const spTables = tables.map((tb, k) => specials[k]!.map((_, n) => tb.map((f, j) => j === 2 ? b(`${base(k)}/${specialState(n)}`) : f)))
+        const spTables = tables.map((tb, k) => specials[k]!.map((_, n) => {
+            later = k
+            const body = b(`${base(k)}/${specialState(n)}`)
+            later = -1
+            return tb.map((f, j) => j === 2 ? body : f)
+        }))
+        // baked in the order they come: each table with its specials, the next tier or boss after
+        this.jobs.sort((a, c) => a.table - c.table)
         return { id, name: name.split(' — ')[0]!.toUpperCase(), tables, at: 0, adds, next: 0, hits: 0, escalating: false, clock: DUMMY_ROUND, dmg: 0, over: -1, specials, spTables, spNext: 0 }
+    }
+
+    /** Bake in the background for up to BAKE_BUDGET ms: the raid's later tables, in the order they come. */
+    private bakeSome(): void {
+        const until = performance.now() + BAKE_BUDGET
+        while (this.jobs.length && performance.now() < until) {
+            const j = this.jobs[0]!
+            if (bakeStep(j)) this.jobs.shift()
+        }
+    }
+
+    /** Whether raid table `k` and its specials are baked. */
+    private baked(k: number): boolean {
+        return !this.jobs.some(j => j.table === k)
+    }
+
+    /** Finish baking raid table `k` now, for a table needed before the background got to it. */
+    private finishBaking(k: number): void {
+        for (const j of this.jobs) if (j.table === k) while (!bakeStep(j));
+        this.jobs = this.jobs.filter(j => j.table !== k)
     }
 
     /**
@@ -615,7 +661,7 @@ export class BattleDemo {
             u.hp = Math.max(1, u.hp)
             r.hits += dmg
             // it escalates once a special it is playing is done
-            if (r.hits >= RAMPAGE_EVERY && r.at < r.tables.length - 1 && !r.escalating && u.state !== U.Entry && u.state !== U.Cast) {
+            if (r.hits >= RAMPAGE_EVERY && r.at < r.tables.length - 1 && !r.escalating && u.state !== U.Entry && u.state !== U.Cast && this.baked(r.at + 1)) {
                 r.hits = 0
                 r.escalating = true
                 u.state = U.Entry
@@ -1033,6 +1079,7 @@ export class BattleDemo {
     }
 
     update(dt: number): void {
+        if (this.jobs.length) this.bakeSome()
         if (this.paused) return
         if (this.shakeT > 0) this.shakeT -= dt
         if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 4)
@@ -1108,6 +1155,7 @@ export class BattleDemo {
                         const r = this.raid
                         if (u.boss && r?.id === 'forge' && r.at < r.tables.length - 1) {
                             r.at++
+                            this.finishBaking(r.at)
                             u.frames = r.tables[r.at]!
                             u.state = U.Entry
                             u.t = 0

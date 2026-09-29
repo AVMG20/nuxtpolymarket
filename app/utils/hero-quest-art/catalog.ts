@@ -34,7 +34,7 @@ import { SKILLS } from '../../../shared/utils/hero-quest/content/skills'
 import { ARTIFACTS } from '../../../shared/utils/hero-quest/content/artifacts'
 import { GEAR } from '../../../shared/utils/hero-quest/content/gear'
 import { NUMBER_STYLES, drawNumberPop, drawNumberAtlas, numberAtlasWidth, numberHeight, drawPartyFrame, drawCooldown, drawEnrageTimer, drawAddWaveSpawn, drawPhaseShift, drawRevealBase, REVEAL_LUT, REVEAL_SIZE } from './feedback'
-import { Surface as Surf, blit, rect } from './surface'
+import { Surface as Surf, blit, rect, rowSpan, ROWS } from './surface'
 import { WORLD_SCENES, SW, SH, BG_LOOP, composeScene } from './scenery'
 import { drawWorldMap, TAB_BACKGROUNDS, CHROME, drawSplash } from './ui-art'
 import { drawLogo, LOGO_W, LOGO_H, LOGO_LOOP } from './logos'
@@ -115,13 +115,72 @@ export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
 
 export function bake(a: ArtAsset): Baked {
-    const frames: Surface[] = []
-    for (let f = 0; f < a.frames; f++) {
-        const s = new Surf(a.w, a.h, 0, 0)
-        a.render(s, f)
-        frames.push(s)
+    const j = bakeLater(a)
+    while (!bakeStep(j));
+    return j.baked
+}
+
+/** A bake being filled in a frame at a time by `bakeStep`: what the live stage bakes in the background. */
+export interface BakeJob { readonly asset: ArtAsset, readonly baked: Baked, next: number }
+
+export function bakeLater(a: ArtAsset): BakeJob {
+    return { asset: a, baked: { frames: [], ax: a.ax ?? 0, ay: a.ay ?? 0, fps: a.fps, loop: a.loop }, next: 0 }
+}
+
+/** Render a job's next frame; true once every frame is in, and the strip cropped. */
+export function bakeStep(j: BakeJob): boolean {
+    const a = j.asset
+    if (j.next >= a.frames) return true
+    const s = new Surf(a.w, a.h, 0, 0)
+    a.render(s, j.next++)
+    j.baked.frames.push(s)
+    if (j.next < a.frames) return false
+    cropBaked(j.baked)
+    return true
+}
+
+/** The margin a cropped strip keeps round everything drawn in it: the stage's elite halo and rim light read a pixel past a body. */
+const CROP_MARGIN = 2
+/** A crop's corner snaps to this grid, so the fades' Bayer dither (4×4, read in the strip's own coordinates) lands as it did. */
+const CROP_ALIGN = 4
+
+/**
+ * Crop every frame of `b` to the box round everything drawn in any of them, moving the anchor with
+ * it. A raid boss is drawn into a buffer big enough for its widest move, so most of every frame
+ * was empty: the Trait raid's 146 MB of frames held 39 MB of body.
+ */
+function cropBaked(b: Baked): void {
+    const f0 = b.frames[0]!
+    const w = f0.w
+    let x0 = w
+    let x1 = -1
+    let y0 = f0.h
+    let y1 = -1
+    for (const f of b.frames) {
+        if (!rowSpan(f)) continue
+        y0 = Math.min(y0, ROWS.y0)
+        y1 = Math.max(y1, ROWS.y1)
+        for (let y = ROWS.y0; y <= ROWS.y1; y++) {
+            const row = y * w
+            for (let x = 0; x < x0; x++) if (f.data[row + x]) { x0 = x; break }
+            for (let x = w - 1; x > x1; x--) if (f.data[row + x]) { x1 = x; break }
+        }
     }
-    return { frames, ax: a.ax ?? 0, ay: a.ay ?? 0, fps: a.fps, loop: a.loop }
+    if (x1 < 0) return
+    x0 = Math.max(0, Math.floor((x0 - CROP_MARGIN) / CROP_ALIGN) * CROP_ALIGN)
+    y0 = Math.max(0, Math.floor((y0 - CROP_MARGIN) / CROP_ALIGN) * CROP_ALIGN)
+    x1 = Math.min(w - 1, x1 + CROP_MARGIN)
+    y1 = Math.min(f0.h - 1, y1 + CROP_MARGIN)
+    const cw = x1 - x0 + 1
+    const ch = y1 - y0 + 1
+    if (cw === w && ch === f0.h) return
+    b.frames = b.frames.map(f => {
+        const c = new Surf(cw, ch, 0, 0)
+        for (let y = 0; y < ch; y++) c.data.set(f.data.subarray((y0 + y) * w + x0, (y0 + y) * w + x0 + cw), y * cw)
+        return c
+    })
+    b.ax -= x0
+    b.ay -= y0
 }
 
 const ACTOR = new Actor(64)
