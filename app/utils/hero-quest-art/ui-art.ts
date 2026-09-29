@@ -273,9 +273,28 @@ export const TAB_BACKGROUNDS: readonly TabBackground[] = [
 const CHROME_ACTOR = new Actor(64)
 const TILE = new Surface(24, 24, 0, 0)
 
-function mini(s: Surface, id: 'hero' | string, x: number, y: number, t: number): void {
-    if (id === 'hero') CHROME_ACTOR.draw(s, x, y, HERO_ART.class_knight!.look, HERO_ART.class_knight!.clips.idle, t, 1, 0, false)
-    else CHROME_ACTOR.draw(s, x, y, championLook(id), CHASSIS[id === 'champ_borin' ? 'tank' : id === 'champ_lys' ? 'support' : id === 'champ_nym' ? 'control' : 'damage'].idle, t, 1, 0, false)
+// Readability: every label carries a drop shadow, body text is bone on the night panels, and
+// colour goes only on the word that carries meaning, in the lightest step of its ramp. Text never
+// sits on a coloured fill: a bar's label goes beside it, a button's on its own plate.
+
+/** A tab in a slot's corner: a coloured plate, its letter white. */
+function tab(s: Surface, x: number, y: number, text: string, plate: number): void {
+    rect(s, x, y, 7, 9, C.ink)
+    rect(s, x + 1, y + 1, 5, 7, plate)
+    drawText(s, text, x + 2, y + 2, C.white, { shadow: 0 })
+}
+
+/** A small button: an inked plate with its label centred on it. */
+function button(s: Surface, x: number, y: number, w: number, text: string, plate: number, lit: number): void {
+    rect(s, x, y, w, 9, C.ink)
+    rect(s, x + 1, y + 1, w - 2, 7, plate)
+    rect(s, x + 1, y + 1, w - 2, 1, lit)
+    drawText(s, text, x + (w >> 1), y + 2, C.white, { align: 1, shadow: 1 })
+}
+
+function mini(s: Surface, id: 'hero' | string, x: number, y: number, t: number, facing: 1 | -1 = 1): void {
+    if (id === 'hero') CHROME_ACTOR.draw(s, x, y, HERO_ART.class_knight!.look, HERO_ART.class_knight!.clips.idle, t, facing, 0, false)
+    else CHROME_ACTOR.draw(s, x, y, championLook(id), CHASSIS[id === 'champ_borin' ? 'tank' : id === 'champ_lys' ? 'support' : id === 'champ_nym' ? 'control' : 'damage'].idle, t, facing, 0, false)
 }
 
 export interface Chrome { id: string, label: string, w: number, h: number, frames: number, draw(s: Surface, t: number): void }
@@ -286,6 +305,7 @@ export const CHROME: readonly Chrome[] = [
         draw(s, t) {
             panel(s, 0, 0, 160, 96)
             title(s, 'FORMATION', 6, 5)
+            drawText(s, 'F FRONT  B BACK', 154, 5, C.bone0, { align: 2, shadow: 1 })
             const party = ['champ_borin', 'hero', 'champ_rask', 'champ_lys', 'champ_nym', '']
             for (let i = 0; i < 6; i++) {
                 const front = i < 3
@@ -293,8 +313,8 @@ export const CHROME: readonly Chrome[] = [
                 const y = front ? 16 : 56
                 panel(s, x, y, 44, 36, front ? [C.red0, C.red1, C.red2] : [C.blue0, C.blue1, C.blue2], C.night0)
                 if (party[i]) mini(s, party[i]!, x + 26, y + 33, t)
-                else { drawText(s, '+', x + 22, y + 16, C.night3, { font: 'big', align: 1, shadow: 0 }) }
-                drawText(s, front ? 'F' : 'B', x + 4, y + 4, front ? C.red3 : C.cyan, { shadow: 1 })
+                else { drawText(s, '+', x + 22, y + 13, C.steel2, { font: 'big', align: 1, shadow: 1 }); drawText(s, 'EMPTY', x + 22, y + 24, C.stone3, { align: 1, shadow: 1 }) }
+                tab(s, x + 2, y + 2, front ? 'F' : 'B', front ? C.red1 : C.blue1)
             }
         }
     },
@@ -305,13 +325,13 @@ export const CHROME: readonly Chrome[] = [
                 const x = 2 + i * 50
                 const locked = i === 3
                 panel(s, x, 2, 46, 56, locked ? [C.stone0, C.stone1, C.stone2] : i === 0 ? [C.gold0, C.gold1, C.gold2] : undefined, locked ? C.stone0 : C.night1)
-                drawText(s, locked ? 'LOCKED' : `SLOT ${i + 1}`, x + 23, 7, locked ? C.stone3 : C.bone1, { align: 1, shadow: 0 })
+                drawText(s, locked ? 'LOCKED' : `SLOT ${i + 1}`, x + 23, 7, locked ? C.bone0 : C.bone1, { align: 1, shadow: 1 })
                 if (!locked) {
                     for (let k = 0; k < 3; k++) rect(s, x + 6 + k * 12, 18, 10, 10, C.night0)
                     for (let k = 0; k < 3; k++) rect(s, x + 6 + k * 12, 32, 10, 10, C.night0)
-                    if (i === 0) drawText(s, 'ACTIVE', x + 23, 47, C.gold2, { align: 1, shadow: 0 })
+                    if (i === 0) drawText(s, 'ACTIVE', x + 23, 47, C.gold3, { align: 1, shadow: 1 })
                 } else {
-                    rect(s, x + 19, 26, 9, 8, C.stone2); arc(s, x + 23, 26, 3, Math.PI, Math.PI * 2, C.stone2)
+                    rect(s, x + 19, 26, 9, 8, C.stone3); arc(s, x + 23, 26, 3, Math.PI, Math.PI * 2, C.stone3); px(s, x + 23, 29, C.ink); px(s, x + 23, 30, C.ink)
                     glyph(s, CURRENCY_ICONS.gems!, x + 23, 46, true)
                 }
             }
@@ -331,7 +351,7 @@ export const CHROME: readonly Chrome[] = [
                 traitFrame(tile, grade)
                 blit(s, tile, x, 16)
                 const locked = i === 2 || i === 3
-                if (locked) { rect(s, x + 8, 42, 7, 6, C.gold1); arc(s, x + 11, 42, 2, Math.PI, Math.PI * 2, C.gold2) } else if (i === 1) drawText(s, 'ROLL', x + 12, 44, C.pink, { align: 1, shadow: 0 })
+                if (locked) { rect(s, x + 8, 42, 7, 6, C.gold1); arc(s, x + 11, 42, 2, Math.PI, Math.PI * 2, C.gold2) } else if (i === 1) button(s, x, 41, 24, 'ROLL', C.purple1, C.purple2)
             }
         }
     },
@@ -339,11 +359,11 @@ export const CHROME: readonly Chrome[] = [
         id: 'arena_candidate', label: 'Arena candidate card', w: 96, h: 64, frames: 12,
         draw(s, t) {
             panel(s, 0, 0, 96, 64, [C.red0, C.red1, C.red2])
-            drawText(s, 'RIVAL', 6, 5, C.red3, { shadow: 0 })
-            drawText(s, '1,482', 90, 5, C.gold2, { align: 2, shadow: 0 })
-            for (let i = 0; i < 3; i++) mini(s, ['hero', 'champ_ulrid', 'champ_seraphel'][i]!, 20 + i * 28, 50, t)
-            rect(s, 4, 54, 88, 7, C.night0)
-            drawText(s, 'ATTACK', 48, 55, C.white, { align: 1, shadow: 0 })
+            drawText(s, 'RIVAL', 6, 5, C.red3, { shadow: 1 })
+            drawText(s, '1482', 90, 5, C.gold3, { align: 2, shadow: 1 })
+            // the rival's party faces yours, as enemies do on the stage
+            for (let i = 0; i < 3; i++) mini(s, ['hero', 'champ_ulrid', 'champ_seraphel'][i]!, 20 + i * 28, 50, t, -1)
+            button(s, 4, 53, 88, 'ATTACK', C.red1, C.red2)
         }
     },
     {
@@ -351,8 +371,13 @@ export const CHROME: readonly Chrome[] = [
         draw(s) {
             panel(s, 0, 0, 140, 60)
             title(s, 'BATTLE LOG', 6, 5)
-            const rows: [string, number][] = [['WON  +24 RATING', C.green3], ['LOST -11 RATING', C.red3], ['WON  +19 RATING', C.green3], ['DEFENDED  +6', C.cyan]]
-            rows.forEach(([text, c], i) => { rect(s, 5, 15 + i * 11, 130, 10, i & 1 ? C.night0 : C.night1); drawText(s, text, 9, 17 + i * 11, c, { shadow: 0 }) })
+            const rows: [string, string, number][] = [['WON', '+24', C.green4], ['LOST', '-11', C.red3], ['WON', '+19', C.green4], ['DEFENDED', '+6', C.cyan]]
+            rows.forEach(([outcome, delta, c], i) => {
+                const y = 14 + i * 10
+                rect(s, 5, y, 130, 9, i & 1 ? C.night0 : C.night2)
+                drawText(s, outcome, 9, y + 2, c, { shadow: 1 })
+                drawText(s, `${delta} RATING`, 131, y + 2, C.bone1, { align: 2, shadow: 1 })
+            })
         }
     },
     {
@@ -360,11 +385,14 @@ export const CHROME: readonly Chrome[] = [
         draw(s) {
             panel(s, 0, 0, 140, 72)
             title(s, 'RATING', 6, 5)
-            const rows = ['1  KAIRAFAN     2410', '2  VOIDWALKER   2388', '3  HEDGEKNIGHT  2301', '4  YOU          1482']
-            rows.forEach((text, i) => {
-                const c = i === 0 ? C.gold2 : i === 1 ? C.steel3 : i === 2 ? C.brown3 : C.cyan
-                rect(s, 5, 15 + i * 13, 130, 11, i === 3 ? C.blue0 : C.night0)
-                drawText(s, text, 9, 18 + i * 13, c, { shadow: 0 })
+            const rows: [string, string][] = [['KAIRAFAN', '2410'], ['VOIDWALKER', '2388'], ['HEDGEKNIGHT', '2301'], ['YOU', '1482']]
+            rows.forEach(([name, rating], i) => {
+                const you = i === 3
+                const y = 15 + i * 13
+                rect(s, 5, y, 130, 11, you ? C.blue1 : C.night0)
+                drawText(s, String(i + 1), 9, y + 3, i === 0 ? C.gold3 : i === 1 ? C.steel3 : i === 2 ? C.orange : C.white, { shadow: 1 })
+                drawText(s, name, 21, y + 3, you ? C.white : C.bone1, { shadow: 1 })
+                drawText(s, rating, 131, y + 3, you ? C.white : C.gold3, { align: 2, shadow: 1 })
             })
         }
     },
@@ -384,7 +412,7 @@ export const CHROME: readonly Chrome[] = [
                 const m = RARITY_COLORS[r]!
                 rect(tile, 0, 0, 24, 24, C.ink); rect(tile, 1, 1, 22, 22, m[0]); rect(tile, 2, 2, 20, 20, C.night0)
                 if (known) glyph(tile, ARTIFACT_ICONS[ids[i * 2]!]!, 12, 12)
-                else drawText(tile, '?', 12, 8, C.stone3, { font: 'big', align: 1, shadow: 1 })
+                else drawText(tile, '?', 12, 7, C.stone3, { scale: 2, align: 1, shadow: 1 })
                 blit(s, tile, x, y)
             }
         }
@@ -393,19 +421,34 @@ export const CHROME: readonly Chrome[] = [
         id: 'encyclopedia_detail', label: 'Encyclopedia detail view', w: 160, h: 90, frames: 12,
         draw(s, t) {
             panel(s, 0, 0, 160, 90, [C.gold0, C.gold1, C.gold2])
-            panel(s, 6, 6, 58, 78, [C.purple0, C.purple1, C.purple2], C.night0)
+            panel(s, 6, 6, 58, 78, [C.purple0, C.purple1, C.purple2], C.night2)
+            ditherEllipse(s, 35, 72, 16, 3, C.night0, 10)
             mini(s, 'champ_kaira', 35, 72, t)
             drawText(s, 'KAIRA', 70, 8, C.white, { font: 'big', shadow: 1 })
-            drawText(s, 'THE REAVER', 70, 18, C.red3, { shadow: 0 })
-            drawText(s, 'MYTHIC  DAMAGE', 70, 26, C.gold2, { shadow: 0 })
-            for (let i = 0; i < 5; i++) { rect(s, 70, 38 + i * 9, 84, 7, C.night0); rect(s, 70, 38 + i * 9, 20 + i * 12, 7, [C.red1, C.gold1, C.green2, C.blue1, C.purple1][i]!); drawText(s, ['PWR', 'SPD', 'LCK', 'IMP', 'VIT'][i]!, 72, 39 + i * 9, C.white, { shadow: 0 }) }
+            drawText(s, 'THE REAVER', 70, 18, C.bone1, { shadow: 1 })
+            const w = drawText(s, 'MYTHIC', 70, 26, RARITY_COLORS.mythic![2]!, { shadow: 1 })
+            drawText(s, 'DAMAGE', 76 + w, 26, C.bone0, { shadow: 1 })
+            const stats = [['PWR', 64, C.red2], ['SPD', 38, C.gold2], ['LCK', 51, C.green3], ['IMP', 72, C.blue2], ['VIT', 88, C.purple2]] as const
+            stats.forEach(([label, v, c], i) => {
+                const y = 38 + i * 9
+                drawText(s, label, 70, y + 1, C.bone1, { shadow: 1 })
+                rect(s, 86, y, 50, 7, C.ink)
+                rect(s, 87, y + 1, 48, 5, C.night0)
+                rect(s, 87, y + 1, R(48 * v / 100), 5, c)
+                drawText(s, String(v), 154, y + 1, C.white, { align: 2, shadow: 1 })
+            })
         }
     },
     {
         id: 'holiday_banner', label: 'Holiday claim banner', w: 200, h: 40, frames: 12,
         draw(s, t) {
             panel(s, 0, 0, 200, 40, [C.red0, C.red1, C.red3], C.red0)
-            for (let i = 0; i < 24; i++) px(s, R(hash2(1, i) * 200), R(((hash2(2, i) * 40) + qt(t) * 12) % 40), C.white)
+            for (let i = 0; i < 24; i++) {
+                const x = R(hash2(1, i) * 200)
+                const y = R(((hash2(2, i) * 40) + qt(t) * 12) % 40)
+                if ((y >= 5 && y <= 16 && x >= 30 && x <= 170) || (y >= 20 && y <= 36 && x >= 66 && x <= 134)) continue
+                px(s, x, y, C.white)
+            }
             drawText(s, 'A GIFT FOR THE SEASON', 100, 8, C.gold3, { align: 1, shadow: 2 })
             panel(s, 70, 22, 60, 13, [C.gold0, C.gold1, C.gold3], C.gold1)
             drawText(s, 'CLAIM', 100, 25, C.ink, { align: 1, shadow: 0 })
