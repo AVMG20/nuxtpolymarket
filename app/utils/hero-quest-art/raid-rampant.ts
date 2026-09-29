@@ -328,6 +328,9 @@ function rampantBody(tier: number, s: S, st: string, t: number, def: CreatureDef
             const [jx, jy] = L(mix(-50 + ox, -30 + ox), mix(-22, -40))
             ;[fx, fy] = L(mix(-44 + ox, -12 + ox), mix(-4, -38))
             taper(m, hx, hy, kx, ky, 38 * sz, 26 * sz, 1)
+            // the hip, rounded as wide as the thigh: the taper's square end left a flat top and a
+            // sharp corner at the back
+            disc(m, hx, hy, 19 * sz, 1)
             taper(m, kx, ky, jx, jy, 25 * sz, 16 * sz, 1)
             taper(m, jx, jy, fx, fy, 16 * sz, 19 * sz, 1)
             disc(m, kx, ky, 13 * sz, 1)
