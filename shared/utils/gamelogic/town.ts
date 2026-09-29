@@ -1648,22 +1648,13 @@ export function townAutoFacing(buildings: TownSimBuilding[], wx: number, wy: num
 }
 
 /**
- * Why a building cannot go on (wx, wy) facing `rotation`, or null if it can.
+ * Why a building cannot go on (wx, wy), or null if it can. Rotation is kept
+ * in the shared placement API, but road access is checked after building.
  * Shared by the client (ghost colour) and the server (the real check).
  */
-export function townPlacementIssue(buildings: TownSimBuilding[], def: TownBuildingDef, wx: number, wy: number, rotation: number): string | null {
+export function townPlacementIssue(buildings: TownSimBuilding[], def: TownBuildingDef, wx: number, wy: number, _rotation: number): string | null {
     const size = def.size ?? 1
-    const ground = footprintIssue(townTakenTiles(buildings), wx, wy, size)
-    if (ground) return ground
-    // A road can start anywhere. It only does anything once it joins homes to
-    // jobs, and the staffing rules are what enforce that, not the placement.
-    if (def.kind === 'road') return null
-    if (!townFrontTiles(wx, wy, rotation, size).some(f => townRoadAt(buildings, f.wx, f.wy))) {
-        return size > 1
-            ? 'Needs a road along its front — rotate with R or build a road first'
-            : 'Needs a road at its front door — rotate with R or build a road first'
-    }
-    return null
+    return footprintIssue(townTakenTiles(buildings), wx, wy, size)
 }
 
 /** The most tiles one drag can paint, so a wild swipe cannot ask for a thousand buildings. */

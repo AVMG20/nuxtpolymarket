@@ -11,7 +11,7 @@ import TownLeaderboardPanel from '~/components/town/TownLeaderboardPanel.vue'
 import TownEventsPanel from '~/components/town/TownEventsPanel.vue'
 import { formatTownDuration } from '~/utils/town-format'
 import { townTerrainCss } from '~/utils/town/terrain'
-import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, townEffectRadius, townCivicCheer, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, townBuildingSize, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, townEffectRadius, townCivicCheer, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townFrontTiles, townRoadAt, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, townBuildingSize, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
 import { getTownMonument, townBonusLabel, townBonusLines, townBonusValue, townMonumentEffect } from '#shared/utils/gamelogic/town-monuments'
 import type { TownBuildingView } from '~/composables/useTown'
 import type { SceneTile, SceneMoveGhost } from '~/components/town/TownScene.client.vue'
@@ -271,7 +271,7 @@ function onHoverTile(cursorTile: { plotId: string, tileX: number, tileY: number,
     const def = town.catalogById.value.get(ghostType.value)
     if (!def || def.kind === 'road') return
     const others = movingId.value ? simBuildings.value.filter(b => b.id !== movingId.value) : simBuildings.value
-    if (townPlacementIssue(others, getTownBuilding(def.id)!, tile.wx, tile.wy, ghostRotation.value) === null) return
+    if (townFrontTiles(tile.wx, tile.wy, ghostRotation.value, def.size ?? 1).some(f => townRoadAt(others, f.wx, f.wy))) return
     const auto = townAutoFacing(others, tile.wx, tile.wy, def.size ?? 1)
     if (auto !== null) ghostRotation.value = auto
 }
@@ -499,7 +499,7 @@ function planDraftTiles(cursorTiles: SceneTile[]) {
     const out: { tile: SceneTile, rotation: number, ok: boolean, coins: number }[] = []
     for (const tile of tiles) {
         let rotation = ghostRotation.value
-        if (def.kind !== 'road' && townPlacementIssue(layout, def, tile.wx, tile.wy, rotation) !== null) {
+        if (def.kind !== 'road' && !townFrontTiles(tile.wx, tile.wy, rotation, def.size ?? 1).some(f => townRoadAt(layout, f.wx, f.wy))) {
             const auto = townAutoFacing(layout, tile.wx, tile.wy, def.size ?? 1)
             if (auto !== null) rotation = auto
         }
@@ -671,7 +671,7 @@ const ghostIssue = computed<string | null>(() => {
     if (!tile || !ghostType.value) return null
     const def = getTownBuilding(ghostType.value)
     if (!def) return null
-    // A relocation only asks about the ground; a fresh build also wants a door.
+    // Placement only checks the ground; a disconnected building stays idle.
     if (redesign.value) return groundIssue(tile.wx, tile.wy, def.id)
     if (movingId.value) return townGroupMoveIssue(simBuildings.value, [{ id: movingId.value, wx: tile.wx, wy: tile.wy, rotation: ghostRotation.value }])
     return townPlacementIssue(simBuildings.value, def, tile.wx, tile.wy, ghostRotation.value)
@@ -696,7 +696,7 @@ function planTiles(cursorTiles: SceneTile[]) {
     const out: { tile: SceneTile, rotation: number, ok: boolean, coins: number }[] = []
     for (const tile of tiles) {
         let rotation = ghostRotation.value
-        if (def.kind !== 'road' && townPlacementIssue(layout, def, tile.wx, tile.wy, rotation) !== null) {
+        if (def.kind !== 'road' && !townFrontTiles(tile.wx, tile.wy, rotation, def.size ?? 1).some(f => townRoadAt(layout, f.wx, f.wy))) {
             const auto = townAutoFacing(layout, tile.wx, tile.wy, def.size ?? 1)
             if (auto !== null) rotation = auto
         }
@@ -1849,7 +1849,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <button
                         v-if="town.catalogById.value.get(ghostType)?.kind !== 'road'"
                         class="hint-btn"
-                        data-tip-below="The white arrow is the front door, and it has to touch a road"
+                        data-tip-below="The white arrow marks the front door. A building works when its door touches a road"
                         @click="rotatePlacement"
                     >
                         <kbd>R</kbd>rotate
@@ -2405,7 +2405,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     <dt><UIcon name="i-lucide-house" />Houses</dt>
                                     <dd>Two residents per level. Every workshop needs residents — an unstaffed farm grows nothing.</dd>
                                     <dt><UIcon name="i-lucide-route" />Roads</dt>
-                                    <dd>Every front door must touch a road, and people walk to work along them, so a road network only staffs the workshops it reaches. <kbd>R</kbd> rotates; buildings auto-face a road. Moving is free.</dd>
+                                    <dd>Buildings can be placed without a road, but they only work when their front door touches one. People walk to work along roads, so a road network only staffs the workshops it reaches. <kbd>R</kbd> rotates; buildings auto-face a road. Moving is free.</dd>
                                     <dt><UIcon name="i-lucide-smile" />Happiness</dt>
                                     <dd>A score out of 100 that sets production speed. Starts at 55. Each home gains up to 48 from the parks in reach and loses without limit to the workshops in reach; the town feels the average across its residents. Needs add or subtract. The mood chip shows every line.</dd>
                                     <dt><UIcon name="i-lucide-utensils" />Needs</dt>

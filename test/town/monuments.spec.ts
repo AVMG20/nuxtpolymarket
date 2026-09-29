@@ -134,8 +134,8 @@ describe('monument footprints', () => {
         expect(townPlacementIssue([road(ox + 6, oy)], pyramid, ox + 6, oy + 1, 2)).toMatch(/one plot/)
     })
 
-    it('needs a road somewhere along its front, and any one will do', () => {
-        expect(townPlacementIssue([], pyramid, ox + 2, oy + 1, 2)).toMatch(/road/)
+    it('can be placed without a road, but only connects along its front', () => {
+        expect(townPlacementIssue([], pyramid, ox + 2, oy + 1, 2)).toBeNull()
         expect(townPlacementIssue([road(ox + 4, oy)], pyramid, ox + 2, oy + 1, 2)).toBeNull()
         const standing = at('p', 'pyramid', ox + 2, oy + 1, { rotation: 2 })
         expect(townRoadAccess([standing, road(ox + 3, oy)], standing)).toBe(true)
