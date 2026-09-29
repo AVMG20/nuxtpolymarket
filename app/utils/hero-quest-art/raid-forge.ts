@@ -512,7 +512,6 @@ export const FORGE_APPRENTICE: CreatureDef = {
 
 // ═══════════════════════════════════════════════════════════════ 2 · The Journeyman
 
-const BRASS: Mat5 = { ramp: [C.gold0, C.gold1, C.gold2, C.gold3], hi: C.white, rim: C.gold1 }
 /** The cyclops's hide, a deep sea-teal, after the user's reference (cyclops-smith.png, top left). */
 const CYCLOPS: Mat5 = { ramp: [C.teal0, C.teal0, C.teal1, C.teal2], hi: C.steel2, rim: C.teal0 }
 /** Seconds into his entrance at which he lands, and how far above he falls from. */
@@ -1077,59 +1076,54 @@ export const FORGE_JOURNEYMAN: CreatureDef = {
 // ═══════════════════════════════════════════════════════════════ 3 · The Forgemaster
 
 /**
- * How much smaller than his layout the Forgemaster is drawn, about his feet: the top rung of the
- * gauntlet's ladder, as tall as he can stand with his head clear of the whole-scene camera's top.
+ * Hephaestus, after the user's reference (hephaestus.png, the bottom-left version; mirrored on the
+ * stage, which turns every boss to face the party, so he is drawn as the reference stands). His skin,
+ * sun- and forge-bronzed; his copper hair and beard; the slate-blue linen of his exomis; the carved
+ * stone of the anvil's pedestal and the dark bronze of the anvil; bronze and gold.
  */
-const FM_SCALE = 0.95
-
 const SKIN: Mat5 = { ramp: [C.skin0, C.skin1, C.skin1, C.skin2], hi: C.skin2, rim: C.skin0 }
-const BEARD = [C.red0, C.red1, C.orange] as const
+const HAIR: Mat5 = { ramp: [C.brown0, C.brown1, C.skin0, C.orange], hi: C.orange, rim: C.brown0 }
+const TUNIC: Mat5 = { ramp: [C.blue0, C.steel0, C.steel1, C.steel2], hi: C.steel3, rim: C.blue0 }
+const PLINTH: Mat5 = { ramp: [C.olive0, C.olive1, C.bone0, C.bone1], hi: C.bone1, rim: C.olive0 }
+const ANVIL: Mat5 = { ramp: [C.brown0, C.brown1, C.brown2, C.brown3], hi: C.gold2, rim: C.brown0 }
+const GOLD: Mat5 = { ramp: [C.gold1, C.gold1, C.gold2, C.gold3], hi: C.white, rim: C.gold0 }
 
 /**
- * The forge hammer, gripped at (gx, gy) with its haft along `ga`: a long iron-shod haft, a great
- * head, its striking face glowing `hot` from the fire and runes cut into it in gold. Drawn in his
- * hand, and on its own when he throws it.
+ * His hammer: a steel sledge, double-faced, a bronze band round its head, gripped at (gx, gy) with
+ * its haft along `ga`. Drawn in his hand, and on its own when he throws it.
  */
-function forgeHammer(s: Surface, gx: number, gy: number, ga: number, hot: number): void {
+function forgeHammer(s: Surface, gx: number, gy: number, ga: number): void {
     const ca = Math.cos(ga)
     const sa = Math.sin(ga)
-    const bx = gx - ca * 16
-    const by = gy - sa * 16
-    const hx = gx + ca * 54
-    const hy = gy + sa * 54
+    const hx = gx + ca * HAMMER_HEAD
+    const hy = gy + sa * HAMMER_HEAD
     const hm = mask(s, 'mhaft')
-    taper(hm, bx, by, hx, hy, 7, 6, 1)
+    taper(hm, gx - ca * 8, gy - sa * 8, hx, hy, 5, 5, 1)
     vol(s, hm, WOOD, 3)
     selOut(s, hm, C.brown0)
-    for (const k of [-10, 10, 40, 54]) { const cx = gx + ca * k; const cy = gy + sa * k; line(s, cx - sa * 4, cy + ca * 4, cx + sa * 4, cy - ca * 4, C.steel1, 2) }
     const nx = -sa
     const ny = ca
-    const hw = 18
-    const hl = 12
+    const hw = 11
+    const hl = 6
     const im = mask(s, 'mhhead')
     poly(im, [hx + nx * hw - ca * hl, hy + ny * hw - sa * hl, hx + nx * hw + ca * hl, hy + ny * hw + sa * hl, hx - nx * hw + ca * hl, hy - ny * hw + sa * hl, hx - nx * hw - ca * hl, hy - ny * hw - sa * hl], 0, 0, 1)
-    vol(s, im, IRON, 10)
+    vol(s, im, IRON, 6)
     selOut(s, im, C.steel0)
-    // the striking face, glowing from the fire, on the side that lands
-    for (let d = 0; d < 3; d++) line(s, hx - nx * (hw - d) - ca * hl, hy - ny * (hw - d) - sa * hl, hx - nx * (hw - d) + ca * hl, hy - ny * (hw - d) + sa * hl, d === 0 ? hot : d === 1 ? C.orange : C.lava1)
-    // runes cut into the head, lit gold
-    for (let k = -1; k <= 1; k++) {
-        const rx = hx + nx * k * 6
-        const ry = hy + ny * k * 6
-        line(s, rx - ca * 5, ry - sa * 5, rx + ca * 5, ry + sa * 5, C.gold2)
-        px(s, rx + nx * 2, ry + ny * 2, C.gold3)
-    }
+    // both faces worn bright, and the bronze band round its middle
+    for (const d of [-1, 1]) line(s, hx + nx * hw * d - ca * hl, hy + ny * hw * d - sa * hl, hx + nx * hw * d + ca * hl, hy + ny * hw * d + sa * hl, C.steel3, 2)
+    line(s, hx - ca * hl, hy - sa * hl, hx + ca * hl, hy + sa * hl, C.gold1, 2)
 }
 
-/** How far along the hammer from the grip its weight sits: what it spins about when thrown. */
-const HAMMER_MID = 35
+/** The hammer's head along its haft from his grip, and its weight's middle: what it spins about when thrown. */
+const HAMMER_HEAD = 30
+const HAMMER_MID = 20
 
 /**
- * His two specials, in seconds. Shower of Sparks: he raises the hammer and brings it down on the
- * white-hot blade held out in his tongs at each of SPARK_STRIKES, and every blow throws a fan of
- * sparks out over the party. The Master's Throw: he draws the hammer back, hurls it at
- * THROW_RELEASE, it flies spinning out through the whole line and curves back up over them into his
- * hand at THROW_CATCH.
+ * His two specials, in seconds. Shower of Sparks: he lays the glowing blade flat on the anvil and
+ * brings the hammer down on it at each of SPARK_STRIKES, every blow throwing a fan of sparks off
+ * the anvil over the party. The Master's Throw: he draws the hammer back, hurls it at THROW_RELEASE,
+ * it flies spinning out through the whole line and curves back up over them into his hand at
+ * THROW_CATCH.
  */
 const SPARK_DUR = 2.6
 const SPARK_STRIKES = [0.8, 1.3, 1.8] as const
@@ -1151,8 +1145,48 @@ const bez = (a: number, b: number, c: number, d: number, u: number): number => {
     return m * m * m * a + 3 * m * m * u * b + 3 * m * u * u * c + u * u * u * d
 }
 
+/**
+ * His poses, in his layout (x forward from his middle, y up from his feet): each [fist x, fist y,
+ * angle] for the blade in his front hand and the hammer in his back hand.
+ */
+const BLADE_REST = [44, -72, -1.3] as const
+const BLADE_WIND = [38, -126, -2.0] as const
+const BLADE_STRIKE = [60, -82, 0.55] as const
+/** The blade laid flat across the anvil for the Shower. */
+const BLADE_FLAT = [30, -64, -0.05] as const
+/**
+ * At rest the hammer hangs head down from his fist, out beside his thigh.
+ * Raised from rest, it swings up behind him, so those blends start from the same angle a whole turn back.
+ */
+const HAMMER_REST = [-48, -64, 2.16] as const
+const HAMMER_REST_WOUND = [HAMMER_REST[0], HAMMER_REST[1], HAMMER_REST[2] - Math.PI * 2] as const
+/** Raised up his near side, so the arm never sweeps across his face. */
+const HAMMER_UP = [-42, -140, -2.2] as const
+/** The grip that brings a face of the head down on the blade lying on the anvil. */
+const HAMMER_HIT = [28, -80, 0.35] as const
+const HAMMER_BACK = [-44, -116, -3.3] as const
+const HAMMER_THROWN = [30, -96, 0] as const
+/** His front shoulder, which the blade's sweep swings about; the blade's length from his fist. */
+const FRONT_SHOULDER_FM = [30, -108] as const
+const BLADE_LEN = 50
+/** Where the sword's blade starts past his fist (the guard), and the stretch of it still hot from the forge, as a share of the blade. */
+const SWORD_BASE = 8
+const SWORD_HOT = 0.45
+/**
+ * His beard's outline about his head: a sideburn down from his temple, down the cheek to the corner
+ * of his mouth, under his lower lip, up to the far corner and cheek, round the chin and jaw.
+ */
+const JAW_BEARD = [[-11, -3], [-8, -3], [-7, 4], [-4, 9], [-1, 12], [4, 13], [9, 12], [11, 9], [13, 6], [15, 8], [15, 17], [12, 26], [6, 30], [-2, 27], [-8, 18], [-11, 8]] as const
+/** Where he stands behind the anvil, from his mark: its body's ends and height, its pedestal. */
+const ANVIL_X0 = 18
+const ANVIL_X1 = 72
+const ANVIL_TOP = -60
+const PLINTH_X0 = 22
+const PLINTH_X1 = 74
+const PLINTH_TOP = -32
+
 /** Where his hand lets go of the hammer, and takes it back, from his mark: his throwing pose's grip. */
-const throwGrip = (): [number, number] => [-10 + 40 * FM_SCALE, -78 * FM_SCALE]
+const throwGrip = (): [number, number] => [-10 + HAMMER_THROWN[0], HAMMER_THROWN[1]]
 
 /**
  * Where the thrown hammer's middle is at `u` seconds into the Throw, from his mark, and its spin:
@@ -1174,15 +1208,15 @@ function throwAt(u: number): [number, number, number] {
     return [bez(THROW_OUT, THROW_OUT + 22, THROW_OUT, x0, k), bez(THROW_LOW, THROW_LOW, -130, gy, k), spin]
 }
 
-/** Where the Shower's blows land, from his mark: the middle of the blade held out in his tongs. */
-const sparkPoint = (): [number, number] => [-10 + 34 * FM_SCALE + 40, -74 * FM_SCALE - 4]
+/** Where the Shower's blows land, from his mark: on the blade lying on the anvil. */
+const sparkPoint = (): [number, number] => [-10 + 56, ANVIL_TOP - 4]
 
 /** A spark of the Shower thrown by blow `k`: its angle off the blade (down +) and speed. */
 const SPARKS_PER_BLOW = 26
 const SPARK_LIFE = 0.65
 const SPARK_FALL = 300
 
-/** Shower of Sparks: three blows on the white-hot blade, each throwing a fan of sparks over two of them. */
+/** Shower of Sparks: three blows on the white-hot blade on the anvil, each throwing a fan of sparks over two of them. */
 const SHOWER_OF_SPARKS: BossSpecial = {
     name: 'Shower of Sparks', tint: 'dusk0', spread: true,
     hits: SPARK_STRIKES.flatMap(t0 => [t0 + 0.12, t0 + 0.15]),
@@ -1230,7 +1264,7 @@ const SHOWER_OF_SPARKS: BossSpecial = {
 }
 
 /** A scratch the thrown hammer is drawn into, lit and outlined as he is, then stamped into the scene. */
-const FLYING = new Surface(160, 160, 80, 80)
+const FLYING = new Surface(120, 120, 60, 60)
 const FLYING_STYLE = new StampStyle()
 
 /** The Master's Throw: the hammer hurled spinning through the whole line and caught again. */
@@ -1247,13 +1281,13 @@ const MASTERS_THROW: BossSpecial = {
             if (f >= 0 && f < 0.15) { const [gx, gy] = throwGrip(); disc(s, st.bx + d * gx, st.by + gy, R(6 * (1 - f / 0.15)), C.gold3) }
             return
         }
-        // a trail of fire behind its glowing head
+        // a trail of sparks behind its head
         for (let k = 8; k >= 1; k--) {
             const [mx, my, a] = throwAt(Math.max(THROW_RELEASE, u - k * 0.022))
-            const tx = mx + Math.cos(a) * (54 - HAMMER_MID)
-            const ty = my + Math.sin(a) * (54 - HAMMER_MID)
-            const r = 9 - k * 0.7
-            const level = R(14 - k * 1.4)
+            const tx = mx + Math.cos(a) * (HAMMER_HEAD - HAMMER_MID)
+            const ty = my + Math.sin(a) * (HAMMER_HEAD - HAMMER_MID)
+            const r = 8 - k * 0.7
+            const level = R(13 - k * 1.4)
             const cx = R(st.bx + d * tx)
             const cy = R(st.by + ty)
             for (let yy = -R(r); yy <= R(r); yy++) {
@@ -1266,7 +1300,7 @@ const MASTERS_THROW: BossSpecial = {
         // the hammer itself, spinning about its middle
         const [hx, hy, spin] = throwAt(u)
         FLYING.clear()
-        forgeHammer(FLYING, FLYING.ax - Math.cos(spin) * HAMMER_MID, FLYING.ay - Math.sin(spin) * HAMMER_MID, spin, C.gold3)
+        forgeHammer(FLYING, FLYING.ax - Math.cos(spin) * HAMMER_MID, FLYING.ay - Math.sin(spin) * HAMMER_MID, spin)
         const style = FLYING_STYLE.reset()
         style.flip = d < 0
         stamp(s, FLYING, st.bx + d * hx, st.by + hy, style)
@@ -1277,228 +1311,406 @@ const MASTERS_THROW: BossSpecial = {
     }
 }
 
+type Pose3 = readonly [number, number, number]
+const mixPose = (a: Pose3, b: Pose3, k: number): [number, number, number] => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k]
+
 /**
- * His hammer through the specials, as grip and haft angle in his layout: Shower of Sparks between
- * resting, raised and down on the blade; the Throw drawn back, hurled, followed through and caught.
- * Null outside them, for his own attack's poses.
+ * His hammer through the specials: the Shower between resting, raised and down on the blade on the
+ * anvil; the Throw drawn back, hurled, followed through and caught. Null outside them.
  */
-function fmSpecialPose(st: string, t: number): [number, number, number] | null {
+function fmHammerPose(st: string, t: number): [number, number, number] | null {
     const q0 = q(t)
-    const REST = [26, -86, -2.4] as const
-    const mix = (a: readonly number[], b: readonly number[], k: number): [number, number, number] => [a[0]! + (b[0]! - a[0]!) * k, a[1]! + (b[1]! - a[1]!) * k, a[2]! + (b[2]! - a[2]!) * k]
     if (st === 'special') {
-        const UP = [14, -128, -1.9] as const
-        // the grip that brings the head's face down on the middle of the blade
-        const HIT = [38, -109, 0.25] as const
-        if (q0 < 0.55) return mix(REST, UP, sm(span(0.1, 0.55, q0)))
+        if (q0 < 0.55) return mixPose(HAMMER_REST_WOUND, HAMMER_UP, sm(span(0.1, 0.55, q0)))
         for (let k = 0; k < SPARK_STRIKES.length; k++) {
             const ts = SPARK_STRIKES[k]!
             const next = SPARK_STRIKES[k + 1]
-            if (q0 < ts - 0.06) return [...UP]
-            if (q0 < ts) return mix(UP, HIT, sm(span(ts - 0.06, ts, q0)))
-            if (q0 < ts + 0.1) return [...HIT]
-            if (next !== undefined && q0 < next - 0.06) return mix(HIT, UP, sm(span(ts + 0.1, ts + 0.35, q0)))
+            if (q0 < ts - 0.06) return [...HAMMER_UP]
+            if (q0 < ts) return mixPose(HAMMER_UP, HAMMER_HIT, sm(span(ts - 0.06, ts, q0)))
+            if (q0 < ts + 0.1) return [...HAMMER_HIT]
+            if (next !== undefined && q0 < next - 0.06) return mixPose(HAMMER_HIT, HAMMER_UP, sm(span(ts + 0.1, ts + 0.35, q0)))
         }
-        return mix(HIT, REST, sm(span(SPARK_STRIKES[2] + 0.1, SPARK_DUR - 0.05, q0)))
+        return mixPose(HAMMER_HIT, HAMMER_REST, sm(span(SPARK_STRIKES[2] + 0.1, SPARK_DUR - 0.05, q0)))
     }
     if (st === 'special2') {
-        const BACK = [-22, -84, -3.5] as const
-        const THROWN = [40, -78, 0] as const
-        if (q0 < 0.6) return mix(REST, BACK, sm(span(0.05, 0.6, q0)))
-        if (q0 < THROW_RELEASE) return mix(BACK, THROWN, sm(span(0.6, THROW_RELEASE, q0)))
+        if (q0 < 0.6) return mixPose(HAMMER_REST_WOUND, HAMMER_BACK, sm(span(0.05, 0.6, q0)))
+        if (q0 < THROW_RELEASE) return mixPose(HAMMER_BACK, HAMMER_THROWN, sm(span(0.6, THROW_RELEASE, q0)))
         // his hand held out after it, then braced for the catch, jolted by it, and back to rest
-        if (q0 < THROW_CATCH) return [...THROWN]
+        if (q0 < THROW_CATCH) return [...HAMMER_THROWN]
         const jolt = Math.sin(span(THROW_CATCH, THROW_CATCH + 0.15, q0) * Math.PI) * 5
-        if (q0 < THROW_CATCH + 0.15) return [THROWN[0] - jolt, THROWN[1] + jolt * 0.4, THROWN[2]]
-        return mix(THROWN, REST, sm(span(THROW_CATCH + 0.15, THROW_DUR - 0.05, q0)))
+        if (q0 < THROW_CATCH + 0.15) return [HAMMER_THROWN[0] - jolt, HAMMER_THROWN[1] + jolt * 0.4, HAMMER_THROWN[2]]
+        return mixPose(HAMMER_THROWN, HAMMER_REST, sm(span(THROW_CATCH + 0.15, THROW_DUR - 0.05, q0)))
     }
     return null
 }
 
+/** His blade: slashed on his attack; laid flat on the anvil through the Shower. */
+function fmBladePose(st: string, t: number): [number, number, number] {
+    if (st === 'special') {
+        const q0 = q(t)
+        const k = sm(span(0.1, 0.5, q0)) * (1 - sm(span(SPARK_STRIKES[2] + 0.2, SPARK_DUR - 0.05, q0)))
+        return mixPose(BLADE_REST, BLADE_FLAT, k)
+    }
+    return [bz(BLADE_REST[0], BLADE_WIND[0], BLADE_STRIKE[0]), bz(BLADE_REST[1], BLADE_WIND[1], BLADE_STRIKE[1]), bz(BLADE_REST[2], BLADE_WIND[2], BLADE_STRIKE[2])]
+}
+
 /**
- * The Forgemaster: the giant master smith. Bald, brass goggles pushed up on his brow, eyes like
- * embers under it, a great braided beard lit at its ends like coals and ringed in gold; a muscled
- * chest under a heavy scorched apron, a wide belt with a gold buckle, steel-capped boots, a steel
- * gauntlet on his hammer hand. His forge hammer rests on his shoulder, its striking face glowing
- * from the fire and runed in gold; in his other hand, tongs holding a white-hot blade out before him.
- * He raises the hammer high and brings it down in a burst of fire. He steps out of the forge-fire,
- * and when he falls he goes to a knee first.
+ * The Forgemaster: Hephaestus, god of the forge, the legend the gauntlet ends on, after the user's
+ * reference (hephaestus.png, bottom left). Drawn three-quarters to the front, standing behind his
+ * anvil. Copper hair swept back to his shoulders under a thin gold circlet, a thick copper beard, a
+ * stern brow; sun-bronzed and powerful. A slate-blue exomis draped over his hammer shoulder and
+ * pinned there with a gold brooch, the other shoulder bare; a brown leather sash across his chest,
+ * a leather belt with a gold buckle, the tunic falling in pleats to his knees; gold armlets, a
+ * leather bracer; sandals laced up his calves. A curved blade glowing hot in his front hand; a steel
+ * double-faced hammer in his back hand; before him a dark bronze anvil on a carved stone pedestal,
+ * a Greek key round it. He slashes the blade down over the anvil in an arc of fire; he steps out of
+ * the forge-fire; he falls to a knee behind his anvil.
  */
 export const FORGE_MASTER: CreatureDef = {
-    name: 'The Forgemaster', size: 256, room: 30, shadow: 42, accent: C.orange,
+    name: 'The Forgemaster', size: 256, room: 30, shadow: 46, accent: C.orange,
     states: { ...withSpecial(bossStates(1.8, 2.2, 2.4), SPARK_DUR), special2: { dur: THROW_DUR, loop: false } },
     specials: [SHOWER_OF_SPARKS, MASTERS_THROW],
     draw(s, st, t) {
-        drive(this, st, t, 18, 2.2)
-        // his specials move his hammer on poses of their own; the rest of him stays at rest
-        const spPose = fmSpecialPose(st, t)
-        // the hammer is out of his hand while it flies
-        const held = !(st === 'special2' && q(t) >= THROW_RELEASE && q(t) < THROW_CATCH)
+        drive(this, st, t, 6, 2.2)
         const tt = q(t)
+        // the hammer is out of his hand while it flies
+        const held = !(st === 'special2' && tt >= THROW_RELEASE && tt < THROW_CATCH)
         const x = s.ax - 10 + B.lunge - B.kb
         const y = s.ay
-        const br = B.breath
-        // dying: down on a knee, then over onto his face
+        // the anvil does not move with him
+        const ax0 = s.ax - 10
+        const an = (lx: number, ly: number): [number, number] => [ax0 + lx, y + ly]
+        // dying: down on a knee behind the anvil, then over
         const knee = Math.min(1, B.die * 1.8)
         const fall = Math.max(0, B.die * 1.8 - 1)
-        const tilt = bz(0, -0.06, 0.1) + fall * 0.9
-        const sinkBody = knee * 26
-        // his frame is laid out tall and drawn a little smaller about his feet, to fit the camera
-        const at = (lx: number, ly: number): [number, number] => { rot(x + lx * FM_SCALE, y + ly * FM_SCALE, x + 20, y, tilt); return [T.x, T.y] }
-        const up = (lx: number, ly: number): [number, number] => at(lx + bz(0, -4, 8) * Math.max(0, -ly - 60) / 60, ly + br + sinkBody)
-        const hotFace = B.glow > 0.4 || tt % 0.6 < 0.3 ? C.gold3 : C.orange
+        const tilt = bz(0, -0.05, 0.08) + fall * 0.5
+        const sinkBody = knee * 24
+        const at = (lx: number, ly: number): [number, number] => { rot(x + lx, y + ly, x, y, tilt); return [T.x, T.y] }
+        const up = (lx: number, ly: number): [number, number] => at(lx + bz(0, -3, 5) * Math.max(0, -ly - 60) / 60, ly + B.breath * 0.6 + sinkBody)
 
-        // the hammer: resting on his shoulder, raised high, brought down on the party
-        const [Gx, Gy] = spPose ? up(spPose[0], spPose[1]) : up(bz(26, 6, 50), bz(-86, -118, -62))
-        const ga = (spPose ? spPose[2] : bz(-2.4, -1.75, 0.72)) + tilt
-
-        // ── the far arm, the tongs and the blade in them ──
-        {
-            const [sx, sy] = up(-16, -108)
-            const [hx, hy] = up(bz(34, 26, 30), bz(-74, -86, -80))
-            elbow(sx, sy, hx, hy, 30, 30, 1)
-            limb(s, 'mfarm', [sx, sy, P.x, P.y, hx, hy], [20, 16, 13], SKIN, -0.3, C.ink)
-            const gm = mask(s, 'mfglove')
-            disc(gm, hx, hy, 7, 1)
-            vol(s, gm, LEATHER, 4, -0.3)
-            // the tongs, reaching out, and the blade held in their jaws
-            const tx = hx + 22
-            const ty = hy + 2
-            line(s, hx, hy - 1, tx, ty - 2, C.steel1, 2)
-            line(s, hx, hy + 2, tx, ty + 1, C.steel0, 2)
-            const bx = tx + 2
-            const by = ty - 1
-            const blade = mask(s, 'blade')
-            poly(blade, [bx, by - 3, bx + 30, by - 10, bx + 33, by - 10, bx + 31, by - 7, bx, by + 2], 0, 0, 1)
-            eachPx(blade, (px_, py, edge) => s.set(px_, py, edge ? C.orange : (px_ + py) % 3 ? C.gold3 : C.white))
-            // heat shimmering off it
-            for (let k = 0; k < 4; k++) px(s, bx + 6 + k * 7, by - 6 - k * 2 - ((R(tt * 10) + k) % 3), C.orange)
+        // an arm, heavy with muscle, the deltoid its own lit cap; the fist drawn apart
+        const arm = (key: string, sx: number, sy: number, ex: number, ey: number, hx: number, hy: number, back: boolean): void => {
+            const ux = sx + (ex - sx) * 0.55
+            const uy = sy + (ey - sy) * 0.55
+            const lx = ex + (hx - ex) * 0.3
+            const ly = ey + (hy - ey) * 0.3
+            limb(s, key, [sx, sy, ux, uy, ex, ey, lx, ly, hx, hy], [17, 18, 14, 15, 11], SKIN, back ? -0.2 : 0, C.ink)
+            const dx = ex - sx
+            const dy = ey - sy
+            const dl = Math.hypot(dx, dy) || 1
+            const nx = -dy / dl
+            const ny = dx / dl
+            line(s, sx + dx * 0.4 + nx * 5, sy + dy * 0.4 + ny * 5, sx + dx * 0.75 + nx * 4, sy + dy * 0.75 + ny * 4, C.skin2)
+            const dm = mask(s, key + 'd')
+            const cx = sx + dx * 0.16
+            const cy = sy + dy * 0.16
+            const pts: number[] = []
+            for (let k = 0; k < 20; k++) {
+                const a = k / 20 * Math.PI * 2
+                pts.push(cx + (dx / dl) * Math.cos(a) * 12 + nx * Math.sin(a) * 10, cy + (dy / dl) * Math.cos(a) * 12 + ny * Math.sin(a) * 10)
+            }
+            poly(dm, pts, 0, 0, 1)
+            vol(s, dm, SKIN, 7, back ? -0.1 : 0.12)
+            selOut(s, dm, C.skin0)
+        }
+        // a fist closed round a handle running along `a`
+        const grip = (key: string, hx: number, hy: number, a: number, back: boolean): void => {
+            const ca = Math.cos(a)
+            const sa = Math.sin(a)
+            const m = mask(s, key)
+            const pts: number[] = []
+            for (let k = 0; k < 18; k++) {
+                const b = k / 18 * Math.PI * 2
+                pts.push(hx - sa * Math.cos(b) * 7 + ca * Math.sin(b) * 6, hy + ca * Math.cos(b) * 7 + sa * Math.sin(b) * 6)
+            }
+            poly(m, pts, 0, 0, 1)
+            vol(s, m, SKIN, 4, back ? -0.2 : 0.05)
+            selOut(s, m, C.ink)
+            for (const k of [-2.5, 0.5, 3.5]) line(s, hx + ca * k - sa * 5, hy + sa * k + ca * 5, hx + ca * k - sa * 1, hy + sa * k + ca * 1, C.skin0)
+            line(s, hx - sa * 6 - ca * 3, hy + ca * 6 - sa * 3, hx - sa * 6 + ca * 4, hy + ca * 6 + sa * 4, C.skin2)
+        }
+        // a band of gold round a limb at (cx, cy), across the direction (dx, dy)
+        const band = (cx: number, cy: number, dx: number, dy: number, w: number): void => {
+            const dl = Math.hypot(dx, dy) || 1
+            const nx = -dy / dl
+            const ny = dx / dl
+            line(s, cx - nx * w, cy - ny * w, cx + nx * w, cy + ny * w, C.gold1, 3)
+            line(s, cx - nx * w, cy - ny * w - 1, cx + nx * w, cy + ny * w - 1, C.gold3)
         }
 
-        // ── legs, planted wide: dark trousers, steel-capped boots ──
-        const leg = (hx: number, fx: number, far: boolean): void => {
-            const [a, b] = up(hx, -58)
-            // on a knee as he dies: the near knee comes down to the ground
-            const [f, g] = at(fx + (far ? 0 : knee * 14), -8 - (far ? 0 : 0))
+        // ── legs: bare under the tunic, in sandals laced up the calf; the front one behind the anvil ──
+        const leg = (hx: number, fx: number, back: boolean): void => {
+            const [a, b] = up(hx, -60)
+            const [f, g] = at(fx + (back ? 0 : knee * 10), -6)
             elbow(a, b, f, g, 28, 26, -1)
-            limb(s, far ? 'mfl' : 'mnl', [a, b, P.x, P.y, f, g], [26, 20, 17], CLOTH, far ? -0.3 : 0, C.ink)
-            const bm = mask(s, 'boot')
-            ellipse(bm, f + 5, g + 2, 14, 7, 1)
-            poly(bm, [f - 8, g - 10, f + 7, g - 10, f + 9, g + 2, f - 9, g + 2], 0, 0, 1)
-            vol(s, bm, LEATHER, 6, far ? -0.3 : 0)
-            selOut(s, bm, C.ink)
-            // the steel toe cap
-            const cm = mask(s, 'toecap')
-            ellipse(cm, f + 13, g + 3, 6, 5, 1)
-            vol(s, cm, IRON, 3, far ? -0.3 : 0)
-            line(s, f - 9, g + 8, f + 19, g + 8, C.ink)
+            const kx = P.x
+            const ky = P.y
+            const cx = kx + (f - kx) * 0.35
+            const cy = ky + (g - ky) * 0.35
+            limb(s, back ? 'mbl' : 'mfl', [a, b, kx, ky, cx, cy, f, g], [24, 17, 16, 12], SKIN, back ? -0.2 : 0, C.ink)
+            const fm = mask(s, back ? 'mbfoot' : 'mffoot')
+            ellipse(fm, f + 4, g + 2, 11, 5, 1)
+            vol(s, fm, SKIN, 5, back ? -0.2 : 0)
+            selOut(s, fm, C.ink)
+            line(s, f - 7, g + 7, f + 15, g + 7, C.brown0, 2)
+            // the sandal's straps laced up the calf
+            for (let k = 0; k < 4; k++) {
+                const u = k / 4
+                const lx0 = f + (kx - f) * u * 0.8
+                const ly0 = g + (ky - g) * u * 0.8
+                line(s, lx0 - 6, ly0 - 1, lx0 + 6, ly0 + 2, back ? C.brown0 : C.brown1)
+                line(s, lx0 - 6, ly0 + 2, lx0 + 6, ly0 - 1, back ? C.brown0 : C.brown1)
+            }
         }
-        leg(-14, -18, true)
-        leg(8, 12, false)
+        // three-quarters to the front and turned toward the party, his side away from them is the
+        // near one: the leg toward the anvil goes down first, behind the other
+        leg(8, 16, false)
+        leg(-12, -20, true)
 
-        // ── his body: a muscled chest, a thick waist, a heavy apron, a wide belt ──
+        // ── his blade arm, the far one: behind his body and head, whatever it does; the sword and
+        //    the fist on it go down after the anvil, so the blade can lie on it ──
+        const [bpx, bpy, bpa] = fmBladePose(st, t)
+        const [Bx, By] = up(bpx, bpy)
+        const bang = bpa + tilt
+        {
+            const [sx, sy] = up(FRONT_SHOULDER_FM[0], FRONT_SHOULDER_FM[1])
+            elbow(sx, sy, Bx, By, 27, 26, 1)
+            const ex = P.x
+            const ey = P.y
+            arm('mfarm', sx, sy, ex, ey, Bx, By, false)
+            // the leather bracer, banded in gold
+            const vm = mask(s, 'mbracer')
+            const v0x = ex + (Bx - ex) * 0.3
+            const v0y = ey + (By - ey) * 0.3
+            const v1x = ex + (Bx - ex) * 0.85
+            const v1y = ey + (By - ey) * 0.85
+            taper(vm, v0x, v0y, v1x, v1y, 15, 13, 1)
+            vol(s, vm, LEATHER, 4, 0.05)
+            selOut(s, vm, C.brown0)
+            band(v1x, v1y, v1x - v0x, v1y - v0y, 7)
+        }
+
+        // ── his body, three-quarters to the front: a mighty chest, a thick waist, a heavy neck ──
         const body = mask(s, 'mbody')
         {
-            const [cx, cy] = up(0, -100)
-            ellipse(body, cx, cy, 30, 24, 1)
-            const [wx, wy] = up(2, -72)
-            ellipse(body, wx, wy, 24, 18, 1)
-            const [nx, ny] = up(-14, -112)
-            disc(body, nx, ny, 13, 1)
+            const [wx, wy] = up(0, -78)
+            ellipse(body, wx, wy, 20, 14, 1)
+            const [l0x, l0y] = up(0, -80)
+            const [l1x, l1y] = up(2, -100)
+            taper(body, l0x, l0y, l1x, l1y, 40, 52, 1)
+            const [cx, cy] = up(3, -104)
+            ellipse(body, cx, cy, 27, 16, 1)
+            const [n0x, n0y] = up(2, -116)
+            const [n1x, n1y] = up(6, -126)
+            taper(body, n0x, n0y, n1x, n1y, 36, 24, 1)
+            disc(body, n0x, n0y, 18, 1)
+            disc(body, n1x, n1y, 12, 1)
             vol(s, body, SKIN, 20)
-            // the line of his chest and the ridge of his stomach
-            for (let k = 0; k <= 12; k++) { const [a, b] = up(-6 + k * 2, -96 + Math.abs(k - 6) * 0.6); if (body.get(R(a), R(b))) px(s, a, b, C.skin0) }
+            // the line under his bare chest
+            for (let k = 0; k <= 8; k++) { const [a, b] = up(8 + k * 1.8, -98 + Math.sin(k / 8 * Math.PI) * 2); if (body.get(R(a), R(b))) { px(s, a, b, C.skin0); px(s, a, b - 1, C.skin2) } }
             selOut(s, body, C.ink)
         }
+        // the exomis: slate-blue linen draped over his hammer shoulder and pinned there, slung under
+        // his blade arm so that shoulder and chest are bare, falling in pleats to his knees
         {
-            // the apron: heavy leather from under the beard to his knees, scorched, a coal burning in it
-            const am = mask(s, 'mapron')
-            poly(am, [[-8, -88], [24, -90], [30, -76], [34, -40], [30, -26], [-4, -24], [-10, -50], [-13, -76]].flatMap(([a, b]) => up(a!, b!)), 0, 0, 1)
-            vol(s, am, LEATHER, 12, -0.05)
-            selOut(s, am, C.brown0)
-            eachPx(am, (px_, py) => { if (hash2(px_, py) < 0.035) s.set(px_, py, C.brown0) })
-            for (const [ex, ey] of [[14, -46], [22, -60], [4, -36]] as const) { const [a, b] = up(ex, ey); px(s, a, b, C.orange); px(s, a + 1, b, C.lava1) }
-            // straps over his shoulders, and the belt with its buckle
-            for (const [a0, b0, a1, b1] of [[-8, -88, -14, -116], [22, -90, 14, -118]] as const) {
-                const [p0x, p0y] = up(a0, b0)
-                const [p1x, p1y] = up(a1, b1)
-                line(s, p0x, p0y, p1x, p1y, C.brown1, 3)
-            }
-            const [b0x, b0y] = up(-16, -64)
-            const [b1x, b1y] = up(30, -66)
-            line(s, b0x, b0y, b1x, b1y, C.brown0, 5)
+            const em = mask(s, 'exomis')
+            poly(em, [[-30, -112], [-18, -122], [-8, -118], [6, -104], [22, -94], [26, -84], [24, -62], [28, -36], [14, -32], [0, -35], [-14, -32], [-28, -36], [-26, -62], [-30, -86]].flatMap(([a, b]) => up(a!, b!)), 0, 0, 1)
+            vol(s, em, TUNIC, 10, 0.05)
+            selOut(s, em, C.blue0)
+            // the drape's folds from the shoulder, and the pleats of the skirt
+            for (const [a0, b0, a1, b1] of [[-16, -116, 12, -90], [-22, -110, 4, -80], [-28, -100, -8, -74]] as const) { const [p0x, p0y] = up(a0, b0); const [p1x, p1y] = up(a1, b1); line(s, p0x, p0y, p1x, p1y, C.steel0) }
+            for (const kx of [-18, -6, 6, 18]) { const [a, b] = up(kx, -58); const [c, d] = up(kx + 1, -36); line(s, a, b, c, d, C.steel0) }
+            { const [a, b] = up(-28, -37); const [c, d] = up(28, -37); line(s, a, b, c, d, C.blue0) }
+            // the leather sash across his chest over it, from the shoulder to his hip
+            const [s0x, s0y] = up(-16, -120)
+            const [s1x, s1y] = up(24, -78)
+            line(s, s0x, s0y, s1x, s1y, C.brown1, 7)
+            line(s, s0x - 2, s0y + 2, s1x - 2, s1y + 2, C.brown2)
+            line(s, s0x + 2, s0y - 3, s1x + 2, s1y - 3, C.brown0)
+            // the belt, its gold buckle
+            const [b0x, b0y] = up(-24, -62)
+            const [b1x, b1y] = up(26, -62)
+            line(s, b0x, b0y, b1x, b1y, C.brown1, 5)
             line(s, b0x, b0y - 2, b1x, b1y - 2, C.brown2)
-            const [kx, ky] = up(14, -66)
-            const km = mask(s, 'buckle')
-            poly(km, [kx - 5, ky - 5, kx + 5, ky - 5, kx + 5, ky + 4, kx - 5, ky + 4], 0, 0, 1)
-            vol(s, km, BRASS, 3)
-            poly(s, [kx - 2, ky - 2, kx + 2, ky - 2, kx + 2, ky + 1, kx - 2, ky + 1], 0, 0, C.brown0)
+            const [kx, ky] = up(12, -62)
+            const km = mask(s, 'mbuckle')
+            poly(km, [kx - 4, ky - 4, kx + 4, ky - 4, kx + 4, ky + 3, kx - 4, ky + 3], 0, 0, 1)
+            vol(s, km, GOLD, 3)
+            px(s, kx, ky - 1, C.brown0)
+            // the brooch pinning it at his shoulder
+            const [fx, fy] = up(-18, -118)
+            const fm = mask(s, 'mbrooch')
+            disc(fm, fx, fy, 3.5, 1)
+            vol(s, fm, GOLD, 2)
+            selOut(s, fm, C.gold0)
         }
 
-        // ── his head: bald, a heavy brow, eyes of ember, goggles pushed up on it, and the beard ──
+        // ── his head, three-quarters to the front as the reference has it: copper hair framing his
+        //    face and swept back to his shoulders under a gold circlet, a stern brow over two eyes, a
+        //    broad nose, a drooping moustache and a great streaked copper beard ──
         {
-            const hy = -138 + R(bz(0, -3, 4))
-            const [hx, hy2] = up(22, hy)
-            const m = mask(s, 'mhead')
-            disc(m, hx, hy2, 16, 1)
-            ellipse(m, hx + 5, hy2 + 6, 13, 11, 1)
-            vol(s, m, SKIN, 10, 0.05)
-            selOut(s, m, C.ink)
-            // the ear, the nose, a heavy brow over eyes like coals
-            disc(s, hx - 11, hy2 + 3, 3.5, C.skin0)
-            const [nx, ny] = up(39, hy + 4)
-            disc(s, nx, ny, 4.5, C.skin1); px(s, nx - 1, ny - 3, C.skin2); px(s, nx - 2, ny - 2, C.skin2); px(s, nx + 2, ny + 2, C.skin0)
-            const [ex, ey] = up(31, hy)
-            line(s, ex - 6, ey - 3, ex + 6, ey - 2, C.skin0, 2)
-            const ember = B.hurt ? C.white : B.glow > 0.4 ? C.gold3 : C.orange
-            px(s, ex - 1, ey, C.ink); px(s, ex, ey, ember); px(s, ex + 1, ey, ember); px(s, ex + 2, ey, C.lava1)
-            px(s, ex, ey + 1, C.lava0); px(s, ex + 1, ey - 1, C.gold3)
-            // the goggles, pushed up on his brow, their strap round his head
-            const [gx, gy] = up(24, hy - 11)
-            line(s, gx - 16, gy + 2, gx + 14, gy - 1, C.brown0, 2)
-            for (const d of [0, 8]) {
-                disc(s, gx + d, gy - 1, 4, C.gold1)
-                disc(s, gx + d, gy - 1, 2.8, d ? C.lava1 : C.orange)
-                px(s, gx + d - 1, gy - 2, C.gold3)
+            const hy = -134 + R(bz(0, -2, 3))
+            const [hx, hy2] = up(6, hy)
+            const hp = (dx: number, dy: number): [number, number] => [hx + dx, hy2 + dy]
+            // the hair: round his head, framing the face, falling to his shoulder at his back
+            const hm = mask(s, 'mhair')
+            { const [a, b] = hp(0, -2); ellipse(hm, a, b, 16, 18, 1) }
+            poly(hm, [[-14, -2], [-18, 10], [-24, 26], [-14, 26], [-8, 12]].flatMap(([a, b]) => hp(a!, b!)), 0, 0, 1)
+            vol(s, hm, HAIR, 7)
+            selOut(s, hm, C.brown0)
+            // locks through it, swept back
+            for (let k = 0; k < 9; k++) {
+                const a = -2.6 + k * 0.32
+                const [a0, b0] = hp(Math.cos(a) * 9, -2 + Math.sin(a) * 11)
+                const [a1, b1] = hp(Math.cos(a) * 15, -2 + Math.sin(a) * 17)
+                line(s, a0, b0, a1, b1, k & 1 ? C.orange : C.brown1)
             }
-            // the beard: a great braid down over his chest, ringed in gold, its end burning like a coal
-            const [b0x, b0y] = up(32, hy + 13)
-            for (let i = 0; i <= 12; i++) {
-                const u = i / 12
-                const [bx, by] = up(32 + Math.sin(u * 2.4 + tt) * 2 + u * 2, hy + 13 + u * 44)
-                const r = 7 - u * 3
-                disc(s, bx, by, r, BEARD[0])
-                disc(s, bx - 1, by - 1, r - 1, i & 1 ? BEARD[1] : C.red2)
-                px(s, bx - 2, by - 2, BEARD[2])
-                if (i === 4 || i === 8) { line(s, bx - r, by, bx + r, by, C.gold2, 2); px(s, bx - 1, by - 1, C.gold3) }
+            // the face
+            const fm = mask(s, 'mface')
+            { const [a, b] = hp(3, 2); ellipse(fm, a, b, 10.5, 13, 1) }
+            vol(s, fm, SKIN, 8, 0.05)
+            selOut(s, fm, C.skin0)
+            // a heavy brow, shadowed under it, its inner ends drawn down, and two eyes deep under it
+            { const [a, b] = hp(-8, -3); const [c, d] = hp(13, -3); line(s, a, b, c, d, C.skin0, 2) }
+            { const [a, b] = hp(-7, -6); line(s, a, b, a + 7, b + 2, C.brown0, 3) }
+            { const [a, b] = hp(5, -4); line(s, a, b, a + 8, b - 2, C.brown0, 3) }
+            { const [a, b] = hp(-8, 3); px(s, a, b, C.skin0); px(s, a + 1, b + 1, C.skin0); const [c, d] = hp(13, 3); px(s, c, d, C.skin0) }
+            for (const ex0 of [-3, 8] as const) {
+                const [ex, ey] = hp(ex0, -2)
+                line(s, ex - 2, ey, ex + 2, ey, C.white)
+                px(s, ex + (ex0 < 0 ? 1 : 0), ey, B.hurt ? C.white : C.steel1)
+                px(s, ex + (ex0 < 0 ? 1 : 0), ey + 1, C.skin0)
             }
-            const [ex2, ey2] = up(34, hy + 58)
-            disc(s, ex2, ey2, 3, C.orange); px(s, ex2, ey2, C.gold3); px(s, ex2 + 1, ey2 + 2, C.lava1)
-            // the moustache sweeping out over it
-            line(s, b0x - 2, b0y - 2, b0x + 8, b0y + 2, C.red1, 3)
-            line(s, b0x - 1, b0y - 3, b0x + 7, b0y + 1, C.red2)
+            // the nose, broad, its bridge between the eyes
+            { const [a, b] = hp(3, -2); const [c, d] = hp(4, 4); line(s, a, b, c, d, C.skin0) }
+            { const [a, b] = hp(4, 5); disc(s, a, b, 2.5, C.skin1); px(s, a + 1, b - 1, C.skin2); px(s, a - 1, b + 2, C.skin0); px(s, a + 2, b + 2, C.skin0) }
+            // the beard: great and copper, up his cheeks to his sideburns and round his jaw and down his
+            // chest, streaked; its top follows his face, dipping to the corners of his mouth and under
+            // his lower lip rather than cutting straight across it, and it keeps within the line of
+            // his face so his jaw does not jut
+            const bm = mask(s, 'mbeard')
+            poly(bm, JAW_BEARD.flatMap(([a, b]) => hp(a, b)), 0, 0, 1)
+            vol(s, bm, HAIR, 6)
+            selOut(s, bm, C.brown0)
+            // strands falling through it, wavering, dark between and lit on the odd one
+            for (let k = 0; k < 9; k++) {
+                let [a, b] = hp(-8 + k * 2.8, 9 + hash2(k, 3) * 4)
+                const len = 10 + hash2(k, 5) * 12
+                for (let j = 0; j < len; j++) {
+                    const na = a + Math.sin((j + k * 3) * 0.5) * 0.6
+                    if (bm.get(R(na), R(b + 1))) s.set(R(na), R(b + 1), k % 3 === 1 ? C.orange : C.brown0)
+                    a = na
+                    b += 1
+                }
+            }
+            // the mouth under the moustache and the lower lip showing below it; open when he bellows
+            { const [a, b] = hp(0, 10); const [c, d] = hp(8, 10); line(s, a, b, c, d, C.skin0); const [e, f] = hp(1, 11); const [g, h] = hp(7, 11); line(s, e, f, g, h, C.skin1) }
+            if (B.strike || B.roar) { const [a, b] = hp(4, 11); ellipse(s, a, b, 3, 1.5, C.ink) }
+            // the moustache over it, drooping at its ends into the beard
+            { const [a, b] = hp(-3, 8); const [c, d] = hp(11, 8); line(s, a, b, c, d, C.skin0, 3); line(s, a, b - 1, c, d - 1, C.orange); const [e, f] = hp(-5, 12); line(s, a, b, e, f, C.skin0, 2); const [g, h] = hp(12, 12); line(s, c, d, g, h, C.skin0, 2) }
+            // the gold circlet across his brow, a stone at its front
+            { const [a, b] = hp(-12, -10); const [c, d] = hp(14, -11); line(s, a, b, c, d, C.gold1, 2); line(s, a, b - 1, c, d - 1, C.gold3); const [e, f] = hp(2, -12); disc(s, e, f, 1.5, C.lava1); px(s, e, f - 1, C.gold3) }
         }
 
-        // ── the forge hammer, in his hand unless it is flying ──
-        if (held) forgeHammer(s, Gx, Gy, ga, hotFace)
-
-        // ── his hammer arm: a mighty shoulder, a bare forearm, a steel gauntlet on the haft ──
+        // ── the anvil, before him: a carved stone pedestal, a dark bronze anvil on it, lit by the
+        //    glowing blade. It stands where it stands ──
         {
-            const [sx, sy] = up(10, -108)
-            elbow(sx, sy, Gx, Gy, 30, 30, 1)
-            limb(s, 'mnarm', [sx, sy, P.x, P.y, Gx, Gy], [22, 18, 15], SKIN, 0, C.ink)
-            // a leather bracer, and the steel gauntlet closed on the haft
-            const cx = P.x + (Gx - P.x) * 0.55
-            const cy = P.y + (Gy - P.y) * 0.55
-            const bm = mask(s, 'bracer')
-            disc(bm, cx, cy, 8, 1)
-            vol(s, bm, LEATHER, 4)
-            selOut(s, bm, C.ink)
-            const gm = mask(s, 'gauntlet')
-            disc(gm, Gx, Gy, 8.5, 1)
-            vol(s, gm, IRON, 6)
-            selOut(s, gm, C.steel0)
-            px(s, Gx - 2, Gy - 3, C.white)
+            // the pedestal: its top seen a little from above, a moulding at top and foot, a Greek key
+            const pm = mask(s, 'plinth')
+            poly(pm, [[PLINTH_X0, PLINTH_TOP], [PLINTH_X1, PLINTH_TOP], [PLINTH_X1 + 4, PLINTH_TOP - 4], [PLINTH_X0 + 4, PLINTH_TOP - 4]].flatMap(([a, b]) => an(a!, b!)), 0, 0, 1)
+            poly(pm, [[PLINTH_X0, PLINTH_TOP], [PLINTH_X1, PLINTH_TOP], [PLINTH_X1 + 2, -4], [PLINTH_X1 + 4, 0], [PLINTH_X0 - 4, 0], [PLINTH_X0 - 2, -4]].flatMap(([a, b]) => an(a!, b!)), 0, 0, 1)
+            vol(s, pm, PLINTH, 8)
+            selOut(s, pm, C.olive0)
+            for (const ly of [PLINTH_TOP + 3, -6]) { const [a, b] = an(PLINTH_X0, ly); const [c, d] = an(PLINTH_X1, ly); line(s, a, b, c, d, C.olive0); line(s, a, b - 1, c, d - 1, C.bone1) }
+            // the key, cut into its face
+            const [k0x, k0y] = an(PLINTH_X0 + 4, -22)
+            for (let k = 0; k < 8; k++) {
+                const kx = k0x + k * 6
+                line(s, kx, k0y + 6, kx, k0y, C.olive0)
+                line(s, kx, k0y, kx + 4, k0y, C.olive0)
+                line(s, kx + 4, k0y, kx + 4, k0y + 4, C.olive0)
+                line(s, kx + 4, k0y + 4, kx + 2, k0y + 4, C.olive0)
+                px(s, kx + 1, k0y + 1, C.bone1)
+            }
+            // the anvil: a flared foot on the pedestal, a waist, the body square at its heel and its
+            // horn reaching out toward the party
+            const am = mask(s, 'anvil')
+            poly(am, [[26, PLINTH_TOP - 3], [62, PLINTH_TOP - 3], [56, -44], [32, -44]].flatMap(([a, b]) => an(a!, b!)), 0, 0, 1)
+            poly(am, [[34, -44], [54, -44], [52, -50], [36, -50]].flatMap(([a, b]) => an(a!, b!)), 0, 0, 1)
+            poly(am, [[ANVIL_X0, ANVIL_TOP], [ANVIL_X1, ANVIL_TOP], [ANVIL_X1, -52], [ANVIL_X1 - 8, -49], [ANVIL_X0 + 6, -49], [ANVIL_X0, -52]].flatMap(([a, b]) => an(a!, b!)), 0, 0, 1)
+            poly(am, [[ANVIL_X1, ANVIL_TOP], [ANVIL_X1 + 20, ANVIL_TOP + 4], [ANVIL_X1, -52]].flatMap(([a, b]) => an(a!, b!)), 0, 0, 1)
+            vol(s, am, ANVIL, 8)
+            selOut(s, am, C.ink)
+            // its face, lit along the top by the hot blade, and the hardy hole at its heel
+            { const [a, b] = an(ANVIL_X0, ANVIL_TOP); const [c, d] = an(ANVIL_X1 + 18, ANVIL_TOP + 4); line(s, a, b, c - 18, b, C.brown3); line(s, c - 18, b, c, d, C.brown3); line(s, a + 10, b, c - 22, b, C.orange) }
+            { const [a, b] = an(ANVIL_X0 + 6, ANVIL_TOP + 2); px(s, a, b, C.ink); px(s, a + 1, b, C.ink) }
+        }
+
+        // ── the sword he is finishing, in his blade fist: a straight leaf-shaped blade of bright steel
+        //    with a fuller down it, a bronze crossguard, a grip bound in leather, a bronze pommel; the
+        //    stretch he is working still glowing from the forge, and flaring as the hammer falls ──
+        {
+            const ca = Math.cos(bang)
+            const sa = Math.sin(bang)
+            const nx = -sa
+            const ny = ca
+            // how hot the worked stretch is: glowing, and white on each blow of the Shower
+            let heat = 0.7
+            if (st === 'special') for (const t0 of SPARK_STRIKES) { const f = tt - t0; if (f >= 0) heat = Math.max(heat, 0.7 + 0.6 * Math.exp(-f * 6)) }
+            const bm = mask(s, 'mblade')
+            const n = 12
+            for (let k = 0; k < n; k++) {
+                const u0 = k / n
+                const u1 = (k + 1) / n
+                const w = (u: number): number => u < 0.72 ? 5 + u * 1.2 : 5.9 * (1 - u) / 0.28
+                taper(bm, Bx + ca * (SWORD_BASE + (BLADE_LEN - SWORD_BASE) * u0), By + sa * (SWORD_BASE + (BLADE_LEN - SWORD_BASE) * u0), Bx + ca * (SWORD_BASE + (BLADE_LEN - SWORD_BASE) * u1), By + sa * (SWORD_BASE + (BLADE_LEN - SWORD_BASE) * u1), Math.max(1, w(u0)), Math.max(1, w(u1)), 1)
+            }
+            // the whole blade glowing red-hot (the user): a deep red body, lit orange along one edge, a
+            // darker fuller down its middle; brighter where he is working it, gold and white as a blow
+            // lands
+            eachPx(bm, (px_, py, e) => {
+                const dx = px_ - Bx
+                const dy = py - By
+                const u = ((dx * ca + dy * sa) - SWORD_BASE) / (BLADE_LEN - SWORD_BASE)
+                const across = dx * nx + dy * ny
+                const hot = heat * (0.75 + 0.35 * Math.exp(-(((u - SWORD_HOT) / 0.25) ** 2)))
+                const lit = e && across < 0
+                let c: number
+                if (hot > 1.05) c = lit ? C.white : Math.abs(across) < 0.8 ? C.orange : C.gold3
+                else if (hot > 0.75) c = lit ? C.gold3 : e ? C.lava0 : Math.abs(across) < 0.8 ? C.lava1 : C.orange
+                else c = lit ? C.orange : e ? C.lava0 : Math.abs(across) < 0.8 ? C.lava0 : C.lava1
+                s.set(px_, py, c)
+            })
+            // the grip, bound in leather, the crossguard and the pommel, bronze
+            line(s, Bx - ca * 5, By - sa * 5, Bx + ca * 5, By + sa * 5, C.brown1, 3)
+            for (const k of [-3, 0, 3]) px(s, Bx + ca * k, By + sa * k, C.brown2)
+            line(s, Bx + ca * 6 - nx * 7, By + sa * 6 - ny * 7, Bx + ca * 6 + nx * 7, By + sa * 6 + ny * 7, C.gold1, 3)
+            line(s, Bx + ca * 6 - nx * 7, By + sa * 6 - ny * 7 - 1, Bx + ca * 6 + nx * 7, By + sa * 6 + ny * 7 - 1, C.gold3)
+            disc(s, Bx - ca * 8, By - sa * 8, 2.5, C.gold1)
+            px(s, Bx - ca * 8 - 1, By - sa * 8 - 1, C.gold3)
+            // heat shimmering off the length of it
+            for (let k = 0; k < 5; k++) {
+                const d = SWORD_BASE + 4 + k * (BLADE_LEN - SWORD_BASE - 8) / 4
+                px(s, Bx + ca * d + nx * 3, By + sa * d - 5 - ((R(tt * 10) + k) % 3), k & 1 ? C.lava1 : C.orange)
+            }
+            grip('mffist', Bx, By, bang + Math.PI, false)
+        }
+
+        // ── his back arm, the hammer in his fist ──
+        const hpose = fmHammerPose(st, t) ?? [...HAMMER_REST]
+        const [Hx, Hy] = up(hpose[0], hpose[1])
+        const hang = hpose[2] + tilt
+        {
+            const [sx, sy] = up(-22, -110)
+            elbow(sx, sy, Hx, Hy, 30, 28, 1)
+            const ex = P.x
+            const ey = P.y
+            if (held) forgeHammer(s, Hx, Hy, hang)
+            arm('mbarm', sx, sy, ex, ey, Hx, Hy, true)
+            // a gold armlet round the bicep, a band at the wrist
+            band(sx + (ex - sx) * 0.6, sy + (ey - sy) * 0.6, ex - sx, ey - sy, 9)
+            band(ex + (Hx - ex) * 0.75, ey + (Hy - ey) * 0.75, Hx - ex, Hy - ey, 7)
+            grip('mbfist', Hx, Hy, hang, true)
         }
 
         B.ent = Math.min(1, B.ent)
@@ -1506,10 +1718,10 @@ export const FORGE_MASTER: CreatureDef = {
     },
     fx(dst, st, t, x, y, dir) {
         const tt = q(t)
-        // embers always drifting up off him
-        for (let i = 0; i < 10; i++) {
-            const u = (tt * 0.5 + hash2(i, 3)) % 1
-            dst.set(R(x + dir * ((hash2(i, 5) - 0.5) * 70) + Math.sin(u * 8 + i) * 3), R(y - 30 - u * 140), u < 0.6 ? C.orange : C.lava1)
+        // sparks always drifting up off the hot blade
+        for (let i = 0; i < 6; i++) {
+            const u = (tt * 0.6 + hash2(i, 3)) % 1
+            dst.set(R(x + dir * (44 + (hash2(i, 5) - 0.5) * 20) + Math.sin(u * 8 + i) * 3), R(y - 90 - u * 60), u < 0.6 ? C.orange : C.lava1)
         }
         // stepping out of the forge-fire: flames rising round him, then gone
         if (st === 'entry') {
@@ -1525,15 +1737,34 @@ export const FORGE_MASTER: CreatureDef = {
                 }
             }
         }
-        // the hammer comes down: a burst of fire and sparks where it lands
-        if (st === 'attack' && B.strike) {
-            const gx = x + dir * 104
-            for (let i = 0; i < 22; i++) {
-                const a = i / 22 * Math.PI
-                const r = 8 + (i % 4) * 6
-                dst.set(R(gx + Math.cos(a) * r), R(y - 2 - Math.sin(a) * r * 0.8), i % 3 === 0 ? C.gold3 : i & 1 ? C.orange : C.lava1)
+        // the slash: the arc of fire the blade swings through round his front shoulder, from over
+        // his head down past the anvil; whole on the strike, burning away after
+        if (st === 'attack' && (B.strike || B.rec > 0.5)) {
+            const polar = (p: Pose3): [number, number] => {
+                const bx = p[0] + Math.cos(p[2]) * BLADE_LEN - FRONT_SHOULDER_FM[0]
+                const by = p[1] + Math.sin(p[2]) * BLADE_LEN - FRONT_SHOULDER_FM[1]
+                return [Math.hypot(bx, by), Math.atan2(by, bx)]
             }
-            for (let i = 0; i < 40; i++) dst.set(R(gx + (i - 20) * 3), y - (i & 1), i % 4 ? C.orange : C.gold3)
+            const [r0, a0] = polar(BLADE_WIND)
+            const [r1, a1] = polar(BLADE_STRIKE)
+            const left = B.strike ? 1 : (B.rec - 0.5) / 0.5
+            const n = R(Math.abs(a1 - a0) * Math.max(r0, r1) * 1.2)
+            for (let i = 0; i <= n; i++) {
+                const u = i / n
+                if (u < 1 - left) continue
+                const a = a0 + (a1 - a0) * u
+                const r = r0 + (r1 - r0) * u
+                const cx = FRONT_SHOULDER_FM[0] + Math.cos(a) * r
+                const cy = FRONT_SHOULDER_FM[1] + Math.sin(a) * r
+                const w = 1 + R(6 * u)
+                for (let k = 0; k < w; k++) {
+                    const sx = R(x + dir * (-10 + cx - Math.cos(a) * k))
+                    const sy = R(y + cy - Math.sin(a) * k)
+                    if (u < 0.5 && !bayer(sx, sy, R(16 * u * 2))) continue
+                    dst.set(sx, sy, k === 0 ? (u > 0.8 ? C.white : C.gold3) : u > 0.7 ? C.gold3 : u > 0.4 ? C.orange : C.lava1)
+                }
+            }
+            if (B.strike) for (let i = 0; i < 12; i++) dst.set(R(x + dir * (90 + (i * 5) % 18)), R(y - 40 - (i * 7) % 16), i % 3 ? C.gold3 : C.white)
         }
     }
 }
