@@ -56,8 +56,8 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'summons', label: 'Summons', locked: true },
     { id: 'enemies', label: 'Enemies', locked: true },
     { id: 'bosses', label: 'Bosses', locked: true },
-    { id: 'raids', label: 'Raids & Arena' },
-    // split out of Raids & Arena to lock on their own, ahead of the other raids
+    // once Raids & Arena; every raid split out to lock on its own, leaving the arena dummy (locked 2026-09-29, the user)
+    { id: 'raids', label: 'Arena', locked: true },
     { id: 'guild_raid', label: 'Guild Raid', locked: true },
     { id: 'dig_site_raid', label: 'Dig-site Raid', locked: true },
     // unlocked 2026-09-29 for its specials, and locked again with them (the user)
