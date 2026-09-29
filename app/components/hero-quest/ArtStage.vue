@@ -67,6 +67,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stop?.()
+  // the dev tools hold on to an unmounted stage; without its frames it costs next to nothing
+  demo.dispose()
   observer?.disconnect()
   document.removeEventListener('fullscreenchange', onFullscreenChange)
 })

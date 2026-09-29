@@ -362,7 +362,7 @@ function frameIndex(b: Baked, t: number): number {
  * drops by more than a sixth from one frame to the next. The stage shatters the body there
  * instead of letting it fade. Worked out once per strip.
  */
-const FADE_START = new Map<Baked, number>()
+const FADE_START = new WeakMap<Baked, number>()
 function fadeStart(b: Baked): number {
     let f = FADE_START.get(b)
     if (f !== undefined) return f
@@ -646,6 +646,21 @@ export class BattleDemo {
     private finishBaking(k: number): void {
         for (const j of this.jobs) if (j.table === k) while (!bakeStep(j));
         this.jobs = this.jobs.filter(j => j.table !== k)
+    }
+
+    /**
+     * Let go of every baked frame and anything still baking. The stage calls it when it unmounts:
+     * the dev tools keep an unmounted component alive, and with it everything it baked.
+     */
+    dispose(): void {
+        this.jobs.length = 0
+        this.raid = null
+        this.units = []
+        this.bossFrames = []
+        this.trash = []
+        this.rigFrames = []
+        for (const p of this.projs) { p.live = false; p.from = null; p.to = null }
+        this.scene = null
     }
 
     /**
