@@ -266,6 +266,8 @@ function material(id: MatId, tier: number) {
             map: textureFor(spec.map)
         }))
     }
+    // Named so callers can recognise the hand materials (glove / sleeve / strap).
+    mat.name = id
     mat.envMap = envTexture
     matCache.set(key, mat)
     return mat
@@ -634,14 +636,16 @@ interface Rig {
     /** Reload arrives in this many blocks (shotgun shells). */
     shells?: number
     muzzleFlashScale?: number
-    fx: { lastKick: number, shotTime: number, shots: number, spin: number, lastTime: number, cyl: number }
+    /** The left hand stays put during reload (the magazine is not what it holds). */
+    noHandFollow?: boolean
+    fx: { lastKick: number, shotTime: number, shots: number, spin: number, lastTime: number, cyl: number, spd: number }
 }
 
 function newRig(kind: string, muzzle: Vec3): Rig {
     return {
         kind,
         muzzle: new THREE.Vector3(muzzle[0], muzzle[1], muzzle[2]),
-        fx: { lastKick: 0, shotTime: -9, shots: 0, spin: 0, lastTime: 0, cyl: 0 }
+        fx: { lastKick: 0, shotTime: -9, shots: 0, spin: 0, lastTime: 0, cyl: 0, spd: 0 }
     }
 }
 
@@ -689,7 +693,7 @@ function pistolGrip(A: Asm, frame: THREE.Material, panel: THREE.Material, w: num
 }
 
 /** A belt of brass rounds lying across a bezier path (M60 / MAG feed). */
-function belt(A: Asm, c: C, p0: Vec3, p1: Vec3, p2: Vec3, count: number) {
+function belt(A: Asm, c: C, p0: Vec3, p1: Vec3, p2: Vec3, count: number, flip = false) {
     for (let i = 0; i < count; i++) {
         const t = i / (count - 1)
         const a = 1 - t
@@ -697,8 +701,10 @@ function belt(A: Asm, c: C, p0: Vec3, p1: Vec3, p2: Vec3, count: number) {
         const y = a * a * p0[1] + 2 * a * t * p1[1] + t * t * p2[1]
         const z = a * a * p0[2] + 2 * a * t * p1[2] + t * t * p2[2]
         A.cyl(c('brass'), 0.0085, 0.05, x, y, z, 'x', 6)
-        A.cone(c('copper'), 0.0085, 0.02, x - 0.033, y, z, 'x', 6)
-        A.box(c('dark'), 0.018, 0.005, 0.012, x + 0.0, y + 0.0, z, 0, undefined)
+        // Bullet noses point along +x when flipped (belt entering from the left).
+        if (flip) A.cyl(c('copper'), 0.0085, 0.02, x + 0.033, y, z, 'x', 6, 0.0005)
+        else A.cone(c('copper'), 0.0085, 0.02, x - 0.033, y, z, 'x', 6)
+        A.box(c('dark'), 0.018, 0.005, 0.012, x, y, z, 0)
     }
 }
 
@@ -785,7 +791,7 @@ function buildM1911(A: Asm, c: C, tier: number): Rig {
 
 function buildMagnum(A: Asm, c: C, tier: number): Rig {
     const rig = newRig('revolver', [0, 0.06, -0.37])
-    rig.handMag = V(-0.02, 0.0, -0.02)
+    rig.handMag = V(-0.08, 0.12, -0.08)
     const accent = papAccent(tier)
 
     // Frame with a hammer shroud, top strap and rear sight.
@@ -1171,6 +1177,7 @@ function buildBar(A: Asm, c: C, tier: number): Rig {
 function buildMosin(A: Asm, c: C, tier: number): Rig {
     const rig = newRig('mosin', [0, 0.044, -0.74])
     rig.travel = 0.09
+    rig.shells = 4
     rig.handMag = V(0, 0.06, 0.28)
     const accent = papAccent(tier)
 
@@ -1211,4 +1218,542 @@ function buildMosin(A: Asm, c: C, tier: number): Rig {
     rig.rightHand = addHand(A, tier, { x: 0, y: -0.01, z: 0.1, mode: 'y', s: 1, rx: 0.024, rz: 0.03, point: true, arm: [0.08, -0.42, 0.85] })?.group
     rig.leftHand = addHand(A, tier, { x: 0, y: 0.0, z: -0.3, mode: 'z', s: 1, rx: 0.026, rz: 0.024, arm: [-0.55, -0.35, 0.75], thumbAlong: 'y' })?.group
     return rig
+}
+
+// ---------------------------------------------------------------------------
+// Machine guns
+// ---------------------------------------------------------------------------
+
+function buildM60(A: Asm, c: C, tier: number): Rig {
+    const rig = newRig('lmg', [0, 0.03, -0.94])
+    rig.magAxis = V(0, -1, 0)
+    rig.magDrop = 0.2
+    rig.handMag = V(0, -0.08, 0.32)
+    const accent = papAccent(tier)
+
+    // Receiver, ejection port and rear leaf sight.
+    A.box(c('steel'), 0.07, 0.092, 0.36, 0, 0.02, -0.14, 0.008)
+    A.box(c('dark'), 0.004, 0.03, 0.09, 0.036, 0.036, -0.1, 0.001)
+    A.box(c('dark'), 0.05, 0.008, 0.16, 0, 0.069, -0.17, 0.002)
+    for (let i = 0; i < 3; i++) A.box(c('dark'), 0.072, 0.006, 0.014, 0, -0.012, -0.1 - i * 0.07, 0)
+    A.box(c('dark'), 0.02, 0.016, 0.03, 0, 0.076, -0.01, 0.002)
+    A.box(c('steelLt'), 0.008, 0.03, 0.008, 0, 0.096, -0.014, 0.001, [-0.3, 0, 0])
+
+    // Feed cover hinges at the back and lifts at the front on reload.
+    const cover = A.sub(0, 0.068, -0.06)
+    rig.cover = cover.group
+    cover.box(c('steelLt'), 0.068, 0.026, 0.2, 0, 0.08, -0.17, 0.006)
+    for (let i = 0; i < 3; i++) cover.box(c('dark'), 0.07, 0.004, 0.012, 0, 0.094, -0.11 - i * 0.05, 0)
+    cover.box(c('dark'), 0.02, 0.02, 0.012, 0, 0.078, -0.275, 0.002)
+
+    // Barrel, jacket, gas cylinder, carry handle and flash hider.
+    A.cyl(c('dark'), 0.0165, 0.62, 0, 0.03, -0.62, 'z', 12)
+    A.cyl(c('steel'), 0.026, 0.14, 0, 0.03, -0.39, 'z', 12)
+    for (const z of [-0.5, -0.53]) A.cyl(c('steel'), 0.021, 0.008, 0, 0.03, z, 'z', 12)
+    A.cyl(c('steel'), 0.0125, 0.3, 0, -0.002, -0.47, 'z', 8)
+    A.box(c('poly'), 0.05, 0.04, 0.14, 0, -0.014, -0.52, 0.006)
+    for (const z of [-0.36, -0.54]) A.box(c('steelLt'), 0.012, 0.04, 0.012, 0, 0.076, z, 0.001)
+    A.box(c('steelLt'), 0.016, 0.012, 0.2, 0, 0.1, -0.45, 0.004)
+    A.box(c('dark'), 0.018, 0.012, 0.03, 0, 0.052, -0.78, 0.001)
+    A.box(c('dark'), 0.006, 0.026, 0.008, 0, 0.07, -0.78, 0.001)
+    for (const sx of [-1, 1]) A.box(c('dark'), 0.005, 0.02, 0.012, sx * 0.011, 0.062, -0.78, 0.001)
+    A.cyl(c('steel'), 0.02, 0.07, 0, 0.03, -0.895, 'z', 10)
+    for (let i = 0; i < 2; i++) {
+        A.box(c('dark'), 0.043, 0.005, 0.018, 0, 0.03, -0.875 - i * 0.026, 0)
+        A.box(c('dark'), 0.005, 0.043, 0.018, 0, 0.03, -0.875 - i * 0.026, 0)
+    }
+    A.cyl(c('dark'), 0.011, 0.008, 0, 0.03, -0.932, 'z', 8)
+    // Folded bipod.
+    A.box(c('steel'), 0.07, 0.02, 0.03, 0, -0.024, -0.6, 0.003)
+    for (const sx of [-1, 1]) {
+        A.cyl(c('dark'), 0.0055, 0.25, sx * 0.03, -0.034, -0.725, 'z', 5)
+        A.box(c('rubber'), 0.012, 0.012, 0.03, sx * 0.03, -0.034, -0.85, 0.002)
+    }
+
+    // Poly stock, pistol grip and guard.
+    A.extrude(c('poly'), [[0.02, 0.058], [0.14, 0.056], [0.3, 0.04], [0.32, -0.105], [0.28, -0.108], [0.15, -0.05], [0.02, -0.038]], 0.048)
+    A.box(c('rubber'), 0.05, 0.15, 0.012, 0, -0.033, 0.322, 0.003, [0.1, 0, 0])
+    pistolGrip(A, c('poly'), c('poly'), 0.042, 0.1, 0.05, 0, -0.08, 0.04, -0.3, 0)
+    A.box(c('steel'), 0.011, 0.007, 0.09, 0, -0.03, -0.02, 0.002)
+    A.box(c('steel'), 0.011, 0.03, 0.008, 0, -0.015, -0.065, 0.002)
+    const trigger = A.sub(0, -0.005, -0.015)
+    rig.trigger = trigger.group
+    trigger.box(c('nickel'), 0.008, 0.022, 0.008, 0, -0.012, -0.02, 0.002, [0.15, 0, 0])
+
+    // Ammo box on the left with the belt running up into the feed tray.
+    const mag = A.sub(0, -0.06, -0.19)
+    rig.mag = mag.group
+    mag.box(c('oliveDk'), 0.075, 0.115, 0.14, -0.015, -0.09, -0.19, 0.008)
+    mag.box(c('olive'), 0.078, 0.012, 0.145, -0.015, -0.035, -0.19, 0.004)
+    mag.box(c('dark'), 0.02, 0.012, 0.06, -0.015, -0.028, -0.19, 0.003)
+    mag.box(c('brass'), 0.077, 0.006, 0.02, -0.015, -0.1, -0.19, 0)
+    for (const sz of [-0.15, -0.23]) mag.box(c('steel'), 0.078, 0.02, 0.012, -0.015, -0.055, sz, 0.002)
+    belt(mag, c, [-0.045, -0.03, -0.2], [-0.06, 0.0, -0.17], [-0.02, 0.048, -0.17], 5, true)
+    if (tier > 0) {
+        A.box(glow(accent, 2), 0.003, 0.004, 0.16, 0.0365, 0.04, -0.15, 0)
+        A.cyl(glow(accent, 2), 0.0175, 0.006, 0, 0.03, -0.44, 'z', 12)
+    }
+
+    rig.rightHand = addHand(A, tier, { x: 0, y: -0.08, z: 0.04, mode: 'y', s: 1, rx: 0.027, rz: 0.03, point: true, arm: [0.08, -0.42, 0.85] })?.group
+    rig.leftHand = addHand(A, tier, { x: 0, y: -0.014, z: -0.52, mode: 'z', s: 1, rx: 0.029, rz: 0.026, arm: [-0.55, -0.35, 0.75], thumbAlong: 'y' })?.group
+    return rig
+}
+
+function buildFnMag(A: Asm, c: C, tier: number): Rig {
+    const rig = newRig('lmg', [0, 0.03, -0.99])
+    rig.magAxis = V(0, -1, 0)
+    rig.magDrop = 0.2
+    rig.handMag = V(0, -0.08, 0.34)
+    const accent = papAccent(tier)
+
+    // Long receiver with a railed, hinged cover.
+    A.box(c('steelLt'), 0.066, 0.09, 0.4, 0, 0.02, -0.16, 0.008)
+    A.box(c('dark'), 0.004, 0.03, 0.1, 0.034, 0.036, -0.12, 0.001)
+    A.box(c('dark'), 0.05, 0.008, 0.16, 0, 0.066, -0.18, 0.002)
+    A.box(c('dark'), 0.02, 0.016, 0.03, 0, 0.074, -0.01, 0.002)
+    A.box(c('steelLt'), 0.008, 0.028, 0.008, 0, 0.092, -0.014, 0.001, [-0.3, 0, 0])
+    const cover = A.sub(0, 0.066, -0.06)
+    rig.cover = cover.group
+    cover.box(c('steel'), 0.062, 0.024, 0.24, 0, 0.078, -0.19, 0.006)
+    cover.box(c('dark'), 0.02, 0.006, 0.24, 0, 0.093, -0.19, 0.001)
+    for (let i = 0; i < 8; i++) cover.box(c('dark'), 0.026, 0.005, 0.008, 0, 0.094, -0.09 - i * 0.03, 0)
+
+    // Vented gas jacket, regulator, folded carry handle, barrel and flash hider.
+    A.cyl(c('steel'), 0.025, 0.34, 0, 0.03, -0.5, 'z', 12)
+    for (let i = 0; i < 7; i++) {
+        const z = -0.36 - i * 0.04
+        A.box(c('dark'), 0.012, 0.004, 0.014, 0, 0.0555, z, 0)
+        for (const sx of [-1, 1]) A.box(c('dark'), 0.004, 0.012, 0.014, sx * 0.0255, 0.03, z, 0)
+    }
+    A.box(c('steel'), 0.03, 0.03, 0.05, 0, 0.0, -0.66, 0.004)
+    A.cyl(c('dark'), 0.0135, 0.62, 0, 0.03, -0.64, 'z', 12)
+    for (const z of [-0.4, -0.56]) A.box(c('dark'), 0.01, 0.03, 0.01, 0, 0.072, z, 0.001)
+    A.box(c('dark'), 0.014, 0.012, 0.18, 0, 0.088, -0.48, 0.004)
+    A.box(c('dark'), 0.018, 0.012, 0.03, 0, 0.05, -0.83, 0.001)
+    A.box(c('dark'), 0.006, 0.026, 0.008, 0, 0.068, -0.83, 0.001)
+    A.cyl(c('dark'), 0.019, 0.05, 0, 0.03, -0.965, 'z', 10)
+    for (const sx of [-1, 1]) A.box(c('steel'), 0.004, 0.04, 0.05, sx * 0.02, 0.03, -0.965, 0)
+    A.box(c('steel'), 0.04, 0.004, 0.05, 0, 0.05, -0.965, 0)
+    A.cyl(c('dark'), 0.01, 0.008, 0, 0.03, -0.99, 'z', 8)
+    // Folded bipod under the jacket.
+    A.box(c('steel'), 0.07, 0.02, 0.03, 0, -0.026, -0.62, 0.003)
+    for (const sx of [-1, 1]) {
+        A.cyl(c('dark'), 0.005, 0.25, sx * 0.03, -0.036, -0.74, 'z', 5)
+        A.box(c('rubber'), 0.012, 0.012, 0.03, sx * 0.03, -0.036, -0.865, 0.002)
+    }
+
+    // Olive polymer stock with a cheek rise, grip and guard.
+    A.extrude(c('olive'), [[0.02, 0.058], [0.14, 0.056], [0.3, 0.048], [0.335, 0.04], [0.335, -0.11], [0.29, -0.112], [0.24, -0.06], [0.12, -0.045], [0.02, -0.038]], 0.05)
+    A.box(c('rubber'), 0.052, 0.15, 0.012, 0, -0.035, 0.34, 0.003, [0.05, 0, 0])
+    pistolGrip(A, c('olive'), c('olive'), 0.042, 0.1, 0.05, 0, -0.08, 0.04, -0.3, 0)
+    A.box(c('steel'), 0.011, 0.007, 0.09, 0, -0.03, -0.02, 0.002)
+    A.box(c('steel'), 0.011, 0.03, 0.008, 0, -0.015, -0.065, 0.002)
+    const trigger = A.sub(0, -0.005, -0.015)
+    rig.trigger = trigger.group
+    trigger.box(c('nickel'), 0.008, 0.022, 0.008, 0, -0.012, -0.02, 0.002, [0.15, 0, 0])
+
+    // Black ammo box, belt entering from the left.
+    const mag = A.sub(0, -0.06, -0.17)
+    rig.mag = mag.group
+    mag.box(c('poly'), 0.08, 0.11, 0.12, -0.02, -0.088, -0.17, 0.008)
+    mag.box(c('steelLt'), 0.083, 0.012, 0.125, -0.02, -0.036, -0.17, 0.004)
+    mag.box(c('steel'), 0.02, 0.012, 0.05, -0.02, -0.028, -0.17, 0.003)
+    for (const sz of [-0.13, -0.21]) mag.box(c('steel'), 0.083, 0.02, 0.012, -0.02, -0.06, sz, 0.002)
+    belt(mag, c, [-0.05, -0.03, -0.18], [-0.065, 0.0, -0.15], [-0.02, 0.046, -0.15], 5, true)
+    if (tier > 0) {
+        A.box(glow(accent, 2), 0.003, 0.004, 0.2, 0.0345, 0.04, -0.15, 0)
+        A.cyl(glow(accent, 2), 0.0265, 0.006, 0, 0.03, -0.36, 'z', 12)
+    }
+
+    rig.rightHand = addHand(A, tier, { x: 0, y: -0.08, z: 0.04, mode: 'y', s: 1, rx: 0.027, rz: 0.03, point: true, arm: [0.08, -0.42, 0.85] })?.group
+    rig.leftHand = addHand(A, tier, { x: 0, y: 0.03, z: -0.5, mode: 'z', s: 1, rx: 0.029, rz: 0.03, arm: [-0.55, -0.35, 0.75], thumbAlong: 'y' })?.group
+    return rig
+}
+
+// ---------------------------------------------------------------------------
+// Bazooka, wonder weapon, Death Machine
+// ---------------------------------------------------------------------------
+
+function buildBazooka(A: Asm, c: C, tier: number): Rig {
+    const y = 0.03
+    const rig = newRig('rocket', [0, y, -0.99])
+    rig.magAxis = V(0, 0, 1)
+    rig.magDrop = 0.16
+    rig.handMag = V(0, 0.03, 0.42)
+    rig.noHandFollow = true
+    const accent = papAccent(tier)
+
+    // Launch tube, flared muzzle lip, exhaust cone and reinforcing bands.
+    A.cyl(c('olive'), 0.062, 1.0, 0, y, -0.3, 'z', 18)
+    A.cyl(c('oliveDk'), 0.078, 0.07, 0, y, -0.8, 'z', 18, 0.063)
+    A.torus(c('steel'), 0.077, 0.006, 0, y, -0.835, 'z', 18)
+    A.cyl(c('oliveDk'), 0.063, 0.09, 0, y, 0.245, 'z', 18, 0.09)
+    A.cyl(c('dark'), 0.085, 0.004, 0, y, 0.288, 'z', 18)
+    A.torus(c('steel'), 0.09, 0.006, 0, y, 0.29, 'z', 18)
+    for (const z of [-0.68, -0.34, -0.06, 0.14]) A.cyl(c('steel'), 0.0665, 0.014, 0, y, z, 'z', 18)
+    if (tier > 0) A.cyl(glow(accent, 2), 0.0655, 0.02, 0, y, -0.5, 'z', 18)
+    else A.cyl(c('brass'), 0.0645, 0.03, 0, y, -0.5, 'z', 18)
+    for (let i = 0; i < 4; i++) A.box(c('dark'), 0.05, 0.004, 0.03, 0, y + 0.0632, -0.2 + i * 0.05, 0)
+
+    // Ladder sight, ring front sight and the firing battery box on the right.
+    A.box(c('dark'), 0.02, 0.008, 0.14, 0, 0.096, -0.25, 0.002)
+    for (const sx of [-1, 1]) A.box(c('dark'), 0.006, 0.05, 0.008, sx * 0.018, 0.12, -0.08, 0.001)
+    A.box(c('dark'), 0.042, 0.008, 0.01, 0, 0.145, -0.08, 0.001)
+    A.torus(c('dark'), 0.011, 0.003, 0, 0.128, -0.08, 'z', 10)
+    A.box(c('dark'), 0.006, 0.05, 0.006, 0, 0.12, -0.7, 0.001)
+    A.torus(c('dark'), 0.02, 0.003, 0, 0.16, -0.7, 'z', 12)
+    A.box(c('dark'), 0.034, 0.05, 0.14, 0.07, 0.03, -0.14, 0.006)
+    A.cyl(c('brass'), 0.006, 0.02, 0.07, 0.03, -0.225, 'z', 6)
+    A.cyl(c('rubber'), 0.004, 0.16, 0.065, 0.02, -0.05, 'z', 5)
+
+    // Twin grips, mounts and the wooden shoulder stock.
+    A.box(c('steel'), 0.05, 0.03, 0.11, 0, -0.045, 0.0, 0.006)
+    pistolGrip(A, c('poly'), c('poly'), 0.042, 0.095, 0.05, 0, -0.09, 0.02, -0.25, 0)
+    A.box(c('steel'), 0.011, 0.007, 0.07, 0, -0.058, -0.04, 0.002)
+    A.box(c('steel'), 0.011, 0.024, 0.008, 0, -0.048, -0.075, 0.002)
+    const trigger = A.sub(0, -0.05, -0.02)
+    rig.trigger = trigger.group
+    trigger.box(c('nickel'), 0.008, 0.022, 0.008, 0, -0.06, -0.025, 0.002, [0.15, 0, 0])
+    A.box(c('steel'), 0.05, 0.028, 0.08, 0, -0.045, -0.22, 0.005)
+    A.box(c('poly'), 0.04, 0.09, 0.045, 0, -0.09, -0.22, 0.006)
+    A.extrude(c('wood'), [[0.06, -0.034], [0.18, -0.038], [0.3, -0.06], [0.32, -0.15], [0.27, -0.15], [0.06, -0.08]], 0.05)
+    A.box(c('rubber'), 0.052, 0.1, 0.012, 0, -0.1, 0.318, 0.003, [0.1, 0, 0])
+
+    // The rocket: its nose sits in the muzzle and slides back on reload.
+    const rocket = A.sub(0, y, -0.86)
+    rig.mag = rocket.group
+    rocket.cone(c('copper'), 0.05, 0.16, 0, y, -0.9, 'z', 14)
+    rocket.cyl(c('oliveDk'), 0.05, 0.04, 0, y, -0.82, 'z', 14)
+    rocket.cyl(tier > 0 ? glow(accent, 2) : c('brass'), 0.0505, 0.01, 0, y, -0.845, 'z', 14)
+
+    rig.rightHand = addHand(A, tier, { x: 0, y: -0.09, z: 0.02, mode: 'y', s: 1, rx: 0.026, rz: 0.03, point: true, arm: [0.08, -0.42, 0.85] })?.group
+    rig.leftHand = addHand(A, tier, { x: 0, y: -0.09, z: -0.22, mode: 'y', s: -1, rx: 0.024, rz: 0.026, thumbX: -1, arm: [-0.55, -0.35, 0.75], fingers: 3 })?.group
+    return rig
+}
+
+function buildXenoRay(A: Asm, c: C, tier: number): Rig {
+    const rig = newRig('wonder', [0, 0.05, -0.64])
+    const dir = V(-1, -0.3, 0).normalize()
+    rig.magAxis = dir
+    rig.magDrop = 0.14
+    rig.handMag = V(-0.06, 0.02, 0.1)
+    const color = tier > 0 ? papAccent(tier) : 0x44ffcc
+    const hot = glow(color, 2.4)
+    const dim = glow(color, 1.3)
+
+    // Organic body with a chitin underside and ribbed spine.
+    A.box(c('alien'), 0.088, 0.1, 0.3, 0, 0.02, -0.08, 0.012)
+    A.box(c('chitin'), 0.09, 0.05, 0.16, 0, -0.005, -0.2, 0.008)
+    for (let i = 0; i < 5; i++) A.box(c('chitin'), 0.094, 0.018, 0.014, 0, 0.05, 0.03 - i * 0.05, 0.004)
+    for (let i = 0; i < 3; i++) A.box(c('alien'), 0.006, 0.05 - i * 0.008, 0.06, 0, 0.09, -0.02 - i * 0.07, 0.002)
+    A.box(dim, 0.004, 0.004, 0.2, 0.0445, 0.03, -0.06, 0)
+    A.box(dim, 0.004, 0.004, 0.2, -0.0445, 0.03, -0.06, 0)
+
+    // Barrel core wrapped in glowing coils with linking rods.
+    A.cyl(c('chitin'), 0.03, 0.44, 0, 0.05, -0.36, 'z', 12)
+    for (let i = 0; i < 5; i++) A.torus(hot, 0.043, 0.007, 0, 0.05, -0.22 - i * 0.075, 'z', 14)
+    for (let k = 0; k < 4; k++) {
+        const a = k * Math.PI / 2 + Math.PI / 4
+        A.cyl(dim, 0.0045, 0.36, Math.sin(a) * 0.043, 0.05 + Math.cos(a) * 0.043, -0.36, 'z', 5)
+    }
+    // Flared emitter dish with a glowing throat.
+    A.cyl(c('alien'), 0.07, 0.09, 0, 0.05, -0.585, 'z', 14, 0.032)
+    A.cyl(hot, 0.055, 0.006, 0, 0.05, -0.628, 'z', 14)
+    A.sphere(hot, 0.026, 0, 0.05, -0.6, 8)
+    for (let k = 0; k < 3; k++) {
+        const a = k * Math.PI * 2 / 3 + Math.PI / 2
+        A.box(c('chitin'), 0.008, 0.008, 0.05, Math.sin(a) * 0.072, 0.05 + Math.cos(a) * 0.072, -0.62, 0.002)
+    }
+
+    // A ring of energy blades that spins round the barrel.
+    const spin = A.sub(0, 0.05, -0.36)
+    rig.spin = spin.group
+    for (let k = 0; k < 4; k++) {
+        const a = k * Math.PI / 2
+        spin.box(hot, 0.006, 0.014, 0.05, Math.sin(a) * 0.052, 0.05 + Math.cos(a) * 0.052, -0.36, 0.001, [0, 0, -a])
+    }
+
+    // Side-mounted energy cell.
+    const cell = A.sub(-0.06, 0.03, -0.1)
+    rig.mag = cell.group
+    cell.cyl(dim, 0.022, 0.13, -0.06, 0.03, -0.1, 'z', 10)
+    for (const sz of [-0.035, -0.165]) cell.cyl(c('chitin'), 0.025, 0.02, -0.06, 0.03, sz, 'z', 10)
+    A.box(c('alien'), 0.03, 0.055, 0.11, -0.046, 0.03, -0.1, 0.004)
+
+    // Stock, grip, guard and trigger.
+    A.extrude(c('alien'), [[0.06, 0.055], [0.16, 0.05], [0.26, 0.03], [0.275, -0.09], [0.225, -0.092], [0.12, -0.045], [0.06, -0.04]], 0.044)
+    A.box(dim, 0.004, 0.004, 0.14, 0.0235, 0.03, 0.16, 0)
+    A.box(dim, 0.004, 0.004, 0.14, -0.0235, 0.03, 0.16, 0)
+    pistolGrip(A, c('chitin'), c('rubber'), 0.042, 0.1, 0.05, 0, -0.075, 0.04, -0.3, 0.004)
+    A.box(c('chitin'), 0.011, 0.007, 0.08, 0, -0.03, -0.01, 0.002)
+    A.box(c('chitin'), 0.011, 0.028, 0.008, 0, -0.016, -0.05, 0.002)
+    const trigger = A.sub(0, -0.005, -0.015)
+    rig.trigger = trigger.group
+    trigger.box(hot, 0.008, 0.02, 0.008, 0, -0.012, -0.02, 0.002, [0.15, 0, 0])
+
+    rig.rightHand = addHand(A, tier, { x: 0, y: -0.075, z: 0.04, mode: 'y', s: 1, rx: 0.026, rz: 0.03, point: true, arm: [0.08, -0.42, 0.85] })?.group
+    rig.leftHand = addHand(A, tier, { x: 0, y: -0.005, z: -0.2, mode: 'z', s: 1, rx: 0.045, rz: 0.028, arm: [-0.55, -0.35, 0.75], thumbAlong: 'y' })?.group
+    return rig
+}
+
+function buildDeathMachine(A: Asm, c: C, tier: number): Rig {
+    const rig = newRig('minigun', [0, 0.03, -0.76])
+    const hotColor = tier > 0 ? papAccent(tier) : 0xff7a20
+    const hot = glow(hotColor, 1.8)
+
+    // Motor housing, rear cap and gear nose.
+    A.cyl(c('steelLt'), 0.058, 0.22, 0, 0.03, -0.1, 'z', 16)
+    A.cyl(c('dark'), 0.062, 0.03, 0, 0.03, 0.02, 'z', 16)
+    for (let i = 0; i < 4; i++) A.cyl(c('steel'), 0.0605, 0.008, 0, 0.03, -0.03 - i * 0.05, 'z', 16)
+    A.cyl(c('steel'), 0.045, 0.05, 0, 0.03, -0.235, 'z', 14)
+    A.box(hot, 0.008, 0.008, 0.03, 0, 0.092, -0.05, 0.002)
+    // Carry handle.
+    A.box(c('dark'), 0.02, 0.012, 0.18, 0, 0.112, -0.1, 0.004)
+    for (const z of [-0.17, -0.03]) A.box(c('dark'), 0.014, 0.04, 0.014, 0, 0.09, z, 0.002)
+
+    // The six-barrel cluster spins as one.
+    const spin = A.sub(0, 0.03, -0.24)
+    rig.spin = spin.group
+    for (let k = 0; k < 6; k++) {
+        const a = k * Math.PI / 3
+        const bx = Math.sin(a) * 0.03
+        const by = 0.03 + Math.cos(a) * 0.03
+        spin.cyl(c('dark'), 0.011, 0.46, bx, by, -0.5, 'z', 8)
+        spin.cyl(c('steel'), 0.0135, 0.02, bx, by, -0.745, 'z', 8)
+    }
+    spin.cyl(c('steel'), 0.045, 0.012, 0, 0.03, -0.4, 'z', 14)
+    spin.cyl(c('steel'), 0.045, 0.012, 0, 0.03, -0.66, 'z', 14)
+    spin.cyl(hot, 0.0455, 0.004, 0, 0.03, -0.668, 'z', 14)
+    spin.cyl(c('dark'), 0.03, 0.05, 0, 0.03, -0.3, 'z', 10)
+
+    // Feed chute, belt and the ammo box on the left.
+    A.box(c('steel'), 0.05, 0.05, 0.08, -0.07, 0.0, -0.08, 0.006)
+    const mag = A.sub(-0.1, -0.05, -0.1)
+    rig.mag = mag.group
+    mag.box(c('oliveDk'), 0.1, 0.13, 0.13, -0.1, -0.11, -0.1, 0.008)
+    mag.box(c('olive'), 0.103, 0.012, 0.135, -0.1, -0.05, -0.1, 0.004)
+    mag.box(c('brass'), 0.102, 0.006, 0.02, -0.1, -0.11, -0.1, 0)
+    belt(mag, c, [-0.08, -0.05, -0.1], [-0.1, -0.02, -0.09], [-0.075, -0.005, -0.08], 4, true)
+
+    // Two vertical spade grips off a cross-bar; trigger on the right.
+    A.box(c('steel'), 0.15, 0.03, 0.05, 0, -0.015, 0.03, 0.006)
+    for (const sx of [-1, 1]) pistolGrip(A, c('poly'), c('poly'), 0.036, 0.1, 0.046, sx * 0.062, -0.06, 0.04, -0.15, 0)
+    const trigger = A.sub(0.062, -0.02, -0.005)
+    rig.trigger = trigger.group
+    trigger.box(c('nickel'), 0.008, 0.024, 0.008, 0.062, -0.03, -0.005, 0.002, [0.15, 0, 0])
+
+    rig.rightHand = addHand(A, tier, { x: 0.062, y: -0.06, z: 0.04, mode: 'y', s: 1, rx: 0.018, rz: 0.023, point: true, arm: [0.1, -0.42, 0.85] })?.group
+    rig.leftHand = addHand(A, tier, { x: -0.062, y: -0.06, z: 0.04, mode: 'y', s: -1, rx: 0.018, rz: 0.023, thumbX: 1, arm: [-0.1, -0.42, 0.85] })?.group
+    return rig
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export type WeaponModelId = CallOfXenoWeaponId | 'deathmachine'
+
+export interface WeaponModelOptions {
+    /** Gloved hands and sleeves (default true). Pass false for wall-buy / mystery-box previews. */
+    hands?: boolean
+}
+
+const RIG_KEYS = ['slide', 'bolt', 'pump', 'cylinder', 'crane', 'mag', 'trigger', 'hammer', 'cover', 'spin', 'leftHand', 'rightHand'] as const
+
+/**
+ * Builds a weapon viewmodel pointing down -Z with the grip near the origin.
+ * `group.userData.muzzle` is the muzzle position (Vector3, group space); moving
+ * parts are exposed as `userData.slide | bolt | pump | cylinder | crane | mag |
+ * trigger | hammer | cover | spin | leftHand | rightHand` where the gun has them.
+ * Drive them with `animateWeapon`.
+ */
+export function buildWeaponModel(id: WeaponModelId, tier: number, opts: WeaponModelOptions = {}): THREE.Group {
+    const t = Math.max(0, Math.min(3, Math.floor(tier || 0)))
+    withHands = opts.hands !== false
+    const A = new Asm()
+    const c: C = m => material(m, t)
+    let rig: Rig
+    switch (id) {
+        case 'm1911': rig = buildM1911(A, c, t); break
+        case 'skorpion': rig = buildSkorpion(A, c, t); break
+        case 'magnum': rig = buildMagnum(A, c, t); break
+        case 'trench': rig = buildTrench(A, c, t); break
+        case 'mp40': rig = buildMp40(A, c, t); break
+        case 'ak74': rig = buildAk(A, c, t, false); break
+        case 'rpk': rig = buildAk(A, c, t, true); break
+        case 'bar': rig = buildBar(A, c, t); break
+        case 'mosin': rig = buildMosin(A, c, t); break
+        case 'm60': rig = buildM60(A, c, t); break
+        case 'fnmag': rig = buildFnMag(A, c, t); break
+        case 'bazooka': rig = buildBazooka(A, c, t); break
+        case 'xenoray': rig = buildXenoRay(A, c, t); break
+        case 'deathmachine': rig = buildDeathMachine(A, c, t); break
+        default: rig = buildM1911(A, c, t)
+    }
+    withHands = true
+    const group = A.build()
+    group.userData.rig = rig
+    group.userData.kind = rig.kind
+    group.userData.muzzle = rig.muzzle
+    for (const key of RIG_KEYS) {
+        if (rig[key]) group.userData[key] = rig[key]
+    }
+    return group
+}
+
+/** Death Machine drop viewmodel (same conventions as `buildWeaponModel`). */
+export function buildDeathMachineModel(tier = 0, opts: WeaponModelOptions = {}) {
+    return buildWeaponModel('deathmachine', tier, opts)
+}
+
+export interface WeaponAnimState {
+    /** 0..1 recoil impulse (1 on the frame a shot goes off, decaying). */
+    fireKick: number
+    /** Reload progress 0..1, or -1 when not reloading. */
+    reload: number
+    /** Monotonic seconds (used for spin and shot timing). */
+    time: number
+}
+
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v)
+const smoothstep = (t: number) => t * t * (3 - 2 * t)
+const ramp = (t: number, a: number, b: number) => smoothstep(clamp01((t - a) / (b - a)))
+/** Rises 0 to 1 over a..b and falls back to 0 over c..d. */
+const pulse = (t: number, a: number, b: number, c: number, d: number) => ramp(t, a, b) - ramp(t, c, d)
+
+function setPos(obj: THREE.Object3D | undefined, x: number, y: number, z: number) {
+    if (!obj) return
+    const rest = obj.userData.rest as THREE.Vector3
+    obj.position.set(rest.x + x, rest.y + y, rest.z + z)
+}
+
+/**
+ * Moves a model's parts from the current recoil and reload state: slide / bolt
+ * blowback, pump rack, bolt-action cycle, revolver cylinder and crane, magazine
+ * drop-and-insert with the left hand, LMG feed cover, minigun / wonder-weapon
+ * spin. Call once per frame after `buildWeaponModel`.
+ */
+export function animateWeapon(group: THREE.Object3D, state: WeaponAnimState) {
+    const rig = group.userData.rig as Rig | undefined
+    if (!rig) return
+    const fx = rig.fx
+    const time = state.time
+    const dt = Math.min(0.1, Math.max(0, time - fx.lastTime))
+    fx.lastTime = time
+    const kick = clamp01(state.fireKick)
+    if (kick > fx.lastKick + 0.02) {
+        fx.shotTime = time
+        fx.shots++
+        fx.cyl += Math.PI / 3
+    }
+    fx.lastKick = kick
+    const since = time - fx.shotTime
+    const rl = state.reload
+    const reloading = rl >= 0
+    const travel = rig.travel ?? 0
+    const kind = rig.kind
+
+    let boltZ = 0
+    let roll = 0
+    let pumpZ = 0
+    let hx = 0
+    let hy = 0
+    let hz = 0
+    let magD = 0
+    let magScale = 1
+    let cover = 0
+    let crane = 0
+
+    if (kind === 'pump' || kind === 'mosin') {
+        const n = rig.shells ?? 3
+        const hm = rig.handMag
+        if (kind === 'pump') {
+            if (reloading) {
+                if (rl < 0.8 && hm) {
+                    const u = (rl / 0.8) * n
+                    const f = Math.sin(Math.PI * (u - Math.floor(u)))
+                    hx = hm.x * f
+                    hy = hm.y * f
+                    hz = hm.z * f
+                }
+                pumpZ = travel * pulse(rl, 0.82, 0.9, 0.9, 0.98)
+            } else {
+                pumpZ = travel * pulse(since, 0.28, 0.4, 0.42, 0.58)
+            }
+            hz += pumpZ
+        } else if (reloading) {
+            roll = 1.25 * pulse(rl, 0, 0.05, 0.92, 0.99)
+            boltZ = travel * pulse(rl, 0.05, 0.13, 0.8, 0.9)
+            if (rl > 0.14 && rl < 0.78 && hm) {
+                const u = ((rl - 0.14) / 0.64) * n
+                const f = Math.sin(Math.PI * (u - Math.floor(u)))
+                hx = hm.x * f
+                hy = hm.y * f
+                hz = hm.z * f
+            }
+        } else {
+            const u = since - 0.3
+            roll = 1.25 * pulse(u, 0, 0.12, 0.5, 0.62)
+            boltZ = travel * pulse(u, 0.12, 0.26, 0.3, 0.42)
+        }
+    } else if (kind === 'revolver') {
+        fx.spin += (fx.cyl - fx.spin) * Math.min(1, dt * 28)
+        if (reloading) {
+            crane = pulse(rl, 0.04, 0.2, 0.66, 0.82)
+            if (rl > 0.3 && rl < 0.62) fx.cyl += dt * 6
+            const h = pulse(rl, 0, 0.15, 0.84, 0.98)
+            if (rig.handMag) {
+                hx = rig.handMag.x * h
+                hy = rig.handMag.y * h
+                hz = rig.handMag.z * h
+            }
+        }
+    } else {
+        boltZ = travel * kick
+        if (reloading && rig.magAxis && rig.magDrop !== undefined) {
+            const h = pulse(rl, 0, 0.2, 0.64, 0.84)
+            magD = rl < 0.41 ? ramp(rl, 0.2, 0.4) : 1 - ramp(rl, 0.42, 0.62)
+            magScale = rl > 0.395 && rl < 0.425 ? 0.001 : 1
+            if (rig.handMag) {
+                hx = rig.handMag.x * h
+                hy = rig.handMag.y * h
+                hz = rig.handMag.z * h
+            }
+            if (!rig.noHandFollow) {
+                hx += rig.magAxis.x * rig.magDrop * magD
+                hy += rig.magAxis.y * rig.magDrop * magD
+                hz += rig.magAxis.z * rig.magDrop * magD
+            }
+            boltZ = Math.max(boltZ, travel * pulse(rl, 0.84, 0.9, 0.9, 0.97))
+            if (kind === 'lmg') cover = pulse(rl, 0, 0.12, 0.85, 0.97)
+        }
+    }
+
+    setPos(rig.slide, 0, 0, boltZ)
+    setPos(rig.bolt, 0, 0, boltZ)
+    if (rig.bolt) rig.bolt.rotation.z = roll
+    setPos(rig.pump, 0, 0, pumpZ)
+    setPos(rig.leftHand, hx, hy, hz)
+    if (rig.mag) {
+        if (rig.magAxis && rig.magDrop !== undefined) {
+            const d = rig.magDrop * magD
+            setPos(rig.mag, rig.magAxis.x * d, rig.magAxis.y * d, rig.magAxis.z * d)
+        }
+        rig.mag.scale.setScalar(magScale)
+    }
+    if (rig.trigger) rig.trigger.rotation.x = -0.6 * clamp01(kick * 3)
+    if (rig.hammer) rig.hammer.rotation.x = 0.6 * pulse(since, 0, 0.03, 0.18, 0.4)
+    if (rig.cover) rig.cover.rotation.x = 1.0 * cover
+    if (rig.crane) {
+        setPos(rig.crane, -0.07 * crane, -0.02 * crane, 0)
+        rig.crane.rotation.z = 0.5 * crane
+    }
+    if (rig.cylinder) rig.cylinder.rotation.z = fx.spin
+    if (rig.spin) {
+        const target = kind === 'minigun'
+            ? (since < 0.3 || kick > 0.05 ? 36 : 0)
+            : 1.5 + (since < 0.4 ? 14 : 0)
+        fx.spd += (target - fx.spd) * Math.min(1, dt * 4)
+        rig.spin.rotation.z += dt * fx.spd
+    }
 }

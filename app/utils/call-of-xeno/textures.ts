@@ -1511,6 +1511,15 @@ export function makeStencilAtlas() {
     return stencilTexture
 }
 
+/** Every cached texture the level generators own, for disposal on teardown. */
+export function allTextures(): THREE.Texture[] {
+    const out: THREE.Texture[] = []
+    for (const set of cache.values()) out.push(...set.textures)
+    if (decalTexture) out.push(decalTexture)
+    if (stencilTexture) out.push(stencilTexture)
+    return out
+}
+
 export function stencilRect(cell: number): [number, number, number, number] {
     return decalRect(cell)
 }
@@ -1583,8 +1592,11 @@ export function makeLabelAtlas(labels: LabelSpec[]) {
 
 function legacy(set: PBRSet, repeatX: number, repeatY: number) {
     // Only the albedo is handed back; the caller repeats it per UV like before.
-    set.map.repeat.set(repeatX, repeatY)
-    return set.map
+    // A clone, so repeating it does not rescale the cached set other meshes use.
+    const map = set.map.clone()
+    map.repeat.set(repeatX, repeatY)
+    map.needsUpdate = true
+    return map
 }
 
 /** Poured concrete in big slabs. */

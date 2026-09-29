@@ -391,6 +391,7 @@ class BillboardPool {
     private aCol: THREE.InstancedBufferAttribute
     private aAux: THREE.InstancedBufferAttribute
     private holdUntil: number
+    private attrs: THREE.InstancedBufferAttribute[]
 
     constructor(count: number, texture: THREE.Texture, kind: BillboardKind) {
         this.items = Array.from({ length: count }, () => ({
@@ -407,7 +408,8 @@ class BillboardPool {
         this.aPos = new THREE.InstancedBufferAttribute(new Float32Array(count * 4), 4)
         this.aCol = new THREE.InstancedBufferAttribute(new Float32Array(count * 4), 4)
         this.aAux = new THREE.InstancedBufferAttribute(new Float32Array(count * 4), 4)
-        for (const attr of [this.aPos, this.aCol, this.aAux]) attr.setUsage(THREE.DynamicDrawUsage)
+        this.attrs = [this.aPos, this.aCol, this.aAux]
+        for (const attr of this.attrs) attr.setUsage(THREE.DynamicDrawUsage)
         this.geometry.setAttribute('iPos', this.aPos)
         this.geometry.setAttribute('iCol', this.aCol)
         this.geometry.setAttribute('iAux', this.aAux)
@@ -498,7 +500,7 @@ class BillboardPool {
         this.geometry.instanceCount = n
         this.mesh.visible = n > 0
         if (n === 0) return
-        for (const attr of [this.aPos, this.aCol, this.aAux]) {
+        for (const attr of this.attrs) {
             attr.clearUpdateRanges()
             attr.addUpdateRange(0, n * 4)
             attr.needsUpdate = true
@@ -564,6 +566,7 @@ class RingPool {
     private aPos: THREE.InstancedBufferAttribute
     private aCol: THREE.InstancedBufferAttribute
     private aAux: THREE.InstancedBufferAttribute
+    private attrs: THREE.InstancedBufferAttribute[]
 
     constructor(count: number) {
         this.items = Array.from({ length: count }, () => ({ life: 0, maxLife: 1, x: 0, y: 0, z: 0, radius: 1, r: 1, g: 1, b: 1 }))
@@ -573,6 +576,7 @@ class RingPool {
         this.aPos = new THREE.InstancedBufferAttribute(new Float32Array(count * 4), 4)
         this.aCol = new THREE.InstancedBufferAttribute(new Float32Array(count * 4), 4)
         this.aAux = new THREE.InstancedBufferAttribute(new Float32Array(count * 4), 4)
+        this.attrs = [this.aPos, this.aCol, this.aAux]
         this.geometry.setAttribute('iPos', this.aPos)
         this.geometry.setAttribute('iCol', this.aCol)
         this.geometry.setAttribute('iAux', this.aAux)
@@ -625,7 +629,7 @@ class RingPool {
         this.geometry.instanceCount = n
         this.mesh.visible = n > 0
         if (n === 0) return
-        for (const attr of [this.aPos, this.aCol, this.aAux]) {
+        for (const attr of this.attrs) {
             attr.clearUpdateRanges()
             attr.addUpdateRange(0, n * 4)
             attr.needsUpdate = true
@@ -704,8 +708,8 @@ const STREAK_FRAG = /* glsl */`
         float body = 1.0 - ax;
         body = body * body;
         float core = 1.0 - smoothstep(0.0, 0.45, ax);
-        float flat = 1.0 - smoothstep(0.5, 1.0, ax);
-        float shape = vHot > 0.001 ? body : flat;
+        float soft = 1.0 - smoothstep(0.5, 1.0, ax);
+        float shape = vHot > 0.001 ? body : soft;
         float tail = mix(1.0, smoothstep(0.0, 0.85, y), vTaper);
         float alpha = shape * tail * vCol.a * vDim;
         if (alpha < 0.003) discard;
@@ -727,6 +731,7 @@ class StreakPool {
     private aB: THREE.InstancedBufferAttribute
     private aCol: THREE.InstancedBufferAttribute
     private aExt: THREE.InstancedBufferAttribute
+    private attrs: THREE.InstancedBufferAttribute[]
     private n = 0
     private cap: number
 
@@ -739,6 +744,7 @@ class StreakPool {
         this.aB = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4)
         this.aCol = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4)
         this.aExt = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4)
+        this.attrs = [this.aA, this.aB, this.aCol, this.aExt]
         this.geometry.setAttribute('iA', this.aA)
         this.geometry.setAttribute('iB', this.aB)
         this.geometry.setAttribute('iCol', this.aCol)
@@ -787,7 +793,7 @@ class StreakPool {
         this.geometry.instanceCount = this.n
         this.mesh.visible = this.n > 0
         if (this.n === 0) return
-        for (const attr of [this.aA, this.aB, this.aCol, this.aExt]) {
+        for (const attr of this.attrs) {
             attr.clearUpdateRanges()
             attr.addUpdateRange(0, this.n * 4)
             attr.needsUpdate = true
@@ -1624,7 +1630,7 @@ export class CallOfXenoEffects {
         const scorchTex = atlasTexture('scorch', 128, scorchPaint)
         this.textures.push(smokeTex, splatTex, holeTex, scorchTex)
 
-        this.glowStreaks = new StreakPool(720, true, 1.75)
+        this.glowStreaks = new StreakPool(960, true, 1.75)
         this.dropStreaks = new StreakPool(420, false, 1.5)
         this.sparks = new StreakParticles(360, this.env)
         this.glowDrops = new StreakParticles(120, this.env)
@@ -2016,15 +2022,18 @@ export class CallOfXenoEffects {
         const length = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z)
         it.amp = Math.min(0.7, 0.05 + length * 0.07)
         it.reroll = 0
-        for (const p of [from, to]) {
-            this.glow.spawn({ x: p.x, y: p.y, z: p.z, size: 0.4 * width, size2: 0.7 * width, life: 0.16, r: it.r, g: it.g, b: it.b, alpha: 0.85, hdr: 2.4 })
-            for (let i = 0; i < 4; i++) {
-                this.sparks.spawn({
-                    x: p.x, y: p.y, z: p.z,
-                    vx: rr(-1, 1) * 3, vy: rr(-0.4, 1) * 3, vz: rr(-1, 1) * 3,
-                    width: 0.01, life: rr(0.15, 0.35), r: it.r, g: it.g, b: it.b, hot: 1.6, drag: 2.5, lenT: 0.05
-                })
-            }
+        this.arcEnd(from, width, it)
+        this.arcEnd(to, width, it)
+    }
+
+    private arcEnd(p: THREE.Vector3, width: number, it: ArcItem) {
+        this.glow.spawn({ x: p.x, y: p.y, z: p.z, size: 0.4 * width, size2: 0.7 * width, life: 0.16, r: it.r, g: it.g, b: it.b, alpha: 0.85, hdr: 2.4 })
+        for (let i = 0; i < 4; i++) {
+            this.sparks.spawn({
+                x: p.x, y: p.y, z: p.z,
+                vx: rr(-1, 1) * 3, vy: rr(-0.4, 1) * 3, vz: rr(-1, 1) * 3,
+                width: 0.01, life: rr(0.15, 0.35), r: it.r, g: it.g, b: it.b, hot: 1.6, drag: 2.5, lenT: 0.05
+            })
         }
     }
 

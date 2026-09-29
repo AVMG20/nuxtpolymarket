@@ -1105,7 +1105,10 @@ export function buildPerkMachine(perk: CallOfXenoPerk): PropModel {
     hook(body)
 
     // --- Glow parts (per instance so the game can tint each machine). ---
-    const dim = (m: THREE.MeshBasicMaterial) => m.color.setHex(perk.color).multiplyScalar(0.14)
+    const dim = (m: THREE.MeshBasicMaterial) => {
+        m.color.setHex(perk.color).multiplyScalar(0.14)
+        return m
+    }
     const panelMat = dim(new THREE.MeshBasicMaterial({ map: perkPanelTexture(perk) }))
     const nameMat = dim(new THREE.MeshBasicMaterial({ map: perkNameTexture(perk), transparent: true }))
     const backMat = dim(new THREE.MeshBasicMaterial({ map: windowBackTexture() }))
@@ -1187,48 +1190,66 @@ const BOARD_W = 2.0
 const BOARD_H = 1.25
 const BOARD_PPM = 512
 
-function convexHull(points: [number, number][]): [number, number][] {
-    const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1])
-    if (pts.length < 3) return pts
-    const cross = (o: [number, number], a: [number, number], b: [number, number]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
-    const lower: [number, number][] = []
-    for (const p of pts) {
-        while (lower.length >= 2 && cross(lower[lower.length - 2]!, lower[lower.length - 1]!, p) <= 0) lower.pop()
-        lower.push(p)
-    }
-    const upper: [number, number][] = []
-    for (let i = pts.length - 1; i >= 0; i--) {
-        const p = pts[i]!
-        while (upper.length >= 2 && cross(upper[upper.length - 2]!, upper[upper.length - 1]!, p) <= 0) upper.pop()
-        upper.push(p)
-    }
-    lower.pop()
-    upper.pop()
-    return lower.concat(upper)
+const HAND_MATERIALS = new Set(['glove', 'sleeve', 'strap'])
+const HAND_COLORS = new Set([0x25272a, 0x2f362f, 0x14151a])
+
+/** The first-person models carry gloved hands; a gun on a wall hook has none. */
+function stripHands(gun: THREE.Object3D) {
+    const rig = (gun.userData?.rig ?? gun.userData) as Record<string, THREE.Object3D | undefined> | undefined
+    rig?.leftHand?.removeFromParent()
+    rig?.rightHand?.removeFromParent()
+    const doomed: THREE.Object3D[] = []
+    gun.traverse((obj) => {
+        const mesh = obj as THREE.Mesh
+        if (!mesh.isMesh) return
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+        const handish = mats.some((m) => {
+            const std = m as THREE.MeshStandardMaterial
+            return HAND_MATERIALS.has(m.name) || (std.isMeshStandardMaterial && std.metalness === 0 && HAND_COLORS.has(std.color.getHex()))
+        })
+        if (handish) doomed.push(mesh)
+    })
+    for (const obj of doomed) obj.removeFromParent()
 }
 
-/** Projects the mounted gun to board pixels: one convex hull per mesh. */
-function gunHulls(gun: THREE.Object3D): [number, number][][] {
+/** Fills the gun's exact screen-space silhouette (every triangle) in white. */
+function fillGunSilhouette(ctx: CanvasRenderingContext2D, gun: THREE.Object3D) {
     gun.updateMatrixWorld(true)
-    const hulls: [number, number][][] = []
-    const v = new THREE.Vector3()
-    gun.traverse((obj) => {
+    const p = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]
+    const px = new Float32Array(6)
+    ctx.fillStyle = '#fff'
+    ctx.strokeStyle = '#fff'
+    ctx.lineWidth = 1.5
+    ctx.lineJoin = 'round'
+    gun.traverseVisible((obj) => {
         const mesh = obj as THREE.Mesh
         const pos = mesh.geometry?.attributes?.position
         if (!mesh.isMesh || !pos) return
-        const stride = Math.max(1, Math.ceil(pos.count / 500))
-        const pts: [number, number][] = []
-        for (let i = 0; i < pos.count; i += stride) {
-            v.fromBufferAttribute(pos, i).applyMatrix4(mesh.matrixWorld)
-            pts.push([(v.x + BOARD_W / 2) * BOARD_PPM, (BOARD_H / 2 - v.y) * BOARD_PPM])
+        const index = mesh.geometry.index
+        const tris = (index ? index.count : pos.count) / 3
+        ctx.beginPath()
+        for (let t = 0; t < tris; t++) {
+            for (let i = 0; i < 3; i++) {
+                const vi = index ? index.getX(t * 3 + i) : t * 3 + i
+                p[i]!.fromBufferAttribute(pos, vi).applyMatrix4(mesh.matrixWorld)
+                px[i * 2] = (p[i]!.x + BOARD_W / 2) * BOARD_PPM
+                px[i * 2 + 1] = (BOARD_H / 2 - p[i]!.y) * BOARD_PPM
+            }
+            const area = (px[2]! - px[0]!) * (px[5]! - px[1]!) - (px[4]! - px[0]!) * (px[3]! - px[1]!)
+            if (Math.abs(area) < 0.05) continue
+            // Uniform winding, so overlapping triangles never cancel out.
+            const flip = area < 0
+            ctx.moveTo(px[0]!, px[1]!)
+            ctx.lineTo(flip ? px[4]! : px[2]!, flip ? px[5]! : px[3]!)
+            ctx.lineTo(flip ? px[2]! : px[4]!, flip ? px[3]! : px[5]!)
+            ctx.closePath()
         }
-        const hull = convexHull(pts)
-        if (hull.length >= 3) hulls.push(hull)
+        ctx.fill()
+        ctx.stroke()
     })
-    return hulls
 }
 
-function wallBuyTexture(weapon: CallOfXenoWeapon, hulls: [number, number][][], hooks: [number, number][]) {
+function wallBuyTexture(weapon: CallOfXenoWeapon, gun: THREE.Object3D, hooks: [number, number][]) {
     return memo(`wallbuy:${weapon.id}`, () => {
         const W = BOARD_W * BOARD_PPM
         const H = BOARD_H * BOARD_PPM
@@ -1263,13 +1284,7 @@ function wallBuyTexture(weapon: CallOfXenoWeapon, hulls: [number, number][][], h
         const chalk = makeCanvas(W, H)
         const c = chalk.ctx
         const mask = makeCanvas(W, H)
-        mask.ctx.fillStyle = '#fff'
-        for (const hull of hulls) {
-            mask.ctx.beginPath()
-            hull.forEach(([x, y], i) => (i === 0 ? mask.ctx.moveTo(x, y) : mask.ctx.lineTo(x, y)))
-            mask.ctx.closePath()
-            mask.ctx.fill()
-        }
+        fillGunSilhouette(mask.ctx, gun)
         const ring = makeCanvas(W, H)
         const d = 7
         for (let i = 0; i < 12; i++) {
@@ -1346,8 +1361,11 @@ export function buildWallBuy(weapon: CallOfXenoWeapon): PropModel {
     const group = new THREE.Group()
 
     // Mount the gun first: its final silhouette is what gets chalked.
-    const gun = buildWeaponModel(weapon.id, 0)
-    gun.rotation.y = Math.PI / 2
+    const gun = buildWeaponModel(weapon.id, 0, { hands: false })
+    stripHands(gun)
+    // View models point down -Z; lay the barrel along the wall (muzzle left).
+    const native = new THREE.Box3().setFromObject(gun).getSize(new THREE.Vector3())
+    gun.rotation.y = native.x > native.z * 1.2 ? 0 : Math.PI / 2
     gun.updateMatrixWorld(true)
     const raw = new THREE.Box3().setFromObject(gun)
     const length = Math.max(0.2, raw.max.x - raw.min.x)
@@ -1367,7 +1385,7 @@ export function buildWallBuy(weapon: CallOfXenoWeapon): PropModel {
     const hookPx: [number, number][] = hookX.map(x => [(x + BOARD_W / 2) * BOARD_PPM, (BOARD_H / 2 - (hookY - 0.09)) * BOARD_PPM])
 
     const board = new THREE.Mesh(plane(BOARD_W, BOARD_H), keep(new THREE.MeshStandardMaterial({
-        map: wallBuyTexture(weapon, gunHulls(gun), hookPx),
+        map: wallBuyTexture(weapon, gun, hookPx),
         transparent: true,
         roughness: 1,
         metalness: 0,
@@ -1500,7 +1518,7 @@ export function buildPackAPunch(): PropModel {
         color: 0x2a0f3a,
         map: plateTexture('pap', 512, 96, 'Pack-a-Punch', undefined, '#ffffff', '#262626', '#ffffff')
     })
-    const coreMat = new THREE.MeshBasicMaterial({ color: 0x2a0f3a, map: S().haloTex })
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0x2a0f3a })
     const archMat = new THREE.MeshBasicMaterial({ color: 0x2a0f3a })
 
     const slot = new THREE.Mesh(plane(1.66, 0.56), slotMat)
@@ -1644,7 +1662,7 @@ export function buildPowerLever(): PowerLeverModel {
     const s = S()
     const group = new THREE.Group()
     const CZ = -0.12 // cabinet front face
-    const PZ = 0.45 // pedestal / lever pivot
+    const PZ = 0.55 // pedestal / lever pivot
 
     const body = buildKit('lever', (k) => {
         // Breaker cabinet with door seam, hinges and vents.
@@ -1675,14 +1693,14 @@ export function buildPowerLever(): PowerLeverModel {
         k.strut([-0.2, 2.3, -0.36], [-0.7, 2.6, -0.4], 0.022, s.rubber, 5)
 
         // Free-standing lever pedestal: hazard base, housing, cheek plates.
-        k.box(0.62, 0.14, 0.58, s.hazard, 0, 0.07, PZ)
-        k.rbox(0.5, 1.02, 0.46, 0.03, s.orange, 0, 0.65, PZ)
-        k.box(0.56, 0.06, 0.52, s.steelDark, 0, 1.17, PZ)
+        k.box(0.54, 0.14, 0.58, s.hazard, 0, 0.07, PZ)
+        k.rbox(0.42, 1.02, 0.46, 0.03, s.orange, 0, 0.65, PZ)
+        k.box(0.46, 0.06, 0.52, s.steelDark, 0, 1.17, PZ)
         for (const sx of [-1, 1]) {
-            k.box(0.03, 0.5, 0.56, s.steel, 0.17 * sx, 1.42, PZ)
+            k.box(0.03, 0.5, 0.56, s.steel, 0.14 * sx, 1.42, PZ)
         }
-        k.cyl(0.075, 0.075, 0.44, 14, s.chrome, 0, 1.3, PZ, { rz: Math.PI / 2 })
-        for (const sx of [-1, 1]) k.cyl(0.03, 0.03, 0.03, 8, s.black, 0.235 * sx, 1.3, PZ, { rz: Math.PI / 2 })
+        k.cyl(0.075, 0.075, 0.36, 14, s.chrome, 0, 1.3, PZ, { rz: Math.PI / 2 })
+        for (const sx of [-1, 1]) k.cyl(0.03, 0.03, 0.03, 8, s.black, 0.195 * sx, 1.3, PZ, { rz: Math.PI / 2 })
         for (const sz of [-1, 1]) k.box(0.32, 0.05, 0.05, s.red, 0, 1.22, PZ + 0.5 * sz * 0.9)
     }, group)
     hook(body)
@@ -1715,7 +1733,9 @@ export function buildPowerLever(): PowerLeverModel {
     const beacon = new THREE.Mesh(memo('lever-beacon', () => keep(new THREE.SphereGeometry(0.13, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2))), lampMat)
     beacon.position.set(0, 1.97, -0.3)
     group.add(beacon)
-    group.add(Object.assign(new THREE.Mesh(memo('lever-beacon-base', () => keep(new THREE.CylinderGeometry(0.15, 0.17, 0.06, 12))), s.steelDark), { position: new THREE.Vector3(0, 1.95, -0.3) }))
+    const beaconBase = new THREE.Mesh(memo('lever-beacon-base', () => keep(new THREE.CylinderGeometry(0.15, 0.17, 0.06, 12))), s.steelDark)
+    beaconBase.position.set(0, 1.95, -0.3)
+    group.add(beaconBase)
 
     const displayMat = new THREE.MeshBasicMaterial({ color: 0x441111, map: screenTexture() })
     const display = new THREE.Mesh(plane(0.5, 0.22), displayMat)
@@ -1724,10 +1744,10 @@ export function buildPowerLever(): PowerLeverModel {
 
     // Signage: hazard triangle and the switch label.
     const hazardSign = new THREE.Mesh(plane(0.34, 0.34), plateMaterial(hazardSignTexture(), 0.35))
-    hazardSign.position.set(-0.42, 0.62, CZ + 0.02)
+    hazardSign.position.set(-0.5, 0.62, CZ + 0.02)
     group.add(hazardSign)
-    const label = new THREE.Mesh(plane(0.66, 0.28), plateMaterial(plateTexture('lever', 384, 164, 'Main Power', 'Throw to restore', '#ffd27a', '#15100a', '#c98a2a'), 0.5))
-    label.position.set(0.28, 0.62, CZ + 0.02)
+    const label = new THREE.Mesh(plane(0.5, 0.22), plateMaterial(plateTexture('lever', 384, 164, 'Main Power', 'Throw to restore', '#ffd27a', '#15100a', '#c98a2a'), 0.5))
+    label.position.set(0.5, 0.62, CZ + 0.02)
     group.add(label)
     const pedestalLabel = new THREE.Mesh(plane(0.36, 0.14), plateMaterial(plateTexture('lever-ped', 256, 100, 'Power', undefined, '#ffd27a', '#15100a', '#c98a2a'), 0.5))
     pedestalLabel.position.set(0, 0.85, PZ + 0.236)
@@ -1875,7 +1895,7 @@ export function buildMysteryBox(cost: number): MysteryBoxModel {
         const r = seamMat.color.r
         const state = r > 0.6 ? 2 : r > 0.1 ? 1 : 0
         const shimmer = 0.9 + 0.1 * Math.sin(time * 3.3) * Math.sin(time * 1.7)
-        const target = state === 2 ? 0.75 : state === 1 ? 0.55 : 0.26
+        const target = state === 2 ? 0.75 : state === 1 ? 0.55 : 0.4
         beamMat.opacity = target * shimmer
         poolMat.opacity = target * 0.9 * shimmer
         halo.material.opacity = state === 0 ? 0.08 : state === 1 ? 0.35 : 0.55
@@ -2062,7 +2082,7 @@ export function buildPowerUp(powerUp: CallOfXenoPowerUp): PowerUpModel {
     }
 
     const icon = new THREE.Sprite(powerUpIconMaterial(powerUp))
-    icon.scale.set(0.78, 0.78, 1)
+    icon.scale.set(0.9, 0.9, 1)
     icon.renderOrder = 3
     group.add(icon)
 
@@ -2625,7 +2645,7 @@ export function buildBlackHole(): BlackHoleModel {
             opacity: 0.95
         })))
     )
-    ring.rotation.x = Math.PI / 2
+    ring.rotation.x = Math.PI / 2 - 0.3 // a slight tilt, so the disc never goes edge-on at eye level
     group.add(ring)
 
     // Slow counter-tilted echo of the disc for depth.
@@ -2638,7 +2658,7 @@ export function buildBlackHole(): BlackHoleModel {
         depthWrite: false,
         side: THREE.DoubleSide
     }))))
-    echo.rotation.set(Math.PI / 2 + 0.5, 0.3, 0)
+    echo.rotation.set(Math.PI / 2 + 0.35, 0.3, 0)
     echo.scale.setScalar(0.8)
     group.add(echo)
 

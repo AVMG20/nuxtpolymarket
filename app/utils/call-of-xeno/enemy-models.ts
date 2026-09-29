@@ -2,11 +2,12 @@
 //
 // Infected people mid-mutation: gaunt limbs, hunched spines, chitin plates
 // and bioluminescent veins. Everything is procedural. Every enemy type is
-// modelled once into merged, vertex-coloured geometry (one geometry per
-// body part per material slot, cached and shared by every spawn); each
-// spawn only gets its own pivots, meshes and materials, so flash, fade and
-// pulse stay per-instance while a horde of dozens costs a few draw calls
-// each.
+// modelled once into merged, vertex-coloured geometry (cached and shared by
+// every spawn). Flesh, workwear, chitin and glowing veins are baked into ONE
+// geometry per body part: a vertex attribute carries roughness, metalness
+// and glow strength, and a single per-instance material reads it. So a
+// walker is about eight draw calls, and flash, fade and pulse stay
+// per-instance.
 
 import * as THREE from 'three'
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js'
@@ -86,7 +87,6 @@ export interface EnemyGib {
 
 type V3 = [number, number, number]
 type Slot = 'skin' | 'cloth' | 'chitin' | 'glow' | 'membrane'
-const SLOTS: Slot[] = ['skin', 'cloth', 'chitin', 'glow', 'membrane']
 
 const TEAL = 0x3dffc8
 const ACID = 0xb6ff2a
@@ -157,7 +157,19 @@ function noDispose(geometry: THREE.BufferGeometry) {
     return geometry
 }
 
-type PartGeo = Partial<Record<Slot, THREE.BufferGeometry>>
+/** Baked per vertex: roughness, metalness, glow strength (emissive multiplier). */
+const SURF: Record<Slot, V3> = {
+    skin: [0.62, 0.02, 0],
+    cloth: [0.94, 0, 0],
+    chitin: [0.3, 0.4, 0],
+    glow: [0.85, 0, 1.9],
+    membrane: [0.25, 0, 0]
+}
+
+interface PartGeo {
+    hide?: THREE.BufferGeometry
+    membrane?: THREE.BufferGeometry
+}
 
 class Kit {
     private geos: Record<Slot, THREE.BufferGeometry[]> = { skin: [], cloth: [], chitin: [], glow: [], membrane: [] }
@@ -202,30 +214,35 @@ class Kit {
             colors[i * 3 + 2] = base.b * shade
         }
         geo.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+        const surf = new Float32Array(pos.count * 3)
+        for (let i = 0; i < pos.count; i++) surf.set(SURF[slot], i * 3)
+        geo.setAttribute('surf', new THREE.BufferAttribute(surf, 3))
         this.geos[slot].push(geo)
     }
 
     bake(): PartGeo {
         const out: PartGeo = {}
-        for (const slot of SLOTS) {
-            const list = this.geos[slot]
+        const g = this.geos
+        const groups: [keyof PartGeo, THREE.BufferGeometry[]][] = [['hide', [...g.skin, ...g.cloth, ...g.chitin, ...g.glow]], ['membrane', g.membrane]]
+        for (const [key, list] of groups) {
             if (list.length === 0) continue
             const merged = mergeGeometries(list, false)
-            for (const g of list) g.dispose()
-            if (merged) out[slot] = noDispose(merged)
+            for (const geo of list) geo.dispose()
+            if (merged) out[key] = noDispose(merged)
         }
         return out
     }
 }
 
 function blob(k: Kit, slot: Slot, p: V3, r: V3, color: number, o: GeoOpts & { rot?: V3, seg?: [number, number] } = {}) {
-    const seg = o.seg ?? [8, 6]
-    k.add(slot, new THREE.SphereGeometry(1, seg[0], seg[1]), compose(p, o.rot, r), color, { noise: 0.07, freq: 2.4, ...o })
+    const seg = o.seg ?? [7, 5]
+    // Triangle budget: every sphere loses a ring and a meridian against what the call asked for.
+    k.add(slot, new THREE.SphereGeometry(1, Math.max(5, seg[0] - 1), Math.max(4, seg[1] - 1)), compose(p, o.rot, r), color, { noise: 0.07, freq: 2.4, ...o })
 }
 
 function spindle(k: Kit, slot: Slot, a: V3, b: V3, r0: number, r1: number, color: number, o: GeoOpts & { bulge?: number, seg?: number, steps?: number } = {}) {
     const { length, matrix } = aligned(a, b)
-    const steps = o.steps ?? 4
+    const steps = o.steps ?? 3
     const bulge = o.bulge ?? 0.12
     const profile = [new THREE.Vector2(0.0001, 0)]
     for (let i = 0; i <= steps; i++) {
@@ -234,19 +251,19 @@ function spindle(k: Kit, slot: Slot, a: V3, b: V3, r0: number, r1: number, color
         profile.push(new THREE.Vector2(Math.max(r, 0.002), length * t))
     }
     profile.push(new THREE.Vector2(0.0001, length))
-    k.add(slot, new THREE.LatheGeometry(profile, o.seg ?? 7), matrix, color, { noise: (r0 + r1) * 0.06, freq: 16, ...o })
+    k.add(slot, new THREE.LatheGeometry(profile, Math.max(5, (o.seg ?? 6) - (o.seg && o.seg > 6 ? 1 : 0))), matrix, color, { noise: (r0 + r1) * 0.06, freq: 16, ...o })
 }
 
 function spike(k: Kit, slot: Slot, base: V3, tip: V3, r: number, color: number, o: GeoOpts & { seg?: number } = {}) {
     const { length, matrix } = aligned(base, tip)
-    const geo = new THREE.ConeGeometry(r, length, o.seg ?? 5, 1)
+    const geo = new THREE.ConeGeometry(r, length, o.seg ?? 4, 1, true)
     geo.translate(0, length / 2, 0)
     k.add(slot, geo, matrix, color, { mottle: 0.1, ...o })
 }
 
 function tube(k: Kit, slot: Slot, pts: V3[], r: number, color: number, o: GeoOpts & { segs?: number } = {}) {
     const curve = new THREE.CatmullRomCurve3(pts.map(p => new THREE.Vector3(p[0], p[1], p[2])))
-    k.add(slot, new THREE.TubeGeometry(curve, o.segs ?? (pts.length - 1) * 3, r, 3, false), new THREE.Matrix4(), color, { mottle: 0, ...o })
+    k.add(slot, new THREE.TubeGeometry(curve, o.segs ?? (pts.length - 1) * 2, r, 3, false), new THREE.Matrix4(), color, { mottle: 0, ...o })
 }
 
 /** A rib: an elliptical arc wrapped round the front of the chest, drooping toward the sternum. */
@@ -256,7 +273,7 @@ function rib(k: Kit, y: number, rx: number, rz: number, drop: number, r: number,
         const a = Math.PI * (0.06 + 0.88 * (i / 4))
         pts.push([Math.cos(a) * rx, y - drop * Math.sin(a), Math.sin(a) * rz])
     }
-    tube(k, 'skin', pts, r, color, { mottle: 0.1, segs: 8 })
+    tube(k, 'skin', pts, r, color, { mottle: 0.1, segs: 6 })
 }
 
 /** A line of points down a meridian of an ellipsoid, for veins wrapping a sac. */
@@ -278,26 +295,26 @@ function rel(a: V3, b: V3): V3 {
 // ---------------------------------------------------------------------------
 
 interface Mats {
-    skin: THREE.MeshStandardMaterial
-    cloth: THREE.MeshStandardMaterial
-    chitin: THREE.MeshStandardMaterial
-    glow: THREE.MeshBasicMaterial
+    /** The one material every body part is drawn with: flesh, workwear, chitin and glow. */
+    hide: THREE.MeshStandardMaterial
     membrane: THREE.MeshStandardMaterial
+    /** Never rendered. Its colour is the live glow brightness `hide` reads through a uniform. */
+    glow: THREE.MeshBasicMaterial
+    /** Never rendered. Stands in for `EnemyModel.clothes`, see linkFade. */
+    cloth: THREE.MeshStandardMaterial
 }
 
 interface MatStyle {
-    skinEmissive: number
-    clothEmissive: number
-    chitinEmissive: number
+    hideEmissive: number
     membraneEmissive: number
     membraneOpacity: number
 }
 
 const STYLES: Record<EnemyModel['kind'], MatStyle> = {
-    shambler: { skinEmissive: 0x0f3326, clothEmissive: 0x2a1408, chitinEmissive: 0x08241c, membraneEmissive: 0x0a4038, membraneOpacity: 0.5 },
-    husk: { skinEmissive: 0x1c2c06, clothEmissive: 0x14160c, chitinEmissive: 0x142206, membraneEmissive: 0x66ff22, membraneOpacity: 0.62 },
-    drone: { skinEmissive: 0x0c2c34, clothEmissive: 0x0c1a1c, chitinEmissive: 0x0a2e38, membraneEmissive: 0x0c5866, membraneOpacity: 0.34 },
-    brute: { skinEmissive: 0x2c1028, clothEmissive: 0x1a1006, chitinEmissive: 0x1a1024, membraneEmissive: 0x0a4038, membraneOpacity: 0.5 }
+    shambler: { hideEmissive: 0x0d2a20, membraneEmissive: 0x0a4038, membraneOpacity: 0.5 },
+    husk: { hideEmissive: 0x142206, membraneEmissive: 0x66ff22, membraneOpacity: 0.62 },
+    drone: { hideEmissive: 0x0a2830, membraneEmissive: 0x0c5866, membraneOpacity: 0.34 },
+    brute: { hideEmissive: 0x1f1024, membraneEmissive: 0x0a4038, membraneOpacity: 0.5 }
 }
 
 function withBase<T extends THREE.MeshStandardMaterial>(m: T, emissive: number, intensity: number): T {
@@ -305,6 +322,29 @@ function withBase<T extends THREE.MeshStandardMaterial>(m: T, emissive: number, 
     m.emissiveIntensity = intensity
     m.userData.baseEmissive = emissive
     m.userData.baseIntensity = intensity
+    return m
+}
+
+/**
+ * Standard PBR lit by the scene, but roughness, metalness and glow come from
+ * the `surf` vertex attribute (see SURF). Glow vertices add their own colour
+ * on top of the lighting, scaled by `glow` (a live per-instance Color), so
+ * eyes and veins stay visible in the dark and can pulse or blow out on a hit.
+ */
+function hideMaterial(glow: THREE.Color) {
+    const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 1 })
+    m.onBeforeCompile = (shader) => {
+        shader.uniforms.uGlow = { value: glow }
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\nattribute vec3 surf;\nvarying vec3 vSurf;')
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSurf = surf;')
+        shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', '#include <common>\nvarying vec3 vSurf;\nuniform vec3 uGlow;')
+            .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = clamp(vSurf.x, 0.04, 1.0);')
+            .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = clamp(vSurf.y, 0.0, 1.0);')
+            .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * vSurf.z * uGlow;')
+    }
+    m.customProgramCacheKey = () => 'cox-enemy-hide'
     return m
 }
 
@@ -320,11 +360,11 @@ function makeMats(kind: EnemyModel['kind']): Mats {
         depthWrite: false
     }), s.membraneEmissive, kind === 'husk' ? 0.9 : 0.8)
     membrane.userData.baseOpacity = s.membraneOpacity
+    const glow = new THREE.MeshBasicMaterial({ color: 0xffffff })
     return {
-        skin: withBase(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, metalness: 0.02 }), s.skinEmissive, 0.7),
-        cloth: withBase(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.94, metalness: 0 }), s.clothEmissive, 0.6),
-        chitin: withBase(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.4 }), s.chitinEmissive, 0.8),
-        glow: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
+        hide: withBase(hideMaterial(glow.color), s.hideEmissive, 0.7),
+        cloth: new THREE.MeshStandardMaterial(),
+        glow,
         membrane
     }
 }
@@ -333,10 +373,8 @@ function mount(part: PartGeo | undefined, mats: Mats, pos: V3): THREE.Group {
     const group = new THREE.Group()
     group.position.set(pos[0], pos[1], pos[2])
     if (!part) return group
-    for (const slot of SLOTS) {
-        const geo = part[slot]
-        if (geo) group.add(new THREE.Mesh(geo, mats[slot]))
-    }
+    if (part.hide) group.add(new THREE.Mesh(part.hide, mats.hide))
+    if (part.membrane) group.add(new THREE.Mesh(part.membrane, mats.membrane))
     return group
 }
 
@@ -345,6 +383,7 @@ const shadowGeometry = noDispose(new THREE.CircleGeometry(1, 12))
 function shadowDisc(radius: number) {
     const material = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.34, depthWrite: false })
     material.userData.baseOpacity = 0.34
+    material.userData.shadow = true
     const shadow = new THREE.Mesh(shadowGeometry, material)
     shadow.scale.setScalar(radius)
     shadow.rotation.x = -Math.PI / 2
@@ -354,8 +393,9 @@ function shadowDisc(radius: number) {
 
 /**
  * The component fades a corpse with `skin.opacity` / `clothes.opacity` and
- * `.transparent`. Route those two materials' properties to every material of
- * the body so the whole corpse dissolves, not only the flesh.
+ * `.transparent`. `skin` is the body's real material and `clothes` a stand-in
+ * for it: route both properties to the membrane, shadow and pustule too, so
+ * the whole corpse dissolves.
  */
 function linkFade(model: EnemyModel, others: THREE.Material[]) {
     let opacity = 1
@@ -418,12 +458,13 @@ function shamblerParts(v: number, flesh: number): Record<string, Kit> {
     const pants = SH_PANTS[v]!
     const top = SH_TOP[v]!
     const chitin = 0x1d2a26
-    const pelvis = new Kit()
+    const chest = new Kit(SH.chest)
+    // The hips ride with the chest (the pivot sits at pelvis height), which saves a draw call.
+    const pelvis = chest
     blob(pelvis, 'skin', [0, 0.93, -0.02], [0.17, 0.13, 0.13], flesh)
     blob(pelvis, 'cloth', [0, 0.93, -0.02], [0.195, 0.145, 0.15], pants, { seed: v })
 
     // Chest: exposed ribs, spine ridges, scapular plates, glowing veins.
-    const chest = new Kit(SH.chest)
     spindle(chest, 'skin', [0, 0.86, 0], [0, 1.3, 0.02], 0.12, 0.15, flesh, { bulge: 0.05, seg: 8 })
     blob(chest, 'skin', [0, 1.45, 0], [0.2, 0.25, 0.135], flesh, { seg: [10, 7] })
     const ribShrink = [0.98, 1, 0.95, 0.85]
@@ -501,7 +542,6 @@ function shamblerParts(v: number, flesh: number): Record<string, Kit> {
     blob(jaw, 'glow', [0, 1.64, 0.08], [0.036, 0.008, 0.05], TEAL, { noise: 0, seg: [6, 4] })
 
     return {
-        pelvis,
         chest,
         head,
         jaw,
@@ -554,7 +594,6 @@ function buildShambler(def: CallOfXenoEnemy, seed: number): EnemyModel {
     const bp = cached(`shambler:${v}`, () => shamblerParts(v, def.color))
     const mats = makeMats('shambler')
     const group = new THREE.Group()
-    group.add(mount(bp.pelvis, mats, [0, 0, 0]))
     const chest = mount(bp.chest, mats, SH.chest)
     chest.rotation.x = SH.lean
     group.add(chest)
@@ -597,14 +636,15 @@ const HK = {
 function huskParts(flesh: number): Record<string, Kit> {
     const chitin = 0x3a2a20
     const cloth = 0x3a3f46
-    const pelvis = new Kit()
+    const chest = new Kit(HK.chest)
+    // The hips ride with the chest (the pivot sits at pelvis height), which saves a draw call.
+    const pelvis = chest
     blob(pelvis, 'skin', [0, 0.93, -0.03], [0.12, 0.1, 0.1], flesh)
     blob(pelvis, 'cloth', [0, 0.96, -0.02], [0.14, 0.07, 0.115], cloth, { seed: 1 })
     for (const [x, y, z, rz] of [[-0.1, 0.83, 0.04, 0.15], [0.1, 0.8, 0.03, -0.15], [0, 0.82, -0.12, 0]] as [number, number, number, number][]) {
         blob(pelvis, 'cloth', [x, y, z], [0.05, 0.11, 0.015], cloth, { rot: [0, 0, rz], seg: [5, 5], seed: x * 30 })
     }
 
-    const chest = new Kit(HK.chest)
     spindle(chest, 'skin', [0, 0.88, -0.03], [0, 1.28, 0], 0.075, 0.1, flesh, { seg: 6 })
     blob(chest, 'skin', [0, 1.42, -0.02], [0.165, 0.22, 0.11], flesh, { seg: [9, 7] })
     for (let i = 0; i < 5; i++) {
@@ -631,7 +671,7 @@ function huskParts(flesh: number): Record<string, Kit> {
     const sacKit = new Kit(HK.sac)
     const sacR: V3 = [0.24, 0.28, 0.22]
     blob(sacKit, 'membrane', HK.sac, sacR, 0xd6f0b0, { noise: 0.05, seg: [12, 9], mottle: 0.12 })
-    blob(sacKit, 'glow', HK.sac, [0.11, 0.14, 0.11], ACID, { noise: 0.1, seg: [8, 6] })
+    blob(sacKit, 'glow', HK.sac, [0.11, 0.14, 0.11], ACID, { noise: 0.1, seg: [7, 5] })
     for (const psi of [0.3, 1.9, -1.3, 3.5]) tube(sacKit, 'glow', meridian(HK.sac, sacR, psi, 1.02), 0.005, ACID)
 
     const head = new Kit(HK.head)
@@ -656,7 +696,6 @@ function huskParts(flesh: number): Record<string, Kit> {
     blob(jaw, 'glow', [0, 1.635, 0.08], [0.03, 0.008, 0.05], ACID, { noise: 0, seg: [6, 4] })
 
     return {
-        pelvis,
         chest,
         sac: sacKit,
         head,
@@ -685,11 +724,11 @@ function huskArm(sx: number, flesh: number, chitin: number) {
 
 function huskLeg(sx: number, flesh: number, chitin: number, cloth: number) {
     const k = new Kit()
-    spindle(k, 'skin', [0, 0, 0], [0, -0.38, 0.15], 0.07, 0.05, flesh, { bulge: 0.05 })
+    spindle(k, 'skin', [0, 0, 0], [0, -0.38, 0.15], 0.07, 0.05, flesh, { bulge: 0.05, seg: 7, steps: 2 })
     spindle(k, 'cloth', [0, -0.02, 0.01], [0, -0.26, 0.1], 0.085, 0.075, cloth, { seg: 6, steps: 3, seed: sx })
     blob(k, 'skin', [0, -0.39, 0.16], [0.05, 0.05, 0.05], flesh, { seg: [6, 5] })
     blob(k, 'chitin', [0, -0.4, 0.2], [0.04, 0.05, 0.02], chitin, { seg: [6, 4] })
-    spindle(k, 'skin', [0, -0.39, 0.16], [0, -0.72, -0.02], 0.048, 0.032, flesh, { bulge: 0.08 })
+    spindle(k, 'skin', [0, -0.39, 0.16], [0, -0.72, -0.02], 0.048, 0.032, flesh, { bulge: 0.08, seg: 7, steps: 2 })
     blob(k, 'skin', [0, -0.73, -0.02], [0.035, 0.035, 0.035], flesh, { seg: [6, 5] })
     spindle(k, 'skin', [0, -0.73, -0.02], [0, -0.87, 0.1], 0.03, 0.02, flesh, { seg: 5, steps: 2 })
     for (const x of [-0.03, 0, 0.03]) spike(k, 'skin', [x * 0.5, -0.88, 0.1], [x * 2, -0.9, 0.27], 0.016, BONE, { seg: 4 })
@@ -702,7 +741,6 @@ function buildHusk(def: CallOfXenoEnemy, seed: number): EnemyModel {
     const bp = cached('husk', () => huskParts(def.color))
     const mats = makeMats('husk')
     const group = new THREE.Group()
-    group.add(mount(bp.pelvis, mats, [0, 0, 0]))
     const chest = mount(bp.chest, mats, HK.chest)
     chest.rotation.x = HK.lean
     group.add(chest)
@@ -773,7 +811,7 @@ function droneWing(sx: number): Kit {
             const s = Math.sin(w.sweep * sx)
             return [x * sx * c + z * s, 0.003, -x * sx * s * sx * sx + z * c + w.z]
         }
-        tube(k, 'chitin', [tip(0, 0.01), tip(w.span * 0.5, 0.012), tip(w.span * 0.95, 0)], 0.007, veinColor, { seg: 0 } as GeoOpts & { segs?: number })
+        tube(k, 'chitin', [tip(0, 0.01), tip(w.span * 0.5, 0.012), tip(w.span * 0.95, 0)], 0.007, veinColor)
         tube(k, 'chitin', [tip(0, 0), tip(w.span * 0.55, -w.chord * 0.32), tip(w.span * 0.88, -w.chord * 0.12)], 0.005, veinColor)
     }
     return k
@@ -886,22 +924,23 @@ const BR = {
     hip: 0.2,
     hipY: 0.9,
     lean: 0.16,
-    pustule: [0, 1.3, -0.36] as V3
+    pustule: [0, 1.24, -0.31] as V3
 }
 
 function bruteParts(flesh: number): Record<string, Kit> {
     const chitin = 0x2a2230
     const navy = 0x2d3b55
     const strap = 0xd06a12
-    const pelvis = new Kit()
+    const chest = new Kit(BR.chest)
+    // The hips ride with the chest (the pivot sits at pelvis height), which saves a draw call.
+    const pelvis = chest
     blob(pelvis, 'skin', [0, 0.92, 0], [0.3, 0.17, 0.22], flesh, { seg: [9, 6] })
     blob(pelvis, 'cloth', [0, 0.8, 0.02], [0.27, 0.16, 0.2], navy, { seg: [9, 6], seed: 4 })
 
-    const chest = new Kit(BR.chest)
     blob(chest, 'skin', [0, 1.12, 0], [0.3, 0.2, 0.24], flesh, { seg: [9, 6] })
-    blob(chest, 'skin', [0, 1.36, 0], [0.4, 0.3, 0.3], flesh, { seg: [11, 8] })
+    blob(chest, 'skin', [0, 1.36, 0], [0.4, 0.3, 0.3], flesh, { seg: [10, 7] })
     blob(chest, 'skin', [0, 1.52, -0.13], [0.34, 0.22, 0.2], flesh, { seg: [10, 7] })
-    blob(chest, 'chitin', [0, 1.38, 0.19], [0.3, 0.26, 0.13], chitin, { seg: [10, 7], noise: 0.05 })
+    blob(chest, 'chitin', [0, 1.38, 0.19], [0.3, 0.26, 0.13], chitin, { seg: [9, 7], noise: 0.05 })
     tube(chest, 'glow', [[-0.16, 1.55, 0.27], [-0.06, 1.44, 0.32], [0.05, 1.5, 0.31], [0.14, 1.36, 0.31], [0.08, 1.24, 0.3]], 0.011, TEAL)
     blob(chest, 'chitin', [0, 1.14, 0.19], [0.24, 0.045, 0.1], chitin, { seg: [8, 4] })
     blob(chest, 'chitin', [0, 1.06, 0.18], [0.2, 0.04, 0.09], chitin, { seg: [8, 4] })
@@ -940,7 +979,6 @@ function bruteParts(flesh: number): Record<string, Kit> {
     blob(jaw, 'glow', [0, 1.65, 0.14], [0.05, 0.008, 0.05], TEAL, { noise: 0, seg: [6, 4] })
 
     return {
-        pelvis,
         chest,
         head,
         jaw,
@@ -953,9 +991,9 @@ function bruteParts(flesh: number): Record<string, Kit> {
 
 function k_ring(chest: Kit, chitin: number) {
     const p = BR.pustule
-    chest.add('chitin', new THREE.TorusGeometry(0.24, 0.045, 5, 10), compose([p[0], p[1], p[2] + 0.05]), chitin, { mottle: 0.1 })
-    for (let i = 0; i < 6; i++) {
-        const a = (i / 6) * Math.PI * 2 + 0.3
+    chest.add('chitin', new THREE.TorusGeometry(0.24, 0.045, 4, 9), compose([p[0], p[1], p[2] + 0.05]), chitin, { mottle: 0.1 })
+    for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2 + 0.3
         const bx = Math.cos(a) * 0.25
         const by = Math.sin(a) * 0.25
         spike(chest, 'chitin', [p[0] + bx, p[1] + by, p[2] + 0.05], [p[0] + bx * 1.25, p[1] + by * 1.25, p[2] - 0.1], 0.03, chitin)
@@ -969,10 +1007,10 @@ function k_ring(chest: Kit, chitin: number) {
 function bruteArm(sx: number, flesh: number, chitin: number) {
     const k = new Kit()
     blob(k, 'skin', [0, 0, 0], [0.12, 0.12, 0.12], flesh, { seg: [7, 5] })
-    spindle(k, 'skin', [0, 0, 0], [0.05 * sx, -0.42, 0.03], 0.14, 0.11, flesh, { bulge: 0.12, seg: 8 })
+    spindle(k, 'skin', [0, 0, 0], [0.05 * sx, -0.42, 0.03], 0.14, 0.11, flesh, { bulge: 0.12, seg: 7, steps: 2 })
     blob(k, 'chitin', [0.05 * sx, -0.44, -0.02], [0.11, 0.11, 0.1], chitin, { seg: [7, 5] })
     spike(k, 'chitin', [0.08 * sx, -0.44, -0.05], [0.16 * sx, -0.48, -0.2], 0.04, chitin)
-    spindle(k, 'skin', [0.05 * sx, -0.44, 0.03], [0.02 * sx, -0.86, 0.14], 0.12, 0.17, flesh, { bulge: 0.1, seg: 8 })
+    spindle(k, 'skin', [0.05 * sx, -0.44, 0.03], [0.02 * sx, -0.86, 0.14], 0.12, 0.17, flesh, { bulge: 0.1, seg: 7, steps: 2 })
     blob(k, 'chitin', [0.03 * sx, -0.72, 0.12], [sx < 0 ? 0.19 : 0.17, 0.2, 0.17], chitin, { seg: [8, 6], noise: 0.06 })
     blob(k, 'skin', [0, -0.96, 0.16], [0.14, 0.1, 0.12], flesh, { seg: [7, 5] })
     for (const x of [-0.07, 0, 0.07]) spike(k, 'chitin', [x, -0.95, 0.24], [x * 1.3, -1.03, 0.4], 0.035, chitin)
@@ -982,11 +1020,11 @@ function bruteArm(sx: number, flesh: number, chitin: number) {
 
 function bruteLeg(sx: number, flesh: number, chitin: number, navy: number) {
     const k = new Kit()
-    spindle(k, 'skin', [0, 0, 0], [0, -0.44, 0.06], 0.14, 0.11, flesh, { bulge: 0.1, seg: 8 })
+    spindle(k, 'skin', [0, 0, 0], [0, -0.44, 0.06], 0.14, 0.11, flesh, { bulge: 0.1, seg: 7, steps: 2 })
     blob(k, 'cloth', [0, -0.1, 0], [0.16, 0.16, 0.15], navy, { seg: [8, 6], seed: sx })
     blob(k, 'chitin', [0, -0.46, 0.14], [0.11, 0.1, 0.07], chitin, { seg: [7, 5] })
     spike(k, 'chitin', [0, -0.46, 0.18], [0, -0.5, 0.34], 0.035, chitin)
-    spindle(k, 'skin', [0, -0.46, 0.06], [0, -0.84, -0.02], 0.11, 0.08, flesh, { bulge: 0.08, seg: 8 })
+    spindle(k, 'skin', [0, -0.46, 0.06], [0, -0.84, -0.02], 0.11, 0.08, flesh, { bulge: 0.08, seg: 7, steps: 2 })
     blob(k, 'chitin', [0, -0.66, 0.06], [0.11, 0.2, 0.08], chitin, { seg: [7, 6] })
     blob(k, 'skin', [0, -0.86, 0.1], [0.11, 0.05, 0.16], flesh, { seg: [7, 5] })
     for (const x of [-0.06, 0, 0.06]) spike(k, 'chitin', [x, -0.87, 0.24], [x * 1.2, -0.89, 0.4], 0.028, chitin)
@@ -997,7 +1035,6 @@ function buildBrute(def: CallOfXenoEnemy, seed: number): EnemyModel {
     const bp = cached('brute', () => bruteParts(def.color))
     const mats = makeMats('brute')
     const group = new THREE.Group()
-    group.add(mount(bp.pelvis, mats, [0, 0, 0]))
     const chest = mount(bp.chest, mats, BR.chest)
     chest.rotation.x = BR.lean
     group.add(chest)
@@ -1015,8 +1052,7 @@ function buildBrute(def: CallOfXenoEnemy, seed: number): EnemyModel {
 
     // Weak point: a fat glowing pustule in the carapace crater on the back.
     const pustuleGeo = pustuleGeometry()
-    const pustuleMat = withBase(new THREE.MeshStandardMaterial({ color: 0xffc040, roughness: 0.2, metalness: 0, transparent: true }), 0xff8a10, 1.6)
-    pustuleMat.userData.baseOpacity = 1
+    const pustuleMat = withBase(new THREE.MeshStandardMaterial({ color: 0xe8842a, roughness: 0.35, metalness: 0 }), 0xff7010, 0.9)
     const pustule = new THREE.Mesh(pustuleGeo, pustuleMat)
     pustule.position.set(BR.pustule[0], BR.pustule[1] - BR.chest[1], BR.pustule[2])
     pustule.scale.set(0.2, 0.22, 0.13)
@@ -1065,20 +1101,20 @@ function assemble(
         ...rig,
         kind,
         seed,
-        skin: mats.skin,
+        skin: mats.hide,
         clothes: mats.cloth,
-        chitin: mats.chitin,
+        chitin: mats.hide,
         membrane: mats.membrane,
         glow: mats.glow,
         baseSkin: def.color,
         baseCloth: 0x343a44,
         torsoY,
-        lit: [mats.skin, mats.cloth, mats.chitin, mats.membrane, ...extra]
+        lit: [mats.hide, mats.membrane, ...extra]
     }
-    const fade: THREE.Material[] = [mats.chitin, mats.membrane, mats.glow, ...extra]
+    const fade: THREE.Material[] = [mats.membrane, ...extra]
     group.traverse((o) => {
         const mesh = o as THREE.Mesh
-        if (mesh.isMesh && (mesh.material as THREE.Material).userData.baseOpacity === 0.34) fade.push(mesh.material as THREE.Material)
+        if (mesh.isMesh && (mesh.material as THREE.Material).userData.shadow) fade.push(mesh.material as THREE.Material)
     })
     linkFade(model, fade)
     return model
@@ -1214,7 +1250,7 @@ function animateBrute(model: EnemyModel, t: number, speed: number, state: EnemyA
         const s = 1 + beat * 0.14
         pustule.scale.set(0.2 * s, 0.22 * s, 0.13 * s)
         const mat = pustule.material as THREE.MeshStandardMaterial
-        if (!model.flashing) mat.emissiveIntensity = 1.1 + beat * 1.6
+        if (!model.flashing) mat.emissiveIntensity = 0.7 + beat * 1.3
     }
     pulseGlow(model, 0.8 + beat * 0.35 + (attack ? 0.25 : 0))
 }
