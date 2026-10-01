@@ -2,7 +2,7 @@
 // relics — 36 Gear pieces, 18 currencies. Gear is icon-only (never shown on the Hero).
 
 import { C } from './palette'
-import { type Surface, taper } from './surface'
+import { type Surface, taper, dome } from './surface'
 import { M, sword, axe, shield, ShieldStyle, type Mat } from './weapons'
 import { type Glyph, CLEAR, rect, px, line, disc, ring, tri, ellipse, ditherDisc, poly, arc } from './icon-kit'
 import { ABILITY_ICON_PARTS as P } from './icons-abilities'
@@ -132,18 +132,91 @@ export const ARTIFACT_ICONS: Readonly<Record<string, Glyph>> = {
         px(g, x + 1, y + 1, C.gold3)
     },
     // Defense
-    artifact_defense_0: (g, x, y) => { shield(g, x, y, ShieldStyle.Buckler, M.iron, M.nature, C.red2); disc(g, x, y, 7, C.stone1); disc(g, x, y, 6, C.green2); disc(g, x, y, 2, C.steel2); for (let i = 0; i < 6; i++) px(g, R(x + Math.cos(i) * 5), R(y + Math.sin(i) * 5), C.brown1) }, // Hedgeknight Buckler
-    artifact_defense_1: (g, x, y) => { line(g, x, y - 9, x, y - 4, C.bone0); P.heart(g, x, y + 1, 3, C.olive1, C.olive2); for (let i = 0; i < 3; i++) line(g, x - 4 + i * 4, y + 5, x - 5 + i * 4, y + 9, C.brown1) }, // Mireroot Charm
-    artifact_defense_2: (g, x, y) => { poly(g, [-5, 6, -7, -2, 0, -8, 7, -2, 4, 6], x, y, C.red1); poly(g, [-3, 4, -4, -1, 0, -5, 0, 4], x, y, C.orange); px(g, x - 2, y - 3, C.gold3) }, // Cinderscale Shard
+    artifact_defense_0: (g, x, y) => {
+        // Hedgeknight Buckler: a plank buckler rimmed in iron, a thorned hedge vine wound round it
+        disc(g, x, y, 8, C.steel1)
+        disc(g, x, y, 7, C.brown2)
+        for (const d of [-4, 0, 4]) line(g, x + d, y - 6, x + d, y + 6, C.brown1)
+        for (let i = 0; i < 14; i++) {
+            const a = i / 14 * Math.PI * 2
+            px(g, R(x + Math.cos(a) * 5), R(y + Math.sin(a) * 5), C.green2)
+        }
+        for (const a of [0.4, 2.0, 3.6, 5.2]) tri(g, R(x + Math.cos(a) * 5), R(y + Math.sin(a) * 5), R(x + Math.cos(a + 0.4) * 5), R(y + Math.sin(a + 0.4) * 5), R(x + Math.cos(a + 0.2) * 7), R(y + Math.sin(a + 0.2) * 7), C.green3)
+        disc(g, x, y, 2, C.steel2); px(g, x - 1, y - 1, C.white)
+    },
+    artifact_defense_1: (g, x, y) => {
+        // Mireroot Charm: a knot of bog root on a cord, a bloom sprouting from it
+        line(g, x, y - 10, x, y - 6, C.brown2)
+        ring(g, x, y - 1, 5, C.brown1); ring(g, x, y - 1, 4, C.brown2)
+        for (const [ax, bx] of [[-3, -5], [0, 0], [3, 5]] as const) line(g, x + ax, y + 3, x + bx, y + 9, C.brown1)
+        tri(g, x + 3, y - 5, x + 8, y - 8, x + 6, y - 3, C.green2); tri(g, x - 3, y - 5, x - 8, y - 7, x - 6, y - 3, C.green3)
+        disc(g, x, y - 1, 2, C.pink); px(g, x, y - 1, C.gold3)
+    },
+    artifact_defense_2: (g, x, y) => {
+        // Cinderscale Shard: one of Pyrrhax's scales, its edge still glowing like a coal
+        disc(g, x, y - 2, 6.5, C.red1)
+        tri(g, x - 6, y - 1, x + 6, y - 1, x, y + 9, C.red1)
+        arc(g, x, y - 2, 5, Math.PI * 1.05, Math.PI * 1.6, C.red2)
+        line(g, x, y - 7, x, y + 7, C.red2)
+        line(g, x - 6, y, x - 1, y + 8, C.orange); line(g, x + 6, y, x + 1, y + 8, C.lava1)
+        for (const [cx, cy] of [[-3, 3], [2, 5]] as const) px(g, x + cx, y + cy, C.gold3)
+    },
     artifact_defense_3: (g, x, y) => { ellipse(g, x, y + 2, 7, 6, C.stone2); ellipse(g, x - 1, y + 1, 5, 4, C.stone3); P.flame(g, x, y - 1, 5, C.orange, C.gold2, C.white); rect(g, x - 5, y + 6, 11, 1, C.stone1) }, // Rimeholt Hearthstone
     artifact_defense_4: (g, x, y) => { arc(g, x, y - 5, 6, 0, Math.PI, C.gold1); disc(g, x, y + 3, 5, C.teal2); disc(g, x - 1, y + 2, 3, C.teal3); px(g, x - 2, y + 1, C.white); ring(g, x, y + 3, 5, C.gold1) }, // Tideglass Pendant
     artifact_defense_5: (g, x, y) => { P.potion(g, x, y, [C.red0, C.red1, C.red2]); px(g, x + 2, y + 3, C.olive2) }, // Mother Leech's Vial
-    artifact_defense_6: (g, x, y) => { ellipse(g, x, y + 1, 8, 6, C.stone1); ellipse(g, x - 1, y, 6, 4, C.stone2); rect(g, x - 8, y + 1, 17, 1, C.gold1); P.skull(g, x, y - 1, C.bone1) }, // Grave Marshal's Pauldron
-    artifact_defense_7: (g, x, y) => { disc(g, x, y, 8, C.brown1); disc(g, x, y, 6, C.brown2); for (let i = 0; i < 4; i++) arc(g, x, y, 2 + i * 1.5, 0, Math.PI * 2, C.brown1); disc(g, x, y, 2, C.green3); px(g, x, y, C.green4) }, // Rotheart Barkshield
+    artifact_defense_6: (g, x, y) => {
+        // Grave Marshal's Pauldron: three lames of dark plate stepping down off the shoulder, a small skull on the top one
+        dome(g, x + 2, y + 8, 8, 4, C.steel0); rect(g, x - 6, y + 8, 17, 1, C.gold1)
+        dome(g, x + 1, y + 4, 8, 4, C.steel1); rect(g, x - 7, y + 4, 17, 1, C.gold1)
+        dome(g, x - 1, y, 8, 8, C.steel1); rect(g, x - 9, y, 17, 1, C.gold1)
+        arc(g, x - 1, y, 7, Math.PI * 1.1, Math.PI * 1.45, C.steel2)
+        rect(g, x - 3, y - 5, 5, 3, C.bone1); rect(g, x - 2, y - 2, 3, 1, C.bone1)
+        px(g, x - 2, y - 4, C.ink); px(g, x, y - 4, C.ink)
+    },
+    artifact_defense_7: (g, x, y) => {
+        // Rotheart Barkshield: a shield of living bark, moss in its corners, the rotten heart glowing in its knot
+        poly(g, [-7, -7, 7, -7, 7, 1, 0, 9, -7, 1], x, y, C.brown1)
+        for (const [d, w] of [[-4, 1], [0, -1], [4, 1]] as const) { line(g, x + d, y - 6, x + d + w, y - 1, C.brown0); line(g, x + d + w, y - 1, x + d, y + 4, C.brown0) }
+        for (const d of [-2, 2]) line(g, x + d, y - 6, x + d, y + 3, C.brown2)
+        for (const [mx, my] of [[-6, -6], [-5, -6], [-6, -5], [5, -6], [6, -6], [6, -5], [-1, 7], [0, 8]] as const) px(g, x + mx, y + my, C.moss2)
+        ellipse(g, x, y, 3, 2, C.brown0)
+        disc(g, x, y, 1.5, C.green3); px(g, x, y, C.green4)
+    },
     artifact_defense_8: (g, x, y) => { P.heart(g, x, y - 1, 4, C.cyan, C.frost); poly(g, [-2, -4, 0, -6, 2, -4], x - 3, y, C.white); line(g, x - 3, y - 2, x + 2, y + 4, C.blue1) }, // Glacier Titan's Heart
-    artifact_defense_9: (g, x, y) => { ellipse(g, x, y + 3, 8, 4, C.teal1); arc(g, x, y + 2, 7, Math.PI, Math.PI * 2, C.teal2); disc(g, x, y + 1, 3, C.white); px(g, x - 1, y, C.frost); P.sparkle(g, x + 5, y - 5, 2, C.white) }, // Maerith's Pearl
-    artifact_defense_10: (g, x, y) => { for (let i = 0; i < 5; i++) line(g, x - 7 + i * 3, y - 6 + (i === 2 ? -2 : 0), x - 8 + i * 4, y + 7, C.bone1, 2); P.skull(g, x, y - 4, C.white) }, // Ossuar's Bone Mantle
-    artifact_defense_11: (g, x, y) => { rect(g, x - 7, y - 6, 14, 12, C.bone0); for (let i = 0; i < 5; i++) line(g, x - 6, y - 4 + i * 2, x + 6, y - 4 + i * 2, C.stone2); for (let i = 0; i < 3; i++) { disc(g, x - 3 + i * 3, y - 2 + i * 2, 1, C.ink); line(g, x - 2 + i * 3, y - 2 + i * 2, x - 2 + i * 3, y - 6 + i * 2, C.ink) } line(g, x + 3, y + 6, x + 6, y + 9, C.haze) }, // Vesper's Forgotten Hymn
+    artifact_defense_9: (g, x, y) => {
+        // Maerith's Pearl: an opened clam, its fluted shell fanned up behind a pearl
+        disc(g, x, y + 1, 8, C.teal2)
+        rect(g, x - 9, y + 2, 19, 8, CLEAR)
+        for (let i = 0; i < 5; i++) {
+            const a = Math.PI * (1.15 + i * 0.175)
+            line(g, x, y + 1, R(x + Math.cos(a) * 7), R(y + 1 + Math.sin(a) * 7), C.teal1)
+        }
+        arc(g, x, y + 1, 8, Math.PI * 1.1, Math.PI * 1.5, C.teal3)
+        ellipse(g, x, y + 5, 8, 3, C.teal1)
+        ellipse(g, x, y + 4, 6, 1, C.teal0)
+        disc(g, x, y + 3, 3, C.white); px(g, x + 1, y + 4, C.frost); px(g, x - 1, y + 2, C.white)
+        P.sparkle(g, x + 7, y - 6, 2, C.white)
+    },
+    artifact_defense_10: (g, x, y) => {
+        // Ossuar's Bone Mantle: a ribcage worn over the shoulders, the spine down its middle
+        rect(g, x - 9, y - 7, 19, 2, C.bone0)
+        for (const d of [-9, 9]) disc(g, x + d, y - 6, 1.5, C.bone1)
+        for (let k = 0; k < 4; k++) {
+            const ry = y - 4 + k * 3
+            const w = 8 - k
+            for (const d of [-1, 1]) { line(g, x + d, ry, x + d * w, ry + 1, C.bone1); line(g, x + d * w, ry + 1, x + d * (w - 1), ry + 3, C.bone1) }
+        }
+        rect(g, x, y - 5, 1, 14, C.bone0)
+        for (let i = 0; i < 5; i++) px(g, x, y - 4 + i * 3, C.bone1)
+    },
+    artifact_defense_11: (g, x, y) => {
+        // Vesper's Forgotten Hymn: an open hymnal in the Sister's blue and gold, its notes drifting up
+        P.book(g, x, y + 3, C.blue1, C.bone1)
+        rect(g, x - 7, y - 1, 15, 1, C.gold1)
+        for (const nx of [-5, 0]) { disc(g, x + nx, y - 4, 1.5, C.gold3); line(g, x + nx + 1, y - 4, x + nx + 1, y - 9, C.gold3) }
+        rect(g, x - 4, y - 10, 6, 2, C.gold3)
+        disc(g, x + 5, y - 6, 1.2, C.white); line(g, x + 6, y - 6, x + 6, y - 10, C.white); px(g, x + 7, y - 9, C.white)
+    },
     // Tempo
     artifact_tempo_0: (g, x, y) => { rect(g, x - 6, y + 2, 13, 3, C.brown2); line(g, x - 4, y + 2, x + 1, y - 5, C.brown1); line(g, x + 4, y + 2, x + 1, y - 5, C.brown1); for (let i = 0; i < 3; i++) px(g, x - 5 + i * 5, y + 1, C.green2) }, // Bramblefoot Sandals
     artifact_tempo_1: (g, x, y) => { P.hourglass(g, x, y, C.olive2); px(g, x - 6, y - 8, C.green2) }, // Marsh Hourglass

@@ -122,7 +122,16 @@ export interface ArtAsset {
  * so the next round is 8;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
+    {
+        n: 8,
+        label: 'Defense artifacts',
+        prefixes: [
+            'icon/artifact/artifact_defense_0', 'icon/artifact/artifact_defense_1', 'icon/artifact/artifact_defense_2', 'icon/artifact/artifact_defense_6',
+            'icon/artifact/artifact_defense_7', 'icon/artifact/artifact_defense_9', 'icon/artifact/artifact_defense_10', 'icon/artifact/artifact_defense_11'
+        ]
+    }
+]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
