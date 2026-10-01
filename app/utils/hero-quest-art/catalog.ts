@@ -41,7 +41,7 @@ import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, BURROW_GRUB, ORE_BEETLE, FORGE_A
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
-    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons'
+    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons'
     | 'vfx' | 'feedback' | 'icons' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
@@ -73,6 +73,7 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     // split out of Icons to lock on their own, ahead of the other icon families (2026-09-29, the user)
     { id: 'class_skill_icons', label: 'Icons · Class-tree skills', locked: true },
     { id: 'training_skill_icons', label: 'Icons · Training Grounds skills', locked: true },
+    { id: 'ability_crest_icons', label: 'Icons · Champion ability crests', locked: true },
     { id: 'icons', label: 'Icons' },
     { id: 'frames', label: 'Frames & badges', locked: true },
     { id: 'backgrounds', label: 'Backgrounds', locked: true },
@@ -114,24 +115,11 @@ export interface ArtAsset {
  * every world background was locked), and again on 2026-09-28, once the Heroes, Champions,
  * Summons, Enemies, Bosses and Backgrounds were all locked. The sixth pass's Rounds 1–3 were
  * approved and taken off when Frames & badges locked, and Round 4 when Branding locked (both also
- * 2026-09-28), and Round 5 when the last Forge boss locked (2026-09-29). Round 6 is the crests;
+ * 2026-09-28), Round 5 when the last Forge boss locked (2026-09-29), and Round 6 when the Champion
+ * ability crests locked (2026-10-01), so the next round is 7;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    {
-        n: 6,
-        label: 'Champion ability crests',
-        prefixes: [
-            'icon/ability/champ_ability_cleave', 'icon/ability/champ_ability_volley', 'icon/ability/champ_ability_focused_barrage',
-            'icon/ability/champ_ability_rupture', 'icon/ability/champ_ability_provoke', 'icon/ability/champ_ability_guardians_reflect',
-            'icon/ability/champ_ability_rallying_shout', 'icon/ability/champ_ability_iron_skin', 'icon/ability/champ_ability_ground_slam',
-            'icon/ability/champ_ability_guardians_vow', 'icon/ability/champ_ability_sanctuary', 'icon/ability/champ_ability_tide_of_renewal',
-            'icon/ability/champ_ability_empower', 'icon/ability/champ_ability_second_wind', 'icon/ability/champ_ability_purify',
-            'icon/ability/champ_ability_slow', 'icon/ability/champ_ability_silence', 'icon/ability/champ_ability_chain_bind',
-            'icon/ability/champ_ability_unraveling_curse'
-        ]
-    }
-]
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
@@ -418,7 +406,7 @@ function iconAssets(): ArtAsset[] {
         for (const name of CHAMPION_ABILITY_POOL[arch]) {
             const g = CHAMPION_ABILITY_ICONS[name]
             if (!g) continue
-            out.push(still(`icon/ability/${abilityId(name)}`, 'icons', 'Champion abilities (crest)', `${name} — ${arch}`, ICON, ICON,
+            out.push(still(`icon/ability/${abilityId(name)}`, 'ability_crest_icons', 'Champion abilities (crest)', `${name} — ${arch}`, ICON, ICON,
                 dst => { crestFrame(dst, ARCH_M[arch]); glyph(dst, g, 12, 12) }))
         }
     }
