@@ -119,7 +119,13 @@ export interface ArtAsset {
  * ability crests locked (2026-10-01), so the next round is 7;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
+    {
+        n: 7,
+        label: 'Offense artifacts',
+        prefixes: ['icon/artifact/artifact_offense_0', 'icon/artifact/artifact_offense_1', 'icon/artifact/artifact_offense_2', 'icon/artifact/artifact_offense_3', 'icon/artifact/artifact_offense_4', 'icon/artifact/artifact_offense_8', 'icon/artifact/artifact_offense_9', 'icon/artifact/artifact_offense_10', 'icon/artifact/artifact_offense_11']
+    }
+]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }

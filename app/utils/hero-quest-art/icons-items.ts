@@ -2,9 +2,9 @@
 // relics — 36 Gear pieces, 18 currencies. Gear is icon-only (never shown on the Hero).
 
 import { C } from './palette'
-import type { Surface } from './surface'
+import { type Surface, taper } from './surface'
 import { M, sword, axe, shield, ShieldStyle, type Mat } from './weapons'
-import { type Glyph, rect, px, line, disc, ring, tri, ellipse, ditherDisc, poly, arc } from './icon-kit'
+import { type Glyph, CLEAR, rect, px, line, disc, ring, tri, ellipse, ditherDisc, poly, arc } from './icon-kit'
 import { ABILITY_ICON_PARTS as P } from './icons-abilities'
 
 const R = Math.round
@@ -33,18 +33,104 @@ function drum(g: Surface, x: number, y: number, body: number, skin: number): voi
 
 export const ARTIFACT_ICONS: Readonly<Record<string, Glyph>> = {
     // Offense
-    artifact_offense_0: (g, x, y) => { line(g, x - 6, y + 7, x + 3, y - 2, C.brown2, 3); disc(g, x + 4, y - 4, 4, C.brown1); px(g, x + 3, y - 7, C.steel3); px(g, x + 7, y - 4, C.steel3); px(g, x + 5, y - 1, C.steel3) }, // Goblin Cudgel
-    artifact_offense_1: (g, x, y) => { poly(g, [-6, 3, -2, -6, 6, -3, 5, 5], x, y, C.stone2); line(g, x - 2, y - 5, x + 5, y - 3, C.stone3); P.sparkle(g, x + 6, y - 6, 2, C.gold3) }, // Tracker's Flint
-    artifact_offense_2: (g, x, y) => { tri(g, x - 4, y - 7, x + 4, y - 7, x + 1, y + 8, C.bone1); line(g, x - 3, y - 6, x + 1, y + 6, C.white); rect(g, x - 4, y - 8, 9, 2, C.stone1); px(g, x, y - 7, C.lava1) }, // Slagjaw's Tooth
-    artifact_offense_3: (g, x, y) => { drum(g, x, y, C.brown1, C.frost); px(g, x - 3, y - 4, C.white); line(g, x + 6, y - 9, x + 2, y - 4, C.bone1) }, // Frostbound War Drum
-    artifact_offense_4: (g, x, y) => { tri(g, x - 6, y + 6, x + 6, y + 6, x, y - 8, C.gold2); tri(g, x - 3, y + 4, x + 3, y + 4, x, y - 4, C.gold3); line(g, x, y + 6, x, y + 9, C.brown2); px(g, x, y - 6, C.white) }, // Dawnbreak Arrowhead
+    artifact_offense_0: (g, x, y) => {
+        // Goblin Cudgel: a knotted club, its grip bound in rag and its head driven full of nails
+        taper(g, x - 7, y + 8, x + 2, y - 2, 2.5, 5, C.brown1)
+        disc(g, x + 4, y - 4, 5, C.brown1)
+        disc(g, x + 3, y - 5, 3, C.brown2)
+        for (let k = 0; k < 3; k++) line(g, x - 7 + k * 2, y + 5 - k * 2, x - 5 + k * 2, y + 7 - k * 2, C.olive1)
+        for (const [nx, ny, ox, oy] of [[2, -8, 0, -1], [8, -6, 1, -1], [8, -1, 1, 0], [4, 0, 0, 1]] as const) {
+            px(g, x + nx, y + ny, C.steel2); px(g, x + nx + ox, y + ny + oy, C.steel3)
+        }
+        px(g, x + 2, y - 6, C.brown3)
+    },
+    artifact_offense_1: (g, x, y) => {
+        // Tracker's Flint: a knapped flint and the fire-steel struck against it, sparks flying
+        poly(g, [-6, 2, -4, -4, 1, -6, 5, -2, 4, 4, -2, 6], x - 2, y + 2, C.stone1)
+        poly(g, [-4, -4, 1, -6, 3, -3, -2, 0], x - 2, y + 2, C.stone2)
+        for (const [cx, cy] of [[-5, 1], [-1, 6], [2, 3]] as const) px(g, x + cx, y + cy, C.stone3)
+        arc(g, x + 5, y - 5, 4, -Math.PI * 0.2, Math.PI * 1.2, C.steel2); arc(g, x + 5, y - 5, 3, -Math.PI * 0.2, Math.PI * 1.2, C.steel2)
+        arc(g, x + 5, y - 5, 4, Math.PI * 1.0, Math.PI * 1.4, C.steel3)
+        P.sparkle(g, x + 4, y + 1, 2, C.gold3)
+        for (const [sx, sy, c] of [[7, 3, C.orange], [2, -1, C.gold3], [8, 0, C.gold3], [5, 5, C.orange]] as const) px(g, x + sx, y + sy, c)
+    },
+    artifact_offense_2: (g, x, y) => {
+        // Slagjaw's Tooth: a great fang on a thong, its root still crusted with glowing slag
+        arc(g, x, y - 4, 7, Math.PI * 1.0, Math.PI * 2.0, C.brown2)
+        poly(g, [-4, -4, 4, -4, 3, 2, 1, 7, 0, 9, -2, 3], x, y, C.bone1)
+        line(g, x - 3, y - 3, x - 1, y + 5, C.white)
+        line(g, x + 3, y - 3, x + 1, y + 6, C.bone0)
+        poly(g, [-5, -5, -2, -7, 3, -7, 6, -5, 4, -3, -4, -3], x, y, C.stone1)
+        line(g, x - 3, y - 4, x + 1, y - 6, C.lava1); px(g, x + 2, y - 6, C.orange)
+    },
+    artifact_offense_3: (g, x, y) => {
+        // Frostbound War Drum: a hide drum rimed in frost, icicles hanging off its hoop
+        rect(g, x - 7, y - 2, 15, 7, C.brown1)
+        for (let i = 0; i < 4; i++) { line(g, x - 6 + i * 4, y - 1, x - 4 + i * 4, y + 4, C.bone1); line(g, x - 4 + i * 4, y - 1, x - 2 + i * 4, y + 4, C.bone0) }
+        ellipse(g, x, y - 2, 7, 3, C.frost)
+        ellipse(g, x - 1, y - 3, 4, 1, C.white)
+        rect(g, x - 7, y + 4, 15, 2, C.blue1); rect(g, x - 7, y + 4, 15, 1, C.cyan)
+        for (const cx of [-5, -1, 3, 6]) tri(g, x + cx - 1, y + 6, x + cx + 1, y + 6, x + cx, y + 6 + (cx & 1 ? 2 : 3), C.frost)
+        line(g, x + 9, y - 9, x + 2, y - 3, C.bone1, 2); disc(g, x + 9, y - 9, 1.5, C.bone0)
+    },
+    artifact_offense_4: (g, x, y) => {
+        // Dawnbreak Arrowhead: a barbed broadhead lit by the sun coming up behind it
+        disc(g, x, y + 8, 8, C.orange); disc(g, x, y + 8, 6, C.gold2); disc(g, x, y + 8, 4, C.gold3)
+        rect(g, x - 9, y + 8, 19, 4, CLEAR)
+        rect(g, x - 9, y + 8, 19, 1, C.lava0)
+        tri(g, x - 4, y + 1, x + 4, y + 1, x, y - 9, C.steel2)
+        tri(g, x - 4, y + 1, x, y + 1, x, y - 9, C.steel3)
+        tri(g, x - 4, y + 1, x - 2, y + 1, x - 4, y + 4, C.steel2); tri(g, x + 2, y + 1, x + 4, y + 1, x + 4, y + 4, C.steel2)
+        rect(g, x - 1, y + 1, 3, 5, C.brown1); rect(g, x - 1, y + 2, 3, 1, C.gold1)
+        px(g, x - 1, y - 5, C.white)
+    },
     artifact_offense_5: (g, x, y) => { line(g, x - 5, y - 9, x - 5, y + 9, C.brown2, 2); poly(g, [0, 0, 11, 1, 8, 5, 11, 9, 0, 9], x - 4, y - 8, C.red1); P.skull(g, x + 1, y - 3, C.bone1) }, // Last Legion Standard
     artifact_offense_6: (g, x, y) => { axe(g, x - 5, y + 7, -0.9, 13, M.ice, M.darkwood, true); P.sparkle(g, x + 6, y - 6, 2, C.frost) }, // Hrimgar's Icebreaker
     artifact_offense_7: (g, x, y) => { ellipse(g, x, y, 8, 5, C.lava0); ellipse(g, x, y, 6, 4, C.orange); disc(g, x, y, 3, C.gold2); rect(g, x, y - 3, 1, 7, C.ink); px(g, x - 2, y - 2, C.white) }, // Eye of Pyrrhax
-    artifact_offense_8: (g, x, y) => { for (let i = 0; i < 3; i++) arc(g, x - 2 + i * 3, y + 4, 8 - i, Math.PI * 1.2, Math.PI * 1.75, i === 1 ? C.bone1 : C.gold1); P.bolt(g, x + 3, y - 2, C.gold3, C.white) }, // Stormcrown Talon
-    artifact_offense_9: (g, x, y) => { line(g, x - 6, y - 9, x - 6, y + 9, C.bone1, 2); poly(g, [0, 0, 12, 2, 10, 6, 12, 10, 0, 9], x - 5, y - 8, C.stone2); for (let i = 0; i < 3; i++) px(g, x - 1 + i * 3, y - 4, C.bone1) }, // Banner of the Bonefields
-    artifact_offense_10: (g, x, y) => { ring(g, x, y, 8, C.purple2); ring(g, x, y, 7, C.lava1); P.flame(g, x, y + 2, 8, C.lava1, C.orange, C.gold3); px(g, x, y - 8, C.pink) }, // Ithren's Burning Sigil
-    artifact_offense_11: (g, x, y) => { ring(g, x - 4, y - 4, 4, C.purple2); ring(g, x - 4, y - 4, 3, C.void); line(g, x - 1, y - 1, x + 7, y + 7, C.purple2, 2); rect(g, x + 3, y + 5, 3, 2, C.purple2); rect(g, x + 5, y + 3, 2, 3, C.purple2); px(g, x - 4, y - 4, C.white) }, // Key to the Last Door
+    artifact_offense_8: (g, x, y) => {
+        // Stormcrown Talon: one hooked claw of the Roc, lightning still crawling over it
+        // the scaled toe comes in from the upper left; the claw hooks down and round from its tip
+        taper(g, x - 10, y - 8, x - 4, y - 3, 4, 5, C.slate2)
+        for (const k of [0, 1, 2]) line(g, x - 9 + k * 2, y - 9 + k * 2, x - 11 + k * 2, y - 6 + k * 2, C.slate1)
+        for (let i = 0; i <= 18; i++) {
+            const a = Math.PI * (1.15 - i / 18 * 0.95)
+            disc(g, x + 1 + Math.cos(a) * 6, y - 1 + Math.sin(a) * 7, 2.8 * (1 - i / 18) + 0.4, i < 4 ? C.bone0 : C.bone1)
+        }
+        arc(g, x + 1, y - 1, 5, Math.PI * 0.4, Math.PI * 0.95, C.white)
+        for (const [ax, ay, bx, by] of [[9, -10, 5, -6], [5, -6, 8, -5], [8, -5, 5, -1]] as const) line(g, x + ax, y + ay, x + bx, y + by, C.cyan, 2)
+        px(g, x + 5, y - 1, C.white)
+    },
+    artifact_offense_9: (g, x, y) => {
+        // Banner of the Bonefields: a black rag on a bone pole, crossed bones on its field
+        line(g, x - 7, y - 9, x - 7, y + 9, C.bone1, 2)
+        disc(g, x - 6, y - 9, 1.5, C.bone0)
+        poly(g, [0, 0, 13, 1, 13, 11, 0, 11], x - 6, y - 7, C.night2)
+        for (const [cx, d] of [[-3, 3], [1, 2], [5, 3]] as const) tri(g, x + cx - 2, y + 5, x + cx + 2, y + 5, x + cx, y + 5 - d, CLEAR)
+        line(g, x - 3, y - 5, x + 4, y + 1, C.bone1); line(g, x + 4, y - 5, x - 3, y + 1, C.bone1)
+        for (const [bx, by] of [[-3, -5], [4, -5], [-3, 1], [4, 1]] as const) disc(g, x + bx, y + by, 1, C.bone1)
+        rect(g, x - 6, y - 7, 13, 1, C.night3)
+    },
+    artifact_offense_10: (g, x, y) => {
+        // Ithren's Burning Sigil: a warding circle, its triangle and runes alight round a flame
+        ring(g, x, y, 8, C.purple2); ring(g, x, y, 7, C.purple1)
+        for (let i = 0; i < 3; i++) {
+            const a = -Math.PI / 2 + i * Math.PI * 2 / 3
+            const b = a + Math.PI * 2 / 3
+            line(g, R(x + Math.cos(a) * 7), R(y + Math.sin(a) * 7), R(x + Math.cos(b) * 7), R(y + Math.sin(b) * 7), C.pink)
+        }
+        for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; px(g, R(x + Math.cos(a) * 8), R(y + Math.sin(a) * 8), C.gold3) }
+        P.flame(g, x, y + 2, 6, C.lava1, C.orange, C.gold3)
+    },
+    artifact_offense_11: (g, x, y) => {
+        // Key to the Last Door: a gold key whose bow holds the door's keystone eye
+        line(g, x - 1, y - 1, x + 7, y + 7, C.gold2, 2)
+        line(g, x + 4, y + 4, x + 2, y + 6, C.gold2, 2); line(g, x + 7, y + 7, x + 5, y + 9, C.gold2, 2)
+        disc(g, x - 4, y - 4, 5, C.gold1)
+        disc(g, x - 4, y - 4, 3.5, C.void)
+        ellipse(g, x - 4, y - 4, 2, 1, C.white); px(g, x - 4, y - 4, C.pink)
+        arc(g, x - 4, y - 4, 4, Math.PI * 1.0, Math.PI * 1.5, C.gold3)
+        px(g, x + 1, y + 1, C.gold3)
+    },
     // Defense
     artifact_defense_0: (g, x, y) => { shield(g, x, y, ShieldStyle.Buckler, M.iron, M.nature, C.red2); disc(g, x, y, 7, C.stone1); disc(g, x, y, 6, C.green2); disc(g, x, y, 2, C.steel2); for (let i = 0; i < 6; i++) px(g, R(x + Math.cos(i) * 5), R(y + Math.sin(i) * 5), C.brown1) }, // Hedgeknight Buckler
     artifact_defense_1: (g, x, y) => { line(g, x, y - 9, x, y - 4, C.bone0); P.heart(g, x, y + 1, 3, C.olive1, C.olive2); for (let i = 0; i < 3; i++) line(g, x - 4 + i * 4, y + 5, x - 5 + i * 4, y + 9, C.brown1) }, // Mireroot Charm
