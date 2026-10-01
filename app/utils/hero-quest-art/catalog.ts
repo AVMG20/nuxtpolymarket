@@ -114,10 +114,24 @@ export interface ArtAsset {
  * every world background was locked), and again on 2026-09-28, once the Heroes, Champions,
  * Summons, Enemies, Bosses and Backgrounds were all locked. The sixth pass's Rounds 1–3 were
  * approved and taken off when Frames & badges locked, and Round 4 when Branding locked (both also
- * 2026-09-28), and Round 5 when the last Forge boss locked (2026-09-29), so the next round is 6;
+ * 2026-09-28), and Round 5 when the last Forge boss locked (2026-09-29). Round 6 is the crests;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
+    {
+        n: 6,
+        label: 'Champion ability crests',
+        prefixes: [
+            'icon/ability/champ_ability_cleave', 'icon/ability/champ_ability_volley', 'icon/ability/champ_ability_focused_barrage',
+            'icon/ability/champ_ability_rupture', 'icon/ability/champ_ability_provoke', 'icon/ability/champ_ability_guardians_reflect',
+            'icon/ability/champ_ability_rallying_shout', 'icon/ability/champ_ability_iron_skin', 'icon/ability/champ_ability_ground_slam',
+            'icon/ability/champ_ability_guardians_vow', 'icon/ability/champ_ability_sanctuary', 'icon/ability/champ_ability_tide_of_renewal',
+            'icon/ability/champ_ability_empower', 'icon/ability/champ_ability_second_wind', 'icon/ability/champ_ability_purify',
+            'icon/ability/champ_ability_slow', 'icon/ability/champ_ability_silence', 'icon/ability/champ_ability_chain_bind',
+            'icon/ability/champ_ability_unraveling_curse'
+        ]
+    }
+]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }

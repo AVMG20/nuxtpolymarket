@@ -2,7 +2,7 @@
 // Grounds skills (circular), 28 Champion abilities (diamond crest). 80 glyphs, one each.
 
 import { C } from './palette'
-import type { Surface } from './surface'
+import { type Surface, taper, dome, quad } from './surface'
 import { M, sword, axe, hammer, shield, arrow, antlers, ShieldStyle, type Mat } from './weapons'
 import { type Glyph, CLEAR, rect, px, line, disc, ring, tri, ellipse, poly, arc } from './icon-kit'
 
@@ -237,34 +237,226 @@ export const CLASS_SKILL_ICONS: Readonly<Record<string, Glyph>> = {
 
 // ── Champion abilities (crest) ─────────────────────────────────────────────────────
 
+/** An arrow drawn to icon size: a 3px head and a split fletching, pointing along `a`. */
+function longArrow(g: Surface, x: number, y: number, a: number, len: number, shaft: number, head: number, fletch: number): void {
+    const dx = Math.cos(a)
+    const dy = Math.sin(a)
+    line(g, R(x - dx * len), R(y - dy * len), R(x - dx * 2), R(y - dy * 2), shaft)
+    tri(g, R(x - dx * 3 - dy * 2), R(y - dy * 3 + dx * 2), R(x - dx * 3 + dy * 2), R(y - dy * 3 - dx * 2), R(x), R(y), head)
+    for (const k of [0, 1]) {
+        const bx = x - dx * (len - k)
+        const by = y - dy * (len - k)
+        px(g, R(bx - dy * 1.5 - dx), R(by + dx * 1.5 - dy), fletch); px(g, R(bx + dy * 1.5 - dx), R(by - dx * 1.5 - dy), fletch)
+    }
+}
+/** A spiked starburst: `n` spikes of length `r` round a core of half that. */
+function burst(g: Surface, x: number, y: number, r: number, n: number, c: number, turn = 0): void {
+    disc(g, x, y, r * 0.55, c)
+    for (let i = 0; i < n; i++) {
+        const a = turn + i * Math.PI * 2 / n
+        const w = 0.42
+        tri(g, R(x + Math.cos(a - w) * r * 0.45), R(y + Math.sin(a - w) * r * 0.45), R(x + Math.cos(a + w) * r * 0.45), R(y + Math.sin(a + w) * r * 0.45),
+            R(x + Math.cos(a) * r), R(y + Math.sin(a) * r), c)
+    }
+}
+
 export const CHAMPION_ABILITY_ICONS: Readonly<Record<string, Glyph>> = {
-    Cleave: (g, x, y) => { axe(g, x - 5, y + 6, -0.9, 12, M.steel, M.wood); arc(g, x, y, 8, -1.8, 0.6, C.white) },
+    Cleave: (g, x, y) => {
+        // a great axe at the end of a wide crescent sweep
+        disc(g, x - 1, y + 1, 10, C.red2)
+        disc(g, x - 1, y + 1, 9, C.white)
+        disc(g, x + 2, y - 2, 9, CLEAR)
+        axe(g, x - 4, y + 6, -0.85, 14, M.steel, M.wood)
+    },
     'Piercing Bolt': (g, x, y) => { line(g, x - 9, y, x + 6, y, C.blue2, 2); tri(g, x + 5, y - 3, x + 5, y + 3, x + 10, y, C.cyan); ring(g, x - 2, y, 4, C.frost); px(g, x + 8, y, C.white) },
     'Rising Flame': (g, x, y) => { flame(g, x, y + 2, 11, C.lava1, C.orange, C.gold3); rect(g, x - 8, y + 7, 17, 1, C.lava0) },
     'Execute Strike': (g, x, y) => { skull(g, x, y + 2); sword(g, x, y - 9, Math.PI / 2 - 0.3, 12, M.steel, M.gold, C.brown0) },
-    Volley: (g, x, y) => { for (let i = 0; i < 3; i++) arrow(g, x + 4 + i * 2, y - 4 + i * 4, 0.5, C.brown3, C.steel3, C.bone1) },
-    'Focused Barrage': (g, x, y) => { ring(g, x, y, 3, C.orange); for (let i = 0; i < 4; i++) { const a = i * Math.PI / 2 + 0.4; line(g, x + Math.cos(a) * 9, y + Math.sin(a) * 9, x + Math.cos(a) * 4, y + Math.sin(a) * 4, i & 1 ? C.white : C.orange) } },
-    Rupture: (g, x, y) => { disc(g, x, y + 3, 3, C.red1); tri(g, x - 3, y + 2, x + 3, y + 2, x, y - 6, C.red1); px(g, x - 1, y + 1, C.red3); for (const a of [-2.2, -0.9, 0.2]) line(g, x, y, x + Math.cos(a) * 9, y + Math.sin(a) * 9, C.red2) },
-    Provoke: (g, x, y) => { rect(g, x - 1, y - 8, 3, 11, C.red2); rect(g, x - 1, y + 5, 3, 3, C.red2); px(g, x, y - 7, C.red3); waves(g, x + 3, y, 2, C.red3) },
+    Volley: (g, x, y) => {
+        // three arrows raining down together
+        for (const k of [-1, 0, 1]) {
+            const tx = x + k * 6
+            const ty = y + (k ? 7 : 10)
+            rect(g, tx, ty - 16, 1, 13, C.brown3)
+            tri(g, tx - 3, ty - 4, tx + 3, ty - 4, tx, ty, C.steel2)
+            rect(g, tx - 1, ty - 4, 1, 3, C.white)
+            for (const d of [-1, 1]) { line(g, tx + d, ty - 15, tx + d * 2, ty - 17, C.red2); line(g, tx + d, ty - 13, tx + d * 2, ty - 15, C.red2) }
+        }
+    },
+    'Focused Barrage': (g, x, y) => {
+        // a target taking a stream of bolts, all into the same ring
+        disc(g, x + 4, y + 1, 6, C.white); disc(g, x + 4, y + 1, 5, C.red1); disc(g, x + 4, y + 1, 3, C.white); disc(g, x + 4, y + 1, 1.5, C.red2)
+        for (const [sx, sy] of [[-10, -6], [-10, 1], [-9, 8]] as const) {
+            const a = Math.atan2(1 - sy, 1 - sx)
+            longArrow(g, x + 1, y + 1 + R(sy * 0.3), a, 9, C.steel2, C.steel3, C.orange)
+        }
+    },
+    Rupture: (g, x, y) => {
+        // the first burst, and the second already swelling behind it
+        burst(g, x + 5, y - 5, 5, 6, C.orange, 0.3)
+        disc(g, x + 5, y - 5, 1.5, C.gold3)
+        burst(g, x - 2, y + 2, 9, 8, C.red1)
+        burst(g, x - 2, y + 2, 6, 8, C.red2, 0.4)
+        disc(g, x - 2, y + 2, 2, C.gold3); px(g, x - 2, y + 2, C.white)
+    },
+    Provoke: (g, x, y) => {
+        // a great helm caught in a red reticle: every enemy's mark is on him
+        dome(g, x, y - 2, 5, 4, C.steel2)
+        rect(g, x - 5, y - 2, 11, 8, C.steel2)
+        rect(g, x - 5, y - 1, 11, 2, C.ink); rect(g, x - 4, y - 1, 3, 1, C.red3); rect(g, x + 2, y - 1, 3, 1, C.red3)
+        rect(g, x, y - 6, 1, 4, C.steel3); rect(g, x, y + 1, 1, 5, C.steel1)
+        for (const d of [-3, -2, 2, 3]) px(g, x + d, y + 3, C.ink)
+        for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+            line(g, x + sx * 9, y + sy * 9, x + sx * 9, y + sy * 6, C.red2, 2)
+            line(g, x + sx * 9, y + sy * 9, x + sx * 6, y + sy * 9, C.red2, 2)
+        }
+    },
     'Bulwark Stance': (g, x, y) => { shield(g, x, y, ShieldStyle.Tower, M.gold, M.steel, C.gold2); arc(g, x, y, 10, Math.PI * 1.1, Math.PI * 1.9, C.gold3) },
-    "Guardian's Reflect": (g, x, y) => { shield(g, x - 2, y, ShieldStyle.Kite, M.steel, [C.frost, C.cyan, C.white], C.white); line(g, x + 3, y - 2, x + 9, y - 7, C.pink); line(g, x + 3, y + 1, x + 9, y + 6, C.cyan) },
-    'Rallying Shout': (g, x, y) => { line(g, x - 5, y - 8, x - 5, y + 8, C.brown2); poly(g, [0, 0, 10, 1, 7, 4, 10, 7, 0, 7], x - 5, y - 8, C.red1); upArrow(g, x + 5, y + 4, C.gold3, 7) },
-    'Iron Skin': (g, x, y) => { rect(g, x - 5, y - 7, 10, 14, C.steel2); rect(g, x - 5, y - 7, 10, 2, C.steel3); for (let i = 0; i < 3; i++) rect(g, x - 5, y - 3 + i * 4, 10, 1, C.steel1); px(g, x - 3, y - 5, C.white); rect(g, x - 7, y - 8, 3, 4, C.steel1); rect(g, x + 4, y - 8, 3, 4, C.steel1) },
-    'Ground Slam': (g, x, y) => { hammer(g, x - 2, y - 3, Math.PI / 2 + 0.2, 7, M.iron, M.wood); rect(g, x - 9, y + 7, 19, 1, C.stone3); for (let i = 0; i < 4; i++) px(g, x - 7 + i * 5, y + 5 - (i & 1), C.stone3) },
-    "Guardian's Vow": (g, x, y) => { heart(g, x, y - 2, 3, C.gold2, C.gold3); for (const d of [-1, 1]) line(g, x + d * 4, y + 3, x + d * 9, y + 8, C.gold3); ring(g, x, y, 10, C.gold1) },
+    "Guardian's Reflect": (g, x, y) => {
+        // a blow comes in, rings off the shield and flies back the way it came
+        disc(g, x - 3, y + 1, 7, C.steel2); disc(g, x - 3, y + 1, 5.5, C.blue1); disc(g, x - 3, y + 1, 2, C.gold2)
+        arc(g, x - 3, y + 1, 6, Math.PI * 1.05, Math.PI * 1.45, C.cyan)
+        line(g, x + 10, y - 8, x + 4, y, C.red2, 2)
+        line(g, x + 4, y + 1, x + 8, y + 6, C.white, 2)
+        tri(g, x + 5, y + 8, x + 10, y + 4, x + 11, y + 9, C.white)
+        sparkle(g, x + 4, y, 2, C.gold3)
+    },
+    'Rallying Shout': (g, x, y) => {
+        // a war horn blown, the call rolling out of its bell
+        // the horn bows down from its mouthpiece and rises to a flared bell facing right
+        const at = (t: number) => [x - 9 + t * 11, y + 2 - t * 5 + Math.sin(t * Math.PI) * 4] as const
+        for (let i = 0; i <= 20; i++) {
+            const t = i / 20
+            const [hx, hy] = at(t)
+            disc(g, hx, hy, 1.1 + t ** 2.5 * 2.3, t > 0.55 ? C.bone1 : C.bone0)
+        }
+        quad(g, x + 1, y - 5, x + 5, y - 8, x + 5, y + 2, x + 1, y - 1, C.bone1)
+        for (const t of [0.4, 0.75]) {
+            const [hx, hy] = at(t)
+            const r = 1.1 + t ** 2.5 * 2.3
+            line(g, R(hx), R(hy - r - 0.5), R(hx), R(hy + r + 0.5), C.gold2)
+        }
+        rect(g, x - 10, y + 1, 2, 2, C.gold2)
+        rect(g, x + 5, y - 8, 2, 11, C.gold2); rect(g, x + 5, y - 8, 1, 11, C.gold3)
+        for (const [r, c] of [[4, C.white], [7, C.gold3]] as const) arc(g, x + 6, y - 3, r, -0.85, 0.85, c)
+    },
+    'Iron Skin': (g, x, y) => {
+        // a sculpted breastplate, a little harder with every blow
+        poly(g, [-8, -5, -4, -8, 4, -8, 8, -5, 7, -1, 5, 7, -5, 7, -7, -1], x - 1, y, C.steel2)
+        ellipse(g, x - 1, y - 8, 2, 2, CLEAR)
+        line(g, x - 1, y - 6, x - 1, y + 5, C.steel3)
+        arc(g, x - 4, y - 3, 3, Math.PI * 0.2, Math.PI * 0.85, C.steel1); arc(g, x + 2, y - 3, 3, Math.PI * 0.15, Math.PI * 0.8, C.steel1)
+        rect(g, x - 6, y + 4, 11, 2, C.gold1); px(g, x - 1, y + 4, C.gold3)
+        for (const d of [-6, 4]) px(g, x + d, y - 6, C.gold2)
+        upArrow(g, x + 7, y - 3, C.gold3, 9)
+    },
+    'Ground Slam': (g, x, y) => {
+        // the hammer comes down and the ground breaks under it
+        rect(g, x - 10, y + 7, 21, 3, C.stone2); rect(g, x - 10, y + 7, 21, 1, C.stone3)
+        line(g, x - 2, y + 7, x - 4, y + 9, C.ink); line(g, x + 2, y + 7, x + 5, y + 9, C.ink)
+        for (const [r, c] of [[7, C.white], [10, C.gold3]] as const) { arc(g, x, y + 6, r, Math.PI * 1.08, Math.PI * 1.3, c); arc(g, x, y + 6, r, Math.PI * 1.7, Math.PI * 1.92, c) }
+        line(g, x + 1, y + 1, x + 8, y - 9, C.brown2, 2); px(g, x + 8, y - 9, C.steel1)
+        rect(g, x - 5, y, 10, 7, C.steel1); rect(g, x - 5, y, 10, 2, C.steel2); rect(g, x - 5, y, 1, 7, C.steel2)
+        rect(g, x - 5, y + 2, 10, 1, C.steel0); rect(g, x - 5, y + 5, 10, 1, C.steel0)
+        px(g, x - 4, y, C.white)
+    },
+    "Guardian's Vow": (g, x, y) => {
+        // a shield raised in front of the ally it has sworn to cover
+        heart(g, x + 5, y + 2, 3, C.red2, C.pink)
+        poly(g, [-6, -7, 6, -7, 6, 1, 0, 8, -6, 1], x - 3, y - 1, C.gold1)
+        poly(g, [-5, -6, 5, -6, 5, 1, 0, 7, -5, 1], x - 3, y - 1, C.blue1)
+        rect(g, x - 3, y - 5, 1, 9, C.gold2); rect(g, x - 6, y - 3, 7, 1, C.gold2)
+    },
     'Mending Light': (g, x, y) => { rect(g, x - 1, y - 7, 3, 15, C.green4); rect(g, x - 7, y - 1, 15, 3, C.green4); rect(g, x, y - 6, 1, 13, C.white); rect(g, x - 6, y, 13, 1, C.white) },
-    Sanctuary: (g, x, y) => { ellipse(g, x, y + 5, 9, 3, C.gold1); ellipse(g, x, y + 5, 6, 1, C.gold3); for (let i = -2; i <= 2; i++) line(g, x + i * 3, y + 4, x + i * 3, y - 6 + Math.abs(i) * 2, C.gold2) },
-    'Tide of Renewal': (g, x, y) => { for (let i = 0; i < 3; i++) arc(g, x - 2 + i * 2, y + 2 + i * 3, 6, Math.PI, Math.PI * 1.9, i === 0 ? C.white : C.teal3); rect(g, x + 4, y - 7, 2, 6, C.green4); rect(g, x + 2, y - 5, 6, 2, C.green4) },
-    Empower: (g, x, y) => { disc(g, x, y + 2, 5, C.orange); upArrow(g, x, y - 1, C.gold3, 12); px(g, x, y - 6, C.white) },
+    Sanctuary: (g, x, y) => {
+        // an ally safe inside a shimmering bubble
+        ring(g, x, y + 1, 9, C.cyan); ring(g, x, y + 1, 8, C.frost)
+        arc(g, x, y + 1, 6, Math.PI * 1.1, Math.PI * 1.45, C.white); px(g, x - 3, y - 4, C.white)
+        disc(g, x, y - 1, 2.5, C.skin1); rect(g, x - 2, y - 4, 5, 2, C.brown1)
+        poly(g, [-3, 2, 3, 2, 4, 7, -4, 7], x, y, C.green2)
+    },
+    'Tide of Renewal': (g, x, y) => {
+        // a curling wave of healing water, green motes rising off its crest
+        disc(g, x - 2, y, 8, C.teal2)
+        rect(g, x - 10, y + 5, 20, 4, C.teal2)
+        disc(g, x + 5, y + 2, 5, CLEAR)
+        rect(g, x + 5, y + 5, 5, 4, C.teal2); disc(g, x + 5, y + 2, 4, CLEAR)
+        arc(g, x - 2, y, 8, Math.PI * 0.95, Math.PI * 1.85, C.white)
+        disc(g, x + 4, y - 4, 1.5, C.white); px(g, x + 5, y - 2, C.frost)
+        line(g, x - 10, y + 5, x - 4, y + 5, C.teal3)
+        for (const [cx, cy, s] of [[6, -6, 2], [8, 1, 1]] as const) { rect(g, x + cx - s, y + cy, s * 2 + 1, 1, C.green4); rect(g, x + cx, y + cy - s, 1, s * 2 + 1, C.green4) }
+    },
+    Empower: (g, x, y) => {
+        // a blade drawn and blazing with borrowed strength
+        ellipse(g, x, y - 1, 5, 9, C.orange)
+        ellipse(g, x, y - 2, 3, 8, C.gold3)
+        sword(g, x, y + 9, -Math.PI / 2, 16, M.steel, M.gold, C.brown0)
+        upArrow(g, x - 7, y + 3, C.red2, 7); upArrow(g, x + 7, y + 3, C.red2, 7)
+    },
     'Haste Blessing': (g, x, y) => { for (let i = 0; i < 3; i++) line(g, x - 9, y - 4 + i * 4, x + 1, y - 4 + i * 4, i === 1 ? C.white : C.cyan); tri(g, x + 1, y - 7, x + 1, y + 7, x + 9, y, C.frost) },
-    'Second Wind': (g, x, y) => { line(g, x, y + 8, x, y - 8, C.gold3); for (let i = 0; i < 6; i++) { line(g, x, y - 6 + i * 2, x - 6 + i, y - 8 + i * 3, C.gold2); line(g, x, y - 6 + i * 2, x + 6 - i, y - 8 + i * 3, C.gold2) } },
-    Purify: (g, x, y) => { sparkle(g, x, y, 8, C.frost); sparkle(g, x - 5, y + 5, 3, C.white); sparkle(g, x + 6, y - 5, 2, C.white); for (const [a, b] of [[-7, -6], [7, 6]]) px(g, x + a!, y + b!, C.purple1) },
+    'Second Wind': (g, x, y) => {
+        // a winged heart: a fallen ally lifted back up
+        for (const d of [-1, 1]) {
+            for (let i = 0; i < 3; i++) tri(g, x + d * 2, y - 1 + i, x + d * 2, y + 3 + i, x + d * (10 - i * 2), y - 6 + i * 4, i === 0 ? C.white : C.bone1)
+        }
+        heart(g, x, y + 1, 3, C.red2, C.pink)
+        ellipse(g, x, y - 8, 3, 1, C.gold3)
+    },
+    Purify: (g, x, y) => {
+        // a drop of holy water, the last of a curse breaking off it
+        disc(g, x, y + 3, 6, C.frost)
+        tri(g, x - 5, y + 1, x + 5, y + 1, x, y - 9, C.frost)
+        disc(g, x + 1, y + 4, 4, C.cyan)
+        line(g, x - 3, y, x - 2, y - 3, C.white); px(g, x - 3, y + 2, C.white)
+        sparkle(g, x - 7, y - 5, 2, C.white); sparkle(g, x + 7, y - 2, 2, C.white)
+        for (const [mx, my] of [[-8, 6], [8, 7], [6, 9]] as const) px(g, x + mx, y + my, C.purple2)
+    },
     Weaken: (g, x, y) => { downArrow(g, x - 3, y, C.purple2, 14); downArrow(g, x + 5, y + 3, C.pink, 8) },
-    Slow: (g, x, y) => { ring(g, x, y, 8, C.cyan); ring(g, x, y, 7, C.blue1); line(g, x, y, x, y - 5, C.white); line(g, x, y, x - 4, y + 2, C.frost); px(g, x, y, C.white) },
-    Silence: (g, x, y) => { ellipse(g, x, y, 6, 4, C.bone1); line(g, x - 4, y, x + 4, y, C.ink); ring(g, x, y, 9, C.purple2); line(g, x - 6, y - 6, x + 6, y + 6, C.pink, 2) },
+    Slow: (g, x, y) => {
+        // a snail, the slowest thing there is
+        poly(g, [-10, 7, -9, 3, -7, 3, -6, 6, 8, 6, 10, 8, -10, 8], x, y, C.sand2)
+        line(g, x - 9, y + 3, x - 10, y - 1, C.sand2); line(g, x - 7, y + 3, x - 7, y - 1, C.sand2)
+        px(g, x - 10, y - 2, C.ink); px(g, x - 7, y - 2, C.ink)
+        disc(g, x + 2, y - 1, 6.5, C.purple1)
+        swirl(g, x + 2, y - 1, 6, C.pink, C.purple2)
+        px(g, x - 1, y - 5, C.pink)
+    },
+    Silence: (g, x, y) => {
+        // a speech bubble struck through: nothing more to say
+        ellipse(g, x, y - 1, 8, 6, C.bone1)
+        tri(g, x - 6, y + 2, x - 2, y + 4, x - 8, y + 8, C.bone1)
+        for (const d of [-4, 0, 4]) rect(g, x + d - 1, y - 2, 2, 2, C.stone1)
+        line(g, x - 7, y - 7, x + 7, y + 7, C.red2, 2)
+    },
     'Shatter Armor': (g, x, y) => { poly(g, [-6, -7, 6, -7, 6, 2, 0, 8, -6, 2], x, y, C.steel2); line(g, x - 1, y - 7, x + 1, y, C.ink); line(g, x + 1, y, x - 2, y + 7, C.ink); line(g, x + 1, y, x + 6, y - 2, C.ink); tri(g, x + 7, y + 3, x + 10, y + 5, x + 8, y + 8, C.steel3) },
-    'Chain Bind': (g, x, y) => { chains(g, x - 9, y - 6, x + 9, y + 6, C.steel2, C.steel3); chains(g, x - 9, y + 6, x + 9, y - 6, C.steel2, C.steel3) },
-    'Unraveling Curse': (g, x, y) => { ring(g, x, y, 6, C.purple1); for (let i = 0; i < 4; i++) { const a = -Math.PI / 2 + (i - 1.5) * 0.6; for (let k = 6; k < 11; k++) px(g, R(x + Math.cos(a) * k + Math.sin(k) * 1), R(y + Math.sin(a) * k), i & 1 ? C.pink : C.haze) } px(g, x, y, C.pink) },
+    'Chain Bind': (g, x, y) => {
+        // a chain locked shut across the crest
+        for (let i = 0; i < 6; i++) {
+            const t = i / 5
+            const cx = R(x - 9 + t * 18)
+            const cy = R(y + 8 - t * 16)
+            if (i & 1) { rect(g, cx - 1, cy - 2, 3, 5, C.steel2); rect(g, cx, cy - 1, 1, 3, CLEAR) } else { rect(g, cx - 2, cy - 1, 5, 3, C.steel2); rect(g, cx - 1, cy, 3, 1, CLEAR) }
+        }
+        ring(g, x, y - 3, 3, C.steel3)
+        rect(g, x - 4, y - 1, 9, 7, C.gold2); rect(g, x - 4, y - 1, 9, 1, C.gold3)
+        rect(g, x, y + 1, 1, 3, C.ink)
+    },
+    'Unraveling Curse': (g, x, y) => {
+        // a cursed skein coming loose, its thread trailing away
+        // the ball's windings: one band of strands across its left, another crossing it on the right
+        const bx = x + 3
+        const by = y - 3
+        for (let dy = -7; dy <= 7; dy++) {
+            for (let dx = -7; dx <= 7; dx++) {
+                if (dx * dx + dy * dy > 42) continue
+                const u = dx < 1 ? dy - dx * 0.5 + (dx * dx) * 0.08 : dx + dy * 0.4 - (dy * dy) * 0.06
+                px(g, bx + dx, by + dy, (((Math.floor(u) % 3) + 3) % 3) === 0 ? C.pink : C.purple1)
+            }
+        }
+        // the loose end, looping once as it trails away
+        ring(g, x - 5, y + 5, 2, C.pink)
+        line(g, x - 1, y + 2, x - 3, y + 4, C.pink); line(g, x - 7, y + 6, x - 10, y + 9, C.pink)
+        for (const [sx, sy] of [[-8, -6], [10, 6]] as const) px(g, x + sx, y + sy, C.pink)
+    },
     Frostbind: (g, x, y) => { for (let i = 0; i < 6; i++) { const a = i * Math.PI / 3; line(g, x, y, x + Math.cos(a) * 9, y + Math.sin(a) * 9, i & 1 ? C.frost : C.cyan) } disc(g, x, y, 2, C.white) }
 }
 
