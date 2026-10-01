@@ -41,7 +41,7 @@ import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, BURROW_GRUB, ORE_BEETLE, FORGE_A
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
-    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons'
+    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons' | 'offense_artifact_icons'
     | 'vfx' | 'feedback' | 'icons' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
@@ -74,6 +74,8 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'class_skill_icons', label: 'Icons · Class-tree skills', locked: true },
     { id: 'training_skill_icons', label: 'Icons · Training Grounds skills', locked: true },
     { id: 'ability_crest_icons', label: 'Icons · Champion ability crests', locked: true },
+    // the Artifacts lock a category at a time (2026-10-02, the user)
+    { id: 'offense_artifact_icons', label: 'Icons · Offense Artifacts', locked: true },
     { id: 'icons', label: 'Icons' },
     { id: 'frames', label: 'Frames & badges', locked: true },
     { id: 'backgrounds', label: 'Backgrounds', locked: true },
@@ -115,17 +117,12 @@ export interface ArtAsset {
  * every world background was locked), and again on 2026-09-28, once the Heroes, Champions,
  * Summons, Enemies, Bosses and Backgrounds were all locked. The sixth pass's Rounds 1–3 were
  * approved and taken off when Frames & badges locked, and Round 4 when Branding locked (both also
- * 2026-09-28), Round 5 when the last Forge boss locked (2026-09-29), and Round 6 when the Champion
- * ability crests locked (2026-10-01), so the next round is 7;
+ * 2026-09-28), Round 5 when the last Forge boss locked (2026-09-29), Round 6 when the Champion
+ * ability crests locked (2026-10-01) and Round 7 when the offense Artifacts locked (2026-10-02),
+ * so the next round is 8;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    {
-        n: 7,
-        label: 'Offense artifacts',
-        prefixes: ['icon/artifact/artifact_offense_0', 'icon/artifact/artifact_offense_1', 'icon/artifact/artifact_offense_2', 'icon/artifact/artifact_offense_3', 'icon/artifact/artifact_offense_4', 'icon/artifact/artifact_offense_8', 'icon/artifact/artifact_offense_9', 'icon/artifact/artifact_offense_10', 'icon/artifact/artifact_offense_11']
-    }
-]
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
@@ -419,7 +416,7 @@ function iconAssets(): ArtAsset[] {
     for (const a of ARTIFACTS) {
         const g = ARTIFACT_ICONS[a.id]
         if (!g) continue
-        out.push(still(`icon/artifact/${a.id}`, 'icons', `Artifacts — ${a.category}`, `${a.name} (${a.rarity})`, ICON, ICON,
+        out.push(still(`icon/artifact/${a.id}`, a.category === 'offense' ? 'offense_artifact_icons' : 'icons', `Artifacts — ${a.category}`, `${a.name} (${a.rarity})`, ICON, ICON,
             dst => { itemTile(dst, RARITY_COLORS[a.rarity]!); glyph(dst, g, 12, 12) }))
     }
     for (const gear of GEAR) {
