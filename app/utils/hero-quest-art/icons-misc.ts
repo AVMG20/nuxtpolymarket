@@ -12,8 +12,8 @@ import { Surface } from './surface'
 import { drawText } from './font'
 import { Actor } from './rig'
 import { HERO_ART } from './heroes'
-import { M, shield, ShieldStyle, type Mat } from './weapons'
-import { type Glyph, glyph, rect, px, line, disc, ring, tri, ellipse, ditherDisc, poly } from './icon-kit'
+import type { Mat } from './weapons'
+import { type Glyph, glyph, rect, px, line, disc, ring, tri, ditherDisc, poly } from './icon-kit'
 import { ABILITY_ICON_PARTS as P } from './icons-abilities'
 
 // ── Rarity frames (32×32, hollow) ──────────────────────────────────────────────────
@@ -375,21 +375,70 @@ function statusTile(g: Surface, hostile: boolean): void {
 export interface StatusIcon { id: string, label: string, hostile: boolean, glyph: Glyph }
 
 export const STATUS_ICONS: readonly StatusIcon[] = [
+    // each glyph sits inside the tile's 10 px well (±5 of the centre), never over its frame
     { id: 'burn', label: 'Burn / DoT', hostile: true, glyph: (g, x, y) => P.flame(g, x, y + 1, 6, C.lava1, C.orange, C.gold3) },
-    { id: 'stun', label: 'Stun', hostile: true, glyph: (g, x, y) => { for (let i = 0; i < 3; i++) { const a = i * 2.1; const sx = Math.round(x + Math.cos(a) * 4); const sy = Math.round(y + Math.sin(a) * 2); P.sparkle(g, sx, sy, 2, C.gold3) } } },
-    { id: 'slow', label: 'Slow', hostile: true, glyph: (g, x, y) => { ring(g, x, y, 5, C.cyan); line(g, x, y, x, y - 3, C.white); line(g, x, y, x - 3, y + 1, C.white) } },
-    { id: 'silence', label: 'Silence', hostile: true, glyph: (g, x, y) => { ellipse(g, x, y, 4, 2, C.bone1); line(g, x - 3, y, x + 3, y, C.ink); line(g, x - 5, y - 5, x + 5, y + 5, C.pink) } },
-    { id: 'armor_shred', label: 'Armor shred', hostile: true, glyph: (g, x, y) => { poly(g, [-4, -5, 4, -5, 4, 1, 0, 5, -4, 1], x, y, C.steel2); line(g, x - 1, y - 5, x + 1, y + 4, C.ink); tri(g, x + 4, y + 2, x + 6, y + 3, x + 5, y + 5, C.steel3) } },
-    { id: 'curse', label: 'Curse', hostile: true, glyph: (g, x, y) => { ring(g, x, y, 5, C.purple2); for (let i = 0; i < 5; i++) { const a = -Math.PI / 2 + i * Math.PI * 2 / 5; const b = a + Math.PI * 4 / 5; line(g, x + Math.cos(a) * 4, y + Math.sin(a) * 4, x + Math.cos(b) * 4, y + Math.sin(b) * 4, C.pink) } } },
+    { id: 'stun', label: 'Stun', hostile: true, glyph: (g, x, y) => {
+        // a dizzy spiral wound square, a pixel between its turns so they stay apart at this size
+        const path = [[0, 0], [2, 0], [2, -2], [-2, -2], [-2, 2], [4, 2], [4, -4], [-4, -4], [-4, 4], [1, 4]] as const
+        for (let i = 1; i < path.length; i++) line(g, x + path[i - 1]![0], y + path[i - 1]![1], x + path[i]![0], y + path[i]![1], C.gold2)
+        px(g, x, y, C.white)
+    } },
+    { id: 'slow', label: 'Slow', hostile: true, glyph: (g, x, y) => {
+        // a clock face, its hands dragging
+        disc(g, x, y, 5, C.blue1); disc(g, x, y, 4, C.frost)
+        for (const [dx, dy] of [[0, -3], [3, 0], [0, 3], [-3, 0]] as const) px(g, x + dx, y + dy, C.blue1)
+        line(g, x, y, x, y - 2, C.ink); line(g, x, y, x + 2, y + 1, C.ink)
+    } },
+    { id: 'silence', label: 'Silence', hostile: true, glyph: (g, x, y) => {
+        // a speech bubble struck through
+        rect(g, x - 4, y - 4, 9, 6, C.bone1); rect(g, x - 5, y - 3, 11, 4, C.bone1)
+        tri(g, x - 3, y + 2, x, y + 2, x - 3, y + 5, C.bone1)
+        for (const dx of [-2, 0, 2]) px(g, x + dx, y - 1, C.stone2)
+        line(g, x - 5, y + 4, x + 5, y - 5, C.red2, 2)
+    } },
+    { id: 'armor_shred', label: 'Armor shred', hostile: true, glyph: (g, x, y) => {
+        // a shield split down a jagged crack, its halves pushed apart
+        poly(g, [-5, -5, -1, -5, 0, -2, -1, 1, 0, 5, -5, 1], x, y, C.steel2)
+        poly(g, [1, -5, 5, -5, 5, 1, 2, 5, 2, 1, 3, -2], x, y, C.steel1)
+        rect(g, x - 5, y - 5, 4, 1, C.steel3)
+    } },
+    { id: 'curse', label: 'Curse', hostile: true, glyph: (g, x, y) => {
+        // a bone skull, hex-light burning violet in its eyes, wisps rising off it
+        P.skull(g, x, y + 1, C.bone1)
+        rect(g, x - 2, y, 2, 2, C.purple2); rect(g, x + 1, y, 2, 2, C.purple2)
+        for (const [dx, dy] of [[-4, -4], [3, -5], [5, -2]] as const) px(g, x + dx, y + dy, C.pink)
+    } },
     { id: 'weaken', label: 'Stat debuff', hostile: true, glyph: (g, x, y) => P.downArrow(g, x, y, C.red3, 10) },
-    { id: 'shield', label: 'Shield', hostile: false, glyph: (g, x, y) => shield(g, x, y, ShieldStyle.Kite, M.gold, [C.teal1, C.teal2, C.teal3], C.white) },
+    { id: 'shield', label: 'Shield', hostile: false, glyph: (g, x, y) => {
+        // a small heater shield in teal, rimmed in gold, a white cross on it
+        poly(g, [-5, -5, 5, -5, 5, 1, 0, 5, -5, 1], x, y, C.gold1)
+        poly(g, [-4, -4, 4, -4, 4, 1, 0, 4, -4, 1], x, y, C.teal2)
+        rect(g, x, y - 3, 1, 6, C.white); rect(g, x - 2, y - 1, 5, 1, C.white)
+    } },
     { id: 'buff', label: 'Buff', hostile: false, glyph: (g, x, y) => P.upArrow(g, x, y, C.gold3, 10) },
     { id: 'regen', label: 'Regen / HoT', hostile: false, glyph: (g, x, y) => { rect(g, x - 1, y - 5, 3, 11, C.green4); rect(g, x - 5, y - 1, 11, 3, C.green4); rect(g, x, y - 4, 1, 9, C.white) } },
-    { id: 'immunity', label: 'Debuff-immunity', hostile: false, glyph: (g, x, y) => { ring(g, x, y, 5, C.white); ring(g, x, y, 4, C.frost); P.downArrow(g, x, y, C.stone3, 6); line(g, x - 4, y + 4, x + 4, y - 4, C.white) } },
-    { id: 'evasion', label: 'Evasion', hostile: false, glyph: (g, x, y) => { for (let i = 0; i < 3; i++) line(g, x - 5, y - 3 + i * 3, x + 1, y - 3 + i * 3, i === 1 ? C.white : C.frost); tri(g, x + 1, y - 5, x + 1, y + 5, x + 6, y, C.frost) } },
+    { id: 'immunity', label: 'Debuff-immunity', hostile: false, glyph: (g, x, y) => {
+        // a ward bubble: a clear sphere, only its rim and a glint showing
+        ring(g, x, y, 5, C.cyan)
+        ring(g, x, y, 4, C.blue1)
+        for (const [dx, dy] of [[-3, -3], [-2, -4], [-4, -2]] as const) px(g, x + dx, y + dy, C.white)
+        px(g, x + 2, y + 2, C.frost)
+    } },
+    { id: 'evasion', label: 'Evasion', hostile: false, glyph: (g, x, y) => { for (let i = 0; i < 3; i++) line(g, x - 5, y - 3 + i * 3, x, y - 3 + i * 3, i === 1 ? C.white : C.frost); tri(g, x, y - 5, x, y + 5, x + 5, y, C.frost) } },
     { id: 'taunt', label: 'Taunt', hostile: false, glyph: (g, x, y) => { rect(g, x - 1, y - 6, 3, 8, C.red2); rect(g, x - 1, y + 3, 3, 3, C.red2); px(g, x, y - 5, C.red3) } },
-    { id: 'reflect', label: 'Reflect', hostile: false, glyph: (g, x, y) => { rect(g, x - 5, y - 5, 3, 11, C.frost); line(g, x - 1, y - 1, x + 5, y - 5, C.pink); line(g, x - 1, y + 1, x + 5, y + 5, C.cyan) } },
-    { id: 'redirect', label: 'Redirect (guarded)', hostile: false, glyph: (g, x, y) => { P.heart(g, x - 2, y, 2, C.gold2, C.gold3); line(g, x + 1, y, x + 6, y, C.gold3); tri(g, x + 4, y - 2, x + 4, y + 2, x + 7, y, C.gold3) } }
+    { id: 'reflect', label: 'Reflect', hostile: false, glyph: (g, x, y) => {
+        // an arrow glancing off a mirror and flying back out
+        rect(g, x - 5, y - 5, 2, 11, C.frost); px(g, x - 5, y - 4, C.white)
+        line(g, x + 4, y - 5, x - 2, y, C.gold3)
+        line(g, x - 2, y, x + 3, y + 4, C.gold3)
+        tri(g, x + 4, y + 5, x + 1, y + 5, x + 4, y + 2, C.gold3)
+    } },
+    { id: 'redirect', label: 'Redirect (guarded)', hostile: false, glyph: (g, x, y) => {
+        // a heart with an arrow taking the blow off it to the right
+        P.heart(g, x - 2, y - 1, 2, C.red2, C.red3)
+        line(g, x + 1, y + 1, x + 4, y + 1, C.gold3)
+        tri(g, x + 3, y - 1, x + 3, y + 3, x + 5, y + 1, C.gold3)
+    } }
 ]
 
 export function drawStatusIcon(s: Surface, icon: StatusIcon, g: (dst: Surface, fn: Glyph, cx: number, cy: number, small?: boolean) => void): void {
