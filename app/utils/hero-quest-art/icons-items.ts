@@ -670,51 +670,108 @@ export const GEAR_ICONS: Readonly<Record<string, Glyph>> = Object.fromEntries(
 )
 
 // ── Currencies (16×16) ─────────────────────────────────────────────────────────────
+// Each family is one shape and each system its colour plus an emblem: a Seal is wax stamped with
+// the system's mark, an Essence a vial of its colour, a Key a key whose bow is cut to the system.
+
+/** The four gacha systems' marks, 5 px across, for the Seals: a book, a crown, an anvil, a gem (the Dig-site key's bow). */
+const MARKS: Readonly<Record<string, (g: Surface, x: number, y: number) => void>> = {
+    skill: (g, x, y) => { rect(g, x - 2, y - 2, 2, 4, C.bone1); rect(g, x + 1, y - 2, 2, 4, C.bone1); rect(g, x, y - 2, 1, 4, C.bone0) },
+    champion: (g, x, y) => { rect(g, x - 2, y, 5, 2, C.gold2); for (const d of [-2, 0, 2]) rect(g, x + d, y - 2, 1, 2, C.gold2) },
+    gear: (g, x, y) => { rect(g, x - 3, y - 2, 6, 2, C.stone1); rect(g, x - 1, y, 2, 1, C.stone1); rect(g, x - 2, y + 1, 4, 1, C.stone1) },
+    artifact: (g, x, y) => { poly(g, [0, -3, 3, 0, 0, 3, -3, 0], x, y, C.teal3); poly(g, [0, -3, -3, 0, 0, 0], x, y, C.white) }
+}
 
 function seal(g: Surface, x: number, y: number, m: Mat, mark: (g: Surface, x: number, y: number) => void): void {
-    disc(g, x, y, 6, m[0])
-    for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; disc(g, x + Math.cos(a) * 5.5, y + Math.sin(a) * 5.5, 1.3, m[0]) }
-    disc(g, x - 0.5, y - 0.5, 4.5, m[1])
+    // wax pooled into a scalloped blob, the stamp's ring pressed into it and the system's mark inside
+    for (let i = 0; i < 9; i++) { const a = i / 9 * Math.PI * 2; disc(g, x + Math.cos(a) * 5, y + Math.sin(a) * 5, 1.6, m[1]) }
+    disc(g, x, y, 5.5, m[1])
+    ring(g, x, y, 4, m[0])
     mark(g, x, y)
-    px(g, x - 3, y - 3, m[2])
+    px(g, x - 4, y - 4, m[2]); px(g, x - 3, y - 5, m[2])
 }
 function essence(g: Surface, x: number, y: number, m: Mat): void {
-    tri(g, x - 4, y + 1, x + 4, y + 1, x, y - 7, m[1])
-    disc(g, x, y + 2, 4, m[1])
-    disc(g, x - 1, y + 1, 2, m[2]); px(g, x - 1, y, C.white)
-    px(g, x + 3, y - 5, m[2]); px(g, x - 4, y - 3, m[2])
+    // a stoppered vial, the system's essence glowing in its round belly
+    rect(g, x - 1, y - 7, 3, 2, C.brown2)
+    rect(g, x - 1, y - 5, 3, 3, C.frost)
+    disc(g, x, y + 2, 5, C.frost)
+    disc(g, x, y + 3, 4, m[1])
+    rect(g, x - 4, y, 9, 1, m[2])
+    px(g, x - 2, y + 1, C.white); px(g, x + 2, y + 4, m[0])
 }
-function key(g: Surface, x: number, y: number, m: Mat): void {
-    ring(g, x - 3, y - 3, 3, m[1]); ring(g, x - 3, y - 3, 2, m[0])
+type KeyBow = 'shield' | 'target' | 'diamond' | 'flame' | 'star'
+function key(g: Surface, x: number, y: number, m: Mat, bow: KeyBow): void {
+    // a shaft running down and right from a bow cut to the raid, two teeth on its bit
     line(g, x - 1, y - 1, x + 5, y + 5, m[1], 2)
-    rect(g, x + 2, y + 4, 2, 2, m[1]); rect(g, x + 4, y + 2, 2, 2, m[1])
-    px(g, x - 4, y - 5, m[2])
+    rect(g, x + 2, y + 5, 2, 2, m[1]); rect(g, x + 4, y + 3, 2, 2, m[1])
+    const bx = x - 3
+    const by = y - 3
+    if (bow === 'shield') { poly(g, [-3, -3, 3, -3, 3, 0, 0, 3, -3, 0], bx, by, m[1]); rect(g, bx, by - 2, 1, 4, m[2]) }
+    else if (bow === 'target') { disc(g, bx, by, 3.5, m[1]); ring(g, bx, by, 2, C.white); px(g, bx, by, m[0]) }
+    else if (bow === 'diamond') { poly(g, [0, -4, 4, 0, 0, 4, -4, 0], bx, by, m[1]); poly(g, [0, -4, -4, 0, 0, 0], bx, by, m[2]) }
+    else if (bow === 'flame') { P.flame(g, bx, by + 1, 5, m[0], m[1], m[2]) }
+    else { poly(g, [0, -4, 1, -1, 4, 0, 1, 1, 0, 4, -1, 1, -4, 0, -1, -1], bx, by, m[1]); px(g, bx, by, C.white) }
 }
 
 const SKILL_M: Mat = [C.blue0, C.blue1, C.blue2]
 const CHAMP_M: Mat = [C.red0, C.red1, C.red3]
 const GEAR_M: Mat = [C.lava0, C.orange, C.gold2]
 const ARTI_M: Mat = [C.teal0, C.teal2, C.teal3]
+const TRAIT_M: Mat = [C.purple0, C.purple2, C.pink]
 
 export const CURRENCY_ICONS: Readonly<Record<string, Glyph>> = {
-    gold: (g, x, y) => { disc(g, x, y, 6, C.gold1); disc(g, x - 0.5, y - 0.5, 5, C.gold2); rect(g, x - 1, y - 3, 2, 6, C.gold1); px(g, x - 3, y - 3, C.gold3); px(g, x - 2, y - 4, C.white) },
-    gems: (g, x, y) => gem(g, x, y, 6, [C.blue1, C.cyan, C.frost]),
-    void_shards: (g, x, y) => { poly(g, [0, -7, 4, -1, 1, 7, -4, 2], x, y, C.purple1); poly(g, [0, -7, -4, 2, 0, 1], x, y, C.purple2); px(g, x - 1, y - 3, C.pink); px(g, x + 2, y - 5, C.white) },
-    seal_skill: (g, x, y) => seal(g, x, y, SKILL_M, (gg, cx, cy) => { rect(gg, cx - 2, cy - 2, 4, 4, C.bone1); px(gg, cx - 1, cy - 1, C.blue1) }),
-    seal_champion: (g, x, y) => seal(g, x, y, CHAMP_M, (gg, cx, cy) => { rect(gg, cx - 2, cy - 2, 4, 4, C.gold2); rect(gg, cx - 1, cy, 3, 1, C.ink) }),
-    seal_gear: (g, x, y) => seal(g, x, y, GEAR_M, (gg, cx, cy) => { rect(gg, cx - 3, cy - 1, 6, 2, C.stone1); rect(gg, cx - 1, cy + 1, 2, 2, C.stone1) }),
-    seal_artifact: (g, x, y) => seal(g, x, y, ARTI_M, (gg, cx, cy) => { ellipse(gg, cx, cy, 3, 1, C.white); px(gg, cx, cy, C.ink) }),
+    gold: (g, x, y) => {
+        // two gold coins, the second peeking out behind the first
+        disc(g, x - 2, y - 2, 4.5, C.gold1); disc(g, x - 2, y - 2, 3.5, C.gold2); px(g, x - 4, y - 4, C.gold3)
+        disc(g, x + 2, y + 2, 5, C.gold0)
+        disc(g, x + 2, y + 2, 4.5, C.gold1); disc(g, x + 2, y + 2, 3.5, C.gold2)
+        rect(g, x + 2, y - 1, 1, 6, C.gold1); px(g, x, y, C.white); px(g, x - 1, y + 1, C.gold3)
+    },
+    gems: (g, x, y) => {
+        // a brilliant: a flat table, a crown of facets, the pavilion run down to a point
+        poly(g, [-6, -2, -3, -5, 3, -5, 6, -2, 0, 6], x, y, C.cyan)
+        poly(g, [-6, -2, 6, -2, 0, 6], x, y, C.blue1)
+        poly(g, [-6, -2, 0, -2, 0, 6], x, y, C.blue2)
+        rect(g, x - 2, y - 5, 5, 3, C.frost)
+        line(g, x - 3, y - 5, x - 4, y - 2, C.blue2); line(g, x + 3, y - 5, x + 4, y - 2, C.blue2)
+        px(g, x - 1, y - 4, C.white)
+    },
+    void_shards: (g, x, y) => {
+        // a long sliver of the Void, broken off square at its foot, a black seam down its heart
+        poly(g, [0, -7, 4, -2, 3, 6, -3, 6, -4, -1], x, y, C.purple1)
+        poly(g, [0, -7, -4, -1, -3, 6, -1, 6, -1, -2], x, y, C.purple2)
+        line(g, x + 1, y - 4, x + 1, y + 5, C.void)
+        px(g, x - 2, y - 2, C.pink); px(g, x, y - 6, C.white); px(g, x + 6, y - 5, C.pink); px(g, x - 6, y + 2, C.purple2)
+    },
+    seal_skill: (g, x, y) => seal(g, x, y, SKILL_M, MARKS.skill!),
+    seal_champion: (g, x, y) => seal(g, x, y, CHAMP_M, MARKS.champion!),
+    seal_gear: (g, x, y) => seal(g, x, y, GEAR_M, MARKS.gear!),
+    seal_artifact: (g, x, y) => seal(g, x, y, ARTI_M, MARKS.artifact!),
     essence_skill: (g, x, y) => essence(g, x, y, SKILL_M),
     essence_champion: (g, x, y) => essence(g, x, y, CHAMP_M),
     essence_gear: (g, x, y) => essence(g, x, y, GEAR_M),
     essence_artifact: (g, x, y) => essence(g, x, y, ARTI_M),
-    trait_gems: (g, x, y) => { poly(g, [-3, -6, 3, -6, 6, 0, 3, 6, -3, 6, -6, 0], x, y, C.purple1); poly(g, [-2, -4, 2, -4, 4, 0, 2, 4, -2, 4, -4, 0], x, y, C.pink); px(g, x - 1, y - 2, C.white) },
-    key_guild: (g, x, y) => key(g, x, y, CHAMP_M),
-    key_training_grounds: (g, x, y) => key(g, x, y, SKILL_M),
-    key_dig_site: (g, x, y) => key(g, x, y, ARTI_M),
-    key_forge: (g, x, y) => key(g, x, y, GEAR_M),
-    key_trait: (g, x, y) => key(g, x, y, [C.purple0, C.pink, C.white]),
-    arena_medals: (g, x, y) => { tri(g, x - 4, y - 7, x, y - 7, x - 1, y, C.red1); tri(g, x, y - 7, x + 4, y - 7, x + 1, y, C.blue1); disc(g, x, y + 3, 4, C.gold1); disc(g, x - 0.5, y + 2.5, 3, C.gold2); px(g, x - 1, y + 2, C.white) }
+    trait_gems: (g, x, y) => {
+        // a step-cut gem, its long table framed by bevelled facets
+        poly(g, [-3, -6, 3, -6, 5, -4, 5, 4, 3, 6, -3, 6, -5, 4, -5, -4], x, y, C.purple1)
+        rect(g, x - 3, y - 4, 7, 8, C.purple2)
+        rect(g, x - 2, y - 3, 5, 6, C.pink)
+        line(g, x - 5, y - 4, x - 3, y - 4, C.pink); px(g, x - 1, y - 2, C.white)
+        rect(g, x - 2, y + 4, 5, 1, C.purple0)
+    },
+    key_guild: (g, x, y) => key(g, x, y, CHAMP_M, 'shield'),
+    key_training_grounds: (g, x, y) => key(g, x, y, SKILL_M, 'target'),
+    key_dig_site: (g, x, y) => key(g, x, y, ARTI_M, 'diamond'),
+    key_forge: (g, x, y) => key(g, x, y, GEAR_M, 'flame'),
+    key_trait: (g, x, y) => key(g, x, y, TRAIT_M, 'star'),
+    arena_medals: (g, x, y) => {
+        // a gold medal on a ribbon of the two arena colours, a star struck on its face
+        poly(g, [-5, -7, -1, -7, 1, -1, -2, -1], x, y, C.red1)
+        poly(g, [1, -7, 5, -7, 2, -1, -1, -1], x, y, C.blue1)
+        disc(g, x, y + 3, 4.5, C.gold1)
+        disc(g, x, y + 3, 3.5, C.gold2)
+        poly(g, [0, -2, 1, 0, 2, 0, 1, 1, 1, 2, 0, 1, -1, 2, -1, 1, -2, 0, -1, 0], x, y + 3, C.gold3)
+        px(g, x - 2, y + 1, C.white)
+    }
 }
 
 export const CURRENCY_LABELS: Readonly<Record<string, string>> = {
