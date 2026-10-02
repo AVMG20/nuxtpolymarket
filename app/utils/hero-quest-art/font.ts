@@ -51,7 +51,7 @@ const BIG: Record<string, string> = {
 
 // 5×7, the 3×5's letterforms at about 1.5×: every vertical stroke two pixels wide, every
 // horizontal one pixel, so it reads as the same typeface a size up rather than a new one. Only
-// what a crit or a total prints: digits, the K/M/B/T suffixes, and . + - !
+// what a crit or a total prints: digits, the K/M/B/T suffixes, E, and . + - !
 const MID: Record<string, string> = {
     '0': '11111110111101111011110111101111111',
     '1': '00110011100011000110001100011011111',
@@ -68,6 +68,8 @@ const MID: Record<string, string> = {
     M: '11011111111111111011110111101111011',
     B: '11110110111101111110110111101111110',
     T: '11111001100011000110001100011000110',
+    // past the trillions the game's numbers print as 4.20E15
+    E: '11111110001100011110110001100011111',
     '+': '00000001100011011111001100011000000',
     '-': '00000000000000011111000000000000000',
     '!': '11000110001100011000000001100011000',

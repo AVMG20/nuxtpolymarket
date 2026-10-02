@@ -61,6 +61,8 @@ import { BOSSES_B } from './bosses-b'
 import { GILDED_WARLORD, GREAT_DUMMY, DUMMY_IMPACT, DEEPCOIL, RAMPANT, RAMPAGE_ROAR, RAMPAGE_SLAM } from './raids'
 import { STAGE } from './special-kit'
 import { ENTRY_SETTLED } from './boss-kit'
+import { RunDirector, stageNumber, type RunFeed } from './run-director'
+import { ZERO, type Decimal } from '../../../shared/utils/hero-quest/numbers'
 
 export const DEMO_W = SW
 export const DEMO_H = SH
@@ -212,6 +214,33 @@ function headAt(head: Surface): PartyMember['portrait'] {
 
 /** Which ally marks the Champions take: the Hero holds the near front mark, they take the rest. */
 const CHAMP_MARKS = [0, 1, 3, 4, 5] as const
+
+/** The player's party, for the game's stage: the Hero and the Champions fielded, each on its row. */
+export interface RunParty {
+    classId: string
+    heroRow: 'front' | 'back'
+    champions: readonly { id: string, row: 'front' | 'back', level: number }[]
+}
+
+/** Each row's ally marks, nearest rank first: who a row takes in. */
+const ROW_MARKS = { front: [2, 1, 0], back: [5, 4, 3] } as const
+
+/** The game's marks: the Hero, then each Champion, on its own row while the row has room, else the other. */
+function runMarks(heroRow: RunParty['heroRow'], rows: readonly RunParty['heroRow'][]): number[] {
+    const free = { front: [...ROW_MARKS.front] as number[], back: [...ROW_MARKS.back] as number[] }
+    const take = (row: 'front' | 'back') => free[row].shift() ?? free[row === 'front' ? 'back' : 'front'].shift()!
+    return [take(heroRow), ...rows.map(take)]
+}
+
+/** The game's stage only: seconds a pack must take to fall before the party marches to the next one rather than meeting it where it stands. */
+const RUN_MARCH_MIN_SECONDS_PER_KILL = 3.2
+/** The pause once a pack is down before the next, against the showcase's 0.7 s: the run does not wait. */
+const RUN_WAVE_GAP = 0.2
+/** How long a due kill waits for a hit to land it before the stage lands it anyway, and the gap between such kills. */
+const RUN_FORCE_AFTER = 0.2
+const RUN_CATCH_UP_GAP = 0.15
+/** How long a fallen party stays down before it gets back up to a fresh pack. */
+const RUN_WIPE_HOLD = 1.6
 
 /**
  * How long the party runs between battles. The speed is derived so one march covers exactly one
@@ -546,9 +575,68 @@ export class BattleDemo {
     /** HUD label, rebuilt only when the wave changes — never inside the loop. */
     private label = ''
     private labels: string[] = []
+    /** The game's stage: the run it plays and the party fighting it. Null on the art page. */
+    private run: RunDirector | null = null
+    private party: RunParty | null = null
+    /** The party stands off against a boss it has not engaged: nobody swings. */
+    private standoff = false
+    /** Seconds the fallen party has left on the ground; how long a kill has been due; the gap before the next caught-up one. */
+    private wipeT = 0
+    private dueFor = 0
+    private forceGap = 0
+    /** What the Hero's skill playing now has shown, for its total. */
+    private cineTotal: Decimal = ZERO
 
     /** Rebuild for a world (1–10), a Hero class and a wave. Bakes every frame the stage will show. */
     setup(world: number, classId: string, waveKind: WaveKind = this.waveKind): void {
+        this.run = null
+        this.party = null
+        this.standoff = false
+        this.build(world, classId, waveKind)
+    }
+
+    /**
+     * Rebuild as the game's stage: the player's party against the run `feed` describes. Bakes the
+     * world's frames, so call it again only when the world or the party changes; `feedRun`
+     * carries everything else.
+     */
+    setupRun(party: RunParty, feed: RunFeed): void {
+        this.run = new RunDirector()
+        this.party = party
+        this.run.sync(feed, 0)
+        this.standoff = feed.atBossGate
+        this.wipeT = 0
+        this.dueFor = 0
+        this.forceGap = 0
+        this.build(feed.world, party.classId, 'regular')
+        this.members[0]!.level = feed.heroLevel
+    }
+
+    /** The run moved on: drop what is due, clear a stage, fall to a wall, or rebuild for a new world. */
+    feedRun(feed: RunFeed): void {
+        const r = this.run
+        if (!r || !this.party) return
+        const world = r.feed?.world
+        let up = 0
+        for (let i = PARTY; i < this.units.length; i++) if (this.units[i]!.state !== U.Gone && this.units[i]!.state !== U.Death) up++
+        const change = r.sync(feed, up)
+        if (this.members[0]) this.members[0].level = feed.heroLevel
+        if (change === 'reset' && world !== feed.world) {
+            this.setupRun(this.party, feed)
+            return
+        }
+        if (change === 'reset') {
+            this.standoff = feed.atBossGate
+            for (let i = PARTY; i < this.units.length; i++) this.units[i]!.state = U.Gone
+            if (this.wipeT <= 0) this.spawnWave()
+        } else if (change === 'wipe') {
+            this.fallParty()
+        }
+        // a gate ahead: the pack still up goes down first, then the boss is met
+        if (change === 'advance') this.standoff = false
+    }
+
+    private build(world: number, classId: string, waveKind: WaveKind): void {
         this.jobs.length = 0
         this.world = world
         this.classId = classId
@@ -558,7 +646,10 @@ export class BattleDemo {
         const hero = HERO_ART[classId]!
         const heroFrames = bakeAlly(`hero/${classId}`)
         const skill = CLASS_BY_ID[classId as keyof typeof CLASS_BY_ID]!.skill.id
-        const heroUnit = this.unit(0, VL.allies[2], heroFrames, [hero.clips.attack, hero.clips.cast], VFX_BY_ID[skill] ?? null)
+        const party = this.party
+        const fielded = party ? party.champions.filter(c => CHAMPION_BY_ID[c.id]).slice(0, PARTY - 1) : []
+        const marks = party ? runMarks(party.heroRow, fielded.map(c => c.row)) : [2, ...CHAMP_MARKS]
+        const heroUnit = this.unit(0, VL.allies[marks[0]!]!, heroFrames, [hero.clips.attack, hero.clips.cast], VFX_BY_ID[skill] ?? null)
         heroUnit.accent = hero.look.accent
         heroUnit.shot = HERO_SHOTS[classId] ?? null
         heroUnit.shots = CLASS_BY_ID[classId as keyof typeof CLASS_BY_ID]!.strikesPerAttack
@@ -570,12 +661,14 @@ export class BattleDemo {
         // five Champions around the Hero, varied by world: the melee pair share his front rank,
         // the ranged three fall in behind — the archetypes' own default rows (§6).
         const pick = (arch: string, k: number) => CHAMPIONS.filter(c => c.archetype === arch)[(world * 3 + k) % 12]!.id
-        const roster = [pick('tank', 1), pick('damage', 2), pick('support', 3), pick('control', 4), pick('damage', 5)]
+        const roster = party
+            ? fielded.map(c => c.id)
+            : [pick('tank', 1), pick('damage', 2), pick('support', 3), pick('control', 4), pick('damage', 5)]
         const champs = roster.map((id, i) => {
             const def = CHAMPION_BY_ID[id]!
             const frames = bakeAlly(`champion/${id}`)
             const ability = def.abilities[0]!.id
-            const u = this.unit(0, VL.allies[CHAMP_MARKS[i]!]!, frames, [CHASSIS[def.archetype].attack, CHASSIS[def.archetype].cast], VFX_BY_ID[ability] ?? null)
+            const u = this.unit(0, VL.allies[marks[i + 1]!]!, frames, [CHASSIS[def.archetype].attack, CHASSIS[def.archetype].cast], VFX_BY_ID[ability] ?? null)
             u.accent = championLook(id).accent
             u.shot = CHAMPION_SHOTS[def.archetype] ?? null
             return u
@@ -614,11 +707,17 @@ export class BattleDemo {
         const dummy = this.raid?.id === 'training_grounds'
         boss.chest = dummy ? 78 : this.raid ? 64 : 30
         boss.crown = dummy ? 140 : this.raid ? 112 : 52
-        this.units = [heroUnit, ...champs, ...foes, boss]
+        // a party short of five Champions keeps its places in the pool: the empty ones never show
+        const empty = Array.from({ length: PARTY - 1 - champs.length }, () => {
+            const u = this.unit(0, VL.allies[0], heroFrames, [], null)
+            u.state = U.Gone
+            return u
+        })
+        this.units = [heroUnit, ...champs, ...empty, ...foes, boss]
         for (const u of [...foes, boss]) u.state = U.Gone
         for (const u of [heroUnit, ...champs]) u.hp = PARTY_HP
         this.members = [`hero/${classId}`, ...roster.map(id => `champion/${id}`)].map((asset, i) => ({
-            hp: 1, lost: 0, flash: false, hurt: false, hero: i === 0, level: SHOWCASE_LEVELS[i]!, statuses: [], portrait: headAt(headOf(asset))
+            hp: 1, lost: 0, flash: false, hurt: false, hero: i === 0, level: party ? (i ? fielded[i - 1]!.level : 1) : SHOWCASE_LEVELS[i]!, statuses: [], portrait: headAt(headOf(asset))
         }))
         const name = w.name.toUpperCase()
         const suffix = this.raid ? `  ${this.raid.id.replace('_', ' ').toUpperCase()} RAID` : waveKind === 'boss' ? '  BOSS' : waveKind === 'superboss' ? '  SUPER BOSS' : ''
@@ -627,7 +726,8 @@ export class BattleDemo {
         this.bossDue = null
         this.march = 0
         // a boss that scrolls into view has to be marched up to, even on the first wave
-        if (waveKind !== 'regular' && this.bossScrolls[waveKind === 'superboss' ? 1 : 0]) this.startMarch()
+        if (this.run) this.spawnWave()
+        else if (waveKind !== 'regular' && this.bossScrolls[waveKind === 'superboss' ? 1 : 0]) this.startMarch()
         else this.spawnWave()
         this.particles.clear()
         for (const f of this.fx) f.live = false
@@ -822,6 +922,10 @@ export class BattleDemo {
     }
 
     private spawnWave(): void {
+        if (this.run) {
+            this.spawnRunWave()
+            return
+        }
         // the party comes to each wave whole
         for (let i = 0; i < PARTY; i++) this.units[i]!.hp = PARTY_HP
         const bossWave = this.waveKind !== 'regular'
@@ -864,6 +968,152 @@ export class BattleDemo {
         }
         this.wave++
         this.label = this.labels[(this.wave - 1) % this.labels.length]!
+    }
+
+    /**
+     * The game's next pack, as the run has it: the stage's bodies (every one elite on an elite
+     * stage), or at a gate the boss with its escort, standing off until the fight is engaged.
+     */
+    private spawnRunWave(): void {
+        const f = this.run!.feed!
+        const gate = f.atBossGate
+        this.standoff = gate
+        const size = Math.min(PARTY, Math.max(1, f.packSize))
+        const which = f.archetype === 'super_boss' ? 1 : 0
+        for (let i = PARTY; i < this.units.length; i++) {
+            const u = this.units[i]!
+            const slot = i - PARTY
+            // the escort takes the near and far marks either side of the boss's
+            const active = u.boss ? gate : gate ? slot === 0 || slot === 2 : slot < size
+            u.state = active ? U.Entry : U.Gone
+            u.t = 0
+            u.fired = false
+            u.hold = 0
+            u.jolt = 0
+            u.flash = 0
+            u.wait = 0.5 + Math.random() * 1.2
+            if (!u.boss && active) {
+                u.rig = (slot + this.wave) % 4
+                u.frames = this.rigFrames[u.rig]!
+                u.shot = RIG_SHOTS[u.rig]!
+                u.elite = !gate && f.archetype === 'elite'
+                u.hp = 1
+            }
+            if (u.boss && active) {
+                u.frames = this.bossFrames[which]!
+                // no specials: the boss stands off here, and its fight is the server's to resolve
+                this.bossSpecial = null
+                this.bossOpened = true
+                this.bossName = this.bossNames[which]!
+                this.nameT = -1
+                this.nameFor = NAME_BASE + NAME_PER_CHAR * this.bossName.length
+                this.bossScrollsIn = this.bossScrolls[which]!
+                u.sit = this.bossLower[which]!
+                u.hp = 1
+                if (this.march > 0) { u.state = this.bossScrollsIn ? U.Idle : U.Gone; this.bossDue = u }
+            }
+        }
+        this.wave++
+        const kind = gate ? (which ? '  SUPER BOSS' : '  BOSS') : f.archetype === 'elite' ? '  ELITE' : ''
+        this.label = `${WORLDS[f.world - 1]!.name.toUpperCase()}  ${f.world}-${f.stage}${kind}`
+    }
+
+    /** After a pack: march to the next if the run leaves time to, else meet it where the party stands. */
+    private nextWave(): void {
+        const spk = this.run?.feed?.secondsPerKill ?? null
+        if (this.run && !this.run.feed?.atBossGate && (spk === null || spk < RUN_MARCH_MIN_SECONDS_PER_KILL)) this.spawnWave()
+        else this.startMarch()
+    }
+
+    /** The walled party falls where it stands; it gets back up to a fresh pack after RUN_WIPE_HOLD. */
+    private fallParty(): void {
+        this.wipeT = RUN_WIPE_HOLD
+        this.cine = null
+        for (let i = 0; i < PARTY; i++) {
+            const u = this.units[i]!
+            if (u.state === U.Gone) continue
+            u.state = U.Death
+            u.t = 0
+            u.hold = 0
+        }
+        this.shake(JUICE.kill.shake + 1, 0.3)
+    }
+
+    private riseParty(): void {
+        for (let i = 0; i < this.members.length; i++) {
+            const u = this.units[i]!
+            u.state = U.Entry
+            u.t = 0
+            u.hp = PARTY_HP
+        }
+        for (let i = PARTY; i < this.units.length; i++) this.units[i]!.state = U.Gone
+        this.spawnWave()
+    }
+
+    /** The game's schedule: land each kill the run says is due, by a hit if one comes, else outright. */
+    private runTick(dt: number): void {
+        const r = this.run!
+        r.tick(dt)
+        if (this.wipeT > 0) {
+            this.wipeT -= dt
+            if (this.wipeT <= 0) this.riseParty()
+            return
+        }
+        if (this.forceGap > 0) this.forceGap -= dt
+        if (r.due() <= 0) {
+            this.dueFor = 0
+            return
+        }
+        this.dueFor += dt
+        const tgt = this.target(0)
+        if (tgt && !this.march && this.dueFor >= RUN_FORCE_AFTER && this.forceGap <= 0) {
+            this.lastBlow(tgt, false)
+            this.forceGap = RUN_CATCH_UP_GAP
+        }
+    }
+
+    /** The blow that drops the front body: what HP it had left, and the kill. */
+    private lastBlow(tgt: Unit, crit: boolean): void {
+        const text = this.run!.finish()
+        const y = tgt.y - tgt.chest
+        if (text) this.number(tgt.x, y - 8, crit ? 'crit' : 'normal', false, crit ? `${text}!` : text)
+        this.particles.burst(tgt.x - 4, y, crit ? 14 : 8, crit ? 70 : 45, 0.5, 'spark', 120, tgt.y)
+        this.dueFor = 0
+        this.kill(tgt)
+    }
+
+    /**
+     * A hit in the game's stage. The party's numbers are the run's (`RunDirector`), and a body
+     * only drops when its kill is due; an enemy's hit shows no number, since the party's HP is the
+     * run's one pool and not a sum of blows.
+     */
+    private landRun(u: Unit, tgt: Unit, melee: boolean): void {
+        if (!standingAny(tgt)) {
+            const next = this.target(u.side)
+            if (!next) return
+            tgt = next
+        }
+        const y = tgt.y - tgt.chest
+        if (tgt.side === 0) {
+            this.particles.burst(tgt.x + 4, y, 8, 45, 0.5, 'blood', 120, tgt.y)
+            if (melee) u.hold = JUICE.hit.hold
+            this.struck(tgt, JUICE.hit.hold)
+            return
+        }
+        const r = this.run!
+        // a presentation roll at the real crit chance: idle farming averages crit, it does not roll it
+        const crit = Math.random() < (r.feed?.critChance ?? 0)
+        const hold = crit ? JUICE.crit.hold : JUICE.hit.hold
+        if (melee) u.hold = hold
+        if (crit && u === this.units[0]) this.shake(JUICE.crit.shake, JUICE.crit.shakeFor)
+        if (r.due() > 0) {
+            this.lastBlow(tgt, crit)
+            return
+        }
+        const text = r.hit(crit)
+        if (text) this.number(tgt.x, y - 8, crit ? 'crit' : 'normal', false, crit ? `${text}!` : text)
+        this.particles.burst(tgt.x - 4, y, crit ? 14 : 8, crit ? 70 : 45, 0.5, 'spark', 120, tgt.y)
+        this.struck(tgt, hold)
     }
 
     /**
@@ -914,7 +1164,7 @@ export class BattleDemo {
         return null
     }
 
-    private number(x: number, y: number, kind: 'normal' | 'crit' | 'heal' | 'miss' | 'total', hold = false): string {
+    private number(x: number, y: number, kind: 'normal' | 'crit' | 'heal' | 'miss' | 'total', hold = false, text?: string): string {
         const n = this.nums[this.numCursor]!
         this.numCursor = (this.numCursor + 1) % this.nums.length
         const list = NUM_TEXT[kind]!
@@ -922,7 +1172,7 @@ export class BattleDemo {
         // loose numbers scatter a few px so a burst of hits doesn't print on one spot; stacks stay aligned
         n.dx = hold ? 0 : Math.round((Math.random() - 0.5) * 8)
         n.style = kind === 'normal' ? NUMBER_STYLES[0]! : kind === 'crit' || kind === 'total' ? NUMBER_STYLES[1]! : kind === 'heal' ? NUMBER_STYLES[2]! : NUMBER_STYLES[3]!
-        n.text = list[Math.floor(Math.random() * list.length)]!
+        n.text = text ?? list[Math.floor(Math.random() * list.length)]!
         return n.text
     }
 
@@ -951,6 +1201,10 @@ export class BattleDemo {
 
     /** One of the skill's impacts: damage the next target, stack its number, total at the end. */
     private cineHit(c: Cine, i: number): void {
+        if (this.run && !c.special) {
+            this.runCineHit(c, i)
+            return
+        }
         let tgt = this.units[0]!
         // a special that strengthens the boss's adds lands on them, walking the line: it mends them
         if (c.special?.target === 'adds') {
@@ -1000,6 +1254,45 @@ export class BattleDemo {
         if (i === c.hits.length - 1) {
             const f = c.first
             this.number(f.x + 6, f.y - f.crown - f.stack * 7 - 8, 'total', true)
+        }
+    }
+
+    /** A Hero skill's hit in the game's stage: the run's numbers stacked on the body, their total at the end. */
+    private runCineHit(c: Cine, i: number): void {
+        const r = this.run!
+        let n = 0
+        for (let k = 0; k < this.units.length; k++) if (standing(this.units[k]!)) n++
+        if (!n) return
+        let tgt: Unit | null = null
+        let pick = c.spread ? i % n : 0
+        for (let k = 0; k < this.units.length; k++) {
+            const u = this.units[k]!
+            if (standing(u) && pick-- === 0) { tgt = u; break }
+        }
+        if (!tgt) return
+        if (!c.first) c.first = tgt
+        if (i === 0) this.cineTotal = ZERO
+        const crit = Math.random() < (r.feed?.critChance ?? 0)
+        const due = r.due() > 0
+        const text = due ? r.finish() : r.hit(crit)
+        if (text) {
+            this.number(tgt.x, tgt.y - tgt.crown - tgt.stack * 7, crit ? 'crit' : 'normal', true, crit ? `${text}!` : text)
+            this.cineTotal = this.cineTotal.add(r.last)
+        }
+        tgt.stack++
+        this.particles.burst(tgt.x, tgt.y - 14, 16, 80, 0.6, 'ember', 140, tgt.y)
+        this.stopFor(JUICE.skill.freeze, true)
+        this.shake(JUICE.skill.shake, JUICE.skill.shakeFor)
+        if (i === 0) this.flashFor(JUICE.skill.flash, C.white)
+        if (due) {
+            this.dueFor = 0
+            this.kill(tgt)
+        } else {
+            this.struck(tgt, JUICE.hit.hold)
+        }
+        if (i === c.hits.length - 1 && this.cineTotal.gt(0)) {
+            const f = c.first
+            this.number(f.x + 6, f.y - f.crown - f.stack * 7 - 8, 'total', true, stageNumber(this.cineTotal))
         }
     }
 
@@ -1154,6 +1447,10 @@ export class BattleDemo {
 
     /** Resolve a hit on `tgt`: the number, the burst, the damage and the hit feel. */
     private land(u: Unit, tgt: Unit, cast: boolean, melee: boolean): void {
+        if (this.run) {
+            this.landRun(u, tgt, melee)
+            return
+        }
         if (!standingAny(tgt)) {
             // the target fell before this arrived: take the next one, or fizzle
             const next = this.target(u.side)
@@ -1208,7 +1505,7 @@ export class BattleDemo {
                     u.phase = Phase.Idle
                     // everyone holds while a Hero skill has the stage
                     // the Training Grounds dummy never swings, and nobody swings at it once time is up
-                    if (!this.cine && !this.march && u.t >= u.wait && this.target(u.side) && !(dummy && (u.boss || dummy.over >= 0))) {
+                    if (!this.cine && !this.march && !this.standoff && u.t >= u.wait && this.target(u.side) && !(dummy && (u.boss || dummy.over >= 0))) {
                         // a boss opens with its special, then reaches for it now and then
                         const special = u.boss && this.bossSpecial !== null && (!this.bossOpened || Math.random() < SPECIAL_CHANCE)
                         const cast = u.side === 0 ? Math.random() < 0.3 : special
@@ -1317,6 +1614,7 @@ export class BattleDemo {
                     break
             }
         }
+        if (this.run) this.runTick(dt)
         if (this.raid?.id === 'dig_site' && !this.march) this.raidAdds(this.raid, dt)
         if (dummy && !this.march) this.dummyRound(dummy, dt)
         if (this.nameT >= 0 && this.nameT < this.nameFor) this.nameT += dt
@@ -1341,7 +1639,7 @@ export class BattleDemo {
             for (let i = 0; i < this.units.length; i++) if (this.units[i]!.side === 1 && this.units[i]!.state !== U.Gone) foes++
             if (foes === 0) {
                 this.waveTimer += dt
-                if (this.waveTimer > 0.7) { this.waveTimer = 0; this.startMarch() }
+                if (this.waveTimer > (this.run ? RUN_WAVE_GAP : 0.7)) { this.waveTimer = 0; this.nextWave() }
             }
         }
         for (let i = 0; i < this.fx.length; i++) {
@@ -1502,7 +1800,9 @@ export class BattleDemo {
     private drainFrames(dt: number): void {
         for (let i = 0; i < Math.min(PARTY, this.units.length); i++) {
             const u = this.units[i]!
-            u.hp = Math.min(PARTY_HP, u.hp + dt * PARTY_REGEN)
+            // the game's party shares the run's one HP pool, empty while it lies fallen
+            const pool = this.run ? (this.wipeT > 0 ? 0 : (this.run.feed?.heroHpPct ?? 100) / 100) : -1
+            u.hp = pool >= 0 ? pool * PARTY_HP : Math.min(PARTY_HP, u.hp + dt * PARTY_REGEN)
             const hp = u.hp / PARTY_HP
             if (hp < u.shown) u.lagHold = LOST_HOLD
             u.shown = hp
