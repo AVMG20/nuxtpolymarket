@@ -7,8 +7,8 @@
 // They replace their round-1 `vfx.ts` entries by ID, as the cinematics do the Hero skills'.
 
 import { C } from './palette'
-import { disc, ditherDisc, ditherEllipse, hash2, line, poly, rect, ring, tri, type Surface } from './surface'
-import { VL, pr, qt, eo, travel, lob, VP, burst, motes, stunStars, R } from './vfx-kit'
+import { disc, ditherDisc, ditherEllipse, ellipseRing, hash2, line, poly, rect, ring, tri, type Surface } from './surface'
+import { VL, pr, qt, eo, travel, lob, VP, burst, motes, stunStars, healRise, R } from './vfx-kit'
 import { abilityId, CHAMPIONS } from '../../../shared/utils/hero-quest/content/champions'
 import type { ChampionArchetype } from '../../../shared/utils/hero-quest/types'
 import { Actor } from './rig'
@@ -386,7 +386,221 @@ const TANK: VfxDef[] = [
     })
 ]
 
-export const CHAMPION_STYLED: readonly VfxDef[] = [...DAMAGE, ...TANK]
+// ── Support ────────────────────────────────────────────────────────────────────────
+
+// The live stage fields the Support on the back row's far mark (CHAMP_MARKS[2]). A single-ally
+// heal or shield is staged on the front row's middle Champion, a hurt front-liner; a buff on the
+// strongest ally lands on the Hero.
+const SU = VL.allies[3]
+const SUC = chestOf(SU)
+const STAFF = { x: SU.x + 7, y: SUC - 10 }
+const HURT = VL.allies[1]
+const BEST = VL.allies[2]
+const HEAL: Ramp6 = [C.white, C.green4, C.green4, C.green3, C.teal2, C.teal1]
+const BLESS: Ramp6 = [C.white, C.frost, C.cyan, C.cyan, C.blue2, C.blue1]
+const POWER: Ramp6 = [C.white, C.gold3, C.orange, C.red2, C.red1, C.red0]
+
+/** A glow gathering at the Support's staff head over [t0, t1]: motes drawn in, a swelling orb. */
+function staffCharge(d: Surface, t: number, t0: number, t1: number, ramp: Ramp6, seed: number): void {
+    const q = qt(t)
+    if (q < t0 || q >= t1) return
+    const u = pr(t, t0, t1)
+    for (let i = 0; i < 8; i++) {
+        const a = hash2(i, seed) * Math.PI * 2
+        const ph = (q * 2.5 + hash2(i, seed + 1)) % 1
+        const dist = (1 - ph) * 12
+        d.set(R(STAFF.x + Math.cos(a) * dist), R(STAFF.y + Math.sin(a) * dist), ph > 0.7 ? C.white : ramp[2])
+    }
+    disc(d, STAFF.x, STAFF.y, 1 + u * 2, ramp[3]); disc(d, STAFF.x, STAFF.y, u * 1.2, C.white)
+}
+
+/** A shaft of light down onto a body standing on `g`, `w` px each side, narrowing as it fades. */
+function lightShaft(d: Surface, x: number, g: number, w: number, t: number, t0: number, t1: number, ramp: Ramp6): void {
+    const q = qt(t)
+    if (q < t0 || q >= t1) return
+    const u = (q - t0) / (t1 - t0)
+    const half = R(w * (u < 0.2 ? u / 0.2 : 1 - (u - 0.2) / 0.8 * 0.7))
+    for (let dx = -half; dx <= half; dx++) {
+        const k = Math.abs(dx) / Math.max(1, half)
+        const c = k < 0.3 ? ramp[0] : k < 0.65 ? ramp[1] : ramp[3]
+        for (let y = 0; y < g; y++) if (k < 0.65 || ((y + dx) & 1)) d.set(x + dx, y, c)
+    }
+}
+
+const SUPPORT: VfxDef[] = [
+    // one ally, heal: a mote of green light thrown from the staff, a shaft of light on the
+    // wounded ally, a heal bursting out of it and pluses rising
+    champ('Mending Light', 'Support', 1.4, (d, t) => {
+        const q = qt(t)
+        const hc = chestOf(HURT)
+        staffCharge(d, t, 0.05, 0.35, HEAL, 700)
+        const u = travel(t, 0.35, 0.6)
+        if (u >= 0) {
+            lob(STAFF.x, STAFF.y, HURT.x, hc, 10, u)
+            comet(d, VP.x, VP.y, VP.a, 2, HEAL, t, 701)
+        }
+        lightShaft(d, HURT.x, HURT.g, 5, t, 0.55, 1.2, HEAL)
+        blast(d, HURT.x, hc, t, 0.6, 9, 0.45, HEAL, 702, 'heal')
+        if (q > 0.65 && q < 1.4) healRise(d, HURT.x, hc, t, 703, C.green4, C.white)
+    }),
+    // one ally, shield: a bubble of light closes round the wounded ally, a glint running round it
+    champ('Sanctuary', 'Support', 1.5, (d, t) => {
+        const q = qt(t)
+        const hc = chestOf(HURT)
+        staffCharge(d, t, 0.05, 0.3, BLESS, 710)
+        const u = travel(t, 0.3, 0.5)
+        if (u >= 0) comet(d, STAFF.x + (HURT.x - STAFF.x) * u, STAFF.y + (hc - STAFF.y) * u, Math.atan2(hc - STAFF.y, HURT.x - STAFF.x), 2, BLESS, t, 711)
+        if (q >= 0.5 && q < 1.5) {
+            const s = eo(pr(t, 0.5, 0.7)) * (q < 1.25 ? 1 : 1 - (q - 1.25) / 0.25)
+            const r = 12 * s
+            const cy = hc - 2
+            ditherDisc(d, HURT.x, cy, r, C.cyan, 3)
+            ring(d, HURT.x, cy, r, C.frost)
+            ring(d, HURT.x, cy, Math.max(1, r - 1), C.blue2)
+            // the glint wheeling round the shell, and its lit upper-left arc
+            for (let i = 0; i < 8; i++) {
+                const a = Math.PI * (1.05 + i * 0.06)
+                d.set(R(HURT.x + Math.cos(a) * (r - 2)), R(cy + Math.sin(a) * (r - 2)), C.white)
+            }
+            const ga = q * 5
+            d.set(R(HURT.x + Math.cos(ga) * r), R(cy + Math.sin(ga) * r), C.white)
+        }
+        blast(d, HURT.x, hc, t, 0.5, 6, 0.3, BLESS, 712, 'frost')
+    }),
+    // the party, heal over time: a tide of teal light rolls across under them, ripples rising at
+    // each ally's feet, and green pluses keep rising after it
+    champ('Tide of Renewal', 'Support', 1.6, (d, t) => {
+        const q = qt(t)
+        staffCharge(d, t, 0.05, 0.3, HEAL, 720)
+        // the tide: a crest of teal light sweeping left to right along the ground under the party
+        const u = pr(t, 0.3, 0.9)
+        if (u > 0 && u < 1) {
+            const cx = -10 + u * 90
+            for (let dx = -14; dx <= 2; dx++) {
+                const k = (dx + 14) / 16
+                const h = R(2 + k * k * 6)
+                for (const g of [52, 68, 84]) for (let y = 0; y < h; y++) d.set(R(cx + dx + (84 - g) * 0.2), g - 1 - y, y === h - 1 ? C.white : k > 0.7 ? C.teal3 : C.teal2)
+            }
+        }
+        VL.allies.forEach((a, i) => {
+            const at = 0.3 + (a.x + 10) / 90 * 0.6
+            if (q >= at && q < at + 0.6) {
+                const r = (q - at) / 0.6
+                ellipseRing(d, a.x, a.g - 1, 3 + r * 10, (3 + r * 10) * 0.3, r < 0.5 ? C.teal3 : C.teal1)
+            }
+            if (q > at + 0.1) healRise(d, a.x, chestOf(a), t, 721 + i, C.green4, C.white)
+        })
+    }),
+    // the strongest ally, PWR: an orb of red-gold fire thrown to the Hero bursts into a flaring aura
+    champ('Empower', 'Support', 1.5, (d, t) => {
+        const q = qt(t)
+        const bc = chestOf(BEST)
+        staffCharge(d, t, 0.05, 0.35, POWER, 730)
+        const u = travel(t, 0.35, 0.6)
+        if (u >= 0) {
+            lob(STAFF.x, STAFF.y, BEST.x, bc, 12, u)
+            comet(d, VP.x, VP.y, VP.a, 3, POWER, t, 731)
+        }
+        blast(d, BEST.x, bc, t, 0.6, 11, 0.5, POWER, 732, 'fire')
+        if (q >= 0.65 && q < 1.5) {
+            const fade = q < 1.2 ? 1 : 1 - (q - 1.2) / 0.3
+            const f = Math.floor(q * 15)
+            for (let i = 0; i < 8; i++) {
+                const xx = BEST.x - 9 + i * 2 + (i > 3 ? 3 : 0)
+                const h = R((8 + 10 * hash2(f, i)) * fade)
+                for (let k = 0; k < h; k++) d.set(xx, BEST.g - 1 - k, k < h * 0.4 ? C.orange : k < h * 0.75 ? C.red2 : C.red1)
+                if (h > 0) d.set(xx, BEST.g - 1 - h, C.gold3)
+            }
+            chevrons(d, BEST.x, bc - 16, t, true, C.red2, C.gold3)
+        }
+    }),
+    // the strongest ally, SPD: ribbons of cyan wind wheel round the Hero, speed lines streaming off
+    champ('Haste Blessing', 'Support', 1.5, (d, t) => {
+        const q = qt(t)
+        const bc = chestOf(BEST)
+        staffCharge(d, t, 0.05, 0.35, BLESS, 740)
+        const u = travel(t, 0.35, 0.55)
+        if (u >= 0) comet(d, STAFF.x + (BEST.x - STAFF.x) * u, STAFF.y + (bc - STAFF.y) * u, Math.atan2(bc - STAFF.y, BEST.x - STAFF.x), 2, BLESS, t, 741)
+        blast(d, BEST.x, bc, t, 0.55, 8, 0.35, BLESS, 742, 'frost')
+        if (q >= 0.55 && q < 1.5) {
+            const fade = q < 1.2 ? 1 : 1 - (q - 1.2) / 0.3
+            // two ribbons spiralling up round the body
+            for (let rib = 0; rib < 2; rib++) {
+                for (let k = 0; k < 26; k++) {
+                    const v = k / 26
+                    if (v > fade) break
+                    const a = q * 9 + rib * Math.PI + v * Math.PI * 3
+                    const x = BEST.x + Math.cos(a) * 9
+                    const y = BEST.g - 2 - v * 24 + Math.sin(a) * 2.5
+                    const c = Math.sin(a) > 0 ? (k > 22 ? C.white : C.cyan) : C.blue2
+                    d.set(R(x), R(y), c); d.set(R(x), R(y) - 1, Math.sin(a) > 0 ? C.frost : C.blue1)
+                }
+            }
+            for (let i = 0; i < 4; i++) {
+                const ph = (q * 3 + hash2(i, 743)) % 1
+                const y = bc - 8 + i * 5
+                const x = BEST.x - 8 - ph * 16
+                for (let k = 0; k < 5; k++) d.set(R(x - k), y, k < 2 ? C.white : C.cyan)
+            }
+            chevrons(d, BEST.x, bc - 16, t, true, C.cyan, C.white)
+        }
+    }),
+    // the party, revive: the sky opens in gold over the party, a shaft of light comes down on every
+    // ally, and feathers of light drift down through them
+    champ('Second Wind', 'Support', 1.7, (d, t) => {
+        const q = qt(t)
+        staffCharge(d, t, 0.05, 0.4, SHIELD, 750)
+        if (q >= 0.3 && q < 1.5) {
+            const s = Math.min(1, (q - 0.3) / 0.2, (1.5 - q) / 0.3)
+            // the sky opening: a band of gold light, white-hot at its heart, dithered only at its edge
+            ditherEllipse(d, 45, 3, 44 * s, 6 * s, C.gold1, 6)
+            ditherEllipse(d, 45, 3, 38 * s, 5 * s, C.gold2, 16)
+            ditherEllipse(d, 45, 2, 26 * s, 3 * s, C.gold3, 16)
+            ditherEllipse(d, 45, 2, 14 * s, 1.5 * s, C.white, 16)
+        }
+        VL.allies.forEach((a, i) => {
+            lightShaft(d, a.x, a.g, 4, t, 0.45 + i * 0.04, 1.4 + i * 0.04, SHIELD)
+            blast(d, a.x, a.g - 1, t, 0.55 + i * 0.04, 8, 0.45, SHIELD, 751 + i, 'gold', true)
+        })
+        // feathers of light drifting down, rocking as they fall
+        if (q >= 0.5 && q < 1.7) for (let i = 0; i < 10; i++) {
+            const ph = ((q - 0.5) * 0.7 + hash2(i, 760)) % 1
+            const x = R(10 + hash2(i, 761) * 70 + Math.sin(q * 4 + i) * 3)
+            const y = R(4 + ph * 80)
+            d.set(x, y, C.white); d.set(x + 1, y + 1, C.gold3); d.set(x - 1, y + 1, C.gold2)
+        }
+    }),
+    // the party, cleanse and immunity: a ring of white light washes out over the party, the dark
+    // of every debuff drawn up out of them and burning away, a glint of ward left on each
+    champ('Purify', 'Support', 1.6, (d, t) => {
+        const q = qt(t)
+        staffCharge(d, t, 0.05, 0.35, BLESS, 770)
+        shockRing(d, SU.x + 10, SU.g - 1, t, 0.35, 0.6, 4, 60, C.white, true)
+        shockRing(d, SU.x + 10, SU.g - 1, t, 0.45, 0.6, 3, 44, C.frost, true)
+        VL.allies.forEach((a, i) => {
+            const at = 0.4 + Math.hypot(a.x - SU.x, a.g - SU.g) / 60 * 0.4
+            const ac = chestOf(a)
+            // the debuffs drawn up out of the body: dark motes rising and turning white as they burn
+            if (q >= at && q < at + 0.7) for (let k = 0; k < 6; k++) {
+                const ph = ((q - at) * 1.6 + hash2(k, 780 + i)) % 1
+                const x = R(a.x - 5 + hash2(k, 790 + i) * 10)
+                const y = R(ac + 6 - ph * 22)
+                d.set(x, y, ph < 0.5 ? C.purple0 : ph < 0.8 ? C.purple2 : C.white)
+            }
+            blast(d, a.x, ac, t, at, 5, 0.35, BLESS, 800 + i, 'frost')
+            // the ward: a brief glint of bubble round the ally
+            if (q >= at + 0.4 && q < at + 0.8) {
+                const r = 9
+                for (let k = 0; k < 6; k++) {
+                    const ang = Math.PI * (1.1 + k * 0.08)
+                    d.set(R(a.x + Math.cos(ang) * r), R(ac + Math.sin(ang) * r), k < 2 ? C.white : C.frost)
+                }
+            }
+        })
+    })
+]
+
+export const CHAMPION_STYLED: readonly VfxDef[] = [...DAMAGE, ...TANK, ...SUPPORT]
 export const CHAMPION_STYLED_BY_ID: Readonly<Record<string, VfxDef>> = Object.fromEntries(CHAMPION_STYLED.map(v => [v.id, v]))
 
 /** The live stage's party, as demo.ts fields it: the Hero, and a Champion of each archetype on its mark. */
