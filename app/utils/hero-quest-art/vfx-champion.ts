@@ -924,7 +924,7 @@ const CONTROL: VfxDef[] = [
     }),
     // one foe, stacking slow toward a freeze: frost creeps up it from the ground, crystals of ice
     // crowding in until a shell of ice closes round it, then breaks back to rime
-    champ('Frostbind', 'Control', 1.6, (d, t) => {
+    champ('Frostbind', 'Control', 1.75, (d, t) => {
         const q = qt(t)
         if (flight(t, 0.22, 0.45, FOE.x, FOE.g - 6)) icicle(d, FL.x, FL.y, FL.a, t)
         blast(d, FOE.x, FOE.g - 1, t, 0.45, 9, 0.4, ICE, 961, 'frost', true)
@@ -939,18 +939,40 @@ const CONTROL: VfxDef[] = [
             tri(d, x - 2, FOE.g - 1, x, FOE.g - 1, x, FOE.g - 1 - h, C.frost)
             d.set(x, FOE.g - 1 - h, C.white)
         }
-        // the shell of ice, closing round it, see-through
-        if (q >= 0.8 && q < 1.3) {
-            const s = Math.min(1, (q - 0.8) / 0.1, (1.3 - q) / 0.15)
-            const w = R(9 * s)
-            for (let y = FOE.g - 26; y < FOE.g - 1; y++) for (let x = FOE.x - w; x <= FOE.x + w; x++) {
-                const edge = Math.abs(x - FOE.x) === w || y === FOE.g - 26
-                if (edge) d.set(x, y, C.frost)
-                else if (((x + y) & 3) === 0) d.set(x, y, C.cyan)
+        // the iceberg: a chunky faceted block of ice heaving up round the foe, a few spires on top
+        if (q >= 0.8 && q < 1.42) {
+            const k = eo(pr(t, 0.8, 0.95))
+            const gx = FOE.x
+            const gy = FOE.g - 1
+            const P = (pts: readonly number[]) => pts.map((v, i) => i & 1 ? R(v * k) : v)
+            // the body, then its facets: frost on the lit upper left, deep blue on the shadowed right
+            poly(d, P([-13, 0, -14, -9, -10, -19, -3, -25, 5, -23, 11, -15, 14, -6, 13, 0]), gx, gy, C.cyan)
+            poly(d, P([-13, 0, -14, -9, -10, -19, -3, -25, -2, -12, -6, 0]), gx, gy, C.frost)
+            poly(d, P([5, -23, 11, -15, 14, -6, 13, 0, 4, 0, 6, -12]), gx, gy, C.blue2)
+            poly(d, P([-6, 0, -2, -12, 6, -12, 4, 0]), gx, gy, C.cyan)
+            // spires
+            for (const [dx, h, w] of [[-8, 30, 6], [1, 36, 7], [8, 29, 5]] as const) {
+                const top = gy - R(h * k)
+                tri(d, gx + dx - w / 2, gy - R(18 * k), gx + dx, gy - R(18 * k), gx + dx, top, C.frost)
+                tri(d, gx + dx, gy - R(18 * k), gx + dx + w / 2, gy - R(18 * k), gx + dx, top, C.cyan)
+                d.set(gx + dx, top, C.white)
             }
-            line(d, FOE.x - w + 2, FOE.g - 24, FOE.x - w + 2, FOE.g - 10, C.white)
+            // white along the top ridges, and a cold glint running across
+            line(d, gx - 14, gy - R(9 * k), gx - 10, gy - R(19 * k), C.white)
+            line(d, gx - 10, gy - R(19 * k), gx - 3, gy - R(25 * k), C.white)
+            const gl = R(gx - 12 + ((q - 0.8) * 60) % 24)
+            if (k > 0.9) { d.set(gl, gy - 10, C.white); d.set(gl + 1, gy - 11, C.white) }
         }
-        if (q >= 1.3) burst(d, FOE.x, FC, t, 1.3, 16, 60, 'frost', 963, 0.4, 80, 0, Math.PI * 2, 2)
+        // then it breaks: chunks of ice tumbling away
+        if (q >= 1.4 && q < 1.7) for (let i = 0; i < 12; i++) {
+            const a = -Math.PI * (0.1 + hash2(i, 965) * 0.8)
+            const age = (q - 1.4) / 0.3
+            const v = 30 + hash2(i, 966) * 30
+            const x = FOE.x + Math.cos(a) * v * age * 0.6
+            const y = FOE.g - 14 + Math.sin(a) * v * age * 0.6 + age * age * 30
+            tri(d, R(x) - 2, R(y) + 2, R(x) + 2, R(y) + 2, R(x), R(y) - 2, i & 1 ? C.frost : C.cyan)
+        }
+        if (q >= 1.4) burst(d, FOE.x, FC, t, 1.4, 16, 60, 'frost', 963, 0.4, 80, 0, Math.PI * 2, 2)
         if (q > 0.6 && q < 1.6) motes(d, FOE.x, FOE.g - 2, 18, 26, t, 8, 'frost', 964, 14)
     })
 ]
