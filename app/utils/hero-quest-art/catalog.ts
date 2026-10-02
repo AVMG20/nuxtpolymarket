@@ -137,10 +137,8 @@ export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly
     {
         n: 15,
         label: 'Damage Champion abilities',
-        prefixes: [
-            'vfx/champ_ability_cleave', 'vfx/champ_ability_piercing_bolt', 'vfx/champ_ability_rising_flame', 'vfx/champ_ability_execute_strike',
-            'vfx/champ_ability_volley', 'vfx/champ_ability_focused_barrage', 'vfx/champ_ability_rupture'
-        ]
+        // the other six approved on 2026-10-02; Execute Strike redrawn on the user's note
+        prefixes: ['vfx/champ_ability_execute_strike']
     }
 ]
 

@@ -7,8 +7,8 @@
 // They replace their round-1 `vfx.ts` entries by ID, as the cinematics do the Hero skills'.
 
 import { C } from './palette'
-import { hash2, line, rect, tri, type Surface } from './surface'
-import { VL, pr, qt, eo, travel, lob, VP, motes, R } from './vfx-kit'
+import { ditherDisc, hash2, line, rect, ring, tri, type Surface } from './surface'
+import { VL, pr, qt, eo, travel, lob, VP, burst, motes, R } from './vfx-kit'
 import { abilityId } from '../../../shared/utils/hero-quest/content/champions'
 import { drawCreature } from './creature'
 import { TRAINING_DUMMY } from './raids'
@@ -74,29 +74,51 @@ const DAMAGE: VfxDef[] = [
         groundFire(d, f.x, 14, t, 0.6, 1.4, 521)
         if (q > 0.6) motes(d, f.x, chestOf(f), 12, 24, t, 6, 'ember', 522, 24)
     }),
-    // one foe: a skull sigil marks it, then a red blade drops on it like a guillotine
-    champ('Execute Strike', 'Damage', 1.3, (d, t) => {
+    // one foe: the world darkens round it as a death mark locks on, two huge cuts cross through
+    // it in an X, and a beat later the cut lands — a blast of blood, the mark shattering
+    champ('Execute Strike', 'Damage', 1.4, (d, t) => {
         const f = F[0]
         const cy = chestOf(f)
         const q = qt(t)
-        if (q >= 0.1 && q < 0.6) {
-            const y = cy - 22 + (Math.floor(q * 8) & 1)
-            rect(d, f.x - 3, y, 7, 5, C.red2); rect(d, f.x - 2, y + 5, 5, 2, C.red2)
-            d.set(f.x - 1, y + 2, C.ink); d.set(f.x + 1, y + 2, C.ink); d.set(f.x - 2, y, C.red3)
+        const CUT = [0.5, 0.58] as const
+        const LAND = 0.78
+        // the dark closing in round the target while the mark locks on
+        if (q >= 0.15 && q < LAND + 0.05) ditherDisc(d, f.x, cy - 6, 28, C.ink, R(4 + pr(t, 0.15, 0.45) * 6))
+        // the mark: a big skull, inked so it stands off anything behind it, in a closing ring
+        if (q >= 0.08 && q < LAND) {
+            const u = pr(t, 0.08, 0.4)
+            const my = cy - 26
+            ring(d, f.x, my, R(14 - u * 5), C.red2)
+            ring(d, f.x, my, R(15 - u * 5), C.red0)
+            const c = Math.floor(q * 10) & 1 ? C.red3 : C.red2
+            rect(d, f.x - 5, my - 5, 11, 8, C.ink); rect(d, f.x - 3, my + 3, 7, 4, C.ink)
+            rect(d, f.x - 4, my - 4, 9, 6, c); rect(d, f.x - 2, my + 2, 5, 3, c)
+            rect(d, f.x - 3, my - 2, 2, 2, C.ink); rect(d, f.x + 2, my - 2, 2, 2, C.ink); d.set(f.x, my + 1, C.ink)
+            d.set(f.x - 1, my + 4, C.ink); d.set(f.x + 1, my + 4, C.ink)
+            d.set(f.x - 3, my - 4, C.white)
         }
-        const u = pr(t, 0.45, 0.62)
-        if (u > 0 && q < 0.75) {
-            const tip = R(cy - 46 + u * 42)
-            // the blade: a broad slanted edge, white along its cutting line, speed lines above it
-            rect(d, f.x - 9, tip - 22, 19, 14, C.red1)
-            tri(d, f.x - 9, tip - 8, f.x + 9, tip - 8, f.x + 9, tip, C.red1)
-            tri(d, f.x - 9, tip - 8, f.x - 9, tip - 5, f.x + 9, tip, C.red2)
-            rect(d, f.x - 9, tip - 22, 19, 2, C.red0)
-            line(d, f.x - 9, tip - 5, f.x + 9, tip, C.white); line(d, f.x - 9, tip - 6, f.x + 9, tip - 1, C.red3)
-            for (let k = 1; k < 5; k++) line(d, f.x - 7 + k * 3, tip - 26 - k * 2, f.x - 7 + k * 3, tip - 30 - k * 3, C.red2)
-        }
-        blast(d, f.x, cy, t, 0.62, 14, 0.55, BLOOD, 530, 'blood')
-        shockRing(d, f.x, f.g - 1, t, 0.65, 0.4, 4, 18, C.red3, true)
+        // the two cuts: a long white line flashed across, a thick red crescent sweeping behind it
+        CUT.forEach((c0, i) => {
+            const age = (q - c0) / 0.25
+            if (age < 0 || age >= 1) return
+            const flip = i ? -1 : 1
+            const x0 = f.x - 28 * flip
+            const x1 = f.x + 28 * flip
+            if (age < 0.45) {
+                line(d, x0, cy - 26, x1, cy + 22, C.white)
+                line(d, x0 + flip, cy - 26, x1 + flip, cy + 22, C.white)
+                line(d, x0 + 2 * flip, cy - 26, x1 + 2 * flip, cy + 22, C.red3)
+            }
+            const a0 = i ? -2.7 : -0.45
+            arcBand(d, f.x - 12 * flip, cy - 12, 30, a0, a0 + 1.6 * flip, 10, age * 3, age < 0.5 ? C.red2 : C.red1, C.white, C.red0)
+        })
+        // the beat after: the cut lands
+        blast(d, f.x, cy, t, LAND, 20, 0.6, BLOOD, 530, 'blood')
+        shockRing(d, f.x, cy, t, LAND, 0.4, 8, 30, C.white)
+        shockRing(d, f.x, f.g - 1, t, LAND + 0.05, 0.45, 4, 24, C.red3, true)
+        // the mark shattering into red shards, spray thrown out the far side
+        burst(d, f.x, cy - 26, t, LAND, 20, 80, 'blood', 531, 0.6, 90, -Math.PI / 2, Math.PI * 1.4, 2)
+        burst(d, f.x + 3, cy, t, LAND, 24, 110, 'blood', 532, 0.5, 70, 0, 1.0, 2)
     }),
     // the front line: six glowing arrows lobbed high, two coming down on each rank
     champ('Volley', 'Damage', 1.3, (d, t) => {
