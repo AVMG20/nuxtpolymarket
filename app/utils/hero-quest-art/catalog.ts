@@ -41,7 +41,7 @@ import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, BURROW_GRUB, ORE_BEETLE, FORGE_A
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
-    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons' | 'offense_artifact_icons' | 'defense_artifact_icons' | 'tempo_artifact_icons'
+    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons' | 'offense_artifact_icons' | 'defense_artifact_icons' | 'tempo_artifact_icons' | 'fortune_artifact_icons'
     | 'vfx' | 'feedback' | 'icons' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
@@ -78,6 +78,7 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'offense_artifact_icons', label: 'Icons · Offense Artifacts', locked: true },
     { id: 'defense_artifact_icons', label: 'Icons · Defense Artifacts', locked: true },
     { id: 'tempo_artifact_icons', label: 'Icons · Tempo Artifacts', locked: true },
+    { id: 'fortune_artifact_icons', label: 'Icons · Fortune Artifacts', locked: true },
     { id: 'icons', label: 'Icons' },
     { id: 'frames', label: 'Frames & badges', locked: true },
     { id: 'backgrounds', label: 'Backgrounds', locked: true },
@@ -120,20 +121,11 @@ export interface ArtAsset {
  * Summons, Enemies, Bosses and Backgrounds were all locked. The sixth pass's Rounds 1–3 were
  * approved and taken off when Frames & badges locked, and Round 4 when Branding locked (both also
  * 2026-09-28), Round 5 when the last Forge boss locked (2026-09-29), Round 6 when the Champion
- * ability crests locked (2026-10-01), and Rounds 7, 8 and 9 when the offense, defense and tempo
+ * ability crests locked (2026-10-01), and Rounds 7–10 when the offense, defense, tempo and fortune
  * Artifacts locked (2026-10-02), so the next round is 11;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    {
-        n: 10,
-        label: 'Fortune artifacts',
-        prefixes: [
-            'icon/artifact/artifact_fortune_0', 'icon/artifact/artifact_fortune_1', 'icon/artifact/artifact_fortune_2', 'icon/artifact/artifact_fortune_5',
-            'icon/artifact/artifact_fortune_6', 'icon/artifact/artifact_fortune_7', 'icon/artifact/artifact_fortune_9', 'icon/artifact/artifact_fortune_11'
-        ]
-    }
-]
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
@@ -402,11 +394,12 @@ function classLine(id: string): keyof typeof LINE_M {
     return second ? (second.id.replace('class_', '') as keyof typeof LINE_M) : 'beginner'
 }
 
-/** The Artifact categories split out of Icons to lock a category at a time (2026-10-02, the user). */
-const ARTIFACT_GROUP: Partial<Record<ArtifactCategory, ArtGroup>> = {
+/** Each Artifact category split out of Icons to lock on its own (2026-10-02, the user). */
+const ARTIFACT_GROUP: Record<ArtifactCategory, ArtGroup> = {
     offense: 'offense_artifact_icons',
     defense: 'defense_artifact_icons',
-    tempo: 'tempo_artifact_icons'
+    tempo: 'tempo_artifact_icons',
+    fortune: 'fortune_artifact_icons'
 }
 
 function iconAssets(): ArtAsset[] {
@@ -434,7 +427,7 @@ function iconAssets(): ArtAsset[] {
     for (const a of ARTIFACTS) {
         const g = ARTIFACT_ICONS[a.id]
         if (!g) continue
-        out.push(still(`icon/artifact/${a.id}`, ARTIFACT_GROUP[a.category] ?? 'icons', `Artifacts — ${a.category}`, `${a.name} (${a.rarity})`, ICON, ICON,
+        out.push(still(`icon/artifact/${a.id}`, ARTIFACT_GROUP[a.category], `Artifacts — ${a.category}`, `${a.name} (${a.rarity})`, ICON, ICON,
             dst => { itemTile(dst, RARITY_COLORS[a.rarity]!); glyph(dst, g, 12, 12) }))
     }
     for (const gear of GEAR) {
