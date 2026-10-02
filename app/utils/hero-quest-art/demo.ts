@@ -62,7 +62,9 @@ import { GILDED_WARLORD, GREAT_DUMMY, DUMMY_IMPACT, DEEPCOIL, RAMPANT, RAMPAGE_R
 import { STAGE } from './special-kit'
 import { ENTRY_SETTLED } from './boss-kit'
 import { RunDirector, stageNumber, type RunFeed } from './run-director'
-import { ZERO, type Decimal } from '../../../shared/utils/hero-quest/numbers'
+import { scriptFight, type Beat, type FightScript } from './fight-script'
+import type { FightEvent } from '../../../shared/utils/hero-quest/fight'
+import { D, ZERO, type Decimal } from '../../../shared/utils/hero-quest/numbers'
 
 export const DEMO_W = SW
 export const DEMO_H = SH
@@ -343,6 +345,8 @@ interface Unit {
     phase: Phase
     /** Numbers stacked on this unit by the skill playing now. */
     stack: number
+    /** A boss fight's replay: the logged blow this swing is bringing, landed at its impact. */
+    beat: Beat | null
 }
 
 /**
@@ -362,7 +366,28 @@ interface Proj {
     /** Seconds before it leaves the bow (a volley's later arrows), then its flight time left. */
     delay: number, left: number
     from: Unit | null, to: Unit | null
+    /** A replayed fight's logged hit this shot carries, and the deaths that ride on it. */
+    hit: FightEvent | null, downs: readonly FightEvent[]
 }
+
+/** What the stage needs of a resolved boss fight: the server's log and who it indexed. */
+export interface StageFight {
+    outcome: 'win' | 'wipe' | 'timeout'
+    secondsElapsed: number
+    events: readonly FightEvent[]
+    /** The Hero's class, then each fielded Champion: the fight's `unitIndex` order. */
+    partyIds: readonly string[]
+    partyMaxHps: readonly string[]
+    /** Escort first, boss last: the fight's `enemyIndex` order. */
+    enemyMaxHps: readonly string[]
+}
+
+/** Seconds the replay runs before the log's first moment, so a swing can start before its blow lands. */
+const REPLAY_PREROLL = 0.8
+/** The escort's marks either side of the boss, in the fight's `enemyIndex` order. */
+const ESCORT_SLOTS = [0, 2, 1, 3, 4, 5] as const
+/** Flight speeds, px a second, as `aim` flies each shot. */
+const SHOT_SPEED: Readonly<Record<ShotKind, number>> = { arrow: 260, quarrel: 360, bolt: 170 }
 interface Ring { live: boolean, x: number, y: number, t: number, big: boolean }
 interface Num { live: boolean, x: number, y: number, dx: number, t: number, style: NumberStyle, text: string, hold: boolean }
 
@@ -488,7 +513,7 @@ export class BattleDemo {
     /** Scratch for the shake: the frame copied out so it can be written back shifted. */
     private shakeLayer = new Surface(DEMO_W, DEMO_H, 0, 0)
     private projs: Proj[] = Array.from({ length: 32 }, () => ({
-        live: false, kind: 'arrow' as const, ramp: 'spark' as RampName, color: CLEAR, x: 0, y: 0, vx: 0, vy: 0, grav: 0, delay: 0, left: 0, from: null, to: null
+        live: false, kind: 'arrow' as const, ramp: 'spark' as RampName, color: CLEAR, x: 0, y: 0, vx: 0, vy: 0, grav: 0, delay: 0, left: 0, from: null, to: null, hit: null, downs: []
     }))
 
     private rings: Ring[] = Array.from({ length: 8 }, () => ({ live: false, x: 0, y: 0, t: 0, big: false }))
@@ -586,6 +611,18 @@ export class BattleDemo {
     private forceGap = 0
     /** What the Hero's skill playing now has shown, for its total. */
     private cineTotal: Decimal = ZERO
+    /** Who stands in the party's places: the Hero's class, then each Champion. */
+    private rosterIds: string[] = []
+    /**
+     * A boss fight being replayed from the server's log: the script, how far it has played, the
+     * clock (sim seconds, from −preroll), which body each of the log's indexes is, and the party's
+     * HP as the log has it. Kept once played, until `endFight`, so the result holds on screen.
+     */
+    private replay: {
+        script: FightScript, beat: number, inst: number, late: Beat[], clock: number, end: number
+        party: (number | null)[], foes: (number | null)[], partyMax: Decimal[], hp: number[]
+        outcome: StageFight['outcome'], done: boolean, quiet: boolean
+    } | null = null
 
     /** Rebuild for a world (1–10), a Hero class and a wave. Bakes every frame the stage will show. */
     setup(world: number, classId: string, waveKind: WaveKind = this.waveKind): void {
@@ -615,7 +652,7 @@ export class BattleDemo {
     /** The run moved on: drop what is due, clear a stage, fall to a wall, or rebuild for a new world. */
     feedRun(feed: RunFeed): void {
         const r = this.run
-        if (!r || !this.party) return
+        if (!r || !this.party || this.replay) return
         const world = r.feed?.world
         let up = 0
         for (let i = PARTY; i < this.units.length; i++) if (this.units[i]!.state !== U.Gone && this.units[i]!.state !== U.Death) up++
@@ -634,6 +671,274 @@ export class BattleDemo {
         }
         // a gate ahead: the pack still up goes down first, then the boss is met
         if (change === 'advance') this.standoff = false
+    }
+
+    /** Seconds of the fight played, 0 to its end: what a readout beside the stage tracks. */
+    get fightTime(): number {
+        const rp = this.replay
+        return rp ? Math.max(0, Math.min(rp.end, rp.clock)) : 0
+    }
+
+    /** The fight has played out and its result is showing. */
+    get fightDone(): boolean {
+        return this.replay?.done ?? false
+    }
+
+    /**
+     * Act out a boss fight the server resolved. The stage brings out the boss and its escort if
+     * they are not up yet, then plays the log against its own clock: each swing starts early
+     * enough that its blow lands on the logged moment, with the logged number.
+     */
+    playFight(fight: StageFight): void {
+        if (!this.run) return
+        const script = scriptFight(fight.events)
+        this.cine = null
+        for (const p of this.projs) { p.live = false; p.hit = null }
+        this.march = 0
+        for (let i = 0; i < this.units.length; i++) {
+            const u = this.units[i]!
+            u.beat = null
+            u.hold = 0
+            u.ox = 0
+            // the party stands up for it, whatever the last pack left it doing
+            if (i < this.members.length && u.state !== U.Gone && u.state !== U.Death) { u.state = U.Idle; u.t = 0 }
+        }
+        const boss = this.units[this.units.length - 1]!
+        if (!this.standoff || boss.state === U.Gone) {
+            for (let i = PARTY; i < this.units.length; i++) this.units[i]!.state = U.Gone
+            this.spawnRunWave()
+        }
+        this.standoff = true
+        // a boss still making its entrance finishes it before the first blow
+        const entry = boss.frames[U.Entry]!
+        const entering = boss.state === U.Entry ? Math.max(0, entry.frames.length / entry.fps - boss.t) : 0
+        const escorts = fight.enemyMaxHps.length - 1
+        const foes = fight.enemyMaxHps.map((_, k) => k === escorts ? this.units.length - 1 : PARTY + (ESCORT_SLOTS[k] ?? -PARTY - 1))
+        this.replay = {
+            script,
+            beat: 0,
+            inst: 0,
+            late: [],
+            clock: -REPLAY_PREROLL - entering,
+            end: fight.secondsElapsed,
+            party: fight.partyIds.map(id => { const k = this.rosterIds.indexOf(id); return k >= 0 ? k : null }),
+            foes: foes.map(k => k >= PARTY ? k : null),
+            partyMax: fight.partyMaxHps.map(hp => D(hp)),
+            hp: Array.from({ length: PARTY }, () => 1),
+            outcome: fight.outcome,
+            done: false,
+            quiet: false
+        }
+    }
+
+    /** Land the rest of the fight at once, without its numbers: the result, now. */
+    skipFight(): void {
+        const rp = this.replay
+        if (!rp || rp.done) return
+        rp.quiet = true
+        for (const u of this.units) if (u.beat) { const b = u.beat; u.beat = null; this.applyBeat(b) }
+        for (const p of this.projs) if (p.live && p.hit) { p.live = false; this.applyHit(p.hit); this.applyDowns(p.downs) }
+        for (const b of rp.late) this.applyBeat(b)
+        rp.late.length = 0
+        const { beats, instants } = rp.script
+        while (rp.beat < beats.length) this.applyBeat(beats[rp.beat++]!)
+        while (rp.inst < instants.length) this.applyInstant(instants[rp.inst++]!)
+        rp.clock = rp.end
+        this.finishFight()
+    }
+
+    /** Back to the run: the fallen get up, and the next feed says where the run went. */
+    endFight(): void {
+        if (!this.replay) return
+        this.replay = null
+        for (let i = 0; i < this.members.length; i++) {
+            const u = this.units[i]!
+            if (u.state === U.Gone || u.state === U.Death) { u.state = U.Entry; u.t = 0 }
+        }
+        this.nameT = -1
+    }
+
+    private finishFight(): void {
+        const rp = this.replay!
+        if (rp.done) return
+        rp.done = true
+        this.announce(rp.outcome === 'win' ? 'VICTORY' : rp.outcome === 'wipe' ? 'DEFEAT' : 'TIME UP')
+        // the banner holds until the fight is put away
+        this.nameFor = 1e9
+    }
+
+    private partyUnit(index: number | undefined): Unit | null {
+        const k = index === undefined ? null : this.replay?.party[index]
+        return k === null || k === undefined ? null : this.units[k]!
+    }
+
+    private foeUnit(index: number | undefined): Unit | null {
+        const k = index === undefined ? null : this.replay?.foes[index]
+        return k === null || k === undefined ? null : this.units[k]!
+    }
+
+    private beatUnit(b: Beat): Unit | null {
+        return b.side === 0 ? this.partyUnit(b.actor) : this.foeUnit(b.actor)
+    }
+
+    /** How long before its blow lands a swing has to start: its clip's impact, and a shot's flight. */
+    private leadOf(u: Unit, b: Beat): number {
+        const impact = u.impact[b.cast ? U.Cast : U.Attack]!
+        const first = b.hits[0]
+        if (!u.shot || b.cast || !first) return impact
+        const tgt = first.kind === 'enemy_attack' ? this.partyUnit(first.unitIndex) : this.foeUnit(first.enemyIndex)
+        if (!tgt) return impact
+        return impact + Math.max(0.12, Math.abs(tgt.x + tgt.ox - u.x - u.ox) / SHOT_SPEED[u.shot.kind])
+    }
+
+    /** The replay's clock: start the swings whose time has come, land what is due, close at the end. */
+    private replayTick(dt: number): void {
+        const rp = this.replay!
+        if (rp.done) return
+        rp.clock += dt
+        const { beats, instants } = rp.script
+        while (rp.beat < beats.length) {
+            const b = beats[rp.beat]!
+            const u = this.beatUnit(b)
+            if (u && rp.clock < b.at - this.leadOf(u, b)) break
+            rp.beat++
+            // a body still busy with its last swing, or gone, lands this one on time without a swing
+            if (!u || !standingAny(u) || (u.state !== U.Idle && u.state !== U.Hit)) {
+                rp.late.push(b)
+                continue
+            }
+            u.state = b.cast ? U.Cast : U.Attack
+            u.t = 0
+            u.fired = false
+            u.beat = b
+            if (b.cast && b.side === 0 && b.actor === 0 && this.heroCine) this.startCine(this.heroCine, u)
+        }
+        for (let k = rp.late.length - 1; k >= 0; k--) {
+            if (rp.late[k]!.at > rp.clock) continue
+            const b = rp.late.splice(k, 1)[0]!
+            this.applyBeat(b)
+        }
+        while (rp.inst < instants.length && instants[rp.inst]!.at <= rp.clock) this.applyInstant(instants[rp.inst++]!)
+        if (rp.clock >= rp.end + 0.3) this.finishFight()
+    }
+
+    /** A replayed swing reaches its impact: a shot carries each hit across, a blow lands them now. */
+    private strikeBeat(u: Unit, cast: boolean): void {
+        const b = u.beat!
+        u.beat = null
+        if (cast && u.vfx) this.playFx(u.vfx)
+        if (!u.shot || cast) {
+            this.applyBeat(b)
+            return
+        }
+        for (let k = 0; k < b.hits.length; k++) {
+            const h = b.hits[k]!
+            const tgt = h.kind === 'enemy_attack' ? this.partyUnit(h.unitIndex) : this.foeUnit(h.enemyIndex)
+            const downs = k === b.hits.length - 1 ? b.downs : []
+            let p: Proj | null = null
+            for (let i = 0; i < this.projs.length; i++) if (!this.projs[i]!.live) { p = this.projs[i]!; break }
+            if (!p || !tgt) { this.applyHit(h); this.applyDowns(downs); continue }
+            p.live = true; p.kind = u.shot.kind; p.ramp = u.shot.ramp; p.color = u.accent
+            p.delay = k * VOLLEY_GAP; p.from = u; p.hit = h; p.downs = downs
+            this.aim(p, tgt)
+        }
+    }
+
+    private applyBeat(b: Beat): void {
+        for (const h of b.hits) this.applyHit(h)
+        this.applyDowns(b.downs)
+    }
+
+    /** One logged hit lands: its number on the body struck, and the party's frames follow its HP. */
+    private applyHit(h: FightEvent): void {
+        const quiet = this.replay?.quiet ?? true
+        if (h.kind === 'enemy_attack') {
+            const t = this.partyUnit(h.unitIndex)
+            this.setPartyHp(h.unitIndex, h.remainingHp)
+            if (!t || quiet || !standingAny(t)) return
+            this.particles.burst(t.x + 4, t.y - t.chest, 8, 45, 0.5, 'blood', 120, t.y)
+            this.struck(t, JUICE.hit.hold)
+            return
+        }
+        const t = this.foeUnit(h.enemyIndex)
+        if (!t || quiet || t.state === U.Gone) return
+        const dmg = D(h.damage ?? 0)
+        const y = t.y - t.chest
+        if (dmg.gt(0)) this.number(t.x, y - 8, h.crit ? 'crit' : 'normal', false, h.crit ? `${stageNumber(dmg)}!` : stageNumber(dmg))
+        this.particles.burst(t.x - 4, y, h.crit ? 14 : 8, h.crit ? 70 : 45, 0.5, 'spark', 120, t.y)
+        if (h.crit) this.shake(JUICE.crit.shake, JUICE.crit.shakeFor)
+        if (t.boss) this.shake(JUICE.bossHit.shake, JUICE.bossHit.shakeFor)
+        if (standingAny(t)) this.struck(t, h.crit ? JUICE.crit.hold : JUICE.hit.hold)
+    }
+
+    private applyDowns(downs: readonly FightEvent[]): void {
+        for (const e of downs) {
+            if (e.kind === 'enemy_down') {
+                const t = this.foeUnit(e.enemyIndex)
+                if (t && t.state !== U.Death && t.state !== U.Gone) this.kill(t)
+            } else {
+                const t = this.partyUnit(e.unitIndex)
+                this.setPartyHp(e.unitIndex, '0')
+                if (t && t.state !== U.Death && t.state !== U.Gone) { t.state = U.Death; t.t = 0; t.hold = 0 }
+            }
+        }
+    }
+
+    /** What nobody swings for: heals, shields, damage over time, reflected blows, a death on its own. */
+    private applyInstant(e: FightEvent): void {
+        const quiet = this.replay?.quiet ?? true
+        switch (e.kind) {
+            case 'heal': {
+                this.setPartyHp(e.unitIndex, e.remainingHp)
+                const t = this.partyUnit(e.unitIndex)
+                if (!t) return
+                // a revive brings the fallen back up
+                if (t.state === U.Gone || t.state === U.Death) { t.state = U.Entry; t.t = 0 }
+                if (!quiet && D(e.damage ?? 0).gt(0)) this.number(t.x - 6, t.y - t.crown + 10, 'heal', false, `+${stageNumber(D(e.damage!))}`)
+                return
+            }
+            case 'shield': {
+                const t = this.partyUnit(e.unitIndex)
+                if (t && !quiet) this.ringAt(t.x, t.y - t.chest, false)
+                return
+            }
+            case 'status_tick':
+            case 'reflect': {
+                if (e.kind === 'status_tick' && !e.onEnemy) {
+                    this.setPartyHp(e.unitIndex, e.remainingHp)
+                    return
+                }
+                const t = this.foeUnit(e.enemyIndex)
+                const dmg = D(e.damage ?? 0)
+                if (t && !quiet && t.state !== U.Gone && dmg.gt(0)) this.number(t.x + 6, t.y - t.chest - 4, 'normal', false, stageNumber(dmg))
+                return
+            }
+            case 'enemy_down':
+            case 'unit_down':
+                this.applyDowns([e])
+                return
+            default:
+        }
+    }
+
+    private setPartyHp(index: number | undefined, remaining: string | undefined): void {
+        const rp = this.replay
+        if (!rp || index === undefined || remaining === undefined) return
+        const k = rp.party[index]
+        const max = rp.partyMax[index]
+        if (k === null || k === undefined || !max || max.lte(0)) return
+        rp.hp[k] = Math.max(0, Math.min(1, D(remaining).div(max).toNumber()))
+    }
+
+    /** A Hero skill's cinematic in a replay: the flourish only, since its numbers are the log's. */
+    private cineFlourish(c: Cine, i: number): void {
+        let tgt: Unit | null = null
+        for (let k = 0; k < this.units.length && !tgt; k++) if (standing(this.units[k]!)) tgt = this.units[k]!
+        if (!c.first && tgt) c.first = tgt
+        if (tgt) this.particles.burst(tgt.x, tgt.y - 14, 16, 80, 0.6, 'ember', 140, tgt.y)
+        this.stopFor(JUICE.skill.freeze, true)
+        this.shake(JUICE.skill.shake, JUICE.skill.shakeFor)
+        if (i === 0) this.flashFor(JUICE.skill.flash, C.white)
     }
 
     private build(world: number, classId: string, waveKind: WaveKind): void {
@@ -716,6 +1021,7 @@ export class BattleDemo {
         this.units = [heroUnit, ...champs, ...empty, ...foes, boss]
         for (const u of [...foes, boss]) u.state = U.Gone
         for (const u of [heroUnit, ...champs]) u.hp = PARTY_HP
+        this.rosterIds = [classId, ...roster]
         this.members = [`hero/${classId}`, ...roster.map(id => `champion/${id}`)].map((asset, i) => ({
             hp: 1, lost: 0, flash: false, hurt: false, hero: i === 0, level: party ? (i ? fielded[i - 1]!.level : 1) : SHOWCASE_LEVELS[i]!, statuses: [], portrait: headAt(headOf(asset))
         }))
@@ -745,7 +1051,7 @@ export class BattleDemo {
             clips: [null, clips[0] ?? null, clips[1] ?? null],
             impact: [0, clips[0]?.impact ?? 0.45 * attack!.frames.length / ANIM_FPS, clips[1]?.impact ?? 0.45 * (cast ?? attack!).frames.length / ANIM_FPS],
             vfx, accent: C.red3, shot: null, shots: 1, rig: -1, hold: 0, jolt: 0, flash: 0, sit: 0, chest: 14, crown: 40, strikeAt: -1,
-            state: U.Idle, t: 0, wait: 0.5 + Math.random() * 1.2, fired: false, hp: 4, shown: 1, lag: 1, lagHold: 0, phase: Phase.Idle, stack: 0
+            state: U.Idle, t: 0, wait: 0.5 + Math.random() * 1.2, fired: false, hp: 4, shown: 1, lag: 1, lagHold: 0, phase: Phase.Idle, stack: 0, beat: null
         }
     }
 
@@ -978,13 +1284,15 @@ export class BattleDemo {
         const f = this.run!.feed!
         const gate = f.atBossGate
         this.standoff = gate
-        const size = Math.min(PARTY, Math.max(1, f.packSize))
+        // met mid-pack (a rebuild, a fall back from a boss), only the bodies still up are there
+        const pack = Math.min(PARTY, Math.max(1, f.packSize))
+        const size = gate ? pack : pack - (this.run!.shown % pack)
         const which = f.archetype === 'super_boss' ? 1 : 0
         for (let i = PARTY; i < this.units.length; i++) {
             const u = this.units[i]!
             const slot = i - PARTY
             // the escort takes the near and far marks either side of the boss's
-            const active = u.boss ? gate : gate ? slot === 0 || slot === 2 : slot < size
+            const active = u.boss ? gate : gate ? ESCORT_SLOTS.indexOf(slot as typeof ESCORT_SLOTS[number]) < size - 1 : slot < size
             u.state = active ? U.Entry : U.Gone
             u.t = 0
             u.fired = false
@@ -1054,6 +1362,7 @@ export class BattleDemo {
     private runTick(dt: number): void {
         const r = this.run!
         r.tick(dt)
+        if (this.replay) return
         if (this.wipeT > 0) {
             this.wipeT -= dt
             if (this.wipeT <= 0) this.riseParty()
@@ -1201,6 +1510,10 @@ export class BattleDemo {
 
     /** One of the skill's impacts: damage the next target, stack its number, total at the end. */
     private cineHit(c: Cine, i: number): void {
+        if (this.replay && !c.special) {
+            this.cineFlourish(c, i)
+            return
+        }
         if (this.run && !c.special) {
             this.runCineHit(c, i)
             return
@@ -1407,6 +1720,12 @@ export class BattleDemo {
     // ── attacks ────────────────────────────────────────────────────────────────────
 
     private strike(u: Unit, cast: boolean): void {
+        if (u.beat) {
+            this.strikeBeat(u, cast)
+            return
+        }
+        // a replay's bodies only ever bring the log's blows
+        if (this.replay) return
         const tgt = this.target(u.side)
         if (cast && u.vfx) this.playFx(u.vfx)
         if (!tgt) return
@@ -1422,7 +1741,7 @@ export class BattleDemo {
         let p: Proj | null = null
         for (let i = 0; i < this.projs.length; i++) if (!this.projs[i]!.live) { p = this.projs[i]!; break }
         if (!p) { this.land(u, tgt, false, false); return }
-        p.live = true; p.kind = u.shot!.kind; p.ramp = u.shot!.ramp; p.color = u.accent
+        p.live = true; p.kind = u.shot!.kind; p.ramp = u.shot!.ramp; p.color = u.accent; p.hit = null
         p.delay = delay; p.from = u
         this.aim(p, tgt)
     }
@@ -1479,6 +1798,8 @@ export class BattleDemo {
     update(dt: number): void {
         if (this.jobs.length) this.bakeSome()
         if (this.paused) return
+        // a replay keeps to the wall clock: its blows are due when the log says, freeze or not
+        if (this.replay) this.replayTick(dt)
         if (this.shakeT > 0) this.shakeT -= dt
         if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 4)
         if (this.freeze > 0) {
@@ -1637,7 +1958,8 @@ export class BattleDemo {
         } else {
             let foes = 0
             for (let i = 0; i < this.units.length; i++) if (this.units[i]!.side === 1 && this.units[i]!.state !== U.Gone) foes++
-            if (foes === 0) {
+            // a won fight leaves the field empty until the run says where it went
+            if (foes === 0 && !this.replay) {
                 this.waveTimer += dt
                 if (this.waveTimer > (this.run ? RUN_WAVE_GAP : 0.7)) { this.waveTimer = 0; this.nextWave() }
             }
@@ -1665,7 +1987,14 @@ export class BattleDemo {
             if (p.left <= 0) {
                 p.live = false
                 if (p.kind === 'bolt') this.particles.burst(p.x, p.y, 8, 50, 0.35, p.ramp)
-                if (p.from && p.to) this.land(p.from, p.to, false, false)
+                if (p.hit) {
+                    const h = p.hit
+                    p.hit = null
+                    this.applyHit(h)
+                    this.applyDowns(p.downs)
+                } else if (p.from && p.to) {
+                    this.land(p.from, p.to, false, false)
+                }
             }
         }
         for (let i = 0; i < this.rings.length; i++) { const r = this.rings[i]!; if (r.live && (r.t += dt) > 0.35) r.live = false }
@@ -1801,7 +2130,8 @@ export class BattleDemo {
         for (let i = 0; i < Math.min(PARTY, this.units.length); i++) {
             const u = this.units[i]!
             // the game's party shares the run's one HP pool, empty while it lies fallen
-            const pool = this.run ? (this.wipeT > 0 ? 0 : (this.run.feed?.heroHpPct ?? 100) / 100) : -1
+            // in a replay each body has its own HP, as the log has it
+            const pool = this.replay ? this.replay.hp[i]! : this.run ? (this.wipeT > 0 ? 0 : (this.run.feed?.heroHpPct ?? 100) / 100) : -1
             u.hp = pool >= 0 ? pool * PARTY_HP : Math.min(PARTY_HP, u.hp + dt * PARTY_REGEN)
             const hp = u.hp / PARTY_HP
             if (hp < u.shown) u.lagHold = LOST_HOLD
