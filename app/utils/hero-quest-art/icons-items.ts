@@ -22,13 +22,6 @@ function scroll(g: Surface, x: number, y: number, paper: number, ink: number): v
     for (let i = 0; i < 3; i++) line(g, x - 4, y - 3 + i * 3, x + 3, y - 3 + i * 3, ink)
 }
 
-function drum(g: Surface, x: number, y: number, body: number, skin: number): void {
-    ellipse(g, x, y + 4, 7, 3, body)
-    rect(g, x - 7, y - 3, 15, 7, body)
-    ellipse(g, x, y - 3, 7, 3, skin)
-    for (let i = 0; i < 4; i++) line(g, x - 6 + i * 4, y - 1, x - 4 + i * 4, y + 5, C.bone1)
-}
-
 // ── Artifacts ──────────────────────────────────────────────────────────────────────
 
 export const ARTIFACT_ICONS: Readonly<Record<string, Glyph>> = {
@@ -218,18 +211,125 @@ export const ARTIFACT_ICONS: Readonly<Record<string, Glyph>> = {
         disc(g, x + 5, y - 6, 1.2, C.white); line(g, x + 6, y - 6, x + 6, y - 10, C.white); px(g, x + 7, y - 9, C.white)
     },
     // Tempo
-    artifact_tempo_0: (g, x, y) => { rect(g, x - 6, y + 2, 13, 3, C.brown2); line(g, x - 4, y + 2, x + 1, y - 5, C.brown1); line(g, x + 4, y + 2, x + 1, y - 5, C.brown1); for (let i = 0; i < 3; i++) px(g, x - 5 + i * 5, y + 1, C.green2) }, // Bramblefoot Sandals
+    artifact_tempo_0: (g, x, y) => {
+        // Bramblefoot Sandals: a laced bark sandal in profile, a thorned bramble wound round its ankle, a leaf wing at the heel
+        poly(g, [-8, 6, 7, 6, 9, 4, 9, 7, 7, 8, -8, 8], x, y, C.brown1)
+        rect(g, x - 8, y + 6, 16, 1, C.brown2)
+        line(g, x - 7, y + 5, x - 6, y - 4, C.brown2)
+        for (const [ax, ay, bx, by] of [[-6, -2, 0, 5], [-6, 2, 4, 5], [-1, 2, 7, 5], [-6, -2, -2, 1]] as const) line(g, x + ax, y + ay, x + bx, y + by, C.brown2)
+        line(g, x - 2, y - 4, x + 8, y + 5, C.brown2)
+        rect(g, x - 7, y - 6, 5, 2, C.brown2)
+        for (const [vx, vy] of [[-7, -4], [-5, -3], [-3, -4], [-2, -6]] as const) px(g, x + vx, y + vy, C.green2)
+        for (const [tx, ty] of [[-6, -7], [-3, -7], [-1, -5]] as const) px(g, x + tx, y + ty, C.green4)
+        tri(g, x - 7, y - 5, x - 8, y - 9, x - 3, y - 10, C.green3)
+        tri(g, x - 7, y - 5, x - 5, y - 8, x, y - 8, C.green2)
+    },
     artifact_tempo_1: (g, x, y) => { P.hourglass(g, x, y, C.olive2); px(g, x - 6, y - 8, C.green2) }, // Marsh Hourglass
-    artifact_tempo_2: (g, x, y) => { ellipse(g, x, y, 8, 3, C.stone1); ellipse(g, x, y, 7, 2, C.stone2); for (let i = 0; i < 4; i++) disc(g, x - 6 + i * 4, y + 1, 1.2, i & 1 ? C.orange : C.lava1) }, // Ashwalker Anklet
-    artifact_tempo_3: (g, x, y) => { for (let i = 0; i < 10; i++) disc(g, x - 7 + i * 1.5, y - 4 + i * 0.9, 1 + i * 0.25, i < 8 ? C.bone1 : C.frost); ring(g, x + 7, y + 5, 3, C.bone0); px(g, x - 7, y - 4, C.white) }, // Frostbite Horn
+    artifact_tempo_2: (g, x, y) => {
+        // Ashwalker Anklet: an iron ring for the ankle, coals set round it, sparks and ash rising off it
+        ellipse(g, x, y + 1, 9, 6, C.rust1)
+        ellipse(g, x, y, 6, 3, CLEAR)
+        arc(g, x, y, 6, Math.PI * 1.0, Math.PI * 2.0, C.rust0)
+        for (let i = 0; i < 7; i++) {
+            const a = Math.PI * (0.08 + i * 0.14)
+            const cx = R(x + Math.cos(a) * 7.5)
+            const cy = R(y + 1 + Math.sin(a) * 4.5)
+            disc(g, cx, cy, 1.2, i & 1 ? C.orange : C.lava1); px(g, cx, cy, C.gold3)
+        }
+        for (const [sx, sy] of [[-3, -5], [2, -7], [5, -4], [-1, -9], [-6, -3]] as const) px(g, x + sx, y + sy, C.orange)
+        for (const [sx, sy] of [[0, -5], [4, -9], [-4, -8]] as const) px(g, x + sx, y + sy, C.stone2)
+    },
+    artifact_tempo_3: (g, x, y) => {
+        // Frostbite Horn: a curled raider's horn banded in iron, its bell rimed and dripping icicles
+        for (let i = 0; i <= 14; i++) {
+            const t = i / 14
+            const a = Math.PI * (1.15 + t * 0.75)
+            disc(g, x + 1 + Math.cos(a) * 7, y + 5 + Math.sin(a) * 7, 1 + t * 2.6, C.bone1)
+        }
+        for (const t of [0.35, 0.65]) {
+            const a = Math.PI * (1.15 + t * 0.75)
+            const cx = x + 1 + Math.cos(a) * 7
+            const cy = y + 5 + Math.sin(a) * 7
+            const r = 1 + t * 2.6
+            line(g, R(cx - Math.cos(a) * r), R(cy - Math.sin(a) * r), R(cx + Math.cos(a) * r), R(cy + Math.sin(a) * r), C.steel1)
+        }
+        ellipse(g, x + 7, y + 2, 2.5, 4.5, C.frost)
+        ellipse(g, x + 7, y + 2, 1.5, 3, C.ice1)
+        for (const [ix, iy, h] of [[6, 6, 3], [8, 6, 2], [4, 3, 2]] as const) tri(g, x + ix, y + iy, x + ix + 2, y + iy, x + ix + 1, y + iy + h, C.frost)
+        arc(g, x, y + 4, 6, Math.PI * 0.2, Math.PI * 0.8, C.brown1)
+        P.sparkle(g, x - 6, y - 7, 1, C.frost)
+    },
     artifact_tempo_4: (g, x, y) => { tri(g, x - 6, y + 5, x + 6, y + 5, x, y - 7, C.gold1); disc(g, x, y - 4, 4, C.gold1); rect(g, x - 7, y + 5, 15, 2, C.gold2); disc(g, x, y + 8, 1.5, C.bone1); px(g, x - 2, y - 4, C.gold3); line(g, x, y - 8, x, y - 10, C.brown1) }, // Sailor's Distress Bell
     artifact_tempo_5: (g, x, y) => { for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; disc(g, x + Math.cos(a) * 7, y + Math.sin(a) * 6, 1.2, i === 0 ? C.gold2 : C.purple1) } rect(g, x - 1, y + 6, 3, 4, C.purple2) }, // Acolyte's Prayer Beads
-    artifact_tempo_6: (g, x, y) => { ring(g, x - 1, y - 1, 6, C.gold1); disc(g, x - 1, y - 1, 5, C.purple0); ditherDisc(g, x - 1, y - 1, 5, C.pink, 4); px(g, x - 3, y - 3, C.white); line(g, x + 3, y + 3, x + 8, y + 8, C.gold1, 2) }, // Halvane's Spellglass
-    artifact_tempo_7: (g, x, y) => { drum(g, x, y, C.red1, C.bone1); line(g, x - 3, y - 9, x - 1, y - 4, C.bone1, 2); line(g, x + 5, y - 9, x + 2, y - 4, C.bone1, 2) }, // Korr's Marching Drum
+    artifact_tempo_6: (g, x, y) => {
+        // Halvane's Spellglass: the Magister's monocle, a rune lit in its lens, its chain trailing off in links
+        disc(g, x - 2, y - 2, 7, C.gold1)
+        disc(g, x - 2, y - 2, 5, C.purple0)
+        arc(g, x - 2, y - 2, 4, Math.PI * 1.1, Math.PI * 1.45, C.purple2)
+        line(g, x - 2, y - 5, x - 2, y + 1, C.pink); line(g, x - 5, y - 2, x + 1, y - 2, C.pink)
+        line(g, x - 4, y - 4, x, y, C.purple2); line(g, x, y - 4, x - 4, y, C.purple2)
+        px(g, x - 2, y - 2, C.white)
+        for (let i = 0; i < 4; i++) {
+            const cx = x + 4 + i * 1.6
+            const cy = y + 4 + i * 1.4 + (i > 1 ? i - 1 : 0)
+            if (i & 1) ring(g, cx, cy, 1, C.gold2); else { px(g, R(cx), R(cy), C.gold3); px(g, R(cx) + 1, R(cy), C.gold1) }
+        }
+        P.sparkle(g, x + 6, y - 7, 2, C.pink)
+    },
+    artifact_tempo_7: (g, x, y) => {
+        // Korr's Marching Drum: a legion war drum laced in bone cord, a skull on its shell, two bone sticks crossed over it
+        line(g, x - 8, y - 9, x + 5, y + 1, C.bone1); line(g, x - 7, y - 9, x + 5, y, C.bone0)
+        line(g, x + 8, y - 9, x - 5, y + 1, C.bone1); line(g, x + 7, y - 9, x - 5, y, C.bone0)
+        disc(g, x - 8, y - 9, 1.2, C.bone1); disc(g, x + 8, y - 9, 1.2, C.bone1)
+        ellipse(g, x, y + 7, 8, 2, C.red0)
+        rect(g, x - 8, y, 17, 8, C.red1)
+        ellipse(g, x, y, 8, 2, C.bone1)
+        rect(g, x - 8, y + 2, 17, 1, C.steel1); rect(g, x - 8, y + 7, 17, 1, C.steel1)
+        for (const d of [-7, -4, 4, 7]) { line(g, x + d - 1, y + 3, x + d + 1, y + 6, C.bone1) }
+        P.skull(g, x, y + 5)
+    },
     artifact_tempo_8: (g, x, y) => { tri(g, x - 6, y + 6, x + 6, y + 6, x, y - 8, C.cyan); tri(g, x - 6, y + 6, x, y + 6, x, y - 8, C.frost); for (let i = 0; i < 3; i++) line(g, x + 3, y, x + 9, y - 3 + i * 3, [C.red2, C.gold3, C.teal3][i]!) }, // Skyshard Prism
-    artifact_tempo_9: (g, x, y) => { line(g, x - 7, y + 7, x + 6, y - 6, C.bone1, 2); for (let i = 0; i < 5; i++) line(g, x - 5 + i * 3, y + 5 - i * 3, x - 5 + i * 3 + 4, y + 5 - i * 3 + 3, C.haze) }, // Zephyrax Wingbone
-    artifact_tempo_10: (g, x, y) => { ditherDisc(g, x, y, 9, C.purple1, 6); poly(g, [-5, -2, -1, -7, 5, -4, 6, 3, 1, 7, -5, 4], x, y, C.stone1); poly(g, [-1, -7, 5, -4, 6, 3, 1, 0], x, y, C.stone2); line(g, x - 1, y - 6, x + 4, y - 4, C.pink); px(g, x + 1, y - 1, C.purple2); for (let i = 0; i < 6; i++) { const a = i / 6 * Math.PI * 2 + 0.4; const r = 8 + (i & 1) * 2; px(g, R(x + Math.cos(a) * r), R(y + Math.sin(a) * r), i & 1 ? C.haze : C.pink); px(g, R(x + Math.cos(a) * (r - 2)), R(y + Math.sin(a) * (r - 2)), C.purple2) } }, // Lodestone of the Brink
-    artifact_tempo_11: (g, x, y) => { disc(g, x, y, 8, C.void); ring(g, x, y, 8, C.purple2); for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; px(g, R(x + Math.cos(a) * 6), R(y + Math.sin(a) * 6), C.haze) } line(g, x, y, x, y - 5, C.white); line(g, x, y, x + 3, y + 2, C.pink) }, // Herald's Stopped Clock
+    artifact_tempo_9: (g, x, y) => {
+        // Zephyrax Wingbone: the long bone of the Breaker's wing, storm-grey pinions still fanned off it, lightning in the quills
+        for (let i = 0; i < 5; i++) {
+            const bx = x - 5 + i * 3
+            const by = y - 3 - i * 2
+            taper(g, bx, by + 1, bx - 2 - i * 0.6, by + 10 + i * 0.5, 2.5, 1, i & 1 ? C.slate3 : C.slate2)
+            px(g, R(bx - 2 - i * 0.6), R(by + 10 + i * 0.5), C.white)
+        }
+        line(g, x - 7, y + 1, x + 7, y - 8, C.bone1, 2)
+        disc(g, x - 8, y + 2, 2, C.bone1); disc(g, x - 6, y + 3, 1.5, C.bone1)
+        disc(g, x + 8, y - 9, 2, C.bone1)
+        line(g, x + 4, y - 1, x + 6, y + 2, C.gold3); line(g, x + 6, y + 2, x + 5, y + 3, C.gold3); line(g, x + 5, y + 3, x + 8, y + 7, C.gold3)
+    },
+    artifact_tempo_10: (g, x, y) => {
+        // Lodestone of the Brink: a lodestone veined in iron, pulling falling stars down onto it
+        poly(g, [-6, 0, -2, -5, 4, -5, 7, 1, 3, 7, -4, 6], x, y + 2, C.rock1)
+        poly(g, [-2, -5, 4, -5, 2, 1, -5, 0], x, y + 2, C.rock2)
+        poly(g, [4, -5, 7, 1, 2, 1], x, y + 2, C.rock3)
+        line(g, x - 5, y + 5, x + 6, y + 3, C.steel2); px(g, x + 1, y + 4, C.white); px(g, x - 2, y + 5, C.steel3)
+        for (const [sx, sy, ex, ey] of [[-9, -9, -5, -4], [9, -8, 5, -4], [0, -10, 1, -5]] as const) {
+            line(g, x + sx, y + sy, x + ex, y + ey, C.purple1)
+            px(g, x + ex, y + ey, C.pink)
+        }
+        for (const [sx, sy] of [[-9, -9], [9, -8], [0, -10]] as const) P.sparkle(g, x + sx, y + sy, 1, C.white)
+        for (const [dx, dy] of [[-8, 6], [9, 6], [-9, 1]] as const) px(g, x + dx, y + dy, C.haze)
+    },
+    artifact_tempo_11: (g, x, y) => {
+        // Herald's Stopped Clock: a gold pocket watch, its hands frozen, the Void leaking through a crack in the face
+        ring(g, x, y - 9, 1.5, C.gold2); rect(g, x - 1, y - 8, 3, 2, C.gold1)
+        disc(g, x, y + 1, 8, C.gold1)
+        disc(g, x, y + 1, 6, C.bone1)
+        for (let i = 0; i < 12; i++) {
+            const a = i / 12 * Math.PI * 2
+            px(g, R(x + Math.cos(a) * 5), R(y + 1 + Math.sin(a) * 5), i % 3 ? C.bone0 : C.ink)
+        }
+        line(g, x, y + 1, x, y - 3, C.ink); line(g, x, y + 1, x - 3, y + 2, C.ink)
+        line(g, x + 1, y - 5, x + 2, y - 1, C.void); line(g, x + 2, y - 1, x + 1, y + 2, C.void); line(g, x + 1, y + 2, x + 4, y + 6, C.void)
+        line(g, x + 2, y - 4, x + 3, y - 1, C.purple1); line(g, x + 2, y + 2, x + 5, y + 5, C.purple1)
+        px(g, x + 2, y, C.pink)
+        for (const [dx, dy] of [[6, -6], [8, -3], [7, 8]] as const) px(g, x + dx, y + dy, C.purple2)
+    },
     // Fortune
     artifact_fortune_0: (g, x, y) => { disc(g, x, y, 7, C.brown2); disc(g, x - 0.5, y - 0.5, 6, C.orange); ring(g, x, y, 4, C.brown2); px(g, x - 2, y - 3, C.gold3) }, // Thornwick Copper
     artifact_fortune_1: (g, x, y) => { P.book(g, x, y, C.green1, C.bone1); px(g, x - 3, y - 1, C.green3); px(g, x + 3, y + 1, C.green3) }, // Hedge-Witch Almanac

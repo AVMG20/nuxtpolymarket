@@ -120,10 +120,19 @@ export interface ArtAsset {
  * approved and taken off when Frames & badges locked, and Round 4 when Branding locked (both also
  * 2026-09-28), Round 5 when the last Forge boss locked (2026-09-29), Round 6 when the Champion
  * ability crests locked (2026-10-01), and Rounds 7 and 8 when the offense and defense Artifacts
- * locked (2026-10-02), so the next round is 9;
+ * locked (2026-10-02), so the next round is 10;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
+    {
+        n: 9,
+        label: 'Tempo artifacts',
+        prefixes: [
+            'icon/artifact/artifact_tempo_0', 'icon/artifact/artifact_tempo_2', 'icon/artifact/artifact_tempo_3', 'icon/artifact/artifact_tempo_6',
+            'icon/artifact/artifact_tempo_7', 'icon/artifact/artifact_tempo_9', 'icon/artifact/artifact_tempo_10', 'icon/artifact/artifact_tempo_11'
+        ]
+    }
+]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
