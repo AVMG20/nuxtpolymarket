@@ -473,7 +473,7 @@ const SUPPORT: VfxDef[] = [
     champ('Tide of Renewal', 'Support', 1.7, (d, t) => {
         const q = qt(t)
         staffCharge(d, t, 0.05, 0.3, HEAL, 720)
-        const WAVE = { from: 0.3, to: 1.15, x0: -24, x1: 104, h: 15 }
+        const WAVE = { from: 0.3, to: 1.2, x0: -30, x1: 112, h: 58, back: 52, face: 16 }
         const u = pr(t, WAVE.from, WAVE.to)
         const cx = WAVE.x0 + (WAVE.x1 - WAVE.x0) * u
         if (u > 0 && u < 1) {
@@ -482,23 +482,26 @@ const SUPPORT: VfxDef[] = [
             const H = WAVE.h * grow
             // the body: a swell rising toward the crest, banded by height, screened lightly so the
             // party's legs still show through it
-            for (let dx = -34; dx <= 0; dx++) {
-                const k = (dx + 34) / 34
+            for (let dx = -WAVE.back; dx <= 0; dx++) {
+                const k = (dx + WAVE.back) / WAVE.back
                 const h = R(H * k * k * (3 - 2 * k))
                 const x = R(cx + dx)
                 for (let y = 0; y < h; y++) {
                     const v = y / Math.max(1, h)
-                    if (v < 0.5 && ((x + y) & 3) === 0) continue
-                    d.set(x, FLOOR - 1 - y, y === h - 1 ? C.teal3 : v > 0.6 ? C.teal2 : C.teal1)
+                    // see-through water, so the party shows inside it: a half screen, solid only at the crest
+                    if (y < h - 3 && ((x + y) & 1)) continue
+                    d.set(x, FLOOR - 1 - y, y >= h - 2 ? C.teal3 : v > 0.65 ? C.teal2 : C.teal1)
                 }
             }
             // the face: lit water curving down from the crest to the floor ahead of it
-            const FACE = 7
-            for (let dx = 1; dx <= FACE; dx++) {
-                const k = dx / FACE
+            for (let dx = 1; dx <= WAVE.face; dx++) {
+                const k = dx / WAVE.face
                 const h = R(H * (1 - k * k))
                 const x = R(cx + dx)
-                for (let y = 0; y < h; y++) d.set(x, FLOOR - 1 - y, y > h - 3 ? C.teal3 : (x + y) & 1 ? C.teal2 : C.teal3)
+                for (let y = 0; y < h; y++) {
+                    if (y < h - 3 && ((x + y) & 1)) continue
+                    d.set(x, FLOOR - 1 - y, y > h - 3 ? C.frost : C.teal3)
+                }
             }
             // the lip: the crest throwing forward over the face and curling down, white foam on its rim
             const r = H * 0.32
@@ -510,13 +513,13 @@ const SUPPORT: VfxDef[] = [
                 if (i < 8) d.set(x - 1, y, C.teal3)
             }
             // foam bubbling along the crest and spray thrown off the lip
-            for (let dx = -10; dx <= 0; dx++) if (hash2(dx + 20, f) > 0.55) {
-                const k = (dx + 34) / 34
+            for (let dx = -16; dx <= 0; dx++) if (hash2(dx + 20, f) > 0.55) {
+                const k = (dx + WAVE.back) / WAVE.back
                 d.set(R(cx + dx), R(FLOOR - 1 - H * k * k * (3 - 2 * k)) - 1, C.white)
             }
-            for (let i = 0; i < 6; i++) {
-                const ph = (q * 4 + hash2(i, 726)) % 1
-                d.set(R(cx + 3 + ph * 6 + i), R(FLOOR - H - 2 - ph * 6 + ph * ph * 10), ph < 0.4 ? C.white : C.teal3)
+            for (let i = 0; i < 12; i++) {
+                const ph = (q * 3 + hash2(i, 726)) % 1
+                d.set(R(cx + 4 + ph * 10 + i * 0.8), R(FLOOR - H - 2 - ph * 8 + ph * ph * 16), ph < 0.4 ? C.white : C.teal3)
             }
         }
         VL.allies.forEach((a, i) => {
