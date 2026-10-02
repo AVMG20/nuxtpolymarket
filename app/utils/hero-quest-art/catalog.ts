@@ -132,10 +132,19 @@ export interface ArtAsset {
  * ability crests locked (2026-10-01), Rounds 7–10 when the offense, defense, tempo and fortune
  * Artifacts locked, Round 11 when the Gear locked, Round 12 when the currencies locked and Round
  * 13 when the status effects locked, Round 14 when the Hero skill VFX locked and Round 15 when
- * the Damage Champion abilities locked (all 2026-10-02), so the next round is 16;
+ * the Damage Champion abilities locked (all 2026-10-02), so the next round is 17;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
+    {
+        n: 16,
+        label: 'Tank Champion abilities',
+        prefixes: [
+            'vfx/champ_ability_provoke', 'vfx/champ_ability_bulwark_stance', 'vfx/champ_ability_guardians_reflect', 'vfx/champ_ability_rallying_shout',
+            'vfx/champ_ability_iron_skin', 'vfx/champ_ability_ground_slam', 'vfx/champ_ability_guardians_vow'
+        ]
+    }
+]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
