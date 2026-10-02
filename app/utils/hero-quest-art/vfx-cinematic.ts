@@ -43,9 +43,9 @@ const CHEST = FLOOR - 14
 /** A 6-step element ramp, white-hot first: [white, hot, bright, mid, deep, rim]. */
 export type Ramp6 = readonly [number, number, number, number, number, number]
 
-const FIRE: Ramp6 = [C.white, C.gold3, C.gold2, C.orange, C.lava1, C.red1]
-const BLOOD: Ramp6 = [C.white, C.red3, C.red2, C.red2, C.red1, C.red0]
-const GOLD: Ramp6 = [C.white, C.gold3, C.gold3, C.gold2, C.gold1, C.gold0]
+export const FIRE: Ramp6 = [C.white, C.gold3, C.gold2, C.orange, C.lava1, C.red1]
+export const BLOOD: Ramp6 = [C.white, C.red3, C.red2, C.red2, C.red1, C.red0]
+export const GOLD: Ramp6 = [C.white, C.gold3, C.gold3, C.gold2, C.gold1, C.gold0]
 
 /**
  * A solid ball of energy at (cx, cy), radius `r`, `age` 0..1 through its life. The colour
@@ -77,7 +77,7 @@ export function blob(d: Surface, cx: number, cy: number, r: number, age: number,
  * A filled crescent in scene space: `width` px thick mid-sweep, tapering at both tips, with
  * a white outer edge — the video's slash, swept over progress u (0..1) so it can draw on.
  */
-function arcBand(d: Surface, cx: number, cy: number, r: number, a0: number, a1: number, width: number, u: number,
+export function arcBand(d: Surface, cx: number, cy: number, r: number, a0: number, a1: number, width: number, u: number,
     body: number, edge: number = C.white, inner: number = body): void {
     if (u <= 0) return
     const steps = Math.max(10, R(Math.abs(a1 - a0) * r * 1.5))
@@ -214,7 +214,7 @@ function meteor(d: Surface, x: number, y: number, r: number, a: number, t: numbe
 }
 
 /** Fire left burning on the ground: tongues flickering up from a strip `w` wide. */
-function groundFire(d: Surface, x: number, w: number, t: number, t0: number, t1: number, seed: number, tall = 8): void {
+export function groundFire(d: Surface, x: number, w: number, t: number, t0: number, t1: number, seed: number, tall = 8): void {
     const q = qt(t)
     if (q < t0 || q >= t1) return
     const fade = Math.min(1, (t1 - q) / 0.4)
@@ -390,14 +390,14 @@ const haste: CinematicVfx = {
 
 // ── Kit for the rest of the Hero skills ────────────────────────────────────────────
 
-const STEEL: Ramp6 = [C.white, C.steel3, C.steel3, C.steel2, C.steel1, C.steel0]
+export const STEEL: Ramp6 = [C.white, C.steel3, C.steel3, C.steel2, C.steel1, C.steel0]
 const ARCANE: Ramp6 = [C.white, C.pink, C.pink, C.purple2, C.purple1, C.purple0]
-const STORM: Ramp6 = [C.white, C.frost, C.cyan, C.blue2, C.blue1, C.blue0]
+export const STORM: Ramp6 = [C.white, C.frost, C.cyan, C.blue2, C.blue1, C.blue0]
 const NATURE: Ramp6 = [C.white, C.green4, C.green3, C.green2, C.green1, C.green0]
 const TEAL: Ramp6 = [C.white, C.teal3, C.teal3, C.teal2, C.teal1, C.teal0]
 
 /** A standing target's chest: 14 px up from the ground it stands on. */
-function chestOf(f: { g: number }): number { return f.g - 14 }
+export function chestOf(f: { g: number }): number { return f.g - 14 }
 /** The caster's head and bow hand, on the round-2 chibi body. */
 const HEAD_Y = FLOOR - 24
 const HAND = { x: CX + 10, y: FLOOR - 13 }
@@ -410,7 +410,7 @@ function fatBolt(d: Surface, x0: number, y0: number, x1: number, y1: number, t: 
 }
 
 /** A comet: a filled ball in a ramp, a tapering tail of discs streaming back along `a`. */
-function comet(d: Surface, x: number, y: number, a: number, r: number, ramp: Ramp6, t: number, seed: number): void {
+export function comet(d: Surface, x: number, y: number, a: number, r: number, ramp: Ramp6, t: number, seed: number): void {
     const dx = Math.cos(a)
     const dy = Math.sin(a)
     const f = Math.floor(qt(t) * 10)
@@ -426,7 +426,7 @@ function comet(d: Surface, x: number, y: number, a: number, r: number, ramp: Ram
 }
 
 /** Buff (up) or debuff (down) chevrons over a body, three pixels a stroke. */
-function chevrons(d: Surface, x: number, y: number, t: number, up: boolean, c: number, hi: number = C.white): void {
+export function chevrons(d: Surface, x: number, y: number, t: number, up: boolean, c: number, hi: number = C.white): void {
     const q = qt(t)
     for (let k = 0; k < 2; k++) {
         const ph = (q * 1.4 + k / 2) % 1

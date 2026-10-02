@@ -23,6 +23,7 @@ import { BOSSES_B } from './bosses-b'
 import { VFX, MULTI_STRIKE, drawMultiStrike, drawVfxStage } from './vfx'
 import { VL } from './vfx-kit'
 import { CINEMATIC_BY_ID, cinematicStage } from './vfx-cinematic'
+import { CHAMPION_STYLED_BY_ID, championStage } from './vfx-champion'
 import { ICON, SMALL_ICON, glyph, squareFrame, circleFrame, crestFrame, itemTile } from './icon-kit'
 import { CLASS_SKILL_ICONS, CHAMPION_ABILITY_ICONS, TRAINING_SKILL_ICONS } from './icons-abilities'
 import { ARTIFACT_ICONS, GEAR_ICONS, CURRENCY_ICONS, CURRENCY_LABELS } from './icons-items'
@@ -129,10 +130,19 @@ export interface ArtAsset {
  * ability crests locked (2026-10-01), Rounds 7–10 when the offense, defense, tempo and fortune
  * Artifacts locked, Round 11 when the Gear locked, Round 12 when the currencies locked and Round
  * 13 when the status effects locked and Round 14 when the Hero skill VFX locked (all
- * 2026-10-02), so the next round is 15;
+ * 2026-10-02), so the next round is 16;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
+    {
+        n: 15,
+        label: 'Damage Champion abilities',
+        prefixes: [
+            'vfx/champ_ability_cleave', 'vfx/champ_ability_piercing_bolt', 'vfx/champ_ability_rising_flame', 'vfx/champ_ability_execute_strike',
+            'vfx/champ_ability_volley', 'vfx/champ_ability_focused_barrage', 'vfx/champ_ability_rupture'
+        ]
+    }
+]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
@@ -370,7 +380,7 @@ function vfxAssets(): ArtAsset[] {
         id: `vfx/${v.id}`, group: v.source === 'class' ? 'hero_skill_vfx' as const : 'vfx' as const, section: SECTION[v.source], label: `${v.name} — ${v.owner}`,
         w: VL.W, h: VL.H, frames: Math.round(v.dur * ANIM_FPS), fps: ANIM_FPS, loop: false,
         render: (dst: Surface, f: number) => v.draw(dst, f / ANIM_FPS),
-        underlay: CINEMATIC_BY_ID[v.id] ? cinematicStage(v.id) : drawVfxStage
+        underlay: CINEMATIC_BY_ID[v.id] ? cinematicStage(v.id) : CHAMPION_STYLED_BY_ID[v.id] ? championStage : drawVfxStage
     }))
     for (const m of MULTI_STRIKE) {
         out.push({
