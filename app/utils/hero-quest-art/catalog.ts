@@ -24,6 +24,7 @@ import { VFX, MULTI_STRIKE, drawMultiStrike, drawVfxStage, type VfxDef } from '.
 import { VL } from './vfx-kit'
 import { CINEMATIC_BY_ID, cinematicStage } from './vfx-cinematic'
 import { CHAMPION_STYLED_BY_ID, championStage } from './vfx-champion'
+import { TRAINING_STYLED_BY_ID } from './vfx-training'
 import { ICON, SMALL_ICON, glyph, squareFrame, circleFrame, crestFrame, itemTile } from './icon-kit'
 import { CLASS_SKILL_ICONS, CHAMPION_ABILITY_ICONS, TRAINING_SKILL_ICONS } from './icons-abilities'
 import { ARTIFACT_ICONS, GEAR_ICONS, CURRENCY_ICONS, CURRENCY_LABELS } from './icons-items'
@@ -136,10 +137,21 @@ export interface ArtAsset {
  * Artifacts locked, Round 11 when the Gear locked, Round 12 when the currencies locked and Round
  * 13 when the status effects locked, Round 14 when the Hero skill VFX locked, and Rounds 15–18
  * when the Damage, Tank, Support and Control Champion abilities locked (all 2026-10-02), so the next
- * round is 19;
+ * round is 20;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
+    {
+        n: 19,
+        label: 'Training Grounds actives',
+        prefixes: [
+            'vfx/skill_quick_strike', 'vfx/skill_steadying_breath', 'vfx/skill_coin_toss', 'vfx/skill_focused_blow', 'vfx/skill_adrenaline_surge',
+            'vfx/skill_prospectors_instinct', 'vfx/skill_piercing_focus', 'vfx/skill_vigor_renewal', 'vfx/skill_gamblers_strike',
+            'vfx/skill_twin_strike', 'vfx/skill_battlefield_surge', 'vfx/skill_treasure_hunters_gambit', 'vfx/skill_executioners_edge',
+            'vfx/skill_phoenix_draught', 'vfx/skill_fortunes_gambit', 'vfx/skill_ragnarok_strike', 'vfx/skill_aegis_of_renewal', 'vfx/skill_kings_ransom'
+        ]
+    }
+]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
@@ -385,7 +397,7 @@ function vfxAssets(): ArtAsset[] {
         id: `vfx/${v.id}`, group: vfxGroup(v), section: SECTION[v.source], label: `${v.name} — ${v.owner}`,
         w: VL.W, h: VL.H, frames: Math.round(v.dur * ANIM_FPS), fps: ANIM_FPS, loop: false,
         render: (dst: Surface, f: number) => v.draw(dst, f / ANIM_FPS),
-        underlay: CINEMATIC_BY_ID[v.id] ? cinematicStage(v.id) : CHAMPION_STYLED_BY_ID[v.id] ? championStage : drawVfxStage
+        underlay: CINEMATIC_BY_ID[v.id] ? cinematicStage(v.id) : CHAMPION_STYLED_BY_ID[v.id] || TRAINING_STYLED_BY_ID[v.id] ? championStage : drawVfxStage
     }))
     for (const m of MULTI_STRIKE) {
         out.push({

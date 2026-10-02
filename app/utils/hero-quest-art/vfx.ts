@@ -20,6 +20,7 @@ import { DISCIPLE_CLIPS, DISCIPLE_LOOK, RAISED_DEAD_CLIPS, RAISED_DEAD_LOOK } fr
 import { CLASS_NODES } from '../../../shared/utils/hero-quest/content/classes'
 import { CINEMATIC_BY_ID } from './vfx-cinematic'
 import { CHAMPION_STYLED } from './vfx-champion'
+import { TRAINING_STYLED_BY_ID } from './vfx-training'
 
 export type VfxSource = 'class' | 'champion' | 'training'
 
@@ -267,7 +268,10 @@ const TRAINING_VFX: VfxDef[] = [
 const CLASSIC_BY_ID: Readonly<Record<string, VfxDef>> = Object.fromEntries(CLASS_VFX.map(v => [v.id, v]))
 const CLASS_VFX_LIVE: VfxDef[] = CLASS_NODES.map(n => CINEMATIC_BY_ID[n.skill.id] ?? CLASSIC_BY_ID[n.skill.id]!)
 
-export const VFX: readonly VfxDef[] = [...CLASS_VFX_LIVE, ...CHAMPION_STYLED, ...TRAINING_VFX]
+// the restyled Training Grounds actives replace their round-1 entries by ID, in place
+const TRAINING_VFX_LIVE = TRAINING_VFX.map(v => TRAINING_STYLED_BY_ID[v.id] ?? v)
+
+export const VFX: readonly VfxDef[] = [...CLASS_VFX_LIVE, ...CHAMPION_STYLED, ...TRAINING_VFX_LIVE]
 export const VFX_BY_ID: Readonly<Record<string, VfxDef>> = Object.fromEntries(VFX.map(v => [v.id, v]))
 
 // ── Multi-strike (asset-list §2.2): the Archer-path single strike, recoloured and repeated ──

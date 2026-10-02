@@ -115,7 +115,7 @@ export function shockRing(d: Surface, x: number, y: number, t: number, t0: numbe
  * The ground sigil under the caster: two concentric slanted rings with rune ticks turning
  * between them, lit over [t0, t1] — it grows in, holds, and shrinks out.
  */
-function casterRing(d: Surface, x: number, t: number, t0: number, t1: number, dark: number, mid: number, light: number): void {
+export function casterRing(d: Surface, x: number, t: number, t0: number, t1: number, dark: number, mid: number, light: number): void {
     const q = qt(t)
     if (q < t0 || q >= t1) return
     const grow = Math.min(1, (q - t0) / 0.2)
@@ -154,7 +154,7 @@ function ep(cx: number, cy: number, r: number, a: number, squash: number, rot: n
 }
 
 /** The portal the meteors fall out of: tilted rings, turning runes, a swirling hot core. */
-function skyPortal(d: Surface, cx: number, cy: number, t: number, t0: number, t1: number): void {
+export function skyPortal(d: Surface, cx: number, cy: number, t: number, t0: number, t1: number): void {
     const q = qt(t)
     if (q < t0 || q >= t1) return
     const s = Math.min(1, (q - t0) / 0.25, (t1 - q) / 0.2)
@@ -191,7 +191,7 @@ function skyPortal(d: Surface, cx: number, cy: number, t: number, t0: number, t1
 }
 
 /** A falling meteor: rocky core in a flame shell, a white-hot front and a flame tail. */
-function meteor(d: Surface, x: number, y: number, r: number, a: number, t: number, seed: number): void {
+export function meteor(d: Surface, x: number, y: number, r: number, a: number, t: number, seed: number): void {
     const dx = Math.cos(a)
     const dy = Math.sin(a)
     const f = Math.floor(qt(t) * 10)
@@ -391,10 +391,10 @@ const haste: CinematicVfx = {
 // ── Kit for the rest of the Hero skills ────────────────────────────────────────────
 
 export const STEEL: Ramp6 = [C.white, C.steel3, C.steel3, C.steel2, C.steel1, C.steel0]
-const ARCANE: Ramp6 = [C.white, C.pink, C.pink, C.purple2, C.purple1, C.purple0]
+export const ARCANE: Ramp6 = [C.white, C.pink, C.pink, C.purple2, C.purple1, C.purple0]
 export const STORM: Ramp6 = [C.white, C.frost, C.cyan, C.blue2, C.blue1, C.blue0]
-const NATURE: Ramp6 = [C.white, C.green4, C.green3, C.green2, C.green1, C.green0]
-const TEAL: Ramp6 = [C.white, C.teal3, C.teal3, C.teal2, C.teal1, C.teal0]
+export const NATURE: Ramp6 = [C.white, C.green4, C.green3, C.green2, C.green1, C.green0]
+export const TEAL: Ramp6 = [C.white, C.teal3, C.teal3, C.teal2, C.teal1, C.teal0]
 
 /** A standing target's chest: 14 px up from the ground it stands on. */
 export function chestOf(f: { g: number }): number { return f.g - 14 }
@@ -403,7 +403,7 @@ const HEAD_Y = FLOOR - 24
 const HAND = { x: CX + 10, y: FLOOR - 13 }
 
 /** Lightning three pixels thick: a glow band either side of a white core, re-rolled each frame. */
-function fatBolt(d: Surface, x0: number, y0: number, x1: number, y1: number, t: number, seed: number, glow: number = C.cyan, edge: number = C.blue1): void {
+export function fatBolt(d: Surface, x0: number, y0: number, x1: number, y1: number, t: number, seed: number, glow: number = C.cyan, edge: number = C.blue1): void {
     bolt(d, x0 - 1, y0, x1 - 1, y1, t, seed, edge, edge, 5)
     bolt(d, x0 + 1, y0, x1 + 1, y1, t, seed, glow, edge, 5)
     bolt(d, x0, y0, x1, y1, t, seed, C.white, glow, 5)
