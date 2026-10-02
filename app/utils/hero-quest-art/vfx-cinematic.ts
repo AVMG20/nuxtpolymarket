@@ -617,48 +617,53 @@ const enrage: CinematicVfx = {
 
 // ── Knight: Shockwave ──────────────────────────────────────────────────────────────
 
-// A great blue crescent of force swept off the Knight's blade, sliding across the field and
-// breaking over the front row, every rank of it stunned. (Content has it reach every foe; the
-// crescent stops at the front row on the user's direction, 2026-10-02.)
-const CRESCENT = { swing: 0.45, from: 0.55, to: 1.05, x0: CX - 22, x1: 112, cy: FLOOR - 30, r: 34 }
-/** When the crescent's leading edge reaches a foe: its edge sits r·cos(asin(dy/r)) ahead of the centre. */
-const crescentAt = (f: { x: number, g: number }) => {
+// Every foe, each stunned: one giant swing of the Knight's blade draws a great blue crescent of
+// force in front of him, and the crescent leaves straight off the swing, picking up speed as it
+// sweeps through the front row and the back row and out of the scene.
+const CRESCENT = { swing: 0.4, leave: 0.56, fly: 0.42, cy: FLOOR - 30, r: 34, ease: 1.4 }
+/** The crescent's centre while it is drawn on, its leading edge just in front of the Knight. */
+const CRESCENT_X0 = CX + 16 - 34
+const CRESCENT_X1 = VL.W + 12
+/** Its centre at time q: still through the swing, then easing up to speed. */
+function crescentX(q: number): number {
+    if (q < CRESCENT.leave) return CRESCENT_X0
+    const u = Math.min(1, (q - CRESCENT.leave) / CRESCENT.fly)
+    return CRESCENT_X0 + (CRESCENT_X1 - CRESCENT_X0) * Math.pow(u, CRESCENT.ease)
+}
+/** When the leading edge reaches a foe: the edge sits r·cos(asin(dy/r)) ahead of the centre. */
+function crescentAt(f: { x: number, g: number }): number {
     const dy = chestOf(f) - CRESCENT.cy
     const cx = f.x - Math.sqrt(CRESCENT.r * CRESCENT.r - dy * dy)
-    return CRESCENT.from + (cx - CRESCENT.x0) / (CRESCENT.x1 - CRESCENT.x0) * (CRESCENT.to - CRESCENT.from)
+    const u = Math.max(0, (cx - CRESCENT_X0) / (CRESCENT_X1 - CRESCENT_X0))
+    return CRESCENT.leave + CRESCENT.fly * Math.pow(u, 1 / CRESCENT.ease)
 }
-const SHOCK_HITS = F.slice(0, 3).map(crescentAt).sort((a, b) => a - b)
+const SHOCK_ORDER = F.map((f, i) => ({ i, at: crescentAt(f) })).sort((a, b) => a.at - b.at)
 
 const shockwave: CinematicVfx = {
     id: 'skill_shockwave', name: 'Shockwave', source: 'class', owner: 'Knight', dur: 2.3,
-    cinematic: { hits: SHOCK_HITS, tint: 'night0', spread: true },
+    cinematic: { hits: SHOCK_ORDER.map(o => o.at), tint: 'night0', spread: true },
     draw(d, t) {
         const q = qt(t)
-        casterRing(d, CX, t, 0, 1.2, C.blue0, C.blue1, C.cyan)
-        // the swing that throws it: a blue arc cut up through the air in front of him
-        if (q >= CRESCENT.swing - 0.1 && q < CRESCENT.from + 0.1) arcBand(d, CX + 2, FLOOR - 14, 14, -1.6, 1.2, 4, pr(t, CRESCENT.swing - 0.1, CRESCENT.swing + 0.05), C.cyan, C.white, C.blue1)
-        // the crescent: thick through the middle, tapering to its horns, a white leading edge
-        if (q >= CRESCENT.from && q < CRESCENT.to + 0.2) {
-            const u = pr(t, CRESCENT.from, CRESCENT.to)
-            const cx = CRESCENT.x0 + (CRESCENT.x1 - CRESCENT.x0) * u
-            const fade = q < CRESCENT.to ? 1 : 1 - (q - CRESCENT.to) / 0.2
-            const w = R(9 * fade)
-            if (w > 0) {
-                arcBand(d, cx, CRESCENT.cy, CRESCENT.r, -1.15, 1.15, w, 1, C.blue2, C.white, C.blue1)
-                arcBand(d, cx, CRESCENT.cy, CRESCENT.r - 2, -1.0, 1.0, Math.max(1, w - 4), 1, C.cyan, C.frost, C.blue2)
-            }
-            // frost shed off its trailing side
-            if (q < CRESCENT.to) for (let i = 0; i < 14; i++) {
-                const a = -1.1 + hash2(i, 91 + Math.floor(q * 10)) * 2.2
-                const back = 4 + hash2(i, 92) * 16
+        casterRing(d, CX, t, 0, 1.0, C.blue0, C.blue1, C.cyan)
+        const end = CRESCENT.leave + CRESCENT.fly
+        if (q >= CRESCENT.swing && q < end) {
+            // the swing draws it on, top horn to bottom; then it flies
+            const draw = pr(t, CRESCENT.swing, CRESCENT.leave)
+            const cx = crescentX(q)
+            arcBand(d, cx, CRESCENT.cy, CRESCENT.r, -1.15, 1.15, 9, draw, C.blue2, C.white, C.blue1)
+            arcBand(d, cx, CRESCENT.cy, CRESCENT.r - 2, -1.0, 1.0, 5, draw, C.cyan, C.frost, C.blue2)
+            // frost shed off its trailing side, streaming back faster as it speeds up
+            if (q >= CRESCENT.leave) for (let i = 0; i < 16; i++) {
+                const a = -1.1 + hash2(i, 91 + Math.floor(q * 15)) * 2.2
+                const back = 4 + hash2(i, 92) * 22
                 d.set(R(cx + Math.cos(a) * (CRESCENT.r - back)), R(CRESCENT.cy + Math.sin(a) * (CRESCENT.r - back)), i & 1 ? C.frost : C.blue2)
             }
-            if (q >= CRESCENT.to) burst(d, CRESCENT.x1 + CRESCENT.r - 6, CRESCENT.cy, t, CRESCENT.to, 24, 70, 'frost', 255, 0.5, 40, 0, Math.PI * 2, 2)
         }
-        F.slice(0, 3).forEach((f, i) => {
-            const h = crescentAt(f)
-            blast(d, f.x, chestOf(f), t, h, 11, 0.5, STORM, 260 + i, 'frost')
-            if (q >= h + 0.15 && q < 2.3) stunStars(d, f.x, chestOf(f) - 12, t)
+        if (q >= CRESCENT.leave) burst(d, CX + 14, FLOOR - 10, t, CRESCENT.leave, 14, 60, 'frost', 254, 0.4, 0, Math.PI, 1.6)
+        SHOCK_ORDER.forEach(({ i, at }) => {
+            const f = F[i]!
+            blast(d, f.x, chestOf(f), t, at, i < 3 ? 11 : 9, 0.5, STORM, 260 + i, 'frost')
+            if (q >= at + 0.15 && q < 2.3) stunStars(d, f.x, chestOf(f) - 12, t)
         })
     }
 }
