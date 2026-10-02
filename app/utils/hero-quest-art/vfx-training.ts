@@ -75,7 +75,7 @@ const BACK = new Surface(VL.W, VL.H, 0, 0)
 
 /** The Hero's rough silhouette on his mark: head and body. */
 function onHero(x: number, y: number): boolean {
-    return (y >= HEAD - 5 && y < HEAD + 9 && x >= CX - 7 && x <= CX + 6) || (y >= HEAD + 9 && y <= FLOOR && x >= CX - 6 && x <= CX + 5)
+    return (y >= HEAD + 1 && y < HEAD + 9 && x >= CX - 7 && x <= CX + 6) || (y >= HEAD + 9 && y <= FLOOR && x >= CX - 6 && x <= CX + 5)
 }
 
 /** Copy a layer onto the stage, leaving the Hero's silhouette alone so the layer reads as behind him. */
@@ -395,7 +395,7 @@ const LEGENDARY: VfxDef[] = [
         }
         // the pillar of fire climbing off his back
         if (q >= 0.55 && q < 1.5) {
-            const h = R(eo(pr(t, 0.55, 0.8)) * 70)
+            const h = R(eo(pr(t, 0.55, 0.8)) * 58)
             const f = Math.floor(q * 15)
             for (let dx = -4; dx <= 4; dx++) {
                 const k = Math.abs(dx) / 4
