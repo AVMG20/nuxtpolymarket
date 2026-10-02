@@ -3,7 +3,7 @@
 
 import { C } from './palette'
 import { type Surface, taper, dome } from './surface'
-import { M, sword, axe, type Mat } from './weapons'
+import { M, axe, type Mat } from './weapons'
 import { type Glyph, CLEAR, rect, px, line, disc, ring, tri, ellipse, poly, arc } from './icon-kit'
 import { ABILITY_ICON_PARTS as P } from './icons-abilities'
 
@@ -424,6 +424,9 @@ export const ARTIFACT_ICONS: Readonly<Record<string, Glyph>> = {
 }
 
 // ── Gear: six slots × six tiers ────────────────────────────────────────────────────
+// Gear names are only `<Epithet> <Slot>`, so the tier is the whole identity: each slot is one
+// silhouette that climbs a ladder, Novice (worn leather and iron) to Ascendant (red gold, alight),
+// adding a piece of make or ornament at every rung rather than recolouring the one below.
 
 const TIER_METAL: readonly Mat[] = [M.iron, M.steel, M.steel, [C.purple0, C.steel2, C.steel3], M.gold, [C.red1, C.gold2, C.gold3]]
 const TIER_TRIM: readonly Mat[] = [M.leather, M.leather, [C.blue0, C.blue1, C.blue2], [C.purple0, C.purple1, C.purple2], [C.gold0, C.gold1, C.gold3], [C.red0, C.red2, C.red3]]
@@ -433,62 +436,213 @@ function gearGem(g: Surface, x: number, y: number, tier: number): void {
     if (TIER_GEM[tier]! >= 0) { disc(g, x, y, 1.5, TIER_GEM[tier]!); px(g, x, y, C.white) }
 }
 
+/** The Ascendant tier's light: sparks thrown off round the piece. */
+function radiance(g: Surface, x: number, y: number, pts: readonly (readonly [number, number])[]): void {
+    for (const [dx, dy] of pts) P.sparkle(g, x + dx, y + dy, 1, C.gold3)
+}
+
+/** A wing of `n` feathers fanning up and out from (x, y), mirrored by `d`. */
+function wing(g: Surface, x: number, y: number, d: number, n: number, c: number, tipC: number): void {
+    for (let i = 0; i < n; i++) {
+        const ex = x + d * (3 + i * 1.5)
+        const ey = y - 4 + i * 2
+        taper(g, x, y + i, ex, ey, 2, 1, c)
+        px(g, R(ex), R(ey), tipC)
+    }
+}
+
 function gearWeapon(tier: number): Glyph {
     return (g, x, y) => {
         const m = TIER_METAL[tier]!
-        sword(g, x - 6, y + 7, -0.8, 11 + tier, m, TIER_TRIM[tier]!, tier < 2 ? C.brown1 : TIER_TRIM[tier]![0], tier >= 3)
-        if (tier >= 4) for (let i = 0; i < 3; i++) px(g, x + 1 + i * 2, y - 2 - i * 2, C.white)
-        gearGem(g, x - 4, y + 5, tier)
+        const t = TIER_TRIM[tier]!
+        const len = [9, 11, 12, 13, 14, 15][tier]!
+        const w = [2.5, 3, 3, 3.5, 4, 4][tier]!
+        // the hilt at the lower left, the blade running up and right
+        const gx = x - 4
+        const gy = y + 4
+        const tx = gx + R(len * 0.71)
+        const ty = gy - R(len * 0.71)
+        taper(g, gx, gy, tx, ty, w, 1, m[1])
+        line(g, gx, gy - 1, tx - 1, ty, m[2])
+        if (tier === 3 || tier === 4) line(g, gx + 1, gy - 1, tx - 2, ty + 2, m[0])
+        px(g, tx, ty, C.white)
+        if (tier === 0) { px(g, gx + 4, gy - 5, CLEAR); px(g, gx + 3, gy - 2, C.orange) }
+        if (tier === 5) line(g, gx + 2, gy - 2, tx - 3, ty + 3, C.red2)
+        // the guard, across the blade
+        const gw = [2, 3, 3, 4, 4, 4][tier]!
+        line(g, gx - gw, gy - gw, gx + gw, gy + gw, tier < 2 ? C.steel0 : t[1], 2)
+        if (tier === 2 || tier === 3) { px(g, gx - gw - 1, gy - gw + 1, t[1]); px(g, gx + gw - 1, gy + gw + 1, t[1]) }
+        if (tier >= 4) for (const d of [-1, 1]) { const ex = gx + d * gw; const ey = gy + d * gw; tri(g, ex, ey, ex + 3, ey - 1, ex + 1, ey - 3, t[2]); px(g, ex + 2, ey - 2, C.white) }
+        // the grip and pommel
+        line(g, gx - 1, gy + 1, gx - 4, gy + 4, tier === 0 ? C.bone0 : C.brown1, 2)
+        if (tier === 0) { px(g, gx - 2, gy + 3, C.brown1); px(g, gx - 4, gy + 4, C.brown1) }
+        if (tier >= 1) disc(g, gx - 5, gy + 5, 1.5, tier < 2 ? C.steel1 : t[2])
+        gearGem(g, gx, gy, tier)
+        if (tier === 5) radiance(g, x, y, [[-6, -7], [8, 4], [2, -9]])
     }
 }
+
 function gearBoots(tier: number): Glyph {
     return (g, x, y) => {
-        const m = tier < 2 ? M.leather : TIER_METAL[tier]!
-        rect(g, x - 4, y - 7, 6, 11, m[1]); rect(g, x - 4, y + 3, 11, 4, m[1]); rect(g, x - 4, y + 7, 12, 1, m[0])
-        rect(g, x - 3, y - 7, 1, 10, m[2]); rect(g, x - 5, y - 7, 8, 2, TIER_TRIM[tier]![1])
-        if (tier >= 3) { tri(g, x + 2, y - 5, x + 2, y - 1, x + 6, y - 6, TIER_TRIM[tier]![2]) } // wing
-        gearGem(g, x - 1, y - 6, tier)
+        const plate = tier >= 2
+        const m = plate ? TIER_METAL[tier]! : M.leather
+        const t = TIER_TRIM[tier]!
+        if (tier >= 4) wing(g, x - 5, y - 3, -1, tier - 1, t[2], C.white)
+        // a boot in profile, toe to the right
+        poly(g, [-5, -8, 2, -8, 2, 1, 6, 2, 8, 4, 8, 7, -6, 7, -6, -8], x, y, m[1])
+        rect(g, x - 5, y - 7, 1, 13, m[2])
+        rect(g, x - 6, y + 7, 15, 1, plate ? m[0] : C.brown0)
+        rect(g, x - 6, y + 5, 4, 2, plate ? m[0] : C.brown0)
+        if (tier === 0) {
+            rect(g, x - 6, y - 8, 9, 3, C.brown2)
+            for (let i = 0; i < 4; i++) px(g, x + 1, y - 4 + i * 2, C.bone1)
+            rect(g, x - 3, y + 1, 2, 2, C.olive1)
+        } else if (tier === 1) {
+            rect(g, x - 6, y - 8, 9, 2, C.steel1)
+            poly(g, [3, 2, 6, 2, 8, 4, 8, 6, 3, 6], x, y, C.steel1); px(g, x + 5, y + 3, C.steel2)
+            rect(g, x - 5, y - 2, 7, 1, C.brown0); rect(g, x - 1, y - 3, 2, 3, C.steel2)
+        } else {
+            for (const ly of [-4, -1]) rect(g, x - 5, y + ly, 7, 1, m[0])
+            for (const lx of [3, 5]) line(g, x + lx, y + 2, x + lx, y + 6, m[0])
+            rect(g, x - 6, y - 9, 9, 2, t[1])
+            if (tier >= 3) tri(g, x + 2, y - 9, x + 2, y - 5, x + 6, y - 10, t[2])
+            gearGem(g, x - 2, y - 8, tier)
+        }
+        if (tier === 5) radiance(g, x, y, [[7, -7], [-8, 6], [4, -2]])
     }
 }
+
 function gearGauntlets(tier: number): Glyph {
     return (g, x, y) => {
-        const m = tier === 0 ? M.leather : TIER_METAL[tier]!
-        rect(g, x - 5, y - 1, 10, 8, m[1]); rect(g, x - 5, y - 1, 10, 1, m[2])
-        for (let i = 0; i < 4; i++) rect(g, x - 5 + i * 3, y - 6 + (i === 0 ? 3 : 0), 2, 6, m[1])
-        rect(g, x - 6, y + 5, 12, 3, TIER_TRIM[tier]![1])
-        if (tier >= 2) for (let i = 0; i < 4; i++) px(g, x - 5 + i * 3, y - 1, m[2])
-        gearGem(g, x, y + 2, tier)
+        const plate = tier >= 2
+        const m = plate ? TIER_METAL[tier]! : M.leather
+        const t = TIER_TRIM[tier]!
+        // the back of a hand, fingers up, thumb out to the left, a flared cuff below
+        const tips = [-7, -9, -9, -7]
+        for (let i = 0; i < 4; i++) {
+            const fx = x - 3 + i * 2
+            const top = y + (tier === 0 ? tips[i]! + 3 : tips[i]!)
+            rect(g, fx, top, 2, y - top + 1, m[1])
+            if (i > 0) line(g, fx, top + 1, fx, y, m[0])
+            if (tier === 0) rect(g, fx, top - 2, 2, 2, C.skin1)
+            if (plate) for (let k = top + 2; k < y; k += 3) px(g, fx + 1, k, m[0])
+            if (tier === 5) tri(g, fx, top, fx + 2, top, fx + 1, top - 2, C.gold3)
+        }
+        taper(g, x - 3, y + 2, x - 7, y - 3, 3, 2, m[1])
+        rect(g, x - 3, y, 8, 4, m[1])
+        line(g, x - 3, y, x + 4, y, m[2])
+        poly(g, [-4, 4, 5, 4, 7, 9, -6, 9], x, y, plate ? t[1] : m[0])
+        line(g, x - 5, y + 5, x + 5, y + 5, plate ? t[2] : C.brown2)
+        if (tier === 0) for (let k = 0; k < 3; k++) line(g, x - 3, y - 2 + k * 2, x + 4, y - 1 + k * 2, C.bone0)
+        if (tier === 1) for (let i = 0; i < 4; i++) px(g, x - 2 + i * 2, y, C.steel2)
+        if (tier >= 3) for (let i = 0; i < 4; i++) px(g, x - 2 + i * 2, y - 1, C.white)
+        if (tier >= 4) { for (let i = 0; i < 3; i++) px(g, x - 3 + i * 4, y + 7, t[2]) }
+        gearGem(g, x + 1, y + 2, tier)
+        if (tier === 5) radiance(g, x, y, [[-8, -8], [8, -5], [8, 6]])
     }
 }
+
 function gearCharm(tier: number): Glyph {
     return (g, x, y) => {
-        arc(g, x, y + 1, 6, Math.PI * 1.08, Math.PI * 1.92, tier < 2 ? C.brown2 : C.gold1)
-        const m = TIER_METAL[tier]!
-        if (tier < 2) { disc(g, x, y + 3, 4, tier === 0 ? C.bone1 : C.steel2); px(g, x, y + 3, C.ink) } else gem(g, x, y + 3, 4 + (tier >> 1), [m[0], TIER_TRIM[tier]![1], TIER_TRIM[tier]![2]])
-        if (tier >= 4) ring(g, x, y + 3, 6 + (tier - 4), C.gold2)
+        const t = TIER_TRIM[tier]!
+        const cord = tier < 2 ? C.brown2 : tier < 4 ? C.steel2 : C.gold2
+        arc(g, x, y, 8, Math.PI * 1.1, Math.PI * 1.9, cord)
+        if (tier >= 2) for (let i = 0; i < 6; i++) { const a = Math.PI * (1.15 + i * 0.14); px(g, R(x + Math.cos(a) * 8), R(y + Math.sin(a) * 8), C.ink) }
+        line(g, x, y - 1, x, y + 1, cord)
+        if (tier === 0) {
+            // a wolf's tooth on a thong
+            taper(g, x, y + 1, x - 1, y + 9, 4, 1, C.bone1)
+            px(g, x - 1, y + 2, C.white); rect(g, x - 2, y + 1, 5, 1, C.brown1)
+        } else if (tier === 1) {
+            // an iron disc, a rune scratched into it
+            disc(g, x, y + 5, 4, C.steel2); ring(g, x, y + 5, 4, C.steel1)
+            line(g, x, y + 3, x, y + 7, C.steel0); line(g, x, y + 4, x + 2, y + 6, C.steel0); line(g, x, y + 4, x - 2, y + 6, C.steel0)
+        } else if (tier === 2 || tier === 3) {
+            // a gem in a silver drop, filigree round it on the epic
+            if (tier === 3) { disc(g, x - 4, y + 5, 1.5, t[1]); disc(g, x + 4, y + 5, 1.5, t[1]) }
+            poly(g, [0, 1, 4, 5, 0, 10, -4, 5], x, y, C.steel2)
+            gem(g, x, y + 5, 3, [t[0], t[1], t[2]])
+        } else {
+            // a sun of gold round a great stone, rays thrown wider on the Ascendant
+            const n = tier === 4 ? 8 : 12
+            for (let i = 0; i < n; i++) {
+                const a = i / n * Math.PI * 2
+                const r = tier === 4 ? 6 : 7 + (i & 1)
+                line(g, x, y + 5, R(x + Math.cos(a) * r), R(y + 5 + Math.sin(a) * r), tier === 4 ? C.gold2 : (i & 1 ? C.gold3 : C.red2))
+            }
+            disc(g, x, y + 5, 4, C.gold1)
+            gem(g, x, y + 5, 3, tier === 4 ? [C.teal1, C.cyan, C.frost] : [C.red1, C.red3, C.white])
+        }
+        if (tier === 5) radiance(g, x, y, [[-8, -1], [8, -2], [7, 9]])
     }
 }
+
 function gearArmor(tier: number): Glyph {
     return (g, x, y) => {
-        const m = tier === 0 ? M.leather : TIER_METAL[tier]!
-        poly(g, [-7, -7, -3, -8, 0, -6, 3, -8, 7, -7, 6, 7, -6, 7], x, y, m[1])
-        line(g, x - 6, y - 7, x - 5, y + 7, m[2])
-        rect(g, x - 1, y - 5, 3, 11, TIER_TRIM[tier]![1])
-        rect(g, x - 6, y + 3, 12, 1, m[0])
-        if (tier >= 2) { rect(g, x - 9, y - 8, 4, 4, m[2]); rect(g, x + 6, y - 8, 4, 4, m[2]) }
-        gearGem(g, x, y - 1, tier)
+        const m = tier === 0 ? [C.sand0, C.sand1, C.sand2] as Mat : tier === 1 ? M.leather : TIER_METAL[tier]!
+        const t = TIER_TRIM[tier]!
+        if (tier === 5) { poly(g, [-6, -4, 6, -4, 9, 9, -9, 9], x, y, C.red1); for (const d of [-4, 0, 4]) line(g, x + d, y + 7, x + d * 1.5, y + 9, C.red0) }
+        // a torso: shoulders, a neck notch, waisted at the belt
+        poly(g, [-7, -7, -3, -8, -1, -6, 1, -6, 3, -8, 7, -7, 6, 1, 5, 7, -5, 7, -6, 1], x, y, m[1])
+        line(g, x - 6, y - 6, x - 5, y + 6, m[2])
+        if (tier === 0) {
+            for (let i = -2; i <= 2; i++) { line(g, x + i * 3 - 3, y - 6, x + i * 3 + 3, y + 6, m[0]) }
+            rect(g, x - 5, y + 3, 11, 1, C.brown1)
+        } else if (tier === 1) {
+            rect(g, x - 5, y + 3, 11, 2, C.brown0); rect(g, x - 1, y + 3, 3, 2, C.steel2)
+            for (let i = 0; i < 3; i++) { px(g, x - 1, y - 5 + i * 2, C.bone1); px(g, x + 1, y - 5 + i * 2, C.bone1) }
+        } else {
+            rect(g, x - 1, y - 5, 3, 13, t[1]); rect(g, x, y - 5, 1, 13, t[2])
+            arc(g, x, y - 6, 6, Math.PI * 0.2, Math.PI * 0.8, m[0])
+            for (const ly of [3, 5]) rect(g, x - 5, y + ly, 11, 1, m[0])
+            // pauldrons, layered from the epic up
+            for (const d of [-1, 1]) {
+                dome(g, x + d * 7, y - 4, 3, 3, m[2])
+                if (tier >= 3) { rect(g, x + d * 7 - 3, y - 4, 7, 1, t[1]); dome(g, x + d * 7, y - 2, 3, 1, m[1]) }
+            }
+            if (tier >= 4) { wing(g, x - 9, y - 6, -1, 2, t[2], C.white); wing(g, x + 9, y - 6, 1, 2, t[2], C.white) }
+            gearGem(g, x, y - 2, tier)
+            if (tier === 5) { disc(g, x, y - 2, 2.5, C.red3); px(g, x, y - 2, C.white) }
+        }
+        if (tier === 5) radiance(g, x, y, [[-9, -9], [9, -9], [0, 10]])
     }
 }
+
 function gearHelmet(tier: number): Glyph {
     return (g, x, y) => {
-        const m = TIER_METAL[tier]!
-        ellipse(g, x, y, 7, 7, m[1]); rect(g, x - 7, y, 15, 7, m[1])
-        rect(g, x - 7, y, 15, 1, m[0]); rect(g, x - 3, y + 2, 9, 2, C.ink)
-        px(g, x - 3, y - 4, m[2]); px(g, x - 2, y - 5, m[2])
-        if (tier >= 1) rect(g, x, y + 2, 1, 5, m[2])
-        if (tier >= 2) for (let i = 0; i < 3; i++) line(g, x - 1 + i, y - 7, x - 4 + i * 3, y - 11, TIER_TRIM[tier]![1])
-        if (tier >= 4) { tri(g, x - 8, y - 2, x - 6, y, x - 11, y - 7, C.white); tri(g, x + 8, y - 2, x + 6, y, x + 11, y - 7, C.white) }
-        gearGem(g, x, y - 2, tier)
+        const m = tier === 0 ? M.leather : TIER_METAL[tier]!
+        const t = TIER_TRIM[tier]!
+        if (tier === 5) ring(g, x, y - 8, 4, C.gold3)
+        if (tier >= 4) { wing(g, x - 6, y - 1, -1, 3, tier === 5 ? C.gold3 : C.white, C.white); wing(g, x + 6, y - 1, 1, 3, tier === 5 ? C.gold3 : C.white, C.white) }
+        if (tier === 0) {
+            // a leather coif, its ear flaps down, stitched over the crown
+            dome(g, x, y, 7, 7, m[1]); rect(g, x - 7, y, 3, 6, m[1]); rect(g, x + 5, y, 3, 6, m[1])
+            rect(g, x - 4, y, 9, 6, C.ink)
+            for (let i = 0; i < 4; i++) px(g, x, y - 6 + i * 2, m[2])
+            rect(g, x - 7, y, 15, 1, m[0])
+        } else if (tier === 1) {
+            // an iron nasal helm, the face open beneath it
+            dome(g, x, y + 1, 7, 8, m[1]); rect(g, x - 7, y + 1, 15, 2, m[0])
+            rect(g, x - 6, y + 3, 13, 4, C.ink); rect(g, x, y + 2, 1, 5, m[2])
+            line(g, x - 5, y - 3, x - 3, y - 6, m[2])
+        } else if (tier === 2) {
+            // a bascinet, its visor slotted, a plume off the top
+            for (let i = 0; i < 3; i++) line(g, x, y - 7, x - 3 + i * 3, y - 11, t[1 + (i & 1)]!)
+            dome(g, x, y, 7, 7, m[1]); rect(g, x - 7, y, 15, 7, m[1])
+            rect(g, x - 7, y, 15, 1, m[0]); rect(g, x - 4, y + 2, 9, 1, C.ink); rect(g, x - 4, y + 4, 9, 1, C.ink)
+            line(g, x - 5, y - 3, x - 3, y - 6, m[2])
+        } else {
+            // a great helm, flat-topped, the eye-slit and breaths crossed in a T, a crest above
+            if (tier === 3) { tri(g, x - 7, y - 4, x - 5, y - 2, x - 10, y - 9, C.bone1); tri(g, x + 7, y - 4, x + 5, y - 2, x + 10, y - 9, C.bone1) }
+            rect(g, x - 2, y - 10, 5, 3, t[1]); rect(g, x - 1, y - 11, 3, 1, t[2])
+            poly(g, [-6, -7, 6, -7, 7, -5, 7, 7, -7, 7, -7, -5], x, y, m[1])
+            rect(g, x - 6, y - 6, 1, 12, m[2])
+            rect(g, x - 5, y - 1, 11, 2, C.ink); rect(g, x, y + 1, 1, 5, C.ink)
+            rect(g, x - 7, y + 6, 15, 1, t[1])
+            if (tier === 5) for (let i = 0; i < 3; i++) tri(g, x - 6 + i * 5, y - 7, x - 4 + i * 5, y - 7, x - 5 + i * 5, y - 10, C.gold3)
+        }
+        gearGem(g, x, y - 4, tier)
+        if (tier === 5) radiance(g, x, y, [[-9, 7], [9, 7]])
     }
 }
 

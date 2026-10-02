@@ -122,10 +122,12 @@ export interface ArtAsset {
  * approved and taken off when Frames & badges locked, and Round 4 when Branding locked (both also
  * 2026-09-28), Round 5 when the last Forge boss locked (2026-09-29), Round 6 when the Champion
  * ability crests locked (2026-10-01), and Rounds 7–10 when the offense, defense, tempo and fortune
- * Artifacts locked (2026-10-02), so the next round is 11;
+ * Artifacts locked (2026-10-02), so the next round is 12;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
+    { n: 11, label: 'Gear', prefixes: ['icon/gear/'] }
+]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
