@@ -102,6 +102,7 @@ import {
     xpToNextLevel
 } from '#shared/utils/hero-quest/settle'
 import { runFight } from '#shared/utils/hero-quest/fight'
+import { partyKits } from '#shared/utils/hero-quest/projection'
 import { randomInt } from '#shared/utils/random'
 import { economyBonuses, partyUnitStats } from '#shared/utils/hero-quest/stats'
 import { globalPower } from '#shared/utils/hero-quest/power'
@@ -777,6 +778,8 @@ export function serializeHero(state: HqStateRow, hero: HeroSnapshot) {
         xpToNextLevel: needed.toString(),
         xpProgress: needed.lte(0) ? 0 : Math.min(1, xp.div(needed).toNumber()),
         skills: kitFor(hero.classId),
+        /** Every unit's kit on its live cooldowns, as the fight times it: what the battle stage casts on. */
+        kits: partyKits(hero, units),
         stats: {
             pwr: self.pwr.toString(),
             def: self.def.toString(),

@@ -38,7 +38,7 @@ import { heroModifierTotals, partyModifierTotals } from './stats'
 import { mergeTotals } from './modifiers'
 import { D, ONE, ZERO, decMax } from './numbers'
 import type { Decimal, DecimalSource } from './numbers'
-import { SINGLE_TARGET } from './effects'
+import { SINGLE_TARGET, isAllyTarget } from './effects'
 import type { AbilityEffect, StatusSpec } from './effects'
 import type { ClassSkill, HeroSnapshot, UnitStats } from './types'
 
@@ -61,6 +61,26 @@ export function armedParty(hero: HeroSnapshot, units: readonly UnitStats[]): Arm
         ...(hero.champions ?? []).map(champion => champion.abilities)
     ]
     return units.map((stats, index) => ({ stats, kit: kits[index] ?? [] }))
+}
+
+/**
+ * Every unit's kit with each ability's live cooldown, in fight order and keyed by the Hero's class
+ * or the Champion's id — what the battle stage casts on. The cooldown is the one `runFight` times
+ * an ability by, from the same stat block; `damaging` is false for an ability that only lands on
+ * allies, so the stage shows no blow for it.
+ */
+export function partyKits(hero: HeroSnapshot, units: readonly UnitStats[]): {
+    id: string
+    skills: { id: string, cooldownSeconds: number, damaging: boolean }[]
+}[] {
+    return armedParty(hero, units).map((unit, index) => ({
+        id: index === 0 ? hero.classId : hero.champions?.[index - 1]?.championId ?? '',
+        skills: unit.kit.map(skill => ({
+            id: skill.id,
+            cooldownSeconds: cooldownFor(skill.cooldownSeconds, unit.stats.spd, unit.stats.cooldownFactor),
+            damaging: skill.abilityMultiplier > 0 && !isAllyTarget((skill.effect ?? SINGLE_TARGET).target)
+        }))
+    }))
 }
 
 /** Fraction of the time an ability's effect is live, from its own duration and cooldown. */
