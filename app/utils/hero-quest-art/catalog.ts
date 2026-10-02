@@ -42,7 +42,7 @@ import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
     | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons' | 'offense_artifact_icons' | 'defense_artifact_icons' | 'tempo_artifact_icons' | 'fortune_artifact_icons' | 'gear_icons' | 'currency_icons' | 'status_icons'
-    | 'vfx' | 'feedback' | 'frames' | 'backgrounds' | 'ui' | 'branding'
+    | 'hero_skill_vfx' | 'vfx' | 'feedback' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
  * The gallery's groups. `locked` marks art whose design is settled (the user's call, 2026-09-28):
@@ -67,6 +67,8 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'forge_journeyman', label: 'Forge Raid · The Journeyman', locked: true },
     // the Forgemaster, the last of them, locked as Hephaestus (2026-09-29, the user)
     { id: 'forge_master', label: 'Forge Raid · The Forgemaster', locked: true },
+    // the Hero skills split out of Ability VFX to lock on their own (2026-10-02, the user)
+    { id: 'hero_skill_vfx', label: 'Ability VFX · Hero skills', locked: true },
     { id: 'vfx', label: 'Ability VFX' },
     // the damage numbers, the party frames, the cooldown radial and the enrage timer (2026-09-29, the user)
     { id: 'feedback', label: 'Combat feedback', locked: true },
@@ -126,17 +128,11 @@ export interface ArtAsset {
  * 2026-09-28), Round 5 when the last Forge boss locked (2026-09-29), Round 6 when the Champion
  * ability crests locked (2026-10-01), Rounds 7–10 when the offense, defense, tempo and fortune
  * Artifacts locked, Round 11 when the Gear locked, Round 12 when the currencies locked and Round
- * 13 when the status effects locked (all 2026-10-02), so the next round is 15;
+ * 13 when the status effects locked and Round 14 when the Hero skill VFX locked (all
+ * 2026-10-02), so the next round is 15;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    {
-        n: 14,
-        label: 'Hero skill VFX',
-        // the seven approved on 2026-10-02 are off the chip; these four were reworked on the user's notes
-        prefixes: ['vfx/skill_shockwave', 'vfx/skill_lightning_storm', 'vfx/skill_totem_storm', 'vfx/skill_arrow_rain']
-    }
-]
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
@@ -371,7 +367,7 @@ function raidAssets(): ArtAsset[] {
 function vfxAssets(): ArtAsset[] {
     const SECTION = { class: 'Hero skills', champion: 'Champion abilities', training: 'Training Grounds actives' } as const
     const out: ArtAsset[] = VFX.map(v => ({
-        id: `vfx/${v.id}`, group: 'vfx' as const, section: SECTION[v.source], label: `${v.name} — ${v.owner}`,
+        id: `vfx/${v.id}`, group: v.source === 'class' ? 'hero_skill_vfx' as const : 'vfx' as const, section: SECTION[v.source], label: `${v.name} — ${v.owner}`,
         w: VL.W, h: VL.H, frames: Math.round(v.dur * ANIM_FPS), fps: ANIM_FPS, loop: false,
         render: (dst: Surface, f: number) => v.draw(dst, f / ANIM_FPS),
         underlay: CINEMATIC_BY_ID[v.id] ? cinematicStage(v.id) : drawVfxStage
