@@ -467,36 +467,62 @@ const SUPPORT: VfxDef[] = [
         blast(d, HURT.x, hc, t, 0.5, 6, 0.3, BLESS, 712, 'frost')
     }),
     // the party, heal over time: a tide of teal light rolls across under them, ripples rising at
-    // the party, heal over time: one low wave of teal light rolls across the whole party, its
-    // front running back through every rank at once, ripples at each ally's feet and green pluses after
-    champ('Tide of Renewal', 'Support', 1.6, (d, t) => {
+    // the party, heal over time: one small curling wave of teal water rolls in from behind the
+    // party along the floor, splashing up healing spray at every ally's feet as it passes them,
+    // and green pluses keep rising after it
+    champ('Tide of Renewal', 'Support', 1.7, (d, t) => {
         const q = qt(t)
         staffCharge(d, t, 0.05, 0.3, HEAL, 720)
-        const u = pr(t, 0.3, 0.95)
+        const WAVE = { from: 0.3, to: 1.15, x0: -24, x1: 104, h: 15 }
+        const u = pr(t, WAVE.from, WAVE.to)
+        const cx = WAVE.x0 + (WAVE.x1 - WAVE.x0) * u
         if (u > 0 && u < 1) {
-            const cx = -12 + u * 96
-            const front = (g: number) => cx + (84 - g) * 0.35
-            // the water behind the front, low on the ground at each rank, dithered toward its back
-            for (const g of [52, 68, 84]) {
-                const fx = front(g)
-                for (let dx = -18; dx <= 0; dx++) {
-                    const k = (dx + 18) / 18
-                    const h = R(1 + k * 3)
-                    for (let y = 0; y < h; y++) {
-                        if (k < 0.4 && ((dx + y) & 1)) continue
-                        d.set(R(fx + dx), g - 1 - y, y === h - 1 && k > 0.8 ? C.white : k > 0.6 ? C.teal3 : C.teal2)
-                    }
+            const f = Math.floor(q * 15)
+            const grow = Math.min(1, u * 5, (1 - u) * 5)
+            const H = WAVE.h * grow
+            // the body: a swell rising toward the crest, banded by height, screened lightly so the
+            // party's legs still show through it
+            for (let dx = -34; dx <= 0; dx++) {
+                const k = (dx + 34) / 34
+                const h = R(H * k * k * (3 - 2 * k))
+                const x = R(cx + dx)
+                for (let y = 0; y < h; y++) {
+                    const v = y / Math.max(1, h)
+                    if (v < 0.5 && ((x + y) & 3) === 0) continue
+                    d.set(x, FLOOR - 1 - y, y === h - 1 ? C.teal3 : v > 0.6 ? C.teal2 : C.teal1)
                 }
             }
-            // the front itself, one line of foam running back through the ranks so it reads as one wave
-            for (let g = 50; g <= 84; g++) {
-                const fx = R(front(g))
-                d.set(fx, g - 1, (g & 1) ? C.white : C.teal3)
-                if ((g & 3) === 0) d.set(fx - 1, g - 2, C.teal3)
+            // the face: lit water curving down from the crest to the floor ahead of it
+            const FACE = 7
+            for (let dx = 1; dx <= FACE; dx++) {
+                const k = dx / FACE
+                const h = R(H * (1 - k * k))
+                const x = R(cx + dx)
+                for (let y = 0; y < h; y++) d.set(x, FLOOR - 1 - y, y > h - 3 ? C.teal3 : (x + y) & 1 ? C.teal2 : C.teal3)
+            }
+            // the lip: the crest throwing forward over the face and curling down, white foam on its rim
+            const r = H * 0.32
+            for (let i = 0; i <= 10; i++) {
+                const a = -Math.PI * 0.5 + i / 10 * Math.PI * 0.95
+                const x = R(cx + 2 + Math.cos(a) * r * 1.4)
+                const y = R(FLOOR - 1 - H + r + Math.sin(a) * r)
+                d.set(x, y, i < 7 ? C.white : C.frost)
+                if (i < 8) d.set(x - 1, y, C.teal3)
+            }
+            // foam bubbling along the crest and spray thrown off the lip
+            for (let dx = -10; dx <= 0; dx++) if (hash2(dx + 20, f) > 0.55) {
+                const k = (dx + 34) / 34
+                d.set(R(cx + dx), R(FLOOR - 1 - H * k * k * (3 - 2 * k)) - 1, C.white)
+            }
+            for (let i = 0; i < 6; i++) {
+                const ph = (q * 4 + hash2(i, 726)) % 1
+                d.set(R(cx + 3 + ph * 6 + i), R(FLOOR - H - 2 - ph * 6 + ph * ph * 10), ph < 0.4 ? C.white : C.teal3)
             }
         }
         VL.allies.forEach((a, i) => {
-            const at = 0.3 + ((a.x - (84 - a.g) * 0.35) + 12) / 96 * 0.65
+            const at = WAVE.from + (a.x - WAVE.x0) / (WAVE.x1 - WAVE.x0) * (WAVE.to - WAVE.from)
+            // spray splashing up at the ally's feet as the wave passes, and a ripple left behind
+            burst(d, a.x, a.g - 2, t, at, 8, 45, 'water', 727 + i, 0.5, 120, -Math.PI / 2, 1.0)
             if (q >= at && q < at + 0.6) {
                 const r = (q - at) / 0.6
                 ellipseRing(d, a.x, a.g - 1, 3 + r * 9, (3 + r * 9) * 0.3, r < 0.5 ? C.teal3 : C.teal1)

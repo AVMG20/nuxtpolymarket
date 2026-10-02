@@ -140,8 +140,8 @@ export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly
     {
         n: 17,
         label: 'Support Champion abilities',
-        // the other five approved on 2026-10-02; these two reworked on the user's notes
-        prefixes: ['vfx/champ_ability_tide_of_renewal', 'vfx/champ_ability_empower']
+        // the other six approved on 2026-10-02; Tide of Renewal reworked again on the user's notes
+        prefixes: ['vfx/champ_ability_tide_of_renewal']
     }
 ]
 
