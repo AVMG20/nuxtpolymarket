@@ -43,7 +43,7 @@ import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
     | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons' | 'offense_artifact_icons' | 'defense_artifact_icons' | 'tempo_artifact_icons' | 'fortune_artifact_icons' | 'gear_icons' | 'currency_icons' | 'status_icons'
-    | 'hero_skill_vfx' | 'damage_ability_vfx' | 'tank_ability_vfx' | 'support_ability_vfx' | 'vfx' | 'feedback' | 'frames' | 'backgrounds' | 'ui' | 'branding'
+    | 'hero_skill_vfx' | 'damage_ability_vfx' | 'tank_ability_vfx' | 'support_ability_vfx' | 'control_ability_vfx' | 'vfx' | 'feedback' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
  * The gallery's groups. `locked` marks art whose design is settled (the user's call, 2026-09-28):
@@ -74,6 +74,7 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'damage_ability_vfx', label: 'Ability VFX · Damage Champions', locked: true },
     { id: 'tank_ability_vfx', label: 'Ability VFX · Tank Champions', locked: true },
     { id: 'support_ability_vfx', label: 'Ability VFX · Support Champions', locked: true },
+    { id: 'control_ability_vfx', label: 'Ability VFX · Control Champions', locked: true },
     { id: 'vfx', label: 'Ability VFX' },
     // the damage numbers, the party frames, the cooldown radial and the enrage timer (2026-09-29, the user)
     { id: 'feedback', label: 'Combat feedback', locked: true },
@@ -133,20 +134,12 @@ export interface ArtAsset {
  * 2026-09-28), Round 5 when the last Forge boss locked (2026-09-29), Round 6 when the Champion
  * ability crests locked (2026-10-01), Rounds 7–10 when the offense, defense, tempo and fortune
  * Artifacts locked, Round 11 when the Gear locked, Round 12 when the currencies locked and Round
- * 13 when the status effects locked, Round 14 when the Hero skill VFX locked, and Rounds 15–17
- * when the Damage, Tank and Support Champion abilities locked (all 2026-10-02), so the next round is 19;
+ * 13 when the status effects locked, Round 14 when the Hero skill VFX locked, and Rounds 15–18
+ * when the Damage, Tank, Support and Control Champion abilities locked (all 2026-10-02), so the next
+ * round is 19;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    {
-        n: 18,
-        label: 'Control Champion abilities',
-        prefixes: [
-            'vfx/champ_ability_weaken', 'vfx/champ_ability_slow', 'vfx/champ_ability_silence', 'vfx/champ_ability_shatter_armor',
-            'vfx/champ_ability_chain_bind', 'vfx/champ_ability_unraveling_curse', 'vfx/champ_ability_frostbind'
-        ]
-    }
-]
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
@@ -379,7 +372,7 @@ function raidAssets(): ArtAsset[] {
 }
 
 /** Which gallery group an ability effect sits in: each archetype splits out of Ability VFX as it locks. */
-const LOCKED_ARCHETYPE_VFX: Readonly<Record<string, ArtGroup>> = { Damage: 'damage_ability_vfx', Tank: 'tank_ability_vfx', Support: 'support_ability_vfx' }
+const LOCKED_ARCHETYPE_VFX: Readonly<Record<string, ArtGroup>> = { Damage: 'damage_ability_vfx', Tank: 'tank_ability_vfx', Support: 'support_ability_vfx', Control: 'control_ability_vfx' }
 function vfxGroup(v: VfxDef): ArtGroup {
     if (v.source === 'class') return 'hero_skill_vfx'
     if (v.source === 'champion') return LOCKED_ARCHETYPE_VFX[v.owner] ?? 'vfx'
