@@ -428,7 +428,7 @@ export const ARTIFACT_ICONS: Readonly<Record<string, Glyph>> = {
 // silhouette that climbs a ladder, Novice (worn leather and iron) to Ascendant (red gold, alight),
 // adding a piece of make or ornament at every rung rather than recolouring the one below.
 
-const TIER_METAL: readonly Mat[] = [M.iron, M.steel, M.steel, [C.purple0, C.steel2, C.steel3], M.gold, [C.red1, C.gold2, C.gold3]]
+const TIER_METAL: readonly Mat[] = [M.steel, M.steel, M.steel, [C.purple0, C.steel2, C.steel3], M.gold, [C.red1, C.gold2, C.gold3]]
 const TIER_TRIM: readonly Mat[] = [M.leather, M.leather, [C.blue0, C.blue1, C.blue2], [C.purple0, C.purple1, C.purple2], [C.gold0, C.gold1, C.gold3], [C.red0, C.red2, C.red3]]
 const TIER_GEM: readonly number[] = [-1, -1, C.blue2, C.pink, C.cyan, C.white]
 
@@ -455,22 +455,26 @@ function gearWeapon(tier: number): Glyph {
     return (g, x, y) => {
         const m = TIER_METAL[tier]!
         const t = TIER_TRIM[tier]!
-        const len = [9, 11, 12, 13, 14, 15][tier]!
-        const w = [2.5, 3, 3, 3.5, 4, 4][tier]!
-        // the hilt at the lower left, the blade running up and right
+        const len = [10, 12, 13, 13, 14, 15][tier]!
+        // the hilt at the lower left, the blade running up and right: parallel edges, run as
+        // diagonal rows a pixel apart, each stopping short of the point so only the last pixels taper
         const gx = x - 4
         const gy = y + 4
         const tx = gx + R(len * 0.71)
         const ty = gy - R(len * 0.71)
-        taper(g, gx, gy, tx, ty, w, 1, m[1])
-        line(g, gx, gy - 1, tx - 1, ty, m[2])
-        if (tier === 3 || tier === 4) line(g, gx + 1, gy - 1, tx - 2, ty + 2, m[0])
+        const rows = tier >= 3 ? [-1, 0, 1, 2] : [-1, 0, 1]
+        for (const k of rows) {
+            const back = Math.abs(k - (tier >= 3 ? 0.5 : 0)) + 0.5
+            const c = k === -1 ? m[2] : k === rows[rows.length - 1] ? m[0] : m[1]
+            line(g, gx + k + 1, gy - 1, R(tx + k - back), R(ty + back), c)
+        }
         px(g, tx, ty, C.white)
-        if (tier === 0) { px(g, gx + 4, gy - 5, CLEAR); px(g, gx + 3, gy - 2, C.orange) }
-        if (tier === 5) line(g, gx + 2, gy - 2, tx - 3, ty + 3, C.red2)
+        if (tier === 3 || tier === 4) line(g, gx + 2, gy - 2, tx - 2, ty + 2, m[0])
+        if (tier === 0) { px(g, gx + 5, gy - 5, CLEAR); px(g, gx + 4, gy - 3, C.rust2); px(g, gx + 2, gy - 1, C.rust1) }
+        if (tier === 5) line(g, gx + 2, gy - 2, tx - 2, ty + 2, C.red2)
         // the guard, across the blade
-        const gw = [2, 3, 3, 4, 4, 4][tier]!
-        line(g, gx - gw, gy - gw, gx + gw, gy + gw, tier < 2 ? C.steel0 : t[1], 2)
+        const gw = [3, 3, 4, 4, 5, 5][tier]!
+        line(g, gx - gw, gy - gw, gx + gw, gy + gw, tier < 2 ? C.steel1 : t[1], 3)
         if (tier === 2 || tier === 3) { px(g, gx - gw - 1, gy - gw + 1, t[1]); px(g, gx + gw - 1, gy + gw + 1, t[1]) }
         if (tier >= 4) for (const d of [-1, 1]) { const ex = gx + d * gw; const ey = gy + d * gw; tri(g, ex, ey, ex + 3, ey - 1, ex + 1, ey - 3, t[2]); px(g, ex + 2, ey - 2, C.white) }
         // the grip and pommel
@@ -546,9 +550,16 @@ function gearCharm(tier: number): Glyph {
     return (g, x, y) => {
         const t = TIER_TRIM[tier]!
         const cord = tier < 2 ? C.brown2 : tier < 4 ? C.steel2 : C.gold2
-        arc(g, x, y, 8, Math.PI * 1.1, Math.PI * 1.9, cord)
-        if (tier >= 2) for (let i = 0; i < 6; i++) { const a = Math.PI * (1.15 + i * 0.14); px(g, R(x + Math.cos(a) * 8), R(y + Math.sin(a) * 8), C.ink) }
-        line(g, x, y - 1, x, y + 1, cord)
+        // the cord: a V hung from the top corners, its two ends meeting in a loop at the pendant's bail
+        for (const d of [-1, 1]) {
+            for (let i = 0; i <= 10; i++) {
+                const u = i / 10
+                const cx = R(x + d * (7 - 6 * u * u))
+                const cy = R(y - 9 + 9 * u)
+                px(g, cx, cy, tier >= 2 && (i & 1) ? C.ink : cord)
+            }
+        }
+        ring(g, x, y + 1, 1, cord)
         if (tier === 0) {
             // a wolf's tooth on a thong
             taper(g, x, y + 1, x - 1, y + 9, 4, 1, C.bone1)
