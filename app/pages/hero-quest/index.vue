@@ -45,11 +45,23 @@ const engaging = ref(false)
 /** Which of the two paths opened the replay — only an automatic one dismisses itself. */
 const fightWasAutomatic = ref(false)
 
+/**
+ * The boss's name and timer, taken as the fight is engaged: the payload that lands with the
+ * result has already moved the run past the gate, so `liveRun` names the next stage's foes.
+ */
+const fightBoss = ref({ name: 'Boss', timer: 30 })
+/** How far the stage has played the fight, and whether its result is up. */
+const fightProgress = ref({ time: 0, done: false })
+const battleCanvas = ref<{ skipFight: () => void } | null>(null)
+
 async function runFightAt(automatic: boolean) {
     engaging.value = true
     try {
+        const boss = { name: liveRun.value?.enemyName ?? 'Boss', timer: liveRun.value?.bossTimerSeconds ?? 30 }
         const result = await engageBoss({ silentErrors: automatic })
         fightWasAutomatic.value = automatic
+        fightBoss.value = boss
+        fightProgress.value = { time: 0, done: false }
         fight.value = result
     } finally {
         engaging.value = false
@@ -157,12 +169,29 @@ const awayReport = computed(() => {
       <HeroQuestRunPosition :run="liveRun" />
 
       <HeroQuestBattleCanvas
+        ref="battleCanvas"
         :run="liveRun"
         :hero="liveHero"
         :party="party"
+        :fight="fight"
+        @fight-progress="fightProgress = $event"
+      />
+
+      <!-- A boss fight takes the readout's place while the stage plays it. -->
+      <HeroQuestBossFightPanel
+        v-if="fight"
+        :fight="fight"
+        :enemy-name="fightBoss.name"
+        :boss-timer-seconds="fightBoss.timer"
+        :time="fightProgress.time"
+        :done="fightProgress.done"
+        :auto-close="fightWasAutomatic"
+        @skip="battleCanvas?.skipFight()"
+        @close="fight = null"
       />
 
       <HeroQuestBattleView
+        v-else
         :run="liveRun"
         :hero="liveHero"
       />
@@ -172,7 +201,7 @@ const awayReport = computed(() => {
         the server rejects a re-fight there. The battle view already points the player at prestige.
       -->
       <div
-        v-if="liveRun.atBossGate && !liveRun.runCleared"
+        v-if="liveRun.atBossGate && !liveRun.runCleared && !fight"
         class="flex justify-center"
       >
         <UButton
@@ -281,12 +310,5 @@ const awayReport = computed(() => {
 
     <HeroQuestStatBreakdown v-model:open="breakdownOpen" />
 
-    <HeroQuestBossFightModal
-      :fight="fight"
-      :enemy-name="liveRun?.enemyName ?? 'Boss'"
-      :boss-timer-seconds="liveRun?.bossTimerSeconds ?? 30"
-      :auto-close="fightWasAutomatic"
-      @close="fight = null"
-    />
   </div>
 </template>

@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import type { BattleDemo, RunParty } from '~/utils/hero-quest-art/demo'
+import type { BattleDemo, RunParty, StageFight } from '~/utils/hero-quest-art/demo'
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import type { RunFeed } from '~/utils/hero-quest-art/run-director'
 
 /**
  * The battle, drawn. Presentation only: the projected run (`useHqLiveRun`) says where the run is,
  * and the stage plays it, every body dropping when `killsFloat` crosses its kill.
+ *
+ * A boss fight is the server's: while `fight` is set the stage stops following the run and acts
+ * out the fight's log instead, reporting how far it has played so the readout beside it keeps
+ * pace. Clearing `fight` hands the stage back to the run, which by then has moved on.
  *
  * The art is drawn from code, not loaded as images (`build-log.md` #33): the stage bakes the
  * world's strips when it is built, so it is rebuilt only when the world or the party changes,
@@ -33,6 +37,12 @@ const props = defineProps<{
         stats: { critChance: number, critMultiplier: string }
     }
     party: Omit<RunParty, 'classId'>
+    fight?: StageFight | null
+}>()
+
+const emit = defineEmits<{
+    /** Ten times a second while a fight plays: seconds played, and whether its result is up. */
+    fightProgress: [progress: { time: number, done: boolean }]
 }>()
 
 const wrap = ref<HTMLDivElement | null>(null)
@@ -86,9 +96,57 @@ const partyKey = computed(() => [
     ...props.party.champions.map(c => `${c.id}:${c.row}:${c.level}`)
 ].join('|'))
 
+let builtKey = ''
+
+function build() {
+    if (!stage) return
+    builtKey = partyKey.value
+    stage.setupRun({ ...props.party, classId: props.hero.classId }, feed())
+}
+
+// a party changed mid-fight waits for the fight to be put away
 watch(partyKey, () => {
-    stage?.setupRun({ ...props.party, classId: props.hero.classId }, feed())
+    if (!props.fight) build()
 })
+
+/**
+ * How far the fight has played, reported to the readout. Read off the stage, or, before the
+ * stage has loaded, off a clock of its own, so a fight never waits on the art to finish.
+ */
+let progressTimer: ReturnType<typeof setInterval> | null = null
+let fallbackStart = 0
+let skipped = false
+
+function progress(): { time: number, done: boolean } {
+    const fight = props.fight
+    if (stage) return { time: stage.fightTime, done: stage.fightDone }
+    const end = fight?.secondsElapsed ?? 0
+    const time = skipped ? end : Math.min(end, (performance.now() - fallbackStart) / 1000)
+    return { time, done: time >= end }
+}
+
+watch(() => props.fight, (fight) => {
+    if (progressTimer) clearInterval(progressTimer)
+    progressTimer = null
+    if (!fight) {
+        stage?.endFight()
+        if (partyKey.value !== builtKey) build()
+        return
+    }
+    fallbackStart = performance.now()
+    skipped = false
+    stage?.playFight(fight)
+    progressTimer = setInterval(() => emit('fightProgress', progress()), 100)
+})
+
+/** Play the rest of the fight out at once. */
+function skipFight() {
+    skipped = true
+    stage?.skipFight()
+    emit('fightProgress', progress())
+}
+
+defineExpose({ skipFight })
 
 onMounted(async () => {
     const [{ BattleDemo, CAMERAS, PARTY_BAND_H }, { Presenter, startLoop }] = await Promise.all([
@@ -97,10 +155,12 @@ onMounted(async () => {
     ])
     if (disposed || !canvas.value) return
     stage = new BattleDemo()
-    stage.setupRun({ ...props.party, classId: props.hero.classId }, feed())
+    build()
+    // a fight that arrived while the stage loaded starts now, from its beginning
+    if (props.fight) stage.playFight(props.fight)
     presenter = new Presenter(canvas.value, CAMERAS.zoom3.w, CAMERAS.zoom3.h + PARTY_BAND_H)
     stop = startLoop(dt => stage!.update(dt), () => {
-        stage!.feedRun(feed())
+        if (!props.fight) stage!.feedRun(feed())
         presenter!.present(stage!.renderWithParty())
     })
     observer = new ResizeObserver(fit)
@@ -112,6 +172,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
     disposed = true
     stop?.()
+    if (progressTimer) clearInterval(progressTimer)
     // without its frames an unmounted stage the dev tools hold on to costs next to nothing
     stage?.dispose()
     observer?.disconnect()
