@@ -510,9 +510,9 @@ a new world, a prestige, a tab back from hidden — rebuilds rather than replays
 between packs only when a kill takes 3.2 s or more; faster, the next pack fades in where it stands.
 
 **Choices made without asking, easy to flip:** every body of an elite stage wears the elite
-mark, since all of them carry the elite multiplier; the party's basic-attack cadence is still the
-art page's cosmetic rhythm (skill casts are not: see below); Champions use the Hero's crit
-figures, since the payload serves no per-Champion crit. The crit font gained an `E`
+mark, since all of them carry the elite multiplier; Champions use the Hero's crit figures, since
+the payload serves no per-Champion crit. (Attacks and casts were on the art page's cosmetic
+rhythm at first; both run on the fight's timings now, below.) The crit font gained an `E`
 glyph for numbers past the trillions (`4.20E15`).
 
 **The boss replay landed the same day.** The stage acts out the server's event log;
@@ -548,6 +548,19 @@ own, its effect and blow without a cast clip: the stage casts as often as the fi
 cinematic is kept for the class's own skill, as on the art page; a kit of them would hold the
 fight still. Hit-stop freezes pause the cooldowns with everything else, so the stage casts a
 little under the fight's count over a long watch. Boss replays show each cast's own effect too.
+
+**Basic attacks run on the real attack speed** (the user's call, the same day). `kits` also
+carries each unit's `attackSeconds` (`attackIntervalFor` of its own SPD) and `strikesPerAttack`.
+The party swings when its attack timer runs out, the first attack at once and then every
+interval, as `runFight` does, and a melee swing lands each of its strikes; the pack swings every
+`attackIntervalFor(0)`, starting a full interval in, as the fight times its foes. Three things
+keep the count honest. A swing whose clip outlasts the gap plays faster, up to 3×. One a whole
+interval late (the 0.2 s floor is faster than any clip at 3×) lands its strikes without the clip.
+And in the game a hit no longer cancels a swing into a flinch: the body flashes and keeps swinging,
+as bosses already did on the art page, since a hit never cancels an attack in the fight. Measured
+over 30 s: a level-5 Knight lands 14 of 14 strikes, a level-60 Archer 23 of 23, a level-400 Beast
+Master 581 of 604 at the 0.2 s floor (hit-stop freezes take the rest), and each foe 12 swings of 12.
+`party-kits.spec` pins the interval and strike count against a real fight.
 
 ---
 
