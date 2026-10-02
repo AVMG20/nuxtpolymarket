@@ -8,7 +8,7 @@ attention; this one holds the record.
 scripts cite them (`#22`, `#23.3`, `#18.6`), so renumbering would silently repoint a reference.
 Numbers missing here are items still open — they stayed in `open-items.md` under the same number.
 Four entries (#22, #23, #25, #29) appear in **both**: the full record is here, and the part still
-needing attention stayed there. Numbering runs to **#30**; the next new item is #31.
+needing attention stayed there. Numbering runs to **#33**; open-items.md says where the next new item starts.
 
 **This is not on the per-task reading list** (`CLAUDE.md` §1). Read an entry when you need the
 reasoning behind something already built; do not load it to find out what to do next.
@@ -463,6 +463,26 @@ is deliberately the **opposite** call to ability VFX, where reuse is fine becaus
 
 Applied to `asset-list.md` §3.2 and its itemised icon table. No change to the 217 total: 48 was
 already the number counted.
+
+### 33. The game draws its art from code — **decided 2026-10-02**
+
+**No PNG ships.** The battle scene renders from the procedural drawers, the same code the art
+page uses, and the 1,166 exported strips in `public/hero-quest/sprites/` (plus `manifest.json`)
+were untracked and gitignored. The exporter stays, as a local tool for review sheets.
+
+**Why.** The drawers are the source of truth already (`art-style.md` §1), so committing their
+rendering doubled every art change and put ~1,200 binaries into `main`'s history. Download favours
+code too: the drawers are 224 KB gzipped, the PNGs 17 MB. And the live stage's 60 Hz effects
+(`clock.smooth`) only exist when drawn at runtime; baked 30 fps strips would have lost them.
+
+**The cost, measured.** Every asset and frame, drawn in Bun on the dev machine: 17.7 s for all
+34,904 frames, a median of 0.024 ms a frame, but 3.5–4.4 ms for the big raid and boss frames,
+which are ~90% of the total. That is why bosses felt slow on the stage, and why the scene bakes
+once and blits rather than drawing bodies every tick: the plan is in `tech-architecture.md` §7.
+Low-end devices were not measured.
+
+**History is not cleaned.** Untracking stops new commits carrying the PNGs; the ones already on
+`hero-quest-art` stay in its history unless the branch is squashed before it merges.
 
 ---
 
