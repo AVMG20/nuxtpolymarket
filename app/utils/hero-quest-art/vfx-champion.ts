@@ -930,53 +930,66 @@ const CONTROL: VfxDef[] = [
         blast(d, FOE.x, FOE.g - 1, t, 0.45, 9, 0.4, ICE, 961, 'frost', true)
         // ice crystals bursting up round its feet and climbing it
         const climb = pr(t, 0.45, 0.85)
-        if (q >= 0.45 && q < 1.5) for (let i = 0; i < 7; i++) {
+        if (q >= 0.45 && q < 0.9) for (let i = 0; i < 7; i++) {
             const dx = -8 + i * 2.6
-            const h = R((6 + hash2(i, 962) * 16) * climb * (q < 1.2 ? 1 : 1 - (q - 1.2) / 0.3))
+            const h = R((6 + hash2(i, 962) * 16) * climb * (q < 0.8 ? 1 : 1 - (q - 0.8) / 0.1))
             if (h < 1) continue
             const x = R(FOE.x + dx)
             tri(d, x - 2, FOE.g - 1, x + 2, FOE.g - 1, x, FOE.g - 1 - h, C.cyan)
             tri(d, x - 2, FOE.g - 1, x, FOE.g - 1, x, FOE.g - 1 - h, C.frost)
             d.set(x, FOE.g - 1 - h, C.white)
         }
-        // the iceberg, Ice Climber style: three stepped tiers of ice bricks heaving up round the foe
-        // one after another, each with a snow cap on its flat top and drips hanging off its edges
+        // the freeze, after the Ice Climbers' Blizzard: the foe locked upright inside an angular
+        // crystal of ice — big flat facets in three blues, the foe showing through, crisp white
+        // edges, shards bristling off the side the cold came from, a star glinting on it
         if (q >= 0.8 && q < 1.42) {
-            const gx = FOE.x
-            let base = FOE.g - 1
-            const TIERS = [{ w: 30, h: 11, at: 0.8 }, { w: 22, h: 9, at: 0.86 }, { w: 13, h: 8, at: 0.92 }] as const
-            TIERS.forEach((tr, ti) => {
-                const k = eo(pr(t, tr.at, tr.at + 0.08))
-                const h = R(tr.h * k)
-                if (h < 1) return
-                const x0 = R(gx - tr.w / 2)
-                const top = base - h + 1
-                // the face: light cyan, a frosted lit band on the left, a blue shadow down the right
-                rect(d, x0, top, tr.w, h, C.cyan)
-                rect(d, x0, top, 3, h, C.frost)
-                rect(d, x0 + tr.w - 4, top, 4, h, C.blue2)
-                // ice bricks: mortar lines every 4 rows, the joints staggered course to course
-                for (let y = base - 3, row = 0; y > top + 1; y -= 4, row++) {
-                    line(d, x0 + 1, y, x0 + tr.w - 2, y, C.blue2)
-                    for (let x = x0 + 3 + (row & 1) * 4; x < x0 + tr.w - 3; x += 8) line(d, x, y + 1, x, Math.min(base, y + 3), C.blue2)
+            const k = eo(pr(t, 0.8, 0.92))
+            const cx = FOE.x
+            const cy = FC - 4
+            const HULL = [[-4, -17], [6, -15], [12, -6], [11, 7], [5, 15], [-6, 14], [-12, 5], [-11, -9]] as const
+            const pts = HULL.map(([x, y]) => [cx + x * k, cy + y * k] as const)
+            const core = [cx - 2 * k, cy - 3 * k] as const
+            // each facet a fan triangle from an off-centre core, lit by how it faces the upper left
+            for (let i = 0; i < pts.length; i++) {
+                const [ax, ay] = pts[i]!
+                const [bx, by] = pts[(i + 1) % pts.length]!
+                const nx = (ax + bx) / 2 - core[0]
+                const ny = (ay + by) / 2 - core[1]
+                const lit = (-nx - ny) / Math.hypot(nx, ny)
+                const c = lit > 0.45 ? C.frost : lit > -0.1 ? C.cyan : lit > -0.6 ? C.blue2 : C.blue1
+                // translucent: a half screen, so the foe reads through the ice
+                const minX = Math.floor(Math.min(ax, bx, core[0]))
+                const maxX = Math.ceil(Math.max(ax, bx, core[0]))
+                const minY = Math.floor(Math.min(ay, by, core[1]))
+                const maxY = Math.ceil(Math.max(ay, by, core[1]))
+                for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
+                    const d1 = (x - bx) * (ay - by) - (ax - bx) * (y - by)
+                    const d2 = (x - core[0]) * (by - core[1]) - (bx - core[0]) * (y - core[1])
+                    const d3 = (x - ax) * (core[1] - ay) - (core[0] - ax) * (y - ay)
+                    const neg = d1 < 0 || d2 < 0 || d3 < 0
+                    const pos = d1 > 0 || d2 > 0 || d3 > 0
+                    if (neg && pos) continue
+                    // solid ice; only the shadowed faces carry a sparse speckle of depth
+                    if (lit < -0.1 && ((x * 3 + y * 5) & 7) === 0) continue
+                    d.set(x, y, c)
                 }
-                // the snow cap: a white slab over the top, its ends rounded, drips and icicles hanging off it
-                if (k > 0.6) {
-                    rect(d, x0 - 1, top - 2, tr.w + 2, 2, C.white)
-                    rect(d, x0, top - 3, tr.w, 1, C.white)
-                    for (let x = x0 + 1; x < x0 + tr.w - 1; x += 3) {
-                        const drip = R(hash2(x, ti + 970) * 3)
-                        for (let y = 0; y < drip; y++) d.set(x, top + y, y === drip - 1 ? C.frost : C.white)
-                    }
-                    for (const ex of [x0, x0 + tr.w - 1]) { d.set(ex, top, C.frost); d.set(ex, top + 1, C.frost) }
-                }
-                base = top - 2
-            })
-            // a little peak of snow on the summit, and a glint running over the bricks
-            const peakK = pr(t, 0.98, 1.02)
-            if (peakK > 0) tri(d, gx - 4, base + 1, gx + 4, base + 1, gx, base - R(4 * peakK), C.white)
-            const gl = R(gx - 14 + ((q - 0.8) * 60) % 28)
-            d.set(gl, FOE.g - 6, C.white); d.set(gl + 1, FOE.g - 7, C.white)
+                // the crisp hull edge
+                line(d, R(ax), R(ay), R(bx), R(by), lit > -0.3 ? C.white : C.blue1)
+            }
+            // seams across the crystal, and two highlight streaks on its lit faces
+            line(d, R(pts[0]![0]), R(pts[0]![1]), R(pts[4]![0]), R(pts[4]![1]), C.frost)
+            line(d, R(pts[7]![0]), R(pts[7]![1]), R(pts[3]![0]), R(pts[3]![1]), C.cyan)
+            if (k > 0.9) { line(d, cx - 8, cy - 6, cx - 4, cy - 13, C.white); line(d, cx - 9, cy, cx - 7, cy - 3, C.white) }
+            // shards bristling off the left, where the cold came from
+            if (k > 0.8) for (const [sx, sy, ex, ey] of [[-11, -9, -17, -13], [-12, -1, -18, -2], [-4, -17, -7, -22]] as const) {
+                tri(d, R(cx + sx), R(cy + sy - 2), R(cx + sx), R(cy + sy + 2), R(cx + ex), R(cy + ey), C.frost)
+                line(d, R(cx + sx), R(cy + sy), R(cx + ex), R(cy + ey), C.white)
+            }
+            // the glint: a four-point star twinkling on the lower right
+            if (k > 0.9) {
+                const r = 2 + (Math.floor(q * 10) & 1)
+                for (let i = -r; i <= r; i++) { d.set(cx + 8 + i, cy + 8, C.white); d.set(cx + 8, cy + 8 + i, C.white) }
+            }
         }
         // then it breaks: chunks of ice tumbling away
         if (q >= 1.4 && q < 1.7) for (let i = 0; i < 12; i++) {
