@@ -158,7 +158,7 @@ The restyle goes in **small rounds**. Convert a sub-selection, let the user revi
 
 - **World 1 is done and locked** (see §1). The backgrounds of Worlds 2–10 are locked (fourth pass, Rounds 1–7). The enemies and bosses of Worlds 2–10 were restyled in the fifth pass, and both are locked. **Still round-1 art:** the other 58 VFX.
 - **Champion casts are still chassis-level.** Round 5 restyled the bodies; the chassis clips are shared per archetype, so two Champions of one archetype still swing identically. Their 28 ability effects were restyled an archetype a round (Rounds 15–18) and are locked.
-- **The Hero skill VFX are locked** (sixth pass, Round 14): fourteen cinematics, and Disciple and Raise Dead keeping their sprite-level summon effects in `vfx.ts`, the user's call. The Champion abilities (Rounds 15–18) and Training Grounds actives (Round 19) are restyled and locked; every ability effect is locked. Only the three multi-strike volleys sit unlocked in Ability VFX, approved as they are (the user's call).
+- **The Hero skill VFX are locked** (sixth pass, Round 14): fourteen cinematics, and Disciple and Raise Dead keeping their sprite-level summon effects in `vfx.ts`, the user's call. The Champion abilities (Rounds 15–18) and Training Grounds actives (Round 19) are restyled and locked; every ability effect is locked. The three multi-strike volleys, approved as they are, locked last into `multi_strike_vfx` (2026-10-02, the user's call), and the empty catch-all Ability VFX group was retired.
 - **Exports are stale** (see §1).
 
 ---

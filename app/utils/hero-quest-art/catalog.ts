@@ -43,7 +43,7 @@ import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
     | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons' | 'offense_artifact_icons' | 'defense_artifact_icons' | 'tempo_artifact_icons' | 'fortune_artifact_icons' | 'gear_icons' | 'currency_icons' | 'status_icons'
-    | 'hero_skill_vfx' | 'damage_ability_vfx' | 'tank_ability_vfx' | 'support_ability_vfx' | 'control_ability_vfx' | 'training_active_vfx' | 'vfx' | 'feedback' | 'frames' | 'backgrounds' | 'ui' | 'branding'
+    | 'hero_skill_vfx' | 'damage_ability_vfx' | 'tank_ability_vfx' | 'support_ability_vfx' | 'control_ability_vfx' | 'training_active_vfx' | 'multi_strike_vfx' | 'feedback' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
  * The gallery's groups. `locked` marks art whose design is settled (the user's call, 2026-09-28):
@@ -76,7 +76,8 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'support_ability_vfx', label: 'Ability VFX · Support Champions', locked: true },
     { id: 'control_ability_vfx', label: 'Ability VFX · Control Champions', locked: true },
     { id: 'training_active_vfx', label: 'Ability VFX · Training Grounds actives', locked: true },
-    { id: 'vfx', label: 'Ability VFX' },
+    // the last ability effects: with them split out, the old catch-all Ability VFX group was empty and retired (2026-10-02, the user)
+    { id: 'multi_strike_vfx', label: 'Ability VFX · Multi-strike', locked: true },
     // the damage numbers, the party frames, the cooldown radial and the enrage timer (2026-09-29, the user)
     { id: 'feedback', label: 'Combat feedback', locked: true },
     // split out of Icons to lock on their own, ahead of the other icon families (2026-09-29, the user)
@@ -376,7 +377,7 @@ function raidAssets(): ArtAsset[] {
 const LOCKED_ARCHETYPE_VFX: Readonly<Record<string, ArtGroup>> = { Damage: 'damage_ability_vfx', Tank: 'tank_ability_vfx', Support: 'support_ability_vfx', Control: 'control_ability_vfx' }
 function vfxGroup(v: VfxDef): ArtGroup {
     if (v.source === 'class') return 'hero_skill_vfx'
-    if (v.source === 'champion') return LOCKED_ARCHETYPE_VFX[v.owner] ?? 'vfx'
+    if (v.source === 'champion') return LOCKED_ARCHETYPE_VFX[v.owner]!
     return 'training_active_vfx'
 }
 
@@ -390,7 +391,7 @@ function vfxAssets(): ArtAsset[] {
     }))
     for (const m of MULTI_STRIKE) {
         out.push({
-            id: `vfx/strike_${m.id}`, group: 'vfx', section: 'Multi-strike', label: m.label,
+            id: `vfx/strike_${m.id}`, group: 'multi_strike_vfx', section: 'Multi-strike', label: m.label,
             w: VL.W, h: VL.H, frames: Math.round((0.45 + m.shots * 0.18) * ANIM_FPS), fps: ANIM_FPS, loop: false,
             render: (dst, f) => drawMultiStrike(dst, f / ANIM_FPS, m), underlay: drawVfxStage
         })
