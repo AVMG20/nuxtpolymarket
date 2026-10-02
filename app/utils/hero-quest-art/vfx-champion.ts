@@ -398,7 +398,6 @@ const HURT = VL.allies[1]
 const BEST = VL.allies[2]
 const HEAL: Ramp6 = [C.white, C.green4, C.green4, C.green3, C.teal2, C.teal1]
 const BLESS: Ramp6 = [C.white, C.frost, C.cyan, C.cyan, C.blue2, C.blue1]
-const POWER: Ramp6 = [C.white, C.gold3, C.orange, C.red2, C.red1, C.red0]
 
 /** A glow gathering at the Support's staff head over [t0, t1]: motes drawn in, a swelling orb. */
 function staffCharge(d: Surface, t: number, t0: number, t1: number, ramp: Ramp6, seed: number): void {
@@ -468,50 +467,72 @@ const SUPPORT: VfxDef[] = [
         blast(d, HURT.x, hc, t, 0.5, 6, 0.3, BLESS, 712, 'frost')
     }),
     // the party, heal over time: a tide of teal light rolls across under them, ripples rising at
-    // each ally's feet, and green pluses keep rising after it
+    // the party, heal over time: one low wave of teal light rolls across the whole party, its
+    // front running back through every rank at once, ripples at each ally's feet and green pluses after
     champ('Tide of Renewal', 'Support', 1.6, (d, t) => {
         const q = qt(t)
         staffCharge(d, t, 0.05, 0.3, HEAL, 720)
-        // the tide: a crest of teal light sweeping left to right along the ground under the party
-        const u = pr(t, 0.3, 0.9)
+        const u = pr(t, 0.3, 0.95)
         if (u > 0 && u < 1) {
-            const cx = -10 + u * 90
-            for (let dx = -14; dx <= 2; dx++) {
-                const k = (dx + 14) / 16
-                const h = R(2 + k * k * 6)
-                for (const g of [52, 68, 84]) for (let y = 0; y < h; y++) d.set(R(cx + dx + (84 - g) * 0.2), g - 1 - y, y === h - 1 ? C.white : k > 0.7 ? C.teal3 : C.teal2)
+            const cx = -12 + u * 96
+            const front = (g: number) => cx + (84 - g) * 0.35
+            // the water behind the front, low on the ground at each rank, dithered toward its back
+            for (const g of [52, 68, 84]) {
+                const fx = front(g)
+                for (let dx = -18; dx <= 0; dx++) {
+                    const k = (dx + 18) / 18
+                    const h = R(1 + k * 3)
+                    for (let y = 0; y < h; y++) {
+                        if (k < 0.4 && ((dx + y) & 1)) continue
+                        d.set(R(fx + dx), g - 1 - y, y === h - 1 && k > 0.8 ? C.white : k > 0.6 ? C.teal3 : C.teal2)
+                    }
+                }
+            }
+            // the front itself, one line of foam running back through the ranks so it reads as one wave
+            for (let g = 50; g <= 84; g++) {
+                const fx = R(front(g))
+                d.set(fx, g - 1, (g & 1) ? C.white : C.teal3)
+                if ((g & 3) === 0) d.set(fx - 1, g - 2, C.teal3)
             }
         }
         VL.allies.forEach((a, i) => {
-            const at = 0.3 + (a.x + 10) / 90 * 0.6
+            const at = 0.3 + ((a.x - (84 - a.g) * 0.35) + 12) / 96 * 0.65
             if (q >= at && q < at + 0.6) {
                 const r = (q - at) / 0.6
-                ellipseRing(d, a.x, a.g - 1, 3 + r * 10, (3 + r * 10) * 0.3, r < 0.5 ? C.teal3 : C.teal1)
+                ellipseRing(d, a.x, a.g - 1, 3 + r * 9, (3 + r * 9) * 0.3, r < 0.5 ? C.teal3 : C.teal1)
             }
             if (q > at + 0.1) healRise(d, a.x, chestOf(a), t, 721 + i, C.green4, C.white)
         })
     }),
-    // the strongest ally, PWR: an orb of red-gold fire thrown to the Hero bursts into a flaring aura
-    champ('Empower', 'Support', 1.5, (d, t) => {
+    // the strongest ally, PWR: a mote of warm gold light drifts over to the Hero and sinks into
+    // him; a ring of gold spreads at his feet and light climbs up through him (a buff, not a blow)
+    champ('Empower', 'Support', 1.6, (d, t) => {
         const q = qt(t)
         const bc = chestOf(BEST)
-        staffCharge(d, t, 0.05, 0.35, POWER, 730)
-        const u = travel(t, 0.35, 0.6)
+        staffCharge(d, t, 0.05, 0.35, SHIELD, 730)
+        const u = travel(t, 0.35, 0.8)
         if (u >= 0) {
-            lob(STAFF.x, STAFF.y, BEST.x, bc, 12, u)
-            comet(d, VP.x, VP.y, VP.a, 3, POWER, t, 731)
+            lob(STAFF.x, STAFF.y, BEST.x, bc, 8, eo(u))
+            disc(d, VP.x, VP.y, 3.5, C.gold1); disc(d, VP.x, VP.y, 2.5, C.gold2); disc(d, VP.x, VP.y, 1.5, C.gold3); d.set(R(VP.x), R(VP.y), C.white)
+            for (let k = 1; k < 4; k++) d.set(R(VP.x - Math.cos(VP.a) * k * 3), R(VP.y - Math.sin(VP.a) * k * 3 + Math.sin(q * 12 + k)), k < 2 ? C.gold3 : C.gold1)
         }
-        blast(d, BEST.x, bc, t, 0.6, 11, 0.5, POWER, 732, 'fire')
-        if (q >= 0.65 && q < 1.5) {
-            const fade = q < 1.2 ? 1 : 1 - (q - 1.2) / 0.3
-            const f = Math.floor(q * 15)
+        // it settles in at his feet: a soft flare on the ground, not a hit to the body
+        blast(d, BEST.x, BEST.g - 1, t, 0.8, 10, 0.5, SHIELD, 736, 'gold', true)
+        shockRing(d, BEST.x, BEST.g - 1, t, 0.8, 0.5, 3, 18, C.gold3, true)
+        if (q >= 0.8 && q < 1.6) {
+            const fade = q < 1.3 ? 1 : 1 - (q - 1.3) / 0.3
+            // streaks of light climbing up the body
+            // a warm glow at his edges, and streaks of light climbing up through him
+            for (const dx of [-8, 8]) for (let y = BEST.g - 26; y < BEST.g - 1; y++) if (((y + (dx > 0 ? 1 : 0)) & 1) && hash2(y, dx + R(q * 8)) < 0.6 * fade) d.set(BEST.x + dx, y, C.gold2)
             for (let i = 0; i < 8; i++) {
-                const xx = BEST.x - 9 + i * 2 + (i > 3 ? 3 : 0)
-                const h = R((8 + 10 * hash2(f, i)) * fade)
-                for (let k = 0; k < h; k++) d.set(xx, BEST.g - 1 - k, k < h * 0.4 ? C.orange : k < h * 0.75 ? C.red2 : C.red1)
-                if (h > 0) d.set(xx, BEST.g - 1 - h, C.gold3)
+                const ph = (q * 1.8 + hash2(i, 733)) % 1
+                if (ph > fade) continue
+                const x = BEST.x - 7 + R(hash2(i, 734) * 14)
+                const y = R(BEST.g - 2 - ph * 30)
+                for (let k = 0; k < 5; k++) d.set(x, y + k, k === 0 ? C.white : k < 2 ? C.gold3 : C.orange)
             }
-            chevrons(d, BEST.x, bc - 16, t, true, C.red2, C.gold3)
+            motes(d, BEST.x, BEST.g - 2, 18, 30, t, 10, 'spark', 735, 26)
+            chevrons(d, BEST.x, bc - 16, t, true, C.orange, C.gold3)
         }
     }),
     // the strongest ally, SPD: ribbons of cyan wind wheel round the Hero, speed lines streaming off
