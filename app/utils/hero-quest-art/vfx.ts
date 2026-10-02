@@ -13,12 +13,12 @@ import {
     VL, pr, inWin, eo, qt, burst, motes, shock, bolt, travel, lob, VP, orbFx, star, impact, arrows, healRise,
     stunStars, column, bubble, rune, RUNES, runeCircle, rain, chainFx, slash, R
 } from './vfx-kit'
-import { antlers, arrow } from './weapons'
+import { arrow } from './weapons'
 import { Actor, HP } from './rig'
 import { sample } from './anim'
-import { drawCreature } from './creature'
-import { DISCIPLE_CLIPS, DISCIPLE_LOOK, RAISED_DEAD_CLIPS, RAISED_DEAD_LOOK, WOLF } from './summons'
+import { DISCIPLE_CLIPS, DISCIPLE_LOOK, RAISED_DEAD_CLIPS, RAISED_DEAD_LOOK } from './summons'
 import { abilityId } from '../../../shared/utils/hero-quest/content/champions'
+import { CLASS_NODES } from '../../../shared/utils/hero-quest/content/classes'
 import { CINEMATIC_BY_ID } from './vfx-cinematic'
 
 export type VfxSource = 'class' | 'champion' | 'training'
@@ -50,86 +50,9 @@ function summonIn(dst: Surface, x: number, look: typeof DISCIPLE_LOOK, clip: typ
 
 // ═══════════════════════════════════════════════════════════════ Hero skills (16)
 
+// The other fourteen are cinematics (vfx-cinematic.ts); only the two summons keep a
+// sprite-level effect here, the user's call (2026-10-02).
 const CLASS_VFX: VfxDef[] = [
-    {
-        id: 'skill_haste', name: 'Haste', source: 'class', owner: 'Beginner', dur: 1.2,
-        draw(d, t) {
-            shock(d, CX, FLOOR, t, 0, 0.5, 2, 16, 'gold', true, 2)
-            for (let i = 0; i < 5; i++) {
-                const u = pr(t, 0.1 + i * 0.08, 0.6 + i * 0.08)
-                if (u <= 0 || u >= 1) continue
-                const y = CY - 10 + i * 5
-                const x = CX - 8 - u * 26
-                line(d, x, y, x + 10, y, i & 1 ? C.gold2 : C.gold3)
-                d.set(R(x + 10), y, C.white)
-            }
-            motes(d, CX, CY + 10, 16, 26, t, 10, 'gold', 3, 40)
-            if (inWin(t, 0.3, 1.0)) arrows(d, CX, CY - 16, t, true, C.gold3)
-        }
-    },
-    {
-        id: 'skill_whirlwind', name: 'Whirlwind', source: 'class', owner: 'Warrior', dur: 1.1,
-        draw(d, t) {
-            for (let k = 0; k < 2; k++) {
-                const u = pr(t, 0.1 + k * 0.3, 0.4 + k * 0.3)
-                if (u > 0 && u < 1) {
-                    const a0 = u * Math.PI * 2
-                    for (let i = 0; i < 28; i++) {
-                        const a = a0 - i * 0.12
-                        const c = i < 3 ? C.white : i < 10 ? C.steel3 : i < 18 ? C.gold2 : C.steel1
-                        d.set(R(CX + Math.cos(a) * 20), R(CY + 2 + Math.sin(a) * 7), c)
-                        if (i < 14) d.set(R(CX + Math.cos(a) * 18), R(CY + 2 + Math.sin(a) * 6), c)
-                    }
-                }
-            }
-            burst(d, CX, FLOOR - 1, t, 0.1, 14, 30, 'dust', 5, 0.8, 0, Math.PI, Math.PI)
-            impact(d, F[0].x - 4, F[0].y, t, 0.3, 'steel', 1)
-            impact(d, F[1].x - 4, F[1].y, t, 0.6, 'steel', 2)
-        }
-    },
-    {
-        id: 'skill_threatening_roar', name: 'Threatening Roar', source: 'class', owner: 'Barbarian', dur: 1.4,
-        draw(d, t) {
-            for (let k = 0; k < 3; k++) shock(d, CX + 4, CY - 8, t, 0.1 + k * 0.15, 0.7, 4, 70, 'blood')
-            for (const f of F) if (inWin(t, 0.5, 1.4)) arrows(d, f.x, f.y + HEAD, t, false, C.red2)
-            if (inWin(t, 0.3, 1.4)) {
-                // the taunt mark over the roarer
-                const y = CY - 26 + (Math.floor(qt(t) * 4) & 1)
-                rect(d, CX - 1, y, 3, 6, C.red2); rect(d, CX - 1, y + 7, 3, 2, C.red2)
-                d.set(CX, y + 1, C.red3)
-            }
-        }
-    },
-    {
-        id: 'skill_enrage', name: 'Enrage', source: 'class', owner: 'Berserker', dur: 1.4,
-        draw(d, t) {
-            const u = pr(t, 0, 0.4)
-            ditherEllipse(d, CX, CY - 2, 10 + u * 4, 16, C.red1, R(3 + u * 4))
-            motes(d, CX, CY + 16, 20, 34, t, 16, 'fire', 7, 50)
-            shock(d, CX, CY, t, 0.3, 0.4, 4, 22, 'blood', false, 2)
-            if (inWin(t, 0.4, 1.4)) arrows(d, CX, CY - 22, t, true, C.red3)
-            burst(d, CX, CY - 8, t, 0.3, 10, 40, 'ash', 8, 0.8, -40, -Math.PI / 2, 1.2)
-        }
-    },
-    {
-        id: 'skill_shockwave', name: 'Shockwave', source: 'class', owner: 'Knight', dur: 1.3,
-        draw(d, t) {
-            const u = pr(t, 0.1, 0.7)
-            if (u > 0 && u < 1) {
-                const x = CX + 6 + u * 100
-                for (let i = 0; i < 6; i++) {
-                    const h = 6 - i
-                    line(d, x - i * 3, FLOOR - 1, x - i * 3 + 1, FLOOR - 1 - h, i < 2 ? C.white : C.cyan)
-                }
-                line(d, CX + 6, FLOOR - 1, x, FLOOR - 1, C.stone3)
-            }
-            burst(d, CX + 6, FLOOR - 2, t, 0.1, 12, 50, 'dust', 9, 0.6, 60, -Math.PI / 2, 2)
-            for (let i = 0; i < 3; i++) {
-                impact(d, F[i]!.x, FLOOR - 6, t, 0.35 + i * 0.12, 'frost', 10 + i)
-                if (inWin(t, 0.5 + i * 0.1, 1.3)) stunStars(d, F[i]!.x, F[i]!.y + HEAD - 6, t)
-            }
-        }
-    },
     {
         id: 'skill_disciple', name: 'Disciple', source: 'class', owner: 'Paladin', dur: 1.6,
         draw(d, t) {
@@ -140,81 +63,6 @@ const CLASS_VFX: VfxDef[] = [
             if (qt(t) >= 0.4) summonIn(d, x, DISCIPLE_LOOK, DISCIPLE_CLIPS.move, 0, pr(t, 0.4, 1.0))
             motes(d, x, FLOOR, 22, 50, t, 12, 'holy', 12, 30)
             if (inWin(t, 0.9, 1.6)) for (const a of A) healRise(d, a.x, a.y, t, a.x, C.gold3, C.white)
-        }
-    },
-    {
-        id: 'skill_ethereal_bouncebolt', name: 'Ethereal Bouncebolt', source: 'class', owner: 'Mage', dur: 1.4,
-        draw(d, t) {
-            const path = [[CX + 8, CY - 10], [F[0].x, F[0].y], [F[2].x, F[2].y - 4], [F[1].x, F[1].y]] as const
-            for (let k = 0; k < 3; k++) {
-                const u = travel(t, 0.1 + k * 0.35, 0.45 + k * 0.35)
-                if (u >= 0) {
-                    lob(path[k]![0], path[k]![1], path[k + 1]![0], path[k + 1]![1], k === 0 ? 8 : 16, u)
-                    orbFx(d, VP.x, VP.y, VP.a, 2, C.white, C.pink, C.purple2)
-                }
-                impact(d, path[k + 1]![0], path[k + 1]![1], t, 0.45 + k * 0.35, 'arcane', 20 + k)
-            }
-        }
-    },
-    {
-        id: 'skill_lightning_storm', name: 'Lightning Storm', source: 'class', owner: 'Wizard', dur: 1.5,
-        draw(d, t) {
-            const u = pr(t, 0, 0.3)
-            ditherEllipse(d, 124, 10, 40, 8 * u + 1, C.night1, 12)
-            ditherEllipse(d, 124, 8, 32, 5 * u + 1, C.night2, 10)
-            for (let i = 0; i < 3; i++) {
-                const t0 = 0.35 + i * 0.25
-                if (inWin(t, t0, t0 + 0.2)) {
-                    bolt(d, F[i]!.x + 3, 12, F[i]!.x, F[i]!.y, t, 30 + i)
-                    ditherDisc(d, F[i]!.x, F[i]!.y, 7, C.cyan, 5)
-                }
-                impact(d, F[i]!.x, F[i]!.y, t, t0 + 0.1, 'storm', 31 + i, true)
-            }
-            if (inWin(t, 0.3, 1.2)) rain(d, 90, 156, 14, FLOOR, t, 0.3, 1.2, 14, C.night3, C.haze, -0.3, 33, 4)
-        }
-    },
-    {
-        id: 'skill_meteor_shower', name: 'Meteor Shower', source: 'class', owner: 'Sorcerer', dur: 1.6,
-        draw(d, t) {
-            for (let i = 0; i < 3; i++) ditherEllipse(d, F[i]!.x, FLOOR - 2, 12, 3, C.lava0, R(pr(t, 0.2, 0.6) * 8)) // scorched ground under each target
-            for (let i = 0; i < 4; i++) {
-                const t0 = 0.15 + i * 0.22
-                const tx = F[i % 3]!.x + (i === 3 ? -8 : 0)
-                const u = travel(t, t0, t0 + 0.35)
-                if (u >= 0) {
-                    const x = tx - 40 + u * 40
-                    const y = -6 + u * (FLOOR - 4)
-                    for (let k = 1; k < 10; k++) d.set(R(x - k * 1.3), R(y - k * 1.8), k < 3 ? C.gold2 : k < 6 ? C.orange : C.red1)
-                    disc(d, x, y, 3, C.lava1); disc(d, x, y, 2, C.gold2); d.set(R(x) - 1, R(y) - 1, C.white)
-                }
-                shock(d, tx, FLOOR - 1, t, t0 + 0.35, 0.4, 2, 14, 'fire', true, 2)
-                burst(d, tx, FLOOR - 3, t, t0 + 0.35, 14, 60, 'ember', 40 + i, 0.6, 80, -Math.PI / 2, 2.4)
-            }
-        }
-    },
-    {
-        id: 'skill_totem_storm', name: 'Totem Storm', source: 'class', owner: 'Shaman', dur: 1.6,
-        draw(d, t) {
-            // the planted totem
-            const tx = CX + 16
-            const up = R(eo(pr(t, 0, 0.25)) * 18)
-            rect(d, tx - 2, FLOOR - up, 5, up, C.brown2)
-            if (up > 12) {
-                rect(d, tx - 2, FLOOR - up + 2, 5, 1, C.brown0)
-                d.set(tx, FLOOR - up + 3, C.teal3)
-                antlers(d, tx, FLOOR - up, -Math.PI / 2)
-            }
-            // gusts spiralling out to every foe
-            for (let i = 0; i < 3; i++) {
-                const u = travel(t, 0.3 + i * 0.1, 0.9 + i * 0.1)
-                if (u < 0) continue
-                const x = tx + (F[i]!.x - tx) * u
-                for (let k = 0; k < 12; k++) {
-                    const a = qt(t) * 12 + k * 0.5
-                    d.set(R(x - k * 1.5 + Math.cos(a) * 3), R(F[i]!.y - 4 + Math.sin(a) * 5), k < 4 ? C.white : C.teal3)
-                }
-            }
-            for (let i = 0; i < 3; i++) impact(d, F[i]!.x, F[i]!.y, t, 0.9 + i * 0.1, 'water', 50 + i)
         }
     },
     {
@@ -233,73 +81,6 @@ const CLASS_VFX: VfxDef[] = [
             }
             if (qt(t) >= 0.5) summonIn(d, x, RAISED_DEAD_LOOK, RAISED_DEAD_CLIPS.move, 0, pr(t, 0.5, 1.2))
             motes(d, x, FLOOR, 24, 40, t, 10, 'poison', 60, 26)
-        }
-    },
-    {
-        id: 'skill_piercing_arrow', name: 'Piercing Arrow', source: 'class', owner: 'Archer', dur: 1.1,
-        draw(d, t) {
-            const u = travel(t, 0.1, 0.6)
-            if (u >= 0) {
-                const x = CX + 10 + u * 120
-                line(d, CX + 10, CY - 4, x - 8, CY - 4, C.green3)
-                dither(d, CX + 10, CY - 5, x - CX - 18, 3, C.green4, 5)
-                arrow(d, x, CY - 4, 0, C.brown3, C.white, C.green4)
-                d.set(R(x) + 1, CY - 4, C.white)
-            }
-            for (let i = 0; i < 3; i++) impact(d, F[i]!.x, CY - 4, t, 0.1 + ((F[i]!.x - CX - 10) / 120) * 0.5, 'nature', 70 + i)
-        }
-    },
-    {
-        id: 'skill_fan_of_arrows', name: 'Fan of Arrows', source: 'class', owner: 'Bowman', dur: 1.1,
-        draw(d, t) {
-            for (let i = 0; i < 5; i++) {
-                const tx = 96 + i * 13
-                const ty = CY - 6 + (i - 2) * 3
-                const u = travel(t, 0.1 + i * 0.03, 0.55 + i * 0.03)
-                if (u >= 0) {
-                    lob(CX + 10, CY - 10, tx, ty, 10 + Math.abs(i - 2) * 3, u)
-                    arrow(d, VP.x, VP.y, VP.a, C.brown3, C.steel3, C.white)
-                }
-                impact(d, tx, ty, t, 0.55 + i * 0.03, 'steel', 80 + i)
-            }
-        }
-    },
-    {
-        id: 'skill_arrow_rain', name: 'Arrow Rain', source: 'class', owner: 'Marksman', dur: 1.6,
-        draw(d, t) {
-            // loosed skyward, then falling across the whole line
-            for (let i = 0; i < 4; i++) {
-                const u = travel(t, 0.05 + i * 0.05, 0.35 + i * 0.05)
-                if (u >= 0) arrow(d, CX + 8 + u * 20 + i * 3, CY - 12 - u * 60, -1.2, C.brown3, C.gold3, C.white)
-            }
-            rain(d, 92, 156, 0, FLOOR - 2, t, 0.45, 1.2, 26, C.brown3, C.gold3, 0.25, 90, 7)
-            for (let i = 0; i < 3; i++) if (inWin(t, 0.6, 1.4)) burst(d, F[i]!.x, FLOOR - 2, t, 0.6 + i * 0.15, 6, 30, 'dust', 91 + i, 0.4, 60, -Math.PI / 2, 2)
-        }
-    },
-    {
-        id: 'skill_kill_shot', name: 'Kill Shot', source: 'class', owner: 'Hunter', dur: 1.4,
-        draw(d, t) {
-            const tg = F[1]
-            if (inWin(t, 0, 0.8)) {
-                const r = R(12 - pr(t, 0, 0.6) * 6)
-                ring(d, tg.x, tg.y, r, C.red2)
-                for (let i = 2; i < 6; i++) { d.set(tg.x - r - i + 2, tg.y, C.red3); d.set(tg.x + r + i - 2, tg.y, C.red3); d.set(tg.x, tg.y - r - i + 2, C.red3); d.set(tg.x, tg.y + r + i - 2, C.red3) }
-            }
-            if (inWin(t, 0.8, 1.0)) {
-                for (let y = -2; y <= 2; y++) line(d, CX + 10, CY - 4 + y, tg.x, tg.y + y, Math.abs(y) < 1 ? C.white : Math.abs(y) < 2 ? C.red3 : C.red1)
-            }
-            impact(d, tg.x, tg.y, t, 0.9, 'blood', 100, true)
-            shock(d, tg.x, tg.y, t, 0.9, 0.4, 3, 16, 'blood', false, 2)
-        }
-    },
-    {
-        id: 'skill_mans_best_friend', name: "Man's Best Friend", source: 'class', owner: 'Beast Master', dur: 1.4,
-        draw(d, t) {
-            const u = pr(t, 0.1, 0.7)
-            const x = R(CX - 20 + u * (F[0].x - 16 - CX + 20))
-            if (qt(t) < 1.2) drawCreature(d, x, FLOOR, WOLF, u < 1 ? 'move' : 'attack', u < 1 ? qt(t) : qt(t) - 0.7 + 0.2, 1)
-            if (u > 0 && u < 1) burst(d, x - 10, FLOOR - 1, t, 0.1, 10, 20, 'dust', 110, 0.4, 0, Math.PI, 1)
-            impact(d, F[0].x - 4, F[0].y + 4, t, 0.9, 'blood', 111, true)
         }
     }
 ]
@@ -731,8 +512,9 @@ const TRAINING_VFX: VfxDef[] = [
     })
 ]
 
-// round 2: the cinematic rebuilds replace their classic entries by ID, in place
-const CLASS_VFX_LIVE = CLASS_VFX.map(v => CINEMATIC_BY_ID[v.id] ?? v)
+// every Hero skill in class-tree order: its cinematic, or the classic summon effect above
+const CLASSIC_BY_ID: Readonly<Record<string, VfxDef>> = Object.fromEntries(CLASS_VFX.map(v => [v.id, v]))
+const CLASS_VFX_LIVE: VfxDef[] = CLASS_NODES.map(n => CINEMATIC_BY_ID[n.skill.id] ?? CLASSIC_BY_ID[n.skill.id]!)
 
 export const VFX: readonly VfxDef[] = [...CLASS_VFX_LIVE, ...CHAMPION_VFX, ...TRAINING_VFX]
 export const VFX_BY_ID: Readonly<Record<string, VfxDef>> = Object.fromEntries(VFX.map(v => [v.id, v]))
