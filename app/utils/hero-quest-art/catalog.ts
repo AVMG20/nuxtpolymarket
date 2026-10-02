@@ -126,10 +126,20 @@ export interface ArtAsset {
  * 2026-09-28), Round 5 when the last Forge boss locked (2026-09-29), Round 6 when the Champion
  * ability crests locked (2026-10-01), Rounds 7–10 when the offense, defense, tempo and fortune
  * Artifacts locked, Round 11 when the Gear locked, Round 12 when the currencies locked and Round
- * 13 when the status effects locked (all 2026-10-02), so the next round is 14;
+ * 13 when the status effects locked (all 2026-10-02), so the next round is 15;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
+    {
+        n: 14,
+        label: 'Hero skill VFX',
+        prefixes: [
+            'vfx/skill_whirlwind', 'vfx/skill_threatening_roar', 'vfx/skill_enrage', 'vfx/skill_shockwave', 'vfx/skill_ethereal_bouncebolt',
+            'vfx/skill_lightning_storm', 'vfx/skill_totem_storm', 'vfx/skill_piercing_arrow', 'vfx/skill_fan_of_arrows', 'vfx/skill_arrow_rain',
+            'vfx/skill_mans_best_friend'
+        ]
+    }
+]
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
