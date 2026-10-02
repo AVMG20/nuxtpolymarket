@@ -77,6 +77,9 @@ export const useHeroQuest = () => {
         enemyMaxHps: string[]
         enemyHpRemaining: string
         events: FightEvent[]
+        /** The party in the fight's `unitIndex` order: the Hero's class, then each fielded Champion. */
+        partyIds: string[]
+        partyMaxHps: string[]
         landing: { world: number; stage: number }
         runComplete: boolean
     }

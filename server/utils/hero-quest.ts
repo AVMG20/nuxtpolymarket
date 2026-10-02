@@ -655,6 +655,13 @@ export async function resolveBossEngage(tx: DbExecutor, userId: string, bankedGo
         enemyMaxHps: fight.enemyMaxHps,
         enemyHpRemaining: fight.enemyHpRemaining,
         events: fight.events,
+        /**
+         * The party as the fight indexed it (`unitIndex`): the Hero's class, then each fielded
+         * Champion, with each one's max HP — what the stage needs to put a hit on the right body
+         * and draw its HP frame. Read off the same snapshot the fight ran on.
+         */
+        partyIds: [hero.classId, ...(hero.champions ?? []).map(champion => champion.championId)],
+        partyMaxHps: partyUnitStats(hero).map(unit => unit.maxHp.toString()),
         landing: { world: updated?.world ?? landing.world, stage: updated?.stage ?? landing.stage },
         /** True when this win cleared World 10 / Stage 10 and prestige is now available. */
         runComplete: updated?.runCleared ?? clearedTheRun
