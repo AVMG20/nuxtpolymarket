@@ -461,7 +461,7 @@ function gearWeapon(tier: number): Glyph {
         // only its last pixels taper
         const gx = x - 5
         const gy = y + 5
-        const L = R([11, 13, 14, 14, 15, 16][tier]! * 0.71)
+        const L = R([11, 13, 14, 14, 15, 16][tier]! * 0.71) + 1
         const rows = tier >= 3 ? [-2, -1, 0, 1, 2, 3] : [-2, -1, 0, 1, 2]
         const mid = (rows[0]! + rows[rows.length - 1]!) / 2
         for (const k of rows) {
