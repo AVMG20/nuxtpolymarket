@@ -898,6 +898,15 @@ export const HQ_REFRESH_INTERVAL_MS = 60_000 // UNTUNED ╧
  */
 export const ONLINE_THRESHOLD_MS = HQ_REFRESH_INTERVAL_MS * 3 // UNTUNED ╧
 
+/**
+ * Gap after which the player's session has ended: Hero Quest opens on its splash and waits for
+ * Start. Presentation only, it gates no reward: a gap is settled offline the moment it passes
+ * `ONLINE_THRESHOLD_MS`, whether anyone presses Start or not. Longer than that threshold on
+ * purpose, so a short break drops straight back into the fight. Locked at an hour (the user's
+ * call, 2026-10-02): a decision, not a placeholder awaiting play data.
+ */
+export const HQ_SESSION_TIMEOUT_MS = 60 * 60_000
+
 // ── Automatic boss engagement ──────────────────────  tech-architecture.md §4b
 //
 // A boss fires on its own while `document.visibilityState` reads `visible` — the same presence the
