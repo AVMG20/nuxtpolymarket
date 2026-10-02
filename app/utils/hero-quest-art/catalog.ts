@@ -41,7 +41,7 @@ import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, BURROW_GRUB, ORE_BEETLE, FORGE_A
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
-    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons' | 'offense_artifact_icons' | 'defense_artifact_icons'
+    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons' | 'offense_artifact_icons' | 'defense_artifact_icons' | 'tempo_artifact_icons'
     | 'vfx' | 'feedback' | 'icons' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
@@ -77,6 +77,7 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     // the Artifacts lock a category at a time (2026-10-02, the user)
     { id: 'offense_artifact_icons', label: 'Icons · Offense Artifacts', locked: true },
     { id: 'defense_artifact_icons', label: 'Icons · Defense Artifacts', locked: true },
+    { id: 'tempo_artifact_icons', label: 'Icons · Tempo Artifacts', locked: true },
     { id: 'icons', label: 'Icons' },
     { id: 'frames', label: 'Frames & badges', locked: true },
     { id: 'backgrounds', label: 'Backgrounds', locked: true },
@@ -119,20 +120,11 @@ export interface ArtAsset {
  * Summons, Enemies, Bosses and Backgrounds were all locked. The sixth pass's Rounds 1–3 were
  * approved and taken off when Frames & badges locked, and Round 4 when Branding locked (both also
  * 2026-09-28), Round 5 when the last Forge boss locked (2026-09-29), Round 6 when the Champion
- * ability crests locked (2026-10-01), and Rounds 7 and 8 when the offense and defense Artifacts
- * locked (2026-10-02), so the next round is 10;
+ * ability crests locked (2026-10-01), and Rounds 7, 8 and 9 when the offense, defense and tempo
+ * Artifacts locked (2026-10-02), so the next round is 10;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    {
-        n: 9,
-        label: 'Tempo artifacts',
-        prefixes: [
-            'icon/artifact/artifact_tempo_0', 'icon/artifact/artifact_tempo_2', 'icon/artifact/artifact_tempo_3', 'icon/artifact/artifact_tempo_6',
-            'icon/artifact/artifact_tempo_7', 'icon/artifact/artifact_tempo_9', 'icon/artifact/artifact_tempo_10', 'icon/artifact/artifact_tempo_11'
-        ]
-    }
-]
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
@@ -404,7 +396,8 @@ function classLine(id: string): keyof typeof LINE_M {
 /** The Artifact categories split out of Icons to lock a category at a time (2026-10-02, the user). */
 const ARTIFACT_GROUP: Partial<Record<ArtifactCategory, ArtGroup>> = {
     offense: 'offense_artifact_icons',
-    defense: 'defense_artifact_icons'
+    defense: 'defense_artifact_icons',
+    tempo: 'tempo_artifact_icons'
 }
 
 function iconAssets(): ArtAsset[] {
