@@ -651,7 +651,311 @@ const SUPPORT: VfxDef[] = [
     })
 ]
 
-export const CHAMPION_STYLED: readonly VfxDef[] = [...DAMAGE, ...TANK, ...SUPPORT]
+// ── Control ────────────────────────────────────────────────────────────────────────
+
+// The live stage fields the Control Champion on the back row's middle mark (CHAMP_MARKS[3]); each
+// hex leaves its hand there. Single-target hexes land on the near front foe.
+const CO = VL.allies[4]
+const HANDC = { x: CO.x + 9, y: chestOf(CO) - 4 }
+const FOE = F[0]
+const FC = chestOf(FOE)
+const HEX: Ramp6 = [C.white, C.pink, C.pink, C.purple2, C.purple1, C.purple0]
+const ICE: Ramp6 = [C.white, C.frost, C.frost, C.cyan, C.blue2, C.blue1]
+
+/**
+ * Each hex has its own missile (the user's call: no shared blob). `flight` gives the missile's
+ * progress and position from the Control's hand to (x, y) over [t0, t1]: straight, or weaving
+ * by `weave` px, eased by `ease` (1 = even, below 1 = drifting in slowly at the end).
+ */
+const FL = { x: 0, y: 0, a: 0, u: -1 }
+function flight(t: number, t0: number, t1: number, x: number, y: number, weave = 0, ease = 1): boolean {
+    const raw = travel(t, t0, t1)
+    if (raw < 0) { FL.u = -1; return false }
+    const u = Math.pow(raw, ease)
+    const dx = x - HANDC.x
+    const dy = y - HANDC.y
+    const L = Math.hypot(dx, dy)
+    const w = Math.sin(u * Math.PI * 3) * weave * Math.sin(u * Math.PI)
+    FL.x = HANDC.x + dx * u - dy / L * w
+    FL.y = HANDC.y + dy * u + dx / L * w
+    FL.a = Math.atan2(dy, dx)
+    FL.u = u
+    return true
+}
+
+/** Weaken's missile: a five-point hex star, turning as it flies, shedding violet sparks. */
+function hexStar(d: Surface, x: number, y: number, t: number): void {
+    const q = qt(t)
+    for (let i = 0; i < 5; i++) {
+        const a0 = q * 10 + i / 5 * Math.PI * 2
+        const a1 = a0 + Math.PI * 4 / 5
+        line(d, R(x + Math.cos(a0) * 4), R(y + Math.sin(a0) * 4), R(x + Math.cos(a1) * 4), R(y + Math.sin(a1) * 4), C.pink)
+    }
+    d.set(R(x), R(y), C.white)
+    for (let k = 1; k < 5; k++) d.set(R(x - k * 3 + Math.sin(q * 20 + k) * 1.5), R(y + Math.cos(q * 17 + k) * 1.5), k < 3 ? C.purple2 : C.purple1)
+}
+
+/** Slow's missile: a cyan gear ring, its teeth turning, a white hub. */
+function gearRing(d: Surface, x: number, y: number, t: number): void {
+    const q = qt(t)
+    ring(d, x, y, 3, C.cyan)
+    for (let i = 0; i < 6; i++) {
+        const a = q * 4 + i / 6 * Math.PI * 2
+        d.set(R(x + Math.cos(a) * 4.5), R(y + Math.sin(a) * 4.5), C.frost)
+    }
+    d.set(R(x), R(y), C.white)
+    for (let k = 1; k < 4; k++) d.set(R(x - k * 4), R(y + Math.sin(q * 6 + k) * 2), C.blue2)
+}
+
+/** Silence's missile: a violet seal, a circle barred across, spinning end over end. */
+function hushSeal(d: Surface, x: number, y: number, t: number): void {
+    const q = qt(t)
+    const s = Math.abs(Math.cos(q * 9))
+    for (let i = 0; i < 12; i++) {
+        const a = i / 12 * Math.PI * 2
+        d.set(R(x + Math.cos(a) * 4 * s), R(y + Math.sin(a) * 4), i & 1 ? C.purple2 : C.pink)
+    }
+    line(d, R(x - 3 * s), R(y + 3), R(x + 3 * s), R(y - 3), C.white)
+}
+
+/** Shatter Armor's missile: a long crystal dart, lit along one face, thrown straight. */
+function crystalDart(d: Surface, x: number, y: number, a: number): void {
+    const dx = Math.cos(a)
+    const dy = Math.sin(a)
+    const px = -dy
+    const py = dx
+    tri(d, R(x + dx * 5), R(y + dy * 5), R(x - dx * 6 + px * 2), R(y - dy * 6 + py * 2), R(x - dx * 6 - px * 2), R(y - dy * 6 - py * 2), C.steel2)
+    tri(d, R(x + dx * 5), R(y + dy * 5), R(x - dx * 6 + px * 2), R(y - dy * 6 + py * 2), R(x - dx * 6), R(y - dy * 6), C.steel3)
+    d.set(R(x + dx * 5), R(y + dy * 5), C.white)
+    for (let k = 7; k < 13; k += 2) d.set(R(x - dx * k), R(y - dy * k), C.pink)
+}
+
+/** Unraveling Curse's missile: a small violet skull wisp, its tail of smoke weaving behind it. */
+function skullWisp(d: Surface, x: number, y: number, t: number): void {
+    const q = qt(t)
+    for (let k = 1; k < 8; k++) d.set(R(x - k * 2), R(y + Math.sin(q * 14 - k * 0.8) * 2), k < 3 ? C.purple2 : k < 6 ? C.purple1 : C.purple0)
+    disc(d, x, y, 2.5, C.pink)
+    rect(d, R(x) - 1, R(y) + 1, 3, 2, C.pink)
+    d.set(R(x) - 1, R(y), C.ink); d.set(R(x) + 1, R(y), C.ink)
+    d.set(R(x) - 1, R(y) - 2, C.white)
+}
+
+/** Frostbind's missile: an icicle spear, a frost core in a cyan edge, mist shed behind. */
+function icicle(d: Surface, x: number, y: number, a: number, t: number): void {
+    const dx = Math.cos(a)
+    const dy = Math.sin(a)
+    for (let k = -8; k <= 4; k++) {
+        const w = k > 0 ? (4 - k) / 4 : 1
+        const cx = x + dx * k
+        const cy = y + dy * k
+        d.set(R(cx), R(cy), k > 2 ? C.white : C.frost)
+        if (w > 0.4) { d.set(R(cx - dy), R(cy + dx), C.cyan); d.set(R(cx + dy), R(cy - dx), C.blue2) }
+    }
+    const q = qt(t)
+    for (let k = 0; k < 4; k++) d.set(R(x - dx * (10 + k * 3) + Math.sin(q * 15 + k)), R(y - dy * (10 + k * 3) + Math.cos(q * 13 + k)), C.frost)
+}
+
+/** A ring of runes over (x, y), turning, closing from `r0` to `r1` over [t0, t1] and held after. */
+function runeRing(d: Surface, x: number, y: number, t: number, t0: number, t1: number, r0: number, r1: number, c: number, hi: number, squash = 0.4): void {
+    const q = qt(t)
+    if (q < t0) return
+    const r = r0 + (r1 - r0) * eo(pr(t, t0, t1))
+    for (let i = 0; i < 18; i++) {
+        const a = q * 3 + i / 18 * Math.PI * 2
+        if (i % 3 === 2) continue
+        d.set(R(x + Math.cos(a) * r), R(y + Math.sin(a) * r * squash), i % 3 === 0 ? hi : c)
+    }
+}
+
+const CONTROL: VfxDef[] = [
+    // one foe, PWR down: a hex sigil slams onto it and the red of its strength drains up out of it
+    champ('Weaken', 'Control', 1.4, (d, t) => {
+        const q = qt(t)
+        if (flight(t, 0.15, 0.45, FOE.x, FC)) hexStar(d, FL.x, FL.y, t)
+        blast(d, FOE.x, FC, t, 0.45, 8, 0.35, HEX, 901, 'arcane')
+        if (q >= 0.45 && q < 1.4) {
+            const fade = q < 1.15 ? 1 : 1 - (q - 1.15) / 0.25
+            // the hex sigil flaring on the ground under it: a double ring, a five-point star turning inside
+            const r = 14 * eo(pr(t, 0.45, 0.6))
+            ellipseRing(d, FOE.x, FOE.g - 1, r, r * 0.3, C.pink)
+            ellipseRing(d, FOE.x, FOE.g - 1, r - 2, (r - 2) * 0.3, C.purple2)
+            for (let i = 0; i < 5; i++) {
+                const a0 = q * 1.5 + i / 5 * Math.PI * 2
+                const a1 = a0 + Math.PI * 4 / 5
+                line(d, R(FOE.x + Math.cos(a0) * (r - 2)), R(FOE.g - 1 + Math.sin(a0) * (r - 2) * 0.3), R(FOE.x + Math.cos(a1) * (r - 2)), R(FOE.g - 1 + Math.sin(a1) * (r - 2) * 0.3), C.purple2)
+            }
+            // a violet shroud round the body
+            if (fade > 0.3) for (const dx of [-8, 8]) for (let y = FOE.g - 26; y < FOE.g - 2; y++) if (((y + (dx > 0 ? 1 : 0)) & 1) && hash2(y, dx + R(q * 8)) < 0.7 * fade) d.set(FOE.x + dx, y, C.purple1)
+            // its strength drawn up out of it: red motes, white-headed, rising
+            for (let i = 0; i < 10; i++) {
+                const ph = ((q - 0.45) * 1.4 + hash2(i, 902)) % 1
+                if (ph > fade) continue
+                const x = R(FOE.x - 7 + hash2(i, 903) * 14 + Math.sin(q * 6 + i) * 1.5)
+                const y = R(FC + 6 - ph * 28)
+                d.set(x, y, ph < 0.5 ? C.white : C.red3); d.set(x, y + 1, C.red2); d.set(x, y + 2, C.red1)
+            }
+            chevrons(d, FOE.x, FC - 18, t, false, C.red2, C.red3)
+        }
+    }),
+    // one foe, SPD down: a clock of blue light hangs over it, its hand dragging, the air round it thick
+    champ('Slow', 'Control', 1.5, (d, t) => {
+        const q = qt(t)
+        if (flight(t, 0.1, 0.45, FOE.x, FC, 3, 0.7)) gearRing(d, FL.x, FL.y, t)
+        blast(d, FOE.x, FC, t, 0.45, 7, 0.3, ICE, 911, 'frost')
+        if (q >= 0.45 && q < 1.5) {
+            const s = Math.min(1, (q - 0.45) / 0.15, (1.5 - q) / 0.2)
+            const cy = FC - 22
+            const r = 7 * s
+            disc(d, FOE.x, cy, r + 1, C.blue1)
+            disc(d, FOE.x, cy, r, C.frost)
+            disc(d, FOE.x - 1, cy - 1, r - 2, C.white)
+            for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; d.set(R(FOE.x + Math.cos(a) * (r - 1)), R(cy + Math.sin(a) * (r - 1)), i % 3 ? C.cyan : C.blue1) }
+            // the hand, sweeping ever slower
+            const a = -Math.PI / 2 + Math.sqrt(Math.max(0, q - 0.45)) * 4
+            line(d, FOE.x, cy, R(FOE.x + Math.cos(a) * (r - 2)), R(cy + Math.sin(a) * (r - 2)), C.blue0)
+            line(d, FOE.x, cy, FOE.x, R(cy - r * 0.45), C.blue1)
+            d.set(FOE.x, cy, C.blue0)
+            // the air thickening round the foe: slow drifting motes
+            for (let i = 0; i < 8; i++) {
+                const ph = ((q - 0.45) * 0.3 + hash2(i, 912)) % 1
+                d.set(R(FOE.x - 8 + hash2(i, 913) * 16), R(FC + 8 - ph * 20), C.cyan)
+            }
+            if (q > 0.6) chevrons(d, FOE.x + 10, FC - 12, t, false, C.cyan, C.white)
+        }
+    }),
+    // one foe, silenced: a ring of runes collapses onto its head and a struck-through speech mark hangs over it
+    champ('Silence', 'Control', 1.5, (d, t) => {
+        const q = qt(t)
+        if (flight(t, 0.15, 0.42, FOE.x, FC - 6)) hushSeal(d, FL.x, FL.y, t)
+        runeRing(d, FOE.x, FC - 8, t, 0.4, 0.6, 16, 6, C.purple2, C.white, 0.9)
+        blast(d, FOE.x, FC - 8, t, 0.6, 6, 0.3, HEX, 921, 'arcane')
+        if (q >= 0.6 && q < 1.5) {
+            const y = FC - 26 + (Math.floor(q * 4) & 1)
+            // the speech mark: a bone bubble, a red bar through it
+            rect(d, FOE.x - 5, y - 3, 11, 6, C.ink); rect(d, FOE.x - 4, y - 2, 9, 4, C.bone1)
+            tri(d, FOE.x - 3, y + 3, FOE.x, y + 3, FOE.x - 3, y + 6, C.bone1)
+            for (const dx of [-2, 0, 2]) d.set(FOE.x + dx, y, C.stone2)
+            line(d, FOE.x - 6, y + 4, FOE.x + 6, y - 4, C.red2); line(d, FOE.x - 6, y + 5, FOE.x + 6, y - 3, C.red1)
+        }
+    }),
+    // one foe, DEF down: a pale shell of its armour forms round it, cracks, and shatters outward
+    champ('Shatter Armor', 'Control', 1.4, (d, t) => {
+        const q = qt(t)
+        if (flight(t, 0.25, 0.4, FOE.x, FC)) crystalDart(d, FL.x, FL.y, FL.a)
+        const BREAK = 0.75
+        if (q >= 0.4 && q < BREAK) {
+            const s = eo(pr(t, 0.4, 0.55))
+            ring(d, FOE.x, FC - 2, 11 * s, C.steel3)
+            ring(d, FOE.x, FC - 2, 10 * s, C.steel2)
+            // cracks spreading across it
+            const c = pr(t, 0.55, BREAK)
+            for (let k = 0; k < 4; k++) {
+                const a = k * 1.7 + 0.4
+                line(d, FOE.x, FC - 2, R(FOE.x + Math.cos(a) * 10 * c), R(FC - 2 + Math.sin(a) * 10 * c), C.white)
+            }
+        }
+        // the shell bursting into shards
+        if (q >= BREAK && q < BREAK + 0.5) for (let i = 0; i < 12; i++) {
+            const a = i / 12 * Math.PI * 2 + 0.2
+            const age = (q - BREAK) / 0.5
+            const dist = 10 + age * 18
+            const x = FOE.x + Math.cos(a) * dist
+            const y = FC - 2 + Math.sin(a) * dist + age * age * 10
+            tri(d, R(x), R(y), R(x + Math.cos(a + 1.2) * 2), R(y + Math.sin(a + 1.2) * 2), R(x + Math.cos(a) * 3), R(y + Math.sin(a) * 3), age < 0.5 ? C.steel3 : C.steel1)
+        }
+        blast(d, FOE.x, FC, t, BREAK, 9, 0.35, STEEL, 931, 'steel')
+        if (q > BREAK + 0.1) chevrons(d, FOE.x, FC - 18, t, false, C.steel2, C.white)
+    }),
+    // a column, SPD down: spectral chains lash out from the hand through the front foe and the
+    // one behind it, coil round both and draw tight
+    champ('Chain Bind', 'Control', 1.5, (d, t) => {
+        const q = qt(t)
+        const pair = [F[0], F[3]] as const
+        const reach = eo(pr(t, 0.2, 0.5))
+        const tx = HANDC.x + (pair[1].x - HANDC.x) * reach
+        if (q >= 0.2 && q < 1.5) {
+            const fade = q < 1.2 ? 1 : 1 - (q - 1.2) / 0.3
+            const n = R((tx - HANDC.x) / 3)
+            for (let k = 0; k <= n; k++) {
+                if (fade < 0.5 && (k & 1)) continue
+                const x = HANDC.x + (tx - HANDC.x) * k / Math.max(1, n)
+                const y = HANDC.y + (FC - HANDC.y) * Math.min(1, (x - HANDC.x) / (FOE.x - HANDC.x)) + Math.sin(k * 0.7 + q * 8) * (q < 0.5 ? 2 : 0.5)
+                if (k & 1) ring(d, x, y, 1.5, C.purple2); else { d.set(R(x), R(y), C.pink); d.set(R(x) + 1, R(y), C.purple1) }
+            }
+            // the coils round each bound foe
+            pair.forEach((f, i) => {
+                if (tx < f.x) return
+                for (let c = 0; c < 3; c++) {
+                    const y = FC - 6 + c * 5
+                    ellipseRing(d, f.x, y, 7, 2, (c + Math.floor(q * 6)) & 1 ? C.purple2 : C.pink)
+                }
+                if (q > 0.6) chevrons(d, f.x, FC - 18, t, false, C.purple2, C.pink)
+                blast(d, f.x, FC, t, 0.2 + (f.x - HANDC.x) / (pair[1].x - HANDC.x) * 0.3, 7 - i, 0.3, HEX, 940 + i, 'arcane')
+            })
+        }
+    }),
+    // one foe, its debuffs extended: a curse vortex winds round it, and an hourglass of violet light
+    // over it turns over to run again
+    champ('Unraveling Curse', 'Control', 1.6, (d, t) => {
+        const q = qt(t)
+        if (flight(t, 0.12, 0.45, FOE.x, FC, 6)) skullWisp(d, FL.x, FL.y, t)
+        blast(d, FOE.x, FC, t, 0.45, 7, 0.35, HEX, 951, 'shadow')
+        if (q >= 0.45 && q < 1.6) {
+            const fade = q < 1.3 ? 1 : 1 - (q - 1.3) / 0.3
+            // threads of the curse spiralling round the foe
+            for (let th = 0; th < 3; th++) for (let k = 0; k < 20; k++) {
+                const v = k / 20
+                if (v > fade) break
+                const a = q * 5 + th * 2.1 + v * Math.PI * 2.5
+                d.set(R(FOE.x + Math.cos(a) * (10 - v * 4)), R(FOE.g - 2 - v * 26 + Math.sin(a) * 2), Math.sin(a) > 0 ? (k > 16 ? C.pink : C.purple2) : C.purple0)
+            }
+            // the hourglass, turning over once
+            const hx = FOE.x
+            const hy = FC - 26
+            const flip = pr(t, 0.7, 0.95)
+            const top = flip < 0.5 ? -1 : 1
+            if (flip > 0.2 && flip < 0.8) { line(d, hx - 3, hy - 3, hx + 3, hy + 3, C.purple2); line(d, hx - 3, hy + 3, hx + 3, hy - 3, C.purple2) } else {
+                rect(d, hx - 3, hy - 5, 7, 1, C.purple2); rect(d, hx - 3, hy + 5, 7, 1, C.purple2)
+                tri(d, hx - 3, hy - 4, hx + 3, hy - 4, hx, hy, top < 0 ? C.pink : C.purple0)
+                tri(d, hx - 3, hy + 4, hx + 3, hy + 4, hx, hy, top < 0 ? C.purple0 : C.pink)
+                d.set(hx, hy, C.white)
+            }
+        }
+    }),
+    // one foe, stacking slow toward a freeze: frost creeps up it from the ground, crystals of ice
+    // crowding in until a shell of ice closes round it, then breaks back to rime
+    champ('Frostbind', 'Control', 1.6, (d, t) => {
+        const q = qt(t)
+        if (flight(t, 0.22, 0.45, FOE.x, FOE.g - 6)) icicle(d, FL.x, FL.y, FL.a, t)
+        blast(d, FOE.x, FOE.g - 1, t, 0.45, 9, 0.4, ICE, 961, 'frost', true)
+        // ice crystals bursting up round its feet and climbing it
+        const climb = pr(t, 0.45, 0.85)
+        if (q >= 0.45 && q < 1.5) for (let i = 0; i < 7; i++) {
+            const dx = -8 + i * 2.6
+            const h = R((6 + hash2(i, 962) * 16) * climb * (q < 1.2 ? 1 : 1 - (q - 1.2) / 0.3))
+            if (h < 1) continue
+            const x = R(FOE.x + dx)
+            tri(d, x - 2, FOE.g - 1, x + 2, FOE.g - 1, x, FOE.g - 1 - h, C.cyan)
+            tri(d, x - 2, FOE.g - 1, x, FOE.g - 1, x, FOE.g - 1 - h, C.frost)
+            d.set(x, FOE.g - 1 - h, C.white)
+        }
+        // the shell of ice, closing round it, see-through
+        if (q >= 0.8 && q < 1.3) {
+            const s = Math.min(1, (q - 0.8) / 0.1, (1.3 - q) / 0.15)
+            const w = R(9 * s)
+            for (let y = FOE.g - 26; y < FOE.g - 1; y++) for (let x = FOE.x - w; x <= FOE.x + w; x++) {
+                const edge = Math.abs(x - FOE.x) === w || y === FOE.g - 26
+                if (edge) d.set(x, y, C.frost)
+                else if (((x + y) & 3) === 0) d.set(x, y, C.cyan)
+            }
+            line(d, FOE.x - w + 2, FOE.g - 24, FOE.x - w + 2, FOE.g - 10, C.white)
+        }
+        if (q >= 1.3) burst(d, FOE.x, FC, t, 1.3, 16, 60, 'frost', 963, 0.4, 80, 0, Math.PI * 2, 2)
+        if (q > 0.6 && q < 1.6) motes(d, FOE.x, FOE.g - 2, 18, 26, t, 8, 'frost', 964, 14)
+    })
+]
+
+export const CHAMPION_STYLED: readonly VfxDef[] = [...DAMAGE, ...TANK, ...SUPPORT, ...CONTROL]
 export const CHAMPION_STYLED_BY_ID: Readonly<Record<string, VfxDef>> = Object.fromEntries(CHAMPION_STYLED.map(v => [v.id, v]))
 
 /** The live stage's party, as demo.ts fields it: the Hero, and a Champion of each archetype on its mark. */
