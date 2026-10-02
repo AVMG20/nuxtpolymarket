@@ -144,11 +144,10 @@ export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly
     {
         n: 19,
         label: 'Training Grounds actives',
+        // Common through Epic approved on 2026-10-02; the Legendary and Mythic six still in review
         prefixes: [
-            'vfx/skill_quick_strike', 'vfx/skill_steadying_breath', 'vfx/skill_coin_toss', 'vfx/skill_focused_blow', 'vfx/skill_adrenaline_surge',
-            'vfx/skill_prospectors_instinct', 'vfx/skill_piercing_focus', 'vfx/skill_vigor_renewal', 'vfx/skill_gamblers_strike',
-            'vfx/skill_twin_strike', 'vfx/skill_battlefield_surge', 'vfx/skill_treasure_hunters_gambit', 'vfx/skill_executioners_edge',
-            'vfx/skill_phoenix_draught', 'vfx/skill_fortunes_gambit', 'vfx/skill_ragnarok_strike', 'vfx/skill_aegis_of_renewal', 'vfx/skill_kings_ransom'
+            'vfx/skill_executioners_edge', 'vfx/skill_phoenix_draught', 'vfx/skill_fortunes_gambit',
+            'vfx/skill_ragnarok_strike', 'vfx/skill_aegis_of_renewal', 'vfx/skill_kings_ransom'
         ]
     }
 ]
