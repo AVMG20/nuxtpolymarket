@@ -41,8 +41,8 @@ import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, BURROW_GRUB, ORE_BEETLE, FORGE_A
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
-    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons' | 'offense_artifact_icons' | 'defense_artifact_icons' | 'tempo_artifact_icons' | 'fortune_artifact_icons' | 'gear_icons' | 'currency_icons'
-    | 'vfx' | 'feedback' | 'icons' | 'frames' | 'backgrounds' | 'ui' | 'branding'
+    | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons' | 'offense_artifact_icons' | 'defense_artifact_icons' | 'tempo_artifact_icons' | 'fortune_artifact_icons' | 'gear_icons' | 'currency_icons' | 'status_icons'
+    | 'vfx' | 'feedback' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
  * The gallery's groups. `locked` marks art whose design is settled (the user's call, 2026-09-28):
@@ -81,7 +81,8 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'fortune_artifact_icons', label: 'Icons · Fortune Artifacts', locked: true },
     { id: 'gear_icons', label: 'Icons · Gear', locked: true },
     { id: 'currency_icons', label: 'Icons · Currencies', locked: true },
-    { id: 'icons', label: 'Icons' },
+    // the last icon family: with it split out, the old catch-all Icons group was empty and retired (2026-10-02, the user)
+    { id: 'status_icons', label: 'Icons · Status effects', locked: true },
     { id: 'frames', label: 'Frames & badges', locked: true },
     { id: 'backgrounds', label: 'Backgrounds', locked: true },
     // parked until the real screens are built: redrawn against their layouts then (2026-09-29, the user)
@@ -124,17 +125,11 @@ export interface ArtAsset {
  * approved and taken off when Frames & badges locked, and Round 4 when Branding locked (both also
  * 2026-09-28), Round 5 when the last Forge boss locked (2026-09-29), Round 6 when the Champion
  * ability crests locked (2026-10-01), Rounds 7–10 when the offense, defense, tempo and fortune
- * Artifacts locked, Round 11 when the Gear locked and Round 12 when the currencies locked (all
- * 2026-10-02), so the next round is 14;
+ * Artifacts locked, Round 11 when the Gear locked, Round 12 when the currencies locked and Round
+ * 13 when the status effects locked (all 2026-10-02), so the next round is 14;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    {
-        n: 13,
-        label: 'Status effects',
-        prefixes: ['icon/status/stun', 'icon/status/slow', 'icon/status/silence', 'icon/status/armor_shred', 'icon/status/curse', 'icon/status/shield', 'icon/status/immunity', 'icon/status/reflect', 'icon/status/redirect']
-    }
-]
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
@@ -449,7 +444,7 @@ function iconAssets(): ArtAsset[] {
         out.push(still(`icon/currency/${id}`, 'currency_icons', 'Currencies', CURRENCY_LABELS[id]!, SMALL_ICON, SMALL_ICON, dst => glyph(dst, g, 8, 8, true)))
     }
     for (const st of STATUS_ICONS) {
-        out.push(still(`icon/status/${st.id}`, 'icons', 'Status effects', st.label, SMALL_ICON, SMALL_ICON, dst => drawStatusIcon(dst, st, glyph)))
+        out.push(still(`icon/status/${st.id}`, 'status_icons', 'Status effects', st.label, SMALL_ICON, SMALL_ICON, dst => drawStatusIcon(dst, st, glyph)))
     }
     return out
 }
