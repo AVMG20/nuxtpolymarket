@@ -65,6 +65,8 @@ import { RunDirector, stageNumber, type RunFeed } from './run-director'
 import { scriptFight, type Beat, type FightScript } from './fight-script'
 import type { FightEvent } from '../../../shared/utils/hero-quest/fight'
 import { D, ZERO, type Decimal } from '../../../shared/utils/hero-quest/numbers'
+import { attackIntervalFor } from '../../../shared/utils/hero-quest/combat'
+import { MIN_ATTACK_INTERVAL_SECONDS } from '../../../shared/utils/hero-quest/constants'
 
 export const DEMO_W = SW
 export const DEMO_H = SH
@@ -226,7 +228,13 @@ export interface RunParty {
      * Each unit's kit as the fight arms it, keyed by the Hero's class or the Champion's id: each
      * ability's live cooldown, and whether it deals damage. The stage casts on these.
      */
-    kits?: readonly { id: string, skills: readonly { id: string, cooldownSeconds: number, damaging: boolean }[] }[]
+    kits?: readonly {
+        id: string
+        /** Seconds between basic attacks, from the unit's SPD, and the strikes each one lands. */
+        attackSeconds: number
+        strikesPerAttack: number
+        skills: readonly { id: string, cooldownSeconds: number, damaging: boolean }[]
+    }[]
 }
 
 /** One ability on a body's kit: its cooldown, the seconds left on it, and how it looks. */
@@ -242,6 +250,15 @@ interface Cast {
 
 /** The shortest cooldown the stage keeps to, so a kit served at 0 cannot cast every tick. */
 const RUN_MIN_COOLDOWN = 0.5
+/**
+ * How much of the gap between attacks a swing may take, and the most it is sped up to fit. Past
+ * that a body cannot play its swings as fast as it attacks, and one a whole interval late lands
+ * on its own, its strikes without the clip, so the stage attacks as often as the fight does.
+ */
+const RUN_SWING_SHARE = 0.85
+const RUN_MAX_SWING_RATE = 3
+/** The enemies' attack interval: the fight times every foe at `attackIntervalFor(0)`, starting a full interval in. */
+const ENEMY_ATTACK_SECONDS = attackIntervalFor(0)
 
 /**
  * How long past due an ability may wait for its body to be free to cast it. A deep kit comes off
@@ -384,6 +401,13 @@ interface Unit {
     /** The game's stage: this body's kit, each ability on its live cooldown, and the one it is casting. */
     casts: Cast[]
     casting: Cast | null
+    /**
+     * The game's stage: seconds between this body's basic attacks and how long until the next,
+     * or null to swing on the art page's own rhythm; and how fast its swing plays, sped up when
+     * the attacks come faster than the clip lasts.
+     */
+    attack: { interval: number, timer: number } | null
+    rate: number
     /** A boss fight's replay: the logged blow this swing is bringing, landed at its impact. */
     beat: Beat | null
 }
@@ -711,6 +735,14 @@ export class BattleDemo {
                     cine: i === 0 && s.damaging && s.id === signature ? CINEMATIC_BY_ID[s.id] ?? null : null
                 }
             })
+            if (!kit) continue
+            // the first attack lands at once, as in a fight; a new speed keeps how far along the next one is
+            const interval = Math.max(MIN_ATTACK_INTERVAL_SECONDS, kit.attackSeconds)
+            u.attack = { interval, timer: u.attack ? Math.min(u.attack.timer, interval) : 0 }
+            u.shots = Math.max(1, kit.strikesPerAttack)
+            // a swing whose clip outlasts the gap between attacks plays faster, up to RUN_MAX_SWING_RATE
+            const clip = u.frames[U.Attack]!
+            u.rate = Math.min(RUN_MAX_SWING_RATE, Math.max(1, clip.frames.length / clip.fps / (interval * RUN_SWING_SHARE)))
         }
     }
 
@@ -1120,7 +1152,7 @@ export class BattleDemo {
             clips: [null, clips[0] ?? null, clips[1] ?? null],
             impact: [0, clips[0]?.impact ?? 0.45 * attack!.frames.length / ANIM_FPS, clips[1]?.impact ?? 0.45 * (cast ?? attack!).frames.length / ANIM_FPS],
             vfx, accent: C.red3, shot: null, shots: 1, rig: -1, hold: 0, jolt: 0, flash: 0, sit: 0, chest: 14, crown: 40, strikeAt: -1,
-            state: U.Idle, t: 0, wait: 0.5 + Math.random() * 1.2, fired: false, hp: 4, shown: 1, lag: 1, lagHold: 0, phase: Phase.Idle, stack: 0, casts: [], casting: null, beat: null
+            state: U.Idle, t: 0, wait: 0.5 + Math.random() * 1.2, fired: false, hp: 4, shown: 1, lag: 1, lagHold: 0, phase: Phase.Idle, stack: 0, casts: [], casting: null, attack: null, rate: 1, beat: null
         }
     }
 
@@ -1375,6 +1407,7 @@ export class BattleDemo {
                 u.shot = RIG_SHOTS[u.rig]!
                 u.elite = !gate && f.archetype === 'elite'
                 u.hp = 1
+                u.attack = { interval: ENEMY_ATTACK_SECONDS, timer: ENEMY_ATTACK_SECONDS }
             }
             if (u.boss && active) {
                 u.frames = this.bossFrames[which]!
@@ -1449,6 +1482,23 @@ export class BattleDemo {
                 const tgt = c.damaging ? this.target(0) : null
                 if (tgt) this.landRun(u, tgt, false)
             }
+            const a = u.attack
+            if (!a) continue
+            a.timer -= dt
+            // an attack a whole interval late lands on its own: its strikes, without the swing
+            if (!fighting || a.timer > -a.interval) continue
+            a.timer += a.interval
+            const tgt = this.target(0)
+            if (!tgt) continue
+            for (let k = 0; k < u.shots; k++) {
+                if (u.shot) this.loose(u, tgt, k * VOLLEY_GAP / u.rate)
+                else this.landRun(u, tgt, false)
+            }
+        }
+        // the pack swings on the fight's enemy interval; one held up by hits just swings late
+        for (let i = PARTY; i < this.units.length; i++) {
+            const a = this.units[i]!.attack
+            if (a) a.timer = Math.max(-a.interval, a.timer - dt)
         }
         if (this.wipeT > 0) {
             this.wipeT -= dt
@@ -1729,8 +1779,9 @@ export class BattleDemo {
     private struck(tgt: Unit, hold: number): void {
         // mid-escalation the Rampant only flashes: the beat plays out
         if (tgt.state === U.Entry) { tgt.flash = 3; return }
-        // a boss swings through a hit, and plays its special through one too
-        if (tgt.boss && (tgt.state === U.Attack || tgt.state === U.Cast)) {
+        // a boss swings through a hit, and plays its special through one too; in the game everyone
+        // does, since a hit never cancels an attack in the fight
+        if ((tgt.boss || this.run) && (tgt.state === U.Attack || tgt.state === U.Cast)) {
             tgt.flash = 3
             tgt.hold = 1
             tgt.jolt = hold + 4
@@ -1823,10 +1874,12 @@ export class BattleDemo {
         if (!tgt) return
         // a ranged Basic Attack looses its arrows or bolts; the hit lands when they arrive
         if (u.shot && !cast) {
-            for (let k = 0; k < u.shots; k++) this.loose(u, tgt, k * VOLLEY_GAP)
+            for (let k = 0; k < u.shots; k++) this.loose(u, tgt, k * VOLLEY_GAP / u.rate)
             return
         }
-        this.land(u, tgt, cast, true)
+        // in the game a melee swing lands each of its strikes, as the fight does
+        const strikes = this.run && !cast ? u.shots : 1
+        for (let k = 0; k < strikes; k++) this.land(u, tgt, cast, true)
     }
 
     private loose(u: Unit, tgt: Unit, delay: number): void {
@@ -1910,7 +1963,8 @@ export class BattleDemo {
             if (u.jolt > 0) u.jolt--
             if (u.flash > 0) u.flash--
             if (u.hold > 0) { u.hold--; continue }
-            u.t += dt
+            // a swing plays faster when the attacks come faster than its clip lasts
+            u.t += u.state === U.Attack ? dt * u.rate : dt
             const b = u.frames[u.state]!
             const dur = b.frames.length / b.fps
             switch (u.state) {
@@ -1920,7 +1974,9 @@ export class BattleDemo {
                     // the Training Grounds dummy never swings, and nobody swings at it once time is up
                     // in the game an ability fires the moment its cooldown ends, without waiting out the pause between swings
                     const ready = this.run && u.side === 0 ? readyCast(u) : null
-                    if (!this.cine && !this.march && !this.standoff && (u.t >= u.wait || ready) && this.target(u.side) && !(dummy && (u.boss || dummy.over >= 0))) {
+                    // and a basic attack when its attack timer runs out, at the body's own attack speed
+                    const swing = u.attack ? u.attack.timer <= 0 : u.t >= u.wait
+                    if (!this.cine && !this.march && !this.standoff && (swing || ready) && this.target(u.side) && !(dummy && (u.boss || dummy.over >= 0))) {
                         // a boss opens with its special, then reaches for it now and then
                         const special = u.boss && this.bossSpecial !== null && (!this.bossOpened || Math.random() < SPECIAL_CHANCE)
                         const cast = this.run && u.side === 0 ? ready !== null : u.side === 0 ? Math.random() < 0.3 : special
@@ -1929,6 +1985,7 @@ export class BattleDemo {
                         u.fired = false
                         // set on every swing, so a cast cut short by a hit never carries over to the next one
                         u.casting = ready
+                        if (!cast && u.attack) u.attack.timer += u.attack.interval
                         if (ready) {
                             ready.timer += ready.cooldown
                             if (ready.cine) this.startCine(ready.cine, u)
