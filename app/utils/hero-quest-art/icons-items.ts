@@ -453,35 +453,40 @@ function wing(g: Surface, x: number, y: number, d: number, n: number, c: number,
 
 function gearWeapon(tier: number): Glyph {
     return (g, x, y) => {
-        const m = TIER_METAL[tier]!
+        // the epic's purple-black shade reads as holes down a broad blade: it keeps its purple on the hilt
+        const m = tier === 3 ? M.steel : TIER_METAL[tier]!
         const t = TIER_TRIM[tier]!
-        const len = [10, 12, 13, 13, 14, 15][tier]!
-        // the hilt at the lower left, the blade running up and right: parallel edges, run as
-        // diagonal rows a pixel apart, each stopping short of the point so only the last pixels taper
-        const gx = x - 4
-        const gy = y + 4
-        const tx = gx + R(len * 0.71)
-        const ty = gy - R(len * 0.71)
-        const rows = tier >= 3 ? [-1, 0, 1, 2] : [-1, 0, 1]
+        // the hilt tucked in the lower left, a broad blade running up and right: parallel edges,
+        // laid as diagonal rows a pixel apart from the guard, each stopping short of the point so
+        // only its last pixels taper
+        const gx = x - 5
+        const gy = y + 5
+        const L = R([11, 13, 14, 14, 15, 16][tier]! * 0.71)
+        const rows = tier >= 3 ? [-2, -1, 0, 1, 2, 3] : [-2, -1, 0, 1, 2]
+        const mid = (rows[0]! + rows[rows.length - 1]!) / 2
         for (const k of rows) {
-            const back = Math.abs(k - (tier >= 3 ? 0.5 : 0)) + 0.5
-            const c = k === -1 ? m[2] : k === rows[rows.length - 1] ? m[0] : m[1]
-            line(g, gx + k + 1, gy - 1, R(tx + k - back), R(ty + back), c)
+            const s0 = Math.ceil(-k / 2) + 1
+            const sE = L - R(Math.abs(k - mid) * 1.2)
+            const c = k === rows[0] ? m[2] : k === rows[rows.length - 1] ? m[0] : m[1]
+            line(g, gx + k + s0, gy - s0, gx + k + sE, gy - sE, c)
         }
-        px(g, tx, ty, C.white)
-        if (tier === 3 || tier === 4) line(g, gx + 2, gy - 2, tx - 2, ty + 2, m[0])
-        if (tier === 0) { px(g, gx + 5, gy - 5, CLEAR); px(g, gx + 4, gy - 3, C.rust2); px(g, gx + 2, gy - 1, C.rust1) }
-        if (tier === 5) line(g, gx + 2, gy - 2, tx - 2, ty + 2, C.red2)
-        // the guard, across the blade
-        const gw = [3, 3, 4, 4, 5, 5][tier]!
-        line(g, gx - gw, gy - gw, gx + gw, gy + gw, tier < 2 ? C.steel1 : t[1], 3)
-        if (tier === 2 || tier === 3) { px(g, gx - gw - 1, gy - gw + 1, t[1]); px(g, gx + gw - 1, gy + gw + 1, t[1]) }
-        if (tier >= 4) for (const d of [-1, 1]) { const ex = gx + d * gw; const ey = gy + d * gw; tri(g, ex, ey, ex + 3, ey - 1, ex + 1, ey - 3, t[2]); px(g, ex + 2, ey - 2, C.white) }
-        // the grip and pommel
-        line(g, gx - 1, gy + 1, gx - 4, gy + 4, tier === 0 ? C.bone0 : C.brown1, 2)
-        if (tier === 0) { px(g, gx - 2, gy + 3, C.brown1); px(g, gx - 4, gy + 4, C.brown1) }
-        if (tier >= 1) disc(g, gx - 5, gy + 5, 1.5, tier < 2 ? C.steel1 : t[2])
-        gearGem(g, gx, gy, tier)
+        const tipX = gx + R(mid) + L
+        const tipY = gy - L
+        px(g, tipX, tipY, C.white)
+        const fk = R(mid)
+        if (tier === 3 || tier === 4) line(g, gx + fk + 2, gy - 2, gx + fk + L - 3, gy - L + 3, m[0])
+        if (tier === 5) line(g, gx + fk + 2, gy - 2, gx + fk + L - 3, gy - L + 3, C.red2)
+        if (tier === 0) { px(g, gx + 2 + L - 4, gy - L + 4 + 2, CLEAR); px(g, gx + 4, gy - 3, C.rust2); px(g, gx + 1, gy - 2, C.rust1) }
+        // a short guard across the blade
+        const gw = tier >= 3 ? 3 : 2
+        const gc = tier < 2 ? C.steel1 : t[1]
+        line(g, gx - gw + 1, gy - gw - 1, gx + gw + 1, gy + gw - 1, gc, 2)
+        if (tier >= 4) for (const d of [-1, 1]) { const ex = gx + 1 + d * (gw + 1); const ey = gy - 1 + d * (gw + 1); px(g, ex, ey, t[2]); px(g, ex + 1, ey - 1, C.white) }
+        // a short grip and a small pommel
+        line(g, gx, gy, gx - 2, gy + 2, tier === 0 ? C.bone0 : C.brown1, 2)
+        if (tier === 0) px(g, gx - 1, gy + 1, C.brown1)
+        if (tier >= 1) disc(g, gx - 3, gy + 3, 1, tier < 2 ? C.steel1 : t[2])
+        gearGem(g, gx + 1, gy - 1, tier)
         if (tier === 5) radiance(g, x, y, [[-6, -7], [8, 4], [2, -9]])
     }
 }
