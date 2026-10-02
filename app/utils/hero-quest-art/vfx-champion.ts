@@ -928,68 +928,31 @@ const CONTROL: VfxDef[] = [
         const q = qt(t)
         if (flight(t, 0.22, 0.45, FOE.x, FOE.g - 6)) icicle(d, FL.x, FL.y, FL.a, t)
         blast(d, FOE.x, FOE.g - 1, t, 0.45, 9, 0.4, ICE, 961, 'frost', true)
-        // ice crystals bursting up round its feet and climbing it
-        const climb = pr(t, 0.45, 0.85)
-        if (q >= 0.45 && q < 0.9) for (let i = 0; i < 7; i++) {
-            const dx = -8 + i * 2.6
-            const h = R((6 + hash2(i, 962) * 16) * climb * (q < 0.8 ? 1 : 1 - (q - 0.8) / 0.1))
-            if (h < 1) continue
-            const x = R(FOE.x + dx)
-            tri(d, x - 2, FOE.g - 1, x + 2, FOE.g - 1, x, FOE.g - 1 - h, C.cyan)
-            tri(d, x - 2, FOE.g - 1, x, FOE.g - 1, x, FOE.g - 1 - h, C.frost)
-            d.set(x, FOE.g - 1 - h, C.white)
-        }
-        // the freeze, after the Ice Climbers' Blizzard: the foe locked upright inside an angular
-        // crystal of ice — big flat facets in three blues, the foe showing through, crisp white
-        // edges, shards bristling off the side the cold came from, a star glinting on it
-        if (q >= 0.8 && q < 1.42) {
-            const k = eo(pr(t, 0.8, 0.92))
-            const cx = FOE.x
-            const cy = FC - 4
-            const HULL = [[-4, -17], [6, -15], [12, -6], [11, 7], [5, 15], [-6, 14], [-12, 5], [-11, -9]] as const
-            const pts = HULL.map(([x, y]) => [cx + x * k, cy + y * k] as const)
-            const core = [cx - 2 * k, cy - 3 * k] as const
-            // each facet a fan triangle from an off-centre core, lit by how it faces the upper left
-            for (let i = 0; i < pts.length; i++) {
-                const [ax, ay] = pts[i]!
-                const [bx, by] = pts[(i + 1) % pts.length]!
-                const nx = (ax + bx) / 2 - core[0]
-                const ny = (ay + by) / 2 - core[1]
-                const lit = (-nx - ny) / Math.hypot(nx, ny)
-                const c = lit > 0.45 ? C.frost : lit > -0.1 ? C.cyan : lit > -0.6 ? C.blue2 : C.blue1
-                // translucent: a half screen, so the foe reads through the ice
-                const minX = Math.floor(Math.min(ax, bx, core[0]))
-                const maxX = Math.ceil(Math.max(ax, bx, core[0]))
-                const minY = Math.floor(Math.min(ay, by, core[1]))
-                const maxY = Math.ceil(Math.max(ay, by, core[1]))
-                for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
-                    const d1 = (x - bx) * (ay - by) - (ax - bx) * (y - by)
-                    const d2 = (x - core[0]) * (by - core[1]) - (bx - core[0]) * (y - core[1])
-                    const d3 = (x - ax) * (core[1] - ay) - (core[0] - ax) * (y - ay)
-                    const neg = d1 < 0 || d2 < 0 || d3 < 0
-                    const pos = d1 > 0 || d2 > 0 || d3 > 0
-                    if (neg && pos) continue
-                    // solid ice; only the shadowed faces carry a sparse speckle of depth
-                    if (lit < -0.1 && ((x * 3 + y * 5) & 7) === 0) continue
-                    d.set(x, y, c)
-                }
-                // the crisp hull edge
-                line(d, R(ax), R(ay), R(bx), R(by), lit > -0.3 ? C.white : C.blue1)
-            }
-            // seams across the crystal, and two highlight streaks on its lit faces
-            line(d, R(pts[0]![0]), R(pts[0]![1]), R(pts[4]![0]), R(pts[4]![1]), C.frost)
-            line(d, R(pts[7]![0]), R(pts[7]![1]), R(pts[3]![0]), R(pts[3]![1]), C.cyan)
-            if (k > 0.9) { line(d, cx - 8, cy - 6, cx - 4, cy - 13, C.white); line(d, cx - 9, cy, cx - 7, cy - 3, C.white) }
-            // shards bristling off the left, where the cold came from
-            if (k > 0.8) for (const [sx, sy, ex, ey] of [[-11, -9, -17, -13], [-12, -1, -18, -2], [-4, -17, -7, -22]] as const) {
-                tri(d, R(cx + sx), R(cy + sy - 2), R(cx + sx), R(cy + sy + 2), R(cx + ex), R(cy + ey), C.frost)
-                line(d, R(cx + sx), R(cy + sy), R(cx + ex), R(cy + ey), C.white)
-            }
-            // the glint: a four-point star twinkling on the lower right
-            if (k > 0.9) {
-                const r = 2 + (Math.floor(q * 10) & 1)
-                for (let i = -r; i <= r; i++) { d.set(cx + 8 + i, cy + 8, C.white); d.set(cx + 8, cy + 8 + i, C.white) }
-            }
+        // shards of ice bursting up out of the ground round it and growing long, packed together
+        // into the outline of an iceberg over the foe: tallest through the middle, the outer ones
+        // shorter and leaning out; they hold it fast, then shatter
+        const grow = eo(pr(t, 0.45, 0.9))
+        if (q >= 0.45 && q < 1.42) {
+            const SHARDS = [
+                [-13, 10, -3], [-10, 18, -2], [-7, 27, -1], [-3, 33, 0], [1, 38, 0], [5, 31, 1], [9, 22, 2], [12, 13, 3],
+                [-5, 20, -1], [3, 24, 1], [-1, 15, 0], [7, 14, 2]
+            ] as const
+            SHARDS.forEach(([dx, h0, lean], i) => {
+                // each shard bursts up a beat after its neighbour toward the middle
+                const k = Math.min(1, Math.max(0, grow * 1.25 - Math.abs(dx) / 40))
+                const h = R(h0 * k)
+                if (h < 2) return
+                const x = FOE.x + dx
+                const base = FOE.g - 1
+                const tx = x + lean * k
+                const top = base - h
+                tri(d, x - 4, base, x, base, tx, top, i < 8 ? C.frost : C.white)
+                tri(d, x, base, x + 4, base, tx, top, i < 8 ? C.cyan : C.frost)
+                line(d, x, base, R(tx), top, i < 8 ? C.blue2 : C.cyan)
+                d.set(R(tx), top, C.white); d.set(R(tx), top + 1, C.white)
+            })
+            // a cold glint running up the tallest shard once it is up
+            if (grow >= 1) { const gy = R(FOE.g - 2 - ((q - 0.9) * 70) % 36); d.set(FOE.x + 1, gy, C.white); d.set(FOE.x, gy + 1, C.white) }
         }
         // then it breaks: chunks of ice tumbling away
         if (q >= 1.4 && q < 1.7) for (let i = 0; i < 12; i++) {
