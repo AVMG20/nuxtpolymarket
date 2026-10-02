@@ -8,19 +8,18 @@
 
 import { C } from './palette'
 import type { Surface} from './surface';
-import { line, rect, disc, ring, tri, ditherDisc, ditherEllipse, dither } from './surface'
+import { line, rect, disc, tri, ditherDisc, ditherEllipse } from './surface'
 import {
-    VL, pr, inWin, eo, qt, burst, motes, shock, bolt, travel, lob, VP, orbFx, star, impact, arrows, healRise,
-    stunStars, column, bubble, rune, RUNES, runeCircle, rain, chainFx, slash, R
+    VL, pr, inWin, eo, qt, burst, motes, shock, bolt, travel, lob, VP, star, impact, arrows, healRise,
+    column, bubble, runeCircle, rain, slash, R
 } from './vfx-kit'
 import { arrow } from './weapons'
 import { Actor, HP } from './rig'
 import { sample } from './anim'
 import { DISCIPLE_CLIPS, DISCIPLE_LOOK, RAISED_DEAD_CLIPS, RAISED_DEAD_LOOK } from './summons'
-import { abilityId } from '../../../shared/utils/hero-quest/content/champions'
 import { CLASS_NODES } from '../../../shared/utils/hero-quest/content/classes'
 import { CINEMATIC_BY_ID } from './vfx-cinematic'
-import { CHAMPION_STYLED_BY_ID } from './vfx-champion'
+import { CHAMPION_STYLED } from './vfx-champion'
 
 export type VfxSource = 'class' | 'champion' | 'training'
 
@@ -88,257 +87,8 @@ const CLASS_VFX: VfxDef[] = [
 
 // ═══════════════════════════════════════════════════════════════ Champion abilities (28)
 
-function champ(name: string, owner: string, dur: number, draw: VfxDef['draw']): VfxDef {
-    return { id: abilityId(name), name, source: 'champion', owner, dur, draw }
-}
-
-const CHAMPION_VFX: VfxDef[] = [
-    // ── Damage
-    champ('Cleave', 'Damage', 1.0, (d, t) => {
-        slash(d, F[0].x - 14, F[0].y, 26, -1.3, 1.1, pr(t, 0.15, 0.5), C.steel3, C.white, 4)
-        impact(d, F[0].x, F[0].y, t, 0.3, 'steel', 1); impact(d, F[1].x - 6, F[1].y + 2, t, 0.4, 'steel', 2)
-    }),
-    champ('Piercing Bolt', 'Damage', 1.1, (d, t) => {
-        const u = travel(t, 0.1, 0.55)
-        if (u >= 0) { const x = CX + 10 + u * 90; orbFx(d, x, CY - 4, 0, 2, C.white, C.cyan, C.blue2); line(d, x - 14, CY - 4, x - 4, CY - 4, C.blue1) }
-        impact(d, F[0].x, CY - 4, t, 0.35, 'frost', 3); impact(d, F[1].x, CY - 4, t, 0.5, 'frost', 4)
-    }),
-    champ('Rising Flame', 'Damage', 1.3, (d, t) => {
-        const x = F[0].x
-        const u = pr(t, 0.1, 0.4)
-        ditherEllipse(d, x, FLOOR - 1, 10 * u + 1, 2, C.lava1, 10)
-        if (inWin(t, 0.35, 1.1)) {
-            const h = R(eo(pr(t, 0.35, 0.6)) * 40)
-            column(d, x, FLOOR - h, FLOOR, 5, 'fire', t, 10)
-            motes(d, x, FLOOR - h, 12, 16, t, 8, 'ember', 5, 30)
-        }
-    }),
-    champ('Execute Strike', 'Damage', 1.2, (d, t) => {
-        const tg = F[0]
-        if (inWin(t, 0.2, 0.6)) {
-            // a skull sigil flares over the target first
-            const y = tg.y - 26
-            rect(d, tg.x - 3, y, 7, 5, C.bone1); d.set(tg.x - 1, y + 2, C.ink); d.set(tg.x + 1, y + 2, C.ink); rect(d, tg.x - 2, y + 5, 5, 1, C.bone0)
-        }
-        const u = pr(t, 0.5, 0.7)
-        if (u > 0 && u < 1) for (let k = -1; k <= 1; k++) line(d, tg.x + k, tg.y - 30 + u * 20, tg.x + k, tg.y - 30 + u * 40, k === 0 ? C.white : C.red2)
-        impact(d, tg.x, tg.y, t, 0.7, 'blood', 5, true)
-    }),
-    champ('Volley', 'Damage', 1.3, (d, t) => {
-        for (let i = 0; i < 6; i++) {
-            const tg = F[i % 3]!
-            const u = travel(t, 0.1 + i * 0.08, 0.5 + i * 0.08)
-            if (u >= 0) { lob(CX + 8, CY - 10, tg.x + (i & 1) * 3, tg.y, 20, u); arrow(d, VP.x, VP.y, VP.a, C.brown3, C.steel3, C.bone1) }
-            impact(d, tg.x, tg.y, t, 0.5 + i * 0.08, 'steel', 10 + i)
-        }
-    }),
-    champ('Focused Barrage', 'Damage', 1.3, (d, t) => {
-        const tg = F[0]
-        for (let i = 0; i < 5; i++) {
-            const t0 = 0.1 + i * 0.18
-            slash(d, tg.x, tg.y, 10, i & 1 ? 0.8 : -2.3, i & 1 ? 2.8 : -0.4, pr(t, t0, t0 + 0.12) * 1.3, C.orange, C.white, 2)
-            impact(d, tg.x + (i & 1 ? 3 : -3), tg.y - 2 + i, t, t0 + 0.1, 'spark', 20 + i)
-        }
-    }),
-    champ('Rupture', 'Damage', 1.4, (d, t) => {
-        const tg = F[0]
-        const u = pr(t, 0.2, 0.6)
-        for (let i = 0; i < 5; i++) {
-            const a = i * 1.25
-            line(d, tg.x, tg.y, R(tg.x + Math.cos(a) * 8 * u), R(tg.y + Math.sin(a) * 10 * u), C.red2)
-        }
-        if (qt(t) > 0.5) burst(d, tg.x, tg.y, t, 0.5, 12, 30, 'blood', 30, 0.8, 80)
-        impact(d, tg.x, tg.y, t, 0.5, 'blood', 31)
-    }),
-
-    // ── Tank
-    champ('Provoke', 'Tank', 1.2, (d, t) => {
-        for (let k = 0; k < 2; k++) shock(d, CX + 2, CY - 6, t, 0.1 + k * 0.2, 0.6, 3, 40, 'blood')
-        if (inWin(t, 0.4, 1.2)) for (const f of F) {
-            const y = f.y - 26 + (Math.floor(qt(t) * 6) & 1)
-            rect(d, f.x, y, 2, 5, C.red2); rect(d, f.x, y + 6, 2, 2, C.red2)
-        }
-    }),
-    champ('Bulwark Stance', 'Tank', 1.3, (d, t) => {
-        const u = eo(pr(t, 0.1, 0.4))
-        if (u > 0) {
-            const r = R(6 + u * 12)
-            bubble(d, CX, CY - 2, r, C.gold3, C.gold2, 3)
-            for (let i = 0; i < 6; i++) { const a = qt(t) * 3 + i; d.set(R(CX + Math.cos(a) * r), R(CY - 2 + Math.sin(a) * r), C.white) }
-        }
-        motes(d, CX, CY + 18, 20, 30, t, 6, 'holy', 8, 20)
-    }),
-    champ("Guardian's Reflect", 'Tank', 1.3, (d, t) => {
-        // a mirror-flash on the shield, and a bolt bounced back to its sender
-        const sx = CX + 8
-        if (inWin(t, 0.1, 0.5)) { rect(d, sx, CY - 10, 4, 16, C.frost); rect(d, sx + 1, CY - 8, 2, 12, C.white) }
-        const u = travel(t, 0, 0.3)
-        if (u >= 0) orbFx(d, F[0].x - u * (F[0].x - sx), CY - 2, Math.PI, 2, C.white, C.pink, C.purple1)
-        const v = travel(t, 0.35, 0.75)
-        if (v >= 0) orbFx(d, sx + v * (F[0].x - sx), CY - 2, 0, 2, C.white, C.cyan, C.blue2)
-        impact(d, sx, CY - 2, t, 0.3, 'frost', 40); impact(d, F[0].x, CY - 2, t, 0.75, 'frost', 41)
-    }),
-    champ('Rallying Shout', 'Tank', 1.3, (d, t) => {
-        shock(d, CX, CY - 8, t, 0.1, 0.5, 3, 36, 'gold')
-        if (inWin(t, 0.3, 1.3)) for (const a of A) arrows(d, a.x, a.y + HEAD - 6, t, true, C.gold3)
-        motes(d, 30, FLOOR, 50, 30, t, 10, 'gold', 42, 26)
-    }),
-    champ('Iron Skin', 'Tank', 1.3, (d, t) => {
-        const u = pr(t, 0.1, 0.6)
-        const y = R(FLOOR - u * 28)
-        for (let x = CX - 8; x <= CX + 8; x++) if ((x & 1) === 0) { d.set(x, y, C.steel3); d.set(x, y + 1, C.steel2) }
-        if (u > 0) dither(d, CX - 8, y, 17, FLOOR - y, C.steel2, 4)
-        burst(d, CX, CY - 4, t, 0.6, 10, 40, 'steel', 43, 0.4)
-    }),
-    champ('Ground Slam', 'Tank', 1.2, (d, t) => {
-        shock(d, CX + 8, FLOOR - 1, t, 0.2, 0.6, 3, 50, 'dust', true, 3)
-        burst(d, CX + 8, FLOOR - 2, t, 0.2, 18, 60, 'dust', 44, 0.6, 120, -Math.PI / 2, 2.2, 2)
-        for (let i = 0; i < 2; i++) { impact(d, F[i]!.x, FLOOR - 8, t, 0.4 + i * 0.1, 'dust', 45 + i); if (inWin(t, 0.5, 1.2)) stunStars(d, F[i]!.x, F[i]!.y - 18, t) }
-    }),
-    champ("Guardian's Vow", 'Tank', 1.4, (d, t) => {
-        const u = pr(t, 0.1, 0.5)
-        for (const a of A) {
-            if (a.x === CX) continue
-            const x = CX + (a.x - CX) * u
-            line(d, CX, CY - 4, x, a.y - 4, C.gold2)
-            if (u >= 1) { ring(d, a.x, a.y - 4, 8, C.gold3); d.set(a.x, a.y - 13, C.white) }
-        }
-        motes(d, CX, CY + 8, 10, 20, t, 5, 'holy', 46, 20)
-    }),
-
-    // ── Support
-    champ('Mending Light', 'Support', 1.3, (d, t) => {
-        const tg = A[1]
-        if (inWin(t, 0.1, 1.0)) column(d, tg.x, 0, FLOOR, 3, 'holy', t, 8)
-        healRise(d, tg.x, tg.y, t, 50)
-        shock(d, tg.x, FLOOR, t, 0.2, 0.5, 2, 12, 'heal', true, 2)
-    }),
-    champ('Sanctuary', 'Support', 1.6, (d, t) => {
-        const u = eo(pr(t, 0, 0.4))
-        ditherEllipse(d, 30, FLOOR - 1, 30 * u + 1, 5 * u + 1, C.gold1, 8)
-        runeCircle(d, 30, FLOOR - 1, 26 * u, t, C.gold3, 8, 0.2)
-        motes(d, 30, FLOOR, 54, 44, t, 16, 'holy', 51, 24)
-    }),
-    champ('Tide of Renewal', 'Support', 1.5, (d, t) => {
-        const u = pr(t, 0.1, 0.9)
-        if (u > 0 && u < 1) {
-            const x = 60 - u * 60
-            for (let i = 0; i < 14; i++) { const h = R(10 + Math.sin(i * 0.8 + qt(t) * 10) * 3); line(d, x + i, FLOOR - 1, x + i, FLOOR - 1 - h, i < 3 ? C.white : i < 8 ? C.teal3 : C.teal2) }
-            burst(d, x, FLOOR - 12, t, 0.1, 8, 20, 'water', 52, 0.5, 40, -Math.PI / 2, 2)
-        }
-        if (inWin(t, 0.5, 1.5)) for (const a of A) healRise(d, a.x, a.y, t, a.x + 52, C.teal3)
-    }),
-    champ('Empower', 'Support', 1.3, (d, t) => {
-        const tg = A[2]
-        shock(d, tg.x, tg.y, t, 0.1, 0.4, 2, 16, 'fire', false, 2)
-        if (inWin(t, 0.3, 1.3)) { arrows(d, tg.x, tg.y + HEAD - 6, t, true, C.orange, 3); ditherEllipse(d, tg.x, tg.y, 9, 14, C.orange, 3) }
-        motes(d, tg.x, tg.y + 14, 14, 28, t, 8, 'spark', 53, 30)
-    }),
-    champ('Haste Blessing', 'Support', 1.3, (d, t) => {
-        for (const a of A) {
-            for (let i = 0; i < 3; i++) {
-                const u = pr(t, 0.2 + i * 0.1, 0.7 + i * 0.1)
-                if (u > 0 && u < 1) line(d, a.x - 8 - u * 10, a.y - 8 + i * 5, a.x - 2 - u * 10, a.y - 8 + i * 5, i & 1 ? C.cyan : C.frost)
-            }
-            shock(d, a.x, FLOOR, t, 0.1, 0.4, 2, 10, 'frost', true)
-        }
-    }),
-    champ('Second Wind', 'Support', 1.6, (d, t) => {
-        const tg = A[0]
-        const u = pr(t, 0.1, 0.9)
-        column(d, tg.x, FLOOR - u * 60, FLOOR, 3, 'holy', t, 10)
-        // a feather of light rising and opening
-        const y = FLOOR - u * 50
-        for (let i = 0; i < 6; i++) { line(d, tg.x, y, tg.x - 6 - i, y - 6 + i * 2, C.gold3); line(d, tg.x, y, tg.x + 6 + i, y - 6 + i * 2, C.gold3) }
-        d.set(tg.x, R(y), C.white)
-        if (inWin(t, 0.9, 1.6)) healRise(d, tg.x, tg.y, t, 54, C.gold3)
-    }),
-    champ('Purify', 'Support', 1.3, (d, t) => {
-        const tg = A[1]
-        // dark motes driven off, bright sparkle left behind
-        burst(d, tg.x, tg.y, t, 0.1, 14, 40, 'shadow', 55, 0.6)
-        if (inWin(t, 0.3, 1.2)) for (let i = 0; i < 5; i++) { const a = qt(t) * 4 + i * 1.25; star(d, tg.x + Math.cos(a) * 9, tg.y + Math.sin(a) * 12, 2, C.frost) }
-        shock(d, tg.x, tg.y, t, 0.1, 0.5, 3, 18, 'holy')
-    }),
-
-    // ── Control
-    champ('Weaken', 'Control', 1.3, (d, t) => {
-        const tg = F[0]
-        const u = travel(t, 0.1, 0.4)
-        if (u >= 0) orbFx(d, CX + 10 + u * (tg.x - CX - 10), CY - 6, 0, 2, C.pink, C.purple2, C.purple1)
-        if (inWin(t, 0.4, 1.3)) { arrows(d, tg.x, tg.y + HEAD - 6, t, false, C.purple2, 3); motes(d, tg.x, tg.y + 12, 14, 24, t, 8, 'shadow', 60, 18) }
-    }),
-    champ('Slow', 'Control', 1.4, (d, t) => {
-        const tg = F[0]
-        if (inWin(t, 0.2, 1.4)) {
-            // a clock face ticking backwards over the target
-            ring(d, tg.x, tg.y - 24, 5, C.cyan)
-            const a = -qt(t) * 2
-            line(d, tg.x, tg.y - 24, R(tg.x + Math.cos(a) * 4), R(tg.y - 24 + Math.sin(a) * 4), C.white)
-            line(d, tg.x, tg.y - 24, tg.x, tg.y - 27, C.frost)
-            for (let r = 0; r < 2; r++) shock(d, tg.x, tg.y, t, 0.2 + r * 0.4, 0.8, 16, 4, 'frost')
-        }
-    }),
-    champ('Silence', 'Control', 1.3, (d, t) => {
-        const tg = F[1]
-        if (inWin(t, 0.2, 1.3)) {
-            const y = tg.y - 26
-            ring(d, tg.x, y, 5, C.purple2)
-            line(d, tg.x - 3, y - 3, tg.x + 3, y + 3, C.pink)
-            rect(d, tg.x - 2, y - 1, 3, 3, C.bone1) // a mouth, struck through
-            chainFx(d, tg.x - 8, tg.y - 6, tg.x + 8, tg.y - 6, C.purple1, C.pink, 2)
-        }
-        shock(d, tg.x, tg.y - 6, t, 0.2, 0.4, 12, 3, 'arcane')
-    }),
-    champ('Shatter Armor', 'Control', 1.3, (d, t) => {
-        const tg = F[0]
-        impact(d, tg.x, tg.y, t, 0.2, 'steel', 61, true)
-        const u = pr(t, 0.2, 1.0)
-        for (let i = 0; i < 7; i++) {
-            if (u <= 0) break
-            const a = i * 0.9 - 0.4
-            const x = tg.x + Math.cos(a) * u * 22
-            const y = tg.y + Math.sin(a) * u * 16 + u * u * 20
-            tri(d, x, y, x + 3, y + 1, x + 1, y + 3, i & 1 ? C.steel2 : C.steel3)
-        }
-        if (inWin(t, 0.5, 1.3)) arrows(d, tg.x, tg.y + HEAD - 6, t, false, C.steel2)
-    }),
-    champ('Chain Bind', 'Control', 1.4, (d, t) => {
-        const tg = F[0]
-        const u = eo(pr(t, 0.1, 0.5))
-        for (let k = 0; k < 3; k++) {
-            const bx = tg.x - 12 + k * 12
-            const ex = bx + (tg.x - bx) * u
-            const ey = FLOOR - (FLOOR - tg.y + 4 - k * 4) * u
-            chainFx(d, bx, FLOOR, ex, ey, C.steel2, C.steel3, -3)
-        }
-        if (u >= 1) { chainFx(d, tg.x - 7, tg.y - 2, tg.x + 7, tg.y - 2, C.steel2, C.steel3); chainFx(d, tg.x - 7, tg.y + 6, tg.x + 7, tg.y + 6, C.steel2, C.steel3) }
-    }),
-    champ('Unraveling Curse', 'Control', 1.5, (d, t) => {
-        const tg = F[1]
-        if (inWin(t, 0.1, 1.5)) rune(d, tg.x, tg.y - 26, RUNES[3]!, C.pink)
-        const u = pr(t, 0.3, 1.3)
-        for (let i = 0; i < 6; i++) {
-            const a = -Math.PI / 2 + (i - 2.5) * 0.4
-            const len = 6 + u * 20
-            for (let k = 0; k < len; k++) d.set(R(tg.x + Math.cos(a) * k + Math.sin(k * 0.6 + i) * 1), R(tg.y - 4 + Math.sin(a) * k), k > len - 3 ? C.white : i & 1 ? C.haze : C.pink)
-        }
-        if (inWin(t, 0.5, 1.5)) arrows(d, tg.x, tg.y + HEAD, t, false, C.pink)
-    }),
-    champ('Frostbind', 'Control', 1.5, (d, t) => {
-        const tg = F[0]
-        const u = pr(t, 0.2, 1.0)
-        const n = R(u * 8)
-        for (let i = 0; i < n; i++) {
-            const x = tg.x - 9 + (i % 4) * 6
-            const y = FLOOR - 1 - (i >> 2) * 12
-            tri(d, x - 3, y, x + 3, y, x, y - 12, i & 1 ? C.cyan : C.frost)
-            line(d, x, y - 11, x - 1, y - 3, C.white)
-        }
-        motes(d, tg.x, FLOOR, 20, 30, t, 8, 'frost', 62, 16)
-        if (u >= 1) dither(d, tg.x - 11, tg.y - 16, 22, FLOOR - tg.y + 16, C.frost, 5)
-    })
-]
+// All 28 are drawn in vfx-champion.ts (sixth pass, Rounds 15–18); the round-1 effects were deleted
+// once every archetype locked (2026-10-02).
 
 // ═══════════════════════════════════════════════════════════════ Training Grounds Actives (18)
 
@@ -517,10 +267,7 @@ const TRAINING_VFX: VfxDef[] = [
 const CLASSIC_BY_ID: Readonly<Record<string, VfxDef>> = Object.fromEntries(CLASS_VFX.map(v => [v.id, v]))
 const CLASS_VFX_LIVE: VfxDef[] = CLASS_NODES.map(n => CINEMATIC_BY_ID[n.skill.id] ?? CLASSIC_BY_ID[n.skill.id]!)
 
-// the restyled Champion abilities replace their round-1 entries by ID, in place
-const CHAMPION_VFX_LIVE = CHAMPION_VFX.map(v => CHAMPION_STYLED_BY_ID[v.id] ?? v)
-
-export const VFX: readonly VfxDef[] = [...CLASS_VFX_LIVE, ...CHAMPION_VFX_LIVE, ...TRAINING_VFX]
+export const VFX: readonly VfxDef[] = [...CLASS_VFX_LIVE, ...CHAMPION_STYLED, ...TRAINING_VFX]
 export const VFX_BY_ID: Readonly<Record<string, VfxDef>> = Object.fromEntries(VFX.map(v => [v.id, v]))
 
 // ── Multi-strike (asset-list §2.2): the Archer-path single strike, recoloured and repeated ──
