@@ -939,29 +939,44 @@ const CONTROL: VfxDef[] = [
             tri(d, x - 2, FOE.g - 1, x, FOE.g - 1, x, FOE.g - 1 - h, C.frost)
             d.set(x, FOE.g - 1 - h, C.white)
         }
-        // the iceberg: a chunky faceted block of ice heaving up round the foe, a few spires on top
+        // the iceberg, Ice Climber style: three stepped tiers of ice bricks heaving up round the foe
+        // one after another, each with a snow cap on its flat top and drips hanging off its edges
         if (q >= 0.8 && q < 1.42) {
-            const k = eo(pr(t, 0.8, 0.95))
             const gx = FOE.x
-            const gy = FOE.g - 1
-            const P = (pts: readonly number[]) => pts.map((v, i) => i & 1 ? R(v * k) : v)
-            // the body, then its facets: frost on the lit upper left, deep blue on the shadowed right
-            poly(d, P([-13, 0, -14, -9, -10, -19, -3, -25, 5, -23, 11, -15, 14, -6, 13, 0]), gx, gy, C.cyan)
-            poly(d, P([-13, 0, -14, -9, -10, -19, -3, -25, -2, -12, -6, 0]), gx, gy, C.frost)
-            poly(d, P([5, -23, 11, -15, 14, -6, 13, 0, 4, 0, 6, -12]), gx, gy, C.blue2)
-            poly(d, P([-6, 0, -2, -12, 6, -12, 4, 0]), gx, gy, C.cyan)
-            // spires
-            for (const [dx, h, w] of [[-8, 30, 6], [1, 36, 7], [8, 29, 5]] as const) {
-                const top = gy - R(h * k)
-                tri(d, gx + dx - w / 2, gy - R(18 * k), gx + dx, gy - R(18 * k), gx + dx, top, C.frost)
-                tri(d, gx + dx, gy - R(18 * k), gx + dx + w / 2, gy - R(18 * k), gx + dx, top, C.cyan)
-                d.set(gx + dx, top, C.white)
-            }
-            // white along the top ridges, and a cold glint running across
-            line(d, gx - 14, gy - R(9 * k), gx - 10, gy - R(19 * k), C.white)
-            line(d, gx - 10, gy - R(19 * k), gx - 3, gy - R(25 * k), C.white)
-            const gl = R(gx - 12 + ((q - 0.8) * 60) % 24)
-            if (k > 0.9) { d.set(gl, gy - 10, C.white); d.set(gl + 1, gy - 11, C.white) }
+            let base = FOE.g - 1
+            const TIERS = [{ w: 30, h: 11, at: 0.8 }, { w: 22, h: 9, at: 0.86 }, { w: 13, h: 8, at: 0.92 }] as const
+            TIERS.forEach((tr, ti) => {
+                const k = eo(pr(t, tr.at, tr.at + 0.08))
+                const h = R(tr.h * k)
+                if (h < 1) return
+                const x0 = R(gx - tr.w / 2)
+                const top = base - h + 1
+                // the face: light cyan, a frosted lit band on the left, a blue shadow down the right
+                rect(d, x0, top, tr.w, h, C.cyan)
+                rect(d, x0, top, 3, h, C.frost)
+                rect(d, x0 + tr.w - 4, top, 4, h, C.blue2)
+                // ice bricks: mortar lines every 4 rows, the joints staggered course to course
+                for (let y = base - 3, row = 0; y > top + 1; y -= 4, row++) {
+                    line(d, x0 + 1, y, x0 + tr.w - 2, y, C.blue2)
+                    for (let x = x0 + 3 + (row & 1) * 4; x < x0 + tr.w - 3; x += 8) line(d, x, y + 1, x, Math.min(base, y + 3), C.blue2)
+                }
+                // the snow cap: a white slab over the top, its ends rounded, drips and icicles hanging off it
+                if (k > 0.6) {
+                    rect(d, x0 - 1, top - 2, tr.w + 2, 2, C.white)
+                    rect(d, x0, top - 3, tr.w, 1, C.white)
+                    for (let x = x0 + 1; x < x0 + tr.w - 1; x += 3) {
+                        const drip = R(hash2(x, ti + 970) * 3)
+                        for (let y = 0; y < drip; y++) d.set(x, top + y, y === drip - 1 ? C.frost : C.white)
+                    }
+                    for (const ex of [x0, x0 + tr.w - 1]) { d.set(ex, top, C.frost); d.set(ex, top + 1, C.frost) }
+                }
+                base = top - 2
+            })
+            // a little peak of snow on the summit, and a glint running over the bricks
+            const peakK = pr(t, 0.98, 1.02)
+            if (peakK > 0) tri(d, gx - 4, base + 1, gx + 4, base + 1, gx, base - R(4 * peakK), C.white)
+            const gl = R(gx - 14 + ((q - 0.8) * 60) % 28)
+            d.set(gl, FOE.g - 6, C.white); d.set(gl + 1, FOE.g - 7, C.white)
         }
         // then it breaks: chunks of ice tumbling away
         if (q >= 1.4 && q < 1.7) for (let i = 0; i < 12; i++) {
