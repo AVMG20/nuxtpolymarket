@@ -473,7 +473,8 @@ const SUPPORT: VfxDef[] = [
     champ('Tide of Renewal', 'Support', 1.7, (d, t) => {
         const q = qt(t)
         staffCharge(d, t, 0.05, 0.3, HEAL, 720)
-        const WAVE = { from: 0.3, to: 1.2, x0: -30, x1: 112, h: 58, back: 52, face: 16 }
+        // its crest reaches halfway up the far rank's Champions (the user's call)
+        const WAVE = { from: 0.3, to: 1.2, x0: -30, x1: 112, h: 44, back: 42, face: 13 }
         const u = pr(t, WAVE.from, WAVE.to)
         const cx = WAVE.x0 + (WAVE.x1 - WAVE.x0) * u
         if (u > 0 && u < 1) {
