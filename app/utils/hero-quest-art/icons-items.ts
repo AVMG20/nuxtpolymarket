@@ -707,7 +707,7 @@ function key(g: Surface, x: number, y: number, m: Mat, bow: KeyBow): void {
     rect(g, x + 2, y + 5, 2, 2, m[1]); rect(g, x + 4, y + 3, 2, 2, m[1])
     // the shield is laid over the shaft, inked along the edge that crosses it so it reads in front rather than merged with it
     if (bow === 'shield') {
-        line(g, bx + 4, by, bx + 1, by + 3, C.ink)
+        line(g, bx + 3, by + 1, bx + 1, by + 3, C.ink)
         poly(g, [-3, -3, 3, -3, 3, 0, 0, 3, -3, 0], bx, by, m[1]); rect(g, bx, by - 2, 1, 4, m[2])
     }
     else if (bow === 'target') { disc(g, bx, by, 3.5, m[1]); ring(g, bx, by, 2, C.white); px(g, bx, by, m[0]) }
