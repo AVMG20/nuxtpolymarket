@@ -23,8 +23,7 @@ import { BOSSES_B } from './bosses-b'
 import { VFX, MULTI_STRIKE, drawMultiStrike, drawVfxStage, type VfxDef } from './vfx'
 import { VL } from './vfx-kit'
 import { CINEMATIC_BY_ID, cinematicStage } from './vfx-cinematic'
-import { CHAMPION_STYLED_BY_ID, championStage } from './vfx-champion'
-import { TRAINING_STYLED_BY_ID } from './vfx-training'
+import { championStage } from './vfx-champion'
 import { ICON, SMALL_ICON, glyph, squareFrame, circleFrame, crestFrame, itemTile } from './icon-kit'
 import { CLASS_SKILL_ICONS, CHAMPION_ABILITY_ICONS, TRAINING_SKILL_ICONS } from './icons-abilities'
 import { ARTIFACT_ICONS, GEAR_ICONS, CURRENCY_ICONS, CURRENCY_LABELS } from './icons-items'
@@ -44,7 +43,7 @@ import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
     | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons' | 'offense_artifact_icons' | 'defense_artifact_icons' | 'tempo_artifact_icons' | 'fortune_artifact_icons' | 'gear_icons' | 'currency_icons' | 'status_icons'
-    | 'hero_skill_vfx' | 'damage_ability_vfx' | 'tank_ability_vfx' | 'support_ability_vfx' | 'control_ability_vfx' | 'vfx' | 'feedback' | 'frames' | 'backgrounds' | 'ui' | 'branding'
+    | 'hero_skill_vfx' | 'damage_ability_vfx' | 'tank_ability_vfx' | 'support_ability_vfx' | 'control_ability_vfx' | 'training_active_vfx' | 'vfx' | 'feedback' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
  * The gallery's groups. `locked` marks art whose design is settled (the user's call, 2026-09-28):
@@ -76,6 +75,7 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'tank_ability_vfx', label: 'Ability VFX · Tank Champions', locked: true },
     { id: 'support_ability_vfx', label: 'Ability VFX · Support Champions', locked: true },
     { id: 'control_ability_vfx', label: 'Ability VFX · Control Champions', locked: true },
+    { id: 'training_active_vfx', label: 'Ability VFX · Training Grounds actives', locked: true },
     { id: 'vfx', label: 'Ability VFX' },
     // the damage numbers, the party frames, the cooldown radial and the enrage timer (2026-09-29, the user)
     { id: 'feedback', label: 'Combat feedback', locked: true },
@@ -136,18 +136,11 @@ export interface ArtAsset {
  * ability crests locked (2026-10-01), Rounds 7–10 when the offense, defense, tempo and fortune
  * Artifacts locked, Round 11 when the Gear locked, Round 12 when the currencies locked and Round
  * 13 when the status effects locked, Round 14 when the Hero skill VFX locked, and Rounds 15–18
- * when the Damage, Tank, Support and Control Champion abilities locked (all 2026-10-02), so the next
- * round is 20;
+ * when the Damage, Tank, Support and Control Champion abilities locked, and Round 19 when the
+ * Training Grounds actives locked (all 2026-10-02), so the next round is 20;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    {
-        n: 19,
-        label: 'Training Grounds actives',
-        // the rest approved on 2026-10-02; these four reworked on the user's notes
-        prefixes: ['vfx/skill_executioners_edge', 'vfx/skill_phoenix_draught', 'vfx/skill_ragnarok_strike', 'vfx/skill_aegis_of_renewal']
-    }
-]
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
@@ -384,7 +377,7 @@ const LOCKED_ARCHETYPE_VFX: Readonly<Record<string, ArtGroup>> = { Damage: 'dama
 function vfxGroup(v: VfxDef): ArtGroup {
     if (v.source === 'class') return 'hero_skill_vfx'
     if (v.source === 'champion') return LOCKED_ARCHETYPE_VFX[v.owner] ?? 'vfx'
-    return 'vfx'
+    return 'training_active_vfx'
 }
 
 function vfxAssets(): ArtAsset[] {
@@ -393,7 +386,7 @@ function vfxAssets(): ArtAsset[] {
         id: `vfx/${v.id}`, group: vfxGroup(v), section: SECTION[v.source], label: `${v.name} — ${v.owner}`,
         w: VL.W, h: VL.H, frames: Math.round(v.dur * ANIM_FPS), fps: ANIM_FPS, loop: false,
         render: (dst: Surface, f: number) => v.draw(dst, f / ANIM_FPS),
-        underlay: CINEMATIC_BY_ID[v.id] ? cinematicStage(v.id) : CHAMPION_STYLED_BY_ID[v.id] || TRAINING_STYLED_BY_ID[v.id] ? championStage : drawVfxStage
+        underlay: CINEMATIC_BY_ID[v.id] ? cinematicStage(v.id) : v.source === 'class' ? drawVfxStage : championStage
     }))
     for (const m of MULTI_STRIKE) {
         out.push({
