@@ -692,23 +692,28 @@ function seal(g: Surface, x: number, y: number, m: Mat, mark: (g: Surface, x: nu
 function essence(g: Surface, x: number, y: number, m: Mat): void {
     // a stoppered vial, the system's essence glowing in its round belly
     rect(g, x - 1, y - 7, 3, 2, C.brown2)
-    rect(g, x - 1, y - 5, 3, 3, C.frost)
-    disc(g, x, y + 2, 5, C.frost)
-    disc(g, x, y + 3, 4, m[1])
-    rect(g, x - 4, y, 9, 1, m[2])
-    px(g, x - 2, y + 1, C.white); px(g, x + 2, y + 4, m[0])
+    rect(g, x - 1, y - 5, 3, 5, C.frost)
+    disc(g, x, y + 3, 4, C.frost)
+    disc(g, x, y + 4, 3, m[1])
+    rect(g, x - 3, y + 2, 7, 1, m[2])
+    px(g, x - 2, y + 3, C.white); px(g, x + 1, y + 5, m[0])
 }
 type KeyBow = 'shield' | 'target' | 'diamond' | 'flame' | 'star'
 function key(g: Surface, x: number, y: number, m: Mat, bow: KeyBow): void {
     // a shaft running down and right from a bow cut to the raid, two teeth on its bit
-    line(g, x - 1, y - 1, x + 5, y + 5, m[1], 2)
-    rect(g, x + 2, y + 5, 2, 2, m[1]); rect(g, x + 4, y + 3, 2, 2, m[1])
     const bx = x - 3
     const by = y - 3
-    if (bow === 'shield') { poly(g, [-3, -3, 3, -3, 3, 0, 0, 3, -3, 0], bx, by, m[1]); rect(g, bx, by - 2, 1, 4, m[2]) }
+    line(g, x - 1, y - 1, x + 5, y + 5, m[1], 2)
+    rect(g, x + 2, y + 5, 2, 2, m[1]); rect(g, x + 4, y + 3, 2, 2, m[1])
+    // the shield stands up and left of the shaft with its point on it, so the shaft leaves from the point, not its side
+    if (bow === 'shield') { poly(g, [-3, -3, 3, -3, 3, 0, 0, 3, -3, 0], bx - 1, by - 1, m[1]); rect(g, bx - 1, by - 3, 1, 4, m[2]) }
     else if (bow === 'target') { disc(g, bx, by, 3.5, m[1]); ring(g, bx, by, 2, C.white); px(g, bx, by, m[0]) }
     else if (bow === 'diamond') { poly(g, [0, -4, 4, 0, 0, 4, -4, 0], bx, by, m[1]); poly(g, [0, -4, -4, 0, 0, 0], bx, by, m[2]) }
-    else if (bow === 'flame') { P.flame(g, bx, by + 1, 5, m[0], m[1], m[2]) }
+    else if (bow === 'flame') {
+        // a small teardrop flame, its tip flicking right
+        for (const [r, x0, w] of [[-4, 1, 1], [-3, 0, 2], [-2, -1, 3], [-1, -2, 4], [0, -2, 5], [1, -2, 5], [2, -1, 3]] as const) rect(g, bx + x0, by + r, w, 1, m[1])
+        rect(g, bx - 1, by, 3, 2, m[2]); px(g, bx, by - 1, m[2])
+    }
     else { poly(g, [0, -4, 1, -1, 4, 0, 1, 1, 0, 4, -1, 1, -4, 0, -1, -1], bx, by, m[1]); px(g, bx, by, C.white) }
 }
 
@@ -720,27 +725,36 @@ const TRAIT_M: Mat = [C.purple0, C.purple2, C.pink]
 
 export const CURRENCY_ICONS: Readonly<Record<string, Glyph>> = {
     gold: (g, x, y) => {
-        // two gold coins, the second peeking out behind the first
-        disc(g, x - 2, y - 2, 4.5, C.gold1); disc(g, x - 2, y - 2, 3.5, C.gold2); px(g, x - 4, y - 4, C.gold3)
-        disc(g, x + 2, y + 2, 5, C.gold0)
-        disc(g, x + 2, y + 2, 4.5, C.gold1); disc(g, x + 2, y + 2, 3.5, C.gold2)
-        rect(g, x + 2, y - 1, 1, 6, C.gold1); px(g, x, y, C.white); px(g, x - 1, y + 1, C.gold3)
+        // two thick coins seen from a little above: one lying at the lower left, the other stacked
+        // on it at the upper right, its rim edge setting it off from the face beneath
+        for (const [cx, cy] of [[-2, 2], [2, -2]] as const) {
+            ellipse(g, x + cx, y + cy + 2, 5, 3, C.gold0)
+            ellipse(g, x + cx, y + cy, 5, 3, C.gold1)
+            ellipse(g, x + cx, y + cy, 3.5, 2, C.gold2)
+            px(g, x + cx - 2, y + cy - 1, C.gold3)
+        }
+        px(g, x + 1, y - 3, C.white)
     },
     gems: (g, x, y) => {
-        // a brilliant: a flat table, a crown of facets, the pavilion run down to a point
-        poly(g, [-6, -2, -3, -5, 3, -5, 6, -2, 0, 6], x, y, C.cyan)
-        poly(g, [-6, -2, 6, -2, 0, 6], x, y, C.blue1)
-        poly(g, [-6, -2, 0, -2, 0, 6], x, y, C.blue2)
+        // a brilliant: a flat table, a crown of three facets, the pavilion cut in four down to a point
+        poly(g, [-6, -2, -3, -5, 3, -5, 6, -2], x, y, C.cyan)
+        poly(g, [-6, -2, -3, -5, -2, -2], x, y, C.frost)
+        poly(g, [6, -2, 3, -5, 2, -2], x, y, C.blue2)
         rect(g, x - 2, y - 5, 5, 3, C.frost)
-        line(g, x - 3, y - 5, x - 4, y - 2, C.blue2); line(g, x + 3, y - 5, x + 4, y - 2, C.blue2)
         px(g, x - 1, y - 4, C.white)
+        poly(g, [-6, -1, -2, -1, 0, 6], x, y, C.cyan)
+        poly(g, [-2, -1, 0, -1, 0, 6], x, y, C.blue2)
+        poly(g, [0, -1, 2, -1, 0, 6], x, y, C.blue1)
+        poly(g, [2, -1, 6, -1, 0, 6], x, y, C.blue0)
+        rect(g, x - 6, y - 2, 13, 1, C.blue0)
     },
     void_shards: (g, x, y) => {
-        // a long sliver of the Void, broken off square at its foot, a black seam down its heart
-        poly(g, [0, -7, 4, -2, 3, 6, -3, 6, -4, -1], x, y, C.purple1)
-        poly(g, [0, -7, -4, -1, -3, 6, -1, 6, -1, -2], x, y, C.purple2)
-        line(g, x + 1, y - 4, x + 1, y + 5, C.void)
-        px(g, x - 2, y - 2, C.pink); px(g, x, y - 6, C.white); px(g, x + 6, y - 5, C.pink); px(g, x - 6, y + 2, C.purple2)
+        // a sliver of the Void lying aslant, a sharp point at the top right, a jagged break at the bottom left, a chip flaking off it
+        poly(g, [6, -7, 3, 1, -1, 6, -3, 4, -6, 5, -5, 2, -3, -1], x, y, C.purple1)
+        poly(g, [6, -7, -3, -1, -5, 2, -2, 1], x, y, C.purple2)
+        line(g, x + 4, y - 5, x - 2, y + 3, C.void)
+        px(g, x + 5, y - 6, C.white); px(g, x - 1, y - 1, C.pink)
+        poly(g, [5, 2, 7, 3, 5, 5], x, y, C.purple2)
     },
     seal_skill: (g, x, y) => seal(g, x, y, SKILL_M, MARKS.skill!),
     seal_champion: (g, x, y) => seal(g, x, y, CHAMP_M, MARKS.champion!),
@@ -769,7 +783,8 @@ export const CURRENCY_ICONS: Readonly<Record<string, Glyph>> = {
         poly(g, [1, -7, 5, -7, 2, -1, -1, -1], x, y, C.blue1)
         disc(g, x, y + 3, 4.5, C.gold1)
         disc(g, x, y + 3, 3.5, C.gold2)
-        poly(g, [0, -2, 1, 0, 2, 0, 1, 1, 1, 2, 0, 1, -1, 2, -1, 1, -2, 0, -1, 0], x, y + 3, C.gold3)
+        // a five-point star struck dark into the face, so it stands off the gold
+        for (const [r, x0, w] of [[-2, 0, 1], [-1, 0, 1], [0, -2, 5], [1, -1, 3], [2, -1, 1], [2, 1, 1]] as const) rect(g, x + x0, y + 3 + r, w, 1, C.gold0)
         px(g, x - 2, y + 1, C.white)
     }
 }
