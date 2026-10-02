@@ -188,7 +188,7 @@ Not design docs — they describe the *state* of the project rather than the gam
 | Arena resolution | `tech-architecture.md` | §4d |
 | API route list | `tech-architecture.md` | §5 |
 | Tests + balance script | `tech-architecture.md` | §6 |
-| Client pages + Pixi scene; as-built battle projection | `tech-architecture.md` | §7 |
+| Client pages + battle stage (Canvas 2D); as-built battle projection | `tech-architecture.md` | §7 |
 | Stat attribution (`explain.ts`, `--report=stats`) | `tech-architecture.md` §2, `open-items.md` #26 | |
 | Sim and balance tooling | `sim-tool.md` | |
 | Dev playtest harness | `open-items.md` | #19 |

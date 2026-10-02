@@ -8,7 +8,7 @@ attention; this one holds the record.
 scripts cite them (`#22`, `#23.3`, `#18.6`), so renumbering would silently repoint a reference.
 Numbers missing here are items still open — they stayed in `open-items.md` under the same number.
 Four entries (#22, #23, #25, #29) appear in **both**: the full record is here, and the part still
-needing attention stayed there. Numbering runs to **#33**; open-items.md says where the next new item starts.
+needing attention stayed there. Numbering runs to **#34**; open-items.md says where the next new item starts.
 
 **This is not on the per-task reading list** (`CLAUDE.md` §1). Read an entry when you need the
 reasoning behind something already built; do not load it to find out what to do next.
@@ -483,6 +483,40 @@ Low-end devices were not measured.
 
 **History is not cleaned.** Untracking stops new commits carrying the PNGs; the ones already on
 `hero-quest-art` stay in its history unless the branch is squashed before it merges.
+
+### 34. The battle stage — **idle stage landed 2026-10-02; boss replay next**
+
+**Canvas 2D, not Pixi** (the user's call, against `tech-architecture.md` §7, which was updated).
+The art composes indexed frames in software and `canvas.ts` blits them at an integer scale; Pixi
+would only have wrapped those frames in textures and added a second compositing path beside the
+art page's.
+
+**One engine, two drivers.** `BattleCanvas.vue` runs the art page's `BattleDemo` in run mode
+rather than a fork of it. The art page's showcase is untouched: 300 frame hashes across five
+waves, `Math.random` seeded, were identical before and after.
+
+**The run decides, the stage plays.** `run-director.ts` drops the front body when `killsFloat`
+crosses its kill, by the next hit to land if one comes within 0.2 s, else outright. Its numbers
+are real (the user's call): the per-enemy HP split over the hits landed, so a body's numbers sum
+to its HP. Idle farming averages crit (`combat.ts`), so a crit on the stage is a presentation roll
+at the Hero's real chance, worth the real multiplier against a normal hit; crits do count in the
+damage the run deals, through the averaged factor. The party is the one HP pool `battleReadout`
+already drew, so enemy hits show no numbers. Specced in `stage-director.spec.ts`.
+
+**What it does at the edges.** A cleared stage carries its last body under the next one at the
+old HP; a walled restart fells the party for 1.6 s and brings it back to a fresh pack; a gate holds
+the boss and its escort in a standoff, nobody swinging, until the fight is engaged; and a jump —
+a new world, a prestige, a tab back from hidden — rebuilds rather than replays. The party marches
+between packs only when a kill takes 3.2 s or more; faster, the next pack fades in where it stands.
+
+**Choices made without asking, easy to flip:** every body of an elite stage wears the elite
+mark, since all of them carry the elite multiplier; the Hero's skill casts and the party's attack
+cadence are still the art page's cosmetic rhythm, not the skill cooldowns; Champions use the
+Hero's crit figures, since the payload serves no per-Champion crit. The crit font gained an `E`
+glyph for numbers past the trillions (`4.20E15`).
+
+**Next: the boss replay.** `BossFightModal.vue` still plays boss fights from the server's event
+log. Moving that replay onto the stage is step 2.
 
 ---
 

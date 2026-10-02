@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#34** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33 was decided on 2026-10-02 and is in `build-log.md`.
+**#35** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33 and #34 were decided on 2026-10-02 and are in `build-log.md`.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
@@ -215,8 +215,10 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 
 ## Suggested order
 
+**Reordered 2026-10-02, the user's call: the playtest and the Gold balance (step 2) move to the very end, with step 7.** The battle stage comes first (`build-log.md` #34): the idle stage has landed, and the boss replay on the stage is next. The argument below for playing early was weighed and set aside; it is kept as the record of what the reorder gives up.
+
 1. ~~**Phase 3 — the remaining three gachas**~~ **Done — `build-log.md` #18.**
-2. **Close out the tuning pass** — small, and it should come before anything is built on top of the loop:
+2. **Close out the tuning pass** — *deferred to the end with step 7 (2026-10-02).* Small, and it was meant to come before anything is built on top of the loop:
    - **Play a session against the tuned loop** and log it in `playtest-notes.md`. The predictions table there is refreshed; session 1 is the only one on record.
    - **Decide the Gold consequences (#23)** — first-week income, the lost calendar anchors, and whether the Seal ladder is re-derived now or after world design. **Measured and half-applied 2026-09-16** (`--report=gold`): the ceiling is regenerated against the measured kill rate, which raises the cap 12× but leaves the walk's income untouched, since it is progression-bound throughout. What remains open is the progression half — `BASE_GOLD` and `GOLD_STEP_BASE` — and #23.2, which is downstream of it.
    - **Confirm the solo shape (#22.1)** — no prestige without a party is a consequence of the design, not yet a stated choice.
