@@ -32,7 +32,7 @@ import {
     STATUS_MAX_STACKS,
     STATUS_TICK_SECONDS
 } from './constants'
-import { cooldownFor, expectedCritFactor, partyMitigation, wealthFactorFor } from './combat'
+import { attackIntervalFor, cooldownFor, expectedCritFactor, partyMitigation, wealthFactorFor } from './combat'
 import { heroKit } from './content/skills'
 import { heroModifierTotals, partyModifierTotals } from './stats'
 import { mergeTotals } from './modifiers'
@@ -64,17 +64,22 @@ export function armedParty(hero: HeroSnapshot, units: readonly UnitStats[]): Arm
 }
 
 /**
- * Every unit's kit with each ability's live cooldown, in fight order and keyed by the Hero's class
- * or the Champion's id — what the battle stage casts on. The cooldown is the one `runFight` times
- * an ability by, from the same stat block; `damaging` is false for an ability that only lands on
- * allies, so the stage shows no blow for it.
+ * Every unit's kit with each ability's live cooldown and its attack speed, in fight order and keyed
+ * by the Hero's class or the Champion's id — what the battle stage swings and casts on. The
+ * cooldown and the attack interval are the ones `runFight` times them by, from the same stat
+ * block; `damaging` is false for an ability that only lands on allies, so the stage shows no blow.
  */
 export function partyKits(hero: HeroSnapshot, units: readonly UnitStats[]): {
     id: string
+    /** Seconds between basic attacks, from the unit's own SPD, and the strikes each one lands. */
+    attackSeconds: number
+    strikesPerAttack: number
     skills: { id: string, cooldownSeconds: number, damaging: boolean }[]
 }[] {
     return armedParty(hero, units).map((unit, index) => ({
         id: index === 0 ? hero.classId : hero.champions?.[index - 1]?.championId ?? '',
+        attackSeconds: attackIntervalFor(unit.stats.spd),
+        strikesPerAttack: unit.stats.strikesPerAttack,
         skills: unit.kit.map(skill => ({
             id: skill.id,
             cooldownSeconds: cooldownFor(skill.cooldownSeconds, unit.stats.spd, unit.stats.cooldownFactor),

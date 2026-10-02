@@ -1,9 +1,10 @@
 /**
- * The cooldowns the battle stage casts on are the fight's own.
+ * The cooldowns and attack speeds the battle stage runs on are the fight's own.
  *
- * `partyKits` is served with the hero so the stage can fire each ability the moment its cooldown
- * ends. The claim worth pinning is that this is the fight's clock and not a second one: in a real
- * seeded fight, every ability's first cast lands on the cooldown served for it.
+ * `partyKits` is served with the hero so the stage can swing at each body's attack speed and fire
+ * each ability the moment its cooldown ends. The claim worth pinning is that this is the fight's
+ * clock and not a second one: in a real seeded fight, every ability's first cast and every unit's
+ * attacks land on the timings served for them.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -54,5 +55,20 @@ describe('partyKits', () => {
             }
         })
         expect(checked).toBeGreaterThanOrEqual(3)
+    })
+
+    it('serves the attack interval and the strikes per attack the fight swings on', () => {
+        const hero = party(8)
+        const kits = partyKits(hero, partyUnitStats(hero))
+        const fight = runFight({ hero, position: { prestige: 0, world: 2, stage: 5, killsInStage: 0 }, seed: 777 })
+        kits.forEach((kit, unitIndex) => {
+            const attacks = fight.events.filter(e => e.kind === 'attack' && e.unitIndex === unitIndex)
+            const times = [...new Set(attacks.map(e => e.at))]
+            expect(times.length, kit.id).toBeGreaterThanOrEqual(2)
+            // the first attack lands on the opening tick; the next one interval later
+            expect(times[0]!).toBeLessThanOrEqual(FIGHT_TICK_SECONDS + 1e-9)
+            expect(Math.abs(times[1]! - times[0]! - kit.attackSeconds), kit.id).toBeLessThanOrEqual(FIGHT_TICK_SECONDS + 1e-9)
+            expect(attacks.filter(e => e.at === times[0]).length, kit.id).toBe(kit.strikesPerAttack)
+        })
     })
 })
