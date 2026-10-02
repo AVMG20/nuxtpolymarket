@@ -484,7 +484,7 @@ Low-end devices were not measured.
 **History is not cleaned.** Untracking stops new commits carrying the PNGs; the ones already on
 `hero-quest-art` stay in its history unless the branch is squashed before it merges.
 
-### 34. The battle stage — **idle stage landed 2026-10-02; boss replay next**
+### 34. The battle stage — **idle stage and boss replay landed 2026-10-02**
 
 **Canvas 2D, not Pixi** (the user's call, against `tech-architecture.md` §7, which was updated).
 The art composes indexed frames in software and `canvas.ts` blits them at an integer scale; Pixi
@@ -515,8 +515,25 @@ cadence are still the art page's cosmetic rhythm, not the skill cooldowns; Champ
 Hero's crit figures, since the payload serves no per-Champion crit. The crit font gained an `E`
 glyph for numbers past the trillions (`4.20E15`).
 
-**Next: the boss replay.** `BossFightModal.vue` still plays boss fights from the server's event
-log. Moving that replay onto the stage is step 2.
+**The boss replay landed the same day.** The stage acts out the server's event log;
+`BossFightModal.vue` is gone, and `BossFightPanel.vue` takes the readout's place under the stage
+while a fight plays (encounter HP, clock, result, Skip, and the same auto-close rule). The log is
+cut into beats by `fight-script.ts` (one actor, one moment, its hits and the deaths they cause;
+specced in `fight-script.spec.ts`), and each swing starts early by its clip's impact and its
+shot's flight so the blow lands on the logged moment. Every number is the log's; the party's
+frames follow each body's logged HP. To place hits and draw HP, the engage response gained
+`partyIds` and `partyMaxHps`, read off the snapshot the fight ran on: a read-only addition, no
+rule or outcome moved.
+
+**Two fixes rode along.** The modal read every event carrying `remainingHp` as enemy HP, so a heal
+or a damage-over-time tick on the party wrote a party member's HP into the first enemy's slot and
+the bar jumped; the panel reads only events on an enemy. And the boss's name and timer are now
+taken as the fight is engaged: the payload that lands with the result has already moved the run
+past the gate, so the modal had been naming the next stage's foes.
+
+**Choices made without asking:** a Hero skill's cinematic plays as a flourish only (its numbers
+are the log's hits); statuses do not show as pips on the party frames, since the log's ids are
+ability ids, not the status icons'; the result banner is the stage's own (VICTORY, DEFEAT, TIME UP).
 
 ---
 
