@@ -11,7 +11,7 @@
 // toward while the skill plays (see presentation.ts).
 
 import { C, type ColorName, type RampName } from './palette'
-import { disc, ellipseRing, ditherEllipse, hash2, line, rect, tri, type Surface } from './surface'
+import { disc, ditherDisc, ellipseRing, ditherEllipse, hash2, line, rect, tri, type Surface } from './surface'
 import { VL, pr, qt, inWin, eo, burst, motes, bolt, travel, lob, VP, stunStars, rain, R } from './vfx-kit'
 import { Actor } from './rig'
 import { HERO_ART } from './heroes'
@@ -395,7 +395,6 @@ const ARCANE: Ramp6 = [C.white, C.pink, C.pink, C.purple2, C.purple1, C.purple0]
 const STORM: Ramp6 = [C.white, C.frost, C.cyan, C.blue2, C.blue1, C.blue0]
 const NATURE: Ramp6 = [C.white, C.green4, C.green3, C.green2, C.green1, C.green0]
 const TEAL: Ramp6 = [C.white, C.teal3, C.teal3, C.teal2, C.teal1, C.teal0]
-const ROCK: Ramp6 = [C.white, C.frost, C.cyan, C.stone3, C.stone2, C.stone1]
 
 /** A standing target's chest: 14 px up from the ground it stands on. */
 function chestOf(f: { g: number }): number { return f.g - 14 }
@@ -618,10 +617,17 @@ const enrage: CinematicVfx = {
 
 // ── Knight: Shockwave ──────────────────────────────────────────────────────────────
 
-// Every foe, and each is stunned: the Knight slams the ground, and a ridge of ice-bound rock
-// tears out along the floor to each foe and erupts under it.
-const SLAM = 0.45
-const SHOCK_HITS = [0.95, 1.1, 1.25]
+// A great blue crescent of force swept off the Knight's blade, sliding across the field and
+// breaking over the front row, every rank of it stunned. (Content has it reach every foe; the
+// crescent stops at the front row on the user's direction, 2026-10-02.)
+const CRESCENT = { swing: 0.45, from: 0.55, to: 1.05, x0: CX - 22, x1: 112, cy: FLOOR - 30, r: 34 }
+/** When the crescent's leading edge reaches a foe: its edge sits r·cos(asin(dy/r)) ahead of the centre. */
+const crescentAt = (f: { x: number, g: number }) => {
+    const dy = chestOf(f) - CRESCENT.cy
+    const cx = f.x - Math.sqrt(CRESCENT.r * CRESCENT.r - dy * dy)
+    return CRESCENT.from + (cx - CRESCENT.x0) / (CRESCENT.x1 - CRESCENT.x0) * (CRESCENT.to - CRESCENT.from)
+}
+const SHOCK_HITS = F.slice(0, 3).map(crescentAt).sort((a, b) => a - b)
 
 const shockwave: CinematicVfx = {
     id: 'skill_shockwave', name: 'Shockwave', source: 'class', owner: 'Knight', dur: 2.3,
@@ -629,31 +635,29 @@ const shockwave: CinematicVfx = {
     draw(d, t) {
         const q = qt(t)
         casterRing(d, CX, t, 0, 1.2, C.blue0, C.blue1, C.cyan)
-        blast(d, CX + 8, FLOOR - 1, t, SLAM, 12, 0.5, ROCK, 250, 'dust', true)
-        shockRing(d, CX + 8, FLOOR - 1, t, SLAM, 0.5, 4, 30, C.white, true)
-        SHOCK_HITS.forEach((h, i) => {
-            const f = F[i]!
-            const x0 = CX + 12
-            const y0 = FLOOR - 1
-            // the ridge: spikes of rock bursting up in turn along the floor toward the foe
-            const n = 9
-            for (let k = 0; k < n; k++) {
-                const u = (k + 1) / (n + 1)
-                const at = SLAM + (h - SLAM) * u
-                const age = (q - at) / 0.45
-                if (age < 0 || age >= 1) continue
-                const sx = R(x0 + (f.x - x0) * u)
-                const sy = R(y0 + (f.g - 1 - y0) * u)
-                const hh = R((7 + u * 6) * (age < 0.15 ? age / 0.15 : 1 - (age - 0.15) / 0.85))
-                if (hh < 1) continue
-                // a shard of rock rimed in ice: lit face, shadowed face, a frost edge and a white tip
-                tri(d, sx - 3, sy, sx + 3, sy, sx, sy - hh, C.stone1)
-                tri(d, sx - 3, sy, sx, sy, sx, sy - hh, C.stone2)
-                line(d, sx, sy - hh, sx - 2, sy - 1, C.frost)
-                d.set(sx, sy - hh, C.white)
-                if (age < 0.3) burst(d, sx, sy - 1, t, at, 4, 40, 'frost', 255 + k + i * 9, 0.3, 80, -Math.PI / 2, 1.6)
+        // the swing that throws it: a blue arc cut up through the air in front of him
+        if (q >= CRESCENT.swing - 0.1 && q < CRESCENT.from + 0.1) arcBand(d, CX + 2, FLOOR - 14, 14, -1.6, 1.2, 4, pr(t, CRESCENT.swing - 0.1, CRESCENT.swing + 0.05), C.cyan, C.white, C.blue1)
+        // the crescent: thick through the middle, tapering to its horns, a white leading edge
+        if (q >= CRESCENT.from && q < CRESCENT.to + 0.2) {
+            const u = pr(t, CRESCENT.from, CRESCENT.to)
+            const cx = CRESCENT.x0 + (CRESCENT.x1 - CRESCENT.x0) * u
+            const fade = q < CRESCENT.to ? 1 : 1 - (q - CRESCENT.to) / 0.2
+            const w = R(9 * fade)
+            if (w > 0) {
+                arcBand(d, cx, CRESCENT.cy, CRESCENT.r, -1.15, 1.15, w, 1, C.blue2, C.white, C.blue1)
+                arcBand(d, cx, CRESCENT.cy, CRESCENT.r - 2, -1.0, 1.0, Math.max(1, w - 4), 1, C.cyan, C.frost, C.blue2)
             }
-            blast(d, f.x, f.g - 1, t, h, 13, 0.55, ROCK, 260 + i, 'frost', true)
+            // frost shed off its trailing side
+            if (q < CRESCENT.to) for (let i = 0; i < 14; i++) {
+                const a = -1.1 + hash2(i, 91 + Math.floor(q * 10)) * 2.2
+                const back = 4 + hash2(i, 92) * 16
+                d.set(R(cx + Math.cos(a) * (CRESCENT.r - back)), R(CRESCENT.cy + Math.sin(a) * (CRESCENT.r - back)), i & 1 ? C.frost : C.blue2)
+            }
+            if (q >= CRESCENT.to) burst(d, CRESCENT.x1 + CRESCENT.r - 6, CRESCENT.cy, t, CRESCENT.to, 24, 70, 'frost', 255, 0.5, 40, 0, Math.PI * 2, 2)
+        }
+        F.slice(0, 3).forEach((f, i) => {
+            const h = crescentAt(f)
+            blast(d, f.x, chestOf(f), t, h, 11, 0.5, STORM, 260 + i, 'frost')
             if (q >= h + 0.15 && q < 2.3) stunStars(d, f.x, chestOf(f) - 12, t)
         })
     }
@@ -704,20 +708,56 @@ const bouncebolt: CinematicVfx = {
 // Every foe: a thunderhead boils up over the enemy line and drives a bolt down into each.
 const STORM_HITS = [0.72, 0.97, 1.22]
 
+/** The thunderhead's puffs: x, y, radius, fixed so the cloud keeps one shape. */
+const PUFFS = Array.from({ length: 11 }, (_, i) => ({
+    x: 104 + i * 7.5 + (hash2(i, 51) - 0.5) * 4,
+    y: 7 + hash2(i, 52) * 4,
+    r: 6 + hash2(i, 53) * 4 + (i > 2 && i < 8 ? 2 : 0)
+}))
+
+/**
+ * A storm cloud drawn a tone at a time across every puff, so the puffs merge into one mass:
+ * shadow, body, then lit tops, each step dithered into the one below it.
+ */
 function thunderhead(d: Surface, t: number, s: number): void {
     if (s <= 0) return
     const q = qt(t)
-    for (let i = 0; i < 9; i++) {
-        const cx = 108 + i * 8 + (hash2(i, 51) - 0.5) * 4
-        const cy = 6 + hash2(i, 52) * 5 + Math.sin(q * 2 + i) * 0.6
-        const r = (6 + hash2(i, 53) * 4) * s
-        disc(d, cx, cy + 1, r + 1, C.night0)
-        disc(d, cx, cy, r, C.slate0)
-        disc(d, cx - 1, cy - 1, r - 1.5, C.slate1)
-        disc(d, cx - 2, cy - 2, r - 3.5, C.slate2)
-    }
+    const at = (p: typeof PUFFS[number], i: number) => ({ x: p.x, y: p.y + Math.sin(q * 2 + i) * 0.6, r: p.r * s })
+    ditherEllipse(d, 144, 15, 46 * s, 4 * s, C.night0, 10)
+    PUFFS.forEach((p, i) => { const c = at(p, i); disc(d, c.x, c.y + 2, c.r, C.night0) })
+    PUFFS.forEach((p, i) => { const c = at(p, i); disc(d, c.x, c.y, c.r, C.slate0) })
+    PUFFS.forEach((p, i) => { const c = at(p, i); ditherDisc(d, c.x - 1, c.y - 1, c.r - 1, C.slate1, 8) })
+    PUFFS.forEach((p, i) => { const c = at(p, i); disc(d, c.x - 1, c.y - 2, c.r - 3, C.slate1) })
+    PUFFS.forEach((p, i) => { const c = at(p, i); ditherDisc(d, c.x - 2, c.y - 3, c.r - 4, C.slate2, 8) })
+    PUFFS.forEach((p, i) => { const c = at(p, i); if (c.r > 7) disc(d, c.x - 2, c.y - 4, c.r - 6, C.slate2) })
     // lightning flickering inside it
-    if ((Math.floor(q * 12) % 5) === 0) for (let i = 0; i < 6; i++) d.set(R(112 + hash2(i, Math.floor(q * 12)) * 64), R(6 + hash2(i + 9, Math.floor(q * 12)) * 8), C.cyan)
+    const f = Math.floor(q * 12)
+    if (f % 5 === 0) for (let i = 0; i < 6; i++) ditherDisc(d, 112 + hash2(i, f) * 64, 8 + hash2(i + 9, f) * 6, 3, C.cyan, 6)
+}
+
+/** The storm's one bolt: down out of the cloud into the front foe, then arcing rank to rank. Control points bow each leg. */
+const STORM_PATH: readonly { x: number, y: number, cx: number, cy: number }[] = [
+    { x: 132, y: 14, cx: 132, cy: 14 },
+    { x: F[0].x, y: chestOf(F[0]), cx: 150, cy: 40 },
+    { x: F[1].x, y: chestOf(F[1]), cx: 118, cy: 66 },
+    { x: F[2].x, y: chestOf(F[2]), cx: 148, cy: 44 }
+]
+
+/** One leg of the bolt as a bowed curve, cut into short fat-bolt steps so it arcs rather than runs straight. */
+function arcLeg(d: Surface, i: number, t: number): void {
+    const a = STORM_PATH[i - 1]!
+    const b = STORM_PATH[i]!
+    const n = 5
+    let px = a.x
+    let py = a.y
+    for (let k = 1; k <= n; k++) {
+        const u = k / n
+        const x = (1 - u) * (1 - u) * a.x + 2 * (1 - u) * u * b.cx + u * u * b.x
+        const y = (1 - u) * (1 - u) * a.y + 2 * (1 - u) * u * b.cy + u * u * b.y
+        fatBolt(d, px, py, x, y, t, 320 + i * 10 + k)
+        px = x
+        py = y
+    }
 }
 
 const lightningStorm: CinematicVfx = {
@@ -731,12 +771,12 @@ const lightningStorm: CinematicVfx = {
         const s = q < 0.35 ? 0 : q < 2.0 ? Math.min(1, (q - 0.35) / 0.3) : Math.max(0, 1 - (q - 2.0) / 0.4)
         if (q >= 0.5 && q < 2.1) rain(d, 100, 186, 12, FLOOR, t, 0.5, 2.1, 18, C.night3, C.haze, -0.3, 310, 5)
         thunderhead(d, t, s)
+        // the bolt grows a leg at each hit and stays lit, flickering, until the last has landed
+        const last = STORM_HITS[STORM_HITS.length - 1]! + 0.3
+        if (q < last && (Math.floor(q * 30) % 4) !== 3) STORM_HITS.forEach((h, i) => { if (q >= h - 0.05) arcLeg(d, i + 1, t) })
         STORM_HITS.forEach((h, i) => {
             const f = F[i]!
-            const cy = chestOf(f)
-            // each bolt strikes twice in quick flicker, then the blast
-            if (inWin(t, h - 0.06, h + 0.12) && (Math.floor(q * 30) % 3) !== 2) fatBolt(d, f.x + 4, 12, f.x, cy, t, 320 + i)
-            blast(d, f.x, cy, t, h, 12, 0.5, STORM, 330 + i, 'storm')
+            blast(d, f.x, chestOf(f), t, h, 12, 0.5, STORM, 330 + i, 'storm')
             shockRing(d, f.x, f.g - 1, t, h, 0.4, 3, 16, C.cyan, true)
         })
     }
@@ -744,27 +784,29 @@ const lightningStorm: CinematicVfx = {
 
 // ── Shaman: Totem Storm ────────────────────────────────────────────────────────────
 
-// No damage: every ally's PWR rises. A carved totem bursts up out of the ground, a storm of
-// teal wind spins up round it and sweeps back over the party, empowering each of them.
-const TOTEM = { x: CX + 15, up: 0.2, storm: 0.6, sweep: 0.95, sink: 2.0 }
+// No damage: every ally's PWR rises (the buff lasts SKILL_STATUS_DURATION_SECONDS). Small carved
+// totems burst up out of the ground, one before each rank of the party, and stand there for the
+// rest of the effect, their eyes lit, pulsing teal light over the allies.
+const TOTEMS = [
+    { x: CX + 19, g: 52, up: 0.35 },
+    { x: CX + 29, g: 68, up: 0.5 },
+    { x: CX + 19, g: 84, up: 0.65 }
+] as const
 
-function totemPole(d: Surface, x: number, h: number, glow: boolean): void {
+/** A small totem standing on ground `g`: a carved face, folded wings, eyes lit once it is up. */
+function smallTotem(d: Surface, x: number, g: number, h: number, lit: boolean, t: number): void {
     if (h < 1) return
-    const top = FLOOR - h
-    rect(d, x - 3, top, 7, h, C.brown1)
-    rect(d, x - 3, top, 2, h, C.brown2)
-    // carved faces stacked up the pole, their eyes lit while the storm runs
-    for (let fy = top + 3; fy < FLOOR - 3; fy += 8) {
-        rect(d, x - 3, fy + 5, 7, 1, C.brown0)
-        d.set(x - 2, fy + 1, glow ? C.teal3 : C.brown0); d.set(x + 2, fy + 1, glow ? C.teal3 : C.brown0)
-        rect(d, x - 1, fy + 3, 3, 1, C.brown0)
-    }
-    if (h > 14) {
-        // spread wings at the crown
-        tri(d, x - 3, top + 2, x - 10, top - 3, x - 3, top + 6, C.teal1)
-        tri(d, x + 3, top + 2, x + 10, top - 3, x + 3, top + 6, C.teal1)
-        line(d, x - 3, top + 2, x - 10, top - 3, C.teal3); line(d, x + 3, top + 2, x + 10, top - 3, C.teal3)
-        disc(d, x, top - 1, 2, glow ? C.white : C.teal2)
+    const top = g - h
+    rect(d, x - 2, top, 5, h, C.brown1)
+    rect(d, x - 2, top, 1, h, C.brown2)
+    if (h > 8) {
+        const eye = lit && (Math.floor(qt(t) * 6) & 1) ? C.white : lit ? C.teal3 : C.brown0
+        d.set(x - 1, top + 3, eye); d.set(x + 1, top + 3, eye)
+        rect(d, x - 1, top + 5, 3, 1, C.brown0)
+        rect(d, x - 2, top + 8, 5, 1, C.brown0)
+        tri(d, x - 2, top + 1, x - 6, top - 2, x - 2, top + 4, C.teal1)
+        tri(d, x + 2, top + 1, x + 6, top - 2, x + 2, top + 4, C.teal1)
+        d.set(x, top - 1, lit ? C.teal3 : C.teal1)
     }
 }
 
@@ -774,30 +816,24 @@ const totemStorm: CinematicVfx = {
     draw(d, t) {
         const q = qt(t)
         casterRing(d, CX, t, 0, 1.6, C.teal0, C.teal1, C.teal3)
-        const h = q < TOTEM.sink ? R(eo(pr(t, TOTEM.up, TOTEM.up + 0.2)) * 26) : R(26 * (1 - pr(t, TOTEM.sink, TOTEM.sink + 0.4)))
-        if (q >= TOTEM.up) burst(d, TOTEM.x, FLOOR - 1, t, TOTEM.up, 14, 50, 'dust', 340, 0.5, 80, -Math.PI / 2, 2)
-        // the storm spinning up round the totem
-        if (q >= TOTEM.storm && q < TOTEM.sink + 0.3) {
-            const grow = q < TOTEM.sink ? Math.min(1, (q - TOTEM.storm) / 0.3) : Math.max(0, 1 - (q - TOTEM.sink) / 0.3)
-            bladeStorm(d, TOTEM.x + 4, t, grow, 40, TEAL, 0.6)
-        }
-        totemPole(d, TOTEM.x, h, q >= TOTEM.storm && q < TOTEM.sink)
-        // wind streaming back over the party: spiralling streaks passing each ally
-        if (q >= TOTEM.sweep && q < TOTEM.sweep + 0.7) for (let i = 0; i < 6; i++) {
-            const a = A[i]!
-            const ph = (q - TOTEM.sweep) / 0.7
-            const x = TOTEM.x - ph * 70 + (i % 3) * 4
-            for (let k = 0; k < 14; k++) {
-                const aa = q * 14 + k * 0.45
-                const px = R(x + k * 1.6)
-                if (px > TOTEM.x) continue
-                d.set(px, R(chestOf(a) - 2 + Math.sin(aa) * 3), k < 3 ? C.white : C.teal3)
+        // furthest first, so the nearer totems stand in front
+        for (const tm of TOTEMS) {
+            const h = R(eo(pr(t, tm.up, tm.up + 0.18)) * 15)
+            const lit = q >= tm.up + 0.25
+            burst(d, tm.x, tm.g - 1, t, tm.up, 10, 40, 'dust', 340 + tm.g, 0.45, 80, -Math.PI / 2, 2)
+            blast(d, tm.x, tm.g - 1, t, tm.up + 0.2, 7, 0.4, TEAL, 345 + tm.g, 'water', true)
+            // a slow pulse of light rolling out from each, for as long as it stands
+            if (lit) for (let k = 0; k < 2; k++) {
+                const ph = ((q - tm.up - 0.25) * 0.9 + k / 2) % 1
+                ellipseRing(d, tm.x, tm.g - 1, 4 + ph * 20, (4 + ph * 20) * 0.28, ph < 0.5 ? C.teal3 : C.teal1)
             }
+            smallTotem(d, tm.x, tm.g, h, lit, t)
+            if (lit) motes(d, tm.x, tm.g - 4, 10, 18, t, 4, 'water', 350 + tm.g, 20)
         }
-        // each ally empowered as the wind passes it
+        // each ally empowered once the totems are up
         A.forEach((a, i) => {
-            const at = TOTEM.sweep + ((TOTEM.x - a.x) / 70) * 0.7
-            blast(d, a.x, chestOf(a), t, at, 5, 0.35, TEAL, 350 + i, 'water')
+            const at = TOTEMS[2].up + 0.3 + i * 0.05
+            blast(d, a.x, chestOf(a), t, at, 5, 0.35, TEAL, 360 + i, 'water')
             if (q >= at + 0.1) chevrons(d, a.x, chestOf(a) - 14, t, true, C.teal3, C.white)
         })
     }
@@ -911,7 +947,7 @@ const RAIN_HITS = [0.95, 1.2, 1.45]
 const SKY = { x: 146, y: 10 }
 
 function fallingArrow(d: Surface, x: number, y: number): void {
-    for (let k = 0; k < 7; k++) d.set(R(x - k * 0.35), R(y - k), k < 1 ? C.white : k < 4 ? C.gold3 : C.gold1)
+    for (let k = 0; k < 7; k++) d.set(R(x), R(y - k), k < 1 ? C.white : k < 4 ? C.gold3 : C.gold1)
     d.set(R(x) - 1, R(y) - 1, C.gold3); d.set(R(x) + 1, R(y) - 1, C.gold3)
 }
 
@@ -953,7 +989,7 @@ const arrowRain: CinematicVfx = {
             const ground = [84, 68, 52][lane]!
             const x = 112 + hash2(i, 72 + cycle) * 64
             const y = SKY.y + (ground - 1 - SKY.y) * u
-            fallingArrow(d, x + u * 3, y)
+            fallingArrow(d, x, y)
         }
         RAIN_HITS.forEach((h, i) => {
             const f = F[i]!
@@ -964,7 +1000,7 @@ const arrowRain: CinematicVfx = {
             const ground = [84, 68, 52][i % 3]!
             const x = R(114 + hash2(i, 81) * 60)
             if (hash2(i, 82) > pr(t, RAIN.pour + 0.3, RAIN.stop)) continue
-            line(d, x, ground - 1, x - 1, ground - 5, C.brown2); d.set(x - 1, ground - 6, C.gold2)
+            line(d, x, ground - 1, x, ground - 5, C.brown2); d.set(x, ground - 6, C.gold2)
         }
     }
 }

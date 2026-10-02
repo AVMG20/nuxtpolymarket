@@ -133,11 +133,8 @@ export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly
     {
         n: 14,
         label: 'Hero skill VFX',
-        prefixes: [
-            'vfx/skill_whirlwind', 'vfx/skill_threatening_roar', 'vfx/skill_enrage', 'vfx/skill_shockwave', 'vfx/skill_ethereal_bouncebolt',
-            'vfx/skill_lightning_storm', 'vfx/skill_totem_storm', 'vfx/skill_piercing_arrow', 'vfx/skill_fan_of_arrows', 'vfx/skill_arrow_rain',
-            'vfx/skill_mans_best_friend'
-        ]
+        // the seven approved on 2026-10-02 are off the chip; these four were reworked on the user's notes
+        prefixes: ['vfx/skill_shockwave', 'vfx/skill_lightning_storm', 'vfx/skill_totem_storm', 'vfx/skill_arrow_rain']
     }
 ]
 
