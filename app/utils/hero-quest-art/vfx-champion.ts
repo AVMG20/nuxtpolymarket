@@ -8,7 +8,7 @@
 
 import { C } from './palette'
 import { hash2, line, rect, tri, type Surface } from './surface'
-import { VL, pr, qt, eo, travel, lob, VP, burst, motes, R } from './vfx-kit'
+import { VL, pr, qt, eo, travel, lob, VP, motes, R } from './vfx-kit'
 import { abilityId } from '../../../shared/utils/hero-quest/content/champions'
 import { drawCreature } from './creature'
 import { TRAINING_DUMMY } from './raids'
