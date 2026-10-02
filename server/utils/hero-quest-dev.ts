@@ -46,6 +46,7 @@ import { SHOP_TRACKS } from '#shared/utils/hero-quest/content/shop'
 import {
     LEVELS_PER_STAR,
     MAX_STAR,
+    HQ_SESSION_TIMEOUT_MS,
     ONLINE_THRESHOLD_MS,
     STAGES_PER_WORLD,
     WORLD_COUNT
@@ -422,6 +423,21 @@ export async function devSet(userId: string, patch: DevSet) {
             runCleared: updated?.runCleared ?? state.runCleared
         }
     })
+}
+
+/**
+ * End the player's session, as an absence just past `HQ_SESSION_TIMEOUT_MS` would: bank what
+ * really elapsed, then move the settle clock back past the timeout. The next read settles that gap
+ * offline through the real `settleHq` and reports it, so the splash shows exactly what a player
+ * coming back after an hour sees. Moves the clock only; computes nothing.
+ */
+export async function devAway(userId: string) {
+    await settleHq(userId)
+    const awayMs = HQ_SESSION_TIMEOUT_MS + 60_000
+    await db.update(hqState)
+        .set({ lastSettledAt: new Date(Date.now() - awayMs) })
+        .where(eq(hqState.userId, userId))
+    return { awaySeconds: awayMs / 1000 }
 }
 
 /**

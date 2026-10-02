@@ -138,6 +138,14 @@ async function allowPrestige() {
   await withBusy(() => dev.set({ runCleared: true }))
 }
 
+/** End the session and go to the battle tab, where the splash it ended on stands. */
+async function forceAway() {
+  await withBusy(async () => {
+    await dev.away()
+    await navigateTo('/hero-quest')
+  })
+}
+
 // ── Reset ───────────────────────────────────────────────────────────────────────────
 
 const confirmingReset = ref(false)
@@ -238,6 +246,22 @@ async function doReset() {
               Skip hours
             </UButton>
           </div>
+        </div>
+
+        <div class="flex items-center justify-between gap-4 pt-1 border-t border-default">
+          <p class="text-xs text-muted">
+            End the session, as an hour away would: the gap is settled offline and Hero Quest opens on its splash.
+          </p>
+          <UButton
+            size="xs"
+            variant="soft"
+            color="neutral"
+            icon="i-lucide-door-open"
+            :disabled="busy"
+            @click="forceAway"
+          >
+            Force away
+          </UButton>
         </div>
 
         <div
