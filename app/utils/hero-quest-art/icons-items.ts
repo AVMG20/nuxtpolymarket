@@ -3,8 +3,8 @@
 
 import { C } from './palette'
 import { type Surface, taper, dome } from './surface'
-import { M, sword, axe, shield, ShieldStyle, type Mat } from './weapons'
-import { type Glyph, CLEAR, rect, px, line, disc, ring, tri, ellipse, ditherDisc, poly, arc } from './icon-kit'
+import { M, sword, axe, type Mat } from './weapons'
+import { type Glyph, CLEAR, rect, px, line, disc, ring, tri, ellipse, poly, arc } from './icon-kit'
 import { ABILITY_ICON_PARTS as P } from './icons-abilities'
 
 const R = Math.round
@@ -14,12 +14,6 @@ function gem(g: Surface, x: number, y: number, r: number, m: Mat): void {
     poly(g, [0, -r, -r, 0, 0, 0], x, y, m[2])
     poly(g, [0, r, r, 0, 0, 0], x, y, m[0])
     px(g, x - 1, y - 1, C.white)
-}
-
-function scroll(g: Surface, x: number, y: number, paper: number, ink: number): void {
-    rect(g, x - 6, y - 5, 12, 10, paper)
-    rect(g, x - 7, y - 6, 2, 12, C.brown2); rect(g, x + 5, y - 6, 2, 12, C.brown2)
-    for (let i = 0; i < 3; i++) line(g, x - 4, y - 3 + i * 3, x + 3, y - 3 + i * 3, ink)
 }
 
 // ── Artifacts ──────────────────────────────────────────────────────────────────────
@@ -331,18 +325,102 @@ export const ARTIFACT_ICONS: Readonly<Record<string, Glyph>> = {
         for (const [dx, dy] of [[6, -6], [8, -3], [7, 8]] as const) px(g, x + dx, y + dy, C.purple2)
     },
     // Fortune
-    artifact_fortune_0: (g, x, y) => { disc(g, x, y, 7, C.brown2); disc(g, x - 0.5, y - 0.5, 6, C.orange); ring(g, x, y, 4, C.brown2); px(g, x - 2, y - 3, C.gold3) }, // Thornwick Copper
-    artifact_fortune_1: (g, x, y) => { P.book(g, x, y, C.green1, C.bone1); px(g, x - 3, y - 1, C.green3); px(g, x + 3, y + 1, C.green3) }, // Hedge-Witch Almanac
-    artifact_fortune_2: (g, x, y) => { rect(g, x - 4, y - 5, 9, 11, C.stone1); rect(g, x - 3, y - 4, 7, 9, C.teal1); disc(g, x, y, 2, C.teal3); px(g, x, y, C.white); line(g, x - 3, y - 9, x + 3, y - 9, C.stone2); line(g, x - 3, y - 9, x - 4, y - 5, C.stone2); line(g, x + 3, y - 9, x + 4, y - 5, C.stone2) }, // Mirewood Night Lantern
+    artifact_fortune_0: (g, x, y) => {
+        // Thornwick Copper: a worn copper penny struck with a sprig of hedge thorn, green with verdigris at its rim
+        disc(g, x, y, 8, C.rust2)
+        disc(g, x, y, 6, C.rust3)
+        ring(g, x, y, 6, C.rust2)
+        line(g, x - 1, y + 4, x + 1, y - 4, C.rust1)
+        for (const [lx, ly, d] of [[0, -2, -1], [1, 0, 1], [0, 2, -1]] as const) { line(g, x + lx, y + ly, x + lx + d * 3, y + ly - 1, C.rust1); px(g, x + lx + d * 3, y + ly - 2, C.rust1) }
+        for (const [vx, vy] of [[5, 5], [6, 4], [-6, 3], [4, -6], [-3, 7]] as const) px(g, x + vx, y + vy, C.teal2)
+        arc(g, x, y, 7, Math.PI * 1.15, Math.PI * 1.45, C.gold3)
+    },
+    artifact_fortune_1: (g, x, y) => {
+        // Hedge-Witch Almanac: a fat almanac shut with a strap, a moon on its cover, dried herbs pressed between its pages
+        rect(g, x - 7, y - 6, 13, 14, C.green1)
+        rect(g, x + 5, y - 5, 2, 12, C.bone1)
+        for (let i = 0; i < 3; i++) px(g, x + 6, y - 3 + i * 4, C.bone0)
+        rect(g, x - 7, y - 6, 2, 14, C.green0)
+        disc(g, x - 1, y, 3, C.gold2); disc(g, x, y - 1, 2.5, C.green1)
+        rect(g, x - 7, y + 4, 15, 2, C.brown1); rect(g, x + 4, y + 4, 2, 2, C.gold2)
+        for (const [hx, hy, ex, ey] of [[2, -6, 5, -10], [3, -6, 8, -8], [0, -6, 0, -9]] as const) line(g, x + hx, y + hy, x + ex, y + ey, C.olive2)
+        px(g, x + 5, y - 10, C.purple2); px(g, x + 8, y - 8, C.pink); px(g, x, y - 9, C.purple2)
+    },
+    artifact_fortune_2: (g, x, y) => {
+        // Mirewood Night Lantern: an iron lantern hung on a crook of root, a marsh-light glowing green behind its glass, moths about it
+        line(g, x, y - 10, x, y - 7, C.brown1); ring(g, x, y - 7, 1.5, C.steel1)
+        tri(g, x - 5, y - 4, x + 5, y - 4, x, y - 8, C.steel1)
+        rect(g, x - 4, y - 4, 9, 10, C.steel0)
+        rect(g, x - 3, y - 3, 7, 8, C.green2)
+        disc(g, x, y + 1, 2, C.green3); px(g, x, y + 1, C.green4); px(g, x - 1, y, C.white)
+        rect(g, x, y - 3, 1, 8, C.steel0)
+        rect(g, x - 5, y + 6, 11, 2, C.steel1)
+        for (const [mx, my] of [[-8, -3], [7, -6], [7, 3]] as const) { px(g, x + mx, y + my, C.bone1); px(g, x + mx + 1, y + my, C.bone0) }
+    },
     artifact_fortune_3: (g, x, y) => { line(g, x - 6, y + 7, x + 3, y - 3, C.brown2, 2); arc(g, x + 3, y - 3, 7, Math.PI * 1.05, Math.PI * 1.95, C.stone3); arc(g, x + 3, y - 2, 6, Math.PI * 1.1, Math.PI * 1.9, C.steel2); P.sparkle(g, x + 7, y + 4, 2, C.gold3) }, // Kobold Prospecting Pick
     artifact_fortune_4: (g, x, y) => { poly(g, [-5, 8, -6, -3, 0, -8, 6, -3, 5, 8], x, y, C.stone2); for (const [a, b, c2, d2] of [[-2, -4, 2, 0], [-2, 0, 2, -4], [0, 1, 0, 6]]) line(g, x + a!, y + b!, x + c2!, y + d2!, C.cyan) }, // Rimeholt Saga Stone
-    artifact_fortune_5: (g, x, y) => { P.book(g, x, y, C.teal1, C.bone1); arc(g, x - 3, y + 1, 2, Math.PI, Math.PI * 2, C.teal2); arc(g, x + 3, y + 1, 2, Math.PI, Math.PI * 2, C.teal2) }, // Amarath Tide Ledger
-    artifact_fortune_6: (g, x, y) => { disc(g, x, y, 7, C.gold1); disc(g, x - 0.5, y - 0.5, 6, C.gold2); P.skull(g, x, y, C.gold1); ditherDisc(g, x + 2, y + 2, 4, C.teal2, 4) }, // Sunken Doubloon
-    artifact_fortune_7: (g, x, y) => { scroll(g, x, y, C.night2, C.night3); for (const [a, b] of [[-3, -2], [1, -3], [3, 1], [-1, 2]]) px(g, x + a!, y + b!, C.gold3); line(g, x - 3, y - 2, x + 1, y - 3, C.haze) }, // Duskspire Star Chart
+    artifact_fortune_5: (g, x, y) => {
+        // Amarath Tide Ledger: a sea-stained ledger clasped in brass, a wave stamped on its cover, coins spilled in front of it
+        rect(g, x - 7, y - 8, 12, 14, C.teal1)
+        rect(g, x - 7, y - 8, 2, 14, C.teal0)
+        rect(g, x + 4, y - 7, 2, 12, C.bone1)
+        arc(g, x - 1, y - 1, 3, Math.PI, Math.PI * 2, C.gold2); arc(g, x + 2, y - 2, 1.5, 0, Math.PI, C.gold2)
+        rect(g, x + 3, y - 2, 3, 3, C.gold2); px(g, x + 4, y - 1, C.gold3)
+        line(g, x - 3, y + 6, x - 2, y + 8, C.olive2)
+        P.coin(g, x + 5, y + 5, 3); P.coin(g, x + 1, y + 7, 2.5)
+    },
+    artifact_fortune_6: (g, x, y) => {
+        // Sunken Doubloon: a gold doubloon struck with a cross, barnacles grown over one edge, bubbles rising off it
+        disc(g, x - 1, y + 1, 7, C.gold1)
+        disc(g, x - 1, y + 1, 5, C.gold2)
+        rect(g, x - 2, y - 3, 3, 9, C.gold1); rect(g, x - 5, y, 9, 3, C.gold1)
+        px(g, x - 1, y + 1, C.gold3)
+        arc(g, x - 1, y + 1, 6, Math.PI * 1.1, Math.PI * 1.4, C.gold3)
+        for (const [bx, by] of [[3, 6], [5, 4], [1, 7], [5, 7]] as const) { disc(g, x + bx, y + by, 1.2, C.stone2); px(g, x + bx, y + by, C.stone0) }
+        px(g, x + 6, y + 2, C.green2); px(g, x + 6, y + 1, C.green3)
+        ring(g, x + 6, y - 6, 1.5, C.cyan); ring(g, x + 4, y - 9, 1, C.cyan); px(g, x + 8, y - 9, C.frost)
+    },
+    artifact_fortune_7: (g, x, y) => {
+        // Duskspire Star Chart: a twilight chart unrolled between two rods, a constellation drawn on it in gold and a moon in its corner
+        rect(g, x - 7, y - 6, 15, 12, C.dusk1)
+        rect(g, x - 8, y - 7, 17, 2, C.brown2); rect(g, x - 8, y + 5, 17, 2, C.brown2)
+        disc(g, x - 9, y - 6, 1, C.gold2); disc(g, x + 9, y - 6, 1, C.gold2); disc(g, x - 9, y + 6, 1, C.gold2); disc(g, x + 9, y + 6, 1, C.gold2)
+        const stars = [[-5, 2], [-2, -1], [1, 1], [4, -3], [5, 2]] as const
+        for (let i = 1; i < stars.length; i++) line(g, x + stars[i - 1]![0], y + stars[i - 1]![1], x + stars[i]![0], y + stars[i]![1], C.dusk3)
+        for (const [sx, sy] of stars) px(g, x + sx, y + sy, C.gold3)
+        disc(g, x - 4, y - 3, 1.5, C.bone1); px(g, x - 3, y - 4, C.dusk1)
+        P.sparkle(g, x + 4, y - 3, 1, C.white)
+    },
     artifact_fortune_8: (g, x, y) => { line(g, x - 5, y - 8, x + 2, y + 2, C.brown2, 2); poly(g, [0, 0, 6, 0, 6, 5, 3, 8, 0, 5], x, y, C.steel2); line(g, x + 1, y + 1, x + 1, y + 5, C.steel3); P.skull(g, x - 5, y + 4, C.bone0) }, // Grave Robber's Spade
-    artifact_fortune_9: (g, x, y) => { P.book(g, x, y, C.purple1, C.bone1); rect(g, x + 1, y - 3, 6, 8, C.bone1); line(g, x + 2, y + 5, x + 7, y + 8, C.bone1); P.sparkle(g, x + 7, y - 7, 2, C.gold3) }, // Tome of Unfinished Lessons
+    artifact_fortune_9: (g, x, y) => {
+        // Tome of Unfinished Lessons: an open tome, its right page written only halfway down, the quill still standing in its inkpot
+        poly(g, [-9, -4, -1, -2, -1, 7, -9, 5], x, y, C.purple1)
+        poly(g, [-8, -4, -1, -2, -1, 6, -8, 4], x, y, C.bone1)
+        poly(g, [-1, -2, 7, -4, 7, 5, -1, 7], x, y, C.bone1)
+        for (let i = 0; i < 3; i++) { line(g, x - 7, y - 2 + i * 2, x - 2, y - 1 + i * 2, C.stone2); }
+        for (let i = 0; i < 4; i++) line(g, x + 1, y - 1 + i * 2, x + 5, y - 2 + i * 2, C.stone2)
+        line(g, x + 1, y - 1 + 1 * 2, x + 3, y - 2 + 1 * 2, C.stone2)
+        rect(g, x - 1, y - 2, 1, 9, C.purple0)
+        rect(g, x + 5, y + 5, 4, 4, C.ink); rect(g, x + 6, y + 4, 2, 1, C.steel1)
+        line(g, x + 7, y + 4, x + 3, y - 8, C.steel2)
+        taper(g, x + 5, y - 1, x + 2, y - 9, 1, 3, C.white)
+    },
     artifact_fortune_10: (g, x, y) => { poly(g, [-8, 5, 8, 5, 5, 0, -5, 0], x, y + 1, C.stone2); for (const [a, b] of [[-4, 0], [0, -2], [4, 0], [-2, -4], [2, -5]]) disc(g, x + a!, y + b!, 2, C.gold2); P.sparkle(g, x, y - 8, 2, C.frost) }, // Hoard of the Shattered Sky
-    artifact_fortune_11: (g, x, y) => { disc(g, x, y, 7, C.void); ring(g, x, y, 7, C.purple2); ring(g, x, y, 5, C.purple1); for (let i = 0; i < 4; i++) px(g, x - 2 + (i * 3) % 5, y - 2 + i, C.white); line(g, x - 3, y + 4, x + 4, y - 3, C.pink) } // Last Coin of the Void
+    artifact_fortune_11: (g, x, y) => {
+        // Last Coin of the Void: a single gold coin, crumbling into the Void from one side, its flecks drifting off into the dark
+        disc(g, x - 1, y, 7, C.gold1)
+        disc(g, x - 1, y, 5, C.gold2)
+        ring(g, x - 1, y, 3, C.gold1)
+        arc(g, x - 1, y, 6, Math.PI * 1.1, Math.PI * 1.4, C.gold3)
+        for (let dy = -7; dy <= 7; dy++) {
+            for (let dx = 1; dx <= 7; dx++) {
+                const k = (dx * 7 + dy * 3 + 64) % 5
+                if (dx > 5 || k < dx - 2) px(g, x + dx, y + dy, CLEAR)
+                else if (k === dx - 2) px(g, x + dx, y + dy, C.purple1)
+            }
+        }
+        for (const [fx, fy, c] of [[8, -3, C.gold2], [9, 2, C.purple2], [8, 5, C.gold1], [10, -1, C.pink], [9, -6, C.purple2], [10, 4, C.gold2]] as const) px(g, x + fx, y + fy, c)
+    }
 }
 
 // ── Gear: six slots × six tiers ────────────────────────────────────────────────────
