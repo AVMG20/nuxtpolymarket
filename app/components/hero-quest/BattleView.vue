@@ -12,8 +12,8 @@ import { D, formatHq } from '#shared/utils/hero-quest/numbers'
  * advances the stage, the world and the Hero's level. Keep the walk there: a second predictor here
  * would drift against it, and the stage rollover has to happen exactly once.
  *
- * DOM rather than Pixi for now. The HP-bar contract here is the same one a Pixi scene would
- * consume, so swapping the renderer later touches no sim and no server code.
+ * The readout under the stage (`BattleCanvas.vue`), which plays the same projected run: these
+ * bars and the bodies on it read one `killsFloat`.
  */
 const props = defineProps<{
     run: {

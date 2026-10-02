@@ -2,7 +2,7 @@
 import { formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
 
 const {
-    initialized, run, hero, settled, pending,
+    initialized, run, hero, settled, pending, guild,
     initRun, engageBoss
 } = useHeroQuest()
 
@@ -19,6 +19,23 @@ const {
  * thing to compare a payload against, so anything that needs the anchor still has it.
  */
 const { liveRun, liveHero } = useHqLiveRun(run, hero)
+
+/**
+ * Who stands on the stage: the Hero and the Champions fielded, in party order, each on its row.
+ * Off the guild payload, so it changes with the next payload after an equip.
+ */
+const party = computed(() => {
+    const g = guild.value
+    if (!g) return { heroRow: 'front' as const, champions: [] }
+    const byId = new Map(g.roster.map(c => [c.id, c]))
+    return {
+        heroRow: g.heroRow,
+        champions: g.partyChampionIds.flatMap((id) => {
+            const c = byId.get(id)
+            return c ? [{ id, row: c.row, level: c.level }] : []
+        })
+    }
+})
 
 /** The stat-attribution slideover. Fetched on open, never with the state payload. */
 const breakdownOpen = ref(false)
@@ -138,6 +155,12 @@ const awayReport = computed(() => {
       />
 
       <HeroQuestRunPosition :run="liveRun" />
+
+      <HeroQuestBattleCanvas
+        :run="liveRun"
+        :hero="liveHero"
+        :party="party"
+      />
 
       <HeroQuestBattleView
         :run="liveRun"
