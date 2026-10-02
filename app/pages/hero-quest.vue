@@ -40,10 +40,57 @@ const tabs = [
 function isActive(to: string) {
   return route.path === to || (to !== '/hero-quest' && route.path.startsWith(`${to}/`))
 }
+
+/**
+ * The splash stands in front of every tab until the player goes in: Begin with no run, Start once
+ * a session has ended (`useHqSession`). Nothing behind it mounts, so no battle plays and no boss
+ * engages while it waits. Dev and Art stay reachable: the harness has to work without a run.
+ */
+const { gate, away, start, begin } = useHqSession()
+const { hero, guild } = useHeroQuest()
+
+/** The splash stands the save's party: the Hero's class and the Champions fielded, each on its row. The Beginner alone without one. */
+const splashParty = computed(() => {
+  const g = guild.value
+  if (!hero.value || !g) return { classId: 'class_beginner', heroRow: 'front' as const, champions: [] }
+  const rows = new Map(g.roster.map(c => [c.id, c.row]))
+  return {
+    classId: hero.value.classId,
+    heroRow: g.heroRow,
+    champions: g.partyChampionIds.flatMap((id) => {
+      const row = rows.get(id)
+      return row ? [{ id, row }] : []
+    })
+  }
+})
+const entering = ref(false)
+const devRoute = computed(() => import.meta.dev && /^\/hero-quest\/(dev|art)(\/|$)/.test(route.path))
+const showSplash = computed(() => gate.value !== 'open' && !devRoute.value)
+
+async function enter(action: () => Promise<void>) {
+  entering.value = true
+  try {
+    await action()
+  } finally {
+    entering.value = false
+  }
+}
 </script>
 
 <template>
-  <div class="flex flex-col min-h-full">
+  <HeroQuestSplash
+    v-if="showSplash && gate !== 'open'"
+    :mode="gate"
+    :away="away"
+    :pending="entering"
+    :party="splashParty"
+    @begin="enter(begin)"
+    @start="enter(start)"
+  />
+  <div
+    v-else
+    class="flex flex-col min-h-full"
+  >
     <div class="border-b border-default px-3 pt-1.75 pb-2 shrink-0">
       <div class="flex items-center gap-0.5">
         <NuxtLink

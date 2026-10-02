@@ -1,4 +1,5 @@
 import type { FightEvent, FightOutcome } from '#shared/utils/hero-quest/fight'
+import { HQ_SESSION_TIMEOUT_MS } from '#shared/utils/hero-quest/constants'
 
 /**
  * The single source of Hero Quest state on the client. Pages contain no fetch logic.
@@ -8,13 +9,63 @@ import type { FightEvent, FightOutcome } from '#shared/utils/hero-quest/fight'
  * accrues at full rate; a longer one is treated as offline and pays the cap and efficiency
  * tax. Stop refreshing and you are, correctly, offline.
  */
+/** How recent a read the next component to mount reuses rather than settling again. */
+const STATE_REUSE_MS = 5_000
+
+/**
+ * The state read already in hand, for a component mounting moments after another read it: the
+ * hydrated one, or one under `STATE_REUSE_MS` old. A refresh always reads.
+ *
+ * Typed `never` so it takes no part in inferring the payload's type, which an inline callback
+ * reading `payload.data` sends past the compiler's depth limit.
+ */
+function reuseRecentRead(key: string, nuxtApp: { isHydrating?: boolean, payload: { data: Record<string, unknown> } }, context: { cause: string }, fetchedAt: number): never | undefined {
+    if (context.cause !== 'initial') return undefined
+    const cached = nuxtApp.payload.data[key] ?? undefined
+    return (nuxtApp.isHydrating || Date.now() - fetchedAt < STATE_REUSE_MS ? cached : undefined) as never | undefined
+}
+
+/** The one presence poll, shared by every component holding Hero Quest state. Browser only. */
+const poll: { users: number, timer: ReturnType<typeof setInterval> | null } = { users: 0, timer: null }
+
 export const useHeroQuest = () => {
     const toast = useToast()
     const { fetchSession } = useAuth()
 
+    /**
+     * The session (`useHqSession`), decided as each read arrives rather than in a watcher, so the
+     * server render decides it too and hands its decision to the client: a watcher does not run
+     * on the server once data lands, and the two would disagree about showing the splash.
+     */
+    const sessionActive = useState<boolean | null>('hq-session-active', () => null)
+    const sessionResuming = useState('hq-session-resuming', () => false)
+    /** The report of the read that ended the session, for the splash: a later read replaces `settled`. */
+    const sessionAway = useState<unknown>('hq-session-away', () => null)
+    /** When this app last read the state: a read is a settle, a write, so a second one moments later reuses it. */
+    const fetchedAt = useState('hq-state-fetched-at', () => 0)
+
     const { data: state, refresh, pending } = useFetch('/api/hero-quest/state', {
         key: 'hero-quest-state',
-        default: () => null
+        default: () => null,
+        // The layout and the tab both hold the state; only the first to mount reads it.
+        getCachedData: (key, nuxtApp, context) => reuseRecentRead(key, nuxtApp, context, fetchedAt.value),
+        onResponse({ response }) {
+            const payload = response._data as { initialized?: boolean, awaySeconds?: number, settled?: unknown } | undefined
+            if (!payload) return
+            fetchedAt.value = Date.now()
+            if (!payload.initialized) {
+                sessionActive.value = false
+            } else if (sessionResuming.value) {
+                // the read Start makes closes the very gap that ended the session
+                sessionResuming.value = false
+                sessionActive.value = true
+            } else if ((payload.awaySeconds ?? 0) * 1000 > HQ_SESSION_TIMEOUT_MS) {
+                sessionActive.value = false
+                sessionAway.value = payload.settled ?? null
+            } else if (sessionActive.value === null) {
+                sessionActive.value = true
+            }
+        }
     })
 
     const initialized = computed(() => state.value?.initialized ?? false)
@@ -257,19 +308,26 @@ export const useHeroQuest = () => {
             call('/api/hero-quest/dev/unlock', body, 'Collection unlocked'),
         set: (body: Record<string, unknown>) =>
             call('/api/hero-quest/dev/set', body, 'Run moved'),
-        reset: () => call('/api/hero-quest/dev/reset', {}, 'Hero Quest wiped')
+        reset: () => call('/api/hero-quest/dev/reset', {}, 'Hero Quest wiped'),
+        /** End the session as an hour away would; the read after it opens on the splash. */
+        away: () => call<{ awaySeconds: number }>('/api/hero-quest/dev/away', {}, '')
     }
 
     // Gold accrues into the shared balance on every settle, so the header has to follow it.
-    let timer: ReturnType<typeof setInterval> | null = null
+    // Not while the splash waits for Start: a tab left on it is away, not present (`useHqSession`).
+    // One poll however many components hold the state: the layout and the page both do.
     onMounted(() => {
-        timer = setInterval(async () => {
+        if (poll.users++ > 0) return
+        poll.timer = setInterval(async () => {
+            if (!sessionActive.value) return
             await refresh()
             await fetchSession()
         }, refreshIntervalMs.value)
     })
     onUnmounted(() => {
-        if (timer) clearInterval(timer)
+        if (--poll.users > 0 || !poll.timer) return
+        clearInterval(poll.timer)
+        poll.timer = null
     })
 
     return {

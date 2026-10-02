@@ -281,7 +281,7 @@ function readyCast(u: Unit): Cast | null {
 const ROW_MARKS = { front: [2, 1, 0], back: [5, 4, 3] } as const
 
 /** The game's marks: the Hero, then each Champion, on its own row while the row has room, else the other. */
-function runMarks(heroRow: RunParty['heroRow'], rows: readonly RunParty['heroRow'][]): number[] {
+export function runMarks(heroRow: RunParty['heroRow'], rows: readonly RunParty['heroRow'][]): number[] {
     const free = { front: [...ROW_MARKS.front] as number[], back: [...ROW_MARKS.back] as number[] }
     const take = (row: 'front' | 'back') => free[row].shift() ?? free[row === 'front' ? 'back' : 'front'].shift()!
     return [take(heroRow), ...rows.map(take)]

@@ -3,7 +3,7 @@ import { formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
 
 const {
     initialized, run, hero, settled, pending, guild,
-    initRun, engageBoss
+    engageBoss
 } = useHeroQuest()
 
 /**
@@ -132,32 +132,8 @@ const awayReport = computed(() => {
       Loading…
     </div>
 
-    <!-- Founding is explicit, so the run never starts behind the player's back. -->
-    <div
-      v-else-if="!initialized"
-      class="text-center py-16 space-y-4"
-    >
-      <UIcon
-        name="i-lucide-swords"
-        class="size-12 text-primary"
-      />
-      <h1 class="text-2xl font-semibold text-highlighted">
-        Hero Quest
-      </h1>
-      <p class="text-muted max-w-md mx-auto">
-        Ten worlds, ten stages each. Your hero fights on its own — even while you're away.
-        Bosses are the one thing that needs you watching.
-      </p>
-      <UButton
-        size="lg"
-        icon="i-lucide-play"
-        @click="initRun()"
-      >
-        Begin the quest
-      </UButton>
-    </div>
-
-    <template v-else-if="liveRun && liveHero">
+    <!-- Founding is explicit, on the splash (`HeroQuestSplash`), so a run never starts behind the player's back. -->
+    <template v-else-if="initialized && liveRun && liveHero">
       <UAlert
         v-if="awayReport"
         color="primary"
