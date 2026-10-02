@@ -8,7 +8,7 @@ attention; this one holds the record.
 scripts cite them (`#22`, `#23.3`, `#18.6`), so renumbering would silently repoint a reference.
 Numbers missing here are items still open — they stayed in `open-items.md` under the same number.
 Four entries (#22, #23, #25, #29) appear in **both**: the full record is here, and the part still
-needing attention stayed there. Numbering runs to **#34**; open-items.md says where the next new item starts.
+needing attention stayed there. Numbering runs to **#35**; open-items.md says where the next new item starts.
 
 **This is not on the per-task reading list** (`CLAUDE.md` §1). Read an entry when you need the
 reasoning behind something already built; do not load it to find out what to do next.
@@ -561,6 +561,53 @@ as bosses already did on the art page, since a hit never cancels an attack in th
 over 30 s: a level-5 Knight lands 14 of 14 strikes, a level-60 Archer 23 of 23, a level-400 Beast
 Master 581 of 604 at the 0.2 s floor (hit-stop freezes take the rest), and each foe 12 swings of 12.
 `party-kits.spec` pins the interval and strike count against a real fight.
+
+### 35. Sessions and the splash — **landed 2026-10-02**
+
+**Hero Quest opens on its splash** (`HeroQuestSplash`, drawn by `menu-splash.ts`) whenever there
+is no run (Begin) or the player's session has ended (Start). A session ends when a state read
+closes a gap longer than `HQ_SESSION_TIMEOUT_MS`: **an hour, locked** (the user's call; it was a
+30-minute placeholder for its first hour of life, and the user chose a timeout longer than
+`ONLINE_THRESHOLD_MS` rather than reusing it), so a reload after a long break, or a laptop waking
+mid-session, asks again; a shorter break drops straight back into the fight. The splash carries
+the away report of the read that ended the session. The dev page's **Force away** (`devAway`)
+ends a session on demand: it banks the real time, moves the settle clock back past the timeout,
+and the next read settles that gap offline through the real `settleHq`, as an hour away would.
+
+**It stands the save's party** (the user's call): the Hero's class and the fielded Champions,
+each on its formation row, on the battle stage's marks, idling out of step; the Beginner alone
+when there is no save. `menu-splash.ts` composes it from the `branding/splash` scene and logo, which
+stay as drawn for the art page, and drops their loading bar, since the splash waits for Start.
+
+**Play is drawn in the canvas**, the first control to live there (the direction below): a button in
+the logo's make, centred across the splash on the middle of the ground, the logo centred above;
+the party stands 45 px left of its battle marks here, clear of it (on the splash only). It lights under the pointer,
+sinks when pressed, dims while the press is on its way, and a glint crosses it. The canvas is the
+button for the page: hit-tested in scene pixels, focusable, labelled, and pressed with Enter or
+Space. The DOM Begin and Start buttons are gone; Play does both.
+
+**Presentation only.** The server settles every gap on its own rules whatever the splash says;
+`awaySeconds` on the state read is the one field added, and nothing reads it but the gate. The
+splash's one effect on the game is deliberate (the user's call): the presence poll pauses while
+it waits, so a tab left on it is away and pays offline rates, and nothing behind it mounts, so no
+battle plays and no boss engages. Start resumes both. The splash stands in front of every tab;
+Dev and Art stay reachable in dev builds, since the harness has to work without a run.
+
+**Decided as each read arrives, not in a watcher.** The first cut decided in a watcher, which does
+not run during the server render once data lands, so the server drew the splash and the client
+the game, and the page hydrated into a mix of both. The decision now lives in the state fetch's
+`onResponse` (`useHeroQuest`), runs on both sides before render, and reaches the client in
+`useState`. Start's own read closes the very gap that ended the session, so it is not held
+against it.
+
+**One read per load.** With the layout holding the state as well as the tab, a page load read it
+twice, and a read is a settle, a write; the second also replaced the away report. A component
+mounting within 5 s of a read now reuses it (`getCachedData`), and the poll is one shared timer
+however many components hold the state.
+
+**Direction, from the user:** everything is to live in the canvas later, the navigation menu
+included. The splash gates the DOM tabs for now because they are what exists; when the menu moves
+into the canvas, the gate moves with it.
 
 ---
 

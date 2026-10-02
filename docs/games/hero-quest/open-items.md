@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#35** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33 and #34 were decided on 2026-10-02 and are in `build-log.md`.
+**#36** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
