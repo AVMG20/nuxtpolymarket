@@ -38,6 +38,9 @@ docs/games/*
 # Remove this line and untrack docs/games/hero-quest before merging into main.
 !docs/games/hero-quest/
 
+# Hero Quest sprite exports: a local rendering of the procedural art (bun run art:hero-quest); the game draws from code
+public/hero-quest/sprites/
+
 # Local blackjack autoplay test scripts — never versioned
 scripts/blackjack-autoplay.js
 scripts/blackjack-api-play.js
