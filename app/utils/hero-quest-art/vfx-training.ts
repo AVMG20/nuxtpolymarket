@@ -6,11 +6,11 @@
 // The Hero casts them, so they are staged from the Hero's mark (VL.caster), striking the near front
 // foe. They replace their round-1 `vfx.ts` entries by ID, as the Hero and Champion effects did.
 
-import { C } from './palette'
-import { disc, dither, ditherDisc, ditherEllipse, ellipseRing, hash2, line, poly, rect, ring, taper, tri, type Surface } from './surface'
+import { C, CLEAR } from './palette'
+import { Surface, disc, dither, ditherDisc, ditherEllipse, ellipseRing, hash2, line, rect, ring, taper, tri } from './surface'
 import { VL, pr, qt, eo, travel, lob, VP, burst, motes, healRise, R } from './vfx-kit'
 import {
-    arcBand, blast, casterRing, chestOf, chevrons, groundFire, shockRing, skyPortal,
+    arcBand, blast, casterRing, chestOf, chevrons, groundFire, shockRing,
     BLOOD, FIRE, GOLD, STEEL, STORM, TEAL, type Ramp6
 } from './vfx-cinematic'
 import type { VfxDef } from './vfx'
@@ -59,6 +59,31 @@ function die(d: Surface, x: number, y: number, pips: number): void {
         5: [[-2, -2], [2, -2], [0, 0], [-2, 2], [2, 2]], 6: [[-2, -2], [2, -2], [-2, 0], [2, 0], [-2, 2], [2, 2]]
     }
     for (const [px, py] of P[pips]!) d.set(x + px, y + py, pips === 6 ? C.red2 : C.ink)
+}
+
+/** The Ragnarok blade's bevels across its width: white edge, lit face, white ridge over a dark fuller, shadowed face, dark edge. */
+function bladeBevel(dx: number, w: number): number {
+    if (dx === -w || dx === 0) return C.white
+    if (dx === w) return C.lava1
+    if (dx === 1) return C.lava0
+    if (dx < 0) return dx > -w + 2 ? C.gold3 : C.gold2
+    return dx < w - 2 ? C.orange : C.lava1
+}
+
+/** A scratch layer the size of the stage, for effects that must pass behind the Hero. */
+const BACK = new Surface(VL.W, VL.H, 0, 0)
+
+/** The Hero's rough silhouette on his mark: head and body. */
+function onHero(x: number, y: number): boolean {
+    return (y >= HEAD - 5 && y < HEAD + 9 && x >= CX - 7 && x <= CX + 6) || (y >= HEAD + 9 && y <= FLOOR && x >= CX - 6 && x <= CX + 5)
+}
+
+/** Copy a layer onto the stage, leaving the Hero's silhouette alone so the layer reads as behind him. */
+function blitBehindHero(d: Surface, src: Surface): void {
+    for (let y = 0; y < src.h; y++) for (let x = 0; x < src.w; x++) {
+        const c = src.data[y * src.w + x]!
+        if (c !== CLEAR && !onHero(x, y)) d.set(x, y, c)
+    }
 }
 
 /** A four-point glint, `r` px a ray. */
@@ -246,13 +271,13 @@ const EPIC: VfxDef[] = [
 // ── Legendary: set-pieces ──────────────────────────────────────────────────────────
 
 const LEGENDARY: VfxDef[] = [
-    // the foe marked, the stage darkening; a colossal spectral executioner's axe forms high over it
-    // and comes down through it in one stroke, splitting the ground in a red shock
+    // the foe marked, the stage darkening; a colossal spectral scythe forms behind it and reaps down
+    // through it in one stroke, splitting the ground in a red shock
     tg('skill_executioners_edge', 'Executioner\'s Edge', 'Legendary', 2.1, (d, t) => {
         const q = qt(t)
         dim(d, t, 0.1, 1.6, 6)
         casterRing(d, CX, t, 0, 1.2, C.red0, C.red1, C.red3)
-        // the axe: a crescent blade on a long haft, swung down from the upper left
+        // the scythe: a long curved blade on a bowed snath, swung up and over and down from behind the foe
         const SWING = { from: 0.7, to: 0.88 }
         if (q >= 0.3 && q < 1.05) {
             const form = pr(t, 0.3, 0.6)
@@ -265,22 +290,45 @@ const LEGENDARY: VfxDef[] = [
             const hy = py + Math.sin(a) * L
             const fade = q < 0.95 ? 1 : 1 - (q - 0.95) / 0.1
             if (form > 0.2 && fade > 0) {
-                line(d, R(px), R(py), R(hx), R(hy), C.red1); line(d, R(px) + 1, R(py), R(hx) + 1, R(hy), C.red0)
-                // the blade, a broad crescent across the haft's head, a white edge on its cutting side
-                const ba = a + Math.PI / 2
-                for (let k = -9; k <= 9; k++) {
-                    const w = Math.round(5 * Math.cos(k / 9 * Math.PI / 2) * form)
+                // the snath: a long shaft bowed slightly along its length, two grips standing off it
+                const ux = Math.cos(a)
+                const uy = Math.sin(a)
+                const nx = -uy
+                const ny = ux
+                for (let i = 0; i <= L; i++) {
+                    const bow = Math.sin(i / L * Math.PI) * 2
+                    const x = px + ux * i - nx * bow
+                    const y = py + uy * i - ny * bow
+                    d.set(R(x), R(y), C.red0); d.set(R(x + nx), R(y + ny), C.red1)
+                }
+                for (const g of [0.3, 0.62]) {
+                    const gx = px + ux * L * g - nx * Math.sin(g * Math.PI) * 2
+                    const gy = py + uy * L * g - ny * Math.sin(g * Math.PI) * 2
+                    line(d, R(gx), R(gy), R(gx - nx * 4), R(gy - ny * 4), C.red1)
+                }
+                // the blade: long, set square to the snath's head and curving back toward the
+                // wielder, tapering to a point; its body on the outside, a white edge on the inside curve
+                const BL = 30 * form
+                for (let k = 0; k <= 40; k++) {
+                    const u = k / 40
+                    const along = BL * u
+                    const back = BL * 0.45 * u * u
+                    const bx = hx + nx * along - ux * back
+                    const by = hy + ny * along - uy * back
+                    const w = R(5 * Math.pow(1 - u, 0.6))
                     for (let j = 0; j <= w; j++) {
-                        const x = hx + Math.cos(ba) * k - Math.cos(a) * j
-                        const y = hy + Math.sin(ba) * k - Math.sin(a) * j
-                        d.set(R(x), R(y), j === 0 ? C.white : j < 2 ? C.red3 : j < 4 ? C.red2 : C.red1)
+                        const x = bx + ux * j
+                        const y = by + uy * j
+                        d.set(R(x), R(y), j === 0 ? C.white : j === 1 ? C.red3 : j < w ? C.red2 : C.red1)
                     }
                 }
+                // the tang where the blade meets the snath
+                disc(d, hx, hy, 1.5, C.red1)
             }
             // the stroke's trail: a great red crescent swept behind the blade as it falls
-            if (q >= SWING.from && q < SWING.to + 0.15) arcBand(d, px, py, L, -2.6, -2.6 + 2.6 * eo(pr(t, SWING.from, SWING.to)), 8, 1, C.red2, C.white, C.red0)
+            if (q >= SWING.from && q < SWING.to + 0.1) arcBand(d, px, py, L + 4, -2.6, -2.6 + 2.6 * eo(pr(t, SWING.from, SWING.to)), 4, 1, C.red1, C.red3, C.red0)
         }
-        // the mark over the foe while the axe forms
+        // the mark over the foe while the scythe forms
         if (q >= 0.15 && q < SWING.to) {
             const r = R(12 - pr(t, 0.15, 0.6) * 5)
             ring(d, FOE.x, FC - 24, r, C.red2)
@@ -305,8 +353,12 @@ const LEGENDARY: VfxDef[] = [
         dim(d, t, 0.1, 1.8, 5)
         casterRing(d, CX, t, 0, 1.6, C.lava0, C.orange, C.gold3)
         blast(d, CX, HC, t, 0.35, 14, 0.6, FIRE, 1410, 'ember')
-        // the wings: from each shoulder an arm of flame sweeps up and out, broad feathers hanging
-        // off it, unfolding and then giving one great beat
+        // the wings and the pillar are drawn on a layer behind the Hero: copied over, they skip his
+        // silhouette, so they read as rising off his back rather than laid over him
+        BACK.clear()
+        const w = BACK
+        // the wings: from each shoulder an arm of flame sweeps up and out, a row of short coverts
+        // along it and long primaries hanging below, layered outer to inner, unfolding then beating once
         if (q >= 0.45 && q < 1.9) {
             const open = eo(pr(t, 0.45, 0.75))
             const beat = Math.sin(pr(t, 0.9, 1.3) * Math.PI)
@@ -314,36 +366,44 @@ const LEGENDARY: VfxDef[] = [
             const k = open * fade
             for (const side of [-1, 1]) {
                 const sx = CX + side * 3
-                const sy = HC - 6
-                // the arm: a curve up and out to the wing tip, which dips on the beat
+                const sy = HC - 2
                 const tx = sx + side * 34 * k
-                const ty = sy - (24 - beat * 14) * k
+                const ty = sy - (22 - beat * 12) * k
                 const arm = (u: number) => ({ x: sx + (tx - sx) * u, y: sy + (ty - sy) * u - Math.sin(u * Math.PI) * 6 * k })
-                // feathers hanging off the arm, longest at the tip, fanning down and out
-                for (let f = 7; f >= 0; f--) {
-                    const u = 0.15 + f * 0.12
+                // primaries, outermost first so each inner one overlaps the next out
+                for (let f = 8; f >= 0; f--) {
+                    const u = 0.12 + f * 0.105
                     const p = arm(u)
-                    const L = (8 + f * 3) * k
-                    const ang = Math.PI / 2 - side * (0.25 + f * 0.11)
+                    const L = (9 + f * 2.6) * k
+                    const ang = Math.PI / 2 - side * (0.2 + f * 0.1)
                     const ex = p.x + Math.cos(ang) * L
                     const ey = p.y + Math.sin(ang) * L
-                    taper(d, p.x, p.y, ex, ey, 4, 1, f > 5 ? C.gold3 : f > 2 ? C.orange : C.lava1)
-                    d.set(R(ex), R(ey), f > 4 ? C.white : C.gold3)
+                    taper(w, p.x, p.y + 1, ex, ey + 1, 5, 1, C.red1)
+                    taper(w, p.x, p.y, ex, ey, 5, 1, f > 6 ? C.gold3 : f > 3 ? C.orange : C.lava1)
+                    line(w, R(p.x), R(p.y), R(ex), R(ey), f > 5 ? C.white : C.gold3)
+                }
+                // coverts: short feathers shingled along the arm
+                for (let c = 0; c < 9; c++) {
+                    const u = 0.1 + c * 0.1
+                    const p = arm(u)
+                    const ang = Math.PI / 2 - side * 0.5
+                    taper(w, p.x, p.y, p.x + Math.cos(ang) * 5 * k, p.y + Math.sin(ang) * 5 * k, 4, 1, c > 5 ? C.gold3 : C.orange)
                 }
                 // the leading edge of the arm, white-hot
-                for (let i = 0; i <= 20; i++) { const p = arm(i / 20); d.set(R(p.x), R(p.y), i > 14 ? C.white : C.gold3); d.set(R(p.x), R(p.y) + 1, C.orange) }
+                for (let i = 0; i <= 20; i++) { const p = arm(i / 20); w.set(R(p.x), R(p.y), i > 14 ? C.white : C.gold3) }
             }
         }
-        // the pillar of fire climbing off him, and the phoenix's cry: a ring of flame thrown out on the beat
+        // the pillar of fire climbing off his back
         if (q >= 0.55 && q < 1.5) {
             const h = R(eo(pr(t, 0.55, 0.8)) * 70)
             const f = Math.floor(q * 15)
             for (let dx = -4; dx <= 4; dx++) {
                 const k = Math.abs(dx) / 4
                 const top = FLOOR - R(h * (1 - k * k * 0.5)) - R(hash2(f, dx + 9) * 5)
-                for (let y = Math.max(0, top); y < FLOOR - 26; y++) d.set(CX + dx, y, k < 0.4 ? C.gold3 : k < 0.75 ? C.orange : C.lava1)
+                for (let y = Math.max(0, top); y < HC; y++) w.set(CX + dx, y, k < 0.4 ? C.gold3 : k < 0.75 ? C.orange : C.lava1)
             }
         }
+        blitBehindHero(d, w)
         shockRing(d, CX, HC - 6, t, 1.1, 0.5, 8, 40, C.gold3)
         // burning feathers drifting down, healing as they fall
         if (q >= 0.9 && q < 2.2) for (let i = 0; i < 12; i++) {
@@ -394,47 +454,118 @@ const LEGENDARY: VfxDef[] = [
 // ── Mythic: the biggest the stage holds ────────────────────────────────────────────
 
 const MYTHIC: VfxDef[] = [
-    // the sky tears open over the enemy line, and a burning greatsword the size of the stage falls
-    // through the portal onto the front foe: the ground erupts in fire, shock rings roll across
-    // the whole field, embers rain down and the burn is left raging
-    tg('skill_ragnarok_strike', 'Ragnarok Strike', 'Mythic', 2.6, (d, t) => {
+    // a vast magic circle opens in the sky over the enemy line and a burning greatsword the size of
+    // the stage falls out of it onto the front foe: it drives into the ground in a burst of light and
+    // fire, stands there burning while rings roll across the field, then sinks on down through the
+    // ground out of sight, leaving the burn raging and embers raining
+    tg('skill_ragnarok_strike', 'Ragnarok Strike', 'Mythic', 3.4, (d, t) => {
         const q = qt(t)
-        dim(d, t, 0.05, 2.2, 8)
-        casterRing(d, CX, t, 0, 1.6, C.red1, C.orange, C.gold3)
-        skyPortal(d, FOE.x, 8, t, 0.2, 1.4)
-        const FALL = { from: 0.75, to: 1.0 }
-        // the sword: a broad burning blade point down, guard and grip above, falling out of the portal
-        if (q >= FALL.from && q < FALL.to + 0.35) {
-            const u = eo(pr(t, FALL.from, FALL.to))
-            const tip = R(-40 + (FOE.g - 4 + 40) * u)
-            const sink = q < FALL.to ? 0 : R(pr(t, FALL.to, FALL.to + 0.08) * 6)
-            const fade = q < FALL.to + 0.2 ? 1 : 1 - (q - FALL.to - 0.2) / 0.15
-            if (fade > 0) {
-                const y0 = tip + sink
-                for (let k = 0; k < 62; k++) {
-                    const y = y0 - k
-                    const w = k < 8 ? R(k * 0.9) : 7
-                    for (let dx = -w; dx <= w; dx++) d.set(FOE.x + dx, y, dx === -w ? C.white : dx < 0 ? C.gold3 : dx < w - 1 ? C.orange : C.lava1)
+        const CIRCLE = { from: 0.2, to: 1.5, y: 12 }
+        const EMERGE = { from: 0.7, to: 1.0, depth: 30 }
+        const FALL = { from: 1.0, to: 1.25 }
+        const SINK = { from: 2.05, to: 2.6 }
+        dim(d, t, 0.05, 3.0, 8)
+        casterRing(d, CX, t, 0, 2.0, C.red1, C.orange, C.gold3)
+        // the magic circle: three rings seen from below, a hexagram turning inside, runes running
+        // round the outer band in opposite directions, light pouring down out of its heart
+        if (q >= CIRCLE.from && q < CIRCLE.to) {
+            const s = eo(Math.min(1, (q - CIRCLE.from) / 0.35)) * Math.min(1, (CIRCLE.to - q) / 0.25)
+            const cx = FOE.x
+            const cy = CIRCLE.y
+            const rx = 48 * s
+            const sq = 0.28
+            ditherEllipse(d, cx, cy, rx, rx * sq, C.red1, 4)
+            ellipseRing(d, cx, cy, rx, rx * sq, C.gold3)
+            ellipseRing(d, cx, cy, rx - 2, (rx - 2) * sq, C.orange)
+            ellipseRing(d, cx, cy, rx * 0.72, rx * 0.72 * sq, C.gold2)
+            ellipseRing(d, cx, cy, rx * 0.4, rx * 0.4 * sq, C.white)
+            // runes in the outer band, turning one way; ticks on the inner, the other
+            for (let i = 0; i < 24; i++) {
+                const a = q * 0.8 + i / 24 * Math.PI * 2
+                const rr = rx - 5
+                const x = R(cx + Math.cos(a) * rr)
+                const y = R(cy + Math.sin(a) * rr * sq)
+                d.set(x, y, i & 1 ? C.gold3 : C.white); if (i % 3 === 0) { d.set(x + 1, y, C.orange); d.set(x, y - 1, C.gold3) }
+                const b = -q * 1.3 + i / 24 * Math.PI * 2
+                d.set(R(cx + Math.cos(b) * rx * 0.56), R(cy + Math.sin(b) * rx * 0.56 * sq), C.gold2)
+            }
+            // the hexagram: two triangles turning against each other
+            for (const [off, c] of [[0, C.gold3], [Math.PI / 3, C.orange]] as const) {
+                const rot = (off === 0 ? q : -q) * 0.9 + off
+                for (let k = 0; k < 3; k++) {
+                    const a0 = rot + k / 3 * Math.PI * 2
+                    const a1 = rot + (k + 1) / 3 * Math.PI * 2
+                    line(d, R(cx + Math.cos(a0) * rx * 0.7), R(cy + Math.sin(a0) * rx * 0.7 * sq), R(cx + Math.cos(a1) * rx * 0.7), R(cy + Math.sin(a1) * rx * 0.7 * sq), c)
                 }
-                rect(d, FOE.x - 15, y0 - 66, 31, 5, C.gold1); rect(d, FOE.x - 15, y0 - 66, 31, 1, C.gold3)
-                rect(d, FOE.x - 2, y0 - 78, 5, 12, C.brown1); disc(d, FOE.x, y0 - 81, 3.5, C.red2)
-                // flames streaming up off the falling blade
-                if (q < FALL.to) for (let i = 0; i < 10; i++) {
-                    const fx = FOE.x - 8 + hash2(i, 1501 + Math.floor(q * 15)) * 16
-                    for (let k = 0; k < 6; k++) d.set(R(fx), y0 - 62 - k * 2 - R(hash2(i, k) * 2), k < 2 ? C.gold3 : k < 4 ? C.orange : C.red1)
+            }
+            // light pouring down out of its heart as the sword comes through
+            if (q >= FALL.from - 0.15 && q < FALL.to + 0.1) for (let dx = -6; dx <= 6; dx++) for (let y = cy; y < FOE.g; y++) if (Math.abs(dx) < 3 || ((dx + y) & 1)) d.set(cx + dx, y, Math.abs(dx) < 2 ? C.white : C.gold3)
+        }
+        // the sword: a broad blade point down, bevelled — a white left edge, a lit left face, a
+        // white ridge down a dark fuller, a shadowed right face and a dark right edge — runes
+        // glowing up its length; a winged guard, a wrapped grip and a gem in the pommel
+        if (q >= EMERGE.from && q < SINK.to) {
+            // first it noses down out of the circle's heart, slowly; then it drops, gathering speed
+            let tip = R(CIRCLE.y + EMERGE.depth * pr(t, EMERGE.from, EMERGE.to))
+            if (q >= FALL.from) tip = R(CIRCLE.y + EMERGE.depth + (FOE.g + 6 - CIRCLE.y - EMERGE.depth) * Math.pow(pr(t, FALL.from, FALL.to), 2))
+            if (q >= FALL.to) tip = FOE.g + 6 + R(pr(t, FALL.to, FALL.to + 0.06) * 4)
+            // whatever has not yet come through the circle is still inside it: hidden above its plane
+            const through = (y: number) => q >= FALL.to || y >= CIRCLE.y
+            if (q >= SINK.from) tip += R(Math.pow(pr(t, SINK.from, SINK.to), 1.6) * 92)
+            const BL = 62
+            for (let k = 0; k < BL; k++) {
+                const y = tip - k
+                if (y >= FOE.g || !through(y)) continue // below the ground, or still inside the circle
+                const w = k < 9 ? Math.max(1, R(k * 0.85)) : 8
+                for (let dx = -w; dx <= w; dx++) d.set(FOE.x + dx, y, bladeBevel(dx, w))
+                // runes glowing in the fuller
+                if (k > 14 && k % 9 === 0) { d.set(FOE.x - 1, y, C.red3); d.set(FOE.x - 1, y - 1, C.white) }
+            }
+            const gy = tip - BL
+            const put = (x: number, y: number, c: number) => { if (y < FOE.g && through(y)) d.set(x, y, c) }
+            // the guard: swept wings of gold, a ruby set in its heart
+            for (let dx = -16; dx <= 16; dx++) {
+                const lift = R(Math.abs(dx) * Math.abs(dx) / 40)
+                for (let j = 0; j < 4; j++) put(FOE.x + dx, gy - lift - j, j === 3 ? C.gold3 : j === 0 ? C.gold0 : C.gold1)
+            }
+            for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) if (i * i + j * j <= 4) put(FOE.x + i, gy - 2 + j, i + j < 0 ? C.red3 : C.red2)
+            // the grip, wrapped in leather, and the pommel's gem
+            for (let j = 4; j < 17; j++) for (let i = -2; i <= 2; i++) put(FOE.x + i, gy - j, ((j + (i > 0 ? 1 : 0)) & 1) ? C.brown1 : C.brown2)
+            for (let j = -3; j <= 3; j++) for (let i = -3; i <= 3; i++) if (i * i + j * j <= 9) put(FOE.x + i, gy - 20 + j, i * i + j * j > 4 ? C.gold1 : i + j < 0 ? C.pink : C.purple2)
+            // flames streaming up off the falling blade
+            if (q >= FALL.from && q < FALL.to) for (let i = 0; i < 12; i++) {
+                const fx = FOE.x - 8 + hash2(i, 1501 + Math.floor(q * 15)) * 16
+                for (let k = 0; k < 6; k++) put(R(fx), gy - 22 - k * 2 - R(hash2(i, k) * 2), k < 2 ? C.gold3 : k < 4 ? C.orange : C.red1)
+            }
+            // while it stands, fire licks up the blade from the wound in the ground
+            if (q >= FALL.to && q < SINK.to) {
+                const f = Math.floor(q * 15)
+                for (let i = 0; i < 9; i++) {
+                    const x = FOE.x - 10 + i * 2.5
+                    const h = R(4 + hash2(f, i) * 10)
+                    for (let k = 0; k < h; k++) d.set(R(x), FOE.g - 1 - k, k < h * 0.4 ? C.gold3 : k < h * 0.75 ? C.orange : C.red1)
                 }
             }
         }
-        // the impact: a white flash across the stage, a towering fire blast, rings across the whole field
-        // the flash: a burst of white light round the impact, thinning outward
+        // where the blade breaks through the circle: a ring of light flaring round it, sparks thrown off
+        if (q >= EMERGE.from && q < FALL.from + 0.15) {
+            const f = Math.min(1, (q - EMERGE.from) / 0.1, (FALL.from + 0.15 - q) / 0.15)
+            ditherEllipse(d, FOE.x, CIRCLE.y, 16 * f, 4 * f, C.gold3, 10)
+            ellipseRing(d, FOE.x, CIRCLE.y, 12 * f, 3 * f, C.white)
+            burst(d, FOE.x, CIRCLE.y, t, EMERGE.from, 18, 50, 'spark', 1509, 0.5, 60, Math.PI / 2, 2.4)
+        }
+        // the impact: a burst of white light round it, a towering fire blast, rings across the whole field
         if (q >= FALL.to && q < FALL.to + 0.08) { ditherDisc(d, FOE.x, FOE.g - 10, 60, C.white, 4); ditherDisc(d, FOE.x, FOE.g - 10, 34, C.white, 10); disc(d, FOE.x, FOE.g - 10, 16, C.white) }
         blast(d, FOE.x, FOE.g - 1, t, FALL.to, 26, 0.8, FIRE, 1500, 'ember', true)
         blast(d, FOE.x, FC - 8, t, FALL.to + 0.05, 16, 0.6, FIRE, 1502, 'ember')
         shockRing(d, FOE.x, FOE.g - 1, t, FALL.to, 0.8, 6, 110, C.white, true)
         shockRing(d, FOE.x, FOE.g - 1, t, FALL.to + 0.1, 0.8, 4, 80, C.orange, true)
         burst(d, FOE.x, FOE.g - 2, t, FALL.to, 30, 140, 'ember', 1503, 0.9, 160, -Math.PI / 2, 2.0, 2)
+        // as it sinks: the ground round it glowing, a last gout of fire as the pommel goes under
+        if (q >= SINK.from && q < SINK.to + 0.3) ditherEllipse(d, FOE.x, FOE.g, 14, 3, C.orange, 10)
+        blast(d, FOE.x, FOE.g - 1, t, SINK.to - 0.05, 14, 0.5, FIRE, 1508, 'ember', true)
         // the burn left raging round the foe, embers raining over the whole field
-        groundFire(d, FOE.x, 30, t, FALL.to + 0.2, 2.6, 1504, 16)
+        groundFire(d, FOE.x, 30, t, FALL.to + 0.2, 3.4, 1504, 16)
         if (q > FALL.to + 0.2) motes(d, VL.W / 2, VL.H, VL.W, 90, t, 26, 'ember', 1505, 30)
         if (q > FALL.to + 0.3) for (let i = 0; i < 14; i++) {
             const ph = ((q - FALL.to) * 0.8 + hash2(i, 1506)) % 1
@@ -457,26 +588,58 @@ const MYTHIC: VfxDef[] = [
                 d.set(R(CX + Math.cos(a) * 28.5 * s), R(HC - 4 + Math.sin(a) * 28.5 * s * 0.9), i & 1 ? C.white : C.gold3)
             }
         }
-        // the aegis: a towering kite shield of gold, a teal field, a white cross, forming out of light
+        // the aegis: a towering heater shield forming out of light — a bevelled gold rim, a teal field
+        // shaded from its lit upper left, a raised cross bevelled in gold, a gem at its heart, a sheen
         if (q >= 0.6 && q < 2.3) {
             const s = eo(pr(t, 0.6, 0.85)) * (q < 2.0 ? 1 : 1 - (q - 2.0) / 0.3)
             const x = CX
-            const y = HC - 6
-            const w = R(16 * s)
-            const h = R(20 * s)
-            if (w > 1) {
-                const pts = [-w, -h, w, -h, w, R(h * 0.2), 0, h + 4, -w, R(h * 0.2)]
-                poly(d, pts, x, y, C.gold1)
-                poly(d, pts.map(v => v === 0 ? 0 : v > 0 ? v - 2 : v + 2), x, y, C.teal2)
-                poly(d, pts.map(v => v === 0 ? 0 : v > 0 ? v - 3 : v + 3), x, y, C.teal1)
-                ditherDisc(d, x, y, w, C.teal3, 4)
-                rect(d, x - 1, y - h + 4, 3, h * 2 - 4, C.white); rect(d, x - w + 5, y - 4, w * 2 - 9, 3, C.white)
-                rect(d, x - w, y - h, w * 2, 1, C.gold3)
+            const y = HC - 10
+            const W = 16 * s
+            const H = 22 * s
+            if (W > 2) {
+                // half-width down the shield: a top dipping at its centre, straight sides, then a curve in to the point
+                const half = (dy: number) => {
+                    const v = (dy + H) / (H * 2 + 4)
+                    return v < 0.45 ? W : W * Math.sqrt(Math.max(0, 1 - Math.pow((v - 0.45) / 0.55, 2)))
+                }
+                const top = (dx: number) => -H + R(Math.abs(dx) < W * 0.3 ? 1 : 0)
+                for (let dy = R(-H); dy <= R(H + 4); dy++) {
+                    const hw = R(half(dy))
+                    for (let dx = -hw; dx <= hw; dx++) {
+                        if (dy < top(dx)) continue
+                        const edge = hw - Math.abs(dx)
+                        const fromTop = dy - top(dx)
+                        const rim = edge < 2 || fromTop < 2 || dy > H + 2 - (hw < 3 ? 2 : 0)
+                        let c: number
+                        if (rim) c = (dx < 0 || fromTop < 2) ? (edge === 0 || fromTop === 0 ? C.gold3 : C.gold2) : (edge === 0 ? C.gold0 : C.gold1)
+                        else {
+                            // the field: lit toward the upper left, deepening toward the lower right
+                            const lit = (-dx / W) + (-dy / H)
+                            c = lit > 0.6 ? C.teal3 : lit > -0.2 ? C.teal2 : C.teal1
+                        }
+                        d.set(x + dx, y + dy, c)
+                    }
+                }
+                // the raised cross: white, lit edges gold3 along its top and left, shadowed gold1 bottom and right
+                const arm = R(W * 0.6)
+                const stem = R(H * 0.85)
+                const cross = (cx0: number, cy0: number, cw: number, ch: number) => {
+                    rect(d, cx0, cy0, cw, ch, C.white)
+                    rect(d, cx0, cy0, cw, 1, C.gold3); rect(d, cx0, cy0, 1, ch, C.gold3)
+                    rect(d, cx0, cy0 + ch - 1, cw, 1, C.gold1); rect(d, cx0 + cw - 1, cy0, 1, ch, C.gold1)
+                }
+                cross(x - 2, y - stem + 3, 5, stem + R(H * 0.6))
+                cross(x - arm, y - 5, arm * 2 + 1, 5)
+                rect(d, x - 1, y - 4, 3, 3, C.white)
+                // the gem at its heart, and a glint on it
+                disc(d, x, y - 3, 2.5, C.blue1); disc(d, x - 0.5, y - 3.5, 1.5, C.cyan); d.set(x - 1, y - 4, C.white)
+                // a soft sheen across the upper left of the field
+                for (let k = 0; k < R(W); k++) { const sx = x - R(W) + 3 + k; const sy = y - R(H) + 3 + R(k * 0.6); if (sx < x - 3) d.set(sx, sy, C.teal3) }
                 // the glint sweeping once across its face
                 const g = pr(t, 0.95, 1.3)
                 if (g > 0 && g < 1) {
-                    const gx = x - w + g * w * 2
-                    for (let dy = -h + 1; dy < h; dy++) d.set(R(gx + dy * 0.4), y + dy, C.white)
+                    const gx = x - W + g * W * 2
+                    for (let dy = R(-H) + 2; dy < R(H); dy++) if (Math.abs(R(gx + dy * 0.4) - x) < half(dy) - 2) d.set(R(gx + dy * 0.4), y + dy, C.white)
                 }
             }
         }
