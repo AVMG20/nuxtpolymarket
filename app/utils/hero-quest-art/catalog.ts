@@ -139,9 +139,10 @@ export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly
     {
         n: 16,
         label: 'Tank Champion abilities',
+        // Provoke and Guardian's Reflect approved on 2026-10-02; these five reworked on the user's notes
         prefixes: [
-            'vfx/champ_ability_provoke', 'vfx/champ_ability_bulwark_stance', 'vfx/champ_ability_guardians_reflect', 'vfx/champ_ability_rallying_shout',
-            'vfx/champ_ability_iron_skin', 'vfx/champ_ability_ground_slam', 'vfx/champ_ability_guardians_vow'
+            'vfx/champ_ability_bulwark_stance', 'vfx/champ_ability_rallying_shout', 'vfx/champ_ability_iron_skin',
+            'vfx/champ_ability_ground_slam', 'vfx/champ_ability_guardians_vow'
         ]
     }
 ]

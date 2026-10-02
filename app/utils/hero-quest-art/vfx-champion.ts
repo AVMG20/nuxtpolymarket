@@ -7,7 +7,7 @@
 // They replace their round-1 `vfx.ts` entries by ID, as the cinematics do the Hero skills'.
 
 import { C } from './palette'
-import { ditherDisc, hash2, line, rect, ring, tri, type Surface } from './surface'
+import { disc, ditherDisc, ditherEllipse, hash2, line, poly, rect, ring, tri, type Surface } from './surface'
 import { VL, pr, qt, eo, travel, lob, VP, burst, motes, stunStars, R } from './vfx-kit'
 import { abilityId, CHAMPIONS } from '../../../shared/utils/hero-quest/content/champions'
 import type { ChampionArchetype } from '../../../shared/utils/hero-quest/types'
@@ -188,30 +188,15 @@ const DAMAGE: VfxDef[] = [
 // The live stage fields the Tank on the front row's far mark (CHAMP_MARKS[0] in demo.ts), so its
 // self-effects are staged there rather than on the Hero's mark.
 const T = VL.allies[0]
+/** A four-point glint, its rays one or two pixels as it twinkles. */
+function glint(d: Surface, x: number, y: number, t: number): void {
+    const r = 1 + (Math.floor(qt(t) * 10) & 1)
+    for (let i = -r; i <= r; i++) { d.set(x + i, y, C.white); d.set(x, y + i, C.white) }
+}
 const TC = chestOf(T)
 const STONE: Ramp6 = [C.white, C.bone1, C.stone3, C.stone2, C.stone1, C.stone0]
+const EARTH: Ramp6 = [C.white, C.bone1, C.sand2, C.brown2, C.brown1, C.brown0]
 const SHIELD: Ramp6 = [C.white, C.gold3, C.gold3, C.gold2, C.gold1, C.gold0]
-
-/** A dome of light over a body standing on `g`: hex cells, a glint sweeping across. */
-function dome(d: Surface, x: number, g: number, r: number, t: number, rim: number, cell: number): void {
-    if (r < 2) return
-    const q = qt(t)
-    const sweep = ((q * 1.2) % 1) * r * 2 - r
-    for (let dy = -R(r * 1.25); dy <= 0; dy++) {
-        for (let dx = -R(r); dx <= R(r); dx++) {
-            const k = Math.hypot(dx, dy / 1.25) / r
-            if (k > 1) continue
-            const x0 = x + dx
-            const y0 = g - 1 + dy
-            if (k > 0.86) { d.set(x0, y0, rim); continue }
-            // the hex lattice: every third column and a staggered row, only where the shell curves away
-            const hx = (dx + 30) % 6
-            const hy = (dy + 30 + (Math.floor((dx + 30) / 6) & 1) * 3) % 6
-            if ((hx === 0 || hy === 0) && k > 0.4) d.set(x0, y0, cell)
-            if (Math.abs(dx - sweep) < 1.5 && k > 0.3) d.set(x0, y0, C.white)
-        }
-    }
-}
 
 const TANK: VfxDef[] = [
     // self, taunt: a shield-bang rolls red rings out over the enemy line; every foe glares round
@@ -236,12 +221,35 @@ const TANK: VfxDef[] = [
             for (const [a, b] of [[-2, -2], [2, -2], [-2, 2], [2, 2]] as const) { d.set(f.x + a, y + b, c); d.set(f.x + a / 2, y + b / 2, c) }
         })
     }),
-    // self, DEF up: a golden shield-dome rises over the Tank, a glint sweeping its hex cells
+    // self, DEF up: a great golden shield raised before the Tank, a glint running across its face
     champ('Bulwark Stance', 'Tank', 1.4, (d, t) => {
         const q = qt(t)
-        const grow = eo(pr(t, 0.15, 0.4)) * (q < 1.1 ? 1 : 1 - (q - 1.1) / 0.3)
-        blast(d, T.x, T.g - 1, t, 0.15, 10, 0.4, SHIELD, 610, 'gold', true)
-        dome(d, T.x, T.g, 14 * grow, t, C.gold3, C.gold1)
+        const s = eo(pr(t, 0.15, 0.35)) * (q < 1.15 ? 1 : 1 - (q - 1.15) / 0.25)
+        blast(d, T.x + 8, TC, t, 0.15, 8, 0.35, SHIELD, 610, 'gold')
+        if (s > 0.05) {
+            const x = T.x + 9
+            const w = R(7 * s)
+            const h = R(9 * s)
+            // a heater shield: flat top, sides running down to a point; rim, face, cross and boss
+            const pts = [-w, -h, w, -h, w, R(h * 0.25), 0, h + 2, -w, R(h * 0.25)]
+            poly(d, pts, x, TC, C.gold1)
+            poly(d, pts.map(v => v === 0 ? 0 : v > 0 ? v - 1 : v + 1), x, TC, C.gold2)
+            rect(d, x - w + 1, TC - h + 1, w * 2 - 1, 1, C.gold3)
+            if (s > 0.8) { line(d, x, TC - h + 2, x, TC + h - 1, C.gold1); line(d, x - w + 2, TC - 2, x + w - 2, TC - 2, C.gold1); disc(d, x, TC - 2, 1.5, C.gold3) }
+            // the glint: a bright diagonal band sweeping once across the face
+            const g = pr(t, 0.45, 0.75)
+            if (g > 0 && g < 1) {
+                const gx = x - w - 4 + g * (w * 2 + 8)
+                for (let dy = -h + 1; dy <= h; dy++) {
+                    const half = w - 1 - (dy > h * 0.25 ? (dy - h * 0.25) : 0)
+                    for (const k of [0, 1]) {
+                        const px = R(gx + dy * 0.5) + k
+                        if (Math.abs(px - x) < half) d.set(px, TC + dy, k ? C.gold3 : C.white)
+                    }
+                }
+            }
+            if (g >= 1 && q < 0.9) glint(d, x + w - 1, TC - h + 1, t)
+        }
         if (q > 0.4) chevrons(d, T.x, TC - 22, t, true, C.gold3, C.white)
     }),
     // self, reflect: a crystal mirror flares before the Tank; a bolt from the foes strikes it and
@@ -274,11 +282,11 @@ const TANK: VfxDef[] = [
         for (let k = 0; k < 3; k++) {
             const u = (q - 0.2 - k * 0.12) / 0.6
             if (u < 0 || u >= 1) continue
-            const r = 6 + eo(u) * 60
-            arcBand(d, T.x - 2, TC + 8, r, Math.PI * 0.35, Math.PI * 1.35, R(2 + 4 * (1 - u)), 1, C.gold2, u < 0.5 ? C.white : C.gold3, C.gold1)
+            const r = 4 + eo(u) * 28
+            arcBand(d, T.x - 2, TC + 4, r, Math.PI * 0.4, Math.PI * 1.3, R(1 + 3 * (1 - u)), 1, C.gold2, u < 0.5 ? C.white : C.gold3, C.gold1)
         }
         VL.allies.forEach((a, i) => {
-            const at = 0.35 + Math.hypot(a.x - T.x, a.g - T.g) / 60 * 0.4
+            const at = 0.3 + Math.hypot(a.x - T.x, a.g - T.g) / 40 * 0.3
             blast(d, a.x, chestOf(a), t, at, 5, 0.35, SHIELD, 631 + i, 'gold')
             if (q >= at + 0.1) chevrons(d, a.x, chestOf(a) - 14, t, true, C.gold3, C.white)
         })
@@ -293,8 +301,10 @@ const TANK: VfxDef[] = [
             const dist = (1 - eo(u)) * 22 + 6
             const px = T.x + Math.cos(a) * dist
             const py = TC + Math.sin(a) * dist * 0.9
-            rect(d, R(px) - 2, R(py) - 2, 5, 4, C.steel3); rect(d, R(px) - 2, R(py) + 2, 5, 1, C.steel1); rect(d, R(px) - 2, R(py) - 2, 5, 1, C.white)
-            d.set(R(px), R(py), C.steel1)
+            // a round iron plate, rimmed dark, lit on its upper left, a rivet in its middle
+            disc(d, px, py, 2.5, C.steel1)
+            disc(d, px - 0.5, py - 0.5, 1.8, C.steel3)
+            d.set(R(px) - 1, R(py) - 1, C.white); d.set(R(px), R(py), C.steel1)
         }
         const u = pr(t, 0.55, 0.9)
         if (u > 0 && u < 1) {
@@ -304,21 +314,54 @@ const TANK: VfxDef[] = [
         blast(d, T.x, TC, t, 0.9, 10, 0.4, STEEL, 640, 'steel')
         if (q > 0.9) chevrons(d, T.x, TC - 22, t, true, C.steel2, C.white)
     }),
-    // the front line, stun: the Tank's slam heaves the ground, and it bursts up under each front foe
-    champ('Ground Slam', 'Tank', 1.4, (d, t) => {
+    // the front line, stun: the slam cracks the ground in a crater; cracks race out, and the
+    // earth bursts up under each front foe in spikes of rock, throwing chunks into the air
+    champ('Ground Slam', 'Tank', 1.5, (d, t) => {
         const q = qt(t)
-        blast(d, T.x + 6, T.g - 1, t, 0.25, 12, 0.45, STONE, 650, 'dust', true)
-        shockRing(d, T.x + 6, T.g - 1, t, 0.25, 0.5, 4, 36, C.bone1, true)
-        shockRing(d, T.x + 6, T.g - 1, t, 0.32, 0.5, 3, 24, C.stone3, true)
+        const sx = T.x + 7
+        const SLAM = 0.25
+        // the crater: a dark dish with a heaved rim
+        if (q >= SLAM && q < 1.5) {
+            const fade = q < 1.1 ? 1 : 1 - (q - 1.1) / 0.4
+            ditherEllipse(d, sx, T.g, 9 * fade, 2.5 * fade, C.ink, 12)
+            for (const dx of [-9, -7, 7, 9]) d.set(sx + dx, T.g - 2, C.stone2)
+        }
+        blast(d, sx, T.g - 1, t, SLAM, 13, 0.45, EARTH, 650, 'dust', true)
+        shockRing(d, sx, T.g - 1, t, SLAM, 0.45, 4, 28, C.bone1, true)
+        burst(d, sx, T.g - 2, t, SLAM, 16, 90, 'dust', 649, 0.7, 180, -Math.PI / 2, 1.4, 2)
         for (let i = 0; i < 3; i++) {
             const f = F[i]!
-            const at = 0.45 + i * 0.06
-            blast(d, f.x, f.g - 1, t, at, 11, 0.5, STONE, 651 + i, 'dust', true)
-            burst(d, f.x, f.g - 2, t, at, 10, 60, 'dust', 655 + i, 0.6, 140, -Math.PI / 2, 1.6, 2)
-            if (q >= at + 0.15) stunStars(d, f.x, chestOf(f) - 12, t)
+            const at = 0.5 + i * 0.07
+            // a crack racing along the ground to the foe
+            const cu = pr(t, SLAM, at)
+            if (q >= SLAM && q < at + 0.5) {
+                const n = 14
+                for (let k = 0; k < n * cu; k++) {
+                    const u = k / n
+                    const x = sx + (f.x - sx) * u
+                    const y = T.g - 1 + (f.g - T.g) * u + (hash2(k, 70 + i) > 0.5 ? 1 : 0)
+                    d.set(R(x), R(y), k > n * cu - 2 ? C.white : C.sand2); d.set(R(x), R(y) + 1, C.brown0)
+                }
+            }
+            blast(d, f.x, f.g - 1, t, at, 13, 0.5, EARTH, 651 + i, 'dust', true)
+            blast(d, f.x, chestOf(f), t, at + 0.05, 7, 0.3, STONE, 660 + i, 'dust')
+            // the spikes: stone bursting up under the foe over the blast, then sinking
+            const age = (q - at) / 0.6
+            if (age >= 0 && age < 1) {
+                const h = R(20 * (age < 0.12 ? age / 0.12 : 1 - (age - 0.12) / 0.88))
+                if (h > 1) for (const [dx, k] of [[-5, 0.6], [5, 0.7], [0, 1]] as const) {
+                    const hh = R(h * k)
+                    tri(d, f.x + dx - 3, f.g - 1, f.x + dx + 3, f.g - 1, f.x + dx, f.g - 1 - hh, C.stone2)
+                    tri(d, f.x + dx - 3, f.g - 1, f.x + dx, f.g - 1, f.x + dx, f.g - 1 - hh, C.stone3)
+                    d.set(f.x + dx, f.g - 1 - hh, C.white); d.set(f.x + dx, f.g - hh, C.bone1)
+                }
+            }
+            burst(d, f.x, f.g - 2, t, at, 16, 90, 'dust', 655 + i, 0.7, 170, -Math.PI / 2, 1.4, 2)
+            if (q >= at + 0.2) stunStars(d, f.x, chestOf(f) - 12, t)
         }
     }),
-    // self, redirect: golden tethers run from the Tank to every ally, light flowing back along them
+    // self, redirect: glowing gold tethers run from the Tank to every ally, light flowing back
+    // along them to it, and a small gold shield flashes up over each ally it now guards
     champ("Guardian's Vow", 'Tank', 1.5, (d, t) => {
         const q = qt(t)
         blast(d, T.x, TC, t, 0.1, 7, 0.35, SHIELD, 660, 'gold')
@@ -327,28 +370,29 @@ const TANK: VfxDef[] = [
             const fade = q < 1.2 ? 1 : 1 - (q - 1.2) / 0.3
             VL.allies.forEach((a, i) => {
                 if (i === 0) return
-                const ex = T.x + (a.x - T.x) * reach
-                const ey = TC + (chestOf(a) - TC) * reach
-                const n = Math.max(2, R(Math.hypot(ex - T.x, ey - TC) / 3))
+                const ax = a.x
+                const ay = chestOf(a)
+                const n = Math.max(3, R(Math.hypot(ax - T.x, ay - TC) / 2))
                 for (let k = 0; k <= n; k++) {
-                    const u = k / n
-                    const x = T.x + (ex - T.x) * u
-                    const y = TC + (ey - TC) * u + Math.sin(u * Math.PI) * 3
-                    if (fade < 0.5 && (k & 1)) continue
-                    d.set(R(x), R(y), k & 1 ? C.gold2 : C.gold3); d.set(R(x), R(y) + 1, C.gold1)
+                    const u = k / n * reach
+                    const x = T.x + (ax - T.x) * u
+                    const y = TC + (ay - TC) * u + Math.sin(u * Math.PI) * 4
+                    if (fade < 0.6 && (k & 1)) continue
+                    d.set(R(x), R(y), C.gold2); d.set(R(x), R(y) + 1, C.gold1); d.set(R(x), R(y) - 1, C.gold3)
                 }
-                // light flowing back along the tether to the Tank
-                if (reach >= 1) for (let k = 0; k < 2; k++) {
+                if (reach < 1) return
+                for (let k = 0; k < 2; k++) {
                     const ph = 1 - ((q * 1.4 + k / 2 + i * 0.13) % 1)
-                    d.set(R(T.x + (a.x - T.x) * ph), R(TC + (chestOf(a) - TC) * ph + Math.sin(ph * Math.PI) * 3), C.white)
+                    disc(d, T.x + (ax - T.x) * ph, TC + (ay - TC) * ph + Math.sin(ph * Math.PI) * 4, 1, C.white)
                 }
-                if (reach >= 1) { ring(d, a.x, chestOf(a), 6, C.gold2); d.set(a.x, chestOf(a) - 7, C.white) }
+                // the ward over the ally: a tiny gold shield
+                const sy = ay - 14
+                rect(d, ax - 2, sy, 5, 3, C.gold2); rect(d, ax - 1, sy + 3, 3, 1, C.gold2); d.set(ax, sy + 4, C.gold2)
+                d.set(ax - 2, sy, C.gold3); d.set(ax, sy + 1, C.white)
             })
-            // a halo of the vow over the Tank
-            for (let i = 0; i < 12; i++) {
-                const ang = q * 2 + i / 12 * Math.PI * 2
-                d.set(R(T.x + Math.cos(ang) * 7), R(TC - 18 + Math.sin(ang) * 2), i & 1 ? C.gold2 : C.white)
-            }
+            // the Tank's own glow where the tethers meet
+            disc(d, T.x, TC, 2 + (Math.floor(q * 8) & 1), C.gold3)
+            d.set(T.x, TC, C.white)
         }
     })
 ]
