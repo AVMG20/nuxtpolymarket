@@ -20,7 +20,7 @@ import { BOSS_STATES } from './boss-kit'
 import { drawSpecialPreview, PREVIEW_VIEW, PREVIEW_RAID_VIEW } from './special-kit'
 import { BOSSES_A } from './bosses-a'
 import { BOSSES_B } from './bosses-b'
-import { VFX, MULTI_STRIKE, drawMultiStrike, drawVfxStage } from './vfx'
+import { VFX, MULTI_STRIKE, drawMultiStrike, drawVfxStage, type VfxDef } from './vfx'
 import { VL } from './vfx-kit'
 import { CINEMATIC_BY_ID, cinematicStage } from './vfx-cinematic'
 import { CHAMPION_STYLED_BY_ID, championStage } from './vfx-champion'
@@ -43,7 +43,7 @@ import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
     | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons' | 'offense_artifact_icons' | 'defense_artifact_icons' | 'tempo_artifact_icons' | 'fortune_artifact_icons' | 'gear_icons' | 'currency_icons' | 'status_icons'
-    | 'hero_skill_vfx' | 'vfx' | 'feedback' | 'frames' | 'backgrounds' | 'ui' | 'branding'
+    | 'hero_skill_vfx' | 'damage_ability_vfx' | 'vfx' | 'feedback' | 'frames' | 'backgrounds' | 'ui' | 'branding'
 
 /**
  * The gallery's groups. `locked` marks art whose design is settled (the user's call, 2026-09-28):
@@ -70,6 +70,8 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'forge_master', label: 'Forge Raid · The Forgemaster', locked: true },
     // the Hero skills split out of Ability VFX to lock on their own (2026-10-02, the user)
     { id: 'hero_skill_vfx', label: 'Ability VFX · Hero skills', locked: true },
+    // the Champion abilities lock an archetype at a time (2026-10-02, the user)
+    { id: 'damage_ability_vfx', label: 'Ability VFX · Damage Champions', locked: true },
     { id: 'vfx', label: 'Ability VFX' },
     // the damage numbers, the party frames, the cooldown radial and the enrage timer (2026-09-29, the user)
     { id: 'feedback', label: 'Combat feedback', locked: true },
@@ -129,18 +131,11 @@ export interface ArtAsset {
  * 2026-09-28), Round 5 when the last Forge boss locked (2026-09-29), Round 6 when the Champion
  * ability crests locked (2026-10-01), Rounds 7–10 when the offense, defense, tempo and fortune
  * Artifacts locked, Round 11 when the Gear locked, Round 12 when the currencies locked and Round
- * 13 when the status effects locked and Round 14 when the Hero skill VFX locked (all
- * 2026-10-02), so the next round is 16;
+ * 13 when the status effects locked, Round 14 when the Hero skill VFX locked and Round 15 when
+ * the Damage Champion abilities locked (all 2026-10-02), so the next round is 16;
  * every earlier round is recorded in art-style.md.
  */
-export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = [
-    {
-        n: 15,
-        label: 'Damage Champion abilities',
-        // the other six approved on 2026-10-02; Execute Strike redrawn on the user's note
-        prefixes: ['vfx/champ_ability_execute_strike']
-    }
-]
+export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
 /** An asset rendered once into reusable frames — what the live stage blits. */
 export interface Baked { frames: Surface[], ax: number, ay: number, fps: number, loop: boolean }
@@ -372,10 +367,18 @@ function raidAssets(): ArtAsset[] {
     return out
 }
 
+/** Which gallery group an ability effect sits in: each archetype splits out of Ability VFX as it locks. */
+const LOCKED_ARCHETYPE_VFX: Readonly<Record<string, ArtGroup>> = { Damage: 'damage_ability_vfx' }
+function vfxGroup(v: VfxDef): ArtGroup {
+    if (v.source === 'class') return 'hero_skill_vfx'
+    if (v.source === 'champion') return LOCKED_ARCHETYPE_VFX[v.owner] ?? 'vfx'
+    return 'vfx'
+}
+
 function vfxAssets(): ArtAsset[] {
     const SECTION = { class: 'Hero skills', champion: 'Champion abilities', training: 'Training Grounds actives' } as const
     const out: ArtAsset[] = VFX.map(v => ({
-        id: `vfx/${v.id}`, group: v.source === 'class' ? 'hero_skill_vfx' as const : 'vfx' as const, section: SECTION[v.source], label: `${v.name} — ${v.owner}`,
+        id: `vfx/${v.id}`, group: vfxGroup(v), section: SECTION[v.source], label: `${v.name} — ${v.owner}`,
         w: VL.W, h: VL.H, frames: Math.round(v.dur * ANIM_FPS), fps: ANIM_FPS, loop: false,
         render: (dst: Surface, f: number) => v.draw(dst, f / ANIM_FPS),
         underlay: CINEMATIC_BY_ID[v.id] ? cinematicStage(v.id) : CHAMPION_STYLED_BY_ID[v.id] ? championStage : drawVfxStage
