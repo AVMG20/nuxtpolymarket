@@ -692,11 +692,11 @@ function seal(g: Surface, x: number, y: number, m: Mat, mark: (g: Surface, x: nu
 function essence(g: Surface, x: number, y: number, m: Mat): void {
     // a stoppered vial, the system's essence glowing in its round belly
     rect(g, x - 1, y - 7, 3, 2, C.brown2)
-    rect(g, x - 1, y - 5, 3, 5, C.frost)
-    disc(g, x, y + 3, 4, C.frost)
-    disc(g, x, y + 4, 3, m[1])
-    rect(g, x - 3, y + 2, 7, 1, m[2])
-    px(g, x - 2, y + 3, C.white); px(g, x + 1, y + 5, m[0])
+    rect(g, x - 1, y - 5, 3, 4, C.frost)
+    disc(g, x, y + 2.5, 4.5, C.frost)
+    disc(g, x, y + 3.5, 3.5, m[1])
+    rect(g, x - 3, y + 1, 7, 1, m[2])
+    px(g, x - 2, y + 2, C.white); px(g, x + 2, y + 4, m[0])
 }
 type KeyBow = 'shield' | 'target' | 'diamond' | 'flame' | 'star'
 function key(g: Surface, x: number, y: number, m: Mat, bow: KeyBow): void {
@@ -705,8 +705,11 @@ function key(g: Surface, x: number, y: number, m: Mat, bow: KeyBow): void {
     const by = y - 3
     line(g, x - 1, y - 1, x + 5, y + 5, m[1], 2)
     rect(g, x + 2, y + 5, 2, 2, m[1]); rect(g, x + 4, y + 3, 2, 2, m[1])
-    // the shield stands up and left of the shaft with its point on it, so the shaft leaves from the point, not its side
-    if (bow === 'shield') { poly(g, [-3, -3, 3, -3, 3, 0, 0, 3, -3, 0], bx - 1, by - 1, m[1]); rect(g, bx - 1, by - 3, 1, 4, m[2]) }
+    // the shield is laid over the shaft, inked along the edge that crosses it so it reads in front rather than merged with it
+    if (bow === 'shield') {
+        line(g, bx + 4, by, bx + 1, by + 3, C.ink)
+        poly(g, [-3, -3, 3, -3, 3, 0, 0, 3, -3, 0], bx, by, m[1]); rect(g, bx, by - 2, 1, 4, m[2])
+    }
     else if (bow === 'target') { disc(g, bx, by, 3.5, m[1]); ring(g, bx, by, 2, C.white); px(g, bx, by, m[0]) }
     else if (bow === 'diamond') { poly(g, [0, -4, 4, 0, 0, 4, -4, 0], bx, by, m[1]); poly(g, [0, -4, -4, 0, 0, 0], bx, by, m[2]) }
     else if (bow === 'flame') {
@@ -736,17 +739,16 @@ export const CURRENCY_ICONS: Readonly<Record<string, Glyph>> = {
         px(g, x + 1, y - 3, C.white)
     },
     gems: (g, x, y) => {
-        // a brilliant: a flat table, a crown of three facets, the pavilion cut in four down to a point
-        poly(g, [-6, -2, -3, -5, 3, -5, 6, -2], x, y, C.cyan)
+        // a brilliant: a flat table, a crown of facets, the pavilion run down to a point in three shades
+        poly(g, [-6, -2, -3, -5, 3, -5, 6, -2, 0, 6], x, y, C.cyan)
+        poly(g, [-6, -2, 6, -2, 0, 6], x, y, C.blue1)
+        poly(g, [-6, -2, 0, -2, 0, 6], x, y, C.blue2)
+        poly(g, [-6, -2, -3, -2, 0, 6], x, y, C.cyan)
         poly(g, [-6, -2, -3, -5, -2, -2], x, y, C.frost)
-        poly(g, [6, -2, 3, -5, 2, -2], x, y, C.blue2)
         rect(g, x - 2, y - 5, 5, 3, C.frost)
+        line(g, x + 3, y - 5, x + 4, y - 2, C.blue2)
+        rect(g, x - 5, y - 2, 11, 1, C.blue2)
         px(g, x - 1, y - 4, C.white)
-        poly(g, [-6, -1, -2, -1, 0, 6], x, y, C.cyan)
-        poly(g, [-2, -1, 0, -1, 0, 6], x, y, C.blue2)
-        poly(g, [0, -1, 2, -1, 0, 6], x, y, C.blue1)
-        poly(g, [2, -1, 6, -1, 0, 6], x, y, C.blue0)
-        rect(g, x - 6, y - 2, 13, 1, C.blue0)
     },
     void_shards: (g, x, y) => {
         // a sliver of the Void lying aslant, a sharp point at the top right, a jagged break at the bottom left, a chip flaking off it
