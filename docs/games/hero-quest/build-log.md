@@ -510,9 +510,9 @@ a new world, a prestige, a tab back from hidden — rebuilds rather than replays
 between packs only when a kill takes 3.2 s or more; faster, the next pack fades in where it stands.
 
 **Choices made without asking, easy to flip:** every body of an elite stage wears the elite
-mark, since all of them carry the elite multiplier; the Hero's skill casts and the party's attack
-cadence are still the art page's cosmetic rhythm, not the skill cooldowns; Champions use the
-Hero's crit figures, since the payload serves no per-Champion crit. The crit font gained an `E`
+mark, since all of them carry the elite multiplier; the party's basic-attack cadence is still the
+art page's cosmetic rhythm (skill casts are not: see below); Champions use the Hero's crit
+figures, since the payload serves no per-Champion crit. The crit font gained an `E`
 glyph for numbers past the trillions (`4.20E15`).
 
 **The boss replay landed the same day.** The stage acts out the server's event log;
@@ -534,6 +534,20 @@ past the gate, so the modal had been naming the next stage's foes.
 **Choices made without asking:** a Hero skill's cinematic plays as a flourish only (its numbers
 are the log's hits); statuses do not show as pips on the party frames, since the log's ids are
 ability ids, not the status icons'; the result banner is the stage's own (VICTORY, DEFEAT, TIME UP).
+
+**Skill casts run on the real cooldowns** (the user's call, the same day). The hero payload
+carries `kits` (`projection.partyKits`): every unit's kit as `runFight` arms it, each ability's
+cooldown from that unit's own SPD and cooldown factor, and whether it deals damage. On the idle
+stage each ability starts on its full cooldown, as a fight does, ticks continuously, and casts the
+moment it comes due, with its own effect; one that only lands on allies shows no blow. A level or
+an equip that moves a cooldown updates it in place, without rebuilding the stage. `party-kits.spec`
+pins that every ability's first cast in a real seeded fight lands on the cooldown served for it.
+A deep kit comes off cooldown faster than one body can play its casts (a level-30 Sorcerer has
+four abilities on 3.8 s), so the most overdue casts first and one left waiting 0.6 s fires on its
+own, its effect and blow without a cast clip: the stage casts as often as the fight. The full
+cinematic is kept for the class's own skill, as on the art page; a kit of them would hold the
+fight still. Hit-stop freezes pause the cooldowns with everything else, so the stage casts a
+little under the fight's count over a long watch. Boss replays show each cast's own effect too.
 
 ---
 
