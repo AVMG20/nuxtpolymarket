@@ -314,8 +314,8 @@ const TANK: VfxDef[] = [
         blast(d, T.x, TC, t, 0.9, 10, 0.4, STEEL, 640, 'steel')
         if (q > 0.9) chevrons(d, T.x, TC - 22, t, true, C.steel2, C.white)
     }),
-    // the front line, stun: the slam cracks the ground in a crater; cracks race out, and the
-    // earth bursts up under each front foe in spikes of rock, throwing chunks into the air
+    // the front line, stun: the slam cracks the ground in a crater, and a beat later the earth
+    // bursts up under each front foe in spikes of rock, throwing chunks into the air
     champ('Ground Slam', 'Tank', 1.5, (d, t) => {
         const q = qt(t)
         const sx = T.x + 7
@@ -332,17 +332,6 @@ const TANK: VfxDef[] = [
         for (let i = 0; i < 3; i++) {
             const f = F[i]!
             const at = 0.5 + i * 0.07
-            // a crack racing along the ground to the foe
-            const cu = pr(t, SLAM, at)
-            if (q >= SLAM && q < at + 0.5) {
-                const n = 14
-                for (let k = 0; k < n * cu; k++) {
-                    const u = k / n
-                    const x = sx + (f.x - sx) * u
-                    const y = T.g - 1 + (f.g - T.g) * u + (hash2(k, 70 + i) > 0.5 ? 1 : 0)
-                    d.set(R(x), R(y), k > n * cu - 2 ? C.white : C.sand2); d.set(R(x), R(y) + 1, C.brown0)
-                }
-            }
             blast(d, f.x, f.g - 1, t, at, 13, 0.5, EARTH, 651 + i, 'dust', true)
             blast(d, f.x, chestOf(f), t, at + 0.05, 7, 0.3, STONE, 660 + i, 'dust')
             // the spikes: stone bursting up under the foe over the blast, then sinking
