@@ -222,6 +222,42 @@ export interface RunParty {
     classId: string
     heroRow: 'front' | 'back'
     champions: readonly { id: string, row: 'front' | 'back', level: number }[]
+    /**
+     * Each unit's kit as the fight arms it, keyed by the Hero's class or the Champion's id: each
+     * ability's live cooldown, and whether it deals damage. The stage casts on these.
+     */
+    kits?: readonly { id: string, skills: readonly { id: string, cooldownSeconds: number, damaging: boolean }[] }[]
+}
+
+/** One ability on a body's kit: its cooldown, the seconds left on it, and how it looks. */
+interface Cast {
+    id: string
+    cooldown: number
+    timer: number
+    damaging: boolean
+    vfx: VfxDef | null
+    /** The Hero's cinematic for it, when it has one and deals damage. */
+    cine: CinematicVfx | null
+}
+
+/** The shortest cooldown the stage keeps to, so a kit served at 0 cannot cast every tick. */
+const RUN_MIN_COOLDOWN = 0.5
+
+/**
+ * How long past due an ability may wait for its body to be free to cast it. A deep kit comes off
+ * cooldown faster than one body can play its casts; past this the ability fires on its own (its
+ * effect and its blow, no cast clip), so the stage casts as often as the fight does.
+ */
+const RUN_CAST_OVERDUE = 0.6
+
+/** The most overdue ability on a body's kit, so none starves behind the others; null when none is due. */
+function readyCast(u: Unit): Cast | null {
+    let best: Cast | null = null
+    for (let k = 0; k < u.casts.length; k++) {
+        const c = u.casts[k]!
+        if (c.timer <= 0 && (!best || c.timer < best.timer)) best = c
+    }
+    return best
 }
 
 /** Each row's ally marks, nearest rank first: who a row takes in. */
@@ -345,6 +381,9 @@ interface Unit {
     phase: Phase
     /** Numbers stacked on this unit by the skill playing now. */
     stack: number
+    /** The game's stage: this body's kit, each ability on its live cooldown, and the one it is casting. */
+    casts: Cast[]
+    casting: Cast | null
     /** A boss fight's replay: the logged blow this swing is bringing, landed at its impact. */
     beat: Beat | null
 }
@@ -649,6 +688,32 @@ export class BattleDemo {
         this.members[0]!.level = feed.heroLevel
     }
 
+    /**
+     * The party's kits, with each ability's live cooldown. A new ability starts on its full
+     * cooldown, as in a fight; one already on the kit keeps how far along it is, so a level that
+     * shortens a cooldown takes effect without resetting it.
+     */
+    setKits(kits: NonNullable<RunParty['kits']>): void {
+        const signature = CLASS_BY_ID[this.rosterIds[0] as keyof typeof CLASS_BY_ID]?.skill.id
+        for (let i = 0; i < this.rosterIds.length; i++) {
+            const u = this.units[i]!
+            const kit = kits.find(k => k.id === this.rosterIds[i])
+            u.casts = (kit?.skills ?? []).map((s) => {
+                const cooldown = Math.max(RUN_MIN_COOLDOWN, s.cooldownSeconds)
+                const was = u.casts.find(c => c.id === s.id)
+                return {
+                    id: s.id,
+                    cooldown,
+                    timer: was ? Math.min(was.timer, cooldown) : cooldown,
+                    damaging: s.damaging,
+                    vfx: VFX_BY_ID[s.id] ?? u.vfx,
+                    // the cinematic is the class's own skill's, as on the art page: a whole kit of them would never let the fight move
+                    cine: i === 0 && s.damaging && s.id === signature ? CINEMATIC_BY_ID[s.id] ?? null : null
+                }
+            })
+        }
+    }
+
     /** The run moved on: drop what is due, clear a stage, fall to a wall, or rebuild for a new world. */
     feedRun(feed: RunFeed): void {
         const r = this.run
@@ -811,7 +876,9 @@ export class BattleDemo {
             u.t = 0
             u.fired = false
             u.beat = b
-            if (b.cast && b.side === 0 && b.actor === 0 && this.heroCine) this.startCine(this.heroCine, u)
+            // the Hero's cinematic for a damaging cast: the ability's own, else the class skill's
+            const cine = b.cast && b.side === 0 && b.actor === 0 && b.hits.length ? (b.skillId ? CINEMATIC_BY_ID[b.skillId] : null) ?? this.heroCine : null
+            if (cine) this.startCine(cine, u)
         }
         for (let k = rp.late.length - 1; k >= 0; k--) {
             if (rp.late[k]!.at > rp.clock) continue
@@ -826,7 +893,8 @@ export class BattleDemo {
     private strikeBeat(u: Unit, cast: boolean): void {
         const b = u.beat!
         u.beat = null
-        if (cast && u.vfx) this.playFx(u.vfx)
+        const vfx = (b.skillId ? VFX_BY_ID[b.skillId] : null) ?? u.vfx
+        if (cast && vfx) this.playFx(vfx)
         if (!u.shot || cast) {
             this.applyBeat(b)
             return
@@ -1022,6 +1090,7 @@ export class BattleDemo {
         for (const u of [...foes, boss]) u.state = U.Gone
         for (const u of [heroUnit, ...champs]) u.hp = PARTY_HP
         this.rosterIds = [classId, ...roster]
+        if (party?.kits) this.setKits(party.kits)
         this.members = [`hero/${classId}`, ...roster.map(id => `champion/${id}`)].map((asset, i) => ({
             hp: 1, lost: 0, flash: false, hurt: false, hero: i === 0, level: party ? (i ? fielded[i - 1]!.level : 1) : SHOWCASE_LEVELS[i]!, statuses: [], portrait: headAt(headOf(asset))
         }))
@@ -1051,7 +1120,7 @@ export class BattleDemo {
             clips: [null, clips[0] ?? null, clips[1] ?? null],
             impact: [0, clips[0]?.impact ?? 0.45 * attack!.frames.length / ANIM_FPS, clips[1]?.impact ?? 0.45 * (cast ?? attack!).frames.length / ANIM_FPS],
             vfx, accent: C.red3, shot: null, shots: 1, rig: -1, hold: 0, jolt: 0, flash: 0, sit: 0, chest: 14, crown: 40, strikeAt: -1,
-            state: U.Idle, t: 0, wait: 0.5 + Math.random() * 1.2, fired: false, hp: 4, shown: 1, lag: 1, lagHold: 0, phase: Phase.Idle, stack: 0, beat: null
+            state: U.Idle, t: 0, wait: 0.5 + Math.random() * 1.2, fired: false, hp: 4, shown: 1, lag: 1, lagHold: 0, phase: Phase.Idle, stack: 0, casts: [], casting: null, beat: null
         }
     }
 
@@ -1353,6 +1422,8 @@ export class BattleDemo {
             u.state = U.Entry
             u.t = 0
             u.hp = PARTY_HP
+            // a new attempt opens on full cooldowns, as a fight does
+            for (const c of u.casts) c.timer = c.cooldown
         }
         for (let i = PARTY; i < this.units.length; i++) this.units[i]!.state = U.Gone
         this.spawnWave()
@@ -1363,6 +1434,22 @@ export class BattleDemo {
         const r = this.run!
         r.tick(dt)
         if (this.replay) return
+        // cooldowns run the whole time, as in the fight; a fallen body's wait for its next attempt
+        const fighting = !this.march && !this.standoff && !this.cine && this.wipeT <= 0
+        for (let i = 0; i < this.members.length; i++) {
+            const u = this.units[i]!
+            if (u.state === U.Gone || u.state === U.Death) continue
+            for (let k = 0; k < u.casts.length; k++) {
+                const c = u.casts[k]!
+                c.timer -= dt
+                // one its body has been too busy to cast fires on its own
+                if (!fighting || c.timer > -RUN_CAST_OVERDUE) continue
+                c.timer += c.cooldown
+                if (c.vfx) this.playFx(c.vfx)
+                const tgt = c.damaging ? this.target(0) : null
+                if (tgt) this.landRun(u, tgt, false)
+            }
+        }
         if (this.wipeT > 0) {
             this.wipeT -= dt
             if (this.wipeT <= 0) this.riseParty()
@@ -1727,7 +1814,12 @@ export class BattleDemo {
         // a replay's bodies only ever bring the log's blows
         if (this.replay) return
         const tgt = this.target(u.side)
-        if (cast && u.vfx) this.playFx(u.vfx)
+        // the game's casts show their own ability; one that only lands on allies deals nothing
+        const casting = u.casting
+        u.casting = null
+        const vfx = casting ? casting.vfx : u.vfx
+        if (cast && vfx) this.playFx(vfx)
+        if (casting && !casting.damaging) return
         if (!tgt) return
         // a ranged Basic Attack looses its arrows or bolts; the hit lands when they arrive
         if (u.shot && !cast) {
@@ -1822,18 +1914,27 @@ export class BattleDemo {
             const b = u.frames[u.state]!
             const dur = b.frames.length / b.fps
             switch (u.state) {
-                case U.Idle:
+                case U.Idle: {
                     u.phase = Phase.Idle
                     // everyone holds while a Hero skill has the stage
                     // the Training Grounds dummy never swings, and nobody swings at it once time is up
-                    if (!this.cine && !this.march && !this.standoff && u.t >= u.wait && this.target(u.side) && !(dummy && (u.boss || dummy.over >= 0))) {
+                    // in the game an ability fires the moment its cooldown ends, without waiting out the pause between swings
+                    const ready = this.run && u.side === 0 ? readyCast(u) : null
+                    if (!this.cine && !this.march && !this.standoff && (u.t >= u.wait || ready) && this.target(u.side) && !(dummy && (u.boss || dummy.over >= 0))) {
                         // a boss opens with its special, then reaches for it now and then
                         const special = u.boss && this.bossSpecial !== null && (!this.bossOpened || Math.random() < SPECIAL_CHANCE)
-                        const cast = u.side === 0 ? Math.random() < 0.3 : special
+                        const cast = this.run && u.side === 0 ? ready !== null : u.side === 0 ? Math.random() < 0.3 : special
                         u.state = cast ? U.Cast : U.Attack
                         u.t = 0
                         u.fired = false
-                        if (cast && i === 0 && this.heroCine) this.startCine(this.heroCine, u)
+                        // set on every swing, so a cast cut short by a hit never carries over to the next one
+                        u.casting = ready
+                        if (ready) {
+                            ready.timer += ready.cooldown
+                            if (ready.cine) this.startCine(ready.cine, u)
+                        } else if (cast && i === 0 && this.heroCine && !this.run) {
+                            this.startCine(this.heroCine, u)
+                        }
                         if (special) {
                             // a raid boss with several specials takes them in turn, its body swapped into the Cast slot
                             const r = this.raid
@@ -1851,6 +1952,7 @@ export class BattleDemo {
                         }
                     }
                     break
+                }
                 case U.Attack:
                 case U.Cast: {
                     const clip = u.clips[u.state]

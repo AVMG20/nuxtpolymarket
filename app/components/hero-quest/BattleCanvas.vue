@@ -109,6 +109,11 @@ watch(partyKey, () => {
     if (!props.fight) build()
 })
 
+// a level or an equip moves cooldowns; they change in place, without rebuilding the stage
+watch(() => props.party.kits, (kits) => {
+    if (kits) stage?.setKits(kits)
+})
+
 /**
  * How far the fight has played, reported to the readout. Read off the stage, or, before the
  * stage has loaded, off a clock of its own, so a fight never waits on the art to finish.

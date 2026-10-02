@@ -41,7 +41,7 @@ describe('scriptFight', () => {
             { at: 3, kind: 'heal', unitIndex: 0, skillId: 'mend', damage: '20', remainingHp: '80' },
             { at: 3, kind: 'skill', unitIndex: 2, skillId: 'mend', damage: '0' }
         ])
-        expect(beats).toEqual([{ at: 3, side: 0, actor: 2, cast: true, hits: [], downs: [] }])
+        expect(beats).toEqual([{ at: 3, side: 0, actor: 2, cast: true, skillId: 'mend', hits: [], downs: [] }])
         expect(instants.map(e => e.kind)).toEqual(['heal'])
     })
 

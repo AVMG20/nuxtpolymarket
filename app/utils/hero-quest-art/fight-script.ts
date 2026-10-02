@@ -18,6 +18,8 @@ export interface Beat {
     actor: number
     /** An ability rather than a basic attack: the cast clip, not the swing. */
     cast: boolean
+    /** The ability a cast is, for its effect; absent on a basic attack. */
+    skillId?: string
     hits: FightEvent[]
     /** The `unit_down` / `enemy_down` events these hits caused, shown as the blow lands. */
     downs: FightEvent[]
@@ -53,6 +55,7 @@ export function scriptFight(events: readonly FightEvent[]): FightScript {
             let beat = open.get(key)
             if (!beat) {
                 beat = { at: e.at, side: who.side, actor: who.actor, cast: who.cast, hits: [], downs: [] }
+                if (e.skillId !== undefined) beat.skillId = e.skillId
                 open.set(key, beat)
                 beats.push(beat)
             }

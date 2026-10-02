@@ -26,10 +26,13 @@ const { liveRun, liveHero } = useHqLiveRun(run, hero)
  */
 const party = computed(() => {
     const g = guild.value
-    if (!g) return { heroRow: 'front' as const, champions: [] }
+    // each unit's kit on its live cooldowns, so skills cast when the fight would cast them
+    const kits = hero.value?.kits
+    if (!g) return { heroRow: 'front' as const, champions: [], kits }
     const byId = new Map(g.roster.map(c => [c.id, c]))
     return {
         heroRow: g.heroRow,
+        kits,
         champions: g.partyChampionIds.flatMap((id) => {
             const c = byId.get(id)
             return c ? [{ id, row: c.row, level: c.level }] : []
