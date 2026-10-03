@@ -148,13 +148,6 @@ export const useHeroQuest = () => {
         const res = await call<{ voidShardsEarned: string; prestige: number }>(
             '/api/hero-quest/prestige/execute', {}, ''
         )
-        if (res) {
-            toast.add({
-                title: `Prestige ${res.prestige} — ${formatNumber(Number(res.voidShardsEarned))} Void Shards`,
-                description: 'Your hero keeps every level.',
-                color: 'success'
-            })
-        }
         // Gold moves during the settle that precedes the reset.
         await fetchSession()
         return res
