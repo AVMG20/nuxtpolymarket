@@ -287,12 +287,15 @@ export function runMarks(heroRow: RunParty['heroRow'], rows: readonly RunParty['
     return [take(heroRow), ...rows.map(take)]
 }
 
-/** The game's stage only: seconds a pack must take to fall before the party marches to the next one rather than meeting it where it stands. */
-const RUN_MARCH_MIN_SECONDS_PER_KILL = 3.2
 /** The pause once a pack is down before the next, against the showcase's 0.7 s: the run does not wait. */
 const RUN_WAVE_GAP = 0.2
-/** How long a due kill waits for a hit to land it before the stage lands it anyway, and the gap between such kills. */
+/**
+ * How long a due kill waits for a hit to land it before the stage lands it anyway; the kills owed
+ * on arriving at a pack are then landed this share of a kill apart, never closer than the floor,
+ * so the stage catches up at twice the run's pace instead of in a burst.
+ */
 const RUN_FORCE_AFTER = 0.2
+const RUN_CATCH_UP_SHARE = 0.5
 const RUN_CATCH_UP_GAP = 0.15
 /** How long a fallen party stays down before it gets back up to a fresh pack. */
 const RUN_WIPE_HOLD = 1.6
@@ -791,24 +794,30 @@ export class BattleDemo {
         const script = scriptFight(fight.events)
         this.cine = null
         for (const p of this.projs) { p.live = false; p.hit = null }
-        this.march = 0
+        // A march under way runs to its end rather than being cut: cutting it would stop the
+        // scroll mid-period, and the foreground framing would stand over the whole fight.
+        const marching = this.march > 0
         for (let i = 0; i < this.units.length; i++) {
             const u = this.units[i]!
             u.beat = null
             u.hold = 0
+            if (marching) continue
             u.ox = 0
             // the party stands up for it, whatever the last pack left it doing
             if (i < this.members.length && u.state !== U.Gone && u.state !== U.Death) { u.state = U.Idle; u.t = 0 }
         }
         const boss = this.units[this.units.length - 1]!
-        if (!this.standoff || boss.state === U.Gone) {
+        if (!this.standoff || (boss.state === U.Gone && this.bossDue !== boss)) {
             for (let i = PARTY; i < this.units.length; i++) this.units[i]!.state = U.Gone
             this.spawnRunWave()
         }
         this.standoff = true
-        // a boss still making its entrance finishes it before the first blow
+        // the first blow waits for the march to end and the boss to finish its entrance
         const entry = boss.frames[U.Entry]!
-        const entering = boss.state === U.Entry ? Math.max(0, entry.frames.length / entry.fps - boss.t) : 0
+        const entryDur = entry.frames.length / entry.fps
+        const entering = marching
+            ? this.march + (this.bossDue === boss ? entryDur : 0)
+            : boss.state === U.Entry ? Math.max(0, entryDur - boss.t) : 0
         const escorts = fight.enemyMaxHps.length - 1
         const foes = fight.enemyMaxHps.map((_, k) => k === escorts ? this.units.length - 1 : PARTY + (ESCORT_SLOTS[k] ?? -PARTY - 1))
         this.replay = {
@@ -1132,6 +1141,9 @@ export class BattleDemo {
         this.wave = 0
         this.bossDue = null
         this.march = 0
+        // a rebuild mid-march would leave the foreground framing standing over the fight; the
+        // scene is new anyway, so it lands on the period where the framing is back at the edges
+        this.scroll = Math.round(this.scroll / SCROLL_PERIOD) * SCROLL_PERIOD
         // a boss that scrolls into view has to be marched up to, even on the first wave
         if (this.run) this.spawnWave()
         else if (waveKind !== 'regular' && this.bossScrolls[waveKind === 'superboss' ? 1 : 0]) this.startMarch()
@@ -1428,11 +1440,9 @@ export class BattleDemo {
         this.label = `${WORLDS[f.world - 1]!.name.toUpperCase()}  ${f.world}-${f.stage}${kind}`
     }
 
-    /** After a pack: march to the next if the run leaves time to, else meet it where the party stands. */
+    /** After a pack, march to the next, always at the full MARCH_DUR. */
     private nextWave(): void {
-        const spk = this.run?.feed?.secondsPerKill ?? null
-        if (this.run && !this.run.feed?.atBossGate && (spk === null || spk < RUN_MARCH_MIN_SECONDS_PER_KILL)) this.spawnWave()
-        else this.startMarch()
+        this.startMarch()
     }
 
     /** The walled party falls where it stands; it gets back up to a fresh pack after RUN_WIPE_HOLD. */
@@ -1514,7 +1524,7 @@ export class BattleDemo {
         const tgt = this.target(0)
         if (tgt && !this.march && this.dueFor >= RUN_FORCE_AFTER && this.forceGap <= 0) {
             this.lastBlow(tgt, false)
-            this.forceGap = RUN_CATCH_UP_GAP
+            this.forceGap = Math.max(RUN_CATCH_UP_GAP, (r.feed?.secondsPerKill ?? 0) * RUN_CATCH_UP_SHARE)
         }
     }
 
