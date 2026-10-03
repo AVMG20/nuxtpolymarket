@@ -336,6 +336,34 @@ export function drawStageProgress(s: Surface, kills: number, required: number, w
     textOut(s, `${Math.floor(Math.max(0, kills))}/${required}`, 85, 5, walled ? C.red3 : C.bone1, 'small', 1, 2, 0, C.ink, -1)
 }
 
+// ── Boss challenge ─────────────────────────────────────────────────────────────────
+
+export const CHALLENGE_W = 40
+export const CHALLENGE_H = 16
+
+/**
+ * A 40×16 red button with the enrage timer's skull on it: how a boss lost to a timeout or a wipe
+ * is fought again, since it no longer engages on its own. Lit on hover, sunk a pixel when pressed.
+ */
+export function drawChallengeButton(s: Surface, ox: number, oy: number, state: 'idle' | 'hover' | 'pressed', t: number): void {
+    const down = state === 'pressed' ? 1 : 0
+    const lit = state === 'hover'
+    const pulse = Math.floor(qt(t) * 3) & 1
+    rect(s, ox, oy, CHALLENGE_W, CHALLENGE_H, C.ink)
+    // its face, and the lip it sits on until pressed down onto it
+    rect(s, ox + 1, oy + 1 + down, CHALLENGE_W - 2, CHALLENGE_H - 2 - down, lit ? C.red2 : C.red1)
+    rect(s, ox + 1, oy + 1 + down, CHALLENGE_W - 2, 1, lit ? C.red3 : C.red2)
+    if (!down) rect(s, ox + 1, oy + CHALLENGE_H - 3, CHALLENGE_W - 2, 2, C.red0)
+    const sx = ox + ((CHALLENGE_W - 9) >> 1)
+    const sy = oy + 3 + down
+    const eye = pulse ? C.gold3 : C.orange
+    for (let y = 0; y < SKULL.length; y++) for (let x = 0; x < 9; x++) {
+        const ch = SKULL[y]![x]
+        if (ch === '.') continue
+        px(s, sx + x, sy + y, ch === '#' ? C.ink : ch === 'o' ? C.bone1 : ch === 's' ? C.bone0 : eye)
+    }
+}
+
 // ── Gacha reveal ───────────────────────────────────────────────────────────────────
 
 /** The neutral ramp the base flash is drawn in (light → dark). */

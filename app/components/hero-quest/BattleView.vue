@@ -5,8 +5,9 @@ import { D, formatHq } from '#shared/utils/hero-quest/numbers'
  * The live battle. Presentation only — it renders, it never decides, and it does not predict.
  *
  * **Everything on screen derives from one quantity, `killsFloat`** — kills into the current stage
- * attempt, fractional. The enemy bar, the enemy HP figure, the count of bodies still standing, the
- * Hero's HP and the stage counter are all functions of it, so they cannot disagree with each other.
+ * attempt, fractional. The enemy bar, the enemy HP figure, the count of bodies still standing and
+ * the stage counter are all functions of it, so they cannot disagree with each other. The party's
+ * HP is on the stage, in the bars over each body.
  *
  * `killsFloat` and every other field arrive already walked forward by `useHqLiveRun`, which also
  * advances the stage, the world and the Hero's level. Keep the walk there: a second predictor here
@@ -37,13 +38,6 @@ const props = defineProps<{
          */
         packHp: string
     }
-    hero: {
-        className: string
-        level: number
-        stats: { maxHp: string; pwr: string }
-        /** The HP share `useHqLiveRun` keeps from rising mid-attempt; the readout's own when absent. */
-        hpPct?: number
-    }
 }>()
 
 /**
@@ -62,20 +56,10 @@ const view = computed(() => battleReadout({
 }))
 
 /**
- * HP left across the whole pack, and on the Hero — both as Decimals.
- *
- * Enemy HP passes `Number.MAX_SAFE_INTEGER` early in the game, so neither can be float
- * arithmetic even though the percentages driving them are plain numbers.
+ * HP left across the whole pack, as a Decimal: enemy HP passes `Number.MAX_SAFE_INTEGER` early in
+ * the game, so it cannot be float arithmetic even though the percentage driving it is a plain number.
  */
 const enemyHpRemaining = computed(() => D(props.run.packHp).mul(view.value.enemyHpPct / 100))
-const heroHpPct = computed(() => props.hero.hpPct ?? view.value.heroHpPct)
-const heroHpRemaining = computed(() => D(props.hero.stats.maxHp).mul(heroHpPct.value / 100))
-
-const heroHpColor = computed(() => {
-    if (heroHpPct.value <= 20) return 'error'
-    if (heroHpPct.value <= 50) return 'warning'
-    return 'success'
-})
 </script>
 
 <template>
@@ -126,22 +110,6 @@ const heroHpColor = computed(() => {
         />
       </div>
 
-      <div class="space-y-1.5">
-        <div class="flex items-center justify-between text-sm">
-          <span class="font-medium text-highlighted">
-            {{ hero.className }} <span class="text-muted">Lv {{ hero.level }}</span>
-          </span>
-          <span class="text-muted tabular-nums">
-            {{ formatHq(heroHpRemaining) }} / {{ formatHq(hero.stats.maxHp) }} HP
-          </span>
-        </div>
-        <UProgress
-          :model-value="heroHpPct"
-          size="sm"
-          :color="heroHpColor"
-        />
-      </div>
-
       <div class="pt-1">
         <div class="flex items-center justify-between text-xs text-muted mb-1">
           <span>Stage progress</span>
@@ -156,8 +124,8 @@ const heroHpColor = computed(() => {
 
       <!--
         Only shown when it matters. `killsBeforeWipe` below `killsRequired` is the definition of
-        a walled stage, and the Hero bar above will visibly empty and refill as each attempt
-        restarts — this names what the player is about to watch happen.
+        a walled stage, and the party's bars on the stage will visibly empty and refill as each
+        attempt restarts — this names what the player is about to watch happen.
       -->
       <p
         v-if="run.walled && run.killsBeforeWipe !== null"

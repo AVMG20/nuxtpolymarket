@@ -27,7 +27,8 @@ const ready: AutoEngageInput = {
     replayOpen: false,
     secondsAtGate: 60,
     secondsPerKill: 2,
-    retryInSeconds: 0
+    retryInSeconds: 0,
+    lostHere: false
 }
 const decide = (over: Partial<AutoEngageInput> = {}) => shouldAutoEngage({ ...ready, ...over })
 
@@ -71,6 +72,13 @@ describe('the things that would go wrong without it', () => {
         expect(decide({ secondsAtGate: 0 })).toBe(false)
         expect(decide({ secondsAtGate: 1.9, secondsPerKill: 2 })).toBe(false)
         expect(decide({ secondsAtGate: 2, secondsPerKill: 2 })).toBe(true)
+    })
+
+    it('leaves a boss that just beat the party for the player to challenge', () => {
+        // A timeout or a wipe falls the run back a stage; arriving at the gate again is not the
+        // player choosing to try again, so the stage's challenge button is the way back in.
+        expect(decide({ lostHere: true })).toBe(false)
+        expect(decide({ lostHere: true, secondsAtGate: 600 })).toBe(false)
     })
 
     it('backs off after a rejection instead of hammering the route', () => {

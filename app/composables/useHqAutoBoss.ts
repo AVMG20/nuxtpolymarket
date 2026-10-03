@@ -21,6 +21,8 @@ import { AUTO_ENGAGE_RETRY_SECONDS } from '#shared/utils/hero-quest/constants'
 export function useHqAutoBoss(input: {
     atBossGate: () => boolean
     runCleared: () => boolean
+    /** This gate's boss beat the party last time: it waits on the challenge button. */
+    lostHere: () => boolean
     secondsPerKill: () => number | null
     engaging: () => boolean
     replayOpen: () => boolean
@@ -65,6 +67,7 @@ export function useHqAutoBoss(input: {
             atBossGate: input.atBossGate(),
             documentVisible: documentVisible.value,
             runCleared: input.runCleared(),
+            lostHere: input.lostHere(),
             engaging: input.engaging(),
             replayOpen: input.replayOpen(),
             secondsAtGate: secondsAtGate.value,

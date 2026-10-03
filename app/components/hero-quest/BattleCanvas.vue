@@ -29,6 +29,7 @@ const props = defineProps<{
         killsBeforeWipe: number | null
         packSize: number
         atBossGate: boolean
+        farming: boolean
         walled: boolean
         recoverySeconds: number
         enemyHp: string
@@ -43,11 +44,15 @@ const props = defineProps<{
     }
     party: Omit<RunParty, 'classId'>
     fight?: StageFight | null
+    /** A lost boss is back at its gate: the stage shows the button that fights it again. */
+    challenge?: boolean
 }>()
 
 const emit = defineEmits<{
     /** Ten times a second while a fight plays: seconds played, and whether its result is up. */
     fightProgress: [progress: { time: number, done: boolean }]
+    /** The challenge button was pressed: fight the boss again. */
+    challenge: []
 }>()
 
 const wrap = ref<HTMLDivElement | null>(null)
@@ -88,6 +93,7 @@ function feed(): RunFeed {
         killsRequired: run.killsRequired,
         packSize: run.packSize,
         atBossGate: run.atBossGate,
+        farming: run.farming,
         walled: run.walled,
         recoverySeconds: run.recoverySeconds,
         enemyHp: run.enemyHp,
@@ -179,10 +185,48 @@ function closeIris(): Promise<HqIntroRect | null> {
 
 defineExpose({ skipFight, closeIris })
 
+/**
+ * The challenge button lives in the canvas, so the pointer is hit-tested against it in the view's
+ * own pixels. The page's own Fight button stays the keyboard's way in.
+ */
+const hover = ref(false)
+const pressed = ref(false)
+
+function viewPoint(e: PointerEvent): { x: number, y: number } | null {
+    if (!canvas.value || !presenter) return null
+    const r = canvas.value.getBoundingClientRect()
+    return { x: (e.clientX - r.left) / r.width * presenter.w, y: (e.clientY - r.top) / r.height * presenter.h }
+}
+
+function onPointerMove(e: PointerEvent) {
+    const p = viewPoint(e)
+    hover.value = !!props.challenge && !!p && !!stage?.onChallenge(p.x, p.y)
+    if (!hover.value) pressed.value = false
+}
+
+function onPointerDown(e: PointerEvent) {
+    onPointerMove(e)
+    pressed.value = hover.value
+}
+
+function onPointerUp(e: PointerEvent) {
+    const wasPressed = pressed.value
+    onPointerMove(e)
+    pressed.value = false
+    if (wasPressed && hover.value) emit('challenge')
+}
+
+function onPointerLeave() {
+    hover.value = false
+    pressed.value = false
+}
+
+const challengeState = computed(() => !props.challenge ? 'off' as const : pressed.value ? 'pressed' as const : hover.value ? 'hover' as const : 'idle' as const)
+
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS, PARTY_BAND_H }, { Presenter, startLoop }] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas')
     ])
@@ -199,10 +243,12 @@ onMounted(async () => {
     }
     // a fight that arrived while the stage loaded starts now, from its beginning
     if (props.fight) stage.playFight(props.fight)
-    presenter = new Presenter(canvas.value, CAMERAS.zoom3.w, CAMERAS.zoom3.h + PARTY_BAND_H)
+    // the scene alone: HP rides over every body (`BattleDemo.drawBars`), so there is no party band under it
+    presenter = new Presenter(canvas.value, CAMERAS.zoom3.w, CAMERAS.zoom3.h)
     stop = startLoop(dt => stage!.update(dt), () => {
+        stage!.challenge = challengeState.value
         if (!props.fight) stage!.feedRun(feed())
-        presenter!.present(stage!.renderWithParty())
+        presenter!.present(stage!.render())
     })
     observer = new ResizeObserver(fit)
     observer.observe(wrap.value!)
@@ -224,13 +270,18 @@ onBeforeUnmount(() => {
   <div
     ref="wrap"
     class="relative w-full overflow-hidden rounded-lg border border-default bg-elevated"
-    :class="ready ? '' : 'aspect-[272/205]'"
+    :class="ready ? '' : 'aspect-[272/153]'"
     :style="opening ? { backgroundColor: INK } : undefined"
   >
     <canvas
       ref="canvas"
       class="block mx-auto"
+      :class="hover ? 'cursor-pointer' : ''"
       :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated' }"
+      @pointermove="onPointerMove"
+      @pointerdown="onPointerDown"
+      @pointerup="onPointerUp"
+      @pointerleave="onPointerLeave"
     />
     <div
       v-if="!ready && !opening"

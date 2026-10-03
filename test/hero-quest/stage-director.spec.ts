@@ -19,6 +19,7 @@ const FEED: RunFeed = {
     killsRequired: 30,
     packSize: 6,
     atBossGate: false,
+    farming: false,
     walled: false,
     recoverySeconds: 0,
     enemyHp: '1840',
@@ -170,5 +171,19 @@ describe('the stage progress the screen shows', () => {
         r.finish()
         r.finish()
         expect(r.visible()).toEqual({ kills: 0, required: 30 })
+    })
+})
+
+describe('farming in front of a lost boss', () => {
+    it('keeps bodies coming at the run rate while the run itself stands at the gate', () => {
+        const r = director({ killsFloat: 30 })
+        r.sync({ ...FEED, killsFloat: 30, farming: true }, 0)
+        while (r.due() > 0) r.finish()
+        for (let i = 0; i < 60 * 6.5; i++) {
+            r.tick(1 / 60)
+            r.sync({ ...FEED, killsFloat: 30, farming: true }, 0)
+        }
+        // six and a half seconds at two a kill: three whole bodies
+        expect(r.due()).toBe(3)
     })
 })

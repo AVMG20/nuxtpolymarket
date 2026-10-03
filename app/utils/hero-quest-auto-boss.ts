@@ -26,6 +26,9 @@
  *    the server agrees. See `AUTO_ENGAGE_GRACE_KILLS`.
  * 3. **Nothing may already be in flight or on screen.** One engage at a time, and never while a
  *    replay is still playing.
+ * 4. **The boss must not have just beaten the party.** A fight lost to the timer or a wipe drops the
+ *    run back a stage; reaching the gate again does not re-engage it. The player does, from the
+ *    stage's challenge button, when they choose to try again (`open-items.md` #38).
  */
 
 import {
@@ -51,6 +54,8 @@ export interface AutoEngageInput {
     secondsPerKill: number | null
     /** Seconds until a previously rejected engage may be retried; 0 when nothing is pending. */
     retryInSeconds: number
+    /** This gate's boss beat the party last time, so it waits for the player to challenge it. */
+    lostHere: boolean
 }
 
 /**
@@ -76,5 +81,6 @@ export function shouldAutoEngage(input: AutoEngageInput): boolean {
     if (input.runCleared) return false
     if (input.engaging || input.replayOpen) return false
     if (input.retryInSeconds > 0) return false
+    if (input.lostHere) return false
     return input.secondsAtGate >= autoEngageDelaySeconds(input.secondsPerKill)
 }

@@ -45,7 +45,7 @@ import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type Bake
 import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
-import { NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, type NumberStyle, type PartyMember } from './feedback'
+import { NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, drawChallengeButton, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type NumberStyle, type PartyMember } from './feedback'
 import { VL, clock, R } from './vfx-kit'
 import { J } from './rig'
 import { VFX_BY_ID, type VfxDef } from './vfx'
@@ -66,7 +66,7 @@ import { scriptFight, type Beat, type FightScript } from './fight-script'
 import type { FightEvent } from '../../../shared/utils/hero-quest/fight'
 import { D, ZERO, type Decimal } from '../../../shared/utils/hero-quest/numbers'
 import { attackIntervalFor } from '../../../shared/utils/hero-quest/combat'
-import { BOSS_TIMER_SECONDS, MIN_ATTACK_INTERVAL_SECONDS } from '../../../shared/utils/hero-quest/constants'
+import { BOSS_TIMER_SECONDS, MIN_ATTACK_INTERVAL_SECONDS, SUPER_BOSS_STAGE } from '../../../shared/utils/hero-quest/constants'
 
 export const DEMO_W = SW
 export const DEMO_H = SH
@@ -345,6 +345,48 @@ const HUD_BAR_W = 88
 const HUD_BAR_H = 14
 const HUD_BAR_Y = 4
 
+/**
+ * The spotlight a timed-out boss fight closes to: down onto the drained timer and the TIME UP
+ * banner under it, held there until the fight is put away, then shut. Its centre's height and its
+ * radius, and how long it takes to close in and to shut.
+ */
+const SPOT_Y = 24
+const SPOT_R = 66
+const SPOT_IN = 0.6
+const SPOT_OUT = 0.4
+
+/** Black over everything outside the circle at (cx, cy). */
+function maskOutside(s: Surface, cx: number, cy: number, r: number): void {
+    const r2 = r * r
+    for (let y = 0; y < s.h; y++) {
+        const dy = y - cy
+        for (let x = 0; x < s.w; x++) {
+            const dx = x - cx
+            if (dx * dx + dy * dy > r2) s.data[y * s.w + x] = C.ink
+        }
+    }
+}
+
+/** Overhead HP bars: a body's width, a boss's, and the gap over its head. */
+const BAR_W = 16
+const BOSS_BAR_W = 40
+const BAR_GAP = 4
+
+const STAND_HEIGHTS = new WeakMap<Baked, number>()
+
+/** How far a strip's first frame stands above its feet, measured from its pixels once: where an overhead bar goes. */
+function standHeight(b: Baked): number {
+    const known = STAND_HEIGHTS.get(b)
+    if (known !== undefined) return known
+    const f = b.frames[0]
+    let top = f ? f.h : 0
+    if (f) for (let i = 0; i < f.data.length; i++) if (f.data[i] !== CLEAR) { top = Math.floor(i / f.w); break }
+    const height = f ? Math.max(0, b.ay - top) : 0
+    // a strip still baking in the background has no frame yet, and is measured again once it does
+    if (f) STAND_HEIGHTS.set(b, height)
+    return height
+}
+
 /** How fast the party walks off the right of the screen when it leaves a World, px a second. */
 const EXIT_SPEED = 110
 /** How far past the screen's edge the last body walks before the iris closes behind it. */
@@ -441,6 +483,8 @@ interface Unit {
     wait: number
     fired: boolean
     hp: number
+    /** An enemy's overhead bar, 0 → 1: from the fight log in a replay, from the hits shown in a run. */
+    bar: number
     /** The party's frames: HP shown (0 → 1), where the lost stretch has drained to, and how long it stays white. */
     shown: number
     lag: number
@@ -656,6 +700,10 @@ export class BattleDemo {
     private iris: { t: number, swap: (() => void) | null, feed: RunFeed | null, held: boolean } | null = null
     /** The party walking off the screen into a new World, with the newest feed for it; null otherwise. */
     private exit: RunFeed | null = null
+    /** A timed-out fight's spotlight: seconds closing in, and seconds shutting once the fight is put away. */
+    private spot: { t: number, out: number, released: boolean } | null = null
+    /** A lost boss waits on the challenge button rather than engaging itself; its state, for the drawing. */
+    challenge: 'off' | 'idle' | 'hover' | 'pressed' = 'off'
     /** A boss waiting out the march, to make its entrance once the party stands on its ground. */
     private bossDue: Unit | null = null
     /** How far the world has travelled, in px — what every scenery layer parallaxes against. */
@@ -745,7 +793,7 @@ export class BattleDemo {
      */
     private replay: {
         script: FightScript, beat: number, inst: number, late: Beat[], clock: number, end: number
-        party: (number | null)[], foes: (number | null)[], partyMax: Decimal[], hp: number[]
+        party: (number | null)[], foes: (number | null)[], partyMax: Decimal[], hp: number[], foeMax: Decimal[]
         outcome: StageFight['outcome'], done: boolean, quiet: boolean
     } | null = null
 
@@ -766,6 +814,7 @@ export class BattleDemo {
         this.run = new RunDirector()
         this.party = party
         this.exit = null
+        this.spot = null
         this.run.sync(feed, 0)
         this.standoff = feed.atBossGate
         this.wipeT = 0
@@ -931,6 +980,20 @@ export class BattleDemo {
         // the fight is on the new World, so a walk off or a closing iris cuts straight to it
         if (this.exit) this.irisIntoWorld()
         if (this.iris?.swap) this.shutIris()
+        const farm = this.run.feed
+        if (farm?.farming) {
+            // challenged from the farm: the fight is at the gate ahead, so the stage steps up to it
+            const stage = farm.stage + 1
+            this.run.feed = {
+                ...farm,
+                farming: false,
+                atBossGate: true,
+                stage,
+                archetype: stage === SUPER_BOSS_STAGE ? 'super_boss' : 'boss',
+                packSize: fight.enemyMaxHps.length
+            }
+            this.standoff = false
+        }
         const script = scriptFight(fight.events)
         this.cine = null
         for (const p of this.projs) { p.live = false; p.hit = null }
@@ -971,6 +1034,7 @@ export class BattleDemo {
             foes: foes.map(k => k >= PARTY ? k : null),
             partyMax: fight.partyMaxHps.map(hp => D(hp)),
             hp: Array.from({ length: PARTY }, () => 1),
+            foeMax: fight.enemyMaxHps.map(hp => D(hp)),
             outcome: fight.outcome,
             done: false,
             quiet: false
@@ -995,11 +1059,20 @@ export class BattleDemo {
 
     /** Back to the run: the fallen get up, and the next feed says where the run went. */
     endFight(): void {
+        // a timed-out fight's spotlight shuts first; the fight is put away behind it
+        if (this.spot) {
+            this.spot.released = true
+            return
+        }
+        this.closeFight()
+    }
+
+    private closeFight(): void {
         if (!this.replay) return
         this.replay = null
         for (let i = 0; i < this.members.length; i++) {
             const u = this.units[i]!
-            if (u.state === U.Gone || u.state === U.Death) { u.state = U.Entry; u.t = 0 }
+            if (u.state === U.Gone || u.state === U.Death) { u.state = U.Entry; u.t = 0; u.bar = 1 }
         }
         this.nameT = -1
     }
@@ -1009,6 +1082,8 @@ export class BattleDemo {
         if (rp.done) return
         rp.done = true
         this.announce(rp.outcome === 'win' ? 'VICTORY' : rp.outcome === 'wipe' ? 'DEFEAT' : 'TIME UP')
+        // out of time: close in on the drained timer and the banner, to say so
+        if (rp.outcome === 'timeout' && this.run && !this.raid) this.spot = { t: 0, out: 0, released: false }
         // the banner holds until the fight is put away
         this.nameFor = 1e9
     }
@@ -1110,6 +1185,7 @@ export class BattleDemo {
             return
         }
         const t = this.foeUnit(h.enemyIndex)
+        this.setFoeHp(t, h.enemyIndex, h.remainingHp)
         if (!t || quiet || t.state === U.Gone) return
         const dmg = D(h.damage ?? 0)
         const y = t.y - t.chest
@@ -1142,7 +1218,7 @@ export class BattleDemo {
                 const t = this.partyUnit(e.unitIndex)
                 if (!t) return
                 // a revive brings the fallen back up
-                if (t.state === U.Gone || t.state === U.Death) { t.state = U.Entry; t.t = 0 }
+                if (t.state === U.Gone || t.state === U.Death) { t.state = U.Entry; t.t = 0; t.bar = 1 }
                 if (!quiet && D(e.damage ?? 0).gt(0)) this.number(t.x - 6, t.y - t.crown + 10, 'heal', false, `+${stageNumber(D(e.damage!))}`)
                 return
             }
@@ -1158,6 +1234,7 @@ export class BattleDemo {
                     return
                 }
                 const t = this.foeUnit(e.enemyIndex)
+                this.setFoeHp(t, e.enemyIndex, e.remainingHp)
                 const dmg = D(e.damage ?? 0)
                 if (t && !quiet && t.state !== U.Gone && dmg.gt(0)) this.number(t.x + 6, t.y - t.chest - 4, 'normal', false, stageNumber(dmg))
                 return
@@ -1177,6 +1254,13 @@ export class BattleDemo {
         const max = rp.partyMax[index]
         if (k === null || k === undefined || !max || max.lte(0)) return
         rp.hp[k] = Math.max(0, Math.min(1, D(remaining).div(max).toNumber()))
+    }
+
+    /** An enemy's bar follows the HP the log says it has left. */
+    private setFoeHp(t: Unit | null, index: number | undefined, remaining: string | undefined): void {
+        const max = index === undefined ? undefined : this.replay?.foeMax[index]
+        if (!t || remaining === undefined || !max || max.lte(0)) return
+        t.bar = Math.max(0, Math.min(1, D(remaining).div(max).toNumber()))
     }
 
     /** A Hero skill's cinematic in a replay: the flourish only, since its numbers are the log's. */
@@ -1304,7 +1388,7 @@ export class BattleDemo {
             clips: [null, clips[0] ?? null, clips[1] ?? null],
             impact: [0, clips[0]?.impact ?? 0.45 * attack!.frames.length / ANIM_FPS, clips[1]?.impact ?? 0.45 * (cast ?? attack!).frames.length / ANIM_FPS],
             vfx, accent: C.red3, shot: null, shots: 1, rig: -1, hold: 0, jolt: 0, flash: 0, sit: 0, chest: 14, crown: 40, strikeAt: -1,
-            state: U.Idle, t: 0, wait: 0.5 + Math.random() * 1.2, fired: false, hp: 4, shown: 1, lag: 1, lagHold: 0, phase: Phase.Idle, stack: 0, casts: [], casting: null, attack: null, rate: 1, beat: null
+            state: U.Idle, t: 0, wait: 0.5 + Math.random() * 1.2, fired: false, hp: 4, bar: 1, shown: 1, lag: 1, lagHold: 0, phase: Phase.Idle, stack: 0, casts: [], casting: null, attack: null, rate: 1, beat: null
         }
     }
 
@@ -1423,6 +1507,7 @@ export class BattleDemo {
                 r.hits = 0
                 r.escalating = true
                 u.state = U.Entry
+                u.bar = 1
                 u.t = 0
                 // it gathers itself: a pink wash as the beat begins; the weight comes on the slam
                 this.flashFor(0.3, C.pink)
@@ -1449,6 +1534,7 @@ export class BattleDemo {
             if (u.state !== U.Gone) continue
             u.frames = r.adds[k & 1]!
             u.state = U.Entry
+            u.bar = 1
             u.t = 0
             u.hp = TOUGHNESS.trash
             u.elite = false
@@ -1606,6 +1692,7 @@ export class BattleDemo {
         for (let i = 0; i < this.members.length; i++) {
             const u = this.units[i]!
             u.state = U.Entry
+            u.bar = 1
             u.t = 0
             u.hp = PARTY_HP
             // a new attempt opens on full cooldowns, as a fight does
@@ -1714,6 +1801,7 @@ export class BattleDemo {
             return
         }
         const text = r.hit(crit)
+        tgt.bar = r.frontLeft()
         if (text) this.number(tgt.x, y - 8, crit ? 'crit' : 'normal', false, crit ? `${text}!` : text)
         this.particles.burst(tgt.x - 4, y, crit ? 14 : 8, crit ? 70 : 45, 0.5, 'spark', 120, tgt.y)
         this.struck(tgt, hold)
@@ -1753,6 +1841,7 @@ export class BattleDemo {
             const u = this.bossDue
             const entry = u.frames[U.Entry]!
             u.state = U.Entry
+            u.bar = 1
             // one that scrolled into view has already arrived: it only roars
             u.t = this.bossScrollsIn ? ENTRY_SETTLED * entry.frames.length / entry.fps : 0
             this.bossDue = null
@@ -1882,6 +1971,7 @@ export class BattleDemo {
         const crit = Math.random() < (r.feed?.critChance ?? 0)
         const due = r.due() > 0
         const text = due ? r.finish() : r.hit(crit)
+        if (!due) tgt.bar = r.frontLeft()
         if (text) {
             this.number(tgt.x, tgt.y - tgt.crown - tgt.stack * 7, crit ? 'crit' : 'normal', true, crit ? `${text}!` : text)
             this.cineTotal = this.cineTotal.add(r.last)
@@ -2100,6 +2190,16 @@ export class BattleDemo {
     update(dt: number): void {
         if (this.jobs.length) this.bakeSome()
         if (this.paused) return
+        if (this.spot) {
+            this.spot.t += dt
+            if (this.spot.released) this.spot.out += dt
+            if (this.spot.out >= SPOT_OUT) {
+                // shut: put the fight away and open on the stage the run fell back to
+                this.spot = null
+                this.closeFight()
+                this.iris = { t: IRIS_CLOSE, swap: null, feed: null, held: false }
+            }
+        }
         if (this.iris && !this.iris.held) {
             this.iris.t += dt
             if (this.iris.swap && this.iris.t >= IRIS_CLOSE) this.shutIris()
@@ -2222,6 +2322,7 @@ export class BattleDemo {
                             r.spNext = 0
                             u.frames = r.tables[r.at]!
                             u.state = U.Entry
+                            u.bar = 1
                             u.t = 0
                             u.hp = TOUGHNESS.raid
                             this.bossName = r.defs[r.at]!.name.toUpperCase()
@@ -2413,6 +2514,7 @@ export class BattleDemo {
         }
         // standing water mirrors the fight, not just the scenery
         if (this.water >= 0) reflectWater(s, this.water, this.time, this.glitter)
+        if (this.run) this.drawBars(s)
         for (let i = 0; i < this.nums.length; i++) { const n = this.nums[i]!; if (n.live) drawNumber(s, n) }
         clock.smooth = false
         if (this.shakeT > 0) {
@@ -2448,15 +2550,7 @@ export class BattleDemo {
             const cx = hero ? Math.min(cam.w - 1, Math.max(0, hero.x + hero.ox - cam.x)) : cam.w / 2
             const cy = hero ? Math.min(cam.h - 1, Math.max(0, hero.y - 16 - cam.y)) : cam.h / 2
             const reach = Math.hypot(Math.max(cx, cam.w - cx), Math.max(cy, cam.h - cy))
-            const r = reach * this.irisOpen()
-            const r2 = r * r
-            for (let y = 0; y < cam.h; y++) {
-                const dy = y - cy
-                for (let x = 0; x < cam.w; x++) {
-                    const dx = x - cx
-                    if (dx * dx + dy * dy > r2) out.data[y * cam.w + x] = C.ink
-                }
-            }
+            maskOutside(out, cx, cy, reach * this.irisOpen())
         }
         textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
         if (this.raid?.id === 'training_grounds') textOut(out, this.tally, cam.w - 6, 5, this.raid.clock <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
@@ -2465,7 +2559,8 @@ export class BattleDemo {
         const timed = this.replay !== null && !this.raid
         // what the stage has shown, not where the run has got: the two part on catch-up and at a stage's end
         const seen = this.run && !this.raid ? this.run.visible() : null
-        const counting = !timed && seen !== null && seen.required > 0
+        // farming in front of a lost boss, the challenge button takes the bar's place
+        const counting = !timed && seen !== null && seen.required > 0 && !this.run?.feed?.farming
         if (timed) drawEnrageTimer(this.hudBar, Math.min(1, this.fightTime / BOSS_TIMER_SECONDS), this.time)
         else if (counting) drawStageProgress(this.hudBar, seen.kills, seen.required, this.run!.feed?.walled ?? false)
         if (timed || counting) {
@@ -2477,9 +2572,41 @@ export class BattleDemo {
                 }
             }
         }
-        // under the timer while one shows
-        if (this.nameT >= 0 && this.nameT < this.nameFor) drawSkillBanner(out, this.bossName, cam.w / 2, timed ? HUD_BAR_Y + HUD_BAR_H + 14 : 14, this.nameT, true, this.nameFor - this.nameT)
+        // a lost boss, back at its gate: the button that fights it again, where the progress bar was
+        if (this.showsChallenge()) {
+            drawChallengeButton(out, (cam.w - CHALLENGE_W) >> 1, HUD_BAR_Y, this.challenge === 'off' ? 'idle' : this.challenge, this.time)
+        }
+        // under the timer or the challenge button while either shows
+        const under = timed || this.showsChallenge()
+        if (this.nameT >= 0 && this.nameT < this.nameFor) drawSkillBanner(out, this.bossName, cam.w / 2, under ? HUD_BAR_Y + HUD_BAR_H + 14 : 14, this.nameT, true, this.nameFor - this.nameT)
+        if (this.spot) {
+            // over the HUD too, so the timer and the banner go when it shuts
+            const cx = cam.w / 2
+            const reach = Math.hypot(Math.max(cx, cam.w - cx), cam.h - SPOT_Y)
+            const ease = (k: number) => k * k * (3 - 2 * k)
+            const r = this.spot.released
+                ? SPOT_R * (1 - ease(Math.min(1, this.spot.out / SPOT_OUT)))
+                : reach + (SPOT_R - reach) * ease(Math.min(1, this.spot.t / SPOT_IN))
+            maskOutside(out, cx, SPOT_Y, r)
+        }
         return out
+    }
+
+    /**
+     * The challenge button shows while the party farms in front of a lost boss, once the stage on
+     * screen has its progress complete too: no fight on, and its last bodies down.
+     */
+    private showsChallenge(): boolean {
+        if (this.challenge === 'off' || this.replay || this.raid || !this.run?.feed?.farming) return false
+        const seen = this.run.visible()
+        return seen.kills >= seen.required
+    }
+
+    /** Whether a point on the view, in its own pixels, is on the challenge button while it shows. */
+    onChallenge(x: number, y: number): boolean {
+        if (!this.showsChallenge()) return false
+        const x0 = (CAMERAS[this.camera].w - CHALLENGE_W) >> 1
+        return x >= x0 && x < x0 + CHALLENGE_W && y >= HUD_BAR_Y && y < HUD_BAR_Y + CHALLENGE_H
     }
 
     /**
@@ -2504,6 +2631,28 @@ export class BattleDemo {
             drawPartyFrameAt(out, x0 + (i % 3) * (PARTY_FRAME_W + BAND_GAP), y0 + BAND_PAD + Math.floor(i / 3) * (PARTY_FRAME_H + BAND_GAP), m)
         }
         return out
+    }
+
+    /**
+     * HP bars on every standing body, just over its head; a boss's is wider and sits under its feet.
+     * The party's carry the stretch just lost, white a moment and then red, as the frames do.
+     */
+    private drawBars(s: Surface): void {
+        for (let i = 0; i < this.units.length; i++) {
+            const u = this.units[i]!
+            if (u.state === U.Gone || u.state === U.Death) continue
+            const party = i < PARTY
+            const w = u.boss ? BOSS_BAR_W : BAR_W
+            const x = Math.round(u.x + u.ox - w / 2)
+            // a boss's goes under its feet: the biggest stand taller than the stage, and would carry it off the top
+            const y = u.boss ? Math.round(u.y + u.sit + BAR_GAP) : Math.round(u.y + u.sit - standHeight(u.frames[U.Idle]!) - BAR_GAP)
+            const hp = Math.max(0, Math.min(1, party ? u.shown : u.bar))
+            rect(s, x - 1, y - 1, w + 2, 4, C.ink)
+            rect(s, x, y, w, 2, C.night0)
+            if (party && u.lag > hp) rect(s, x + R(w * hp), y, R(w * (Math.min(1, u.lag) - hp)), 2, u.lagHold > 0 ? C.white : C.red2)
+            rect(s, x, y, R(w * hp), 2, !party ? C.red2 : hp > 0.5 ? C.green3 : hp > 0.2 ? C.gold2 : C.red2)
+            rect(s, x, y, R(w * hp), 1, !party ? C.red3 : hp > 0.5 ? C.green4 : hp > 0.2 ? C.gold3 : C.red3)
+        }
     }
 
     /** The frames' HP follows the party's, which heals slowly: a hit leaves its stretch white a moment, then drains it. */

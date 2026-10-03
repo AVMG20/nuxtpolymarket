@@ -117,10 +117,22 @@ const gateParty = computed(() => ({
 /** The stat-attribution slideover. Fetched on open, never with the state payload. */
 const breakdownOpen = ref(false)
 
+/**
+ * The next gate's boss beat the party last time (`hq_state.boss_lost`, set by the fight that lost).
+ * Back at its gate the run is shown farming the stage before it (`useHqLiveRun`), and the boss waits
+ * on the stage's challenge button instead of engaging itself (`shouldAutoEngage`). Saved, so it
+ * holds across reloads and coming back later.
+ */
+const lostHere = computed(() => liveRun.value?.bossLost ?? false)
+/** The challenge button shows on the stage: farming in front of a lost boss, with no fight on. */
+const challenge = computed(() => (liveRun.value?.farming ?? false) && !fight.value)
+
 async function runFightAt(automatic: boolean) {
     engaging.value = true
     try {
-        const boss = { name: liveRun.value?.enemyName ?? 'Boss', timer: liveRun.value?.bossTimerSeconds ?? 30 }
+        // farming in front of a lost boss shows the stage before it; the payload names the boss itself
+        const name = liveRun.value?.farming ? run.value?.enemyName : liveRun.value?.enemyName
+        const boss = { name: name ?? 'Boss', timer: liveRun.value?.bossTimerSeconds ?? 30 }
         const result = await engageBoss({ silentErrors: automatic })
         fightWasAutomatic.value = automatic
         fightBoss.value = boss
@@ -148,6 +160,7 @@ const onEngage = () => runFightAt(false)
 useHqAutoBoss({
     atBossGate: () => liveRun.value?.atBossGate ?? false,
     runCleared: () => liveRun.value?.runCleared ?? false,
+    lostHere: () => lostHere.value,
     secondsPerKill: () => liveRun.value?.secondsPerKill ?? null,
     engaging: () => engaging.value,
     replayOpen: () => fight.value !== null,
@@ -225,7 +238,9 @@ const awayReport = computed(() => {
           :hero="liveHero"
           :party="party"
           :fight="fight"
+          :challenge="challenge"
           @fight-progress="fightProgress = $event"
+          @challenge="onEngage"
         />
 
         <!-- A boss fight takes the readout's place while the stage plays it. -->
@@ -244,7 +259,6 @@ const awayReport = computed(() => {
         <HeroQuestBattleView
           v-else
           :run="liveRun"
-          :hero="liveHero"
         />
 
         <!--
@@ -252,7 +266,7 @@ const awayReport = computed(() => {
           the server rejects a re-fight there. The battle view already points the player at prestige.
         -->
         <div
-          v-if="liveRun.atBossGate && !liveRun.runCleared && !fight"
+          v-if="(liveRun.atBossGate || liveRun.farming) && !liveRun.runCleared && !fight"
           class="flex justify-center"
         >
           <UButton

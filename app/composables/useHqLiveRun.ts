@@ -1,5 +1,5 @@
 import { D } from '#shared/utils/hero-quest/numbers'
-import { enemyPackAt, enemyStatsAt, packHp, packSize } from '#shared/utils/hero-quest/settle'
+import { enemyPackAt, enemyStatsAt, killsRequired, offlineFarmStage, packHp, packSize } from '#shared/utils/hero-quest/settle'
 import { enemyNameAt, getWorld, runProgress } from '#shared/utils/hero-quest/content/worlds'
 
 /**
@@ -95,7 +95,7 @@ export function useHqLiveRun(
         if (!anchor) return null
         // No forecast means no hero yet, which is a frame or two on first load. Same shape
         // either way, so the components never see two contracts.
-        if (!ahead) return { ...anchor, killsFloat: anchor.killCount + anchor.killFraction }
+        if (!ahead) return { ...anchor, killsFloat: anchor.killCount + anchor.killFraction, farming: false }
 
         const position = {
             prestige: ahead.prestige,
@@ -103,31 +103,40 @@ export function useHqLiveRun(
             stage: ahead.stage,
             killsInStage: 0
         }
-        const pack = enemyPackAt(position)
-        const enemy = enemyNameAt(ahead.world, ahead.stage)
+        /**
+         * At the gate of a boss that beat the party (`hq_state.boss_lost`), the run is shown farming
+         * the stage before it, its progress complete, until the player challenges the boss. Only
+         * the showing: the server already pays a parked run that stage's kills.
+         */
+        const farming = anchor.bossLost && ahead.atBossGate
+        const shown = farming ? offlineFarmStage(position) : position
+        const pack = enemyPackAt(shown)
+        const enemy = enemyNameAt(shown.world, shown.stage)
+        const required = farming ? killsRequired(shown) : ahead.killsRequired
 
         return {
             ...anchor,
-            world: ahead.world,
-            stage: ahead.stage,
-            worldName: getWorld(ahead.world).name,
+            world: shown.world,
+            stage: shown.stage,
+            worldName: getWorld(shown.world).name,
             enemyName: enemy.name,
             archetype: enemy.archetype,
-            progress: runProgress(ahead.world, ahead.stage),
-            killCount: Math.floor(ahead.killsInStage),
-            killsFloat: ahead.killsInStage,
-            killsRequired: ahead.killsRequired,
-            atBossGate: ahead.atBossGate,
+            progress: runProgress(shown.world, shown.stage),
+            killCount: farming ? required : Math.floor(ahead.killsInStage),
+            killsFloat: farming ? required : ahead.killsInStage,
+            killsRequired: required,
+            atBossGate: ahead.atBossGate && !farming,
+            farming,
             walled: ahead.walled,
             recoverySeconds: ahead.recoverySeconds,
             // Position-only, so exact rather than held over from the payload's stage.
             packSize: packSize(pack),
             packHp: packHp(pack).toString(),
-            enemyHp: enemyStatsAt(position).hp.toString()
+            enemyHp: enemyStatsAt(shown).hp.toString()
         }
     })
 
-    /** The Hero's HP share, kept from rising mid-attempt (`HeroHpGauge`), so the panel and the party frames read one figure. */
+    /** The Hero's HP share, kept from rising mid-attempt (`HeroHpGauge`): what the party's bars on the stage draw. */
     const gauge = new HeroHpGauge()
     const heroHpPct = computed(() => {
         const r = liveRun.value

@@ -25,6 +25,12 @@ export interface RunFeed {
     killsRequired: number
     packSize: number
     atBossGate: boolean
+    /**
+     * Parked at the gate of a boss that beat the party, and shown farming the stage before it until
+     * the player challenges the boss. The run's count stands still there, so the stage paces the
+     * farm itself, at `secondsPerKill`.
+     */
+    farming: boolean
     walled: boolean
     /** Seconds the wiped party has left to recover (`WIPE_RECOVERY_SECONDS`); 0 when it is fighting. */
     recoverySeconds: number
@@ -89,6 +95,8 @@ export class RunDirector {
     private carryHp: string | null = null
     /** The kill requirement of the stage the carried bodies belong to. */
     private carryRequired = 0
+    /** Kills the stage has paced for itself while farming in front of a lost boss. */
+    private farmed = 0
     /** Damage the numbers have shown on the front body so far. */
     private dealt: Decimal = ZERO
     /** What the last hit or blow showed, for a skill's total. */
@@ -100,6 +108,11 @@ export class RunDirector {
     /** Take a new feed and say how the run moved. `standing` is how many of the pack are up. */
     sync(feed: RunFeed, standing: number): FeedChange {
         const was = this.feed
+        if (feed.farming) {
+            // the run stands at the gate; the farm before it runs on the stage's own clock, on from where it was
+            if (!was?.farming) this.farmed = was && was.stage === feed.stage ? was.killsFloat : feed.killsFloat
+            feed = { ...feed, killsFloat: this.farmed }
+        }
         this.feed = feed
         const kills = Math.floor(feed.killsFloat)
         if (!was || was.world !== feed.world || was.prestige !== feed.prestige) return this.restart(kills, 'reset')
@@ -143,6 +156,14 @@ export class RunDirector {
         return { kills: Math.min(f.killsRequired, this.shown + part), required: f.killsRequired }
     }
 
+    /** The share of the front body's HP its hits have not yet taken, 0 → 1: its overhead bar. */
+    frontLeft(): number {
+        const f = this.feed
+        const hp = D(this.carry > 0 ? this.carryHp ?? '0' : f?.enemyHp ?? '0')
+        if (hp.lte(0)) return 1
+        return Math.max(0.02, 1 - Math.min(1, this.dealt.div(hp).toNumber()))
+    }
+
     /** Bodies that should already be down. */
     due(): number {
         const f = this.feed
@@ -152,6 +173,8 @@ export class RunDirector {
 
     /** Count a landed hit toward the measured hit rate. */
     tick(dt: number): void {
+        const spk = this.feed?.farming ? this.feed.secondsPerKill : null
+        if (spk !== null && spk > 0) this.farmed += dt / spk
         this.second += dt
         if (this.second < 1) return
         const rate = this.hitsThisSecond / this.second
