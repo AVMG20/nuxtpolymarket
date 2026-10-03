@@ -66,7 +66,7 @@ import { scriptFight, type Beat, type FightScript } from './fight-script'
 import type { FightEvent } from '../../../shared/utils/hero-quest/fight'
 import { D, ZERO, type Decimal } from '../../../shared/utils/hero-quest/numbers'
 import { attackIntervalFor } from '../../../shared/utils/hero-quest/combat'
-import { MIN_ATTACK_INTERVAL_SECONDS } from '../../../shared/utils/hero-quest/constants'
+import { BOSS_TIMER_SECONDS, MIN_ATTACK_INTERVAL_SECONDS } from '../../../shared/utils/hero-quest/constants'
 
 export const DEMO_W = SW
 export const DEMO_H = SH
@@ -331,6 +331,11 @@ const RUN_WIPE_HOLD = 1.6
  */
 const MARCH_DUR = 2.4
 const MARCH_SPEED = SCROLL_PERIOD / MARCH_DUR
+
+/** The iris over a scene change: closing on the Hero, held black while the new scene builds, opening. */
+const IRIS_CLOSE = 0.45
+const IRIS_HOLD = 0.15
+const IRIS_OPEN = 0.55
 
 /** The scene ground lines the formation stands on, furthest rank first — the draw order. */
 const RANK_Y = [...new Set(VL.foes.map(f => f.g))].sort((a, b) => a - b).map(g => OY + g)
@@ -625,6 +630,11 @@ export class BattleDemo {
     private waveTimer = 0
     /** Seconds left in the march to the next battle; 0 when a fight is on. */
     private march = 0
+    /**
+     * A scene change under way: `t` runs through close, hold and open. `swap` rebuilds the scene
+     * once the iris is shut, and `feed` is the newest run feed, held back until then.
+     */
+    private iris: { t: number, swap: (() => void) | null, feed: RunFeed } | null = null
     /** A boss waiting out the march, to make its entrance once the party stands on its ground. */
     private bossDue: Unit | null = null
     /** How far the world has travelled, in px — what every scenery layer parallaxes against. */
@@ -774,28 +784,49 @@ export class BattleDemo {
         }
     }
 
-    /** The run moved on: drop what is due, clear a stage, fall to a wall, or rebuild for a new world. */
+    /** The run moved on: drop what is due, clear a stage, fall to a wall, or iris into a new scene. */
     feedRun(feed: RunFeed): void {
         const r = this.run
         if (!r || !this.party || this.replay) return
-        const world = r.feed?.world
+        // a scene change under way keeps the newest feed for the scene it is about to build
+        if (this.iris?.swap) {
+            this.iris.feed = feed
+            return
+        }
         let up = 0
         for (let i = PARTY; i < this.units.length; i++) if (this.units[i]!.state !== U.Gone && this.units[i]!.state !== U.Death) up++
         const change = r.sync(feed, up)
         if (this.members[0]) this.members[0].level = feed.heroLevel
-        if (change === 'reset' && world !== feed.world) {
-            this.setupRun(this.party, feed)
+        if (change === 'reset') {
+            // a new world, a prestige or a jump: the old scene closes on the Hero, the new one opens
+            const party = this.party
+            this.iris = { t: 0, feed, swap: () => this.setupRun(party, this.iris!.feed) }
             return
         }
-        if (change === 'reset') {
-            this.standoff = feed.atBossGate
-            for (let i = PARTY; i < this.units.length; i++) this.units[i]!.state = U.Gone
-            if (this.wipeT <= 0) this.spawnWave()
-        } else if (change === 'wipe') {
+        if (change === 'wipe') {
             this.fallParty()
         }
         // a gate ahead: the pack still up goes down first, then the boss is met
         if (change === 'advance') this.standoff = false
+    }
+
+    /** Build the scene the iris was closing for, behind the black, and start opening on it. */
+    private shutIris(): void {
+        const iris = this.iris!
+        const swap = iris.swap!
+        iris.swap = null
+        iris.t = Math.max(iris.t, IRIS_CLOSE)
+        swap()
+    }
+
+    /** How open the iris is, 0 shut to 1 clear; 1 with no scene change under way. */
+    private irisOpen(): number {
+        const iris = this.iris
+        if (!iris) return 1
+        const ease = (k: number) => k * k * (3 - 2 * k)
+        if (iris.t < IRIS_CLOSE) return 1 - ease(iris.t / IRIS_CLOSE)
+        const opening = iris.t - IRIS_CLOSE - IRIS_HOLD
+        return opening <= 0 ? 0 : ease(Math.min(1, opening / IRIS_OPEN))
     }
 
     /** Seconds of the fight played, 0 to its end: what a readout beside the stage tracks. */
@@ -816,6 +847,8 @@ export class BattleDemo {
      */
     playFight(fight: StageFight): void {
         if (!this.run) return
+        // the fight is on the new scene, so a closing iris shuts at once and opens on it
+        if (this.iris?.swap) this.shutIris()
         const script = scriptFight(fight.events)
         this.cine = null
         for (const p of this.projs) { p.live = false; p.hit = null }
@@ -1982,6 +2015,11 @@ export class BattleDemo {
     update(dt: number): void {
         if (this.jobs.length) this.bakeSome()
         if (this.paused) return
+        if (this.iris) {
+            this.iris.t += dt
+            if (this.iris.swap && this.iris.t >= IRIS_CLOSE) this.shutIris()
+            else if (this.iris.t >= IRIS_CLOSE + IRIS_HOLD + IRIS_OPEN) this.iris = null
+        }
         // a replay keeps to the wall clock: its blows are due when the log says, freeze or not
         if (this.replay) this.replayTick(dt)
         if (this.shakeT > 0) this.shakeT -= dt
@@ -2294,8 +2332,29 @@ export class BattleDemo {
             out = this.views[this.camera]
             for (let y = 0; y < cam.h; y++) out.data.set(s.data.subarray((cam.y + y) * s.w + cam.x, (cam.y + y) * s.w + cam.x + cam.w), y * cam.w)
         }
+        if (this.iris) {
+            // centred on the Hero's chest, wide enough at 1 to clear the farthest corner
+            const hero = this.units[0]
+            const cx = hero ? Math.min(cam.w - 1, Math.max(0, hero.x - cam.x)) : cam.w / 2
+            const cy = hero ? Math.min(cam.h - 1, Math.max(0, hero.y - 16 - cam.y)) : cam.h / 2
+            const reach = Math.hypot(Math.max(cx, cam.w - cx), Math.max(cy, cam.h - cy))
+            const r = reach * this.irisOpen()
+            const r2 = r * r
+            for (let y = 0; y < cam.h; y++) {
+                const dy = y - cy
+                for (let x = 0; x < cam.w; x++) {
+                    const dx = x - cx
+                    if (dx * dx + dy * dy > r2) out.data[y * cam.w + x] = C.ink
+                }
+            }
+        }
         textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
         if (this.raid?.id === 'training_grounds') textOut(out, this.tally, cam.w - 6, 5, this.raid.clock <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
+        else if (this.replay && !this.raid) {
+            // the boss timer, frozen where the fight ended
+            const left = Math.max(0, Math.ceil(BOSS_TIMER_SECONDS - this.fightTime))
+            textOut(out, `0:${String(left).padStart(2, '0')}`, cam.w - 6, 5, left <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
+        }
         if (this.nameT >= 0 && this.nameT < this.nameFor) drawSkillBanner(out, this.bossName, cam.w / 2, 14, this.nameT, true, this.nameFor - this.nameT)
         return out
     }
