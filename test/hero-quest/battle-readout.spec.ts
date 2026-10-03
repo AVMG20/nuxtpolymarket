@@ -19,6 +19,7 @@
 import { describe, expect, it } from 'vitest'
 import {
     battleReadout,
+    HeroHpGauge,
     projectRun,
     type BattleReadoutInput,
     type RunAnchor
@@ -299,5 +300,72 @@ describe('at a boss gate', () => {
         expect(view.enemyHpPct).toBe(100)
         expect(view.heroHpPct).toBe(100)
         expect(view.enemiesStanding).toBe(6)
+    })
+})
+
+/**
+ * The Hero's HP bar used to rise once a minute: a payload after level-ups raises
+ * `killsBeforeWipe`, and the readout's share is kills over it. The gauge never lets it rise
+ * within an attempt, and still has it run out on the very kill the party wipes on.
+ */
+describe('HeroHpGauge', () => {
+    const at = (killsInStage: number, killsBeforeWipe: number | null, attempt = '0:1:3') => ({
+        attempt, killsInStage, killsBeforeWipe, killsRequired: 30, packSize: 5, atBossGate: false
+    })
+
+    it('matches the readout while the budget holds', () => {
+        const gauge = new HeroHpGauge()
+        for (const k of [0, 5, 10.5, 20]) {
+            expect(gauge.next(at(k, 40))).toBeCloseTo(battleReadout(at(k, 40)).heroHpPct)
+        }
+    })
+
+    it('does not heal when a payload raises the budget, and still empties on the wipe kill', () => {
+        const gauge = new HeroHpGauge()
+        gauge.next(at(0, 40))
+        const before = gauge.next(at(20, 40))
+        expect(before).toBeCloseTo(50)
+        // the readout alone would jump to 75% here
+        expect(battleReadout(at(20, 80)).heroHpPct).toBeCloseTo(75)
+        expect(gauge.next(at(20, 80))).toBeCloseTo(50)
+        // halfway from kill 20 to the new wipe at 80
+        expect(gauge.next(at(50, 80))).toBeCloseTo(25)
+        expect(gauge.next(at(80, 80))).toBe(0)
+    })
+
+    it('empties early when a payload lowers the budget, never late', () => {
+        const gauge = new HeroHpGauge()
+        gauge.next(at(0, 40))
+        gauge.next(at(20, 40))
+        expect(gauge.next(at(20, 30))).toBeCloseTo(50)
+        expect(gauge.next(at(30, 30))).toBe(0)
+        // a budget already spent empties at once
+        const spent = new HeroHpGauge()
+        spent.next(at(25, 40))
+        expect(spent.next(at(25, 20))).toBe(0)
+    })
+
+    it('never rises on a payload pulling kills back by part of one', () => {
+        const gauge = new HeroHpGauge()
+        gauge.next(at(0, 40))
+        const shown = gauge.next(at(20.6, 40))
+        expect(gauge.next(at(20.1, 40))).toBe(shown)
+    })
+
+    it('fills again on a new stage and on a walled restart', () => {
+        const gauge = new HeroHpGauge()
+        gauge.next(at(0, 20))
+        expect(gauge.next(at(19.5, 20))).toBeCloseTo(2.5)
+        // the wall: kills cycle back to the start of a fresh attempt
+        expect(gauge.next(at(0.2, 20))).toBeCloseTo(99)
+        expect(gauge.next(at(0, 20, '0:1:4'))).toBe(100)
+    })
+
+    it('holds where it stands for a party the server calls undying', () => {
+        const gauge = new HeroHpGauge()
+        gauge.next(at(0, 40))
+        gauge.next(at(10, 40))
+        expect(gauge.next(at(12, null))).toBeCloseTo(75)
+        expect(gauge.next(at(29, null))).toBeCloseTo(75)
     })
 })

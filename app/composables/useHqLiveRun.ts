@@ -125,14 +125,32 @@ export function useHqLiveRun(
         }
     })
 
-    /** The payload's `hero`, with level and XP walked forward the same way. */
+    /** The Hero's HP share, kept from rising mid-attempt (`HeroHpGauge`), so the panel and the party frames read one figure. */
+    const gauge = new HeroHpGauge()
+    const heroHpPct = computed(() => {
+        const r = liveRun.value
+        if (!r) return null
+        return gauge.next({
+            attempt: `${r.prestige}:${r.world}:${r.stage}`,
+            killsInStage: r.killsFloat,
+            killsRequired: r.killsRequired,
+            killsBeforeWipe: r.killsBeforeWipe,
+            packSize: r.packSize,
+            atBossGate: r.atBossGate
+        })
+    })
+
+    /** The payload's `hero`, with level and XP walked forward the same way, and the HP share that never heals. */
     const liveHero = computed(() => {
         const self = hero.value
         const ahead = forecast.value
         if (!self) return null
-        if (!ahead) return self
+        const hp = heroHpPct.value
+        const held = hp === null ? {} : { hpPct: hp }
+        if (!ahead) return { ...self, ...held }
         return {
             ...self,
+            ...held,
             level: ahead.heroLevel,
             xp: ahead.heroXp.toString(),
             xpToNextLevel: ahead.xpToNextLevel.toString(),

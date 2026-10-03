@@ -41,6 +41,8 @@ const props = defineProps<{
         className: string
         level: number
         stats: { maxHp: string; pwr: string }
+        /** The HP share `useHqLiveRun` keeps from rising mid-attempt; the readout's own when absent. */
+        hpPct?: number
     }
 }>()
 
@@ -66,11 +68,12 @@ const view = computed(() => battleReadout({
  * arithmetic even though the percentages driving them are plain numbers.
  */
 const enemyHpRemaining = computed(() => D(props.run.packHp).mul(view.value.enemyHpPct / 100))
-const heroHpRemaining = computed(() => D(props.hero.stats.maxHp).mul(view.value.heroHpPct / 100))
+const heroHpPct = computed(() => props.hero.hpPct ?? view.value.heroHpPct)
+const heroHpRemaining = computed(() => D(props.hero.stats.maxHp).mul(heroHpPct.value / 100))
 
 const heroHpColor = computed(() => {
-    if (view.value.heroHpPct <= 20) return 'error'
-    if (view.value.heroHpPct <= 50) return 'warning'
+    if (heroHpPct.value <= 20) return 'error'
+    if (heroHpPct.value <= 50) return 'warning'
     return 'success'
 })
 </script>
@@ -133,7 +136,7 @@ const heroHpColor = computed(() => {
           </span>
         </div>
         <UProgress
-          :model-value="view.heroHpPct"
+          :model-value="heroHpPct"
           size="sm"
           :color="heroHpColor"
         />

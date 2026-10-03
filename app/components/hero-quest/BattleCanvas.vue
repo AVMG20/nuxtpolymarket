@@ -35,6 +35,8 @@ const props = defineProps<{
         classId: string
         level: number
         stats: { critChance: number, critMultiplier: string }
+        /** The HP share `useHqLiveRun` keeps from rising mid-attempt; the readout's own when absent. */
+        hpPct?: number
     }
     party: Omit<RunParty, 'classId'>
     fight?: StageFight | null
@@ -78,7 +80,7 @@ function feed(): RunFeed {
         secondsPerKill: run.secondsPerKill,
         critChance: props.hero.stats.critChance,
         critMultiplier: props.hero.stats.critMultiplier,
-        heroHpPct: readout.heroHpPct,
+        heroHpPct: props.hero.hpPct ?? readout.heroHpPct,
         heroLevel: props.hero.level
     }
 }

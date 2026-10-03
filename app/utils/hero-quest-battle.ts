@@ -300,3 +300,46 @@ export function battleReadout(input: BattleReadoutInput): BattleReadout {
         heroHpPct
     }
 }
+
+export interface HeroHpInput extends BattleReadoutInput {
+    /** Which stage attempt this is: a change of it starts the bar afresh. */
+    attempt: string
+}
+
+/**
+ * The Hero's HP share across one stage attempt: it never rises within one, and it still runs out
+ * on exactly the kill the party wipes on.
+ *
+ * `battleReadout`'s share is kills over `killsBeforeWipe`, and a payload after level-ups raises
+ * that budget, so drawn as-is the Hero heals once a minute. Here, when the budget changes
+ * mid-attempt the bar carries on from where it stands and drains in a line to 0 at the new wipe
+ * kill. A new attempt id, or kills falling back a whole kill or more (a walled stage restarting;
+ * a payload's correction moves them by under one), fills it again from the readout.
+ */
+export class HeroHpGauge {
+    private attempt = ''
+    private kills = 0
+    private shown = 100
+    private anchor = { pct: 100, kills: 0, wipeAt: null as number | null }
+
+    next(input: HeroHpInput): number {
+        const kills = Math.max(0, input.killsInStage)
+        const wipeAt = input.killsBeforeWipe
+        if (input.attempt !== this.attempt || kills < this.kills - 1) {
+            const pct = battleReadout(input).heroHpPct
+            this.anchor = { pct, kills, wipeAt }
+            this.shown = pct
+        } else if (wipeAt !== this.anchor.wipeAt) {
+            this.anchor = { pct: this.shown, kills, wipeAt }
+        }
+        const { pct: from, kills: at } = this.anchor
+        const pct = input.atBossGate || wipeAt === null || wipeAt <= 0
+            ? from
+            : wipeAt <= at ? 0 : from * Math.max(0, wipeAt - kills) / (wipeAt - at)
+        // a payload can pull kills back by part of one; that never shows as a heal
+        this.shown = Math.min(this.shown, pct)
+        this.attempt = input.attempt
+        this.kills = kills
+        return this.shown
+    }
+}
