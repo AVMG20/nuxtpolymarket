@@ -337,7 +337,12 @@ const DEFEAT_DIM = 10
 const MARCH_DUR = 2.4
 const MARCH_SPEED = SCROLL_PERIOD / MARCH_DUR
 
-/** The iris over a scene change: closing on the Hero, held black while the new scene builds, opening. */
+/** How fast the party walks off the right of the screen when it leaves a World, px a second. */
+const EXIT_SPEED = 110
+/** How far past the screen's edge the last body walks before the iris closes behind it. */
+const EXIT_MARGIN = 24
+
+/** The iris into a new World: closing where the party left, held black while the World builds, opening on the Hero. */
 const IRIS_CLOSE = 0.45
 const IRIS_HOLD = 0.15
 const IRIS_OPEN = 0.55
@@ -641,6 +646,8 @@ export class BattleDemo {
      * keeps it shut until `openIris`: the stage arriving from the splash, still settling into place.
      */
     private iris: { t: number, swap: (() => void) | null, feed: RunFeed | null, held: boolean } | null = null
+    /** The party walking off the screen into a new World, with the newest feed for it; null otherwise. */
+    private exit: RunFeed | null = null
     /** A boss waiting out the march, to make its entrance once the party stands on its ground. */
     private bossDue: Unit | null = null
     /** How far the world has travelled, in px — what every scenery layer parallaxes against. */
@@ -748,6 +755,7 @@ export class BattleDemo {
     setupRun(party: RunParty, feed: RunFeed): void {
         this.run = new RunDirector()
         this.party = party
+        this.exit = null
         this.run.sync(feed, 0)
         this.standoff = feed.atBossGate
         this.wipeT = 0
@@ -794,24 +802,33 @@ export class BattleDemo {
         }
     }
 
-    /** The run moved on: drop what is due, clear a stage, fall to a wall, or iris into a new scene. */
+    /** The run moved on: drop what is due, clear a stage, fall to a wall, or walk off into a new World. */
     feedRun(feed: RunFeed): void {
         const r = this.run
         if (!r || !this.party || this.replay) return
-        // a scene change under way keeps the newest feed for the scene it is about to build
+        // leaving a World keeps the newest feed for the World it is about to build
+        if (this.exit) {
+            this.exit = feed
+            return
+        }
         if (this.iris?.swap) {
             this.iris.feed = feed
             return
         }
+        const was = r.feed
         let up = 0
         for (let i = PARTY; i < this.units.length; i++) if (this.units[i]!.state !== U.Gone && this.units[i]!.state !== U.Death) up++
         const change = r.sync(feed, up)
         if (this.members[0]) this.members[0].level = feed.heroLevel
-        if (change === 'reset') {
-            // a new world, a prestige or a jump: the old scene closes on the Hero, the new one opens
-            const party = this.party
-            this.iris = { t: 0, feed, held: false, swap: () => this.setupRun(party, this.iris!.feed!) }
+        if (change === 'reset' && (!was || was.world !== feed.world || was.prestige !== feed.prestige)) {
+            this.walkOff(feed)
             return
+        }
+        if (change === 'reset') {
+            // a jump within the World: the pack is swapped where it stands
+            this.standoff = feed.atBossGate
+            for (let i = PARTY; i < this.units.length; i++) this.units[i]!.state = U.Gone
+            if (this.wipeT <= 0) this.spawnWave()
         }
         if (this.wipeT > 0) {
             // down already: the run's recovery is the clock, never cut shorter than the fall
@@ -821,6 +838,32 @@ export class BattleDemo {
         }
         // a gate ahead: the pack still up goes down first, then the boss is met
         if (change === 'advance') this.standoff = false
+    }
+
+    /**
+     * A new World: the party walks off the right of the screen, the iris closes behind it, and the
+     * World is built behind the black (`update`). What is left of the old pack is cleared away.
+     */
+    private walkOff(feed: RunFeed): void {
+        this.exit = feed
+        if (this.march > 0) this.endMarch()
+        this.cine = null
+        this.wipeT = 0
+        this.standoff = false
+        for (let i = 0; i < this.units.length; i++) {
+            const u = this.units[i]!
+            if (i >= PARTY) { u.state = U.Gone; continue }
+            if (u.state === U.Gone) continue
+            u.state = U.Move
+            u.t = Math.random() * 0.4 // out of step, as on a march
+        }
+    }
+
+    /** The party is off the screen: close the iris behind it and build the World it walked into. */
+    private irisIntoWorld(): void {
+        const party = this.party!
+        this.iris = { t: 0, feed: this.exit, held: false, swap: () => this.setupRun(party, this.iris!.feed!) }
+        this.exit = null
     }
 
     /** Start shut, and stay shut until `openIris`: how the stage comes in from the splash. */
@@ -875,7 +918,8 @@ export class BattleDemo {
      */
     playFight(fight: StageFight): void {
         if (!this.run) return
-        // the fight is on the new scene, so a closing iris shuts at once and opens on it
+        // the fight is on the new World, so a walk off or a closing iris cuts straight to it
+        if (this.exit) this.irisIntoWorld()
         if (this.iris?.swap) this.shutIris()
         const script = scriptFight(fight.events)
         this.cine = null
@@ -2051,6 +2095,17 @@ export class BattleDemo {
             if (this.iris.swap && this.iris.t >= IRIS_CLOSE) this.shutIris()
             else if (this.iris.t >= IRIS_CLOSE + IRIS_HOLD + IRIS_OPEN) this.iris = null
         }
+        if (this.exit) {
+            const cam = CAMERAS[this.camera]
+            let gone = true
+            for (let i = 0; i < Math.min(PARTY, this.units.length); i++) {
+                const u = this.units[i]!
+                if (u.state === U.Gone) continue
+                u.ox += EXIT_SPEED * dt
+                if (u.x + u.ox - EXIT_MARGIN < cam.x + cam.w) gone = false
+            }
+            if (gone) this.irisIntoWorld()
+        }
         // a replay keeps to the wall clock: its blows are due when the log says, freeze or not
         if (this.replay) this.replayTick(dt)
         if (this.shakeT > 0) this.shakeT -= dt
@@ -2231,8 +2286,8 @@ export class BattleDemo {
         } else {
             let foes = 0
             for (let i = 0; i < this.units.length; i++) if (this.units[i]!.side === 1 && this.units[i]!.state !== U.Gone) foes++
-            // a won fight leaves the field empty until the run says where it went; a fallen party waits to get up
-            if (foes === 0 && !this.replay && this.wipeT <= 0) {
+            // a won fight leaves the field empty until the run says where it went; a fallen party waits to get up, and one leaving the World walks on
+            if (foes === 0 && !this.replay && this.wipeT <= 0 && !this.exit && !this.iris?.swap) {
                 this.waveTimer += dt
                 if (this.waveTimer > (this.run ? RUN_WAVE_GAP : 0.7)) { this.waveTimer = 0; this.nextWave() }
             }
@@ -2379,7 +2434,8 @@ export class BattleDemo {
         if (this.iris) {
             // centred on the Hero's chest, wide enough at 1 to clear the farthest corner
             const hero = this.units[0]
-            const cx = hero ? Math.min(cam.w - 1, Math.max(0, hero.x - cam.x)) : cam.w / 2
+            // past the edge after a walk off, so it closes where the party left
+            const cx = hero ? Math.min(cam.w - 1, Math.max(0, hero.x + hero.ox - cam.x)) : cam.w / 2
             const cy = hero ? Math.min(cam.h - 1, Math.max(0, hero.y - 16 - cam.y)) : cam.h / 2
             const reach = Math.hypot(Math.max(cx, cam.w - cx), Math.max(cy, cam.h - cy))
             const r = reach * this.irisOpen()
