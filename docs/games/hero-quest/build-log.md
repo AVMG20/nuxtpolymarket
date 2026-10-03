@@ -531,6 +531,22 @@ the bar jumped; the panel reads only events on an enemy. And the boss's name and
 taken as the fight is engaged: the payload that lands with the result has already moved the run
 past the gate, so the modal had been naming the next stage's foes.
 
+**The foreground never stands over a fight** (fixed the same day, from the user's report). Every
+world's foreground framing is laid out on `SCROLL_PERIOD` and is back at the edges whenever a march
+ends, but two paths cut a march short with the scroll mid-period: a boss fight arriving while the
+party was still marching up to it (the usual case, since a boss engages as the gate is reached),
+and a rebuild mid-march. The fight now lets the march finish and waits out the boss's entrance
+before its first blow, and a rebuild lands the scroll on the period. Measured headless: before,
+the scroll stuck at 125 of 300 and the framing stood over 2,459 frames of a fight; after, over
+13,820 still frames with a fight and two world changes mid-march, none.
+
+**The party always marches between packs** (the same day). A fast run had met the next pack where
+it stood, which skipped the scroll; now every pack is marched to at the full `MARCH_DUR`, and the
+kills the run banked meanwhile are landed half a kill apart (`RUN_CATCH_UP_SHARE`, never closer
+than `RUN_CATCH_UP_GAP`) rather than in a burst. Measured headless at 0.3 to 0.8 s a kill over a
+minute: the stage trails the run by about two kills on average and never by more than one pack, and
+the lag does not grow.
+
 **Choices made without asking:** a Hero skill's cinematic plays as a flourish only (its numbers
 are the log's hits); statuses do not show as pips on the party frames, since the log's ids are
 ability ids, not the status icons'; the result banner is the stage's own (VICTORY, DEFEAT, TIME UP).
