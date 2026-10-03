@@ -194,8 +194,6 @@ const awayReport = computed(() => {
       </template>
 
       <template v-else>
-        <HeroQuestRunPosition :run="liveRun" />
-
         <HeroQuestBattleCanvas
           ref="battleCanvas"
           :run="liveRun"

@@ -148,16 +148,8 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="text-center space-y-4">
-      <p
-        v-if="mode === 'begin'"
-        class="text-muted max-w-md mx-auto"
-      >
-        Ten worlds, ten stages each. Your hero fights on its own — even while you're away.
-        Bosses are the one thing that needs you watching.
-      </p>
-
       <UAlert
-        v-else-if="mode === 'start' && away && away.kills > 0"
+        v-if="mode === 'start' && away && away.kills > 0"
         class="max-w-xl mx-auto text-left"
         color="primary"
         variant="subtle"
