@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#36** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`.
+**#37** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
@@ -35,6 +35,7 @@ read the older rule in the doc named in the middle column, it is superseded.**
 | 29 | `economy-and-currencies.md` §5 source 2: a time-gated free Seal grant | **Removed.** Free Seals come only from milestones and (later) raid clears; the free 10-pull entitlement is the only thing a clock hands out |
 | 31 | `raid-system.md` §1/§7, `asset-list.md`, `economy-and-currencies.md` §9: the Training Grounds Raid is a `solo_boss` fight, its Keys spent only on a win | It is a **`training_dummy`**: a static dummy that can't die or attack, the result being the damage dealt before the timer ends (2026-09-28, the user's call). How that meets Keys, the ladder and rewards is still open below |
 | 32 | `raid-system.md` §1/§7, `asset-list.md`, `asset-checklist.md`: the Forge Raid is one `phased_boss` whose phases change at HP thresholds | It is a **`boss_gauntlet`**: three bosses back to back, the Apprentice, the Journeyman and the Forgemaster (2026-09-29, the user's call). How the timer, Keys and curves apply is still open below |
+| 36 | `classes-and-combat.md` §3: SPD reduces cooldown duration across the board, off the same curve as the autoattack; every skill on `SKILL_BASE_COOLDOWN_SECONDS` | Cooldowns read **`cooldownSpd`**, SPD without the level curve; the autoattack still reads the full stat. Cooldowns sit on a **rank ladder** (`SKILL_COOLDOWN_RANK_STEP`): rarity for Skills and Champion abilities, tree depth for class skills, hit size scaled to match. §3 updated in place (2026-10-03, the user's call) |
 
 ---
 
@@ -95,7 +96,7 @@ Explicitly deferred scope — the gift-mechanic phase is locked, but limited-tim
 
 ## ⚠️ Open consequences of work that landed
 
-Three items are built and working but left something undecided. The full record of each is in
+Four items are built and working but left something undecided. The full record of each is in
 `build-log.md`; only the open half is restated here. (The `killFraction` invariant that used to
 sit here as #24 is not an open item — it is a trap, and it lives in `CLAUDE.md` §7 and
 `build-log.md` #24.)
@@ -114,6 +115,38 @@ re-derived as a pacing model. What it left open:
 
 ⚠ The `TUNED ✓` legend says "confirmed in playtest", but `playtest-notes.md` records only
 session 1. The block was tuned on the campaign sim, not felt.
+
+### 36. Cooldowns off the level curve — the pacing half is deferred to playtesting
+
+**What landed (2026-10-03).** The battle stage showed skills firing back to back: SPD rode the
+geometric level curve into `cooldownFor`, so every class hit `MIN_COOLDOWN_SECONDS` (0.5s) by
+level ~200 — the LCK trap again. Three options were weighed: freeze SPD outright (like LCK),
+clamp the reduction to a fraction of base, or **split SPD's two consumers**. The split was chosen.
+`UnitStats.cooldownSpd` is the unit's SPD built at level 1, every multiplier (collection passive,
+Gear, Skills, Artifacts, Haste) kept. The autoattack still reads the full stat and still reaches
+5/s around level 190. Freezing SPD outright was measured first and rejected: it removed ~9× of
+late DPS and moved the whole game clear by ~58 levels.
+
+Cooldowns now sit on a ladder, `SKILL_COOLDOWN_RANK_STEP ^ rank` × the base (`effects.onCooldownRank`):
+rarity for Skill Actives and Champion abilities (a Champion's ability takes *its Champion's*
+rarity, since the 7-ability pool is shared across rarities), tree depth for class skills.
+`abilityMultiplier`, heals, shields and bursts scale by the same factor, so damage per second holds
+and a better ability is a bigger, rarer hit. **Status durations stretch rather than magnitudes
+growing**, which keeps uptime fixed — debuffs clamp at zero, so a deeper Weaken on a slower cadence
+would have deleted enemy PWR. Coin Toss and Prospector's Instinct stay on
+`GOLD_BURST_COOLDOWN_SECONDS`, off the ladder.
+
+**What is open — the pacing.** Skills at 0.5s were a large share of late damage, so with a party
+of three every gate moves 2–13 levels later (game clear 494 → 506) and **the first prestige goes
+from 6.4 to ~13.7 days** (summed fights + grind to W10S10, `--party=3 --grind-hours=200`). Solo
+is unchanged, since the Beginner's only skill is Haste. One dial would restore the week —
+`BASE_ENEMY_HP` 60 → ~36 measured 7.9 days at 40 — but it also makes World 1 easier, and the user
+chose to leave pacing alone until more playtesting (2026-10-03). Two more things to settle then:
+
+1. **Long cooldowns lose their tail inside `BOSS_TIMER_SECONDS`.** The first cast waits a full
+   cooldown, so a Mythic ability (~15.9s at step 1.2) fires once in a 30s boss fight. Damage per
+   second is equal on average only; in boss fights the ladder is a slight nerf to rare kits.
+2. **The step itself is a placeholder** (`// UNTUNED ╧`), shared by both ladders.
 
 ### 23. Gold — the progression half is still open
 
@@ -185,6 +218,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 | `SKILL_PASSIVE_MAGNITUDE[]`, `SKILL_ECONOMY_COEFFICIENT` | `skills-gacha.md` §4 | The whole 36-skill magnitude ladder, indexed by rarity. §4 authors it as "small" → "large" and assigns no number anywhere; the *relative ordering* is design content, so retune the set rather than entries |
 | `SKILL_POTENCY_PER_POINT` | none — see #18 | What one point of a Skill copy's `(star × 10 + level)` scalar adds to its effect potency. **Identity at minimum**, so §4's authored bands stay the reference and only levelling multiplies up — ×2.18 at 5★/Lv10 on the placeholder. Its own constant rather than reusing `CHAMPION_INVESTMENT_PER_POINT` (×3.95 at max) because a Champion's scalar is its *only* growth axis while a Skill already carries a rarity band |
 | `GOLD_BURST_MINUTES[]`, `GOLD_BURST_COOLDOWN_SECONDS` | `gold-economy.md` §6 | Burst size in minutes of income, and the cadence it repays over. The cooldown is a **decision, not a transcription** — at the shared 6.4s skill base, a 0.5-minute burst repays ~+470% Gold, two orders past §5's ×3 stack target |
+| `SKILL_COOLDOWN_RANK_STEP` | none — see #36 | How much longer each rank of the cooldown ladder waits, and so how much harder it hits. One step shared by rarity (Skills, Champion abilities) and tree depth (class skills); at 1.2 a Mythic waits ×2.49 and a master class skill ×1.73 |
 | `SKILL_COOLDOWN_REFUND_FRACTION` | none — see #18 | How much shorter a "chance to refund / reset / re-trigger" Active's cooldown is rendered as. One constant for all three such Skills, so the approximation retunes in one place |
 | `WEALTH_FACTOR_MIN/MAX`, `WEALTH_NEUTRAL_HOURS` | `skills-gacha.md` §4¹ | The Gambler's Strike family's bounded modulation. §4¹ suggests ×0.5–×2.0 explicitly and calls it not locked; the neutral point is where the factor passes through 1.0 |
 | `ARTIFACT_EFFECT_PER_POINT`, `ARTIFACT_ECONOMY_COEFFICIENT` | `artifacts-dig-site-gacha.md` §6 | Per *point* of the investment scalar, unlike Skills' flat magnitude — §6 states the scaling for Artifacts and no doc states it for Skills. See #18's closing note |
