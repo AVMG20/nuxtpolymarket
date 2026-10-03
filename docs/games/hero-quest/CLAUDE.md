@@ -59,7 +59,7 @@ These are load-bearing and easy to violate by accident.
 
 **Stable string IDs, never indices.** `champ_kaira`, `skill_coin_toss`, `world_the_void`. DB rows and loadouts reference IDs only. Reordering a content array must never change a save.
 
-**Bosses require presence — read from page visibility, not a button.** A boss engages automatically while `document.visibilityState` is `visible` (`open-items.md` #25). Offline settles, hidden tabs and closed apps never engage one, so Void Shards can never be earned from idle time. The 400 that `boss/engage.post.ts` returns when the client arrives a beat early is routine — do not soften it.
+**Bosses require presence — read from page visibility, not a button.** A boss engages automatically while `document.visibilityState` is `visible` (`open-items.md` #25). The one exception: a boss that just beat the party (timeout or wipe) waits at its gate for the stage's challenge button instead of re-engaging (`open-items.md` #38). Offline settles, hidden tabs and closed apps never engage one, so Void Shards can never be earned from idle time. The 400 that `boss/engage.post.ts` returns when the client arrives a beat early is routine — do not soften it.
 
 **Manual cast mode does not exist.** Every skill on every unit auto-fires the instant its cooldown completes. No toggle, no tap-to-fire, no ready-and-waiting state, no `manualMode` field. If you find a doc reference to a cast toggle, it is stale — flag it.
 

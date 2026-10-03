@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#38** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day.
+**#39** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 landed 2026-10-04.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
@@ -37,6 +37,7 @@ read the older rule in the doc named in the middle column, it is superseded.**
 | 32 | `raid-system.md` §1/§7, `asset-list.md`, `asset-checklist.md`: the Forge Raid is one `phased_boss` whose phases change at HP thresholds | It is a **`boss_gauntlet`**: three bosses back to back, the Apprentice, the Journeyman and the Forgemaster (2026-09-29, the user's call). How the timer, Keys and curves apply is still open below |
 | 36 | `classes-and-combat.md` §3: SPD reduces cooldown duration across the board, off the same curve as the autoattack; every skill on `SKILL_BASE_COOLDOWN_SECONDS` | Cooldowns read **`cooldownSpd`**, SPD without the level curve; the autoattack still reads the full stat. Cooldowns sit on a **rank ladder** (`SKILL_COOLDOWN_RANK_STEP`): rarity for Skills and Champion abilities, tree depth for class skills, hit size scaled to match. §3 updated in place (2026-10-03, the user's call) |
 | 37 | `core-progression-and-prestige.md`, `settle.killsBeforeWipe`'s old contract: a wave wipe restarts the stage at once and income continues unbroken | Each wave wipe costs **`WIPE_RECOVERY_SECONDS` (5s)** with nothing landing, served across settle windows via `hq_state.recovery_seconds`. Still no ground lost (2026-10-03, the user's call) |
+| 38 | `CLAUDE.md` §3 and #25: every boss engages automatically while the tab is visible, never from a button | **A boss that just beat the party** (a timeout or a wipe) does not re-engage on reaching its gate again. The stage shows a red skull challenge button in place of the stage progress, and the player fights it from there. Saved as `hq_state.boss_lost` (migration `0050`), set by the fight that loses and cleared by the one that wins, so it holds across reloads and coming back later; run position, so a prestige clears it. Presence still gates every fight (2026-10-04, the user's call) |
 
 ---
 
