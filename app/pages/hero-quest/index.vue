@@ -2,8 +2,8 @@
 import { formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
 
 const {
-    initialized, run, hero, settled, pending, guild,
-    engageBoss
+    initialized, run, hero, settled, pending, guild, nextPrestigeReward,
+    engageBoss, prestige
 } = useHeroQuest()
 
 /**
@@ -39,6 +39,41 @@ const party = computed(() => {
         })
     }
 })
+
+/**
+ * A cleared run waits on the bridge (`HeroQuestPrestigeGate`) instead of the stage. The prestige
+ * lands before the party walks into the portal, and the payload it refreshes is already World 1,
+ * so `holdGate` keeps the bridge up until the walk is done; a failed prestige lets it go again.
+ */
+const holdGate = ref(false)
+const prestiging = ref(false)
+const crossing = ref(false)
+const showGate = computed(() => (liveRun.value?.runCleared ?? false) || holdGate.value)
+
+async function beginAgain() {
+    holdGate.value = true
+    prestiging.value = true
+    try {
+        await prestige()
+        crossing.value = true
+    } catch {
+        holdGate.value = false
+    } finally {
+        prestiging.value = false
+    }
+}
+
+function onCrossed() {
+    holdGate.value = false
+    crossing.value = false
+}
+
+/** The bridge walks the save's party, in file. */
+const gateParty = computed(() => ({
+    classId: hero.value?.classId ?? 'class_beginner',
+    heroRow: party.value.heroRow,
+    champions: party.value.champions.map(c => ({ id: c.id, row: c.row }))
+}))
 
 /** The stat-attribution slideover. Fetched on open, never with the state payload. */
 const breakdownOpen = ref(false)
@@ -145,54 +180,69 @@ const awayReport = computed(() => {
           + (awayReport.blockedAtBoss ? '. Your run is parked at a boss.' : '.')"
       />
 
-      <HeroQuestRunPosition :run="liveRun" />
+      <template v-if="showGate">
+        <HeroQuestPrestigeGate
+          :party="gateParty"
+          :pending="prestiging"
+          :crossing="crossing"
+          @begin="beginAgain"
+          @crossed="onCrossed"
+        />
+        <p class="text-center text-sm text-muted">
+          Begin again at World 1 for {{ formatHq(nextPrestigeReward) }} Void Shards. Your hero keeps every level.
+        </p>
+      </template>
 
-      <HeroQuestBattleCanvas
-        ref="battleCanvas"
-        :run="liveRun"
-        :hero="liveHero"
-        :party="party"
-        :fight="fight"
-        @fight-progress="fightProgress = $event"
-      />
+      <template v-else>
+        <HeroQuestRunPosition :run="liveRun" />
 
-      <!-- A boss fight takes the readout's place while the stage plays it. -->
-      <HeroQuestBossFightPanel
-        v-if="fight"
-        :fight="fight"
-        :enemy-name="fightBoss.name"
-        :boss-timer-seconds="fightBoss.timer"
-        :time="fightProgress.time"
-        :done="fightProgress.done"
-        :auto-close="fightWasAutomatic"
-        @skip="battleCanvas?.skipFight()"
-        @close="fight = null"
-      />
+        <HeroQuestBattleCanvas
+          ref="battleCanvas"
+          :run="liveRun"
+          :hero="liveHero"
+          :party="party"
+          :fight="fight"
+          @fight-progress="fightProgress = $event"
+        />
 
-      <HeroQuestBattleView
-        v-else
-        :run="liveRun"
-        :hero="liveHero"
-      />
+        <!-- A boss fight takes the readout's place while the stage plays it. -->
+        <HeroQuestBossFightPanel
+          v-if="fight"
+          :fight="fight"
+          :enemy-name="fightBoss.name"
+          :boss-timer-seconds="fightBoss.timer"
+          :time="fightProgress.time"
+          :done="fightProgress.done"
+          :auto-close="fightWasAutomatic"
+          @skip="battleCanvas?.skipFight()"
+          @close="fight = null"
+        />
 
-      <!--
-        Not on a cleared run: the World 10 super boss stays parked on its gate after it falls, and
-        the server rejects a re-fight there. The battle view already points the player at prestige.
-      -->
-      <div
-        v-if="liveRun.atBossGate && !liveRun.runCleared && !fight"
-        class="flex justify-center"
-      >
-        <UButton
-          size="lg"
-          color="error"
-          icon="i-lucide-swords"
-          :loading="engaging"
-          @click="onEngage"
+        <HeroQuestBattleView
+          v-else
+          :run="liveRun"
+          :hero="liveHero"
+        />
+
+        <!--
+          Not on a cleared run: the World 10 super boss stays parked on its gate after it falls, and
+          the server rejects a re-fight there. The battle view already points the player at prestige.
+        -->
+        <div
+          v-if="liveRun.atBossGate && !liveRun.runCleared && !fight"
+          class="flex justify-center"
         >
-          Fight {{ liveRun.enemyName }}
-        </UButton>
-      </div>
+          <UButton
+            size="lg"
+            color="error"
+            icon="i-lucide-swords"
+            :loading="engaging"
+            @click="onEngage"
+          >
+            Fight {{ liveRun.enemyName }}
+          </UButton>
+        </div>
+      </template>
 
       <div class="rounded-lg border border-default bg-elevated/40 p-4">
         <div class="flex items-center justify-between mb-3">
