@@ -241,11 +241,35 @@ export interface RunParty {
 interface Cast {
     id: string
     cooldown: number
+    /** Never below 0: a ready ability waits rather than banking casts to fire in a burst later. */
     timer: number
+    /**
+     * Seconds it has sat ready while the party was fighting, taken off its next cooldown so the
+     * stage keeps the fight's cadence. A march adds none, so it never comes back as a burst.
+     */
+    overdue: number
     damaging: boolean
     vfx: VfxDef | null
     /** The Hero's cinematic for it, when it has one and deals damage. */
     cine: CinematicVfx | null
+}
+
+/**
+ * A body's basic attack on the game's stage: its interval, the seconds left on it (never below 0,
+ * so a march banks no swings), and how long it has sat due while the party was fighting.
+ */
+interface Swing { interval: number, timer: number, overdue: number }
+
+/** Count a swing down; once due, time spent fighting counts toward firing it on its own. */
+function tickSwing(a: Swing, dt: number, fighting: boolean): void {
+    a.timer = Math.max(0, a.timer - dt)
+    if (a.timer === 0 && fighting) a.overdue = Math.min(a.interval, a.overdue + dt)
+}
+
+/** Arm the next swing, the wait for this one taken off it, so the stage keeps the fight's cadence. */
+function rearmSwing(a: Swing): void {
+    a.timer = Math.max(0, a.interval - a.overdue)
+    a.overdue = 0
 }
 
 /** The shortest cooldown the stage keeps to, so a kit served at 0 cannot cast every tick. */
@@ -272,7 +296,7 @@ function readyCast(u: Unit): Cast | null {
     let best: Cast | null = null
     for (let k = 0; k < u.casts.length; k++) {
         const c = u.casts[k]!
-        if (c.timer <= 0 && (!best || c.timer < best.timer)) best = c
+        if (c.timer <= 0 && (!best || c.overdue > best.overdue)) best = c
     }
     return best
 }
@@ -409,7 +433,7 @@ interface Unit {
      * or null to swing on the art page's own rhythm; and how fast its swing plays, sped up when
      * the attacks come faster than the clip lasts.
      */
-    attack: { interval: number, timer: number } | null
+    attack: Swing | null
     rate: number
     /** A boss fight's replay: the logged blow this swing is bringing, landed at its impact. */
     beat: Beat | null
@@ -732,6 +756,7 @@ export class BattleDemo {
                     id: s.id,
                     cooldown,
                     timer: was ? Math.min(was.timer, cooldown) : cooldown,
+                    overdue: was?.overdue ?? 0,
                     damaging: s.damaging,
                     vfx: VFX_BY_ID[s.id] ?? u.vfx,
                     // the cinematic is the class's own skill's, as on the art page: a whole kit of them would never let the fight move
@@ -741,7 +766,7 @@ export class BattleDemo {
             if (!kit) continue
             // the first attack lands at once, as in a fight; a new speed keeps how far along the next one is
             const interval = Math.max(MIN_ATTACK_INTERVAL_SECONDS, kit.attackSeconds)
-            u.attack = { interval, timer: u.attack ? Math.min(u.attack.timer, interval) : 0 }
+            u.attack = { interval, timer: u.attack ? Math.min(u.attack.timer, interval) : 0, overdue: u.attack?.overdue ?? 0 }
             u.shots = Math.max(1, kit.strikesPerAttack)
             // a swing whose clip outlasts the gap between attacks plays faster, up to RUN_MAX_SWING_RATE
             const clip = u.frames[U.Attack]!
@@ -1419,7 +1444,7 @@ export class BattleDemo {
                 u.shot = RIG_SHOTS[u.rig]!
                 u.elite = !gate && f.archetype === 'elite'
                 u.hp = 1
-                u.attack = { interval: ENEMY_ATTACK_SECONDS, timer: ENEMY_ATTACK_SECONDS }
+                u.attack = { interval: ENEMY_ATTACK_SECONDS, timer: ENEMY_ATTACK_SECONDS, overdue: 0 }
             }
             if (u.boss && active) {
                 u.frames = this.bossFrames[which]!
@@ -1466,7 +1491,7 @@ export class BattleDemo {
             u.t = 0
             u.hp = PARTY_HP
             // a new attempt opens on full cooldowns, as a fight does
-            for (const c of u.casts) c.timer = c.cooldown
+            for (const c of u.casts) { c.timer = c.cooldown; c.overdue = 0 }
         }
         for (let i = PARTY; i < this.units.length; i++) this.units[i]!.state = U.Gone
         this.spawnWave()
@@ -1484,20 +1509,24 @@ export class BattleDemo {
             if (u.state === U.Gone || u.state === U.Death) continue
             for (let k = 0; k < u.casts.length; k++) {
                 const c = u.casts[k]!
-                c.timer -= dt
+                c.timer = Math.max(0, c.timer - dt)
+                // ready on a march waits for the next pack; ready while fighting counts toward firing on its own
+                if (c.timer > 0 || !fighting) continue
+                c.overdue += dt
                 // one its body has been too busy to cast fires on its own
-                if (!fighting || c.timer > -RUN_CAST_OVERDUE) continue
-                c.timer += c.cooldown
+                if (c.overdue < RUN_CAST_OVERDUE) continue
+                c.timer = Math.max(0, c.cooldown - c.overdue)
+                c.overdue = 0
                 if (c.vfx) this.playFx(c.vfx)
                 const tgt = c.damaging ? this.target(0) : null
                 if (tgt) this.landRun(u, tgt, false)
             }
             const a = u.attack
             if (!a) continue
-            a.timer -= dt
+            tickSwing(a, dt, fighting)
             // an attack a whole interval late lands on its own: its strikes, without the swing
-            if (!fighting || a.timer > -a.interval) continue
-            a.timer += a.interval
+            if (a.overdue < a.interval) continue
+            rearmSwing(a)
             const tgt = this.target(0)
             if (!tgt) continue
             for (let k = 0; k < u.shots; k++) {
@@ -1508,7 +1537,7 @@ export class BattleDemo {
         // the pack swings on the fight's enemy interval; one held up by hits just swings late
         for (let i = PARTY; i < this.units.length; i++) {
             const a = this.units[i]!.attack
-            if (a) a.timer = Math.max(-a.interval, a.timer - dt)
+            if (a) tickSwing(a, dt, fighting)
         }
         if (this.wipeT > 0) {
             this.wipeT -= dt
@@ -1995,9 +2024,10 @@ export class BattleDemo {
                         u.fired = false
                         // set on every swing, so a cast cut short by a hit never carries over to the next one
                         u.casting = ready
-                        if (!cast && u.attack) u.attack.timer += u.attack.interval
+                        if (!cast && u.attack) rearmSwing(u.attack)
                         if (ready) {
-                            ready.timer += ready.cooldown
+                            ready.timer = Math.max(0, ready.cooldown - ready.overdue)
+                            ready.overdue = 0
                             if (ready.cine) this.startCine(ready.cine, u)
                         } else if (cast && i === 0 && this.heroCine && !this.run) {
                             this.startCine(this.heroCine, u)
