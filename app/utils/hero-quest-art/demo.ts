@@ -321,8 +321,13 @@ const RUN_WAVE_GAP = 0.2
 const RUN_FORCE_AFTER = 0.2
 const RUN_CATCH_UP_SHARE = 0.5
 const RUN_CATCH_UP_GAP = 0.15
-/** How long a fallen party stays down before it gets back up to a fresh pack. */
+/**
+ * The least a fallen party stays down: long enough to play its fall. It stays down for the run's
+ * `recoverySeconds` (`WIPE_RECOVERY_SECONDS`) when that is longer, which it is for every live wipe.
+ */
 const RUN_WIPE_HOLD = 1.6
+/** How far the scene darkens while the party lies fallen, in dither sixteenths. */
+const DEFEAT_DIM = 10
 
 /**
  * How long the party runs between battles. The speed is derived so one march covers exactly one
@@ -707,6 +712,8 @@ export class BattleDemo {
     private standoff = false
     /** Seconds the fallen party has left on the ground; how long a kill has been due; the gap before the next caught-up one. */
     private wipeT = 0
+    /** Stage time the party fell at, for the defeat banner's entrance. */
+    private fellAt = 0
     private dueFor = 0
     private forceGap = 0
     /** What the Hero's skill playing now has shown, for its total. */
@@ -747,6 +754,8 @@ export class BattleDemo {
         this.forceGap = 0
         this.build(feed.world, party.classId, 'regular')
         this.members[0]!.level = feed.heroLevel
+        // arriving mid-recovery, the party is already down
+        if (feed.recoverySeconds > 0) this.fallParty(feed.recoverySeconds)
     }
 
     /**
@@ -803,8 +812,11 @@ export class BattleDemo {
             this.iris = { t: 0, feed, swap: () => this.setupRun(party, this.iris!.feed) }
             return
         }
-        if (change === 'wipe') {
-            this.fallParty()
+        if (this.wipeT > 0) {
+            // down already: the run's recovery is the clock, never cut shorter than the fall
+            if (feed.recoverySeconds > 0) this.wipeT = Math.max(this.wipeT, feed.recoverySeconds)
+        } else if (change === 'wipe' || feed.recoverySeconds > 0) {
+            this.fallParty(feed.recoverySeconds)
         }
         // a gate ahead: the pack still up goes down first, then the boss is met
         if (change === 'advance') this.standoff = false
@@ -1503,9 +1515,12 @@ export class BattleDemo {
         this.startMarch()
     }
 
-    /** The walled party falls where it stands; it gets back up to a fresh pack after RUN_WIPE_HOLD. */
-    private fallParty(): void {
-        this.wipeT = RUN_WIPE_HOLD
+    /** The walled party falls where it stands, and gets back up to a fresh pack once `recovery` has run out. */
+    private fallParty(recovery = 0): void {
+        // a march under way stops where the party drops
+        if (this.march > 0) this.endMarch()
+        this.wipeT = Math.max(RUN_WIPE_HOLD, recovery)
+        this.fellAt = this.time
         this.cine = null
         for (let i = 0; i < PARTY; i++) {
             const u = this.units[i]!
@@ -2106,6 +2121,11 @@ export class BattleDemo {
                 case U.Death: {
                     // it staggers and falls as authored, then shatters where it would dissolve
                     const fs = fadeStart(b)
+                    // a party fallen to a wipe lies where it fell until it recovers
+                    if (i < PARTY && this.wipeT > 0) {
+                        if (frameIndex(b, u.t) >= fs) u.t = Math.max(0, fs - 1) / b.fps
+                        break
+                    }
                     if (frameIndex(b, u.t) >= fs || u.t >= dur) {
                         this.shatter(u, b, b.frames[Math.max(0, fs - 1)]!)
                         // the Forge: as one of its bosses falls, the next comes out
@@ -2195,8 +2215,8 @@ export class BattleDemo {
         } else {
             let foes = 0
             for (let i = 0; i < this.units.length; i++) if (this.units[i]!.side === 1 && this.units[i]!.state !== U.Gone) foes++
-            // a won fight leaves the field empty until the run says where it went
-            if (foes === 0 && !this.replay) {
+            // a won fight leaves the field empty until the run says where it went; a fallen party waits to get up
+            if (foes === 0 && !this.replay && this.wipeT <= 0) {
                 this.waveTimer += dt
                 if (this.waveTimer > (this.run ? RUN_WAVE_GAP : 0.7)) { this.waveTimer = 0; this.nextWave() }
             }
@@ -2331,6 +2351,14 @@ export class BattleDemo {
         if (cam.w !== SW) {
             out = this.views[this.camera]
             for (let y = 0; y < cam.h; y++) out.data.set(s.data.subarray((cam.y + y) * s.w + cam.x, (cam.y + y) * s.w + cam.x + cam.w), y * cam.w)
+        }
+        if (this.wipeT > 0 && this.run && !this.replay) {
+            // the defeat: the scene sinks toward dark red, a banner says so, and a count runs to the next attempt
+            const since = this.time - this.fellAt
+            applyTint(out, tintLut('red0'), Math.min(DEFEAT_DIM, Math.floor(since * 24), Math.floor(this.wipeT * 24)))
+            const mid = Math.round(cam.h / 2) - 18
+            drawSkillBanner(out, 'DEFEATED', cam.w / 2, mid, since, true, this.wipeT)
+            if (since > 0.4) textOut(out, `RECOVERING  0:${String(Math.ceil(this.wipeT)).padStart(2, '0')}`, cam.w / 2, mid + 24, C.bone1, 'small', 1, 1, 1, C.ink, -1)
         }
         if (this.iris) {
             // centred on the Hero's chest, wide enough at 1 to clear the farthest corner

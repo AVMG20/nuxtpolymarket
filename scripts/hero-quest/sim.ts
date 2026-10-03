@@ -14,7 +14,7 @@
  *     import { analyzeStage, analyzeWorld, minLevelForGate } from './scripts/hero-quest/sim'
  */
 
-import { BOSS_TIMER_SECONDS, STAGES_PER_WORLD, WORLD_COUNT } from '../../shared/utils/hero-quest/constants'
+import { BOSS_TIMER_SECONDS, STAGES_PER_WORLD, WIPE_RECOVERY_SECONDS, WORLD_COUNT } from '../../shared/utils/hero-quest/constants'
 import {
     applyXp,
     enemyStatsAt,
@@ -443,8 +443,8 @@ function killsFor(row: StageReport): number {
  *
  * **A wave stage the party cannot survive is still a farm.** `settle.killsBeforeWipe` banks
  * every kill landed before the party drops, and the wipe restarts *that same stage* rather
- * than falling the run back — so income continues at `secondsPerKill` and, as `settle`'s own
- * comment puts it, "the Hero levels its way out". Only three things actually stop the income:
+ * than falling the run back — so income continues, slowed by a recovery after each wipe
+ * (`secondsPerFarmedKill`), and as `settle`'s own comment puts it, "the Hero levels its way out". Only three things actually stop the income:
  * a gate, which is one fight on a one-way door rather than a kill counter; a stalled stage,
  * where damage has floored and `secondsPerKill` is infinite; and a stage so lethal that the
  * party drops before the first kill lands.
@@ -453,6 +453,13 @@ function banksKills(row: StageReport): boolean {
     if (row.isGate) return false
     if (!Number.isFinite(row.secondsPerKill) || row.secondsPerKill <= 0) return false
     return Math.floor(row.secondsToDie / row.secondsPerKill) >= 1
+}
+
+/** What a farmed kill costs in wall-clock time: on a stage the party wipes on, each attempt also owes `WIPE_RECOVERY_SECONDS` (`settle.walkWall`). */
+function secondsPerFarmedKill(row: StageReport): number {
+    const wipeAt = Math.floor(row.secondsToDie / row.secondsPerKill)
+    if (!(wipeAt > 0) || wipeAt >= row.killsRequired) return row.secondsPerKill
+    return row.secondsPerKill + WIPE_RECOVERY_SECONDS / wipeAt
 }
 
 /**
@@ -680,7 +687,7 @@ function resolveBlock(
     const perKill = xpPerKill(prestige, farm.world, farm.stage)
     const deficit = totalXpForLevel(required).sub(totalXpForLevel(level).add(xp))
     const kills = deficit.lte(0) ? 0 : deficit.div(perKill).ceil().toNumber()
-    const seconds = kills * farm.secondsPerKill
+    const seconds = kills * secondsPerFarmedKill(farm)
 
     if (!Number.isFinite(seconds) || seconds > grindBudget) {
         return {

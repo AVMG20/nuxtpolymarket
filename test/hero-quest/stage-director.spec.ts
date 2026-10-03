@@ -19,6 +19,7 @@ const FEED: RunFeed = {
     packSize: 6,
     atBossGate: false,
     walled: false,
+    recoverySeconds: 0,
     enemyHp: '1840',
     secondsPerKill: 2,
     critChance: 0.25,

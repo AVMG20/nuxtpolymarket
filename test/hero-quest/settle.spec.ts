@@ -24,6 +24,7 @@ import {
     settle,
     stageArchetype,
     totalXpForLevel,
+    walkWall,
     xpPerKill,
     xpToNextLevel
 } from '#shared/utils/hero-quest/settle'
@@ -48,6 +49,7 @@ import {
     PRESTIGE_INDEX_STEPS,
     STAGES_PER_WORLD,
     SUPER_BOSS_STAGE,
+    WIPE_RECOVERY_SECONDS,
     WORLD_COUNT,
     XP_STEP_BASE,
     XP_TO_LEVEL_BASE,
@@ -451,6 +453,43 @@ describe('hero-quest settle', () => {
             expect(result.goldEarned).toBeGreaterThan(0)
             expect(result.xpEarned.gt(0)).toBe(true)
             expect(result.heroLevel).toBeGreaterThan(hero.heroLevel)
+        })
+
+        it('recovers after every wipe, landing nothing while it does', () => {
+            const wipeAt = wipeCount(unsurvivable)
+            const spk = secondsPerKillAt(unsurvivable)
+            const seconds = 8 * 3600
+            const result = settle(input({ position: unsurvivable, elapsedSeconds: seconds, online: true }))
+            // whole cycles of an attempt and a recovery, within one cycle's kills either way
+            const cycles = seconds / (wipeAt * spk + WIPE_RECOVERY_SECONDS)
+            expect(Math.abs(result.kills - cycles * wipeAt)).toBeLessThanOrEqual(wipeAt)
+            expect(result.kills).toBeLessThan(Math.floor(seconds / spk))
+        })
+
+        it('carries a recovery cut short by a read into the next window, and serves it first', () => {
+            const owed = settle(input({ position: unsurvivable, elapsedSeconds: 2, online: true, recoverySeconds: 3 }))
+            expect(owed.kills).toBe(0)
+            expect(owed.recoverySeconds).toBeCloseTo(1, 10)
+            expect(owed.position.killsInStage).toBe(0)
+
+            const spk = secondsPerKillAt(unsurvivable)
+            const served = settle(input({ position: unsurvivable, elapsedSeconds: 3 + 2 * spk + 0.01, online: true, recoverySeconds: 3 }))
+            expect(served.recoverySeconds).toBe(0)
+            expect(served.kills).toBe(2)
+        })
+
+        it('earns the same over a window whether it is read once or many times', () => {
+            const once = settle(input({ position: unsurvivable, elapsedSeconds: 3600, online: true }))
+            let position = unsurvivable
+            let killFraction = 0
+            let recoverySeconds = 0
+            let kills = 0
+            for (let i = 0; i < 360; i++) {
+                const step = settle(input({ position, elapsedSeconds: 10, online: true, killFraction, recoverySeconds }))
+                ;({ position, killFraction, recoverySeconds } = step)
+                kills += step.kills
+            }
+            expect(Math.abs(kills - once.kills)).toBeLessThanOrEqual(1)
         })
 
         it('resolves a long window in bounded time rather than walking wipe by wipe', () => {
@@ -1023,5 +1062,40 @@ describe('hero-quest settle', () => {
             expect(stalled.kills).toBe(0)
             expect(stalled.heroLevel).toBe(hero.heroLevel)
         })
+    })
+})
+
+describe('walkWall', () => {
+    const R = WIPE_RECOVERY_SECONDS
+
+    it('runs the attempt under way to its wipe, then recovers', () => {
+        // 10 kills at 2s, 4 already landed: 12s to the wipe, then into the recovery
+        const fell = walkWall(4, 0, 12 + 1, 10, 2)
+        expect(fell.kills).toBe(6)
+        expect(fell.killsInStage).toBe(0)
+        expect(fell.recoverySeconds).toBeCloseTo(R - 1, 10)
+    })
+
+    it('cycles whole attempts and recoveries in closed form', () => {
+        const cycle = 10 * 2 + R
+        const walked = walkWall(0, 0, 20 + 3 * cycle + R + 3, 10, 2)
+        expect(walked.kills).toBeCloseTo(10 + 30 + 1.5, 10)
+        expect(walked.killsInStage).toBeCloseTo(1.5, 10)
+        expect(walked.recoverySeconds).toBe(0)
+    })
+
+    it('finishes an owed recovery before any kill lands', () => {
+        expect(walkWall(0, 3, 2, 10, 2)).toEqual({ kills: 0, killsInStage: 0, recoverySeconds: 1 })
+        expect(walkWall(0, 3, 5, 10, 2).kills).toBeCloseTo(1, 10)
+    })
+
+    it('drops at once a party already past what it survives', () => {
+        const walked = walkWall(12, 0, 1, 10, 2)
+        expect(walked.kills).toBe(0)
+        expect(walked.recoverySeconds).toBeCloseTo(R - 1, 10)
+    })
+
+    it('lands nothing for a party that dies before its first kill', () => {
+        expect(walkWall(0, 0, 3600, 0, 2)).toEqual({ kills: 0, killsInStage: 0, recoverySeconds: 0 })
     })
 })

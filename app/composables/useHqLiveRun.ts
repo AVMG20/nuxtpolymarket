@@ -47,8 +47,8 @@ export function useHqLiveRun(
      * **It has to be reset when a payload lands**, or the projection grows without bound and the
      * bars pin to their ceilings. Watching `killCount` alone is not enough because the projection
      * advances stages: a payload that lands exactly as the counter rolls over reports the same 0
-     * it did a tick ago, so world and stage are watched with it — and `killFraction` too, the only
-     * field that moves on a window too short to bank a whole kill.
+     * it did a tick ago, so world and stage are watched with it — and `killFraction` and
+     * `recoverySeconds` too, the fields that move on a window too short to bank a whole kill.
      */
     const sincePayload = ref(0)
     let ticker: ReturnType<typeof setInterval> | null = null
@@ -56,7 +56,7 @@ export function useHqLiveRun(
     watch(
         () => {
             const value = run.value
-            return value ? `${value.world}:${value.stage}:${value.killCount}:${value.killFraction}` : ''
+            return value ? `${value.world}:${value.stage}:${value.killCount}:${value.killFraction}:${value.recoverySeconds}` : ''
         },
         () => { sincePayload.value = 0 }
     )
@@ -71,6 +71,7 @@ export function useHqLiveRun(
             stage: anchor.stage,
             killCount: anchor.killCount,
             killFraction: anchor.killFraction,
+            recoverySeconds: anchor.recoverySeconds,
             secondsPerKill: anchor.secondsPerKill,
             killsBeforeWipe: anchor.killsBeforeWipe,
             goldBonusPct: anchor.goldBonusPct,
@@ -118,6 +119,7 @@ export function useHqLiveRun(
             killsRequired: ahead.killsRequired,
             atBossGate: ahead.atBossGate,
             walled: ahead.walled,
+            recoverySeconds: ahead.recoverySeconds,
             // Position-only, so exact rather than held over from the payload's stage.
             packSize: packSize(pack),
             packHp: packHp(pack).toString(),

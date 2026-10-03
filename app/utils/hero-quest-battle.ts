@@ -40,6 +40,7 @@ import {
     nextStage,
     offlineFarmStage,
     stageArchetype,
+    walkWall,
     xpPerKill,
     xpToNextLevel
 } from '#shared/utils/hero-quest/settle'
@@ -64,6 +65,8 @@ export interface RunAnchor {
      * to one body every time a payload landed.
      */
     killFraction: number
+    /** Server truth: wipe recovery still owed, in seconds, served before anything else. */
+    recoverySeconds: number
     /** Held for the whole projection. `null` when the party cannot kill anything. */
     secondsPerKill: number | null
     /** Held likewise. `null` when the server calls the party undying. */
@@ -100,6 +103,8 @@ export interface RunForecast {
     atBossGate: boolean
     /** The stage restarts rather than clearing: `killsBeforeWipe` is under `killsRequired`. */
     walled: boolean
+    /** Seconds the wiped party has left to recover before its next attempt; 0 when it is fighting. */
+    recoverySeconds: number
     heroLevel: number
     heroXp: Decimal
     xpToNextLevel: Decimal
@@ -145,7 +150,11 @@ export function projectRun(anchor: RunAnchor, elapsedSeconds: number): RunForeca
     const carried = Number.isFinite(carry) && carry > 0 && carry < 1 ? carry : 0
     let killsInStage = Math.max(0, anchor.killCount) + carried
 
-    let budget = spk !== null && spk > 0 ? Math.max(0, elapsedSeconds) / spk : 0
+    // A recovery the server says is owed is served first, as `settle()` serves it.
+    const owed = Number.isFinite(anchor.recoverySeconds) && anchor.recoverySeconds > 0 ? anchor.recoverySeconds : 0
+    const served = Math.min(owed, Math.max(0, elapsedSeconds))
+    let recoverySeconds = owed - served
+    let budget = spk !== null && spk > 0 && recoverySeconds <= 0 ? (Math.max(0, elapsedSeconds) - served) / spk : 0
     const goldMultiplier = 1 + anchor.goldBonusPct
     const xpMultiplier = D(1 + anchor.xpBonusPct)
     const wipeAt = anchor.killsBeforeWipe
@@ -154,7 +163,8 @@ export function projectRun(anchor: RunAnchor, elapsedSeconds: number): RunForeca
     let xp = ZERO
     let landed = 0
     let atBossGate = isBossStage(stage)
-    let walled = false
+    // recovery is only ever owed on a walled stage
+    let walled = recoverySeconds > 0
 
     const earn = (kills: number, atWorld: number, atStage: number) => {
         gold += kills * goldPerKill(prestige, atWorld, atStage, anchor.tenureDays) * goldMultiplier
@@ -177,15 +187,12 @@ export function projectRun(anchor: RunAnchor, elapsedSeconds: number): RunForeca
 
         if (wipeAt !== null && wipeAt < required) {
             // The party drops before the counter fills, so the attempt restarts from zero and
-            // the stage can never clear at this power level. Income continues at the same rate.
+            // the stage can never clear at this power level, recovering after each wipe.
             walled = true
-            if (wipeAt > 0) {
-                earn(budget, world, stage)
-                killsInStage = (killsInStage + budget) % wipeAt
-            } else {
-                // Dies faster than it kills: nothing lands, so nothing is earned.
-                killsInStage = 0
-            }
+            const wall = walkWall(killsInStage, 0, budget * spk!, wipeAt, spk!)
+            if (wall.kills > 0) earn(wall.kills, world, stage)
+            killsInStage = wall.killsInStage
+            recoverySeconds = wall.recoverySeconds
             budget = 0
             break
         }
@@ -217,6 +224,7 @@ export function projectRun(anchor: RunAnchor, elapsedSeconds: number): RunForeca
         killsRequired: killsRequired({ prestige, world, stage, killsInStage }),
         atBossGate,
         walled,
+        recoverySeconds,
         heroLevel: levelled.level,
         heroXp: levelled.xp,
         xpToNextLevel: needed,

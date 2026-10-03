@@ -26,7 +26,7 @@ import {
 } from '../../app/utils/hero-quest-battle'
 import { enemyPackAt, killsBeforeWipe, settle, totalXpForLevel } from '#shared/utils/hero-quest/settle'
 import { partyUnitStats } from '#shared/utils/hero-quest/stats'
-import { BASE_KILL_COUNT, BOSS_STAGE, STAGES_PER_WORLD } from '#shared/utils/hero-quest/constants'
+import { BASE_KILL_COUNT, BOSS_STAGE, STAGES_PER_WORLD, WIPE_RECOVERY_SECONDS } from '#shared/utils/hero-quest/constants'
 import { ZERO } from '#shared/utils/hero-quest/numbers'
 
 /** Mature, so the Gold tenure ceiling never binds and these specs measure the walk, not the cap. */
@@ -38,6 +38,7 @@ const anchor: RunAnchor = {
     stage: 1,
     killCount: 0,
     killFraction: 0,
+    recoverySeconds: 0,
     secondsPerKill: 2,
     killsBeforeWipe: 60,
     goldBonusPct: 0,
@@ -125,6 +126,27 @@ describe('the stops the server would have made', () => {
         expect(walled.walled).toBe(true)
         expect(walled.stage).toBe(1)
         expect(walled.killsInStage).toBeLessThan(12)
+    })
+
+    it('holds a wiped party down for the recovery before its next attempt', () => {
+        // 12 kills at 2s is 24s, then the recovery: nothing lands until it has run out
+        const fell = project({ killsBeforeWipe: 12 }, 24 + WIPE_RECOVERY_SECONDS / 2)
+        expect(fell.killsInStage).toBe(0)
+        expect(fell.recoverySeconds).toBeCloseTo(WIPE_RECOVERY_SECONDS / 2, 10)
+        expect(fell.killsLanded).toBe(12)
+
+        const back = project({ killsBeforeWipe: 12 }, 24 + WIPE_RECOVERY_SECONDS + 4)
+        expect(back.killsInStage).toBeCloseTo(2, 10)
+        expect(back.recoverySeconds).toBe(0)
+        expect(back.killsLanded).toBeCloseTo(14, 10)
+    })
+
+    it('serves a recovery the server says is owed before anything lands', () => {
+        const owed = project({ killsBeforeWipe: 12, recoverySeconds: 3 }, 2)
+        expect(owed.killsLanded).toBe(0)
+        expect(owed.recoverySeconds).toBeCloseTo(1, 10)
+        expect(owed.walled).toBe(true)
+        expect(project({ killsBeforeWipe: 12, recoverySeconds: 3 }, 7).killsInStage).toBeCloseTo(2, 10)
     })
 
     it('earns nothing on a stage that kills faster than it clears', () => {

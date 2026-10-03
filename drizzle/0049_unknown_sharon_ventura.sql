@@ -1,0 +1,1 @@
+ALTER TABLE "hq_state" ADD COLUMN "recovery_seconds" double precision DEFAULT 0 NOT NULL;

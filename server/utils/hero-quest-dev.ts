@@ -395,6 +395,8 @@ export async function devSet(userId: string, patch: DevSet) {
                 world,
                 stage,
                 atBossGate: isBossStage(stage),
+                // a moved run starts standing, not mid-recovery from wherever it was
+                recoverySeconds: 0,
                 ...(patch.prestige === undefined ? {} : { prestige: Math.max(0, Math.floor(patch.prestige)) }),
                 // The carried part-kill belongs to the counter being overwritten, so it goes
                 // with it — a harness that moves the run to 12/30 means 12, not 12 and a bit.

@@ -24,6 +24,8 @@ export interface RunFeed {
     packSize: number
     atBossGate: boolean
     walled: boolean
+    /** Seconds the wiped party has left to recover (`WIPE_RECOVERY_SECONDS`); 0 when it is fighting. */
+    recoverySeconds: number
     /** One body's HP, a Decimal string. */
     enemyHp: string
     /** `null` when the party cannot kill anything. */

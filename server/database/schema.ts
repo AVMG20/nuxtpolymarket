@@ -1073,6 +1073,11 @@ export const hqState = pgTable('hq_state', {
    * kills rather than seconds.
    */
   killFraction: doublePrecision('kill_fraction').notNull().default(0),
+  /**
+   * Seconds of wipe recovery still owed (`WIPE_RECOVERY_SECONDS`), served first by the next
+   * settle. Run position, so everything that resets the counter zeroes it too.
+   */
+  recoverySeconds: doublePrecision('recovery_seconds').notNull().default(0),
   /** Parked at an unengaged Stage 5/10. Always written as `isBossStage(stage)`; readers derive it from `stage`. */
   atBossGate: boolean('at_boss_gate').notNull().default(false),
   /**

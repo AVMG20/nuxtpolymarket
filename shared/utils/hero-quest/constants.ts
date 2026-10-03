@@ -31,6 +31,17 @@ export const STAGES_PER_WORLD = 10
 /** Kills to clear a wave stage. Flat by design — difficulty comes from stats, not counts. */
 export const BASE_KILL_COUNT = 30
 
+/**
+ * Seconds a party that wiped on a wave stage spends recovering, with nothing landing and nothing
+ * earned, before its next attempt (`settle.walkWall`).
+ *
+ * The death penalty. Without it a wipe cost nothing: the attempt restarted at once and income ran
+ * on unbroken. It bites only while the party is walled, and the shorter the attempts, the harder,
+ * so a wall far beyond the party's power earns far less than one it nearly clears. A decision
+ * (2026-10-03), not a measurement.
+ */
+export const WIPE_RECOVERY_SECONDS = 5
+
 /** Flat timer on both Stage 5 and Stage 10 fights. */
 export const BOSS_TIMER_SECONDS = 30
 
@@ -266,7 +277,7 @@ export const OVERFLOW_CONVERSION_RATE = 0.01 // UNTUNED ╧
  *
  * A lethal opening is survivable by design: `settle.killsBeforeWipe` banks every kill landed
  * before the party drops and restarts the *same* stage, so a wipe costs no ground and the Hero
- * levels out of it.
+ * levels out of it. It does cost time: `WIPE_RECOVERY_SECONDS` with nothing landing, per wipe.
  *
  * If the opening proves too punishing, raise `HP_PER_VIT`, not this. That keeps VIT carrying the
  * pool, but it lifts survivability at *every* depth, so `BASE_ENEMY_PWR` has to rise with it to

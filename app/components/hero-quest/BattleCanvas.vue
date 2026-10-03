@@ -28,6 +28,7 @@ const props = defineProps<{
         packSize: number
         atBossGate: boolean
         walled: boolean
+        recoverySeconds: number
         enemyHp: string
         secondsPerKill: number | null
     }
@@ -76,6 +77,7 @@ function feed(): RunFeed {
         packSize: run.packSize,
         atBossGate: run.atBossGate,
         walled: run.walled,
+        recoverySeconds: run.recoverySeconds,
         enemyHp: run.enemyHp,
         secondsPerKill: run.secondsPerKill,
         critChance: props.hero.stats.critChance,

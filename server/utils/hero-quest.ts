@@ -493,7 +493,8 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
             tenureDays: tenureDaysOf(state),
             // Carried in and written back below. Without it every settle silently drops the
             // part of the window that did not add up to a whole kill, and every read settles.
-            killFraction: state.killFraction
+            killFraction: state.killFraction,
+            recoverySeconds: state.recoverySeconds
         })
 
         const [updated] = await tx.update(hqState)
@@ -503,6 +504,7 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
                 stage: result.position.stage,
                 killCount: result.position.killsInStage,
                 killFraction: result.killFraction,
+                recoverySeconds: result.recoverySeconds,
                 atBossGate: isBossStage(result.position.stage),
                 heroLevel: result.heroLevel,
                 heroXp: toStore(result.heroXp)
@@ -548,6 +550,7 @@ export function prestigeResetValues(state: HqStateRow) {
         // Part of the run-position group: a fresh run starts from a standing enemy, not from
         // whatever fraction of a kill the last one happened to end on.
         killFraction: 0,
+        recoverySeconds: 0,
         atBossGate: false
     }
 }
@@ -622,6 +625,7 @@ export async function resolveBossEngage(tx: DbExecutor, userId: string, bankedGo
             // Cleared with the kill counter it belongs to — the fight was resolved on its
             // own terms, so nothing is owed toward the first body of wherever the run lands.
             killFraction: 0,
+            recoverySeconds: 0,
             atBossGate: isBossStage(landing.stage),
             runCleared: clearedTheRun,
             ...(sealsEarned > 0 ? sealGrantSet(sealsEarned) : {})
@@ -714,6 +718,8 @@ export function serializeRun(state: HqStateRow, hero: HeroSnapshot) {
          * exactly where the settle stopped instead of restarting the current body's HP bar.
          */
         killFraction: state.killFraction,
+        /** Wipe recovery still owed, so the projection holds the party down for the rest of it. */
+        recoverySeconds: state.recoverySeconds,
         killsRequired: killsNeeded,
         atBossGate: atBoss,
         /** The World 10 super boss is down — prestige is available. */

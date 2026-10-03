@@ -49,7 +49,8 @@ import {
     XP_STEP_BASE,
     XP_TO_LEVEL_BASE,
     XP_TO_LEVEL_GROWTH,
-    WAVE_PACK_SIZE
+    WAVE_PACK_SIZE,
+    WIPE_RECOVERY_SECONDS
 } from './constants'
 import { attacksPerSecondFor, expectedIncomingDps, partyDps, targetingOrder } from './combat'
 import { economyBonuses, partyUnitStats } from './stats'
@@ -478,11 +479,12 @@ export function secondsToDie(
  *
  * **HP carries across the whole stage attempt** and refills only when the stage clears or
  * restarts (no design doc covers this). A wave wipe is not a fallback: the *same* stage restarts
- * at 0 kills, so the run never loses ground, it just stops gaining any.
+ * at 0 kills, after `WIPE_RECOVERY_SECONDS` with nothing landing, so the run never loses ground,
+ * it just stops gaining any and earns less while it is stuck.
  *
  * That makes an unsurvivable wave a self-resolving wall rather than a dead end. Kills still land
- * at `secondsPerKill` right up to the wipe, so Gold and XP keep flowing and the Hero levels its
- * way out. Returns `Infinity` only when `secondsToDie` does, i.e. the degenerate cases there.
+ * at `secondsPerKill` right up to each wipe, so Gold and XP keep flowing and the Hero levels its
+ * way out (`walkWall`). Returns `Infinity` only when `secondsToDie` does, i.e. the degenerate cases there.
  */
 export function killsBeforeWipe(
     units: readonly UnitStats[],
@@ -495,6 +497,48 @@ export function killsBeforeWipe(
     if (!Number.isFinite(survives)) return Number.POSITIVE_INFINITY
     if (!Number.isFinite(spk) || spk <= 0) return 0
     return Math.floor(survives / spk)
+}
+
+/**
+ * A walled wave stage, walked forward `seconds`: attempts of `wipeAt` kills, each followed by
+ * `WIPE_RECOVERY_SECONDS` with nothing landing. Starts from wherever the cycle stands, whether
+ * mid-attempt or mid-recovery, and says where it ends.
+ *
+ * Continuous: kills come back fractional, so `projectRun` can draw a smooth bar and `settle()` can
+ * floor them into whole kills and a carry. Closed-form over whole cycles, so a long offline window
+ * costs no more than a short one.
+ */
+export function walkWall(
+    killsInStage: number,
+    recoverySeconds: number,
+    seconds: number,
+    wipeAt: number,
+    spk: number
+): { kills: number, killsInStage: number, recoverySeconds: number } {
+    const stuck = { kills: 0, killsInStage: 0, recoverySeconds: 0 }
+    // dies before landing anything, so there is no attempt to recover from
+    if (!(wipeAt > 0) || !(spk > 0) || !Number.isFinite(spk)) return stuck
+    let s = Math.max(0, seconds)
+    let rec = Math.max(0, recoverySeconds)
+    if (rec > 0) {
+        const used = Math.min(rec, s)
+        rec -= used
+        s -= used
+        if (rec > 0) return { ...stuck, recoverySeconds: rec }
+    }
+    // the attempt under way; a party already past its budget (stats moved) drops at once
+    const k = Math.min(Math.max(0, killsInStage), wipeAt)
+    const toWipe = (wipeAt - k) * spk
+    if (s < toWipe) return { kills: s / spk, killsInStage: k + s / spk, recoverySeconds: 0 }
+    let kills = wipeAt - k
+    s -= toWipe
+    const cycle = WIPE_RECOVERY_SECONDS + wipeAt * spk
+    const whole = Math.floor(s / cycle)
+    kills += whole * wipeAt
+    s -= whole * cycle
+    if (s < WIPE_RECOVERY_SECONDS) return { kills, killsInStage: 0, recoverySeconds: WIPE_RECOVERY_SECONDS - s }
+    const into = (s - WIPE_RECOVERY_SECONDS) / spk
+    return { kills: kills + into, killsInStage: into, recoverySeconds: 0 }
 }
 
 /** Boss stages have no kill requirement — they're cleared by the fight, not by a counter. */
@@ -724,8 +768,9 @@ export function offlineFarmStage(pos: RunPosition): RunPosition {
  * *at* the boss with the fight ready to engage.
  *
  * Wave stages have a second, softer stop: if the party dies before the stage's kill counter
- * fills (`killsBeforeWipe`), that stage restarts rather than advancing. Income continues at
- * the same rate, so the wall unsticks itself as the Hero levels.
+ * fills (`killsBeforeWipe`), that stage restarts rather than advancing, after
+ * `WIPE_RECOVERY_SECONDS` with nothing landing. Income continues between wipes, so the wall
+ * unsticks itself as the Hero levels.
  *
  * **A window is lossless.** Kills bank as integers, so the leftover fraction of a kill comes in
  * as `input.killFraction` and goes back out as `result.killFraction` for the caller to persist
@@ -750,6 +795,12 @@ export function settle(input: SettleInput): SettleResult {
     const carried = input.killFraction ?? 0
     const carriedIn = Number.isFinite(carried) && carried > 0 && carried < 1 ? carried : 0
 
+    // A recovery owed from the last window is served first. Out of range is dropped, as the carry is.
+    const owed = input.recoverySeconds ?? 0
+    const owedIn = Number.isFinite(owed) && owed > 0 && owed <= WIPE_RECOVERY_SECONDS ? owed : 0
+    const served = Math.min(owedIn, Math.max(0, effectiveSeconds))
+    const fightingSeconds = effectiveSeconds - served
+
     const empty: SettleResult = {
         position: { ...input.position },
         kills: 0,
@@ -760,18 +811,20 @@ export function settle(input: SettleInput): SettleResult {
         secondsPerKill: spk,
         blockedAtBoss: isBossStage(input.position.stage),
         wipedOnWave: false,
+        recoverySeconds: owedIn - served,
         effectiveSeconds,
         // Held, not dropped: a window that earns nothing must not also *cost* the player the
         // progress they had already banked toward the next kill.
         killFraction: carriedIn
     }
-    if (!Number.isFinite(spk) || spk <= 0 || effectiveSeconds <= 0) return empty
+    if (!Number.isFinite(spk) || spk <= 0 || fightingSeconds <= 0) return empty
 
     // The window's kill budget, carry included, split into whole kills and the remainder that
     // rides to the next window.
-    const budget = effectiveSeconds / spk + carriedIn
+    const budget = fightingSeconds / spk + carriedIn
     const totalKills = Math.floor(budget)
-    const killFraction = budget - totalKills
+    let killFraction = budget - totalKills
+    let recoverySeconds = 0
     if (totalKills <= 0) return { ...empty, killFraction }
 
     /**
@@ -816,20 +869,21 @@ export function settle(input: SettleInput): SettleResult {
         const required = killsRequired(pos)
 
         // The party drops before the stage's counter fills, so the stage restarts from 0 and
-        // can never be cleared at this power level. Resolve the whole remainder in one step —
-        // walking it wipe-by-wipe would spin for the length of an offline window.
+        // can never be cleared at this power level, recovering for WIPE_RECOVERY_SECONDS after
+        // each wipe. `walkWall` resolves the whole remainder in one step. A party that dies
+        // faster than it kills lands nothing, so it earns nothing.
         if (wipeAt < required) {
             wipedOnWave = true
-            if (wipeAt > 0) {
-                gold += remaining * goldPerKill(pos.prestige, pos.world, pos.stage, input.tenureDays) * goldMultiplier
-                xp = xp.add(xpPerKill(pos.prestige, pos.world, pos.stage).mul(remaining).mul(xpMultiplier))
-                killsLanded += remaining
-                // Where the current attempt stands, having restarted every `wipeAt` kills.
-                pos = { ...pos, killsInStage: (pos.killsInStage + remaining) % wipeAt }
-            } else {
-                // Dies faster than it kills: no kills land at all, so nothing is earned.
-                pos = { ...pos, killsInStage: 0 }
-            }
+            const wall = walkWall(pos.killsInStage, 0, (remaining + killFraction) * spk, wipeAt, spk)
+            // the cycle's boundaries are whole kills, so float dust is the only thing under one
+            const paid = Math.floor(wall.kills + 1e-9)
+            gold += paid * goldPerKill(pos.prestige, pos.world, pos.stage, input.tenureDays) * goldMultiplier
+            xp = xp.add(xpPerKill(pos.prestige, pos.world, pos.stage).mul(paid).mul(xpMultiplier))
+            killsLanded += paid
+            const whole = Math.floor(wall.killsInStage + 1e-9)
+            pos = { ...pos, killsInStage: whole }
+            killFraction = Math.min(1 - 1e-9, Math.max(0, wall.killsInStage - whole))
+            recoverySeconds = wall.recoverySeconds
             remaining = 0
             break
         }
@@ -865,6 +919,7 @@ export function settle(input: SettleInput): SettleResult {
         secondsPerKill: spk,
         blockedAtBoss,
         wipedOnWave,
+        recoverySeconds,
         effectiveSeconds,
         killFraction
     }

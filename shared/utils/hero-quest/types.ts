@@ -347,6 +347,11 @@ export interface SettleInput {
      * fraction of a kill is a fraction of a kill at any rate, and can never exceed one.
      */
     killFraction?: number
+    /**
+     * Seconds of wipe recovery still owed from the previous window (`WIPE_RECOVERY_SECONDS`).
+     * Served before anything else in the window, so a recovery cut by a read is not skipped.
+     */
+    recoverySeconds?: number
     /** Battle Speed. Not wired up yet — every caller passes `undefined`. */
     speedBoost?: { multiplier: number; overlapSeconds: number }
 }
@@ -369,10 +374,12 @@ export interface SettleResult {
     blockedAtBoss: boolean
     /**
      * True when the party cannot outlast a wave stage's kill requirement, so the stage
-     * restarts instead of clearing. The run holds position and keeps earning; it is a wall
-     * levelling resolves, not a fallback.
+     * restarts instead of clearing. The run holds position and keeps earning between wipes,
+     * minus `WIPE_RECOVERY_SECONDS` after each; it is a wall levelling resolves, not a fallback.
      */
     wipedOnWave: boolean
+    /** Wipe recovery still to serve; persist it and hand it back as the next window's. */
+    recoverySeconds: number
     effectiveSeconds: number
     /**
      * What is left over toward the next kill, in `[0, 1)` — persist it and hand it back as the
