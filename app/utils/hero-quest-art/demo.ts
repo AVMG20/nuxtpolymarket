@@ -637,9 +637,10 @@ export class BattleDemo {
     private march = 0
     /**
      * A scene change under way: `t` runs through close, hold and open. `swap` rebuilds the scene
-     * once the iris is shut, and `feed` is the newest run feed, held back until then.
+     * once the iris is shut, and `feed` is the newest run feed, held back until then. `held`
+     * keeps it shut until `openIris`: the stage arriving from the splash, still settling into place.
      */
-    private iris: { t: number, swap: (() => void) | null, feed: RunFeed } | null = null
+    private iris: { t: number, swap: (() => void) | null, feed: RunFeed | null, held: boolean } | null = null
     /** A boss waiting out the march, to make its entrance once the party stands on its ground. */
     private bossDue: Unit | null = null
     /** How far the world has travelled, in px — what every scenery layer parallaxes against. */
@@ -809,7 +810,7 @@ export class BattleDemo {
         if (change === 'reset') {
             // a new world, a prestige or a jump: the old scene closes on the Hero, the new one opens
             const party = this.party
-            this.iris = { t: 0, feed, swap: () => this.setupRun(party, this.iris!.feed) }
+            this.iris = { t: 0, feed, held: false, swap: () => this.setupRun(party, this.iris!.feed!) }
             return
         }
         if (this.wipeT > 0) {
@@ -820,6 +821,21 @@ export class BattleDemo {
         }
         // a gate ahead: the pack still up goes down first, then the boss is met
         if (change === 'advance') this.standoff = false
+    }
+
+    /** Start shut, and stay shut until `openIris`: how the stage comes in from the splash. */
+    holdIris(): void {
+        this.iris = { t: IRIS_CLOSE, swap: null, feed: null, held: true }
+    }
+
+    /** Close on the Hero and stay shut, then call `done`: the stage handing over to another screen. */
+    closeIris(done: () => void): void {
+        this.iris = { t: 0, feed: null, held: false, swap: () => { this.holdIris(); done() } }
+    }
+
+    /** Let a held iris open on the scene. */
+    openIris(): void {
+        if (this.iris?.held) this.iris.held = false
     }
 
     /** Build the scene the iris was closing for, behind the black, and start opening on it. */
@@ -2030,7 +2046,7 @@ export class BattleDemo {
     update(dt: number): void {
         if (this.jobs.length) this.bakeSome()
         if (this.paused) return
-        if (this.iris) {
+        if (this.iris && !this.iris.held) {
             this.iris.t += dt
             if (this.iris.swap && this.iris.t >= IRIS_CLOSE) this.shutIris()
             else if (this.iris.t >= IRIS_CLOSE + IRIS_HOLD + IRIS_OPEN) this.iris = null

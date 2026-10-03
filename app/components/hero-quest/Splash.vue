@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import type { SplashParty } from '~/utils/hero-quest-art/menu-splash'
+import { C, PALETTE } from '~/utils/hero-quest-art/palette'
+import type { HqIntroRect } from '~/composables/useHqIntro'
 import { formatSeconds } from '#shared/utils/hero-quest/numbers'
 
 /**
@@ -24,14 +26,27 @@ const props = defineProps<{
     pending?: boolean
     /** Who stands on the splash: the save's party, or the Beginner alone without one. */
     party: SplashParty
+    /** The way in is open: close the iris on the Hero, then say `left`. */
+    leaving?: boolean
 }>()
 
-const emit = defineEmits<{ begin: [], start: [] }>()
+const emit = defineEmits<{
+    begin: []
+    start: []
+    /** The iris has shut: where the art sat, for the battle stage to grow out of; null when it went straight in. */
+    left: [rect: HqIntroRect | null]
+}>()
+
+/** The stage's own black, so the shut splash and the shut battle stage are one colour. */
+const INK = PALETTE[C.ink]!
 
 const wrap = ref<HTMLDivElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
 const cssSize = ref({ width: 0, height: 0 })
 const ready = ref(false)
+const closing = ref(false)
+/** The Hero on the splash, as a share of the art: where the iris closes. */
+let focus = { x: 0.5, y: 0.5 }
 
 let presenter: Presenter | null = null
 let stop: (() => void) | null = null
@@ -104,7 +119,11 @@ onMounted(async () => {
     ])
     if (disposed || !canvas.value) return
     let splash = new MenuSplash(props.party)
-    rebuild = (party) => { splash = new MenuSplash(party) }
+    focus = splash.heroFocus
+    rebuild = (party) => {
+        splash = new MenuSplash(party)
+        focus = splash.heroFocus
+    }
     presenter = new Presenter(canvas.value, splash.frame.w, splash.frame.h)
     hitTest = onPlayButton
     let t = 0
@@ -113,6 +132,33 @@ onMounted(async () => {
     observer.observe(wrap.value!)
     fit()
     ready.value = true
+})
+
+/**
+ * Going in: the art closes on the Hero, a circle at a time, down to the stage's black. Straight in
+ * when there is no art up yet to close, or the player asked for less motion.
+ */
+watch(() => props.leaving, (leaving) => {
+    const el = canvas.value
+    const box = wrap.value
+    if (!leaving) {
+        // still up once it has gone (the way in closed again): open back up
+        if (closing.value) {
+            closing.value = false
+            el?.getAnimations().forEach(a => a.cancel())
+        }
+        return
+    }
+    if (closing.value) return
+    if (!el || !box || !ready.value || prefersReducedMotion()) {
+        emit('left', null)
+        return
+    }
+    closing.value = true
+    void irisClose(el, focus).then(() => {
+        // cancelled by opening back up: nothing to hand over
+        if (closing.value && !disposed) emit('left', rectOf(box))
+    })
 })
 
 onBeforeUnmount(() => {
@@ -128,6 +174,7 @@ onBeforeUnmount(() => {
       ref="wrap"
       class="relative w-full overflow-hidden rounded-lg border border-default bg-elevated"
       :class="ready ? '' : 'aspect-video'"
+      :style="closing ? { backgroundColor: INK } : undefined"
     >
       <canvas
         ref="canvas"
@@ -147,7 +194,10 @@ onBeforeUnmount(() => {
       />
     </div>
 
-    <div class="text-center space-y-4">
+    <div
+      class="text-center space-y-4 transition-opacity duration-300"
+      :class="closing ? 'opacity-0' : ''"
+    >
       <UAlert
         v-if="mode === 'start' && away && away.kills > 0"
         class="max-w-xl mx-auto text-left"

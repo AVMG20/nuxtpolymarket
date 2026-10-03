@@ -2,11 +2,16 @@
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import type { SplashParty } from '~/utils/hero-quest-art/menu-splash'
 import { C, PALETTE_RGB } from '~/utils/hero-quest-art/palette'
+import type { HqIntroRect } from '~/composables/useHqIntro'
 
 /**
  * What the Battle tab shows once the run is cleared: the party walking a bridge of light in the
  * dark, and Begin Again. The press goes to the server first; only once `crossing` is set does the
- * party walk into the portal, and `crossed` fires when World 1 fills the screen.
+ * party walk into the portal, World 1 fills the screen, an iris closes on the portal, and
+ * `crossed` fires with the box it shut on, for the battle stage to grow out of.
+ *
+ * Arriving from the battle stage, the bridge grows out of the stage's shut box and opens on the
+ * Hero (`useHqIntro`).
  *
  * The art is `PrestigeBridge`, loaded as its own chunk like the splash and the battle stage.
  */
@@ -18,7 +23,15 @@ const props = defineProps<{
     crossing?: boolean
 }>()
 
-const emit = defineEmits<{ begin: [], crossed: [] }>()
+const emit = defineEmits<{
+    begin: []
+    /** The party is through and the iris has shut: its box, or null to go straight in. */
+    crossed: [rect: HqIntroRect | null]
+}>()
+
+const intro = import.meta.client ? takeHqIntro() : null
+/** Shut, while it grows in from the battle stage's box and the art loads. */
+const opening = ref(intro !== null)
 
 /** The canvas scales in whole steps, so the frame around it is the scene's own dark. */
 const ground = `#${PALETTE_RGB[C.ink]!.toString(16).padStart(6, '0')}`
@@ -86,7 +99,9 @@ watch(() => props.crossing, (crossing) => {
 })
 
 onMounted(async () => {
-    const [{ PrestigeBridge, onBeginAgain }, { Presenter, startLoop }] = await Promise.all([
+    // started before the art loads, so the box never paints in its own place first
+    const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
+    const [{ PrestigeBridge, onBeginAgain, BRIDGE_HERO_FOCUS, BRIDGE_PORTAL_FOCUS }, { Presenter, startLoop }] = await Promise.all([
         import('~/utils/hero-quest-art/prestige-bridge'),
         import('~/utils/hero-quest-art/canvas')
     ])
@@ -102,13 +117,23 @@ onMounted(async () => {
         t += dt
         if (!done && bridge.finished(t)) {
             done = true
-            emit('crossed')
+            const el = canvas.value
+            const box = wrap.value
+            if (!el || !box || prefersReducedMotion()) emit('crossed', null)
+            else void irisClose(el, BRIDGE_PORTAL_FOCUS).then(() => { if (!disposed) emit('crossed', rectOf(box)) })
         }
     }, () => presenter!.present(bridge.render(t, buttonState.value)))
     observer = new ResizeObserver(fit)
     observer.observe(wrap.value!)
     fit()
     ready.value = true
+    if (intro) {
+        void landed.then(async () => {
+            if (disposed || !canvas.value) return
+            opening.value = false
+            await irisOpen(canvas.value, BRIDGE_HERO_FOCUS)
+        })
+    }
 })
 
 onBeforeUnmount(() => {
@@ -129,7 +154,7 @@ onBeforeUnmount(() => {
       ref="canvas"
       class="block mx-auto focus-visible:outline-2 focus-visible:outline-primary"
       :class="hover ? 'cursor-pointer' : ''"
-      :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated' }"
+      :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated', clipPath: opening ? 'circle(0px)' : undefined }"
       role="button"
       tabindex="0"
       aria-label="Begin again: prestige and return to World 1"

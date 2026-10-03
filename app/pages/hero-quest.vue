@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type { HqIntroRect } from '~/composables/useHqIntro'
+
 const route = useRoute()
 
 useHead({ title: 'Hero Quest' })
@@ -65,7 +67,23 @@ const splashParty = computed(() => {
 })
 const entering = ref(false)
 const devRoute = computed(() => import.meta.dev && /^\/hero-quest\/(dev|art)(\/|$)/.test(route.path))
-const showSplash = computed(() => gate.value !== 'open' && !devRoute.value)
+
+/**
+ * The way in opening holds the splash up a moment longer, for its iris to close on the Hero; the
+ * battle stage then grows out of its box and opens its own (`useHqIntro`).
+ */
+const leaving = ref(false)
+const showSplash = computed(() => (gate.value !== 'open' || leaving.value) && !devRoute.value)
+
+watch(gate, (now, was) => {
+  if (now === 'open' && was !== 'open' && !devRoute.value) leaving.value = true
+})
+
+function onLeft(rect: HqIntroRect | null) {
+  // the battle stage takes it as it mounts (`takeHqIntro`)
+  handOverHqIntro(rect)
+  leaving.value = false
+}
 
 async function enter(action: () => Promise<void>) {
   entering.value = true
@@ -79,13 +97,15 @@ async function enter(action: () => Promise<void>) {
 
 <template>
   <HeroQuestSplash
-    v-if="showSplash && gate !== 'open'"
-    :mode="gate"
+    v-if="showSplash"
+    :mode="gate === 'open' ? 'start' : gate"
     :away="away"
-    :pending="entering"
+    :pending="entering || leaving"
     :party="splashParty"
+    :leaving="leaving"
     @begin="enter(begin)"
     @start="enter(start)"
+    @left="onLeft"
   />
   <div
     v-else

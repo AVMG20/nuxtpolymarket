@@ -34,6 +34,8 @@ interface Body { strip: Baked, x: number, y: number, offset: number }
 
 export class MenuSplash {
     readonly frame = new Surface(SW, SH, 0, 0)
+    /** The Hero's chest as a share of the frame, for an iris to close on. */
+    readonly heroFocus: { x: number, y: number }
     private bodies: Body[]
 
     /** Bakes the party's idle strips, so build it once per party and render it every frame. */
@@ -48,6 +50,8 @@ export class MenuSplash {
             if (!asset || !mark) return []
             return [{ strip: bake(asset), x: STAGE.ox + mark.x + PARTY_DX, y: STAGE.oy + mark.g, offset: i * IDLE_STAGGER }]
         })
+        const hero = this.bodies[0]
+        this.heroFocus = hero ? { x: hero.x / SW, y: (hero.y - 16) / SH } : { x: 0.5, y: 0.5 }
         // painter's order: the furthest rank first
         this.bodies.sort((a, b) => a.y - b.y)
     }

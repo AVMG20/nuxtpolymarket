@@ -2,6 +2,8 @@
 import type { BattleDemo, RunParty, StageFight } from '~/utils/hero-quest-art/demo'
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import type { RunFeed } from '~/utils/hero-quest-art/run-director'
+import { C, PALETTE } from '~/utils/hero-quest-art/palette'
+import type { HqIntroRect } from '~/composables/useHqIntro'
 
 /**
  * The battle, drawn. Presentation only: the projected run (`useHqLiveRun`) says where the run is,
@@ -52,6 +54,15 @@ const wrap = ref<HTMLDivElement | null>(null)
 const canvas = ref<HTMLCanvasElement | null>(null)
 const cssSize = ref({ width: 0, height: 0 })
 const ready = ref(false)
+
+/**
+ * Coming in from the splash or the prestige bridge: the box its iris shut on, read once here as
+ * the stage mounts. The stage grows out of it, black, and opens its own iris once it has landed
+ * and loaded.
+ */
+const intro = import.meta.client ? takeHqIntro() : null
+const opening = ref(intro !== null)
+const INK = PALETTE[C.ink]!
 
 let stage: BattleDemo | null = null
 let presenter: Presenter | null = null
@@ -155,9 +166,21 @@ function skipFight() {
     emit('fightProgress', progress())
 }
 
-defineExpose({ skipFight })
+/**
+ * Going out: close the stage's iris on the Hero and resolve with its box, for the next screen to
+ * grow out of. Null when there is no stage up to close, or the player asked for less motion.
+ */
+function closeIris(): Promise<HqIntroRect | null> {
+    const box = wrap.value
+    if (!stage || !box || prefersReducedMotion()) return Promise.resolve(null)
+    return new Promise(resolve => stage!.closeIris(() => resolve(rectOf(box))))
+}
+
+defineExpose({ skipFight, closeIris })
 
 onMounted(async () => {
+    // started before the engine loads, so the box never paints in its own place first
+    const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
     const [{ BattleDemo, CAMERAS, PARTY_BAND_H }, { Presenter, startLoop }] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas')
@@ -165,6 +188,14 @@ onMounted(async () => {
     if (disposed || !canvas.value) return
     stage = new BattleDemo()
     build()
+    if (intro) {
+        stage.holdIris()
+        void landed.then(() => {
+            if (disposed) return
+            stage?.openIris()
+            opening.value = false
+        })
+    }
     // a fight that arrived while the stage loaded starts now, from its beginning
     if (props.fight) stage.playFight(props.fight)
     presenter = new Presenter(canvas.value, CAMERAS.zoom3.w, CAMERAS.zoom3.h + PARTY_BAND_H)
@@ -193,6 +224,7 @@ onBeforeUnmount(() => {
     ref="wrap"
     class="relative w-full overflow-hidden rounded-lg border border-default bg-elevated"
     :class="ready ? '' : 'aspect-[272/205]'"
+    :style="opening ? { backgroundColor: INK } : undefined"
   >
     <canvas
       ref="canvas"
@@ -200,7 +232,7 @@ onBeforeUnmount(() => {
       :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated' }"
     />
     <div
-      v-if="!ready"
+      v-if="!ready && !opening"
       class="absolute inset-0 flex items-center justify-center text-sm text-muted"
     >
       Loading the battle…

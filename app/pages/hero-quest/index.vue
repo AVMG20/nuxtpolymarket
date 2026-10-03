@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { HqIntroRect } from '~/composables/useHqIntro'
 import { formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
 
 const {
@@ -40,15 +41,51 @@ const party = computed(() => {
     }
 })
 
+const fight = ref<Awaited<ReturnType<typeof engageBoss>>>(null)
+const engaging = ref(false)
+/** Which of the two paths opened the replay — only an automatic one dismisses itself. */
+const fightWasAutomatic = ref(false)
+
+/**
+ * The boss's name and timer, taken as the fight is engaged: the payload that lands with the
+ * result has already moved the run past the gate, so `liveRun` names the next stage's foes.
+ */
+const fightBoss = ref({ name: 'Boss', timer: 30 })
+/** How far the stage has played the fight, and whether its result is up. */
+const fightProgress = ref({ time: 0, done: false })
+const battleCanvas = ref<{ skipFight: () => void, closeIris: () => Promise<HqIntroRect | null> } | null>(null)
+
 /**
  * A cleared run waits on the bridge (`HeroQuestPrestigeGate`) instead of the stage. The prestige
  * lands before the party walks into the portal, and the payload it refreshes is already World 1,
  * so `holdGate` keeps the bridge up until the walk is done; a failed prestige lets it go again.
+ *
+ * The run clears on the super boss's win, while its replay still plays, so the bridge waits for
+ * the fight to be put away. `showGate` then trails `wantGate` by the stage's iris: the stage closes
+ * on the Hero and the bridge grows out of its box (`useHqIntro`). The way back is the bridge's
+ * own, handed over on `crossed`.
  */
 const holdGate = ref(false)
 const prestiging = ref(false)
 const crossing = ref(false)
-const showGate = computed(() => (liveRun.value?.runCleared ?? false) || holdGate.value)
+const wantGate = computed(() => ((liveRun.value?.runCleared ?? false) && !fight.value) || holdGate.value)
+const showGate = ref(wantGate.value)
+
+watch(wantGate, async (want) => {
+    if (!want) {
+        showGate.value = false
+        return
+    }
+    if (showGate.value) return
+    const stage = battleCanvas.value
+    // no stage up (a first load straight onto a cleared run): straight to the bridge
+    if (!stage) {
+        showGate.value = true
+        return
+    }
+    handOverHqIntro(await stage.closeIris())
+    if (wantGate.value) showGate.value = true
+})
 
 async function beginAgain() {
     holdGate.value = true
@@ -63,7 +100,9 @@ async function beginAgain() {
     }
 }
 
-function onCrossed() {
+function onCrossed(rect: HqIntroRect | null) {
+    // the battle stage takes it as it mounts (`takeHqIntro`)
+    handOverHqIntro(rect)
     holdGate.value = false
     crossing.value = false
 }
@@ -77,20 +116,6 @@ const gateParty = computed(() => ({
 
 /** The stat-attribution slideover. Fetched on open, never with the state payload. */
 const breakdownOpen = ref(false)
-
-const fight = ref<Awaited<ReturnType<typeof engageBoss>>>(null)
-const engaging = ref(false)
-/** Which of the two paths opened the replay — only an automatic one dismisses itself. */
-const fightWasAutomatic = ref(false)
-
-/**
- * The boss's name and timer, taken as the fight is engaged: the payload that lands with the
- * result has already moved the run past the gate, so `liveRun` names the next stage's foes.
- */
-const fightBoss = ref({ name: 'Boss', timer: 30 })
-/** How far the stage has played the fight, and whether its result is up. */
-const fightProgress = ref({ time: 0, done: false })
-const battleCanvas = ref<{ skipFight: () => void } | null>(null)
 
 async function runFightAt(automatic: boolean) {
     engaging.value = true

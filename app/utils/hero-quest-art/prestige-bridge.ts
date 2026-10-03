@@ -65,6 +65,10 @@ export function onBeginAgain(x: number, y: number): boolean {
 
 interface Body { strip: Baked, x: number, offset: number }
 
+/** Where an iris opens on the bridge (the Hero, leading) and closes as the party leaves it (the portal), as shares of the frame. */
+export const BRIDGE_HERO_FOCUS = { x: LEAD_X / SW, y: (DECK_Y - 16) / SH } as const
+export const BRIDGE_PORTAL_FOCUS = { x: PORTAL_X / SW, y: PORTAL_Y / SH } as const
+
 export class PrestigeBridge {
     readonly frame = new Surface(SW, SH, 0, 0)
     private readonly world = new Surface(SW, SH, 0, 0)
