@@ -149,6 +149,11 @@ export interface UnitStats {
      * lossy — that function clamps at both ends.
      */
     spd: Decimal
+    /**
+     * The SPD skill cooldowns read: `spd` without the level curve, every multiplier kept. On the
+     * curve cooldowns hit `MIN_COOLDOWN_SECONDS` by level ~200 and skills fired back to back.
+     */
+    cooldownSpd: Decimal
     strikesPerAttack: number
     /**
      * How hard this unit pulls enemy attacks **within the row it stands in**.

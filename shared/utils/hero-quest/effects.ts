@@ -24,7 +24,8 @@
  * hands back indices. Applying anything is the caller's job.
  */
 
-import type { HqStatKey } from './types'
+import { SKILL_COOLDOWN_RANK_STEP } from './constants'
+import type { ClassSkill, HqStatKey } from './types'
 import type { StatusKind } from './status'
 
 /**
@@ -309,5 +310,62 @@ export function scaleEffect(effect: AbilityEffect, potency: number): AbilityEffe
                     status: scaleStatus(effect.escalation.status)!
                 }
             })
+    }
+}
+
+/**
+ * The same effect on a cadence `factor` times slower, worth the same per second.
+ *
+ * Per-cast payloads grow by `factor` (`heal`, `shield`, the income bursts, `extendDebuffs`, a
+ * shield status's pool) and every status lasts `factor` times longer, so its uptime is unchanged
+ * and a DoT or HoT delivers the larger total through its fixed per-tick rate.
+ *
+ * Status `magnitude` deliberately does **not** grow: debuffs clamp at zero, so a stronger Weaken
+ * on a slower cadence would delete an enemy's PWR rather than average out. `stacks`, `hits`,
+ * `revive` and the per-hit multipliers (`critDamageMultiplier`, `executeBonus`) stay put too.
+ */
+export function stretchEffect(effect: AbilityEffect, factor: number): AbilityEffect {
+    if (factor === 1 || !Number.isFinite(factor)) return effect
+
+    const stretchStatus = (spec: StatusSpec): StatusSpec => ({
+        ...spec,
+        duration: spec.duration * factor,
+        ...(spec.kind === 'shield' && spec.magnitude !== undefined
+            ? { magnitude: spec.magnitude * factor }
+            : {})
+    })
+    const scaled = (value: number | undefined) => value === undefined ? undefined : value * factor
+
+    return {
+        ...effect,
+        ...(effect.heal === undefined ? {} : { heal: scaled(effect.heal) }),
+        ...(effect.shield === undefined ? {} : { shield: scaled(effect.shield) }),
+        ...(effect.goldBurstMinutes === undefined ? {} : { goldBurstMinutes: scaled(effect.goldBurstMinutes) }),
+        ...(effect.xpBurstMinutes === undefined ? {} : { xpBurstMinutes: scaled(effect.xpBurstMinutes) }),
+        ...(effect.extendDebuffs === undefined ? {} : { extendDebuffs: scaled(effect.extendDebuffs) }),
+        ...(effect.status === undefined ? {} : { status: stretchStatus(effect.status) }),
+        ...(effect.selfStatus === undefined ? {} : { selfStatus: stretchStatus(effect.selfStatus) }),
+        ...(effect.escalation === undefined
+            ? {}
+            : { escalation: { ...effect.escalation, status: stretchStatus(effect.escalation.status) } })
+    }
+}
+
+/**
+ * Places an ability on the cooldown ladder: `rank` steps of `SKILL_COOLDOWN_RANK_STEP` longer,
+ * hitting proportionally harder. Rank is rarity for Skills and Champion abilities, tree depth for
+ * class skills, and 0 is the base.
+ */
+export function onCooldownRank<T extends Pick<ClassSkill, 'cooldownSeconds' | 'abilityMultiplier' | 'effect'>>(
+    skill: T,
+    rank: number
+): T {
+    const factor = SKILL_COOLDOWN_RANK_STEP ** Math.max(0, rank)
+    if (factor === 1) return skill
+    return {
+        ...skill,
+        cooldownSeconds: skill.cooldownSeconds * factor,
+        abilityMultiplier: skill.abilityMultiplier * factor,
+        ...(skill.effect === undefined ? {} : { effect: stretchEffect(skill.effect, factor) })
     }
 }

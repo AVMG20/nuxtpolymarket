@@ -308,7 +308,9 @@ export function deriveUnitStats(
      * reflect. Passed separately because each lands on a derived value rather than a stat: a
      * crit-chance bonus is not a LCK bonus, and a max-HP bonus is not a VIT bonus.
      */
-    mods: ModifierTotals = noModifiers()
+    mods: ModifierTotals = noModifiers(),
+    /** SPD for skill cooldowns: the same unit's SPD at level 1. Defaults to `block.spd`. */
+    cooldownSpd: Decimal = block.spd
 ): UnitStats {
     const crit = critChanceFor(block.lck)
     return {
@@ -317,6 +319,7 @@ export function deriveUnitStats(
         maxHp: maxHpFor(block.vit).mul(Math.max(0, mods.maxHpFactor)),
         attacksPerSecond: attacksPerSecondFor(block.spd),
         spd: block.spd,
+        cooldownSpd,
         strikesPerAttack: kit.strikesPerAttack,
         row: kit.row,
         threat: kit.threat ?? BASE_THREAT,
@@ -355,17 +358,18 @@ export function partyUnitStats(hero: HeroSnapshot): UnitStats[] {
             threat: threatFor(hero.classId)
         },
         0,
-        heroTotals
+        heroTotals,
+        heroStatBlock(hero.classId, 1, passive, heroTotals.stats).spd
     )]
 
     for (const champion of hero.champions ?? []) {
+        const spread = archetypeSpread(champion.archetype)
         units.push(deriveUnitStats(
-            championStatBlock(
-                archetypeSpread(champion.archetype), champion, hero.heroLevel, partyWide.stats
-            ),
+            championStatBlock(spread, champion, hero.heroLevel, partyWide.stats),
             { ...champion, threat: archetypeThreat(champion.archetype) },
             0,
-            partyWide
+            partyWide,
+            championStatBlock(spread, champion, 1, partyWide.stats).spd
         ))
     }
     return units

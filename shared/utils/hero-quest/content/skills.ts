@@ -47,7 +47,7 @@ import {
     SKILL_POTENCY_PER_POINT,
     SKILL_STATUS_DURATION_SECONDS
 } from '../constants'
-import { scaleEffect } from '../effects'
+import { onCooldownRank, scaleEffect } from '../effects'
 import type { AbilityEffect } from '../effects'
 import { RARITIES, RARITY_EFFECT_LINES, investmentScalar, rarityIndex } from '../gacha'
 import { COLLECTION_PASSIVE_KINDS, type HqModifier } from '../modifiers'
@@ -133,17 +133,20 @@ function active(
     rarity: Rarity,
     lines: readonly string[],
     effect: AbilityEffect,
-    options: { cooldownSeconds?: number; abilityMultiplier?: number } = {}
+    options: { cooldownSeconds?: number; abilityMultiplier?: number; offLadder?: boolean } = {}
 ): SkillDefinition {
+    const cadence = {
+        effect,
+        cooldownSeconds: options.cooldownSeconds ?? SKILL_BASE_COOLDOWN_SECONDS,
+        abilityMultiplier: options.abilityMultiplier ?? SKILL_BASE_ABILITY_MULTIPLIER
+    }
     return {
         id: skillIdFor(name),
         name,
         type: 'active',
         rarity,
         lines,
-        effect,
-        cooldownSeconds: options.cooldownSeconds ?? SKILL_BASE_COOLDOWN_SECONDS,
-        abilityMultiplier: options.abilityMultiplier ?? SKILL_BASE_ABILITY_MULTIPLIER
+        ...(options.offLadder ? cadence : onCooldownRank(cadence, rarityIndex(rarity)))
     }
 }
 
@@ -186,7 +189,7 @@ export const SKILLS: readonly SkillDefinition[] = [
      */
     active('Coin Toss', 'common', ['Grants a small burst of bonus Gold. Deals no damage.'],
         { target: 'self', goldBurstMinutes: burst('common') },
-        { abilityMultiplier: 0, cooldownSeconds: GOLD_BURST_COOLDOWN_SECONDS }),
+        { abilityMultiplier: 0, cooldownSeconds: GOLD_BURST_COOLDOWN_SECONDS, offLadder: true }),
 
     /** "+SPD% (small)." */
     passive('Marching Drill', 'common', ['+SPD.'], [stat('common', 'spd')]),
@@ -205,7 +208,7 @@ export const SKILLS: readonly SkillDefinition[] = [
     /** "Deals no damage — grants a moderate burst of bonus Gold on cast." */
     active("Prospector's Instinct", 'uncommon', ['Grants a moderate burst of bonus Gold.'],
         { target: 'self', goldBurstMinutes: burst('uncommon') },
-        { abilityMultiplier: 0, cooldownSeconds: GOLD_BURST_COOLDOWN_SECONDS }),
+        { abilityMultiplier: 0, cooldownSeconds: GOLD_BURST_COOLDOWN_SECONDS, offLadder: true }),
 
     /** "+LCK% (small–medium)." */
     passive('Sharpened Reflexes', 'uncommon', ['+LCK.'], [stat('uncommon', 'lck')]),

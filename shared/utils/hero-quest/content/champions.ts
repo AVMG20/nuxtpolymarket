@@ -43,9 +43,9 @@ import {
     SKILL_SHIELD_MULTIPLIER,
     SKILL_STATUS_DURATION_SECONDS
 } from '../constants'
-import { SINGLE_TARGET } from '../effects'
+import { onCooldownRank, SINGLE_TARGET } from '../effects'
 import type { AbilityEffect } from '../effects'
-import { RARITIES, RARITY_EFFECT_LINES, RARITY_EPITHET, RARITY_STAT_MULTIPLIER } from '../gacha'
+import { RARITIES, RARITY_EFFECT_LINES, RARITY_EPITHET, RARITY_STAT_MULTIPLIER, rarityIndex } from '../gacha'
 import type {
     AutoTarget,
     ChampionArchetype,
@@ -395,7 +395,7 @@ function champion(
         archetype,
         rarity,
         title,
-        abilities: abilityNames.map(ability),
+        abilities: abilityNames.map(name => onCooldownRank(ability(name), rarityIndex(rarity))),
         strikesPerAttack: 1
     }
 }

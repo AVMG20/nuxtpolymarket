@@ -327,15 +327,18 @@ export const SPD_ATTACK_RATE_PER_POINT = 0.02 // TUNED ✓
  * `attackIntervalFor` also shortens the autoattack interval off the same stat and every campaign
  * number depends on it. Both ride the identical `1 / (1 + SPD × SPD_ATTACK_RATE_PER_POINT)`
  * curve: one stat, one shape, two consumers. §3 should be amended to say so.
+ *
+ * **The two consumers read different SPD.** Attack rate reads the full block, level curve
+ * included; cooldowns read `cooldownSpd`, which leaves the level curve out. On the curve every
+ * class hit this floor by level ~200, so skills fired back to back for the rest of the run.
+ * Cadence is what SPD lines, the Control collection passive and Haste buy instead.
  */
 export const MIN_COOLDOWN_SECONDS = 0.5 // TUNED ✓
 
 /**
- * The starting cooldown and damage multiplier **every one of the 16 class skills** uses.
- *
- * Uniform on purpose: no design doc assigns per-skill values, and 16 invented pairs would read
- * later as a decided spread. `ClassSkill` still carries the fields per node, so differentiating
- * them is a content edit.
+ * The cooldown and damage multiplier at the bottom rank of the ladder (Common, Beginner); every
+ * other ability sits `SKILL_COOLDOWN_RANK_STEP` per rank above it rather than on 60 invented
+ * per-ability pairs.
  *
  * ⚠ **Moves with `BASE_ATTACK_INTERVAL_SECONDS`, by the same factor.** Shortening only the
  * autoattack interval would quietly tilt the game from kits toward basic attacks, and widen the
@@ -344,6 +347,18 @@ export const MIN_COOLDOWN_SECONDS = 0.5 // TUNED ✓
  */
 export const SKILL_BASE_COOLDOWN_SECONDS = 6.4 // TUNED ✓
 export const SKILL_BASE_ABILITY_MULTIPLIER = 2 // TUNED ✓
+
+/**
+ * How much longer each rank makes a cooldown: rarity for Skills and Champion abilities, tree
+ * depth for class skills. Rank 0 (Common, Beginner) keeps the base above, so a Mythic waits
+ * step⁵ and a master class skill step³.
+ *
+ * A better ability fires less often and hits proportionally harder (`effects.onCooldownRank`),
+ * so damage per second holds and the difference is felt as a bigger, rarer hit. ⚠ That holds
+ * on average only: the first cast waits out a full cooldown, so inside `BOSS_TIMER_SECONDS` a
+ * long cooldown loses its tail.
+ */
+export const SKILL_COOLDOWN_RANK_STEP = 1.2 // UNTUNED ╧
 
 // ── Ability effect magnitudes ──────────────────────  classes-and-combat.md §7, §3
 //

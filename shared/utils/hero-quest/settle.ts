@@ -290,6 +290,7 @@ export function buffedUnits(units: readonly UnitStats[], mods: AbilityModifiers)
         return {
             ...unit,
             pwr: unit.pwr.mul(mods.pwrFactor),
+            cooldownSpd: unit.cooldownSpd.mul(mods.spdFactor),
             spd,
             // Recomputed rather than scaled: the attack-rate curve clamps at both ends, so
             // doubling SPD does *not* double the swing rate near the cap. Scaling the derived

@@ -90,3 +90,28 @@ describe('party composition', () => {
         expect(partyDps(trio, wall).toNumber()).toBeGreaterThan(partyDps(trio, D('1e300')).toNumber())
     })
 })
+
+describe('cooldown SPD', () => {
+    const party = (heroLevel: number): HeroSnapshot => ({
+        classId: 'class_mage', heroLevel, heroXp: ZERO, goldBonusPct: 0, offlineEfficiencyLevel: 0,
+        offlineCapLevel: 0, champions: [champion()]
+    })
+
+    it('leaves the level curve out, so cooldowns stop shrinking as the party levels', () => {
+        const low = partyUnitStats(party(1))
+        const high = partyUnitStats(party(300))
+        for (const [index, unit] of high.entries()) {
+            expect(unit.spd.gt(low[index]!.spd)).toBe(true)
+            expect(unit.cooldownSpd.toString()).toBe(low[index]!.cooldownSpd.toString())
+        }
+    })
+
+    it('still carries every multiplier, so a SPD investment shortens cooldowns', () => {
+        const plain = partyUnitStats(party(300))[0]!
+        const invested = partyUnitStats({
+            ...party(300),
+            ownedChampions: [{ archetype: 'control', investment: 60 }]
+        })[0]!
+        expect(invested.cooldownSpd.gt(plain.cooldownSpd)).toBe(true)
+    })
+})

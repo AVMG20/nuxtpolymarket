@@ -87,10 +87,11 @@ export const HQ_STAT_DOCS: readonly HqStatDoc[] = [
         name: 'Speed',
         short: 'Attack rate and skill cooldowns — one stat, both jobs.',
         detail: 'Speed shortens the gap between basic attacks and shortens every skill cooldown, '
-            + 'on the same curve. Both ends are clamped, so Speed has sharply diminishing returns '
-            + 'once you approach the floor — it is an early stat, not a late one.',
+            + 'on the same curve. Levelling up speeds up basic attacks only: cooldowns count just '
+            + 'the Speed from your class, gear, skills, artifacts and buffs. Rarer skills and '
+            + 'deeper classes have longer cooldowns and hit proportionally harder.',
         formula: `attack every ${BASE_ATTACK_INTERVAL_SECONDS}s ÷ (1 + SPD × ${SPD_ATTACK_RATE_PER_POINT}), `
-            + `floored at ${MIN_ATTACK_INTERVAL_SECONDS.toFixed(2)}s; cooldowns ride the same divisor, floored at ${MIN_COOLDOWN_SECONDS}s`
+            + `floored at ${MIN_ATTACK_INTERVAL_SECONDS.toFixed(2)}s; cooldowns use the same divisor without level growth, floored at ${MIN_COOLDOWN_SECONDS}s`
     },
     {
         key: 'lck',

@@ -19,7 +19,8 @@ import {
     executeMultiplier,
     isAllyTarget,
     resolveAllyTargets,
-    resolveEnemyTargets
+    resolveEnemyTargets,
+    stretchEffect
 } from '#shared/utils/hero-quest/effects'
 import { CLASS_BY_ID } from '#shared/utils/hero-quest/content/classes'
 import { applyStatus } from '#shared/utils/hero-quest/status'
@@ -334,5 +335,27 @@ describe('execute scaling', () => {
 
     it('is the identity for an ability with no execute clause', () => {
         expect(executeMultiplier({ target: 'enemy_single' }, 0)).toBe(1)
+    })
+})
+
+describe('stretchEffect', () => {
+    const weaken = {
+        target: 'enemy_single' as const,
+        heal: 0.5,
+        status: { kind: 'debuff' as const, stat: 'pwr' as const, duration: 6, magnitude: 0.4 }
+    }
+
+    it('stretches a status over time rather than deepening it, so a debuff never clamps to zero', () => {
+        const stretched = stretchEffect(weaken, 3)
+        expect(stretched.status!.duration).toBe(18)
+        expect(stretched.status!.magnitude).toBe(0.4)
+    })
+
+    it('grows per-cast payloads with the wait', () => {
+        expect(stretchEffect(weaken, 3).heal).toBe(1.5)
+    })
+
+    it('is the identity on the bottom rank', () => {
+        expect(stretchEffect(weaken, 1)).toBe(weaken)
     })
 })

@@ -235,7 +235,7 @@ export function runFight(input: FightInput): FightResult {
                 id: entry.id,
                 cooldownSeconds: entry.cooldownSeconds,
                 // Nothing carries a status at t=0, so the base stats are the live ones here.
-                timer: cooldownFor(entry.cooldownSeconds, stats.spd, stats.cooldownFactor),
+                timer: cooldownFor(entry.cooldownSeconds, stats.cooldownSpd, stats.cooldownFactor),
                 multiplier: entry.abilityMultiplier * (effect.wealthScaled ? wealth : 1),
                 effect
             }
@@ -597,7 +597,7 @@ export function runFight(input: FightInput): FightResult {
                 if (skill.timer > 0) continue
                 skill.timer += cooldownFor(
                     skill.cooldownSeconds,
-                    liveUnitStats(unit.stats, unit.statuses).spd,
+                    liveUnitStats(unit.stats, unit.statuses).cooldownSpd,
                     unit.stats.cooldownFactor
                 )
                 if (silenced) continue
@@ -719,6 +719,7 @@ function liveUnitStats(stats: UnitStats, statuses: readonly StatusInstance[]): U
         ...stats,
         pwr: stats.pwr.mul(statMultiplier(statuses, 'pwr')),
         def: stats.def.mul(statMultiplier(statuses, 'def')),
+        cooldownSpd: stats.cooldownSpd.mul(statMultiplier(statuses, 'spd')),
         spd,
         attacksPerSecond: attacksPerSecondFor(spd)
     }

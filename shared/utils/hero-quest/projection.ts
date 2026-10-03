@@ -82,7 +82,7 @@ export function partyKits(hero: HeroSnapshot, units: readonly UnitStats[]): {
         strikesPerAttack: unit.stats.strikesPerAttack,
         skills: unit.kit.map(skill => ({
             id: skill.id,
-            cooldownSeconds: cooldownFor(skill.cooldownSeconds, unit.stats.spd, unit.stats.cooldownFactor),
+            cooldownSeconds: cooldownFor(skill.cooldownSeconds, unit.stats.cooldownSpd, unit.stats.cooldownFactor),
             damaging: skill.abilityMultiplier > 0 && !isAllyTarget((skill.effect ?? SINGLE_TARGET).target)
         }))
     }))
@@ -237,7 +237,7 @@ export function projectAbilities(
     for (const { stats, kit } of party) {
         for (const entry of kit) {
             const effect = entry.effect ?? SINGLE_TARGET
-            const cooldown = cooldownFor(entry.cooldownSeconds, stats.spd, stats.cooldownFactor)
+            const cooldown = cooldownFor(entry.cooldownSeconds, stats.cooldownSpd, stats.cooldownFactor)
             if (cooldown <= 0) continue
 
             // A burst worth M minutes of income, every `cooldown` seconds, is a rate increase of
@@ -369,7 +369,7 @@ export function partyAbilityDpsByUnit(
         return kit.reduce((unitTotal, entry) => {
             if (entry.abilityMultiplier <= 0) return unitTotal
             const effect = entry.effect ?? SINGLE_TARGET
-            const cooldown = cooldownFor(entry.cooldownSeconds, stats.spd, stats.cooldownFactor)
+            const cooldown = cooldownFor(entry.cooldownSeconds, stats.cooldownSpd, stats.cooldownFactor)
             if (cooldown <= 0) return unitTotal
 
             // The floor applies to the **finished** hit, multiplier included — exactly as

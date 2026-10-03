@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { CLASS_BY_ID, CLASS_IDS, CLASS_NODES, ROOT_CLASS_ID, childrenOf, classPath, isDescendantOf, kitFor } from '#shared/utils/hero-quest/content/classes'
 import { baseSpreadFor } from '#shared/utils/hero-quest/stats'
-import { MIN_STAT_VALUE, RARITY_ADJACENT_RATIO_CEILING } from '#shared/utils/hero-quest/constants'
+import {
+    GOLD_BURST_COOLDOWN_SECONDS,
+    MIN_STAT_VALUE,
+    RARITY_ADJACENT_RATIO_CEILING,
+    SKILL_BASE_COOLDOWN_SECONDS,
+    SKILL_COOLDOWN_RANK_STEP
+} from '#shared/utils/hero-quest/constants'
 import {
     ARCHETYPES,
     CHAMPIONS,
@@ -700,5 +706,47 @@ describe('hero-quest artifact content', () => {
             expect(artifactLineMagnitude('gold', rarity, 3, 5), rarity)
                 .toBeLessThan(artifactLineMagnitude('stat', rarity, 3, 5))
         }
+    })
+})
+
+describe('the cooldown ladder', () => {
+    const TIER_RANK = { beginner: 0, base: 1, elite: 2, master: 3 } as const
+    const laddered = (rank: number) => SKILL_BASE_COOLDOWN_SECONDS * SKILL_COOLDOWN_RANK_STEP ** rank
+
+    it('puts every class skill at its tier\'s rank, deeper classes waiting longer', () => {
+        for (const node of CLASS_NODES) {
+            expect(node.skill.cooldownSeconds, node.id).toBeCloseTo(laddered(TIER_RANK[node.tier]), 10)
+        }
+    })
+
+    it('puts every Champion ability at its Champion\'s rarity rank', () => {
+        for (const champion of CHAMPIONS) {
+            for (const ability of champion.abilities) {
+                expect(ability.cooldownSeconds, `${champion.id} ${ability.name}`)
+                    .toBeCloseTo(laddered(RARITIES.indexOf(champion.rarity)), 10)
+            }
+        }
+    })
+
+    it('scales the hit with the wait, so the same ability keeps its damage per second', () => {
+        const byName = new Map<string, { cooldownSeconds: number; abilityMultiplier: number }[]>()
+        for (const ability of CHAMPIONS.flatMap(champion => champion.abilities)) {
+            byName.set(ability.name, [...(byName.get(ability.name) ?? []), ability])
+        }
+        for (const [name, copies] of byName) {
+            const rates = copies.map(copy => copy.abilityMultiplier / copy.cooldownSeconds)
+            for (const rate of rates) expect(rate, name).toBeCloseTo(rates[0]!, 10)
+        }
+    })
+
+    it('ranks damage-dealing Skill Actives by rarity, leaving the Gold-burst cadence alone', () => {
+        const quick = SKILLS.find(entry => entry.name === 'Quick Strike')!
+        const focused = SKILLS.find(entry => entry.name === 'Focused Blow')!
+        expect(quick.cooldownSeconds).toBeCloseTo(laddered(0), 10)
+        expect(focused.cooldownSeconds).toBeCloseTo(laddered(1), 10)
+        expect(focused.abilityMultiplier! / focused.cooldownSeconds!)
+            .toBeCloseTo(quick.abilityMultiplier! / quick.cooldownSeconds!, 10)
+        expect(SKILLS.find(entry => entry.name === "Prospector's Instinct")!.cooldownSeconds)
+            .toBe(GOLD_BURST_COOLDOWN_SECONDS)
     })
 })

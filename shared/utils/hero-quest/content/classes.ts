@@ -7,7 +7,7 @@
  * "extreme" qualifiers mapped onto the three DELTA_* magnitude constants. Both accumulate
  * down the path, so Berserker carries Warrior's and Barbarian's shifts.
  *
- * Every skill uses the shared placeholder cooldown (`SKILL_BASE_COOLDOWN_SECONDS`); what
+ * A skill's cooldown comes from its tier on the cooldown ladder (`CLASS_TIER_RANK`); what else
  * differs per skill is its effect shape — see `skill` below.
  */
 
@@ -32,18 +32,18 @@ import {
     SKILL_PIERCE_MULTIPLIER,
     SKILL_STATUS_DURATION_SECONDS
 } from '../constants'
-import { SINGLE_TARGET } from '../effects'
+import { onCooldownRank, SINGLE_TARGET } from '../effects'
 import type { AbilityEffect } from '../effects'
-import type { ClassId, ClassNode, ClassSkill, FormationRow } from '../types'
+import type { ClassId, ClassNode, ClassSkill, ClassTier, FormationRow } from '../types'
 
 export const ROOT_CLASS_ID: ClassId = 'class_beginner'
 
 /**
  * A class node's ability.
  *
- * Cooldowns stay on the shared placeholder — `classes-and-combat.md` §3 says outright that
- * "every skill's cooldown length will differ (set later during balancing)" and assigns none.
- * What *is* authored here is each ability's **shape**: its target pattern, its damage relative
+ * Written at the base cooldown; `CLASS_NODES` moves each onto its tier's rank of the ladder, as
+ * `classes-and-combat.md` §3 anticipates ("every skill's cooldown length will differ"). What
+ * *is* authored here is each ability's **shape**: its target pattern, its damage relative
  * to a plain hit, and any status it carries.
  *
  * Nine of the sixteen have a one-clause behavioural hint in the docs; the other seven had only a
@@ -415,8 +415,17 @@ function defaultRowFor(id: ClassId): FormationRow {
     return 'back'
 }
 
+/** Tree depth as a rank on the cooldown ladder: a deeper class's skill fires slower and harder. */
+const CLASS_TIER_RANK: Readonly<Record<ClassTier, number>> = {
+    beginner: 0,
+    base: 1,
+    elite: 2,
+    master: 3
+}
+
 export const CLASS_NODES: readonly ClassNode[] = CLASS_NODE_SPECS.map(spec => ({
     ...spec,
+    skill: onCooldownRank(spec.skill, CLASS_TIER_RANK[spec.tier]),
     defaultRow: defaultRowFor(spec.id)
 }))
 

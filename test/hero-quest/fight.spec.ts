@@ -202,8 +202,8 @@ describe('hero-quest seeded fights', () => {
 
     describe('effects, resolved in a real fight', () => {
         /**
-         * Deep enough that the fight runs long rather than ending in the first second.
-         * Abilities sit on a shared cooldown, so a fixture the party one-shots proves nothing
+         * Long enough that every class's first cast lands. Cooldowns ignore the level curve and
+         * deeper classes wait longest, so a fixture that ends in a few seconds proves nothing
          * about effects — no kit ever gets to fire.
          *
          * Two opposite failure modes bound it: too strong and the party fells a body before the
@@ -212,8 +212,8 @@ describe('hero-quest seeded fights', () => {
          * the party's own pool has grown into it. If this breaks, re-scan for the level band
          * where every spec below holds and take its middle rather than nudging.
          */
-        const fight = (classId: ClassId, level = 192) =>
-            runFight({ hero: hero(level, classId), position: at(10, SUPER_BOSS_STAGE), seed: 7 })
+        const fight = (classId: ClassId, level = 93) =>
+            runFight({ hero: hero(level, classId), position: at(3, SUPER_BOSS_STAGE), seed: 7 })
 
         it('lands an AoE on every living body at once', () => {
             // Marksman's Arrow Rain hits every spot; a boss encounter holds three.
@@ -328,7 +328,7 @@ describe('hero-quest seeded fights', () => {
          * Deep enough for the party's own pool to have grown into the encounter, or it dies
          * before the later skills fire. Chosen mid-band; re-scan rather than nudge if it breaks.
          */
-        const BERSERKER_KIT = { level: 224, position: at(9, SUPER_BOSS_STAGE) }
+        const BERSERKER_KIT = { level: 476, position: at(9, SUPER_BOSS_STAGE) }
 
         it('fires every skill the class path owns, not just the deepest node\'s', () => {
             const result = runFight({ hero: hero(BERSERKER_KIT.level, 'class_berserker'), position: BERSERKER_KIT.position, seed: 7 })
@@ -365,10 +365,9 @@ describe('hero-quest seeded fights', () => {
         /**
          * A boss tanky enough that every kit gets to cycle before the fight resolves.
          *
-         * Deliberately not a quick win. The skill loop breaks the instant the boss dies, and
-         * abilities share `SKILL_BASE_COOLDOWN_SECONDS`, so a kit fires as one volley — kill
-         * the boss mid-volley and a three-ability Mythic reads as a two-ability one, which
-         * would be a property of the fixture rather than of the kit. At this depth the Hero's
+         * Deliberately not a quick win. A Mythic's abilities sit five ranks up the cooldown
+         * ladder, so a short fight ends before they come round and a three-ability Mythic reads
+         * as fewer — a property of the fixture rather than of the kit. At this depth the Hero's
          * four skills and a Mythic's three all come off cooldown at least once.
          *
          * Taken from the middle of the longest *contiguous* level band where every Berserker
@@ -378,7 +377,7 @@ describe('hero-quest seeded fights', () => {
          * rather than nudge.
          */
         const deepFight = (champions: ChampionSnapshot[]) => runFight({
-            hero: withParty(hero(273, 'class_berserker'), champions),
+            hero: withParty(hero(399, 'class_berserker'), champions),
             position: at(10, SUPER_BOSS_STAGE),
             seed: 7
         })

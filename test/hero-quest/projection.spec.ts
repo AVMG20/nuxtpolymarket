@@ -141,7 +141,7 @@ describe('the settle projection', () => {
          * is what buys that: the enemy pool is large enough that the fight runs its full timer,
          * which is the regime the projection is actually modelling.
          */
-        const FIXTURE = { level: 204, position: at(10, SUPER_BOSS_STAGE) }
+        const FIXTURE = { level: 178, position: at(3, SUPER_BOSS_STAGE) }
 
         const withinTolerance = (snapshot: HeroSnapshot, position: RunPosition, label: string) => {
             const projected = projectedDps(snapshot, position)
@@ -162,7 +162,7 @@ describe('the settle projection', () => {
             const position = FIXTURE.position
             const result = runFight({ hero: snapshot, position, seed: 7 })
             const units = partyUnitStats(snapshot)
-            const cooldown = cooldownFor(kitFor('class_hunter')[0]!.cooldownSeconds, units[0]!.spd)
+            const cooldown = cooldownFor(kitFor('class_hunter')[0]!.cooldownSeconds, units[0]!.cooldownSpd)
 
             const projectedCasts = result.secondsElapsed / cooldown
             const actualCasts = new Set(
