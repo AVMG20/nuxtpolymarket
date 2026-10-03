@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#37** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open.
+**#38** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
@@ -36,6 +36,7 @@ read the older rule in the doc named in the middle column, it is superseded.**
 | 31 | `raid-system.md` §1/§7, `asset-list.md`, `economy-and-currencies.md` §9: the Training Grounds Raid is a `solo_boss` fight, its Keys spent only on a win | It is a **`training_dummy`**: a static dummy that can't die or attack, the result being the damage dealt before the timer ends (2026-09-28, the user's call). How that meets Keys, the ladder and rewards is still open below |
 | 32 | `raid-system.md` §1/§7, `asset-list.md`, `asset-checklist.md`: the Forge Raid is one `phased_boss` whose phases change at HP thresholds | It is a **`boss_gauntlet`**: three bosses back to back, the Apprentice, the Journeyman and the Forgemaster (2026-09-29, the user's call). How the timer, Keys and curves apply is still open below |
 | 36 | `classes-and-combat.md` §3: SPD reduces cooldown duration across the board, off the same curve as the autoattack; every skill on `SKILL_BASE_COOLDOWN_SECONDS` | Cooldowns read **`cooldownSpd`**, SPD without the level curve; the autoattack still reads the full stat. Cooldowns sit on a **rank ladder** (`SKILL_COOLDOWN_RANK_STEP`): rarity for Skills and Champion abilities, tree depth for class skills, hit size scaled to match. §3 updated in place (2026-10-03, the user's call) |
+| 37 | `core-progression-and-prestige.md`, `settle.killsBeforeWipe`'s old contract: a wave wipe restarts the stage at once and income continues unbroken | Each wave wipe costs **`WIPE_RECOVERY_SECONDS` (5s)** with nothing landing, served across settle windows via `hq_state.recovery_seconds`. Still no ground lost (2026-10-03, the user's call) |
 
 ---
 
@@ -96,7 +97,7 @@ Explicitly deferred scope — the gift-mechanic phase is locked, but limited-tim
 
 ## ⚠️ Open consequences of work that landed
 
-Four items are built and working but left something undecided. The full record of each is in
+Five items are built and working but left something undecided. The full record of each is in
 `build-log.md`; only the open half is restated here. (The `killFraction` invariant that used to
 sit here as #24 is not an open item — it is a trap, and it lives in `CLAUDE.md` §7 and
 `build-log.md` #24.)
@@ -147,6 +148,26 @@ chose to leave pacing alone until more playtesting (2026-10-03). Two more things
    cooldown, so a Mythic ability (~15.9s at step 1.2) fires once in a 30s boss fight. Damage per
    second is equal on average only; in boss fights the ladder is a slight nerf to rare kits.
 2. **The step itself is a placeholder** (`// UNTUNED ╧`), shared by both ladders.
+
+### 37. A wave wipe costs recovery time — built; its feel is unmeasured
+
+**What landed (2026-10-03, the user's call).** A wipe used to cost nothing: the attempt restarted
+in the same instant, every kill kept paying, and the stage showed a 1.6s fall. Now each wave
+wipe is followed by `WIPE_RECOVERY_SECONDS` (5s, a decision) with nothing landing and nothing
+earned. `settle.walkWall` walks a walled stage in closed form (attempt, recovery, attempt), and
+`settle()` and the client's `projectRun` both call it, so they agree. A recovery cut short by a
+read persists as `hq_state.recovery_seconds` (migration `0049`) and is served first by the next
+window, offline included. Everything that resets run position zeroes it. On the stage the party
+lies where it fell for the whole recovery, the scene sinks toward dark red, and a `DEFEATED`
+banner counts down to the next attempt.
+
+It bites only while walled, and harder the shorter the attempts: a party wiping every 10 kills at
+2s/kill earns 80% of its old rate; one wiping every 2 kills, a third. **Pacing barely moved.** The
+campaign walls at boss timers, not wave wipes, so the party-of-3 walk is unchanged and the early
+solo wipe grinds are ~5% longer (`sim.ts` charges the recovery per attempt,
+`secondsPerFarmedKill`). Boss losses are untouched: still fall back one stage, re-kill 30, retry.
+
+**Open:** whether 5s reads as a penalty or just as a pause. Watch it in play.
 
 ### 23. Gold — the progression half is still open
 
