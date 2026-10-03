@@ -58,7 +58,7 @@ export class MenuSplash {
         dither(s, 0, 0, SW, SH, C.night0, 6)
         for (const b of this.bodies) blitStrip(s, b.strip, t + b.offset, b.x, b.y)
         drawLogo(s, SW / 2, 40, t)
-        drawPlayButton(s, t, button)
+        drawPlateButton(s, PLAY_BUTTON, 'PLAY', t, button, true)
         return s
     }
 }
@@ -87,16 +87,19 @@ export function onPlayButton(x: number, y: number): boolean {
     return x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h
 }
 
+/** Where a plate button sits, in scene pixels. */
+export interface ButtonBox { x: number, y: number, w: number, h: number }
+
 /**
- * The logo's own make: an ink outline, a gold rim, a red plate lit along its top, a play glyph
- * and PLAY in the big face. A glint crosses it now and then; hovered it lights, pressed it sinks
- * onto its shadow, and while the press is on its way it dims.
+ * The logo's own make: an ink outline, a gold rim, a red plate lit along its top, and the label
+ * in the big face, after a play glyph if asked. A glint crosses it now and then; hovered it
+ * lights, pressed it sinks onto its shadow, and while the press is on its way it dims.
  */
-function drawPlayButton(s: Surface, t: number, state: PlayButtonState): void {
-    const { w, h } = PLAY_BUTTON
+export function drawPlateButton(s: Surface, box: ButtonBox, text: string, t: number, state: PlayButtonState, glyph: boolean): void {
+    const { w, h } = box
     const sink = state === 'pressed' ? 2 : 0
-    const x = PLAY_BUTTON.x
-    const y = PLAY_BUTTON.y + sink
+    const x = box.x
+    const y = box.y + sink
     // the drop shadow it sinks onto when pressed
     if (!sink) roundRect(s, x + 2, y + 2, w, h, C.ink)
     roundRect(s, x, y, w, h, C.ink)
@@ -136,19 +139,18 @@ function drawPlayButton(s: Surface, t: number, state: PlayButtonState): void {
         }
     }
     // the play glyph and the word, centred together
-    const text = 'PLAY'
     const tw = textWidth(text, 'big')
-    const gw = 5
-    const gap = 4
+    const gw = glyph ? 5 : 0
+    const gap = glyph ? 4 : 0
     const left = x + ((w - gw - gap - tw) >> 1)
     const cy = y + (h >> 1) - 1
     const ink = state === 'busy' ? C.bone1 : C.white
-    for (let r = -4; r <= 4; r++) rect(s, left, cy + r, gw - Math.abs(r), 1, ink)
+    if (glyph) for (let r = -4; r <= 4; r++) rect(s, left, cy + r, gw - Math.abs(r), 1, ink)
     drawText(s, text, left + gw + gap, cy - 3, ink, { font: 'big', shadow: 1 })
 }
 
 /** A baked strip's frame at `t`, on its anchor at (x, y). */
-function blitStrip(dst: Surface, b: Baked, t: number, x: number, y: number): void {
+export function blitStrip(dst: Surface, b: Baked, t: number, x: number, y: number): void {
     const n = b.frames.length
     const src = b.frames[Math.floor(t * b.fps) % n]!
     const ox = Math.round(x) - b.ax
