@@ -1089,6 +1089,13 @@ export const hqState = pgTable('hq_state', {
    * this along with the rest of the run-position group.
    */
   runCleared: boolean('run_cleared').notNull().default(false),
+  /**
+   * The boss at the run's next gate beat the party last time (a timeout or a wipe), so the client
+   * leaves it for the player to challenge instead of engaging it on its own. A loss falls the run
+   * back exactly one stage, so the next gate reached is always that boss. Set and cleared by the
+   * fight that decides it; run position, so everything that resets the run clears it too.
+   */
+  bossLost: boolean('boss_lost').notNull().default(false),
 
   // Hero — persists across prestige AND across class switches. There is no relevel anywhere.
   heroNodeId: text('hero_node_id').notNull().default('class_beginner'),

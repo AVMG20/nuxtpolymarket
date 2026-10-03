@@ -38,9 +38,9 @@ async function cleanup() {
     await cleanupUser(USER_ID)
 }
 
-async function parkAt(world: number, stage: number, runCleared = false) {
+async function parkAt(world: number, stage: number, runCleared = false, heroLevel = OVERWHELMING_LEVEL) {
     await db.update(hqState)
-        .set({ world, stage, killCount: 0, killFraction: 0, atBossGate: true, runCleared, heroLevel: OVERWHELMING_LEVEL })
+        .set({ world, stage, killCount: 0, killFraction: 0, atBossGate: true, runCleared, heroLevel })
         .where(eq(hqState.userId, USER_ID))
 }
 
@@ -110,5 +110,19 @@ describe.skipIf(SKIP)('boss engage', () => {
         expect(after.runCleared).toBe(false)
         expect(seals(after)).toEqual(before.map(count => count + SEAL_GRANT_PER_BOSS))
         expect(await fightCount()).toBe(1)
+    })
+
+    it('remembers a boss that beat the party, and forgets it once beaten', async () => {
+        // a level-1 Beginner against World 5's boss cannot win; the run falls back a stage
+        await parkAt(5, BOSS_STAGE, false, 1)
+        expect((await engage()).outcome).not.toBe('win')
+        const lost = await readState()
+        expect(lost.stage).toBe(BOSS_STAGE - 1)
+        expect(lost.bossLost).toBe(true)
+
+        await parkAt(5, BOSS_STAGE)
+        await db.update(hqState).set({ bossLost: true }).where(eq(hqState.userId, USER_ID))
+        expect((await engage()).outcome).toBe('win')
+        expect((await readState()).bossLost).toBe(false)
     })
 })

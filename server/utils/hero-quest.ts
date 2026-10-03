@@ -551,6 +551,7 @@ export function prestigeResetValues(state: HqStateRow) {
         // whatever fraction of a kill the last one happened to end on.
         killFraction: 0,
         recoverySeconds: 0,
+        bossLost: false,
         atBossGate: false
     }
 }
@@ -628,6 +629,7 @@ export async function resolveBossEngage(tx: DbExecutor, userId: string, bankedGo
             recoverySeconds: 0,
             atBossGate: isBossStage(landing.stage),
             runCleared: clearedTheRun,
+            bossLost: !won,
             ...(sealsEarned > 0 ? sealGrantSet(sealsEarned) : {})
         })
         .where(eq(hqState.userId, userId))
@@ -724,6 +726,8 @@ export function serializeRun(state: HqStateRow, hero: HeroSnapshot) {
         atBossGate: atBoss,
         /** The World 10 super boss is down — prestige is available. */
         runCleared: state.runCleared,
+        /** The next gate's boss beat the party last time: it waits on the challenge button. */
+        bossLost: state.bossLost,
         bossTimerSeconds: BOSS_TIMER_SECONDS,
         progress: runProgress(position.world, position.stage),
         worldCount: WORLD_COUNT,

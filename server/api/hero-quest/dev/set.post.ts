@@ -2,7 +2,7 @@ import { requireUserId } from '#server/utils/auth'
 import { assertDevHarness, devSet, type DevSet } from '#server/utils/hero-quest-dev'
 
 /**
- * Teleport the run — prestige, world, stage, hero level, class node, `runCleared`.
+ * Teleport the run — prestige, world, stage, hero level, class node, `runCleared`, `bossLost`.
  * **Dev only** — see `server/utils/hero-quest-dev.ts`.
  *
  * `atBossGate` is always derived from the landing stage rather than accepted from the body, so a

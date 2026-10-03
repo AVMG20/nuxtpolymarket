@@ -352,6 +352,8 @@ export interface DevSet {
     heroNodeId?: string
     /** Makes prestige available without beating the World 10 super boss. */
     runCleared?: boolean
+    /** Marks the next gate's boss as having beaten the party, so it waits on the challenge button. */
+    bossLost?: boolean
 }
 
 /**
@@ -395,8 +397,9 @@ export async function devSet(userId: string, patch: DevSet) {
                 world,
                 stage,
                 atBossGate: isBossStage(stage),
-                // a moved run starts standing, not mid-recovery from wherever it was
+                // a moved run starts standing, not mid-recovery from wherever it was, nor held by a boss it never met
                 recoverySeconds: 0,
+                bossLost: Boolean(patch.bossLost),
                 ...(patch.prestige === undefined ? {} : { prestige: Math.max(0, Math.floor(patch.prestige)) }),
                 // The carried part-kill belongs to the counter being overwritten, so it goes
                 // with it — a harness that moves the run to 12/30 means 12, not 12 and a bit.
@@ -422,7 +425,8 @@ export async function devSet(userId: string, patch: DevSet) {
             atBossGate: updated?.atBossGate ?? isBossStage(stage),
             heroLevel: updated?.heroLevel ?? state.heroLevel,
             heroNodeId: updated?.heroNodeId ?? state.heroNodeId,
-            runCleared: updated?.runCleared ?? state.runCleared
+            runCleared: updated?.runCleared ?? state.runCleared,
+            bossLost: updated?.bossLost ?? state.bossLost
         }
     })
 }
