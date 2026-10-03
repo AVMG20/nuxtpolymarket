@@ -547,6 +547,20 @@ than `RUN_CATCH_UP_GAP`) rather than in a burst. Measured headless at 0.3 to 0.8
 minute: the stage trails the run by about two kills on average and never by more than one pack, and
 the lag does not grow.
 
+**A march banks no casts or swings** (2026-10-03, from the user's report that cooldowns seemed to
+reset between packs). The stage ran every cooldown and attack timer through a march, past zero, and
+nothing could fire while marching, so each arrival paid the backlog out at once: a kit near the
+0.5 s floor banked four or five casts per skill on a 2.4 s march. Ability and attack timers now
+stop at 0. Time sat ready counts only while fighting (`overdue`), fires a busy body's ability on its
+own after `RUN_CAST_OVERDUE` and an attack after a full interval, and is taken off the next
+cooldown, so the stage keeps the fight's cadence without a march ever feeding it. The pack's
+swings use the same rule (`tickSwing` / `rearmSwing`). Measured headless over a minute (0.6 s
+attacks, skills on 0.5, 0.8 and 1.5 s, seven marches): blows in the second after an arrival fell
+from up to 34 to 11, cast effects from 21 to 5; totals fell from 287 to 184 blows and 205 to 126
+effects, the backlog gone and the rest in line with the time spent fighting. Clamping alone, without
+taking the wait off the next cooldown, cut the effects to 58: a busy body's every wait pushed its
+next cast back. Presentation only: kills stay on the run's schedule.
+
 **Choices made without asking:** a Hero skill's cinematic plays as a flourish only (its numbers
 are the log's hits); statuses do not show as pips on the party frames, since the log's ids are
 ability ids, not the status icons'; the result banner is the stage's own (VICTORY, DEFEAT, TIME UP).
