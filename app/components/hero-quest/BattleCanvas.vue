@@ -85,6 +85,7 @@ function feed(): RunFeed {
         stage: run.stage,
         archetype: run.archetype,
         killsFloat: run.killsFloat,
+        killsRequired: run.killsRequired,
         packSize: run.packSize,
         atBossGate: run.atBossGate,
         walled: run.walled,

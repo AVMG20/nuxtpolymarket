@@ -21,6 +21,8 @@ export interface RunFeed {
     archetype: 'wave' | 'elite' | 'boss' | 'super_boss'
     /** Kills into the current stage attempt, fractional. */
     killsFloat: number
+    /** Kills that clear the stage; 0 at a boss gate. */
+    killsRequired: number
     packSize: number
     atBossGate: boolean
     walled: boolean
@@ -85,6 +87,8 @@ export class RunDirector {
     carry = 0
     /** One carried body's HP, or null when they were a boss and its escort, whose fight already showed its numbers. */
     private carryHp: string | null = null
+    /** The kill requirement of the stage the carried bodies belong to. */
+    private carryRequired = 0
     /** Damage the numbers have shown on the front body so far. */
     private dealt: Decimal = ZERO
     /** What the last hit or blow showed, for a skill's total. */
@@ -105,6 +109,7 @@ export class RunDirector {
             // the last body of a stage drops as the counter rolls over, so it goes down under the new one
             this.carry = standing
             this.carryHp = was.atBossGate ? null : was.enemyHp
+            this.carryRequired = was.killsRequired
             this.shown = 0
             return 'advance'
         }
@@ -122,6 +127,20 @@ export class RunDirector {
         this.carry = 0
         this.dealt = ZERO
         return change
+    }
+
+    /**
+     * How far the stage on screen has got, which is not where the run is: the bodies the stage has
+     * dropped, plus the share of the front one its hits have taken. While a cleared stage's last
+     * bodies are still going down, it is still that stage.
+     */
+    visible(): { kills: number, required: number } {
+        const f = this.feed
+        if (!f) return { kills: 0, required: 0 }
+        if (this.carry > 0) return { kills: Math.max(0, this.carryRequired - this.carry), required: this.carryRequired }
+        const hp = D(f.enemyHp)
+        const part = hp.gt(0) ? Math.min(0.99, this.dealt.div(hp).toNumber()) : 0
+        return { kills: Math.min(f.killsRequired, this.shown + part), required: f.killsRequired }
     }
 
     /** Bodies that should already be down. */

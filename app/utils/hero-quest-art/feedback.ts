@@ -292,6 +292,50 @@ export function drawEnrageTimer(s: Surface, u: number, t: number): void {
     if (enraged) for (let i = 0; i < 5; i++) px(s, 77 + i * 2, 2 - ((i + pulse) & 1), i & 1 ? C.gold3 : C.orange)
 }
 
+// ── Stage progress ─────────────────────────────────────────────────────────────────
+
+/** Crossed swords, a wave stage's mark: l a blade's lit edge, b its body, g a guard, h a grip. */
+const SWORDS = [
+    'l.......l',
+    '.lb...bl.',
+    '..lb.bl..',
+    '...lbl...',
+    '....b....',
+    '..gb.bg..',
+    '.g.h.h.g.',
+    '..h...h..',
+    '.h.....h.'
+] as const
+
+const PROGRESS: BarRamp = [C.teal1, C.teal2, C.cyan]
+
+/**
+ * An 88×14 stage progress bar, the enrage timer's twin on wave stages: crossed swords, a bar
+ * filling as the kills land, the count. Red when the party is walled and wipes before it fills.
+ */
+export function drawStageProgress(s: Surface, kills: number, required: number, walled: boolean): void {
+    const u = required > 0 ? Math.min(1, Math.max(0, kills / required)) : 0
+    // the panel, bevelled as the timer's is
+    rect(s, 0, 0, 88, 14, C.ink)
+    rect(s, 1, 1, 86, 12, C.night2)
+    rect(s, 1, 1, 86, 1, C.night3)
+    rect(s, 1, 12, 86, 1, C.night0)
+    for (let y = 0; y < SWORDS.length; y++) for (let x = 0; x < 9; x++) {
+        const ch = SWORDS[y]![x]
+        if (ch === '.') continue
+        px(s, 2 + x, 3 + y, ch === 'l' ? C.white : ch === 'b' ? C.steel2 : ch === 'g' ? C.gold2 : C.brown2)
+    }
+    // the bar: a trough, filled as far as the stage has got, its leading edge bright
+    rect(s, 13, 3, 48, 8, C.ink)
+    rect(s, 14, 4, 46, 6, C.night0)
+    const filled = R(46 * u)
+    barFill(s, 14, 4, filled, walled ? HP_LOW : PROGRESS)
+    if (filled > 0 && filled < 46) rect(s, 13 + filled, 4, 1, 6, C.white)
+    for (let i = 1; i < 4; i++) rect(s, 14 + R(46 * i / 4), 5, 1, 4, C.night0)
+    // the count, right-aligned in what is left of the panel
+    textOut(s, `${Math.floor(Math.max(0, kills))}/${required}`, 85, 5, walled ? C.red3 : C.bone1, 'small', 1, 2, 0, C.ink, -1)
+}
+
 // ── Gacha reveal ───────────────────────────────────────────────────────────────────
 
 /** The neutral ramp the base flash is drawn in (light → dark). */

@@ -33,7 +33,7 @@ import { CHAMPION_ABILITY_POOL, CHAMPION_BY_ID, championDisplayName, abilityId  
 import { SKILLS } from '../../../shared/utils/hero-quest/content/skills'
 import { ARTIFACTS, type ArtifactCategory } from '../../../shared/utils/hero-quest/content/artifacts'
 import { GEAR } from '../../../shared/utils/hero-quest/content/gear'
-import { NUMBER_STYLES, drawNumberPop, drawNumberAtlas, numberAtlasWidth, numberHeight, drawPartyFrame, drawCooldown, drawEnrageTimer, drawRevealBase, REVEAL_LUT, REVEAL_SIZE } from './feedback'
+import { NUMBER_STYLES, drawNumberPop, drawNumberAtlas, numberAtlasWidth, numberHeight, drawPartyFrame, drawCooldown, drawEnrageTimer, drawStageProgress, drawRevealBase, REVEAL_LUT, REVEAL_SIZE } from './feedback'
 import { Surface as Surf, blit, rect, rowSpan, ROWS } from './surface'
 import { WORLD_SCENES, SW, SH, BG_LOOP, composeScene } from './scenery'
 import { drawWorldMap, TAB_BACKGROUNDS, CHROME, drawSplash } from './ui-art'
@@ -509,6 +509,7 @@ function feedbackAssets(): ArtAsset[] {
     out.push(anim('feedback/cooldown', 'feedback', 'Cooldown radial overlay', 'Sweep over an equipped skill icon', ICON, ICON, 16, true, (d, _t, f) => drawCooldown(d, f / 12),
         d => { squareFrame(d, LINE_M.warrior); glyph(d, sample, 12, 12) }))
     out.push(anim('feedback/enrage_timer', 'feedback', 'Boss enrage timer', 'Draining → low → enraged', 88, 14, 16, false, (d, t, f) => drawEnrageTimer(d, f / 14, t)))
+    out.push(anim('feedback/stage_progress', 'feedback', 'Stage progress', 'Kills landing toward the stage; red when walled', 88, 14, 16, false, (d, _t, f) => drawStageProgress(d, f * 2, 30, f >= 12)))
     return out
 }
 

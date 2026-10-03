@@ -16,6 +16,7 @@ const FEED: RunFeed = {
     stage: 3,
     archetype: 'wave',
     killsFloat: 0,
+    killsRequired: 30,
     packSize: 6,
     atBossGate: false,
     walled: false,
@@ -140,5 +141,34 @@ describe('RunDirector', () => {
         const r = director()
         expect(r.sync({ ...FEED, killsFloat: 20 }, 6)).toBe('reset')
         expect(r.due()).toBe(0)
+    })
+})
+
+describe('the stage progress the screen shows', () => {
+    it('counts the bodies the stage has dropped, not the kills the run has projected', () => {
+        const r = director({ killsFloat: 4 })
+        // the run moves on three kills; the stage has dropped none of them yet
+        r.sync({ ...FEED, killsFloat: 7 }, 6)
+        expect(r.visible()).toEqual({ kills: 4, required: 30 })
+        r.finish()
+        expect(r.visible().kills).toBe(5)
+    })
+
+    it('fills by the share of the front body the hits on screen have taken', () => {
+        const r = director({ killsFloat: 2 })
+        r.sync({ ...FEED, killsFloat: 2.6 }, 6)
+        r.hit(false)
+        const { kills } = r.visible()
+        expect(kills).toBeGreaterThan(2)
+        expect(kills).toBeLessThan(3)
+    })
+
+    it('stays on the cleared stage while its last bodies are still going down', () => {
+        const r = director({ killsFloat: 29.5 })
+        expect(r.sync({ ...FEED, stage: FEED.stage + 1, killsFloat: 0.2 }, 2)).toBe('advance')
+        expect(r.visible()).toEqual({ kills: 28, required: 30 })
+        r.finish()
+        r.finish()
+        expect(r.visible()).toEqual({ kills: 0, required: 30 })
     })
 })

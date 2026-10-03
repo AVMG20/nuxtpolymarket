@@ -45,7 +45,7 @@ import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type Bake
 import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
-import { NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, drawNumberAt, drawPartyFrameAt, type NumberStyle, type PartyMember } from './feedback'
+import { NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, type NumberStyle, type PartyMember } from './feedback'
 import { VL, clock, R } from './vfx-kit'
 import { J } from './rig'
 import { VFX_BY_ID, type VfxDef } from './vfx'
@@ -336,6 +336,14 @@ const DEFEAT_DIM = 10
  */
 const MARCH_DUR = 2.4
 const MARCH_SPEED = SCROLL_PERIOD / MARCH_DUR
+
+/**
+ * The top-centre bar's size, as `feedback` draws both of its faces (the enrage timer and the
+ * stage progress), and how far down the screen it sits.
+ */
+const HUD_BAR_W = 88
+const HUD_BAR_H = 14
+const HUD_BAR_Y = 4
 
 /** How fast the party walks off the right of the screen when it leaves a World, px a second. */
 const EXIT_SPEED = 110
@@ -707,6 +715,8 @@ export class BattleDemo {
     /** One reusable window per camera, so switching allocates nothing in the loop. */
     private views = Object.fromEntries(Object.entries(CAMERAS).map(([id, c]) => [id, new Surface(c.w, c.h, 0, 0)])) as Record<CameraId, Surface>
     /** Each camera's view with the party band under it. */
+    /** The top-centre bar, drawn here and stamped onto the view: a boss fight's timer, or a wave stage's progress. */
+    private hudBar = new Surface(HUD_BAR_W, HUD_BAR_H, 0, 0)
     private partyViews = Object.fromEntries(Object.entries(CAMERAS).map(([id, c]) => [id, new Surface(c.w, c.h + PARTY_BAND_H, 0, 0)])) as Record<CameraId, Surface>
     /** The party's frames, Hero first, refilled from their units each render. */
     private members: PartyMember[] = []
@@ -1566,8 +1576,8 @@ export class BattleDemo {
             }
         }
         this.wave++
-        const kind = gate ? (which ? '  SUPER BOSS' : '  BOSS') : f.archetype === 'elite' ? '  ELITE' : ''
-        this.label = `${WORLDS[f.world - 1]!.name.toUpperCase()}  ${f.world}-${f.stage}${kind}`
+        // where the run stands, prestige counted from 1 so a first run reads P1
+        this.label = `P${f.prestige + 1}-W${f.world}-S${f.stage}`
     }
 
     /** After a pack, march to the next, always at the full MARCH_DUR. */
@@ -2450,12 +2460,25 @@ export class BattleDemo {
         }
         textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
         if (this.raid?.id === 'training_grounds') textOut(out, this.tally, cam.w - 6, 5, this.raid.clock <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
-        else if (this.replay && !this.raid) {
-            // the boss timer, frozen where the fight ended
-            const left = Math.max(0, Math.ceil(BOSS_TIMER_SECONDS - this.fightTime))
-            textOut(out, `0:${String(left).padStart(2, '0')}`, cam.w - 6, 5, left <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
+        // top-centre: a run's boss fight shows its enrage timer, drained as far as the fight has played;
+        // a wave stage shows how far its kills have got
+        const timed = this.replay !== null && !this.raid
+        // what the stage has shown, not where the run has got: the two part on catch-up and at a stage's end
+        const seen = this.run && !this.raid ? this.run.visible() : null
+        const counting = !timed && seen !== null && seen.required > 0
+        if (timed) drawEnrageTimer(this.hudBar, Math.min(1, this.fightTime / BOSS_TIMER_SECONDS), this.time)
+        else if (counting) drawStageProgress(this.hudBar, seen.kills, seen.required, this.run!.feed?.walled ?? false)
+        if (timed || counting) {
+            const x0 = (cam.w - HUD_BAR_W) >> 1
+            for (let y = 0; y < HUD_BAR_H; y++) {
+                for (let x = 0; x < HUD_BAR_W; x++) {
+                    const c = this.hudBar.data[y * HUD_BAR_W + x]!
+                    if (c !== CLEAR) out.data[(HUD_BAR_Y + y) * out.w + x0 + x] = c
+                }
+            }
         }
-        if (this.nameT >= 0 && this.nameT < this.nameFor) drawSkillBanner(out, this.bossName, cam.w / 2, 14, this.nameT, true, this.nameFor - this.nameT)
+        // under the timer while one shows
+        if (this.nameT >= 0 && this.nameT < this.nameFor) drawSkillBanner(out, this.bossName, cam.w / 2, timed ? HUD_BAR_Y + HUD_BAR_H + 14 : 14, this.nameT, true, this.nameFor - this.nameT)
         return out
     }
 
