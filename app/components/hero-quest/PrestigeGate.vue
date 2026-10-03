@@ -7,8 +7,8 @@ import type { HqIntroRect } from '~/composables/useHqIntro'
 /**
  * What the Battle tab shows once the run is cleared: the party walking a bridge of light in the
  * dark, and Begin Again. The press goes to the server first; only once `crossing` is set does the
- * party walk into the portal, World 1 fills the screen, an iris closes on the portal, and
- * `crossed` fires with the box it shut on, for the battle stage to grow out of.
+ * party walk into the portal, an iris closes on it, and `crossed` fires with the box it shut on,
+ * for the battle stage to grow out of.
  *
  * Arriving from the battle stage, the bridge grows out of the stage's shut box and opens on the
  * Hero (`useHqIntro`).

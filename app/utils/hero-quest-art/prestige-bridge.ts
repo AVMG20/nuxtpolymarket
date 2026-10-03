@@ -1,7 +1,7 @@
 // The screen a cleared run waits on: the party walking a bridge of light across the dark, and the
 // one button that begins the next run. Pressed, the bridge stops, a portal opens ahead onto
-// Thornwick Vale, the party walks into it, and it widens until World 1 fills the screen, which is
-// where the battle stage picks the new run up.
+// Thornwick Vale and the party walks into it. An iris closes on the portal (`PrestigeGate`), and
+// the battle stage opens World 1 on the other side.
 
 import { C, CLEAR } from './palette'
 import { Surface, bayer, hash } from './surface'
@@ -40,12 +40,10 @@ const PORTAL_X = 284
 const PORTAL_Y = DECK_Y - 24
 const PORTAL_RX = 18
 const PORTAL_RY = 32
-/** Seconds the portal takes to open, how long it holds once the last body is through, and how long it takes to fill the screen. */
+/** Seconds the portal takes to open, and how long it holds once the last body is through. */
 const PORTAL_OPEN = 0.9
 const PORTAL_HOLD = 0.35
-const PORTAL_FILL = 1.3
-/** Radius the portal reaches when it fills the screen, and the share of it that shows the world rather than the rim. */
-const PORTAL_FILL_R = 380
+/** The share of the portal that shows the world rather than the rim. */
 const PORTAL_INNER = 0.84
 /** Seconds the rim flares as a body steps through. */
 const STEP_FLARE = 0.22
@@ -100,9 +98,9 @@ export class PrestigeBridge {
         return (PORTAL_X - last + 12) / LEAVE_SPEED
     }
 
-    /** Whether the portal has filled the screen with World 1. */
+    /** Whether the last body is through the portal and it has held a beat: time for the iris. */
     finished(t: number): boolean {
-        return this.leftAt !== null && t - this.leftAt >= this.crossed + PORTAL_HOLD + PORTAL_FILL
+        return this.leftAt !== null && t - this.leftAt >= this.crossed + PORTAL_HOLD
     }
 
     render(t: number, button: PlayButtonState = 'idle'): Surface {
@@ -117,19 +115,15 @@ export class PrestigeBridge {
 
         drawBridge(s, scroll, t)
 
-        let open = 0
-        let fill = 0
-        let flare = false
         if (leaving) {
-            open = eo(Math.min(1, away / PORTAL_OPEN))
-            fill = Math.max(0, Math.min(1, (away - this.crossed - PORTAL_HOLD) / PORTAL_FILL))
-            fill = fill * fill
+            const open = eo(Math.min(1, away / PORTAL_OPEN))
+            let flare = false
             for (const b of this.bodies) {
                 const at = (PORTAL_X - b.x) / LEAVE_SPEED
                 if (away >= at && away < at + STEP_FLARE) flare = true
             }
             WORLD_SCENES[0]!.draw(this.world, 0, t)
-            if (fill === 0) this.drawPortal(s, t, open, fill, flare)
+            this.drawPortal(s, t, open, flare)
         }
 
         for (const b of this.bodies) {
@@ -142,21 +136,18 @@ export class PrestigeBridge {
             drawText(s, 'THE VOID IS BEATEN', SW / 2, 44, C.steel2, { align: 1, shadow: 0 })
             drawPlateButton(s, BEGIN_AGAIN_BUTTON, BEGIN_AGAIN_LABEL, t, button, false)
         }
-        // the portal swallows the screen last, over the party and everything else
-        if (fill > 0) this.drawPortal(s, t, open, fill, false)
         return s
     }
 
     /**
      * An ellipse onto World 1: inside it the world's own pixels, offset so its floor meets the
-     * deck, then a swirling rim and a dithered glow. Filling, it grows past the corners and the
-     * offset eases out, so the last frame is World 1 exactly as the battle stage draws it.
+     * deck, then a swirling rim and a dithered glow.
      */
-    private drawPortal(s: Surface, t: number, open: number, fill: number, flare: boolean): void {
-        const rx = PORTAL_RX * open + (PORTAL_FILL_R - PORTAL_RX) * fill
-        const ry = PORTAL_RY * open + (PORTAL_FILL_R - PORTAL_RY) * fill
+    private drawPortal(s: Surface, t: number, open: number, flare: boolean): void {
+        const rx = PORTAL_RX * open
+        const ry = PORTAL_RY * open
         if (rx < 1 || ry < 1) return
-        const dy = Math.round((FLOOR_Y - DECK_Y) * (1 - fill))
+        const dy = FLOOR_Y - DECK_Y
         const glow = 1.35
         const x0 = Math.max(0, Math.floor(PORTAL_X - rx * glow))
         const x1 = Math.min(SW - 1, Math.ceil(PORTAL_X + rx * glow))
