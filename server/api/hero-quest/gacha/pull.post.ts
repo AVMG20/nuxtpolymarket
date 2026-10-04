@@ -5,6 +5,7 @@ import { requireUserId } from '#server/utils/auth'
 import {
     SEAL_COLUMN,
     SEAL_NAME,
+    buyLadderSeals,
     claimFreePull,
     essenceBalance,
     essenceGain,
@@ -95,6 +96,13 @@ async function claimWithSeals(tx: Tx, userId: string, system: GachaSystem, seals
  * because availability is three coupled values and one of them is a timestamp). Either way,
  * nothing downstream runs for a request that did not win the payment.
  *
+ * ## Buying the Seals it is short
+ *
+ * `autoBuy: { maxGold }` makes a Seal pull buy whatever Seals it is short off the day's Gold ladder
+ * first, in this same transaction and under the same row lock, so Seals are never bought for a pull
+ * that then fails. `maxGold` is the Gold price the button showed; a ladder that moved since (another
+ * purchase, the daily reset) is refused rather than charged.
+ *
  * ## Randomness
  *
  * `randomFloat` from the platform CSPRNG, never `Math.random()`: this decides a real payout.
@@ -103,7 +111,7 @@ async function claimWithSeals(tx: Tx, userId: string, system: GachaSystem, seals
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
-    const body = await readBody<{ system?: string; count?: number; free?: boolean }>(event)
+    const body = await readBody<{ system?: string; count?: number; free?: boolean; autoBuy?: { maxGold?: number } }>(event)
 
     const system = body?.system
     if (typeof system !== 'string' || !isGachaSystem(system)) {
@@ -115,12 +123,24 @@ export default defineEventHandler(async (event) => {
     const free = body?.free === true
     const requested = free || body?.count === TEN_PULL_SIZE ? TEN_PULL_SIZE : 1
     const cost = pullCost(requested)
+    const maxGold = Number(body?.autoBuy?.maxGold)
+    const autoBuy = !free && body?.autoBuy !== undefined
+    if (autoBuy && !(Number.isFinite(maxGold) && maxGold >= 0)) {
+        throw createError({ statusCode: 400, statusMessage: 'An auto-buy needs the price it was shown' })
+    }
 
     // Bank progress first so the pull can't be used to dodge a settle, and so the Seals a
     // milestone just granted are visible to this request.
     await settleHq(userId)
 
     return db.transaction(async (tx) => {
+        if (autoBuy) {
+            // lock-then-read: the shortfall and the day's ladder counter are read under the row lock
+            const [state] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
+            if (!state) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
+            const short = cost.seals - sealBalance(state, system)
+            if (short > 0) await buyLadderSeals(tx, userId, state, system, short, maxGold)
+        }
         const claimed = free
             ? await claimFreePull(tx, userId, system)
             : await claimWithSeals(tx, userId, system, cost.seals)

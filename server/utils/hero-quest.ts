@@ -13,7 +13,7 @@
 import { eq, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState } from '#server/database/schema'
-import { credit, debitGems, getBalance } from '#server/utils/balance'
+import { credit, debit, debitGems, getBalance } from '#server/utils/balance'
 import {
     BASE_ARTIFACT_SLOTS,
     BASE_CHAMPION_SLOTS,
@@ -50,7 +50,8 @@ import {
     pullsToNextLevel,
     sealLadderPrice,
     type FreePullState,
-    type GachaSystem
+    type GachaSystem,
+    sealLadderTotal
 } from '#shared/utils/hero-quest/gacha'
 import {
     CHAMPIONS,
@@ -1086,6 +1087,42 @@ export function sealSpend(system: GachaSystem, amount: number) {
 
 export function sealGrant(system: GachaSystem, amount: number) {
     return { [SEAL_FIELD[system]]: sql`${SEAL_COLUMN[system]} + ${amount}` }
+}
+
+/**
+ * Buy `count` of one gacha's Seals off today's Gold ladder (`gold-economy.md` §7).
+ *
+ * Call it inside a transaction, with `state` read under that transaction's `hqState` row lock: the
+ * day's counter is read off it and rewritten, which is only safe while the lock is held. `debit`
+ * guards the balance in its own WHERE and takes the tx. `maxGold` is the price the client showed:
+ * the ladder moves with every purchase and resets each day, so a price that rose since is refused
+ * rather than charged.
+ */
+export async function buyLadderSeals(
+    tx: DbExecutor,
+    userId: string,
+    state: HqStateRow,
+    system: GachaSystem,
+    count: number,
+    maxGold = Infinity
+): Promise<{ goldSpent: number, boughtToday: number }> {
+    const today = ladderDateKey()
+    // A counter from an earlier day reads as nothing bought: one shared reset for every gacha.
+    const counters = state.sealLadderDate === today ? state.sealLadderPurchasedToday as Record<string, number> : {}
+    const before = counters[system] ?? 0
+    const total = sealLadderTotal(system, before, count)
+    if (total > maxGold) {
+        throw createError({ statusCode: 409, statusMessage: 'The Seal price has gone up, check it and try again' })
+    }
+    await debit(userId, total.toFixed(4), `hero-quest:${system}-seals`, tx)
+    await tx.update(hqState)
+        .set({
+            ...sealGrant(system, count),
+            sealLadderPurchasedToday: { ...counters, [system]: before + count },
+            sealLadderDate: today
+        })
+        .where(eq(hqState.userId, userId))
+    return { goldSpent: total, boughtToday: before + count }
 }
 
 export function essenceGain(system: GachaSystem, amount: number) {

@@ -2,14 +2,8 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { debit } from '#server/utils/balance'
-import { sealBalance, sealGrant, settleHq } from '#server/utils/hero-quest'
-import {
-    isGachaSystem,
-    ladderDateKey,
-    sealLadderPrice,
-    sealLadderTotal
-} from '#shared/utils/hero-quest/gacha'
+import { buyLadderSeals, sealBalance, settleHq } from '#server/utils/hero-quest'
+import { isGachaSystem, sealLadderPrice } from '#shared/utils/hero-quest/gacha'
 
 /** Bulk buys are priced rung by rung, so this bounds the loop and the Gold spent per call. */
 const MAX_SEALS_PER_PURCHASE = 10
@@ -63,37 +57,19 @@ export default defineEventHandler(async (event) => {
         const [state] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
         if (!state) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
 
-        const today = ladderDateKey()
-        const counters = state.sealLadderDate === today
-            ? state.sealLadderPurchasedToday as Record<string, number>
-            // The day rolled over: every gacha's counter resets together, which is what
-            // "one shared reset date" means. Prices drop back to the base rung.
-            : {}
-        const boughtToday = counters[system] ?? 0
-
-        const total = sealLadderTotal(system, boughtToday, requested)
-
-        // Throws 400 on an insufficient balance — no manual check, and no window between
+        // `debit` throws 400 on an insufficient balance — no manual check, and no window between
         // checking and spending.
-        await debit(userId, total.toFixed(4), `hero-quest:${system}-seals`, tx)
-
-        const [updated] = await tx.update(hqState)
-            .set({
-                ...sealGrant(system, requested),
-                sealLadderPurchasedToday: { ...counters, [system]: boughtToday + requested },
-                sealLadderDate: today
-            })
-            .where(eq(hqState.userId, userId))
-            .returning()
+        const { goldSpent, boughtToday } = await buyLadderSeals(tx, userId, state, system, requested)
+        const [updated] = await tx.select().from(hqState).where(eq(hqState.userId, userId))
 
         return {
             system,
             sealsBought: requested,
-            goldSpent: total,
+            goldSpent,
             seals: updated ? sealBalance(updated, system) : sealBalance(state, system) + requested,
-            purchasedToday: boughtToday + requested,
+            purchasedToday: boughtToday,
             /** What the next single Seal will cost, so the client never prices anything itself. */
-            nextPrice: sealLadderPrice(system, boughtToday + requested)
+            nextPrice: sealLadderPrice(system, boughtToday)
         }
     })
 })

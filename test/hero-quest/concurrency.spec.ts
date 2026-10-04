@@ -12,10 +12,11 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqCollection, hqLoadouts, hqShopUpgrades, hqState, user } from '#server/database/schema'
-import { credit, creditGems, debit, debitGems, getBalance } from '#server/utils/balance'
+import { credit, creditGems, debitGems, getBalance } from '#server/utils/balance'
 import {
     ESSENCE_COLUMN,
     SEAL_COLUMN,
+    buyLadderSeals,
     claimShopLevel,
     ensureHqState,
     essenceBalance,
@@ -24,7 +25,6 @@ import {
     loadoutSlots,
     purchaseBattleSpeed,
     sealBalance,
-    sealGrant,
     sealSpend,
     settleHq
 } from '#server/utils/hero-quest'
@@ -38,7 +38,6 @@ import {
     applyDupes,
     applyPulls,
     craftCostFor,
-    ladderDateKey,
     newEntry,
     pullCost,
     rarityFromRoll,
@@ -334,6 +333,24 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect(spent).toBeCloseTo(expected, 2)
         })
 
+        it('refuses a price above the one the player was shown, and charges nothing', async () => {
+            await ensureHqState(USER_ID)
+            await credit(USER_ID, '100000000', 'test')
+            // a pull's button priced the first rung; a purchase elsewhere has since moved the ladder on
+            await $buySeals('champion', 1)
+            const before = Number(await getBalance(USER_ID))
+            const shown = sealLadderPrice('champion', 0)
+
+            await expect(db.transaction(async (tx) => {
+                const [state] = await tx.select().from(hqState).where(eq(hqState.userId, USER_ID)).for('update')
+                await buyLadderSeals(tx, USER_ID, state!, 'champion', 1, shown)
+            })).rejects.toThrow()
+
+            expect(Number(await getBalance(USER_ID))).toBe(before)
+            const [state] = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
+            expect((state!.sealLadderPurchasedToday as Record<string, number>).champion).toBe(1)
+        })
+
         it('stops selling once Gold runs out rather than going negative', async () => {
             await ensureHqState(USER_ID)
             // Enough for exactly one rung.
@@ -536,23 +553,7 @@ async function $buySeals(system: GachaSystem, count: number) {
         const [state] = await tx.select().from(hqState).where(eq(hqState.userId, USER_ID)).for('update')
         if (!state) throw new Error('no state')
 
-        const today = ladderDateKey()
-        const counters = state.sealLadderDate === today
-            ? state.sealLadderPurchasedToday as Record<string, number>
-            : {}
-        const boughtToday = counters[system] ?? 0
-        const total = sealLadderTotal(system, boughtToday, count)
-
-        await debit(USER_ID, total.toFixed(4), `hero-quest:${system}-seals`, tx)
-
-        await tx.update(hqState)
-            .set({
-                ...sealGrant(system, count),
-                sealLadderPurchasedToday: { ...counters, [system]: boughtToday + count },
-                sealLadderDate: today
-            })
-            .where(eq(hqState.userId, USER_ID))
-        return total
+        return (await buyLadderSeals(tx, USER_ID, state, system, count)).goldSpent
     })
 }
 
