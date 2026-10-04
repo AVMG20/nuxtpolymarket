@@ -537,6 +537,8 @@ export interface StageFight {
     partyMaxHps: readonly string[]
     /** Escort first, boss last: the fight's `enemyIndex` order. */
     enemyMaxHps: readonly string[]
+    /** Battle Speed at engage: the replay plays this much faster. */
+    playbackSpeed?: number
 }
 
 /** Seconds the replay runs before the log's first moment, so a swing can start before its blow lands. */
@@ -2187,6 +2189,14 @@ export class BattleDemo {
         if (u.side === 0 && Math.random() < 0.25) { const ally = this.units[0]!; this.number(ally.x - 16, ally.y - 30, 'heal') }
     }
 
+    /**
+     * Battle Speed (`battle-speed.ts`): how much faster the battle's clock runs than the wall's.
+     * The iris, the walk off into a new World and the boss's spotlight keep real time.
+     */
+    speed = 1
+    /** The running Battle Speed block, top right of the HUD; empty when none runs. */
+    speedTag = ''
+
     update(dt: number): void {
         if (this.jobs.length) this.bakeSome()
         if (this.paused) return
@@ -2216,7 +2226,9 @@ export class BattleDemo {
             }
             if (gone) this.irisIntoWorld()
         }
-        // a replay keeps to the wall clock: its blows are due when the log says, freeze or not
+        // Battle Speed: the fight and everything in it run on the dilated clock from here
+        dt *= this.speed
+        // a replay keeps to the (dilated) wall clock: its blows are due when the log says, freeze or not
         if (this.replay) this.replayTick(dt)
         if (this.shakeT > 0) this.shakeT -= dt
         if (this.flash > 0) this.flash = Math.max(0, this.flash - dt * 4)
@@ -2562,6 +2574,7 @@ export class BattleDemo {
         }
         textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
         if (this.raid?.id === 'training_grounds') textOut(out, this.tally, cam.w - 6, 5, this.raid.clock <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
+        else if (this.speedTag) textOut(out, this.speedTag, cam.w - 6, 5, C.gold3, 'small', 1, 2, 1, C.ink, -1)
         // top-centre: a run's boss fight shows its enrage timer, drained as far as the fight has played;
         // a wave stage shows how far its kills have got
         const timed = this.replay !== null && !this.raid

@@ -7,6 +7,7 @@ import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton 
 import type { LoadoutButton, LoadoutsHover, LoadoutsScene, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeScene, PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesScene, ClassesView } from '~/utils/hero-quest-art/classes-scene'
+import type { SpeedBlock, SpeedScene, SpeedView } from '~/utils/hero-quest-art/speed-scene'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import { C, PALETTE } from '~/utils/hero-quest-art/palette'
 import type { HqIntroRect } from '~/composables/useHqIntro'
@@ -54,6 +55,8 @@ const props = defineProps<{
     }
     party: Omit<RunParty, 'classId'>
     fight?: StageFight | null
+    /** Battle Speed in force now; a fight plays at its own speed from engage instead. */
+    speed?: number
     /** A lost boss is back at its gate: the stage shows the button that fights it again. */
     challenge?: boolean
     /** The scene on the stage; the battle when none is open. */
@@ -74,6 +77,12 @@ const props = defineProps<{
     classes?: ClassesView
     /** A class pick is on its way. */
     classesBusy?: boolean
+    /** The Battle Speed scene: the running block and every block for sale. */
+    speedView?: SpeedView
+    /** A Battle Speed purchase is on its way. */
+    speedBusy?: boolean
+    /** The running block on the battle's HUD, e.g. `3X 12:04`; empty when none runs. */
+    speedTag?: string
 }>()
 
 const emit = defineEmits<{
@@ -95,6 +104,8 @@ const emit = defineEmits<{
     pickClass: [classId: string]
     /** A prestige-shop track's Buy button was pressed. */
     shopBuy: [upgradeId: string]
+    /** A Battle Speed block's Buy button was pressed. */
+    buySpeed: [speed: number, minutes: number]
 }>()
 
 const wrap = ref<HTMLDivElement | null>(null)
@@ -122,6 +133,8 @@ let prestigeScene: PrestigeScene | null = null
 let prestigeHit: typeof import('~/utils/hero-quest-art/prestige-scene') | null = null
 let classesScene: ClassesScene | null = null
 let classesHit: typeof import('~/utils/hero-quest-art/classes-scene') | null = null
+let speedScene: SpeedScene | null = null
+let speedHit: typeof import('~/utils/hero-quest-art/speed-scene') | null = null
 let band: typeof import('~/utils/hero-quest-art/menu-band') | null = null
 let presenter: Presenter | null = null
 let stop: (() => void) | null = null
@@ -201,7 +214,7 @@ function progress(): { time: number, done: boolean } {
     const fight = props.fight
     if (stage) return { time: stage.fightTime, done: stage.fightDone }
     const end = fight?.secondsElapsed ?? 0
-    const time = skipped ? end : Math.min(end, (performance.now() - fallbackStart) / 1000)
+    const time = skipped ? end : Math.min(end, (performance.now() - fallbackStart) / 1000 * (fight?.playbackSpeed ?? 1))
     return { time, done: time >= end }
 }
 
@@ -243,7 +256,7 @@ defineExpose({ skipFight, closeIris })
  * them in the view's own pixels. The page's own Fight button stays the keyboard's way in.
  */
 type Target = 'challenge' | HqMenuScene | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
-    | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}`
+    | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | `speed:${number}:${number}`
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
@@ -363,6 +376,11 @@ function targetAt(e: PointerEvent): Target | null {
         // a track that cannot be bought (maxed, or too dear) is no target
         return i !== null && track?.affordable && track.cost !== null && !props.prestigeBusy ? `buy:${first + i}` : null
     }
+    if (openScene.value === 'speed' && speedHit && props.speedView) {
+        const block = speedHit.speedBlockAt(props.speedView, x, y)
+        // a block that cannot be bought (too dear, or another speed running) is no target
+        return block && !props.speedBusy && speedHit.speedBlockOpen(props.speedView, block) ? `speed:${block.speed}:${block.minutes}` : null
+    }
     return openScene.value === 'battle' && props.challenge && stage?.onChallenge(x, y) ? 'challenge' : null
 }
 
@@ -405,6 +423,10 @@ function onPointerUp(e: PointerEvent) {
     else if (hit.startsWith('class:')) {
         const node = props.classes?.classes.find(c => c.id === hit.slice(6))
         if (node?.pickable && !node.current && !props.classesBusy) emit('pickClass', node.id)
+    }
+    else if (hit.startsWith('speed:')) {
+        const [, speed, minutes] = hit.split(':')
+        emit('buySpeed', Number(speed), Number(minutes))
     }
     else if (hit.startsWith('buy:')) {
         const track = props.prestige?.tracks[Number(hit.slice(4))]
@@ -467,6 +489,12 @@ const shopHover = computed(() => {
     // the hit is by track index; the scene marks cards by their place on the page
     return h?.startsWith('buy:') ? Number(h.slice(4)) - shopPage.value * (prestigeHit?.SHOP_PAGE_SIZE ?? 6) : null
 })
+const speedHover = computed<SpeedBlock | null>(() => {
+    const h = hover.value
+    if (!h?.startsWith('speed:')) return null
+    const [, speed, minutes] = h.split(':')
+    return { speed: Number(speed), minutes: Number(minutes) }
+})
 const loadoutsHover = computed<LoadoutsHover>(() => {
     const h = hover.value
     if (h?.startsWith('card:')) return Number(h.slice(5))
@@ -477,14 +505,15 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
         import('~/utils/hero-quest-art/collections-scene'),
         import('~/utils/hero-quest-art/loadouts-scene'),
         import('~/utils/hero-quest-art/prestige-scene'),
-        import('~/utils/hero-quest-art/classes-scene')
+        import('~/utils/hero-quest-art/classes-scene'),
+        import('~/utils/hero-quest-art/speed-scene')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -498,6 +527,8 @@ onMounted(async () => {
     prestigeHit = prestigeArt
     classesScene = new classesArt.ClassesScene(backdrops)
     classesHit = classesArt
+    speedScene = new speedArt.SpeedScene(backdrops)
+    speedHit = speedArt
     stage = new BattleDemo()
     build()
     if (intro) {
@@ -518,6 +549,8 @@ onMounted(async () => {
         stage!.update(dt)
     }, () => {
         stage!.challenge = challengeState.value
+        stage!.speed = props.fight ? props.fight.playbackSpeed ?? 1 : props.speed ?? 1
+        stage!.speedTag = props.speedTag ?? ''
         if (!props.fight) stage!.feedRun(feed())
         // under a scene the battle still runs and takes its feed, but is not drawn
         const scene = openScene.value
@@ -529,7 +562,9 @@ onMounted(async () => {
                     ? loadoutsScene!.render(t, props.loadouts ?? { slots: [], unlocked: 0, max: 0 }, loadoutsHover.value, pressed.value, loadoutDetail.value, !!props.loadoutsBusy)
                     : scene === 'classes'
                         ? classesScene!.render(t, props.classes ?? { classes: [], token: false }, classHover.value, !!props.classesBusy)
-                        : prestigeScene!.render(t, props.prestige ?? { tracks: [], voidShards: '0', gems: '0' }, shopPage.value, shopHover.value, pressed.value, !!props.prestigeBusy)
+                        : scene === 'prestige'
+                            ? prestigeScene!.render(t, props.prestige ?? { tracks: [], voidShards: '0', gems: '0' }, shopPage.value, shopHover.value, pressed.value, !!props.prestigeBusy)
+                            : speedScene!.render(t, props.speedView ?? { multiplier: 1, left: null, gems: '0', gemCount: 0, offlineEfficiency: 1, tiers: [] }, speedHover.value, pressed.value, !!props.speedBusy)
         presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value))
     })
     observer = new ResizeObserver(fit)

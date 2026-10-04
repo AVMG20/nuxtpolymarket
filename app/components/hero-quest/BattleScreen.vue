@@ -9,6 +9,7 @@ import type { CollectionAction, CollectionLine, CollectionSection, CollectionTil
 import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesView } from '~/utils/hero-quest-art/classes-scene'
+import type { SpeedView } from '~/utils/hero-quest-art/speed-scene'
 
 /**
  * The game's stage and the battle it plays. The layout keeps it mounted on every scene route, so
@@ -27,7 +28,7 @@ const emit = defineEmits<{
 const {
     initialized, run, hero, settled, pending, guild, forge, training, digSite, nextPrestigeReward,
     engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
-    shop, voidShards, buyUpgrade, classTree, classToken, pickClass
+    shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed
 } = useHeroQuest()
 const { user } = useAuth()
 
@@ -427,6 +428,39 @@ async function onPickClass(classId: string) {
     }
 }
 
+/** The running Battle Speed block's time left, off the server's expiry. */
+const speedLeft = useHqCountdown(() => battleSpeed.value?.expiresAt)
+
+/** The Battle Speed scene: the running block, the Gems to spend, and every block's price. */
+const speedView = computed<SpeedView>(() => {
+    const gems = user.value?.gems ?? 0
+    const running = speedNow.value
+    return {
+        multiplier: running,
+        left: running > 1 ? speedLeft.value : null,
+        gems: formatNumber(gems),
+        gemCount: gems,
+        offlineEfficiency: run.value?.offlineEfficiency ?? 1,
+        tiers: battleSpeed.value?.tiers ?? []
+    }
+})
+
+/** The running block on the battle's HUD. */
+const speedTag = computed(() => speedNow.value > 1 && speedLeft.value ? `${speedNow.value}X ${speedLeft.value}` : '')
+
+const speedBusy = ref(false)
+
+async function onBuySpeed(speed: number, minutes: number) {
+    speedBusy.value = true
+    try {
+        await buyBattleSpeed(speed, minutes)
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        speedBusy.value = false
+    }
+}
+
 async function onShopBuy(upgradeId: string) {
     prestigeBusy.value = true
     try {
@@ -450,7 +484,7 @@ async function onShopBuy(upgradeId: string) {
  * `run`/`hero` stay in scope deliberately: `liveHero` is the right thing to *show* and the wrong
  * thing to compare a payload against, so anything that needs the anchor still has it.
  */
-const { liveRun, liveHero } = useHqLiveRun(run, hero)
+const { liveRun, liveHero, speedNow } = useHqLiveRun(run, hero, battleSpeed)
 
 /**
  * Who stands on the stage: the Hero and the Champions fielded, in party order, each on its row.
@@ -680,6 +714,7 @@ const awayReport = computed(() => {
           :hero="liveHero"
           :party="party"
           :fight="fight"
+          :speed="speedNow"
           :challenge="challenge"
           :scene="scene"
           :collections="collections"
@@ -688,6 +723,9 @@ const awayReport = computed(() => {
           :loadouts-busy="loadoutsBusy"
           :prestige="prestigeView"
           :prestige-busy="prestigeBusy"
+          :speed-view="speedView"
+          :speed-busy="speedBusy"
+          :speed-tag="speedTag"
           :classes="classesView"
           :classes-busy="classesBusy"
           @fight-progress="fightProgress = $event"
@@ -698,6 +736,7 @@ const awayReport = computed(() => {
           @loadout-action="onLoadoutAction"
           @loadout-rename="onLoadoutRename"
           @shop-buy="onShopBuy"
+          @buy-speed="onBuySpeed"
           @pick-class="onPickClass"
         />
       </template>

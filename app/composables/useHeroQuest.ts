@@ -75,6 +75,8 @@ export const useHeroQuest = () => {
     const classTree = computed(() => state.value?.classTree ?? [])
     /** A prestige's class token, waiting to take a class not reached before. */
     const classToken = computed(() => state.value?.classToken ?? false)
+    /** The running Battle Speed block, if any, and the price of every block. */
+    const battleSpeed = computed(() => state.value?.battleSpeed ?? null)
     const voidShards = computed(() => state.value?.voidShards ?? '0')
     const nextPrestigeReward = computed(() => state.value?.nextPrestigeReward ?? '0')
     const settled = computed(() => state.value?.settled ?? null)
@@ -135,6 +137,8 @@ export const useHeroQuest = () => {
         partyMaxHps: string[]
         landing: { world: number; stage: number }
         runComplete: boolean
+        /** Battle Speed at engage: how much faster the replay plays. */
+        playbackSpeed: number
     }
 
     /**
@@ -161,6 +165,13 @@ export const useHeroQuest = () => {
 
     async function buyUpgrade(upgradeId: string) {
         return call('/api/hero-quest/prestige/shop-buy', { upgradeId }, '')
+    }
+
+    /** Buy a Battle Speed block. Gems have no setter of their own, so the session is read back. */
+    async function buyBattleSpeed(speed: number, minutes: number) {
+        const res = await call('/api/hero-quest/speed/buy', { speed, minutes }, '')
+        await fetchSession()
+        return res
     }
 
     interface PullRecord {
@@ -333,6 +344,7 @@ export const useHeroQuest = () => {
         loadouts,
         classTree,
         classToken,
+        battleSpeed,
         voidShards,
         nextPrestigeReward,
         settled,
@@ -345,6 +357,7 @@ export const useHeroQuest = () => {
         prestige,
         pickClass,
         buyUpgrade,
+        buyBattleSpeed,
         pull,
         freePull,
         craft,

@@ -76,13 +76,21 @@ const NODE_TREE: Glyph = (g, x, y) => {
     }
 }
 
+/** Fast forward: two arrowheads, the lead one lit, the way a player's clock skips ahead. */
+const FAST_FORWARD: Glyph = (g, x, y) => {
+    poly(g, [-7, -5, -1, 0, -7, 5], x, y, C.gold1)
+    poly(g, [0, -5, 6, 0, 0, 5], x, y, C.gold2)
+    line(g, x, y - 4, x + 4, y - 1, C.gold3)
+}
+
 const ICONS: Readonly<Record<HqMenuScene, Glyph>> = {
     gacha: GUMBALL,
     collections: (g, x, y) => ABILITY_ICON_PARTS.book(g, x, y, C.red1, C.bone1),
     loadouts: LOADOUT_GLYPH,
     classes: NODE_TREE,
     // Void Shards are what a prestige pays out
-    prestige: CURRENCY_ICONS.void_shards!
+    prestige: CURRENCY_ICONS.void_shards!,
+    speed: FAST_FORWARD
 }
 
 /** Where a scene's button sits on a view of the given size. */

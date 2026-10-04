@@ -1,4 +1,5 @@
 import { D } from '#shared/utils/hero-quest/numbers'
+import { dilatedSeconds } from '#shared/utils/hero-quest/battle-speed'
 import { enemyPackAt, enemyStatsAt, killsRequired, offlineFarmStage, packHp, packSize } from '#shared/utils/hero-quest/settle'
 import { enemyNameAt, getWorld, runProgress } from '#shared/utils/hero-quest/content/worlds'
 
@@ -9,6 +10,7 @@ import { enemyNameAt, getWorld, runProgress } from '#shared/utils/hero-quest/con
 type HqState = ReturnType<typeof useHeroQuest>
 type HqRun = NonNullable<HqState['run']['value']>
 type HqHero = NonNullable<HqState['hero']['value']>
+type HqBattleSpeed = HqState['battleSpeed']['value']
 
 /**
  * The battle screen's live view of the run, between server payloads.
@@ -39,7 +41,8 @@ type HqHero = NonNullable<HqState['hero']['value']>
  */
 export function useHqLiveRun(
     run: Ref<HqRun | null> | ComputedRef<HqRun | null>,
-    hero: Ref<HqHero | null> | ComputedRef<HqHero | null>
+    hero: Ref<HqHero | null> | ComputedRef<HqHero | null>,
+    battleSpeed?: Ref<HqBattleSpeed> | ComputedRef<HqBattleSpeed>
 ) {
     /**
      * Seconds since the payload that supplied the anchor.
@@ -56,10 +59,27 @@ export function useHqLiveRun(
     watch(
         () => {
             const value = run.value
-            return value ? `${value.world}:${value.stage}:${value.killCount}:${value.killFraction}:${value.recoverySeconds}` : ''
+            // a purchase restarts the block's countdown from this payload, so it restarts the anchor too
+            const expires = battleSpeed?.value?.expiresAt ?? 0
+            return value ? `${value.world}:${value.stage}:${value.killCount}:${value.killFraction}:${value.recoverySeconds}:${expires}` : ''
         },
         () => { sincePayload.value = 0 }
     )
+
+    /**
+     * `sincePayload` on the combat clock: a running Battle Speed block covers the first
+     * `remainingSeconds` of it, as the server's next settle will count it.
+     */
+    const combatSeconds = computed(() => {
+        const speed = battleSpeed?.value
+        return speed ? dilatedSeconds(sincePayload.value, speed.multiplier, speed.remainingSeconds) : sincePayload.value
+    })
+
+    /** The speed the battle runs at right now, for the stage's clock: 1 once the block runs out. */
+    const speedNow = computed(() => {
+        const speed = battleSpeed?.value
+        return speed && sincePayload.value < speed.remainingSeconds ? speed.multiplier : 1
+    })
 
     const forecast = computed(() => {
         const anchor = run.value
@@ -79,7 +99,7 @@ export function useHqLiveRun(
             heroLevel: self.level,
             heroXp: self.xp,
             tenureDays: anchor.tenureDays
-        }, sincePayload.value)
+        }, combatSeconds.value)
     })
 
     /**
@@ -184,5 +204,5 @@ export function useHqLiveRun(
         if (ticker) clearInterval(ticker)
     })
 
-    return { liveRun, liveHero, forecast, goldSincePayload }
+    return { liveRun, liveHero, forecast, goldSincePayload, speedNow }
 }
