@@ -20,7 +20,7 @@ Status: **Locked** — decisions confirmed, ready to reference for implementatio
 
 ## 1. Attack & Defense Loadouts
 
-**Attack: no separate stored Arena-attack loadout.** The attacker fights with whatever party is live at the moment they attack — identical in spirit to how Raids work before the Loadout system's per-raid preference existed. A player can pre-swap into a saved Loadout via the existing system (`loadouts.md` §2) before attacking; nothing Arena-specific is needed for this to work.
+**Attack: no separate stored Arena-attack loadout — but an optional preferred Loadout (revised 2026-10-04).** The attacker fights with whatever party is live at the moment they attack. When a saved Loadout is assigned as the Arena's preferred one, it is applied before the attack's fight resolves and reverted on leaving the Arena, exactly as raids do (`loadouts.md` §4); the picker sits on the Arena screen. With none assigned, nothing changes.
 
 **Defense: a single dedicated snapshot, not a Loadout-slot pointer.** `hqState.defenseLoadout` captures all five components, matching `loadouts.md` §1's capture list exactly:
 

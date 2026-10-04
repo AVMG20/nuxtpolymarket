@@ -60,6 +60,10 @@ Reuses the "doubling cost per level" shape already established for short prestig
 
 **Locked (revised — 5 raids, not 4): every raid can have one saved Loadout assigned as its preferred loadout** — a pointer to a slot, not separate storage. Assigning/reassigning a raid's preferred loadout is free and unlimited, same as everything else here.
 
+**The Arena gets the same (decided 2026-10-04, `build-log.md` #1).** One preferred Loadout for attacking in the Arena, on the same terms: applied before an attack's fight resolves when one is assigned, reverted on leaving the Arena, and nothing happens when none is. It is unrelated to the Arena's `defenseLoadout` (`arena.md` §1), which stays its own stored snapshot.
+
+**Where it is set (decided 2026-10-04): on the screen it applies to.** Each raid's entry screen carries a picker for that raid's preferred Loadout, and the Arena screen one for attacking — chosen while looking at the fight it is for. The Loadouts scene does not assign; at most it marks which raids and the Arena point at a slot, so a player sees that before Save overwrites it.
+
 **Trait Raid is included** (`raid-system.md` §1 locks 5 raids; this doc originally predated Trait Raid and said 4). It's a real fight and benefits from a dedicated loadout exactly like the others — but it's the one raid where a Key is spent **unconditionally on entry** rather than on a win (`raid-system.md` §3), so the ordering below matters more there than anywhere else:
 
 > **The loadout swap always completes before the Key is debited and before `fight.ts` runs.** A player never spends a Trait Key on a fight that ran with the wrong loadout because the auto-apply hadn't landed yet. For the four win-gated raids this ordering is invisible (a loss costs nothing either way); for Trait Raid it's the difference between a wasted Key and a fair attempt.

@@ -641,6 +641,12 @@ into the canvas, the gate moves with it.
 
 ---
 
+### 1. Arena attack auto-apply, and where preferred Loadouts are set — **decided 2026-10-04**
+
+Was an open question: raids auto-applied a preferred Loadout on engage and the Arena did not. **The Arena gets the same**, used only when a Loadout is assigned for it; nothing changes otherwise. **Each assignment is made on the screen it applies to** — a picker on each raid's entry screen and on the Arena screen — rather than from the Loadouts scene, which at most marks the slots something points at. Recorded in `loadouts.md` §4 and `arena.md` §1. Nothing built yet: the pickers and the stored pointers come with the first raid and the Arena (the user's call).
+
+---
+
 ## ✅ Resolved before the numbered items began
 
 For the record — these were open items here and are now settled:

@@ -45,9 +45,6 @@ read the older rule in the doc named in the middle column, it is superseded.**
 
 ## 🔷 Open questions — need your input
 
-### 1. Should Arena get its own preferred-Loadout auto-apply for attacking?
-Every raid auto-applies a preferred Loadout on engage (`loadouts.md` §4). Arena still doesn't — the attacker fights with whatever's live, manually pre-swapped if desired. `arena.md`'s Implementation Note flags this as a natural extension, not yet requested.
-
 ### 2. Arena matchmaking band width
 `ARENA_MATCH_BAND_PCT` — how close in GPN does an opponent need to be to appear as a real candidate before Training Dummy fills the slot? Design-feel question as much as a number.
 
