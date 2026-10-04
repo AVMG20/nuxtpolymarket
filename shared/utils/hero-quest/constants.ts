@@ -1315,18 +1315,19 @@ export const ARTIFACT_COLLECTION_PASSIVE_FRACTION = 0.1 // UNTUNED ╧
 // ── Loadouts ───────────────────────────────────────  loadouts.md §3
 
 /**
- * Saved Loadout slots. Starts at 2, caps at 10 — **8 purchase levels, priced in Gems**.
+ * Saved Loadout slots. Starts at 2, caps at 6 — **4 purchase levels, priced in Gems**. `loadouts.md`
+ * §3 says 10; cut to 6 on 2026-10-04 (the user's call, `open-items.md` #40).
  *
  *     cost(level) = LOADOUT_SLOT_BASE_COST_GEMS × 2^(level-1)
  *
  * The only slot track not priced in Void Shards: every other slot track gates party power, while a
  * Loadout slot only saves taps. Pure convenience, so it takes the convenience currency.
  *
- * ⚠ The doc flags two unknowns: the doubling shape stretched past 5 levels (128× the base at the
- * top) and its first pairing with Gems. Worth the balance script's specific attention.
+ * ⚠ The doc flags the doubling's first pairing with Gems as an unknown; at 4 levels the top step is
+ * 8× the base. Worth the balance script's specific attention.
  */
 export const BASE_LOADOUT_SLOTS = 2
-export const MAX_LOADOUT_SLOTS = 10
+export const MAX_LOADOUT_SLOTS = 6
 export const LOADOUT_SLOT_BASE_COST_GEMS = 250 // UNTUNED ╧
 export const LOADOUT_SLOT_COST_GROWTH = 2
 

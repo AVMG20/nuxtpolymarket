@@ -319,7 +319,7 @@ export const CHROME: readonly Chrome[] = [
         }
     },
     {
-        id: 'loadout_cards', label: 'Loadout save-slot cards (2 → 10)', w: 200, h: 60, frames: 1,
+        id: 'loadout_cards', label: 'Loadout save-slot cards (2 → 6)', w: 200, h: 60, frames: 1,
         draw(s) {
             for (let i = 0; i < 4; i++) {
                 const x = 2 + i * 50

@@ -69,14 +69,13 @@ describe('hero-quest prestige shop', () => {
         }
     })
 
-    it('doubles the Loadout track across 8 levels, reaching 128× the base', () => {
-        // `loadouts.md` §3 flags this as a genuine balance unknown: the first time the doubling
-        // short-track shape has been stretched past 5 levels, and the first time it is paired
-        // with Gems. Pinned so a retune of either end is visible.
+    it('doubles the Loadout track across 4 levels, reaching 8× the base', () => {
+        // 2 → 6 slots since #40 (`loadouts.md` §3 said 10). §3 flags the doubling's first pairing
+        // with Gems as a balance unknown; pinned so a retune of either end is visible.
         expect(maxLevelFor('loadoutSlots')).toBe(MAX_LOADOUT_SLOTS - BASE_LOADOUT_SLOTS)
         expect(shopTrackCost('loadoutSlots', 0)).toBe(LOADOUT_SLOT_BASE_COST_GEMS)
-        expect(shopTrackCost('loadoutSlots', 7)).toBe(LOADOUT_SLOT_BASE_COST_GEMS * 128)
-        expect(shopTrackCost('loadoutSlots', 8)).toBeNull()
+        expect(shopTrackCost('loadoutSlots', 3)).toBe(LOADOUT_SLOT_BASE_COST_GEMS * 8)
+        expect(shopTrackCost('loadoutSlots', 4)).toBeNull()
     })
 
     it('matches each track\'s level count to the constant that caps its effect', () => {

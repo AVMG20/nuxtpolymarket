@@ -134,7 +134,7 @@ export const SHOP_TRACKS: readonly ShopTrack[] = [
     {
         id: 'loadoutSlots',
         name: 'Loadout Slots',
-        description: 'Saved loadouts you can keep, 2 → 10.',
+        description: 'Saved loadouts you can keep, 2 → 6.',
         maxLevel: MAX_LOADOUT_SLOTS - BASE_LOADOUT_SLOTS,
         baseCost: LOADOUT_SLOT_BASE_COST_GEMS,
         costGrowth: LOADOUT_SLOT_COST_GROWTH,
