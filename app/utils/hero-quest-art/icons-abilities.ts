@@ -61,6 +61,16 @@ function crown(g: Surface, x: number, y: number): void {
     px(g, x, y + 1, C.red2); px(g, x - 4, y + 1, C.cyan); px(g, x + 4, y + 1, C.cyan)
     rect(g, x - 6, y, 13, 1, C.gold3)
 }
+/** A lemniscate traced two pixels thick, lit along the top of each loop. */
+function infinity(g: Surface, x: number, y: number, a: number, c: number, hi: number): void {
+    const at = (t: number) => {
+        const d = 1 + Math.sin(t) ** 2
+        return [R(x + a * Math.cos(t) / d), R(y + a * 1.3 * Math.sin(t) * Math.cos(t) / d)] as const
+    }
+    const pts = Array.from({ length: 64 }, (_, i) => at(i / 64 * Math.PI * 2))
+    for (const [px0, py0] of pts) rect(g, px0 - 1, py0 - 1, 2, 2, c)
+    for (const [px0, py0] of pts) if (py0 < y - 1) px(g, px0 - 1, py0 - 1, hi)
+}
 function waves(g: Surface, x: number, y: number, n: number, c: number): void {
     for (let i = 0; i < n; i++) arc(g, x, y, 3 + i * 3, -0.8, 0.8, i === 0 ? C.white : c)
 }
@@ -606,4 +616,4 @@ export const TRAINING_SKILL_ICONS: Readonly<Record<string, Glyph>> = {
 }
 
 // Shared glyph parts, reused by the item and status icon sets.
-export const ABILITY_ICON_PARTS = { bolt, heart, coin, upArrow, downArrow, skull, flame, swirl, sparkle, crown, waves, chains, potion, book, eye, hourglass }
+export const ABILITY_ICON_PARTS = { bolt, heart, coin, upArrow, downArrow, skull, flame, swirl, sparkle, crown, infinity, waves, chains, potion, book, eye, hourglass }

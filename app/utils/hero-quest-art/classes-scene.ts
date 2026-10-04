@@ -1,10 +1,12 @@
-// The Classes scene: the 16-node class tree left to right, Beginner to master, each node a medallion
-// with its name. Any class already reached can be switched to at any time; one never reached takes
-// the class token a prestige grants, and the header says whether one is held. The class under the
-// pointer, or the current one, is described in the corner below the Beginner.
+// The Classes scene: the 16-node class tree top to bottom, Beginner to master, each node a medallion
+// with its name under it, on plain black. Any class already reached can be switched to at any time;
+// one never reached takes the class token a prestige grants, and the header says whether one is
+// held. The class under the pointer, or the current one, is described in the top-left corner. At the
+// end of the masters' row, joined to all six, stands the capstone: a class for having played every
+// other one, shown locked until it exists, so the whole tree reads as leading somewhere.
 
 import { C } from './palette'
-import { Surface, line, ring, dither, blit } from './surface'
+import { Surface, line, ring, ditherDisc, blit, disc } from './surface'
 import { drawText, textWidth } from './font'
 import { glyph } from './icon-kit'
 import { ABILITY_ICON_PARTS } from './icons-abilities'
@@ -31,40 +33,51 @@ export interface ClassesView {
 }
 
 const PANEL = { x: 4, y: 14, w: 264, h: 138 }
-/** A column per tier, a row every `ROW_PITCH` px from the first row's centre. */
-const TIER_X: Readonly<Record<string, number>> = { beginner: 8, base: 68, elite: 124, master: 188 }
 const TIER_RANK: Readonly<Record<string, number>> = { beginner: 0, base: 1, elite: 2, master: 3 }
-const ROW_TOP = PANEL.y + 15
-const ROW_PITCH = 21
+/** The tree runs top to bottom: where each tier's medallions start. Each name sits under its medallion. */
+const TIER_TOP: Readonly<Record<string, number>> = { beginner: PANEL.y + 2, base: PANEL.y + 34, elite: PANEL.y + 66, master: PANEL.y + 97 }
 const MEDAL = 24
-const INFO = { x: 8, y: PANEL.y + 84, w: 56 }
+/** The widest rows, elites and masters, give each class this much of the panel's width; the capstone takes one more. */
+const SLOT = 36
+const NAME_GAP = 1
+/** The class under the pointer is described in the top-left corner, beside the Beginner. */
+const INFO = { x: 8, y: PANEL.y + 3 }
+/** The capstone's id on the stage: not a class yet, only its place in the tree. */
+export const CAPSTONE_ID = 'capstone'
+
+interface Spot { cx: number, top: number }
 
 /**
- * Where each class's medallion sits: its tier's column, and a row. Masters and elites take a row
- * each in tree order (an elite always has exactly one master), a base class the middle of its
- * elites, the Beginner the middle of the bases.
+ * Where each class's medallion sits: its tier's row, and a centre. Elites and masters take a slot
+ * each in tree order (an elite always has exactly one master, which stands under it), a base class
+ * the middle of its elites, the Beginner the middle of the bases.
  */
-function classLayout(classes: readonly ClassNodeView[]): Map<string, { x: number, y: number }> {
+function classLayout(classes: readonly ClassNodeView[]): Map<string, Spot> {
     const children = (id: string | null) => classes.filter(c => c.parentId === id)
-    const rows = new Map<string, number>()
+    const slots = new Map<string, number>()
     let next = 0
     const place = (node: ClassNodeView): number => {
         const kids = children(node.id)
-        const row = kids.length ? kids.map(place).reduce((a, b) => a + b, 0) / kids.length : next++
-        rows.set(node.id, row)
-        return row
+        // a master shares its elite's slot; anything with more than one child sits over their middle
+        const slot = kids.length ? kids.map(place).reduce((a, b) => a + b, 0) / kids.length : next++
+        slots.set(node.id, slot)
+        return slot
     }
     children(null).forEach(place)
-    const out = new Map<string, { x: number, y: number }>()
-    for (const c of classes) out.set(c.id, { x: TIER_X[c.tier] ?? 8, y: Math.round(ROW_TOP + (rows.get(c.id) ?? 0) * ROW_PITCH) })
+    // the tree's slots, and one past the last master for the capstone
+    const used = Math.max(1, next) + 1
+    const left = PANEL.x + ((PANEL.w - used * SLOT) >> 1) + (SLOT >> 1)
+    const out = new Map<string, Spot>()
+    for (const c of classes) out.set(c.id, { cx: Math.round(left + (slots.get(c.id) ?? 0) * SLOT), top: TIER_TOP[c.tier] ?? PANEL.y + 3 })
+    out.set(CAPSTONE_ID, { cx: Math.round(left + (used - 1) * SLOT), top: TIER_TOP.master! })
     return out
 }
 
-/** The class whose medallion a point on the view is over. */
+/** The class whose medallion a point on the view is over, or `CAPSTONE_ID` for the capstone's. */
 export function classNodeAt(classes: readonly ClassNodeView[], x: number, y: number): string | null {
     for (const [id, at] of classLayout(classes)) {
-        const dx = x - (at.x + (MEDAL >> 1))
-        const dy = y - at.y
+        const dx = x - at.cx
+        const dy = y - (at.top + (MEDAL >> 1))
         if (dx * dx + dy * dy <= 12 * 12) return id
     }
     return null
@@ -111,53 +124,80 @@ export class ClassesScene {
         panel(s, PANEL.x, PANEL.y, PANEL.w, PANEL.h)
 
         const at = classLayout(view.classes)
-        // the branches first, so the medallions sit over their ends: out of the parent, down, into the child
+        const nameBottom = (top: number) => top + MEDAL + NAME_GAP + 6
+        // every master runs on into the capstone: one line through the masters' row, behind their medallions
+        const masters = view.classes.filter(c => c.tier === 'master').map(c => at.get(c.id)!.cx)
+        const cap = at.get(CAPSTONE_ID)!
+        if (masters.length) line(s, Math.min(...masters), cap.top + (MEDAL >> 1), cap.cx, cap.top + (MEDAL >> 1), C.gold0)
+        // The branches first, so the medallions and names sit over them: down out of the parent's name,
+        // across a bar just above the children's row, and down into each child.
         for (const node of view.classes) {
             if (!node.parentId) continue
             const from = at.get(node.parentId)
             const to = at.get(node.id)
             if (!from || !to) continue
-            const midX = to.x - 4
+            const bar = to.top - 2
             const c = node.costsToken ? C.gold2 : node.pickable ? C.stone2 : C.night3
-            line(s, from.x + MEDAL, from.y, midX, from.y, c)
-            line(s, midX, from.y, midX, to.y, c)
-            line(s, midX, to.y, to.x, to.y, c)
+            line(s, from.cx, Math.min(nameBottom(from.top), bar), from.cx, bar, c)
+            line(s, from.cx, bar, to.cx, bar, c)
+            line(s, to.cx, bar, to.cx, to.top, c)
         }
         for (const node of view.classes) {
             const p = at.get(node.id)!
-            const my = p.y - (MEDAL >> 1)
-            blit(s, this.medal(view, node), p.x, my)
-            if (!node.pickable && !node.current) dither(s, p.x, my, MEDAL, MEDAL, C.ink, 9)
-            const cx = p.x + (MEDAL >> 1)
-            if (node.current) ring(s, cx, p.y, 12, C.gold3)
-            else if (node.id === hovered && node.pickable && !busy) ring(s, cx, p.y, 12, C.white)
-            else if (node.costsToken) ring(s, cx, p.y, 12, C.gold1)
+            const mx = p.cx - (MEDAL >> 1)
+            blit(s, this.medal(view, node), mx, p.top)
+            if (!node.pickable && !node.current) ditherDisc(s, p.cx, p.top + (MEDAL >> 1), 11, C.ink, 9)
+            const my = p.top + (MEDAL >> 1)
+            if (node.current) ring(s, p.cx, my, 12, C.gold3)
+            else if (node.id === hovered && node.pickable && !busy) ring(s, p.cx, my, 12, C.white)
+            else if (node.costsToken) ring(s, p.cx, my, 12, C.gold1)
             const color = node.current ? C.gold3 : node.costsToken ? C.gold2 : node.pickable ? C.bone1 : C.stone2
-            drawText(s, node.name.toUpperCase(), p.x + MEDAL + 3, p.y - 2, color, { shadow: 1 })
+            // a name wider than its slot (Witch Doctor, Beast Master) takes two lines
+            lines(node.name, SLOT - 2).forEach((l, k) => drawText(s, l, p.cx, p.top + MEDAL + NAME_GAP + k * 7, color, { align: 1, shadow: 1 }))
         }
 
+        this.drawCapstone(s, cap, hovered === CAPSTONE_ID)
+
         // the class under the pointer, or the current one: its skill, and whether it can be taken
+        const beginner = view.classes.find(c => !c.parentId)
+        const infoW = (beginner ? at.get(beginner.id)!.cx - (MEDAL >> 1) - 6 : PANEL.w >> 1) - INFO.x
+        let y = INFO.y
+        if (hovered === CAPSTONE_ID) {
+            // how far along: every class reached so far, of all of them
+            const played = view.classes.filter(c => c.pickable && !c.costsToken).length
+            const nw = drawText(s, '???', INFO.x, y, C.gold2, { shadow: 1 })
+            drawText(s, `${played}/${view.classes.length} PLAYED`, INFO.x + nw + 6, y, C.stone3, { shadow: 1 })
+            for (const l of lines('PLAY EVERY OTHER CLASS TO UNLOCK', infoW)) {
+                y += 8
+                drawText(s, l, INFO.x, y, C.bone1, { shadow: 1 })
+            }
+            return s
+        }
         const shown = view.classes.find(c => c.id === hovered) ?? view.classes.find(c => c.current)
         if (!shown) return s
-        let y = INFO.y
-        for (const l of lines(shown.name, INFO.w)) {
-            drawText(s, l, INFO.x, y, C.gold2, { shadow: 1 })
-            y += 7
-        }
-        drawText(s, 'SKILL', INFO.x, y + 1, C.stone3, { shadow: 1 })
+        drawText(s, shown.name.toUpperCase(), INFO.x, y, C.gold2, { shadow: 1 })
         y += 8
-        for (const l of lines(shown.skillName, INFO.w, 3)) {
+        for (const l of lines(`SKILL: ${shown.skillName}`, infoW)) {
             drawText(s, l, INFO.x, y, C.bone1, { shadow: 1 })
             y += 7
         }
-        const status = shown.current
-            ? ['CURRENT CLASS']
-            : shown.costsToken
-                ? ['PRESS TO SPEND', 'YOUR TOKEN']
-                : shown.pickable ? ['PRESS TO SWITCH'] : ['NOT REACHED YET']
+        const status = shown.current ? 'CURRENT CLASS' : shown.costsToken ? 'SPEND TOKEN TO TAKE' : shown.pickable ? 'PRESS TO SWITCH' : 'NOT REACHED YET'
         const statusColor = shown.current ? C.gold3 : shown.costsToken ? C.gold2 : shown.pickable ? C.green3 : C.stone2
-        status.forEach((l, k) => drawText(s, l, INFO.x, y + 2 + k * 7, statusColor, { shadow: 1 }))
+        drawText(s, status, INFO.x, y + 1, statusColor, { shadow: 1 })
         return s
+    }
+
+    /** The capstone, still locked: a dark medallion in a gilded rim, an infinity sign dimmed inside it (a placeholder until the class exists), and no name yet. */
+    private drawCapstone(s: Surface, at: Spot, lit: boolean): void {
+        const cy = at.top + (MEDAL >> 1)
+        disc(s, at.cx, cy, 11, C.ink)
+        disc(s, at.cx, cy, 10, C.gold1)
+        disc(s, at.cx, cy, 8, C.purple0)
+        ring(s, at.cx, cy, 9, C.gold2)
+        glyph(s, (g, x, y) => ABILITY_ICON_PARTS.infinity(g, x, y, 6, C.gold2, C.gold3), at.cx, cy, true)
+        ditherDisc(s, at.cx, cy, 8, C.ink, 7)
+        if (lit) ring(s, at.cx, cy, 12, C.white)
+        drawText(s, '???', at.cx, at.top + MEDAL + NAME_GAP, C.gold1, { align: 1, shadow: 1 })
     }
 
     private medal(view: ClassesView, node: ClassNodeView): Surface {

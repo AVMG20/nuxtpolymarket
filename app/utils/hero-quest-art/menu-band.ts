@@ -142,9 +142,6 @@ export class BandedFrame {
     }
 }
 
-/** A scene with no tab background of its own borrows one: Classes trains in the battle's camp. */
-const BACKDROP_OF: Partial<Record<HqMenuScene, string>> = { classes: 'battle' }
-
 /**
  * The menu scenes, drawn as their tab backgrounds (`ui-art.ts`) cut to the stage's camera, with
  * the scene's name over them. Each is a stand-in for the scene it will become.
@@ -158,10 +155,11 @@ export class SceneBackdrops {
     }
 
     render(scene: HqMenuScene, t: number, titled = true): Surface {
-        const bg = TAB_BACKGROUNDS.find(b => b.id === (BACKDROP_OF[scene] ?? scene))
-        this.full.clear(C.night0)
+        // a scene with no tab background of its own (Classes) stands on plain black
+        const bg = TAB_BACKGROUNDS.find(b => b.id === scene)
+        this.full.clear(C.ink)
         bg?.draw(this.full, t)
-        this.view.clear(C.night0)
+        this.view.clear(C.ink)
         blit(this.view, this.full, -this.cam.x, -this.cam.y)
         if (titled) textOut(this.view, HQ_SCENE_LABELS[scene].toUpperCase(), this.cam.w >> 1, 10, C.gold2, 'big', 1, 1, 1, C.ink, -1)
         return this.view
