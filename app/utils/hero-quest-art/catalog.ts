@@ -21,7 +21,8 @@ import { drawSpecialPreview, PREVIEW_VIEW, PREVIEW_RAID_VIEW } from './special-k
 import { BOSSES_A } from './bosses-a'
 import { BOSSES_B } from './bosses-b'
 import { VFX, MULTI_STRIKE, drawMultiStrike, drawVfxStage, type VfxDef } from './vfx'
-import { VL } from './vfx-kit'
+import { VL, dimLevel } from './vfx-kit'
+import { dimToInk } from './presentation'
 import { CINEMATIC_BY_ID, cinematicStage } from './vfx-cinematic'
 import { championStage } from './vfx-champion'
 import { ICON, SMALL_ICON, glyph, squareFrame, circleFrame, crestFrame, itemTile } from './icon-kit'
@@ -386,7 +387,11 @@ function vfxAssets(): ArtAsset[] {
     const out: ArtAsset[] = VFX.map(v => ({
         id: `vfx/${v.id}`, group: vfxGroup(v), section: SECTION[v.source], label: `${v.name} — ${v.owner}`,
         w: VL.W, h: VL.H, frames: Math.round(v.dur * ANIM_FPS), fps: ANIM_FPS, loop: false,
-        render: (dst: Surface, f: number) => v.draw(dst, f / ANIM_FPS),
+        render: (dst: Surface, f: number) => {
+            // the preview has no bodies apart from its stand-ins, so the dim goes over the stage under the effect
+            dimToInk(dst, dimLevel(v.dim, f / ANIM_FPS))
+            v.draw(dst, f / ANIM_FPS)
+        },
         underlay: CINEMATIC_BY_ID[v.id] ? cinematicStage(v.id) : v.source === 'class' ? drawVfxStage : championStage
     }))
     for (const m of MULTI_STRIKE) {

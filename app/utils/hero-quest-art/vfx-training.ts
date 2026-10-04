@@ -8,7 +8,7 @@
 
 import { C, CLEAR } from './palette'
 import { Surface, disc, dither, ditherDisc, ditherEllipse, ellipseRing, hash2, line, rect, ring, taper, tri } from './surface'
-import { VL, pr, qt, eo, travel, lob, VP, burst, motes, healRise, R } from './vfx-kit'
+import { VL, pr, qt, eo, travel, lob, VP, burst, motes, healRise, R, type VfxDim } from './vfx-kit'
 import {
     arcBand, blast, casterRing, chestOf, chevrons, groundFire, shockRing,
     BLOOD, FIRE, GOLD, STEEL, STORM, TEAL, type Ramp6
@@ -27,16 +27,21 @@ const HAND = { x: CX + 10, y: FLOOR - 13 }
 const HEAL: Ramp6 = [C.white, C.green4, C.green4, C.green3, C.teal2, C.teal1]
 const EMBER: Ramp6 = [C.white, C.gold3, C.orange, C.orange, C.lava1, C.red1]
 
-function tg(id: string, name: string, owner: string, dur: number, draw: VfxDef['draw']): VfxDef {
-    return { id, name, source: 'training', owner, dur, draw }
+/**
+ * The set-pieces' dimming, the Legendary and Mythic actives': the whole stage screened toward ink
+ * while they play. The stage lays it over the scenery and under the bodies (`VfxDef.dim`).
+ */
+const DIMS: Readonly<Record<string, VfxDim>> = {
+    skill_executioners_edge: { t0: 0.1, t1: 1.6, level: 6 },
+    skill_phoenix_draught: { t0: 0.1, t1: 1.8, level: 5 },
+    skill_fortunes_gambit: { t0: 0.1, t1: 1.8, level: 6 },
+    skill_ragnarok_strike: { t0: 0.05, t1: 3.0, level: 8 },
+    skill_aegis_of_renewal: { t0: 0.05, t1: 2.2, level: 7 },
+    skill_kings_ransom: { t0: 0.05, t1: 2.2, level: 7 }
 }
 
-/** The set-pieces' dimming: the whole stage screened toward ink over [t0, t1], easing in and out. */
-function dim(d: Surface, t: number, t0: number, t1: number, level = 6): void {
-    const q = qt(t)
-    if (q < t0 || q >= t1) return
-    const k = Math.min(1, (q - t0) / 0.15, (t1 - q) / 0.25)
-    dither(d, 0, 0, VL.W, VL.H, C.ink, R(level * k))
+function tg(id: string, name: string, owner: string, dur: number, draw: VfxDef['draw']): VfxDef {
+    return { id, name, source: 'training', owner, dur, draw, dim: DIMS[id] }
 }
 
 /** A gold coin at (x, y), spinning: its face narrows to an edge and back with `spin`. */
@@ -275,7 +280,6 @@ const LEGENDARY: VfxDef[] = [
     // through it in one stroke, splitting the ground in a red shock
     tg('skill_executioners_edge', 'Executioner\'s Edge', 'Legendary', 2.1, (d, t) => {
         const q = qt(t)
-        dim(d, t, 0.1, 1.6, 6)
         casterRing(d, CX, t, 0, 1.2, C.red0, C.red1, C.red3)
         // the scythe: a long curved blade on a bowed snath, swung up and over and down from behind the foe
         const SWING = { from: 0.7, to: 0.88 }
@@ -350,7 +354,6 @@ const LEGENDARY: VfxDef[] = [
     // and beat once, a pillar of fire climbs off him, and burning feathers drift down healing him
     tg('skill_phoenix_draught', 'Phoenix Draught', 'Legendary', 2.2, (d, t) => {
         const q = qt(t)
-        dim(d, t, 0.1, 1.8, 5)
         casterRing(d, CX, t, 0, 1.6, C.lava0, C.orange, C.gold3)
         blast(d, CX, HC, t, 0.35, 14, 0.6, FIRE, 1410, 'ember')
         // the wings and the pillar are drawn on a layer behind the Hero: copied over, they skip his
@@ -418,7 +421,6 @@ const LEGENDARY: VfxDef[] = [
     // wheel pays out twice, two gold strikes down onto the foe, coins bursting off each
     tg('skill_fortunes_gambit', 'Fortune\'s Gambit', 'Legendary', 2.2, (d, t) => {
         const q = qt(t)
-        dim(d, t, 0.1, 1.8, 6)
         casterRing(d, CX, t, 0, 1.4, C.gold0, C.gold1, C.gold3)
         const W = { x: FOE.x, y: 20, r: 13 }
         if (q >= 0.2 && q < 1.7) {
@@ -464,7 +466,6 @@ const MYTHIC: VfxDef[] = [
         const EMERGE = { from: 0.7, to: 1.0, depth: 30 }
         const FALL = { from: 1.0, to: 1.25 }
         const SINK = { from: 2.05, to: 2.6 }
-        dim(d, t, 0.05, 3.0, 8)
         casterRing(d, CX, t, 0, 2.0, C.red1, C.orange, C.gold3)
         // the magic circle: three rings seen from below, a hexagram turning inside, runes running
         // round the outer band in opposite directions, light pouring down out of its heart
@@ -576,7 +577,6 @@ const MYTHIC: VfxDef[] = [
     // down through it, every debuff is burned out of him, and its glow washes out over the party
     tg('skill_aegis_of_renewal', 'Aegis of Renewal', 'Mythic', 2.6, (d, t) => {
         const q = qt(t)
-        dim(d, t, 0.05, 2.2, 7)
         casterRing(d, CX, t, 0, 2.2, C.gold0, C.gold2, C.white)
         // a great ring of runes in the air over the Hero
         if (q >= 0.2 && q < 2.3) {
@@ -661,7 +661,6 @@ const MYTHIC: VfxDef[] = [
     // Hero showered in coin and stars of XP
     tg('skill_kings_ransom', 'King\'s Ransom', 'Mythic', 2.6, (d, t) => {
         const q = qt(t)
-        dim(d, t, 0.05, 2.2, 7)
         casterRing(d, CX, t, 0, 2.0, C.gold0, C.gold2, C.gold3)
         // the vault: a ring of gold in the sky over the front foe, swirling
         if (q >= 0.2 && q < 1.9) {

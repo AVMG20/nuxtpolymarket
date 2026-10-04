@@ -9,7 +9,7 @@
 import { C } from './palette'
 import type { Surface} from './surface';
 import { line, rect, ditherEllipse } from './surface'
-import { VL, pr, inWin, qt, motes, shock, travel, impact, healRise, column, runeCircle, R } from './vfx-kit'
+import { VL, pr, inWin, qt, motes, shock, travel, impact, healRise, column, runeCircle, R, type VfxDim } from './vfx-kit'
 import { arrow } from './weapons'
 import { Actor, HP } from './rig'
 import { sample } from './anim'
@@ -29,6 +29,8 @@ export interface VfxDef {
     owner: string
     dur: number
     draw(dst: Surface, t: number): void
+    /** Screens the whole stage toward ink while it plays, behind the bodies (`dimLevel`). */
+    dim?: VfxDim
 }
 
 const F = VL.foes

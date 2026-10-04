@@ -5,7 +5,7 @@
 // total. The banner is drawn here; the tint is a palette map (nothing in this art has
 // alpha); the stacking lives in the live stage (demo.ts).
 
-import { C, shadeLut, type ColorName } from './palette'
+import { C, CLEAR, shadeLut, type ColorName } from './palette'
 import { Surface, bayer, rect } from './surface'
 import { textOut, textWidth } from './font'
 import { qt, R } from './vfx-kit'
@@ -82,6 +82,26 @@ export function tintLut(tint: ColorName): Uint8Array {
     let lut = TINTS.get(tint)
     if (!lut) { lut = shadeLut(0.55, tint, 0.2); TINTS.set(tint, lut) }
     return lut
+}
+
+/** Every colour to ink, transparency kept: what a set-piece's dim screens the stage toward. */
+const INK_LUT = (() => {
+    const lut = new Uint8Array(256).fill(C.ink)
+    lut[CLEAR] = CLEAR
+    return lut
+})()
+
+/** Screen `s` toward ink from row `y0` down, `level` of 16 Bayer cells; transparent pixels stay transparent. */
+export function dimToInk(s: Surface, level: number, y0 = 0): void {
+    if (level <= 0) return
+    const d = s.data
+    for (let y = Math.max(0, y0); y < s.h; y++) {
+        for (let x = 0; x < s.w; x++) {
+            if (level < 16 && !bayer(x, y, level)) continue
+            const i = y * s.w + x
+            d[i] = INK_LUT[d[i]!]!
+        }
+    }
 }
 
 /**

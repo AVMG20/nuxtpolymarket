@@ -313,6 +313,21 @@ export function slash(dst: Surface, cx: number, cy: number, r: number, a0: numbe
     }
 }
 
+/**
+ * A set-piece's dimming: the stage screened toward ink over [t0, t1] (quantised seconds), easing
+ * in and out, `level` of 16 at its darkest. Data rather than drawing, so the stage can put it
+ * behind the party and the enemies instead of over them.
+ */
+export interface VfxDim { t0: number, t1: number, level: number }
+
+/** How dark `dim` is at `t`, 0..16. */
+export function dimLevel(dim: VfxDim | undefined, t: number): number {
+    if (!dim) return 0
+    const q = qt(t)
+    if (q < dim.t0 || q >= dim.t1) return 0
+    return R(dim.level * Math.min(1, (q - dim.t0) / 0.15, (dim.t1 - q) / 0.25))
+}
+
 /** Dim the frame region with a dither (a darkening sky, a cursed area). */
 export function shade(dst: Surface, x: number, y: number, w: number, h: number, c: number, level: number): void {
     dither(dst, x, y, w, h, c, level)

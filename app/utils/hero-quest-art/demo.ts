@@ -46,12 +46,12 @@ import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
 import { NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, drawChallengeButton, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type NumberStyle, type PartyMember } from './feedback'
-import { VL, clock, R } from './vfx-kit'
+import { VL, clock, dimLevel, R } from './vfx-kit'
 import { J } from './rig'
 import { VFX_BY_ID, type VfxDef } from './vfx'
 import { SW, SH, FLOOR_Y, SCROLL_PERIOD, WORLD_SCENES, reflectWater, type WorldScene } from './scenery'
 import { CINEMATIC_BY_ID, type CinematicVfx } from './vfx-cinematic'
-import { drawSkillBanner, tintLut, applyTint } from './presentation'
+import { drawSkillBanner, tintLut, applyTint, dimToInk } from './presentation'
 import { CLASS_BY_ID } from '../../../shared/utils/hero-quest/content/classes'
 import { CHAMPION_BY_ID, CHAMPIONS } from '../../../shared/utils/hero-quest/content/champions'
 import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
@@ -2455,6 +2455,9 @@ export class BattleDemo {
         // the scene dims toward the skill's colour, stepping in and out through the dither
         const tint = c ? Math.min(16, Math.floor(Math.min(c.t / 0.2, (c.dur + 0.3 - c.t) / 0.3) * 16)) : 0
         if (c) applyTint(s, c.lut, tint)
+        // a set-piece's dim screens the scenery, under the bodies, so the fight stays readable over it
+        const dark = this.fxDim()
+        dimToInk(s, dark)
         // Painter's order: furthest rank first, each nearer one drawn over it. Within a rank the
         // old right-to-left walk stands, so party and enemies overlap the way they always did.
         for (let r = 0; r < RANK_Y.length; r++) {
@@ -2510,10 +2513,15 @@ export class BattleDemo {
             f.clear()
             this.scene.front(f, this.scroll, this.time)
             if (c) applyTint(f, c.lut, tint)
+            dimToInk(f, dark)
             for (let i = 0; i < f.data.length; i++) if (f.data[i] !== CLEAR) s.data[i] = f.data[i]!
         }
         // standing water mirrors the fight, not just the scenery
-        if (this.water >= 0) reflectWater(s, this.water, this.time, this.glitter)
+        if (this.water >= 0) {
+            reflectWater(s, this.water, this.time, this.glitter)
+            // the water is scenery too, so a set-piece's dim reaches it; the reflection was drawn after it
+            dimToInk(s, dark, this.water)
+        }
         if (this.run) this.drawBars(s)
         for (let i = 0; i < this.nums.length; i++) { const n = this.nums[i]!; if (n.live) drawNumber(s, n) }
         clock.smooth = false
@@ -2590,6 +2598,16 @@ export class BattleDemo {
             maskOutside(out, cx, SPOT_Y, r)
         }
         return out
+    }
+
+    /** The darkest dim any effect playing now asks for, 0..16. */
+    private fxDim(): number {
+        let dark = 0
+        for (let i = 0; i < this.fx.length; i++) {
+            const f = this.fx[i]!
+            if (f.live) dark = Math.max(dark, dimLevel(f.def?.dim, f.t))
+        }
+        return dark
     }
 
     /**
