@@ -164,10 +164,10 @@ const globalSearch = useGlobalSearch()
           v-if="state !== 'collapsed'"
           class="flex items-center justify-between rounded-lg bg-elevated/50 px-3 py-2 ring ring-inset ring-default"
         >
-          <span class="font-semibold text-sm">
+          <span class="inline-block font-semibold text-sm" data-wallet="coins">
             <CoinBalance :value="user?.balance" :danger="bankGarnishing" :tooltip="BANK_DEBT_WARNING" />
           </span>
-          <span class="font-semibold text-sm">
+          <span class="inline-block font-semibold text-sm" data-wallet="gems">
             <GemBalance :value="user?.gems" />
           </span>
         </div>
@@ -184,16 +184,19 @@ const globalSearch = useGlobalSearch()
             <UIcon
               class="size-4 text-error"
               name="i-lucide-coins"
+              data-wallet="coins"
             />
           </UTooltip>
           <UIcon
             v-else
             class="size-4 text-yellow-400"
             name="i-lucide-coins"
+            data-wallet="coins"
           />
           <UIcon
             class="size-4 text-cyan-400"
             name="i-lucide-gem"
+            data-wallet="gems"
           />
         </div>
 
