@@ -208,15 +208,7 @@ export const useHeroQuest = () => {
     async function craft(system: GachaSystem, contentId: string) {
         return call<{ name: string; isNew: boolean }>(
             '/api/hero-quest/gacha/craft', { system, contentId }, ''
-        ).then((res) => {
-            if (res) {
-                toast.add({
-                    title: res.isNew ? `Crafted ${res.name}` : `${res.name} levelled`,
-                    color: 'success'
-                })
-            }
-            return res
-        })
+        )
     }
 
     /** Buy Seals with Gold on that gacha's own daily escalating ladder. */
