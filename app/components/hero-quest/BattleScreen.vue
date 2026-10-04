@@ -3,9 +3,10 @@ import type { HqIntroRect } from '~/composables/useHqIntro'
 import { formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
 import { RARITIES, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { FormationRow, Rarity } from '#shared/utils/hero-quest/types'
-import { GEAR_SLOT_NAME } from '#shared/utils/hero-quest/content/gear'
+import { GEAR_SLOTS, GEAR_SLOT_NAME } from '#shared/utils/hero-quest/content/gear'
 import { FORMATION_ROW_CAPACITY } from '#shared/utils/hero-quest/constants'
 import type { CollectionAction, CollectionLine, CollectionSection, CollectionTile, DetailButton } from '~/utils/hero-quest-art/collections-scene'
+import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 
 /**
  * The game's stage and the battle it plays. The layout keeps it mounted on every scene route, so
@@ -23,7 +24,7 @@ const emit = defineEmits<{
 
 const {
     initialized, run, hero, settled, pending, guild, forge, training, digSite, nextPrestigeReward,
-    engageBoss, prestige, craft, setLoadout
+    engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout
 } = useHeroQuest()
 
 /**
@@ -255,6 +256,91 @@ async function onCollectionAction(action: DetailButton, id: string) {
     } finally {
         collectionsBusy.value = false
     }
+}
+
+/**
+ * The Loadouts scene's slots: every one up to the maximum, locked ones included, each with what it
+ * holds resolved against the rosters for its tiles. A slot is active while the live setup holds
+ * the same party in the same rows, Skills, Artifacts and Gear; Apply filters a preset through
+ * today's slots, so one saved under more slots than are open now never reads active.
+ */
+function sameSet(a: readonly string[], b: readonly string[]): boolean {
+    return a.length === b.length && a.every(id => b.includes(id))
+}
+
+const loadoutsView = computed<LoadoutsView>(() => {
+    const l = loadouts.value
+    const g = guild.value
+    if (!l) return { slots: [], unlocked: 0, max: 0 }
+    const rarity = (roster: readonly { id: string, rarity: string }[] | undefined) => {
+        const map = new Map((roster ?? []).map(e => [e.id, e.rarity]))
+        return (id: string): LoadoutEntry => ({ id, rarity: map.get(id) ?? 'common' })
+    }
+    const champion = rarity(g?.roster)
+    const skill = rarity(training.value?.roster)
+    const artifact = rarity(digSite.value?.roster)
+    const gear = rarity(forge.value?.roster)
+
+    const liveFormation = savedFormation()
+    const liveParty = g?.partyChampionIds ?? []
+    const liveGear: Record<string, string> = {}
+    for (const slot of forge.value?.slots ?? []) if (slot.equippedId) liveGear[slot.slot] = slot.equippedId
+
+    const slots: LoadoutSlotView[] = Array.from({ length: l.maxSlots }, (_, slotIndex) => {
+        const locked = slotIndex >= l.slots
+        const preset = locked ? undefined : l.saved.find(p => p.slotIndex === slotIndex)
+        const base = { slotIndex, locked, name: preset?.name ?? `Loadout ${slotIndex + 1}`, party: [], skills: [], artifacts: [], gear: [] }
+        if (!preset) {
+            // only the next slot to buy has a price; the ones past it wait their turn
+            const price = locked && slotIndex === l.slots && l.nextSlotCostGems !== null ? formatNumber(l.nextSlotCostGems) : null
+            return { ...base, price, empty: !locked, active: false }
+        }
+        const rowOf = (id: string) => preset.formation[id] ?? liveFormation[id] ?? 'front'
+        const active = sameSet(preset.partyChampionIds, liveParty)
+            && preset.partyChampionIds.every(id => rowOf(id) === liveFormation[id])
+            && (preset.formation.hero ?? liveFormation.hero) === liveFormation.hero
+            && sameSet(preset.equippedSkillIds, training.value?.equippedSkillIds ?? [])
+            && sameSet(preset.equippedArtifactIds, digSite.value?.equippedArtifactIds ?? [])
+            && sameSet(Object.entries(preset.equippedGear).map(([k, v]) => `${k}:${v}`), Object.entries(liveGear).map(([k, v]) => `${k}:${v}`))
+        return {
+            ...base,
+            price: null,
+            empty: false,
+            active,
+            party: preset.partyChampionIds.map(id => ({ ...champion(id), row: rowOf(id) })),
+            skills: preset.equippedSkillIds.map(skill),
+            artifacts: preset.equippedArtifactIds.map(artifact),
+            // in slot order, so the six read the same way on every slot
+            gear: GEAR_SLOTS.flatMap(slot => preset.equippedGear[slot] ? [gear(preset.equippedGear[slot]!)] : [])
+        }
+    })
+    return { slots, unlocked: l.slots, max: l.maxSlots }
+})
+
+const loadoutsBusy = ref(false)
+
+async function withLoadouts(action: () => Promise<unknown>) {
+    loadoutsBusy.value = true
+    try {
+        await action()
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        loadoutsBusy.value = false
+    }
+}
+
+/**
+ * Save keeps the slot's name, or takes the one being typed when Save was pressed mid-rename.
+ * Renaming alone is its own action, since saving re-snapshots the live setup.
+ */
+function onLoadoutAction(action: 'save' | 'apply', slotIndex: number, name?: string) {
+    const slot = loadoutsView.value.slots.find(s => s.slotIndex === slotIndex)
+    void withLoadouts(() => action === 'save' ? saveLoadout(slotIndex, name ?? slot?.name) : applyLoadout(slotIndex))
+}
+
+function onLoadoutRename(slotIndex: number, name: string) {
+    void withLoadouts(() => renameLoadout(slotIndex, name))
 }
 
 /**
@@ -497,11 +583,15 @@ const awayReport = computed(() => {
           :scene="scene"
           :collections="collections"
           :collections-busy="collectionsBusy"
+          :loadouts="loadoutsView"
+          :loadouts-busy="loadoutsBusy"
           @fight-progress="fightProgress = $event"
           @challenge="onEngage"
           @scene="emit('scene', $event)"
           @collection-tab="openCollectionTab"
           @collection-action="onCollectionAction"
+          @loadout-action="onLoadoutAction"
+          @loadout-rename="onLoadoutRename"
         />
       </template>
 

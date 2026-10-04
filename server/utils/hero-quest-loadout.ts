@@ -16,9 +16,9 @@
 import { and, eq, inArray } from 'drizzle-orm'
 import type { DbExecutor } from '#server/database'
 import type { hqState } from '#server/database/schema'
-import { hqCollection } from '#server/database/schema'
+import { hqCollection, hqLoadouts } from '#server/database/schema'
 import { artifactSlots, championSlots, skillSlots } from '#server/utils/hero-quest'
-import { FORMATION_ROW_CAPACITY } from '#shared/utils/hero-quest/constants'
+import { FORMATION_ROW_CAPACITY, LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import { getArchetype, getChampion, isChampionId } from '#shared/utils/hero-quest/content/champions'
 import { getClass } from '#shared/utils/hero-quest/content/classes'
 import { GEAR_SLOTS, getGear, isGearId, isGearSlot } from '#shared/utils/hero-quest/content/gear'
@@ -215,4 +215,19 @@ export async function validateLiveLoadout(
     }
 
     return writes
+}
+
+/**
+ * Rename a saved loadout, leaving what it holds alone (`loadouts.md` §2: player-named). Saving
+ * re-snapshots the live state, so it cannot double as a rename. Returns the name written, or null
+ * when the slot holds nothing to rename or the name is blank.
+ */
+export async function renameLoadout(tx: DbExecutor, userId: string, slotIndex: number, name: string): Promise<string | null> {
+    const trimmed = name.trim().slice(0, LOADOUT_NAME_MAX_LENGTH)
+    if (!trimmed) return null
+    const [renamed] = await tx.update(hqLoadouts)
+        .set({ name: trimmed, updatedAt: new Date() })
+        .where(and(eq(hqLoadouts.userId, userId), eq(hqLoadouts.slotIndex, slotIndex)))
+        .returning({ name: hqLoadouts.name })
+    return renamed?.name ?? null
 }

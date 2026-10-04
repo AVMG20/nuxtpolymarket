@@ -249,12 +249,17 @@ export const useHeroQuest = () => {
 
     /** Snapshot the whole live state into a slot (`loadouts.md` §2). */
     async function saveLoadout(slotIndex: number, name?: string) {
-        return call('/api/hero-quest/loadout/save', { slotIndex, name }, 'Loadout saved')
+        return call('/api/hero-quest/loadout/save', { slotIndex, name }, '')
     }
 
     /** Apply a saved slot as the new live state — all five components at once. */
     async function applyLoadout(slotIndex: number) {
-        return call('/api/hero-quest/loadout/apply', { slotIndex }, 'Loadout applied')
+        return call('/api/hero-quest/loadout/apply', { slotIndex }, '')
+    }
+
+    /** Rename a saved slot, leaving what it holds alone. */
+    async function renameLoadout(slotIndex: number, name: string) {
+        return call('/api/hero-quest/loadout/rename', { slotIndex, name }, '')
     }
 
     /**
@@ -348,6 +353,7 @@ export const useHeroQuest = () => {
         setLoadout,
         saveLoadout,
         applyLoadout,
+        renameLoadout,
         devMode,
         dev
     }

@@ -18,7 +18,8 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqCollection, hqLoadouts, hqShopUpgrades, hqState } from '#server/database/schema'
 import { ensureHqState, getShopLevels } from '#server/utils/hero-quest'
-import { validateLiveLoadout } from '#server/utils/hero-quest-loadout'
+import { renameLoadout, validateLiveLoadout } from '#server/utils/hero-quest-loadout'
+import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import type { GachaSystem } from '#shared/utils/hero-quest/gacha'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
 
@@ -223,6 +224,30 @@ describe.skipIf(SKIP)('hero-quest loadout validation', () => {
             await own('gear', 'gear_weapon_common')
             const writes = await validate({ gear: { weapon: '' } })
             expect(writes.equippedGear).toEqual({})
+        })
+    })
+
+    describe('rename', () => {
+        it('changes the name and nothing else', async () => {
+            await db.insert(hqLoadouts).values({ userId: USER_ID, slotIndex: 0, name: 'Old', equippedSkillIds: ['skill_coin_toss'] })
+            expect(await renameLoadout(db, USER_ID, 0, '  Boss setup  ')).toBe('Boss setup')
+            const [row] = await db.select().from(hqLoadouts).where(eq(hqLoadouts.userId, USER_ID))
+            expect(row!.name).toBe('Boss setup')
+            expect(row!.equippedSkillIds).toEqual(['skill_coin_toss'])
+        })
+
+        it('caps the name at the saved maximum', async () => {
+            await db.insert(hqLoadouts).values({ userId: USER_ID, slotIndex: 0 })
+            const name = await renameLoadout(db, USER_ID, 0, 'x'.repeat(LOADOUT_NAME_MAX_LENGTH + 10))
+            expect(name).toHaveLength(LOADOUT_NAME_MAX_LENGTH)
+        })
+
+        it('refuses an empty slot and a blank name', async () => {
+            expect(await renameLoadout(db, USER_ID, 3, 'Anything')).toBeNull()
+            await db.insert(hqLoadouts).values({ userId: USER_ID, slotIndex: 0, name: 'Kept' })
+            expect(await renameLoadout(db, USER_ID, 0, '   ')).toBeNull()
+            const [row] = await db.select().from(hqLoadouts).where(eq(hqLoadouts.userId, USER_ID))
+            expect(row!.name).toBe('Kept')
         })
     })
 })

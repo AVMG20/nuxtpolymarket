@@ -4,6 +4,8 @@ import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import type { RunFeed } from '~/utils/hero-quest-art/run-director'
 import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-band'
 import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton } from '~/utils/hero-quest-art/collections-scene'
+import type { LoadoutButton, LoadoutsHover, LoadoutsScene, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
+import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import { C, PALETTE } from '~/utils/hero-quest-art/palette'
 import type { HqIntroRect } from '~/composables/useHqIntro'
 
@@ -58,6 +60,10 @@ const props = defineProps<{
     collections?: CollectionsView
     /** A Collections equip or craft is on its way: the detail's buttons wait for it. */
     collectionsBusy?: boolean
+    /** The Loadouts scene's slots, every one up to the maximum, locked ones included. */
+    loadouts?: LoadoutsView
+    /** A loadout save, apply or rename is on its way. */
+    loadoutsBusy?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -71,6 +77,10 @@ const emit = defineEmits<{
     collectionAction: [action: DetailButton, id: string]
     /** A Collections tab was pressed. */
     collectionTab: [tab: HqCollectionTab]
+    /** A loadout detail's Save or Apply was pressed, for its slot; a Save pressed mid-rename carries the typed name. */
+    loadoutAction: [action: 'save' | 'apply', slotIndex: number, name?: string]
+    /** A loadout's new name was entered. */
+    loadoutRename: [slotIndex: number, name: string]
 }>()
 
 const wrap = ref<HTMLDivElement | null>(null)
@@ -92,6 +102,8 @@ let backdrops: SceneBackdrops | null = null
 let banded: BandedFrame | null = null
 let collectionsScene: CollectionsScene | null = null
 let collectionsHit: typeof import('~/utils/hero-quest-art/collections-scene') | null = null
+let loadoutsScene: LoadoutsScene | null = null
+let loadoutsHit: typeof import('~/utils/hero-quest-art/loadouts-scene') | null = null
 let band: typeof import('~/utils/hero-quest-art/menu-band') | null = null
 let presenter: Presenter | null = null
 let stop: (() => void) | null = null
@@ -213,6 +225,7 @@ defineExpose({ skipFight, closeIris })
  * them in the view's own pixels. The page's own Fight button stays the keyboard's way in.
  */
 type Target = 'challenge' | HqMenuScene | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
+    | `card:${number}` | `loadout:${LoadoutButton}`
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
@@ -225,6 +238,61 @@ const detail = ref<string | null>(null)
 watch([openScene, () => props.collections?.tab], () => {
     detail.value = null
 })
+
+/** The loadout slot open in the detail view; the cards when null. Leaving the scene shuts it, and any rename. */
+const loadoutDetail = ref<number | null>(null)
+watch(openScene, () => {
+    loadoutDetail.value = null
+    renaming.value = null
+})
+
+const openLoadout = computed(() => props.loadouts?.slots.find(slot => slot.slotIndex === loadoutDetail.value && !slot.locked) ?? null)
+
+/**
+ * Renaming takes a real text field, laid over the slot's name on the canvas (`renameBox`, in view
+ * pixels, placed here as shares of the frame). Enter saves it; Escape or leaving the field drops it.
+ */
+const renaming = ref<{ slotIndex: number, text: string } | null>(null)
+const renameInput = ref<HTMLInputElement | null>(null)
+const renameStyle = ref<Record<string, string>>({})
+
+async function startRename() {
+    const slot = openLoadout.value
+    if (!slot || !presenter || !loadoutsHit) return
+    const box = loadoutsHit.renameBox()
+    const scale = cssSize.value.height / presenter.h
+    renameStyle.value = {
+        left: `${box.x / presenter.w * 100}%`,
+        top: `${box.y / presenter.h * 100}%`,
+        width: `${box.w / presenter.w * 100}%`,
+        height: `${box.h / presenter.h * 100}%`,
+        fontSize: `${Math.max(10, box.h * scale * 0.6)}px`,
+        backgroundColor: INK
+    }
+    renaming.value = { slotIndex: slot.slotIndex, text: slot.name }
+    await nextTick()
+    renameInput.value?.focus()
+    renameInput.value?.select()
+}
+
+/** Send a typed name as a rename, unless it is blank or unchanged. */
+function sendRename(r: { slotIndex: number, text: string }) {
+    const name = r.text.trim()
+    const current = props.loadouts?.slots.find(slot => slot.slotIndex === r.slotIndex)?.name
+    if (name && name !== current) emit('loadoutRename', r.slotIndex, name)
+}
+
+function commitRename() {
+    const r = renaming.value
+    renaming.value = null
+    if (r) sendRename(r)
+}
+
+/**
+ * A press on the canvas takes the focus from the name field before the press is resolved, so the
+ * typed name is held here until it is: a Save saves with it, anything else commits it as a rename.
+ */
+let draftAtPress: { slotIndex: number, text: string } | null = null
 
 function targetAt(e: PointerEvent): Target | null {
     if (!canvas.value || !presenter) return null
@@ -249,6 +317,18 @@ function targetAt(e: PointerEvent): Target | null {
         const i = collectionsHit.collectionTileAt(presenter.w, h, props.collections?.entries.length ?? 0, x, y)
         return i === null ? null : `tile:${i}`
     }
+    if (openScene.value === 'loadouts' && loadoutsHit) {
+        const slot = openLoadout.value
+        if (slot) {
+            const button = loadoutsHit.loadoutButtonAt(x, y)
+            // a button that cannot be pressed is no target
+            return button && loadoutsHit.loadoutButtonEnabled(button, slot) && (button === 'close' || !props.loadoutsBusy) ? `loadout:${button}` : null
+        }
+        const i = loadoutsHit.loadoutCardAt(presenter.w, props.loadouts?.slots.length ?? 0, x, y)
+        // a locked card does not open; the next one to buy goes to the prestige shop that sells it
+        const card = i === null ? undefined : props.loadouts?.slots[i]
+        return i !== null && card && (!card.locked || card.price) ? `card:${i}` : null
+    }
     return openScene.value === 'battle' && props.challenge && stage?.onChallenge(x, y) ? 'challenge' : null
 }
 
@@ -259,6 +339,10 @@ function onPointerMove(e: PointerEvent) {
 }
 
 function onPointerDown(e: PointerEvent) {
+    if (renaming.value) {
+        draftAtPress = { ...renaming.value }
+        renaming.value = null
+    }
     onPointerMove(e)
     pressed.value = hover.value !== null
 }
@@ -268,11 +352,33 @@ function onPointerUp(e: PointerEvent) {
     onPointerMove(e)
     pressed.value = false
     const hit = hover.value
+    const draft = draftAtPress
+    draftAtPress = null
+    if (draft) {
+        // Save with the typed name in the one request; any other press keeps the name as a rename first
+        if (wasPressed && hit === 'loadout:save' && openLoadout.value?.slotIndex === draft.slotIndex) {
+            emit('loadoutAction', 'save', draft.slotIndex, draft.text.trim() || undefined)
+            return
+        }
+        sendRename(draft)
+    }
     if (!wasPressed || !hit) return
     const item = HQ_MENU_SCENES.find(s => s === hit)
     if (hit === 'challenge') emit('challenge')
     else if (item) emit('scene', item === openScene.value ? 'battle' : item)
     else if (hit === 'close') detail.value = null
+    else if (hit.startsWith('card:')) {
+        const slot = props.loadouts?.slots[Number(hit.slice(5))]
+        if (slot?.locked) emit('scene', 'prestige')
+        else loadoutDetail.value = slot?.slotIndex ?? null
+    }
+    else if (hit.startsWith('loadout:')) {
+        const button = hit.slice(8) as LoadoutButton
+        const slot = openLoadout.value
+        if (button === 'close') loadoutDetail.value = null
+        else if (button === 'rename') void startRename()
+        else if (slot) emit('loadoutAction', button, slot.slotIndex)
+    }
     else if (isDetailButton(hit)) {
         if (detail.value) emit('collectionAction', hit, detail.value)
     }
@@ -287,6 +393,9 @@ function onPointerUp(e: PointerEvent) {
 function onPointerLeave() {
     hover.value = null
     pressed.value = false
+    // a press that left the canvas still committed the name it took the focus from
+    if (draftAtPress) sendRename(draftAtPress)
+    draftAtPress = null
 }
 
 const challengeState = computed(() => !props.challenge ? 'off' as const : hover.value !== 'challenge' ? 'idle' as const : pressed.value ? 'pressed' as const : 'hover' as const)
@@ -297,15 +406,22 @@ const collectionsHover = computed<CollectionsHover>(() => {
     if (h?.startsWith('tile:')) return Number(h.slice(5))
     return HQ_COLLECTION_TABS.find(t => h === `tab:${t}`) ?? null
 })
+const loadoutsHover = computed<LoadoutsHover>(() => {
+    const h = hover.value
+    if (h?.startsWith('card:')) return Number(h.slice(5))
+    if (h?.startsWith('loadout:')) return h.slice(8) as LoadoutButton
+    return null
+})
 
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
-        import('~/utils/hero-quest-art/collections-scene')
+        import('~/utils/hero-quest-art/collections-scene'),
+        import('~/utils/hero-quest-art/loadouts-scene')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -313,6 +429,8 @@ onMounted(async () => {
     banded = new menuBand.BandedFrame(CAMERAS.zoom3.w, CAMERAS.zoom3.h)
     collectionsScene = new collectionsArt.CollectionsScene(backdrops)
     collectionsHit = collectionsArt
+    loadoutsScene = new loadoutsArt.LoadoutsScene(backdrops)
+    loadoutsHit = loadoutsArt
     stage = new BattleDemo()
     build()
     if (intro) {
@@ -340,7 +458,9 @@ onMounted(async () => {
             ? stage!.render()
             : scene === 'collections'
                 ? collectionsScene!.render(t, props.collections ?? { tab: 'gear', entries: [], essence: '0' }, collectionsHover.value, pressed.value, detail.value, !!props.collectionsBusy)
-                : backdrops!.render(scene, t)
+                : scene === 'loadouts'
+                    ? loadoutsScene!.render(t, props.loadouts ?? { slots: [], unlocked: 0, max: 0 }, loadoutsHover.value, pressed.value, loadoutDetail.value, !!props.loadoutsBusy)
+                    : backdrops!.render(scene, t)
         presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value))
     })
     observer = new ResizeObserver(fit)
@@ -366,16 +486,33 @@ onBeforeUnmount(() => {
     :class="ready ? '' : 'aspect-[272/175]'"
     :style="opening ? { backgroundColor: INK } : undefined"
   >
-    <canvas
-      ref="canvas"
-      class="block mx-auto"
-      :class="hover ? 'cursor-pointer' : ''"
-      :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated' }"
-      @pointermove="onPointerMove"
-      @pointerdown="onPointerDown"
-      @pointerup="onPointerUp"
-      @pointerleave="onPointerLeave"
-    />
+    <div
+      class="relative mx-auto"
+      :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px` }"
+    >
+      <canvas
+        ref="canvas"
+        class="block"
+        :class="hover ? 'cursor-pointer' : ''"
+        :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated' }"
+        @pointermove="onPointerMove"
+        @pointerdown="onPointerDown"
+        @pointerup="onPointerUp"
+        @pointerleave="onPointerLeave"
+      />
+      <input
+        v-if="renaming"
+        ref="renameInput"
+        v-model="renaming.text"
+        class="absolute px-1 font-mono uppercase text-white outline-none border border-primary"
+        :style="renameStyle"
+        :maxlength="LOADOUT_NAME_MAX_LENGTH"
+        aria-label="Loadout name"
+        @keydown.enter.prevent="commitRename"
+        @keydown.esc.prevent="renaming = null"
+        @blur="commitRename"
+      >
+    </div>
     <div
       v-if="!ready && !opening"
       class="absolute inset-0 flex items-center justify-center text-sm text-muted"

@@ -285,9 +285,39 @@ function blitScaled(dst: Surface, src: Surface, x: number, y: number, k: number,
     }
 }
 
+/** Each tile drawn once: a glyph's lighting pass and a portrait's crop are too dear to redo every frame. */
+const TILES = new Map<string, Surface>()
+
+/**
+ * A 24px tile for one entry: its rarity rim, its icon or a Champion's portrait (`?` when not
+ * owned), and its corner letter. Shared with the Loadouts scene, so an entry reads the same there.
+ */
+export function collectionTile(tab: HqCollectionTab, e: { id: string, rarity: string, owned: boolean, mark: TileMark | null }): Surface {
+    const mark = e.owned ? e.mark : null
+    const key = `${tab}:${e.id}:${e.owned ? 1 : 0}:${mark ?? ''}`
+    const known = TILES.get(key)
+    if (known) return known
+    const s = new Surface(TILE, TILE, 0, 0)
+    const m = RARITY_COLORS[e.rarity] ?? RARITY_COLORS.common!
+    rect(s, 0, 0, TILE, TILE, C.ink)
+    rect(s, 1, 1, TILE - 2, TILE - 2, e.owned ? m[1] : m[0])
+    rect(s, 2, 2, TILE - 4, TILE - 4, C.night0)
+    if (!e.owned) drawText(s, '?', TILE >> 1, 7, C.stone2, { scale: 2, align: 1, shadow: 1 })
+    else if (tab === 'champions') blit(s, headOf(`champion/${e.id}`), (TILE - HEAD) >> 1, (TILE - HEAD) >> 1)
+    else {
+        const g = ICONS[tab][e.id]
+        if (g) glyph(s, g, TILE >> 1, TILE >> 1)
+    }
+    // the letter in the top-right corner, outlined in ink so it holds on any icon
+    if (mark) drawText(s, mark, TILE - MARK_X, MARK_Y, MARK_COLORS[mark], { shadow: 2 })
+    TILES.set(key, s)
+    return s
+}
+
+/** The plate button the detail views share; exported for the Loadouts scene. */
+export { button as plateButton, PLATES as BUTTON_PLATES, type Box }
+
 export class CollectionsScene {
-    /** Each tile drawn once: a glyph's lighting pass and a portrait's crop are too dear to redo every frame. */
-    private readonly tiles = new Map<string, Surface>()
     /** Champions' idle frames, drawn once each as the detail first shows them. */
     private readonly idles = new Map<string, Surface[]>()
     private readonly icon = new Surface(TILE, TILE, 0, 0)
@@ -314,7 +344,7 @@ export class CollectionsScene {
         for (let i = 0; i < entries.length && i < COLS * ROWS; i++) {
             const x = g.x + (i % COLS) * PITCH
             const y = g.y + Math.floor(i / COLS) * PITCH
-            blit(s, this.tile(tab, entries[i]!), x, y)
+            blit(s, collectionTile(tab, entries[i]!), x, y)
             if (hover === i) {
                 // lit: a white ring round the tile's own rim
                 rect(s, x - 1, y - 1, TILE + 2, 1, C.white)
@@ -337,28 +367,6 @@ export class CollectionsScene {
         const owned = on ? entries.filter(e => e.owned).length : 0
         const text = on ? `${label} ${owned}/${entries.length}` : label
         drawText(s, text, x + (TAB_W >> 1), TAB_Y + 4, on ? C.gold2 : hover === id ? C.bone1 : C.stone3, { align: 1, shadow: 1 })
-    }
-
-    private tile(tab: HqCollectionTab, e: CollectionTile): Surface {
-        const mark = e.owned ? e.mark : null
-        const key = `${e.id}:${e.owned ? 1 : 0}:${mark ?? ''}`
-        const known = this.tiles.get(key)
-        if (known) return known
-        const s = new Surface(TILE, TILE, 0, 0)
-        const m = RARITY_COLORS[e.rarity] ?? RARITY_COLORS.common!
-        rect(s, 0, 0, TILE, TILE, C.ink)
-        rect(s, 1, 1, TILE - 2, TILE - 2, e.owned ? m[1] : m[0])
-        rect(s, 2, 2, TILE - 4, TILE - 4, C.night0)
-        if (!e.owned) drawText(s, '?', TILE >> 1, 7, C.stone2, { scale: 2, align: 1, shadow: 1 })
-        else if (tab === 'champions') blit(s, headOf(`champion/${e.id}`), (TILE - HEAD) >> 1, (TILE - HEAD) >> 1)
-        else {
-            const g = ICONS[tab][e.id]
-            if (g) glyph(s, g, TILE >> 1, TILE >> 1)
-        }
-        // the letter in the top-right corner, outlined in ink so it holds on any icon
-        if (mark) drawText(s, mark, TILE - MARK_X, MARK_Y, MARK_COLORS[mark], { shadow: 2 })
-        this.tiles.set(key, s)
-        return s
     }
 
     /** The detail, laid out as `encyclopedia_detail`: a showcase box on the left, what it is and does on the right. */

@@ -1394,6 +1394,8 @@ export interface LoadoutPayload {
     equippedSkillIds: string[]
     equippedArtifactIds: string[]
     equippedGear: Record<string, string>
+    /** The rows saved with it: `hero` and each fielded Champion. */
+    formation: Record<string, FormationRow>
     /** How many of the five components carry anything, for a one-glance summary. */
     filled: number
 }
@@ -1424,6 +1426,7 @@ export function serializeLoadouts(
                 equippedSkillIds: row.equippedSkillIds,
                 equippedArtifactIds: row.equippedArtifactIds,
                 equippedGear: row.equippedGear,
+                formation: row.formation,
                 filled: [
                     row.partyChampionIds.length > 0,
                     Object.keys(row.formation).length > 0,
