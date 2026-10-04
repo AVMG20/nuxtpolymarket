@@ -9,16 +9,23 @@ import TownMarketPanel from '~/components/town/TownMarketPanel.vue'
 import TownMilestonesPanel from '~/components/town/TownMilestonesPanel.vue'
 import TownLeaderboardPanel from '~/components/town/TownLeaderboardPanel.vue'
 import TownEventsPanel from '~/components/town/TownEventsPanel.vue'
+import TownStreakPanel from '~/components/town/TownStreakPanel.vue'
+import TownContractsPanel from '~/components/town/TownContractsPanel.vue'
+import TownFx from '~/components/town/TownFx.vue'
+import TownChestOpening from '~/components/town/TownChestOpening.vue'
+import TownBoostIcon from '~/components/town/TownBoostIcon.vue'
+import type { TownContractDelivery } from '~/composables/useTownContracts'
 import { formatTownDuration } from '~/utils/town-format'
 import { townTerrainCss } from '~/utils/town/terrain'
 import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, townEffectRadius, townCivicCheer, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townFrontTiles, townRoadAt, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, townBuildingSize, townFootprintAnchor, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
 import { getTownMonument, townBonusLabel, townBonusLines, townBonusValue, townMonumentEffect } from '#shared/utils/gamelogic/town-monuments'
-import type { TownBuildingView } from '~/composables/useTown'
+import { townJobProgress, townBoostedJobMs, type TownBuildingView, type TownBoostKind } from '~/composables/useTown'
 import type { SceneTile, SceneMoveGhost } from '~/components/town/TownScene.client.vue'
 
 const town = useTown()
 const sound = useTownSound()
 const motion = useTownMotion()
+const fx = useTownFx()
 const toast = useToast()
 const { user } = useAuth()
 
@@ -32,13 +39,17 @@ onMounted(() => { clock = setInterval(() => { now.value = Date.now() + town.serv
 onBeforeUnmount(() => { if (clock) clearInterval(clock) })
 
 // ── UI state ──
-type Window = 'market' | 'goals' | 'mayors' | 'land' | 'events' | null
+type Window = 'market' | 'goals' | 'mayors' | 'land' | 'events' | 'daily' | null
 const windowOpen = ref<Window>(null)
 const buildOpen = ref(false)
 const buildTier = ref(0)
 const ghostType = ref<string | null>(null)
 const ghostRotation = ref(0)
-function rotatePlacement() { ghostRotation.value = (ghostRotation.value + 1) % 4 }
+/** A quarter turn clockwise, or back the other way with `dir = -1` (Shift+R). */
+function rotatePlacement(dir: 1 | -1 = 1) {
+    ghostRotation.value = (ghostRotation.value + dir + 4) % 4
+    sound.play('rotate')
+}
 /** Building being relocated; its type becomes the ghost and the original hides. */
 const movingId = ref<string | null>(null)
 const hoveredTile = ref<{ plotId: string, tileX: number, tileY: number, wx: number, wy: number } | null>(null)
@@ -156,6 +167,17 @@ function tierLockText(t: number): string {
     return `needs ${parts.join(' · ')}`
 }
 function tierName(t: number) { return t === 0 ? 'Town' : `Tier ${t}` }
+function pickTier(t: number) {
+    if (buildTier.value === t) return
+    buildTier.value = t
+    sound.play('tab')
+}
+/** Tab and Shift+Tab walk the tabs, monuments last. */
+function cycleTier(dir: 1 | -1) {
+    const tabs = [...tiers.value, MONUMENT_TAB]
+    const at = Math.max(0, tabs.indexOf(buildTier.value))
+    pickTier(tabs[(at + dir + tabs.length) % tabs.length]!)
+}
 
 function canAfford(cost: { coins: number, resources: Record<string, number> }) {
     if (balance.value < cost.coins) return false
@@ -170,6 +192,14 @@ function countIssue(type: string): string | null {
 }
 
 function pickBuild(type: string) {
+    // The held card again puts it down, whatever would block picking up another.
+    if (ghostType.value === type && !movingId.value) {
+        sound.play('close')
+        ghostType.value = null
+        ghostRotation.value = 0
+        selectedBuildingId.value = null
+        return
+    }
     const capped = countIssue(type)
     if (capped) {
         toast.add({ title: capped, color: 'neutral' })
@@ -186,17 +216,29 @@ function pickBuild(type: string) {
         openBlocked({ kind: 'build', type })
         return
     }
-    sound.play('click')
+    sound.play('pickup')
     movingId.value = null
-    ghostType.value = ghostType.value === type ? null : type
+    ghostType.value = type
     ghostRotation.value = 0
     selectedBuildingId.value = null
+}
+
+/** Pick up another of the building under the cursor (or the open card), like an eyedropper. */
+function copyBuilding() {
+    const b = hoveredBuilding.value ?? selectedBuilding.value
+    if (!b || redesign.value || moveSelection.value) return
+    // Already holding it: a second C must not drop it again.
+    if (ghostType.value === b.type && !movingId.value) return
+    const entry = town.catalogById.value.get(b.type)
+    if (!entry || cardLocked(entry)) { sound.play('deny'); return }
+    pickBuild(b.type)
+    if (ghostType.value === b.type && entry.kind !== 'road') ghostRotation.value = b.rotation
 }
 
 function startMove() {
     const b = selectedBuilding.value
     if (!b) return
-    sound.play('click')
+    sound.play('pickup')
     movingId.value = b.id
     ghostType.value = b.type
     // A site travels as the building it will become, so it reads as itself.
@@ -236,9 +278,13 @@ async function onSelectTile(cursorTile: { plotId: string, tileX: number, tileY: 
     }
     if (busy.value) return
     const issue = placementIssueAt(tile)
+    // Out of crews is the one blocker with a way through: offer the rush.
+    if (issue === NO_CREWS && issue === ghostBlocker.value && !movingId.value) {
+        openBlocked({ kind: 'build', type: ghostType.value })
+        return
+    }
     if (issue) {
-        sound.play('error')
-        toast.add({ title: issue, color: 'warning' })
+        denyPlacement(issue, tile)
         return
     }
     busy.value = true
@@ -249,14 +295,28 @@ async function onSelectTile(cursorTile: { plotId: string, tileX: number, tileY: 
             movingId.value = null
             ghostType.value = null
         } else {
-            await town.placeBuilding(tile.plotId, tile.tileX, tile.tileY, ghostType.value, ghostRotation.value)
-            sound.play('place')
+            const type = ghostType.value
+            await town.placeBuilding(tile.plotId, tile.tileX, tile.tileY, type, ghostRotation.value)
+            sound.play(type === 'road' ? 'road' : 'place')
+            // The last one the town may own: nothing left to hold.
+            if (ghostType.value === type && countIssue(type)) ghostType.value = null
         }
     } catch {
         sound.play('error')
     } finally {
         busy.value = false
     }
+}
+
+/**
+ * A click the ghost cannot take: it shakes and knocks. The reason already
+ * floats over the ghost when there was a hover; a tap has none, so it toasts.
+ */
+function denyPlacement(issue: string, tile: { wx: number, wy: number } | null) {
+    sound.play('deny')
+    sceneRef.value?.denyGhost()
+    const hovered = hoveredTile.value
+    if (!tile || !hovered || hovered.wx !== tile.wx || hovered.wy !== tile.wy) toast.add({ title: issue, color: 'warning' })
 }
 
 function onHoverTile(cursorTile: { plotId: string, tileX: number, tileY: number, wx: number, wy: number } | null) {
@@ -277,7 +337,7 @@ function onSelectBuilding(id: string) {
     sound.unlock()
     closeHudPopovers()
     if (redesign.value) { selectedIds.value = []; pickUpDraft(id); return }
-    sound.play('click')
+    sound.play('select')
     ghostType.value = null
     buildOpen.value = false
     windowOpen.value = null
@@ -289,8 +349,8 @@ function onSelectBuilding(id: string) {
 
 function onDeselect() {
     if (redesign.value) { dropTrayPick(); return }
-    if (moveSelection.value) { moveSelection.value = null; return }
-    if (ghostType.value) { ghostType.value = null; movingId.value = null; return }
+    if (moveSelection.value) { moveSelection.value = null; sound.play('close'); return }
+    if (ghostType.value) { ghostType.value = null; movingId.value = null; sound.play('close'); return }
     if (selectedIds.value.length) { clearSelection(); sound.play('close'); return }
     if (selectedBuildingId.value) { selectedBuildingId.value = null; sound.play('close') }
 }
@@ -610,7 +670,7 @@ const selMaxLevel = computed(() => selectedEntry.value?.maxLevel ?? town.constan
 const selCanUpgrade = computed(() => !!selectedBuilding.value && !selPending.value && selectedBuilding.value.level > 0 && selectedBuilding.value.level < selMaxLevel.value)
 const selUpgradeCost = computed(() => selDef.value ? townLevelCost(selDef.value, selNextLevel.value) : { coins: 0, resources: {} })
 // The server quotes this: only it knows the town's mood and its monuments.
-const selUpgradeMs = computed(() => selectedBuilding.value?.nextUpgradeMs ?? 0)
+const selUpgradeMs = computed(() => boostedMs(selectedBuilding.value?.nextUpgradeMs ?? 0))
 /** Residents this building wants. Warehouses want them too, not just workshops. */
 const selWorkersWanted = computed(() => selDef.value && selectedBuilding.value
     ? townWorkersFor(selDef.value, selectedBuilding.value.level)
@@ -670,8 +730,44 @@ function placementIssueAt(tile: { wx: number, wy: number }): string | null {
     // Placement only checks the ground; a disconnected building stays idle.
     if (redesign.value) return groundIssue(tile.wx, tile.wy, def.id)
     if (movingId.value) return townGroupMoveIssue(simBuildings.value, [{ id: movingId.value, wx: tile.wx, wy: tile.wy, rotation: ghostRotation.value }])
-    return townPlacementIssue(simBuildings.value, def, tile.wx, tile.wy, ghostRotation.value)
+    return townPlacementIssue(simBuildings.value, def, tile.wx, tile.wy, ghostRotation.value) ?? (redesign.value ? null : ghostBlocker.value)
 }
+
+/** The server's word for a build with no crew free; the one blocker a rush gets past. */
+const NO_CREWS = 'Every builder is busy'
+
+/** What the next one costs to put down: free while research carries a monument over. */
+const ghostCost = computed(() => {
+    const type = ghostType.value
+    if (!type || movingId.value || redesign.value) return null
+    const entry = town.catalogById.value.get(type)
+    if (!entry) return null
+    if (monumentCredit(type)) return { coins: 0, resources: {} as Record<string, number> }
+    return town.nextCost.value[type] ?? entry.cost
+})
+
+/**
+ * Why no tile at all would take the held building right now (crews, coins,
+ * the town's cap), so the ghost turns red before the click, not after.
+ */
+const ghostBlocker = computed<string | null>(() => {
+    const type = ghostType.value
+    const cost = ghostCost.value
+    const entry = type ? town.catalogById.value.get(type) : null
+    if (!type || !cost || !entry) return null
+    const capped = countIssue(type)
+    if (capped) return capped
+    if (entry.kind === 'monument') {
+        if (!monumentCredit(type) && monumentCrewNote.value) return monumentCrewNote.value
+    } else if (entry.kind !== 'road' && buildersFree.value === 0) {
+        return NO_CREWS
+    }
+    if (balance.value < cost.coins) return 'Not enough coins'
+    for (const [id, q] of Object.entries(cost.resources)) {
+        if ((town.inventory.value[id] ?? 0) < q) return `Not enough ${town.resourceById.value.get(id)?.name.toLowerCase() ?? id}`
+    }
+    return null
+})
 
 const ghostIssue = computed<string | null>(() => hoveredTile.value ? placementIssueAt(hoveredTile.value) : null)
 
@@ -691,6 +787,9 @@ function planTiles(cursorTiles: SceneTile[]) {
     // What the drag has left to spend, so the pads stop where the server will.
     let coinsLeft = balance.value
     const goodsLeft: Record<string, number> = { ...town.inventory.value }
+    // Every building but a road takes a crew, so the pads stop when they run out.
+    const needsCrew = def.kind !== 'road' && def.kind !== 'monument'
+    let crewsLeft = buildersFree.value
     const out: { tile: SceneTile, rotation: number, ok: boolean, coins: number }[] = []
     for (const tile of tiles) {
         let rotation = ghostRotation.value
@@ -700,11 +799,13 @@ function planTiles(cursorTiles: SceneTile[]) {
         }
         let ok = townPlacementIssue(layout, def, tile.wx, tile.wy, rotation) === null
             && townBuildingCountIssue(def, counts.get(def.id) ?? 0) === null
+            && (!needsCrew || crewsLeft > 0)
         const cost = townPlaceCost(def, counts.get(def.id) ?? 0)
         if (ok && (cost.coins > coinsLeft || Object.entries(cost.resources).some(([id, q]) => (goodsLeft[id] ?? 0) < q))) ok = false
         const coins = ok ? cost.coins : 0
         out.push({ tile, rotation, ok, coins })
         if (ok) {
+            if (needsCrew) crewsLeft--
             coinsLeft -= cost.coins
             for (const [id, q] of Object.entries(cost.resources)) goodsLeft[id] = (goodsLeft[id] ?? 0) - q
             counts.set(def.id, (counts.get(def.id) ?? 0) + 1)
@@ -734,7 +835,16 @@ const dragQuote = computed(() => {
 })
 
 function onDragTiles(tiles: SceneTile[]) {
+    const grew = tiles.length > dragTiles.value.length
     dragTiles.value = tiles
+    // The first tile is every plain click too; only a run that grows ticks.
+    if (!grew || tiles.length < 2) return
+    // Each tile the run takes ticks a semitone higher, up to two octaves; a
+    // tile it cannot take knocks low instead.
+    const plan = dragPlan.value
+    const ok = plan.filter(p => p.ok).length
+    if (plan[plan.length - 1]?.ok === false) sound.play('tick', 0.5)
+    else sound.play('tick', Math.pow(2, Math.min(24, Math.max(0, ok - 1)) / 12))
 }
 
 /**
@@ -754,8 +864,11 @@ function onPlaceLine(tiles: SceneTile[]) {
         toast.add({ title: 'Nothing could go there', color: 'warning' })
         return
     }
-    const items = plan.map(p => ({ plotId: p.tile.plotId, tileX: p.tile.tileX, tileY: p.tile.tileY, type: ghostType.value!, rotation: p.rotation }))
-    run(() => town.placeBuildings(items.slice(0, TOWN_MAX_DRAG_TILES)), undefined, 'place')
+    const type = ghostType.value
+    const items = plan.map(p => ({ plotId: p.tile.plotId, tileX: p.tile.tileX, tileY: p.tile.tileY, type, rotation: p.rotation }))
+    run(() => town.placeBuildings(items.slice(0, TOWN_MAX_DRAG_TILES)), () => {
+        if (ghostType.value === type && countIssue(type)) ghostType.value = null
+    }, type === 'road' ? 'road' : 'place')
 }
 
 // ── Selection ───────────────────────────────────────────────────────────────
@@ -871,7 +984,7 @@ function startGroupMove() {
     trayPick.value = null
     selectedBuildingId.value = null
     buildOpen.value = false
-    sound.play('click')
+    sound.play('pickup')
 }
 
 const moveGhosts = computed(() => moveSelection.value?.items ?? null)
@@ -892,15 +1005,18 @@ const moveIssue = computed(() => {
     return tile ? groupIssueFor(groupTargetsAt(tile.wx, tile.wy)) : null
 })
 
-function rotateGroup() {
+function rotateGroup(dir: 1 | -1 = 1) {
     const sel = moveSelection.value
     if (!sel) return
     // The whole block turns a quarter clockwise about the tile under the cursor,
     // every building turning with it, so a street with houses along it comes
     // down as the same street facing the other way. The offset map is the same
     // one TOWN_FACING follows, which is what keeps every door on its road.
-    sel.items = sel.items.map(i => ({ ...i, dx: i.dy, dy: -i.dx, rotation: (i.rotation + 1) % 4 }))
-    sound.play('click')
+    // Shift turns it back the other way: the exact inverse of that map.
+    sel.items = dir === 1
+        ? sel.items.map(i => ({ ...i, dx: i.dy, dy: -i.dx, rotation: (i.rotation + 1) % 4 }))
+        : sel.items.map(i => ({ ...i, dx: -i.dy, dy: i.dx, rotation: (i.rotation + 3) % 4 }))
+    sound.play('rotate')
 }
 
 /**
@@ -915,8 +1031,8 @@ async function commitGroupMove(tile: { plotId: string, tileX: number, tileY: num
     if (!targets) return
     const issue = groupIssueFor(targets)
     if (issue) {
-        sound.play('error')
-        toast.add({ title: issue, color: 'warning' })
+        // A carried block shows no reason over the cursor, so it always says why.
+        denyPlacement(issue, null)
         return
     }
     const moves = targets.map((t) => {
@@ -1136,9 +1252,22 @@ function openMarket(resource?: string) {
     if (resource) marketResource.value = resource
     if (windowOpen.value !== 'market') openWindow('market')
 }
+/**
+ * Where a gain should burst from: the button just pressed (or the card it
+ * sits in), read before the request so a button that vanishes still counts.
+ */
+function pressedAt(closest?: string): DOMRect | null {
+    const el = document.activeElement
+    if (!el || el === document.body) return null
+    return (closest ? el.closest(closest) ?? el : el).getBoundingClientRect()
+}
+
 function sellFloor(resource: string, quantity: number) {
+    const at = pressedAt()
     run(() => town.sellToFloor(resource, quantity), (res) => {
         sound.play(res.total >= 100_000 ? 'bigcoin' : 'coin')
+        fx.reward(at, { coins: res.total }, { scale: res.total >= 100_000 ? 1.3 : 0.8 })
+        marketDayFloat(at, res.marketBonus)
     })
 }
 function placeOrder(resource: string, side: 'buy' | 'sell', price: number, quantity: number) {
@@ -1151,15 +1280,26 @@ function placeOrder(resource: string, side: 'buy' | 'sell', price: number, quant
     })
 }
 function convertJewels(gems: number) {
-    run(() => town.convertJewels(gems), () => {
-        sound.play('bigcoin')
+    const at = pressedAt()
+    run(() => town.convertJewels(gems), (res) => {
+        sound.play('gem')
+        fx.reward(at, { gems: res.gems || gems })
     })
 }
 function sellBulk(items: { resource: string, quantity: number }[]) {
     if (!items.length) return
+    const at = pressedAt()
     run(() => town.sellBulk(items), (res) => {
         sound.play(res.total >= 100_000 ? 'bigcoin' : 'coin')
+        fx.reward(at, { coins: res.total }, { scale: res.total >= 100_000 ? 1.5 : 1 })
+        marketDayFloat(at, res.marketBonus)
     })
+}
+/** The market-day coins on top of a sale, floated just above the sale's own amount. */
+function marketDayFloat(at: DOMRect | null, bonus: number | undefined) {
+    if (!bonus || bonus <= 0) return
+    const p = at ? { x: at.left + at.width / 2, y: at.top + at.height / 2 } : null
+    setTimeout(() => fx.float(p, [{ icon: 'coin', text: `+${formatNumber(bonus)} market day`, tone: 'gold' }], { dy: -56 }), 180)
 }
 function cancelOrder(orderId: string) {
     run(() => town.cancelOrder(orderId), undefined, 'close')
@@ -1168,7 +1308,10 @@ function cancelOrder(orderId: string) {
 // ── Milestones ──
 const claimable = computed(() => town.claimableMilestones.value.length)
 function claimMilestone(id: string) {
-    run(() => town.claimMilestone(id), undefined, 'bigcoin')
+    const at = pressedAt('.goal')
+    run(() => town.claimMilestone(id), (res) => {
+        fx.reward(at, { coins: res.reward, gems: res.gems }, { scale: 1.3 })
+    }, 'bigcoin')
 }
 watch(claimable, (n, prev) => {
     if (prev !== undefined && n > prev) {
@@ -1197,6 +1340,27 @@ const welcomeRows = computed(() => Object.entries(welcome.value?.delta ?? {})
     .map(([id, qty]) => ({ id, qty, def: town.resourceById.value.get(id) }))
     .sort((a, b) => b.qty - a.qty))
 const welcomeValue = computed(() => welcomeRows.value.reduce((s, r) => s + Math.max(0, r.qty) * (r.def?.floorPrice ?? 0), 0))
+const welcomeGains = computed(() => welcomeRows.value.filter(r => r.qty > 0))
+const welcomeLosses = computed(() => welcomeRows.value.filter(r => r.qty < 0))
+/** The headline worth counts up from zero as the card opens. */
+const welcomeShownValue = ref(0)
+let welcomeRaf = 0
+watch(welcome, (w) => {
+    cancelAnimationFrame(welcomeRaf)
+    welcomeShownValue.value = 0
+    if (!w) return
+    const target = welcomeValue.value
+    if (motion.reduced.value || target <= 0) { welcomeShownValue.value = target; return }
+    const start = performance.now()
+    const step = (t: number) => {
+        if (welcome.value !== w) return
+        const k = Math.min(1, Math.max(0, t - start) / 900)
+        welcomeShownValue.value = Math.round(target * (1 - Math.pow(1 - k, 3)))
+        if (k < 1) welcomeRaf = requestAnimationFrame(step)
+    }
+    welcomeRaf = requestAnimationFrame(step)
+}, { immediate: true })
+onBeforeUnmount(() => cancelAnimationFrame(welcomeRaf))
 
 // ── Help ──
 const helpOpen = ref(false)
@@ -1209,6 +1373,49 @@ onMounted(() => {
         }
     } catch { /* storage unavailable */ }
 })
+
+// ── Daily: the mayor streak and the town hall contracts ──
+const streak = useTownStreak()
+const contracts = useTownContracts(() => town.inventory.value)
+/** Something waiting in the Daily window: a streak step to claim, a contract the town can fill, or the contracts bonus. */
+const dailyBadge = computed(() => streak.claimableCount.value + contracts.readyCount.value + (contracts.bonus.value.claimable ? 1 : 0))
+// Both need a town: refetch only what came back empty before it was founded.
+// A fetch still in flight on a normal load is left alone, since cutting it off
+// would drop the response that unlocked today's step.
+watch(town.initialized, (v) => {
+    if (!v) return
+    if (streak.data.value?.initialized === false) streak.refresh()
+    if (contracts.error.value) contracts.refresh()
+})
+/**
+ * The first visit of a new day opens the track, once the welcome-back card
+ * and the help are out of the way, so the day's step is the first thing seen.
+ * `advancedToday` is latched: a later refetch reports false, and must not
+ * cancel an open that is only waiting on the welcome card.
+ */
+let dailyOpened = false
+const dailyDue = ref(false)
+watch(streak.advancedToday, (v) => { if (v && !dailyOpened) dailyDue.value = true }, { immediate: true })
+watch(() => dailyDue.value && !welcome.value && !helpOpen.value && town.initialized.value, async (ready) => {
+    if (!ready) return
+    // The welcome-back card comes from the same state load and may land a tick
+    // later; once it does, this fires again when it closes.
+    await nextTick()
+    if (!dailyDue.value || welcome.value || helpOpen.value) return
+    dailyDue.value = false
+    dailyOpened = true
+    // Busy with something else: the dock badge is enough.
+    if (windowOpen.value || buildOpen.value || ghostType.value || redesign.value) return
+    windowOpen.value = 'daily'
+}, { immediate: true })
+function onStreakChanged() {
+    town.refresh()
+}
+function onContractDelivered(res: TownContractDelivery) {
+    town.refresh()
+    // The set is complete: a fanfare as the bonus button pops in, after the stamp.
+    if (res.bonusReady) setTimeout(() => sound.play('complete'), motion.reduced.value ? 0 : 550)
+}
 
 // ── Happiness / needs popover ──
 const needs = computed(() => town.needs.value)
@@ -1278,6 +1485,46 @@ const happiness = computed(() => town.state.value?.happiness ?? 50)
 const speed = computed(() => town.state.value?.speedMultiplier ?? 0.75)
 const popCap = computed(() => town.state.value?.popCap ?? 0)
 
+// ── Boosts ──
+const BOOST_INFO: Record<TownBoostKind, { name: string, tip: string }> = {
+    build: { name: 'Builder\'s rush', tip: 'Every build and upgrade runs at double speed.' },
+    production: { name: 'Production surge', tip: 'Workshops make twice as much, and use twice the inputs.' },
+    market: { name: 'Market day', tip: 'The town hall pays 1.5× for your goods.' },
+    builder: { name: 'Free builder', tip: 'A borrowed crew takes on one more job at a time.' }
+}
+/** Short countdown for a buff chip: "43m", "23h 10m", "40s". */
+function boostLeft(ms: number) {
+    const s = Math.max(0, Math.ceil(ms / 1000))
+    if (s < 60) return `${s}s`
+    const m = Math.ceil(s / 60)
+    if (m < 60) return `${m}m`
+    return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
+}
+const activeBoosts = computed(() => {
+    const b = town.boosts.value
+    return (['build', 'production', 'market', 'builder'] as const)
+        .filter(kind => b[kind] !== null && b[kind]! > now.value)
+        .map((kind) => {
+            const info = BOOST_INFO[kind]
+            const left = boostLeft(b[kind]! - now.value)
+            let tip = `${info.name}: ${info.tip}`
+            if (kind === 'market') {
+                tip += town.marketBonusLeft.value > 0
+                    ? `\n${formatNumber(town.marketBonusLeft.value)} bonus coins left to earn.`
+                    : '\nThe bonus budget is spent.'
+            }
+            return { kind, name: info.name, left, tip: `${tip}\nEnds in ${left}.` }
+        })
+})
+/** Production surge: workshop rates shown doubled, with a ×2 marker. */
+const productionMult = computed(() => town.boostMultiplier.value.production)
+/** A build job's length as it would run if started now, the rush counted in. */
+function boostedMs(ms: number) {
+    return townBoostedJobMs(ms, now.value, town.boosts.value.build)
+}
+/** The borrowed crew's countdown, for the builders chip and popover. */
+const tempCrewLeft = computed(() => town.builders.value.tempBuilderUntil ? boostLeft(town.builders.value.tempBuilderUntil - now.value) : null)
+
 // ── Builders ──
 // One crew per running build or upgrade. This is the pacing lever: a town can
 // only grow on as many fronts as it has crews, and the rest cost gems.
@@ -1332,7 +1579,7 @@ const recommendedUpgrades = computed(() => rankTownUpgrades({
     residents: popCap.value,
     happiness: happiness.value,
     storageCap: storageCap.value,
-    netPerHour: Object.fromEntries(Object.entries(town.netPerTick.value).map(([id, n]) => [id, n * ticksPerHour.value])),
+    netPerHour: Object.fromEntries(Object.entries(town.boostedNetPerTick.value).map(([id, n]) => [id, n * ticksPerHour.value])),
     stock: town.inventory.value
 }, upgradeCandidates.value))
 
@@ -1358,7 +1605,7 @@ const runningJobs = computed(() => town.buildings.value
         first: b.level === 0,
         remainingMs: b.completesAt - now.value,
         /** How far along, 0..1 — the server quotes the job's full length. */
-        progress: Math.min(1, Math.max(0, 1 - (b.completesAt - now.value) / Math.max(1, b.jobMs ?? 1))),
+        progress: townJobProgress(b.completesAt, b.jobMs, now.value, town.boosts.value.build),
         gems: townRushGemCost(b.completesAt - now.value)
     }))
     .sort((a, b) => a.gems - b.gems))
@@ -1380,7 +1627,8 @@ async function rushAndContinue() {
     if (!job || !next) return
     blocked.value = null
     await run(() => town.rushBuilding(job.id), undefined, 'rush')
-    if (next.kind === 'build') pickBuild(next.type)
+    // Still holding it (the block came from a click on the map): keep holding it.
+    if (next.kind === 'build') { if (ghostType.value !== next.type) pickBuild(next.type) }
     else await run(() => town.upgradeBuilding(next.buildingId), undefined, 'upgrade')
 }
 
@@ -1389,7 +1637,8 @@ function hireBuilder() {
     run(() => town.hireBuilder(), undefined, 'coin')
 }
 const workersDemanded = computed(() => town.state.value?.workersDemanded ?? 0)
-const incomePerDay = computed(() => town.state.value?.floorIncomePerDay ?? 0)
+// Floor income counts the workshops only, so a surge doubles all of it.
+const incomePerDay = computed(() => (town.state.value?.floorIncomePerDay ?? 0) * productionMult.value)
 const storageCap = computed(() => town.state.value?.storageCap ?? 0)
 const ticksPerHour = computed(() => (3_600_000 / town.constants.value.tickMs) * speed.value)
 /** Per-tick amounts are an implementation detail; every number the player sees is per hour. */
@@ -1400,14 +1649,15 @@ function perHour(perTick: number) {
 function ioUnit(c: { outputs: Record<string, number> }): 'h' | 'day' {
     return Object.values(c.outputs).some(q => q * ticksPerHour.value < 1) ? 'day' : 'h'
 }
+/** A workshop's rate as it runs right now: a production surge doubles it. */
 function ioRate(q: number, unit: 'h' | 'day') {
-    const value = q * ticksPerHour.value * (unit === 'day' ? 24 : 1)
+    const value = q * ticksPerHour.value * productionMult.value * (unit === 'day' ? 24 : 1)
     return value < 10 ? String(Math.round(value * 10) / 10) : formatNumber(Math.round(value))
 }
 /** A day of output priced at the floor, good by good — which good actually pays. */
 const incomeRows = computed(() => town.resources.value
     .map((r) => {
-        const perDay = Math.round((town.netPerTick.value[r.id] ?? 0) * ticksPerHour.value * 24)
+        const perDay = Math.round((town.boostedNetPerTick.value[r.id] ?? 0) * ticksPerHour.value * 24)
         return { id: r.id, name: r.name, perDay, value: Math.round(perDay * r.floorPrice) }
     })
     .filter(r => r.perDay > 0)
@@ -1427,7 +1677,7 @@ const inventoryRows = computed(() => town.resources.value
     .map(r => ({
         ...r,
         amount: town.inventory.value[r.id] ?? 0,
-        perHour: Math.round((town.netPerTick.value[r.id] ?? 0) * ticksPerHour.value)
+        perHour: Math.round((town.boostedNetPerTick.value[r.id] ?? 0) * ticksPerHour.value)
     }))
     .filter(r => r.amount > 0 || producedIds.value.has(r.id)))
 function toggleSound() {
@@ -1461,12 +1711,16 @@ const terrainLegend = computed(() => TOWN_TERRAINS.map(t => ({
 function onKey(e: KeyboardEvent) {
     if (townIsTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
     const modal = welcome.value || helpOpen.value || confirmDemolish.value || confirmBulk.value || confirmRedesign.value
+    // Any dialog over the map: the build keys must not act behind it.
+    const dialog = modal || blocked.value || buildersOpen.value || confirmPlot.value || confirmListing.value || confirmSellPlot.value
     if (e.code === 'KeyR' && !modal && (ghostType.value || moveSelection.value)) {
         e.preventDefault()
-        if (moveSelection.value) rotateGroup()
-        else rotatePlacement()
+        const dir = e.shiftKey ? -1 : 1
+        if (moveSelection.value) rotateGroup(dir)
+        else rotatePlacement(dir)
         return
     }
+    if (e.code === 'KeyC' && !dialog && !windowOpen.value) { copyBuilding(); return }
     if ((e.key === 'Delete' || e.key === 'Backspace') && !modal && (selectedIds.value.length || selectedBuilding.value)) {
         e.preventDefault()
         if (selectedIds.value.length) demolishMany(selectedIds.value)
@@ -1501,11 +1755,24 @@ function onKey(e: KeyboardEvent) {
         else if (welcome.value) welcome.value = null
         else if (helpOpen.value) helpOpen.value = false
         else closeAll()
-    } else if ((e.key === 'm' || e.key === 'M') && selectedIds.value.length > 1) startGroupMove()
+    } else if (buildOpen.value && !dialog && /^Digit[1-9]$/.test(e.code)) {
+        const card = tierEntries.value[Number(e.code.slice(5)) - 1]
+        if (card && !cardLocked(card)) pickBuild(card.id)
+    } else if (buildOpen.value && !dialog && e.key === 'Tab') {
+        e.preventDefault()
+        cycleTier(e.shiftKey ? -1 : 1)
+    } else if ((e.key === 'u' || e.key === 'U') && !dialog && selectedIds.value.length > 1) { if (!busy.value) upgradeSelection() }
+    else if ((e.key === 'u' || e.key === 'U') && !dialog && selectedBuilding.value && selCanUpgrade.value) {
+        // The same gate as the button: no key press may do what a disabled button cannot.
+        if (!busy.value && canAfford(selUpgradeCost.value) && !(selMonument.value && monumentCrewNote.value)) upgradeSelected()
+        else sound.play('deny')
+    }
+    else if ((e.key === 'm' || e.key === 'M') && selectedIds.value.length > 1) startGroupMove()
     else if ((e.key === 'm' || e.key === 'M') && selectedBuilding.value) startMove()
     else if (e.key === 'b' || e.key === 'B') toggleBuild()
     else if (e.key === 'h' || e.key === 'H') openMarket()
     else if (e.key === 't' || e.key === 'T') openWindow('goals')
+    else if (e.key === 'y' || e.key === 'Y') openWindow('daily')
     else if (e.key === 'l' || e.key === 'L') openWindow('mayors')
     else if (e.key === 'p' || e.key === 'P') openWindow('land')
     else if (e.key === 'g' || e.key === 'G') toggleTerrain()
@@ -1590,6 +1857,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             :move-issue="moveIssue"
             :drag-valid="dragValid"
             :reduced-motion="motion.reduced.value"
+            :boosts="town.boosts.value"
             @hover-tile="onHoverTile"
             @select-tile="onSelectTile"
             @select-building="onSelectBuilding"
@@ -1633,14 +1901,22 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 <div class="hud-hover" @mouseenter="buildersPop = true" @mouseleave="buildersPop = false">
                     <button class="g-chip g-chip-btn" :class="buildersFree === 0 ? 'g-chip-warn' : ''" @click="openBuilders">
                         <UIcon name="i-lucide-hammer" class="g-ico" />
-                        <b>{{ buildersFree }}<span class="g-sub">/{{ town.builders.value.owned }}</span></b>
+                        <b>{{ buildersFree }}<span class="g-sub">/</span><span :class="tempCrewLeft ? 'crew-temp' : 'g-sub'">{{ town.builders.value.total }}</span></b>
                     </button>
 
                     <Transition name="fade">
                         <div v-if="buildersPop" class="moodpop is-builders">
                             <div>
                                 <span class="g-label">In progress</span>
-                                <p class="moodpop-sub">{{ buildersFree }} of {{ town.builders.value.owned }} builders free</p>
+                                <p class="moodpop-sub">{{ buildersFree }} of {{ town.builders.value.total }} builders free</p>
+                            </div>
+                            <div v-if="tempCrewLeft" class="crew-row">
+                                <TownBoostIcon kind="builder" :size="22" />
+                                <span class="rec-main">
+                                    <b>Free builder</b>
+                                    <span class="moodpop-sub">One extra crew, on loan</span>
+                                </span>
+                                <span class="crew-row-time">{{ tempCrewLeft }}</span>
                             </div>
                             <div class="moodpop-group">
                                 <div v-for="j in runningJobs" :key="j.id" class="job-row">
@@ -1774,11 +2050,12 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <div class="g-chip">
                         <UIcon name="i-lucide-trending-up" class="g-ico is-green" />
                         <b>{{ formatNumber(incomePerDay) }}</b><span class="g-sub">/day if sold</span>
+                        <em v-if="productionMult > 1" class="boost-x">×2</em>
                     </div>
 
                     <Transition name="fade">
                         <div v-if="incomeOpen" class="moodpop is-income">
-                            <span class="g-label">Per day, sold at floor</span>
+                            <span class="g-label">Per day, sold at floor<template v-if="productionMult > 1"> · production surge ×2</template></span>
                             <div class="moodpop-group">
                                 <div v-for="r in incomeRows" :key="r.id" class="income-row">
                                     <span class="income-ico"><TownAsset :id="r.id" /></span>
@@ -1795,6 +2072,22 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         </div>
                     </Transition>
                 </div>
+                <!-- Timed boosts: one chip each while it runs -->
+                <TransitionGroup name="buff">
+                    <div
+                        v-for="b in activeBoosts"
+                        :key="b.kind"
+                        class="g-chip buff"
+                        :class="[`is-${b.kind}`, motion.reduced.value ? 'is-calm' : '']"
+                        :data-tip-below="b.tip"
+                        role="status"
+                        :aria-label="`${b.name}, ${b.left} left`"
+                    >
+                        <TownBoostIcon :kind="b.kind" :size="20" />
+                        <span class="buff-name">{{ b.name }}</span>
+                        <b class="buff-time">{{ b.left }}</b>
+                    </div>
+                </TransitionGroup>
             </div>
 
             <!-- Top-right controls -->
@@ -1827,7 +2120,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 <div v-if="moveSelection" class="hint">
                     <UIcon name="i-lucide-move" />
                     <b>{{ moveSelection.items.length }} moving</b>
-                    <button class="hint-btn" data-tip-below="Turn the whole block a quarter turn" @click="rotateGroup"><kbd>R</kbd>rotate</button>
+                    <button class="hint-btn" data-tip-below="Turn the whole block a quarter turn. Shift+R turns it back" @click="rotateGroup()"><kbd>R</kbd>rotate</button>
                     <kbd>Esc</kbd>
                 </div>
                 <div v-else-if="redesign && ghostType" class="hint">
@@ -1835,7 +2128,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <UIcon v-else name="i-lucide-route" />
                     <b>{{ town.catalogById.value.get(ghostType)?.name }}</b>
                     <span class="hint-note">{{ ghostType === 'road' ? 'click or drag to lay' : 'click to put down · drag for a row' }}</span>
-                    <button v-if="ghostType !== 'road'" class="hint-btn" data-tip-below="The white arrow is the front door" @click="rotatePlacement"><kbd>R</kbd>rotate</button>
+                    <button v-if="ghostType !== 'road'" class="hint-btn" data-tip-below="The white arrow is the front door. Shift+R turns it back" @click="rotatePlacement()"><kbd>R</kbd>rotate</button>
                     <kbd>Esc</kbd>
                 </div>
                 <div v-else-if="ghostType" class="hint">
@@ -1843,16 +2136,19 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <UIcon v-else name="i-lucide-route" />
                     <b>{{ town.catalogById.value.get(ghostType)?.name }}</b>
                     <span v-if="dragQuote" class="hint-quote">×{{ dragQuote.count }}<TownCoin />{{ formatNumber(dragQuote.coins) }}</span>
-                    <span v-else-if="!movingId" class="hint-note">drag to lay a run</span>
+                    <template v-else-if="ghostCost">
+                        <span v-if="ghostBlocker" class="hint-warn">{{ ghostBlocker }}</span>
+                        <span v-else class="hint-note">drag to lay a run</span>
+                    </template>
                     <button
                         v-if="town.catalogById.value.get(ghostType)?.kind !== 'road'"
                         class="hint-btn"
-                        data-tip-below="The white arrow marks the front door. A building works when its door touches a road"
-                        @click="rotatePlacement"
+                        data-tip-below="The white arrow marks the front door. A building works when its door touches a road. Shift+R turns it back"
+                        @click="rotatePlacement()"
                     >
                         <kbd>R</kbd>rotate
                     </button>
-                    <kbd>Esc</kbd>
+                    <span class="hint-note" data-tip-below="Esc or a right-click lets go of it"><kbd>Esc</kbd></span>
                 </div>
                 <div v-else-if="hoveredSlot && plotPurchase && plotRemainingMs > 0 && !plotPurchase.maxed" class="hint">
                     <UIcon name="i-lucide-map" />Land office opens in <b>{{ formatTownDuration(plotRemainingMs) }}</b>
@@ -1866,7 +2162,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <span class="inv-num">{{ formatNumber(r.amount) }}</span>
                     <span class="inv-tail">
                         <UIcon v-if="r.amount >= storageCap" name="i-lucide-package" class="inv-full" />
-                        <span v-if="r.perHour" class="inv-rate" :class="r.perHour > 0 ? 'up' : 'down'">{{ r.perHour > 0 ? '+' : '' }}{{ formatNumber(r.perHour) }}/h</span>
+                        <span v-if="r.perHour" class="inv-rate" :class="r.perHour > 0 ? 'up' : 'down'">{{ r.perHour > 0 ? '+' : '' }}{{ formatNumber(r.perHour) }}/h<em v-if="productionMult > 1 && r.perHour > 0" class="boost-x">×2</em></span>
                     </span>
                 </button>
             </div>
@@ -1934,7 +2230,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <UIcon name="i-lucide-undo-2" />Lift<kbd>Del</kbd>
                     </button>
                     <button v-if="!redesign" class="g-btn g-btn-sm" :disabled="busy || selectionUpgradable.length === 0" :data-tip="selectionUpgradable.length ? 'As many as your crews and coins allow.' : 'None can upgrade now.'" @click="upgradeSelection">
-                        <UIcon name="i-lucide-arrow-up" />Upgrade {{ selectionUpgradable.length }}
+                        <UIcon name="i-lucide-arrow-up" />Upgrade {{ selectionUpgradable.length }}<kbd>U</kbd>
                     </button>
                     <button v-if="!redesign" class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." :disabled="busy" @click="demolishMany(selectedIds)">
                         <UIcon name="i-lucide-trash-2" />Demolish<kbd>Del</kbd>
@@ -1975,10 +2271,10 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <div v-if="selPending" class="card-row">
                             <div class="flex-1">
                                 <div class="card-progress-head">
-                                    <span class="g-label"><UIcon name="i-lucide-hammer" />{{ selectedBuilding.level === 0 ? 'Under construction' : selMonument ? `Stage ${selectedBuilding.upgradingTo}` : 'Upgrading' }}</span>
+                                    <span class="g-label"><UIcon name="i-lucide-hammer" />{{ selectedBuilding.level === 0 ? 'Under construction' : selMonument ? `Stage ${selectedBuilding.upgradingTo}` : 'Upgrading' }}<em v-if="town.boosts.value.build" class="boost-x is-build" data-tip="Builder's rush: double speed">×2</em></span>
                                     <b>{{ formatTownDuration(selRemaining) }}</b>
                                 </div>
-                                <div class="g-progress"><i :style="{ width: `${Math.round(100 * (1 - selRemaining / Math.max(1, selectedBuilding.jobMs ?? 1)))}%` }" /></div>
+                                <div class="g-progress" :class="town.boosts.value.build ? 'is-rushed' : ''"><i :style="{ width: `${Math.round(100 * townJobProgress(selectedBuilding.completesAt, selectedBuilding.jobMs, now, town.boosts.value.build))}%` }" /></div>
                             </div>
                             <button class="g-btn g-btn-gem g-btn-sm" :disabled="busy || gems < selRushGems" @click="rushSelected">
                                 <UIcon name="i-lucide-gem" />Rush {{ selRushGems }}
@@ -2006,6 +2302,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     <TownAsset :id="id" />+{{ selRate(q) }}
                                 </span>
                                 <span class="recipe-unit" data-tip="What it really moves right now. Level, workers and supply are all counted in.">per {{ selUnit === 'day' ? 'day' : 'hour' }}</span>
+                                <em v-if="productionMult > 1" class="boost-x" data-tip="Production surge: twice the output, twice the inputs">×2</em>
                             </div>
 
                             <!-- The two things that slow a building down -->
@@ -2084,7 +2381,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     <div class="upgrade-info" :class="previewUpgrade && selUpgradePreview.length ? 'is-hidden' : ''" :aria-hidden="previewUpgrade && selUpgradePreview.length > 0">
                                         <div class="upgrade-head">
                                             <span class="g-label">{{ selMonument ? 'Stage' : 'Level' }} {{ selNextLevel }}</span>
-                                            <span class="g-sub"><UIcon name="i-lucide-clock" />{{ formatTownDuration(selUpgradeMs) }}</span>
+                                            <span class="g-sub" :class="town.boosts.value.build ? 'is-rushed' : ''"><UIcon name="i-lucide-clock" />{{ formatTownDuration(selUpgradeMs) }}</span>
                                         </div>
                                         <div class="upgrade-cost">
                                             <span :class="balance >= selUpgradeCost.coins ? '' : 'bad'"><TownCoin />{{ formatNumber(selUpgradeCost.coins) }}</span>
@@ -2105,7 +2402,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     @blur="previewUpgrade = false"
                                     @click="upgradeSelected"
                                 >
-                                    <UIcon name="i-lucide-landmark" />Build
+                                    <UIcon name="i-lucide-landmark" />Build<kbd>U</kbd>
                                 </button>
                                 <button
                                     v-else
@@ -2118,7 +2415,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     @blur="previewUpgrade = false"
                                     @click="upgradeSelected"
                                 >
-                                    <UIcon name="i-lucide-arrow-up" />{{ buildersFree === 0 ? 'No builder' : 'Upgrade' }}
+                                    <UIcon name="i-lucide-arrow-up" />{{ buildersFree === 0 ? 'No builder' : 'Upgrade' }}<kbd>U</kbd>
                                 </button>
                             </div>
                             <div v-else-if="selectedEntry.kind !== 'road'" class="g-tag g-tag-gold card-maxed">
@@ -2142,10 +2439,10 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <Transition name="rise">
                 <div v-if="buildOpen" class="strip g-panel">
                     <div class="strip-tabs">
-                        <button v-for="t in tiers" :key="t" class="strip-tab" :class="[buildTier === t ? 'is-active' : '', tierLocked(t) ? 'is-locked' : '']" @click="buildTier = t; sound.play('click')">
+                        <button v-for="t in tiers" :key="t" class="strip-tab" :class="[buildTier === t ? 'is-active' : '', tierLocked(t) ? 'is-locked' : '']" @click="pickTier(t)">
                             <UIcon v-if="tierLocked(t)" name="i-lucide-lock" />{{ tierName(t) }}
                         </button>
-                        <button class="strip-tab" :class="buildTier === MONUMENT_TAB ? 'is-active' : ''" @click="buildTier = MONUMENT_TAB; sound.play('click')">
+                        <button class="strip-tab" :class="buildTier === MONUMENT_TAB ? 'is-active' : ''" @click="pickTier(MONUMENT_TAB)">
                             <UIcon name="i-lucide-landmark" />Monuments
                         </button>
                         <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="toggleBuild"><UIcon name="i-lucide-x" /></button>
@@ -2155,7 +2452,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     </div>
                     <div class="strip-cards">
                         <button
-                            v-for="c in tierEntries"
+                            v-for="(c, i) in tierEntries"
                             :key="c.id"
                             class="bcard"
                             :class="[ghostType === c.id && !movingId ? 'is-active' : '', canAfford(town.nextCost.value[c.id] ?? c.cost) && !cardLocked(c) && !countIssue(c.id) && (c.kind === 'road' || (c.kind === 'monument' ? !monumentCrewNote || monumentCredit(c.id) > 0 : buildersFree > 0)) ? '' : 'is-dim']"
@@ -2163,6 +2460,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             :style="{ '--accent': hex(c.color) }"
                             @click="pickBuild(c.id)"
                         >
+                            <kbd v-if="i < 9 && !cardLocked(c)" class="bcard-key">{{ i + 1 }}</kbd>
                             <span v-if="town.countsByType.value[c.id] || c.maxCount" class="bcard-count">×{{ town.countsByType.value[c.id] ?? 0 }}<template v-if="c.maxCount">/{{ c.maxCount }}</template></span>
                             <span class="bcard-art">
                                 <TownAsset v-if="c.kind !== 'road'" :id="c.id" kind="building" :level="c.kind === 'monument' ? c.maxLevel : 1" />
@@ -2182,8 +2480,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             </span>
                             <span class="bcard-meta">
                                 <span v-if="c.kind === 'road' || monumentCredit(c.id)"><UIcon name="i-lucide-zap" />instant</span>
-                                <span v-else :data-tip="`Upgrades take ${formatTownDuration(Math.round(c.upgradeMs * (mood?.buildTime ?? 1)))} and up`">
-                                    <UIcon name="i-lucide-clock" />{{ formatTownDuration(Math.round(c.buildMs * (mood?.buildTime ?? 1))) }}
+                                <span v-else :class="town.boosts.value.build ? 'is-rushed' : ''" :data-tip="`${town.boosts.value.build ? 'Builder\'s rush: double speed. ' : ''}Upgrades take ${formatTownDuration(boostedMs(Math.round(c.upgradeMs * (mood?.buildTime ?? 1))))} and up`">
+                                    <UIcon name="i-lucide-clock" />{{ formatTownDuration(boostedMs(Math.round(c.buildMs * (mood?.buildTime ?? 1)))) }}
                                 </span>
                                 <span v-if="c.workers"><UIcon name="i-lucide-users" />{{ c.workers }}</span>
                                 <span v-if="c.popCap"><UIcon name="i-lucide-house" />+{{ c.popCap }}</span>
@@ -2192,7 +2490,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 <span v-if="c.size" data-tip="Tiles it covers"><UIcon name="i-lucide-grid-2x2" />{{ c.size }}×{{ c.size }}</span>
                                 <span v-if="monumentCredit(c.id)" class="is-credit"><UIcon name="i-lucide-gift" />Stage {{ monumentCredit(c.id) }}</span>
                             </span>
-                            <span v-if="Object.keys(c.outputs).length" class="bcard-io" :data-tip="`Per ${ioUnit(c) === 'day' ? 'day' : 'hour'} at level 1`">
+                            <span v-if="Object.keys(c.outputs).length" class="bcard-io" :class="productionMult > 1 ? 'is-surge' : ''" :data-tip="`Per ${ioUnit(c) === 'day' ? 'day' : 'hour'} at level 1${productionMult > 1 ? ', doubled by the production surge' : ''}`">
                                 <template v-if="Object.keys(c.inputs).length">
                                     <span v-for="[id, q] in Object.entries(c.inputs)" :key="id">{{ ioRate(q, ioUnit(c)) }}<TownAsset :id="id" /></span>
                                     <UIcon name="i-lucide-arrow-right" />
@@ -2265,6 +2563,10 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 <button class="dock-btn" :class="windowOpen === 'market' ? 'is-active' : ''" @click="openMarket()">
                     <UIcon name="i-lucide-store" class="dock-ico" /><span>Market</span><kbd>H</kbd>
                 </button>
+                <button class="dock-btn" :class="windowOpen === 'daily' ? 'is-active' : ''" data-fx-home @click="openWindow('daily')">
+                    <UIcon name="i-lucide-calendar-check" class="dock-ico" /><span>Daily</span><kbd>Y</kbd>
+                    <span v-if="dailyBadge" class="dock-badge">{{ dailyBadge }}</span>
+                </button>
                 <button class="dock-btn" :class="windowOpen === 'goals' ? 'is-active' : ''" @click="openWindow('goals')">
                     <UIcon name="i-lucide-trophy" class="dock-ico" /><span>Goals</span><kbd>T</kbd>
                     <span v-if="claimable" class="dock-badge">{{ claimable }}</span>
@@ -2280,7 +2582,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <!-- Windows -->
             <Transition name="fade">
                 <div v-if="windowOpen" class="backdrop" @click.self="closeAll">
-                    <div class="g-window" :class="windowOpen === 'market' ? 'is-wide' : windowOpen === 'events' ? 'is-small' : ''">
+                    <div class="g-window" :class="windowOpen === 'market' || windowOpen === 'daily' ? 'is-wide' : windowOpen === 'events' ? 'is-small' : ''">
                         <TownMarketPanel
                             v-if="windowOpen === 'market'"
                             :resources="town.resources.value"
@@ -2290,11 +2592,13 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             :balance="balance"
                             :initial-resource="marketResource"
                             :busy="busy"
-                            :net-per-tick="town.netPerTick.value"
+                            :net-per-tick="town.boostedNetPerTick.value"
                             :speed-multiplier="speed"
                             :tick-ms="town.constants.value.tickMs"
                             :storage-cap="storageCap"
                             :jewels-per-gem="town.constants.value.jewelsPerGem"
+                            :market-day-until="town.boosts.value.market"
+                            :market-bonus-left="town.marketBonusLeft.value"
                             @close="closeAll"
                             @convert="convertJewels"
                             @sell-floor="sellFloor"
@@ -2302,6 +2606,16 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             @place-order="placeOrder"
                             @cancel-order="cancelOrder"
                         />
+                        <div v-else-if="windowOpen === 'daily'" class="flex h-full min-h-0 flex-col">
+                            <div class="g-window-head">
+                                <h2><UIcon name="i-lucide-calendar-check" />Daily</h2>
+                                <button class="g-icon g-icon-sm" aria-label="Close" @click="closeAll"><UIcon name="i-lucide-x" /></button>
+                            </div>
+                            <div class="g-window-body space-y-3">
+                                <TownStreakPanel @claimed="onStreakChanged" @reset="onStreakChanged" />
+                                <TownContractsPanel :busy="busy" :resource-by-id="town.resourceById.value" :inventory="town.inventory.value" @delivered="onContractDelivered" />
+                            </div>
+                        </div>
                         <TownMilestonesPanel v-else-if="windowOpen === 'goals'" :milestones="town.milestones.value" :busy="busy" @claim="claimMilestone" @close="closeAll" />
                         <TownLeaderboardPanel v-else-if="windowOpen === 'mayors'" @close="closeAll" />
                         <TownEventsPanel v-else-if="windowOpen === 'events'" :catalog-by-id="town.catalogById.value" :resource-by-id="town.resourceById.value" :tick="stateTick" @close="closeAll" />
@@ -2340,7 +2654,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                         <span>For sale near you</span>
                                         <span>{{ town.world.value.listings.length }}</span>
                                     </header>
-                                    <p v-if="town.world.value.listings.length === 0" class="g-empty">Nobody next to you is selling.</p>
+                                    <p v-if="town.world.value.listings.length === 0" class="g-empty">{{ town.worldLoaded.value ? 'Nobody next to you is selling.' : 'Looking around…' }}</p>
                                     <div v-for="l in town.world.value.listings" :key="l.plotId" class="g-row plotrow">
                                         <UIcon name="i-lucide-map-pinned" class="plot-ico" />
                                         <div class="min-w-0 flex-1">
@@ -2360,23 +2674,31 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <!-- Welcome back -->
             <Transition name="fade">
                 <div v-if="welcome" class="backdrop" @click.self="welcome = null">
-                    <div class="g-window is-small">
-                        <div class="g-window-head">
-                            <h2><UIcon name="i-lucide-hand" />Welcome back <span class="g-tag">{{ formatTownDuration(welcome.elapsedMs) }}</span></h2>
-                            <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="welcome = null"><UIcon name="i-lucide-x" /></button>
+                    <div class="g-window is-small welcome" :class="{ 'is-calm': motion.reduced.value }">
+                        <div class="welcome-hero">
+                            <button class="g-icon g-icon-sm welcome-close" aria-label="Close" @click="welcome = null"><UIcon name="i-lucide-x" /></button>
+                            <span class="welcome-sun" aria-hidden="true" />
+                            <p class="welcome-kicker"><UIcon name="i-lucide-clock" />Away for {{ formatTownDuration(welcome.elapsedMs) }}</p>
+                            <h2 class="welcome-title">Welcome back, mayor</h2>
+                            <p v-if="welcomeValue" class="welcome-total">
+                                <TownCoin /><b>{{ formatNumber(welcomeShownValue) }}</b>
+                            </p>
+                            <p v-if="welcomeValue" class="welcome-total-sub">made while you were gone, at floor price</p>
                         </div>
                         <div class="g-window-body space-y-3">
-                            <p class="g-label">While you were away</p>
-                            <div class="welcome-grid">
-                                <div v-for="r in welcomeRows" :key="r.id" class="g-cell">
+                            <div class="welcome-grid" :style="{ gridTemplateColumns: `repeat(${Math.min(3, Math.max(1, welcomeGains.length))}, minmax(0, 1fr))` }">
+                                <div v-for="(r, i) in welcomeGains" :key="r.id" class="g-cell welcome-cell" :style="{ animationDelay: `${120 + i * 45}ms` }">
                                     <span class="welcome-art"><TownAsset :id="r.def?.id" /></span>
-                                    <b :class="r.qty > 0 ? 'is-up' : 'is-down'">{{ r.qty > 0 ? '+' : '' }}{{ formatNumber(r.qty) }}</b>
+                                    <b class="is-up">+{{ formatNumber(r.qty) }}</b>
                                     <span class="g-sub">{{ r.def?.name }}</span>
                                 </div>
                             </div>
-                            <p v-if="welcomeValue" class="welcome-worth">
-                                Worth about <b><TownCoin />{{ formatNumber(welcomeValue) }}</b> at floor price.
-                            </p>
+                            <div v-if="welcomeLosses.length" class="welcome-used">
+                                <span class="g-label">Used up</span>
+                                <span v-for="r in welcomeLosses" :key="r.id" class="welcome-used-item">
+                                    <TownAsset :id="r.def?.id" />{{ formatNumber(r.qty) }}
+                                </span>
+                            </div>
                             <div class="g-actions">
                                 <button class="g-btn g-btn-ghost" @click="welcome = null">Close</button>
                                 <button class="g-btn g-btn-primary" @click="welcome = null; openMarket()">
@@ -2449,11 +2771,12 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 <header>Controls</header>
                                 <p class="help-keys">
                                     Drag to select · shift-drag adds · shift-click toggles one · with a building picked, drag to lay a run
-                                    · middle-drag pans · wheel zooms · right-drag orbits
+                                    · middle-drag pans · wheel zooms · right-drag orbits · right-click lets go of what you hold
                                 </p>
                                 <p class="help-keys">
-                                    <kbd>WASD</kbd> move <kbd>Q</kbd><kbd>E</kbd> turn <kbd>R</kbd> rotate <kbd>M</kbd> move <kbd>Del</kbd> demolish
-                                    <kbd>B</kbd> build <kbd>H</kbd> market <kbd>T</kbd> goals <kbd>L</kbd> mayors
+                                    <kbd>WASD</kbd> move <kbd>Q</kbd><kbd>E</kbd> turn <kbd>R</kbd> rotate (<kbd>Shift</kbd> back) <kbd>M</kbd> move <kbd>U</kbd> upgrade <kbd>Del</kbd> demolish
+                                    <kbd>C</kbd> copy the building under the cursor <kbd>1</kbd>–<kbd>9</kbd> pick a card <kbd>Tab</kbd> next tier
+                                    <kbd>B</kbd> build <kbd>Y</kbd> daily <kbd>H</kbd> market <kbd>T</kbd> goals <kbd>L</kbd> mayors
                                     <kbd>P</kbd> land <kbd>G</kbd> terrain <kbd>Esc</kbd> back
                                 </p>
                             </div>
@@ -2531,7 +2854,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="blocked = null"><UIcon name="i-lucide-x" /></button>
                         </div>
                         <div class="g-window-body space-y-3">
-                            <p class="g-copy">All {{ town.builders.value.owned }} crews are on a job. Free one up, or wait.</p>
+                            <p class="g-copy">All {{ town.builders.value.total }} crews are on a job. Free one up, or wait.</p>
                             <div v-if="blockedCheapest" class="g-stat">
                                 <span class="blocked-art"><TownAsset :id="blockedCheapest.type" kind="building" :level="blockedCheapest.level" /></span>
                                 <div class="min-w-0 flex-1">
@@ -2638,6 +2961,11 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 </div>
             </Transition>
         </template>
+
+        <!-- Reward effects: above every window and backdrop, never in the way of a click. -->
+        <TownFx />
+        <!-- Chest opening: takes over the whole game area, above everything else in it. -->
+        <TownChestOpening />
     </div>
 </template>
 
@@ -3158,6 +3486,88 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .hud-hover::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 12px; }
 .moodpop.is-income { width: 300px; }
 .moodpop.is-builders { width: 320px; }
+
+/* ── Boosts ─────────────────────────────────────────────────────────────── */
+/* A running boost wears its colour: a slow shimmer round the border and a
+   soft breathing glow. Still with reduced motion. */
+.buff {
+    --buff: var(--g-gold);
+    --buff-edge: color-mix(in srgb, var(--buff) 55%, transparent);
+    gap: 6px;
+    padding: 0 11px 0 8px;
+    border-color: transparent;
+    background:
+        linear-gradient(var(--g-bg), var(--g-bg)) padding-box,
+        linear-gradient(105deg, var(--buff-edge) 0 36%, color-mix(in srgb, var(--buff) 30%, #fff) 50%, var(--buff-edge) 64% 100%) border-box;
+    background-size: 100% 100%, 300% 100%;
+    background-position: 0 0, 100% 0;
+    animation: buff-shimmer 3.6s linear infinite, buff-glow 2.6s ease-in-out infinite;
+    cursor: default;
+}
+.buff.is-build { --buff: var(--g-warn); }
+.buff.is-production { --buff: var(--g-green); }
+.buff.is-market { --buff: var(--g-gold); }
+.buff.is-builder { --buff: var(--g-gem); }
+.buff .town-boost-icon { flex-shrink: 0; }
+.buff-name { font-size: 12px; font-weight: 600; color: var(--g-text-2); }
+.buff-time { color: var(--buff); font-variant-numeric: tabular-nums; }
+.buff.is-calm { animation: none; background-position: 0 0, 50% 0; }
+/* Chips wrap onto a row of their own at the left edge: hang the tip from the chip's left, not its middle. */
+.buff[data-tip-below]::after { left: 0; transform: translateY(-4px); }
+.buff[data-tip-below]:hover::after { transform: none; }
+@keyframes buff-shimmer {
+    from { background-position: 0 0, 100% 0; }
+    to { background-position: 0 0, 0% 0; }
+}
+@keyframes buff-glow {
+    0%, 100% { box-shadow: var(--g-shadow), 0 0 0 0 transparent; }
+    50% { box-shadow: var(--g-shadow), 0 0 14px -2px color-mix(in srgb, var(--buff) 55%, transparent); }
+}
+.buff-enter-active { transition: opacity 0.2s ease, transform 0.45s cubic-bezier(0.2, 1.6, 0.4, 1); }
+.buff-enter-from { opacity: 0; transform: scale(0.55); }
+.buff-leave-active { transition: opacity 0.35s ease; }
+.buff-leave-to { opacity: 0; }
+.buff.is-calm.buff-enter-from { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+    .buff { animation: none; background-position: 0 0, 50% 0; }
+    .buff-enter-from { transform: none; }
+}
+@media (max-width: 520px) {
+    .buff { height: 30px; padding: 0 8px 0 5px; gap: 5px; font-size: 12px; }
+    .buff-name { display: none; }
+}
+/* The rate a boost is doubling, marked where it is shown. */
+.boost-x {
+    display: inline-block;
+    margin-left: 3px;
+    padding: 0 3px;
+    border-radius: 4px;
+    background: var(--g-green-bg);
+    color: var(--g-green);
+    font-size: 9.5px;
+    font-style: normal;
+    font-weight: 800;
+    line-height: 14px;
+    vertical-align: 1px;
+}
+.boost-x.is-build { background: var(--g-warn-bg); color: var(--g-warn); }
+.is-rushed { color: var(--g-warn) !important; font-weight: 700; }
+.g-progress.is-rushed i { background: linear-gradient(90deg, var(--g-warn), color-mix(in srgb, var(--g-warn) 55%, #fff)); }
+.bcard-io.is-surge .is-out { font-weight: 800; }
+.crew-temp { color: var(--g-gem); }
+.crew-row {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: var(--g-radius-sm);
+    background: var(--g-gem-bg);
+    font-size: 12px;
+}
+.crew-row .rec-main { display: flex; flex-direction: column; min-width: 0; }
+.crew-row .moodpop-sub { margin-top: 0; }
+.crew-row-time { font-weight: 700; color: var(--g-gem); font-variant-numeric: tabular-nums; }
 .moodpop-sub { margin-top: 2px; font-size: 11.5px; color: var(--g-muted); }
 .moodpop-foot { font-size: 11px; color: var(--g-muted); }
 .moodpop-group { display: flex; flex-direction: column; gap: 4px; }
@@ -3259,6 +3669,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .hint.is-danger { border-color: color-mix(in srgb, var(--g-red) 55%, transparent); color: var(--g-red); }
 .hint-note { color: var(--g-muted); }
 .hint-quote { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: var(--g-gold-bg); color: var(--g-gold); font-weight: 600; font-variant-numeric: tabular-nums; }
+.hint-warn { color: var(--g-red); font-weight: 600; }
 .hint-btn { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: var(--g-radius-xs); background: var(--g-fill); color: var(--g-text-2); font-size: 11px; cursor: pointer; }
 .hint-btn:hover { background: var(--g-fill-2); color: var(--g-text); }
 
@@ -3490,6 +3901,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .bcard.is-active { border-color: var(--g-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-accent) 30%, transparent); }
 .bcard.is-dim { opacity: 0.55; }
 .bcard:disabled { cursor: not-allowed; filter: grayscale(1); }
+.bcard-key { position: absolute; left: 6px; top: 6px; padding: 0 4px; font-size: 9px; opacity: 0.7; }
 .bcard-count { position: absolute; right: 8px; top: 8px; font-size: 10px; font-weight: 600; color: var(--g-muted); font-variant-numeric: tabular-nums; }
 .bcard-art { display: inline-flex; align-items: center; justify-content: center; height: 52px; font-size: 28px; line-height: 1; color: var(--g-text-2); }
 .bcard-name { font-size: 13px; font-weight: 600; }
@@ -3630,10 +4042,48 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 }
 .dark .backdrop { background: rgba(4, 6, 10, 0.5); }
 
+.welcome { overflow: hidden; }
+.welcome-hero {
+    position: relative;
+    flex-shrink: 0;
+    overflow: hidden;
+    padding: 26px 20px 18px;
+    text-align: center;
+    background:
+        radial-gradient(120% 90% at 50% 0%, var(--g-gold-bg), transparent 70%),
+        linear-gradient(180deg, color-mix(in srgb, var(--g-gold) 10%, transparent), transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--g-gold) 25%, transparent);
+}
+.welcome-close { position: absolute; right: 10px; top: 10px; z-index: 1; }
+.welcome-sun {
+    position: absolute;
+    left: 50%;
+    top: -120px;
+    width: 260px;
+    height: 260px;
+    margin-left: -130px;
+    border-radius: 50%;
+    background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--g-gold) 16%, transparent) 0 10deg, transparent 10deg 20deg);
+    mask-image: radial-gradient(circle, #000 30%, transparent 70%);
+    animation: welcome-spin 30s linear infinite;
+    pointer-events: none;
+}
+.welcome-kicker { position: relative; display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border-radius: 999px; background: var(--g-fill); font-size: 11.5px; color: var(--g-text-2); }
+.welcome-title { position: relative; margin-top: 8px; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.welcome-total { position: relative; display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 28px; color: var(--g-gold); font-variant-numeric: tabular-nums; }
+.welcome-total b { font-weight: 800; }
+.welcome-total-sub { position: relative; font-size: 11.5px; color: var(--g-muted); }
 .welcome-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.welcome-cell { animation: welcome-pop 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
 .welcome-art { font-size: 22px; line-height: 1; }
-.welcome-worth { text-align: center; font-size: 12.5px; color: var(--g-text-2); }
-.welcome-worth b { display: inline-flex; align-items: center; gap: 4px; color: var(--g-gold); }
+.welcome-used { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; color: var(--g-muted); }
+.welcome-used-item { display: inline-flex; align-items: center; gap: 3px; font-variant-numeric: tabular-nums; }
+@keyframes welcome-spin { to { transform: rotate(360deg); } }
+@keyframes welcome-pop { from { opacity: 0; transform: translateY(6px) scale(0.92); } }
+.welcome.is-calm :is(.welcome-sun, .welcome-cell) { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+    .welcome-sun, .welcome-cell { animation: none; }
+}
 .blocked-art { font-size: 16px; line-height: 1; }
 
 /* ── Help ───────────────────────────────────────────────────────────────── */
@@ -3646,5 +4096,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 @media (max-width: 520px) {
     .help dl { grid-template-columns: 1fr; gap: 2px; }
     .help dd { margin-bottom: 8px; }
+    /* Six dock buttons fit a phone only without the key hints. */
+    .dock-btn { width: 54px; }
+    .dock-btn kbd { display: none; }
 }
 </style>

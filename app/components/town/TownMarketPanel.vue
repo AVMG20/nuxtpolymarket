@@ -2,6 +2,7 @@
 import TownCoin from '~/components/town/TownCoin.vue'
 import TownAsset from '~/components/town/TownAsset.vue'
 import TownProductionChart from '~/components/town/TownProductionChart.vue'
+import TownBoostIcon from '~/components/town/TownBoostIcon.vue'
 import type { TownResourceView, TownOrderView } from '~/composables/useTown'
 import { TOWN_MARKET_MIN_PRICE, TOWN_MAX_ORDER_PRICE } from '#shared/utils/gamelogic/town'
 
@@ -39,6 +40,10 @@ const props = defineProps<{
     storageCap: number
     /** Jewels one gem costs at the market. */
     jewelsPerGem: number
+    /** When the market day ends (epoch ms, server clock), null while there is none. */
+    marketDayUntil?: number | null
+    /** Bonus coins the market day can still pay on town-hall sales. */
+    marketBonusLeft?: number
 }>()
 
 const emit = defineEmits<{
@@ -252,6 +257,19 @@ function itemsAboveKeep(): SellItem[] {
 
 const floorById = computed(() => new Map(props.resources.map(r => [r.id, r.floorPrice])))
 
+// ── Market day ──
+// The town hall pays half again on top of the floor, out of a bonus budget.
+// Player bids are not touched, so only the part a sale routes to the hall
+// earns the bonus, and never more than what is left of the budget.
+const MARKET_DAY_BONUS = 0.5
+const marketDay = computed(() => !!props.marketDayUntil && (props.marketBonusLeft ?? 0) > 0)
+/** What the hall pays per unit while the market day lasts. */
+const hallPrice = (floor: number) => marketDay.value ? floor * (1 + MARKET_DAY_BONUS) : floor
+/** The extra coins a hall sale worth `hallValue` at the floor earns. */
+function marketBonusOn(hallValue: number) {
+    return marketDay.value ? Math.min(hallValue * MARKET_DAY_BONUS, props.marketBonusLeft ?? 0) : 0
+}
+
 // ── Gems ──
 const jewels = computed(() => props.inventory.jewels ?? 0)
 const jewelsPerDay = computed(() => (props.netPerTick.jewels ?? 0) * ticksPerHour.value * 24)
@@ -280,7 +298,7 @@ function convert() {
 function valueOf(items: SellItem[]) {
     let total = 0
     for (const i of items) total += (floorById.value.get(i.resource) ?? 0) * i.quantity
-    return total
+    return total + marketBonusOn(total)
 }
 
 /** Precomputed once per inventory change so the buttons can show what they'd pay out. */
@@ -341,7 +359,8 @@ const sellQuote = computed(() => {
         left -= take
     }
     total += left * floor
-    return { total, toPlayers, best, floor }
+    const bonus = marketBonusOn(left * floor)
+    return { total: total + bonus, toPlayers, best, floor, hall: hallPrice(floor), bonus }
 })
 
 // ── Storage ──
@@ -433,6 +452,11 @@ function timeAgo(at: number) {
         <div class="g-window-head">
             <h2><UIcon name="i-lucide-store" class="mk-title-ico" /> Market</h2>
             <button class="g-icon g-icon-sm" aria-label="Close" @click="emit('close')"><UIcon name="i-lucide-x" /></button>
+        </div>
+        <div v-if="marketDay" class="mk-day" data-tip="Sales to the town hall pay half again, until the day ends or the bonus runs out. Player offers pay what they offer.">
+            <TownBoostIcon kind="market" :size="22" />
+            <span><b>Market day</b> · the town hall pays 1.5×</span>
+            <span class="mk-day-left"><TownCoin /> {{ formatNumber(marketBonusLeft ?? 0) }} bonus left</span>
         </div>
 
         <div class="flex min-h-0 flex-1">
@@ -549,8 +573,8 @@ function timeAgo(at: number) {
                                 </span>
                                 <span class="mk-num">{{ formatNumber(r.owned) }}</span>
                                 <span class="mk-num" :class="r.perHour > 0 ? 'is-up' : r.perHour < 0 ? 'is-down' : ''">{{ fmtRate(r.perHour) }}</span>
-                                <span class="mk-num is-soft">{{ fmtPrice(r.floor) }}</span>
-                                <span class="mk-num"><TownCoin /> {{ formatNumber(r.owned * r.floor) }}</span>
+                                <span class="mk-num" :class="marketDay ? 'is-gold' : 'is-soft'">{{ fmtPrice(hallPrice(r.floor)) }}</span>
+                                <span class="mk-num"><TownCoin /> {{ formatNumber(r.owned * r.floor + marketBonusOn(r.owned * r.floor)) }}</span>
                                 <span class="mk-cell-act">
                                     <button class="g-btn g-btn-xs" :disabled="busy" @click="sellItems([{ resource: r.id, quantity: r.owned }])">Sell all</button>
                                 </span>
@@ -625,9 +649,9 @@ function timeAgo(at: number) {
                         <b v-if="lastPrices[resource.id]" class="is-gold"><TownCoin /> {{ fmtPrice(lastPrices[resource.id]!) }}</b>
                         <b v-else class="is-soft">—</b>
                     </div>
-                    <div class="mk-stat" data-tip="What the town hall always pays.">
+                    <div class="mk-stat" :data-tip="marketDay ? `Market day: the hall pays 1.5× its floor of ${fmtPrice(resource.floorPrice)}, while the bonus lasts.` : 'What the town hall always pays.'">
                         <span class="g-label">Hall floor</span>
-                        <b><TownCoin /> {{ fmtPrice(resource.floorPrice) }}</b>
+                        <b :class="marketDay ? 'is-gold' : ''"><TownCoin /> {{ fmtPrice(hallPrice(resource.floorPrice)) }}<em v-if="marketDay" class="mk-x">×1.5</em></b>
                     </div>
                     <div class="mk-stat">
                         <span class="g-label">You own</span>
@@ -665,8 +689,9 @@ function timeAgo(at: number) {
                     </div>
                     <p class="mk-note" :class="quickQty > owned ? 'is-bad' : ''">
                         <template v-if="quickQty > owned">You only have {{ formatNumber(owned) }}</template>
-                        <template v-else-if="sellQuote.toPlayers > 0">{{ formatNumber(sellQuote.toPlayers) }} to mayors at up to {{ fmtPrice(sellQuote.best) }}, the rest to the hall at {{ fmtPrice(sellQuote.floor) }}</template>
-                        <template v-else>All to the town hall at {{ fmtPrice(sellQuote.floor) }}</template>
+                        <template v-else-if="sellQuote.toPlayers > 0">{{ formatNumber(sellQuote.toPlayers) }} to mayors at up to {{ fmtPrice(sellQuote.best) }}, the rest to the hall at {{ fmtPrice(sellQuote.hall) }}</template>
+                        <template v-else>All to the town hall at {{ fmtPrice(sellQuote.hall) }}</template>
+                        <span v-if="sellQuote.bonus > 0 && quickQty <= owned" class="mk-x">+{{ formatNumber(sellQuote.bonus) }} market day</span>
                     </p>
                 </section>
 
@@ -804,6 +829,33 @@ function timeAgo(at: number) {
 </template>
 
 <style scoped>
+.mk-day {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    margin: 0 14px 4px;
+    padding: 7px 12px;
+    border-radius: var(--g-radius-sm);
+    border: 1px solid color-mix(in srgb, var(--g-gold) 40%, transparent);
+    background: var(--g-gold-bg);
+    font-size: 12.5px;
+    color: var(--g-text-2);
+}
+.mk-day b { color: var(--g-gold); }
+.mk-day-left { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; font-weight: 600; color: var(--g-gold); font-variant-numeric: tabular-nums; }
+.mk-x {
+    display: inline-block;
+    margin-left: 5px;
+    padding: 0 4px;
+    border-radius: 4px;
+    background: var(--g-gold-bg);
+    color: var(--g-gold);
+    font-size: 10px;
+    font-style: normal;
+    font-weight: 800;
+    line-height: 15px;
+}
 /* ── shell ── */
 .mk-title-ico { width: 18px; height: 18px; vertical-align: -0.18em; color: var(--g-muted); }
 .mk-detail { flex: 1; min-width: 0; overflow-x: hidden; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
