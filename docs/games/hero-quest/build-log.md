@@ -660,7 +660,7 @@ Boss fights roll real crits from the fight's seed (`fight.ts`), as `tech-archite
 How the `training_dummy` (`raid-system.md` §7) fits the raid rules, the user's calls:
 
 1. **Keys: Rampaging Boss's rule.** A Key is spent on every entry, since there is no win to gate it on.
-2. **The ladder: live thresholds.** The dummy levels up each time the damage crosses a threshold on its own exponential curve, shown as it happens; the level reached when the timer ends is the result. No level select, as with Rampaging.
+2. **The ladder: live thresholds.** The dummy starts at level 1 and levels up each time the damage crosses a threshold on its own exponential curve, shown as it happens; the level reached when the timer ends is the result. No level select, as with Rampaging. Starting at 1 means every run pays at least the level-1 reward, so a Key spent on entry always buys something — `raid-system.md` §3 now states the rule every raid follows: **a Key is spent exactly when a reward is paid**.
 3. **Rewards:** that level pays `raidRewardGranted(level)` in Skill Seals; no new reward formula.
 4. **Quick-clear:** a Key reclaims the personal best without fighting, as Rampaging does.
 5. **No DEF.** Every hit lands in full: a pure output check, the other raids test mitigation.

@@ -57,6 +57,18 @@ Own dedicated constants **per raid** (`RAID_BASE_STATS[raid]`, `RAID_LEVEL_GROWT
 - **3 Keys/day per raid**, banking up to a week's worth (21) at the current daily rate. Fully independent per raid — Guild Keys never touch Training Grounds Keys, etc.
 - A prestige-shop upgrade raises the daily grant rate — **one upgrade track per raid** (5 total, now including Trait Raid), matching the existing per-system pattern already used for Champion/Skill/Artifact slots (`core-progression-and-prestige.md` §4). Bank cap scales with the upgraded daily rate.
 
+**Locked, the rule every raid follows (2026-10-04, the user's call): a Key is spent exactly when a reward is paid.** When a raid pays differs by fight type, so when it spends a Key differs with it:
+
+| Fight type | A reward is paid | So a Key is spent |
+|---|---|---|
+| `solo_boss`, `reinforced_boss` | on a win | on a win; a timeout or a wipe costs nothing |
+| `boss_gauntlet` | when all three bosses are down | then, and only then |
+| `rampaging_boss` | every run, for the level reached at death | on every entry |
+| `training_dummy` | every run, for the level reached when the round ends | on every entry |
+| quick-clear, any raid | always: the cleared level, or the personal best | always |
+
+The two raids that charge every entry can do so only because every run of them pays: each starts at level 1, so a run that reaches nothing further still pays the level-1 reward. A new fight type has to say when it pays, and spends its Key then. The paragraphs below are the reasoning behind each row.
+
 **Locked: for raids where the boss can be defeated (`solo_boss`, `reinforced_boss`, `phased_boss`), a Key is spent only on a WIN, never on a loss.** A timeout or party wipe costs nothing — the player can re-engage the same level immediately, as many times as they want, at no Key cost. A Key is spent only at the moment a level is actually cleared, whether via a freshly-fought win or a quick-clear replay of the frontier level (Section 4).
 
 **Worth stating plainly:** this makes the Key pool functionally "successful clears/claims per day" rather than "tries per day" — a level that's currently too hard for an account never burns its limited daily resource while the player is stuck on it. More forgiving than the flat "every attempt costs a resource" pattern common in the genre, and consistent with this project's existing soft-fail philosophy (World bosses already never punish failure beyond a stage fallback).
@@ -161,7 +173,7 @@ raidRampageBossPower(level)     = RAID_RAMPAGE_POWER_BASE × RAID_RAMPAGE_POWER_
 **Decided 2026-10-04 (the user's calls, `build-log.md` #31): Rampaging Boss's rules, with live thresholds.**
 
 - **Keys:** spent on every entry. **Quick-clear:** a Key reclaims the personal best.
-- **The level:** the dummy levels up each time the damage crosses a threshold on its own exponential curve, shown as it happens; the level reached at the end of the round is the result and pays `raidRewardGranted(level)`. No level select.
+- **The level:** the dummy **starts at level 1**, like the Rampaging boss, and levels up each time the damage crosses a threshold on its own exponential curve, shown as it happens; the level reached at the end of the round is the result and pays `raidRewardGranted(level)`. Starting at 1 is what makes every run pay, which the every-entry Key needs (§3). No level select.
 - **No DEF:** every hit lands in full.
 - **The round:** `RAID_DUMMY_SECONDS`, its own constant, separate from `RAID_ENRAGE_SECONDS`.
 
