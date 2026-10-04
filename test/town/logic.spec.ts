@@ -1867,23 +1867,23 @@ describe('roads and facing', () => {
             expect(townPlacementIssue([road(3, 0)], roadDef, 3, 0, 0)).toMatch(/already taken/)
         })
 
-        it('makes every other building front onto a road', () => {
+        it('allows buildings without a road, while road access still depends on facing', () => {
             const buildings = [road(3, 0)]
             expect(townPlacementIssue(buildings, farm, 3, 1, 2)).toBeNull()
-            // Same tile, wrong way round.
-            expect(townPlacementIssue(buildings, farm, 3, 1, 0)).toMatch(/front door/)
-            expect(townPlacementIssue(buildings, farm, 3, 1, 1)).toMatch(/front door/)
-            expect(townPlacementIssue(buildings, farm, 3, 1, 3)).toMatch(/front door/)
+            expect(townPlacementIssue(buildings, farm, 3, 1, 0)).toBeNull()
+            expect(townPlacementIssue(buildings, farm, 3, 1, 1)).toBeNull()
+            expect(townPlacementIssue(buildings, farm, 3, 1, 3)).toBeNull()
+            expect(townRoadAccess([...buildings, at('farm', 'farm', 3, 1, { rotation: 2 })], at('farm', 'farm', 3, 1, { rotation: 2 }))).toBe(true)
+            expect(townRoadAccess([...buildings, at('farm', 'farm', 3, 1)], at('farm', 'farm', 3, 1))).toBe(false)
 
             // Beside the road, facing it, works from the other side too.
             expect(townPlacementIssue([road(3, 3)], farm, 2, 3, 1)).toBeNull()
             expect(townPlacementIssue([road(3, 3)], farm, 4, 3, 3)).toBeNull()
             expect(townPlacementIssue([road(3, 3)], farm, 3, 4, 2)).toBeNull()
-            // Being on the plot edge buys a non-road nothing.
-            expect(townPlacementIssue([], farm, 0, 3, 0)).toMatch(/front door/)
+            expect(townPlacementIssue([], farm, 0, 3, 0)).toBeNull()
         })
 
-        it('agrees with townAutoFacing about which rotation works', () => {
+        it('auto-faces a nearby road without restricting placement elsewhere', () => {
             const buildings = [road(2, 2)]
             for (const [wx, wy] of [[2, 1], [1, 2], [2, 3], [3, 2]] as const) {
                 const rotation = townAutoFacing(buildings, wx, wy)!
@@ -1891,7 +1891,7 @@ describe('roads and facing', () => {
                 expect(townPlacementIssue(buildings, farm, wx, wy, rotation)).toBeNull()
             }
             expect(townAutoFacing(buildings, 5, 5)).toBeNull()
-            expect(townPlacementIssue(buildings, farm, 5, 5, 0)).toMatch(/front door/)
+            expect(townPlacementIssue(buildings, farm, 5, 5, 0)).toBeNull()
         })
     })
 })

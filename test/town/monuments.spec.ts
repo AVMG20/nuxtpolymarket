@@ -5,6 +5,7 @@ import {
     townBuildersBusy,
     townBuildingsFronting,
     townDistricts,
+    townFootprintAnchor,
     townFrontTiles,
     townGroupMoveIssue,
     townLevelBuildMs,
@@ -134,8 +135,16 @@ describe('monument footprints', () => {
         expect(townPlacementIssue([road(ox + 6, oy)], pyramid, ox + 6, oy + 1, 2)).toMatch(/one plot/)
     })
 
-    it('needs a road somewhere along its front, and any one will do', () => {
-        expect(townPlacementIssue([], pyramid, ox + 2, oy + 1, 2)).toMatch(/road/)
+    it('keeps a cursor-held monument inside the plot at its edges', () => {
+        expect(townFootprintAnchor(ox, oy, 3)).toEqual({ wx: ox, wy: oy })
+        expect(townFootprintAnchor(ox + 7, oy + 7, 3)).toEqual({ wx: ox + 5, wy: oy + 5 })
+        expect(townFootprintAnchor(ox + 8, oy + 4, 3)).toEqual({ wx: ox + 8, wy: oy + 3 })
+        const anchor = townFootprintAnchor(ox + 7, oy + 4, 3)
+        expect(townPlacementIssue([], pyramid, anchor.wx, anchor.wy, 0)).toBeNull()
+    })
+
+    it('can be placed without a road, but only connects along its front', () => {
+        expect(townPlacementIssue([], pyramid, ox + 2, oy + 1, 2)).toBeNull()
         expect(townPlacementIssue([road(ox + 4, oy)], pyramid, ox + 2, oy + 1, 2)).toBeNull()
         const standing = at('p', 'pyramid', ox + 2, oy + 1, { rotation: 2 })
         expect(townRoadAccess([standing, road(ox + 3, oy)], standing)).toBe(true)

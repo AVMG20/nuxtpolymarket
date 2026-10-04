@@ -713,8 +713,7 @@ function validatePlacementShape(item: TownPlacement) {
  * Place one or more buildings in a single transaction — what a road drag sends.
  *
  * Every item is validated against the layout the previous items in the same
- * drag already created, so a run of road tiles connects to itself and a house
- * may be dropped beside a road laid a moment earlier in the same call. A drag
+ * drag already created, so occupancy and costs account for earlier tiles. A drag
  * across a tile that is taken, or past what the purse covers, skips that tile
  * rather than failing the whole gesture — but a request that places nothing at
  * all reports the first reason, so a single click still explains itself the way

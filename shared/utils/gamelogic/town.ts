@@ -1583,6 +1583,18 @@ export function townFootprint(wx: number, wy: number, size = 1): { wx: number, w
     return tiles
 }
 
+/** Anchor a cursor-held footprint inside the plot under the cursor. */
+export function townFootprintAnchor(wx: number, wy: number, size = 1): { wx: number, wy: number } {
+    if (size <= 1) return { wx, wy }
+    const plotX = Math.floor(wx / TOWN_PLOT_SIZE) * TOWN_PLOT_SIZE
+    const plotY = Math.floor(wy / TOWN_PLOT_SIZE) * TOWN_PLOT_SIZE
+    const offset = Math.floor(size / 2)
+    return {
+        wx: Math.max(plotX, Math.min(wx - offset, plotX + TOWN_PLOT_SIZE - size)),
+        wy: Math.max(plotY, Math.min(wy - offset, plotY + TOWN_PLOT_SIZE - size))
+    }
+}
+
 /**
  * The tiles just outside the footprint's front edge: the road it opens onto
  * can be any of them. A one-tile building has exactly townFrontTile.
@@ -1648,22 +1660,13 @@ export function townAutoFacing(buildings: TownSimBuilding[], wx: number, wy: num
 }
 
 /**
- * Why a building cannot go on (wx, wy) facing `rotation`, or null if it can.
+ * Why a building cannot go on (wx, wy), or null if it can. Rotation is kept
+ * in the shared placement API, but road access is checked after building.
  * Shared by the client (ghost colour) and the server (the real check).
  */
-export function townPlacementIssue(buildings: TownSimBuilding[], def: TownBuildingDef, wx: number, wy: number, rotation: number): string | null {
+export function townPlacementIssue(buildings: TownSimBuilding[], def: TownBuildingDef, wx: number, wy: number, _rotation: number): string | null {
     const size = def.size ?? 1
-    const ground = footprintIssue(townTakenTiles(buildings), wx, wy, size)
-    if (ground) return ground
-    // A road can start anywhere. It only does anything once it joins homes to
-    // jobs, and the staffing rules are what enforce that, not the placement.
-    if (def.kind === 'road') return null
-    if (!townFrontTiles(wx, wy, rotation, size).some(f => townRoadAt(buildings, f.wx, f.wy))) {
-        return size > 1
-            ? 'Needs a road along its front — rotate with R or build a road first'
-            : 'Needs a road at its front door — rotate with R or build a road first'
-    }
-    return null
+    return footprintIssue(townTakenTiles(buildings), wx, wy, size)
 }
 
 /** The most tiles one drag can paint, so a wild swipe cannot ask for a thousand buildings. */
