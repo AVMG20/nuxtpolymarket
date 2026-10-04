@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#43** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04.
+**#44** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
@@ -88,6 +88,12 @@ Three naming rules, because the UI depends on them, stated in the `worlds.ts` he
 **Still open — one question, and it is gameplay, not art:** whether enemies get kits of their own. ⚠ **It now carries a priced art cost**: a yes adds a fifth state to every enemy rig, 4 more trash sets and 20 more boss sets, on top of the fight-length re-measurement it already owed. Enemies are still HP/PWR/DEF stat blocks with no abilities, which is why `controlResist` is inert (#18.6). *(This no longer blocks Gold: `gold-economy.md` §9's prestige→calendar calibration was replaced by the account-age ceiling, #23.)*
 
 **What the tuning pass (#22) hands the enemy-kit question:** the enemy *curve* is tuned and derived from a pacing model, so art and kits can be chosen without re-deciding numbers — but anything that changes fight length (enemy abilities, heals, shields, more escort bodies) moves `FIGHT_LENGTH_DRIFT`'s effective value and has to be re-measured on the campaign walk. A first prestige for a party of three is about a week, and a world takes from under an hour (World 1–2) to about two days (World 10), almost all of it grind in front of gates.
+
+### 43. The ??? capstone class — **blocks the merge into `main`** — **new 2026-10-04**
+
+The Classes scene ends the masters' row in a 17th node, joined to all six masters: a class for having played every other one (`CAPSTONE_ID` in `classes-scene.ts`). It is art only. There is no class behind it: no content entry, no skill, no unlock rule in code, and the "PLAY EVERY OTHER CLASS TO UNLOCK" hint is a promise nothing keeps. Its medallion is a placeholder infinity sign and its name is `???`.
+
+**Work it out before `hero-quest` merges into upstream `main`:** its name and identity, its skill, what "played" means for the unlock (reached, or held for some time), whether a class token can buy it, and how it interacts with prestige and class switches. Then either build it or take the node out of the scene. Shipping a node players can never reach is not an option.
 
 ### 7. Passive Skill Tree (backlog item 3)
 Unchecked. Hero-only passive tree, generic root splitting into 3 paths, nodes up to 5 levels each, purchased via its own dedicated raid, with Champion/item side-nodes allowed but never gating a path. Structurally sound to build (raids don't have to be gacha-paired) but has had no dedicated design session.
@@ -272,6 +278,8 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 ---
 
 ## Suggested order
+
+**Before merging `hero-quest` into `main`: settle the ??? capstone class (#43).** It sits outside the numbered order because it blocks the merge, not a phase.
 
 **Reordered 2026-10-02, the user's call: the playtest and the Gold balance (step 2) move to the very end, with step 7.** The battle stage comes first (`build-log.md` #34): the idle stage and the boss replay on the stage both landed that day. The argument below for playing early was weighed and set aside; it is kept as the record of what the reorder gives up.
 
