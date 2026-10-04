@@ -17,7 +17,8 @@ const BTN_W = 22
 const BTN_H = 18
 const BTN_GAP = 4
 
-const SHIELD = (g: Surface, x: number, y: number): void => {
+/** The Loadouts glyph, shared with the prestige shop's Loadout Slots track. */
+export const LOADOUT_GLYPH: Glyph = (g, x, y) => {
     // a sword slung behind a kite shield: what the party carries into the fight
     line(g, x - 6, y + 6, x + 6, y - 6, C.steel2)
     line(g, x - 5, y + 6, x + 6, y - 5, C.steel3)
@@ -39,7 +40,7 @@ const ICONS: Readonly<Record<HqMenuScene, Glyph>> = {
     // a seal is what every pull is paid in
     gacha: CURRENCY_ICONS.seal_champion!,
     collections: (g, x, y) => ABILITY_ICON_PARTS.book(g, x, y, C.red1, C.bone1),
-    loadouts: SHIELD,
+    loadouts: LOADOUT_GLYPH,
     // Void Shards are what a prestige pays out
     prestige: CURRENCY_ICONS.void_shards!
 }

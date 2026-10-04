@@ -5,6 +5,7 @@ import type { RunFeed } from '~/utils/hero-quest-art/run-director'
 import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-band'
 import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutButton, LoadoutsHover, LoadoutsScene, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
+import type { PrestigeScene, PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import { C, PALETTE } from '~/utils/hero-quest-art/palette'
 import type { HqIntroRect } from '~/composables/useHqIntro'
@@ -64,6 +65,10 @@ const props = defineProps<{
     loadouts?: LoadoutsView
     /** A loadout save, apply or rename is on its way. */
     loadoutsBusy?: boolean
+    /** The Prestige scene's shop: every track, and the two balances it spends. */
+    prestige?: PrestigeView
+    /** A shop purchase is on its way. */
+    prestigeBusy?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -81,6 +86,8 @@ const emit = defineEmits<{
     loadoutAction: [action: 'save' | 'apply', slotIndex: number, name?: string]
     /** A loadout's new name was entered. */
     loadoutRename: [slotIndex: number, name: string]
+    /** A prestige-shop track's Buy button was pressed. */
+    shopBuy: [upgradeId: string]
 }>()
 
 const wrap = ref<HTMLDivElement | null>(null)
@@ -104,6 +111,8 @@ let collectionsScene: CollectionsScene | null = null
 let collectionsHit: typeof import('~/utils/hero-quest-art/collections-scene') | null = null
 let loadoutsScene: LoadoutsScene | null = null
 let loadoutsHit: typeof import('~/utils/hero-quest-art/loadouts-scene') | null = null
+let prestigeScene: PrestigeScene | null = null
+let prestigeHit: typeof import('~/utils/hero-quest-art/prestige-scene') | null = null
 let band: typeof import('~/utils/hero-quest-art/menu-band') | null = null
 let presenter: Presenter | null = null
 let stop: (() => void) | null = null
@@ -225,7 +234,7 @@ defineExpose({ skipFight, closeIris })
  * them in the view's own pixels. The page's own Fight button stays the keyboard's way in.
  */
 type Target = 'challenge' | HqMenuScene | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
-    | `card:${number}` | `loadout:${LoadoutButton}`
+    | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next'
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
@@ -329,6 +338,17 @@ function targetAt(e: PointerEvent): Target | null {
         const card = i === null ? undefined : props.loadouts?.slots[i]
         return i !== null && card && (!card.locked || card.price) ? `card:${i}` : null
     }
+    if (openScene.value === 'prestige' && prestigeHit) {
+        const tracks = props.prestige?.tracks ?? []
+        const pages = Math.max(1, Math.ceil(tracks.length / prestigeHit.SHOP_PAGE_SIZE))
+        const pager = pages > 1 ? prestigeHit.shopPagerAt(presenter.w, x, y) : null
+        if (pager) return (pager === 'prev' ? shopPage.value > 0 : shopPage.value < pages - 1) ? `shop:${pager}` : null
+        const first = shopPage.value * prestigeHit.SHOP_PAGE_SIZE
+        const i = prestigeHit.shopBuyAt(presenter.w, Math.max(0, Math.min(prestigeHit.SHOP_PAGE_SIZE, tracks.length - first)), x, y)
+        const track = i === null ? undefined : tracks[first + i]
+        // a track that cannot be bought (maxed, or too dear) is no target
+        return i !== null && track?.affordable && track.cost !== null && !props.prestigeBusy ? `buy:${first + i}` : null
+    }
     return openScene.value === 'battle' && props.challenge && stage?.onChallenge(x, y) ? 'challenge' : null
 }
 
@@ -367,6 +387,11 @@ function onPointerUp(e: PointerEvent) {
     if (hit === 'challenge') emit('challenge')
     else if (item) emit('scene', item === openScene.value ? 'battle' : item)
     else if (hit === 'close') detail.value = null
+    else if (hit === 'shop:prev' || hit === 'shop:next') shopPage.value += hit === 'shop:next' ? 1 : -1
+    else if (hit.startsWith('buy:')) {
+        const track = props.prestige?.tracks[Number(hit.slice(4))]
+        if (track) emit('shopBuy', track.id)
+    }
     else if (hit.startsWith('card:')) {
         const slot = props.loadouts?.slots[Number(hit.slice(5))]
         if (slot?.locked) emit('scene', 'prestige')
@@ -406,6 +431,14 @@ const collectionsHover = computed<CollectionsHover>(() => {
     if (h?.startsWith('tile:')) return Number(h.slice(5))
     return HQ_COLLECTION_TABS.find(t => h === `tab:${t}`) ?? null
 })
+/** The shop's open page; it keeps its place while the scene is closed and reopened. */
+const shopPage = ref(0)
+const shopHover = computed(() => {
+    const h = hover.value
+    if (h === 'shop:prev' || h === 'shop:next') return h.slice(5) as 'prev' | 'next'
+    // the hit is by track index; the scene marks cards by their place on the page
+    return h?.startsWith('buy:') ? Number(h.slice(4)) - shopPage.value * (prestigeHit?.SHOP_PAGE_SIZE ?? 6) : null
+})
 const loadoutsHover = computed<LoadoutsHover>(() => {
     const h = hover.value
     if (h?.startsWith('card:')) return Number(h.slice(5))
@@ -416,12 +449,13 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
         import('~/utils/hero-quest-art/collections-scene'),
-        import('~/utils/hero-quest-art/loadouts-scene')
+        import('~/utils/hero-quest-art/loadouts-scene'),
+        import('~/utils/hero-quest-art/prestige-scene')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -431,6 +465,8 @@ onMounted(async () => {
     collectionsHit = collectionsArt
     loadoutsScene = new loadoutsArt.LoadoutsScene(backdrops)
     loadoutsHit = loadoutsArt
+    prestigeScene = new prestigeArt.PrestigeScene(backdrops)
+    prestigeHit = prestigeArt
     stage = new BattleDemo()
     build()
     if (intro) {
@@ -460,7 +496,7 @@ onMounted(async () => {
                 ? collectionsScene!.render(t, props.collections ?? { tab: 'gear', entries: [], essence: '0' }, collectionsHover.value, pressed.value, detail.value, !!props.collectionsBusy)
                 : scene === 'loadouts'
                     ? loadoutsScene!.render(t, props.loadouts ?? { slots: [], unlocked: 0, max: 0 }, loadoutsHover.value, pressed.value, loadoutDetail.value, !!props.loadoutsBusy)
-                    : backdrops!.render(scene, t)
+                    : prestigeScene!.render(t, props.prestige ?? { tracks: [], voidShards: '0', gems: '0' }, shopPage.value, shopHover.value, pressed.value, !!props.prestigeBusy)
         presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value))
     })
     observer = new ResizeObserver(fit)

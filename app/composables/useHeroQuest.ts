@@ -162,7 +162,7 @@ export const useHeroQuest = () => {
     }
 
     async function buyUpgrade(upgradeId: string) {
-        return call('/api/hero-quest/prestige/shop-buy', { upgradeId }, 'Upgrade purchased')
+        return call('/api/hero-quest/prestige/shop-buy', { upgradeId }, '')
     }
 
     interface PullRecord {

@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { HqIntroRect } from '~/composables/useHqIntro'
-import { formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
+import { D, formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
 import { RARITIES, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { FormationRow, Rarity } from '#shared/utils/hero-quest/types'
 import { GEAR_SLOTS, GEAR_SLOT_NAME } from '#shared/utils/hero-quest/content/gear'
 import { FORMATION_ROW_CAPACITY } from '#shared/utils/hero-quest/constants'
 import type { CollectionAction, CollectionLine, CollectionSection, CollectionTile, DetailButton } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
+import type { PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 
 /**
  * The game's stage and the battle it plays. The layout keeps it mounted on every scene route, so
@@ -24,8 +25,10 @@ const emit = defineEmits<{
 
 const {
     initialized, run, hero, settled, pending, guild, forge, training, digSite, nextPrestigeReward,
-    engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout
+    engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
+    shop, voidShards, buyUpgrade
 } = useHeroQuest()
+const { user } = useAuth()
 
 /**
  * The Collections scene's tab, off the route, and the roster it shows, with what each entry's
@@ -344,6 +347,69 @@ function onLoadoutRename(slotIndex: number, name: string) {
 }
 
 /**
+ * The Prestige scene's shop: every track with what it gives now and next, its price, and whether
+ * the balance it is priced in covers it. Loadout slots take Gems, everything else Void Shards.
+ * Maxed tracks sink to the end, the rest keeping the shop's own order (the sort is stable), but
+ * only as the scene opens: the order is frozen while it is up, so a track maxed by the last press
+ * stays under the pointer instead of jumping away, and moves back the next time the shop opens.
+ */
+const shopOrder = ref<string[]>([])
+
+function freezeShopOrder() {
+    const tracks = shop.value ?? []
+    shopOrder.value = [...tracks]
+        .sort((a, b) => Number(a.nextCost === null) - Number(b.nextCost === null))
+        .map(track => track.id)
+}
+
+watch(() => props.scene, (scene) => {
+    if (scene === 'prestige') freezeShopOrder()
+}, { immediate: true })
+
+// opened before the payload landed (a reload straight onto the scene): freeze once it arrives
+watch(shop, (tracks) => {
+    if (props.scene === 'prestige' && !shopOrder.value.length && tracks?.length) freezeShopOrder()
+})
+
+const prestigeView = computed<PrestigeView>(() => {
+    const shards = D(voidShards.value ?? '0')
+    const gems = user.value?.gems ?? 0
+    // a track the frozen order does not know yet goes last
+    const rank = (id: string) => {
+        const i = shopOrder.value.indexOf(id)
+        return i < 0 ? shopOrder.value.length : i
+    }
+    return {
+        voidShards: formatHq(voidShards.value ?? '0'),
+        gems: formatNumber(gems),
+        tracks: (shop.value ?? []).map(track => ({
+            id: track.id,
+            name: track.name,
+            level: track.level,
+            maxLevel: track.maxLevel,
+            current: track.effect.current,
+            next: track.effect.next,
+            cost: track.nextCost === null ? null : formatNumber(track.nextCost),
+            currency: track.currency,
+            affordable: track.nextCost !== null && (track.currency === 'gems' ? gems >= track.nextCost : shards.gte(track.nextCost))
+        })).sort((a, b) => rank(a.id) - rank(b.id))
+    }
+})
+
+const prestigeBusy = ref(false)
+
+async function onShopBuy(upgradeId: string) {
+    prestigeBusy.value = true
+    try {
+        await buyUpgrade(upgradeId)
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        prestigeBusy.value = false
+    }
+}
+
+/**
  * The battle screen draws the *projected* run, not the payload.
  *
  * The server settles lazily and this page polls it once a minute, so `run` and `hero` are a
@@ -585,6 +651,8 @@ const awayReport = computed(() => {
           :collections-busy="collectionsBusy"
           :loadouts="loadoutsView"
           :loadouts-busy="loadoutsBusy"
+          :prestige="prestigeView"
+          :prestige-busy="prestigeBusy"
           @fight-progress="fightProgress = $event"
           @challenge="onEngage"
           @scene="emit('scene', $event)"
@@ -592,6 +660,7 @@ const awayReport = computed(() => {
           @collection-action="onCollectionAction"
           @loadout-action="onLoadoutAction"
           @loadout-rename="onLoadoutRename"
+          @shop-buy="onShopBuy"
         />
       </template>
 
