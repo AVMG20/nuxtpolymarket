@@ -18,6 +18,7 @@ import {
     townMonumentStageMs,
     type TownMonumentId
 } from './town-monuments'
+import { TOWN_BOOST_FACTOR, townBoostOverlapMs } from './town-boosts'
 
 export const TOWN_PLOT_SIZE = 8
 export const TOWN_TILES_PER_PLOT = TOWN_PLOT_SIZE * TOWN_PLOT_SIZE
@@ -1472,6 +1473,8 @@ export interface TownSimState {
     buildings: TownSimBuilding[]
     /** Fractional goods each workshop has made but not yet finished. Absent means none. */
     carry?: TownCarry
+    /** Production surge runs until then (epoch ms): production up to it counts double. */
+    productionBoostUntil?: number | null
 }
 
 export interface TownDistrict {
@@ -2290,19 +2293,56 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
     // chains are walked once here instead of on every tick.
     const network = townSupplyNetwork(buildings, now)
     let derived = deriveTown(buildings, happiness, cursor, satisfied, network)
+
+    // Production surge: the share of each tick's progress made before
+    // `surgeUntil` is run a second time. Progress carried in from the last
+    // settle counts as surged when the surge was on at the start of this
+    // window. Townsfolk still eat once a tick.
+    const surgeUntil = state.productionBoostUntil ?? 0
+    let surgedProgress = from < surgeUntil ? progress : 0
+
+    // One run of a workshop's recipe at `ratio` of its staffed rate. It only
+    // runs when every input is in stock and the outputs fit in storage.
+    const work = (b: TownSimBuilding, def: TownBuildingDef, level: number, ratio: number) => {
+        const recipe = townTickRecipe(def, level, ratio)
+        if (!recipe) return
+        const run = townTickWork(recipe, carry[b.id])
+        const { inputs, outputs } = run
+        for (const [id, qty] of Object.entries(inputs) as [TownResourceId, number][]) {
+            if ((inv[id] ?? 0) < qty) return
+        }
+        for (const [id, qty] of Object.entries(outputs) as [TownResourceId, number][]) {
+            if ((inv[id] ?? 0) + qty > derived.storageCap) return
+        }
+        // A tick that cannot run leaves the carry alone: nothing was made.
+        carry[b.id] = run.carry
+        for (const [id, qty] of Object.entries(inputs) as [TownResourceId, number][]) {
+            inv[id] = (inv[id] ?? 0) - qty
+            delta[id] = (delta[id] ?? 0) - qty
+        }
+        for (const [id, qty] of Object.entries(outputs) as [TownResourceId, number][]) {
+            inv[id] = (inv[id] ?? 0) + qty
+            delta[id] = (delta[id] ?? 0) + qty
+        }
+    }
+
     let guard = 0
     while (elapsed > 0 && guard++ < 100_000) {
         const needMs = (TOWN_TICK_MS - progress) / derived.speedMultiplier
         if (elapsed < needMs) {
+            surgedProgress += townBoostOverlapMs(cursor, cursor + elapsed, surgeUntil) * derived.speedMultiplier
             progress += elapsed * derived.speedMultiplier
             cursor += elapsed
             elapsed = 0
             break
         }
+        surgedProgress += townBoostOverlapMs(cursor, cursor + needMs, surgeUntil) * derived.speedMultiplier
         elapsed -= needMs
         cursor += needMs
         progress = 0
         ticks++
+        const surge = Math.min(1, surgedProgress / TOWN_TICK_MS) * (TOWN_BOOST_FACTOR - 1)
+        surgedProgress = 0
 
         // Re-derive at this instant so newly finished buildings join the tick.
         derived = deriveTown(buildings, happiness, cursor, satisfied, network)
@@ -2312,31 +2352,11 @@ export function settleTown(state: TownSimState, now: number): TownSettleResult {
             const def = BUILDING_BY_ID.get(b.type)!
             if (def.kind !== 'industry') continue
             const level = effectiveLevel(b, cursor)
-            const recipe = townTickRecipe(def, level, derived.throughput.get(b.id) ?? 0)
-            if (!recipe) continue
-            const work = townTickWork(recipe, carry[b.id])
-            const { inputs, outputs } = work
-
-            let ok = true
-            for (const [id, qty] of Object.entries(inputs) as [TownResourceId, number][]) {
-                if ((inv[id] ?? 0) < qty) { ok = false; break }
-            }
-            if (!ok) continue
-            for (const [id, qty] of Object.entries(outputs) as [TownResourceId, number][]) {
-                if ((inv[id] ?? 0) + qty > derived.storageCap) { ok = false; break }
-            }
-            // A tick that cannot run leaves the carry alone: nothing was made.
-            if (!ok) continue
-            carry[b.id] = work.carry
-
-            for (const [id, qty] of Object.entries(inputs) as [TownResourceId, number][]) {
-                inv[id] = (inv[id] ?? 0) - qty
-                delta[id] = (delta[id] ?? 0) - qty
-            }
-            for (const [id, qty] of Object.entries(outputs) as [TownResourceId, number][]) {
-                inv[id] = (inv[id] ?? 0) + qty
-                delta[id] = (delta[id] ?? 0) + qty
-            }
+            const ratio = derived.throughput.get(b.id) ?? 0
+            work(b, def, level, ratio)
+            // The surge's extra run checks inputs and storage on its own, so a
+            // doubled workshop eats twice as fast and still stops at the cap.
+            if (surge > 0) work(b, def, level, ratio * surge)
         }
 
         // The town eats and uses things. A need is only satisfied when the

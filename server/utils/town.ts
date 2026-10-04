@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, inArray, lte, notInArray, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townRealm, townEvents } from '#server/database/schema'
+import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townRealm, townEvents, townContracts, townContractDays } from '#server/database/schema'
 import { credit, creditGems, debit, debitGems } from '#server/utils/balance'
 import { pruneTownEvents, recordTownEvent } from '#server/utils/town-events'
 import { matchGemOrder } from '#shared/utils/gamelogic/gem-exchange'
@@ -61,6 +61,18 @@ import {
     type TownSatisfied
 } from '#shared/utils/gamelogic/town'
 import { TOWN_MONUMENT_IDS, isTownMonumentId } from '#shared/utils/gamelogic/town-monuments'
+import {
+    isTownBoostActive,
+    townBoostExtend,
+    townBoostMultiplier,
+    townBoostUntil,
+    townBuildBoostedCompletesAt,
+    townBuildRushedCompletesAt,
+    townCrewCount,
+    townMarketBonus,
+    townMarketMultiplier,
+    type TownBoostBag
+} from '#shared/utils/gamelogic/town-boosts'
 
 const CATEGORY = 'polytown'
 /**
@@ -69,6 +81,8 @@ const CATEGORY = 'polytown'
  * money the player never earned — see isEarning in server/utils/balance.ts.
  */
 const CATEGORY_REFUND = 'polytown:refund'
+/** Market-day coins on top of a town-hall sale. */
+const CATEGORY_MARKET_DAY = 'polytown:market-day'
 
 // App-unique advisory lock keys. Plot claiming serializes on one global key so
 // spiral indexes never collide; each resource book gets its own key so matching
@@ -226,7 +240,8 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
         lastSettledAt: state.lastSettledAt.getTime(),
         inventory,
         buildings: simBefore,
-        carry: state.carry
+        carry: state.carry,
+        productionBoostUntil: state.productionBoostUntil?.getTime() ?? null
     }, now)
 
     for (const [id, delta] of Object.entries(result.delta) as [TownResourceId, number][]) {
@@ -298,6 +313,126 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
         satisfied: result.satisfied,
         bonus: townMonumentBonus(sim, now)
     }
+}
+
+// ─── Boosts ──────────────────────────────────────────────────────────────────
+
+type TownBoostState = Pick<typeof townState.$inferSelect, 'buildBoostUntil' | 'productionBoostUntil' | 'tempBuilderUntil' | 'marketBoostUntil' | 'marketBoostBonusLeft'>
+
+/** The boosts running at `now`: when each ends (null when off) and what it multiplies by. */
+export function townBoostsView(state: TownBoostState, now: number) {
+    const build = state.buildBoostUntil?.getTime() ?? null
+    const production = state.productionBoostUntil?.getTime() ?? null
+    const market = state.marketBoostUntil?.getTime() ?? null
+    const marketOn = townBoostUntil(market, now) !== null
+    return {
+        boosts: { build: townBoostUntil(build, now), production: townBoostUntil(production, now), market: townBoostUntil(market, now) },
+        boostMultiplier: { build: townBoostMultiplier(build, now), production: townBoostMultiplier(production, now), market: townMarketMultiplier(market, now) },
+        /** Extra coins market day can still pay out; 0 when it is off. */
+        marketBonusLeft: marketOn ? parseFloat(state.marketBoostBonusLeft) : 0
+    }
+}
+
+/** Crews this town can put to work at `now`, the borrowed one included. */
+export function townCrews(state: Pick<typeof townState.$inferSelect, 'builders' | 'tempBuilderUntil'>, now: number): number {
+    return townCrewCount(state.builders, state.tempBuilderUntil?.getTime(), now)
+}
+
+export interface TownBoostGrant extends TownBoostBag {
+    /** Borrowed-crew time to add. */
+    builder?: number
+    /** Market-day time to add, and the bonus budget that comes with it. */
+    market?: number
+    marketBudget?: number
+}
+
+/**
+ * Start (or lengthen) boosts. Lock-then-read: the town_state lock is taken
+ * here (a settle earlier in `tx` already holds it), so the until read below
+ * is the one the write extends, and two activations queue up rather than
+ * overwrite each other.
+ *
+ * Production needs only the new end: the caller has settled up to `now`, so
+ * the next settle starts inside the surge. A rush also shortens every job
+ * still running, by the part of it inside the new window. Jobs started during
+ * an earlier window were already shortened for that window, and the new one
+ * begins where the old one ends, so nothing is counted twice.
+ */
+export async function activateTownBoosts(tx: DbExecutor, userId: string, grant: TownBoostGrant | undefined, now: number) {
+    const build = Math.max(0, grant?.build ?? 0)
+    const production = Math.max(0, grant?.production ?? 0)
+    const builder = Math.max(0, grant?.builder ?? 0)
+    const market = Math.max(0, grant?.market ?? 0)
+    if (build <= 0 && production <= 0 && builder <= 0 && market <= 0) return
+    const state = await lockTownState(tx, userId)
+    const patch: Partial<typeof townState.$inferInsert> = {}
+
+    if (production > 0) {
+        patch.productionBoostUntil = new Date(townBoostExtend(state.productionBoostUntil?.getTime(), now, production))
+    }
+    if (builder > 0) {
+        patch.tempBuilderUntil = new Date(townBoostExtend(state.tempBuilderUntil?.getTime(), now, builder))
+    }
+    if (market > 0) {
+        // A lapsed market day's unspent budget lapses with it.
+        const running = isTownBoostActive(state.marketBoostUntil?.getTime(), now)
+        const left = running ? parseFloat(state.marketBoostBonusLeft) : 0
+        patch.marketBoostUntil = new Date(townBoostExtend(state.marketBoostUntil?.getTime(), now, market))
+        patch.marketBoostBonusLeft = (left + Math.max(0, grant?.marketBudget ?? 0)).toFixed(4)
+    }
+    if (build > 0) {
+        const windowStart = Math.max(now, state.buildBoostUntil?.getTime() ?? 0)
+        patch.buildBoostUntil = new Date(townBoostExtend(state.buildBoostUntil?.getTime(), now, build))
+        const running = await tx.select({ id: townBuildings.id, completesAt: townBuildings.completesAt })
+            .from(townBuildings)
+            .where(and(
+                eq(townBuildings.userId, userId),
+                gte(townBuildings.completesAt, new Date(windowStart)),
+                sql`(${townBuildings.level} = 0 or ${townBuildings.upgradingTo} is not null)`
+            ))
+        for (const job of running) {
+            const completesAt = townBuildRushedCompletesAt(job.completesAt.getTime(), windowStart, build)
+            if (completesAt === job.completesAt.getTime()) continue
+            // Keyed by id under the state lock, which every build mutation takes first.
+            await tx.update(townBuildings).set({ completesAt: new Date(completesAt) }).where(eq(townBuildings.id, job.id))
+        }
+    }
+    await tx.update(townState).set(patch).where(eq(townState.id, state.id))
+}
+
+/**
+ * Running jobs an instant finish may complete, longest left first: builds and
+ * upgrades, never a monument stage. Call under the town lock.
+ */
+export async function townInstantJobs(tx: DbExecutor, userId: string, now: number) {
+    const rows = await tx.select().from(townBuildings).where(and(
+        eq(townBuildings.userId, userId),
+        gte(townBuildings.completesAt, new Date(now + 1)),
+        sql`(${townBuildings.level} = 0 or ${townBuildings.upgradingTo} is not null)`,
+        NOT_A_MONUMENT
+    )).orderBy(desc(townBuildings.completesAt))
+    return rows
+}
+
+/**
+ * Finish the `count` running jobs with the most time left, as a free rush
+ * would. Lock-then-read: the town lock serializes this with every other build
+ * mutation, so the jobs read here are the ones finished.
+ */
+export async function finishLongestTownJobs(tx: DbExecutor, userId: string, count: number, now: number) {
+    if (count <= 0) return []
+    await lockTownState(tx, userId)
+    const jobs = (await townInstantJobs(tx, userId, now)).slice(0, count)
+    const done: { buildingId: string, type: string, level: number, savedMs: number }[] = []
+    for (const job of jobs) {
+        const level = job.upgradingTo ?? 1
+        await tx.update(townBuildings)
+            .set({ level, upgradingTo: null, completesAt: new Date(now) })
+            .where(eq(townBuildings.id, job.id))
+        await recordTownEvent(tx, userId, { kind: job.level === 0 ? 'built' : 'upgraded', type: job.type, level }, now)
+        done.push({ buildingId: job.id, type: job.type, level, savedMs: job.completesAt.getTime() - now })
+    }
+    return done
 }
 
 /** Convenience for read paths: settle in its own transaction. */
@@ -738,7 +873,7 @@ export async function placeBuildings(userId: string, items: TownPlacement[]) {
         const layout = [...sim]
         const counts = new Map<string, number>()
         for (const b of sim) counts.set(b.type, (counts.get(b.type) ?? 0) + 1)
-        let buildersLeft = townBuildersFree(sim, state.builders, now)
+        let buildersLeft = townBuildersFree(sim, townCrews(state, now), now)
 
         const placed: { buildingId: string, type: string, plotId: string, tileX: number, tileY: number, completesAt: number, cost: ReturnType<typeof townPlaceCost> }[] = []
         const touchedPlots = new Set<string>()
@@ -800,7 +935,7 @@ export async function placeBuildings(userId: string, items: TownPlacement[]) {
                     tileY: item.tileY,
                     rotation,
                     level: instant ? 1 : credit,
-                    completesAt: new Date(credit > 0 ? now : now + buildMs)
+                    completesAt: new Date(credit > 0 ? now : townBuildBoostedCompletesAt(now, buildMs, state.buildBoostUntil?.getTime()))
                 })
                 .onConflictDoNothing()
                 .returning()
@@ -1068,14 +1203,14 @@ export async function upgradeBuilding(userId: string, buildingId: string) {
         const def = getTownBuilding(building.type)!
         if (def.kind === 'road') throw createError({ statusCode: 400, statusMessage: 'Roads have no levels' })
         if (building.level >= townBuildingMaxLevel(def)) throw createError({ statusCode: 400, statusMessage: 'Already at max level' })
-        const crewIssue = upgradeCrewIssue(def.kind, sim, state.builders, now)
+        const crewIssue = upgradeCrewIssue(def.kind, sim, townCrews(state, now), now)
         if (crewIssue) throw createError({ statusCode: 400, statusMessage: crewIssue })
         const nextLevel = building.level + 1
         const cost = townLevelCost(def, nextLevel)
         if (cost.coins > 0) await debit(userId, cost.coins.toFixed(4), CATEGORY, tx)
         await spendBag(tx, userId, cost.resources)
 
-        const completesAt = new Date(now + townLevelBuildMs(def, nextLevel, state.happiness, bonus))
+        const completesAt = new Date(townBuildBoostedCompletesAt(now, townLevelBuildMs(def, nextLevel, state.happiness, bonus), state.buildBoostUntil?.getTime()))
         const [updated] = await tx.update(townBuildings)
             .set({ upgradingTo: nextLevel, completesAt })
             .where(and(eq(townBuildings.id, buildingId), eq(townBuildings.level, building.level), sql`${townBuildings.upgradingTo} is null`))
@@ -1160,7 +1295,7 @@ export async function upgradeBuildings(userId: string, buildingIds: string[]) {
         const now = Date.now()
         const { buildings, state, sim, bonus, inventory } = await settleTownState(tx, userId, now)
         const purse = await townPurse(tx, userId, inventory)
-        let buildersLeft = townBuildersFree(sim, state.builders, now)
+        let buildersLeft = townBuildersFree(sim, townCrews(state, now), now)
         let monumentCrewFree = townMonumentJob(sim, now) === null
         const started: { buildingId: string, level: number, completesAt: number }[] = []
         let firstIssue: string | null = null
@@ -1182,7 +1317,7 @@ export async function upgradeBuildings(userId: string, buildingIds: string[]) {
             const cost = townLevelCost(def, nextLevel)
             const short = purse.shortOf(cost)
             if (short) { note(short); continue }
-            const completesAt = new Date(now + townLevelBuildMs(def, nextLevel, state.happiness, bonus))
+            const completesAt = new Date(townBuildBoostedCompletesAt(now, townLevelBuildMs(def, nextLevel, state.happiness, bonus), state.buildBoostUntil?.getTime()))
             // The conditional UPDATE claims the upgrade; only then is anything charged.
             const [updated] = await tx.update(townBuildings)
                 .set({ upgradingTo: nextLevel, completesAt })
@@ -1217,7 +1352,7 @@ export async function upgradeBuildings(userId: string, buildingIds: string[]) {
  * out real coins and gems at the Magnate milestone. The hall is the one
  * counterparty nobody can be on both sides of.
  */
-async function recordEarnings(tx: DbExecutor, userId: string, coins: number) {
+export async function recordEarnings(tx: DbExecutor, userId: string, coins: number) {
     if (coins <= 0) return
     await tx.update(townState)
         .set({ coinsEarned: sql`${townState.coinsEarned} + ${coins.toFixed(4)}::numeric` })
@@ -1381,6 +1516,27 @@ async function applySweepSell(tx: DbExecutor, userId: string, plan: SweepSellPla
 }
 
 /**
+ * Market day: half again on what the town hall paid, out of the budget the
+ * market days granted. Lock-then-read on the seller's town row (the sell
+ * paths already hold it), so parallel sells draw the budget down one after
+ * another and never pay out more than it holds. Only the hall's share counts:
+ * fills against player bids and contracts earn no bonus.
+ */
+async function payMarketBonus(tx: DbExecutor, userId: string, hallTotal: number, now: number): Promise<number> {
+    if (hallTotal <= 0) return 0
+    const [state] = await tx.select({ id: townState.id, until: townState.marketBoostUntil, left: townState.marketBoostBonusLeft })
+        .from(townState).where(eq(townState.userId, userId)).for('update')
+    if (!state) return 0
+    const bonus = townMarketBonus(hallTotal, parseFloat(state.left), isTownBoostActive(state.until?.getTime(), now))
+    if (bonus <= 0) return 0
+    await tx.update(townState)
+        .set({ marketBoostBonusLeft: sql`greatest(0, ${townState.marketBoostBonusLeft} - ${bonus.toFixed(4)}::numeric)` })
+        .where(eq(townState.id, state.id))
+    await credit(userId, bonus.toFixed(4), CATEGORY_MARKET_DAY, tx)
+    return bonus
+}
+
+/**
  * Sell one good for the most coins on offer: the player bids that beat the
  * town hall first, best price first, then the hall for the remainder.
  *
@@ -1396,6 +1552,7 @@ export async function sellToFloor(userId: string, resource: string, quantity: nu
         const plan = await planSweepSell(tx, userId, resource, quantity)
         for (const id of sweepParticipants(userId, [plan])) await lockTownForMarket(tx, id)
         await applySweepSell(tx, userId, plan)
+        const marketBonus = await payMarketBonus(tx, userId, plan.hallTotal, Date.now())
         return {
             resource,
             quantity,
@@ -1403,7 +1560,9 @@ export async function sellToFloor(userId: string, resource: string, quantity: nu
             total: plan.total,
             toPlayers: plan.playerTotal,
             toHall: plan.hallTotal,
-            filledByPlayers: quantity - plan.remaining
+            filledByPlayers: quantity - plan.remaining,
+            /** Market-day coins paid on top of `total`. */
+            marketBonus
         }
     })
 }
@@ -1445,12 +1604,15 @@ export async function sellBulkToFloor(userId: string, items: { resource: string,
         for (const id of sweepParticipants(userId, plans)) await lockTownForMarket(tx, id)
 
         let total = 0
+        let hallTotal = 0
         for (const plan of plans) {
             await applySweepSell(tx, userId, plan)
             total += plan.total
+            hallTotal += plan.hallTotal
         }
+        const marketBonus = await payMarketBonus(tx, userId, hallTotal, Date.now())
         const lines = plans.map(plan => ({ resource: plan.resource, quantity: plan.quantity, price: plan.floor, total: plan.total }))
-        return { total, lines, resources: plans.filter(plan => plan.fills.length > 0).map(plan => plan.resource) }
+        return { total, lines, resources: plans.filter(plan => plan.fills.length > 0).map(plan => plan.resource), marketBonus }
     })
 }
 
@@ -1843,6 +2005,8 @@ export async function deleteTownForUser(userId: string, tx: DbExecutor = db) {
     await tx.delete(townInventory).where(eq(townInventory.userId, userId))
     await tx.delete(townPlots).where(eq(townPlots.userId, userId))
     await tx.delete(townEvents).where(eq(townEvents.userId, userId))
+    await tx.delete(townContracts).where(eq(townContracts.userId, userId))
+    await tx.delete(townContractDays).where(eq(townContractDays.userId, userId))
     await tx.delete(townState).where(eq(townState.userId, userId))
 }
 /**

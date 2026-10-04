@@ -1,5 +1,5 @@
 import { requireUserId } from '#server/utils/auth'
-import { getTownState, settleTownForRead, plotPurchaseInfo, getMyTownOrders, getTownLastPrices, serializeMilestones, getExpansions, getWorldView } from '#server/utils/town'
+import { getTownState, settleTownForRead, plotPurchaseInfo, getMyTownOrders, getTownLastPrices, serializeMilestones, getExpansions, townBoostsView, townCrews } from '#server/utils/town'
 import {
     TOWN_BUILDINGS,
     TOWN_RESOURCES,
@@ -88,10 +88,10 @@ export default defineEventHandler(async (event) => {
         getTownLastPrices()
     ])
     const { state, buildings, plots, sim, inventory } = settled
-    const [expansions, world] = await Promise.all([
-        getExpansions(userId, plots),
-        getWorldView(userId, plots)
-    ])
+    // The neighbours' towns are not in here: they are most of the bytes and
+    // none of the gameplay, so the client fetches /api/town/world separately,
+    // after this, and on a slower clock.
+    const expansions = await getExpansions(userId, plots)
 
     // One breadth-first pass over the roads serves both derives below.
     const network = townSupplyNetwork(sim, now)
@@ -137,6 +137,12 @@ export default defineEventHandler(async (event) => {
         mood: { id: mood.id, name: mood.name, emoji: mood.emoji, speed: mood.speed, buildTime: mood.buildTime, storage: mood.storage },
         nextMood: nextMood ? { id: nextMood.id, name: nextMood.name, emoji: nextMood.emoji, min: nextMood.min, speed: nextMood.speed, buildTime: nextMood.buildTime, storage: nextMood.storage } : null,
         speedMultiplier: derived.speedMultiplier,
+        // Rates in here (netPerTick, speedMultiplier, floorIncomePerDay, needs)
+        // are the base ones. While a boost runs, `boostMultiplier` says what
+        // to scale them by: production doubles workshop output and inputs,
+        // never what the townsfolk eat. `boosts` holds each one's end (epoch
+        // ms), null when it is off.
+        ...townBoostsView(state, now),
         countsByType,
         nextCost,
         tierLocks,
@@ -174,10 +180,13 @@ export default defineEventHandler(async (event) => {
             listPrice: p.listPrice === null ? null : parseFloat(p.listPrice),
             refund: townPlotRefundFor(parseFloat(p.paidPrice))
         })),
-        world,
         plotRefundShare: TOWN_PLOT_REFUND_SHARE,
         builders: {
             owned: state.builders,
+            /** Owned crews plus the borrowed one while it is here: what `busy` is measured against. */
+            total: townCrews(state, now),
+            /** When the borrowed crew leaves (epoch ms), null without one. */
+            tempBuilderUntil: state.tempBuilderUntil && state.tempBuilderUntil.getTime() > now ? state.tempBuilderUntil.getTime() : null,
             busy: townBuildersBusy(settled.sim, now),
             nextGemCost: townBuilderGemCost(state.builders)
         },

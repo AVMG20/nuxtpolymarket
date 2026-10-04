@@ -18,6 +18,7 @@ import type {
 } from '#shared/types/tcg-db'
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
+import type { TownStreakLock } from '#shared/utils/gamelogic/town-streak'
 import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
 import type { NcDrawing } from '#shared/utils/neighcasso/types'
 import type { NavLayout } from '#shared/utils/nav-layout'
@@ -1773,6 +1774,20 @@ export const townState = pgTable('town_state', {
    * with a conditional update when it is used, so it can only be spent once.
    */
   monumentCredit: jsonb('monument_credit').$type<Record<string, number>>().notNull().default({}),
+  /**
+   * Builder's rush: every build job runs at double speed until then. Jobs
+   * already running are shortened when it starts (see activateTownBoosts),
+   * new ones when they start. Null or past means off. Written under the state lock.
+   */
+  buildBoostUntil: timestamp('build_boost_until'),
+  /** Production surge: the settle doubles production up to then. Null or past means off. Written under the state lock. */
+  productionBoostUntil: timestamp('production_boost_until'),
+  /** A hired-for-a-day build crew on top of `builders` while this is in the future. Written under the state lock. */
+  tempBuilderUntil: timestamp('temp_builder_until'),
+  /** Market day: town-hall floor sales pay extra until then, out of `marketBoostBonusLeft`. */
+  marketBoostUntil: timestamp('market_boost_until'),
+  /** Coins market day may still add on top of floor sales. Decremented under the state lock. */
+  marketBoostBonusLeft: numeric('market_boost_bonus_left', { precision: 19, scale: 4 }).notNull().default('0'),
   createdAt: timestamp('created_at').defaultNow().notNull()
 })
 
@@ -1916,6 +1931,64 @@ export const townEvents = pgTable('town_events', {
   data: jsonb('data').$type<TownEventData>().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [index('town_events_user_createdAt_idx').on(t.userId, t.createdAt)])
+
+/**
+ * The day's three town hall contracts: a good, a quantity sized to what the
+ * town makes and can store, and a price at a premium over the floor. Rolled
+ * once per UTC day on first sight and never rerolled. Delivering flips
+ * `delivered` with a conditional update (claim-then-reward).
+ */
+export const townContracts = pgTable('town_contracts', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** UTC day key, 'YYYY-MM-DD'. */
+  day: text('day').notNull(),
+  slot: integer('slot').notNull(),
+  resource: text('resource').notNull(),
+  quantity: integer('quantity').notNull(),
+  /** Coins paid on delivery. */
+  reward: numeric('reward', { precision: 19, scale: 4 }).notNull(),
+  delivered: boolean('delivered').notNull().default(false),
+  deliveredAt: timestamp('delivered_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [unique('town_contracts_user_day_slot_unique').on(t.userId, t.day, t.slot)])
+
+/**
+ * One row per town per contract day: the gem bonus for delivering all three,
+ * rolled with the contracts and paid once by flipping `bonusClaimed`.
+ */
+export const townContractDays = pgTable('town_contract_days', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  day: text('day').notNull(),
+  bonusGems: integer('bonus_gems').notNull(),
+  bonusClaimed: boolean('bonus_claimed').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [unique('town_contract_days_user_day_unique').on(t.userId, t.day)])
+
+/**
+ * The mayor's daily streak: a 30-step reward track. Each new UTC day the mayor
+ * shows up unlocks the next step; missing a day freezes the track until the
+ * mayor resets it. Never auto-resets. Claims set a bit in `claimed` with a
+ * conditional update; reset locks the row, pays every unclaimed step, then
+ * starts over.
+ */
+export const townStreak = pgTable('town_streak', {
+  userId: text('user_id').primaryKey().references(() => user.id, { onDelete: 'cascade' }),
+  /** Steps unlocked in this run, 0..30. */
+  step: integer('step').notNull().default(0),
+  /** UTC day key of the last step unlocked; null before the first visit. */
+  lastDay: text('last_day'),
+  /** Bit i set once step i + 1 has been paid. */
+  claimed: integer('claimed').notNull().default(0),
+  /** Completed or abandoned runs, for display. */
+  cycle: integer('cycle').notNull().default(0),
+  /** Per unlocked step: the town's scale and the payout, fixed the day it unlocked, so a late claim pays the same. */
+  locked: jsonb('locked').$type<Record<string, TownStreakLock>>().notNull().default({}),
+  /** Lucky charges: each upgrades the next chest opened by one tier. Spent with a conditional decrement. */
+  lucky: integer('lucky').notNull().default(0),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+})
 
 export const townStateRelations = relations(townState, ({ one }) => ({
   user: one(user, { fields: [townState.userId], references: [user.id] })
