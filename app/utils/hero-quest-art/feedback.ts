@@ -338,11 +338,11 @@ export function drawStageProgress(s: Surface, kills: number, required: number, w
 
 // ── Boss challenge ─────────────────────────────────────────────────────────────────
 
-export const CHALLENGE_W = 40
+export const CHALLENGE_W = 16
 export const CHALLENGE_H = 16
 
 /**
- * A 40×16 red button with the enrage timer's skull on it: how a boss lost to a timeout or a wipe
+ * A 16×16 red button with the enrage timer's skull on it: how a boss lost to a timeout or a wipe
  * is fought again, since it no longer engages on its own. Lit on hover, sunk a pixel when pressed.
  */
 export function drawChallengeButton(s: Surface, ox: number, oy: number, state: 'idle' | 'hover' | 'pressed', t: number): void {
