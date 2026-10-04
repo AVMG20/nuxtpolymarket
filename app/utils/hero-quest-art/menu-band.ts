@@ -42,6 +42,8 @@ const ICONS: Readonly<Record<HqMenuScene, Glyph>> = {
     collections: (g, x, y) => ABILITY_ICON_PARTS.book(g, x, y, C.red1, C.bone1),
     loadouts: LOADOUT_GLYPH,
     // Void Shards are what a prestige pays out
+    // a crown: the class the Hero has risen to
+    classes: (g, x, y) => ABILITY_ICON_PARTS.crown(g, x, y + 2),
     prestige: CURRENCY_ICONS.void_shards!
 }
 
@@ -102,6 +104,9 @@ export class BandedFrame {
     }
 }
 
+/** A scene with no tab background of its own borrows one: Classes trains in the battle's camp. */
+const BACKDROP_OF: Partial<Record<HqMenuScene, string>> = { classes: 'battle' }
+
 /**
  * The menu scenes, drawn as their tab backgrounds (`ui-art.ts`) cut to the stage's camera, with
  * the scene's name over them. Each is a stand-in for the scene it will become.
@@ -115,7 +120,7 @@ export class SceneBackdrops {
     }
 
     render(scene: HqMenuScene, t: number, titled = true): Surface {
-        const bg = TAB_BACKGROUNDS.find(b => b.id === scene)
+        const bg = TAB_BACKGROUNDS.find(b => b.id === (BACKDROP_OF[scene] ?? scene))
         this.full.clear(C.night0)
         bg?.draw(this.full, t)
         this.view.clear(C.night0)

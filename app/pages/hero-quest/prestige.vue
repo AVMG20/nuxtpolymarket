@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { formatHq } from '#shared/utils/hero-quest/numbers'
 
-const {
-    initialized, run, hero, shop, classTree,
-    voidShards, nextPrestigeReward, canPrestige,
-    prestige, pickClass, buyUpgrade
-} = useHeroQuest()
+/**
+ * The prestige shop's route, drawn on the stage as the Prestige scene. Prestiging itself happens on
+ * the bridge a cleared run stands on, and the class tree has its own route.
+ */
+const { initialized, shop, voidShards, nextPrestigeReward, buyUpgrade } = useHeroQuest()
 
 const busy = ref(false)
 
@@ -48,40 +48,6 @@ async function withBusy(action: () => Promise<unknown>) {
         </div>
       </div>
 
-      <!--
-        Void Shards land on a full World 10 / Stage 10 clear and nowhere else, and both boss
-        gates in every world can only be resolved live. Prestige is therefore the one thing
-        in this game idle time can never earn on its own.
-      -->
-      <div class="rounded-lg border p-4 space-y-3" :class="canPrestige ? 'border-primary bg-primary/5' : 'border-default bg-elevated/40'">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <p class="font-medium text-highlighted">
-              Prestige
-            </p>
-            <p class="text-sm text-muted mt-0.5">
-              {{ canPrestige
-                ? 'The Void is beaten. Reset to World 1 and take your levels with you.'
-                : 'Clear the World 10 super boss to prestige. Your hero keeps every level and everything it owns.' }}
-            </p>
-          </div>
-          <UButton
-            :disabled="!canPrestige || busy"
-            color="primary"
-            icon="i-lucide-sparkles"
-            @click="withBusy(prestige)"
-          >
-            Prestige
-          </UButton>
-        </div>
-        <p
-          v-if="run"
-          class="text-xs text-muted"
-        >
-          Currently at {{ run.worldName }}, Stage {{ run.stage }} · Prestige {{ run.prestige }}
-        </p>
-      </div>
-
       <div>
         <h2 class="text-sm font-medium text-highlighted mb-3">
           Prestige shop
@@ -94,24 +60,6 @@ async function withBusy(action: () => Promise<unknown>) {
         />
       </div>
 
-      <div>
-        <div class="flex items-baseline justify-between mb-3">
-          <h2 class="text-sm font-medium text-highlighted">
-            Class
-          </h2>
-          <p
-            v-if="hero"
-            class="text-xs text-muted"
-          >
-            Level {{ hero.level }} carries across — switching costs nothing
-          </p>
-        </div>
-        <HeroQuestClassTree
-          :nodes="classTree"
-          :busy="busy"
-          @pick="id => withBusy(() => pickClass(id))"
-        />
-      </div>
     </template>
   </div>
 </template>

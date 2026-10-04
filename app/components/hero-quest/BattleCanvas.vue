@@ -6,6 +6,7 @@ import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-ba
 import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutButton, LoadoutsHover, LoadoutsScene, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeScene, PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
+import type { ClassesScene, ClassesView } from '~/utils/hero-quest-art/classes-scene'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import { C, PALETTE } from '~/utils/hero-quest-art/palette'
 import type { HqIntroRect } from '~/composables/useHqIntro'
@@ -69,6 +70,10 @@ const props = defineProps<{
     prestige?: PrestigeView
     /** A shop purchase is on its way. */
     prestigeBusy?: boolean
+    /** The Classes scene: the tree, and whether a class token is held. */
+    classes?: ClassesView
+    /** A class pick is on its way. */
+    classesBusy?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -86,6 +91,8 @@ const emit = defineEmits<{
     loadoutAction: [action: 'save' | 'apply', slotIndex: number, name?: string]
     /** A loadout's new name was entered. */
     loadoutRename: [slotIndex: number, name: string]
+    /** A class in the tree was pressed: switch the Hero to it. */
+    pickClass: [classId: string]
     /** A prestige-shop track's Buy button was pressed. */
     shopBuy: [upgradeId: string]
 }>()
@@ -113,6 +120,8 @@ let loadoutsScene: LoadoutsScene | null = null
 let loadoutsHit: typeof import('~/utils/hero-quest-art/loadouts-scene') | null = null
 let prestigeScene: PrestigeScene | null = null
 let prestigeHit: typeof import('~/utils/hero-quest-art/prestige-scene') | null = null
+let classesScene: ClassesScene | null = null
+let classesHit: typeof import('~/utils/hero-quest-art/classes-scene') | null = null
 let band: typeof import('~/utils/hero-quest-art/menu-band') | null = null
 let presenter: Presenter | null = null
 let stop: (() => void) | null = null
@@ -234,7 +243,7 @@ defineExpose({ skipFight, closeIris })
  * them in the view's own pixels. The page's own Fight button stays the keyboard's way in.
  */
 type Target = 'challenge' | HqMenuScene | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
-    | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next'
+    | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}`
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
@@ -338,6 +347,11 @@ function targetAt(e: PointerEvent): Target | null {
         const card = i === null ? undefined : props.loadouts?.slots[i]
         return i !== null && card && (!card.locked || card.price) ? `card:${i}` : null
     }
+    if (openScene.value === 'classes' && classesHit) {
+        // any class can be pointed at, for its description; only a pickable one is pressed
+        const id = classesHit.classNodeAt(props.classes?.classes ?? [], x, y)
+        return id ? `class:${id}` : null
+    }
     if (openScene.value === 'prestige' && prestigeHit) {
         const tracks = props.prestige?.tracks ?? []
         const pages = Math.max(1, Math.ceil(tracks.length / prestigeHit.SHOP_PAGE_SIZE))
@@ -388,6 +402,10 @@ function onPointerUp(e: PointerEvent) {
     else if (item) emit('scene', item === openScene.value ? 'battle' : item)
     else if (hit === 'close') detail.value = null
     else if (hit === 'shop:prev' || hit === 'shop:next') shopPage.value += hit === 'shop:next' ? 1 : -1
+    else if (hit.startsWith('class:')) {
+        const node = props.classes?.classes.find(c => c.id === hit.slice(6))
+        if (node?.pickable && !node.current && !props.classesBusy) emit('pickClass', node.id)
+    }
     else if (hit.startsWith('buy:')) {
         const track = props.prestige?.tracks[Number(hit.slice(4))]
         if (track) emit('shopBuy', track.id)
@@ -431,6 +449,16 @@ const collectionsHover = computed<CollectionsHover>(() => {
     if (h?.startsWith('tile:')) return Number(h.slice(5))
     return HQ_COLLECTION_TABS.find(t => h === `tab:${t}`) ?? null
 })
+/** Whether a press on what the pointer is over does anything: a class that cannot be taken is only described. */
+const pointer = computed(() => {
+    const h = hover.value
+    if (!h) return false
+    if (!h.startsWith('class:')) return true
+    const node = props.classes?.classes.find(c => c.id === h.slice(6))
+    return !!node?.pickable && !node.current
+})
+const classHover = computed(() => hover.value?.startsWith('class:') ? hover.value.slice(6) : null)
+
 /** The shop's open page; it keeps its place while the scene is closed and reopened. */
 const shopPage = ref(0)
 const shopHover = computed(() => {
@@ -449,13 +477,14 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
         import('~/utils/hero-quest-art/collections-scene'),
         import('~/utils/hero-quest-art/loadouts-scene'),
-        import('~/utils/hero-quest-art/prestige-scene')
+        import('~/utils/hero-quest-art/prestige-scene'),
+        import('~/utils/hero-quest-art/classes-scene')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -467,6 +496,8 @@ onMounted(async () => {
     loadoutsHit = loadoutsArt
     prestigeScene = new prestigeArt.PrestigeScene(backdrops)
     prestigeHit = prestigeArt
+    classesScene = new classesArt.ClassesScene(backdrops)
+    classesHit = classesArt
     stage = new BattleDemo()
     build()
     if (intro) {
@@ -496,7 +527,9 @@ onMounted(async () => {
                 ? collectionsScene!.render(t, props.collections ?? { tab: 'gear', entries: [], essence: '0' }, collectionsHover.value, pressed.value, detail.value, !!props.collectionsBusy)
                 : scene === 'loadouts'
                     ? loadoutsScene!.render(t, props.loadouts ?? { slots: [], unlocked: 0, max: 0 }, loadoutsHover.value, pressed.value, loadoutDetail.value, !!props.loadoutsBusy)
-                    : prestigeScene!.render(t, props.prestige ?? { tracks: [], voidShards: '0', gems: '0' }, shopPage.value, shopHover.value, pressed.value, !!props.prestigeBusy)
+                    : scene === 'classes'
+                        ? classesScene!.render(t, props.classes ?? { classes: [], token: false }, classHover.value, !!props.classesBusy)
+                        : prestigeScene!.render(t, props.prestige ?? { tracks: [], voidShards: '0', gems: '0' }, shopPage.value, shopHover.value, pressed.value, !!props.prestigeBusy)
         presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value))
     })
     observer = new ResizeObserver(fit)
@@ -529,7 +562,7 @@ onBeforeUnmount(() => {
       <canvas
         ref="canvas"
         class="block"
-        :class="hover ? 'cursor-pointer' : ''"
+        :class="pointer ? 'cursor-pointer' : ''"
         :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated' }"
         @pointermove="onPointerMove"
         @pointerdown="onPointerDown"

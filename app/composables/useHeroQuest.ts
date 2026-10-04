@@ -73,6 +73,8 @@ export const useHeroQuest = () => {
     const hero = computed(() => state.value?.hero ?? null)
     const shop = computed(() => state.value?.shop ?? [])
     const classTree = computed(() => state.value?.classTree ?? [])
+    /** A prestige's class token, waiting to take a class not reached before. */
+    const classToken = computed(() => state.value?.classToken ?? false)
     const voidShards = computed(() => state.value?.voidShards ?? '0')
     const nextPrestigeReward = computed(() => state.value?.nextPrestigeReward ?? '0')
     const settled = computed(() => state.value?.settled ?? null)
@@ -155,10 +157,6 @@ export const useHeroQuest = () => {
 
     async function pickClass(classId: string) {
         return call<{ className: string }>('/api/hero-quest/prestige/pick-class', { classId }, '')
-            .then((res) => {
-                if (res) toast.add({ title: `Now training as ${res.className}`, color: 'success' })
-                return res
-            })
     }
 
     async function buyUpgrade(upgradeId: string) {
@@ -334,6 +332,7 @@ export const useHeroQuest = () => {
         digSite,
         loadouts,
         classTree,
+        classToken,
         voidShards,
         nextPrestigeReward,
         settled,

@@ -8,6 +8,7 @@ import { FORMATION_ROW_CAPACITY } from '#shared/utils/hero-quest/constants'
 import type { CollectionAction, CollectionLine, CollectionSection, CollectionTile, DetailButton } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
+import type { ClassesView } from '~/utils/hero-quest-art/classes-scene'
 
 /**
  * The game's stage and the battle it plays. The layout keeps it mounted on every scene route, so
@@ -26,7 +27,7 @@ const emit = defineEmits<{
 const {
     initialized, run, hero, settled, pending, guild, forge, training, digSite, nextPrestigeReward,
     engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
-    shop, voidShards, buyUpgrade
+    shop, voidShards, buyUpgrade, classTree, classToken, pickClass
 } = useHeroQuest()
 const { user } = useAuth()
 
@@ -398,6 +399,34 @@ const prestigeView = computed<PrestigeView>(() => {
 
 const prestigeBusy = ref(false)
 
+/** The Classes scene: the tree with what each class costs to take, and whether the token is held. */
+const classesView = computed<ClassesView>(() => ({
+    classes: (classTree.value ?? []).map(node => ({
+        id: node.id,
+        name: node.name,
+        parentId: node.parentId,
+        tier: node.tier,
+        skillName: node.skill.name,
+        pickable: node.pickable,
+        costsToken: node.costsToken,
+        current: node.current
+    })),
+    token: classToken.value
+}))
+
+const classesBusy = ref(false)
+
+async function onPickClass(classId: string) {
+    classesBusy.value = true
+    try {
+        await pickClass(classId)
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        classesBusy.value = false
+    }
+}
+
 async function onShopBuy(upgradeId: string) {
     prestigeBusy.value = true
     try {
@@ -653,6 +682,8 @@ const awayReport = computed(() => {
           :loadouts-busy="loadoutsBusy"
           :prestige="prestigeView"
           :prestige-busy="prestigeBusy"
+          :classes="classesView"
+          :classes-busy="classesBusy"
           @fight-progress="fightProgress = $event"
           @challenge="onEngage"
           @scene="emit('scene', $event)"
@@ -661,6 +692,7 @@ const awayReport = computed(() => {
           @loadout-action="onLoadoutAction"
           @loadout-rename="onLoadoutRename"
           @shop-buy="onShopBuy"
+          @pick-class="onPickClass"
         />
       </template>
 
