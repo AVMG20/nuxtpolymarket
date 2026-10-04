@@ -3,7 +3,7 @@
 // is what shows when every scene is closed, and an open scene's button turns into its close.
 
 import { C } from './palette'
-import { Surface, rect, line, poly, blit } from './surface'
+import { Surface, rect, line, poly, blit, disc, px } from './surface'
 import { glyph, type Glyph } from './icon-kit'
 import { ABILITY_ICON_PARTS } from './icons-abilities'
 import { CURRENCY_ICONS } from './icons-items'
@@ -36,14 +36,52 @@ const CLOSE: Glyph = (g, x, y) => {
     }
 }
 
+/** A classic gumball machine: a glass globe of gumballs on a red stand, a coin slot and a chute. */
+const GUMBALL: Glyph = (g, x, y) => {
+    // the stand: a cap, a tapering body with the coin slot, and the chute's dark mouth
+    rect(g, x - 1, y - 8, 3, 2, C.red2)
+    poly(g, [-4, 2, 4, 2, 5, 7, -5, 7], x, y, C.red1)
+    rect(g, x - 4, y + 2, 9, 1, C.red2)
+    rect(g, x - 1, y + 3, 3, 1, C.gold2)
+    rect(g, x - 2, y + 5, 2, 2, C.ink)
+    // the globe packed with gumballs, a glint of glass left at its top left
+    disc(g, x, y - 2, 4.5, C.frost)
+    const balls = [C.red2, C.gold2, C.green3, C.blue2, C.pink]
+    for (let by = -6; by <= 1; by += 2) {
+        for (let bx = -4; bx <= 3; bx += 2) {
+            const cx = bx + 1
+            const cy = by + 3
+            if (cx * cx + cy * cy > 13) continue
+            rect(g, x + bx, y + by, 2, 2, balls[(bx + by * 3 + 40) % balls.length]!)
+        }
+    }
+    px(g, x - 2, y - 5, C.white)
+    px(g, x - 3, y - 4, C.white)
+}
+
+/** A small node tree: a root branching to the three class lines, each on to a deeper node. */
+const NODE_TREE: Glyph = (g, x, y) => {
+    const node = (nx: number, ny: number, c: number) => rect(g, nx - 1, ny - 1, 3, 3, c)
+    const rows = [[-5, C.red2, C.red3], [0, C.blue2, C.cyan], [5, C.green2, C.green4]] as const
+    for (const [dy] of rows) {
+        // out of the root, along to the branch's node, and on to its leaf
+        line(g, x - 5, y, x - 3, y, C.steel2)
+        line(g, x - 3, y, x - 3, y + dy, C.steel2)
+        line(g, x - 3, y + dy, x + 5, y + dy, C.steel2)
+    }
+    node(x - 6, y, C.gold2)
+    for (const [dy, branch, leaf] of rows) {
+        node(x, y + dy, branch)
+        node(x + 5, y + dy, leaf)
+    }
+}
+
 const ICONS: Readonly<Record<HqMenuScene, Glyph>> = {
-    // a seal is what every pull is paid in
-    gacha: CURRENCY_ICONS.seal_champion!,
+    gacha: GUMBALL,
     collections: (g, x, y) => ABILITY_ICON_PARTS.book(g, x, y, C.red1, C.bone1),
     loadouts: LOADOUT_GLYPH,
+    classes: NODE_TREE,
     // Void Shards are what a prestige pays out
-    // a crown: the class the Hero has risen to
-    classes: (g, x, y) => ABILITY_ICON_PARTS.crown(g, x, y + 2),
     prestige: CURRENCY_ICONS.void_shards!
 }
 
