@@ -1115,6 +1115,13 @@ export const hqState = pgTable('hq_state', {
   voidShards: text('void_shards').notNull().default('0'),
 
   /**
+   * The running Battle Speed block (`battle-speed.ts`): its multiplier, and the wall-clock instant
+   * it runs out. Null, or a past expiry, means none. Bought, not run position, so prestige keeps it.
+   */
+  speedBoostMultiplier: integer('speed_boost_multiplier'),
+  speedBoostExpiresAt: timestamp('speed_boost_expires_at'),
+
+  /**
    * Unit ID → row. Keyed by `'hero'` for the Hero and by Champion ID for everyone else, so a
    * placement survives a Champion being benched and re-fielded. Absent keys fall back to the
    * class node's / archetype's default row (`classes-and-combat.md` §6).

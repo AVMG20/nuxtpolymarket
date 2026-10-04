@@ -899,6 +899,27 @@ export const OFFLINE_EFFICIENCY_PER_LEVEL = 0.10
 export const MAX_OFFLINE_EFFICIENCY = 1.0
 export const MAX_OFFLINE_EFFICIENCY_LEVEL = 5
 
+// ── Battle Speed ───────────────────────────────────  idle-mechanics.md §3
+
+/**
+ * The speed tiers a block can be bought at. Gem-only, no free tier. 10x was cut on 2026-10-04: at
+ * 10x the largest offline collect cleared the balance column by under two orders of magnitude.
+ */
+export const BATTLE_SPEED_TIERS = [2, 3, 5] as const
+/** The block lengths, in minutes. Locked. */
+export const BATTLE_SPEED_DURATIONS_MINUTES = [30, 60, 120, 240] as const
+/** The fastest tier, which is what bounds Gold per hour against the balance column. */
+export const MAX_BATTLE_SPEED = Math.max(...BATTLE_SPEED_TIERS)
+/**
+ * price(2x, 30 min). The speed axis is proportional to it: `ANCHOR × speed / 2`. Raised from the
+ * doc's 50 to its old 10x price on 2026-10-04, so the cheapest block is the old dearest.
+ */
+export const BATTLE_SPEED_ANCHOR_GEMS = 250
+/** Each duration step doubles the time at 5% off the naive double. Locked. */
+export const BATTLE_SPEED_DURATION_STEP = 1.9
+/** Prices are rounded to this many Gems, once, at the end of the unrounded chain. Locked. */
+export const BATTLE_SPEED_PRICE_ROUNDING = 5
+
 /** Short prestige-shop tracks double per level; the 32-level cap track uses a gentler base. */
 export const OFFLINE_EFFICIENCY_BASE_COST = 50 // UNTUNED ╧
 export const OFFLINE_EFFICIENCY_COST_GROWTH = 2

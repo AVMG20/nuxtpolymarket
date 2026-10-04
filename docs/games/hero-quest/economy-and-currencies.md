@@ -85,7 +85,7 @@ Starting point: `BASE_CURRENCY = 100`, `CURRENCY_GROWTH = 2`.
 **The Arena caveat, stated explicitly:** the Arena Shop (`arena.md` §6) sells Gems for Arena Medals — and Medals accrue on **every** Arena attack, win or lose, at minimum 5/day forever. On its face that's exactly the parallel earn loop this section rules out. It's permitted only because **Gems are deliberately priced as a bad deal there**, calibrated so a full day's Medals converts to less than a single Battle Speed block's worth. The intent is that Medals→Gems is a last resort for a completionist who wants nothing else in the shop, never an efficient Gem tap. If that pricing is ever loosened, this section's "scarce by design" claim stops being true — the two are load-bearing on each other.
 
 **Sinks (now four locked, up from zero):**
-- **Battle Speed** — Gem-purchased time-dilation blocks, 50–1,715 Gems per block (`idle-mechanics.md` §3)
+- **Battle Speed** — Gem-purchased time-dilation blocks, 250–4,285 Gems per block, 2x–5x (repriced 2026-10-04) (`idle-mechanics.md` §3)
 - **Loadout slot expansion** — 2→10 slots, doubling cost across 8 levels (`loadouts.md` §3); the first designed instance of "convenience features," priced in Gems because Loadout slots add no combat power
 - **Trait save-slot expansion** — 1→4 slots at **250 / 750 / 1250**, a flat +500/level step rather than Loadouts' doubling curve (`traits.md` §6)
 - **Arena** — candidate-list refresh at 10 Gems (unlimited) and extra Arena attempts on a daily-resetting doubling ladder from 10 Gems (`arena.md` §2–3)

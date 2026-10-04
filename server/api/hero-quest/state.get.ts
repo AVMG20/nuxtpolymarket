@@ -11,6 +11,7 @@ import {
     serializeForge,
     serializeGuild,
     serializeHero,
+    serializeBattleSpeed,
     serializeLoadouts,
     serializeRun,
     serializeShop,
@@ -53,6 +54,7 @@ export default defineEventHandler(async (event) => {
             loadouts: null,
             classTree: [],
             classToken: false,
+            battleSpeed: null,
             voidShards: '0',
             nextPrestigeReward: voidShardsFor(0).toString(),
             awaySeconds: 0,
@@ -96,6 +98,7 @@ export default defineEventHandler(async (event) => {
         classTree: serializeClassTree(state),
         /** A prestige's class token is waiting to be spent on a new class. */
         classToken: state.classToken,
+        battleSpeed: serializeBattleSpeed(state),
 
         guild: serializeGuild(state, collections.champion, shopLevels),
         forge: serializeForge(state, collections.gear),

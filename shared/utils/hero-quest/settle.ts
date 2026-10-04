@@ -60,6 +60,7 @@ import {
     sustainedIncoming
 } from './projection'
 import type { AbilityModifiers } from './projection'
+import { dilatedSeconds } from './battle-speed'
 import { D, ZERO, decPow } from './numbers'
 import type { Decimal } from './numbers'
 import type { EnemyPack, EnemyStats, FormationRow, HeroSnapshot, RunPosition, SettleInput, SettleResult, StageArchetype, UnitStats } from './types'
@@ -721,8 +722,7 @@ export function effectiveOfflineSeconds(input: SettleInput): number {
 
 function applyBoost(seconds: number, input: SettleInput): number {
     if (!input.speedBoost) return seconds
-    const overlap = Math.min(Math.max(0, input.speedBoost.overlapSeconds), seconds)
-    return overlap * input.speedBoost.multiplier + (seconds - overlap)
+    return dilatedSeconds(seconds, input.speedBoost.multiplier, input.speedBoost.overlapSeconds)
 }
 
 // ── Stage movement ─────────────────────────────────────────────────────────────────────

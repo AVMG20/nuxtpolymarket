@@ -58,18 +58,20 @@ Mostly already decided by other locked docs; stated here as the single reference
 - **The two mechanisms are genuinely different, worth separating in the UI.** Wave-grinding is *"earn more"* — real economic throughput. Boss/raid fights are *"watch it faster"* — zero reward change, purely your own real-world time saved. Same currency, materially different value proposition.
 - **Offline interaction with efficiency, worth surfacing to the player.** Speed and efficiency multiply, so a boost spent offline is never *worse* than no boost — but at the starting `BASE_OFFLINE_EFFICIENCY = 50%` it realizes only half what the same purchase would deliver live (a 2x boost offline at 50% efficiency nets ×1.0, versus ×2.0 live). That gap closes to zero as the Offline Efficiency shop track climbs to its 100% cap. Intentional early-game nudge toward being present for a purchased boost — a soft tax, not a hard block — and worth a UI hint rather than leaving it a silent trap.
 - **No free tier — locked.** Every speed tier is Gem-only; there's no baseline free multiplier.
-- **Tiers: 2x, 3x, 5x, 10x**, each purchasable at **4 durations: 30 min, 1 hour, 2 hours, 4 hours** — 16 total purchasable options. Refreshable/re-purchasable before the current block lapses.
-- **Mechanically a uniform time-dilation on the combat clock**, not a reward multiplier layered on top: cooldowns, animations, and the flat 30-second boss/super-boss timer (`core-progression-and-prestige.md` §2) all tick at the accelerated rate together — e.g. under 10x, that 30-second boss timer resolves in 3 real seconds. One clock, one multiplier, applied everywhere at once, so there's no separate bookkeeping for "which things does speed-up affect."
+- **Tiers: 2x, 3x, 5x**, each purchasable at **4 durations: 30 min, 1 hour, 2 hours, 4 hours** — 12 total purchasable options. **10x was cut on 2026-10-04, the user's call:** at 10x the largest offline collect (`gold-economy.md` §9.4) cleared the balance column by 1.87 orders of magnitude against the specs' 2; at 5x it clears by ~2.2. Refreshable/re-purchasable before the current block lapses.
+- **Mechanically a uniform time-dilation on the combat clock**, not a reward multiplier layered on top: cooldowns, animations, and the flat 30-second boss/super-boss timer (`core-progression-and-prestige.md` §2) all tick at the accelerated rate together — e.g. under 5x, that 30-second boss timer resolves in 6 real seconds. One clock, one multiplier, applied everywhere at once, so there's no separate bookkeeping for "which things does speed-up affect."
 - **Stacks multiplicatively with SPD**, not redundantly — SPD shortens a skill's cooldown length itself; Battle Speed then compresses how fast that already-shortened timer plays out in real time. Distinct layers, same direction of effect.
 - Net player-facing result is more kills/Gold/XP per real-world minute, but that's a side effect of time compression, not an added economy bonus — Battle Speed doesn't touch Gold%/XP%/offline-efficiency% math anywhere.
 
-### Pricing formula (anchor: 2x/30min = 50 Gems)
+### Pricing formula (anchor: 2x/30min = 250 Gems)
+
+**Repriced 2026-10-04, the user's call:** the anchor moved from 50 to 250 Gems, so the cheapest block now costs what the old 10x/30min did and the scale continues from there. Both axes keep their rules; only the anchor moved. Built as `BATTLE_SPEED_ANCHOR_GEMS`.
 
 Two axes, two different scaling rules:
 
 - **Speed axis — strictly proportional ("even") to the raw multiplier**, for a fixed duration:
 ```
-price(speed, 30min) = 50 × (speed / 2)
+price(speed, 30min) = 250 × (speed / 2)
 ```
 - **Duration axis — each step up is double the time at a 5% discount off the naive double**, compounding from the 30-min anchor for that speed tier:
 ```
@@ -79,10 +81,9 @@ price(speed, nextDuration) = price(speed, currentDuration) × 2 × 0.95
 
 | Speed | 30 min | 1 hour | 2 hours | 4 hours |
 |---|---|---|---|---|
-| 2x | 50 | 95 | 180 | 345 |
-| 3x | 75 | 145 | 270 | 515 |
-| 5x | 125 | 240 | 450 | 855 |
-| 10x | 250 | 475 | 905 | 1,715 |
+| 2x | 250 | 475 | 905 | 1,715 |
+| 3x | 375 | 715 | 1,355 | 2,570 |
+| 5x | 625 | 1,190 | 2,255 | 4,285 |
 
 All values rounded to the nearest 5 Gems — locked. Each cell is computed from the unrounded formula chain (speed-axis proportionality, then successive ×1.9 down the duration axis) and only rounded at the point of display, so rounding doesn't compound tier-to-tier.
 
@@ -148,7 +149,7 @@ So Offline Efficiency's 5 levels cost `BASE_COST × [1, 2, 4, 8, 16]` — each l
 ```
 cost(level) = round(BASE_COST × 1.72^(level-1))     // level = 1..32
 ```
-Illustrative growth shape (multiplier on `BASE_COST`, not a final currency amount — no anchor value given yet, unlike Battle Speed's 50-Gem anchor):
+Illustrative growth shape (multiplier on `BASE_COST`, not a final currency amount — no anchor value given yet, unlike Battle Speed's Gem anchor):
 
 | Level | Hours unlocked | Cost multiplier (×`BASE_COST`) |
 |---|---|---|
@@ -187,4 +188,4 @@ Steep by level 32 on purpose — same spirit as the project's other endgame numb
 
 Everything above reflects decisions made across this conversation, **plus a later revision pass**: the idle-vs-active system table now collapses to "everything is idle-native" (Manual mode deleted game-wide, `classes-and-combat.md` §3), auto-battle as the default always-on online behavior with boss-retry unchanged from the Progression doc, Battle Speed as a Gem-only (no free tier) wall-clock time-dilation across 4 speed tiers × 4 durations with its pricing formula and Gem costs locked (rounded to nearest 5) — **now applying offline to wave accrual as well as online, with Arena as the sole exclusion** — the rate-based (snapshot, non-iterative) offline formula, and both prestige-shop upgrade lines fully specified: Offline Efficiency (50%→100% in 5 doubling-cost levels) and Offline Cap (8→72 hours in 32 levels on a smoother `1.72^(level-1)` curve) — plus additive offline-efficiency stacking and the boss-skip/redirect-to-prior-wave rule with its prestige-currency consequence.
 
-**Open lever remaining:** the actual `BASE_COST` value for each of the two upgrade-cost formulas — no anchor was given for these (unlike Battle Speed's 50-Gem anchor), so both are pure formula shapes awaiting a starting number during your tuning pass.
+**Open lever remaining:** the actual `BASE_COST` value for each of the two upgrade-cost formulas — no anchor was given for these (unlike Battle Speed's Gem anchor), so both are pure formula shapes awaiting a starting number during your tuning pass.

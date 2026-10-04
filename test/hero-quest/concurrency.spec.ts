@@ -22,6 +22,7 @@ import {
     essenceSpend,
     getShopLevels,
     loadoutSlots,
+    purchaseBattleSpeed,
     sealBalance,
     sealGrant,
     sealSpend,
@@ -45,6 +46,7 @@ import {
     sealLadderTotal, GACHA_SYSTEMS
 } from '#shared/utils/hero-quest/gacha'
 import { gachaContent } from '#shared/utils/hero-quest/content/registry'
+import { battleSpeedPrice } from '#shared/utils/hero-quest/battle-speed'
 
 import type { GachaSystem } from '#shared/utils/hero-quest/gacha'
 import { randomFloat } from '#shared/utils/random'
@@ -110,6 +112,55 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
 
             const rows = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
             expect(rows).toHaveLength(1)
+        })
+    })
+
+    describe('battle speed', () => {
+        const gemsOf = async () => (await db.select({ gems: user.gems }).from(user).where(eq(user.id, USER_ID)))[0]!.gems
+        const expiryOf = async () => (await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!.speedBoostExpiresAt!.getTime()
+
+        it('sells one block, not N, for one block of Gems', async () => {
+            await ensureHqState(USER_ID)
+            await creditGems(USER_ID, battleSpeedPrice(2, 30))
+
+            const before = Date.now()
+            const result = await burst(10, () => db.transaction(tx => purchaseBattleSpeed(tx, USER_ID, 2, 30)))
+
+            expect(result.ok).toBe(1)
+            expect(await gemsOf()).toBe(0)
+            // one block's time, not ten
+            expect(await expiryOf()).toBeLessThan(before + 31 * 60_000)
+        })
+
+        it('settles a window inside a running block at its speed', async () => {
+            await ensureHqState(USER_ID)
+            await db.update(hqState)
+                .set({ speedBoostMultiplier: 2, speedBoostExpiresAt: new Date(Date.now() + 3_600_000) })
+                .where(eq(hqState.userId, USER_ID))
+            await backdate(30)
+
+            const { result, online } = await settleHq(USER_ID)
+
+            expect(online).toBe(true)
+            // 30 real seconds, all of them boosted, and online so no efficiency tax
+            expect(result!.effectiveSeconds).toBeGreaterThanOrEqual(60)
+            expect(result!.effectiveSeconds).toBeLessThan(61)
+        })
+
+        it('extends by exactly the blocks paid for when every purchase can pay', async () => {
+            await ensureHqState(USER_ID)
+            await creditGems(USER_ID, battleSpeedPrice(3, 30) * 10)
+
+            const before = Date.now()
+            const result = await burst(10, () => db.transaction(tx => purchaseBattleSpeed(tx, USER_ID, 3, 30)))
+            const after = Date.now()
+
+            expect(result.ok).toBe(10)
+            expect(await gemsOf()).toBe(0)
+            // each one extends the last under the lock, so none is lost to a stale read
+            const expiry = await expiryOf()
+            expect(expiry).toBeGreaterThanOrEqual(before + 300 * 60_000)
+            expect(expiry).toBeLessThanOrEqual(after + 300 * 60_000)
         })
     })
 

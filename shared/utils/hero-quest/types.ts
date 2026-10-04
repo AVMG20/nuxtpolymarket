@@ -353,7 +353,10 @@ export interface SettleInput {
      * Served before anything else in the window, so a recovery cut by a read is not skipped.
      */
     recoverySeconds?: number
-    /** Battle Speed. Not wired up yet — every caller passes `undefined`. */
+    /**
+     * Battle Speed (`battle-speed.ts`): the block's multiplier, and how many seconds from the
+     * window's start it covered. Absent when no block overlaps the window.
+     */
     speedBoost?: { multiplier: number; overlapSeconds: number }
 }
 

@@ -45,6 +45,7 @@ import {
     MAX_OFFLINE_EFFICIENCY,
     MAX_OFFLINE_EFFICIENCY_LEVEL,
     MIN_SECONDS_PER_KILL,
+    MAX_BATTLE_SPEED,
     OFFLINE_CAP_MAX_HOURS,
     PRESTIGE_INDEX_STEPS,
     STAGES_PER_WORLD,
@@ -825,10 +826,10 @@ describe('hero-quest settle', () => {
         it('leaves healthy headroom under the shared balance column', () => {
             // Gold lives on user.balance — numeric(19,4), a ~1e15 ceiling. The worst case
             // stacks everything at once: the tenure ceiling at its ten-year horizon, the
-            // throughput floor, a x4 Gold% stack and x4 Battle Speed, and a player who never
-            // spends a coin.
+            // throughput floor, a x4 Gold% stack and the fastest Battle Speed tier, and a player
+            // who never spends a coin.
             const BALANCE_COLUMN_CEILING = 1e15
-            const worstCase = maxGoldPerHour(4, 4)
+            const worstCase = maxGoldPerHour(4, MAX_BATTLE_SPEED)
             const headroomHours = BALANCE_COLUMN_CEILING / worstCase
 
             // At least 100 hours of uninterrupted worst-case earning before the column is
@@ -850,7 +851,7 @@ describe('hero-quest settle', () => {
             // age, the throughput floor, ×4 Gold%, ×4 Battle Speed, a full 72-hour window,
             // and a player who never spends a coin — and `leaves healthy headroom` above
             // still passes by two orders of magnitude on its own terms.
-            const collect = maxGoldPerHour(4, 4, GOLD_BOUND_HORIZON_DAYS) * OFFLINE_CAP_MAX_HOURS
+            const collect = maxGoldPerHour(4, MAX_BATTLE_SPEED, GOLD_BOUND_HORIZON_DAYS) * OFFLINE_CAP_MAX_HOURS
             expect(collect).toBeLessThan(1e15 / 100)
         })
     })

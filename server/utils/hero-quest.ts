@@ -13,13 +13,15 @@
 import { eq, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState } from '#server/database/schema'
-import { credit, getBalance } from '#server/utils/balance'
+import { credit, debitGems, getBalance } from '#server/utils/balance'
 import {
     BASE_ARTIFACT_SLOTS,
     BASE_CHAMPION_SLOTS,
     BASE_KILL_COUNT,
     BASE_LOADOUT_SLOTS,
     BASE_SKILL_SLOTS,
+    BATTLE_SPEED_DURATIONS_MINUTES,
+    BATTLE_SPEED_TIERS,
     BOSS_TIMER_SECONDS,
     MAX_ARTIFACT_SLOTS,
     MAX_CHAMPION_SLOTS,
@@ -110,6 +112,16 @@ import { randomInt } from '#shared/utils/random'
 import { championPassiveBonus, economyBonuses, partyUnitStats } from '#shared/utils/hero-quest/stats'
 import type { ModifierKind } from '#shared/utils/hero-quest/modifiers'
 import { globalPower } from '#shared/utils/hero-quest/power'
+import {
+    battleSpeedAt,
+    battleSpeedPrice,
+    battleSpeedRemainingSeconds,
+    extendBattleSpeed,
+    speedBoostFor,
+    type BattleSpeedDuration,
+    type BattleSpeedTier,
+    type BattleSpeedWindow
+} from '#shared/utils/hero-quest/battle-speed'
 import type { StatsExplanation } from '#shared/utils/hero-quest/explain'
 import { D, ZERO, decPow, fromStore, toStore } from '#shared/utils/hero-quest/numbers'
 import { CLASS_NODES, childrenOf, getClass, kitFor } from '#shared/utils/hero-quest/content/classes'
@@ -306,6 +318,58 @@ export function tenureDaysOf(state: HqStateRow): number {
     return Math.max(0, (state.lastSettledAt.getTime() - state.createdAt.getTime()) / 86_400_000)
 }
 
+/** The row's Battle Speed block, in the shape `battle-speed.ts` reads. */
+export function battleSpeedOf(state: HqStateRow): BattleSpeedWindow {
+    return { multiplier: state.speedBoostMultiplier, expiresAt: state.speedBoostExpiresAt }
+}
+
+/**
+ * Battle Speed for the client: what runs now, when it ends, and the price of every block. The
+ * client dilates its own projection and the stage's clock with `multiplier` until `expiresAt`.
+ */
+export function serializeBattleSpeed(state: HqStateRow, now = Date.now()) {
+    const window = battleSpeedOf(state)
+    const multiplier = battleSpeedAt(window, now)
+    return {
+        multiplier,
+        expiresAt: multiplier > 1 ? state.speedBoostExpiresAt!.getTime() : null,
+        remainingSeconds: battleSpeedRemainingSeconds(window, now),
+        tiers: BATTLE_SPEED_TIERS.map(speed => ({
+            speed,
+            blocks: BATTLE_SPEED_DURATIONS_MINUTES.map(minutes => ({ minutes, gems: battleSpeedPrice(speed, minutes) }))
+        }))
+    }
+}
+
+/**
+ * Buy a Battle Speed block: extend the running one, or start one. Call it inside a transaction,
+ * after a settle, so the window before the purchase pays at the speed it actually ran at.
+ *
+ * Lock-then-read: the block is read under the `hqState` row lock and rewritten in the same
+ * transaction, so two purchases at once queue rather than both extending from the same expiry.
+ * The expiry is a timestamp, which is why this is a lock and not a compare-and-swap. `debitGems`
+ * guards `gems >= cost` in its own WHERE and takes the tx, since this transaction holds the lock.
+ */
+export async function purchaseBattleSpeed(tx: DbExecutor, userId: string, speed: BattleSpeedTier, minutes: BattleSpeedDuration) {
+    const [state] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
+    if (!state) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
+
+    const now = Date.now()
+    const next = extendBattleSpeed(battleSpeedOf(state), speed, minutes, now)
+    if ('conflict' in next) {
+        throw createError({ statusCode: 400, statusMessage: `A ${next.conflict}x block is running; extend it or wait for it to end` })
+    }
+
+    const cost = battleSpeedPrice(speed, minutes)
+    const gems = await debitGems(userId, cost, tx)
+    const [updated] = await tx.update(hqState)
+        .set({ speedBoostMultiplier: next.multiplier, speedBoostExpiresAt: next.expiresAt })
+        .where(eq(hqState.userId, userId))
+        .returning()
+
+    return { spent: cost, gems, battleSpeed: serializeBattleSpeed(updated ?? state, now) }
+}
+
 /**
  * The complete player snapshot the whole math layer runs on.
  *
@@ -450,8 +514,7 @@ export interface SettleOutcome {
  * 4. Run the pure `settle()`. It stops at boss gates and never resolves one.
  * 5. Write the new position back, then credit Gold through `balance.ts` **with the tx**.
  *
- * Battle Speed is Phase 4; `settle()` already takes the boost window, so wiring it later is
- * a call-site change here and nothing else.
+ * Battle Speed rides in as the part of the window its block covered (`speedBoostFor`).
  */
 export async function settleHq(userId: string): Promise<SettleOutcome> {
     /**
@@ -499,7 +562,9 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
             // Carried in and written back below. Without it every settle silently drops the
             // part of the window that did not add up to a whole kill, and every read settles.
             killFraction: state.killFraction,
-            recoverySeconds: state.recoverySeconds
+            recoverySeconds: state.recoverySeconds,
+            // the part of the window the running block covered, from its start
+            speedBoost: speedBoostFor(battleSpeedOf(state), state.lastSettledAt.getTime())
         })
 
         const [updated] = await tx.update(hqState)
@@ -678,7 +743,12 @@ export async function resolveBossEngage(tx: DbExecutor, userId: string, bankedGo
         partyMaxHps: partyUnitStats(hero).map(unit => unit.maxHp.toString()),
         landing: { world: updated?.world ?? landing.world, stage: updated?.stage ?? landing.stage },
         /** True when this win cleared World 10 / Stage 10 and prestige is now available. */
-        runComplete: updated?.runCleared ?? clearedTheRun
+        runComplete: updated?.runCleared ?? clearedTheRun,
+        /**
+         * Battle Speed at engage: the replay plays back this much faster. Playback only; the fight
+         * is the same 30 sim-seconds at any speed (`tech-architecture.md` §4c).
+         */
+        playbackSpeed: battleSpeedAt(battleSpeedOf(state), Date.now())
     }
 }
 
