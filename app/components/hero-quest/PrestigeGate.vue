@@ -13,6 +13,9 @@ import type { HqIntroRect } from '~/composables/useHqIntro'
  * Arriving from the battle stage, the bridge grows out of the stage's shut box and opens on the
  * Hero (`useHqIntro`).
  *
+ * The stage's menu band runs under it, so the menu scenes stay a press away while the run
+ * waits on the bridge.
+ *
  * The art is `PrestigeBridge`, loaded as its own chunk like the splash and the battle stage.
  */
 const props = defineProps<{
@@ -27,6 +30,8 @@ const emit = defineEmits<{
     begin: []
     /** The party is through and the iris has shut: its box, or null to go straight in. */
     crossed: [rect: HqIntroRect | null]
+    /** A menu band button was pressed. */
+    scene: [scene: HqMenuScene]
 }>()
 
 const intro = import.meta.client ? takeHqIntro() : null
@@ -57,41 +62,52 @@ function go() {
     emit('begin')
 }
 
-/** The button lives in the canvas, so the pointer is hit-tested against it in scene pixels. */
-const hover = ref(false)
+/** The button and the menu band live in the canvas, so the pointer is hit-tested against them in scene pixels. */
+type Target = 'begin' | HqMenuScene
+const hover = ref<Target | null>(null)
 const pressed = ref(false)
 let hitTest: ((x: number, y: number) => boolean) | null = null
+let band: typeof import('~/utils/hero-quest-art/menu-band') | null = null
+
+function targetAt(e: PointerEvent): Target | null {
+    // once a prestige is under way the bridge has to stay up until the party is through
+    if (!canvas.value || !presenter || props.pending || props.crossing) return null
+    const r = canvas.value.getBoundingClientRect()
+    const x = (e.clientX - r.left) / r.width * presenter.w
+    const y = (e.clientY - r.top) / r.height * presenter.h
+    return band?.menuItemAt(presenter.w, presenter.h, x, y) ?? (hitTest?.(x, y) ? 'begin' : null)
+}
 
 function onPointerMove(e: PointerEvent) {
-    if (!canvas.value || !presenter || props.crossing) {
-        hover.value = false
-        return
-    }
-    const r = canvas.value.getBoundingClientRect()
-    hover.value = !!hitTest?.((e.clientX - r.left) / r.width * presenter.w, (e.clientY - r.top) / r.height * presenter.h)
-    if (!hover.value) pressed.value = false
+    const was = hover.value
+    hover.value = targetAt(e)
+    if (hover.value !== was) pressed.value = false
 }
 
 function onPointerDown(e: PointerEvent) {
     onPointerMove(e)
-    pressed.value = hover.value
+    pressed.value = hover.value !== null
 }
 
 function onPointerUp(e: PointerEvent) {
     const wasPressed = pressed.value
     onPointerMove(e)
     pressed.value = false
-    if (wasPressed && hover.value) go()
+    const hit = hover.value
+    if (!wasPressed || !hit) return
+    if (hit === 'begin') go()
+    else emit('scene', hit)
 }
 
 function onPointerLeave() {
-    hover.value = false
+    hover.value = null
     pressed.value = false
 }
 
 const buttonState = computed(() => props.pending
     ? 'busy' as const
-    : pressed.value ? 'pressed' as const : hover.value ? 'hover' as const : 'idle' as const)
+    : hover.value !== 'begin' ? 'idle' as const : pressed.value ? 'pressed' as const : 'hover' as const)
+const bandHover = computed(() => hover.value === 'begin' ? null : hover.value)
 
 let leave: (() => void) | null = null
 watch(() => props.crossing, (crossing) => {
@@ -101,13 +117,18 @@ watch(() => props.crossing, (crossing) => {
 onMounted(async () => {
     // started before the art loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ PrestigeBridge, onBeginAgain, BRIDGE_HERO_FOCUS, BRIDGE_PORTAL_FOCUS }, { Presenter, startLoop }] = await Promise.all([
+    const [{ PrestigeBridge, onBeginAgain, BRIDGE_HERO_FOCUS, BRIDGE_PORTAL_FOCUS }, { Presenter, startLoop }, menuBand] = await Promise.all([
         import('~/utils/hero-quest-art/prestige-bridge'),
-        import('~/utils/hero-quest-art/canvas')
+        import('~/utils/hero-quest-art/canvas'),
+        import('~/utils/hero-quest-art/menu-band')
     ])
     if (disposed || !canvas.value) return
+    band = menuBand
     const bridge = new PrestigeBridge(props.party)
-    presenter = new Presenter(canvas.value, bridge.frame.w, bridge.frame.h)
+    const banded = new menuBand.BandedFrame(bridge.frame.w, bridge.frame.h)
+    presenter = new Presenter(canvas.value, banded.frame.w, banded.frame.h)
+    // the iris foci are shares of the bridge, which the band now sits under
+    const onBridge = (f: { x: number, y: number }) => ({ x: f.x, y: f.y * bridge.frame.h / banded.frame.h })
     hitTest = onBeginAgain
     let t = 0
     let done = false
@@ -120,9 +141,11 @@ onMounted(async () => {
             const el = canvas.value
             const box = wrap.value
             if (!el || !box || prefersReducedMotion()) emit('crossed', null)
-            else void irisClose(el, BRIDGE_PORTAL_FOCUS).then(() => { if (!disposed) emit('crossed', rectOf(box)) })
+            else void irisClose(el, onBridge(BRIDGE_PORTAL_FOCUS)).then(() => { if (!disposed) emit('crossed', rectOf(box)) })
         }
-    }, () => presenter!.present(bridge.render(t, buttonState.value)))
+    }, () => {
+        presenter!.present(banded.compose(bridge.render(t, buttonState.value), 'battle', bandHover.value, pressed.value))
+    })
     observer = new ResizeObserver(fit)
     observer.observe(wrap.value!)
     fit()
@@ -131,7 +154,7 @@ onMounted(async () => {
         void landed.then(async () => {
             if (disposed || !canvas.value) return
             opening.value = false
-            await irisOpen(canvas.value, BRIDGE_HERO_FOCUS)
+            await irisOpen(canvas.value, onBridge(BRIDGE_HERO_FOCUS))
         })
     }
 })
@@ -147,7 +170,7 @@ onBeforeUnmount(() => {
   <div
     ref="wrap"
     class="relative w-full overflow-hidden rounded-lg border border-default"
-    :class="ready ? '' : 'aspect-video'"
+    :class="ready ? '' : 'aspect-[320/202]'"
     :style="{ background: ground }"
   >
     <canvas

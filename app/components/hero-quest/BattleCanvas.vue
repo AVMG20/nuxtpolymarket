@@ -2,6 +2,8 @@
 import type { BattleDemo, RunParty, StageFight } from '~/utils/hero-quest-art/demo'
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import type { RunFeed } from '~/utils/hero-quest-art/run-director'
+import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-band'
+import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton } from '~/utils/hero-quest-art/collections-scene'
 import { C, PALETTE } from '~/utils/hero-quest-art/palette'
 import type { HqIntroRect } from '~/composables/useHqIntro'
 
@@ -12,6 +14,10 @@ import type { HqIntroRect } from '~/composables/useHqIntro'
  * A boss fight is the server's: while `fight` is set the stage stops following the run and acts
  * out the fight's log instead, reporting how far it has played so the readout beside it keeps
  * pace. Clearing `fight` hands the stage back to the run, which by then has moved on.
+ *
+ * The stage is also the game's navigation: a band of icons under it opens the menu scenes.
+ * An open scene draws over the battle, which plays on unseen beneath it, so closing the scene
+ * shows the battle where it has got to rather than rebuilding it.
  *
  * The art is drawn from code, not loaded as images (`build-log.md` #33): the stage bakes the
  * world's strips when it is built, so it is rebuilt only when the world or the party changes,
@@ -46,6 +52,12 @@ const props = defineProps<{
     fight?: StageFight | null
     /** A lost boss is back at its gate: the stage shows the button that fights it again. */
     challenge?: boolean
+    /** The scene on the stage; the battle when none is open. */
+    scene?: HqScene
+    /** The Collections scene's open tab, that roster's entries in order, and that gacha's Essence. */
+    collections?: CollectionsView
+    /** A Collections equip or craft is on its way: the detail's buttons wait for it. */
+    collectionsBusy?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -53,6 +65,12 @@ const emit = defineEmits<{
     fightProgress: [progress: { time: number, done: boolean }]
     /** The challenge button was pressed: fight the boss again. */
     challenge: []
+    /** A menu band button was pressed: the scene to show, or the battle when the open one closes. */
+    scene: [scene: HqScene]
+    /** A Collections detail button was pressed, for the entry it shows. */
+    collectionAction: [action: DetailButton, id: string]
+    /** A Collections tab was pressed. */
+    collectionTab: [tab: HqCollectionTab]
 }>()
 
 const wrap = ref<HTMLDivElement | null>(null)
@@ -70,6 +88,11 @@ const opening = ref(intro !== null)
 const INK = PALETTE[C.ink]!
 
 let stage: BattleDemo | null = null
+let backdrops: SceneBackdrops | null = null
+let banded: BandedFrame | null = null
+let collectionsScene: CollectionsScene | null = null
+let collectionsHit: typeof import('~/utils/hero-quest-art/collections-scene') | null = null
+let band: typeof import('~/utils/hero-quest-art/menu-band') | null = null
 let presenter: Presenter | null = null
 let stop: (() => void) | null = null
 let observer: ResizeObserver | null = null
@@ -186,51 +209,110 @@ function closeIris(): Promise<HqIntroRect | null> {
 defineExpose({ skipFight, closeIris })
 
 /**
- * The challenge button lives in the canvas, so the pointer is hit-tested against it in the view's
- * own pixels. The page's own Fight button stays the keyboard's way in.
+ * The challenge button and the menu band live in the canvas, so the pointer is hit-tested against
+ * them in the view's own pixels. The page's own Fight button stays the keyboard's way in.
  */
-const hover = ref(false)
-const pressed = ref(false)
+type Target = 'challenge' | HqMenuScene | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
 
-function viewPoint(e: PointerEvent): { x: number, y: number } | null {
+const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
+const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
+const hover = ref<Target | null>(null)
+const pressed = ref(false)
+const openScene = computed<HqScene>(() => props.scene ?? 'battle')
+
+/** The Collections entry open in the detail view, by id; the grid when null. A tab or scene change shuts it. */
+const detail = ref<string | null>(null)
+watch([openScene, () => props.collections?.tab], () => {
+    detail.value = null
+})
+
+function targetAt(e: PointerEvent): Target | null {
     if (!canvas.value || !presenter) return null
     const r = canvas.value.getBoundingClientRect()
-    return { x: (e.clientX - r.left) / r.width * presenter.w, y: (e.clientY - r.top) / r.height * presenter.h }
+    const x = (e.clientX - r.left) / r.width * presenter.w
+    const y = (e.clientY - r.top) / r.height * presenter.h
+    const item = band?.menuItemAt(presenter.w, presenter.h, x, y) ?? null
+    if (item) return item
+    if (openScene.value === 'collections' && collectionsHit) {
+        const tab = collectionsHit.collectionTabAt(presenter.w, x, y)
+        // the open tab is a button only while the detail is up, back to the grid
+        if (tab) return tab !== props.collections?.tab || detail.value ? `tab:${tab}` : null
+        // the scene is the frame above the menu band
+        const h = presenter.h - (band?.BAND_H ?? 0)
+        if (detail.value) {
+            if (collectionsHit.onDetailClose(presenter.w, h, x, y)) return 'close'
+            const open = props.collections?.entries.find(e => e.id === detail.value)
+            const button = open ? collectionsHit.detailButtonAt(presenter.w, h, open, x, y) : null
+            // a button that cannot be pressed is no target
+            return button?.enabled && !props.collectionsBusy ? button.id : null
+        }
+        const i = collectionsHit.collectionTileAt(presenter.w, h, props.collections?.entries.length ?? 0, x, y)
+        return i === null ? null : `tile:${i}`
+    }
+    return openScene.value === 'battle' && props.challenge && stage?.onChallenge(x, y) ? 'challenge' : null
 }
 
 function onPointerMove(e: PointerEvent) {
-    const p = viewPoint(e)
-    hover.value = !!props.challenge && !!p && !!stage?.onChallenge(p.x, p.y)
-    if (!hover.value) pressed.value = false
+    const was = hover.value
+    hover.value = targetAt(e)
+    if (hover.value !== was) pressed.value = false
 }
 
 function onPointerDown(e: PointerEvent) {
     onPointerMove(e)
-    pressed.value = hover.value
+    pressed.value = hover.value !== null
 }
 
 function onPointerUp(e: PointerEvent) {
     const wasPressed = pressed.value
     onPointerMove(e)
     pressed.value = false
-    if (wasPressed && hover.value) emit('challenge')
+    const hit = hover.value
+    if (!wasPressed || !hit) return
+    const item = HQ_MENU_SCENES.find(s => s === hit)
+    if (hit === 'challenge') emit('challenge')
+    else if (item) emit('scene', item === openScene.value ? 'battle' : item)
+    else if (hit === 'close') detail.value = null
+    else if (isDetailButton(hit)) {
+        if (detail.value) emit('collectionAction', hit, detail.value)
+    }
+    else if (hit.startsWith('tile:')) detail.value = props.collections?.entries[Number(hit.slice(5))]?.id ?? null
+    else {
+        const tab = hit.slice(4) as HqCollectionTab
+        if (tab === props.collections?.tab) detail.value = null
+        else emit('collectionTab', tab)
+    }
 }
 
 function onPointerLeave() {
-    hover.value = false
+    hover.value = null
     pressed.value = false
 }
 
-const challengeState = computed(() => !props.challenge ? 'off' as const : pressed.value ? 'pressed' as const : hover.value ? 'hover' as const : 'idle' as const)
+const challengeState = computed(() => !props.challenge ? 'off' as const : hover.value !== 'challenge' ? 'idle' as const : pressed.value ? 'pressed' as const : 'hover' as const)
+const bandHover = computed(() => HQ_MENU_SCENES.find(s => s === hover.value) ?? null)
+const collectionsHover = computed<CollectionsHover>(() => {
+    const h = hover.value
+    if (h === 'close' || (h && isDetailButton(h))) return h
+    if (h?.startsWith('tile:')) return Number(h.slice(5))
+    return HQ_COLLECTION_TABS.find(t => h === `tab:${t}`) ?? null
+})
 
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
-        import('~/utils/hero-quest-art/canvas')
+        import('~/utils/hero-quest-art/canvas'),
+        import('~/utils/hero-quest-art/menu-band'),
+        import('~/utils/hero-quest-art/collections-scene')
     ])
     if (disposed || !canvas.value) return
+    band = menuBand
+    backdrops = new menuBand.SceneBackdrops(CAMERAS.zoom3)
+    banded = new menuBand.BandedFrame(CAMERAS.zoom3.w, CAMERAS.zoom3.h)
+    collectionsScene = new collectionsArt.CollectionsScene(backdrops)
+    collectionsHit = collectionsArt
     stage = new BattleDemo()
     build()
     if (intro) {
@@ -243,12 +325,23 @@ onMounted(async () => {
     }
     // a fight that arrived while the stage loaded starts now, from its beginning
     if (props.fight) stage.playFight(props.fight)
-    // the scene alone: HP rides over every body (`BattleDemo.drawBars`), so there is no party band under it
-    presenter = new Presenter(canvas.value, CAMERAS.zoom3.w, CAMERAS.zoom3.h)
-    stop = startLoop(dt => stage!.update(dt), () => {
+    // the scene and the menu band under it: HP rides over every body (`BattleDemo.drawBars`), so there is no party band
+    presenter = new Presenter(canvas.value, banded.frame.w, banded.frame.h)
+    let t = 0
+    stop = startLoop((dt) => {
+        t += dt
+        stage!.update(dt)
+    }, () => {
         stage!.challenge = challengeState.value
         if (!props.fight) stage!.feedRun(feed())
-        presenter!.present(stage!.render())
+        // under a scene the battle still runs and takes its feed, but is not drawn
+        const scene = openScene.value
+        const view = scene === 'battle'
+            ? stage!.render()
+            : scene === 'collections'
+                ? collectionsScene!.render(t, props.collections ?? { tab: 'gear', entries: [], essence: '0' }, collectionsHover.value, pressed.value, detail.value, !!props.collectionsBusy)
+                : backdrops!.render(scene, t)
+        presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value))
     })
     observer = new ResizeObserver(fit)
     observer.observe(wrap.value!)
@@ -270,7 +363,7 @@ onBeforeUnmount(() => {
   <div
     ref="wrap"
     class="relative w-full overflow-hidden rounded-lg border border-default bg-elevated"
-    :class="ready ? '' : 'aspect-[272/153]'"
+    :class="ready ? '' : 'aspect-[272/175]'"
     :style="opening ? { backgroundColor: INK } : undefined"
   >
     <canvas

@@ -180,7 +180,7 @@ const BAND_GAP = 2
 const BAND_PAD = 3
 export const PARTY_BAND_H = 2 * PARTY_FRAME_H + BAND_GAP + 2 * BAND_PAD
 /** A frame's portrait: 18×18 round the face of the body's first idle frame. */
-const HEAD = 18
+export const HEAD = 18
 /**
  * Where the face sits from the neck the rig drew the head on. Every head puts its eye four
  * columns in front of its neck and its face in its bottom six rows, whatever headgear it wears.
@@ -189,7 +189,7 @@ const FACE_DX = 1
 const FACE_DY = -5
 
 /** Crop `asset`'s portrait, centred on its face: a tall hat is cut at the top rather than pushing the face down. */
-function headOf(asset: string): Surface {
+export function headOf(asset: string): Surface {
     const a = artById(`${asset}/idle`)!
     const src = new Surface(a.w, a.h, 0, 0)
     J.headY = -1
