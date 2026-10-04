@@ -21,6 +21,7 @@ import {
 } from '#server/utils/hero-quest'
 import { HQ_REFRESH_INTERVAL_MS, STAGES_PER_WORLD, WORLD_COUNT } from '#shared/utils/hero-quest/constants'
 import { fromStore } from '#shared/utils/hero-quest/numbers'
+import { hqSettingsOf } from '#shared/utils/hero-quest/settings'
 
 /**
  * The one read the client makes.
@@ -55,6 +56,7 @@ export default defineEventHandler(async (event) => {
             classTree: [],
             classToken: false,
             battleSpeed: null,
+            settings: hqSettingsOf(null),
             voidShards: '0',
             nextPrestigeReward: voidShardsFor(0).toString(),
             awaySeconds: 0,
@@ -99,6 +101,7 @@ export default defineEventHandler(async (event) => {
         /** A prestige's class token is waiting to be spent on a new class. */
         classToken: state.classToken,
         battleSpeed: serializeBattleSpeed(state),
+        settings: hqSettingsOf(state.settings),
 
         guild: serializeGuild(state, collections.champion, shopLevels),
         forge: serializeForge(state, collections.gear),

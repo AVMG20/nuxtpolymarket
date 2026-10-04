@@ -1,0 +1,1 @@
+ALTER TABLE "hq_state" ADD COLUMN "settings" jsonb DEFAULT '{}'::jsonb NOT NULL;

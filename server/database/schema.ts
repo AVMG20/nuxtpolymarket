@@ -19,6 +19,7 @@ import type {
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
 import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
+import type { HqSettings } from '#shared/utils/hero-quest/settings'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -1120,6 +1121,9 @@ export const hqState = pgTable('hq_state', {
    */
   speedBoostMultiplier: integer('speed_boost_multiplier'),
   speedBoostExpiresAt: timestamp('speed_boost_expires_at'),
+
+  /** The player's choices in the Settings scene (`HqSettings`); a key not stored takes its default. */
+  settings: jsonb('settings').$type<Partial<HqSettings>>().notNull().default({}),
 
   /**
    * Unit ID → row. Keyed by `'hero'` for the Hero and by Champion ID for everyone else, so a
