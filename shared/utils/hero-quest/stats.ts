@@ -166,12 +166,17 @@ export function collectionPassiveMultipliers(
 ): Record<HqStatKey, number> {
     const multipliers = { pwr: 1, spd: 1, lck: 1, imp: 1, vit: 1, def: 1 }
     for (const copy of owned) {
-        const bonus = Math.max(0, copy.investment) * CHAMPION_PASSIVE_PER_POINT
+        const bonus = championPassiveBonus(copy.investment)
         for (const key of getArchetype(copy.archetype).passiveStats) {
             multipliers[key] += bonus
         }
     }
     return multipliers
+}
+
+/** What one owned Champion adds to each of its archetype's Hero stats, as a fraction. */
+export function championPassiveBonus(investment: number): number {
+    return Math.max(0, investment) * CHAMPION_PASSIVE_PER_POINT
 }
 
 export function heroStatBlock(
@@ -199,7 +204,7 @@ export function heroStatBlock(
 
 /**
  * Hero-only lines: Gear (`gear-equipment.md` §1), equipped Skill passives (`skills-gacha.md` §1),
- * and the collection passives of every owned-but-unequipped Skill and Artifact. None of these
+ * and the collection passives of every owned Skill and Artifact, equipped or not. None of these
  * touches a Champion, by design — Champions carry their own kits and their own progression, and
  * every collection passive in the game (Champions', Gear's, these two) reaches only the Hero.
  */
@@ -214,8 +219,8 @@ export function heroModifierTotals(hero: HeroSnapshot): ModifierTotals {
     return sumModifiers([
         ...gearModifiers(gear, hero.equippedGear ?? {}),
         ...skillModifiers(skills),
-        ...skillCollectionModifiers(ownedSkills, skills),
-        ...artifactCollectionModifiers(ownedArtifacts, hero.equippedArtifacts ?? [])
+        ...skillCollectionModifiers(ownedSkills),
+        ...artifactCollectionModifiers(ownedArtifacts)
     ])
 }
 

@@ -18,9 +18,10 @@
  * ## Equipped and unequipped both matter
  *
  * §3 locks **manual** equip with an upgrade indicator, revised from an earlier auto-equip
- * proposal. Every slot holds one chosen piece contributing `equippedBonus`; every *other* owned
- * piece for that slot contributes the much smaller `passiveBonus`, mirroring the Champion
- * collection passive (`champions-guild-gacha.md` §7). The consequence §3 names explicitly: a
+ * proposal. Every owned piece contributes the small `passiveBonus`, mirroring the Champion
+ * collection passive (`champions-guild-gacha.md` §7), and the one chosen piece per slot adds
+ * `equippedBonus` on top. The passive is additive with equipping (decided 2026-10-04): equipping
+ * a piece never takes away what owning it gave. The consequence §3 names explicitly: a
  * player who ignores the indicator has lower stats than they have already earned, which is why
  * `upgradeAvailable` below exists — the gap is never hidden, only left for them to close.
  */
@@ -148,7 +149,7 @@ export function equippedBonus(slot: GearSlot, rarity: Rarity, star: number, leve
 /**
  * passiveBonus = GEAR_PASSIVE_COEFFICIENT × RARITY_STAT_MULTIPLIER[rarity] × (star×10+level)
  *
- * What an owned-but-unequipped piece contributes — **including one that is actually stronger
+ * What every owned piece contributes, equipped or not — **including one that is actually stronger
  * than what is equipped** (§3). Owning is worth something; equipping well is worth more.
  */
 export function passiveBonus(rarity: Rarity, star: number, level: number): number {
@@ -168,8 +169,8 @@ export interface OwnedGear {
  * Every owned piece's contribution, as modifier lines.
  *
  * `equipped` maps slot → contentId, which is exactly `hqState.equippedGear`'s shape (§3, and the
- * schema column it forced). A piece named there contributes `equippedBonus`; everything else
- * owned contributes `passiveBonus`. An `equipped` entry naming a piece the player does not own
+ * schema column it forced). Every owned piece contributes `passiveBonus`, and a piece named there
+ * contributes `equippedBonus` as well. An `equipped` entry naming a piece the player does not own
  * is ignored rather than trusted — the same posture `championSnapshotsFor` takes.
  */
 export function gearModifiers(
@@ -184,10 +185,11 @@ export function gearModifiers(
     return owned.flatMap((copy) => {
         if (!isGearId(copy.contentId)) return []
         const definition = getGear(copy.contentId)
-        const magnitude = activeIds.has(copy.contentId)
-            ? equippedBonus(definition.slot, definition.rarity, copy.star, copy.level)
-            : passiveBonus(definition.rarity, copy.star, copy.level)
-        return [{ kind: 'stat' as const, stat: definition.stat, magnitude }]
+        const lines = [{ kind: 'stat' as const, stat: definition.stat, magnitude: passiveBonus(definition.rarity, copy.star, copy.level) }]
+        if (activeIds.has(copy.contentId)) {
+            lines.push({ kind: 'stat' as const, stat: definition.stat, magnitude: equippedBonus(definition.slot, definition.rarity, copy.star, copy.level) })
+        }
+        return lines
     })
 }
 

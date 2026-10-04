@@ -472,7 +472,8 @@ export function artifactLineMagnitude(
  * is additive by construction, so that rule needs no enforcement here; it is a property of the
  * pipeline rather than a check.
  *
- * Equipped only — unequipped copies pay the smaller, Hero-only `artifactCollectionModifiers`.
+ * Equipped only — every owned copy, this one included, also pays the smaller, Hero-only
+ * `artifactCollectionModifiers`.
  */
 export function artifactModifiers(equipped: readonly OwnedCopy[]): HqModifier[] {
     return equipped.flatMap((copy) => {
@@ -487,31 +488,33 @@ export function artifactModifiers(equipped: readonly OwnedCopy[]): HqModifier[] 
 }
 
 /**
- * The collection passive: what every **owned but unequipped** Artifact still gives the Hero.
+ * The collection passive: what every **owned** Artifact gives the Hero, equipped or not.
  *
  * Mirrors Gear's `passiveBonus` (decided 2026-09-15 — §1 granted an un-slotted Artifact nothing
  * before): `ARTIFACT_COLLECTION_PASSIVE_FRACTION` of each combat-stat line it would pay equipped
  * (`COLLECTION_PASSIVE_KINDS`), at its own rarity and investment. **Hero only** — the caller routes
- * it with Gear and Skills, not with the party-wide equipped Artifacts. A copy named in `equipped`
- * is skipped; it already pays in full.
+ * it with Gear and Skills, not with the party-wide equipped Artifacts. Additive with equipping
+ * (decided 2026-10-04): an equipped copy pays this as well as its party-wide lines.
  */
-export function artifactCollectionModifiers(
-    owned: readonly OwnedCopy[],
-    equipped: readonly OwnedCopy[]
-): HqModifier[] {
-    const equippedIds = new Set(equipped.map(copy => copy.contentId))
+export function artifactCollectionModifiers(owned: readonly OwnedCopy[]): HqModifier[] {
     return owned.flatMap((copy) => {
-        if (equippedIds.has(copy.contentId) || !isArtifactId(copy.contentId)) return []
+        if (!isArtifactId(copy.contentId)) return []
         const definition = getArtifact(copy.contentId)
-        return definition.effects
-            .filter(line => COLLECTION_PASSIVE_KINDS.has(line.kind))
-            .map(line => ({
-                kind: line.kind,
-                stat: line.stat,
-                magnitude: artifactLineMagnitude(line.kind, definition.rarity, copy.star, copy.level)
-                    * ARTIFACT_COLLECTION_PASSIVE_FRACTION
-            }))
+        return definition.effects.flatMap((line) => {
+            const share = artifactCollectionShare(
+                line.kind, artifactLineMagnitude(line.kind, definition.rarity, copy.star, copy.level)
+            )
+            return share === null ? [] : [{ kind: line.kind, stat: line.stat, magnitude: share }]
+        })
     })
+}
+
+/**
+ * What one effect line, at the magnitude it pays equipped, pays the Hero through the collection
+ * passive while its copy is owned; null for a line that does not pass (`COLLECTION_PASSIVE_KINDS`).
+ */
+export function artifactCollectionShare(kind: ModifierKind, magnitude: number): number | null {
+    return COLLECTION_PASSIVE_KINDS.has(kind) ? magnitude * ARTIFACT_COLLECTION_PASSIVE_FRACTION : null
 }
 
 /** Rarities and the line table, re-exported so an Artifact-facing caller has one import. */

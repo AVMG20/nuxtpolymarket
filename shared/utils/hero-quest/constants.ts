@@ -1162,7 +1162,7 @@ export const SLOT_BASE_BONUS: Readonly<Record<string, number>> = { // UNTUNED �
 }
 
 /**
- * What an **owned but unequipped** piece contributes, per point of the same scalar
+ * What **every owned** piece contributes, equipped or not, per point of the same scalar
  * (`gear-equipment.md` §3):
  *
  *     passiveBonus = GEAR_PASSIVE_COEFFICIENT × RARITY_STAT_MULTIPLIER[rarity] × (star×10+level)
@@ -1218,8 +1218,8 @@ export const SKILL_ECONOMY_COEFFICIENT = 0.4 // UNTUNED ╧
 export const SKILL_POTENCY_PER_POINT = 0.02 // UNTUNED ╧
 
 /**
- * What an **owned but unequipped** Passive Skill contributes, as a fraction of what the same copy
- * gives equipped — the Skills half of the collection passive Gear and Champions already have.
+ * What **every owned** Passive Skill contributes, equipped or not (additive since 2026-10-04), as a
+ * fraction of what the same copy gives equipped — the Skills half of the collection passive Gear and Champions already have.
  *
  * Decided 2026-09-15, not transcribed: `skills-gacha.md` granted unequipped Skills nothing. 0.1
  * mirrors Gear's equipped-to-passive ratio (`GEAR_PASSIVE_COEFFICIENT / SLOT_BASE_BONUS`), so
@@ -1302,8 +1302,8 @@ export const ARTIFACT_EFFECT_PER_POINT = 0.004 // UNTUNED ╧
 export const ARTIFACT_ECONOMY_COEFFICIENT = 0.3 // UNTUNED ╧
 
 /**
- * What an **owned but unequipped** Artifact contributes, as a fraction of its equipped line
- * magnitude — the Artifact twin of `SKILL_COLLECTION_PASSIVE_FRACTION`, and decided on the same
+ * What **every owned** Artifact contributes, equipped or not (additive since 2026-10-04), as a
+ * fraction of its equipped line magnitude — the Artifact twin of `SKILL_COLLECTION_PASSIVE_FRACTION`, and decided on the same
  * terms: 0.1 mirrors Gear, combat-stat lines only.
  *
  * **Hero only, unlike an equipped Artifact.** Equipped Artifacts are party-wide by identity

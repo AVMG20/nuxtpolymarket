@@ -439,8 +439,8 @@ export function skillPotency(star: number, level: number): number {
 /**
  * Every equipped Passive's modifier lines, at that copy's potency.
  *
- * **Equipped only** — the collection passive for everything *else* owned is
- * `skillCollectionModifiers`, and the two never count the same copy.
+ * **Equipped only** — the collection passive every owned copy pays, this one included, is
+ * `skillCollectionModifiers`; an equipped Passive pays both.
  *
  * Every line scales, economy lines included: a levelled Merchant's Eye is a better Merchant's Eye.
  * `SKILL_ECONOMY_COEFFICIENT` still holds the Gold family under the combat lines, so §5's stack
@@ -461,29 +461,34 @@ export function skillModifiers(equipped: readonly OwnedCopy[]): HqModifier[] {
 }
 
 /**
- * The collection passive: what every **owned but unequipped** Passive Skill still gives the Hero.
+ * The collection passive: what every **owned** Passive Skill gives the Hero, equipped or not.
  *
  * Mirrors Gear's `passiveBonus` (decided 2026-09-15 — no doc granted unequipped Skills anything
  * before): each copy contributes `SKILL_COLLECTION_PASSIVE_FRACTION` of its own equipped lines, at
  * its own potency, so levelling a benched Skill still shows up. Only combat-stat kinds pass
- * (`COLLECTION_PASSIVE_KINDS`). A copy named in `equipped` is skipped — it already pays in full
- * through `skillModifiers`.
+ * (`COLLECTION_PASSIVE_KINDS`). Additive with equipping (decided 2026-10-04): an equipped copy
+ * pays this as well as its full lines through `skillModifiers`.
  */
-export function skillCollectionModifiers(
-    owned: readonly OwnedCopy[],
-    equipped: readonly OwnedCopy[]
-): HqModifier[] {
-    const equippedIds = new Set(equipped.map(copy => copy.contentId))
+export function skillCollectionModifiers(owned: readonly OwnedCopy[]): HqModifier[] {
     return owned.flatMap((copy) => {
-        if (equippedIds.has(copy.contentId) || !isSkillId(copy.contentId)) return []
+        if (!isSkillId(copy.contentId)) return []
         const definition = getSkill(copy.contentId)
         if (definition.type !== 'passive') return []
 
         const potency = skillPotency(copy.star, copy.level)
-        return (definition.modifiers ?? [])
-            .filter(line => COLLECTION_PASSIVE_KINDS.has(line.kind))
-            .map(line => ({ ...line, magnitude: line.magnitude * potency * SKILL_COLLECTION_PASSIVE_FRACTION }))
+        return (definition.modifiers ?? []).flatMap((line) => {
+            const share = skillCollectionShare({ ...line, magnitude: line.magnitude * potency })
+            return share === null ? [] : [{ ...line, magnitude: share }]
+        })
     })
+}
+
+/**
+ * What one Passive line, at the magnitude it pays equipped, pays through the collection passive
+ * while its copy is owned; null for a line that does not pass (`COLLECTION_PASSIVE_KINDS`).
+ */
+export function skillCollectionShare(line: HqModifier): number | null {
+    return COLLECTION_PASSIVE_KINDS.has(line.kind) ? line.magnitude * SKILL_COLLECTION_PASSIVE_FRACTION : null
 }
 
 /**

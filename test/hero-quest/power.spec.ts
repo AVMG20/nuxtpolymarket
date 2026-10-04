@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import { makeHero, makeParty } from '../../scripts/hero-quest/sim'
 import { globalPower, memberEhp } from '#shared/utils/hero-quest/power'
 import { economyBonuses, heroModifierTotals, partyUnitStats } from '#shared/utils/hero-quest/stats'
-import { EHP_DEF_CONSTANT, GPN_DISPLAY_SCALE, MAX_EVASION } from '#shared/utils/hero-quest/constants'
+import { EHP_DEF_CONSTANT, GPN_DISPLAY_SCALE, MAX_EVASION, SKILL_COLLECTION_PASSIVE_FRACTION } from '#shared/utils/hero-quest/constants'
 import { SKILLS } from '#shared/utils/hero-quest/content/skills'
 import { ARTIFACTS } from '#shared/utils/hero-quest/content/artifacts'
 import { D } from '#shared/utils/hero-quest/numbers'
@@ -101,11 +101,13 @@ describe('collection passives for Skills and Artifacts', () => {
         expect(equipped).toBeGreaterThan(benched)
     })
 
-    it('never counts an equipped copy twice', () => {
+    it('pays an equipped copy its collection share on top of its full lines', () => {
+        // additive since 2026-10-04: equipping a Skill never takes away what owning it gave
         const owned = [maxed(STAT_SKILL.id)]
         const withCollection = heroModifierTotals(makeHero('class_beginner', 1, { ownedSkills: owned, equippedSkills: owned }))
         const equippedOnly = heroModifierTotals(makeHero('class_beginner', 1, { equippedSkills: owned }))
-        expect(withCollection.stats[SKILL_STAT]).toBeCloseTo(equippedOnly.stats[SKILL_STAT], 12)
+        expect(withCollection.stats[SKILL_STAT] - 1)
+            .toBeCloseTo((equippedOnly.stats[SKILL_STAT] - 1) * (1 + SKILL_COLLECTION_PASSIVE_FRACTION), 12)
     })
 
     it('passes combat-stat lines only — a benched Gold Skill adds no Gold', () => {

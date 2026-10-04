@@ -109,16 +109,20 @@ describe('modifier summing', () => {
 describe('gear', () => {
     const owned = [{ contentId: 'gear_weapon_mythic', star: 5, level: 10 }]
 
-    it('pays the full equipped bonus only to the piece actually equipped', () => {
+    it('pays the full equipped bonus on top of the passive, only to the piece actually equipped', () => {
         const equipped = gearModifiers(owned, { weapon: 'gear_weapon_mythic' })
         const benched = gearModifiers(owned, {})
-        expect(equipped[0]!.magnitude).toBeGreaterThan(benched[0]!.magnitude)
-        expect(equipped[0]!.stat).toBe('pwr')
+        // equipping adds a line and keeps the passive (additive since 2026-10-04)
+        expect(benched).toHaveLength(1)
+        expect(equipped).toHaveLength(2)
+        expect(equipped[0]).toEqual(benched[0])
+        expect(equipped[1]!.magnitude).toBeGreaterThan(benched[0]!.magnitude)
+        expect(equipped.every(line => line.stat === 'pwr')).toBe(true)
     })
 
-    it('still pays a smaller passive for an owned piece that is not equipped', () => {
-        // §3: "every other owned piece — including one that's actually stronger but not yet
-        // manually equipped — contributes a smaller passive bonus instead".
+    it('pays a smaller passive for every owned piece, equipped or not', () => {
+        // §3: an owned piece that is not equipped — even one stronger than what is worn — still
+        // contributes, and equipping it never takes that away.
         expect(gearModifiers(owned, {})[0]!.magnitude).toBeGreaterThan(0)
     })
 

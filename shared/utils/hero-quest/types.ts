@@ -284,9 +284,8 @@ export interface HeroSnapshot {
      */
     equippedSkills?: readonly OwnedCopy[]
     /**
-     * **Every owned Skill**, equipped or not. Unequipped Passives pay the Hero a small collection
-     * passive (`skillCollectionModifiers`); equipped copies are skipped there, since
-     * `equippedSkills` already pays them in full.
+     * **Every owned Skill**, equipped or not. Every owned Passive pays the Hero a small collection
+     * passive (`skillCollectionModifiers`), on top of what `equippedSkills` pays.
      */
     ownedSkills?: readonly OwnedCopy[]
     /**
@@ -295,8 +294,8 @@ export interface HeroSnapshot {
      */
     equippedArtifacts?: readonly OwnedCopy[]
     /**
-     * **Every owned Artifact**, equipped or not. Unequipped copies pay a small, Hero-only collection
-     * passive (`artifactCollectionModifiers`).
+     * **Every owned Artifact**, equipped or not. Every owned copy pays a small, Hero-only collection
+     * passive (`artifactCollectionModifiers`), on top of what an equipped one pays the party.
      */
     ownedArtifacts?: readonly OwnedCopy[]
     /**

@@ -452,7 +452,7 @@ function statBreakdowns(
  * Gear / Skills / Artifacts split into the three sums the panel itemises.
  *
  * On the Hero, the Skills and Artifacts rows each include that system's collection passive — the
- * owned-but-unequipped copies — so every source the Hero's stat actually received is itemised.
+ * every owned copy's share — so every source the Hero's stat actually received is itemised.
  * A Champion row shows equipped Artifacts only, because collection passives never reach one.
  */
 function passiveSources(hero: HeroSnapshot, key: HqStatKey, partyWideOnly: boolean) {
@@ -465,11 +465,11 @@ function passiveSources(hero: HeroSnapshot, key: HqStatKey, partyWideOnly: boole
     const gear = sumModifiers(gearModifiers(hero.ownedGear ?? [], hero.equippedGear ?? {}))
     const skills = sumModifiers([
         ...skillModifiers(equippedSkills),
-        ...skillCollectionModifiers(hero.ownedSkills ?? [], equippedSkills)
+        ...skillCollectionModifiers(hero.ownedSkills ?? [])
     ])
     const artifacts = sumModifiers([
         ...artifactModifiers(equippedArtifacts),
-        ...artifactCollectionModifiers(hero.ownedArtifacts ?? [], equippedArtifacts)
+        ...artifactCollectionModifiers(hero.ownedArtifacts ?? [])
     ])
     return [
         { label: 'Gear', pct: gear.stats[key] - 1 },

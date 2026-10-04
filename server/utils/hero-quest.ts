@@ -72,12 +72,14 @@ import {
     SKILLS,
     getSkill,
     isSkillId,
+    skillCollectionShare,
     skillPotency,
     trainingGroundsArt
 } from '#shared/utils/hero-quest/content/skills'
 import {
     ARTIFACTS,
     ARTIFACT_CATEGORY_NAME,
+    artifactCollectionShare,
     artifactLineMagnitude,
     isArtifactId
 } from '#shared/utils/hero-quest/content/artifacts'
@@ -104,7 +106,8 @@ import {
 import { runFight } from '#shared/utils/hero-quest/fight'
 import { partyKits } from '#shared/utils/hero-quest/projection'
 import { randomInt } from '#shared/utils/random'
-import { economyBonuses, partyUnitStats } from '#shared/utils/hero-quest/stats'
+import { championPassiveBonus, economyBonuses, partyUnitStats } from '#shared/utils/hero-quest/stats'
+import type { ModifierKind } from '#shared/utils/hero-quest/modifiers'
 import { globalPower } from '#shared/utils/hero-quest/power'
 import type { StatsExplanation } from '#shared/utils/hero-quest/explain'
 import { D, ZERO, decPow, fromStore, toStore } from '#shared/utils/hero-quest/numbers'
@@ -117,6 +120,7 @@ import type {
     ClassId,
     FormationRow,
     HeroSnapshot,
+    HqStatKey,
     OwnedCopy,
     Rarity,
     RunPosition,
@@ -339,8 +343,8 @@ export function heroSnapshotOf(
         champions: championSnapshotsFor(state, collections.champion, championSlots(shopLevels)),
         ownedChampions: ownedChampionsFor(collections.champion),
 
-        // Gear reads the whole collection: the equipped piece pays `equippedBonus` and every
-        // other owned piece in that slot pays the smaller `passiveBonus`.
+        // Gear reads the whole collection: every owned piece pays the smaller `passiveBonus`, and
+        // the equipped piece adds `equippedBonus`.
         ownedGear: ownedCopies(collections.gear, isGearId),
         equippedGear: state.equippedGear as Record<string, string>,
 
@@ -353,9 +357,8 @@ export function heroSnapshotOf(
             artifactSlots(shopLevels),
             isArtifactId
         ),
-        // The whole collection, for the Skill and Artifact collection passives. Anything not in
-        // the equipped lists above — including a copy past the purchased slot count — pays the
-        // smaller unequipped share.
+        // The whole collection, for the Skill and Artifact collection passives: every owned copy
+        // pays the smaller share, equipped or not, including one past the purchased slot count.
         ownedSkills: ownedCopies(collections.skill, isSkillId),
         ownedArtifacts: ownedCopies(collections.artifact, isArtifactId)
     }
@@ -1087,6 +1090,13 @@ export interface GuildRosterEntry extends CopyState {
     defaultRow: FormationRow
     row: FormationRow
     fielded: boolean
+    /**
+     * The collection passive this copy pays the Hero, fielded or not (§7): `collectionBonus` on each
+     * of `collectionStats`. At a fresh 0★/Lv1 for one not yet owned, so a locked entry shows what it
+     * would be worth.
+     */
+    collectionStats: readonly HqStatKey[]
+    collectionBonus: number
 }
 
 export interface GuildPayload extends GachaCommonPayload {
@@ -1119,6 +1129,7 @@ export function serializeGuild(
 
         roster: CHAMPIONS.map((definition) => {
             const archetype = getArchetype(definition.archetype)
+            const row = owned.get(definition.id)
             return {
                 id: definition.id,
                 name: championDisplayName(definition),
@@ -1130,7 +1141,9 @@ export function serializeGuild(
                 defaultRow: archetype.defaultRow,
                 row: formation[definition.id] ?? archetype.defaultRow,
                 fielded: (state.partyChampionIds as string[]).includes(definition.id),
-                ...copyStateOf(owned.get(definition.id), definition.rarity)
+                collectionStats: archetype.passiveStats,
+                collectionBonus: championPassiveBonus(investmentScalar(row?.star ?? 0, row?.level ?? 1)),
+                ...copyStateOf(row, definition.rarity)
             }
         })
     }
@@ -1160,10 +1173,12 @@ export interface ForgeRosterEntry extends CopyState {
     stat: string
     rarity: Rarity
     equipped: boolean
-    /** What this copy contributes right now, as a fraction of its stat. */
+    /** What this copy contributes right now, as a fraction of its stat: the passive, plus the equipped bonus while worn. */
     bonus: number
     /** What it *would* contribute if equipped — the number the upgrade indicator compares. */
     equippedBonus: number
+    /** What it contributes just for being owned, equipped or not; at a fresh 0★/Lv1 for one not yet owned. */
+    ownedBonus: number
 }
 
 export interface ForgePayload extends GachaCommonPayload {
@@ -1208,10 +1223,9 @@ export function serializeForge(
                 equipped: isEquipped,
                 bonus: !row
                     ? 0
-                    : isEquipped
-                        ? full
-                        : passiveBonus(definition.rarity, row.star, row.level),
+                    : passiveBonus(definition.rarity, row.star, row.level) + (isEquipped ? full : 0),
                 equippedBonus: full,
+                ownedBonus: passiveBonus(definition.rarity, row?.star ?? 0, row?.level ?? 1),
                 ...copyStateOf(row, definition.rarity)
             }
         })
@@ -1242,6 +1256,11 @@ export interface TrainingRosterEntry extends CopyState {
      * is a whole effect rather than one number the UI could print next to a sentence.
      */
     lineMagnitudes: (number | null)[]
+    /**
+     * A Passive's modifier lines at this copy's potency: what each pays equipped, and what it still
+     * pays just for being owned (null when that line does not pass). Empty for an Active.
+     */
+    modifiers: { kind: ModifierKind; stat?: HqStatKey; magnitude: number; ownedMagnitude: number | null }[]
     equipped: boolean
 }
 
@@ -1281,6 +1300,10 @@ export function serializeTrainingGrounds(
                     definition.modifiers?.[index] === undefined
                         ? null
                         : definition.modifiers[index]!.magnitude * potency),
+                modifiers: (definition.modifiers ?? []).map((line) => {
+                    const at = { ...line, magnitude: line.magnitude * potency }
+                    return { kind: at.kind, stat: at.stat, magnitude: at.magnitude, ownedMagnitude: skillCollectionShare(at) }
+                }),
                 equipped: equipped.has(definition.id),
                 ...copyStateOf(row, definition.rarity)
             }
@@ -1301,8 +1324,11 @@ export interface DigSiteRosterEntry extends CopyState {
     rarity: Rarity
     category: string
     categoryName: string
-    /** One entry per effect line — its name, what it does, and its current magnitude. */
-    effects: { name: string; shape: string; magnitude: number }[]
+    /**
+     * One entry per effect line — its name, what it does, its current magnitude equipped, and what
+     * it pays the Hero just for being owned (null when that line does not pass).
+     */
+    effects: { name: string; shape: string; kind: ModifierKind; stat?: HqStatKey; magnitude: number; ownedMagnitude: number | null }[]
     equipped: boolean
 }
 
@@ -1332,15 +1358,21 @@ export function serializeDigSite(
                 rarity: definition.rarity,
                 category: definition.category,
                 categoryName: ARTIFACT_CATEGORY_NAME[definition.category],
-                effects: definition.effects.map(line => ({
-                    name: line.name,
-                    shape: line.shape,
+                effects: definition.effects.map((line) => {
                     // At the copy's own investment, or at a fresh 0★/Lv1 for one not yet owned —
                     // so a locked entry still shows what it would be worth.
-                    magnitude: artifactLineMagnitude(
+                    const magnitude = artifactLineMagnitude(
                         line.kind, definition.rarity, row?.star ?? 0, row?.level ?? 1
                     )
-                })),
+                    return {
+                        name: line.name,
+                        shape: line.shape,
+                        kind: line.kind,
+                        stat: line.stat,
+                        magnitude,
+                        ownedMagnitude: artifactCollectionShare(line.kind, magnitude)
+                    }
+                }),
                 equipped: equipped.has(definition.id),
                 ...copyStateOf(row, definition.rarity)
             }
