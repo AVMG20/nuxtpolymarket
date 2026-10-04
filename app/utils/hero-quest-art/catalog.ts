@@ -34,7 +34,7 @@ import { CHAMPION_ABILITY_POOL, CHAMPION_BY_ID, championDisplayName, abilityId  
 import { SKILLS } from '../../../shared/utils/hero-quest/content/skills'
 import { ARTIFACTS, type ArtifactCategory } from '../../../shared/utils/hero-quest/content/artifacts'
 import { GEAR } from '../../../shared/utils/hero-quest/content/gear'
-import { NUMBER_STYLES, drawNumberPop, drawNumberAtlas, numberAtlasWidth, numberHeight, drawPartyFrame, drawCooldown, drawEnrageTimer, drawStageProgress, drawChallengeButton, drawRevealBase, REVEAL_LUT, REVEAL_SIZE } from './feedback'
+import { NUMBER_STYLES, drawNumberPop, drawNumberAtlas, numberAtlasWidth, numberHeight, drawPartyFrame, drawCooldown, drawEnrageTimer, drawStageProgress, drawChallengeButton, drawRevealBase, drawRevealAura, REVEAL_AURA_LOOP, REVEAL_LUT, REVEAL_SIZE } from './feedback'
 import { Surface as Surf, blit, rect, rowSpan, ROWS } from './surface'
 import { WORLD_SCENES, SW, SH, BG_LOOP, composeScene } from './scenery'
 import { drawWorldMap, TAB_BACKGROUNDS, CHROME, drawSplash } from './ui-art'
@@ -525,6 +525,14 @@ function revealAssets(): ArtAsset[] {
         out.push(anim(`ui/gacha_reveal/${r}`, 'ui', 'Gacha reveal', `${r} recolour`, REVEAL_SIZE, REVEAL_SIZE, 14, false, (d, t) => {
             REVEAL_TMP.clear()
             drawRevealBase(REVEAL_TMP, t)
+            blit(d, REVEAL_TMP, 0, 0, REVEAL_LUT[r]!)
+        }))
+    }
+    // the glow a revealed card keeps, looping: 16 frames at the UI's authored 10 fps make one loop
+    for (const r of ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic']) {
+        out.push(anim(`ui/gacha_reveal/aura_${r}`, 'ui', 'Gacha reveal', `${r} aura (loops)`, REVEAL_SIZE, REVEAL_SIZE, REVEAL_AURA_LOOP * 10, true, (d, t) => {
+            REVEAL_TMP.clear()
+            drawRevealAura(REVEAL_TMP, t)
             blit(d, REVEAL_TMP, 0, 0, REVEAL_LUT[r]!)
         }))
     }

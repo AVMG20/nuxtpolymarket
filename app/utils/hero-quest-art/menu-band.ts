@@ -2,7 +2,7 @@
 // and the backdrops those scenes draw until each has a scene of its own. Battle has no button: it
 // is what shows when every scene is closed, and an open scene's button turns into its close.
 
-import { C } from './palette'
+import { C, CLEAR } from './palette'
 import { Surface, rect, line, poly, blit, disc, px } from './surface'
 import { glyph, type Glyph } from './icon-kit'
 import { ABILITY_ICON_PARTS } from './icons-abilities'
@@ -83,6 +83,17 @@ const FAST_FORWARD: Glyph = (g, x, y) => {
     line(g, x, y - 4, x + 4, y - 1, C.gold3)
 }
 
+/** A cog: eight teeth round a steel wheel, a hole through its middle. */
+const COG: Glyph = (g, x, y) => {
+    for (let k = 0; k < 8; k++) {
+        const a = k * Math.PI / 4
+        rect(g, Math.round(x + Math.cos(a) * 6) - 1, Math.round(y + Math.sin(a) * 6) - 1, 3, 3, C.steel2)
+    }
+    disc(g, x, y, 5, C.steel2)
+    disc(g, x - 1, y - 1, 3, C.steel3)
+    disc(g, x, y, 2, CLEAR)
+}
+
 const ICONS: Readonly<Record<HqMenuScene, Glyph>> = {
     gacha: GUMBALL,
     collections: (g, x, y) => ABILITY_ICON_PARTS.book(g, x, y, C.red1, C.bone1),
@@ -90,7 +101,8 @@ const ICONS: Readonly<Record<HqMenuScene, Glyph>> = {
     classes: NODE_TREE,
     // Void Shards are what a prestige pays out
     prestige: CURRENCY_ICONS.void_shards!,
-    speed: FAST_FORWARD
+    speed: FAST_FORWARD,
+    settings: COG
 }
 
 /** Where a scene's button sits on a view of the given size. */

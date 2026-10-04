@@ -430,4 +430,37 @@ export function drawRevealBase(s: Surface, t: number): void {
 
 function eoLocal(u: number): number { return 1 - (1 - u) * (1 - u) }
 
+/** One loop of the aura, in seconds: the rays turn one ray's gap and the twinkles a quarter turn in it. */
+export const REVEAL_AURA_LOOP = 1.6
+
+/**
+ * The glow a revealed card keeps behind it, on the flash's 72×72 canvas and in its BASE colours,
+ * so the same LUT gives it the card's rarity. Smaller than the flash (it clears a neighbour 32 px
+ * away) and seamless over `REVEAL_AURA_LOOP`, so it can play for as long as the card is up.
+ */
+export function drawRevealAura(s: Surface, t: number): void {
+    const x = 36
+    const y = 36
+    const u = (t % REVEAL_AURA_LOOP) / REVEAL_AURA_LOOP
+    // rays, long and short in turn, stepping round one gap a loop
+    const n = 12
+    for (let i = 0; i < n; i++) {
+        const a = (i + u) * (Math.PI * 2 / n)
+        const len = i & 1 ? 17 : 21
+        for (let k = 13; k < len; k++) px(s, R(x + Math.cos(a) * k), R(y + Math.sin(a) * k), k < 17 ? BASE[2] : BASE[3])
+    }
+    // a halo that breathes twice a loop
+    const breath = Math.sin(u * Math.PI * 4) > 0 ? 1 : 0
+    ring(s, x, y, 14 + breath, BASE[2])
+    ring(s, x, y, 13 + breath, BASE[1])
+    // four twinkles orbiting the other way, each lit for half its turn
+    for (let i = 0; i < 4; i++) {
+        const a = (i / 4 - u / 4) * Math.PI * 2
+        const sx = R(x + Math.cos(a) * 19)
+        const sy = R(y + Math.sin(a) * 19)
+        if ((Math.floor(u * 8) + i) % 2) continue
+        px(s, sx, sy, BASE[0]); px(s, sx - 1, sy, BASE[2]); px(s, sx + 1, sy, BASE[2]); px(s, sx, sy - 1, BASE[2]); px(s, sx, sy + 1, BASE[2])
+    }
+}
+
 export type { ColorName }

@@ -3,7 +3,7 @@
  * shows whenever no other scene is open. Each scene keeps its own route, so links and reloads land
  * on it, and the stage reads which one is open off the path.
  */
-export const HQ_MENU_SCENES = ['gacha', 'collections', 'loadouts', 'classes', 'prestige', 'speed'] as const
+export const HQ_MENU_SCENES = ['gacha', 'collections', 'loadouts', 'classes', 'prestige', 'speed', 'settings'] as const
 export type HqMenuScene = typeof HQ_MENU_SCENES[number]
 export type HqScene = 'battle' | HqMenuScene
 
@@ -14,7 +14,8 @@ export const HQ_SCENE_LABELS: Readonly<Record<HqScene, string>> = {
     loadouts: 'Loadouts',
     classes: 'Classes',
     prestige: 'Prestige',
-    speed: 'Battle Speed'
+    speed: 'Battle Speed',
+    settings: 'Settings'
 }
 
 export function hqScenePath(scene: HqScene): string {

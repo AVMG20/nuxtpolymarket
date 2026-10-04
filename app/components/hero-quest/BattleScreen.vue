@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import type { HqIntroRect } from '~/composables/useHqIntro'
 import { D, formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
-import { RARITIES, type GachaSystem } from '#shared/utils/hero-quest/gacha'
+import { RARITIES, sealLadderTotal, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { FormationRow, Rarity } from '#shared/utils/hero-quest/types'
 import { GEAR_SLOTS, GEAR_SLOT_NAME } from '#shared/utils/hero-quest/content/gear'
-import { FORMATION_ROW_CAPACITY } from '#shared/utils/hero-quest/constants'
+import { FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY } from '#shared/utils/hero-quest/constants'
 import type { CollectionAction, CollectionLine, CollectionSection, CollectionTile, DetailButton } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesView } from '~/utils/hero-quest-art/classes-scene'
 import type { SpeedView } from '~/utils/hero-quest-art/speed-scene'
+import type { SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
+import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
+import type { GachaBannerView, GachaButton, GachaCard, GachaSystemId, GachaView, PullPrice } from '~/utils/hero-quest-art/gacha-scene'
 
 /**
  * The game's stage and the battle it plays. The layout keeps it mounted on every scene route, so
@@ -28,7 +31,8 @@ const emit = defineEmits<{
 const {
     initialized, run, hero, settled, pending, guild, forge, training, digSite, nextPrestigeReward,
     engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
-    shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed
+    shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
+    pull, freePull, settings, setSetting
 } = useHeroQuest()
 const { user } = useAuth()
 
@@ -394,7 +398,8 @@ const prestigeView = computed<PrestigeView>(() => {
             cost: track.nextCost === null ? null : formatNumber(track.nextCost),
             currency: track.currency,
             affordable: track.nextCost !== null && (track.currency === 'gems' ? gems >= track.nextCost : shards.gte(track.nextCost))
-        })).sort((a, b) => rank(a.id) - rank(b.id))
+        })).sort((a, b) => rank(a.id) - rank(b.id)),
+        armed: confirm.armed.value?.startsWith('shop:') ? confirm.armed.value.slice(5) : null
     }
 })
 
@@ -428,6 +433,119 @@ async function onPickClass(classId: string) {
     }
 }
 
+/** The four gachas' payloads, in the order the scene hangs their banners. */
+const gachaPayloads = computed(() => [
+    { system: 'gear' as const, payload: forge.value },
+    { system: 'champion' as const, payload: guild.value },
+    { system: 'skill' as const, payload: training.value },
+    { system: 'artifact' as const, payload: digSite.value }
+])
+
+/** Each gacha's free-ten countdown; one each, since each has its own cooldown. */
+const freeCountdowns = {
+    gear: useHqCountdown(() => forge.value?.freePull.available ? null : forge.value?.freePull.unlocksAt),
+    champion: useHqCountdown(() => guild.value?.freePull.available ? null : guild.value?.freePull.unlocksAt),
+    skill: useHqCountdown(() => training.value?.freePull.available ? null : training.value?.freePull.unlocksAt),
+    artifact: useHqCountdown(() => digSite.value?.freePull.available ? null : digSite.value?.freePull.unlocksAt)
+}
+
+/** The pull on the reveal board; `key` deals it again even when a pull repeats the last one's cards. */
+const gachaReveal = ref<GachaView['reveal']>(null)
+let revealKey = 0
+
+/** The Gacha scene: a banner per gacha, the Gold a Seal costs, and the pull being revealed. */
+const gachaView = computed<GachaView>(() => {
+    const gold = parseFloat(user.value?.balance ?? '0')
+    const banners: GachaBannerView[] = []
+    for (const { system, payload: g } of gachaPayloads.value) {
+        if (!g) continue
+        const left = freeCountdowns[system].value
+        banners.push({
+            system,
+            level: g.gachaLevel,
+            levelProgress: g.pullsToNextLevel ? g.gachaProgress / g.pullsToNextLevel : 1,
+            seals: g.seals,
+            essence: formatNumber(g.essence),
+            owned: g.roster.filter(entry => entry.owned).length,
+            total: g.roster.length,
+            dropRates: g.dropRates,
+            free: g.freePull.available ? { state: 'ready' } : left ? { state: 'wait', left } : { state: 'spent' },
+            freeLeft: g.freePull.remaining,
+            freePerDay: FREE_PULLS_PER_DAY,
+            one: pullPrice(system, g, 1, gold),
+            ten: pullPrice(system, g, 10, gold)
+        })
+    }
+    return { banners, gold: formatNumber(gold), reveal: gachaReveal.value, armed: gachaArmed.value }
+})
+
+/**
+ * What a pull costs a banner: Seals from its balance, and the rest bought off today's Gold ladder,
+ * priced by the same function the server charges with.
+ */
+function pullPrice(system: GachaSystemId, g: { seals: number, singleCost: number, tenPullCost: number, sealsBoughtToday: number }, count: 1 | 10, gold: number): PullPrice {
+    const cost = count === 10 ? g.tenPullCost : g.singleCost
+    const fromBalance = Math.min(cost, g.seals)
+    const short = cost - fromBalance
+    const goldCost = short > 0 ? sealLadderTotal(system, g.sealsBoughtToday, short) : 0
+    return { cost, pulls: count, fromBalance, gold: goldCost, goldText: formatNumber(goldCost), affordable: gold >= goldCost }
+}
+
+/**
+ * A spend of a hard-won currency waits for a second press: Gold on a pull's Seals, Void Shards in
+ * the shop. Each is keyed by what was pressed, and either confirm can be turned off in Settings.
+ */
+const confirm = useHqConfirm()
+const gachaArmed = computed<GachaView['armed']>(() => {
+    const [kind, system, button] = confirm.armed.value?.split(':') ?? []
+    return kind === 'pull' ? { system: system as GachaSystemId, button: button as 'one' | 'ten' } : null
+})
+
+const gachaBusy = ref(false)
+
+// a reveal left up, or a spend waiting for its confirm, belongs to the visit that started it
+watch(() => props.scene, () => {
+    gachaReveal.value = null
+    confirm.clear()
+})
+
+async function onGachaAction(system: GachaSystemId, button: GachaButton) {
+    // a pull that buys Seals with Gold waits for a second press, unless that is turned off in Settings
+    const price = button === 'free' ? null : gachaView.value.banners.find(b => b.system === system)?.[button]
+    const asks = button !== 'free' && !!price && price.gold > 0 && (settings.value?.confirmGoldSeals ?? true)
+    if (asks && !confirm.press(`pull:${system}:${button}`)) return
+    confirm.clear()
+    gachaBusy.value = true
+    try {
+        const result = button === 'free'
+            ? await freePull(system)
+            : await pull(system, button === 'one' ? 1 : 10, price && price.gold > 0 ? price.gold : undefined)
+        const cards: GachaCard[] = (result?.pulls ?? []).map(p => ({ contentId: p.contentId, rarity: p.rarity, isNew: p.isNew, level: p.level, essence: p.essence }))
+        if (cards.length) gachaReveal.value = { key: ++revealKey, system, cards }
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        gachaBusy.value = false
+    }
+}
+
+/** The Settings scene. Tutorials do not exist yet, so there are no flags to reset. */
+const settingsView = computed<SettingsView>(() => ({ settings: settings.value ?? { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false }))
+const settingsBusy = ref(false)
+
+async function onSetting(target: SettingsTarget) {
+    // the reset has nothing to clear until tutorials and their flags exist; the scene holds its button
+    if (target === 'resetTutorials') return
+    settingsBusy.value = true
+    try {
+        await setSetting(target, !settingsView.value.settings[target])
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        settingsBusy.value = false
+    }
+}
+
 /** The running Battle Speed block's time left, off the server's expiry. */
 const speedLeft = useHqCountdown(() => battleSpeed.value?.expiresAt)
 
@@ -441,7 +559,8 @@ const speedView = computed<SpeedView>(() => {
         gems: formatNumber(gems),
         gemCount: gems,
         offlineEfficiency: run.value?.offlineEfficiency ?? 1,
-        tiers: battleSpeed.value?.tiers ?? []
+        tiers: battleSpeed.value?.tiers ?? [],
+        armed: armedSpeed.value
     }
 })
 
@@ -450,7 +569,16 @@ const speedTag = computed(() => speedNow.value > 1 && speedLeft.value ? `${speed
 
 const speedBusy = ref(false)
 
+/** The Battle Speed block pressed once and waiting for its confirm, off the shared confirm. */
+const armedSpeed = computed(() => {
+    const [kind, speed, minutes] = confirm.armed.value?.split(':') ?? []
+    return kind === 'speed' ? { speed: Number(speed), minutes: Number(minutes) } : null
+})
+
 async function onBuySpeed(speed: number, minutes: number) {
+    // a block paid in Gems waits for a second press, unless that is turned off in Settings
+    if ((settings.value?.confirmGemSpeed ?? true) && !confirm.press(`speed:${speed}:${minutes}`)) return
+    confirm.clear()
     speedBusy.value = true
     try {
         await buyBattleSpeed(speed, minutes)
@@ -462,6 +590,11 @@ async function onBuySpeed(speed: number, minutes: number) {
 }
 
 async function onShopBuy(upgradeId: string) {
+    // a track paid in Void Shards waits for a second press, unless that is turned off in Settings
+    const track = shop.value?.find(t => t.id === upgradeId)
+    const asks = track?.currency === 'voidShards' && (settings.value?.confirmVoidShards ?? true)
+    if (asks && !confirm.press(`shop:${upgradeId}`)) return
+    confirm.clear()
     prestigeBusy.value = true
     try {
         await buyUpgrade(upgradeId)
@@ -726,6 +859,10 @@ const awayReport = computed(() => {
           :speed-view="speedView"
           :speed-busy="speedBusy"
           :speed-tag="speedTag"
+          :gacha="gachaView"
+          :gacha-busy="gachaBusy"
+          :settings="settingsView"
+          :settings-busy="settingsBusy"
           :classes="classesView"
           :classes-busy="classesBusy"
           @fight-progress="fightProgress = $event"
@@ -737,6 +874,9 @@ const awayReport = computed(() => {
           @loadout-rename="onLoadoutRename"
           @shop-buy="onShopBuy"
           @buy-speed="onBuySpeed"
+          @gacha-action="onGachaAction"
+          @gacha-close="gachaReveal = null"
+          @setting="onSetting"
           @pick-class="onPickClass"
         />
       </template>

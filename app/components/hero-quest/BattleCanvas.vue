@@ -8,7 +8,10 @@ import type { LoadoutButton, LoadoutsHover, LoadoutsScene, LoadoutsView } from '
 import type { PrestigeScene, PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesScene, ClassesView } from '~/utils/hero-quest-art/classes-scene'
 import type { SpeedBlock, SpeedScene, SpeedView } from '~/utils/hero-quest-art/speed-scene'
+import type { GachaButton, GachaHover, GachaScene, GachaSystemId, GachaView } from '~/utils/hero-quest-art/gacha-scene'
+import type { SettingsScene, SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
+import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
 import { C, PALETTE } from '~/utils/hero-quest-art/palette'
 import type { HqIntroRect } from '~/composables/useHqIntro'
 
@@ -83,6 +86,14 @@ const props = defineProps<{
     speedBusy?: boolean
     /** The running block on the battle's HUD, e.g. `3X 12:04`; empty when none runs. */
     speedTag?: string
+    /** The Gacha scene: the four banners, and the pull being revealed. */
+    gacha?: GachaView
+    /** A pull or a Seal purchase is on its way. */
+    gachaBusy?: boolean
+    /** The Settings scene: every setting's current value. */
+    settings?: SettingsView
+    /** A setting change is on its way. */
+    settingsBusy?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -106,6 +117,12 @@ const emit = defineEmits<{
     shopBuy: [upgradeId: string]
     /** A Battle Speed block's Buy button was pressed. */
     buySpeed: [speed: number, minutes: number]
+    /** A gacha banner's button was pressed. */
+    gachaAction: [system: GachaSystemId, button: GachaButton]
+    /** The reveal board was pressed once every card had turned over. */
+    gachaClose: []
+    /** A setting's control was pressed. */
+    setting: [target: SettingsTarget]
 }>()
 
 const wrap = ref<HTMLDivElement | null>(null)
@@ -135,6 +152,12 @@ let classesScene: ClassesScene | null = null
 let classesHit: typeof import('~/utils/hero-quest-art/classes-scene') | null = null
 let speedScene: SpeedScene | null = null
 let speedHit: typeof import('~/utils/hero-quest-art/speed-scene') | null = null
+let gachaScene: GachaScene | null = null
+let gachaHit: typeof import('~/utils/hero-quest-art/gacha-scene') | null = null
+let settingsScene: SettingsScene | null = null
+let settingsHit: typeof import('~/utils/hero-quest-art/settings-scene') | null = null
+/** The stage's clock, for the scene that times its own animation (the gacha reveal). */
+let sceneTime = 0
 let band: typeof import('~/utils/hero-quest-art/menu-band') | null = null
 let presenter: Presenter | null = null
 let stop: (() => void) | null = null
@@ -257,6 +280,7 @@ defineExpose({ skipFight, closeIris })
  */
 type Target = 'challenge' | HqMenuScene | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | `speed:${number}:${number}`
+    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}`
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
@@ -376,6 +400,20 @@ function targetAt(e: PointerEvent): Target | null {
         // a track that cannot be bought (maxed, or too dear) is no target
         return i !== null && track?.affordable && track.cost !== null && !props.prestigeBusy ? `buy:${first + i}` : null
     }
+    if (openScene.value === 'settings' && settingsHit && props.settings) {
+        const id = settingsHit.settingsTargetAt(presenter.w, x, y, settingsScroll.value)
+        // a control that cannot be pressed is no target
+        return id && !props.settingsBusy && settingsHit.settingsTargetEnabled(props.settings, id) ? `setting:${id}` : null
+    }
+    if (openScene.value === 'gacha' && gachaHit && props.gacha) {
+        const at = gachaHit.gachaHoverAt(props.gacha, presenter.w, x, y)
+        if (at === 'reveal') return 'reveal'
+        if (!at) return null
+        // the emblem is pointed at for the rates; a button that cannot be pressed is no target
+        if (at.part === 'emblem') return `gacha:${at.system}:emblem`
+        const banner = props.gacha.banners.find(b => b.system === at.system)
+        return banner && !props.gachaBusy && gachaHit.gachaButtonEnabled(banner, at.part) ? `gacha:${at.system}:${at.part}` : null
+    }
     if (openScene.value === 'speed' && speedHit && props.speedView) {
         const block = speedHit.speedBlockAt(props.speedView, x, y)
         // a block that cannot be bought (too dear, or another speed running) is no target
@@ -384,13 +422,64 @@ function targetAt(e: PointerEvent): Target | null {
     return openScene.value === 'battle' && props.challenge && stage?.onChallenge(x, y) ? 'challenge' : null
 }
 
+/**
+ * The Settings list's scroll, in stage pixels. A wheel scrolls it on a desktop; on a touch screen
+ * a finger dragged more than `DRAG_SLOP` scrolls it instead of pressing what it started on.
+ */
+const settingsScroll = ref(0)
+const DRAG_SLOP = 3
+let drag: { pointer: number, y: number, scroll: number, moved: boolean } | null = null
+/** The scene's height under the band, set once the stage is built. */
+let sceneH = 0
+
+const settingsScrollMax = () => settingsHit && presenter ? settingsHit.settingsMaxScroll(presenter.w, sceneH) : 0
+const scrollsHere = computed(() => openScene.value === 'settings' && ready.value && settingsScrollMax() > 0)
+
+function scrollSettings(to: number) {
+    settingsScroll.value = Math.min(settingsScrollMax(), Math.max(0, to))
+}
+
+/** The pointer's height on the stage, in stage pixels. */
+function stageY(e: PointerEvent | WheelEvent): number {
+    const r = canvas.value!.getBoundingClientRect()
+    return (e.clientY - r.top) / r.height * presenter!.h
+}
+
+function onWheel(e: WheelEvent) {
+    if (!scrollsHere.value || !canvas.value || !presenter) return
+    e.preventDefault()
+    // lines and pages become pixels, then the page's pixels the stage's
+    const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * canvas.value.clientHeight : e.deltaY
+    scrollSettings(settingsScroll.value + px / canvas.value.getBoundingClientRect().height * presenter.h)
+}
+
+// a fresh visit starts at the top
+watch(openScene, () => { settingsScroll.value = 0 })
+
 function onPointerMove(e: PointerEvent) {
+    if (drag && e.pointerId === drag.pointer && presenter) {
+        const dy = stageY(e) - drag.y
+        if (!drag.moved && Math.abs(dy) > DRAG_SLOP) {
+            drag.moved = true
+            pressed.value = false
+            hover.value = null
+        }
+        if (drag.moved) {
+            scrollSettings(drag.scroll - dy)
+            return
+        }
+    }
     const was = hover.value
     hover.value = targetAt(e)
     if (hover.value !== was) pressed.value = false
 }
 
 function onPointerDown(e: PointerEvent) {
+    // a finger on the list may be a scroll rather than a press: follow it, wherever it goes
+    if (e.pointerType !== 'mouse' && scrollsHere.value && presenter && stageY(e) < sceneH) {
+        drag = { pointer: e.pointerId, y: stageY(e), scroll: settingsScroll.value, moved: false }
+        canvas.value?.setPointerCapture(e.pointerId)
+    }
     if (renaming.value) {
         draftAtPress = { ...renaming.value }
         renaming.value = null
@@ -400,6 +489,14 @@ function onPointerDown(e: PointerEvent) {
 }
 
 function onPointerUp(e: PointerEvent) {
+    const dragged = drag?.moved ?? false
+    drag = null
+    // a drag scrolled the list; it presses nothing where it let go
+    if (dragged) {
+        pressed.value = false
+        hover.value = null
+        return
+    }
     const wasPressed = pressed.value
     onPointerMove(e)
     pressed.value = false
@@ -423,6 +520,16 @@ function onPointerUp(e: PointerEvent) {
     else if (hit.startsWith('class:')) {
         const node = props.classes?.classes.find(c => c.id === hit.slice(6))
         if (node?.pickable && !node.current && !props.classesBusy) emit('pickClass', node.id)
+    }
+    else if (hit.startsWith('setting:')) emit('setting', hit.slice(8) as SettingsTarget)
+    else if (hit === 'reveal') {
+        // a press while the cards deal turns them all over; once they have, it puts the board away
+        if (gachaScene && props.gacha && gachaScene.revealDone(props.gacha, sceneTime)) emit('gachaClose')
+        else gachaScene?.skipReveal()
+    }
+    else if (hit.startsWith('gacha:')) {
+        const [, system, part] = hit.split(':') as [string, GachaSystemId, GachaButton | 'emblem']
+        if (part !== 'emblem') emit('gachaAction', system, part)
     }
     else if (hit.startsWith('speed:')) {
         const [, speed, minutes] = hit.split(':')
@@ -456,6 +563,7 @@ function onPointerUp(e: PointerEvent) {
 }
 
 function onPointerLeave() {
+    drag = null
     hover.value = null
     pressed.value = false
     // a press that left the canvas still committed the name it took the focus from
@@ -475,6 +583,7 @@ const collectionsHover = computed<CollectionsHover>(() => {
 const pointer = computed(() => {
     const h = hover.value
     if (!h) return false
+    if (h.endsWith(':emblem')) return false
     if (!h.startsWith('class:')) return true
     const node = props.classes?.classes.find(c => c.id === h.slice(6))
     return !!node?.pickable && !node.current
@@ -489,6 +598,14 @@ const shopHover = computed(() => {
     // the hit is by track index; the scene marks cards by their place on the page
     return h?.startsWith('buy:') ? Number(h.slice(4)) - shopPage.value * (prestigeHit?.SHOP_PAGE_SIZE ?? 6) : null
 })
+const gachaHover = computed<GachaHover>(() => {
+    const h = hover.value
+    if (h === 'reveal') return 'reveal'
+    if (!h?.startsWith('gacha:')) return null
+    const [, system, part] = h.split(':') as [string, GachaSystemId, GachaButton | 'emblem']
+    return { system, part }
+})
+const settingsHover = computed<SettingsTarget | null>(() => hover.value?.startsWith('setting:') ? hover.value.slice(8) as SettingsTarget : null)
 const speedHover = computed<SpeedBlock | null>(() => {
     const h = hover.value
     if (!h?.startsWith('speed:')) return null
@@ -505,7 +622,7 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
@@ -513,11 +630,14 @@ onMounted(async () => {
         import('~/utils/hero-quest-art/loadouts-scene'),
         import('~/utils/hero-quest-art/prestige-scene'),
         import('~/utils/hero-quest-art/classes-scene'),
-        import('~/utils/hero-quest-art/speed-scene')
+        import('~/utils/hero-quest-art/speed-scene'),
+        import('~/utils/hero-quest-art/gacha-scene'),
+        import('~/utils/hero-quest-art/settings-scene')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
     backdrops = new menuBand.SceneBackdrops(CAMERAS.zoom3)
+    sceneH = CAMERAS.zoom3.h
     banded = new menuBand.BandedFrame(CAMERAS.zoom3.w, CAMERAS.zoom3.h)
     collectionsScene = new collectionsArt.CollectionsScene(backdrops)
     collectionsHit = collectionsArt
@@ -529,6 +649,10 @@ onMounted(async () => {
     classesHit = classesArt
     speedScene = new speedArt.SpeedScene(backdrops)
     speedHit = speedArt
+    gachaScene = new gachaArt.GachaScene(backdrops)
+    gachaHit = gachaArt
+    settingsScene = new settingsArt.SettingsScene(backdrops)
+    settingsHit = settingsArt
     stage = new BattleDemo()
     build()
     if (intro) {
@@ -546,6 +670,7 @@ onMounted(async () => {
     let t = 0
     stop = startLoop((dt) => {
         t += dt
+        sceneTime = t
         stage!.update(dt)
     }, () => {
         stage!.challenge = challengeState.value
@@ -564,7 +689,11 @@ onMounted(async () => {
                         ? classesScene!.render(t, props.classes ?? { classes: [], token: false }, classHover.value, !!props.classesBusy)
                         : scene === 'prestige'
                             ? prestigeScene!.render(t, props.prestige ?? { tracks: [], voidShards: '0', gems: '0' }, shopPage.value, shopHover.value, pressed.value, !!props.prestigeBusy)
-                            : speedScene!.render(t, props.speedView ?? { multiplier: 1, left: null, gems: '0', gemCount: 0, offlineEfficiency: 1, tiers: [] }, speedHover.value, pressed.value, !!props.speedBusy)
+                            : scene === 'gacha'
+                                ? gachaScene!.render(t, props.gacha ?? { banners: [], gold: '0', reveal: null, armed: null }, gachaHover.value, pressed.value, !!props.gachaBusy)
+                                : scene === 'settings'
+                                    ? settingsScene!.render(t, props.settings ?? { settings: { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false }, settingsHover.value, pressed.value, !!props.settingsBusy, settingsScroll.value)
+                                    : speedScene!.render(t, props.speedView ?? { multiplier: 1, left: null, gems: '0', gemCount: 0, offlineEfficiency: 1, tiers: [] }, speedHover.value, pressed.value, !!props.speedBusy)
         presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value))
     })
     observer = new ResizeObserver(fit)
@@ -598,11 +727,13 @@ onBeforeUnmount(() => {
         ref="canvas"
         class="block"
         :class="pointer ? 'cursor-pointer' : ''"
-        :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated' }"
+        :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated', touchAction: scrollsHere ? 'pan-x' : undefined }"
         @pointermove="onPointerMove"
         @pointerdown="onPointerDown"
         @pointerup="onPointerUp"
         @pointerleave="onPointerLeave"
+        @pointercancel="onPointerLeave"
+        @wheel="onWheel"
       />
       <input
         v-if="renaming"

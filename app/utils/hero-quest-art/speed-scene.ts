@@ -22,6 +22,8 @@ export interface SpeedView {
     /** 0–1: the share of a boost a window spent away realises. */
     offlineEfficiency: number
     tiers: readonly { speed: number, blocks: readonly { minutes: number, gems: number }[] }[]
+    /** A block pressed once, waiting for the second press that confirms it. */
+    armed?: SpeedBlock | null
 }
 
 export interface SpeedBlock { speed: number, minutes: number }
@@ -39,6 +41,7 @@ const NOTE_Y = 118
 const GEM_GAP = 15
 
 const BUY_PLATE = [C.green0, C.green1, C.green2] as const
+const CONFIRM_PLATE = [C.gold0, C.gold1, C.gold2] as const
 
 function durationLabel(minutes: number): string {
     return minutes < 60 ? `${minutes} MIN` : `${minutes / 60} HOUR${minutes > 60 ? 'S' : ''}`
@@ -92,6 +95,11 @@ export class SpeedScene {
                 const box = cellBox(r, c)
                 const enabled = !busy && speedBlockOpen(view, { speed: tier.speed, minutes: block.minutes })
                 const lit = hover?.speed === tier.speed && hover.minutes === block.minutes
+                // pressed once to spend: the cell waits for its confirm, the note under the grid says what for
+                if (view.armed?.speed === tier.speed && view.armed.minutes === block.minutes) {
+                    plateButton(s, box, 'CONFIRM', CONFIRM_PLATE, enabled, true, pressed)
+                    return
+                }
                 plateButton(s, box, '', BUY_PLATE, enabled, lit, pressed)
                 // the price beside the Gem that pays it, centred on the button
                 const label = String(block.gems)
@@ -103,7 +111,11 @@ export class SpeedScene {
             })
         })
 
-        const notes = ['WAVES EARN FASTER. A BOSS FIGHT ONLY PLAYS FASTER.']
+        const armed = view.armed
+        const armedPrice = armed ? view.tiers.find(t => t.speed === armed.speed)?.blocks.find(b => b.minutes === armed.minutes)?.gems : undefined
+        const notes = armed && armedPrice !== undefined
+            ? [`PRESS AGAIN TO BUY ${armed.speed}X FOR ${durationLabel(armed.minutes)}: ${armedPrice} GEMS.`]
+            : ['WAVES EARN FASTER. A BOSS FIGHT ONLY PLAYS FASTER.']
         if (view.multiplier > 1) notes.push(`BUY ${view.multiplier}X AGAIN TO EXTEND IT. OTHER SPEEDS WAIT FOR IT TO END.`)
         if (view.offlineEfficiency < 1) notes.push(`AWAY, A BOOST PAYS AT YOUR ${Math.round(view.offlineEfficiency * 100)}% OFFLINE RATE.`)
         notes.forEach((n, k) => drawText(s, n, 6, NOTE_Y + k * 8, C.stone3, { shadow: 1 }))

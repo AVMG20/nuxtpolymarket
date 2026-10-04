@@ -33,6 +33,8 @@ export interface PrestigeView {
     tracks: readonly ShopTrackView[]
     voidShards: string
     gems: string
+    /** The track whose Buy was pressed once and waits for the second press that confirms it. */
+    armed?: string | null
 }
 
 const COLS = 3
@@ -83,6 +85,7 @@ const CURRENCY_GLYPH: Readonly<Record<ShopTrackView['currency'], Glyph>> = {
 }
 
 const BUY_PLATE = [C.green0, C.green1, C.green2] as const
+const CONFIRM_PLATE = [C.gold0, C.gold1, C.gold2] as const
 
 function cardBox(w: number, i: number): Box {
     const row = COLS * CARD_W + (COLS - 1) * GAP
@@ -158,7 +161,7 @@ export class PrestigeScene {
             x -= tw + 20
         }
         view.tracks.slice(page * SHOP_PAGE_SIZE, (page + 1) * SHOP_PAGE_SIZE)
-            .forEach((track, i) => this.drawCard(s, cardBox(s.w, i), track, hover === i, pressed, busy))
+            .forEach((track, i) => this.drawCard(s, cardBox(s.w, i), track, hover === i, pressed, busy, view.armed === track.id))
         return s
     }
 
@@ -175,7 +178,7 @@ export class PrestigeScene {
         }
     }
 
-    private drawCard(s: Surface, b: Box, track: ShopTrackView, lit: boolean, pressed: boolean, busy: boolean): void {
+    private drawCard(s: Surface, b: Box, track: ShopTrackView, lit: boolean, pressed: boolean, busy: boolean, armed: boolean): void {
         const maxed = track.next === null || track.cost === null
         const capped = track.maxLevel !== null
         panel(s, b.x, b.y, b.w, b.h, maxed ? [C.gold0, C.gold1, C.gold2] : undefined)
@@ -219,13 +222,13 @@ export class PrestigeScene {
 
         const bb = buyBox(b)
         const enabled = track.affordable && !busy
-        plateButton(s, bb, '', BUY_PLATE, enabled, lit, pressed)
-        // the price beside the icon of what pays it, centred on the button
-        const label = `BUY ${track.cost!.toUpperCase()}`
-        const lw = textWidth(label) + 12
+        plateButton(s, bb, '', armed ? CONFIRM_PLATE : BUY_PLATE, enabled, lit || armed, pressed)
+        // the price beside the icon of what pays it, centred on the button; once pressed to spend, the confirm
+        const label = `${armed ? 'CONFIRM' : 'BUY'} ${track.cost!.toUpperCase()}`
+        const lw = textWidth(label) + 16
         const sink = enabled && lit && pressed ? 1 : 0
         const x0 = bb.x + ((bb.w - lw) >> 1)
         drawText(s, label, x0, bb.y + 4 + sink, enabled ? C.white : C.stone2, { shadow: 1 })
-        glyph(s, CURRENCY_GLYPH[track.currency], x0 + lw - 5, bb.y + (BTN_H >> 1) + sink, true)
+        glyph(s, CURRENCY_GLYPH[track.currency], x0 + lw - 7, bb.y + (BTN_H >> 1) + sink, true)
     }
 }

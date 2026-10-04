@@ -1,4 +1,5 @@
 import type { FightEvent, FightOutcome } from '#shared/utils/hero-quest/fight'
+import type { HqSettingKey } from '#shared/utils/hero-quest/settings'
 import { HQ_SESSION_TIMEOUT_MS } from '#shared/utils/hero-quest/constants'
 
 /**
@@ -77,6 +78,8 @@ export const useHeroQuest = () => {
     const classToken = computed(() => state.value?.classToken ?? false)
     /** The running Battle Speed block, if any, and the price of every block. */
     const battleSpeed = computed(() => state.value?.battleSpeed ?? null)
+    /** The Settings scene's choices, defaults filled in by the server. */
+    const settings = computed(() => state.value?.settings ?? null)
     const voidShards = computed(() => state.value?.voidShards ?? '0')
     const nextPrestigeReward = computed(() => state.value?.nextPrestigeReward ?? '0')
     const settled = computed(() => state.value?.settled ?? null)
@@ -167,6 +170,10 @@ export const useHeroQuest = () => {
         return call('/api/hero-quest/prestige/shop-buy', { upgradeId }, '')
     }
 
+    async function setSetting(key: HqSettingKey, value: boolean) {
+        return call('/api/hero-quest/settings/set', { key, value }, '')
+    }
+
     /** Buy a Battle Speed block. Gems have no setter of their own, so the session is read back. */
     async function buyBattleSpeed(speed: number, minutes: number) {
         const res = await call('/api/hero-quest/speed/buy', { speed, minutes }, '')
@@ -194,10 +201,18 @@ export const useHeroQuest = () => {
     type GachaSystem = 'gear' | 'champion' | 'skill' | 'artifact'
 
     /** Toast is suppressed — the result reel is the feedback, and a 10-pull would stack ten. */
-    async function pull(system: GachaSystem, count: 1 | 10) {
-        return call<{ pulls: PullRecord[]; essenceGained: number; gachaLevel: number }>(
-            '/api/hero-quest/gacha/pull', { system, count }, ''
+    /**
+     * Pull with Seals. `maxGold` lets it buy the Seals it is short off the day's Gold ladder, at no
+     * more than that: the price the button showed. Gold then left the shared balance, so the
+     * session is read back.
+     */
+    async function pull(system: GachaSystem, count: 1 | 10, maxGold?: number) {
+        const body = maxGold === undefined ? { system, count } : { system, count, autoBuy: { maxGold } }
+        const res = await call<{ pulls: PullRecord[]; essenceGained: number; gachaLevel: number }>(
+            '/api/hero-quest/gacha/pull', body, ''
         )
+        if (maxGold !== undefined) await fetchSession()
+        return res
     }
 
     /**
@@ -225,13 +240,6 @@ export const useHeroQuest = () => {
         const res = await call<{ sealsBought: number; goldSpent: number }>(
             '/api/hero-quest/gacha/buy-seals', { system, count }, ''
         )
-        if (res) {
-            toast.add({
-                title: `+${res.sealsBought} Seals`,
-                description: `${formatNumber(res.goldSpent)} Gold`,
-                color: 'success'
-            })
-        }
         // Gold left the shared balance — the header has to follow it.
         await fetchSession()
         return res
@@ -345,6 +353,7 @@ export const useHeroQuest = () => {
         classTree,
         classToken,
         battleSpeed,
+        settings,
         voidShards,
         nextPrestigeReward,
         settled,
@@ -358,6 +367,7 @@ export const useHeroQuest = () => {
         pickClass,
         buyUpgrade,
         buyBattleSpeed,
+        setSetting,
         pull,
         freePull,
         craft,
