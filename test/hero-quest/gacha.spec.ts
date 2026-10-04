@@ -155,8 +155,9 @@ describe('pull cost', () => {
     it('escalates the Gold ladder per purchase and resets from the base', () => {
         expect(sealLadderPrice('champion', 0)).toBe(SEAL_LADDER_BASE_GOLD)
         expect(sealLadderPrice('champion', 1)).toBeGreaterThan(SEAL_LADDER_BASE_GOLD)
-        // Independent per gacha: Gear climbs faster than Champion.
-        expect(sealLadderPrice('gear', 100)).toBeGreaterThan(sealLadderPrice('champion', 100))
+        // 1.2 a rung for every gacha since the 2026-10-04 repricing: a day's tenth Seal is 1.2^9 of the first
+        expect(sealLadderPrice('champion', 9)).toBe(Math.round(SEAL_LADDER_BASE_GOLD * 1.2 ** 9))
+        expect(sealLadderPrice('gear', 9)).toBe(sealLadderPrice('champion', 9))
     })
 
     it('prices a bulk buy rung by rung, so buying together is never a discount', () => {

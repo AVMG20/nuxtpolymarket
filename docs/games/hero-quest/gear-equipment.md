@@ -104,7 +104,7 @@ Fully inherited from `gacha-shared-system.md`, identical to the other 3 gachas �
 
 - **Rarity, gacha leveling (1–10), drop-rate table:** identical (§1–3 there).
 - **Currency: Forge Seals** (pull) / **Gear Essence** (crafting) — following the established `<Gacha Name> Essence` pattern (`gacha-shared-system.md` §6) and the "Seals" pull-currency convention shared by Guild/Skill/Excavation Seals.
-- 1 pull = 1 Seal; 10-pull = 9 Seals, still counts as 10 toward leveling. Extra Seals via the daily escalating Gold ladder (`gold-economy.md` §7). **`SEAL_LADDER_GROWTH[gear] = 1.0011` — now set** in that doc, matching Skills: Gear's roster is structurally identical (36 items, 6 per rarity, ~244,000 pulls to full completion), so the same rate follows directly rather than being assumed from size alone.
+- 1 pull = 1 Seal; 10-pull = 9 Seals, still counts as 10 toward leveling. Extra Seals via the daily escalating Gold ladder (`gold-economy.md` §7). **`SEAL_LADDER_GROWTH[gear]` is 1.2**, like every gacha since the 2026-10-04 repricing. It was 1.0011 before, matching Skills: Gear's roster is structurally identical (36 items, 6 per rarity, ~244,000 pulls to full completion), so the same rate follows directly rather than being assumed from size alone.
 - **Leveling/dupes:** identical `dupesToLevelUp` formula, 0★–5★ × Lv1–10, 1,066 dupes to max one piece from scratch. Post-max duplicates convert to Gear Essence, spendable via Crafting for a full RNG bypass on a specific chosen piece, same 5×-per-rarity value/cost table.
 
 ---

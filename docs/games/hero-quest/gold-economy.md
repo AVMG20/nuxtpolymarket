@@ -183,6 +183,8 @@ Mythic is the bottleneck in every trial, by a wide margin: at level-10 rates, My
 
 **Step 2 — split the ladder per gacha, not pooled.** Each of the four gachas gets its **own independent daily counter and price ladder** — buying your 5th Champion Seal today is priced off *only* today's Champion purchases, completely independent of how many Skill or Artifact Seals you've also bought today. This reverses the earlier pooled decision: pooling was right for a conservative, minor-supplement ladder, but a ladder sized to actually complete a specific roster has to be sized to that roster, and Champions/Artifacts (317k target) and Skills (244k target) need different growth rates to hit the same 6-month mark.
 
+> **Repriced 2026-10-04, the user's call: `SEAL_LADDER_GROWTH = 1.2` for all four gachas**, set by feel rather than derived. Platform Gold income had moved far past this doc's figures (the keeping-pace rate now outearns every other source), so the near-flat rates below no longer meant anything; income is to be rebalanced later (`open-items.md` #23). At 1.2 a day's 10-pulls cost ~21M, ~107M, ~554M, ~2.9B and ~14.7B for the first five (~18.3B for all five), per gacha. **This reverses the Step 2 goal below:** Gold-bought Seals are a few extra 10-pulls a day, not the primary path to completing a roster. The derivation is kept as the record of what the old rates were for.
+
 ```
 sealGoldCost(gacha, k) = SEAL_BASE_COST × SEAL_LADDER_GROWTH[gacha]^(k-1)
     k = Seals of THIS gacha already Gold-purchased today (independent per gacha)

@@ -1381,13 +1381,18 @@ export const LOADOUT_NAME_MAX_LENGTH = 32
  *     price(n) = SEAL_LADDER_BASE_GOLD × SEAL_LADDER_GROWTH[system]^n
  *
  * where `n` is how many of *that* gacha's Seals were already bought with Gold today.
+ *
+ * 1.2 for all four, set by feel on 2026-10-04: a day's first 10-pull is ~21M, the fifth ~14.7B, so
+ * Gold buys a few 10-pulls a day rather than completing a roster. The old near-flat rates (1.0007,
+ * 1.0011) made Gold the main route to completion and had stopped meaning anything once platform
+ * Gold income moved; income itself is still to be rebalanced (`open-items.md` #23).
  */
 export const SEAL_LADDER_BASE_GOLD = 1_000_000
 export const SEAL_LADDER_GROWTH: Readonly<Record<string, number>> = {
-    gear: 1.0011,
-    champion: 1.0007,
-    skill: 1.0011,
-    artifact: 1.0007
+    gear: 1.2,
+    champion: 1.2,
+    skill: 1.2,
+    artifact: 1.2
 }
 
 // ── Global Power Number ────────────────────────────  global-power-number.md §2

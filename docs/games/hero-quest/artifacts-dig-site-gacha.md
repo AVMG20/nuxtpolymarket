@@ -175,7 +175,7 @@ No rarity epithet in the name — the collection card shows rarity as colour and
 Fully inherited from `gacha-shared-system.md`, same as the other two gachas:
 
 - **Currency:** **Excavation Seals** (pull) / **Artifact Essence** (crafting) — locked.
-- 1 pull = 1 Seal; 10-pull = 9 Seals, still counts as 10 toward leveling. Extra Seals are bought with Gold on a **per-gacha daily escalating ladder** — 1,000,000 Gold for the day's first purchase, rising with each further purchase that day (§4; full mechanics and `SEAL_LADDER_GROWTH[artifact] = 1.0007` in `gold-economy.md` §7). No longer a flat 1M each.
+- 1 pull = 1 Seal; 10-pull = 9 Seals, still counts as 10 toward leveling. Extra Seals are bought with Gold on a **per-gacha daily escalating ladder** — 1,000,000 Gold for the day's first purchase, rising with each further purchase that day (§4; full mechanics and `SEAL_LADDER_GROWTH[artifact] = 1.2`, repriced 2026-10-04 in `gold-economy.md` §7). No longer a flat 1M each.
 - **Gacha leveling:** same 1→10 curve, same pulls-to-level-up table (§2) — levels independently of Guild/Training Grounds progress.
 - **Drop rates:** identical shared per-level table (§3) — same odds as Champions and Skills at the same gacha level.
 - **No pity** (§5) — every dupe has a use via Section 6 below.

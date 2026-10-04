@@ -116,7 +116,7 @@ Still unspecified, and owned by the Phase 2 content pass: the per-archetype base
 
 ## 3. Recruitment
 
-- **Currency:** Guild Seals. 1 pull = 1 Seal; a 10-pull = 9 Seals but still counts as 10 toward gacha leveling. Extra Seals are bought with Gold on a **per-gacha daily escalating ladder** — 1,000,000 Gold for the day's first purchase, rising with each further purchase that day (`gacha-shared-system.md` §4; full mechanics and `SEAL_LADDER_GROWTH[champion] = 1.0007` in `gold-economy.md` §7). No longer a flat 1M each.
+- **Currency:** Guild Seals. 1 pull = 1 Seal; a 10-pull = 9 Seals but still counts as 10 toward gacha leveling. Extra Seals are bought with Gold on a **per-gacha daily escalating ladder** — 1,000,000 Gold for the day's first purchase, rising with each further purchase that day (`gacha-shared-system.md` §4; full mechanics and `SEAL_LADDER_GROWTH[champion] = 1.2`, repriced 2026-10-04 in `gold-economy.md` §7). No longer a flat 1M each.
 - Full leveling curve, drop-rate table, and the no-pity rule: see `gacha-shared-system.md`, Sections 2–5.
 
 ---
