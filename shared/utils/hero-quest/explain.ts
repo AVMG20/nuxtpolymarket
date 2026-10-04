@@ -51,6 +51,7 @@ import { getArchetype } from './content/champions'
 import { gearModifiers } from './content/gear'
 import { skillCollectionModifiers, skillModifiers } from './content/skills'
 import { artifactCollectionModifiers, artifactModifiers } from './content/artifacts'
+import { shopStatModifiers } from './content/shop'
 import {
     baseScaleFor,
     championInvestmentMultiplier,
@@ -457,8 +458,9 @@ function statBreakdowns(
  */
 function passiveSources(hero: HeroSnapshot, key: HqStatKey, partyWideOnly: boolean) {
     const equippedArtifacts = hero.equippedArtifacts ?? []
+    const shop = { label: 'Prestige shop', pct: sumModifiers(shopStatModifiers(hero.shopStatLevels ?? {})).stats[key] - 1 }
     if (partyWideOnly) {
-        return [{ label: 'Artifacts', pct: sumModifiers(artifactModifiers(equippedArtifacts)).stats[key] - 1 }]
+        return [{ label: 'Artifacts', pct: sumModifiers(artifactModifiers(equippedArtifacts)).stats[key] - 1 }, shop]
     }
 
     const equippedSkills = hero.equippedSkills ?? []
@@ -474,7 +476,8 @@ function passiveSources(hero: HeroSnapshot, key: HqStatKey, partyWideOnly: boole
     return [
         { label: 'Gear', pct: gear.stats[key] - 1 },
         { label: 'Skills', pct: skills.stats[key] - 1 },
-        { label: 'Artifacts', pct: artifacts.stats[key] - 1 }
+        { label: 'Artifacts', pct: artifacts.stats[key] - 1 },
+        shop
     ]
 }
 

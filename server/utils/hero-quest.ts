@@ -26,6 +26,7 @@ import {
     MAX_LOADOUT_SLOTS,
     MAX_SKILL_SLOTS,
     ONLINE_THRESHOLD_MS,
+    PRESTIGE_STAT_PER_LEVEL,
     SEAL_GRANT_PER_BOSS,
     SEAL_GRANT_PER_WORLD_CLEAR,
     STAGES_PER_WORLD,
@@ -112,7 +113,7 @@ import { globalPower } from '#shared/utils/hero-quest/power'
 import type { StatsExplanation } from '#shared/utils/hero-quest/explain'
 import { D, ZERO, decPow, fromStore, toStore } from '#shared/utils/hero-quest/numbers'
 import { CLASS_NODES, childrenOf, getClass, kitFor } from '#shared/utils/hero-quest/content/classes'
-import { SHOP_TRACKS, maxLevelFor, shopTrackCost, type ShopTrackId } from '#shared/utils/hero-quest/content/shop'
+import { SHOP_TRACKS, maxLevelFor, shopStatLevels, shopTrackCost, type ShopTrackId } from '#shared/utils/hero-quest/content/shop'
 import { enemyNameAt, getWorld, runProgress } from '#shared/utils/hero-quest/content/worlds'
 import type {
     ChampionArchetype,
@@ -360,7 +361,8 @@ export function heroSnapshotOf(
         // The whole collection, for the Skill and Artifact collection passives: every owned copy
         // pays the smaller share, equipped or not, including one past the purchased slot count.
         ownedSkills: ownedCopies(collections.skill, isSkillId),
-        ownedArtifacts: ownedCopies(collections.artifact, isArtifactId)
+        ownedArtifacts: ownedCopies(collections.artifact, isArtifactId),
+        shopStatLevels: shopStatLevels(shopLevels)
     }
 
     /**
@@ -871,7 +873,8 @@ export function serializeShop(shopLevels: Record<string, number>) {
             name: track.name,
             description: track.description,
             level,
-            maxLevel: track.maxLevel,
+            /** Null for an uncapped track (the stat tracks); JSON has no Infinity. */
+            maxLevel: Number.isFinite(track.maxLevel) ? track.maxLevel : null,
             /** Not every track is bought with Void Shards — Loadout slots take Gems. */
             currency: track.currency,
             /** `null` means maxed — the client renders that rather than an unbuyable price. */
@@ -886,6 +889,10 @@ function shopTrackEffect(id: ShopTrackId, level: number): { current: string; nex
     const formatters: Record<ShopTrackId, (value: number) => string> = {
         offlineEfficiency: value => `${Math.round(offlineEfficiency(value) * 100)}%`,
         offlineCap: value => `${offlineCapHours(value)}h`,
+        statPwr: value => `+${Math.round(value * PRESTIGE_STAT_PER_LEVEL * 100)}% PWR`,
+        statDef: value => `+${Math.round(value * PRESTIGE_STAT_PER_LEVEL * 100)}% DEF`,
+        statImp: value => `+${Math.round(value * PRESTIGE_STAT_PER_LEVEL * 100)}% IMP`,
+        statVit: value => `+${Math.round(value * PRESTIGE_STAT_PER_LEVEL * 100)}% VIT`,
         championSlots: value => `${championSlots({ championSlots: value })} Champions`,
         skillSlots: value => `${skillSlots({ skillSlots: value })} Skills`,
         artifactSlots: value => `${artifactSlots({ artifactSlots: value })} Artifacts`,

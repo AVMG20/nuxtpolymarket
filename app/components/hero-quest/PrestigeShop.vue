@@ -12,7 +12,7 @@ defineProps<{
         name: string
         description: string
         level: number
-        maxLevel: number
+        maxLevel: number | null
         nextCost: number | null
         currency: 'voidShards' | 'gems'
         effect: { current: string; next: string | null }
@@ -48,7 +48,7 @@ function affordable(cost: number | null, currency: 'voidShards' | 'gems', shards
               variant="subtle"
               size="sm"
             >
-              {{ track.level }} / {{ track.maxLevel }}
+              {{ track.maxLevel === null ? `Level ${track.level}` : `${track.level} / ${track.maxLevel}` }}
             </UBadge>
           </div>
           <p class="text-sm text-muted mt-0.5">

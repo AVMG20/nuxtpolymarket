@@ -24,6 +24,7 @@ import { getArchetype } from './content/champions'
 import { gearModifiers } from './content/gear'
 import { skillCollectionModifiers, skillModifiers } from './content/skills'
 import { artifactCollectionModifiers, artifactModifiers } from './content/artifacts'
+import { shopStatModifiers } from './content/shop'
 import { attacksPerSecondFor, critChanceFor, critMultiplierFor, maxHpFor } from './combat'
 import { mergeTotals, noModifiers, sumModifiers } from './modifiers'
 import type { ModifierTotals } from './modifiers'
@@ -227,12 +228,12 @@ export function heroModifierTotals(hero: HeroSnapshot): ModifierTotals {
 /**
  * Party-wide lines: equipped Artifacts (`artifacts-dig-site-gacha.md` §1) — "every equipped
  * Artifact's effect applies to the whole fielded party (Hero + all active Champions), not just
- * the Hero".
+ * the Hero" — and the prestige shop's stat tracks (`open-items.md` #41).
  */
 export function partyModifierTotals(hero: HeroSnapshot): ModifierTotals {
-    const artifacts = hero.equippedArtifacts ?? []
-    if (artifacts.length === 0) return noModifiers()
-    return sumModifiers(artifactModifiers(artifacts))
+    const lines = [...artifactModifiers(hero.equippedArtifacts ?? []), ...shopStatModifiers(hero.shopStatLevels ?? {})]
+    if (lines.length === 0) return noModifiers()
+    return sumModifiers(lines)
 }
 
 /**

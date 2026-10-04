@@ -1331,6 +1331,25 @@ export const MAX_LOADOUT_SLOTS = 6
 export const LOADOUT_SLOT_BASE_COST_GEMS = 250 // UNTUNED ╧
 export const LOADOUT_SLOT_COST_GROWTH = 2
 
+// ── Prestige shop stat tracks ──────────────────────  open-items.md #41
+
+/**
+ * Four uncapped prestige-shop tracks, one each for PWR, DEF, IMP and VIT: a Void Shard sink for
+ * after (or before) the capped tracks are done. Every level adds the same flat share to that stat
+ * for the whole fielded party, summed with equipped Artifacts' party-wide lines; the price climbs
+ * geometrically, so the sink never closes and each level is worth what the last one was.
+ *
+ *     cost(level) = PRESTIGE_STAT_BASE_COST × PRESTIGE_STAT_COST_GROWTH^(level-1)
+ *
+ * SPD and LCK are left out on purpose: attack speed floors at `MIN_ATTACK_INTERVAL_SECONDS` and
+ * crit chance clamps at 1, so an uncapped track on either would run into its ceiling and stop.
+ *
+ * ⚠ Nothing in the campaign sim buys these, so the tuned pacing does not account for them yet.
+ */
+export const PRESTIGE_STAT_PER_LEVEL = 0.01 // UNTUNED ╧
+export const PRESTIGE_STAT_BASE_COST = 100 // UNTUNED ╧
+export const PRESTIGE_STAT_COST_GROWTH = 1.15 // UNTUNED ╧
+
 /** Bounds the persisted name so a save cannot write an unbounded string into jsonb. */
 export const LOADOUT_NAME_MAX_LENGTH = 32
 

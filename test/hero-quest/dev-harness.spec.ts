@@ -187,10 +187,10 @@ describe.skipIf(SKIP)('dev harness against the real settle path', () => {
             ).rejects.toThrowError(expect.objectContaining({ statusCode: 400 }))
         })
 
-        it('maxes every prestige-shop track on request', async () => {
+        it('maxes every capped prestige-shop track on request', async () => {
             await devUnlock(USER_ID, { systems: ['gear'], maxShop: true })
             const levels = await getShopLevels(USER_ID)
-            for (const track of SHOP_TRACKS) {
+            for (const track of SHOP_TRACKS.filter(entry => Number.isFinite(entry.maxLevel))) {
                 expect(levels[track.id], track.id).toBe(track.maxLevel)
             }
         })

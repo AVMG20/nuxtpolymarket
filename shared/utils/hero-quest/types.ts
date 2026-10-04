@@ -298,6 +298,8 @@ export interface HeroSnapshot {
      * passive (`artifactCollectionModifiers`), on top of what an equipped one pays the party.
      */
     ownedArtifacts?: readonly OwnedCopy[]
+    /** Levels bought in the prestige shop's stat tracks, by stat. Party-wide (`shopStatModifiers`). */
+    shopStatLevels?: Readonly<Partial<Record<HqStatKey, number>>>
     /**
      * Hours of the player's *current* Gold income sitting banked — the Gambler's Strike family's
      * only input (`skills-gacha.md` §4¹).

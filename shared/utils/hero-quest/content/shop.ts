@@ -1,17 +1,18 @@
 /**
  * The prestige shop — permanent upgrades, mostly bought with Void Shards.
  *
- * Six tracks: the two offline tracks and the four slot tracks the gachas and Loadouts each
- * unlock. What is **not** here, and why:
+ * Ten tracks: the two offline tracks, the four slot tracks the gachas and Loadouts each unlock,
+ * and four uncapped stat tracks (PWR, DEF, IMP, VIT) that sink Void Shards forever. What is
+ * **not** here, and why:
  *
  * - Raid Key grant-rate tracks belong to Raids — Phase 4.
  * - Gear has **no** slot track at all. All six Forge slots are available from account start
  *   (`gear-equipment.md` §1) — the deliberate exception among the four gachas, because slots map
  *   onto Hero stats that exist from day one rather than a party size that grows.
- * - Global stat multipliers, kill-count reduction and boss-timer extension have **no formula,
- *   no level count and no magnitude in any document**. The stat multiplier was in fact *cut*
- *   from the shop outright (`open-items.md` #11.4) rather than specified. Inventing the other
- *   two here would bake a guess into the one system whose whole job is to be the tuning surface.
+ * - Kill-count reduction and boss-timer extension have **no formula, no level count and no
+ *   magnitude in any document**. Inventing them here would bake a guess into the one system whose
+ *   whole job is to be the tuning surface. (A stat multiplier was cut once, `build-log.md` #11.4,
+ *   for want of a scope; it came back as the four stat tracks, party-wide, in `open-items.md` #41.)
  *
  * Adding any of them later is content, not code: `hqShopUpgrades` is keyed on an opaque
  * `upgradeId`, so a new track is a new entry in `SHOP_TRACKS` and nothing else.
@@ -40,6 +41,9 @@ import {
     MAX_OFFLINE_CAP_LEVEL,
     MAX_OFFLINE_EFFICIENCY_LEVEL,
     MAX_SKILL_SLOTS,
+    PRESTIGE_STAT_BASE_COST,
+    PRESTIGE_STAT_COST_GROWTH,
+    PRESTIGE_STAT_PER_LEVEL,
     OFFLINE_CAP_BASE_COST,
     OFFLINE_CAP_COST_GROWTH,
     OFFLINE_EFFICIENCY_BASE_COST,
@@ -47,6 +51,8 @@ import {
     SKILL_SLOT_BASE_COST,
     SKILL_SLOT_COST_GROWTH
 } from '../constants'
+import type { HqModifier } from '../modifiers'
+import type { HqStatKey } from '../types'
 
 export type ShopTrackId =
     | 'offlineEfficiency'
@@ -55,6 +61,10 @@ export type ShopTrackId =
     | 'skillSlots'
     | 'artifactSlots'
     | 'loadoutSlots'
+    | 'statPwr'
+    | 'statDef'
+    | 'statImp'
+    | 'statVit'
 
 /** What pays for a track. Void Shards unless the track buys pure convenience. */
 export type ShopCurrency = 'voidShards' | 'gems'
@@ -63,6 +73,7 @@ export interface ShopTrack {
     id: ShopTrackId
     name: string
     description: string
+    /** `Infinity` for a track with no cap (the stat tracks). */
     maxLevel: number
     baseCost: number
     costGrowth: number
@@ -74,6 +85,23 @@ export interface ShopTrack {
      * Always true for a Gems track — `debitGems` takes an integer and rejects anything else.
      */
     roundCost: boolean
+    /** The stat a stat track raises, party-wide. */
+    stat?: HqStatKey
+}
+
+/** One uncapped stat track: the same share of `stat` per level, on a climbing price. */
+function statTrack(id: ShopTrackId, stat: HqStatKey, name: string): ShopTrack {
+    return {
+        id,
+        name,
+        description: `+${PRESTIGE_STAT_PER_LEVEL * 100}% ${stat.toUpperCase()} for the whole party per level, with no cap.`,
+        maxLevel: Infinity,
+        baseCost: PRESTIGE_STAT_BASE_COST,
+        costGrowth: PRESTIGE_STAT_COST_GROWTH,
+        currency: 'voidShards',
+        roundCost: true,
+        stat
+    }
 }
 
 export const SHOP_TRACKS: readonly ShopTrack[] = [
@@ -140,7 +168,11 @@ export const SHOP_TRACKS: readonly ShopTrack[] = [
         costGrowth: LOADOUT_SLOT_COST_GROWTH,
         currency: 'gems',
         roundCost: true
-    }
+    },
+    statTrack('statPwr', 'pwr', 'Power'),
+    statTrack('statDef', 'def', 'Defence'),
+    statTrack('statImp', 'imp', 'Impact'),
+    statTrack('statVit', 'vit', 'Vitality')
 ]
 
 export const SHOP_TRACK_BY_ID: Readonly<Record<ShopTrackId, ShopTrack>> = Object.fromEntries(
@@ -175,4 +207,26 @@ export function shopTrackCost(id: ShopTrackId, ownedLevel: number): number | nul
 
 export function maxLevelFor(id: ShopTrackId): number {
     return getShopTrack(id).maxLevel
+}
+
+/** Whether a track has a cap, which the stat tracks do not. */
+export function isCappedTrack(id: ShopTrackId): boolean {
+    return Number.isFinite(getShopTrack(id).maxLevel)
+}
+
+/**
+ * The stat tracks' levels as party-wide modifier lines: `PRESTIGE_STAT_PER_LEVEL` of the stat per
+ * level bought, summed with equipped Artifacts' lines.
+ */
+export function shopStatModifiers(levels: Readonly<Partial<Record<HqStatKey, number>>>): HqModifier[] {
+    return (Object.entries(levels) as [HqStatKey, number][])
+        .filter(([, level]) => level > 0)
+        .map(([stat, level]) => ({ kind: 'stat' as const, stat, magnitude: level * PRESTIGE_STAT_PER_LEVEL }))
+}
+
+/** The levels a player holds in each stat track, keyed by the stat they raise. */
+export function shopStatLevels(shopLevels: Readonly<Record<string, number>>): Partial<Record<HqStatKey, number>> {
+    const out: Partial<Record<HqStatKey, number>> = {}
+    for (const track of SHOP_TRACKS) if (track.stat) out[track.stat] = shopLevels[track.id] ?? 0
+    return out
 }

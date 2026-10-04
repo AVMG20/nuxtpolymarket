@@ -3,9 +3,14 @@ import {
     SHOP_TRACKS,
     getShopTrack,
     isShopTrackId,
+    isCappedTrack,
     maxLevelFor,
+    shopStatLevels,
+    shopStatModifiers,
     shopTrackCost
 } from '#shared/utils/hero-quest/content/shop'
+import { partyUnitStats } from '#shared/utils/hero-quest/stats'
+import { makeParty } from '../../scripts/hero-quest/sim'
 import {
     BASE_CHAMPION_SLOTS,
     BASE_LOADOUT_SLOTS,
@@ -17,20 +22,66 @@ import {
     MAX_OFFLINE_EFFICIENCY_LEVEL,
     OFFLINE_CAP_BASE_COST,
     OFFLINE_CAP_MAX_HOURS,
-    OFFLINE_EFFICIENCY_BASE_COST
+    OFFLINE_EFFICIENCY_BASE_COST,
+    PRESTIGE_STAT_BASE_COST,
+    PRESTIGE_STAT_COST_GROWTH,
+    PRESTIGE_STAT_PER_LEVEL
 } from '#shared/utils/hero-quest/constants'
 import { offlineCapHours, offlineEfficiency } from '#shared/utils/hero-quest/settle'
 
 describe('hero-quest prestige shop', () => {
-    it('exposes only the tracks with locked formulas — the offline pair plus four slot tracks', () => {
+    it('exposes the offline pair, four slot tracks and the four stat tracks', () => {
         // One slot track per system that has slots. The remaining §4 sinks (Raid Keys,
         // kill-count reduction, boss-timer extension) still have no formula, level count or
-        // magnitude in any doc, and the global stat multiplier was cut outright — see
-        // `content/shop.ts` and `open-items.md` #11.4.
+        // magnitude in any doc. The stat tracks are `open-items.md` #41: PWR, DEF, IMP and VIT
+        // only, since SPD and LCK run into ceilings.
         expect(SHOP_TRACKS.map(track => track.id).sort()).toEqual([
             'artifactSlots', 'championSlots', 'loadoutSlots',
-            'offlineCap', 'offlineEfficiency', 'skillSlots'
+            'offlineCap', 'offlineEfficiency', 'skillSlots',
+            'statDef', 'statImp', 'statPwr', 'statVit'
         ])
+    })
+
+    describe('stat tracks', () => {
+        const STAT_TRACKS = SHOP_TRACKS.filter(track => track.stat)
+
+        it('covers PWR, DEF, IMP and VIT, and never SPD or LCK', () => {
+            expect(STAT_TRACKS.map(track => track.stat).sort()).toEqual(['def', 'imp', 'pwr', 'vit'])
+        })
+
+        it('never caps, and prices every level on the same geometric climb in Void Shards', () => {
+            for (const track of STAT_TRACKS) {
+                expect(isCappedTrack(track.id), track.id).toBe(false)
+                expect(track.currency, track.id).toBe('voidShards')
+                expect(shopTrackCost(track.id, 0), track.id).toBe(PRESTIGE_STAT_BASE_COST)
+                expect(shopTrackCost(track.id, 1000), track.id).not.toBeNull()
+                const a = shopTrackCost(track.id, 20)!
+                const b = shopTrackCost(track.id, 40)!
+                expect(b).toBeGreaterThan(a)
+                expect(b / a).toBeCloseTo(Math.pow(PRESTIGE_STAT_COST_GROWTH, 20), -1)
+            }
+        })
+
+        it('adds the same share per level, so ten levels give ten times one', () => {
+            const one = shopStatModifiers({ pwr: 1 })
+            const ten = shopStatModifiers({ pwr: 10 })
+            expect(one).toEqual([{ kind: 'stat', stat: 'pwr', magnitude: PRESTIGE_STAT_PER_LEVEL }])
+            expect(ten[0]!.magnitude).toBeCloseTo(10 * PRESTIGE_STAT_PER_LEVEL, 12)
+            expect(shopStatModifiers({ pwr: 0, def: 0 })).toEqual([])
+        })
+
+        it('reads the levels off the shop rows by stat', () => {
+            expect(shopStatLevels({ statPwr: 3, statVit: 1, championSlots: 2 })).toEqual({ pwr: 3, def: 0, imp: 0, vit: 1 })
+        })
+
+        it('reaches the whole party, Hero and Champions alike', () => {
+            const without = partyUnitStats(makeParty('class_beginner', 30, 3))
+            const with_ = partyUnitStats(makeParty('class_beginner', 30, 3, { shopStatLevels: { pwr: 10 } }))
+            for (let index = 0; index < without.length; index++) {
+                expect(with_[index]!.pwr.gt(without[index]!.pwr), `unit ${index}`).toBe(true)
+                expect(with_[index]!.def.eq(without[index]!.def), `unit ${index}`).toBe(true)
+            }
+        })
     })
 
     it('has no Gear slot track — the deliberate exception among the four gachas', () => {

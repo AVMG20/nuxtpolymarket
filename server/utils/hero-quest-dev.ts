@@ -330,7 +330,8 @@ export async function devUnlock(userId: string, request: DevUnlock) {
     }
 
     if (request.maxShop) {
-        for (const track of SHOP_TRACKS) {
+        // the uncapped stat tracks have no ceiling to max out to, so they are left as they are
+        for (const track of SHOP_TRACKS.filter(entry => Number.isFinite(entry.maxLevel))) {
             await db.insert(hqShopUpgrades)
                 .values({ userId, upgradeId: track.id, level: track.maxLevel })
                 .onConflictDoUpdate({
