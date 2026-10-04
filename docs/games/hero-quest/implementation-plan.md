@@ -4,7 +4,7 @@ A build order for taking the 18 locked design docs to a shippable game, structur
 
 The governing principle: **the core loop is the risk.** Everything else in this project — 4 gachas, 5 raids, Arena, Traits, Loadouts — is additive content layered onto a loop that either feels good or doesn't. Build the loop first, play it, and only then decide how much of the rest is worth building.
 
-## Status — 2026-09-15
+## Status — 2026-10-04
 
 | Phase | State |
 |---|---|
@@ -12,10 +12,10 @@ The governing principle: **the core loop is the risk.** Everything else in this 
 | **1 — Playable Core Loop** | ✅ Built, and the loop is **tuned** on the campaign sim (`open-items.md` #22). One playtest session logged (`playtest-notes.md`). Bosses engage automatically while the tab is visible — a deviation from this phase's manual-engage design (`open-items.md` #25). |
 | **2 — Champions** | ✅ Built, with the **full 48-Champion roster** rather than the 8–12 planned, and the full ability-effects pass (`open-items.md` #12–#17). |
 | **3 — Remaining gachas + Loadouts** | ✅ Built, including **GPN** (landed 2026-09-15, `open-items.md` #28; leaderboard aggregate and Defense GPN still to come). Also landed alongside: the dev playtest harness, the Gacha/Collections navigation, the in-game wiki, stat attribution and a projected battle screen (#19–#21, #26). |
-| **4 — Endgame** | Not started (GPN, carried over from Phase 3, is done). |
-| **5 — Content & tuning** | Partly done early: every roster is structurally complete (Artifacts and Worlds were named 2026-09-15), and the combat/progression constants are tuned. **World art and enemy kits have not been designed.** The prestige→calendar Gold mapping below is **retired** — Gold reads account age instead (`gold-economy.md` §3a). |
+| **4 — Endgame** | **Under way.** Battle Speed built 2026-10-04 (`build-log.md` #44), with GPN carried over from Phase 3. Raids, Traits, Arena and Holidays remain. |
+| **5 — Content & tuning** | Partly done early: every roster is structurally complete (Artifacts and Worlds were named 2026-09-15), and the combat/progression constants are tuned. **World art is restyled and locked** (`art-style.md`), and the enemy-kit question is answered: regular enemies get no abilities, bosses' specials become real (`open-items.md` #45). The prestige→calendar Gold mapping below is **retired** — Gold reads account age instead (`gold-economy.md` §3a). |
 
-**What comes next** is `open-items.md`'s *Suggested order*: close out the tuning pass (a playtest session, the Gold decisions in #23), then World & Enemy Design, then Phase 4.
+**What comes next** is `open-items.md`'s *Suggested order*: the quick calls, the rest of Phase 4 and the boss specials (#45), with the playtest and the Gold decisions (#23) last, by the user's call.
 
 ---
 

@@ -46,7 +46,7 @@ Own dedicated constants **per raid** (`RAID_BASE_STATS[raid]`, `RAID_LEVEL_GROWT
 
 **Level selection — revised: farm or progress, exactly two options.** At any time, the player selects between **their best-ever cleared level** (farm — a guaranteed win, via quick-clear or a fresh fight, Section 4) or **exactly one level higher** (progress — an unproven attempt at extending the frontier). No jumping further ahead, and no reaching back into older cleared levels below the frontier — the earlier "any cleared level stays selectable" model is retired in favor of this simpler binary. Clearing the +1 level advances the frontier, and the farm option updates to match.
 
-**Exception:** `rampaging_boss` raids (Section 7) have no discrete level-select at all — see that section.
+**Exception:** `rampaging_boss` and `training_dummy` raids (Section 7) have no discrete level-select at all — see those sections.
 
 ---
 
@@ -61,7 +61,7 @@ Own dedicated constants **per raid** (`RAID_BASE_STATS[raid]`, `RAID_LEVEL_GROWT
 
 **Worth stating plainly:** this makes the Key pool functionally "successful clears/claims per day" rather than "tries per day" — a level that's currently too hard for an account never burns its limited daily resource while the player is stuck on it. More forgiving than the flat "every attempt costs a resource" pattern common in the genre, and consistent with this project's existing soft-fail philosophy (World bosses already never punish failure beyond a stage fallback).
 
-**Exception: `rampaging_boss` raids (Section 7) have no win state to gate on, so a Key is spent on every single entry, unconditionally.** *(Ordering note: where a preferred Loadout is assigned, the swap completes before the Key debit — `loadouts.md` §4. This only matters here, since it's the only raid where a Key is spent regardless of outcome.)* Win-gating simply doesn't apply — there's no "win" to gate. This is a cleaner replacement for the earlier "consumed on new personal-best" idea: the Key mechanic answers the same underlying problem more generally, and keeps the currency's meaning identical across all five raids ("this is what it costs to try") instead of needing a bespoke consumption rule for one raid type.
+**Exception: `rampaging_boss` and `training_dummy` raids (Section 7) have no win state to gate on, so a Key is spent on every single entry, unconditionally** (the dummy since 2026-10-04, `build-log.md` #31). A `boss_gauntlet` is win-gated like any defeatable boss: the win is all three bosses down. *(Ordering note: where a preferred Loadout is assigned, the swap completes before the Key debit — `loadouts.md` §4. This only matters here, since it's the only raid where a Key is spent regardless of outcome.)* Win-gating simply doesn't apply — there's no "win" to gate. This is a cleaner replacement for the earlier "consumed on new personal-best" idea: the Key mechanic answers the same underlying problem more generally, and keeps the currency's meaning identical across all five raids ("this is what it costs to try") instead of needing a bespoke consumption rule for one raid type.
 
 ---
 
@@ -73,7 +73,7 @@ Own dedicated constants **per raid** (`RAID_BASE_STATS[raid]`, `RAID_LEVEL_GROWT
 
 Quick-clear bypasses `fight.ts` entirely — once the level's "cleared" flag is confirmed server-side, it's a pure reward-grant call, no seed/sim needed. A fresh engage still goes through the full seeded tick-sim + client replay exactly like a boss fight (`tech-architecture.md` §4c).
 
-**Exception:** `rampaging_boss` raids (Section 7) have no discrete "cleared" level to flag — quick-clear there re-grants the reward for the account's current best-ever level reached instead, still at the cost of a Key.
+**Exception:** `rampaging_boss` and `training_dummy` raids (Section 7) have no discrete "cleared" level to flag — quick-clear there re-grants the reward for the account's current best-ever level reached instead, still at the cost of a Key.
 
 ---
 
@@ -145,7 +145,11 @@ raidRampageBossPower(level)     = RAID_RAMPAGE_POWER_BASE × RAID_RAMPAGE_POWER_
 
 **Decided 2026-09-29 (the user's call), for the Forge Raid:** in place of one boss changing through three phases, **three bosses back to back**, each coming out as the last falls: the forge's own ranks, **the Apprentice** (an ogre striker with a sledgehammer), **the Journeyman** (a clockwork automaton whose hammer arm is a piston) and **the Forgemaster** (the giant master smith, the finale). The art is `raid-forge.ts` (`art-style.md` Round 5). `phased_boss` is no longer assigned to any raid.
 
-**Still open, `open-items.md` #32:** how the rules above (the enrage timer, what counts as a win for the Key, the difficulty and reward curves) apply to three bosses rather than one.
+**Decided 2026-10-04 (the user's calls, `build-log.md` #32):**
+
+- **One clock for the run: 30 s, with 10 s added back for each boss killed.** It starts at the Apprentice's entry; running out is a loss.
+- **A win is all three.** Downing the Forgemaster clears the level, spends the Key and pays `raidRewardGranted(level)`; a run that stops short costs and pays nothing.
+- **Each boss steps up:** `raidDifficulty(level)` is the base, ramped by fixed per-boss multipliers, the Apprentice below 1, the Journeyman about 1, the Forgemaster above.
 
 ### Training Dummy
 
@@ -154,7 +158,12 @@ raidRampageBossPower(level)     = RAID_RAMPAGE_POWER_BASE × RAID_RAMPAGE_POWER_
 - **The timer is the round length, not an enrage.** When it runs out the round ends and the damage dealt is the result.
 - **Three animations only:** Entry (it falls out of the sky and drives its stake into the ground), Idle and Hit. It has no Attack and no Death. The art is the Great Dummy (`raid-dummy.ts`, `art-style.md` Round 5).
 
-**Still open, `open-items.md` #31.** The rest of this doc assumes a fight that ends in a win, a wipe or a death. How a damage race fits Sections 2–4 and 6 (Keys, the ladder, quick-clear, the reward curve) and the new timer constant are not decided. Rampaging Boss's answers are the nearest precedent, but they have not been adopted.
+**Decided 2026-10-04 (the user's calls, `build-log.md` #31): Rampaging Boss's rules, with live thresholds.**
+
+- **Keys:** spent on every entry. **Quick-clear:** a Key reclaims the personal best.
+- **The level:** the dummy levels up each time the damage crosses a threshold on its own exponential curve, shown as it happens; the level reached at the end of the round is the result and pays `raidRewardGranted(level)`. No level select.
+- **No DEF:** every hit lands in full.
+- **The round:** `RAID_DUMMY_SECONDS`, its own constant, separate from `RAID_ENRAGE_SECONDS`.
 
 ---
 

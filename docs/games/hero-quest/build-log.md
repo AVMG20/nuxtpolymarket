@@ -641,6 +641,65 @@ into the canvas, the gate moves with it.
 
 ---
 
+### 6. World & enemy design — **closed 2026-10-04**
+
+**Names, themes and rosters** landed 2026-09-15 (`shared/utils/hero-quest/content/worlds.ts`, `core-progression-and-prestige.md` §5), with three naming rules the UI depends on: trash names pluralise with a plain "s", boss names never start with "The", and no name reuses a Champion's (`worlds.spec.ts` enforces the last two). **The art briefs and counts** landed 2026-09-17 (`asset-list.md` §1.4): every enemy styled to its world, one elite mark for all ten, 4 trash variants on 4 shared rigs, 4 animation states for trash and elites, 5 for bosses. **The art itself** was restyled and locked world by world, 2026-09-26 to 09-27 (`art-style.md` §1), and every boss gained a special attack, as presentation (§5b).
+
+**The one open question, whether enemies get kits, was answered 2026-10-04 (the user's call):** regular enemies get none, so the 4-state trash and elite rigs stand. **Bosses' specials become real combat effects** — opened as `open-items.md` #45, which owes the fight-length re-measurement (#22).
+
+---
+
+### 3. Boss and raid crits stay seeded — **decided 2026-10-04**
+
+Boss fights roll real crits from the fight's seed (`fight.ts`), as `tech-architecture.md` §4c recommended; that is now the rule, and raids will do the same. A fight is a real fight the client replays blow for blow, and `BOSS_HP_MULT` keeps a gate from being decided by one lucky crit. Wave farming stays averaged: it is a rate, not a fight (the user's call).
+
+---
+
+### 31. The Training Grounds Raid as a damage race — **decided 2026-10-04**
+
+How the `training_dummy` (`raid-system.md` §7) fits the raid rules, the user's calls:
+
+1. **Keys: Rampaging Boss's rule.** A Key is spent on every entry, since there is no win to gate it on.
+2. **The ladder: live thresholds.** The dummy levels up each time the damage crosses a threshold on its own exponential curve, shown as it happens; the level reached when the timer ends is the result. No level select, as with Rampaging.
+3. **Rewards:** that level pays `raidRewardGranted(level)` in Skill Seals; no new reward formula.
+4. **Quick-clear:** a Key reclaims the personal best without fighting, as Rampaging does.
+5. **No DEF.** Every hit lands in full: a pure output check, the other raids test mitigation.
+6. **The timer** is a new constant, `RAID_DUMMY_SECONDS`, an `UNTUNED ╧` placeholder when the raid is built, separate from `RAID_ENRAGE_SECONDS`.
+
+The damage is Decimal and grows with the account, so the threshold curve needs the same Decimal treatment as `raidDifficulty`.
+
+---
+
+### 32. The Forge Raid as three bosses back to back — **decided 2026-10-04**
+
+How the `boss_gauntlet` (`raid-system.md` §7) fits the raid rules, the user's calls:
+
+1. **The timer: one clock for the run, 30 s, with 10 s back for each boss killed.** It starts at the Apprentice's entry. Killing a boss adds 10 s, so a fast kill buys time for the next; running out is a loss. Both values are the user's, not placeholders (`RAID_GAUNTLET_SECONDS`, `RAID_GAUNTLET_KILL_REFUND_SECONDS` when built).
+2. **A win is all three.** Downing the Forgemaster clears the level, spends the Key and pays `raidRewardGranted(level)`. A run that stops short costs nothing and pays nothing, like any lost raid, so the win-only Key rule and the farm-or-progress ladder apply unchanged.
+3. **Each boss steps up.** `raidDifficulty(level)` sets the base and fixed per-boss multipliers ramp it, the Apprentice below 1, the Journeyman about 1, the Forgemaster above: `UNTUNED ╧` placeholders when built.
+4. **Rewards:** one `raidRewardGranted(level)` for the full clear, following from 2.
+
+---
+
+### 44. Battle Speed, the Gacha and Settings scenes, and spend confirms — **landed 2026-10-04**
+
+**Battle Speed** (`idle-mechanics.md` §3), the first Phase 4 system. A block is two columns on `hq_state`, `speed_boost_multiplier` and `speed_boost_expires_at` (migration `0052`), wall clock, kept through prestige. `speed/buy.post.ts` settles first, so the time before a purchase pays at the speed it ran at, then lock-then-reads the row (the expiry is a timestamp, so never a CAS) and debits Gems in the same tx. `settleHq` passes `speedBoostFor(…)` — the part of the window the block covered, counted from the window's start — to `settle()`, whose cap → boost → efficiency order was already built. The client dilates its projection the same way (`useHqLiveRun`), runs the stage's battle clock at the multiplier (the iris, the walk off and the spotlight keep real time), plays a boss replay at the speed in force at engage (`playbackSpeed` on the engage response), and shows the running block top right of the HUD. Bought in the Battle Speed scene.
+
+- **Repriced and cut, the user's calls:** the anchor moved from 50 to 250 Gems, and 10x was cut — at 10x the largest offline collect cleared the balance column by 1.87 orders of magnitude, against the specs' 2 (now ~2.2 at 5x). `MAX_BATTLE_SPEED` is derived from the tiers and the Gold-bound specs use it, where they had assumed ×4.
+- **A choice made without asking, easy to flip:** buying the running speed again extends the block from its end; another speed is refused until it ends, since one window cannot hold two speeds and replacing it would throw away paid time.
+
+**The stage is the whole UI for these scenes.** The DOM panels under Classes, Prestige, Loadouts, Collections and Gacha were removed, with the components only they used; each route renders an empty page and the stage draws the scene.
+
+**The Gacha scene.** A banner per gacha: a pennant in its colour with its own emblem (an anvil and hammer, a shield over crossed swords, a training dummy, a relic in a dig), its level, its Seals and three buttons. Pointing at an emblem shows the drop rates, Essence and collection count. A pull deals its results onto a board: each card turns over to its collection tile, keeps a looping aura in its rarity's colours (`drawRevealAura`, in the gallery as `ui/gacha_reveal/aura_*`), and bursts with the reveal flash — a single pull always, a ten-pull only rare and up. A legendary turns with a white frame, a small shake and a gold banner; a mythic holds the deal while it trembles, then turns with a white flash, a big shake, a red stain, a double burst and a red banner.
+
+**A pull buys the Seals it is short.** The "+1 Seal" button is gone: a pull button shows what it costs — Seals, Seals plus Gold, or Gold — and the ten-pull is labelled `PULL 9+1`. The server buys the shortfall in the pull's own transaction (`buyLadderSeals`, shared with `buy-seals.post.ts`), refusing with a 409 if the ladder moved past the price the button showed (`autoBuy.maxGold`). The free ten shows a pip for each of the day's claims still left. **The Seal ladder is 1.2 for every gacha** (the user's call; precedence table).
+
+**Settings**, a scene behind a cog. Stored sparse on `hq_state.settings` (jsonb, migration `0053`), defaults in `shared/utils/hero-quest/settings.ts`, changed one key at a time by `settings/set.post.ts`, which merges in the UPDATE. Two groups: **Tutorials** — show tutorials (stored; the tutorials come later) and reset tutorials (held as `SOON` until there are flags to clear) — and **Confirmations**: Gold pulls, Void Shard spending, Battle Speed. Each confirm, on by default, makes that spend take a second press within 3 s (`useHqConfirm`), the button turning gold with `CONFIRM`. The list scrolls once it outgrows the stage: a wheel on a desktop, a drag on a touch screen (`touch-action: pan-x` while it scrolls), never a press when the finger moved.
+
+**Specs:** the price table cell for cell, the extend and refuse rules, the dilation; concurrency for a burst of block purchases and a price above the one shown; the settle applying a block; the settings defaults. The Trash Panda spin invariants got an explicit 30 s timeout — they ran at the default 5 s and failed under full-suite load.
+
+---
+
 ### 1. Arena attack auto-apply, and where preferred Loadouts are set — **decided 2026-10-04**
 
 Was an open question: raids auto-applied a preferred Loadout on engage and the Arena did not. **The Arena gets the same**, used only when a Loadout is assigned for it; nothing changes otherwise. **Each assignment is made on the screen it applies to** — a picker on each raid's entry screen and on the Arena screen — rather than from the Loadouts scene, which at most marks the slots something points at. Recorded in `loadouts.md` §4 and `arena.md` §1. Nothing built yet: the pickers and the stored pointers come with the first raid and the Arena (the user's call).

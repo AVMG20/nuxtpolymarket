@@ -1,6 +1,6 @@
 # Hero Quest — Implementation Brief
 
-Hero Quest is an idle auto-battler shipping as a **vertical slice inside polynux**, on the `hero-quest` branch. Design is locked across the documents in `docs/games/hero-quest/` — **gitignored and kept local**, like the other games' design docs, so edits here are not versioned. **Phases 0–3 are built** and the combat/progression loop is tuned (`implementation-plan.md` *Status*); what comes next is `open-items.md` *Suggested order*.
+Hero Quest is an idle auto-battler shipping as a **vertical slice inside polynux**, on the `hero-quest` branch. Design is locked across the documents in `docs/games/hero-quest/`, which are tracked in git and committed with the work they describe. **Phases 0–3 are built** and the combat/progression loop is tuned (`implementation-plan.md` *Status*); what comes next is `open-items.md` *Suggested order*.
 
 Platform conventions (Nuxt 4, Vue, Bun, Postgres/Drizzle, vitest, code style, slice layout) are **inherited from the platform and its root guidance — this file does not restate them.** What follows is only what's specific to Hero Quest.
 
@@ -89,7 +89,7 @@ When you need a new constant:
 
 `implementation-plan.md` defines five phases. **Build only the current phase.** Each phase names its deferred systems explicitly; treat that list as a prohibition, not a suggestion.
 
-The current phase is **Phase 4**, but it has not started. The battle stage comes first (`build-log.md` #34), and the playtest session and the Gold decisions (#23) were moved to the very end on 2026-10-02 (`open-items.md` *Suggested order*). Phase 4's systems are independent of each other; build the one asked for, not its neighbours. GPN, left over from Phase 3, is built (`open-items.md` #28).
+The current phase is **Phase 4**, under way: Battle Speed is built (`build-log.md` #44). The battle stage came first (#34), and the playtest session and the Gold decisions (#23) were moved to the very end on 2026-10-02 (`open-items.md` *Suggested order*). Phase 4's systems are independent of each other; build the one asked for, not its neighbours. GPN, left over from Phase 3, is built (`open-items.md` #28).
 
 The failure this rule was written against still generalises: building a content system (a gacha, a raid) on top of a loop nobody has validated means tuning it against numbers that will move. The loop is now tuned on the sim but has been felt in only one logged session.
 
@@ -106,7 +106,7 @@ Rosters are deliberately partial:
 | Gear | 36 | **All 36 — done.** Phase 3; fully named by the epithet table alone |
 | Champions | 48 | **All 48 — done.** Filled during the ability-effects pass |
 | Artifacts | 48 | **All 48 — done**, with the full 33-effect pool. Named 2026-09-15 (`artifacts-dig-site-gacha.md` §3a) |
-| Worlds | 10 | **Named, with themes** (2026-09-15, `core-progression-and-prestige.md` §5). Art and enemy kits not designed. |
+| Worlds | 10 | **Named, with themes** (2026-09-15, `core-progression-and-prestige.md` §5). Art restyled and locked (`art-style.md`). Regular enemies have no abilities; boss specials are to become real (`open-items.md` #45). |
 
 **Every roster is now structurally complete, and that is what retired `foldToAvailableRarity`.** The helper folded a rolled rarity down to the nearest rarity a partial roster populated; with all four systems covering all six rarities it was the identity function everywhere, so it is **deleted** (`implementation-plan.md`, Phase 3). `content.spec.ts` asserts the coverage per system, so "no fold is needed" is a tested claim rather than a comment. If a future roster ships partial, the reasoning for reintroducing it — and why rounding *down* was the right repair — is preserved in a comment where it used to live in `gacha.ts`.
 
