@@ -540,7 +540,8 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
 /**
  * Reset the run and start the next prestige.
  *
- * **Resets the run-position columns and increments `prestige`.** `heroLevel`, `heroXp`,
+ * **Resets the run-position columns, increments `prestige` and grants the class token** (a flag:
+ * one held already stays one). `heroLevel`, `heroXp`,
  * `heroNodeId`, `seenNodeIds`, `voidShards` and every shop row are untouched — hero level persists across
  * prestige *and* across class switches, and there is no relevel anywhere in the game
  * (`core-progression-and-prestige.md` §3). Everything else survives by simply not being
@@ -557,7 +558,8 @@ export function prestigeResetValues(state: HqStateRow) {
         killFraction: 0,
         recoverySeconds: 0,
         bossLost: false,
-        atBossGate: false
+        atBossGate: false,
+        classToken: true
     }
 }
 
@@ -680,11 +682,27 @@ export async function resolveBossEngage(tx: DbExecutor, userId: string, bankedGo
     }
 }
 
-/** Class picks legal at a prestige: anything already seen, plus one tier deeper than the current node. */
+/**
+ * Class picks legal right now: any class already reached, at any time, and — while the class
+ * token from a prestige is held — one tier deeper than the current node (`open-items.md` #42).
+ */
 export function pickableClasses(state: HqStateRow): ClassId[] {
     const seen = new Set(state.seenNodeIds as string[])
-    const deeper = childrenOf(state.heroNodeId as ClassId).map(node => node.id)
+    const deeper = state.classToken ? childrenOf(state.heroNodeId as ClassId).map(node => node.id) : []
     return CLASS_NODES.map(node => node.id).filter(id => seen.has(id) || deeper.includes(id))
+}
+
+/**
+ * The writes a class pick makes, or null when the class cannot be taken now. Reaching a class not
+ * seen before spends the token; switching back to one already reached costs nothing. Read under the
+ * caller's row lock, so two concurrent picks cannot both spend one token.
+ */
+export function classPickWrites(state: HqStateRow, requested: string) {
+    if (!pickableClasses(state).includes(requested as ClassId)) return null
+    const seen = new Set(state.seenNodeIds as string[])
+    const isNew = !seen.has(requested)
+    seen.add(requested)
+    return { heroNodeId: requested as ClassId, seenNodeIds: [...seen], ...(isNew ? { classToken: false } : {}) }
 }
 
 // ── Serializers ────────────────────────────────────────────────────────────────────────
@@ -1460,6 +1478,8 @@ export function serializeClassTree(state: HqStateRow) {
         skill: node.skill,
         seen: seen.has(node.id),
         pickable: pickable.has(node.id),
+        /** Taking it would spend the class token: pickable, and not reached before. */
+        costsToken: pickable.has(node.id) && !seen.has(node.id),
         current: node.id === state.heroNodeId
     }))
 }

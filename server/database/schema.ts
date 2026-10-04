@@ -1102,8 +1102,14 @@ export const hqState = pgTable('hq_state', {
   heroLevel: integer('hero_level').notNull().default(1),
   /** Decimal as text: XP accumulates forever now that level never resets. */
   heroXp: text('hero_xp').notNull().default('0'),
-  /** Every class node reached in any past run — permanently re-pickable at prestige. */
+  /** Every class node reached in any past run — permanently re-pickable at any time. */
   seenNodeIds: jsonb('seen_node_ids').$type<string[]>().notNull().default(['class_beginner']),
+  /**
+   * A class not reached before can be taken: granted by every prestige and spent by the pick that
+   * reaches a new node. A flag, not a count — prestiging again while holding it changes nothing,
+   * so no one skips two tiers at once (`open-items.md` #42).
+   */
+  classToken: boolean('class_token').notNull().default(false),
 
   /** Prestige currency. Decimal as text — see the note above. */
   voidShards: text('void_shards').notNull().default('0'),

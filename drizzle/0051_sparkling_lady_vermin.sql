@@ -1,0 +1,1 @@
+ALTER TABLE "hq_state" ADD COLUMN "class_token" boolean DEFAULT false NOT NULL;

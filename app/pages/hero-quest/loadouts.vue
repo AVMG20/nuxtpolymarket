@@ -6,8 +6,8 @@
  * Artifacts, and equipped Gear (§1). Applying one sets all five at once, which is the entire
  * point — it bundles what would otherwise be four or five separate manual swaps.
  *
- * **Hero class is deliberately not captured.** The Hero's node in the 16-node tree can only change
- * at prestige, so it is not a mid-run choice the way everything else here is.
+ * **Hero class is deliberately not captured.** Reaching a new node takes the token a prestige
+ * grants (`open-items.md` #42), so the class is a progression choice rather than a swappable piece.
  *
  * **A preset never goes stale.** Nothing in this game is ever un-owned and slot counts only grow,
  * so a preset saved long ago under fewer slots stays valid and simply fills fewer of them.

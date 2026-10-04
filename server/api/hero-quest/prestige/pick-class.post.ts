@@ -2,7 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { pickableClasses } from '#server/utils/hero-quest'
+import { classPickWrites } from '#server/utils/hero-quest'
 import { getClass } from '#shared/utils/hero-quest/content/classes'
 import type { ClassId } from '#shared/utils/hero-quest/types'
 
@@ -31,18 +31,16 @@ export default defineEventHandler(async (event) => {
         const [state] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
         if (!state) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
 
-        // Validated inside the lock: `seenNodeIds` is read here and written below, so a stale
-        // read would let two concurrent picks each append against the same base array.
-        if (!pickableClasses(state).includes(requested as ClassId)) {
+        // Validated inside the lock: `seenNodeIds` and the class token are read here and written
+        // below, so a stale read would let two concurrent picks each spend the same token.
+        const writes = classPickWrites(state, requested)
+        if (!writes) {
             throw createError({ statusCode: 400, statusMessage: 'That class is not available yet' })
         }
 
         const node = getClass(requested as ClassId)
-        const seen = new Set(state.seenNodeIds as string[])
-        seen.add(node.id)
-
         const [updated] = await tx.update(hqState)
-            .set({ heroNodeId: node.id, seenNodeIds: [...seen] })
+            .set(writes)
             .where(eq(hqState.userId, userId))
             .returning()
 
@@ -50,7 +48,7 @@ export default defineEventHandler(async (event) => {
             classId: node.id,
             className: node.name,
             heroLevel: updated?.heroLevel ?? state.heroLevel,
-            seenNodeIds: updated?.seenNodeIds ?? [...seen]
+            seenNodeIds: updated?.seenNodeIds ?? writes.seenNodeIds
         }
     })
 })

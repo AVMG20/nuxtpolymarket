@@ -52,6 +52,7 @@ export default defineEventHandler(async (event) => {
             digSite: null,
             loadouts: null,
             classTree: [],
+            classToken: false,
             voidShards: '0',
             nextPrestigeReward: voidShardsFor(0).toString(),
             awaySeconds: 0,
@@ -93,6 +94,8 @@ export default defineEventHandler(async (event) => {
         hero: serializeHero(state, hero),
         shop: serializeShop(shopLevels),
         classTree: serializeClassTree(state),
+        /** A prestige's class token is waiting to be spent on a new class. */
+        classToken: state.classToken,
 
         guild: serializeGuild(state, collections.champion, shopLevels),
         forge: serializeForge(state, collections.gear),
