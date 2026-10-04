@@ -24,6 +24,8 @@ const props = defineProps<{
     pending?: boolean
     /** The server has prestiged: the party walks into the portal. */
     crossing?: boolean
+    /** The Void Shards the prestige paid, spelled out, to rise over the Hero once it lands. */
+    earned?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -110,8 +112,12 @@ const buttonState = computed(() => props.pending
 const bandHover = computed(() => hover.value === 'begin' ? null : hover.value)
 
 let leave: (() => void) | null = null
+let gain: ((text: string) => void) | null = null
 watch(() => props.crossing, (crossing) => {
     if (crossing) leave?.()
+})
+watch(() => props.earned, (earned) => {
+    if (earned) gain?.(earned)
 })
 
 onMounted(async () => {
@@ -133,6 +139,8 @@ onMounted(async () => {
     let t = 0
     let done = false
     leave = () => bridge.leave(t)
+    gain = text => bridge.gain(text)
+    if (props.earned) gain(props.earned)
     if (props.crossing) leave()
     stop = startLoop((dt) => {
         t += dt

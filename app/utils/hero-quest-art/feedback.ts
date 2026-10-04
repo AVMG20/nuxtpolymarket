@@ -22,7 +22,7 @@ import { classNodeIcon, STATUS_ICONS  } from './icons-misc'
  * top to bottom) inside an ink outline — the skill banner's treatment.
  */
 export interface NumberStyle {
-    id: 'normal' | 'crit' | 'heal' | 'miss'
+    id: 'normal' | 'crit' | 'heal' | 'miss' | 'void'
     label: string
     sample: string
     font: FontName
@@ -36,7 +36,9 @@ export const NUMBER_STYLES: readonly NumberStyle[] = [
     { id: 'normal', label: 'Normal hit', sample: '1.24K', font: 'small', scale: 1, ramp: [C.white, C.gold3, C.gold2, C.gold2, C.gold1], shadow: C.ink },
     { id: 'crit', label: 'Crit hit', sample: '8.61K!', font: 'mid', scale: 1, ramp: [C.white, C.red3, C.red3, C.red2, C.red2, C.red1], shadow: C.ink },
     { id: 'heal', label: 'Heal', sample: '+356', font: 'small', scale: 1, ramp: [C.white, C.green4, C.green3, C.green3, C.green2], shadow: C.ink },
-    { id: 'miss', label: 'Miss / evasion', sample: 'MISS', font: 'small', scale: 1, ramp: [C.white, C.steel3, C.steel2, C.steel2, C.steel1], shadow: C.ink }
+    { id: 'miss', label: 'Miss / evasion', sample: 'MISS', font: 'small', scale: 1, ramp: [C.white, C.steel3, C.steel2, C.steel2, C.steel1], shadow: C.ink },
+    // the Void Shards a prestige pays, rising over the Hero on the bridge
+    { id: 'void', label: 'Void Shards gained', sample: '+800', font: 'mid', scale: 1, ramp: [C.white, C.pink, C.purple2, C.purple2, C.purple1], shadow: C.ink }
 ]
 
 /** A number's first frames are solid white: the flash it lands with. */

@@ -12,6 +12,9 @@ import { artById, bake, type Baked } from './catalog'
 import { HERO_ART } from './heroes'
 import { blitStrip, drawPlateButton, DEFAULT_SPLASH_PARTY, type ButtonBox, type PlayButtonState, type SplashParty } from './menu-splash'
 import { CHAMPION_BY_ID } from '../../../shared/utils/hero-quest/content/champions'
+import { NUMBER_STYLES, drawNumberAt } from './feedback'
+import { glyph } from './icon-kit'
+import { CURRENCY_ICONS } from './icons-items'
 
 export const BEGIN_AGAIN_LABEL = 'BEGIN AGAIN'
 
@@ -45,6 +48,10 @@ const PORTAL_OPEN = 0.9
 const PORTAL_HOLD = 0.35
 /** The share of the portal that shows the world rather than the rim. */
 const PORTAL_INNER = 0.84
+/** The Void Shards gained: where the number starts over the Hero, how far it rises, and how long that takes. */
+const GAIN_Y = DECK_Y - 44
+const GAIN_LIFT = 16
+const GAIN_RISE = 1.1
 /** Seconds the rim flares as a body steps through. */
 const STEP_FLARE = 0.22
 /** The rim's bands, swirling. */
@@ -72,6 +79,8 @@ export class PrestigeBridge {
     private readonly world = new Surface(SW, SH, 0, 0)
     private readonly bodies: Body[]
     private leftAt: number | null = null
+    /** The Void Shards the prestige paid, and the scene time it started rising; null until it lands. */
+    private gained: { text: string, at: number | null } | null = null
 
     /** Bakes the party's walk strips, so build it once per party and render it every frame. */
     constructor(party: SplashParty) {
@@ -86,6 +95,11 @@ export class PrestigeBridge {
         })
     }
 
+    /** Show what the prestige paid: a number rising over the Hero, from the next frame drawn. */
+    gain(text: string): void {
+        this.gained = { text, at: null }
+    }
+
     /** Send the party into the portal, from scene time `t`. */
     leave(t: number): void {
         if (this.leftAt === null) this.leftAt = t
@@ -96,6 +110,25 @@ export class PrestigeBridge {
         const last = this.bodies.reduce((m, b) => Math.min(m, b.x), LEAD_X)
         // a body is through once its back edge passes the portal's centre line
         return (PORTAL_X - last + 12) / LEAVE_SPEED
+    }
+
+    /**
+     * The Void Shards gained, in the damage numbers' manner: a white flash as it lands over the
+     * Hero, then purple, rising and easing to a stop, with the shard beside it. It holds while the
+     * party walks; the iris takes it with everything else.
+     */
+    private drawGain(s: Surface, t: number): void {
+        const g = this.gained!
+        if (g.at === null) g.at = t
+        const age = t - g.at
+        const rise = Math.round(eo(Math.min(1, age / GAIN_RISE)) * GAIN_LIFT)
+        const style = NUMBER_STYLES.find(n => n.id === 'void')!
+        const text = `+${g.text.toUpperCase()}`
+        const w = textWidth(text, style.font, style.scale)
+        const x = LEAD_X - ((w + 12) >> 1)
+        const y = GAIN_Y - rise
+        drawNumberAt(s, style, text, x, y, age)
+        glyph(s, CURRENCY_ICONS.void_shards!, x + w + 6, y + 3, true)
     }
 
     /** Whether the last body is through the portal and it has held a beat: time for the iris. */
@@ -136,6 +169,7 @@ export class PrestigeBridge {
             drawText(s, 'THE VOID IS BEATEN', SW / 2, 44, C.steel2, { align: 1, shadow: 0 })
             drawPlateButton(s, BEGIN_AGAIN_BUTTON, BEGIN_AGAIN_LABEL, t, button, false)
         }
+        if (this.gained) this.drawGain(s, t)
         return s
     }
 

@@ -518,11 +518,16 @@ watch(wantGate, async (want) => {
     if (wantGate.value) showGate.value = true
 })
 
+/** What the prestige paid, spelled out, for the bridge to raise over the Hero. */
+const earnedShards = ref<string | null>(null)
+
 async function beginAgain() {
     holdGate.value = true
     prestiging.value = true
+    earnedShards.value = null
     try {
-        await prestige()
+        const result = await prestige()
+        if (result) earnedShards.value = formatHq(result.voidShardsEarned)
         crossing.value = true
     } catch {
         holdGate.value = false
@@ -658,6 +663,7 @@ const awayReport = computed(() => {
           :party="gateParty"
           :pending="prestiging"
           :crossing="crossing"
+          :earned="earnedShards"
           @begin="beginAgain"
           @crossed="onCrossed"
           @scene="emit('scene', $event)"
