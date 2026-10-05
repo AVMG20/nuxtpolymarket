@@ -164,7 +164,7 @@ export function packSizeFor(stage: number): number {
  * Built from the same curve index as everything else but with the **wave** stat layer rather
  * than the boss layer, so a minion is an ordinary mob of that depth standing next to the boss.
  */
-function bossMinionStats(pos: RunPosition): EnemyStats {
+export function bossMinionStats(pos: RunPosition): EnemyStats {
     const mult = enemyMultiplier(pos.prestige, pos.world, pos.stage)
     return {
         // HP through its own multiplier, exactly as `enemyStatsAt` does — a minion is an

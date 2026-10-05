@@ -920,6 +920,115 @@ export const BATTLE_SPEED_DURATION_STEP = 1.9
 /** Prices are rounded to this many Gems, once, at the end of the unrounded chain. Locked. */
 export const BATTLE_SPEED_PRICE_ROUNDING = 5
 
+// ── Raids ──────────────────────────────────────────  raid-system.md
+
+/** Keys granted per raid per day, banking up to `RAID_KEY_BANK_DAYS` of them (21). Locked, §3. */
+export const RAID_KEYS_PER_DAY = 3
+export const RAID_KEY_BANK_DAYS = 7
+
+/**
+ * What a raid clear pays (§6), in the raid's own currency: `BASE × GROWTH^(level − 1)`.
+ *
+ * Set by the user on 2026-10-04: 3 Seals at level 1 for the four Seal raids (three clears a day is
+ * about one 10-pull), 10 Trait Gems for the Trait Raid (two cheap rolls), all +3% a level. Kept
+ * gentle because the ladder is slow to climb: a raid level costs a world of account growth, so
+ * level 100 takes the power of about ten prestiges (`build-log.md`).
+ */
+export const RAID_REWARD_BASE: Readonly<Record<string, number>> = {
+    raid_guild: 3,
+    raid_training_grounds: 3,
+    raid_dig_site: 3,
+    raid_forge: 3,
+    raid_trait: 10
+}
+export const RAID_REWARD_GROWTH: Readonly<Record<string, number>> = {
+    raid_guild: 1.03,
+    raid_training_grounds: 1.03,
+    raid_dig_site: 1.03,
+    raid_forge: 1.03,
+    raid_trait: 1.03
+}
+/**
+ * The ladder's shape. `exponential` is the formula above; `stepped` pays `BASE` plus one more every
+ * `RAID_REWARD_STEP_LEVELS` levels, the user's fallback should the deep levels prove too easy to reach.
+ */
+export const RAID_REWARD_SHAPE: 'exponential' | 'stepped' = 'exponential'
+export const RAID_REWARD_STEP_LEVELS = 5
+
+/** The Training Grounds round: how long the party has to hit the dummy. */
+export const RAID_DUMMY_SECONDS = 30 // UNTUNED ╧
+/**
+ * Stages of account growth one dummy level asks for: a world each (the user's call, 2026-10-04),
+ * so the dummy's level reads as how far the account has come, like the other raids' ladders.
+ */
+export const RAID_DUMMY_STAGES_PER_LEVEL = STAGES_PER_WORLD
+/**
+ * The damage a level takes, in wave packs of the stage that level stands for: level L needs this
+ * many packs' HP of the stage at curve index `(L − 1) × RAID_DUMMY_STAGES_PER_LEVEL`.
+ *
+ * Measured on the campaign walk (party of three, 2026-10-04): at the level the walk clears each
+ * world, a round deals 0.7–0.9 of a pack of the next world's first stage, all the way to prestige 1.
+ * At 0.7 a fresh account stands at level 1 and an account that has cleared world w at about w + 1.
+ * Coupled to `RAID_DUMMY_SECONDS`: a longer round deals more and wants this raised to match.
+ */
+export const RAID_DUMMY_PACKS = 0.7 // TUNED ✓
+
+/** A raid boss's clock (§7 *Session Timer*): the fight is lost if the boss still stands when it runs out. */
+export const RAID_ENRAGE_SECONDS = 30 // UNTUNED ╧
+/**
+ * The Gilded Knight: level L is the super boss of world L, alone (no escort), its HP and PWR
+ * scaled by these, so the Knight's ladder climbs a world of account growth a level, as the
+ * Training Grounds' does. Fixed by level, never by the account: the static difficulty of §2.
+ */
+export const RAID_KNIGHT_STAGES_PER_LEVEL = STAGES_PER_WORLD
+/**
+ * Measured on the campaign walk (party of three, eight seeds, 2026-10-05): at the level the walk
+ * clears world w, the party beats Knight w 6–8 times in 8 in eight worlds of ten (world 3's clear is
+ * itself borderline, 1 in 8), and one world earlier it never does, leaving 76–85% of his HP. At 1.0
+ * it timed out at the clear level with ~24% left. Coupled to `RAID_ENRAGE_SECONDS`.
+ */
+export const RAID_KNIGHT_HP_MULT = 0.55 // TUNED ✓
+export const RAID_KNIGHT_PWR_MULT = 1 // UNTUNED ╧
+
+/**
+ * The Dig Site (`reinforced_boss`): level L is the Deepcoil, world L's super boss scaled like the
+ * Knight, with adds crawling up out of `RAID_DIG_BURROWS` burrows every `RAID_DIG_ADD_SECONDS`.
+ * An add is an ordinary mob of the Deepcoil's depth times `RAID_DIG_ADD_HP_MULT`. The burrow count
+ * is the stage's: it has three add bodies.
+ */
+export const RAID_DIG_STAGES_PER_LEVEL = STAGES_PER_WORLD
+/**
+ * Measured with the adds below on the campaign walk (party of three, eight seeds, 2026-10-05): at
+ * the level the walk clears world w the party beats Deepcoil w 5–8 times in 8 (world 3's clear is
+ * borderline, 1 in 8), and never one world earlier. The third wave at 24 s is the cliff a run
+ * either beats or times out on, so the multiplier moves the win rate slowly; 0.42 was 3–6 in 8.
+ */
+export const RAID_DIG_HP_MULT = 0.32 // TUNED ✓
+export const RAID_DIG_PWR_MULT = 1 // UNTUNED ╧
+export const RAID_DIG_BURROWS = 3
+export const RAID_DIG_ADD_SECONDS = 8 // UNTUNED ╧
+/** At 1 a wave held the party ~15 s of the 30 and no level was winnable; at 0.25 one costs it ~3 s. */
+export const RAID_DIG_ADD_HP_MULT = 0.25 // TUNED ✓
+
+/**
+ * God's Forge (`boss_gauntlet`, `raid-system.md` *Boss Gauntlet*): level L's three bosses are world
+ * L's super boss scaled by `RAID_FORGE_HP_MULT` / `RAID_FORGE_PWR_MULT` and then by each one's step,
+ * the Apprentice below 1, the Journeyman about 1, the Forgemaster above. The run's clock is
+ * `RAID_ENRAGE_SECONDS`, with `RAID_FORGE_KILL_SECONDS` added back per boss killed (doc-specified).
+ */
+export const RAID_FORGE_STAGES_PER_LEVEL = STAGES_PER_WORLD
+/**
+ * Measured with the steps below on the campaign walk (party of three, eight seeds, 2026-10-05): at
+ * the level the walk clears world w the party beats the Forge 6–8 times in 8 from world 4 on (world
+ * 2 2 in 8, world 3 0 in 8, where the walk's own clear is borderline), and never one world earlier.
+ */
+export const RAID_FORGE_HP_MULT = 0.3 // TUNED ✓
+export const RAID_FORGE_PWR_MULT = 1 // UNTUNED ╧
+export const RAID_FORGE_BOSS_STEPS = [0.8, 1, 1.25] as const // UNTUNED ╧
+export const RAID_FORGE_KILL_SECONDS = 10
+/** How long after a Forge boss falls the next walks out: its death and the next's entry, on the stage. */
+export const RAID_FORGE_HANDOFF_SECONDS = 2.5 // UNTUNED ╧
+
 /** Short prestige-shop tracks double per level; the 32-level cap track uses a gentler base. */
 export const OFFLINE_EFFICIENCY_BASE_COST = 50 // UNTUNED ╧
 export const OFFLINE_EFFICIENCY_COST_GROWTH = 2

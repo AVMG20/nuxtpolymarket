@@ -4,13 +4,16 @@ import { D, formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
 import { RARITIES, sealLadderTotal, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { FormationRow, Rarity } from '#shared/utils/hero-quest/types'
 import { GEAR_SLOTS, GEAR_SLOT_NAME } from '#shared/utils/hero-quest/content/gear'
-import { FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY } from '#shared/utils/hero-quest/constants'
+import { FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS } from '#shared/utils/hero-quest/constants'
 import type { CollectionAction, CollectionLine, CollectionSection, CollectionTile, DetailButton } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesView } from '~/utils/hero-quest-art/classes-scene'
 import type { SpeedView } from '~/utils/hero-quest-art/speed-scene'
 import type { SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
+import type { RaidRewardView, RaidRowView } from '~/utils/hero-quest-art/raids-scene'
+import type { RaidId as StageRaidId, StageRaid } from '~/utils/hero-quest-art/demo'
+import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
 import type { GachaBannerView, GachaButton, GachaCard, GachaSystemId, GachaView, PullPrice } from '~/utils/hero-quest-art/gacha-scene'
 
@@ -32,7 +35,7 @@ const {
     initialized, run, hero, settled, pending, guild, forge, training, digSite, nextPrestigeReward,
     engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
     shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
-    pull, freePull, settings, setSetting
+    pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid
 } = useHeroQuest()
 const { user } = useAuth()
 
@@ -529,6 +532,91 @@ async function onGachaAction(system: GachaSystemId, button: GachaButton) {
     }
 }
 
+/**
+ * The Raids scene's rows: each raid's Keys, how long until more come, and its best. The countdown
+ * reads the shared clock, so it ticks without a payload.
+ */
+const raidClock = useHqClock()
+const raidRows = computed<RaidRowView[]>(() => (raids.value ?? []).map(r => ({
+    id: r.id as RaidId,
+    open: r.open,
+    keys: r.keys,
+    keyCap: r.keyCap,
+    nextKeys: r.nextKeyAt === null ? null : countdown(r.nextKeyAt - raidClock.value),
+    best: r.best,
+    bestReward: r.bestReward
+})))
+
+/** `Hh MMm` past an hour, `mm:ss` under one. */
+function countdown(ms: number): string {
+    const seconds = Math.max(0, Math.ceil(ms / 1000))
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    const pad = (value: number) => String(value).padStart(2, '0')
+    return hours > 0 ? `${hours}h ${pad(minutes)}m` : `${pad(minutes)}:${pad(seconds % 60)}`
+}
+
+/**
+ * The raid round the stage is playing in place of the run. Entered from the Raids scene, it is
+ * played on the battle; a few seconds after its result goes up the run comes back.
+ */
+const raidRound = ref<StageRaid | null>(null)
+const raidsBusy = ref(false)
+/** What the round on the stage paid, held until its replay ends and the popup says so. */
+let roundReward: RaidRewardView | null = null
+/** The reward popup, after a round's replay ends or a quick-clear lands; its button puts it (and the round) away. */
+const raidReward = ref<RaidRewardView | null>(null)
+/** A beat between the round's last blow and the popup, so the end is seen. */
+const RAID_REWARD_DELAY_MS = 900
+let raidHold: ReturnType<typeof setTimeout> | null = null
+
+function closeRaidReward() {
+    raidReward.value = null
+    // after a round, back to the Raids scene to go again; after a quick-clear it is still there
+    if (raidRound.value) emit('scene', 'raids')
+    raidRound.value = null
+}
+
+async function onRaidEnter(raidId: RaidId) {
+    raidsBusy.value = true
+    try {
+        const round = await engageRaid(raidId)
+        if (!round) return
+        fightProgress.value = { time: 0, done: false }
+        // a boss raid lost pays nothing and keeps its Key; the dummy always pays
+        const won = round.reward > 0
+        roundReward = { raidId, quick: false, won, level: round.level, newBest: round.newBest, reward: round.reward }
+        raidRound.value = {
+            raid: raidId.slice(5) as StageRaidId,
+            level: round.level,
+            timer: raidId === 'raid_training_grounds' ? RAID_DUMMY_SECONDS : RAID_ENRAGE_SECONDS,
+            outcome: round.outcome,
+            secondsElapsed: round.secondsElapsed,
+            events: round.events,
+            partyIds: round.partyIds,
+            partyMaxHps: round.partyMaxHps,
+            enemyMaxHps: round.enemyMaxHps
+        }
+        emit('scene', 'battle')
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        raidsBusy.value = false
+    }
+}
+
+async function onRaidQuick(raidId: RaidId) {
+    raidsBusy.value = true
+    try {
+        const cleared = await quickClearRaid(raidId)
+        if (cleared) raidReward.value = { raidId, quick: true, won: true, level: cleared.level, newBest: false, reward: cleared.reward }
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        raidsBusy.value = false
+    }
+}
+
 /** The Settings scene. Tutorials do not exist yet, so there are no flags to reset. */
 const settingsView = computed<SettingsView>(() => ({ settings: settings.value ?? { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false }))
 const settingsBusy = ref(false)
@@ -651,6 +739,14 @@ const fightWasAutomatic = ref(false)
 const fightBoss = ref({ name: 'Boss', timer: 30 })
 /** How far the stage has played the fight, and whether its result is up. */
 const fightProgress = ref({ time: 0, done: false })
+
+// the round's last blow lands, then its reward goes up; the popup's button brings the run back
+watch(() => fightProgress.value.done, (done) => {
+    if (!done || !raidRound.value) return
+    if (raidHold) clearTimeout(raidHold)
+    raidHold = setTimeout(() => { raidReward.value = roundReward }, RAID_REWARD_DELAY_MS)
+})
+onUnmounted(() => { if (raidHold) clearTimeout(raidHold) })
 const battleCanvas = ref<{ skipFight: () => void, closeIris: () => Promise<HqIntroRect | null> } | null>(null)
 
 /**
@@ -766,7 +862,7 @@ useHqAutoBoss({
     lostHere: () => lostHere.value,
     secondsPerKill: () => liveRun.value?.secondsPerKill ?? null,
     engaging: () => engaging.value,
-    replayOpen: () => fight.value !== null,
+    replayOpen: () => fight.value !== null || raidRound.value !== null,
     engage: () => runFightAt(true)
 })
 
@@ -863,6 +959,10 @@ const awayReport = computed(() => {
           :gacha-busy="gachaBusy"
           :settings="settingsView"
           :settings-busy="settingsBusy"
+          :raids="raidRows"
+          :raids-busy="raidsBusy"
+          :raid-round="raidRound"
+          :raid-reward="raidReward"
           :classes="classesView"
           :classes-busy="classesBusy"
           @fight-progress="fightProgress = $event"
@@ -877,6 +977,9 @@ const awayReport = computed(() => {
           @gacha-action="onGachaAction"
           @gacha-close="gachaReveal = null"
           @setting="onSetting"
+          @raid-enter="onRaidEnter"
+          @raid-quick="onRaidQuick"
+          @raid-reward-close="closeRaidReward"
           @pick-class="onPickClass"
         />
       </template>

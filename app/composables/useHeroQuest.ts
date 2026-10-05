@@ -78,6 +78,8 @@ export const useHeroQuest = () => {
     const classToken = computed(() => state.value?.classToken ?? false)
     /** The running Battle Speed block, if any, and the price of every block. */
     const battleSpeed = computed(() => state.value?.battleSpeed ?? null)
+    /** Every raid: open or not, its Keys, when more come, its best and what that pays. */
+    const raids = computed(() => state.value?.raids ?? [])
     /** The Settings scene's choices, defaults filled in by the server. */
     const settings = computed(() => state.value?.settings ?? null)
     const voidShards = computed(() => state.value?.voidShards ?? '0')
@@ -168,6 +170,34 @@ export const useHeroQuest = () => {
 
     async function buyUpgrade(upgradeId: string) {
         return call('/api/hero-quest/prestige/shop-buy', { upgradeId }, '')
+    }
+
+    interface RaidRound {
+        raidId: string
+        seed: number
+        outcome: FightOutcome
+        level: number
+        /** The dummy's damage; null for a boss. */
+        damage: string | null
+        reward: number
+        best: number
+        newBest: boolean
+        keys: number
+        secondsElapsed: number
+        events: FightEvent[]
+        enemyMaxHps: string[]
+        partyIds: string[]
+        partyMaxHps: string[]
+    }
+
+    /** Enter a raid: the response is its round, resolved on the server, for the stage to replay. */
+    async function engageRaid(raidId: string) {
+        return call<RaidRound>('/api/hero-quest/raid/engage', { raidId }, '')
+    }
+
+    /** Spend a Key on the best level's reward, without a round. */
+    async function quickClearRaid(raidId: string) {
+        return call<{ raidId: string, level: number, reward: number, keys: number }>('/api/hero-quest/raid/quick-clear', { raidId }, '')
     }
 
     async function setSetting(key: HqSettingKey, value: boolean) {
@@ -353,6 +383,7 @@ export const useHeroQuest = () => {
         classTree,
         classToken,
         battleSpeed,
+        raids,
         settings,
         voidShards,
         nextPrestigeReward,
@@ -368,6 +399,8 @@ export const useHeroQuest = () => {
         buyUpgrade,
         buyBattleSpeed,
         setSetting,
+        engageRaid,
+        quickClearRaid,
         pull,
         freePull,
         craft,

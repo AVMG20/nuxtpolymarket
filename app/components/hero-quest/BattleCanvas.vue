@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BattleDemo, RunParty, StageFight } from '~/utils/hero-quest-art/demo'
+import type { BattleDemo, RunParty, StageFight, StageRaid } from '~/utils/hero-quest-art/demo'
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import type { RunFeed } from '~/utils/hero-quest-art/run-director'
 import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-band'
@@ -10,6 +10,8 @@ import type { ClassesScene, ClassesView } from '~/utils/hero-quest-art/classes-s
 import type { SpeedBlock, SpeedScene, SpeedView } from '~/utils/hero-quest-art/speed-scene'
 import type { GachaButton, GachaHover, GachaScene, GachaSystemId, GachaView } from '~/utils/hero-quest-art/gacha-scene'
 import type { SettingsScene, SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
+import type { RaidRewardView, RaidRowView, RaidsHover, RaidsScene, RaidsView } from '~/utils/hero-quest-art/raids-scene'
+import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
 import { C, PALETTE } from '~/utils/hero-quest-art/palette'
@@ -90,6 +92,14 @@ const props = defineProps<{
     gacha?: GachaView
     /** A pull or a Seal purchase is on its way. */
     gachaBusy?: boolean
+    /** Every raid's Keys and best, for the Raids scene. */
+    raids?: readonly RaidRowView[]
+    /** A raid round or quick-clear is on its way. */
+    raidsBusy?: boolean
+    /** A raid round to play in place of the run; the stage goes back to the run once it is cleared. */
+    raidRound?: StageRaid | null
+    /** What a raid round or quick-clear paid, shown over the stage until its button is pressed. */
+    raidReward?: RaidRewardView | null
     /** The Settings scene: every setting's current value. */
     settings?: SettingsView
     /** A setting change is on its way. */
@@ -123,6 +133,11 @@ const emit = defineEmits<{
     gachaClose: []
     /** A setting's control was pressed. */
     setting: [target: SettingsTarget]
+    /** A raid's enter or quick-clear button was pressed. */
+    raidEnter: [raidId: RaidId]
+    raidQuick: [raidId: RaidId]
+    /** The reward popup's button was pressed. */
+    raidRewardClose: []
 }>()
 
 const wrap = ref<HTMLDivElement | null>(null)
@@ -156,6 +171,8 @@ let gachaScene: GachaScene | null = null
 let gachaHit: typeof import('~/utils/hero-quest-art/gacha-scene') | null = null
 let settingsScene: SettingsScene | null = null
 let settingsHit: typeof import('~/utils/hero-quest-art/settings-scene') | null = null
+let raidsScene: RaidsScene | null = null
+let raidsHit: typeof import('~/utils/hero-quest-art/raids-scene') | null = null
 /** The stage's clock, for the scene that times its own animation (the gacha reveal). */
 let sceneTime = 0
 let band: typeof import('~/utils/hero-quest-art/menu-band') | null = null
@@ -215,9 +232,9 @@ function build() {
     stage.setupRun({ ...props.party, classId: props.hero.classId }, feed())
 }
 
-// a party changed mid-fight waits for the fight to be put away
+// a party changed mid-fight, or mid-raid, waits for it to be put away
 watch(partyKey, () => {
-    if (!props.fight) build()
+    if (!props.fight && !props.raidRound) build()
 })
 
 // a level or an equip moves cooldowns; they change in place, without rebuilding the stage
@@ -255,6 +272,19 @@ watch(() => props.fight, (fight) => {
     progressTimer = setInterval(() => emit('fightProgress', progress()), 100)
 })
 
+/** A raid round plays in place of the run, reporting how far it has played as a boss fight does; cleared, the run comes back. */
+watch(() => props.raidRound, (round) => {
+    if (progressTimer) clearInterval(progressTimer)
+    progressTimer = null
+    if (!round) {
+        stage?.endRaid()
+        return
+    }
+    skipped = false
+    stage?.playRaid(round)
+    progressTimer = setInterval(() => emit('fightProgress', progress()), 100)
+})
+
 /** Play the rest of the fight out at once. */
 function skipFight() {
     skipped = true
@@ -280,7 +310,7 @@ defineExpose({ skipFight, closeIris })
  */
 type Target = 'challenge' | HqMenuScene | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | `speed:${number}:${number}`
-    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}`
+    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${RaidId | 'enter' | 'quick'}` | 'reward:ok'
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
@@ -354,7 +384,10 @@ function targetAt(e: PointerEvent): Target | null {
     const r = canvas.value.getBoundingClientRect()
     const x = (e.clientX - r.left) / r.width * presenter.w
     const y = (e.clientY - r.top) / r.height * presenter.h
-    const item = band?.menuItemAt(presenter.w, presenter.h, x, y) ?? null
+    // the reward popup takes every press: only its button does anything
+    if (props.raidReward) return raidsHit?.onRaidRewardButton(presenter.w, sceneH, x, y) ? 'reward:ok' : null
+    // a raid round hides the menu, so a stray press can't walk out of it mid-fight
+    const item = props.raidRound ? null : band?.menuItemAt(presenter.w, presenter.h, x, y) ?? null
     if (item) return item
     if (openScene.value === 'collections' && collectionsHit) {
         const tab = collectionsHit.collectionTabAt(presenter.w, x, y)
@@ -399,6 +432,12 @@ function targetAt(e: PointerEvent): Target | null {
         const track = i === null ? undefined : tracks[first + i]
         // a track that cannot be bought (maxed, or too dear) is no target
         return i !== null && track?.affordable && track.cost !== null && !props.prestigeBusy ? `buy:${first + i}` : null
+    }
+    if (openScene.value === 'raids' && raidsHit) {
+        const at = raidsHit.raidsHoverAt(x, y)
+        // the enter button waits for the fights; until then only the rows are pressed
+        if (at === 'enter' || at === 'quick') return raidsHit.raidButtonEnabled(raidsView.value, at) ? `raid:${at}` : null
+        return at ? `raid:${at}` : null
     }
     if (openScene.value === 'settings' && settingsHit && props.settings) {
         const id = settingsHit.settingsTargetAt(presenter.w, x, y, settingsScroll.value)
@@ -522,6 +561,13 @@ function onPointerUp(e: PointerEvent) {
         if (node?.pickable && !node.current && !props.classesBusy) emit('pickClass', node.id)
     }
     else if (hit.startsWith('setting:')) emit('setting', hit.slice(8) as SettingsTarget)
+    else if (hit === 'reward:ok') emit('raidRewardClose')
+    else if (hit.startsWith('raid:')) {
+        const id = hit.slice(5) as RaidId | 'enter' | 'quick'
+        if (id === 'enter') emit('raidEnter', raidSelected.value)
+        else if (id === 'quick') emit('raidQuick', raidSelected.value)
+        else raidSelected.value = id
+    }
     else if (hit === 'reveal') {
         // a press while the cards deal turns them all over; once they have, it puts the board away
         if (gachaScene && props.gacha && gachaScene.revealDone(props.gacha, sceneTime)) emit('gachaClose')
@@ -605,6 +651,10 @@ const gachaHover = computed<GachaHover>(() => {
     const [, system, part] = h.split(':') as [string, GachaSystemId, GachaButton | 'emblem']
     return { system, part }
 })
+/** The raid shown in the Raids scene; it keeps its place while the scene is closed and reopened. */
+const raidSelected = ref<RaidId>('raid_training_grounds')
+const raidsView = computed<RaidsView>(() => ({ selected: raidSelected.value, raids: props.raids ?? [], busy: !!props.raidsBusy }))
+const raidsHover = computed<RaidsHover>(() => hover.value?.startsWith('raid:') ? hover.value.slice(5) as RaidsHover : null)
 const settingsHover = computed<SettingsTarget | null>(() => hover.value?.startsWith('setting:') ? hover.value.slice(8) as SettingsTarget : null)
 const speedHover = computed<SpeedBlock | null>(() => {
     const h = hover.value
@@ -622,7 +672,7 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
@@ -632,7 +682,8 @@ onMounted(async () => {
         import('~/utils/hero-quest-art/classes-scene'),
         import('~/utils/hero-quest-art/speed-scene'),
         import('~/utils/hero-quest-art/gacha-scene'),
-        import('~/utils/hero-quest-art/settings-scene')
+        import('~/utils/hero-quest-art/settings-scene'),
+        import('~/utils/hero-quest-art/raids-scene')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -653,6 +704,8 @@ onMounted(async () => {
     gachaHit = gachaArt
     settingsScene = new settingsArt.SettingsScene(backdrops)
     settingsHit = settingsArt
+    raidsScene = new raidsArt.RaidsScene(backdrops)
+    raidsHit = raidsArt
     stage = new BattleDemo()
     build()
     if (intro) {
@@ -665,6 +718,8 @@ onMounted(async () => {
     }
     // a fight that arrived while the stage loaded starts now, from its beginning
     if (props.fight) stage.playFight(props.fight)
+    // a raid round that arrived while the stage loaded plays now
+    if (props.raidRound) stage.playRaid(props.raidRound)
     // the scene and the menu band under it: HP rides over every body (`BattleDemo.drawBars`), so there is no party band
     presenter = new Presenter(canvas.value, banded.frame.w, banded.frame.h)
     let t = 0
@@ -691,10 +746,13 @@ onMounted(async () => {
                             ? prestigeScene!.render(t, props.prestige ?? { tracks: [], voidShards: '0', gems: '0' }, shopPage.value, shopHover.value, pressed.value, !!props.prestigeBusy)
                             : scene === 'gacha'
                                 ? gachaScene!.render(t, props.gacha ?? { banners: [], gold: '0', reveal: null, armed: null }, gachaHover.value, pressed.value, !!props.gachaBusy)
-                                : scene === 'settings'
+                                : scene === 'raids'
+                                    ? raidsScene!.render(t, raidsView.value, raidsHover.value, pressed.value)
+                                    : scene === 'settings'
                                     ? settingsScene!.render(t, props.settings ?? { settings: { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false }, settingsHover.value, pressed.value, !!props.settingsBusy, settingsScroll.value)
                                     : speedScene!.render(t, props.speedView ?? { multiplier: 1, left: null, gems: '0', gemCount: 0, offlineEfficiency: 1, tiers: [] }, speedHover.value, pressed.value, !!props.speedBusy)
-        presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value))
+        if (props.raidReward && raidsHit) raidsHit.drawRaidReward(view, props.raidReward, hover.value === 'reward:ok', pressed.value)
+        presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value, !!props.raidRound))
     })
     observer = new ResizeObserver(fit)
     observer.observe(wrap.value!)

@@ -83,6 +83,24 @@ const FAST_FORWARD: Glyph = (g, x, y) => {
     line(g, x, y - 4, x + 4, y - 1, C.gold3)
 }
 
+/** A war banner: a spear-tipped pole flying a red swallowtail flag with gold crossed blades on it. */
+const RAID_BANNER: Glyph = (g, x, y) => {
+    // the pole and its spearhead
+    rect(g, x - 6, y - 5, 2, 13, C.brown2)
+    rect(g, x - 6, y - 5, 1, 13, C.brown3)
+    poly(g, [-7, -5, -3, -5, -5, -9], x, y, C.gold2)
+    px(g, x - 5, y - 8, C.gold3)
+    // the flag, its fly cut into a swallowtail
+    rect(g, x - 4, y - 5, 11, 8, C.red1)
+    rect(g, x - 4, y - 5, 11, 1, C.red2)
+    rect(g, x - 4, y + 2, 11, 1, C.red0)
+    poly(g, [7, -3, 7, 3, 3, 3, 3, 1], x, y, CLEAR)
+    // the blades crossed on it
+    line(g, x - 2, y - 3, x + 2, y + 1, C.gold3)
+    line(g, x + 2, y - 3, x - 2, y + 1, C.gold3)
+    px(g, x, y - 1, C.white)
+}
+
 /** A cog: eight teeth round a steel wheel, a hole through its middle. */
 const COG: Glyph = (g, x, y) => {
     for (let k = 0; k < 8; k++) {
@@ -98,6 +116,7 @@ const ICONS: Readonly<Record<HqMenuScene, Glyph>> = {
     gacha: GUMBALL,
     collections: (g, x, y) => ABILITY_ICON_PARTS.book(g, x, y, C.red1, C.bone1),
     loadouts: LOADOUT_GLYPH,
+    raids: RAID_BANNER,
     classes: NODE_TREE,
     // Void Shards are what a prestige pays out
     prestige: CURRENCY_ICONS.void_shards!,
@@ -124,11 +143,13 @@ export function menuItemAt(w: number, h: number, x: number, y: number): HqMenuSc
  * The band along the bottom of a frame: a dark strip with a bevelled button per menu scene. The
  * open scene's button shows a close instead of its icon.
  */
-export function drawMenuBand(s: Surface, open: HqScene, hover: HqMenuScene | null, pressed: boolean): void {
+export function drawMenuBand(s: Surface, open: HqScene, hover: HqMenuScene | null, pressed: boolean, hidden = false): void {
     const y0 = s.h - BAND_H
     rect(s, 0, y0, s.w, BAND_H, C.night0)
     rect(s, 0, y0, s.w, 1, C.ink)
     rect(s, 0, y0 + 1, s.w, 1, C.night1)
+    // hidden, the strip stays so the frame keeps its size, with nothing on it to press
+    if (hidden) return
     for (let i = 0; i < HQ_MENU_SCENES.length; i++) {
         const id = HQ_MENU_SCENES[i]!
         const b = buttonBox(s.w, s.h, i)
@@ -154,10 +175,10 @@ export class BandedFrame {
         this.frame = new Surface(w, h + BAND_H, 0, 0)
     }
 
-    compose(scene: Surface, open: HqScene, hover: HqMenuScene | null, pressed: boolean): Surface {
+    compose(scene: Surface, open: HqScene, hover: HqMenuScene | null, pressed: boolean, hidden = false): Surface {
         // the same width, so the scene's rows are the frame's first ones
         this.frame.data.set(scene.data.subarray(0, this.frame.w * (this.frame.h - BAND_H)))
-        drawMenuBand(this.frame, open, hover, pressed)
+        drawMenuBand(this.frame, open, hover, pressed, hidden)
         return this.frame
     }
 }

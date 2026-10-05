@@ -379,6 +379,13 @@
       "when": 1791142208589,
       "tag": "0053_motionless_karnak",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791150469486,
+      "tag": "0054_stale_starfox",
+      "breakpoints": true
     }
   ]
 }

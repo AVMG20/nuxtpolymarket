@@ -1294,7 +1294,7 @@ export const hqShopUpgrades = pgTable('hq_shop_upgrades', {
 export const hqFights = pgTable('hq_fights', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-  /** 'boss' today; 'arena' joins it in Phase 4. */
+  /** 'boss', or 'raid' with the raid in `context`; 'arena' joins them in Phase 4. */
   kind: text('kind').notNull(),
   seed: integer('seed').notNull(),
   /** The snapshot the fight was resolved against — hero, position, outcome detail. */
@@ -1302,6 +1302,26 @@ export const hqFights = pgTable('hq_fights', {
   outcome: text('outcome').notNull(),
   resolvedAt: timestamp('resolved_at').defaultNow().notNull()
 }, t => [index('hq_fights_userId_idx').on(t.userId)])
+
+/**
+ * One row per player per raid (`tech-architecture.md` §3): the ladder and the Keys. Written only
+ * under its own row lock: the grant clock is a timestamp, so it is never compare-and-swapped.
+ */
+export const hqRaidState = pgTable('hq_raid_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** A `RaidId` from `content/raids.ts`. */
+  raidId: text('raid_id').notNull(),
+  /** The best level cleared, or for a raid that can't be won the best reached; 0 before any. */
+  highestLevel: integer('highest_level').notNull().default(0),
+  /** Starts with a day's Keys. */
+  keyBalance: integer('key_balance').notNull().default(3),
+  /** The daily grant's clock: Keys for each whole day since, applied lazily (`raids.grantKeys`). */
+  lastKeyGrantAt: timestamp('last_key_grant_at').defaultNow().notNull()
+}, t => [
+  uniqueIndex('hq_raid_state_user_raid_idx').on(t.userId, t.raidId),
+  index('hq_raid_state_userId_idx').on(t.userId)
+])
 
 export const chatMessages = pgTable('chat_messages', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),

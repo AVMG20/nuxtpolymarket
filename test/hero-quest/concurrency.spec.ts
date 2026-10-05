@@ -11,7 +11,15 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { hqCollection, hqLoadouts, hqShopUpgrades, hqState, user } from '#server/database/schema'
+import { hqCollection, hqFights, hqLoadouts, hqRaidState, hqShopUpgrades, hqState, user } from '#server/database/schema'
+import { engageRaid, quickClearRaid } from '#server/utils/hero-quest-raids'
+import { RAID_KEYS_PER_DAY,
+    LOADOUT_SLOT_BASE_COST_GEMS,
+    OFFLINE_EFFICIENCY_BASE_COST,
+    SEAL_LADDER_BASE_GOLD,
+    TEN_PULL_SIZE
+ } from '#shared/utils/hero-quest/constants'
+import { ZERO } from '#shared/utils/hero-quest/numbers'
 import { credit, creditGems, debitGems, getBalance } from '#server/utils/balance'
 import {
     ESSENCE_COLUMN,
@@ -28,12 +36,6 @@ import {
     sealSpend,
     settleHq
 } from '#server/utils/hero-quest'
-import {
-    LOADOUT_SLOT_BASE_COST_GEMS,
-    OFFLINE_EFFICIENCY_BASE_COST,
-    SEAL_LADDER_BASE_GOLD,
-    TEN_PULL_SIZE
-} from '#shared/utils/hero-quest/constants'
 import {
     applyDupes,
     applyPulls,
@@ -55,6 +57,8 @@ const USER_ID = 'test-hero-quest-race-user'
 
 async function cleanup() {
     await db.delete(hqCollection).where(eq(hqCollection.userId, USER_ID))
+    await db.delete(hqRaidState).where(eq(hqRaidState.userId, USER_ID))
+    await db.delete(hqFights).where(eq(hqFights.userId, USER_ID))
     await db.delete(hqLoadouts).where(eq(hqLoadouts.userId, USER_ID))
     await db.delete(hqShopUpgrades).where(eq(hqShopUpgrades.userId, USER_ID))
     await db.delete(hqState).where(eq(hqState.userId, USER_ID))
@@ -111,6 +115,83 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
 
             const rows = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
             expect(rows).toHaveLength(1)
+        })
+    })
+
+    describe('raids', () => {
+        const hero = { classId: 'class_beginner', heroLevel: 5, heroXp: ZERO, goldBonusPct: 0, offlineEfficiencyLevel: 0, offlineCapLevel: 0 } as const
+        const position = { prestige: 0, world: 1, stage: 1, killsInStage: 0 }
+        const skillSeals = async () => (await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!.skillSeals
+        const raidRow = async () => (await db.select().from(hqRaidState).where(eq(hqRaidState.userId, USER_ID)))[0]!
+
+        it('plays one round per Key however many start at once, and pays each one', async () => {
+            await ensureHqState(USER_ID)
+            const result = await burst(RAID_KEYS_PER_DAY + 4, () => db.transaction(tx => engageRaid(tx, USER_ID, 'raid_training_grounds', { ...hero }, position)))
+
+            expect(result.ok).toBe(RAID_KEYS_PER_DAY)
+            expect((await raidRow()).keyBalance).toBe(0)
+            // every round pays at least level 1's reward, and nothing else pays Skill Seals here
+            expect(await skillSeals()).toBeGreaterThanOrEqual(RAID_KEYS_PER_DAY * 3)
+        })
+
+        it('quick-clears once per Key, and only after a round set a best', async () => {
+            await ensureHqState(USER_ID)
+            await expect(db.transaction(tx => quickClearRaid(tx, USER_ID, 'raid_training_grounds'))).rejects.toThrow()
+            await db.transaction(tx => engageRaid(tx, USER_ID, 'raid_training_grounds', { ...hero }, position))
+            const before = await skillSeals()
+
+            const result = await burst(6, () => db.transaction(tx => quickClearRaid(tx, USER_ID, 'raid_training_grounds')))
+
+            expect(result.ok).toBe(RAID_KEYS_PER_DAY - 1)
+            expect(await skillSeals()).toBeGreaterThan(before)
+        })
+
+        it('grants the Keys owed since the last visit under the lock, once', async () => {
+            await ensureHqState(USER_ID)
+            await db.insert(hqRaidState).values({ userId: USER_ID, raidId: 'raid_training_grounds', keyBalance: 0, lastKeyGrantAt: new Date(Date.now() - 2.5 * 86_400_000) })
+
+            // two days owed: six Keys, and a burst of eight rounds can spend only those
+            const result = await burst(8, () => db.transaction(tx => engageRaid(tx, USER_ID, 'raid_training_grounds', { ...hero }, position)))
+
+            expect(result.ok).toBe(2 * RAID_KEYS_PER_DAY)
+            expect((await raidRow()).keyBalance).toBe(0)
+        })
+
+        it('refuses a raid whose fight is not built yet', async () => {
+            await ensureHqState(USER_ID)
+            await expect(db.transaction(tx => engageRaid(tx, USER_ID, 'raid_trait', { ...hero }, position))).rejects.toThrow()
+        })
+
+        const guildRow = async () => (await db.select().from(hqRaidState).where(and(eq(hqRaidState.userId, USER_ID), eq(hqRaidState.raidId, 'raid_guild'))))[0]!
+        const guildSeals = async () => (await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!.guildSeals
+
+        it('keeps the Key and pays nothing when the Gilded Knight wins', async () => {
+            await ensureHqState(USER_ID)
+            // far past a level-5 Hero: the Knight wins every time
+            await db.insert(hqRaidState).values({ userId: USER_ID, raidId: 'raid_guild', highestLevel: 40, keyBalance: 2 })
+            const before = await guildSeals()
+
+            const result = await db.transaction(tx => engageRaid(tx, USER_ID, 'raid_guild', { ...hero }, position))
+
+            expect(result.outcome).not.toBe('win')
+            expect(result.reward).toBe(0)
+            expect((await guildRow()).keyBalance).toBe(2)
+            expect((await guildRow()).highestLevel).toBe(40)
+            expect(await guildSeals()).toBe(before)
+        })
+
+        it('spends one Key, pays and raises the best when the party beats the Gilded Knight', async () => {
+            await ensureHqState(USER_ID)
+            const strong = { ...hero, classId: 'class_warrior', heroLevel: 300 } as const
+            const before = await guildSeals()
+
+            const result = await db.transaction(tx => engageRaid(tx, USER_ID, 'raid_guild', { ...strong }, position))
+
+            expect(result.outcome).toBe('win')
+            expect(result.level).toBe(1)
+            expect((await guildRow()).keyBalance).toBe(RAID_KEYS_PER_DAY - 1)
+            expect((await guildRow()).highestLevel).toBe(1)
+            expect(await guildSeals()).toBe(before + result.reward)
         })
     })
 

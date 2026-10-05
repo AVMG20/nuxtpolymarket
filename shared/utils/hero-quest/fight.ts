@@ -79,7 +79,7 @@ import {
 import type { StatusInstance } from './status'
 import { ONE, ZERO, decMax } from './numbers'
 import type { Decimal } from './numbers'
-import type { ClassSkill, EnemyStats, HeroSnapshot, RunPosition, UnitStats } from './types'
+import type { ClassSkill, EnemyPack, EnemyStats, HeroSnapshot, RunPosition, UnitStats } from './types'
 
 export type FightOutcome = 'win' | 'timeout' | 'wipe'
 
@@ -90,6 +90,8 @@ export type FightEventKind =
      * cast anything and the client should not draw a swing for it.
      */
     | 'reflect'
+    /** A reinforcement joins the fight (`Encounter.reinforcements`); it can be hit and swings from now on. */
+    | 'enemy_arrive'
     // Status-engine events.
     | 'heal' | 'shield' | 'status_applied' | 'status_expired' | 'status_tick'
 
@@ -128,6 +130,45 @@ export interface FightInput {
     hero: HeroSnapshot
     position: RunPosition
     seed: number
+    /**
+     * A fight against something other than the run's boss gate: a raid. Its own enemies, its own
+     * round length, and `passive` for enemies that never swing (the Training Grounds dummy).
+     * Absent, the fight is the gate at `position`, on `BOSS_TIMER_SECONDS`.
+     */
+    encounter?: Encounter
+}
+
+export interface Encounter {
+    pack: EnemyPack
+    seconds: number
+    passive?: boolean
+    reinforcements?: Reinforcements
+    gauntlet?: Gauntlet
+}
+
+/**
+ * The pack fought one at a time, in order (the `boss_gauntlet` fight type): each member walks out
+ * `handoff` seconds after the last falls, logged as an `enemy_arrive`, and every kill adds
+ * `bonusSeconds` to the clock. The fight is won when the last is down.
+ */
+export interface Gauntlet {
+    handoff: number
+    bonusSeconds: number
+}
+
+/**
+ * Adds that join a raid boss on a timer (the `reinforced_boss` fight type). There is one burrow per
+ * member; every `every` seconds a wave fills each burrow whose last add is down, so no more than
+ * `members.length` stand at once. The pack is still the fight: it is won when the pack is down,
+ * whatever adds are left.
+ *
+ * Adds are logged ahead of the pack, wave by wave (wave w's add from burrow b is enemy
+ * `w * members.length + b`), so they draw the party's focus off the boss as they arrive, and a
+ * replay finds an add's burrow as its index modulo the burrow count.
+ */
+export interface Reinforcements {
+    every: number
+    members: readonly EnemyStats[]
 }
 
 export interface FightResult {
@@ -189,6 +230,10 @@ interface EnemyCombatant {
     hp: Decimal
     attackTimer: number
     statuses: StatusInstance[]
+    /** In the fight: false for a reinforcement until its wave comes, and for good if its burrow was full. */
+    present: boolean
+    /** A reinforcement, which the fight can be won without. */
+    add: boolean
 }
 
 /**
@@ -201,7 +246,10 @@ interface EnemyCombatant {
  */
 export function runFight(input: FightInput): FightResult {
     const random = seededRandom(input.seed)
-    const pack = enemyPackAt(input.position)
+    const pack = input.encounter?.pack ?? enemyPackAt(input.position)
+    const roundSeconds = input.encounter?.seconds ?? BOSS_TIMER_SECONDS
+    const passive = input.encounter?.passive ?? false
+    const gauntlet = input.encounter?.gauntlet
     const units = partyUnitStats(input.hero)
 
     /**
@@ -270,19 +318,27 @@ export function runFight(input: FightInput): FightResult {
      * `enemyPackAt`). Each keeps its own HP and its own attack timer, so a three-body boss
      * encounter is three attack streams until the adds go down.
      */
-    const enemies: EnemyCombatant[] = pack.members.map(stats => ({
-        stats,
-        hp: stats.hp,
-        attackTimer: attackIntervalFor(0),
-        statuses: []
-    }))
+    const reinforcements = input.encounter?.reinforcements
+    const burrows = reinforcements?.members.length ?? 0
+    const waves = reinforcements && burrows > 0 ? Math.floor((roundSeconds - 1e-9) / reinforcements.every) : 0
+    const enemies: EnemyCombatant[] = [
+        ...Array.from({ length: waves * burrows }, (_, k) => ({ stats: reinforcements!.members[k % burrows]!, add: true, present: false })),
+        ...pack.members.map((stats, k) => ({ stats, add: false, present: !gauntlet || k === 0 }))
+    ].map(foe => ({ ...foe, hp: foe.stats.hp, attackTimer: attackIntervalFor(0), statuses: [] }))
+    let wavesIn = 0
+    // the gauntlet's next boss walks out at this time; the clock grows with each kill
+    let nextOut = Number.POSITIVE_INFINITY
+    let deadline = roundSeconds
 
     const events: FightEvent[] = []
     const enemyMaxHps = enemies.map(foe => foe.stats.hp)
     let elapsed = 0
 
-    const livingEnemies = () => enemies.filter(foe => foe.hp.gt(0))
-    const enemyHpLeft = () => enemies.reduce((total, foe) => total.add(decMaxZero(foe.hp)), ZERO)
+    const livingEnemies = () => enemies.filter(foe => foe.present && foe.hp.gt(0))
+    // the pack is the fight: adds left standing when it falls don't hold the win back
+    const packDown = () => enemies.every(foe => foe.add || foe.hp.lte(0))
+    const enemyHpLeft = () => enemies.reduce((total, foe) => foe.add ? total : total.add(decMaxZero(foe.hp)), ZERO)
+    const packMaxHps = enemies.flatMap(foe => foe.add ? [] : [foe.stats.hp])
 
     /**
      * Mitigation is resolved from the party's *summed* PWR against **the current target's**
@@ -340,10 +396,38 @@ export function runFight(input: FightInput): FightResult {
         }
     }
 
-    const totalTicks = Math.ceil(BOSS_TIMER_SECONDS / FIGHT_TICK_SECONDS)
+    // re-read each tick: a gauntlet kill moves the deadline out
+    for (let tick = 0; tick < Math.ceil(deadline / FIGHT_TICK_SECONDS); tick++) {
+        elapsed = Math.min(deadline, (tick + 1) * FIGHT_TICK_SECONDS)
 
-    for (let tick = 0; tick < totalTicks; tick++) {
-        elapsed = Math.min(BOSS_TIMER_SECONDS, (tick + 1) * FIGHT_TICK_SECONDS)
+        if (gauntlet) {
+            const current = enemies.findIndex(foe => !foe.add && foe.present && foe.hp.gt(0))
+            const next = enemies.findIndex(foe => !foe.add && !foe.present)
+            if (current < 0 && next >= 0) {
+                // the last one fell: time comes back for it, and the next sets out
+                if (nextOut === Number.POSITIVE_INFINITY) {
+                    nextOut = elapsed + gauntlet.handoff
+                    deadline += gauntlet.bonusSeconds
+                }
+                if (elapsed >= nextOut - 1e-9) {
+                    enemies[next]!.present = true
+                    nextOut = Number.POSITIVE_INFINITY
+                    events.push({ at: elapsed, kind: 'enemy_arrive', enemyIndex: next })
+                }
+            }
+        }
+
+        // a wave comes up into each burrow standing empty
+        if (wavesIn < waves && elapsed >= (wavesIn + 1) * reinforcements!.every) {
+            for (let b = 0; b < burrows; b++) {
+                const occupied = enemies.some((foe, at) => foe.add && foe.present && foe.hp.gt(0) && at % burrows === b)
+                if (occupied) continue
+                const index = wavesIn * burrows + b
+                enemies[index]!.present = true
+                events.push({ at: elapsed, kind: 'enemy_arrive', enemyIndex: index })
+            }
+            wavesIn++
+        }
 
         for (const [index, unit] of party.entries()) {
             if (unit.hp.gt(0)) advanceStatuses(unit, unit.stats.maxHp, { unitIndex: index, onEnemy: false })
@@ -352,17 +436,18 @@ export function runFight(input: FightInput): FightResult {
             }
         }
         for (const [index, foe] of enemies.entries()) {
+            if (!foe.present) continue
             if (foe.hp.gt(0)) advanceStatuses(foe, foe.stats.hp, { enemyIndex: index, onEnemy: true })
             if (foe.hp.lte(0) && !events.some(e => e.kind === 'enemy_down' && e.enemyIndex === index)) {
                 events.push({ at: elapsed, kind: 'enemy_down', enemyIndex: index, remainingHp: '0' })
             }
         }
 
-        if (livingEnemies().length === 0) {
-            return result('win', elapsed, events, ZERO, enemyMaxHps, input.seed)
+        if (packDown()) {
+            return result('win', elapsed, events, ZERO, enemyMaxHps, packMaxHps, input.seed)
         }
         if (party.every(unit => unit.hp.lte(0))) {
-            return result('wipe', elapsed, events, enemyHpLeft(), enemyMaxHps, input.seed)
+            return result('wipe', elapsed, events, enemyHpLeft(), enemyMaxHps, packMaxHps, input.seed)
         }
 
         for (const [index, unit] of party.entries()) {
@@ -381,7 +466,7 @@ export function runFight(input: FightInput): FightResult {
              * a multi-strike loop swinging at an empty board.
              */
             const cast = (multiplier: number, effect: AbilityEffect, skillId?: string): boolean => {
-                const living = enemies.flatMap((foe, at) => foe.hp.gt(0) ? [at] : [])
+                const living = enemies.flatMap((foe, at) => foe.present && foe.hp.gt(0) ? [at] : [])
                 if (living.length === 0) return false
 
                 const statusFrom = (spec: NonNullable<AbilityEffect['status']>) => ({
@@ -586,7 +671,7 @@ export function runFight(input: FightInput): FightResult {
                     }
                 }
             }
-            if (livingEnemies().length === 0) break
+            if (packDown() || livingEnemies().length === 0) break
 
             // Silence stops abilities while leaving autoattacks alone; stun stops both.
             // Cooldowns keep running underneath either, so control delays a kit rather than
@@ -603,19 +688,20 @@ export function runFight(input: FightInput): FightResult {
                 if (silenced) continue
                 if (!cast(skill.multiplier, skill.effect, skill.id)) break
             }
-            if (livingEnemies().length === 0) break
+            if (packDown() || livingEnemies().length === 0) break
         }
 
-        if (livingEnemies().length === 0) {
-            return result('win', elapsed, events, ZERO, enemyMaxHps, input.seed)
+        if (packDown()) {
+            return result('win', elapsed, events, ZERO, enemyMaxHps, packMaxHps, input.seed)
         }
 
         // Every living enemy strikes the front row, reaching the back row only once the front
         // is empty or dead (`classes-and-combat.md` §6). Same rule the wave-survivability
         // projection applies, so the boss fight and the idle rate can never disagree about who
         // is taking the hits — and an escort is genuinely extra incoming damage, not flavour.
-        for (const foe of enemies) {
-            if (foe.hp.lte(0)) continue
+        // a passive enemy (the Training Grounds dummy) never swings
+        for (const foe of passive ? [] : enemies) {
+            if (!foe.present || foe.hp.lte(0)) continue
             foe.attackTimer -= FIGHT_TICK_SECONDS
             if (foe.attackTimer > 0) continue
             foe.attackTimer += attackIntervalFor(0)
@@ -695,11 +781,11 @@ export function runFight(input: FightInput): FightResult {
         }
 
         if (party.every(unit => unit.hp.lte(0))) {
-            return result('wipe', elapsed, events, enemyHpLeft(), enemyMaxHps, input.seed)
+            return result('wipe', elapsed, events, enemyHpLeft(), enemyMaxHps, packMaxHps, input.seed)
         }
     }
 
-    return result('timeout', BOSS_TIMER_SECONDS, events, enemyHpLeft(), enemyMaxHps, input.seed)
+    return result('timeout', deadline, events, enemyHpLeft(), enemyMaxHps, packMaxHps, input.seed)
 }
 
 /**
@@ -773,9 +859,11 @@ function result(
     events: FightEvent[],
     enemyHpRemaining: Decimal,
     enemyMaxHps: readonly Decimal[],
+    /** The pack's own, which the totals are over: reinforcements are logged, not counted. */
+    packMaxHps: readonly Decimal[],
     seed: number
 ): FightResult {
-    const enemyMaxHp = enemyMaxHps.reduce((total, hp) => total.add(hp), ZERO)
+    const enemyMaxHp = packMaxHps.reduce((total, hp) => total.add(hp), ZERO)
     const remaining = decMaxZero(enemyHpRemaining)
     const dealt = enemyMaxHp.lte(0) ? 1 : ONE.sub(remaining.div(enemyMaxHp)).toNumber()
     return {

@@ -22,6 +22,7 @@ import {
 import { HQ_REFRESH_INTERVAL_MS, STAGES_PER_WORLD, WORLD_COUNT } from '#shared/utils/hero-quest/constants'
 import { fromStore } from '#shared/utils/hero-quest/numbers'
 import { hqSettingsOf } from '#shared/utils/hero-quest/settings'
+import { serializeRaids } from '#server/utils/hero-quest-raids'
 
 /**
  * The one read the client makes.
@@ -57,6 +58,7 @@ export default defineEventHandler(async (event) => {
             classToken: false,
             battleSpeed: null,
             settings: hqSettingsOf(null),
+            raids: [],
             voidShards: '0',
             nextPrestigeReward: voidShardsFor(0).toString(),
             awaySeconds: 0,
@@ -78,11 +80,12 @@ export default defineEventHandler(async (event) => {
      * different numbers with two different jobs, and collapsing them would show the player a
      * balance missing everything they just earned.
      */
-    const [shopLevels, collections, loadoutRows, balance] = await Promise.all([
+    const [shopLevels, collections, loadoutRows, balance, raids] = await Promise.all([
         settleOutcome.shopLevels ?? getShopLevels(userId),
         settleOutcome.collections ?? getCollections(userId),
         getLoadouts(userId),
-        getBalance(userId)
+        getBalance(userId),
+        serializeRaids(userId)
     ])
     const hero = heroSnapshotOf(state, shopLevels, collections, parseFloat(balance) || 0)
 
@@ -102,6 +105,7 @@ export default defineEventHandler(async (event) => {
         classToken: state.classToken,
         battleSpeed: serializeBattleSpeed(state),
         settings: hqSettingsOf(state.settings),
+        raids,
 
         guild: serializeGuild(state, collections.champion, shopLevels),
         forge: serializeForge(state, collections.gear),

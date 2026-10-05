@@ -50,6 +50,7 @@ import { VL, clock, dimLevel, R } from './vfx-kit'
 import { J } from './rig'
 import { VFX_BY_ID, type VfxDef } from './vfx'
 import { SW, SH, FLOOR_Y, SCROLL_PERIOD, WORLD_SCENES, reflectWater, type WorldScene } from './scenery'
+import { colosseum } from './scenery-arena'
 import { CINEMATIC_BY_ID, type CinematicVfx } from './vfx-cinematic'
 import { drawSkillBanner, tintLut, applyTint, dimToInk } from './presentation'
 import { CLASS_BY_ID } from '../../../shared/utils/hero-quest/content/classes'
@@ -65,8 +66,9 @@ import { RunDirector, stageNumber, type RunFeed } from './run-director'
 import { scriptFight, type Beat, type FightScript } from './fight-script'
 import type { FightEvent } from '../../../shared/utils/hero-quest/fight'
 import { D, ZERO, type Decimal } from '../../../shared/utils/hero-quest/numbers'
+import { dummyLevelFor, dummyThreshold, landsOnEnemy } from '../../../shared/utils/hero-quest/raids'
 import { attackIntervalFor } from '../../../shared/utils/hero-quest/combat'
-import { BOSS_TIMER_SECONDS, MIN_ATTACK_INTERVAL_SECONDS, SUPER_BOSS_STAGE } from '../../../shared/utils/hero-quest/constants'
+import { BOSS_TIMER_SECONDS, MIN_ATTACK_INTERVAL_SECONDS, RAID_DIG_BURROWS, RAID_FORGE_KILL_SECONDS, SUPER_BOSS_STAGE } from '../../../shared/utils/hero-quest/constants'
 
 export const DEMO_W = SW
 export const DEMO_H = SH
@@ -81,7 +83,12 @@ export const DEMO_H = SH
  */
 export const CAMERAS = {
     zoom1: { label: 'Wide', x: 0, y: 0, w: SW, h: SH },
-    zoom3: { label: 'Stage', x: 29, y: 27, w: 272, h: 153 }
+    zoom3: { label: 'Stage', x: 29, y: 27, w: 272, h: 153 },
+    /**
+     * A raid in the game: the Stage camera's size, so the frame and its menu band stay put, framed
+     * on the right and the top of the scene, where a raid boss stands tallest.
+     */
+    raid: { label: 'Raid', x: SW - 272, y: 0, w: 272, h: 153 }
 } as const
 export type CameraId = keyof typeof CAMERAS
 
@@ -110,6 +117,9 @@ export type RaidId = 'guild' | 'training_grounds' | 'dig_site' | 'forge' | 'trai
  * the whole scene (`cameraFor`).
  */
 export type WaveKind = 'regular' | 'boss' | 'superboss' | `raid_${RaidId}` | `forge_${ForgeBossId}`
+/** The waves fought in the colosseum rather than out in their world: the Gilded Knight and the Training Grounds. */
+// the Dig Site and the Forge borrow it until they have scenery of their own
+const ARENA_WAVES: ReadonlySet<WaveKind> = new Set<WaveKind>(['raid_guild', 'raid_training_grounds', 'raid_dig_site', 'raid_forge'])
 /** One of the Forge raid's three bosses, fought on its own (`forge_<id>`), to look at each in turn. */
 export type ForgeBossId = typeof FORGE_BOSSES[number][0]
 export const WAVE_KINDS: readonly { id: WaveKind, label: string }[] = [
@@ -541,6 +551,15 @@ export interface StageFight {
     playbackSpeed?: number
 }
 
+/** A raid round the server resolved: a fight log against the raid's own enemies, and what it came to. */
+export interface StageRaid extends StageFight {
+    raid: RaidId
+    /** The level the round reached, which the stage announces as its result. */
+    level: number
+    /** The clock it runs against, in seconds: the dummy's round, or a boss's enrage. */
+    timer: number
+}
+
 /** Seconds the replay runs before the log's first moment, so a swing can start before its blow lands. */
 const REPLAY_PREROLL = 0.8
 /** The escort's marks either side of the boss, in the fight's `enemyIndex` order. */
@@ -750,6 +769,19 @@ export class BattleDemo {
     /** The Training Grounds' timer and damage readout, rebuilt only when either changes. */
     private tally = ''
     private tallyKey = -1
+
+    /**
+     * A raid round from the server, played in its raid's scene while the run waits behind it
+     * (`playRaid`): the run to go back to, and the readout the replay keeps, the damage landed so
+     * far (summed off the log as the replay's clock passes it) and the level that damage reaches.
+     */
+    private raidRound: {
+        run: RunDirector, party: RunParty, events: readonly FightEvent[], cursor: number
+        dealt: Decimal, level: number, final: number, left: number, timer: number
+        /** 0–1 of the way from the level's threshold to the next one's, by damage. */
+        toNext: number
+    } | null = null
+
     /** Where the fight stands for a special's effect, reused every frame. */
     private spParty = Array.from({ length: PARTY }, () => ({ x: 0, y: 0 }))
     /** The boss's adds still standing, for a special that works on them; pooled so the loop allocates nothing. */
@@ -996,7 +1028,6 @@ export class BattleDemo {
             }
             this.standoff = false
         }
-        const script = scriptFight(fight.events)
         this.cine = null
         for (const p of this.projs) { p.live = false; p.hit = null }
         // A march under way runs to its end rather than being cut: cutting it would stop the
@@ -1025,6 +1056,12 @@ export class BattleDemo {
             : boss.state === U.Entry ? Math.max(0, entryDur - boss.t) : 0
         const escorts = fight.enemyMaxHps.length - 1
         const foes = fight.enemyMaxHps.map((_, k) => k === escorts ? this.units.length - 1 : PARTY + (ESCORT_SLOTS[k] ?? -PARTY - 1))
+        this.startReplay(fight, foes, entering)
+    }
+
+    /** Start playing a fight's log: `foes` is the stage body each enemy is, `entering` how long until the first blow. */
+    private startReplay(fight: StageFight, foes: readonly number[], entering: number): void {
+        const script = scriptFight(fight.events)
         this.replay = {
             script,
             beat: 0,
@@ -1040,6 +1077,118 @@ export class BattleDemo {
             outcome: fight.outcome,
             done: false,
             quiet: false
+        }
+    }
+
+    /**
+     * Play a raid round the server resolved. The run waits behind it: the iris closes, the raid's
+     * scene is built with the party as fielded, and the round plays out against the raid's boss
+     * as the log says, the readout counting the damage and the level it reaches. `endRaid` goes back.
+     */
+    playRaid(raid: StageRaid): void {
+        const run = this.run
+        const party = this.party
+        if (!run || !party || this.raidRound) return
+        if (this.exit) this.irisIntoWorld()
+        if (this.iris?.swap) this.shutIris()
+        this.raidRound = { run, party, events: raid.events, cursor: 0, dealt: ZERO, level: 1, final: raid.level, left: raid.timer, timer: raid.timer, toNext: 0 }
+        this.run = null
+        this.spot = null
+        this.replay = null
+        this.wipeT = 0
+        this.iris = {
+            t: 0, feed: null, held: false, swap: () => {
+                this.build(this.world, party.classId, `raid_${raid.raid}`)
+                // the whole-scene camera the art page shows raids on is bigger than the stage's frame
+                this.camera = 'raid'
+                // the party stands its ground; the raid boss lands, and the first blow waits for it
+                this.standoff = true
+                const boss = this.units[this.units.length - 1]!
+                const entry = boss.frames[U.Entry]!
+                // the boss is the log's last enemy; the Dig Site's adds ahead of it take a burrow as they arrive,
+                // and the Forge's three bosses are one body that changes as each falls
+                const last = raid.enemyMaxHps.length - 1
+                const foes = raid.enemyMaxHps.map((_, k) => k === last || raid.raid === 'forge' ? this.units.length - 1 : -1)
+                this.startReplay(raid, foes, entry.frames.length / entry.fps)
+            }
+        }
+    }
+
+    /** Put a raid round away: back to the run, built behind the iris from its newest feed. */
+    endRaid(): void {
+        const rr = this.raidRound
+        if (!rr) return
+        if (this.iris?.swap) this.shutIris()
+        this.raidRound = null
+        this.replay = null
+        this.nameT = -1
+        this.run = rr.run
+        this.party = rr.party
+        this.iris = { t: 0, feed: rr.run.feed, held: false, swap: () => this.setupRun(rr.party, this.iris!.feed ?? rr.run.feed!) }
+    }
+
+    /** The Training Grounds' bar toward the next level: a trough as wide as the timer, filled by the damage, its share written over it. */
+    private drawToNextLevel(out: Surface, x: number, y: number): void {
+        const rr = this.raidRound!
+        const w = HUD_BAR_W
+        const h = 9
+        rect(out, x, y, w, h, C.ink)
+        rect(out, x + 1, y + 1, w - 2, h - 2, C.night0)
+        const fill = Math.round((w - 2) * rr.toNext)
+        rect(out, x + 1, y + 1, fill, h - 2, C.gold1)
+        rect(out, x + 1, y + 1, fill, 1, C.gold3)
+        textOut(out, `${Math.floor(rr.toNext * 100)}% TO LV ${rr.level + 1}`, x + (w >> 1), y + 2, C.white, 'small', 1, 1, 1, C.ink, -1)
+    }
+
+    /** A raid boss's HP under the timer: a red bar as wide as it, the boss's name over it. */
+    private drawRaidBossHp(out: Surface, x: number, y: number): void {
+        const boss = this.units[this.units.length - 1]
+        const hp = boss && boss.state !== U.Gone ? Math.max(0, Math.min(1, boss.state === U.Death ? 0 : boss.bar)) : 0
+        const w = HUD_BAR_W
+        const h = 9
+        rect(out, x, y, w, h, C.ink)
+        rect(out, x + 1, y + 1, w - 2, h - 2, C.night0)
+        const fill = Math.round((w - 2) * hp)
+        rect(out, x + 1, y + 1, fill, h - 2, C.red1)
+        rect(out, x + 1, y + 1, fill, 1, C.red3)
+        // the Forge's bar names whichever of its bosses is out
+        const r = this.raid!
+        textOut(out, (r.id === 'forge' ? r.defs[r.at]?.name : null) ?? r.name, x + (w >> 1), y + 2, C.white, 'small', 1, 1, 1, C.ink, -1)
+    }
+
+    /** Whether a raid round is up, playing or holding its result. */
+    get raidOn(): boolean {
+        return this.raidRound !== null
+    }
+
+    /** The raid round's readout: the damage the log has landed by the replay's clock, the level it reaches, the time left. */
+    private raidTally(): void {
+        const rr = this.raidRound
+        const rp = this.replay
+        if (!rr || !rp) return
+        while (rr.cursor < rr.events.length && rr.events[rr.cursor]!.at <= rp.clock) {
+            const event = rr.events[rr.cursor++]!
+            if (landsOnEnemy(event)) rr.dealt = rr.dealt.add(D(event.damage!))
+            // each Forge boss downed gives its time back
+            if (event.kind === 'enemy_down' && this.raid?.id === 'forge') rr.timer += RAID_FORGE_KILL_SECONDS
+        }
+        const level = rp.done ? rr.final : Math.min(rr.final, dummyLevelFor(rr.dealt))
+        // a level reached flashes; the readout and the bar under the timer say which
+        if (level > rr.level && !rp.done) {
+            rr.level = level
+            this.flashFor(0.12, C.gold3)
+        }
+        rr.left = Math.max(0, rr.timer - Math.max(0, rp.clock))
+        // how far the damage has come from this level's threshold toward the next one's
+        const from = dummyThreshold(rr.level)
+        const span = dummyThreshold(rr.level + 1).sub(from)
+        rr.toNext = span.lte(0) ? 0 : Math.min(1, Math.max(0, rr.dealt.sub(from).div(span).toNumber()))
+        // the time left is the timer bar's to show; the readout is the damage and the level it reaches
+        const key = rr.cursor * 1e3 + rr.level
+        if (key !== this.tallyKey) {
+            this.tallyKey = key
+            // nothing landed yet reads 0: the number font's formatter floors every figure at 1
+            this.tally = `${rr.dealt.lt(1) ? '0' : stageNumber(rr.dealt)} DMG  LV ${rr.level}`
         }
     }
 
@@ -1083,6 +1232,18 @@ export class BattleDemo {
         const rp = this.replay!
         if (rp.done) return
         rp.done = true
+        // a raid round ends without a banner: its readout already shows the level it reached
+        if (this.raidRound) {
+            this.raidRound.level = this.raidRound.final
+            // adds still up when their boss falls go down with it: the win ended the fight
+            if (rp.outcome === 'win') {
+                for (let k = PARTY; k < this.units.length; k++) {
+                    const u = this.units[k]!
+                    if (!u.boss && standingAny(u)) { u.state = U.Death; u.t = 0; u.bar = 0 }
+                }
+            }
+            return
+        }
         this.announce(rp.outcome === 'win' ? 'VICTORY' : rp.outcome === 'wipe' ? 'DEFEAT' : 'TIME UP')
         // out of time: close in on the drained timer and the banner, to say so
         if (rp.outcome === 'timeout' && this.run && !this.raid) this.spot = { t: 0, out: 0, released: false }
@@ -1245,8 +1406,33 @@ export class BattleDemo {
             case 'unit_down':
                 this.applyDowns([e])
                 return
+            case 'enemy_arrive':
+                this.arriveAdd(e.enemyIndex)
+                return
             default:
         }
+    }
+
+    /** A Dig Site add the log says has arrived crawls up out of its burrow, the add body it is given from now on. */
+    private arriveAdd(index: number | undefined): void {
+        const rp = this.replay
+        const r = this.raid
+        if (!rp || !r || index === undefined || r.adds.length === 0) return
+        const burrow = index % RAID_DIG_BURROWS
+        const k = PARTY + burrow
+        const u = this.units[k]!
+        rp.foes[index] = k
+        u.frames = r.adds[burrow & 1]!
+        u.state = U.Entry
+        u.t = 0
+        u.bar = 1
+        u.hp = TOUGHNESS.trash
+        u.elite = false
+        u.rig = -1
+        u.fired = false
+        u.beat = null
+        // the beetles spit molten ore; the grubs close and bite
+        u.shot = burrow & 1 ? bolt('ember') : null
     }
 
     private setPartyHp(index: number | undefined, remaining: string | undefined): void {
@@ -1282,7 +1468,8 @@ export class BattleDemo {
         this.classId = classId
         this.waveKind = waveKind
         const w = WORLDS[world - 1]!
-        this.scene = WORLD_SCENES[world - 1]!
+        // the fights staged before a crowd play in the colosseum; everything else in its world
+        this.scene = ARENA_WAVES.has(waveKind) ? colosseum : WORLD_SCENES[world - 1]!
         const hero = HERO_ART[classId]!
         const heroFrames = bakeAlly(`hero/${classId}`)
         const skill = CLASS_BY_ID[classId as keyof typeof CLASS_BY_ID]!.skill.id
@@ -2387,8 +2574,10 @@ export class BattleDemo {
             }
         }
         if (this.run) this.runTick(dt)
-        if (this.raid?.id === 'dig_site' && !this.march) this.raidAdds(this.raid, dt)
-        if (dummy && !this.march) this.dummyRound(dummy, dt)
+        // the art page's Dig Site sends its own adds up; a round's come from its log
+        if (this.raid?.id === 'dig_site' && !this.march && !this.raidRound) this.raidAdds(this.raid, dt)
+        if (dummy && !this.march && !this.raidRound) this.dummyRound(dummy, dt)
+        if (this.raidRound) this.raidTally()
         if (this.nameT >= 0 && this.nameT < this.nameFor) this.nameT += dt
         const c = this.cine
         if (c) {
@@ -2472,11 +2661,13 @@ export class BattleDemo {
         dimToInk(s, dark)
         // Painter's order: furthest rank first, each nearer one drawn over it. Within a rank the
         // old right-to-left walk stands, so party and enemies overlap the way they always did.
-        for (let r = 0; r < RANK_Y.length; r++) {
-            const gy = RANK_Y[r]!
+        // the Deepcoil goes down first, so the adds crawling out over its coils stay in sight
+        const sunk = this.raid?.id === 'dig_site'
+        for (let r = sunk ? -1 : 0; r < RANK_Y.length; r++) {
+            const gy = RANK_Y[r]
             for (let i = this.units.length - 1; i >= 0; i--) {
                 const u = this.units[i]!
-                if (u.state === U.Gone || u.y !== gy) continue
+                if (u.state === U.Gone || (sunk && u.boss ? r !== -1 : u.y !== gy)) continue
                 const b = u.frames[u.state]!
                 // adds fade in; the Training Grounds dummy, with no death, dissolves once its round is done
                 const done = u.boss && this.raid?.id === 'training_grounds' ? this.raid.over - DUMMY_FADE_AT : -1
@@ -2534,7 +2725,8 @@ export class BattleDemo {
             // the water is scenery too, so a set-piece's dim reaches it; the reflection was drawn after it
             dimToInk(s, dark, this.water)
         }
-        if (this.run) this.drawBars(s)
+        // a raid round has its own bars, the party's and the raid boss's, though the run is set aside
+        if (this.run || this.raidRound) this.drawBars(s)
         for (let i = 0; i < this.nums.length; i++) { const n = this.nums[i]!; if (n.live) drawNumber(s, n) }
         clock.smooth = false
         if (this.shakeT > 0) {
@@ -2572,20 +2764,24 @@ export class BattleDemo {
             const reach = Math.hypot(Math.max(cx, cam.w - cx), Math.max(cy, cam.h - cy))
             maskOutside(out, cx, cy, reach * this.irisOpen())
         }
-        textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
-        if (this.raid?.id === 'training_grounds') textOut(out, this.tally, cam.w - 6, 5, this.raid.clock <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
+        // a raid round has no wave or stage to name: its timer and readout say all there is
+        if (!this.raidRound) textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
+        if (this.raid?.id === 'training_grounds') textOut(out, this.tally, cam.w - 6, 5, (this.raidRound ? this.raidRound.left : this.raid.clock) <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
         else if (this.speedTag) textOut(out, this.speedTag, cam.w - 6, 5, C.gold3, 'small', 1, 2, 1, C.ink, -1)
         // top-centre: a run's boss fight shows its enrage timer, drained as far as the fight has played;
         // a wave stage shows how far its kills have got
-        const timed = this.replay !== null && !this.raid
+        const timed = this.replay !== null && (!this.raid || this.raidRound !== null)
         // what the stage has shown, not where the run has got: the two part on catch-up and at a stage's end
         const seen = this.run && !this.raid ? this.run.visible() : null
         // farming in front of a lost boss, the challenge button takes the bar's place
         const counting = !timed && seen !== null && seen.required > 0 && !this.run?.feed?.farming
-        if (timed) drawEnrageTimer(this.hudBar, Math.min(1, this.fightTime / BOSS_TIMER_SECONDS), this.time)
+        // a raid round drains over its own round, a boss over the boss timer
+        if (timed) drawEnrageTimer(this.hudBar, Math.min(1, this.fightTime / (this.raidRound ? Math.max(1e-6, this.raidRound.timer) : BOSS_TIMER_SECONDS)), this.time)
         else if (counting) drawStageProgress(this.hudBar, seen.kills, seen.required, this.run!.feed?.walled ?? false)
+        // a raid round's bars go top left, off the raid boss towering over the middle; elsewhere they are centred
+        const hudX = this.raidRound ? 6 : (cam.w - HUD_BAR_W) >> 1
         if (timed || counting) {
-            const x0 = (cam.w - HUD_BAR_W) >> 1
+            const x0 = hudX
             for (let y = 0; y < HUD_BAR_H; y++) {
                 for (let x = 0; x < HUD_BAR_W; x++) {
                     const c = this.hudBar.data[y * HUD_BAR_W + x]!
@@ -2593,6 +2789,10 @@ export class BattleDemo {
                 }
             }
         }
+        // a Training Grounds round: under the timer, how far the damage has come toward the next level
+        if (this.raidRound && this.raid?.id === 'training_grounds') this.drawToNextLevel(out, hudX, HUD_BAR_Y + HUD_BAR_H + 1)
+        // a raid boss's HP goes in the same place: its feet, where a boss's bar hangs, are below the raid camera
+        else if (this.raidRound && this.raid) this.drawRaidBossHp(out, hudX, HUD_BAR_Y + HUD_BAR_H + 1)
         // a lost boss, back at its gate: the button that fights it again, where the progress bar was
         if (this.showsChallenge()) {
             drawChallengeButton(out, (cam.w - CHALLENGE_W) >> 1, HUD_BAR_Y, this.challenge === 'off' ? 'idle' : this.challenge, this.time)
@@ -2672,6 +2872,8 @@ export class BattleDemo {
         for (let i = 0; i < this.units.length; i++) {
             const u = this.units[i]!
             if (u.state === U.Gone || u.state === U.Death) continue
+            // a raid boss's HP is in the HUD (its feet are below the raid camera), and the dummy has none to show
+            if (u.boss && this.raidRound) continue
             const party = i < PARTY
             const w = u.boss ? BOSS_BAR_W : BAR_W
             const x = Math.round(u.x + u.ox - w / 2)
