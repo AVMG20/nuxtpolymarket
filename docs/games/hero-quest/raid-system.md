@@ -24,6 +24,8 @@ Status: **Locked** — decisions confirmed, ready to reference for implementatio
 | Forge Raid | Gear (The Forge) | Forge Seals | Forge Keys | `boss_gauntlet` (was `phased_boss` until 2026-09-29, `open-items.md` #32) |
 | Trait Raid | — standalone, item 8 (Traits) | Trait Gems | Trait Keys | `rampaging_boss` |
 
+**Renamed 2026-10-05, the user's call:** the Guild Raid is shown as **Gilded Knight**, the Forge Raid as **God's Forge** and the Trait Raid as **Shardcaller Beast**. Display names only, in `content/raids.ts`; the IDs (`raid_guild`, `raid_forge`, `raid_trait`) and the Key and reward names are unchanged.
+
 **Key names are locked** — mirroring each raid's existing Seal-name convention (`<prefix> Seals` → `<prefix> Keys`). **Fight Type assignment is locked** — see Section 7 for each type's mechanics. Training Grounds was `solo_boss` alongside Guild until 2026-09-28, when it became `training_dummy` (the user's call, `open-items.md` #31); nothing about the structure requires unique assignments.
 
 Worth closing the loop on Forge Raid's earlier flagged concern: `phased_boss` naturally tests build flexibility, which reads fine for Forge even without an active mid-fight loadout swap — with manual equip restored (`gear-equipment.md` §3), surviving all phases means the account's gear spread has to actually hold up across the whole fight, which is a reasonable proxy for "is your gear current."
@@ -123,6 +125,8 @@ Renamed from `sealsRewarded`/`RAID_SEAL_BASE`/`RAID_SEAL_GROWTH` — not every r
 | `rampaging_boss` | Rampaging Boss | No HP pool — boss is fully unkillable by design. See dedicated subsection below. |
 | `boss_gauntlet` | Boss Gauntlet | Three bosses back to back, each walking out as the last falls. See dedicated subsection below. |
 | `training_dummy` | Training Dummy | A static dummy that can't die and can't attack. The result is the damage the party lands before the timer ends. See dedicated subsection below. |
+
+**Built 2026-10-05: `solo_boss` (Gilded Knight) and `reinforced_boss` (Dig Site).** Both fight one past the best, on `RAID_ENRAGE_SECONDS`, and win-gate the Key. Level L is world L's super boss alone, so a level is a world of growth, the same pace as the Training Grounds. The Dig Site's adds come on a **timer**, not an HP trigger: every `RAID_DIG_ADD_SECONDS` a wave fills each of `RAID_DIG_BURROWS` burrows standing empty, the adds are ordinary mobs of the boss's depth, and they draw the party's focus as they arrive. The fight is won when the Deepcoil falls, whatever adds are left. Calibration is in `constants.ts`. **`boss_gauntlet` (God's Forge) the same day:** the three bosses are world L's super boss stepped by `RAID_FORGE_BOSS_STEPS`, each walking out `RAID_FORGE_HANDOFF_SECONDS` after the last falls, every kill adding `RAID_FORGE_KILL_SECONDS` to the clock. The Dig Site and the Forge play in the colosseum until they have scenery of their own.
 
 **Raid → Fight Type assignment is locked** — see Section 1's roster table. Per-tier mechanic *content* (specific add-wave patterns, phase specifics, exact timer values) is still deferred to implementation, same "structure now, content later" convention already used for Champion abilities and Artifact effects.
 

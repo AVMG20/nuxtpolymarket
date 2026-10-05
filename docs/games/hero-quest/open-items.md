@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#46** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day, #44 landed and #45 opened with it, and #6, #3, #31 and #32 were decided (all in `build-log.md`).
+**#47** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day, #44 landed and #45 opened with it, and #6, #3, #31 and #32 were decided (all in `build-log.md`); #46 (raids) landed 2026-10-05.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
@@ -273,7 +273,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
    - ~~**Check the cleared-run manual re-engage** flagged in #25.~~ Fixed.
 3. ~~**World & Enemy Design (#6)**~~ **Closed 2026-10-04** — the art is restyled and locked (`art-style.md`); regular enemies get no abilities. **Boss specials become real (#45)**, which re-measures fight length against #22.
 4. **The last quick call (#2)**, the Arena band — answer it with the Arena. #1 and #3 are decided, and with #3 the raid-rule questions #31 and #32 (2026-10-04); the asset calls (#4, #30) on 2026-09-17.
-5. **Phase 4 — endgame systems** (`implementation-plan.md`). Raids, Traits, Arena, Holidays, plus `loadouts.md` §4's per-raid auto-apply. ~~GPN~~ built (#28); the leaderboard aggregate and Defense GPN remain, with Arena. ~~Battle Speed~~ built (#44).
+5. **Phase 4 — endgame systems** (`implementation-plan.md`). Raids, Traits, Arena, Holidays, plus `loadouts.md` §4's per-raid auto-apply. ~~GPN~~ built (#28); the leaderboard aggregate and Defense GPN remain, with Arena. ~~Battle Speed~~ built (#44). Raids built but for Shardcaller Beast (#46).
 6. **Passive Skill Tree (#7)** — the last unbuilt major system; good candidate for its own dedicated session.
 7. **Playtest, then tune the rest.** The combat and progression block is tuned (#22); the gacha, shop, economy and ability-magnitude constants are settled here — see the standing-tuning section. The balance script and campaign sim stay in use throughout.
 
