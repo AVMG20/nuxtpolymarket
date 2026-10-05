@@ -700,16 +700,18 @@ How the `boss_gauntlet` (`raid-system.md` §7) fits the raid rules, the user's c
 
 ---
 
-### 46. Raids: Training Grounds, Gilded Knight, Dig Site and God's Forge — **landed 2026-10-05**
+### 46. Raids: Training Grounds, Gilded Knight, Dig Site, God's Forge and Shardcaller Beast — **landed 2026-10-05**
 
-Four of the five raids are open; Shardcaller Beast (`rampaging_boss`) is the one left. One row per account and raid in `hq_raid_state` (migration `0054`): best level, Key balance, last grant. `lockRaid` inserts it on first touch, locks it and pays the Key grant owed (3 a day, whole days only, banked to 21; a balance over the cap from another source is kept, the grant just adds nothing). `raid/engage.post.ts` settles, then plays a seeded round in the same transaction; `raid/quick-clear.post.ts` pays the best again for a Key. **A Key goes exactly when a reward is paid**, so the Training Grounds spends one every round and the three bosses only on a win.
+All five raids are open. One row per account and raid in `hq_raid_state` (migration `0054`): best level, Key balance, last grant. `lockRaid` inserts it on first touch, locks it and pays the Key grant owed (3 a day, whole days only, banked to 21; a balance over the cap from another source is kept, the grant just adds nothing). `raid/engage.post.ts` settles, then plays a seeded round in the same transaction; `raid/quick-clear.post.ts` pays the best again for a Key. **A Key goes exactly when a reward is paid**, so the Training Grounds spends one every round and the three bosses only on a win.
 
 - **Rewards** are one ladder: `RAID_REWARD_BASE × 1.03^(level−1)` (3 Seals, Trait 10 Gems), exponential rather than stepped (the user's call, the stepped shape kept behind `RAID_REWARD_SHAPE`). Measured: one raid level is about a world of account growth, so level 100 is about ten prestiges of power and the top of the ladder is not cheap.
 - **Training Grounds:** the Great Dummy can't die or swing; the party's damage in `RAID_DUMMY_SECONDS` reaches a level on thresholds tied to progression (`RAID_DUMMY_PACKS`, tuned: a party that has cleared world w reaches about w+1). Damage is summed off the log, since the dummy's 1e1000000 HP swallows any subtraction.
 - **Gilded Knight, Dig Site, God's Forge:** level L is world L's super boss, fought at one past the best, one level a win, no skips (the user's call). The Dig Site's adds come on a timer into empty burrows and are won past; the Forge is three bosses on one clock that each kill extends. All three tuned on the campaign walk so a party wins at about the level it clears that world, never one world earlier.
 - **The engine:** `runFight` takes an `encounter` (its own pack and clock, `passive`, `reinforcements`, `gauntlet`), logs an `enemy_arrive` event, and leaves the run's boss gates exactly as they were.
 - **The stage:** a Raids scene behind a band banner (rows of Keys and level, a showcase of the boss, QUICK and ENTER), the round played in place of the run with the band hidden, a timer and HP or to-next-level bar top left, and a small reward popup after which the Raids scene comes back. A round interrupted by the browser counts as played: the server already resolved it.
-- **The colosseum** (`scenery-arena.ts`, locked) is the backdrop for all four until the Dig Site and the Forge get scenery of their own, and later for the Arena.
+- **Shardcaller Beast** can't die: its HP is a gauge that levels it up when emptied, the run ends when the party falls, and the level reached pays Trait Gems (`hq_state.trait_gems`, migration `0055`; nothing spends them until Traits). Its two curves ride the enemy curve rather than the doc's four free constants, flagged in `raid-system.md`; the power sits at ×20 the curve's, or a party stalls. Tuned: a party that has cleared world w reaches w+1, in 22–60 s.
+- **The engine** also gained `rampage` (`enemy_level`).
+- **The colosseum** (`scenery-arena.ts`, locked) is the backdrop for all five until the others get scenery of their own, and later for the Arena.
 
 ### 1. Arena attack auto-apply, and where preferred Loadouts are set — **decided 2026-10-04**
 
