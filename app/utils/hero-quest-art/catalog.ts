@@ -37,6 +37,7 @@ import { GEAR } from '../../../shared/utils/hero-quest/content/gear'
 import { NUMBER_STYLES, drawNumberPop, drawNumberAtlas, numberAtlasWidth, numberHeight, drawPartyFrame, drawCooldown, drawEnrageTimer, drawStageProgress, drawChallengeButton, drawRevealBase, drawRevealAura, REVEAL_AURA_LOOP, REVEAL_LUT, REVEAL_SIZE } from './feedback'
 import { Surface as Surf, blit, rect, rowSpan, ROWS } from './surface'
 import { WORLD_SCENES, SW, SH, BG_LOOP, composeScene } from './scenery'
+import { colosseum } from './scenery-arena'
 import { drawWorldMap, TAB_BACKGROUNDS, CHROME, drawSplash } from './ui-art'
 import { drawLogo, LOGO_W, LOGO_H, LOGO_LOOP } from './logos'
 import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, BURROW_GRUB, ORE_BEETLE, FORGE_APPRENTICE, FORGE_JOURNEYMAN, FORGE_MASTER, RAMPANT, TRAINING_DUMMY } from './raids'
@@ -44,7 +45,7 @@ import { WORLDS } from '../../../shared/utils/hero-quest/content/worlds'
 
 export type ArtGroup =
     | 'heroes' | 'champions' | 'summons' | 'enemies' | 'bosses' | 'raids' | 'guild_raid' | 'dig_site_raid' | 'trait_raid' | 'training_raid' | 'forge_apprentice' | 'forge_journeyman' | 'forge_master' | 'class_skill_icons' | 'training_skill_icons' | 'ability_crest_icons' | 'offense_artifact_icons' | 'defense_artifact_icons' | 'tempo_artifact_icons' | 'fortune_artifact_icons' | 'gear_icons' | 'currency_icons' | 'status_icons'
-    | 'hero_skill_vfx' | 'damage_ability_vfx' | 'tank_ability_vfx' | 'support_ability_vfx' | 'control_ability_vfx' | 'training_active_vfx' | 'multi_strike_vfx' | 'feedback' | 'frames' | 'backgrounds' | 'ui' | 'branding'
+    | 'hero_skill_vfx' | 'damage_ability_vfx' | 'tank_ability_vfx' | 'support_ability_vfx' | 'control_ability_vfx' | 'training_active_vfx' | 'multi_strike_vfx' | 'feedback' | 'frames' | 'backgrounds' | 'arena_backgrounds' | 'ui' | 'branding'
 
 /**
  * The gallery's groups. `locked` marks art whose design is settled (the user's call, 2026-09-28):
@@ -96,6 +97,7 @@ export const ART_GROUPS: readonly { id: ArtGroup, label: string, locked?: true }
     { id: 'status_icons', label: 'Icons · Status effects', locked: true },
     { id: 'frames', label: 'Frames & badges', locked: true },
     { id: 'backgrounds', label: 'Backgrounds', locked: true },
+    { id: 'arena_backgrounds', label: 'Arena backgrounds', locked: true },
     // parked until the real screens are built: redrawn against their layouts then (2026-09-29, the user)
     { id: 'ui', label: 'UI chrome · parked' },
     { id: 'branding', label: 'Branding', locked: true }
@@ -543,10 +545,17 @@ function backgroundAssets(): ArtAsset[] {
     // the 1.6 s loop baked at ANIM_FPS, so smooth motion gets its in-betweens at the same speed;
     // what steps on the loop's 16 frames (loopFrame) still steps on them
     const frames = Math.round(BG_LOOP * ANIM_FPS)
-    return WORLD_SCENES.map((scene, i) => ({
-        ...anim(`bg/world/${scene.id}`, 'backgrounds', 'World backgrounds', `${WORLDS[i]!.index}. ${WORLDS[i]!.name}`, SW, SH, frames, true, (d, t) => composeScene(scene, d, 0, t), undefined, ANIM_FPS),
-        opaque: true
-    }))
+    return [
+        ...WORLD_SCENES.map((scene, i) => ({
+            ...anim(`bg/world/${scene.id}`, 'backgrounds', 'World backgrounds', `${WORLDS[i]!.index}. ${WORLDS[i]!.name}`, SW, SH, frames, true, (d, t) => composeScene(scene, d, 0, t), undefined, ANIM_FPS),
+            opaque: true
+        })),
+        // the colosseum, where the Gilded Knight and the Training Grounds are fought, and later the Arena
+        {
+            ...anim('bg/arena/colosseum', 'arena_backgrounds', 'Arena backgrounds', 'The colosseum', SW, SH, frames, true, (d, t) => composeScene(colosseum, d, 0, t), undefined, ANIM_FPS),
+            opaque: true
+        }
+    ]
 }
 
 // ── Palette sheets ──────────────────────────────────────────────────────────────────
