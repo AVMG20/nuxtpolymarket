@@ -33,7 +33,7 @@ export const RAIDS: readonly RaidDef[] = [
 ]
 
 /** The raids that can be entered: each joins as its fight is built. */
-export const RAIDS_OPEN: ReadonlySet<RaidId> = new Set<RaidId>(['raid_guild', 'raid_training_grounds', 'raid_dig_site', 'raid_forge'])
+export const RAIDS_OPEN: ReadonlySet<RaidId> = new Set<RaidId>(['raid_guild', 'raid_training_grounds', 'raid_dig_site', 'raid_forge', 'raid_trait'])
 
 export function isRaidId(value: unknown): value is RaidId {
     return RAIDS.some(raid => raid.id === value)

@@ -1173,6 +1173,9 @@ export const hqState = pgTable('hq_state', {
   skillEssence: integer('skill_essence').notNull().default(0),
   artifactEssence: integer('artifact_essence').notNull().default(0),
 
+  /** Paid by Shardcaller Beast, spent on Traits (`traits.md`). */
+  traitGems: integer('trait_gems').notNull().default(0),
+
   /** system → 1..10, and pulls banked toward the next level. Each gacha levels independently. */
   gachaLevels: jsonb('gacha_levels').$type<Record<string, number>>().notNull().default({}),
   gachaProgress: jsonb('gacha_progress').$type<Record<string, number>>().notNull().default({}),

@@ -15,7 +15,7 @@ import { bufferSize, drawCreature, stateFrames, type CreatureDef } from './creat
 import { ANIM_FPS } from './anim'
 import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, FORGE_MASTER, RAMPANT } from './raids'
 import type { SceneBackdrops } from './menu-band'
-import { RAIDS, type RaidFightType, type RaidId } from '../../../shared/utils/hero-quest/content/raids'
+import { RAIDS, paysEveryRun, type RaidFightType, type RaidId } from '../../../shared/utils/hero-quest/content/raids'
 import { RAID_KEYS_PER_DAY } from '../../../shared/utils/hero-quest/constants'
 
 export interface RaidsView {
@@ -241,7 +241,7 @@ export class RaidsScene {
         // the Rampant's tiers are named after it ("The Rampant — rampage 1"); the portrait is the creature
         drawText(s, BOSS[id].name.split(' — ')[0]!.toUpperCase(), x, y, C.gold2, { shadow: 1 })
         // a boss is fought at one past the best; the level goes on the name's line
-        if (row?.open && raid.fightType !== 'training_dummy') drawText(s, `LV ${row.best + 1}`, SHOW.x + SHOW.w - 5, y, C.gold3, { align: 2, shadow: 1 })
+        if (row?.open && !paysEveryRun(raid.fightType)) drawText(s, `LV ${row.best + 1}`, SHOW.x + SHOW.w - 5, y, C.gold3, { align: 2, shadow: 1 })
         y += 10
         for (const line of wrap(FIGHT[raid.fightType].line, SHOW.w - 10)) {
             drawText(s, line, x, y, C.bone1, { shadow: 1 })

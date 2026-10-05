@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { RAIDS, paysEveryRun } from '#shared/utils/hero-quest/content/raids'
-import { RAID_KEY_CAP, damageDealt, dummyLevelFor, dummyThreshold, grantKeys, knightStats, nextRaidLevel, raidReward, forgeStats, runDigSiteFight, runDummyRound, runForgeFight } from '#shared/utils/hero-quest/raids'
-import { RAID_DIG_ADD_SECONDS, RAID_DIG_BURROWS, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_FORGE_HANDOFF_SECONDS, RAID_FORGE_KILL_SECONDS } from '#shared/utils/hero-quest/constants'
+import { RAID_KEY_CAP, damageDealt, dummyLevelFor, dummyThreshold, grantKeys, knightStats, nextRaidLevel, raidReward, forgeStats, rampageLevelReached, rampageStats, rampageThreshold, runDigSiteFight, runDummyRound, runForgeFight, runRampageFight } from '#shared/utils/hero-quest/raids'
+import { RAID_DIG_ADD_SECONDS, RAID_DIG_BURROWS, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_FORGE_HANDOFF_SECONDS, RAID_FORGE_KILL_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
 import { makeParty } from '../../scripts/hero-quest/sim'
 import { D, ZERO } from '#shared/utils/hero-quest/numbers'
 import type { FightEvent } from '#shared/utils/hero-quest/fight'
@@ -135,5 +135,24 @@ describe('hero-quest raid rules', () => {
         // past the base clock: the kills bought the time
         expect(fight.secondsElapsed).toBeGreaterThan(RAID_ENRAGE_SECONDS)
         expect(fight.secondsElapsed).toBeLessThanOrEqual(RAID_ENRAGE_SECONDS + 2 * RAID_FORGE_KILL_SECONDS)
+    })
+
+    it('levels Shardcaller Beast on its gauge until the party falls, never killing it', () => {
+        expect(rampageThreshold(4).gt(rampageThreshold(3))).toBe(true)
+        expect(rampageStats(4).pwr.gt(rampageStats(3).pwr)).toBe(true)
+        const fight = runRampageFight(makeParty('class_warrior', 205, 3), { prestige: 0, world: 1, stage: 1, killsInStage: 0 }, 7919)
+        expect(fight.outcome).toBe('wipe')
+        expect(fight.events.some(e => e.kind === 'enemy_down')).toBe(false)
+        const ups = fight.events.filter(e => e.kind === 'enemy_level')
+        expect(ups.length).toBeGreaterThan(0)
+        // levels only climb, each gauge refilled below its threshold
+        let last = 1
+        for (const e of ups) {
+            expect(e.level!).toBeGreaterThan(last)
+            last = e.level!
+            expect(D(e.remainingHp!).lte(rampageThreshold(e.level!))).toBe(true)
+        }
+        expect(rampageLevelReached(fight)).toBe(last)
+        expect(fight.secondsElapsed).toBeLessThan(RAID_RAMPAGE_CAP_SECONDS)
     })
 })

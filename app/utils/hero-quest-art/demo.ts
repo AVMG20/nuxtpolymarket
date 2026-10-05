@@ -66,7 +66,7 @@ import { RunDirector, stageNumber, type RunFeed } from './run-director'
 import { scriptFight, type Beat, type FightScript } from './fight-script'
 import type { FightEvent } from '../../../shared/utils/hero-quest/fight'
 import { D, ZERO, type Decimal } from '../../../shared/utils/hero-quest/numbers'
-import { dummyLevelFor, dummyThreshold, landsOnEnemy } from '../../../shared/utils/hero-quest/raids'
+import { dummyLevelFor, dummyThreshold, landsOnEnemy, rampageThreshold } from '../../../shared/utils/hero-quest/raids'
 import { attackIntervalFor } from '../../../shared/utils/hero-quest/combat'
 import { BOSS_TIMER_SECONDS, MIN_ATTACK_INTERVAL_SECONDS, RAID_DIG_BURROWS, RAID_FORGE_KILL_SECONDS, SUPER_BOSS_STAGE } from '../../../shared/utils/hero-quest/constants'
 
@@ -118,8 +118,8 @@ export type RaidId = 'guild' | 'training_grounds' | 'dig_site' | 'forge' | 'trai
  */
 export type WaveKind = 'regular' | 'boss' | 'superboss' | `raid_${RaidId}` | `forge_${ForgeBossId}`
 /** The waves fought in the colosseum rather than out in their world: the Gilded Knight and the Training Grounds. */
-// the Dig Site and the Forge borrow it until they have scenery of their own
-const ARENA_WAVES: ReadonlySet<WaveKind> = new Set<WaveKind>(['raid_guild', 'raid_training_grounds', 'raid_dig_site', 'raid_forge'])
+// every raid is fought there; the Dig Site, the Forge and the Beast until they have scenery of their own
+const ARENA_WAVES: ReadonlySet<WaveKind> = new Set<WaveKind>(['raid_guild', 'raid_training_grounds', 'raid_dig_site', 'raid_forge', 'raid_trait'])
 /** One of the Forge raid's three bosses, fought on its own (`forge_<id>`), to look at each in turn. */
 export type ForgeBossId = typeof FORGE_BOSSES[number][0]
 export const WAVE_KINDS: readonly { id: WaveKind, label: string }[] = [
@@ -778,6 +778,8 @@ export class BattleDemo {
     private raidRound: {
         run: RunDirector, party: RunParty, events: readonly FightEvent[], cursor: number
         dealt: Decimal, level: number, final: number, left: number, timer: number
+        /** Shardcaller Beast's level and what is left of its gauge, off its level-ups. */
+        rampage: number, gauge: Decimal | null
         /** 0–1 of the way from the level's threshold to the next one's, by damage. */
         toNext: number
     } | null = null
@@ -1091,7 +1093,7 @@ export class BattleDemo {
         if (!run || !party || this.raidRound) return
         if (this.exit) this.irisIntoWorld()
         if (this.iris?.swap) this.shutIris()
-        this.raidRound = { run, party, events: raid.events, cursor: 0, dealt: ZERO, level: 1, final: raid.level, left: raid.timer, timer: raid.timer, toNext: 0 }
+        this.raidRound = { run, party, events: raid.events, cursor: 0, dealt: ZERO, level: 1, final: raid.level, left: raid.timer, timer: raid.timer, toNext: 0, rampage: 1, gauge: null }
         this.run = null
         this.spot = null
         this.replay = null
@@ -1169,20 +1171,31 @@ export class BattleDemo {
         while (rr.cursor < rr.events.length && rr.events[rr.cursor]!.at <= rp.clock) {
             const event = rr.events[rr.cursor++]!
             if (landsOnEnemy(event)) rr.dealt = rr.dealt.add(D(event.damage!))
+            // the Beast's gauge: what its last hit or level-up left of this level's threshold
+            if (event.kind === 'enemy_level') rr.rampage = event.level ?? rr.rampage
+            if (event.remainingHp !== undefined && event.enemyIndex !== undefined && event.kind !== 'enemy_attack') rr.gauge = D(event.remainingHp)
             // each Forge boss downed gives its time back
             if (event.kind === 'enemy_down' && this.raid?.id === 'forge') rr.timer += RAID_FORGE_KILL_SECONDS
         }
-        const level = rp.done ? rr.final : Math.min(rr.final, dummyLevelFor(rr.dealt))
+        const beast = this.raid?.id === 'trait'
+        const level = rp.done ? rr.final : beast ? rr.rampage : Math.min(rr.final, dummyLevelFor(rr.dealt))
         // a level reached flashes; the readout and the bar under the timer say which
         if (level > rr.level && !rp.done) {
             rr.level = level
             this.flashFor(0.12, C.gold3)
         }
         rr.left = Math.max(0, rr.timer - Math.max(0, rp.clock))
-        // how far the damage has come from this level's threshold toward the next one's
-        const from = dummyThreshold(rr.level)
-        const span = dummyThreshold(rr.level + 1).sub(from)
-        rr.toNext = span.lte(0) ? 0 : Math.min(1, Math.max(0, rr.dealt.sub(from).div(span).toNumber()))
+        if (beast) {
+            // how much of this level's gauge the party has emptied
+            const max = rampageThreshold(rr.level)
+            rr.toNext = rr.gauge === null || max.lte(0) ? 0 : Math.min(1, Math.max(0, 1 - rr.gauge.div(max).toNumber()))
+            this.rampageTier(rr.level, rr.final)
+        } else {
+            // how far the damage has come from this level's threshold toward the next one's
+            const from = dummyThreshold(rr.level)
+            const span = dummyThreshold(rr.level + 1).sub(from)
+            rr.toNext = span.lte(0) ? 0 : Math.min(1, Math.max(0, rr.dealt.sub(from).div(span).toNumber()))
+        }
         // the time left is the timer bar's to show; the readout is the damage and the level it reaches
         const key = rr.cursor * 1e3 + rr.level
         if (key !== this.tallyKey) {
@@ -1190,6 +1203,23 @@ export class BattleDemo {
             // nothing landed yet reads 0: the number font's formatter floors every figure at 1
             this.tally = `${rr.dealt.lt(1) ? '0' : stageNumber(rr.dealt)} DMG  LV ${rr.level}`
         }
+    }
+
+    /**
+     * The Beast climbs its tiers across the run: the last tier is the one it ends the party in, so its
+     * tier follows the level reached so far as a share of the level the run ends at.
+     */
+    private rampageTier(level: number, final: number): void {
+        const r = this.raid
+        const u = this.units[this.units.length - 1]
+        if (!r || !u || r.escalating) return
+        const tiers = r.tables.length
+        const want = final <= 1 ? 0 : Math.min(tiers - 1, Math.floor((level - 1) * tiers / final))
+        if (want <= r.at || u.state === U.Entry || u.state === U.Cast || !standingAny(u) || !this.baked(r.at + 1)) return
+        r.escalating = true
+        u.state = U.Entry
+        u.t = 0
+        this.flashFor(0.3, C.pink)
     }
 
     /** Land the rest of the fight at once, without its numbers: the result, now. */
@@ -1685,7 +1715,8 @@ export class BattleDemo {
      */
     private raidHurt(u: Unit, dmg: number): void {
         const r = this.raid
-        if (!r) return
+        // a replay's log owns the raid boss: the Beast climbs its tiers off its level-ups (`rampageTier`)
+        if (!r || this.replay) return
         if (r.id === 'training_grounds') {
             u.hp = Math.max(1, u.hp)
         } else if (r.id === 'trait') {
@@ -2766,11 +2797,12 @@ export class BattleDemo {
         }
         // a raid round has no wave or stage to name: its timer and readout say all there is
         if (!this.raidRound) textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
-        if (this.raid?.id === 'training_grounds') textOut(out, this.tally, cam.w - 6, 5, (this.raidRound ? this.raidRound.left : this.raid.clock) <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
+        if (this.raid?.id === 'training_grounds' || (this.raidRound && this.raid?.id === 'trait')) textOut(out, this.tally, cam.w - 6, 5, (this.raidRound ? this.raidRound.left : this.raid.clock) <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
         else if (this.speedTag) textOut(out, this.speedTag, cam.w - 6, 5, C.gold3, 'small', 1, 2, 1, C.ink, -1)
         // top-centre: a run's boss fight shows its enrage timer, drained as far as the fight has played;
         // a wave stage shows how far its kills have got
-        const timed = this.replay !== null && (!this.raid || this.raidRound !== null)
+        // Shardcaller Beast has no clock (§7): it ends when the party falls
+        const timed = this.replay !== null && (!this.raid || this.raidRound !== null) && this.raid?.id !== 'trait'
         // what the stage has shown, not where the run has got: the two part on catch-up and at a stage's end
         const seen = this.run && !this.raid ? this.run.visible() : null
         // farming in front of a lost boss, the challenge button takes the bar's place
@@ -2791,6 +2823,8 @@ export class BattleDemo {
         }
         // a Training Grounds round: under the timer, how far the damage has come toward the next level
         if (this.raidRound && this.raid?.id === 'training_grounds') this.drawToNextLevel(out, hudX, HUD_BAR_Y + HUD_BAR_H + 1)
+        // the Beast's gauge, where the timer would be
+        else if (this.raidRound && this.raid?.id === 'trait') this.drawToNextLevel(out, hudX, HUD_BAR_Y)
         // a raid boss's HP goes in the same place: its feet, where a boss's bar hangs, are below the raid camera
         else if (this.raidRound && this.raid) this.drawRaidBossHp(out, hudX, HUD_BAR_Y + HUD_BAR_H + 1)
         // a lost boss, back at its gate: the button that fights it again, where the progress bar was

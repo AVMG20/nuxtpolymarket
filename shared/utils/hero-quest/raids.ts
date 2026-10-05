@@ -24,6 +24,10 @@ import {
     RAID_FORGE_KILL_SECONDS,
     RAID_FORGE_PWR_MULT,
     RAID_FORGE_STAGES_PER_LEVEL,
+    RAID_RAMPAGE_CAP_SECONDS,
+    RAID_RAMPAGE_DMG_MULT,
+    RAID_RAMPAGE_POWER_MULT,
+    RAID_RAMPAGE_STAGES_PER_LEVEL,
     RAID_KNIGHT_HP_MULT,
     RAID_KNIGHT_PWR_MULT,
     RAID_KNIGHT_STAGES_PER_LEVEL,
@@ -233,4 +237,43 @@ export function runForgeFight(hero: HeroSnapshot, position: RunPosition, seed: n
             gauntlet: { handoff: RAID_FORGE_HANDOFF_SECONDS, bonusSeconds: RAID_FORGE_KILL_SECONDS }
         }
     })
+}
+
+// ── Shardcaller Beast ──────────────────────────────────────────────────────────────
+
+function rampageBoss(level: number): EnemyStats {
+    const l = Math.max(1, Math.floor(level))
+    return enemyStatsAt(positionAt((l - 1) * RAID_RAMPAGE_STAGES_PER_LEVEL + RAID_RAMPAGE_STAGES_PER_LEVEL - 1))
+}
+
+/** The damage that takes the Beast from `level` to the next (incremental: it starts over each level). */
+export function rampageThreshold(level: number): Decimal {
+    return rampageBoss(level).hp.mul(RAID_RAMPAGE_DMG_MULT)
+}
+
+/** The Beast's PWR and DEF at a level; its HP is the gauge, `rampageThreshold`. */
+export function rampageStats(level: number): EnemyStats {
+    const boss = rampageBoss(level)
+    return { hp: rampageThreshold(level), pwr: boss.pwr.mul(RAID_RAMPAGE_POWER_MULT), def: boss.def }
+}
+
+/** One Shardcaller Beast run, seeded: from level 1 until the party falls. */
+export function runRampageFight(hero: HeroSnapshot, position: RunPosition, seed: number): FightResult {
+    return runFight({
+        hero,
+        position,
+        seed,
+        encounter: {
+            pack: { members: [rampageStats(1)] },
+            seconds: RAID_RAMPAGE_CAP_SECONDS,
+            rampage: { thresholdAt: rampageThreshold, statsAt: rampageStats }
+        }
+    })
+}
+
+/** The level a rampage run reached: its last level-up, or 1. */
+export function rampageLevelReached(fight: FightResult): number {
+    let level = 1
+    for (const event of fight.events) if (event.kind === 'enemy_level' && event.level !== undefined) level = event.level
+    return level
 }

@@ -4,7 +4,7 @@ import { D, formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
 import { RARITIES, sealLadderTotal, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { FormationRow, Rarity } from '#shared/utils/hero-quest/types'
 import { GEAR_SLOTS, GEAR_SLOT_NAME } from '#shared/utils/hero-quest/content/gear'
-import { FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS } from '#shared/utils/hero-quest/constants'
+import { FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
 import type { CollectionAction, CollectionLine, CollectionSection, CollectionTile, DetailButton } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
@@ -589,7 +589,8 @@ async function onRaidEnter(raidId: RaidId) {
         raidRound.value = {
             raid: raidId.slice(5) as StageRaidId,
             level: round.level,
-            timer: raidId === 'raid_training_grounds' ? RAID_DUMMY_SECONDS : RAID_ENRAGE_SECONDS,
+            // the Beast has no clock, only the guard rail its run can't outlast
+            timer: raidId === 'raid_training_grounds' ? RAID_DUMMY_SECONDS : raidId === 'raid_trait' ? RAID_RAMPAGE_CAP_SECONDS : RAID_ENRAGE_SECONDS,
             outcome: round.outcome,
             secondsElapsed: round.secondsElapsed,
             events: round.events,

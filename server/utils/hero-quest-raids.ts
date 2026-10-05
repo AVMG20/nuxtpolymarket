@@ -7,12 +7,12 @@
  * so a round always pays, from level 1, and spends its Key as it starts.
  */
 
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { hqFights, hqRaidState, hqState } from '#server/database/schema'
 import { sealGrant } from '#server/utils/hero-quest'
 import { getRaid, RAIDS, RAIDS_OPEN, type RaidId } from '#shared/utils/hero-quest/content/raids'
-import { RAID_KEY_CAP, grantKeys, nextKeyGrantAt, nextRaidLevel, raidReward, runDigSiteFight, runDummyRound, runForgeFight, runKnightFight } from '#shared/utils/hero-quest/raids'
+import { RAID_KEY_CAP, grantKeys, nextKeyGrantAt, nextRaidLevel, raidReward, rampageLevelReached, runDigSiteFight, runDummyRound, runForgeFight, runKnightFight, runRampageFight } from '#shared/utils/hero-quest/raids'
 import type { FightResult } from '#shared/utils/hero-quest/fight'
 import { partyUnitStats } from '#shared/utils/hero-quest/stats'
 import { RAID_KEYS_PER_DAY } from '#shared/utils/hero-quest/constants'
@@ -42,16 +42,17 @@ function assertOpen(raidId: RaidId): void {
 
 /** Pay a raid's reward into its currency: the Seals of the gacha it pairs with. */
 async function payReward(tx: DbExecutor, userId: string, raidId: RaidId, amount: number): Promise<void> {
+    if (amount <= 0) return
     const system = getRaid(raidId).pairedSystem
-    // the Trait Raid pays Trait Gems, which arrive with Traits; until then it is closed (assertOpen)
-    if (!system) throw createError({ statusCode: 400, statusMessage: 'This raid has nothing to pay yet' })
-    if (amount > 0) await tx.update(hqState).set(sealGrant(system, amount)).where(eq(hqState.userId, userId))
+    // a standalone raid (Shardcaller Beast) pays Trait Gems; the rest pay their gacha's Seals
+    const grant = system ? sealGrant(system, amount) : { traitGems: sql`${hqState.traitGems} + ${amount}` }
+    await tx.update(hqState).set(grant).where(eq(hqState.userId, userId))
 }
 
 /**
  * Enter a raid and play its round, by the raid's fight type. A Key goes exactly when a reward is
- * paid (§3): the Training Grounds dummy can't be beaten, so every round pays the level its damage
- * reached and spends its Key; a boss (the Gilded Knight, the Dig Site, God's Forge) is fought at one past the best, and only a win
+ * paid (§3): the Training Grounds dummy and Shardcaller Beast can't be beaten, so every round pays
+ * the level it reached and spends its Key; a boss (the Gilded Knight, the Dig Site, God's Forge) is fought at one past the best, and only a win
  * pays, spends the Key and raises the best. A loss costs nothing.
  */
 export async function engageRaid(tx: DbExecutor, userId: string, raidId: RaidId, hero: HeroSnapshot, position: RunPosition) {
@@ -72,6 +73,11 @@ export async function engageRaid(tx: DbExecutor, userId: string, raidId: RaidId,
         fight = round.fight
         level = round.level
         damage = round.damage.toString()
+        paid = true
+    } else if (fightType === 'rampaging_boss') {
+        // it can't die: the run goes until the party falls, and the level it reached pays
+        fight = runRampageFight(hero, position, seed)
+        level = rampageLevelReached(fight)
         paid = true
     } else if (fightType === 'solo_boss' || fightType === 'reinforced_boss' || fightType === 'boss_gauntlet') {
         level = nextRaidLevel(row.highestLevel)

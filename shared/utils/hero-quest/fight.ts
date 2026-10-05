@@ -92,6 +92,8 @@ export type FightEventKind =
     | 'reflect'
     /** A reinforcement joins the fight (`Encounter.reinforcements`); it can be hit and swings from now on. */
     | 'enemy_arrive'
+    /** A rampaging boss's gauge filled (`Encounter.rampage`): it is a level up, its gauge refilled to `remainingHp`. */
+    | 'enemy_level'
     // Status-engine events.
     | 'heal' | 'shield' | 'status_applied' | 'status_expired' | 'status_tick'
 
@@ -124,6 +126,8 @@ export interface FightEvent {
     crit?: boolean
     /** Remaining HP after the event, as a string. */
     remainingHp?: string
+    /** The level reached, for `kind: 'enemy_level'`. */
+    level?: number
 }
 
 export interface FightInput {
@@ -144,6 +148,19 @@ export interface Encounter {
     passive?: boolean
     reinforcements?: Reinforcements
     gauntlet?: Gauntlet
+    rampage?: Rampage
+}
+
+/**
+ * A boss that can't die (the `rampaging_boss` fight type, `raid-system.md` *Rampaging Boss*). Its
+ * HP is a gauge: emptied, it goes a level up, refilled to `thresholdAt(level)` less the overkill,
+ * and its stats become `statsAt(level)`. The pack's one member starts at level 1, its HP being
+ * `thresholdAt(1)`. The fight only ends when the party falls, or at the encounter's seconds, which
+ * are a guard rail rather than a clock.
+ */
+export interface Rampage {
+    thresholdAt: (level: number) => Decimal
+    statsAt: (level: number) => EnemyStats
 }
 
 /**
@@ -234,6 +251,8 @@ interface EnemyCombatant {
     present: boolean
     /** A reinforcement, which the fight can be won without. */
     add: boolean
+    /** A rampaging boss's level; 0 for every other body. */
+    level: number
 }
 
 /**
@@ -324,7 +343,14 @@ export function runFight(input: FightInput): FightResult {
     const enemies: EnemyCombatant[] = [
         ...Array.from({ length: waves * burrows }, (_, k) => ({ stats: reinforcements!.members[k % burrows]!, add: true, present: false })),
         ...pack.members.map((stats, k) => ({ stats, add: false, present: !gauntlet || k === 0 }))
-    ].map(foe => ({ ...foe, hp: foe.stats.hp, attackTimer: attackIntervalFor(0), statuses: [] }))
+    ].map(foe => ({ ...foe, hp: foe.stats.hp, attackTimer: attackIntervalFor(0), statuses: [], level: 0 }))
+    const rampage = input.encounter?.rampage
+    if (rampage) {
+        const beast = enemies[enemies.length - 1]!
+        beast.level = 1
+        beast.stats = { ...rampage.statsAt(1), hp: rampage.thresholdAt(1) }
+        beast.hp = beast.stats.hp
+    }
     let wavesIn = 0
     // the gauntlet's next boss walks out at this time; the clock grows with each kill
     let nextOut = Number.POSITIVE_INFINITY
@@ -332,6 +358,17 @@ export function runFight(input: FightInput): FightResult {
 
     const events: FightEvent[] = []
     const enemyMaxHps = enemies.map(foe => foe.stats.hp)
+
+    /** A rampaging boss whose gauge a hit emptied goes up as many levels as the overkill fills, logged once. */
+    const rampageUp = (foe: EnemyCombatant) => {
+        if (!rampage || foe.level === 0 || foe.hp.gt(0)) return
+        while (foe.hp.lte(0)) {
+            foe.level++
+            foe.hp = foe.hp.add(rampage.thresholdAt(foe.level))
+        }
+        foe.stats = { ...rampage.statsAt(foe.level), hp: rampage.thresholdAt(foe.level) }
+        events.push({ at: elapsed, kind: 'enemy_level', enemyIndex: enemies.indexOf(foe), level: foe.level, remainingHp: foe.hp.toString() })
+    }
     let elapsed = 0
 
     const livingEnemies = () => enemies.filter(foe => foe.present && foe.hp.gt(0))
@@ -438,6 +475,7 @@ export function runFight(input: FightInput): FightResult {
         for (const [index, foe] of enemies.entries()) {
             if (!foe.present) continue
             if (foe.hp.gt(0)) advanceStatuses(foe, foe.stats.hp, { enemyIndex: index, onEnemy: true })
+            rampageUp(foe)
             if (foe.hp.lte(0) && !events.some(e => e.kind === 'enemy_down' && e.enemyIndex === index)) {
                 events.push({ at: elapsed, kind: 'enemy_down', enemyIndex: index, remainingHp: '0' })
             }
@@ -611,6 +649,7 @@ export function runFight(input: FightInput): FightResult {
                                 crit,
                                 remainingHp: decMaxZero(foe.hp).toString()
                             })
+                            rampageUp(foe)
                             if (foe.hp.lte(0)) break
                         }
                     }
@@ -760,6 +799,7 @@ export function runFight(input: FightInput): FightResult {
                     damage: reflected.toString(),
                     remainingHp: decMaxZero(foe.hp).toString()
                 })
+                rampageUp(foe)
                 if (foe.hp.lte(0)) {
                     events.push({
                         at: elapsed, kind: 'enemy_down',

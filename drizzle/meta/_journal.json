@@ -386,6 +386,13 @@
       "when": 1791150469486,
       "tag": "0054_stale_starfox",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1791233797537,
+      "tag": "0055_blue_scarlet_spider",
+      "breakpoints": true
     }
   ]
 }

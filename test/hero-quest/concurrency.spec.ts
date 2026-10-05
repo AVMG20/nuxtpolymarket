@@ -157,9 +157,20 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect((await raidRow()).keyBalance).toBe(0)
         })
 
-        it('refuses a raid whose fight is not built yet', async () => {
+        it('spends a Key on every Shardcaller Beast run and pays the level it reached in Trait Gems', async () => {
             await ensureHqState(USER_ID)
-            await expect(db.transaction(tx => engageRaid(tx, USER_ID, 'raid_trait', { ...hero }, position))).rejects.toThrow()
+            const gems = async () => (await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!.traitGems
+
+            const results = await Promise.allSettled(Array.from({ length: 5 }, () =>
+                db.transaction(tx => engageRaid(tx, USER_ID, 'raid_trait', { ...hero }, position))))
+
+            const paid = results.flatMap(r => r.status === 'fulfilled' ? [r.value] : [])
+            expect(paid).toHaveLength(RAID_KEYS_PER_DAY)
+            for (const run of paid) expect(run.outcome).not.toBe('win')
+            expect(await gems()).toBe(paid.reduce((total, run) => total + run.reward, 0))
+            const row = (await db.select().from(hqRaidState).where(and(eq(hqRaidState.userId, USER_ID), eq(hqRaidState.raidId, 'raid_trait'))))[0]!
+            expect(row.keyBalance).toBe(0)
+            expect(row.highestLevel).toBe(Math.max(...paid.map(run => run.level)))
         })
 
         const guildRow = async () => (await db.select().from(hqRaidState).where(and(eq(hqRaidState.userId, USER_ID), eq(hqRaidState.raidId, 'raid_guild'))))[0]!

@@ -1029,6 +1029,25 @@ export const RAID_FORGE_KILL_SECONDS = 10
 /** How long after a Forge boss falls the next walks out: its death and the next's entry, on the stage. */
 export const RAID_FORGE_HANDOFF_SECONDS = 2.5 // UNTUNED ╧
 
+/**
+ * Shardcaller Beast (`rampaging_boss`, `raid-system.md` *Rampaging Boss*). The doc's two curves,
+ * `raidRampageDamageToLevel` and `raidRampageBossPower`, are exponential in the level; here both
+ * ride the enemy curve, a level being a world as for every raid, so they track progression rather
+ * than four free constants: level L's gauge is world L's super boss HP × `RAID_RAMPAGE_DMG_MULT`,
+ * its PWR and DEF world L's super boss's, PWR × `RAID_RAMPAGE_POWER_MULT`.
+ */
+export const RAID_RAMPAGE_STAGES_PER_LEVEL = STAGES_PER_WORLD
+/**
+ * Measured as a pair on the campaign walk (party of three, 2026-10-05): a party that has cleared
+ * world w reaches level w+1 (w+2 from world 6), its run over in 22–60 s. The power has to be well
+ * over the curve's: at ×1 (gauge ×0.3) a party stalled a level or two up, neither filling the gauge
+ * nor falling, and ran into the guard rail; at ×8 runs took 40–110 s.
+ */
+export const RAID_RAMPAGE_DMG_MULT = 0.15 // TUNED ✓
+export const RAID_RAMPAGE_POWER_MULT = 20 // TUNED ✓
+/** The guard rail on a run (§7: no player-facing timer): a party that never falls stops here. */
+export const RAID_RAMPAGE_CAP_SECONDS = 300
+
 /** Short prestige-shop tracks double per level; the 32-level cap track uses a gentler base. */
 export const OFFLINE_EFFICIENCY_BASE_COST = 50 // UNTUNED ╧
 export const OFFLINE_EFFICIENCY_COST_GROWTH = 2
