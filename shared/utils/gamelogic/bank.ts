@@ -2,6 +2,8 @@ export const BANK_CAP = 1_000_000_000
 export const BANK_MIN_DAILY_RATE = 0.02
 export const BANK_MAX_DAILY_RATE = 0.04
 export const LOAN_DAILY_RATE = 0.07
+/** Savings never earn more than this much interest per day, however large the balance. */
+export const BANK_MAX_DAILY_INTEREST = 25_000_000
 /** Borrowing power: this many times the all-time deposit high-water mark. */
 export const LOAN_MULTIPLIER = 5
 /** Debt stops compounding once it reaches this many times the borrowed principal. */
@@ -39,6 +41,12 @@ export function bankDailyRate(balance: number) {
   return BANK_MIN_DAILY_RATE + (BANK_MAX_DAILY_RATE - BANK_MIN_DAILY_RATE) * curve
 }
 
+/** The daily rate after the interest cap: it falls off once a day's interest would pass 25M. */
+export function bankEffectiveDailyRate(balance: number) {
+  if (balance <= 0) return bankDailyRate(0)
+  return Math.min(bankDailyRate(balance), BANK_MAX_DAILY_INTEREST / balance)
+}
+
 function ms(now: Date | number) {
   return now instanceof Date ? now.getTime() : now
 }
@@ -58,7 +66,8 @@ export function bailoutUntilFrom(bailedOutAt: Date) {
 }
 
 /**
- * Savings earn nothing while a bail-out penalty runs, so the compounding window
+ * Savings compound at bankDailyRate, but never gain more than
+ * BANK_MAX_DAILY_INTEREST per elapsed day. Savings earn nothing while a bail-out penalty runs, so the compounding window
  * is clipped to the part of it after `until`. Debt is never frozen this way — a
  * bailed-out account has none, because the bail-out lifted it and loans stay
  * blocked for the whole term.
@@ -69,7 +78,10 @@ export function growBankBalance(balance: number, lastSettledAt: Date, now = new 
     : lastSettledAt.getTime()
   const elapsedDays = Math.max(0, now.getTime() - from) / 86_400_000
   if (!elapsedDays || balance === 0) return balance
-  if (balance > 0) return balance * (1 + bankDailyRate(balance)) ** elapsedDays
+  if (balance > 0) {
+    const grown = balance * (1 + bankDailyRate(balance)) ** elapsedDays
+    return Math.min(grown, balance + BANK_MAX_DAILY_INTEREST * elapsedDays)
+  }
   return balance * (1 + LOAN_DAILY_RATE) ** elapsedDays
 }
 
