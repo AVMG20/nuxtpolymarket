@@ -11,7 +11,7 @@ import { createTerrainOverlay, createWaterLayer, disposeTerrainOverlay, disposeW
 import { createRoadParts } from '~/utils/town/roads'
 import { townSceneLevel } from '~/utils/town/appearance'
 import { townDragDelta, townKeyboardDelta, townIsTyping, townWheelZoomFactor, townSnapTurn } from '~/utils/town/camera'
-import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, townFrontTiles, townBuildingSize, townFootprintAnchor, townCovers, townDragLine, TOWN_MAX_DRAG_TILES, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
+import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, townFrontTiles, townBuildingSize, townFootprintAnchor, townCovers, townDragLine, TOWN_MAX_DRAG_TILES, TOWN_SUPPLY_MIN_EFFICIENCY, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
 import { TOWN_MONUMENT_STAGES, isTownMonumentId } from '#shared/utils/gamelogic/town-monuments'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { createBuildingModel, townMaterial, TOWN_MODEL_VARIANTS } from '~/utils/town/models'
@@ -48,6 +48,16 @@ export interface TileRef { plotId: string, tileX: number, tileY: number }
 export type SceneTile = TileRef & { wx: number, wy: number }
 /** One member of a selection being dragged: its artwork, and where it sits relative to the anchor. */
 export interface SceneMoveGhost { id: string, type: string, level: number, rotation: number, dx: number, dy: number }
+/** One delivery reaching the selected workshop: the road it travels, and what survives the trip. */
+export interface SceneSupplyRoute {
+    producerId: string
+    /** Road tiles from the supplier's front door to the consumer's, supplier first. */
+    path: { wx: number, wy: number }[]
+    /** Share of the delivery that lands, TOWN_SUPPLY_MIN_EFFICIENCY .. 1 — decides the route's colour. */
+    efficiency: number
+    /** The hover label, already worded and formatted by the parent. */
+    label: string
+}
 const props = withDefaults(defineProps<{
     plots: ScenePlot[]
     buildings: SceneBuilding[]
@@ -70,6 +80,12 @@ const props = withDefaults(defineProps<{
     effectRadii?: { x: number, y: number, radius: number, kind: 'good' | 'bad' }[]
     /** Radius the ghost projects, drawn under the cursor while placing. */
     ghostRadius?: { radius: number, kind: 'good' | 'bad' } | null
+    /**
+     * Who actually supplies the selected workshop. Each route lights its road
+     * and rings its supplier, tinted by what survives the trip; hovering a
+     * supplier labels its delivery. Empty for anything that hauls nothing in.
+     */
+    supplyRoutes?: SceneSupplyRoute[]
     /** Why the ghost cannot be placed where it hovers (null = allowed). Computed by the parent from the shared rules. */
     ghostIssue?: string | null
     /** Building being moved: hidden in place while its ghost follows the cursor. */
@@ -112,6 +128,7 @@ const props = withDefaults(defineProps<{
     neighbours: () => [],
     effectRadii: () => [],
     ghostRadius: null,
+    supplyRoutes: () => [],
     ghostIssue: null,
     movingId: null,
     terrainOverlay: false,
@@ -1510,6 +1527,148 @@ function hidePads() {
     for (const pad of pads) pad.visible = false
 }
 
+// ─── Supply routes ───────────────────────────────────────────────────────────
+// Where the selected workshop's goods really come from: the road each delivery
+// travels, a ring on the supplier, and a label on whichever supplier the
+// cursor is over. The nuisance circle already on the ground says who a
+// building upsets; this says who feeds it, which is a different question and
+// used to be unanswerable from the map.
+//
+// Pooled per route rather than globally, because each route owns its colour:
+// the tint is what survives the trip, so two routes from the same kiln can and
+// should look different.
+
+const supplyGroup = new THREE.Group()
+fxGroup.add(supplyGroup)
+const supplyStepGeo = new THREE.PlaneGeometry(0.46, 0.46)
+const supplyRingGeo = new THREE.RingGeometry(0.44, 0.58, 20)
+
+interface RouteVisual {
+    mat: THREE.MeshBasicMaterial
+    steps: THREE.Mesh[]
+    ring: THREE.Mesh
+    /**
+     * A floating "!" over the supplier. The ground ring alone is no use on a
+     * tall building — the model stands in front of it from almost every camera
+     * angle — so the marker that actually finds a supplier sits above the roof.
+     */
+    marker: HTMLDivElement | null
+    /** Whose roof it floats over, or null while this pooled slot is spare. */
+    producerId: string | null
+    /** Last colour written, so a 60fps loop is not rewriting style every frame. */
+    markerColor: string
+}
+const routeVisuals: RouteVisual[] = []
+
+const ROUTE_POOR = new THREE.Color(0xe74c3c)
+const ROUTE_FULL = new THREE.Color(0x2ecc71)
+
+/**
+ * Green where the whole delivery lands, through amber, to red at the floor —
+ * the same reading as the supply meter in the panel, so the map and the
+ * numbers never tell different stories.
+ */
+function routeColor(efficiency: number): THREE.Color {
+    const span = 1 - TOWN_SUPPLY_MIN_EFFICIENCY
+    const t = Math.max(0, Math.min(1, (efficiency - TOWN_SUPPLY_MIN_EFFICIENCY) / span))
+    return ROUTE_POOR.clone().lerp(ROUTE_FULL, t)
+}
+
+function syncSupplyRoutes() {
+    const routes = props.supplyRoutes
+    routes.forEach((r, i) => {
+        let v = routeVisuals[i]
+        if (!v) {
+            const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false })
+            const ring = new THREE.Mesh(supplyRingGeo, mat)
+            ring.rotation.x = -Math.PI / 2
+            supplyGroup.add(ring)
+            v = { mat, steps: [], ring, marker: null, producerId: null, markerColor: '' }
+            routeVisuals.push(v)
+        }
+        const visual = v
+        visual.mat.color.copy(routeColor(r.efficiency))
+        // The roof marker, tinted to match its route so the "!" and the road
+        // under it read as one thing.
+        visual.producerId = r.producerId
+        if (!visual.marker && overlay.value) {
+            const el = document.createElement('div')
+            el.className = 'town-supplier'
+            el.textContent = '!'
+            overlay.value.appendChild(el)
+            visual.marker = el
+        }
+        const css = `#${visual.mat.color.getHexString()}`
+        if (visual.marker && visual.markerColor !== css) {
+            visual.marker.style.background = css
+            visual.marker.style.boxShadow = `0 0 0 4px ${css}47, 0 6px 14px rgba(0, 0, 0, 0.4)`
+            visual.markerColor = css
+        }
+        // A diamond per road tile: reads as a route rather than as the square
+        // pads a build drag paints, so the two overlays never look alike.
+        r.path.forEach((t, j) => {
+            let step = visual.steps[j]
+            if (!step) {
+                step = new THREE.Mesh(supplyStepGeo, visual.mat)
+                step.rotation.set(-Math.PI / 2, 0, Math.PI / 4)
+                supplyGroup.add(step)
+                visual.steps.push(step)
+            }
+            step.position.set(t.wx + 0.5, 0.355, t.wy + 0.5)
+            step.visible = true
+        })
+        for (let j = r.path.length; j < visual.steps.length; j++) visual.steps[j]!.visible = false
+        // The ring follows the live model, so it travels with a building the
+        // mayor is dragging instead of hanging over the tile it left.
+        const e = entries.get(r.producerId)
+        visual.ring.visible = !!e
+        if (e) {
+            visual.ring.position.set(e.group.position.x, 0.33, e.group.position.z)
+            visual.ring.scale.setScalar(townBuildingSize(e.data.type))
+        }
+    })
+    for (let i = routes.length; i < routeVisuals.length; i++) {
+        const v = routeVisuals[i]!
+        v.ring.visible = false
+        // positionOverlays hides the marker off the back of this.
+        v.producerId = null
+        for (const step of v.steps) step.visible = false
+    }
+}
+
+let routeLabel: HTMLDivElement | null = null
+let routeAnchor: { x: number, z: number } | null = null
+
+function showRouteLabel(text: string | null, x = 0, z = 0) {
+    if (!overlay.value) return
+    if (!text) {
+        routeLabel?.remove()
+        routeLabel = null
+        routeAnchor = null
+        return
+    }
+    if (!routeLabel) {
+        routeLabel = document.createElement('div')
+        routeLabel.className = 'town-route'
+        overlay.value.appendChild(routeLabel)
+    }
+    routeLabel.textContent = text
+    routeAnchor = { x, z }
+}
+
+/** Label the hovered building's delivery, when it is one of the selected workshop's suppliers. */
+function syncRouteLabel() {
+    const route = hoveredBuildingId === null ? undefined : props.supplyRoutes.find(r => r.producerId === hoveredBuildingId)
+    const e = route ? entries.get(route.producerId) : undefined
+    if (!route || !e) { showRouteLabel(null); return }
+    showRouteLabel(route.label, e.group.position.x, e.group.position.z)
+}
+
+// Selecting a different workshop while the cursor already rests on a supplier
+// never moves the pointer, so the hover handler would not fire and the label
+// would describe the building that was selected before — or stay down.
+watch(() => props.supplyRoutes, syncRouteLabel)
+
 // ─── Group move ghosts ───────────────────────────────────────────────────────
 // A selection being carried: one translucent model per member, laid out around
 // the tile under the cursor exactly as they will land.
@@ -2574,6 +2733,22 @@ function positionOverlays(dt: number) {
         issueLabel.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
         issueLabel.style.display = p.visible ? '' : 'none'
     }
+    // Supplier markers ride above the roof with the same gentle bob as the
+    // "no road" alert, so the two read as the same family of sign.
+    for (const v of routeVisuals) {
+        if (!v.marker) continue
+        const e = v.producerId === null ? undefined : entries.get(v.producerId)
+        if (!e) { v.marker.style.display = 'none'; continue }
+        const bob = props.reducedMotion ? 0 : Math.sin(performance.now() / 350 + e.group.position.x) * 0.06
+        const p = project(e.group.position.x, e.group.position.y + e.modelHeight * e.model.scale.y + 0.3 + bob, e.group.position.z)
+        v.marker.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
+        v.marker.style.display = p.visible ? '' : 'none'
+    }
+    if (routeLabel && routeAnchor) {
+        const p = project(routeAnchor.x, 1.2, routeAnchor.z)
+        routeLabel.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
+        routeLabel.style.display = p.visible ? '' : 'none'
+    }
 }
 
 function updateOverlays(now: number) {
@@ -3039,6 +3214,7 @@ function onWheel(e: WheelEvent) {
 }
 
 function onLeave() {
+    showRouteLabel(null)
     setHoverBuilding(null)
     setHoverSlot(null)
     setHoverNeighbour(null)
@@ -3052,6 +3228,7 @@ function onLeave() {
 function setHoverBuilding(id: string | null) {
     if (id === hoveredBuildingId) return
     hoveredBuildingId = id
+    syncRouteLabel()
     emit('hover-building', id)
 }
 
@@ -3331,6 +3508,9 @@ function frame(ms: number) {
 
     endBoostFx(ms, still)
     syncSelectionRings()
+    // Per frame, like the selection rings: both track live model positions, so
+    // a route stays on its supplier while that supplier is being dragged.
+    syncSupplyRoutes()
 
     // Selection ring.
     const sel = props.selectedBuildingId ? entries.get(props.selectedBuildingId) : null
@@ -3636,6 +3816,37 @@ defineExpose({ recenter: () => recenter(true), setResourceEmoji: (map: Record<st
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
     text-align: center;
     white-space: normal;
+    will-change: transform;
+}
+/* Background and shadow are written per route, tinted by what survives the trip. */
+.town-overlay :deep(.town-supplier) {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    color: #fff;
+    font: 900 17px/26px system-ui, sans-serif;
+    text-align: center;
+    /* Never steal the hover from the building underneath — the label depends on it. */
+    pointer-events: none;
+    will-change: transform;
+}
+.town-overlay :deep(.town-route) {
+    position: absolute;
+    left: 0;
+    top: 0;
+    max-width: 260px;
+    padding: 5px 9px;
+    border-radius: 9px;
+    background: rgba(17, 24, 39, 0.92);
+    color: #fff;
+    font: 600 11px/1.3 system-ui, sans-serif;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    text-align: center;
+    white-space: normal;
+    pointer-events: none;
     will-change: transform;
 }
 </style>

@@ -1343,6 +1343,70 @@ export function townSupplyNetwork(buildings: TownSimBuilding[], now = Date.now()
     return { frontOf, between }
 }
 
+/**
+ * The road tiles one delivery travels, supplier's front door first and
+ * consumer's last. Empty when either door is off the roads or no road joins
+ * them, which is exactly when townRoadDistance returns null.
+ *
+ * townSupplyNetwork keeps distances but no predecessors, because the allocator
+ * only ever needs how far — so the route has to be walked again for the one
+ * pair being drawn. Front doors are resolved with townFrontTile, the same way
+ * the network resolved them, or a drawn route could disagree with the distance
+ * the ratio was computed from.
+ */
+export function townSupplyPath(
+    buildings: TownSimBuilding[],
+    fromId: string,
+    toId: string,
+    now = Date.now()
+): { wx: number, wy: number }[] {
+    const roads = new Set<string>()
+    for (const b of buildings) {
+        if (b.type === 'road' && b.wx !== undefined && b.wy !== undefined && isBuilt(b, now)) {
+            roads.add(`${b.wx},${b.wy}`)
+        }
+    }
+    const doorOf = (id: string): string | null => {
+        const b = buildings.find(x => x.id === id)
+        if (!b || b.wx === undefined || b.wy === undefined) return null
+        const f = townFrontTile(b.wx, b.wy, b.rotation ?? 0)
+        const key = `${f.wx},${f.wy}`
+        return roads.has(key) ? key : null
+    }
+    const tileOf = (key: string) => {
+        const [wx, wy] = key.split(',').map(Number) as [number, number]
+        return { wx, wy }
+    }
+
+    const start = doorOf(fromId)
+    const goal = doorOf(toId)
+    if (start === null || goal === null) return []
+    if (start === goal) return [tileOf(start)]
+
+    const prev = new Map<string, string>()
+    const seen = new Set([start])
+    let frontier = [start]
+    while (frontier.length > 0 && !seen.has(goal)) {
+        const next: string[] = []
+        for (const tile of frontier) {
+            const [tx, ty] = tile.split(',').map(Number) as [number, number]
+            for (const [dx, dy] of TOWN_FACING) {
+                const nb = `${tx + dx},${ty + dy}`
+                if (!roads.has(nb) || seen.has(nb)) continue
+                seen.add(nb)
+                prev.set(nb, tile)
+                next.push(nb)
+            }
+        }
+        frontier = next
+    }
+    if (!seen.has(goal)) return []
+
+    const path: { wx: number, wy: number }[] = []
+    for (let at: string | undefined = goal; at !== undefined; at = prev.get(at)) path.push(tileOf(at))
+    return path.reverse()
+}
+
 /** Road tiles between two buildings, or null when no road joins them. */
 export function townRoadDistance(network: TownSupplyNetwork, fromId: string, toId: string): number | null {
     const from = network.frontOf.get(fromId)
@@ -1352,11 +1416,32 @@ export function townRoadDistance(network: TownSupplyNetwork, fromId: string, toI
     return network.between.get(from)?.get(to) ?? null
 }
 
+/**
+ * One delivery that actually reaches a workshop. The allocator works these out
+ * on its way to a ratio; they are kept rather than discarded so the map can
+ * draw which supplier feeds which workshop and what each trip costs. A mayor
+ * reading only the aggregate ratio cannot tell a near supplier running short
+ * from a distant one delivering in full.
+ */
+export interface TownSupplyLink {
+    /** The workshop the goods leave from. */
+    producerId: string
+    resource: TownResourceId
+    /** Road tiles travelled between the two front doors. */
+    tiles: number
+    /** Share of this delivery that survives the trip, TOWN_SUPPLY_MIN_EFFICIENCY .. 1. */
+    efficiency: number
+    /** Units dispatched per tick, before the trip takes its cut. */
+    sent: number
+}
+
 export interface TownSupplyEntry {
     /** How much of what this workshop needs actually arrives, TOWN_SUPPLY_MIN_EFFICIENCY .. 1. */
     ratio: number
     /** Per input resource: how well it is served, and where from. */
     inputs: { resource: TownResourceId, ratio: number, nearestTiles: number | null, suppliers: number }[]
+    /** Every delivery reaching this workshop, nearest first. Empty when it has no inputs to haul. */
+    links: TownSupplyLink[]
 }
 
 /**
@@ -1382,7 +1467,7 @@ export function townSupply(
         // world coordinates) — either way there is no journey to slow down.
         if (Object.keys(a.def.inputs).length === 0 || !network.frontOf.has(a.b.id)) {
             ratioOf.set(a.b.id, 1)
-            result.set(a.b.id, { ratio: 1, inputs: [] })
+            result.set(a.b.id, { ratio: 1, inputs: [], links: [] })
         }
     }
 
@@ -1392,6 +1477,8 @@ export function townSupply(
 
     // Per consumer, how well each of its inputs is served.
     const perInput = new Map<string, { resource: TownResourceId, ratio: number, nearestTiles: number | null, suppliers: number }[]>()
+    // Per consumer, the individual deliveries behind those numbers.
+    const perLink = new Map<string, TownSupplyLink[]>()
 
     for (const resource of order) {
         const producers = active
@@ -1422,11 +1509,15 @@ export function townSupply(
         for (const { c, p, tiles } of pairs) {
             if (c.left <= 0 || p.left <= 0) continue
             const take = Math.min(c.left, p.left)
+            const efficiency = townSupplyEfficiency(tiles, extraFullTiles)
             c.left -= take
             p.left -= take
-            c.got += take * townSupplyEfficiency(tiles, extraFullTiles)
+            c.got += take * efficiency
             c.suppliers++
             if (c.nearest === null || tiles < c.nearest) c.nearest = tiles
+            const links = perLink.get(c.id) ?? []
+            links.push({ producerId: p.id, resource, tiles, efficiency, sent: take })
+            perLink.set(c.id, links)
         }
 
         for (const c of consumers) {
@@ -1442,7 +1533,11 @@ export function townSupply(
     for (const a of active) {
         const inputs = perInput.get(a.b.id)
         if (!inputs) continue
-        result.set(a.b.id, { ratio: ratioOf.get(a.b.id) ?? 1, inputs })
+        // Pairs were allocated nearest-first per resource, so a workshop with
+        // two inputs has two runs of them; sorting makes "nearest first" true
+        // of the whole list, which is the order the map and the panel want.
+        const links = (perLink.get(a.b.id) ?? []).sort((x, y) => x.tiles - y.tiles)
+        result.set(a.b.id, { ratio: ratioOf.get(a.b.id) ?? 1, inputs, links })
     }
     return result
 }
