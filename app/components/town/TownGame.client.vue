@@ -3691,7 +3691,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .inv::-webkit-scrollbar { display: none; }
 .inv-row {
     display: grid;
-    grid-template-columns: 18px 46px 1fr;
+    grid-template-columns: 18px 58px 1fr;
     align-items: center;
     gap: 7px;
     height: 30px;
