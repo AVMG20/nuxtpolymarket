@@ -58,8 +58,9 @@ export function townRouteCurve(points: TownRoutePoint[], radius = 0.35, segments
 
 /**
  * A flat ribbon along a line, with round caps, lying at height y. Each vertex
- * carries how far along the line it sits (aDist, for the flowing chevrons) and
- * how far across it (aEdge, 0 on the centre line, ±1 on the rim).
+ * carries how far along the line it sits (aDist, for the colour bands and the
+ * flowing chevrons) and how far across it (aEdge, 0 on the centre line, ±1 on
+ * the rim).
  */
 export function townRouteRibbon(line: TownRoutePoint[], halfWidth: number, y: number, capSegments = 8): THREE.BufferGeometry {
     const geo = new THREE.BufferGeometry()
@@ -127,16 +128,59 @@ export function townRouteRibbon(line: TownRoutePoint[], halfWidth: number, y: nu
     return geo
 }
 
+/** Route colours: the whole load arrives, part of it is lost on the road, most of it is. */
+export const TOWN_ROUTE_COLORS = [0x2ecc71, 0xf39c12, 0xe74c3c] as const
+
+/**
+ * Which band a delivery that has travelled this many road tiles falls in:
+ * 0 while it still arrives in full, 1 for the first half of the falloff, 2 for
+ * the rest. Banded rather than blended, so the tile where a route turns orange
+ * says exactly how far past full range the supplier stands.
+ */
+export function townRouteBand(tiles: number, fullTiles: number, falloffTiles: number): 0 | 1 | 2 {
+    if (tiles <= fullTiles) return 0
+    return tiles <= townRouteRedFrom(fullTiles, falloffTiles) ? 1 : 2
+}
+
+/** The last tile still drawn orange. */
+function townRouteRedFrom(fullTiles: number, falloffTiles: number) {
+    return fullTiles + Math.max(1, Math.floor((falloffTiles - fullTiles) / 2))
+}
+
+/**
+ * Where a ribbon's distance (aDist) sits in road tiles. The line runs past both
+ * doors into the buildings and its corners are rounded, so its length is not
+ * the tile count: `start` and `end` are the distances at the supplier's door
+ * and the workshop's, and the stretch between them is spread over `tiles`.
+ */
+export interface TownRouteSpan { start: number, end: number, tiles: number, fullTiles: number, falloffTiles: number }
+
+/** Total length of a line, as townRouteRibbon measures it. */
+export function townRouteLength(line: TownRoutePoint[]): number {
+    let d = 0
+    for (let i = 1; i < line.length; i++) d += Math.hypot(line[i]!.x - line[i - 1]!.x, line[i]!.z - line[i - 1]!.z)
+    return d
+}
+
 /**
  * The route's paint: a solid line with a darker rim, so it reads on pale sand
- * as well as on asphalt, and soft chevrons drifting toward the workshop.
+ * as well as on asphalt, banded green, orange and red by how far the road reaches
+ * back from the workshop, with soft chevrons drifting toward it.
  */
 export function townRouteMaterial(): THREE.ShaderMaterial {
     return new THREE.ShaderMaterial({
         uniforms: {
-            uColor: { value: new THREE.Color() },
+            uColors: { value: TOWN_ROUTE_COLORS.map(c => new THREE.Color(c)) },
+            /** Distance at the workshop's door, and road tiles per unit of distance back from it. */
+            uEnd: { value: 0 },
+            uScale: { value: 1 },
+            uTiles: { value: 0 },
+            /** Band edges in road tiles: half a tile past the last green and the last orange tile. */
+            uOrangeAt: { value: 0.5 },
+            uRedAt: { value: 1.5 },
             uTime: { value: 0 },
-            uOpacity: { value: 0.95 }
+            // Opaque, so routes stacked on a shared road read as one line.
+            uOpacity: { value: 1 }
         },
         vertexShader: /* glsl */ `
             attribute float aDist;
@@ -150,7 +194,12 @@ export function townRouteMaterial(): THREE.ShaderMaterial {
             }
         `,
         fragmentShader: /* glsl */ `
-            uniform vec3 uColor;
+            uniform vec3 uColors[3];
+            uniform float uEnd;
+            uniform float uScale;
+            uniform float uTiles;
+            uniform float uOrangeAt;
+            uniform float uRedAt;
             uniform float uTime;
             uniform float uOpacity;
             varying float vDist;
@@ -160,10 +209,21 @@ export function townRouteMaterial(): THREE.ShaderMaterial {
                 float e = clamp(abs(vEdge), 0.0, 1.0);
                 float aa = max(fwidth(vEdge), 1e-3);
                 float alpha = clamp((1.0 - e) / aa, 0.0, 1.0);
+                // Road tiles back from the workshop: green where the mayor clicked,
+                // reddening toward a far supplier. Routes sharing a road are the
+                // same distance out on every shared tile, so they agree on colour
+                // and merge into one line. The stubs take their door's colour.
+                float back = uEnd - vDist;
+                float tiles = clamp(back * uScale, 0.0, uTiles);
+                // A short fade, about a third of a tile, so the band edge stays crisp.
+                float soft = max(fwidth(tiles), 0.15);
+                vec3 base = mix(uColors[0], uColors[1], smoothstep(uOrangeAt - soft, uOrangeAt + soft, tiles));
+                base = mix(base, uColors[2], smoothstep(uRedAt - soft, uRedAt + soft, tiles));
                 float rim = clamp((e - 0.6) / aa, 0.0, 1.0);
-                vec3 col = mix(uColor, uColor * 0.5, rim);
-                // Chevrons, centre ahead of the edges, flowing from supplier to workshop.
-                float phase = fract((vDist + e * 0.18) / 0.8 - uTime);
+                vec3 col = mix(base, base * 0.5, rim);
+                // Chevrons, centre ahead of the edges, flowing toward the workshop.
+                // Counted back from it too, so stacked routes keep them in step.
+                float phase = fract((back - e * 0.18) / 0.8 + uTime);
                 float chev = smoothstep(0.0, 0.06, phase) * (1.0 - smoothstep(0.16, 0.3, phase));
                 col = mix(col, vec3(1.0), chev * 0.5 * (1.0 - rim));
                 gl_FragColor = vec4(col, alpha * uOpacity);
@@ -175,4 +235,14 @@ export function townRouteMaterial(): THREE.ShaderMaterial {
         depthWrite: false,
         side: THREE.DoubleSide
     })
+}
+
+/** Point a route's material at its span of road. */
+export function townRouteSetSpan(mat: THREE.ShaderMaterial, span: TownRouteSpan) {
+    const u = mat.uniforms
+    u.uEnd!.value = span.end
+    u.uScale!.value = span.tiles / Math.max(1e-3, span.end - span.start)
+    u.uTiles!.value = span.tiles
+    u.uOrangeAt!.value = span.fullTiles + 0.5
+    u.uRedAt!.value = townRouteRedFrom(span.fullTiles, span.falloffTiles) + 0.5
 }

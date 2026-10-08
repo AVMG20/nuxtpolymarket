@@ -9,10 +9,10 @@ import { addLandscape, clearLandscape, createCloud, createMeadowTexture } from '
 import { animateTownWater } from '~/utils/town/surfaces'
 import { createTerrainOverlay, createWaterLayer, disposeTerrainOverlay, disposeWaterLayer } from '~/utils/town/terrain'
 import { createRoadParts } from '~/utils/town/roads'
-import { townRouteCurve, townRouteRibbon, townRouteMaterial, type TownRoutePoint } from '~/utils/town/routes'
+import { TOWN_ROUTE_COLORS, townRouteBand, townRouteCurve, townRouteLength, townRouteRibbon, townRouteMaterial, townRouteSetSpan, type TownRoutePoint } from '~/utils/town/routes'
 import { townSceneLevel } from '~/utils/town/appearance'
 import { townDragDelta, townKeyboardDelta, townIsTyping, townWheelZoomFactor, townSnapTurn } from '~/utils/town/camera'
-import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, townFrontTiles, townBuildingSize, townFootprintAnchor, townCovers, townDragLine, TOWN_MAX_DRAG_TILES, TOWN_SUPPLY_MIN_EFFICIENCY, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
+import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, townFrontTiles, townBuildingSize, townFootprintAnchor, townCovers, townDragLine, TOWN_MAX_DRAG_TILES, TOWN_SUPPLY_FULL_TILES, TOWN_SUPPLY_FALLOFF_TILES, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
 import { TOWN_MONUMENT_STAGES, isTownMonumentId } from '#shared/utils/gamelogic/town-monuments'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { createBuildingModel, townMaterial, TOWN_MODEL_VARIANTS } from '~/utils/town/models'
@@ -54,8 +54,6 @@ export interface SceneSupplyRoute {
     producerId: string
     /** Road tiles from the supplier's front door to the consumer's, supplier first. */
     path: { wx: number, wy: number }[]
-    /** Share of the delivery that lands, TOWN_SUPPLY_MIN_EFFICIENCY .. 1 — decides the route's colour. */
-    efficiency: number
     /** The hover label, already worded and formatted by the parent. */
     label: string
 }
@@ -87,6 +85,8 @@ const props = withDefaults(defineProps<{
      * supplier labels its delivery. Empty for anything that hauls nothing in.
      */
     supplyRoutes?: SceneSupplyRoute[]
+    /** Extra road tiles a supplier covers at full rate (monuments), so the route turns orange where the trip really starts costing. */
+    supplyBonusTiles?: number
     /** Why the ghost cannot be placed where it hovers (null = allowed). Computed by the parent from the shared rules. */
     ghostIssue?: string | null
     /** Building being moved: hidden in place while its ghost follows the cursor. */
@@ -130,6 +130,7 @@ const props = withDefaults(defineProps<{
     effectRadii: () => [],
     ghostRadius: null,
     supplyRoutes: () => [],
+    supplyBonusTiles: 0,
     ghostIssue: null,
     movingId: null,
     terrainOverlay: false,
@@ -1551,21 +1552,20 @@ interface RouteVisual {
     /** What the geometry was built from, so it is only rebuilt when the road or an end moves. */
     path: SceneSupplyRoute['path'] | null
     ends: string
+    /** Distance along the line at the supplier's door and at the workshop's. */
+    start: number
+    end: number
 }
 const routeVisuals: RouteVisual[] = []
 
-const ROUTE_POOR = new THREE.Color(0xe74c3c)
-const ROUTE_FULL = new THREE.Color(0x2ecc71)
+const ROUTE_COLORS = TOWN_ROUTE_COLORS.map(c => new THREE.Color(c))
 
 /**
- * Green where the whole delivery lands, through amber, to red at the floor —
- * the same reading as the supply meter in the panel, so the map and the
- * numbers never tell different stories.
+ * Green while the whole delivery still lands, orange once the trip starts
+ * costing, red for the long haul: the band the line reaches at this supplier.
  */
-function routeColor(efficiency: number, target: THREE.Color): THREE.Color {
-    const span = 1 - TOWN_SUPPLY_MIN_EFFICIENCY
-    const t = Math.max(0, Math.min(1, (efficiency - TOWN_SUPPLY_MIN_EFFICIENCY) / span))
-    return target.copy(ROUTE_POOR).lerp(ROUTE_FULL, t)
+function routeColor(tiles: number): THREE.Color {
+    return ROUTE_COLORS[townRouteBand(tiles, TOWN_SUPPLY_FULL_TILES + props.supplyBonusTiles, TOWN_SUPPLY_FALLOFF_TILES)]!
 }
 
 /** From a door tile's centre one step toward its building, along whichever axis it faces. */
@@ -1579,11 +1579,14 @@ function routeStub(tile: TownRoutePoint, e: BuildingEntry | undefined): TownRout
         : { x: tile.x, z: tile.z + Math.sign(dz) * ROUTE_STUB }
 }
 
-function routeLine(path: SceneSupplyRoute['path'], producer: BuildingEntry | undefined, consumer: BuildingEntry | undefined): TownRoutePoint[] {
+/** The line door to door, and where along it each door sits. */
+function routeLine(path: SceneSupplyRoute['path'], producer: BuildingEntry | undefined, consumer: BuildingEntry | undefined) {
     const tiles = path.map(t => ({ x: t.wx + 0.5, z: t.wy + 0.5 }))
     const from = routeStub(tiles[0]!, producer)
     const to = routeStub(tiles[tiles.length - 1]!, consumer)
-    return [...(from ? [from] : []), ...tiles, ...(to ? [to] : [])]
+    const line = townRouteCurve([...(from ? [from] : []), ...tiles, ...(to ? [to] : [])])
+    const length = townRouteLength(line)
+    return { line, start: from ? ROUTE_STUB : 0, end: length - (to ? ROUTE_STUB : 0) }
 }
 
 function syncSupplyRoutes(ms: number) {
@@ -1593,7 +1596,7 @@ function syncSupplyRoutes(ms: number) {
     routes.forEach((r, i) => {
         let v = routeVisuals[i]
         if (!v) {
-            v = { mesh: new THREE.Mesh(new THREE.BufferGeometry(), townRouteMaterial()), path: null, ends: '' }
+            v = { mesh: new THREE.Mesh(new THREE.BufferGeometry(), townRouteMaterial()), path: null, ends: '', start: 0, end: 0 }
             v.mesh.renderOrder = 2
             supplyGroup.add(v.mesh)
             routeVisuals.push(v)
@@ -1604,11 +1607,19 @@ function syncSupplyRoutes(ms: number) {
         const ends = `${producer?.group.position.x},${producer?.group.position.z};${consumer?.group.position.x},${consumer?.group.position.z}`
         if (v.path !== r.path || v.ends !== ends) {
             v.mesh.geometry.dispose()
-            v.mesh.geometry = r.path.length ? townRouteRibbon(townRouteCurve(routeLine(r.path, producer, consumer)), ROUTE_HALF_WIDTH, ROUTE_Y) : new THREE.BufferGeometry()
+            if (r.path.length) {
+                const { line, start, end } = routeLine(r.path, producer, consumer)
+                v.mesh.geometry = townRouteRibbon(line, ROUTE_HALF_WIDTH, ROUTE_Y)
+                v.start = start
+                v.end = end
+            } else {
+                v.mesh.geometry = new THREE.BufferGeometry()
+            }
             v.path = r.path
             v.ends = ends
         }
-        routeColor(r.efficiency, v.mesh.material.uniforms.uColor!.value as THREE.Color)
+        // The path lists both doors, so the trip is one tile shorter than it.
+        townRouteSetSpan(v.mesh.material, { start: v.start, end: v.end, tiles: Math.max(0, r.path.length - 1), fullTiles: TOWN_SUPPLY_FULL_TILES + props.supplyBonusTiles, falloffTiles: TOWN_SUPPLY_FALLOFF_TILES })
         v.mesh.material.uniforms.uTime!.value = time
         v.mesh.visible = true
     })
@@ -1625,7 +1636,6 @@ interface SupplierGhost {
     mats: { mat: THREE.MeshStandardMaterial, base: THREE.Color }[]
 }
 const supplierGhosts = new Map<string, SupplierGhost>()
-const ghostColor = new THREE.Color()
 
 function ghostSupplier(e: BuildingEntry): SupplierGhost {
     const g: SupplierGhost = { model: e.model, swaps: [], mats: [] }
@@ -1678,10 +1688,10 @@ function syncSupplierGhosts(ms: number) {
             // Two goods from one supplier: the first route's colour wins.
             continue
         }
-        routeColor(r.efficiency, ghostColor)
+        const color = routeColor(Math.max(0, r.path.length - 1))
         for (const { mat, base } of g.mats) {
-            mat.color.copy(base).lerp(ghostColor, 0.45)
-            mat.emissive.copy(ghostColor)
+            mat.color.copy(base).lerp(color, 0.45)
+            mat.emissive.copy(color)
             mat.emissiveIntensity = 0.5 + pulse
         }
     }

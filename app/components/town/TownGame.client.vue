@@ -1084,7 +1084,7 @@ const supplyRoutes = computed(() => {
     const links = selSupply.value?.links
     const sel = selectedBuilding.value
     if (!links?.length || !sel) return []
-    const out: { producerId: string, path: { wx: number, wy: number }[], efficiency: number, label: string }[] = []
+    const out: { producerId: string, path: { wx: number, wy: number }[], label: string }[] = []
     for (const link of links) {
         const path = townSupplyPath(simBuildings.value, link.producerId, sel.id, town.serverNow())
         // No path means the layout moved under a state response still in
@@ -1105,7 +1105,6 @@ const supplyRoutes = computed(() => {
         out.push({
             producerId: link.producerId,
             path,
-            efficiency: link.efficiency,
             label: pct >= 100
                 ? `${name} · ${stops} · ${sent}${per}, all of it arrives`
                 : `${name} · ${stops} · ${sent}${per} sent, ${lands}${per} arrives (${pct}%)`
@@ -1892,6 +1891,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             :neighbours="town.world.value.towns"
             :effect-radii="effectRadii"
             :supply-routes="supplyRoutes"
+            :supply-bonus-tiles="town.state.value?.monumentBonus?.supplyTiles ?? 0"
             :ghost-radius="ghostRadius"
             :ghost-issue="ghostIssue"
             :moving-id="movingId"

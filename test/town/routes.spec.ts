@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { townRouteCurve, townRouteRibbon } from '../../app/utils/town/routes'
+import { townRouteBand, townRouteCurve, townRouteRibbon } from '../../app/utils/town/routes'
 
 describe('Polytown supply route line', () => {
     it('collapses a straight run to its two ends', () => {
@@ -36,5 +36,20 @@ describe('Polytown supply route line', () => {
     })
     it('draws nothing for a single point', () => {
         expect(townRouteRibbon([{ x: 0, z: 0 }], 0.1, 0).getAttribute('position')).toBeUndefined()
+    })
+})
+
+describe('Polytown supply route bands', () => {
+    it('stays green through full range, then orange, then red', () => {
+        const bands = Array.from({ length: 14 }, (_, tiles) => townRouteBand(tiles, 4, 16))
+        expect(bands).toEqual([0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 2, 2, 2])
+    })
+    it('pushes the green stretch out with a monument bonus', () => {
+        expect(townRouteBand(6, 6, 16)).toBe(0)
+        expect(townRouteBand(7, 6, 16)).toBe(1)
+    })
+    it('always leaves at least one orange tile', () => {
+        expect(townRouteBand(16, 15, 16)).toBe(1)
+        expect(townRouteBand(17, 15, 16)).toBe(2)
     })
 })
