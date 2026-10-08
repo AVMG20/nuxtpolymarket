@@ -25,6 +25,7 @@ import {
     RAID_FORGE_PWR_MULT,
     RAID_FORGE_STAGES_PER_LEVEL,
     RAID_RAMPAGE_CAP_SECONDS,
+    RAID_RAMPAGE_CLOCK_GROWTH,
     RAID_RAMPAGE_DMG_MULT,
     RAID_RAMPAGE_POWER_MULT,
     RAID_RAMPAGE_STAGES_PER_LEVEL,
@@ -266,7 +267,7 @@ export function runRampageFight(hero: HeroSnapshot, position: RunPosition, seed:
         encounter: {
             pack: { members: [rampageStats(1)] },
             seconds: RAID_RAMPAGE_CAP_SECONDS,
-            rampage: { thresholdAt: rampageThreshold, statsAt: rampageStats }
+            rampage: { thresholdAt: rampageThreshold, statsAt: rampageStats, clockGrowth: RAID_RAMPAGE_CLOCK_GROWTH }
         }
     })
 }

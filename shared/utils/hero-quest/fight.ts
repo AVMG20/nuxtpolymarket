@@ -155,12 +155,15 @@ export interface Encounter {
  * A boss that can't die (the `rampaging_boss` fight type, `raid-system.md` *Rampaging Boss*). Its
  * HP is a gauge: emptied, it goes a level up, refilled to `thresholdAt(level)` less the overkill,
  * and its stats become `statsAt(level)`. The pack's one member starts at level 1, its HP being
- * `thresholdAt(1)`. The fight only ends when the party falls, or at the encounter's seconds, which
- * are a guard rail rather than a clock.
+ * `thresholdAt(1)`. A hidden clock grows its PWR on top: `clockGrowth` per second, its bonus over 1
+ * multiplied by the level, so a party that can neither fill the gauge nor fall still falls, and
+ * faster the further it has pushed the Beast. The fight only ends when the
+ * party falls, or at the encounter's seconds, which are a guard rail rather than a clock.
  */
 export interface Rampage {
     thresholdAt: (level: number) => Decimal
     statsAt: (level: number) => EnemyStats
+    clockGrowth: number
 }
 
 /**
@@ -753,8 +756,10 @@ export function runFight(input: FightInput): FightResult {
             // enemy's swing picks up the MIN_DAMAGE floor exactly as the party's does. Live
             // stats on both sides: Weaken lowers the attacker's PWR, Bulwark Stance raises the
             // defender's DEF, and Enrage's penalty lowers the Berserker's own.
+            // a rampaging boss's swing also carries its hidden clock, its bonus times the level it has reached
+            const rage = rampage && foe.level > 0 ? 1 + (Math.pow(rampage.clockGrowth, elapsed) - 1) * foe.level : 1
             const raw = rawHitDamage(
-                liveEnemyStats(foe.stats, foe.statuses).pwr,
+                liveEnemyStats(foe.stats, foe.statuses).pwr.mul(rage),
                 liveUnitStats(target.stats, target.statuses).def
             )
             // Shields eat what mitigation left, never the raw hit — see `absorbDamage`.

@@ -1038,13 +1038,16 @@ export const RAID_FORGE_HANDOFF_SECONDS = 2.5 // UNTUNED ╧
  */
 export const RAID_RAMPAGE_STAGES_PER_LEVEL = STAGES_PER_WORLD
 /**
- * Measured as a pair on the campaign walk (party of three, 2026-10-05): a party that has cleared
- * world w reaches level w+1 (w+2 from world 6), its run over in 22–60 s. The power has to be well
- * over the curve's: at ×1 (gauge ×0.3) a party stalled a level or two up, neither filling the gauge
- * nor falling, and ran into the guard rail; at ×8 runs took 40–110 s.
+ * Measured as a set with the hidden clock on the campaign walk (party of three, 2026-10-05): a party
+ * that has cleared world w reaches level w+1 in every world, its run over in 24–31 s. Scaling the
+ * clock's bonus by the level (the user's call) is what holds it at w+1; flat, it crept to w+2 from
+ * world 5 and runs took 34–53 s. Without the clock the power had to be ×20, or a party stalled a level or two up, neither
+ * filling the gauge nor falling; the clock is what ends a stalled run now, so the power can sit at ×3.
  */
 export const RAID_RAMPAGE_DMG_MULT = 0.15 // TUNED ✓
-export const RAID_RAMPAGE_POWER_MULT = 20 // TUNED ✓
+export const RAID_RAMPAGE_POWER_MULT = 3 // TUNED ✓
+/** The Beast's hidden clock: its PWR gains (this^seconds − 1) × its level, on top of its level's. Never shown. */
+export const RAID_RAMPAGE_CLOCK_GROWTH = 1.06 // TUNED ✓
 /** The guard rail on a run (§7: no player-facing timer): a party that never falls stops here. */
 export const RAID_RAMPAGE_CAP_SECONDS = 300
 
