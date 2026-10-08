@@ -1504,8 +1504,12 @@ export function townSupply(
             }
         }
         // Closest pair first: the near sawmill takes the near camp, and what is
-        // left over spills to whoever is next closest.
-        pairs.sort((a, b) => a.tiles - b.tiles)
+        // left over spills to whoever is next closest. Between suppliers the
+        // same distance out, the bigger one goes first, so a workshop one camp
+        // can feed alone is fed by that camp instead of split by database order
+        // (which is how an upgraded camp used to leave its old partner in use).
+        const capacity = new Map(producers.map(p => [p.id, p.left]))
+        pairs.sort((a, b) => a.tiles - b.tiles || capacity.get(b.p.id)! - capacity.get(a.p.id)!)
         for (const { c, p, tiles } of pairs) {
             if (c.left <= 0 || p.left <= 0) continue
             const take = Math.min(c.left, p.left)

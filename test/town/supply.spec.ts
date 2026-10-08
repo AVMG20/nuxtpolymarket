@@ -758,6 +758,35 @@ describe('townSupply links', () => {
         expect(supply.get('far')!.links).toEqual([])
     })
 
+    it('takes everything from one supplier that can cover it, over an equally near smaller one', () => {
+        // Both farms stand one tile from the mill's door. The small one comes
+        // first in the list, which used to decide the tie and split the order.
+        const wheatPerFarm = FARM.outputs.wheat!
+        const levelsNeeded = MILL.inputs.wheat! / wheatPerFarm
+        const buildings = [
+            ...street(0, 4),
+            shop('small', 'farm', 1),
+            shop('mill', 'mill', 2),
+            shop('big', 'farm', 3, { level: levelsNeeded })
+        ]
+        expect(supplyOf(buildings).get('mill')!.links.map(l => l.producerId)).toEqual(['big'])
+    })
+
+    it('drops the second supplier once an upgrade lets the first cover the order alone', () => {
+        const levelsNeeded = MILL.inputs.wheat! / FARM.outputs.wheat!
+        const town = (big: Partial<TownSimBuilding>) => [
+            ...street(0, 4),
+            shop('small', 'farm', 1),
+            shop('mill', 'mill', 2),
+            shop('big', 'farm', 3, big)
+        ]
+        const producers = (b: TownSimBuilding[]) => supplyOf(b).get('mill')!.links.map(l => l.producerId).sort()
+        // Still building: the farm runs at its old level and both are needed.
+        expect(producers(town({ level: 1, upgradingTo: levelsNeeded, completesAt: T0 + 60_000 }))).toEqual(['big', 'small'])
+        // Finished, even before a settle has written the new level down.
+        expect(producers(town({ level: 1, upgradingTo: levelsNeeded, completesAt: T0 - 1_000 }))).toEqual(['big'])
+    })
+
     it('reports no links for a workshop that hauls nothing in', () => {
         const buildings = [...street(0, 1), shop('camp', 'lumber', 0)]
         expect(supplyOf(buildings).get('camp')!.links).toEqual([])
