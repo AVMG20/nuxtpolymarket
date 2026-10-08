@@ -116,6 +116,14 @@ describe('RunDirector', () => {
         expect(r.due()).toBe(0)
     })
 
+    it('carries what the screen still owes a cleared stage, not the pack standing', () => {
+        const r = director({ killsFloat: 26.4 })
+        // the stage clears while a fresh pack of six marches in: four of the old stage's kills are still to show
+        r.sync({ ...FEED, stage: 4, killsFloat: 0.3 }, 6)
+        expect(r.visible()).toEqual({ kills: 26, required: 30 })
+        expect(r.due()).toBe(4)
+    })
+
     it('drops a boss and its escort without numbers once their fight is won', () => {
         const r = director({ stage: 5, archetype: 'boss', atBossGate: true, packSize: 3 })
         expect(r.due()).toBe(0)
@@ -137,12 +145,19 @@ describe('RunDirector', () => {
         expect(r.due()).toBe(0)
     })
 
-    it('rebuilds rather than replays a jump: a new world, stages skipped, a pack ahead', () => {
+    it('rebuilds rather than replays a jump: a new world, stages skipped, two packs ahead', () => {
         expect(director().sync({ ...FEED, world: 3 }, 6)).toBe('reset')
         expect(director().sync({ ...FEED, stage: 6 }, 6)).toBe('reset')
         const r = director()
         expect(r.sync({ ...FEED, killsFloat: 20 }, 6)).toBe('reset')
         expect(r.due()).toBe(0)
+    })
+
+    it('owes the kills a march at the kill floor falls behind by, rather than skipping them', () => {
+        const r = director()
+        expect(r.sync({ ...FEED, killsFloat: 9.4 }, 6)).toBe('same')
+        expect(r.due()).toBe(9)
+        expect(r.visible().kills).toBe(0)
     })
 })
 
@@ -168,8 +183,8 @@ describe('the stage progress the screen shows', () => {
     it('stays on the cleared stage while its last bodies are still going down', () => {
         const r = director({ killsFloat: 29.5 })
         expect(r.sync({ ...FEED, stage: FEED.stage + 1, killsFloat: 0.2 }, 2)).toBe('advance')
-        expect(r.visible()).toEqual({ kills: 28, required: 30 })
-        r.finish()
+        // 29 shown, so one body is the old stage's; the other standing is the new stage's
+        expect(r.visible()).toEqual({ kills: 29, required: 30 })
         r.finish()
         expect(r.visible()).toEqual({ kills: 0, required: 30 })
     })

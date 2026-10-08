@@ -64,6 +64,11 @@ export type FeedChange =
 const FIRST_HITS_PER_SECOND = 2
 /** How fast the measured hit rate follows the stage (share per second). */
 const RATE_FOLLOW = 0.3
+/**
+ * How many packs the run may get ahead of the stage before the stage gives up on showing the
+ * kills and resets: the kills owed after a march at the kill floor are swept (`cleave`), not skipped.
+ */
+const RUN_AHEAD_PACKS = 2
 /** A body is never brought below this share of its HP before its kill: the last blow has to have something to take. */
 const LAST_BLOW_SHARE = 0.1
 
@@ -121,8 +126,9 @@ export class RunDirector {
         if (was.stage !== feed.stage) {
             // one stage on is the run clearing it; anything further is a jump to rebuild from
             if (feed.stage !== was.stage + 1) return this.restart(kills, 'reset')
-            // the last body of a stage drops as the counter rolls over, so it goes down under the new one
-            this.carry = standing
+            // the stage's last bodies drop as the counter rolls over, so they go down under the new one:
+            // as many as the screen still owes it, not as many as stand, or a pack marching in would count as kills
+            this.carry = was.atBossGate ? standing : this.carry + Math.max(0, was.killsRequired - this.shown)
             this.carryHp = was.atBossGate ? null : was.enemyHp
             this.carryRequired = was.killsRequired
             this.shown = 0
@@ -132,8 +138,8 @@ export class RunDirector {
         const back = was.killsFloat - feed.killsFloat
         if (feed.walled && back > 0.5) return this.restart(kills, 'wipe')
         if (back > 1) return this.restart(kills, 'reset')
-        // far ahead of the stage, as after a tab sat hidden: no point dropping a whole pack at once
-        if (kills - this.shown > Math.max(1, feed.packSize)) return this.restart(kills, 'reset')
+        // far ahead of the stage, as after a tab sat hidden; a march at the kill floor alone owes about a pack
+        if (kills - this.shown > Math.max(1, feed.packSize) * RUN_AHEAD_PACKS) return this.restart(kills, 'reset')
         return 'same'
     }
 

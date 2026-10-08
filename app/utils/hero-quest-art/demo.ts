@@ -2103,19 +2103,42 @@ export class BattleDemo {
         this.dueFor += dt
         const tgt = this.target(0)
         if (tgt && !this.march && this.dueFor >= RUN_FORCE_AFTER && this.forceGap <= 0) {
-            this.lastBlow(tgt, false)
+            this.cleave(tgt, false)
             this.forceGap = Math.max(RUN_CATCH_UP_GAP, (r.feed?.secondsPerKill ?? 0) * RUN_CATCH_UP_SHARE)
         }
     }
 
+    /** The run has kills the stage has yet to show: it saves the pauses it can between packs. */
+    private behind(): boolean {
+        return this.run !== null && this.run.due() > 0
+    }
+
+    /**
+     * The blow that lands the kills owed: the front body, and the ones behind it while more are
+     * due. A party the march has left behind the run sweeps the pack rather than the run jumping
+     * ahead of it, so the counter only ever moves by bodies that fell. A sweep shatters its bodies
+     * on the blow instead of letting them play their fall, which buys back the time it fell behind by.
+     */
+    private cleave(first: Unit, crit: boolean): void {
+        let owed = this.run!.due()
+        const sweep = owed > 1
+        this.lastBlow(first, crit, sweep)
+        while (--owed > 0) {
+            const next = this.target(0)
+            if (!next) return
+            this.lastBlow(next, false, sweep)
+        }
+    }
+
     /** The blow that drops the front body: what HP it had left, and the kill. */
-    private lastBlow(tgt: Unit, crit: boolean): void {
+    private lastBlow(tgt: Unit, crit: boolean, sweep = false): void {
         const text = this.run!.finish()
         const y = tgt.y - tgt.chest
         if (text) this.number(tgt.x, y - 8, crit ? 'crit' : 'normal', false, crit ? `${text}!` : text)
         this.particles.burst(tgt.x - 4, y, crit ? 14 : 8, crit ? 70 : 45, 0.5, 'spark', 120, tgt.y)
         this.dueFor = 0
         this.kill(tgt)
+        if (sweep && !tgt.boss) this.shatter(tgt, tgt.frames[U.Death]!, tgt.frames[U.Death]!.frames[0]!)
     }
 
     /**
@@ -2143,7 +2166,7 @@ export class BattleDemo {
         if (melee) u.hold = hold
         if (crit && u === this.units[0]) this.shake(JUICE.crit.shake, JUICE.crit.shakeFor)
         if (r.due() > 0) {
-            this.lastBlow(tgt, crit)
+            this.cleave(tgt, crit)
             return
         }
         const text = r.hit(crit)
@@ -2444,7 +2467,8 @@ export class BattleDemo {
         this.particles.burst(tgt.x, tgt.y - 10, 18, 40, 0.8, 'dust', 60, tgt.y)
         let left = 0
         for (let k = 0; k < this.units.length; k++) if (standing(this.units[k]!)) left++
-        const j = tgt.boss ? JUICE.bossDown : left === 0 ? JUICE.waveEnd : null
+        // a run already ahead of the stage gets no wave-end slow-mo: it would only fall further behind
+        const j = tgt.boss ? JUICE.bossDown : left === 0 && !this.behind() ? JUICE.waveEnd : null
         if (j) {
             this.stopFor(j.freeze, true)
             this.shake(j.shake, j.shakeFor)
@@ -2808,7 +2832,7 @@ export class BattleDemo {
             // a won fight leaves the field empty until the run says where it went; a fallen party waits to get up, and one leaving the World walks on
             if (foes === 0 && !this.replay && this.wipeT <= 0 && !this.exit && !this.iris?.swap) {
                 this.waveTimer += dt
-                if (this.waveTimer > (this.run ? RUN_WAVE_GAP : 0.7)) { this.waveTimer = 0; this.nextWave() }
+                if (this.waveTimer > (this.run ? (this.behind() ? 0 : RUN_WAVE_GAP) : 0.7)) { this.waveTimer = 0; this.nextWave() }
             }
         }
         for (let i = 0; i < this.fx.length; i++) {
