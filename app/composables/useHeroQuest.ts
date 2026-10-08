@@ -80,6 +80,8 @@ export const useHeroQuest = () => {
     const battleSpeed = computed(() => state.value?.battleSpeed ?? null)
     /** Every raid: open or not, its Keys, when more come, its best and what that pays. */
     const raids = computed(() => state.value?.raids ?? [])
+    /** The login calendar: every day's reward as of now, which are claimed, and the make-ups. */
+    const calendar = computed(() => state.value?.calendar ?? null)
     /** The Settings scene's choices, defaults filled in by the server. */
     const settings = computed(() => state.value?.settings ?? null)
     const voidShards = computed(() => state.value?.voidShards ?? '0')
@@ -202,6 +204,17 @@ export const useHeroQuest = () => {
 
     async function setSetting(key: HqSettingKey, value: boolean) {
         return call('/api/hero-quest/settings/set', { key, value }, '')
+    }
+
+    /**
+     * Claim today's calendar reward, or with `makeup` the oldest missed day's. A day of Gold or Gems
+     * moves a platform balance the response doesn't carry, so the session is read back for those;
+     * it happens at most a few times a day.
+     */
+    async function claimCalendar(makeup: boolean) {
+        const res = await call<{ day: number, kind: string, amount: string }>('/api/hero-quest/calendar/claim', { makeup }, '')
+        if (res?.kind === 'gold' || res?.kind === 'gems') await fetchSession()
+        return res
     }
 
     /** Buy a Battle Speed block. Gems have no setter of their own, so the session is read back. */
@@ -384,6 +397,7 @@ export const useHeroQuest = () => {
         classToken,
         battleSpeed,
         raids,
+        calendar,
         settings,
         voidShards,
         nextPrestigeReward,
@@ -399,6 +413,7 @@ export const useHeroQuest = () => {
         buyUpgrade,
         buyBattleSpeed,
         setSetting,
+        claimCalendar,
         engageRaid,
         quickClearRaid,
         pull,

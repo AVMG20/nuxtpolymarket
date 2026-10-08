@@ -10,6 +10,7 @@ import type { ClassesScene, ClassesView } from '~/utils/hero-quest-art/classes-s
 import type { SpeedBlock, SpeedScene, SpeedView } from '~/utils/hero-quest-art/speed-scene'
 import type { GachaButton, GachaHover, GachaScene, GachaSystemId, GachaView } from '~/utils/hero-quest-art/gacha-scene'
 import type { SettingsScene, SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
+import type { CalendarScene, CalendarTarget, CalendarView } from '~/utils/hero-quest-art/calendar-scene'
 import type { RaidRewardView, RaidRowView, RaidsHover, RaidsScene, RaidsView } from '~/utils/hero-quest-art/raids-scene'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
@@ -57,9 +58,9 @@ const props = defineProps<{
         stats: { critChance: number, critMultiplier: string }
         /** The HP share `useHqLiveRun` keeps from rising mid-attempt; the readout's own when absent. */
         hpPct?: number
-    }
         /** The payload's power, for the profile badge's GPN. */
         power?: { gpn: string }
+    }
     party: Omit<RunParty, 'classId'>
     fight?: StageFight | null
     /** Battle Speed in force now; a fight plays at its own speed from engage instead. */
@@ -106,6 +107,10 @@ const props = defineProps<{
     settings?: SettingsView
     /** A setting change is on its way. */
     settingsBusy?: boolean
+    /** The Calendar scene: every day's reward and state, and the make-ups. */
+    calendar?: CalendarView
+    /** A calendar claim is on its way. */
+    calendarBusy?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -140,6 +145,8 @@ const emit = defineEmits<{
     raidQuick: [raidId: RaidId]
     /** The reward popup's button was pressed. */
     raidRewardClose: []
+    /** Today's calendar cell, or the make-up button, was pressed. */
+    claimCalendar: [makeup: boolean]
 }>()
 
 const wrap = ref<HTMLDivElement | null>(null)
@@ -175,6 +182,8 @@ let settingsScene: SettingsScene | null = null
 let settingsHit: typeof import('~/utils/hero-quest-art/settings-scene') | null = null
 let raidsScene: RaidsScene | null = null
 let raidsHit: typeof import('~/utils/hero-quest-art/raids-scene') | null = null
+let calendarScene: CalendarScene | null = null
+let calendarHit: typeof import('~/utils/hero-quest-art/calendar-scene') | null = null
 /** The stage's clock, for the scene that times its own animation (the gacha reveal). */
 let sceneTime = 0
 let band: typeof import('~/utils/hero-quest-art/menu-band') | null = null
@@ -313,7 +322,7 @@ defineExpose({ skipFight, closeIris })
  */
 type Target = 'challenge' | HqMenuScene | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | `speed:${number}:${number}`
-    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${RaidId | 'enter' | 'quick'}` | 'reward:ok'
+    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${RaidId | 'enter' | 'quick'}` | 'reward:ok' | `cal:${CalendarTarget}`
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
@@ -456,6 +465,13 @@ function targetAt(e: PointerEvent): Target | null {
         const banner = props.gacha.banners.find(b => b.system === at.system)
         return banner && !props.gachaBusy && gachaHit.gachaButtonEnabled(banner, at.part) ? `gacha:${at.system}:${at.part}` : null
     }
+    if (openScene.value === 'calendar' && calendarHit && props.calendar) {
+        const at = calendarHit.calendarTargetAt(props.calendar, presenter.w, x, y)
+        // the make-up button is no target with nothing to make up; a day is pointed at for what it pays
+        if (at === 'makeup') return !props.calendarBusy && calendarHit.calendarMakeupEnabled(props.calendar) ? 'cal:makeup' : null
+        if (at === 'claim') return props.calendarBusy ? null : 'cal:claim'
+        return at ? `cal:${at}` : null
+    }
     if (openScene.value === 'speed' && speedHit && props.speedView) {
         const block = speedHit.speedBlockAt(props.speedView, x, y)
         // a block that cannot be bought (too dear, or another speed running) is no target
@@ -565,6 +581,9 @@ function onPointerUp(e: PointerEvent) {
     }
     else if (hit.startsWith('setting:')) emit('setting', hit.slice(8) as SettingsTarget)
     else if (hit === 'reward:ok') emit('raidRewardClose')
+    else if (hit === 'cal:claim' || hit === 'cal:makeup') emit('claimCalendar', hit === 'cal:makeup')
+    // a day other than today is only pointed at, for what it pays
+    else if (hit.startsWith('cal:')) return
     else if (hit.startsWith('raid:')) {
         const id = hit.slice(5) as RaidId | 'enter' | 'quick'
         if (id === 'enter') emit('raidEnter', raidSelected.value)
@@ -632,7 +651,7 @@ const collectionsHover = computed<CollectionsHover>(() => {
 const pointer = computed(() => {
     const h = hover.value
     if (!h) return false
-    if (h.endsWith(':emblem')) return false
+    if (h.endsWith(':emblem') || h.startsWith('cal:day:')) return false
     if (!h.startsWith('class:')) return true
     const node = props.classes?.classes.find(c => c.id === h.slice(6))
     return !!node?.pickable && !node.current
@@ -659,6 +678,9 @@ const raidSelected = ref<RaidId>('raid_training_grounds')
 const raidsView = computed<RaidsView>(() => ({ selected: raidSelected.value, raids: props.raids ?? [], busy: !!props.raidsBusy }))
 const raidsHover = computed<RaidsHover>(() => hover.value?.startsWith('raid:') ? hover.value.slice(5) as RaidsHover : null)
 const settingsHover = computed<SettingsTarget | null>(() => hover.value?.startsWith('setting:') ? hover.value.slice(8) as SettingsTarget : null)
+const calendarHover = computed<CalendarTarget | null>(() => hover.value?.startsWith('cal:') ? hover.value.slice(4) as CalendarTarget : null)
+/** The band's red dots: today's calendar reward is waiting. */
+const bandAlerts = computed<ReadonlySet<HqMenuScene>>(() => new Set<HqMenuScene>(props.calendar?.days[props.calendar.today]?.state === 'today' ? ['calendar'] : []))
 const speedHover = computed<SpeedBlock | null>(() => {
     const h = hover.value
     if (!h?.startsWith('speed:')) return null
@@ -675,7 +697,7 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
@@ -686,7 +708,8 @@ onMounted(async () => {
         import('~/utils/hero-quest-art/speed-scene'),
         import('~/utils/hero-quest-art/gacha-scene'),
         import('~/utils/hero-quest-art/settings-scene'),
-        import('~/utils/hero-quest-art/raids-scene')
+        import('~/utils/hero-quest-art/raids-scene'),
+        import('~/utils/hero-quest-art/calendar-scene')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -709,6 +732,8 @@ onMounted(async () => {
     settingsHit = settingsArt
     raidsScene = new raidsArt.RaidsScene(backdrops)
     raidsHit = raidsArt
+    calendarScene = new calendarArt.CalendarScene(backdrops)
+    calendarHit = calendarArt
     stage = new BattleDemo()
     build()
     if (intro) {
@@ -751,11 +776,13 @@ onMounted(async () => {
                                 ? gachaScene!.render(t, props.gacha ?? { banners: [], gold: '0', reveal: null, armed: null }, gachaHover.value, pressed.value, !!props.gachaBusy)
                                 : scene === 'raids'
                                     ? raidsScene!.render(t, raidsView.value, raidsHover.value, pressed.value)
+                                    : scene === 'calendar'
+                                    ? calendarScene!.render(t, props.calendar ?? { today: 0, days: [], makeupsLeft: 0, makeupsPerCycle: 0, makeupDay: null, nextDayIn: '', cycleDaysLeft: 0 }, calendarHover.value, pressed.value, !!props.calendarBusy)
                                     : scene === 'settings'
                                     ? settingsScene!.render(t, props.settings ?? { settings: { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false }, settingsHover.value, pressed.value, !!props.settingsBusy, settingsScroll.value)
                                     : speedScene!.render(t, props.speedView ?? { multiplier: 1, left: null, gems: '0', gemCount: 0, offlineEfficiency: 1, tiers: [] }, speedHover.value, pressed.value, !!props.speedBusy)
         if (props.raidReward && raidsHit) raidsHit.drawRaidReward(view, props.raidReward, hover.value === 'reward:ok', pressed.value)
-        presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value, !!props.raidRound))
+        presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value, !!props.raidRound, bandAlerts.value))
     })
     observer = new ResizeObserver(fit)
     observer.observe(wrap.value!)

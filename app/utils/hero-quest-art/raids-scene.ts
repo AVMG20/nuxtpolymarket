@@ -53,7 +53,7 @@ const BOSS: Readonly<Record<RaidId, CreatureDef>> = {
 /** Px a portrait raises its boss in the frame, for a body whose top alone would leave it sitting low. */
 const LIFT: Readonly<Partial<Record<RaidId, number>>> = { raid_dig_site: 18, raid_trait: 18 }
 
-const KEY_ICON: Readonly<Record<RaidId, string>> = {
+export const KEY_ICON: Readonly<Record<RaidId, string>> = {
     raid_guild: 'key_guild',
     raid_training_grounds: 'key_training_grounds',
     raid_dig_site: 'key_dig_site',

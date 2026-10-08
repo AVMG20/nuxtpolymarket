@@ -1077,6 +1077,66 @@ export const RAID_RAMPAGE_CLOCK_GROWTH = 1.06 // TUNED ✓
 /** The guard rail on a run (§7: no player-facing timer): a party that never falls stops here. */
 export const RAID_RAMPAGE_CAP_SECONDS = 300
 
+// ── Login calendar ─────────────────────────────────  idea-backlog.md item 12
+//
+// A fixed 30-day calendar, the same every cycle, run on real UTC days rather than days logged in.
+// Each account's cycle starts on the day of its first claim and starts over every 30 days.
+
+export const CALENDAR_DAYS = 30
+/** Missed days a cycle lets the player claim late, always the oldest missed one first. */
+export const CALENDAR_MAKEUPS_PER_CYCLE = 3
+
+/**
+ * What a calendar day pays. `amount` is minutes of current income for Gold (`gold-economy.md` §6:
+ * every flat-Gold grant is a duration of income) and a plain count for everything else, Void Shards
+ * included. Seals and Keys name the gacha or raid they are for.
+ */
+export type CalendarReward =
+    | { kind: 'gold', amount: number }
+    | { kind: 'gems', amount: number }
+    | { kind: 'trait_gems', amount: number }
+    | { kind: 'void_shards', amount: number }
+    | { kind: 'seals', system: 'gear' | 'champion' | 'skill' | 'artifact', amount: number }
+    | { kind: 'keys', raid: 'raid_guild' | 'raid_training_grounds' | 'raid_dig_site' | 'raid_forge' | 'raid_trait', amount: number }
+
+/**
+ * Day 1 first. Small early days, and each currency pays more every time it comes round, so the
+ * cycle climbs steadily to its end (the user's calls, 2026-10-08: no milestone days, an even 200
+ * Void Shards on day 30). Every amount but day 30's is a placeholder.
+ */
+export const CALENDAR_REWARDS: readonly CalendarReward[] = [ // UNTUNED ╧
+    { kind: 'gold', amount: 10 },
+    { kind: 'seals', system: 'champion', amount: 1 },
+    { kind: 'keys', raid: 'raid_guild', amount: 1 },
+    { kind: 'gold', amount: 15 },
+    { kind: 'trait_gems', amount: 5 },
+    { kind: 'seals', system: 'gear', amount: 1 },
+    { kind: 'gems', amount: 25 },
+    { kind: 'gold', amount: 20 },
+    { kind: 'keys', raid: 'raid_training_grounds', amount: 1 },
+    { kind: 'seals', system: 'skill', amount: 2 },
+    { kind: 'trait_gems', amount: 10 },
+    { kind: 'gold', amount: 30 },
+    { kind: 'seals', system: 'artifact', amount: 2 },
+    { kind: 'seals', system: 'champion', amount: 3 },
+    { kind: 'gold', amount: 45 },
+    { kind: 'keys', raid: 'raid_dig_site', amount: 2 },
+    { kind: 'seals', system: 'gear', amount: 3 },
+    { kind: 'trait_gems', amount: 15 },
+    { kind: 'gold', amount: 60 },
+    { kind: 'keys', raid: 'raid_forge', amount: 2 },
+    { kind: 'gems', amount: 50 },
+    { kind: 'gold', amount: 90 },
+    { kind: 'seals', system: 'skill', amount: 4 },
+    { kind: 'keys', raid: 'raid_trait', amount: 3 },
+    { kind: 'trait_gems', amount: 20 },
+    { kind: 'gold', amount: 120 },
+    { kind: 'seals', system: 'artifact', amount: 4 },
+    { kind: 'keys', raid: 'raid_guild', amount: 3 },
+    { kind: 'gems', amount: 75 },
+    { kind: 'void_shards', amount: 200 }
+]
+
 /** Short prestige-shop tracks double per level; the 32-level cap track uses a gentler base. */
 export const OFFLINE_EFFICIENCY_BASE_COST = 50 // UNTUNED ╧
 export const OFFLINE_EFFICIENCY_COST_GROWTH = 2

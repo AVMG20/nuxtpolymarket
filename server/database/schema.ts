@@ -1126,6 +1126,16 @@ export const hqState = pgTable('hq_state', {
   settings: jsonb('settings').$type<Partial<HqSettings>>().notNull().default({}),
 
   /**
+   * The login calendar (`shared/utils/hero-quest/calendar.ts`): the cycle's day 1 as a UTC day
+   * number (null before the first claim), a bitmask of the days claimed, and the make-ups used.
+   * Integers so a claim is a compare-and-swap; a cycle that has run out is rolled on read, never
+   * at midnight. Not run position, so prestige keeps it.
+   */
+  calendarStart: integer('calendar_start'),
+  calendarClaimed: integer('calendar_claimed').notNull().default(0),
+  calendarMakeups: integer('calendar_makeups').notNull().default(0),
+
+  /**
    * Unit ID → row. Keyed by `'hero'` for the Hero and by Champion ID for everyone else, so a
    * placement survives a Champion being benched and re-fielded. Absent keys fall back to the
    * class node's / archetype's default row (`classes-and-combat.md` §6).

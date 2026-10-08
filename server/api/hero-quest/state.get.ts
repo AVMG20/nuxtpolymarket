@@ -23,6 +23,7 @@ import { HQ_REFRESH_INTERVAL_MS, STAGES_PER_WORLD, WORLD_COUNT } from '#shared/u
 import { fromStore } from '#shared/utils/hero-quest/numbers'
 import { hqSettingsOf } from '#shared/utils/hero-quest/settings'
 import { serializeRaids } from '#server/utils/hero-quest-raids'
+import { calendarGoldPerHour, serializeCalendar } from '#server/utils/hero-quest-calendar'
 
 /**
  * The one read the client makes.
@@ -59,6 +60,7 @@ export default defineEventHandler(async (event) => {
             battleSpeed: null,
             settings: hqSettingsOf(null),
             raids: [],
+            calendar: null,
             voidShards: '0',
             nextPrestigeReward: voidShardsFor(0).toString(),
             awaySeconds: 0,
@@ -106,6 +108,8 @@ export default defineEventHandler(async (event) => {
         battleSpeed: serializeBattleSpeed(state),
         settings: hqSettingsOf(state.settings),
         raids,
+        /** The login calendar: every day's reward as of now, which are claimed, and the make-ups. */
+        calendar: serializeCalendar(state, calendarGoldPerHour(state, hero)),
 
         guild: serializeGuild(state, collections.champion, shopLevels),
         forge: serializeForge(state, collections.gear),

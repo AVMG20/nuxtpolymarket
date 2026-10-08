@@ -13,7 +13,10 @@ import { and, eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqCollection, hqFights, hqLoadouts, hqRaidState, hqShopUpgrades, hqState, user } from '#server/database/schema'
 import { engageRaid, quickClearRaid } from '#server/utils/hero-quest-raids'
+import { claimCalendar } from '#server/utils/hero-quest-calendar'
+import { calendarDayNumber } from '#shared/utils/hero-quest/calendar'
 import { RAID_KEYS_PER_DAY,
+    CALENDAR_MAKEUPS_PER_CYCLE,
     LOADOUT_SLOT_BASE_COST_GEMS,
     OFFLINE_EFFICIENCY_BASE_COST,
     SEAL_LADDER_BASE_GOLD,
@@ -206,8 +209,57 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
         })
     })
 
+    describe('login calendar', () => {
+        const stateOf = async () => (await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!
+        /** Put the cycle `daysIn` days in, with `claimed` as its mask. */
+        const startedAgo = async (daysIn: number, claimed = 0) => {
+            await ensureHqState(USER_ID)
+            await db.update(hqState)
+                .set({ calendarStart: calendarDayNumber(Date.now()) - daysIn, calendarClaimed: claimed, calendarMakeups: 0 })
+                .where(eq(hqState.userId, USER_ID))
+        }
+
+        it("pays today's reward once, however many claims race for it", async () => {
+            // day 2: one Guild Seal
+            await startedAgo(1, 0b1)
+            const before = (await stateOf()).guildSeals
+
+            const result = await burst(10, () => db.transaction(tx => claimCalendar(tx, USER_ID, false)))
+
+            expect(result.ok).toBe(1)
+            const after = await stateOf()
+            expect(after.guildSeals).toBe(before + 1)
+            expect(after.calendarClaimed).toBe(0b11)
+        })
+
+        it('grants a Key day to the raid once, onto a raid never visited', async () => {
+            // day 3: one Guild Key
+            await startedAgo(2, 0b11)
+
+            const result = await burst(10, () => db.transaction(tx => claimCalendar(tx, USER_ID, false)))
+
+            expect(result.ok).toBe(1)
+            const [raid] = await db.select().from(hqRaidState)
+                .where(and(eq(hqRaidState.userId, USER_ID), eq(hqRaidState.raidId, 'raid_guild')))
+            expect(raid!.keyBalance).toBe(RAID_KEYS_PER_DAY + 1)
+        })
+
+        it('never spends more make-ups than the cycle has, each on the oldest missed day', async () => {
+            await startedAgo(6)
+
+            const result = await burst(10, () => db.transaction(tx => claimCalendar(tx, USER_ID, true)))
+
+            const after = await stateOf()
+            expect(result.ok).toBeGreaterThanOrEqual(1)
+            expect(result.ok).toBeLessThanOrEqual(CALENDAR_MAKEUPS_PER_CYCLE)
+            expect(after.calendarMakeups).toBe(result.ok)
+            // the oldest days, in order, and nothing else
+            expect(after.calendarClaimed).toBe((1 << result.ok) - 1)
+        })
+    })
+
     describe('battle speed', () => {
-        const gemsOf = async () => (await db.select({ gems: user.gems }).from(user).where(eq(user.id, USER_ID)))[0]!.gems
+        const gemsOf =async () => (await db.select({ gems: user.gems }).from(user).where(eq(user.id, USER_ID)))[0]!.gems
         const expiryOf = async () => (await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!.speedBoostExpiresAt!.getTime()
 
         it('sells one block, not N, for one block of Gems', async () => {

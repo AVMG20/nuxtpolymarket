@@ -112,6 +112,19 @@ const COG: Glyph = (g, x, y) => {
     disc(g, x, y, 2, CLEAR)
 }
 
+/** A wall calendar: two rings over a red header, a page of days with one marked. */
+const CALENDAR: Glyph = (g, x, y) => {
+    rect(g, x - 6, y - 5, 13, 12, C.bone1)
+    rect(g, x - 6, y - 5, 13, 4, C.red1)
+    rect(g, x - 6, y - 5, 13, 1, C.red2)
+    rect(g, x - 4, y - 7, 2, 3, C.steel3)
+    rect(g, x + 3, y - 7, 2, 3, C.steel3)
+    for (let row = 0; row < 3; row++) {
+        for (let col = 0; col < 4; col++) rect(g, x - 5 + col * 3, y + row * 2, 2, 1, C.stone2)
+    }
+    rect(g, x + 1, y + 2, 2, 1, C.red2)
+}
+
 const ICONS: Readonly<Record<HqMenuScene, Glyph>> = {
     gacha: GUMBALL,
     collections: (g, x, y) => ABILITY_ICON_PARTS.book(g, x, y, C.red1, C.bone1),
@@ -121,6 +134,7 @@ const ICONS: Readonly<Record<HqMenuScene, Glyph>> = {
     // Void Shards are what a prestige pays out
     prestige: CURRENCY_ICONS.void_shards!,
     speed: FAST_FORWARD,
+    calendar: CALENDAR,
     settings: COG
 }
 
@@ -141,9 +155,10 @@ export function menuItemAt(w: number, h: number, x: number, y: number): HqMenuSc
 
 /**
  * The band along the bottom of a frame: a dark strip with a bevelled button per menu scene. The
- * open scene's button shows a close instead of its icon.
+ * open scene's button shows a close instead of its icon; a scene in `alerts` (something waiting
+ * there, like today's calendar reward) gets a red dot in its corner.
  */
-export function drawMenuBand(s: Surface, open: HqScene, hover: HqMenuScene | null, pressed: boolean, hidden = false): void {
+export function drawMenuBand(s: Surface, open: HqScene, hover: HqMenuScene | null, pressed: boolean, hidden = false, alerts: ReadonlySet<HqMenuScene> = NO_ALERTS): void {
     const y0 = s.h - BAND_H
     rect(s, 0, y0, s.w, BAND_H, C.night0)
     rect(s, 0, y0, s.w, 1, C.ink)
@@ -161,8 +176,15 @@ export function drawMenuBand(s: Surface, open: HqScene, hover: HqMenuScene | nul
         rect(s, b.x + 1, b.y + 1 + down, BTN_W - 2, 1, lit ? C.steel2 : C.night3)
         if (!down) rect(s, b.x + 1, b.y + BTN_H - 2, BTN_W - 2, 1, C.night0)
         glyph(s, on ? CLOSE : ICONS[id], b.x + (BTN_W >> 1), b.y + (BTN_H >> 1) + down, true)
+        if (alerts.has(id) && !on) {
+            rect(s, b.x + BTN_W - 6, b.y + 1 + down, 5, 5, C.ink)
+            rect(s, b.x + BTN_W - 5, b.y + 2 + down, 3, 3, C.red2)
+            px(s, b.x + BTN_W - 5, b.y + 2 + down, C.white)
+        }
     }
 }
+
+const NO_ALERTS: ReadonlySet<HqMenuScene> = new Set()
 
 /**
  * A scene with the band under it rather than over it, so the band covers none of the scene. The
@@ -175,10 +197,10 @@ export class BandedFrame {
         this.frame = new Surface(w, h + BAND_H, 0, 0)
     }
 
-    compose(scene: Surface, open: HqScene, hover: HqMenuScene | null, pressed: boolean, hidden = false): Surface {
+    compose(scene: Surface, open: HqScene, hover: HqMenuScene | null, pressed: boolean, hidden = false, alerts: ReadonlySet<HqMenuScene> = NO_ALERTS): Surface {
         // the same width, so the scene's rows are the frame's first ones
         this.frame.data.set(scene.data.subarray(0, this.frame.w * (this.frame.h - BAND_H)))
-        drawMenuBand(this.frame, open, hover, pressed, hidden)
+        drawMenuBand(this.frame, open, hover, pressed, hidden, alerts)
         return this.frame
     }
 }

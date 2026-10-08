@@ -359,6 +359,19 @@ export function wealthHoursFor(
     return bankedGold / goldPerHour
 }
 
+/**
+ * The Gold an hour of farming at a position pays, every Gold% and burst source included: the rate
+ * the run shows, and what a grant in minutes of income (`gold-economy.md` §6) is sized against.
+ * 0 where the party can't kill anything.
+ */
+export function goldPerHourAt(hero: HeroSnapshot, position: RunPosition, tenureDays: number): number {
+    const { abilities, secondsPerKill: spk } = rateAt(hero, position)
+    if (!Number.isFinite(spk) || spk <= 0) return 0
+    const perKill = goldPerKill(position.prestige, position.world, position.stage, tenureDays)
+    const goldPerHour = (3600 / spk) * perKill * (1 + economyBonuses(hero).goldPct) * abilities.goldFactor
+    return Number.isFinite(goldPerHour) && goldPerHour > 0 ? goldPerHour : 0
+}
+
 /** The same trick on the enemy side: shredded armour is just a softer pack. */
 export function debuffedPack(pack: EnemyPack, mods: AbilityModifiers): EnemyPack {
     if (mods.enemyDefFactor === 1 && mods.incomingFactor === 1) return pack

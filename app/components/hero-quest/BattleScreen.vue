@@ -4,13 +4,14 @@ import { D, formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
 import { RARITIES, sealLadderTotal, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { FormationRow, Rarity } from '#shared/utils/hero-quest/types'
 import { GEAR_SLOTS, GEAR_SLOT_NAME } from '#shared/utils/hero-quest/content/gear'
-import { FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
+import { CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
 import type { CollectionAction, CollectionLine, CollectionSection, CollectionTile, DetailButton } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesView } from '~/utils/hero-quest-art/classes-scene'
 import type { SpeedView } from '~/utils/hero-quest-art/speed-scene'
 import type { SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
+import type { CalendarView } from '~/utils/hero-quest-art/calendar-scene'
 import type { RaidRewardView, RaidRowView } from '~/utils/hero-quest-art/raids-scene'
 import type { RaidId as StageRaidId, StageRaid } from '~/utils/hero-quest-art/demo'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
@@ -35,7 +36,7 @@ const {
     initialized, run, hero, settled, pending, guild, forge, training, digSite, nextPrestigeReward,
     engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
     shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
-    pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid
+    pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid, calendar, claimCalendar
 } = useHeroQuest()
 const { user } = useAuth()
 
@@ -635,6 +636,36 @@ async function onSetting(target: SettingsTarget) {
     }
 }
 
+/** The time to the calendar's next day, and the whole days left in its cycle. */
+const calendarNextDay = useHqCountdown(() => calendar.value?.nextDayAt)
+const calendarClock = useHqClock()
+
+/** The Calendar scene: every day's reward and state, the make-ups, and the clocks. */
+const calendarView = computed<CalendarView>(() => {
+    const c = calendar.value
+    return {
+        today: c?.today ?? 0,
+        days: c?.days ?? [],
+        makeupsLeft: c?.makeupsLeft ?? 0,
+        makeupsPerCycle: CALENDAR_MAKEUPS_PER_CYCLE,
+        makeupDay: c?.makeupDay ?? null,
+        nextDayIn: (calendarNextDay.value ?? '').toUpperCase(),
+        cycleDaysLeft: c ? Math.max(1, Math.ceil((c.endsAt - calendarClock.value) / 86_400_000)) : 0
+    }
+})
+const calendarBusy = ref(false)
+
+async function onClaimCalendar(makeup: boolean) {
+    calendarBusy.value = true
+    try {
+        await claimCalendar(makeup)
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        calendarBusy.value = false
+    }
+}
+
 /** The running Battle Speed block's time left, off the server's expiry. */
 const speedLeft = useHqCountdown(() => battleSpeed.value?.expiresAt)
 
@@ -960,6 +991,8 @@ const awayReport = computed(() => {
           :gacha-busy="gachaBusy"
           :settings="settingsView"
           :settings-busy="settingsBusy"
+          :calendar="calendarView"
+          :calendar-busy="calendarBusy"
           :raids="raidRows"
           :raids-busy="raidsBusy"
           :raid-round="raidRound"
@@ -978,6 +1011,7 @@ const awayReport = computed(() => {
           @gacha-action="onGachaAction"
           @gacha-close="gachaReveal = null"
           @setting="onSetting"
+          @claim-calendar="onClaimCalendar"
           @raid-enter="onRaidEnter"
           @raid-quick="onRaidQuick"
           @raid-reward-close="closeRaidReward"
