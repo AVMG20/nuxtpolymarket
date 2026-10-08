@@ -16,6 +16,7 @@ import {
 definePageMeta({ title: 'SHAPEZZ' })
 
 const canvas = ref<HTMLCanvasElement | null>(null)
+const arena = ref<HTMLDivElement | null>(null)
 const toast = useToast()
 const { user, fetchSession } = useAuth()
 const sound = useShapezzSound()
@@ -24,6 +25,25 @@ const { soundEnabled, soundVolume } = sound
 
 function togglePause() {
     engine?.togglePause()
+}
+
+// ─── Fullscreen ─────────────────────────────────────────────────────────────
+// The arena goes fullscreen rather than the page, so the HUD and the overlays
+// come along with the canvas. The renderer watches the canvas with its own
+// ResizeObserver, so it picks the new size up on its own — nothing here needs
+// to drive a resize.
+
+const isFullscreen = ref(false)
+
+async function toggleFullscreen() {
+    // Either call rejects when the browser dislikes the gesture it came from,
+    // and a rejected promise here is noise the player cannot act on.
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => {})
+    else await arena.value?.requestFullscreen().catch(() => {})
+}
+
+function onFullscreenChange() {
+    isFullscreen.value = document.fullscreenElement === arena.value
 }
 
 // Audible feedback when toggling sound on (play() is a no-op when off).
@@ -466,9 +486,11 @@ function closeResult() {
 
 onMounted(() => {
     clockTimer = setInterval(() => { now.value = Date.now() }, 1000)
+    document.addEventListener('fullscreenchange', onFullscreenChange)
     void clearStaleRun()
 })
 onUnmounted(() => {
+    document.removeEventListener('fullscreenchange', onFullscreenChange)
     detachAutopilot()
     engine?.destroy()
     engine = null
@@ -510,11 +532,21 @@ onUnmounted(() => {
         <UBadge :label="`${state.runsPlayed} runs`" icon="i-lucide-repeat-2" color="neutral" variant="subtle" />
         <UBadge v-if="isCoolingDown" :label="`Recharging ${cooldownLabel}`" icon="i-lucide-battery-charging" color="warning" variant="subtle" />
       </div>
-      <div class="flex w-full items-center gap-2 rounded-lg border border-default bg-elevated px-3 py-2 sm:w-64">
-        <UIcon :name="soundEnabled ? 'i-lucide-volume-2' : 'i-lucide-volume-x'" class="size-4 text-primary" />
-        <USwitch v-model="soundEnabled" size="sm" aria-label="Enable SHAPEZZ sound" @click="onSoundToggle" />
-        <USlider v-model="soundVolume" :min="0" :max="100" :disabled="!soundEnabled" size="xs" aria-label="Sound volume" />
-        <span class="w-8 text-right text-[10px] font-bold tabular-nums text-muted">{{ soundVolume }}%</span>
+      <div class="flex w-full items-center gap-2 sm:w-auto">
+        <div class="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-default bg-elevated px-3 py-2 sm:w-64 sm:flex-none">
+          <UIcon :name="soundEnabled ? 'i-lucide-volume-2' : 'i-lucide-volume-x'" class="size-4 text-primary" />
+          <USwitch v-model="soundEnabled" size="sm" aria-label="Enable SHAPEZZ sound" @click="onSoundToggle" />
+          <USlider v-model="soundVolume" :min="0" :max="100" :disabled="!soundEnabled" size="xs" aria-label="Sound volume" />
+          <span class="w-8 text-right text-[10px] font-bold tabular-nums text-muted">{{ soundVolume }}%</span>
+        </div>
+        <UButton
+          icon="i-lucide-maximize"
+          color="neutral"
+          variant="outline"
+          aria-label="Fullscreen"
+          title="Fullscreen (Escape to leave)"
+          @click="toggleFullscreen"
+        />
       </div>
     </div>
 
@@ -525,8 +557,25 @@ onUnmounted(() => {
 
     <template v-else>
       <UCard class="overflow-hidden" :ui="{ body: 'p-0 sm:p-0' }">
-        <div class="shapezz-arena relative aspect-video min-h-[360px] w-full overflow-hidden bg-background">
+        <div
+          ref="arena"
+          class="shapezz-arena relative w-full overflow-hidden bg-background"
+          :class="isFullscreen ? 'h-full' : 'aspect-video min-h-[360px]'"
+        >
           <canvas ref="canvas" class="absolute inset-0 size-full touch-none" :class="{ 'cursor-none': running }" />
+
+          <!-- Only shown in fullscreen: the header's toggle is off-screen then, so
+               this is the way back out besides Escape. -->
+          <UButton
+            v-if="isFullscreen"
+            icon="i-lucide-minimize"
+            color="neutral"
+            variant="outline"
+            size="xs"
+            class="absolute bottom-3 right-3 z-30 border-white/10 bg-black/55 backdrop-blur-sm"
+            aria-label="Exit fullscreen"
+            @click="toggleFullscreen"
+          />
 
           <div v-if="running" class="pointer-events-none absolute inset-x-0 top-0 p-3 sm:p-4">
             <div class="flex items-start justify-between gap-3">
