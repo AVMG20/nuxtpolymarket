@@ -1447,53 +1447,51 @@ export interface TownSupplyEntry {
 interface TownSupplyFlow<C, P> { c: C, p: P, tiles: number, efficiency: number, sent: number }
 
 /**
- * Nearest-first allocation is greedy, so a workshop often ends up with a
- * little from each of several suppliers that all deliver at the same rate:
- * two camps inside full range, or a camp that was upgraded and could now
- * carry the whole order but keeps its old partner because the pairs were
- * walked in that order.
+ * Nearest-first allocation walks suppliers the same distance out in whatever
+ * order they were listed, so a workshop can end up with a little from each of
+ * two equally near camps when one of them could carry the whole order — the
+ * camp that was upgraded keeps its old partner because the pair happened to
+ * come first.
  *
- * Within one delivery rate the amounts can be re-dealt: as long as every
- * workshop still receives its total at that rate, nothing it makes changes.
- * A supplier may give what it sent at that rate plus whatever nobody took
- * (allocation is over, so spare output is going to waste either way). Each
- * rate is re-dealt to give a workshop one supplier where one can cover it
- * (the nearest such, then the one with the least to spare), and the original
- * deal is kept whenever the re-deal would not come out with fewer links.
- * Reordering the allocation itself instead would move goods between
- * workshops and change what the town makes.
+ * Suppliers at the same distance are interchangeable: the goods travel the
+ * same road length either way. So each distance is re-dealt to give a
+ * workshop one supplier where one can cover it (the one with the least to
+ * spare), using what those suppliers sent at that distance plus what nobody
+ * took. Nearer suppliers still go first and farther ones only top up, and
+ * every workshop receives exactly what it did. The original deal is kept when
+ * the re-deal would not need fewer links, or would leave a supplier idle that
+ * a workshop still short of goods could have drawn on.
  */
-function townRegroupFlows<C, P extends { left: number }>(
+function townRegroupFlows<C extends { left: number }, P extends { left: number }>(
     flows: TownSupplyFlow<C, P>[],
-    pairs: { c: C, p: P, tiles: number }[],
-    efficiencyOf: (tiles: number) => number
+    pairs: { c: C, p: P, tiles: number }[]
 ): TownSupplyFlow<C, P>[] {
-    const byRate = new Map<number, TownSupplyFlow<C, P>[]>()
+    const byTiles = new Map<number, TownSupplyFlow<C, P>[]>()
     for (const f of flows) {
-        const group = byRate.get(f.efficiency)
+        const group = byTiles.get(f.tiles)
         if (group) group.push(f)
-        else byRate.set(f.efficiency, [f])
+        else byTiles.set(f.tiles, [f])
     }
     const out: TownSupplyFlow<C, P>[] = []
-    for (const [efficiency, group] of byRate) {
+    for (const [tiles, group] of byTiles) {
         if (group.length < 2) {
             out.push(...group)
             continue
         }
         const need = new Map<C, number>()
-        const sentAtRate = new Map<P, number>()
+        const sentHere = new Map<P, number>()
         let total = 0
         for (const f of group) {
             need.set(f.c, (need.get(f.c) ?? 0) + f.sent)
-            sentAtRate.set(f.p, (sentAtRate.get(f.p) ?? 0) + f.sent)
+            sentHere.set(f.p, (sentHere.get(f.p) ?? 0) + f.sent)
             total += f.sent
         }
         // Amounts are fractional (staffing, upstream shortfalls), so anything
         // below this is rounding, not goods.
         const eps = 1e-9 * Math.max(1, total)
-        const edges = pairs.filter(x => need.has(x.c) && efficiencyOf(x.tiles) === efficiency && (sentAtRate.has(x.p) || x.p.left > eps))
+        const edges = pairs.filter(x => x.tiles === tiles && need.has(x.c) && (sentHere.has(x.p) || x.p.left > eps))
         const have = new Map<P, number>()
-        for (const e of edges) have.set(e.p, (sentAtRate.get(e.p) ?? 0) + Math.max(0, e.p.left))
+        for (const e of edges) have.set(e.p, (sentHere.get(e.p) ?? 0) + Math.max(0, e.p.left))
         const dealt: TownSupplyFlow<C, P>[] = []
         for (;;) {
             let best: typeof edges[number] | null = null
@@ -1507,8 +1505,6 @@ function townRegroupFlows<C, P extends { left: number }>(
                     const bh = have.get(best.p)!
                     if (bestCovers !== covers) {
                         if (!covers) continue
-                    } else if (e.tiles !== best.tiles) {
-                        if (e.tiles > best.tiles) continue
                     } else if (covers ? h >= bh : h <= bh) {
                         continue
                     }
@@ -1522,11 +1518,15 @@ function townRegroupFlows<C, P extends { left: number }>(
             const sent = Math.min(n, h)
             need.set(best.c, n - sent <= eps ? 0 : n - sent)
             have.set(best.p, h - sent <= eps ? 0 : h - sent)
-            dealt.push({ c: best.c, p: best.p, tiles: best.tiles, efficiency, sent })
+            dealt.push({ c: best.c, p: best.p, tiles, efficiency: group[0]!.efficiency, sent })
         }
         const complete = [...need.values()].every(n => n <= eps)
-        if (complete && dealt.length < group.length) {
-            // What a supplier did not hand out at this rate is spare again.
+        // A supplier left with more spare than before must not be one a
+        // workshop still short of goods could reach, or the map would show it
+        // idle beside a shortage.
+        const freed = [...have].filter(([p, h]) => h > Math.max(0, p.left) + eps).map(([p]) => p)
+        const strands = freed.some(p => pairs.some(x => x.p === p && x.c.left > eps))
+        if (complete && !strands && dealt.length < group.length) {
             for (const [p, h] of have) p.left = h
             out.push(...dealt)
         } else {
@@ -1608,9 +1608,9 @@ export function townSupply(
             c.got += take * efficiency
             flows.push({ c, p, tiles, efficiency, sent: take })
         }
-        // Same amounts, fewer suppliers per workshop: what each workshop gets
-        // and each supplier sends is settled above and does not change here.
-        for (const { c, p, tiles, efficiency, sent } of townRegroupFlows(flows, pairs, t => townSupplyEfficiency(t, extraFullTiles))) {
+        // Ties between equally near suppliers settled in favour of one that
+        // can carry the order; what each workshop gets does not change here.
+        for (const { c, p, tiles, efficiency, sent } of townRegroupFlows(flows, pairs)) {
             c.suppliers++
             if (c.nearest === null || tiles < c.nearest) c.nearest = tiles
             const links = perLink.get(c.id) ?? []
