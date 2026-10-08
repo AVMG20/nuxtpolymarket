@@ -89,12 +89,10 @@ worlds.
 
 **Decided 2026-09-17: 4 animation states for trash and elites — Idle, Attack, Hit, Death.**
 Deliberately one short of the Hero's and the Champions' 5: **enemies have no abilities**, so there
-is no skill-cast to animate. That is not an omission, it is the current combat model — `fight.ts`
-emits `enemy_attack` and `enemy_down` and no enemy ability event exists (`open-items.md` #18.6 is
-the same fact seen from the other side: `controlResist` is inert because nothing applies control to
-the party). ⚠ **If the enemy-kit question in #6 is ever answered yes, every rig gains a fifth
-state** — 4 more sets for trash, 20 for bosses. That is a cost the kit decision carries and nobody
-has priced.
+is no skill-cast to animate. That is not an omission, it is the current combat model: #6 was
+answered no for regular enemies (2026-10-04). Bosses are the exception: each already has its
+special as a state (`art-style.md` §5b), and since 2026-10-08 the special is a real effect
+(`fight.ts` emits `enemy_special`, `build-log.md` #45), so no new rig state was needed.
 
 **Bosses and super bosses get 5 — Idle, Attack, Hit, Death, and an Entry.** The extra one is not
 a cast; it is the boss arriving. Bosses used to be the only thing in the game that waited for the

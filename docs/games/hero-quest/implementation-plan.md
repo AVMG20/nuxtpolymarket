@@ -13,9 +13,9 @@ The governing principle: **the core loop is the risk.** Everything else in this 
 | **2 — Champions** | ✅ Built, with the **full 48-Champion roster** rather than the 8–12 planned, and the full ability-effects pass (`open-items.md` #12–#17). |
 | **3 — Remaining gachas + Loadouts** | ✅ Built, including **GPN** (landed 2026-09-15, `open-items.md` #28; leaderboard aggregate and Defense GPN still to come). Also landed alongside: the dev playtest harness, the Gacha/Collections navigation, the in-game wiki, stat attribution and a projected battle screen (#19–#21, #26). |
 | **4 — Endgame** | **Under way.** Battle Speed built 2026-10-04 (`build-log.md` #44), with GPN carried over from Phase 3. Raids, Traits, Arena and Holidays remain. |
-| **5 — Content & tuning** | Partly done early: every roster is structurally complete (Artifacts and Worlds were named 2026-09-15), and the combat/progression constants are tuned. **World art is restyled and locked** (`art-style.md`), and the enemy-kit question is answered: regular enemies get no abilities, bosses' specials become real (`open-items.md` #45). The prestige→calendar Gold mapping below is **retired** — Gold reads account age instead (`gold-economy.md` §3a). |
+| **5 — Content & tuning** | Partly done early: every roster is structurally complete (Artifacts and Worlds were named 2026-09-15), and the combat/progression constants are tuned. **World art is restyled and locked** (`art-style.md`), and the enemy-kit question is answered: regular enemies get no abilities, and bosses' specials are real combat effects since 2026-10-08 (`build-log.md` #45). The prestige→calendar Gold mapping below is **retired** — Gold reads account age instead (`gold-economy.md` §3a). |
 
-**What comes next** is `open-items.md`'s *Suggested order*: the quick calls, the rest of Phase 4 and the boss specials (#45), with the playtest and the Gold decisions (#23) last, by the user's call.
+**What comes next** is `open-items.md`'s *Suggested order*: the quick calls and the rest of Phase 4, with the playtest and the Gold decisions (#23) last, by the user's call.
 
 ---
 

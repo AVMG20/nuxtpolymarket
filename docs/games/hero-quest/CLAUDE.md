@@ -73,7 +73,7 @@ These are load-bearing and easy to violate by accident.
 
 `constants.ts` marks every constant with one of three states (see its header):
 
-- **`// UNTUNED ╧`** — locked formula shape, placeholder value. **62** of them as of 2026-09-15, mostly the gacha, shop, economy and ability-magnitude layers. `rg '╧' shared/utils/hero-quest/constants.ts` is the list; `open-items.md` "Standing numeric tuning" says what each is waiting on.
+- **`// UNTUNED ╧`** — locked formula shape, placeholder value. **84** of them as of 2026-10-08, mostly the gacha, shop, economy, raid, boss-special and ability-magnitude layers. `rg '╧' shared/utils/hero-quest/constants.ts` is the list; `open-items.md` "Standing numeric tuning" says what each is waiting on.
 - **`// TUNED ✓`** — measured on the campaign sim (`open-items.md` #22). **Moving one is a design decision**: its comment says what it trades against and what it is coupled to. Several only mean anything as a pair (`K` with `BASE_ENEMY_PWR`, `BASE_ATTACK_INTERVAL_SECONDS` with `SKILL_BASE_COOLDOWN_SECONDS`, `XP_BASE_PER_KILL` with `XP_TO_LEVEL_BASE`). Re-measure with `bun run sim:hero-quest --report=campaign` before and after.
 - **No marker** — either derived (`STAT_PER_LEVEL_GROWTH`, `XP_STEP_EXPONENT`, `LEVELS_PER_STAGE`, `ENEMY_HP_STEP_EXPONENT`, …; never set directly — move its inputs) or specified by a doc. `GOLD_TENURE_CEILING` is **generated** from Colony and Xeno by `scripts/lib/economy-stages.ts`; regenerate, never hand-edit.
 
@@ -106,7 +106,7 @@ Rosters are deliberately partial:
 | Gear | 36 | **All 36 — done.** Phase 3; fully named by the epithet table alone |
 | Champions | 48 | **All 48 — done.** Filled during the ability-effects pass |
 | Artifacts | 48 | **All 48 — done**, with the full 33-effect pool. Named 2026-09-15 (`artifacts-dig-site-gacha.md` §3a) |
-| Worlds | 10 | **Named, with themes** (2026-09-15, `core-progression-and-prestige.md` §5). Art restyled and locked (`art-style.md`). Regular enemies have no abilities; boss specials are to become real (`open-items.md` #45). |
+| Worlds | 10 | **Named, with themes** (2026-09-15, `core-progression-and-prestige.md` §5). Art restyled and locked (`art-style.md`). Regular enemies have no abilities; every boss's special is a real combat effect (`content/boss-specials.ts`, `build-log.md` #45). |
 
 **Every roster is now structurally complete, and that is what retired `foldToAvailableRarity`.** The helper folded a rolled rarity down to the nearest rarity a partial roster populated; with all four systems covering all six rarities it was the identity function everywhere, so it is **deleted** (`implementation-plan.md`, Phase 3). `content.spec.ts` asserts the coverage per system, so "no fold is needed" is a tested claim rather than a comment. If a future roster ships partial, the reasoning for reintroducing it — and why rounding *down* was the right repair — is preserved in a comment where it used to live in `gacha.ts`.
 

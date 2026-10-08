@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#47** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day, #44 landed and #45 opened with it, and #6, #3, #31 and #32 were decided (all in `build-log.md`); #46 (raids) landed 2026-10-05.
+**#47** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day, #44 landed and #45 opened with it, and #6, #3, #31 and #32 were decided (all in `build-log.md`); #46 (raids) landed 2026-10-05; #45 (boss specials) landed 2026-10-08 with its open half below.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
@@ -56,21 +56,6 @@ read the older rule in the doc named in the middle column, it is superseded.**
 
 ## 🔴 Genuinely undesigned — full passes, not edits
 
-### 45. Boss specials become real — **new 2026-10-04**
-
-**Decided (the user's call, closing #6):** regular enemies get no abilities, and every boss's and super boss's **special attack becomes a real combat effect** in the fight sim. Today the specials are presentation only (`art-style.md` §5b): `fight.ts` gives every enemy, bosses included, one autoattack on a timer, and the live stage plays a special 30% of the time from `Math.random`, with no effect on the fight.
-
-**What it needs, none of it designed yet:**
-
-- **An effect per special**, 20 of them (a boss and a super boss in each of ten worlds, `art-style.md` §5b's table): damage, a status, a spread over the party or the nearest bodies, as each special's art suggests. Built on `AbilityEffect` (`effects.ts`) if it fits, so statuses, targeting and the replay feed come for free.
-- **A cadence**: a cooldown, or the art's "opens with it, then 30% of the time" made deterministic. It has to come from the fight's seed, never the stage's dice.
-- **The replay drives the stage**: a special happens when the fight log says so, and the stage's own 30% roll goes.
-- **Numbers**: every magnitude and cooldown as an `UNTUNED ╧` placeholder in `constants.ts`.
-- **Re-measure** (#22): anything that lengthens or costs a boss fight moves where the walls fall. Run `bun run sim:hero-quest --report=campaign` before and after, and re-check `FIGHT_LENGTH_DRIFT` and the boss timers.
-- **`controlResist`** (#18.6) is inert while enemies have no control effects. A special that stuns or slows would make it live.
-
-Bosses never fight offline and the idle rate has no boss in it, so the settle is untouched. The Arena has no bosses.
-
 ### 43. The ??? capstone class — **blocks the merge into `main`** — **new 2026-10-04**
 
 The Classes scene ends the masters' row in a 17th node, joined to all six masters: a class for having played every other one (`CAPSTONE_ID` in `classes-scene.ts`). It is art only. There is no class behind it: no content entry, no skill, no unlock rule in code, and the "PLAY EVERY OTHER CLASS TO UNLOCK" hint is a promise nothing keeps. Its medallion is a placeholder infinity sign and its name is `???`.
@@ -87,7 +72,7 @@ Explicitly deferred scope — the gift-mechanic phase is locked, but limited-tim
 
 ## ⚠️ Open consequences of work that landed
 
-Five items are built and working but left something undecided. The full record of each is in
+Six items are built and working but left something undecided. The full record of each is in
 `build-log.md`; only the open half is restated here. (The `killFraction` invariant that used to
 sit here as #24 is not an open item — it is a trap, and it lives in `CLAUDE.md` §7 and
 `build-log.md` #24.)
@@ -106,6 +91,26 @@ re-derived as a pacing model. What it left open:
 
 ⚠ The `TUNED ✓` legend says "confirmed in playtest", but `playtest-notes.md` records only
 session 1. The block was tuned on the campaign sim, not felt.
+
+### 45. Boss specials are real — built; what the sims don't see
+
+Full record: `build-log.md` #45. Every gate boss swings its special in place of an attack, on a
+fixed cooldown, with damage and a status or a drain. What it left open:
+
+1. **The campaign walk and the idle projection don't model specials.** Both are
+   expected-value models with no boss kit in them, so `--report=campaign` reads exactly as it did
+   before. They were measured on seeded `runFight` gate fights instead: a party of three needs
+   1 to 4 more levels at six of the twenty gates (the stuns, silence, weaken, slows and drain),
+   and none at the rest. Solo is the same, World 1's boss +4. No gate fight wipes either way,
+   since the gates are DPS walls. Fold specials into the sim if their numbers grow to where that
+   matters.
+2. **All eleven magnitudes are `UNTUNED ╧`** (`BOSS_SPECIAL_*`). Pure-damage specials cost
+   nothing at the current values: a party at a gate's level is in no danger of dying, so extra
+   incoming damage shows only once something else pushes a fight long.
+3. **No Artifact carries Unshaken.** `controlResist` is live now (it shortens every hostile
+   status a special lands), but the 48-Artifact distribution never draws Unshaken from the Tempo
+   pool, so only the Skills Unbreakable Will and Immortal Vanguard grant it. Worth a look when
+   the Artifact effects are re-cut (`CLAUDE.md` §6).
 
 ### 36. Cooldowns off the level curve — the pacing half is deferred to playtesting
 
@@ -271,7 +276,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
    - **Decide the Gold consequences (#23)** — first-week income, the lost calendar anchors, and whether the Seal ladder is re-derived now or after world design. **Measured and half-applied 2026-09-16** (`--report=gold`): the ceiling is regenerated against the measured kill rate, which raises the cap 12× but leaves the walk's income untouched, since it is progression-bound throughout. What remains open is the progression half — `BASE_GOLD` and `GOLD_STEP_BASE` — and #23.2, which is downstream of it.
    - **Confirm the solo shape (#22.1)** — no prestige without a party is a consequence of the design, not yet a stated choice.
    - ~~**Check the cleared-run manual re-engage** flagged in #25.~~ Fixed.
-3. ~~**World & Enemy Design (#6)**~~ **Closed 2026-10-04** — the art is restyled and locked (`art-style.md`); regular enemies get no abilities. **Boss specials become real (#45)**, which re-measures fight length against #22.
+3. ~~**World & Enemy Design (#6)**~~ **Closed 2026-10-04** — the art is restyled and locked (`art-style.md`); regular enemies get no abilities. ~~**Boss specials become real (#45)**~~ **built 2026-10-08**, measured on seeded gate fights; the open half is under #45 above.
 4. **The last quick call (#2)**, the Arena band — answer it with the Arena. #1 and #3 are decided, and with #3 the raid-rule questions #31 and #32 (2026-10-04); the asset calls (#4, #30) on 2026-09-17.
 5. **Phase 4 — endgame systems** (`implementation-plan.md`). Raids, Traits, Arena, Holidays, plus `loadouts.md` §4's per-raid auto-apply. ~~GPN~~ built (#28); the leaderboard aggregate and Defense GPN remain, with Arena. ~~Battle Speed~~ built (#44). ~~Raids~~ built, all five (#46).
 6. **Passive Skill Tree (#7)** — the last unbuilt major system; good candidate for its own dedicated session.

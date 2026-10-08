@@ -146,6 +146,7 @@ Not design docs — they describe the *state* of the project rather than the gam
 | Offline formula, cap (8→72h), efficiency (50→100%), part-kill carry | `idle-mechanics.md` | §4 |
 | Upgrade cost curves (doubling / 1.72^) | `idle-mechanics.md` | §4 |
 | Boss wall — offline never engages a boss | `idle-mechanics.md` | §5 |
+| Boss specials — shapes, cadence, control resist; the art per special | `build-log.md` #45, `art-style.md` | §5b |
 
 ### Endgame & side systems
 | Topic | Doc | § |
