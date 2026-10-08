@@ -772,6 +772,38 @@ describe('townSupply links', () => {
         expect(supplyOf(buildings).get('mill')!.links.map(l => l.producerId)).toEqual(['big'])
     })
 
+    it('hands the whole order to a farther supplier inside full range when the nearest cannot cover it', () => {
+        // Both farms deliver everything they send, so who sends it is free:
+        // the order goes to the one farm that can carry it, and the mill makes
+        // exactly what nearest-first would have given it.
+        const levelsNeeded = MILL.inputs.wheat! / FARM.outputs.wheat!
+        const buildings = [
+            ...street(0, TOWN_SUPPLY_FULL_TILES + 2),
+            shop('mill', 'mill', 0),
+            shop('near', 'farm', 1),
+            shop('far', 'farm', TOWN_SUPPLY_FULL_TILES, { level: levelsNeeded })
+        ]
+        const mill = supplyOf(buildings).get('mill')!
+        expect(mill.links.map(l => l.producerId)).toEqual(['far'])
+        expect(mill.links[0]!.sent).toBeCloseTo(MILL.inputs.wheat!, 6)
+        expect(mill.ratio).toBe(1)
+        expect(mill.inputs[0]!.suppliers).toBe(1)
+        expect(mill.inputs[0]!.nearestTiles).toBe(TOWN_SUPPLY_FULL_TILES)
+    })
+
+    it('never trades a full-rate delivery for a lossy one to save a route', () => {
+        // The far farm could carry the whole order, but past full range it
+        // loses goods, so the near farm keeps its share.
+        const levelsNeeded = MILL.inputs.wheat! / FARM.outputs.wheat!
+        const buildings = [
+            ...street(0, STREET_END),
+            shop('mill', 'mill', 0),
+            shop('near', 'farm', 1),
+            shop('far', 'farm', HALFWAY_TILES, { level: levelsNeeded })
+        ]
+        expect(supplyOf(buildings).get('mill')!.links.map(l => l.producerId)).toEqual(['near', 'far'])
+    })
+
     it('drops the second supplier once an upgrade lets the first cover the order alone', () => {
         const levelsNeeded = MILL.inputs.wheat! / FARM.outputs.wheat!
         const town = (big: Partial<TownSimBuilding>) => [

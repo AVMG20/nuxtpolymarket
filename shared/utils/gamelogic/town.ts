@@ -1444,6 +1444,98 @@ export interface TownSupplyEntry {
     links: TownSupplyLink[]
 }
 
+interface TownSupplyFlow<C, P> { c: C, p: P, tiles: number, efficiency: number, sent: number }
+
+/**
+ * Nearest-first allocation is greedy, so a workshop often ends up with a
+ * little from each of several suppliers that all deliver at the same rate:
+ * two camps inside full range, or a camp that was upgraded and could now
+ * carry the whole order but keeps its old partner because the pairs were
+ * walked in that order.
+ *
+ * Within one delivery rate the amounts can be re-dealt: as long as every
+ * workshop still receives its total at that rate, nothing it makes changes.
+ * A supplier may give what it sent at that rate plus whatever nobody took
+ * (allocation is over, so spare output is going to waste either way). Each
+ * rate is re-dealt to give a workshop one supplier where one can cover it
+ * (the nearest such, then the one with the least to spare), and the original
+ * deal is kept whenever the re-deal would not come out with fewer links.
+ * Reordering the allocation itself instead would move goods between
+ * workshops and change what the town makes.
+ */
+function townRegroupFlows<C, P extends { left: number }>(
+    flows: TownSupplyFlow<C, P>[],
+    pairs: { c: C, p: P, tiles: number }[],
+    efficiencyOf: (tiles: number) => number
+): TownSupplyFlow<C, P>[] {
+    const byRate = new Map<number, TownSupplyFlow<C, P>[]>()
+    for (const f of flows) {
+        const group = byRate.get(f.efficiency)
+        if (group) group.push(f)
+        else byRate.set(f.efficiency, [f])
+    }
+    const out: TownSupplyFlow<C, P>[] = []
+    for (const [efficiency, group] of byRate) {
+        if (group.length < 2) {
+            out.push(...group)
+            continue
+        }
+        const need = new Map<C, number>()
+        const sentAtRate = new Map<P, number>()
+        let total = 0
+        for (const f of group) {
+            need.set(f.c, (need.get(f.c) ?? 0) + f.sent)
+            sentAtRate.set(f.p, (sentAtRate.get(f.p) ?? 0) + f.sent)
+            total += f.sent
+        }
+        // Amounts are fractional (staffing, upstream shortfalls), so anything
+        // below this is rounding, not goods.
+        const eps = 1e-9 * Math.max(1, total)
+        const edges = pairs.filter(x => need.has(x.c) && efficiencyOf(x.tiles) === efficiency && (sentAtRate.has(x.p) || x.p.left > eps))
+        const have = new Map<P, number>()
+        for (const e of edges) have.set(e.p, (sentAtRate.get(e.p) ?? 0) + Math.max(0, e.p.left))
+        const dealt: TownSupplyFlow<C, P>[] = []
+        for (;;) {
+            let best: typeof edges[number] | null = null
+            let bestCovers = false
+            for (const e of edges) {
+                const n = need.get(e.c)!
+                const h = have.get(e.p)!
+                if (n <= eps || h <= eps) continue
+                const covers = h >= n - eps
+                if (best) {
+                    const bh = have.get(best.p)!
+                    if (bestCovers !== covers) {
+                        if (!covers) continue
+                    } else if (e.tiles !== best.tiles) {
+                        if (e.tiles > best.tiles) continue
+                    } else if (covers ? h >= bh : h <= bh) {
+                        continue
+                    }
+                }
+                best = e
+                bestCovers = covers
+            }
+            if (!best) break
+            const n = need.get(best.c)!
+            const h = have.get(best.p)!
+            const sent = Math.min(n, h)
+            need.set(best.c, n - sent <= eps ? 0 : n - sent)
+            have.set(best.p, h - sent <= eps ? 0 : h - sent)
+            dealt.push({ c: best.c, p: best.p, tiles: best.tiles, efficiency, sent })
+        }
+        const complete = [...need.values()].every(n => n <= eps)
+        if (complete && dealt.length < group.length) {
+            // What a supplier did not hand out at this rate is spare again.
+            for (const [p, h] of have) p.left = h
+            out.push(...dealt)
+        } else {
+            out.push(...group)
+        }
+    }
+    return out
+}
+
 /**
  * Work out how well every workshop is supplied. Producers are allocated to
  * consumers closest-pair-first, so the nearest workshop gets first claim on
@@ -1504,12 +1596,9 @@ export function townSupply(
             }
         }
         // Closest pair first: the near sawmill takes the near camp, and what is
-        // left over spills to whoever is next closest. Between suppliers the
-        // same distance out, the bigger one goes first, so a workshop one camp
-        // can feed alone is fed by that camp instead of split by database order
-        // (which is how an upgraded camp used to leave its old partner in use).
-        const capacity = new Map(producers.map(p => [p.id, p.left]))
-        pairs.sort((a, b) => a.tiles - b.tiles || capacity.get(b.p.id)! - capacity.get(a.p.id)!)
+        // left over spills to whoever is next closest.
+        pairs.sort((a, b) => a.tiles - b.tiles)
+        const flows: TownSupplyFlow<typeof consumers[number], typeof producers[number]>[] = []
         for (const { c, p, tiles } of pairs) {
             if (c.left <= 0 || p.left <= 0) continue
             const take = Math.min(c.left, p.left)
@@ -1517,10 +1606,15 @@ export function townSupply(
             c.left -= take
             p.left -= take
             c.got += take * efficiency
+            flows.push({ c, p, tiles, efficiency, sent: take })
+        }
+        // Same amounts, fewer suppliers per workshop: what each workshop gets
+        // and each supplier sends is settled above and does not change here.
+        for (const { c, p, tiles, efficiency, sent } of townRegroupFlows(flows, pairs, t => townSupplyEfficiency(t, extraFullTiles))) {
             c.suppliers++
             if (c.nearest === null || tiles < c.nearest) c.nearest = tiles
             const links = perLink.get(c.id) ?? []
-            links.push({ producerId: p.id, resource, tiles, efficiency, sent: take })
+            links.push({ producerId: p.id, resource, tiles, efficiency, sent })
             perLink.set(c.id, links)
         }
 
