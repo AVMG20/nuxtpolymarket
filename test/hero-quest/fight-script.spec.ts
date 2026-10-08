@@ -58,6 +58,20 @@ describe('scriptFight', () => {
         expect(instants.map(e => e.unitIndex)).toEqual([3])
     })
 
+    it("makes a boss's special one cast across the party, with the deaths it dealt", () => {
+        const { beats, instants } = scriptFight([
+            { at: 5, kind: 'enemy_special', enemyIndex: 2, unitIndex: 0, skillId: 'special_inferno', damage: '9', remainingHp: '1' },
+            { at: 5, kind: 'enemy_special', enemyIndex: 2, unitIndex: 1, skillId: 'special_inferno', damage: '9', remainingHp: '0' },
+            { at: 5, kind: 'unit_down', unitIndex: 1, remainingHp: '0' },
+            { at: 5, kind: 'status_applied', unitIndex: 0, statusId: 'special_inferno' }
+        ])
+        expect(beats).toHaveLength(1)
+        expect(beats[0]).toMatchObject({ side: 1, actor: 2, cast: true, skillId: 'special_inferno' })
+        expect(beats[0]!.hits.map(e => e.unitIndex)).toEqual([0, 1])
+        expect(beats[0]!.downs.map(e => e.unitIndex)).toEqual([1])
+        expect(instants.map(e => e.kind)).toEqual(['status_applied'])
+    })
+
     it('accounts for every event of a real fight exactly once', () => {
         const champions = ['champ_kaira', 'champ_borin', 'champ_lys'].map((id) => {
             const d = getChampion(id as never)

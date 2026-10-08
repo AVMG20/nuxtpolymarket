@@ -167,6 +167,32 @@ export const SUPER_BOSS_HP_MULT = 9 // TUNED ✓
 export const BOSS_ATK_MULT = 1.2 // TUNED ✓
 export const SUPER_BOSS_ATK_MULT = 1.5 // TUNED ✓
 
+// ── Boss specials ──────────────────────────────────  open-items.md #45
+//
+// Every boss and super boss swings its special in place of a basic attack: on its first swing,
+// then on the first swing after each cooldown. The shapes are `content/boss-specials.ts`; these
+// are their magnitudes, one set for all twenty so the balance pass is one edit. A swing's worth
+// is the boss's PWR against the target's DEF, the same as its basic attack.
+
+/** Seconds between specials. A gate fight is 30 s at one swing per 2.4 s, so about four land. */
+export const BOSS_SPECIAL_COOLDOWN_SECONDS = 8 // UNTUNED ╧
+/** A spread special, per target, in swings: it hits the whole party, so each share is light. */
+export const BOSS_SPECIAL_SPREAD_MULTIPLIER = 0.8 // UNTUNED ╧
+/** A heavy special, per target, in swings: the later worlds' and super bosses' whole-party hits. */
+export const BOSS_SPECIAL_HEAVY_MULTIPLIER = 1.2 // UNTUNED ╧
+/** A focused special, per target, in swings: it reaches one or two bodies, so it hits hard. */
+export const BOSS_SPECIAL_FOCUS_MULTIPLIER = 2 // UNTUNED ╧
+/** A burn's damage per status tick, as a share of what the special's hit landed. */
+export const BOSS_SPECIAL_BURN_FRACTION = 0.15 // UNTUNED ╧
+export const BOSS_SPECIAL_BURN_SECONDS = 4 // UNTUNED ╧
+export const BOSS_SPECIAL_STUN_SECONDS = 1 // UNTUNED ╧
+export const BOSS_SPECIAL_SILENCE_SECONDS = 3 // UNTUNED ╧
+/** A slow, weaken or sunder: the share of SPD, PWR or DEF it takes off each target. */
+export const BOSS_SPECIAL_DEBUFF_MAGNITUDE = 0.2 // UNTUNED ╧
+export const BOSS_SPECIAL_DEBUFF_SECONDS = 6 // UNTUNED ╧
+/** A draining special heals the boss this share of the damage it landed. */
+export const BOSS_SPECIAL_DRAIN_FRACTION = 0.5 // UNTUNED ╧
+
 // ── Combat ─────────────────────────────────────────  classes-and-combat.md §7
 
 /**

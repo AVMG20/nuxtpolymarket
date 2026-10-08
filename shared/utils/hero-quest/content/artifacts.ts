@@ -207,9 +207,8 @@ export const ARTIFACT_EFFECT_POOL: Readonly<Record<ArtifactCategory, readonly Ar
                 + 'shorter cooldown are the same casts-per-minute; only the burstiness differs.'
         }),
         effect('tempo', 'Unshaken', 'controlResist', 'Reduces the duration of stuns/silences/freezes and other disables applied to the party', {
-            note: 'Declared and summed, currently **inert** — enemies have no abilities, so '
-                + 'nothing applies control to the party to shorten. Kept honest rather than '
-                + 're-pointed at a stat that happens to be wired up; see `modifiers.ts`.'
+            note: 'Shortens every hostile status a boss special lands, debuffs and burns '
+                + 'included. Only bosses have abilities, so it does nothing outside a boss fight.'
         })
     ],
     fortune: [

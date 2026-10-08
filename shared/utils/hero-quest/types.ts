@@ -177,6 +177,8 @@ export interface UnitStats {
     cooldownFactor: number
     /** Fraction of incoming damage this unit reflects, from passive modifiers. */
     reflectFraction: number
+    /** Fraction cut off every hostile status a boss special lands on this unit, from passive modifiers. */
+    controlResist: number
 }
 
 /**

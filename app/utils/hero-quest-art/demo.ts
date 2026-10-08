@@ -23,10 +23,11 @@
 // See JUICE. The dead shatter into their own pixels; bodies winding up are rim-lit in their
 // accent colour, and casters leave afterimages.
 //
-// A boss with a special (presentation only: bosses have no abilities in the game yet) opens with
-// it and uses it now and then after, presented like a Hero skill turned on the party: the scene
-// tinted, everyone else holding, its hits landing on its own clock. Skills and specials put up no
-// name; a boss's own name goes up in the banner halfway through its entrance.
+// A boss with a special opens with it and uses it again each time its cooldown is up, presented
+// like a Hero skill turned on the party: the scene tinted, everyone else holding, its hits landing
+// on its own clock. In a fight the log says when (`enemy_special`), and the hits land the log's
+// numbers. Skills and specials put up no name; a boss's own name goes up in the banner halfway
+// through its entrance.
 //
 // Between waves the party marches: it holds its marks and plays its gait while the scenery
 // parallax-scrolls past and the next wave closes in from the right edge.
@@ -63,12 +64,12 @@ import { GILDED_WARLORD, GREAT_DUMMY, DUMMY_IMPACT, DEEPCOIL, RAMPANT, RAMPAGE_R
 import { STAGE } from './special-kit'
 import { ENTRY_SETTLED } from './boss-kit'
 import { RunDirector, stageNumber, type RunFeed } from './run-director'
-import { scriptFight, type Beat, type FightScript } from './fight-script'
+import { hitsParty, scriptFight, type Beat, type FightScript } from './fight-script'
 import type { FightEvent } from '../../../shared/utils/hero-quest/fight'
 import { D, ZERO, type Decimal } from '../../../shared/utils/hero-quest/numbers'
 import { dummyLevelFor, dummyThreshold, landsOnEnemy, rampageThreshold } from '../../../shared/utils/hero-quest/raids'
 import { attackIntervalFor } from '../../../shared/utils/hero-quest/combat'
-import { BOSS_TIMER_SECONDS, MIN_ATTACK_INTERVAL_SECONDS, RAID_DIG_BURROWS, RAID_FORGE_KILL_SECONDS, SUPER_BOSS_STAGE } from '../../../shared/utils/hero-quest/constants'
+import { BOSS_SPECIAL_COOLDOWN_SECONDS, BOSS_TIMER_SECONDS, MIN_ATTACK_INTERVAL_SECONDS, RAID_DIG_BURROWS, RAID_FORGE_KILL_SECONDS, SUPER_BOSS_STAGE } from '../../../shared/utils/hero-quest/constants'
 
 export const DEMO_W = SW
 export const DEMO_H = SH
@@ -100,8 +101,6 @@ export type CameraId = keyof typeof CAMERAS
  */
 const OX = STAGE.ox
 const OY = STAGE.oy
-/** How often a boss reaches for its special once it has opened with it. */
-const SPECIAL_CHANCE = 0.3
 /**
  * How long a boss's name stays up once it goes up, halfway through its entrance: a base, and a
  * beat more per letter, so a long name can be read before it goes.
@@ -523,6 +522,8 @@ interface Unit {
 interface Cine {
     lut: Uint8Array, t: number, next: number, first: Unit | null
     hits: readonly number[], spread: boolean, dur: number, special: BossSpecial | null
+    /** A fight's special: the logged blow its hits land, and how many of the log's hits have landed. */
+    beat: Beat | null, landed: number
 }
 
 
@@ -749,8 +750,11 @@ export class BattleDemo {
     private bossName = ''
     private nameT = -1
     private nameFor = 0
-    /** Whether the boss on the stage has opened with its special yet. */
+    /** Whether the boss on the stage has opened with its special yet, and when it may next (stage time). */
     private bossOpened = false
+    private specialDue = 0
+    /** The game's stage: the special of the boss at the gate, which its fight's log plays. */
+    private runSpecial: BossSpecial | null = null
     /**
      * A raid wave: its boss's frame tables (one per Forge phase or Trait rampage tier, else one), which
      * is up, and for the Dig-site its adds' tables and the time to the next add wave; for the Trait
@@ -1227,6 +1231,7 @@ export class BattleDemo {
         const rp = this.replay
         if (!rp || rp.done) return
         rp.quiet = true
+        this.flushCine()
         for (const u of this.units) if (u.beat) { const b = u.beat; u.beat = null; this.applyBeat(b) }
         for (const p of this.projs) if (p.live && p.hit) { p.live = false; this.applyHit(p.hit); this.applyDowns(p.downs) }
         for (const b of rp.late) this.applyBeat(b)
@@ -1297,12 +1302,19 @@ export class BattleDemo {
 
     /** How long before its blow lands a swing has to start: its clip's impact, and a shot's flight. */
     private leadOf(u: Unit, b: Beat): number {
+        const special = this.specialFor(b)
+        if (special) return special.hits[0] ?? 0
         const impact = u.impact[b.cast ? U.Cast : U.Attack]!
         const first = b.hits[0]
         if (!u.shot || b.cast || !first) return impact
-        const tgt = first.kind === 'enemy_attack' ? this.partyUnit(first.unitIndex) : this.foeUnit(first.enemyIndex)
+        const tgt = hitsParty(first) ? this.partyUnit(first.unitIndex) : this.foeUnit(first.enemyIndex)
         if (!tgt) return impact
         return impact + Math.max(0.12, Math.abs(tgt.x + tgt.ox - u.x - u.ox) / SHOT_SPEED[u.shot.kind])
+    }
+
+    /** The special a logged beat plays: a boss's cast, at a gate whose boss has one. */
+    private specialFor(b: Beat): BossSpecial | null {
+        return b.side === 1 && b.cast ? this.runSpecial : null
     }
 
     /** The replay's clock: start the swings whose time has come, land what is due, close at the end. */
@@ -1325,9 +1337,17 @@ export class BattleDemo {
             u.t = 0
             u.fired = false
             u.beat = b
-            // the Hero's cinematic for a damaging cast: the ability's own, else the class skill's
+            // the boss's special: its hits land on the special's own clock, not at the clip's impact
+            const special = this.specialFor(b)
+            if (special) {
+                u.beat = null
+                this.startSpecial(special, u, b)
+                continue
+            }
+            // the Hero's cinematic for a damaging cast: the ability's own, else the class skill's;
+            // a special playing keeps the stage
             const cine = b.cast && b.side === 0 && b.actor === 0 && b.hits.length ? (b.skillId ? CINEMATIC_BY_ID[b.skillId] : null) ?? this.heroCine : null
-            if (cine) this.startCine(cine, u)
+            if (cine && !this.cine?.beat) this.startCine(cine, u)
         }
         for (let k = rp.late.length - 1; k >= 0; k--) {
             if (rp.late[k]!.at > rp.clock) continue
@@ -1350,7 +1370,7 @@ export class BattleDemo {
         }
         for (let k = 0; k < b.hits.length; k++) {
             const h = b.hits[k]!
-            const tgt = h.kind === 'enemy_attack' ? this.partyUnit(h.unitIndex) : this.foeUnit(h.enemyIndex)
+            const tgt = hitsParty(h) ? this.partyUnit(h.unitIndex) : this.foeUnit(h.enemyIndex)
             const downs = k === b.hits.length - 1 ? b.downs : []
             let p: Proj | null = null
             for (let i = 0; i < this.projs.length; i++) if (!this.projs[i]!.live) { p = this.projs[i]!; break }
@@ -1369,7 +1389,7 @@ export class BattleDemo {
     /** One logged hit lands: its number on the body struck, and the party's frames follow its HP. */
     private applyHit(h: FightEvent): void {
         const quiet = this.replay?.quiet ?? true
-        if (h.kind === 'enemy_attack') {
+        if (hitsParty(h)) {
             const t = this.partyUnit(h.unitIndex)
             this.setPartyHp(h.unitIndex, h.remainingHp)
             if (!t || quiet || !standingAny(t)) return
@@ -1407,6 +1427,13 @@ export class BattleDemo {
         const quiet = this.replay?.quiet ?? true
         switch (e.kind) {
             case 'heal': {
+                // a draining special mends its boss
+                if (e.onEnemy) {
+                    const f = this.foeUnit(e.enemyIndex)
+                    this.setFoeHp(f, e.enemyIndex, e.remainingHp)
+                    if (f && !quiet && f.state !== U.Gone && D(e.damage ?? 0).gt(0)) this.number(f.x + 6, f.y - f.crown + 10, 'heal', false, `+${stageNumber(D(e.damage!))}`)
+                    return
+                }
                 this.setPartyHp(e.unitIndex, e.remainingHp)
                 const t = this.partyUnit(e.unitIndex)
                 if (!t) return
@@ -1869,9 +1896,11 @@ export class BattleDemo {
             }
             if (u.boss && active) {
                 u.frames = this.bossFrames[which]!
-                // no specials: the boss stands off here, and its fight is the server's to resolve
+                // the boss stands off here and never reaches for its special on its own: its fight
+                // is the server's to resolve, and the log says when it comes
                 this.bossSpecial = null
                 this.bossOpened = true
+                this.runSpecial = this.bossSpecials[which] ?? null
                 this.bossName = this.bossNames[which]!
                 this.nameT = -1
                 this.nameFor = NAME_BASE + NAME_PER_CHAR * this.bossName.length
@@ -2098,21 +2127,64 @@ export class BattleDemo {
     private startCine(def: CinematicVfx, u: Unit): void {
         u.fired = true // hits come from the skill's own clock, not the clip's impact
         this.playFx(u.vfx)
+        this.flushCine()
         for (let i = 0; i < this.units.length; i++) this.units[i]!.stack = 0
         const k = def.cinematic
-        this.cine = { lut: tintLut(k.tint), t: 0, next: 0, first: null, hits: k.hits, spread: k.spread, dur: def.dur, special: null }
+        this.cine = { lut: tintLut(k.tint), t: 0, next: 0, first: null, hits: k.hits, spread: k.spread, dur: def.dur, special: null, beat: null, landed: 0 }
     }
 
-    /** Start presenting a boss's special: its body plays the Cast slot, its effect and hits run on the special's clock. */
-    private startSpecial(sp: BossSpecial, u: Unit): void {
+    /**
+     * Start presenting a boss's special: its body plays the Cast slot, its effect and hits run on
+     * the special's clock. In a fight `beat` is the logged special, whose hits land on that clock.
+     */
+    private startSpecial(sp: BossSpecial, u: Unit, beat: Beat | null = null): void {
         u.fired = true
+        this.flushCine()
         for (let i = 0; i < this.units.length; i++) this.units[i]!.stack = 0
         const b = u.frames[U.Cast]!
-        this.cine = { lut: tintLut(sp.tint), t: 0, next: 0, first: null, hits: sp.hits, spread: sp.spread, dur: b.frames.length / b.fps, special: sp }
+        this.cine = { lut: tintLut(sp.tint), t: 0, next: 0, first: null, hits: sp.hits, spread: sp.spread, dur: b.frames.length / b.fps, special: sp, beat, landed: 0 }
+    }
+
+    /** Land whatever a logged special has not landed yet: a cine cut short must not drop the log's blows. */
+    private flushCine(): void {
+        const c = this.cine
+        if (c?.beat) this.landSpecial(c, Number.POSITIVE_INFINITY)
+    }
+
+    /**
+     * A logged special's hits, spread evenly over its drawn impacts: impact `i` lands the hits that
+     * fall to it, each with its number stacked on the body struck, and the last one the deaths.
+     */
+    private landSpecial(c: Cine, i: number): void {
+        const b = c.beat!
+        const n = b.hits.length
+        const slots = Math.max(1, c.hits.length)
+        while (c.landed < n && Math.floor(c.landed * slots / n) <= i) {
+            const h = b.hits[c.landed++]!
+            this.applyHit(h)
+            const t = this.partyUnit(h.unitIndex)
+            const dmg = D(h.damage ?? 0)
+            if (!t || this.replay?.quiet !== false || dmg.lte(0)) continue
+            if (!c.first) c.first = t
+            this.number(t.x, t.y - t.crown - t.stack * 7, 'crit', true, stageNumber(dmg))
+            t.stack++
+        }
+        // the deaths go once, after the last hit; past that the drawn impacts land nothing
+        if (c.landed === n) {
+            this.applyDowns(b.downs)
+            c.landed++
+        }
     }
 
     /** One of the skill's impacts: damage the next target, stack its number, total at the end. */
     private cineHit(c: Cine, i: number): void {
+        if (c.beat) {
+            this.landSpecial(c, i)
+            this.stopFor(JUICE.skill.freeze, true)
+            this.shake(JUICE.skill.shake, JUICE.skill.shakeFor)
+            if (i === 0) this.flashFor(JUICE.skill.flash, C.white)
+            return
+        }
         if (this.replay && !c.special) {
             this.cineFlourish(c, i)
             return
@@ -2263,7 +2335,10 @@ export class BattleDemo {
     /** A body goes down: the kill ring, then a freeze and shake sized to what it meant. */
     private kill(tgt: Unit): void {
         // a boss felled mid-special takes its special down with it
-        if (tgt.boss && this.cine?.special) this.cine = null
+        if (tgt.boss && this.cine?.special) {
+            this.flushCine()
+            this.cine = null
+        }
         tgt.state = U.Death
         tgt.t = 0
         tgt.hold = 0
@@ -2480,8 +2555,8 @@ export class BattleDemo {
                     // and a basic attack when its attack timer runs out, at the body's own attack speed
                     const swing = u.attack ? u.attack.timer <= 0 : u.t >= u.wait
                     if (!this.cine && !this.march && !this.standoff && (swing || ready) && this.target(u.side) && !(dummy && (u.boss || dummy.over >= 0))) {
-                        // a boss opens with its special, then reaches for it now and then
-                        const special = u.boss && this.bossSpecial !== null && (!this.bossOpened || Math.random() < SPECIAL_CHANCE)
+                        // a boss opens with its special, then reaches for it each time its cooldown is up, as in a fight
+                        const special = u.boss && this.bossSpecial !== null && (!this.bossOpened || this.time >= this.specialDue)
                         const cast = this.run && u.side === 0 ? ready !== null : u.side === 0 ? Math.random() < 0.3 : special
                         u.state = cast ? U.Cast : U.Attack
                         u.t = 0
@@ -2509,6 +2584,7 @@ export class BattleDemo {
                                 r.spNext = (n + 1) % list.length
                             }
                             this.bossOpened = true
+                            this.specialDue = this.time + BOSS_SPECIAL_COOLDOWN_SECONDS
                             this.startSpecial(this.bossSpecial!, u)
                         }
                     }
@@ -2615,7 +2691,10 @@ export class BattleDemo {
             c.t += dt
             const hits = c.hits
             while (c.next < hits.length && c.t >= hits[c.next]!) this.cineHit(c, c.next++)
-            if (c.t >= c.dur + 0.3) this.cine = null
+            if (c.t >= c.dur + 0.3) {
+                this.flushCine()
+                this.cine = null
+            }
         }
         // march to the next battle once the pack is down
         if (this.march > 0) {

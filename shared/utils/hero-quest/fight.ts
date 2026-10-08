@@ -39,6 +39,17 @@
  */
 
 import {
+    BOSS_SPECIAL_BURN_FRACTION,
+    BOSS_SPECIAL_BURN_SECONDS,
+    BOSS_SPECIAL_COOLDOWN_SECONDS,
+    BOSS_SPECIAL_DEBUFF_MAGNITUDE,
+    BOSS_SPECIAL_DEBUFF_SECONDS,
+    BOSS_SPECIAL_DRAIN_FRACTION,
+    BOSS_SPECIAL_FOCUS_MULTIPLIER,
+    BOSS_SPECIAL_HEAVY_MULTIPLIER,
+    BOSS_SPECIAL_SILENCE_SECONDS,
+    BOSS_SPECIAL_SPREAD_MULTIPLIER,
+    BOSS_SPECIAL_STUN_SECONDS,
     BOSS_TIMER_SECONDS,
     FIGHT_TICK_SECONDS,
     MIN_DAMAGE,
@@ -56,6 +67,8 @@ import {
 import { columnOf, enemyPackAt, rowOf } from './settle'
 import { partyUnitStats } from './stats'
 import { heroKit } from './content/skills'
+import { bossSpecialAt } from './content/boss-specials'
+import type { BossSpecialDef, SpecialStatus, SpecialTarget, SpecialWeight } from './content/boss-specials'
 import {
     SINGLE_TARGET,
     executeMultiplier,
@@ -76,7 +89,7 @@ import {
     statMultiplier,
     tickStatuses
 } from './status'
-import type { StatusInstance } from './status'
+import type { StatusApplication, StatusInstance } from './status'
 import { ONE, ZERO, decMax } from './numbers'
 import type { Decimal } from './numbers'
 import type { ClassSkill, EnemyPack, EnemyStats, HeroSnapshot, RunPosition, UnitStats } from './types'
@@ -85,6 +98,8 @@ export type FightOutcome = 'win' | 'timeout' | 'wipe'
 
 export type FightEventKind =
     | 'attack' | 'skill' | 'enemy_attack' | 'unit_down' | 'enemy_down'
+    /** One hit of a gate boss's special on a party member, `skillId` naming it; the stage plays the special for it. */
+    | 'enemy_special'
     /**
      * Damage bounced back at an attacker. Its own kind rather than an `attack`, because nobody
      * cast anything and the client should not draw a swing for it.
@@ -436,6 +451,129 @@ export function runFight(input: FightInput): FightResult {
         }
     }
 
+    /**
+     * An enemy's hit reaches a party member: shields first, then HP, then reflect. Returns what
+     * reached HP, which is what a burn or a drain is sized off.
+     */
+    const landOnUnit = (foe: EnemyCombatant, target: Combatant, raw: Decimal, kind: 'enemy_attack' | 'enemy_special', skillId?: string): Decimal => {
+        const targetIndex = party.indexOf(target)
+        const foeIndex = enemies.indexOf(foe)
+        // Shields eat what mitigation left, never the raw hit — see `absorbDamage`.
+        const { throughput, absorbed, broken } = absorbDamage(target.statuses, raw)
+        target.hp = target.hp.sub(throughput)
+
+        if (absorbed.gt(0)) {
+            events.push({
+                at: elapsed,
+                kind: 'shield',
+                unitIndex: targetIndex,
+                enemyIndex: foeIndex,
+                damage: absorbed.toString()
+            })
+        }
+        events.push({
+            at: elapsed,
+            kind,
+            unitIndex: targetIndex,
+            enemyIndex: foeIndex,
+            ...(skillId === undefined ? {} : { skillId }),
+            damage: throughput.toString(),
+            remainingHp: decMaxZero(target.hp).toString()
+        })
+
+        /**
+         * Reflect — the fraction a defender bounces back at whoever hit it.
+         *
+         * Two sources, summed: the timed `reflect` status (Guardian's Reflect) and the passive
+         * `reflectFraction` on the unit's stat block (Immortal Vanguard). Computed off
+         * `throughput` — what actually landed — so a hit a shield ate reflects nothing.
+         */
+        const reflected = reflectFraction(target.statuses)
+            .add(target.stats.reflectFraction)
+            .mul(throughput)
+        if (reflected.gt(0) && foe.hp.gt(0)) {
+            foe.hp = foe.hp.sub(reflected)
+            events.push({
+                at: elapsed,
+                kind: 'reflect',
+                unitIndex: targetIndex,
+                enemyIndex: foeIndex,
+                damage: reflected.toString(),
+                remainingHp: decMaxZero(foe.hp).toString()
+            })
+            rampageUp(foe)
+            if (foe.hp.lte(0)) {
+                events.push({ at: elapsed, kind: 'enemy_down', enemyIndex: foeIndex, remainingHp: '0' })
+            }
+        }
+        for (const shield of broken) {
+            events.push({
+                at: elapsed,
+                kind: 'status_expired',
+                unitIndex: targetIndex,
+                statusId: shield.id
+            })
+        }
+        if (target.hp.lte(0)) {
+            events.push({ at: elapsed, kind: 'unit_down', unitIndex: targetIndex, remainingHp: '0' })
+        }
+        return throughput
+    }
+
+    /**
+     * The gate boss's special (`content/boss-specials.ts`): only at a run's own gate, never in a
+     * raid. It is ready from the start, so the boss opens with it, and on a fixed cooldown after
+     * that, so the seed decides nothing about when it comes.
+     */
+    const special = input.encounter ? undefined : bossSpecialAt(input.position.world, input.position.stage)
+    const specialCaster = special ? enemies[enemies.length - 1] : undefined
+    let specialReadyAt = 0
+
+    const specialTargets = (target: SpecialTarget): Combatant[] => {
+        const first = chooseDefender()
+        if (!first) return []
+        if (target === 'front') return [first]
+        const living = party.filter(unit => unit.hp.gt(0))
+        if (target === 'all') return living
+        // the next body its basic attack would reach, in the same order
+        const rest = living.filter(unit => unit !== first)
+        const next = targetingOrder(rest.map(unit => unit.stats))[0]
+        return [first, ...rest.filter(unit => unit.stats === next)]
+    }
+
+    const castSpecial = (foe: EnemyCombatant, def: BossSpecialDef) => {
+        const foeIndex = enemies.indexOf(foe)
+        const hits = Math.max(1, Math.floor(def.hits ?? 1))
+        const pwr = liveEnemyStats(foe.stats, foe.statuses).pwr
+        let drained = ZERO
+        for (const target of specialTargets(def.target)) {
+            const targetIndex = party.indexOf(target)
+            let landed = ZERO
+            for (let hit = 0; hit < hits && target.hp.gt(0); hit++) {
+                const raw = rawHitDamage(pwr, liveUnitStats(target.stats, target.statuses).def, SPECIAL_WEIGHT[def.weight] / hits)
+                landed = landed.add(landOnUnit(foe, target, raw, 'enemy_special', def.id))
+            }
+            drained = drained.add(landed)
+            if (def.status && target.hp.gt(0)) {
+                const status = specialStatus(def.status, landed)
+                // control resist shortens everything hostile a special lands, never below nothing
+                const resisted = status.duration * Math.max(0, 1 - target.stats.controlResist)
+                if (resisted > 0 && applyStatus(target.statuses, { ...status, id: def.id, duration: resisted })) {
+                    events.push({ at: elapsed, kind: 'status_applied', unitIndex: targetIndex, statusId: def.id })
+                }
+            }
+        }
+        if (def.drain && foe.hp.gt(0) && drained.gt(0)) {
+            const before = foe.hp
+            const healed = foe.hp.add(drained.mul(BOSS_SPECIAL_DRAIN_FRACTION))
+            foe.hp = healed.gt(foe.stats.hp) ? foe.stats.hp : healed
+            events.push({
+                at: elapsed, kind: 'heal', enemyIndex: foeIndex, onEnemy: true, skillId: def.id,
+                damage: foe.hp.sub(before).toString(), remainingHp: foe.hp.toString()
+            })
+        }
+    }
+
     // re-read each tick: a gauntlet kill moves the deadline out
     for (let tick = 0; tick < Math.ceil(deadline / FIGHT_TICK_SECONDS); tick++) {
         elapsed = Math.min(deadline, (tick + 1) * FIGHT_TICK_SECONDS)
@@ -749,9 +887,15 @@ export function runFight(input: FightInput): FightResult {
             foe.attackTimer += attackIntervalFor(0)
             if (!canAutoattack(foe.statuses)) continue
 
+            // the gate's boss swings its special in place of this attack whenever it is off cooldown
+            if (special && foe === specialCaster && elapsed >= specialReadyAt - 1e-9) {
+                specialReadyAt = elapsed + BOSS_SPECIAL_COOLDOWN_SECONDS
+                castSpecial(foe, special)
+                continue
+            }
+
             const target = chooseDefender()
             if (!target) break
-            const targetIndex = party.indexOf(target)
             // Through the shared helper rather than re-deriving the formula here, so the
             // enemy's swing picks up the MIN_DAMAGE floor exactly as the party's does. Live
             // stats on both sides: Weaken lowers the attacker's PWR, Bulwark Stance raises the
@@ -762,67 +906,7 @@ export function runFight(input: FightInput): FightResult {
                 liveEnemyStats(foe.stats, foe.statuses).pwr.mul(rage),
                 liveUnitStats(target.stats, target.statuses).def
             )
-            // Shields eat what mitigation left, never the raw hit — see `absorbDamage`.
-            const { throughput, absorbed, broken } = absorbDamage(target.statuses, raw)
-            target.hp = target.hp.sub(throughput)
-
-            if (absorbed.gt(0)) {
-                events.push({
-                    at: elapsed,
-                    kind: 'shield',
-                    unitIndex: targetIndex,
-                    enemyIndex: enemies.indexOf(foe),
-                    damage: absorbed.toString()
-                })
-            }
-            events.push({
-                at: elapsed,
-                kind: 'enemy_attack',
-                unitIndex: targetIndex,
-                enemyIndex: enemies.indexOf(foe),
-                damage: throughput.toString(),
-                remainingHp: decMaxZero(target.hp).toString()
-            })
-
-            /**
-             * Reflect — the fraction a defender bounces back at whoever hit it.
-             *
-             * Two sources, summed: the timed `reflect` status (Guardian's Reflect) and the passive
-             * `reflectFraction` on the unit's stat block (Immortal Vanguard). Computed off
-             * `throughput` — what actually landed — so a hit a shield ate reflects nothing.
-             */
-            const reflected = reflectFraction(target.statuses)
-                .add(target.stats.reflectFraction)
-                .mul(throughput)
-            if (reflected.gt(0)) {
-                foe.hp = foe.hp.sub(reflected)
-                events.push({
-                    at: elapsed,
-                    kind: 'reflect',
-                    unitIndex: targetIndex,
-                    enemyIndex: enemies.indexOf(foe),
-                    damage: reflected.toString(),
-                    remainingHp: decMaxZero(foe.hp).toString()
-                })
-                rampageUp(foe)
-                if (foe.hp.lte(0)) {
-                    events.push({
-                        at: elapsed, kind: 'enemy_down',
-                        enemyIndex: enemies.indexOf(foe), remainingHp: '0'
-                    })
-                }
-            }
-            for (const shield of broken) {
-                events.push({
-                    at: elapsed,
-                    kind: 'status_expired',
-                    unitIndex: targetIndex,
-                    statusId: shield.id
-                })
-            }
-            if (target.hp.lte(0)) {
-                events.push({ at: elapsed, kind: 'unit_down', unitIndex: targetIndex, remainingHp: '0' })
-            }
+            landOnUnit(foe, target, raw, 'enemy_attack')
         }
 
         if (party.every(unit => unit.hp.lte(0))) {
@@ -831,6 +915,30 @@ export function runFight(input: FightInput): FightResult {
     }
 
     return result('timeout', deadline, events, enemyHpLeft(), enemyMaxHps, packMaxHps, input.seed)
+}
+
+const SPECIAL_WEIGHT: Readonly<Record<SpecialWeight, number>> = {
+    spread: BOSS_SPECIAL_SPREAD_MULTIPLIER,
+    heavy: BOSS_SPECIAL_HEAVY_MULTIPLIER,
+    focus: BOSS_SPECIAL_FOCUS_MULTIPLIER
+}
+
+/** A special's status as it lands; a burn is sized off what the special's hit landed on that target. */
+function specialStatus(status: SpecialStatus, landed: Decimal): Omit<StatusApplication, 'id'> {
+    switch (status) {
+        case 'burn':
+            return { kind: 'dot', duration: BOSS_SPECIAL_BURN_SECONDS, magnitude: landed.mul(BOSS_SPECIAL_BURN_FRACTION) }
+        case 'stun':
+            return { kind: 'stun', duration: BOSS_SPECIAL_STUN_SECONDS }
+        case 'silence':
+            return { kind: 'silence', duration: BOSS_SPECIAL_SILENCE_SECONDS }
+        case 'slow':
+            return { kind: 'debuff', stat: 'spd', duration: BOSS_SPECIAL_DEBUFF_SECONDS, magnitude: BOSS_SPECIAL_DEBUFF_MAGNITUDE }
+        case 'weaken':
+            return { kind: 'debuff', stat: 'pwr', duration: BOSS_SPECIAL_DEBUFF_SECONDS, magnitude: BOSS_SPECIAL_DEBUFF_MAGNITUDE }
+        case 'sunder':
+            return { kind: 'debuff', stat: 'def', duration: BOSS_SPECIAL_DEBUFF_SECONDS, magnitude: BOSS_SPECIAL_DEBUFF_MAGNITUDE }
+    }
 }
 
 /**

@@ -2,8 +2,8 @@
  * The 10 worlds a prestige run walks through.
  *
  * **Names and themes only.** Nothing here affects a single number: every stat comes from
- * `settle.enemyStatsAt`, which knows only the run index. Enemies have no kits of their own yet
- * (`open-items.md` #6), so a roster here is a name and an art brief, not a mechanic.
+ * `settle.enemyStatsAt`, which knows only the run index. Regular enemies have no kits, so a roster
+ * here is a name and an art brief, not a mechanic; the bosses' specials are `boss-specials.ts`.
  *
  * **The arc is a walk toward the source.** The archmage of Duskspire (World 6) opened a door
  * to the Void, and the cracks it left spread outward through the kingdom. A run starts at the

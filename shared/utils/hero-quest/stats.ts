@@ -335,7 +335,8 @@ export function deriveUnitStats(
         critMultiplier: critMultiplierFor(block.lck, block.imp).add(mods.critDamageBonus),
         eva,
         cooldownFactor: mods.cooldownFactor,
-        reflectFraction: mods.reflectFraction
+        reflectFraction: mods.reflectFraction,
+        controlResist: mods.controlResist
     }
 }
 

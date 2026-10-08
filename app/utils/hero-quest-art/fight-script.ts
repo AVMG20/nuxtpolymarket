@@ -35,7 +35,14 @@ function actorOf(e: FightEvent): { side: 0 | 1, actor: number, cast: boolean } |
     if (e.kind === 'attack' && e.unitIndex !== undefined) return { side: 0, actor: e.unitIndex, cast: false }
     if (e.kind === 'skill' && e.unitIndex !== undefined) return { side: 0, actor: e.unitIndex, cast: true }
     if (e.kind === 'enemy_attack' && e.enemyIndex !== undefined) return { side: 1, actor: e.enemyIndex, cast: false }
+    // a boss's special is its cast: the stage plays the special for it
+    if (e.kind === 'enemy_special' && e.enemyIndex !== undefined) return { side: 1, actor: e.enemyIndex, cast: true }
     return null
+}
+
+/** Whether a logged hit lands on the party rather than on an enemy. */
+export function hitsParty(e: FightEvent): boolean {
+    return e.kind === 'enemy_attack' || e.kind === 'enemy_special'
 }
 
 export function scriptFight(events: readonly FightEvent[]): FightScript {
@@ -69,8 +76,8 @@ export function scriptFight(events: readonly FightEvent[]): FightScript {
             let owner: Beat | undefined
             for (const beat of open.values()) {
                 if (beat.hits.some(h => enemy
-                    ? h.kind !== 'enemy_attack' && h.enemyIndex === e.enemyIndex
-                    : h.kind === 'enemy_attack' && h.unitIndex === e.unitIndex)) owner = beat
+                    ? !hitsParty(h) && h.enemyIndex === e.enemyIndex
+                    : hitsParty(h) && h.unitIndex === e.unitIndex)) owner = beat
             }
             if (owner) owner.downs.push(e)
             else instants.push(e)

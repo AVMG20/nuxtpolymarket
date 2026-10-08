@@ -295,11 +295,12 @@ describe('hero-quest seeded fights', () => {
             // target to `FROSTBIND_FREEZE_STACKS`. A Mythic Control Champion brings it.
             //
             // The party has to survive long enough for `FROSTBIND_FREEZE_STACKS` casts; the level
-            // sits mid-band so a retune does not tip it into dying first.
+            // sits mid-band so a retune does not tip it into dying first. Avalanche reaches the
+            // back row, so the Frostbinder needs the levels to outlast it.
             const frostbinder = CHAMPIONS.find(champion =>
                 champion.abilities.some(ability => ability.name === 'Frostbind'))!
             const result = runFight({
-                hero: withParty(hero(181, 'class_beginner'), [snapshotOf(frostbinder)]),
+                hero: withParty(hero(200, 'class_beginner'), [snapshotOf(frostbinder)]),
                 position: at(4, SUPER_BOSS_STAGE),
                 seed: 7
             })

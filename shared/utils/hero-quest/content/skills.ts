@@ -321,7 +321,7 @@ export const SKILLS: readonly SkillDefinition[] = [
     /**
      * "+DEF%/VIT (medium–large), AND resistance to (reduced chance/duration of) one debuff type."
      *
-     * The resistance line is a `controlResist` modifier, **currently inert** — see `modifiers.ts`.
+     * The resistance line is a `controlResist` modifier, which shortens what boss specials land.
      */
     passive('Unbreakable Will', 'legendary', ['+DEF.', 'Shortens debuffs applied to you.'],
         [stat('legendary', 'def'), other('legendary', 'controlResist')]),
@@ -366,7 +366,7 @@ export const SKILLS: readonly SkillDefinition[] = [
      * Reflect is real and wired — `fight.ts` already resolves a reflect fraction — with the
      * "chance to" dropped to always-on, the same call `Guardian's Reflect` made and for the same
      * reason: a proc roll would stack a second source of variance on top of crit for no gain.
-     * The resistance line is the inert `controlResist`, as above.
+     * The resistance line is `controlResist`, as above.
      */
     passive('Immortal Vanguard', 'mythic',
         ['+DEF.', 'Reflects part of the damage you take.', 'Shortens debuffs applied to you.'],

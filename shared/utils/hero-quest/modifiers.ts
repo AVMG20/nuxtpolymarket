@@ -63,12 +63,9 @@ export type ModifierKind =
     /** Fraction shaved off every cooldown, on top of what SPD already shortens. */
     | 'cooldown'
     /**
-     * Fraction by which control effects landed on the party are shortened.
-     *
-     * **Declared and summed, currently inert.** Enemies have no abilities, so nothing applies
-     * control to the party. It goes live when enemies gain kits; until then the content that
-     * declares it (Artifacts' Unshaken, Skills' Unbreakable Will and Immortal Vanguard) says what
-     * it does rather than being re-pointed at a stat that happens to be wired up.
+     * Fraction by which hostile statuses a boss special lands on the party are shortened: stuns,
+     * silences, burns and debuffs alike (`fight.ts`). Bosses are the only enemies with abilities,
+     * so it does nothing in the idle rate.
      */
     | 'controlResist'
     /** Fraction of incoming damage reflected back at the attacker. */
