@@ -9,6 +9,7 @@ import { addLandscape, clearLandscape, createCloud, createMeadowTexture } from '
 import { animateTownWater } from '~/utils/town/surfaces'
 import { createTerrainOverlay, createWaterLayer, disposeTerrainOverlay, disposeWaterLayer } from '~/utils/town/terrain'
 import { createRoadParts } from '~/utils/town/roads'
+import { townRouteCurve, townRouteRibbon, townRouteMaterial, type TownRoutePoint } from '~/utils/town/routes'
 import { townSceneLevel } from '~/utils/town/appearance'
 import { townDragDelta, townKeyboardDelta, townIsTyping, townWheelZoomFactor, townSnapTurn } from '~/utils/town/camera'
 import { TOWN_PLOT_SIZE, TOWN_FACING, getTownBuilding, townLevelBuildMs, townFrontTile, townFrontTiles, townBuildingSize, townFootprintAnchor, townCovers, townDragLine, TOWN_MAX_DRAG_TILES, TOWN_SUPPLY_MIN_EFFICIENCY, type TownBuildingDef, type TownBuildingId } from '#shared/utils/gamelogic/town'
@@ -1528,11 +1529,11 @@ function hidePads() {
 }
 
 // ─── Supply routes ───────────────────────────────────────────────────────────
-// Where the selected workshop's goods really come from: the road each delivery
-// travels, a ring on the supplier, and a label on whichever supplier the
-// cursor is over. The nuisance circle already on the ground says who a
-// building upsets; this says who feeds it, which is a different question and
-// used to be unanswerable from the map.
+// Where the selected workshop's goods really come from: a line along the road
+// each delivery travels, from door to door, and the supplier itself turned
+// into a ghost of the route's colour. Hovering a supplier labels its delivery.
+// The nuisance circle already on the ground says who a building upsets; this
+// says who feeds it, which is a different question.
 //
 // Pooled per route rather than globally, because each route owns its colour:
 // the tint is what survives the trip, so two routes from the same kiln can and
@@ -1540,23 +1541,16 @@ function hidePads() {
 
 const supplyGroup = new THREE.Group()
 fxGroup.add(supplyGroup)
-const supplyStepGeo = new THREE.PlaneGeometry(0.46, 0.46)
-const supplyRingGeo = new THREE.RingGeometry(0.44, 0.58, 20)
+const ROUTE_HALF_WIDTH = 0.09
+const ROUTE_Y = 0.36
+/** How far past the door tile's centre the line reaches, to touch the building. */
+const ROUTE_STUB = 0.6
 
 interface RouteVisual {
-    mat: THREE.MeshBasicMaterial
-    steps: THREE.Mesh[]
-    ring: THREE.Mesh
-    /**
-     * A floating "!" over the supplier. The ground ring alone is no use on a
-     * tall building — the model stands in front of it from almost every camera
-     * angle — so the marker that actually finds a supplier sits above the roof.
-     */
-    marker: HTMLDivElement | null
-    /** Whose roof it floats over, or null while this pooled slot is spare. */
-    producerId: string | null
-    /** Last colour written, so a 60fps loop is not rewriting style every frame. */
-    markerColor: string
+    mesh: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial>
+    /** What the geometry was built from, so it is only rebuilt when the road or an end moves. */
+    path: SceneSupplyRoute['path'] | null
+    ends: string
 }
 const routeVisuals: RouteVisual[] = []
 
@@ -1568,71 +1562,128 @@ const ROUTE_FULL = new THREE.Color(0x2ecc71)
  * the same reading as the supply meter in the panel, so the map and the
  * numbers never tell different stories.
  */
-function routeColor(efficiency: number): THREE.Color {
+function routeColor(efficiency: number, target: THREE.Color): THREE.Color {
     const span = 1 - TOWN_SUPPLY_MIN_EFFICIENCY
     const t = Math.max(0, Math.min(1, (efficiency - TOWN_SUPPLY_MIN_EFFICIENCY) / span))
-    return ROUTE_POOR.clone().lerp(ROUTE_FULL, t)
+    return target.copy(ROUTE_POOR).lerp(ROUTE_FULL, t)
 }
 
-function syncSupplyRoutes() {
+/** From a door tile's centre one step toward its building, along whichever axis it faces. */
+function routeStub(tile: TownRoutePoint, e: BuildingEntry | undefined): TownRoutePoint | null {
+    if (!e) return null
+    const dx = e.group.position.x - tile.x
+    const dz = e.group.position.z - tile.z
+    if (Math.abs(dx) < 0.01 && Math.abs(dz) < 0.01) return null
+    return Math.abs(dx) >= Math.abs(dz)
+        ? { x: tile.x + Math.sign(dx) * ROUTE_STUB, z: tile.z }
+        : { x: tile.x, z: tile.z + Math.sign(dz) * ROUTE_STUB }
+}
+
+function routeLine(path: SceneSupplyRoute['path'], producer: BuildingEntry | undefined, consumer: BuildingEntry | undefined): TownRoutePoint[] {
+    const tiles = path.map(t => ({ x: t.wx + 0.5, z: t.wy + 0.5 }))
+    const from = routeStub(tiles[0]!, producer)
+    const to = routeStub(tiles[tiles.length - 1]!, consumer)
+    return [...(from ? [from] : []), ...tiles, ...(to ? [to] : [])]
+}
+
+function syncSupplyRoutes(ms: number) {
     const routes = props.supplyRoutes
+    const consumer = props.selectedBuildingId ? entries.get(props.selectedBuildingId) : undefined
+    const time = props.reducedMotion ? 0 : ms / 1000 * 0.7
     routes.forEach((r, i) => {
         let v = routeVisuals[i]
         if (!v) {
-            const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false })
-            const ring = new THREE.Mesh(supplyRingGeo, mat)
-            ring.rotation.x = -Math.PI / 2
-            supplyGroup.add(ring)
-            v = { mat, steps: [], ring, marker: null, producerId: null, markerColor: '' }
+            v = { mesh: new THREE.Mesh(new THREE.BufferGeometry(), townRouteMaterial()), path: null, ends: '' }
+            v.mesh.renderOrder = 2
+            supplyGroup.add(v.mesh)
             routeVisuals.push(v)
         }
-        const visual = v
-        visual.mat.color.copy(routeColor(r.efficiency))
-        // The roof marker, tinted to match its route so the "!" and the road
-        // under it read as one thing.
-        visual.producerId = r.producerId
-        if (!visual.marker && overlay.value) {
-            const el = document.createElement('div')
-            el.className = 'town-supplier'
-            el.textContent = '!'
-            overlay.value.appendChild(el)
-            visual.marker = el
+        const producer = entries.get(r.producerId)
+        // The ends follow the live models, so a line stays on a building the
+        // mayor is dragging instead of pointing at the tile it left.
+        const ends = `${producer?.group.position.x},${producer?.group.position.z};${consumer?.group.position.x},${consumer?.group.position.z}`
+        if (v.path !== r.path || v.ends !== ends) {
+            v.mesh.geometry.dispose()
+            v.mesh.geometry = r.path.length ? townRouteRibbon(townRouteCurve(routeLine(r.path, producer, consumer)), ROUTE_HALF_WIDTH, ROUTE_Y) : new THREE.BufferGeometry()
+            v.path = r.path
+            v.ends = ends
         }
-        const css = `#${visual.mat.color.getHexString()}`
-        if (visual.marker && visual.markerColor !== css) {
-            visual.marker.style.background = css
-            visual.marker.style.boxShadow = `0 0 0 4px ${css}47, 0 6px 14px rgba(0, 0, 0, 0.4)`
-            visual.markerColor = css
-        }
-        // A diamond per road tile: reads as a route rather than as the square
-        // pads a build drag paints, so the two overlays never look alike.
-        r.path.forEach((t, j) => {
-            let step = visual.steps[j]
-            if (!step) {
-                step = new THREE.Mesh(supplyStepGeo, visual.mat)
-                step.rotation.set(-Math.PI / 2, 0, Math.PI / 4)
-                supplyGroup.add(step)
-                visual.steps.push(step)
-            }
-            step.position.set(t.wx + 0.5, 0.355, t.wy + 0.5)
-            step.visible = true
-        })
-        for (let j = r.path.length; j < visual.steps.length; j++) visual.steps[j]!.visible = false
-        // The ring follows the live model, so it travels with a building the
-        // mayor is dragging instead of hanging over the tile it left.
-        const e = entries.get(r.producerId)
-        visual.ring.visible = !!e
-        if (e) {
-            visual.ring.position.set(e.group.position.x, 0.33, e.group.position.z)
-            visual.ring.scale.setScalar(townBuildingSize(e.data.type))
-        }
+        routeColor(r.efficiency, v.mesh.material.uniforms.uColor!.value as THREE.Color)
+        v.mesh.material.uniforms.uTime!.value = time
+        v.mesh.visible = true
     })
-    for (let i = routes.length; i < routeVisuals.length; i++) {
-        const v = routeVisuals[i]!
-        v.ring.visible = false
-        // positionOverlays hides the marker off the back of this.
-        v.producerId = null
-        for (const step of v.steps) step.visible = false
+    for (let i = routes.length; i < routeVisuals.length; i++) routeVisuals[i]!.mesh.visible = false
+    syncSupplierGhosts(ms)
+}
+
+// A supplier wears its route's colour as a see-through ghost: easy to find from
+// any camera angle, where a ring on the ground hides behind the model itself.
+interface SupplierGhost {
+    model: THREE.Group
+    swaps: { mesh: THREE.Mesh, original: THREE.Material }[]
+    /** Each clone with the colour it was painted, so the tint is mixed fresh every frame. */
+    mats: { mat: THREE.MeshStandardMaterial, base: THREE.Color }[]
+}
+const supplierGhosts = new Map<string, SupplierGhost>()
+const ghostColor = new THREE.Color()
+
+function ghostSupplier(e: BuildingEntry): SupplierGhost {
+    const g: SupplierGhost = { model: e.model, swaps: [], mats: [] }
+    // Static parts share cached materials, so each one is cloned once per model.
+    const clones = new Map<THREE.Material, THREE.MeshStandardMaterial>()
+    e.model.traverse((o) => {
+        // Window glow keeps animating on its own material.
+        if (!(o instanceof THREE.Mesh) || o.name === 'glow') return
+        const original = o.material
+        if (!(original instanceof THREE.MeshStandardMaterial)) return
+        let m = clones.get(original)
+        if (!m) {
+            m = original.clone()
+            m.transparent = true
+            m.opacity = 0.6
+            m.emissive = new THREE.Color()
+            clones.set(original, m)
+            g.mats.push({ mat: m, base: original.color.clone() })
+        }
+        o.material = m
+        g.swaps.push({ mesh: o, original })
+    })
+    return g
+}
+
+function releaseSupplierGhost(g: SupplierGhost) {
+    for (const s of g.swaps) s.mesh.material = s.original
+    for (const m of g.mats) m.mat.dispose()
+}
+
+function syncSupplierGhosts(ms: number) {
+    const routes = props.supplyRoutes
+    for (const [id, g] of supplierGhosts) {
+        const e = entries.get(id)
+        // Gone, no longer a supplier, or re-modelled (a level-up swaps the artwork).
+        if (!e || e.model !== g.model || !routes.some(r => r.producerId === id)) {
+            releaseSupplierGhost(g)
+            supplierGhosts.delete(id)
+        }
+    }
+    const pulse = props.reducedMotion ? 0 : Math.sin(ms / 350) * 0.1
+    for (const r of routes) {
+        const e = entries.get(r.producerId)
+        if (!e || e.data.type === 'road') continue
+        let g = supplierGhosts.get(r.producerId)
+        if (!g) {
+            g = ghostSupplier(e)
+            supplierGhosts.set(r.producerId, g)
+        } else if (routes.find(x => x.producerId === r.producerId) !== r) {
+            // Two goods from one supplier: the first route's colour wins.
+            continue
+        }
+        routeColor(r.efficiency, ghostColor)
+        for (const { mat, base } of g.mats) {
+            mat.color.copy(base).lerp(ghostColor, 0.45)
+            mat.emissive.copy(ghostColor)
+            mat.emissiveIntensity = 0.5 + pulse
+        }
     }
 }
 
@@ -2733,17 +2784,6 @@ function positionOverlays(dt: number) {
         issueLabel.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
         issueLabel.style.display = p.visible ? '' : 'none'
     }
-    // Supplier markers ride above the roof with the same gentle bob as the
-    // "no road" alert, so the two read as the same family of sign.
-    for (const v of routeVisuals) {
-        if (!v.marker) continue
-        const e = v.producerId === null ? undefined : entries.get(v.producerId)
-        if (!e) { v.marker.style.display = 'none'; continue }
-        const bob = props.reducedMotion ? 0 : Math.sin(performance.now() / 350 + e.group.position.x) * 0.06
-        const p = project(e.group.position.x, e.group.position.y + e.modelHeight * e.model.scale.y + 0.3 + bob, e.group.position.z)
-        v.marker.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
-        v.marker.style.display = p.visible ? '' : 'none'
-    }
     if (routeLabel && routeAnchor) {
         const p = project(routeAnchor.x, 1.2, routeAnchor.z)
         routeLabel.style.transform = `translate(${p.sx}px, ${p.sy}px) translate(-50%, -100%)`
@@ -3510,7 +3550,7 @@ function frame(ms: number) {
     syncSelectionRings()
     // Per frame, like the selection rings: both track live model positions, so
     // a route stays on its supplier while that supplier is being dragged.
-    syncSupplyRoutes()
+    syncSupplyRoutes(ms)
 
     // Selection ring.
     const sel = props.selectedBuildingId ? entries.get(props.selectedBuildingId) : null
@@ -3816,21 +3856,6 @@ defineExpose({ recenter: () => recenter(true), setResourceEmoji: (map: Record<st
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
     text-align: center;
     white-space: normal;
-    will-change: transform;
-}
-/* Background and shadow are written per route, tinted by what survives the trip. */
-.town-overlay :deep(.town-supplier) {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    color: #fff;
-    font: 900 17px/26px system-ui, sans-serif;
-    text-align: center;
-    /* Never steal the hover from the building underneath — the label depends on it. */
-    pointer-events: none;
     will-change: transform;
 }
 .town-overlay :deep(.town-route) {
