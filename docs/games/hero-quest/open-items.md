@@ -63,6 +63,8 @@ The Classes scene ends the masters' row in a 17th node, joined to all six master
 
 **Work it out before `hero-quest` merges into upstream `main`:** its name and identity, its skill, what "played" means for the unlock (reached, or held for some time), whether a class token can buy it, and how it interacts with prestige and class switches. Then either build it or take the node out of the scene. Shipping a node players can never reach is not an option.
 
+**In discussion since 2026-10-09:** the ideas so far, the problems with "every Hero ability" taken literally, and the open calls are in `capstone-class.md`.
+
 ### 7. Passive Skill Tree (backlog item 3)
 Unchecked. Hero-only passive tree, generic root splitting into 3 paths, nodes up to 5 levels each, purchased via its own dedicated raid, with Champion/item side-nodes allowed but never gating a path. Structurally sound to build (raids don't have to be gacha-paired) but has had no dedicated design session.
 
