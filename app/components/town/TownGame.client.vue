@@ -17,7 +17,7 @@ import TownBoostIcon from '~/components/town/TownBoostIcon.vue'
 import type { TownContractDelivery } from '~/composables/useTownContracts'
 import { formatTownDuration } from '~/utils/town-format'
 import { townTerrainCss } from '~/utils/town/terrain'
-import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, townEffectRadius, townCivicCheer, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townFrontTiles, townRoadAt, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, townBuildingSize, townFootprintAnchor, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, townEffectRadius, townCivicCheer, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townFrontTiles, townRoadAt, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, townBuildingSize, townFootprintAnchor, townSupplyPath, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
 import { getTownMonument, townBonusLabel, townBonusLines, townBonusValue, townMonumentEffect } from '#shared/utils/gamelogic/town-monuments'
 import { townJobProgress, townBoostedJobMs, type TownBuildingView, type TownBoostKind } from '~/composables/useTown'
 import type { SceneTile, SceneMoveGhost } from '~/components/town/TownScene.client.vue'
@@ -1070,6 +1070,49 @@ const selNuisance = computed(() => {
 
 /** How well the selected workshop's inputs reach it — null unless it consumes goods. */
 const selSupply = computed(() => selectedBuilding.value?.supply ?? null)
+/**
+ * The deliveries feeding the selected workshop, each with the road it travels.
+ * The server says who supplies whom and what survives the trip; the route
+ * itself is walked here, because the client already holds the road layout and
+ * shipping a path per link in every state response would be most of the
+ * payload for something only the selected building ever draws.
+ *
+ * The label is written here too — resource names and number formatting live on
+ * this side, and the scene should not need either.
+ */
+const supplyRoutes = computed(() => {
+    const links = selSupply.value?.links
+    const sel = selectedBuilding.value
+    if (!links?.length || !sel) return []
+    const out: { producerId: string, path: { wx: number, wy: number }[], efficiency: number, label: string }[] = []
+    for (const link of links) {
+        const path = townSupplyPath(simBuildings.value, link.producerId, sel.id, town.serverNow())
+        // No path means the layout moved under a state response still in
+        // flight; drawing a straight line through the houses would be a lie.
+        if (!path.length) continue
+        const name = town.resourceById.value.get(link.resource)?.name ?? link.resource
+        const pct = Math.round(link.efficiency * 100)
+        // Stops, not tiles. The route draws both front doors and everything
+        // between, so a trip the allocator calls 11 tiles is 12 markers on the
+        // ground — and a mayor counting them should land on the same number.
+        const stops = `${path.length} ${path.length === 1 ? 'stop' : 'stops'}`
+        // Per hour like every other rate on screen; the allocator's per-tick
+        // figures are an implementation detail (see perHour).
+        const unit: 'h' | 'day' = link.sent * ticksPerHour.value < 1 ? 'day' : 'h'
+        const per = unit === 'day' ? '/day' : '/h'
+        const sent = ioRate(link.sent, unit)
+        const lands = ioRate(link.sent * link.efficiency, unit)
+        out.push({
+            producerId: link.producerId,
+            path,
+            efficiency: link.efficiency,
+            label: pct >= 100
+                ? `${name} · ${stops} · ${sent}${per}, all of it arrives`
+                : `${name} · ${stops} · ${sent}${per} sent, ${lands}${per} arrives (${pct}%)`
+        })
+    }
+    return out
+})
 /** Per-hour rate the building really runs at: recipe × level × throughput. */
 const selUnit = computed(() => selectedEntry.value ? ioUnit(selectedEntry.value) : 'h')
 function selRate(perLevel: number) {
@@ -1848,6 +1891,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             :expansion-affordable="canBuyPlot"
             :neighbours="town.world.value.towns"
             :effect-radii="effectRadii"
+            :supply-routes="supplyRoutes"
             :ghost-radius="ghostRadius"
             :ghost-issue="ghostIssue"
             :moving-id="movingId"

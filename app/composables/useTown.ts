@@ -33,6 +33,8 @@ export interface TownBuildingView {
     supply: {
         ratio: number
         inputs: { resource: string, ratio: number, nearestTiles: number | null, suppliers: number }[]
+        /** The individual deliveries behind that ratio, nearest first — what the map draws. */
+        links: { producerId: string, resource: string, tiles: number, efficiency: number, sent: number }[]
     } | null
     /** What it actually runs at: staffing × supply. */
     throughput: number | null
