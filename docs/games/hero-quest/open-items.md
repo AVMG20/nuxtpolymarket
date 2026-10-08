@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#47** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day, #44 landed and #45 opened with it, and #6, #3, #31 and #32 were decided (all in `build-log.md`); #46 (raids) landed 2026-10-05; #45 (boss specials) landed 2026-10-08 with its open half below.
+**#48** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day, #44 landed and #45 opened with it, and #6, #3, #31 and #32 were decided (all in `build-log.md`); #46 (raids) landed 2026-10-05; #45 (boss specials) landed 2026-10-08 with its open half below, and #47 (the login calendar) the same day.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
@@ -33,6 +33,7 @@ read the older rule in the doc named in the middle column, it is superseded.**
 | 23 | `gold-economy.md` §9's prestige→calendar anchors; ~235M/hr at month 3 | Gold is paced on **wall-clock account age**. The anchors are gone. Still open below |
 | 25 | `core-progression-and-prestige.md` §2 and `idle-mechanics.md` §5: a failed boss is re-engaged **manually** | Bosses engage **automatically** while `document.visibilityState` is `visible`. A hidden tab, a closed app and an offline settle never engage one, so Void Shards still cannot come from idle time. The 400 on an early client engage is routine — **do not soften it server-side** |
 | 29 | `economy-and-currencies.md` §5 source 2: a time-gated free Seal grant | **Removed.** Free Seals come only from milestones and (later) raid clears; the free 10-pull entitlement is the only thing a clock hands out |
+| 47 | #29 above: the free 10-pull is the only thing a clock hands out; `economy-and-currencies.md` §5: Seals come in milestone and raid chunks, never a drip | **The login calendar is a second clock.** It pays Seals on some of its thirty days, alongside Gold, Gems, Raid Keys, Trait Gems and, on day 30, Void Shards, each day claimed in person (2026-10-08, the user's call: any currency the game grants may be on it). Built outside the phase plan, from backlog item 12. `build-log.md` #47 |
 | 31 | `raid-system.md` §1/§7, `asset-list.md`, `economy-and-currencies.md` §9: the Training Grounds Raid is a `solo_boss` fight, its Keys spent only on a win | It is a **`training_dummy`**: a static dummy that can't die or attack, the result being the damage dealt before the timer ends (2026-09-28, the user's call). Keys, the ladder and rewards follow Rampaging Boss's rules, the level reached on live damage thresholds; it has no DEF (decided 2026-10-04, `build-log.md` #31) |
 | 32 | `raid-system.md` §1/§7, `asset-list.md`, `asset-checklist.md`: the Forge Raid is one `phased_boss` whose phases change at HP thresholds | It is a **`boss_gauntlet`**: three bosses back to back, the Apprentice, the Journeyman and the Forgemaster (2026-09-29, the user's call). One 30 s clock for the run, 10 s back per boss killed; all three or nothing; each boss steps up (decided 2026-10-04, `build-log.md` #32) |
 | 36 | `classes-and-combat.md` §3: SPD reduces cooldown duration across the board, off the same curve as the autoattack; every skill on `SKILL_BASE_COOLDOWN_SECONDS` | Cooldowns read **`cooldownSpd`**, SPD without the level curve; the autoattack still reads the full stat. Cooldowns sit on a **rank ladder** (`SKILL_COOLDOWN_RANK_STEP`): rarity for Skills and Champion abilities, tree depth for class skills, hit size scaled to match. §3 updated in place (2026-10-03, the user's call) |
@@ -72,7 +73,7 @@ Explicitly deferred scope — the gift-mechanic phase is locked, but limited-tim
 
 ## ⚠️ Open consequences of work that landed
 
-Six items are built and working but left something undecided. The full record of each is in
+Seven items are built and working but left something undecided. The full record of each is in
 `build-log.md`; only the open half is restated here. (The `killFraction` invariant that used to
 sit here as #24 is not an open item — it is a trap, and it lives in `CLAUDE.md` §7 and
 `build-log.md` #24.)
@@ -111,6 +112,23 @@ fixed cooldown, with damage and a status or a drain. What it left open:
    status a special lands), but the 48-Artifact distribution never draws Unshaken from the Tempo
    pool, so only the Skills Unbreakable Will and Immortal Vanguard grant it. Worth a look when
    the Artifact effects are re-cut (`CLAUDE.md` §6).
+
+### 47. The login calendar — built; its table is a placeholder
+
+Full record: `build-log.md` #47. Thirty fixed days per account cycle, three make-ups. What it left
+open:
+
+1. **`CALENDAR_REWARDS` is one `UNTUNED ╧` table.** Its shape is the user's: small early days, and
+   each currency paying more every time it comes round, with no milestone days. Day 30's even 200
+   Void Shards is the user's number; every other amount is a guess. Gems are the platform-wide
+   currency, so its Gem days (25, 50, 75 a cycle) reach past Hero Quest.
+2. **Rebalance its Gold and Gems after the Gold balance step** (step 7 of the *Suggested order*,
+   #23; the user's call, 2026-10-08). A Gold day is minutes of current income (`gold-economy.md`
+   §6), so it is exactly as right as the unreconciled Gold curve, and the Gem days are sized
+   against nothing yet.
+3. **No Battle Speed days.** A free block can't start while a bought block of another speed runs
+   (`idle-mechanics.md` §3), so a claim would either be refused, losing the day, or need a queue.
+   Left out until that is decided.
 
 ### 36. Cooldowns off the level curve — the pacing half is deferred to playtesting
 
@@ -280,7 +298,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 4. **The last quick call (#2)**, the Arena band — answer it with the Arena. #1 and #3 are decided, and with #3 the raid-rule questions #31 and #32 (2026-10-04); the asset calls (#4, #30) on 2026-09-17.
 5. **Phase 4 — endgame systems** (`implementation-plan.md`). Raids, Traits, Arena, Holidays, plus `loadouts.md` §4's per-raid auto-apply. ~~GPN~~ built (#28); the leaderboard aggregate and Defense GPN remain, with Arena. ~~Battle Speed~~ built (#44). ~~Raids~~ built, all five (#46).
 6. **Passive Skill Tree (#7)** — the last unbuilt major system; good candidate for its own dedicated session.
-7. **Playtest, then tune the rest.** The combat and progression block is tuned (#22); the gacha, shop, economy and ability-magnitude constants are settled here — see the standing-tuning section. The balance script and campaign sim stay in use throughout.
+7. **Playtest, then tune the rest.** The combat and progression block is tuned (#22); the gacha, shop, economy and ability-magnitude constants are settled here — see the standing-tuning section. The balance script and campaign sim stay in use throughout. **Once the Gold balance is decided, rebalance the login calendar's Gold and Gem days** (#47).
 
 **On the playtest step's position.** Tuning the *remaining* constants wants every system present, so the last step is still the right place to *finish*. But the loop itself was tuned on the sim alone, and `implementation-plan.md` Phase 1's "stop here and actually play it before continuing" has now been overridden three times. The harness (#19) makes a session cheap, and world design is downstream of it — nothing settles how long a world should take like having felt one. That is why step 2 exists.
 

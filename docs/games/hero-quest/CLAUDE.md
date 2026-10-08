@@ -73,7 +73,7 @@ These are load-bearing and easy to violate by accident.
 
 `constants.ts` marks every constant with one of three states (see its header):
 
-- **`// UNTUNED ╧`** — locked formula shape, placeholder value. **84** of them as of 2026-10-08, mostly the gacha, shop, economy, raid, boss-special and ability-magnitude layers. `rg '╧' shared/utils/hero-quest/constants.ts` is the list; `open-items.md` "Standing numeric tuning" says what each is waiting on.
+- **`// UNTUNED ╧`** — locked formula shape, placeholder value. **85** of them as of 2026-10-08, mostly the gacha, shop, economy, raid, boss-special and ability-magnitude layers (the login calendar's reward table counts as one). `rg '╧' shared/utils/hero-quest/constants.ts` is the list; `open-items.md` "Standing numeric tuning" says what each is waiting on.
 - **`// TUNED ✓`** — measured on the campaign sim (`open-items.md` #22). **Moving one is a design decision**: its comment says what it trades against and what it is coupled to. Several only mean anything as a pair (`K` with `BASE_ENEMY_PWR`, `BASE_ATTACK_INTERVAL_SECONDS` with `SKILL_BASE_COOLDOWN_SECONDS`, `XP_BASE_PER_KILL` with `XP_TO_LEVEL_BASE`). Re-measure with `bun run sim:hero-quest --report=campaign` before and after.
 - **No marker** — either derived (`STAT_PER_LEVEL_GROWTH`, `XP_STEP_EXPONENT`, `LEVELS_PER_STAGE`, `ENEMY_HP_STEP_EXPONENT`, …; never set directly — move its inputs) or specified by a doc. `GOLD_TENURE_CEILING` is **generated** from Colony and Xeno by `scripts/lib/economy-stages.ts`; regenerate, never hand-edit.
 
