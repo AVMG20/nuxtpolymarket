@@ -58,6 +58,8 @@ const props = defineProps<{
         /** The HP share `useHqLiveRun` keeps from rising mid-attempt; the readout's own when absent. */
         hpPct?: number
     }
+        /** The payload's power, for the profile badge's GPN. */
+        power?: { gpn: string }
     party: Omit<RunParty, 'classId'>
     fight?: StageFight | null
     /** Battle Speed in force now; a fight plays at its own speed from engage instead. */
@@ -207,7 +209,8 @@ function feed(): RunFeed {
         critChance: props.hero.stats.critChance,
         critMultiplier: props.hero.stats.critMultiplier,
         heroHpPct: props.hero.hpPct ?? readout.heroHpPct,
-        heroLevel: props.hero.level
+        heroLevel: props.hero.level,
+        gpn: props.hero.power?.gpn ?? null
     }
 }
 

@@ -27,7 +27,8 @@ const FEED: RunFeed = {
     critChance: 0.25,
     critMultiplier: '2.5',
     heroHpPct: 100,
-    heroLevel: 12
+    heroLevel: 12,
+    gpn: '1000'
 }
 
 function director(feed: Partial<RunFeed> = {}): RunDirector {

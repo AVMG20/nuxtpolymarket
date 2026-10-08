@@ -46,7 +46,7 @@ import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type Bake
 import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
-import { NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, drawChallengeButton, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type NumberStyle, type PartyMember } from './feedback'
+import { BADGE_GLINT_FOR, NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, badgePortrait, drawChallengeButton, drawProfileBadge, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type BadgeView, type NumberStyle, type PartyMember } from './feedback'
 import { VL, clock, dimLevel, R } from './vfx-kit'
 import { J } from './rig'
 import { VFX_BY_ID, type VfxDef } from './vfx'
@@ -353,6 +353,28 @@ const MARCH_SPEED = SCROLL_PERIOD / MARCH_DUR
 const HUD_BAR_W = 88
 const HUD_BAR_H = 14
 const HUD_BAR_Y = 4
+
+/** The profile badge's top left, clear of the top-centre bar. */
+const BADGE_X = 4
+const BADGE_Y = 3
+/** Seconds the badge's GPN takes to count to a new value: as long as its glint, so the two land together. */
+const GPN_TWEEN = BADGE_GLINT_FOR * 1.6
+
+/** A GPN as a log10, the scale the badge counts on; 0 for none. */
+function gpnLog(gpn: string | null): number {
+    if (gpn === null) return 0
+    const v = D(gpn)
+    return v.lte(1) ? 0 : v.log10().toNumber()
+}
+
+/** The chip naming a GPN change, from log10s: `×3.2` once it has doubled, `+12%` or `-4%` otherwise, none under 0.1%. */
+function gpnChip(from: number, to: number): string {
+    const ratio = 10 ** (to - from)
+    if (ratio >= 2) return `×${ratio < 100 ? ratio.toFixed(1) : stageNumber(D(10).pow(to - from))}`
+    const pct = (ratio - 1) * 100
+    if (Math.abs(pct) < 0.1) return ''
+    return `${pct > 0 ? '+' : '-'}${Math.abs(pct).toFixed(Math.abs(pct) < 10 ? 1 : 0)}%`
+}
 
 /**
  * The spotlight a timed-out boss fight closes to: down onto the drained timer and the TIME UP
@@ -811,6 +833,18 @@ export class BattleDemo {
     /** HUD label, rebuilt only when the wave changes — never inside the loop. */
     private label = ''
     private labels: string[] = []
+    /**
+     * The game's profile badge, top left, in the label's place: the GPN counts to a new value in
+     * log space over `gpnTween` (the number rides an exponential curve), from `gpnFrom` to `gpnTo`
+     * starting at `gpnAt`. Null until a run feeds one.
+     */
+    private badge: BadgeView | null = null
+    private gpnFrom = 0
+    private gpnTo = 0
+    private gpnAt = -1
+    private gainAt = -1
+    private changeAt = -1
+    private levelAt = -1
     /** The game's stage: the run it plays and the party fighting it. Null on the art page. */
     private run: RunDirector | null = null
     private party: RunParty | null = null
@@ -862,6 +896,9 @@ export class BattleDemo {
         this.forceGap = 0
         this.build(feed.world, party.classId, 'regular')
         this.members[0]!.level = feed.heroLevel
+        // a new class keeps the badge's count running, so the GPN it changes still shows as a change
+        if (this.badge) this.badge.portrait = badgePortrait(headOf(`hero/${party.classId}`))
+        this.profile(feed)
         // arriving mid-recovery, the party is already down
         if (feed.recoverySeconds > 0) this.fallParty(feed.recoverySeconds)
     }
@@ -904,7 +941,10 @@ export class BattleDemo {
     /** The run moved on: drop what is due, clear a stage, fall to a wall, or walk off into a new World. */
     feedRun(feed: RunFeed): void {
         const r = this.run
-        if (!r || !this.party || this.replay) return
+        if (!r || !this.party) return
+        // the badge keeps up through a boss fight and a World change: it is the player's, not the stage's
+        this.profile(feed)
+        if (this.replay) return
         // leaving a World keeps the newest feed for the World it is about to build
         if (this.exit) {
             this.exit = feed
@@ -937,6 +977,63 @@ export class BattleDemo {
         }
         // a gate ahead: the pack still up goes down first, then the boss is met
         if (change === 'advance') this.standoff = false
+    }
+
+    /** Take the feed's GPN and level onto the badge: a rise glints and counts up, a new level lights. */
+    private profile(feed: RunFeed): void {
+        const b = this.badge
+        if (!b) {
+            const to = gpnLog(feed.gpn)
+            this.gpnFrom = this.gpnTo = to
+            this.gpnAt = this.gainAt = this.changeAt = this.levelAt = -1
+            this.badge = {
+                portrait: badgePortrait(headOf(`hero/${this.classId}`)),
+                gpn: stageNumber(D(10).pow(to)),
+                level: feed.heroLevel,
+                stage: this.label,
+                sinceGain: -1,
+                sinceChange: -1,
+                chip: '',
+                up: true,
+                sinceLevel: -1
+            }
+            return
+        }
+        if (feed.heroLevel > b.level) this.levelAt = this.time
+        b.level = feed.heroLevel
+        const to = gpnLog(feed.gpn)
+        if (feed.gpn === null || to === this.gpnTo) return
+        // from whatever is showing, so a change landing mid-count carries on from there
+        this.gpnFrom = this.gpnShown()
+        b.chip = gpnChip(this.gpnTo, to)
+        b.up = to > this.gpnTo
+        this.gpnTo = to
+        this.gpnAt = this.time
+        if (b.chip) this.changeAt = this.time
+        if (b.up) this.gainAt = this.time
+    }
+
+    /** The GPN on the badge now, as a log10. */
+    private gpnShown(): number {
+        if (this.gpnAt < 0) return this.gpnTo
+        const t = Math.min(1, (this.time - this.gpnAt) / GPN_TWEEN)
+        return this.gpnFrom + (this.gpnTo - this.gpnFrom) * (1 - (1 - t) ** 3)
+    }
+
+    /** The badge as of now: its count, glint, chip and level light run on the stage's clock. */
+    private badgeNow(): BadgeView | null {
+        const b = this.badge
+        if (!b) return null
+        // formatting allocates, so only while the count runs and once as it lands
+        if (this.gpnAt >= 0) {
+            b.gpn = stageNumber(D(10).pow(this.gpnShown()))
+            if (this.time - this.gpnAt >= GPN_TWEEN) this.gpnAt = -1
+        }
+        b.stage = this.label
+        b.sinceGain = this.gainAt < 0 ? -1 : this.time - this.gainAt
+        b.sinceChange = this.changeAt < 0 ? -1 : this.time - this.changeAt
+        b.sinceLevel = this.levelAt < 0 ? -1 : this.time - this.levelAt
+        return b
     }
 
     /**
@@ -2875,7 +2972,10 @@ export class BattleDemo {
             maskOutside(out, cx, cy, reach * this.irisOpen())
         }
         // a raid round has no wave or stage to name: its timer and readout say all there is
-        if (!this.raidRound) textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
+        // the game's stage shows the profile badge in the label's place
+        const badge = this.raidRound ? null : this.badgeNow()
+        if (badge) drawProfileBadge(out, BADGE_X, BADGE_Y, badge)
+        else if (!this.raidRound) textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
         if (this.raid?.id === 'training_grounds' || (this.raidRound && this.raid?.id === 'trait')) textOut(out, this.tally, cam.w - 6, 5, (this.raidRound ? this.raidRound.left : this.raid.clock) <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
         else if (this.speedTag) textOut(out, this.speedTag, cam.w - 6, 5, C.gold3, 'small', 1, 2, 1, C.ink, -1)
         // top-centre: a run's boss fight shows its enrage timer, drained as far as the fight has played;

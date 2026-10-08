@@ -45,6 +45,8 @@ export interface RunFeed {
     heroHpPct: number
     /** For the Hero's frame. */
     heroLevel: number
+    /** The Global Power Number, a Decimal string, for the profile badge; null before the payload has one. */
+    gpn: string | null
 }
 
 /** How the run moved since the last feed, which decides what the stage does about it. */

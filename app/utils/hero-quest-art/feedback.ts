@@ -6,8 +6,8 @@
 // rarity by a palette map — the locked "one shared flash, recolored per rarity tier", not six
 // cinematics.
 
-import { C, shadeLut, type ColorName } from './palette'
-import { Surface, rect, px, line, disc, ring, tri, rampLut, hash2 } from './surface'
+import { C, CLEAR, shadeLut, type ColorName } from './palette'
+import { Surface, blit, rect, px, line, disc, ring, tri, rampLut, hash2 } from './surface'
 import { drawText, fontHeight, textOut, textRamp, textWidth, type FontName } from './font'
 import { qt, pr, star, R } from './vfx-kit'
 import { classNodeIcon, STATUS_ICONS  } from './icons-misc'
@@ -336,6 +336,131 @@ export function drawStageProgress(s: Surface, kills: number, required: number, w
     for (let i = 1; i < 4; i++) rect(s, 14 + R(46 * i / 4), 5, 1, 4, C.night0)
     // the count, right-aligned in what is left of the panel
     textOut(s, `${Math.floor(Math.max(0, kills))}/${required}`, 85, 5, walled ? C.red3 : C.bone1, 'small', 1, 2, 0, C.ink, -1)
+}
+
+// ── Profile badge ──────────────────────────────────────────────────────────────────
+
+/** The badge, top left of the stage: a 22 px round portrait, with the GPN bar and the level and stage bar to its right. */
+export const BADGE_W = 86
+export const BADGE_H = 22
+const BADGE_PORTRAIT = 22
+/** Where the bars start, tucked under the portrait's right half, and where their text starts, clear of it. */
+const BAR_X = 14
+const TEXT_X = 25
+/** The top bar's rows and the bottom bar's, sharing the ink line between them. */
+const TOP_H = 13
+const LOW_Y = 12
+const LOW_H = 10
+/** Seconds the glint takes to cross the GPN bar on a gain, and the change chip stays up. */
+export const BADGE_GLINT_FOR = 0.55
+export const BADGE_CHIP_FOR = 1.8
+/** Seconds a new level shows lit. */
+export const BADGE_LEVEL_FOR = 0.8
+const BOLT = ['...11', '..11.', '.111.', '11111', '.111.', '.11..', '11...'] as const
+const GPN_RAMP = [C.white, C.gold3, C.gold2, C.gold2, C.gold1, C.gold1, C.gold0] as const
+const GPN_LIT = [C.white, C.white, C.gold3, C.gold3, C.gold2, C.gold2, C.gold1] as const
+const CHIP_UP = [C.white, C.green4, C.green3, C.green3, C.green2] as const
+const CHIP_DOWN = [C.white, C.red3, C.red3, C.red2, C.red1] as const
+
+/** The badge's portrait, baked once per class: `head` (a `headOf` crop) in a gold ring lit from the top left. */
+export function badgePortrait(head: Surface): Surface {
+    const s = new Surface(BADGE_PORTRAIT, BADGE_PORTRAIT, 0, 0)
+    const c = BADGE_PORTRAIT / 2
+    const ho = (BADGE_PORTRAIT - head.w) >> 1
+    for (let y = 0; y < BADGE_PORTRAIT; y++) {
+        for (let x = 0; x < BADGE_PORTRAIT; x++) {
+            const dx = x + 0.5 - c
+            const dy = y + 0.5 - c
+            const d = Math.hypot(dx, dy)
+            if (d > 11) continue
+            if (d > 10 || (d > 7.5 && d <= 8.5)) { s.set(x, y, C.ink); continue }
+            if (d > 8.5) {
+                const lit = -(dx + dy) / d
+                s.set(x, y, lit > 0.5 ? C.gold3 : lit > -0.4 ? C.gold2 : C.gold1)
+                continue
+            }
+            const h = head.get(x - ho, y - ho)
+            s.set(x, y, h !== CLEAR ? h : y < c - 2 ? C.night2 : C.night1)
+        }
+    }
+    return s
+}
+
+/** One bar's frame: ink round it, its fill lit along its top and shadowed along its base. */
+function badgeBar(s: Surface, x: number, y: number, w: number, h: number, fill: readonly [number, number, number], edge: number): void {
+    rect(s, x, y, w, h, C.ink)
+    rect(s, x + 1, y + 1, w - 2, h - 2, fill[1])
+    rect(s, x + 1, y + 1, w - 2, 1, fill[2])
+    rect(s, x + 1, y + h - 2, w - 2, 1, fill[0])
+    rect(s, x + w - 2, y + 1, 1, h - 2, edge)
+}
+
+export interface BadgeView {
+    portrait: Surface
+    /** The GPN as the stage prints numbers (`stageNumber`). */
+    gpn: string
+    /** Shown as a pip on the portrait's ring. */
+    level: number
+    /** `P1-W3-S7`, prestige counted from 1, on the bar under the GPN. */
+    stage: string
+    /** Seconds since the GPN last rose (glint) and since it last changed (chip), −1 for never. */
+    sinceGain: number
+    sinceChange: number
+    /** `+12%` or `×3.2` for a rise, `-4%` for a fall. */
+    chip: string
+    up: boolean
+    /** Seconds since the level went up, −1 for never. */
+    sinceLevel: number
+}
+
+/**
+ * The profile badge at (ox, oy): the Hero's portrait, the GPN big and gold on the bar beside it,
+ * where the run stands under that, and the level on a pip under the face. A rise sends a glint
+ * across the GPN bar and a chip naming the change up from under the badge; a level up lights the pip.
+ */
+export function drawProfileBadge(s: Surface, ox: number, oy: number, v: BadgeView): void {
+    const w = BADGE_W - BAR_X
+    const glint = v.sinceGain >= 0 && v.sinceGain < BADGE_GLINT_FOR
+    const levelLit = v.sinceLevel >= 0 && v.sinceLevel < BADGE_LEVEL_FOR
+    // the level and stage bar first, so the GPN bar's base line sits over the seam
+    badgeBar(s, ox + BAR_X, oy + LOW_Y, w - 4, LOW_H, [C.purple0, C.purple1, C.purple2], C.purple0)
+    badgeBar(s, ox + BAR_X, oy, w, TOP_H, [C.ink, C.night0, C.night1], C.night0)
+    if (glint) {
+        // the frame flares gold, and a slanted band of light crosses the bar left to right
+        if (v.sinceGain < BADGE_GLINT_FOR / 2) {
+            rect(s, ox + BAR_X, oy, w, 1, C.gold2)
+            rect(s, ox + BADGE_W - 1, oy, 1, TOP_H, C.gold1)
+        }
+        const head = R(ox + BAR_X - 8 + (w + 16) * (v.sinceGain / BADGE_GLINT_FOR))
+        for (let y = 1; y < TOP_H - 1; y++) {
+            for (let k = 0; k < 5; k++) {
+                const x = head + k - y
+                if (x > ox + BAR_X && x < ox + BADGE_W - 1) px(s, x, oy + y, k === 2 ? C.steel3 : k === 1 || k === 3 ? C.night3 : C.night2)
+            }
+        }
+    }
+    const lit = glint && v.sinceGain < BADGE_GLINT_FOR / 2
+    for (let y = 0; y < BOLT.length; y++) {
+        for (let x = 0; x < 5; x++) if (BOLT[y]![x] === '1') px(s, ox + TEXT_X + x, oy + 3 + y, lit ? C.white : y < 3 ? C.gold3 : C.gold2)
+    }
+    textRamp(s, v.gpn, ox + TEXT_X + 8, oy + 3, lit ? GPN_LIT : GPN_RAMP, 'mid', 1, 0, C.ink)
+    textOut(s, v.stage, ox + TEXT_X, oy + LOW_Y + 2, C.bone1, 'small', 1, 0, 1, C.ink, -1)
+    blit(s, v.portrait, ox, oy)
+    // the level pip, gold on the ring under the face, lit for a moment on a new level
+    const label = String(v.level)
+    const pw = textWidth(label, 'small') + 4
+    const px0 = ox + ((BADGE_PORTRAIT - pw) >> 1)
+    rect(s, px0, oy + BADGE_H - 6, pw, 8, C.ink)
+    rect(s, px0 + 1, oy + BADGE_H - 5, pw - 2, 6, levelLit ? C.gold2 : C.gold1)
+    rect(s, px0 + 1, oy + BADGE_H - 5, pw - 2, 1, levelLit ? C.white : C.gold2)
+    textOut(s, label, px0 + 2, oy + BADGE_H - 4, C.white, 'small', 1, 0, 0, C.ink, -1)
+    if (v.chip && v.sinceChange >= 0 && v.sinceChange < BADGE_CHIP_FOR) {
+        // the chip rises a few px under the badge and blinks out over its last third
+        const k = v.sinceChange / BADGE_CHIP_FOR
+        if (k < 2 / 3 || (Math.floor(qt(v.sinceChange) * 12) & 1) === 0) {
+            textRamp(s, v.chip, ox + TEXT_X, oy + BADGE_H + 5 - R(4 * Math.min(1, k * 3)), v.up ? CHIP_UP : CHIP_DOWN, 'small', 1, 0, C.ink)
+        }
+    }
 }
 
 // ── Boss challenge ─────────────────────────────────────────────────────────────────
