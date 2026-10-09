@@ -644,7 +644,8 @@ function closeRaidReward() {
     raidReward.value = null
     // after a round, back to the Raids scene to go again; after a quick-clear it is still there
     if (raidRound.value) {
-        raidReturning.value = true
+        // already on the Raids scene (the browser went back mid-round), there is no beat to cover
+        raidReturning.value = props.scene !== 'raids'
         emit('scene', 'raids')
     }
     raidRound.value = null
@@ -657,8 +658,9 @@ function closeRaidReward() {
  * beat between a round's popup closing and the route reaching the Raids scene again.
  */
 const raidReturning = ref(false)
-watch(() => props.scene, (scene) => {
-    if (scene === 'raids') raidReturning.value = false
+// the route has moved, to the Raids scene or anywhere else: the beat is over either way
+watch(() => props.scene, () => {
+    raidReturning.value = false
 })
 const inRaid = computed(() => props.scene === 'raids' || raidRound.value !== null || raidReturning.value)
 let leavingRaid = false
