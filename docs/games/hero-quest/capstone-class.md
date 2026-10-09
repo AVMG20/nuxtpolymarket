@@ -1,8 +1,8 @@
 # The Ascendant — the capstone class
 
-**Status: decided and built 2026-10-09** (`open-items.md` #43, record in `build-log.md` #43). Its
-art is still a stand-in. This doc is the record of the decision: what was chosen, what was weighed,
-and why.
+**Status: design complete 2026-10-09.** Decided, built and its art approved and locked the same
+day; #43 is closed (record in `build-log.md` #43). This doc is the record of the decision: what was
+chosen, what was weighed, and why.
 
 ## What it is
 
@@ -48,12 +48,19 @@ waits a whole cooldown, so it would never have fired where the player watches. O
 at the fight's first tick, a shorter cooldown, or charging it from casts, the user chose the
 **shorter cooldown**: at 2 it lands at ~15.6 s with the Ascendant's own SPD, once per boss fight.
 
-## Still open
+## The art
 
-- **Power.** Best-of-each stats, four free picks and a volley worth three master skills a second
-  together likely out-class every master, which the Polymath direction was chosen to avoid. It was
-  the user's call on the stats; nothing has been measured. Measure it on the campaign sim before
-  tuning `CONVERGENCE_COOLDOWN_FACTOR`.
-- **Art** (a review round, `art-style.md`): the Ascendant's own outfit (it stands in the Beginner's
-  body), its medallion (a placeholder infinity sign), its skill icon, and Convergence as **one**
-  cinematic. Today the volley plays the six masters' own cast effects.
+Round 20, approved and locked (`art-style.md`): the rookie in white-and-gold plate over a violet
+robe, a gold circlet and halo, a crystal-topped gold staff, hovering, with six motes circling him in
+the masters' skill colours. His medallion carries a stud in each. Convergence's cinematic gathers the
+six over him, fuses them into a white-gold sun and brings it down as six beams, one on every enemy.
+
+## Left after the design
+
+Neither is a design question:
+
+- **Power** is tuning: best-of-each stats, four free picks and a volley worth three master skills a
+  second together likely out-class every master, which the Polymath direction was chosen to avoid.
+  Measure it on the campaign sim before moving `CONVERGENCE_COOLDOWN_FACTOR` (the standing-tuning
+  table in `open-items.md`).
+- **The game playing Convergence as one cinematic** is `open-items.md` #49.

@@ -101,7 +101,7 @@ Rosters are deliberately partial:
 
 | System | Full roster | Status |
 |---|---|---|
-| Class nodes | 16 + 1 | **All 16 — done**, and the Ascendant past them (`capstone-class.md`): its art is a stand-in |
+| Class nodes | 16 + 1 | **All 16 — done**, and the Ascendant past them (`capstone-class.md`): design complete, art locked |
 | Skills | 36 | **All 36 — done.** Phase 3; the §4 draft transcribed verbatim |
 | Gear | 36 | **All 36 — done.** Phase 3; fully named by the epithet table alone |
 | Champions | 48 | **All 48 — done.** Filled during the ability-effects pass |

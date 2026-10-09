@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#49** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day, #44 landed and #45 opened with it, and #6, #3, #31 and #32 were decided (all in `build-log.md`); #46 (raids) landed 2026-10-05; #45 (boss specials) landed 2026-10-08 with its open half below, and #47 (the login calendar) the same day; #48 (milestones) landed 2026-10-09, and #43 (the Ascendant) was decided and built the same day.
+**#50** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day, #44 landed and #45 opened with it, and #6, #3, #31 and #32 were decided (all in `build-log.md`); #46 (raids) landed 2026-10-05; #45 (boss specials) landed 2026-10-08 with its open half below, and #47 (the login calendar) the same day; #48 (milestones) landed 2026-10-09, and #43 (the Ascendant) was decided, built and its art locked the same day, closing it; #49 opened with it.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
@@ -126,20 +126,15 @@ open:
    (`idle-mechanics.md` §3), so a claim would either be refused, losing the day, or need a queue.
    Left out until that is decided.
 
-### 43. The Ascendant — built; its art and its power are open
+### 49. Convergence plays as one cinematic in the game — **new 2026-10-09**
 
-Full record: `build-log.md` #43; the decision and what was weighed: `capstone-class.md`. The node is
-real and reachable now, which was the merge condition. What it left open:
-
-1. **Power, unmeasured.** Best-of-each stats (the user's call), four free picks, and Convergence
-   paying three master skills a second at `CONVERGENCE_COOLDOWN_FACTOR = 2` very likely out-class
-   every master. Measure it on the campaign sim before moving the factor. The factor is bounded
-   above by the boss timer: past ~3.5 it no longer fires inside a 30 s boss fight.
-2. **Art round** (`art-style.md`): the Ascendant's own outfit (it stands in the Beginner's body via
-   `heroArtId`), its medallion (a placeholder infinity sign), and Convergence as **one** cinematic.
-   The volley plays the six masters' own cast effects today, which is six cinematics back to back.
-3. **Old prestiges don't count.** `prestiged_class_ids` starts empty (migration `0058`), so a
-   prestige made before 2026-10-09 isn't recorded. Dev accounts only.
+The Ascendant's design and art are complete and locked (#43, `build-log.md`), and the gallery's
+live stage plays the Convergence cinematic. The game doesn't yet: its run stage plays a cinematic
+only for a class's own skill (`demo.ts`, `setKits`), and Convergence's volley casts as the six
+masters' skills, so idle play shows their six small effects and a boss replay would play each
+master's own cinematic back to back. The fix is engineering, not design: tag the volley's six
+entries (`CONVERGENCE`) as one cast the stage can recognise, and play `skill_convergence`'s
+cinematic once for them, its six hits landing the volley's damage.
 
 ### 48. Milestones — built; every number is a placeholder
 
@@ -299,7 +294,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 | `MAX_EVASION` | `classes-and-combat.md` §7 | **Locked at 0.60** — not open, listed for completeness |
 | `OVERFLOW_CONVERSION_RATE` | `classes-and-combat.md` §7 | The only crit constant still untuned. Rarely reachable: with LCK off the level curve only a deliberately built crit Hero passes 100% |
 | `SEAL_GRANT_PER_BOSS` | `economy-and-currencies.md` §5 | A boss's batch, paid on the win. Doc gives only the shape and defers the values to the world/enemy pass (#6). Built and paying out |
-| `CONVERGENCE_COOLDOWN_FACTOR` | `capstone-class.md` | The Ascendant's ultimate (#43): the volley pays `6 / factor` master skills a second. Bounded above by the boss timer (past ~3.5 it never fires in a boss fight), so power is tuned below that, against a sim measurement nobody has made yet |
+| `CONVERGENCE_COOLDOWN_FACTOR` | `capstone-class.md` | The Ascendant's power, the one open half of #43: best-of-each stats (the user's call), four free picks, and a volley paying `6 / factor` master skills a second very likely out-class every master. Measure the Ascendant on the campaign sim before moving it. Bounded above by the boss timer (past ~3.5 it never fires in a boss fight) |
 | `MILESTONE_*` (11) | `economy-and-currencies.md` §4–5 | The milestone formulas (#48): each track's reward is `BASE + STEP × (k − 1)`, with Worlds stepping per run instead, plus a collection's step size. The World and prestige Seal bases are the old World-clear and prestige batches (3, 10); the rest are guesses |
 | `VOID_SHARD_BASE`, `VOID_SHARD_GROWTH` | `economy-and-currencies.md` §3 | 100 × 2^prestige, the doc's "starting point". Only has to outpace shop costs, so derive it alongside the slot and offline tracks it pays for — and note that at ~a week per prestige (#22) the first shop purchase is a week in |
 | `wealthFactor` clamp range for Gambler's Strike family | `skills-gacha.md` §4 | Suggested ×0.5–×2.0, not locked |
@@ -320,7 +315,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 
 ## Suggested order
 
-~~**Before merging `hero-quest` into `main`: settle the ??? capstone class (#43).**~~ **Built 2026-10-09** as the Ascendant; its art round and a power measurement are open under #43 above. ~~Before the merge, also decide #48.2 (milestone claims for history).~~ Decided 2026-10-09: no migration.
+~~**Before merging `hero-quest` into `main`: settle the ??? capstone class (#43).**~~ **Done 2026-10-09** as the Ascendant: designed, built and its art locked (`build-log.md` #43). Its power is a standing-tuning row, and #49 makes the game play its cinematic. ~~Before the merge, also decide #48.2 (milestone claims for history).~~ Decided 2026-10-09: no migration.
 
 **Reordered 2026-10-02, the user's call: the playtest and the Gold balance (step 2) move to the very end, with step 7.** The battle stage comes first (`build-log.md` #34): the idle stage and the boss replay on the stage both landed that day. The argument below for playing early was weighed and set aside; it is kept as the record of what the reorder gives up.
 

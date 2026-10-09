@@ -77,7 +77,7 @@ Not design docs — they describe the *state* of the project rather than the gam
 | Topic | Doc | § |
 |---|---|---|
 | 16-node class tree + skill per node | `classes-and-combat.md` | §1 |
-| The Ascendant, the capstone class (17th node) — decided and built | `capstone-class.md`, `open-items.md` #43 | |
+| The Ascendant, the capstone class (17th node) — design complete, art locked | `capstone-class.md`, `build-log.md` #43 | |
 | 6 stats (PWR/SPD/LCK/IMP/VIT/DEF) + per-class spreads | `classes-and-combat.md` | §2 |
 | Flat cooldowns, SPD reduces cooldown *and* autoattack interval | `classes-and-combat.md` | §3 |
 | Everything auto-casts — no manual mode *(toggle deleted game-wide, `tech-architecture.md` §9.2)* | `classes-and-combat.md` | §3 |

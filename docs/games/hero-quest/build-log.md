@@ -738,7 +738,7 @@ Backlog item 12, built outside the phase plan at the user's request. A fixed tab
 - **The scene:** a calendar button on the menu band, with a red dot while today's reward waits. The Calendar scene is a 10×3 grid: each day still to claim shows its reward's icon and amount, a claimed day a green check, a missed day dimmed with a red corner, today pulsing gold (pressed, it claims). Under the grid: what the day pointed at pays, the make-up button (lighting the day it would take), the make-ups left, the time to the next day, and the days to the cycle's end.
 - **Specs:** `calendar.spec.ts` (the table, every currency climbing through the cycle, a fresh start, missed days, the rollover, claims and make-ups) and three bursts in `concurrency.spec.ts`: today's reward paid once, a Key day onto a raid never visited paid once, and make-ups never past the cycle's, each on the oldest day.
 
-### 43. The Ascendant — **decided and built 2026-10-09**
+### 43. The Ascendant — **decided, built and art locked 2026-10-09; closed**
 
 Opened 2026-10-04 as the ??? node at the end of the masters' row, art only, blocking the merge. Decided in one session (the user's calls throughout); the full decision and what was weighed is `capstone-class.md`.
 
@@ -748,6 +748,8 @@ Opened 2026-10-04 as the ??? node at the end of the masters' row, art only, bloc
 - **Picks as a Loadout component:** `hq_state.ascendant_skill_ids` and `hq_loadouts.ascendant_skill_ids`. `validateLiveLoadout` takes them (class skills only, of classes reached, no repeats, at most 4); `loadout/set` is the live route, save snapshots them, and apply skips an empty preset so an old one doesn't clear them.
 - **Scene:** the capstone medallion is the real node: `???` and dimmed while locked, with "N/6 masters done" when pointed at; gilded and "spend token to take" once open. Pressed as the current class, it opens the kit over the tree: Haste on the first line, then each branch's five, picks gilded and numbered, a side column naming the skill under the pointer, and Done.
 - **Art stand-ins:** the stage draws the Beginner's body (`heroArtId`), kept out of `HERO_ART` so the catalog has no duplicate sheet; the art specs cover the 16-node tree and say why.
+- **Art, round 20, approved and locked** (`art-style.md`): his outfit and six states, the medallion, the Convergence icon and its cinematic, folded into the locked Hero, Frames, class skill icon and Hero skill VFX groups. The stage's stand-in body (`heroArtId`) was retired with it. Two calls during review: Convergence's cinematic strikes **every** enemy, front row then back, as the skill does; and every one of his clips closes seamlessly, his six motes and his sway on one per-clip clock of whole turns (`aux`), checked by `art.spec.ts`.
+- **Closed with it:** the art half; the power half went to the standing-tuning table (`CONVERGENCE_COOLDOWN_FACTOR`); old prestiges not counting toward the unlock affects dev accounts only and was left; and the game playing Convergence as one cinematic became #49.
 - **Specs:** the Ascendant in `content.spec.ts` (alone past the tree, best-of-each, the pickable list, picks capped and deduplicated then Convergence, one shared cooldown, landing inside a boss fight), the unlock in `class-token.spec.ts`, pick validation in `loadout.spec.ts`, and a real boss fight in `fight.spec.ts` with all six master skills on one tick.
 
 ### 48. Milestones — **landed 2026-10-09**
