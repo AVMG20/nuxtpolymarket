@@ -42,9 +42,10 @@ This is the running idea list from the "Project ideas memory list" conversation,
   A guide character who walks the player through the game. Different parts of the game unlock at set checkpoints, and when one unlocks the guide explains how it works. **Two separate trackers on the same checkpoints:** one for which features are unlocked, one for which tutorials have been seen. Resetting the tutorials does not lock any feature again, and skipping them does not unlock any feature early; features unlock only by reaching their checkpoint.
   *Related:* Settings already has "show tutorials" (stored, nothing reads it yet) and "reset tutorials" (shown as `SOON` until there are tutorial flags to clear), `build-log.md` #44. Nothing is gated by checkpoint today, so feature unlocking is new ground too.
 
-- [ ] **11. Milestones** — *added 2026-10-06*
+- [x] **11. Milestones** — *added 2026-10-06*, **built 2026-10-09** (`build-log.md` #48)
   Rewards for feats in the game, for example: reaching a new world, prestiging, clearing a raid level that is a multiple of 5, and unlocking X of a collection (per collection).
   *Related:* free Seals are already said to come "only from milestones and (later) raid clears" (`open-items.md` precedence table, #29), so this is the milestones that line expects. Rewards would need guarding like every other value grant: claim-then-reward, never read-then-write.
+  **Built as formulas, not a list** (the user's call): one track per kind of feat, each with a formula for its next target and its reward, so Worlds, prestiges and raids never run out. Each kind pays its own currency, and the World-clear and prestige Seal batches moved into it.
 
 - [x] **12. 30-day login calendar** — *added 2026-10-06*, **built 2026-10-08** (`build-log.md` #47)
   A fixed 30-day calendar of rewards, the same every cycle. **It runs on real days, not days logged in:** a cycle starts over every 30 calendar days, and a missed day cannot be claimed on a later day in the usual way, so a player who misses days can't reach the last rewards. **Three make-up claims per cycle** let the player claim a missed day late.

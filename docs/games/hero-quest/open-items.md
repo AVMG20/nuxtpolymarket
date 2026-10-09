@@ -34,6 +34,7 @@ read the older rule in the doc named in the middle column, it is superseded.**
 | 25 | `core-progression-and-prestige.md` §2 and `idle-mechanics.md` §5: a failed boss is re-engaged **manually** | Bosses engage **automatically** while `document.visibilityState` is `visible`. A hidden tab, a closed app and an offline settle never engage one, so Void Shards still cannot come from idle time. The 400 on an early client engage is routine — **do not soften it server-side** |
 | 29 | `economy-and-currencies.md` §5 source 2: a time-gated free Seal grant | **Removed.** Free Seals come only from milestones and (later) raid clears; the free 10-pull entitlement is the only thing a clock hands out |
 | 47 | #29 above: the free 10-pull is the only thing a clock hands out; `economy-and-currencies.md` §5: Seals come in milestone and raid chunks, never a drip | **The login calendar is a second clock.** It pays Seals on some of its thirty days, alongside Gold, Gems, Raid Keys, Trait Gems and, on day 30, Void Shards, each day claimed in person (2026-10-08, the user's call: any currency the game grants may be on it). Built outside the phase plan, from backlog item 12. `build-log.md` #47 |
+| 48 | `economy-and-currencies.md` §5 source 1: milestones are core-progression feats, never a gacha's own progress, so each grants all four Seal types; the World-clear and prestige batches pay on the event | **Milestones are claimable tracks** (`milestones.ts`): a formula per kind of feat, not a list. Worlds and prestiges still pay all four Seal types, now claimed in the Milestones scene rather than paid on the super-boss win and the prestige, and a prestige adds Gems. Two kinds are a gacha's own progress after all: a **collection** pays its gacha's Seals and a **raid** its Keys (2026-10-09, the user's calls). A boss's Seals still pay on the win. Built outside the phase plan, from backlog item 11. `build-log.md` #48 |
 | 31 | `raid-system.md` §1/§7, `asset-list.md`, `economy-and-currencies.md` §9: the Training Grounds Raid is a `solo_boss` fight, its Keys spent only on a win | It is a **`training_dummy`**: a static dummy that can't die or attack, the result being the damage dealt before the timer ends (2026-09-28, the user's call). Keys, the ladder and rewards follow Rampaging Boss's rules, the level reached on live damage thresholds; it has no DEF (decided 2026-10-04, `build-log.md` #31) |
 | 32 | `raid-system.md` §1/§7, `asset-list.md`, `asset-checklist.md`: the Forge Raid is one `phased_boss` whose phases change at HP thresholds | It is a **`boss_gauntlet`**: three bosses back to back, the Apprentice, the Journeyman and the Forgemaster (2026-09-29, the user's call). One 30 s clock for the run, 10 s back per boss killed; all three or nothing; each boss steps up (decided 2026-10-04, `build-log.md` #32) |
 | 36 | `classes-and-combat.md` §3: SPD reduces cooldown duration across the board, off the same curve as the autoattack; every skill on `SKILL_BASE_COOLDOWN_SECONDS` | Cooldowns read **`cooldownSpd`**, SPD without the level curve; the autoattack still reads the full stat. Cooldowns sit on a **rank ladder** (`SKILL_COOLDOWN_RANK_STEP`): rarity for Skills and Champion abilities, tree depth for class skills, hit size scaled to match. §3 updated in place (2026-10-03, the user's call) |
@@ -75,7 +76,7 @@ Explicitly deferred scope — the gift-mechanic phase is locked, but limited-tim
 
 ## ⚠️ Open consequences of work that landed
 
-Seven items are built and working but left something undecided. The full record of each is in
+Eight items are built and working but left something undecided. The full record of each is in
 `build-log.md`; only the open half is restated here. (The `killFraction` invariant that used to
 sit here as #24 is not an open item — it is a trap, and it lives in `CLAUDE.md` §7 and
 `build-log.md` #24.)
@@ -131,6 +132,25 @@ open:
 3. **No Battle Speed days.** A free block can't start while a bought block of another speed runs
    (`idle-mechanics.md` §3), so a claim would either be refused, losing the day, or need a queue.
    Left out until that is decided.
+
+### 48. Milestones — built; every number is a placeholder
+
+Full record: `build-log.md` #48. Eleven tracks, each a formula rather than a list. What it left
+open:
+
+1. **Eleven of the twelve `MILESTONE_*` constants are `UNTUNED ╧`.** The twelfth,
+   `MILESTONE_RAID_LEVEL_EVERY` (5), comes from backlog item 11. The World and prestige Seal bases carry over the old batch sizes (3 and 10);
+   every growth step, the collection step and the Key and Gem amounts are guesses. Prestige Gems
+   (50, then 25 more a prestige) are platform-wide, so they reach past Hero Quest. Size them with
+   the calendar's Gem days in step 7 of the *Suggested order*.
+2. **Accounts with history claim it again.** World clears and prestiges used to pay their Seals on
+   the event, and nothing seeds `milestones_claimed`, so an account that cleared Worlds before
+   2026-10-09 can claim those steps as milestones. Only dev accounts exist on this branch, so it
+   was left alone. Decide before the merge whether that's acceptable or whether a migration
+   should seed the World and prestige counts.
+3. **The campaign sim doesn't see milestones.** Seal income isn't part of the walk, so this changes
+   nothing it measures. Pull-pacing questions (#23.2, the Seal ladder) now have this source to
+   account for.
 
 ### 36. Cooldowns off the level curve — the pacing half is deferred to playtesting
 
@@ -266,7 +286,8 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 | `ONLINE_THRESHOLD_MS`, refresh interval | `tech-architecture.md` §9 | |
 | `MAX_EVASION` | `classes-and-combat.md` §7 | **Locked at 0.60** — not open, listed for completeness |
 | `OVERFLOW_CONVERSION_RATE` | `classes-and-combat.md` §7 | The only crit constant still untuned. Rarely reachable: with LCK off the level curve only a deliberately built crit Hero passes 100% |
-| `SEAL_GRANT_PER_BOSS`, `SEAL_GRANT_PER_WORLD_CLEAR`, `SEAL_GRANT_PER_PRESTIGE` | `economy-and-currencies.md` §5 | The milestone batch sizes. Doc gives only the shape — "small per World clear, larger per Prestige" — and defers the values to the world/enemy pass (#6). Built and paying out |
+| `SEAL_GRANT_PER_BOSS` | `economy-and-currencies.md` §5 | A boss's batch, paid on the win. Doc gives only the shape and defers the values to the world/enemy pass (#6). Built and paying out |
+| `MILESTONE_*` (11) | `economy-and-currencies.md` §4–5 | The milestone formulas (#48): each track's reward is `BASE + STEP × (k − 1)`, with Worlds stepping per run instead, plus a collection's step size. The World and prestige Seal bases are the old World-clear and prestige batches (3, 10); the rest are guesses |
 | `VOID_SHARD_BASE`, `VOID_SHARD_GROWTH` | `economy-and-currencies.md` §3 | 100 × 2^prestige, the doc's "starting point". Only has to outpace shop costs, so derive it alongside the slot and offline tracks it pays for — and note that at ~a week per prestige (#22) the first shop purchase is a week in |
 | `wealthFactor` clamp range for Gambler's Strike family | `skills-gacha.md` §4 | Suggested ×0.5–×2.0, not locked |
 | `CHAMPION_SLOT_BASE_COST`, `CHAMPION_SLOT_COST_GROWTH` | `champions-guild-gacha.md` §1 | Void Shard price of party slots 3→5. Competes directly with the two offline tracks for the same currency, so all three want deriving together |

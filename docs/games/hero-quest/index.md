@@ -132,6 +132,7 @@ Not design docs — they describe the *state* of the project rather than the gam
 | Void Shards source/sinks | `economy-and-currencies.md` | §3 |
 | Gems source/sinks | `economy-and-currencies.md` | §4 |
 | Seal earn sources (milestone / daily / raid) | `economy-and-currencies.md` | §5 |
+| Milestones: tracks, formulas, claim | `build-log.md` #48, `open-items.md` #48 | |
 | Essence source/sink | `economy-and-currencies.md` | §6 |
 | Trait Gems | `economy-and-currencies.md` | §8 |
 | Raid Keys (×5) | `economy-and-currencies.md` §9, `raid-system.md` §3 | |
