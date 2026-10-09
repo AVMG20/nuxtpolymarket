@@ -1,5 +1,6 @@
 import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { getBalance } from '#server/utils/balance'
 import { settleHq } from '#server/utils/hero-quest'
 import { attackArena, ensureSeasonsClosed } from '#server/utils/hero-quest-arena'
@@ -14,6 +15,7 @@ import { attackArena, ensureSeasonsClosed } from '#server/utils/hero-quest-arena
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'arena')
     const body = await readBody<{ slot?: unknown, opponent?: unknown }>(event)
     const slot = Number(body?.slot)
     if (!Number.isInteger(slot) || slot < 0) throw createError({ statusCode: 400, statusMessage: 'Pick an opponent from the list' })

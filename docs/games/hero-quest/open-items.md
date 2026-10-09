@@ -353,7 +353,7 @@ economy — a tuning question, listed below rather than a blocker.
 
 ## ⚪ Standing numeric tuning — **what is still `// UNTUNED ╧`**
 
-Named constants with a formula shape locked and a placeholder value. Consolidated so a tuning pass has one list. `rg '╧' shared/utils/hero-quest/constants.ts` is the authority — **97 markers** as of 2026-10-09 (`rg -c` prints 99: the file's header legend carries the glyph twice), up from 61 on 2026-09-16 with the raids (#46), boss specials (#45), the login calendar (#47), milestones (#48), the Ascendant (#43) and the holiday gifts (#53). Every marker has a row below; the Arena row's constants are not in `constants.ts` until the Arena is built.
+Named constants with a formula shape locked and a placeholder value. Consolidated so a tuning pass has one list. `rg '╧' shared/utils/hero-quest/constants.ts` is the authority — **112 markers** as of 2026-10-09 (`rg -c` prints 114: the file's header legend carries the glyph twice), up from 61 on 2026-09-16 with the raids (#46), boss specials (#45), the login calendar (#47), milestones (#48), the Ascendant (#43), the Arena (#52) and the holiday gifts (#53). Every marker has a row below.
 
 ~~**Decided: none of this is tuned before playtesting.**~~ **Superseded for the combat and progression block by #22**, which tuned it on the campaign walk. The original reasoning still holds for everything that remains below: the balance script and campaign sim project *what the formulas say*, and a projected value that feels wrong in play is worth less than no value, because it looks settled. What remains is mostly the gacha, shop and ability-magnitude layers, which the campaign walk barely exercises — so they want play data or a different measurement, not another sim pass.
 

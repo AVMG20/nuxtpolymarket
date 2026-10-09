@@ -1,5 +1,6 @@
 import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { setDefense, type DefenseSource } from '#server/utils/hero-quest-arena'
 
 /**
@@ -9,6 +10,7 @@ import { setDefense, type DefenseSource } from '#server/utils/hero-quest-arena'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'arena')
     const body = await readBody<Record<string, unknown>>(event)
     const source = body?.source
     let request: DefenseSource

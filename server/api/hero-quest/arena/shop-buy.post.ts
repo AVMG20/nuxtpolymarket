@@ -1,5 +1,6 @@
 import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { settleHq } from '#server/utils/hero-quest'
 import { buyFromShop } from '#server/utils/hero-quest-arena'
 
@@ -9,6 +10,7 @@ import { buyFromShop } from '#server/utils/hero-quest-arena'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'arena')
     const body = await readBody<{ itemId?: unknown, quantity?: unknown }>(event)
     await settleHq(userId)
     return db.transaction(tx => buyFromShop(tx, userId, body?.itemId, body?.quantity ?? 1))

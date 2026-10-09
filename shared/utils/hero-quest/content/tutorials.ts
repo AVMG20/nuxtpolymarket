@@ -72,6 +72,13 @@ export const TUTORIAL_PAGES: Readonly<Record<TutorialId, readonly string[]>> = {
         'Match Sets across slots for extra bonuses. Save a good board to come back to.'
     ],
 
+    'arena:unlock': ['The Arena is open: pit your party against other players.'],
+    'arena:visit': [
+        'Set a defence first. Other players fight it while you\'re away.',
+        'Win to climb the Rating and earn Medals for the Arena Shop.',
+        'A few free attacks a day. Seasons pay out by rank.'
+    ],
+
     'prestige:unlock': ['You beat the whole run! Prestige is open.'],
     'prestige:visit': [
         'Prestige starts the run over, harder, for Void Shards.',
