@@ -101,6 +101,8 @@ const props = defineProps<{
     raids?: readonly RaidRowView[]
     /** A raid round or quick-clear is on its way. */
     raidsBusy?: boolean
+    /** Any Loadout is saved, for the Raids scene's preferred-Loadout picker. */
+    loadoutsSaved?: boolean
     /** A raid round to play in place of the run; the stage goes back to the run once it is cleared. */
     raidRound?: StageRaid | null
     /** What a raid round or quick-clear paid, shown over the stage until its button is pressed. */
@@ -159,6 +161,8 @@ const emit = defineEmits<{
     /** A raid's enter or quick-clear button was pressed. */
     raidEnter: [raidId: RaidId]
     raidQuick: [raidId: RaidId]
+    /** A raid's preferred-Loadout picker was pressed. */
+    raidLoadout: [raidId: RaidId]
     /** The reward popup's button was pressed. */
     raidRewardClose: []
     /** Today's calendar cell, or the make-up button, was pressed. */
@@ -364,7 +368,7 @@ defineExpose({ skipFight, closeIris })
  */
 type Target = 'challenge' | HqMenuScene | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
-    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${RaidId | 'enter' | 'quick'}` | 'reward:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
+    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${RaidId | 'enter' | 'quick' | 'loadout'}` | 'reward:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
@@ -504,6 +508,7 @@ function targetAt(e: PointerEvent): Target | null {
         const at = raidsHit.raidsHoverAt(x, y)
         // the enter button waits for the fights; until then only the rows are pressed
         if (at === 'enter' || at === 'quick') return raidsHit.raidButtonEnabled(raidsView.value, at) ? `raid:${at}` : null
+        if (at === 'loadout') return raidsHit.raidLoadoutEnabled(raidsView.value) ? 'raid:loadout' : null
         return at ? `raid:${at}` : null
     }
     if (openScene.value === 'settings' && settingsHit && props.settings) {
@@ -668,9 +673,10 @@ function onPointerUp(e: PointerEvent) {
         if (row?.claimable.length && !props.milestonesBusy) emit('claimMilestones', row.id)
     }
     else if (hit.startsWith('raid:')) {
-        const id = hit.slice(5) as RaidId | 'enter' | 'quick'
+        const id = hit.slice(5) as RaidId | 'enter' | 'quick' | 'loadout'
         if (id === 'enter') emit('raidEnter', raidSelected.value)
         else if (id === 'quick') emit('raidQuick', raidSelected.value)
+        else if (id === 'loadout') emit('raidLoadout', raidSelected.value)
         else raidSelected.value = id
     }
     else if (hit === 'reveal') {
@@ -763,7 +769,7 @@ const gachaHover = computed<GachaHover>(() => {
 })
 /** The raid shown in the Raids scene; it keeps its place while the scene is closed and reopened. */
 const raidSelected = ref<RaidId>('raid_training_grounds')
-const raidsView = computed<RaidsView>(() => ({ selected: raidSelected.value, raids: props.raids ?? [], busy: !!props.raidsBusy }))
+const raidsView = computed<RaidsView>(() => ({ selected: raidSelected.value, raids: props.raids ?? [], busy: !!props.raidsBusy, loadoutsSaved: !!props.loadoutsSaved }))
 const raidsHover = computed<RaidsHover>(() => hover.value?.startsWith('raid:') ? hover.value.slice(5) as RaidsHover : null)
 const settingsHover = computed<SettingsTarget | null>(() => hover.value?.startsWith('setting:') ? hover.value.slice(8) as SettingsTarget : null)
 const calendarHover = computed<CalendarTarget | null>(() => hover.value?.startsWith('cal:') ? hover.value.slice(4) as CalendarTarget : null)

@@ -10,14 +10,15 @@
 import { and, eq, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { hqFights, hqRaidState, hqState } from '#server/database/schema'
-import { sealGrant } from '#server/utils/hero-quest'
+import { positionOf, sealGrant, type HqStateRow } from '#server/utils/hero-quest'
+import { engageLoadout } from '#server/utils/hero-quest-loadout'
 import { getRaid, RAIDS, RAIDS_OPEN, type RaidId } from '#shared/utils/hero-quest/content/raids'
 import { RAID_KEY_CAP, grantKeys, nextKeyGrantAt, nextRaidLevel, raidReward, rampageLevelReached, runDigSiteFight, runDummyRound, runForgeFight, runKnightFight, runRampageFight } from '#shared/utils/hero-quest/raids'
 import type { FightResult } from '#shared/utils/hero-quest/fight'
 import { partyUnitStats } from '#shared/utils/hero-quest/stats'
 import { RAID_KEYS_PER_DAY } from '#shared/utils/hero-quest/constants'
 import { randomInt } from '#shared/utils/random'
-import type { HeroSnapshot, RunPosition } from '#shared/utils/hero-quest/types'
+import type { HeroSnapshot } from '#shared/utils/hero-quest/types'
 
 type RaidRow = typeof hqRaidState.$inferSelect
 
@@ -54,12 +55,21 @@ async function payReward(tx: DbExecutor, userId: string, raidId: RaidId, amount:
  * paid (§3): the Training Grounds dummy and Shardcaller Beast can't be beaten, so every round pays
  * the level it reached and spends its Key; a boss (the Gilded Knight, the Dig Site, God's Forge) is fought at one past the best, and only a win
  * pays, spends the Key and raises the best. A loss costs nothing.
+ *
+ * The raid's preferred Loadout goes on first (`loadouts.md` §4, `engageLoadout`): after the raid
+ * row's lock, before the party is read off the state, the fight runs or a Key moves, so a Trait
+ * Key is never spent on a round fought with the wrong loadout. `heroFor` builds the party off the
+ * row the swap leaves.
  */
-export async function engageRaid(tx: DbExecutor, userId: string, raidId: RaidId, hero: HeroSnapshot, position: RunPosition) {
+export async function engageRaid(tx: DbExecutor, userId: string, raidId: RaidId, heroFor: (state: HqStateRow) => HeroSnapshot | Promise<HeroSnapshot>) {
     assertOpen(raidId)
     const now = Date.now()
     const { row, keys, lastKeyGrantAt } = await lockRaid(tx, userId, raidId, now)
     if (keys < 1) throw createError({ statusCode: 400, statusMessage: `No ${getRaid(raidId).key} left` })
+
+    const loadout = await engageLoadout(tx, userId, raidId)
+    const hero = await heroFor(loadout.state)
+    const position = positionOf(loadout.state)
 
     // CSPRNG for the seed; the round is deterministic from it, so the client replays it exactly
     const seed = randomInt(1, 0x7FFFFFFF)
@@ -115,6 +125,8 @@ export async function engageRaid(tx: DbExecutor, userId: string, raidId: RaidId,
         best,
         newBest: paid && level > row.highestLevel,
         keys: keysLeft,
+        /** The preferred Loadout slot the round was fought with; null for the player's own loadout. */
+        loadoutSlot: loadout.slotIndex,
         secondsElapsed: fight.secondsElapsed,
         events: fight.events,
         /** Each enemy's starting HP, for the replay's HP bars. */

@@ -3,7 +3,7 @@ import { db } from '#server/database'
 import { hqLoadouts, hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { requireFeature } from '#server/utils/hero-quest-tutorials'
-import { getShopLevels, loadoutSlots } from '#server/utils/hero-quest'
+import { getShopLevels, loadoutSlots, restoreLoadoutSession } from '#server/utils/hero-quest'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 
 /**
@@ -37,8 +37,10 @@ export default defineEventHandler(async (event) => {
 
     return db.transaction(async (tx) => {
         // Lock the state being copied, so a concurrent equip cannot half-land inside the snapshot.
-        const [state] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
-        if (!state) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
+        const [locked] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
+        if (!locked) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
+        // a raid's preferred Loadout still live goes back first, so Save stores the player's own
+        const state = await restoreLoadoutSession(tx, userId, locked)
 
         const shopLevels = await getShopLevels(userId, tx)
         const slots = loadoutSlots(shopLevels)

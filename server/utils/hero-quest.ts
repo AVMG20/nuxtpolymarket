@@ -124,6 +124,7 @@ import {
     type BattleSpeedWindow
 } from '#shared/utils/hero-quest/battle-speed'
 import type { StatsExplanation } from '#shared/utils/hero-quest/explain'
+import { loadoutSessionOf, restoredLoadout } from '#shared/utils/hero-quest/loadout-session'
 import { D, ZERO, decPow, fromStore, toStore } from '#shared/utils/hero-quest/numbers'
 import { ASCENDANT_ID, ASCENDANT_PICKABLE, CLASS_NODES, MASTER_IDS, childrenOf, classOfSkill, getClass, kitFor } from '#shared/utils/hero-quest/content/classes'
 import { SHOP_TRACKS, maxLevelFor, shopStatLevels, shopTrackCost, type ShopTrackId } from '#shared/utils/hero-quest/content/shop'
@@ -631,6 +632,27 @@ export function prestigeResetValues(state: HqStateRow) {
 }
 
 /**
+ * Close an open preferred-Loadout session (`loadouts.md` §4): put the live loadout back as it was
+ * before the raid's first engage, and clear the snapshot. Returns the row as it now stands (the
+ * same row when no session is open).
+ *
+ * Call it with `state` read under the `hqState` row lock, inside that transaction: the snapshot is
+ * read and cleared in one locked step, so two closes never both write it back. Every route that
+ * fights outside the raid or changes the live loadout calls it first, so a session the client never
+ * closed (a tab shut mid-raid) ends on the player's next action elsewhere. The snapshot is written
+ * back as stored: it was the live loadout, and nothing in this game is ever un-owned.
+ */
+export async function restoreLoadoutSession(tx: DbExecutor, userId: string, state: HqStateRow): Promise<HqStateRow> {
+    if (state.preRaidSnapshot === null) return state
+    const session = loadoutSessionOf(state.preRaidSnapshot)
+    const [updated] = await tx.update(hqState)
+        .set({ ...(session ? restoredLoadout(session) : {}), preRaidSnapshot: null })
+        .where(eq(hqState.userId, userId))
+        .returning()
+    return updated ?? state
+}
+
+/**
  * Resolve a boss or super-boss fight and apply its outcome, under the `hqState` row lock.
  *
  * Lives here rather than in `boss/engage.post.ts` so the race is testable against a real lock
@@ -650,8 +672,10 @@ export function prestigeResetValues(state: HqStateRow) {
  *   request, since the lock serializes them but none of them moves the run.
  */
 export async function resolveBossEngage(tx: DbExecutor, userId: string, bankedGold: number) {
-    const [state] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
-    if (!state) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run to play' })
+    const [locked] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
+    if (!locked) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run to play' })
+    // the run's boss is fought on the run's loadout: a raid's preferred one left live goes back first
+    const state = await restoreLoadoutSession(tx, userId, locked)
 
     const position = positionOf(state)
     if (!isBossStage(position.stage)) {

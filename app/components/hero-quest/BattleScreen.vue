@@ -16,7 +16,8 @@ import type { CalendarGiftView, CalendarView } from '~/utils/hero-quest-art/cale
 import type { MilestonesView } from '~/utils/hero-quest-art/milestones-scene'
 import type { RaidRewardView, RaidRowView } from '~/utils/hero-quest-art/raids-scene'
 import type { RaidId as StageRaidId, StageRaid } from '~/utils/hero-quest-art/demo'
-import type { RaidId } from '#shared/utils/hero-quest/content/raids'
+import { RAIDS, type RaidId } from '#shared/utils/hero-quest/content/raids'
+import { LOADOUT_TARGETS } from '#shared/utils/hero-quest/loadout-session'
 import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
 import { isHqFeature, nextTutorial, type HqFeature, type TutorialId } from '#shared/utils/hero-quest/tutorials'
 import { GUIDE_NAME, TUTORIAL_PAGES } from '#shared/utils/hero-quest/content/tutorials'
@@ -40,6 +41,7 @@ const emit = defineEmits<{
 const {
     initialized, run, hero, settled, pending, guild, forge, training, digSite, nextPrestigeReward,
     engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
+    loadoutPreferences, loadoutSession, setLoadoutPreference, leaveRaid,
     shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
     pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid, calendar, claimCalendar,
     holidays, claimHoliday, milestones, claimMilestones, ascendant, tutorials, markTutorialSeen, resetTutorials
@@ -287,6 +289,11 @@ function sameSet(a: readonly string[], b: readonly string[]): boolean {
     return a.length === b.length && a.every(id => b.includes(id))
 }
 
+/** A preferred-Loadout target's name: a raid's, or the Arena. */
+function targetName(target: string): string {
+    return RAIDS.find(r => r.id === target)?.name ?? 'Arena'
+}
+
 const loadoutsView = computed<LoadoutsView>(() => {
     const l = loadouts.value
     const g = guild.value
@@ -305,10 +312,13 @@ const loadoutsView = computed<LoadoutsView>(() => {
     const liveGear: Record<string, string> = {}
     for (const slot of forge.value?.slots ?? []) if (slot.equippedId) liveGear[slot.slot] = slot.equippedId
 
+    // which raids (and the Arena) point at each slot, so Save never overwrites one blindly
+    const usedBy = (slotIndex: number) => LOADOUT_TARGETS.filter(t => loadoutPreferences.value[t] === slotIndex).map(targetName)
+
     const slots: LoadoutSlotView[] = Array.from({ length: l.maxSlots }, (_, slotIndex) => {
         const locked = slotIndex >= l.slots
         const preset = locked ? undefined : l.saved.find(p => p.slotIndex === slotIndex)
-        const base = { slotIndex, locked, name: preset?.name ?? `Loadout ${slotIndex + 1}`, party: [], skills: [], artifacts: [], gear: [] }
+        const base = { slotIndex, locked, name: preset?.name ?? `Loadout ${slotIndex + 1}`, party: [], skills: [], artifacts: [], gear: [], usedBy: preset ? usedBy(slotIndex) : [] }
         if (!preset) {
             // only the next slot to buy has a price; the ones past it wait their turn
             const price = locked && slotIndex === l.slots && l.nextSlotCostGems !== null ? formatNumber(l.nextSlotCostGems) : null
@@ -568,12 +578,44 @@ const raidClock = useHqClock()
 const raidRows = computed<RaidRowView[]>(() => (raids.value ?? []).map(r => ({
     id: r.id as RaidId,
     open: r.open,
+    loadout: preferredName(r.id),
+    loadoutLive: loadoutSession.value?.target === r.id,
     keys: r.keys,
     keyCap: r.keyCap,
     nextKeys: r.nextKeyAt === null ? null : countdown(r.nextKeyAt - raidClock.value),
     best: r.best,
     bestReward: r.bestReward
 })))
+
+/** The name of the saved slot a raid points at, or null with none. */
+function preferredName(target: string): string | null {
+    const slot = loadoutPreferences.value[target]
+    if (slot === undefined) return null
+    return loadouts.value?.saved.find(p => p.slotIndex === slot)?.name ?? null
+}
+
+/** The saved slots a raid's picker steps through, in slot order. */
+const savedSlots = computed(() => (loadouts.value?.saved ?? []).map(p => p.slotIndex).sort((a, b) => a - b))
+
+/**
+ * The picker on a raid's screen: each press points the raid at the next saved slot, and past the
+ * last at none (`loadouts.md` §4). Free; the live loadout moves on the raid's next engage.
+ */
+async function onRaidLoadout(raidId: RaidId) {
+    const slots = savedSlots.value
+    if (!slots.length) return
+    const current = loadoutPreferences.value[raidId]
+    const at = current === undefined ? -1 : slots.indexOf(current)
+    const next = at + 1 < slots.length ? slots[at + 1]! : null
+    raidsBusy.value = true
+    try {
+        await setLoadoutPreference(raidId, next)
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        raidsBusy.value = false
+    }
+}
 
 /** `Hh MMm` past an hour, `mm:ss` under one. */
 function countdown(ms: number): string {
@@ -601,9 +643,42 @@ let raidHold: ReturnType<typeof setTimeout> | null = null
 function closeRaidReward() {
     raidReward.value = null
     // after a round, back to the Raids scene to go again; after a quick-clear it is still there
-    if (raidRound.value) emit('scene', 'raids')
+    if (raidRound.value) {
+        raidReturning.value = true
+        emit('scene', 'raids')
+    }
     raidRound.value = null
 }
+
+/**
+ * Leaving the raid puts back the loadout its preferred one replaced (`loadouts.md` §4): not after
+ * each attempt, but once the player is neither on the Raids scene nor watching a round. A reload
+ * onto another scene leaves too, since the session is the server's. `raidReturning` covers the
+ * beat between a round's popup closing and the route reaching the Raids scene again.
+ */
+const raidReturning = ref(false)
+watch(() => props.scene, (scene) => {
+    if (scene === 'raids') raidReturning.value = false
+})
+const inRaid = computed(() => props.scene === 'raids' || raidRound.value !== null || raidReturning.value)
+let leavingRaid = false
+
+async function leaveRaidIfOpen() {
+    if (import.meta.server || inRaid.value || !loadoutSession.value || leavingRaid) return
+    leavingRaid = true
+    try {
+        await leaveRaid()
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        leavingRaid = false
+    }
+}
+watch([inRaid, loadoutSession], () => { void leaveRaidIfOpen() }, { immediate: true })
+onUnmounted(() => {
+    // off Hero Quest altogether: the server puts it back; nothing here is left to refresh
+    if (loadoutSession.value) void $fetch('/api/hero-quest/raid/leave', { method: 'POST' }).catch(() => {})
+})
 
 async function onRaidEnter(raidId: RaidId) {
     raidsBusy.value = true
@@ -1130,6 +1205,7 @@ const awayReport = computed(() => {
           :milestones-busy="milestonesBusy"
           :raids="raidRows"
           :raids-busy="raidsBusy"
+          :loadouts-saved="savedSlots.length > 0"
           :raid-round="raidRound"
           :raid-reward="raidReward"
           :classes="classesView"
@@ -1154,6 +1230,7 @@ const awayReport = computed(() => {
           @guide-skip="closeTutorial"
           @raid-enter="onRaidEnter"
           @raid-quick="onRaidQuick"
+          @raid-loadout="onRaidLoadout"
           @raid-reward-close="closeRaidReward"
           @pick-class="onPickClass"
           @set-ascendant-kit="onSetAscendantKit"

@@ -13,12 +13,21 @@
  * Mythic it never pulled.
  */
 
-import { and, eq, inArray } from 'drizzle-orm'
-import type { DbExecutor } from '#server/database'
-import type { hqState } from '#server/database/schema'
-import { hqCollection, hqLoadouts } from '#server/database/schema'
-import { artifactSlots, championSlots, skillSlots } from '#server/utils/hero-quest'
-import { ASCENDANT_KIT_SIZE, FORMATION_ROW_CAPACITY, LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
+import { and, eq, inArray, sql } from 'drizzle-orm'
+import { db, type DbExecutor } from '#server/database'
+import { hqCollection, hqLoadouts, hqState } from '#server/database/schema'
+import { artifactSlots, championSlots, getShopLevels, loadoutSlots, restoreLoadoutSession, skillSlots } from '#server/utils/hero-quest'
+import { ASCENDANT_KIT_SIZE, FORMATION_ROW_CAPACITY, HQ_SESSION_TIMEOUT_MS, LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
+import {
+    loadoutPreferencesOf,
+    loadoutSessionOf,
+    loadoutSessionStale,
+    openLoadoutSession,
+    planLoadoutEngage,
+    restoredLoadout,
+    type LoadoutPreferences,
+    type LoadoutTarget
+} from '#shared/utils/hero-quest/loadout-session'
 import { getArchetype, getChampion, isChampionId } from '#shared/utils/hero-quest/content/champions'
 import { classOfSkill, getClass, isAscendantPick } from '#shared/utils/hero-quest/content/classes'
 import { GEAR_SLOTS, getGear, isGearId, isGearSlot } from '#shared/utils/hero-quest/content/gear'
@@ -252,4 +261,141 @@ export async function renameLoadout(tx: DbExecutor, userId: string, slotIndex: n
         .where(and(eq(hqLoadouts.userId, userId), eq(hqLoadouts.slotIndex, slotIndex)))
         .returning({ name: hqLoadouts.name })
     return renamed?.name ?? null
+}
+
+// ── Preferred Loadouts (`loadouts.md` §4) ──────────────────────────────────────────────
+
+/**
+ * Point a raid (or the Arena's attack) at a saved slot, or with null at none. Free and unlimited.
+ * Only the pointer moves: the live loadout is left alone, and a session open for the target picks
+ * the change up on its next engage (`planLoadoutEngage`). A slot must be unlocked and hold a save.
+ *
+ * One atomic jsonb write, so two pickers changing different targets at once both land.
+ */
+export async function setLoadoutPreference(tx: DbExecutor, userId: string, target: LoadoutTarget, slotIndex: number | null) {
+    if (slotIndex !== null) {
+        const shopLevels = await getShopLevels(userId, tx)
+        if (slotIndex >= loadoutSlots(shopLevels)) throw createError({ statusCode: 400, statusMessage: 'That loadout slot is locked' })
+        const [saved] = await tx.select({ slotIndex: hqLoadouts.slotIndex }).from(hqLoadouts)
+            .where(and(eq(hqLoadouts.userId, userId), eq(hqLoadouts.slotIndex, slotIndex)))
+        if (!saved) throw createError({ statusCode: 400, statusMessage: 'Nothing saved in that slot' })
+    }
+    const next = slotIndex === null
+        ? sql`${hqState.raidLoadoutPreferences} - ${target}::text`
+        : sql`${hqState.raidLoadoutPreferences} || jsonb_build_object(${target}::text, ${slotIndex}::int)`
+    const [updated] = await tx.update(hqState)
+        .set({ raidLoadoutPreferences: next })
+        .where(eq(hqState.userId, userId))
+        .returning({ preferences: hqState.raidLoadoutPreferences })
+    if (!updated) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
+    return { target, slotIndex, preferences: loadoutPreferencesOf(updated.preferences) }
+}
+
+/**
+ * The preferences as the scenes show them: only those pointing at an unlocked slot holding a save,
+ * since a pointer at anything else does nothing on engage.
+ */
+export function serializeLoadoutPreferences(state: HqStateRow, rows: readonly { slotIndex: number }[], shopLevels: Record<string, number>): LoadoutPreferences {
+    const slots = loadoutSlots(shopLevels)
+    const saved = new Set(rows.map(row => row.slotIndex))
+    const out: LoadoutPreferences = {}
+    for (const [target, slot] of Object.entries(loadoutPreferencesOf(state.raidLoadoutPreferences)) as [LoadoutTarget, number][]) {
+        if (slot < slots && saved.has(slot)) out[target] = slot
+    }
+    return out
+}
+
+/** The open session as the client needs it: which target it is for and the slot it applied; null when none. */
+export function serializeLoadoutSession(state: HqStateRow) {
+    const session = loadoutSessionOf(state.preRaidSnapshot)
+    return session ? { target: session.target, slotIndex: session.slotIndex } : null
+}
+
+/**
+ * The swap a fresh engage makes before its fight (`loadouts.md` §4), under the `hqState` row lock
+ * and read inside it, so a burst of engages decides one after another: the first opens the session,
+ * the rest find it open and keep it. Returns the row the fight is to run on, and the slot now live
+ * for the target (null when the fight runs on the player's own loadout).
+ *
+ * - The preferred slot counts only while it is unlocked and holds a save; otherwise the target has
+ *   none, and nothing is applied.
+ * - A session open for another target (or on a slot no longer preferred) is one the player left:
+ *   its snapshot goes back first, and stays the snapshot, so the pre-raid loadout is never lost
+ *   under another raid's.
+ * - The preset passes the same validation as `loadout/apply`. One that can't be applied refuses
+ *   the engage, before anything is spent, rather than fighting on the wrong loadout.
+ *
+ * Call it inside the engage's transaction, after the raid row's lock (raid row, then `hqState`, the
+ * order every raid write takes) and before the fight is resolved or the Key moves.
+ */
+export async function engageLoadout(tx: DbExecutor, userId: string, target: LoadoutTarget): Promise<{ state: HqStateRow, slotIndex: number | null }> {
+    const [locked] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
+    if (!locked) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
+
+    const shopLevels = await getShopLevels(userId, tx)
+    const wanted = loadoutPreferencesOf(locked.raidLoadoutPreferences)[target]
+    const [preset] = wanted !== undefined && wanted < loadoutSlots(shopLevels)
+        ? await tx.select().from(hqLoadouts).where(and(eq(hqLoadouts.userId, userId), eq(hqLoadouts.slotIndex, wanted)))
+        : []
+    const session = loadoutSessionOf(locked.preRaidSnapshot)
+    const plan = planLoadoutEngage(target, preset ? wanted! : null, session)
+
+    if (plan.kind === 'none') return { state: locked, slotIndex: null }
+    if (plan.kind === 'keep') return { state: locked, slotIndex: session!.slotIndex }
+    if (plan.kind === 'restore') return { state: await restoreLoadoutSession(tx, userId, locked), slotIndex: null }
+
+    // apply: over the pre-raid loadout, put back first when a session was open
+    const before = plan.restoreFirst ? { ...locked, ...restoredLoadout(session!) } : locked
+    let writes: LoadoutWrites
+    try {
+        writes = await validateLiveLoadout(tx, userId, before, {
+            championIds: preset!.partyChampionIds,
+            formation: preset!.formation,
+            skillIds: preset!.equippedSkillIds,
+            artifactIds: preset!.equippedArtifactIds,
+            gear: preset!.equippedGear,
+            // a preset saved without picks leaves the live ones alone, as `loadout/apply` does
+            ...(preset!.ascendantSkillIds.length ? { ascendantSkillIds: preset!.ascendantSkillIds } : {})
+        }, shopLevels)
+    } catch (e) {
+        const message = (e as { statusMessage?: string }).statusMessage ?? 'it is no longer valid'
+        throw createError({ statusCode: 400, statusMessage: `The preferred Loadout can't be applied: ${message}` })
+    }
+    const [updated] = await tx.update(hqState)
+        .set({
+            ...(plan.restoreFirst ? restoredLoadout(session!) : {}),
+            ...writes,
+            preRaidSnapshot: openLoadoutSession(target, plan.slotIndex, before)
+        })
+        .where(eq(hqState.userId, userId))
+        .returning()
+    return { state: updated ?? before, slotIndex: plan.slotIndex }
+}
+
+/**
+ * Leave the raid: put the pre-raid loadout back if a session is open. Locks `hqState` itself, so
+ * it is safe to call from any route and any number of times; the second of two finds nothing open.
+ * Returns whether a session was closed.
+ */
+export async function leaveLoadoutSession(tx: DbExecutor, userId: string): Promise<boolean> {
+    const [locked] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
+    if (!locked || locked.preRaidSnapshot === null) return false
+    await restoreLoadoutSession(tx, userId, locked)
+    return true
+}
+
+/**
+ * Close a session the player can no longer be in, on a read: one whose last settle is further back
+ * than a game session lasts (`HQ_SESSION_TIMEOUT_MS`), as after a tab shut mid-raid. Run before the
+ * read's settle, so the time away accrues on the player's own loadout. Checked again under the
+ * lock, so a raid engaged in between keeps its session.
+ */
+export async function restoreStaleLoadoutSession(userId: string, now = Date.now()): Promise<boolean> {
+    return db.transaction(async (tx) => {
+        const [locked] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
+        if (!locked || locked.preRaidSnapshot === null) return false
+        if (!loadoutSessionStale(locked.lastSettledAt.getTime(), now, HQ_SESSION_TIMEOUT_MS)) return false
+        await restoreLoadoutSession(tx, userId, locked)
+        return true
+    })
 }

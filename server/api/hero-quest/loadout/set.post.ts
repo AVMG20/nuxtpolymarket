@@ -7,6 +7,7 @@ import {
     artifactSlots,
     championSlots,
     getShopLevels,
+    restoreLoadoutSession,
     skillSlots
 } from '#server/utils/hero-quest'
 import { validateLiveLoadout, type LoadoutInput } from '#server/utils/hero-quest-loadout'
@@ -38,8 +39,10 @@ export default defineEventHandler(async (event) => {
     const body = await readBody<LoadoutInput>(event)
 
     return db.transaction(async (tx: DbExecutor) => {
-        const [state] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
-        if (!state) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
+        const [locked] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
+        if (!locked) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
+        // a raid's preferred Loadout still live goes back first: the player has left the raid
+        const state = await restoreLoadoutSession(tx, userId, locked)
 
         const shopLevels = await getShopLevels(userId, tx)
         const writes = await validateLiveLoadout(tx, userId, state, body ?? {}, shopLevels)

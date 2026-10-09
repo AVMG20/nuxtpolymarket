@@ -2,7 +2,9 @@
 // name, the Keys in hand and its best; on the right the chosen raid's boss, framed as a portrait in
 // its idle loop, over what the fight asks, what it pays and what it costs, and the button that
 // will enter it. The bosses are drawn for the whole-scene camera and stand taller than the stage,
-// so the portrait is the top of the body, not the whole of it.
+// so the portrait is the top of the body, not the whole of it. In the portrait's corner, the raid's
+// preferred Loadout (`loadouts.md` §4): a picker that steps through the saved slots, set here, on the
+// screen of the fight it is for.
 
 import { C } from './palette'
 import { Surface, rect, blit, dither, ditherEllipse } from './surface'
@@ -25,6 +27,8 @@ export interface RaidsView {
     raids: readonly RaidRowView[]
     /** A round or a quick-clear is on its way. */
     busy: boolean
+    /** Any Loadout is saved, so the picker has something to point at. */
+    loadoutsSaved: boolean
 }
 
 export interface RaidRowView {
@@ -36,10 +40,14 @@ export interface RaidRowView {
     nextKeys: string | null
     best: number
     bestReward: number
+    /** The name of the saved Loadout this raid applies on a fresh engage; null with none. */
+    loadout: string | null
+    /** That Loadout is live now, applied by this raid's engage and put back on leaving. */
+    loadoutLive: boolean
 }
 
-/** What the pointer is over: a raid's row, or one of the showcase's two buttons. */
-export type RaidsHover = RaidId | 'enter' | 'quick' | null
+/** What the pointer is over: a raid's row, one of the showcase's two buttons, or the Loadout picker. */
+export type RaidsHover = RaidId | 'enter' | 'quick' | 'loadout' | null
 
 /** The boss a raid's portrait shows: the Forge's finale, the Rampant at its first tier. */
 const BOSS: Readonly<Record<RaidId, CreatureDef>> = {
@@ -90,6 +98,9 @@ const ENTER = { w: 44, h: 13 }
 const SELECTED_RIM = [C.gold0, C.gold1, C.gold2] as const
 const ENTER_PLATE = [C.red0, C.red1, C.red2] as const
 const QUICK_PLATE = [C.green0, C.green1, C.green2] as const
+const LOADOUT_PLATE = [C.blue0, C.blue1, C.blue2] as const
+/** The Loadout picker, in the portrait's top-left corner, under its caption. */
+const LOADOUT = { x: SHOW.x + 4, y: SHOW.y + 11, w: 58, h: 11 }
 
 function rowBox(i: number): Box {
     return { x: LIST.x, y: TOP + i * (ROW_H + ROW_GAP), w: LIST.w, h: ROW_H }
@@ -110,6 +121,7 @@ function inside(b: Box, x: number, y: number): boolean {
 
 /** What a point on the view is over. */
 export function raidsHoverAt(x: number, y: number): RaidsHover {
+    if (inside(LOADOUT, x, y)) return 'loadout'
     for (let i = 0; i < RAIDS.length; i++) if (inside(rowBox(i), x, y)) return RAIDS[i]!.id
     if (inside(enterBox(), x, y)) return 'enter'
     return inside(quickBox(), x, y) ? 'quick' : null
@@ -120,6 +132,19 @@ export function raidButtonEnabled(view: RaidsView, button: 'enter' | 'quick'): b
     const raid = view.raids.find(r => r.id === view.selected)
     if (!raid || !raid.open || raid.keys < 1 || view.busy) return false
     return button === 'enter' || raid.best > 0
+}
+
+/** Whether the Loadout picker does anything for the chosen raid now: open, a Loadout saved, nothing on its way. */
+export function raidLoadoutEnabled(view: RaidsView): boolean {
+    const raid = view.raids.find(r => r.id === view.selected)
+    return !!raid?.open && view.loadoutsSaved && !view.busy
+}
+
+/** `text` cut to fit `max` px. */
+function fit(text: string, max: number): string {
+    let t = text
+    while (t && textWidth(t) > max) t = t.slice(0, -1)
+    return t
 }
 
 /** Break text into lines no wider than `max` px. */
@@ -234,6 +259,13 @@ export class RaidsScene {
         }
         blit(s, portrait.frame(t), px, py)
         rect(s, px, py + PORTRAIT.h, PORTRAIT.w, 1, C.night3)
+
+        // the preferred Loadout: its caption says when it is the one live now
+        if (row?.open) {
+            drawText(s, row.loadoutLive ? 'LOADOUT ON' : 'LOADOUT', LOADOUT.x + 1, SHOW.y + 4, row.loadoutLive ? C.green3 : C.stone3, { shadow: 1 })
+            const label = fit((row.loadout ?? (view.loadoutsSaved ? 'NONE' : 'NONE SAVED')).toUpperCase(), LOADOUT.w - 6)
+            plateButton(s, LOADOUT, label, LOADOUT_PLATE, raidLoadoutEnabled(view), hover === 'loadout', pressed)
+        }
 
         // its name, what the fight asks, and on one line what it pays and the Keys in hand
         const x = SHOW.x + 5

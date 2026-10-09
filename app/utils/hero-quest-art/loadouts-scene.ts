@@ -3,7 +3,9 @@
 // Artifact and Gear piece in its rarity's colour, gold-rimmed and marked ACTIVE while the live
 // setup matches it. A locked one shows a padlock, and the next one its gem price, opening the
 // prestige shop where it is bought. A card pressed opens its detail: everything the slot holds as
-// tiles, with Rename, Save and Apply.
+// tiles, with Rename, Save and Apply. A slot a raid points at as its preferred Loadout says so on
+// its card and in its detail, so Save never overwrites it blindly (`loadouts.md` §4); the pointers
+// themselves are set on each raid's own screen, never here.
 
 import { C, RARITY_COLORS } from './palette'
 import { rect, px, arc, blit, type Surface } from './surface'
@@ -33,6 +35,8 @@ export interface LoadoutSlotView {
     skills: readonly LoadoutEntry[]
     artifacts: readonly LoadoutEntry[]
     gear: readonly LoadoutEntry[]
+    /** The raids (and the Arena) that apply this slot on a fresh engage, by name. */
+    usedBy: readonly string[]
 }
 
 export interface LoadoutsView {
@@ -124,6 +128,21 @@ function fit(text: string, max: number): string {
     return t
 }
 
+/** Break text into lines no wider than `max` px, at spaces. */
+function wrapText(text: string, max: number): string[] {
+    const out: string[] = []
+    let line = ''
+    for (const word of text.split(' ')) {
+        const next = line ? `${line} ${word}` : word
+        if (line && textWidth(next) > max) {
+            out.push(line)
+            line = word
+        } else line = next
+    }
+    if (line) out.push(line)
+    return out
+}
+
 function padlock(s: Surface, cx: number, cy: number): void {
     arc(s, cx, cy - 2, 4, Math.PI, Math.PI * 2, C.stone3)
     arc(s, cx, cy - 2, 3, Math.PI, Math.PI * 2, C.stone3)
@@ -194,6 +213,11 @@ export class LoadoutsScene {
             blit(s, this.head(c.id), hx, b.y + 12)
             drawText(s, c.row === 'front' ? 'F' : 'B', hx + HEAD - 4, b.y + 12, c.row === 'front' ? C.red3 : C.blue2, { shadow: 2 })
         })
+        // the raids that apply it, under everything else
+        if (slot.usedBy.length) {
+            const by = slot.usedBy.length === 1 ? `FOR ${slot.usedBy[0]!.toUpperCase()}` : `FOR ${slot.usedBy.length} RAIDS`
+            drawText(s, fit(by, b.w - 8), b.x + 4, b.y + 59, C.blue2, { shadow: 1 })
+        }
         // a pip per item in its rarity's colour: how many, and how good
         const rows: [string, readonly LoadoutEntry[]][] = [['SKILLS', slot.skills], ['ARTIFACTS', slot.artifacts], ['GEAR', slot.gear]]
         rows.forEach(([label, entries], k) => {
@@ -257,6 +281,13 @@ export class LoadoutsScene {
         this.drawGroup(s, right, rows[0]!, 'SKILLS', 'skills', slot.skills.map(e => ({ ...e, owned: true, mark: null })))
         this.drawGroup(s, left, rows[1]!, 'ARTIFACTS', 'artifacts', slot.artifacts.map(e => ({ ...e, owned: true, mark: null })))
         this.drawGroup(s, left, rows[2]!, 'GEAR', 'gear', slot.gear.map(e => ({ ...e, owned: true, mark: null })))
+
+        // beside the Artifacts, the raids that apply it: what Save would change for them
+        if (slot.usedBy.length) {
+            drawText(s, 'APPLIED BY', right, rows[1]!, C.gold2, { shadow: 1 })
+            wrapText(slot.usedBy.map(n => n.toUpperCase()).join(', '), PANEL.x + PANEL.w - 6 - right).slice(0, 3)
+                .forEach((line, k) => drawText(s, line, right, rows[1]! + 9 + k * 8, C.blue2, { shadow: 1 }))
+        }
     }
 
     private drawGroup(s: Surface, x: number, y: number, label: string, tab: HqCollectionTab, entries: readonly (LoadoutEntry & { owned: boolean, mark: 'F' | 'B' | null })[]): void {

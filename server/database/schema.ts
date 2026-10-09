@@ -20,6 +20,7 @@ import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
 import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
 import type { HqSettings } from '#shared/utils/hero-quest/settings'
+import type { LoadoutSession } from '#shared/utils/hero-quest/loadout-session'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -1192,6 +1193,22 @@ export const hqState = pgTable('hq_state', {
    * equipped one are allowed to differ, and closing that gap is the player's decision.
    */
   equippedGear: jsonb('equipped_gear').$type<Record<string, string>>().notNull().default({}),
+
+  /**
+   * Preferred Loadouts (`loadouts.md` §4): target → saved slot index, for each raid and the
+   * Arena's attack (`LoadoutTarget`). A pointer, not storage; assigning one is free. A target
+   * absent has none, and its fights run on whatever is live.
+   */
+  raidLoadoutPreferences: jsonb('raid_loadout_preferences').$type<Partial<Record<string, number>>>().notNull().default({}),
+
+  /**
+   * The open preferred-Loadout session (`LoadoutSession`): the live loadout (all six components) as it was before a
+   * raid's fresh engage applied its preferred one, which target opened it and which slot it
+   * applied. Put back, and cleared, when the player leaves the raid; null when none is open.
+   * Stored rather than held by the client, so a reload keeps it and a tab shut mid-raid is put
+   * back by the next read (`loadout-session.ts`).
+   */
+  preRaidSnapshot: jsonb('pre_raid_snapshot').$type<LoadoutSession | null>(),
 
   // ── Gacha currencies (`tech-architecture.md` §3) ─────────────────────────────────
   //

@@ -28,6 +28,7 @@ import { calendarGoldPerHour, serializeCalendar } from '#server/utils/hero-quest
 import { serializeHqMilestones } from '#server/utils/hero-quest-milestones'
 import { serializeTutorials } from '#server/utils/hero-quest-tutorials'
 import { getHolidayClaims, serializeHolidays } from '#server/utils/hero-quest-holidays'
+import { restoreStaleLoadoutSession, serializeLoadoutPreferences, serializeLoadoutSession } from '#server/utils/hero-quest-loadout'
 import { GACHA_SYSTEMS } from '#shared/utils/hero-quest/gacha'
 
 /**
@@ -60,6 +61,8 @@ export default defineEventHandler(async (event) => {
             training: null,
             digSite: null,
             loadouts: null,
+            loadoutPreferences: {},
+            loadoutSession: null,
             classTree: [],
             classToken: false,
             ascendant: null,
@@ -76,6 +79,10 @@ export default defineEventHandler(async (event) => {
             settled: null
         }
     }
+
+    // A raid's preferred Loadout left live by a session that ended without leaving the raid (a tab
+    // shut mid-raid) goes back before the settle, so the time away accrues on the player's own.
+    if (existing.preRaidSnapshot !== null) await restoreStaleLoadoutSession(userId)
 
     const settleOutcome = await settleHq(userId)
     const { state, result, online, previousLevel } = settleOutcome
@@ -140,6 +147,10 @@ export default defineEventHandler(async (event) => {
         training: serializeTrainingGrounds(state, collections.skill, shopLevels),
         digSite: serializeDigSite(state, collections.artifact, shopLevels),
         loadouts: serializeLoadouts(loadoutRows, shopLevels),
+        /** Raid (or `arena`) → the saved slot it applies on a fresh engage (`loadouts.md` §4). */
+        loadoutPreferences: serializeLoadoutPreferences(state, loadoutRows, shopLevels),
+        /** The open preferred-Loadout session, if a raid's Loadout is live now: its raid and slot. */
+        loadoutSession: serializeLoadoutSession(state),
 
         voidShards: fromStore(state.voidShards).toString(),
         nextPrestigeReward: voidShardsFor(state.prestige).toString(),

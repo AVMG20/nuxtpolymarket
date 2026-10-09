@@ -103,6 +103,10 @@ export const useHeroQuest = () => {
     const training = computed(() => state.value?.training ?? null)
     const digSite = computed(() => state.value?.digSite ?? null)
     const loadouts = computed(() => state.value?.loadouts ?? null)
+    /** Raid (or `arena`) → the saved slot it applies on a fresh engage (`loadouts.md` §4). */
+    const loadoutPreferences = computed<Partial<Record<string, number>>>(() => state.value?.loadoutPreferences ?? {})
+    /** The open preferred-Loadout session: which raid's Loadout is live now, and its slot; null when none. */
+    const loadoutSession = computed(() => state.value?.loadoutSession ?? null)
     const atBossGate = computed(() => run.value?.atBossGate ?? false)
     const walled = computed(() => run.value?.walled ?? false)
     const canPrestige = computed(() => state.value?.run?.runCleared ?? false)
@@ -356,6 +360,19 @@ export const useHeroQuest = () => {
         return call('/api/hero-quest/loadout/apply', { slotIndex }, '')
     }
 
+    /**
+     * Point a raid at a saved slot, or with null at none (`loadouts.md` §4). Free; only the
+     * pointer moves, so the live loadout changes on the raid's next engage.
+     */
+    async function setLoadoutPreference(target: string, slotIndex: number | null) {
+        return call('/api/hero-quest/loadout/set-raid-preference', { target, slotIndex }, '')
+    }
+
+    /** Leave the raid: the loadout that was live before its first engage goes back, if one was applied. */
+    async function leaveRaid() {
+        return call<{ restored: boolean }>('/api/hero-quest/raid/leave', {}, '')
+    }
+
     /** Rename a saved slot, leaving what it holds alone. */
     async function renameLoadout(slotIndex: number, name: string) {
         return call('/api/hero-quest/loadout/rename', { slotIndex, name }, '')
@@ -432,6 +449,8 @@ export const useHeroQuest = () => {
         training,
         digSite,
         loadouts,
+        loadoutPreferences,
+        loadoutSession,
         classTree,
         ascendant,
         classToken,
@@ -471,6 +490,8 @@ export const useHeroQuest = () => {
         saveLoadout,
         applyLoadout,
         renameLoadout,
+        setLoadoutPreference,
+        leaveRaid,
         devMode,
         dev
     }

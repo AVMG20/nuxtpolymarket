@@ -15,6 +15,9 @@ import { hqCollection, hqFights, hqHolidayClaims, hqLoadouts, hqRaidState, hqSho
 import { engageRaid, quickClearRaid } from '#server/utils/hero-quest-raids'
 import { claimCalendar } from '#server/utils/hero-quest-calendar'
 import { claimHoliday } from '#server/utils/hero-quest-holidays'
+import { leaveLoadoutSession, setLoadoutPreference } from '#server/utils/hero-quest-loadout'
+import { loadoutSessionOf } from '#shared/utils/hero-quest/loadout-session'
+import { CHAMPIONS } from '#shared/utils/hero-quest/content/champions'
 import { holidayGift } from '#shared/utils/hero-quest/holidays'
 import { CALENDAR_REWARDS, calendarDayNumber } from '#shared/utils/hero-quest/calendar'
 import { claimMilestones } from '#server/utils/hero-quest-milestones'
@@ -128,13 +131,12 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
 
     describe('raids', () => {
         const hero = { classId: 'class_beginner', heroLevel: 5, heroXp: ZERO, goldBonusPct: 0, offlineEfficiencyLevel: 0, offlineCapLevel: 0 } as const
-        const position = { prestige: 0, world: 1, stage: 1, killsInStage: 0 }
         const skillSeals = async () => (await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!.skillSeals
         const raidRow = async () => (await db.select().from(hqRaidState).where(eq(hqRaidState.userId, USER_ID)))[0]!
 
         it('plays one round per Key however many start at once, and pays each one', async () => {
             await ensureHqState(USER_ID)
-            const result = await burst(RAID_KEYS_PER_DAY + 4, () => db.transaction(tx => engageRaid(tx, USER_ID, 'raid_training_grounds', { ...hero }, position)))
+            const result = await burst(RAID_KEYS_PER_DAY + 4, () => db.transaction(tx => engageRaid(tx, USER_ID, 'raid_training_grounds', () => ({ ...hero }))))
 
             expect(result.ok).toBe(RAID_KEYS_PER_DAY)
             expect((await raidRow()).keyBalance).toBe(0)
@@ -145,7 +147,7 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
         it('quick-clears once per Key, and only after a round set a best', async () => {
             await ensureHqState(USER_ID)
             await expect(db.transaction(tx => quickClearRaid(tx, USER_ID, 'raid_training_grounds'))).rejects.toThrow()
-            await db.transaction(tx => engageRaid(tx, USER_ID, 'raid_training_grounds', { ...hero }, position))
+            await db.transaction(tx => engageRaid(tx, USER_ID, 'raid_training_grounds', () => ({ ...hero })))
             const before = await skillSeals()
 
             const result = await burst(6, () => db.transaction(tx => quickClearRaid(tx, USER_ID, 'raid_training_grounds')))
@@ -159,7 +161,7 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             await db.insert(hqRaidState).values({ userId: USER_ID, raidId: 'raid_training_grounds', keyBalance: 0, lastKeyGrantAt: new Date(Date.now() - 2.5 * 86_400_000) })
 
             // two days owed: six Keys, and a burst of eight rounds can spend only those
-            const result = await burst(8, () => db.transaction(tx => engageRaid(tx, USER_ID, 'raid_training_grounds', { ...hero }, position)))
+            const result = await burst(8, () => db.transaction(tx => engageRaid(tx, USER_ID, 'raid_training_grounds', () => ({ ...hero }))))
 
             expect(result.ok).toBe(2 * RAID_KEYS_PER_DAY)
             expect((await raidRow()).keyBalance).toBe(0)
@@ -170,7 +172,7 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             const gems = async () => (await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!.traitGems
 
             const results = await Promise.allSettled(Array.from({ length: 5 }, () =>
-                db.transaction(tx => engageRaid(tx, USER_ID, 'raid_trait', { ...hero }, position))))
+                db.transaction(tx => engageRaid(tx, USER_ID, 'raid_trait', () => ({ ...hero })))))
 
             const paid = results.flatMap(r => r.status === 'fulfilled' ? [r.value] : [])
             expect(paid).toHaveLength(RAID_KEYS_PER_DAY)
@@ -190,7 +192,7 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             await db.insert(hqRaidState).values({ userId: USER_ID, raidId: 'raid_guild', highestLevel: 40, keyBalance: 2 })
             const before = await guildSeals()
 
-            const result = await db.transaction(tx => engageRaid(tx, USER_ID, 'raid_guild', { ...hero }, position))
+            const result = await db.transaction(tx => engageRaid(tx, USER_ID, 'raid_guild', () => ({ ...hero })))
 
             expect(result.outcome).not.toBe('win')
             expect(result.reward).toBe(0)
@@ -204,13 +206,63 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             const strong = { ...hero, classId: 'class_warrior', heroLevel: 300 } as const
             const before = await guildSeals()
 
-            const result = await db.transaction(tx => engageRaid(tx, USER_ID, 'raid_guild', { ...strong }, position))
+            const result = await db.transaction(tx => engageRaid(tx, USER_ID, 'raid_guild', () => ({ ...strong })))
 
             expect(result.outcome).toBe('win')
             expect(result.level).toBe(1)
             expect((await guildRow()).keyBalance).toBe(RAID_KEYS_PER_DAY - 1)
             expect((await guildRow()).highestLevel).toBe(1)
             expect(await guildSeals()).toBe(before + result.reward)
+        })
+    })
+
+    describe('preferred loadouts on raid engage', () => {
+        const hero = { classId: 'class_beginner', heroLevel: 5, heroXp: ZERO, goldBonusPct: 0, offlineEfficiencyLevel: 0, offlineCapLevel: 0 } as const
+        const [own, first, second] = [[CHAMPIONS[0]!.id], [CHAMPIONS[1]!.id, CHAMPIONS[2]!.id], [CHAMPIONS[3]!.id]]
+        const stateOf = async () => (await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!
+        const engage = (raidId: 'raid_training_grounds' | 'raid_trait') => db.transaction(tx => engageRaid(tx, USER_ID, raidId, () => ({ ...hero })))
+
+        beforeEach(async () => {
+            await ensureHqState(USER_ID)
+            for (const c of CHAMPIONS.slice(0, 4)) await db.insert(hqCollection).values({ userId: USER_ID, system: 'champion', contentId: c.id })
+            await db.update(hqState).set({ partyChampionIds: own }).where(eq(hqState.userId, USER_ID))
+            await db.insert(hqLoadouts).values([
+                { userId: USER_ID, slotIndex: 0, partyChampionIds: first },
+                { userId: USER_ID, slotIndex: 1, partyChampionIds: second }
+            ])
+            await db.transaction(tx => setLoadoutPreference(tx, USER_ID, 'raid_training_grounds', 0))
+            await db.transaction(tx => setLoadoutPreference(tx, USER_ID, 'raid_trait', 1))
+        })
+
+        it('snapshots the player\'s own loadout once, however many fresh engages race', async () => {
+            const result = await burst(8, () => engage('raid_training_grounds'))
+
+            expect(result.ok).toBe(RAID_KEYS_PER_DAY)
+            const state = await stateOf()
+            expect(state.partyChampionIds).toEqual(first)
+            expect(loadoutSessionOf(state.preRaidSnapshot)).toMatchObject({ target: 'raid_training_grounds', partyChampionIds: own })
+        })
+
+        it('never takes another raid\'s Loadout for the snapshot when two raids race', async () => {
+            await burst(10, i => engage(i % 2 ? 'raid_trait' : 'raid_training_grounds'))
+
+            const state = await stateOf()
+            const session = loadoutSessionOf(state.preRaidSnapshot)!
+            expect(session.partyChampionIds).toEqual(own)
+            expect(state.partyChampionIds).toEqual(session.target === 'raid_trait' ? second : first)
+        })
+
+        it('ends with the player\'s own loadout or a whole session, never half of each, when leaves race engages', async () => {
+            await burst(12, i => i % 2 ? db.transaction(tx => leaveLoadoutSession(tx, USER_ID)) : engage('raid_training_grounds'))
+
+            const state = await stateOf()
+            const session = loadoutSessionOf(state.preRaidSnapshot)
+            if (session) {
+                expect(session.partyChampionIds).toEqual(own)
+                expect(state.partyChampionIds).toEqual(first)
+            } else {
+                expect(state.partyChampionIds).toEqual(own)
+            }
         })
     })
 
