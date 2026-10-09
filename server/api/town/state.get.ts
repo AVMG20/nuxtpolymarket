@@ -1,5 +1,6 @@
 import { requireUserId } from '#server/utils/auth'
-import { getTownState, settleTownForRead, plotPurchaseInfo, getMyTownOrders, getTownLastPrices, serializeMilestones, getExpansions, townBoostsView, townCrews } from '#server/utils/town'
+import { getTownState, settleTownForRead, plotPurchaseInfo, getMyTownOrders, getTownLastPrices, serializeMilestones, getExpansions, townBoostsView, townCrews, toStored, getRedesignDraft } from '#server/utils/town'
+import { townStoredIsJob } from '#shared/utils/gamelogic/town-storage'
 import {
     TOWN_BUILDINGS,
     TOWN_RESOURCES,
@@ -82,10 +83,11 @@ export default defineEventHandler(async (event) => {
         }
     }
 
-    const [settled, myOrders, lastPrices] = await Promise.all([
+    const [settled, myOrders, lastPrices, redesignDraft] = await Promise.all([
         settleTownForRead(userId),
         getMyTownOrders(userId),
-        getTownLastPrices()
+        getTownLastPrices(),
+        getRedesignDraft(userId)
     ])
     const { state, buildings, plots, sim, inventory } = settled
     // The neighbours' towns are not in here: they are most of the bytes and
@@ -108,8 +110,9 @@ export default defineEventHandler(async (event) => {
     }
     const happinessPotential = deriveTown(sim, state.happiness, now, reachable, network).happinessTarget
 
+    // Stored buildings are still owned: they count toward caps and prices.
     const countsByType: Record<string, number> = {}
-    for (const b of sim) countsByType[b.type] = (countsByType[b.type] ?? 0) + 1
+    for (const b of [...sim, ...settled.stored]) countsByType[b.type] = (countsByType[b.type] ?? 0) + 1
     const credit = state.monumentCredit
     // A monument the town has research credit for goes up free.
     const nextCost = Object.fromEntries(TOWN_BUILDINGS.map(def => [def.id, credit[def.id] ? { coins: 0, resources: {} } : townPlaceCost(def, countsByType[def.id] ?? 0)]))
@@ -226,6 +229,12 @@ export default defineEventHandler(async (event) => {
                 ? townLevelBuildMs(getTownBuilding(b.type)!, b.level + 1, state.happiness, settled.bonus)
                 : null
         })),
+        /** Buildings in storage, oldest first. */
+        storage: {
+            items: settled.stored.map(r => ({ ...toStored(r), createdAt: r.createdAt.getTime(), paused: townStoredIsJob(r) }))
+        },
+        /** A redesign saved half-way, to merge with this town when it is reopened. */
+        redesignDraft,
         inventory,
         myOrders,
         lastPrices,

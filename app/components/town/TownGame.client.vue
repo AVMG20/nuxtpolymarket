@@ -19,8 +19,9 @@ import { formatTownDuration } from '~/utils/town-format'
 import { townTerrainCss } from '~/utils/town/terrain'
 import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, townEffectRadius, townCivicCheer, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townFrontTiles, townRoadAt, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, townBuildingSize, townFootprintAnchor, townSupplyPath, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
 import { getTownMonument, townBonusLabel, townBonusLines, townBonusValue, townMonumentEffect } from '#shared/utils/gamelogic/town-monuments'
-import { townJobProgress, townBoostedJobMs, type TownBuildingView, type TownBoostKind } from '~/composables/useTown'
+import { townJobProgress, townBoostedJobMs, type TownBuildingView, type TownBoostKind, type TownStoredView, type TownSpot } from '~/composables/useTown'
 import type { SceneTile, SceneMoveGhost } from '~/components/town/TownScene.client.vue'
+import type { TownDraftSpot, TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
 
 const town = useTown()
 const sound = useTownSound()
@@ -52,6 +53,10 @@ function rotatePlacement(dir: 1 | -1 = 1) {
 }
 /** Building being relocated; its type becomes the ghost and the original hides. */
 const movingId = ref<string | null>(null)
+/** A building coming back out of storage: its type is the ghost. */
+const placingStored = ref<TownStoredView | null>(null)
+// Whatever lets go of the ghost lets go of the stored building with it.
+watch(ghostType, (t) => { if (!t) placingStored.value = null })
 const hoveredTile = ref<{ plotId: string, tileX: number, tileY: number, wx: number, wy: number } | null>(null)
 const selectedBuildingId = ref<string | null>(null)
 /** Everything a marquee has gathered up, or a shift-click has toggled in. */
@@ -93,6 +98,7 @@ function trackPointer(e: MouseEvent) {
 // no artwork of its own.
 const ghostLevel = computed(() => {
     if (trayPick.value && trayPick.value !== 'road') return Math.max(1, trayGroups.value.find(g => g.key === trayPick.value)?.level ?? 1)
+    if (placingStored.value) return Math.max(1, placingStored.value.upgradingTo ?? placingStored.value.level)
     return movingId.value ? Math.max(1, town.buildings.value.find(b => b.id === movingId.value)?.level ?? 1) : 1
 })
 const selectedBuilding = computed(() => town.buildings.value.find(b => b.id === selectedBuildingId.value) ?? null)
@@ -140,11 +146,25 @@ function closeAll() {
 // ── Build ──
 /** The build strip's last tab: the monuments, whatever tier each opens at. */
 const MONUMENT_TAB = -1
+/** The tab after monuments, only while something is in storage: put stored buildings back. */
+const STORAGE_TAB = -2
 const tiers = computed(() => [...new Set(town.catalog.value.filter(c => c.kind !== 'monument').map(c => c.tier))].sort((a, b) => a - b))
-const tierEntries = computed(() => buildTier.value === MONUMENT_TAB
-    ? town.catalog.value.filter(c => c.kind === 'monument')
-    : town.catalog.value.filter(c => c.tier === buildTier.value && c.kind !== 'monument'))
-function tierLocked(t: number) { return t !== MONUMENT_TAB && !town.unlockedTiers.value.has(t) }
+const tierEntries = computed(() => buildTier.value === STORAGE_TAB
+    ? []
+    : buildTier.value === MONUMENT_TAB
+        ? town.catalog.value.filter(c => c.kind === 'monument')
+        : town.catalog.value.filter(c => c.tier === buildTier.value && c.kind !== 'monument'))
+function tierLocked(t: number) { return t !== MONUMENT_TAB && t !== STORAGE_TAB && !town.unlockedTiers.value.has(t) }
+const hasStored = computed(() => town.storage.value.items.length > 0)
+/** The Storage tab's cards: one per stored building, and every stored road on a single stacked card. */
+const storageCards = computed(() => {
+    const items = town.storage.value.items
+    const roads = items.filter(s => s.type === 'road')
+    const cards = items.filter(s => s.type !== 'road').map(item => ({ item, count: 1 }))
+    return roads.length ? [{ item: roads[0]!, count: roads.length }, ...cards] : cards
+})
+// Storage emptied under an open Storage tab: fall back to the first tier.
+watch(hasStored, (has) => { if (!has && buildTier.value === STORAGE_TAB) buildTier.value = tiers.value[0] ?? 0 })
 /** Stages this town carried over from research for a monument: it goes up at that stage, free. */
 function monumentCredit(type: string) { return town.monumentCredit.value[type] ?? 0 }
 /** A card is shut while its tier is, unless research already paid for it. */
@@ -172,9 +192,9 @@ function pickTier(t: number) {
     buildTier.value = t
     sound.play('tab')
 }
-/** Tab and Shift+Tab walk the tabs, monuments last. */
+/** Tab and Shift+Tab walk the tabs, monuments then storage last. */
 function cycleTier(dir: 1 | -1) {
-    const tabs = [...tiers.value, MONUMENT_TAB]
+    const tabs = [...tiers.value, MONUMENT_TAB, ...(hasStored.value ? [STORAGE_TAB] : [])]
     const at = Math.max(0, tabs.indexOf(buildTier.value))
     pickTier(tabs[(at + dir + tabs.length) % tabs.length]!)
 }
@@ -218,6 +238,7 @@ function pickBuild(type: string) {
     }
     sound.play('pickup')
     movingId.value = null
+    placingStored.value = null
     ghostType.value = type
     ghostRotation.value = 0
     selectedBuildingId.value = null
@@ -240,12 +261,53 @@ function startMove() {
     if (!b) return
     sound.play('pickup')
     movingId.value = b.id
+    placingStored.value = null
     ghostType.value = b.type
     // A site travels as the building it will become, so it reads as itself.
     ghostRotation.value = b.rotation
     selectedBuildingId.value = null
     selectedIds.value = []
     buildOpen.value = false
+}
+
+// ── Storage ─────────────────────────────────────────────────────────────────
+// Buildings taken off the map, free to keep. They make nothing while stored,
+// and come back out from the build strip's Storage tab.
+
+/** Why a stored building cannot come back out right now: a paused job needs its crew back. */
+function storedCrewIssue(item: TownStoredView): string | null {
+    if (!item.paused) return null
+    if (getTownMonument(item.type)) return town.monumentJob.value ? 'The monument crew is busy' : null
+    return buildersFree.value > 0 ? null : 'Every builder is busy: a paused job needs a free crew'
+}
+
+/** Take buildings off the map into storage, roads included. */
+function storeIds(ids: string[]) {
+    if (ids.length === 0) return
+    sound.unlock()
+    run(() => town.storeBuildings(ids), () => {
+        selectedIds.value = selectedIds.value.filter(id => !ids.includes(id))
+        if (selectedBuildingId.value && ids.includes(selectedBuildingId.value)) selectedBuildingId.value = null
+    }, 'pickup')
+}
+
+const storeTip = 'Take it off the map. It makes nothing while stored; put it back from the Storage tab in Build.'
+
+/** A stored building on the cursor, waiting for a tile. From the build strip's Storage tab the strip stays open. */
+function startPlaceStored(item: TownStoredView, fromStrip = false) {
+    // The held card again puts it down, like any other build card.
+    if (fromStrip && placingStored.value?.id === item.id) { sound.play('close'); ghostType.value = null; return }
+    const issue = storedCrewIssue(item)
+    if (issue) { sound.play('deny'); toast.add({ title: issue, color: 'warning' }); return }
+    sound.play('pickup')
+    windowOpen.value = null
+    if (!fromStrip) buildOpen.value = false
+    selectedBuildingId.value = null
+    selectedIds.value = []
+    movingId.value = null
+    ghostType.value = item.type
+    ghostRotation.value = 0
+    placingStored.value = item
 }
 
 /**
@@ -289,7 +351,15 @@ async function onSelectTile(cursorTile: { plotId: string, tileX: number, tileY: 
     }
     busy.value = true
     try {
-        if (movingId.value) {
+        if (placingStored.value) {
+            const wasRoad = placingStored.value.type === 'road'
+            await town.placeStored({ buildingId: placingStored.value.id, plotId: tile.plotId, tileX: tile.tileX, tileY: tile.tileY, rotation: ghostRotation.value })
+            sound.play(wasRoad ? 'road' : 'place')
+            // Stored roads come out one click at a time until the stack runs dry.
+            const nextRoad = wasRoad ? town.storage.value.items.find(s => s.type === 'road') : undefined
+            if (nextRoad) placingStored.value = nextRoad
+            else ghostType.value = null
+        } else if (movingId.value) {
             await town.moveBuilding(movingId.value, tile.plotId, tile.tileX, tile.tileY, ghostRotation.value)
             sound.play('place')
             movingId.value = null
@@ -357,26 +427,49 @@ function onDeselect() {
 
 // ── Redesign ────────────────────────────────────────────────────────────────
 // The whole town goes into a tray and comes back down one piece at a time.
-// Nothing reaches the server until Save: the draft is a map of building id to
-// tile, laid over a snapshot of the town taken when the mode was entered.
+// Nothing changes in the town until the final Save: the draft is a map of
+// building id to tile, laid over a snapshot of the town taken when the mode
+// was entered. A save with pieces still in the tray keeps the draft on the
+// server instead, and reopening merges it with the town as it then stands.
 
-interface DraftSpot { plotId: string, tileX: number, tileY: number, rotation: number }
+type DraftSpot = TownDraftSpot
 const redesign = ref<{
     /** The town as it stood when the tray opened — the pieces to put back. */
     original: TownBuildingView[]
+    /** What was in storage when the tray opened: pieces that may come back out. */
+    stored: TownStoredView[]
     /** Where each piece has been put down, by building id. Absent = still in the tray. */
     placed: Record<string, DraftSpot>
     /** Roads laid beyond the ones the town had, paid for on save. */
     newRoads: Record<string, DraftSpot>
+    /** Buildings from the map marked to go into storage on the final save. */
+    toStore: string[]
 } | null>(null)
 /** What the tray has handed to the cursor: a group key, or 'road'. */
 const trayPick = ref<string | null>(null)
-const confirmRedesign = ref<{ moves: DraftSpot[], roads: DraftSpot[] } | null>(null)
+const confirmRedesign = ref<{ moves: DraftSpot[], roads: DraftSpot[], store: string[], place: string[] } | null>(null)
+
+/** One tray card per kind, level and origin; stored pieces get their own card. */
+function trayKey(b: { type: string, level: number, upgradingTo: number | null }, stored: boolean) {
+    return `${b.type}:${b.upgradingTo ?? b.level}:${b.level === 0 ? 'site' : ''}:${stored ? 'stored' : ''}`
+}
+
+/** A stored building drawn on the draft where it has been put down. */
+function storedAsView(s: TownStoredView, spot: DraftSpot): TownBuildingView {
+    return {
+        id: s.id, type: s.type, ...spot, level: s.level,
+        upgradingTo: s.paused ? s.upgradingTo : null,
+        // Not `now.value`: a dependency on the clock would redraw the draft twice a second.
+        completesAt: s.paused ? town.serverNow() + s.remainingMs : 0,
+        createdAt: s.createdAt,
+        staffing: null, connected: true, district: null, jobMs: null, nextUpgradeMs: null, supply: null, throughput: null
+    }
+}
 const ROAD_DEF = getTownBuilding('road')!
 let newRoadSeq = 0
 
-/** Whether anything has been put down since the tray opened. */
-const draftTouched = computed(() => !!redesign.value && (Object.keys(redesign.value.placed).length > 0 || Object.keys(redesign.value.newRoads).length > 0))
+/** Whether anything has been put down or marked since the tray opened. */
+const draftTouched = computed(() => !!redesign.value && (Object.keys(redesign.value.placed).length > 0 || Object.keys(redesign.value.newRoads).length > 0 || redesign.value.toStore.length > 0))
 
 /** The draft as building rows, so the scene and every rule see the layout being drawn. */
 const redesignBuildings = computed<TownBuildingView[]>(() => {
@@ -386,6 +479,10 @@ const redesignBuildings = computed<TownBuildingView[]>(() => {
     for (const b of r.original) {
         const spot = r.placed[b.id]
         if (spot) out.push({ ...b, ...spot })
+    }
+    for (const s of r.stored) {
+        const spot = r.placed[s.id]
+        if (spot) out.push(storedAsView(s, spot))
     }
     for (const [id, spot] of Object.entries(r.newRoads)) {
         out.push({
@@ -405,32 +502,58 @@ watch(() => sceneBuildings.value, (list) => {
     if (moveSelection.value?.items.some(i => !alive.has(i.id))) moveSelection.value = null
 })
 
-interface TrayGroup { key: string, type: string, name: string, level: number, site: boolean, ids: string[] }
-/** The pieces still in the tray, one card per kind and level. Roads have their own card. */
+interface TrayGroup { key: string, type: string, name: string, level: number, site: boolean, stored: boolean, ids: string[] }
+/** The pieces still in the tray, one card per kind and level. Roads have their own card; stored pieces their own. */
 const trayGroups = computed<TrayGroup[]>(() => {
     const r = redesign.value
     if (!r) return []
     const groups = new Map<string, TrayGroup>()
-    for (const b of r.original) {
-        if (b.type === 'road' || r.placed[b.id]) continue
-        const shown = b.upgradingTo ?? b.level
-        const key = `${b.type}:${shown}:${b.level === 0 ? 'site' : ''}`
+    const add = (b: { id: string, type: string, level: number, upgradingTo: number | null }, stored: boolean) => {
+        const key = trayKey(b, stored)
         let g = groups.get(key)
-        if (!g) groups.set(key, g = { key, type: b.type, name: town.catalogById.value.get(b.type)?.name ?? b.type, level: shown, site: b.level === 0, ids: [] })
+        if (!g) groups.set(key, g = { key, type: b.type, name: town.catalogById.value.get(b.type)?.name ?? b.type, level: b.upgradingTo ?? b.level, site: b.level === 0, stored, ids: [] })
+        g.ids.push(b.id)
+    }
+    const marked = new Set(r.toStore)
+    for (const b of r.original) if (b.type !== 'road' && !r.placed[b.id] && !marked.has(b.id)) add(b, false)
+    // Stored roads join the road card's stack rather than getting a card of their own.
+    for (const s of r.stored) if (s.type !== 'road' && !r.placed[s.id]) add(s, true)
+    return [...groups.values()].sort((a, b) => Number(a.stored) - Number(b.stored) || a.name.localeCompare(b.name) || a.level - b.level)
+})
+/** Roads the town already had on the map that are not down yet, nor marked for storage: on save they go into storage. */
+const trayRoads = computed(() => {
+    const r = redesign.value
+    if (!r) return []
+    const marked = new Set(r.toStore)
+    return r.original.filter(b => b.type === 'road' && !r.placed[b.id] && !marked.has(b.id)).map(b => b.id)
+})
+/** Stored roads not put down: laid before any new road is bought, and left in storage otherwise. */
+const storedRoadsLeft = computed(() => redesign.value ? redesign.value.stored.filter(s => s.type === 'road' && !redesign.value!.placed[s.id]).map(s => s.id) : [])
+/** Buildings from the map neither put down nor marked for storage: the final Save waits for zero. */
+const trayLeft = computed(() => trayGroups.value.filter(g => !g.stored).reduce((n, g) => n + g.ids.length, 0))
+/** Stored pieces put down in the draft: on save they come out of storage. */
+const draftFromStorage = computed(() => redesign.value ? redesign.value.stored.filter(s => redesign.value!.placed[s.id]).map(s => s.id) : [])
+/** The pieces marked for storage, as tray cards so a mark can be taken back. */
+const markedGroups = computed(() => {
+    const r = redesign.value
+    if (!r) return []
+    const groups = new Map<string, { key: string, type: string, name: string, level: number, ids: string[] }>()
+    for (const id of r.toStore) {
+        const b = r.original.find(x => x.id === id)
+        if (!b) continue
+        const key = trayKey(b, false)
+        let g = groups.get(key)
+        if (!g) groups.set(key, g = { key, type: b.type, name: town.catalogById.value.get(b.type)?.name ?? b.type, level: b.upgradingTo ?? b.level, ids: [] })
         g.ids.push(b.id)
     }
     return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name) || a.level - b.level)
 })
-/** Roads the town already had that are not down yet. */
-const trayRoads = computed(() => redesign.value ? redesign.value.original.filter(b => b.type === 'road' && !redesign.value!.placed[b.id]).map(b => b.id) : [])
-/** Buildings (not roads) still to place — Save waits for zero. */
-const trayLeft = computed(() => trayGroups.value.reduce((n, g) => n + g.ids.length, 0))
 const draftTotal = computed(() => redesign.value ? redesign.value.original.filter(b => b.type !== 'road').length : 0)
 /** What the new roads will cost: the n-th road counts every road still standing. */
 const newRoadCost = computed(() => {
     const r = redesign.value
     if (!r) return 0
-    const standing = r.original.filter(b => b.type === 'road' && r.placed[b.id]).length
+    const standing = [...r.original, ...r.stored].filter(b => b.type === 'road' && r.placed[b.id]).length
     let coins = 0
     const n = Object.keys(r.newRoads).length
     for (let i = 0; i < n; i++) coins += townPlaceCost(ROAD_DEF, standing + i).coins
@@ -440,18 +563,110 @@ const newRoadCount = computed(() => redesign.value ? Object.keys(redesign.value.
 /** Placed buildings whose front door has no road: they go dark, and the confirm says so. */
 const draftDoorless = computed(() => redesign.value ? simBuildings.value.filter(b => !townRoadAccess(simBuildings.value, b)).length : 0)
 const redesignSaveIssue = computed(() => {
-    if (trayLeft.value > 0) return `${trayLeft.value} ${trayLeft.value === 1 ? 'building is' : 'buildings are'} still in the tray`
     if (newRoadCost.value > balance.value) return 'Not enough coins for the new roads'
     return null
 })
+/** Pieces still in the tray: Save keeps a draft instead of changing the town. */
+const redesignIsDraft = computed(() => trayLeft.value > 0)
+
+/**
+ * Lay a saved draft over the town as it stands now. Pieces that no longer
+ * exist drop out; new buildings are simply not placed yet, so they wait in
+ * the tray; levels come from the town, not the draft. A spot that now clashes
+ * with the ground or an earlier piece goes back to the tray.
+ */
+function mergeDraft(saved: TownRedesignDraft, original: TownBuildingView[], stored: TownStoredView[]) {
+    const known = new Map<string, string>([...original.map(b => [b.id, b.type] as const), ...stored.map(s => [s.id, s.type] as const)])
+    const placed: Record<string, DraftSpot> = {}
+    const newRoads: Record<string, DraftSpot> = {}
+    const layout: TownSimBuilding[] = []
+    const fits = (id: string, type: string, spot: DraftSpot) => {
+        const plot = plotById.value.get(spot.plotId)
+        if (!plot) return false
+        const wx = plot.x * TOWN_PLOT_SIZE + spot.tileX
+        const wy = plot.y * TOWN_PLOT_SIZE + spot.tileY
+        if (groundIssue(wx, wy, type, layout)) return false
+        layout.push({ id, type: type as TownSimBuilding['type'], level: 1, completesAt: 0, upgradingTo: null, createdAt: 0, wx, wy, rotation: spot.rotation })
+        return true
+    }
+    for (const [id, spot] of Object.entries(saved.placed)) {
+        const type = known.get(id)
+        if (type && fits(id, type, spot)) placed[id] = spot
+    }
+    for (const [id, spot] of Object.entries(saved.newRoads)) {
+        if (fits(id, 'road', spot)) newRoads[id] = spot
+    }
+    const onMap = new Set(original.map(b => b.id))
+    const toStore = saved.toStore.filter(id => onMap.has(id) && !placed[id])
+    return { placed, newRoads, toStore }
+}
 
 function startRedesign() {
     if (!town.initialized.value || busy.value) return
     sound.unlock()
     closeAll()
-    redesign.value = { original: town.buildings.value.map(b => ({ ...b })), placed: {}, newRoads: {} }
+    const original = town.buildings.value.map(b => ({ ...b }))
+    const stored = town.storage.value.items.map(s => ({ ...s }))
+    const saved = town.redesignDraft.value?.draft
+    redesign.value = { original, stored, ...(saved ? mergeDraft(saved, original, stored) : { placed: {}, newRoads: {}, toStore: [] }) }
+    newRoadSeq = Math.max(newRoadSeq, ...Object.keys(redesign.value.newRoads).map(k => Number(k.split(':')[1]) || 0))
     trayPick.value = null
     sound.play('open')
+}
+
+/** Mark pieces from the map to go into storage on the final save; they leave the draft. */
+function markForStorage(ids: string[]) {
+    const r = redesign.value
+    if (!r) return
+    const onMap = new Set(r.original.map(b => b.id))
+    const marking = ids.filter(id => onMap.has(id))
+    if (marking.length === 0) return
+    r.placed = Object.fromEntries(Object.entries(r.placed).filter(([id]) => !marking.includes(id)))
+    r.toStore = [...new Set([...r.toStore, ...marking])]
+    selectedIds.value = selectedIds.value.filter(id => !marking.includes(id))
+    moveSelection.value = null
+    if (trayPick.value && !trayGroups.value.some(g => g.key === trayPick.value)) dropTrayPick()
+    sound.play('pickup')
+}
+
+/**
+ * Finish the redesign now: whatever from the map is still in the tray goes
+ * into storage, and the layout is saved for real through the usual confirm.
+ * Pieces already in storage stay there. Keep editing undoes nothing: the
+ * marks stay, and can be taken back from the tray one by one.
+ */
+function saveAndStoreSurplus() {
+    const surplus = trayGroups.value.filter(g => !g.stored).flatMap(g => g.ids)
+    if (surplus.length) markForStorage(surplus)
+    askSaveRedesign()
+}
+
+/** Take back a storage mark: the piece returns to the tray. */
+function unmarkStorage(ids: string[]) {
+    const r = redesign.value
+    if (!r) return
+    r.toStore = r.toStore.filter(id => !ids.includes(id))
+    sound.play('click')
+}
+
+/** Keep the half-done layout on the server and leave; the town is untouched. */
+function saveRedesignDraft() {
+    const r = redesign.value
+    if (!r) return
+    run(() => town.saveRedesignDraft({ placed: r.placed, newRoads: r.newRoads, toStore: r.toStore }), () => {
+        redesign.value = null
+        clearSelection()
+        dropTrayPick()
+    }, 'place')
+}
+
+/** Throw the saved draft away and start the tray from the town as it stands. */
+async function discardDraft() {
+    await run(() => town.discardRedesignDraft(), () => {
+        if (redesign.value) redesign.value = { ...redesign.value, placed: {}, newRoads: {}, toStore: [] }
+        clearSelection()
+        dropTrayPick()
+    }, 'close')
 }
 
 function cancelRedesign() {
@@ -462,11 +677,12 @@ function cancelRedesign() {
     sound.play('close')
 }
 
-/** Put every piece back in the tray. */
+/** Put every piece back in the tray, storage marks included. */
 function pickUpAll() {
     if (!redesign.value) return
     redesign.value.placed = {}
     redesign.value.newRoads = {}
+    redesign.value.toStore = []
     clearSelection()
     dropTrayPick()
     sound.play('click')
@@ -531,7 +747,8 @@ function putDown(tile: { plotId: string, tileX: number, tileY: number }, rotatio
     if (!r || !trayPick.value) return false
     const spot: DraftSpot = { plotId: tile.plotId, tileX: tile.tileX, tileY: tile.tileY, rotation }
     if (trayPick.value === 'road') {
-        const id = trayRoads.value[0]
+        // The town's own roads first, then stored ones, and only then a new one to pay for.
+        const id = trayRoads.value[0] ?? storedRoadsLeft.value[0]
         if (id) r.placed[id] = { ...spot, rotation: 0 }
         else r.newRoads[`new:${++newRoadSeq}`] = { ...spot, rotation: 0 }
         return true
@@ -594,15 +811,14 @@ function pickUpDraft(id: string) {
         holdRoad()
         return
     }
-    const b = r.original.find(x => x.id === id)
+    const stored = r.stored.find(x => x.id === id)
+    const b = r.original.find(x => x.id === id) ?? stored
     const spot = r.placed[id]
     if (!b || !spot) return
     const { [id]: _spot, ...rest } = r.placed
     r.placed = rest
     if (b.type === 'road') { holdRoad(); return }
-    const shown = b.upgradingTo ?? b.level
-    const key = `${b.type}:${shown}:${b.level === 0 ? 'site' : ''}`
-    trayPick.value = key
+    trayPick.value = trayKey(b, !!stored)
     ghostType.value = b.type
     ghostRotation.value = spot.rotation
     movingId.value = null
@@ -622,21 +838,32 @@ function liftSelection() {
 
 function askSaveRedesign() {
     const r = redesign.value
-    if (!r || redesignSaveIssue.value) return
+    if (!r) return
+    // Pieces still in the tray: keep the draft for later, the town stays as it is.
+    if (redesignIsDraft.value) { saveRedesignDraft(); return }
+    if (redesignSaveIssue.value) return
+    const fromStorage = new Set(draftFromStorage.value)
     sound.play('open')
-    confirmRedesign.value = { moves: Object.values(r.placed), roads: Object.values(r.newRoads) }
+    confirmRedesign.value = {
+        moves: Object.entries(r.placed).filter(([id]) => !fromStorage.has(id)).map(([, s]) => s),
+        roads: Object.values(r.newRoads),
+        // Roads left in the tray are kept, not demolished.
+        store: [...r.toStore, ...trayRoads.value],
+        place: draftFromStorage.value
+    }
 }
 
 function saveRedesign() {
     const r = redesign.value
     if (!r) return
-    const moves = Object.entries(r.placed).map(([buildingId, s]) => ({ buildingId, ...s }))
+    const fromStorage = new Set(draftFromStorage.value)
+    const spots: TownSpot[] = Object.entries(r.placed).map(([buildingId, s]) => ({ buildingId, ...s }))
+    const moves = spots.filter(s => !fromStorage.has(s.buildingId))
+    const place = spots.filter(s => fromStorage.has(s.buildingId))
     const roads = Object.values(r.newRoads).map(s => ({ plotId: s.plotId, tileX: s.tileX, tileY: s.tileY }))
+    const store = [...r.toStore, ...trayRoads.value]
     confirmRedesign.value = null
-    run(() => town.redesign(moves, roads), (res) => {
-        const bits = [`${res.moved.length} placed`]
-        if (res.built.length) bits.push(`${res.built.length} new ${res.built.length === 1 ? 'road' : 'roads'}`)
-        if (res.removed.length) bits.push(`${res.removed.length} ${res.removed.length === 1 ? 'road' : 'roads'} removed`)
+    run(() => town.redesign(moves, roads, store, place), () => {
         redesign.value = null
         clearSelection()
         dropTrayPick()
@@ -730,6 +957,8 @@ function placementIssueAt(tile: { wx: number, wy: number }): string | null {
     // Placement only checks the ground; a disconnected building stays idle.
     if (redesign.value) return groundIssue(tile.wx, tile.wy, def.id)
     if (movingId.value) return townGroupMoveIssue(simBuildings.value, [{ id: movingId.value, wx: tile.wx, wy: tile.wy, rotation: ghostRotation.value }])
+    // Out of storage costs nothing; only the ground, and a crew for a paused job.
+    if (placingStored.value) return townPlacementIssue(simBuildings.value, def, tile.wx, tile.wy, ghostRotation.value) ?? storedCrewIssue(placingStored.value)
     return townPlacementIssue(simBuildings.value, def, tile.wx, tile.wy, ghostRotation.value) ?? (redesign.value ? null : ghostBlocker.value)
 }
 
@@ -739,7 +968,7 @@ const NO_CREWS = 'Every builder is busy'
 /** What the next one costs to put down: free while research carries a monument over. */
 const ghostCost = computed(() => {
     const type = ghostType.value
-    if (!type || movingId.value || redesign.value) return null
+    if (!type || movingId.value || placingStored.value || redesign.value) return null
     const entry = town.catalogById.value.get(type)
     if (!entry) return null
     if (monumentCredit(type)) return { coins: 0, resources: {} as Record<string, number> }
@@ -856,7 +1085,7 @@ function onPlaceLine(tiles: SceneTile[]) {
     if (!ghostType.value || busy.value) return
     if (redesign.value) { placeDraftLine(tiles); return }
     // A relocation is one building by definition — the drag only ever adds.
-    if (movingId.value) { dragTiles.value = []; return }
+    if (movingId.value || placingStored.value) { dragTiles.value = []; return }
     const plan = planTiles(tiles).filter(p => p.ok)
     dragTiles.value = []
     if (plan.length === 0) {
@@ -1797,6 +2026,9 @@ function onKey(e: KeyboardEvent) {
         else if (welcome.value) welcome.value = null
         else if (helpOpen.value) helpOpen.value = false
         else closeAll()
+    } else if (buildOpen.value && !dialog && /^Digit[1-9]$/.test(e.code) && buildTier.value === STORAGE_TAB) {
+        const card = storageCards.value[Number(e.code.slice(5)) - 1]
+        if (card) startPlaceStored(card.item, true)
     } else if (buildOpen.value && !dialog && /^Digit[1-9]$/.test(e.code)) {
         const card = tierEntries.value[Number(e.code.slice(5)) - 1]
         if (card && !cardLocked(card)) pickBuild(card.id)
@@ -1894,7 +2126,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             :supply-bonus-tiles="town.state.value?.monumentBonus?.supplyTiles ?? 0"
             :ghost-radius="ghostRadius"
             :ghost-issue="ghostIssue"
-            :moving-id="movingId"
+            :moving-id="movingId ?? placingStored?.id ?? null"
             :terrain-overlay="terrainOverlay"
             :selected-ids="selectedIds"
             :move-ghosts="moveGhosts"
@@ -2136,8 +2368,9 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 
             <!-- Top-right controls -->
             <div class="corner">
-                <button v-if="town.initialized.value" class="g-icon" :class="redesign ? 'is-on' : ''" data-tip-below="Redesign — pick the whole town up and lay it out again" @click="redesign ? cancelRedesign() : startRedesign()">
+                <button v-if="town.initialized.value" class="g-icon draft-btn" :class="redesign ? 'is-on' : ''" :data-tip-below="town.redesignDraft.value ? 'Redesign — carry on with your saved draft' : 'Redesign — pick the whole town up and lay it out again'" @click="redesign ? cancelRedesign() : startRedesign()">
                     <UIcon name="i-lucide-pencil-ruler" />
+                    <span v-if="town.redesignDraft.value && !redesign" class="draft-dot" />
                 </button>
                 <button class="g-icon" :class="windowOpen === 'events' ? 'is-on' : ''" data-tip-below="What happened — finished builds, monument stages, filled offers" @click="openWindow('events')">
                     <UIcon name="i-lucide-bell" />
@@ -2180,7 +2413,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <TownAsset v-if="ghostType !== 'road'" :id="ghostType" kind="building" :level="ghostLevel" />
                     <UIcon v-else name="i-lucide-route" />
                     <b>{{ town.catalogById.value.get(ghostType)?.name }}</b>
-                    <span v-if="movingId" class="hint-note">moving · press R to turn the front door to a road</span>
+                    <span v-if="placingStored" class="hint-note">out of storage · press R to turn the front door to a road</span>
+                    <span v-else-if="movingId" class="hint-note">moving · press R to turn the front door to a road</span>
                     <span v-else-if="dragQuote" class="hint-quote">×{{ dragQuote.count }}<TownCoin />{{ formatNumber(dragQuote.coins) }}</span>
                     <template v-else-if="ghostCost">
                         <span v-if="ghostBlocker" class="hint-warn">{{ ghostBlocker }}</span>
@@ -2278,6 +2512,12 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <button v-if="!redesign" class="g-btn g-btn-sm" :disabled="busy || selectionUpgradable.length === 0" :data-tip="selectionUpgradable.length ? 'As many as your crews and coins allow.' : 'None can upgrade now.'" @click="upgradeSelection">
                         <UIcon name="i-lucide-arrow-up" />Upgrade {{ selectionUpgradable.length }}<kbd>U</kbd>
                     </button>
+                    <button v-if="!redesign" class="g-btn g-btn-sm" :disabled="busy" data-tip="Take them off the map, roads too." @click="storeIds(selectedIds)">
+                        <UIcon name="i-lucide-archive" />Store
+                    </button>
+                    <button v-if="redesign" class="g-btn g-btn-sm" data-tip="Goes into storage when you save the layout." @click="markForStorage(selectedIds)">
+                        <UIcon name="i-lucide-archive" />To storage
+                    </button>
                     <button v-if="!redesign" class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." :disabled="busy" @click="demolishMany(selectedIds)">
                         <UIcon name="i-lucide-trash-2" />Demolish<kbd>Del</kbd>
                     </button>
@@ -2331,6 +2571,9 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <div v-if="selPending" class="card-actions">
                             <button class="g-btn g-btn-sm" data-tip="The build carries on wherever you put it." :disabled="busy" @click="startMove">
                                 <UIcon name="i-lucide-move" />Move<kbd>M</kbd>
+                            </button>
+                            <button class="g-btn g-btn-sm" :data-tip="storeTip" :disabled="busy" @click="storeIds([selectedBuilding.id])">
+                                <UIcon name="i-lucide-archive" />Store
                             </button>
                             <button v-if="!selMonument" class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." @click="confirmDemolish = true">
                                 <UIcon name="i-lucide-trash-2" />Demolish
@@ -2472,6 +2715,9 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 <button class="g-btn g-btn-sm" data-tip="Free. Away from a road it stops working until one reaches it." :disabled="busy" @click="startMove">
                                     <UIcon name="i-lucide-move" />Move<kbd>M</kbd>
                                 </button>
+                                <button class="g-btn g-btn-sm" :data-tip="storeTip" :disabled="busy" @click="storeIds([selectedBuilding.id])">
+                                    <UIcon name="i-lucide-archive" />Store
+                                </button>
                                 <button v-if="!selMonument" class="g-btn g-btn-sm g-btn-danger" data-tip="Nothing is refunded." @click="confirmDemolish = true">
                                     <UIcon name="i-lucide-trash-2" />Demolish
                                 </button>
@@ -2491,17 +2737,42 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <button class="strip-tab" :class="buildTier === MONUMENT_TAB ? 'is-active' : ''" @click="pickTier(MONUMENT_TAB)">
                             <UIcon name="i-lucide-landmark" />Monuments
                         </button>
+                        <button v-if="hasStored" class="strip-tab is-storage" :class="buildTier === STORAGE_TAB ? 'is-active' : ''" data-tip-below="Buildings taken off the map. Putting one back is free." @click="pickTier(STORAGE_TAB)">
+                            <UIcon name="i-lucide-archive" />Storage <span class="strip-tab-count">{{ town.storage.value.items.length }}</span>
+                        </button>
                         <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="toggleBuild"><UIcon name="i-lucide-x" /></button>
                     </div>
                     <div v-if="tierLocked(buildTier) && tierLockText(buildTier)" class="strip-lock">
                         <UIcon name="i-lucide-lock" />{{ tierLockText(buildTier) }}
                     </div>
-                    <div class="strip-cards">
+                    <div v-if="buildTier === STORAGE_TAB" class="strip-cards">
+                        <button
+                            v-for="({ item: s, count }, i) in storageCards"
+                            :key="s.type === 'road' ? 'roads' : s.id"
+                            class="bcard is-stored"
+                            :class="[placingStored && (s.type === 'road' ? placingStored.type === 'road' : placingStored.id === s.id) ? 'is-active' : '', storedCrewIssue(s) ? 'is-dim' : '']"
+                            :data-tip="storedCrewIssue(s) ?? (s.type === 'road' ? 'Free to put back. Click tile after tile to lay them all.' : 'Free to put back. Pick a tile.')"
+                            @click="startPlaceStored(s, true)"
+                        >
+                            <kbd v-if="i < 9" class="bcard-key">{{ i + 1 }}</kbd>
+                            <span v-if="count > 1" class="bcard-count">×{{ count }}</span>
+                            <span class="bcard-art">
+                                <UIcon v-if="s.type === 'road'" name="i-lucide-route" />
+                                <TownAsset v-else :id="s.type" kind="building" :level="Math.max(1, s.upgradingTo ?? s.level)" />
+                            </span>
+                            <b class="bcard-name">{{ town.catalogById.value.get(s.type)?.name ?? s.type }}</b>
+                            <span class="bcard-cost">{{ s.type === 'road' ? 'Stored' : s.level === 0 ? 'Site' : getTownMonument(s.type) ? `Stage ${s.level}` : `Level ${s.level}` }}</span>
+                            <span v-if="s.paused" class="bcard-meta">
+                                <span><UIcon name="i-lucide-pause" />{{ formatTownDuration(s.remainingMs) }} left</span>
+                            </span>
+                        </button>
+                    </div>
+                    <div v-else class="strip-cards">
                         <button
                             v-for="(c, i) in tierEntries"
                             :key="c.id"
                             class="bcard"
-                            :class="[ghostType === c.id && !movingId ? 'is-active' : '', canAfford(town.nextCost.value[c.id] ?? c.cost) && !cardLocked(c) && !countIssue(c.id) && (c.kind === 'road' || (c.kind === 'monument' ? !monumentCrewNote || monumentCredit(c.id) > 0 : buildersFree > 0)) ? '' : 'is-dim']"
+                            :class="[ghostType === c.id && !movingId && !placingStored ? 'is-active' : '', canAfford(town.nextCost.value[c.id] ?? c.cost) && !cardLocked(c) && !countIssue(c.id) && (c.kind === 'road' || (c.kind === 'monument' ? !monumentCrewNote || monumentCredit(c.id) > 0 : buildersFree > 0)) ? '' : 'is-dim']"
                             :disabled="cardLocked(c)"
                             :style="{ '--accent': hex(c.color) }"
                             @click="pickBuild(c.id)"
@@ -2570,32 +2841,74 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <div class="tray-head">
                         <span class="g-label"><UIcon name="i-lucide-pencil-ruler" />Redesign</span>
                         <span class="tray-progress" :class="trayLeft === 0 ? 'is-done' : ''">{{ draftTotal - trayLeft }}/{{ draftTotal }} placed</span>
+                        <span v-if="redesign.toStore.length" class="tray-progress"><UIcon name="i-lucide-archive" />{{ redesign.toStore.length }} to storage</span>
                         <span v-if="newRoadCount" class="tray-progress"><TownCoin />{{ formatNumber(newRoadCost) }} for {{ newRoadCount }} new {{ newRoadCount === 1 ? 'road' : 'roads' }}</span>
                         <span class="flex-1" />
                         <button class="g-btn g-btn-sm g-btn-ghost" :disabled="!draftTouched" data-tip="Everything back in the tray" @click="pickUpAll">
                             <UIcon name="i-lucide-undo-2" />Pick up all
                         </button>
-                        <button class="g-btn g-btn-sm" data-tip="Leave everything as it was. Nothing is saved." @click="cancelRedesign">
+                        <button v-if="town.redesignDraft.value" class="g-btn g-btn-sm g-btn-ghost" :disabled="busy" data-tip="Throw the saved draft away and start again from the town as it is" @click="discardDraft">
+                            <UIcon name="i-lucide-trash-2" />Discard draft
+                        </button>
+                        <button class="g-btn g-btn-sm" :data-tip="town.redesignDraft.value ? 'Leave. Changes since your last draft save are not kept.' : 'Leave everything as it was. Nothing is saved.'" @click="cancelRedesign">
                             <UIcon name="i-lucide-x" />Cancel
                         </button>
-                        <button class="g-btn g-btn-sm g-btn-primary" :disabled="busy || !!redesignSaveIssue" :data-tip="redesignSaveIssue ?? 'Nothing changes until you confirm'" @click="askSaveRedesign">
-                            <UIcon name="i-lucide-check" />Save layout
+                        <button
+                            class="g-btn g-btn-sm"
+                            :class="redesignIsDraft ? '' : 'g-btn-primary'"
+                            :disabled="busy || (!redesignIsDraft && !!redesignSaveIssue)"
+                            :data-tip="redesignIsDraft
+                                ? `${trayLeft} still in the tray: this keeps your progress as a draft and leaves the town as it is. Place or store the rest to finish.`
+                                : redesignSaveIssue ?? 'Nothing changes until you confirm'"
+                            @click="askSaveRedesign"
+                        >
+                            <UIcon :name="redesignIsDraft ? 'i-lucide-save' : 'i-lucide-check'" />{{ redesignIsDraft ? 'Save draft' : 'Save layout' }}
+                        </button>
+                        <button
+                            v-if="redesignIsDraft"
+                            class="g-btn g-btn-sm g-btn-primary"
+                            :disabled="busy || !!redesignSaveIssue"
+                            :data-tip="redesignSaveIssue ?? `Save the layout now and put the ${trayLeft} still in the tray into storage`"
+                            @click="saveAndStoreSurplus"
+                        >
+                            <UIcon name="i-lucide-archive" />Save and store surplus
                         </button>
                     </div>
                     <div class="tray-items">
-                        <button class="tray-item" :class="trayPick === 'road' ? 'is-active' : ''" @click="pickTray('road')">
+                        <button
+                            class="tray-item"
+                            :class="trayPick === 'road' ? 'is-active' : ''"
+                            :data-tip="trayRoads.length ? 'Roads left in the tray go into storage when you save.' : storedRoadsLeft.length ? 'Laid from storage first, for free.' : undefined"
+                            @click="pickTray('road')"
+                        >
                             <span class="tray-art"><UIcon name="i-lucide-route" /></span>
                             <b>Road</b>
-                            <span v-if="trayRoads.length" class="tray-count">×{{ trayRoads.length }}</span>
+                            <span v-if="trayRoads.length + storedRoadsLeft.length" class="tray-count">×{{ trayRoads.length + storedRoadsLeft.length }}</span>
                             <span v-else class="tray-sub"><TownCoin />{{ formatNumber(townPlaceCost(ROAD_DEF, redesignBuildings.filter(b => b.type === 'road').length).coins) }} each</span>
                         </button>
-                        <button v-for="g in trayGroups" :key="g.key" class="tray-item" :class="trayPick === g.key ? 'is-active' : ''" @click="pickTray(g.key)">
+                        <button v-for="g in trayGroups" :key="g.key" class="tray-item" :class="[trayPick === g.key ? 'is-active' : '', g.stored ? 'is-stored' : '']" :data-tip="g.stored ? 'From storage. Left in the tray, it stays there.' : undefined" @click="pickTray(g.key)">
                             <span class="tray-art"><TownAsset :id="g.type" kind="building" :level="Math.max(1, g.level)" /></span>
                             <b>{{ g.name }}</b>
-                            <span class="tray-sub">{{ g.site ? 'site' : `L${g.level}` }}</span>
+                            <span class="tray-sub"><UIcon v-if="g.stored" name="i-lucide-archive" />{{ g.site ? 'site' : `L${g.level}` }}</span>
+                            <span class="tray-count">×{{ g.ids.length }}</span>
+                            <span
+                                v-if="!g.stored"
+                                class="tray-store"
+                                role="button"
+                                tabindex="0"
+                                :aria-label="`Send one ${g.name} to storage`"
+                                data-tip="One to storage on save. Shift-click: all of them."
+                                @click.stop="markForStorage($event.shiftKey ? g.ids : g.ids.slice(0, 1))"
+                                @keydown.enter.stop.prevent="markForStorage(g.ids.slice(0, 1))"
+                            ><UIcon name="i-lucide-archive" /></span>
+                        </button>
+                        <button v-for="g in markedGroups" :key="`marked:${g.key}`" class="tray-item is-marked" data-tip="Goes into storage on save. Click to put one back in the tray." @click="unmarkStorage(g.ids.slice(0, 1))">
+                            <span class="tray-art"><TownAsset :id="g.type" kind="building" :level="Math.max(1, g.level)" /></span>
+                            <b>{{ g.name }}</b>
+                            <span class="tray-sub"><UIcon name="i-lucide-archive" />to storage</span>
                             <span class="tray-count">×{{ g.ids.length }}</span>
                         </button>
-                        <p v-if="trayGroups.length === 0" class="tray-empty">Every building is down. Add roads, or save.</p>
+                        <p v-if="trayGroups.length === 0 && markedGroups.length === 0" class="tray-empty">Every building is down. Add roads, or save.</p>
                     </div>
                 </div>
             </Transition>
@@ -2949,9 +3262,12 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 Every building moves to where you put it — all {{ confirmRedesign.moves.length }} at once. Builds and upgrades in
                                 progress keep their clocks. Moving is free.
                             </p>
-                            <p v-if="trayRoads.length" class="card-note is-warn">
-                                <UIcon name="i-lucide-triangle-alert" />
-                                {{ trayRoads.length }} {{ trayRoads.length === 1 ? 'road is' : 'roads are' }} still in the tray and will be removed. Roads are cheap to lay again, but not free.
+                            <p v-if="confirmRedesign.store.length" class="g-copy">
+                                {{ confirmRedesign.store.length }} {{ confirmRedesign.store.length === 1 ? 'piece goes' : 'pieces go' }} into storage<template v-if="trayRoads.length">, {{ trayRoads.length }} of them {{ trayRoads.length === 1 ? 'a road' : 'roads' }} left in the tray</template>.
+                                Stored builds and upgrades pause, and their crews are freed.
+                            </p>
+                            <p v-if="confirmRedesign.place.length" class="g-copy">
+                                {{ confirmRedesign.place.length }} {{ confirmRedesign.place.length === 1 ? 'building comes' : 'buildings come' }} back out of storage.
                             </p>
                             <p v-if="confirmRedesign.roads.length" class="g-copy">
                                 {{ confirmRedesign.roads.length }} new {{ confirmRedesign.roads.length === 1 ? 'road' : 'roads' }} for <TownCoin /> {{ formatNumber(newRoadCost) }}.
@@ -4001,6 +4317,47 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 }
 .tray-item:hover { background: var(--g-fill-2); }
 .tray-item.is-active { border-color: var(--g-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-accent) 30%, transparent); }
+/* Out of storage, and marked for it: dashed, so neither reads as part of the town being laid out. */
+.tray-item { position: relative; }
+.tray-item.is-stored { border-style: dashed; }
+.tray-item.is-marked { border-style: dashed; opacity: 0.7; }
+.tray-item.is-stored .tray-sub, .tray-item.is-marked .tray-sub { color: var(--g-muted); }
+.tray-store {
+    position: absolute;
+    right: 3px;
+    top: 3px;
+    display: inline-flex;
+    padding: 2px;
+    border-radius: var(--g-radius-xs);
+    color: var(--g-muted);
+    font-size: 12px;
+}
+.tray-store:hover { color: var(--g-text); background: var(--g-fill-2); }
+.bcard.is-stored { --accent: var(--g-muted); }
+.bcard.is-stored .bcard-cost { color: var(--g-text-2); }
+.strip-tab-count {
+    min-width: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--g-fill-2);
+    color: var(--g-text-2);
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 16px;
+    text-align: center;
+}
+.draft-btn { position: relative; }
+/* A redesign is waiting as a draft. */
+.draft-dot {
+    position: absolute;
+    right: 3px;
+    top: 3px;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--g-accent);
+    box-shadow: 0 0 0 2px var(--g-bg);
+}
 .tray-art { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; font-size: 24px; }
 .tray-art .iconify { width: 22px; height: 22px; color: var(--g-muted); }
 .tray-sub { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 500; color: var(--g-muted); font-variant-numeric: tabular-nums; }

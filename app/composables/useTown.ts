@@ -8,6 +8,8 @@
 // change slowly, so they refresh on a slower clock than the state, and right
 // after any plot action that changes who owns what.
 
+import type { TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
+
 export interface TownBuildingView {
     id: string
     plotId: string
@@ -266,10 +268,35 @@ export interface TownState {
     /** Monument stages carried over from research, by monument id. */
     monumentCredit?: Record<string, number>
     buildings?: TownBuildingView[]
+    /** Buildings taken off the map. */
+    storage?: TownStorageView
+    /** A redesign saved half-way, or null. */
+    redesignDraft?: { draft: TownRedesignDraft, updatedAt: number } | null
     inventory?: Record<string, number>
     myOrders?: TownOrderView[]
     lastPrices?: Record<string, number>
 }
+
+/** One building in storage, oldest first. */
+export interface TownStoredView {
+    id: string
+    type: string
+    level: number
+    upgradingTo: number | null
+    /** Build time a paused job still owes. */
+    remainingMs: number
+    storedAt: number
+    createdAt: number
+    /** A construction or upgrade waiting for a crew to pick it back up. */
+    paused: boolean
+}
+
+export interface TownStorageView {
+    items: TownStoredView[]
+}
+
+/** A building put down somewhere: what a redesign sends for each move and each placement out of storage. */
+export interface TownSpot { buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number }
 
 export const useTown = () => {
     const toast = useToast()
@@ -363,6 +390,8 @@ export const useTown = () => {
     const world = computed<TownWorldView>(() => worldData.value ?? { towns: [], listings: [] })
     const worldLoaded = computed(() => worldData.value !== null)
     const countsByType = computed(() => state.value?.countsByType ?? {})
+    const storage = computed<TownStorageView>(() => state.value?.storage ?? { items: [] })
+    const redesignDraft = computed(() => state.value?.redesignDraft ?? null)
     const nextCost = computed(() => state.value?.nextCost ?? {})
     const tierLocks = computed(() => state.value?.tierLocks ?? {})
 
@@ -511,7 +540,23 @@ export const useTown = () => {
         countsByType,
         nextCost,
         tierLocks,
+        storage,
+        redesignDraft,
         foundTown: () => call('/api/town/init'),
+        /** Keep a half-done redesign on the server. The town itself does not change. */
+        saveRedesignDraft: (draft: TownRedesignDraft) => call<{ savedAt: number }>('/api/town/redesign/draft', { ...draft }),
+        discardRedesignDraft: async () => {
+            try {
+                await $fetch('/api/town/redesign/draft' as string, { method: 'DELETE' })
+                await refresh()
+            } catch (e: unknown) {
+                const err = e as { data?: { statusMessage?: string } }
+                toast.add({ title: err?.data?.statusMessage ?? 'Something went wrong', color: 'error' })
+                throw e
+            }
+        },
+        storeBuildings: (buildingIds: string[]) => call<{ stored: string[] }>('/api/town/storage/store', { buildingIds }),
+        placeStored: (spot: TownSpot) => call<{ buildingId: string }>('/api/town/storage/place', { ...spot }),
         claimMilestone: (id: string) => call<{ id: string, reward: number, gems: number, title: string }>('/api/town/milestone/claim', { id }),
         placeBuilding: (plotId: string, tileX: number, tileY: number, type: string, rotation = 0) =>
             call<{ buildingId: string, completesAt: number }>('/api/town/building/place', { plotId, tileX, tileY, type, rotation }),
@@ -523,9 +568,13 @@ export const useTown = () => {
         /** A whole selection moved together, all or nothing. */
         moveBuildings: (moves: { buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number }[]) =>
             call<{ moved: string[] }>('/api/town/building/move-bulk', { moves }),
-        /** The whole town laid out again: every kept building's new tile, plus roads to lay fresh. Roads left out are removed. */
-        redesign: (moves: { buildingId: string, plotId: string, tileX: number, tileY: number, rotation: number }[], roads: { plotId: string, tileX: number, tileY: number }[]) =>
-            call<{ moved: string[], removed: string[], built: string[], coins: number }>('/api/town/redesign', { moves, roads }),
+        /**
+         * The whole town laid out again: every kept building's new tile, roads to
+         * lay fresh, buildings going into storage, and stored ones coming out.
+         * Roads left out are removed.
+         */
+        redesign: (moves: TownSpot[], roads: { plotId: string, tileX: number, tileY: number }[], store: string[] = [], place: TownSpot[] = []) =>
+            call<{ moved: string[], removed: string[], built: string[], coins: number, stored: string[], placed: string[] }>('/api/town/redesign', { moves, roads, store, place }),
         demolishBuildings: (buildingIds: string[]) =>
             call<{ demolished: string[], types: string[] }>('/api/town/building/demolish-bulk', { buildingIds }),
         upgradeBuildings: (buildingIds: string[]) =>
