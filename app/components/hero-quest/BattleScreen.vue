@@ -50,7 +50,7 @@ const {
     pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid, calendar, claimCalendar,
     holidays, claimHoliday, milestones, claimMilestones, ascendant, tutorials, markTutorialSeen, resetTutorials,
     traits, rollTraits, lockTrait, saveTraits, loadTraits, buyTraitSaveSlot,
-    milestones, claimMilestones, arena, arenaCandidates, arenaLog, arenaBoard, loadArenaCandidates, loadArenaLog,
+    arena, arenaCandidates, arenaLog, arenaBoard, loadArenaCandidates, loadArenaLog,
     loadArenaBoard, refreshArenaCandidates, attackArena, buyArenaAttempt, setArenaDefense, buyArenaItem, claimArenaSeason
 } = useHeroQuest()
 const toast = useToast()
@@ -756,11 +756,11 @@ function ago(at: number): string {
     return `${Math.floor(minutes / 1440)}D`
 }
 
-const SEAL_NAMES: Readonly<Record<string, string>> = { champion: 'Guild Seal', skill: 'Skill Seal', artifact: 'Excavation Seal', gear: 'Forge Seal' }
+const ARENA_SEAL_NAMES: Readonly<Record<string, string>> = { champion: 'Guild Seal', skill: 'Skill Seal', artifact: 'Excavation Seal', gear: 'Forge Seal' }
 
 const arenaShop: ArenaItemView[] = ARENA_SHOP.map((item) => {
     switch (item.kind) {
-        case 'seals': return { id: item.id, kind: item.kind, system: item.system, name: SEAL_NAMES[item.system] ?? 'Seal', sub: '', price: item.price, poor: false }
+        case 'seals': return { id: item.id, kind: item.kind, system: item.system, name: ARENA_SEAL_NAMES[item.system] ?? 'Seal', sub: '', price: item.price, poor: false }
         case 'keys': return { id: item.id, kind: item.kind, raid: item.raid, name: getRaid(item.raid).key.replace(/s$/, ''), sub: '', price: item.price, poor: false }
         case 'gold': return { id: item.id, kind: item.kind, name: 'Gold', sub: `${item.minutes} MIN`, price: item.price, poor: false }
         case 'gems': return { id: item.id, kind: item.kind, name: 'Gem', sub: '', price: item.price, poor: true }
