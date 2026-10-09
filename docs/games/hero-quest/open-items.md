@@ -242,8 +242,11 @@ assume. Every rung went up 12×. `bun run balance:compare --emit-hq-ceiling` reg
    "~89% of time ceiling-bound" figure is **0%** for the first month-plus.
 
 ⚠ **The abuse bound is now explicit.** With the ceiling generated at 600 kills/hour and the floor
-still allowing 7,200, the worst case is **12× platform**. **Battle Speed (Phase 4, unbuilt)
-multiplies straight through it**, with no second ceiling underneath.
+still allowing 7,200, the worst case is **12× platform**. **Battle Speed multiplies straight
+through it**, with no second ceiling underneath. That was a warning about an unbuilt system until
+2026-10-04; Battle Speed is built now (`build-log.md` #44), so at its 5x top tier
+(`MAX_BATTLE_SPEED`) the live worst case is **60× platform** while a block runs. The column specs
+already use `MAX_BATTLE_SPEED`; whether income needs a second ceiling is part of the #23.3 call.
 
 ⚠ **`gold-economy.md` §9.4's safety margin dropped an order of magnitude** with the regeneration:
 the largest single collect clears the `numeric(19,4)` column by two orders rather than three
@@ -261,7 +264,7 @@ economy — a tuning question, listed below rather than a blocker.
 
 ## ⚪ Standing numeric tuning — **what is still `// UNTUNED ╧`**
 
-Named constants with a formula shape locked and a placeholder value. Consolidated so a tuning pass has one list. `rg '╧' shared/utils/hero-quest/constants.ts` is the authority — **61 markers** as of 2026-09-16 (three Seal-grant constants deleted and two free-pull constants promoted to `TUNED ✓` by #29; `GPN_DISPLAY_SCALE` added by #28).
+Named constants with a formula shape locked and a placeholder value. Consolidated so a tuning pass has one list. `rg '╧' shared/utils/hero-quest/constants.ts` is the authority — **93 markers** as of 2026-10-09, up from 61 on 2026-09-16 with the raids (#46), boss specials (#45), the login calendar (#47), milestones (#48) and the Ascendant (#43). Every marker has a row below; the Arena row's constants are not in `constants.ts` until the Arena is built.
 
 ~~**Decided: none of this is tuned before playtesting.**~~ **Superseded for the combat and progression block by #22**, which tuned it on the campaign walk. The original reasoning still holds for everything that remains below: the balance script and campaign sim project *what the formulas say*, and a projected value that feels wrong in play is worth less than no value, because it looks settled. What remains is mostly the gacha, shop and ability-magnitude layers, which the campaign walk barely exercises — so they want play data or a different measurement, not another sim pass.
 
@@ -269,7 +272,7 @@ Named constants with a formula shape locked and a placeholder value. Consolidate
 
 Two rows are not constants in the strict sense: the archetype stat spreads are a table, and `SEAL_LADDER_BASE_GOLD` *is* specified. Both are listed anyway because the same pass answers them.
 
-**Removed from this table**, so they are not re-added by mistake — now `TUNED ✓`, derived, or deleted (#22, #23, #29): `SEAL_GRANT_INTERVAL_HOURS`, `SEAL_GRANT_AMOUNT`, `SEAL_GRANT_BANK_CAP_DAYS`, `FREE_PULLS_PER_DAY`, `FREE_PULL_COOLDOWN_MINUTES`, `K`, `CRIT_CHANCE_PER_POINT`, `CRIT_DAMAGE_PER_POINT`, `SKILL_BASE_COOLDOWN_SECONDS`, `SKILL_BASE_ABILITY_MULTIPLIER`, `WAVE_PACK_SIZE`, `ELITE_PACK_SIZE`, `PACK_LIVE_STREAM_FRACTION`, `BOSS_MINION_COUNT`, `STATUS_MAX_STACKS`, `STATUS_TICK_SECONDS`, `MAX_SUSTAIN_MITIGATION`, `MIN_SECONDS_PER_KILL`, and `GOLD_PRESTIGE_CAP` / `prestigeGoldFactor[]` (deleted).
+**Removed from this table**, so they are not re-added by mistake — now `TUNED ✓`, derived, or deleted (#22, #23, #29): `SEAL_GRANT_INTERVAL_HOURS`, `SEAL_GRANT_AMOUNT`, `SEAL_GRANT_BANK_CAP_DAYS`, `FREE_PULLS_PER_DAY`, `FREE_PULL_COOLDOWN_MINUTES`, `K`, `CRIT_CHANCE_PER_POINT`, `CRIT_DAMAGE_PER_POINT`, `SKILL_BASE_COOLDOWN_SECONDS`, `SKILL_BASE_ABILITY_MULTIPLIER`, `WAVE_PACK_SIZE`, `ELITE_PACK_SIZE`, `PACK_LIVE_STREAM_FRACTION`, `BOSS_MINION_COUNT`, `STATUS_MAX_STACKS`, `STATUS_TICK_SECONDS`, `MAX_SUSTAIN_MITIGATION`, `MIN_SECONDS_PER_KILL`, and `GOLD_PRESTIGE_CAP` / `prestigeGoldFactor[]` (deleted). From the raids (#46): `RAID_REWARD_BASE` / `RAID_REWARD_GROWTH` (set by the user, 2026-10-04), every `RAID_*_HP_MULT`, `RAID_DUMMY_PACKS` and the three `RAID_RAMPAGE_*` (measured on the campaign walk, `TUNED ✓`); `RAID_BASE_STATS` and `RAID_LEVEL_GROWTH` were never built under those names.
 
 | Constant(s) | Doc | Note |
 |---|---|---|
@@ -278,7 +281,10 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 | `EHP_DEF_CONSTANT` | `global-power-number.md` §2 | Built (#28). At 10 a level-1 Hero's DEF doubles its EHP; tune against how balanced parties should read against lopsided ones |
 | `SKILL_COLLECTION_PASSIVE_FRACTION`, `ARTIFACT_COLLECTION_PASSIVE_FRACTION` | none — see #28 | What every owned Passive Skill or Artifact gives the Hero, equipped or not (#39), as a fraction of equipping it. 0.1 mirrors Gear; tune together with `GEAR_PASSIVE_COEFFICIENT` so all three collections feel comparable |
 | `PRESTIGE_STAT_PER_LEVEL`, `PRESTIGE_STAT_BASE_COST`, `PRESTIGE_STAT_COST_GROWTH` | none — see #41 | The uncapped stat tracks: +1% party-wide per level, from 100 Void Shards climbing ×1.15. They decide how fast Void Shards turn into power once the capped tracks are done, so tune against `VOID_SHARD_BASE/GROWTH` and add them to the campaign walk before trusting the pacing past a first prestige |
-| `RAID_BASE_STATS`, `RAID_LEVEL_GROWTH`, `RAID_REWARD_BASE/GROWTH`, `RAID_ENRAGE_SECONDS`, `RAID_RAMPAGE_DMG/POWER_BASE/GROWTH` | `raid-system.md` | Per-raid |
+| `RAID_ENRAGE_SECONDS`, `RAID_DUMMY_SECONDS`, `RAID_KNIGHT_PWR_MULT`, `RAID_DIG_PWR_MULT`, `RAID_DIG_ADD_SECONDS`, `RAID_FORGE_PWR_MULT`, `RAID_FORGE_BOSS_STEPS`, `RAID_FORGE_HANDOFF_SECONDS` | `raid-system.md` | Built (#46). Each raid's HP multiplier is measured against its clock, so moving `RAID_ENRAGE_SECONDS` or `RAID_DUMMY_SECONDS` means re-measuring the HP multiplier it is coupled to. The PWR multipliers sit at 1: a raid boss hits like the stage it stands for |
+| `BOSS_SPECIAL_*` (11) | none — see #45 | One set of magnitudes for all twenty gate bosses' specials: cooldown, the spread, heavy and focus hits, burn, stun, silence, debuff and drain. Measured only on seeded gate fights; the campaign walk does not model them |
+| `CALENDAR_REWARDS` | none — see #47 | The login calendar's 30-day table, counted as one marker. Day 30's 200 Void Shards is the user's; every other amount is a placeholder, and the Gold and Gem days are rebalanced after the Gold decision (#23) |
+| `GPN_DISPLAY_SCALE` | `global-power-number.md` | Presentation only (#28): it changes how big GPN reads, never which party ranks above which, and cancels out of the Arena's percentage band |
 | `SLOT_BASE_BONUS` ×6, `GEAR_PASSIVE_COEFFICIENT` | `gear-equipment.md` §2 | Built. The six slot coefficients are deliberately *identical* — no doc ranks the stats against each other, so six different values would encode a spread nobody decided. `GEAR_PASSIVE_COEFFICIENT` must stay well under them or manual equip stops mattering |
 | `SKILL_PASSIVE_MAGNITUDE[]`, `SKILL_ECONOMY_COEFFICIENT` | `skills-gacha.md` §4 | The whole 36-skill magnitude ladder, indexed by rarity. §4 authors it as "small" → "large" and assigns no number anywhere; the *relative ordering* is design content, so retune the set rather than entries |
 | `SKILL_POTENCY_PER_POINT` | none — see #18 | What one point of a Skill copy's `(star × 10 + level)` scalar adds to its effect potency. **Identity at minimum**, so §4's authored bands stay the reference and only levelling multiplies up — ×2.18 at 5★/Lv10 on the placeholder. Its own constant rather than reusing `CHAMPION_INVESTMENT_PER_POINT` (×3.95 at max) because a Champion's scalar is its *only* growth axis while a Skill already carries a rarity band |
@@ -290,8 +296,8 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 | `SKILL_SLOT_BASE_COST`/`_GROWTH`, `ARTIFACT_SLOT_BASE_COST`/`_GROWTH` | `skills-gacha.md` §6, `artifacts-dig-site-gacha.md` §7 | Both mirror the Champion slot track exactly, so all three want deriving together — and all three compete with the two offline tracks for the same Void Shards |
 | `GOLD_STEP_BASE`, `BASE_GOLD`, `GOLD_PLATFORM_DISCOUNT` | `gold-economy.md` §3, §3a | **Carry no marker but are open** — see #23.3. `GOLD_TENURE_CEILING` is generated, never tuned by hand: regenerate from `scripts/lib/economy-stages.ts` |
 | `SEAL_LADDER_GROWTH[]` | `gold-economy.md` §7 | Set, but calibrated against the superseded Gold anchors — see #23.2 |
-| `LOADOUT_SLOT_BASE_COST_GEMS` (4-level doubling, #40) | `loadouts.md` §3 | Built. §3 flags the first pairing of the doubling short track with Gems as a genuine unknown; at 4 levels the top step is 8× the base. Now checkable against real Gem income (Trait/Arena sinks exist) |
-| `ONLINE_THRESHOLD_MS`, refresh interval | `tech-architecture.md` §9 | |
+| `LOADOUT_SLOT_BASE_COST_GEMS` (4-level doubling, #40) | `loadouts.md` §3 | Built. §3 flags the first pairing of the doubling short track with Gems as a genuine unknown; at 4 levels the top step is 8× the base. Now checkable against real Gem flows: the login calendar (#47) and prestige milestones (#48) pay Gems, and Battle Speed (#44) is the only other Gem sink built so far. Traits and the Arena add more when they land |
+| `ONLINE_THRESHOLD_MS`, `HQ_REFRESH_INTERVAL_MS` | `tech-architecture.md` §9 | |
 | `MAX_EVASION` | `classes-and-combat.md` §7 | **Locked at 0.60** — not open, listed for completeness |
 | `OVERFLOW_CONVERSION_RATE` | `classes-and-combat.md` §7 | The only crit constant still untuned. Rarely reachable: with LCK off the level curve only a deliberately built crit Hero passes 100% |
 | `SEAL_GRANT_PER_BOSS` | `economy-and-currencies.md` §5 | A boss's batch, paid on the win. Doc gives only the shape and defers the values to the world/enemy pass (#6). Built and paying out |
