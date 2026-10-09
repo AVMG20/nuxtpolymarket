@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { parseAmount } from '#shared/utils/parse-amount'
+import { formatHq } from '#shared/utils/hero-quest/numbers'
 
 interface LeaderboardUser {
   isCurrentUser: boolean
@@ -30,6 +31,8 @@ interface LeaderboardUser {
   voidSystemLevels: number
   voidTradeLevel: number
   aiPromptsUsed: number
+  /** Hero Quest's Global Power Number, a Decimal string; null before a run has settled with it. */
+  heroQuestGpn: string | null
   battlerRunsWon: number
   battlerRating: number | null
   battlerBattlesWon: number
@@ -565,6 +568,11 @@ async function sendGift() {
                 <span class="flex-1 text-sm">Battler rating</span>
                 <span class="text-xs text-muted">{{ selectedUser.battlerBattlesWon }}–{{ selectedUser.battlerBattlesLost }} · {{ selectedUser.battlerRunsWon }} runs won</span>
                 <span class="font-semibold tabular-nums">{{ selectedUser.battlerRating ?? '—' }}</span>
+              </div>
+              <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
+                <UIcon name="i-lucide-sword" class="size-4 text-warning" />
+                <span class="flex-1 text-sm">Hero Quest power</span>
+                <span class="font-semibold tabular-nums">{{ selectedUser.heroQuestGpn ? formatHq(selectedUser.heroQuestGpn) : '—' }}</span>
               </div>
               <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
                 <UIcon name="i-lucide-bot" class="size-4 text-info" />

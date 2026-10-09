@@ -3,7 +3,7 @@
  * shows whenever no other scene is open. Each scene keeps its own route, so links and reloads land
  * on it, and the stage reads which one is open off the path.
  */
-export const HQ_MENU_SCENES = ['gacha', 'collections', 'loadouts', 'traits', 'raids', 'classes', 'prestige', 'speed', 'milestones', 'calendar', 'settings'] as const
+export const HQ_MENU_SCENES = ['gacha', 'collections', 'loadouts', 'traits', 'raids', 'arena', 'classes', 'prestige', 'speed', 'milestones', 'calendar', 'settings'] as const
 export type HqMenuScene = typeof HQ_MENU_SCENES[number]
 export type HqScene = 'battle' | HqMenuScene
 
@@ -14,6 +14,7 @@ export const HQ_SCENE_LABELS: Readonly<Record<HqScene, string>> = {
     loadouts: 'Loadouts',
     traits: 'Traits',
     raids: 'Raids',
+    arena: 'Arena',
     classes: 'Classes',
     prestige: 'Prestige',
     speed: 'Battle Speed',
@@ -51,4 +52,16 @@ export function hqCollectionTabPath(tab: HqCollectionTab): string {
 /** The tab a Collections path is on; the first one for the bare scene, which redirects to it. */
 export function hqCollectionTabOf(path: string): HqCollectionTab {
     return HQ_COLLECTION_TABS.find(t => path.startsWith(hqCollectionTabPath(t))) ?? HQ_COLLECTION_TABS[0]
+}
+
+/** The Arena scene's tabs, in the order the scene draws them. */
+export const HQ_ARENA_TABS = ['fight', 'defense', 'shop', 'log', 'ranking'] as const
+export type HqArenaTab = typeof HQ_ARENA_TABS[number]
+
+export const HQ_ARENA_TAB_LABELS: Readonly<Record<HqArenaTab, string>> = {
+    fight: 'Fight',
+    defense: 'Defence',
+    shop: 'Shop',
+    log: 'Log',
+    ranking: 'Ranking'
 }

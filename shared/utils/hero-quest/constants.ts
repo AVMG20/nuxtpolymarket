@@ -1100,6 +1100,118 @@ export const RAID_RAMPAGE_CLOCK_GROWTH = 1.06 // TUNED ✓
 /** The guard rail on a run (§7: no player-facing timer): a party that never falls stops here. */
 export const RAID_RAMPAGE_CAP_SECONDS = 300
 
+// ── Arena ──────────────────────────────────────────  arena.md
+//
+// Asynchronous PvP: the attacker's live party against another player's stored `defenseLoadout`,
+// resolved by the shared duel sim (`duel.ts`). Everything here is applied by the server under the
+// `hq_state` row locks (`server/utils/hero-quest-arena.ts`); `arena.ts` holds the pure rules.
+
+/** Opponents on the list at once (§2). */
+export const ARENA_CANDIDATE_COUNT = 3
+/**
+ * How close a defender's Defense GPN must be to the attacker's live GPN to be drawn as a real
+ * candidate (§2, `open-items.md` #2): within ±this share of it, taken on GPN's root form. A flat
+ * `GPN_DISPLAY_SCALE` cancels in the ratio, so the band means the same before and after it. A
+ * slot the band can't fill gets a Training Dummy (§2a) rather than a wider band.
+ *
+ * ±20% on the root is about −36% / +44% on the old product form. A placeholder: the width is still
+ * an open design question (#2), to be set against a real population.
+ */
+export const ARENA_MATCH_BAND_PCT = 0.2 // UNTUNED ╧
+/** Gems to draw a fresh list of candidates (§2). Doc-specified. */
+export const ARENA_REFRESH_GEMS = 10
+
+/** Free attacks a day, reset at UTC midnight and never banked (§3). Doc-specified. */
+export const ARENA_FREE_ATTEMPTS_PER_DAY = 5
+/** An extra attack's price, doubling with each bought the same day: 10, 20, 40, … (§3). Doc-specified. */
+export const ARENA_EXTRA_ATTEMPT_BASE_GEMS = 10
+export const ARENA_EXTRA_ATTEMPT_GROWTH = 2
+
+/** Every player's Rating at the start of each season, and its floor (§4). Doc-specified. */
+export const ARENA_RATING_START = 1000
+export const ARENA_RATING_FLOOR = 0
+/** The Elo curve's spread: a 400-point gap makes the favourite ten times as likely (§4's formula). */
+export const ARENA_ELO_SCALE = 400
+/**
+ * Asymmetric Elo (§4): how far a match moves the attacker's Rating and the defender's. Separate on
+ * purpose: the attacker chose the fight, the defender was resolved by the AI while away, so the
+ * defender's Rating moves less for the same result. Deltas are rounded to whole points.
+ */
+export const K_ATTACK = 32 // UNTUNED ╧
+export const K_DEFEND = 16 // UNTUNED ╧
+
+/**
+ * Arena Medals, the attacker's only reward (§5):
+ *
+ *     medalsOnWin  = round(MEDAL_BASE_WIN × (1 + MEDAL_UPSET_BONUS × (1 − expectedAttacker)))
+ *     medalsOnLoss = MEDAL_BASE_LOSS
+ *
+ * A Training Dummy win pays `MEDAL_BASE_WIN` flat (§2a). At these values a day's five attacks pay
+ * about 120–200 Medals, which is what the shop's prices below are read against.
+ */
+export const MEDAL_BASE_WIN = 30 // UNTUNED ╧
+export const MEDAL_BASE_LOSS = 10 // UNTUNED ╧
+export const MEDAL_UPSET_BONUS = 1 // UNTUNED ╧
+
+/**
+ * An Arena fight's clock, in sim-seconds. The attacker has to bring the whole defending party down
+ * before it runs out; a defence that holds to the end wins (`build-log.md` #52). Battle Speed never
+ * touches it (§1).
+ */
+export const ARENA_FIGHT_SECONDS = 30 // UNTUNED ╧
+/**
+ * The Training Dummy's HP, in seconds of the attacker's own autoattack DPS against no DEF: a short
+ * show before the guaranteed win (§2a), well inside `ARENA_FIGHT_SECONDS` at any depth.
+ */
+export const ARENA_DUMMY_SECONDS = 4 // UNTUNED ╧
+
+/** A season's length (§7). Doc-specified. */
+export const ARENA_SEASON_DAYS = 14
+/**
+ * When season 1 began: a Monday, 00:00 UTC. Seasons run back to back from here, so every player's
+ * Rating rolls over on the same instant, settled lazily by the first read after it (no cron). An
+ * anchor, not a tuning value.
+ */
+export const ARENA_SEASON_EPOCH_MS = Date.UTC(2026, 9, 5)
+/**
+ * What a season pays by final rank, in Medals (§7: rank-only, no tiers). The first row whose
+ * `maxRank` the rank is within pays; every ranked player gets at least the last row. A ranked
+ * player is one who fought, or was fought, that season.
+ */
+export const ARENA_SEASON_REWARDS: readonly { maxRank: number, medals: number }[] = [ // UNTUNED ╧
+    { maxRank: 1, medals: 2000 },
+    { maxRank: 2, medals: 1500 },
+    { maxRank: 3, medals: 1200 },
+    { maxRank: 10, medals: 800 },
+    { maxRank: 50, medals: 400 },
+    { maxRank: Number.POSITIVE_INFINITY, medals: 100 }
+]
+
+/** The battle log keeps this many entries per player (§8). Doc-specified. */
+export const ARENA_LOG_SIZE = 20
+/** The Rating leaderboard's top list (§9). Doc-specified. */
+export const ARENA_LEADERBOARD_TOP = 50
+/** Players shown either side of the viewer's own rank (§9's "nearby neighbors"). */
+export const ARENA_LEADERBOARD_NEIGHBORS = 2 // UNTUNED ╧
+
+/**
+ * The Arena Shop (§6): static prices, no ladder, no cap. Seals and Keys are priced fair, a Seal
+ * about a fifth of a day's Medals; Gold is minutes of current income (`gold-economy.md` §6), like
+ * every flat Gold grant.
+ */
+export const ARENA_SHOP_SEAL_PRICE = 30 // UNTUNED ╧
+export const ARENA_SHOP_KEY_PRICE = 60 // UNTUNED ╧
+export const ARENA_SHOP_GOLD_PRICE = 20 // UNTUNED ╧
+export const ARENA_SHOP_GOLD_MINUTES = 30 // UNTUNED ╧
+/**
+ * Medals per Gem: a deliberately bad rate (§6). The calibration target is that a whole day's Medals
+ * convert to meaningfully less than one Battle Speed block (`BATTLE_SPEED_ANCHOR_GEMS`, 250): at 5
+ * a day's ~120–200 Medals buy 24–40 Gems, a tenth to a sixth of a block.
+ */
+export const ARENA_SHOP_GEM_PRICE = 5 // UNTUNED ╧
+/** The most of one item a single purchase takes, so a request cannot name an unbounded quantity. */
+export const ARENA_SHOP_MAX_QUANTITY = 100
+
 // ── Login calendar ─────────────────────────────────  idea-backlog.md item 12
 //
 // A fixed 30-day calendar, the same every cycle, run on real UTC days rather than days logged in.

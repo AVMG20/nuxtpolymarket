@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BattleDemo, RunParty, StagePack, StageFight, StageRaid } from '~/utils/hero-quest-art/demo'
+import type { BattleDemo, RunParty, StageArena, StagePack, StageFight, StageRaid } from '~/utils/hero-quest-art/demo'
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import type { RunFeed } from '~/utils/hero-quest-art/run-director'
 import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-band'
@@ -15,6 +15,7 @@ import type { MilestonesScene, MilestonesTarget, MilestonesView } from '~/utils/
 import type { GuideTarget, GuideView } from '~/utils/hero-quest-art/guide'
 import type { TraitsScene, TraitsTarget, TraitsView } from '~/utils/hero-quest-art/traits-scene'
 import type { RaidRewardView, RaidRowView, RaidsHover, RaidsScene, RaidsView } from '~/utils/hero-quest-art/raids-scene'
+import type { ArenaResultView, ArenaScene, ArenaTarget, ArenaView } from '~/utils/hero-quest-art/arena-scene'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
@@ -108,6 +109,12 @@ const props = defineProps<{
     raidRound?: StageRaid | null
     /** What a raid round or quick-clear paid, shown over the stage until its button is pressed. */
     raidReward?: RaidRewardView | null
+    /** The Arena scene, less the tab and page the stage keeps itself. */
+    arena?: Omit<ArenaView, 'tab' | 'page'>
+    /** An Arena attack to play in place of the run; the stage goes back to the run once it is cleared. */
+    arenaRound?: StageArena | null
+    /** What an Arena attack came to, shown over the stage until its button is pressed. */
+    arenaResult?: ArenaResultView | null
     /** The Settings scene: every setting's current value. */
     settings?: SettingsView
     /** A setting change is on its way. */
@@ -170,6 +177,12 @@ const emit = defineEmits<{
     raidLoadout: [raidId: RaidId]
     /** The reward popup's button was pressed. */
     raidRewardClose: []
+    /** An Arena button was pressed: an attack, a purchase, a defence copy or a claim. */
+    arenaAction: [target: ArenaTarget]
+    /** An Arena tab was opened. */
+    arenaTab: [tab: HqArenaTab]
+    /** The Arena result popup's button was pressed. */
+    arenaResultClose: []
     /** Today's calendar cell, or the make-up button, was pressed. */
     claimCalendar: [makeup: boolean]
     /** The Calendar scene's holiday gift button was pressed. */
@@ -231,6 +244,8 @@ let milestonesHit: typeof import('~/utils/hero-quest-art/milestones-scene') | nu
 let guideHit: typeof import('~/utils/hero-quest-art/guide') | null = null
 let traitsScene: TraitsScene | null = null
 let traitsHit: typeof import('~/utils/hero-quest-art/traits-scene') | null = null
+let arenaScene: ArenaScene | null = null
+let arenaHit: typeof import('~/utils/hero-quest-art/arena-scene') | null = null
 /** The stage's clock, for the scene that times its own animation (the gacha reveal). */
 let sceneTime = 0
 let band: typeof import('~/utils/hero-quest-art/menu-band') | null = null
@@ -304,9 +319,9 @@ function build() {
     stage.setupRun({ ...props.party, classId: props.hero.classId }, feed())
 }
 
-// a party changed mid-fight, or mid-raid, waits for it to be put away
+// a party changed mid-fight, mid-raid or mid-Arena-round, waits for it to be put away
 watch(partyKey, () => {
-    if (!props.fight && !props.raidRound) build()
+    if (!props.fight && !props.raidRound && !props.arenaRound) build()
 })
 
 // a level or an equip moves cooldowns; they change in place, without rebuilding the stage
@@ -357,6 +372,20 @@ watch(() => props.raidRound, (round) => {
     progressTimer = setInterval(() => emit('fightProgress', progress()), 100)
 })
 
+/** An Arena attack plays in place of the run, reporting how far it has played as a raid round does; cleared, the run comes back. */
+watch(() => props.arenaRound, (round) => {
+    if (progressTimer) clearInterval(progressTimer)
+    progressTimer = null
+    if (!round) {
+        stage?.endArena()
+        if (partyKey.value !== builtKey && !props.fight && !props.raidRound) build()
+        return
+    }
+    skipped = false
+    stage?.playArena(round)
+    progressTimer = setInterval(() => emit('fightProgress', progress()), 100)
+})
+
 /** Play the rest of the fight out at once. */
 function skipFight() {
     skipped = true
@@ -384,6 +413,7 @@ type Target = 'challenge' | HqMenuScene | `tab:${HqCollectionTab}` | `tile:${num
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
     | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${RaidId | 'enter' | 'quick' | 'loadout'}` | 'reward:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
     | `trait:${TraitsTarget}`
+    | `arena:${ArenaTarget}` | 'result:ok'
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
@@ -467,11 +497,12 @@ function targetAt(e: PointerEvent): Target | null {
     const y = (e.clientY - r.top) / r.height * presenter.h
     // the reward popup takes every press: only its button does anything
     if (props.raidReward) return raidsHit?.onRaidRewardButton(presenter.w, sceneH, x, y) ? 'reward:ok' : null
+    if (props.arenaResult) return arenaHit?.onArenaResultButton(presenter.w, sceneH, x, y) ? 'result:ok' : null
     // the guide's panel sits over the scene: a press on it is the guide's
     const guideAt = props.guide && guideHit ? guideHit.guideTargetAt(x, y) : null
     if (guideAt) return guideAt
-    // a raid round hides the menu, so a stray press can't walk out of it mid-fight
-    const item = props.raidRound ? null : band?.menuItemAt(presenter.w, presenter.h, x, y, props.menuScenes) ?? null
+    // a raid or Arena round hides the menu, so a stray press can't walk out of it mid-fight
+    const item = props.raidRound || props.arenaRound ? null : band?.menuItemAt(presenter.w, presenter.h, x, y, props.menuScenes) ?? null
     if (item) return item
     if (openScene.value === 'collections' && collectionsHit) {
         const tab = collectionsHit.collectionTabAt(presenter.w, x, y)
@@ -525,6 +556,11 @@ function targetAt(e: PointerEvent): Target | null {
         if (at === 'enter' || at === 'quick') return raidsHit.raidButtonEnabled(raidsView.value, at) ? `raid:${at}` : null
         if (at === 'loadout') return raidsHit.raidLoadoutEnabled(raidsView.value) ? 'raid:loadout' : null
         return at ? `raid:${at}` : null
+    }
+    if (openScene.value === 'arena' && arenaHit && props.arena) {
+        const at = arenaHit.arenaTargetAt(arenaView.value, presenter.w, sceneH, x, y)
+        // a button that cannot be pressed is no target
+        return at && arenaHit.arenaTargetEnabled(arenaView.value, at) ? `arena:${at}` : null
     }
     if (openScene.value === 'settings' && settingsHit && props.settings) {
         const id = settingsHit.settingsTargetAt(presenter.w, x, y, settingsScroll.value)
@@ -678,6 +714,16 @@ function onPointerUp(e: PointerEvent) {
     }
     else if (hit.startsWith('setting:')) emit('setting', hit.slice(8) as SettingsTarget)
     else if (hit === 'reward:ok') emit('raidRewardClose')
+    else if (hit === 'result:ok') emit('arenaResultClose')
+    else if (hit.startsWith('arena:')) {
+        const at = hit.slice(6) as ArenaTarget
+        if (at.startsWith('tab:')) {
+            arenaTab.value = at.slice(4) as HqArenaTab
+            arenaPage.value = 0
+            emit('arenaTab', arenaTab.value)
+        } else if (at === 'prev' || at === 'next') arenaPage.value += at === 'next' ? 1 : -1
+        else emit('arenaAction', at)
+    }
     else if (hit === 'cal:claim' || hit === 'cal:makeup') emit('claimCalendar', hit === 'cal:makeup')
     else if (hit === 'cal:gift') {
         if (props.calendar?.gift?.state === 'open' && !props.calendarBusy) emit('claimHoliday')
@@ -792,6 +838,24 @@ const gachaHover = computed<GachaHover>(() => {
     const [, system, part] = h.split(':') as [string, GachaSystemId, GachaButton | 'emblem']
     return { system, part }
 })
+/** The Arena's open tab and page; the tab keeps its place while the scene is closed and reopened. */
+const arenaTab = ref<HqArenaTab>('fight')
+const arenaPage = ref(0)
+const ARENA_EMPTY: Omit<ArenaView, 'tab' | 'page'> = {
+    busy: false, rating: 0, medals: 0, season: 1, seasonLeft: '', attemptsLeft: 0, attemptsFree: 0, attemptPrice: 0, refreshGems: 0,
+    gems: 0, rewards: [], candidates: null, defense: null, loadouts: [], shop: [], log: null, board: null
+}
+const arenaView = computed<ArenaView>(() => ({ ...(props.arena ?? ARENA_EMPTY), tab: arenaTab.value, page: arenaPage.value }))
+// a list that shrank under the page shown takes it back to its last
+watch(() => arenaHit && arenaView.value ? arenaHit.arenaPages(arenaView.value) : 1, (pages) => {
+    if (arenaPage.value >= pages) arenaPage.value = Math.max(0, pages - 1)
+})
+// opening the scene tells the screen which tab it lands on, so that tab's reads go out
+watch(openScene, (scene) => {
+    if (scene === 'arena') emit('arenaTab', arenaTab.value)
+})
+const arenaHover = computed<ArenaTarget | null>(() => hover.value?.startsWith('arena:') ? hover.value.slice(6) as ArenaTarget : null)
+
 /** The raid shown in the Raids scene; it keeps its place while the scene is closed and reopened. */
 const raidSelected = ref<RaidId>('raid_training_grounds')
 const raidsView = computed<RaidsView>(() => ({ selected: raidSelected.value, raids: props.raids ?? [], busy: !!props.raidsBusy, loadoutsSaved: !!props.loadoutsSaved }))
@@ -809,6 +873,7 @@ const guideHover = computed<GuideTarget | null>(() => hover.value === 'guide:nex
 const bandAlerts = computed<ReadonlySet<HqMenuScene>>(() => new Set<HqMenuScene>([
     ...(props.newScenes ?? []),
     ...(props.calendar?.days[props.calendar.today]?.state === 'today' || props.calendar?.gift?.state === 'open' ? ['calendar' as const] : []),
+    ...(props.arena?.rewards.length ? ['arena' as const] : []),
     ...(props.milestones?.rows.some(r => r.claimable.length > 0) ? ['milestones' as const] : [])
 ]))
 const speedHover = computed<SpeedBlock | null>(() => {
@@ -827,7 +892,7 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, traitsArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, traitsArt, arenaArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
@@ -842,7 +907,8 @@ onMounted(async () => {
         import('~/utils/hero-quest-art/calendar-scene'),
         import('~/utils/hero-quest-art/milestones-scene'),
         import('~/utils/hero-quest-art/guide'),
-        import('~/utils/hero-quest-art/traits-scene')
+        import('~/utils/hero-quest-art/traits-scene'),
+        import('~/utils/hero-quest-art/arena-scene')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -872,6 +938,8 @@ onMounted(async () => {
     guideHit = guideArt
     traitsScene = new traitsArt.TraitsScene(backdrops)
     traitsHit = traitsArt
+    arenaScene = new arenaArt.ArenaScene(backdrops)
+    arenaHit = arenaArt
     stage = new BattleDemo()
     build()
     if (intro) {
@@ -886,6 +954,7 @@ onMounted(async () => {
     if (props.fight) stage.playFight(props.fight)
     // a raid round that arrived while the stage loaded plays now
     if (props.raidRound) stage.playRaid(props.raidRound)
+    if (props.arenaRound) stage.playArena(props.arenaRound)
     // the scene and the menu band under it: HP rides over every body (`BattleDemo.drawBars`), so there is no party band
     presenter = new Presenter(canvas.value, banded.frame.w, banded.frame.h)
     let t = 0
@@ -895,7 +964,8 @@ onMounted(async () => {
         stage!.update(dt)
     }, () => {
         stage!.challenge = challengeState.value
-        stage!.speed = props.fight ? props.fight.playbackSpeed ?? 1 : props.speed ?? 1
+        // Battle Speed never touches an Arena round (`arena.md` §1)
+        stage!.speed = props.fight ? props.fight.playbackSpeed ?? 1 : props.arenaRound ? 1 : props.speed ?? 1
         stage!.speedTag = props.speedTag ?? ''
         if (!props.fight) stage!.feedRun(feed())
         reportPack()
@@ -917,6 +987,8 @@ onMounted(async () => {
                                     ? raidsScene!.render(t, raidsView.value, raidsHover.value, pressed.value)
                                     : scene === 'traits'
                                     ? traitsScene!.render(t, props.traits ?? EMPTY_TRAITS, traitsHover.value, pressed.value, !!props.traitsBusy)
+                                    : scene === 'arena'
+                                    ? arenaScene!.render(t, arenaView.value, arenaHover.value, pressed.value)
                                     : scene === 'milestones'
                                     ? milestonesScene!.render(t, props.milestones ?? { rows: [] }, milestonesHover.value, pressed.value, !!props.milestonesBusy)
                                     : scene === 'calendar'
@@ -926,8 +998,9 @@ onMounted(async () => {
                                     : speedScene!.render(t, props.speedView ?? { multiplier: 1, left: null, gems: '0', gemCount: 0, offlineEfficiency: 1, tiers: [] }, speedHover.value, pressed.value, !!props.speedBusy)
         if (props.raidReward && raidsHit) raidsHit.drawRaidReward(view, props.raidReward, hover.value === 'reward:ok', pressed.value)
         // the guide waits out a raid's reward popup rather than covering it
-        else if (props.guide && guideHit) guideHit.drawGuide(view, t, props.guide, guideHover.value, pressed.value)
-        presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value, !!props.raidRound, bandAlerts.value, props.menuScenes))
+        else if (props.guide && guideHit && !props.arenaResult) guideHit.drawGuide(view, t, props.guide, guideHover.value, pressed.value)
+        if (props.arenaResult && arenaHit) arenaHit.drawArenaResult(view, props.arenaResult, hover.value === 'result:ok', pressed.value)
+        presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value, !!props.raidRound || !!props.arenaRound, bandAlerts.value, props.menuScenes))
     })
     observer = new ResizeObserver(fit)
     observer.observe(wrap.value!)

@@ -10,6 +10,61 @@ import { HQ_SESSION_TIMEOUT_MS } from '#shared/utils/hero-quest/constants'
  * accrues at full rate; a longer one is treated as offline and pays the cap and efficiency
  * tax. Stop refreshing and you are, correctly, offline.
  */
+/** A slot on the Arena's opponent list (`arena/candidates.get.ts`). */
+export interface ArenaCandidate {
+    slot: number
+    /** What an attack names: the defender's user ID, or the Training Dummy's sentinel. */
+    id: string
+    dummy: boolean
+    name: string
+    rating: number | null
+    defenseGpn: string | null
+    classId: string | null
+    heroRow: 'front' | 'back' | null
+    champions: { id: string, row: 'front' | 'back' }[]
+}
+
+/** One battle log entry (`arena/log.get.ts`). */
+export interface ArenaLogEntry {
+    id: string
+    role: 'attacker' | 'defender'
+    won: boolean
+    ratingChange: number
+    medalsEarned: number
+    isDummy: boolean
+    opponentName: string
+    at: number
+}
+
+/** The Rating leaderboard (`arena/leaderboard.get.ts`). */
+export interface ArenaBoard {
+    season: number
+    endsAt: number
+    top: { rank: number, name: string, rating: number, you: boolean }[]
+    me: { rank: number, rating: number } | null
+    around: { rank: number, name: string, rating: number, you: boolean }[]
+}
+
+/** An Arena attack, resolved on the server: its log for the stage, and what it came to. */
+export interface ArenaRound {
+    seed: number
+    dummy: boolean
+    opponentName: string
+    outcome: FightOutcome
+    won: boolean
+    medals: number
+    rating: number
+    ratingChange: number
+    attemptsLeft: number
+    secondsElapsed: number
+    events: FightEvent[]
+    partyIds: string[]
+    partyMaxHps: string[]
+    /** The defence as the fight indexed it; null for the Training Dummy. */
+    enemy: { classId: string, heroRow: 'front' | 'back', champions: { id: string, row: 'front' | 'back' }[] } | null
+    enemyMaxHps: string[]
+}
+
 /** How recent a read the next component to mount reuses rather than settling again. */
 const STATE_REUSE_MS = 5_000
 
@@ -92,6 +147,16 @@ export const useHeroQuest = () => {
     const tutorials = computed(() => state.value?.tutorials ?? null)
     /** The Traits: the live board, the Roll's price, every Set's tier, and the save slots. */
     const traits = computed(() => state.value?.traits ?? null)
+    /** The Arena: Medals, this season's Rating, today's attacks, the defence and any season reward waiting. */
+    const arena = computed(() => state.value?.arena ?? null)
+    /**
+     * The Arena's own reads, fetched while its scene is open rather than polled with the state: the
+     * opponent list, the battle log and the Rating leaderboard. Shared, so a reload of one view keeps
+     * the others.
+     */
+    const arenaCandidates = useState<ArenaCandidate[] | null>('hq-arena-candidates', () => null)
+    const arenaLog = useState<ArenaLogEntry[] | null>('hq-arena-log', () => null)
+    const arenaBoard = useState<ArenaBoard | null>('hq-arena-board', () => null)
     /** The Settings scene's choices, defaults filled in by the server. */
     const settings = computed(() => state.value?.settings ?? null)
     const voidShards = computed(() => state.value?.voidShards ?? '0')
@@ -220,6 +285,62 @@ export const useHeroQuest = () => {
     /** Spend a Key on the best level's reward, without a round. */
     async function quickClearRaid(raidId: string) {
         return call<{ raidId: string, level: number, reward: number, keys: number }>('/api/hero-quest/raid/quick-clear', { raidId }, '')
+    }
+
+    async function loadArenaCandidates() {
+        arenaCandidates.value = await $fetch<ArenaCandidate[]>('/api/hero-quest/arena/candidates')
+    }
+
+    async function loadArenaLog() {
+        arenaLog.value = await $fetch<ArenaLogEntry[]>('/api/hero-quest/arena/log')
+    }
+
+    async function loadArenaBoard() {
+        arenaBoard.value = await $fetch<ArenaBoard>('/api/hero-quest/arena/leaderboard')
+    }
+
+    /** Pay Gems for a fresh opponent list. Gems have no setter of their own, so the session is read back. */
+    async function refreshArenaCandidates() {
+        const res = await call<{ gemsSpent: number, candidates: ArenaCandidate[] }>('/api/hero-quest/arena/refresh-candidates', {}, '')
+        if (res) arenaCandidates.value = res.candidates
+        await fetchSession()
+        return res
+    }
+
+    /**
+     * Attack the candidate in `slot`, named so a list redrawn in between can't send the attack at
+     * someone else. The response is the fight, for the stage to replay; the list is redrawn by it.
+     */
+    async function attackArena(slot: number, opponent: string) {
+        const res = await call<ArenaRound>('/api/hero-quest/arena/attack', { slot, opponent }, '')
+        // the attack redrew the list; a failed read leaves the old one up, and the next attack says so
+        loadArenaCandidates().catch(() => {})
+        arenaLog.value = null
+        return res
+    }
+
+    /** Buy one more attack today, on the doubling Gem ladder. */
+    async function buyArenaAttempt() {
+        const res = await call<{ gemsSpent: number, attemptsLeft: number }>('/api/hero-quest/arena/buy-attempt', {}, '')
+        await fetchSession()
+        return res
+    }
+
+    /** Save the defence: a copy of the live loadout (`live`) or of a saved Loadout (`loadout` + `slotIndex`). */
+    async function setArenaDefense(body: { source: 'live' } | { source: 'loadout', slotIndex: number }) {
+        return call<{ defenseGpn: string | null }>('/api/hero-quest/arena/defense-set', body, '')
+    }
+
+    /** Buy from the Arena Shop with Medals. Gold and Gems move platform balances the response doesn't carry. */
+    async function buyArenaItem(itemId: string, quantity = 1) {
+        const res = await call<{ kind: string }>('/api/hero-quest/arena/shop-buy', { itemId, quantity }, '')
+        if (res?.kind === 'gold' || res?.kind === 'gems') await fetchSession()
+        return res
+    }
+
+    /** Claim every finished season's rank reward waiting. */
+    async function claimArenaSeason() {
+        return call<{ medals: number }>('/api/hero-quest/arena/claim-season', {}, '')
     }
 
     async function setSetting(key: HqSettingKey, value: boolean) {
@@ -494,6 +615,10 @@ export const useHeroQuest = () => {
         milestones,
         tutorials,
         traits,
+        arena,
+        arenaCandidates,
+        arenaLog,
+        arenaBoard,
         settings,
         voidShards,
         nextPrestigeReward,
@@ -521,6 +646,15 @@ export const useHeroQuest = () => {
         buyTraitSaveSlot,
         engageRaid,
         quickClearRaid,
+        loadArenaCandidates,
+        loadArenaLog,
+        loadArenaBoard,
+        refreshArenaCandidates,
+        attackArena,
+        buyArenaAttempt,
+        setArenaDefense,
+        buyArenaItem,
+        claimArenaSeason,
         pull,
         freePull,
         craft,

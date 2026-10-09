@@ -66,8 +66,10 @@ export function scriptFight(events: readonly FightEvent[]): FightScript {
                 open.set(key, beat)
                 beats.push(beat)
             }
-            // a utility cast logs a zero-damage `skill` with no target: a cast with nothing to land
-            if (!(e.kind === 'skill' && e.enemyIndex === undefined)) beat.hits.push(e)
+            // a utility cast logs a zero-damage `skill` with no target (an Arena defender's, an
+            // `enemy_special` with no party member): a cast with nothing to land
+            const untargeted = e.kind === 'skill' ? e.enemyIndex === undefined : e.kind === 'enemy_special' && e.unitIndex === undefined
+            if (!untargeted) beat.hits.push(e)
             continue
         }
         if (e.kind === 'enemy_down' || e.kind === 'unit_down') {

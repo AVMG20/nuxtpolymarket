@@ -1,7 +1,7 @@
 import { count, countDistinct, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { getSessionUserId } from '#server/utils/auth'
-import { user, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders, tcgBattlerRun, tcgBattlerRating, townState, townResearch, voidState } from '#server/database/schema'
+import { user, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders, tcgBattlerRun, tcgBattlerRating, townState, townResearch, voidState, hqState } from '#server/database/schema'
 import { getGemGuidePrice } from '#server/utils/gem-exchange'
 import { bailoutRemaining, debtFloor, growBankBalance, isBailoutActive } from '#shared/utils/gamelogic/bank'
 import { PLANT_TYPES } from '#shared/utils/xeno'
@@ -11,7 +11,7 @@ import { townScore, voidScore } from '#shared/utils/gamelogic/scoreboard'
 export default defineEventHandler(async (event) => {
   const sessionUserId = await getSessionUserId(event)
   const xenoSpeciesIds = [...new Set(PLANT_TYPES.map(plant => plant.id))]
-  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts, battlerTotals, battlerRatings, townRows, townResearchRows, voidRows] = await Promise.all([
+  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts, battlerTotals, battlerRatings, townRows, townResearchRows, voidRows, heroQuestRows] = await Promise.all([
     db
       .select({
         id: user.id,
@@ -97,6 +97,8 @@ export default defineEventHandler(async (event) => {
         tradeLevel: voidState.tradeLevel,
       })
       .from(voidState),
+    // Hero Quest's Global Power Number, as its last settle wrote it: a Decimal string, shown, not ranked
+    db.select({ userId: hqState.userId, gpn: hqState.globalPowerNumber }).from(hqState),
   ])
 
   const gemEscrowByUser = new Map(gemEscrowRows.map(row => [row.userId, row]))
@@ -129,6 +131,7 @@ export default defineEventHandler(async (event) => {
   }
   const townByUser = new Map(townRows.map(row => [row.userId, townScore(row.milestonesClaimed ?? [], townResearchByUser.get(row.userId) ?? [])]))
   const voidByUser = new Map(voidRows.map(row => [row.userId, voidScore(row)]))
+  const heroQuestGpnByUser = new Map(heroQuestRows.map(row => [row.userId, row.gpn]))
 
   return users
     .map(u => {
@@ -198,6 +201,7 @@ export default defineEventHandler(async (event) => {
         voidSystemLevels: voidRunner?.systems ?? 0,
         voidTradeLevel: voidRunner?.trade ?? 0,
         aiPromptsUsed,
+        heroQuestGpn: heroQuestGpnByUser.get(u.id) ?? null,
         battlerRunsWon: battler?.runsWon ?? 0,
         battlerRating: battlerRatingByUser.get(u.id) ?? null,
         battlerBattlesWon: battler?.battlesWon ?? 0,

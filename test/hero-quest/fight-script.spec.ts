@@ -92,4 +92,14 @@ describe('scriptFight', () => {
         // in log order, so a swing never starts after one logged later
         for (let k = 1; k < beats.length; k++) expect(beats[k]!.at).toBeGreaterThanOrEqual(beats[k - 1]!.at)
     })
+    it('casts an Arena defender\'s utility ability with nothing to land, and leaves its reflect to the instants', () => {
+        const events: FightEvent[] = [
+            { at: 2, kind: 'enemy_special', enemyIndex: 1, skillId: 'skill_haste', damage: '0' },
+            { at: 2, kind: 'enemy_reflect', enemyIndex: 0, unitIndex: 0, damage: '3', remainingHp: '7' }
+        ]
+        const { beats, instants } = scriptFight(events)
+        expect(beats).toHaveLength(1)
+        expect(beats[0]).toMatchObject({ side: 1, actor: 1, cast: true, skillId: 'skill_haste', hits: [] })
+        expect(instants).toEqual([events[1]])
+    })
 })

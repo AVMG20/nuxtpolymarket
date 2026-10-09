@@ -73,7 +73,7 @@ async function skip(hours: number) {
 
 // ── Currency ────────────────────────────────────────────────────────────────────────
 
-const grant = reactive({ gold: 1_000_000, gems: 1000, voidShards: 1000, seals: 100, essence: 10_000, traitGems: 500 })
+const grant = reactive({ gold: 1_000_000, gems: 1000, voidShards: 1000, seals: 100, essence: 10_000, traitGems: 500, medals: 1000 })
 
 async function grantOne(field: keyof typeof grant) {
   await withBusy(() => dev.grant({ [field]: grant[field] }))
@@ -302,7 +302,7 @@ async function doReset() {
 
         <div class="grid gap-2 sm:grid-cols-2">
           <div
-            v-for="field in (['gold', 'gems', 'voidShards', 'seals', 'essence', 'traitGems'] as const)"
+            v-for="field in (['gold', 'gems', 'voidShards', 'seals', 'essence', 'traitGems', 'medals'] as const)"
             :key="field"
             class="flex items-center gap-2"
           >

@@ -107,6 +107,11 @@ export type FightEventKind =
      * cast anything and the client should not draw a swing for it.
      */
     | 'reflect'
+    /**
+     * Damage a defending Arena unit bounced back onto the party member that hit it (`duel.ts`):
+     * `reflect` with the sides swapped, `unitIndex` the one it lands on, `enemyIndex` the reflector.
+     */
+    | 'enemy_reflect'
     /** A reinforcement joins the fight (`Encounter.reinforcements`); it can be hit and swings from now on. */
     | 'enemy_arrive'
     /** A rampaging boss's gauge filled (`Encounter.rampage`): it is a level up, its gauge refilled to `remainingHp`. */
@@ -241,7 +246,7 @@ export interface FightResult {
  * mulberry32 — small, fast, and reproducible across every JS engine, which is the only
  * property that matters here. Not a CSPRNG and not used as one; see the header.
  */
-function seededRandom(seed: number): () => number {
+export function seededRandom(seed: number): () => number {
     let state = seed >>> 0
     return () => {
         state += 0x6D2B79F5
@@ -1018,7 +1023,7 @@ function specialStatus(status: SpecialStatus, landed: Decimal): Omit<StatusAppli
  * Heal, shield and DoT magnitudes stay on the caster's base PWR — a buff to *damage output* is
  * not a buff to healing, and `projection.ts` prices sustain off base PWR the same way.
  */
-function liveUnitStats(stats: UnitStats, statuses: readonly StatusInstance[]): UnitStats {
+export function liveUnitStats(stats: UnitStats, statuses: readonly StatusInstance[]): UnitStats {
     if (statuses.length === 0) return stats
     const spd = stats.spd.mul(statMultiplier(statuses, 'spd'))
     return {
@@ -1048,7 +1053,7 @@ function liveEnemyStats(stats: EnemyStats, statuses: readonly StatusInstance[]):
 }
 
 /** Crit rolled per strike, not averaged — the one place in the game that does. */
-function rollDamage(
+export function rollDamage(
     unit: UnitStats,
     penetration: Decimal,
     abilityMultiplier: number,
@@ -1069,7 +1074,7 @@ function rollDamage(
     return { damage: base.mul(critFactor), crit }
 }
 
-function decMaxZero(value: Decimal): Decimal {
+export function decMaxZero(value: Decimal): Decimal {
     return value.lt(0) ? ZERO : value
 }
 

@@ -115,10 +115,10 @@ export type RaidId = 'guild' | 'training_grounds' | 'dig_site' | 'forge' | 'trai
  * boss, or one of the raids. A raid boss is too big for the Stage camera, so a raid is watched on
  * the whole scene (`cameraFor`).
  */
-export type WaveKind = 'regular' | 'boss' | 'superboss' | `raid_${RaidId}` | `forge_${ForgeBossId}`
+export type WaveKind = 'regular' | 'boss' | 'superboss' | `raid_${RaidId}` | `forge_${ForgeBossId}` | 'arena'
 /** The waves fought in the colosseum rather than out in their world: the Gilded Knight and the Training Grounds. */
-// every raid is fought there; the Dig Site, the Forge and the Beast until they have scenery of their own
-const ARENA_WAVES: ReadonlySet<WaveKind> = new Set<WaveKind>(['raid_guild', 'raid_training_grounds', 'raid_dig_site', 'raid_forge', 'raid_trait'])
+// every raid is fought there; the Dig Site, the Forge and the Beast until they have scenery of their own; and the Arena's rounds
+const ARENA_WAVES: ReadonlySet<WaveKind> = new Set<WaveKind>(['raid_guild', 'raid_training_grounds', 'raid_dig_site', 'raid_forge', 'raid_trait', 'arena'])
 /** One of the Forge raid's three bosses, fought on its own (`forge_<id>`), to look at each in turn. */
 export type ForgeBossId = typeof FORGE_BOSSES[number][0]
 export const WAVE_KINDS: readonly { id: WaveKind, label: string }[] = [
@@ -584,6 +584,49 @@ export interface StageRaid extends StageFight {
     timer: number
 }
 
+/** The defending side of an Arena round: the Hero's class and row, and each Champion with its row. */
+export interface StageArenaSide {
+    classId: string
+    heroRow: 'front' | 'back'
+    champions: readonly { id: string, row: 'front' | 'back' }[]
+}
+
+/** An Arena attack the server resolved: the duel's log, the defence it was fought against, and its clock. */
+export interface StageArena extends StageFight {
+    /** The defender's name, raised in the banner as the round opens. */
+    opponent: string
+    /** The defence as the fight indexed it (`enemyIndex`, Hero first); null for the Training Dummy. */
+    enemy: StageArenaSide | null
+    /** The round's clock, in sim-seconds. */
+    timer: number
+}
+
+/** The enemy side's marks for a row, nearest rank first: the foe grid mirrors the party's (`ROW_MARKS`). */
+const FOE_ROW_MARKS = { front: [0, 1, 2], back: [3, 4, 5] } as const
+
+/** Where a defending party stands: the Hero, then each Champion, on its own row while it has room. */
+function foeMarks(heroRow: 'front' | 'back', rows: readonly ('front' | 'back')[]): number[] {
+    const free = { front: [...FOE_ROW_MARKS.front] as number[], back: [...FOE_ROW_MARKS.back] as number[] }
+    const take = (row: 'front' | 'back') => free[row].shift() ?? free[row === 'front' ? 'back' : 'front'].shift()!
+    return [take(heroRow), ...rows.map(take)]
+}
+
+/** A baked strip turned to face the other way: an Arena defender is a party facing left. */
+function mirrorBaked(b: Baked): Baked {
+    const frames = b.frames.map((src) => {
+        const out = new Surface(src.w, src.h, 0, 0)
+        for (let y = 0; y < src.h; y++) {
+            for (let x = 0; x < src.w; x++) out.data[y * src.w + (src.w - 1 - x)] = src.data[y * src.w + x]!
+        }
+        return out
+    })
+    const w = b.frames[0]?.w ?? 0
+    return { frames, ax: w - 1 - b.ax, ay: b.ay, fps: b.fps, loop: b.loop }
+}
+
+/** How long an Arena round's defenders take to walk in before the first blow may land. */
+const ARENA_ENTRY = 0.6
+
 /** Seconds the replay runs before the log's first moment, so a swing can start before its blow lands. */
 const REPLAY_PREROLL = 0.8
 /** The escort's marks either side of the boss, in the fight's `enemyIndex` order. */
@@ -818,6 +861,14 @@ export class BattleDemo {
         /** 0–1 of the way from the level's threshold to the next one's, by damage. */
         toNext: number
     } | null = null
+
+    /**
+     * An Arena round from the server, played in the colosseum while the run waits behind it
+     * (`playArena`): the run to go back to, its clock, and the defence being fought, set before the
+     * colosseum is built so the build can stand it on the enemy marks.
+     */
+    private arenaRound: { run: RunDirector, party: RunParty, timer: number } | null = null
+    private arenaSide: StageArenaSide | null = null
 
     /** Where the fight stands for a special's effect, reused every frame. */
     private spParty = Array.from({ length: PARTY }, () => ({ x: 0, y: 0 }))
@@ -1261,6 +1312,96 @@ export class BattleDemo {
         this.iris = { t: 0, feed: rr.run.feed, held: false, swap: () => this.setupRun(rr.party, this.iris!.feed ?? rr.run.feed!) }
     }
 
+    /**
+     * Play an Arena attack the server resolved. As with a raid round, the run waits behind it: the
+     * iris closes, the colosseum is built with the party as fielded and the defence on the enemy
+     * marks, facing it (or the Training Dummy), and the duel plays as the log says. `endArena` goes back.
+     */
+    playArena(round: StageArena): void {
+        const run = this.run
+        const party = this.party
+        if (!run || !party || this.raidRound || this.arenaRound) return
+        if (this.exit) this.irisIntoWorld()
+        if (this.iris?.swap) this.shutIris()
+        this.arenaRound = { run, party, timer: round.timer }
+        this.run = null
+        this.spot = null
+        this.replay = null
+        this.wipeT = 0
+        this.iris = {
+            t: 0, feed: null, held: false, swap: () => {
+                this.arenaSide = round.enemy
+                this.build(this.world, party.classId, 'arena')
+                this.standoff = true
+                // the defence stands in the foe slots in the log's order, the dummy in the first
+                const foes = round.enemyMaxHps.map((_, k) => PARTY + k)
+                this.startReplay(round, foes, ARENA_ENTRY)
+                this.announce(round.opponent.toUpperCase())
+            }
+        }
+    }
+
+    /** Put an Arena round away: back to the run, built behind the iris from its newest feed. */
+    endArena(): void {
+        const ar = this.arenaRound
+        if (!ar) return
+        if (this.iris?.swap) this.shutIris()
+        this.arenaRound = null
+        this.arenaSide = null
+        this.replay = null
+        this.nameT = -1
+        this.run = ar.run
+        this.party = ar.party
+        this.iris = { t: 0, feed: ar.run.feed, held: false, swap: () => this.setupRun(ar.party, this.iris!.feed ?? ar.run.feed!) }
+    }
+
+    /** Whether an Arena round is up, playing or holding its result. */
+    get arenaOn(): boolean {
+        return this.arenaRound !== null
+    }
+
+    /**
+     * The Arena's enemy side, on the foe slots: the defending party, each body its Hero's or
+     * Champion's own strips turned to face the party, on its own row; or the Training Dummy alone.
+     * Nobody swings but as the log says.
+     */
+    private spawnArena(): void {
+        const side = this.arenaSide
+        for (let i = PARTY; i < this.units.length; i++) this.units[i]!.state = U.Gone
+        this.runSpecial = null
+        this.bossSpecial = null
+        this.label = 'ARENA'
+        if (!side) {
+            const still = bake(artById('arena/training_dummy/static')!)
+            const hit = bake(artById('arena/training_dummy/hit')!)
+            const u = this.unit(1, VL.foes[1], [still, still, still, hit, still, still, still], [], null)
+            u.chest = 18
+            u.crown = 44
+            u.state = U.Entry
+            this.units[PARTY] = u
+            return
+        }
+        const fielded = side.champions.filter(c => CHAMPION_BY_ID[c.id]).slice(0, PARTY - 1)
+        const marks = foeMarks(side.heroRow, fielded.map(c => c.row))
+        const hero = HERO_ART[side.classId] ?? HERO_ART.class_beginner!
+        const heroUnit = this.unit(1, VL.foes[marks[0]!]!, bakeAlly(`hero/${side.classId}`).map(mirrorBaked), [hero.clips.attack, hero.clips.cast], null)
+        heroUnit.accent = hero.look.accent
+        heroUnit.shot = HERO_SHOTS[side.classId] ?? null
+        heroUnit.shots = CLASS_BY_ID[side.classId as keyof typeof CLASS_BY_ID]?.strikesPerAttack ?? 1
+        const champs = fielded.map((c, k) => {
+            const def = CHAMPION_BY_ID[c.id]!
+            const u = this.unit(1, VL.foes[marks[k + 1]!]!, bakeAlly(`champion/${c.id}`).map(mirrorBaked), [CHASSIS[def.archetype].attack, CHASSIS[def.archetype].cast], null)
+            u.accent = championLook(c.id).accent
+            u.shot = CHAMPION_SHOTS[def.archetype] ?? null
+            return u
+        })
+        const defenders = [heroUnit, ...champs]
+        defenders.forEach((u, k) => {
+            u.state = U.Entry
+            this.units[PARTY + k] = u
+        })
+    }
+
     /** The Training Grounds' bar toward the next level: a trough as wide as the timer, filled by the damage, its share written over it. */
     private drawToNextLevel(out: Surface, x: number, y: number): void {
         const rr = this.raidRound!
@@ -1407,7 +1548,8 @@ export class BattleDemo {
             }
             return
         }
-        this.announce(rp.outcome === 'win' ? 'VICTORY' : rp.outcome === 'wipe' ? 'DEFEAT' : 'TIME UP')
+        // an Arena defence that holds to the clock beats the attacker: there is no time-up there
+        this.announce(rp.outcome === 'win' ? 'VICTORY' : rp.outcome === 'wipe' || this.arenaRound ? 'DEFEAT' : 'TIME UP')
         // out of time: close in on the drained timer and the banner, to say so
         if (rp.outcome === 'timeout' && this.run && !this.raid) this.spot = { t: 0, out: 0, released: false }
         // the banner holds until the fight is put away
@@ -1491,7 +1633,8 @@ export class BattleDemo {
         const b = u.beat!
         u.beat = null
         const vfx = (b.skillId ? VFX_BY_ID[b.skillId] : null) ?? u.vfx
-        if (cast && vfx) this.playFx(vfx)
+        // an ability's effect is drawn from the party's side; an Arena defender's casts play without it
+        if (cast && vfx && u.side === 0) this.playFx(vfx)
         if (!u.shot || cast) {
             this.applyBeat(b)
             return
@@ -1564,6 +1707,8 @@ export class BattleDemo {
                 if (e.onEnemy) {
                     const f = this.foeUnit(e.enemyIndex)
                     this.setFoeHp(f, e.enemyIndex, e.remainingHp)
+                    // an Arena defender revived gets back up
+                    if (f && (f.state === U.Gone || f.state === U.Death) && D(e.remainingHp ?? 0).gt(0)) { f.state = U.Entry; f.t = 0 }
                     if (f && !quiet && f.state !== U.Gone && D(e.damage ?? 0).gt(0)) this.number(f.x + 6, f.y - f.crown + 10, 'heal', false, `+${stageNumber(D(e.damage!))}`)
                     return
                 }
@@ -1576,8 +1721,13 @@ export class BattleDemo {
                 return
             }
             case 'shield': {
-                const t = this.partyUnit(e.unitIndex)
+                const t = e.onEnemy ? this.foeUnit(e.enemyIndex) : this.partyUnit(e.unitIndex)
                 if (t && !quiet) this.ringAt(t.x, t.y - t.chest, false)
+                return
+            }
+            case 'enemy_reflect': {
+                // an Arena defender's reflect, landing on the party member that struck it
+                this.setPartyHp(e.unitIndex, e.remainingHp)
                 return
             }
             case 'status_tick':
@@ -1748,7 +1898,8 @@ export class BattleDemo {
         // scene is new anyway, so it lands on the period where the framing is back at the edges
         this.scroll = Math.round(this.scroll / SCROLL_PERIOD) * SCROLL_PERIOD
         // a boss that scrolls into view has to be marched up to, even on the first wave
-        if (this.run) this.spawnWave()
+        if (waveKind === 'arena') this.spawnArena()
+        else if (this.run) this.spawnWave()
         else if (waveKind !== 'regular' && this.bossScrolls[waveKind === 'superboss' ? 1 : 0]) this.startMarch()
         else this.spawnWave()
         this.particles.clear()
@@ -3006,7 +3157,7 @@ export class BattleDemo {
             dimToInk(s, dark, this.water)
         }
         // a raid round has its own bars, the party's and the raid boss's, though the run is set aside
-        if (this.run || this.raidRound) this.drawBars(s)
+        if (this.run || this.raidRound || this.arenaRound) this.drawBars(s)
         for (let i = 0; i < this.nums.length; i++) { const n = this.nums[i]!; if (n.live) drawNumber(s, n) }
         clock.smooth = false
         if (this.shakeT > 0) {
@@ -3046,7 +3197,7 @@ export class BattleDemo {
         }
         // a raid round has no wave or stage to name: its timer and readout say all there is
         // the game's stage shows the profile badge in the label's place
-        const badge = this.raidRound ? null : this.badgeNow()
+        const badge = this.raidRound || this.arenaRound ? null : this.badgeNow()
         if (badge) drawProfileBadge(out, BADGE_X, BADGE_Y, badge)
         else if (!this.raidRound) textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
         if (this.raid?.id === 'training_grounds' || (this.raidRound && this.raid?.id === 'trait')) textOut(out, this.tally, cam.w - 6, 5, (this.raidRound ? this.raidRound.left : this.raid.clock) <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
@@ -3060,7 +3211,8 @@ export class BattleDemo {
         // farming in front of a lost boss, the challenge button takes the bar's place
         const counting = !timed && seen !== null && seen.required > 0 && !this.run?.feed?.farming
         // a raid round drains over its own round, a boss over the boss timer
-        if (timed) drawEnrageTimer(this.hudBar, Math.min(1, this.fightTime / (this.raidRound ? Math.max(1e-6, this.raidRound.timer) : BOSS_TIMER_SECONDS)), this.time)
+        const roundSeconds = this.raidRound ? this.raidRound.timer : this.arenaRound ? this.arenaRound.timer : BOSS_TIMER_SECONDS
+        if (timed) drawEnrageTimer(this.hudBar, Math.min(1, this.fightTime / Math.max(1e-6, roundSeconds)), this.time)
         else if (counting) drawStageProgress(this.hudBar, seen.kills, seen.required, this.run!.feed?.walled ?? false)
         // a raid round's bars go top left, off the raid boss towering over the middle; elsewhere they are centred
         const hudX = this.raidRound ? 6 : (cam.w - HUD_BAR_W) >> 1

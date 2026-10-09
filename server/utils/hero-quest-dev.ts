@@ -37,7 +37,7 @@
 
 import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState, hqTraitSaveSlots, hqTraitSlots } from '#server/database/schema'
+import { hqArenaLog, hqArenaSeasonResults, hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState, hqTraitSaveSlots, hqTraitSlots } from '#server/database/schema'
 import { credit, creditGems } from '#server/utils/balance'
 import { isBossStage, sealGrantSet, settleHq } from '#server/utils/hero-quest'
 import { CLASS_NODES } from '#shared/utils/hero-quest/content/classes'
@@ -221,6 +221,8 @@ export interface DevGrant {
     essence?: number
     /** Hero Quest's own Trait currency (`traits.md`). */
     traitGems?: number
+    /** Arena Medals, for trying the Arena Shop. */
+    medals?: number
 }
 
 function positiveInt(value: unknown, field: string): number {
@@ -247,12 +249,14 @@ export async function devGrant(userId: string, grant: DevGrant) {
     const seals = grant.seals ? positiveInt(grant.seals, 'seals') : 0
     const essence = grant.essence ? positiveInt(grant.essence, 'essence') : 0
     const traitGems = grant.traitGems ? positiveInt(grant.traitGems, 'traitGems') : 0
+    const medals = grant.medals ? positiveInt(grant.medals, 'medals') : 0
 
-    if (seals || essence || traitGems) {
+    if (seals || essence || traitGems || medals) {
         await db.update(hqState)
             .set({
                 ...(seals ? sealGrantSet(seals) : {}),
                 ...(traitGems ? { traitGems: sql`${hqState.traitGems} + ${traitGems}` } : {}),
+                ...(medals ? { arenaMedals: sql`${hqState.arenaMedals} + ${medals}` } : {}),
                 ...(essence
                     ? {
                         gearEssence: sql`${hqState.gearEssence} + ${essence}`,
@@ -462,6 +466,8 @@ export async function devAway(userId: string) {
  * is ever added between them. Gold and Gems are untouched — see the module header.
  */
 export async function devReset(userId: string) {
+    await db.delete(hqArenaLog).where(eq(hqArenaLog.userId, userId))
+    await db.delete(hqArenaSeasonResults).where(eq(hqArenaSeasonResults.userId, userId))
     await db.delete(hqFights).where(eq(hqFights.userId, userId))
     await db.delete(hqLoadouts).where(eq(hqLoadouts.userId, userId))
     await db.delete(hqCollection).where(eq(hqCollection.userId, userId))

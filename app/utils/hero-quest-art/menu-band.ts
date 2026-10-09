@@ -13,9 +13,9 @@ import { SW, SH } from './scenery'
 import { HQ_MENU_SCENES, HQ_SCENE_LABELS, type HqMenuScene, type HqScene } from '../hero-quest-scenes'
 
 export const BAND_H = 22
-const BTN_W = 22
+// twelve buttons across the 272 px stage: 20 wide, 2 apart
+const BTN_W = 20
 const BTN_H = 18
-/** Two pixels, so eleven buttons fit the stage's 272 with room either side. */
 const BTN_GAP = 2
 
 /** The Loadouts glyph, shared with the prestige shop's Loadout Slots track. */
@@ -157,6 +157,8 @@ const ICONS: Readonly<Record<HqMenuScene, Glyph>> = {
     // a Trait Gem: what every Roll and every stored board spends
     traits: CURRENCY_ICONS.trait_gems!,
     raids: RAID_BANNER,
+    // the Arena pays in its Medals
+    arena: CURRENCY_ICONS.arena_medals!,
     classes: NODE_TREE,
     // Void Shards are what a prestige pays out
     prestige: CURRENCY_ICONS.void_shards!,

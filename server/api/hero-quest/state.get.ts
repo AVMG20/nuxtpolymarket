@@ -30,6 +30,8 @@ import { serializeHqMilestones } from '#server/utils/hero-quest-milestones'
 import { serializeTutorials } from '#server/utils/hero-quest-tutorials'
 import { getHolidayClaims, serializeHolidays } from '#server/utils/hero-quest-holidays'
 import { restoreStaleLoadoutSession, serializeLoadoutPreferences, serializeLoadoutSession } from '#server/utils/hero-quest-loadout'
+import { ensureSeasonsClosed, serializeArena, unclaimedSeasons } from '#server/utils/hero-quest-arena'
+import { arenaSeasonAt } from '#shared/utils/hero-quest/arena'
 import { GACHA_SYSTEMS } from '#shared/utils/hero-quest/gacha'
 import { getTraitSaves, serializeTraits } from '#server/utils/hero-quest-traits'
 
@@ -76,6 +78,7 @@ export default defineEventHandler(async (event) => {
             milestones: [],
             tutorials: { unlocked: [], seen: [] },
             traits: null,
+            arena: null,
             voidShards: '0',
             nextPrestigeReward: voidShardsFor(0).toString(),
             awaySeconds: 0,
@@ -101,7 +104,11 @@ export default defineEventHandler(async (event) => {
      * different numbers with two different jobs, and collapsing them would show the player a
      * balance missing everything they just earned.
      */
-    const [shopLevels, collections, traitBoard, traitSaves, loadoutRows, balance, raids, holidayClaims] = await Promise.all([
+    // a season this player fought in has ended: its standings are written before the reward is read
+    const now = Date.now()
+    if (state.arenaSeasonId > 0 && state.arenaSeasonId < arenaSeasonAt(now)) await ensureSeasonsClosed(now)
+
+    const [shopLevels, collections, traitBoard, traitSaves, loadoutRows, balance, raids, holidayClaims, arenaRewards] = await Promise.all([
         settleOutcome.shopLevels ?? getShopLevels(userId),
         settleOutcome.collections ?? getCollections(userId),
         settleOutcome.traits ?? getTraitBoard(userId),
@@ -109,7 +116,8 @@ export default defineEventHandler(async (event) => {
         getLoadouts(userId),
         getBalance(userId),
         serializeRaids(userId),
-        getHolidayClaims(userId)
+        getHolidayClaims(userId),
+        unclaimedSeasons(userId)
     ])
     const hero = heroSnapshotOf(state, shopLevels, collections, parseFloat(balance) || 0, traitBoard)
     // what a minute of the run's income is worth: the calendar's Gold days and the holiday gifts' Gold
@@ -146,6 +154,9 @@ export default defineEventHandler(async (event) => {
             Object.fromEntries(raids.map(r => [r.id, r.best])),
             Object.fromEntries(GACHA_SYSTEMS.map(s => [s, collections[s].length]))
         ),
+
+        /** The Arena: Medals, this season's Rating, today's attacks, the defence and any season reward waiting. */
+        arena: serializeArena(state, arenaRewards, now),
 
         guild: serializeGuild(state, collections.champion, shopLevels),
         forge: serializeForge(state, collections.gear),

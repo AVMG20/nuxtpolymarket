@@ -21,6 +21,7 @@ import type { TownEventData } from '#shared/utils/gamelogic/town-events'
 import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
 import type { HqSettings } from '#shared/utils/hero-quest/settings'
 import type { LoadoutSession } from '#shared/utils/hero-quest/loadout-session'
+import type { ArenaDefenseLoadout } from '#shared/utils/hero-quest/arena'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -1264,8 +1265,60 @@ export const hqState = pgTable('hq_state', {
    * timestamp column matches zero rows and fails closed forever (the standing platform warning).
    * Keeping these out of the column type makes that mistake harder to make later.
    */
-  freePullClaimedAt: jsonb('free_pull_claimed_at').$type<Record<string, string>>().notNull().default({})
-}, t => [index('hq_state_userId_idx').on(t.userId)])
+  freePullClaimedAt: jsonb('free_pull_claimed_at').$type<Record<string, string>>().notNull().default({}),
+
+  /**
+   * The live Global Power Number (`global-power-number.md`), Decimal as text, written by every
+   * settle for the platform leaderboard's Hero Quest column. Null until the first settle after it
+   * was added; nothing in the game reads it, the payload computes its own.
+   */
+  globalPowerNumber: text('global_power_number'),
+
+  // ── The Arena (`arena.md`) ───────────────────────────────────────────────────────
+  //
+  // None of it is run position: prestige keeps all of it. Written only under this row's lock,
+  // taken in user-ID order when an attack holds two (`server/utils/hero-quest-arena.ts`).
+
+  /**
+   * The stored defence (§1): the five Loadout components, apart from the live ones. Null until the
+   * player sets one, and a player without one is never drawn as a candidate.
+   */
+  defenseLoadout: jsonb('defense_loadout').$type<ArenaDefenseLoadout>(),
+  /**
+   * Defense GPN (§2): the GPN of the party `defenseLoadout` fields, Decimal as text, and its log10,
+   * which is what the matchmaking band is searched on (a Decimal can outgrow a double; its log
+   * can't). Written when the defence is saved, and only then, per the locked docs; the defender's
+   * level and collection move it between saves (`open-items.md` #52).
+   */
+  defenseGpn: text('defense_gpn'),
+  defenseGpnLog: doublePrecision('defense_gpn_log'),
+  /**
+   * Rating (§4) and matches fought for `arenaSeasonId`, the season they belong to (0: never). A row
+   * from an earlier season is rolled to the current one, back to the start, the first time anything
+   * touches it (`arena.rollStanding`); no cron resets anyone.
+   */
+  arenaRating: integer('arena_rating').notNull().default(1000),
+  arenaSeasonId: integer('arena_season_id').notNull().default(0),
+  arenaSeasonMatches: integer('arena_season_matches').notNull().default(0),
+  /** Arena Medals (§5). Persist across seasons and prestige. */
+  arenaMedals: integer('arena_medals').notNull().default(0),
+  /**
+   * Today's attacks (§3): made, extra ones bought, and the UTC day they count for, a `YYYY-MM-DD`
+   * string compared for equality like `sealLadderDate`. A new day starts both counters over.
+   */
+  arenaAttemptsUsedToday: integer('arena_attempts_used_today').notNull().default(0),
+  arenaExtraAttemptsPurchasedToday: integer('arena_extra_attempts_purchased_today').notNull().default(0),
+  arenaAttemptDate: text('arena_attempt_date'),
+  /**
+   * The opponent list (§2): a user ID per slot, null for a Training Dummy. Empty until first drawn;
+   * redrawn by a paid refresh and after every attack.
+   */
+  arenaCandidates: jsonb('arena_candidates').$type<(string | null)[]>().notNull().default([])
+}, t => [
+  index('hq_state_userId_idx').on(t.userId),
+  index('hq_state_defense_gpn_log_idx').on(t.defenseGpnLog),
+  index('hq_state_arena_rating_idx').on(t.arenaSeasonId, t.arenaRating)
+])
 
 /**
  * One row per owned item, across **all four gachas** — `system` discriminates
@@ -1350,7 +1403,7 @@ export const hqShopUpgrades = pgTable('hq_shop_upgrades', {
 export const hqFights = pgTable('hq_fights', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-  /** 'boss', or 'raid' with the raid in `context`; 'arena' joins them in Phase 4. */
+  /** 'boss', 'raid' with the raid in `context`, or 'arena' with both sides in it. */
   kind: text('kind').notNull(),
   seed: integer('seed').notNull(),
   /** The snapshot the fight was resolved against — hero, position, outcome detail. */
@@ -1440,6 +1493,54 @@ export const hqHolidayClaims = pgTable('hq_holiday_claims', {
 }, t => [
   uniqueIndex('hq_holiday_claims_user_holiday_year_idx').on(t.userId, t.holidayId, t.year),
   index('hq_holiday_claims_userId_idx').on(t.userId)
+])
+
+/**
+ * The Arena battle log (`arena.md` §8): one row per match per side, the newest `ARENA_LOG_SIZE`
+ * kept per player, pruned as each is written. A Training Dummy fight writes only the attacker's
+ * row (`isDummy`, no opponent). Separate from `hqFights`, which is the replay and audit record.
+ */
+export const hqArenaLog = pgTable('hq_arena_log', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** Null for a Training Dummy, and once the opponent's account is gone. */
+  opponentUserId: text('opponent_user_id').references(() => user.id, { onDelete: 'set null' }),
+  /** 'attacker' | 'defender'. */
+  role: text('role').notNull(),
+  won: boolean('won').notNull(),
+  ratingChange: integer('rating_change').notNull().default(0),
+  /** Only an attacker earns Medals (§5); 0 on every defender row. */
+  medalsEarned: integer('medals_earned').notNull().default(0),
+  isDummy: boolean('is_dummy').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('hq_arena_log_userId_createdAt_idx').on(t.userId, t.createdAt)])
+
+/**
+ * Arena seasons that have been closed: one row each, inserted by the first request after a season
+ * ends. The insert is the claim — `ON CONFLICT DO NOTHING` lets exactly one request write that
+ * season's final standings (`hqArenaSeasonResults`) while every other one waits for it.
+ */
+export const hqArenaSeasons = pgTable('hq_arena_seasons', {
+  seasonId: integer('season_id').primaryKey(),
+  closedAt: timestamp('closed_at').defaultNow().notNull()
+})
+
+/**
+ * A closed season's final standings (§7): every player who fought or was fought in it, their
+ * Rating, rank and what the rank pays. `claimed` is the claim-then-reward flag: a claim flips it
+ * from false and pays only the rows that came back.
+ */
+export const hqArenaSeasonResults = pgTable('hq_arena_season_results', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  seasonId: integer('season_id').notNull(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  rating: integer('rating').notNull(),
+  rank: integer('rank').notNull(),
+  medals: integer('medals').notNull(),
+  claimed: boolean('claimed').notNull().default(false)
+}, t => [
+  unique('hq_arena_season_results_unique').on(t.seasonId, t.userId),
+  index('hq_arena_season_results_userId_idx').on(t.userId)
 ])
 
 export const chatMessages = pgTable('chat_messages', {

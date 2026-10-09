@@ -4,12 +4,14 @@ import { D, formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
 import { RARITIES, sealLadderTotal, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { FormationRow, Rarity } from '#shared/utils/hero-quest/types'
 import { GEAR_SLOTS, GEAR_SLOT_NAME } from '#shared/utils/hero-quest/content/gear'
-import { CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
+import { ARENA_FIGHT_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
+import { ARENA_SHOP } from '#shared/utils/hero-quest/arena'
+import { getRaid } from '#shared/utils/hero-quest/content/raids'
+import type { ArenaBoardRow, ArenaFace, ArenaItemView, ArenaResultView, ArenaTarget, ArenaView } from '~/utils/hero-quest-art/arena-scene'
 import type { CollectionAction, CollectionLine, CollectionSection, CollectionTile, DetailButton } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesView } from '~/utils/hero-quest-art/classes-scene'
-import type { StagePack } from '~/utils/hero-quest-art/demo'
 import type { SpeedView } from '~/utils/hero-quest-art/speed-scene'
 import type { SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
 import type { CalendarGiftView, CalendarView } from '~/utils/hero-quest-art/calendar-scene'
@@ -17,7 +19,7 @@ import type { MilestonesView } from '~/utils/hero-quest-art/milestones-scene'
 import type { TraitsTarget, TraitsView } from '~/utils/hero-quest-art/traits-scene'
 import type { TraitGrade } from '~/utils/hero-quest-art/palette'
 import type { RaidRewardView, RaidRowView } from '~/utils/hero-quest-art/raids-scene'
-import type { RaidId as StageRaidId, StageRaid } from '~/utils/hero-quest-art/demo'
+import type { RaidId as StageRaidId, StageArena, StagePack, StageRaid } from '~/utils/hero-quest-art/demo'
 import { RAIDS, type RaidId } from '#shared/utils/hero-quest/content/raids'
 import { LOADOUT_TARGETS } from '#shared/utils/hero-quest/loadout-session'
 import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
@@ -47,8 +49,11 @@ const {
     shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
     pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid, calendar, claimCalendar,
     holidays, claimHoliday, milestones, claimMilestones, ascendant, tutorials, markTutorialSeen, resetTutorials,
-    traits, rollTraits, lockTrait, saveTraits, loadTraits, buyTraitSaveSlot
+    traits, rollTraits, lockTrait, saveTraits, loadTraits, buyTraitSaveSlot,
+    milestones, claimMilestones, arena, arenaCandidates, arenaLog, arenaBoard, loadArenaCandidates, loadArenaLog,
+    loadArenaBoard, refreshArenaCandidates, attackArena, buyArenaAttempt, setArenaDefense, buyArenaItem, claimArenaSeason
 } = useHeroQuest()
+const toast = useToast()
 const { user } = useAuth()
 
 /**
@@ -726,6 +731,177 @@ async function onRaidQuick(raidId: RaidId) {
     }
 }
 
+/**
+ * The Arena scene: the payload's Medals, Rating, attacks and defence, and the reads its tabs make
+ * as they open (the opponent list, the battle log, the leaderboard). The stage keeps the tab and
+ * page; everything here is the server's.
+ */
+const arenaClock = useHqClock()
+const arenaBusy = ref(false)
+
+/** `4D 03H` past a day, `5H 12M` under one. */
+function spanLeft(ms: number): string {
+    const minutes = Math.max(0, Math.floor(ms / 60_000))
+    const days = Math.floor(minutes / 1440)
+    const hours = Math.floor((minutes % 1440) / 60)
+    if (days > 0) return `${days}D ${String(hours).padStart(2, '0')}H`
+    return `${hours}H ${String(minutes % 60).padStart(2, '0')}M`
+}
+
+/** How long ago, in the log's terms. */
+function ago(at: number): string {
+    const minutes = Math.max(0, Math.floor((arenaClock.value - at) / 60_000))
+    if (minutes < 60) return `${minutes}M`
+    if (minutes < 1440) return `${Math.floor(minutes / 60)}H`
+    return `${Math.floor(minutes / 1440)}D`
+}
+
+const SEAL_NAMES: Readonly<Record<string, string>> = { champion: 'Guild Seal', skill: 'Skill Seal', artifact: 'Excavation Seal', gear: 'Forge Seal' }
+
+const arenaShop: ArenaItemView[] = ARENA_SHOP.map((item) => {
+    switch (item.kind) {
+        case 'seals': return { id: item.id, kind: item.kind, system: item.system, name: SEAL_NAMES[item.system] ?? 'Seal', sub: '', price: item.price, poor: false }
+        case 'keys': return { id: item.id, kind: item.kind, raid: item.raid, name: getRaid(item.raid).key.replace(/s$/, ''), sub: '', price: item.price, poor: false }
+        case 'gold': return { id: item.id, kind: item.kind, name: 'Gold', sub: `${item.minutes} MIN`, price: item.price, poor: false }
+        case 'gems': return { id: item.id, kind: item.kind, name: 'Gem', sub: '', price: item.price, poor: true }
+    }
+})
+
+/** A party as faces on its rows: the Hero's class and each Champion. */
+function facesOf(classId: string, heroRow: 'front' | 'back', champions: readonly { id: string, row: 'front' | 'back' }[]): ArenaFace[] {
+    return [{ asset: `hero/${classId}`, row: heroRow }, ...champions.map(c => ({ asset: `champion/${c.id}`, row: c.row }))]
+}
+
+const arenaView = computed<Omit<ArenaView, 'tab' | 'page'>>(() => {
+    const a = arena.value
+    const rarityIn = (roster: readonly { id: string, rarity: string }[] | undefined) => {
+        const map = new Map((roster ?? []).map(e => [e.id, e.rarity]))
+        return (id: string) => ({ id, rarity: map.get(id) ?? 'common' })
+    }
+    const d = a?.defense
+    const board = arenaBoard.value
+    const rows: ArenaBoardRow[] = board
+        ? [...board.top, ...(board.around.length ? [{ rank: 0, name: '', rating: 0, you: false, gap: true }, ...board.around] : [])]
+        : []
+    return {
+        busy: arenaBusy.value,
+        rating: a?.rating ?? 0,
+        medals: a?.medals ?? 0,
+        season: a?.season ?? 1,
+        seasonLeft: a ? spanLeft(a.seasonEndsAt - arenaClock.value) : '',
+        attemptsLeft: a?.attempts.left ?? 0,
+        attemptsFree: a?.attempts.free ?? 0,
+        attemptPrice: a?.attempts.nextPrice ?? 0,
+        refreshGems: a?.refreshGems ?? 0,
+        gems: user.value?.gems ?? 0,
+        rewards: a?.unclaimed ?? [],
+        candidates: arenaCandidates.value?.map(c => ({
+            slot: c.slot,
+            id: c.id,
+            dummy: c.dummy,
+            name: c.name,
+            rating: c.rating,
+            gpn: c.defenseGpn ? formatHq(c.defenseGpn) : null,
+            faces: c.classId ? facesOf(c.classId, c.heroRow ?? 'front', c.champions) : []
+        })) ?? null,
+        defense: d
+            ? {
+                gpn: d.gpn ? formatHq(d.gpn) : '-',
+                faces: facesOf(hero.value?.classId ?? 'class_beginner', d.formation.hero ?? guild.value?.heroRow ?? 'front', d.partyChampionIds.map(id => ({ id, row: d.formation[id] ?? 'front' }))),
+                skills: d.equippedSkillIds.map(rarityIn(training.value?.roster)),
+                artifacts: d.equippedArtifactIds.map(rarityIn(digSite.value?.roster)),
+                gear: GEAR_SLOTS.flatMap(slot => d.equippedGear[slot] ? [rarityIn(forge.value?.roster)(d.equippedGear[slot]!)] : [])
+            }
+            : null,
+        loadouts: Array.from({ length: loadouts.value?.slots ?? 0 }, (_, slotIndex) => {
+            const saved = loadouts.value?.saved.find(p => p.slotIndex === slotIndex)
+            return { slotIndex, name: saved?.name ?? `Loadout ${slotIndex + 1}`, saved: !!saved }
+        }),
+        shop: arenaShop,
+        log: arenaLog.value?.map(e => ({
+            outcome: e.role === 'attacker' ? (e.won ? 'WON' : 'LOST') : (e.won ? 'HELD' : 'FELL'),
+            won: e.won,
+            attacker: e.role === 'attacker',
+            opponent: e.opponentName,
+            ratingChange: e.ratingChange,
+            medals: e.medalsEarned,
+            ago: ago(e.at)
+        })) ?? null,
+        board: board ? { rows, me: board.me } : null
+    }
+})
+
+/** Run a read for the Arena; a failure is an error toast, never a thrown page. */
+async function arenaRead(read: () => Promise<void>) {
+    try {
+        await read()
+    } catch (e) {
+        toast.add({ title: apiErrorMessage(e, 'Could not load the Arena'), color: 'error' })
+    }
+}
+
+/** A tab opened: the reads it shows go out, the list only when there is none yet. */
+function onArenaTab(tab: HqArenaTab) {
+    if (tab === 'fight' && !arenaCandidates.value) void arenaRead(loadArenaCandidates)
+    if (tab === 'log') void arenaRead(loadArenaLog)
+    if (tab === 'ranking') void arenaRead(loadArenaBoard)
+}
+
+/** The Arena attack the stage is playing in place of the run, and what it came to, held until its replay ends. */
+const arenaRound = ref<StageArena | null>(null)
+const arenaResult = ref<ArenaResultView | null>(null)
+let arenaOutcome: ArenaResultView | null = null
+
+async function onArenaAction(target: ArenaTarget) {
+    arenaBusy.value = true
+    try {
+        if (target.startsWith('attack:')) await startArenaAttack(Number(target.slice(7)))
+        else if (target === 'refresh') await refreshArenaCandidates()
+        else if (target === 'buy-attempt') await buyArenaAttempt()
+        else if (target === 'claim') await claimArenaSeason()
+        else if (target === 'def:live') await setArenaDefense({ source: 'live' })
+        else if (target.startsWith('def:')) await setArenaDefense({ source: 'loadout', slotIndex: Number(target.slice(4)) })
+        else if (target.startsWith('shop:')) {
+            const [, itemId, quantity] = target.split(':')
+            await buyArenaItem(itemId!, Number(quantity))
+        }
+    } catch {
+        // `useHeroQuest` has already shown the error; an attack refused for a stale list gets a fresh one
+        if (target.startsWith('attack:')) void arenaRead(loadArenaCandidates)
+    } finally {
+        arenaBusy.value = false
+    }
+}
+
+async function startArenaAttack(slot: number) {
+    const candidate = arenaCandidates.value?.[slot]
+    if (!candidate) return
+    const round = await attackArena(slot, candidate.id)
+    if (!round) return
+    fightProgress.value = { time: 0, done: false }
+    arenaOutcome = { won: round.won, dummy: round.dummy, opponent: round.opponentName, ratingChange: round.ratingChange, rating: round.rating, medals: round.medals }
+    arenaRound.value = {
+        outcome: round.outcome,
+        secondsElapsed: round.secondsElapsed,
+        events: round.events,
+        partyIds: round.partyIds,
+        partyMaxHps: round.partyMaxHps,
+        enemyMaxHps: round.enemyMaxHps,
+        opponent: round.opponentName,
+        enemy: round.enemy,
+        // Battle Speed never touches an Arena fight (§1): it plays at its own pace
+        timer: ARENA_FIGHT_SECONDS
+    }
+    emit('scene', 'battle')
+}
+
+/** The result popup's button: the round is put away and the Arena comes back, to go again. */
+function closeArenaResult() {
+    arenaResult.value = null
+    arenaRound.value = null
+    emit('scene', 'arena')
+}
+
 /** The Settings scene: every setting's value, and the tutorials ready to reset. */
 const settingsView = computed<SettingsView>(() => ({ settings: settings.value ?? { ...HQ_SETTING_DEFAULTS }, tutorialsReady: true }))
 const settingsBusy = ref(false)
@@ -1059,9 +1235,12 @@ const stagePack = ref<StagePack | null>(null)
 
 // the round's last blow lands, then its reward goes up; the popup's button brings the run back
 watch(() => fightProgress.value.done, (done) => {
-    if (!done || !raidRound.value) return
+    if (!done || (!raidRound.value && !arenaRound.value)) return
     if (raidHold) clearTimeout(raidHold)
-    raidHold = setTimeout(() => { raidReward.value = roundReward }, RAID_REWARD_DELAY_MS)
+    raidHold = setTimeout(() => {
+        if (arenaRound.value) arenaResult.value = arenaOutcome
+        else raidReward.value = roundReward
+    }, RAID_REWARD_DELAY_MS)
 })
 onUnmounted(() => { if (raidHold) clearTimeout(raidHold) })
 const battleCanvas = ref<{ skipFight: () => void, closeIris: () => Promise<HqIntroRect | null> } | null>(null)
@@ -1179,7 +1358,7 @@ useHqAutoBoss({
     lostHere: () => lostHere.value,
     secondsPerKill: () => liveRun.value?.secondsPerKill ?? null,
     engaging: () => engaging.value,
-    replayOpen: () => fight.value !== null || raidRound.value !== null,
+    replayOpen: () => fight.value !== null || raidRound.value !== null || arenaRound.value !== null,
     engage: () => runFightAt(true)
 })
 
@@ -1291,6 +1470,9 @@ const awayReport = computed(() => {
           :loadouts-saved="savedSlots.length > 0"
           :raid-round="raidRound"
           :raid-reward="raidReward"
+          :arena="arenaView"
+          :arena-round="arenaRound"
+          :arena-result="arenaResult"
           :classes="classesView"
           :classes-busy="classesBusy"
           @fight-progress="fightProgress = $event"
@@ -1316,6 +1498,9 @@ const awayReport = computed(() => {
           @raid-quick="onRaidQuick"
           @raid-loadout="onRaidLoadout"
           @raid-reward-close="closeRaidReward"
+          @arena-action="onArenaAction"
+          @arena-tab="onArenaTab"
+          @arena-result-close="closeArenaResult"
           @pick-class="onPickClass"
           @set-ascendant-kit="onSetAscendantKit"
         />
