@@ -151,7 +151,7 @@ const GRADE_GLYPHS: Readonly<Record<string, readonly string[]>> = {
 export const TRAIT_FRAME_W = 116
 export const TRAIT_FRAME_H = 20
 /** Where the grade tab ends and the text begins: the divider's column. Wide enough that SSS keeps 3 px each side inside the deeper band. */
-const TRAIT_TAB = 22
+export const TRAIT_TAB = 22
 
 /**
  * A trait-grade frame: a slot for one trait's effect string. A bevelled band in the grade's ramp,

@@ -464,7 +464,10 @@ function incomingDpsAgainst(pack: EnemyPack, defender: UnitStats): Decimal {
 export function secondsToDie(
     units: readonly UnitStats[],
     pack: EnemyPack,
-    /** Party healing per second, which extends every defender's life proportionally. */
+    /**
+     * Party healing per second, which extends every defender's life proportionally. Each
+     * defender's own `regenPerSecond` is added to it while that defender is the one being hit.
+     */
     healingPerSecond: Decimal = ZERO,
     /**
      * Flat damage-reduction factor from passive modifiers (Artifacts' Defense category, Skills'
@@ -479,7 +482,8 @@ export function secondsToDie(
         const raw = incomingDpsAgainst(pack, unit).mul(Math.max(0, damageTakenFactor))
         // Sustain is subtracted from the stream, floored so healing can never fully cancel it
         // — see `MAX_SUSTAIN_MITIGATION` for why an immortal projection is the failure mode.
-        const incoming = sustainedIncoming(raw, healingPerSecond)
+        // the defender's own regeneration (Traits' Divine Blessing) joins the party's sustain
+        const incoming = sustainedIncoming(raw, healingPerSecond.add(unit.maxHp.mul(unit.regenPerSecond)))
         if (incoming.lte(0)) return Number.POSITIVE_INFINITY
         const seconds = unit.maxHp.div(incoming).toNumber()
         if (!Number.isFinite(seconds)) return Number.POSITIVE_INFINITY

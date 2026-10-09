@@ -16,13 +16,42 @@ export type StatTier = 'low' | 'mid' | 'mid_high' | 'high'
 
 /**
  * The 6 main stats, identical for Hero and Champions. HP and EVA are secondary — HP is
- * derived from VIT, EVA is granted only by external sources (Traits, Phase 4).
+ * derived from VIT, EVA is granted only by external sources (Traits' Vital Reflex set).
  *
  * **Decimal, not `number`** — stat growth is geometric (`STAT_PER_LEVEL_GROWTH`), so a float
  * block overflows to `Infinity` at a hero level unbounded prestige reaches. Everything
  * downstream — damage, HP, mitigation — is Decimal too.
  */
 export type HqStatBlock = Record<HqStatKey, Decimal>
+
+/** A Trait's rolled stat (`traits.md` §4). Stable IDs: they are stored in `hq_trait_slots`. */
+export type TraitStatId =
+    | 'trait_atk'
+    | 'trait_spd'
+    | 'trait_hp'
+    | 'trait_champion_atk'
+    | 'trait_hero_skill_dmg'
+    | 'trait_lck'
+    | 'trait_imp'
+    | 'trait_exp_gain'
+
+/** Traits' own F → SSS grade scale (`traits.md` §2), separate from gacha rarity. */
+export type TraitGrade = 'F' | 'E' | 'D' | 'C' | 'B' | 'A' | 'S' | 'SS' | 'SSS'
+
+/** The five Trait Sets (`traits.md` §5). */
+export type TraitSetId =
+    | 'set_vital_reflex'
+    | 'set_divine_blessing'
+    | 'set_aggression'
+    | 'set_deep_impact'
+    | 'set_back_to_basics'
+
+/** What one Trait slot rolled: three independent rolls (`traits.md` §2). */
+export interface TraitRoll {
+    stat: TraitStatId
+    grade: TraitGrade
+    set: TraitSetId
+}
 
 /**
  * A class node's specialization shift, authored as plain numbers.
@@ -169,7 +198,20 @@ export interface UnitStats {
     critChance: number
     /** Decimal: IMP is unbounded, so the crit multiplier it drives is too. */
     critMultiplier: Decimal
+    /**
+     * Evasion Rate (`classes-and-combat.md` §7): the share of incoming attacks that miss. 0 for
+     * every unit unless something grants it (Traits' Vital Reflex), clamped at `MAX_EVASION`.
+     */
     eva: number
+    /**
+     * Multiplier on the damage of this unit's own abilities. 1 except on the Hero, where Traits'
+     * Hero Skill DMG lands (`traits.md` §4) — the Hero's skills only, never a Champion's.
+     */
+    skillDamageFactor: number
+    /** Multiplier on this unit's basic-attack damage (Traits' Back to Basics set). 1 means untouched. */
+    basicAttackFactor: number
+    /** Fraction of max HP this unit recovers every second (Traits' Divine Blessing set). */
+    regenPerSecond: number
     /**
      * Multiplier on every one of this unit's skill cooldowns, from Artifacts' Tempo category.
      *
@@ -307,6 +349,11 @@ export interface HeroSnapshot {
      * passive (`artifactCollectionModifiers`), on top of what an equipped one pays the party.
      */
     ownedArtifacts?: readonly OwnedCopy[]
+    /**
+     * The rolled Trait slots (`traits.md`), empty ones left out. **Party-wide** like Artifacts,
+     * except Hero Skill DMG (Hero only) and Champion ATK (Champions only) — see `traitModifiers`.
+     */
+    traits?: readonly TraitRoll[]
     /** Levels bought in the prestige shop's stat tracks, by stat. Party-wide (`shopStatModifiers`). */
     shopStatLevels?: Readonly<Partial<Record<HqStatKey, number>>>
     /**

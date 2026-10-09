@@ -90,6 +90,8 @@ export const useHeroQuest = () => {
     const milestones = computed(() => state.value?.milestones ?? [])
     /** The features open, in the order they opened, and the guide's tutorials seen; null before the first read. */
     const tutorials = computed(() => state.value?.tutorials ?? null)
+    /** The Traits: the live board, the Roll's price, every Set's tier, and the save slots. */
+    const traits = computed(() => state.value?.traits ?? null)
     /** The Settings scene's choices, defaults filled in by the server. */
     const settings = computed(() => state.value?.settings ?? null)
     const voidShards = computed(() => state.value?.voidShards ?? '0')
@@ -256,6 +258,33 @@ export const useHeroQuest = () => {
     async function claimMilestones(track?: string) {
         const res = await call<{ rewards: { kind: string, amount: number }[] }>('/api/hero-quest/milestones/claim', track ? { track } : {}, '')
         if (res?.rewards.some(r => r.kind === 'gems')) await fetchSession()
+        return res
+    }
+
+    /** Roll every unlocked Trait slot, for the Trait Gems the board's locks price it at. */
+    async function rollTraits() {
+        return call<{ spent: number, traitGems: number }>('/api/hero-quest/trait/roll', {}, '')
+    }
+
+    /** Lock or unlock a Trait slot: free. */
+    async function lockTrait(slotIndex: number, locked: boolean) {
+        return call('/api/hero-quest/trait/lock', { slotIndex, locked }, '')
+    }
+
+    /** Store the live Trait board in a save slot, for Trait Gems. */
+    async function saveTraits(saveSlotIndex: number) {
+        return call('/api/hero-quest/trait/save', { saveSlotIndex }, '')
+    }
+
+    /** Load a stored Trait board onto the live slots, for Trait Gems. */
+    async function loadTraits(saveSlotIndex: number) {
+        return call('/api/hero-quest/trait/load', { saveSlotIndex }, '')
+    }
+
+    /** Buy the next Trait save slot. Gems have no setter of their own, so the session is read back. */
+    async function buyTraitSaveSlot() {
+        const res = await call('/api/hero-quest/prestige/shop-buy', { upgradeId: 'traitSaveSlots' }, '')
+        await fetchSession()
         return res
     }
 
@@ -460,6 +489,7 @@ export const useHeroQuest = () => {
         holidays,
         milestones,
         tutorials,
+        traits,
         settings,
         voidShards,
         nextPrestigeReward,
@@ -480,6 +510,11 @@ export const useHeroQuest = () => {
         claimMilestones,
         markTutorialSeen,
         resetTutorials,
+        rollTraits,
+        lockTrait,
+        saveTraits,
+        loadTraits,
+        buyTraitSaveSlot,
         engageRaid,
         quickClearRaid,
         pull,

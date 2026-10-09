@@ -219,7 +219,7 @@ export const TAB_BACKGROUNDS: readonly TabBackground[] = [
         }
     },
     {
-        id: 'traits', label: 'Traits', built: false,
+        id: 'traits', label: 'Traits', built: true,
         draw(s, t) {
             rect(s, 0, 0, SW, SH, C.night0)
             // a crystal cavern with five sockets

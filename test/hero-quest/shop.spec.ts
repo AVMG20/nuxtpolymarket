@@ -30,15 +30,15 @@ import {
 import { offlineCapHours, offlineEfficiency } from '#shared/utils/hero-quest/settle'
 
 describe('hero-quest prestige shop', () => {
-    it('exposes the offline pair, four slot tracks and the four stat tracks', () => {
-        // One slot track per system that has slots. The remaining §4 sinks (Raid Keys,
+    it('exposes the offline pair, five slot tracks and the four stat tracks', () => {
+        // One slot track per system that has slots, Trait save slots included (`traits.md` §6). The remaining §4 sinks (Raid Keys,
         // kill-count reduction, boss-timer extension) still have no formula, level count or
         // magnitude in any doc. The stat tracks are `open-items.md` #41: PWR, DEF, IMP and VIT
         // only, since SPD and LCK run into ceilings.
         expect(SHOP_TRACKS.map(track => track.id).sort()).toEqual([
             'artifactSlots', 'championSlots', 'loadoutSlots',
             'offlineCap', 'offlineEfficiency', 'skillSlots',
-            'statDef', 'statImp', 'statPwr', 'statVit'
+            'statDef', 'statImp', 'statPwr', 'statVit', 'traitSaveSlots'
         ])
     })
 
@@ -90,13 +90,18 @@ describe('hero-quest prestige shop', () => {
         expect(SHOP_TRACKS.some(track => track.id.startsWith('gear'))).toBe(false)
     })
 
-    it('prices Loadout slots in Gems and everything else in Void Shards', () => {
-        // The only non-Void-Shard track in the game. Loadout slots add zero combat power on
-        // their own — pure convenience — which is why they take the convenience currency
-        // (`loadouts.md` §3).
+    it('prices Loadout and Trait save slots in Gems and everything else in Void Shards', () => {
+        // The two non-Void-Shard tracks in the game. Both add zero combat power on their own —
+        // pure convenience — which is why they take the convenience currency (`loadouts.md` §3,
+        // `traits.md` §6).
         for (const track of SHOP_TRACKS) {
-            expect(track.currency, track.id).toBe(track.id === 'loadoutSlots' ? 'gems' : 'voidShards')
+            expect(track.currency, track.id).toBe(track.id === 'loadoutSlots' || track.id === 'traitSaveSlots' ? 'gems' : 'voidShards')
         }
+    })
+
+    it('prices Trait save slots on the flat +500 step, 250 / 750 / 1250, three levels', () => {
+        expect([0, 1, 2, 3].map(level => shopTrackCost('traitSaveSlots', level))).toEqual([250, 750, 1250, null])
+        expect(maxLevelFor('traitSaveSlots')).toBe(3)
     })
 
     it('rounds every Gems price to an integer, since debitGems rejects a fraction', () => {

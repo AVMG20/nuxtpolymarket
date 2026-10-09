@@ -18,6 +18,7 @@
  * | Gear | Hero only | `gear-equipment.md` §1 — "Hero-only equipment" |
  * | Skills | Hero only | `skills-gacha.md` §1 — "Hero-only" |
  * | Artifacts | Whole fielded party | `artifacts-dig-site-gacha.md` §1 |
+ * | Traits | Whole fielded party, two stats aside | `traits.md` §0 |
  *
  * ## Stacking is additive, and that is doc-mandated
  *
@@ -70,6 +71,17 @@ export type ModifierKind =
     | 'controlResist'
     /** Fraction of incoming damage reflected back at the attacker. */
     | 'reflect'
+    /**
+     * Added to Evasion Rate as a rate (`classes-and-combat.md` §7): +0.1 is ten points of it.
+     * Clamped at `MAX_EVASION` once every source is summed. Traits' Vital Reflex is the only source.
+     */
+    | 'evasion'
+    /** Fraction added to the damage of the bearer's own abilities (Traits' Hero Skill DMG). */
+    | 'skillDamage'
+    /** Fraction added to basic-attack damage (Traits' Back to Basics). */
+    | 'basicAttack'
+    /** Share of max HP recovered every second (Traits' Divine Blessing). */
+    | 'regen'
 
 export interface HqModifier {
     kind: ModifierKind
@@ -118,6 +130,14 @@ export interface ModifierTotals {
     cooldownFactor: number
     controlResist: number
     reflectFraction: number
+    /** Evasion Rate, summed and not yet clamped. */
+    evasion: number
+    /** Multiply the bearer's ability damage by this. */
+    skillDamageFactor: number
+    /** Multiply the bearer's basic-attack damage by this. */
+    basicAttackFactor: number
+    /** Share of max HP recovered every second. */
+    regenPerSecond: number
 }
 
 export function noModifiers(): ModifierTotals {
@@ -133,7 +153,11 @@ export function noModifiers(): ModifierTotals {
         offlineEfficiencyPct: 0,
         cooldownFactor: 1,
         controlResist: 0,
-        reflectFraction: 0
+        reflectFraction: 0,
+        evasion: 0,
+        skillDamageFactor: 1,
+        basicAttackFactor: 1,
+        regenPerSecond: 0
     }
 }
 
@@ -190,6 +214,18 @@ export function sumModifiers(modifiers: readonly HqModifier[]): ModifierTotals {
             case 'reflect':
                 totals.reflectFraction += magnitude
                 break
+            case 'evasion':
+                totals.evasion += magnitude
+                break
+            case 'skillDamage':
+                totals.skillDamageFactor += magnitude
+                break
+            case 'basicAttack':
+                totals.basicAttackFactor += magnitude
+                break
+            case 'regen':
+                totals.regenPerSecond += magnitude
+                break
         }
     }
 
@@ -220,5 +256,9 @@ export function mergeTotals(a: ModifierTotals, b: ModifierTotals): ModifierTotal
     merged.cooldownFactor = Math.max(0, a.cooldownFactor + b.cooldownFactor - 1)
     merged.controlResist = a.controlResist + b.controlResist
     merged.reflectFraction = a.reflectFraction + b.reflectFraction
+    merged.evasion = a.evasion + b.evasion
+    merged.skillDamageFactor = a.skillDamageFactor + b.skillDamageFactor - 1
+    merged.basicAttackFactor = a.basicAttackFactor + b.basicAttackFactor - 1
+    merged.regenPerSecond = a.regenPerSecond + b.regenPerSecond
     return merged
 }

@@ -1360,6 +1360,51 @@ export const hqFights = pgTable('hq_fights', {
 }, t => [index('hq_fights_userId_idx').on(t.userId)])
 
 /**
+ * The five live Trait slots (`traits.md` §1–3, `tech-architecture.md` §3), one row per slot index.
+ * No rows until the first Roll, which fills all five at once (§1: every slot starts empty).
+ *
+ * Only IDs are stored — `stat`, `grade`, `setId` — and what they are worth is read from
+ * `constants.ts` at use, so retuning a grade's value never needs a migration. `locked` is the free
+ * protect-from-reroll flag. Every write happens under the `hq_state` row lock, which is the mutex
+ * a Roll's Trait Gem spend already needs.
+ */
+export const hqTraitSlots = pgTable('hq_trait_slots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** 0..4. */
+  slotIndex: integer('slot_index').notNull(),
+  /** A `TraitStatId` from `content/traits.ts`. */
+  stat: text('stat').notNull(),
+  /** 'F' .. 'SSS'. */
+  grade: text('grade').notNull(),
+  /** A `TraitSetId`. */
+  setId: text('set_id').notNull(),
+  locked: boolean('locked').notNull().default(false)
+}, t => [
+  unique('hq_trait_slots_unique').on(t.userId, t.slotIndex),
+  index('hq_trait_slots_userId_idx').on(t.userId)
+])
+
+/**
+ * Stored Trait boards (`traits.md` §6): a save slot holds all five slots as they were, locks
+ * included. Separate from Loadouts, which never capture Traits (§7). Slot count reads
+ * `hqShopUpgrades` at `upgradeId = 'traitSaveSlots'`, Gems-priced, 1 → 4.
+ */
+export const hqTraitSaveSlots = pgTable('hq_trait_save_slots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** 0..3, bounded by the purchased slot count at write time. */
+  saveSlotIndex: integer('save_slot_index').notNull(),
+  name: text('name').notNull().default(''),
+  /** The five slots, in slot order: `{ stat, grade, set, locked }` each. */
+  snapshot: jsonb('snapshot').$type<{ stat: string, grade: string, set: string, locked: boolean }[]>().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+}, t => [
+  unique('hq_trait_save_slots_unique').on(t.userId, t.saveSlotIndex),
+  index('hq_trait_save_slots_userId_idx').on(t.userId)
+])
+
+/**
  * One row per player per raid (`tech-architecture.md` §3): the ladder and the Keys. Written only
  * under its own row lock: the grant clock is a timestamp, so it is never compare-and-swapped.
  */

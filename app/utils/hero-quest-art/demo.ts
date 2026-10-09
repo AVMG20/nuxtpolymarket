@@ -1521,6 +1521,11 @@ export class BattleDemo {
             const t = this.partyUnit(h.unitIndex)
             this.setPartyHp(h.unitIndex, h.remainingHp)
             if (!t || quiet || !standingAny(t)) return
+            // a dodged hit (Evasion Rate, `classes-and-combat.md` §7): the word, and no blow
+            if (h.miss) {
+                this.number(t.x, t.y - t.chest - 8, 'miss')
+                return
+            }
             this.particles.burst(t.x + 4, t.y - t.chest, 8, 45, 0.5, 'blood', 120, t.y)
             this.struck(t, JUICE.hit.hold)
             return

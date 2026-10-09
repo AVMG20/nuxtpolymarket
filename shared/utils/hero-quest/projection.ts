@@ -376,7 +376,8 @@ export function partyAbilityDpsByUnit(
             // `rawHitDamage` and `fight.rollDamage` do it. Flooring the base and then
             // multiplying would pay `MIN_DAMAGE × multiplier` for a fully-mitigated ability,
             // inflating every kit whose damage sits near the floor.
-            const multiplier = entry.abilityMultiplier * (effect.wealthScaled ? wealth : 1)
+            // the unit's own ability damage, which Traits' Hero Skill DMG raises on the Hero alone
+            const multiplier = entry.abilityMultiplier * (effect.wealthScaled ? wealth : 1) * stats.skillDamageFactor
             const perHit = decMax(MIN_DAMAGE, stats.pwr.mul(penetration).mul(multiplier))
 
             // Bodies struck per cast. An AoE that reaches the whole pack does `packSize` times

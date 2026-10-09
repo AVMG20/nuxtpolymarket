@@ -11,7 +11,11 @@ const KIND_LABELS: Readonly<Record<Exclude<ModifierKind, 'stat'>, string>> = {
     offlineEfficiency: 'Offline gain',
     cooldown: 'Cooldowns',
     controlResist: 'Control resist',
-    reflect: 'Damage reflected'
+    reflect: 'Damage reflected',
+    evasion: 'Evasion',
+    skillDamage: 'Hero skill DMG',
+    basicAttack: 'Basic attack DMG',
+    regen: 'Max HP regen/s'
 }
 
 /** Kinds whose magnitude takes something away, so they read with a minus. */

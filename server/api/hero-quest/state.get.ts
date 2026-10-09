@@ -5,6 +5,7 @@ import {
     getHqState,
     getLoadouts,
     getShopLevels,
+    getTraitBoard,
     heroSnapshotOf,
     serializeClassTree,
     serializeDigSite,
@@ -30,6 +31,7 @@ import { serializeTutorials } from '#server/utils/hero-quest-tutorials'
 import { getHolidayClaims, serializeHolidays } from '#server/utils/hero-quest-holidays'
 import { restoreStaleLoadoutSession, serializeLoadoutPreferences, serializeLoadoutSession } from '#server/utils/hero-quest-loadout'
 import { GACHA_SYSTEMS } from '#shared/utils/hero-quest/gacha'
+import { getTraitSaves, serializeTraits } from '#server/utils/hero-quest-traits'
 
 /**
  * The one read the client makes.
@@ -73,6 +75,7 @@ export default defineEventHandler(async (event) => {
             holidays: null,
             milestones: [],
             tutorials: { unlocked: [], seen: [] },
+            traits: null,
             voidShards: '0',
             nextPrestigeReward: voidShardsFor(0).toString(),
             awaySeconds: 0,
@@ -98,15 +101,17 @@ export default defineEventHandler(async (event) => {
      * different numbers with two different jobs, and collapsing them would show the player a
      * balance missing everything they just earned.
      */
-    const [shopLevels, collections, loadoutRows, balance, raids, holidayClaims] = await Promise.all([
+    const [shopLevels, collections, traitBoard, traitSaves, loadoutRows, balance, raids, holidayClaims] = await Promise.all([
         settleOutcome.shopLevels ?? getShopLevels(userId),
         settleOutcome.collections ?? getCollections(userId),
+        settleOutcome.traits ?? getTraitBoard(userId),
+        getTraitSaves(userId),
         getLoadouts(userId),
         getBalance(userId),
         serializeRaids(userId),
         getHolidayClaims(userId)
     ])
-    const hero = heroSnapshotOf(state, shopLevels, collections, parseFloat(balance) || 0)
+    const hero = heroSnapshotOf(state, shopLevels, collections, parseFloat(balance) || 0, traitBoard)
     // what a minute of the run's income is worth: the calendar's Gold days and the holiday gifts' Gold
     const goldPerHour = calendarGoldPerHour(state, hero)
 
@@ -151,6 +156,8 @@ export default defineEventHandler(async (event) => {
         loadoutPreferences: serializeLoadoutPreferences(state, loadoutRows, shopLevels),
         /** The open preferred-Loadout session, if a raid's Loadout is live now: its raid and slot. */
         loadoutSession: serializeLoadoutSession(state),
+        /** The Traits scene: the live board, the Roll's price, every Set's tier, and the save slots. */
+        traits: serializeTraits(state, traitBoard, traitSaves, shopLevels),
 
         voidShards: fromStore(state.voidShards).toString(),
         nextPrestigeReward: voidShardsFor(state.prestige).toString(),

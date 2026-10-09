@@ -73,6 +73,7 @@ const ICONS: Readonly<Record<string, Glyph>> = {
     skillSlots: CURRENCY_ICONS.seal_skill!,
     artifactSlots: CURRENCY_ICONS.seal_artifact!,
     loadoutSlots: LOADOUT_GLYPH,
+    traitSaveSlots: CURRENCY_ICONS.trait_gems!,
     statPwr: (g, x, y) => statGlyph(g, x, y, C.red2, C.red3),
     statDef: (g, x, y) => statGlyph(g, x, y, C.steel2, C.steel3),
     statImp: (g, x, y) => statGlyph(g, x, y, C.gold2, C.gold3),

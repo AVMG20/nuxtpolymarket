@@ -10,9 +10,9 @@
  * §4a). See the block comment above `hqState` in the schema for the full settle contract.
  */
 
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState, user } from '#server/database/schema'
+import { hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState, hqTraitSlots, user } from '#server/database/schema'
 import { credit, debit, debitGems, getBalance } from '#server/utils/balance'
 import {
     ASCENDANT_KIT_SIZE,
@@ -128,6 +128,7 @@ import { readLoadoutSnapshot, type LiveLoadoutColumns, type LoadoutTarget } from
 import { D, ZERO, decPow, fromStore, toStore } from '#shared/utils/hero-quest/numbers'
 import { ASCENDANT_ID, ASCENDANT_PICKABLE, CLASS_NODES, MASTER_IDS, childrenOf, classOfSkill, getClass, kitFor } from '#shared/utils/hero-quest/content/classes'
 import { SHOP_TRACKS, maxLevelFor, shopStatLevels, shopTrackCost, type ShopTrackId } from '#shared/utils/hero-quest/content/shop'
+import { traitBoardOf, traitRollsOf, traitSaveSlotsAt, type TraitBoard, type TraitSlotState } from '#shared/utils/hero-quest/traits'
 import { enemyNameAt, getWorld, runProgress } from '#shared/utils/hero-quest/content/worlds'
 import type {
     ChampionArchetype,
@@ -146,6 +147,14 @@ export type HqStateRow = typeof hqState.$inferSelect
 
 export async function getHqState(userId: string) {
     return db.query.hqState.findFirst({ where: eq(hqState.userId, userId) })
+}
+
+/**
+ * The live Trait board (`traits.md`), by slot index; empty slots are null. One small query: five
+ * rows at most, read wherever the party's stats are, since every Trait line moves them.
+ */
+export async function getTraitBoard(userId: string, tx: DbExecutor = db): Promise<(TraitSlotState | null)[]> {
+    return traitBoardOf(await tx.select().from(hqTraitSlots).where(eq(hqTraitSlots.userId, userId)))
 }
 
 /** Founding is explicit (`init.post.ts`); the conflict clause is what makes a double-init a no-op. */
@@ -393,6 +402,7 @@ export async function purchaseBattleSpeed(tx: DbExecutor, userId: string, speed:
  * | Gear | **whole collection** + the equipped map | An unequipped piece still pays a smaller passive (§3) |
  * | Skills | equipped only | The slots are the whole mechanic (§5) |
  * | Artifacts | equipped only | Same, and party-wide in effect rather than Hero-only (§1) |
+ * | Traits | the rolled slots | Party-wide, Hero Skill DMG and Champion ATK aside (`traits.md` §0) |
  *
  * `bankedGold` is optional and only the Gambler's Strike family reads it. Callers that do not
  * have it get a wealth-neutral Hero.
@@ -401,7 +411,8 @@ export function heroSnapshotOf(
     state: HqStateRow,
     shopLevels: Record<string, number>,
     collections: HqCollections = emptyCollections(),
-    bankedGold?: number
+    bankedGold?: number,
+    traits: TraitBoard = []
 ): HeroSnapshot {
     const formation = state.formation as Record<string, 'front' | 'back'>
     const base: HeroSnapshot = {
@@ -439,7 +450,8 @@ export function heroSnapshotOf(
         // pays the smaller share, equipped or not, including one past the purchased slot count.
         ownedSkills: ownedCopies(collections.skill, isSkillId),
         ownedArtifacts: ownedCopies(collections.artifact, isArtifactId),
-        shopStatLevels: shopStatLevels(shopLevels)
+        shopStatLevels: shopStatLevels(shopLevels),
+        traits: traitRollsOf(traits)
     }
 
     /**
@@ -511,6 +523,8 @@ export interface SettleOutcome {
      */
     shopLevels?: Record<string, number>
     collections?: HqCollections
+    /** The live Trait board, read inside the same lock. */
+    traits?: (TraitSlotState | null)[]
 }
 
 /**
@@ -564,7 +578,9 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
         // pull may be writing, and a stale read would settle the window at the wrong rate.
         // All four systems, in one query — every one of them moves the rate.
         const collections = await getCollections(userId, tx)
-        const hero = heroSnapshotOf(state, shopLevels, collections, bankedGold)
+        // Traits move the party's stats like any equip, so the window settles at the board it ran with.
+        const traits = await getTraitBoard(userId, tx)
+        const hero = heroSnapshotOf(state, shopLevels, collections, bankedGold, traits)
         // Read off the pre-update row, so the window is priced at the tenure it opened with.
         const result = settle({
             hero,
@@ -610,7 +626,8 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
             elapsedSeconds,
             // Read inside the lock above; handed back so `state.get.ts` does not re-query them.
             shopLevels,
-            collections
+            collections,
+            traits
         }
     })
 }
@@ -724,7 +741,7 @@ export async function resolveBossEngage(tx: DbExecutor, userId: string, bankedGo
     // stale collection would resolve it with the wrong Champions, the wrong Gear, the wrong
     // equipped Skills or the wrong Artifacts.
     const collections = await getCollections(userId, tx)
-    const hero = heroSnapshotOf(state, shopLevels, collections, bankedGold)
+    const hero = heroSnapshotOf(state, shopLevels, collections, bankedGold, await getTraitBoard(userId, tx))
 
     // CSPRNG for the seed; everything downstream is deterministic from it, which is what
     // lets the client replay the exact fight without being trusted with the outcome.
@@ -962,7 +979,9 @@ export function serializeHero(state: HqStateRow, hero: HeroSnapshot) {
             strikesPerAttack: self.strikesPerAttack,
             /** A probability, genuinely a number — not a Decimal that needs stringifying. */
             critChance: self.critChance,
-            critMultiplier: self.critMultiplier.toString()
+            critMultiplier: self.critMultiplier.toString(),
+            /** Evasion Rate, a rate already clamped at `MAX_EVASION`. */
+            eva: self.eva
         },
         /**
          * The Global Power Number (`global-power-number.md`) and the two sums it is the geometric
@@ -1051,7 +1070,8 @@ function shopTrackEffect(id: ShopTrackId, level: number): { current: string; nex
         championSlots: value => `${championSlots({ championSlots: value })} Champions`,
         skillSlots: value => `${skillSlots({ skillSlots: value })} Skills`,
         artifactSlots: value => `${artifactSlots({ artifactSlots: value })} Artifacts`,
-        loadoutSlots: value => `${loadoutSlots({ loadoutSlots: value })} Loadouts`
+        loadoutSlots: value => `${loadoutSlots({ loadoutSlots: value })} Loadouts`,
+        traitSaveSlots: value => `${traitSaveSlotsAt(value)} Trait boards`
     }
     const format = formatters[id]
     const capped = level >= maxLevelFor(id)
@@ -1761,6 +1781,73 @@ export async function claimShopLevel(
         })
         .returning({ level: hqShopUpgrades.level })
     return claimed ?? null
+}
+
+/**
+ * Buy one level of a prestige-shop track. Call it inside a transaction.
+ *
+ * Claim-then-reward, twice over, and both guards matter:
+ *
+ * 1. The level bump is a conditional `UPDATE … WHERE level = <what we read>` (`claimShopLevel`).
+ *    Only the request that finds the row still at that level wins; the rest match nothing and
+ *    throw before any currency moves.
+ * 2. The balance is spent under a guard of its own — the shard read happens *inside* the
+ *    `hqState` row lock and is written in the same transaction, and `debitGems` carries its
+ *    `gems >= cost` check in its own WHERE clause.
+ *
+ * Without the first, N parallel clicks all read level 3 and all pay for level 4. Without the
+ * second, two different tracks bought at once could each debit against the same balance.
+ *
+ * Two currencies: Loadout and Trait save slots are priced in **Gems**, every other track in Void
+ * Shards. Gems are a shared platform balance, so that path goes through `balance.ts` with the
+ * transaction threaded, never `user.gems` directly.
+ */
+export async function buyShopTrack(tx: DbExecutor, userId: string, upgradeId: ShopTrackId) {
+    const track = SHOP_TRACKS.find(t => t.id === upgradeId)!
+    const [state] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
+    if (!state) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
+
+    const [row] = await tx.select().from(hqShopUpgrades)
+        .where(and(eq(hqShopUpgrades.userId, userId), eq(hqShopUpgrades.upgradeId, upgradeId)))
+    const level = row?.level ?? 0
+
+    const cost = shopTrackCost(upgradeId, level)
+    if (cost === null) {
+        throw createError({ statusCode: 400, statusMessage: `${track.name} is already maxed` })
+    }
+
+    // Affordability is checked before the level is claimed, so a player who cannot pay never
+    // burns the claim and forces everyone else into a 409.
+    const remaining = track.currency === 'voidShards'
+        ? spendVoidShards(state.voidShards, cost)
+        : null
+    if (track.currency === 'voidShards' && remaining === null) {
+        throw createError({ statusCode: 400, statusMessage: 'Not enough Void Shards' })
+    }
+
+    const claimed = await claimShopLevel(tx, userId, upgradeId, level)
+    if (!claimed) {
+        throw createError({ statusCode: 409, statusMessage: 'That upgrade is already being bought, try again' })
+    }
+
+    if (track.currency === 'voidShards') {
+        await tx.update(hqState).set({ voidShards: remaining! }).where(eq(hqState.userId, userId))
+    } else {
+        // `debitGems` guards `gems >= cost` in its own WHERE and throws 400 otherwise, so the
+        // check and the spend are one statement. The tx is threaded because this transaction
+        // already holds the `hqState` lock — without it the write goes out on a second pool
+        // connection and deadlocks against a lock this request is holding.
+        await debitGems(userId, Math.round(cost), tx)
+    }
+
+    return {
+        upgradeId,
+        level: claimed.level,
+        spent: cost,
+        currency: track.currency,
+        voidShards: remaining ?? state.voidShards,
+        nextCost: shopTrackCost(upgradeId, claimed.level)
+    }
 }
 
 /** Spend Void Shards, guarded by the read that produced `balance` being inside the same lock. */

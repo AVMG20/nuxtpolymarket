@@ -11,7 +11,8 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { hqCollection, hqFights, hqHolidayClaims, hqLoadouts, hqRaidState, hqShopUpgrades, hqState, user } from '#server/database/schema'
+import { hqCollection, hqFights, hqHolidayClaims, hqLoadouts, hqRaidState, hqShopUpgrades, hqState, hqTraitSaveSlots, hqTraitSlots, user } from '#server/database/schema'
+import { getTraitSaves, loadTraitBoard, rollTraits, serializeTraits, setTraitLock, storeTraitBoard } from '#server/utils/hero-quest-traits'
 import { engageRaid, quickClearRaid } from '#server/utils/hero-quest-raids'
 import { claimCalendar } from '#server/utils/hero-quest-calendar'
 import { claimHoliday } from '#server/utils/hero-quest-holidays'
@@ -28,7 +29,10 @@ import { RAID_KEYS_PER_DAY,
     LOADOUT_SLOT_BASE_COST_GEMS,
     OFFLINE_EFFICIENCY_BASE_COST,
     SEAL_LADDER_BASE_GOLD,
-    TEN_PULL_SIZE
+    TEN_PULL_SIZE,
+    TRAIT_SAVE_LOAD_COST,
+    TRAIT_SAVE_SLOT_BASE_COST_GEMS,
+    TRAIT_SAVE_SLOT_COST_STEP_GEMS
  } from '#shared/utils/hero-quest/constants'
 import { ZERO } from '#shared/utils/hero-quest/numbers'
 import { credit, creditGems, debitGems, getBalance } from '#server/utils/balance'
@@ -36,6 +40,7 @@ import {
     ESSENCE_COLUMN,
     SEAL_COLUMN,
     buyLadderSeals,
+    buyShopTrack,
     claimShopLevel,
     ensureHqState,
     essenceBalance,
@@ -43,6 +48,7 @@ import {
     heroSnapshotOf,
     essenceSpend,
     getShopLevels,
+    getTraitBoard,
     loadoutSlots,
     purchaseBattleSpeed,
     sealBalance,
@@ -69,6 +75,8 @@ import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
 const USER_ID = 'test-hero-quest-race-user'
 
 async function cleanup() {
+    await db.delete(hqTraitSlots).where(eq(hqTraitSlots.userId, USER_ID))
+    await db.delete(hqTraitSaveSlots).where(eq(hqTraitSaveSlots.userId, USER_ID))
     await db.delete(hqCollection).where(eq(hqCollection.userId, USER_ID))
     await db.delete(hqHolidayClaims).where(eq(hqHolidayClaims.userId, USER_ID))
     await db.delete(hqRaidState).where(eq(hqRaidState.userId, USER_ID))
@@ -421,6 +429,134 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
         it('refuses a claim with nothing waiting', async () => {
             await ensureHqState(USER_ID)
             await expect(db.transaction(tx => claimMilestones(tx, USER_ID, null))).rejects.toMatchObject({ statusCode: 400 })
+        })
+    })
+
+    describe('traits', () => {
+        const traitGemsOf = async () => (await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!.traitGems
+        const gemsOf = async () => (await db.select({ gems: user.gems }).from(user).where(eq(user.id, USER_ID)))[0]!.gems
+        const giveTraitGems = (amount: number) => db.update(hqState).set({ traitGems: amount }).where(eq(hqState.userId, USER_ID))
+
+        it('pays for each of a burst of Rolls once, and never spends past zero', async () => {
+            await ensureHqState(USER_ID)
+            // three Rolls' worth at nothing locked
+            await giveTraitGems(15)
+
+            const result = await burst(10, () => db.transaction(tx => rollTraits(tx, USER_ID)))
+
+            expect(result.ok).toBe(3)
+            expect(await traitGemsOf()).toBe(0)
+            expect((await getTraitBoard(USER_ID)).every(slot => slot !== null)).toBe(true)
+        })
+
+        it('prices a burst of Rolls by the locks and never rerolls a locked slot', async () => {
+            await ensureHqState(USER_ID)
+            await giveTraitGems(5)
+            await db.transaction(tx => rollTraits(tx, USER_ID))
+            await db.transaction(tx => setTraitLock(tx, USER_ID, 0, true))
+            await db.transaction(tx => setTraitLock(tx, USER_ID, 3, true))
+            const kept = await getTraitBoard(USER_ID)
+            // two locked: 15 a Roll, so three of them
+            await giveTraitGems(45)
+
+            const result = await burst(10, () => db.transaction(tx => rollTraits(tx, USER_ID)))
+
+            expect(result.ok).toBe(3)
+            expect(await traitGemsOf()).toBe(0)
+            const after = await getTraitBoard(USER_ID)
+            expect(after[0]).toEqual(kept[0])
+            expect(after[3]).toEqual(kept[3])
+        })
+
+        it('serves the board, the Roll\'s price, the Sets and the save slots the scene draws', async () => {
+            await ensureHqState(USER_ID)
+            await giveTraitGems(5 + TRAIT_SAVE_LOAD_COST)
+            await db.transaction(tx => rollTraits(tx, USER_ID))
+            await db.transaction(tx => setTraitLock(tx, USER_ID, 1, true))
+            await db.transaction(tx => storeTraitBoard(tx, USER_ID, 0))
+
+            const [state] = await db.select().from(hqState).where(eq(hqState.userId, USER_ID))
+            const payload = serializeTraits(state!, await getTraitBoard(USER_ID), await getTraitSaves(USER_ID), await getShopLevels(USER_ID))
+
+            expect(payload.traitGems).toBe(0)
+            expect(payload.slots.every(slot => slot !== null)).toBe(true)
+            expect(payload.slots[1]!.locked).toBe(true)
+            expect(payload.locked).toBe(1)
+            expect(payload.rollCost).toBe(10)
+            expect(payload.sets.reduce((sum, set) => sum + set.pieces, 0)).toBe(5)
+            expect(payload.saves.unlocked).toBe(1)
+            expect(payload.saves.nextSlotCostGems).toBe(TRAIT_SAVE_SLOT_BASE_COST_GEMS)
+            expect(payload.saves.slots[0]!.slots).toEqual(payload.slots)
+            expect(payload.saves.slots[1]!.unlocked).toBe(false)
+        })
+
+        it('refuses a lock on a slot that holds nothing', async () => {
+            await ensureHqState(USER_ID)
+            await expect(db.transaction(tx => setTraitLock(tx, USER_ID, 2, true))).rejects.toMatchObject({ statusCode: 400 })
+        })
+
+        it('charges a burst of stores once each, and stops at the balance', async () => {
+            await ensureHqState(USER_ID)
+            await giveTraitGems(5)
+            await db.transaction(tx => rollTraits(tx, USER_ID))
+            await giveTraitGems(TRAIT_SAVE_LOAD_COST)
+
+            const result = await burst(10, () => db.transaction(tx => storeTraitBoard(tx, USER_ID, 0)))
+
+            expect(result.ok).toBe(1)
+            expect(await traitGemsOf()).toBe(0)
+            const saves = await db.select().from(hqTraitSaveSlots).where(eq(hqTraitSaveSlots.userId, USER_ID))
+            expect(saves).toHaveLength(1)
+        })
+
+        it('charges a burst of loads once each, and restores the stored board', async () => {
+            await ensureHqState(USER_ID)
+            await giveTraitGems(5)
+            await db.transaction(tx => rollTraits(tx, USER_ID))
+            const stored = await getTraitBoard(USER_ID)
+            await giveTraitGems(TRAIT_SAVE_LOAD_COST + 5)
+            await db.transaction(tx => storeTraitBoard(tx, USER_ID, 0))
+            await db.transaction(tx => rollTraits(tx, USER_ID))
+            // two and a half loads' worth
+            await giveTraitGems(TRAIT_SAVE_LOAD_COST * 2 + 50)
+
+            const result = await burst(10, () => db.transaction(tx => loadTraitBoard(tx, USER_ID, 0)))
+
+            expect(result.ok).toBe(2)
+            expect(await traitGemsOf()).toBe(50)
+            expect(await getTraitBoard(USER_ID)).toEqual(stored)
+        })
+
+        it('refuses a save slot that has not been bought, without charging', async () => {
+            await ensureHqState(USER_ID)
+            await giveTraitGems(5)
+            await db.transaction(tx => rollTraits(tx, USER_ID))
+            await giveTraitGems(TRAIT_SAVE_LOAD_COST)
+            await expect(db.transaction(tx => storeTraitBoard(tx, USER_ID, 1))).rejects.toMatchObject({ statusCode: 400 })
+            expect(await traitGemsOf()).toBe(TRAIT_SAVE_LOAD_COST)
+        })
+
+        it('sells one save slot to a burst of purchases, for its Gems once', async () => {
+            await ensureHqState(USER_ID)
+            await creditGems(USER_ID, TRAIT_SAVE_SLOT_BASE_COST_GEMS)
+
+            const result = await burst(10, () => db.transaction(tx => buyShopTrack(tx, USER_ID, 'traitSaveSlots')))
+
+            expect(result.ok).toBe(1)
+            expect((await getShopLevels(USER_ID)).traitSaveSlots).toBe(1)
+            expect(await gemsOf()).toBe(0)
+        })
+
+        it('never sells a save slot it was not paid for, on the linear step', async () => {
+            await ensureHqState(USER_ID)
+            // the first two levels, 250 + 750, and not the third
+            await creditGems(USER_ID, TRAIT_SAVE_SLOT_BASE_COST_GEMS * 2 + TRAIT_SAVE_SLOT_COST_STEP_GEMS + 100)
+
+            await burst(12, () => db.transaction(tx => buyShopTrack(tx, USER_ID, 'traitSaveSlots')))
+
+            const level = (await getShopLevels(USER_ID)).traitSaveSlots ?? 0
+            expect(level).toBe(2)
+            expect(await gemsOf()).toBe(100)
         })
     })
 

@@ -14,6 +14,8 @@ import type { SpeedView } from '~/utils/hero-quest-art/speed-scene'
 import type { SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
 import type { CalendarGiftView, CalendarView } from '~/utils/hero-quest-art/calendar-scene'
 import type { MilestonesView } from '~/utils/hero-quest-art/milestones-scene'
+import type { TraitsTarget, TraitsView } from '~/utils/hero-quest-art/traits-scene'
+import type { TraitGrade } from '~/utils/hero-quest-art/palette'
 import type { RaidRewardView, RaidRowView } from '~/utils/hero-quest-art/raids-scene'
 import type { RaidId as StageRaidId, StageRaid } from '~/utils/hero-quest-art/demo'
 import { RAIDS, type RaidId } from '#shared/utils/hero-quest/content/raids'
@@ -44,7 +46,8 @@ const {
     loadoutPreferences, loadoutSession, setLoadoutPreference, leaveRaid,
     shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
     pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid, calendar, claimCalendar,
-    holidays, claimHoliday, milestones, claimMilestones, ascendant, tutorials, markTutorialSeen, resetTutorials
+    holidays, claimHoliday, milestones, claimMilestones, ascendant, tutorials, markTutorialSeen, resetTutorials,
+    traits, rollTraits, lockTrait, saveTraits, loadTraits, buyTraitSaveSlot
 } = useHeroQuest()
 const { user } = useAuth()
 
@@ -823,6 +826,82 @@ async function onClaimMilestones(track: string | null) {
     }
 }
 
+/**
+ * The Traits scene: the live board, the Roll's price, every Set's count and tier, and the save
+ * slots. Values arrive as fractions and are spelled out here; the client holds no table.
+ */
+const traitsView = computed<TraitsView>(() => {
+    const t = traits.value
+    const gems = user.value?.gems ?? 0
+    const armed = confirm.armed.value?.startsWith('trait:') ? confirm.armed.value.slice(6) as TraitsTarget : null
+    if (!t) {
+        return { traitGems: '0', slots: [], rollCost: 0, rerolls: 0, affordable: false, sets: [], saves: [], saveCost: 0, saveAffordable: false, boardFull: false, gems, armed }
+    }
+    return {
+        traitGems: formatNumber(t.traitGems),
+        slots: t.slots.map(slot => slot && {
+            statName: slot.statName,
+            value: `+${hqPercent(slot.value)}`,
+            grade: slot.grade as TraitGrade,
+            set: slot.set,
+            setName: slot.setName,
+            locked: slot.locked
+        }),
+        rollCost: t.rollCost,
+        rerolls: t.slots.length - t.locked,
+        affordable: t.canRoll && t.traitGems >= t.rollCost,
+        sets: t.sets.map(set => ({
+            id: set.id,
+            name: set.name,
+            pieces: set.pieces,
+            tier: set.tier,
+            effect: set.effect,
+            tiers: set.tiers.map(tier => ({ pieces: tier.pieces, value: hqPercent(tier.magnitude) }))
+        })),
+        saves: t.saves.slots.map((slot) => {
+            // only the next save slot to buy carries a price
+            const next = !slot.unlocked && slot.index === t.saves.unlocked ? t.saves.nextSlotCostGems : null
+            return {
+                index: slot.index,
+                unlocked: slot.unlocked,
+                price: next === null ? null : formatNumber(next),
+                priceGems: next,
+                grades: slot.slots ? slot.slots.map(s => (s?.grade ?? 'F') as TraitGrade) : null
+            }
+        }),
+        saveCost: t.saves.cost,
+        saveAffordable: t.traitGems >= t.saves.cost,
+        boardFull: t.slots.every(slot => slot !== null),
+        gems,
+        armed
+    }
+})
+const traitsBusy = ref(false)
+
+/**
+ * A Traits button. Roll and the locks go at once; what overwrites something — storing over a
+ * board, loading over the live one — or spends Gems waits for a second press.
+ */
+async function onTraitAction(target: TraitsTarget) {
+    const [kind, n] = target.split(':') as [string, string | undefined]
+    const i = Number(n)
+    const asks = kind === 'load' || kind === 'buy' || (kind === 'save' && !!traitsView.value.saves[i]?.grades)
+    if (asks && !confirm.press(`trait:${target}`)) return
+    confirm.clear()
+    traitsBusy.value = true
+    try {
+        if (kind === 'roll') await rollTraits()
+        else if (kind === 'lock') await lockTrait(i, !traitsView.value.slots[i]?.locked)
+        else if (kind === 'save') await saveTraits(i)
+        else if (kind === 'load') await loadTraits(i)
+        else if (kind === 'buy') await buyTraitSaveSlot()
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        traitsBusy.value = false
+    }
+}
+
 /** The running Battle Speed block's time left, off the server's expiry. */
 const speedLeft = useHqCountdown(() => battleSpeed.value?.expiresAt)
 
@@ -1205,6 +1284,8 @@ const awayReport = computed(() => {
           :new-scenes="newScenes"
           :guide="guideView"
           :milestones-busy="milestonesBusy"
+          :traits="traitsView"
+          :traits-busy="traitsBusy"
           :raids="raidRows"
           :raids-busy="raidsBusy"
           :loadouts-saved="savedSlots.length > 0"
@@ -1230,6 +1311,7 @@ const awayReport = computed(() => {
           @claim-milestones="onClaimMilestones"
           @guide-next="onGuideNext"
           @guide-skip="closeTutorial"
+          @trait-action="onTraitAction"
           @raid-enter="onRaidEnter"
           @raid-quick="onRaidQuick"
           @raid-loadout="onRaidLoadout"

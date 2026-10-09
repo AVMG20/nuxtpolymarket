@@ -2,7 +2,7 @@ import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
 import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { getBalance } from '#server/utils/balance'
-import { getCollections, getShopLevels, heroSnapshotOf, settleHq } from '#server/utils/hero-quest'
+import { getCollections, getShopLevels, getTraitBoard, heroSnapshotOf, settleHq } from '#server/utils/hero-quest'
 import { engageRaid } from '#server/utils/hero-quest-raids'
 import { isRaidId } from '#shared/utils/hero-quest/content/raids'
 
@@ -26,5 +26,5 @@ export default defineEventHandler(async (event) => {
     const bankedGold = parseFloat(await getBalance(userId)) || 0
 
     return db.transaction(tx => engageRaid(tx, userId, raidId, async state =>
-        heroSnapshotOf(state, await getShopLevels(userId, tx), await getCollections(userId, tx), bankedGold)))
+        heroSnapshotOf(state, await getShopLevels(userId, tx), await getCollections(userId, tx), bankedGold, await getTraitBoard(userId, tx))))
 })

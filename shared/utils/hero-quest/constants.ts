@@ -21,7 +21,7 @@
  * set directly.
  */
 
-import type { HqStatKey, StatTier } from './types'
+import type { HqStatKey, StatTier, TraitGrade, TraitSetId, TraitStatId } from './types'
 import type { HolidayId } from './content/holidays'
 
 // ── Run structure ──────────────────────────────────  core-progression-and-prestige.md §2
@@ -225,7 +225,10 @@ export const K = 16 // TUNED ✓
  */
 export const MIN_DAMAGE = 1 // TUNED ✓
 
-/** Cap on total EVA, leaving headroom for EVA sources added after Traits. */
+/**
+ * Cap on total EVA (`classes-and-combat.md` §7), leaving headroom for EVA sources added after
+ * Traits: a 5-piece Vital Reflex board reaches 0.50, ten points under it.
+ */
 export const MAX_EVASION = 0.60
 
 // ── Status effects ─────────────────────────────────  classes-and-combat.md §7 (new)
@@ -1699,6 +1702,84 @@ export const BASE_LOADOUT_SLOTS = 2
 export const MAX_LOADOUT_SLOTS = 6
 export const LOADOUT_SLOT_BASE_COST_GEMS = 250 // UNTUNED ╧
 export const LOADOUT_SLOT_COST_GROWTH = 2
+
+// ── Traits ─────────────────────────────────────────  traits.md
+//
+// Every number here is transcribed from `traits.md`, which locks them all; none is a guess, so none
+// carries a marker. The names and IDs they key are `content/traits.ts`'s, the rules `traits.ts`'s.
+
+/** Five party-wide slots, all open from account start: no unlock track (§1). */
+export const TRAIT_SLOT_COUNT = 5
+
+/**
+ * A Roll rerolls every unlocked slot at once, priced by how many are **locked** (§2):
+ *
+ *     rollCost(locked) = TRAIT_ROLL_BASE_COST + locked × TRAIT_ROLL_COST_PER_LOCK
+ *
+ * 5 Trait Gems with nothing locked, up to 30 with all five — though five locked is a no-op the
+ * server refuses rather than charges for.
+ */
+export const TRAIT_ROLL_BASE_COST = 5
+export const TRAIT_ROLL_COST_PER_LOCK = 5
+
+/** Grade odds, in percent, F → SSS (§2, the Acquisition table). Sums to exactly 100. */
+export const TRAIT_GRADE_RATES: Readonly<Record<TraitGrade, number>> = {
+    F: 19,
+    E: 37.7,
+    D: 28.3,
+    C: 9.5,
+    B: 4.7,
+    A: 0.5,
+    S: 0.2,
+    SS: 0.07,
+    SSS: 0.03
+}
+
+/**
+ * What each stat gives at each grade, as a fraction (§4): ATK SSS is +600%, so 6. Summed with
+ * every other source of the same line, as Artifacts and the prestige shop are (`modifiers.ts`).
+ */
+export const TRAIT_STAT_VALUES: Readonly<Record<TraitStatId, Readonly<Record<TraitGrade, number>>>> = {
+    trait_atk: { F: 0.10, E: 0.25, D: 0.35, C: 0.50, B: 0.70, A: 1.00, S: 1.50, SS: 3.00, SSS: 6.00 },
+    trait_spd: { F: 0.01, E: 0.02, D: 0.03, C: 0.04, B: 0.06, A: 0.08, S: 0.10, SS: 0.15, SSS: 0.20 },
+    trait_hp: { F: 0.03, E: 0.05, D: 0.08, C: 0.12, B: 0.17, A: 0.23, S: 0.30, SS: 0.50, SSS: 1.00 },
+    trait_champion_atk: { F: 0.10, E: 0.25, D: 0.35, C: 0.50, B: 0.70, A: 1.00, S: 1.50, SS: 3.00, SSS: 5.00 },
+    trait_hero_skill_dmg: { F: 0.10, E: 0.25, D: 0.35, C: 0.50, B: 0.70, A: 1.00, S: 1.50, SS: 3.00, SSS: 6.00 },
+    trait_lck: { F: 0.02, E: 0.03, D: 0.04, C: 0.05, B: 0.06, A: 0.07, S: 0.08, SS: 0.09, SSS: 0.10 },
+    trait_imp: { F: 0.30, E: 0.36, D: 0.45, C: 0.75, B: 0.90, A: 1.20, S: 1.80, SS: 3.00, SSS: 7.50 },
+    trait_exp_gain: { F: 0.04, E: 0.07, D: 0.11, C: 0.16, B: 0.22, A: 0.30, S: 0.40, SS: 0.50, SSS: 1.00 }
+}
+
+/**
+ * Each Set's tiers (§5): at `pieces` equipped slots of the Set, its bonus is `magnitude`. A tier is
+ * the **total** at that count, replacing the one below rather than adding to it, and the top tier
+ * holds past its count. Back to Basics is 3/4/5, the doc's corrected reading of 3/5/5.
+ *
+ * Magnitudes are fractions, except Divine Blessing's, which is the share of max HP recovered every
+ * second. Vital Reflex's lands twice, as VIT and as Evasion Rate (EVA is a rate, so +0.10 is ten
+ * points of it, under `MAX_EVASION`).
+ */
+export const TRAIT_SET_TIERS: Readonly<Record<TraitSetId, readonly { pieces: number, magnitude: number }[]>> = {
+    set_vital_reflex: [{ pieces: 1, magnitude: 0.10 }, { pieces: 3, magnitude: 0.25 }, { pieces: 5, magnitude: 0.50 }],
+    set_divine_blessing: [{ pieces: 1, magnitude: 0.05 }],
+    set_aggression: [{ pieces: 2, magnitude: 0.10 }, { pieces: 3, magnitude: 0.20 }, { pieces: 4, magnitude: 0.30 }],
+    set_deep_impact: [{ pieces: 1, magnitude: 4 }, { pieces: 2, magnitude: 8 }, { pieces: 3, magnitude: 12 }],
+    set_back_to_basics: [{ pieces: 3, magnitude: 0.50 }, { pieces: 4, magnitude: 1.00 }, { pieces: 5, magnitude: 2.00 }]
+}
+
+/**
+ * Trait save slots (§6): 1 to start, 4 at most, bought with Gems on a **linear** step rather than
+ * the doubling the other short Gem tracks use — 250, 750, 1250:
+ *
+ *     cost(level) = TRAIT_SAVE_SLOT_BASE_COST_GEMS + (level − 1) × TRAIT_SAVE_SLOT_COST_STEP_GEMS
+ */
+export const BASE_TRAIT_SAVE_SLOTS = 1
+export const MAX_TRAIT_SAVE_SLOTS = 4
+export const TRAIT_SAVE_SLOT_BASE_COST_GEMS = 250
+export const TRAIT_SAVE_SLOT_COST_STEP_GEMS = 500
+
+/** Storing the live board in a save slot, or loading one, costs this many Trait Gems a press (§6). */
+export const TRAIT_SAVE_LOAD_COST = 100
 
 // ── Prestige shop stat tracks ──────────────────────  open-items.md #41
 

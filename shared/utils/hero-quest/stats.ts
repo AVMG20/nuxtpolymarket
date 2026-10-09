@@ -10,6 +10,7 @@ import {
     CHAMPION_INVESTMENT_PER_POINT,
     CHAMPION_PASSIVE_PER_POINT,
     LCK_BASE_SCALE,
+    MAX_EVASION,
     MIN_STAT_VALUE,
     TANK_THREAT_MULTIPLIER,
     STAT_PER_LEVEL_FLAT,
@@ -25,6 +26,7 @@ import { gearModifiers } from './content/gear'
 import { skillCollectionModifiers, skillModifiers } from './content/skills'
 import { artifactCollectionModifiers, artifactModifiers } from './content/artifacts'
 import { shopStatModifiers } from './content/shop'
+import { traitModifiers } from './traits'
 import { attacksPerSecondFor, critChanceFor, critMultiplierFor, maxHpFor } from './combat'
 import { mergeTotals, noModifiers, sumModifiers } from './modifiers'
 import type { ModifierTotals } from './modifiers'
@@ -205,33 +207,52 @@ export function heroStatBlock(
 
 /**
  * Hero-only lines: Gear (`gear-equipment.md` §1), equipped Skill passives (`skills-gacha.md` §1),
- * and the collection passives of every owned Skill and Artifact, equipped or not. None of these
- * touches a Champion, by design — Champions carry their own kits and their own progression, and
- * every collection passive in the game (Champions', Gear's, these two) reaches only the Hero.
+ * the collection passives of every owned Skill and Artifact, equipped or not, and Traits' Hero
+ * Skill DMG (`traits.md` §0). None of these touches a Champion, by design — Champions carry their
+ * own kits and their own progression, and every collection passive in the game (Champions',
+ * Gear's, these two) reaches only the Hero.
  */
 export function heroModifierTotals(hero: HeroSnapshot): ModifierTotals {
     const gear = hero.ownedGear ?? []
     const skills = hero.equippedSkills ?? []
     const ownedSkills = hero.ownedSkills ?? []
     const ownedArtifacts = hero.ownedArtifacts ?? []
-    if (gear.length === 0 && skills.length === 0 && ownedSkills.length === 0 && ownedArtifacts.length === 0) {
+    const traits = traitModifiers(hero.traits ?? []).hero
+    if (gear.length === 0 && skills.length === 0 && ownedSkills.length === 0 && ownedArtifacts.length === 0 && traits.length === 0) {
         return noModifiers()
     }
     return sumModifiers([
         ...gearModifiers(gear, hero.equippedGear ?? {}),
         ...skillModifiers(skills),
         ...skillCollectionModifiers(ownedSkills),
-        ...artifactCollectionModifiers(ownedArtifacts)
+        ...artifactCollectionModifiers(ownedArtifacts),
+        ...traits
     ])
 }
 
 /**
  * Party-wide lines: equipped Artifacts (`artifacts-dig-site-gacha.md` §1) — "every equipped
  * Artifact's effect applies to the whole fielded party (Hero + all active Champions), not just
- * the Hero" — and the prestige shop's stat tracks (`open-items.md` #41).
+ * the Hero" — the prestige shop's stat tracks (`open-items.md` #41), and every Trait line but the
+ * two named for one side, Set bonuses included (`traits.md` §0).
  */
 export function partyModifierTotals(hero: HeroSnapshot): ModifierTotals {
-    const lines = [...artifactModifiers(hero.equippedArtifacts ?? []), ...shopStatModifiers(hero.shopStatLevels ?? {})]
+    const lines = [
+        ...artifactModifiers(hero.equippedArtifacts ?? []),
+        ...shopStatModifiers(hero.shopStatLevels ?? {}),
+        ...traitModifiers(hero.traits ?? []).party
+    ]
+    if (lines.length === 0) return noModifiers()
+    return sumModifiers(lines)
+}
+
+/**
+ * Champion-only lines: Traits' Champion ATK, every archetype's PWR, Tank's included (`traits.md`
+ * §4). The Hero never receives these; each fielded Champion receives them on top of the party-wide
+ * scope.
+ */
+export function championModifierTotals(hero: HeroSnapshot): ModifierTotals {
+    const lines = traitModifiers(hero.traits ?? []).champion
     if (lines.length === 0) return noModifiers()
     return sumModifiers(lines)
 }
@@ -273,7 +294,10 @@ export function championStatBlock(
     base: HqStatBlock,
     champion: ChampionSnapshot,
     heroLevel: number,
-    /** Party-wide Artifact lines only. Gear and Skills are Hero-only and never reach here. */
+    /**
+     * Party-wide lines (Artifacts, the shop's stat tracks, Traits) plus Traits' Champion ATK. Gear
+     * and Skills are Hero-only and never reach here.
+     */
     modifiers?: Record<HqStatKey, number>
 ): HqStatBlock {
     const scale = champion.rarityMultiplier * championInvestmentMultiplier(champion.investment)
@@ -302,8 +326,9 @@ export function championInvestmentMultiplier(investment: number): number {
  * read off `ClassNode`, and Champions carry the same property without being on the class
  * tree at all (`classes-and-combat.md` §5: "Champions never touch the 16-node class tree").
  *
- * `eva` defaults to 0: base EVA is 0 for every unit in the game and no class node grants
- * it. The parameter exists so Traits (Phase 4) don't reshape this signature.
+ * `eva` is the unit's own base EVA, 0 for every unit in the game: no class node grants it. What
+ * the modifiers add (Traits' Vital Reflex) lands on top, and the sum is clamped at `MAX_EVASION`
+ * here, so every reader — the fight, the idle rate, GPN — sees the EVA that actually applies.
  */
 export function deriveUnitStats(
     block: HqStatBlock,
@@ -333,7 +358,10 @@ export function deriveUnitStats(
         // and LCK's own overflow-to-crit-damage valve is unaffected.
         critChance: Math.min(1, Math.max(0, crit.critChance + mods.critChanceBonus)),
         critMultiplier: critMultiplierFor(block.lck, block.imp).add(mods.critDamageBonus),
-        eva,
+        eva: Math.min(MAX_EVASION, Math.max(0, eva + mods.evasion)),
+        skillDamageFactor: Math.max(0, mods.skillDamageFactor),
+        basicAttackFactor: Math.max(0, mods.basicAttackFactor),
+        regenPerSecond: Math.max(0, mods.regenPerSecond),
         cooldownFactor: mods.cooldownFactor,
         reflectFraction: mods.reflectFraction,
         controlResist: mods.controlResist
@@ -344,10 +372,10 @@ export function deriveUnitStats(
  * The fielded party, Hero first.
  *
  * Three modifier scopes meet here, and the split is what the docs actually say rather than a
- * convenience: **Artifacts reach everyone** (party-wide, §1 there), **Gear and Skills reach only
- * the Hero** (both Hero-only by their own §1s), and the **Champion collection passive reaches only
- * the Hero** too (`champions-guild-gacha.md` §7). So the Hero receives the merge of both scopes
- * and each Champion receives the party-wide one.
+ * convenience: **Artifacts and Traits reach everyone** (party-wide, §1 and §0 there), **Gear and
+ * Skills reach only the Hero** (both Hero-only by their own §1s), and the **Champion collection
+ * passive reaches only the Hero** too (`champions-guild-gacha.md` §7). So the Hero receives the
+ * merge of both scopes and each Champion receives the party-wide one, plus Traits' Champion ATK.
  */
 export function partyUnitStats(hero: HeroSnapshot): UnitStats[] {
     const node = getClass(hero.classId)
@@ -355,6 +383,7 @@ export function partyUnitStats(hero: HeroSnapshot): UnitStats[] {
     const passive = collectionPassiveMultipliers(hero.ownedChampions ?? [])
     const partyWide = partyModifierTotals(hero)
     const heroTotals = mergeTotals(heroModifierTotals(hero), partyWide)
+    const championTotals = mergeTotals(partyWide, championModifierTotals(hero))
 
     const units = [deriveUnitStats(
         heroStatBlock(hero.classId, hero.heroLevel, passive, heroTotals.stats),
@@ -372,11 +401,11 @@ export function partyUnitStats(hero: HeroSnapshot): UnitStats[] {
     for (const champion of hero.champions ?? []) {
         const spread = archetypeSpread(champion.archetype)
         units.push(deriveUnitStats(
-            championStatBlock(spread, champion, hero.heroLevel, partyWide.stats),
+            championStatBlock(spread, champion, hero.heroLevel, championTotals.stats),
             { ...champion, threat: archetypeThreat(champion.archetype) },
             0,
-            partyWide,
-            championStatBlock(spread, champion, 1, partyWide.stats).spd
+            championTotals,
+            championStatBlock(spread, champion, 1, championTotals.stats).spd
         ))
     }
     return units

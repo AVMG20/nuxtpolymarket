@@ -37,7 +37,7 @@
 
 import { eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState } from '#server/database/schema'
+import { hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState, hqTraitSaveSlots, hqTraitSlots } from '#server/database/schema'
 import { credit, creditGems } from '#server/utils/balance'
 import { isBossStage, sealGrantSet, settleHq } from '#server/utils/hero-quest'
 import { CLASS_NODES } from '#shared/utils/hero-quest/content/classes'
@@ -219,6 +219,8 @@ export interface DevGrant {
     seals?: number
     /** Paid into all four Essence columns at once. */
     essence?: number
+    /** Hero Quest's own Trait currency (`traits.md`). */
+    traitGems?: number
 }
 
 function positiveInt(value: unknown, field: string): number {
@@ -244,11 +246,13 @@ export async function devGrant(userId: string, grant: DevGrant) {
 
     const seals = grant.seals ? positiveInt(grant.seals, 'seals') : 0
     const essence = grant.essence ? positiveInt(grant.essence, 'essence') : 0
+    const traitGems = grant.traitGems ? positiveInt(grant.traitGems, 'traitGems') : 0
 
-    if (seals || essence) {
+    if (seals || essence || traitGems) {
         await db.update(hqState)
             .set({
                 ...(seals ? sealGrantSet(seals) : {}),
+                ...(traitGems ? { traitGems: sql`${hqState.traitGems} + ${traitGems}` } : {}),
                 ...(essence
                     ? {
                         gearEssence: sql`${hqState.gearEssence} + ${essence}`,
@@ -462,6 +466,8 @@ export async function devReset(userId: string) {
     await db.delete(hqLoadouts).where(eq(hqLoadouts.userId, userId))
     await db.delete(hqCollection).where(eq(hqCollection.userId, userId))
     await db.delete(hqShopUpgrades).where(eq(hqShopUpgrades.userId, userId))
+    await db.delete(hqTraitSlots).where(eq(hqTraitSlots.userId, userId))
+    await db.delete(hqTraitSaveSlots).where(eq(hqTraitSaveSlots.userId, userId))
     await db.delete(hqState).where(eq(hqState.userId, userId))
     return { reset: true as const }
 }

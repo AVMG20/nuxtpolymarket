@@ -53,12 +53,14 @@ import {
     BOSS_TIMER_SECONDS,
     FIGHT_TICK_SECONDS,
     MIN_DAMAGE,
-    SKILL_STATUS_DURATION_SECONDS
+    SKILL_STATUS_DURATION_SECONDS,
+    STATUS_TICK_SECONDS
 } from './constants'
 import {
     attackIntervalFor,
     attacksPerSecondFor,
     cooldownFor,
+    hitChanceAgainst,
     partyMitigation,
     rawHitDamage,
     targetingOrder,
@@ -139,6 +141,11 @@ export interface FightEvent {
     /** Decimal as a string. */
     damage?: string
     crit?: boolean
+    /**
+     * An enemy's attack, or one hit of a special, that the party member dodged: its Evasion Rate
+     * won the accuracy check (`classes-and-combat.md` §7). Damage is 0 and nothing else rides it.
+     */
+    miss?: boolean
     /** Remaining HP after the event, as a string. */
     remainingHp?: string
     /** The level reached, for `kind: 'enemy_level'`. */
@@ -321,7 +328,8 @@ export function runFight(input: FightInput): FightResult {
                 cooldownSeconds: entry.cooldownSeconds,
                 // Nothing carries a status at t=0, so the base stats are the live ones here.
                 timer: cooldownFor(entry.cooldownSeconds, stats.cooldownSpd, stats.cooldownFactor),
-                multiplier: entry.abilityMultiplier * (effect.wealthScaled ? wealth : 1),
+                // the unit's own ability damage: Traits' Hero Skill DMG raises it on the Hero alone
+                multiplier: entry.abilityMultiplier * (effect.wealthScaled ? wealth : 1) * stats.skillDamageFactor,
                 effect
             }
         })
@@ -348,6 +356,47 @@ export function runFight(input: FightInput): FightResult {
         const eligible = front.length > 0 ? front : pool
         const ordered = targetingOrder(eligible.map(unit => unit.stats))
         return eligible.find(unit => unit.stats === ordered[0])
+    }
+
+    /**
+     * The accuracy check on one incoming hit (`classes-and-combat.md` §7): it lands with chance
+     * `1 − EVA`. Rolled only for a defender with EVA to roll against, so a fight with none draws
+     * exactly the numbers it always did and its replay is unchanged.
+     */
+    const dodges = (target: Combatant): boolean =>
+        target.stats.eva > 0 && random() >= hitChanceAgainst(target.stats.eva)
+
+    /** A dodged hit, logged with nothing on it, so the stage shows the miss. */
+    const logMiss = (foe: EnemyCombatant, target: Combatant, kind: 'enemy_attack' | 'enemy_special', skillId?: string) => {
+        events.push({
+            at: elapsed,
+            kind,
+            unitIndex: party.indexOf(target),
+            enemyIndex: enemies.indexOf(foe),
+            ...(skillId === undefined ? {} : { skillId }),
+            damage: '0',
+            miss: true,
+            remainingHp: decMaxZero(target.hp).toString()
+        })
+    }
+
+    /**
+     * Regeneration (Traits' Divine Blessing): every living member recovers its `regenPerSecond`
+     * share of max HP once per `STATUS_TICK_SECONDS`, on the grid DoTs and HoTs keep, so its
+     * strength is a property of the set rather than of the sim's tick.
+     */
+    let nextRegenAt = STATUS_TICK_SECONDS
+    const regenerate = () => {
+        for (const [index, unit] of party.entries()) {
+            if (unit.stats.regenPerSecond <= 0 || unit.hp.lte(0) || unit.hp.gte(unit.stats.maxHp)) continue
+            const before = unit.hp
+            const healed = unit.hp.add(unit.stats.maxHp.mul(unit.stats.regenPerSecond * STATUS_TICK_SECONDS))
+            unit.hp = healed.gt(unit.stats.maxHp) ? unit.stats.maxHp : healed
+            events.push({
+                at: elapsed, kind: 'heal', unitIndex: index,
+                damage: unit.hp.sub(before).toString(), remainingHp: unit.hp.toString()
+            })
+        }
     }
 
     /**
@@ -549,12 +598,19 @@ export function runFight(input: FightInput): FightResult {
         for (const target of specialTargets(def.target)) {
             const targetIndex = party.indexOf(target)
             let landed = ZERO
+            // each hit rolls its own accuracy check; a special every hit of which missed lands nothing, its status included
+            let struck = false
             for (let hit = 0; hit < hits && target.hp.gt(0); hit++) {
+                if (dodges(target)) {
+                    logMiss(foe, target, 'enemy_special', def.id)
+                    continue
+                }
+                struck = true
                 const raw = rawHitDamage(pwr, liveUnitStats(target.stats, target.statuses).def, SPECIAL_WEIGHT[def.weight] / hits)
                 landed = landed.add(landOnUnit(foe, target, raw, 'enemy_special', def.id))
             }
             drained = drained.add(landed)
-            if (def.status && target.hp.gt(0)) {
+            if (def.status && struck && target.hp.gt(0)) {
                 const status = specialStatus(def.status, landed)
                 // control resist shortens everything hostile a special lands, never below nothing
                 const resisted = status.duration * Math.max(0, 1 - target.stats.controlResist)
@@ -612,6 +668,10 @@ export function runFight(input: FightInput): FightResult {
             if (unit.hp.lte(0) && !events.some(e => e.kind === 'unit_down' && e.unitIndex === index)) {
                 events.push({ at: elapsed, kind: 'unit_down', unitIndex: index, remainingHp: '0' })
             }
+        }
+        while (elapsed >= nextRegenAt - 1e-9) {
+            regenerate()
+            nextRegenAt += STATUS_TICK_SECONDS
         }
         for (const [index, foe] of enemies.entries()) {
             if (!foe.present) continue
@@ -835,6 +895,8 @@ export function runFight(input: FightInput): FightResult {
 
             const strike = (multiplier: number, skillId?: string) =>
                 cast(multiplier, SINGLE_TARGET, skillId)
+            // a basic attack carries the unit's own basic-attack factor (Traits' Back to Basics)
+            const swing = unit.stats.basicAttackFactor
 
             unit.attackTimer -= FIGHT_TICK_SECONDS
             if (unit.attackTimer <= 0) {
@@ -847,7 +909,7 @@ export function runFight(input: FightInput): FightResult {
                     // Multi-strike kits need no special case; each strike rolls its own crit,
                     // per §7. Overkill rolls onto the next body rather than being wasted.
                     for (let hit = 0; hit < unit.stats.strikesPerAttack; hit++) {
-                        if (!strike(1)) break
+                        if (!strike(swing)) break
                     }
                 }
             }
@@ -896,6 +958,11 @@ export function runFight(input: FightInput): FightResult {
 
             const target = chooseDefender()
             if (!target) break
+            // the accuracy check comes first: a dodged swing rolls nothing else and lands nothing
+            if (dodges(target)) {
+                logMiss(foe, target, 'enemy_attack')
+                continue
+            }
             // Through the shared helper rather than re-deriving the formula here, so the
             // enemy's swing picks up the MIN_DAMAGE floor exactly as the party's does. Live
             // stats on both sides: Weaken lowers the attacker's PWR, Bulwark Stance raises the

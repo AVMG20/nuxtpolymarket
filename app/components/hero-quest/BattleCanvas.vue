@@ -13,6 +13,7 @@ import type { SettingsScene, SettingsTarget, SettingsView } from '~/utils/hero-q
 import type { CalendarScene, CalendarTarget, CalendarView } from '~/utils/hero-quest-art/calendar-scene'
 import type { MilestonesScene, MilestonesTarget, MilestonesView } from '~/utils/hero-quest-art/milestones-scene'
 import type { GuideTarget, GuideView } from '~/utils/hero-quest-art/guide'
+import type { TraitsScene, TraitsTarget, TraitsView } from '~/utils/hero-quest-art/traits-scene'
 import type { RaidRewardView, RaidRowView, RaidsHover, RaidsScene, RaidsView } from '~/utils/hero-quest-art/raids-scene'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
@@ -125,6 +126,10 @@ const props = defineProps<{
     newScenes?: readonly HqMenuScene[]
     /** The guide's dialog, while a tutorial is due. */
     guide?: GuideView | null
+    /** The Traits scene: the board, the Sets and the save slots. */
+    traits?: TraitsView
+    /** A Roll, lock, store, load or save-slot purchase is on its way. */
+    traitsBusy?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -175,6 +180,8 @@ const emit = defineEmits<{
     guideNext: []
     /** The guide's Skip button: the tutorial closed unread. */
     guideSkip: []
+    /** A Traits button was pressed: Roll, a lock, a board's Save or Load, or a save slot's Buy. */
+    traitAction: [target: TraitsTarget]
 }>()
 
 const wrap = ref<HTMLDivElement | null>(null)
@@ -190,6 +197,11 @@ const ready = ref(false)
 const intro = import.meta.client ? takeHqIntro() : null
 const opening = ref(intro !== null)
 const INK = PALETTE[C.ink]!
+/** What the Traits scene draws before its payload lands. */
+const EMPTY_TRAITS: TraitsView = {
+    traitGems: '0', slots: [], rollCost: 0, rerolls: 0, affordable: false, sets: [], saves: [],
+    saveCost: 0, saveAffordable: false, boardFull: false, gems: 0, armed: null
+}
 /** The smallest move in the pack's HP share worth a re-render of the readout: half a percent. */
 const PACK_REPORT_STEP = 0.005
 
@@ -217,6 +229,8 @@ let calendarHit: typeof import('~/utils/hero-quest-art/calendar-scene') | null =
 let milestonesScene: MilestonesScene | null = null
 let milestonesHit: typeof import('~/utils/hero-quest-art/milestones-scene') | null = null
 let guideHit: typeof import('~/utils/hero-quest-art/guide') | null = null
+let traitsScene: TraitsScene | null = null
+let traitsHit: typeof import('~/utils/hero-quest-art/traits-scene') | null = null
 /** The stage's clock, for the scene that times its own animation (the gacha reveal). */
 let sceneTime = 0
 let band: typeof import('~/utils/hero-quest-art/menu-band') | null = null
@@ -369,6 +383,7 @@ defineExpose({ skipFight, closeIris })
 type Target = 'challenge' | HqMenuScene | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
     | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${RaidId | 'enter' | 'quick' | 'loadout'}` | 'reward:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
+    | `trait:${TraitsTarget}`
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
@@ -531,6 +546,11 @@ function targetAt(e: PointerEvent): Target | null {
         if (at === 'all') return !props.milestonesBusy && milestonesHit.milestonesClaimAllEnabled(props.milestones) ? 'ms:all' : null
         return at ? `ms:${at}` : null
     }
+    if (openScene.value === 'traits' && traitsHit && props.traits) {
+        // anything on the board is pointed at for what it is; only what can be pressed is pressed
+        const at = traitsHit.traitsTargetAt(props.traits, presenter.w, x, y)
+        return at ? `trait:${at}` : null
+    }
     if (openScene.value === 'calendar' && calendarHit && props.calendar) {
         const at = calendarHit.calendarTargetAt(props.calendar, presenter.w, x, y)
         // the make-up button is no target with nothing to make up; a day is pointed at for what it pays
@@ -666,6 +686,10 @@ function onPointerUp(e: PointerEvent) {
     else if (hit.startsWith('cal:')) return
     else if (hit === 'guide:next') emit('guideNext')
     else if (hit === 'guide:skip') emit('guideSkip')
+    else if (hit.startsWith('trait:')) {
+        const target = hit.slice(6) as TraitsTarget
+        if (traitsHit && props.traits && traitsHit.traitsTargetEnabled(props.traits, target, !!props.traitsBusy)) emit('traitAction', target)
+    }
     else if (hit === 'ms:all') emit('claimMilestones', null)
     else if (hit.startsWith('ms:row:')) {
         // a card with nothing waiting is only pointed at, for what its next step pays
@@ -746,6 +770,7 @@ const pointer = computed(() => {
         const ascendant = props.classes?.ascendant
         return !!ascendant && classesHit !== null && classesHit.togglePick(ascendant, h.slice(4)) !== ascendant.picks
     }
+    if (h.startsWith('trait:')) return !!traitsHit && !!props.traits && traitsHit.traitsTargetEnabled(props.traits, h.slice(6) as TraitsTarget, !!props.traitsBusy)
     if (!h.startsWith('class:')) return true
     const node = props.classes?.classes.find(c => c.id === h.slice(6))
     return (!!node?.pickable && !node.current) || (!!node?.current && node.tier === 'capstone')
@@ -774,6 +799,7 @@ const raidsHover = computed<RaidsHover>(() => hover.value?.startsWith('raid:') ?
 const settingsHover = computed<SettingsTarget | null>(() => hover.value?.startsWith('setting:') ? hover.value.slice(8) as SettingsTarget : null)
 const calendarHover = computed<CalendarTarget | null>(() => hover.value?.startsWith('cal:') ? hover.value.slice(4) as CalendarTarget : null)
 const milestonesHover = computed<MilestonesTarget | null>(() => hover.value?.startsWith('ms:') ? hover.value.slice(3) as MilestonesTarget : null)
+const traitsHover = computed<TraitsTarget | null>(() => hover.value?.startsWith('trait:') ? hover.value.slice(6) as TraitsTarget : null)
 /** The track a `ms:row:N` target points at. */
 function milestoneRowOf(target: string) {
     return props.milestones?.rows[Number(target.slice(7))]
@@ -801,7 +827,7 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, traitsArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
@@ -815,7 +841,8 @@ onMounted(async () => {
         import('~/utils/hero-quest-art/raids-scene'),
         import('~/utils/hero-quest-art/calendar-scene'),
         import('~/utils/hero-quest-art/milestones-scene'),
-        import('~/utils/hero-quest-art/guide')
+        import('~/utils/hero-quest-art/guide'),
+        import('~/utils/hero-quest-art/traits-scene')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -843,6 +870,8 @@ onMounted(async () => {
     milestonesScene = new milestonesArt.MilestonesScene(backdrops)
     milestonesHit = milestonesArt
     guideHit = guideArt
+    traitsScene = new traitsArt.TraitsScene(backdrops)
+    traitsHit = traitsArt
     stage = new BattleDemo()
     build()
     if (intro) {
@@ -886,6 +915,8 @@ onMounted(async () => {
                                 ? gachaScene!.render(t, props.gacha ?? { banners: [], gold: '0', reveal: null, armed: null }, gachaHover.value, pressed.value, !!props.gachaBusy)
                                 : scene === 'raids'
                                     ? raidsScene!.render(t, raidsView.value, raidsHover.value, pressed.value)
+                                    : scene === 'traits'
+                                    ? traitsScene!.render(t, props.traits ?? EMPTY_TRAITS, traitsHover.value, pressed.value, !!props.traitsBusy)
                                     : scene === 'milestones'
                                     ? milestonesScene!.render(t, props.milestones ?? { rows: [] }, milestonesHover.value, pressed.value, !!props.milestonesBusy)
                                     : scene === 'calendar'

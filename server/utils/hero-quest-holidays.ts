@@ -11,7 +11,7 @@ import { eq } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { hqHolidayClaims, hqState } from '#server/database/schema'
 import { credit, creditGems } from '#server/utils/balance'
-import { bankedGoldOf, getCollections, getShopLevels, heroSnapshotOf, sealGrant } from '#server/utils/hero-quest'
+import { bankedGoldOf, getCollections, getShopLevels, getTraitBoard, heroSnapshotOf, sealGrant } from '#server/utils/hero-quest'
 import { calendarGoldPerHour } from '#server/utils/hero-quest-calendar'
 import { holidayGift, holidayGiftGold, nextHolidayWindow, openHolidayWindow, openHolidayWindows } from '#shared/utils/hero-quest/holidays'
 import { isHolidayId } from '#shared/utils/hero-quest/content/holidays'
@@ -83,8 +83,8 @@ export async function claimHoliday(tx: DbExecutor, userId: string, holidayId: un
     let goldPerHour = 0
     if (gift.goldMinutes > 0) {
         // with the banked Gold, as `state.get.ts` sizes it, so the Gold paid is the Gold shown
-        const [shopLevels, collections, bankedGold] = await Promise.all([getShopLevels(userId, tx), getCollections(userId, tx), bankedGoldOf(tx, userId)])
-        goldPerHour = calendarGoldPerHour(state, heroSnapshotOf(state, shopLevels, collections, bankedGold))
+        const [shopLevels, collections, bankedGold, traits] = await Promise.all([getShopLevels(userId, tx), getCollections(userId, tx), bankedGoldOf(tx, userId), getTraitBoard(userId, tx)])
+        goldPerHour = calendarGoldPerHour(state, heroSnapshotOf(state, shopLevels, collections, bankedGold, traits))
     }
     const gold = holidayGiftGold(gift, goldPerHour)
     if (gold > 0) await credit(userId, gold.toFixed(4), 'hero-quest:holiday', tx)

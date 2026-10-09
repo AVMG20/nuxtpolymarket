@@ -15,7 +15,8 @@ import { HQ_MENU_SCENES, HQ_SCENE_LABELS, type HqMenuScene, type HqScene } from 
 export const BAND_H = 22
 const BTN_W = 22
 const BTN_H = 18
-const BTN_GAP = 4
+/** Two pixels, so eleven buttons fit the stage's 272 with room either side. */
+const BTN_GAP = 2
 
 /** The Loadouts glyph, shared with the prestige shop's Loadout Slots track. */
 export const LOADOUT_GLYPH: Glyph = (g, x, y) => {
@@ -153,6 +154,8 @@ const ICONS: Readonly<Record<HqMenuScene, Glyph>> = {
     gacha: GUMBALL,
     collections: (g, x, y) => ABILITY_ICON_PARTS.book(g, x, y, C.red1, C.bone1),
     loadouts: LOADOUT_GLYPH,
+    // a Trait Gem: what every Roll and every stored board spends
+    traits: CURRENCY_ICONS.trait_gems!,
     raids: RAID_BANNER,
     classes: NODE_TREE,
     // Void Shards are what a prestige pays out

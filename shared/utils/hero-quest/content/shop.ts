@@ -1,7 +1,7 @@
 /**
  * The prestige shop — permanent upgrades, mostly bought with Void Shards.
  *
- * Ten tracks: the two offline tracks, the four slot tracks the gachas and Loadouts each unlock,
+ * Eleven tracks: the two offline tracks, the five slot tracks the gachas, Loadouts and Traits unlock,
  * and four uncapped stat tracks (PWR, DEF, IMP, VIT) that sink Void Shards forever. What is
  * **not** here, and why:
  *
@@ -19,8 +19,9 @@
  *
  * ## Two currencies
  *
- * Loadout slots are priced in **Gems** (`loadouts.md` §3) — see `LOADOUT_SLOT_BASE_COST_GEMS` —
- * and everything else in Void Shards. That is why `ShopTrack` carries a `currency` and the buy
+ * Loadout slots (`loadouts.md` §3) and Trait save slots (`traits.md` §6) are priced in **Gems** —
+ * see `LOADOUT_SLOT_BASE_COST_GEMS` and `TRAIT_SAVE_SLOT_BASE_COST_GEMS` — and everything else in
+ * Void Shards. That is why `ShopTrack` carries a `currency` and the buy
  * route branches on it.
  */
 
@@ -49,7 +50,11 @@ import {
     OFFLINE_EFFICIENCY_BASE_COST,
     OFFLINE_EFFICIENCY_COST_GROWTH,
     SKILL_SLOT_BASE_COST,
-    SKILL_SLOT_COST_GROWTH
+    SKILL_SLOT_COST_GROWTH,
+    BASE_TRAIT_SAVE_SLOTS,
+    MAX_TRAIT_SAVE_SLOTS,
+    TRAIT_SAVE_SLOT_BASE_COST_GEMS,
+    TRAIT_SAVE_SLOT_COST_STEP_GEMS
 } from '../constants'
 import type { HqModifier } from '../modifiers'
 import type { HqStatKey } from '../types'
@@ -61,6 +66,7 @@ export type ShopTrackId =
     | 'skillSlots'
     | 'artifactSlots'
     | 'loadoutSlots'
+    | 'traitSaveSlots'
     | 'statPwr'
     | 'statDef'
     | 'statImp'
@@ -77,6 +83,11 @@ export interface ShopTrack {
     maxLevel: number
     baseCost: number
     costGrowth: number
+    /**
+     * A flat step per level instead of the growth factor: `baseCost + (level − 1) × costStep`.
+     * Only Trait save slots, whose 250 / 750 / 1250 is linear by design (`traits.md` §6).
+     */
+    costStep?: number
     currency: ShopCurrency
     /**
      * Whether to round the price to a whole number. Only Offline Efficiency stays exact, which
@@ -169,6 +180,17 @@ export const SHOP_TRACKS: readonly ShopTrack[] = [
         currency: 'gems',
         roundCost: true
     },
+    {
+        id: 'traitSaveSlots',
+        name: 'Trait Save Slots',
+        description: 'Trait boards you can store, 1 → 4.',
+        maxLevel: MAX_TRAIT_SAVE_SLOTS - BASE_TRAIT_SAVE_SLOTS,
+        baseCost: TRAIT_SAVE_SLOT_BASE_COST_GEMS,
+        costGrowth: 1,
+        costStep: TRAIT_SAVE_SLOT_COST_STEP_GEMS,
+        currency: 'gems',
+        roundCost: true
+    },
     statTrack('statPwr', 'pwr', 'Power'),
     statTrack('statDef', 'def', 'Defence'),
     statTrack('statImp', 'imp', 'Impact'),
@@ -192,7 +214,7 @@ export function getShopTrack(id: ShopTrackId): ShopTrack {
 /**
  * Price of the **next** level in the track's `currency`, given how many are already owned.
  *
- *     cost(level) = BASE × GROWTH^(level-1)
+ *     cost(level) = BASE × GROWTH^(level-1)       (or BASE + STEP × (level-1) with a `costStep`)
  *
  * `null` at the cap — the caller renders "maxed" rather than an unbuyable price, and the
  * buy route treats a null as a rejection.
@@ -201,7 +223,9 @@ export function shopTrackCost(id: ShopTrackId, ownedLevel: number): number | nul
     const track = getShopTrack(id)
     const next = Math.max(0, Math.floor(ownedLevel)) + 1
     if (next > track.maxLevel) return null
-    const raw = track.baseCost * Math.pow(track.costGrowth, next - 1)
+    const raw = track.costStep === undefined
+        ? track.baseCost * Math.pow(track.costGrowth, next - 1)
+        : track.baseCost + track.costStep * (next - 1)
     return track.roundCost ? Math.round(raw) : raw
 }
 

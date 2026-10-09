@@ -180,7 +180,7 @@ export function expectedCritFactor(unit: UnitStats): Decimal {
  * — the two agree exactly at one unit, and diverge deliberately above it.
  */
 export function unitDps(unit: UnitStats, defenderDef: DecimalSource, defenderEva = 0): Decimal {
-    return expectedHitDamage(unit, defenderDef, 1, defenderEva)
+    return expectedHitDamage(unit, defenderDef, unit.basicAttackFactor, defenderEva)
         .mul(unit.strikesPerAttack)
         .mul(unit.attacksPerSecond)
 }
@@ -207,6 +207,9 @@ export function partyMitigation(units: readonly UnitStats[], defenderDef: Decima
  * Each unit still swings its own PWR; only the mitigation they swing through is shared. A
  * weak Champion therefore adds its own damage *and* thins the armour for everyone else,
  * which is what makes filling a slot always worth something.
+ *
+ * Basic attacks only, so each swing carries the unit's `basicAttackFactor` (Traits' Back to
+ * Basics) — inside the `MIN_DAMAGE` floor, as `fight.rollDamage` applies it.
  */
 export function partyDps(units: readonly UnitStats[], defenderDef: DecimalSource, defenderEva = 0): Decimal {
     if (units.length === 0) return ZERO
@@ -217,7 +220,7 @@ export function partyDps(units: readonly UnitStats[], defenderDef: DecimalSource
         // Floored per unit, matching `rawHitDamage` — a fully-mitigated party still chips at
         // MIN_DAMAGE per swing rather than stalling on exactly nothing, and a unit with no
         // PWR still contributes nothing.
-        const perHit = unit.pwr.lte(0) ? ZERO : decMax(MIN_DAMAGE, unit.pwr.mul(penetration))
+        const perHit = unit.pwr.lte(0) ? ZERO : decMax(MIN_DAMAGE, unit.pwr.mul(penetration).mul(unit.basicAttackFactor))
         const dps = perHit
             .mul(critFactor)
             .mul(hitChanceAgainst(defenderEva))

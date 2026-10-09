@@ -4,6 +4,7 @@ import {
     getCollections,
     getHqState,
     getShopLevels,
+    getTraitBoard,
     heroSnapshotOf,
     serializeStatExplanation,
     settleHq
@@ -31,12 +32,13 @@ export default defineEventHandler(async (event) => {
     const settleOutcome = await settleHq(userId)
     const { state } = settleOutcome
 
-    const [shopLevels, collections, balance] = await Promise.all([
+    const [shopLevels, collections, traits, balance] = await Promise.all([
         settleOutcome.shopLevels ?? getShopLevels(userId),
         settleOutcome.collections ?? getCollections(userId),
+        settleOutcome.traits ?? getTraitBoard(userId),
         getBalance(userId)
     ])
 
-    const hero = heroSnapshotOf(state, shopLevels, collections, parseFloat(balance) || 0)
+    const hero = heroSnapshotOf(state, shopLevels, collections, parseFloat(balance) || 0, traits)
     return serializeStatExplanation(explainStats(hero))
 })

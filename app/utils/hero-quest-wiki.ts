@@ -139,8 +139,7 @@ export const HQ_POWER_DOC = {
 /**
  * Currencies, and — deliberately — which of them this build actually has.
  *
- * Trait Gems, Raid Keys and Arena Medals (`economy-and-currencies.md`) belong to systems that do
- * not exist yet. A wiki that describes all eleven as
+ * Some currencies (`economy-and-currencies.md`) belong to systems a build may not have yet. A wiki that describes all eleven as
  * though they work is a wiki that sends players hunting for a currency they cannot earn, so the
  * unbuilt ones are listed and marked rather than hidden — a player who reads about Raids in a
  * design doc should find out here that they are not in yet.
@@ -168,7 +167,7 @@ export const HQ_CURRENCY_DOCS: readonly HqCurrencyDoc[] = [
     {
         name: 'Gems',
         source: 'Milestones. Shared with the rest of the platform.',
-        sink: 'Extra Loadout slots.',
+        sink: 'Extra Loadout slots and Trait save slots.',
         live: true,
         shared: true
     },
@@ -190,7 +189,12 @@ export const HQ_CURRENCY_DOCS: readonly HqCurrencyDoc[] = [
         sink: 'Crafting one specific item outright — the way past bad luck.',
         live: true
     },
-    { name: 'Trait Gems', source: 'The Trait Raid.', sink: 'Rolling and saving Traits.', live: false },
+    {
+        name: 'Trait Gems',
+        source: 'Shardcaller Beast, the Trait Raid, and some login-calendar days.',
+        sink: 'Rolling Traits, and storing or loading a Trait board.',
+        live: true
+    },
     { name: 'Raid Keys', source: 'A daily allowance per raid.', sink: 'Raid entries.', live: false },
     { name: 'Arena Medals', source: 'Winning Arena attacks.', sink: 'The Arena shop.', live: false }
 ]

@@ -194,8 +194,9 @@ import { ARCHETYPE_DEFINITIONS } from '#shared/utils/hero-quest/content/champion
         floor — so Speed is worth a great deal early and very little late.
       </p>
       <p>
-        Evasion is the one stat you cannot build directly: nothing in this build grants it, and it
-        is capped regardless so that no amount of it makes anything untouchable.
+        Evasion is the one stat you cannot build directly: only the Vital Reflex Trait set grants it,
+        to the whole party, and every incoming hit then lands with chance 1 − evasion. It is capped
+        so that no amount of it makes anything untouchable.
       </p>
       <HeroQuestWikiFormula
         label="Evasion ceiling"
