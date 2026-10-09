@@ -281,5 +281,5 @@ Not design docs — they describe the *state* of the project rather than the gam
 | ~~**Alternative enemy-scaling formula**~~ | Applied — the continuous `b^n` curve (`open-items.md` #10) |
 | **Holiday gameplay events** (limited-time modes) | Explicitly deferred in `holiday-events.md` |
 | **Per-raid mechanic content** | Fight types locked, specifics deferred |
-| **Remaining tuning** | Combat/progression tuned (#22); 62 `// UNTUNED ╧` constants remain, mostly gacha, shop, economy and ability magnitudes — see `open-items.md`, "Standing numeric tuning" |
+| **Remaining tuning** | Combat/progression tuned (#22); 95 `// UNTUNED ╧` constants remain (2026-10-09), mostly gacha, shop, economy, raid, boss-special, milestone, holiday and ability magnitudes — see `open-items.md`, "Standing numeric tuning" |
 | **Gold decisions** | First-week income, lost calendar anchors, stale Seal ladder — `open-items.md` #23 |
