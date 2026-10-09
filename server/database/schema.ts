@@ -18,6 +18,7 @@ import type {
 } from '#shared/types/tcg-db'
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
+import type { TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
 import type { TownStreakLock } from '#shared/utils/gamelogic/town-streak'
 import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
 import type { NcDrawing } from '#shared/utils/neighcasso/types'
@@ -1789,6 +1790,39 @@ export const townState = pgTable('town_state', {
   /** Coins market day may still add on top of floor sales. Decremented under the state lock. */
   marketBoostBonusLeft: numeric('market_boost_bonus_left', { precision: 19, scale: 4 }).notNull().default('0'),
   createdAt: timestamp('created_at').defaultNow().notNull()
+})
+
+/**
+ * Buildings a town owns but has taken off the map. A row keeps the building's
+ * own id, and moves back into town_buildings when it is placed.
+ *
+ * Deliberately its own table, with no plot or tile: everything that reads the
+ * map reads town_buildings, so a stored building can never produce, house or
+ * be counted by mistake, and selling the plot it stood on cannot cascade it.
+ */
+export const townStorage = pgTable('town_storage', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  level: integer('level').notNull(),
+  upgradingTo: integer('upgrading_to'),
+  /** Build time still owed on a paused construction or upgrade; 0 when idle. */
+  remainingMs: bigint('remaining_ms', { mode: 'number' }).notNull().default(0),
+  /** The building's own creation time, carried through storage. */
+  createdAt: timestamp('created_at').notNull(),
+  storedAt: timestamp('stored_at').defaultNow().notNull()
+}, t => [index('town_storage_userId_idx').on(t.userId)])
+
+/**
+ * A redesign saved half-way: where each piece was put down, the roads laid,
+ * and what is marked for storage. Only a plan — the town keeps running on its
+ * real layout until the redesign is saved in full, which deletes this row.
+ * Reopened, it is merged with the town as it then stands (TownGame.client.vue).
+ */
+export const townRedesignDrafts = pgTable('town_redesign_drafts', {
+  userId: text('user_id').primaryKey().references(() => user.id, { onDelete: 'cascade' }),
+  draft: jsonb('draft').$type<TownRedesignDraft>().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
 })
 
 /**
