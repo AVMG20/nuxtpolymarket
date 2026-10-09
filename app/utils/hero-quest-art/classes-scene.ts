@@ -7,11 +7,11 @@
 // kit over the tree: every class skill, five to a line as the tree runs, up to four of them picked.
 
 import { C } from './palette'
-import { Surface, line, ring, ditherDisc, blit, disc, rect } from './surface'
+import { Surface, line, ring, ditherDisc, blit, rect } from './surface'
 import { drawText, textWidth } from './font'
 import { glyph } from './icon-kit'
 import { ABILITY_ICON_PARTS, CLASS_SKILL_ICONS } from './icons-abilities'
-import { classNodeIcon } from './icons-misc'
+import { classNodeIcon, type ClassLine } from './icons-misc'
 import { panel } from './ui-art'
 import { plateButton, type Box } from './collections-scene'
 import type { SceneBackdrops } from './menu-band'
@@ -60,7 +60,7 @@ export interface ClassesView {
 export type KitTarget = `kit:${string}` | 'kit:done'
 
 const PANEL = { x: 4, y: 14, w: 264, h: 138 }
-const TIER_RANK: Readonly<Record<string, number>> = { beginner: 0, base: 1, elite: 2, master: 3 }
+const TIER_RANK: Readonly<Record<string, number>> = { beginner: 0, base: 1, elite: 2, master: 3, capstone: 4 }
 /** The tree runs top to bottom: where each tier's medallions start. Each name sits under its medallion. */
 const TIER_TOP: Readonly<Record<string, number>> = { beginner: PANEL.y + 2, base: PANEL.y + 34, elite: PANEL.y + 66, master: PANEL.y + 97 }
 const MEDAL = 24
@@ -148,9 +148,10 @@ export function classNodeAt(classes: readonly ClassNodeView[], x: number, y: num
     return null
 }
 
-/** The branch a class grows from, for its medallion's colour. */
-function lineOf(classes: readonly ClassNodeView[], id: string): 'beginner' | 'warrior' | 'mage' | 'archer' {
+/** The branch a class grows from, for its medallion's colour; the capstone has a colour of its own. */
+function lineOf(classes: readonly ClassNodeView[], id: string): ClassLine {
     let node = classes.find(c => c.id === id)
+    if (node?.tier === 'capstone') return 'ascendant'
     while (node?.parentId && node.parentId !== 'class_beginner') node = classes.find(c => c.id === node!.parentId)
     if (!node || node.id === 'class_beginner') return 'beginner'
     return node.id === 'class_warrior' ? 'warrior' : node.id === 'class_mage' ? 'mage' : 'archer'
@@ -222,7 +223,7 @@ export class ClassesScene {
             lines(node.name, SLOT - 2).forEach((l, k) => drawText(s, l, p.cx, p.top + MEDAL + NAME_GAP + k * 7, color, { align: 1, shadow: 1 }))
         }
 
-        this.drawCapstone(s, cap, capstone, hovered, busy)
+        this.drawCapstone(s, view, cap, capstone, hovered, busy)
 
         // the class under the pointer, or the current one: its skill, and whether it can be taken
         const beginner = tree.find(c => !c.parentId)
@@ -263,18 +264,14 @@ export class ClassesScene {
     }
 
     /**
-     * The capstone: a dark medallion in a gilded rim with an infinity sign inside it (a placeholder
-     * until its art round), dimmed until it can be taken. Its name shows once it is open.
+     * The capstone: its portrait on violet in a gilded rim studded with the six masters' colours,
+     * dimmed until it can be taken. Its name shows once it is open.
      */
-    private drawCapstone(s: Surface, at: Spot, node: ClassNodeView | undefined, hovered: string | null, busy: boolean): void {
+    private drawCapstone(s: Surface, view: ClassesView, at: Spot, node: ClassNodeView | undefined, hovered: string | null, busy: boolean): void {
         const cy = at.top + (MEDAL >> 1)
         const open = !!node && (node.pickable || node.current)
-        disc(s, at.cx, cy, 11, C.ink)
-        disc(s, at.cx, cy, 10, C.gold1)
-        disc(s, at.cx, cy, 8, C.purple0)
-        ring(s, at.cx, cy, 9, C.gold2)
-        glyph(s, (g, x, y) => ABILITY_ICON_PARTS.infinity(g, x, y, 6, C.gold2, C.gold3), at.cx, cy, true)
-        if (!open) ditherDisc(s, at.cx, cy, 8, C.ink, 7)
+        if (node) blit(s, this.medal(view, node), at.cx - (MEDAL >> 1), at.top)
+        if (!open) ditherDisc(s, at.cx, cy, 11, C.ink, 9)
         if (node) this.nodeRing(s, node, at, hovered, busy)
         if (!open && hovered === CAPSTONE_ID) ring(s, at.cx, cy, 12, C.stone3)
         const color = node?.current ? C.gold3 : node?.costsToken ? C.gold2 : open ? C.bone1 : C.gold1

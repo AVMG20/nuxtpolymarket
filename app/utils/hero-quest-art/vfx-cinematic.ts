@@ -1044,9 +1044,106 @@ const mansBestFriend: CinematicVfx = {
     }
 }
 
+// Convergence (the Ascendant): the six masters' colours gather round him, arc out to meet over the
+// enemy line, fuse into one white-gold sun, and come down as six beams, one on every enemy, front
+// row then back, each a blast in its master's element. Every enemy, as the skill does: its two
+// damaging parts, Meteor Shower and Arrow Rain, both strike the whole enemy team.
+const CONVERGE_COLOURS = [C.red2, C.gold3, C.orange, C.green4, C.cyan, C.steel3] as const
+const CV = { gather: 0.1, launch: 0.6, meet: 1.0, burst: 1.35 }
+/** Where the six meet: mid-stage, between him and the enemy, so the beams fan out down onto the line. */
+const MEET = { x: 98, y: 24 }
+/**
+ * One blast on every enemy mark, front row first, in the order of the six colours: Enrage's blood,
+ * Disciple's gold, Meteor Shower's fire, Raise Dead's poison, Arrow Rain's storm, Man's Best
+ * Friend's steel.
+ */
+const CONVERGE_HITS = [
+    { target: 0, at: 1.45, ramp: BLOOD, sparks: 'blood' as RampName },
+    { target: 1, at: 1.5, ramp: GOLD, sparks: 'holy' as RampName },
+    { target: 2, at: 1.55, ramp: FIRE, sparks: 'ember' as RampName },
+    { target: 3, at: 1.6, ramp: NATURE, sparks: 'poison' as RampName },
+    { target: 4, at: 1.65, ramp: STORM, sparks: 'frost' as RampName },
+    { target: 5, at: 1.7, ramp: STEEL, sparks: 'steel' as RampName }
+] as const
+/** The ring the six gather on, over the caster's head. */
+const GATHER = { x: CX, y: FLOOR - 32 }
+
+/** Mote `i` of six on the gathering ring, turning, at radius `r`. Scratch EP. */
+function gatherAt(i: number, r: number, q: number): void {
+    const a = q * 4 + i / CONVERGE_COLOURS.length * Math.PI * 2
+    EP.x = GATHER.x + Math.cos(a) * r
+    EP.y = GATHER.y + Math.sin(a) * r * 0.45
+}
+
+const convergence: CinematicVfx = {
+    id: 'skill_convergence', name: 'Convergence', source: 'class', owner: 'Ascendant', dur: 2.6,
+    cinematic: { hits: CONVERGE_HITS.map(h => h.at), tint: 'night0', spread: true },
+    draw(d, t) {
+        const q = qt(t)
+        casterRing(d, CX, t, 0, 2.0, C.purple1, C.gold2, C.gold3)
+        // 1. the six gather on a turning ring over his head
+        if (q >= CV.gather && q < CV.launch) {
+            const r = 4 + 12 * eo(pr(t, CV.gather, CV.gather + 0.3))
+            CONVERGE_COLOURS.forEach((c, i) => {
+                gatherAt(i, r, q)
+                disc(d, EP.x, EP.y, 2, c)
+                d.set(R(EP.x), R(EP.y) - 1, C.white)
+            })
+        }
+        // 2. each arcs out to the meeting point, trailing its colour
+        if (q >= CV.launch && q < CV.meet) {
+            CONVERGE_COLOURS.forEach((c, i) => {
+                gatherAt(i, 16, CV.launch)
+                const x0 = EP.x
+                const y0 = EP.y
+                for (let k = 3; k >= 0; k--) {
+                    const u = Math.max(0, pr(t, CV.launch, CV.meet) - k * 0.05)
+                    lob(x0, y0, MEET.x, MEET.y, 6 + (i % 3) * 4, eo(u))
+                    disc(d, VP.x, VP.y, k === 0 ? 2 : 1.5 - k * 0.3, k === 0 ? c : k === 3 ? C.white : c)
+                }
+                lob(x0, y0, MEET.x, MEET.y, 6 + (i % 3) * 4, eo(pr(t, CV.launch, CV.meet)))
+                d.set(R(VP.x), R(VP.y) - 1, C.white)
+            })
+        }
+        // 3. they fuse into a white-gold sun that swells, the six still turning round its rim
+        if (q >= CV.meet && q < CV.burst + 0.1) {
+            const u = pr(t, CV.meet, CV.burst)
+            const r = 3 + 7 * eo(u)
+            disc(d, MEET.x, MEET.y, r + 1, C.gold1)
+            disc(d, MEET.x, MEET.y, r, C.gold2)
+            disc(d, MEET.x, MEET.y, r * 0.7, C.gold3)
+            disc(d, MEET.x, MEET.y, r * 0.4, C.white)
+            CONVERGE_COLOURS.forEach((c, i) => {
+                const a = q * 9 + i / CONVERGE_COLOURS.length * Math.PI * 2
+                disc(d, MEET.x + Math.cos(a) * (r + 3), MEET.y + Math.sin(a) * (r + 3) * 0.6, 1.5, c)
+            })
+        }
+        // 4. it bursts: a shock ring, and six beams, one in each colour onto each enemy
+        shockRing(d, MEET.x, MEET.y, t, CV.burst, 0.5, 6, 26, C.white)
+        if (q >= CV.burst && q < CV.burst + 0.5) {
+            CONVERGE_COLOURS.forEach((c, i) => {
+                const hit = CONVERGE_HITS[i]!
+                const f = F[hit.target]!
+                const reach = pr(t, CV.burst + i * 0.03, hit.at)
+                if (reach <= 0) return
+                const x1 = MEET.x + (f.x - MEET.x) * reach
+                const y1 = MEET.y + (f.g - 4 - MEET.y) * reach
+                line(d, MEET.x, MEET.y, x1, y1, c, 2)
+                line(d, MEET.x, MEET.y, x1, y1, C.white)
+            })
+        }
+        // 5. a blast in each master's element where the beams land, then light drifting off the line
+        CONVERGE_HITS.forEach((h, i) => {
+            const f = F[h.target]!
+            blast(d, f.x, f.g - 1, t, h.at, 14, 0.7, h.ramp, 80 + i, h.sparks, true)
+        })
+        if (q > CONVERGE_HITS[5].at + 0.2) motes(d, (F[0]!.x + F[3]!.x) / 2, F[0]!.g - 4, 56, 40, t, 14, 'gold', 90, 24)
+    }
+}
+
 export const CINEMATIC_VFX: readonly CinematicVfx[] = [
     haste, whirlwind, threateningRoar, enrage, shockwave, bouncebolt, lightningStorm, meteorShower, totemStorm,
-    piercingArrow, fanOfArrows, arrowRain, killShot, mansBestFriend
+    piercingArrow, fanOfArrows, arrowRain, killShot, mansBestFriend, convergence
 ]
 export const CINEMATIC_BY_ID: Readonly<Record<string, CinematicVfx>> = Object.fromEntries(CINEMATIC_VFX.map(v => [v.id, v]))
 
@@ -1057,7 +1154,8 @@ const CAST_BY_SKILL: Readonly<Record<string, string>> = {
     skill_enrage: 'class_berserker', skill_shockwave: 'class_knight', skill_ethereal_bouncebolt: 'class_mage',
     skill_lightning_storm: 'class_wizard', skill_meteor_shower: 'class_sorcerer', skill_totem_storm: 'class_shaman',
     skill_piercing_arrow: 'class_archer', skill_fan_of_arrows: 'class_bowman', skill_arrow_rain: 'class_marksman',
-    skill_kill_shot: 'class_hunter', skill_mans_best_friend: 'class_beast_master'
+    skill_kill_shot: 'class_hunter', skill_mans_best_friend: 'class_beast_master',
+    skill_convergence: 'class_ascendant'
 }
 const STAGE_ACTOR = new Actor(64)
 

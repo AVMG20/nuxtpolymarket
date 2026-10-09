@@ -141,8 +141,9 @@ export interface ArtAsset {
  * Artifacts locked, Round 11 when the Gear locked, Round 12 when the currencies locked and Round
  * 13 when the status effects locked, Round 14 when the Hero skill VFX locked, and Rounds 15–18
  * when the Damage, Tank, Support and Control Champion abilities locked, and Round 19 when the
- * Training Grounds actives locked (all 2026-10-02), so the next round is 20;
- * every earlier round is recorded in art-style.md.
+ * Training Grounds actives locked (all 2026-10-02). Round 20, the Ascendant, was approved and locked
+ * into the Hero, Frames, class skill icon and Hero skill VFX groups on 2026-10-09, so the next round
+ * is 21; every earlier round is recorded in art-style.md.
  */
 export const ART_ROUNDS: readonly { n: number, label: string, prefixes: readonly string[] }[] = []
 
@@ -412,15 +413,17 @@ function still(id: string, group: ArtGroup, section: string, label: string, w: n
 
 const LINE_M = {
     beginner: [C.gold0, C.gold1, C.gold2], warrior: [C.red0, C.red1, C.red2],
-    mage: [C.blue0, C.blue1, C.blue2], archer: [C.green0, C.green1, C.green2]
+    mage: [C.blue0, C.blue1, C.blue2], archer: [C.green0, C.green1, C.green2],
+    ascendant: [C.purple0, C.purple1, C.purple2]
 } as const
 const ARCH_M = {
     damage: [C.red0, C.red1, C.red2], tank: [C.blue0, C.blue1, C.blue2],
     support: [C.green0, C.green1, C.green3], control: [C.purple0, C.purple1, C.purple2]
 } as const
-const TIER_INDEX = { beginner: 0, base: 1, elite: 2, master: 3 } as const
+const TIER_INDEX = { beginner: 0, base: 1, elite: 2, master: 3, capstone: 4 } as const
 
 function classLine(id: string): keyof typeof LINE_M {
+    if (CLASS_BY_ID[id as keyof typeof CLASS_BY_ID]?.tier === 'capstone') return 'ascendant'
     const second = classPath(id as never)[1]
     return second ? (second.id.replace('class_', '') as keyof typeof LINE_M) : 'beginner'
 }
@@ -488,10 +491,9 @@ function frameAssets(): ArtAsset[] {
         })
     }
     for (const id of Object.keys(ARCHETYPE_BADGES)) out.push(still(`badge/archetype/${id}`, 'frames', 'Archetype badges', id, SMALL_ICON, SMALL_ICON, dst => archetypeBadge(dst, id)))
-    // the capstone's medallion is the Classes scene's own, not a portrait
-    for (const node of CLASS_NODES.filter(n => n.tier !== 'capstone')) {
+    for (const node of CLASS_NODES) {
         out.push(still(`icon/class/${node.id}`, 'frames', 'Class-tree node icons', node.name, ICON, ICON,
-            dst => classNodeIcon(dst, node.id, classLine(node.id), TIER_INDEX[node.tier as keyof typeof TIER_INDEX])))
+            dst => classNodeIcon(dst, node.id, classLine(node.id), TIER_INDEX[node.tier])))
     }
     return out
 }

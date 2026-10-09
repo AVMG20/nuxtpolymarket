@@ -333,10 +333,16 @@ const LINE_BG: Readonly<Record<string, Mat>> = {
     beginner: [C.gold0, C.gold1, C.gold2],
     warrior: [C.red0, C.red1, C.red2],
     mage: [C.blue0, C.blue1, C.blue2],
-    archer: [C.green0, C.green1, C.green2]
+    archer: [C.green0, C.green1, C.green2],
+    ascendant: [C.purple0, C.purple1, C.purple2]
 }
 
-export function classNodeIcon(s: Surface, classId: string, line: 'beginner' | 'warrior' | 'mage' | 'archer', tier: number): void {
+/** The capstone's rim studs: one per master, in the colours of the motes circling the Ascendant. */
+const MASTER_STUDS = [C.red2, C.gold3, C.orange, C.green4, C.cyan, C.steel3]
+
+export type ClassLine = 'beginner' | 'warrior' | 'mage' | 'archer' | 'ascendant'
+
+export function classNodeIcon(s: Surface, classId: string, line: ClassLine, tier: number): void {
     const art = HERO_ART[classId]!
     const m = LINE_BG[line]!
     // tier shown as the ring: base plain, elite doubled, master gilded
@@ -356,6 +362,16 @@ export function classNodeIcon(s: Surface, classId: string, line: 'beginner' | 'w
         }
     }
     if (tier >= 3) { px(s, 12, 1, C.white); px(s, 11, 1, C.gold3); px(s, 13, 1, C.gold3) }
+    // the capstone: a stud in each master's colour set round the gilded rim, for the six it mastered
+    if (tier >= 4) {
+        MASTER_STUDS.forEach((c, i) => {
+            const a = Math.PI / 2 + (i + 0.5) / MASTER_STUDS.length * Math.PI * 2
+            const x = Math.round(12 + Math.cos(a) * 10)
+            const y = Math.round(12 + Math.sin(a) * 10)
+            rect(s, x - 1, y - 1, 2, 2, c)
+            px(s, x - 1, y - 1, C.white)
+        })
+    }
 }
 
 // ── Status icons (16×16) ───────────────────────────────────────────────────────────

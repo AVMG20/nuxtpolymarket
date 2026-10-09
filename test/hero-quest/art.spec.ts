@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { allArt, ART_GROUPS, ART_ROUNDS } from '../../app/utils/hero-quest-art/catalog'
+import { allArt, artById, ART_GROUPS, ART_ROUNDS } from '../../app/utils/hero-quest-art/catalog'
 import { PALETTE, PALETTE_RGB, SCENERY, SCENERY_RAMPS, C, luma } from '../../app/utils/hero-quest-art/palette'
 import { WORLD_SCENES, SW, SH, FLOOR_Y, FIGHT_BAND } from '../../app/utils/hero-quest-art/scenery'
 import { ENEMY_WEAPONS, enemyLook } from '../../app/utils/hero-quest-art/enemies'
@@ -14,12 +14,6 @@ import { ARTIFACTS } from '#shared/utils/hero-quest/content/artifacts'
 import { GEAR } from '#shared/utils/hero-quest/content/gear'
 import { WORLDS } from '#shared/utils/hero-quest/content/worlds'
 
-/**
- * The 16 class nodes with art. The Ascendant has none of its own yet: it stands in the Beginner's
- * body until its art round (`open-items.md` #43), and Convergence casts the masters' own skills.
- */
-const TREE = CLASS_NODES.filter(node => node.tier !== 'capstone')
-
 // The art is procedural and keyed by content ID, so "is there art for X" is a property of the
 // code. These pin it: a new class, Champion, skill or world without art fails here, and the
 // counts are the ones asset-list.md locks.
@@ -28,12 +22,12 @@ const ids = new Set(allArt().map(a => a.id))
 const count = (prefix: string) => allArt().filter(a => a.id.startsWith(prefix)).length
 
 describe('Hero Quest art coverage', () => {
-    it('gives every class node all six Hero states — 96 spritesheets', () => {
-        for (const node of TREE) {
+    it('gives every class node all six Hero states — 102 spritesheets, the Ascendant\'s included', () => {
+        for (const node of CLASS_NODES) {
             expect(HERO_ART[node.id], node.id).toBeDefined()
             for (const st of HERO_STATES) expect(ids.has(`hero/${node.id}/${st}`), `${node.id} ${st}`).toBe(true)
         }
-        expect(count('hero/')).toBe(96)
+        expect(count('hero/')).toBe(102)
     })
 
     it('has 4 Champion chassis × 6 states and a skin for all 48 Champions', () => {
@@ -62,15 +56,15 @@ describe('Hero Quest art coverage', () => {
         expect(count('boss/') + count('superboss/')).toBe(140)
     })
 
-    it('has a custom VFX for all 62 abilities — 16 Hero, 28 Champion, 18 Training Grounds actives', () => {
-        for (const node of TREE) expect(VFX_BY_ID[node.skill.id], node.skill.id).toBeDefined()
+    it('has a custom VFX for all 63 abilities — 17 Hero (Convergence among them), 28 Champion, 18 Training Grounds actives', () => {
+        for (const node of CLASS_NODES) expect(VFX_BY_ID[node.skill.id], node.skill.id).toBeDefined()
         for (const names of Object.values(CHAMPION_ABILITY_POOL)) for (const n of names) expect(VFX_BY_ID[abilityId(n)], n).toBeDefined()
         for (const s of SKILLS.filter(s => s.type === 'active')) expect(VFX_BY_ID[s.id], s.id).toBeDefined()
-        expect(Object.keys(VFX_BY_ID)).toHaveLength(62)
+        expect(Object.keys(VFX_BY_ID)).toHaveLength(63)
     })
 
-    it('has all 217 static icons from asset-list §3', () => {
-        for (const node of TREE) {
+    it('has all 219 static icons: asset-list §3\'s 217, and the Ascendant\'s skill and medallion', () => {
+        for (const node of CLASS_NODES) {
             expect(ids.has(`icon/skill/${node.skill.id}`), node.skill.id).toBe(true)
             expect(ids.has(`icon/class/${node.id}`), node.id).toBe(true)
         }
@@ -80,7 +74,7 @@ describe('Hero Quest art coverage', () => {
         for (const g of GEAR) expect(ids.has(`icon/gear/${g.id}`), g.id).toBe(true)
         const icons = count('icon/skill/') + count('icon/ability/') + count('icon/artifact/') + count('icon/gear/') + count('icon/currency/')
             + count('frame/rarity/') + count('frame/trait/') + count('badge/archetype/') + count('icon/class/')
-        expect(icons).toBe(217)
+        expect(icons).toBe(219)
     })
 
     it('renders every asset to something, on the palette only', () => {
@@ -111,6 +105,22 @@ describe('Hero Quest art coverage', () => {
         // a locked group is settled: reopening it is a decision (unlock it in ART_GROUPS), not a round's side effect
         const locked = new Set(ART_GROUPS.filter(g => g.locked).map(g => g.id))
         for (const a of allArt()) if (a.round !== undefined) expect(locked.has(a.group), `${a.id} is locked`).toBe(false)
+    })
+
+    it('closes every Ascendant clip seamlessly: a loop onto itself, a one-shot onto idle', () => {
+        // his six motes and the sway of his cape and robe run on one per-clip clock of whole turns
+        const at = (st: string, f: number) => {
+            const a = artById(`hero/class_ascendant/${st}`)!
+            const s = new Surface(a.w, a.h, 0, 0)
+            a.render(s, f < 0 ? a.frames : f)
+            return s.data
+        }
+        const idleStart = at('idle', 0)
+        for (const st of ['idle', 'move', 'attack', 'cast', 'hit']) {
+            const end = at(st, -1)
+            const start = st === 'idle' || st === 'move' ? at(st, 0) : idleStart
+            expect(end.every((c, i) => c === start[i]), st).toBe(true)
+        }
     })
 
     it('uses unique, path-shaped ids', () => {

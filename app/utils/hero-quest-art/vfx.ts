@@ -96,8 +96,7 @@ const CLASS_VFX: VfxDef[] = [
 
 // every Hero skill in class-tree order: its cinematic, or the classic summon effect above
 const CLASSIC_BY_ID: Readonly<Record<string, VfxDef>> = Object.fromEntries(CLASS_VFX.map(v => [v.id, v]))
-// the Ascendant's own skill is never cast: Convergence fires the masters' skills, which have theirs
-const CLASS_VFX_LIVE: VfxDef[] = CLASS_NODES.filter(n => n.tier !== 'capstone').map(n => CINEMATIC_BY_ID[n.skill.id] ?? CLASSIC_BY_ID[n.skill.id]!)
+const CLASS_VFX_LIVE: VfxDef[] = CLASS_NODES.map(n => CINEMATIC_BY_ID[n.skill.id] ?? CLASSIC_BY_ID[n.skill.id]!)
 
 export const VFX: readonly VfxDef[] = [...CLASS_VFX_LIVE, ...CHAMPION_STYLED, ...TRAINING_STYLED]
 export const VFX_BY_ID: Readonly<Record<string, VfxDef>> = Object.fromEntries(VFX.map(v => [v.id, v]))

@@ -236,6 +236,21 @@ export const CLASS_SKILL_ICONS: Readonly<Record<string, Glyph>> = {
         for (let i = 0; i < 3; i++) { px(g, x - 9 + i, y, C.red3); px(g, x + 7 + i, y, C.red3); px(g, x, y - 9 + i, C.red3); px(g, x, y + 7 + i, C.red3) }
         disc(g, x, y, 1, C.white)
     },
+    skill_convergence: (g, x, y) => {
+        // the six masters' colours streaking in from a ring and meeting in one white-gold burst
+        const colours = [C.red2, C.gold3, C.orange, C.green4, C.cyan, C.steel3]
+        colours.forEach((c, i) => {
+            const a = -Math.PI / 2 + i / colours.length * Math.PI * 2
+            const ox = x + Math.round(Math.cos(a) * 8)
+            const oy = y + Math.round(Math.sin(a) * 8)
+            line(g, ox, oy, x + Math.round(Math.cos(a) * 3), y + Math.round(Math.sin(a) * 3), c)
+            disc(g, ox, oy, 1.5, c)
+            px(g, ox, oy, C.white)
+        })
+        disc(g, x, y, 3, C.gold2)
+        sparkle(g, x, y, 4, C.gold3)
+        disc(g, x, y, 1, C.white)
+    },
     skill_mans_best_friend: (g, x, y) => {
         // a wolf's head in profile
         ellipse(g, x - 1, y, 6, 5, C.stone2)

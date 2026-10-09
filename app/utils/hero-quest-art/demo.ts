@@ -43,7 +43,7 @@ import { Surface, bayer, rect, ring } from './surface'
 import { textOut } from './font'
 import { Particles } from './particles'
 import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type BakeJob } from './catalog'
-import { HERO_ART, heroArtId } from './heroes'
+import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
 import { BADGE_GLINT_FOR, NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, badgePortrait, drawChallengeButton, drawProfileBadge, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type BadgeView, type NumberStyle, type PartyMember } from './feedback'
@@ -468,7 +468,8 @@ const bolt = (ramp: RampName): Shot => ({ kind: 'bolt', ramp })
 const HERO_SHOTS: Readonly<Record<string, Shot>> = {
     class_archer: ARROW, class_bowman: ARROW, class_marksman: ARROW, class_hunter: QUARREL, class_beast_master: QUARREL,
     class_mage: bolt('arcane'), class_wizard: bolt('frost'), class_sorcerer: bolt('fire'),
-    class_shaman: bolt('water'), class_witch_doctor: bolt('poison')
+    class_shaman: bolt('water'), class_witch_doctor: bolt('poison'),
+    class_ascendant: bolt('holy')
 }
 /** Champion archetypes that fight at range: the casters float at the back and throw bolts. */
 const CHAMPION_SHOTS: Readonly<Record<string, Shot>> = { support: bolt('holy'), control: bolt('arcane') }
@@ -1654,9 +1655,8 @@ export class BattleDemo {
         const w = WORLDS[world - 1]!
         // the fights staged before a crowd play in the colosseum; everything else in its world
         this.scene = ARENA_WAVES.has(waveKind) ? colosseum : WORLD_SCENES[world - 1]!
-        // a class with no art of its own yet (the Ascendant) stands in the Beginner's
-        const hero = HERO_ART[heroArtId(classId)]!
-        const heroFrames = bakeAlly(`hero/${heroArtId(classId)}`)
+        const hero = HERO_ART[classId]!
+        const heroFrames = bakeAlly(`hero/${classId}`)
         const skill = CLASS_BY_ID[classId as keyof typeof CLASS_BY_ID]!.skill.id
         const party = this.party
         const fielded = party ? party.champions.filter(c => CHAMPION_BY_ID[c.id]).slice(0, PARTY - 1) : []
