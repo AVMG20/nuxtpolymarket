@@ -1,5 +1,6 @@
 import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { setLoadoutPreference } from '#server/utils/hero-quest-loadout'
 import { isLoadoutTarget } from '#shared/utils/hero-quest/loadout-session'
 
@@ -10,6 +11,7 @@ import { isLoadoutTarget } from '#shared/utils/hero-quest/loadout-session'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'loadouts')
     const body = await readBody<{ target?: unknown, slotIndex?: unknown }>(event)
     const target = body?.target
     if (!isLoadoutTarget(target)) throw createError({ statusCode: 400, statusMessage: 'Unknown raid' })
