@@ -40,8 +40,11 @@ export function milestoneSnapshotOf(
     }
 }
 
-/** The rows the Milestones scene draws. */
-export function serializeMilestones(state: HqStateRow, raidLevels: Partial<Record<RaidId, number>>, owned: Partial<Record<GachaSystem, number>>) {
+/**
+ * The rows the Milestones scene draws. Named apart from Polytown's `serializeMilestones`
+ * (`town.ts`): Nitro auto-imports every `server/utils` export, and two of one name shadow each other.
+ */
+export function serializeHqMilestones(state: HqStateRow, raidLevels: Partial<Record<RaidId, number>>, owned: Partial<Record<GachaSystem, number>>) {
     return milestoneRows(milestoneSnapshotOf(state, raidLevels, owned), state.milestonesClaimed)
 }
 
@@ -70,7 +73,7 @@ export async function claimMilestones(tx: DbExecutor, userId: string, trackId: s
     const { raidLevels, owned } = await readFeats(tx, userId)
 
     const wanted = new Set(tracks.map(t => t.id))
-    const rows = serializeMilestones(state, raidLevels, owned).filter(r => wanted.has(r.id) && r.claimable.length > 0)
+    const rows = serializeHqMilestones(state, raidLevels, owned).filter(r => wanted.has(r.id) && r.claimable.length > 0)
     if (!rows.length) throw createError({ statusCode: 400, statusMessage: 'No milestone to claim' })
 
     const rewards = rows.flatMap(r => r.claimable)

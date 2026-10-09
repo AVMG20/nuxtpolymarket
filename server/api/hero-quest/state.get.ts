@@ -25,7 +25,7 @@ import { fromStore } from '#shared/utils/hero-quest/numbers'
 import { hqSettingsOf } from '#shared/utils/hero-quest/settings'
 import { serializeRaids } from '#server/utils/hero-quest-raids'
 import { calendarGoldPerHour, serializeCalendar } from '#server/utils/hero-quest-calendar'
-import { serializeMilestones } from '#server/utils/hero-quest-milestones'
+import { serializeHqMilestones } from '#server/utils/hero-quest-milestones'
 import { serializeTutorials } from '#server/utils/hero-quest-tutorials'
 import { getHolidayClaims, serializeHolidays } from '#server/utils/hero-quest-holidays'
 import { GACHA_SYSTEMS } from '#shared/utils/hero-quest/gacha'
@@ -129,7 +129,7 @@ export default defineEventHandler(async (event) => {
         /** The features open, in the order they opened, and the guide's tutorials seen. */
         tutorials: serializeTutorials(state),
         /** Every milestone track: its feat now, the steps claimed, the next step, and what's waiting. */
-        milestones: serializeMilestones(
+        milestones: serializeHqMilestones(
             state,
             Object.fromEntries(raids.map(r => [r.id, r.best])),
             Object.fromEntries(GACHA_SYSTEMS.map(s => [s, collections[s].length]))
