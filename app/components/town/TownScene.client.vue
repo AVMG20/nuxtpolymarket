@@ -2850,6 +2850,9 @@ function pick(sx: number, sy: number): Pick {
     const hits = raycaster.intersectObjects([buildingsGroup, plotsGroup, expansionGroup, neighbourGroup], true)
     for (const h of hits) {
         const id = h.object.userData.buildingId as string | undefined
+        // The raycaster ignores `visible`, so a building hidden because it is on
+        // the cursor would still catch the click meant for the ground it left.
+        if (id && isBeingMoved(id)) continue
         if (id && (!ghost || !isDescendant(h.object, ghost))) return { kind: 'building', id, x: Math.floor(h.point.x), z: Math.floor(h.point.z) }
         const plotId = h.object.userData.plotId as string | undefined
         if (plotId) {
