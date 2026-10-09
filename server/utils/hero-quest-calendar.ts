@@ -12,7 +12,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm'
 import type { DbExecutor } from '#server/database'
 import { hqRaidState, hqState } from '#server/database/schema'
 import { credit, creditGems } from '#server/utils/balance'
-import { getCollections, getShopLevels, heroSnapshotOf, positionOf, sealGrant, tenureDaysOf, type HqStateRow } from '#server/utils/hero-quest'
+import { bankedGoldOf, getCollections, getShopLevels, heroSnapshotOf, positionOf, sealGrant, tenureDaysOf, type HqStateRow } from '#server/utils/hero-quest'
 import { RAID_KEYS_PER_DAY, type CalendarReward } from '#shared/utils/hero-quest/constants'
 import { CALENDAR_REWARDS, calendarAfterClaim, calendarClaimDay, calendarCycle, calendarReward, type CalendarStored } from '#shared/utils/hero-quest/calendar'
 import { goldPerHourAt } from '#shared/utils/hero-quest/settle'
@@ -73,8 +73,9 @@ export async function claimCalendar(tx: DbExecutor, userId: string, makeup: bool
 
     let goldPerHour = 0
     if (reward.kind === 'gold') {
-        const [shopLevels, collections] = await Promise.all([getShopLevels(userId, tx), getCollections(userId, tx)])
-        goldPerHour = calendarGoldPerHour(state, heroSnapshotOf(state, shopLevels, collections))
+        // with the banked Gold, as `state.get.ts` sizes it, so the Gold paid is the Gold shown
+        const [shopLevels, collections, bankedGold] = await Promise.all([getShopLevels(userId, tx), getCollections(userId, tx), bankedGoldOf(tx, userId)])
+        goldPerHour = calendarGoldPerHour(state, heroSnapshotOf(state, shopLevels, collections, bankedGold))
     }
     const amount = calendarPayout(reward, goldPerHour)
 

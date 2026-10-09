@@ -12,7 +12,7 @@
 
 import { eq, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState } from '#server/database/schema'
+import { hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState, user } from '#server/database/schema'
 import { credit, debit, debitGems, getBalance } from '#server/utils/balance'
 import {
     ASCENDANT_KIT_SIZE,
@@ -151,6 +151,16 @@ export async function getHqState(userId: string) {
 /** Founding is explicit (`init.post.ts`); the conflict clause is what makes a double-init a no-op. */
 export async function ensureHqState(userId: string, tx: DbExecutor = db) {
     await tx.insert(hqState).values({ userId }).onConflictDoNothing()
+}
+
+/**
+ * The player's banked Gold as a number, read on `executor` (a plain read, no lock): the input the
+ * Gambler's Strike family's wealth factor takes. A grant sized off the run's Gold rate reads it the
+ * way `state.get.ts` does, after the settle, so the amount paid is the amount shown.
+ */
+export async function bankedGoldOf(executor: DbExecutor, userId: string): Promise<number> {
+    const [row] = await executor.select({ balance: user.balance }).from(user).where(eq(user.id, userId))
+    return parseFloat(row?.balance ?? '0') || 0
 }
 
 export async function getShopLevels(userId: string, tx: DbExecutor = db): Promise<Record<string, number>> {

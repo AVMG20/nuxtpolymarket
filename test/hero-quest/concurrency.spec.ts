@@ -18,7 +18,8 @@ import { claimHoliday } from '#server/utils/hero-quest-holidays'
 import { leaveLoadoutSession, setLoadoutPreference } from '#server/utils/hero-quest-loadout'
 import { loadoutSessionOf } from '#shared/utils/hero-quest/loadout-session'
 import { CHAMPIONS } from '#shared/utils/hero-quest/content/champions'
-import { holidayGift } from '#shared/utils/hero-quest/holidays'
+import { holidayGift, holidayGiftGold } from '#shared/utils/hero-quest/holidays'
+import { calendarGoldPerHour } from '#server/utils/hero-quest-calendar'
 import { CALENDAR_REWARDS, calendarDayNumber } from '#shared/utils/hero-quest/calendar'
 import { claimMilestones } from '#server/utils/hero-quest-milestones'
 import { getMilestoneTrack, milestoneRewardTotal } from '#shared/utils/hero-quest/milestones'
@@ -38,6 +39,8 @@ import {
     claimShopLevel,
     ensureHqState,
     essenceBalance,
+    getCollections,
+    heroSnapshotOf,
     essenceSpend,
     getShopLevels,
     loadoutSlots,
@@ -338,6 +341,24 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect(await gemsOf()).toBe(gemsBefore + gift.gems)
             expect((await stateOf()).excavationSeals).toBe(before.excavationSeals + (gift.seals.artifact ?? 0))
             expect((await stateOf()).guildSeals).toBe(before.guildSeals + (gift.seals.champion ?? 0))
+        })
+
+        it('pays the Gold it shows: sized with the banked Gold, as the state read sizes it', async () => {
+            await ensureHqState(USER_ID)
+            // Gambler's Strike reads the banked Gold, so a rich and a poor player earn at different rates
+            await db.insert(hqCollection).values({ userId: USER_ID, system: 'skill', contentId: 'skill_gamblers_strike' })
+            await db.update(hqState).set({ equippedSkillIds: ['skill_gamblers_strike'], heroLevel: 40 }).where(eq(hqState.userId, USER_ID))
+            await credit(USER_ID, '50000000', 'test')
+            const state = await stateOf()
+            const shown = holidayGiftGold(holidayGift('holiday_halloween'), calendarGoldPerHour(state,
+                heroSnapshotOf(state, await getShopLevels(USER_ID), await getCollections(USER_ID), parseFloat(await getBalance(USER_ID)))))
+            const unbanked = holidayGiftGold(holidayGift('holiday_halloween'), calendarGoldPerHour(state,
+                heroSnapshotOf(state, await getShopLevels(USER_ID), await getCollections(USER_ID))))
+            expect(shown).not.toBe(unbanked)
+
+            const paid = await db.transaction(tx => claimHoliday(tx, USER_ID, 'holiday_halloween', HALLOWEEN))
+
+            expect(Number(paid.gold)).toBe(shown)
         })
 
         it('refuses a gift outside its window, and pays nothing', async () => {
