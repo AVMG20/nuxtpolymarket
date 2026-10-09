@@ -11,7 +11,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqCollection, hqFights, hqLoadouts, hqRaidState, hqShopUpgrades, hqState } from '#server/database/schema'
-import { ensureHqState, resolveBossEngage } from '#server/utils/hero-quest'
+import { ensureHqState, lockLiveLoadout, resolveBossEngage } from '#server/utils/hero-quest'
 import { engageRaid, quickClearRaid } from '#server/utils/hero-quest-raids'
 import { leaveLoadoutSession, restoreStaleLoadoutSession, serializeLoadoutPreferences, setLoadoutPreference } from '#server/utils/hero-quest-loadout'
 import { CHAMPIONS } from '#shared/utils/hero-quest/content/champions'
@@ -211,6 +211,18 @@ describe.skipIf(SKIP)('hero-quest preferred loadouts on raid engage', () => {
         const state = await stateOf()
         expect(state.partyChampionIds).toEqual([C1])
         expect(state.preRaidSnapshot).toBeNull()
+    })
+
+    it('puts the player\'s own loadout back before a Gear auto-equip lands on it', async () => {
+        await prefer('raid_training_grounds', 0)
+        await engage('raid_training_grounds')
+
+        // the pull and the craft read the Gear they auto-equip onto through this
+        const live = await db.transaction(tx => lockLiveLoadout(tx, USER_ID))
+
+        expect(live.equippedGear).toEqual({ weapon: WEAPON })
+        expect(live.partyChampionIds).toEqual([C1])
+        expect((await stateOf()).preRaidSnapshot).toBeNull()
     })
 
     it('fights the run\'s boss on the player\'s own loadout, closing the session first', async () => {

@@ -653,6 +653,17 @@ export async function restoreLoadoutSession(tx: DbExecutor, userId: string, stat
 }
 
 /**
+ * The `hqState` row locked, with any open preferred-Loadout session put back: the live loadout a
+ * change to it must apply on top of. For writes that only sometimes touch the loadout (Gear's
+ * first-piece auto-equip on a pull or a craft) and hold no lock of their own yet.
+ */
+export async function lockLiveLoadout(tx: DbExecutor, userId: string): Promise<HqStateRow> {
+    const [locked] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
+    if (!locked) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
+    return restoreLoadoutSession(tx, userId, locked)
+}
+
+/**
  * Resolve a boss or super-boss fight and apply its outcome, under the `hqState` row lock.
  *
  * Lives here rather than in `boss/engage.post.ts` so the race is testable against a real lock

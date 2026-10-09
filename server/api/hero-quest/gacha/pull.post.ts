@@ -10,6 +10,7 @@ import {
     claimFreePull,
     essenceBalance,
     essenceGain,
+    lockLiveLoadout,
     sealBalance,
     sealSpend,
     settleHq,
@@ -219,7 +220,8 @@ export default defineEventHandler(async (event) => {
             ? autoEquipFirstPieces(
                 [...entries].filter(([id]) => isGearId(id))
                     .map(([contentId, entry]) => ({ contentId, star: entry.star, level: entry.level })),
-                claimed.equippedGear as Record<string, string>
+                // on the player's own loadout: a raid's preferred one still live goes back first (`loadouts.md` §4)
+                (await lockLiveLoadout(tx, userId)).equippedGear as Record<string, string>
             )
             : null
 

@@ -8,7 +8,8 @@ import {
     ESSENCE_NAME,
     essenceBalance,
     essenceGain,
-    essenceSpend
+    essenceSpend,
+    lockLiveLoadout
 } from '#server/utils/hero-quest'
 import { applyDupes, craftCostFor, isGachaSystem, newEntry } from '#shared/utils/hero-quest/gacha'
 import { gachaContent } from '#shared/utils/hero-quest/content/registry'
@@ -109,7 +110,8 @@ export default defineEventHandler(async (event) => {
                 ownedGear
                     .filter(row => isGearId(row.contentId))
                     .map(row => ({ contentId: row.contentId, star: row.star, level: row.level })),
-                claimed.equippedGear as Record<string, string>
+                // on the player's own loadout: a raid's preferred one still live goes back first (`loadouts.md` §4)
+                (await lockLiveLoadout(tx, userId)).equippedGear as Record<string, string>
             )
         }
 
