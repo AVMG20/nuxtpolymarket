@@ -79,9 +79,9 @@ sit here as #24 is not an open item — it is a trap, and it lives in `CLAUDE.md
 Full record: `build-log.md` #22. 42 constants moved to `// TUNED ✓` and the level curve was
 re-derived as a pacing model. What it left open:
 
-1. **A solo account never completes a prestige** without pulling. That follows from making the
-   boss gate the wall and Champions the answer to it — worth confirming it is intended rather
-   than letting it stand by default.
+1. ~~**A solo account never completes a prestige** without pulling.~~ **Decided 2026-10-09: intended**
+   (the user's call). The boss gate is the wall and Champions are the answer to it, so no prestige
+   without a party is the design, not a side effect. Record in `build-log.md` #22.
 2. **The Gold curve was calibrated against the old loop speed** — see #23.
 3. **`STAT_PACES_ENEMY_CURVE` is inert while `XP_PACE_SLACK` is 1.0**, because both stat curves
    are then numerically identical. Keep it: it starts mattering the moment slack moves.
@@ -328,7 +328,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 2. **Close out the tuning pass** — *deferred to the end with step 7 (2026-10-02).* Small, and it was meant to come before anything is built on top of the loop:
    - **Play a session against the tuned loop** and log it in `playtest-notes.md`. The predictions table there is refreshed; session 1 is the only one on record.
    - **Decide the Gold consequences (#23)** — first-week income, the lost calendar anchors, and whether the Seal ladder is re-derived now or after world design. **Measured and half-applied 2026-09-16** (`--report=gold`): the ceiling is regenerated against the measured kill rate, which raises the cap 12× but leaves the walk's income untouched, since it is progression-bound throughout. What remains open is the progression half — `BASE_GOLD` and `GOLD_STEP_BASE` — and #23.2, which is downstream of it.
-   - **Confirm the solo shape (#22.1)** — no prestige without a party is a consequence of the design, not yet a stated choice.
+   - ~~**Confirm the solo shape (#22.1)**~~ **Decided 2026-10-09:** no prestige without a party is intended.
    - ~~**Check the cleared-run manual re-engage** flagged in #25.~~ Fixed.
 3. ~~**World & Enemy Design (#6)**~~ **Closed 2026-10-04** — the art is restyled and locked (`art-style.md`); regular enemies get no abilities. ~~**Boss specials become real (#45)**~~ **built 2026-10-08**, measured on seeded gate fights; the open half is under #45 above.
 4. **The last quick call (#2)**, the Arena band — answer it with the Arena. #1 and #3 are decided, and with #3 the raid-rule questions #31 and #32 (2026-10-04); the asset calls (#4, #30) on 2026-09-17.

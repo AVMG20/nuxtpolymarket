@@ -319,7 +319,7 @@ Every blocker in the party's first prestige is a boss timer. World 1's boss need
 
 **Open consequences:**
 
-1. **A solo account never completes a prestige** without pulling. That follows from making the gate the wall and Champions the answer to it — worth confirming it is intended rather than let it stand by default.
+1. **A solo account never completes a prestige** without pulling. That follows from making the gate the wall and Champions the answer to it — worth confirming it is intended rather than let it stand by default. **Decided 2026-10-09: intended** (the user's call). No prestige without a party is the design.
 2. **The Gold curve was calibrated against the old loop speed** — see #23.3.
 3. **`STAT_PACES_ENEMY_CURVE` is inert while `XP_PACE_SLACK` is 1.0**, because both stat curves are then numerically identical. Keep it: it starts mattering the moment slack moves.
 
