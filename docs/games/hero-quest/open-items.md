@@ -173,9 +173,9 @@ open:
    nothing it measures. Pull-pacing questions (#23.2, the Seal ladder) now have this source to
    account for.
 
-### 49. Holiday gifts — built; the bundles are placeholders
+### 53. Holiday gifts — built; the bundles are placeholders
 
-Full record: `build-log.md` #49. Four holidays, a claim each per year, in a three-day UTC window.
+Full record: `build-log.md` #53. Four holidays, a claim each per year, in a three-day UTC window.
 What it left open:
 
 1. **`HOLIDAY_GIFTS` is one `UNTUNED ╧` table**, and `HOLIDAY_CLAIM_WINDOW_DAYS` (3, the holiday
@@ -189,9 +189,9 @@ What it left open:
    (`tech-architecture.md` §5 still lists it). The login calendar (#47) was the model instead; no
    rule moved.
 
-### 50. Per-raid Loadout auto-apply — built; choices made without asking
+### 54. Per-raid Loadout auto-apply — built; choices made without asking
 
-Full record: `build-log.md` #50. Each raid points at a saved slot from a picker on its own screen;
+Full record: `build-log.md` #54. Each raid points at a saved slot from a picker on its own screen;
 a fresh engage snapshots and applies, leaving reverts. What it left open:
 
 1. **The run's boss closes the session.** Bosses engage under every scene, and the run's gate is
@@ -315,7 +315,7 @@ economy — a tuning question, listed below rather than a blocker.
 
 ## ⚪ Standing numeric tuning — **what is still `// UNTUNED ╧`**
 
-Named constants with a formula shape locked and a placeholder value. Consolidated so a tuning pass has one list. `rg '╧' shared/utils/hero-quest/constants.ts` is the authority — **95 markers** as of 2026-10-09 (`rg -c` prints 97: the file's header legend carries the glyph twice), up from 61 on 2026-09-16 with the raids (#46), boss specials (#45), the login calendar (#47), milestones (#48), the Ascendant (#43) and the holiday gifts (#49). Every marker has a row below; the Arena row's constants are not in `constants.ts` until the Arena is built.
+Named constants with a formula shape locked and a placeholder value. Consolidated so a tuning pass has one list. `rg '╧' shared/utils/hero-quest/constants.ts` is the authority — **97 markers** as of 2026-10-09 (`rg -c` prints 99: the file's header legend carries the glyph twice), up from 61 on 2026-09-16 with the raids (#46), boss specials (#45), the login calendar (#47), milestones (#48), the Ascendant (#43) and the holiday gifts (#53). Every marker has a row below; the Arena row's constants are not in `constants.ts` until the Arena is built.
 
 ~~**Decided: none of this is tuned before playtesting.**~~ **Superseded for the combat and progression block by #22**, which tuned it on the campaign walk. The original reasoning still holds for everything that remains below: the balance script and campaign sim project *what the formulas say*, and a projected value that feels wrong in play is worth less than no value, because it looks settled. What remains is mostly the gacha, shop and ability-magnitude layers, which the campaign walk barely exercises — so they want play data or a different measurement, not another sim pass.
 
@@ -335,7 +335,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 | `RAID_ENRAGE_SECONDS`, `RAID_DUMMY_SECONDS`, `RAID_KNIGHT_PWR_MULT`, `RAID_DIG_PWR_MULT`, `RAID_DIG_ADD_SECONDS`, `RAID_FORGE_PWR_MULT`, `RAID_FORGE_BOSS_STEPS`, `RAID_FORGE_HANDOFF_SECONDS` | `raid-system.md` | Built (#46). Each raid's HP multiplier is measured against its clock, so moving `RAID_ENRAGE_SECONDS` or `RAID_DUMMY_SECONDS` means re-measuring the HP multiplier it is coupled to. The PWR multipliers sit at 1: a raid boss hits like the stage it stands for |
 | `BOSS_SPECIAL_*` (11) | none — see #45 | One set of magnitudes for all twenty gate bosses' specials: cooldown, the spread, heavy and focus hits, burn, stun, silence, debuff and drain. Measured only on seeded gate fights; the campaign walk does not model them |
 | `CALENDAR_SCHEDULE`, `CALENDAR_INCOME_DAYS_FIRST`, `CALENDAR_INCOME_DAYS_LAST` | none — see #47 | The schedule's Gold minutes and Gem counts are placeholders, rebalanced after the Gold decision (#23), and count as one marker; day 30's 200 Void Shards is the user's. The two dials size every Seal, Key and Trait Gem day in days of income, ¼ to 1 |
-| `HOLIDAY_GIFTS`, `HOLIDAY_CLAIM_WINDOW_DAYS` | `holiday-events.md` §2–§3 | The four holidays' bundles, counted as one marker, and the claim window. Gems reach past Hero Quest: size them with the calendar's and the milestones' (#49) |
+| `HOLIDAY_GIFTS`, `HOLIDAY_CLAIM_WINDOW_DAYS` | `holiday-events.md` §2–§3 | The four holidays' bundles, counted as one marker, and the claim window. Gems reach past Hero Quest: size them with the calendar's and the milestones' (#53) |
 | `GPN_DISPLAY_SCALE` | `global-power-number.md` | Presentation only (#28): it changes how big GPN reads, never which party ranks above which, and cancels out of the Arena's percentage band |
 | `SLOT_BASE_BONUS` ×6, `GEAR_PASSIVE_COEFFICIENT` | `gear-equipment.md` §2 | Built. The six slot coefficients are deliberately *identical* — no doc ranks the stats against each other, so six different values would encode a spread nobody decided. `GEAR_PASSIVE_COEFFICIENT` must stay well under them or manual equip stops mattering |
 | `SKILL_PASSIVE_MAGNITUDE[]`, `SKILL_ECONOMY_COEFFICIENT` | `skills-gacha.md` §4 | The whole 36-skill magnitude ladder, indexed by rarity. §4 authors it as "small" → "large" and assigns no number anywhere; the *relative ordering* is design content, so retune the set rather than entries |
@@ -386,7 +386,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
    - ~~**Check the cleared-run manual re-engage** flagged in #25.~~ Fixed.
 3. ~~**World & Enemy Design (#6)**~~ **Closed 2026-10-04** — the art is restyled and locked (`art-style.md`); regular enemies get no abilities. ~~**Boss specials become real (#45)**~~ **built 2026-10-08**, measured on seeded gate fights; the open half is under #45 above.
 4. **The last quick call (#2)**, the Arena band — answer it with the Arena. #1 and #3 are decided, and with #3 the raid-rule questions #31 and #32 (2026-10-04); the asset calls (#4, #30) on 2026-09-17.
-5. **Phase 4 — endgame systems** (`implementation-plan.md`). Traits and Arena remain. ~~GPN~~ built (#28); the leaderboard aggregate and Defense GPN remain, with Arena. ~~Battle Speed~~ built (#44). ~~Raids~~ built, all five (#46). ~~Holidays~~ built, the gifts (#49). ~~`loadouts.md` §4's per-raid auto-apply~~ built (#50); the Arena's half comes with the Arena.
+5. **Phase 4 — endgame systems** (`implementation-plan.md`). Traits and Arena remain. ~~GPN~~ built (#28); the leaderboard aggregate and Defense GPN remain, with Arena. ~~Battle Speed~~ built (#44). ~~Raids~~ built, all five (#46). ~~Holidays~~ built, the gifts (#53). ~~`loadouts.md` §4's per-raid auto-apply~~ built (#54); the Arena's half comes with the Arena.
 6. **Passive Skill Tree (#7)** — the last unbuilt major system; good candidate for its own dedicated session.
 7. **Playtest, then tune the rest.** The combat and progression block is tuned (#22); the gacha, shop, economy and ability-magnitude constants are settled here — see the standing-tuning section. The balance script and campaign sim stay in use throughout. **Once the Gold balance is decided, rebalance the login calendar's Gold and Gem days** (#47).
 

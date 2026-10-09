@@ -57,7 +57,7 @@ Eligible components, per holiday:
 
 ---
 
-## As built (2026-10-09, `build-log.md` #49)
+## As built (2026-10-09, `build-log.md` #53)
 
 What the build had to settle that this doc leaves open, none of it a rule change:
 

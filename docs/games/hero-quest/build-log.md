@@ -8,7 +8,7 @@ attention; this one holds the record.
 scripts cite them (`#22`, `#23.3`, `#18.6`), so renumbering would silently repoint a reference.
 Numbers missing here are items still open — they stayed in `open-items.md` under the same number.
 Four entries (#22, #23, #25, #29) appear in **both**: the full record is here, and the part still
-needing attention stayed there. Numbering runs to **#50**; open-items.md says where the next new item starts.
+needing attention stayed there. Numbering runs to **#54**; open-items.md says where the next new item starts.
 
 **This is not on the per-task reading list** (`CLAUDE.md` §1). Read an entry when you need the
 reasoning behind something already built; do not load it to find out what to do next.
@@ -766,7 +766,7 @@ Backlog item 11, built outside the phase plan at the user's request. **Formulas,
 - **History isn't seeded — decided 2026-10-09 (#48.2, the user's call).** World clears and prestiges used to pay their Seals on the event, and nothing seeds `milestones_claimed`, so an account that cleared Worlds before milestones landed could claim those steps again. **No migration:** Hero Quest has never reached `origin/main` or `upstream/main`, and CI and deploys run from `main` only, so production starts with an empty `hq_state` and no account has history to re-claim. A seed would be a no-op there, and on a dev database it would mark any unclaimed clears since 2026-10-09 as claimed without paying them. The one dev account with history (World 7, no prestige) had already claimed its six World steps.
 - **Specs:** `milestones.spec.ts` (the tracks, the World count across prestige, the targets and caps, rewards never falling, the claim totals, the rows) and three cases in `concurrency.spec.ts`: a track's steps paid once under a burst, a raid's Keys paid once with claim-all racing a one-track claim, and a claim with nothing waiting refused.
 
-### 49. Holiday gifts — **landed 2026-10-09**
+### 53. Holiday gifts — **landed 2026-10-09**
 
 `holiday-events.md`'s gift mechanic, the Phase 4 system the plan called a day's work. Gameplay events stay out of scope (open item #9).
 
@@ -778,7 +778,7 @@ Backlog item 11, built outside the phase plan at the user's request. **Formulas,
 - **The scene:** the Calendar scene's title row. While a gift is open, a gold CLAIM *HOLIDAY* GIFT button; once claimed, *HOLIDAY* GIFT CLAIMED; otherwise NEXT GIFT: *HOLIDAY* IN *N* DAYS. Pointing at it spells the bundle out on the info line, and the menu band's calendar dot lights for an open gift as it does for today's reward. No toast: the scene changing is the feedback.
 - **Specs:** `holidays.spec.ts` (the roster and gifts, each window's edges in UTC days, Lunar New Year's table, its end, the year boundary, the next gift) and three cases in `concurrency.spec.ts`: a burst paid once, a claim outside its window refused and paying nothing, and the same holiday paid again the next year, once.
 
-### 50. Per-raid Loadout auto-apply — **landed 2026-10-09**
+### 54. Per-raid Loadout auto-apply — **landed 2026-10-09**
 
 `loadouts.md` §4 with #1's placement, for the five raids; the Arena's pointer is stored with them and waits for the Arena.
 
@@ -792,7 +792,7 @@ Backlog item 11, built outside the phase plan at the user's request. **Formulas,
 
 ### 1. Arena attack auto-apply, and where preferred Loadouts are set — **decided 2026-10-04**
 
-Was an open question: raids auto-applied a preferred Loadout on engage and the Arena did not. **The Arena gets the same**, used only when a Loadout is assigned for it; nothing changes otherwise. **Each assignment is made on the screen it applies to** — a picker on each raid's entry screen and on the Arena screen — rather than from the Loadouts scene, which at most marks the slots something points at. Recorded in `loadouts.md` §4 and `arena.md` §1. Nothing built yet: the pickers and the stored pointers come with the first raid and the Arena (the user's call). **The raids' half landed 2026-10-09 (#50)**; the `arena` pointer is stored and nothing reads it until the Arena.
+Was an open question: raids auto-applied a preferred Loadout on engage and the Arena did not. **The Arena gets the same**, used only when a Loadout is assigned for it; nothing changes otherwise. **Each assignment is made on the screen it applies to** — a picker on each raid's entry screen and on the Arena screen — rather than from the Loadouts scene, which at most marks the slots something points at. Recorded in `loadouts.md` §4 and `arena.md` §1. Nothing built yet: the pickers and the stored pointers come with the first raid and the Arena (the user's call). **The raids' half landed 2026-10-09 (#54)**; the `arena` pointer is stored and nothing reads it until the Arena.
 
 ---
 
