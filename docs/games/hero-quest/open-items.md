@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#48** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day, #44 landed and #45 opened with it, and #6, #3, #31 and #32 were decided (all in `build-log.md`); #46 (raids) landed 2026-10-05; #45 (boss specials) landed 2026-10-08 with its open half below, and #47 (the login calendar) the same day.
+**#49** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day, #44 landed and #45 opened with it, and #6, #3, #31 and #32 were decided (all in `build-log.md`); #46 (raids) landed 2026-10-05; #45 (boss specials) landed 2026-10-08 with its open half below, and #47 (the login calendar) the same day; #48 (milestones) landed 2026-10-09, and #43 (the Ascendant) was decided and built the same day.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
@@ -35,6 +35,7 @@ read the older rule in the doc named in the middle column, it is superseded.**
 | 29 | `economy-and-currencies.md` §5 source 2: a time-gated free Seal grant | **Removed.** Free Seals come only from milestones and (later) raid clears; the free 10-pull entitlement is the only thing a clock hands out |
 | 47 | #29 above: the free 10-pull is the only thing a clock hands out; `economy-and-currencies.md` §5: Seals come in milestone and raid chunks, never a drip | **The login calendar is a second clock.** It pays Seals on some of its thirty days, alongside Gold, Gems, Raid Keys, Trait Gems and, on day 30, Void Shards, each day claimed in person (2026-10-08, the user's call: any currency the game grants may be on it). Built outside the phase plan, from backlog item 12. `build-log.md` #47 |
 | 48 | `economy-and-currencies.md` §5 source 1: milestones are core-progression feats, never a gacha's own progress, so each grants all four Seal types; the World-clear and prestige batches pay on the event | **Milestones are claimable tracks** (`milestones.ts`): a formula per kind of feat, not a list. Worlds and prestiges still pay all four Seal types, now claimed in the Milestones scene rather than paid on the super-boss win and the prestige, and a prestige adds Gems. Two kinds are a gacha's own progress after all: a **collection** pays its gacha's Seals and a **raid** its Keys (2026-10-09, the user's calls). A boss's Seals still pay on the win. Built outside the phase plan, from backlog item 11. `build-log.md` #48 |
+| 43 | `classes-and-combat.md` §1, §5 and throughout: a 16-node tree, one parent per node, a kit that accumulates down one path. `loadouts.md` §1–2: five components, and the Hero's class "correctly excluded" | **A 17th class, the Ascendant**, past the tree and joined to all six masters, with no single parent. It opens once a prestige has been completed as each master, takes a token, and **picks any 4 class skills** across paths plus **Convergence**, every master's skill at once; its stats are the best master's in each. Its picks are **a sixth Loadout component** (the class itself still isn't one). The user's calls, 2026-10-09. `capstone-class.md`, `build-log.md` #43 |
 | 31 | `raid-system.md` §1/§7, `asset-list.md`, `economy-and-currencies.md` §9: the Training Grounds Raid is a `solo_boss` fight, its Keys spent only on a win | It is a **`training_dummy`**: a static dummy that can't die or attack, the result being the damage dealt before the timer ends (2026-09-28, the user's call). Keys, the ladder and rewards follow Rampaging Boss's rules, the level reached on live damage thresholds; it has no DEF (decided 2026-10-04, `build-log.md` #31) |
 | 32 | `raid-system.md` §1/§7, `asset-list.md`, `asset-checklist.md`: the Forge Raid is one `phased_boss` whose phases change at HP thresholds | It is a **`boss_gauntlet`**: three bosses back to back, the Apprentice, the Journeyman and the Forgemaster (2026-09-29, the user's call). One 30 s clock for the run, 10 s back per boss killed; all three or nothing; each boss steps up (decided 2026-10-04, `build-log.md` #32) |
 | 36 | `classes-and-combat.md` §3: SPD reduces cooldown duration across the board, off the same curve as the autoattack; every skill on `SKILL_BASE_COOLDOWN_SECONDS` | Cooldowns read **`cooldownSpd`**, SPD without the level curve; the autoattack still reads the full stat. Cooldowns sit on a **rank ladder** (`SKILL_COOLDOWN_RANK_STEP`): rarity for Skills and Champion abilities, tree depth for class skills, hit size scaled to match. §3 updated in place (2026-10-03, the user's call) |
@@ -58,14 +59,6 @@ read the older rule in the doc named in the middle column, it is superseded.**
 
 ## 🔴 Genuinely undesigned — full passes, not edits
 
-### 43. The ??? capstone class — **blocks the merge into `main`** — **new 2026-10-04**
-
-The Classes scene ends the masters' row in a 17th node, joined to all six masters: a class for having played every other one (`CAPSTONE_ID` in `classes-scene.ts`). It is art only. There is no class behind it: no content entry, no skill, no unlock rule in code, and the "PLAY EVERY OTHER CLASS TO UNLOCK" hint is a promise nothing keeps. Its medallion is a placeholder infinity sign and its name is `???`.
-
-**Work it out before `hero-quest` merges into upstream `main`:** its name and identity, its skill, what "played" means for the unlock (reached, or held for some time), whether a class token can buy it, and how it interacts with prestige and class switches. Then either build it or take the node out of the scene. Shipping a node players can never reach is not an option.
-
-**In discussion since 2026-10-09:** the ideas so far, the problems with "every Hero ability" taken literally, and the open calls are in `capstone-class.md`.
-
 ### 7. Passive Skill Tree (backlog item 3)
 Unchecked. Hero-only passive tree, generic root splitting into 3 paths, nodes up to 5 levels each, purchased via its own dedicated raid, with Champion/item side-nodes allowed but never gating a path. Structurally sound to build (raids don't have to be gacha-paired) but has had no dedicated design session.
 
@@ -76,7 +69,7 @@ Explicitly deferred scope — the gift-mechanic phase is locked, but limited-tim
 
 ## ⚠️ Open consequences of work that landed
 
-Eight items are built and working but left something undecided. The full record of each is in
+Nine items are built and working but left something undecided. The full record of each is in
 `build-log.md`; only the open half is restated here. (The `killFraction` invariant that used to
 sit here as #24 is not an open item — it is a trap, and it lives in `CLAUDE.md` §7 and
 `build-log.md` #24.)
@@ -132,6 +125,21 @@ open:
 3. **No Battle Speed days.** A free block can't start while a bought block of another speed runs
    (`idle-mechanics.md` §3), so a claim would either be refused, losing the day, or need a queue.
    Left out until that is decided.
+
+### 43. The Ascendant — built; its art and its power are open
+
+Full record: `build-log.md` #43; the decision and what was weighed: `capstone-class.md`. The node is
+real and reachable now, which was the merge condition. What it left open:
+
+1. **Power, unmeasured.** Best-of-each stats (the user's call), four free picks, and Convergence
+   paying three master skills a second at `CONVERGENCE_COOLDOWN_FACTOR = 2` very likely out-class
+   every master. Measure it on the campaign sim before moving the factor. The factor is bounded
+   above by the boss timer: past ~3.5 it no longer fires inside a 30 s boss fight.
+2. **Art round** (`art-style.md`): the Ascendant's own outfit (it stands in the Beginner's body via
+   `heroArtId`), its medallion (a placeholder infinity sign), and Convergence as **one** cinematic.
+   The volley plays the six masters' own cast effects today, which is six cinematics back to back.
+3. **Old prestiges don't count.** `prestiged_class_ids` starts empty (migration `0058`), so a
+   prestige made before 2026-10-09 isn't recorded. Dev accounts only.
 
 ### 48. Milestones — built; every number is a placeholder
 
@@ -287,6 +295,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 | `MAX_EVASION` | `classes-and-combat.md` §7 | **Locked at 0.60** — not open, listed for completeness |
 | `OVERFLOW_CONVERSION_RATE` | `classes-and-combat.md` §7 | The only crit constant still untuned. Rarely reachable: with LCK off the level curve only a deliberately built crit Hero passes 100% |
 | `SEAL_GRANT_PER_BOSS` | `economy-and-currencies.md` §5 | A boss's batch, paid on the win. Doc gives only the shape and defers the values to the world/enemy pass (#6). Built and paying out |
+| `CONVERGENCE_COOLDOWN_FACTOR` | `capstone-class.md` | The Ascendant's ultimate (#43): the volley pays `6 / factor` master skills a second. Bounded above by the boss timer (past ~3.5 it never fires in a boss fight), so power is tuned below that, against a sim measurement nobody has made yet |
 | `MILESTONE_*` (11) | `economy-and-currencies.md` §4–5 | The milestone formulas (#48): each track's reward is `BASE + STEP × (k − 1)`, with Worlds stepping per run instead, plus a collection's step size. The World and prestige Seal bases are the old World-clear and prestige batches (3, 10); the rest are guesses |
 | `VOID_SHARD_BASE`, `VOID_SHARD_GROWTH` | `economy-and-currencies.md` §3 | 100 × 2^prestige, the doc's "starting point". Only has to outpace shop costs, so derive it alongside the slot and offline tracks it pays for — and note that at ~a week per prestige (#22) the first shop purchase is a week in |
 | `wealthFactor` clamp range for Gambler's Strike family | `skills-gacha.md` §4 | Suggested ×0.5–×2.0, not locked |
@@ -307,7 +316,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 
 ## Suggested order
 
-**Before merging `hero-quest` into `main`: settle the ??? capstone class (#43).** It sits outside the numbered order because it blocks the merge, not a phase.
+~~**Before merging `hero-quest` into `main`: settle the ??? capstone class (#43).**~~ **Built 2026-10-09** as the Ascendant; its art round and a power measurement are open under #43 above. Before the merge, also decide #48.2 (milestone claims for history).
 
 **Reordered 2026-10-02, the user's call: the playtest and the Gold balance (step 2) move to the very end, with step 7.** The battle stage comes first (`build-log.md` #34): the idle stage and the boss replay on the stage both landed that day. The argument below for playing early was weighed and set aside; it is kept as the record of what the reorder gives up.
 

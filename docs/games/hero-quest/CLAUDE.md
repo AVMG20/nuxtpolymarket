@@ -65,7 +65,7 @@ These are load-bearing and easy to violate by accident.
 
 **One `hqCollection` table** for all four gachas, with a `system` enum over `contentId`. `applyDupe()`, `levelUp()`, and `craft()` are each written once and take `system` as an argument. Do not write per-gacha duplicates.
 
-**This extends to the routes, as of Phase 3.** `gacha/pull.post.ts`, `gacha/craft.post.ts` and `gacha/buy-seals.post.ts` are each **one file** taking `system` in the body, per `tech-architecture.md` §5 — the Phase 2 `guild/*` copies were retired rather than triplicated. Two lookup tables are what make that possible: `content/registry.ts` maps `system` → content module (pure, so the client shares it), and `SEAL_COLUMN` / `ESSENCE_COLUMN` in `server/utils/hero-quest.ts` map `system` → Drizzle column, which is the one piece that cannot live in `shared/`. Likewise `loadout/set.post.ts` is the single live-equip route for all five loadout components; there is no per-system equip endpoint.
+**This extends to the routes, as of Phase 3.** `gacha/pull.post.ts`, `gacha/craft.post.ts` and `gacha/buy-seals.post.ts` are each **one file** taking `system` in the body, per `tech-architecture.md` §5 — the Phase 2 `guild/*` copies were retired rather than triplicated. Two lookup tables are what make that possible: `content/registry.ts` maps `system` → content module (pure, so the client shares it), and `SEAL_COLUMN` / `ESSENCE_COLUMN` in `server/utils/hero-quest.ts` map `system` → Drizzle column, which is the one piece that cannot live in `shared/`. Likewise `loadout/set.post.ts` is the single live-equip route for all six loadout components (the sixth, the Ascendant's picks, since 2026-10-09); there is no per-system equip endpoint.
 
 ---
 
@@ -73,7 +73,7 @@ These are load-bearing and easy to violate by accident.
 
 `constants.ts` marks every constant with one of three states (see its header):
 
-- **`// UNTUNED ╧`** — locked formula shape, placeholder value. **92** of them as of 2026-10-09, mostly the gacha, shop, economy, raid, boss-special, milestone and ability-magnitude layers (the login calendar's reward table counts as one). `rg '╧' shared/utils/hero-quest/constants.ts` is the list; `open-items.md` "Standing numeric tuning" says what each is waiting on.
+- **`// UNTUNED ╧`** — locked formula shape, placeholder value. **93** of them as of 2026-10-09, mostly the gacha, shop, economy, raid, boss-special, milestone and ability-magnitude layers (the login calendar's reward table counts as one). `rg '╧' shared/utils/hero-quest/constants.ts` is the list; `open-items.md` "Standing numeric tuning" says what each is waiting on.
 - **`// TUNED ✓`** — measured on the campaign sim (`open-items.md` #22). **Moving one is a design decision**: its comment says what it trades against and what it is coupled to. Several only mean anything as a pair (`K` with `BASE_ENEMY_PWR`, `BASE_ATTACK_INTERVAL_SECONDS` with `SKILL_BASE_COOLDOWN_SECONDS`, `XP_BASE_PER_KILL` with `XP_TO_LEVEL_BASE`). Re-measure with `bun run sim:hero-quest --report=campaign` before and after.
 - **No marker** — either derived (`STAT_PER_LEVEL_GROWTH`, `XP_STEP_EXPONENT`, `LEVELS_PER_STAGE`, `ENEMY_HP_STEP_EXPONENT`, …; never set directly — move its inputs) or specified by a doc. `GOLD_TENURE_CEILING` is **generated** from Colony and Xeno by `scripts/lib/economy-stages.ts`; regenerate, never hand-edit.
 
@@ -101,7 +101,7 @@ Rosters are deliberately partial:
 
 | System | Full roster | Status |
 |---|---|---|
-| Class nodes | 16 | **All 16 — done.** |
+| Class nodes | 16 + 1 | **All 16 — done**, and the Ascendant past them (`capstone-class.md`): its art is a stand-in |
 | Skills | 36 | **All 36 — done.** Phase 3; the §4 draft transcribed verbatim |
 | Gear | 36 | **All 36 — done.** Phase 3; fully named by the epithet table alone |
 | Champions | 48 | **All 48 — done.** Filled during the ability-effects pass |
