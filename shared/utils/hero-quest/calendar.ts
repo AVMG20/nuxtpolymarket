@@ -12,9 +12,48 @@
  * Pure, so the scene the client draws and the check the server enforces are one function.
  */
 
-import { CALENDAR_DAYS, CALENDAR_MAKEUPS_PER_CYCLE, CALENDAR_REWARDS, type CalendarReward } from './constants'
+import {
+    CALENDAR_DAYS,
+    CALENDAR_INCOME_DAYS_FIRST,
+    CALENDAR_INCOME_DAYS_LAST,
+    CALENDAR_MAKEUPS_PER_CYCLE,
+    CALENDAR_SCHEDULE,
+    FREE_PULLS_PER_DAY,
+    RAID_KEYS_PER_DAY,
+    RAID_REWARD_BASE,
+    TEN_PULL_SIZE,
+    type CalendarDay,
+    type CalendarReward
+} from './constants'
+import { RAIDS } from './content/raids'
 
 const DAY_MS = 86_400_000
+
+type IncomeDay = Extract<CalendarDay, { kind: 'seals' | 'keys' | 'trait_gems' }>
+
+/**
+ * A day's regular income of a Seal, Key or Trait Gem day's currency: a raid's Keys, the Trait
+ * Raid's clears, or for Seals a gacha's free pulls plus its paired raid's clears. Raid rewards are
+ * taken at level 1, so the calendar is the same every cycle and for every account.
+ */
+export function calendarIncomePerDay(day: IncomeDay): number {
+    if (day.kind === 'keys') return RAID_KEYS_PER_DAY
+    if (day.kind === 'trait_gems') return RAID_KEYS_PER_DAY * RAID_REWARD_BASE.raid_trait!
+    const raid = RAIDS.find(r => r.pairedSystem === day.system)!
+    return FREE_PULLS_PER_DAY * TEN_PULL_SIZE + RAID_KEYS_PER_DAY * RAID_REWARD_BASE[raid.id]!
+}
+
+/** Days of income the 0-based `day` pays: the first on day 1, climbing evenly to the last. */
+export function calendarIncomeDays(day: number): number {
+    return CALENDAR_INCOME_DAYS_FIRST + (CALENDAR_INCOME_DAYS_LAST - CALENDAR_INCOME_DAYS_FIRST) * day / (CALENDAR_DAYS - 1)
+}
+
+/** Every day's reward, Seal, Key and Trait Gem days sized from income (at least one). */
+export const CALENDAR_REWARDS: readonly CalendarReward[] = CALENDAR_SCHEDULE.map((day, i): CalendarReward => {
+    if (day.kind === 'gold' || day.kind === 'gems' || day.kind === 'void_shards') return day
+    const amount = Math.max(1, Math.round(calendarIncomeDays(i) * calendarIncomePerDay(day)))
+    return { ...day, amount }
+})
 
 /** Whole UTC days since the epoch. */
 export function calendarDayNumber(now: number): number {

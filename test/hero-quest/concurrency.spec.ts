@@ -14,7 +14,7 @@ import { db } from '#server/database'
 import { hqCollection, hqFights, hqLoadouts, hqRaidState, hqShopUpgrades, hqState, user } from '#server/database/schema'
 import { engageRaid, quickClearRaid } from '#server/utils/hero-quest-raids'
 import { claimCalendar } from '#server/utils/hero-quest-calendar'
-import { calendarDayNumber } from '#shared/utils/hero-quest/calendar'
+import { CALENDAR_REWARDS, calendarDayNumber } from '#shared/utils/hero-quest/calendar'
 import { claimMilestones } from '#server/utils/hero-quest-milestones'
 import { getMilestoneTrack, milestoneRewardTotal } from '#shared/utils/hero-quest/milestones'
 import { RAID_KEYS_PER_DAY,
@@ -222,7 +222,9 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
         }
 
         it("pays today's reward once, however many claims race for it", async () => {
-            // day 2: one Guild Seal
+            // day 2: Guild Seals
+            const day = CALENDAR_REWARDS[1]!
+            expect(day.kind === 'seals' && day.system === 'champion').toBe(true)
             await startedAgo(1, 0b1)
             const before = (await stateOf()).guildSeals
 
@@ -230,12 +232,14 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
 
             expect(result.ok).toBe(1)
             const after = await stateOf()
-            expect(after.guildSeals).toBe(before + 1)
+            expect(after.guildSeals).toBe(before + day.amount)
             expect(after.calendarClaimed).toBe(0b11)
         })
 
         it('grants a Key day to the raid once, onto a raid never visited', async () => {
-            // day 3: one Guild Key
+            // day 3: Guild Keys
+            const day = CALENDAR_REWARDS[2]!
+            expect(day.kind === 'keys' && day.raid === 'raid_guild').toBe(true)
             await startedAgo(2, 0b11)
 
             const result = await burst(10, () => db.transaction(tx => claimCalendar(tx, USER_ID, false)))
@@ -243,7 +247,7 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect(result.ok).toBe(1)
             const [raid] = await db.select().from(hqRaidState)
                 .where(and(eq(hqRaidState.userId, USER_ID), eq(hqRaidState.raidId, 'raid_guild')))
-            expect(raid!.keyBalance).toBe(RAID_KEYS_PER_DAY + 1)
+            expect(raid!.keyBalance).toBe(RAID_KEYS_PER_DAY + day.amount)
         })
 
         it('never spends more make-ups than the cycle has, each on the oldest missed day', async () => {

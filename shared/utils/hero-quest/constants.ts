@@ -1119,39 +1119,59 @@ export type CalendarReward =
     | { kind: 'keys', raid: 'raid_guild' | 'raid_training_grounds' | 'raid_dig_site' | 'raid_forge' | 'raid_trait', amount: number }
 
 /**
+ * A day of the schedule. Gold, Gems and Void Shards carry their amount; a Seal, Key or Trait Gem
+ * day carries none, since it is sized from that currency's income (`calendar.ts`).
+ */
+export type CalendarDay =
+    | Extract<CalendarReward, { kind: 'gold' | 'gems' | 'void_shards' }>
+    | { kind: 'trait_gems' }
+    | Omit<Extract<CalendarReward, { kind: 'seals' }>, 'amount'>
+    | Omit<Extract<CalendarReward, { kind: 'keys' }>, 'amount'>
+
+/**
+ * A Seal, Key or Trait Gem day pays days of that currency's regular income (the user's call,
+ * 2026-10-09): this many on day 1, climbing evenly to `CALENDAR_INCOME_DAYS_LAST` on the last day,
+ * so each currency pays more every time it comes round. The income is a day's free pulls and raid
+ * clears at raid level 1 (`calendarIncomePerDay`), so the table stays the same every cycle.
+ */
+export const CALENDAR_INCOME_DAYS_FIRST = 0.25 // UNTUNED ╧
+export const CALENDAR_INCOME_DAYS_LAST = 1 // UNTUNED ╧
+
+/**
  * Day 1 first. Small early days, and each currency pays more every time it comes round, so the
  * cycle climbs steadily to its end (the user's calls, 2026-10-08: no milestone days, an even 200
- * Void Shards on day 30). Every amount but day 30's is a placeholder.
+ * Void Shards on day 30; no Battle Speed days, 2026-10-09). The Gold minutes and Gem counts are
+ * placeholders, rebalanced after the Gold decision (`open-items.md` #47).
  */
-export const CALENDAR_REWARDS: readonly CalendarReward[] = [ // UNTUNED ╧
+export const CALENDAR_SCHEDULE: readonly CalendarDay[] = [ // UNTUNED ╧
     { kind: 'gold', amount: 10 },
-    { kind: 'seals', system: 'champion', amount: 1 },
-    { kind: 'keys', raid: 'raid_guild', amount: 1 },
+    { kind: 'seals', system: 'champion' },
+    { kind: 'keys', raid: 'raid_guild' },
     { kind: 'gold', amount: 15 },
-    { kind: 'trait_gems', amount: 5 },
-    { kind: 'seals', system: 'gear', amount: 1 },
+    { kind: 'trait_gems' },
+    { kind: 'seals', system: 'gear' },
     { kind: 'gems', amount: 25 },
     { kind: 'gold', amount: 20 },
-    { kind: 'keys', raid: 'raid_training_grounds', amount: 1 },
-    { kind: 'seals', system: 'skill', amount: 2 },
-    { kind: 'trait_gems', amount: 10 },
+    { kind: 'keys', raid: 'raid_training_grounds' },
+    { kind: 'seals', system: 'skill' },
+    { kind: 'trait_gems' },
     { kind: 'gold', amount: 30 },
-    { kind: 'seals', system: 'artifact', amount: 2 },
-    { kind: 'seals', system: 'champion', amount: 3 },
+    { kind: 'seals', system: 'artifact' },
+    { kind: 'seals', system: 'champion' },
     { kind: 'gold', amount: 45 },
-    { kind: 'keys', raid: 'raid_dig_site', amount: 2 },
-    { kind: 'seals', system: 'gear', amount: 3 },
-    { kind: 'trait_gems', amount: 15 },
+    { kind: 'keys', raid: 'raid_dig_site' },
+    { kind: 'seals', system: 'gear' },
+    { kind: 'trait_gems' },
     { kind: 'gold', amount: 60 },
-    { kind: 'keys', raid: 'raid_forge', amount: 2 },
+    { kind: 'keys', raid: 'raid_forge' },
     { kind: 'gems', amount: 50 },
     { kind: 'gold', amount: 90 },
-    { kind: 'seals', system: 'skill', amount: 4 },
-    { kind: 'keys', raid: 'raid_trait', amount: 3 },
-    { kind: 'trait_gems', amount: 20 },
+    { kind: 'seals', system: 'skill' },
+    { kind: 'keys', raid: 'raid_trait' },
+    { kind: 'trait_gems' },
     { kind: 'gold', amount: 120 },
-    { kind: 'seals', system: 'artifact', amount: 4 },
-    { kind: 'keys', raid: 'raid_guild', amount: 3 },
+    { kind: 'seals', system: 'artifact' },
+    { kind: 'keys', raid: 'raid_guild' },
     { kind: 'gems', amount: 75 },
     { kind: 'void_shards', amount: 200 }
 ]
