@@ -1,5 +1,6 @@
 import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { rollTraits } from '#server/utils/hero-quest-traits'
 
 /**
@@ -8,5 +9,6 @@ import { rollTraits } from '#server/utils/hero-quest-traits'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'traits')
     return db.transaction(tx => rollTraits(tx, userId))
 })

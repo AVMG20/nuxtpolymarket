@@ -1,5 +1,6 @@
 import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { setTraitLock } from '#server/utils/hero-quest-traits'
 import { TRAIT_SLOT_COUNT } from '#shared/utils/hero-quest/constants'
 
@@ -9,6 +10,7 @@ import { TRAIT_SLOT_COUNT } from '#shared/utils/hero-quest/constants'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'traits')
     const body = await readBody<{ slotIndex?: unknown, locked?: unknown }>(event)
     const slotIndex = Number(body?.slotIndex)
     if (!Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= TRAIT_SLOT_COUNT) {

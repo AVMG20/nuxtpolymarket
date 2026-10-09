@@ -11,13 +11,14 @@ import { isShopTrackId } from '#shared/utils/hero-quest/content/shop'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
-    await requireFeature(userId, 'prestige')
     const body = await readBody<{ upgradeId?: string }>(event)
     const upgradeId = body?.upgradeId
 
     if (typeof upgradeId !== 'string' || !isShopTrackId(upgradeId)) {
         throw createError({ statusCode: 400, statusMessage: 'Unknown upgrade' })
     }
+    // Trait save slots are sold in the Traits scene too, which opens before the prestige shop
+    await requireFeature(userId, upgradeId === 'traitSaveSlots' ? 'traits' : 'prestige')
 
     return db.transaction(tx => buyShopTrack(tx, userId, upgradeId))
 })

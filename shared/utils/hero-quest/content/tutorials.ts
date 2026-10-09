@@ -65,6 +65,13 @@ export const TUTORIAL_PAGES: Readonly<Record<TutorialId, readonly string[]>> = {
         'Raids pay Seals, and the Trait raid pays Trait Gems.'
     ],
 
+    'traits:unlock': ['Traits are open: five slots of bonus stats for the whole party.'],
+    'traits:visit': [
+        'A Roll rerolls every slot you haven\'t locked, for Trait Gems.',
+        'Locking is free, but each lock makes the next Roll pricier.',
+        'Match Sets across slots for extra bonuses. Save a good board to come back to.'
+    ],
+
     'prestige:unlock': ['You beat the whole run! Prestige is open.'],
     'prestige:visit': [
         'Prestige starts the run over, harder, for Void Shards.',

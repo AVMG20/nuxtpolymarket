@@ -1189,7 +1189,7 @@ export const CALENDAR_SCHEDULE: readonly CalendarDay[] = [ // UNTUNED ╧
 // can first do anything.
 
 /** A scene that opens at a checkpoint. Battle and Settings are open from the start. */
-export type HqFeature = 'gacha' | 'collections' | 'milestones' | 'calendar' | 'loadouts' | 'speed' | 'raids' | 'prestige' | 'classes'
+export type HqFeature = 'gacha' | 'collections' | 'milestones' | 'calendar' | 'loadouts' | 'speed' | 'raids' | 'traits' | 'prestige' | 'classes'
 
 /** A point of lifetime progress: a World's mid-boss beaten, Worlds cleared, the run cleared, prestiges made. */
 export type FeatureCheckpoint =
@@ -1207,6 +1207,8 @@ export const FEATURE_UNLOCKS: readonly { feature: HqFeature, at: FeatureCheckpoi
     { feature: 'loadouts', at: { kind: 'worlds', count: 2 } },
     { feature: 'speed', at: { kind: 'worlds', count: 2 } },
     { feature: 'raids', at: { kind: 'worlds', count: 4 } },
+    // with the raids: the Trait raid is where Trait Gems come from
+    { feature: 'traits', at: { kind: 'worlds', count: 4 } },
     { feature: 'prestige', at: { kind: 'run_cleared' } },
     { feature: 'classes', at: { kind: 'prestiges', count: 1 } }
 ]
