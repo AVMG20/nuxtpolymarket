@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import {
     artifactSlots,
     championSlots,
@@ -33,6 +34,7 @@ import { validateLiveLoadout, type LoadoutInput } from '#server/utils/hero-quest
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'collections')
     const body = await readBody<LoadoutInput>(event)
 
     return db.transaction(async (tx: DbExecutor) => {

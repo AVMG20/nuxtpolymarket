@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { prestigeResetValues, settleHq, voidShardsFor } from '#server/utils/hero-quest'
 import { fromStore, toStore } from '#shared/utils/hero-quest/numbers'
 
@@ -19,6 +20,7 @@ import { fromStore, toStore } from '#shared/utils/hero-quest/numbers'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'prestige')
 
     // Bank anything still owed at the old position before the reset wipes it.
     await settleHq(userId)

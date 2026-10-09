@@ -60,7 +60,21 @@ read the older rule in the doc named in the middle column, it is superseded.**
 ## 🔴 Genuinely undesigned — full passes, not edits
 
 ### 50. Tutorials with a guide character (backlog item 10) — **🚧 in progress, @rtgschepers, 2026-10-09**
-Picked up for its design pass and build; ask before starting on it. A guide explains each part of the game as it unlocks at a checkpoint, with separate trackers for features unlocked and tutorials seen (`idea-backlog.md` item 10).
+Picked up 2026-10-09; ask before starting on it. **Decided** (the user's calls): the guide is **a snail familiar**, working name Shellby (`GUIDE_NAME`, display only), unhurried and a little wry; the unlock schedule below; and **announce, then explain**: a line when a scene opens, two or three short pages the first time it is visited, plus an intro on a new run.
+
+| Opens at | Scenes |
+|---|---|
+| Start | Battle, Settings |
+| World 1 boss beaten | Gacha, Collections |
+| 1 World cleared | Milestones, Calendar |
+| 2 Worlds cleared | Loadouts, Battle Speed |
+| 4 Worlds cleared | Raids |
+| The run cleared | Prestige |
+| First prestige | Classes |
+
+**Built** (`FEATURE_UNLOCKS`, `shared/utils/hero-quest/tutorials.ts`, `content/tutorials.ts`): unlocks are derived from lifetime progress, never stored, and **enforced on the server** (`requireFeature` in every feature's routes, a 403 naming the checkpoint), so they can't be reached early. The tutorials seen are `hq_state.tutorials_seen` (migration `0059`); resetting them (Settings) locks nothing. The menu band shows only open scenes, a new one dotted until visited; a closed scene reached by a link falls back to the battle; the guide waits out boss and raid fights, and stays away while "show tutorials" is off.
+
+**Open:** the snail's art round (its portrait is a placeholder drawn in `guide.ts`), and its name.
 
 ### 7. Passive Skill Tree (backlog item 3)
 Unchecked. Hero-only passive tree, generic root splitting into 3 paths, nodes up to 5 levels each, purchased via its own dedicated raid, with Champion/item side-nodes allowed but never gating a path. Structurally sound to build (raids don't have to be gacha-paired) but has had no dedicated design session.
@@ -118,11 +132,11 @@ Full record: `build-log.md` #47. Thirty fixed days per account cycle, three make
 open:
 
 1. ~~**`CALENDAR_REWARDS` is one `UNTUNED ╧` table.**~~ **Sized 2026-10-09 (the user's call):** a
-   Seal, Key or Trait Gem day pays days of that currency's regular income, a day's free pulls and
-   raid clears at raid level 1, climbing evenly from `CALENDAR_INCOME_DAYS_FIRST` (¼) on day 1 to
-   `CALENDAR_INCOME_DAYS_LAST` (1) on day 30. Both dials are `UNTUNED ╧`. A cycle now pays about
-   1–1.5 days of each gacha's pulls (34–58 Seals, from 4–6), 2.4 days of Trait Gems (73, from 50)
-   and the same Keys as before. Day 30's 200 Void Shards is the user's number. The Gold minutes
+   Seal, Key or Trait Gem day pays days of that currency's regular income, a day of raid clears at
+   raid level 1 (free pulls not counted), climbing evenly from `CALENDAR_INCOME_DAYS_FIRST` (¼) on day 1 to
+   `CALENDAR_INCOME_DAYS_LAST` (1) on day 30. Both dials are `UNTUNED ╧`. A cycle now pays
+   1–1.5 days of each gacha's raid Seals (7–13 Seals, from 4–6), 2.4 days of Trait Gems (73, from
+   50) and the same Keys as before. Day 30's 200 Void Shards is the user's number. The Gold minutes
    and Gem counts in `CALENDAR_SCHEDULE` are still guesses, below.
 2. **Rebalance its Gold and Gems after the Gold balance step** (step 7 of the *Suggested order*,
    #23; the user's call, 2026-10-08). A Gold day is minutes of current income (`gold-economy.md`

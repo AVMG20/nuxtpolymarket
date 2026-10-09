@@ -414,6 +414,13 @@
       "when": 1791545236371,
       "tag": "0058_red_rocket_racer",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1791549352855,
+      "tag": "0059_fixed_wendell_vaughn",
+      "breakpoints": true
     }
   ]
 }

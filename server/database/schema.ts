@@ -1154,6 +1154,12 @@ export const hqState = pgTable('hq_state', {
   milestonesClaimed: jsonb('milestones_claimed').$type<Record<string, number>>().notNull().default({}),
 
   /**
+   * The guide's tutorials seen (`shared/utils/hero-quest/tutorials.ts`, `TutorialId`). Which features
+   * are open is derived from progress and never stored, so resetting these locks nothing.
+   */
+  tutorialsSeen: jsonb('tutorials_seen').$type<string[]>().notNull().default([]),
+
+  /**
    * Unit ID → row. Keyed by `'hero'` for the Hero and by Champion ID for everyone else, so a
    * placement survives a Champion being benched and re-fielded. Absent keys fall back to the
    * class node's / archetype's default row (`classes-and-combat.md` §6).

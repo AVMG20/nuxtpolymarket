@@ -1,5 +1,6 @@
 import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { purchaseBattleSpeed, settleHq } from '#server/utils/hero-quest'
 import { isBattleSpeedDuration, isBattleSpeedTier } from '#shared/utils/hero-quest/battle-speed'
 
@@ -12,6 +13,7 @@ import { isBattleSpeedDuration, isBattleSpeedTier } from '#shared/utils/hero-que
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'speed')
     const body = await readBody<{ speed?: number, minutes?: number }>(event)
     const speed = body?.speed
     const minutes = body?.minutes

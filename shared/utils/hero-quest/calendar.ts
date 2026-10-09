@@ -18,10 +18,8 @@ import {
     CALENDAR_INCOME_DAYS_LAST,
     CALENDAR_MAKEUPS_PER_CYCLE,
     CALENDAR_SCHEDULE,
-    FREE_PULLS_PER_DAY,
     RAID_KEYS_PER_DAY,
     RAID_REWARD_BASE,
-    TEN_PULL_SIZE,
     type CalendarDay,
     type CalendarReward
 } from './constants'
@@ -32,15 +30,16 @@ const DAY_MS = 86_400_000
 type IncomeDay = Extract<CalendarDay, { kind: 'seals' | 'keys' | 'trait_gems' }>
 
 /**
- * A day's regular income of a Seal, Key or Trait Gem day's currency: a raid's Keys, the Trait
- * Raid's clears, or for Seals a gacha's free pulls plus its paired raid's clears. Raid rewards are
- * taken at level 1, so the calendar is the same every cycle and for every account.
+ * A day's regular income of a Seal, Key or Trait Gem day's currency: a raid's Keys, or a day of
+ * clears of the raid that pays it (the Trait Raid, or for Seals the gacha's paired raid). The free
+ * pulls don't count: they are pulls, not Seals (the user's call). Raid rewards are taken at level 1,
+ * so the calendar is the same every cycle and for every account.
  */
 export function calendarIncomePerDay(day: IncomeDay): number {
     if (day.kind === 'keys') return RAID_KEYS_PER_DAY
     if (day.kind === 'trait_gems') return RAID_KEYS_PER_DAY * RAID_REWARD_BASE.raid_trait!
     const raid = RAIDS.find(r => r.pairedSystem === day.system)!
-    return FREE_PULLS_PER_DAY * TEN_PULL_SIZE + RAID_KEYS_PER_DAY * RAID_REWARD_BASE[raid.id]!
+    return RAID_KEYS_PER_DAY * RAID_REWARD_BASE[raid.id]!
 }
 
 /** Days of income the 0-based `day` pays: the first on day 1, climbing evenly to the last. */

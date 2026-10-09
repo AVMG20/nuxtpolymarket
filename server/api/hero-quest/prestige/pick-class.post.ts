@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { classPickWrites } from '#server/utils/hero-quest'
 import { getClass } from '#shared/utils/hero-quest/content/classes'
 import type { ClassId } from '#shared/utils/hero-quest/types'
@@ -20,6 +21,7 @@ import type { ClassId } from '#shared/utils/hero-quest/types'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'classes')
     const body = await readBody<{ classId?: string }>(event)
     const requested = body?.classId
 

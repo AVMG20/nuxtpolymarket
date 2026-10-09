@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqLoadouts, hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { getShopLevels, loadoutSlots } from '#server/utils/hero-quest'
 import { validateLiveLoadout } from '#server/utils/hero-quest-loadout'
 
@@ -26,6 +27,7 @@ import { validateLiveLoadout } from '#server/utils/hero-quest-loadout'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'loadouts')
     const body = await readBody<{ slotIndex?: number }>(event)
 
     const slotIndex = Math.floor(Number(body?.slotIndex))

@@ -86,6 +86,8 @@ export const useHeroQuest = () => {
     const calendar = computed(() => state.value?.calendar ?? null)
     /** Every milestone track: its feat now, the steps claimed, the next step, and what's waiting. */
     const milestones = computed(() => state.value?.milestones ?? [])
+    /** The features open, in the order they opened, and the guide's tutorials seen; null before the first read. */
+    const tutorials = computed(() => state.value?.tutorials ?? null)
     /** The Settings scene's choices, defaults filled in by the server. */
     const settings = computed(() => state.value?.settings ?? null)
     const voidShards = computed(() => state.value?.voidShards ?? '0')
@@ -208,6 +210,16 @@ export const useHeroQuest = () => {
 
     async function setSetting(key: HqSettingKey, value: boolean) {
         return call('/api/hero-quest/settings/set', { key, value }, '')
+    }
+
+    /** The guide's tutorial `id` was read or skipped. */
+    async function markTutorialSeen(id: string) {
+        return call('/api/hero-quest/tutorials/seen', { id }, '')
+    }
+
+    /** See every tutorial again. Locks nothing. */
+    async function resetTutorials() {
+        return call('/api/hero-quest/tutorials/reset', {}, '')
     }
 
     /**
@@ -415,6 +427,7 @@ export const useHeroQuest = () => {
         raids,
         calendar,
         milestones,
+        tutorials,
         settings,
         voidShards,
         nextPrestigeReward,
@@ -432,6 +445,8 @@ export const useHeroQuest = () => {
         setSetting,
         claimCalendar,
         claimMilestones,
+        markTutorialSeen,
+        resetTutorials,
         engageRaid,
         quickClearRaid,
         pull,

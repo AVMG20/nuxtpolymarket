@@ -1,5 +1,6 @@
 import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { settleHq } from '#server/utils/hero-quest'
 import { claimCalendar } from '#server/utils/hero-quest-calendar'
 
@@ -9,6 +10,7 @@ import { claimCalendar } from '#server/utils/hero-quest-calendar'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'calendar')
     const body = await readBody<{ makeup?: unknown }>(event)
     await settleHq(userId)
     return db.transaction(tx => claimCalendar(tx, userId, body?.makeup === true))

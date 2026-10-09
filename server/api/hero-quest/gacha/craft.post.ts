@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqCollection, hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import {
     ESSENCE_COLUMN,
     ESSENCE_NAME,
@@ -36,6 +37,7 @@ import { autoEquipFirstPieces, isGearId } from '#shared/utils/hero-quest/content
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'gacha')
     const body = await readBody<{ system?: string; contentId?: string }>(event)
 
     const system = body?.system

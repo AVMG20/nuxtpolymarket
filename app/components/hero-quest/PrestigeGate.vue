@@ -26,6 +26,8 @@ const props = defineProps<{
     crossing?: boolean
     /** The Void Shards the prestige paid, spelled out, to rise over the Hero once it lands. */
     earned?: string | null
+    /** The menu buttons shown: only the scenes open so far, as on the stage. */
+    menuScenes?: readonly HqMenuScene[]
 }>()
 
 const emit = defineEmits<{
@@ -77,7 +79,7 @@ function targetAt(e: PointerEvent): Target | null {
     const r = canvas.value.getBoundingClientRect()
     const x = (e.clientX - r.left) / r.width * presenter.w
     const y = (e.clientY - r.top) / r.height * presenter.h
-    return band?.menuItemAt(presenter.w, presenter.h, x, y) ?? (hitTest?.(x, y) ? 'begin' : null)
+    return band?.menuItemAt(presenter.w, presenter.h, x, y, props.menuScenes) ?? (hitTest?.(x, y) ? 'begin' : null)
 }
 
 function onPointerMove(e: PointerEvent) {
@@ -152,7 +154,7 @@ onMounted(async () => {
             else void irisClose(el, onBridge(BRIDGE_PORTAL_FOCUS)).then(() => { if (!disposed) emit('crossed', rectOf(box)) })
         }
     }, () => {
-        presenter!.present(banded.compose(bridge.render(t, buttonState.value), 'battle', bandHover.value, pressed.value))
+        presenter!.present(banded.compose(bridge.render(t, buttonState.value), 'battle', bandHover.value, pressed.value, false, undefined, props.menuScenes))
     })
     observer = new ResizeObserver(fit)
     observer.observe(wrap.value!)

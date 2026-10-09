@@ -12,6 +12,7 @@ import type { GachaButton, GachaHover, GachaScene, GachaSystemId, GachaView } fr
 import type { SettingsScene, SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
 import type { CalendarScene, CalendarTarget, CalendarView } from '~/utils/hero-quest-art/calendar-scene'
 import type { MilestonesScene, MilestonesTarget, MilestonesView } from '~/utils/hero-quest-art/milestones-scene'
+import type { GuideTarget, GuideView } from '~/utils/hero-quest-art/guide'
 import type { RaidRewardView, RaidRowView, RaidsHover, RaidsScene, RaidsView } from '~/utils/hero-quest-art/raids-scene'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
@@ -116,6 +117,12 @@ const props = defineProps<{
     milestones?: MilestonesView
     /** A milestone claim is on its way. */
     milestonesBusy?: boolean
+    /** The menu buttons shown: Battle's ground aside, only the scenes open so far (`tutorials.ts`). */
+    menuScenes?: readonly HqMenuScene[]
+    /** Scenes opened and not visited yet: their buttons carry the red dot until they are. */
+    newScenes?: readonly HqMenuScene[]
+    /** The guide's dialog, while a tutorial is due. */
+    guide?: GuideView | null
 }>()
 
 const emit = defineEmits<{
@@ -158,6 +165,10 @@ const emit = defineEmits<{
     claimCalendar: [makeup: boolean]
     /** A milestone card with steps waiting was pressed, or claim-all (null). */
     claimMilestones: [track: string | null]
+    /** The guide's panel was pressed: the next page, or the tutorial closed on the last. */
+    guideNext: []
+    /** The guide's Skip button: the tutorial closed unread. */
+    guideSkip: []
 }>()
 
 const wrap = ref<HTMLDivElement | null>(null)
@@ -199,6 +210,7 @@ let calendarScene: CalendarScene | null = null
 let calendarHit: typeof import('~/utils/hero-quest-art/calendar-scene') | null = null
 let milestonesScene: MilestonesScene | null = null
 let milestonesHit: typeof import('~/utils/hero-quest-art/milestones-scene') | null = null
+let guideHit: typeof import('~/utils/hero-quest-art/guide') | null = null
 /** The stage's clock, for the scene that times its own animation (the gacha reveal). */
 let sceneTime = 0
 let band: typeof import('~/utils/hero-quest-art/menu-band') | null = null
@@ -350,7 +362,7 @@ defineExpose({ skipFight, closeIris })
  */
 type Target = 'challenge' | HqMenuScene | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
-    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${RaidId | 'enter' | 'quick'}` | 'reward:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}`
+    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${RaidId | 'enter' | 'quick'}` | 'reward:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
@@ -434,8 +446,11 @@ function targetAt(e: PointerEvent): Target | null {
     const y = (e.clientY - r.top) / r.height * presenter.h
     // the reward popup takes every press: only its button does anything
     if (props.raidReward) return raidsHit?.onRaidRewardButton(presenter.w, sceneH, x, y) ? 'reward:ok' : null
+    // the guide's panel sits over the scene: a press on it is the guide's
+    const guideAt = props.guide && guideHit ? guideHit.guideTargetAt(x, y) : null
+    if (guideAt) return guideAt
     // a raid round hides the menu, so a stray press can't walk out of it mid-fight
-    const item = props.raidRound ? null : band?.menuItemAt(presenter.w, presenter.h, x, y) ?? null
+    const item = props.raidRound ? null : band?.menuItemAt(presenter.w, presenter.h, x, y, props.menuScenes) ?? null
     if (item) return item
     if (openScene.value === 'collections' && collectionsHit) {
         const tab = collectionsHit.collectionTabAt(presenter.w, x, y)
@@ -637,6 +652,8 @@ function onPointerUp(e: PointerEvent) {
     else if (hit === 'cal:claim' || hit === 'cal:makeup') emit('claimCalendar', hit === 'cal:makeup')
     // a day other than today is only pointed at, for what it pays
     else if (hit.startsWith('cal:')) return
+    else if (hit === 'guide:next') emit('guideNext')
+    else if (hit === 'guide:skip') emit('guideSkip')
     else if (hit === 'ms:all') emit('claimMilestones', null)
     else if (hit.startsWith('ms:row:')) {
         // a card with nothing waiting is only pointed at, for what its next step pays
@@ -748,8 +765,10 @@ const milestonesHover = computed<MilestonesTarget | null>(() => hover.value?.sta
 function milestoneRowOf(target: string) {
     return props.milestones?.rows[Number(target.slice(7))]
 }
-/** The band's red dots: today's calendar reward is waiting, or a milestone step is. */
+const guideHover = computed<GuideTarget | null>(() => hover.value === 'guide:next' || hover.value === 'guide:skip' ? hover.value : null)
+/** The band's red dots: a scene opened and not visited yet, today's calendar reward, or a milestone step waiting. */
 const bandAlerts = computed<ReadonlySet<HqMenuScene>>(() => new Set<HqMenuScene>([
+    ...(props.newScenes ?? []),
     ...(props.calendar?.days[props.calendar.today]?.state === 'today' ? ['calendar' as const] : []),
     ...(props.milestones?.rows.some(r => r.claimable.length > 0) ? ['milestones' as const] : [])
 ]))
@@ -769,7 +788,7 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
@@ -782,7 +801,8 @@ onMounted(async () => {
         import('~/utils/hero-quest-art/settings-scene'),
         import('~/utils/hero-quest-art/raids-scene'),
         import('~/utils/hero-quest-art/calendar-scene'),
-        import('~/utils/hero-quest-art/milestones-scene')
+        import('~/utils/hero-quest-art/milestones-scene'),
+        import('~/utils/hero-quest-art/guide')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -809,6 +829,7 @@ onMounted(async () => {
     calendarHit = calendarArt
     milestonesScene = new milestonesArt.MilestonesScene(backdrops)
     milestonesHit = milestonesArt
+    guideHit = guideArt
     stage = new BattleDemo()
     build()
     if (intro) {
@@ -860,7 +881,9 @@ onMounted(async () => {
                                     ? settingsScene!.render(t, props.settings ?? { settings: { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false }, settingsHover.value, pressed.value, !!props.settingsBusy, settingsScroll.value)
                                     : speedScene!.render(t, props.speedView ?? { multiplier: 1, left: null, gems: '0', gemCount: 0, offlineEfficiency: 1, tiers: [] }, speedHover.value, pressed.value, !!props.speedBusy)
         if (props.raidReward && raidsHit) raidsHit.drawRaidReward(view, props.raidReward, hover.value === 'reward:ok', pressed.value)
-        presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value, !!props.raidRound, bandAlerts.value))
+        // the guide waits out a raid's reward popup rather than covering it
+        else if (props.guide && guideHit) guideHit.drawGuide(view, t, props.guide, guideHover.value, pressed.value)
+        presenter!.present(banded!.compose(view, scene, bandHover.value, pressed.value, !!props.raidRound, bandAlerts.value, props.menuScenes))
     })
     observer = new ResizeObserver(fit)
     observer.observe(wrap.value!)

@@ -14,9 +14,8 @@ import {
     CALENDAR_INCOME_DAYS_FIRST,
     CALENDAR_INCOME_DAYS_LAST,
     CALENDAR_MAKEUPS_PER_CYCLE,
-    FREE_PULLS_PER_DAY,
     RAID_KEYS_PER_DAY,
-    TEN_PULL_SIZE
+    RAID_REWARD_BASE
 } from '#shared/utils/hero-quest/constants'
 
 const DAY = 86_400_000
@@ -42,8 +41,8 @@ describe('hero-quest login calendar', () => {
         expect(calendarIncomeDays(0)).toBe(CALENDAR_INCOME_DAYS_FIRST)
         expect(calendarIncomeDays(CALENDAR_DAYS - 1)).toBe(CALENDAR_INCOME_DAYS_LAST)
         expect(calendarIncomePerDay({ kind: 'keys', raid: 'raid_forge' })).toBe(RAID_KEYS_PER_DAY)
-        // a Seal day counts the free pulls on top of the paired raid's clears
-        expect(calendarIncomePerDay({ kind: 'seals', system: 'gear' })).toBeGreaterThan(FREE_PULLS_PER_DAY * TEN_PULL_SIZE)
+        // a Seal day counts the paired raid's clears, not the free pulls
+        expect(calendarIncomePerDay({ kind: 'seals', system: 'gear' })).toBe(RAID_KEYS_PER_DAY * RAID_REWARD_BASE.raid_forge!)
 
         for (const [i, reward] of CALENDAR_REWARDS.entries()) {
             if (reward.kind !== 'seals' && reward.kind !== 'keys' && reward.kind !== 'trait_gems') continue

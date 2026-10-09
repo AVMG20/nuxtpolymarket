@@ -25,7 +25,7 @@ const SECTIONS: readonly { title: string, rows: readonly Row[] }[] = [
     {
         title: 'TUTORIALS',
         rows: [
-            { id: 'tutorials', name: 'SHOW TUTORIALS', line: 'TIPS AS YOU PLAY. THEY ARRIVE IN A LATER UPDATE.' },
+            { id: 'tutorials', name: 'SHOW TUTORIALS', line: 'SHELLBY EXPLAINS EACH PART OF THE GAME AS IT OPENS.' },
             { id: 'resetTutorials', name: 'RESET TUTORIALS', line: 'SEE EVERY TUTORIAL AGAIN.' }
         ]
     },

@@ -2,6 +2,7 @@ import { and, eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqCollection, hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import {
     SEAL_COLUMN,
     SEAL_NAME,
@@ -111,6 +112,7 @@ async function claimWithSeals(tx: Tx, userId: string, system: GachaSystem, seals
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'gacha')
     const body = await readBody<{ system?: string; count?: number; free?: boolean; autoBuy?: { maxGold?: number } }>(event)
 
     const system = body?.system

@@ -1131,8 +1131,9 @@ export type CalendarDay =
 /**
  * A Seal, Key or Trait Gem day pays days of that currency's regular income (the user's call,
  * 2026-10-09): this many on day 1, climbing evenly to `CALENDAR_INCOME_DAYS_LAST` on the last day,
- * so each currency pays more every time it comes round. The income is a day's free pulls and raid
- * clears at raid level 1 (`calendarIncomePerDay`), so the table stays the same every cycle.
+ * so each currency pays more every time it comes round. The income is a day of raid clears at
+ * raid level 1, free pulls not counted (`calendarIncomePerDay`), so the table stays the same
+ * every cycle.
  */
 export const CALENDAR_INCOME_DAYS_FIRST = 0.25 // UNTUNED ╧
 export const CALENDAR_INCOME_DAYS_LAST = 1 // UNTUNED ╧
@@ -1174,6 +1175,36 @@ export const CALENDAR_SCHEDULE: readonly CalendarDay[] = [ // UNTUNED ╧
     { kind: 'keys', raid: 'raid_guild' },
     { kind: 'gems', amount: 75 },
     { kind: 'void_shards', amount: 200 }
+]
+
+// ── Feature unlocks ────────────────────────────────  idea-backlog.md item 10, open-items #50
+//
+// Every menu scene but Settings opens at a checkpoint of lifetime progress, and the guide announces
+// it there (`tutorials.ts`). The schedule is the user's (2026-10-09): each scene opens where it first
+// becomes useful, Prestige at the run's clear and Classes at the first prestige, which is when each
+// can first do anything.
+
+/** A scene that opens at a checkpoint. Battle and Settings are open from the start. */
+export type HqFeature = 'gacha' | 'collections' | 'milestones' | 'calendar' | 'loadouts' | 'speed' | 'raids' | 'prestige' | 'classes'
+
+/** A point of lifetime progress: a World's mid-boss beaten, Worlds cleared, the run cleared, prestiges made. */
+export type FeatureCheckpoint =
+    | { kind: 'boss', world: number }
+    | { kind: 'worlds', count: number }
+    | { kind: 'run_cleared' }
+    | { kind: 'prestiges', count: number }
+
+/** In the order they open, which is the order the guide announces them. */
+export const FEATURE_UNLOCKS: readonly { feature: HqFeature, at: FeatureCheckpoint }[] = [
+    { feature: 'gacha', at: { kind: 'boss', world: 1 } },
+    { feature: 'collections', at: { kind: 'boss', world: 1 } },
+    { feature: 'milestones', at: { kind: 'worlds', count: 1 } },
+    { feature: 'calendar', at: { kind: 'worlds', count: 1 } },
+    { feature: 'loadouts', at: { kind: 'worlds', count: 2 } },
+    { feature: 'speed', at: { kind: 'worlds', count: 2 } },
+    { feature: 'raids', at: { kind: 'worlds', count: 4 } },
+    { feature: 'prestige', at: { kind: 'run_cleared' } },
+    { feature: 'classes', at: { kind: 'prestiges', count: 1 } }
 ]
 
 // ── Milestones ─────────────────────────────────────  idea-backlog.md item 11

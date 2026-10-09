@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { buyLadderSeals, sealBalance, settleHq } from '#server/utils/hero-quest'
 import { isGachaSystem, sealLadderPrice } from '#shared/utils/hero-quest/gacha'
 
@@ -35,6 +36,7 @@ const MAX_SEALS_PER_PURCHASE = 10
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'gacha')
     const body = await readBody<{ system?: string; count?: number }>(event)
 
     const system = body?.system

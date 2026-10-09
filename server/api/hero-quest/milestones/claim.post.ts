@@ -1,5 +1,6 @@
 import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { claimMilestones } from '#server/utils/hero-quest-milestones'
 
 /**
@@ -8,6 +9,7 @@ import { claimMilestones } from '#server/utils/hero-quest-milestones'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'milestones')
     const body = await readBody<{ track?: unknown }>(event)
     const track = typeof body?.track === 'string' ? body.track : null
     return db.transaction(tx => claimMilestones(tx, userId, track))

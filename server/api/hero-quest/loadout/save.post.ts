@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqLoadouts, hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { getShopLevels, loadoutSlots } from '#server/utils/hero-quest'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 
@@ -22,6 +23,7 @@ import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'loadouts')
     const body = await readBody<{ slotIndex?: number; name?: string }>(event)
 
     const slotIndex = Math.floor(Number(body?.slotIndex))

@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqShopUpgrades, hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { debitGems } from '#server/utils/balance'
 import { claimShopLevel, spendVoidShards } from '#server/utils/hero-quest'
 import { getShopTrack, isShopTrackId, shopTrackCost } from '#shared/utils/hero-quest/content/shop'
@@ -31,6 +32,7 @@ import { getShopTrack, isShopTrackId, shopTrackCost } from '#shared/utils/hero-q
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'prestige')
     const body = await readBody<{ upgradeId?: string }>(event)
     const upgradeId = body?.upgradeId
 

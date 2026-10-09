@@ -18,6 +18,9 @@ import type { RaidRewardView, RaidRowView } from '~/utils/hero-quest-art/raids-s
 import type { RaidId as StageRaidId, StageRaid } from '~/utils/hero-quest-art/demo'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
+import { isHqFeature, nextTutorial, type HqFeature, type TutorialId } from '#shared/utils/hero-quest/tutorials'
+import { GUIDE_NAME, TUTORIAL_PAGES } from '#shared/utils/hero-quest/content/tutorials'
+import type { GuideView } from '~/utils/hero-quest-art/guide'
 import type { GachaBannerView, GachaButton, GachaCard, GachaSystemId, GachaView, PullPrice } from '~/utils/hero-quest-art/gacha-scene'
 
 /**
@@ -39,7 +42,7 @@ const {
     engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
     shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
     pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid, calendar, claimCalendar,
-    milestones, claimMilestones, ascendant
+    milestones, claimMilestones, ascendant, tutorials, markTutorialSeen, resetTutorials
 } = useHeroQuest()
 const { user } = useAuth()
 
@@ -643,16 +646,17 @@ async function onRaidQuick(raidId: RaidId) {
     }
 }
 
-/** The Settings scene. Tutorials do not exist yet, so there are no flags to reset. */
-const settingsView = computed<SettingsView>(() => ({ settings: settings.value ?? { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false }))
+/** The Settings scene: every setting's value, and the tutorials ready to reset. */
+const settingsView = computed<SettingsView>(() => ({ settings: settings.value ?? { ...HQ_SETTING_DEFAULTS }, tutorialsReady: true }))
 const settingsBusy = ref(false)
 
 async function onSetting(target: SettingsTarget) {
-    // the reset has nothing to clear until tutorials and their flags exist; the scene holds its button
-    if (target === 'resetTutorials') return
     settingsBusy.value = true
     try {
-        await setSetting(target, !settingsView.value.settings[target])
+        if (target === 'resetTutorials') {
+            seenLocally.value = []
+            await resetTutorials()
+        } else await setSetting(target, !settingsView.value.settings[target])
     } catch {
         // `useHeroQuest` has already shown the error
     } finally {
@@ -799,6 +803,53 @@ const party = computed(() => {
 })
 
 const fight = ref<Awaited<ReturnType<typeof engageBoss>>>(null)
+
+// ── Feature unlocks and the guide (`tutorials.ts`) ───────────────────────────────────
+
+/** The features open, in the order they opened; empty until the first read. */
+const unlocked = computed<readonly HqFeature[]>(() => tutorials.value?.unlocked ?? [])
+/** Closed here before the server says so, so a tutorial doesn't flash back while its write is on its way. */
+const seenLocally = ref<string[]>([])
+const seenTutorials = computed(() => [...(tutorials.value?.seen ?? []), ...seenLocally.value])
+/** The menu shows Settings and every scene open so far. */
+const menuScenes = computed(() => HQ_MENU_SCENES.filter(s => !isHqFeature(s) || unlocked.value.includes(s)))
+/** Opened and not visited yet: the button carries the red dot until it is. */
+const newScenes = computed(() => unlocked.value.filter(f => !seenTutorials.value.includes(`${f}:visit`)))
+
+// a scene not open yet, reached by a link or a reload, falls back to the battle
+watch([() => props.scene, unlocked], ([scene]) => {
+    if (tutorials.value && isHqFeature(scene) && !unlocked.value.includes(scene)) emit('scene', 'battle')
+}, { immediate: true })
+
+/**
+ * The tutorial due now, while tips are on. It waits out a boss or raid fight, which wants the
+ * player's eyes on the stage rather than on the guide.
+ */
+const dueTutorial = computed<TutorialId | null>(() => {
+    if (!tutorials.value || settings.value?.tutorials === false || fight.value || raidRound.value) return null
+    return nextTutorial(unlocked.value, seenTutorials.value, props.scene)
+})
+const guidePage = ref(0)
+watch(dueTutorial, () => { guidePage.value = 0 })
+const guideView = computed<GuideView | null>(() => dueTutorial.value
+    ? { name: GUIDE_NAME, pages: TUTORIAL_PAGES[dueTutorial.value], page: guidePage.value }
+    : null)
+
+function closeTutorial() {
+    const id = dueTutorial.value
+    if (!id) return
+    seenLocally.value = [...seenLocally.value, id]
+    markTutorialSeen(id).catch(() => {
+        // `useHeroQuest` has already shown the error; the tutorial comes round again on the next read
+    })
+}
+
+function onGuideNext() {
+    const view = guideView.value
+    if (!view) return
+    if (view.page < view.pages.length - 1) guidePage.value++
+    else closeTutorial()
+}
 const engaging = ref(false)
 /** Which of the two paths opened the replay — only an automatic one dismisses itself. */
 const fightWasAutomatic = ref(false)
@@ -1000,6 +1051,7 @@ const awayReport = computed(() => {
           :pending="prestiging"
           :crossing="crossing"
           :earned="earnedShards"
+          :menu-scenes="menuScenes"
           @begin="beginAgain"
           @crossed="onCrossed"
           @scene="emit('scene', $event)"
@@ -1035,6 +1087,9 @@ const awayReport = computed(() => {
           :calendar="calendarView"
           :calendar-busy="calendarBusy"
           :milestones="milestonesView"
+          :menu-scenes="menuScenes"
+          :new-scenes="newScenes"
+          :guide="guideView"
           :milestones-busy="milestonesBusy"
           :raids="raidRows"
           :raids-busy="raidsBusy"
@@ -1057,6 +1112,8 @@ const awayReport = computed(() => {
           @setting="onSetting"
           @claim-calendar="onClaimCalendar"
           @claim-milestones="onClaimMilestones"
+          @guide-next="onGuideNext"
+          @guide-skip="closeTutorial"
           @raid-enter="onRaidEnter"
           @raid-quick="onRaidQuick"
           @raid-reward-close="closeRaidReward"

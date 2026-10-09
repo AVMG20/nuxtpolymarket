@@ -163,17 +163,20 @@ const ICONS: Readonly<Record<HqMenuScene, Glyph>> = {
     settings: COG
 }
 
-/** Where a scene's button sits on a view of the given size. */
-function buttonBox(w: number, h: number, i: number): { x: number, y: number } {
-    const row = HQ_MENU_SCENES.length * BTN_W + (HQ_MENU_SCENES.length - 1) * BTN_GAP
+/** Where the `i`th of `n` buttons sits on a view of the given size: the row is centred. */
+function buttonBox(w: number, h: number, i: number, n: number): { x: number, y: number } {
+    const row = n * BTN_W + (n - 1) * BTN_GAP
     return { x: ((w - row) >> 1) + i * (BTN_W + BTN_GAP), y: h - BAND_H + ((BAND_H - BTN_H) >> 1) }
 }
 
-/** The menu scene whose button a point on the view is over, in the view's own pixels. */
-export function menuItemAt(w: number, h: number, x: number, y: number): HqMenuScene | null {
-    for (let i = 0; i < HQ_MENU_SCENES.length; i++) {
-        const b = buttonBox(w, h, i)
-        if (x >= b.x && x < b.x + BTN_W && y >= b.y && y < b.y + BTN_H) return HQ_MENU_SCENES[i]!
+/**
+ * The menu scene whose button a point on the view is over, in the view's own pixels. `scenes` are
+ * the buttons shown: a scene not open yet (`tutorials.ts`) has none.
+ */
+export function menuItemAt(w: number, h: number, x: number, y: number, scenes: readonly HqMenuScene[] = HQ_MENU_SCENES): HqMenuScene | null {
+    for (let i = 0; i < scenes.length; i++) {
+        const b = buttonBox(w, h, i, scenes.length)
+        if (x >= b.x && x < b.x + BTN_W && y >= b.y && y < b.y + BTN_H) return scenes[i]!
     }
     return null
 }
@@ -183,16 +186,17 @@ export function menuItemAt(w: number, h: number, x: number, y: number): HqMenuSc
  * open scene's button shows a close instead of its icon; a scene in `alerts` (something waiting
  * there, like today's calendar reward) gets a red dot in its corner.
  */
-export function drawMenuBand(s: Surface, open: HqScene, hover: HqMenuScene | null, pressed: boolean, hidden = false, alerts: ReadonlySet<HqMenuScene> = NO_ALERTS): void {
+export function drawMenuBand(s: Surface, open: HqScene, hover: HqMenuScene | null, pressed: boolean, hidden = false, alerts: ReadonlySet<HqMenuScene> = NO_ALERTS,
+    scenes: readonly HqMenuScene[] = HQ_MENU_SCENES): void {
     const y0 = s.h - BAND_H
     rect(s, 0, y0, s.w, BAND_H, C.night0)
     rect(s, 0, y0, s.w, 1, C.ink)
     rect(s, 0, y0 + 1, s.w, 1, C.night1)
     // hidden, the strip stays so the frame keeps its size, with nothing on it to press
     if (hidden) return
-    for (let i = 0; i < HQ_MENU_SCENES.length; i++) {
-        const id = HQ_MENU_SCENES[i]!
-        const b = buttonBox(s.w, s.h, i)
+    for (let i = 0; i < scenes.length; i++) {
+        const id = scenes[i]!
+        const b = buttonBox(s.w, s.h, i, scenes.length)
         const lit = hover === id
         const down = lit && pressed ? 1 : 0
         const on = open === id
@@ -222,10 +226,11 @@ export class BandedFrame {
         this.frame = new Surface(w, h + BAND_H, 0, 0)
     }
 
-    compose(scene: Surface, open: HqScene, hover: HqMenuScene | null, pressed: boolean, hidden = false, alerts: ReadonlySet<HqMenuScene> = NO_ALERTS): Surface {
+    compose(scene: Surface, open: HqScene, hover: HqMenuScene | null, pressed: boolean, hidden = false, alerts: ReadonlySet<HqMenuScene> = NO_ALERTS,
+        scenes: readonly HqMenuScene[] = HQ_MENU_SCENES): Surface {
         // the same width, so the scene's rows are the frame's first ones
         this.frame.data.set(scene.data.subarray(0, this.frame.w * (this.frame.h - BAND_H)))
-        drawMenuBand(this.frame, open, hover, pressed, hidden, alerts)
+        drawMenuBand(this.frame, open, hover, pressed, hidden, alerts, scenes)
         return this.frame
     }
 }

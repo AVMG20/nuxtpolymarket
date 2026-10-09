@@ -38,7 +38,7 @@ This is the running idea list from the "Project ideas memory list" conversation,
 - [x] **9. Alternative enemy-scaling formula (smoother stage curve)** — **done**
   The sketch here squashed prestige/world/stage into one position term, which was the right instinct. Shipped as `enemyMultiplier = b^n` with `n = prestige × 100 + (world-1) × 10 + (stage-1)` — an index, not a product, so the zero-at-World-1 edge case this entry worried about never arises (`n = 0` gives a multiplier of exactly 1). See `core-progression-and-prestige.md` §1 and `open-items.md` #10.
 
-- [ ] **10. Tutorials with a guide character** — *added 2026-10-06* — **🚧 In progress: picked up by @rtgschepers on 2026-10-09** (`hero-quest` branch). Check with him before starting on it.
+- [ ] **10. Tutorials with a guide character** — *added 2026-10-06* — **🚧 In progress: picked up by @rtgschepers on 2026-10-09** (`hero-quest` branch). Check with him before starting on it. Decisions and status: `open-items.md` #50.
   A guide character who walks the player through the game. Different parts of the game unlock at set checkpoints, and when one unlocks the guide explains how it works. **Two separate trackers on the same checkpoints:** one for which features are unlocked, one for which tutorials have been seen. Resetting the tutorials does not lock any feature again, and skipping them does not unlock any feature early; features unlock only by reaching their checkpoint.
   *Related:* Settings already has "show tutorials" (stored, nothing reads it yet) and "reset tutorials" (shown as `SOON` until there are tutorial flags to clear), `build-log.md` #44. Nothing is gated by checkpoint today, so feature unlocking is new ground too.
 

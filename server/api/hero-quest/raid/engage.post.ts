@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { getBalance } from '#server/utils/balance'
 import { getCollections, getShopLevels, heroSnapshotOf, positionOf, settleHq } from '#server/utils/hero-quest'
 import { engageRaid } from '#server/utils/hero-quest-raids'
@@ -16,6 +17,7 @@ import { isRaidId } from '#shared/utils/hero-quest/content/raids'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'raids')
     const body = await readBody<{ raidId?: string }>(event)
     const raidId = body?.raidId
     if (!isRaidId(raidId)) throw createError({ statusCode: 400, statusMessage: 'Unknown raid' })

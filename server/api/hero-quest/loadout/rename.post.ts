@@ -1,5 +1,6 @@
 import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
+import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { renameLoadout } from '#server/utils/hero-quest-loadout'
 
 /**
@@ -8,6 +9,7 @@ import { renameLoadout } from '#server/utils/hero-quest-loadout'
  */
 export default defineEventHandler(async (event) => {
     const userId = await requireUserId(event)
+    await requireFeature(userId, 'loadouts')
     const body = await readBody<{ slotIndex?: number; name?: string }>(event)
 
     const slotIndex = Math.floor(Number(body?.slotIndex))
