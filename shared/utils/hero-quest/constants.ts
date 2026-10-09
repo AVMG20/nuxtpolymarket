@@ -1137,6 +1137,36 @@ export const CALENDAR_REWARDS: readonly CalendarReward[] = [ // UNTUNED ╧
     { kind: 'void_shards', amount: 200 }
 ]
 
+// ── Milestones ─────────────────────────────────────  idea-backlog.md item 11
+//
+// Not a list: each kind of feat is a track with a formula for its k-th step's target and reward
+// (`milestones.ts`), so a track runs as far as the feat does. Every reward grows linearly by step,
+// `BASE + STEP × (k − 1)`; the World track's grows by run instead, so every World of a run pays
+// alike. Each track pays its own currency (the user's call, 2026-10-09).
+
+/** Every World cleared, across every run, is a step. All four Seal types, the old World-clear batch. */
+export const MILESTONE_WORLD_SEALS_BASE = 3 // UNTUNED ╧
+/** What each World pays more for every full run before it. */
+export const MILESTONE_WORLD_SEALS_PER_RUN = 1 // UNTUNED ╧
+
+/** Every prestige is a step. All four Seal types, the old prestige batch, and Gems. */
+export const MILESTONE_PRESTIGE_SEALS_BASE = 10 // UNTUNED ╧
+export const MILESTONE_PRESTIGE_SEALS_STEP = 2 // UNTUNED ╧
+export const MILESTONE_PRESTIGE_GEMS_BASE = 50 // UNTUNED ╧
+export const MILESTONE_PRESTIGE_GEMS_STEP = 25 // UNTUNED ╧
+
+/** A raid's levels at every multiple of this are its steps (`idea-backlog.md` item 11). */
+export const MILESTONE_RAID_LEVEL_EVERY = 5
+/** That raid's Keys. */
+export const MILESTONE_RAID_KEYS_BASE = 2 // UNTUNED ╧
+export const MILESTONE_RAID_KEYS_STEP = 1 // UNTUNED ╧
+
+/** A collection's steps: every this many owned, and the full roster as the last. */
+export const MILESTONE_COLLECTION_EVERY = 6 // UNTUNED ╧
+/** That gacha's Seals. */
+export const MILESTONE_COLLECTION_SEALS_BASE = 2 // UNTUNED ╧
+export const MILESTONE_COLLECTION_SEALS_STEP = 2 // UNTUNED ╧
+
 /** Short prestige-shop tracks double per level; the 32-level cap track uses a gentler base. */
 export const OFFLINE_EFFICIENCY_BASE_COST = 50 // UNTUNED ╧
 export const OFFLINE_EFFICIENCY_COST_GROWTH = 2
@@ -1365,15 +1395,14 @@ export const FREE_PULLS_PER_DAY = 3 // TUNED ✓
 export const FREE_PULL_COOLDOWN_MINUTES = 10 // TUNED ✓
 
 /**
- * Milestone Seal grants (`economy-and-currencies.md` §5, source 1).
+ * The Seals a boss win pays (`economy-and-currencies.md` §5, source 1), all four types at once,
+ * since a boss is no gacha's own progress. Paid on the win itself.
  *
- * Tied to core-progression milestones rather than any gacha's own progress, so a milestone grants
- * **all four Seal types at once**. The doc defers the list and sizes and gives only a shape —
- * "small batches per World clear, larger batches per Prestige completion" — which is all these are.
+ * The World-clear and Prestige batches that used to sit beside it are now milestones, claimed in
+ * the Milestones scene (`MILESTONE_WORLD_SEALS_BASE`, `MILESTONE_PRESTIGE_SEALS_BASE`; the user's
+ * call, 2026-10-09).
  */
 export const SEAL_GRANT_PER_BOSS = 1 // UNTUNED ╧
-export const SEAL_GRANT_PER_WORLD_CLEAR = 3 // UNTUNED ╧
-export const SEAL_GRANT_PER_PRESTIGE = 10 // UNTUNED ╧
 
 // ── Gear / The Forge ───────────────────────────────  gear-equipment.md §1–3
 

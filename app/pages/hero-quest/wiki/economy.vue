@@ -2,9 +2,11 @@
 import {
     FREE_PULLS_PER_DAY,
     FREE_PULL_COOLDOWN_MINUTES,
+    MILESTONE_COLLECTION_EVERY,
+    MILESTONE_COLLECTION_SEALS_BASE,
+    MILESTONE_PRESTIGE_SEALS_BASE,
+    MILESTONE_WORLD_SEALS_BASE,
     SEAL_GRANT_PER_BOSS,
-    SEAL_GRANT_PER_PRESTIGE,
-    SEAL_GRANT_PER_WORLD_CLEAR,
     SEAL_LADDER_BASE_GOLD,
     TEN_PULL_SIZE
 } from '#shared/utils/hero-quest/constants'
@@ -81,8 +83,13 @@ const planned = HQ_CURRENCY_DOCS.filter(currency => !currency.live)
           :note="`${FREE_PULL_COOLDOWN_MINUTES} minutes between claims. Spendable only as a ${TEN_PULL_SIZE}-pull — never banked or split.`"
         />
         <HeroQuestWikiFormula
+          label="Bosses"
+          :formula="`${SEAL_GRANT_PER_BOSS} of every Seal per boss beaten`"
+        />
+        <HeroQuestWikiFormula
           label="Milestones"
-          :formula="`${SEAL_GRANT_PER_BOSS} per boss · ${SEAL_GRANT_PER_WORLD_CLEAR} per world · ${SEAL_GRANT_PER_PRESTIGE} per prestige`"
+          :formula="`from ${MILESTONE_WORLD_SEALS_BASE} of every Seal per world · ${MILESTONE_PRESTIGE_SEALS_BASE} per prestige · ${MILESTONE_COLLECTION_SEALS_BASE} of a gacha's own per ${MILESTONE_COLLECTION_EVERY} collected`"
+          note="Claimed in the Milestones scene. Each kind of milestone pays more at every step, and only collections ever run out."
         />
         <HeroQuestWikiFormula
           label="Bought with Gold"

@@ -24,6 +24,8 @@ import { fromStore } from '#shared/utils/hero-quest/numbers'
 import { hqSettingsOf } from '#shared/utils/hero-quest/settings'
 import { serializeRaids } from '#server/utils/hero-quest-raids'
 import { calendarGoldPerHour, serializeCalendar } from '#server/utils/hero-quest-calendar'
+import { serializeMilestones } from '#server/utils/hero-quest-milestones'
+import { GACHA_SYSTEMS } from '#shared/utils/hero-quest/gacha'
 
 /**
  * The one read the client makes.
@@ -61,6 +63,7 @@ export default defineEventHandler(async (event) => {
             settings: hqSettingsOf(null),
             raids: [],
             calendar: null,
+            milestones: [],
             voidShards: '0',
             nextPrestigeReward: voidShardsFor(0).toString(),
             awaySeconds: 0,
@@ -110,6 +113,12 @@ export default defineEventHandler(async (event) => {
         raids,
         /** The login calendar: every day's reward as of now, which are claimed, and the make-ups. */
         calendar: serializeCalendar(state, calendarGoldPerHour(state, hero)),
+        /** Every milestone track: its feat now, the steps claimed, the next step, and what's waiting. */
+        milestones: serializeMilestones(
+            state,
+            Object.fromEntries(raids.map(r => [r.id, r.best])),
+            Object.fromEntries(GACHA_SYSTEMS.map(s => [s, collections[s].length]))
+        ),
 
         guild: serializeGuild(state, collections.champion, shopLevels),
         forge: serializeForge(state, collections.gear),

@@ -18,7 +18,6 @@ import { ensureHqState, resolveBossEngage } from '#server/utils/hero-quest'
 import {
     BOSS_STAGE,
     SEAL_GRANT_PER_BOSS,
-    SEAL_GRANT_PER_WORLD_CLEAR,
     SUPER_BOSS_STAGE,
     WORLD_COUNT
 } from '#shared/utils/hero-quest/constants'
@@ -78,8 +77,8 @@ describe.skipIf(SKIP)('boss engage', () => {
         expect(result.rejected).toBe(9)
         const after = await readState()
         expect(after.runCleared).toBe(true)
-        const batch = SEAL_GRANT_PER_BOSS + SEAL_GRANT_PER_WORLD_CLEAR
-        expect(seals(after)).toEqual(before.map(count => count + batch))
+        // the World's own batch is a milestone, claimed in the Milestones scene
+        expect(seals(after)).toEqual(before.map(count => count + SEAL_GRANT_PER_BOSS))
         expect(await fightCount()).toBe(1)
     })
 

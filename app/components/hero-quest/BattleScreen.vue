@@ -13,6 +13,7 @@ import type { StagePack } from '~/utils/hero-quest-art/demo'
 import type { SpeedView } from '~/utils/hero-quest-art/speed-scene'
 import type { SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
 import type { CalendarView } from '~/utils/hero-quest-art/calendar-scene'
+import type { MilestonesView } from '~/utils/hero-quest-art/milestones-scene'
 import type { RaidRewardView, RaidRowView } from '~/utils/hero-quest-art/raids-scene'
 import type { RaidId as StageRaidId, StageRaid } from '~/utils/hero-quest-art/demo'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
@@ -37,7 +38,8 @@ const {
     initialized, run, hero, settled, pending, guild, forge, training, digSite, nextPrestigeReward,
     engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
     shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
-    pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid, calendar, claimCalendar
+    pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid, calendar, claimCalendar,
+    milestones, claimMilestones
 } = useHeroQuest()
 const { user } = useAuth()
 
@@ -667,6 +669,21 @@ async function onClaimCalendar(makeup: boolean) {
     }
 }
 
+/** The Milestones scene: every track's next step and what's waiting. */
+const milestonesView = computed<MilestonesView>(() => ({ rows: milestones.value }))
+const milestonesBusy = ref(false)
+
+async function onClaimMilestones(track: string | null) {
+    milestonesBusy.value = true
+    try {
+        await claimMilestones(track ?? undefined)
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        milestonesBusy.value = false
+    }
+}
+
 /** The running Battle Speed block's time left, off the server's expiry. */
 const speedLeft = useHqCountdown(() => battleSpeed.value?.expiresAt)
 
@@ -996,6 +1013,8 @@ const awayReport = computed(() => {
           :settings-busy="settingsBusy"
           :calendar="calendarView"
           :calendar-busy="calendarBusy"
+          :milestones="milestonesView"
+          :milestones-busy="milestonesBusy"
           :raids="raidRows"
           :raids-busy="raidsBusy"
           :raid-round="raidRound"
@@ -1016,6 +1035,7 @@ const awayReport = computed(() => {
           @gacha-close="gachaReveal = null"
           @setting="onSetting"
           @claim-calendar="onClaimCalendar"
+          @claim-milestones="onClaimMilestones"
           @raid-enter="onRaidEnter"
           @raid-quick="onRaidQuick"
           @raid-reward-close="closeRaidReward"

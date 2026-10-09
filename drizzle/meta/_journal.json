@@ -400,6 +400,13 @@
       "when": 1791494560172,
       "tag": "0056_free_purifiers",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1791541862487,
+      "tag": "0057_fixed_blizzard",
+      "breakpoints": true
     }
   ]
 }

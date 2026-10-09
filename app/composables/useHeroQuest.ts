@@ -82,6 +82,8 @@ export const useHeroQuest = () => {
     const raids = computed(() => state.value?.raids ?? [])
     /** The login calendar: every day's reward as of now, which are claimed, and the make-ups. */
     const calendar = computed(() => state.value?.calendar ?? null)
+    /** Every milestone track: its feat now, the steps claimed, the next step, and what's waiting. */
+    const milestones = computed(() => state.value?.milestones ?? [])
     /** The Settings scene's choices, defaults filled in by the server. */
     const settings = computed(() => state.value?.settings ?? null)
     const voidShards = computed(() => state.value?.voidShards ?? '0')
@@ -214,6 +216,16 @@ export const useHeroQuest = () => {
     async function claimCalendar(makeup: boolean) {
         const res = await call<{ day: number, kind: string, amount: string }>('/api/hero-quest/calendar/claim', { makeup }, '')
         if (res?.kind === 'gold' || res?.kind === 'gems') await fetchSession()
+        return res
+    }
+
+    /**
+     * Claim every milestone step waiting: on one track, or on all of them without one. Gems move a
+     * platform balance the response doesn't carry, so the session is read back when any were paid.
+     */
+    async function claimMilestones(track?: string) {
+        const res = await call<{ rewards: { kind: string, amount: number }[] }>('/api/hero-quest/milestones/claim', track ? { track } : {}, '')
+        if (res?.rewards.some(r => r.kind === 'gems')) await fetchSession()
         return res
     }
 
@@ -398,6 +410,7 @@ export const useHeroQuest = () => {
         battleSpeed,
         raids,
         calendar,
+        milestones,
         settings,
         voidShards,
         nextPrestigeReward,
@@ -414,6 +427,7 @@ export const useHeroQuest = () => {
         buyBattleSpeed,
         setSetting,
         claimCalendar,
+        claimMilestones,
         engageRaid,
         quickClearRaid,
         pull,

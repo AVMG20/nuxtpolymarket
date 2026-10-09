@@ -2,9 +2,8 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
-import { prestigeResetValues, sealGrantSet, settleHq, voidShardsFor } from '#server/utils/hero-quest'
+import { prestigeResetValues, settleHq, voidShardsFor } from '#server/utils/hero-quest'
 import { fromStore, toStore } from '#shared/utils/hero-quest/numbers'
-import { SEAL_GRANT_PER_PRESTIGE } from '#shared/utils/hero-quest/constants'
 
 /**
  * Complete a prestige: pay Void Shards, reset the run, start over harder.
@@ -46,9 +45,8 @@ export default defineEventHandler(async (event) => {
             .set({
                 ...prestigeResetValues(state),
                 runCleared: false,
-                voidShards: shards,
-                // The largest milestone batch in the game — one full run completed.
-                ...sealGrantSet(SEAL_GRANT_PER_PRESTIGE)
+                // The prestige's Seals and Gems are a milestone, claimed in the Milestones scene.
+                voidShards: shards
             })
             .where(eq(hqState.userId, userId))
             .returning()

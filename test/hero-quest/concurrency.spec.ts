@@ -15,6 +15,8 @@ import { hqCollection, hqFights, hqLoadouts, hqRaidState, hqShopUpgrades, hqStat
 import { engageRaid, quickClearRaid } from '#server/utils/hero-quest-raids'
 import { claimCalendar } from '#server/utils/hero-quest-calendar'
 import { calendarDayNumber } from '#shared/utils/hero-quest/calendar'
+import { claimMilestones } from '#server/utils/hero-quest-milestones'
+import { getMilestoneTrack, milestoneRewardTotal } from '#shared/utils/hero-quest/milestones'
 import { RAID_KEYS_PER_DAY,
     CALENDAR_MAKEUPS_PER_CYCLE,
     LOADOUT_SLOT_BASE_COST_GEMS,
@@ -255,6 +257,47 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect(after.calendarMakeups).toBe(result.ok)
             // the oldest days, in order, and nothing else
             expect(after.calendarClaimed).toBe((1 << result.ok) - 1)
+        })
+    })
+
+    describe('milestones', () => {
+        const stateOf = async () => (await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!
+        const gemsOf = async () => (await db.select({ gems: user.gems }).from(user).where(eq(user.id, USER_ID)))[0]!.gems
+
+        it('pays a track\'s waiting steps once, however many claims race for them', async () => {
+            await ensureHqState(USER_ID)
+            await db.update(hqState).set({ prestige: 2 }).where(eq(hqState.userId, USER_ID))
+            const before = await stateOf()
+            const gemsBefore = await gemsOf()
+
+            const result = await burst(10, () => db.transaction(tx => claimMilestones(tx, USER_ID, 'milestone_prestige')))
+
+            expect(result.ok).toBe(1)
+            const [seals, gems] = milestoneRewardTotal(getMilestoneTrack('milestone_prestige')!, 0, 2)
+            const after = await stateOf()
+            expect(after.milestonesClaimed).toEqual({ milestone_prestige: 2 })
+            expect(after.guildSeals).toBe(before.guildSeals + seals!.amount)
+            expect(after.forgeSeals).toBe(before.forgeSeals + seals!.amount)
+            expect(await gemsOf()).toBe(gemsBefore + gems!.amount)
+        })
+
+        it('grants a raid\'s Keys once, a claim-all racing a one-track claim', async () => {
+            await ensureHqState(USER_ID)
+            await db.insert(hqRaidState).values({ userId: USER_ID, raidId: 'raid_guild', highestLevel: 11, keyBalance: 0 })
+
+            const result = await burst(10, i => db.transaction(tx => claimMilestones(tx, USER_ID, i % 2 ? 'milestone_raid_guild' : null)))
+
+            expect(result.ok).toBe(1)
+            const [keys] = milestoneRewardTotal(getMilestoneTrack('milestone_raid_guild')!, 0, 2)
+            const [raid] = await db.select().from(hqRaidState)
+                .where(and(eq(hqRaidState.userId, USER_ID), eq(hqRaidState.raidId, 'raid_guild')))
+            expect(raid!.keyBalance).toBe(keys!.amount)
+            expect((await stateOf()).milestonesClaimed).toEqual({ milestone_raid_guild: 2 })
+        })
+
+        it('refuses a claim with nothing waiting', async () => {
+            await ensureHqState(USER_ID)
+            await expect(db.transaction(tx => claimMilestones(tx, USER_ID, null))).rejects.toMatchObject({ statusCode: 400 })
         })
     })
 

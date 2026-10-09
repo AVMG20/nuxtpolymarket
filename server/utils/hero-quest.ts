@@ -30,7 +30,6 @@ import {
     ONLINE_THRESHOLD_MS,
     PRESTIGE_STAT_PER_LEVEL,
     SEAL_GRANT_PER_BOSS,
-    SEAL_GRANT_PER_WORLD_CLEAR,
     STAGES_PER_WORLD,
     SUPER_BOSS_STAGE,
     TEN_PULL_SIZE,
@@ -684,12 +683,10 @@ export async function resolveBossEngage(tx: DbExecutor, userId: string, bankedGo
         && position.world === WORLD_COUNT
         && position.stage === SUPER_BOSS_STAGE
 
-    // Milestone Seals, granted on the win only and paid in all four types at once
-    // (`economy-and-currencies.md` §5). Clearing Stage 10 finishes a World, which is the
-    // larger of the two batches; the Stage 5 boss pays the small one.
-    const sealsEarned = won
-        ? SEAL_GRANT_PER_BOSS + (position.stage === SUPER_BOSS_STAGE ? SEAL_GRANT_PER_WORLD_CLEAR : 0)
-        : 0
+    // A boss's Seals, granted on the win only and paid in all four types at once
+    // (`economy-and-currencies.md` §5). Finishing a World pays its larger batch as a milestone,
+    // claimed in the Milestones scene (`milestones.ts`), not here.
+    const sealsEarned = won ? SEAL_GRANT_PER_BOSS : 0
 
     const [updated] = await tx.update(hqState)
         .set({

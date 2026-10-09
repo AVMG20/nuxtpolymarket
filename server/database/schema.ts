@@ -1136,6 +1136,12 @@ export const hqState = pgTable('hq_state', {
   calendarMakeups: integer('calendar_makeups').notNull().default(0),
 
   /**
+   * Milestone track ID → steps claimed (`shared/utils/hero-quest/milestones.ts`); a track absent
+   * has none. A claim compare-and-swaps its tracks' counts. Not run position, so prestige keeps it.
+   */
+  milestonesClaimed: jsonb('milestones_claimed').$type<Record<string, number>>().notNull().default({}),
+
+  /**
    * Unit ID → row. Keyed by `'hero'` for the Hero and by Champion ID for everyone else, so a
    * placement survives a Champion being benched and re-fielded. Absent keys fall back to the
    * class node's / archetype's default row (`classes-and-combat.md` §6).

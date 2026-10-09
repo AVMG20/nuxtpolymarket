@@ -1,0 +1,1 @@
+ALTER TABLE "hq_state" ADD COLUMN "milestones_claimed" jsonb DEFAULT '{}'::jsonb NOT NULL;
