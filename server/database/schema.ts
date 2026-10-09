@@ -1112,6 +1112,18 @@ export const hqState = pgTable('hq_state', {
    */
   classToken: boolean('class_token').notNull().default(false),
 
+  /**
+   * Every class a prestige has been completed with. The Ascendant opens once all six masters are in
+   * it (`capstone-class.md`). Appended by the prestige, never reset.
+   */
+  prestigedClassIds: jsonb('prestiged_class_ids').$type<string[]>().notNull().default([]),
+
+  /**
+   * The Ascendant's picked class skills, up to `ASCENDANT_KIT_SIZE`. A Loadout component; read only
+   * while the Hero is the Ascendant, and kept across class switches and prestige.
+   */
+  ascendantSkillIds: jsonb('ascendant_skill_ids').$type<string[]>().notNull().default([]),
+
   /** Prestige currency. Decimal as text — see the note above. */
   voidShards: text('void_shards').notNull().default('0'),
 
@@ -1284,6 +1296,8 @@ export const hqLoadouts = pgTable('hq_loadouts', {
   equippedSkillIds: jsonb('equipped_skill_ids').$type<string[]>().notNull().default([]),
   equippedArtifactIds: jsonb('equipped_artifact_ids').$type<string[]>().notNull().default([]),
   equippedGear: jsonb('equipped_gear').$type<Record<string, string>>().notNull().default({}),
+  /** The Ascendant's picks. Empty in a preset saved before the Ascendant existed, and applying that leaves the live picks alone. */
+  ascendantSkillIds: jsonb('ascendant_skill_ids').$type<string[]>().notNull().default([]),
   updatedAt: timestamp('updated_at').defaultNow().notNull()
 }, t => [
   unique('hq_loadouts_unique').on(t.userId, t.slotIndex),

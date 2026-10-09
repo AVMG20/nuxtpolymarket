@@ -12,6 +12,8 @@
  */
 
 import {
+    ASCENDANT_KIT_SIZE,
+    CONVERGENCE_COOLDOWN_FACTOR,
     DELTA_EXTREME,
     DELTA_MODEST,
     DELTA_NORMAL,
@@ -30,11 +32,12 @@ import {
     SKILL_HOT_MULTIPLIER,
     SKILL_LINE_MULTIPLIER,
     SKILL_PIERCE_MULTIPLIER,
-    SKILL_STATUS_DURATION_SECONDS
+    SKILL_STATUS_DURATION_SECONDS,
+    STAT_TIER_VALUES
 } from '../constants'
 import { onCooldownRank, SINGLE_TARGET } from '../effects'
 import type { AbilityEffect } from '../effects'
-import type { ClassId, ClassNode, ClassSkill, ClassTier, FormationRow } from '../types'
+import type { ClassId, ClassNode, ClassSkill, ClassTier, FormationRow, HqStatDelta, HqStatKey, StatTier } from '../types'
 
 export const ROOT_CLASS_ID: ClassId = 'class_beginner'
 
@@ -393,6 +396,27 @@ const CLASS_NODE_SPECS: readonly Omit<ClassNode, 'defaultRow'>[] = [
         delta: {},
         strikesPerAttack: 4,
         autoTarget: 'highest_pwr'
+    },
+
+    // ── The capstone ───────────────────────────────────────────────────────────────────
+    {
+        id: 'class_ascendant',
+        name: 'Ascendant',
+        // Joined to all six masters rather than one (`capstone-class.md`), so it has no single
+        // parent: `childrenOf` leaves it out, and the class pick reaches it by its own rule.
+        parentId: null,
+        tier: 'capstone',
+        // Its own skill. Convergence is never cast as this entry: `kitFor` puts every master's skill
+        // in its place, on one cooldown (`CONVERGENCE`).
+        skill: skill('skill_convergence', 'Convergence', SINGLE_TARGET, NO_DAMAGE),
+        // Both replaced in `CLASS_NODES` (`bestOfMasters`): the best of the six masters in each
+        // stat, deltas included (the user's call).
+        spread: { pwr: 'mid', spd: 'mid', lck: 'mid', imp: 'mid', vit: 'mid', def: 'mid' },
+        delta: {},
+        // Decided, not specified: best-of-each covers the stats only, and strikes are kit, not a
+        // stat, so it swings once rather than taking the Beast Master's four.
+        strikesPerAttack: 1,
+        autoTarget: 'lowest_hp_pct'
     }
 ]
 
@@ -420,12 +444,41 @@ const CLASS_TIER_RANK: Readonly<Record<ClassTier, number>> = {
     beginner: 0,
     base: 1,
     elite: 2,
-    master: 3
+    master: 3,
+    capstone: 4
+}
+
+const MASTER_SPECS = CLASS_NODE_SPECS.filter(spec => spec.tier === 'master')
+
+/** A master's level-1 stat before scaling: its tier value plus every delta down its path. */
+function masterRaw(spec: Omit<ClassNode, 'defaultRow'>, key: HqStatKey): number {
+    let raw = STAT_TIER_VALUES[spec.spread[key]]
+    for (let at: typeof spec | undefined = spec; at; at = at.parentId ? SPEC_BY_ID.get(at.parentId) : undefined) {
+        raw += at.delta[key] ?? 0
+    }
+    return raw
+}
+
+/**
+ * The Ascendant's stats: in each, the best of the six masters', deltas included. Written as the
+ * best master's tier plus a delta that makes up the rest, so `stats.baseSpreadFor` and the stat
+ * breakdown read it like any other class and arrive at that same best block.
+ */
+function bestOfMasters(): { spread: Record<HqStatKey, StatTier>, delta: HqStatDelta } {
+    const spread = {} as Record<HqStatKey, StatTier>
+    const delta: HqStatDelta = {}
+    for (const key of Object.keys(MASTER_SPECS[0]!.spread) as HqStatKey[]) {
+        const raw = Math.max(...MASTER_SPECS.map(m => masterRaw(m, key)))
+        spread[key] = MASTER_SPECS.map(m => m.spread[key]).reduce((a, b) => STAT_TIER_VALUES[b] > STAT_TIER_VALUES[a] ? b : a)
+        if (raw !== STAT_TIER_VALUES[spread[key]]) delta[key] = raw - STAT_TIER_VALUES[spread[key]]
+    }
+    return { spread, delta }
 }
 
 export const CLASS_NODES: readonly ClassNode[] = CLASS_NODE_SPECS.map(spec => ({
     ...spec,
     skill: onCooldownRank(spec.skill, CLASS_TIER_RANK[spec.tier]),
+    ...(spec.tier === 'capstone' ? bestOfMasters() : {}),
     defaultRow: defaultRowFor(spec.id)
 }))
 
@@ -452,8 +505,9 @@ export function classPath(id: ClassId): ClassNode[] {
     return path
 }
 
+/** A node's children. The capstone is nobody's child: it is reached by its own rule. */
 export function childrenOf(id: ClassId | null): ClassNode[] {
-    return CLASS_NODES.filter(node => node.parentId === id)
+    return CLASS_NODES.filter(node => node.parentId === id && node.tier !== 'capstone')
 }
 
 export function isDescendantOf(id: ClassId, ancestor: ClassId): boolean {
@@ -467,6 +521,46 @@ export function isDescendantOf(id: ClassId, ancestor: ClassId): boolean {
  * re-picking a deep node at a later prestige restores the whole chain rather than just that
  * node's skill: a Berserker owns Haste, Whirlwind, Threatening Roar and Enrage together.
  */
-export function kitFor(id: ClassId): ClassSkill[] {
+export function kitFor(id: ClassId, ascendantSkillIds: readonly string[] = []): ClassSkill[] {
+    if (id === ASCENDANT_ID) return [...ascendantPicks(ascendantSkillIds), ...CONVERGENCE]
     return classPath(id).map(node => node.skill)
 }
+
+// ── The Ascendant ──────────────────────────────────────────────────────────────────────
+
+export const ASCENDANT_ID: ClassId = 'class_ascendant'
+
+/** The six masters, in tree order: the Ascendant's unlock prestiges once with each. */
+export const MASTER_IDS: readonly ClassId[] = CLASS_NODES.filter(node => node.tier === 'master').map(node => node.id)
+
+/** Every class skill the Ascendant can pick from: one per class below it, Haste to the masters'. */
+export const ASCENDANT_PICKABLE: readonly ClassSkill[] = CLASS_NODES.filter(node => node.tier !== 'capstone').map(node => node.skill)
+
+const PICKABLE_BY_ID = new Map(ASCENDANT_PICKABLE.map(skill => [skill.id, skill]))
+
+export function isAscendantPick(id: string): boolean {
+    return PICKABLE_BY_ID.has(id)
+}
+
+/** The class a pickable skill belongs to. */
+export function classOfSkill(id: string): ClassId | undefined {
+    return CLASS_NODES.find(node => node.skill.id === id)?.id
+}
+
+/**
+ * The picked skills a kit fires, each on its own class's rung of the cooldown ladder. Unknown ids
+ * and repeats are dropped and the count capped, so a stored pick can never field more.
+ */
+export function ascendantPicks(ids: readonly string[]): ClassSkill[] {
+    return [...new Set(ids)].filter(isAscendantPick).slice(0, ASCENDANT_KIT_SIZE).map(id => PICKABLE_BY_ID.get(id)!)
+}
+
+/**
+ * Convergence: every master's skill at once (`capstone-class.md`). Each keeps its own hit, and all
+ * six share one cooldown, `CONVERGENCE_COOLDOWN_FACTOR` times a master's, so they come ready on the
+ * same tick and fire together.
+ */
+export const CONVERGENCE: readonly ClassSkill[] = MASTER_IDS.map((id) => {
+    const own = getClass(id).skill
+    return { ...own, cooldownSeconds: own.cooldownSeconds * CONVERGENCE_COOLDOWN_FACTOR }
+})

@@ -74,6 +74,8 @@ export const useHeroQuest = () => {
     const hero = computed(() => state.value?.hero ?? null)
     const shop = computed(() => state.value?.shop ?? [])
     const classTree = computed(() => state.value?.classTree ?? [])
+    /** The capstone class: its unlock so far, the live picks and every skill it can pick. */
+    const ascendant = computed(() => state.value?.ascendant ?? null)
     /** A prestige's class token, waiting to take a class not reached before. */
     const classToken = computed(() => state.value?.classToken ?? false)
     /** The running Battle Speed block, if any, and the price of every block. */
@@ -313,6 +315,7 @@ export const useHeroQuest = () => {
         skillIds?: string[]
         artifactIds?: string[]
         gear?: Record<string, string>
+        ascendantSkillIds?: string[]
     }
 
     async function setLoadout(change: LiveLoadout, successMsg = 'Loadout updated') {
@@ -324,7 +327,7 @@ export const useHeroQuest = () => {
         return call('/api/hero-quest/loadout/save', { slotIndex, name }, '')
     }
 
-    /** Apply a saved slot as the new live state — all five components at once. */
+    /** Apply a saved slot as the new live state — all six components at once. */
     async function applyLoadout(slotIndex: number) {
         return call('/api/hero-quest/loadout/apply', { slotIndex }, '')
     }
@@ -406,6 +409,7 @@ export const useHeroQuest = () => {
         digSite,
         loadouts,
         classTree,
+        ascendant,
         classToken,
         battleSpeed,
         raids,

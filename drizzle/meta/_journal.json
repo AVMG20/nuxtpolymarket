@@ -407,6 +407,13 @@
       "when": 1791541862487,
       "tag": "0057_fixed_blizzard",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1791545236371,
+      "tag": "0058_red_rocket_racer",
+      "breakpoints": true
     }
   ]
 }

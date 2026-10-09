@@ -27,6 +27,15 @@ export const HERO_ART: Readonly<Record<string, HeroArt>> = {
     ...ARCHER_LINE
 }
 
+/**
+ * The class whose art draws a Hero: its own, or the Beginner's for a class with none yet. Only the
+ * Ascendant has none, until its art round (`capstone-class.md`); the stand-in stays out of
+ * `HERO_ART` so the art catalog shows no duplicate sheet for it.
+ */
+export function heroArtId(classId: string): string {
+    return HERO_ART[classId] ? classId : 'class_beginner'
+}
+
 /** The robed caster line hovers on the march; everyone else runs. */
 const FLOATERS: ReadonlySet<string> = new Set([
     'class_mage', 'class_wizard', 'class_sorcerer', 'class_shaman', 'class_witch_doctor'

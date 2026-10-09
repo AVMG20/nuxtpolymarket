@@ -14,6 +14,12 @@ import { ARTIFACTS } from '#shared/utils/hero-quest/content/artifacts'
 import { GEAR } from '#shared/utils/hero-quest/content/gear'
 import { WORLDS } from '#shared/utils/hero-quest/content/worlds'
 
+/**
+ * The 16 class nodes with art. The Ascendant has none of its own yet: it stands in the Beginner's
+ * body until its art round (`open-items.md` #43), and Convergence casts the masters' own skills.
+ */
+const TREE = CLASS_NODES.filter(node => node.tier !== 'capstone')
+
 // The art is procedural and keyed by content ID, so "is there art for X" is a property of the
 // code. These pin it: a new class, Champion, skill or world without art fails here, and the
 // counts are the ones asset-list.md locks.
@@ -23,7 +29,7 @@ const count = (prefix: string) => allArt().filter(a => a.id.startsWith(prefix)).
 
 describe('Hero Quest art coverage', () => {
     it('gives every class node all six Hero states — 96 spritesheets', () => {
-        for (const node of CLASS_NODES) {
+        for (const node of TREE) {
             expect(HERO_ART[node.id], node.id).toBeDefined()
             for (const st of HERO_STATES) expect(ids.has(`hero/${node.id}/${st}`), `${node.id} ${st}`).toBe(true)
         }
@@ -57,14 +63,14 @@ describe('Hero Quest art coverage', () => {
     })
 
     it('has a custom VFX for all 62 abilities — 16 Hero, 28 Champion, 18 Training Grounds actives', () => {
-        for (const node of CLASS_NODES) expect(VFX_BY_ID[node.skill.id], node.skill.id).toBeDefined()
+        for (const node of TREE) expect(VFX_BY_ID[node.skill.id], node.skill.id).toBeDefined()
         for (const names of Object.values(CHAMPION_ABILITY_POOL)) for (const n of names) expect(VFX_BY_ID[abilityId(n)], n).toBeDefined()
         for (const s of SKILLS.filter(s => s.type === 'active')) expect(VFX_BY_ID[s.id], s.id).toBeDefined()
         expect(Object.keys(VFX_BY_ID)).toHaveLength(62)
     })
 
     it('has all 217 static icons from asset-list §3', () => {
-        for (const node of CLASS_NODES) {
+        for (const node of TREE) {
             expect(ids.has(`icon/skill/${node.skill.id}`), node.skill.id).toBe(true)
             expect(ids.has(`icon/class/${node.id}`), node.id).toBe(true)
         }

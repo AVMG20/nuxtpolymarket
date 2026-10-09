@@ -20,6 +20,7 @@ import { hqCollection, hqLoadouts, hqShopUpgrades, hqState } from '#server/datab
 import { ensureHqState, getShopLevels } from '#server/utils/hero-quest'
 import { renameLoadout, validateLiveLoadout } from '#server/utils/hero-quest-loadout'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
+import { CLASS_IDS } from '#shared/utils/hero-quest/content/classes'
 import type { GachaSystem } from '#shared/utils/hero-quest/gacha'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
 
@@ -224,6 +225,31 @@ describe.skipIf(SKIP)('hero-quest loadout validation', () => {
             await own('gear', 'gear_weapon_common')
             const writes = await validate({ gear: { weapon: '' } })
             expect(writes.equippedGear).toEqual({})
+        })
+    })
+
+    describe('the Ascendant\'s picks', () => {
+        const reachAll = () => db.update(hqState).set({ seenNodeIds: CLASS_IDS as string[] }).where(eq(hqState.userId, USER_ID))
+
+        it('takes up to four class skills from classes reached, in order', async () => {
+            await reachAll()
+            const writes = await validate({ ascendantSkillIds: ['skill_kill_shot', 'skill_haste', 'skill_meteor_shower', 'skill_enrage'] })
+            expect(writes).toEqual({ ascendantSkillIds: ['skill_kill_shot', 'skill_haste', 'skill_meteor_shower', 'skill_enrage'] })
+        })
+
+        it('refuses a fifth, a repeat, an unknown id and a class not reached', async () => {
+            await expect(validate({ ascendantSkillIds: ['skill_haste'] })).resolves.toEqual({ ascendantSkillIds: ['skill_haste'] })
+            // only the Beginner is reached on a fresh run
+            await expect(validate({ ascendantSkillIds: ['skill_kill_shot'] })).rejects.toThrow()
+            await reachAll()
+            await expect(validate({ ascendantSkillIds: ['skill_haste', 'skill_whirlwind', 'skill_enrage', 'skill_kill_shot', 'skill_meteor_shower'] })).rejects.toThrow()
+            await expect(validate({ ascendantSkillIds: ['skill_haste', 'skill_haste'] })).rejects.toThrow()
+            await expect(validate({ ascendantSkillIds: ['skill_convergence'] })).rejects.toThrow()
+            await expect(validate({ ascendantSkillIds: ['skill_ragnarok_strike'] })).rejects.toThrow()
+        })
+
+        it('clears with an empty list', async () => {
+            await expect(validate({ ascendantSkillIds: [] })).resolves.toEqual({ ascendantSkillIds: [] })
         })
     })
 

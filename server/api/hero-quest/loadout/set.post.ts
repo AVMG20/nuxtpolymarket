@@ -11,10 +11,11 @@ import {
 import { validateLiveLoadout, type LoadoutInput } from '#server/utils/hero-quest-loadout'
 
 /**
- * Set any part of the live loadout — party, formation, Skills, Artifacts, Gear
- * (`tech-architecture.md` §5: "live equip: party/skills/artifacts/gear/formation").
+ * Set any part of the live loadout — party, formation, Skills, Artifacts, Gear, and the
+ * Ascendant's picks (`tech-architecture.md` §5: "live equip: party/skills/artifacts/gear/formation";
+ * the sixth joined with the Ascendant, `open-items.md` #43).
  *
- * **One route for all five components**, and that is not just tidiness. A formation is only valid
+ * **One route for all six components**, and that is not just tidiness. A formation is only valid
  * against a specific party, so accepting those two separately would leave a window where the
  * saved formation references a Champion no longer fielded; row capacity is checked across the
  * whole resulting party, Hero included, which cannot be done without both halves. Once the route
@@ -53,6 +54,7 @@ export default defineEventHandler(async (event) => {
             equippedSkillIds: after.equippedSkillIds,
             equippedArtifactIds: after.equippedArtifactIds,
             equippedGear: after.equippedGear,
+            ascendantSkillIds: after.ascendantSkillIds,
             slots: {
                 champions: championSlots(shopLevels),
                 skills: skillSlots(shopLevels),

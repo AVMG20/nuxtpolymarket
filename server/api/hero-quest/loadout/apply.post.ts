@@ -8,7 +8,9 @@ import { validateLiveLoadout } from '#server/utils/hero-quest-loadout'
 /**
  * Apply a saved Loadout as the new live state (`loadouts.md` §2).
  *
- * Sets **all five components at once** — that is the entire point of the feature.
+ * Sets **all six components at once** — that is the entire point of the feature. The one
+ * exception is the Ascendant's picks: a preset saved without any (before the Ascendant existed, or
+ * before any were picked) leaves the live picks alone rather than clearing them.
  *
  * ## Why a preset goes through the same validation as a hand-typed request
  *
@@ -51,7 +53,8 @@ export default defineEventHandler(async (event) => {
             formation: preset.formation,
             skillIds: preset.equippedSkillIds,
             artifactIds: preset.equippedArtifactIds,
-            gear: preset.equippedGear
+            gear: preset.equippedGear,
+            ...(preset.ascendantSkillIds.length ? { ascendantSkillIds: preset.ascendantSkillIds } : {})
         }, shopLevels)
 
         const [updated] = await tx.update(hqState)
@@ -67,7 +70,8 @@ export default defineEventHandler(async (event) => {
             formation: after.formation,
             equippedSkillIds: after.equippedSkillIds,
             equippedArtifactIds: after.equippedArtifactIds,
-            equippedGear: after.equippedGear
+            equippedGear: after.equippedGear,
+            ascendantSkillIds: after.ascendantSkillIds
         }
     })
 })

@@ -5,7 +5,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { classPickWrites, pickableClasses, prestigeResetValues, type HqStateRow } from '#server/utils/hero-quest'
+import { classPickWrites, mastersPrestiged, pickableClasses, prestigeResetValues, type HqStateRow } from '#server/utils/hero-quest'
+import { ASCENDANT_ID, CLASS_IDS, MASTER_IDS } from '#shared/utils/hero-quest/content/classes'
 
 function state(patch: Partial<HqStateRow>): HqStateRow {
     return { heroNodeId: 'class_beginner', seenNodeIds: ['class_beginner'], classToken: false, prestige: 0, ...patch } as HqStateRow
@@ -45,5 +46,33 @@ describe('hero-quest class token', () => {
     it('grants the token on prestige, as a flag that does not stack', () => {
         expect(prestigeResetValues(state({})).classToken).toBe(true)
         expect(prestigeResetValues(state({ classToken: true })).classToken).toBe(true)
+    })
+})
+
+describe('hero-quest Ascendant unlock', () => {
+    const everyClass = CLASS_IDS.filter(id => id !== ASCENDANT_ID)
+    /** Every class reached, standing on a master, with the token from the prestige just made. */
+    const veteran = (prestigedClassIds: string[]) => state({
+        heroNodeId: 'class_beast_master', seenNodeIds: everyClass, classToken: true, prestigedClassIds
+    })
+
+    it('stays shut while any master is missing from the prestiges, even with every class reached', () => {
+        const five = MASTER_IDS.slice(0, 5) as string[]
+        expect(mastersPrestiged(veteran(five))).toEqual(five)
+        expect(pickableClasses(veteran(five))).not.toContain(ASCENDANT_ID)
+        // other prestiges, as the elites, don't count toward it
+        expect(pickableClasses(veteran([...five, 'class_hunter', 'class_beginner']))).not.toContain(ASCENDANT_ID)
+    })
+
+    it('opens with the token once a prestige has been made as each master, from any class, and spends it', () => {
+        const done = veteran([...MASTER_IDS, 'class_warrior'])
+        expect(pickableClasses(done)).toContain(ASCENDANT_ID)
+        expect(classPickWrites({ ...done, heroNodeId: 'class_mage' }, ASCENDANT_ID)).toMatchObject({ heroNodeId: ASCENDANT_ID, classToken: false })
+    })
+
+    it('needs the token to take it the first time, and none to switch back', () => {
+        expect(pickableClasses({ ...veteran([...MASTER_IDS]), classToken: false })).not.toContain(ASCENDANT_ID)
+        const reached = state({ seenNodeIds: [...everyClass, ASCENDANT_ID], prestigedClassIds: [...MASTER_IDS] })
+        expect(classPickWrites(reached, ASCENDANT_ID)).toEqual({ heroNodeId: ASCENDANT_ID, seenNodeIds: [...everyClass, ASCENDANT_ID] })
     })
 })

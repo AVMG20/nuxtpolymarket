@@ -532,7 +532,7 @@ export function skillActives(equipped: readonly OwnedCopy[]): ClassSkill[] {
  * (§5).
  */
 export function heroKit(hero: HeroSnapshot): ClassSkill[] {
-    return [...kitFor(hero.classId), ...skillActives(hero.equippedSkills ?? [])]
+    return [...kitFor(hero.classId, hero.ascendantSkillIds), ...skillActives(hero.equippedSkills ?? [])]
 }
 
 /** Rarities in ladder order — re-exported so a Skills-facing caller has one import. */

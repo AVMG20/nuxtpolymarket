@@ -43,7 +43,7 @@ import { Surface, bayer, rect, ring } from './surface'
 import { textOut } from './font'
 import { Particles } from './particles'
 import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type BakeJob } from './catalog'
-import { HERO_ART } from './heroes'
+import { HERO_ART, heroArtId } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
 import { BADGE_GLINT_FOR, NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, badgePortrait, drawChallengeButton, drawProfileBadge, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type BadgeView, type NumberStyle, type PartyMember } from './feedback'
@@ -1654,8 +1654,9 @@ export class BattleDemo {
         const w = WORLDS[world - 1]!
         // the fights staged before a crowd play in the colosseum; everything else in its world
         this.scene = ARENA_WAVES.has(waveKind) ? colosseum : WORLD_SCENES[world - 1]!
-        const hero = HERO_ART[classId]!
-        const heroFrames = bakeAlly(`hero/${classId}`)
+        // a class with no art of its own yet (the Ascendant) stands in the Beginner's
+        const hero = HERO_ART[heroArtId(classId)]!
+        const heroFrames = bakeAlly(`hero/${heroArtId(classId)}`)
         const skill = CLASS_BY_ID[classId as keyof typeof CLASS_BY_ID]!.skill.id
         const party = this.party
         const fielded = party ? party.champions.filter(c => CHAMPION_BY_ID[c.id]).slice(0, PARTY - 1) : []

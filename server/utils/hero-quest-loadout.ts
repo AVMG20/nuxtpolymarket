@@ -18,9 +18,9 @@ import type { DbExecutor } from '#server/database'
 import type { hqState } from '#server/database/schema'
 import { hqCollection, hqLoadouts } from '#server/database/schema'
 import { artifactSlots, championSlots, skillSlots } from '#server/utils/hero-quest'
-import { FORMATION_ROW_CAPACITY, LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
+import { ASCENDANT_KIT_SIZE, FORMATION_ROW_CAPACITY, LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import { getArchetype, getChampion, isChampionId } from '#shared/utils/hero-quest/content/champions'
-import { getClass } from '#shared/utils/hero-quest/content/classes'
+import { classOfSkill, getClass, isAscendantPick } from '#shared/utils/hero-quest/content/classes'
 import { GEAR_SLOTS, getGear, isGearId, isGearSlot } from '#shared/utils/hero-quest/content/gear'
 import { isSkillId } from '#shared/utils/hero-quest/content/skills'
 import { isArtifactId } from '#shared/utils/hero-quest/content/artifacts'
@@ -36,6 +36,7 @@ export interface LoadoutInput {
     skillIds?: unknown
     artifactIds?: unknown
     gear?: unknown
+    ascendantSkillIds?: unknown
 }
 
 /** The columns a validated loadout writes. Only the components actually supplied appear. */
@@ -45,6 +46,7 @@ export interface LoadoutWrites {
     equippedSkillIds?: string[]
     equippedArtifactIds?: string[]
     equippedGear?: Record<string, string>
+    ascendantSkillIds?: string[]
 }
 
 function asIdArray(value: unknown, label: string): string[] {
@@ -212,6 +214,26 @@ export async function validateLiveLoadout(
         writes.equippedGear = Object.fromEntries(
             GEAR_SLOTS.filter(slot => gear[slot]).map(slot => [slot, gear[slot]!])
         )
+    }
+
+    // ── The Ascendant's picks ──────────────────────────
+    // Class skills, not owned items: a pick is legal once its class has been reached, which every
+    // class has been by the time the Ascendant opens. Free to change at any time.
+    if (input.ascendantSkillIds !== undefined) {
+        const ids = asIdArray(input.ascendantSkillIds, 'ascendantSkillIds')
+        if (ids.length > ASCENDANT_KIT_SIZE) {
+            throw createError({ statusCode: 400, statusMessage: `The Ascendant picks at most ${ASCENDANT_KIT_SIZE} skills` })
+        }
+        const seen = new Set(state.seenNodeIds as string[])
+        for (const id of ids) {
+            if (!isAscendantPick(id)) {
+                throw createError({ statusCode: 400, statusMessage: `Unknown class skill: ${id}` })
+            }
+            if (!seen.has(classOfSkill(id)!)) {
+                throw createError({ statusCode: 400, statusMessage: `${getClass(classOfSkill(id)!).name} has not been reached yet` })
+            }
+        }
+        writes.ascendantSkillIds = ids
     }
 
     return writes

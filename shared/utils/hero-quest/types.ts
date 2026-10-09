@@ -51,8 +51,10 @@ export type ClassId =
     | 'class_marksman'
     | 'class_hunter'
     | 'class_beast_master'
+    | 'class_ascendant'
 
-export type ClassTier = 'beginner' | 'base' | 'elite' | 'master'
+/** `capstone` is the Ascendant alone: past the masters, joined to all six rather than one parent. */
+export type ClassTier = 'beginner' | 'base' | 'elite' | 'master' | 'capstone'
 
 /**
  * Autoattack target selection (`classes-and-combat.md` §7).
@@ -253,6 +255,11 @@ export interface HeroSnapshot {
     classId: ClassId
     /** Overrides the class node's `defaultRow` when the player has moved the Hero. */
     heroRow?: FormationRow
+    /**
+     * The Ascendant's picked class skills (`content/classes.ts`, `ascendantKit`), up to
+     * `ASCENDANT_KIT_SIZE`. Read only while `classId` is the Ascendant; kept across switches.
+     */
+    ascendantSkillIds?: readonly string[]
     heroLevel: number
     /** Progress toward the next level. Decimal — it rides the same curve as enemy scaling. */
     heroXp: Decimal

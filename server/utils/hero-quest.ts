@@ -15,6 +15,7 @@ import { db, type DbExecutor } from '#server/database'
 import { hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState } from '#server/database/schema'
 import { credit, debit, debitGems, getBalance } from '#server/utils/balance'
 import {
+    ASCENDANT_KIT_SIZE,
     BASE_ARTIFACT_SLOTS,
     BASE_CHAMPION_SLOTS,
     BASE_KILL_COUNT,
@@ -124,7 +125,7 @@ import {
 } from '#shared/utils/hero-quest/battle-speed'
 import type { StatsExplanation } from '#shared/utils/hero-quest/explain'
 import { D, ZERO, decPow, fromStore, toStore } from '#shared/utils/hero-quest/numbers'
-import { CLASS_NODES, childrenOf, getClass, kitFor } from '#shared/utils/hero-quest/content/classes'
+import { ASCENDANT_ID, ASCENDANT_PICKABLE, CLASS_NODES, MASTER_IDS, childrenOf, classOfSkill, getClass, kitFor } from '#shared/utils/hero-quest/content/classes'
 import { SHOP_TRACKS, maxLevelFor, shopStatLevels, shopTrackCost, type ShopTrackId } from '#shared/utils/hero-quest/content/shop'
 import { enemyNameAt, getWorld, runProgress } from '#shared/utils/hero-quest/content/worlds'
 import type {
@@ -395,6 +396,7 @@ export function heroSnapshotOf(
     const base: HeroSnapshot = {
         classId: state.heroNodeId as ClassId,
         heroRow: formation.hero,
+        ascendantSkillIds: state.ascendantSkillIds,
         heroLevel: state.heroLevel,
         heroXp: fromStore(state.heroXp),
         /**
@@ -750,13 +752,22 @@ export async function resolveBossEngage(tx: DbExecutor, userId: string, bankedGo
     }
 }
 
+/** The masters a prestige has been completed with, in tree order: the Ascendant's unlock. */
+export function mastersPrestiged(state: HqStateRow): ClassId[] {
+    const done = new Set(state.prestigedClassIds)
+    return MASTER_IDS.filter(id => done.has(id))
+}
+
 /**
  * Class picks legal right now: any class already reached, at any time, and — while the class
  * token from a prestige is held — one tier deeper than the current node (`open-items.md` #42).
+ * The Ascendant is no node's child: the token takes it from anywhere once a prestige has been
+ * completed as each of the six masters (`capstone-class.md`).
  */
 export function pickableClasses(state: HqStateRow): ClassId[] {
     const seen = new Set(state.seenNodeIds as string[])
     const deeper = state.classToken ? childrenOf(state.heroNodeId as ClassId).map(node => node.id) : []
+    if (state.classToken && mastersPrestiged(state).length === MASTER_IDS.length) deeper.push(ASCENDANT_ID)
     return CLASS_NODES.map(node => node.id).filter(id => seen.has(id) || deeper.includes(id))
 }
 
@@ -878,7 +889,7 @@ export function serializeHero(state: HqStateRow, hero: HeroSnapshot) {
         xp: xp.toString(),
         xpToNextLevel: needed.toString(),
         xpProgress: needed.lte(0) ? 0 : Math.min(1, xp.div(needed).toNumber()),
-        skills: kitFor(hero.classId),
+        skills: kitFor(hero.classId, hero.ascendantSkillIds),
         /** Every unit's kit on its live cooldowns, as the fight times it: what the battle stage casts on. */
         kits: partyKits(hero, units),
         stats: {
@@ -1525,7 +1536,9 @@ export interface LoadoutPayload {
     equippedGear: Record<string, string>
     /** The rows saved with it: `hero` and each fielded Champion. */
     formation: Record<string, FormationRow>
-    /** How many of the five components carry anything, for a one-glance summary. */
+    /** The Ascendant's picks saved with it; empty leaves the live picks alone on apply. */
+    ascendantSkillIds: string[]
+    /** How many of the six components carry anything, for a one-glance summary. */
     filled: number
 }
 
@@ -1556,12 +1569,14 @@ export function serializeLoadouts(
                 equippedArtifactIds: row.equippedArtifactIds,
                 equippedGear: row.equippedGear,
                 formation: row.formation,
+                ascendantSkillIds: row.ascendantSkillIds,
                 filled: [
                     row.partyChampionIds.length > 0,
                     Object.keys(row.formation).length > 0,
                     row.equippedSkillIds.length > 0,
                     row.equippedArtifactIds.length > 0,
-                    Object.keys(row.equippedGear).length > 0
+                    Object.keys(row.equippedGear).length > 0,
+                    row.ascendantSkillIds.length > 0
                 ].filter(Boolean).length
             }))
     }
@@ -1586,6 +1601,21 @@ export function serializeClassTree(state: HqStateRow) {
         costsToken: pickable.has(node.id) && !seen.has(node.id),
         current: node.id === state.heroNodeId
     }))
+}
+
+/**
+ * The Ascendant as the Classes scene needs it: the masters prestiged with so far (its unlock), the
+ * live picks, and every skill it can pick from, with whether that skill's class has been reached.
+ */
+export function serializeAscendant(state: HqStateRow) {
+    const seen = new Set(state.seenNodeIds as string[])
+    return {
+        mastersPrestiged: mastersPrestiged(state),
+        masters: MASTER_IDS,
+        skillIds: state.ascendantSkillIds,
+        kitSize: ASCENDANT_KIT_SIZE,
+        pickable: ASCENDANT_PICKABLE.map(skill => ({ id: skill.id, name: skill.name, classId: classOfSkill(skill.id)!, reached: seen.has(classOfSkill(skill.id)!) }))
+    }
 }
 
 /**

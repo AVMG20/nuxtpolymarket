@@ -6,7 +6,7 @@ import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-ba
 import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutButton, LoadoutsHover, LoadoutsScene, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeScene, PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
-import type { ClassesScene, ClassesView } from '~/utils/hero-quest-art/classes-scene'
+import type { ClassesScene, ClassesView, KitTarget } from '~/utils/hero-quest-art/classes-scene'
 import type { SpeedBlock, SpeedScene, SpeedView } from '~/utils/hero-quest-art/speed-scene'
 import type { GachaButton, GachaHover, GachaScene, GachaSystemId, GachaView } from '~/utils/hero-quest-art/gacha-scene'
 import type { SettingsScene, SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
@@ -137,6 +137,8 @@ const emit = defineEmits<{
     loadoutRename: [slotIndex: number, name: string]
     /** A class in the tree was pressed: switch the Hero to it. */
     pickClass: [classId: string]
+    /** The Ascendant's picks, after a skill in its kit was pressed. */
+    setAscendantKit: [skillIds: string[]]
     /** A prestige-shop track's Buy button was pressed. */
     shopBuy: [upgradeId: string]
     /** A Battle Speed block's Buy button was pressed. */
@@ -347,7 +349,7 @@ defineExpose({ skipFight, closeIris })
  * them in the view's own pixels. The page's own Fight button stays the keyboard's way in.
  */
 type Target = 'challenge' | HqMenuScene | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
-    | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | `speed:${number}:${number}`
+    | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
     | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${RaidId | 'enter' | 'quick'}` | 'reward:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}`
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
@@ -367,7 +369,15 @@ const loadoutDetail = ref<number | null>(null)
 watch(openScene, () => {
     loadoutDetail.value = null
     renaming.value = null
+    kitOpen.value = false
 })
+
+/** The Ascendant's kit is open over the Classes scene. Leaving the scene, or the class, shuts it. */
+const kitOpen = ref(false)
+watch(() => props.classes?.classes.find(c => c.current)?.tier, (tier) => {
+    if (tier !== 'capstone') kitOpen.value = false
+})
+const classesView = computed<ClassesView>(() => ({ ...(props.classes ?? { classes: [], token: false }), kitOpen: kitOpen.value }))
 
 const openLoadout = computed(() => props.loadouts?.slots.find(slot => slot.slotIndex === loadoutDetail.value && !slot.locked) ?? null)
 
@@ -456,6 +466,8 @@ function targetAt(e: PointerEvent): Target | null {
         return i !== null && card && (!card.locked || card.price) ? `card:${i}` : null
     }
     if (openScene.value === 'classes' && classesHit) {
+        // the open kit covers the tree: only its skills and its done button
+        if (kitOpen.value) return classesHit.kitTargetAt(classesView.value, x, y)
         // any class can be pointed at, for its description; only a pickable one is pressed
         const id = classesHit.classNodeAt(props.classes?.classes ?? [], x, y)
         return id ? `class:${id}` : null
@@ -609,7 +621,16 @@ function onPointerUp(e: PointerEvent) {
     else if (hit === 'shop:prev' || hit === 'shop:next') shopPage.value += hit === 'shop:next' ? 1 : -1
     else if (hit.startsWith('class:')) {
         const node = props.classes?.classes.find(c => c.id === hit.slice(6))
-        if (node?.pickable && !node.current && !props.classesBusy) emit('pickClass', node.id)
+        // the Ascendant, pressed as the current class, opens its kit
+        if (node?.current && node.tier === 'capstone') kitOpen.value = true
+        else if (node?.pickable && !node.current && !props.classesBusy) emit('pickClass', node.id)
+    }
+    else if (hit === 'kit:done') kitOpen.value = false
+    else if (hit.startsWith('kit:')) {
+        const ascendant = props.classes?.ascendant
+        if (!ascendant || props.classesBusy || !classesHit) return
+        const picks = classesHit.togglePick(ascendant, hit.slice(4))
+        if (picks !== ascendant.picks) emit('setAscendantKit', [...picks])
     }
     else if (hit.startsWith('setting:')) emit('setting', hit.slice(8) as SettingsTarget)
     else if (hit === 'reward:ok') emit('raidRewardClose')
@@ -691,11 +712,15 @@ const pointer = computed(() => {
     if (!h) return false
     if (h.endsWith(':emblem') || h.startsWith('cal:day:')) return false
     if (h.startsWith('ms:row:')) return !!milestoneRowOf(h)?.claimable.length
+    if (h.startsWith('kit:') && h !== 'kit:done') {
+        const ascendant = props.classes?.ascendant
+        return !!ascendant && classesHit !== null && classesHit.togglePick(ascendant, h.slice(4)) !== ascendant.picks
+    }
     if (!h.startsWith('class:')) return true
     const node = props.classes?.classes.find(c => c.id === h.slice(6))
-    return !!node?.pickable && !node.current
+    return (!!node?.pickable && !node.current) || (!!node?.current && node.tier === 'capstone')
 })
-const classHover = computed(() => hover.value?.startsWith('class:') ? hover.value.slice(6) : null)
+const classHover = computed(() => hover.value?.startsWith('class:') ? hover.value.slice(6) : hover.value?.startsWith('kit:') ? hover.value : null)
 
 /** The shop's open page; it keeps its place while the scene is closed and reopened. */
 const shopPage = ref(0)
@@ -820,7 +845,7 @@ onMounted(async () => {
                 : scene === 'loadouts'
                     ? loadoutsScene!.render(t, props.loadouts ?? { slots: [], unlocked: 0, max: 0 }, loadoutsHover.value, pressed.value, loadoutDetail.value, !!props.loadoutsBusy)
                     : scene === 'classes'
-                        ? classesScene!.render(t, props.classes ?? { classes: [], token: false }, classHover.value, !!props.classesBusy)
+                        ? classesScene!.render(t, classesView.value, classHover.value, !!props.classesBusy, pressed.value)
                         : scene === 'prestige'
                             ? prestigeScene!.render(t, props.prestige ?? { tracks: [], voidShards: '0', gems: '0' }, shopPage.value, shopHover.value, pressed.value, !!props.prestigeBusy)
                             : scene === 'gacha'

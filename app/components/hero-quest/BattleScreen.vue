@@ -39,7 +39,7 @@ const {
     engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
     shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
     pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid, calendar, claimCalendar,
-    milestones, claimMilestones
+    milestones, claimMilestones, ascendant
 } = useHeroQuest()
 const { user } = useAuth()
 
@@ -424,10 +424,31 @@ const classesView = computed<ClassesView>(() => ({
         costsToken: node.costsToken,
         current: node.current
     })),
-    token: classToken.value
+    token: classToken.value,
+    ascendant: ascendant.value
+        ? {
+            mastersPrestiged: ascendant.value.mastersPrestiged.length,
+            masters: ascendant.value.masters.length,
+            picks: ascendant.value.skillIds,
+            kitSize: ascendant.value.kitSize,
+            skills: ascendant.value.pickable
+        }
+        : null
 }))
 
 const classesBusy = ref(false)
+
+/** The Ascendant's picks, set live like any other Loadout component. */
+async function onSetAscendantKit(skillIds: string[]) {
+    classesBusy.value = true
+    try {
+        await setLoadout({ ascendantSkillIds: skillIds }, '')
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        classesBusy.value = false
+    }
+}
 
 async function onPickClass(classId: string) {
     classesBusy.value = true
@@ -1040,6 +1061,7 @@ const awayReport = computed(() => {
           @raid-quick="onRaidQuick"
           @raid-reward-close="closeRaidReward"
           @pick-class="onPickClass"
+          @set-ascendant-kit="onSetAscendantKit"
         />
       </template>
 

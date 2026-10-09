@@ -11,6 +11,7 @@ import {
     serializeForge,
     serializeGuild,
     serializeHero,
+    serializeAscendant,
     serializeBattleSpeed,
     serializeLoadouts,
     serializeRun,
@@ -59,6 +60,7 @@ export default defineEventHandler(async (event) => {
             loadouts: null,
             classTree: [],
             classToken: false,
+            ascendant: null,
             battleSpeed: null,
             settings: hqSettingsOf(null),
             raids: [],
@@ -108,6 +110,8 @@ export default defineEventHandler(async (event) => {
         classTree: serializeClassTree(state),
         /** A prestige's class token is waiting to be spent on a new class. */
         classToken: state.classToken,
+        /** The capstone class: its unlock so far, the live picks and what can be picked. */
+        ascendant: serializeAscendant(state),
         battleSpeed: serializeBattleSpeed(state),
         settings: hqSettingsOf(state.settings),
         raids,

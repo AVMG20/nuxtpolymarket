@@ -508,6 +508,25 @@ export const STAT_TIER_VALUES: Record<StatTier, number> = { // TUNED ✓
     high: 16
 }
 
+/**
+ * The Ascendant's picked class skills (`capstone-class.md`): a master's kit size, so a master
+ * reaches the same count down its one path that the Ascendant picks across all of them.
+ */
+export const ASCENDANT_KIT_SIZE = 4
+
+/**
+ * How much longer Convergence's cooldown is than a master skill's. Convergence fires all six
+ * master skills at once, each at its own hit, so the volley pays `6 / factor` master skills'
+ * damage per second.
+ *
+ * Bounded by `BOSS_TIMER_SECONDS`: a first cast waits a whole cooldown, and a boss fight is where
+ * the player watches, so it has to land inside one. At 2 a master's 13.3 s becomes 26.5 s, and the
+ * Ascendant's own SPD (21) brings it to ~15.6 s: once, mid-fight (the user's call over starting it
+ * ready, 2026-10-09). At 6 it was ~55 s and never fired in a boss fight at all. ⚠ At 2 the volley
+ * is three master skills' worth on top of the four picks, before any measurement.
+ */
+export const CONVERGENCE_COOLDOWN_FACTOR = 2 // UNTUNED ╧
+
 /** §2's delta table gives directions and qualifiers ("modest", "extreme"), not magnitudes. */
 export const DELTA_MODEST = 2 // TUNED ✓
 export const DELTA_NORMAL = 4 // TUNED ✓

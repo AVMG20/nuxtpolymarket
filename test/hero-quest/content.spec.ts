@@ -1,7 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { CLASS_BY_ID, CLASS_IDS, CLASS_NODES, ROOT_CLASS_ID, childrenOf, classPath, isDescendantOf, kitFor } from '#shared/utils/hero-quest/content/classes'
+import {
+    ASCENDANT_ID,
+    ASCENDANT_PICKABLE,
+    CLASS_BY_ID,
+    CLASS_IDS,
+    CLASS_NODES,
+    CONVERGENCE,
+    MASTER_IDS,
+    ROOT_CLASS_ID,
+    childrenOf,
+    classPath,
+    isDescendantOf,
+    kitFor
+} from '#shared/utils/hero-quest/content/classes'
+import { cooldownFor } from '#shared/utils/hero-quest/combat'
 import { baseSpreadFor } from '#shared/utils/hero-quest/stats'
 import {
+    ASCENDANT_KIT_SIZE,
+    BOSS_TIMER_SECONDS,
+    CONVERGENCE_COOLDOWN_FACTOR,
     GOLD_BURST_COOLDOWN_SECONDS,
     MIN_STAT_VALUE,
     RARITY_ADJACENT_RATIO_CEILING,
@@ -47,9 +64,13 @@ import { RARITY_EFFECT_LINES, RARITY_EPITHET } from '#shared/utils/hero-quest/ga
 import { ZERO } from '#shared/utils/hero-quest/numbers'
 import type { Rarity } from '#shared/utils/hero-quest/types'
 
+/** The 16-node tree; the Ascendant stands past it, joined to all six masters (`capstone-class.md`). */
+const TREE = CLASS_NODES.filter(node => node.tier !== 'capstone')
+
 describe('hero-quest class content', () => {
-    it('has exactly 16 nodes', () => {
-        expect(CLASS_NODES).toHaveLength(16)
+    it('has exactly 16 nodes in the tree, and the capstone past it', () => {
+        expect(TREE).toHaveLength(16)
+        expect(CLASS_NODES).toHaveLength(17)
     })
 
     it('has one root, 3 base, 6 elite and 6 master nodes', () => {
@@ -61,13 +82,13 @@ describe('hero-quest class content', () => {
     })
 
     it('has exactly one parentless node, and it is the root', () => {
-        const roots = CLASS_NODES.filter(node => node.parentId === null)
+        const roots = TREE.filter(node => node.parentId === null)
         expect(roots).toHaveLength(1)
         expect(roots[0]!.id).toBe(ROOT_CLASS_ID)
     })
 
     it('resolves every parentId', () => {
-        for (const node of CLASS_NODES) {
+        for (const node of TREE) {
             if (node.parentId !== null) {
                 expect(CLASS_BY_ID[node.parentId], `${node.id} → ${node.parentId}`).toBeDefined()
             }
@@ -80,7 +101,7 @@ describe('hero-quest class content', () => {
     })
 
     it('gives every node a skill that fires and does something', () => {
-        for (const node of CLASS_NODES) {
+        for (const node of TREE) {
             expect(node.skill.name.length, node.id).toBeGreaterThan(0)
             expect(node.skill.cooldownSeconds, node.id).toBeGreaterThan(0)
 
@@ -96,7 +117,7 @@ describe('hero-quest class content', () => {
     })
 
     it('points every ability at a target pattern', () => {
-        for (const node of CLASS_NODES) {
+        for (const node of TREE) {
             expect(node.skill.effect?.target ?? 'enemy_single', node.id).toBeTruthy()
         }
     })
@@ -106,7 +127,7 @@ describe('hero-quest class content', () => {
         // Haste a damage multiplier — or strips Whirlwind's — shows up here.
         const utility = ['skill_haste', 'skill_enrage', 'skill_totem_storm', 'skill_raise_dead',
             'skill_disciple', 'skill_mans_best_friend', 'skill_threatening_roar']
-        for (const node of CLASS_NODES) {
+        for (const node of TREE) {
             const isUtility = utility.includes(node.skill.id)
             expect(node.skill.abilityMultiplier === 0, node.skill.id).toBe(isUtility)
         }
@@ -123,7 +144,7 @@ describe('hero-quest class content', () => {
             'skill_enrage'
         ])
 
-        for (const node of CLASS_NODES) {
+        for (const node of TREE) {
             const own = kitFor(node.id)
             expect(own.length, node.id).toBe(classPath(node.id).length)
             expect(own.at(-1)!.id, node.id).toBe(node.skill.id)
@@ -132,7 +153,7 @@ describe('hero-quest class content', () => {
     })
 
     it('is acyclic — every node walks up to the root', () => {
-        for (const node of CLASS_NODES) {
+        for (const node of TREE) {
             const path = classPath(node.id)
             expect(path[0]!.id).toBe(ROOT_CLASS_ID)
             expect(path.at(-1)!.id).toBe(node.id)
@@ -154,7 +175,7 @@ describe('hero-quest class content', () => {
     })
 
     it('gives every node at least one strike per attack', () => {
-        for (const node of CLASS_NODES) {
+        for (const node of TREE) {
             expect(node.strikesPerAttack, node.id).toBeGreaterThanOrEqual(1)
         }
         expect(CLASS_BY_ID.class_hunter.strikesPerAttack).toBe(3)
@@ -162,7 +183,7 @@ describe('hero-quest class content', () => {
     })
 
     it('keeps every derived stat at or above the floor', () => {
-        for (const node of CLASS_NODES) {
+        for (const node of TREE) {
             const block = baseSpreadFor(node)
             for (const [key, value] of Object.entries(block)) {
                 expect(value.gte(MIN_STAT_VALUE), `${node.id}.${key}`).toBe(true)
@@ -183,7 +204,7 @@ describe('hero-quest class content', () => {
 
     it('makes the Sorcerer the most fragile node in the tree', () => {
         const sorcerer = baseSpreadFor(CLASS_BY_ID.class_sorcerer)
-        for (const node of CLASS_NODES) {
+        for (const node of TREE) {
             if (node.id === 'class_sorcerer') continue
             const block = baseSpreadFor(node)
             const bulk = (spread: typeof block) => spread.def.add(spread.vit)
@@ -195,6 +216,54 @@ describe('hero-quest class content', () => {
         const archer = baseSpreadFor(CLASS_BY_ID.class_archer)
         expect(archer.lck.gt(baseSpreadFor(CLASS_BY_ID.class_warrior).lck)).toBe(true)
         expect(archer.lck.gt(baseSpreadFor(CLASS_BY_ID.class_mage).lck)).toBe(true)
+    })
+})
+
+describe('the Ascendant', () => {
+    const ascendant = CLASS_BY_ID[ASCENDANT_ID]
+
+    it('stands alone past the tree: parentless, and nobody\'s child', () => {
+        expect(CLASS_NODES.filter(node => node.tier === 'capstone').map(node => node.id)).toEqual([ASCENDANT_ID])
+        expect(ascendant.parentId).toBeNull()
+        for (const node of CLASS_NODES) expect(childrenOf(node.id).some(child => child.id === ASCENDANT_ID), node.id).toBe(false)
+        expect(childrenOf(null).map(node => node.id)).toEqual([ROOT_CLASS_ID])
+    })
+
+    it('has the best of the six masters in every stat, deltas included', () => {
+        const own = baseSpreadFor(ascendant)
+        const masters = MASTER_IDS.map(id => baseSpreadFor(CLASS_BY_ID[id]))
+        for (const key of Object.keys(own) as (keyof typeof own)[]) {
+            const best = masters.map(m => m[key]).reduce((a, b) => (b.gt(a) ? b : a))
+            expect(own[key].eq(best), key).toBe(true)
+        }
+    })
+
+    it('can pick from every class skill in the tree', () => {
+        expect(ASCENDANT_PICKABLE.map(skill => skill.id)).toEqual(TREE.map(node => node.skill.id))
+    })
+
+    it('fires its picks, capped and deduplicated, then Convergence', () => {
+        const picks = ['skill_haste', 'skill_kill_shot', 'skill_kill_shot', 'skill_meteor_shower', 'not_a_skill', 'skill_whirlwind', 'skill_enrage']
+        const kit = kitFor(ASCENDANT_ID, picks)
+        expect(kit.slice(0, ASCENDANT_KIT_SIZE).map(skill => skill.id)).toEqual(['skill_haste', 'skill_kill_shot', 'skill_meteor_shower', 'skill_whirlwind'])
+        expect(kit.slice(ASCENDANT_KIT_SIZE)).toEqual(CONVERGENCE)
+        // nothing picked: Convergence alone
+        expect(kitFor(ASCENDANT_ID)).toEqual(CONVERGENCE)
+    })
+
+    it('fires every master\'s skill at its own hit, all on one longer cooldown', () => {
+        expect(CONVERGENCE.map(skill => skill.id)).toEqual(MASTER_IDS.map(id => CLASS_BY_ID[id].skill.id))
+        for (const [k, skill] of CONVERGENCE.entries()) {
+            const own = CLASS_BY_ID[MASTER_IDS[k]!].skill
+            expect(skill.abilityMultiplier).toBe(own.abilityMultiplier)
+            expect(skill.cooldownSeconds).toBeCloseTo(own.cooldownSeconds * CONVERGENCE_COOLDOWN_FACTOR, 10)
+        }
+        expect(new Set(CONVERGENCE.map(skill => skill.cooldownSeconds)).size).toBe(1)
+    })
+
+    it('lands Convergence inside a boss fight at its own SPD', () => {
+        const spd = baseSpreadFor(ascendant).spd
+        expect(cooldownFor(CONVERGENCE[0]!.cooldownSeconds, spd)).toBeLessThan(BOSS_TIMER_SECONDS)
     })
 })
 
@@ -714,7 +783,7 @@ describe('the cooldown ladder', () => {
     const laddered = (rank: number) => SKILL_BASE_COOLDOWN_SECONDS * SKILL_COOLDOWN_RANK_STEP ** rank
 
     it('puts every class skill at its tier\'s rank, deeper classes waiting longer', () => {
-        for (const node of CLASS_NODES) {
+        for (const node of TREE) {
             expect(node.skill.cooldownSeconds, node.id).toBeCloseTo(laddered(TIER_RANK[node.tier]), 10)
         }
     })

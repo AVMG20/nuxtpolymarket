@@ -15,7 +15,7 @@ import { attackIntervalFor } from '#shared/utils/hero-quest/combat'
 import { enemyStatsAt } from '#shared/utils/hero-quest/settle'
 import { partyUnitStats } from '#shared/utils/hero-quest/stats'
 import { D, ZERO } from '#shared/utils/hero-quest/numbers'
-import { kitFor } from '#shared/utils/hero-quest/content/classes'
+import { ASCENDANT_ID, MASTER_IDS, getClass, kitFor } from '#shared/utils/hero-quest/content/classes'
 import {
     CHAMPIONS,
     RARITY_STAT_MULTIPLIER,
@@ -523,5 +523,23 @@ describe('hero-quest seeded fights', () => {
             const after = incoming.find(event => event.at > roar && event.enemyIndex === before.enemyIndex)!
             expect(D(after.damage!).lt(D(before.damage!))).toBe(true)
         })
+    })
+})
+
+describe('hero-quest Ascendant in a fight', () => {
+    it('fires Convergence as every master skill on one tick, inside the boss timer', () => {
+        const ascendant: HeroSnapshot = { ...hero(20, ASCENDANT_ID), ascendantSkillIds: ['skill_haste', 'skill_kill_shot'] }
+        const result = runFight({ hero: ascendant, position: at(2, 5), seed: 7 })
+        const masterSkills = new Set(MASTER_IDS.map(id => getClass(id).skill.id))
+        const casts = result.events.filter(event => event.unitIndex === 0 && event.skillId !== undefined && masterSkills.has(event.skillId))
+        const first = Math.min(...casts.map(event => event.at))
+        expect(first).toBeLessThan(BOSS_TIMER_SECONDS)
+        expect(new Set(casts.filter(event => event.at === first).map(event => event.skillId))).toEqual(masterSkills)
+    })
+
+    it('fires its picks alongside', () => {
+        const ascendant: HeroSnapshot = { ...hero(20, ASCENDANT_ID), ascendantSkillIds: ['skill_kill_shot'] }
+        const result = runFight({ hero: ascendant, position: at(2, 5), seed: 7 })
+        expect(result.events.some(event => event.unitIndex === 0 && event.skillId === 'skill_kill_shot')).toBe(true)
     })
 })

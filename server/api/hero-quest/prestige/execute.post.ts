@@ -46,7 +46,9 @@ export default defineEventHandler(async (event) => {
                 ...prestigeResetValues(state),
                 runCleared: false,
                 // The prestige's Seals and Gems are a milestone, claimed in the Milestones scene.
-                voidShards: shards
+                voidShards: shards,
+                // What the run was cleared as: prestiging once as each master opens the Ascendant.
+                prestigedClassIds: [...new Set([...state.prestigedClassIds, state.heroNodeId])]
             })
             .where(eq(hqState.userId, userId))
             .returning()

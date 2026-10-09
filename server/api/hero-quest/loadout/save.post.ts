@@ -51,6 +51,7 @@ export default defineEventHandler(async (event) => {
             equippedSkillIds: state.equippedSkillIds as string[],
             equippedArtifactIds: state.equippedArtifactIds as string[],
             equippedGear: state.equippedGear as Record<string, string>,
+            ascendantSkillIds: state.ascendantSkillIds,
             updatedAt: new Date()
         }
 

@@ -488,9 +488,10 @@ function frameAssets(): ArtAsset[] {
         })
     }
     for (const id of Object.keys(ARCHETYPE_BADGES)) out.push(still(`badge/archetype/${id}`, 'frames', 'Archetype badges', id, SMALL_ICON, SMALL_ICON, dst => archetypeBadge(dst, id)))
-    for (const node of CLASS_NODES) {
+    // the capstone's medallion is the Classes scene's own, not a portrait
+    for (const node of CLASS_NODES.filter(n => n.tier !== 'capstone')) {
         out.push(still(`icon/class/${node.id}`, 'frames', 'Class-tree node icons', node.name, ICON, ICON,
-            dst => classNodeIcon(dst, node.id, classLine(node.id), TIER_INDEX[node.tier])))
+            dst => classNodeIcon(dst, node.id, classLine(node.id), TIER_INDEX[node.tier as keyof typeof TIER_INDEX])))
     }
     return out
 }
