@@ -24,10 +24,11 @@ type RaidRow = typeof hqRaidState.$inferSelect
 
 /**
  * The raid's row, locked for the rest of the transaction, with the Keys owed since the last read
- * already applied (not yet written: the caller writes them with whatever it spends). A first visit
- * creates the row, which starts with a day's Keys.
+ * already applied (not yet written: the caller writes them with whatever it spends or adds). A
+ * first visit creates the row, which starts with a day's Keys. Exported for the Arena Shop, which
+ * adds Keys the same way a spend takes them.
  */
-async function lockRaid(tx: DbExecutor, userId: string, raidId: RaidId, now: number): Promise<{ row: RaidRow, keys: number, lastKeyGrantAt: Date }> {
+export async function lockRaid(tx: DbExecutor, userId: string, raidId: RaidId, now: number): Promise<{ row: RaidRow, keys: number, lastKeyGrantAt: Date }> {
     await tx.insert(hqRaidState).values({ userId, raidId }).onConflictDoNothing()
     const [row] = await tx.select().from(hqRaidState)
         .where(and(eq(hqRaidState.userId, userId), eq(hqRaidState.raidId, raidId)))

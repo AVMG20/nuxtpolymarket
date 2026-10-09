@@ -312,7 +312,11 @@ export const useHeroQuest = () => {
      * someone else. The response is the fight, for the stage to replay; the list is redrawn by it.
      */
     async function attackArena(slot: number, opponent: string) {
-        const res = await call<ArenaRound>('/api/hero-quest/arena/attack', { slot, opponent }, '')
+        const res = await call<ArenaRound>('/api/hero-quest/arena/attack', { slot, opponent }, '').catch((e) => {
+            // a refused attack may have found the list stale (out of band): reading it back redraws it
+            loadArenaCandidates().catch(() => {})
+            throw e
+        })
         // the attack redrew the list; a failed read leaves the old one up, and the next attack says so
         loadArenaCandidates().catch(() => {})
         arenaLog.value = null

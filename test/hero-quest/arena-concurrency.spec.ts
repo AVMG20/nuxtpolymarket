@@ -38,7 +38,11 @@ import {
     MEDAL_BASE_WIN,
     RAID_KEYS_PER_DAY
 } from '#shared/utils/hero-quest/constants'
+import { RAID_KEY_CAP } from '#shared/utils/hero-quest/raids'
+import { quickClearRaid } from '#server/utils/hero-quest-raids'
 import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
+
+const DAY = 86_400_000
 
 const ATTACKER = 'test-hq-arena-attacker'
 const SECOND = 'test-hq-arena-second'
@@ -179,6 +183,24 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             expect((await stateOf(ATTACKER)).arenaAttemptsUsedToday).toBe(0)
         })
 
+        it('refuses a listed opponent who has left the band, and redraws the list on its next read', async () => {
+            await found(ATTACKER)
+            await found(DEFENDER)
+            await db.transaction(tx => setDefense(tx, DEFENDER, { source: 'live' }))
+            await getCandidates(ATTACKER, Date.now())
+            expect((await stateOf(ATTACKER)).arenaCandidates[0]).toBe(DEFENDER)
+            // the defender drops far below the attacker after the list was drawn: no punching down
+            const { defenseGpnLog } = await stateOf(DEFENDER)
+            await db.update(hqState).set({ defenseGpnLog: defenseGpnLog! - 3 }).where(eq(hqState.userId, DEFENDER))
+
+            await expect(attack(ATTACKER, DEFENDER)).rejects.toMatchObject({ statusCode: 409 })
+
+            expect((await stateOf(ATTACKER)).arenaAttemptsUsedToday).toBe(0)
+            expect((await stateOf(DEFENDER)).arenaSeasonMatches).toBe(0)
+            const list = await getCandidates(ATTACKER, Date.now())
+            expect(list.every(c => c.dummy)).toBe(true)
+        })
+
         it('keeps the newest battle log entries only', async () => {
             await found(ATTACKER)
             await getCandidates(ATTACKER, Date.now())
@@ -237,6 +259,43 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
         })
     })
 
+    describe('shop Keys and the daily grant', () => {
+        const raidRow = async () => (await db.select().from(hqRaidState).where(and(eq(hqRaidState.userId, ATTACKER), eq(hqRaidState.raidId, 'raid_guild'))))[0]!
+
+        it('adds bought Keys on top of the grant owed, never cut to the cap', async () => {
+            await found(ATTACKER)
+            await db.update(hqState).set({ arenaMedals: 10 * ARENA_SHOP_KEY_PRICE }).where(eq(hqState.userId, ATTACKER))
+            // nothing stored, a week owed: the grant fills to the cap, and the ten bought stand above it
+            await db.insert(hqRaidState).values({ userId: ATTACKER, raidId: 'raid_guild', keyBalance: 0, lastKeyGrantAt: new Date(Date.now() - 7.5 * DAY) })
+
+            await db.transaction(tx => buyFromShop(tx, ATTACKER, 'keys_raid_guild', 10))
+
+            const row = await raidRow()
+            expect(row.keyBalance).toBe(RAID_KEY_CAP + 10)
+            // the grant clock moved on by the days paid, keeping its time of day
+            expect(Date.now() - row.lastKeyGrantAt.getTime()).toBeLessThan(DAY)
+        })
+
+        it('keeps a near-full bank\'s grant and the Keys bought', async () => {
+            await found(ATTACKER)
+            await db.update(hqState).set({ arenaMedals: 3 * ARENA_SHOP_KEY_PRICE }).where(eq(hqState.userId, ATTACKER))
+            await db.insert(hqRaidState).values({ userId: ATTACKER, raidId: 'raid_guild', keyBalance: RAID_KEY_CAP - 3, lastKeyGrantAt: new Date(Date.now() - 1.2 * DAY) })
+
+            await db.transaction(tx => buyFromShop(tx, ATTACKER, 'keys_raid_guild', 3))
+
+            expect((await raidRow()).keyBalance).toBe(RAID_KEY_CAP + 3)
+        })
+
+        it('keeps Keys above the cap through a later grant and raid entry', async () => {
+            await found(ATTACKER)
+            await db.insert(hqRaidState).values({ userId: ATTACKER, raidId: 'raid_guild', keyBalance: RAID_KEY_CAP + 10, highestLevel: 1, lastKeyGrantAt: new Date(Date.now() - 3.5 * DAY) })
+
+            await db.transaction(tx => quickClearRaid(tx, ATTACKER, 'raid_guild'))
+
+            expect((await raidRow()).keyBalance).toBe(RAID_KEY_CAP + 9)
+        })
+    })
+
     describe('seasons', () => {
         const now = arenaSeasonStartsAt(SEASON + 1) + 60_000
 
@@ -254,6 +313,44 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             expect(top.rank).toBe(1)
             expect(top.medals).toBe(seasonRewardFor(1))
             expect(rows.find(r => r.userId === DEFENDER)!.rank).toBe(2)
+        })
+
+        it('waits for a match in flight on a row before it writes the standings', async () => {
+            await found(ATTACKER)
+            await db.update(hqState).set({ arenaSeasonId: SEASON, arenaRating: 1180, arenaSeasonMatches: 4 }).where(eq(hqState.userId, ATTACKER))
+            let locked!: () => void
+            let release!: () => void
+            const isLocked = new Promise<void>((resolve) => { locked = resolve })
+            const held = new Promise<void>((resolve) => { release = resolve })
+            // an attack holding the row, its Rating moved but not yet committed
+            const inFlight = db.transaction(async (tx) => {
+                await tx.select().from(hqState).where(eq(hqState.userId, ATTACKER)).for('update')
+                await tx.update(hqState).set({ arenaRating: 1250, arenaSeasonMatches: 5 }).where(eq(hqState.userId, ATTACKER))
+                locked()
+                await held
+            })
+            await isLocked
+
+            const closing = closeSeason(SEASON)
+            await new Promise(resolve => setTimeout(resolve, 150))
+            release()
+            await Promise.all([inFlight, closing])
+
+            const [row] = await db.select().from(hqArenaSeasonResults).where(and(eq(hqArenaSeasonResults.seasonId, SEASON), eq(hqArenaSeasonResults.userId, ATTACKER)))
+            expect(row!.rating).toBe(1250)
+        })
+
+        it('refuses an attack into a season that has closed', async () => {
+            await found(ATTACKER)
+            const late = arenaSeasonStartsAt(SEASON) + 60_000
+            await getCandidates(ATTACKER, late)
+            await db.insert(hqArenaSeasons).values({ seasonId: SEASON })
+
+            await expect(attack(ATTACKER, ARENA_DUMMY_ID, late)).rejects.toMatchObject({ statusCode: 409 })
+
+            const state = await stateOf(ATTACKER)
+            expect(state.arenaAttemptsUsedToday).toBe(0)
+            expect(state.arenaMedals).toBe(0)
         })
 
         it('pays a season reward once, however many claims race for it', async () => {

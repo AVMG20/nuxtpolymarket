@@ -30,6 +30,7 @@ import { hqArenaLog, hqArenaSeasonResults, hqArenaSeasons, hqFights, hqLoadouts,
 import { credit, creditGems, debitGems } from '#server/utils/balance'
 import { defenseGpnOf, getCollections, getShopLevels, heroSnapshotOf, loadoutSlots, positionOf, sealGrant, tenureDaysOf, withDefenseLoadout, type HqCollections, type HqStateRow } from '#server/utils/hero-quest'
 import { validateLiveLoadout, type LoadoutInput } from '#server/utils/hero-quest-loadout'
+import { lockRaid } from '#server/utils/hero-quest-raids'
 import {
     ARENA_DUMMY_ID,
     arenaSeasonAt,
@@ -61,8 +62,7 @@ import {
     ARENA_LEADERBOARD_TOP,
     ARENA_LOG_SIZE,
     ARENA_REFRESH_GEMS,
-    ARENA_SHOP_MAX_QUANTITY,
-    RAID_KEYS_PER_DAY
+    ARENA_SHOP_MAX_QUANTITY
 } from '#shared/utils/hero-quest/constants'
 import { randomInt } from '#shared/utils/random'
 import type { HeroSnapshot } from '#shared/utils/hero-quest/types'
@@ -118,9 +118,13 @@ export async function closeSeason(season: number): Promise<void> {
     await db.transaction(async (tx) => {
         const [claimed] = await tx.insert(hqArenaSeasons).values({ seasonId: season }).onConflictDoNothing().returning()
         if (!claimed) return
+        // locked, in the user-ID order an attack takes them in: a match still in flight on one of
+        // these rows lands in the standings first, and one queued behind finds the season closed
         const rows = await tx.select({ userId: hqState.userId, rating: hqState.arenaRating })
             .from(hqState)
             .where(and(eq(hqState.arenaSeasonId, season), gt(hqState.arenaSeasonMatches, 0)))
+            .orderBy(sql`${hqState.userId} collate "C"`)
+            .for('update')
         const ranked = rankStandings(rows)
         if (ranked.length === 0) return
         await tx.insert(hqArenaSeasonResults)
@@ -193,6 +197,21 @@ async function candidatePool(executor: DbExecutor, userId: string, gpn: Decimal)
     return rows.map(row => row.userId)
 }
 
+/**
+ * Whether every real opponent on `candidates` still fields a defence in band of `hero` (§2). The
+ * band is the one `candidatePool` draws with, on the same stored Defense GPN.
+ */
+async function listInBand(executor: DbExecutor, candidates: readonly (string | null)[], hero: HeroSnapshot): Promise<boolean> {
+    const ids = candidates.filter((id): id is string => id !== null)
+    if (ids.length === 0) return true
+    const band = matchBand(globalPower(hero).gpn)
+    if (!band) return false
+    const rows = await executor.select({ log: hqState.defenseGpnLog })
+        .from(hqState)
+        .where(and(inArray(hqState.userId, ids), isNotNull(hqState.defenseLoadout)))
+    return rows.length === ids.length && rows.every(row => row.log !== null && row.log >= band.lo && row.log <= band.hi)
+}
+
 /** A fresh list for the attacker whose live party is `hero`: in-band players at random, dummies for the rest (§2a). */
 async function drawFor(executor: DbExecutor, userId: string, hero: HeroSnapshot): Promise<(string | null)[]> {
     const pool = await candidatePool(executor, userId, globalPower(hero).gpn)
@@ -254,15 +273,17 @@ export async function serializeCandidates(executor: DbExecutor, candidates: read
 }
 
 /**
- * The list (`arena/candidates.get.ts`): the one stored, or a first one drawn free when there is
- * none yet. Call after a settle, so the attacker's GPN is the run's as it stands.
+ * The list (`arena/candidates.get.ts`): the one stored, or one drawn free when there is none yet or
+ * the party has left a listed opponent's band (an attack refuses one out of band). Call after a
+ * settle, so the attacker's GPN is the run's as it stands.
  */
 export async function getCandidates(userId: string, now: number) {
     return db.transaction(async (tx) => {
         const state = await lockOwn(tx, userId)
         let candidates = state.arenaCandidates
-        if (candidates.length === 0) {
-            candidates = await drawFor(tx, userId, await liveHeroOf(tx, state))
+        const hero = await liveHeroOf(tx, state)
+        if (candidates.length === 0 || !(await listInBand(tx, candidates, hero))) {
+            candidates = await drawFor(tx, userId, hero)
             await tx.update(hqState).set({ arenaCandidates: candidates }).where(eq(hqState.userId, userId))
         }
         return serializeCandidates(tx, candidates, arenaSeasonAt(now))
@@ -350,7 +371,8 @@ export async function setDefense(tx: DbExecutor, userId: string, request: Defens
  * Attack the candidate in `slot` (§1–§5), which must still be `opponent` (a user ID, or
  * `ARENA_DUMMY_ID`): the list can be redrawn between the player seeing it and pressing.
  *
- * Under both rows' locks, in order: the attacker has an attack left today; the fight runs with the
+ * Under both rows' locks, in order: the season is still open; the defender is still in band of the
+ * attacker's live party; the attacker has an attack left today; the fight runs with the
  * attacker's live party against the defender's stored defence (or the Training Dummy); both Ratings
  * move (never for a dummy); the attacker is paid Medals, spends the attack and gets a fresh list;
  * the fight and the battle log are written. A burst of attacks queues on the attacker's row, and
@@ -380,7 +402,13 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
     const defender = dummy ? null : locked.get(listed) ?? null
     if (!dummy && !defender?.defenseLoadout) throw createError({ statusCode: 400, statusMessage: 'That opponent has no defence any more' })
 
+    // a closed season takes no more matches: its standings are written (`closeSeason` locks these
+    // rows, so a match ahead of it is in them), and a row already rolled past it can't take one either
     const season = arenaSeasonAt(now)
+    const [closed] = await tx.select({ seasonId: hqArenaSeasons.seasonId }).from(hqArenaSeasons).where(eq(hqArenaSeasons.seasonId, season))
+    if (closed || attacker.arenaSeasonId > season || (defender && defender.arenaSeasonId > season)) {
+        throw createError({ statusCode: 409, statusMessage: 'The season just ended; try again' })
+    }
     const attempts = attemptsOn(attemptsOf(attacker), ladderDateKey(now))
     if (attemptsLeft(attempts) < 1) throw createError({ statusCode: 400, statusMessage: 'No attacks left today' })
 
@@ -392,6 +420,12 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
     // before the cost. Built by the generic per-raid/Arena auto-apply, not by this module.
     const [attackerShop, attackerCollections] = await Promise.all([getShopLevels(userId, tx), getCollections(userId, tx)])
     const hero = heroSnapshotOf(attacker, attackerShop, attackerCollections, bankedGold)
+    // the band is held here, under the lock, against the party about to fight: a list drawn on a
+    // weaker loadout, or a defender who has since saved a weaker defence, can't be punched down on
+    const banded = heroSnapshotOf(attacker, attackerShop, attackerCollections)
+    if (!dummy && !(await listInBand(tx, [listed], banded))) {
+        throw createError({ statusCode: 409, statusMessage: 'That opponent is out of your range now; pick again' })
+    }
 
     const seed = randomInt(1, 0x7FFFFFFF)
     let fight: DuelResult
@@ -414,7 +448,7 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
     const attackerStanding = rollStanding(standingOf(attacker), season)
     const elo = dummy ? null : eloUpdate(attackerStanding.rating, rollStanding(standingOf(defender!), season).rating, won)
     const medals = medalsFor(won, elo?.expectedAttacker ?? null)
-    const candidates = await drawFor(tx, userId, hero)
+    const candidates = await drawFor(tx, userId, banded)
 
     // a dummy fight never touches the ladder, and is no match for the season's standings
     const attackerAfter: ArenaStanding = elo
@@ -512,10 +546,14 @@ export async function buyFromShop(tx: DbExecutor, userId: string, itemId: unknow
 
     // Keys go to the raid's row before the Medals come off `hq_state`: a raid entry takes its raid
     // row first and `hq_state` after, and this keeps that order. A failed spend rolls them back.
+    // The grant owed since the last visit is applied and written first, as a raid entry does, so the
+    // Keys bought land on top of it. Bought Keys may stand above `RAID_KEY_CAP`: the cap only stops
+    // the daily grant (`grantKeys`), and a purchase is never silently cut to it.
     if (item.kind === 'keys') {
-        await tx.insert(hqRaidState)
-            .values({ userId, raidId: item.raid, keyBalance: RAID_KEYS_PER_DAY + count })
-            .onConflictDoUpdate({ target: [hqRaidState.userId, hqRaidState.raidId], set: { keyBalance: sql`${hqRaidState.keyBalance} + ${count}` } })
+        const raid = await lockRaid(tx, userId, item.raid, Date.now())
+        await tx.update(hqRaidState)
+            .set({ keyBalance: raid.keys + count, lastKeyGrantAt: raid.lastKeyGrantAt })
+            .where(eq(hqRaidState.id, raid.row.id))
     }
 
     const [spent] = await tx.update(hqState)
