@@ -184,8 +184,14 @@ export const useHeroQuest = () => {
         return call<{ className: string }>('/api/hero-quest/prestige/pick-class', { classId }, '')
     }
 
+    /**
+     * Buy a prestige-shop level. A Gems track (Loadout or Trait save slots) moves a platform balance
+     * the response doesn't carry, and Gems have no setter of their own, so the session is read back.
+     */
     async function buyUpgrade(upgradeId: string) {
-        return call('/api/hero-quest/prestige/shop-buy', { upgradeId }, '')
+        const res = await call<{ currency: 'voidShards' | 'gems' }>('/api/hero-quest/prestige/shop-buy', { upgradeId }, '')
+        if (res?.currency === 'gems') await fetchSession()
+        return res
     }
 
     interface RaidRound {
@@ -281,11 +287,9 @@ export const useHeroQuest = () => {
         return call('/api/hero-quest/trait/load', { saveSlotIndex }, '')
     }
 
-    /** Buy the next Trait save slot. Gems have no setter of their own, so the session is read back. */
+    /** Buy the next Trait save slot, a Gems track, so `buyUpgrade` reads the session back. */
     async function buyTraitSaveSlot() {
-        const res = await call('/api/hero-quest/prestige/shop-buy', { upgradeId: 'traitSaveSlots' }, '')
-        await fetchSession()
-        return res
+        return buyUpgrade('traitSaveSlots')
     }
 
     /** Buy a Battle Speed block. Gems have no setter of their own, so the session is read back. */
