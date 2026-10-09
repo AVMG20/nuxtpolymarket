@@ -22,6 +22,7 @@
  */
 
 import type { HqStatKey, StatTier } from './types'
+import type { HolidayId } from './content/holidays'
 
 // ── Run structure ──────────────────────────────────  core-progression-and-prestige.md §2
 
@@ -1206,6 +1207,37 @@ export const FEATURE_UNLOCKS: readonly { feature: HqFeature, at: FeatureCheckpoi
     { feature: 'prestige', at: { kind: 'run_cleared' } },
     { feature: 'classes', at: { kind: 'prestiges', count: 1 } }
 ]
+
+// ── Holiday gifts ──────────────────────────────────  holiday-events.md §2–§3
+
+/**
+ * UTC days a holiday's gift stays claimable, the holiday itself counted (§2: "the holiday date
+ * plus a few following days (e.g. a 3-day window)"). §2's example, not a decision.
+ */
+export const HOLIDAY_CLAIM_WINDOW_DAYS = 3 // UNTUNED ╧
+
+/**
+ * One holiday's gift (§3): Gold as minutes of current income (`gold-economy.md` §6), a flat
+ * count of Gems, and optionally some of any gacha's Seals.
+ */
+export interface HolidayGift {
+    goldMinutes: number
+    gems: number
+    seals: Readonly<Partial<Record<'gear' | 'champion' | 'skill' | 'artifact', number>>>
+}
+
+/**
+ * Each holiday's gift, authored per holiday rather than computed (§3): Christmas richest, Halloween
+ * the smallest, and each one's Seals themed. Every amount is a placeholder. Gems are the
+ * platform-wide currency, so these reach past Hero Quest; size them with the calendar's Gem days
+ * and the milestones' (`open-items.md` #47, #48).
+ */
+export const HOLIDAY_GIFTS: Readonly<Record<HolidayId, HolidayGift>> = { // UNTUNED ╧
+    holiday_new_year: { goldMinutes: 60, gems: 50, seals: { champion: 3, gear: 3, skill: 3, artifact: 3 } },
+    holiday_lunar_new_year: { goldMinutes: 60, gems: 50, seals: { champion: 5 } },
+    holiday_halloween: { goldMinutes: 30, gems: 25, seals: { artifact: 5 } },
+    holiday_christmas: { goldMinutes: 120, gems: 100, seals: { champion: 5, gear: 5, skill: 5, artifact: 5 } }
+}
 
 // ── Milestones ─────────────────────────────────────  idea-backlog.md item 11
 //

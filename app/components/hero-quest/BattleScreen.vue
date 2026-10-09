@@ -12,7 +12,7 @@ import type { ClassesView } from '~/utils/hero-quest-art/classes-scene'
 import type { StagePack } from '~/utils/hero-quest-art/demo'
 import type { SpeedView } from '~/utils/hero-quest-art/speed-scene'
 import type { SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
-import type { CalendarView } from '~/utils/hero-quest-art/calendar-scene'
+import type { CalendarGiftView, CalendarView } from '~/utils/hero-quest-art/calendar-scene'
 import type { MilestonesView } from '~/utils/hero-quest-art/milestones-scene'
 import type { RaidRewardView, RaidRowView } from '~/utils/hero-quest-art/raids-scene'
 import type { RaidId as StageRaidId, StageRaid } from '~/utils/hero-quest-art/demo'
@@ -42,7 +42,7 @@ const {
     engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
     shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
     pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid, calendar, claimCalendar,
-    milestones, claimMilestones, ascendant, tutorials, markTutorialSeen, resetTutorials
+    holidays, claimHoliday, milestones, claimMilestones, ascendant, tutorials, markTutorialSeen, resetTutorials
 } = useHeroQuest()
 const { user } = useAuth()
 
@@ -668,7 +668,29 @@ async function onSetting(target: SettingsTarget) {
 const calendarNextDay = useHqCountdown(() => calendar.value?.nextDayAt)
 const calendarClock = useHqClock()
 
-/** The Calendar scene: every day's reward and state, the make-ups, and the clocks. */
+const SEAL_NAMES: Readonly<Record<string, string>> = { gear: 'FORGE', champion: 'GUILD', skill: 'SKILL', artifact: 'EXCAVATION' }
+
+/**
+ * The holiday gift the Calendar scene's title row shows: the first one open and unclaimed, else
+ * one open and claimed, else the next to open, with what it pays (or when it opens) spelled out.
+ */
+const calendarGift = computed<CalendarGiftView | null>(() => {
+    const h = holidays.value
+    if (!h) return null
+    const open = h.open.find(g => !g.claimed) ?? h.open[0]
+    if (open) {
+        const seals = open.seals.length === 4 && open.seals.every(x => x.amount === open.seals[0]!.amount)
+            ? [`${open.seals[0]!.amount} OF EVERY SEAL`]
+            : open.seals.map(x => `${x.amount} ${SEAL_NAMES[x.system] ?? ''} SEALS`)
+        const pays = [`${formatHq(open.gold)} GOLD`, `${open.gems} GEMS`, ...seals].join(', ')
+        return { name: open.name, state: open.claimed ? 'claimed' : 'open', detail: pays }
+    }
+    if (!h.next) return null
+    const days = Math.max(1, Math.ceil((h.next.opensAt - calendarClock.value) / 86_400_000))
+    return { name: h.next.name, state: 'next', detail: `IN ${days} DAY${days === 1 ? '' : 'S'}` }
+})
+
+/** The Calendar scene: every day's reward and state, the make-ups, the clocks, and the holiday gift. */
 const calendarView = computed<CalendarView>(() => {
     const c = calendar.value
     return {
@@ -678,7 +700,8 @@ const calendarView = computed<CalendarView>(() => {
         makeupsPerCycle: CALENDAR_MAKEUPS_PER_CYCLE,
         makeupDay: c?.makeupDay ?? null,
         nextDayIn: (calendarNextDay.value ?? '').toUpperCase(),
-        cycleDaysLeft: c ? Math.max(1, Math.ceil((c.endsAt - calendarClock.value) / 86_400_000)) : 0
+        cycleDaysLeft: c ? Math.max(1, Math.ceil((c.endsAt - calendarClock.value) / 86_400_000)) : 0,
+        gift: calendarGift.value
     }
 })
 const calendarBusy = ref(false)
@@ -687,6 +710,20 @@ async function onClaimCalendar(makeup: boolean) {
     calendarBusy.value = true
     try {
         await claimCalendar(makeup)
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        calendarBusy.value = false
+    }
+}
+
+/** Claim the open holiday gift the Calendar scene shows. */
+async function onClaimHoliday() {
+    const gift = holidays.value?.open.find(g => !g.claimed)
+    if (!gift) return
+    calendarBusy.value = true
+    try {
+        await claimHoliday(gift.id)
     } catch {
         // `useHeroQuest` has already shown the error
     } finally {
@@ -1111,6 +1148,7 @@ const awayReport = computed(() => {
           @gacha-close="gachaReveal = null"
           @setting="onSetting"
           @claim-calendar="onClaimCalendar"
+          @claim-holiday="onClaimHoliday"
           @claim-milestones="onClaimMilestones"
           @guide-next="onGuideNext"
           @guide-skip="closeTutorial"

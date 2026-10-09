@@ -27,6 +27,7 @@ import { serializeRaids } from '#server/utils/hero-quest-raids'
 import { calendarGoldPerHour, serializeCalendar } from '#server/utils/hero-quest-calendar'
 import { serializeMilestones } from '#server/utils/hero-quest-milestones'
 import { serializeTutorials } from '#server/utils/hero-quest-tutorials'
+import { getHolidayClaims, serializeHolidays } from '#server/utils/hero-quest-holidays'
 import { GACHA_SYSTEMS } from '#shared/utils/hero-quest/gacha'
 
 /**
@@ -66,6 +67,7 @@ export default defineEventHandler(async (event) => {
             settings: hqSettingsOf(null),
             raids: [],
             calendar: null,
+            holidays: null,
             milestones: [],
             tutorials: { unlocked: [], seen: [] },
             voidShards: '0',
@@ -89,14 +91,17 @@ export default defineEventHandler(async (event) => {
      * different numbers with two different jobs, and collapsing them would show the player a
      * balance missing everything they just earned.
      */
-    const [shopLevels, collections, loadoutRows, balance, raids] = await Promise.all([
+    const [shopLevels, collections, loadoutRows, balance, raids, holidayClaims] = await Promise.all([
         settleOutcome.shopLevels ?? getShopLevels(userId),
         settleOutcome.collections ?? getCollections(userId),
         getLoadouts(userId),
         getBalance(userId),
-        serializeRaids(userId)
+        serializeRaids(userId),
+        getHolidayClaims(userId)
     ])
     const hero = heroSnapshotOf(state, shopLevels, collections, parseFloat(balance) || 0)
+    // what a minute of the run's income is worth: the calendar's Gold days and the holiday gifts' Gold
+    const goldPerHour = calendarGoldPerHour(state, hero)
 
     return {
         initialized: true as const,
@@ -118,7 +123,9 @@ export default defineEventHandler(async (event) => {
         settings: hqSettingsOf(state.settings),
         raids,
         /** The login calendar: every day's reward as of now, which are claimed, and the make-ups. */
-        calendar: serializeCalendar(state, calendarGoldPerHour(state, hero)),
+        calendar: serializeCalendar(state, goldPerHour),
+        /** The holiday gifts open now, claimed or not and what each pays, and the next to open. */
+        holidays: serializeHolidays(holidayClaims, goldPerHour),
         /** The features open, in the order they opened, and the guide's tutorials seen. */
         tutorials: serializeTutorials(state),
         /** Every milestone track: its feat now, the steps claimed, the next step, and what's waiting. */

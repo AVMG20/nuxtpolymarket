@@ -421,6 +421,13 @@
       "when": 1791549352855,
       "tag": "0059_fixed_wendell_vaughn",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1791551748010,
+      "tag": "0060_parallel_madame_masque",
+      "breakpoints": true
     }
   ]
 }

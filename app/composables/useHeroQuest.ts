@@ -84,6 +84,8 @@ export const useHeroQuest = () => {
     const raids = computed(() => state.value?.raids ?? [])
     /** The login calendar: every day's reward as of now, which are claimed, and the make-ups. */
     const calendar = computed(() => state.value?.calendar ?? null)
+    /** The holiday gifts open now (claimed or not, and what each pays) and the next to open. */
+    const holidays = computed(() => state.value?.holidays ?? null)
     /** Every milestone track: its feat now, the steps claimed, the next step, and what's waiting. */
     const milestones = computed(() => state.value?.milestones ?? [])
     /** The features open, in the order they opened, and the guide's tutorials seen; null before the first read. */
@@ -230,6 +232,16 @@ export const useHeroQuest = () => {
     async function claimCalendar(makeup: boolean) {
         const res = await call<{ day: number, kind: string, amount: string }>('/api/hero-quest/calendar/claim', { makeup }, '')
         if (res?.kind === 'gold' || res?.kind === 'gems') await fetchSession()
+        return res
+    }
+
+    /**
+     * Claim an open holiday's gift. Its Gold and Gems move platform balances the response doesn't
+     * carry, so the session is read back; it happens a few times a year.
+     */
+    async function claimHoliday(holidayId: string) {
+        const res = await call<{ holidayId: string, year: number, gold: string, gems: number }>('/api/hero-quest/holiday/claim', { holidayId }, '')
+        await fetchSession()
         return res
     }
 
@@ -426,6 +438,7 @@ export const useHeroQuest = () => {
         battleSpeed,
         raids,
         calendar,
+        holidays,
         milestones,
         tutorials,
         settings,
@@ -444,6 +457,7 @@ export const useHeroQuest = () => {
         buyBattleSpeed,
         setSetting,
         claimCalendar,
+        claimHoliday,
         claimMilestones,
         markTutorialSeen,
         resetTutorials,

@@ -1362,6 +1362,24 @@ export const hqRaidState = pgTable('hq_raid_state', {
   index('hq_raid_state_userId_idx').on(t.userId)
 ])
 
+/**
+ * One row per holiday gift claimed (`holiday-events.md` §2): the unique key **is** the
+ * once-per-holiday-per-year rule, so a claim is an insert and a conflict is the refusal. `year`
+ * is the year the holiday fell in, not the day it was claimed. No row is ever written for a
+ * window missed: a closed window never opens again.
+ */
+export const hqHolidayClaims = pgTable('hq_holiday_claims', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** A `HolidayId` from `content/holidays.ts`. */
+  holidayId: text('holiday_id').notNull(),
+  year: integer('year').notNull(),
+  claimedAt: timestamp('claimed_at').defaultNow().notNull()
+}, t => [
+  uniqueIndex('hq_holiday_claims_user_holiday_year_idx').on(t.userId, t.holidayId, t.year),
+  index('hq_holiday_claims_userId_idx').on(t.userId)
+])
+
 export const chatMessages = pgTable('chat_messages', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),

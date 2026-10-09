@@ -11,9 +11,11 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { and, eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
-import { hqCollection, hqFights, hqLoadouts, hqRaidState, hqShopUpgrades, hqState, user } from '#server/database/schema'
+import { hqCollection, hqFights, hqHolidayClaims, hqLoadouts, hqRaidState, hqShopUpgrades, hqState, user } from '#server/database/schema'
 import { engageRaid, quickClearRaid } from '#server/utils/hero-quest-raids'
 import { claimCalendar } from '#server/utils/hero-quest-calendar'
+import { claimHoliday } from '#server/utils/hero-quest-holidays'
+import { holidayGift } from '#shared/utils/hero-quest/holidays'
 import { CALENDAR_REWARDS, calendarDayNumber } from '#shared/utils/hero-quest/calendar'
 import { claimMilestones } from '#server/utils/hero-quest-milestones'
 import { getMilestoneTrack, milestoneRewardTotal } from '#shared/utils/hero-quest/milestones'
@@ -62,6 +64,7 @@ const USER_ID = 'test-hero-quest-race-user'
 
 async function cleanup() {
     await db.delete(hqCollection).where(eq(hqCollection.userId, USER_ID))
+    await db.delete(hqHolidayClaims).where(eq(hqHolidayClaims.userId, USER_ID))
     await db.delete(hqRaidState).where(eq(hqRaidState.userId, USER_ID))
     await db.delete(hqFights).where(eq(hqFights.userId, USER_ID))
     await db.delete(hqLoadouts).where(eq(hqLoadouts.userId, USER_ID))
@@ -261,6 +264,49 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect(after.calendarMakeups).toBe(result.ok)
             // the oldest days, in order, and nothing else
             expect(after.calendarClaimed).toBe((1 << result.ok) - 1)
+        })
+    })
+
+    describe('holiday gifts', () => {
+        const stateOf = async () => (await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!
+        const gemsOf = async () => (await db.select({ gems: user.gems }).from(user).where(eq(user.id, USER_ID)))[0]!.gems
+        const claimsOf = async () => db.select().from(hqHolidayClaims).where(eq(hqHolidayClaims.userId, USER_ID))
+        const HALLOWEEN = Date.UTC(2026, 9, 31, 12)
+
+        it('pays a holiday\'s gift once, however many claims race for it', async () => {
+            await ensureHqState(USER_ID)
+            const before = await stateOf()
+            const gemsBefore = await gemsOf()
+            const gift = holidayGift('holiday_halloween')
+
+            const result = await burst(10, () => db.transaction(tx => claimHoliday(tx, USER_ID, 'holiday_halloween', HALLOWEEN)))
+
+            expect(result.ok).toBe(1)
+            expect(await claimsOf()).toHaveLength(1)
+            expect(await gemsOf()).toBe(gemsBefore + gift.gems)
+            expect((await stateOf()).excavationSeals).toBe(before.excavationSeals + (gift.seals.artifact ?? 0))
+            expect((await stateOf()).guildSeals).toBe(before.guildSeals + (gift.seals.champion ?? 0))
+        })
+
+        it('refuses a gift outside its window, and pays nothing', async () => {
+            await ensureHqState(USER_ID)
+            const gemsBefore = await gemsOf()
+
+            await expect(db.transaction(tx => claimHoliday(tx, USER_ID, 'holiday_halloween', HALLOWEEN - 2 * 86_400_000))).rejects.toMatchObject({ statusCode: 400 })
+            await expect(db.transaction(tx => claimHoliday(tx, USER_ID, 'holiday_easter', HALLOWEEN))).rejects.toMatchObject({ statusCode: 400 })
+
+            expect(await claimsOf()).toHaveLength(0)
+            expect(await gemsOf()).toBe(gemsBefore)
+        })
+
+        it('pays the same holiday again the next year, once', async () => {
+            await ensureHqState(USER_ID)
+            await db.transaction(tx => claimHoliday(tx, USER_ID, 'holiday_halloween', HALLOWEEN))
+
+            const result = await burst(6, () => db.transaction(tx => claimHoliday(tx, USER_ID, 'holiday_halloween', HALLOWEEN + 365 * 86_400_000)))
+
+            expect(result.ok).toBe(1)
+            expect((await claimsOf()).map(c => c.year).sort()).toEqual([2026, 2027])
         })
     })
 

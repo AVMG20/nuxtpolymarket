@@ -2,10 +2,12 @@
 // claim shows the icon of what it pays and how much; a claimed day is checked off; a missed one is
 // dimmed with a red corner, and today's pulses gold and claims when pressed. Under the grid, what
 // the day pointed at pays, the make-up button that takes the oldest missed day, and the clocks.
+// Over the grid, between the title and the day count, the holiday gift: a gold button while one is
+// open to claim, and otherwise which one was claimed or which comes next.
 
 import { C } from './palette'
 import { line, rect, dither, type Surface } from './surface'
-import { drawText } from './font'
+import { drawText, textWidth } from './font'
 import { glyph, type Glyph } from './icon-kit'
 import { CURRENCY_ICONS } from './icons-items'
 import { panel } from './ui-art'
@@ -28,6 +30,15 @@ export interface CalendarDayView {
     amount: string
 }
 
+/** The holiday gift the scene's title row shows (`holiday-events.md`). */
+export interface CalendarGiftView {
+    name: string
+    /** Open to claim, open and already claimed, or the next one to open. */
+    state: 'open' | 'claimed' | 'next'
+    /** What it pays, spelled out; for the next one, when it opens. */
+    detail: string
+}
+
 export interface CalendarView {
     /** 0-based. */
     today: number
@@ -39,10 +50,12 @@ export interface CalendarView {
     /** Spelled out: time to the next day, and days to the cycle's end. */
     nextDayIn: string
     cycleDaysLeft: number
+    /** The holiday gift: one open now, or the next to open; null with none in sight. */
+    gift: CalendarGiftView | null
 }
 
-/** Today's cell, the make-up button, or a day pointed at for what it pays (0-based). */
-export type CalendarTarget = 'claim' | 'makeup' | `day:${number}`
+/** Today's cell, the make-up button, the holiday gift, or a day pointed at for what it pays (0-based). */
+export type CalendarTarget = 'claim' | 'makeup' | 'gift' | `day:${number}`
 
 const COLS = 10
 const CELL_W = 24
@@ -53,6 +66,7 @@ const INFO_Y = 113
 const MAKEUP: Box = { x: 6, y: 124, w: 76, h: 13 }
 
 const MAKEUP_PLATE = [C.blue0, C.blue1, C.blue2] as const
+const GIFT_PLATE = [C.gold0, C.gold1, C.gold2] as const
 
 const SEAL_NAME: Readonly<Record<string, string>> = { gear: 'FORGE SEALS', champion: 'GUILD SEALS', skill: 'SKILL SEALS', artifact: 'EXCAVATION SEALS' }
 
@@ -84,6 +98,20 @@ export function calendarRewardLabel(d: CalendarDayView): string {
     }
 }
 
+/** What the title row says of the gift: the claim button's label, or a line of text. */
+function giftLabel(gift: CalendarGiftView): string {
+    const name = gift.name.toUpperCase()
+    if (gift.state === 'open') return `CLAIM ${name} GIFT`
+    if (gift.state === 'claimed') return `${name} GIFT CLAIMED`
+    return `NEXT GIFT: ${name} ${gift.detail}`
+}
+
+/** The gift's place in the title row, centred: the button while one is open, the text's box otherwise. */
+function giftBox(w: number, gift: CalendarGiftView): Box {
+    const bw = textWidth(giftLabel(gift)) + 10
+    return { x: (w - bw) >> 1, y: 1, w: bw, h: 13 }
+}
+
 /** Whether the make-up button does anything now. */
 export function calendarMakeupEnabled(view: CalendarView): boolean {
     return view.makeupDay !== null && view.makeupsLeft > 0
@@ -92,6 +120,7 @@ export function calendarMakeupEnabled(view: CalendarView): boolean {
 /** What a point on the view is over. */
 export function calendarTargetAt(view: CalendarView, w: number, x: number, y: number): CalendarTarget | null {
     if (inside(MAKEUP, x, y)) return 'makeup'
+    if (view.gift && inside(giftBox(w, view.gift), x, y)) return 'gift'
     for (let i = 0; i < view.days.length; i++) {
         if (!inside(cellBox(w, i), x, y)) continue
         return view.days[i]!.state === 'today' ? 'claim' : `day:${i}`
@@ -117,6 +146,11 @@ export class CalendarScene {
         const s = this.backdrops.render('calendar', t, false)
         drawText(s, 'LOGIN CALENDAR', 6, 4, C.gold2, { shadow: 1 })
         drawText(s, `DAY ${view.today + 1} OF ${view.days.length}`, s.w - 6, 4, C.bone1, { align: 2, shadow: 1 })
+        if (view.gift) {
+            const b = giftBox(s.w, view.gift)
+            if (view.gift.state === 'open') plateButton(s, b, giftLabel(view.gift), GIFT_PLATE, !busy, hover === 'gift', pressed)
+            else drawText(s, giftLabel(view.gift), b.x + (b.w >> 1), 4, C.stone3, { align: 1, shadow: 1 })
+        }
 
         const pulse = Math.floor(t * 3) % 2 === 0
         const makeupLit = hover === 'makeup' && calendarMakeupEnabled(view)
@@ -148,9 +182,14 @@ export class CalendarScene {
             }
         })
 
-        // what the day pointed at pays; today's, with what to do about it, when nothing is
+        // what the gift pays while it is pointed at; otherwise what the day pointed at pays, or today's
+        const gift = hover === 'gift' && view.gift?.state !== 'next' ? view.gift : null
+        if (gift) {
+            drawText(s, `${gift.name.toUpperCase()}: ${gift.detail}`, 6, INFO_Y, C.bone1, { shadow: 1 })
+            drawText(s, gift.state === 'open' ? 'PRESS TO CLAIM' : 'CLAIMED', s.w - 6, INFO_Y, gift.state === 'open' ? C.gold3 : C.stone3, { align: 2, shadow: 1 })
+        }
         const at = hover === 'claim' ? view.today : hover?.startsWith('day:') ? Number(hover.slice(4)) : hover === 'makeup' ? view.makeupDay : null
-        const shown = view.days[at ?? view.today]
+        const shown = gift ? undefined : view.days[at ?? view.today]
         if (shown) {
             const why = shown.state === 'today' ? 'PRESS TO CLAIM'
                 : shown.state === 'claimed' ? 'CLAIMED'
