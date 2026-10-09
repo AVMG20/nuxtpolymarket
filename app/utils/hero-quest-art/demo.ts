@@ -701,6 +701,14 @@ function fadeStart(b: Baked): number {
 
 function rnd(a: number, b: number): number { return a + Math.random() * (b - a) }
 
+/** A run's pack as the stage shows it (`BattleDemo.runPack`). */
+export interface StagePack {
+    /** Bodies up, walking in included. */
+    standing: number
+    /** 0–1: the share of the whole pack's HP their bars hold. */
+    left: number
+}
+
 export class BattleDemo {
     readonly frame = new Surface(DEMO_W, DEMO_H, 0, 0)
     private particles = new Particles(2400)
@@ -1105,6 +1113,28 @@ export class BattleDemo {
     /** The fight has played out and its result is showing. */
     get fightDone(): boolean {
         return this.replay?.done ?? false
+    }
+
+    /**
+     * The run's pack as the stage shows it: bodies up, and the share of the pack's HP their bars
+     * hold. Null outside a run's wave, where the readout has no pack to track.
+     *
+     * The run is ahead of the stage by a march and a fall or two, and a payload moves it by part of
+     * a kill either way, so a readout drawn off the run fills and empties out of step with the
+     * bodies. Off the stage it only empties as they are hit, and fills as a pack walks in.
+     */
+    runPack(): StagePack | null {
+        const f = this.run?.feed
+        if (!f || f.atBossGate || this.replay || this.raid) return null
+        let standing = 0
+        let bars = 0
+        for (let i = PARTY; i < this.units.length; i++) {
+            const u = this.units[i]!
+            if (u.boss || u.state === U.Gone || u.state === U.Death) continue
+            standing++
+            bars += Math.max(0, Math.min(1, u.bar))
+        }
+        return { standing, left: bars / Math.max(1, f.packSize) }
     }
 
     /**
@@ -1983,6 +2013,8 @@ export class BattleDemo {
             u.jolt = 0
             u.flash = 0
             u.wait = 0.5 + Math.random() * 1.2
+            // the slots are reused, and each kept the bar its last body fell with
+            u.bar = 1
             if (!u.boss && active) {
                 u.rig = (slot + this.wave) % 4
                 u.frames = this.rigFrames[u.rig]!
@@ -2108,6 +2140,17 @@ export class BattleDemo {
         }
     }
 
+    /**
+     * The director's share of the front body's HP, onto the front body. Its hits only ever wear
+     * that one down, so a spread skill's numbers landing on a body behind it leave that body's bar
+     * whole: painted with the front's share instead, it came forward damaged and refilled on its
+     * first hit.
+     */
+    private paintFront(): void {
+        const front = this.target(0)
+        if (front) front.bar = this.run!.frontLeft()
+    }
+
     /** The run has kills the stage has yet to show: it saves the pauses it can between packs. */
     private behind(): boolean {
         return this.run !== null && this.run.due() > 0
@@ -2170,7 +2213,7 @@ export class BattleDemo {
             return
         }
         const text = r.hit(crit)
-        tgt.bar = r.frontLeft()
+        this.paintFront()
         if (text) this.number(tgt.x, y - 8, crit ? 'crit' : 'normal', false, crit ? `${text}!` : text)
         this.particles.burst(tgt.x - 4, y, crit ? 14 : 8, crit ? 70 : 45, 0.5, 'spark', 120, tgt.y)
         this.struck(tgt, hold)
@@ -2383,7 +2426,7 @@ export class BattleDemo {
         const crit = Math.random() < (r.feed?.critChance ?? 0)
         const due = r.due() > 0
         const text = due ? r.finish() : r.hit(crit)
-        if (!due) tgt.bar = r.frontLeft()
+        if (!due) this.paintFront()
         if (text) {
             this.number(tgt.x, tgt.y - tgt.crown - tgt.stack * 7, crit ? 'crit' : 'normal', true, crit ? `${text}!` : text)
             this.cineTotal = this.cineTotal.add(r.last)

@@ -9,6 +9,7 @@ import type { CollectionAction, CollectionLine, CollectionSection, CollectionTil
 import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesView } from '~/utils/hero-quest-art/classes-scene'
+import type { StagePack } from '~/utils/hero-quest-art/demo'
 import type { SpeedView } from '~/utils/hero-quest-art/speed-scene'
 import type { SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
 import type { CalendarView } from '~/utils/hero-quest-art/calendar-scene'
@@ -771,6 +772,8 @@ const fightWasAutomatic = ref(false)
 const fightBoss = ref({ name: 'Boss', timer: 30 })
 /** How far the stage has played the fight, and whether its result is up. */
 const fightProgress = ref({ time: 0, done: false })
+/** The run's pack as the stage shows it, for the readout's enemy bar; null until the stage reports one. */
+const stagePack = ref<StagePack | null>(null)
 
 // the round's last blow lands, then its reward goes up; the popup's button brings the run back
 watch(() => fightProgress.value.done, (done) => {
@@ -1000,6 +1003,7 @@ const awayReport = computed(() => {
           :classes="classesView"
           :classes-busy="classesBusy"
           @fight-progress="fightProgress = $event"
+          @pack="stagePack = $event"
           @challenge="onEngage"
           @scene="emit('scene', $event)"
           @collection-tab="openCollectionTab"
@@ -1040,6 +1044,7 @@ const awayReport = computed(() => {
         <HeroQuestBattleView
           v-else
           :run="liveRun"
+          :pack="stagePack"
         />
 
         <!--

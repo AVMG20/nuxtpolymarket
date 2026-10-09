@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { D, formatHq } from '#shared/utils/hero-quest/numbers'
+import type { StagePack } from '~/utils/hero-quest-art/demo'
 
 /**
  * The live battle. Presentation only — it renders, it never decides, and it does not predict.
@@ -13,8 +14,12 @@ import { D, formatHq } from '#shared/utils/hero-quest/numbers'
  * advances the stage, the world and the Hero's level. Keep the walk there: a second predictor here
  * would drift against it, and the stage rollover has to happen exactly once.
  *
- * The readout under the stage (`BattleCanvas.vue`), which plays the same projected run: these
- * bars and the bodies on it read one `killsFloat`.
+ * **The enemy bar is the exception, and follows the stage instead** (`pack`, from
+ * `BattleDemo.runPack`). The run is ahead of the bodies by a march and a fall or two, and a payload
+ * moves it by part of a kill either way, so drawn off `killsFloat` the bar started a pack already
+ * worn down and refilled when a payload landed behind the projection. Off the stage it empties
+ * only as the bodies above it are hit, and fills only as a pack walks in. Before the stage has
+ * loaded there is no pack to follow, and the bar falls back to `killsFloat`.
  */
 const props = defineProps<{
     run: {
@@ -38,6 +43,8 @@ const props = defineProps<{
          */
         packHp: string
     }
+    /** The pack as the stage above shows it; null before the stage has one. */
+    pack?: StagePack | null
 }>()
 
 /**
@@ -55,11 +62,15 @@ const view = computed(() => battleReadout({
     atBossGate: props.run.atBossGate
 }))
 
+/** The enemy bar and the bodies counted beside it: the stage's pack, or the run's before there is one. */
+const enemyHpPct = computed(() => props.pack ? Math.max(0, Math.min(100, props.pack.left * 100)) : view.value.enemyHpPct)
+const enemiesStanding = computed(() => props.pack ? props.pack.standing : view.value.enemiesStanding)
+
 /**
  * HP left across the whole pack, as a Decimal: enemy HP passes `Number.MAX_SAFE_INTEGER` early in
  * the game, so it cannot be float arithmetic even though the percentage driving it is a plain number.
  */
-const enemyHpRemaining = computed(() => D(props.run.packHp).mul(view.value.enemyHpPct / 100))
+const enemyHpRemaining = computed(() => D(props.run.packHp).mul(enemyHpPct.value / 100))
 </script>
 
 <template>
@@ -96,7 +107,7 @@ const enemyHpRemaining = computed(() => D(props.run.packHp).mul(view.value.enemy
             <span
               v-if="run.packSize > 1"
               class="text-muted"
-            >×{{ view.enemiesStanding }}</span>
+            >×{{ enemiesStanding }}</span>
           </span>
           <!-- The whole pack, remaining over total — the number the bar beside it is showing. -->
           <span class="text-muted tabular-nums">
@@ -104,7 +115,7 @@ const enemyHpRemaining = computed(() => D(props.run.packHp).mul(view.value.enemy
           </span>
         </div>
         <UProgress
-          :model-value="view.enemyHpPct"
+          :model-value="enemyHpPct"
           size="sm"
           color="error"
         />

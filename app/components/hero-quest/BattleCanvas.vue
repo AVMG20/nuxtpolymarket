@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BattleDemo, RunParty, StageFight, StageRaid } from '~/utils/hero-quest-art/demo'
+import type { BattleDemo, RunParty, StagePack, StageFight, StageRaid } from '~/utils/hero-quest-art/demo'
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import type { RunFeed } from '~/utils/hero-quest-art/run-director'
 import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-band'
@@ -116,6 +116,8 @@ const props = defineProps<{
 const emit = defineEmits<{
     /** Ten times a second while a fight plays: seconds played, and whether its result is up. */
     fightProgress: [progress: { time: number, done: boolean }]
+    /** The run's pack as the stage shows it, when it changes; null outside a run's wave. */
+    pack: [pack: StagePack | null]
     /** The challenge button was pressed: fight the boss again. */
     challenge: []
     /** A menu band button was pressed: the scene to show, or the battle when the open one closes. */
@@ -162,6 +164,8 @@ const ready = ref(false)
 const intro = import.meta.client ? takeHqIntro() : null
 const opening = ref(intro !== null)
 const INK = PALETTE[C.ink]!
+/** The smallest move in the pack's HP share worth a re-render of the readout: half a percent. */
+const PACK_REPORT_STEP = 0.005
 
 let stage: BattleDemo | null = null
 let backdrops: SceneBackdrops | null = null
@@ -191,6 +195,19 @@ let presenter: Presenter | null = null
 let stop: (() => void) | null = null
 let observer: ResizeObserver | null = null
 let disposed = false
+/** What `pack` last said, so the readout hears of a change rather than every frame. */
+let lastPack: StagePack | null = null
+
+/** Pass the stage's pack on, once it has moved by a step the readout's bar can show. */
+function reportPack() {
+    const pack = props.fight ? null : stage!.runPack()
+    const same = pack === null || lastPack === null
+        ? pack === lastPack
+        : pack.standing === lastPack.standing && Math.abs(pack.left - lastPack.left) < PACK_REPORT_STEP
+    if (same) return
+    lastPack = pack
+    emit('pack', pack)
+}
 
 function feed(): RunFeed {
     const run = props.run
@@ -760,6 +777,7 @@ onMounted(async () => {
         stage!.speed = props.fight ? props.fight.playbackSpeed ?? 1 : props.speed ?? 1
         stage!.speedTag = props.speedTag ?? ''
         if (!props.fight) stage!.feedRun(feed())
+        reportPack()
         // under a scene the battle still runs and takes its feed, but is not drawn
         const scene = openScene.value
         const view = scene === 'battle'
