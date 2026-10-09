@@ -151,11 +151,9 @@ open:
    every growth step, the collection step and the Key and Gem amounts are guesses. Prestige Gems
    (50, then 25 more a prestige) are platform-wide, so they reach past Hero Quest. Size them with
    the calendar's Gem days in step 7 of the *Suggested order*.
-2. **Accounts with history claim it again.** World clears and prestiges used to pay their Seals on
-   the event, and nothing seeds `milestones_claimed`, so an account that cleared Worlds before
-   2026-10-09 can claim those steps as milestones. Only dev accounts exist on this branch, so it
-   was left alone. Decide before the merge whether that's acceptable or whether a migration
-   should seed the World and prestige counts.
+2. ~~**Accounts with history claim it again.**~~ **Decided 2026-10-09: accepted, no migration**
+   (the user's call). Hero Quest has never reached `main`, so production starts with no `hq_state`
+   rows and no history to re-claim. Record in `build-log.md` #48.
 3. **The campaign sim doesn't see milestones.** Seal income isn't part of the walk, so this changes
    nothing it measures. Pull-pacing questions (#23.2, the Seal ladder) now have this source to
    account for.
@@ -322,7 +320,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 
 ## Suggested order
 
-~~**Before merging `hero-quest` into `main`: settle the ??? capstone class (#43).**~~ **Built 2026-10-09** as the Ascendant; its art round and a power measurement are open under #43 above. Before the merge, also decide #48.2 (milestone claims for history).
+~~**Before merging `hero-quest` into `main`: settle the ??? capstone class (#43).**~~ **Built 2026-10-09** as the Ascendant; its art round and a power measurement are open under #43 above. ~~Before the merge, also decide #48.2 (milestone claims for history).~~ Decided 2026-10-09: no migration.
 
 **Reordered 2026-10-02, the user's call: the playtest and the Gold balance (step 2) move to the very end, with step 7.** The battle stage comes first (`build-log.md` #34): the idle stage and the boss replay on the stage both landed that day. The argument below for playing early was weighed and set aside; it is kept as the record of what the reorder gives up.
 
