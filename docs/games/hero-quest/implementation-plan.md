@@ -4,7 +4,7 @@ A build order for taking the 18 locked design docs to a shippable game, structur
 
 The governing principle: **the core loop is the risk.** Everything else in this project — 4 gachas, 5 raids, Arena, Traits, Loadouts — is additive content layered onto a loop that either feels good or doesn't. Build the loop first, play it, and only then decide how much of the rest is worth building.
 
-## Status — 2026-10-04
+## Status — 2026-10-09
 
 | Phase | State |
 |---|---|
@@ -12,7 +12,7 @@ The governing principle: **the core loop is the risk.** Everything else in this 
 | **1 — Playable Core Loop** | ✅ Built, and the loop is **tuned** on the campaign sim (`open-items.md` #22). One playtest session logged (`playtest-notes.md`). Bosses engage automatically while the tab is visible — a deviation from this phase's manual-engage design (`open-items.md` #25). |
 | **2 — Champions** | ✅ Built, with the **full 48-Champion roster** rather than the 8–12 planned, and the full ability-effects pass (`open-items.md` #12–#17). |
 | **3 — Remaining gachas + Loadouts** | ✅ Built, including **GPN** (landed 2026-09-15, `open-items.md` #28; leaderboard aggregate and Defense GPN still to come). Also landed alongside: the dev playtest harness, the Gacha/Collections navigation, the in-game wiki, stat attribution and a projected battle screen (#19–#21, #26). |
-| **4 — Endgame** | **Under way.** Battle Speed built 2026-10-04 (`build-log.md` #44) and all five Raids 2026-10-05 (`build-log.md` #46), with GPN carried over from Phase 3. Traits, Arena, Holidays and `loadouts.md` §4's per-raid auto-apply remain. |
+| **4 — Endgame** | **Under way.** Battle Speed built 2026-10-04 (`build-log.md` #44), all five Raids 2026-10-05 (`build-log.md` #46), and the Holiday gifts and `loadouts.md` §4's per-raid auto-apply 2026-10-09 (`build-log.md` #49, #50), with GPN carried over from Phase 3. Traits and Arena remain. |
 | **5 — Content & tuning** | Partly done early: every roster is structurally complete (Artifacts and Worlds were named 2026-09-15), and the combat/progression constants are tuned. **World art is restyled and locked** (`art-style.md`), and the enemy-kit question is answered: regular enemies get no abilities, and bosses' specials are real combat effects since 2026-10-08 (`build-log.md` #45). The prestige→calendar Gold mapping below is **retired** — Gold reads account age instead (`gold-economy.md` §3a). |
 
 **What comes next** is `open-items.md`'s *Suggested order*: the quick calls and the rest of Phase 4, with the playtest and the Gold decisions (#23) last, by the user's call.
@@ -128,7 +128,7 @@ Everything that assumes a mature account. Each is genuinely independent — buil
 | **Raids** (`raid-system.md`) | 5 ladders, Keys, 4 fight types, quick-clear | **Built 2026-10-05** (`build-log.md` #46). Biggest of the four; `rampaging_boss` is its own mini-system |
 | **Traits** (`traits.md`) | 5 slots, roll/lock, 8×9 value tables, 5 Sets | **Brings evasion into the game** — the `1−EVA` accuracy check and GPN's EVA term go live here |
 | **Arena** (`arena.md`) | Async PvP, Defense GPN, Elo, Medals, shop, seasons | Needs a real player population to be meaningful — arguably last |
-| **Holiday Events** (`holiday-events.md`) | Calendar gift claims | Smallest; a day's work |
+| **Holiday Events** (`holiday-events.md`) | Calendar gift claims | **Gifts built 2026-10-09** (`build-log.md` #49). Smallest; a day's work |
 | **Battle Speed** (`idle-mechanics.md` §3) | Gem-purchased time dilation | **Built 2026-10-04** (`build-log.md` #44). Could pull earlier if playtesting is slow — it makes testing faster too |
 
 **Passive Skill Tree** (backlog item 3) is unbuilt design, not deferred implementation — it needs its own design session before it can be scheduled at all.

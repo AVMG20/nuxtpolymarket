@@ -167,6 +167,7 @@ Not design docs — they describe the *state* of the project rather than the gam
 | Loadout contents (5 components) | `loadouts.md` | §1 |
 | Loadout slots 2→10, Gems | `loadouts.md` | §3 |
 | Per-raid loadout auto-apply | `loadouts.md` | §4 |
+| Per-raid auto-apply as built — picker, session, leave, lazy revert | `build-log.md` #50, `open-items.md` #50 | |
 | GPN formula `DPS × EHP` | `global-power-number.md` | §2 |
 | What flows into GPN | `global-power-number.md` | §4 |
 | GPN as built (zero-DEF DPS, computed on read, battle-screen display) | `global-power-number.md` | *As built* |
@@ -178,6 +179,7 @@ Not design docs — they describe the *state* of the project rather than the gam
 | Arena Shop, seasons, battle log, leaderboard | `arena.md` | §6–9 |
 | Holiday calendar + claim window | `holiday-events.md` | §1, §2 |
 | Holiday gift bundle structure | `holiday-events.md` | §3 |
+| Holiday gifts as built — roster, windows, claim, Calendar scene | `build-log.md` #49, `open-items.md` #49 | |
 
 ### Implementation
 | Topic | Doc | § |
@@ -266,7 +268,7 @@ Not design docs — they describe the *state* of the project rather than the gam
 | Traits | 8 stats × 9 grades × 5 sets | — | ✅ all tables transcribed |
 | Worlds | 10 | 10 stages each | ✅ named with themes and rosters (`core-progression-and-prestige.md` §5); ❌ art and enemy kits not designed |
 | Raids | 5 | 4 gacha-paired + Trait | ✅ structure; per-tier mechanic content deferred |
-| Holidays | 4 | New Year, Lunar New Year, Halloween, Christmas | ❌ per-holiday bundle contents deferred |
+| Holidays | 4 | New Year, Lunar New Year, Halloween, Christmas | ✅ built with placeholder bundles (`HOLIDAY_GIFTS`, `build-log.md` #49) |
 
 ---
 

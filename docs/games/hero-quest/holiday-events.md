@@ -57,6 +57,18 @@ Eligible components, per holiday:
 
 ---
 
+## As built (2026-10-09, `build-log.md` #49)
+
+What the build had to settle that this doc leaves open, none of it a rule change:
+
+- **The window is three UTC days, the holiday counted** (`HOLIDAY_CLAIM_WINDOW_DAYS`, `UNTUNED ╧`): §2's "e.g." taken as the whole window.
+- **A gift belongs to the year its holiday fell in**, the claim's key with the holiday's ID, so a window running past New Year's Eve claims the earlier year's gift.
+- **Lunar New Year's table** (`LUNAR_NEW_YEAR_DATES`) runs 2024 to 2050, each the date in China taken as that UTC day.
+- **The claim is modelled on the login calendar** (`build-log.md` #47): §2's `seals/claim-daily.post.ts` was retired by `open-items.md` #29.
+- **The gift is claimed in the Calendar scene**, the "gift waiting" state §2 asks for: its title row shows the open gift's button, or which comes next.
+
+---
+
 ## Implementation Note
 
 Locked: the holiday-gift mechanic only. A first-pass 4-holiday real-world calendar (Jan 1 fixed, Lunar New Year via lookup table, Oct 31 fixed, Dec 25 fixed), UTC-resolved 3-day claim windows with no retroactive catch-up, claim-then-reward delivery mirroring the existing daily-Seal-claim pattern, and a per-holiday-authored mixed bundle (Gold via duration-of-income, flat Gems, optional flat Seals) rather than one shared formula. Gameplay events (limited-time modes/content) are explicitly out of scope here, per your steer — a future design pass of its own, not a natural extension of this one.

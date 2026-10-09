@@ -89,7 +89,7 @@ When you need a new constant:
 
 `implementation-plan.md` defines five phases. **Build only the current phase.** Each phase names its deferred systems explicitly; treat that list as a prohibition, not a suggestion.
 
-The current phase is **Phase 4**, under way: Battle Speed is built (`build-log.md` #44). The battle stage came first (#34), and the playtest session and the Gold decisions (#23) were moved to the very end on 2026-10-02 (`open-items.md` *Suggested order*). Phase 4's systems are independent of each other; build the one asked for, not its neighbours. GPN, left over from Phase 3, is built (`open-items.md` #28).
+The current phase is **Phase 4**, under way: Battle Speed, the raids, the Holiday gifts and the per-raid Loadout auto-apply are built (`build-log.md` #44, #46, #49, #50); Traits and the Arena remain. The battle stage came first (#34), and the playtest session and the Gold decisions (#23) were moved to the very end on 2026-10-02 (`open-items.md` *Suggested order*). Phase 4's systems are independent of each other; build the one asked for, not its neighbours. GPN, left over from Phase 3, is built (`open-items.md` #28).
 
 The failure this rule was written against still generalises: building a content system (a gacha, a raid) on top of a loop nobody has validated means tuning it against numbers that will move. The loop is now tuned on the sim but has been felt in only one logged session.
 

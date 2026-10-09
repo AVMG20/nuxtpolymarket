@@ -79,6 +79,8 @@ Reuses the "doubling cost per level" shape already established for short prestig
 
 **Quick-clear is excluded from this flow entirely.** Since quick-clear (`raid-system.md` §4) doesn't run a fight — it's a pure reward-grant against an already-cleared level — there's no reason to touch the live loadout for it at all. No snapshot, no apply, no revert.
 
+**As built for the raids (2026-10-09, `build-log.md` #50; open half `open-items.md` #50).** The snapshot is held on the server (`hq_state.pre_raid_snapshot`), so a reload keeps the session. "Leaving the raid" is the client showing neither the Raids scene nor a round; a session it never closed (a tab shut mid-raid) is put back by the first read after the game session times out, and by any change to the live loadout, which puts it back before it applies. Moving from one raid straight to another puts the snapshot back first, so the snapshot is always the pre-raid loadout. Three calls the build made that this section does not: the run's boss fights on the player's own loadout (it closes the session), a preferred Loadout that can no longer be applied refuses the engage rather than fighting on the live one, and a pointer at a slot with nothing saved counts as none.
+
 ---
 
 ## 5. Cross-Doc Note — Gems' First Concrete Sink

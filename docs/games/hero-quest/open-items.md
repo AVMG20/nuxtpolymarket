@@ -9,7 +9,7 @@ made it the most expensive bloat in the project.
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
 #25 and #29 appear in both: the open part here, the full record there. New items continue from
-**#51** — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day, #44 landed and #45 opened with it, and #6, #3, #31 and #32 were decided (all in `build-log.md`); #46 (raids) landed 2026-10-05; #45 (boss specials) landed 2026-10-08 with its open half below, and #47 (the login calendar) the same day; #48 (milestones) landed 2026-10-09, and #43 (the Ascendant) was decided, built and its art locked the same day, closing it; #49 opened with it, and #50 (the tutorials, backlog item 10) was picked up.
+**#55** (#51 and #52 are taken by parallel work) — #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day, #44 landed and #45 opened with it, and #6, #3, #31 and #32 were decided (all in `build-log.md`); #46 (raids) landed 2026-10-05; #45 (boss specials) landed 2026-10-08 with its open half below, and #47 (the login calendar) the same day; #48 (milestones) landed 2026-10-09, and #43 (the Ascendant) was decided, built and its art locked the same day, closing it; #49 opened with it, and #50 (the tutorials, backlog item 10) was picked up; #53 (holiday gifts) and #54 (per-raid Loadout auto-apply) were built the same day, each with an open half below.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
 `#18.6`) keep their original meaning in both.
@@ -86,7 +86,7 @@ Explicitly deferred scope — the gift-mechanic phase is locked, but limited-tim
 
 ## ⚠️ Open consequences of work that landed
 
-Nine items are built and working but left something undecided. The full record of each is in
+Eleven items are built and working but left something undecided. The full record of each is in
 `build-log.md`; only the open half is restated here. (The `killFraction` invariant that used to
 sit here as #24 is not an open item — it is a trap, and it lives in `CLAUDE.md` §7 and
 `build-log.md` #24.)
@@ -172,6 +172,44 @@ open:
 3. **The campaign sim doesn't see milestones.** Seal income isn't part of the walk, so this changes
    nothing it measures. Pull-pacing questions (#23.2, the Seal ladder) now have this source to
    account for.
+
+### 49. Holiday gifts — built; the bundles are placeholders
+
+Full record: `build-log.md` #49. Four holidays, a claim each per year, in a three-day UTC window.
+What it left open:
+
+1. **`HOLIDAY_GIFTS` is one `UNTUNED ╧` table**, and `HOLIDAY_CLAIM_WINDOW_DAYS` (3, the holiday
+   counted) is §2's "e.g." taken at its word. The bundles follow §3's shape (Christmas richest,
+   Halloween smallest, themed Seals); every amount is a guess. Their Gems are platform-wide, so
+   size them with the calendar's Gem days (#47) and the prestige milestones' (#48) in step 7 of the
+   *Suggested order*, and their Gold after the Gold decision (#23), like the calendar's.
+2. **Lunar New Year's table ends at 2050**, and takes the date in China as the UTC day. A spec
+   fails once the table is within twenty years of running out.
+3. **`holiday-events.md` §2 models the claim on `seals/claim-daily.post.ts`**, which #29 retired
+   (`tech-architecture.md` §5 still lists it). The login calendar (#47) was the model instead; no
+   rule moved.
+
+### 50. Per-raid Loadout auto-apply — built; choices made without asking
+
+Full record: `build-log.md` #50. Each raid points at a saved slot from a picker on its own screen;
+a fresh engage snapshots and applies, leaving reverts. What it left open:
+
+1. **The run's boss closes the session.** Bosses engage under every scene, and the run's gate is
+   not the raid's fight, so a boss that fires while the player sits on the Raids scene fights on
+   the player's own loadout and the next raid engage applies the preferred one again.
+   `loadouts.md` §4 only says "on leaving the raid"; flip it if a boss should fight on the raid's.
+2. **The picker cycles** through the saved slots and none, rather than opening a list.
+3. **A preferred Loadout that can't be applied refuses the engage** (nothing spent) rather than
+   fighting on the live one. `loadouts.md` §1 says a Loadout never goes stale, so this should only
+   happen after a roster edit drops an ID.
+4. **Idle accrual during a session runs on the raid's Loadout**: the run never stops, and the
+   session is short. A session the client never closed reverts on the first read once the game
+   session has timed out (`HQ_SESSION_TIMEOUT_MS`), before that read's settle.
+5. **The Arena's pointer is stored but unread.** `arena` is a valid target (#1); the Arena's attack
+   calls `engageLoadout(…, 'arena')` and its own leave when it is built.
+6. **`tech-architecture.md` §3 said a 5-entry map**, one per raid; #1 (the user's call,
+   2026-10-04) and `loadouts.md` §4 add the Arena. Built per #1, and §3 now says so. The leave
+   route, `raid/leave.post.ts`, is new to §5.
 
 ### 36. Cooldowns off the level curve — the pacing half is deferred to playtesting
 
@@ -297,6 +335,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 | `RAID_ENRAGE_SECONDS`, `RAID_DUMMY_SECONDS`, `RAID_KNIGHT_PWR_MULT`, `RAID_DIG_PWR_MULT`, `RAID_DIG_ADD_SECONDS`, `RAID_FORGE_PWR_MULT`, `RAID_FORGE_BOSS_STEPS`, `RAID_FORGE_HANDOFF_SECONDS` | `raid-system.md` | Built (#46). Each raid's HP multiplier is measured against its clock, so moving `RAID_ENRAGE_SECONDS` or `RAID_DUMMY_SECONDS` means re-measuring the HP multiplier it is coupled to. The PWR multipliers sit at 1: a raid boss hits like the stage it stands for |
 | `BOSS_SPECIAL_*` (11) | none — see #45 | One set of magnitudes for all twenty gate bosses' specials: cooldown, the spread, heavy and focus hits, burn, stun, silence, debuff and drain. Measured only on seeded gate fights; the campaign walk does not model them |
 | `CALENDAR_SCHEDULE`, `CALENDAR_INCOME_DAYS_FIRST`, `CALENDAR_INCOME_DAYS_LAST` | none — see #47 | The schedule's Gold minutes and Gem counts are placeholders, rebalanced after the Gold decision (#23), and count as one marker; day 30's 200 Void Shards is the user's. The two dials size every Seal, Key and Trait Gem day in days of income, ¼ to 1 |
+| `HOLIDAY_GIFTS`, `HOLIDAY_CLAIM_WINDOW_DAYS` | `holiday-events.md` §2–§3 | The four holidays' bundles, counted as one marker, and the claim window. Gems reach past Hero Quest: size them with the calendar's and the milestones' (#49) |
 | `GPN_DISPLAY_SCALE` | `global-power-number.md` | Presentation only (#28): it changes how big GPN reads, never which party ranks above which, and cancels out of the Arena's percentage band |
 | `SLOT_BASE_BONUS` ×6, `GEAR_PASSIVE_COEFFICIENT` | `gear-equipment.md` §2 | Built. The six slot coefficients are deliberately *identical* — no doc ranks the stats against each other, so six different values would encode a spread nobody decided. `GEAR_PASSIVE_COEFFICIENT` must stay well under them or manual equip stops mattering |
 | `SKILL_PASSIVE_MAGNITUDE[]`, `SKILL_ECONOMY_COEFFICIENT` | `skills-gacha.md` §4 | The whole 36-skill magnitude ladder, indexed by rarity. §4 authors it as "small" → "large" and assigns no number anywhere; the *relative ordering* is design content, so retune the set rather than entries |
@@ -347,7 +386,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
    - ~~**Check the cleared-run manual re-engage** flagged in #25.~~ Fixed.
 3. ~~**World & Enemy Design (#6)**~~ **Closed 2026-10-04** — the art is restyled and locked (`art-style.md`); regular enemies get no abilities. ~~**Boss specials become real (#45)**~~ **built 2026-10-08**, measured on seeded gate fights; the open half is under #45 above.
 4. **The last quick call (#2)**, the Arena band — answer it with the Arena. #1 and #3 are decided, and with #3 the raid-rule questions #31 and #32 (2026-10-04); the asset calls (#4, #30) on 2026-09-17.
-5. **Phase 4 — endgame systems** (`implementation-plan.md`). Raids, Traits, Arena, Holidays, plus `loadouts.md` §4's per-raid auto-apply. ~~GPN~~ built (#28); the leaderboard aggregate and Defense GPN remain, with Arena. ~~Battle Speed~~ built (#44). ~~Raids~~ built, all five (#46).
+5. **Phase 4 — endgame systems** (`implementation-plan.md`). Traits and Arena remain. ~~GPN~~ built (#28); the leaderboard aggregate and Defense GPN remain, with Arena. ~~Battle Speed~~ built (#44). ~~Raids~~ built, all five (#46). ~~Holidays~~ built, the gifts (#49). ~~`loadouts.md` §4's per-raid auto-apply~~ built (#50); the Arena's half comes with the Arena.
 6. **Passive Skill Tree (#7)** — the last unbuilt major system; good candidate for its own dedicated session.
 7. **Playtest, then tune the rest.** The combat and progression block is tuned (#22); the gacha, shop, economy and ability-magnitude constants are settled here — see the standing-tuning section. The balance script and campaign sim stay in use throughout. **Once the Gold balance is decided, rebalance the login calendar's Gold and Gem days** (#47).
 
