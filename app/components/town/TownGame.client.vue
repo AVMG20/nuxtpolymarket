@@ -2164,6 +2164,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 <div v-if="moveSelection" class="hint">
                     <UIcon name="i-lucide-move" />
                     <b>{{ moveSelection.items.length }} moving</b>
+                    <span class="hint-note">press R to rotate</span>
                     <button class="hint-btn" data-tip-below="Turn the whole block a quarter turn. Shift+R turns it back" @click="rotateGroup()"><kbd>R</kbd>rotate</button>
                     <kbd>Esc</kbd>
                 </div>
@@ -2179,7 +2180,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <TownAsset v-if="ghostType !== 'road'" :id="ghostType" kind="building" :level="ghostLevel" />
                     <UIcon v-else name="i-lucide-route" />
                     <b>{{ town.catalogById.value.get(ghostType)?.name }}</b>
-                    <span v-if="dragQuote" class="hint-quote">×{{ dragQuote.count }}<TownCoin />{{ formatNumber(dragQuote.coins) }}</span>
+                    <span v-if="movingId" class="hint-note">moving · press R to turn the front door to a road</span>
+                    <span v-else-if="dragQuote" class="hint-quote">×{{ dragQuote.count }}<TownCoin />{{ formatNumber(dragQuote.coins) }}</span>
                     <template v-else-if="ghostCost">
                         <span v-if="ghostBlocker" class="hint-warn">{{ ghostBlocker }}</span>
                         <span v-else class="hint-note">drag to lay a run</span>
