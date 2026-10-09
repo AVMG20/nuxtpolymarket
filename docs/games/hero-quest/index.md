@@ -164,6 +164,7 @@ Not design docs — they describe the *state* of the project rather than the gam
 | Trait stat values by grade | `traits.md` | §4 |
 | Trait Sets (5) | `traits.md` | §5 |
 | Trait save slots (Gems 250/750/1250) | `traits.md` | §6 |
+| Traits as built: scopes, Set readings, evasion in the fight, schema, routes, scene | `build-log.md` #51, `traits.md` | *As built* |
 | Loadout contents (5 components) | `loadouts.md` | §1 |
 | Loadout slots 2→10, Gems | `loadouts.md` | §3 |
 | Per-raid loadout auto-apply | `loadouts.md` | §4 |

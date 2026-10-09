@@ -143,6 +143,8 @@ Resolves the currency question left open in `traits.md` (idea backlog item 8). *
 
 Not a sink: expanding the *number* of Trait save slots (1→4) — that's priced in platform Gems instead (**250 / 750 / 1250**, a flat +500/level step rather than this project's usual doubling shape), same convenience-feature logic as Loadout slot expansion (§4 above), since save-slot count adds no combat power on its own.
 
+**Both sinks are live since 2026-10-09** (`build-log.md` #51); the balance is `hq_state.trait_gems`, paid by Shardcaller Beast and some login-calendar days.
+
 ---
 
 ## 9. Entry Currencies — Guild / Skill / Excavation / Forge / Trait Keys (new custom currency)

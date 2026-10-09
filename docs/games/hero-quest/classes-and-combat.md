@@ -251,6 +251,7 @@ onHit:  roll uniform [0,1) < hitChance  → the attack lands, resolve damage/cri
 - **The check runs per incoming attack instance**, before mitigation and before the crit roll — a missed attack rolls nothing else. For multi-strike kits (below) and multi-hit abilities, **each hit rolls its own evasion check independently**, same as crit.
 - **Offline/settle treatment:** the offline calc averages crit rather than rolling it (`idle-mechanics.md` §4), and EVA follows the same convention — it applies as a flat `× (1 − EVA)` multiplier on expected incoming damage rather than a per-hit roll. Seeded live fights (`tech-architecture.md` §4c) roll it for real, exactly like crit.
 - **Party-wide by default when trait-sourced** — see `traits.md` §5, where Trait effects apply to the whole fielded party.
+- **Live since 2026-10-09** (`build-log.md` #51): `UnitStats.eva`, clamped at `MAX_EVASION` where the stat block is built. A dodged swing, or a dodged hit of a boss special, is logged with `miss` and 0 damage; a special every hit of which missed lands no status. The roll is drawn only against a defender with EVA, so a fight without any replays exactly as it did before Traits.
 
 ### Status effects — **new, and decided rather than transcribed**
 

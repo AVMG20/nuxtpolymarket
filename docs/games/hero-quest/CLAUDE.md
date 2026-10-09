@@ -73,7 +73,7 @@ These are load-bearing and easy to violate by accident.
 
 `constants.ts` marks every constant with one of three states (see its header):
 
-- **`// UNTUNED ╧`** — locked formula shape, placeholder value. **97** of them as of 2026-10-09, mostly the gacha, shop, economy, raid, boss-special, milestone, holiday and ability-magnitude layers (the login calendar's reward table and the holiday gift table count as one each). `rg '╧' shared/utils/hero-quest/constants.ts` is the list (two more lines than markers: the file's header legend); `open-items.md` "Standing numeric tuning" says what each is waiting on.
+- **`// UNTUNED ╧`** — locked formula shape, placeholder value. **97** of them as of 2026-10-09, mostly the gacha, shop, economy, raid, boss-special, milestone, holiday and ability-magnitude layers (the login calendar's reward table and the holiday gift table count as one each). Traits added none: `traits.md` locks every number they use. `rg '╧' shared/utils/hero-quest/constants.ts` is the list (two more lines than markers: the file's header legend); `open-items.md` "Standing numeric tuning" says what each is waiting on.
 - **`// TUNED ✓`** — measured on the campaign sim (`open-items.md` #22). **Moving one is a design decision**: its comment says what it trades against and what it is coupled to. Several only mean anything as a pair (`K` with `BASE_ENEMY_PWR`, `BASE_ATTACK_INTERVAL_SECONDS` with `SKILL_BASE_COOLDOWN_SECONDS`, `XP_BASE_PER_KILL` with `XP_TO_LEVEL_BASE`). Re-measure with `bun run sim:hero-quest --report=campaign` before and after.
 - **No marker** — either derived (`STAT_PER_LEVEL_GROWTH`, `XP_STEP_EXPONENT`, `LEVELS_PER_STAGE`, `ENEMY_HP_STEP_EXPONENT`, …; never set directly — move its inputs) or specified by a doc. `GOLD_TENURE_CEILING` is **generated** from Colony and Xeno by `scripts/lib/economy-stages.ts`; regenerate, never hand-edit.
 
@@ -89,7 +89,7 @@ When you need a new constant:
 
 `implementation-plan.md` defines five phases. **Build only the current phase.** Each phase names its deferred systems explicitly; treat that list as a prohibition, not a suggestion.
 
-The current phase is **Phase 4**, under way: Battle Speed, the raids, the Holiday gifts and the per-raid Loadout auto-apply are built (`build-log.md` #44, #46, #53, #54); Traits and the Arena remain. The battle stage came first (#34), and the playtest session and the Gold decisions (#23) were moved to the very end on 2026-10-02 (`open-items.md` *Suggested order*). Phase 4's systems are independent of each other; build the one asked for, not its neighbours. GPN, left over from Phase 3, is built (`open-items.md` #28).
+The current phase is **Phase 4**, under way: Battle Speed, the raids, Traits with evasion, the Holiday gifts and the per-raid Loadout auto-apply are built (`build-log.md` #44, #46, #51, #53, #54); the Arena remains. The battle stage came first (#34), and the playtest session and the Gold decisions (#23) were moved to the very end on 2026-10-02 (`open-items.md` *Suggested order*). Phase 4's systems are independent of each other; build the one asked for, not its neighbours. GPN, left over from Phase 3, is built (`open-items.md` #28).
 
 The failure this rule was written against still generalises: building a content system (a gacha, a raid) on top of a loop nobody has validated means tuning it against numbers that will move. The loop is now tuned on the sim but has been felt in only one logged session.
 
