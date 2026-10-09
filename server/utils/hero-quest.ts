@@ -525,7 +525,7 @@ export interface SettleOutcome {
     shopLevels?: Record<string, number>
     collections?: HqCollections
     /** The live Trait board, read inside the same lock. */
-    traits?: (TraitSlotState | null)[]
+    traits?: TraitBoard
 }
 
 /**
@@ -609,7 +609,7 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
                 heroLevel: result.heroLevel,
                 heroXp: toStore(result.heroXp),
                 // the platform leaderboard's GPN, at the level the window ends on
-                ...powerWrites({ ...state, heroLevel: result.heroLevel }, shopLevels, collections)
+                ...powerWrites({ ...state, heroLevel: result.heroLevel }, shopLevels, collections, traits)
             })
             .where(eq(hqState.userId, userId))
             .returning()
@@ -654,10 +654,10 @@ export function withDefenseLoadout(state: HqStateRow): HqStateRow | null {
 }
 
 /** Defense GPN (`arena.md` §2), as the two columns it is kept in: the Decimal, and the log10 the match band searches. */
-export function defenseGpnOf(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections) {
+export function defenseGpnOf(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections, traits?: TraitBoard) {
     const defended = withDefenseLoadout(state)
     if (!defended) return { defenseGpn: null, defenseGpnLog: null }
-    const gpn = globalPower(heroSnapshotOf(defended, shopLevels, collections)).gpn
+    const gpn = globalPower(heroSnapshotOf(defended, shopLevels, collections, undefined, traits)).gpn
     return { defenseGpn: gpn.toString(), defenseGpnLog: gpnLog10(gpn) }
 }
 
@@ -667,8 +667,8 @@ export function defenseGpnOf(state: HqStateRow, shopLevels: Record<string, numbe
  * the locked docs recompute it only when the defence is saved (`arena.md` §2), though the
  * defender's level and collection keep moving it between saves (`open-items.md` #52).
  */
-function powerWrites(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections) {
-    return { globalPowerNumber: globalPower(heroSnapshotOf(state, shopLevels, collections)).gpn.toString() }
+function powerWrites(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections, traits?: TraitBoard) {
+    return { globalPowerNumber: globalPower(heroSnapshotOf(state, shopLevels, collections, undefined, traits)).gpn.toString() }
 }
 
 /**

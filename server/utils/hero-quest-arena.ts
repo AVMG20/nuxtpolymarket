@@ -28,7 +28,7 @@ import { and, desc, eq, gt, inArray, isNotNull, ne, notInArray, sql } from 'driz
 import { db, type DbExecutor } from '#server/database'
 import { hqArenaLog, hqArenaSeasonResults, hqArenaSeasons, hqFights, hqLoadouts, hqRaidState, hqState, user } from '#server/database/schema'
 import { credit, creditGems, debitGems } from '#server/utils/balance'
-import { defenseGpnOf, getCollections, getShopLevels, heroSnapshotOf, loadoutSlots, positionOf, sealGrant, tenureDaysOf, withDefenseLoadout, type HqCollections, type HqStateRow } from '#server/utils/hero-quest'
+import { defenseGpnOf, getCollections, getShopLevels, getTraitBoard, heroSnapshotOf, loadoutSlots, positionOf, sealGrant, tenureDaysOf, withDefenseLoadout, type HqCollections, type HqStateRow } from '#server/utils/hero-quest'
 import { validateLiveLoadout, type LoadoutInput } from '#server/utils/hero-quest-loadout'
 import { lockRaid } from '#server/utils/hero-quest-raids'
 import {
@@ -66,6 +66,7 @@ import {
 } from '#shared/utils/hero-quest/constants'
 import { randomInt } from '#shared/utils/random'
 import type { HeroSnapshot } from '#shared/utils/hero-quest/types'
+import type { TraitBoard } from '#shared/utils/hero-quest/traits'
 import type { Decimal } from '#shared/utils/hero-quest/numbers'
 
 // ── Standing, attempts, defence ────────────────────────────────────────────────────
@@ -87,9 +88,9 @@ function standingWrites(standing: ArenaStanding) {
  * the stored defence fielded in place of whatever they play with live (§1). Wealth-neutral, as the
  * defender's banked Gold has nothing to do with a fight they are not at.
  */
-export function defenseSnapshotOf(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections): HeroSnapshot | null {
+export function defenseSnapshotOf(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections, traits?: TraitBoard): HeroSnapshot | null {
     const defended = withDefenseLoadout(state)
-    return defended ? heroSnapshotOf(defended, shopLevels, collections) : null
+    return defended ? heroSnapshotOf(defended, shopLevels, collections, undefined, traits) : null
 }
 
 /** Lock the given players' rows for the rest of the transaction, in user-ID order. */
@@ -219,8 +220,8 @@ async function drawFor(executor: DbExecutor, userId: string, hero: HeroSnapshot)
 }
 
 function liveHeroOf(executor: DbExecutor, state: HqStateRow, bankedGold?: number): Promise<HeroSnapshot> {
-    return Promise.all([getShopLevels(state.userId, executor), getCollections(state.userId, executor)])
-        .then(([shop, collections]) => heroSnapshotOf(state, shop, collections, bankedGold))
+    return Promise.all([getShopLevels(state.userId, executor), getCollections(state.userId, executor), getTraitBoard(state.userId, executor)])
+        .then(([shop, collections, traits]) => heroSnapshotOf(state, shop, collections, bankedGold, traits))
 }
 
 export interface ArenaCandidate {
@@ -359,8 +360,8 @@ export async function setDefense(tx: DbExecutor, userId: string, request: Defens
         equippedArtifactIds: writes.equippedArtifactIds ?? [],
         equippedGear: writes.equippedGear ?? {}
     }
-    const collections = await getCollections(userId, tx)
-    const gpn = defenseGpnOf({ ...state, defenseLoadout: defense }, shopLevels, collections)
+    const [collections, traits] = await Promise.all([getCollections(userId, tx), getTraitBoard(userId, tx)])
+    const gpn = defenseGpnOf({ ...state, defenseLoadout: defense }, shopLevels, collections, traits)
     await tx.update(hqState).set({ defenseLoadout: defense, ...gpn }).where(eq(hqState.userId, userId))
     return { defense, defenseGpn: gpn.defenseGpn }
 }
@@ -418,11 +419,11 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
     // applied to the live state here, before the snapshot below is taken and before the fight runs,
     // and reverted on leaving the Arena; the attempt is spent only after, so the swap always lands
     // before the cost. Built by the generic per-raid/Arena auto-apply, not by this module.
-    const [attackerShop, attackerCollections] = await Promise.all([getShopLevels(userId, tx), getCollections(userId, tx)])
-    const hero = heroSnapshotOf(attacker, attackerShop, attackerCollections, bankedGold)
+    const [attackerShop, attackerCollections, attackerTraits] = await Promise.all([getShopLevels(userId, tx), getCollections(userId, tx), getTraitBoard(userId, tx)])
+    const hero = heroSnapshotOf(attacker, attackerShop, attackerCollections, bankedGold, attackerTraits)
     // the band is held here, under the lock, against the party about to fight: a list drawn on a
     // weaker loadout, or a defender who has since saved a weaker defence, can't be punched down on
-    const banded = heroSnapshotOf(attacker, attackerShop, attackerCollections)
+    const banded = heroSnapshotOf(attacker, attackerShop, attackerCollections, undefined, attackerTraits)
     if (!dummy && !(await listInBand(tx, [listed], banded))) {
         throw createError({ statusCode: 409, statusMessage: 'That opponent is out of your range now; pick again' })
     }
@@ -433,8 +434,8 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
     if (dummy) {
         fight = runArenaDummy(hero, positionOf(attacker), seed)
     } else {
-        const [shop, collections] = await Promise.all([getShopLevels(listed, tx), getCollections(listed, tx)])
-        const defenderHero = defenseSnapshotOf(defender!, shop, collections)!
+        const [shop, collections, traits] = await Promise.all([getShopLevels(listed, tx), getCollections(listed, tx), getTraitBoard(listed, tx)])
+        const defenderHero = defenseSnapshotOf(defender!, shop, collections, traits)!
         fight = runDuel({ attacker: hero, defender: defenderHero, seed })
         enemy = {
             classId: defenderHero.classId,
@@ -568,8 +569,8 @@ export async function buyFromShop(tx: DbExecutor, userId: string, itemId: unknow
     let amount = count
     if (item.kind === 'gold') {
         // minutes of the run's income as it stands: the caller settled first
-        const [shopLevels, collections] = await Promise.all([getShopLevels(userId, tx), getCollections(userId, tx)])
-        const perHour = goldPerHourAt(heroSnapshotOf(spent, shopLevels, collections), positionOf(spent), tenureDaysOf(spent))
+        const [shopLevels, collections, traits] = await Promise.all([getShopLevels(userId, tx), getCollections(userId, tx), getTraitBoard(userId, tx)])
+        const perHour = goldPerHourAt(heroSnapshotOf(spent, shopLevels, collections, undefined, traits), positionOf(spent), tenureDaysOf(spent))
         amount = Math.floor(perHour * item.minutes / 60 * count)
         if (amount > 0) await credit(userId, amount.toFixed(4), 'hero-quest:arena', tx)
     } else if (item.kind === 'gems') {
