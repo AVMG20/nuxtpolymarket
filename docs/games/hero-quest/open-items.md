@@ -59,6 +59,9 @@ read the older rule in the doc named in the middle column, it is superseded.**
 
 ## 🔴 Genuinely undesigned — full passes, not edits
 
+### Tutorials with a guide character (backlog item 10) — **🚧 in progress, @rtgschepers, 2026-10-09**
+Picked up for its design pass and build; ask before starting on it. A guide explains each part of the game as it unlocks at a checkpoint, with separate trackers for features unlocked and tutorials seen (`idea-backlog.md` item 10).
+
 ### 7. Passive Skill Tree (backlog item 3)
 Unchecked. Hero-only passive tree, generic root splitting into 3 paths, nodes up to 5 levels each, purchased via its own dedicated raid, with Champion/item side-nodes allowed but never gating a path. Structurally sound to build (raids don't have to be gacha-paired) but has had no dedicated design session.
 
@@ -109,22 +112,25 @@ fixed cooldown, with damage and a status or a drain. What it left open:
    pool, so only the Skills Unbreakable Will and Immortal Vanguard grant it. Worth a look when
    the Artifact effects are re-cut (`CLAUDE.md` §6).
 
-### 47. The login calendar — built; its table is a placeholder
+### 47. The login calendar — built; its Gold and Gem days are placeholders
 
 Full record: `build-log.md` #47. Thirty fixed days per account cycle, three make-ups. What it left
 open:
 
-1. **`CALENDAR_REWARDS` is one `UNTUNED ╧` table.** Its shape is the user's: small early days, and
-   each currency paying more every time it comes round, with no milestone days. Day 30's even 200
-   Void Shards is the user's number; every other amount is a guess. Gems are the platform-wide
-   currency, so its Gem days (25, 50, 75 a cycle) reach past Hero Quest.
+1. ~~**`CALENDAR_REWARDS` is one `UNTUNED ╧` table.**~~ **Sized 2026-10-09 (the user's call):** a
+   Seal, Key or Trait Gem day pays days of that currency's regular income, a day's free pulls and
+   raid clears at raid level 1, climbing evenly from `CALENDAR_INCOME_DAYS_FIRST` (¼) on day 1 to
+   `CALENDAR_INCOME_DAYS_LAST` (1) on day 30. Both dials are `UNTUNED ╧`. A cycle now pays about
+   1–1.5 days of each gacha's pulls (34–58 Seals, from 4–6), 2.4 days of Trait Gems (73, from 50)
+   and the same Keys as before. Day 30's 200 Void Shards is the user's number. The Gold minutes
+   and Gem counts in `CALENDAR_SCHEDULE` are still guesses, below.
 2. **Rebalance its Gold and Gems after the Gold balance step** (step 7 of the *Suggested order*,
    #23; the user's call, 2026-10-08). A Gold day is minutes of current income (`gold-economy.md`
-   §6), so it is exactly as right as the unreconciled Gold curve, and the Gem days are sized
-   against nothing yet.
-3. **No Battle Speed days.** A free block can't start while a bought block of another speed runs
-   (`idle-mechanics.md` §3), so a claim would either be refused, losing the day, or need a queue.
-   Left out until that is decided.
+   §6), so it is exactly as right as the unreconciled Gold curve, and the Gem days (25, 50, 75 a
+   cycle, platform-wide) are sized against nothing yet.
+3. ~~**No Battle Speed days.**~~ **Decided 2026-10-09: left out** (the user's call). A free block
+   can't start while a bought block of another speed runs (`idle-mechanics.md` §3), and neither a
+   refused claim nor a queue was worth it.
 
 ### 49. Convergence plays as one cinematic in the game — **new 2026-10-09**
 
@@ -257,7 +263,7 @@ economy — a tuning question, listed below rather than a blocker.
 
 ## ⚪ Standing numeric tuning — **what is still `// UNTUNED ╧`**
 
-Named constants with a formula shape locked and a placeholder value. Consolidated so a tuning pass has one list. `rg '╧' shared/utils/hero-quest/constants.ts` is the authority — **93 markers** as of 2026-10-09, up from 61 on 2026-09-16 with the raids (#46), boss specials (#45), the login calendar (#47), milestones (#48) and the Ascendant (#43). Every marker has a row below; the Arena row's constants are not in `constants.ts` until the Arena is built.
+Named constants with a formula shape locked and a placeholder value. Consolidated so a tuning pass has one list. `rg '╧' shared/utils/hero-quest/constants.ts` is the authority — **95 markers** as of 2026-10-09, up from 61 on 2026-09-16 with the raids (#46), boss specials (#45), the login calendar (#47), milestones (#48) and the Ascendant (#43). Every marker has a row below; the Arena row's constants are not in `constants.ts` until the Arena is built.
 
 ~~**Decided: none of this is tuned before playtesting.**~~ **Superseded for the combat and progression block by #22**, which tuned it on the campaign walk. The original reasoning still holds for everything that remains below: the balance script and campaign sim project *what the formulas say*, and a projected value that feels wrong in play is worth less than no value, because it looks settled. What remains is mostly the gacha, shop and ability-magnitude layers, which the campaign walk barely exercises — so they want play data or a different measurement, not another sim pass.
 
@@ -276,7 +282,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 | `PRESTIGE_STAT_PER_LEVEL`, `PRESTIGE_STAT_BASE_COST`, `PRESTIGE_STAT_COST_GROWTH` | none — see #41 | The uncapped stat tracks: +1% party-wide per level, from 100 Void Shards climbing ×1.15. They decide how fast Void Shards turn into power once the capped tracks are done, so tune against `VOID_SHARD_BASE/GROWTH` and add them to the campaign walk before trusting the pacing past a first prestige |
 | `RAID_ENRAGE_SECONDS`, `RAID_DUMMY_SECONDS`, `RAID_KNIGHT_PWR_MULT`, `RAID_DIG_PWR_MULT`, `RAID_DIG_ADD_SECONDS`, `RAID_FORGE_PWR_MULT`, `RAID_FORGE_BOSS_STEPS`, `RAID_FORGE_HANDOFF_SECONDS` | `raid-system.md` | Built (#46). Each raid's HP multiplier is measured against its clock, so moving `RAID_ENRAGE_SECONDS` or `RAID_DUMMY_SECONDS` means re-measuring the HP multiplier it is coupled to. The PWR multipliers sit at 1: a raid boss hits like the stage it stands for |
 | `BOSS_SPECIAL_*` (11) | none — see #45 | One set of magnitudes for all twenty gate bosses' specials: cooldown, the spread, heavy and focus hits, burn, stun, silence, debuff and drain. Measured only on seeded gate fights; the campaign walk does not model them |
-| `CALENDAR_REWARDS` | none — see #47 | The login calendar's 30-day table, counted as one marker. Day 30's 200 Void Shards is the user's; every other amount is a placeholder, and the Gold and Gem days are rebalanced after the Gold decision (#23) |
+| `CALENDAR_SCHEDULE`, `CALENDAR_INCOME_DAYS_FIRST`, `CALENDAR_INCOME_DAYS_LAST` | none — see #47 | The schedule's Gold minutes and Gem counts are placeholders, rebalanced after the Gold decision (#23), and count as one marker; day 30's 200 Void Shards is the user's. The two dials size every Seal, Key and Trait Gem day in days of income, ¼ to 1 |
 | `GPN_DISPLAY_SCALE` | `global-power-number.md` | Presentation only (#28): it changes how big GPN reads, never which party ranks above which, and cancels out of the Arena's percentage band |
 | `SLOT_BASE_BONUS` ×6, `GEAR_PASSIVE_COEFFICIENT` | `gear-equipment.md` §2 | Built. The six slot coefficients are deliberately *identical* — no doc ranks the stats against each other, so six different values would encode a spread nobody decided. `GEAR_PASSIVE_COEFFICIENT` must stay well under them or manual equip stops mattering |
 | `SKILL_PASSIVE_MAGNITUDE[]`, `SKILL_ECONOMY_COEFFICIENT` | `skills-gacha.md` §4 | The whole 36-skill magnitude ladder, indexed by rarity. §4 authors it as "small" → "large" and assigns no number anywhere; the *relative ordering* is design content, so retune the set rather than entries |
