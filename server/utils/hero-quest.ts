@@ -124,7 +124,7 @@ import {
     type BattleSpeedWindow
 } from '#shared/utils/hero-quest/battle-speed'
 import type { StatsExplanation } from '#shared/utils/hero-quest/explain'
-import { loadoutSessionOf, restoredLoadout } from '#shared/utils/hero-quest/loadout-session'
+import { readLoadoutSnapshot, type LiveLoadoutColumns, type LoadoutTarget } from '#shared/utils/hero-quest/loadout-session'
 import { D, ZERO, decPow, fromStore, toStore } from '#shared/utils/hero-quest/numbers'
 import { ASCENDANT_ID, ASCENDANT_PICKABLE, CLASS_NODES, MASTER_IDS, childrenOf, classOfSkill, getClass, kitFor } from '#shared/utils/hero-quest/content/classes'
 import { SHOP_TRACKS, maxLevelFor, shopStatLevels, shopTrackCost, type ShopTrackId } from '#shared/utils/hero-quest/content/shop'
@@ -632,6 +632,19 @@ export function prestigeResetValues(state: HqStateRow) {
 }
 
 /**
+ * The open preferred-Loadout session on a row: the loadout columns it puts back, and its target and
+ * slot where they still read (null otherwise). Null when none is open. A snapshot whose columns
+ * don't read is refused outright: putting it back is impossible and clearing it would lose the
+ * player's own loadout, so nothing that would overwrite it may run.
+ */
+export function openLoadoutSnapshotOf(state: HqStateRow): { columns: LiveLoadoutColumns, target: LoadoutTarget | null, slotIndex: number | null } | null {
+    const read = readLoadoutSnapshot(state.preRaidSnapshot)
+    if (read.kind === 'none') return null
+    if (read.kind === 'unreadable') throw createError({ statusCode: 500, statusMessage: 'The loadout saved before your last raid could not be read' })
+    return read
+}
+
+/**
  * Close an open preferred-Loadout session (`loadouts.md` §4): put the live loadout back as it was
  * before the raid's first engage, and clear the snapshot. Returns the row as it now stands (the
  * same row when no session is open).
@@ -643,10 +656,10 @@ export function prestigeResetValues(state: HqStateRow) {
  * back as stored: it was the live loadout, and nothing in this game is ever un-owned.
  */
 export async function restoreLoadoutSession(tx: DbExecutor, userId: string, state: HqStateRow): Promise<HqStateRow> {
-    if (state.preRaidSnapshot === null) return state
-    const session = loadoutSessionOf(state.preRaidSnapshot)
+    const session = openLoadoutSnapshotOf(state)
+    if (!session) return state
     const [updated] = await tx.update(hqState)
-        .set({ ...(session ? restoredLoadout(session) : {}), preRaidSnapshot: null })
+        .set({ ...session.columns, preRaidSnapshot: null })
         .where(eq(hqState.userId, userId))
         .returning()
     return updated ?? state

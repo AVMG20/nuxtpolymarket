@@ -213,6 +213,34 @@ describe.skipIf(SKIP)('hero-quest preferred loadouts on raid engage', () => {
         expect(state.preRaidSnapshot).toBeNull()
     })
 
+    it('puts back the loadout of a session whose raid no longer reads', async () => {
+        await db.update(hqState).set({
+            partyChampionIds: [C4],
+            preRaidSnapshot: { target: 'raid_gone', slotIndex: 0, partyChampionIds: [C1], formation: {}, equippedSkillIds: [], equippedArtifactIds: [], equippedGear: { weapon: WEAPON }, ascendantSkillIds: [] } as never
+        }).where(eq(hqState.userId, USER_ID))
+        await prefer('raid_training_grounds', 0)
+
+        const seen: string[][] = []
+        await engage('raid_training_grounds', seen)
+
+        // the player's own loadout is the snapshot again, not the Loadout that was live
+        expect(seen).toEqual([[C2, C3]])
+        expect((await stateOf()).preRaidSnapshot).toMatchObject({ target: 'raid_training_grounds', partyChampionIds: [C1] })
+        expect(await leave()).toBe(true)
+        expect((await stateOf()).partyChampionIds).toEqual([C1])
+    })
+
+    it('refuses to overwrite a snapshot it cannot read', async () => {
+        const broken = { target: 'raid_guild', slotIndex: 0, partyChampionIds: 'nope' }
+        await db.update(hqState).set({ preRaidSnapshot: broken as never }).where(eq(hqState.userId, USER_ID))
+        await prefer('raid_training_grounds', 0)
+
+        await expect(engage('raid_training_grounds')).rejects.toMatchObject({ statusCode: 500 })
+        await expect(leave()).rejects.toMatchObject({ statusCode: 500 })
+        expect((await stateOf()).preRaidSnapshot).toEqual(broken)
+        expect((await stateOf()).partyChampionIds).toEqual([C1])
+    })
+
     it('puts the player\'s own loadout back before a Gear auto-equip lands on it', async () => {
         await prefer('raid_training_grounds', 0)
         await engage('raid_training_grounds')

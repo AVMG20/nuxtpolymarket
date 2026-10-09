@@ -8,6 +8,7 @@ import {
     loadoutSessionStale,
     openLoadoutSession,
     planLoadoutEngage,
+    readLoadoutSnapshot,
     restoredLoadout,
     type LiveLoadoutColumns
 } from '#shared/utils/hero-quest/loadout-session'
@@ -83,6 +84,21 @@ describe('hero-quest preferred loadouts', () => {
             expect(loadoutSessionOf(null)).toBeNull()
             expect(loadoutSessionOf({ target: 'raid_nowhere', slotIndex: 0, ...LIVE })).toBeNull()
             expect(loadoutSessionOf({ target: 'raid_guild', slotIndex: 0 })).toBeNull()
+        })
+
+        it('reads the loadout of a snapshot whose target no longer reads, and refuses one whose columns don\'t', () => {
+            expect(readLoadoutSnapshot(null)).toEqual({ kind: 'none' })
+            expect(readLoadoutSnapshot({ target: 'raid_gone', slotIndex: 2, ...LIVE })).toEqual({ kind: 'open', columns: LIVE, target: null, slotIndex: 2 })
+            expect(readLoadoutSnapshot({ target: 'raid_guild', slotIndex: 2, ...LIVE, equippedGear: null })).toEqual({ kind: 'unreadable' })
+            expect(readLoadoutSnapshot({ ...LIVE, formation: { hero: 'middle' } })).toEqual({ kind: 'unreadable' })
+            expect(readLoadoutSnapshot('junk')).toEqual({ kind: 'unreadable' })
+        })
+
+        it('treats a session with no readable target as another raid\'s: put back, never kept', () => {
+            const lost = { target: null, slotIndex: null }
+            expect(planLoadoutEngage('raid_guild', 0, lost)).toEqual({ kind: 'apply', slotIndex: 0, restoreFirst: true })
+            expect(planLoadoutEngage('raid_guild', null, lost)).toEqual({ kind: 'restore' })
+            expect(planLoadoutEngage('raid_guild', null, { target: 'raid_guild', slotIndex: null })).toEqual({ kind: 'restore' })
         })
 
         it('keeps only real targets on whole slot indices in the preference map', () => {

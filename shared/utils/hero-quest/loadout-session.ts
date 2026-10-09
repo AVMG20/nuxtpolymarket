@@ -63,8 +63,13 @@ export type LoadoutEngagePlan =
  *   snapshot stays the pre-raid state, never another raid's Loadout.
  * - Then the preferred slot, if there is one, is applied.
  */
-export function planLoadoutEngage(target: LoadoutTarget, preferred: number | null, session: LoadoutSession | null): LoadoutEngagePlan {
-    if (session && session.target === target && session.slotIndex === preferred) return { kind: 'keep' }
+export function planLoadoutEngage(
+    target: LoadoutTarget,
+    preferred: number | null,
+    session: { target: LoadoutTarget | null, slotIndex: number | null } | null
+): LoadoutEngagePlan {
+    // a session whose target or slot no longer reads is never this raid's: it is put back
+    if (session && preferred !== null && session.target === target && session.slotIndex === preferred) return { kind: 'keep' }
     if (preferred !== null) return { kind: 'apply', slotIndex: preferred, restoreFirst: session !== null }
     return session ? { kind: 'restore' } : { kind: 'none' }
 }
@@ -91,14 +96,40 @@ export function restoredLoadout(session: LoadoutSession): LiveLoadoutColumns {
     return liveLoadoutOf(session)
 }
 
-/** A stored session, or null for anything that isn't one (a column never written, or a stale shape). */
+/**
+ * A stored snapshot as read. `open` whenever its six loadout columns read, which is all a revert
+ * needs, with its target and slot only where they are still valid (a target renamed since reads as
+ * null, and is then treated as another raid's session). `unreadable` when the columns themselves
+ * don't: the player's own loadout can't be recovered from it, so the server refuses rather than
+ * overwrite it.
+ */
+export type StoredLoadoutSnapshot =
+    | { kind: 'none' }
+    | { kind: 'open', columns: LiveLoadoutColumns, target: LoadoutTarget | null, slotIndex: number | null }
+    | { kind: 'unreadable' }
+
+const isIdList = (v: unknown): v is string[] => Array.isArray(v) && v.every(id => typeof id === 'string')
+const isIdMap = (v: unknown): v is Record<string, string> => !!v && typeof v === 'object' && !Array.isArray(v) && Object.values(v).every(x => typeof x === 'string')
+
+export function readLoadoutSnapshot(value: unknown): StoredLoadoutSnapshot {
+    if (value === null || value === undefined) return { kind: 'none' }
+    if (typeof value !== 'object') return { kind: 'unreadable' }
+    const v = value as Partial<Record<keyof LoadoutSession, unknown>>
+    if (!isIdList(v.partyChampionIds) || !isIdList(v.equippedSkillIds) || !isIdList(v.equippedArtifactIds) || !isIdList(v.ascendantSkillIds)) return { kind: 'unreadable' }
+    if (!isIdMap(v.equippedGear) || !isIdMap(v.formation) || Object.values(v.formation).some(row => row !== 'front' && row !== 'back')) return { kind: 'unreadable' }
+    return {
+        kind: 'open',
+        columns: liveLoadoutOf(v as unknown as LiveLoadoutColumns),
+        target: isLoadoutTarget(v.target) ? v.target : null,
+        slotIndex: typeof v.slotIndex === 'number' && Number.isInteger(v.slotIndex) && v.slotIndex >= 0 ? v.slotIndex : null
+    }
+}
+
+/** A stored session with a valid target and slot, or null for anything else (none stored, or one that doesn't read whole). */
 export function loadoutSessionOf(value: unknown): LoadoutSession | null {
-    if (!value || typeof value !== 'object') return null
-    const v = value as Partial<LoadoutSession>
-    if (!isLoadoutTarget(v.target) || typeof v.slotIndex !== 'number') return null
-    if (!Array.isArray(v.partyChampionIds) || !Array.isArray(v.equippedSkillIds) || !Array.isArray(v.equippedArtifactIds) || !Array.isArray(v.ascendantSkillIds)) return null
-    if (!v.formation || typeof v.formation !== 'object' || !v.equippedGear || typeof v.equippedGear !== 'object') return null
-    return v as LoadoutSession
+    const read = readLoadoutSnapshot(value)
+    if (read.kind !== 'open' || read.target === null || read.slotIndex === null) return null
+    return { target: read.target, slotIndex: read.slotIndex, ...read.columns }
 }
 
 /** The stored preference map, with anything that isn't a target and a whole slot index dropped. */

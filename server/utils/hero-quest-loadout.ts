@@ -16,7 +16,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { hqCollection, hqLoadouts, hqState } from '#server/database/schema'
-import { artifactSlots, championSlots, getShopLevels, loadoutSlots, restoreLoadoutSession, skillSlots } from '#server/utils/hero-quest'
+import { artifactSlots, championSlots, getShopLevels, loadoutSlots, openLoadoutSnapshotOf, restoreLoadoutSession, skillSlots } from '#server/utils/hero-quest'
 import { ASCENDANT_KIT_SIZE, FORMATION_ROW_CAPACITY, HQ_SESSION_TIMEOUT_MS, LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import {
     loadoutPreferencesOf,
@@ -24,7 +24,6 @@ import {
     loadoutSessionStale,
     openLoadoutSession,
     planLoadoutEngage,
-    restoredLoadout,
     type LoadoutPreferences,
     type LoadoutTarget
 } from '#shared/utils/hero-quest/loadout-session'
@@ -337,7 +336,8 @@ export async function engageLoadout(tx: DbExecutor, userId: string, target: Load
     const [preset] = wanted !== undefined && wanted < loadoutSlots(shopLevels)
         ? await tx.select().from(hqLoadouts).where(and(eq(hqLoadouts.userId, userId), eq(hqLoadouts.slotIndex, wanted)))
         : []
-    const session = loadoutSessionOf(locked.preRaidSnapshot)
+    // read whole or refused: a snapshot that doesn't read is never overwritten by a new one
+    const session = openLoadoutSnapshotOf(locked)
     const plan = planLoadoutEngage(target, preset ? wanted! : null, session)
 
     if (plan.kind === 'none') return { state: locked, slotIndex: null }
@@ -345,7 +345,7 @@ export async function engageLoadout(tx: DbExecutor, userId: string, target: Load
     if (plan.kind === 'restore') return { state: await restoreLoadoutSession(tx, userId, locked), slotIndex: null }
 
     // apply: over the pre-raid loadout, put back first when a session was open
-    const before = plan.restoreFirst ? { ...locked, ...restoredLoadout(session!) } : locked
+    const before = plan.restoreFirst ? { ...locked, ...session!.columns } : locked
     let writes: LoadoutWrites
     try {
         writes = await validateLiveLoadout(tx, userId, before, {
@@ -363,7 +363,7 @@ export async function engageLoadout(tx: DbExecutor, userId: string, target: Load
     }
     const [updated] = await tx.update(hqState)
         .set({
-            ...(plan.restoreFirst ? restoredLoadout(session!) : {}),
+            ...(plan.restoreFirst ? session!.columns : {}),
             ...writes,
             preRaidSnapshot: openLoadoutSession(target, plan.slotIndex, before)
         })
