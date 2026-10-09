@@ -143,7 +143,7 @@ unique on (userId, slotIndex), index on userId
 
 `stat` is one of 8, `grade` one of F..SSS, `setId` one of 5 — all content-enum strings, values resolved from `content/traits.ts` at read time rather than stored (so a tuning change to a grade's magnitude doesn't need a migration). `locked` is the free/unlimited protect-from-reroll flag.
 
-**As built (2026-10-09, migration `0058`, `build-log.md` #51):** the IDs live in `content/traits.ts` and every number they resolve to in `constants.ts` (`TRAIT_*`), per `CLAUDE.md` §3. No row exists until the first Roll writes all five. Every trait write takes the `hqState` row lock first, the mutex the Trait Gem spend needs anyway.
+**As built (2026-10-09, migration `0062`, `build-log.md` #51):** the IDs live in `content/traits.ts` and every number they resolve to in `constants.ts` (`TRAIT_*`), per `CLAUDE.md` §3. No row exists until the first Roll writes all five. Every trait write takes the `hqState` row lock first, the mutex the Trait Gem spend needs anyway.
 
 **`hqTraitSaveSlots`** — stored trait boards (`traits.md` §6):
 
