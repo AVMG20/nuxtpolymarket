@@ -12,7 +12,7 @@
 // Every number shown comes from the server's payload; the scene decides nothing.
 
 import { C } from './palette'
-import { rect, blit, dither, type Surface } from './surface'
+import { rect, blit, dither, px, type Surface } from './surface'
 import { drawText, textWidth } from './font'
 import { glyph, type Glyph } from './icon-kit'
 import { CURRENCY_ICONS } from './icons-items'
@@ -51,7 +51,7 @@ export interface ArenaItemView {
     name: string
     /** What one buys, where the name doesn't say: Gold's "30 MIN" of income. */
     sub: string
-    price: number
+    price: number
 }
 
 function itemIcon(item: ArenaItemView): Glyph {
@@ -147,6 +147,27 @@ const PURPLE = [C.purple0, C.purple1, C.purple2] as const
 const STONE = [C.stone0, C.stone1, C.stone2] as const
 
 const MEDAL = CURRENCY_ICONS.arena_medals!
+
+/**
+ * A Medal small enough for the header's row, which the full glyph overruns into the tabs above and
+ * the rule below: its ribbon at `top`, the gold disc under it, 10 px tall in all.
+ */
+function miniMedal(s: Surface, cx: number, top: number): void {
+    rect(s, cx - 3, top, 3, 3, C.ink)
+    rect(s, cx, top, 3, 3, C.ink)
+    rect(s, cx - 2, top, 2, 2, C.red2)
+    rect(s, cx + 1, top, 1, 2, C.blue2)
+    rect(s, cx, top, 1, 2, C.blue1)
+    // the disc, 5 across with its corners cut, inked round and lit at its top left
+    const d = top + 3
+    rect(s, cx - 2, d - 1, 5, 7, C.ink)
+    rect(s, cx - 3, d, 7, 5, C.ink)
+    rect(s, cx - 1, d, 3, 5, C.gold2)
+    rect(s, cx - 2, d + 1, 5, 3, C.gold2)
+    px(s, cx - 1, d + 1, C.gold3)
+    px(s, cx, d + 2, C.gold1)
+    px(s, cx + 1, d + 3, C.gold1)
+}
 
 function panelH(h: number): number {
     return h - P.y - 2
@@ -390,7 +411,7 @@ export class ArenaScene {
         const medals = String(view.medals)
         const right = P.x + P.w - 6
         drawText(s, medals, right, y, C.gold3, { align: 2, shadow: 1 })
-        glyph(s, MEDAL, right - textWidth(medals) - 7, y + 1, true)
+        miniMedal(s, right - textWidth(medals) - 6, y - 2)
         rect(s, P.x + 4, P.y + 11, P.w - 8, 1, C.night2)
     }
 
