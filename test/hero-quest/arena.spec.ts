@@ -1,3 +1,4 @@
+import { raidReward } from '#shared/utils/hero-quest/raids'
 import { describe, expect, it } from 'vitest'
 import {
     ARENA_DUMMY_ID,
@@ -219,14 +220,22 @@ describe('hero-quest arena', () => {
     })
 
     describe('the Arena Shop (§6)', () => {
-        it('sells all four Seals, all five raids\' Keys, Gold and Gems, each under a stable ID', () => {
+        it('sells all four Seals, all five raids\' Keys and Gems, no Gold, each under a stable ID', () => {
             expect(ARENA_SHOP.filter(i => i.kind === 'seals')).toHaveLength(4)
             expect(ARENA_SHOP.filter(i => i.kind === 'keys').map(i => i.kind === 'keys' && i.raid).sort()).toEqual(RAIDS.map(r => r.id).sort())
-            expect(ARENA_SHOP.filter(i => i.kind === 'gold')).toHaveLength(1)
+            expect(ARENA_SHOP.some(i => (i.kind as string) === 'gold')).toBe(false)
             expect(ARENA_SHOP.filter(i => i.kind === 'gems')).toHaveLength(1)
             expect(new Set(ARENA_SHOP.map(i => i.id)).size).toBe(ARENA_SHOP.length)
             expect(arenaShopItem('seals_champion')?.kind).toBe('seals')
             expect(arenaShopItem('nope')).toBeNull()
+        })
+
+        it('prices a Seal raid\'s Key at the Seals a level-5 clear pays, and never under them', () => {
+            // a level-5 clear of a Seal raid pays 3 Seals, at 30 Medals each
+            expect(arenaShopItem('keys_raid_guild')?.price).toBe(90)
+            for (const raid of RAIDS.filter(r => r.pairedSystem)) {
+                expect(arenaShopItem(`keys_${raid.id}`)?.price).toBe(raidReward(raid.id, 5) * arenaShopItem('seals_champion')!.price)
+            }
         })
 
         it('keeps a day of Medals into Gems well under one Battle Speed block', () => {

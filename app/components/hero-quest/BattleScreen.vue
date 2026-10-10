@@ -800,10 +800,9 @@ const ARENA_SEAL_NAMES: Readonly<Record<string, string>> = { champion: 'Guild Se
 
 const arenaShop: ArenaItemView[] = ARENA_SHOP.map((item) => {
     switch (item.kind) {
-        case 'seals': return { id: item.id, kind: item.kind, system: item.system, name: ARENA_SEAL_NAMES[item.system] ?? 'Seal', sub: '', price: item.price, poor: false }
-        case 'keys': return { id: item.id, kind: item.kind, raid: item.raid, name: getRaid(item.raid).key.replace(/s$/, ''), sub: '', price: item.price, poor: false }
-        case 'gold': return { id: item.id, kind: item.kind, name: 'Gold', sub: `${item.minutes} MIN`, price: item.price, poor: false }
-        case 'gems': return { id: item.id, kind: item.kind, name: 'Gem', sub: '', price: item.price, poor: true }
+        case 'seals': return { id: item.id, kind: item.kind, system: item.system, name: ARENA_SEAL_NAMES[item.system] ?? 'Seal', sub: '', price: item.price }
+        case 'keys': return { id: item.id, kind: item.kind, raid: item.raid, name: getRaid(item.raid).key.replace(/s$/, ''), sub: '', price: item.price }
+        case 'gems': return { id: item.id, kind: item.kind, name: 'Gem', sub: '', price: item.price }
     }
 })
 

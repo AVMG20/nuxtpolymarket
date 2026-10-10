@@ -24,9 +24,8 @@ import {
     ARENA_SEASON_EPOCH_MS,
     ARENA_SEASON_REWARDS,
     ARENA_SHOP_GEM_PRICE,
-    ARENA_SHOP_GOLD_MINUTES,
-    ARENA_SHOP_GOLD_PRICE,
-    ARENA_SHOP_KEY_PRICE,
+    ARENA_SHOP_KEY_LEVEL,
+    ARENA_SHOP_TRAIT_KEY_PRICE,
     ARENA_SHOP_SEAL_PRICE,
     K_ATTACK,
     K_DEFEND,
@@ -34,7 +33,8 @@ import {
     MEDAL_BASE_WIN,
     MEDAL_UPSET_BONUS
 } from './constants'
-import { RAIDS, type RaidId } from './content/raids'
+import { RAIDS, getRaid, type RaidId } from './content/raids'
+import { raidReward } from './raids'
 import type { GachaSystem } from './gacha'
 import type { FormationRow } from './types'
 
@@ -246,19 +246,26 @@ export function drawCandidates(pool: readonly string[], pick: (n: number) => num
 export type ArenaShopItem =
     | { id: string, kind: 'seals', system: GachaSystem, price: number }
     | { id: string, kind: 'keys', raid: RaidId, price: number }
-    | { id: string, kind: 'gold', minutes: number, price: number }
     | { id: string, kind: 'gems', price: number }
 
 const SEAL_SYSTEMS: readonly GachaSystem[] = ['champion', 'skill', 'artifact', 'gear']
 
 /**
- * Everything the shop sells, one unit each (§6): all four Seals, all five raids' Keys, Gold as
- * minutes of income, and Gems at the deliberately bad rate. IDs are stable; a purchase names one.
+ * A raid Key's Medal price: for a Seal raid, the Seals a clear pays at `ARENA_SHOP_KEY_LEVEL` at the
+ * Seal's own price; the Trait raid, which pays Trait Gems, at its own.
+ */
+export function arenaKeyPrice(raid: RaidId): number {
+    if (!getRaid(raid).pairedSystem) return ARENA_SHOP_TRAIT_KEY_PRICE
+    return raidReward(raid, ARENA_SHOP_KEY_LEVEL) * ARENA_SHOP_SEAL_PRICE
+}
+
+/**
+ * Everything the shop sells, one unit each (§6): all four Seals, all five raids' Keys, and Gems at
+ * the deliberately bad rate. No Gold (the user's call, 2026-10-10). IDs are stable; a purchase names one.
  */
 export const ARENA_SHOP: readonly ArenaShopItem[] = [
     ...SEAL_SYSTEMS.map(system => ({ id: `seals_${system}`, kind: 'seals' as const, system, price: ARENA_SHOP_SEAL_PRICE })),
-    ...RAIDS.map(raid => ({ id: `keys_${raid.id}`, kind: 'keys' as const, raid: raid.id, price: ARENA_SHOP_KEY_PRICE })),
-    { id: 'gold', kind: 'gold', minutes: ARENA_SHOP_GOLD_MINUTES, price: ARENA_SHOP_GOLD_PRICE },
+    ...RAIDS.map(raid => ({ id: `keys_${raid.id}`, kind: 'keys' as const, raid: raid.id, price: arenaKeyPrice(raid.id) })),
     { id: 'gems', kind: 'gems', price: ARENA_SHOP_GEM_PRICE }
 ]
 

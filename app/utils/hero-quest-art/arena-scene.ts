@@ -44,23 +44,20 @@ export interface ArenaCandidateView {
 
 export interface ArenaItemView {
     id: string
-    kind: 'seals' | 'keys' | 'gold' | 'gems'
+    kind: 'seals' | 'keys' | 'gems'
     /** The gacha a Seal is for, or the raid a Key opens: what picks its icon. */
     system?: string
     raid?: RaidId
     name: string
     /** What one buys, where the name doesn't say: Gold's "30 MIN" of income. */
     sub: string
-    price: number
-    /** Priced as a last resort (§6), and said so. */
-    poor: boolean
+    price: number
 }
 
 function itemIcon(item: ArenaItemView): Glyph {
     switch (item.kind) {
         case 'seals': return CURRENCY_ICONS[`seal_${item.system}`] ?? MEDAL
         case 'keys': return CURRENCY_ICONS[KEY_ICON[item.raid!]] ?? MEDAL
-        case 'gold': return CURRENCY_ICONS.gold!
         case 'gems': return CURRENCY_ICONS.gems!
     }
 }
@@ -540,8 +537,8 @@ export class ArenaScene {
             drawText(s, fit(item.name.toUpperCase(), room), b.x + 19, b.y + 3, C.bone1, { shadow: 1 })
             // a medal's glyph is taller than the row's second line: the price is spelled out instead
             const price = `${item.price} MEDALS`
-            drawText(s, price, b.x + 19, b.y + 11, item.poor ? C.red3 : C.gold3, { shadow: 1 })
-            drawText(s, fit(item.poor ? 'POOR' : item.sub, room - textWidth(price) - 4), b.x + 23 + textWidth(price), b.y + 11, C.stone3, { shadow: 1 })
+            drawText(s, price, b.x + 19, b.y + 11, C.gold3, { shadow: 1 })
+            if (item.sub) drawText(s, fit(item.sub, room - textWidth(price) - 4), b.x + 23 + textWidth(price), b.y + 11, C.stone3, { shadow: 1 })
             for (const { n, box } of buttons) {
                 const target: ArenaTarget = `shop:${item.id}:${n}`
                 plateButton(s, box, n === 1 ? 'x1' : 'x10', GREEN, enabled(target), lit(target), pressed)

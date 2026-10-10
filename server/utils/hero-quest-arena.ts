@@ -27,8 +27,8 @@
 import { and, desc, eq, gt, inArray, isNotNull, ne, notInArray, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { hqArenaLog, hqArenaSeasonResults, hqArenaSeasons, hqFights, hqRaidState, hqState, user } from '#server/database/schema'
-import { credit, creditGems, debitGems } from '#server/utils/balance'
-import { defenseGpnOf, getCollections, getShopLevels, getTraitBoard, heroSnapshotOf, positionOf, restoreLoadoutSession, sealGrant, tenureDaysOf, withDefenseLoadout, type HqCollections, type HqStateRow } from '#server/utils/hero-quest'
+import { creditGems, debitGems } from '#server/utils/balance'
+import { defenseGpnOf, getCollections, getShopLevels, getTraitBoard, heroSnapshotOf, positionOf, restoreLoadoutSession, sealGrant, withDefenseLoadout, type HqCollections, type HqStateRow } from '#server/utils/hero-quest'
 import { engageLoadout, validateLiveLoadout, type LoadoutInput } from '#server/utils/hero-quest-loadout'
 import { lockRaid } from '#server/utils/hero-quest-raids'
 import {
@@ -56,7 +56,6 @@ import {
 } from '#shared/utils/hero-quest/arena'
 import { runArenaDummy, runDuel, type DuelResult } from '#shared/utils/hero-quest/duel'
 import { partyUnitStats } from '#shared/utils/hero-quest/stats'
-import { goldPerHourAt } from '#shared/utils/hero-quest/settle'
 import { ladderDateKey } from '#shared/utils/hero-quest/gacha'
 import { getRaid } from '#shared/utils/hero-quest/content/raids'
 import {
@@ -541,16 +540,8 @@ export async function buyFromShop(tx: DbExecutor, userId: string, itemId: unknow
         .returning()
     if (!spent) throw createError({ statusCode: 400, statusMessage: 'Not enough Arena Medals' })
 
-    let amount = count
-    if (item.kind === 'gold') {
-        // minutes of the run's income as it stands: the caller settled first
-        const [shopLevels, collections, traits] = await Promise.all([getShopLevels(userId, tx), getCollections(userId, tx), getTraitBoard(userId, tx)])
-        const perHour = goldPerHourAt(heroSnapshotOf(spent, shopLevels, collections, undefined, traits), positionOf(spent), tenureDaysOf(spent))
-        amount = Math.floor(perHour * item.minutes / 60 * count)
-        if (amount > 0) await credit(userId, amount.toFixed(4), 'hero-quest:arena', tx)
-    } else if (item.kind === 'gems') {
-        await creditGems(userId, count, tx)
-    }
+    const amount = count
+    if (item.kind === 'gems') await creditGems(userId, count, tx)
     return {
         itemId: item.id,
         kind: item.kind,
