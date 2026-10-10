@@ -896,6 +896,14 @@ The user's call, for a second free menu button: the Passive Skill Tree needs one
 - **The Calendar is announced first now**, then the Milestones: `FEATURE_UNLOCKS` swapped the two, which open at the same checkpoint. The Milestones' unlock points at the Calendar's button (`featureMenuScene`) and opens it on their tab, where their explanation plays.
 - `/hero-quest/milestones` is gone, with no redirect, as `/hero-quest/speed` went. The trophy glyph the Milestones' button wore is gone with it.
 
+### 59. An Arena milestone, and no claim-all — **landed 2026-10-10**
+
+The user's calls.
+
+- **The Arena track** (`milestone_arena`, the twelfth): every `MILESTONE_ARENA_WINS_EVERY` (10) Arena wins pays Arena Medals, `MILESTONE_ARENA_MEDALS_BASE` (50) and `MILESTONE_ARENA_MEDALS_STEP` (25) more each step, all three `UNTUNED ╧`. Its feat is a new lifetime counter, `hq_state.arena_wins` (migration `0065`), incremented on every attack won, Training Dummy wins included, and never reset by a season or a prestige; the battle log keeps only the last twenty fights, so it couldn't be counted from that. Medals are paid in the claim's compare-and-swap on `hq_state`.
+- **The claim-all button is gone.** Twelve tracks fill the scene's two-by-six grid, each claimed by pressing its card; `milestones/claim.post.ts` now requires a `track`.
+- **Specs:** the Arena track's Medals paid once to a burst of claims (`concurrency.spec.ts`), the track count (`milestones.spec.ts`).
+
 ### 9. Holiday gameplay events — **decided 2026-10-10: not built**
 
 Was an open item: `holiday-events.md` locked the gift mechanic and left limited-time modes and content deferred. **Holidays are gifts only** (the user's call): no event modes, no limited-time content. The gifts (#53) are the whole feature.
