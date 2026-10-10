@@ -1049,10 +1049,10 @@ async function onHolidayOpen() {
 const milestonesView = computed<MilestonesView>(() => ({ rows: milestones.value }))
 const milestonesBusy = ref(false)
 
-async function onClaimMilestones(track: string | null) {
+async function onClaimMilestones(track: string) {
     milestonesBusy.value = true
     try {
-        await claimMilestones(track ?? undefined)
+        await claimMilestones(track)
     } catch {
         // `useHeroQuest` has already shown the error
     } finally {

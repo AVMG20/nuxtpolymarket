@@ -384,11 +384,11 @@ export const useHeroQuest = () => {
     }
 
     /**
-     * Claim every milestone step waiting: on one track, or on all of them without one. Gems move a
-     * platform balance the response doesn't carry, so the session is read back when any were paid.
+     * Claim every milestone step waiting on one track. Gems move a platform balance the response
+     * doesn't carry, so the session is read back when any were paid.
      */
-    async function claimMilestones(track?: string) {
-        const res = await call<{ rewards: { kind: string, amount: number }[] }>('/api/hero-quest/milestones/claim', track ? { track } : {}, '')
+    async function claimMilestones(track: string) {
+        const res = await call<{ rewards: { kind: string, amount: number }[] }>('/api/hero-quest/milestones/claim', { track }, '')
         if (res?.rewards.some(r => r.kind === 'gems')) await fetchSession()
         return res
     }
