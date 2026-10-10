@@ -1395,6 +1395,14 @@ export const MILESTONE_RAID_LEVEL_EVERY = 5
 export const MILESTONE_RAID_KEYS_BASE = 2 // UNTUNED ╧
 export const MILESTONE_RAID_KEYS_STEP = 1 // UNTUNED ╧
 
+/**
+ * The Arena's track (the user's call, 2026-10-10): every this many Arena wins, lifetime, Training
+ * Dummy wins included, pays Arena Medals, more each step.
+ */
+export const MILESTONE_ARENA_WINS_EVERY = 10 // UNTUNED ╧
+export const MILESTONE_ARENA_MEDALS_BASE = 50 // UNTUNED ╧
+export const MILESTONE_ARENA_MEDALS_STEP = 25 // UNTUNED ╧
+
 /** A collection's steps: every this many owned, and the full roster as the last. */
 export const MILESTONE_COLLECTION_EVERY = 6 // UNTUNED ╧
 /** That gacha's Seals. */

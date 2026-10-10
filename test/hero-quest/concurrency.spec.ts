@@ -27,13 +27,16 @@ import { getMilestoneTrack, milestoneRewardTotal } from '#shared/utils/hero-ques
 import { RAID_KEYS_PER_DAY,
     CALENDAR_MAKEUPS_PER_CYCLE,
     LOADOUT_SLOT_BASE_COST_GEMS,
+    MILESTONE_ARENA_MEDALS_BASE,
+    MILESTONE_ARENA_MEDALS_STEP,
+    MILESTONE_ARENA_WINS_EVERY,
     OFFLINE_EFFICIENCY_BASE_COST,
     SEAL_LADDER_BASE_GOLD,
     TEN_PULL_SIZE,
     TRAIT_SAVE_LOAD_COST,
     TRAIT_SAVE_SLOT_BASE_COST_GEMS,
     TRAIT_SAVE_SLOT_COST_STEP_GEMS
- } from '#shared/utils/hero-quest/constants'
+} from '#shared/utils/hero-quest/constants'
 import { ZERO } from '#shared/utils/hero-quest/numbers'
 import { credit, creditGems, debitGems, getBalance } from '#server/utils/balance'
 import {
@@ -412,11 +415,11 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect(await gemsOf()).toBe(gemsBefore + gems!.amount)
         })
 
-        it('grants a raid\'s Keys once, a claim-all racing a one-track claim', async () => {
+        it('grants a raid\'s Keys once, however many claims race for them', async () => {
             await ensureHqState(USER_ID)
             await db.insert(hqRaidState).values({ userId: USER_ID, raidId: 'raid_guild', highestLevel: 11, keyBalance: 0 })
 
-            const result = await burst(10, i => db.transaction(tx => claimMilestones(tx, USER_ID, i % 2 ? 'milestone_raid_guild' : null)))
+            const result = await burst(10, () => db.transaction(tx => claimMilestones(tx, USER_ID, 'milestone_raid_guild')))
 
             expect(result.ok).toBe(1)
             const [keys] = milestoneRewardTotal(getMilestoneTrack('milestone_raid_guild')!, 0, 2)
@@ -428,7 +431,21 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
 
         it('refuses a claim with nothing waiting', async () => {
             await ensureHqState(USER_ID)
-            await expect(db.transaction(tx => claimMilestones(tx, USER_ID, null))).rejects.toMatchObject({ statusCode: 400 })
+            await expect(db.transaction(tx => claimMilestones(tx, USER_ID, 'milestone_prestige'))).rejects.toMatchObject({ statusCode: 400 })
+        })
+
+        it('pays the Arena track\'s Medals once, however many claims race for them', async () => {
+            await ensureHqState(USER_ID)
+            await db.update(hqState).set({ arenaWins: 2 * MILESTONE_ARENA_WINS_EVERY, arenaMedals: 0 }).where(eq(hqState.userId, USER_ID))
+
+            const result = await burst(10, () => db.transaction(tx => claimMilestones(tx, USER_ID, 'milestone_arena')))
+
+            expect(result.ok).toBe(1)
+            const [medals] = milestoneRewardTotal(getMilestoneTrack('milestone_arena')!, 0, 2)
+            const after = await stateOf()
+            expect(medals).toEqual({ kind: 'medals', amount: 2 * MILESTONE_ARENA_MEDALS_BASE + MILESTONE_ARENA_MEDALS_STEP })
+            expect(after.arenaMedals).toBe(medals!.amount)
+            expect(after.milestonesClaimed).toEqual({ milestone_arena: 2 })
         })
     })
 

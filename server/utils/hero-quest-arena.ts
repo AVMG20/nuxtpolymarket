@@ -432,6 +432,7 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
     await tx.update(hqState).set({
         ...standingWrites(attackerAfter),
         arenaMedals: sql`${hqState.arenaMedals} + ${medals}`,
+        ...(won ? { arenaWins: sql`${hqState.arenaWins} + 1` } : {}),
         arenaAttemptDate: attempts.date,
         arenaAttemptsUsedToday: attempts.used + 1,
         arenaExtraAttemptsPurchasedToday: attempts.purchased,
