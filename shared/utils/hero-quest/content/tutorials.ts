@@ -86,11 +86,14 @@ export const TUTORIAL_PAGES: Readonly<Record<TutorialId, readonly string[]>> = {
         'Save a good board to come back to. Even I write the best ones down.'
     ],
 
-    'arena:unlock': ['Five Worlds behind you, and other heroes want a word. The Arena is now available.'],
+    'arena:unlock': ['Five Worlds cleared, and word of you has spread. Other heroes want a turn. The Arena is now available.'],
     'arena:visit': [
-        'Set your current loadout as your defence first. Other players fight it while you\'re away.',
-        'Win to climb the Rating, and earn Medals to spend in the Arena Shop.',
-        'A few free attacks a day. Each season pays out by rank. I\'ve kept every result.'
+        'Heroes fight each other here. Not in person, mind: you fight their defence, and they fight yours.',
+        'So set your current loadout as your defence first. It holds the gate while you\'re away.',
+        'Win and your Rating climbs; lose, even defending, and it slips. You\'re matched with heroes near it.',
+        'Every fight pays Medals, a win more. The Arena Shop takes them for Seals, Keys and Gems.',
+        'A few free attacks a day, and a couple of free refreshes. Pick the loadout you fight with below.',
+        'Each season ends with rewards by rank. I write down every result. I have the shell space.'
     ],
 
     'shop:unlock': ['Your first boss down! A merchant has set up shop. The Shop is now available.'],
