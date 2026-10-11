@@ -46,7 +46,7 @@ import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type Bake
 import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
-import { BADGE_GLINT_FOR, NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, badgePortrait, drawChallengeButton, drawProfileBadge, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type BadgeView, type NumberStyle, type PartyMember } from './feedback'
+import { BADGE_GLINT_FOR, BADGE_PORTRAIT_BOX, NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, badgePortrait, drawChallengeButton, drawGpnBar, drawProfileBadge, gpnChanging, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type BadgeView, type NumberStyle, type PartyMember } from './feedback'
 import { VL, clock, dimLevel, R } from './vfx-kit'
 import { J } from './rig'
 import { VFX_BY_ID, type VfxDef } from './vfx'
@@ -367,15 +367,6 @@ function gpnLog(gpn: string | null): number {
     if (gpn === null) return 0
     const v = D(gpn)
     return v.lte(1) ? 0 : v.log10().toNumber()
-}
-
-/** The chip naming a GPN change, from log10s: `×3.2` once it has doubled, `+12%` or `-4%` otherwise, none under 0.1%. */
-function gpnChip(from: number, to: number): string {
-    const ratio = 10 ** (to - from)
-    if (ratio >= 2) return `×${ratio < 100 ? ratio.toFixed(1) : stageNumber(D(10).pow(to - from))}`
-    const pct = (ratio - 1) * 100
-    if (Math.abs(pct) < 0.1) return ''
-    return `${pct > 0 ? '+' : '-'}${Math.abs(pct).toFixed(Math.abs(pct) < 10 ? 1 : 0)}%`
 }
 
 /**
@@ -1056,7 +1047,6 @@ export class BattleDemo {
                 stage: this.label,
                 sinceGain: -1,
                 sinceChange: -1,
-                chip: '',
                 up: true,
                 sinceLevel: -1
             }
@@ -1068,11 +1058,11 @@ export class BattleDemo {
         if (feed.gpn === null || to === this.gpnTo) return
         // from whatever is showing, so a change landing mid-count carries on from there
         this.gpnFrom = this.gpnShown()
-        b.chip = gpnChip(this.gpnTo, to)
         b.up = to > this.gpnTo
         this.gpnTo = to
         this.gpnAt = this.time
-        if (b.chip) this.changeAt = this.time
+        // every change gets its arrow, however small: a Charm's LCK barely moves the GPN
+        this.changeAt = this.time
         if (b.up) this.gainAt = this.time
     }
 
@@ -1083,7 +1073,24 @@ export class BattleDemo {
         return this.gpnFrom + (this.gpnTo - this.gpnFrom) * (1 - (1 - t) ** 3)
     }
 
-    /** The badge as of now: its count, glint, chip and level light run on the stage's clock. */
+    /** Whether a point on the stage is on the badge's portrait, while the badge shows. */
+    onBadgePortrait(x: number, y: number): boolean {
+        if (!this.badge || this.raidRound || this.arenaRound) return false
+        const b = BADGE_PORTRAIT_BOX
+        return x >= BADGE_X + b.x && x < BADGE_X + b.x + b.w && y >= BADGE_Y + b.y && y < BADGE_Y + b.y + b.h
+    }
+
+    /**
+     * The GPN bar alone over `out`, in the badge's place, while a change is counting or its arrow is
+     * up: drawn over a menu scene, so a change made there shows what it did to the GPN.
+     */
+    drawGpnOverlay(out: Surface): void {
+        // a raid or Arena round hides the badge; the GPN doesn't move under one
+        const badge = this.raidRound || this.arenaRound ? null : this.badgeNow()
+        if (badge && (this.gpnAt >= 0 || gpnChanging(badge))) drawGpnBar(out, BADGE_X, BADGE_Y, badge)
+    }
+
+    /** The badge as of now: its count, glint, arrow and level light run on the stage's clock. */
     private badgeNow(): BadgeView | null {
         const b = this.badge
         if (!b) return null

@@ -914,6 +914,14 @@ The user's calls, answering #58.1 (fights shortened with depth until the first c
 - **Specs:** `arena.spec.ts`, the crit cap and an even fight timing out.
 - **Fixed alongside:** the duel's basic attacks ignored `basicAttackFactor`, so Traits' Back to Basics did nothing in the Arena (the pace still counted it, so it made the party weaker; `traits.spec.ts`). On the stage, a hit no longer staggers an Arena body out of its swing or cast (the user's call): the cancelled swing dropped its logged hits and kills, so casts went missing and the fallen kept standing. A held beat cut short anywhere now lands rather than being dropped. A replayed cast cuts a basic swing short (Haste and the other utility casts are nothing but their show, and were landing silently behind swings), and an Arena defender's casts play their effects mirrored across the gap between the sides.
 
+### 61. Party stats, GPN arrows over every scene, and Gear upgrade arrows — **landed 2026-10-11**
+
+The user's calls, all stage UI.
+
+- **Party stats** (`party-stats.ts`): pressing the profile badge's portrait opens a popup over the battle, one column per fielded unit (Hero first) and one row per stat: PWR, DEF, VIT, SPD, LCK, IMP, then max HP, attacks a second, crit chance, crit damage and evasion. It reads `stats.get.ts` on open, the route the debug breakdown already used, so the state payload carries nothing new. Its close button, or a press beside it, shuts it; leaving the battle does too.
+- **GPN change:** the `+12%` chip under the badge is replaced by a bobbing arrow on the GPN bar just past the number, held for `BADGE_ARROW_FOR` (2.5 s, up from the chip's 1.8), green and up for a rise, red and down for a fall, on every change however small (the chip hid changes under 0.1%, which a Charm's LCK usually is). While the count runs or the arrow is up, the GPN bar is drawn over the whole frame on every scene, so a change made in Collections shows what it did.
+- **Gear upgrade arrows:** an owned, unequipped piece of Gear whose equipped bonus beats what its slot wears now bobs a green arrow in its tile's corner. Same comparison as the detail view's caret.
+
 ### 9. Holiday gameplay events — **decided 2026-10-10: not built**
 
 Was an open item: `holiday-events.md` locked the gift mechanic and left limited-time modes and content deferred. **Holidays are gifts only** (the user's call): no event modes, no limited-time content. The gifts (#53) are the whole feature.

@@ -351,16 +351,39 @@ const TEXT_X = 25
 const TOP_H = 13
 const LOW_Y = 12
 const LOW_H = 10
-/** Seconds the glint takes to cross the GPN bar on a gain, and the change chip stays up. */
+/** Seconds the glint takes to cross the GPN bar on a gain, and the change's arrow stays up. */
 export const BADGE_GLINT_FOR = 0.55
-export const BADGE_CHIP_FOR = 1.8
+export const BADGE_ARROW_FOR = 2.5
 /** Seconds a new level shows lit. */
 export const BADGE_LEVEL_FOR = 0.8
 const BOLT = ['...11', '..11.', '.111.', '11111', '.111.', '.11..', '11...'] as const
 const GPN_RAMP = [C.white, C.gold3, C.gold2, C.gold2, C.gold1, C.gold1, C.gold0] as const
 const GPN_LIT = [C.white, C.white, C.gold3, C.gold3, C.gold2, C.gold2, C.gold1] as const
-const CHIP_UP = [C.white, C.green4, C.green3, C.green3, C.green2] as const
-const CHIP_DOWN = [C.white, C.red3, C.red3, C.red2, C.red1] as const
+
+/** A 7×8 arrow, pointing up; `o` its ink, `l` `g` `d` its light, body and shade. Drawn flipped for down. */
+const ARROW = ['...o...', '..olo..', '.olggo.', 'olgggdo', 'oolgdoo', '.olgdo.', '.olgdo.', '.ooooo.'] as const
+export const ARROW_W = 7
+export const ARROW_H = 8
+/** The GPN bar's arrow, a size up so it reads over any scene. */
+const BIG_ARROW = ['....o....', '...olo...', '..ollgo..', '.olgggdo.', 'olggggddo', 'ooolgdooo', '..olgdo..', '..olgdo..', '..olgdo..', '..ooooo..'] as const
+const BIG_ARROW_H = 10
+const ARROW_UP = { l: C.green4, g: C.green3, d: C.green2 } as const
+const ARROW_DOWN = { l: C.red3, g: C.red2, d: C.red1 } as const
+
+/** A green up arrow or a red down one at (x, y), bobbing a pixel or two along its own direction on `t`. */
+export function drawBobArrow(s: Surface, x: number, y: number, up: boolean, t: number, big = false): void {
+    const bob = R(Math.sin(t * 7) * 1.5) * (up ? -1 : 1)
+    const ramp = up ? ARROW_UP : ARROW_DOWN
+    const shape = big ? BIG_ARROW : ARROW
+    for (let row = 0; row < shape.length; row++) {
+        const line = shape[up ? row : shape.length - 1 - row]!
+        for (let col = 0; col < line.length; col++) {
+            const ch = line[col]!
+            if (ch === '.') continue
+            px(s, x + col, y + row + bob, ch === 'o' ? C.ink : ramp[ch as 'l' | 'g' | 'd'])
+        }
+    }
+}
 
 /** The badge's portrait, baked once per class: `head` (a `headOf` crop) in a gold ring lit from the top left. */
 export function badgePortrait(head: Surface): Surface {
@@ -403,27 +426,31 @@ export interface BadgeView {
     level: number
     /** `P1-W3-S7`, prestige counted from 1, on the bar under the GPN. */
     stage: string
-    /** Seconds since the GPN last rose (glint) and since it last changed (chip), −1 for never. */
+    /** Seconds since the GPN last rose (glint) and since it last changed (arrow), −1 for never. */
     sinceGain: number
     sinceChange: number
-    /** `+12%` or `×3.2` for a rise, `-4%` for a fall. */
-    chip: string
+    /** The last change was a rise: the arrow is green and points up. */
     up: boolean
     /** Seconds since the level went up, −1 for never. */
     sinceLevel: number
 }
 
+/** The badge's portrait, in badge pixels: a press on it opens the party's stats. */
+export const BADGE_PORTRAIT_BOX = { x: 0, y: 0, w: BADGE_PORTRAIT, h: BADGE_PORTRAIT } as const
+
+/** Whether the GPN changed recently enough that its arrow is still up. */
+export function gpnChanging(v: BadgeView): boolean {
+    return v.sinceChange >= 0 && v.sinceChange < BADGE_ARROW_FOR
+}
+
 /**
- * The profile badge at (ox, oy): the Hero's portrait, the GPN big and gold on the bar beside it,
- * where the run stands under that, and the level on a pip under the face. A rise sends a glint
- * across the GPN bar and a chip naming the change up from under the badge; a level up lights the pip.
+ * The badge's GPN bar at the badge's (ox, oy): the bolt and the number on it, a glint across it
+ * on a rise, and the change's arrow bobbing just past its right end. Drawn alone over a menu scene,
+ * so a change made there shows what it did.
  */
-export function drawProfileBadge(s: Surface, ox: number, oy: number, v: BadgeView): void {
+export function drawGpnBar(s: Surface, ox: number, oy: number, v: BadgeView): void {
     const w = BADGE_W - BAR_X
     const glint = v.sinceGain >= 0 && v.sinceGain < BADGE_GLINT_FOR
-    const levelLit = v.sinceLevel >= 0 && v.sinceLevel < BADGE_LEVEL_FOR
-    // the level and stage bar first, so the GPN bar's base line sits over the seam
-    badgeBar(s, ox + BAR_X, oy + LOW_Y, w - 4, LOW_H, [C.purple0, C.purple1, C.purple2], C.purple0)
     badgeBar(s, ox + BAR_X, oy, w, TOP_H, [C.ink, C.night0, C.night1], C.night0)
     if (glint) {
         // the frame flares gold, and a slanted band of light crosses the bar left to right
@@ -443,7 +470,25 @@ export function drawProfileBadge(s: Surface, ox: number, oy: number, v: BadgeVie
     for (let y = 0; y < BOLT.length; y++) {
         for (let x = 0; x < 5; x++) if (BOLT[y]![x] === '1') px(s, ox + TEXT_X + x, oy + 3 + y, lit ? C.white : y < 3 ? C.gold3 : C.gold2)
     }
-    textRamp(s, v.gpn, ox + TEXT_X + 8, oy + 3, lit ? GPN_LIT : GPN_RAMP, 'mid', 1, 0, C.ink)
+    const end = textRamp(s, v.gpn, ox + TEXT_X + 8, oy + 3, lit ? GPN_LIT : GPN_RAMP, 'mid', 1, 0, C.ink)
+    if (gpnChanging(v)) {
+        // just past the number, on the bar; it blinks out over its last sixth
+        const k = v.sinceChange / BADGE_ARROW_FOR
+        if (k < 5 / 6 || (Math.floor(qt(v.sinceChange) * 12) & 1) === 0) drawBobArrow(s, ox + TEXT_X + 8 + end + 3, oy + ((TOP_H - BIG_ARROW_H) >> 1), v.up, v.sinceChange, true)
+    }
+}
+
+/**
+ * The profile badge at (ox, oy): the Hero's portrait, the GPN big and gold on the bar beside it,
+ * where the run stands under that, and the level on a pip under the face. A change bobs a green
+ * up arrow or a red down one past the GPN bar, and a rise glints across it; a level up lights the pip.
+ */
+export function drawProfileBadge(s: Surface, ox: number, oy: number, v: BadgeView): void {
+    const w = BADGE_W - BAR_X
+    const levelLit = v.sinceLevel >= 0 && v.sinceLevel < BADGE_LEVEL_FOR
+    // the level and stage bar first, so the GPN bar's base line sits over the seam
+    badgeBar(s, ox + BAR_X, oy + LOW_Y, w - 4, LOW_H, [C.purple0, C.purple1, C.purple2], C.purple0)
+    drawGpnBar(s, ox, oy, v)
     textOut(s, v.stage, ox + TEXT_X, oy + LOW_Y + 2, C.bone1, 'small', 1, 0, 1, C.ink, -1)
     blit(s, v.portrait, ox, oy)
     // the level pip, gold on the ring under the face, lit for a moment on a new level
@@ -454,13 +499,6 @@ export function drawProfileBadge(s: Surface, ox: number, oy: number, v: BadgeVie
     rect(s, px0 + 1, oy + BADGE_H - 5, pw - 2, 6, levelLit ? C.gold2 : C.gold1)
     rect(s, px0 + 1, oy + BADGE_H - 5, pw - 2, 1, levelLit ? C.white : C.gold2)
     textOut(s, label, px0 + 2, oy + BADGE_H - 4, C.white, 'small', 1, 0, 0, C.ink, -1)
-    if (v.chip && v.sinceChange >= 0 && v.sinceChange < BADGE_CHIP_FOR) {
-        // the chip rises a few px under the badge and blinks out over its last third
-        const k = v.sinceChange / BADGE_CHIP_FOR
-        if (k < 2 / 3 || (Math.floor(qt(v.sinceChange) * 12) & 1) === 0) {
-            textRamp(s, v.chip, ox + TEXT_X, oy + BADGE_H + 5 - R(4 * Math.min(1, k * 3)), v.up ? CHIP_UP : CHIP_DOWN, 'small', 1, 0, C.ink)
-        }
-    }
 }
 
 // ── Boss challenge ─────────────────────────────────────────────────────────────────
