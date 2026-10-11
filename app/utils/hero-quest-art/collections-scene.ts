@@ -12,6 +12,7 @@ import { glyph, type Glyph } from './icon-kit'
 import { ARTIFACT_ICONS, CURRENCY_ICONS, GEAR_ICONS } from './icons-items'
 import { TRAINING_SKILL_ICONS } from './icons-abilities'
 import { panel } from './ui-art'
+import { ARROW_H, ARROW_W, drawBobArrow } from './feedback'
 import { headOf, HEAD } from './demo'
 import { artById } from './catalog'
 import type { SceneBackdrops } from './menu-band'
@@ -32,6 +33,8 @@ export interface CollectionTile {
     maxed: boolean
     /** The letter in the tile's corner: E equipped, F or B for a Champion's row; null when idle. */
     mark: TileMark | null
+    /** Owned Gear that would beat what its slot wears now: a green arrow bobs in the tile's corner. */
+    upgrade?: boolean
     /** What it gives owned, and what it gives put to work, each saying whether it pays right now. */
     sections: readonly CollectionSection[]
     /** The detail's buttons that put it to work or take it off, left to right. */
@@ -345,6 +348,7 @@ export class CollectionsScene {
             const x = g.x + (i % COLS) * PITCH
             const y = g.y + Math.floor(i / COLS) * PITCH
             blit(s, collectionTile(tab, entries[i]!), x, y)
+            if (entries[i]!.upgrade) drawBobArrow(s, x + TILE - ARROW_W - 1, y + TILE - ARROW_H - 2, true, t)
             if (hover === i) {
                 // lit: a white ring round the tile's own rim
                 rect(s, x - 1, y - 1, TILE + 2, 1, C.white)

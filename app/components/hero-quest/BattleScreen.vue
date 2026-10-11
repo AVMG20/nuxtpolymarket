@@ -148,6 +148,7 @@ function collectionTiles(tab: HqCollectionTab): CollectionTile[] {
                     ...e,
                     subtitle: GEAR_SLOT_NAME[e.slot],
                     mark: e.equipped ? 'E' as const : null,
+                    upgrade: e.owned && !e.equipped && delta > 0,
                     sections: sections(
                         { active: e.owned, lines: [hqEffectLine('stat', e.stat, e.ownedBonus)] },
                         { title: 'Equipped', scope: 'Hero', active: e.equipped, lines: [compared] }
