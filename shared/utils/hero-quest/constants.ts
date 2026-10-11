@@ -1165,6 +1165,20 @@ export const MEDAL_UPSET_BONUS = 1 // UNTUNED ╧
  * touches it (§1).
  */
 export const ARENA_FIGHT_SECONDS = 30 // UNTUNED ╧
+
+/**
+ * An Arena hit's crit multiplier is capped at this (the user's call, 2026-10-10). Deep in the curve
+ * IMP drives it past ×17, and every fight ended on the first crit, inside a tenth of a second.
+ */
+export const ARENA_CRIT_MULTIPLIER_CAP = 2
+
+/**
+ * Every Arena fight is paced so two evenly matched parties would take this long to finish each other
+ * (the user's call, 2026-10-10: an even fight should run to the clock). Longer than
+ * `ARENA_FIGHT_SECONDS`, so an even fight times out and the HP shares decide it; a stronger party
+ * still finishes a weaker one early, in proportion to the gap. The pace only ever slows a fight.
+ */
+export const ARENA_EVEN_FIGHT_SECONDS = 45 // UNTUNED ╧
 /**
  * The Training Dummy's HP, in seconds of the attacker's own autoattack DPS against no DEF: a short
  * show before the guaranteed win (§2a), well inside `ARENA_FIGHT_SECONDS` at any depth.

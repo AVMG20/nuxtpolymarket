@@ -28,6 +28,7 @@ import {
     ARENA_CANDIDATE_COUNT,
     ARENA_DUMMY_SECONDS,
     ARENA_EXTRA_ATTEMPT_BASE_GEMS,
+    ARENA_CRIT_MULTIPLIER_CAP,
     ARENA_FIGHT_SECONDS,
     ARENA_FREE_ATTEMPTS_PER_DAY,
     ARENA_FREE_REFRESHES_PER_DAY,
@@ -264,6 +265,19 @@ describe('hero-quest arena', () => {
             expect(fight.events.some(e => e.kind === 'enemy_down')).toBe(true)
         })
 
+        it('caps a crit and paces an even fight to the clock, while a clear gap still finishes early', () => {
+            for (const level of [50, 230]) {
+                const fight = runDuel({ attacker: hero(level), defender: hero(level), seed: 2 })
+                expect(fight.outcome).toBe('timeout')
+            }
+            expect(runDuel({ attacker: hero(230), defender: hero(150), seed: 2 }).secondsElapsed).toBeLessThan(ARENA_FIGHT_SECONDS / 2)
+            // no Arena hit crits for more than the cap
+            const fight = runDuel({ attacker: hero(230), defender: hero(150), seed: 2 })
+            const crits = fight.events.filter(e => e.crit && e.damage).map(e => Number(e.damage))
+            const plain = fight.events.filter(e => !e.crit && e.kind === 'attack' && e.damage).map(e => Number(e.damage))
+            if (crits.length && plain.length) expect(Math.max(...crits)).toBeLessThanOrEqual(Math.max(...plain) * ARENA_CRIT_MULTIPLIER_CAP * 1.0001)
+        })
+
         it('gives a timeout to the side with more of its max HP left, a dead heat to the defender', () => {
             // a clock too short for either side to finish: the shares decide
             const ahead = runDuel({ attacker: hero(60), defender: hero(50), seed: 3, seconds: 2 })
@@ -292,10 +306,11 @@ describe('hero-quest arena', () => {
         })
 
         it('gives the attacker no edge in a mirror match', () => {
-            // who acts first within a tick is the seed's coin; fixed, the attacker won ~3 in 4
+            // who acts first within a tick is the seed's coin; fixed, the attacker won ~3 in 4. Paced,
+            // a mirror runs to the clock, so the HP shares decide it
             const party = hero(50, 'class_beginner', [champion('champ_borin', 'front'), champion('champ_lys')])
             let wins = 0
-            for (let seed = 1; seed <= 60; seed++) if (runDuel({ attacker: party, defender: party, seed }).outcome === 'win') wins++
+            for (let seed = 1; seed <= 60; seed++) if (runDuel({ attacker: party, defender: party, seed }).attackerWon) wins++
             expect(wins).toBeGreaterThan(15)
             expect(wins).toBeLessThan(45)
         })

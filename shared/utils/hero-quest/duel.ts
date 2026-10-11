@@ -35,14 +35,14 @@
  * `onEnemy`; damage a defender reflects is an `enemy_reflect`.
  */
 
-import { ARENA_DUMMY_SECONDS, ARENA_FIGHT_SECONDS, FIGHT_TICK_SECONDS, SKILL_STATUS_DURATION_SECONDS } from './constants'
-import { attackIntervalFor, cooldownFor, partyDps, partyMitigation, targetingOrder, wealthFactorFor } from './combat'
+import { ARENA_CRIT_MULTIPLIER_CAP, ARENA_DUMMY_SECONDS, ARENA_EVEN_FIGHT_SECONDS, ARENA_FIGHT_SECONDS, FIGHT_TICK_SECONDS, SKILL_STATUS_DURATION_SECONDS } from './constants'
+import { attackIntervalFor, cooldownFor, expectedCritFactor, hitChanceAgainst, partyDps, partyMitigation, rawHitDamage, targetingOrder, wealthFactorFor } from './combat'
 import { partyUnitStats } from './stats'
 import { heroKit } from './content/skills'
 import { SINGLE_TARGET, executeMultiplier, isAllyTarget, resolveAllyTargets, resolveEnemyTargets, type AbilityEffect } from './effects'
 import { absorbDamage, applyStatus, canAutoattack, canCastAbilities, cleanse, extendHostile, hasStatus, isHostile, reflectFraction, tickStatuses, type StatusApplication, type StatusInstance } from './status'
 import { decMaxZero, liveUnitStats, rollDamage, runFight, seededRandom, type FightEvent, type FightResult } from './fight'
-import { ONE, ZERO, decMax, type Decimal } from './numbers'
+import { D, ONE, ZERO, decMax, decMin, type Decimal } from './numbers'
 import type { ClassSkill, FormationRow, HeroSnapshot, RunPosition, UnitStats } from './types'
 
 export interface DuelInput {
@@ -76,7 +76,8 @@ interface Fighter {
 
 /** A side's fighters, Hero first, then each fielded Champion: `partyUnitStats`' order, the log's. */
 function sideOf(hero: HeroSnapshot): Fighter[] {
-    const units = partyUnitStats(hero)
+    // the Arena caps a crit (`ARENA_CRIT_MULTIPLIER_CAP`): uncapped, the first one ends the fight deep in the curve
+    const units = partyUnitStats(hero).map(stats => ({ ...stats, critMultiplier: decMin(D(ARENA_CRIT_MULTIPLIER_CAP), stats.critMultiplier) }))
     const kits: readonly (readonly ClassSkill[])[] = [heroKit(hero), ...(hero.champions ?? []).map(champion => champion.abilities)]
     // the Gambler's Strike family reads banked Gold once per fight, as in `runFight`
     const wealth = wealthFactorFor(hero.wealthHours)
@@ -105,6 +106,47 @@ function on(side: SideIndex, index: number): Pick<FightEvent, 'unitIndex' | 'ene
 }
 
 /**
+ * A side's expected damage a second against the far side, as the fight would land it unpaced: each
+ * unit's basic attacks and its damaging abilities on their cooldowns, through the far side's mean
+ * DEF and EVA, crits averaged. An estimate (an AoE counts one body, statuses none); `arenaPace` only
+ * needs the two sides' rates in proportion to their HP.
+ */
+function expectedDps(near: readonly Fighter[], far: readonly Fighter[]): Decimal {
+    if (!far.length) return ZERO
+    const def = far.reduce((sum, f) => sum.add(f.stats.def), ZERO).div(far.length)
+    const eva = far.reduce((sum, f) => sum + f.stats.eva, 0) / far.length
+    let total = ZERO
+    for (const f of near) {
+        const per = (multiplier: number) => rawHitDamage(f.stats.pwr, def, multiplier).mul(expectedCritFactor(f.stats)).mul(hitChanceAgainst(eva))
+        total = total.add(per(f.stats.basicAttackFactor).mul(f.stats.strikesPerAttack).mul(f.stats.attacksPerSecond))
+        for (const skill of f.skills) {
+            if (skill.multiplier <= 0 || isAllyTarget(skill.effect.target)) continue
+            const cooldown = cooldownFor(skill.cooldownSeconds, f.stats.cooldownSpd, f.stats.cooldownFactor)
+            if (cooldown > 0) total = total.add(per(skill.multiplier).div(cooldown))
+        }
+    }
+    return total
+}
+
+/**
+ * The fight's pace (`ARENA_EVEN_FIGHT_SECONDS`): every flow of HP a unit's power drives (a hit, a heal,
+ * a shield, a status's tick) is scaled by it, so the fight plays as if its clock were slowed. Set from
+ * the two sides' expected times to finish each other, their geometric mean brought to the even fight's
+ * length: a mirror match takes exactly that long, and a party twice as strong still finishes sooner.
+ * Never above 1, so a fight that is already slow is left alone.
+ */
+function arenaPace(sides: readonly [Fighter[], Fighter[]]): number {
+    const hp = (side: readonly Fighter[]) => side.reduce((sum, f) => sum.add(f.stats.maxHp), ZERO)
+    const dps0 = expectedDps(sides[0], sides[1])
+    const dps1 = expectedDps(sides[1], sides[0])
+    if (dps0.lte(0) || dps1.lte(0)) return 1
+    const ttk0 = hp(sides[1]).div(dps0)
+    const ttk1 = hp(sides[0]).div(dps1)
+    const even = ttk0.mul(ttk1).sqrt().toNumber()
+    return Number.isFinite(even) && even > 0 ? Math.min(1, even / ARENA_EVEN_FIGHT_SECONDS) : 1
+}
+
+/**
  * Resolve an Arena fight. Bounded like `runFight`: `seconds / FIGHT_TICK_SECONDS` ticks, whatever
  * the parties' strength.
  */
@@ -112,6 +154,7 @@ export function runDuel(input: DuelInput): DuelResult {
     const random = seededRandom(input.seed)
     const seconds = input.seconds ?? ARENA_FIGHT_SECONDS
     const sides: [Fighter[], Fighter[]] = [sideOf(input.attacker), sideOf(input.defender)]
+    const pace = arenaPace(sides)
     const events: FightEvent[] = []
     let elapsed = 0
 
@@ -230,7 +273,7 @@ export function runDuel(input: DuelInput): DuelResult {
                     kind: spec.kind,
                     ...(spec.stat === undefined ? {} : { stat: spec.stat }),
                     duration: spec.duration,
-                    magnitude: spec.scalesWithPwr ? unit.stats.pwr.mul(spec.magnitude ?? 0) : (spec.magnitude ?? 0),
+                    magnitude: spec.scalesWithPwr ? unit.stats.pwr.mul(spec.magnitude ?? 0).mul(pace) : (spec.magnitude ?? 0),
                     ...(spec.stacks === undefined ? {} : { stacks: spec.stacks })
                 })
 
@@ -280,12 +323,12 @@ export function runDuel(input: DuelInput): DuelResult {
                         }
                         if (effect.heal) {
                             const before = ally.hp
-                            const healed = ally.hp.add(unit.stats.pwr.mul(effect.heal))
+                            const healed = ally.hp.add(unit.stats.pwr.mul(effect.heal).mul(pace))
                             ally.hp = healed.gt(ally.stats.maxHp) ? ally.stats.maxHp : healed
                             events.push({ at: elapsed, kind: 'heal', ...on(side, allyIndex), ...skill, damage: ally.hp.sub(before).toString(), remainingHp: ally.hp.toString() })
                         }
                         if (effect.shield) {
-                            const pool = unit.stats.pwr.mul(effect.shield)
+                            const pool = unit.stats.pwr.mul(effect.shield).mul(pace)
                             applyStatus(ally.statuses, {
                                 id: `${skillId ?? 'shield'}_shield`,
                                 kind: 'shield',
@@ -319,7 +362,7 @@ export function runDuel(input: DuelInput): DuelResult {
                         const hits = Math.max(1, Math.floor(effect.hits ?? 1))
                         for (let hit = 0; hit < hits && alive(tgt) && alive(unit); hit++) {
                             const hpFraction = tgt.stats.maxHp.lte(0) ? 0 : decMaxZero(tgt.hp).div(tgt.stats.maxHp).toNumber()
-                            const scaled = (multiplier / hits) * executeMultiplier(effect, hpFraction)
+                            const scaled = (multiplier / hits) * executeMultiplier(effect, hpFraction) * pace
                             const { damage, crit } = rollDamage(liveUnitStats(unit.stats, unit.statuses), penetration(side, tgt), scaled, random, effect)
                             dealtDamage = true
                             land(side, index, target, damage, crit, skillId)
