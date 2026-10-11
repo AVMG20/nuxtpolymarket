@@ -39,9 +39,9 @@ export const BASE_KILL_COUNT = 30
  * The death penalty. Without it a wipe cost nothing: the attempt restarted at once and income ran
  * on unbroken. It bites only while the party is walled, and the shorter the attempts, the harder,
  * so a wall far beyond the party's power earns far less than one it nearly clears. A decision
- * (2026-10-03), not a measurement.
+ * (2026-10-03), not a measurement: 5 s then, 3 s since 2026-10-11 (the user's call).
  */
-export const WIPE_RECOVERY_SECONDS = 5
+export const WIPE_RECOVERY_SECONDS = 3
 
 /** Flat timer on both Stage 5 and Stage 10 fights. */
 export const BOSS_TIMER_SECONDS = 30
@@ -172,26 +172,27 @@ export const SUPER_BOSS_ATK_MULT = 1.5 // TUNED ✓
 // Every boss and super boss swings its special in place of a basic attack: on its first swing,
 // then on the first swing after each cooldown. The shapes are `content/boss-specials.ts`; these
 // are their magnitudes, one set for all twenty so the balance pass is one edit. A swing's worth
-// is the boss's PWR against the target's DEF, the same as its basic attack.
+// takes a share of the target's max HP, past its DEF (2026-10-11, the user's call: as swings of PWR
+// against DEF they landed ~1 damage at a gate's level, since the gates are DPS walls).
 
 /** Seconds between specials. A gate fight is 30 s at one swing per 2.4 s, so about four land. */
-export const BOSS_SPECIAL_COOLDOWN_SECONDS = 8 // UNTUNED ╧
-/** A spread special, per target, in swings: it hits the whole party, so each share is light. */
-export const BOSS_SPECIAL_SPREAD_MULTIPLIER = 0.8 // UNTUNED ╧
-/** A heavy special, per target, in swings: the later worlds' and super bosses' whole-party hits. */
-export const BOSS_SPECIAL_HEAVY_MULTIPLIER = 1.2 // UNTUNED ╧
-/** A focused special, per target, in swings: it reaches one or two bodies, so it hits hard. */
-export const BOSS_SPECIAL_FOCUS_MULTIPLIER = 2 // UNTUNED ╧
+export const BOSS_SPECIAL_COOLDOWN_SECONDS = 8 // locked 2026-10-11, the user's call
+/** A spread special, per target, as a share of its max HP: it hits the whole party, so each share is light. */
+export const BOSS_SPECIAL_SPREAD_HP_SHARE = 0.15 // locked 2026-10-11, the user's call
+/** A heavy special, per target, as a share of its max HP: the later worlds' and super bosses' whole-party hits. */
+export const BOSS_SPECIAL_HEAVY_HP_SHARE = 0.25 // locked 2026-10-11, the user's call
+/** A focused special, per target, as a share of its max HP: it reaches one or two bodies, so it hits hard. */
+export const BOSS_SPECIAL_FOCUS_HP_SHARE = 0.45 // locked 2026-10-11, the user's call
 /** A burn's damage per status tick, as a share of what the special's hit landed. */
-export const BOSS_SPECIAL_BURN_FRACTION = 0.15 // UNTUNED ╧
-export const BOSS_SPECIAL_BURN_SECONDS = 4 // UNTUNED ╧
-export const BOSS_SPECIAL_STUN_SECONDS = 1 // UNTUNED ╧
-export const BOSS_SPECIAL_SILENCE_SECONDS = 3 // UNTUNED ╧
+export const BOSS_SPECIAL_BURN_FRACTION = 0.15 // locked 2026-10-11, the user's call
+export const BOSS_SPECIAL_BURN_SECONDS = 4 // locked 2026-10-11, the user's call
+export const BOSS_SPECIAL_STUN_SECONDS = 1 // locked 2026-10-11, the user's call
+export const BOSS_SPECIAL_SILENCE_SECONDS = 3 // locked 2026-10-11, the user's call
 /** A slow, weaken or sunder: the share of SPD, PWR or DEF it takes off each target. */
-export const BOSS_SPECIAL_DEBUFF_MAGNITUDE = 0.2 // UNTUNED ╧
-export const BOSS_SPECIAL_DEBUFF_SECONDS = 6 // UNTUNED ╧
+export const BOSS_SPECIAL_DEBUFF_MAGNITUDE = 0.2 // locked 2026-10-11, the user's call
+export const BOSS_SPECIAL_DEBUFF_SECONDS = 6 // locked 2026-10-11, the user's call
 /** A draining special heals the boss this share of the damage it landed. */
-export const BOSS_SPECIAL_DRAIN_FRACTION = 0.5 // UNTUNED ╧
+export const BOSS_SPECIAL_DRAIN_FRACTION = 0.5 // locked 2026-10-11, the user's call
 
 // ── Combat ─────────────────────────────────────────  classes-and-combat.md §7
 
@@ -398,7 +399,7 @@ export const SKILL_BASE_ABILITY_MULTIPLIER = 2 // TUNED ✓
  * on average only: the first cast waits out a full cooldown, so inside `BOSS_TIMER_SECONDS` a
  * long cooldown loses its tail.
  */
-export const SKILL_COOLDOWN_RANK_STEP = 1.2 // UNTUNED ╧
+export const SKILL_COOLDOWN_RANK_STEP = 1.2 // locked 2026-10-11, the user's call
 
 // ── Ability effect magnitudes ──────────────────────  classes-and-combat.md §7, §3
 //
@@ -528,7 +529,7 @@ export const ASCENDANT_KIT_SIZE = 4
  * ready, 2026-10-09). At 6 it was ~55 s and never fired in a boss fight at all. ⚠ At 2 the volley
  * is three master skills' worth on top of the four picks, before any measurement.
  */
-export const CONVERGENCE_COOLDOWN_FACTOR = 2 // UNTUNED ╧
+export const CONVERGENCE_COOLDOWN_FACTOR = 2 // locked 2026-10-11, the user's call
 
 /** §2's delta table gives directions and qualifiers ("modest", "extreme"), not magnitudes. */
 export const DELTA_MODEST = 2 // TUNED ✓
@@ -1115,9 +1116,9 @@ export const ARENA_CANDIDATE_COUNT = 3
  * as `ARENA_RATING_START` (the user's call, 2026-10-10: Rating, not GPN, so a loadout swap can't move
  * a player's band; early in a season strong and weak players meet, and a few matches part them). A
  * slot the band can't fill gets a Training Dummy (§2a) rather than a wider band. Checked only when
- * the list is drawn. A placeholder: the width wants a real population.
+ * the list is drawn. ±200 until 2026-10-11, when the user narrowed it to ±100.
  */
-export const ARENA_MATCH_BAND_RATING = 200 // UNTUNED ╧
+export const ARENA_MATCH_BAND_RATING = 100 // locked 2026-10-11, the user's call
 /**
  * Arena bots (`content/arena-bots.ts`): never above this Rating, so a player only climbs past them
  * (the user's call, 2026-10-11). They fill the list after real players and before Training Dummies.
@@ -1135,7 +1136,7 @@ export const ARENA_BOT_LOADOUT = {
     rareChance: { low: 0, high: 0.15 },
     starChance: { low: 0, high: 0.2 },
     maxLevel: { low: 3, high: 10 }
-} as const // UNTUNED ╧
+} as const // locked 2026-10-11, the user's call
 /**
  * Redrawing the opponent list (§2; the user's call, 2026-10-10): free this many times a UTC day, then
  * Gems, 5 and doubling: 5, 10, 20, … The ladder starts over each day. A list is also redrawn free after
@@ -1161,8 +1162,8 @@ export const ARENA_ELO_SCALE = 400
  * purpose: the attacker chose the fight, the defender was resolved by the AI while away, so the
  * defender's Rating moves less for the same result. Deltas are rounded to whole points.
  */
-export const K_ATTACK = 32 // UNTUNED ╧
-export const K_DEFEND = 16 // UNTUNED ╧
+export const K_ATTACK = 32 // locked 2026-10-11, the user's call
+export const K_DEFEND = 16 // locked 2026-10-11, the user's call
 
 /**
  * Arena Medals, the attacker's only reward (§5):
@@ -1173,16 +1174,16 @@ export const K_DEFEND = 16 // UNTUNED ╧
  * A Training Dummy win pays `MEDAL_BASE_WIN` flat (§2a). At these values a day's five attacks pay
  * about 120–200 Medals, which is what the shop's prices below are read against.
  */
-export const MEDAL_BASE_WIN = 30 // UNTUNED ╧
-export const MEDAL_BASE_LOSS = 10 // UNTUNED ╧
-export const MEDAL_UPSET_BONUS = 1 // UNTUNED ╧
+export const MEDAL_BASE_WIN = 30 // locked 2026-10-11, the user's call
+export const MEDAL_BASE_LOSS = 10 // locked 2026-10-11, the user's call
+export const MEDAL_UPSET_BONUS = 1 // locked 2026-10-11, the user's call
 
 /**
  * An Arena fight's clock, in sim-seconds. The attacker has to bring the whole defending party down
  * before it runs out; a defence that holds to the end wins (`build-log.md` #52). Battle Speed never
  * touches it (§1).
  */
-export const ARENA_FIGHT_SECONDS = 30 // UNTUNED ╧
+export const ARENA_FIGHT_SECONDS = 30 // locked 2026-10-11, the user's call
 
 /**
  * An Arena hit's crit multiplier is capped at this (the user's call, 2026-10-10). Deep in the curve
@@ -1196,12 +1197,12 @@ export const ARENA_CRIT_MULTIPLIER_CAP = 2
  * `ARENA_FIGHT_SECONDS`, so an even fight times out and the HP shares decide it; a stronger party
  * still finishes a weaker one early, in proportion to the gap. The pace only ever slows a fight.
  */
-export const ARENA_EVEN_FIGHT_SECONDS = 45 // UNTUNED ╧
+export const ARENA_EVEN_FIGHT_SECONDS = 45 // locked 2026-10-11, the user's call
 /**
  * The Training Dummy's HP, in seconds of the attacker's own autoattack DPS against no DEF: a short
  * show before the guaranteed win (§2a), well inside `ARENA_FIGHT_SECONDS` at any depth.
  */
-export const ARENA_DUMMY_SECONDS = 4 // UNTUNED ╧
+export const ARENA_DUMMY_SECONDS = 4 // locked 2026-10-11, the user's call
 
 /** A season's length (§7). Doc-specified. */
 export const ARENA_SEASON_DAYS = 14
@@ -1216,7 +1217,7 @@ export const ARENA_SEASON_EPOCH_MS = Date.UTC(2026, 9, 5)
  * `maxRank` the rank is within pays; every ranked player gets at least the last row. A ranked
  * player is one who fought, or was fought, that season.
  */
-export const ARENA_SEASON_REWARDS: readonly { maxRank: number, medals: number }[] = [ // UNTUNED ╧
+export const ARENA_SEASON_REWARDS: readonly { maxRank: number, medals: number }[] = [ // locked 2026-10-11, the user's call
     { maxRank: 1, medals: 2000 },
     { maxRank: 2, medals: 1500 },
     { maxRank: 3, medals: 1200 },
@@ -1230,7 +1231,7 @@ export const ARENA_LOG_SIZE = 20
 /** The Rating leaderboard's top list (§9). Doc-specified. */
 export const ARENA_LEADERBOARD_TOP = 50
 /** Players shown either side of the viewer's own rank (§9's "nearby neighbors"). */
-export const ARENA_LEADERBOARD_NEIGHBORS = 2 // UNTUNED ╧
+export const ARENA_LEADERBOARD_NEIGHBORS = 2 // locked 2026-10-11, the user's call
 
 /**
  * The Arena Shop (§6): static prices, no ladder, no cap, and no Gold (the user's call, 2026-10-10). A
@@ -1239,15 +1240,15 @@ export const ARENA_LEADERBOARD_NEIGHBORS = 2 // UNTUNED ╧
  * clear pays 3, so 90 Medals), so a Key is never a cheaper way to Seals than the Seals themselves.
  * The Trait raid pays Trait Gems, not Seals, and keeps its own price.
  */
-export const ARENA_SHOP_SEAL_PRICE = 30 // UNTUNED ╧
+export const ARENA_SHOP_SEAL_PRICE = 30 // locked 2026-10-11, the user's call
 export const ARENA_SHOP_KEY_LEVEL = 5
-export const ARENA_SHOP_TRAIT_KEY_PRICE = 60 // UNTUNED ╧
+export const ARENA_SHOP_TRAIT_KEY_PRICE = 60 // locked 2026-10-11, the user's call
 /**
  * Medals per Gem: a deliberately bad rate (§6). The calibration target is that a whole day's Medals
  * convert to meaningfully less than one Battle Speed block (`BATTLE_SPEED_ANCHOR_GEMS`, 250): at 5
  * a day's ~120–200 Medals buy 24–40 Gems, a tenth to a sixth of a block.
  */
-export const ARENA_SHOP_GEM_PRICE = 5 // UNTUNED ╧
+export const ARENA_SHOP_GEM_PRICE = 5 // locked 2026-10-11, the user's call
 /** The most of one item a single purchase takes, so a request cannot name an unbounded quantity. */
 export const ARENA_SHOP_MAX_QUANTITY = 100
 
@@ -1290,8 +1291,8 @@ export type CalendarDay =
  * raid level 1, free pulls not counted (`calendarIncomePerDay`), so the table stays the same
  * every cycle.
  */
-export const CALENDAR_INCOME_DAYS_FIRST = 0.25 // UNTUNED ╧
-export const CALENDAR_INCOME_DAYS_LAST = 1 // UNTUNED ╧
+export const CALENDAR_INCOME_DAYS_FIRST = 0.25 // locked 2026-10-11, the user's call
+export const CALENDAR_INCOME_DAYS_LAST = 1 // locked 2026-10-11, the user's call
 
 /**
  * Day 1 first. Small early days, and each currency pays more every time it comes round, so the
@@ -1299,7 +1300,7 @@ export const CALENDAR_INCOME_DAYS_LAST = 1 // UNTUNED ╧
  * Void Shards on day 30; no Battle Speed days, 2026-10-09). The Gold minutes and Gem counts are
  * placeholders, rebalanced after the Gold decision (`open-items.md` #47).
  */
-export const CALENDAR_SCHEDULE: readonly CalendarDay[] = [ // UNTUNED ╧
+export const CALENDAR_SCHEDULE: readonly CalendarDay[] = [ // locked 2026-10-11, the user's call
     { kind: 'gold', amount: 10 },
     { kind: 'seals', system: 'champion' },
     { kind: 'keys', raid: 'raid_guild' },
@@ -1378,7 +1379,7 @@ export const FEATURE_UNLOCKS: readonly { feature: HqFeature, at: FeatureCheckpoi
  * UTC days a holiday's gift stays claimable, the holiday itself counted (§2: "the holiday date
  * plus a few following days (e.g. a 3-day window)"). §2's example, not a decision.
  */
-export const HOLIDAY_CLAIM_WINDOW_DAYS = 3 // UNTUNED ╧
+export const HOLIDAY_CLAIM_WINDOW_DAYS = 3 // locked 2026-10-11, the user's call
 
 /**
  * One holiday's gift (§3): Gold as minutes of current income (`gold-economy.md` §6), a flat
@@ -1396,7 +1397,7 @@ export interface HolidayGift {
  * platform-wide currency, so these reach past Hero Quest; size them with the calendar's Gem days
  * and the milestones' (`open-items.md` #47, #48).
  */
-export const HOLIDAY_GIFTS: Readonly<Record<HolidayId, HolidayGift>> = { // UNTUNED ╧
+export const HOLIDAY_GIFTS: Readonly<Record<HolidayId, HolidayGift>> = { // locked 2026-10-11, the user's call
     holiday_new_year: { goldMinutes: 60, gems: 50, seals: { champion: 3, gear: 3, skill: 3, artifact: 3 } },
     holiday_lunar_new_year: { goldMinutes: 60, gems: 50, seals: { champion: 5 } },
     holiday_valentines: { goldMinutes: 30, gems: 25, seals: { champion: 3 } },
@@ -1413,35 +1414,35 @@ export const HOLIDAY_GIFTS: Readonly<Record<HolidayId, HolidayGift>> = { // UNTU
 // alike. Each track pays its own currency (the user's call, 2026-10-09).
 
 /** Every World cleared, across every run, is a step. All four Seal types, the old World-clear batch. */
-export const MILESTONE_WORLD_SEALS_BASE = 3 // UNTUNED ╧
+export const MILESTONE_WORLD_SEALS_BASE = 3 // locked 2026-10-11, the user's call
 /** What each World pays more for every full run before it. */
-export const MILESTONE_WORLD_SEALS_PER_RUN = 1 // UNTUNED ╧
+export const MILESTONE_WORLD_SEALS_PER_RUN = 1 // locked 2026-10-11, the user's call
 
 /** Every prestige is a step. All four Seal types, the old prestige batch, and Gems. */
-export const MILESTONE_PRESTIGE_SEALS_BASE = 10 // UNTUNED ╧
-export const MILESTONE_PRESTIGE_SEALS_STEP = 2 // UNTUNED ╧
-export const MILESTONE_PRESTIGE_GEMS_BASE = 50 // UNTUNED ╧
-export const MILESTONE_PRESTIGE_GEMS_STEP = 25 // UNTUNED ╧
+export const MILESTONE_PRESTIGE_SEALS_BASE = 10 // locked 2026-10-11, the user's call
+export const MILESTONE_PRESTIGE_SEALS_STEP = 2 // locked 2026-10-11, the user's call
+export const MILESTONE_PRESTIGE_GEMS_BASE = 50 // locked 2026-10-11, the user's call
+export const MILESTONE_PRESTIGE_GEMS_STEP = 25 // locked 2026-10-11, the user's call
 
 /** A raid's levels at every multiple of this are its steps (`idea-backlog.md` item 11). */
 export const MILESTONE_RAID_LEVEL_EVERY = 5
 /** That raid's Keys. */
-export const MILESTONE_RAID_KEYS_BASE = 2 // UNTUNED ╧
-export const MILESTONE_RAID_KEYS_STEP = 1 // UNTUNED ╧
+export const MILESTONE_RAID_KEYS_BASE = 2 // locked 2026-10-11, the user's call
+export const MILESTONE_RAID_KEYS_STEP = 1 // locked 2026-10-11, the user's call
 
 /**
  * The Arena's track (the user's call, 2026-10-10): every this many Arena wins, lifetime, Training
  * Dummy wins included, pays Arena Medals, more each step.
  */
-export const MILESTONE_ARENA_WINS_EVERY = 10 // UNTUNED ╧
-export const MILESTONE_ARENA_MEDALS_BASE = 50 // UNTUNED ╧
-export const MILESTONE_ARENA_MEDALS_STEP = 25 // UNTUNED ╧
+export const MILESTONE_ARENA_WINS_EVERY = 10 // locked 2026-10-11, the user's call
+export const MILESTONE_ARENA_MEDALS_BASE = 50 // locked 2026-10-11, the user's call
+export const MILESTONE_ARENA_MEDALS_STEP = 25 // locked 2026-10-11, the user's call
 
 /** A collection's steps: every this many owned, and the full roster as the last. */
-export const MILESTONE_COLLECTION_EVERY = 6 // UNTUNED ╧
+export const MILESTONE_COLLECTION_EVERY = 6 // locked 2026-10-11, the user's call
 /** That gacha's Seals. */
-export const MILESTONE_COLLECTION_SEALS_BASE = 2 // UNTUNED ╧
-export const MILESTONE_COLLECTION_SEALS_STEP = 2 // UNTUNED ╧
+export const MILESTONE_COLLECTION_SEALS_BASE = 2 // locked 2026-10-11, the user's call
+export const MILESTONE_COLLECTION_SEALS_STEP = 2 // locked 2026-10-11, the user's call
 
 /**
  * The two offline tracks are bought with Gold (the user's call, 2026-10-10), so they can be had from
@@ -1461,7 +1462,7 @@ export const OFFLINE_CAP_COST_GROWTH = 1.5
  * it by *demonstrating* presence through the request pattern rather than letting the client
  * assert it.
  */
-export const HQ_REFRESH_INTERVAL_MS = 60_000 // UNTUNED ╧
+export const HQ_REFRESH_INTERVAL_MS = 60_000 // locked 2026-10-11, the user's call
 
 /**
  * Gap at or below which a settle window counts as **online** — full rate, no cap, no efficiency
@@ -1470,7 +1471,7 @@ export const HQ_REFRESH_INTERVAL_MS = 60_000 // UNTUNED ╧
  * A few times the refresh interval, so a closed app looks identical to a dead network — the
  * correct failure direction (degrades to offline rules, never inflates).
  */
-export const ONLINE_THRESHOLD_MS = HQ_REFRESH_INTERVAL_MS * 3 // UNTUNED ╧
+export const ONLINE_THRESHOLD_MS = HQ_REFRESH_INTERVAL_MS * 3 // locked 2026-10-11, the user's call
 
 /**
  * Gap after which the player's session has ended: Hero Quest opens on its splash and waits for
@@ -1622,8 +1623,8 @@ export const CRAFT_COST_PER_RARITY: readonly number[] = [5, 25, 125, 625, 3_125,
  */
 export const BASE_CHAMPION_SLOTS = 2
 export const MAX_CHAMPION_SLOTS = 5
-export const CHAMPION_SLOT_BASE_COST = 400 // UNTUNED ╧
-export const CHAMPION_SLOT_COST_GROWTH = 3 // UNTUNED ╧
+export const CHAMPION_SLOT_BASE_COST = 400 // locked 2026-10-11, the user's call
+export const CHAMPION_SLOT_COST_GROWTH = 3 // locked 2026-10-11, the user's call
 
 /** The flat 3-front / 3-back grid (`classes-and-combat.md` §6). Capacities, not quotas. */
 export const FORMATION_ROW_CAPACITY = 3
@@ -1639,7 +1640,7 @@ export const FORMATION_ROW_CAPACITY = 3
  * magnitude. At 0.002 one maxed Champion (scalar 60) is +12% to its archetype's stats, and the
  * 48-Champion roster fully maxed (12 per archetype) is +144% on each of the six.
  */
-export const CHAMPION_PASSIVE_PER_POINT = 0.002 // UNTUNED ╧
+export const CHAMPION_PASSIVE_PER_POINT = 0.002 // locked 2026-10-11, the user's call
 
 /**
  * Free 10-pulls, per gacha, per day — **the only free pulls in the game** (revised 2026-09-16).
@@ -1683,7 +1684,7 @@ export const FREE_PULL_COOLDOWN_MINUTES = 10 // TUNED ✓
  * the Milestones scene (`MILESTONE_WORLD_SEALS_BASE`, `MILESTONE_PRESTIGE_SEALS_BASE`; the user's
  * call, 2026-10-09).
  */
-export const SEAL_GRANT_PER_BOSS = 1 // UNTUNED ╧
+export const SEAL_GRANT_PER_BOSS = 1 // locked 2026-10-11, the user's call
 
 // ── Gear / The Forge ───────────────────────────────  gear-equipment.md §1–3
 
@@ -1876,7 +1877,7 @@ export const ARTIFACT_COLLECTION_PASSIVE_FRACTION = 0.1 // UNTUNED ╧
  */
 export const BASE_LOADOUT_SLOTS = 2
 export const MAX_LOADOUT_SLOTS = 6
-export const LOADOUT_SLOT_BASE_COST_GEMS = 250 // UNTUNED ╧
+export const LOADOUT_SLOT_BASE_COST_GEMS = 250 // locked 2026-10-11, the user's call
 export const LOADOUT_SLOT_COST_GROWTH = 2
 
 // ── Traits ─────────────────────────────────────────  traits.md
@@ -1934,12 +1935,15 @@ export const TRAIT_STAT_VALUES: Readonly<Record<TraitStatId, Readonly<Record<Tra
  * Magnitudes are fractions, except Divine Blessing's, which is the share of max HP recovered every
  * second. Vital Reflex's lands twice, as VIT and as Evasion Rate (EVA is a rate, so +0.10 is ten
  * points of it, under `MAX_EVASION`).
+ *
+ * Deep Impact was cut to a quarter (+400/800/1200% → +100/200/300%) on 2026-10-11, the user's call:
+ * one piece out-valued an SS IMP roll and cut the first run's Worlds 5–10 from ~9 days to under 2.
  */
 export const TRAIT_SET_TIERS: Readonly<Record<TraitSetId, readonly { pieces: number, magnitude: number }[]>> = {
     set_vital_reflex: [{ pieces: 1, magnitude: 0.10 }, { pieces: 3, magnitude: 0.25 }, { pieces: 5, magnitude: 0.50 }],
     set_divine_blessing: [{ pieces: 1, magnitude: 0.05 }],
     set_aggression: [{ pieces: 2, magnitude: 0.10 }, { pieces: 3, magnitude: 0.20 }, { pieces: 4, magnitude: 0.30 }],
-    set_deep_impact: [{ pieces: 1, magnitude: 4 }, { pieces: 2, magnitude: 8 }, { pieces: 3, magnitude: 12 }],
+    set_deep_impact: [{ pieces: 1, magnitude: 1 }, { pieces: 2, magnitude: 2 }, { pieces: 3, magnitude: 3 }],
     set_back_to_basics: [{ pieces: 3, magnitude: 0.50 }, { pieces: 4, magnitude: 1.00 }, { pieces: 5, magnitude: 2.00 }]
 }
 
@@ -1963,7 +1967,7 @@ export const TRAIT_SAVE_LOAD_COST = 100
  * again until one of those stops it or the player does, so this sets how finely STOP can cut in and
  * how many requests a long run makes. Not a price: every Roll still costs what a Roll costs.
  */
-export const TRAIT_AUTO_ROLL_BATCH = 10 // UNTUNED ╧
+export const TRAIT_AUTO_ROLL_BATCH = 10 // locked 2026-10-11, the user's call
 
 // ── Prestige shop stat tracks ──────────────────────  open-items.md #41
 
@@ -1980,9 +1984,9 @@ export const TRAIT_AUTO_ROLL_BATCH = 10 // UNTUNED ╧
  *
  * ⚠ Nothing in the campaign sim buys these, so the tuned pacing does not account for them yet.
  */
-export const PRESTIGE_STAT_PER_LEVEL = 0.01 // UNTUNED ╧
-export const PRESTIGE_STAT_BASE_COST = 100 // UNTUNED ╧
-export const PRESTIGE_STAT_COST_GROWTH = 1.15 // UNTUNED ╧
+export const PRESTIGE_STAT_PER_LEVEL = 0.01 // locked 2026-10-11, the user's call
+export const PRESTIGE_STAT_BASE_COST = 100 // locked 2026-10-11, the user's call
+export const PRESTIGE_STAT_COST_GROWTH = 1.15 // locked 2026-10-11, the user's call
 
 /** Bounds the persisted name so a save cannot write an unbounded string into jsonb. */
 export const LOADOUT_NAME_MAX_LENGTH = 32
@@ -2021,7 +2025,7 @@ export const SEAL_LADDER_GROWTH: Readonly<Record<string, number>> = {
  * does, so EHP grows as the stat curve squared — the same order as DPS, which keeps the geometric
  * mean from leaning on either side.
  */
-export const EHP_DEF_CONSTANT = 10 // UNTUNED ╧
+export const EHP_DEF_CONSTANT = 10 // locked 2026-10-11, the user's call
 
 /**
  * The flat multiplier on the Global Power Number's display value:
@@ -2038,7 +2042,7 @@ export const EHP_DEF_CONSTANT = 10 // UNTUNED ╧
  * Arena matchmaking bands are taken on this value, so a percentage band means the same thing
  * before and after the scale — a flat factor cancels in a ratio.
  */
-export const GPN_DISPLAY_SCALE = 10 // UNTUNED ╧
+export const GPN_DISPLAY_SCALE = 10 // locked 2026-10-11, the user's call
 
 // ── Prestige currency ──────────────────────────────  economy-and-currencies.md §3
 
@@ -2052,8 +2056,8 @@ export const GPN_DISPLAY_SCALE = 10 // UNTUNED ╧
  * Decimal, not integer — `2^prestige` overflows a 64-bit bigint around prestige 56, which an
  * infinite-prestige game reaches.
  */
-export const VOID_SHARD_BASE = 100 // UNTUNED ╧
-export const VOID_SHARD_GROWTH = 2 // UNTUNED ╧
+export const VOID_SHARD_BASE = 100 // locked 2026-10-11, the user's call
+export const VOID_SHARD_GROWTH = 2 // locked 2026-10-11, the user's call
 
 // ── Passive Skill Tree ─────────────────────────────  passive-skill-tree.md
 
@@ -2062,7 +2066,7 @@ export const VOID_SHARD_GROWTH = 2 // UNTUNED ╧
  * `(heroLevel - 1) × PASSIVE_POINTS_PER_LEVEL`, less what the tree holds (§2). At about four
  * levels a stage, a first prestige is worth roughly 400.
  */
-export const PASSIVE_POINTS_PER_LEVEL = 1 // UNTUNED ╧
+export const PASSIVE_POINTS_PER_LEVEL = 1 // locked 2026-10-11, the user's call
 
 /** Levels a regular node takes (`idea-backlog.md` item 3: "up to 5 levels"). The endless nodes have none. */
 export const PASSIVE_NODE_MAX_LEVEL = 5
@@ -2072,21 +2076,21 @@ export const PASSIVE_NODE_MAX_LEVEL = 5
  * 15× its tier's base. With the roster as authored the finite tree is 1,500 points: one path's
  * finite nodes are 480, about a first prestige's worth.
  */
-export const PASSIVE_TIER_COST: readonly number[] = [1, 2, 3, 4, 6] // UNTUNED ╧
+export const PASSIVE_TIER_COST: readonly number[] = [1, 2, 3, 4, 6] // locked 2026-10-11, the user's call
 
 /**
  * An endless node's level `L` costs `BASE + (L - 1) × STEP`. Linear, so the levels a fixed budget
  * buys grow as its square root: the tail never outruns the enemy curve, it only gives points a use.
  */
-export const PASSIVE_ENDLESS_BASE_COST = 10 // UNTUNED ╧
-export const PASSIVE_ENDLESS_COST_STEP = 5 // UNTUNED ╧
+export const PASSIVE_ENDLESS_BASE_COST = 10 // locked 2026-10-11, the user's call
+export const PASSIVE_ENDLESS_COST_STEP = 5 // locked 2026-10-11, the user's call
 
 /**
  * What one level of a node adds, by the band its line is authored in (`content/passive-tree.ts`).
  * Fractions, additive like every other modifier line. A maxed `stat` node is +15%, a maxed
  * `economy` one +10% (kept small: Gold and XP are paced, `gold-economy.md` §5).
  */
-export const PASSIVE_BAND_MAGNITUDE = { // UNTUNED ╧
+export const PASSIVE_BAND_MAGNITUDE = { // locked 2026-10-11, the user's call
     stat: 0.03,
     skill: 0.05,
     utility: 0.01,
@@ -2096,4 +2100,4 @@ export const PASSIVE_BAND_MAGNITUDE = { // UNTUNED ╧
 } as const
 
 /** Gems a respec costs when no free one is held. A prestige grants one free respec, kept until used. */
-export const PASSIVE_RESPEC_GEMS = 100 // UNTUNED ╧
+export const PASSIVE_RESPEC_GEMS = 100 // locked 2026-10-11, the user's call

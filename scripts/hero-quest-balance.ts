@@ -19,7 +19,6 @@ import {
     GOLD_BOUND_HORIZON_DAYS,
     GOLD_TENURE_CRAWL,
     GOLD_TENURE_DAYS,
-    MAX_BATTLE_SPEED,
     MAX_OFFLINE_EFFICIENCY_LEVEL,
     MIN_ATTACK_INTERVAL_SECONDS,
     MIN_SECONDS_PER_KILL,
@@ -292,12 +291,12 @@ function levelCurve() {
 function boundTable() {
     console.log('\nGold/hour ceiling — bounded by construction (capped per-kill value × floored kill rate)\n')
     console.table([
-        { scenario: 'no stack, no boost', 'max gold/hr': compact(maxGoldPerHour(1, 1)) },
-        { scenario: 'x2 gold stack', 'max gold/hr': compact(maxGoldPerHour(2, 1)) },
-        { scenario: 'x4 stack, x4 battle speed', 'max gold/hr': compact(maxGoldPerHour(4, 4)) },
-        { scenario: `x4 stack, x${MAX_BATTLE_SPEED} battle speed (top tier)`, 'max gold/hr': compact(maxGoldPerHour(4, MAX_BATTLE_SPEED)) }
+        { scenario: 'no stack', 'max gold/hr': compact(maxGoldPerHour(1)) },
+        { scenario: 'x2 gold stack', 'max gold/hr': compact(maxGoldPerHour(2)) },
+        { scenario: 'x4 gold stack', 'max gold/hr': compact(maxGoldPerHour(4)) }
     ])
-    console.log(`user.balance is numeric(19,4) — a ~1e15 ceiling. Headroom at the worst case: ${compact(1e15 / maxGoldPerHour(4, MAX_BATTLE_SPEED))}x\n`)
+    // Battle Speed is held under the same bound since 2026-10-11 (`settle`), so it adds no row
+    console.log(`user.balance is numeric(19,4) — a ~1e15 ceiling. Headroom at the worst case: ${compact(1e15 / maxGoldPerHour(4))}x\n`)
     console.log(`XP per kill at p0 W1S1: ${formatHq(xpPerKill(0, 1, 1))}, at p10 W10S10: ${formatHq(xpPerKill(10, 10, 10))}`)
 }
 

@@ -188,9 +188,9 @@ describe('rolling and locking', () => {
 
 describe('Trait Sets', () => {
     it('gives a Set its total at a count, not the tiers added up', () => {
-        expect(traitSetTier('set_deep_impact', 3)?.magnitude).toBe(12)
+        expect(traitSetTier('set_deep_impact', 3)?.magnitude).toBe(3)
         const imp = traitModifiers(setOf('set_deep_impact', 3)).party.filter(line => line.stat === 'imp')
-        expect(imp.reduce((sum, line) => sum + line.magnitude, 0)).toBe(12)
+        expect(imp.reduce((sum, line) => sum + line.magnitude, 0)).toBe(3)
     })
 
     it('starts each Set at its own first count, and holds the top tier past its last', () => {
@@ -204,7 +204,7 @@ describe('Trait Sets', () => {
         expect(traitSetTier('set_vital_reflex', 2)?.magnitude).toBe(0.10)
         expect(traitSetTier('set_vital_reflex', 4)?.magnitude).toBe(0.25)
         expect(traitSetTier('set_vital_reflex', 5)?.magnitude).toBe(0.50)
-        expect(traitSetTier('set_deep_impact', 5)?.magnitude).toBe(12)
+        expect(traitSetTier('set_deep_impact', 5)?.magnitude).toBe(3)
         expect(traitSetTier('set_divine_blessing', 5)?.magnitude).toBe(0.05)
     })
 
@@ -213,7 +213,7 @@ describe('Trait Sets', () => {
         expect(activeTraitSets(rolls).map(bonus => [bonus.set, bonus.magnitude])).toEqual([
             ['set_vital_reflex', 0.10],
             ['set_aggression', 0.10],
-            ['set_deep_impact', 8]
+            ['set_deep_impact', 2]
         ])
     })
 

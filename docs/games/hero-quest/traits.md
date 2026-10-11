@@ -18,7 +18,7 @@ Status: **Locked** — core structure confirmed this session. A handful of numer
 **Locked, confirmed explicitly: Traits apply to the entire fielded party**, exactly like Artifacts (`artifacts-dig-site-gacha.md` §1) and unlike Skills/Gear (both Hero-only). Both halves of the system are covered:
 
 - **The rolled Stat on each slot** (Section 4) buffs every fielded party member that has the relevant stat.
-- **Set bonuses** (Section 5) apply party-wide too — "Main attack stat +10%" means every member's own main attack stat, "IMP +400%" means every member's IMP, and so on.
+- **Set bonuses** (Section 5) apply party-wide too — "Main attack stat +10%" means every member's own main attack stat, "IMP +100%" means every member's IMP, and so on.
 
 This is only possible because of the Champion stat-parity revision in `champions-guild-gacha.md` §2 — Champions carry the full PWR/SPD/LCK/IMP/VIT/DEF spread plus HP, identical to the Hero's since the Hero's own damage stats merged into PWR. Without that, most of this pool would have had nothing to attach to on the Champion side, the same gap that drove the Artifact revision.
 
@@ -226,7 +226,7 @@ Transcribed directly from source, no adjustment:
 
 Each equipped trait carries a Set regardless of its Stat or Grade. A Set's bonus is evaluated by counting how many of the 5 equipped slots share that Set label — the Stat/Grade rolled on those slots doesn't matter for this count. **Set bonuses apply party-wide** (Section 0), same as the rolled stats themselves.
 
-**The listed value at each piece-count is the total active bonus at that count, not an additive stack** — reaching a higher threshold replaces the lower one rather than adding to it (clear from the numbers themselves: Deep Impact's 400%→800%→1200% would be an absurd 2400% total if stacked). Multiple Sets can be simultaneously active if their respective minimum thresholds are independently met — e.g. 2 Deep Impact + 2 Aggression + 1 Vital Reflex, all active at once, since Deep Impact's floor is 1pc and Aggression's is 2pc.
+**The listed value at each piece-count is the total active bonus at that count, not an additive stack** — reaching a higher threshold replaces the lower one rather than adding to it (clear from the numbers themselves: Deep Impact's 100%→200%→300% would be 600% total if stacked). Multiple Sets can be simultaneously active if their respective minimum thresholds are independently met — e.g. 2 Deep Impact + 2 Aggression + 1 Vital Reflex, all active at once, since Deep Impact's floor is 1pc and Aggression's is 2pc.
 
 Below a Set's minimum threshold: no bonus from that Set. Above its max threshold (e.g. a 5th Deep Impact piece, whose top tier is 3pc): the top tier's bonus simply continues — no further gain, no penalty.
 
@@ -235,7 +235,7 @@ Below a Set's minimum threshold: no bonus from that Set. Above its max threshold
 | Vital Reflex | 1: HP & Evasion Rate +10% · 3: +25% · 5: +50% — *Evasion Rate is a real combat stat, see note below* |
 | Divine Blessing | 1: Recovers 5% Max HP every second |
 | Aggression | 2: Main attack stat +10% · 3: +20% · 4: +30% |
-| Deep Impact | 1: IMP +400% · 2: +800% · 3: +1200% |
+| Deep Impact | 1: IMP +100% · 2: +200% · 3: +300% (cut from +400/800/1200% on 2026-10-11, the user's call: one piece was worth more than an SS IMP roll and cut the first run's Worlds 5–10 from about nine days to under two, `open-items.md` #52) |
 | Back to Basics | 3: Basic Attack DMG +50% · 4: +100% · 5: +200% |
 
 ### Note — Evasion Rate is a new combat stat
@@ -245,7 +245,7 @@ Below a Set's minimum threshold: no bonus from that Set. Above its max threshold
 - Simple accuracy check on every incoming attack: `hitChance = 1 − EVA_defender`. A miss deals 0 damage and rolls no crit.
 - **Base EVA is 0 for every unit in the game** — no class node, Champion archetype, or enemy grants it innately. Traits are currently its only source, which makes Vital Reflex the only way to obtain it at all.
 - Rolled per hit, independently, including for multi-strike kits. Offline settle applies it as a flat `× (1 − EVA)` on expected incoming damage rather than rolling, matching the crit-averaging convention.
-- **Hard-capped at `MAX_EVASION = 0.60`** (locked) — total EVA from all sources. Deliberately set below the party-reachable ceiling of a 5-piece Vital Reflex board (+50%) so that **future EVA sources still have room to matter**; if the cap sat at Vital Reflex's own maximum, anything added later would be dead on arrival.
+- **Hard-capped at `MAX_EVASION = 0.60`** (locked) — total EVA from all sources. Deliberately set ten points above the party-reachable ceiling of a 5-piece Vital Reflex board (+50%) so that **future EVA sources still have room to matter**; if the cap sat at Vital Reflex's own maximum, anything added later would be dead on arrival.
 - Party-wide like every other trait effect (Section 0), so a 5-piece Vital Reflex board grants +50% EVA to the Hero *and* all fielded Champions — worth watching in balance, since it stacks multiplicatively with DEF mitigation rather than sharing a diminishing curve with it.
 
 ---
@@ -293,7 +293,7 @@ Worth flagging explicitly since it departs from the doubling-cost formula reused
 
 **Revised in a later pass — three additions:** Traits are **party-wide**, applying to the Hero and every fielded Champion (new Section 0), made possible by Champions' stat-parity revision; **Evasion Rate (EVA)** is confirmed as a genuinely new combat stat rather than flavor, now specified in `classes-and-combat.md` §7 with a simple `1 − EVA` accuracy check, base 0 for all units, capped below 1.0, with Vital Reflex as its only current source; and **Champion ATK now covers all four archetypes including Tank**, correcting a carve-out written against the pre-parity Champion stat model.
 
-Locked: 5 trait slots, fixed from account start (no progression — the first slot-based system in the project without one). Each slot's roll independently generates a Stat (1 of 8, uniform), a Grade (1 of 9 on Traits' own dedicated F→SSS scale, separate from Common→Mythic, weighted per the Acquisition table), and a Set (1 of 5, uniform). A single Roll action rerolls every unlocked slot at once, costing `5 + locked×5` **Trait Gems** (5 at zero locked, up to 30 at all five locked) — counterintuitively pricier the more you protect, by design, pushing broad rerolls early and paid precision later; locking itself is free and unlimited. Traits are explicitly excluded from the Loadout system and get their own save-slot track instead: 1→4 slots via Gems at **250/750/1250** (a flat +500/level step, deliberately breaking from the doubling shape used elsewhere), with store/load costing a flat **100 Trait Gems per press** each — over 3× the priciest Roll, making banking a board a bigger spend than gambling on one. "Skill DMG" renamed to "Hero Skill DMG" to scope it to the Hero only; Champion ATK scoped to non-Tank Champions' PWR. Set bonuses are total-at-threshold (not additive), multiple Sets can be simultaneously active, and Back to Basics' piece thresholds are corrected to 3/4/5 (was transcribed 3/5/5). Trait Gems is registered in `economy-and-currencies.md` as a new custom currency. No flags remain: Trait Raid is fully specified in `raid-system.md` (§1, §7), and the schema/route additions are applied in `tech-architecture.md` (§3, §5).
+Locked: 5 trait slots, fixed from account start (no progression — the first slot-based system in the project without one). Each slot's roll independently generates a Stat (1 of 8, uniform), a Grade (1 of 9 on Traits' own dedicated F→SSS scale, separate from Common→Mythic, weighted per the Acquisition table), and a Set (1 of 5, uniform). A single Roll action rerolls every unlocked slot at once, costing `5 + locked×5` **Trait Gems** (5 at zero locked, up to 30 at all five locked) — counterintuitively pricier the more you protect, by design, pushing broad rerolls early and paid precision later; locking itself is free and unlimited. Traits are explicitly excluded from the Loadout system and get their own save-slot track instead: 1→4 slots via Gems at **250/750/1250** (a flat +500/level step, deliberately breaking from the doubling shape used elsewhere), with store/load costing a flat **100 Trait Gems per press** each — over 3× the priciest Roll, making banking a board a bigger spend than gambling on one. "Skill DMG" renamed to "Hero Skill DMG" to scope it to the Hero only; Champion ATK scoped to every Champion's PWR, Tank included (§4). Set bonuses are total-at-threshold (not additive), multiple Sets can be simultaneously active, and Back to Basics' piece thresholds are corrected to 3/4/5 (was transcribed 3/5/5). Trait Gems is registered in `economy-and-currencies.md` as a new custom currency. No flags remain: Trait Raid is fully specified in `raid-system.md` (§1, §7), and the schema/route additions are applied in `tech-architecture.md` (§3, §5).
 
 ---
 
@@ -303,9 +303,9 @@ Built as `build-log.md` #52 records; what it left open is `open-items.md` #52. I
 
 - **Every number above is in `constants.ts`** (`TRAIT_*`), the vocabulary in `content/traits.ts`, the rules in `shared/utils/hero-quest/traits.ts`. Nothing was added as `UNTUNED ╧`.
 - **Readings this doc left open:** Vital Reflex's HP is VIT, as the HP stat is (§0); Aggression's main attack stat is PWR; Hero Skill DMG multiplies the damage of the Hero's own skills, not heals or shields; Back to Basics multiplies basic-attack damage; Divine Blessing heals once a second in a fight and counts as sustain in the idle rate.
-- **Champion ATK reaches every Champion, Tank included** (§4). The Implementation Note's "non-Tank" sentence above is stale; recorded in `open-items.md` #52.
+- **Champion ATK reaches every Champion, Tank included** (§4), as the Implementation Note now says too (corrected 2026-10-11).
 - **A Roll with all five locked is refused** server-side as well as disabled on the stage, so nobody pays 30 for nothing.
 - **A save slot stores the locks** with the five slots, and a load restores them.
 - **Auto Roll** (the user's call, 2026-10-10, beyond this doc): Rolls back to back, each priced as one, until a rerolled slot lands at a chosen grade or better or the Trait Gems run short (`build-log.md` #52).
 - **A Roll is revealed slot by slot** (`build-log.md` #52), and a Roll or load settles the idle run first.
-- **⚠ Deep Impact's tiers break the first run's pacing** (`open-items.md` #52.1): one piece alone cuts Worlds 5–10 from about nine days to under two.
+- **Deep Impact's tiers were cut to a quarter** (2026-10-11, the user's call, `open-items.md` #52): at +400% one piece alone cut Worlds 5–10 from about nine days to under two.

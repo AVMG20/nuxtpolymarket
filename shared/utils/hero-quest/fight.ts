@@ -45,10 +45,10 @@ import {
     BOSS_SPECIAL_DEBUFF_MAGNITUDE,
     BOSS_SPECIAL_DEBUFF_SECONDS,
     BOSS_SPECIAL_DRAIN_FRACTION,
-    BOSS_SPECIAL_FOCUS_MULTIPLIER,
-    BOSS_SPECIAL_HEAVY_MULTIPLIER,
+    BOSS_SPECIAL_FOCUS_HP_SHARE,
+    BOSS_SPECIAL_HEAVY_HP_SHARE,
     BOSS_SPECIAL_SILENCE_SECONDS,
-    BOSS_SPECIAL_SPREAD_MULTIPLIER,
+    BOSS_SPECIAL_SPREAD_HP_SHARE,
     BOSS_SPECIAL_STUN_SECONDS,
     BOSS_TIMER_SECONDS,
     FIGHT_TICK_SECONDS,
@@ -598,7 +598,6 @@ export function runFight(input: FightInput): FightResult {
     const castSpecial = (foe: EnemyCombatant, def: BossSpecialDef) => {
         const foeIndex = enemies.indexOf(foe)
         const hits = Math.max(1, Math.floor(def.hits ?? 1))
-        const pwr = liveEnemyStats(foe.stats, foe.statuses).pwr
         let drained = ZERO
         for (const target of specialTargets(def.target)) {
             const targetIndex = party.indexOf(target)
@@ -611,7 +610,8 @@ export function runFight(input: FightInput): FightResult {
                     continue
                 }
                 struck = true
-                const raw = rawHitDamage(pwr, liveUnitStats(target.stats, target.statuses).def, SPECIAL_WEIGHT[def.weight] / hits)
+                // a share of the target's max HP, past its DEF: at a gate's level a swing's worth lands next to nothing
+                const raw = target.stats.maxHp.mul(SPECIAL_HP_SHARE[def.weight] / hits)
                 landed = landed.add(landOnUnit(foe, target, raw, 'enemy_special', def.id))
             }
             drained = drained.add(landed)
@@ -989,10 +989,10 @@ export function runFight(input: FightInput): FightResult {
     return result('timeout', deadline, events, enemyHpLeft(), enemyMaxHps, packMaxHps, input.seed)
 }
 
-const SPECIAL_WEIGHT: Readonly<Record<SpecialWeight, number>> = {
-    spread: BOSS_SPECIAL_SPREAD_MULTIPLIER,
-    heavy: BOSS_SPECIAL_HEAVY_MULTIPLIER,
-    focus: BOSS_SPECIAL_FOCUS_MULTIPLIER
+const SPECIAL_HP_SHARE: Readonly<Record<SpecialWeight, number>> = {
+    spread: BOSS_SPECIAL_SPREAD_HP_SHARE,
+    heavy: BOSS_SPECIAL_HEAVY_HP_SHARE,
+    focus: BOSS_SPECIAL_FOCUS_HP_SHARE
 }
 
 /** A special's status as it lands; a burn is sized off what the special's hit landed on that target. */

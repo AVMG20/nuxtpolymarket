@@ -923,6 +923,13 @@ export function settle(input: SettleInput): SettleResult {
         }
     }
 
+    // Battle Speed speeds the fight, not the pay past the bound: a boosted window's Gold is held to
+    // what its real time allows (2026-10-11, the user's call, `open-items.md` #23)
+    if (input.speedBoost) {
+        const realSeconds = offline ? offline.cappedSeconds * offline.efficiency : Math.max(0, input.elapsedSeconds)
+        gold = Math.min(gold, maxGoldPerHour(goldMultiplier, input.tenureDays) * realSeconds / 3600)
+    }
+
     // Levels land once, here — the window itself was fought at the departure level.
     const levelled = applyXp(input.hero.heroLevel, input.hero.heroXp, xp)
 
@@ -955,8 +962,10 @@ function isBossStage(stage: number): boolean {
  *
  * Takes a horizon because `GOLD_TENURE_CRAWL` never goes flat, so "the maximum" is only
  * meaningful with a date attached. `GOLD_BOUND_HORIZON_DAYS` is ten years.
+ *
+ * Battle Speed does not raise it: `settle` holds a boosted window's Gold to this over its real time.
  */
-export function maxGoldPerHour(goldStack = 1, battleSpeed = 1, tenureDays = GOLD_BOUND_HORIZON_DAYS): number {
+export function maxGoldPerHour(goldStack = 1, tenureDays = GOLD_BOUND_HORIZON_DAYS): number {
     const maxGoldPerKill = BASE_GOLD * goldTenureCeiling(tenureDays)
-    return maxGoldPerKill * (3600 / MIN_SECONDS_PER_KILL) * goldStack * battleSpeed
+    return maxGoldPerKill * (3600 / MIN_SECONDS_PER_KILL) * goldStack
 }

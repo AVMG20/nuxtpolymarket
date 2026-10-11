@@ -39,7 +39,7 @@ read the older rule in the doc named in the middle column, it is superseded.**
 | 31 | `raid-system.md` §1/§7, `asset-list.md`, `economy-and-currencies.md` §9: the Training Grounds Raid is a `solo_boss` fight, its Keys spent only on a win | It is a **`training_dummy`**: a static dummy that can't die or attack, the result being the damage dealt before the timer ends (2026-09-28, the user's call). Keys, the ladder and rewards follow Rampaging Boss's rules, the level reached on live damage thresholds; it has no DEF (decided 2026-10-04, `build-log.md` #31) |
 | 32 | `raid-system.md` §1/§7, `asset-list.md`, `asset-checklist.md`: the Forge Raid is one `phased_boss` whose phases change at HP thresholds | It is a **`boss_gauntlet`**: three bosses back to back, the Apprentice, the Journeyman and the Forgemaster (2026-09-29, the user's call). One 30 s clock for the run, 10 s back per boss killed; all three or nothing; each boss steps up (decided 2026-10-04, `build-log.md` #32) |
 | 36 | `classes-and-combat.md` §3: SPD reduces cooldown duration across the board, off the same curve as the autoattack; every skill on `SKILL_BASE_COOLDOWN_SECONDS` | Cooldowns read **`cooldownSpd`**, SPD without the level curve; the autoattack still reads the full stat. Cooldowns sit on a **rank ladder** (`SKILL_COOLDOWN_RANK_STEP`): rarity for Skills and Champion abilities, tree depth for class skills, hit size scaled to match. §3 updated in place (2026-10-03, the user's call) |
-| 37 | `core-progression-and-prestige.md`, `settle.killsBeforeWipe`'s old contract: a wave wipe restarts the stage at once and income continues unbroken | Each wave wipe costs **`WIPE_RECOVERY_SECONDS` (5s)** with nothing landing, served across settle windows via `hq_state.recovery_seconds`. Still no ground lost (2026-10-03, the user's call) |
+| 37 | `core-progression-and-prestige.md`, `settle.killsBeforeWipe`'s old contract: a wave wipe restarts the stage at once and income continues unbroken | Each wave wipe costs **`WIPE_RECOVERY_SECONDS` (3s since 2026-10-11, 5s before)** with nothing landing, served across settle windows via `hq_state.recovery_seconds`. Still no ground lost (2026-10-03, the user's call) |
 | 38 | `CLAUDE.md` §3 and #25: every boss engages automatically while the tab is visible, never from a button | **A boss that just beat the party** (a timeout or a wipe) does not re-engage on reaching its gate again. The stage shows a red skull challenge button in place of the stage progress, and the player fights it from there. Saved as `hq_state.boss_lost` (migration `0050`), set by the fight that loses and cleared by the one that wins, so it holds across reloads and coming back later; run position, so a prestige clears it. Presence still gates every fight (2026-10-04, the user's call) |
 | 40 | `loadouts.md` §3: Loadout slots run 2 → 10, eight Gem-priced purchase levels | **2 → 6**, four levels on the same doubling (`MAX_LOADOUT_SLOTS`). Saved rows past slot 6 are never served. The Loadouts scene shows the six as two rows of three cards (2026-10-04, the user's call) |
 | 41 | `build-log.md` #11.4: the prestige-shop stat multiplier is cut, struck from the sink lists in `core-progression-and-prestige.md` §4, `economy-and-currencies.md` §4, `tech-architecture.md` §3 and `global-power-number.md` §3 | **Back, as four uncapped tracks: PWR, DEF, IMP and VIT**, party-wide (summed with equipped Artifacts' lines). Each level adds `PRESTIGE_STAT_PER_LEVEL` of the stat; the price climbs on `PRESTIGE_STAT_COST_GROWTH` from `PRESTIGE_STAT_BASE_COST` Void Shards, forever. SPD and LCK are left out because they run into ceilings (the attack-interval floor, the crit clamp). Page 2 of the shop scene. The campaign sim buys none, so pacing does not account for them (2026-10-04, the user's call) |
@@ -56,10 +56,10 @@ read the older rule in the doc named in the middle column, it is superseded.**
 
 ## 🔷 Open questions — need your input
 
-### 2. Arena matchmaking band width
-`ARENA_MATCH_BAND_RATING` — how close in Rating does an opponent need to be to appear as a real candidate before Training Dummy fills the slot? Design-feel question as much as a number. (On GPN until 2026-10-10.)
+### ~~2. Arena matchmaking band width~~
 
-**Placeholder: ±200 Rating** (2026-10-10, the user's call, replacing ±20% of GPN), `// UNTUNED ╧`. Still open: it wants a real population, since with few players a narrow band means mostly Training Dummies and a wide one means mismatches.
+**Decided 2026-10-11, the user's call: ±100 Rating**, locked (`ARENA_MATCH_BAND_RATING`). A slot the band
+can't fill still gets a Training Dummy. Record under #58.
 
 ---
 
@@ -77,7 +77,7 @@ Twelve items are built and working but left something undecided. The full record
 sit here as #24 is not an open item — it is a trap, and it lives in `CLAUDE.md` §7 and
 `build-log.md` #24.)
 
-### 22. The combat and progression tuning pass — three open consequences
+### ~~22. The combat and progression tuning pass — three open consequences~~ — closed 2026-10-11
 
 Full record: `build-log.md` #22. 42 constants moved to `// TUNED ✓` and the level curve was
 re-derived as a pacing model. What it left open:
@@ -85,92 +85,71 @@ re-derived as a pacing model. What it left open:
 1. ~~**A solo account never completes a prestige** without pulling.~~ **Decided 2026-10-09: intended**
    (the user's call). The boss gate is the wall and Champions are the answer to it, so no prestige
    without a party is the design, not a side effect. Record in `build-log.md` #22.
-2. **The Gold curve was calibrated against the old loop speed** — see #23.
-3. **`STAT_PACES_ENEMY_CURVE` is inert while `XP_PACE_SLACK` is 1.0**, because both stat curves
+2. ~~**The Gold curve was calibrated against the old loop speed**~~ — carried by #23.
+3. ~~**`STAT_PACES_ENEMY_CURVE` is inert while `XP_PACE_SLACK` is 1.0**~~, because both stat curves
    are then numerically identical. Keep it: it starts mattering the moment slack moves.
 
 ⚠ The `TUNED ✓` legend says "confirmed in playtest", but `playtest-notes.md` records only
-session 1. The block was tuned on the campaign sim, not felt.
+session 1. The block was tuned on the campaign sim, not felt. Closed 2026-10-11 (the user's call): that
+warning is the playtest's to answer (*Watch during playtest*, GitHub issue #18).
 
-### 58. The Arena — built; what it left open
+### ~~58. The Arena — built; what it left open~~ — closed 2026-10-11
 
 Full record: `build-log.md` #58. Reworked on review 2026-10-10: the band on Rating, two free refreshes a
 day, the defence set only from the current loadout, the preferred attack Loadout wired as a raid's,
 and a timeout decided by HP share. What is still open:
 
-1. **Fights shortened with depth — addressed by #60** (crits capped at ×2, every fight paced so an
-   even one times out). `ARENA_EVEN_FIGHT_SECONDS` is `UNTUNED ╧`; how often real fights reach the
-   clock is the thing to watch.
-2. **The band (#2)**, the Elo K pair, the Medal amounts, the season rewards and every shop price are
-   `UNTUNED ╧`. Medal income per day (~120–200 at these values) is what the shop prices and
-   `ARENA_SHOP_GEM_PRICE`'s calibration target read against; confirm it once real attack rates exist.
-3. **The platform leaderboard shows GPN but does not rank on it** — GitHub issue #23.
-4. **The bots' loadouts are guesses (#62).** `ARENA_BOT_LOADOUT` is `UNTUNED ╧`: the 1000 bot stands
-   where the sim puts a party of three at World 6 (about level 258, 16–18M GPN), and nothing below that
-   rests on data. Re-cut it once real players' Ratings and defences exist.
+1. ~~**Fights shortened with depth**~~ — addressed by #60, and the clocks are locked (below).
+2. ~~**The band (#2), the Elo K pair, the Medal amounts, the season rewards, every shop price and the
+   fight clocks, and the Arena milestone track (`MILESTONE_ARENA_*`)**~~ — **locked 2026-10-11, the user's call**: the band narrowed from ±200 to **±100
+   Rating**, everything else kept as built. The Ranking tab got a REWARDS button that shows what a
+   season pays per rank band, so the reward table can be reviewed in the game.
+3. ~~**The platform leaderboard shows GPN but does not rank on it**~~ — **ranked 2026-10-11** (the user's
+   call, GitHub issue #23): Hero Quest adds **Worlds cleared, every run counted, plus collection entries
+   owned** to the platform's upgrade count (`heroQuestScore`, `scoreboard.ts`). Stages and collection levels
+   were weighed and left out, since both run into the hundreds and would decide the board. GPN stays shown,
+   unranked.
+4. ~~**The bots' loadouts are guesses (#62).**~~ — `ARENA_BOT_LOADOUT` **locked 2026-10-11**, the user's call.
 
-### 45. Boss specials are real — built; what the sims don't see
+### ~~45. Boss specials are real — built; what the sims don't see~~ — closed 2026-10-11
 
 Full record: `build-log.md` #45. Every gate boss swings its special in place of an attack, on a
 fixed cooldown, with damage and a status or a drain. What it left open:
 
-1. **The campaign walk and the idle projection don't model specials.** Both are
-   expected-value models with no boss kit in them, so `--report=campaign` reads exactly as it did
-   before. They were measured on seeded `runFight` gate fights instead: a party of three needs
-   1 to 4 more levels at six of the twenty gates (the stuns, silence, weaken, slows and drain),
-   and none at the rest. Solo is the same, World 1's boss +4. No gate fight wipes either way,
-   since the gates are DPS walls. Fold specials into the sim if their numbers grow to where that
-   matters.
-2. **All eleven magnitudes are `UNTUNED ╧`** (`BOSS_SPECIAL_*`). Pure-damage specials cost
-   nothing at the current values: a party at a gate's level is in no danger of dying, so extra
-   incoming damage shows only once something else pushes a fight long.
-3. **No Artifact carries Unshaken.** `controlResist` is live now (it shortens every hostile
-   status a special lands), but the 48-Artifact distribution never draws Unshaken from the Tempo
-   pool, so only the Skills Unbreakable Will and Immortal Vanguard grant it. Worth a look when
-   the Artifact effects are re-cut (`CLAUDE.md` §6).
+**Closed 2026-10-11, the user's calls.** Measured on seeded gate fights (party of 3, Beginner plus
+stand-ins, 16 seeds, the first level winning half): as swings of the boss's PWR against DEF a special
+landed ~1 damage at a gate's level, so no multiplier, even 20×, wiped a party or moved a gate.
 
-### 52. Traits — built; Deep Impact breaks the pacing, and two slips in `traits.md`
+1. **A special's hit now takes a share of the target's max HP, past its DEF**: spread **15%**, heavy
+   **25%**, focus **45%**, split over its hits (`BOSS_SPECIAL_*_HP_SHARE`, replacing the three
+   `_MULTIPLIER`s). Measured: two super bosses become real fights, W3S10 +7 levels and W9S10 +8, about a
+   third to half of fights at the gate's level wiping; every other gate within ±3 of the expected-value
+   walk, as before. Chosen over 20/35/60%, which moved nine gates +8 to +23, World 1's first boss among
+   them. The campaign walk and idle projection still don't model specials; the two gates are the
+   whole of the difference.
+2. **The other eight magnitudes are locked as built** (cooldown 8 s, stun 1 s, silence 3 s, burn 15% of
+   the hit over 4 s, debuffs 20% for 6 s, drain 50%).
+3. **No Artifact carries Unshaken — dropped**: the Skills that grant control resist are enough.
+
+### ~~52. Traits — built; Deep Impact breaks the pacing, and two slips in `traits.md`~~ — closed 2026-10-11
 
 Full record: `build-log.md` #52. Five slots, Rolls, locks, Sets, save slots, and evasion live in
 combat and GPN. What it left open:
 
-1. **⚠ Deep Impact collapses the mid-game — needs your call.** Measured 2026-10-10 with the
-   campaign walk's new `--traits` flag (party of 3, Worlds 5–10 of the first run, since Traits open
-   at 4 Worlds cleared):
-
-   | Board | Worlds 5–10 | First prestige |
-   |---|---|---|
-   | None (as tuned) | 9d 12h | not in the grind budget |
-   | Three F slots, no live Set | 8d 8h | not in budget |
-   | One E ATK slot | 9d 16h | yes, just |
-   | One F slot, Vital Reflex or Divine Blessing 1pc | 9d 5h | not in budget |
-   | **One F slot, Deep Impact 1pc (+400% IMP)** | **1d 13h** | yes |
-   | Deep Impact 2pc / 3pc | 15h 49m / 9h 3m | yes |
-   | `--traits=E` (every 1-piece Set live) | 1d 0h | yes |
-   | `--traits=A` | 10h 14m | yes |
-
-   The grades barely matter; Deep Impact's one-piece +400% IMP does nearly all of it, and two
-   boards in three roll at least one piece. The week-long first run (`core-progression-and-prestige.md`
-   §1) shrinks to about two days the moment Traits open. The other magnitudes look sized right
-   (+25% ATK, the most common grade, is worth hours, not days). `traits.md` locks every number, so
-   none is `UNTUNED ╧` and moving one is a design decision; likeliest fix is Deep Impact's tiers
-   (+400/800/1200%): one piece is worth more than an SS IMP roll (+300%), on two boards in three.
-   Since 2026-10-10 the Trait raid pays 10x (#55), so boards come ten times faster too. Nothing changed
-   yet. ATK and Champion ATK still stack on one stat (`traits.md` §0).
-2. **Two contradictions inside `traits.md`, taken the owning text's way rather than reconciled:**
-   - The *Implementation Note* still says Champion ATK is "scoped to non-Tank Champions' PWR",
-     while §4's table and the same note's revision say **all four archetypes, Tank included**.
-     Built as §4: every Champion.
-   - §5's evasion note says `MAX_EVASION` 0.60 sits "below the party-reachable ceiling of a
-     5-piece Vital Reflex board (+50%)". It sits above it, ten points of headroom, which is what
-     the same bullet goes on to argue and what `classes-and-combat.md` §7 says. Built at 0.60;
-     only the wording is wrong.
+1. ~~**⚠ Deep Impact collapses the mid-game.**~~ **Cut to a quarter 2026-10-11, the user's call:**
+   +400/800/1200% → **+100/200/300%** IMP, so one piece now sits below an S IMP roll. Re-measured on the
+   campaign walk (party of 3, Worlds 5–10 of the first run): none 9d 11h (unchanged), `--traits=E`
+   1d 0h → **3d 11h**, `--traits=A` 10h 14m → **1d 12h**. A full board still speeds the mid-game up, as
+   Traits are meant to; no single piece collapses it any more. `traits.md` §5 records the cut.
+2. ~~**Two contradictions inside `traits.md`**~~ — **fixed 2026-10-11**: the Implementation Note now
+   says Champion ATK reaches every Champion, Tank included, and §5 says `MAX_EVASION` sits ten points
+   *above* a 5-piece Vital Reflex board.
 3. ~~A Roll or a load does not settle first~~ — fixed 2026-10-10 (the user's call): every route
    that moves the idle rate settles first (`trait/roll`, `trait/load`, `loadout/set`,
    `loadout/apply`, `prestige/pick-class`, `shop/buy`), so a window is always paid at the
    rate it ran at.
 
-### 47. The login calendar — built; its Gold and Gem days are placeholders
+### ~~47. The login calendar — built; its Gold and Gem days are placeholders~~ — closed 2026-10-11
 
 Full record: `build-log.md` #47. Thirty fixed days per account cycle, three make-ups. What it left
 open:
@@ -182,7 +161,9 @@ open:
    1–1.5 days of each gacha's raid Seals (7–13 Seals, from 4–6), 2.4 days of Trait Gems (73, from
    50) and the same Keys as before. Day 30's 200 Void Shards is the user's number. The Gold minutes
    and Gem counts in `CALENDAR_SCHEDULE` are still guesses, below.
-2. **Rebalance its Gold and Gems after the Gold balance step** (step 7 of the *Suggested order*,
+2. ~~**Rebalance its Gold and Gems after the Gold balance step**~~ — **locked as built 2026-10-11** (the
+   user's call): the schedule, its Gold minutes and Gem days, and both income dials. Only a Gold decision
+   that changes what a minute of income is worth would reopen it. (step 7 of the *Suggested order*,
    #23; the user's call, 2026-10-08). A Gold day is minutes of current income (`gold-economy.md`
    §6), so it is exactly as right as the unreconciled Gold curve, and the Gem days (25, 50, 75 a
    cycle, platform-wide) are sized against nothing yet.
@@ -190,22 +171,20 @@ open:
    can't start while a bought block of another speed runs (`idle-mechanics.md` §3), and neither a
    refused claim nor a queue was worth it.
 
-### 49. Convergence plays as one cinematic in the game — **new 2026-10-09**
+### ~~49. Convergence plays as one cinematic in the game~~ — closed 2026-10-11
 
-The Ascendant's design and art are complete and locked (#43, `build-log.md`), and the gallery's
-live stage plays the Convergence cinematic. The game doesn't yet: its run stage plays a cinematic
-only for a class's own skill (`demo.ts`, `setKits`), and Convergence's volley casts as the six
-masters' skills, so idle play shows their six small effects and a boss replay would play each
-master's own cinematic back to back. The fix is engineering, not design: tag the volley's six
-entries (`CONVERGENCE`) as one cast the stage can recognise, and play `skill_convergence`'s
-cinematic once for them, its six hits landing the volley's damage.
+**Kept as it plays, the user's call (2026-10-11):** in the game Convergence's volley shows as the masters'
+own skill effects, and that stays. The gallery's single Convergence cinematic is not wired into the
+game stage, on purpose.
 
-### 48. Milestones — built; every number is a placeholder
+### ~~48. Milestones — built; every number is a placeholder~~ — closed 2026-10-11
 
 Full record: `build-log.md` #48. Eleven tracks, each a formula rather than a list. What it left
 open:
 
-1. **Eleven of the twelve `MILESTONE_*` constants are `UNTUNED ╧`.** The twelfth,
+1. ~~**Eleven of the twelve `MILESTONE_*` constants are `UNTUNED ╧`.**~~ **Locked as built 2026-10-11**
+   (the user's call), the prestige Gems included: each prestige takes longer than the last, so +25 a
+   prestige is a minor increase overall. The twelfth,
    `MILESTONE_RAID_LEVEL_EVERY` (5), comes from backlog item 11. The World and prestige Seal bases carry over the old batch sizes (3 and 10);
    every growth step, the collection step and the Key and Gem amounts are guesses. Prestige Gems
    (50, then 25 more a prestige) are platform-wide, so they reach past Hero Quest. Size them with
@@ -213,28 +192,24 @@ open:
 2. ~~**Accounts with history claim it again.**~~ **Decided 2026-10-09: accepted, no migration**
    (the user's call). Hero Quest has never reached `main`, so production starts with no `hq_state`
    rows and no history to re-claim. Record in `build-log.md` #48.
-3. **The campaign sim doesn't see milestones.** Seal income isn't part of the walk, so this changes
+3. ~~**The campaign sim doesn't see milestones.**~~ Closed with the rest; kept as a note for #23.2. Seal income isn't part of the walk, so this changes
    nothing it measures. Pull-pacing questions (#23.2, the Seal ladder) now have this source to
    account for.
 
-### 53. Holiday gifts — built; the bundles are placeholders
+### ~~53. Holiday gifts — built; the bundles are placeholders~~ — closed 2026-10-11
 
 Full record: `build-log.md` #53. Six holidays (Valentine's Day and Easter added 2026-10-10), a claim
 each per year, in a three-day UTC window, from a gift icon on the battle view.
 What it left open:
 
-1. **`HOLIDAY_GIFTS` is one `UNTUNED ╧` table**, and `HOLIDAY_CLAIM_WINDOW_DAYS` (3, the holiday
-   counted) is §2's "e.g." taken at its word. The bundles follow §3's shape (Christmas richest,
-   Halloween and Valentine's Day smallest, themed Seals); every amount is a guess, the two new
-   holidays' included. Their Gems are platform-wide, so
-   size them with the calendar's Gem days (#47) and the prestige milestones' (#48) in step 7 of the
-   *Suggested order*, and their Gold after the Gold decision (#23), like the calendar's.
-2. **Lunar New Year's table ends at 2050**, and takes the date in China as the UTC day. A spec
-   fails once the table is within twenty years of running out.
+1. ~~**`HOLIDAY_GIFTS` and `HOLIDAY_CLAIM_WINDOW_DAYS` are placeholders**~~ — **locked as built 2026-10-11**,
+   the user's call: the six bundles as they stand and the three-day window.
+2. ~~**Lunar New Year's table ends at 2050**~~ — closed 2026-10-11, the user's call: the spec that fails
+   twenty years before it runs out is the reminder.
 3. ~~`holiday-events.md` §2 models the claim on the retired `seals/claim-daily.post.ts`~~ — fixed
    2026-10-10: §2 and `tech-architecture.md` §5 now name the login calendar's route.
 
-### 54. Per-raid Loadout auto-apply — built; the Arena's half waits
+### ~~54. Per-raid Loadout auto-apply — built; the Arena's half waits~~ — closed 2026-10-11
 
 Full record: `build-log.md` #54. Each raid points at a saved slot from a list on its own screen;
 a fresh engage snapshots and applies, leaving reverts, and the run (Battle Speed with it) holds
@@ -243,13 +218,13 @@ there: the run's boss closing the session kept as the fallback, the cycling pick
 list, a preset that can't be applied still refusing the engage, and the hold's two consequences
 fixed (Battle Speed waits with the run; the dev time skip leaves the raid first). What is left:
 
-5. **The Arena's pointer is stored but unread.** `arena` is a valid target (#1); the Arena's attack
-   calls `engageLoadout(…, 'arena')` and its own leave when it is built.
-6. **`tech-architecture.md` §3 said a 5-entry map**, one per raid; #1 (the user's call,
+5. ~~**The Arena's pointer is stored but unread.**~~ — done with the Arena's rework (#58): an attack fields
+   its preferred Loadout through `engageLoadout(tx, userId, 'arena')` (`hero-quest-arena.ts`).
+6. ~~**`tech-architecture.md` §3 said a 5-entry map**~~, one per raid; #1 (the user's call,
    2026-10-04) and `loadouts.md` §4 add the Arena. Built per #1, and §3 now says so. The leave
    route, `raid/leave.post.ts`, is new to §5.
 
-### 36. Cooldowns off the level curve — the pacing half is deferred to playtesting
+### 36. Cooldowns off the level curve — decided; the first prestige goes back to about a week, later
 
 **What landed (2026-10-03).** The battle stage showed skills firing back to back: SPD rode the
 geometric level curve into `cooldownFor`, so every class hit `MIN_COOLDOWN_SECONDS` (0.5s) by
@@ -276,12 +251,25 @@ is unchanged, since the Beginner's only skill is Haste. One dial would restore t
 `BASE_ENEMY_HP` 60 → ~36 measured 7.9 days at 40 — but it also makes World 1 easier, and the user
 chose to leave pacing alone until more playtesting (2026-10-03). Two more things to settle then:
 
-1. **Long cooldowns lose their tail inside `BOSS_TIMER_SECONDS`.** The first cast waits a full
+**Re-measured and decided 2026-10-11 (the user's calls).** A party of three's first run now takes
+**13d 6h** without Traits (3d 14h with an E board fielded from the start, which Traits never are). The
+cooldown decisions are **locked**: the ladder, its step, and the boss-fight tail below. What stays open is
+the pacing alone: **bring the first prestige back to about a week**, a later pass (GitHub issue #12). Two
+requirements for it (the user's calls, 2026-10-11):
+
+- **Every source of stats goes into the walk/sim first.** It fields only the Hero, Common un-invested
+  stand-ins and optionally a Trait board; Gear, Skills, Artifacts, the collection passives, real Champion
+  rarities and investment, the Shop's stat tracks, the Passive Skill Tree, the Ascendant and boss specials
+  are to be modelled before the pace is measured.
+- **Tune across all the constants, not one dial.** `BASE_ENEMY_HP` is the only one measured so far and is
+  not to be the fix on its own; the whole set moves together, each move re-measured on the walk.
+
+1. ~~**Long cooldowns lose their tail inside `BOSS_TIMER_SECONDS`.**~~ Accepted, locked with the ladder. The first cast waits a full
    cooldown, so a Mythic ability (~15.9s at step 1.2) fires once in a 30s boss fight. Damage per
    second is equal on average only; in boss fights the ladder is a slight nerf to rare kits.
-2. **The step itself is a placeholder** (`// UNTUNED ╧`), shared by both ladders.
+2. ~~**The step itself is a placeholder**~~ — `SKILL_COOLDOWN_RANK_STEP` **locked at 1.2**, shared by both ladders.
 
-### 37. A wave wipe costs recovery time — built; its feel is unmeasured
+### ~~37. A wave wipe costs recovery time — built; its feel is unmeasured~~ — closed 2026-10-11
 
 **What landed (2026-10-03, the user's call).** A wipe used to cost nothing: the attempt restarted
 in the same instant, every kill kept paying, and the stage showed a 1.6s fall. Now each wave
@@ -299,7 +287,8 @@ campaign walls at boss timers, not wave wipes, so the party-of-3 walk is unchang
 solo wipe grinds are ~5% longer (`sim.ts` charges the recovery per attempt,
 `secondsPerFarmedKill`). Boss losses are untouched: still fall back one stage, re-kill 30, retry.
 
-**Open:** whether 5s reads as a penalty or just as a pause. Watch it in play.
+~~**Open:** whether 5s reads as a penalty or just as a pause.~~ **Shortened to 3 s 2026-10-11** (the
+user's call), and closed.
 
 ### 23. Gold — the progression half is still open
 
@@ -313,7 +302,9 @@ assume. Every rung went up 12×. `bun run balance:compare --emit-hq-ceiling` reg
 **Still open. The sub-numbers are unchanged** — `#23.1`, `#23.2` and `#23.3` are cited from
 `playtest-notes.md`, `gold-economy.md` and `constants.ts`:
 
-1. **The locked calendar anchors are gone.** `gold-economy.md` locked ~235M/hr at month 3 and
+1. **The locked calendar anchors are gone.** **2026-10-11, the user's call:** re-derive the anchors against the
+   platform's latest changes, as part of the Gold rebalance; neither the old anchors nor the ceiling's
+   figures are the answer until then. `gold-economy.md` locked ~235M/hr at month 3 and
    ~0.71B/hr at month 6; the ceiling pays ~28M/hr at day 90 and ~52M/hr at day 180. A deliberate
    re-anchoring on the platform that replaced a *locked* decision in code — recorded here so it
    reads as a decision rather than a drift.
@@ -321,7 +312,7 @@ assume. Every rung went up 12×. `bun run balance:compare --emit-hq-ceiling` reg
    the first 1,000,000-Gold rung is **33.8 days** away, so re-deriving `SEAL_LADDER_GROWTH`
    against income that size is meaningless. **Blocked on 23.3, not parallel to it.** #29 raised
    the stakes — the ladder is now the only non-milestone Seal source.
-3. **First-week income — the actual decision.** The walk is **progression-bound end to end** and
+3. **First-week income — the actual decision.** **Left for the playtest** (2026-10-11, the user's call). The walk is **progression-bound end to end** and
    earns 1,233 Gold/hour, 0.07% of platform; raising a ceiling that never binds changed its
    income by nothing. The two levers that reach that region are `BASE_GOLD` and `GOLD_STEP_BASE`,
    and the regeneration gave them room they did not have — the walk now saturates at 138.8M
@@ -335,19 +326,22 @@ still allowing 7,200, the worst case is **12× platform**. **Battle Speed multip
 through it**, with no second ceiling underneath. That was a warning about an unbuilt system until
 2026-10-04; Battle Speed is built now (`build-log.md` #44), so at its 5x top tier
 (`MAX_BATTLE_SPEED`) the live worst case is **60× platform** while a block runs. The column specs
-already use `MAX_BATTLE_SPEED`; whether income needs a second ceiling is part of the #23.3 call.
+already use `MAX_BATTLE_SPEED`. ~~Whether income needs a second ceiling~~ — **built 2026-10-11** (the
+user's call): a Battle Speed window's Gold is held to `maxGoldPerHour` over its real time, so the worst
+case is back to 12× platform with or without a block, and the column's margin (§9.4 below) regains the ×5.
 
 ⚠ **`gold-economy.md` §9.4's safety margin dropped an order of magnitude** with the regeneration:
 the largest single collect clears the `numeric(19,4)` column by two orders rather than three
 (187 consecutive worst-case collects fill it, not 2,250). `settle.spec.ts` asserts the new figure
 and says why.
 
-### 29. Free Seals — the un-re-derived half
+### ~~29. Free Seals — the un-re-derived half~~ — closed 2026-10-11, folded into the standing tuning
 
 Full record: `build-log.md` #29. A gacha gets 30 free pulls a day and no free Seals, ×4 systems.
 The 30/day ceiling for a player who never buys Seals is **intended and accepted**. What has not
 been re-derived against the new shape: the collection curve, Essence income and the crafting
-economy — a tuning question, listed below rather than a blocker.
+economy — a tuning question, listed below rather than a blocker. **Closed as its own item 2026-10-11** (the
+user's call): those constants are re-derived with the rest of the standing tuning (GitHub issue #17).
 
 ---
 
@@ -359,6 +353,13 @@ Named constants with a formula shape locked and a placeholder value. Consolidate
 
 **Do not treat any of these as blocking a phase.**
 
+**The combat block is reopened for one goal (2026-10-11, the user's call, GitHub issue #17): enemies have to
+actually do damage to the party.** At a gate's level a hit lands ~1 damage against 20k–570k party HP:
+mitigation is `DEF / (enemy PWR × K)`, and party DEF passes `K` × enemy PWR, so every hit is `MIN_DAMAGE`.
+`K`, `MIN_DAMAGE`, `BASE_ENEMY_PWR`, `ELITE_STAT_MULT`, `BOSS_ATK_MULT`, `ENEMY_PACE_RATIO`, `BASE_HP` and
+`HP_PER_VIT` are `TUNED ✓`, so moving them is a design decision; do it under #36's two rules (every stat
+source in the walk first, all constants together), re-measured on the walk and on seeded gate fights.
+
 Two rows are not constants in the strict sense: the archetype stat spreads are a table, and `SEAL_LADDER_BASE_GOLD` *is* specified. Both are listed anyway because the same pass answers them.
 
 **Removed from this table**, so they are not re-added by mistake — now `TUNED ✓`, derived, or deleted (#22, #23, #29): `SEAL_GRANT_INTERVAL_HOURS`, `SEAL_GRANT_AMOUNT`, `SEAL_GRANT_BANK_CAP_DAYS`, `FREE_PULLS_PER_DAY`, `FREE_PULL_COOLDOWN_MINUTES`, `K`, `CRIT_CHANCE_PER_POINT`, `CRIT_DAMAGE_PER_POINT`, `SKILL_BASE_COOLDOWN_SECONDS`, `SKILL_BASE_ABILITY_MULTIPLIER`, `WAVE_PACK_SIZE`, `ELITE_PACK_SIZE`, `PACK_LIVE_STREAM_FRACTION`, `BOSS_MINION_COUNT`, `STATUS_MAX_STACKS`, `STATUS_TICK_SECONDS`, `MAX_SUSTAIN_MITIGATION`, `MIN_SECONDS_PER_KILL`, and `GOLD_PRESTIGE_CAP` / `prestigeGoldFactor[]` (deleted). From the raids (#46): `RAID_REWARD_BASE` / `RAID_REWARD_GROWTH` (set by the user, 2026-10-04), every `RAID_*_HP_MULT`, `RAID_DUMMY_PACKS` and the three `RAID_RAMPAGE_*` (measured on the campaign walk, `TUNED ✓`); `RAID_BASE_STATS` and `RAID_LEVEL_GROWTH` were never built under those names.
@@ -366,39 +367,39 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 | Constant(s) | Doc | Note |
 |---|---|---|
 | Offline Efficiency / Offline Cap `BASE_COST` (×2) | `idle-mechanics.md` §4 | Formula shapes locked, no anchor value |
-| `K_ATTACK`, `K_DEFEND`, `MEDAL_BASE_WIN`, `MEDAL_BASE_LOSS`, `MEDAL_UPSET_BONUS`, `ARENA_MATCH_BAND_RATING`, `ARENA_SHOP_GEM_PRICE`, plus (built 2026-10-09, #58) `ARENA_FIGHT_SECONDS`, `ARENA_DUMMY_SECONDS`, `ARENA_SEASON_REWARDS`, `ARENA_LEADERBOARD_NEIGHBORS`, `ARENA_SHOP_SEAL_PRICE`, `ARENA_SHOP_TRAIT_KEY_PRICE`, `ARENA_EVEN_FIGHT_SECONDS` (#60), `ARENA_BOT_LOADOUT` (#62) (a Seal raid's Key is derived from the Seal price since 2026-10-10) | `arena.md` | Built (#58). `ARENA_MATCH_BAND_RATING` (±200 Rating) also a design question, see #2. `ARENA_SHOP_GEM_PRICE` has an explicit calibration target (under 1 Battle Speed block per day's Medals) |
-| `PASSIVE_POINTS_PER_LEVEL`, `PASSIVE_TIER_COST`, `PASSIVE_ENDLESS_BASE_COST`, `PASSIVE_ENDLESS_COST_STEP`, `PASSIVE_BAND_MAGNITUDE`, `PASSIVE_RESPEC_GEMS` | `passive-skill-tree.md` §2–§5 | Built (#63). The campaign walk models no tree, so none of it is measured: a full path is +15% on three stats plus its utility and economy lines, and the endless nodes keep adding. Size the finite tree (1,500 points at one a level) against how many prestiges it should take, then re-measure the walk with the tree on. The Plunder, Insight and Forager nodes add Gold, XP and offline efficiency, which sit on #23's unreconciled Gold numbers |
-| `EHP_DEF_CONSTANT` | `global-power-number.md` §2 | Built (#28). At 10 a level-1 Hero's DEF doubles its EHP; tune against how balanced parties should read against lopsided ones |
+| ~~`K_ATTACK`, `K_DEFEND`, `MEDAL_BASE_WIN`, `MEDAL_BASE_LOSS`, `MEDAL_UPSET_BONUS`, `ARENA_MATCH_BAND_RATING`, `ARENA_SHOP_GEM_PRICE`, plus (built 2026-10-09, #58) `ARENA_FIGHT_SECONDS`, `ARENA_DUMMY_SECONDS`, `ARENA_SEASON_REWARDS`, `ARENA_LEADERBOARD_NEIGHBORS`, `ARENA_SHOP_SEAL_PRICE`, `ARENA_SHOP_TRAIT_KEY_PRICE`, `ARENA_EVEN_FIGHT_SECONDS` (#60), `ARENA_BOT_LOADOUT` (#62)~~ (a Seal raid's Key is derived from the Seal price since 2026-10-10) | `arena.md` | **Locked 2026-10-11, the user's call** (#58): the band at ±100 Rating, the rest as built |
+| ~~`PASSIVE_POINTS_PER_LEVEL`, `PASSIVE_TIER_COST`, `PASSIVE_ENDLESS_BASE_COST`, `PASSIVE_ENDLESS_COST_STEP`, `PASSIVE_BAND_MAGNITUDE`, `PASSIVE_RESPEC_GEMS`~~ | `passive-skill-tree.md` §2–§5 | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
+| ~~`EHP_DEF_CONSTANT`~~ | `global-power-number.md` §2 | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
 | `SKILL_COLLECTION_PASSIVE_FRACTION`, `ARTIFACT_COLLECTION_PASSIVE_FRACTION` | none — see #28 | What every owned Passive Skill or Artifact gives the Hero, equipped or not (#39), as a fraction of equipping it. 0.1 mirrors Gear; tune together with `GEAR_PASSIVE_COEFFICIENT` so all three collections feel comparable |
-| `PRESTIGE_STAT_PER_LEVEL`, `PRESTIGE_STAT_BASE_COST`, `PRESTIGE_STAT_COST_GROWTH` | none — see #41 | The uncapped stat tracks: +1% party-wide per level, from 100 Void Shards climbing ×1.15. They decide how fast Void Shards turn into power once the capped tracks are done, so tune against `VOID_SHARD_BASE/GROWTH` and add them to the campaign walk before trusting the pacing past a first prestige |
+| ~~`PRESTIGE_STAT_PER_LEVEL`, `PRESTIGE_STAT_BASE_COST`, `PRESTIGE_STAT_COST_GROWTH`~~ | none — see #41 | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
 | `RAID_ENRAGE_SECONDS`, `RAID_DUMMY_SECONDS`, `RAID_KNIGHT_PWR_MULT`, `RAID_DIG_PWR_MULT`, `RAID_DIG_ADD_SECONDS`, `RAID_FORGE_PWR_MULT`, `RAID_FORGE_BOSS_STEPS`, `RAID_FORGE_HANDOFF_SECONDS` | `raid-system.md` | Built (#46). Each raid's HP multiplier is measured against its clock, so moving `RAID_ENRAGE_SECONDS` or `RAID_DUMMY_SECONDS` means re-measuring the HP multiplier it is coupled to. The PWR multipliers sit at 1: a raid boss hits like the stage it stands for |
-| `BOSS_SPECIAL_*` (11) | none — see #45 | One set of magnitudes for all twenty gate bosses' specials: cooldown, the spread, heavy and focus hits, burn, stun, silence, debuff and drain. Measured only on seeded gate fights; the campaign walk does not model them |
-| `CALENDAR_SCHEDULE`, `CALENDAR_INCOME_DAYS_FIRST`, `CALENDAR_INCOME_DAYS_LAST` | none — see #47 | The schedule's Gold minutes and Gem counts are placeholders, rebalanced after the Gold decision (#23), and count as one marker; day 30's 200 Void Shards is the user's. The two dials size every Seal, Key and Trait Gem day in days of income, ¼ to 1 |
-| `HOLIDAY_GIFTS`, `HOLIDAY_CLAIM_WINDOW_DAYS` | `holiday-events.md` §2–§3 | The six holidays' bundles, counted as one marker, and the claim window. Gems reach past Hero Quest: size them with the calendar's and the milestones' (#53) |
-| `GPN_DISPLAY_SCALE` | `global-power-number.md` | Presentation only (#28): it changes how big GPN reads, never which party ranks above which, and cancels out of the Arena's percentage band |
+| ~~`BOSS_SPECIAL_*` (11)~~ | none — see #45 | **Locked 2026-10-11, the user's call** (#45): hits as a share of max HP, 15/25/45% |
+| ~~`CALENDAR_SCHEDULE`, `CALENDAR_INCOME_DAYS_FIRST`, `CALENDAR_INCOME_DAYS_LAST`~~ | none — see #47 | **Locked 2026-10-11, the user's call** (#47) |
+| ~~`HOLIDAY_GIFTS`, `HOLIDAY_CLAIM_WINDOW_DAYS`~~ | `holiday-events.md` §2–§3 | **Locked 2026-10-11, the user's call** (#53) |
+| ~~`GPN_DISPLAY_SCALE`~~ | `global-power-number.md` | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
 | `SLOT_BASE_BONUS` ×6, `GEAR_PASSIVE_COEFFICIENT` | `gear-equipment.md` §2 | Built. The six slot coefficients are deliberately *identical* — no doc ranks the stats against each other, so six different values would encode a spread nobody decided. `GEAR_PASSIVE_COEFFICIENT` must stay well under them or manual equip stops mattering |
 | `SKILL_PASSIVE_MAGNITUDE[]`, `SKILL_ECONOMY_COEFFICIENT` | `skills-gacha.md` §4 | The whole 36-skill magnitude ladder, indexed by rarity. §4 authors it as "small" → "large" and assigns no number anywhere; the *relative ordering* is design content, so retune the set rather than entries |
 | `SKILL_POTENCY_PER_POINT` | none — see #18 | What one point of a Skill copy's `(star × 10 + level)` scalar adds to its effect potency. **Identity at minimum**, so §4's authored bands stay the reference and only levelling multiplies up — ×2.18 at 5★/Lv10 on the placeholder. Its own constant rather than reusing `CHAMPION_INVESTMENT_PER_POINT` (×3.95 at max) because a Champion's scalar is its *only* growth axis while a Skill already carries a rarity band |
 | `GOLD_BURST_MINUTES[]`, `GOLD_BURST_COOLDOWN_SECONDS` | `gold-economy.md` §6 | Burst size in minutes of income, and the cadence it repays over. The cooldown is a **decision, not a transcription** — at the shared 6.4s skill base, a 0.5-minute burst repays ~+470% Gold, two orders past §5's ×3 stack target |
-| `SKILL_COOLDOWN_RANK_STEP` | none — see #36 | How much longer each rank of the cooldown ladder waits, and so how much harder it hits. One step shared by rarity (Skills, Champion abilities) and tree depth (class skills); at 1.2 a Mythic waits ×2.49 and a master class skill ×1.73 |
+| ~~`SKILL_COOLDOWN_RANK_STEP`~~ | none — see #36 | **Locked 2026-10-11, the user's call** (#36) |
 | `SKILL_COOLDOWN_REFUND_FRACTION` | none — see #18 | How much shorter a "chance to refund / reset / re-trigger" Active's cooldown is rendered as. One constant for all three such Skills, so the approximation retunes in one place |
 | `WEALTH_FACTOR_MIN/MAX`, `WEALTH_NEUTRAL_HOURS` | `skills-gacha.md` §4¹ | The Gambler's Strike family's bounded modulation. §4¹ suggests ×0.5–×2.0 explicitly and calls it not locked; the neutral point is where the factor passes through 1.0 |
 | `ARTIFACT_EFFECT_PER_POINT`, `ARTIFACT_ECONOMY_COEFFICIENT` | `artifacts-dig-site-gacha.md` §6 | Per *point* of the investment scalar, unlike Skills' flat magnitude — §6 states the scaling for Artifacts and no doc states it for Skills. See #18's closing note |
 | `SKILL_SLOT_BASE_COST`/`_GROWTH`, `ARTIFACT_SLOT_BASE_COST`/`_GROWTH` | `skills-gacha.md` §6, `artifacts-dig-site-gacha.md` §7 | Both mirror the Champion slot track exactly, so all three want deriving together — and all three compete with the two offline tracks for the same Void Shards |
 | `GOLD_STEP_BASE`, `BASE_GOLD`, `GOLD_PLATFORM_DISCOUNT` | `gold-economy.md` §3, §3a | **Carry no marker but are open** — see #23.3. `GOLD_TENURE_CEILING` is generated, never tuned by hand: regenerate from `scripts/lib/economy-stages.ts` |
 | `SEAL_LADDER_GROWTH[]` | `gold-economy.md` §7 | Set, but calibrated against the superseded Gold anchors — see #23.2 |
-| `LOADOUT_SLOT_BASE_COST_GEMS` (4-level doubling, #40) | `loadouts.md` §3 | Built. §3 flags the first pairing of the doubling short track with Gems as a genuine unknown; at 4 levels the top step is 8× the base. Now checkable against real Gem flows: the login calendar (#47) and prestige milestones (#48) pay Gems, and Battle Speed (#44) is the only other Gem sink built so far. Traits and the Arena add more when they land |
-| `ONLINE_THRESHOLD_MS`, `HQ_REFRESH_INTERVAL_MS` | `tech-architecture.md` §9 | |
-| `TRAIT_AUTO_ROLL_BATCH` | — (Auto Roll, `build-log.md` #52) | Rolls an Auto Roll does per request, 10: how finely STOP cuts in, against how many requests a long run makes (an SSS takes about 670 Rolls, so about 67 requests). Not a price |
+| ~~`LOADOUT_SLOT_BASE_COST_GEMS` (4-level doubling, #40)~~ | `loadouts.md` §3 | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
+| ~~`ONLINE_THRESHOLD_MS`, `HQ_REFRESH_INTERVAL_MS`~~ | `tech-architecture.md` §9 | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
+| ~~`TRAIT_AUTO_ROLL_BATCH`~~ | — (Auto Roll, `build-log.md` #52) | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
 | `MAX_EVASION` | `classes-and-combat.md` §7 | **Locked at 0.60** — not open, listed for completeness. Live since Traits (#52): Vital Reflex reaches 0.50 |
 | `OVERFLOW_CONVERSION_RATE` | `classes-and-combat.md` §7 | The only crit constant still untuned. Rarely reachable: with LCK off the level curve only a deliberately built crit Hero passes 100% |
-| `SEAL_GRANT_PER_BOSS` | `economy-and-currencies.md` §5 | A boss's batch, paid on the win. Doc gives only the shape and defers the values to the world/enemy pass (#6). Built and paying out |
-| `CONVERGENCE_COOLDOWN_FACTOR` | `capstone-class.md` | The Ascendant's power, the one open half of #43: best-of-each stats (the user's call), four free picks, and a volley paying `6 / factor` master skills a second very likely out-class every master. Measure the Ascendant on the campaign sim before moving it. Bounded above by the boss timer (past ~3.5 it never fires in a boss fight) |
-| `MILESTONE_*` (14, the Arena track's three since #59) | `economy-and-currencies.md` §4–5 | The milestone formulas (#48): each track's reward is `BASE + STEP × (k − 1)`, with Worlds stepping per run instead, plus a collection's step size. The World and prestige Seal bases are the old World-clear and prestige batches (3, 10); the rest are guesses |
-| `VOID_SHARD_BASE`, `VOID_SHARD_GROWTH` | `economy-and-currencies.md` §3 | 100 × 2^prestige, the doc's "starting point". Only has to outpace shop costs, so derive it alongside the slot and offline tracks it pays for — and note that at ~a week per prestige (#22) the first shop purchase is a week in |
+| ~~`SEAL_GRANT_PER_BOSS`~~ | `economy-and-currencies.md` §5 | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
+| ~~`CONVERGENCE_COOLDOWN_FACTOR`~~ | `capstone-class.md` | **Locked at 2, 2026-10-11, the user's call:** the capstone is meant to be strong. It gets every class-path node of the Passive Skill Tree too (`passivePathsOf`, already so) |
+| ~~`MILESTONE_*` (14, the Arena track's three since #59)~~ | `economy-and-currencies.md` §4–5 | **Locked 2026-10-11, the user's call** (#48, #58) |
+| ~~`VOID_SHARD_BASE`, `VOID_SHARD_GROWTH`~~ | `economy-and-currencies.md` §3 | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
 | `wealthFactor` clamp range for Gambler's Strike family | `skills-gacha.md` §4 | Suggested ×0.5–×2.0, not locked |
-| `CHAMPION_SLOT_BASE_COST`, `CHAMPION_SLOT_COST_GROWTH` | `champions-guild-gacha.md` §1 | Void Shard price of party slots 3→5. Competes directly with the two offline tracks for the same currency, so all three want deriving together |
-| `CHAMPION_PASSIVE_PER_POINT` | `champions-guild-gacha.md` §7 | The §7 collection passive. Doc fixes which archetype buffs which stat and states no magnitude anywhere. At 0.002 one maxed Champion is +12% to its archetype's stats, and the full 48-Champion roster maxed (12 per archetype) is +144% on each of the six |
+| ~~`CHAMPION_SLOT_BASE_COST`, `CHAMPION_SLOT_COST_GROWTH`~~ | `champions-guild-gacha.md` §1 | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
+| ~~`CHAMPION_PASSIVE_PER_POINT`~~ | `champions-guild-gacha.md` §7 | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
 | `CHAMPION_INVESTMENT_PER_POINT` | `champions-guild-gacha.md` §2 | What a copy's `star × 10 + level` scalar is worth. Sets the payoff on dupe levelling, so it decides whether pulling wide or levelling deep is correct |
 | Archetype base stat spreads (`ARCHETYPE_DEFINITIONS[].spread`) | `champions-guild-gacha.md` §2 | Not a constant but the same problem: §2 states outright there is no Champion equivalent of the Hero's §2 table, so all four spreads are a reading of the archetype identities rather than a specified number |
 | `SEAL_LADDER_BASE_GOLD` | `gold-economy.md` §7 | Doc-specified at 1,000,000. Uncapped per day by design — see the note below |
@@ -414,7 +415,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 
 ## Suggested order
 
-~~**Before merging `hero-quest` into `main`: settle the ??? capstone class (#43).**~~ **Done 2026-10-09** as the Ascendant: designed, built and its art locked (`build-log.md` #43). Its power is a standing-tuning row, and #49 makes the game play its cinematic. ~~Before the merge, also decide #48.2 (milestone claims for history).~~ Decided 2026-10-09: no migration.
+~~**Before merging `hero-quest` into `main`: settle the ??? capstone class (#43).**~~ **Done 2026-10-09** as the Ascendant: designed, built and its art locked (`build-log.md` #43). Its power is a standing-tuning row, and #49 (its cinematic in the game) was closed 2026-10-11, kept as it plays. ~~Before the merge, also decide #48.2 (milestone claims for history).~~ Decided 2026-10-09: no migration.
 
 **Reordered 2026-10-02, the user's call: the playtest and the Gold balance (step 2) move to the very end, with step 7.** The battle stage comes first (`build-log.md` #34): the idle stage and the boss replay on the stage both landed that day. The argument below for playing early was weighed and set aside; it is kept as the record of what the reorder gives up.
 
@@ -428,7 +429,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 4. **The last quick call (#2)**, the Arena band — answer it with the Arena. #1 and #3 are decided, and with #3 the raid-rule questions #31 and #32 (2026-10-04); the asset calls (#4, #30) on 2026-09-17.
 5. **Phase 4 — endgame systems** (`implementation-plan.md`). ~~Arena~~ built (#58). ~~GPN~~ built (#28); the leaderboard aggregate and Defense GPN built with the Arena (#58). ~~Battle Speed~~ built (#44). ~~Raids~~ built, all five (#46). ~~Traits~~ built, with evasion (#52). ~~Holidays~~ built, the gifts (#53). ~~`loadouts.md` §4's per-raid auto-apply~~ built (#54); the Arena's half with the Arena (#58).
 6. ~~**Passive Skill Tree (#7)**~~ **Built 2026-10-11** (`build-log.md` #63), on level-up points instead of a raid.
-7. **Playtest, then tune the rest.** The combat and progression block is tuned (#22); the gacha, shop, economy and ability-magnitude constants are settled here — see the standing-tuning section. The balance script and campaign sim stay in use throughout. **Once the Gold balance is decided, rebalance the login calendar's Gold and Gem days** (#47).
+7. **Playtest, then tune the rest.** The combat and progression block is tuned (#22); the gacha, shop, economy and ability-magnitude constants are settled here — see the standing-tuning section. The balance script and campaign sim stay in use throughout. ~~Once the Gold balance is decided, rebalance the login calendar's Gold and Gem days (#47).~~ Locked as built 2026-10-11.
 
 **On the playtest step's position.** Tuning the *remaining* constants wants every system present, so the last step is still the right place to *finish*. But the loop itself was tuned on the sim alone, and `implementation-plan.md` Phase 1's "stop here and actually play it before continuing" has now been overridden three times. The harness (#19) makes a session cheap, and world design is downstream of it — nothing settles how long a world should take like having felt one. That is why step 2 exists.
 

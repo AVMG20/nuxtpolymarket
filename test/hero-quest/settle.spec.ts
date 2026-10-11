@@ -817,6 +817,21 @@ describe('hero-quest settle', () => {
             expect(deep).toBeCloseTo(BASE_GOLD * goldTenureCeiling(SPEC_TENURE_DAYS), 9)
         })
 
+        it('holds a Battle Speed window\'s Gold to the bound over its real time', () => {
+            // at the floor kill rate, a young account deep enough that every kill pays the ceiling: five times
+            // the kills, the same Gold
+            const strong = { ...hero, heroLevel: 3000 }
+            const window = { hero: strong, position: at(1, 4, 0, 3), elapsedSeconds: 3600, online: true, tenureDays: 1 }
+            const plain = settle(input(window))
+            const boosted = settle(input({ ...window, speedBoost: { multiplier: 5, overlapSeconds: 3600 } }))
+            const bound = maxGoldPerHour(1, 1)
+            expect(boosted.kills).toBeGreaterThan(plain.kills)
+            expect(plain.goldEarned).toBeLessThanOrEqual(bound * (1 + 1e-9))
+            expect(boosted.goldEarned).toBeLessThanOrEqual(bound * (1 + 1e-9))
+            expect(boosted.kills).toBe(plain.kills * 5)
+            expect(boosted.goldEarned).toBeCloseTo(plain.goldEarned, 6)
+        })
+
         it('bounds Gold per hour by construction', () => {
             const bound = maxGoldPerHour()
             expect(Number.isFinite(bound)).toBe(true)
@@ -826,10 +841,10 @@ describe('hero-quest settle', () => {
         it('leaves healthy headroom under the shared balance column', () => {
             // Gold lives on user.balance — numeric(19,4), a ~1e15 ceiling. The worst case
             // stacks everything at once: the tenure ceiling at its ten-year horizon, the
-            // throughput floor, a x4 Gold% stack and the fastest Battle Speed tier, and a player
-            // who never spends a coin.
+            // throughput floor, a x4 Gold% stack, and a player who never spends a coin. Battle
+            // Speed is held under the same bound (`settle`), so it adds nothing here.
             const BALANCE_COLUMN_CEILING = 1e15
-            const worstCase = maxGoldPerHour(4, MAX_BATTLE_SPEED)
+            const worstCase = maxGoldPerHour(4)
             const headroomHours = BALANCE_COLUMN_CEILING / worstCase
 
             // At least 100 hours of uninterrupted worst-case earning before the column is
@@ -850,8 +865,9 @@ describe('hero-quest settle', () => {
             // of 2,250. The worst case already stacks everything at once — ten-year account
             // age, the throughput floor, ×4 Gold%, ×4 Battle Speed, a full 72-hour window,
             // and a player who never spends a coin — and `leaves healthy headroom` above
-            // still passes by two orders of magnitude on its own terms.
-            const collect = maxGoldPerHour(4, MAX_BATTLE_SPEED, GOLD_BOUND_HORIZON_DAYS) * OFFLINE_CAP_MAX_HOURS
+            // still passes by two orders of magnitude on its own terms. Holding Battle Speed
+            // under the bound (2026-10-11) took its ×5 back out of this figure.
+            const collect = maxGoldPerHour(4, GOLD_BOUND_HORIZON_DAYS) * OFFLINE_CAP_MAX_HOURS
             expect(collect).toBeLessThan(1e15 / 100)
         })
     })

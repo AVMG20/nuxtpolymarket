@@ -4,7 +4,7 @@
  *
  * Only the gate bosses have one; regular enemies have no abilities, and raids bring their own
  * fights. Each entry is a shape, read off its art: who it reaches, how hard per target (one of
- * three weights), how many hits it lands, and at most one status and a drain. The magnitudes are
+ * three weights, each a share of the target's max HP), how many hits it lands, and at most one status and a drain. The magnitudes are
  * the `BOSS_SPECIAL_*` constants.
  *
  * Party-side targeting is its own small vocabulary rather than `effects.ts`'s `EffectTarget`,
@@ -20,7 +20,7 @@ export type SpecialTarget =
     | 'front_two'
     | 'all'
 
-/** Per-target weight: `BOSS_SPECIAL_SPREAD_/HEAVY_/FOCUS_MULTIPLIER`. */
+/** Per-target weight: the share of max HP it takes, `BOSS_SPECIAL_SPREAD_/HEAVY_/FOCUS_HP_SHARE`. */
 export type SpecialWeight = 'spread' | 'heavy' | 'focus'
 
 /**
