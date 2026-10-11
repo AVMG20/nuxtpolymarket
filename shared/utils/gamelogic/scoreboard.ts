@@ -2,16 +2,17 @@ import { TOWN_MILESTONES } from './town'
 import { TOWN_RESEARCH } from './town-research'
 import { VOID_MAX_SECTOR, VOID_SHIP_IDS, VOID_TRADE_MAX_LEVEL, voidNormalizeLevels } from './void'
 import { voidPilotLevel } from './void-skills'
+import { WORLD_COUNT } from '../hero-quest/constants'
 
 /**
- * What Polytown and Void Runner add to the site scoreboard.
+ * What Polytown, Void Runner and Hero Quest add to the site scoreboard.
  *
  * The score is a plain count of upgrades, so each game contributes the things
  * that are counted the same way: permanent, one point each, and earned by
  * playing rather than by spending. Anything a player can mint or lose is left
  * out on purpose: buildings and plots can be bulldozed or traded, crafted gear
- * can be scrapped and re-rolled. Both games top out near Xeno's 85 points, so
- * none of them decides the board alone.
+ * can be scrapped and re-rolled. Polytown and Void Runner top out near Xeno's 85 points, so
+ * neither decides the board alone; Hero Quest's entries stop at 168, its worlds add ten a run.
  */
 
 const MILESTONE_IDS = new Set(TOWN_MILESTONES.map(m => m.id))
@@ -63,4 +64,32 @@ export function voidScore(s: VoidScoreInput): VoidScore {
     const systems = Object.values(voidNormalizeLevels(s.upgradeLevels)).reduce((sum, n) => sum + n, 0)
     const trade = Math.max(0, Math.min(VOID_TRADE_MAX_LEVEL, s.tradeLevel))
     return { sectors, pilotLevel, hulls, systems, trade, total: sectors + pilotLevel + hulls + systems + trade }
+}
+
+export interface HeroQuestScoreInput {
+    prestige: number
+    /** The World the run stands in, 1-based. */
+    world: number
+    runCleared: boolean
+    /** Collection entries owned, across all four gachas. */
+    entriesOwned: number
+}
+
+export interface HeroQuestScore {
+    worlds: number
+    entries: number
+    total: number
+}
+
+/**
+ * Worlds cleared, every run counted, plus collection entries owned (2026-10-11, the user's call).
+ * Levels and stages were weighed and left out: both run into the hundreds and would decide the
+ * board, and a level is bought with pulls as much as it is played for.
+ */
+export function heroQuestScore(s: HeroQuestScoreInput): HeroQuestScore {
+    const prestige = Math.max(0, Math.floor(s.prestige))
+    const inRun = Math.max(0, Math.min(WORLD_COUNT, Math.floor(s.world) - 1 + (s.runCleared ? 1 : 0)))
+    const worlds = prestige * WORLD_COUNT + inRun
+    const entries = Math.max(0, Math.floor(s.entriesOwned))
+    return { worlds, entries, total: worlds + entries }
 }

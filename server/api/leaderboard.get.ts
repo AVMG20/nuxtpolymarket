@@ -1,17 +1,17 @@
 import { count, countDistinct, eq, inArray, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { getSessionUserId } from '#server/utils/auth'
-import { user, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders, tcgBattlerRun, tcgBattlerRating, townState, townResearch, voidState, hqState } from '#server/database/schema'
+import { user, bankState, colonyState, colonyBugResearch, xenoPlantsUnlocked, xenoGridSlots, xenoBreederSlots, aiMessages, hackAgents, hackItems, gemOrders, tcgBattlerRun, tcgBattlerRating, townState, townResearch, voidState, hqState, hqCollection } from '#server/database/schema'
 import { getGemGuidePrice } from '#server/utils/gem-exchange'
 import { bailoutRemaining, debtFloor, growBankBalance, isBailoutActive } from '#shared/utils/gamelogic/bank'
 import { PLANT_TYPES } from '#shared/utils/xeno'
 import { equippedAgentPower, type EquippableItemRow } from '#server/utils/hack'
-import { townScore, voidScore } from '#shared/utils/gamelogic/scoreboard'
+import { heroQuestScore, townScore, voidScore } from '#shared/utils/gamelogic/scoreboard'
 
 export default defineEventHandler(async (event) => {
   const sessionUserId = await getSessionUserId(event)
   const xenoSpeciesIds = [...new Set(PLANT_TYPES.map(plant => plant.id))]
-  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts, battlerTotals, battlerRatings, townRows, townResearchRows, voidRows, heroQuestRows] = await Promise.all([
+  const [users, gemGuidePrice, gemEscrowRows, hackAgentRows, hackItemRows, colonyHabitatRows, researchTotals, xenoSpeciesCounts, xenoGridCounts, xenoBreederCounts, aiPromptCounts, battlerTotals, battlerRatings, townRows, townResearchRows, voidRows, heroQuestRows, heroQuestEntryCounts] = await Promise.all([
     db
       .select({
         id: user.id,
@@ -97,8 +97,9 @@ export default defineEventHandler(async (event) => {
         tradeLevel: voidState.tradeLevel,
       })
       .from(voidState),
-    // Hero Quest's Global Power Number, as its last settle wrote it: a Decimal string, shown, not ranked
-    db.select({ userId: hqState.userId, gpn: hqState.globalPowerNumber }).from(hqState),
+    // Hero Quest's run position for its ranked score, and its Global Power Number, shown only: a Decimal string
+    db.select({ userId: hqState.userId, gpn: hqState.globalPowerNumber, prestige: hqState.prestige, world: hqState.world, runCleared: hqState.runCleared }).from(hqState),
+    db.select({ userId: hqCollection.userId, n: count() }).from(hqCollection).groupBy(hqCollection.userId),
   ])
 
   const gemEscrowByUser = new Map(gemEscrowRows.map(row => [row.userId, row]))
@@ -132,6 +133,8 @@ export default defineEventHandler(async (event) => {
   const townByUser = new Map(townRows.map(row => [row.userId, townScore(row.milestonesClaimed ?? [], townResearchByUser.get(row.userId) ?? [])]))
   const voidByUser = new Map(voidRows.map(row => [row.userId, voidScore(row)]))
   const heroQuestGpnByUser = new Map(heroQuestRows.map(row => [row.userId, row.gpn]))
+  const heroQuestEntriesByUser = new Map(heroQuestEntryCounts.map(row => [row.userId, row.n]))
+  const heroQuestByUser = new Map(heroQuestRows.map(row => [row.userId, heroQuestScore({ ...row, entriesOwned: heroQuestEntriesByUser.get(row.userId) ?? 0 })]))
 
   return users
     .map(u => {
@@ -164,6 +167,7 @@ export default defineEventHandler(async (event) => {
       const battler = battlerByUser.get(u.id)
       const town = townByUser.get(u.id)
       const voidRunner = voidByUser.get(u.id)
+      const heroQuest = heroQuestByUser.get(u.id)
       const totalUpgrades = colonyHabitatLevel
         + colonyResearchLevels
         + xenoSpeciesUnlocked
@@ -171,6 +175,7 @@ export default defineEventHandler(async (event) => {
         + xenoBreederSlotsUnlocked
         + (town?.total ?? 0)
         + (voidRunner?.total ?? 0)
+        + (heroQuest?.total ?? 0)
       return {
         isCurrentUser: u.id === sessionUserId,
         id: u.id,
@@ -201,6 +206,9 @@ export default defineEventHandler(async (event) => {
         voidSystemLevels: voidRunner?.systems ?? 0,
         voidTradeLevel: voidRunner?.trade ?? 0,
         aiPromptsUsed,
+        heroQuestScore: heroQuest?.total ?? 0,
+        heroQuestWorlds: heroQuest?.worlds ?? 0,
+        heroQuestEntries: heroQuest?.entries ?? 0,
         heroQuestGpn: heroQuestGpnByUser.get(u.id) ?? null,
         battlerRunsWon: battler?.runsWon ?? 0,
         battlerRating: battlerRatingByUser.get(u.id) ?? null,
