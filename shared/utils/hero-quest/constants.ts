@@ -1341,7 +1341,7 @@ export const CALENDAR_SCHEDULE: readonly CalendarDay[] = [ // UNTUNED ╧
 // still opening where it did.
 
 /** A scene that opens at a checkpoint. Battle and Settings are open from the start. */
-export type HqFeature = 'gacha' | 'collections' | 'milestones' | 'calendar' | 'loadouts' | 'speed' | 'raids' | 'traits' | 'arena' | 'shop' | 'classes'
+export type HqFeature = 'gacha' | 'collections' | 'milestones' | 'calendar' | 'loadouts' | 'speed' | 'tree' | 'raids' | 'traits' | 'arena' | 'shop' | 'classes'
 
 /** A point of lifetime progress: a World's mid-boss fought (beaten, or lost to) or beaten, Worlds cleared, the run cleared, prestiges made. */
 export type FeatureCheckpoint =
@@ -1362,6 +1362,8 @@ export const FEATURE_UNLOCKS: readonly { feature: HqFeature, at: FeatureCheckpoi
     { feature: 'milestones', at: { kind: 'worlds', count: 1 } },
     { feature: 'loadouts', at: { kind: 'worlds', count: 2 } },
     { feature: 'speed', at: { kind: 'worlds', count: 2 } },
+    // a World of levels banked by then, so the first visit has points to spend
+    { feature: 'tree', at: { kind: 'worlds', count: 3 } },
     { feature: 'raids', at: { kind: 'worlds', count: 4 } },
     // with the raids: the Trait raid is where Trait Gems come from
     { feature: 'traits', at: { kind: 'worlds', count: 4 } },
@@ -2052,3 +2054,46 @@ export const GPN_DISPLAY_SCALE = 10 // UNTUNED ╧
  */
 export const VOID_SHARD_BASE = 100 // UNTUNED ╧
 export const VOID_SHARD_GROWTH = 2 // UNTUNED ╧
+
+// ── Passive Skill Tree ─────────────────────────────  passive-skill-tree.md
+
+/**
+ * Tree points every Hero level past the first is worth. Points are derived, never stored:
+ * `(heroLevel - 1) × PASSIVE_POINTS_PER_LEVEL`, less what the tree holds (§2). At about four
+ * levels a stage, a first prestige is worth roughly 400.
+ */
+export const PASSIVE_POINTS_PER_LEVEL = 1 // UNTUNED ╧
+
+/** Levels a regular node takes (`idea-backlog.md` item 3: "up to 5 levels"). The endless nodes have none. */
+export const PASSIVE_NODE_MAX_LEVEL = 5
+
+/**
+ * A regular node's level `L` costs `PASSIVE_TIER_COST[tier - 1] × L` points, so a whole node is
+ * 15× its tier's base. With the roster as authored the finite tree is 1,500 points: one path's
+ * finite nodes are 480, about a first prestige's worth.
+ */
+export const PASSIVE_TIER_COST: readonly number[] = [1, 2, 3, 4, 6] // UNTUNED ╧
+
+/**
+ * An endless node's level `L` costs `BASE + (L - 1) × STEP`. Linear, so the levels a fixed budget
+ * buys grow as its square root: the tail never outruns the enemy curve, it only gives points a use.
+ */
+export const PASSIVE_ENDLESS_BASE_COST = 10 // UNTUNED ╧
+export const PASSIVE_ENDLESS_COST_STEP = 5 // UNTUNED ╧
+
+/**
+ * What one level of a node adds, by the band its line is authored in (`content/passive-tree.ts`).
+ * Fractions, additive like every other modifier line. A maxed `stat` node is +15%, a maxed
+ * `economy` one +10% (kept small: Gold and XP are paced, `gold-economy.md` §5).
+ */
+export const PASSIVE_BAND_MAGNITUDE = { // UNTUNED ╧
+    stat: 0.03,
+    skill: 0.05,
+    utility: 0.01,
+    critDamage: 0.05,
+    economy: 0.02,
+    endless: 0.01
+} as const
+
+/** Gems a respec costs when no free one is held. A prestige grants one free respec, kept until used. */
+export const PASSIVE_RESPEC_GEMS = 100 // UNTUNED ╧

@@ -70,6 +70,15 @@ export const TUTORIAL_PAGES: Readonly<Record<TutorialId, readonly string[]>> = {
         'It keeps running while you\'re away. Take it from a snail: speed is precious.'
     ],
 
+    'tree:unlock': ['Three Worlds behind you, and every level you\'ve earned is worth a point. The Passive Tree is now available.'],
+    'tree:visit': [
+        'Every level your Hero gains is a point to spend here, and levels never go away.',
+        'Start at the root and grow outward. A node opens once the one before it holds a level.',
+        'The three paths follow the class lines. Their class nodes only work while your Hero walks that line.',
+        'Each path ends in a node with no cap. Spend there once the rest is full.',
+        'Changed your mind? Every prestige brings a free respec. Any other time, it costs Gems.'
+    ],
+
     'raids:unlock': ['Four Worlds cleared, and something big has noticed you. Raids are now available.'],
     'raids:visit': [
         'Five great beasts wait in the raids, each with a trick of its own.',

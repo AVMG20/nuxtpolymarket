@@ -1228,6 +1228,14 @@ export const hqState = pgTable('hq_state', {
   /** Paid by Shardcaller Beast, spent on Traits (`traits.md`). */
   traitGems: integer('trait_gems').notNull().default(0),
 
+  /**
+   * Passive Skill Tree levels by node id (`passive-skill-tree.md`). The points are derived from
+   * `heroLevel`, never stored, so this map is the whole save. Written only under the row lock.
+   */
+  passiveTree: jsonb('passive_tree').$type<Record<string, number>>().notNull().default({}),
+  /** A prestige grants one free respec, held until used; a flag, so integer CAS spends it. */
+  passiveRespecFree: boolean('passive_respec_free').notNull().default(false),
+
   /** system → 1..10, and pulls banked toward the next level. Each gacha levels independently. */
   gachaLevels: jsonb('gacha_levels').$type<Record<string, number>>().notNull().default({}),
   gachaProgress: jsonb('gacha_progress').$type<Record<string, number>>().notNull().default({}),

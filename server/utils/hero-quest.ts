@@ -130,6 +130,7 @@ import { D, ZERO, decPow, fromStore, toStore } from '#shared/utils/hero-quest/nu
 import { ASCENDANT_ID, ASCENDANT_PICKABLE, CLASS_NODES, MASTER_IDS, childrenOf, classOfSkill, getClass, kitFor } from '#shared/utils/hero-quest/content/classes'
 import { SHOP_TRACKS, maxLevelFor, shopStatLevels, shopTrackCost, type ShopTrackId } from '#shared/utils/hero-quest/content/shop'
 import { traitBoardOf, traitRollsOf, traitSaveSlotsAt, type TraitBoard, type TraitSlotState } from '#shared/utils/hero-quest/traits'
+import { passiveTreeOf } from '#shared/utils/hero-quest/passive-tree'
 import { enemyNameAt, getWorld, runProgress } from '#shared/utils/hero-quest/content/worlds'
 import type {
     ChampionArchetype,
@@ -424,7 +425,8 @@ export function heroSnapshotOf(
     bankedGold?: number,
     traits: TraitBoard = []
 ): HeroSnapshot {
-    const base = loadoutSnapshotOf(state, shopLevels, collections, traits)
+    // the tree is the player's, not the loadout's, so a bot (which has no row) carries none
+    const base = { ...loadoutSnapshotOf(state, shopLevels, collections, traits), passiveTree: passiveTreeOf(state.passiveTree) }
 
     /**
      * Resolved only when something actually reads it.
@@ -707,8 +709,8 @@ function powerWrites(state: HqStateRow, shopLevels: Record<string, number>, coll
 /**
  * Reset the run and start the next prestige.
  *
- * **Resets the run-position columns, increments `prestige` and grants the class token** (a flag:
- * one held already stays one). `heroLevel`, `heroXp`,
+ * **Resets the run-position columns, increments `prestige` and grants the class token and a free
+ * Passive Skill Tree respec** (flags: one held already stays one). `heroLevel`, `heroXp`,
  * `heroNodeId`, `seenNodeIds`, `voidShards` and every shop row are untouched — hero level persists across
  * prestige *and* across class switches, and there is no relevel anywhere in the game
  * (`core-progression-and-prestige.md` §3). Everything else survives by simply not being
@@ -726,7 +728,9 @@ export function prestigeResetValues(state: HqStateRow) {
         recoverySeconds: 0,
         bossLost: false,
         atBossGate: false,
-        classToken: true
+        classToken: true,
+        // a held one stays one, like the token
+        passiveRespecFree: true
     }
 }
 

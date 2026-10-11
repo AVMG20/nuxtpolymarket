@@ -27,6 +27,7 @@ import { skillCollectionModifiers, skillModifiers } from './content/skills'
 import { artifactCollectionModifiers, artifactModifiers } from './content/artifacts'
 import { shopStatModifiers } from './content/shop'
 import { traitModifiers } from './traits'
+import { passiveTreeModifiers } from './passive-tree'
 import { attacksPerSecondFor, critChanceFor, critMultiplierFor, maxHpFor } from './combat'
 import { mergeTotals, noModifiers, sumModifiers } from './modifiers'
 import type { ModifierTotals } from './modifiers'
@@ -208,7 +209,7 @@ export function heroStatBlock(
 /**
  * Hero-only lines: Gear (`gear-equipment.md` §1), equipped Skill passives (`skills-gacha.md` §1),
  * the collection passives of every owned Skill and Artifact, equipped or not, and Traits' Hero
- * Skill DMG (`traits.md` §0). None of these touches a Champion, by design — Champions carry their
+ * Skill DMG (`traits.md` §0), and the Passive Skill Tree's Hero nodes. None of these touches a Champion, by design — Champions carry their
  * own kits and their own progression, and every collection passive in the game (Champions',
  * Gear's, these two) reaches only the Hero.
  */
@@ -218,7 +219,8 @@ export function heroModifierTotals(hero: HeroSnapshot): ModifierTotals {
     const ownedSkills = hero.ownedSkills ?? []
     const ownedArtifacts = hero.ownedArtifacts ?? []
     const traits = traitModifiers(hero.traits ?? []).hero
-    if (gear.length === 0 && skills.length === 0 && ownedSkills.length === 0 && ownedArtifacts.length === 0 && traits.length === 0) {
+    const tree = passiveTreeModifiers(hero.passiveTree ?? {}, hero.classId).hero
+    if (gear.length === 0 && skills.length === 0 && ownedSkills.length === 0 && ownedArtifacts.length === 0 && traits.length === 0 && tree.length === 0) {
         return noModifiers()
     }
     return sumModifiers([
@@ -226,7 +228,8 @@ export function heroModifierTotals(hero: HeroSnapshot): ModifierTotals {
         ...skillModifiers(skills),
         ...skillCollectionModifiers(ownedSkills),
         ...artifactCollectionModifiers(ownedArtifacts),
-        ...traits
+        ...traits,
+        ...tree
     ])
 }
 
@@ -248,11 +251,17 @@ export function partyModifierTotals(hero: HeroSnapshot): ModifierTotals {
 
 /**
  * Champion-only lines: Traits' Champion ATK, every archetype's PWR, Tank's included (`traits.md`
- * §4). The Hero never receives these; each fielded Champion receives them on top of the party-wide
- * scope.
+ * §4), and the Passive Skill Tree's side nodes, which may name one archetype. The Hero never
+ * receives these; each fielded Champion receives them on top of the party-wide scope. Without an
+ * archetype only the lines every Champion gets are summed.
  */
-export function championModifierTotals(hero: HeroSnapshot): ModifierTotals {
-    const lines = traitModifiers(hero.traits ?? []).champion
+export function championModifierTotals(hero: HeroSnapshot, archetype?: ChampionArchetype): ModifierTotals {
+    const tree = passiveTreeModifiers(hero.passiveTree ?? {}, hero.classId).champion
+    const lines = [
+        ...traitModifiers(hero.traits ?? []).champion,
+        ...tree.all,
+        ...(archetype ? tree[archetype] : [])
+    ]
     if (lines.length === 0) return noModifiers()
     return sumModifiers(lines)
 }
@@ -383,7 +392,6 @@ export function partyUnitStats(hero: HeroSnapshot): UnitStats[] {
     const passive = collectionPassiveMultipliers(hero.ownedChampions ?? [])
     const partyWide = partyModifierTotals(hero)
     const heroTotals = mergeTotals(heroModifierTotals(hero), partyWide)
-    const championTotals = mergeTotals(partyWide, championModifierTotals(hero))
 
     const units = [deriveUnitStats(
         heroStatBlock(hero.classId, hero.heroLevel, passive, heroTotals.stats),
@@ -399,6 +407,7 @@ export function partyUnitStats(hero: HeroSnapshot): UnitStats[] {
     )]
 
     for (const champion of hero.champions ?? []) {
+        const championTotals = mergeTotals(partyWide, championModifierTotals(hero, champion.archetype))
         const spread = archetypeSpread(champion.archetype)
         units.push(deriveUnitStats(
             championStatBlock(spread, champion, hero.heroLevel, championTotals.stats),
