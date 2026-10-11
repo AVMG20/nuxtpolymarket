@@ -16,6 +16,7 @@ import { db } from '#server/database'
 import { hqArenaLog, hqArenaSeasonResults, hqArenaSeasons, hqCollection, hqFights, hqLoadouts, hqRaidState, hqShopUpgrades, hqState, user } from '#server/database/schema'
 import { ensureHqState, getCollections, getShopLevels, heroSnapshotOf } from '#server/utils/hero-quest'
 import {
+    arenaLog,
     attackArena,
     buyAttempt,
     buyFromShop,
@@ -27,6 +28,7 @@ import {
 } from '#server/utils/hero-quest-arena'
 import { ARENA_DUMMY_ID, arenaSeasonAt, arenaShopItem, arenaSeasonStartsAt, extraAttemptPrice, refreshPrice, seasonRewardFor } from '#shared/utils/hero-quest/arena'
 import { globalPower } from '#shared/utils/hero-quest/power'
+import { arenaBots } from '#shared/utils/hero-quest/content/arena-bots'
 import { ladderDateKey } from '#shared/utils/hero-quest/gacha'
 import {
     ARENA_FREE_ATTEMPTS_PER_DAY,
@@ -136,6 +138,28 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             const log = await db.select().from(hqArenaLog).where(eq(hqArenaLog.userId, ATTACKER))
             expect(log).toHaveLength(ARENA_FREE_ATTEMPTS_PER_DAY)
             expect(log.every(row => row.isDummy && row.won && row.ratingChange === 0 && row.opponentUserId === null)).toBe(true)
+        })
+
+        it('fights a bot as a real match on the attacker\'s side only', async () => {
+            await found(ATTACKER)
+            const bot = arenaBots()[0]!
+            // level with it, so the result moves the Rating either way
+            await db.update(hqState).set({ arenaRating: bot.rating, arenaCandidates: [bot.id, null, null] }).where(eq(hqState.userId, ATTACKER))
+
+            const result = await attack(ATTACKER, bot.id)
+
+            expect(result.dummy).toBe(false)
+            expect(result.opponentName).toBe(bot.name)
+            expect(result.enemy?.champions.map(c => c.id)).toEqual(bot.champions.map(c => c.contentId))
+            const state = await stateOf(ATTACKER)
+            expect(result.ratingChange).not.toBe(0)
+            expect(state.arenaRating).toBe(bot.rating + result.ratingChange)
+            expect(state.arenaSeasonMatches).toBe(1)
+            expect(state.arenaMedals).toBe(result.medals)
+            // one row, the attacker's, naming the bot: a bot has no account to log a defence on
+            const log = await db.select().from(hqArenaLog).where(eq(hqArenaLog.opponentBotId, bot.id))
+            expect(log.map(row => [row.userId, row.role, row.isDummy, row.opponentUserId])).toEqual([[ATTACKER, 'attacker', false, null]])
+            expect((await arenaLog(ATTACKER))[0]?.opponentName).toBe(bot.name)
         })
 
         it('keeps a defender attacked by two players at once consistent with every match logged', async () => {

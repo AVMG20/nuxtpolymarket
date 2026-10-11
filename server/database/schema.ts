@@ -1499,14 +1499,16 @@ export const hqHolidayClaims = pgTable('hq_holiday_claims', {
 
 /**
  * The Arena battle log (`arena.md` §8): one row per match per side, the newest `ARENA_LOG_SIZE`
- * kept per player, pruned as each is written. A Training Dummy fight writes only the attacker's
- * row (`isDummy`, no opponent). Separate from `hqFights`, which is the replay and audit record.
+ * kept per player, pruned as each is written. A Training Dummy or Arena bot fight writes only the
+ * attacker's row. Separate from `hqFights`, which is the replay and audit record.
  */
 export const hqArenaLog = pgTable('hq_arena_log', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
   /** Null for a Training Dummy, and once the opponent's account is gone. */
   opponentUserId: text('opponent_user_id').references(() => user.id, { onDelete: 'set null' }),
+  /** An Arena bot's content ID (`content/arena-bots.ts`) when one was fought; null otherwise. */
+  opponentBotId: text('opponent_bot_id'),
   /** 'attacker' | 'defender'. */
   role: text('role').notNull(),
   won: boolean('won').notNull(),

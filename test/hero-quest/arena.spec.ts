@@ -159,6 +159,12 @@ describe('hero-quest arena', () => {
             expect(drawn.every(id => id !== null && pool.includes(id))).toBe(true)
         })
 
+        it('fills with bots after players, and with dummies only once the bots run out', () => {
+            expect(drawCandidates(['a'], first, ['bot_x', 'bot_y', 'bot_z'])).toEqual(['a', 'bot_x', 'bot_y'])
+            expect(drawCandidates(['a', 'b', 'c'], first, ['bot_x'])).toEqual(['a', 'b', 'c'])
+            expect(drawCandidates([], first, ['bot_x'])).toEqual(['bot_x', ...Array.from({ length: ARENA_CANDIDATE_COUNT - 1 }, () => null)])
+        })
+
         it('keeps an out-of-range pick inside the pool', () => {
             expect(drawCandidates(['a'], () => 99)).toEqual(['a', ...Array.from({ length: ARENA_CANDIDATE_COUNT - 1 }, () => null)])
             expect(ARENA_DUMMY_ID).toBe('training_dummy')

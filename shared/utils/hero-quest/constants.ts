@@ -1119,6 +1119,24 @@ export const ARENA_CANDIDATE_COUNT = 3
  */
 export const ARENA_MATCH_BAND_RATING = 200 // UNTUNED ╧
 /**
+ * Arena bots (`content/arena-bots.ts`): never above this Rating, so a player only climbs past them
+ * (the user's call, 2026-10-11). They fill the list after real players and before Training Dummies.
+ */
+export const ARENA_BOT_RATING_MAX = 1000
+/**
+ * How a bot's loadout scales from the roster's lowest Rating (`low`) to `ARENA_BOT_RATING_MAX`
+ * (`high`). The top bot stands where the Arena opens: World 6 on the campaign walk, a party of
+ * three at about level 258. Beneath that it is a guess, as there is no player data yet.
+ */
+export const ARENA_BOT_LOADOUT = {
+    heroLevel: { low: 200, high: 258 },
+    champions: { low: 1, high: 2 },
+    uncommonChance: { low: 0.1, high: 0.5 },
+    rareChance: { low: 0, high: 0.15 },
+    starChance: { low: 0, high: 0.2 },
+    maxLevel: { low: 3, high: 10 }
+} as const // UNTUNED ╧
+/**
  * Redrawing the opponent list (§2; the user's call, 2026-10-10): free this many times a UTC day, then
  * Gems, 5 and doubling: 5, 10, 20, … The ladder starts over each day. A list is also redrawn free after
  * every attack, so the same three can't be farmed.

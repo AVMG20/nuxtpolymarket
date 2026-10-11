@@ -1,0 +1,1 @@
+ALTER TABLE "hq_arena_log" ADD COLUMN "opponent_bot_id" text;
