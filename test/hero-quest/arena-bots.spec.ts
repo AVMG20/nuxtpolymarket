@@ -44,9 +44,10 @@ describe('arena bots', () => {
         }
     })
 
-    it('are never named after a Champion', () => {
+    it('are marked as bots by name, and never named after a Champion', () => {
+        expect(bots.every(bot => bot.name.startsWith('Bot '))).toBe(true)
         const taken = new Set(CHAMPIONS.map(c => c.givenName.toLowerCase()))
-        expect(bots.filter(bot => taken.has(bot.name.toLowerCase()))).toEqual([])
+        expect(bots.filter(bot => taken.has(bot.name.slice('Bot '.length).toLowerCase()))).toEqual([])
     })
 
     it('grow stronger up the ladder', () => {
