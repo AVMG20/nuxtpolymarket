@@ -290,7 +290,7 @@ export function ownedCopies(rows: readonly HqCollectionRow[], isKnownId: (id: st
  * within bounds just because the route that wrote it checked.
  */
 export function championSnapshotsFor(
-    state: HqStateRow,
+    state: Pick<HqStateRow, 'formation' | 'partyChampionIds'>,
     collection: readonly HqCollectionRow[],
     slots: number
 ): ChampionSnapshot[] {
@@ -424,8 +424,34 @@ export function heroSnapshotOf(
     bankedGold?: number,
     traits: TraitBoard = []
 ): HeroSnapshot {
+    const base = loadoutSnapshotOf(state, shopLevels, collections, traits)
+
+    /**
+     * Resolved only when something actually reads it.
+     *
+     * `wealthHoursFor` runs a whole extra `rateAt` to denominate banked Gold in hours of income,
+     * and every settle and every state read would pay for it — for a Hero carrying none of the
+     * four Gambler's Strike skills, where the answer is discarded. The guard is a scan of the
+     * equipped list, which is at most five entries.
+     */
+    if (bankedGold === undefined || !hasWealthScaledSkill(base)) return base
+    // One fixed-point iteration, against a wealth-neutral rate — see `wealthHoursFor`.
+    return { ...base, wealthHours: wealthHoursFor(base, positionOf(state), bankedGold, tenureDaysOf(state)) }
+}
+
+/** The columns a snapshot reads off the state row: who is fielded and what they wear. */
+export type LoadoutState = Pick<HqStateRow, 'formation' | 'heroNodeId' | 'ascendantSkillIds' | 'heroLevel' | 'heroXp'
+    | 'partyChampionIds' | 'equippedGear' | 'equippedSkillIds' | 'equippedArtifactIds'>
+
+/** `heroSnapshotOf` without the wealth term, off just the loadout: an Arena bot has no run to read. */
+export function loadoutSnapshotOf(
+    state: LoadoutState,
+    shopLevels: Record<string, number>,
+    collections: HqCollections = emptyCollections(),
+    traits: TraitBoard = []
+): HeroSnapshot {
     const formation = state.formation as Record<string, 'front' | 'back'>
-    const base: HeroSnapshot = {
+    return {
         classId: state.heroNodeId as ClassId,
         heroRow: formation.hero,
         ascendantSkillIds: state.ascendantSkillIds,
@@ -463,18 +489,6 @@ export function heroSnapshotOf(
         shopStatLevels: shopStatLevels(shopLevels),
         traits: traitRollsOf(traits)
     }
-
-    /**
-     * Resolved only when something actually reads it.
-     *
-     * `wealthHoursFor` runs a whole extra `rateAt` to denominate banked Gold in hours of income,
-     * and every settle and every state read would pay for it — for a Hero carrying none of the
-     * four Gambler's Strike skills, where the answer is discarded. The guard is a scan of the
-     * equipped list, which is at most five entries.
-     */
-    if (bankedGold === undefined || !hasWealthScaledSkill(base)) return base
-    // One fixed-point iteration, against a wealth-neutral rate — see `wealthHoursFor`.
-    return { ...base, wealthHours: wealthHoursFor(base, positionOf(state), bankedGold, tenureDaysOf(state)) }
 }
 
 /** Does this Hero field anything whose damage reads banked Gold? */
