@@ -353,7 +353,7 @@ const LOW_Y = 12
 const LOW_H = 10
 /** Seconds the glint takes to cross the GPN bar on a gain, and the change chip stays up. */
 export const BADGE_GLINT_FOR = 0.55
-export const BADGE_CHIP_FOR = 1.8
+export const BADGE_CHIP_FOR = 3.5
 /** Seconds a new level shows lit. */
 export const BADGE_LEVEL_FOR = 0.8
 const BOLT = ['...11', '..11.', '.111.', '11111', '.111.', '.11..', '11...'] as const
@@ -364,16 +364,20 @@ const GPN_LIT = [C.white, C.white, C.gold3, C.gold3, C.gold2, C.gold2, C.gold1] 
 const ARROW = ['...o...', '..olo..', '.olggo.', 'olgggdo', 'oolgdoo', '.olgdo.', '.olgdo.', '.ooooo.'] as const
 export const ARROW_W = 7
 export const ARROW_H = 8
+/** The GPN bar's arrow, a size up so it reads over any scene. */
+const BIG_ARROW = ['....o....', '...olo...', '..ollgo..', '.olgggdo.', 'olggggddo', 'ooolgdooo', '..olgdo..', '..olgdo..', '..olgdo..', '..ooooo..'] as const
+const BIG_ARROW_H = 10
 const ARROW_UP = { l: C.green4, g: C.green3, d: C.green2 } as const
 const ARROW_DOWN = { l: C.red3, g: C.red2, d: C.red1 } as const
 
 /** A green up arrow or a red down one at (x, y), bobbing a pixel or two along its own direction on `t`. */
-export function drawBobArrow(s: Surface, x: number, y: number, up: boolean, t: number): void {
+export function drawBobArrow(s: Surface, x: number, y: number, up: boolean, t: number, big = false): void {
     const bob = R(Math.sin(t * 7) * 1.5) * (up ? -1 : 1)
     const ramp = up ? ARROW_UP : ARROW_DOWN
-    for (let row = 0; row < ARROW_H; row++) {
-        const line = ARROW[up ? row : ARROW_H - 1 - row]!
-        for (let col = 0; col < ARROW_W; col++) {
+    const shape = big ? BIG_ARROW : ARROW
+    for (let row = 0; row < shape.length; row++) {
+        const line = shape[up ? row : shape.length - 1 - row]!
+        for (let col = 0; col < line.length; col++) {
             const ch = line[col]!
             if (ch === '.') continue
             px(s, x + col, y + row + bob, ch === 'o' ? C.ink : ramp[ch as 'l' | 'g' | 'd'])
@@ -467,11 +471,11 @@ export function drawGpnBar(s: Surface, ox: number, oy: number, v: BadgeView): vo
     for (let y = 0; y < BOLT.length; y++) {
         for (let x = 0; x < 5; x++) if (BOLT[y]![x] === '1') px(s, ox + TEXT_X + x, oy + 3 + y, lit ? C.white : y < 3 ? C.gold3 : C.gold2)
     }
-    textRamp(s, v.gpn, ox + TEXT_X + 8, oy + 3, lit ? GPN_LIT : GPN_RAMP, 'mid', 1, 0, C.ink)
+    const end = textRamp(s, v.gpn, ox + TEXT_X + 8, oy + 3, lit ? GPN_LIT : GPN_RAMP, 'mid', 1, 0, C.ink)
     if (gpnChanging(v)) {
-        // the arrow blinks out over its last third
+        // just past the number, on the bar; it blinks out over its last sixth
         const k = v.sinceChange / BADGE_CHIP_FOR
-        if (k < 2 / 3 || (Math.floor(qt(v.sinceChange) * 12) & 1) === 0) drawBobArrow(s, ox + BADGE_W + 2, oy + ((TOP_H - ARROW_H) >> 1), v.up, v.sinceChange)
+        if (k < 5 / 6 || (Math.floor(qt(v.sinceChange) * 12) & 1) === 0) drawBobArrow(s, ox + TEXT_X + 8 + end + 3, oy + ((TOP_H - BIG_ARROW_H) >> 1), v.up, v.sinceChange, true)
     }
 }
 
