@@ -369,15 +369,6 @@ function gpnLog(gpn: string | null): number {
     return v.lte(1) ? 0 : v.log10().toNumber()
 }
 
-/** The chip naming a GPN change, from log10s: `×3.2` once it has doubled, `+12%` or `-4%` otherwise, none under 0.1%. */
-function gpnChip(from: number, to: number): string {
-    const ratio = 10 ** (to - from)
-    if (ratio >= 2) return `×${ratio < 100 ? ratio.toFixed(1) : stageNumber(D(10).pow(to - from))}`
-    const pct = (ratio - 1) * 100
-    if (Math.abs(pct) < 0.1) return ''
-    return `${pct > 0 ? '+' : '-'}${Math.abs(pct).toFixed(Math.abs(pct) < 10 ? 1 : 0)}%`
-}
-
 /**
  * The spotlight a timed-out boss fight closes to: down onto the drained timer and the TIME UP
  * banner under it, held there until the fight is put away, then shut. Its centre's height and its
@@ -1056,7 +1047,6 @@ export class BattleDemo {
                 stage: this.label,
                 sinceGain: -1,
                 sinceChange: -1,
-                chip: '',
                 up: true,
                 sinceLevel: -1
             }
@@ -1068,11 +1058,11 @@ export class BattleDemo {
         if (feed.gpn === null || to === this.gpnTo) return
         // from whatever is showing, so a change landing mid-count carries on from there
         this.gpnFrom = this.gpnShown()
-        b.chip = gpnChip(this.gpnTo, to)
         b.up = to > this.gpnTo
         this.gpnTo = to
         this.gpnAt = this.time
-        if (b.chip) this.changeAt = this.time
+        // every change gets its arrow, however small: a Charm's LCK barely moves the GPN
+        this.changeAt = this.time
         if (b.up) this.gainAt = this.time
     }
 
@@ -1100,7 +1090,7 @@ export class BattleDemo {
         if (badge && (this.gpnAt >= 0 || gpnChanging(badge))) drawGpnBar(out, BADGE_X, BADGE_Y, badge)
     }
 
-    /** The badge as of now: its count, glint, chip and level light run on the stage's clock. */
+    /** The badge as of now: its count, glint, arrow and level light run on the stage's clock. */
     private badgeNow(): BadgeView | null {
         const b = this.badge
         if (!b) return null

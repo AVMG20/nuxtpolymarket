@@ -919,7 +919,7 @@ The user's calls, answering #58.1 (fights shortened with depth until the first c
 The user's calls, all stage UI.
 
 - **Party stats** (`party-stats.ts`): pressing the profile badge's portrait opens a popup over the battle, one column per fielded unit (Hero first) and one row per stat: PWR, DEF, VIT, SPD, LCK, IMP, then max HP, attacks a second, crit chance, crit damage and evasion. It reads `stats.get.ts` on open, the route the debug breakdown already used, so the state payload carries nothing new. Its close button, or a press beside it, shuts it; leaving the battle does too.
-- **GPN change:** the `+12%` chip under the badge is replaced by a bobbing arrow on the GPN bar just past the number, held for `BADGE_CHIP_FOR` (3.5 s, up from the chip's 1.8), green and up for a rise, red and down for a fall (a change under 0.1% still shows none). While the count runs or the arrow is up, the GPN bar is drawn over the whole frame on every scene, so a change made in Collections shows what it did.
+- **GPN change:** the `+12%` chip under the badge is replaced by a bobbing arrow on the GPN bar just past the number, held for `BADGE_ARROW_FOR` (2.5 s, up from the chip's 1.8), green and up for a rise, red and down for a fall, on every change however small (the chip hid changes under 0.1%, which a Charm's LCK usually is). While the count runs or the arrow is up, the GPN bar is drawn over the whole frame on every scene, so a change made in Collections shows what it did.
 - **Gear upgrade arrows:** an owned, unequipped piece of Gear whose equipped bonus beats what its slot wears now bobs a green arrow in its tile's corner. Same comparison as the detail view's caret.
 
 ### 9. Holiday gameplay events — **decided 2026-10-10: not built**

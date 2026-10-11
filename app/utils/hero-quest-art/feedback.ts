@@ -351,9 +351,9 @@ const TEXT_X = 25
 const TOP_H = 13
 const LOW_Y = 12
 const LOW_H = 10
-/** Seconds the glint takes to cross the GPN bar on a gain, and the change chip stays up. */
+/** Seconds the glint takes to cross the GPN bar on a gain, and the change's arrow stays up. */
 export const BADGE_GLINT_FOR = 0.55
-export const BADGE_CHIP_FOR = 3.5
+export const BADGE_ARROW_FOR = 2.5
 /** Seconds a new level shows lit. */
 export const BADGE_LEVEL_FOR = 0.8
 const BOLT = ['...11', '..11.', '.111.', '11111', '.111.', '.11..', '11...'] as const
@@ -426,11 +426,10 @@ export interface BadgeView {
     level: number
     /** `P1-W3-S7`, prestige counted from 1, on the bar under the GPN. */
     stage: string
-    /** Seconds since the GPN last rose (glint) and since it last changed (chip), −1 for never. */
+    /** Seconds since the GPN last rose (glint) and since it last changed (arrow), −1 for never. */
     sinceGain: number
     sinceChange: number
-    /** `+12%` or `×3.2` for a rise, `-4%` for a fall; empty for a change too small to show, which gets no arrow. */
-    chip: string
+    /** The last change was a rise: the arrow is green and points up. */
     up: boolean
     /** Seconds since the level went up, −1 for never. */
     sinceLevel: number
@@ -441,7 +440,7 @@ export const BADGE_PORTRAIT_BOX = { x: 0, y: 0, w: BADGE_PORTRAIT, h: BADGE_PORT
 
 /** Whether the GPN changed recently enough that its arrow is still up. */
 export function gpnChanging(v: BadgeView): boolean {
-    return v.chip !== '' && v.sinceChange >= 0 && v.sinceChange < BADGE_CHIP_FOR
+    return v.sinceChange >= 0 && v.sinceChange < BADGE_ARROW_FOR
 }
 
 /**
@@ -474,7 +473,7 @@ export function drawGpnBar(s: Surface, ox: number, oy: number, v: BadgeView): vo
     const end = textRamp(s, v.gpn, ox + TEXT_X + 8, oy + 3, lit ? GPN_LIT : GPN_RAMP, 'mid', 1, 0, C.ink)
     if (gpnChanging(v)) {
         // just past the number, on the bar; it blinks out over its last sixth
-        const k = v.sinceChange / BADGE_CHIP_FOR
+        const k = v.sinceChange / BADGE_ARROW_FOR
         if (k < 5 / 6 || (Math.floor(qt(v.sinceChange) * 12) & 1) === 0) drawBobArrow(s, ox + TEXT_X + 8 + end + 3, oy + ((TOP_H - BIG_ARROW_H) >> 1), v.up, v.sinceChange, true)
     }
 }
