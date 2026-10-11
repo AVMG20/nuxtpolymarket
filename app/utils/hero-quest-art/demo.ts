@@ -1603,6 +1603,8 @@ export class BattleDemo {
                 rp.late.push(b)
                 continue
             }
+            // a beat still held lands now rather than being dropped: it carries the log's hits and deaths
+            this.flushBeat(u)
             u.state = b.cast ? U.Cast : U.Attack
             u.t = 0
             u.fired = false
@@ -1657,6 +1659,14 @@ export class BattleDemo {
         this.applyDowns(b.downs)
     }
 
+    /** Land a body's held beat without its swing, so a swing cut short never loses what the log says it did. */
+    private flushBeat(u: Unit): void {
+        const b = u.beat
+        if (!b) return
+        u.beat = null
+        this.applyBeat(b)
+    }
+
     /** One logged hit lands: its number on the body struck, and the party's frames follow its HP. */
     private applyHit(h: FightEvent): void {
         const quiet = this.replay?.quiet ?? true
@@ -1690,11 +1700,11 @@ export class BattleDemo {
         for (const e of downs) {
             if (e.kind === 'enemy_down') {
                 const t = this.foeUnit(e.enemyIndex)
-                if (t && t.state !== U.Death && t.state !== U.Gone) this.kill(t)
+                if (t && t.state !== U.Death && t.state !== U.Gone) { this.kill(t); this.flushBeat(t) }
             } else {
                 const t = this.partyUnit(e.unitIndex)
                 this.setPartyHp(e.unitIndex, '0')
-                if (t && t.state !== U.Death && t.state !== U.Gone) { t.state = U.Death; t.t = 0; t.hold = 0 }
+                if (t && t.state !== U.Death && t.state !== U.Gone) { t.state = U.Death; t.t = 0; t.hold = 0; this.flushBeat(t) }
             }
         }
     }
@@ -2639,9 +2649,9 @@ export class BattleDemo {
     private struck(tgt: Unit, hold: number): void {
         // mid-escalation the Rampant only flashes: the beat plays out
         if (tgt.state === U.Entry) { tgt.flash = 3; return }
-        // a boss swings through a hit, and plays its special through one too; in the game everyone
-        // does, since a hit never cancels an attack in the fight
-        if ((tgt.boss || this.run) && (tgt.state === U.Attack || tgt.state === U.Cast)) {
+        // a boss swings through a hit, and plays its special through one too; in the game and the Arena
+        // everyone does, since a hit never cancels an attack in the fight (no staggers in the Arena, the user's call)
+        if ((tgt.boss || this.run || this.arenaRound) && (tgt.state === U.Attack || tgt.state === U.Cast)) {
             tgt.flash = 3
             tgt.hold = 1
             tgt.jolt = hold + 4
