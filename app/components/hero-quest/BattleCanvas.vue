@@ -929,10 +929,11 @@ const arenaView = computed<ArenaView>(() => ({ ...(props.arena ?? ARENA_EMPTY), 
 watch(() => arenaHit && arenaView.value ? arenaHit.arenaPages(arenaView.value) : 1, (pages) => {
     if (arenaPage.value >= pages) arenaPage.value = Math.max(0, pages - 1)
 })
-// opening the scene tells the screen which tab it lands on, so that tab's reads go out
+// opening the scene tells the screen which tab it lands on, so that tab's reads go out; a page
+// loaded straight onto the Arena opens it too
 watch(openScene, (scene) => {
     if (scene === 'arena') emit('arenaTab', arenaTab.value)
-})
+}, { immediate: true })
 const arenaHover = computed<ArenaTarget | null>(() => hover.value?.startsWith('arena:') ? hover.value.slice(6) as ArenaTarget : null)
 
 /** The raid shown in the Raids scene; it keeps its place while the scene is closed and reopened. */
