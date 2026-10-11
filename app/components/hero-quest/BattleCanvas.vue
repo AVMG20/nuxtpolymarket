@@ -1130,6 +1130,8 @@ onMounted(async () => {
         const frame = banded!.compose(view, scene, bandHover.value, pressed.value, !!props.raidRound || !!props.arenaRound, bandAlerts.value, props.menuScenes)
         // over the whole frame, so the band dims with the scene; it waits out a raid's or an Arena round's popup and a holiday reveal
         if (props.guide && guideHit && !props.raidReward && !props.arenaResult && !props.holidayReveal) guideHit.drawGuide(frame, view.h, t, props.guide, guideHover.value)
+        // a GPN change shows over everything, whatever scene is open, so a change made there shows what it did
+        stage!.drawGpnOverlay(frame)
         presenter!.present(frame)
     })
     observer = new ResizeObserver(fit)

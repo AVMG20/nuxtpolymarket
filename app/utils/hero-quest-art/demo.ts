@@ -46,7 +46,7 @@ import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type Bake
 import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
-import { BADGE_GLINT_FOR, NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, badgePortrait, drawChallengeButton, drawProfileBadge, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type BadgeView, type NumberStyle, type PartyMember } from './feedback'
+import { BADGE_GLINT_FOR, NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, badgePortrait, drawChallengeButton, drawGpnBar, drawProfileBadge, gpnChanging, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type BadgeView, type NumberStyle, type PartyMember } from './feedback'
 import { VL, clock, dimLevel, R } from './vfx-kit'
 import { J } from './rig'
 import { VFX_BY_ID, type VfxDef } from './vfx'
@@ -1081,6 +1081,16 @@ export class BattleDemo {
         if (this.gpnAt < 0) return this.gpnTo
         const t = Math.min(1, (this.time - this.gpnAt) / GPN_TWEEN)
         return this.gpnFrom + (this.gpnTo - this.gpnFrom) * (1 - (1 - t) ** 3)
+    }
+
+    /**
+     * The GPN bar alone over `out`, in the badge's place, while a change is counting or its arrow is
+     * up: drawn over a menu scene, so a change made there shows what it did to the GPN.
+     */
+    drawGpnOverlay(out: Surface): void {
+        // a raid or Arena round hides the badge; the GPN doesn't move under one
+        const badge = this.raidRound || this.arenaRound ? null : this.badgeNow()
+        if (badge && (this.gpnAt >= 0 || gpnChanging(badge))) drawGpnBar(out, BADGE_X, BADGE_Y, badge)
     }
 
     /** The badge as of now: its count, glint, chip and level light run on the stage's clock. */
