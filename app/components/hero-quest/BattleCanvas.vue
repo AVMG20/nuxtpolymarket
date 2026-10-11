@@ -14,6 +14,7 @@ import type { CalendarScene, CalendarTarget, CalendarView } from '~/utils/hero-q
 import type { MilestonesScene, MilestonesTarget, MilestonesView } from '~/utils/hero-quest-art/milestones-scene'
 import type { GuideTarget, GuideView } from '~/utils/hero-quest-art/guide'
 import type { TraitsScene, TraitsTarget, TraitsView } from '~/utils/hero-quest-art/traits-scene'
+import type { TreeCamera, TreeScene, TreeTarget, TreeView } from '~/utils/hero-quest-art/tree-scene'
 import type { RaidLoadoutOption, RaidRewardView, RaidRowView, RaidsHover, RaidsScene, RaidsView } from '~/utils/hero-quest-art/raids-scene'
 import type { GiftReveal, HolidayGiftIconView, HolidayRevealView } from '~/utils/hero-quest-art/holiday-gift'
 import type { SceneTab } from '~/utils/hero-quest-art/scene-tabs'
@@ -154,6 +155,8 @@ const props = defineProps<{
     traits?: TraitsView
     /** A Roll, lock, store, load or save-slot purchase is on its way. */
     traitsBusy?: boolean
+    /** The Passive Skill Tree scene: every node's level, the points and the respec. */
+    tree?: TreeView
 }>()
 
 const emit = defineEmits<{
@@ -220,6 +223,10 @@ const emit = defineEmits<{
     guideNext: []
     /** A Traits button was pressed: Roll, a lock, a board's Save or Load, or a save slot's Buy. */
     traitAction: [target: TraitsTarget]
+    /** A picked tree node's Buy was pressed. */
+    treeBuy: [nodeId: string]
+    /** The tree's Respec was pressed. */
+    treeRespec: []
 }>()
 
 const wrap = ref<HTMLDivElement | null>(null)
@@ -241,6 +248,8 @@ const EMPTY_TRAITS: TraitsView = {
     saveCost: 0, saveAffordable: false, boardFull: false, gems: 0, armed: null, roll: null,
     autoGrade: 'S', gradePickerOpen: false
 }
+/** What the tree scene draws before its payload lands. */
+const EMPTY_TREE: TreeView = { nodes: [], points: '0', respecFree: false, respecGems: 0, respecAffordable: false, armed: false, busy: false }
 /** The smallest move in the pack's HP share worth a re-render of the readout: half a percent. */
 const PACK_REPORT_STEP = 0.005
 
@@ -271,6 +280,8 @@ let milestonesHit: typeof import('~/utils/hero-quest-art/milestones-scene') | nu
 let guideHit: typeof import('~/utils/hero-quest-art/guide') | null = null
 let traitsScene: TraitsScene | null = null
 let traitsHit: typeof import('~/utils/hero-quest-art/traits-scene') | null = null
+let treeScene: TreeScene | null = null
+let treeHit: typeof import('~/utils/hero-quest-art/tree-scene') | null = null
 let arenaScene: ArenaScene | null = null
 let arenaHit: typeof import('~/utils/hero-quest-art/arena-scene') | null = null
 let giftHit: typeof import('~/utils/hero-quest-art/holiday-gift') | null = null
@@ -442,7 +453,7 @@ defineExpose({ skipFight, closeIris })
 type Target = 'challenge' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuScene | `scenetab:${string}` | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
     | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${Exclude<RaidsHover, null>}` | 'reward:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
-    | `trait:${TraitsTarget}`
+    | `trait:${TraitsTarget}` | `tree:${TreeTarget}`
     | `arena:${ArenaTarget}` | 'result:ok' | 'stats:open' | 'stats:close'
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
@@ -648,6 +659,11 @@ function targetAt(e: PointerEvent): Target | null {
         const at = traitsHit.traitsTargetAt(traitsView.value, presenter.w, x, y)
         return at ? `trait:${at}` : null
     }
+    if (openScene.value === 'tree' && treeHit) {
+        if (y >= sceneH) return null
+        const at = treeHit.treeTargetAt(treeCamera(), presenter.w, sceneH, x, y)
+        return at ? `tree:${at}` : null
+    }
     if (openScene.value === 'calendar' && calendarTab.value === 'calendar' && calendarHit && props.calendar) {
         const at = calendarHit.calendarTargetAt(props.calendar, presenter.w, x, y)
         // the make-up button is no target with nothing to make up; a day is pointed at for what it pays
@@ -687,18 +703,119 @@ function stageY(e: PointerEvent | WheelEvent): number {
     return (e.clientY - r.top) / r.height * presenter!.h
 }
 
+function stageX(e: PointerEvent | WheelEvent): number {
+    const r = canvas.value!.getBoundingClientRect()
+    return (e.clientX - r.left) / r.width * presenter!.w
+}
+
 function onWheel(e: WheelEvent) {
-    if (!scrollsHere.value || !canvas.value || !presenter) return
-    e.preventDefault()
-    // lines and pages become pixels, then the page's pixels the stage's
+    if (!canvas.value || !presenter) return
+    // lines and pages become pixels
     const px = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * canvas.value.clientHeight : e.deltaY
+    if (panZoomHere.value && treeHit && stageY(e) < sceneH) {
+        e.preventDefault()
+        treeCam.value = treeHit.zoomTreeAt(treeCamera(), presenter.w, sceneH, stageX(e), stageY(e), Math.exp(-px * TREE_WHEEL_RATE))
+        return
+    }
+    if (!scrollsHere.value) return
+    e.preventDefault()
+    // the page's pixels become the stage's
     scrollSettings(settingsScroll.value + px / canvas.value.getBoundingClientRect().height * presenter.h)
+}
+
+/**
+ * The Passive Skill Tree's camera, in the scene's world units; null until it is first moved, when
+ * the scene opens on the root. It keeps its place while the scene is closed and reopened.
+ */
+const treeCam = ref<TreeCamera | null>(null)
+/** The node picked in the tree, whose Buy the panel shows; leaving the scene drops it. */
+const treeSelected = ref<string | null>(null)
+watch(openScene, () => { treeSelected.value = null })
+const panZoomHere = computed(() => openScene.value === 'tree' && ready.value)
+/** How far a wheel's pixel zooms the tree, as an exponent. */
+const TREE_WHEEL_RATE = 0.002
+
+function treeCamera(): TreeCamera {
+    return treeCam.value ?? treeHit!.TREE_HOME
+}
+
+/**
+ * A drag across the tree pans it; two fingers pinch it. Every pointer on the tree is tracked in
+ * stage pixels. A drag past `DRAG_SLOP`, or any pinch, presses nothing where it lets go.
+ */
+const treePointers = new Map<number, { x: number, y: number }>()
+let treeDrag: { pointer: number, x: number, y: number, cam: TreeCamera, moved: boolean } | null = null
+let treePinch: { dist: number, mid: { x: number, y: number }, cam: TreeCamera } | null = null
+const treeDragging = ref(false)
+
+function pinchOf(): { dist: number, mid: { x: number, y: number } } {
+    const [a, b] = [...treePointers.values()] as [{ x: number, y: number }, { x: number, y: number }]
+    return { dist: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } }
+}
+
+/** Follow the tree's pointers: true when a pan or a pinch took the move. */
+function moveTree(e: PointerEvent): boolean {
+    if (!treePointers.has(e.pointerId) || !presenter || !treeHit) return false
+    treePointers.set(e.pointerId, { x: stageX(e), y: stageY(e) })
+    if (treePinch && treePointers.size >= 2) {
+        const now = pinchOf()
+        const zoomed = treeHit.zoomTreeAt(treePinch.cam, presenter.w, sceneH, treePinch.mid.x, treePinch.mid.y, now.dist / treePinch.dist)
+        // the pinch's middle carries the world point it started over
+        treeCam.value = treeHit.clampTreeCamera({
+            ...zoomed,
+            x: zoomed.x - (now.mid.x - treePinch.mid.x) / zoomed.zoom,
+            y: zoomed.y - (now.mid.y - treePinch.mid.y) / zoomed.zoom
+        })
+        return true
+    }
+    if (!treeDrag || treeDrag.pointer !== e.pointerId) return false
+    const dx = stageX(e) - treeDrag.x
+    const dy = stageY(e) - treeDrag.y
+    if (!treeDrag.moved && Math.hypot(dx, dy) > DRAG_SLOP) {
+        treeDrag.moved = true
+        treeDragging.value = true
+        pressed.value = false
+        hover.value = null
+    }
+    if (!treeDrag.moved) return false
+    treeCam.value = treeHit.clampTreeCamera({ zoom: treeDrag.cam.zoom, x: treeDrag.cam.x - dx / treeDrag.cam.zoom, y: treeDrag.cam.y - dy / treeDrag.cam.zoom })
+    return true
+}
+
+/** A pointer comes down on the tree: a drag starts from open sky or a node, a second finger pinches. */
+function downOnTree(e: PointerEvent, hit: Target | null) {
+    if (!panZoomHere.value || !presenter || stageY(e) >= sceneH) return
+    treePointers.set(e.pointerId, { x: stageX(e), y: stageY(e) })
+    canvas.value?.setPointerCapture(e.pointerId)
+    if (treePointers.size >= 2) {
+        treePinch = { ...pinchOf(), cam: treeCamera() }
+        // a pinch is never a press
+        if (treeDrag) treeDrag.moved = true
+        treeDragging.value = true
+        pressed.value = false
+        return
+    }
+    if (hit === null || hit.startsWith('tree:node:')) {
+        treeDrag = { pointer: e.pointerId, x: stageX(e), y: stageY(e), cam: treeCamera(), moved: false }
+    }
+}
+
+/** A pointer lifts off the tree: whether its gesture moved the tree, so its release presses nothing. */
+function upOffTree(e: PointerEvent): boolean {
+    if (!treePointers.has(e.pointerId)) return false
+    const moved = !!treePinch || (treeDrag?.pointer === e.pointerId && treeDrag.moved)
+    treePointers.delete(e.pointerId)
+    if (treePointers.size < 2) treePinch = null
+    if (treeDrag?.pointer === e.pointerId || treePointers.size === 0) treeDrag = null
+    if (treePointers.size === 0) treeDragging.value = false
+    return moved
 }
 
 // a fresh visit starts at the top
 watch(openScene, () => { settingsScroll.value = 0 })
 
 function onPointerMove(e: PointerEvent) {
+    if (moveTree(e)) return
     if (drag && e.pointerId === drag.pointer && presenter) {
         const dy = stageY(e) - drag.y
         if (!drag.moved && Math.abs(dy) > DRAG_SLOP) {
@@ -727,13 +844,14 @@ function onPointerDown(e: PointerEvent) {
         renaming.value = null
     }
     onPointerMove(e)
-    pressed.value = hover.value !== null
+    downOnTree(e, hover.value)
+    pressed.value = hover.value !== null && !treePinch
 }
 
 function onPointerUp(e: PointerEvent) {
-    const dragged = drag?.moved ?? false
+    const dragged = upOffTree(e) || (drag?.moved ?? false)
     drag = null
-    // a drag scrolled the list; it presses nothing where it let go
+    // a drag scrolled the list or moved the tree; it presses nothing where it let go
     if (dragged) {
         pressed.value = false
         hover.value = null
@@ -743,6 +861,8 @@ function onPointerUp(e: PointerEvent) {
     onPointerMove(e)
     pressed.value = false
     const hit = hover.value
+    // a press on the tree's open sky puts the picked node down
+    if (openScene.value === 'tree' && hit === null && stageY(e) < sceneH) treeSelected.value = null
     const draft = draftAtPress
     draftAtPress = null
     if (draft) {
@@ -800,6 +920,7 @@ function onPointerUp(e: PointerEvent) {
     // a day other than today is only pointed at, for what it pays
     else if (hit.startsWith('cal:')) return
     else if (hit === 'guide:next') emit('guideNext')
+    else if (hit.startsWith('tree:')) onTreePress(hit.slice(5) as TreeTarget)
     else if (hit.startsWith('trait:')) {
         const target = hit.slice(6) as TraitsTarget
         if (target === 'skip') {
@@ -875,7 +996,25 @@ function onPointerUp(e: PointerEvent) {
     }
 }
 
-function onPointerLeave() {
+function onTreePress(target: TreeTarget) {
+    if (!treeHit || !props.tree) return
+    if (target.startsWith('node:')) treeSelected.value = target.slice(5)
+    else if (target === 'zoomIn' || target === 'zoomOut') {
+        const cam = treeCamera()
+        treeCam.value = treeHit.clampTreeCamera({ ...cam, zoom: cam.zoom * (target === 'zoomIn' ? treeHit.TREE_ZOOM_STEP : 1 / treeHit.TREE_ZOOM_STEP) })
+    }
+    else if (target === 'center') treeCam.value = treeHit.TREE_HOME
+    else if (!treeHit.treeTargetEnabled(props.tree, target, treeSelected.value)) return
+    else if (target === 'buy' && treeSelected.value) emit('treeBuy', treeSelected.value)
+    else if (target === 'respec') emit('treeRespec')
+}
+
+function onPointerLeave(e?: PointerEvent) {
+    // a captured pointer keeps its gesture past the edge; only a cancel ends it here
+    if (e && treePointers.has(e.pointerId)) {
+        if (e.type !== 'pointercancel') return
+        upOffTree(e)
+    }
     drag = null
     hover.value = null
     pressed.value = false
@@ -908,6 +1047,7 @@ const pointer = computed(() => {
         return !!ascendant && classesHit !== null && classesHit.togglePick(ascendant, h.slice(4)) !== ascendant.picks
     }
     if (h.startsWith('trait:')) return !!traitsHit && !!traitsView.value && traitsHit.traitsTargetEnabled(traitsView.value, h.slice(6) as TraitsTarget, !!props.traitsBusy)
+    if (h.startsWith('tree:')) return !!treeHit && !!props.tree && treeHit.treeTargetEnabled(props.tree, h.slice(5) as TreeTarget, treeSelected.value)
     if (!h.startsWith('class:')) return true
     const node = props.classes?.classes.find(c => c.id === h.slice(6))
     return (!!node?.pickable && !node.current) || (!!node?.current && node.tier === 'capstone')
@@ -973,6 +1113,7 @@ const settingsHover = computed<SettingsTarget | null>(() => hover.value?.startsW
 const calendarHover = computed<CalendarTarget | null>(() => hover.value?.startsWith('cal:') ? hover.value.slice(4) as CalendarTarget : null)
 const milestonesHover = computed<MilestonesTarget | null>(() => hover.value?.startsWith('ms:') ? hover.value.slice(3) as MilestonesTarget : null)
 const traitsHover = computed<TraitsTarget | null>(() => hover.value?.startsWith('trait:') ? hover.value.slice(6) as TraitsTarget : null)
+const treeHover = computed<TreeTarget | null>(() => hover.value?.startsWith('tree:') ? hover.value.slice(5) as TreeTarget : null)
 /** The track a `ms:row:N` target points at. */
 function milestoneRowOf(target: string) {
     return props.milestones?.rows[Number(target.slice(7))]
@@ -1029,7 +1170,7 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, giftArt, traitsArt, sceneTabsArt, arenaArt, partyStatsArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, giftArt, traitsArt, sceneTabsArt, arenaArt, partyStatsArt, treeArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
@@ -1048,7 +1189,8 @@ onMounted(async () => {
         import('~/utils/hero-quest-art/traits-scene'),
         import('~/utils/hero-quest-art/scene-tabs'),
         import('~/utils/hero-quest-art/arena-scene'),
-        import('~/utils/hero-quest-art/party-stats')
+        import('~/utils/hero-quest-art/party-stats'),
+        import('~/utils/hero-quest-art/tree-scene')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -1082,6 +1224,8 @@ onMounted(async () => {
     arenaScene = new arenaArt.ArenaScene(backdrops)
     arenaHit = arenaArt
     partyStatsHit = partyStatsArt
+    treeScene = new treeArt.TreeScene(backdrops)
+    treeHit = treeArt
     giftHit = giftArt
     giftReveal = new giftArt.GiftReveal()
     stage = new BattleDemo()
@@ -1135,6 +1279,8 @@ onMounted(async () => {
                                     ? traitsScene!.render(t, traitsView.value ?? EMPTY_TRAITS, traitsHover.value, pressed.value, !!props.traitsBusy)
                                     : scene === 'arena'
                                     ? arenaScene!.render(t, arenaView.value, arenaHover.value, pressed.value)
+                                    : scene === 'tree'
+                                    ? treeScene!.render(t, props.tree ?? EMPTY_TREE, treeCamera(), treeSelected.value, treeHover.value, pressed.value)
                                     : scene === 'calendar' && calendarTab.value === 'milestones'
                                     ? milestonesScene!.render(t, props.milestones ?? { rows: [] }, milestonesHover.value, pressed.value, !!props.milestonesBusy)
                                     : scene === 'calendar'
@@ -1183,8 +1329,8 @@ onBeforeUnmount(() => {
       <canvas
         ref="canvas"
         class="block"
-        :class="pointer ? 'cursor-pointer' : ''"
-        :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated', touchAction: scrollsHere ? 'pan-x' : undefined }"
+        :class="treeDragging ? 'cursor-grabbing' : pointer ? 'cursor-pointer' : panZoomHere ? 'cursor-grab' : ''"
+        :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated', touchAction: panZoomHere ? 'none' : scrollsHere ? 'pan-x' : undefined }"
         @pointermove="onPointerMove"
         @pointerdown="onPointerDown"
         @pointerup="onPointerUp"
