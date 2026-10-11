@@ -46,7 +46,7 @@ import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type Bake
 import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
-import { BADGE_GLINT_FOR, NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, badgePortrait, drawChallengeButton, drawGpnBar, drawProfileBadge, gpnChanging, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type BadgeView, type NumberStyle, type PartyMember } from './feedback'
+import { BADGE_GLINT_FOR, BADGE_PORTRAIT_BOX, NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, badgePortrait, drawChallengeButton, drawGpnBar, drawProfileBadge, gpnChanging, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type BadgeView, type NumberStyle, type PartyMember } from './feedback'
 import { VL, clock, dimLevel, R } from './vfx-kit'
 import { J } from './rig'
 import { VFX_BY_ID, type VfxDef } from './vfx'
@@ -1081,6 +1081,13 @@ export class BattleDemo {
         if (this.gpnAt < 0) return this.gpnTo
         const t = Math.min(1, (this.time - this.gpnAt) / GPN_TWEEN)
         return this.gpnFrom + (this.gpnTo - this.gpnFrom) * (1 - (1 - t) ** 3)
+    }
+
+    /** Whether a point on the stage is on the badge's portrait, while the badge shows. */
+    onBadgePortrait(x: number, y: number): boolean {
+        if (!this.badge || this.raidRound || this.arenaRound) return false
+        const b = BADGE_PORTRAIT_BOX
+        return x >= BADGE_X + b.x && x < BADGE_X + b.x + b.w && y >= BADGE_Y + b.y && y < BADGE_Y + b.y + b.h
     }
 
     /**

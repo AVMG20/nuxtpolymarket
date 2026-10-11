@@ -8,6 +8,7 @@ import { ARENA_FIGHT_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY
 import { ARENA_SHOP } from '#shared/utils/hero-quest/arena'
 import { getRaid } from '#shared/utils/hero-quest/content/raids'
 import type { ArenaBoardRow, ArenaFace, ArenaItemView, ArenaResultView, ArenaTarget, ArenaView } from '~/utils/hero-quest-art/arena-scene'
+import { partyStatsView, type PartyStatsPayload, type PartyStatsView } from '~/utils/hero-quest-art/party-stats'
 import type { CollectionAction, CollectionLine, CollectionSection, CollectionTile, DetailButton } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
@@ -872,6 +873,31 @@ const arenaView = computed<Omit<ArenaView, 'tab' | 'page' | 'pickerOpen'>>(() =>
     }
 })
 
+/** The party's stats over the battle, opened from the badge's portrait; empty while the read is out. */
+const partyStats = ref<PartyStatsView | null>(null)
+let partyStatsRead = 0
+
+async function openPartyStats() {
+    const read = ++partyStatsRead
+    partyStats.value = { units: null }
+    try {
+        const payload = await $fetch<PartyStatsPayload>('/api/hero-quest/stats')
+        // shut, or opened again, while it was out
+        if (read === partyStatsRead && partyStats.value) partyStats.value = partyStatsView(payload)
+    } catch (e) {
+        if (read === partyStatsRead) partyStats.value = null
+        toast.add({ title: apiErrorMessage(e, 'Could not load the party stats'), color: 'error' })
+    }
+}
+
+function closePartyStats() {
+    partyStatsRead++
+    partyStats.value = null
+}
+
+// they belong to the battle: leaving it shuts them
+watch(() => props.scene, closePartyStats)
+
 /** Run a read for the Arena; a failure is an error toast, never a thrown page. */
 async function arenaRead(read: () => Promise<void>) {
     try {
@@ -1675,6 +1701,7 @@ const awayReport = computed(() => {
           :arena="arenaView"
           :arena-round="arenaRound"
           :arena-result="arenaResult"
+          :party-stats="partyStats"
           :classes="classesView"
           :classes-busy="classesBusy"
           @fight-progress="fightProgress = $event"
@@ -1703,6 +1730,8 @@ const awayReport = computed(() => {
           @arena-action="onArenaAction"
           @arena-tab="onArenaTab"
           @arena-result-close="closeArenaResult"
+          @party-stats-open="openPartyStats"
+          @party-stats-close="closePartyStats"
           @pick-class="onPickClass"
           @set-ascendant-kit="onSetAscendantKit"
         />

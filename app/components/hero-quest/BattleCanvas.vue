@@ -18,6 +18,7 @@ import type { RaidLoadoutOption, RaidRewardView, RaidRowView, RaidsHover, RaidsS
 import type { GiftReveal, HolidayGiftIconView, HolidayRevealView } from '~/utils/hero-quest-art/holiday-gift'
 import type { SceneTab } from '~/utils/hero-quest-art/scene-tabs'
 import type { ArenaResultView, ArenaScene, ArenaTarget, ArenaView } from '~/utils/hero-quest-art/arena-scene'
+import type { PartyStatsView } from '~/utils/hero-quest-art/party-stats'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
@@ -129,6 +130,8 @@ const props = defineProps<{
     arenaRound?: StageArena | null
     /** What an Arena attack came to, shown over the stage until its button is pressed. */
     arenaResult?: ArenaResultView | null
+    /** The party's stats, open over the battle; null when shut. */
+    partyStats?: PartyStatsView | null
     /** The Settings scene: every setting's current value. */
     settings?: SettingsView
     /** A setting change is on its way. */
@@ -201,13 +204,17 @@ const emit = defineEmits<{
     arenaTab: [tab: HqArenaTab]
     /** The Arena result popup's button was pressed. */
     arenaResultClose: []
+    /** The profile badge's portrait was pressed: the party's stats open. */
+    partyStatsOpen: []
+    /** The party's stats were shut: their close button, or a press beside them. */
+    partyStatsClose: []
     /** Today's calendar cell, or the make-up button, was pressed. */
     claimCalendar: [makeup: boolean]
     /** The holiday gift in the battle view's corner was pressed. */
     holidayOpen: []
     /** The holiday reveal's button was pressed once everything was out. */
     holidayRevealClose: []
-    /** A milestone card with steps waiting was pressed, or claim-all (null). */
+    /** A milestone card with steps waiting was pressed. */
     claimMilestones: [track: string]
     /** The guide's panel was pressed: the next page, or the tutorial closed on the last. */
     guideNext: []
@@ -267,6 +274,7 @@ let traitsHit: typeof import('~/utils/hero-quest-art/traits-scene') | null = nul
 let arenaScene: ArenaScene | null = null
 let arenaHit: typeof import('~/utils/hero-quest-art/arena-scene') | null = null
 let giftHit: typeof import('~/utils/hero-quest-art/holiday-gift') | null = null
+let partyStatsHit: typeof import('~/utils/hero-quest-art/party-stats') | null = null
 let giftReveal: GiftReveal | null = null
 /** The stage's clock, for the scene that times its own animation (the gacha reveal). */
 let sceneTime = 0
@@ -435,7 +443,7 @@ type Target = 'challenge' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuScene | `sc
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
     | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${Exclude<RaidsHover, null>}` | 'reward:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
     | `trait:${TraitsTarget}`
-    | `arena:${ArenaTarget}` | 'result:ok'
+    | `arena:${ArenaTarget}` | 'result:ok' | 'stats:open' | 'stats:close'
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
@@ -526,6 +534,11 @@ function targetAt(e: PointerEvent): Target | null {
     // the reward popup takes every press: only its button does anything
     if (props.raidReward) return raidsHit?.onRaidRewardButton(presenter.w, sceneH, x, y) ? 'reward:ok' : null
     if (props.arenaResult) return arenaHit?.onArenaResultButton(presenter.w, sceneH, x, y) ? 'result:ok' : null
+    // the party's stats take every press: their close button, or anywhere beside them, shuts them
+    if (props.partyStats) {
+        const at = partyStatsHit?.partyStatsTargetAt(presenter.w, sceneH, x, y) ?? 'inside'
+        return at === 'inside' ? null : 'stats:close'
+    }
     // a tutorial is forced: only its bar answers, or for an unlock only the button it points at
     if (props.guide) {
         if (props.guide.focus) {
@@ -537,6 +550,7 @@ function targetAt(e: PointerEvent): Target | null {
     // a raid or Arena round hides the menu, so a stray press can't walk out of it mid-fight
     const item = props.raidRound || props.arenaRound ? null : band?.menuItemAt(presenter.w, presenter.h, x, y, props.menuScenes) ?? null
     if (item) return item
+    if (openScene.value === 'battle' && stage?.onBadgePortrait(x, y)) return 'stats:open'
     if (openScene.value === 'collections' && collectionsHit) {
         const tab = collectionsHit.collectionTabAt(presenter.w, x, y)
         // the open tab is a button only while the detail is up, back to the grid
@@ -766,6 +780,8 @@ function onPointerUp(e: PointerEvent) {
     else if (hit.startsWith('setting:')) emit('setting', hit.slice(8) as SettingsTarget)
     else if (hit === 'reward:ok') emit('raidRewardClose')
     else if (hit === 'result:ok') emit('arenaResultClose')
+    else if (hit === 'stats:open') emit('partyStatsOpen')
+    else if (hit === 'stats:close') emit('partyStatsClose')
     else if (hit.startsWith('arena:')) {
         const at = hit.slice(6) as ArenaTarget
         if (at.startsWith('tab:')) {
@@ -1013,7 +1029,7 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, giftArt, traitsArt, sceneTabsArt, arenaArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, giftArt, traitsArt, sceneTabsArt, arenaArt, partyStatsArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
@@ -1031,7 +1047,8 @@ onMounted(async () => {
         import('~/utils/hero-quest-art/holiday-gift'),
         import('~/utils/hero-quest-art/traits-scene'),
         import('~/utils/hero-quest-art/scene-tabs'),
-        import('~/utils/hero-quest-art/arena-scene')
+        import('~/utils/hero-quest-art/arena-scene'),
+        import('~/utils/hero-quest-art/party-stats')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -1064,6 +1081,7 @@ onMounted(async () => {
     traitsHit = traitsArt
     arenaScene = new arenaArt.ArenaScene(backdrops)
     arenaHit = arenaArt
+    partyStatsHit = partyStatsArt
     giftHit = giftArt
     giftReveal = new giftArt.GiftReveal()
     stage = new BattleDemo()
@@ -1127,6 +1145,7 @@ onMounted(async () => {
         if (props.holidayReveal && giftReveal) giftReveal.render(view, t, props.holidayReveal, hover.value === 'gift:ok', pressed.value)
         else if (props.raidReward && raidsHit) raidsHit.drawRaidReward(view, props.raidReward, hover.value === 'reward:ok', pressed.value)
         if (props.arenaResult && arenaHit) arenaHit.drawArenaResult(view, props.arenaResult, hover.value === 'result:ok', pressed.value)
+        if (props.partyStats && partyStatsHit) partyStatsHit.drawPartyStats(view, props.partyStats, hover.value === 'stats:close')
         const frame = banded!.compose(view, scene, bandHover.value, pressed.value, !!props.raidRound || !!props.arenaRound, bandAlerts.value, props.menuScenes)
         // over the whole frame, so the band dims with the scene; it waits out a raid's or an Arena round's popup and a holiday reveal
         if (props.guide && guideHit && !props.raidReward && !props.arenaResult && !props.holidayReveal) guideHit.drawGuide(frame, view.h, t, props.guide, guideHover.value)
