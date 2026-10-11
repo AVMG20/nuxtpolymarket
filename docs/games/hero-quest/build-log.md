@@ -912,6 +912,7 @@ The user's calls, answering #58.1 (fights shortened with depth until the first c
 - **Pace:** each fight estimates both sides' expected time to finish the other (basic attacks and damaging abilities on their cooldowns, through the far side's mean DEF and EVA, crits averaged) and scales every flow of HP a unit's power drives (hits, heals, shields, `scalesWithPwr` statuses) by `min(1, sqrt(ttk0 × ttk1) / ARENA_EVEN_FIGHT_SECONDS)`. `ARENA_EVEN_FIGHT_SECONDS` (45, `UNTUNED ╧`) is longer than the 30 s clock, so an even fight times out and the HP shares decide it; the pace never speeds a fight up.
 - **Measured:** mirror parties run to the clock at levels 10, 50, 230 and 300 (about 28 s at 100); 230 against 200 ends in about 24 s, 230 against 150 in about 7 s. Mirror fairness still sits near 50/50.
 - **Specs:** `arena.spec.ts`, the crit cap and an even fight timing out.
+- **Fixed alongside:** the duel's basic attacks ignored `basicAttackFactor`, so Traits' Back to Basics did nothing in the Arena (the pace still counted it, so it made the party weaker; `traits.spec.ts`). On the stage, a hit no longer staggers an Arena body out of its swing or cast (the user's call): the cancelled swing dropped its logged hits and kills, so casts went missing and the fallen kept standing. A held beat cut short anywhere now lands rather than being dropped.
 
 ### 9. Holiday gameplay events — **decided 2026-10-10: not built**
 
