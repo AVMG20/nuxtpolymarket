@@ -3188,9 +3188,10 @@ export class BattleDemo {
             // the water is scenery too, so a set-piece's dim reaches it; the reflection was drawn after it
             dimToInk(s, dark, this.water)
         }
-        // a raid round has its own bars, the party's and the raid boss's, though the run is set aside
-        if (this.run || this.raidRound || this.arenaRound) this.drawBars(s)
         for (let i = 0; i < this.nums.length; i++) { const n = this.nums[i]!; if (n.live) drawNumber(s, n) }
+        // a raid round has its own bars, the party's and the raid boss's, though the run is set aside;
+        // over the numbers, as a rising number passes the head and in a busy fight hid the bar for good
+        if (this.run || this.raidRound || this.arenaRound) this.drawBars(s)
         clock.smooth = false
         if (this.shakeT > 0) {
             // quantised shake: a new offset every other tick, never a smooth wobble
