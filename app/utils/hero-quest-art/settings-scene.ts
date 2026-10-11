@@ -37,7 +37,27 @@ const SECTIONS: readonly { title: string, rows: readonly Row[] }[] = [
             { id: 'confirmGoldSeals', name: 'GOLD PULLS', line: 'A PULL THAT BUYS SEALS WITH GOLD.' },
             { id: 'confirmVoidShards', name: 'VOID SHARD SPENDING', line: 'A PRESTIGE SHOP PURCHASE IN VOID SHARDS.' },
             { id: 'confirmGemSpeed', name: 'BATTLE SPEED', line: 'A BATTLE SPEED BLOCK BOUGHT WITH GEMS.' },
-            { id: 'confirmTreeRespec', name: 'TREE RESPEC', line: 'A PASSIVE TREE RESPEC, FREE OR PAID IN GEMS.' }
+            { id: 'confirmTreeRespec', name: 'TREE RESPEC', line: 'A PASSIVE TREE RESPEC, FREE OR PAID IN GEMS.' },
+            { id: 'confirmTraitSpends', name: 'TRAIT SPENDING', line: 'AN AUTO ROLL, A SET LOADED OR BOUGHT, A GRADED SAVE REPLACED.' }
+        ]
+    },
+    {
+        title: 'DISPLAY',
+        rows: [
+            { id: 'reduceMotion', name: 'REDUCE MOTION', line: 'NO SCREEN SHAKE AND FEWER FLASHES.' },
+            { id: 'fastReveals', name: 'FAST PULL REVEALS', line: 'A PULL SHOWS ITS CARDS AT ONCE, WITHOUT THE DEAL.' },
+            { id: 'skillCinematics', name: 'SKILL CINEMATICS', line: 'THE HERO\'S SIGNATURE SKILL PLAYS ITS CINEMATIC.' },
+            { id: 'combatNumbers', name: 'COMBAT NUMBERS', line: 'DAMAGE, HEAL AND MISS NUMBERS OVER THE FIGHT.' }
+        ]
+    },
+    {
+        // the red dots on the menu buttons; a scene not visited yet always gets its own
+        title: 'MENU DOTS',
+        rows: [
+            { id: 'dotFreePulls', name: 'FREE PULLS', line: 'GACHA, WHEN A FREE PULL IS READY.' },
+            { id: 'dotUpgrades', name: 'UPGRADES', line: 'COLLECTIONS, WHEN SOMETHING CAN BE LEVELLED OR BEATS YOUR GEAR.' },
+            { id: 'dotTreeNodes', name: 'TREE NODES', line: 'SKILL TREE, WHEN A NODE CAN BE BOUGHT.' },
+            { id: 'dotRewards', name: 'REWARDS', line: 'CALENDAR AND ARENA, WHEN A REWARD WAITS.' }
         ]
     }
 ]

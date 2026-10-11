@@ -2,8 +2,23 @@ import { describe, expect, it } from 'vitest'
 import { HQ_SETTING_DEFAULTS, hqSettingsOf, isHqSettingKey } from '#shared/utils/hero-quest/settings'
 
 describe('hero-quest settings', () => {
-    it('confirms every Gold, Void Shard and Gem spend, and shows tutorials, until the player says otherwise', () => {
-        expect(hqSettingsOf({})).toEqual({ tutorials: true, confirmGoldSeals: true, confirmVoidShards: true, confirmGemSpeed: true, confirmTreeRespec: true })
+    it('confirms every spend, and shows tutorials, the full show and every dot, until the player says otherwise', () => {
+        expect(hqSettingsOf({})).toEqual({
+            tutorials: true,
+            confirmGoldSeals: true,
+            confirmVoidShards: true,
+            confirmGemSpeed: true,
+            confirmTreeRespec: true,
+            confirmTraitSpends: true,
+            reduceMotion: false,
+            fastReveals: false,
+            skillCinematics: true,
+            combatNumbers: true,
+            dotFreePulls: true,
+            dotUpgrades: true,
+            dotTreeNodes: true,
+            dotRewards: true
+        })
         expect(hqSettingsOf(null)).toEqual(HQ_SETTING_DEFAULTS)
     })
 

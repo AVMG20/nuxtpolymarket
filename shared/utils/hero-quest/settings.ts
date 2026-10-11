@@ -15,6 +15,21 @@ export interface HqSettings {
     confirmGemSpeed: boolean
     /** A Passive Skill Tree respec, which refunds the whole tree, takes a second press to confirm. */
     confirmTreeRespec: boolean
+    /** An Auto Roll, a loaded or bought trait set, or a graded save overwritten takes a second press to confirm. */
+    confirmTraitSpends: boolean
+    /** Fewer flashes and no screen shake, on top of the device's own reduced-motion setting. */
+    reduceMotion: boolean
+    /** A gacha pull shows its cards turned at once, without the deal. */
+    fastReveals: boolean
+    /** The Hero's signature skill plays its cinematic; off, it lands like any other skill. */
+    skillCinematics: boolean
+    /** Damage, heal and miss numbers float off the bodies on the stage. */
+    combatNumbers: boolean
+    /** The menu's red dots: a free pull, an upgrade, a tree node, a calendar or arena reward. */
+    dotFreePulls: boolean
+    dotUpgrades: boolean
+    dotTreeNodes: boolean
+    dotRewards: boolean
 }
 
 export const HQ_SETTING_DEFAULTS: Readonly<HqSettings> = {
@@ -22,7 +37,16 @@ export const HQ_SETTING_DEFAULTS: Readonly<HqSettings> = {
     confirmGoldSeals: true,
     confirmVoidShards: true,
     confirmGemSpeed: true,
-    confirmTreeRespec: true
+    confirmTreeRespec: true,
+    confirmTraitSpends: true,
+    reduceMotion: false,
+    fastReveals: false,
+    skillCinematics: true,
+    combatNumbers: true,
+    dotFreePulls: true,
+    dotUpgrades: true,
+    dotTreeNodes: true,
+    dotRewards: true
 }
 
 export type HqSettingKey = keyof HqSettings

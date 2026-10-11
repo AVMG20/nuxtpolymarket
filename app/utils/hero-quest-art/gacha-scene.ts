@@ -305,7 +305,8 @@ export class GachaScene {
         this.dealtAt = -1e9
     }
 
-    render(t: number, view: GachaView, hover: GachaHover, pressed: boolean, busy: boolean): Surface {
+    /** `fast` turns a new deal over at once; `calm` drops the white frames and the shake. */
+    render(t: number, view: GachaView, hover: GachaHover, pressed: boolean, busy: boolean, fast = false, calm = false): Surface {
         const s = this.backdrops.render('gacha', t, false)
         drawText(s, 'GACHA', 6, 4, C.gold2, { shadow: 1 })
         const gw = textWidth(view.gold.toUpperCase())
@@ -316,7 +317,7 @@ export class GachaScene {
             const h = hover !== null && hover !== 'reveal' && hover.system === b.system ? hover.part : null
             this.drawBanner(s, columnBox(s.w, i), b, h, pressed, busy, view.armed?.system === b.system ? view.armed.button : null)
         })
-        if (view.reveal) this.drawReveal(s, t, view.reveal)
+        if (view.reveal) this.drawReveal(s, t, view.reveal, fast, calm)
         return s
     }
 
@@ -454,10 +455,10 @@ export class GachaScene {
         })
     }
 
-    private drawReveal(s: Surface, t: number, r: NonNullable<GachaView['reveal']>): void {
+    private drawReveal(s: Surface, t: number, r: NonNullable<GachaView['reveal']>, fast: boolean, calm: boolean): void {
         if (this.dealtKey !== r.key) {
             this.dealtKey = r.key
-            this.dealtAt = t
+            this.dealtAt = fast ? -1e9 : t
         }
         const since = t - (this.dealtAt ?? t)
         const beats = dealSchedule(r.cards)
@@ -544,11 +545,11 @@ export class GachaScene {
         // over everything: the white frame a legendary or a mythic turns on, then the whole view shakes
         const legendAgo = latestFlip(r.cards, beats, since, 'legendary')
         const mythicWhite = mythicAgo !== null && mythicAgo < MYTHIC_WHITE
-        if (mythicWhite || (legendAgo !== null && legendAgo < LEGEND_WHITE)) dither(s, 0, 0, s.w, s.h, C.white, mythicWhite ? 10 : 4)
+        if (!calm && (mythicWhite || (legendAgo !== null && legendAgo < LEGEND_WHITE))) dither(s, 0, 0, s.w, s.h, C.white, mythicWhite ? 10 : 4)
         const [amp, ago, dur] = mythicAgo !== null && mythicAgo < MYTHIC_SHAKE
             ? [MYTHIC_SHAKE_PX, mythicAgo, MYTHIC_SHAKE]
             : legendAgo !== null && legendAgo < LEGEND_SHAKE ? [LEGEND_SHAKE_PX, legendAgo, LEGEND_SHAKE] : [0, 0, 1]
-        if (amp > 0) {
+        if (amp > 0 && !calm) {
             const a = amp * (1 - ago / dur)
             shake(s, Math.round(Math.sin(since * 97) * a), Math.round(Math.cos(since * 71) * a))
         }

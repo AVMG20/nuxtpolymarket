@@ -442,7 +442,7 @@ function skipFight() {
  */
 function closeIris(): Promise<HqIntroRect | null> {
     const box = wrap.value
-    if (!stage || !box || prefersReducedMotion()) return Promise.resolve(null)
+    if (!stage || !box || calm.value) return Promise.resolve(null)
     return new Promise(resolve => stage!.closeIris(() => resolve(rectOf(box))))
 }
 
@@ -1124,13 +1124,17 @@ const guideHover = computed<GuideTarget | null>(() => hover.value === 'guide:nex
 /** The band's red dots: a scene opened and not visited yet, today's calendar reward, a milestone step, a free pull, an upgrade or a tree node waiting. */
 const bandAlerts = computed<ReadonlySet<HqMenuScene>>(() => new Set<HqMenuScene>([
     ...(props.newScenes ?? []),
-    ...(calendarWaiting.value || milestonesWaiting.value ? ['calendar' as const] : []),
-    ...(props.gacha?.banners.some(b => b.free.state === 'ready') ? ['gacha' as const] : []),
-    ...(props.collectionsUpgrade ? ['collections' as const] : []),
-    ...(props.tree?.nodes.some(n => n.block === null) ? ['tree' as const] : []),
+    ...(prefs.value.dotRewards && (calendarWaiting.value || milestonesWaiting.value) ? ['calendar' as const] : []),
+    ...(prefs.value.dotFreePulls && props.gacha?.banners.some(b => b.free.state === 'ready') ? ['gacha' as const] : []),
+    ...(prefs.value.dotUpgrades && props.collectionsUpgrade ? ['collections' as const] : []),
+    ...(prefs.value.dotTreeNodes && props.tree?.nodes.some(n => n.block === null) ? ['tree' as const] : []),
     // a season's rank reward waiting to be claimed
-    ...(props.arena?.rewards.length ? ['arena' as const] : [])
+    ...(prefs.value.dotRewards && props.arena?.rewards.length ? ['arena' as const] : [])
 ]))
+/** The player's settings, the defaults until the first read. */
+const prefs = computed(() => props.settings?.settings ?? HQ_SETTING_DEFAULTS)
+/** Less motion, asked for in Settings or by the device. */
+const calm = computed(() => prefs.value.reduceMotion || prefersReducedMotion())
 /** Today's calendar reward waits, and a milestone step: each dots its Calendar tab, either the button. */
 const calendarWaiting = computed(() => props.calendar?.days[props.calendar.today]?.state === 'today')
 const milestonesWaiting = computed(() => !!props.milestones?.rows.some(r => r.claimable.length > 0))
@@ -1260,6 +1264,9 @@ onMounted(async () => {
         // Battle Speed never touches an Arena round (`arena.md` §1)
         stage!.speed = props.fight ? props.fight.playbackSpeed ?? 1 : props.arenaRound ? 1 : props.speed ?? 1
         stage!.speedTag = props.speedTag ?? ''
+        stage!.calm = calm.value
+        stage!.cinematics = prefs.value.skillCinematics
+        stage!.numbers = prefs.value.combatNumbers
         if (!props.fight) stage!.feedRun(feed())
         reportPack()
         // under a scene the battle still runs and takes its feed, but is not drawn
@@ -1277,7 +1284,7 @@ onMounted(async () => {
                                 ? speedScene!.render(t, props.speedView ?? { multiplier: 1, left: null, gems: '0', gemCount: 0, offlineEfficiency: 1, tiers: [] }, speedHover.value, pressed.value, !!props.speedBusy)
                                 : prestigeScene!.render(t, props.prestige ?? { tracks: [], voidShards: '0', gems: '0', gold: '0' }, shopPage.value, shopHover.value, pressed.value, !!props.prestigeBusy)
                             : scene === 'gacha'
-                                ? gachaScene!.render(t, props.gacha ?? { banners: [], gold: '0', reveal: null, armed: null }, gachaHover.value, pressed.value, !!props.gachaBusy)
+                                ? gachaScene!.render(t, props.gacha ?? { banners: [], gold: '0', reveal: null, armed: null }, gachaHover.value, pressed.value, !!props.gachaBusy, prefs.value.fastReveals, calm.value)
                                 : scene === 'raids'
                                     ? raidsScene!.render(t, raidsView.value, raidsHover.value, pressed.value)
                                     : scene === 'traits'

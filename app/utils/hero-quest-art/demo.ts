@@ -1630,7 +1630,7 @@ export class BattleDemo {
             }
             // the Hero's cinematic for a damaging cast: the ability's own, else the class skill's;
             // a special playing keeps the stage
-            const cine = b.cast && b.side === 0 && b.actor === 0 && b.hits.length ? (b.skillId ? CINEMATIC_BY_ID[b.skillId] : null) ?? this.heroCine : null
+            const cine = this.cinematics && b.cast && b.side === 0 && b.actor === 0 && b.hits.length ?(b.skillId ? CINEMATIC_BY_ID[b.skillId] : null) ?? this.heroCine : null
             if (cine && !this.cine?.beat) this.startCine(cine, u)
         }
         for (let k = rp.late.length - 1; k >= 0; k--) {
@@ -2458,7 +2458,8 @@ export class BattleDemo {
         const n = this.nums[this.numCursor]!
         this.numCursor = (this.numCursor + 1) % this.nums.length
         const list = NUM_TEXT[kind]!
-        n.live = true; n.x = x; n.y = y; n.t = 0; n.hold = hold
+        // hidden numbers still return their text: the Training Grounds tally counts it
+        n.live = this.numbers; n.x = x; n.y = y; n.t = 0; n.hold = hold
         // loose numbers scatter a few px so a burst of hits doesn't print on one spot; stacks stay aligned
         n.dx = hold ? 0 : Math.round((Math.random() - 0.5) * 8)
         n.style = kind === 'normal' ? NUMBER_STYLES[0]! : kind === 'crit' || kind === 'total' ? NUMBER_STYLES[1]! : kind === 'heal' ? NUMBER_STYLES[2]! : NUMBER_STYLES[3]!
@@ -2652,10 +2653,12 @@ export class BattleDemo {
     }
 
     private shake(amp: number, t: number): void {
+        if (this.calm) return
         if (amp >= this.shakeAmp || this.shakeT <= 0) { this.shakeAmp = amp; this.shakeT = t }
     }
 
     private flashFor(k: number, color: number): void {
+        if (this.calm) return
         if (k >= this.flash) { this.flash = k; this.flashColor = color }
     }
 
@@ -2839,6 +2842,10 @@ export class BattleDemo {
     speed = 1
     /** The running Battle Speed block, top right of the HUD; empty when none runs. */
     speedTag = ''
+    /** The player's display settings: no shake or flashes, the Hero's cinematics, the floating numbers. */
+    calm = false
+    cinematics = true
+    numbers = true
 
     update(dt: number): void {
         if (this.jobs.length) this.bakeSome()
@@ -2917,8 +2924,9 @@ export class BattleDemo {
                         if (ready) {
                             ready.timer = Math.max(0, ready.cooldown - ready.overdue)
                             ready.overdue = 0
-                            if (ready.cine) this.startCine(ready.cine, u)
-                        } else if (cast && i === 0 && this.heroCine && !this.run) {
+                            // without its cinematic the cast lands at its impact, as every other skill does
+                            if (ready.cine && this.cinematics) this.startCine(ready.cine, u)
+                        } else if (cast && i === 0 && this.heroCine && !this.run && this.cinematics) {
                             this.startCine(this.heroCine, u)
                         }
                         if (special) {

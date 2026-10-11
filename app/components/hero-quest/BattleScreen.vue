@@ -1223,7 +1223,8 @@ async function onTraitAction(target: TraitsTarget) {
         traitAutoStop = true
         return
     }
-    const asks = kind === 'auto' || kind === 'load' || kind === 'buy' || (kind === 'save' && !!traitsView.value.saves[i]?.grades)
+    const asks = (settings.value?.confirmTraitSpends ?? true)
+        && (kind === 'auto' || kind === 'load' || kind === 'buy' || (kind === 'save' && !!traitsView.value.saves[i]?.grades))
     if (asks && !confirm.press(`trait:${target}`)) return
     confirm.clear()
     traitsBusy.value = true
