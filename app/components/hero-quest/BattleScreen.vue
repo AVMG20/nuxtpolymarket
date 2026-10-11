@@ -19,6 +19,7 @@ import type { CalendarView } from '~/utils/hero-quest-art/calendar-scene'
 import type { HolidayGiftIconView, HolidayRevealView } from '~/utils/hero-quest-art/holiday-gift'
 import type { MilestonesView } from '~/utils/hero-quest-art/milestones-scene'
 import type { TraitRollView, TraitsTarget, TraitsView } from '~/utils/hero-quest-art/traits-scene'
+import type { TreeView } from '~/utils/hero-quest-art/tree-scene'
 import type { TraitGrade } from '~/utils/hero-quest-art/palette'
 import type { RaidLoadoutOption, RaidRewardView, RaidRowView } from '~/utils/hero-quest-art/raids-scene'
 import type { RaidId as StageRaidId, StageArena, StagePack, StageRaid } from '~/utils/hero-quest-art/demo'
@@ -53,6 +54,7 @@ const {
     pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid, calendar, claimCalendar,
     holidays, claimHoliday, milestones, claimMilestones, ascendant, tutorials, markTutorialSeen, resetTutorials,
     traits, rollTraits, autoRollTraits, refreshTraits, lockTrait, saveTraits, loadTraits, buyTraitSaveSlot,
+    passiveTree, buyPassiveNode, respecPassiveTree,
     arena, arenaCandidates, arenaLog, arenaBoard, loadArenaCandidates, loadArenaLog,
     loadArenaBoard, refreshArenaCandidates, attackArena, buyArenaAttempt, setArenaDefense, buyArenaItem, claimArenaSeason
 } = useHeroQuest()
@@ -1241,6 +1243,49 @@ async function onTraitAction(target: TraitsTarget) {
     }
 }
 
+/** The Passive Skill Tree scene: every node's level and next cost, the points, and the respec. */
+const treeBusy = ref(false)
+const treeView = computed<TreeView>(() => {
+    const t = passiveTree.value
+    const armed = confirm.armed.value === 'tree:respec'
+    if (!t) return { nodes: [], points: '0', respecFree: false, respecGems: 0, respecAffordable: false, armed, busy: treeBusy.value }
+    return {
+        nodes: t.nodes,
+        points: formatNumber(t.pointsLeft),
+        respecFree: t.respecFree,
+        respecGems: t.respecGems,
+        respecAffordable: (user.value?.gems ?? 0) >= t.respecGems,
+        armed,
+        busy: treeBusy.value
+    }
+})
+
+async function onTreeBuy(nodeId: string) {
+    confirm.clear()
+    treeBusy.value = true
+    try {
+        await buyPassiveNode(nodeId)
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        treeBusy.value = false
+    }
+}
+
+/** A respec undoes the whole tree, so it waits for a second press unless that is turned off in Settings. */
+async function onTreeRespec() {
+    if ((settings.value?.confirmTreeRespec ?? true) && !confirm.press('tree:respec')) return
+    confirm.clear()
+    treeBusy.value = true
+    try {
+        await respecPassiveTree()
+    } catch {
+        // `useHeroQuest` has already shown the error
+    } finally {
+        treeBusy.value = false
+    }
+}
+
 /** The running Battle Speed block's time left, off the server's expiry; it stands still in a raid, as the block does. */
 const speedLeftLive = useHqCountdown(() => battleSpeed.value?.expiresAt)
 const speedLeft = computed(() => loadoutSession.value && battleSpeed.value?.expiresAt
@@ -1692,6 +1737,7 @@ const awayReport = computed(() => {
           :milestones-busy="milestonesBusy"
           :traits="traitsView"
           :traits-busy="traitsBusy"
+          :tree="treeView"
           :raids="raidRows"
           :raids-busy="raidsBusy"
           :raid-loadouts="raidLoadoutOptions"
@@ -1724,6 +1770,8 @@ const awayReport = computed(() => {
           @claim-milestones="onClaimMilestones"
           @guide-next="onGuideNext"
           @trait-action="onTraitAction"
+          @tree-buy="onTreeBuy"
+          @tree-respec="onTreeRespec"
           @raid-enter="onRaidEnter"
           @raid-quick="onRaidQuick"
           @raid-loadout="onRaidLoadout"

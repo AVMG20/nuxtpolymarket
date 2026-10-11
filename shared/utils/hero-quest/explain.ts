@@ -54,6 +54,7 @@ import { skillCollectionModifiers, skillModifiers } from './content/skills'
 import { artifactCollectionModifiers, artifactModifiers } from './content/artifacts'
 import { shopStatModifiers } from './content/shop'
 import { traitModifiers } from './traits'
+import { passiveTreeModifiers } from './passive-tree'
 import {
     baseScaleFor,
     championInvestmentMultiplier,
@@ -68,7 +69,7 @@ import {
 import { mergeTotals, sumModifiers } from './modifiers'
 import { D, ONE, decPow, formatHq } from './numbers'
 import type { Decimal } from './numbers'
-import type { ChampionSnapshot, HeroSnapshot, HqStatKey, StatTier, UnitStats } from './types'
+import type { ChampionArchetype, ChampionSnapshot, HeroSnapshot, HqStatKey, StatTier, UnitStats } from './types'
 
 const STAT_KEYS: readonly HqStatKey[] = ['pwr', 'spd', 'lck', 'imp', 'vit', 'def']
 
@@ -351,7 +352,7 @@ function passiveStage(
     // Same rule as `collectionStage`: `sources` itemises, `factor` is the number the game used.
     return {
         id: 'passives',
-        label: 'Gear / Skills / Artifacts / Traits',
+        label: 'Gear / Skills / Artifacts / Traits / Tree',
         factor,
         running: running.mul(factor),
         unbounded: false,
@@ -465,17 +466,20 @@ function statBreakdowns(
  *
  * On the Hero, the Skills and Artifacts rows each include that system's collection passive — the
  * every owned copy's share — so every source the Hero's stat actually received is itemised.
- * A Champion row shows equipped Artifacts, the shop and Traits only, because collection passives
- * never reach one.
+ * A Champion row shows equipped Artifacts, the shop, Traits and the tree's side nodes only, because
+ * collection passives never reach one.
  */
-function passiveSources(hero: HeroSnapshot, key: HqStatKey, partyWideOnly: boolean) {
+function passiveSources(hero: HeroSnapshot, key: HqStatKey, champion: ChampionArchetype | null) {
     const equippedArtifacts = hero.equippedArtifacts ?? []
     const shop = { label: 'Prestige shop', pct: sumModifiers(shopStatModifiers(hero.shopStatLevels ?? {})).stats[key] - 1 }
     // a Champion's Traits are the party-wide lines plus Champion ATK; the Hero's, plus Hero Skill DMG
     const trait = traitModifiers(hero.traits ?? [])
-    const traits = { label: 'Traits', pct: sumModifiers([...trait.party, ...(partyWideOnly ? trait.champion : trait.hero)]).stats[key] - 1 }
-    if (partyWideOnly) {
-        return [{ label: 'Artifacts', pct: sumModifiers(artifactModifiers(equippedArtifacts)).stats[key] - 1 }, shop, traits]
+    const traits = { label: 'Traits', pct: sumModifiers([...trait.party, ...(champion ? trait.champion : trait.hero)]).stats[key] - 1 }
+    const tree = passiveTreeModifiers(hero.passiveTree ?? {}, hero.classId)
+    const treeLines = champion ? [...tree.champion.all, ...tree.champion[champion]] : tree.hero
+    const passiveTree = { label: 'Passive tree', pct: sumModifiers(treeLines).stats[key] - 1 }
+    if (champion) {
+        return [{ label: 'Artifacts', pct: sumModifiers(artifactModifiers(equippedArtifacts)).stats[key] - 1 }, shop, traits, passiveTree]
     }
 
     const equippedSkills = hero.equippedSkills ?? []
@@ -493,7 +497,8 @@ function passiveSources(hero: HeroSnapshot, key: HqStatKey, partyWideOnly: boole
         { label: 'Skills', pct: skills.stats[key] - 1 },
         { label: 'Artifacts', pct: artifacts.stats[key] - 1 },
         shop,
-        traits
+        traits,
+        passiveTree
     ]
 }
 
@@ -506,7 +511,6 @@ export function explainStats(hero: HeroSnapshot): StatsExplanation {
     const node = getClass(hero.classId)
     const units = partyUnitStats(hero)
     const path = classPath(hero.classId)
-    const championWide = mergeTotals(partyModifierTotals(hero), championModifierTotals(hero))
 
     const heroTotals = mergeTotals(heroModifierTotals(hero), partyModifierTotals(hero))
     const heroStats = statBreakdowns(
@@ -516,7 +520,7 @@ export function explainStats(hero: HeroSnapshot): StatsExplanation {
         (key, running) => {
             const collection = collectionStage(running, hero, key)
             return [collection, passiveStage(
-                collection.running, key, D(heroTotals.stats[key]), passiveSources(hero, key, false)
+                collection.running, key, D(heroTotals.stats[key]), passiveSources(hero, key, null)
             )]
         },
         false
@@ -532,6 +536,7 @@ export function explainStats(hero: HeroSnapshot): StatsExplanation {
 
     ;(hero.champions ?? []).forEach((champion, index) => {
         const spread = getArchetype(champion.archetype).spread
+        const championWide = mergeTotals(partyModifierTotals(hero), championModifierTotals(hero, champion.archetype))
         const stats = statBreakdowns(
             spread,
             // Champions never touch the class tree, so there is no path and no delta to inherit.
@@ -540,7 +545,7 @@ export function explainStats(hero: HeroSnapshot): StatsExplanation {
             (key, running) => {
                 const investment = investmentStage(running, champion)
                 return [investment, passiveStage(
-                    investment.running, key, D(championWide.stats[key]), passiveSources(hero, key, true)
+                    investment.running, key, D(championWide.stats[key]), passiveSources(hero, key, champion.archetype)
                 )]
             },
             true

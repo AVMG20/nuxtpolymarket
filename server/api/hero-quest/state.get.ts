@@ -34,6 +34,7 @@ import { ensureSeasonsClosed, serializeArena, unclaimedSeasons } from '#server/u
 import { arenaSeasonAt } from '#shared/utils/hero-quest/arena'
 import { GACHA_SYSTEMS } from '#shared/utils/hero-quest/gacha'
 import { getTraitSaves, serializeTraits } from '#server/utils/hero-quest-traits'
+import { serializePassiveTree } from '#server/utils/hero-quest-passive-tree'
 
 /**
  * The one read the client makes.
@@ -78,6 +79,7 @@ export default defineEventHandler(async (event) => {
             milestones: [],
             tutorials: { unlocked: [], seen: [] },
             traits: null,
+            passiveTree: null,
             arena: null,
             voidShards: '0',
             nextPrestigeReward: voidShardsFor(0).toString(),
@@ -167,6 +169,8 @@ export default defineEventHandler(async (event) => {
         loadoutSession: serializeLoadoutSession(state),
         /** The Traits scene: the live board, the Roll's price, every Set's tier, and the save slots. */
         traits: serializeTraits(state, traitBoard, traitSaves, shopLevels),
+        /** The Passive Skill Tree: the points, the respec, and every node's level and next cost. */
+        passiveTree: serializePassiveTree(state),
 
         voidShards: fromStore(state.voidShards).toString(),
         nextPrestigeReward: voidShardsFor(state.prestige).toString(),

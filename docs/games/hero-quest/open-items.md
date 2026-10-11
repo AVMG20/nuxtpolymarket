@@ -65,8 +65,8 @@ read the older rule in the doc named in the middle column, it is superseded.**
 
 ## 🔴 Genuinely undesigned — full passes, not edits
 
-### 7. Passive Skill Tree (backlog item 3)
-A menu button is free for it, and one for the Arena (Battle Speed moved into the Shop and the Milestones into the Calendar, `build-log.md` #56, #57). Unchecked. Hero-only passive tree, generic root splitting into 3 paths, nodes up to 5 levels each, purchased via its own dedicated raid, with Champion/item side-nodes allowed but never gating a path. Structurally sound to build (raids don't have to be gacha-paired) but has had no dedicated design session.
+### ~~7. Passive Skill Tree (backlog item 3)~~
+**Designed and built 2026-10-11** (`passive-skill-tree.md`, `build-log.md` #63). Nothing in this section is open now.
 
 ---
 
@@ -353,7 +353,7 @@ economy — a tuning question, listed below rather than a blocker.
 
 ## ⚪ Standing numeric tuning — **what is still `// UNTUNED ╧`**
 
-Named constants with a formula shape locked and a placeholder value. Consolidated so a tuning pass has one list. `rg '╧' shared/utils/hero-quest/constants.ts` is the authority — **114 markers** as of 2026-10-11 (`rg -c` prints 116: the file's header legend carries the glyph twice), up from 61 on 2026-09-16 with the raids (#46), boss specials (#45), the login calendar (#47), milestones (#48), the Ascendant (#43) and the holiday gifts (#53). Every marker has a row below; the Arena row's constants are not in `constants.ts` until the Arena is built.
+Named constants with a formula shape locked and a placeholder value. Consolidated so a tuning pass has one list. `rg '╧' shared/utils/hero-quest/constants.ts` is the authority — **120 markers** as of 2026-10-11 (`rg -c` prints 122: the file's header legend carries the glyph twice), up from 61 on 2026-09-16 with the raids (#46), boss specials (#45), the login calendar (#47), milestones (#48), the Ascendant (#43), the holiday gifts (#53) and the Passive Skill Tree (#63). Every marker has a row below; the Arena row's constants are not in `constants.ts` until the Arena is built.
 
 ~~**Decided: none of this is tuned before playtesting.**~~ **Superseded for the combat and progression block by #22**, which tuned it on the campaign walk. The original reasoning still holds for everything that remains below: the balance script and campaign sim project *what the formulas say*, and a projected value that feels wrong in play is worth less than no value, because it looks settled. What remains is mostly the gacha, shop and ability-magnitude layers, which the campaign walk barely exercises — so they want play data or a different measurement, not another sim pass.
 
@@ -367,6 +367,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 |---|---|---|
 | Offline Efficiency / Offline Cap `BASE_COST` (×2) | `idle-mechanics.md` §4 | Formula shapes locked, no anchor value |
 | `K_ATTACK`, `K_DEFEND`, `MEDAL_BASE_WIN`, `MEDAL_BASE_LOSS`, `MEDAL_UPSET_BONUS`, `ARENA_MATCH_BAND_RATING`, `ARENA_SHOP_GEM_PRICE`, plus (built 2026-10-09, #58) `ARENA_FIGHT_SECONDS`, `ARENA_DUMMY_SECONDS`, `ARENA_SEASON_REWARDS`, `ARENA_LEADERBOARD_NEIGHBORS`, `ARENA_SHOP_SEAL_PRICE`, `ARENA_SHOP_TRAIT_KEY_PRICE`, `ARENA_EVEN_FIGHT_SECONDS` (#60), `ARENA_BOT_LOADOUT` (#62) (a Seal raid's Key is derived from the Seal price since 2026-10-10) | `arena.md` | Built (#58). `ARENA_MATCH_BAND_RATING` (±200 Rating) also a design question, see #2. `ARENA_SHOP_GEM_PRICE` has an explicit calibration target (under 1 Battle Speed block per day's Medals) |
+| `PASSIVE_POINTS_PER_LEVEL`, `PASSIVE_TIER_COST`, `PASSIVE_ENDLESS_BASE_COST`, `PASSIVE_ENDLESS_COST_STEP`, `PASSIVE_BAND_MAGNITUDE`, `PASSIVE_RESPEC_GEMS` | `passive-skill-tree.md` §2–§5 | Built (#63). The campaign walk models no tree, so none of it is measured: a full path is +15% on three stats plus its utility and economy lines, and the endless nodes keep adding. Size the finite tree (1,500 points at one a level) against how many prestiges it should take, then re-measure the walk with the tree on. The Plunder, Insight and Forager nodes add Gold, XP and offline efficiency, which sit on #23's unreconciled Gold numbers |
 | `EHP_DEF_CONSTANT` | `global-power-number.md` §2 | Built (#28). At 10 a level-1 Hero's DEF doubles its EHP; tune against how balanced parties should read against lopsided ones |
 | `SKILL_COLLECTION_PASSIVE_FRACTION`, `ARTIFACT_COLLECTION_PASSIVE_FRACTION` | none — see #28 | What every owned Passive Skill or Artifact gives the Hero, equipped or not (#39), as a fraction of equipping it. 0.1 mirrors Gear; tune together with `GEAR_PASSIVE_COEFFICIENT` so all three collections feel comparable |
 | `PRESTIGE_STAT_PER_LEVEL`, `PRESTIGE_STAT_BASE_COST`, `PRESTIGE_STAT_COST_GROWTH` | none — see #41 | The uncapped stat tracks: +1% party-wide per level, from 100 Void Shards climbing ×1.15. They decide how fast Void Shards turn into power once the capped tracks are done, so tune against `VOID_SHARD_BASE/GROWTH` and add them to the campaign walk before trusting the pacing past a first prestige |
@@ -426,7 +427,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 3. ~~**World & Enemy Design (#6)**~~ **Closed 2026-10-04** — the art is restyled and locked (`art-style.md`); regular enemies get no abilities. ~~**Boss specials become real (#45)**~~ **built 2026-10-08**, measured on seeded gate fights; the open half is under #45 above.
 4. **The last quick call (#2)**, the Arena band — answer it with the Arena. #1 and #3 are decided, and with #3 the raid-rule questions #31 and #32 (2026-10-04); the asset calls (#4, #30) on 2026-09-17.
 5. **Phase 4 — endgame systems** (`implementation-plan.md`). ~~Arena~~ built (#58). ~~GPN~~ built (#28); the leaderboard aggregate and Defense GPN built with the Arena (#58). ~~Battle Speed~~ built (#44). ~~Raids~~ built, all five (#46). ~~Traits~~ built, with evasion (#52). ~~Holidays~~ built, the gifts (#53). ~~`loadouts.md` §4's per-raid auto-apply~~ built (#54); the Arena's half with the Arena (#58).
-6. **Passive Skill Tree (#7)** — the last unbuilt major system; good candidate for its own dedicated session.
+6. ~~**Passive Skill Tree (#7)**~~ **Built 2026-10-11** (`build-log.md` #63), on level-up points instead of a raid.
 7. **Playtest, then tune the rest.** The combat and progression block is tuned (#22); the gacha, shop, economy and ability-magnitude constants are settled here — see the standing-tuning section. The balance script and campaign sim stay in use throughout. **Once the Gold balance is decided, rebalance the login calendar's Gold and Gem days** (#47).
 
 **On the playtest step's position.** Tuning the *remaining* constants wants every system present, so the last step is still the right place to *finish*. But the loop itself was tuned on the sim alone, and `implementation-plan.md` Phase 1's "stop here and actually play it before continuing" has now been overridden three times. The harness (#19) makes a session cheap, and world design is downstream of it — nothing settles how long a world should take like having felt one. That is why step 2 exists.

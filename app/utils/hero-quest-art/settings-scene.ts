@@ -36,7 +36,8 @@ const SECTIONS: readonly { title: string, rows: readonly Row[] }[] = [
         rows: [
             { id: 'confirmGoldSeals', name: 'GOLD PULLS', line: 'A PULL THAT BUYS SEALS WITH GOLD.' },
             { id: 'confirmVoidShards', name: 'VOID SHARD SPENDING', line: 'A PRESTIGE SHOP PURCHASE IN VOID SHARDS.' },
-            { id: 'confirmGemSpeed', name: 'BATTLE SPEED', line: 'A BATTLE SPEED BLOCK BOUGHT WITH GEMS.' }
+            { id: 'confirmGemSpeed', name: 'BATTLE SPEED', line: 'A BATTLE SPEED BLOCK BOUGHT WITH GEMS.' },
+            { id: 'confirmTreeRespec', name: 'TREE RESPEC', line: 'A PASSIVE TREE RESPEC, FREE OR PAID IN GEMS.' }
         ]
     }
 ]

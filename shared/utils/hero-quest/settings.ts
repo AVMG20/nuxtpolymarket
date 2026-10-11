@@ -13,13 +13,16 @@ export interface HqSettings {
     confirmVoidShards: boolean
     /** A Battle Speed block, paid in Gems, takes a second press to confirm. */
     confirmGemSpeed: boolean
+    /** A Passive Skill Tree respec, which refunds the whole tree, takes a second press to confirm. */
+    confirmTreeRespec: boolean
 }
 
 export const HQ_SETTING_DEFAULTS: Readonly<HqSettings> = {
     tutorials: true,
     confirmGoldSeals: true,
     confirmVoidShards: true,
-    confirmGemSpeed: true
+    confirmGemSpeed: true,
+    confirmTreeRespec: true
 }
 
 export type HqSettingKey = keyof HqSettings

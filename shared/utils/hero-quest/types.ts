@@ -354,6 +354,11 @@ export interface HeroSnapshot {
      * except Hero Skill DMG (Hero only) and Champion ATK (Champions only) — see `traitModifiers`.
      */
     traits?: readonly TraitRoll[]
+    /**
+     * Passive Skill Tree levels by node id (`passive-tree.ts`). Hero lines, and side nodes for
+     * fielded Champions by archetype; a class-path node only while the class is on its path.
+     */
+    passiveTree?: Readonly<Record<string, number>>
     /** Levels bought in the prestige shop's stat tracks, by stat. Party-wide (`shopStatModifiers`). */
     shopStatLevels?: Readonly<Partial<Record<HqStatKey, number>>>
     /**

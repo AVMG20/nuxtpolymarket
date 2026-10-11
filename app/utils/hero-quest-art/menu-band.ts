@@ -11,7 +11,7 @@ import { textOut } from './font'
 import { HQ_MENU_SCENES, HQ_SCENE_LABELS, type HqMenuScene, type HqScene } from '../hero-quest-scenes'
 
 export const BAND_H = 22
-// up to eleven buttons across the 272 px stage at 22 wide, 2 apart (ten with the Arena, one slot kept for the Passive Skill Tree)
+// eleven buttons across the 272 px stage at 22 wide, 2 apart: the row is full
 const BTN_W = 22
 const BTN_H = 18
 const BTN_GAP = 2
@@ -73,6 +73,18 @@ const NODE_TREE: Glyph = (g, x, y) => {
         node(x, y + dy, branch)
         node(x + 5, y + dy, leaf)
     }
+}
+
+/** The passive tree: a gold root with a spoke out to each class line's node, and a leaf past each. */
+const PASSIVE_STAR: Glyph = (g, x, y) => {
+    const spokes = [[0, -7, 0, -4, C.red2], [6, 4, 4, 2, C.blue2], [-6, 4, -4, 2, C.green3]] as const
+    for (const [lx, ly] of spokes) line(g, x, y, x + lx, y + ly, C.steel2)
+    for (const [lx, ly, nx, ny, c] of spokes) {
+        disc(g, x + nx, y + ny, 1.5, c)
+        rect(g, x + lx - 1, y + ly - 1, 2, 2, c)
+    }
+    disc(g, x, y, 2.5, C.gold2)
+    px(g, x - 1, y - 1, C.gold3)
 }
 
 /** A war banner: a spear-tipped pole flying a red swallowtail flag with gold crossed blades on it. */
@@ -152,6 +164,7 @@ const ICONS: Readonly<Record<HqMenuScene, Glyph>> = {
     // the Arena pays in its Medals
     arena: CURRENCY_ICONS.arena_medals!,
     classes: NODE_TREE,
+    tree: PASSIVE_STAR,
     // the Shop (the user's call, 2026-10-10: open from the World 1 boss, so no longer prestige's)
     shop: SHOP_STALL,
     calendar: CALENDAR,

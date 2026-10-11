@@ -147,6 +147,8 @@ export const useHeroQuest = () => {
     const tutorials = computed(() => state.value?.tutorials ?? null)
     /** The Traits: the live board, the Roll's price, every Set's tier, and the save slots. */
     const traits = computed(() => state.value?.traits ?? null)
+    /** The Passive Skill Tree: the points, the respec, and every node's level and next cost. */
+    const passiveTree = computed(() => state.value?.passiveTree ?? null)
     /** The Arena: Medals, this season's Rating, today's attacks, the defence and any season reward waiting. */
     const arena = computed(() => state.value?.arena ?? null)
     /**
@@ -427,6 +429,18 @@ export const useHeroQuest = () => {
         return call('/api/hero-quest/trait/load', { saveSlotIndex }, '')
     }
 
+    /** Buy one level of a Passive Skill Tree node, from the Hero's level points. */
+    async function buyPassiveNode(nodeId: string) {
+        return call<{ nodeId: string, level: number, pointsLeft: number }>('/api/hero-quest/tree/buy', { nodeId }, '')
+    }
+
+    /** Refund the tree. A paid respec moves Gems, which the response doesn't carry, so the session is read back. */
+    async function respecPassiveTree() {
+        const res = await call<{ free: boolean, pointsLeft: number }>('/api/hero-quest/tree/respec', {}, '')
+        if (res && !res.free) await fetchSession()
+        return res
+    }
+
     /** Buy the next Trait save slot, a Gems track, so `buyUpgrade` reads the session back. */
     async function buyTraitSaveSlot() {
         return buyUpgrade('traitSaveSlots')
@@ -634,6 +648,7 @@ export const useHeroQuest = () => {
         milestones,
         tutorials,
         traits,
+        passiveTree,
         arena,
         arenaCandidates,
         arenaLog,
@@ -665,6 +680,8 @@ export const useHeroQuest = () => {
         saveTraits,
         loadTraits,
         buyTraitSaveSlot,
+        buyPassiveNode,
+        respecPassiveTree,
         engageRaid,
         quickClearRaid,
         loadArenaCandidates,

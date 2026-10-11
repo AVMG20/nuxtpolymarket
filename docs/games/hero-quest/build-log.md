@@ -932,6 +932,20 @@ The user's calls. A list slot no real player in band can fill now takes an **Are
 - **A real match on the attacker's side:** Elo against the bot's Rating, Medals by upset odds, a season match counted. The bot's Rating never moves and it logs no defence. `hq_arena_log.opponent_bot_id` (migration 0066) names it in the log; a bot dropped from the roster reads as "Unknown" there, and as a gone defender on a list.
 - Specs: `arena-bots.spec.ts` (IDs, the cap, real content within the starting slots, no Champion's name), the draw order in `arena.spec.ts`, and a bot attack in `arena-concurrency.spec.ts`.
 
+### 63. The Passive Skill Tree — **landed 2026-10-11**
+
+Designed and built in one session (`passive-skill-tree.md`). The user's calls:
+
+- **Points from levels, not a raid.** The backlog wanted a dedicated raid paying a tree currency; it pays `(heroLevel - 1) × PASSIVE_POINTS_PER_LEVEL` instead, **derived rather than stored**, so existing accounts have their points and nothing credits a level-up.
+- **Every path open to every class**, with the class-path nodes working only on their own path.
+- **Respec free once per prestige** (a held flag, like the class token), Gems otherwise.
+- **An endless node at each path's tip**, so points always have a use.
+- **A big, pannable, zoomable tree.** Drag pans it, the wheel or a pinch zooms it; it is the first stage scene with a camera.
+
+My calls, flagged for review: the 37-node roster and its names (the root's three ring nodes were the user's ask); the Ascendant counting as all three paths; opening at 3 Worlds cleared; side nodes scoped by archetype (Warrior: Tank and Damage, Mage: Control and Support, Archer: every Champion). `championModifierTotals` takes an archetype now, and `explain.ts` itemises the tree. Six new `UNTUNED ╧` constants; none of the tree is in the campaign walk.
+
+Schema: `hq_state.passive_tree`, `hq_state.passive_respec_free` (migration 0067). Specs: `passive-tree.spec.ts`, bursts on buy and both respecs included.
+
 ### 9. Holiday gameplay events — **decided 2026-10-10: not built**
 
 Was an open item: `holiday-events.md` locked the gift mechanic and left limited-time modes and content deferred. **Holidays are gifts only** (the user's call): no event modes, no limited-time content. The gifts (#53) are the whole feature.

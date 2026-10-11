@@ -3,7 +3,7 @@ import { HQ_SETTING_DEFAULTS, hqSettingsOf, isHqSettingKey } from '#shared/utils
 
 describe('hero-quest settings', () => {
     it('confirms every Gold, Void Shard and Gem spend, and shows tutorials, until the player says otherwise', () => {
-        expect(hqSettingsOf({})).toEqual({ tutorials: true, confirmGoldSeals: true, confirmVoidShards: true, confirmGemSpeed: true })
+        expect(hqSettingsOf({})).toEqual({ tutorials: true, confirmGoldSeals: true, confirmVoidShards: true, confirmGemSpeed: true, confirmTreeRespec: true })
         expect(hqSettingsOf(null)).toEqual(HQ_SETTING_DEFAULTS)
     })
 
