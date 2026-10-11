@@ -37,6 +37,7 @@ import {
 import { deriveUnitStats, economyBonuses, heroStatBlock, partyUnitStats } from '#shared/utils/hero-quest/stats'
 import { noModifiers } from '#shared/utils/hero-quest/modifiers'
 import { runFight } from '#shared/utils/hero-quest/fight'
+import { runDuel } from '#shared/utils/hero-quest/duel'
 import { secondsToDie, enemyPackAt } from '#shared/utils/hero-quest/settle'
 import { globalPower, memberEhp } from '#shared/utils/hero-quest/power'
 import { partyDps } from '#shared/utils/hero-quest/combat'
@@ -279,6 +280,14 @@ describe('who a Trait reaches', () => {
         expect(unit.basicAttackFactor).toBe(3)
         expect(partyDps([unit], 0).div(partyDps([bare], 0)).toNumber()).toBeCloseTo(3, 6)
         expect(unit.skillDamageFactor).toBe(1)
+    })
+
+    it('carries Back to Basics into an Arena fight\'s basic attacks', () => {
+        const defender = makeHero('class_beginner', 40)
+        const firstHit = (attacker: HeroSnapshot) => D(runDuel({ attacker, defender, seed: 4 }).events.find(e => e.kind === 'attack')!.damage!)
+        const ratio = firstHit(makeHero('class_beginner', 40, { traits: setOf('set_back_to_basics', 5) })).div(firstHit(makeHero('class_beginner', 40))).toNumber()
+        // the pace answers part of the edge (it reads both sides' rates), so tripled swings land about sqrt(3) as hard
+        expect(ratio).toBeGreaterThan(1.5)
     })
 })
 

@@ -390,8 +390,9 @@ export function runDuel(input: DuelInput): DuelResult {
                 unit.attackTimer += attackIntervalFor(liveUnitStats(unit.stats, unit.statuses).spd)
                 // a stun eats the swing; the timer still ran
                 if (canAutoattack(unit.statuses)) {
+                    // a basic attack carries the unit's own basic-attack factor (Traits' Back to Basics), as in `runFight`
                     for (let hit = 0; hit < unit.stats.strikesPerAttack && alive(unit); hit++) {
-                        if (!cast(1, SINGLE_TARGET)) break
+                        if (!cast(unit.stats.basicAttackFactor, SINGLE_TARGET)) break
                     }
                 }
             }
