@@ -28,7 +28,7 @@ import { and, desc, eq, gt, inArray, isNotNull, ne, notInArray, sql } from 'driz
 import { db, type DbExecutor } from '#server/database'
 import { hqArenaLog, hqArenaSeasonResults, hqArenaSeasons, hqFights, hqRaidState, hqState, user } from '#server/database/schema'
 import { creditGems, debitGems } from '#server/utils/balance'
-import { defenseGpnOf, getCollections, getShopLevels, getTraitBoard, heroSnapshotOf, positionOf, restoreLoadoutSession, sealGrant, withDefenseLoadout, type HqCollections, type HqStateRow } from '#server/utils/hero-quest'
+import { defenseGpnOf, getCollections, getShopLevels, getTraitBoard, heroSnapshotOf, loadoutSnapshotOf, positionOf, restoreLoadoutSession, sealGrant, withDefenseLoadout, type HqCollectionRow, type HqCollections, type HqStateRow } from '#server/utils/hero-quest'
 import { engageLoadout, validateLiveLoadout, type LoadoutInput } from '#server/utils/hero-quest-loadout'
 import { lockRaid } from '#server/utils/hero-quest-raids'
 import {
@@ -41,6 +41,7 @@ import {
     drawCandidates,
     eloUpdate,
     extraAttemptPrice,
+    inMatchBand,
     matchBand,
     medalsFor,
     rankStandings,
@@ -56,6 +57,12 @@ import {
 } from '#shared/utils/hero-quest/arena'
 import { runArenaDummy, runDuel, type DuelResult } from '#shared/utils/hero-quest/duel'
 import { partyUnitStats } from '#shared/utils/hero-quest/stats'
+import { globalPower } from '#shared/utils/hero-quest/power'
+import { arenaBots, getArenaBot, type ArenaBot } from '#shared/utils/hero-quest/content/arena-bots'
+import { ROOT_CLASS_ID } from '#shared/utils/hero-quest/content/classes'
+import { getGear } from '#shared/utils/hero-quest/content/gear'
+import type { GachaSystem } from '#shared/utils/hero-quest/gacha'
+import type { HeroSnapshot, OwnedCopy } from '#shared/utils/hero-quest/types'
 import { ladderDateKey } from '#shared/utils/hero-quest/gacha'
 import { getRaid } from '#shared/utils/hero-quest/content/raids'
 import {
@@ -68,7 +75,6 @@ import {
     ARENA_SHOP_MAX_QUANTITY
 } from '#shared/utils/hero-quest/constants'
 import { randomInt } from '#shared/utils/random'
-import type { HeroSnapshot } from '#shared/utils/hero-quest/types'
 import type { TraitBoard } from '#shared/utils/hero-quest/traits'
 
 // ── Standing, attempts, defence ────────────────────────────────────────────────────
@@ -113,6 +119,51 @@ async function lockOwn(tx: DbExecutor, userId: string): Promise<HqStateRow> {
     const row = (await lockStates(tx, [userId])).get(userId)
     if (!row) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
     return row
+}
+
+// ── Arena bots ─────────────────────────────────────────────────────────────────────
+
+const botDefenses = new Map<string, { hero: HeroSnapshot, gpn: string }>()
+
+/**
+ * A bot's defence as it is fought, and its GPN for the card. Built through the same snapshot path as
+ * a player's, off a collection that is just what it wears, and kept: a bot never changes.
+ */
+function botDefense(bot: ArenaBot): { hero: HeroSnapshot, gpn: string } {
+    const kept = botDefenses.get(bot.id)
+    if (kept) return kept
+    const row = (system: GachaSystem, copy: OwnedCopy): HqCollectionRow => ({
+        id: bot.id, userId: bot.id, system, contentId: copy.contentId, star: copy.star, level: copy.level, dupeProgress: 0, acquiredAt: new Date(0)
+    })
+    const collections: HqCollections = {
+        champion: bot.champions.map(copy => row('champion', copy)),
+        skill: bot.skills.map(copy => row('skill', copy)),
+        artifact: bot.artifacts.map(copy => row('artifact', copy)),
+        gear: bot.gear.map(copy => row('gear', copy))
+    }
+    const hero = loadoutSnapshotOf({
+        heroNodeId: ROOT_CLASS_ID,
+        ascendantSkillIds: [],
+        heroLevel: bot.heroLevel,
+        heroXp: '0',
+        formation: Object.fromEntries(bot.champions.map(copy => [copy.contentId, copy.row])),
+        partyChampionIds: bot.champions.map(copy => copy.contentId),
+        equippedSkillIds: bot.skills.map(copy => copy.contentId),
+        equippedArtifactIds: bot.artifacts.map(copy => copy.contentId),
+        equippedGear: Object.fromEntries(bot.gear.map(copy => [getGear(copy.contentId).slot, copy.contentId]))
+    }, {}, collections)
+    const built = { hero, gpn: globalPower(hero).gpn.toString() }
+    botDefenses.set(bot.id, built)
+    return built
+}
+
+/** The defence as the stage shows it: the Hero's class and row, then each Champion and its row. */
+function enemyOf(defender: HeroSnapshot) {
+    return {
+        classId: defender.classId as string,
+        heroRow: partyUnitStats(defender)[0]?.row ?? 'front',
+        champions: (defender.champions ?? []).map(c => ({ id: c.championId, row: c.row }))
+    }
 }
 
 // ── Seasons ────────────────────────────────────────────────────────────────────────
@@ -209,10 +260,11 @@ async function candidatePool(executor: DbExecutor, userId: string, rating: numbe
     return rows.map(row => row.userId)
 }
 
-/** A fresh list for the attacker at `rating`: in-band players at random, dummies for the rest (§2a). */
+/** A fresh list for the attacker at `rating`: in-band players at random, then in-band bots, dummies for the rest (§2a). */
 async function drawFor(executor: DbExecutor, userId: string, rating: number, season: number): Promise<(string | null)[]> {
     const pool = await candidatePool(executor, userId, rating, season)
-    return drawCandidates(pool, n => randomInt(0, n - 1))
+    const bots = arenaBots().filter(bot => inMatchBand(rating, bot.rating)).map(bot => bot.id)
+    return drawCandidates(pool, n => randomInt(0, n - 1), bots)
 }
 
 export interface ArenaCandidate {
@@ -231,7 +283,7 @@ export interface ArenaCandidate {
 
 /** The stored list as the scene shows it: names, Ratings in the current season and the defence each fields. */
 export async function serializeCandidates(executor: DbExecutor, candidates: readonly (string | null)[], season: number): Promise<ArenaCandidate[]> {
-    const ids = candidates.filter((id): id is string => id !== null)
+    const ids = candidates.filter((id): id is string => id !== null && !getArenaBot(id))
     const rows = ids.length
         ? await executor.select({
             userId: hqState.userId,
@@ -245,6 +297,11 @@ export async function serializeCandidates(executor: DbExecutor, candidates: read
         }).from(hqState).innerJoin(user, eq(user.id, hqState.userId)).where(inArray(hqState.userId, ids))
         : []
     return candidates.map((id, slot) => {
+        const bot = id === null ? undefined : getArenaBot(id)
+        if (bot) {
+            const { hero, gpn } = botDefense(bot)
+            return { slot, id: bot.id, dummy: false, name: bot.name, rating: bot.rating, defenseGpn: gpn, ...enemyOf(hero) }
+        }
         const row = id === null ? undefined : rows.find(r => r.userId === id)
         if (id === null || !row?.defenseLoadout) {
             return { slot, id: id ?? ARENA_DUMMY_ID, dummy: id === null, name: id === null ? 'Training Dummy' : 'Gone', rating: null, defenseGpn: null, classId: null, heroRow: null, champions: [] }
@@ -371,8 +428,11 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
     if (listed === undefined) throw createError({ statusCode: 400, statusMessage: 'Pick an opponent from the list' })
     if ((listed ?? ARENA_DUMMY_ID) !== opponent) throw createError({ statusCode: 409, statusMessage: 'The opponent list changed; pick again' })
     const dummy = listed === null
+    // a bot has no row to lock: its Rating never moves
+    const bot = dummy ? undefined : getArenaBot(listed)
+    const player = !dummy && !bot
 
-    const locked = await lockStates(tx, dummy ? [userId] : [userId, listed])
+    const locked = await lockStates(tx, player ? [userId, listed] : [userId])
     const attacker = locked.get(userId)
     if (!attacker) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
     // read again under the lock: a concurrent attack may have redrawn the list
@@ -380,8 +440,8 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
     if (slotNow === undefined || (slotNow ?? ARENA_DUMMY_ID) !== opponent) {
         throw createError({ statusCode: 409, statusMessage: 'The opponent list changed; pick again' })
     }
-    const defender = dummy ? null : locked.get(listed) ?? null
-    if (!dummy && !defender?.defenseLoadout) throw createError({ statusCode: 400, statusMessage: 'That opponent has no defence any more' })
+    const defender = player ? locked.get(listed) ?? null : null
+    if (player && !defender?.defenseLoadout) throw createError({ statusCode: 400, statusMessage: 'That opponent has no defence any more' })
 
     // a closed season takes no more matches: its standings are written (`closeSeason` locks these
     // rows, so a match ahead of it is in them), and a row already rolled past it can't take one either
@@ -403,24 +463,25 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
 
     const seed = randomInt(1, 0x7FFFFFFF)
     let fight: DuelResult
-    let enemy: { classId: string, heroRow: 'front' | 'back', champions: { id: string, row: 'front' | 'back' }[] } | null = null
+    let enemy: ReturnType<typeof enemyOf> | null = null
     if (dummy) {
         fight = runArenaDummy(hero, positionOf(attacker), seed)
     } else {
-        const [shop, collections, traits] = await Promise.all([getShopLevels(listed, tx), getCollections(listed, tx), getTraitBoard(listed, tx)])
-        const defenderHero = defenseSnapshotOf(defender!, shop, collections, traits)!
-        fight = runDuel({ attacker: hero, defender: defenderHero, seed })
-        enemy = {
-            classId: defenderHero.classId,
-            heroRow: partyUnitStats(defenderHero)[0]?.row ?? 'front',
-            champions: (defenderHero.champions ?? []).map(c => ({ id: c.championId, row: c.row }))
+        let defenderHero: HeroSnapshot
+        if (bot) {
+            defenderHero = botDefense(bot).hero
+        } else {
+            const [shop, collections, traits] = await Promise.all([getShopLevels(listed, tx), getCollections(listed, tx), getTraitBoard(listed, tx)])
+            defenderHero = defenseSnapshotOf(defender!, shop, collections, traits)!
         }
+        fight = runDuel({ attacker: hero, defender: defenderHero, seed })
+        enemy = enemyOf(defenderHero)
     }
     // the dummy always falls (§2a); a timeout goes against the side with less of its max HP left
     const won = dummy || fight.attackerWon
 
     const attackerStanding = rollStanding(standingOf(attacker), season)
-    const elo = dummy ? null : eloUpdate(attackerStanding.rating, rollStanding(standingOf(defender!), season).rating, won)
+    const elo = dummy ? null : eloUpdate(attackerStanding.rating, bot ? bot.rating : rollStanding(standingOf(defender!), season).rating, won)
     const medals = medalsFor(won, elo?.expectedAttacker ?? null)
     // a fresh list after every attack, drawn on the Rating it ends at, so the same three can't be farmed
     const candidates = await drawFor(tx, userId, (elo?.attacker.after ?? attackerStanding.rating), season)
@@ -452,7 +513,8 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
         seed,
         outcome: fight.outcome,
         context: {
-            opponentUserId: dummy ? null : listed,
+            opponentUserId: player ? listed : null,
+            opponentBotId: bot?.id ?? null,
             dummy,
             won,
             medals,
@@ -464,15 +526,15 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
         }
     })
     await writeLog(tx, [
-        { userId, opponentUserId: dummy ? null : listed, role: 'attacker', won, ratingChange: elo?.attacker.change ?? 0, medalsEarned: medals, isDummy: dummy },
+        { userId, opponentUserId: player ? listed : null, opponentBotId: bot?.id ?? null, role: 'attacker', won, ratingChange: elo?.attacker.change ?? 0, medalsEarned: medals, isDummy: dummy },
         ...(elo && defender ? [{ userId: defender.userId, opponentUserId: userId, role: 'defender', won: !won, ratingChange: elo.defender.change, medalsEarned: 0, isDummy: false }] : [])
     ])
 
-    const [named] = dummy ? [] : await tx.select({ name: user.name }).from(user).where(eq(user.id, listed))
+    const [named] = player ? await tx.select({ name: user.name }).from(user).where(eq(user.id, listed)) : []
     return {
         seed,
         dummy,
-        opponentName: dummy ? 'Training Dummy' : named?.name ?? 'Unknown',
+        opponentName: dummy ? 'Training Dummy' : bot ? bot.name : named?.name ?? 'Unknown',
         outcome: fight.outcome,
         won,
         medals,
@@ -565,6 +627,7 @@ export async function arenaLog(userId: string, executor: DbExecutor = db) {
         ratingChange: hqArenaLog.ratingChange,
         medalsEarned: hqArenaLog.medalsEarned,
         isDummy: hqArenaLog.isDummy,
+        opponentBotId: hqArenaLog.opponentBotId,
         createdAt: hqArenaLog.createdAt,
         opponentName: user.name
     })
@@ -580,7 +643,9 @@ export async function arenaLog(userId: string, executor: DbExecutor = db) {
         ratingChange: row.ratingChange,
         medalsEarned: row.medalsEarned,
         isDummy: row.isDummy,
-        opponentName: row.isDummy ? 'Training Dummy' : row.opponentName ?? 'Unknown',
+        opponentName: row.isDummy
+            ? 'Training Dummy'
+            : (row.opponentBotId ? getArenaBot(row.opponentBotId)?.name : row.opponentName) ?? 'Unknown',
         at: row.createdAt.getTime()
     }))
 }

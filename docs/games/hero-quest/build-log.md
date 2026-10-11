@@ -921,6 +921,16 @@ The user's calls, all stage UI.
 - **Party stats** (`party-stats.ts`): pressing the profile badge's portrait opens a popup over the battle, one column per fielded unit (Hero first) and one row per stat: PWR, DEF, VIT, SPD, LCK, IMP, then max HP, attacks a second, crit chance, crit damage and evasion. It reads `stats.get.ts` on open, the route the debug breakdown already used, so the state payload carries nothing new. Its close button, or a press beside it, shuts it; leaving the battle does too.
 - **GPN change:** the `+12%` chip under the badge is replaced by a bobbing arrow on the GPN bar just past the number, held for `BADGE_ARROW_FOR` (2.5 s, up from the chip's 1.8), green and up for a rise, red and down for a fall, on every change however small (the chip hid changes under 0.1%, which a Charm's LCK usually is). While the count runs or the arrow is up, the GPN bar is drawn over the whole frame on every scene, so a change made in Collections shows what it did.
 - **Gear upgrade arrows:** an owned, unequipped piece of Gear whose equipped bonus beats what its slot wears now bobs a green arrow in its tile's corner. Same comparison as the detail view's caret.
+- **HP bars over the numbers:** overhead HP bars are drawn after the damage numbers, not before. A number rises from the chest through the bar, and in the Arena, where every body is hit nonstop, the bars were almost never visible.
+
+### 62. Arena bots — **landed 2026-10-11**
+
+The user's calls. A list slot no real player in band can fill now takes an **Arena bot** before a Training Dummy (`drawCandidates`: players, then bots, then dummies; the band still never widens).
+
+- **Content, not accounts** (`content/arena-bots.ts`): ten bots with `bot_` IDs and fixed Ratings from 550 to `ARENA_BOT_RATING_MAX` (1000). No `user` or `hq_state` row, so a bot never reaches a leaderboard, a season's standings or any player query. The user asked for a separate table; content was chosen instead, as nothing about a bot changes at runtime.
+- **Loadouts** are drawn from a seed per bot and scaled by Rating through `ARENA_BOT_LOADOUT` (`UNTUNED ╧`): Beginner class (classes open at the first prestige, after the Arena), levels 200 → 258, one or two Champions, the base Skill and Artifact slots, six Gear pieces, rarities and stars growing toward the top. The 1000 bot stands where the campaign walk puts a party of three at World 6; GPN runs 0.9M at 550 to 16–18M at the top. The snapshot goes through the player path (`loadoutSnapshotOf`, split out of `heroSnapshotOf`), so a bot gains whatever the stat code does.
+- **A real match on the attacker's side:** Elo against the bot's Rating, Medals by upset odds, a season match counted. The bot's Rating never moves and it logs no defence. `hq_arena_log.opponent_bot_id` (migration 0066) names it in the log; a bot dropped from the roster reads as "Unknown" there, and as a gone defender on a list.
+- Specs: `arena-bots.spec.ts` (IDs, the cap, real content within the starting slots, no Champion's name), the draw order in `arena.spec.ts`, and a bot attack in `arena-concurrency.spec.ts`.
 
 ### 9. Holiday gameplay events — **decided 2026-10-10: not built**
 

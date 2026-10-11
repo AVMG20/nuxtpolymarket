@@ -224,18 +224,21 @@ export function inMatchBand(attackerRating: number, defenderRating: number, widt
 
 /**
  * The opponent list (§2, §2a): up to `ARENA_CANDIDATE_COUNT` distinct players drawn at random from
- * the in-band pool, and a Training Dummy (`null`) for every slot the pool can't fill. The band is
- * never widened to fill one.
+ * the in-band pool, then in-band Arena bots for the slots players can't fill (the user's call,
+ * 2026-10-11), and a Training Dummy (`null`) for any slot still empty. The band is never widened to
+ * fill one.
  *
  * `pick(n)` returns a uniform index in `[0, n)`; the server passes `#shared/utils/random`, so the
  * draw is a CSPRNG one while this stays pure and testable.
  */
-export function drawCandidates(pool: readonly string[], pick: (n: number) => number, count = ARENA_CANDIDATE_COUNT): (string | null)[] {
-    const left = [...new Set(pool)]
+export function drawCandidates(pool: readonly string[], pick: (n: number) => number, bots: readonly string[] = [], count = ARENA_CANDIDATE_COUNT): (string | null)[] {
     const drawn: (string | null)[] = []
-    while (drawn.length < count && left.length > 0) {
-        const at = Math.min(left.length - 1, Math.max(0, Math.floor(pick(left.length))))
-        drawn.push(left.splice(at, 1)[0]!)
+    for (const from of [pool, bots]) {
+        const left = [...new Set(from)]
+        while (drawn.length < count && left.length > 0) {
+            const at = Math.min(left.length - 1, Math.max(0, Math.floor(pick(left.length))))
+            drawn.push(left.splice(at, 1)[0]!)
+        }
     }
     while (drawn.length < count) drawn.push(null)
     return drawn

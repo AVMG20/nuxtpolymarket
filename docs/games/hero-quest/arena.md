@@ -68,6 +68,8 @@ This corrects the earlier schema note in `tech-architecture.md` §3, which liste
 - **Attempts:** still consumes one, same as any other attack (Section 3) — no special exemption.
 - **Battle log:** still logged (Section 8), with the opponent shown as "Training Dummy" and a rating change of 0.
 
+> **Overridden 2026-10-11 (the user's call, `open-items.md` precedence #62):** Arena bots now fill the shortfall ahead of the dummy. A slot real players can't fill takes an in-band bot (`content/arena-bots.ts`, Rating 1000 or below, fought as a real match that moves the attacker's Rating and pays Medals by upset odds); the dummy takes only what the bots can't fill either.
+
 **A candidate list can mix real and dummy entries** — dummies fill only the shortfall (e.g. 2 real candidates found + 1 dummy), not the whole list unless zero real candidates are found. Refreshing (10 Gems) re-rolls the same way; if the real pool is still empty, dummies simply reappear.
 
 ---
