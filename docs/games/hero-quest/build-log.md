@@ -904,6 +904,15 @@ The user's calls.
 - **The claim-all button is gone.** Twelve tracks fill the scene's two-by-six grid, each claimed by pressing its card; `milestones/claim.post.ts` now requires a `track`.
 - **Specs:** the Arena track's Medals paid once to a burst of claims (`concurrency.spec.ts`), the track count (`milestones.spec.ts`).
 
+### 60. Arena crits capped, and fights paced to the clock — **landed 2026-10-10**
+
+The user's calls, answering #58.1 (fights shortened with depth until the first crit decided them). Arena only: everything lives in `duel.ts`, so `runFight`, the raids and the Training Dummy are untouched.
+
+- **Crit cap:** an Arena hit's crit multiplier is capped at `ARENA_CRIT_MULTIPLIER_CAP` (×2). Deep in the curve IMP drove it past ×17.
+- **Pace:** each fight estimates both sides' expected time to finish the other (basic attacks and damaging abilities on their cooldowns, through the far side's mean DEF and EVA, crits averaged) and scales every flow of HP a unit's power drives (hits, heals, shields, `scalesWithPwr` statuses) by `min(1, sqrt(ttk0 × ttk1) / ARENA_EVEN_FIGHT_SECONDS)`. `ARENA_EVEN_FIGHT_SECONDS` (45, `UNTUNED ╧`) is longer than the 30 s clock, so an even fight times out and the HP shares decide it; the pace never speeds a fight up.
+- **Measured:** mirror parties run to the clock at levels 10, 50, 230 and 300 (about 28 s at 100); 230 against 200 ends in about 24 s, 230 against 150 in about 7 s. Mirror fairness still sits near 50/50.
+- **Specs:** `arena.spec.ts`, the crit cap and an even fight timing out.
+
 ### 9. Holiday gameplay events — **decided 2026-10-10: not built**
 
 Was an open item: `holiday-events.md` locked the gift mechanic and left limited-time modes and content deferred. **Holidays are gifts only** (the user's call): no event modes, no limited-time content. The gifts (#53) are the whole feature.
