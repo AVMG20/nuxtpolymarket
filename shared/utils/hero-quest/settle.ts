@@ -63,7 +63,7 @@ import type { AbilityModifiers } from './projection'
 import { dilatedSeconds } from './battle-speed'
 import { D, ZERO, decPow } from './numbers'
 import type { Decimal } from './numbers'
-import type { EnemyPack, EnemyStats, FormationRow, HeroSnapshot, RunPosition, SettleInput, SettleResult, StageArchetype, UnitStats } from './types'
+import type { EnemyPack, EnemyStats, FormationRow, HeroSnapshot, OfflineWindow, RunPosition, SettleInput, SettleResult, StageArchetype, UnitStats } from './types'
 
 /**
  * How far into the game a position is, as one number.
@@ -729,12 +729,22 @@ export function cappedOfflineSeconds(realElapsed: number, capLevel: number): num
  * boost dilates the covered portion, then efficiency taxes the result.
  */
 export function effectiveOfflineSeconds(input: SettleInput): number {
-    const capped = cappedOfflineSeconds(input.elapsedSeconds, input.hero.offlineCapLevel)
-    const boosted = applyBoost(capped, input)
-    return boosted * offlineEfficiency(
-        input.hero.offlineEfficiencyLevel,
-        economyBonuses(input.hero).offlineEfficiencyPct
-    )
+    const w = offlineWindowOf(input)
+    return applyBoost(w.cappedSeconds, input) * w.efficiency
+}
+
+/** How an offline window was counted, step by step, for the report that says so. */
+export function offlineWindowOf(input: SettleInput): OfflineWindow {
+    const cappedSeconds = cappedOfflineSeconds(input.elapsedSeconds, input.hero.offlineCapLevel)
+    return {
+        cappedSeconds,
+        capSeconds: offlineCapHours(input.hero.offlineCapLevel) * 3600,
+        boostedSeconds: input.speedBoost ? Math.min(Math.max(0, input.speedBoost.overlapSeconds), cappedSeconds) : 0,
+        boostMultiplier: input.speedBoost?.multiplier ?? 1,
+        efficiency: offlineEfficiency(input.hero.offlineEfficiencyLevel, economyBonuses(input.hero).offlineEfficiencyPct),
+        capLevel: input.hero.offlineCapLevel,
+        efficiencyLevel: input.hero.offlineEfficiencyLevel
+    }
 }
 
 function applyBoost(seconds: number, input: SettleInput): number {
@@ -800,6 +810,7 @@ export function settle(input: SettleInput): SettleResult {
     const effectiveSeconds = input.online
         ? applyBoost(Math.max(0, input.elapsedSeconds), input)
         : effectiveOfflineSeconds(input)
+    const offline = input.online ? null : offlineWindowOf(input)
 
     /**
      * Kills carried in from the previous window.
@@ -830,6 +841,7 @@ export function settle(input: SettleInput): SettleResult {
         wipedOnWave: false,
         recoverySeconds: owedIn - served,
         effectiveSeconds,
+        offline,
         // Held, not dropped: a window that earns nothing must not also *cost* the player the
         // progress they had already banked toward the next kill.
         killFraction: carriedIn
@@ -945,6 +957,7 @@ export function settle(input: SettleInput): SettleResult {
         wipedOnWave,
         recoverySeconds,
         effectiveSeconds,
+        offline,
         killFraction
     }
 }

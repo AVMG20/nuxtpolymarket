@@ -189,9 +189,15 @@ export default defineEventHandler(async (event) => {
                 goldEarned: result.goldEarned,
                 xpEarned: result.xpEarned.toString(),
                 levelsGained: result.heroLevel - previousLevel,
+                heroLevel: result.heroLevel,
                 effectiveSeconds: result.effectiveSeconds,
                 blockedAtBoss: result.blockedAtBoss,
-                wipedOnWave: result.wipedOnWave
+                wipedOnWave: result.wipedOnWave,
+                // the real time away, how the offline rules counted it, and where the run went
+                awaySeconds: settleOutcome.elapsedSeconds,
+                offline: result.offline,
+                from: settleOutcome.previousPosition ?? result.position,
+                to: result.position
             }
             : null
     }

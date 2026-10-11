@@ -531,8 +531,9 @@ export interface SettleOutcome {
     result: SettleResult | null
     /** True when the window was short enough to count as the player being present. */
     online: boolean
-    /** Hero level before the window, so callers can report levels gained. */
+    /** Hero level and run position before the window, so callers can report what it moved. */
     previousLevel: number
+    previousPosition?: RunPosition
     elapsedSeconds: number
     /**
      * The shop levels and collection rows this settle read **inside its lock**, handed back so a
@@ -662,6 +663,7 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
             result,
             online,
             previousLevel: state.heroLevel,
+            previousPosition: positionOf(state),
             elapsedSeconds,
             // Read inside the lock above; handed back so `state.get.ts` does not re-query them.
             shopLevels,

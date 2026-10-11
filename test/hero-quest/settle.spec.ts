@@ -45,7 +45,6 @@ import {
     MAX_OFFLINE_EFFICIENCY,
     MAX_OFFLINE_EFFICIENCY_LEVEL,
     MIN_SECONDS_PER_KILL,
-    MAX_BATTLE_SPEED,
     OFFLINE_CAP_MAX_HOURS,
     PRESTIGE_INDEX_STEPS,
     STAGES_PER_WORLD,
@@ -298,6 +297,28 @@ describe('hero-quest settle', () => {
 
             const plain = settle(input({ elapsedSeconds: 100 * 3600 }))
             expect(plain.effectiveSeconds).toBeCloseTo(4 * 3600, 6)
+        })
+
+        it('reports each step it took, for the welcome-back card', () => {
+            const r = settle(input({
+                elapsedSeconds: 100 * 3600,
+                speedBoost: { multiplier: 2, overlapSeconds: 3600 }
+            }))
+            // the boost is reported only over the time the cap let count
+            expect(r.offline).toEqual({
+                cappedSeconds: 8 * 3600,
+                capSeconds: 8 * 3600,
+                boostedSeconds: 3600,
+                boostMultiplier: 2,
+                efficiency: 0.5,
+                capLevel: 0,
+                efficiencyLevel: 0
+            })
+            expect(settle(input({ elapsedSeconds: 100 * 3600, speedBoost: { multiplier: 3, overlapSeconds: 1e9 } })).offline?.boostedSeconds).toBe(8 * 3600)
+        })
+
+        it('reports nothing taken off a window the player was there for', () => {
+            expect(settle(input({ elapsedSeconds: 60, online: true })).offline).toBeNull()
         })
     })
 

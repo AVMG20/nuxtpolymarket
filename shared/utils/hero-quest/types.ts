@@ -421,6 +421,21 @@ export interface SettleInput {
     speedBoost?: { multiplier: number; overlapSeconds: number }
 }
 
+/**
+ * An offline window's steps (`idle-mechanics.md` §4): real time clamped to the cap, the part a
+ * Battle Speed block covered dilated, then efficiency applied. The levels say what the Shop can still raise.
+ */
+export interface OfflineWindow {
+    cappedSeconds: number
+    capSeconds: number
+    /** Seconds of the capped window a Battle Speed block ran over, at `boostMultiplier`. */
+    boostedSeconds: number
+    boostMultiplier: number
+    efficiency: number
+    capLevel: number
+    efficiencyLevel: number
+}
+
 export interface SettleResult {
     position: RunPosition
     kills: number
@@ -446,6 +461,8 @@ export interface SettleResult {
     /** Wipe recovery still to serve; persist it and hand it back as the next window's. */
     recoverySeconds: number
     effectiveSeconds: number
+    /** How an offline window's real time became `effectiveSeconds`; null online, where nothing is taken off. */
+    offline: OfflineWindow | null
     /**
      * What is left over toward the next kill, in `[0, 1)` — persist it and hand it back as the
      * next window's `killFraction` or the window is lossy. See that field for why.
