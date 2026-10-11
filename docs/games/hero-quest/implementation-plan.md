@@ -131,7 +131,7 @@ Everything that assumes a mature account. Each is genuinely independent — buil
 | **Holiday Events** (`holiday-events.md`) | Calendar gift claims | **Gifts built 2026-10-09** (`build-log.md` #53). Smallest; a day's work |
 | **Battle Speed** (`idle-mechanics.md` §3) | Gem-purchased time dilation | **Built 2026-10-04** (`build-log.md` #44). Could pull earlier if playtesting is slow — it makes testing faster too |
 
-**Passive Skill Tree** (backlog item 3) is unbuilt design, not deferred implementation — it needs its own design session before it can be scheduled at all.
+**Passive Skill Tree** (backlog item 3) — **designed and built 2026-10-11** (`passive-skill-tree.md`, `build-log.md` #63), paid in level-up points rather than through a raid.
 
 ---
 

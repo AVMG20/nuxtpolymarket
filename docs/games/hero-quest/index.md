@@ -32,6 +32,7 @@ Ordered roughly by dependency — earlier docs are prerequisites for later ones.
 | 16 | `holiday-events.md` | Holiday calendar, claim windows, gift bundle structure | 9, 10 |
 | 17 | `tech-architecture.md` | Integration path, shared logic layout, schema, server authority, API surface, tests, client | all |
 | 18 | `idea-backlog.md` | Running idea list with implementation checkboxes | — |
+| 19 | `passive-skill-tree.md` | Level-up points, 37 nodes over 3 paths, class-path and Champion side nodes, endless tips, respec | 2, 4 |
 
 ---
 
@@ -166,6 +167,7 @@ Not design docs — they describe the *state* of the project rather than the gam
 | Trait Sets (5) | `traits.md` | §5 |
 | Trait save slots (Gems 250/750/1250) | `traits.md` | §6 |
 | Traits as built: scopes, Set readings, evasion in the fight, schema, routes, scene | `build-log.md` #52, `traits.md` | *As built* |
+| Passive Skill Tree: points, node shape, who a node reaches, respec, as built | `passive-skill-tree.md` | §2–§5, *As built* |
 | Loadout contents (5 components) | `loadouts.md` | §1 |
 | Loadout slots 2→10, Gems | `loadouts.md` | §3 |
 | Per-raid loadout auto-apply | `loadouts.md` | §4 |
@@ -279,7 +281,7 @@ Not design docs — they describe the *state* of the project rather than the gam
 | Item | Status |
 |---|---|
 | **World & enemy design** (10 worlds, names, art, enemy rosters, boss identities, enemy kits) | The single biggest remaining greenfield pass. No longer blocks Gold (`gold-economy.md` §3a) |
-| **Passive Skill Tree** | `idea-backlog.md` item 3 — unchecked, no raid assigned |
+| ~~**Passive Skill Tree**~~ | Built 2026-10-11, on level-up points (`passive-skill-tree.md`, `build-log.md` #63) |
 | ~~**Alternative enemy-scaling formula**~~ | Applied — the continuous `b^n` curve (`open-items.md` #10) |
 | ~~**Holiday gameplay events**~~ (limited-time modes) | Not built — holidays are gifts only (`build-log.md` #9, 2026-10-10) |
 | **Per-raid mechanic content** | Fight types locked, specifics deferred |
