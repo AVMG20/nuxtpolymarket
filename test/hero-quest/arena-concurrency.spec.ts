@@ -25,7 +25,7 @@ import {
     refreshCandidates,
     setDefense
 } from '#server/utils/hero-quest-arena'
-import { ARENA_DUMMY_ID, arenaSeasonAt, arenaSeasonStartsAt, extraAttemptPrice, refreshPrice, seasonRewardFor } from '#shared/utils/hero-quest/arena'
+import { ARENA_DUMMY_ID, arenaSeasonAt, arenaShopItem, arenaSeasonStartsAt, extraAttemptPrice, refreshPrice, seasonRewardFor } from '#shared/utils/hero-quest/arena'
 import { globalPower } from '#shared/utils/hero-quest/power'
 import { ladderDateKey } from '#shared/utils/hero-quest/gacha'
 import {
@@ -33,7 +33,6 @@ import {
     ARENA_LOG_SIZE,
     ARENA_RATING_START,
     ARENA_MATCH_BAND_RATING,
-    ARENA_SHOP_KEY_PRICE,
     ARENA_SHOP_SEAL_PRICE,
     MEDAL_BASE_WIN,
     RAID_KEYS_PER_DAY
@@ -43,6 +42,8 @@ import { quickClearRaid } from '#server/utils/hero-quest-raids'
 import { engageLoadout } from '#server/utils/hero-quest-loadout'
 import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
 
+/** A Guild Key's price in the Arena Shop. */
+const GUILD_KEY_PRICE = arenaShopItem('keys_raid_guild')!.price
 const DAY = 86_400_000
 
 const ATTACKER = 'test-hq-arena-attacker'
@@ -70,10 +71,13 @@ async function cleanup() {
     }
 }
 
+/** A Rating no real account holds, this season, so the band draws only these players. */
+const RATING = 900_000
+
 async function found(id: string, gems = 0) {
     await seedUser(id, { balance: '0', gems })
     await ensureHqState(id)
-    await db.update(hqState).set({ heroLevel: LEVEL }).where(eq(hqState.userId, id))
+    await db.update(hqState).set({ heroLevel: LEVEL, arenaSeasonId: arenaSeasonAt(Date.now()), arenaRating: RATING }).where(eq(hqState.userId, id))
 }
 
 const stateOf = async (id: string) => (await db.select().from(hqState).where(eq(hqState.userId, id)))[0]!
@@ -127,7 +131,7 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             expect(state.arenaAttemptsUsedToday).toBe(ARENA_FREE_ATTEMPTS_PER_DAY)
             expect(state.arenaMedals).toBe(ARENA_FREE_ATTEMPTS_PER_DAY * MEDAL_BASE_WIN)
             // a dummy never touches the ladder
-            expect(state.arenaRating).toBe(ARENA_RATING_START)
+            expect(state.arenaRating).toBe(RATING)
             expect(state.arenaSeasonMatches).toBe(0)
             const log = await db.select().from(hqArenaLog).where(eq(hqArenaLog.userId, ATTACKER))
             expect(log).toHaveLength(ARENA_FREE_ATTEMPTS_PER_DAY)
@@ -151,14 +155,14 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             expect(defended).toHaveLength(2 * ARENA_FREE_ATTEMPTS_PER_DAY)
             expect(defender.arenaSeasonMatches).toBe(2 * ARENA_FREE_ATTEMPTS_PER_DAY)
             // every match's change landed on the Rating the one before it left: no update lost
-            expect(defender.arenaRating).toBe(ARENA_RATING_START + defended.reduce((sum, row) => sum + row.ratingChange, 0))
+            expect(defender.arenaRating).toBe(RATING + defended.reduce((sum, row) => sum + row.ratingChange, 0))
             // only an attacker is paid
             expect(defender.arenaMedals).toBe(0)
             for (const id of [ATTACKER, SECOND]) {
                 const state = await stateOf(id)
                 const rows = await db.select().from(hqArenaLog).where(eq(hqArenaLog.userId, id))
                 expect(rows).toHaveLength(ARENA_FREE_ATTEMPTS_PER_DAY)
-                expect(state.arenaRating).toBe(ARENA_RATING_START + rows.reduce((sum, row) => sum + row.ratingChange, 0))
+                expect(state.arenaRating).toBe(RATING + rows.reduce((sum, row) => sum + row.ratingChange, 0))
                 expect(state.arenaMedals).toBe(rows.reduce((sum, row) => sum + row.medalsEarned, 0))
                 expect(state.arenaAttemptsUsedToday).toBe(ARENA_FREE_ATTEMPTS_PER_DAY)
             }
@@ -179,7 +183,7 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
                 const state = await stateOf(id)
                 const rows = await db.select().from(hqArenaLog).where(eq(hqArenaLog.userId, id))
                 expect(rows).toHaveLength(2 * ARENA_FREE_ATTEMPTS_PER_DAY)
-                expect(state.arenaRating).toBe(ARENA_RATING_START + rows.reduce((sum, row) => sum + row.ratingChange, 0))
+                expect(state.arenaRating).toBe(RATING + rows.reduce((sum, row) => sum + row.ratingChange, 0))
                 expect(state.arenaSeasonMatches).toBe(2 * ARENA_FREE_ATTEMPTS_PER_DAY)
             }
         })
@@ -191,20 +195,22 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             expect((await stateOf(ATTACKER)).arenaAttemptsUsedToday).toBe(0)
         })
 
-        it('draws on Rating, a row from an earlier season counting at the start, and keeps a drawn list', async () => {
+        it('draws on Rating, an earlier season\'s counting as the start, and keeps a drawn list', async () => {
             await found(ATTACKER)
             await found(DEFENDER)
             await db.transaction(tx => setDefense(tx, DEFENDER))
             const season = arenaSeasonAt(Date.now())
-            // far above the band this season: not drawn
-            await db.update(hqState).set({ arenaSeasonId: season, arenaRating: 1000 + 3 * ARENA_MATCH_BAND_RATING }).where(eq(hqState.userId, DEFENDER))
+            // in band this season: drawn
+            expect((await getCandidates(ATTACKER, Date.now()))[0]!.id).toBe(DEFENDER)
+            // the same Rating from an earlier season counts as the start, far below: not drawn
+            await db.update(hqState).set({ arenaSeasonId: season - 1 }).where(eq(hqState.userId, DEFENDER))
+            await db.update(hqState).set({ arenaCandidates: [] }).where(eq(hqState.userId, ATTACKER))
             expect((await getCandidates(ATTACKER, Date.now())).every(c => c.dummy)).toBe(true)
-            // the same Rating from an earlier season counts as the start, so in band
-            await db.update(hqState).set({ arenaSeasonId: season - 1, arenaCandidates: [] }).where(eq(hqState.userId, DEFENDER))
+            // back in band and drawn, then drifting out: a drawn list is kept until a refresh or an attack
+            await db.update(hqState).set({ arenaSeasonId: season }).where(eq(hqState.userId, DEFENDER))
             await db.update(hqState).set({ arenaCandidates: [] }).where(eq(hqState.userId, ATTACKER))
             expect((await getCandidates(ATTACKER, Date.now()))[0]!.id).toBe(DEFENDER)
-            // a drawn list is kept: the defender drifting out of band moves nothing until a refresh or an attack
-            await db.update(hqState).set({ arenaSeasonId: season, arenaRating: 1000 + 3 * ARENA_MATCH_BAND_RATING }).where(eq(hqState.userId, DEFENDER))
+            await db.update(hqState).set({ arenaRating: RATING + 3 * ARENA_MATCH_BAND_RATING }).where(eq(hqState.userId, DEFENDER))
             expect((await getCandidates(ATTACKER, Date.now()))[0]!.id).toBe(DEFENDER)
             const fight = await attack(ATTACKER, DEFENDER)
             expect(fight.dummy).toBe(false)
@@ -272,7 +278,7 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
 
         it('grants raid Keys once per purchase paid, onto a raid never visited', async () => {
             await found(ATTACKER)
-            await db.update(hqState).set({ arenaMedals: 2 * ARENA_SHOP_KEY_PRICE }).where(eq(hqState.userId, ATTACKER))
+            await db.update(hqState).set({ arenaMedals: 2 * GUILD_KEY_PRICE }).where(eq(hqState.userId, ATTACKER))
 
             const result = await burst(5, () => db.transaction(tx => buyFromShop(tx, ATTACKER, 'keys_raid_guild', 1)))
 
@@ -288,7 +294,7 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
 
         it('adds bought Keys on top of the grant owed, never cut to the cap', async () => {
             await found(ATTACKER)
-            await db.update(hqState).set({ arenaMedals: 10 * ARENA_SHOP_KEY_PRICE }).where(eq(hqState.userId, ATTACKER))
+            await db.update(hqState).set({ arenaMedals: 10 * GUILD_KEY_PRICE }).where(eq(hqState.userId, ATTACKER))
             // nothing stored, a week owed: the grant fills to the cap, and the ten bought stand above it
             await db.insert(hqRaidState).values({ userId: ATTACKER, raidId: 'raid_guild', keyBalance: 0, lastKeyGrantAt: new Date(Date.now() - 7.5 * DAY) })
 
@@ -302,7 +308,7 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
 
         it('keeps a near-full bank\'s grant and the Keys bought', async () => {
             await found(ATTACKER)
-            await db.update(hqState).set({ arenaMedals: 3 * ARENA_SHOP_KEY_PRICE }).where(eq(hqState.userId, ATTACKER))
+            await db.update(hqState).set({ arenaMedals: 3 * GUILD_KEY_PRICE }).where(eq(hqState.userId, ATTACKER))
             await db.insert(hqRaidState).values({ userId: ATTACKER, raidId: 'raid_guild', keyBalance: RAID_KEY_CAP - 3, lastKeyGrantAt: new Date(Date.now() - 1.2 * DAY) })
 
             await db.transaction(tx => buyFromShop(tx, ATTACKER, 'keys_raid_guild', 3))
@@ -390,9 +396,8 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
         it('rolls a player out of a finished season at the starting Rating on their next attack', async () => {
             await found(ATTACKER)
             expect(arenaSeasonAt(now)).toBe(SEASON + 1)
-            await db.update(hqState).set({ arenaSeasonId: SEASON, arenaRating: 1300, arenaSeasonMatches: 7 }).where(eq(hqState.userId, ATTACKER))
+            await db.update(hqState).set({ arenaSeasonId: SEASON, arenaRating: 1300, arenaSeasonMatches: 7, arenaCandidates: [null, null, null] }).where(eq(hqState.userId, ATTACKER))
             await closeSeason(SEASON)
-            await getCandidates(ATTACKER, now)
 
             await attack(ATTACKER, ARENA_DUMMY_ID, now)
 

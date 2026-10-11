@@ -1300,6 +1300,8 @@ export const hqState = pgTable('hq_state', {
   arenaSeasonMatches: integer('arena_season_matches').notNull().default(0),
   /** Arena Medals (§5). Persist across seasons and prestige. */
   arenaMedals: integer('arena_medals').notNull().default(0),
+  /** Arena attacks won, lifetime, Training Dummy wins included: the Arena milestone's feat. Never reset. */
+  arenaWins: integer('arena_wins').notNull().default(0),
   /**
    * Today's attacks (§3): made, extra ones bought, and the UTC day they count for, a `YYYY-MM-DD`
    * string compared for equality like `sealLadderDate`. A new day starts both counters over.

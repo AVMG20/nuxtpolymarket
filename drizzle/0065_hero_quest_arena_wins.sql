@@ -1,0 +1,1 @@
+ALTER TABLE "hq_state" ADD COLUMN "arena_wins" integer DEFAULT 0 NOT NULL;

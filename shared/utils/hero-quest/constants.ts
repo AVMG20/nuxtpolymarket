@@ -1165,6 +1165,20 @@ export const MEDAL_UPSET_BONUS = 1 // UNTUNED ╧
  * touches it (§1).
  */
 export const ARENA_FIGHT_SECONDS = 30 // UNTUNED ╧
+
+/**
+ * An Arena hit's crit multiplier is capped at this (the user's call, 2026-10-10). Deep in the curve
+ * IMP drives it past ×17, and every fight ended on the first crit, inside a tenth of a second.
+ */
+export const ARENA_CRIT_MULTIPLIER_CAP = 2
+
+/**
+ * Every Arena fight is paced so two evenly matched parties would take this long to finish each other
+ * (the user's call, 2026-10-10: an even fight should run to the clock). Longer than
+ * `ARENA_FIGHT_SECONDS`, so an even fight times out and the HP shares decide it; a stronger party
+ * still finishes a weaker one early, in proportion to the gap. The pace only ever slows a fight.
+ */
+export const ARENA_EVEN_FIGHT_SECONDS = 45 // UNTUNED ╧
 /**
  * The Training Dummy's HP, in seconds of the attacker's own autoattack DPS against no DEF: a short
  * show before the guaranteed win (§2a), well inside `ARENA_FIGHT_SECONDS` at any depth.
@@ -1201,14 +1215,15 @@ export const ARENA_LEADERBOARD_TOP = 50
 export const ARENA_LEADERBOARD_NEIGHBORS = 2 // UNTUNED ╧
 
 /**
- * The Arena Shop (§6): static prices, no ladder, no cap. Seals and Keys are priced fair, a Seal
- * about a fifth of a day's Medals; Gold is minutes of current income (`gold-economy.md` §6), like
- * every flat Gold grant.
+ * The Arena Shop (§6): static prices, no ladder, no cap, and no Gold (the user's call, 2026-10-10). A
+ * Seal is about a fifth of a day's Medals. A Seal raid's Key is priced at the Seals a clear of that
+ * raid pays at `ARENA_SHOP_KEY_LEVEL`, at the Seal's own price (the user's call, 2026-10-10: a level-5
+ * clear pays 3, so 90 Medals), so a Key is never a cheaper way to Seals than the Seals themselves.
+ * The Trait raid pays Trait Gems, not Seals, and keeps its own price.
  */
 export const ARENA_SHOP_SEAL_PRICE = 30 // UNTUNED ╧
-export const ARENA_SHOP_KEY_PRICE = 60 // UNTUNED ╧
-export const ARENA_SHOP_GOLD_PRICE = 20 // UNTUNED ╧
-export const ARENA_SHOP_GOLD_MINUTES = 30 // UNTUNED ╧
+export const ARENA_SHOP_KEY_LEVEL = 5
+export const ARENA_SHOP_TRAIT_KEY_PRICE = 60 // UNTUNED ╧
 /**
  * Medals per Gem: a deliberately bad rate (§6). The calibration target is that a whole day's Medals
  * convert to meaningfully less than one Battle Speed block (`BATTLE_SPEED_ANCHOR_GEMS`, 250): at 5
@@ -1393,6 +1408,14 @@ export const MILESTONE_RAID_LEVEL_EVERY = 5
 /** That raid's Keys. */
 export const MILESTONE_RAID_KEYS_BASE = 2 // UNTUNED ╧
 export const MILESTONE_RAID_KEYS_STEP = 1 // UNTUNED ╧
+
+/**
+ * The Arena's track (the user's call, 2026-10-10): every this many Arena wins, lifetime, Training
+ * Dummy wins included, pays Arena Medals, more each step.
+ */
+export const MILESTONE_ARENA_WINS_EVERY = 10 // UNTUNED ╧
+export const MILESTONE_ARENA_MEDALS_BASE = 50 // UNTUNED ╧
+export const MILESTONE_ARENA_MEDALS_STEP = 25 // UNTUNED ╧
 
 /** A collection's steps: every this many owned, and the full roster as the last. */
 export const MILESTONE_COLLECTION_EVERY = 6 // UNTUNED ╧

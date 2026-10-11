@@ -11,6 +11,7 @@
  * - **Raids**, one track each: every `MILESTONE_RAID_LEVEL_EVERY`th level. That raid's Keys.
  * - **Collections**, one track per gacha: every `MILESTONE_COLLECTION_EVERY` owned, then the full
  *   roster. That gacha's Seals.
+ * - **Arena**: every `MILESTONE_ARENA_WINS_EVERY` Arena wins, lifetime. Arena Medals.
  *
  * Each feat only grows, so a step once reached stays reached. Stored as the steps claimed per
  * track (`hq_state.milestones_claimed`); a claim takes every step reached since, at once.
@@ -19,6 +20,9 @@
  */
 
 import {
+    MILESTONE_ARENA_MEDALS_BASE,
+    MILESTONE_ARENA_MEDALS_STEP,
+    MILESTONE_ARENA_WINS_EVERY,
     MILESTONE_COLLECTION_EVERY,
     MILESTONE_COLLECTION_SEALS_BASE,
     MILESTONE_COLLECTION_SEALS_STEP,
@@ -37,7 +41,7 @@ import { GACHA_SYSTEMS, type GachaSystem } from './gacha'
 import { GACHA_CONTENT } from './content/registry'
 import { RAIDS, type RaidId } from './content/raids'
 
-export type MilestoneKind = 'worlds' | 'prestige' | 'raid' | 'collection'
+export type MilestoneKind = 'worlds' | 'prestige' | 'raid' | 'collection' | 'arena'
 
 /** One currency a step pays. `all_seals` is every Seal type, that many each. */
 export type MilestoneReward =
@@ -45,6 +49,7 @@ export type MilestoneReward =
     | { kind: 'seals', system: GachaSystem, amount: number }
     | { kind: 'gems', amount: number }
     | { kind: 'keys', raid: RaidId, amount: number }
+    | { kind: 'medals', amount: number }
 
 /** Every feat a track counts, as of now. */
 export interface MilestoneSnapshot {
@@ -54,6 +59,8 @@ export interface MilestoneSnapshot {
     raidLevels: Readonly<Partial<Record<RaidId, number>>>
     /** Items owned per gacha. */
     owned: Readonly<Partial<Record<GachaSystem, number>>>
+    /** Arena attacks won, lifetime. */
+    arenaWins: number
 }
 
 export interface MilestoneTrack {
@@ -117,7 +124,17 @@ export const MILESTONE_TRACKS: readonly MilestoneTrack[] = [
         cap: GACHA_CONTENT[system].entries.length,
         progress: s => s.owned[system] ?? 0,
         reward: k => [{ kind: 'seals', system, amount: linear(MILESTONE_COLLECTION_SEALS_BASE, MILESTONE_COLLECTION_SEALS_STEP, k) }]
-    }))
+    })),
+    {
+        id: 'milestone_arena',
+        kind: 'arena',
+        raid: null,
+        system: null,
+        every: MILESTONE_ARENA_WINS_EVERY,
+        cap: null,
+        progress: s => s.arenaWins,
+        reward: k => [{ kind: 'medals', amount: linear(MILESTONE_ARENA_MEDALS_BASE, MILESTONE_ARENA_MEDALS_STEP, k) }]
+    }
 ]
 
 const TRACK_BY_ID = new Map(MILESTONE_TRACKS.map(t => [t.id, t]))

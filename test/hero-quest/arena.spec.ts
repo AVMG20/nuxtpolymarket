@@ -1,3 +1,4 @@
+import { raidReward } from '#shared/utils/hero-quest/raids'
 import { describe, expect, it } from 'vitest'
 import {
     ARENA_DUMMY_ID,
@@ -27,6 +28,7 @@ import {
     ARENA_CANDIDATE_COUNT,
     ARENA_DUMMY_SECONDS,
     ARENA_EXTRA_ATTEMPT_BASE_GEMS,
+    ARENA_CRIT_MULTIPLIER_CAP,
     ARENA_FIGHT_SECONDS,
     ARENA_FREE_ATTEMPTS_PER_DAY,
     ARENA_FREE_REFRESHES_PER_DAY,
@@ -219,14 +221,22 @@ describe('hero-quest arena', () => {
     })
 
     describe('the Arena Shop (§6)', () => {
-        it('sells all four Seals, all five raids\' Keys, Gold and Gems, each under a stable ID', () => {
+        it('sells all four Seals, all five raids\' Keys and Gems, no Gold, each under a stable ID', () => {
             expect(ARENA_SHOP.filter(i => i.kind === 'seals')).toHaveLength(4)
             expect(ARENA_SHOP.filter(i => i.kind === 'keys').map(i => i.kind === 'keys' && i.raid).sort()).toEqual(RAIDS.map(r => r.id).sort())
-            expect(ARENA_SHOP.filter(i => i.kind === 'gold')).toHaveLength(1)
+            expect(ARENA_SHOP.some(i => (i.kind as string) === 'gold')).toBe(false)
             expect(ARENA_SHOP.filter(i => i.kind === 'gems')).toHaveLength(1)
             expect(new Set(ARENA_SHOP.map(i => i.id)).size).toBe(ARENA_SHOP.length)
             expect(arenaShopItem('seals_champion')?.kind).toBe('seals')
             expect(arenaShopItem('nope')).toBeNull()
+        })
+
+        it('prices a Seal raid\'s Key at the Seals a level-5 clear pays, and never under them', () => {
+            // a level-5 clear of a Seal raid pays 3 Seals, at 30 Medals each
+            expect(arenaShopItem('keys_raid_guild')?.price).toBe(90)
+            for (const raid of RAIDS.filter(r => r.pairedSystem)) {
+                expect(arenaShopItem(`keys_${raid.id}`)?.price).toBe(raidReward(raid.id, 5) * arenaShopItem('seals_champion')!.price)
+            }
         })
 
         it('keeps a day of Medals into Gems well under one Battle Speed block', () => {
@@ -253,6 +263,19 @@ describe('hero-quest arena', () => {
             expect(fight.enemyHpRemaining).toBe('0')
             expect(fight.secondsElapsed).toBeLessThan(ARENA_FIGHT_SECONDS)
             expect(fight.events.some(e => e.kind === 'enemy_down')).toBe(true)
+        })
+
+        it('caps a crit and paces an even fight to the clock, while a clear gap still finishes early', () => {
+            for (const level of [50, 230]) {
+                const fight = runDuel({ attacker: hero(level), defender: hero(level), seed: 2 })
+                expect(fight.outcome).toBe('timeout')
+            }
+            expect(runDuel({ attacker: hero(230), defender: hero(150), seed: 2 }).secondsElapsed).toBeLessThan(ARENA_FIGHT_SECONDS / 2)
+            // no Arena hit crits for more than the cap
+            const fight = runDuel({ attacker: hero(230), defender: hero(150), seed: 2 })
+            const crits = fight.events.filter(e => e.crit && e.damage).map(e => Number(e.damage))
+            const plain = fight.events.filter(e => !e.crit && e.kind === 'attack' && e.damage).map(e => Number(e.damage))
+            if (crits.length && plain.length) expect(Math.max(...crits)).toBeLessThanOrEqual(Math.max(...plain) * ARENA_CRIT_MULTIPLIER_CAP * 1.0001)
         })
 
         it('gives a timeout to the side with more of its max HP left, a dead heat to the defender', () => {
@@ -283,10 +306,11 @@ describe('hero-quest arena', () => {
         })
 
         it('gives the attacker no edge in a mirror match', () => {
-            // who acts first within a tick is the seed's coin; fixed, the attacker won ~3 in 4
+            // who acts first within a tick is the seed's coin; fixed, the attacker won ~3 in 4. Paced,
+            // a mirror runs to the clock, so the HP shares decide it
             const party = hero(50, 'class_beginner', [champion('champ_borin', 'front'), champion('champ_lys')])
             let wins = 0
-            for (let seed = 1; seed <= 60; seed++) if (runDuel({ attacker: party, defender: party, seed }).outcome === 'win') wins++
+            for (let seed = 1; seed <= 60; seed++) if (runDuel({ attacker: party, defender: party, seed }).attackerWon) wins++
             expect(wins).toBeGreaterThan(15)
             expect(wins).toBeLessThan(45)
         })

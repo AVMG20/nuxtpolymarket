@@ -208,7 +208,7 @@ const emit = defineEmits<{
     /** The holiday reveal's button was pressed once everything was out. */
     holidayRevealClose: []
     /** A milestone card with steps waiting was pressed, or claim-all (null). */
-    claimMilestones: [track: string | null]
+    claimMilestones: [track: string]
     /** The guide's panel was pressed: the next page, or the tutorial closed on the last. */
     guideNext: []
     /** A Traits button was pressed: Roll, a lock, a board's Save or Load, or a save slot's Buy. */
@@ -621,8 +621,6 @@ function targetAt(e: PointerEvent): Target | null {
     }
     if (openScene.value === 'calendar' && calendarTab.value === 'milestones' && milestonesHit && props.milestones) {
         const at = milestonesHit.milestonesTargetAt(props.milestones, presenter.w, x, y)
-        // claim-all is no target with nothing waiting; a card is pointed at for what it pays
-        if (at === 'all') return !props.milestonesBusy && milestonesHit.milestonesClaimAllEnabled(props.milestones) ? 'ms:all' : null
         return at ? `ms:${at}` : null
     }
     if (openScene.value === 'traits' && traitsHit && traitsView.value) {
@@ -798,7 +796,6 @@ function onPointerUp(e: PointerEvent) {
             emit('traitAction', target)
         }
     }
-    else if (hit === 'ms:all') emit('claimMilestones', null)
     else if (hit.startsWith('ms:row:')) {
         // a card with nothing waiting is only pointed at, for what its next step pays
         const row = milestoneRowOf(hit)
@@ -932,10 +929,11 @@ const arenaView = computed<ArenaView>(() => ({ ...(props.arena ?? ARENA_EMPTY), 
 watch(() => arenaHit && arenaView.value ? arenaHit.arenaPages(arenaView.value) : 1, (pages) => {
     if (arenaPage.value >= pages) arenaPage.value = Math.max(0, pages - 1)
 })
-// opening the scene tells the screen which tab it lands on, so that tab's reads go out
+// opening the scene tells the screen which tab it lands on, so that tab's reads go out; a page
+// loaded straight onto the Arena opens it too
 watch(openScene, (scene) => {
     if (scene === 'arena') emit('arenaTab', arenaTab.value)
-})
+}, { immediate: true })
 const arenaHover = computed<ArenaTarget | null>(() => hover.value?.startsWith('arena:') ? hover.value.slice(6) as ArenaTarget : null)
 
 /** The raid shown in the Raids scene; it keeps its place while the scene is closed and reopened. */

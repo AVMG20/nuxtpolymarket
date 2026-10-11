@@ -21,13 +21,13 @@ import { GACHA_SYSTEMS } from '#shared/utils/hero-quest/gacha'
 import { GACHA_CONTENT } from '#shared/utils/hero-quest/content/registry'
 import { RAIDS } from '#shared/utils/hero-quest/content/raids'
 
-const EMPTY: MilestoneSnapshot = { worldsCleared: 0, prestiges: 0, raidLevels: {}, owned: {} }
+const EMPTY: MilestoneSnapshot = { worldsCleared: 0, prestiges: 0, raidLevels: {}, owned: {}, arenaWins: 0 }
 
 const track = (id: string) => getMilestoneTrack(id)!
 
 describe('hero-quest milestones', () => {
-    it('has one track for Worlds, one for prestige, one per raid and one per gacha, each with a unique id', () => {
-        expect(MILESTONE_TRACKS).toHaveLength(2 + RAIDS.length + GACHA_SYSTEMS.length)
+    it('has one track for Worlds, one for prestige, one per raid, one per gacha and one for the Arena, each with a unique id', () => {
+        expect(MILESTONE_TRACKS).toHaveLength(3 + RAIDS.length + GACHA_SYSTEMS.length)
         expect(new Set(MILESTONE_TRACKS.map(t => t.id)).size).toBe(MILESTONE_TRACKS.length)
     })
 

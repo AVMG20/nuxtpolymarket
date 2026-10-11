@@ -100,6 +100,8 @@ export type CameraId = keyof typeof CAMERAS
  * enough to take it.
  */
 const OX = STAGE.ox
+/** A party mark's x plus its enemy mirror's: the same for every pair, so `x -> FX_MIRROR_SUM - x` flips an effect across. */
+const FX_MIRROR_SUM = VL.allies[0].x + VL.foes[2].x
 const OY = STAGE.oy
 /**
  * How long a boss's name stays up once it goes up, halfway through its entrance: a base, and a
@@ -550,7 +552,8 @@ interface Cine {
 }
 
 
-interface Fx { live: boolean, def: VfxDef | null, t: number }
+/** A cast effect playing; `mirror` flips it onto the enemy side, for an Arena defender's casts. */
+interface Fx { live: boolean, def: VfxDef | null, t: number, mirror: boolean }
 interface Proj {
     live: boolean, kind: ShotKind, ramp: RampName, color: number
     x: number, y: number, vx: number, vy: number, grav: number
@@ -758,7 +761,7 @@ export class BattleDemo {
     private particles = new Particles(2400)
     private scene: WorldScene | null = null
     private units: Unit[] = []
-    private fx: Fx[] = Array.from({ length: 8 }, () => ({ live: false, def: null, t: 0 }))
+    private fx: Fx[] = Array.from({ length: 8 }, () => ({ live: false, def: null, t: 0, mirror: false }))
     /** Scratch the live VFX draw into, then blit onto the frame at the VL origin. */
     private vfxLayer = new Surface(VL.W, VL.H, 0, 0)
     /** The scene's foreground, drawn apart so it can go over the fighters and still take the tint. */
@@ -1598,11 +1601,15 @@ export class BattleDemo {
             const u = this.beatUnit(b)
             if (u && rp.clock < b.at - this.leadOf(u, b)) break
             rp.beat++
-            // a body still busy with its last swing, or gone, lands this one on time without a swing
-            if (!u || !standingAny(u) || (u.state !== U.Idle && u.state !== U.Hit)) {
+            // a body still busy with its last swing, or gone, lands this one on time without a swing;
+            // a cast cuts a basic swing short instead, since a utility cast is nothing but its show
+            const busy = u && u.state !== U.Idle && u.state !== U.Hit && !(b.cast && u.state === U.Attack)
+            if (!u || !standingAny(u) || busy) {
                 rp.late.push(b)
                 continue
             }
+            // a beat still held lands now rather than being dropped: it carries the log's hits and deaths
+            this.flushBeat(u)
             u.state = b.cast ? U.Cast : U.Attack
             u.t = 0
             u.fired = false
@@ -1622,6 +1629,9 @@ export class BattleDemo {
         for (let k = rp.late.length - 1; k >= 0; k--) {
             if (rp.late[k]!.at > rp.clock) continue
             const b = rp.late.splice(k, 1)[0]!
+            // a cast landed late still shows its effect
+            const u = this.beatUnit(b)
+            if (b.cast && u && standingAny(u)) this.playFx(this.castFx(u, b), u.side === 1)
             this.applyBeat(b)
         }
         while (rp.inst < instants.length && instants[rp.inst]!.at <= rp.clock) this.applyInstant(instants[rp.inst++]!)
@@ -1632,9 +1642,7 @@ export class BattleDemo {
     private strikeBeat(u: Unit, cast: boolean): void {
         const b = u.beat!
         u.beat = null
-        const vfx = (b.skillId ? VFX_BY_ID[b.skillId] : null) ?? u.vfx
-        // an ability's effect is drawn from the party's side; an Arena defender's casts play without it
-        if (cast && vfx && u.side === 0) this.playFx(vfx)
+        if (cast) this.playFx(this.castFx(u, b), u.side === 1)
         if (!u.shot || cast) {
             this.applyBeat(b)
             return
@@ -1652,9 +1660,22 @@ export class BattleDemo {
         }
     }
 
+    /** A replayed cast's effect: the ability's own, else the body's. An Arena defender's plays mirrored. */
+    private castFx(u: Unit, b: Beat): VfxDef | null {
+        return (b.skillId ? VFX_BY_ID[b.skillId] : null) ?? u.vfx
+    }
+
     private applyBeat(b: Beat): void {
         for (const h of b.hits) this.applyHit(h)
         this.applyDowns(b.downs)
+    }
+
+    /** Land a body's held beat without its swing, so a swing cut short never loses what the log says it did. */
+    private flushBeat(u: Unit): void {
+        const b = u.beat
+        if (!b) return
+        u.beat = null
+        this.applyBeat(b)
     }
 
     /** One logged hit lands: its number on the body struck, and the party's frames follow its HP. */
@@ -1690,11 +1711,11 @@ export class BattleDemo {
         for (const e of downs) {
             if (e.kind === 'enemy_down') {
                 const t = this.foeUnit(e.enemyIndex)
-                if (t && t.state !== U.Death && t.state !== U.Gone) this.kill(t)
+                if (t && t.state !== U.Death && t.state !== U.Gone) { this.kill(t); this.flushBeat(t) }
             } else {
                 const t = this.partyUnit(e.unitIndex)
                 this.setPartyHp(e.unitIndex, '0')
-                if (t && t.state !== U.Death && t.state !== U.Gone) { t.state = U.Death; t.t = 0; t.hold = 0 }
+                if (t && t.state !== U.Death && t.state !== U.Gone) { t.state = U.Death; t.t = 0; t.hold = 0; this.flushBeat(t) }
             }
         }
     }
@@ -2606,11 +2627,11 @@ export class BattleDemo {
         }
     }
 
-    private playFx(def: VfxDef | null): void {
+    private playFx(def: VfxDef | null, mirror = false): void {
         if (!def) return
         for (let i = 0; i < this.fx.length; i++) {
             const f = this.fx[i]!
-            if (!f.live) { f.live = true; f.def = def; f.t = 0; return }
+            if (!f.live) { f.live = true; f.def = def; f.t = 0; f.mirror = mirror; return }
         }
     }
 
@@ -2639,9 +2660,9 @@ export class BattleDemo {
     private struck(tgt: Unit, hold: number): void {
         // mid-escalation the Rampant only flashes: the beat plays out
         if (tgt.state === U.Entry) { tgt.flash = 3; return }
-        // a boss swings through a hit, and plays its special through one too; in the game everyone
-        // does, since a hit never cancels an attack in the fight
-        if ((tgt.boss || this.run) && (tgt.state === U.Attack || tgt.state === U.Cast)) {
+        // a boss swings through a hit, and plays its special through one too; in the game and the Arena
+        // everyone does, since a hit never cancels an attack in the fight (no staggers in the Arena, the user's call)
+        if ((tgt.boss || this.run || this.arenaRound) && (tgt.state === U.Attack || tgt.state === U.Cast)) {
             tgt.flash = 3
             tgt.hold = 1
             tgt.jolt = hold + 4
@@ -3128,7 +3149,10 @@ export class BattleDemo {
             for (let y = 0; y < v.h; y++) {
                 for (let x = 0; x < v.w; x++) {
                     const c = v.data[y * v.w + x]!
-                    if (c !== CLEAR) s.set(OX + x, OY + y, c)
+                    if (c === CLEAR) continue
+                    // effects are drawn from the party's side; the marks mirror about the gap between the sides
+                    const mx = f.mirror ? FX_MIRROR_SUM - x : x
+                    if (mx >= 0 && mx < v.w) s.set(OX + mx, OY + y, c)
                 }
             }
         }

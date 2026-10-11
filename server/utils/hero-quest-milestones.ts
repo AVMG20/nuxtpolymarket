@@ -18,7 +18,6 @@ import { RAID_KEYS_PER_DAY } from '#shared/utils/hero-quest/constants'
 import { GACHA_SYSTEMS, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import {
-    MILESTONE_TRACKS,
     getMilestoneTrack,
     mergeMilestoneRewards,
     milestoneRows,
@@ -36,7 +35,8 @@ export function milestoneSnapshotOf(
         worldsCleared: worldsClearedOf(state.prestige, state.world, state.runCleared),
         prestiges: state.prestige,
         raidLevels,
-        owned
+        owned,
+        arenaWins: state.arenaWins
     }
 }
 
@@ -61,11 +61,11 @@ async function readFeats(tx: DbExecutor, userId: string) {
 }
 
 /**
- * Claim every step reached and not yet claimed: on one track with `trackId`, or on every track.
- * Call it inside a transaction.
+ * Claim every step reached and not yet claimed on the track `trackId`, one track a claim since the
+ * claim-all button went (the user's call, 2026-10-10). Call it inside a transaction.
  */
-export async function claimMilestones(tx: DbExecutor, userId: string, trackId: string | null) {
-    const tracks = trackId === null ? MILESTONE_TRACKS : [getMilestoneTrack(trackId)].filter(t => t !== undefined)
+export async function claimMilestones(tx: DbExecutor, userId: string, trackId: string) {
+    const tracks = [getMilestoneTrack(trackId)].filter(t => t !== undefined)
     if (!tracks.length) throw createError({ statusCode: 400, statusMessage: 'Unknown milestone' })
 
     const [state] = await tx.select().from(hqState).where(eq(hqState.userId, userId))
@@ -79,11 +79,13 @@ export async function claimMilestones(tx: DbExecutor, userId: string, trackId: s
     const rewards = rows.flatMap(r => r.claimable)
     const seals = Object.fromEntries(GACHA_SYSTEMS.map(s => [s, 0])) as Record<GachaSystem, number>
     let gems = 0
+    let medals = 0
     const keys = new Map<RaidId, number>()
     for (const r of rewards) {
         if (r.kind === 'all_seals') for (const s of GACHA_SYSTEMS) seals[s] += r.amount
         else if (r.kind === 'seals') seals[r.system] += r.amount
         else if (r.kind === 'gems') gems += r.amount
+        else if (r.kind === 'medals') medals += r.amount
         else keys.set(r.raid, (keys.get(r.raid) ?? 0) + r.amount)
     }
 
@@ -103,6 +105,7 @@ export async function claimMilestones(tx: DbExecutor, userId: string, trackId: s
     const [claimed] = await tx.update(hqState)
         .set({
             milestonesClaimed: sql`${hqState.milestonesClaimed} || ${JSON.stringify(patch)}::jsonb`,
+            ...(medals > 0 ? { arenaMedals: sql`${hqState.arenaMedals} + ${medals}` } : {}),
             ...Object.assign({}, ...GACHA_SYSTEMS.filter(s => seals[s] > 0).map(s => sealGrant(s, seals[s])))
         })
         .where(and(eq(hqState.userId, userId), ...guards))
