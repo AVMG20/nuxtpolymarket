@@ -1598,8 +1598,10 @@ export class BattleDemo {
             const u = this.beatUnit(b)
             if (u && rp.clock < b.at - this.leadOf(u, b)) break
             rp.beat++
-            // a body still busy with its last swing, or gone, lands this one on time without a swing
-            if (!u || !standingAny(u) || (u.state !== U.Idle && u.state !== U.Hit)) {
+            // a body still busy with its last swing, or gone, lands this one on time without a swing;
+            // a cast cuts a basic swing short instead, since a utility cast is nothing but its show
+            const busy = u && u.state !== U.Idle && u.state !== U.Hit && !(b.cast && u.state === U.Attack)
+            if (!u || !standingAny(u) || busy) {
                 rp.late.push(b)
                 continue
             }
@@ -1624,6 +1626,9 @@ export class BattleDemo {
         for (let k = rp.late.length - 1; k >= 0; k--) {
             if (rp.late[k]!.at > rp.clock) continue
             const b = rp.late.splice(k, 1)[0]!
+            // a cast landed late still shows its effect
+            const u = this.beatUnit(b)
+            if (b.cast && u && standingAny(u)) this.playFx(this.castFx(u, b))
             this.applyBeat(b)
         }
         while (rp.inst < instants.length && instants[rp.inst]!.at <= rp.clock) this.applyInstant(instants[rp.inst++]!)
@@ -1634,9 +1639,7 @@ export class BattleDemo {
     private strikeBeat(u: Unit, cast: boolean): void {
         const b = u.beat!
         u.beat = null
-        const vfx = (b.skillId ? VFX_BY_ID[b.skillId] : null) ?? u.vfx
-        // an ability's effect is drawn from the party's side; an Arena defender's casts play without it
-        if (cast && vfx && u.side === 0) this.playFx(vfx)
+        if (cast) this.playFx(this.castFx(u, b))
         if (!u.shot || cast) {
             this.applyBeat(b)
             return
@@ -1652,6 +1655,12 @@ export class BattleDemo {
             p.delay = k * VOLLEY_GAP; p.from = u; p.hit = h; p.downs = downs
             this.aim(p, tgt)
         }
+    }
+
+    /** A replayed cast's effect: the ability's own, else the body's. Drawn from the party's side, so an Arena defender's casts play without one. */
+    private castFx(u: Unit, b: Beat): VfxDef | null {
+        if (u.side !== 0) return null
+        return (b.skillId ? VFX_BY_ID[b.skillId] : null) ?? u.vfx
     }
 
     private applyBeat(b: Beat): void {
