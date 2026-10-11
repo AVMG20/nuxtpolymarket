@@ -89,7 +89,8 @@ function generate(name: string, rating: number, low: number): ArenaBot {
 
     return {
         id,
-        name,
+        // marked as a bot wherever it shows; the ID and seed keep the bare name, so loadouts don't move
+        name: `Bot ${name}`,
         rating,
         heroLevel: Math.round(at(L.heroLevel)),
         champions: pick(CHAMPIONS, Math.round(at(L.champions)))
