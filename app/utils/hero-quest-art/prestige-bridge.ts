@@ -81,6 +81,8 @@ export class PrestigeBridge {
     private leftAt: number | null = null
     /** The Void Shards the prestige paid, and the scene time it started rising; null until it lands. */
     private gained: { text: string, at: number | null } | null = null
+    /** The Void Shards Begin Again will pay, spelled out, shown over the button; null hides the line. */
+    offer: string | null = null
 
     /** Bakes the party's walk strips, so build it once per party and render it every frame. */
     constructor(party: SplashParty) {
@@ -166,7 +168,15 @@ export class PrestigeBridge {
         }
 
         if (!leaving) {
-            drawText(s, 'THE VOID IS BEATEN', SW / 2, 44, C.steel2, { align: 1, shadow: 0 })
+            drawText(s, 'THE VOID IS BEATEN', SW / 2, this.offer ? 38 : 44, C.steel2, { align: 1, shadow: 0 })
+            if (this.offer) {
+                // what crossing pays, the shard before it, and that the Hero's level carries over
+                const line = `+${this.offer.toUpperCase()} VOID SHARDS, YOUR LEVEL STAYS`
+                const w = textWidth(line) + 12
+                const x = (SW - w) >> 1
+                glyph(s, CURRENCY_ICONS.void_shards!, x + 4, 53, true)
+                drawText(s, line, x + 12, 51, C.bone1, { shadow: 1 })
+            }
             drawPlateButton(s, BEGIN_AGAIN_BUTTON, BEGIN_AGAIN_LABEL, t, button, false)
         }
         if (this.gained) this.drawGain(s, t)

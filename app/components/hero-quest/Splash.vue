@@ -3,25 +3,17 @@ import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import type { SplashParty } from '~/utils/hero-quest-art/menu-splash'
 import { C, PALETTE } from '~/utils/hero-quest-art/palette'
 import type { HqIntroRect } from '~/composables/useHqIntro'
-import { formatSeconds } from '#shared/utils/hero-quest/numbers'
 
 /**
  * Hero Quest's front door: the animated splash, and the one button that goes in. Begin when
- * there is no run, Start when the player's session has ended (`useHqSession`). It also carries
- * what a long absence earned, since that is what the player comes back wanting to know.
+ * there is no run, Start when the player's session has ended (`useHqSession`). What a long
+ * absence earned waits on the stage behind it, in the welcome-back card.
  *
  * The art is `MenuSplash`: the splash's scene and logo with the save's party standing in it, drawn
  * live. It loads as its own chunk, like the battle stage, so nothing outside Hero Quest carries it.
  */
 const props = defineProps<{
     mode: 'loading' | 'begin' | 'start'
-    away: {
-        kills: number
-        goldEarned: number
-        levelsGained: number
-        effectiveSeconds: number
-        blockedAtBoss: boolean
-    } | null
     /** Begin or Start is on its way to the server. */
     pending?: boolean
     /** Who stands on the splash: the save's party, or the Beginner alone without one. */
@@ -191,23 +183,6 @@ onBeforeUnmount(() => {
         @pointerleave="onPointerLeave"
         @keydown.enter.prevent="go"
         @keydown.space.prevent="go"
-      />
-    </div>
-
-    <div
-      class="text-center space-y-4 transition-opacity duration-300"
-      :class="closing ? 'opacity-0' : ''"
-    >
-      <UAlert
-        v-if="mode === 'start' && away && away.kills > 0"
-        class="max-w-xl mx-auto text-left"
-        color="primary"
-        variant="subtle"
-        icon="i-lucide-moon"
-        title="While you were away"
-        :description="`${formatNumber(away.kills)} kills over ${formatSeconds(away.effectiveSeconds)} of counted time — ${formatNumber(away.goldEarned)} gold`
-          + (away.levelsGained > 0 ? `, ${away.levelsGained} level${away.levelsGained === 1 ? '' : 's'}` : '')
-          + (away.blockedAtBoss ? '. Your run is parked at a boss.' : '.')"
       />
     </div>
   </div>

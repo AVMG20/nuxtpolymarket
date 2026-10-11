@@ -21,12 +21,6 @@ export const useHqSession = () => {
     const { state, refresh, initialized, initRun } = useHeroQuest()
     const { fetchSession } = useAuth()
 
-    type Report = NonNullable<NonNullable<typeof state.value>['settled']>
-    /** What the read that ended the session banked, held for the splash: a later read replaces `settled`. */
-    const report = useState<Report | null>('hq-session-away', () => null)
-    /** Only a gap worth reporting: an offline settle that landed kills. */
-    const away = computed(() => report.value && !report.value.online && report.value.kills > 0 ? report.value : null)
-
     /** What the screen shows: the game, the splash's Start, or its Begin when there is no run. */
     const gate = computed<'loading' | 'begin' | 'start' | 'open'>(() => {
         if (!state.value) return 'loading'
@@ -47,5 +41,5 @@ export const useHqSession = () => {
         active.value = true
     }
 
-    return { gate, away, start, begin }
+    return { gate, start, begin }
 }

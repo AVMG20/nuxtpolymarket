@@ -28,6 +28,7 @@ const FEED: RunFeed = {
     critMultiplier: '2.5',
     heroHpPct: 100,
     heroLevel: 12,
+    xpShare: 0,
     gpn: '1000'
 }
 

@@ -25,6 +25,7 @@ import { KEY_ICON } from './raids-scene'
 import type { SceneBackdrops } from './menu-band'
 import type { RaidId } from '../../../shared/utils/hero-quest/content/raids'
 import { HQ_ARENA_TABS, HQ_ARENA_TAB_LABELS, type HqArenaTab } from '../hero-quest-scenes'
+import { ARENA_SEASON_REWARDS } from '../../../shared/utils/hero-quest/constants'
 
 /** A face on a card or in the defence: an art asset (`hero/<class>` or `champion/<id>`) and its row. */
 export interface ArenaFace { asset: string, row: 'front' | 'back' }
@@ -113,6 +114,8 @@ export interface ArenaView {
     loadoutOptions: readonly { slotIndex: number, name: string }[]
     /** The list is open. */
     pickerOpen: boolean
+    /** The Ranking tab's season rewards, per rank band, are open over it. */
+    rewardsOpen: boolean
     shop: readonly ArenaItemView[]
     log: readonly ArenaLogView[] | null
     board: { rows: readonly ArenaBoardRow[], me: { rank: number, rating: number } | null } | null
@@ -126,6 +129,7 @@ export type ArenaTarget =
     | 'def:set'
     | `shop:${string}:${1 | 10}`
     | 'prev' | 'next'
+    | 'rewards'
 
 const TAB_Y = 2
 const TAB_H = 13
@@ -195,6 +199,25 @@ function btn(label: string, x: number, y: number): Box {
 
 function footerY(h: number): number {
     return P.y + panelH(h) - BTN_H - 4
+}
+
+/** The Ranking tab's REWARDS button, in the footer between the rank line and the pager. */
+function rewardsButton(h: number): Box {
+    return btn('REWARDS', P.x + 140, footerY(h))
+}
+
+/** The season rewards panel over the Ranking tab: a line per rank band. */
+function rewardsPanel(h: number): Box {
+    const lines = ARENA_SEASON_REWARDS.length
+    const ph = 22 + lines * ROW_H + 12
+    return { x: P.x + ((P.w - 150) >> 1), y: P.y + ((panelH(h) - ph) >> 1), w: 150, h: ph }
+}
+
+/** "RANK 1", "RANK 4-10", "RANK 51+": a reward band's ranks, from the band before it. */
+function bandLabel(i: number): string {
+    const lo = i === 0 ? 1 : ARENA_SEASON_REWARDS[i - 1]!.maxRank + 1
+    const hi = ARENA_SEASON_REWARDS[i]!.maxRank
+    return `RANK ${hi === Number.POSITIVE_INFINITY ? `${lo}+` : lo === hi ? lo : `${lo}-${hi}`}`
 }
 
 function claimBox(): Box {
@@ -307,6 +330,10 @@ export function arenaTargetAt(view: ArenaView, w: number, h: number, x: number, 
         }
         case 'defense':
             return inside(defenseButton(h), x, y) ? 'def:set' : null
+        case 'ranking':
+            // with the rewards open, any press puts them away
+            if (view.rewardsOpen || inside(rewardsButton(h), x, y)) return 'rewards'
+            break
         case 'shop': {
             const first = view.page * 2 * SHOP_ROWS
             for (let i = 0; i < 2 * SHOP_ROWS && first + i < view.shop.length; i++) {
@@ -330,7 +357,7 @@ export function arenaTargetEnabled(view: ArenaView, target: ArenaTarget): boolea
     if (target.startsWith('tab:')) return target !== `tab:${view.tab}`
     if (target === 'prev') return view.page > 0
     if (target === 'next') return view.page < arenaPages(view) - 1
-    if (target === 'shut') return true
+    if (target === 'shut' || target === 'rewards') return true
     if (target === 'loadout') return view.pickerOpen || (!view.busy && view.loadoutOptions.length > 0)
     if (view.busy) return false
     if (target.startsWith('pick:')) return true
@@ -382,9 +409,9 @@ export class ArenaScene {
             case 'defense': this.drawDefense(s, view, lit, enabled, pressed); break
             case 'shop': this.drawShop(s, view, lit, enabled, pressed); break
             case 'log': this.drawLog(s, view); break
-            case 'ranking': this.drawRanking(s, view); break
+            case 'ranking': this.drawRanking(s, view, lit, pressed); break
         }
-        if (arenaPages(view) > 1) {
+        if (arenaPages(view) > 1 && !(view.tab === 'ranking' && view.rewardsOpen)) {
             const p = pagerBoxes(s.h)
             plateButton(s, p.prev, '<', STONE, enabled('prev'), lit('prev'), pressed)
             plateButton(s, p.next, '>', STONE, enabled('next'), lit('next'), pressed)
@@ -595,7 +622,32 @@ export class ArenaScene {
 
     // ── Ranking ──
 
-    private drawRanking(s: Surface, view: ArenaView): void {
+    private drawRanking(s: Surface, view: ArenaView, lit: (t: ArenaTarget) => boolean, pressed: boolean): void {
+        this.drawBoard(s, view)
+        plateButton(s, rewardsButton(s.h), 'REWARDS', GOLD, true, lit('rewards') || view.rewardsOpen, pressed && lit('rewards'))
+        if (view.rewardsOpen) this.drawRewards(s, view)
+    }
+
+    /** What a season pays per rank band, the band the player stands in lit. */
+    private drawRewards(s: Surface, view: ArenaView): void {
+        const b = rewardsPanel(s.h)
+        dither(s, P.x, P.y, P.w, panelH(s.h), C.ink, 8)
+        panel(s, b.x, b.y, b.w, b.h)
+        drawText(s, 'SEASON REWARDS', b.x + (b.w >> 1), b.y + 5, C.gold2, { align: 1, shadow: 1 })
+        const rank = view.board?.me?.rank ?? null
+        const mine = rank === null ? -1 : ARENA_SEASON_REWARDS.findIndex(r => rank <= r.maxRank)
+        ARENA_SEASON_REWARDS.forEach((r, i) => {
+            const y = b.y + 18 + i * ROW_H
+            if (i === mine) rect(s, b.x + 4, y - 1, b.w - 8, ROW_H - 1, C.blue1)
+            drawText(s, bandLabel(i), b.x + 8, y + 1, i === mine ? C.white : C.bone1, { shadow: 1 })
+            const medals = String(r.medals)
+            drawText(s, medals, b.x + b.w - 18, y + 1, C.gold3, { align: 2, shadow: 1 })
+            glyph(s, CURRENCY_ICONS.arena_medals!, b.x + b.w - 10, y + 3, true)
+        })
+        drawText(s, 'PAID WHEN THE SEASON ENDS', b.x + (b.w >> 1), b.y + b.h - 9, C.stone3, { align: 1, shadow: 1 })
+    }
+
+    private drawBoard(s: Surface, view: ArenaView): void {
         const x = P.x + 6
         const y0 = P.y + 15
         if (!view.board) {

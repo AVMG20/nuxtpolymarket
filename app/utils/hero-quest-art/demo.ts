@@ -46,7 +46,7 @@ import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type Bake
 import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
-import { BADGE_GLINT_FOR, BADGE_PORTRAIT_BOX, NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, badgePortrait, drawChallengeButton, drawGpnBar, drawProfileBadge, gpnChanging, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type BadgeView, type NumberStyle, type PartyMember } from './feedback'
+import { BADGE_GLINT_FOR, BADGE_PORTRAIT_BOX, NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, badgePortrait, drawChallengeButton, drawGpnBar, drawProfileBadge, drawSkillBar, SKILL_TILE, gpnChanging, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type BadgeView, type NumberStyle, type PartyMember } from './feedback'
 import { VL, clock, dimLevel, R } from './vfx-kit'
 import { J } from './rig'
 import { VFX_BY_ID, type VfxDef } from './vfx'
@@ -263,6 +263,8 @@ interface Cast {
     vfx: VfxDef | null
     /** The Hero's cinematic for it, when it has one and deals damage. */
     cine: CinematicVfx | null
+    /** When it last fired, on the stage's clock, for the skill bar's flash; −1 for never. */
+    firedAt: number
 }
 
 /**
@@ -739,14 +741,6 @@ function fadeStart(b: Baked): number {
 
 function rnd(a: number, b: number): number { return a + Math.random() * (b - a) }
 
-/** A run's pack as the stage shows it (`BattleDemo.runPack`). */
-export interface StagePack {
-    /** Bodies up, walking in included. */
-    standing: number
-    /** 0–1: the share of the whole pack's HP their bars hold. */
-    left: number
-}
-
 export class BattleDemo {
     readonly frame = new Surface(DEMO_W, DEMO_H, 0, 0)
     private particles = new Particles(2400)
@@ -978,7 +972,8 @@ export class BattleDemo {
                     damaging: s.damaging,
                     vfx: VFX_BY_ID[s.id] ?? u.vfx,
                     // the cinematic is the class's own skill's, as on the art page: a whole kit of them would never let the fight move
-                    cine: i === 0 && s.damaging && s.id === signature ? CINEMATIC_BY_ID[s.id] ?? null : null
+                    cine: i === 0 && s.damaging && s.id === signature ? CINEMATIC_BY_ID[s.id] ?? null : null,
+                    firedAt: was?.firedAt ?? -1
                 }
             })
             if (!kit) continue
@@ -1048,12 +1043,14 @@ export class BattleDemo {
                 sinceGain: -1,
                 sinceChange: -1,
                 up: true,
-                sinceLevel: -1
+                sinceLevel: -1,
+                xp: feed.xpShare
             }
             return
         }
         if (feed.heroLevel > b.level) this.levelAt = this.time
         b.level = feed.heroLevel
+        b.xp = feed.xpShare
         const to = gpnLog(feed.gpn)
         if (feed.gpn === null || to === this.gpnTo) return
         // from whatever is showing, so a change landing mid-count carries on from there
@@ -1175,28 +1172,6 @@ export class BattleDemo {
     /** The fight has played out and its result is showing. */
     get fightDone(): boolean {
         return this.replay?.done ?? false
-    }
-
-    /**
-     * The run's pack as the stage shows it: bodies up, and the share of the pack's HP their bars
-     * hold. Null outside a run's wave, where the readout has no pack to track.
-     *
-     * The run is ahead of the stage by a march and a fall or two, and a payload moves it by part of
-     * a kill either way, so a readout drawn off the run fills and empties out of step with the
-     * bodies. Off the stage it only empties as they are hit, and fills as a pack walks in.
-     */
-    runPack(): StagePack | null {
-        const f = this.run?.feed
-        if (!f || f.atBossGate || this.replay || this.raid) return null
-        let standing = 0
-        let bars = 0
-        for (let i = PARTY; i < this.units.length; i++) {
-            const u = this.units[i]!
-            if (u.boss || u.state === U.Gone || u.state === U.Death) continue
-            standing++
-            bars += Math.max(0, Math.min(1, u.bar))
-        }
-        return { standing, left: bars / Math.max(1, f.packSize) }
     }
 
     /**
@@ -1630,7 +1605,7 @@ export class BattleDemo {
             }
             // the Hero's cinematic for a damaging cast: the ability's own, else the class skill's;
             // a special playing keeps the stage
-            const cine = this.cinematics && b.cast && b.side === 0 && b.actor === 0 && b.hits.length ?(b.skillId ? CINEMATIC_BY_ID[b.skillId] : null) ?? this.heroCine : null
+            const cine = this.cinematics && b.cast && b.side === 0 && b.actor === 0 && b.hits.length ? (b.skillId ? CINEMATIC_BY_ID[b.skillId] : null) ?? this.heroCine : null
             if (cine && !this.cine?.beat) this.startCine(cine, u)
         }
         for (let k = rp.late.length - 1; k >= 0; k--) {
@@ -2285,6 +2260,7 @@ export class BattleDemo {
                 // one its body has been too busy to cast fires on its own
                 if (c.overdue < RUN_CAST_OVERDUE) continue
                 c.timer = Math.max(0, c.cooldown - c.overdue)
+                c.firedAt = this.time
                 c.overdue = 0
                 if (c.vfx) this.playFx(c.vfx)
                 const tgt = c.damaging ? this.target(0) : null
@@ -2923,6 +2899,7 @@ export class BattleDemo {
                         if (!cast && u.attack) rearmSwing(u.attack)
                         if (ready) {
                             ready.timer = Math.max(0, ready.cooldown - ready.overdue)
+                            ready.firedAt = this.time
                             ready.overdue = 0
                             // without its cinematic the cast lands at its impact, as every other skill does
                             if (ready.cine && this.cinematics) this.startCine(ready.cine, u)
@@ -3240,6 +3217,15 @@ export class BattleDemo {
         // the game's stage shows the profile badge in the label's place
         const badge = this.raidRound || this.arenaRound ? null : this.badgeNow()
         if (badge) drawProfileBadge(out, BADGE_X, BADGE_Y, badge)
+        // the Hero's skills on their live cooldowns, bottom left: the run only, a fight's replay has none
+        const kit = this.run && !this.replay && !this.raid ? this.units[0]?.casts : null
+        if (kit?.length) {
+            drawSkillBar(out, 4, cam.h - SKILL_TILE - 4, kit.map(c => ({
+                id: c.id,
+                u: c.cooldown > 0 ? 1 - c.timer / c.cooldown : 1,
+                firedAgo: c.firedAt < 0 ? -1 : this.time - c.firedAt
+            })))
+        }
         else if (!this.raidRound) textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
         if (this.raid?.id === 'training_grounds' || (this.raidRound && this.raid?.id === 'trait')) textOut(out, this.tally, cam.w - 6, 5, (this.raidRound ? this.raidRound.left : this.raid.clock) <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
         else if (this.speedTag) textOut(out, this.speedTag, cam.w - 6, 5, C.gold3, 'small', 1, 2, 1, C.ink, -1)

@@ -45,6 +45,8 @@ export interface RunFeed {
     heroHpPct: number
     /** For the Hero's frame. */
     heroLevel: number
+    /** 0–1: the Hero's way toward the next level, for the badge's XP strip. */
+    xpShare: number
     /** The Global Power Number, a Decimal string, for the profile badge; null before the payload has one. */
     gpn: string | null
 }

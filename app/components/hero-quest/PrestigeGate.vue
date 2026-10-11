@@ -27,6 +27,8 @@ const props = defineProps<{
     crossing?: boolean
     /** The Void Shards the prestige paid, spelled out, to rise over the Hero once it lands. */
     earned?: string | null
+    /** The Void Shards Begin Again will pay, spelled out, shown over the button. */
+    reward?: string | null
     /** The menu buttons shown: only the scenes open so far, as on the stage. */
     menuScenes?: readonly HqMenuScene[]
     /** The guide's dialog, while a tutorial is due: the gate is where Prestige opens. */
@@ -176,6 +178,7 @@ onMounted(async () => {
             else void irisClose(el, onBridge(BRIDGE_PORTAL_FOCUS)).then(() => { if (!disposed) emit('crossed', rectOf(box)) })
         }
     }, () => {
+        bridge.offer = props.reward ?? null
         const view = bridge.render(t, buttonState.value)
         const frame = banded.compose(view, 'battle', bandHover.value, pressed.value, false, undefined, props.menuScenes)
         // over the whole frame, so the band dims with the bridge; it steps aside once the party starts across

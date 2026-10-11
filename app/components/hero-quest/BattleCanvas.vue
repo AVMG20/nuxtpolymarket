@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BattleDemo, RunParty, StageArena, StagePack, StageFight, StageRaid } from '~/utils/hero-quest-art/demo'
+import type { BattleDemo, RunParty, StageArena, StageFight, StageRaid } from '~/utils/hero-quest-art/demo'
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import type { RunFeed } from '~/utils/hero-quest-art/run-director'
 import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-band'
@@ -16,13 +16,15 @@ import type { GuideTarget, GuideView } from '~/utils/hero-quest-art/guide'
 import type { TraitsScene, TraitsTarget, TraitsView } from '~/utils/hero-quest-art/traits-scene'
 import type { TreeCamera, TreeScene, TreeTarget, TreeView } from '~/utils/hero-quest-art/tree-scene'
 import type { RaidLoadoutOption, RaidRewardView, RaidRowView, RaidsHover, RaidsScene, RaidsView } from '~/utils/hero-quest-art/raids-scene'
+import type { WelcomeView } from '~/utils/hero-quest-art/welcome-card'
 import type { GiftReveal, HolidayGiftIconView, HolidayRevealView } from '~/utils/hero-quest-art/holiday-gift'
 import type { SceneTab } from '~/utils/hero-quest-art/scene-tabs'
 import type { ArenaResultView, ArenaScene, ArenaTarget, ArenaView } from '~/utils/hero-quest-art/arena-scene'
-import type { PartyStatsView } from '~/utils/hero-quest-art/party-stats'
+import type { PartyStatsTarget, PartyStatsView } from '~/utils/hero-quest-art/party-stats'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
+import { D } from '#shared/utils/hero-quest/numbers'
 import { C, PALETTE } from '~/utils/hero-quest-art/palette'
 import type { HqIntroRect } from '~/composables/useHqIntro'
 
@@ -66,6 +68,9 @@ const props = defineProps<{
         stats: { critChance: number, critMultiplier: string }
         /** The HP share `useHqLiveRun` keeps from rising mid-attempt; the readout's own when absent. */
         hpPct?: number
+        /** XP toward the next level, Decimal strings, for the badge's XP strip. */
+        xp?: string
+        xpToNextLevel?: string
         /** The payload's power, for the profile badge's GPN. */
         power?: { gpn: string }
     }
@@ -125,8 +130,10 @@ const props = defineProps<{
     raidRound?: StageRaid | null
     /** What a raid round or quick-clear paid, shown over the stage until its button is pressed. */
     raidReward?: RaidRewardView | null
+    /** The welcome-back card: what the last stretch away banked, over the battle until it is put away. */
+    welcome?: WelcomeView | null
     /** The Arena scene, less the tab and page the stage keeps itself. */
-    arena?: Omit<ArenaView, 'tab' | 'page' | 'pickerOpen'>
+    arena?: Omit<ArenaView, 'tab' | 'page' | 'pickerOpen' | 'rewardsOpen'>
     /** An Arena attack to play in place of the run; the stage goes back to the run once it is cleared. */
     arenaRound?: StageArena | null
     /** What an Arena attack came to, shown over the stage until its button is pressed. */
@@ -164,8 +171,6 @@ const props = defineProps<{
 const emit = defineEmits<{
     /** Ten times a second while a fight plays: seconds played, and whether its result is up. */
     fightProgress: [progress: { time: number, done: boolean }]
-    /** The run's pack as the stage shows it, when it changes; null outside a run's wave. */
-    pack: [pack: StagePack | null]
     /** The challenge button was pressed: fight the boss again. */
     challenge: []
     /** A menu band button was pressed: the scene to show, or the battle when the open one closes. */
@@ -203,6 +208,7 @@ const emit = defineEmits<{
     raidLoadout: [raidId: RaidId, slotIndex: number | null]
     /** The reward popup's button was pressed. */
     raidRewardClose: []
+    welcomeClose: []
     /** An Arena button was pressed: an attack, a purchase, a defence copy or a claim. */
     arenaAction: [target: ArenaTarget]
     /** An Arena tab was opened. */
@@ -213,6 +219,9 @@ const emit = defineEmits<{
     partyStatsOpen: []
     /** The party's stats were shut: their close button, or a press beside them. */
     partyStatsClose: []
+    /** A base stat's cell was pressed: its sources open; back shuts them. */
+    partyStatsCell: [cell: { row: number, unit: number }]
+    partyStatsBack: []
     /** Today's calendar cell, or the make-up button, was pressed. */
     claimCalendar: [makeup: boolean]
     /** The holiday gift in the battle view's corner was pressed. */
@@ -252,8 +261,6 @@ const EMPTY_TRAITS: TraitsView = {
 }
 /** What the tree scene draws before its payload lands. */
 const EMPTY_TREE: TreeView = { nodes: [], points: '0', respecFree: false, respecGems: 0, respecAffordable: false, armed: false, busy: false }
-/** The smallest move in the pack's HP share worth a re-render of the readout: half a percent. */
-const PACK_REPORT_STEP = 0.005
 
 let stage: BattleDemo | null = null
 let backdrops: SceneBackdrops | null = null
@@ -275,6 +282,7 @@ let settingsScene: SettingsScene | null = null
 let settingsHit: typeof import('~/utils/hero-quest-art/settings-scene') | null = null
 let raidsScene: RaidsScene | null = null
 let raidsHit: typeof import('~/utils/hero-quest-art/raids-scene') | null = null
+let welcomeHit: typeof import('~/utils/hero-quest-art/welcome-card') | null = null
 let calendarScene: CalendarScene | null = null
 let calendarHit: typeof import('~/utils/hero-quest-art/calendar-scene') | null = null
 let milestonesScene: MilestonesScene | null = null
@@ -296,18 +304,11 @@ let presenter: Presenter | null = null
 let stop: (() => void) | null = null
 let observer: ResizeObserver | null = null
 let disposed = false
-/** What `pack` last said, so the readout hears of a change rather than every frame. */
-let lastPack: StagePack | null = null
-
-/** Pass the stage's pack on, once it has moved by a step the readout's bar can show. */
-function reportPack() {
-    const pack = props.fight ? null : stage!.runPack()
-    const same = pack === null || lastPack === null
-        ? pack === lastPack
-        : pack.standing === lastPack.standing && Math.abs(pack.left - lastPack.left) < PACK_REPORT_STEP
-    if (same) return
-    lastPack = pack
-    emit('pack', pack)
+/** How far the Hero is toward the next level, 0 to 1. */
+function xpShareOf(hero: { xp?: string, xpToNextLevel?: string }): number {
+    if (!hero.xp || !hero.xpToNextLevel) return 0
+    const need = D(hero.xpToNextLevel)
+    return need.lte(0) ? 0 : Math.max(0, Math.min(1, D(hero.xp).div(need).toNumber()))
 }
 
 function feed(): RunFeed {
@@ -337,6 +338,7 @@ function feed(): RunFeed {
         critMultiplier: props.hero.stats.critMultiplier,
         heroHpPct: props.hero.hpPct ?? readout.heroHpPct,
         heroLevel: props.hero.level,
+        xpShare: xpShareOf(props.hero),
         gpn: props.hero.power?.gpn ?? null
     }
 }
@@ -454,9 +456,9 @@ defineExpose({ skipFight, closeIris })
  */
 type Target = 'challenge' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuScene | `scenetab:${string}` | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
-    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${Exclude<RaidsHover, null>}` | 'reward:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
+    | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${Exclude<RaidsHover, null>}` | 'reward:ok' | 'welcome:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
     | `trait:${TraitsTarget}` | `tree:${TreeTarget}`
-    | `arena:${ArenaTarget}` | 'result:ok' | 'stats:open' | 'stats:close'
+    | `arena:${ArenaTarget}` | 'result:ok' | 'stats:open' | 'stats:close' | 'stats:back' | `stats:cell:${number}:${number}`
 
 const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
@@ -546,11 +548,13 @@ function targetAt(e: PointerEvent): Target | null {
     }
     // the reward popup takes every press: only its button does anything
     if (props.raidReward) return raidsHit?.onRaidRewardButton(presenter.w, sceneH, x, y) ? 'reward:ok' : null
+    if (props.welcome) return welcomeHit?.onWelcomeButton(presenter.w, sceneH, props.welcome, x, y) ? 'welcome:ok' : null
     if (props.arenaResult) return arenaHit?.onArenaResultButton(presenter.w, sceneH, x, y) ? 'result:ok' : null
     // the party's stats take every press: their close button, or anywhere beside them, shuts them
     if (props.partyStats) {
-        const at = partyStatsHit?.partyStatsTargetAt(presenter.w, sceneH, x, y) ?? 'inside'
-        return at === 'inside' ? null : 'stats:close'
+        const at = partyStatsHit?.partyStatsTargetAt(presenter.w, sceneH, props.partyStats, x, y) ?? 'inside'
+        if (at === 'inside') return null
+        return at === 'outside' ? 'stats:close' : `stats:${at}`
     }
     // a tutorial is forced: only its bar answers, or for an unlock only the button it points at
     if (props.guide) {
@@ -901,9 +905,15 @@ function onPointerUp(e: PointerEvent) {
     }
     else if (hit.startsWith('setting:')) emit('setting', hit.slice(8) as SettingsTarget)
     else if (hit === 'reward:ok') emit('raidRewardClose')
+    else if (hit === 'welcome:ok') emit('welcomeClose')
     else if (hit === 'result:ok') emit('arenaResultClose')
     else if (hit === 'stats:open') emit('partyStatsOpen')
     else if (hit === 'stats:close') emit('partyStatsClose')
+    else if (hit === 'stats:back') emit('partyStatsBack')
+    else if (hit.startsWith('stats:cell:')) {
+        const [row, unit] = hit.slice('stats:cell:'.length).split(':').map(Number) as [number, number]
+        emit('partyStatsCell', { row, unit })
+    }
     else if (hit.startsWith('arena:')) {
         const at = hit.slice(6) as ArenaTarget
         if (at.startsWith('tab:')) {
@@ -913,6 +923,7 @@ function onPointerUp(e: PointerEvent) {
         } else if (at === 'prev' || at === 'next') arenaPage.value += at === 'next' ? 1 : -1
         else if (at === 'loadout') arenaPicker.value = !arenaPicker.value
         else if (at === 'shut') arenaPicker.value = false
+        else if (at === 'rewards') arenaRewards.value = !arenaRewards.value
         else {
             if (at.startsWith('pick:')) arenaPicker.value = false
             emit('arenaAction', at)
@@ -1074,15 +1085,19 @@ const gachaHover = computed<GachaHover>(() => {
 /** The Arena's open tab and page; the tab keeps its place while the scene is closed and reopened. */
 const arenaTab = ref<HqArenaTab>('fight')
 const arenaPage = ref(0)
-const ARENA_EMPTY: Omit<ArenaView, 'tab' | 'page' | 'pickerOpen'> = {
+const ARENA_EMPTY: Omit<ArenaView, 'tab' | 'page' | 'pickerOpen' | 'rewardsOpen'> = {
     busy: false, rating: 0, medals: 0, season: 1, seasonLeft: '', attemptsLeft: 0, attemptsFree: 0, attemptPrice: 0, refreshPrice: 0, refreshesLeft: 0,
     gems: 0, rewards: [], candidates: null, defense: null, shop: [], log: null, board: null,
     loadout: null, loadoutLive: false, loadoutSlot: null, loadoutOptions: []
 }
 /** The Arena's preferred-Loadout list is open; leaving the scene or the Fight tab puts it away. */
 const arenaPicker = ref(false)
-watch([openScene, arenaTab], () => { arenaPicker.value = false })
-const arenaView = computed<ArenaView>(() => ({ ...(props.arena ?? ARENA_EMPTY), tab: arenaTab.value, page: arenaPage.value, pickerOpen: arenaPicker.value }))
+const arenaRewards = ref(false)
+watch([openScene, arenaTab], () => {
+    arenaPicker.value = false
+    arenaRewards.value = false
+})
+const arenaView = computed<ArenaView>(() => ({ ...(props.arena ?? ARENA_EMPTY), tab: arenaTab.value, page: arenaPage.value, pickerOpen: arenaPicker.value, rewardsOpen: arenaRewards.value }))
 // a list that shrank under the page shown takes it back to its last
 watch(() => arenaHit && arenaView.value ? arenaHit.arenaPages(arenaView.value) : 1, (pages) => {
     if (arenaPage.value >= pages) arenaPage.value = Math.max(0, pages - 1)
@@ -1179,7 +1194,7 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, giftArt, traitsArt, sceneTabsArt, arenaArt, partyStatsArt, treeArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, giftArt, traitsArt, sceneTabsArt, arenaArt, partyStatsArt, treeArt, welcomeArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
@@ -1199,7 +1214,8 @@ onMounted(async () => {
         import('~/utils/hero-quest-art/scene-tabs'),
         import('~/utils/hero-quest-art/arena-scene'),
         import('~/utils/hero-quest-art/party-stats'),
-        import('~/utils/hero-quest-art/tree-scene')
+        import('~/utils/hero-quest-art/tree-scene'),
+        import('~/utils/hero-quest-art/welcome-card')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -1237,6 +1253,7 @@ onMounted(async () => {
     treeHit = treeArt
     giftHit = giftArt
     giftReveal = new giftArt.GiftReveal()
+    welcomeHit = welcomeArt
     stage = new BattleDemo()
     build()
     if (intro) {
@@ -1268,7 +1285,6 @@ onMounted(async () => {
         stage!.cinematics = prefs.value.skillCinematics
         stage!.numbers = prefs.value.combatNumbers
         if (!props.fight) stage!.feedRun(feed())
-        reportPack()
         // under a scene the battle still runs and takes its feed, but is not drawn
         const scene = openScene.value
         const view = scene === 'battle'
@@ -1302,11 +1318,12 @@ onMounted(async () => {
         if (scene === 'battle' && giftShows() && giftHit) giftHit.drawGiftIcon(view, t, props.holidayGift!, hover.value === 'gift')
         if (props.holidayReveal && giftReveal) giftReveal.render(view, t, props.holidayReveal, hover.value === 'gift:ok', pressed.value)
         else if (props.raidReward && raidsHit) raidsHit.drawRaidReward(view, props.raidReward, hover.value === 'reward:ok', pressed.value)
+        else if (props.welcome && welcomeHit) welcomeHit.drawWelcome(view, props.welcome, hover.value === 'welcome:ok', pressed.value)
         if (props.arenaResult && arenaHit) arenaHit.drawArenaResult(view, props.arenaResult, hover.value === 'result:ok', pressed.value)
-        if (props.partyStats && partyStatsHit) partyStatsHit.drawPartyStats(view, props.partyStats, hover.value === 'stats:close')
+        if (props.partyStats && partyStatsHit) partyStatsHit.drawPartyStats(view, props.partyStats, hover.value?.startsWith('stats:') ? hover.value.slice(6) as PartyStatsTarget : null)
         const frame = banded!.compose(view, scene, bandHover.value, pressed.value, !!props.raidRound || !!props.arenaRound, bandAlerts.value, props.menuScenes)
         // over the whole frame, so the band dims with the scene; it waits out a raid's or an Arena round's popup and a holiday reveal
-        if (props.guide && guideHit && !props.raidReward && !props.arenaResult && !props.holidayReveal) guideHit.drawGuide(frame, view.h, t, props.guide, guideHover.value)
+        if (props.guide && guideHit && !props.raidReward && !props.welcome && !props.arenaResult && !props.holidayReveal) guideHit.drawGuide(frame, view.h, t, props.guide, guideHover.value)
         // a GPN change shows over everything, whatever scene is open, so a change made there shows what it did
         stage!.drawGpnOverlay(frame)
         presenter!.present(frame)

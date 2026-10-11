@@ -11,6 +11,8 @@ import { Surface, blit, rect, px, line, disc, ring, tri, rampLut, hash2 } from '
 import { drawText, fontHeight, textOut, textRamp, textWidth, type FontName } from './font'
 import { qt, pr, star, R } from './vfx-kit'
 import { classNodeIcon, STATUS_ICONS  } from './icons-misc'
+import { CLASS_SKILL_ICONS, TRAINING_SKILL_ICONS } from './icons-abilities'
+import { glyph } from './icon-kit'
 
 // ── Damage numbers ─────────────────────────────────────────────────────────────────
 
@@ -242,6 +244,94 @@ export function drawCooldown(s: Surface, u: number, secs = 3): void {
     if (g < 0.5) star(s, 20, 3, 2, C.white)
 }
 
+// ── The Hero's skill bar ───────────────────────────────────────────────────────────
+
+/** A skill's tile: an ink edge round the icon at half its drawn size. */
+export const SKILL_TILE = 14
+const SKILL_INSET = 1
+const SKILL_GAP = 2
+/** Seconds a skill's tile flashes white once it fires. */
+const SKILL_FIRE_FLASH = 0.2
+const SKILL_TILES = new Map<string, Surface>()
+/** The icons are drawn for 24px frames; this is where one is drawn before it is halved. */
+const SKILL_FULL = new Surface(24, 24, 0, 0)
+
+/**
+ * A skill's tile, built once: the icon drawn full size, halved by keeping each 2×2 block's main
+ * colour (its ink outline left out, or the outline would swallow the shape), then outlined again.
+ * A class skill sits on steel, a trained one on purple.
+ */
+function skillTile(id: string): Surface {
+    const known = SKILL_TILES.get(id)
+    if (known) return known
+    const s = new Surface(SKILL_TILE, SKILL_TILE, 0, 0)
+    const trained = TRAINING_SKILL_ICONS[id]
+    const ground = trained ? C.purple0 : C.steel0
+    rect(s, 0, 0, SKILL_TILE, SKILL_TILE, C.ink)
+    rect(s, SKILL_INSET, SKILL_INSET, SKILL_TILE - 2 * SKILL_INSET, SKILL_TILE - 2 * SKILL_INSET, ground)
+    const g = trained ?? CLASS_SKILL_ICONS[id]
+    if (g) {
+        SKILL_FULL.clear()
+        glyph(SKILL_FULL, g, 12, 12)
+        const half = SKILL_TILE - 2 * SKILL_INSET
+        const shape = new Uint8Array(half * half)
+        for (let y = 0; y < half; y++) {
+            for (let x = 0; x < half; x++) {
+                // the block's commonest colour that is neither clear nor ink, if two of its four share one
+                const seen = new Map<number, number>()
+                for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]] as const) {
+                    const c = SKILL_FULL.get(x * 2 + dx, y * 2 + dy)
+                    if (c !== CLEAR && c !== C.ink) seen.set(c, (seen.get(c) ?? 0) + 1)
+                }
+                let best = -1
+                let count = 0
+                for (const [c, n] of seen) if (n > count) { best = c; count = n }
+                if (count < 2 && seen.size < 2) continue
+                s.set(SKILL_INSET + x, SKILL_INSET + y, best)
+                shape[y * half + x] = 1
+            }
+        }
+        // the outline back, in ink, round whatever survived
+        const at = (x: number, y: number) => x >= 0 && y >= 0 && x < half && y < half && shape[y * half + x] === 1
+        for (let y = 0; y < half; y++) {
+            for (let x = 0; x < half; x++) {
+                if (!at(x, y) && (at(x - 1, y) || at(x + 1, y) || at(x, y - 1) || at(x, y + 1))) s.set(SKILL_INSET + x, SKILL_INSET + y, C.ink)
+            }
+        }
+    }
+    SKILL_TILES.set(id, s)
+    return s
+}
+
+/**
+ * The Hero's skills in a row from (ox, oy): each tile dimmed over the part of its cooldown still to
+ * run, a gold edge sweeping clockwise from the top, and a white flash the moment it fires. `u` is
+ * 0 → 1 across the cooldown; `firedAgo` seconds since it last fired, −1 for never.
+ */
+export function drawSkillBar(s: Surface, ox: number, oy: number, skills: readonly { id: string, u: number, firedAgo: number }[]): void {
+    const mid = (SKILL_TILE - 1) / 2
+    skills.forEach((skill, i) => {
+        const x0 = ox + i * (SKILL_TILE + SKILL_GAP)
+        blit(s, skillTile(skill.id), x0, oy)
+        if (skill.u < 1) {
+            for (let y = SKILL_INSET; y < SKILL_TILE - SKILL_INSET; y++) for (let x = SKILL_INSET; x < SKILL_TILE - SKILL_INSET; x++) {
+                let a = Math.atan2(x - mid, mid - y) / (Math.PI * 2)
+                if (a < 0) a += 1
+                if (a >= skill.u) s.set(x0 + x, oy + y, COOLDOWN_DIM[s.get(x0 + x, oy + y)] || C.night0)
+            }
+            const a = skill.u * Math.PI * 2
+            const dx = Math.sin(a)
+            const dy = -Math.cos(a)
+            const len = (mid - SKILL_INSET) / Math.max(Math.abs(dx), Math.abs(dy))
+            line(s, x0 + mid, oy + mid, x0 + mid + dx * len, oy + mid + dy * len, C.gold3)
+        }
+        if (skill.firedAgo >= 0 && skill.firedAgo < SKILL_FIRE_FLASH) {
+            rect(s, x0, oy, SKILL_TILE, 1, C.white); rect(s, x0, oy + SKILL_TILE - 1, SKILL_TILE, 1, C.white)
+            rect(s, x0, oy, 1, SKILL_TILE, C.white); rect(s, x0 + SKILL_TILE - 1, oy, 1, SKILL_TILE, C.white)
+        }
+    })
+}
+
 // ── Boss enrage timer ──────────────────────────────────────────────────────────────
 
 /** The skull the timer runs down to: # its outline, o bone, s bone in shadow, e its eyes. */
@@ -351,6 +441,8 @@ const TEXT_X = 25
 const TOP_H = 13
 const LOW_Y = 12
 const LOW_H = 10
+/** The XP strip's height under the stage bar: thin, by the user's call. */
+const XP_H = 2
 /** Seconds the glint takes to cross the GPN bar on a gain, and the change's arrow stays up. */
 export const BADGE_GLINT_FOR = 0.55
 export const BADGE_ARROW_FOR = 2.5
@@ -433,6 +525,8 @@ export interface BadgeView {
     up: boolean
     /** Seconds since the level went up, −1 for never. */
     sinceLevel: number
+    /** 0–1 toward the next level: the 2px strip under the stage bar. */
+    xp: number
 }
 
 /** The badge's portrait, in badge pixels: a press on it opens the party's stats. */
@@ -488,13 +582,23 @@ export function drawProfileBadge(s: Surface, ox: number, oy: number, v: BadgeVie
     const levelLit = v.sinceLevel >= 0 && v.sinceLevel < BADGE_LEVEL_FOR
     // the level and stage bar first, so the GPN bar's base line sits over the seam
     badgeBar(s, ox + BAR_X, oy + LOW_Y, w - 4, LOW_H, [C.purple0, C.purple1, C.purple2], C.purple0)
+    // XP under it, two pixels: the share filled, lit white for a moment on a new level. It starts
+    // where the level pip ends, so a wider level moves it along.
+    const label = String(v.level)
+    const pw = textWidth(label, 'small') + 4
+    const px0 = ox + ((BADGE_PORTRAIT - pw) >> 1)
+    const xx = px0 + pw
+    const xw = ox + BAR_X + w - 4 - xx
+    rect(s, xx, oy + BADGE_H, xw, XP_H, C.ink)
+    const filled = levelLit ? xw : Math.round(xw * Math.max(0, Math.min(1, v.xp)))
+    if (filled > 0) {
+        rect(s, xx, oy + BADGE_H, filled, 1, levelLit ? C.white : C.teal3)
+        rect(s, xx, oy + BADGE_H + 1, filled, 1, levelLit ? C.white : C.teal1)
+    }
     drawGpnBar(s, ox, oy, v)
     textOut(s, v.stage, ox + TEXT_X, oy + LOW_Y + 2, C.bone1, 'small', 1, 0, 1, C.ink, -1)
     blit(s, v.portrait, ox, oy)
     // the level pip, gold on the ring under the face, lit for a moment on a new level
-    const label = String(v.level)
-    const pw = textWidth(label, 'small') + 4
-    const px0 = ox + ((BADGE_PORTRAIT - pw) >> 1)
     rect(s, px0, oy + BADGE_H - 6, pw, 8, C.ink)
     rect(s, px0 + 1, oy + BADGE_H - 5, pw - 2, 6, levelLit ? C.gold2 : C.gold1)
     rect(s, px0 + 1, oy + BADGE_H - 5, pw - 2, 1, levelLit ? C.white : C.gold2)

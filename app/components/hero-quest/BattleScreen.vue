@@ -4,7 +4,7 @@ import { D, formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
 import { RARITIES, sealLadderTotal, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { FormationRow, Rarity } from '#shared/utils/hero-quest/types'
 import { GEAR_SLOTS, GEAR_SLOT_NAME } from '#shared/utils/hero-quest/content/gear'
-import { ARENA_FIGHT_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
+import { ARENA_FIGHT_SECONDS, AUTO_ENGAGE_REPLAY_HOLD_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, MAX_OFFLINE_CAP_LEVEL, MAX_OFFLINE_EFFICIENCY_LEVEL, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
 import { ARENA_SHOP } from '#shared/utils/hero-quest/arena'
 import { getRaid } from '#shared/utils/hero-quest/content/raids'
 import type { ArenaBoardRow, ArenaFace, ArenaItemView, ArenaResultView, ArenaTarget, ArenaView } from '~/utils/hero-quest-art/arena-scene'
@@ -22,7 +22,8 @@ import type { TraitRollView, TraitsTarget, TraitsView } from '~/utils/hero-quest
 import type { TreeView } from '~/utils/hero-quest-art/tree-scene'
 import type { TraitGrade } from '~/utils/hero-quest-art/palette'
 import type { RaidLoadoutOption, RaidRewardView, RaidRowView } from '~/utils/hero-quest-art/raids-scene'
-import type { RaidId as StageRaidId, StageArena, StagePack, StageRaid } from '~/utils/hero-quest-art/demo'
+import type { WelcomeNote, WelcomeView } from '~/utils/hero-quest-art/welcome-card'
+import type { RaidId as StageRaidId, StageArena, StageRaid } from '~/utils/hero-quest-art/demo'
 import { RAIDS, type RaidId } from '#shared/utils/hero-quest/content/raids'
 import { TRAIT_GRADES } from '#shared/utils/hero-quest/content/traits'
 import { LOADOUT_TARGETS } from '#shared/utils/hero-quest/loadout-session'
@@ -47,7 +48,7 @@ const emit = defineEmits<{
 }>()
 
 const {
-    initialized, run, hero, settled, pending, guild, forge, training, digSite, nextPrestigeReward,
+    initialized, run, hero, welcome, pending, guild, forge, training, digSite, nextPrestigeReward,
     engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
     loadoutPreferences, loadoutSession, setLoadoutPreference, leaveRaid,
     shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
@@ -826,7 +827,7 @@ function facesOf(classId: string, heroRow: 'front' | 'back', champions: readonly
     return [{ asset: `hero/${classId}`, row: heroRow }, ...champions.map(c => ({ asset: `champion/${c.id}`, row: c.row }))]
 }
 
-const arenaView = computed<Omit<ArenaView, 'tab' | 'page' | 'pickerOpen'>>(() => {
+const arenaView = computed<Omit<ArenaView, 'tab' | 'page' | 'pickerOpen' | 'rewardsOpen'>>(() => {
     const a = arena.value
     const rarityIn = (roster: readonly { id: string, rarity: string }[] | undefined) => {
         const map = new Map((roster ?? []).map(e => [e.id, e.rarity]))
@@ -887,26 +888,37 @@ const arenaView = computed<Omit<ArenaView, 'tab' | 'page' | 'pickerOpen'>>(() =>
     }
 })
 
-/** The party's stats over the battle, opened from the badge's portrait; empty while the read is out. */
-const partyStats = ref<PartyStatsView | null>(null)
+/** The party's stats over the battle, opened from the badge's portrait: the read once it lands, and the cell whose sources are open. */
+const partyStatsOpen = ref(false)
+const partyStatsPayload = ref<PartyStatsPayload | null>(null)
+const partyStatCell = ref<{ row: number, unit: number } | null>(null)
 let partyStatsRead = 0
+const partyStats = computed<PartyStatsView | null>(() => {
+    if (!partyStatsOpen.value) return null
+    if (!partyStatsPayload.value) return { units: null }
+    return partyStatsView(partyStatsPayload.value, liveHero.value?.className ?? '', partyStatCell.value)
+})
 
 async function openPartyStats() {
     const read = ++partyStatsRead
-    partyStats.value = { units: null }
+    partyStatsOpen.value = true
+    partyStatsPayload.value = null
+    partyStatCell.value = null
     try {
         const payload = await $fetch<PartyStatsPayload>('/api/hero-quest/stats')
         // shut, or opened again, while it was out
-        if (read === partyStatsRead && partyStats.value) partyStats.value = partyStatsView(payload)
+        if (read === partyStatsRead && partyStatsOpen.value) partyStatsPayload.value = payload
     } catch (e) {
-        if (read === partyStatsRead) partyStats.value = null
+        if (read === partyStatsRead) partyStatsOpen.value = false
         toast.add({ title: apiErrorMessage(e, 'Could not load the party stats'), color: 'error' })
     }
 }
 
 function closePartyStats() {
     partyStatsRead++
-    partyStats.value = null
+    partyStatsOpen.value = false
+    partyStatsPayload.value = null
+    partyStatCell.value = null
 }
 
 // they belong to the battle: leaving it shuts them
@@ -1373,7 +1385,19 @@ async function onShopBuy(upgradeId: string) {
  * thing to compare a payload against, so anything that needs the anchor still has it.
  */
 // the run holds while a raid session is open, as the server's settle does
-const { liveRun, liveHero, speedNow } = useHqLiveRun(run, hero, battleSpeed, computed(() => loadoutSession.value !== null))
+/**
+ * A boss the run reached while the player was away waits for them: the welcome-back card goes
+ * first, then the stage's challenge button, as for a boss that beat the party. Client-only, so a
+ * reload lets it engage itself again; cleared by the next fight.
+ */
+const bossHeld = useState('hq-boss-held', () => false)
+watch(welcome, (report) => {
+    if (report?.blockedAtBoss) bossHeld.value = true
+}, { immediate: true })
+/** The run as the stage plays it: a held boss reads as a lost one, so it is farmed in front of and challenged. */
+const shownRun = computed(() => run.value && bossHeld.value && !run.value.bossLost ? { ...run.value, bossLost: true } : run.value)
+
+const { liveRun, liveHero, speedNow } = useHqLiveRun(shownRun, hero, battleSpeed, computed(() => loadoutSession.value !== null))
 
 /**
  * Who stands on the stage: the Hero and the Champions fielded, in party order, each on its row.
@@ -1498,15 +1522,19 @@ function onGuideNext() {
 }
 const engaging = ref(false)
 
-/**
- * The boss's name and timer, taken as the fight is engaged: the payload that lands with the
- * result has already moved the run past the gate, so `liveRun` names the next stage's foes.
- */
-const fightBoss = ref({ name: 'Boss', timer: 30 })
 /** How far the stage has played the fight, and whether its result is up. */
 const fightProgress = ref({ time: 0, done: false })
-/** The run's pack as the stage shows it, for the readout's enemy bar; null until the stage reports one. */
-const stagePack = ref<StagePack | null>(null)
+
+/**
+ * A boss fight puts itself away once its result has held for `AUTO_ENGAGE_REPLAY_HOLD_SECONDS`:
+ * an automatic engage cannot wait on a click, or the run would sit behind the first fight.
+ */
+let fightHold: ReturnType<typeof setTimeout> | null = null
+watch(() => fight.value !== null && fightProgress.value.done, (done) => {
+    if (fightHold) clearTimeout(fightHold)
+    fightHold = done ? setTimeout(() => { fight.value = null }, AUTO_ENGAGE_REPLAY_HOLD_SECONDS * 1000) : null
+})
+onUnmounted(() => { if (fightHold) clearTimeout(fightHold) })
 
 // the round's last blow lands, then its reward goes up; the popup's button brings the run back
 watch(() => fightProgress.value.done, (done) => {
@@ -1584,9 +1612,6 @@ const gateParty = computed(() => ({
     champions: party.value.champions.map(c => ({ id: c.id, row: c.row }))
 }))
 
-/** The stat-attribution slideover. Fetched on open, never with the state payload. */
-const breakdownOpen = ref(false)
-
 /**
  * The next gate's boss beat the party last time (`hq_state.boss_lost`, set by the fight that lost).
  * Back at its gate the run is shown farming the stage before it (`useHqLiveRun`), and the boss waits
@@ -1599,12 +1624,9 @@ const challenge = computed(() => (liveRun.value?.farming ?? false) && !fight.val
 
 async function runFightAt(automatic: boolean) {
     engaging.value = true
+    bossHeld.value = false
     try {
-        // farming in front of a lost boss shows the stage before it; the payload names the boss itself
-        const name = liveRun.value?.farming ? run.value?.enemyName : liveRun.value?.enemyName
-        const boss = { name: name ?? 'Boss', timer: liveRun.value?.bossTimerSeconds ?? 30 }
         const result = await engageBoss({ silentErrors: automatic })
-        fightBoss.value = boss
         fightProgress.value = { time: 0, done: false }
         fight.value = result
         if (result && result.outcome !== 'win') countBossLoss()
@@ -1633,38 +1655,56 @@ useHqAutoBoss({
     lostHere: () => lostHere.value,
     secondsPerKill: () => liveRun.value?.secondsPerKill ?? null,
     engaging: () => engaging.value,
-    // a raid or Arena session holds the run, its gate included, until the player leaves it
-    replayOpen: () => fight.value !== null || raidRound.value !== null || arenaRound.value !== null || loadoutSession.value !== null,
+    // a raid or Arena session holds the run, its gate included, until the player leaves it; the welcome-back card until it is put away
+    replayOpen: () => fight.value !== null || raidRound.value !== null || arenaRound.value !== null || loadoutSession.value !== null || welcome.value !== null,
     engage: () => runFightAt(true)
 })
 
-/**
- * The four headline stats, paired with the glossary entry that explains each.
- *
- * The screen shows *derived* values — Health rather than Vitality, Crit rather than Luck — so the
- * pairing is explicit rather than a key lookup: a player reading "Health" wants to be told about
- * the stat that produces it.
- */
-const statTiles = computed(() => {
-    const stats = liveHero.value?.stats
-    if (!stats) return []
-    return [
-        { label: 'Power', value: formatHq(stats.pwr), doc: HQ_STAT_DOC_BY_KEY.pwr! },
-        { label: 'Defence', value: formatHq(stats.def), doc: HQ_STAT_DOC_BY_KEY.def! },
-        { label: 'Health', value: formatHq(stats.maxHp), doc: HQ_STAT_DOC_BY_KEY.vit! },
-        { label: 'Crit', value: `${Math.round(stats.critChance * 100)}%`, doc: HQ_STAT_DOC_BY_KEY.lck! }
-    ]
-})
+/** A duration on the stage's font: "6H 2M". */
+function stageDuration(seconds: number): string {
+    return formatSeconds(Math.max(0, seconds)).toUpperCase()
+}
 
 /**
- * Only worth showing when the player was actually away — an online settle covers ~60s and
- * banking three kills is not news.
+ * The welcome-back card: what the last stretch away banked, held until it is put away. It waits
+ * for the battle, so a fight, a round or another popup never sits under it.
  */
-const awayReport = computed(() => {
-    const report = settled.value
-    if (!report || report.online || report.kills <= 0) return null
-    return report
+const welcomeView = computed<WelcomeView | null>(() => {
+    const r = welcome.value
+    if (!r || props.scene !== 'battle' || fight.value || raidRound.value || arenaRound.value || raidReward.value || arenaResult.value) return null
+    const notes: WelcomeNote[] = []
+    const o = r.offline
+    const lostToCap = o ? Math.max(0, r.awaySeconds - o.capSeconds) : 0
+    if (lostToCap > 0) notes.push({ text: `OFFLINE CAP ${stageDuration(o!.capSeconds)}: ${stageDuration(lostToCap)} NOT COUNTED`, tone: 'bad' })
+    if (o && o.efficiency < 1) notes.push({ text: `OFFLINE EFFICIENCY ${Math.round(o.efficiency * 100)}%`, tone: 'warn' })
+    if (o && o.boostedSeconds > 0) notes.push({ text: `BATTLE SPEED ×${o.boostMultiplier} FOR ${stageDuration(o.boostedSeconds)}`, tone: 'info' })
+    if (r.blockedAtBoss) notes.push({ text: 'PARKED AT THE BOSS, READY TO FIGHT', tone: 'warn' })
+    if (r.wipedOnWave) notes.push({ text: 'THE PARTY KEEPS FALLING ON THIS WAVE', tone: 'bad' })
+    // the Shop's offline tracks, once it is open and while they still have a level to give
+    if (o && shownFeatures.value.includes('shop')) {
+        const cap = lostToCap > 0 && o.capLevel < MAX_OFFLINE_CAP_LEVEL
+        const efficiency = o.efficiency < 1 && o.efficiencyLevel < MAX_OFFLINE_EFFICIENCY_LEVEL
+        if (cap || efficiency) {
+            const what = cap && efficiency ? 'OFFLINE CAP AND EFFICIENCY' : cap ? 'OFFLINE CAP' : 'OFFLINE EFFICIENCY'
+            notes.push({ text: `RAISE THE ${what} IN THE SHOP`, tone: 'good' })
+        }
+    }
+    const moved = r.from.world !== r.to.world || r.from.stage !== r.to.stage
+    return {
+        away: stageDuration(r.awaySeconds),
+        counted: stageDuration(r.effectiveSeconds),
+        gold: `+${formatNumber(r.goldEarned)}`,
+        xp: `+${formatHq(D(r.xpEarned).floor())}`,
+        kills: `${formatNumber(r.kills)} KILLS`,
+        level: r.levelsGained > 0 ? `LEVEL ${r.heroLevel - r.levelsGained} > ${r.heroLevel}` : null,
+        stage: moved ? `WORLD ${r.from.world} STAGE ${r.from.stage} > WORLD ${r.to.world} STAGE ${r.to.stage}` : null,
+        notes
+    }
 })
+
+function closeWelcome() {
+    welcome.value = null
+}
 </script>
 
 <template>
@@ -1681,17 +1721,6 @@ const awayReport = computed(() => {
 
     <!-- Founding is explicit, on the splash (`HeroQuestSplash`), so a run never starts behind the player's back. -->
     <template v-else-if="initialized && liveRun && liveHero">
-      <UAlert
-        v-if="awayReport && scene === 'battle'"
-        color="primary"
-        variant="subtle"
-        icon="i-lucide-moon"
-        title="While you were away"
-        :description="`${formatNumber(awayReport.kills)} kills over ${formatSeconds(awayReport.effectiveSeconds)} of counted time — ${formatNumber(awayReport.goldEarned)} gold`
-          + (awayReport.levelsGained > 0 ? `, ${awayReport.levelsGained} level${awayReport.levelsGained === 1 ? '' : 's'}` : '')
-          + (awayReport.blockedAtBoss ? '. Your run is parked at a boss.' : '.')"
-      />
-
       <!-- A prestige under way holds the bridge up, so the party finishes the walk. -->
       <template v-if="showGate && (scene === 'battle' || holdGate)">
         <HeroQuestPrestigeGate
@@ -1699,6 +1728,7 @@ const awayReport = computed(() => {
           :pending="prestiging"
           :crossing="crossing"
           :earned="earnedShards"
+          :reward="formatHq(nextPrestigeReward)"
           :menu-scenes="menuScenes"
           :guide="guideView"
           @begin="beginAgain"
@@ -1706,9 +1736,6 @@ const awayReport = computed(() => {
           @scene="onScene"
           @guide-next="onGuideNext"
         />
-        <p class="text-center text-sm text-muted">
-          Begin again at World 1 for {{ formatHq(nextPrestigeReward) }} Void Shards. Your hero keeps every level.
-        </p>
       </template>
 
       <template v-else>
@@ -1758,6 +1785,7 @@ const awayReport = computed(() => {
           :holiday-gift="holidayGift"
           :holiday-reveal="holidayReveal"
           :raid-reward="raidReward"
+          :welcome="welcomeView"
           :arena="arenaView"
           :arena-round="arenaRound"
           :arena-result="arenaResult"
@@ -1765,7 +1793,6 @@ const awayReport = computed(() => {
           :classes="classesView"
           :classes-busy="classesBusy"
           @fight-progress="fightProgress = $event"
-          @pack="stagePack = $event"
           @challenge="onEngage"
           @scene="onScene"
           @collection-tab="openCollectionTab"
@@ -1789,157 +1816,18 @@ const awayReport = computed(() => {
           @raid-quick="onRaidQuick"
           @raid-loadout="onRaidLoadout"
           @raid-reward-close="closeRaidReward"
+          @welcome-close="closeWelcome"
           @arena-action="onArenaAction"
           @arena-tab="onArenaTab"
           @arena-result-close="closeArenaResult"
           @party-stats-open="openPartyStats"
           @party-stats-close="closePartyStats"
+          @party-stats-cell="partyStatCell = $event"
+          @party-stats-back="partyStatCell = null"
           @pick-class="onPickClass"
           @set-ascendant-kit="onSetAscendantKit"
         />
       </template>
-
-      <!-- Hidden rather than unmounted under a scene: the fight panel closes every fight on its own timer. -->
-      <div
-        v-show="scene === 'battle' && !showGate"
-        class="space-y-6"
-      >
-        <!-- A boss fight takes the readout's place while the stage plays it. -->
-        <HeroQuestBossFightPanel
-          v-if="fight"
-          :fight="fight"
-          :enemy-name="fightBoss.name"
-          :boss-timer-seconds="fightBoss.timer"
-          :time="fightProgress.time"
-          :done="fightProgress.done"
-          auto-close
-          @skip="battleCanvas?.skipFight()"
-          @close="fight = null"
-        />
-
-        <HeroQuestBattleView
-          v-else
-          :run="liveRun"
-          :pack="stagePack"
-        />
-
-        <!--
-          Not on a cleared run: the World 10 super boss stays parked on its gate after it falls, and
-          the server rejects a re-fight there. The battle view already points the player at prestige.
-        -->
-        <div
-          v-if="(liveRun.atBossGate || liveRun.farming) && !liveRun.runCleared && !fight"
-          class="flex justify-center"
-        >
-          <UButton
-            size="lg"
-            color="error"
-            icon="i-lucide-swords"
-            :loading="engaging"
-            @click="onEngage"
-          >
-            Fight {{ liveRun.enemyName }}
-          </UButton>
-        </div>
-      </div>
-
-      <div
-        v-show="scene === 'battle'"
-        class="rounded-lg border border-default bg-elevated/40 p-4"
-      >
-        <div class="flex items-center justify-between mb-3">
-          <span class="font-medium text-highlighted">{{ liveHero.className }}</span>
-          <span class="text-sm text-muted">Level {{ liveHero.level }}</span>
-        </div>
-
-        <!--
-          The payload's power, not a projection: it needs the full snapshot, which only the
-          server has. It moves when the next payload lands — every poll, pull, equip and level
-          the server has settled.
-        -->
-        <HeroQuestGlobalPower
-          v-if="hero?.power"
-          class="mb-4"
-          :gpn="hero.power.gpn"
-          :dps="hero.power.dps"
-          :ehp="hero.power.ehp"
-        />
-
-        <div class="mb-4">
-          <div class="flex items-center justify-between text-xs text-muted mb-1">
-            <span>Experience</span>
-            <span>{{ formatHq(liveHero.xp) }} / {{ formatHq(liveHero.xpToNextLevel) }}</span>
-          </div>
-          <UProgress
-            :model-value="liveHero.xpProgress * 100"
-            size="sm"
-          />
-        </div>
-
-        <!--
-          Each tile carries its own explanation (session-1 playtest, finding 6). The text comes
-          from `HQ_STAT_DOCS`, the same table the wiki renders, so the tooltip and the wiki page
-          can never describe a stat differently.
-        -->
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-xs text-muted">Stats</span>
-          <UButton
-            size="xs"
-            variant="ghost"
-            color="neutral"
-            icon="i-lucide-list-tree"
-            @click="breakdownOpen = true"
-          >
-            Breakdown
-          </UButton>
-        </div>
-
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-          <div
-            v-for="tile in statTiles"
-            :key="tile.label"
-          >
-            <div class="text-xs text-muted flex items-center gap-0.5">
-              {{ tile.label }}
-              <HeroQuestInfoTip
-                :title="tile.doc.name"
-                :body="tile.doc.short"
-                :formula="tile.doc.formula"
-                to="/hero-quest/wiki/combat"
-              />
-            </div>
-            <div class="font-medium text-highlighted">
-              {{ tile.value }}
-            </div>
-          </div>
-        </div>
-
-        <div class="mt-4 pt-3 border-t border-default">
-          <p class="text-xs text-muted mb-1.5 flex items-center gap-0.5">
-            Skills — every one fires the moment its cooldown ends
-            <HeroQuestInfoTip
-              title="Auto-cast"
-              body="There is no cast button anywhere in the game. Every skill on every unit fires
-                the instant its cooldown ends, so equipping one is a build decision rather than an
-                input you have to keep making."
-              to="/hero-quest/wiki"
-            />
-          </p>
-          <div class="flex flex-wrap gap-1.5">
-            <UBadge
-              v-for="skill in liveHero.skills"
-              :key="skill.id"
-              color="neutral"
-              variant="subtle"
-            >
-              {{ skill.name }}
-            </UBadge>
-          </div>
-        </div>
-      </div>
     </template>
-
-    <HeroQuestStatBreakdown v-model:open="breakdownOpen" />
-
   </div>
 </template>

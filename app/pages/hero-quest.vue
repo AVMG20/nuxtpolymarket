@@ -41,7 +41,7 @@ function openScene(next: HqScene) {
  * a session has ended (`useHqSession`). Nothing behind it mounts, so no battle plays and no boss
  * engages while it waits. Dev and Art stay reachable: the harness has to work without a run.
  */
-const { gate, away, start, begin } = useHqSession()
+const { gate, start, begin } = useHqSession()
 const { hero, guild } = useHeroQuest()
 
 /** The splash stands the save's party: the Hero's class and the Champions fielded, each on its row. The Beginner alone without one. */
@@ -92,7 +92,6 @@ async function enter(action: () => Promise<void>) {
   <HeroQuestSplash
     v-if="showSplash"
     :mode="gate === 'open' ? 'start' : gate"
-    :away="away"
     :pending="entering || leaving"
     :party="splashParty"
     :leaving="leaving"

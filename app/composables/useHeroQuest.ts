@@ -1,5 +1,6 @@
 import type { FightEvent, FightOutcome } from '#shared/utils/hero-quest/fight'
 import type { HqSettingKey } from '#shared/utils/hero-quest/settings'
+import type { OfflineWindow, RunPosition } from '#shared/utils/hero-quest/types'
 import { HQ_SESSION_TIMEOUT_MS } from '#shared/utils/hero-quest/constants'
 
 /**
@@ -65,6 +66,24 @@ export interface ArenaRound {
     enemyMaxHps: string[]
 }
 
+/** What a read's settle banked (`state.get.ts` `settled`): the welcome-back card's source. */
+export interface HqAwayReport {
+    online: boolean
+    kills: number
+    goldEarned: number
+    xpEarned: string
+    levelsGained: number
+    /** The Hero's level the window ended on. */
+    heroLevel: number
+    effectiveSeconds: number
+    blockedAtBoss: boolean
+    wipedOnWave: boolean
+    awaySeconds: number
+    offline: OfflineWindow | null
+    from: RunPosition
+    to: RunPosition
+}
+
 /** How recent a read the next component to mount reuses rather than settling again. */
 const STATE_REUSE_MS = 5_000
 
@@ -95,8 +114,11 @@ export const useHeroQuest = () => {
      */
     const sessionActive = useState<boolean | null>('hq-session-active', () => null)
     const sessionResuming = useState('hq-session-resuming', () => false)
-    /** The report of the read that ended the session, for the splash: a later read replaces `settled`. */
-    const sessionAway = useState<unknown>('hq-session-away', () => null)
+    /**
+     * The last read that settled real time away and banked something, for the stage's welcome-back
+     * card. Held apart from `settled`, which the next read replaces, until the player puts it away.
+     */
+    const welcome = useState<HqAwayReport | null>('hq-welcome', () => null)
     /** When this app last read the state: a read is a settle, a write, so a second one moments later reuses it. */
     const fetchedAt = useState('hq-state-fetched-at', () => 0)
 
@@ -106,9 +128,11 @@ export const useHeroQuest = () => {
         // The layout and the tab both hold the state; only the first to mount reads it.
         getCachedData: (key, nuxtApp, context) => reuseRecentRead(key, nuxtApp, context, fetchedAt.value),
         onResponse({ response }) {
-            const payload = response._data as { initialized?: boolean, awaySeconds?: number, settled?: unknown } | undefined
+            const payload = response._data as { initialized?: boolean, awaySeconds?: number, settled?: HqAwayReport | null } | undefined
             if (!payload) return
             fetchedAt.value = Date.now()
+            const report = payload.settled
+            if (report && !report.online && (report.kills > 0 || report.wipedOnWave)) welcome.value = report
             if (!payload.initialized) {
                 sessionActive.value = false
             } else if (sessionResuming.value) {
@@ -117,7 +141,6 @@ export const useHeroQuest = () => {
                 sessionActive.value = true
             } else if ((payload.awaySeconds ?? 0) * 1000 > HQ_SESSION_TIMEOUT_MS) {
                 sessionActive.value = false
-                sessionAway.value = payload.settled ?? null
             } else if (sessionActive.value === null) {
                 sessionActive.value = true
             }
@@ -657,6 +680,7 @@ export const useHeroQuest = () => {
         voidShards,
         nextPrestigeReward,
         settled,
+        welcome,
         serverNow,
         atBossGate,
         walled,
