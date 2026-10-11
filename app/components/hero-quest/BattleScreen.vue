@@ -236,6 +236,17 @@ const collections = computed(() => {
     return { tab, entries, essence: formatNumber(essence) }
 })
 
+/**
+ * Something in any tab can be upgraded: an owned entry whose next level the Essence covers, or
+ * owned Gear that beats what its slot wears. Dots the Collections button.
+ */
+const collectionsUpgrade = computed(() => {
+    const levelable = (g: { essence: number, roster: readonly { owned: boolean, maxed: boolean, craftCost: number }[] } | null) =>
+        !!g?.roster.some(e => e.owned && !e.maxed && g.essence >= e.craftCost)
+    if ([forge.value, guild.value, training.value, digSite.value].some(levelable)) return true
+    return collectionTiles('gear').some(e => e.upgrade)
+})
+
 function openCollectionTab(tab: HqCollectionTab) {
     void navigateTo(hqCollectionTabPath(tab))
 }
@@ -1733,6 +1744,7 @@ const awayReport = computed(() => {
           :milestones="milestonesView"
           :menu-scenes="menuScenes"
           :new-scenes="newScenes"
+          :collections-upgrade="collectionsUpgrade"
           :guide="guideView"
           :milestones-busy="milestonesBusy"
           :traits="traitsView"

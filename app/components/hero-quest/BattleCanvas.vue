@@ -149,6 +149,8 @@ const props = defineProps<{
     menuScenes?: readonly HqMenuScene[]
     /** Scenes opened and not visited yet: their buttons carry the red dot until they are. */
     newScenes?: readonly HqMenuScene[]
+    /** Something in Collections can be levelled or beats what is worn: its button carries the red dot. */
+    collectionsUpgrade?: boolean
     /** The guide's dialog, while a tutorial is due. */
     guide?: GuideView | null
     /** The Traits scene: the board, the Sets and the save slots. */
@@ -1119,10 +1121,13 @@ function milestoneRowOf(target: string) {
     return props.milestones?.rows[Number(target.slice(7))]
 }
 const guideHover = computed<GuideTarget | null>(() => hover.value === 'guide:next' ? hover.value : null)
-/** The band's red dots: a scene opened and not visited yet, today's calendar reward, or a milestone step waiting. */
+/** The band's red dots: a scene opened and not visited yet, today's calendar reward, a milestone step, a free pull, an upgrade or a tree node waiting. */
 const bandAlerts = computed<ReadonlySet<HqMenuScene>>(() => new Set<HqMenuScene>([
     ...(props.newScenes ?? []),
     ...(calendarWaiting.value || milestonesWaiting.value ? ['calendar' as const] : []),
+    ...(props.gacha?.banners.some(b => b.free.state === 'ready') ? ['gacha' as const] : []),
+    ...(props.collectionsUpgrade ? ['collections' as const] : []),
+    ...(props.tree?.nodes.some(n => n.block === null) ? ['tree' as const] : []),
     // a season's rank reward waiting to be claimed
     ...(props.arena?.rewards.length ? ['arena' as const] : [])
 ]))
