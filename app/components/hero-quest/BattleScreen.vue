@@ -587,8 +587,9 @@ function pullPrice(system: GachaSystemId, g: { seals: number, singleCost: number
 }
 
 /**
- * A spend of a hard-won currency waits for a second press: Gold on a pull's Seals, Void Shards in
- * the shop. Each is keyed by what was pressed, and either confirm can be turned off in Settings.
+ * A spend of a hard-won currency waits for a second press: Gold on a pull's Seals, Void Shards or
+ * Gems in the shop, Gems on Battle Speed and in the Arena. Each is keyed by what was pressed, and
+ * each currency's confirm can be turned off in Settings.
  */
 const confirm = useHqConfirm()
 const gachaArmed = computed<GachaView['armed']>(() => {
@@ -850,6 +851,7 @@ const arenaView = computed<Omit<ArenaView, 'tab' | 'page' | 'pickerOpen' | 'rewa
         refreshPrice: a?.refreshes.nextPrice ?? 0,
         refreshesLeft: a ? Math.max(0, a.refreshes.free - a.refreshes.used) : 0,
         gems: user.value?.gems ?? 0,
+        armed: confirm.armed.value?.startsWith('arena:') ? confirm.armed.value.slice(6) as 'refresh' | 'buy-attempt' : null,
         rewards: a?.unclaimed ?? [],
         candidates: arenaCandidates.value?.map(c => ({
             slot: c.slot,
@@ -946,6 +948,11 @@ const arenaResult = ref<ArenaResultView | null>(null)
 let arenaOutcome: ArenaResultView | null = null
 
 async function onArenaAction(target: ArenaTarget) {
+    // a refresh or an attack paid in Gems waits for a second press, unless that is turned off in Settings
+    const view = arenaView.value
+    const price = target === 'refresh' ? view.refreshPrice : target === 'buy-attempt' ? view.attemptPrice : 0
+    if (price > 0 && (settings.value?.confirmGemSpends ?? true) && !confirm.press(`arena:${target}`)) return
+    confirm.clear()
     arenaBusy.value = true
     try {
         if (target.startsWith('attack:')) await startArenaAttack(Number(target.slice(7)))
@@ -1344,7 +1351,7 @@ const armedSpeed = computed(() => {
 
 async function onBuySpeed(speed: number, minutes: number) {
     // a block paid in Gems waits for a second press, unless that is turned off in Settings
-    if ((settings.value?.confirmGemSpeed ?? true) && !confirm.press(`speed:${speed}:${minutes}`)) return
+    if ((settings.value?.confirmGemSpends ?? true) && !confirm.press(`speed:${speed}:${minutes}`)) return
     confirm.clear()
     speedBusy.value = true
     try {
@@ -1357,9 +1364,10 @@ async function onBuySpeed(speed: number, minutes: number) {
 }
 
 async function onShopBuy(upgradeId: string) {
-    // a track paid in Void Shards waits for a second press, unless that is turned off in Settings
+    // a track paid in Void Shards or Gems waits for a second press, unless that is turned off in Settings
     const track = shop.value?.find(t => t.id === upgradeId)
-    const asks = track?.currency === 'voidShards' && (settings.value?.confirmVoidShards ?? true)
+    const setting = track?.currency === 'voidShards' ? 'confirmVoidShards' : track?.currency === 'gems' ? 'confirmGemSpends' : null
+    const asks = !!setting && (settings.value?.[setting] ?? true)
     if (asks && !confirm.press(`shop:${upgradeId}`)) return
     confirm.clear()
     prestigeBusy.value = true

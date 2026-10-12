@@ -94,6 +94,8 @@ export interface ArenaView {
     refreshPrice: number
     refreshesLeft: number
     gems: number
+    /** A Gem spend pressed once and waiting for the press that confirms it. */
+    armed: 'refresh' | 'buy-attempt' | null
     /** Finished seasons' rewards waiting to be claimed. */
     rewards: readonly { season: number, rank: number, medals: number }[]
     /** Null while the list loads. */
@@ -479,8 +481,10 @@ export class ArenaScene {
         drawText(s, 'ATTACKS', P.x + P.w - 10 - textWidth(count), lb.y + 4, C.stone3, { align: 2, shadow: 1 })
 
         const f = fightFooter(view, s.h)
-        plateButton(s, f.buy, buyAttemptLabel(view), PURPLE, enabled('buy-attempt'), lit('buy-attempt'), pressed)
-        plateButton(s, f.refresh, refreshLabel(view), BLUE, enabled('refresh'), lit('refresh'), pressed)
+        // armed, a button turns gold and asks; its box stays sized by its own label, so the second press lands
+        const armed = (t: 'refresh' | 'buy-attempt') => view.armed === t
+        plateButton(s, f.buy, armed('buy-attempt') ? 'CONFIRM' : buyAttemptLabel(view), armed('buy-attempt') ? GOLD : PURPLE, enabled('buy-attempt'), lit('buy-attempt') || armed('buy-attempt'), pressed)
+        plateButton(s, f.refresh, armed('refresh') ? 'CONFIRM' : refreshLabel(view), armed('refresh') ? GOLD : BLUE, enabled('refresh'), lit('refresh') || armed('refresh'), pressed)
         if (view.pickerOpen) this.drawPicker(s, view, lit)
     }
 

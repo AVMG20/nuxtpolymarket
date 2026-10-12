@@ -1086,7 +1086,7 @@ const gachaHover = computed<GachaHover>(() => {
 const arenaTab = ref<HqArenaTab>('fight')
 const arenaPage = ref(0)
 const ARENA_EMPTY: Omit<ArenaView, 'tab' | 'page' | 'pickerOpen' | 'rewardsOpen'> = {
-    busy: false, rating: 0, medals: 0, season: 1, seasonLeft: '', attemptsLeft: 0, attemptsFree: 0, attemptPrice: 0, refreshPrice: 0, refreshesLeft: 0,
+    busy: false, rating: 0, medals: 0, season: 1, seasonLeft: '', attemptsLeft: 0, attemptsFree: 0, attemptPrice: 0, refreshPrice: 0, refreshesLeft: 0, armed: null,
     gems: 0, rewards: [], candidates: null, defense: null, shop: [], log: null, board: null,
     loadout: null, loadoutLive: false, loadoutSlot: null, loadoutOptions: []
 }
