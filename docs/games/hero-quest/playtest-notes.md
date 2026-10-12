@@ -47,10 +47,15 @@ The campaign sim (`bun run sim:hero-quest --report=campaign`) projects the run b
 | Total time | 10d 11h — 2h 38m fighting | 10d 13h — 3h 31m fighting |
 | Gold earned | 147,254 | 311,851 |
 | Live Gold/hr from W1S1, level 1 | ~530 (2.72s/kill) | ~1.2K (1.21s/kill) |
+| **Gold/hr at day 1 / 3 / 7** (2026-10-12) | 11.3K / 23K / 48K | 25.5K / 51K / 216K |
+| **Share of platform, first week** (2026-10-12) | ~7% | ~24% (it was 0.07%) |
+| **First Gold Seal** (2026-10-12) | day 3 | day 2 |
 | One-hour online settle, fresh account | reaches level 52, parked at the W1S5 boss | reaches level 68, parked at the W1S5 boss |
 | Level to clear the first loop | 524 | 494 |
 
-**What the sim says the week should feel like:** fights are short and nearly constant in length per world (~10–22 min of fighting per world); everything else is waiting in front of Stage 5 and Stage 10 gates, from under an hour in World 1–2 to about two days in World 10. Bosses fire on their own while the tab is visible. Elite waves can wipe a solo account in World 1 without costing ground. Gold is small — the ceiling does not bind at P0 (`open-items.md` #23.3).
+**What the sim says the week should feel like:** fights are short and nearly constant in length per world (~10–22 min of fighting per world); everything else is waiting in front of Stage 5 and Stage 10 gates, from under an hour in World 1–2 to about two days in World 10. Bosses fire on their own while the tab is visible. Elite waves can wipe a solo account in World 1 without costing ground. ~~Gold is small — the ceiling does not bind at P0~~ **Gold is about a quarter of the platform's first-week income for a party of three** (`build-log.md` #23, decided from the sim 2026-10-12; the next session confirms it): enough to buy a Seal by day 2 and the Shop's first offline levels on day one.
+
+⚠ **The rows above the 2026-10-12 ones are as of 2026-09-15 and the walk has moved since** — at 2026-10-12 a party of three walls at P0 W10S10 (level 472, needs 502) after 9d 20h with 151,074 Gold before the Gold retune and 37,202,074 after, and makes its first prestige at ~13 days on a 200-hour budget (`open-items.md` #36); solo walls at P0 W8S10 (level 394, needs 425) after 9d 17h, 107,942 → 9,444,030 Gold. Recorded, not refreshed: the rest of the table wants re-running with the pacing pass.
 
 <details><summary>Earlier baselines</summary>
 
