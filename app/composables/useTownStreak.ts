@@ -148,7 +148,7 @@ export const useTownStreak = () => {
         }
     }
 
-    /** Collect everything unclaimed and start a new run at day 1. Only for a broken or finished track. */
+    /** Collect everything unclaimed and start a new run at day 1. Only for a finished track. */
     async function reset(opts: { deferWallet?: boolean } = {}): Promise<TownStreakResetResult | null> {
         if (resetting.value || claiming.value !== null) return null
         resetting.value = true

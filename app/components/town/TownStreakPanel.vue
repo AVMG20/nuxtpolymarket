@@ -115,7 +115,6 @@ function fixedGood(p: TownStreakPreview): { id: string, qty: number } | null {
 
 const statusTag = computed(() => {
     switch (status.value) {
-        case 'broken': return { cls: 'g-tag-red', icon: 'i-lucide-heart-crack', text: 'Streak broken' }
         case 'finished': return { cls: 'g-tag-gold', icon: 'i-lucide-crown', text: 'Track complete' }
         default: return { cls: 'g-tag-green', icon: 'i-lucide-flame', text: 'On a roll' }
     }
@@ -354,12 +353,9 @@ onBeforeUnmount(() => {
             <div class="g-progress sk-progress"><i :class="{ ok: status === 'finished' }" :style="{ width: `${progressPct}%` }" /></div>
 
             <div v-if="canReset" class="sk-banner" :class="`is-${status}`">
-                <UIcon :name="status === 'broken' ? 'i-lucide-heart-crack' : 'i-lucide-trophy'" class="sk-banner-icon" />
+                <UIcon name="i-lucide-trophy" class="sk-banner-icon" />
                 <div class="min-w-0 flex-1">
-                    <p v-if="!confirming && status === 'broken'">
-                        You missed a day, so the streak stopped at day {{ step }}. Reset it to start again from day 1.
-                    </p>
-                    <p v-else-if="!confirming">
+                    <p v-if="!confirming">
                         All {{ TOWN_STREAK_DAYS }} days unlocked. Reset to start a new run.
                     </p>
                     <template v-else>
@@ -368,8 +364,6 @@ onBeforeUnmount(() => {
                             <template v-if="claimableCount">
                                 Your {{ claimableCount }} unclaimed {{ claimableCount === 1 ? 'day is' : 'days are' }} collected for you first, chests included.
                             </template>
-                            <!-- A track finished today has already used today, so its day 1 can be tomorrow. -->
-                            <template v-if="status === 'broken'">Today counts as day 1 of the new run.</template>
                         </p>
                         <div class="sk-confirm">
                             <button class="g-btn g-btn-primary g-btn-sm" :disabled="resetting" @click="onReset">
@@ -511,10 +505,8 @@ onBeforeUnmount(() => {
     color: var(--g-text-2);
 }
 .sk-banner b { color: var(--g-text); }
-.sk-banner.is-broken { background: var(--g-red-bg); border-color: color-mix(in srgb, var(--g-red) 35%, transparent); }
 .sk-banner.is-finished { background: var(--g-gold-bg); border-color: color-mix(in srgb, var(--g-gold) 40%, transparent); }
 .sk-banner-icon { flex-shrink: 0; font-size: 18px; margin-top: 1px; }
-.sk-banner.is-broken .sk-banner-icon { color: var(--g-red); }
 .sk-banner.is-finished .sk-banner-icon { color: var(--g-gold); }
 .sk-confirm { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 

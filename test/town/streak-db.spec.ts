@@ -4,7 +4,7 @@ import { db } from '#server/database'
 import { townStreak, user } from '#server/database/schema'
 import { deleteTownForUser, foundTown } from '#server/utils/town'
 import { claimTownStreakStep, getTownStreak, resetTownStreak } from '#server/utils/town-streak'
-import { TOWN_STREAK_CHESTS, getTownStreakStep, townStreakBit, townStreakDayKey, townStreakYesterday } from '#shared/utils/gamelogic/town-streak'
+import { TOWN_STREAK_CHESTS, TOWN_STREAK_DAYS, getTownStreakStep, townStreakBit, townStreakDayKey, townStreakYesterday } from '#shared/utils/gamelogic/town-streak'
 import { SKIP, burst, cleanupUser, lockTownRealm, seedUser } from '../setup/db-helpers'
 
 const OWNER = 'test-town-streak-owner'
@@ -14,6 +14,13 @@ function gemsOn(step: number) {
     return def?.kind === 'gems' ? def.gems : 0
 }
 const DAY4_GEMS = gemsOn(4)
+
+/** Claimed mask with every step from `step` to 30 set, so only the ones before it are left. */
+function claimedFrom(step: number) {
+    let mask = 0
+    for (let s = step; s <= TOWN_STREAK_DAYS; s++) mask |= townStreakBit(s)
+    return mask
+}
 
 async function cleanup() {
     await db.delete(townStreak).where(eq(townStreak.userId, OWNER))
@@ -49,7 +56,7 @@ describe.skipIf(SKIP)('Polytown mayor streak (database)', () => {
         expect((await streakRow()).step).toBe(1)
     })
 
-    it('advances once on the next day and breaks after a missed one', async () => {
+    it('advances once on the next day, and once after missed days', async () => {
         const today = townStreakDayKey(Date.now())
         await getTownStreak(OWNER)
         await db.update(townStreak).set({ step: 4, lastDay: townStreakYesterday(today) }).where(eq(townStreak.userId, OWNER))
@@ -62,9 +69,10 @@ describe.skipIf(SKIP)('Polytown mayor streak (database)', () => {
         expect(advanced.locked['5']?.reward).toBeDefined()
 
         await db.update(townStreak).set({ lastDay: townStreakYesterday(townStreakYesterday(today)) }).where(eq(townStreak.userId, OWNER))
-        const broken = await getTownStreak(OWNER)
-        expect(broken.initialized && broken.status).toBe('broken')
-        expect((await streakRow()).step).toBe(5)
+        const late = await Promise.all(Array.from({ length: 8 }, () => getTownStreak(OWNER)))
+        expect(late.filter(r => r.initialized && r.advancedToday)).toHaveLength(1)
+        expect(late[0]!.initialized && late[0]!.status).toBe('active')
+        expect((await streakRow()).step).toBe(6)
     })
 
     it('pays a claimed step once under a burst', async () => {
@@ -95,11 +103,11 @@ describe.skipIf(SKIP)('Polytown mayor streak (database)', () => {
         await expect(claimTownStreakStep(OWNER, 0)).rejects.toMatchObject({ statusCode: 400 })
     })
 
-    it('resets a broken track once, paying every unclaimed step', async () => {
+    it('resets a finished track once, paying every unclaimed step', async () => {
         await getTownStreak(OWNER)
         const today = townStreakDayKey(Date.now())
         await db.update(townStreak)
-            .set({ step: 10, lastDay: townStreakYesterday(townStreakYesterday(today)), claimed: townStreakBit(1) })
+            .set({ step: 30, lastDay: townStreakYesterday(townStreakYesterday(today)), claimed: claimedFrom(1) })
             .where(eq(townStreak.userId, OWNER))
         await expect(resetTownStreak(OWNER).then(() => null)).resolves.toBeNull()
         const row = await streakRow()
@@ -107,7 +115,7 @@ describe.skipIf(SKIP)('Polytown mayor streak (database)', () => {
         expect(Object.keys(row.locked)).toEqual(['1'])
 
         await db.update(townStreak)
-            .set({ step: 10, lastDay: townStreakYesterday(townStreakYesterday(today)), claimed: 0 })
+            .set({ step: 30, lastDay: townStreakYesterday(townStreakYesterday(today)), claimed: claimedFrom(11) })
             .where(eq(townStreak.userId, OWNER))
         const before = await wallet()
         const { ok } = await burst(6, () => resetTownStreak(OWNER))
@@ -123,9 +131,9 @@ describe.skipIf(SKIP)('Polytown mayor streak (database)', () => {
     it('never pays a step to both a claim and a reset racing it', async () => {
         await getTownStreak(OWNER)
         const today = townStreakDayKey(Date.now())
-        // Days 1 to 6 hold gems only on day 4, and no chest.
+        // Days 1 to 6 are left unclaimed: they hold gems only on day 4, and no chest.
         await db.update(townStreak)
-            .set({ step: 6, lastDay: townStreakYesterday(townStreakYesterday(today)), claimed: 0 })
+            .set({ step: 30, lastDay: townStreakYesterday(townStreakYesterday(today)), claimed: claimedFrom(7) })
             .where(eq(townStreak.userId, OWNER))
         const before = await wallet()
         await Promise.allSettled([

@@ -73,33 +73,35 @@ describe('Mayor streak status', () => {
     it('advances on the first visit and on the day after the last unlock', () => {
         expect(townStreakDue(null, today)).toBe(true)
         expect(townStreakDue({ step: 3, lastDay: '2026-10-03' }, today)).toBe(true)
-        expect(townStreakStatus({ step: 3, lastDay: '2026-10-03' }, today)).toBe('active')
+        expect(townStreakStatus({ step: 3, lastDay: '2026-10-03' })).toBe('active')
     })
 
     it('does nothing on a second visit the same day', () => {
         expect(townStreakDue({ step: 3, lastDay: today }, today)).toBe(false)
-        expect(townStreakStatus({ step: 3, lastDay: today }, today)).toBe('active')
-        expect(townStreakCanReset({ step: 3, lastDay: today }, today)).toBe(false)
+        expect(townStreakStatus({ step: 3, lastDay: today })).toBe('active')
+        expect(townStreakCanReset({ step: 3, lastDay: today })).toBe(false)
     })
 
-    it('breaks after a missed day and never advances on its own', () => {
-        const row = { step: 5, lastDay: '2026-10-02' }
-        expect(townStreakStatus(row, today)).toBe('broken')
-        expect(townStreakDue(row, today)).toBe(false)
-        expect(townStreakCanReset(row, today)).toBe(true)
+    it('carries on after missed days, one step per visit', () => {
+        for (const lastDay of ['2026-10-02', '2026-08-01']) {
+            const row = { step: 5, lastDay }
+            expect(townStreakStatus(row)).toBe('active')
+            expect(townStreakDue(row, today)).toBe(true)
+            expect(townStreakCanReset(row)).toBe(false)
+        }
     })
 
     it('finishes at step 30, even when days were missed since', () => {
         for (const lastDay of [today, '2026-10-03', '2026-08-01']) {
             const row = { step: TOWN_STREAK_DAYS, lastDay }
-            expect(townStreakStatus(row, today)).toBe('finished')
+            expect(townStreakStatus(row)).toBe('finished')
             expect(townStreakDue(row, today)).toBe(false)
-            expect(townStreakCanReset(row, today)).toBe(true)
+            expect(townStreakCanReset(row)).toBe(true)
         }
     })
 
     it('cannot reset a track that does not exist yet', () => {
-        expect(townStreakCanReset(null, today)).toBe(false)
+        expect(townStreakCanReset(null)).toBe(false)
     })
 })
 

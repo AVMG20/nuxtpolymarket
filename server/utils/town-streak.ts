@@ -24,7 +24,6 @@ import {
     townStreakPreview,
     townStreakScale,
     townStreakStatus,
-    townStreakYesterday,
     type TownStreakLock,
     type TownStreakReward,
     type TownStreakStepDef,
@@ -43,7 +42,7 @@ async function readStreak(userId: string, ex: DbExecutor = db) {
 /**
  * Unlock today's step if it is due. Both writes are their own guard: the
  * insert only lands for the first visit ever, and the update only matches a
- * row whose last unlock was yesterday, so two tabs opening at once advance it
+ * row whose last unlock was before today, so two tabs opening at once advance it
  * once and only the request that wrote it reports `advanced`.
  */
 async function advanceStreak(userId: string, now: number, scale: TownStreakScale): Promise<{ row: StreakRow, advanced: boolean }> {
@@ -72,7 +71,7 @@ async function advanceStreak(userId: string, now: number, scale: TownStreakScale
             eq(townStreak.userId, userId),
             eq(townStreak.step, existing.step),
             lt(townStreak.step, TOWN_STREAK_DAYS),
-            or(eq(townStreak.lastDay, townStreakYesterday(today)), isNull(townStreak.lastDay))
+            or(lt(townStreak.lastDay, today), isNull(townStreak.lastDay))
         ))
         .returning()
     if (updated) return { row: updated, advanced: true }
@@ -107,11 +106,11 @@ export async function getTownStreak(userId: string) {
         initialized: true as const,
         day: today,
         step: row.step,
-        status: townStreakStatus(row, today),
+        status: townStreakStatus(row),
         cycle: row.cycle,
         claimedSteps: townStreakClaimedSteps(row.claimed),
         claimableSteps: townStreakClaimable(row.step, row.claimed),
-        canReset: townStreakCanReset(row, today),
+        canReset: townStreakCanReset(row),
         advancedToday: advanced,
         /** Lucky charges waiting: the next chest opened is one tier better. */
         lucky: row.lucky,
@@ -219,7 +218,7 @@ export async function claimTownStreakStep(userId: string, step: unknown) {
 }
 
 /**
- * Lock-then-read. Only a broken or finished track resets: the row is locked,
+ * Lock-then-read. Only a finished track resets: the row is locked,
  * re-checked inside the lock, every unclaimed step is paid, and the run starts
  * again with today as day 1 (tomorrow, if today unlocked day 30). A second
  * reset waits on the lock, then finds an active track and throws, so nothing
@@ -232,7 +231,7 @@ export async function resetTownStreak(userId: string) {
         const settled = await settleTownState(tx, userId, now)
         const [row] = await tx.select().from(townStreak).where(eq(townStreak.userId, userId)).for('update')
         if (!row) throw createError({ statusCode: 400, statusMessage: 'No streak to reset' })
-        if (!townStreakCanReset(row, today)) throw createError({ statusCode: 400, statusMessage: 'The streak is still running' })
+        if (!townStreakCanReset(row)) throw createError({ statusCode: 400, statusMessage: 'The streak is still running' })
 
         const scale = townStreakScale(settled.sim, settled.state.happiness, now)
         // One step at a time, so a lucky charge or instant finish from one chest is there for the next.

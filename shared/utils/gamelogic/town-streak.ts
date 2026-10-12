@@ -1,9 +1,9 @@
 // Polytown Mayor streak: a 30-day login track.
 //
-// Each new UTC day the mayor opens Polytown unlocks the next step. Steps are
-// claimed by hand, any time later. Miss a day and the track breaks: it stops
-// advancing until the mayor resets it. Step 30 finishes it the same way.
-// Resetting pays out every step still unclaimed and starts again at day 1.
+// Each UTC day the mayor opens Polytown unlocks the next step, at most one a
+// day. Missed days cost nothing: the track picks up where it left off. Steps
+// are claimed by hand, any time later. Step 30 finishes the track, and
+// resetting it pays out every step still unclaimed and starts again at day 1.
 //
 // Coins and goods scale with the town, so the track is worth opening for a
 // new village and for a city alike. Gems are fixed and kept scarce: a whole
@@ -61,38 +61,31 @@ export function townStreakNextDayAt(ms: number): number {
 
 // ─── Status ──────────────────────────────────────────────────────────────────
 
-export type TownStreakStatus = 'active' | 'broken' | 'finished'
+export type TownStreakStatus = 'active' | 'finished'
 
 export interface TownStreakRow {
     step: number
     lastDay: string | null
 }
 
-/**
- * Active while the mayor has not missed a day. Broken once the last unlock is
- * older than yesterday. Finished at step 30. Neither broken nor finished ever
- * changes on its own: only a reset starts a new run.
- */
-export function townStreakStatus(row: TownStreakRow | null | undefined, today: string): TownStreakStatus {
+/** Active until step 30, then finished until the mayor resets it. */
+export function townStreakStatus(row: TownStreakRow | null | undefined): TownStreakStatus {
     if (!row) return 'active'
-    if (row.step >= TOWN_STREAK_DAYS) return 'finished'
-    if (!row.lastDay) return 'active'
-    if (row.lastDay === today || row.lastDay === townStreakYesterday(today)) return 'active'
-    return 'broken'
+    return row.step >= TOWN_STREAK_DAYS ? 'finished' : 'active'
 }
 
-/** Whether opening the town today unlocks the next step. */
+/** Whether opening the town today unlocks the next step: once a day, however long since the last. */
 export function townStreakDue(row: TownStreakRow | null | undefined, today: string): boolean {
     if (!row) return true
     if (row.step >= TOWN_STREAK_DAYS) return false
     if (!row.lastDay) return true
-    return row.lastDay === townStreakYesterday(today)
+    return row.lastDay < today
 }
 
 /** Whether the mayor may reset the track now. */
-export function townStreakCanReset(row: TownStreakRow | null | undefined, today: string): boolean {
+export function townStreakCanReset(row: TownStreakRow | null | undefined): boolean {
     if (!row) return false
-    return townStreakStatus(row, today) !== 'active'
+    return townStreakStatus(row) === 'finished'
 }
 
 // ─── Claimed bitmask ─────────────────────────────────────────────────────────
