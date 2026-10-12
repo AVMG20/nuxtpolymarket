@@ -330,7 +330,7 @@ Full record, measurements and knock-ons: `build-log.md` #23. The sub-numbers kee
    `TUNED ✓` — the first Gold Seal on day 2 for a party of three, and at keeping-pace income Gold reaches
    a gacha's 30 free pulls a day around month 3 and at most doubles them after.
 3. ~~**#23.3 First-week income.**~~ **Decided: about a quarter of platform income in the first week,
-   under the ceiling.** `BASE_GOLD` 0.4 → **1**, `GOLD_STEP_BASE` 1.017 → **1.075**: the party-of-three
+   under the ceiling.** `BASE_GOLD` 0.4 → **1**, `GOLD_STEP_BASE` 1.017 → **1.075**, then **1.065** on the new run pace (#36, `build-log.md` #23): the party-of-three
    walk earns ~24% of the platform across its first week (25.5K/hr at day 1, 216K/hr at day 7), up from
    0.07%; solo ~7%. ⚠ **This was left for the playtest on 2026-10-11 and is now set from the sim, to be
    confirmed by the playtest** (🔬 *Does Gold feel like anything in week one?*, below). It is coupled to

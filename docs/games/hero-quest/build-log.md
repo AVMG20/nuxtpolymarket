@@ -410,6 +410,15 @@ days 3–7 at a fifth to a quarter without passing the ceiling in the first day.
 three, `BASE_GOLD = 1`, share of platform at day 0.5 / 3 / 7 / 30): 1.07 → 57 / 14 / 15 / 33%;
 **1.075 → 71 / 20 / 22 / 58%**; 1.078 → 81 / 24 / 28 / 82%.
 
+**Re-measured on the new pace the same day: `GOLD_STEP_BASE` 1.075 → 1.065** (the user's call). The
+first prestige moved from ~13 days to 5.46 on the #36 baseline (Trait board, tree, Rare 0★ Lv2 kit,
+boss gates as live fights), and the faster walk earned 38–53% of platform across days 3–7 and hit
+the ceiling at hour 9. Swept on that baseline (share of platform at days 3.8 / 5.5 / 7.8): 1.05 →
+7 / 7 / 8%; 1.055 → 11 / 10 / 13%; 1.06 → 17 / 16 / 22%; **1.065 → 25 / 26 / 36%**; 1.075 → 38 /
+53 / 73%. At 1.065 week one stays under the ceiling and the account is ceiling-bound from about day
+60, so the month-3 and month-6 anchors hold. The walk kills 444/hour against the ceiling's 420, ×1.06,
+left as is.
+
 | Gold/hour, continuous play | Party of three, before → after | Solo, before → after | Platform | Ceiling |
 |---|---|---|---|---|
 | day 1 | 438 → **25.5K** (56%) | 336 → **11.3K** (25%) | 45.4K | 38.6K |
