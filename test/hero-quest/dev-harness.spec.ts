@@ -38,7 +38,6 @@ import { GACHA_CONTENT } from '#shared/utils/hero-quest/content/registry'
 import { SHOP_TRACKS } from '#shared/utils/hero-quest/content/shop'
 import {
     BOSS_STAGE,
-    HQ_SESSION_TIMEOUT_MS,
     LEVELS_PER_STAR,
     MAX_STAR,
     ONLINE_THRESHOLD_MS,
@@ -358,10 +357,10 @@ describe.skipIf(SKIP)('dev harness against the real settle path', () => {
     })
 
     describe('devAway', () => {
-        it('leaves a gap past the session timeout for the real settle to close offline', async () => {
+        it('leaves a gap past presence for the real settle to close offline', async () => {
             await devAway(USER_ID)
             const settled = await settleHq(USER_ID)
-            expect(settled.elapsedSeconds * 1000).toBeGreaterThan(HQ_SESSION_TIMEOUT_MS)
+            expect(settled.elapsedSeconds * 1000).toBeGreaterThan(ONLINE_THRESHOLD_MS)
             expect(settled.online).toBe(false)
             // and the read after that is back to an ordinary, present gap
             expect((await settleHq(USER_ID)).elapsedSeconds * 1000).toBeLessThan(ONLINE_THRESHOLD_MS)

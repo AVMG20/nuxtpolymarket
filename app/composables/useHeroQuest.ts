@@ -1,7 +1,6 @@
 import type { FightEvent, FightOutcome } from '#shared/utils/hero-quest/fight'
 import type { HqSettingKey } from '#shared/utils/hero-quest/settings'
 import type { OfflineWindow, RunPosition } from '#shared/utils/hero-quest/types'
-import { HQ_SESSION_TIMEOUT_MS } from '#shared/utils/hero-quest/constants'
 
 /**
  * The single source of Hero Quest state on the client. Pages contain no fetch logic.
@@ -128,7 +127,7 @@ export const useHeroQuest = () => {
         // The layout and the tab both hold the state; only the first to mount reads it.
         getCachedData: (key, nuxtApp, context) => reuseRecentRead(key, nuxtApp, context, fetchedAt.value),
         onResponse({ response }) {
-            const payload = response._data as { initialized?: boolean, awaySeconds?: number, settled?: HqAwayReport | null } | undefined
+            const payload = response._data as { initialized?: boolean, settled?: HqAwayReport | null } | undefined
             if (!payload) return
             fetchedAt.value = Date.now()
             const report = payload.settled
@@ -139,7 +138,7 @@ export const useHeroQuest = () => {
                 // the read Start makes closes the very gap that ended the session
                 sessionResuming.value = false
                 sessionActive.value = true
-            } else if ((payload.awaySeconds ?? 0) * 1000 > HQ_SESSION_TIMEOUT_MS) {
+            } else if (report && !report.online) {
                 sessionActive.value = false
             } else if (sessionActive.value === null) {
                 sessionActive.value = true

@@ -6,8 +6,8 @@
  * one effect on the game is to stop the presence poll while the splash waits, so a tab left on
  * it is away, as it should be.
  *
- * A session ends when a read closes a gap longer than `HQ_SESSION_TIMEOUT_MS`: a reload after a
- * long break, or a laptop waking from sleep mid-session. There is no session without a run. The
+ * A session ends when a read settles a gap as time away (longer than `ONLINE_THRESHOLD_MS`): a
+ * return after closing the game, or a laptop waking from sleep mid-session. There is no session without a run. The
  * decision is made as each read arrives, in `useHeroQuest`, so the server render and the client
  * agree on it.
  *
