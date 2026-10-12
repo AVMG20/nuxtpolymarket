@@ -65,6 +65,7 @@ const {
     GOLD_STEP_BASE,
     MIN_SECONDS_PER_KILL,
     SEAL_LADDER_BASE_GOLD,
+    SEAL_LADDER_GROWTH,
     WORLD_COUNT
 } = await import('../shared/utils/hero-quest/constants')
 const { goldProgressionFactor, goldTenureCeiling } = await import('../shared/utils/hero-quest/settle')
@@ -306,10 +307,25 @@ function reportGold() {
     }))
     console.log(`  at this walk's pace of ${daysPerPrestige.toFixed(1)}d per prestige loop, held flat\n`)
 
-    // What the walk's income buys, which is the question the Seal ladder asks (#23.2).
+    // What the walk's income buys, which is the question the Seal ladder asks (#23.2): how deep a day
+    // of it climbs one gacha's ladder, at the walk's average and at its last world's rate.
     const perDay = earned / (elapsed / 86400)
-    console.log(`Seal ladder: first purchase is ${gold(SEAL_LADDER_BASE_GOLD)} Gold for one Seal`)
-    console.log(`  the walk earns ${gold(perDay)} Gold/day → ${(SEAL_LADDER_BASE_GOLD / perDay).toFixed(1)} days per Seal\n`)
+    const lastRow = result.rows.at(-1)
+    const lastSeconds = lastRow ? lastRow.fightSeconds + lastRow.grindSeconds : 0
+    const lastPerDay = lastRow && lastSeconds > 0 ? lastRow.gold / (lastSeconds / 86400) : 0
+    const growth = SEAL_LADDER_GROWTH.champion ?? 1
+    const sealsFor = (budget: number) => {
+        let bought = 0
+        let spent = 0
+        while (spent + SEAL_LADDER_BASE_GOLD * Math.pow(growth, bought) <= budget) {
+            spent += SEAL_LADDER_BASE_GOLD * Math.pow(growth, bought)
+            bought++
+        }
+        return bought
+    }
+    console.log(`Seal ladder: ${gold(SEAL_LADDER_BASE_GOLD)} Gold for a day's first Seal, ×${growth} for each after it (per gacha)`)
+    console.log(`  the walk earns ${gold(perDay)} Gold/day → ${sealsFor(perDay)} Seals a day in one gacha`)
+    console.log(`  its last world earns ${gold(lastPerDay)} Gold/day → ${sealsFor(lastPerDay)} Seals a day in one gacha\n`)
 }
 
 function reportGates() {

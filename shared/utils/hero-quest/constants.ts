@@ -2017,13 +2017,32 @@ export const LOADOUT_NAME_MAX_LENGTH = 32
  *
  * where `n` is how many of *that* gacha's Seals were already bought with Gold today.
  *
- * 1.2 for all four, set by feel on 2026-10-04: a day's first 10-pull is ~21M, the fifth ~14.7B, so
- * Gold buys a few 10-pulls a day rather than completing a roster. The old near-flat rates (1.0007,
- * 1.0011) made Gold the main route to completion and had stopped meaning anything once platform
- * Gold income moved; income itself is still to be rebalanced (`open-items.md` #23).
+ * 1.2 for all four, set by feel on 2026-10-04 (the user's call): a day's first 10-pull is ~21M,
+ * the second ~107M, the third ~554M, the fifth ~14.7B, so Gold buys a few 10-pulls a day rather
+ * than completing a roster. The old near-flat rates (1.0007, 1.0011) made Gold the main route to
+ * completion.
+ *
+ * **Re-derived against the settled income, 2026-10-12** (the user's call via issue #10,
+ * `open-items.md` #23.2), and both hold:
+ *
+ * - **The base sets week one.** 1,000,000 puts a party of three's first Gold Seal at **day 2** of
+ *   continuous play (solo: day 3), and a day's income at day 7 buys 3 Seals of one gacha. Lower
+ *   and Gold Seals are an hour-one purchase that dilutes the 30 free pulls; higher and the first
+ *   one slips past week one. It is also the doc-locked floor (`gacha-shared-system.md` §4).
+ * - **The growth sets the depth later.** Target: at the ceiling's income (an account keeping
+ *   pace), Gold-bought Seals reach a gacha's free allowance — 30 pulls a day, the three free
+ *   10-pulls (`FREE_PULLS_PER_DAY`, #29) — around month 3 and then climb only ~4 Seals per doubling
+ *   of income, so Gold at most doubles a gacha's daily pulls and never becomes the route to a
+ *   roster. At 1.2 a day's keeping-pace income buys **8 Seals at day 7, 18 at day 30, 26 at day 90
+ *   (three Gold 10-pulls from day ~91), 30 at day 180 and 32 at a year**, per gacha. 1.17 runs to
+ *   36 at a year, past the free allowance; 1.25 stays under it (25 at day 180).
+ *
+ * Milestone Seals (#48) and boss Seals sit beside this (~60 per type over a first prestige) and
+ * never advance a counter. Trades against the free pulls: lower either and Gold Seals matter
+ * more. Coupled to `BASE_GOLD` / `GOLD_STEP_BASE` and the ceiling — re-derive if income moves.
  */
-export const SEAL_LADDER_BASE_GOLD = 1_000_000
-export const SEAL_LADDER_GROWTH: Readonly<Record<string, number>> = {
+export const SEAL_LADDER_BASE_GOLD = 1_000_000 // TUNED ✓
+export const SEAL_LADDER_GROWTH: Readonly<Record<string, number>> = { // TUNED ✓
     gear: 1.2,
     champion: 1.2,
     skill: 1.2,
