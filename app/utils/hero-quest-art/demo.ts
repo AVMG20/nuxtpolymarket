@@ -2201,8 +2201,8 @@ export class BattleDemo {
             }
         }
         this.wave++
-        // where the run stands, prestige counted from 1 so a first run reads P1
-        this.label = `P${f.prestige + 1}-W${f.world}-S${f.stage}`
+        // where the run stands; P is how many times the Hero has prestiged, so a first run reads P0
+        this.label = `P${f.prestige}-W${f.world}-S${f.stage}`
     }
 
     /** After a pack, march to the next, always at the full MARCH_DUR. */

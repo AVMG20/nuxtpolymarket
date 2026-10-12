@@ -516,7 +516,7 @@ export interface BadgeView {
     gpn: string
     /** Shown as a pip on the portrait's ring. */
     level: number
-    /** `P1-W3-S7`, prestige counted from 1, on the bar under the GPN. */
+    /** `P0-W3-S7`, P being how many times the Hero has prestiged, on the bar under the GPN. */
     stage: string
     /** Seconds since the GPN last rose (glint) and since it last changed (arrow), −1 for never. */
     sinceGain: number
