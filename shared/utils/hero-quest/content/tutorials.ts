@@ -31,7 +31,7 @@ export const TUTORIAL_PAGES: Readonly<Record<TutorialId, readonly string[]>> = {
         'Pull at the Gacha, then equip what you find in Collections. Bosses hate that.'
     ],
 
-    'gacha:unlock': ['Bosses are a different breed. Time to find some help: the Gacha is now available.'],
+    'gacha:unlock': ['Knocked flat? Happens to the best of us. Time to find some help: the Gacha is now available.'],
     'gacha:visit': [
         'Four shrines, four gachas: Gear, Champions, Skills and Artifacts.',
         'Feed one Seals and it gives something back. Some days, something wonderful.',

@@ -3,8 +3,9 @@
  *
  * The unlocks are a gate, not only a hidden button: every route that acts for a feature asks
  * `requireFeature` first, so a client can't reach one early. They are read off the run's position,
- * which only moves forward, so a read a moment stale can only refuse, never let through. A boss
- * lost to counts as fought: `boss_lost` is cleared only by the win that moves the run past it.
+ * and the party's first fall, which only move forward, so a read a moment stale can only refuse,
+ * never let through. A boss lost to counts as fought: `boss_lost` is cleared only by the win that
+ * moves the run past it.
  */
 
 import { eq, sql } from 'drizzle-orm'
@@ -12,6 +13,7 @@ import { db, type DbExecutor } from '#server/database'
 import { hqState } from '#server/database/schema'
 import type { HqStateRow } from '#server/utils/hero-quest'
 import {
+    FALLEN_MARK,
     checkpointLabel,
     featureCheckpoint,
     featureUnlocked,
@@ -21,14 +23,21 @@ import {
     type UnlockProgress
 } from '#shared/utils/hero-quest/tutorials'
 
-export function unlockProgressOf(state: Pick<HqStateRow, 'prestige' | 'world' | 'stage' | 'runCleared' | 'bossLost'>): UnlockProgress {
-    return { prestige: state.prestige, world: state.world, stage: state.stage, runCleared: state.runCleared, bossLost: state.bossLost }
+export function unlockProgressOf(state: Pick<HqStateRow, 'prestige' | 'world' | 'stage' | 'runCleared' | 'bossLost' | 'tutorialsSeen'>): UnlockProgress {
+    return {
+        prestige: state.prestige,
+        world: state.world,
+        stage: state.stage,
+        runCleared: state.runCleared,
+        bossLost: state.bossLost,
+        partyFallen: state.tutorialsSeen.includes(FALLEN_MARK)
+    }
 }
 
 /** Refuse unless `feature` is open: its checkpoint reached. */
 export async function requireFeature(userId: string, feature: HqFeature, executor: DbExecutor = db): Promise<void> {
     const [state] = await executor
-        .select({ prestige: hqState.prestige, world: hqState.world, stage: hqState.stage, runCleared: hqState.runCleared, bossLost: hqState.bossLost })
+        .select({ prestige: hqState.prestige, world: hqState.world, stage: hqState.stage, runCleared: hqState.runCleared, bossLost: hqState.bossLost, tutorialsSeen: hqState.tutorialsSeen })
         .from(hqState)
         .where(eq(hqState.userId, userId))
     if (!state) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
@@ -52,7 +61,14 @@ export async function markTutorialSeen(userId: string, id: TutorialRecord): Prom
         .where(sql`${hqState.userId} = ${userId} and not (${hqState.tutorialsSeen} ? ${id})`)
 }
 
-/** See every tutorial again. Locks nothing: the features stay as open as the run has earned. */
+/** The write that records the party's first fall (`FALLEN_MARK`), for a settle or boss fight to spread into its update. */
+export function fallenWrite() {
+    return { tutorialsSeen: sql`${hqState.tutorialsSeen} || ${JSON.stringify([FALLEN_MARK])}::jsonb` }
+}
+
+/** See every tutorial again. Locks nothing: the features stay as open as the run has earned, the first fall included. */
 export async function resetTutorials(userId: string): Promise<void> {
-    await db.update(hqState).set({ tutorialsSeen: [] }).where(eq(hqState.userId, userId))
+    await db.update(hqState)
+        .set({ tutorialsSeen: sql`case when ${hqState.tutorialsSeen} ? ${FALLEN_MARK} then ${JSON.stringify([FALLEN_MARK])}::jsonb else '[]'::jsonb end` })
+        .where(eq(hqState.userId, userId))
 }

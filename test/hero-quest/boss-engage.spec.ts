@@ -15,6 +15,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState } from '#server/database/schema'
 import { ensureHqState, resolveBossEngage } from '#server/utils/hero-quest'
+import { FALLEN_MARK } from '#shared/utils/hero-quest/tutorials'
 import {
     BOSS_STAGE,
     SEAL_GRANT_PER_BOSS,
@@ -114,10 +115,13 @@ describe.skipIf(SKIP)('boss engage', () => {
     it('remembers a boss that beat the party, and forgets it once beaten', async () => {
         // a level-1 Beginner against World 5's boss cannot win; the run falls back a stage
         await parkAt(5, BOSS_STAGE, false, 1)
-        expect((await engage()).outcome).not.toBe('win')
+        const { outcome } = await engage()
+        expect(outcome).not.toBe('win')
         const lost = await readState()
         expect(lost.stage).toBe(BOSS_STAGE - 1)
         expect(lost.bossLost).toBe(true)
+        // a wipe is the party's fall, which opens the Gacha; a timeout leaves it standing
+        expect(lost.tutorialsSeen.includes(FALLEN_MARK)).toBe(outcome === 'wipe')
 
         await parkAt(5, BOSS_STAGE)
         await db.update(hqState).set({ bossLost: true }).where(eq(hqState.userId, USER_ID))
