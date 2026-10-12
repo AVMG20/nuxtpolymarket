@@ -3,7 +3,7 @@ import type { BattleDemo, RunParty, StageArena, StageFight, StageRaid } from '~/
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import type { RunFeed } from '~/utils/hero-quest-art/run-director'
 import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-band'
-import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton } from '~/utils/hero-quest-art/collections-scene'
+import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton, PickerTarget } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutButton, LoadoutsHover, LoadoutsScene, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeScene, PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesScene, ClassesView, KitTarget } from '~/utils/hero-quest-art/classes-scene'
@@ -181,6 +181,8 @@ const emit = defineEmits<{
     calendarTab: [tab: HqCalendarTab]
     /** A Collections detail button was pressed, for the entry it shows. */
     collectionAction: [action: DetailButton, id: string]
+    /** A spot, or Bench/Unequip, was picked in a Collections equip picker, for the entry it was opened on. */
+    collectionPick: [id: string, pick: string]
     /** A Collections tab was pressed. */
     collectionTab: [tab: HqCollectionTab]
     /** A loadout detail's Save or Apply was pressed, for its slot; a Save pressed mid-rename carries the typed name. */
@@ -455,12 +457,13 @@ defineExpose({ skipFight, closeIris })
  * them in the view's own pixels. The page's own Fight button stays the keyboard's way in.
  */
 type Target = 'challenge' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuScene | `scenetab:${string}` | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
+    | `picker:${PickerTarget | 'outside'}`
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
     | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${Exclude<RaidsHover, null>}` | 'reward:ok' | 'welcome:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
     | `trait:${TraitsTarget}` | `tree:${TreeTarget}`
     | `arena:${ArenaTarget}` | 'result:ok' | 'stats:open' | 'stats:close' | 'stats:back' | `stats:cell:${number}:${number}`
 
-const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
+const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
 const hover = ref<Target | null>(null)
 const pressed = ref(false)
@@ -471,6 +474,13 @@ const detail = ref<string | null>(null)
 watch([openScene, () => props.collections?.tab], () => {
     detail.value = null
 })
+
+/** The open entry's equip picker is up over its detail; another entry, or none, shuts it. */
+const picking = ref(false)
+watch(detail, () => {
+    picking.value = false
+})
+const openEntry = computed(() => detail.value === null ? undefined : props.collections?.entries.find(e => e.id === detail.value))
 
 /** The loadout slot open in the detail view; the cards when null. Leaving the scene shuts it, and any rename. */
 const loadoutDetail = ref<number | null>(null)
@@ -569,14 +579,21 @@ function targetAt(e: PointerEvent): Target | null {
     if (item) return item
     if (openScene.value === 'battle' && stage?.onBadgePortrait(x, y)) return 'stats:open'
     if (openScene.value === 'collections' && collectionsHit) {
+        // the scene is the frame above the menu band
+        const h = presenter.h - (band?.BAND_H ?? 0)
+        const open = openEntry.value
+        // the picker covers the scene: a press off its panel shuts it, and a pick waits for a request out
+        if (picking.value && open?.picker) {
+            const target = collectionsHit.pickerTargetAt(presenter.w, h, open.picker, x, y)
+            if (!target) return null
+            if (props.collectionsBusy && (target === 'remove' || target.startsWith('spot:') || target.startsWith('unset:'))) return null
+            return `picker:${target}`
+        }
         const tab = collectionsHit.collectionTabAt(presenter.w, x, y)
         // the open tab is a button only while the detail is up, back to the grid
         if (tab) return tab !== props.collections?.tab || detail.value ? `tab:${tab}` : null
-        // the scene is the frame above the menu band
-        const h = presenter.h - (band?.BAND_H ?? 0)
         if (detail.value) {
             if (collectionsHit.onDetailClose(presenter.w, h, x, y)) return 'close'
-            const open = props.collections?.entries.find(e => e.id === detail.value)
             const button = open ? collectionsHit.detailButtonAt(presenter.w, h, open, x, y) : null
             // a button that cannot be pressed is no target
             return button?.enabled && !props.collectionsBusy ? button.id : null
@@ -999,7 +1016,28 @@ function onPointerUp(e: PointerEvent) {
         else if (slot) emit('loadoutAction', button, slot.slotIndex)
     }
     else if (isDetailButton(hit)) {
-        if (detail.value) emit('collectionAction', hit, detail.value)
+        // Equip on an entry with a picker opens it; Gear and craft go at once
+        if (hit === 'equip' && openEntry.value?.picker) picking.value = true
+        else if (detail.value) emit('collectionAction', hit, detail.value)
+    }
+    else if (hit.startsWith('picker:')) {
+        const target = hit.slice(7)
+        const open = openEntry.value
+        // the x frees a spot and leaves the picker up, to pick it; everything else shuts it
+        if (target.startsWith('unset:') && open?.picker) {
+            const [, r, i] = target.split(':')
+            const unset = open.picker.rows[Number(r)]?.spots[Number(i)]?.unset
+            if (unset) emit('collectionPick', open.id, unset)
+            return
+        }
+        picking.value = false
+        if (!open?.picker) return
+        if (target === 'remove') emit('collectionPick', open.id, 'remove')
+        else if (target.startsWith('spot:')) {
+            const [, r, i] = target.split(':')
+            const spot = open.picker.rows[Number(r)]?.spots[Number(i)]
+            if (spot?.enabled) emit('collectionPick', open.id, spot.pick)
+        }
     }
     else if (hit.startsWith('tile:')) detail.value = props.collections?.entries[Number(hit.slice(5))]?.id ?? null
     else {
@@ -1047,13 +1085,14 @@ const collectionsHover = computed<CollectionsHover>(() => {
     const h = hover.value
     if (h === 'close' || (h && isDetailButton(h))) return h
     if (h?.startsWith('tile:')) return Number(h.slice(5))
+    if (h?.startsWith('picker:') && h !== 'picker:outside') return h.slice(7) as PickerTarget
     return HQ_COLLECTION_TABS.find(t => h === `tab:${t}`) ?? null
 })
 /** Whether a press on what the pointer is over does anything: a class that cannot be taken is only described. */
 const pointer = computed(() => {
     const h = hover.value
     if (!h) return false
-    if (h.endsWith(':emblem') || h.startsWith('cal:day:')) return false
+    if (h.endsWith(':emblem') || h.startsWith('cal:day:') || h === 'picker:outside') return false
     if (h.startsWith('ms:row:')) return !!milestoneRowOf(h)?.claimable.length
     if (h.startsWith('kit:') && h !== 'kit:done') {
         const ascendant = props.classes?.ascendant
@@ -1290,7 +1329,7 @@ onMounted(async () => {
         const view = scene === 'battle'
             ? stage!.render()
             : scene === 'collections'
-                ? collectionsScene!.render(t, props.collections ?? { tab: 'gear', entries: [], essence: '0' }, collectionsHover.value, pressed.value, detail.value, !!props.collectionsBusy)
+                ? collectionsScene!.render(t, props.collections ?? { tab: 'gear', entries: [], essence: '0', heroClassId: null }, collectionsHover.value, pressed.value, detail.value, !!props.collectionsBusy, picking.value)
                 : scene === 'loadouts'
                     ? loadoutsScene!.render(t, props.loadouts ?? { slots: [], unlocked: 0, max: 0 }, loadoutsHover.value, pressed.value, loadoutDetail.value, !!props.loadoutsBusy)
                     : scene === 'classes'
