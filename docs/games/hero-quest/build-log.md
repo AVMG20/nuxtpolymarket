@@ -1062,6 +1062,15 @@ My calls, flagged for review: the 37-node roster and its names (the root's three
 
 Schema: `hq_state.passive_tree`, `hq_state.passive_respec_free` (migration 0067). Specs: `passive-tree.spec.ts`, bursts on buy and both respecs included.
 
+### 64. The Gold chest — **landed 2026-10-12**
+
+The user's call, from the first live deploy: a `credit` on every settle wrote a `transactions` row per poll for every player, flooding the table.
+
+- **Settles bank, the chest pays.** `settleHq` adds the window's Gold to `hq_state.pending_gold` (migration `0057`, `numeric(19, 4)` like the balance) instead of crediting it. `chest/collect.post.ts` settles, then `collectChest` lock-then-reads the row, zeroes it and credits the lot in one `credit(…, 'hero-quest', tx)`: one transaction row per open. A burst of opens pays once; an empty chest is a 400.
+- **Earned, so kept.** Prestige, class switches and raid sessions leave it alone. Unopened Gold isn't in the balance, so the Gambler's Strike wealth factor doesn't read it.
+- **On the stage:** a red, gold-strapped chest tucked into the battle view's top-right corner, sparkling and shaking every 5 s, shown only while the last read says it holds Gold (not the live forecast, which would bring it straight back after an open). Opening it toasts `+1.2M GOLD` on the canvas in its place, or why it paid nothing in red, never a platform toast. The Battle Speed readout moved left of it and the holiday gift under it.
+- **The presence poll no longer reads the session.** Settles stopped moving the shared balance, so the poll's `fetchSession()` went with the per-settle credit; opening the chest sets the balance from its response.
+
 ### 9. Holiday gameplay events — **decided 2026-10-10: not built**
 
 Was an open item: `holiday-events.md` locked the gift mechanic and left limited-time modes and content deferred. **Holidays are gifts only** (the user's call): no event modes, no limited-time content. The gifts (#53) are the whole feature.
