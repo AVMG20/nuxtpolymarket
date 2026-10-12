@@ -10,7 +10,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { randomFloat, randomChance, randomPick } from '#shared/utils/random'
 import type { AbilityId, DraftCard, EliteAffix, EnemyDef, EnemyId, MeleeDef, MeleeId, PlayerStats, ShopState, SightKind, WeaponDef, WeaponId } from './types'
-import { ENEMIES, WEAPONS, WEAPON_IDS, STARTER_WEAPON, MELEE, MELEE_WEAPONS, MELEE_IDS, STARTER_MELEE, AFFIXES, TURRET, BURN, ABILITIES, ABILITY_IDS, ABILITY_SLOTS, ECONOMY, planWave, affixHpMult, affixSpeedMult, defaultStats, magazineSize, killScore, dropChance, ammoDropChance, waveIncome, rerollPrice, reserveMax, refillPrice } from './data'
+import { ENEMIES, JUGGERNAUT, bossForWave, WEAPONS, WEAPON_IDS, STARTER_WEAPON, MELEE, MELEE_WEAPONS, MELEE_IDS, STARTER_MELEE, AFFIXES, TURRET, BURN, ABILITIES, ABILITY_IDS, ABILITY_SLOTS, ECONOMY, planWave, affixHpMult, affixSpeedMult, defaultStats, magazineSize, killScore, dropChance, ammoDropChance, waveIncome, rerollPrice, reserveMax, refillPrice } from './data'
 import type { WaveEvent } from './data'
 import { dealDraft, applyCard } from './upgrades'
 import type { DraftContext } from './upgrades'
@@ -111,6 +111,14 @@ export interface ArenaHud {
     shield: number
     haste: number
     turrets: number
+    /** Arc Overcharge seconds left. */
+    overcharge: number
+    /** Hologram Decoy seconds left. */
+    decoy: number
+    /** Gravity wells in the arena. */
+    wells: number
+    /** Afterburner seconds left. */
+    rush: number
     credits: number
     rerollCost: number
     abilities: (HudAbility | null)[]
@@ -185,6 +193,10 @@ export function createHud(): ArenaHud {
         shield: 0,
         haste: 0,
         turrets: 0,
+        overcharge: 0,
+        decoy: 0,
+        wells: 0,
+        rush: 0,
         credits: 0,
         rerollCost: 30,
         abilities: [null, null],
@@ -253,6 +265,27 @@ interface Enemy {
     enraged: boolean
     /** Frost Rounds: seconds left moving at reduced speed. */
     slowTimer: number
+    /** Per-behaviour scratch state for the Sniper, Burrower and Juggernaut. */
+    extra?: EnemyExtra
+}
+
+/** Scratch state for enemies with scripted attack patterns. Created lazily by `extraOf`. */
+interface EnemyExtra {
+    mode: string
+    timer: number
+    /** Cooldown for the Juggernaut's close-range pound. */
+    cd: number
+    /** Sweep angle for the Juggernaut laser, locked aim point for the Sniper and Burrower. */
+    angle: number
+    aim: THREE.Vector3
+    /** Attack counter that drives the Juggernaut's pattern rotation. */
+    count: number
+    /** Cooldown between damage ticks from a lingering attack. */
+    hitCd: number
+    /** Laser beam or dirt mound. */
+    mesh: THREE.Object3D | null
+    /** Ground telegraph ring. */
+    ring: THREE.Mesh | null
 }
 
 interface Turret {
@@ -285,6 +318,39 @@ interface Rift {
     group: THREE.Group
     core: THREE.Mesh
     ring: THREE.Mesh
+    power: number
+}
+
+/** Singularity: a lobbed gravity well that crushes the pack together, then collapses. */
+interface GravityWell {
+    pos: THREE.Vector3
+    vel: THREE.Vector3
+    /** Seconds of pull left; a well still in flight does not pull yet. */
+    life: number
+    total: number
+    /** Seconds of flight left before the well drops where it is. */
+    fly: number
+    /** Seconds until the next crushing tick. */
+    tick: number
+    landed: boolean
+    radius: number
+    power: number
+    group: THREE.Group
+    core: THREE.Mesh
+    rings: THREE.Mesh[]
+}
+
+/** Hologram Decoy: a hardlight double that enemies chase instead of the player. */
+interface Decoy {
+    pos: THREE.Vector3
+    life: number
+    total: number
+    hp: number
+    /** Seconds until the next taunt pulse. */
+    pulse: number
+    group: THREE.Group
+    mats: THREE.MeshBasicMaterial[]
+    scan: THREE.Mesh
     power: number
 }
 
@@ -325,6 +391,8 @@ interface Meteor {
     warning: THREE.Mesh
     /** Meteor Call meteors never hurt the player. */
     friendly: boolean
+    /** Damage multiplier for hostile strikes (Juggernaut barrage). */
+    power?: number
 }
 
 interface Pickup {
@@ -407,6 +475,9 @@ const _f2 = new THREE.Vector3()
 const WHITE = new THREE.Color(0xffffff)
 const UP = new THREE.Vector3(0, 1, 0)
 const Z_AXIS = new THREE.Vector3(0, 0, 1)
+const _ray = new THREE.Ray()
+const _sv = new THREE.Vector3()
+const _sv2 = new THREE.Vector3()
 
 /** Distance along a segment (0..1) where it first enters a sphere, or -1. */
 function segmentSphere(a: THREE.Vector3, b: THREE.Vector3, center: THREE.Vector3, radius: number): number {
@@ -446,6 +517,14 @@ export class VoxelArenaGame {
     private lastTime = 0
     private fpsAccum = 0
     private fpsFrames = 0
+    /** Longest single frame in the current fps window; a tab switch must not read as a slow GPU. */
+    private fpsWorstDt = 0
+    private slowWindows = 0
+    /** Render scale. Supersamples because the scene has thin glows and MSAA is off. */
+    private pixelRatio = 1.5
+    private pixelFloor = 1
+    /** World size of one pixel per metre of distance, for the minimum on-screen thickness of thin lines. */
+    private pxWorld = 0.002
     private sun!: THREE.DirectionalLight
     private muzzleLight = new THREE.PointLight(0xffc070, 0, 7, 2)
     private flashLight = new THREE.PointLight(0xffa23a, 0, 24, 2)
@@ -523,6 +602,19 @@ export class VoxelArenaGame {
     private abilitySlots: (AbilityId | null)[] = [null, null]
     private fieldTimer = 0
     private rifts: Rift[] = []
+    private wells: GravityWell[] = []
+    private decoyUnit: Decoy | null = null
+    /** True while the enemy being updated is chasing the decoy instead of the player. */
+    private lured = false
+    /** Seconds of Arc Overcharge left. */
+    private overchargeTimer = 0
+    private overchargeTotal = 8
+    private overchargeFx = 0
+    /** Cascade Core: seconds after a cast in which kills refund energy. */
+    private cascadeTimer = 0
+    /** Afterburner: seconds of cast-granted speed left. */
+    private rushTimer = 0
+    private surgeTimer = 0
     private stormTimer = 0
     private lanceTimer = 0
     private lanceReady = false
@@ -619,7 +711,11 @@ export class VoxelArenaGame {
     mount(container: HTMLElement): void {
         this.container = container
         const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' })
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+        // Never below native on a standard screen: a ratio that Retina hides is visibly soft at dpr 1.
+        // 1.5x supersamples both standard and high-density screens; frame time backs it off down to the floor.
+        this.pixelFloor = Math.min(window.devicePixelRatio, 1)
+        this.pixelRatio = 1.5
+        renderer.setPixelRatio(this.pixelRatio)
         renderer.setSize(container.clientWidth, container.clientHeight)
         renderer.shadowMap.enabled = true
         renderer.shadowMap.type = THREE.PCFShadowMap
@@ -661,6 +757,7 @@ export class VoxelArenaGame {
     }
 
     dispose(): void {
+        if (this.disposed) return
         this.disposed = true
         cancelAnimationFrame(this.frame)
         window.removeEventListener('resize', this.resize)
@@ -675,21 +772,58 @@ export class VoxelArenaGame {
         document.removeEventListener('pointerlockchange', this.onLockChange)
         if (document.pointerLockElement) document.exitPointerLock()
         this.audio.dispose()
+        this.clearEnemyShots()
+        this.clearMeteors()
+        this.clearRifts()
+        // free every GPU buffer and texture the scene still holds, then give the context back
+        const freed = new Set<unknown>()
+        this.scene.traverse(o => {
+            const mesh = o as THREE.Mesh
+            ;(o as THREE.DirectionalLight).shadow?.dispose()
+            if (mesh.geometry && !freed.has(mesh.geometry)) {
+                freed.add(mesh.geometry)
+                mesh.geometry.dispose()
+            }
+            const mats = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : []
+            for (const m of mats) {
+                if (freed.has(m)) continue
+                freed.add(m)
+                const map = (m as THREE.MeshStandardMaterial).map
+                map?.dispose()
+                m.dispose()
+            }
+        })
+        const bg = this.scene.background
+        if (bg instanceof THREE.Texture) bg.dispose()
         this.glow.dispose()
         this.smoke.dispose()
         this.composer.dispose()
+        this.bloom.dispose()
         this.renderer.dispose()
+        this.renderer.forceContextLoss()
         this.renderer.domElement.remove()
     }
 
     private resize = (): void => {
         if (!this.container) return
-        const w = this.container.clientWidth
-        const h = this.container.clientHeight
+        const w = Math.max(1, this.container.clientWidth)
+        const h = Math.max(1, this.container.clientHeight)
         this.camera.aspect = w / h
         this.camera.updateProjectionMatrix()
         this.renderer.setSize(w, h)
         this.composer.setSize(w, h)
+        const pxH = h * this.renderer.getPixelRatio()
+        this.glow?.setViewportHeight(pxH)
+        this.smoke?.setViewportHeight(pxH)
+    }
+
+    /** Frame times stayed long: shave the render scale a step, never below native on a standard screen. */
+    private backOffResolution(): void {
+        if (this.pixelRatio <= this.pixelFloor) return
+        this.pixelRatio = Math.max(this.pixelFloor, this.pixelRatio - 0.25)
+        this.renderer.setPixelRatio(this.pixelRatio)
+        this.composer.setPixelRatio(this.pixelRatio)
+        this.resize()
     }
 
     // ── Scene construction ───────────────────────────────────────────────
@@ -1021,7 +1155,8 @@ export class VoxelArenaGame {
     // ── Run flow ─────────────────────────────────────────────────────────
 
     private resetRun(): void {
-        for (const e of this.enemies) this.scene.remove(e.model.group)
+        // removeEnemy also takes the floating health bar out of the scene and frees its materials
+        for (const e of this.enemies) this.removeEnemy(e)
         this.enemies = []
         this.bossEnemy = null
         for (const p of this.pickups) this.scene.remove(p.group)
@@ -1036,7 +1171,7 @@ export class VoxelArenaGame {
         for (const b of this.blades) this.playerGroup.remove(b)
         this.blades = []
         this.projectiles = []
-        this.enemyShots = []
+        this.clearEnemyShots()
         this.popups = []
         this.debrisLife.fill(0)
         for (let i = 0; i < this.DEBRIS_MAX; i++) this.debris.hide(i)
@@ -1082,8 +1217,8 @@ export class VoxelArenaGame {
         this.boons = []
         this.abilitySlots = [null, null]
         this.fieldTimer = 0
-        for (const r of this.rifts) this.scene.remove(r.group)
-        this.rifts = []
+        this.clearRifts()
+        this.clearAbilityFx()
         this.stormTimer = 0
         this.lanceTimer = 0
         this.lanceReady = false
@@ -1094,11 +1229,7 @@ export class VoxelArenaGame {
         for (const t of this.turrets) this.scene.remove(t.group)
         this.turrets = []
         this.event = 'none'
-        for (const m of this.meteors) {
-            this.scene.remove(m.mesh)
-            this.scene.remove(m.warning)
-        }
-        this.meteors = []
+        this.clearMeteors()
         this.applyEventLighting('none')
         this.kills = 0
         this.score = 0
@@ -1186,9 +1317,11 @@ export class VoxelArenaGame {
         this.meteorTimer = 3
         this.applyEventLighting(plan.event)
         if (plan.event === 'frenzy') this.spawnInterval *= 0.7
-        const eventText = plan.event === 'meteors' ? 'METEOR STORM — watch the sky' : plan.event === 'frenzy' ? 'FRENZY — everything is faster' : plan.event === 'blackout' ? 'BLACKOUT — follow the eyes' : plan.event === 'bounty' ? 'BOUNTY — a gilded brute walks the arena' : ''
+        this.surgeTimer = 2.5
+        if (plan.event === 'surge') this.audio.play('surge', 0.9)
+        const eventText = plan.event === 'meteors' ? 'METEOR STORM — watch the sky' : plan.event === 'frenzy' ? 'FRENZY — everything is faster' : plan.event === 'blackout' ? 'BLACKOUT — follow the eyes' : plan.event === 'bounty' ? 'BOUNTY — a gilded brute walks the arena' : plan.event === 'surge' ? 'ION SURGE — abilities run hot and cheap' : ''
         if (plan.boss) {
-            this.ui.banner(`WAVE ${this.wave}`, 'A TITAN APPROACHES', 'boss')
+            this.ui.banner(`WAVE ${this.wave}`, `A ${ENEMIES[bossForWave(this.wave)].name.toUpperCase()} APPROACHES`, 'boss')
             this.audio.play('boss')
         } else {
             this.ui.banner(`WAVE ${this.wave}`, eventText || `${plan.spawns.length} hostiles inbound`, plan.event === 'none' ? 'wave' : 'boss')
@@ -1200,6 +1333,7 @@ export class VoxelArenaGame {
     private applyEventLighting(event: WaveEvent): void {
         const blackout = event === 'blackout'
         this.sun.intensity = blackout ? 0.25 : 2.6
+        this.sun.color.setHex(event === 'surge' ? 0xa5e8ff : 0xfff0d8)
         this.hemi.intensity = blackout ? 0.18 : 1.1
         const fog = this.scene.fog as THREE.Fog
         fog.near = blackout ? 12 : 45
@@ -1258,7 +1392,7 @@ export class VoxelArenaGame {
                 ;(m.warning.material as THREE.Material).dispose()
                 this.meteors.splice(i, 1)
                 if (m.friendly) this.explode(m.target.clone().setY(m.target.y + 0.6), 4.5, 90 * this.stats.damageMult * this.waveHpMult * 0.5, 0xffa23a, false)
-                else this.explode(m.target.clone().setY(m.target.y + 0.6), 3.6, 34 * this.waveDmgMult, 0xff7a2a, true)
+                else this.explode(m.target.clone().setY(m.target.y + 0.6), 3.6, 34 * this.waveDmgMult * (m.power ?? 1), 0xff7a2a, true)
                 this.burst(m.target.x, m.target.y + 0.5, m.target.z, 30, [0x3a3040, 0x2c2434, 0xff7a2a], 8, 0.22)
             }
         }
@@ -1291,16 +1425,42 @@ export class VoxelArenaGame {
         this.audio.play('charge', 0.4)
     }
 
-    private completeWave(): void {
-        this.event = 'none'
-        this.applyEventLighting('none')
+    /** Drops every falling meteor and its warning ring, freeing the ring's own geometry and material. */
+    private clearMeteors(): void {
         for (const m of this.meteors) {
             this.scene.remove(m.mesh)
             this.scene.remove(m.warning)
+            m.warning.geometry.dispose()
+            ;(m.warning.material as THREE.Material).dispose()
         }
         this.meteors = []
-        for (const r of this.rifts) this.scene.remove(r.group)
+    }
+
+    private clearRifts(): void {
+        for (const r of this.rifts) {
+            this.scene.remove(r.group)
+            r.core.geometry.dispose()
+            r.ring.geometry.dispose()
+            ;(r.core.material as THREE.Material).dispose()
+            ;(r.ring.material as THREE.Material).dispose()
+        }
         this.rifts = []
+    }
+
+    /** Drops every enemy shot, including the meshes of thrown boulders. */
+    private clearEnemyShots(): void {
+        for (const shot of this.enemyShots) if (shot.mesh) this.scene.remove(shot.mesh)
+        this.enemyShots = []
+    }
+
+    private completeWave(): void {
+        this.event = 'none'
+        this.applyEventLighting('none')
+        this.clearMeteors()
+        this.clearRifts()
+        // shots still in flight would otherwise land the instant the next wave starts
+        this.clearEnemyShots()
+        this.clearAbilityFx()
         // a fixed payout per wave, boosted by Bounty Hunter
         this.lastIncome = Math.round(waveIncome(this.wave) * (1 + this.stats.income))
         this.credits += this.lastIncome
@@ -1679,7 +1839,7 @@ export class VoxelArenaGame {
     }
 
     private frenzyMult(): number {
-        return (1 + this.frenzyStacks * 0.06) * (this.hasteTimer > 0 ? 1.35 : 1) * (this.adrenalineOn() ? 1.15 : 1)
+        return (1 + this.frenzyStacks * 0.06) * (this.hasteTimer > 0 ? 1.35 : 1) * (this.adrenalineOn() ? 1.15 : 1) * (this.rushTimer > 0 ? 1 + 0.2 * this.stats.castRush : 1)
     }
 
     private adrenalineOn(): boolean {
@@ -1799,6 +1959,8 @@ export class VoxelArenaGame {
         }
         if (this.overdriveTimer > 0) this.overdriveTimer -= dt
         if (this.hasteTimer > 0) this.hasteTimer -= dt
+        if (this.rushTimer > 0) this.rushTimer -= dt
+        if (this.cascadeTimer > 0) this.cascadeTimer -= dt
         if (this.meleeComboTimer > 0) {
             this.meleeComboTimer -= dt
             if (this.meleeComboTimer <= 0) this.meleeCombo = 0
@@ -1977,6 +2139,9 @@ export class VoxelArenaGame {
         }
         this.sun.target.position.copy(this.pos)
         this.sun.position.set(this.pos.x + 28, 52, this.pos.z + 18)
+        // metres per pixel at one metre of distance, for the minimum thickness of thin beams and tracers
+        const pxH = Math.max(1, this.container.clientHeight * this.renderer.getPixelRatio())
+        this.pxWorld = 2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2) / pxH
     }
 
     private updateViewmodel(dt: number): void {
@@ -2513,7 +2678,7 @@ export class VoxelArenaGame {
     /** World-space centre of the head hit-sphere, or null for headless enemies. */
     private headCenter(e: Enemy, out: THREE.Vector3): THREE.Vector3 | null {
         if (e.def.headRadius <= 0) return null
-        const fz = e.def.id === 'charger' ? 0.85 : 0.05
+        const fz = e.def.id === 'charger' ? 0.85 : e.def.id === 'burrower' ? 0.95 : e.def.id === 'juggernaut' ? -0.95 : 0.05
         out.set(e.pos.x + Math.sin(e.yaw) * fz * e.scale, e.pos.y + e.def.headY * e.scale, e.pos.z + Math.cos(e.yaw) * fz * e.scale)
         return out
     }
@@ -2669,9 +2834,14 @@ export class VoxelArenaGame {
     // ── Abilities ────────────────────────────────────────────────────────
 
     private abilityCost(id: AbilityId): number {
-        if (id === 'nova') return this.stats.abilityCost
-        if (id === 'sentry') return this.stats.turretCost
-        return ABILITIES[id].energy
+        let cost = ABILITIES[id].energy
+        if (id === 'nova') cost = this.stats.abilityCost
+        else if (id === 'sentry') cost = this.stats.turretCost
+        else if (id === 'gravity') cost = Math.max(25, cost - 8 * this.stats.well)
+        else if (id === 'decoy') cost = Math.max(20, cost - 6 * this.stats.decoy)
+        else if (id === 'overcharge') cost = Math.max(25, cost - 10 * this.stats.overcharge)
+        // Ion Surge waves run every ability at a 40% discount
+        return this.event === 'surge' ? Math.ceil(cost * 0.6) : cost
     }
 
     private castSlot(slot: number): void {
@@ -2687,8 +2857,17 @@ export class VoxelArenaGame {
             case 'sentry': this.deployTurret(); break
             case 'blink': this.blink(); break
             case 'chrono': this.chronoField(); break
+            case 'gravity': this.castGravity(); break
+            case 'decoy': this.castDecoy(); break
+            case 'overcharge': this.castOvercharge(); break
         }
         this.energy -= cost
+        if (this.stats.cascade > 0) this.cascadeTimer = 5
+        if (this.stats.castRush > 0) {
+            this.rushTimer = 4
+            this.spawnShockwave(this.pos, 4, 0xfb923c, 0.3)
+            this.burst(this.pos.x, this.pos.y + 0.2, this.pos.z, 14, [0xfb923c, 0xffffff], 5, 0.12)
+        }
     }
 
     /** Teleport forward through the pack, cutting everything on the way. */
@@ -2758,6 +2937,333 @@ export class VoxelArenaGame {
         this.shake = Math.max(this.shake, 1.1)
         this.fovKick = 1.2
         this.audio.play('nova')
+    }
+
+    // ── Singularity, Hologram Decoy, Arc Overcharge ──────────────────────
+
+    private disposeTree(root: THREE.Object3D): void {
+        root.traverse(o => {
+            const m = o as THREE.Mesh
+            if (!m.isMesh) return
+            // BOX is shared by half the game; only dispose geometry this ability built itself
+            if (m.geometry !== BOX) m.geometry.dispose()
+            const mat = m.material as THREE.Material | THREE.Material[]
+            if (Array.isArray(mat)) mat.forEach(x => x.dispose())
+            else mat.dispose()
+        })
+    }
+
+    /** Removes every well, decoy and overcharge left over from the wave. */
+    private clearAbilityFx(): void {
+        for (const w of this.wells) {
+            this.scene.remove(w.group)
+            this.disposeTree(w.group)
+        }
+        this.wells = []
+        if (this.decoyUnit) {
+            this.scene.remove(this.decoyUnit.group)
+            this.disposeTree(this.decoyUnit.group)
+            this.decoyUnit = null
+        }
+        this.lured = false
+        this.overchargeTimer = 0
+        this.rushTimer = 0
+        this.cascadeTimer = 0
+    }
+
+    /** Singularity: lob a gravity well that lands, drags the whole pack into a knot, then collapses. */
+    private castGravity(): void {
+        while (this.wells.length >= 2) {
+            const old = this.wells.shift()!
+            this.scene.remove(old.group)
+            this.disposeTree(old.group)
+        }
+        const dir = this.aimDir(new THREE.Vector3())
+        const start = this.playerCenter(new THREE.Vector3()).addScaledVector(dir, 1.2)
+        const group = new THREE.Group()
+        const core = new THREE.Mesh(new THREE.SphereGeometry(0.55, 14, 10), new THREE.MeshBasicMaterial({ color: 0x07030f, toneMapped: false }))
+        group.add(core)
+        const rings: THREE.Mesh[] = []
+        for (let i = 0; i < 3; i++) {
+            const color = new THREE.Color(i === 1 ? 0x3ff0ff : 0xa78bfa).multiplyScalar(2)
+            const ring = new THREE.Mesh(new THREE.TorusGeometry(1 + i * 0.5, 0.06, 6, 40), new THREE.MeshBasicMaterial({ color, toneMapped: false, transparent: true, opacity: 0.9 - i * 0.2 }))
+            ring.rotation.x = Math.PI / 2 + (i - 1) * 0.55
+            group.add(ring)
+            rings.push(ring)
+        }
+        group.position.copy(start)
+        this.scene.add(group)
+        const total = 4 + this.stats.well
+        this.wells.push({
+            pos: start.clone(),
+            vel: dir.multiplyScalar(26).add(_v3.set(0, 5, 0)),
+            life: total,
+            total,
+            fly: 1.6,
+            tick: 0.3,
+            landed: false,
+            radius: 9 * (1 + 0.35 * this.stats.well),
+            power: this.stats.well,
+            group,
+            core,
+            rings
+        })
+        this.burst(start.x, start.y, start.z, 22, [0xa78bfa, 0x3ff0ff, 0xffffff], 6, 0.14)
+        this.glow.emit({ x: start.x, y: start.y, z: start.z, life: 0.2, size: 3, sizeEnd: 0.5, color: 0xa78bfa, alpha: 0.7, shape: 'soft' })
+        this.audio.play('gravity', 0.9)
+        this.fovKick = 0.6
+    }
+
+    private updateWells(dt: number): void {
+        for (let i = this.wells.length - 1; i >= 0; i--) {
+            const w = this.wells[i]!
+            for (let k = 0; k < w.rings.length; k++) w.rings[k]!.rotation.z += dt * (5 + k * 3) * (k % 2 === 0 ? 1 : -1)
+            if (!w.landed) {
+                w.fly -= dt
+                w.vel.y -= 18 * dt
+                w.pos.addScaledVector(w.vel, dt)
+                w.pos.x = THREE.MathUtils.clamp(w.pos.x, -ARENA_HALF + 1, ARENA_HALF - 1)
+                w.pos.z = THREE.MathUtils.clamp(w.pos.z, -ARENA_HALF + 1, ARENA_HALF - 1)
+                const ground = this.groundHeight(w.pos.x, w.pos.z, 0.4, w.pos.y + STEP_HEIGHT)
+                if (w.fly <= 0 || (w.vel.y < 0 && w.pos.y <= ground + 1.4)) {
+                    w.landed = true
+                    w.pos.y = ground + 1.4
+                    this.spawnShockwave(w.pos, w.radius * 0.7, 0xa78bfa, 0.5)
+                    this.dustRing(w.pos.x, ground, w.pos.z, 3)
+                    this.shake = Math.max(this.shake, 0.4)
+                    this.audio.play('slam', 0.5)
+                } else if (dt > 0) {
+                    this.glow.emit({ x: w.pos.x, y: w.pos.y, z: w.pos.z, life: 0.25, size: 1.2, sizeEnd: 0.2, color: 0xa78bfa, colorEnd: 0x3ff0ff, alpha: 0.6, shape: 'soft' })
+                }
+                w.group.position.copy(w.pos)
+                continue
+            }
+            w.life -= dt
+            const t = 1 - Math.max(0, w.life) / w.total
+            w.group.position.set(w.pos.x, w.pos.y + Math.sin(this.elapsed * 3) * 0.12, w.pos.z)
+            w.core.scale.setScalar(1 + t * 1.4 + Math.sin(this.elapsed * 28) * 0.07)
+            // the rings tighten as the collapse nears
+            const ringScale = 1 + 0.5 * Math.sin(this.elapsed * 2) - t * 0.35
+            for (const ring of w.rings) ring.scale.setScalar(Math.max(0.5, ringScale))
+            w.tick -= dt
+            const crush = w.tick <= 0
+            if (crush) w.tick = 0.5
+            for (const e of this.enemies) {
+                if (!e.alive || e.state === 'spawn') continue
+                const dx = w.pos.x - e.pos.x
+                const dz = w.pos.z - e.pos.z
+                const d = Math.hypot(dx, dz)
+                if (d > w.radius) continue
+                const boss = e.def.behavior === 'boss'
+                if (d > 0.3) {
+                    const pull = ((1 - d / w.radius) * 30 + 10) * (boss ? 0.25 : 1)
+                    e.knock.x += dx / d * pull * dt * 4
+                    e.knock.z += dz / d * pull * dt * 4
+                }
+                // the pack is held in place at the core so it stacks up for the collapse
+                if (!boss && d < 2.4) {
+                    e.state = 'stunned'
+                    e.stateTimer = Math.max(e.stateTimer, 0.3)
+                }
+                if (crush) this.hitEnemy(e, 14 * this.stats.abilityMult * this.stats.damageMult * (1 + this.wave * 0.05), _v1.set(0, 0, 0), 0, 'aura')
+            }
+            for (const shot of this.enemyShots) if (shot.pos.distanceTo(w.pos) < w.radius * 0.8) shot.alive = false
+            if (dt > 0) {
+                for (let k = 0; k < 3; k++) {
+                    const a = Math.random() * Math.PI * 2
+                    const rr = 2 + Math.random() * (w.radius - 2)
+                    this.glow.emit({ x: w.pos.x + Math.cos(a) * rr, y: w.pos.y + (Math.random() - 0.5) * 2.5, z: w.pos.z + Math.sin(a) * rr, vx: -Math.cos(a) * rr * 2.2 - Math.sin(a) * 4, vy: 0, vz: -Math.sin(a) * rr * 2.2 + Math.cos(a) * 4, life: 0.45, size: 0.2, sizeEnd: 0.05, color: 0xffffff, colorEnd: Math.random() < 0.5 ? 0xa78bfa : 0x3ff0ff, alpha: 0.9, shape: 'spark', stretch: 0.06 })
+                }
+                this.glow.emit({ x: w.pos.x, y: w.pos.y, z: w.pos.z, life: 0.1, size: 2.5 + t * 3, sizeEnd: 2, color: 0xa78bfa, alpha: 0.5, shape: 'soft' })
+                if (Math.random() < dt * 24) {
+                    const a = Math.random() * Math.PI * 2
+                    const rr = w.radius * (0.4 + Math.random() * 0.6)
+                    this.spawnDebris(w.pos.x + Math.cos(a) * rr, w.pos.y + (Math.random() - 0.5) * 2, w.pos.z + Math.sin(a) * rr, -Math.cos(a) * rr * 2, 0, -Math.sin(a) * rr * 2, Math.random() < 0.5 ? 0xa78bfa : 0x3ff0ff, 0.1, 0.5)
+                }
+            }
+            if (w.life <= 0) {
+                this.scene.remove(w.group)
+                this.disposeTree(w.group)
+                this.wells.splice(i, 1)
+                for (const e of this.enemies) {
+                    if (!e.alive || e.def.behavior === 'boss' || e.state === 'spawn') continue
+                    if (Math.hypot(e.pos.x - w.pos.x, e.pos.z - w.pos.z) < w.radius * 0.6) {
+                        e.state = 'stunned'
+                        e.stateTimer = Math.max(e.stateTimer, 1)
+                    }
+                }
+                const dmg = 130 * this.stats.abilityMult * this.stats.damageMult * (1 + 0.5 * w.power) * (1 + this.wave * 0.06)
+                this.explode(w.pos, 5.5 + w.power, dmg, 0xa78bfa, false)
+                this.spawnShockwave(w.pos, 9 + w.power * 2, 0xa78bfa, 0.6)
+                this.spawnShockwave(w.pos, 5 + w.power, 0xffffff, 0.35)
+                this.burst(w.pos.x, w.pos.y, w.pos.z, 60, [0xa78bfa, 0x3ff0ff, 0xffffff], 12, 0.18)
+                this.flashLight.color.set(0xa78bfa)
+                this.flashLight.position.copy(w.pos)
+                this.flashLight.intensity = 40
+                this.shake = Math.max(this.shake, 1)
+                this.hitStop = Math.max(this.hitStop, 0.04)
+                this.audio.play('collapse', 1)
+            }
+        }
+    }
+
+    /** Hologram Decoy: a hardlight double that every melee, charger, flyer and spitter chases instead of you. */
+    private castDecoy(): void {
+        if (this.decoyUnit) this.breakDecoy(false)
+        const f = this.forward(_v1)
+        const pos = new THREE.Vector3(this.pos.x + f.x * 6, 0, this.pos.z + f.z * 6)
+        pos.x = THREE.MathUtils.clamp(pos.x, -ARENA_HALF + 1.5, ARENA_HALF - 1.5)
+        pos.z = THREE.MathUtils.clamp(pos.z, -ARENA_HALF + 1.5, ARENA_HALF - 1.5)
+        pos.y = this.groundHeight(pos.x, pos.z, 0.5, this.pos.y + STEP_HEIGHT)
+        const group = new THREE.Group()
+        const mats: THREE.MeshBasicMaterial[] = []
+        const holo = (color: number, mult: number): THREE.MeshBasicMaterial => {
+            const mat = new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(mult), toneMapped: false, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false })
+            mats.push(mat)
+            return mat
+        }
+        const body = holo(0x34d399, 1.6)
+        const trim = holo(0xa7f3d0, 2.2)
+        const part = (w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.MeshBasicMaterial): void => {
+            const m = new THREE.Mesh(BOX, mat)
+            m.scale.set(w, h, d)
+            m.position.set(x, y, z)
+            group.add(m)
+        }
+        part(0.28, 0.8, 0.28, -0.17, 0.4, 0, body)
+        part(0.28, 0.8, 0.28, 0.17, 0.4, 0, body)
+        part(0.7, 0.8, 0.36, 0, 1.2, 0, body)
+        part(0.2, 0.78, 0.2, -0.48, 1.2, 0, body)
+        part(0.2, 0.78, 0.2, 0.48, 1.2, 0, body)
+        part(0.42, 0.42, 0.42, 0, 1.82, 0, trim)
+        part(0.2, 0.06, 0.04, 0, 1.84, 0.22, trim)
+        const scan = new THREE.Mesh(BOX, holo(0xffffff, 2))
+        scan.scale.set(1.3, 0.04, 1.3)
+        group.add(scan)
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.1, 36), holo(0x34d399, 2))
+        ring.rotation.x = -Math.PI / 2
+        ring.position.y = 0.04
+        group.add(ring)
+        group.position.copy(pos)
+        group.rotation.y = this.yaw
+        this.scene.add(group)
+        const total = 7 + 3 * this.stats.decoy
+        this.decoyUnit = { pos, life: total, total, hp: 320 + this.wave * 50, pulse: 0, group, mats, scan, power: this.stats.decoy }
+        this.spawnShockwave(pos, 9, 0x34d399, 0.6)
+        this.burst(pos.x, pos.y + 1, pos.z, 26, [0x34d399, 0xa7f3d0, 0xffffff], 6, 0.12)
+        this.flashLight.color.set(0x34d399)
+        this.flashLight.position.set(pos.x, pos.y + 1.5, pos.z)
+        this.flashLight.intensity = 22
+        this.audio.play('decoy', 0.9)
+    }
+
+    private hurtDecoy(amount: number): void {
+        const d = this.decoyUnit
+        if (!d) return
+        d.hp -= amount
+        this.burst(d.pos.x, d.pos.y + 1.2, d.pos.z, 6, [0x34d399, 0xffffff], 4, 0.1)
+    }
+
+    private breakDecoy(withBlast: boolean): void {
+        const d = this.decoyUnit
+        if (!d) return
+        this.decoyUnit = null
+        this.scene.remove(d.group)
+        this.disposeTree(d.group)
+        this.burst(d.pos.x, d.pos.y + 1, d.pos.z, 30, [0x34d399, 0xa7f3d0, 0xffffff], 7, 0.14)
+        this.glow.emit({ x: d.pos.x, y: d.pos.y + 1, z: d.pos.z, life: 0.25, size: 3, sizeEnd: 0.5, color: 0x34d399, alpha: 0.7, shape: 'soft' })
+        if (withBlast && d.power > 0) {
+            // Hardlight Lattice: the projection overloads on its way out
+            const at = new THREE.Vector3(d.pos.x, d.pos.y + 1, d.pos.z)
+            this.explode(at, 5 + d.power, 90 * d.power * this.stats.abilityMult * this.stats.damageMult * (1 + this.wave * 0.06), 0x34d399, false)
+            this.spawnShockwave(d.pos, 8 + d.power, 0x34d399, 0.5)
+            this.shake = Math.max(this.shake, 0.6)
+            this.audio.play('explosion', 0.6)
+        }
+    }
+
+    private updateDecoy(dt: number): void {
+        const d = this.decoyUnit
+        if (!d) return
+        d.life -= dt
+        d.pulse -= dt
+        const fade = Math.min(1, Math.max(0, d.life) / 0.8)
+        const flicker = Math.random() < 0.04 ? 0.5 : 1
+        for (const m of d.mats) m.opacity = (0.34 + Math.sin(this.elapsed * 38) * 0.06) * fade * flicker
+        d.scan.position.y = (Math.sin(this.elapsed * 3.2) * 0.5 + 0.5) * 2.1
+        d.group.position.y = d.pos.y + Math.sin(this.elapsed * 2.4) * 0.05
+        d.group.rotation.y += dt * 0.6
+        if (d.pulse <= 0) {
+            d.pulse = 1.4
+            this.spawnShockwave(d.pos, 5, 0x34d399, 0.7)
+        }
+        if (dt > 0) {
+            this.glow.emit({ x: d.pos.x + (Math.random() - 0.5) * 0.8, y: d.pos.y + Math.random() * 2, z: d.pos.z + (Math.random() - 0.5) * 0.8, vy: 1.5, life: 0.6, size: 0.14, sizeEnd: 0.02, color: 0xa7f3d0, colorEnd: 0x34d399, alpha: 0.8, shape: 'spark', stretch: 0.05 })
+            this.glow.emit({ x: d.pos.x, y: d.pos.y + 1, z: d.pos.z, life: 0.1, size: 3.2, sizeEnd: 2.8, color: 0x34d399, alpha: 0.18 * fade, shape: 'soft' })
+        }
+        if (d.life <= 0 || d.hp <= 0) this.breakDecoy(true)
+    }
+
+    /** Arc Overcharge: for a few seconds every hit forks lightning through the pack. */
+    private castOvercharge(): void {
+        this.overchargeTotal = 8 + 3 * this.stats.overcharge
+        this.overchargeTimer = this.overchargeTotal
+        const c = this.playerCenter(new THREE.Vector3())
+        this.spawnShockwave(this.pos, 7, 0xfacc15, 0.5)
+        this.burst(c.x, c.y, c.z, 40, [0xfacc15, 0xffffff, 0x3ff0ff], 9, 0.14)
+        for (let i = 0; i < 6; i++) {
+            const a = (i / 6) * Math.PI * 2 + Math.random() * 0.5
+            const end = new THREE.Vector3(c.x + Math.cos(a) * 4.5, c.y + (Math.random() - 0.3) * 2.5, c.z + Math.sin(a) * 4.5)
+            this.spawnLightning(c, end, 0xfacc15, 0.25)
+        }
+        this.flashLight.color.set(0xfacc15)
+        this.flashLight.position.copy(c)
+        this.flashLight.intensity = 36
+        this.shake = Math.max(this.shake, 0.5)
+        this.fovKick = 1
+        this.audio.play('overcharge', 1)
+    }
+
+    private updateOvercharge(dt: number): void {
+        if (this.overchargeFx > 0) this.overchargeFx -= dt
+        if (this.overchargeTimer <= 0) return
+        this.overchargeTimer -= dt
+        if (dt <= 0) return
+        const c = this.playerCenter(_v1)
+        if (Math.random() < dt * 22) {
+            const a = Math.random() * Math.PI * 2
+            const r = 0.7 + Math.random() * 0.5
+            this.glow.emit({ x: c.x + Math.cos(a) * r, y: c.y + (Math.random() - 0.5) * 1.6, z: c.z + Math.sin(a) * r, vx: (Math.random() - 0.5) * 3, vy: 1 + Math.random() * 2, vz: (Math.random() - 0.5) * 3, life: 0.3, size: 0.14, sizeEnd: 0.02, color: 0xffffff, colorEnd: 0xfacc15, alpha: 0.9, shape: 'spark', stretch: 0.07 })
+        }
+        // a crackle of idle arcs around the body; the last second flickers to warn that it is ending
+        if (Math.random() < dt * (this.overchargeTimer < 1 ? 4 : 1.8)) {
+            const a = Math.random() * Math.PI * 2
+            const from = c.clone()
+            const to = new THREE.Vector3(c.x + Math.cos(a) * 2.2, c.y + (Math.random() - 0.4) * 1.6, c.z + Math.sin(a) * 2.2)
+            this.spawnLightning(from, to, 0xfacc15, 0.1)
+        }
+        if (this.overchargeTimer <= 0) {
+            this.burst(c.x, c.y, c.z, 16, [0xfacc15, 0xffffff], 5, 0.1)
+            this.audio.play('arc', 0.5)
+        }
+    }
+
+    /**
+     * Forks a hit into lightning that jumps between nearby enemies. Arc damage uses the
+     * 'explosion' source, so forks never trigger more forks.
+     */
+    private forkLightning(from: Enemy, dmg: number, jumps: number, color: number, range = 8): void {
+        const seen = new Set<number>([from.id])
+        let at = _f1.set(from.pos.x, from.pos.y + from.height * from.scale * 0.5, from.pos.z).clone()
+        for (let i = 0; i < jumps; i++) {
+            const next = this.nearestEnemy(at, range, seen)
+            if (!next) break
+            const nc = new THREE.Vector3(next.pos.x, next.pos.y + next.height * next.scale * 0.5, next.pos.z)
+            this.spawnLightning(at, nc, color, 0.14)
+            this.hitEnemy(next, dmg, nc.clone().sub(at).normalize(), 1, 'explosion')
+            seen.add(next.id)
+            at = nc
+        }
     }
 
     // ── Orbital blades, aura, fire trails ────────────────────────────────
@@ -2847,7 +3353,8 @@ export class VoxelArenaGame {
 
     // ── Enemies ──────────────────────────────────────────────────────────
 
-    private spawnEnemy(id: EnemyId, affix: EliteAffix | null, at?: THREE.Vector3): Enemy {
+    /** `quiet` skips the portal flash and spawn-in, for enemies that are born in the open (Splitter halves). */
+    private spawnEnemy(id: EnemyId, affix: EliteAffix | null, at?: THREE.Vector3, quiet = false): Enemy {
         const def = ENEMIES[id]
         const parts = enemyParts(id)
         const model = buildModel(parts, def.scale)
@@ -2927,8 +3434,13 @@ export class VoxelArenaGame {
         }
         if (this.event === 'frenzy') enemy.speed *= 1.3
         this.enemies.push(enemy)
-        this.burst(pos.x, pos.y + 1, pos.z, 16, [0xb56bff, 0x3a2a52], 4, 0.14)
-        this.spawnBeam(new THREE.Vector3(pos.x, 0, pos.z), new THREE.Vector3(pos.x, 14, pos.z), 0xb56bff, 0.5 * def.scale, 0.35)
+        if (quiet) {
+            // pops in over 0.3 s and cannot be hit meanwhile, so the blast that killed its parent does not clear it
+            enemy.stateTimer = 0.3
+        } else {
+            this.burst(pos.x, pos.y + 1, pos.z, 16, [0xb56bff, 0x3a2a52], 4, 0.14)
+            this.spawnBeam(new THREE.Vector3(pos.x, 0, pos.z), new THREE.Vector3(pos.x, 14, pos.z), 0xb56bff, 0.5 * def.scale, 0.35)
+        }
         if (def.behavior === 'boss') {
             this.bossEnemy = enemy
             this.shake = Math.max(this.shake, 0.8)
@@ -2941,11 +3453,17 @@ export class VoxelArenaGame {
         this.scene.remove(e.model.group)
         this.scene.remove(e.hpBar)
         for (const child of e.hpBar.children) ((child as THREE.Mesh).material as THREE.Material).dispose()
+        // elite auras own an unshared basic material; the model materials are cached and shared
+        e.model.group.traverse(o => {
+            if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshBasicMaterial) o.material.dispose()
+        })
+        this.clearExtra(e)
         if (this.bossEnemy === e) this.bossEnemy = null
     }
 
     private updateEnemies(dt: number): void {
         const pc = this.playerCenter(new THREE.Vector3())
+        const decoyC = this.decoyUnit ? new THREE.Vector3(this.decoyUnit.pos.x, this.decoyUnit.pos.y + 1, this.decoyUnit.pos.z) : null
         for (const e of this.enemies) {
             if (!e.alive) continue
             const edt = dt * this.timeScale
@@ -2973,7 +3491,11 @@ export class VoxelArenaGame {
                 if (Math.random() < dt * 12) this.glow.emit({ x: e.pos.x + (Math.random() - 0.5) * e.scale, y: e.pos.y + Math.random() * e.height * e.scale, z: e.pos.z + (Math.random() - 0.5) * e.scale, vy: 0.6, life: 0.5 + Math.random() * 0.4, size: 0.12, sizeEnd: 0.03, color: 0xffffff, colorEnd: 0xbae6fd, alpha: 0.8, shape: 'star', rot: Math.random() * 3, spin: 2 })
             }
 
-            const toPlayer = _v1.set(this.pos.x - e.pos.x, 0, this.pos.z - e.pos.z)
+            // the hologram decoy pulls everything but titans and menders off the player
+            this.lured = decoyC !== null && e.def.behavior !== 'boss' && e.def.behavior !== 'mender'
+            const aimAt = this.lured ? this.decoyUnit!.pos : this.pos
+            const pcE = this.lured ? decoyC! : pc
+            const toPlayer = _v1.set(aimAt.x - e.pos.x, 0, aimAt.z - e.pos.z)
             const dist = toPlayer.length()
             const dir = toPlayer.clone().divideScalar(Math.max(0.001, dist))
             const move = _v2.set(0, 0, 0)
@@ -2988,6 +3510,7 @@ export class VoxelArenaGame {
                     g.scale.setScalar(e.scale)
                 }
             } else if (e.state === 'stunned') {
+                if (e.extra) this.interruptExtra(e)
                 g.rotation.z = Math.sin(this.elapsed * 30) * 0.12
                 if (e.stateTimer <= 0) {
                     e.state = 'chase'
@@ -2999,17 +3522,24 @@ export class VoxelArenaGame {
                         this.aiMelee(e, dist, dir, move, edt)
                         break
                     case 'ranged':
-                        this.aiRanged(e, dist, dir, move, pc)
+                        this.aiRanged(e, dist, dir, move, pcE)
                         break
                     case 'flyer':
-                        this.aiFlyer(e, dist, dir, move, pc, edt)
+                        this.aiFlyer(e, dist, dir, move, pcE, edt)
                         speed = (e.state === 'charge' ? e.speed * 2.4 : e.speed) * (e.slowTimer > 0 ? 0.55 : 1)
                         break
                     case 'charger':
                         speed = this.aiCharger(e, dist, dir, move, edt) * (e.slowTimer > 0 ? 0.55 : 1)
                         break
                     case 'boss':
-                        this.aiBoss(e, dist, dir, move, edt)
+                        if (e.def.id === 'juggernaut') this.aiJuggernaut(e, dist, dir, move, edt)
+                        else this.aiBoss(e, dist, dir, move, edt)
+                        break
+                    case 'sniper':
+                        this.aiSniper(e, dist, dir, move, edt, pcE)
+                        break
+                    case 'burrower':
+                        if (this.aiBurrower(e, dist, dir, move, edt)) continue
                         break
                     case 'bomber':
                         this.aiBomber(e, dist, dir, move)
@@ -3024,7 +3554,7 @@ export class VoxelArenaGame {
             // separation from neighbours keeps the pack from stacking
             if (e.state === 'chase' || e.state === 'charge') {
                 for (const o of this.enemies) {
-                    if (o === e || !o.alive) continue
+                    if (o === e || !o.alive || o.pos.y < -5) continue
                     const dx = e.pos.x - o.pos.x
                     const dz = e.pos.z - o.pos.z
                     const minD = (e.radius * e.scale + o.radius * o.scale) * 1.05
@@ -3086,7 +3616,11 @@ export class VoxelArenaGame {
             e.knock.z *= Math.max(0, 1 - edt * 6)
 
             // orientation and gait
-            if (move.lengthSq() > 0.01 && e.state !== 'windup') {
+            if (e.def.id === 'juggernaut') {
+                // aiJuggernaut turns the hull itself so its back stays a flanking target
+            } else if (e.def.behavior === 'sniper') {
+                e.yaw = Math.atan2(dir.x, dir.z)
+            } else if (move.lengthSq() > 0.01 && e.state !== 'windup') {
                 const target = Math.atan2(move.x, move.z)
                 let d = target - e.yaw
                 while (d > Math.PI) d -= Math.PI * 2
@@ -3100,7 +3634,13 @@ export class VoxelArenaGame {
             if (e.state !== 'spawn' && e.state !== 'stunned') this.animateEnemy(e, move.length() * speed, edt, slow)
 
             // contact damage for anything overlapping the player (chargers/flyers in charge state)
-            if (e.state === 'charge' && dist < e.radius * e.scale + this.playerRadius + 0.3 && Math.abs(e.pos.y - this.pos.y) < 2.5) {
+            if (e.state === 'charge' && this.lured && this.decoyUnit && dist < e.radius * e.scale + 1.1) {
+                // a charge that lands on the decoy wrecks it instead of you
+                this.hurtDecoy(e.damage)
+                e.state = 'stunned'
+                e.stateTimer = 0.6
+                e.attackTimer = e.def.attackCooldown
+            } else if (e.state === 'charge' && Math.hypot(this.pos.x - e.pos.x, this.pos.z - e.pos.z) < e.radius * e.scale + this.playerRadius + 0.3 && Math.abs(e.pos.y - this.pos.y) < 2.5) {
                 this.damagePlayer(e.damage, e)
                 const kb = dir.clone().multiplyScalar(14)
                 this.vel.x += kb.x
@@ -3127,17 +3667,21 @@ export class VoxelArenaGame {
     }
 
     private animateEnemy(e: Enemy, moveSpeed: number, dt: number, slow: number): void {
+        if (e.def.id === 'juggernaut') {
+            this.animateJuggernaut(e, moveSpeed, dt)
+            return
+        }
         e.walkPhase += moveSpeed * dt * (e.def.behavior === 'flyer' ? 0 : 1.4 / e.scale)
         const swing = Math.sin(e.walkPhase) * Math.min(1, moveSpeed / 4) * 0.9
         const p = e.model.parts
-        const legL = p.get('legL')
-        const legR = p.get('legR')
         const armL = p.get('armL')
         const armR = p.get('armR')
         const head = p.get('head')
-        const rotor = p.get('rotor')
-        if (legL) legL.rotation.x = swing
-        if (legR) legR.rotation.x = -swing
+        // models with several limbs of one name register the twins as `legL#n` / `rotor#n`
+        for (const [name, part] of p) {
+            if (name.startsWith('leg')) part.rotation.x = name.startsWith('legL') ? swing : -swing
+            else if (name.startsWith('rotor')) part.rotation.y += dt * 40 * slow
+        }
         if (e.state === 'windup') {
             const t = 1 - Math.max(0, e.stateTimer) / 0.4
             if (armR) armR.rotation.x = -Math.PI * 0.8 * t
@@ -3149,7 +3693,6 @@ export class VoxelArenaGame {
             if (armL) armL.rotation.x = swing * 0.6
             if (head) head.rotation.x = e.def.behavior === 'charger' && e.state === 'charge' ? 0.4 : 0
         }
-        if (rotor) rotor.rotation.y += dt * 40 * slow
         if (e.def.behavior === 'flyer') {
             e.model.group.rotation.z = Math.sin(this.elapsed * 3 + e.hover) * 0.12
         }
@@ -3166,7 +3709,9 @@ export class VoxelArenaGame {
             if (e.stateTimer <= 0) {
                 e.state = 'chase'
                 e.attackTimer = e.def.attackCooldown
-                if (dist < reach + 0.6 && Math.abs(this.pos.y - e.pos.y) < 2.2) {
+                if (this.lured) {
+                    if (dist < reach + 0.6) this.hurtDecoy(e.damage)
+                } else if (dist < reach + 0.6 && Math.abs(this.pos.y - e.pos.y) < 2.2) {
                     this.damagePlayer(e.damage, e)
                     this.vel.x += dir.x * 4
                     this.vel.z += dir.z * 4
@@ -3326,6 +3871,521 @@ export class VoxelArenaGame {
         return e.speed
     }
 
+    // ── Sniper, Burrower and Juggernaut ─────────────────────────────────
+
+    private extraOf(e: Enemy): EnemyExtra {
+        if (!e.extra) e.extra = { mode: 'idle', timer: 0, cd: 0, angle: 0, aim: new THREE.Vector3(), count: 0, hitCd: 0, mesh: null, ring: null }
+        return e.extra
+    }
+
+    private disposeObject(o: THREE.Object3D): void {
+        this.scene.remove(o)
+        o.traverse(c => {
+            if (!(c instanceof THREE.Mesh)) return
+            if (c.geometry !== BOX) c.geometry.dispose()
+            ;(c.material as THREE.Material).dispose()
+        })
+    }
+
+    private clearExtra(e: Enemy): void {
+        const x = e.extra
+        if (!x) return
+        if (x.mesh) this.disposeObject(x.mesh)
+        if (x.ring) this.disposeObject(x.ring)
+        x.mesh = null
+        x.ring = null
+    }
+
+    /** A stunned sniper drops its aim and a stunned burrower is flushed out of the ground. */
+    private interruptExtra(e: Enemy): void {
+        const x = e.extra
+        if (!x) return
+        if (e.def.behavior === 'sniper' && x.mode === 'aim') {
+            this.hideBeams(x)
+            x.mode = 'idle'
+            e.attackTimer = Math.max(e.attackTimer, 1.5)
+        } else if (e.def.behavior === 'burrower' && x.mode !== 'idle') {
+            this.surfaceBurrower(e, false)
+        }
+    }
+
+    /** Distance a ray travels before it meets cover, the floor or the arena wall. */
+    private rayReach(origin: THREE.Vector3, dir: THREE.Vector3, max: number): number {
+        let best = max
+        _ray.origin.copy(origin)
+        _ray.direction.copy(dir)
+        for (const b of this.colliders) {
+            const hit = _ray.intersectBox(b, _sv)
+            if (hit) best = Math.min(best, origin.distanceTo(hit))
+        }
+        if (dir.y < -1e-4) best = Math.min(best, -origin.y / dir.y)
+        if (Math.abs(dir.x) > 1e-4) best = Math.min(best, ((dir.x > 0 ? ARENA_HALF : -ARENA_HALF) - origin.x) / dir.x)
+        if (Math.abs(dir.z) > 1e-4) best = Math.min(best, ((dir.z > 0 ? ARENA_HALF : -ARENA_HALF) - origin.z) / dir.z)
+        return Math.max(0, best)
+    }
+
+    /** Draws (or moves) beam number `idx` of an enemy. Thin beams are widened with distance so they never drop below a couple of pixels. */
+    private setBeam(x: EnemyExtra, idx: number, from: THREE.Vector3, to: THREE.Vector3, color: number, width: number, alpha = 1): void {
+        if (!x.mesh) {
+            x.mesh = new THREE.Group()
+            this.scene.add(x.mesh)
+        }
+        let beam = x.mesh.children[idx] as THREE.Group | undefined
+        if (!beam) {
+            beam = new THREE.Group()
+            for (let i = 0; i < 2; i++) beam.add(new THREE.Mesh(BOX, new THREE.MeshBasicMaterial({ toneMapped: false, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })))
+            x.mesh.add(beam)
+        }
+        const halo = beam.children[0] as THREE.Mesh
+        const core = beam.children[1] as THREE.Mesh
+        const mid = _sv.copy(from).lerp(to, 0.5)
+        const w = Math.max(width, mid.distanceTo(this.camera.position) * 0.003)
+        beam.position.copy(mid)
+        beam.quaternion.setFromUnitVectors(Z_AXIS, _sv2.copy(to).sub(from).normalize())
+        const len = Math.max(0.01, from.distanceTo(to))
+        halo.scale.set(w * 3, w * 3, len)
+        core.scale.set(w, w, len)
+        const coreMat = core.material as THREE.MeshBasicMaterial
+        coreMat.color.set(color).lerp(WHITE, 0.5).multiplyScalar(2)
+        coreMat.opacity = alpha
+        const haloMat = halo.material as THREE.MeshBasicMaterial
+        haloMat.color.set(color).multiplyScalar(0.8)
+        haloMat.opacity = alpha * 0.5
+        beam.visible = true
+    }
+
+    private hideBeams(x: EnemyExtra): void {
+        if (x.mesh) for (const b of x.mesh.children) b.visible = false
+    }
+
+    /** Ground telegraph: an outline plus a disc that fills as the attack comes due. */
+    private setGroundRing(x: EnemyExtra, at: THREE.Vector3, radius: number, color: number): void {
+        this.dropGroundRing(x)
+        const mat = () => new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(1.6), toneMapped: false, transparent: true, side: THREE.DoubleSide, depthWrite: false })
+        const ring = new THREE.Mesh(new THREE.RingGeometry(radius * 0.93, radius, 48), mat())
+        const fill = new THREE.Mesh(new THREE.CircleGeometry(radius, 40), mat())
+        ring.rotation.x = -Math.PI / 2
+        ring.position.set(at.x, at.y + 0.08, at.z)
+        fill.position.z = 0.01
+        ;(fill.material as THREE.MeshBasicMaterial).opacity = 0.22
+        fill.scale.setScalar(0.01)
+        ring.add(fill)
+        this.scene.add(ring)
+        x.ring = ring
+    }
+
+    private dropGroundRing(x: EnemyExtra): void {
+        if (!x.ring) return
+        this.disposeObject(x.ring)
+        x.ring = null
+    }
+
+    /** Grows the fill disc towards the ring edge; `t` runs 0..1 over the telegraph. */
+    private pulseGroundRing(x: EnemyExtra, t: number): void {
+        if (!x.ring) return
+        ;(x.ring.material as THREE.MeshBasicMaterial).opacity = 0.55 + Math.sin(this.elapsed * 22) * 0.35
+        x.ring.children[0]!.scale.setScalar(Math.max(0.01, t))
+    }
+
+    private sniperMuzzle(e: Enemy, out: THREE.Vector3): THREE.Vector3 {
+        const s = e.scale
+        const sin = Math.sin(e.yaw)
+        const cos = Math.cos(e.yaw)
+        return out.set(e.pos.x + (sin * 1.52 + cos * 0.2) * s, e.pos.y + 1.38 * s, e.pos.z + (cos * 1.52 - sin * 0.2) * s)
+    }
+
+    /**
+     * Sniper: holds a long way off, paints a red laser at you for 1.7 s, then
+     * locks the line (it turns white) for the last 0.45 s and fires down it.
+     * Move off the line or break it with cover before it fires.
+     */
+    private aiSniper(e: Enemy, dist: number, dir: THREE.Vector3, move: THREE.Vector3, dt: number, target: THREE.Vector3): void {
+        const x = this.extraOf(e)
+        const muzzle = this.sniperMuzzle(e, new THREE.Vector3())
+        if (x.mode === 'idle') {
+            if (dist < 15) move.copy(dir).negate()
+            else if (dist > 28) move.copy(dir)
+            else move.set(-dir.z, 0, dir.x).multiplyScalar(e.strafeSign * 0.5)
+            if (Math.random() < 0.003) e.strafeSign *= -1
+            if (e.attackTimer <= 0 && dist < e.def.attackRange) {
+                const to = target.clone().sub(muzzle)
+                const d = to.length()
+                if (this.rayReach(muzzle, to.divideScalar(Math.max(0.01, d)), d) >= d - 0.6) {
+                    x.mode = 'aim'
+                    x.timer = 1.7
+                    x.aim.copy(target)
+                    this.audio.play('laser-charge', 0.5)
+                }
+            }
+            return
+        }
+        // planted while aiming: track the target, then freeze the line for the final 0.45 s
+        x.timer -= dt
+        if (x.timer > 0.45) x.aim.copy(target)
+        const aim = x.aim.clone().sub(muzzle).normalize()
+        const reach = this.rayReach(muzzle, aim, 80)
+        const end = muzzle.clone().addScaledVector(aim, reach)
+        const locked = x.timer <= 0.45
+        this.setBeam(x, 0, muzzle, end, locked ? 0xffffff : 0xff2d4d, locked ? 0.06 : 0.03, locked ? 1 : 0.7)
+        if (x.timer > 0) return
+        this.hideBeams(x)
+        this.spawnBeam(muzzle, end, 0xff2d4d, 0.14, 0.25)
+        this.audio.play('laser-fire', 0.9)
+        this.sparks(end, null, 10, 0xff6a80, 6)
+        if (!this.lured && segmentSphere(muzzle, end, this.playerCenter(_v3), this.playerRadius + 0.35) >= 0) this.damagePlayer(e.damage, e, muzzle)
+        else if (this.lured && this.decoyUnit && segmentSphere(muzzle, end, target, 1) >= 0) this.hurtDecoy(e.damage)
+        x.mode = 'idle'
+        e.attackTimer = e.def.attackCooldown * (0.8 + Math.random() * 0.5)
+    }
+
+    /**
+     * Burrower: brawls on the surface, then dives and tunnels at you as a moving
+     * dirt mound. Close in, it locks a ring where you stand and erupts there
+     * a moment later: jump or leave the ring. After erupting it is stunned.
+     */
+    private aiBurrower(e: Enemy, dist: number, dir: THREE.Vector3, move: THREE.Vector3, dt: number): boolean {
+        const x = this.extraOf(e)
+        const g = e.model.group
+        const R = 3.3
+        if (x.mode === 'idle') {
+            if (x.count === 0) {
+                x.count = 1
+                x.timer = 2 + Math.random() * 2
+            }
+            x.timer -= dt
+            this.aiMelee(e, dist, dir, move, dt)
+            if (x.timer <= 0 && e.state === 'chase' && dist > 7 && dist < 32) {
+                x.mode = 'sink'
+                x.timer = 0.5
+                this.audio.play('dig', 0.8)
+                this.burst(e.pos.x, e.pos.y + 0.3, e.pos.z, 16, [0x6b5a45, 0x8c7658, 0x2e2519], 5, 0.16)
+            }
+            return false
+        }
+        if (x.mode === 'sink') {
+            x.timer -= dt
+            const t = 1 - Math.max(0, x.timer) / 0.5
+            g.position.set(e.pos.x, e.pos.y - t * e.height * e.scale * 1.2, e.pos.z)
+            if (x.timer <= 0) {
+                x.mode = 'dig'
+                x.timer = 8
+                x.hitCd = 0
+                g.visible = false
+                e.pos.y = -30
+                e.hpBar.visible = false
+            }
+            return true
+        }
+        // underground: a dirt mound races along the surface
+        if (!x.mesh) {
+            const mound = new THREE.Group()
+            const mat = new THREE.MeshStandardMaterial({ color: 0x6b5a45, roughness: 0.95, flatShading: true })
+            for (const [px, py, pz, w, h] of [[0, 0.15, 0, 1.7, 0.35], [0.1, 0.4, -0.1, 1.05, 0.3], [-0.15, 0.6, 0.1, 0.55, 0.3]] as const) {
+                const m = new THREE.Mesh(BOX, mat)
+                m.scale.set(w, h, w)
+                m.position.set(px, py, pz)
+                mound.add(m)
+            }
+            this.scene.add(mound)
+            x.mesh = mound
+        }
+        const mound = x.mesh
+        const groundAt = (px: number, pz: number) => this.groundHeight(px, pz, 0.5, 100)
+        if (x.mode === 'dig') {
+            x.timer -= dt
+            const spd = e.speed * 2.4 * (e.slowTimer > 0 ? 0.55 : 1)
+            const lim = ARENA_HALF - 1
+            e.pos.x = THREE.MathUtils.clamp(e.pos.x + dir.x * spd * dt, -lim, lim)
+            e.pos.z = THREE.MathUtils.clamp(e.pos.z + dir.z * spd * dt, -lim, lim)
+            x.hitCd -= dt
+            if (x.hitCd <= 0) {
+                x.hitCd = 0.45
+                this.audio.play('dig', 0.35)
+            }
+            if (dist < 6.5 || x.timer <= 0) {
+                // lock the ring where the player stands, nudged along their velocity
+                x.mode = 'lurk'
+                x.timer = 1
+                x.aim.set(this.pos.x + this.vel.x * 0.25, 0, this.pos.z + this.vel.z * 0.25)
+                x.aim.x = THREE.MathUtils.clamp(x.aim.x, -ARENA_HALF + 2, ARENA_HALF - 2)
+                x.aim.z = THREE.MathUtils.clamp(x.aim.z, -ARENA_HALF + 2, ARENA_HALF - 2)
+                x.aim.y = groundAt(x.aim.x, x.aim.z)
+                this.setGroundRing(x, x.aim, R, 0xffa21a)
+                this.audio.play('charge', 0.6)
+            }
+        } else {
+            // lurk: slide under the ring and rumble until it erupts
+            x.timer -= dt
+            const toX = x.aim.x - e.pos.x
+            const toZ = x.aim.z - e.pos.z
+            const d = Math.hypot(toX, toZ)
+            const step = Math.min(d, 16 * dt)
+            if (d > 0.01) {
+                e.pos.x += toX / d * step
+                e.pos.z += toZ / d * step
+            }
+            this.pulseGroundRing(x, 1 - Math.max(0, x.timer) / 1)
+            if (x.timer <= 0) {
+                this.surfaceBurrower(e, true)
+                return true
+            }
+        }
+        mound.position.set(e.pos.x, groundAt(e.pos.x, e.pos.z), e.pos.z)
+        mound.rotation.y += dt * 3
+        mound.scale.setScalar(1 + Math.sin(this.elapsed * 30) * 0.06)
+        if (dt > 0 && Math.random() < 0.6) this.smoke.emit({ x: e.pos.x + (Math.random() - 0.5), y: mound.position.y + 0.4, z: e.pos.z + (Math.random() - 0.5), vy: 1.5, life: 0.7, size: 0.7, sizeEnd: 1.8, color: 0x8c7658, colorEnd: 0x3a2f24, alpha: 0.4, shape: 'soft', rot: Math.random() * 6, spin: 1, fadeIn: 0.1 })
+        return true
+    }
+
+    /** Bursts out of the ground. With `strike` it hits whatever stands in the locked ring; otherwise it was just flushed out. */
+    private surfaceBurrower(e: Enemy, strike: boolean): void {
+        const x = this.extraOf(e)
+        const at = strike ? x.aim : e.pos
+        const gy = this.groundHeight(at.x, at.z, 0.6, 100)
+        const R = 3.3
+        e.pos.set(at.x, gy, at.z)
+        e.model.group.visible = true
+        e.model.group.position.copy(e.pos)
+        if (x.mesh) this.disposeObject(x.mesh)
+        x.mesh = null
+        this.dropGroundRing(x)
+        x.mode = 'idle'
+        x.timer = 5 + Math.random() * 2
+        x.count = 1
+        if (!strike) return
+        this.spawnShockwave(e.pos, R + 0.6, 0xffa21a, 0.45)
+        this.burst(e.pos.x, gy + 0.4, e.pos.z, 40, [0x6b5a45, 0x8c7658, 0x2e2519, 0xffa21a], 9, 0.24)
+        this.audio.play('erupt', 0.9)
+        this.shake = Math.max(this.shake, 0.55)
+        if (this.lured && this.decoyUnit) {
+            if (Math.hypot(this.decoyUnit.pos.x - e.pos.x, this.decoyUnit.pos.z - e.pos.z) < R) this.hurtDecoy(e.damage)
+        } else if (Math.hypot(this.pos.x - e.pos.x, this.pos.z - e.pos.z) < R + this.playerRadius && this.pos.y < gy + 1.3) {
+            this.damagePlayer(e.damage, e, e.pos)
+            const away = _v1.set(this.pos.x - e.pos.x, 0, this.pos.z - e.pos.z).normalize()
+            this.vel.x += away.x * 6
+            this.vel.z += away.z * 6
+            this.vel.y = Math.max(this.vel.y, 9)
+        }
+        e.state = 'stunned'
+        e.stateTimer = 1.4
+        e.attackTimer = 0.5
+    }
+
+    /** True when a hit travelling along `dir` comes from behind the Juggernaut's facing. */
+    private juggernautBehind(e: Enemy, dir: THREE.Vector3): boolean {
+        const len = Math.hypot(dir.x, dir.z) || 1
+        return (dir.x * Math.sin(e.yaw) + dir.z * Math.cos(e.yaw)) / len > 0.45
+    }
+
+    /** Juggernaut plating: the front shrugs most damage off. The reactor, a vented hull and shattered plating take it all. */
+    private juggernautMult(e: Enemy, dir: THREE.Vector3, weakPoint: boolean): number {
+        if (weakPoint || e.enraged || e.extra?.mode === 'vent') return 1
+        return this.juggernautBehind(e, dir) ? JUGGERNAUT.flankMult : JUGGERNAUT.armorMult
+    }
+
+    /** A telegraphed meteor-style strike used by the Juggernaut's barrage. */
+    private bossStrike(px: number, pz: number, delay: number, power: number): void {
+        const target = new THREE.Vector3(THREE.MathUtils.clamp(px, -ARENA_HALF + 2, ARENA_HALF - 2), 0, THREE.MathUtils.clamp(pz, -ARENA_HALF + 2, ARENA_HALF - 2))
+        target.y = this.groundHeight(target.x, target.z, 0.5, 100)
+        const mesh = buildModel(meteorParts(), 1.1).group
+        mesh.position.set(target.x + 6, target.y + 46, target.z - 4)
+        this.scene.add(mesh)
+        const warning = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 32), new THREE.MeshBasicMaterial({ color: new THREE.Color(0xffb020).multiplyScalar(1.6), toneMapped: false, transparent: true, side: THREE.DoubleSide }))
+        warning.rotation.x = -Math.PI / 2
+        warning.position.set(target.x, target.y + 0.06, target.z)
+        this.scene.add(warning)
+        this.meteors.push({ target, mesh, timer: delay, total: delay, warning, friendly: false, power })
+    }
+
+    /**
+     * Juggernaut: a siege mech that turns slowly. Its frontal plating soaks 70%
+     * of bullets; the reactor on its back takes weak-point damage. It cycles
+     * rocket barrages and a sweeping floor laser (jump it or outrun it), pounds
+     * the ground when crowded, and vents after every sweep, opening its hull.
+     * At half health the plating shatters and it enrages.
+     */
+    private aiJuggernaut(e: Enemy, dist: number, dir: THREE.Vector3, move: THREE.Vector3, dt: number): void {
+        const x = this.extraOf(e)
+        const s = e.scale
+        if (x.count === 0 && x.mode === 'idle') {
+            x.mode = 'walk'
+            x.timer = 2.4
+            x.cd = 3
+        }
+        x.cd -= dt
+        if (!e.enraged && e.hp < e.maxHp * JUGGERNAUT.shatterAt) this.shatterJuggernaut(e)
+
+        // the hull turns slowly while it moves or winds up, and stays put while it fires the laser or vents
+        if (x.mode === 'walk' || x.mode === 'barrage' || x.mode === 'pound') {
+            let d = Math.atan2(dir.x, dir.z) - e.yaw
+            while (d > Math.PI) d -= Math.PI * 2
+            while (d < -Math.PI) d += Math.PI * 2
+            const turn = (e.enraged ? 1.15 : 0.8) * dt
+            e.yaw += THREE.MathUtils.clamp(d, -turn, turn)
+        }
+        const fx = Math.sin(e.yaw)
+        const fz = Math.cos(e.yaw)
+
+        // the reactor always glows on its back so the weak point reads from across the arena
+        const venting = x.mode === 'vent'
+        if (dt > 0) {
+            this.glow.emit({ x: e.pos.x - fx * 1.15 * s, y: e.pos.y + 2 * s, z: e.pos.z - fz * 1.15 * s, life: 0.12, size: (venting ? 5 : 3.2) * (1 + Math.sin(this.elapsed * 9) * 0.12), sizeEnd: venting ? 4 : 2.4, color: 0xffd966, colorEnd: 0xff7a1a, alpha: venting ? 0.85 : 0.5, shape: 'soft' })
+        }
+
+        if (x.mode === 'walk') {
+            if (dist > 9 && fx * dir.x + fz * dir.z > 0.7) move.set(fx, 0, fz)
+            x.timer -= dt
+            if (x.timer <= 0) {
+                if (dist < 8 && x.cd <= 0) {
+                    x.mode = 'pound'
+                    x.timer = 0.95
+                    this.setGroundRing(x, e.pos, 7, 0xff6a2a)
+                    this.audio.play('charge', 0.8)
+                } else if (x.count % 2 === 0) {
+                    x.mode = 'barrage'
+                    x.timer = 2.4
+                    x.count++
+                    this.audio.play('boss', 0.5)
+                    const strikes = e.enraged ? 8 : 5
+                    const lead = this.pos.clone().addScaledVector(this.vel, 0.5)
+                    for (let i = 0; i < strikes; i++) {
+                        const a = Math.random() * Math.PI * 2
+                        const r = i === 0 ? 0 : 3 + Math.random() * 7
+                        this.bossStrike(lead.x + Math.cos(a) * r, lead.z + Math.sin(a) * r, 1.4 + i * 0.13, 0.6)
+                    }
+                    if (e.enraged) for (let i = 0; i < 2; i++) this.spawnEnemy('drone', null, e.pos.clone())
+                } else {
+                    x.mode = 'sweep-aim'
+                    x.timer = 1.5
+                    x.count++
+                    e.strafeSign = Math.random() < 0.5 ? -1 : 1
+                    x.angle = Math.atan2(dir.x, dir.z) - e.strafeSign * 1
+                    this.audio.play('laser-charge', 0.8)
+                }
+            }
+        } else if (x.mode === 'barrage') {
+            x.timer -= dt
+            if (x.timer <= 0) {
+                x.mode = 'walk'
+                x.timer = e.enraged ? 1.8 : 2.8
+            }
+        } else if (x.mode === 'pound') {
+            x.timer -= dt
+            this.pulseGroundRing(x, 1 - Math.max(0, x.timer) / 0.95)
+            if (x.timer <= 0) {
+                this.dropGroundRing(x)
+                this.spawnShockwave(e.pos, 7.5, 0xff6a2a, 0.55)
+                this.burst(e.pos.x, e.pos.y + 0.3, e.pos.z, 50, [0x5c6b80, 0xffb020, 0x232a36], 8, 0.22)
+                this.audio.play('slam')
+                this.shake = Math.max(this.shake, 1.1)
+                if (dist < 7 + this.playerRadius && this.pos.y < e.pos.y + 1.5) {
+                    this.damagePlayer(e.damage, e)
+                    this.vel.x += dir.x * 12
+                    this.vel.z += dir.z * 12
+                    this.vel.y = 7
+                }
+                x.cd = 6
+                x.mode = 'walk'
+                x.timer = 1.6
+            }
+        } else if (x.mode === 'sweep-aim' || x.mode === 'sweep') {
+            const beams = e.enraged ? 2 : 1
+            const sweeping = x.mode === 'sweep'
+            x.timer -= dt
+            if (sweeping) x.angle += e.strafeSign * (e.enraged ? 0.78 : 0.62) * dt
+            x.hitCd -= dt
+            for (let i = 0; i < beams; i++) {
+                const a = x.angle + i * Math.PI
+                const d = new THREE.Vector3(Math.sin(a), 0, Math.cos(a))
+                const from = new THREE.Vector3(e.pos.x + d.x * 2.4, e.pos.y + 0.5, e.pos.z + d.z * 2.4)
+                const reach = this.rayReach(from, d, 44)
+                const end = from.clone().addScaledVector(d, reach)
+                if (sweeping) this.setBeam(x, i, from, end, 0xff8a2a, 0.3)
+                else this.setBeam(x, i, from, end, 0xff3a3a, 0.06, 0.55 + Math.sin(this.elapsed * 24) * 0.3)
+                if (sweeping) {
+                    if (dt > 0 && Math.random() < 0.5) this.sparks(end, null, 3, 0xffb020, 5)
+                    // distance from the player to the beam segment, and a jump clears it
+                    const px = this.pos.x - from.x
+                    const pz = this.pos.z - from.z
+                    const along = THREE.MathUtils.clamp(px * d.x + pz * d.z, 0, reach)
+                    const off = Math.hypot(px - d.x * along, pz - d.z * along)
+                    if (x.hitCd <= 0 && off < this.playerRadius + 0.55 && this.pos.y < from.y + 0.3) {
+                        x.hitCd = 0.6
+                        this.damagePlayer(e.damage * 0.7, e, from)
+                    }
+                }
+            }
+            if (x.timer <= 0 && !sweeping) {
+                x.mode = 'sweep'
+                x.timer = 3.8
+                this.audio.play('laser-fire', 1)
+                this.shake = Math.max(this.shake, 0.5)
+            } else if (x.timer <= 0) {
+                this.hideBeams(x)
+                x.mode = 'vent'
+                x.timer = JUGGERNAUT.ventTime * (e.enraged ? 0.6 : 1)
+                this.audio.play('charge', 0.7)
+                this.spawnShockwave(e.pos, 5, 0xffd966, 0.5)
+                if (!e.enraged) this.ui.banner('HULL OPEN', 'Hit it while the plating is lifted', 'boss')
+            }
+        } else if (x.mode === 'vent') {
+            x.timer -= dt
+            if (dt > 0 && Math.random() < 0.7) {
+                const side = Math.random() < 0.5 ? -1 : 1
+                const c = Math.cos(e.yaw)
+                const sn = Math.sin(e.yaw)
+                this.smoke.emit({ x: e.pos.x + (c * side * 0.5 + sn * -0.5) * s, y: e.pos.y + 3.2 * s, z: e.pos.z + (-sn * side * 0.5 + c * -0.5) * s, vy: 4, life: 1, size: 1.4, sizeEnd: 3.4, color: 0xdfe6ee, colorEnd: 0x8a96a6, alpha: 0.5, shape: 'soft', rot: Math.random() * 6, spin: 1, fadeIn: 0.1 })
+            }
+            if (x.timer <= 0) {
+                x.mode = 'walk'
+                x.timer = 2
+            }
+        }
+    }
+
+    /** At half health the plating blows off and the Juggernaut enrages. */
+    private shatterJuggernaut(e: Enemy): void {
+        e.enraged = true
+        e.speed *= 1.3
+        const plate = e.model.parts.get('plate')
+        if (plate) plate.visible = false
+        e.model.group.updateMatrixWorld(true)
+        const world = new THREE.Vector3()
+        for (const m of e.model.meshes) {
+            const part = m.userData.part as VoxPart
+            if (part.name !== 'plate') continue
+            m.getWorldPosition(world)
+            for (let i = 0; i < 6; i++) {
+                const a = Math.random() * Math.PI * 2
+                this.spawnDebris(world.x, world.y, world.z, Math.cos(a) * 7, 4 + Math.random() * 6, Math.sin(a) * 7, part.color, 0.25 + Math.random() * 0.2, 1.8 + Math.random())
+            }
+        }
+        this.ui.banner('PLATING SHATTERED', 'The Juggernaut is enraged', 'boss')
+        this.audio.play('armor-break', 1)
+        this.spawnShockwave(e.pos, 8, 0xffb020, 0.5)
+        this.burst(e.pos.x, e.pos.y + 4, e.pos.z, 40, [0xffb020, 0xff6a2a, 0x7d8da3], 8, 0.2)
+        this.shake = Math.max(this.shake, 1)
+    }
+
+    private animateJuggernaut(e: Enemy, moveSpeed: number, dt: number): void {
+        const x = this.extraOf(e)
+        e.walkPhase += moveSpeed * dt * 0.5
+        const swing = Math.sin(e.walkPhase) * Math.min(1, moveSpeed / 2) * 0.5
+        const ease = Math.min(1, dt * 8)
+        const set = (name: string, v: number) => {
+            const o = e.model.parts.get(name)
+            if (o) o.rotation.x += (v - o.rotation.x) * ease
+        }
+        set('legL', swing)
+        set('legR', -swing)
+        const pose = x.mode === 'barrage' ? -2.3 : x.mode === 'sweep-aim' || x.mode === 'sweep' ? -1.5 : x.mode === 'pound' ? -2.6 : x.mode === 'vent' ? 0.4 : null
+        set('armL', pose ?? swing * 0.7)
+        set('armR', pose ?? -swing * 0.7)
+        // the front plating lifts on its top hinge while the hull is vented
+        if (!e.enraged) set('plate', x.mode === 'vent' ? -1.15 : 0)
+        e.model.group.rotation.x = x.mode === 'vent' ? 0.06 : 0
+    }
+
     private aiBoss(e: Enemy, dist: number, dir: THREE.Vector3, move: THREE.Vector3, dt: number): void {
         e.roarTimer -= dt
         if (e.roarTimer <= 0 && e.state === 'chase') {
@@ -3349,7 +4409,12 @@ export class VoxelArenaGame {
             this.shake = Math.max(this.shake, 0.8)
             for (const m of e.model.meshes) {
                 const part = m.userData.part as VoxPart
-                if (part.emissive) m.material = voxMaterial(0xff3a3a, 0xff3a3a, 3)
+                if (part.emissive) {
+                    // the hit flash restores baseMaterial, so the enraged glow has to become the base
+                    const enraged = voxMaterial(0xff3a3a, 0xff3a3a, 3)
+                    m.material = enraged
+                    m.userData.baseMaterial = enraged
+                }
             }
         }
         e.throwTimer -= dt
@@ -3398,6 +4463,10 @@ export class VoxelArenaGame {
 
     private hitEnemy(e: Enemy, amount: number, dir: THREE.Vector3, knockback: number, source: 'bullet' | 'melee' | 'explosion' | 'blade' | 'aura' | 'nova' | 'thorns', headshot = false): void {
         if (!e.alive) return
+        // a tunnelling Burrower is untouchable
+        if (e.pos.y < -5) return
+        // the Juggernaut's reactor is only exposed from behind
+        if (headshot && e.def.id === 'juggernaut' && !this.juggernautBehind(e, dir)) headshot = false
         let dmg = amount
         let crit = false
         if (source === 'bullet' || source === 'melee' || source === 'blade') {
@@ -3408,7 +4477,9 @@ export class VoxelArenaGame {
         }
         if (headshot) this.headshots++
         if (source !== 'aura') dmg *= this.damageBoost()
-        dmg = Math.max(1, Math.round(dmg))
+        if (e.def.id === 'juggernaut') dmg *= this.juggernautMult(e, dir, headshot)
+        // a NaN hit would leave hp as NaN, and an enemy that can never die soft-locks the wave
+        dmg = Number.isFinite(dmg) ? Math.max(1, Math.round(dmg)) : 1
         e.hp -= dmg
         this.damageDealt += dmg
         e.barTimer = 2.5
@@ -3423,7 +4494,7 @@ export class VoxelArenaGame {
 
         if (source !== 'aura') {
             const center = new THREE.Vector3(e.pos.x, e.pos.y + e.height * e.scale * 0.7, e.pos.z)
-            this.popup(center, headshot ? `${dmg} HEADSHOT` : String(dmg), headshot ? '#fb923c' : crit ? '#fde047' : source === 'explosion' ? '#fb923c' : source === 'melee' ? '#7dd3fc' : '#f8fafc', headshot ? 22 : crit ? 24 : source === 'melee' ? 19 : 15)
+            this.popup(center, headshot ? `${dmg} ${e.def.id === 'juggernaut' ? 'REACTOR' : 'HEADSHOT'}` : String(dmg), headshot ? '#fb923c' : crit ? '#fde047' : source === 'explosion' ? '#fb923c' : source === 'melee' ? '#7dd3fc' : '#f8fafc', headshot ? 22 : crit ? 24 : source === 'melee' ? 19 : 15)
             this.impactEnemy(center, dir, e.parts[0]?.color ?? 0xffffff, crit, headshot, source)
             this.hitMarker = headshot ? 0.2 : 0.14
             this.hud.hitKind = headshot ? 'head' : crit ? 'crit' : 'hit'
@@ -3455,6 +4526,17 @@ export class VoxelArenaGame {
             }
         }
 
+        if (source === 'bullet' || source === 'melee' || source === 'blade') {
+            // Arc Overcharge forks every hit (throttled so a shotgun does not fire a storm per pellet)
+            if (this.overchargeTimer > 0 && this.overchargeFx <= 0) {
+                this.overchargeFx = 0.05
+                this.forkLightning(e, dmg * 0.45, 3 + 2 * this.stats.overcharge, 0xfacc15)
+                this.audio.play('arc', 0.35)
+            }
+            // Conductive Rounds: crits arc through the pack
+            if (crit && this.stats.critChain > 0) this.forkLightning(e, dmg * 0.6, 1 + this.stats.critChain, 0xfde047, 7)
+        }
+
         if (e.alive && e.hp > 0 && this.stats.execute > 0 && source !== 'aura' && source !== 'thorns') {
             // Death Mark: finish anything already on its last legs
             const threshold = (e.def.behavior === 'boss' ? 0.08 : 0.15) * this.stats.execute
@@ -3472,6 +4554,8 @@ export class VoxelArenaGame {
 
     private killEnemy(e: Enemy, dir: THREE.Vector3): void {
         if (!e.alive) return
+        // dead from here on, so a chain of death blasts can't hit this body again and recurse forever
+        e.alive = false
         const boss = e.def.behavior === 'boss'
         this.kills++
         this.combo++
@@ -3479,6 +4563,11 @@ export class VoxelArenaGame {
         const gained = killScore(e.def, this.wave, this.combo, e.affix)
         this.score += gained
         this.energy = Math.min(this.stats.energyMax, this.energy + (e.def.energy + this.stats.energyPerKill) * 0.5)
+        if (this.cascadeTimer > 0 && this.stats.cascade > 0) {
+            // Cascade Core: kills close to a cast pay energy straight back
+            this.energy = Math.min(this.stats.energyMax, this.energy + 2 + 2 * this.stats.cascade)
+            this.glow.emit({ x: e.pos.x, y: e.pos.y + 1, z: e.pos.z, vy: 3, life: 0.4, size: 0.5, sizeEnd: 0.1, color: 0xffffff, colorEnd: 0x34d399, alpha: 0.9, shape: 'star', rot: Math.random() * 3 })
+        }
         const center = new THREE.Vector3(e.pos.x, e.pos.y + e.height * e.scale * 0.5, e.pos.z)
         this.popup(center.clone().add(new THREE.Vector3(0, 0.6, 0)), `+${gained}`, e.affix ? hexToCss(AFFIXES[e.affix].color) : '#a3e635', boss ? 30 : 14)
         this.hitMarker = 0.2
@@ -3488,6 +4577,7 @@ export class VoxelArenaGame {
         this.shatter(e, dir)
         this.deathBurst(center, e.parts[0]?.color ?? 0xffffff, e.scale, boss)
         this.audio.play(boss || e.scale > 1.5 ? 'kill-big' : 'kill', boss ? 1.4 : 0.9)
+        if (e.def.splitInto) this.splitEnemy(e)
         this.shake = Math.max(this.shake, boss ? 1.4 : e.scale > 1.5 ? 0.45 : 0.12)
 
         if (this.stats.frenzy > 0) {
@@ -3545,7 +4635,23 @@ export class VoxelArenaGame {
             this.spawnPickup(randomPick(kinds), e.pos)
         }
         this.removeEnemy(e)
-        if (boss) this.ui.banner('TITAN DOWN', 'The arena is yours', 'clear')
+        if (boss) this.ui.banner(`${e.def.name.toUpperCase()} DOWN`, 'The arena is yours', 'clear')
+    }
+
+    /** A Splitter breaks into smaller enemies that hop apart. They are untargetable for a moment while they pop in. */
+    private splitEnemy(e: Enemy): void {
+        const { id, count } = e.def.splitInto!
+        this.audio.play('split', 0.8)
+        const offset = Math.random() * Math.PI * 2
+        for (let i = 0; i < count; i++) {
+            const a = offset + (i / count) * Math.PI * 2
+            const child = this.spawnEnemy(id, null, e.pos, true)
+            child.pos.set(e.pos.x + Math.cos(a) * 0.6, e.pos.y, e.pos.z + Math.sin(a) * 0.6)
+            child.model.group.position.copy(child.pos)
+            child.knock.set(Math.cos(a) * 9, 6, Math.sin(a) * 9)
+            child.attackTimer = 0.6
+            this.glow.emit({ x: child.pos.x, y: child.pos.y + 1, z: child.pos.z, life: 0.3, size: 0.4, sizeEnd: 2.4, color: 0xff9bf0, alpha: 0.7, shape: 'ring' })
+        }
     }
 
     private shatter(e: Enemy, dir: THREE.Vector3): void {
@@ -3554,6 +4660,7 @@ export class VoxelArenaGame {
         const world = new THREE.Vector3()
         for (const m of e.model.meshes) {
             const part = m.userData.part as VoxPart
+            if (part.name === 'plate' && e.enraged) continue
             m.getWorldPosition(world)
             const volume = part.w * part.h * part.d * e.scale ** 3
             const n = Math.min(26, Math.max(2, Math.round(volume * 22)))
@@ -3802,9 +4909,12 @@ export class VoxelArenaGame {
                     const thin = p.def.kind === 'bullet' ? 0.5 : 1
                     const len = p.def.tracerLength * (1 + this.stats.bulletSize * 0.3)
                     // a hot core inside a wider, dimmer halo so rounds read as streaks of light
-                    this.tracers.set(slot, p.pos, q, p.size * thin, p.size * thin, len, _c1.copy(p.color).lerp(WHITE, 0.55).multiplyScalar(1.5))
+                    // far away a round is under 2 px thick and shimmers; hold it at ~1.6 px and dim it by the width it gained
+                    const core = Math.max(p.size * thin, this.camera.position.distanceTo(p.pos) * this.pxWorld * 1.6)
+                    const dim = p.size * thin / core
+                    this.tracers.set(slot, p.pos, q, core, core, len, _c1.copy(p.color).lerp(WHITE, 0.55).multiplyScalar(1.5 * dim))
                     slot++
-                    this.tracers.set(slot, p.pos, q, p.size * thin * 2.8, p.size * thin * 2.8, len * 0.85, _c1.copy(p.color).multiplyScalar(0.3))
+                    this.tracers.set(slot, p.pos, q, core * 2.8, core * 2.8, len * 0.85, _c1.copy(p.color).multiplyScalar(0.3 * dim))
                 }
                 slot++
             }
@@ -3817,7 +4927,11 @@ export class VoxelArenaGame {
         const pc = this.playerCenter(_v3)
         let s = 0
         for (const shot of this.enemyShots) {
-            if (!shot.alive) continue
+            if (!shot.alive) {
+                // Nova and rifts kill shots from outside this loop; a boulder must still leave the scene
+                if (shot.mesh?.parent) this.scene.remove(shot.mesh)
+                continue
+            }
             const edt = dt * this.timeScale
             shot.life -= edt
             shot.vel.y -= shot.gravity * edt
@@ -3825,7 +4939,12 @@ export class VoxelArenaGame {
             shot.pos.addScaledVector(shot.vel, edt)
             const hitRadius = this.playerRadius + (shot.blast > 0 ? 0.9 : 0.55) * this.stats.scale
             if (shot.life <= 0) shot.alive = false
-            else if (segmentSphere(prev, shot.pos, pc, hitRadius) >= 0) {
+            else if (this.decoyUnit && segmentSphere(prev, shot.pos, _v2.set(this.decoyUnit.pos.x, this.decoyUnit.pos.y + 1, this.decoyUnit.pos.z), 0.9) >= 0) {
+                // spit and boulders aimed at the hologram spend themselves on it
+                if (shot.blast > 0) this.explode(shot.pos.clone(), shot.blast, shot.damage, 0xff6a2a, true)
+                this.hurtDecoy(shot.damage)
+                shot.alive = false
+            } else if (segmentSphere(prev, shot.pos, pc, hitRadius) >= 0) {
                 if (shot.blast > 0) this.explode(shot.pos.clone(), shot.blast, shot.damage, 0xff6a2a, true)
                 else this.damagePlayer(shot.damage, null, prev)
                 shot.alive = false
@@ -3918,12 +5037,39 @@ export class VoxelArenaGame {
                 this.scene.remove(r.group)
                 r.core.geometry.dispose()
                 r.ring.geometry.dispose()
+                ;(r.core.material as THREE.Material).dispose()
+                ;(r.ring.material as THREE.Material).dispose()
                 this.rifts.splice(i, 1)
                 this.explode(r.pos, 5 + r.power, 70 * r.power * this.stats.damageMult * (1 + this.wave * 0.08), 0xb56bff, false)
                 this.spawnShockwave(r.pos, 7 + r.power * 2, 0xb56bff, 0.5)
                 this.shake = Math.max(this.shake, 0.9)
             }
         }
+    }
+
+    /** Ion Surge event: energy floods back and the sky throws bolts at the pack. */
+    private updateSurge(dt: number): void {
+        if (this.event !== 'surge') return
+        this.energy = Math.min(this.stats.energyMax, this.energy + 5 * dt)
+        this.surgeTimer -= dt
+        if (this.surgeTimer > 0) return
+        this.surgeTimer = 1.6 + Math.random() * 1.2
+        const targets = this.enemies.filter(e => e.alive && e.state !== 'spawn')
+        const e = targets.length > 0 ? randomPick(targets) : null
+        const x = e ? e.pos.x + (Math.random() - 0.5) * 2 : this.pos.x + (Math.random() - 0.5) * 20
+        const z = e ? e.pos.z + (Math.random() - 0.5) * 2 : this.pos.z + (Math.random() - 0.5) * 20
+        const at = new THREE.Vector3(THREE.MathUtils.clamp(x, -ARENA_HALF + 1, ARENA_HALF - 1), 0, THREE.MathUtils.clamp(z, -ARENA_HALF + 1, ARENA_HALF - 1))
+        at.y = this.groundHeight(at.x, at.z, 0.5, 100)
+        const top = new THREE.Vector3(at.x + (Math.random() - 0.5) * 4, at.y + 24, at.z + (Math.random() - 0.5) * 4)
+        this.spawnLightning(top, at, 0x7dd3fc, 0.25)
+        this.spawnLightning(top, at, 0xffffff, 0.1)
+        this.spawnShockwave(at, 5, 0x7dd3fc, 0.4)
+        this.burst(at.x, at.y + 0.5, at.z, 18, [0x7dd3fc, 0xffffff], 7, 0.12)
+        this.explode(at.clone().setY(at.y + 0.8), 3.2, 45 * this.stats.damageMult * (1 + this.wave * 0.08), 0x7dd3fc, false)
+        this.flashLight.color.set(0x7dd3fc)
+        this.flashLight.position.set(at.x, at.y + 3, at.z)
+        this.flashLight.intensity = 28
+        this.audio.play('storm', 0.6)
     }
 
     /** Lightning Storm: bolts from the sky on random enemies. */
@@ -4039,6 +5185,8 @@ export class VoxelArenaGame {
         for (const p of this.pickups) dot(p.pos.x, p.pos.z, 0.8, p.kind === 'ammo' ? '#ffc14d' : p.kind === 'health' ? '#3dff7a' : '#8ad8ff')
         for (const r of this.rifts) dot(r.pos.x, r.pos.z, 1.6, 'rgba(181,107,255,0.8)')
         for (const t of this.turrets) dot(t.pos.x, t.pos.z, 0.9, '#d9a63c')
+        for (const w of this.wells) dot(w.pos.x, w.pos.z, w.landed ? 2 : 1, 'rgba(167,139,250,0.85)')
+        if (this.decoyUnit) dot(this.decoyUnit.pos.x, this.decoyUnit.pos.z, 1.3, 'rgba(52,211,153,0.9)')
         for (const e of this.enemies) {
             if (!e.alive) continue
             const boss = e.def.behavior === 'boss'
@@ -4071,7 +5219,11 @@ export class VoxelArenaGame {
         const model = buildModel(pickupParts(kind))
         for (const m of model.meshes) m.castShadow = false
         const pos = at.clone()
-        pos.y = this.groundHeight(pos.x, pos.z, 0.3, 100) + 0.8
+        // bounty drops are scattered around the corpse; keep them inside the walls
+        pos.x = THREE.MathUtils.clamp(pos.x, -ARENA_HALF + 1, ARENA_HALF - 1)
+        pos.z = THREE.MathUtils.clamp(pos.z, -ARENA_HALF + 1, ARENA_HALF - 1)
+        // only surfaces a body could stand on: a crate dropped under the gantry must not land on its crossbar
+        pos.y = this.groundHeight(pos.x, pos.z, 0.3, at.y + STEP_HEIGHT + 0.5) + 0.8
         model.group.position.copy(pos)
         this.scene.add(model.group)
         const pickup: Pickup = { kind, group: model.group, pos, life: 28, phase: Math.random() * Math.PI * 2 }
@@ -4324,6 +5476,13 @@ export class VoxelArenaGame {
         }
         this.burst(at.x, at.y, at.z, big ? 6 : 3, [color], 3.5, 0.08)
         if (source === 'melee') this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 0.12, size: 0.4, sizeEnd: 1.8, color: 0x7dd3fc, alpha: 0.7, shape: 'ring' })
+        // headshots pop a hot ring and a few rising cubes, crits a smaller gold ring, so they read at a glance
+        if (headshot) {
+            this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 0.2, size: 0.3, sizeEnd: 2.4, color: 0xffb060, alpha: 0.9, shape: 'ring' })
+            for (let i = 0; i < 5; i++) this.spawnDebris(at.x, at.y, at.z, (Math.random() - 0.5) * 3, 3 + Math.random() * 3, (Math.random() - 0.5) * 3, i % 2 ? 0xffb060 : 0xfff0c8, 0.07 + Math.random() * 0.04, 0.5 + Math.random() * 0.3)
+        } else if (crit) {
+            this.glow.emit({ x: at.x, y: at.y, z: at.z, life: 0.14, size: 0.25, sizeEnd: 1.4, color: 0xfde047, alpha: 0.8, shape: 'ring' })
+        }
     }
 
     /** The body's light escapes: a flash, a ring and a fountain of motes in the enemy's colour. */
@@ -4390,9 +5549,14 @@ export class VoxelArenaGame {
         group.position.copy(from).lerp(to, 0.5)
         group.quaternion.setFromUnitVectors(Z_AXIS, to.clone().sub(from).normalize())
         this.addEffect(group, life, (fx, t) => {
-            core.scale.set(width * (1 - t), width * (1 - t), len)
-            halo.scale.set(width * 3.5 * (1 - t * 0.6), width * 3.5 * (1 - t * 0.6), len)
-            mat.opacity = 1 - t * t
+            // thin beams (rail rounds) keep a ~1.6 px core at any distance and fade by the width they gained
+            const w = width * (1 - t)
+            const floor = Math.max(1, this.camera.position.distanceTo(fx.obj.position)) * this.pxWorld * 1.6
+            const cw = Math.max(w, floor)
+            const dim = w > 0 ? Math.min(1, w / cw) : 0
+            core.scale.set(cw, cw, len)
+            halo.scale.set(Math.max(width * 3.5 * (1 - t * 0.6), floor * 2.5), Math.max(width * 3.5 * (1 - t * 0.6), floor * 2.5), len)
+            mat.opacity = (1 - t * t) * Math.max(dim, 0.35 * (1 - t))
             haloMat.opacity = (1 - t) * 0.8
         }, () => {
             mat.dispose()
@@ -4629,10 +5793,21 @@ export class VoxelArenaGame {
         this.lastTime = now
         this.fpsAccum += realDt
         this.fpsFrames++
+        this.fpsWorstDt = Math.max(this.fpsWorstDt, realDt)
         if (this.fpsAccum >= 0.5) {
             this.hud.fps = Math.round(this.fpsFrames / this.fpsAccum)
+            // three slow half-seconds in a row (ignoring windows with a stall) means the GPU cannot keep up
+            if (this.hud.fps < 40 && this.fpsWorstDt < 0.25) {
+                if (++this.slowWindows >= 3) {
+                    this.slowWindows = 0
+                    this.backOffResolution()
+                }
+            } else {
+                this.slowWindows = 0
+            }
             this.fpsAccum = 0
             this.fpsFrames = 0
+            this.fpsWorstDt = 0
         }
         this.step(rawDt)
         this.render()
@@ -4664,8 +5839,15 @@ export class VoxelArenaGame {
             this.updateFireCells(dt)
             this.updateMeteors(dt)
             this.updateRifts(dt)
+            this.updateWells(dt)
+            this.updateDecoy(dt)
+            this.updateOvercharge(dt)
+            this.updateSurge(dt)
             this.updateStorm(dt)
             this.updateWave(dt)
+        } else {
+            // the glide label would otherwise stay lit behind the pause, shop and game-over screens
+            this.hud.gliding = false
         }
         for (let i = this.hitIndicators.length - 1; i >= 0; i--) {
             const h = this.hitIndicators[i]!
@@ -4794,6 +5976,10 @@ export class VoxelArenaGame {
         h.shield = this.shield
         h.haste = Math.max(0, this.hasteTimer)
         h.turrets = this.turrets.length
+        h.overcharge = Math.max(0, this.overchargeTimer)
+        h.decoy = this.decoyUnit ? Math.max(0, this.decoyUnit.life) : 0
+        h.wells = this.wells.length
+        h.rush = Math.max(0, this.rushTimer)
         h.credits = Math.floor(this.credits)
         h.rerollCost = rerollPrice(this.wave)
         h.lance = this.stats.lance > 0 ? (this.lanceReady ? 1 : 1 - Math.max(0, this.lanceTimer) / 7) : 0

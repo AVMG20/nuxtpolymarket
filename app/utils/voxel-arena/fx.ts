@@ -95,6 +95,7 @@ function spriteAtlas(): THREE.Texture {
 }
 
 const VERT = /* glsl */`
+uniform float uViewH;
 attribute vec3 iPos;
 attribute vec2 iSize;
 attribute float iRot;
@@ -113,11 +114,16 @@ void main() {
     }
     float c = cos(rot);
     float s = sin(rot);
-    vec2 p = position.xy * size;
+    // Nothing may be thinner than ~1.6 px: sub-pixel sparks flicker into dots on a 1:1 screen.
+    // Whatever area a sprite gains from the floor is taken back out of its alpha.
+    float pxPerUnit = 0.5 * uViewH * abs(projectionMatrix[1][1]) / max(0.05, -vp.z);
+    vec2 grown = max(size, vec2(1.6 / pxPerUnit));
+    vec2 p = position.xy * grown;
     vp.xy += vec2(p.x * c - p.y * s, p.x * s + p.y * c);
     gl_Position = projectionMatrix * vp;
     vUv = iUv + uv * 0.5;
     vColor = iColor;
+    vColor.a *= clamp((size.x * size.y) / max(grown.x * grown.y, 1e-6), 0.0, 1.0);
     // fade out anything about to pass through the camera so it never fills the screen
     vColor.a *= clamp((-vp.z - 0.25) / 0.35, 0.0, 1.0);
 }`
@@ -225,7 +231,7 @@ export class SpritePool {
         geo.instanceCount = 0
         this.geometry = geo
         this.material = new THREE.ShaderMaterial({
-            uniforms: { map: { value: spriteAtlas() } },
+            uniforms: { map: { value: spriteAtlas() }, uViewH: { value: 1080 } },
             vertexShader: VERT,
             fragmentShader: additive ? FRAG : FRAG_SMOKE,
             transparent: true,
@@ -241,6 +247,11 @@ export class SpritePool {
 
     get active(): number {
         return this.count
+    }
+
+    /** Height of the drawing buffer in pixels, so the minimum on-screen size stays true after a resize. */
+    setViewportHeight(px: number): void {
+        this.material.uniforms.uViewH!.value = Math.max(1, px)
     }
 
     emit(o: EmitOpts): void {

@@ -54,6 +54,31 @@ describe('arena model assemblies', () => {
         first.forEach((geometry, index) => expect(geometry).toBe(second[index]))
     })
 
+    it('gives same-named limbs their own pivots so a charger keeps four legs', () => {
+        const legs = [...buildModel(enemyParts('charger')).parts].filter(([name]) => name.startsWith('leg'))
+        expect(legs).toHaveLength(4)
+        expect(new Set(legs.map(([, leg]) => `${leg.position.x},${leg.position.z}`)).size).toBe(4)
+    })
+
+    it('gives the new enemies the anatomy their behaviours animate', () => {
+        const jug = buildModel(enemyParts('juggernaut'))
+        // plating lifts on a pivot; the reactor is a separate glowing part
+        expect(jug.parts.get('plate')).toBeInstanceOf(THREE.Group)
+        expect(jug.parts.get('legL')).toBeInstanceOf(THREE.Group)
+        expect(jug.parts.get('reactor')).toBeDefined()
+        const reactor = enemyParts('juggernaut').filter(p => p.name === 'reactor')
+        expect(reactor.every(p => p.z < -0.8 && !!p.emissive)).toBe(true)
+        // the sniper's laser starts at a glowing muzzle at the end of a long rifle
+        const sniperParts = enemyParts('sniper')
+        const muzzle = sniperParts.find(p => p.name === 'muzzle')!
+        expect(muzzle.z).toBeGreaterThan(1.4)
+        expect(sniperParts.some(p => p.name === 'head')).toBe(true)
+        // the burrower leads with a drill; the splitter is two halves
+        expect(buildModel(enemyParts('burrower')).parts.get('drill')).toBeInstanceOf(THREE.Group)
+        expect(enemyParts('splitter').filter(p => p.name === 'body' && !p.emissive).length).toBeGreaterThanOrEqual(2)
+        expect(buildModel(enemyParts('splinter')).parts.get('legL')).toBeInstanceOf(THREE.Group)
+    })
+
     it('retains portal and turret animation pivots', () => {
         expect(buildModel(portalParts()).parts.get('ring')).toBeInstanceOf(THREE.Group)
         const head = buildModel(turretParts()).parts.get('head')!

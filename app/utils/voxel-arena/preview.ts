@@ -120,5 +120,7 @@ export class ArsenalPreview {
         this.disposed = true
         this.unmount()
         this.renderer.dispose()
+        // browsers cap live WebGL contexts, so hand this one back instead of waiting for GC
+        this.renderer.forceContextLoss()
     }
 }

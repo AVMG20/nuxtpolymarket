@@ -137,11 +137,14 @@ export function bladeDetail(parts: VoxPart[], id: MeleeId): VoxPart[] {
 const ENEMY_ACCENT: Record<EnemyId, number> = {
     grunt: 0xff565e, runner: 0xffd46e, brute: 0xffb85c, titan: 0xff8d50,
     spitter: 0xf378db, drone: 0xffd46e, charger: 0xff8056,
-    warden: CYAN, bomber: 0xff8056, mender: 0x7cf3b8
+    warden: CYAN, bomber: 0xff8056, mender: 0x7cf3b8,
+    splitter: 0xff9bf0, splinter: 0xff9bf0, sniper: 0xff4d6a, burrower: 0xffa21a, juggernaut: 0xffb020
 }
 
 export function enemyDetail(parts: VoxPart[], id: EnemyId): VoxPart[] {
     const accent = ENEMY_ACCENT[id]
+    // Crystal slime and its shards are organic: no bolted armour plates.
+    if (id === 'splitter' || id === 'splinter') return parts
     const result = armorDetail(parts, accent)
     const body = parts.find(p => p.name === 'body')!
     const add = (p: VoxPart) => result.push(mounted(p, body))
@@ -174,6 +177,12 @@ export function enemyDetail(parts: VoxPart[], id: EnemyId): VoxPart[] {
         if (id === 'titan') for (const side of [-1, 1]) {
             add(panel(side * 0.7, 1.9, -0.2, 0.36, 0.35, 0.55, FRAME))
             for (const x of [-0.08, 0.08]) add(panel(side * 0.7 + x, 1.91, 0.085, 0.07, 0.18, 0.025, accent, accent))
+        }
+    } else if (id === 'juggernaut') {
+        // exhaust stack caps and reactor-housing rails
+        for (const side of [-1, 1]) {
+            add(panel(side * 0.5, 3.4, -0.5, 0.34, 0.05, 0.34, ALLOY))
+            add(panel(side * 0.34, 2.0, -0.95, 0.04, 0.8, 0.05, accent, accent))
         }
     } else if (id === 'warden') {
         for (const side of [-1, 1]) {

@@ -48,6 +48,18 @@ export type ArenaSound
       | 'freeze'
       | 'execute'
       | 'ammo'
+      | 'gravity'
+      | 'collapse'
+      | 'decoy'
+      | 'overcharge'
+      | 'arc'
+      | 'surge'
+      | 'laser-charge'
+      | 'laser-fire'
+      | 'dig'
+      | 'erupt'
+      | 'split'
+      | 'armor-break'
 
 export class ArenaAudio {
     private ctx: AudioContext | null = null
@@ -431,6 +443,68 @@ export class ArenaAudio {
                 this.noise(t, 0.04, 0.3 * v, out, 2600, 'bandpass', 3)
                 this.noise(t + 0.08, 0.04, 0.26 * v, out, 2600, 'bandpass', 3)
                 this.tone(t + 0.14, 660, 'square', 0.1, 0.12 * v, out, 5000)
+                break
+            case 'gravity':
+                this.sweep(t, 70, 420, 0.45, 0.35 * v, 'sawtooth', out)
+                this.sweep(t + 0.05, 1400, 90, 0.7, 0.2 * v, 'sine', out)
+                this.noise(t, 0.6, 0.3 * v, out, 500, 'bandpass', 0.5)
+                break
+            case 'collapse':
+                this.sweep(t, 260, 30, 0.5, 0.7 * v, 'sine', out)
+                this.noise(t, 0.5, 0.8 * v, out, 350, 'lowpass')
+                this.noise(t + 0.02, 0.2, 0.5 * v, out, 3000, 'highpass')
+                break
+            case 'decoy':
+                this.tone(t, 880, 'sine', 0.18, 0.16 * v, out, 5000)
+                this.tone(t + 0.08, 1320, 'sine', 0.2, 0.14 * v, out, 5000)
+                this.tone(t + 0.16, 1760, 'sine', 0.3, 0.12 * v, out, 5000)
+                this.noise(t, 0.2, 0.12 * v, out, 5000, 'highpass')
+                break
+            case 'overcharge':
+                this.sweep(t, 120, 1800, 0.4, 0.3 * v, 'sawtooth', out)
+                this.noise(t + 0.1, 0.35, 0.4 * v, out, 3500, 'highpass')
+                this.chord(t + 0.3, [440, 554, 659], 0.4, 0.1 * v, 'square', out)
+                break
+            case 'arc':
+                this.noise(t, 0.06, 0.28 * v, out, 5000, 'highpass')
+                this.sweep(t, 2600, 700, 0.09, 0.12 * v, 'square', out)
+                break
+            case 'surge':
+                this.sweep(t, 90, 900, 0.5, 0.3 * v, 'sawtooth', out)
+                this.noise(t, 0.7, 0.35 * v, out, 2500, 'bandpass', 0.8)
+                this.chord(t + 0.35, [330, 494, 659], 0.7, 0.14 * v, 'square', out)
+                break
+            case 'laser-charge':
+                this.sweep(t, 500, 3200, 1, 0.12 * v, 'sine', out)
+                this.sweep(t, 250, 1600, 1, 0.06 * v, 'triangle', out)
+                break
+            case 'laser-fire':
+                this.noise(t, 0.04, 0.8 * v, out, 5000, 'highpass')
+                this.sweep(t, 3600, 220, 0.22, 0.45 * v, 'sawtooth', out)
+                this.sweep(t, 160, 40, 0.3, 0.45 * v, 'sine', out)
+                this.noise(t + 0.02, 0.3, 0.3 * v, out, 1800, 'bandpass', 1.2)
+                break
+            case 'dig':
+                this.noise(t, 0.22, 0.45 * v, out, 260, 'lowpass')
+                this.noise(t + 0.08, 0.16, 0.3 * v, out, 900 * detune, 'bandpass', 0.8)
+                this.sweep(t, 70, 45, 0.2, 0.3 * v, 'square', out)
+                break
+            case 'erupt':
+                this.noise(t, 0.5, 0.9 * v, out, 500, 'lowpass')
+                this.sweep(t, 120, 25, 0.45, 0.8 * v, 'sine', out)
+                this.noise(t + 0.02, 0.2, 0.5 * v, out, 2400, 'bandpass', 0.7)
+                break
+            case 'split':
+                this.sweep(t, 320, 110, 0.14, 0.4 * v, 'sawtooth', out)
+                this.noise(t, 0.2, 0.4 * v, out, 1400, 'bandpass', 0.9)
+                this.tone(t + 0.03, 1480 * detune, 'triangle', 0.1, 0.16 * v, out, 5000)
+                this.tone(t + 0.07, 1960 * detune, 'triangle', 0.12, 0.14 * v, out, 5000)
+                break
+            case 'armor-break':
+                this.noise(t, 0.35, 0.8 * v, out, 3500, 'highpass')
+                this.sweep(t, 600, 60, 0.5, 0.6 * v, 'sawtooth', out)
+                this.noise(t + 0.05, 0.6, 0.6 * v, out, 400, 'lowpass')
+                this.chord(t + 0.1, [185, 233, 277], 0.5, 0.12 * v, 'square', out)
                 break
         }
     }

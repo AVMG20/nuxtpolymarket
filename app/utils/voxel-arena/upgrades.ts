@@ -69,6 +69,14 @@ export const UPGRADES: UpgradeCard[] = [
     { id: 'bulwark', name: 'Bulwark', description: 'Start every wave with a 40-point energy shield.', rarity: 'rare', kind: 'stat', icon: 'i-lucide-shield-check', maxStacks: 3, apply: s => { s.bulwark += 40 } },
     { id: 'sentry', name: 'Sentry Protocol', description: 'Turrets deal +50% damage, last 6s longer and cost 15 less energy.', rarity: 'rare', kind: 'stat', icon: 'i-lucide-radar', maxStacks: 3, requiresAbility: 'sentry', apply: s => { s.sentry += 1; s.turretCost = Math.max(25, s.turretCost - 15) } },
 
+    // ── Ability synergies ───────────────────────────────────────────────
+    { id: 'wellcore', name: 'Event Horizon', description: 'Singularity is 35% wider, lasts 1s longer, collapses 50% harder and costs 8 less energy.', rarity: 'rare', kind: 'stat', icon: 'i-lucide-orbit', maxStacks: 3, requiresAbility: 'gravity', apply: s => { s.well += 1 } },
+    { id: 'decoycore', name: 'Hardlight Lattice', description: 'Hologram Decoy lasts 3s longer, detonates when it fades and costs 6 less energy.', rarity: 'rare', kind: 'stat', icon: 'i-lucide-scan-face', maxStacks: 3, requiresAbility: 'decoy', apply: s => { s.decoy += 1 } },
+    { id: 'teslacoil', name: 'Tesla Coil', description: 'Arc Overcharge lasts 3s longer, forks 2 more times and costs 10 less energy.', rarity: 'rare', kind: 'stat', icon: 'i-lucide-zap', maxStacks: 3, requiresAbility: 'overcharge', apply: s => { s.overcharge += 1 } },
+    { id: 'cascade', name: 'Cascade Core', description: 'Kills within 5s of casting an ability refund 4 energy each, +2 per extra stack.', rarity: 'epic', kind: 'crazy', icon: 'i-lucide-battery-charging', maxStacks: 3, apply: s => { s.cascade += 1 } },
+    { id: 'castrush', name: 'Afterburner', description: 'Casting an ability grants +20% speed and fire rate for 4s.', rarity: 'rare', kind: 'crazy', icon: 'i-lucide-rocket', maxStacks: 2, apply: s => { s.castRush += 1 } },
+    { id: 'critchain', name: 'Conductive Rounds', description: 'Critical hits arc lightning into 2 nearby enemies for 60% damage, +1 enemy per extra stack.', rarity: 'epic', kind: 'crazy', icon: 'i-lucide-network', maxStacks: 3, apply: s => { s.critChain += 1 } },
+
     // ── Flashy arsenal boons ────────────────────────────────────────────
     { id: 'frost', name: 'Frost Rounds', description: 'Bullets chill their target: -45% speed for 1.5s. Stacks add duration.', rarity: 'rare', kind: 'crazy', icon: 'i-lucide-snowflake', maxStacks: 3, apply: s => { s.frost += 1 } },
     { id: 'thunderstep', name: 'Thunder Step', description: 'Every dash hurls chain lightning into the 4 nearest enemies.', rarity: 'rare', kind: 'crazy', icon: 'i-lucide-zap', maxStacks: 3, apply: s => { s.thunderStep += 1 } },

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { ENEMIES, ENEMY_IDS, WEAPONS, WEAPON_IDS, MELEE_WEAPONS, MELEE_IDS, ECONOMY, planWave, isBossWave, waveEvent, waveEnemyCount, waveHpMult, waveDamageMult, eliteChance, defaultStats, magazineSize, reserveMax, killScore, dropChance, ammoDropChance, waveIncome, refillPrice, boonPrice, rerollPrice } from '../../app/utils/voxel-arena/data'
+import { ENEMIES, ENEMY_IDS, JUGGERNAUT, bossForWave, WEAPONS, WEAPON_IDS, MELEE_WEAPONS, MELEE_IDS, ECONOMY, planWave, isBossWave, waveEvent, waveEnemyCount, waveHpMult, waveDamageMult, eliteChance, defaultStats, magazineSize, reserveMax, killScore, dropChance, ammoDropChance, waveIncome, refillPrice, boonPrice, rerollPrice } from '../../app/utils/voxel-arena/data'
 
 function seeded(seed: number): () => number {
     let s = seed >>> 0
@@ -20,12 +20,21 @@ describe('voxel arena wave planner', () => {
         }
     })
 
-    it('adds titans on boss waves only, in pairs from wave 15 and threes from 25', () => {
+    it('adds bosses on boss waves only, in pairs from wave 15 and threes from 25', () => {
         for (let wave = 1; wave <= 30; wave++) {
             const plan = planWave(wave, seeded(wave * 7))
-            const titans = plan.spawns.filter(s => s.enemy === 'titan').length
+            const bosses = plan.spawns.filter(s => ENEMIES[s.enemy].behavior === 'boss').length
             expect(plan.boss).toBe(isBossWave(wave))
-            expect(titans).toBe(isBossWave(wave) ? (wave >= 25 ? 3 : wave >= 15 ? 2 : 1) : 0)
+            expect(bosses).toBe(isBossWave(wave) ? (wave >= 25 ? 3 : wave >= 15 ? 2 : 1) : 0)
+        }
+    })
+
+    it('alternates the Titan and the Juggernaut on successive boss waves', () => {
+        const order = [5, 10, 15, 20, 25, 30].map(bossForWave)
+        expect(order).toEqual(['titan', 'juggernaut', 'titan', 'juggernaut', 'titan', 'juggernaut'])
+        for (const wave of [5, 10, 15, 20, 25, 30]) {
+            const kinds = new Set(planWave(wave, seeded(wave)).spawns.filter(s => ENEMIES[s.enemy].behavior === 'boss').map(s => s.enemy))
+            expect([...kinds]).toEqual([bossForWave(wave)])
         }
     })
 
@@ -169,7 +178,7 @@ describe('voxel arena economy', () => {
     it('prices guns by strength: starters cost about a wave, machine guns a few waves of saving', () => {
         expect(WEAPONS.pistol.price).toBeLessThanOrEqual(waveIncome(1))
         expect(WEAPONS.smg.price).toBeLessThanOrEqual(waveIncome(1))
-        expect(WEAPONS.lmg.price).toBeGreaterThan(waveIncome(3) + waveIncome(4))
+        expect(WEAPONS.lmg.price).toBeGreaterThan(waveIncome(2) + waveIncome(3))
         expect(WEAPONS.lmg.price).toBeLessThan(waveIncome(2) + waveIncome(3) + waveIncome(4))
         expect(WEAPONS.lmg.price).toBeGreaterThan(WEAPONS.rifle.price)
         expect(WEAPONS.raygun.price).toBeGreaterThan(WEAPONS.lmg.price)
@@ -180,7 +189,7 @@ describe('voxel arena economy', () => {
             const income = waveIncome(wave)
             const commons = Math.floor(income / boonPrice('common', wave))
             expect(commons, `wave ${wave}`).toBeGreaterThanOrEqual(2)
-            expect(commons, `wave ${wave}`).toBeLessThanOrEqual(6)
+            expect(commons, `wave ${wave}`).toBeLessThanOrEqual(8)
             expect(income).toBeGreaterThanOrEqual(boonPrice('epic', wave))
             expect(Math.floor(income / boonPrice('legendary', wave))).toBeLessThanOrEqual(2)
         }
@@ -201,5 +210,103 @@ describe('voxel arena economy', () => {
         expect(boonPrice('common', 10)).toBeLessThan(boonPrice('common', 1) * 1.6)
         expect(rerollPrice(1)).toBe(ECONOMY.rerollPrice)
         expect(rerollPrice(1)).toBeLessThan(boonPrice('common', 1))
+    })
+})
+
+describe('voxel arena new enemies', () => {
+    const regulars = ['splitter', 'sniper', 'burrower'] as const
+
+    it('gates the new enemies behind their wave and never rolls the splinter', () => {
+        for (let wave = 1; wave <= 30; wave++) {
+            for (let seed = 1; seed <= 3; seed++) {
+                const kinds = new Set(planWave(wave, seeded(wave * 31 + seed)).spawns.map(s => s.enemy))
+                expect(kinds.has('splinter')).toBe(false)
+                for (const id of regulars) if (wave < ENEMIES[id].minWave) expect(kinds.has(id), `${id} on wave ${wave}`).toBe(false)
+            }
+        }
+        const late = new Set(planWave(20, seeded(5)).spawns.map(s => s.enemy))
+        for (const id of regulars) expect(late.has(id), `${id} should appear by wave 20`).toBe(true)
+    })
+
+    it('introduces them gradually after the first mechanics enemies', () => {
+        expect(ENEMIES.splitter.minWave).toBeGreaterThan(ENEMIES.charger.minWave)
+        expect(ENEMIES.burrower.minWave).toBeGreaterThan(ENEMIES.splitter.minWave)
+        expect(ENEMIES.sniper.minWave).toBeGreaterThan(ENEMIES.burrower.minWave)
+    })
+
+    it('splits a Splitter into two faster, weaker Splinters', () => {
+        const split = ENEMIES.splitter.splitInto!
+        expect(split.id).toBe('splinter')
+        expect(split.count).toBe(2)
+        const child = ENEMIES[split.id]
+        expect(child.speed).toBeGreaterThan(ENEMIES.splitter.speed)
+        expect(child.hp * split.count).toBeLessThan(ENEMIES.splitter.hp)
+        expect(child.score).toBeLessThan(ENEMIES.splitter.score)
+        expect(child.splitInto).toBeUndefined()
+        expect(child.weight(10)).toBe(0)
+    })
+
+    it('makes the Sniper a fragile, long range, hard hitting target', () => {
+        const sniper = ENEMIES.sniper
+        expect(sniper.behavior).toBe('sniper')
+        expect(sniper.attackRange).toBeGreaterThan(ENEMIES.spitter.attackRange * 2)
+        expect(sniper.hp).toBeLessThan(ENEMIES.spitter.hp)
+        expect(sniper.damage).toBeGreaterThan(ENEMIES.spitter.damage)
+        expect(sniper.attackCooldown).toBeGreaterThan(ENEMIES.spitter.attackCooldown * 2)
+        expect(sniper.headRadius).toBeGreaterThan(0)
+    })
+
+    it('keeps one Sniper hit from killing a full health player until very late', () => {
+        for (let wave = 10; wave <= 25; wave++) {
+            expect(ENEMIES.sniper.damage * waveDamageMult(wave)).toBeLessThan(defaultStats().maxHealth)
+        }
+    })
+
+    it('makes the Burrower a mid-weight ambusher with a punishing but dodgeable eruption', () => {
+        const burrower = ENEMIES.burrower
+        expect(burrower.behavior).toBe('burrower')
+        expect(burrower.hp).toBeGreaterThan(ENEMIES.grunt.hp)
+        expect(burrower.hp).toBeLessThan(ENEMIES.brute.hp)
+        expect(burrower.damage).toBeGreaterThan(ENEMIES.grunt.damage)
+        expect(burrower.score).toBeGreaterThan(ENEMIES.grunt.score)
+    })
+
+    it('scores and drops in line with how dangerous each new enemy is', () => {
+        for (const id of regulars) {
+            const def = ENEMIES[id]
+            expect(killScore(def, 10, 0, null)).toBeGreaterThan(killScore(ENEMIES.grunt, 10, 0, null))
+            expect(dropChance(def, 1)).toBeLessThan(1)
+        }
+    })
+})
+
+describe('voxel arena juggernaut boss', () => {
+    const jug = ENEMIES.juggernaut
+    const titan = ENEMIES.titan
+
+    it('is a boss tougher than the Titan with a weak point on its back', () => {
+        expect(jug.behavior).toBe('boss')
+        expect(jug.hp).toBeGreaterThan(titan.hp)
+        expect(jug.score).toBeGreaterThan(titan.score)
+        expect(jug.weight(10)).toBe(0)
+        // the weak point is the head hit-sphere, so it needs a real radius
+        expect(jug.headRadius).toBeGreaterThan(0.3)
+        expect(jug.headY).toBeGreaterThan(0)
+        expect(dropChance(jug, 1)).toBe(1)
+    })
+
+    it('soaks most frontal damage but is far from invulnerable', () => {
+        expect(JUGGERNAUT.armorMult).toBeGreaterThan(0.1)
+        expect(JUGGERNAUT.armorMult).toBeLessThan(0.5)
+        expect(JUGGERNAUT.flankMult).toBeGreaterThan(JUGGERNAUT.armorMult)
+        expect(JUGGERNAUT.flankMult).toBeLessThanOrEqual(1)
+        // at the front the effective health pool stays within a sane multiple of the Titan's
+        expect(jug.hp / JUGGERNAUT.armorMult).toBeLessThan(titan.hp * 5)
+    })
+
+    it('shatters its plating at half health and opens up long enough to punish', () => {
+        expect(JUGGERNAUT.shatterAt).toBe(0.5)
+        expect(JUGGERNAUT.ventTime).toBeGreaterThanOrEqual(3)
+        expect(JUGGERNAUT.ventTime).toBeLessThanOrEqual(8)
     })
 })

@@ -491,7 +491,10 @@ export const ABILITIES: Record<AbilityId, AbilityDef> = {
     nova: { id: 'nova', name: 'Nova Burst', description: 'Detonate a shockwave that damages, stuns and hurls back everything around you.', energy: 50, icon: 'i-lucide-sun', color: '#3ff0ff' },
     sentry: { id: 'sentry', name: 'Sentry Turret', description: 'Drop an automated turret that shoots the nearest enemy for 14 seconds. Two can stand at once.', energy: 60, icon: 'i-lucide-radar', color: '#d9a63c' },
     blink: { id: 'blink', name: 'Void Blink', description: 'Teleport 9 metres forward, slicing everything you pass through. Invulnerable during the jump.', energy: 35, icon: 'i-lucide-zap', color: '#b56bff' },
-    chrono: { id: 'chrono', name: 'Chrono Field', description: 'Freeze time for every enemy for 3 seconds. You keep moving at full speed.', energy: 70, icon: 'i-lucide-hourglass', color: '#7dd3fc' }
+    chrono: { id: 'chrono', name: 'Chrono Field', description: 'Freeze time for every enemy for 3 seconds. You keep moving at full speed.', energy: 70, icon: 'i-lucide-hourglass', color: '#7dd3fc' },
+    gravity: { id: 'gravity', name: 'Singularity', description: 'Hurl a gravity well ahead of you. It drags every enemy into a knot for 4 seconds, then collapses in a blast.', energy: 55, icon: 'i-lucide-orbit', color: '#a78bfa' },
+    decoy: { id: 'decoy', name: 'Hologram Decoy', description: 'Project a hardlight double that draws enemy aggro for 7 seconds. Bring them to it, then shoot them in the back.', energy: 45, icon: 'i-lucide-scan-face', color: '#34d399' },
+    overcharge: { id: 'overcharge', name: 'Arc Overcharge', description: 'Supercharge your weapons for 8 seconds: every hit forks chain lightning through 3 nearby enemies.', energy: 65, icon: 'i-lucide-zap', color: '#facc15' }
 }
 
 export const ABILITY_IDS = Object.keys(ABILITIES) as AbilityId[]
@@ -514,7 +517,7 @@ export const ECONOMY = {
 
 /** Credits paid out for clearing a wave. Boss waves pay a bonus. */
 export function waveIncome(wave: number): number {
-    return Math.round((120 + wave * 22 + (isBossWave(wave) ? 120 : 0)) / 5) * 5
+    return Math.round((160 + wave * 30 + (isBossWave(wave) ? 160 : 0)) / 5) * 5
 }
 
 /** Boons creep up in price so late income buys about the same number of picks. */
@@ -744,6 +747,84 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
         headY: 1.72,
         headRadius: 0.3
     },
+    splitter: {
+        id: 'splitter',
+        name: 'Splitter',
+        hp: 150,
+        speed: 4.4,
+        damage: 12,
+        attackRange: 2,
+        attackCooldown: 1.2,
+        scale: 1.35,
+        radius: 0.7,
+        height: 1.8,
+        score: 28,
+        behavior: 'melee',
+        minWave: 8,
+        weight: wave => 1 + wave * 0.22,
+        energy: 10,
+        splitInto: { id: 'splinter', count: 2 },
+        headY: 0,
+        headRadius: 0
+    },
+    // Only ever spawned by a dying Splitter, never rolled by the wave planner.
+    splinter: {
+        id: 'splinter',
+        name: 'Splinter',
+        hp: 34,
+        speed: 8.6,
+        damage: 6,
+        attackRange: 1.5,
+        attackCooldown: 0.8,
+        scale: 0.7,
+        radius: 0.5,
+        height: 1.4,
+        score: 6,
+        behavior: 'melee',
+        minWave: 8,
+        weight: () => 0,
+        energy: 3,
+        headY: 0,
+        headRadius: 0
+    },
+    sniper: {
+        id: 'sniper',
+        name: 'Sniper',
+        hp: 48,
+        speed: 4.8,
+        damage: 16,
+        attackRange: 42,
+        attackCooldown: 4.6,
+        scale: 1,
+        radius: 0.55,
+        height: 2.1,
+        score: 36,
+        behavior: 'sniper',
+        minWave: 10,
+        weight: wave => 0.8 + wave * 0.12,
+        energy: 12,
+        headY: 1.86,
+        headRadius: 0.28
+    },
+    burrower: {
+        id: 'burrower',
+        name: 'Burrower',
+        hp: 110,
+        speed: 5.2,
+        damage: 24,
+        attackRange: 2.2,
+        attackCooldown: 4,
+        scale: 1.15,
+        radius: 0.65,
+        height: 1.5,
+        score: 32,
+        behavior: 'burrower',
+        minWave: 9,
+        weight: wave => 0.9 + wave * 0.2,
+        energy: 12,
+        headY: 0.8,
+        headRadius: 0.32
+    },
     titan: {
         id: 'titan',
         name: 'Titan',
@@ -761,10 +842,50 @@ export const ENEMIES: Record<EnemyId, EnemyDef> = {
         weight: () => 0,
         energy: 100,
         headY: 1.95, headRadius: 0.32
+    },
+    // Armoured siege mech: frontal plating shrugs off bullets until the plating
+    // shatters at half health. The glowing reactor on its back always takes
+    // weak-point damage, and venting after a laser sweep exposes the whole hull.
+    juggernaut: {
+        id: 'juggernaut',
+        name: 'Juggernaut',
+        hp: 2300,
+        speed: 3,
+        damage: 36,
+        attackRange: 4,
+        attackCooldown: 3,
+        scale: 3,
+        radius: 1,
+        height: 3.1,
+        score: 650,
+        behavior: 'boss',
+        minWave: 5,
+        weight: () => 0,
+        energy: 100,
+        // the weak point: a hit-sphere over the reactor on its back
+        headY: 2,
+        headRadius: 0.42
     }
 }
 
 export const ENEMY_IDS = Object.keys(ENEMIES) as EnemyId[]
+
+/** Juggernaut tuning shared by the engine and the tests. */
+export const JUGGERNAUT = {
+    /** Damage multiplier while the frontal plating is intact (weak-point hits ignore it). */
+    armorMult: 0.3,
+    /** Damage multiplier when the plating is hit from behind. */
+    flankMult: 0.8,
+    /** Armour shatters below this fraction of max health. */
+    shatterAt: 0.5,
+    /** Seconds the hull stays open after a laser sweep. */
+    ventTime: 4.5
+}
+
+/** Boss waves alternate: Titan on the 1st, 3rd... boss wave, Juggernaut on the 2nd, 4th... */
+export function bossForWave(wave: number): EnemyId {
+    return Math.round(wave / 5) % 2 === 1 ? 'titan' : 'juggernaut'
+}
 
 export const AFFIXES: Record<EliteAffix, { name: string, color: number }> = {
     swift: { name: 'Swift', color: 0xffe14d },
@@ -777,12 +898,12 @@ export function isBossWave(wave: number): boolean {
     return wave > 0 && wave % 5 === 0
 }
 
-export type WaveEvent = 'none' | 'meteors' | 'frenzy' | 'blackout' | 'bounty'
+export type WaveEvent = 'none' | 'meteors' | 'frenzy' | 'blackout' | 'bounty' | 'surge'
 
 /** Arena events spice up non-boss waves from wave 3 on, cycling through the list. */
 export function waveEvent(wave: number): WaveEvent {
     if (isBossWave(wave) || wave < 3) return 'none'
-    const order: WaveEvent[] = ['none', 'meteors', 'bounty', 'frenzy', 'none', 'blackout']
+    const order: WaveEvent[] = ['none', 'meteors', 'bounty', 'frenzy', 'surge', 'blackout']
     return order[(wave - 3) % order.length]!
 }
 
@@ -814,7 +935,7 @@ export function eliteChance(wave: number): number {
  */
 export function planWave(wave: number, rng: () => number): WavePlan {
     const boss = isBossWave(wave)
-    const pool = ENEMY_IDS.map(id => ENEMIES[id]).filter(def => def.behavior !== 'boss' && def.minWave <= wave)
+    const pool = ENEMY_IDS.map(id => ENEMIES[id]).filter(def => def.behavior !== 'boss' && def.minWave <= wave && def.weight(wave) > 0)
     const count = waveEnemyCount(wave) - (boss ? 6 : 0)
     const spawns: WaveSpawn[] = []
     const elite = eliteChance(wave)
@@ -836,12 +957,13 @@ export function planWave(wave: number, rng: () => number): WavePlan {
     }
 
     if (boss) {
-        // The titan arrives after a third of the wave so the arena is busy when it lands.
+        // The boss arrives after a third of the wave so the arena is busy when it lands.
+        const bossId = bossForWave(wave)
         const at = Math.floor(spawns.length / 3)
-        spawns.splice(at, 0, { enemy: 'titan', affix: null })
-        // from wave 15 the titans come in pairs, from 25 in threes
-        if (wave >= 15) spawns.splice(Math.floor(spawns.length * 0.6), 0, { enemy: 'titan', affix: null })
-        if (wave >= 25) spawns.splice(Math.floor(spawns.length * 0.8), 0, { enemy: 'titan', affix: 'armored' })
+        spawns.splice(at, 0, { enemy: bossId, affix: null })
+        // from wave 15 the bosses come in pairs, from 25 in threes
+        if (wave >= 15) spawns.splice(Math.floor(spawns.length * 0.6), 0, { enemy: bossId, affix: null })
+        if (wave >= 25) spawns.splice(Math.floor(spawns.length * 0.8), 0, { enemy: bossId, affix: 'armored' })
     }
     if (waveEvent(wave) === 'bounty') {
         // a gilded brute worth a haul of pickups
@@ -931,7 +1053,13 @@ export function defaultStats(): PlayerStats {
         reserveMult: 1,
         ammoLuck: 1,
         income: 0,
-        meteorCall: 0
+        meteorCall: 0,
+        well: 0,
+        decoy: 0,
+        overcharge: 0,
+        cascade: 0,
+        castRush: 0,
+        critChain: 0
     }
 }
 

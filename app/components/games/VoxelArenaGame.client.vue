@@ -20,6 +20,8 @@
         <div v-if="hud.dashing > 0" class="pointer-events-none absolute inset-0 speed-lines" />
         <div v-if="hud.overdrive > 0" class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 180px 40px rgba(255,70,40,0.22)" />
         <div v-if="hud.chrono" class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 220px 70px rgba(60,220,255,0.25)" />
+        <div v-if="hud.overcharge > 0" class="pointer-events-none absolute inset-0" :class="hud.overcharge < 1.5 ? 'animate-pulse' : ''" style="box-shadow: inset 0 0 200px 50px rgba(250,204,21,0.2)" />
+        <div v-if="hud.event === 'surge' && hud.phase === 'playing'" class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 220px 40px rgba(125,211,252,0.16)" />
         <div v-if="hud.event === 'blackout' && hud.phase === 'playing'" class="pointer-events-none absolute inset-0" style="box-shadow: inset 0 0 280px 110px rgba(0,0,0,0.8)" />
 
         <!-- Damage direction: a red wedge on the side the hit came from -->
@@ -40,7 +42,7 @@
                     :key="i"
                     class="absolute left-1/2 top-1/2 h-2.5 w-px origin-center transition-colors duration-75"
                     :class="hud.hitMarker > 0 ? hitColor : 'bg-white/85'"
-                    :style="{ transform: `rotate(${rot}deg) translateY(${-(6 + spreadGap + (hud.hitMarker > 0 ? 3 : 0))}px)` }"
+                    :style="{ transform: `rotate(${rot + (killPop ? 45 : 0)}deg) translateY(${-(6 + spreadGap + (hud.hitMarker > 0 ? (killPop ? 8 : 3) : 0))}px)` }"
                 />
                 <span class="absolute left-1/2 top-1/2 size-1 -translate-x-1/2 -translate-y-1/2 rounded-full" :class="hud.hitMarker > 0 ? hitColor : 'bg-white'" />
             </div>
@@ -237,12 +239,16 @@
                 <Transition name="fade">
                     <div v-if="toast" class="rounded-full border border-white/10 bg-black/50 px-4 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] backdrop-blur-md" :style="{ color: toast.color }">{{ toast.text }}</div>
                 </Transition>
-                <div v-if="hud.overdrive > 0 || hud.frenzy > 0 || hud.chrono || hud.haste > 0 || hud.turrets > 0" class="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.3em]">
+                <div v-if="hud.overdrive > 0 || hud.frenzy > 0 || hud.chrono || hud.haste > 0 || hud.turrets > 0 || hud.overcharge > 0 || hud.decoy > 0 || hud.wells > 0 || hud.rush > 0" class="flex items-center gap-2 text-[9px] font-semibold uppercase tracking-[0.3em]">
                     <span v-if="hud.overdrive > 0" class="rounded-full border border-red-400/50 px-2.5 py-0.5 text-red-300">Overdrive {{ hud.overdrive.toFixed(0) }}s</span>
                     <span v-if="hud.haste > 0" class="rounded-full border border-yellow-300/50 px-2.5 py-0.5 text-yellow-200">Haste {{ hud.haste.toFixed(0) }}s</span>
                     <span v-if="hud.frenzy > 0" class="rounded-full border border-orange-400/50 px-2.5 py-0.5 text-orange-300">Frenzy ×{{ hud.frenzy }}</span>
                     <span v-if="hud.chrono" class="rounded-full border border-cyan-300/50 px-2.5 py-0.5 text-cyan-200">Chrono</span>
                     <span v-if="hud.turrets > 0" class="rounded-full border border-amber-300/50 px-2.5 py-0.5 text-amber-200">Sentry ×{{ hud.turrets }}</span>
+                    <span v-if="hud.overcharge > 0" class="rounded-full border border-yellow-300/60 px-2.5 py-0.5 text-yellow-200">Overcharge {{ hud.overcharge.toFixed(0) }}s</span>
+                    <span v-if="hud.decoy > 0" class="rounded-full border border-emerald-300/50 px-2.5 py-0.5 text-emerald-200">Decoy {{ hud.decoy.toFixed(0) }}s</span>
+                    <span v-if="hud.wells > 0" class="rounded-full border border-violet-300/50 px-2.5 py-0.5 text-violet-200">Singularity</span>
+                    <span v-if="hud.rush > 0" class="rounded-full border border-orange-300/50 px-2.5 py-0.5 text-orange-200">Afterburner {{ hud.rush.toFixed(0) }}s</span>
                 </div>
             </div>
         </div>
@@ -637,8 +643,10 @@ const waveProgress = computed(() => hud.waveTotal > 0 ? Math.max(0, Math.min(100
 const activeWeapon = computed(() => hud.weapons[hud.activeWeapon] ?? null)
 const comboColor = computed(() => hud.combo >= 20 ? 'text-fuchsia-300' : hud.combo >= 10 ? 'text-orange-300' : 'text-amber-200')
 const hitColor = computed(() => ({ kill: 'bg-lime-300', crit: 'bg-yellow-300', head: 'bg-orange-300', block: 'bg-cyan-300', hit: 'bg-red-400' })[hud.hitKind])
-const eventLabel = computed(() => ({ meteors: 'Meteor storm', frenzy: 'Frenzy', blackout: 'Blackout', bounty: 'Bounty', none: '' })[hud.event])
-const eventClass = computed(() => ({ meteors: 'border-orange-400/50 text-orange-300', frenzy: 'border-red-400/50 text-red-300', blackout: 'border-indigo-300/50 text-indigo-200', bounty: 'border-amber-300/60 text-amber-200', none: '' })[hud.event])
+const eventLabel = computed(() => ({ meteors: 'Meteor storm', frenzy: 'Frenzy', blackout: 'Blackout', bounty: 'Bounty', surge: 'Ion surge', none: '' })[hud.event])
+const eventClass = computed(() => ({ meteors: 'border-orange-400/50 text-orange-300', frenzy: 'border-red-400/50 text-red-300', blackout: 'border-indigo-300/50 text-indigo-200', bounty: 'border-amber-300/60 text-amber-200', surge: 'border-sky-300/60 text-sky-200', none: '' })[hud.event])
+/** A kill spins the hit marker into an X and throws it wider, so a kill never reads like a plain hit. */
+const killPop = computed(() => hud.hitMarker > 0 && hud.hitKind === 'kill')
 const sightOpacity = computed(() => Math.max(0, (hud.ads - 0.45) / 0.55))
 /** Crosshair gap in pixels: the projected radius of the current spread cone. */
 const spreadGap = computed(() => {
@@ -850,10 +858,17 @@ function onResize(): void {
     viewportHeight.value = window.innerHeight
 }
 
+// Registered synchronously: a watcher created after the await below is not tied to this component and would outlive it.
+watch(minimap, canvas => game?.attachMinimap(canvas))
+
+let unmounted = false
+
 onMounted(async () => {
     // `.client` components render their real template a tick after mount, so
     // the viewport ref is only populated after nextTick.
     await nextTick()
+    // leaving the page during that tick would otherwise build a game nobody disposes
+    if (unmounted) return
     loadBest()
     onResize()
     window.addEventListener('resize', onResize)
@@ -878,13 +893,13 @@ onMounted(async () => {
     })
     game.mount(viewport.value)
     game.attachMinimap(minimap.value)
-    watch(minimap, canvas => game?.attachMinimap(canvas))
     if (import.meta.dev && route.query.debug === '1') {
         (window as unknown as { __voxelArena: VoxelArenaGame }).__voxelArena = game
     }
 })
 
 onBeforeUnmount(() => {
+    unmounted = true
     window.removeEventListener('resize', onResize)
     if (bannerTimer) window.clearTimeout(bannerTimer)
     if (toastTimer) window.clearTimeout(toastTimer)

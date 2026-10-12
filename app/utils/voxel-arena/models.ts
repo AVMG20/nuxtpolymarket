@@ -86,6 +86,23 @@ export function buildModel(parts: VoxPart[], scale = 1): VoxModel {
     const group = new THREE.Group()
     const named = new Map<string, THREE.Object3D>()
     const meshes: THREE.Mesh[] = []
+    // One pivot per (name, pivot point). A quadruped has two legs called legL at different hips, and
+    // sharing a group between them would drop the rear legs onto the front ones. Later twins register
+    // as `legL#n`, so animation code can drive every `legL*` entry together.
+    const pivots = new Map<string, THREE.Group>()
+    const pivotFor = (name: string, at: [number, number, number]): THREE.Group => {
+        const key = `${name}|${at.join(',')}`
+        let pivot = pivots.get(key)
+        if (!pivot) {
+            pivot = new THREE.Group()
+            pivot.position.set(at[0], at[1], at[2])
+            pivot.name = name
+            named.set(named.has(name) ? `${name}#${pivots.size}` : name, pivot)
+            pivots.set(key, pivot)
+            group.add(pivot)
+        }
+        return pivot
+    }
     for (const p of parts.filter(p => !p.detail)) {
         const mesh = new THREE.Mesh(p.shape === 'cylinder' ? BARREL : p.emissive ? BOX : ARMOR_BOX, modelMaterial(p))
         mesh.scale.set(p.w, p.h, p.d)
@@ -96,19 +113,13 @@ export function buildModel(parts: VoxPart[], scale = 1): VoxModel {
         mesh.userData.baseMaterial = mesh.material
         meshes.push(mesh)
         if (p.name && p.pivot) {
-            let pivot = named.get(p.name) as THREE.Group | undefined
-            if (!pivot) {
-                pivot = new THREE.Group()
-                pivot.position.set(p.pivot[0], p.pivot[1], p.pivot[2])
-                pivot.name = p.name
-                named.set(p.name, pivot)
-                group.add(pivot)
-            }
+            const pivot = pivotFor(p.name, p.pivot)
             mesh.position.set(p.x - p.pivot[0], p.y - p.pivot[1], p.z - p.pivot[2])
             pivot.add(mesh)
         } else {
             mesh.position.set(p.x, p.y, p.z)
-            if (p.name) named.set(p.name, mesh)
+            // loose parts that share a name (a drone's four rotors) each stay reachable as `name#n`
+            if (p.name) named.set(named.has(p.name) ? `${p.name}#${meshes.length}` : p.name, mesh)
             group.add(mesh)
         }
     }
@@ -116,17 +127,7 @@ export function buildModel(parts: VoxPart[], scale = 1): VoxModel {
     const batches = new Map<string, { parent: THREE.Object3D, material: THREE.MeshStandardMaterial, pieces: VoxPart[] }>()
     for (const p of parts.filter(p => p.detail)) {
         let parent: THREE.Object3D = group
-        if (p.name && p.pivot) {
-            let pivot = named.get(p.name)
-            if (!pivot) {
-                pivot = new THREE.Group()
-                pivot.position.set(...p.pivot)
-                pivot.name = p.name
-                named.set(p.name, pivot)
-                group.add(pivot)
-            }
-            parent = pivot
-        }
+        if (p.name && p.pivot) parent = pivotFor(p.name, p.pivot)
         const material = modelMaterial(p)
         const key = `${parent.uuid}:${material.uuid}`
         let batch = batches.get(key)
@@ -624,6 +625,11 @@ function enemyCore(id: EnemyId): VoxPart[] {
         case 'warden': return wardenParts()
         case 'bomber': return bomberParts()
         case 'mender': return menderParts()
+        case 'splitter': return splitterParts()
+        case 'splinter': return splinterParts()
+        case 'sniper': return sniperParts()
+        case 'burrower': return burrowerParts()
+        case 'juggernaut': return juggernautParts()
     }
 }
 
@@ -683,7 +689,159 @@ function menderParts(): VoxPart[] {
         { x: 0.42, y: 0.66, z: 0.62, w: 0.24, h: 0.24, d: 0.24, color: glow, emissive: glow, glow: 1.1, name: 'armR', pivot: [0.42, 1.28, 0] },
         { x: 0, y: 1.72, z: 0, w: 0.46, h: 0.46, d: 0.46, color: dark, name: 'head', pivot: [0, 1.5, 0] },
         { x: 0, y: 1.74, z: 0.24, w: 0.3, h: 0.08, d: 0.04, color: glow, emissive: glow, glow: 3, name: 'head', pivot: [0, 1.5, 0] },
-        { x: 0, y: 2.05, z: 0, w: 0.2, h: 0.24, d: 0.2, color: glow, emissive: glow, glow: 0.5, name: 'head', pivot: [0, 1.5, 0] }
+        { x: 0, y: 2.05, z: 0, w: 0.2, h: 0.24, d: 0.2, color: glow, emissive: glow, glow: 0.5, name: 'head', pivot: [0, 1.5, 0] },
+        // a floating healing cross: the cue that this one keeps the pack alive
+        { x: 0, y: 2.55, z: 0, w: 0.4, h: 0.12, d: 0.1, color: glow, emissive: glow, glow: 1.8, name: 'head', pivot: [0, 1.5, 0] },
+        { x: 0, y: 2.55, z: 0, w: 0.12, h: 0.4, d: 0.1, color: glow, emissive: glow, glow: 1.8, name: 'head', pivot: [0, 1.5, 0] }
+    ]
+}
+
+/** Violet crystal slime built from two halves joined at a glowing seam; it splits along it. */
+function splitterParts(): VoxPart[] {
+    const left = 0x7b4fd6
+    const right = 0x9a6bff
+    const dark = 0x3a2a78
+    const seam = 0xff9bf0
+    return [
+        { x: -0.3, y: 0.3, z: 0, w: 0.3, h: 0.6, d: 0.34, color: dark, name: 'legL', pivot: [-0.3, 0.6, 0] },
+        { x: 0.3, y: 0.3, z: 0, w: 0.3, h: 0.6, d: 0.34, color: dark, name: 'legR', pivot: [0.3, 0.6, 0] },
+        { x: -0.34, y: 1.12, z: 0, w: 0.68, h: 1, d: 0.92, color: left, name: 'body' },
+        { x: 0.34, y: 1.18, z: 0.02, w: 0.68, h: 1.04, d: 0.92, color: right, name: 'body' },
+        { x: 0, y: 1.14, z: 0.48, w: 0.1, h: 1.02, d: 0.04, color: seam, emissive: seam, glow: 2.2, name: 'body' },
+        { x: 0, y: 1.7, z: 0, w: 0.1, h: 0.04, d: 0.94, color: seam, emissive: seam, glow: 2.2, name: 'body' },
+        { x: 0, y: 1.14, z: -0.48, w: 0.1, h: 1.02, d: 0.04, color: seam, emissive: seam, glow: 2.2, name: 'body' },
+        { x: -0.32, y: 1.34, z: 0.47, w: 0.18, h: 0.1, d: 0.04, color: seam, emissive: seam, glow: 3 },
+        { x: 0.32, y: 1.34, z: 0.47, w: 0.18, h: 0.1, d: 0.04, color: seam, emissive: seam, glow: 3 },
+        { x: -0.32, y: 0.86, z: 0.47, w: 0.2, h: 0.06, d: 0.04, color: dark },
+        { x: 0.32, y: 0.86, z: 0.47, w: 0.2, h: 0.06, d: 0.04, color: dark },
+        { x: -0.4, y: 1.82, z: 0, w: 0.2, h: 0.36, d: 0.2, color: left, rotation: [0, 0, 0.2] },
+        { x: 0.3, y: 1.84, z: 0.1, w: 0.17, h: 0.3, d: 0.17, color: right, rotation: [0, 0, -0.25] },
+        { x: 0.05, y: 1.9, z: -0.2, w: 0.14, h: 0.24, d: 0.14, color: seam, emissive: seam, glow: 0.6 },
+        { x: -0.8, y: 0.98, z: 0, w: 0.22, h: 0.52, d: 0.26, color: left, name: 'armL', pivot: [-0.8, 1.3, 0] },
+        { x: 0.8, y: 0.98, z: 0, w: 0.22, h: 0.52, d: 0.26, color: right, name: 'armR', pivot: [0.8, 1.3, 0] }
+    ]
+}
+
+/** One half of a Splitter: a jagged shard with a glowing cut face. */
+function splinterParts(): VoxPart[] {
+    const body = 0x8d5cf0
+    const dark = 0x3a2a78
+    const seam = 0xff9bf0
+    return [
+        { x: -0.12, y: 0.28, z: 0, w: 0.18, h: 0.56, d: 0.22, color: dark, name: 'legL', pivot: [-0.12, 0.56, 0] },
+        { x: 0.12, y: 0.28, z: 0, w: 0.18, h: 0.56, d: 0.22, color: dark, name: 'legR', pivot: [0.12, 0.56, 0] },
+        { x: 0, y: 0.96, z: 0, w: 0.54, h: 0.84, d: 0.5, color: body, name: 'body' },
+        { x: 0.28, y: 0.96, z: 0, w: 0.04, h: 0.72, d: 0.4, color: seam, emissive: seam, glow: 2.4, name: 'body' },
+        { x: -0.28, y: 0.96, z: 0, w: 0.04, h: 0.72, d: 0.4, color: seam, emissive: seam, glow: 2.4, name: 'body' },
+        { x: 0, y: 1.1, z: 0.26, w: 0.28, h: 0.12, d: 0.04, color: seam, emissive: seam, glow: 3.2 },
+        { x: -0.1, y: 1.52, z: 0, w: 0.14, h: 0.36, d: 0.14, color: body, rotation: [0, 0, 0.3] },
+        { x: 0.14, y: 1.5, z: 0.04, w: 0.12, h: 0.28, d: 0.12, color: seam, emissive: seam, glow: 0.8, rotation: [0, 0, -0.3] },
+        { x: -0.36, y: 0.9, z: 0.1, w: 0.14, h: 0.5, d: 0.16, color: body, name: 'armL', pivot: [-0.36, 1.2, 0.1] },
+        { x: 0.36, y: 0.9, z: 0.1, w: 0.14, h: 0.5, d: 0.16, color: body, name: 'armR', pivot: [0.36, 1.2, 0.1] }
+    ]
+}
+
+/** Hooded marksman in an indigo coat with a long rifle; the red lens on the muzzle is where the laser starts. */
+function sniperParts(): VoxPart[] {
+    const coat = 0x3b3f66
+    const dark = 0x16182a
+    const red = 0xff2d4d
+    return [
+        { x: -0.14, y: 0.45, z: 0, w: 0.2, h: 0.9, d: 0.22, color: dark, name: 'legL', pivot: [-0.14, 0.9, 0] },
+        { x: 0.14, y: 0.45, z: 0, w: 0.2, h: 0.9, d: 0.22, color: dark, name: 'legR', pivot: [0.14, 0.9, 0] },
+        { x: 0, y: 1.32, z: 0, w: 0.6, h: 0.8, d: 0.4, color: coat, name: 'body' },
+        { x: 0, y: 0.92, z: 0, w: 0.7, h: 0.34, d: 0.46, color: coat, name: 'body' },
+        { x: 0, y: 1.2, z: 0.21, w: 0.12, h: 0.5, d: 0.04, color: red, emissive: red, glow: 0.5, name: 'body' },
+        { x: 0, y: 1.76, z: 0, w: 0.5, h: 0.14, d: 0.48, color: dark, name: 'body' },
+        { x: -0.38, y: 1.32, z: 0.05, w: 0.14, h: 0.6, d: 0.18, color: coat, name: 'armL', pivot: [-0.38, 1.62, 0] },
+        { x: 0.38, y: 1.32, z: 0.05, w: 0.14, h: 0.6, d: 0.18, color: coat, name: 'armR', pivot: [0.38, 1.62, 0] },
+        { x: 0, y: 1.98, z: 0.02, w: 0.42, h: 0.4, d: 0.44, color: coat, name: 'head', pivot: [0, 1.78, 0] },
+        { x: 0, y: 2.22, z: 0, w: 0.48, h: 0.1, d: 0.54, color: dark, name: 'head', pivot: [0, 1.78, 0] },
+        { x: 0, y: 1.98, z: 0.23, w: 0.3, h: 0.07, d: 0.04, color: red, emissive: red, glow: 3, name: 'head', pivot: [0, 1.78, 0] },
+        { x: 0.13, y: 1.98, z: 0.25, w: 0.1, h: 0.1, d: 0.06, color: red, emissive: red, glow: 4, name: 'head', pivot: [0, 1.78, 0] },
+        // long rifle held across the chest
+        { x: 0.2, y: 1.38, z: 0.7, w: 0.1, h: 0.12, d: 1.6, color: dark },
+        { x: 0.2, y: 1.52, z: 0.45, w: 0.09, h: 0.09, d: 0.4, color: 0x8a8f9c },
+        { x: 0.2, y: 1.34, z: -0.05, w: 0.12, h: 0.22, d: 0.3, color: dark },
+        { x: 0.2, y: 1.38, z: 1.52, w: 0.07, h: 0.07, d: 0.05, color: red, emissive: red, glow: 3.5, name: 'muzzle' }
+    ]
+}
+
+/** Low armoured mole with a drill nose and digging claws. */
+function burrowerParts(): VoxPart[] {
+    const shell = 0x6b5a45
+    const ridge = 0x8c7658
+    const dark = 0x2e2519
+    const steel = 0xa4adb8
+    const glow = 0xffa21a
+    return [
+        { x: -0.36, y: 0.22, z: -0.45, w: 0.3, h: 0.44, d: 0.34, color: dark, name: 'legL', pivot: [-0.36, 0.44, -0.45] },
+        { x: 0.36, y: 0.22, z: -0.45, w: 0.3, h: 0.44, d: 0.34, color: dark, name: 'legR', pivot: [0.36, 0.44, -0.45] },
+        { x: 0, y: 0.74, z: -0.05, w: 1.1, h: 0.86, d: 1.4, color: shell, name: 'body' },
+        { x: 0, y: 1.2, z: -0.4, w: 0.8, h: 0.12, d: 0.3, color: ridge, name: 'body' },
+        { x: 0, y: 1.2, z: 0.05, w: 0.8, h: 0.12, d: 0.3, color: ridge, name: 'body' },
+        { x: 0, y: 1.2, z: 0.5, w: 0.8, h: 0.12, d: 0.3, color: ridge, name: 'body' },
+        { x: 0, y: 0.78, z: -0.77, w: 0.5, h: 0.4, d: 0.1, color: glow, emissive: glow, glow: 0.7, name: 'body' },
+        { x: -0.74, y: 0.55, z: 0.45, w: 0.3, h: 0.34, d: 0.7, color: dark, name: 'armL', pivot: [-0.7, 0.9, 0.2] },
+        { x: 0.74, y: 0.55, z: 0.45, w: 0.3, h: 0.34, d: 0.7, color: dark, name: 'armR', pivot: [0.7, 0.9, 0.2] },
+        { x: -0.74, y: 0.55, z: 0.9, w: 0.12, h: 0.12, d: 0.34, color: 0xe8e0c8, name: 'armL', pivot: [-0.7, 0.9, 0.2] },
+        { x: 0.74, y: 0.55, z: 0.9, w: 0.12, h: 0.12, d: 0.34, color: 0xe8e0c8, name: 'armR', pivot: [0.7, 0.9, 0.2] },
+        { x: 0, y: 0.8, z: 0.95, w: 0.64, h: 0.58, d: 0.5, color: shell, name: 'head', pivot: [0, 0.8, 0.7] },
+        { x: -0.17, y: 0.98, z: 1.2, w: 0.1, h: 0.08, d: 0.04, color: glow, emissive: glow, glow: 3, name: 'head', pivot: [0, 0.8, 0.7] },
+        { x: 0.17, y: 0.98, z: 1.2, w: 0.1, h: 0.08, d: 0.04, color: glow, emissive: glow, glow: 3, name: 'head', pivot: [0, 0.8, 0.7] },
+        { x: 0, y: 0.78, z: 1.38, w: 0.46, h: 0.4, d: 0.34, color: steel, name: 'drill', pivot: [0, 0.78, 1.2] },
+        { x: 0, y: 0.78, z: 1.62, w: 0.3, h: 0.26, d: 0.3, color: ridge, name: 'drill', pivot: [0, 0.78, 1.2] },
+        { x: 0, y: 0.78, z: 1.84, w: 0.14, h: 0.12, d: 0.28, color: glow, emissive: glow, glow: 1.6, name: 'drill', pivot: [0, 0.78, 1.2] }
+    ]
+}
+
+/**
+ * Siege mech. The front slab, shoulder guards and hazard stripe are all named
+ * 'plate' so the engine can lift them open to vent and blow them off at half
+ * health. The reactor on the back is the weak point.
+ */
+function juggernautParts(): VoxPart[] {
+    const steel = 0x5c6b80
+    const light = 0x7d8da3
+    const dark = 0x232a36
+    const amber = 0xffb020
+    const core = 0xffd966
+    const plate: Pick<VoxPart, 'name' | 'pivot'> = { name: 'plate', pivot: [0, 2.6, 0.82] }
+    return [
+        { x: -0.7, y: 0.55, z: 0, w: 0.64, h: 1.1, d: 0.72, color: dark, name: 'legL', pivot: [-0.7, 1.1, 0] },
+        { x: 0.7, y: 0.55, z: 0, w: 0.64, h: 1.1, d: 0.72, color: dark, name: 'legR', pivot: [0.7, 1.1, 0] },
+        { x: -0.7, y: 0.14, z: 0.18, w: 0.8, h: 0.28, d: 1.1, color: steel, name: 'legL', pivot: [-0.7, 1.1, 0] },
+        { x: 0.7, y: 0.14, z: 0.18, w: 0.8, h: 0.28, d: 1.1, color: steel, name: 'legR', pivot: [0.7, 1.1, 0] },
+        { x: 0, y: 1.2, z: 0, w: 1.7, h: 0.3, d: 1.1, color: dark },
+        { x: 0, y: 1.98, z: 0, w: 1.9, h: 1.3, d: 1.5, color: steel, name: 'body' },
+        { x: 0, y: 2.0, z: 0.78, w: 0.7, h: 0.5, d: 0.06, color: amber, emissive: amber, glow: 0.7, name: 'body' },
+        // front plating, lifts away at the top when the hull vents
+        { x: 0, y: 1.98, z: 0.86, w: 1.7, h: 1.3, d: 0.14, color: light, ...plate },
+        { x: 0, y: 1.98, z: 0.95, w: 1.5, h: 0.14, d: 0.04, color: amber, ...plate },
+        { x: 0, y: 1.6, z: 0.95, w: 1.5, h: 0.1, d: 0.04, color: amber, ...plate },
+        { x: -1.25, y: 2.55, z: 0.2, w: 0.8, h: 0.6, d: 1.0, color: light, ...plate },
+        { x: 1.25, y: 2.55, z: 0.2, w: 0.8, h: 0.6, d: 1.0, color: light, ...plate },
+        // rocket pods
+        { x: -1.25, y: 3.0, z: 0, w: 0.55, h: 0.4, d: 0.8, color: dark },
+        { x: 1.25, y: 3.0, z: 0, w: 0.55, h: 0.4, d: 0.8, color: dark },
+        { x: -1.25, y: 3.0, z: 0.42, w: 0.4, h: 0.28, d: 0.04, color: amber, emissive: amber, glow: 1.2 },
+        { x: 1.25, y: 3.0, z: 0.42, w: 0.4, h: 0.28, d: 0.04, color: amber, emissive: amber, glow: 1.2 },
+        { x: -1.25, y: 1.85, z: 0, w: 0.56, h: 1.1, d: 0.62, color: steel, name: 'armL', pivot: [-1.25, 2.4, 0] },
+        { x: 1.25, y: 1.85, z: 0, w: 0.56, h: 1.1, d: 0.62, color: steel, name: 'armR', pivot: [1.25, 2.4, 0] },
+        { x: -1.25, y: 1.1, z: 0.1, w: 0.74, h: 0.6, d: 0.86, color: dark, name: 'armL', pivot: [-1.25, 2.4, 0] },
+        { x: 1.25, y: 1.1, z: 0.1, w: 0.74, h: 0.6, d: 0.86, color: dark, name: 'armR', pivot: [1.25, 2.4, 0] },
+        { x: 1.25, y: 1.1, z: 0.72, w: 0.22, h: 0.22, d: 0.7, color: 0x8a8f9c, name: 'armR', pivot: [1.25, 2.4, 0] },
+        { x: 0, y: 2.82, z: 0.3, w: 0.62, h: 0.4, d: 0.62, color: steel, name: 'head', pivot: [0, 2.7, 0.2] },
+        { x: 0, y: 2.84, z: 0.62, w: 0.46, h: 0.08, d: 0.04, color: amber, emissive: amber, glow: 3, name: 'head', pivot: [0, 2.7, 0.2] },
+        // rear reactor: the weak point
+        { x: 0, y: 2.0, z: -0.82, w: 1.0, h: 1.0, d: 0.22, color: 0xc2410c, name: 'body' },
+        { x: 0, y: 2.0, z: -0.96, w: 0.62, h: 0.62, d: 0.14, color: core, emissive: core, glow: 3.4, name: 'reactor' },
+        { x: 0, y: 2.0, z: -1.0, w: 0.2, h: 0.84, d: 0.1, color: 0xffffff, emissive: 0xffffff, glow: 2, name: 'reactor' },
+        { x: 0, y: 2.0, z: -1.0, w: 0.84, h: 0.2, d: 0.1, color: 0xffffff, emissive: 0xffffff, glow: 2, name: 'reactor' },
+        { x: -0.62, y: 2.0, z: -0.9, w: 0.1, h: 0.9, d: 0.3, color: dark },
+        { x: 0.62, y: 2.0, z: -0.9, w: 0.1, h: 0.9, d: 0.3, color: dark },
+        { x: -0.5, y: 3.05, z: -0.5, w: 0.26, h: 0.7, d: 0.26, color: dark },
+        { x: 0.5, y: 3.05, z: -0.5, w: 0.26, h: 0.7, d: 0.26, color: dark }
     ]
 }
 
@@ -722,7 +880,14 @@ function gruntParts(): VoxPart[] {
         { x: 0.46, y: 0.56, z: 0.08, w: 0.22, h: 0.12, d: 0.34, color: 0x8a8f9c, name: 'armR', pivot: [0.46, 1.2, 0] },
         { x: 0, y: 1.7, z: 0, w: 0.42, h: 0.4, d: 0.42, color: body, name: 'head', pivot: [0, 1.5, 0] },
         { x: 0, y: 1.72, z: 0.22, w: 0.3, h: 0.08, d: 0.04, color: eye, emissive: eye, glow: 3, name: 'head', pivot: [0, 1.5, 0] },
-        { x: 0, y: 1.96, z: 0, w: 0.12, h: 0.14, d: 0.3, color: dark, name: 'head', pivot: [0, 1.5, 0] }
+        { x: 0, y: 1.96, z: 0, w: 0.12, h: 0.14, d: 0.3, color: dark, name: 'head', pivot: [0, 1.5, 0] },
+        // helmet cheek plates, a power pack with a glowing vent, and knee guards for a sturdier silhouette
+        { x: -0.23, y: 1.68, z: 0.06, w: 0.06, h: 0.26, d: 0.3, color: dark, name: 'head', pivot: [0, 1.5, 0] },
+        { x: 0.23, y: 1.68, z: 0.06, w: 0.06, h: 0.26, d: 0.3, color: dark, name: 'head', pivot: [0, 1.5, 0] },
+        { x: 0, y: 1.2, z: -0.3, w: 0.4, h: 0.46, d: 0.16, color: dark, name: 'body' },
+        { x: 0, y: 1.26, z: -0.39, w: 0.22, h: 0.07, d: 0.03, color: eye, emissive: eye, glow: 1.6, name: 'body' },
+        { x: -0.17, y: 0.55, z: 0.16, w: 0.24, h: 0.14, d: 0.1, color: 0x6b7284, name: 'legL', pivot: [-0.17, 0.82, 0] },
+        { x: 0.17, y: 0.55, z: 0.16, w: 0.24, h: 0.14, d: 0.1, color: 0x6b7284, name: 'legR', pivot: [0.17, 0.82, 0] }
     ]
 }
 
@@ -741,7 +906,12 @@ function runnerParts(): VoxPart[] {
         { x: 0.32, y: 0.66, z: 0.22, w: 0.1, h: 0.14, d: 0.24, color: 0xffd0d0, name: 'armR', pivot: [0.32, 1.2, 0.15] },
         { x: 0, y: 1.42, z: 0.32, w: 0.34, h: 0.3, d: 0.42, color: body, name: 'head', pivot: [0, 1.3, 0.2] },
         { x: 0, y: 1.46, z: 0.54, w: 0.22, h: 0.08, d: 0.04, color: eye, emissive: eye, glow: 3, name: 'head', pivot: [0, 1.3, 0.2] },
-        { x: 0, y: 1.3, z: 0.5, w: 0.26, h: 0.06, d: 0.1, color: 0xffd0d0, name: 'head', pivot: [0, 1.3, 0.2] }
+        { x: 0, y: 1.3, z: 0.5, w: 0.26, h: 0.06, d: 0.1, color: 0xffd0d0, name: 'head', pivot: [0, 1.3, 0.2] },
+        // glowing dorsal spine and a counterweight tail
+        { x: 0, y: 1.3, z: -0.22, w: 0.06, h: 0.44, d: 0.05, color: eye, emissive: eye, glow: 1.5, name: 'body' },
+        { x: 0, y: 1.38, z: -0.3, w: 0.1, h: 0.16, d: 0.12, color: dark, name: 'body' },
+        { x: 0, y: 1.02, z: -0.5, w: 0.1, h: 0.1, d: 0.42, color: dark, name: 'body' },
+        { x: 0, y: 0.98, z: -0.74, w: 0.07, h: 0.07, d: 0.12, color: eye, emissive: eye, glow: 1.2, name: 'body' }
     ]
 }
 
@@ -762,7 +932,14 @@ function bruteParts(titan: boolean): VoxPart[] {
         { x: -0.76, y: 0.5, z: 0, w: 0.44, h: 0.32, d: 0.44, color: dark, name: 'armL', pivot: [-0.76, 1.46, 0] },
         { x: 0.76, y: 0.5, z: 0, w: 0.44, h: 0.32, d: 0.44, color: dark, name: 'armR', pivot: [0.76, 1.46, 0] },
         { x: 0, y: 1.9, z: 0.1, w: 0.44, h: 0.4, d: 0.44, color: body, name: 'head', pivot: [0, 1.7, 0] },
-        { x: 0, y: 1.92, z: 0.33, w: 0.3, h: 0.1, d: 0.04, color: glow, emissive: glow, glow: 3, name: 'head', pivot: [0, 1.7, 0] }
+        { x: 0, y: 1.92, z: 0.33, w: 0.3, h: 0.1, d: 0.04, color: glow, emissive: glow, glow: 3, name: 'head', pivot: [0, 1.7, 0] },
+        // bone spikes on the pauldrons and a tusked jaw so a brute reads from across the arena
+        { x: -0.78, y: 1.9, z: 0, w: 0.1, h: 0.26, d: 0.1, color: 0xe8e0c8 },
+        { x: 0.78, y: 1.9, z: 0, w: 0.1, h: 0.26, d: 0.1, color: 0xe8e0c8 },
+        { x: -0.62, y: 1.86, z: 0.16, w: 0.08, h: 0.18, d: 0.08, color: 0xe8e0c8 },
+        { x: 0.62, y: 1.86, z: 0.16, w: 0.08, h: 0.18, d: 0.08, color: 0xe8e0c8 },
+        { x: -0.14, y: 1.76, z: 0.34, w: 0.06, h: 0.14, d: 0.06, color: 0xe8e0c8, name: 'head', pivot: [0, 1.7, 0] },
+        { x: 0.14, y: 1.76, z: 0.34, w: 0.06, h: 0.14, d: 0.06, color: 0xe8e0c8, name: 'head', pivot: [0, 1.7, 0] }
     ]
     if (titan) {
         parts.push(
@@ -792,7 +969,12 @@ function spitterParts(): VoxPart[] {
         { x: 0, y: 1.64, z: 0.38, w: 0.3, h: 0.24, d: 0.3, color: dark, name: 'head', pivot: [0, 1.48, 0] },
         { x: 0, y: 1.64, z: 0.52, w: 0.18, h: 0.14, d: 0.06, color: acid, emissive: acid, glow: 1.2, name: 'head', pivot: [0, 1.48, 0] },
         { x: -0.14, y: 1.84, z: 0.26, w: 0.08, h: 0.08, d: 0.04, color: acid, emissive: acid, glow: 3, name: 'head', pivot: [0, 1.48, 0] },
-        { x: 0.14, y: 1.84, z: 0.26, w: 0.08, h: 0.08, d: 0.04, color: acid, emissive: acid, glow: 3, name: 'head', pivot: [0, 1.48, 0] }
+        { x: 0.14, y: 1.84, z: 0.26, w: 0.08, h: 0.08, d: 0.04, color: acid, emissive: acid, glow: 3, name: 'head', pivot: [0, 1.48, 0] },
+        // fangs over the spout and two swollen acid sacs on the back
+        { x: -0.1, y: 1.5, z: 0.5, w: 0.04, h: 0.12, d: 0.04, color: 0xeadfc0, name: 'head', pivot: [0, 1.48, 0] },
+        { x: 0.1, y: 1.5, z: 0.5, w: 0.04, h: 0.12, d: 0.04, color: 0xeadfc0, name: 'head', pivot: [0, 1.48, 0] },
+        { x: -0.14, y: 1.42, z: -0.42, w: 0.2, h: 0.2, d: 0.2, color: acid, emissive: acid, glow: 0.8, name: 'body' },
+        { x: 0.16, y: 1.2, z: -0.42, w: 0.16, h: 0.16, d: 0.16, color: acid, emissive: acid, glow: 0.8, name: 'body' }
     ]
 }
 
@@ -812,7 +994,15 @@ function droneParts(): VoxPart[] {
         { x: 0.45, y: 0.5, z: -0.45, w: 0.12, h: 0.2, d: 0.12, color: body },
         { x: -0.45, y: 0.5, z: 0.45, w: 0.12, h: 0.2, d: 0.12, color: body },
         { x: 0.45, y: 0.5, z: 0.45, w: 0.12, h: 0.2, d: 0.12, color: body },
-        { x: 0, y: 0.18, z: 0, w: 0.1, h: 0.22, d: 0.1, color: eye, emissive: eye, glow: 0.5, name: 'body' }
+        { x: 0, y: 0.18, z: 0, w: 0.1, h: 0.22, d: 0.1, color: eye, emissive: eye, glow: 0.5, name: 'body' },
+        // whip antenna with a blinking tip, a chin cannon and glowing rotor hubs
+        { x: 0.2, y: 0.82, z: -0.18, w: 0.03, h: 0.34, d: 0.03, color: dark, name: 'body' },
+        { x: 0.2, y: 1.0, z: -0.18, w: 0.07, h: 0.07, d: 0.07, color: eye, emissive: eye, glow: 2.5, name: 'body' },
+        { x: 0, y: 0.38, z: 0.26, w: 0.09, h: 0.09, d: 0.3, color: dark, name: 'body' },
+        { x: -0.45, y: 0.66, z: -0.45, w: 0.08, h: 0.05, d: 0.08, color: eye, emissive: eye, glow: 1.4, name: 'rotor' },
+        { x: 0.45, y: 0.66, z: -0.45, w: 0.08, h: 0.05, d: 0.08, color: eye, emissive: eye, glow: 1.4, name: 'rotor' },
+        { x: -0.45, y: 0.66, z: 0.45, w: 0.08, h: 0.05, d: 0.08, color: eye, emissive: eye, glow: 1.4, name: 'rotor' },
+        { x: 0.45, y: 0.66, z: 0.45, w: 0.08, h: 0.05, d: 0.08, color: eye, emissive: eye, glow: 1.4, name: 'rotor' }
     ]
 }
 

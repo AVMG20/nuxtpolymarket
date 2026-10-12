@@ -2,9 +2,9 @@
 
 export type WeaponId = 'pistol' | 'magnum' | 'smg' | 'rifle' | 'burst' | 'dmr' | 'shotgun' | 'lmg' | 'saw' | 'sniper' | 'flamer' | 'launcher' | 'raygun' | 'arc'
 
-export type EnemyId = 'grunt' | 'runner' | 'brute' | 'spitter' | 'drone' | 'charger' | 'warden' | 'bomber' | 'mender' | 'titan'
+export type EnemyId = 'grunt' | 'runner' | 'brute' | 'spitter' | 'drone' | 'charger' | 'warden' | 'bomber' | 'mender' | 'titan' | 'splitter' | 'splinter' | 'sniper' | 'burrower' | 'juggernaut'
 
-export type EnemyBehavior = 'melee' | 'ranged' | 'flyer' | 'charger' | 'boss' | 'bomber' | 'mender'
+export type EnemyBehavior = 'melee' | 'ranged' | 'flyer' | 'charger' | 'boss' | 'bomber' | 'mender' | 'sniper' | 'burrower'
 
 export type EliteAffix = 'swift' | 'armored' | 'volatile' | 'gilded'
 
@@ -36,7 +36,7 @@ export interface MeleeDef {
     color: number
 }
 
-export type AbilityId = 'nova' | 'sentry' | 'blink' | 'chrono'
+export type AbilityId = 'nova' | 'sentry' | 'blink' | 'chrono' | 'gravity' | 'decoy' | 'overcharge'
 
 export interface AbilityDef {
     id: AbilityId
@@ -121,6 +121,8 @@ export interface EnemyDef {
     energy: number
     /** Blocks bullets arriving from within this half-angle (radians) of its facing. */
     shieldArc?: number
+    /** On death the body breaks into this many smaller enemies. */
+    splitInto?: { id: EnemyId, count: number }
     /** Height of the head hit-sphere centre at scale 1 (0 = no headshots). */
     headY: number
     headRadius: number
@@ -134,7 +136,7 @@ export interface WaveSpawn {
 export interface WavePlan {
     wave: number
     boss: boolean
-    event: 'none' | 'meteors' | 'frenzy' | 'blackout' | 'bounty'
+    event: 'none' | 'meteors' | 'frenzy' | 'blackout' | 'bounty' | 'surge'
     spawns: WaveSpawn[]
     hpMult: number
     damageMult: number
@@ -221,6 +223,18 @@ export interface PlayerStats {
     income: number
     /** Friendly meteors fall on the pack every few seconds. */
     meteorCall: number
+    /** Singularity: bigger, longer gravity well with a harder detonation. */
+    well: number
+    /** Hologram Decoy: lasts longer and detonates when it expires. */
+    decoy: number
+    /** Arc Overcharge: lasts longer and arcs further. */
+    overcharge: number
+    /** Kills shortly after an ability cast refund energy. */
+    cascade: number
+    /** Casting an ability grants a burst of speed and fire rate. */
+    castRush: number
+    /** Critical hits arc lightning into nearby enemies. */
+    critChain: number
 }
 
 export interface UpgradeCard {
