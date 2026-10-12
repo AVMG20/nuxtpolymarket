@@ -861,25 +861,30 @@ export const GOLD_STEP_BASE = 1.017
  * 11.7× too low: an account pinned to it earned a twelfth of platform income forever
  * (`open-items.md` #23, measured 2026-09-16).
  *
- * **Measured on the campaign walk**, `bun run sim:hero-quest --report=gold`: 523 kills/hour solo,
- * 617 for a party of three, 620 for a party of six. That it barely moves across party sizes is the
- * pacing model working — `ENEMY_PACE_RATIO` and `FIGHT_LENGTH_DRIFT` hold fight length roughly
- * constant, so a bigger party kills faster *and* walks deeper, and the rate converges. 600 is a
- * round number inside that band; the spread is wider than the last digit, so precision here would
- * be false.
+ * **Measured on the campaign walk**, `bun run sim:hero-quest --report=gold --grind-hours=200`:
+ * **405 kills/hour solo, 430 for a party of three, 423 for a party of six** (re-measured
+ * 2026-10-12, issue #10; 25–31-day walks, 12½ for the party of six). It was 523 / 617 / 620 on
+ * 2026-09-16 and 600 here; the cooldown ladder (#36), wipe recovery (#37) and boss specials (#45)
+ * lengthened the grind since, and at 600 a ceiling-bound account earned 0.71× the ceiling's
+ * stated rate, so "0.85× platform" was really 0.60×. That it barely moves across party sizes is
+ * the pacing model working — `ENEMY_PACE_RATIO` and `FIGHT_LENGTH_DRIFT` hold fight length
+ * roughly constant, so a bigger party kills faster *and* walks deeper, and the rate converges.
+ * 420 is a round number inside that band; the spread is wider than the last digit, so precision
+ * here would be false.
  *
  * ⚠ **What this trades away.** `MIN_SECONDS_PER_KILL` was in the derivation because a bounded
  * per-kill value times an unbounded kill rate is unbounded income. Calibrating to the typical rate
- * means anything that lifts the real rate above 600/hr earns proportionally more than platform.
- * The floor still bounds the worst case at `3600 / MIN_SECONDS_PER_KILL ÷ this` = **12×**, so the
- * old calibration did not vanish — it stopped describing normal play and became the bound on the
- * extreme. **Battle Speed (Phase 4, unbuilt) is the live risk**: it multiplies kill rate directly,
- * and its multiplier lands straight on Gold income against the platform.
+ * means anything that lifts the real rate above 420/hr earns proportionally more than platform.
+ * The floor still bounds the worst case at `3600 / MIN_SECONDS_PER_KILL ÷ this` = **~17×** (12×
+ * at 600), so the old calibration did not vanish — it stopped describing normal play and became
+ * the bound on the extreme. Battle Speed does not reach past it: a boosted window's Gold is held
+ * to `maxGoldPerHour` over its real time (`settle`, 2026-10-11).
  *
  * Coupled to `GOLD_TENURE_CEILING`, which must be regenerated whenever this moves
  * (`bun run balance:compare --emit-hq-ceiling`), and to nothing else — combat never reads it.
+ * Re-measure it whenever run pacing moves (`open-items.md` #36).
  */
-export const GOLD_REFERENCE_KILLS_PER_HOUR = 600 // TUNED ✓
+export const GOLD_REFERENCE_KILLS_PER_HOUR = 420 // TUNED ✓
 
 export const GOLD_TENURE_DAYS: readonly number[] = [
     0, 0.14, 0.25, 0.5, 1.03, 1.23, 3, 3.93, 5.84, 11.62, 15.84, 34.35, 41.97, 81.91, 145.09, 229.47
@@ -897,7 +902,7 @@ export const GOLD_TENURE_DAYS: readonly number[] = [
  * bends. Evenly spaced rungs sagged up to 22% below the curve; landing on the bends holds it to 1.5%.
  */
 export const GOLD_TENURE_CEILING: readonly number[] = [
-    17.24, 37.18, 46.43, 74.17, 200.2, 262.8, 1082, 1887, 3360, 8624, 13320, 38680, 53350, 130400, 206300, 342200
+    24.64, 53.11, 66.33, 106, 286, 375.4, 1546, 2695, 4800, 12320, 19030, 55250, 76220, 186300, 294700, 488800
 ]
 
 /**
@@ -916,9 +921,10 @@ export const GOLD_PLATFORM_DISCOUNT = 0.85
 /**
  * Per-day growth past the last rung. +20%/year, so a decade lifts the ceiling ~5.5x.
  *
- * At a ten-year horizon the worst-case collect (max Gold stack, max Battle Speed, a full 72-hour
- * offline window) still clears `numeric(19,4)` by three orders of magnitude, which is what
- * `gold-economy.md` §9.4 asks the specs to assert.
+ * At a ten-year horizon the worst-case collect (×4 Gold stack, the throughput floor, a full
+ * 72-hour offline window; Battle Speed is held under the bound) is ~1.9e12, clearing
+ * `numeric(19,4)` by ~2.7 orders of magnitude. `gold-economy.md` §9.4 asks for three; the spec
+ * asserts two and says why (`open-items.md` #23).
  */
 export const GOLD_TENURE_CRAWL = 1.0005
 

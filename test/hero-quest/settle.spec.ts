@@ -840,12 +840,13 @@ describe('hero-quest settle', () => {
 
         it('holds a Battle Speed window\'s Gold to the bound over its real time', () => {
             // at the floor kill rate, a young account deep enough that every kill pays the ceiling: five times
-            // the kills, the same Gold
+            // the kills, the same Gold. Six hours old rather than a day, so the ceiling stays under this
+            // position's progression factor whatever the reference kill rate is regenerated at.
             const strong = { ...hero, heroLevel: 3000 }
-            const window = { hero: strong, position: at(1, 4, 0, 3), elapsedSeconds: 3600, online: true, tenureDays: 1 }
+            const window = { hero: strong, position: at(1, 4, 0, 3), elapsedSeconds: 3600, online: true, tenureDays: 0.25 }
             const plain = settle(input(window))
             const boosted = settle(input({ ...window, speedBoost: { multiplier: 5, overlapSeconds: 3600 } }))
-            const bound = maxGoldPerHour(1, 1)
+            const bound = maxGoldPerHour(1, 0.25)
             expect(boosted.kills).toBeGreaterThan(plain.kills)
             expect(plain.goldEarned).toBeLessThanOrEqual(bound * (1 + 1e-9))
             expect(boosted.goldEarned).toBeLessThanOrEqual(bound * (1 + 1e-9))
@@ -880,14 +881,15 @@ describe('hero-quest settle', () => {
             //
             // **§9.4 asks for three orders of magnitude and this is two** — recorded in
             // `open-items.md` #23 rather than reconciled quietly. Regenerating
-            // `GOLD_TENURE_CEILING` against the real kill rate raised it 12×, and that came
-            // straight out of this margin: the largest collect went from ~4.4e11 to ~5.3e12
-            // against a ~1e15 column, so 187 consecutive worst-case collects fill it instead
-            // of 2,250. The worst case already stacks everything at once — ten-year account
-            // age, the throughput floor, ×4 Gold%, ×4 Battle Speed, a full 72-hour window,
-            // and a player who never spends a coin — and `leaves healthy headroom` above
-            // still passes by two orders of magnitude on its own terms. Holding Battle Speed
-            // under the bound (2026-10-11) took its ×5 back out of this figure.
+            // `GOLD_TENURE_CEILING` against the real kill rate raised it 12× (2026-09-16) and
+            // came straight out of this margin. Holding Battle Speed under the bound
+            // (2026-10-11) took its ×5 back out; re-measuring the kill rate at 420/hr instead
+            // of 600 (2026-10-12, issue #10) put ×1.43 back in. The largest collect is now
+            // ~1.9e12 against a ~1e15 column (~2.7 orders), so 525 consecutive worst-case
+            // collects fill it. The worst case already stacks everything at once — ten-year
+            // account age, the throughput floor, ×4 Gold%, a full 72-hour window, and a
+            // player who never spends a coin — and `leaves healthy headroom` above still
+            // passes by two orders of magnitude on its own terms.
             const collect = maxGoldPerHour(4, GOLD_BOUND_HORIZON_DAYS) * OFFLINE_CAP_MAX_HOURS
             expect(collect).toBeLessThan(1e15 / 100)
         })
