@@ -1,1 +1,0 @@
-ALTER TABLE "hq_state" ADD COLUMN "tutorials_seen" jsonb DEFAULT '[]'::jsonb NOT NULL;

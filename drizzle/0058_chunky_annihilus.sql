@@ -1,1 +1,0 @@
-ALTER TABLE "hq_state" ADD COLUMN "boss_lost" boolean DEFAULT false NOT NULL;

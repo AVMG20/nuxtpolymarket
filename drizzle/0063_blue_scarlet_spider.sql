@@ -1,1 +1,0 @@
-ALTER TABLE "hq_state" ADD COLUMN "trait_gems" integer DEFAULT 0 NOT NULL;
