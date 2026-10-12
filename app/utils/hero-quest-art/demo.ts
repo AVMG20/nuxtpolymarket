@@ -3226,7 +3226,8 @@ export class BattleDemo {
                 firedAgo: c.firedAt < 0 ? -1 : this.time - c.firedAt
             })))
         }
-        else if (!this.raidRound) textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
+        // the badge carries the label on its bar, so only a stage without one prints it bare
+        if (!kit?.length && !badge && !this.raidRound) textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
         if (this.raid?.id === 'training_grounds' || (this.raidRound && this.raid?.id === 'trait')) textOut(out, this.tally, cam.w - 6, 5, (this.raidRound ? this.raidRound.left : this.raid.clock) <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
         else if (this.speedTag) textOut(out, this.speedTag, cam.w - 6, 5, C.gold3, 'small', 1, 2, 1, C.ink, -1)
         // top-centre: a run's boss fight shows its enrage timer, drained as far as the fight has played;
