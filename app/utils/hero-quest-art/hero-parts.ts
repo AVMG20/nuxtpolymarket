@@ -1,7 +1,6 @@
 // The Hero's constant identity: one young rookie with messy brown hair and a plaster on his
-// cheek, who changes outfit, weapon and stance as he changes class but never changes face
-// (the class portraits in public/hero-quest/classes are the reference). Every class head
-// draws `heroFace` and then its own headgear over whatever hair it leaves showing.
+// cheek, who changes outfit, weapon and stance as he changes class but never changes face.
+// Every class head draws `heroFace` and then its own headgear over whatever hair it leaves showing.
 
 import { C } from './palette'
 import type { Surface} from './surface';
