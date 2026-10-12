@@ -7,7 +7,7 @@ describe('hero-quest settings', () => {
             tutorials: true,
             confirmGoldSeals: true,
             confirmVoidShards: true,
-            confirmGemSpeed: true,
+            confirmGemSpends: true,
             confirmTreeRespec: true,
             confirmTraitSpends: true,
             reduceMotion: false,
