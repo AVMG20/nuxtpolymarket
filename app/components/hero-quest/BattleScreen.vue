@@ -4,7 +4,7 @@ import { D, formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
 import { RARITIES, sealLadderTotal, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { FormationRow, Rarity } from '#shared/utils/hero-quest/types'
 import { GEAR_SLOTS, GEAR_SLOT_NAME } from '#shared/utils/hero-quest/content/gear'
-import { ARENA_FIGHT_SECONDS, AUTO_ENGAGE_REPLAY_HOLD_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, MAX_OFFLINE_CAP_LEVEL, MAX_OFFLINE_EFFICIENCY_LEVEL, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
+import { ARENA_FIGHT_SECONDS, AUTO_ENGAGE_REPLAY_HOLD_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, MAX_ARTIFACT_SLOTS, MAX_CHAMPION_SLOTS, MAX_OFFLINE_CAP_LEVEL, MAX_OFFLINE_EFFICIENCY_LEVEL, MAX_SKILL_SLOTS, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
 import { ARENA_SHOP } from '#shared/utils/hero-quest/arena'
 import { getRaid } from '#shared/utils/hero-quest/content/raids'
 import type { ArenaBoardRow, ArenaFace, ArenaItemView, ArenaResultView, ArenaTarget, ArenaView } from '~/utils/hero-quest-art/arena-scene'
@@ -66,6 +66,7 @@ const { user, fetchSession } = useAuth()
  * The Collections scene's tab, off the route, and the roster it shows, with what each entry's
  * detail says and which of its buttons can be pressed. The rules are the collection pages' own:
  * a slot cap on Champions, Skills and Artifacts, one piece per Gear slot, and crafting until maxed.
+ * Equip on a Champion, Skill or Artifact opens its picker (`hero-quest-equip.ts`), Gear goes on at once.
  */
 const route = useRoute()
 
@@ -90,11 +91,9 @@ function sections(
     ]
 }
 
-/** A slotted system's one button: take it off, put it on, or say the slots are full. */
-function slotActions(owned: boolean, on: boolean, used: number, slots: number): CollectionAction[] {
-    if (!owned) return []
-    if (on) return [{ id: 'equip', label: 'Unequip', enabled: true }]
-    return [used < slots ? { id: 'equip', label: 'Equip', enabled: true } : { id: 'equip', label: 'Slots full', enabled: false }]
+/** The one button a Champion, Skill or Artifact has: Equip, which opens its picker. */
+function equipActions(owned: boolean): CollectionAction[] {
+    return owned ? [{ id: 'equip', label: 'Equip', enabled: true }] : []
 }
 
 function craftButton(e: { maxed: boolean, craftCost: number }, essence: number) {
@@ -109,29 +108,10 @@ function savedFormation(): Record<string, FormationRow> {
     return formation
 }
 
-/**
- * A Champion's buttons: Front and Back with how full each row is, the Hero counted, and Bench
- * while it is fielded. Its own row shows pressed in; a full row, or a full party for one not yet
- * fielded, cannot be pressed.
- */
-function championActions(id: string, owned: boolean): CollectionAction[] {
+/** The party as the Champion picker reads it: who is fielded, every row, the slot cap and a row's room. */
+function partyState(): HqPartyState {
     const g = guild.value
-    if (!owned || !g) return []
-    const party = g.partyChampionIds
-    const formation = savedFormation()
-    const rows = ['hero', ...party].map(member => formation[member])
-    const count = (row: FormationRow) => rows.filter(r => r === row).length
-    const fielded = party.includes(id)
-    const room = fielded || party.length < g.slots
-    const rowButton = (row: FormationRow, label: string): CollectionAction => {
-        const here = fielded && formation[id] === row
-        return { id: row, label: `${label} ${count(row)}/${FORMATION_ROW_CAPACITY}`, enabled: here || (room && count(row) < FORMATION_ROW_CAPACITY), current: here }
-    }
-    return [
-        rowButton('front', 'Front'),
-        rowButton('back', 'Back'),
-        ...(fielded ? [{ id: 'bench' as const, label: 'Bench', enabled: true }] : [])
-    ]
+    return { party: g?.partyChampionIds ?? [], formation: savedFormation(), slots: g?.slots ?? 0, maxSlots: MAX_CHAMPION_SLOTS, capacity: FORMATION_ROW_CAPACITY }
 }
 
 function collectionTiles(tab: HqCollectionTab): CollectionTile[] {
@@ -158,6 +138,7 @@ function collectionTiles(tab: HqCollectionTab): CollectionTile[] {
                     ),
                     // a slot always holds a piece, so equipped Gear is replaced rather than taken off
                     actions: e.owned ? [{ id: 'equip' as const, label: e.equipped ? 'Equipped' : 'Equip', enabled: !e.equipped }] : [],
+                    picker: null,
                     craft: craftButton(e, essence)
                 }
             })
@@ -166,6 +147,7 @@ function collectionTiles(tab: HqCollectionTab): CollectionTile[] {
             const g = guild.value
             const party = g?.partyChampionIds ?? []
             const formation = savedFormation()
+            const state = partyState()
             return (g?.roster ?? []).map(e => ({
                 ...e,
                 subtitle: e.archetypeName,
@@ -175,7 +157,8 @@ function collectionTiles(tab: HqCollectionTab): CollectionTile[] {
                     { active: e.owned, lines: e.collectionStats.map(stat => hqEffectLine('stat', stat, e.collectionBonus)) },
                     { title: 'Fielded', scope: 'In the party', active: party.includes(e.id), lines: e.abilities }
                 ),
-                actions: championActions(e.id, e.owned),
+                actions: equipActions(e.owned),
+                picker: e.owned ? hqChampionPicker(e.id, state) : null,
                 craft: craftButton(e, g?.essence ?? 0)
             }))
         }
@@ -199,7 +182,8 @@ function collectionTiles(tab: HqCollectionTab): CollectionTile[] {
                         lines: e.type === 'active' ? [...e.lines] : e.modifiers.map(m => hqEffectLine(m.kind, m.stat, m.magnitude))
                     }
                 ),
-                actions: slotActions(e.owned, equipped.includes(e.id), equipped.length, t?.slotCount ?? 0),
+                actions: equipActions(e.owned),
+                picker: e.owned ? hqSlotPicker(e.id, equipped, t?.slotCount ?? 0, MAX_SKILL_SLOTS, 'skill') : null,
                 craft: craftButton(e, t?.essence ?? 0)
             }))
         }
@@ -222,7 +206,8 @@ function collectionTiles(tab: HqCollectionTab): CollectionTile[] {
                         lines: e.effects.map(f => hqEffectLine(f.kind, f.stat, f.magnitude))
                     }
                 ),
-                actions: slotActions(e.owned, equipped.includes(e.id), equipped.length, d?.slotCount ?? 0),
+                actions: equipActions(e.owned),
+                picker: e.owned ? hqSlotPicker(e.id, equipped, d?.slotCount ?? 0, MAX_ARTIFACT_SLOTS, 'artifact') : null,
                 craft: craftButton(e, d?.essence ?? 0)
             }))
         }
@@ -234,7 +219,7 @@ const collections = computed(() => {
     // common to mythic, as the encyclopedia reads; a stable sort keeps the roster's order within a rarity
     const entries = collectionTiles(tab).sort((a, b) => RARITIES.indexOf(a.rarity as Rarity) - RARITIES.indexOf(b.rarity as Rarity))
     const essence = { gear: forge, champions: guild, skills: training, artifacts: digSite }[tab].value?.essence ?? 0
-    return { tab, entries, essence: formatNumber(essence) }
+    return { tab, entries, essence: formatNumber(essence), heroClassId: hero.value?.classId ?? null }
 })
 
 /**
@@ -252,57 +237,59 @@ function openCollectionTab(tab: HqCollectionTab) {
     void navigateTo(hqCollectionTabPath(tab))
 }
 
-/** Toggle `id` in a slotted list. */
-function toggled(list: readonly string[], id: string): string[] {
-    return list.includes(id) ? list.filter(x => x !== id) : [...list, id]
+/** Put a Gear piece on at once, in its slot: the stage has no draft to commit, unlike the pages. */
+async function equipGear(id: string) {
+    const piece = forge.value?.roster.find(e => e.id === id)
+    if (!piece) return
+    const gear: Record<string, string> = {}
+    for (const slot of forge.value?.slots ?? []) if (slot.equippedId) gear[slot.slot] = slot.equippedId
+    gear[piece.slot] = id
+    await setLoadout({ gear }, '')
 }
 
-/** Equip or take off a Gear piece, Skill or Artifact at once: the stage has no draft to commit, unlike the pages. */
-async function equipEntry(tab: HqCollectionTab, id: string) {
+/** Carry out a picker's pick, or its Bench/Unequip; a pick that changes nothing sends nothing. */
+async function pickEntry(tab: HqCollectionTab, id: string, pick: string) {
     switch (tab) {
-        case 'gear': {
-            const piece = forge.value?.roster.find(e => e.id === id)
-            if (!piece) return
-            const gear: Record<string, string> = {}
-            for (const slot of forge.value?.slots ?? []) if (slot.equippedId) gear[slot.slot] = slot.equippedId
-            gear[piece.slot] = id
-            await setLoadout({ gear }, '')
+        case 'champions': {
+            const next = hqApplyChampionPick(id, pick, partyState())
+            if (next) await setLoadout(next, '')
             return
         }
-        case 'skills':
-            await setLoadout({ skillIds: toggled(training.value?.equippedSkillIds ?? [], id) }, '')
+        case 'skills': {
+            const t = training.value
+            const skillIds = hqApplySlotPick(id, pick, t?.equippedSkillIds ?? [], t?.slotCount ?? 0)
+            if (skillIds) await setLoadout({ skillIds }, '')
             return
-        case 'artifacts':
-            await setLoadout({ artifactIds: toggled(digSite.value?.equippedArtifactIds ?? [], id) }, '')
+        }
+        case 'artifacts': {
+            const d = digSite.value
+            const artifactIds = hqApplySlotPick(id, pick, d?.equippedArtifactIds ?? [], d?.slotCount ?? 0)
+            if (artifactIds) await setLoadout({ artifactIds }, '')
+        }
     }
-}
-
-/** Field a Champion into a row, move it there, or bench it; the rest of the formation goes back as saved. */
-async function placeChampion(id: string, row: FormationRow | null) {
-    const party = guild.value?.partyChampionIds ?? []
-    const formation = savedFormation()
-    if (row === null) {
-        await setLoadout({ championIds: party.filter(c => c !== id), formation }, '')
-        return
-    }
-    formation[id] = row
-    await setLoadout({ championIds: party.includes(id) ? [...party] : [...party, id], formation }, '')
 }
 
 const collectionsBusy = ref(false)
 
-async function onCollectionAction(action: DetailButton, id: string) {
-    const tab = collections.value.tab
+async function withCollections(work: () => Promise<unknown>) {
     collectionsBusy.value = true
     try {
-        if (action === 'craft') await craft(SYSTEM_OF[tab], id)
-        else if (action === 'equip') await equipEntry(tab, id)
-        else await placeChampion(id, action === 'bench' ? null : action)
+        await work()
     } catch {
         // `useHeroQuest` has already shown the error
     } finally {
         collectionsBusy.value = false
     }
+}
+
+function onCollectionAction(action: DetailButton, id: string) {
+    const tab = collections.value.tab
+    void withCollections(() => action === 'craft' ? craft(SYSTEM_OF[tab], id) : equipGear(id))
+}
+
+function onCollectionPick(id: string, pick: string) {
+    const tab = collections.value.tab
+    void withCollections(() => pickEntry(tab, id, pick))
 }
 
 /**
@@ -1805,6 +1792,7 @@ function closeWelcome() {
           @scene="onScene"
           @collection-tab="openCollectionTab"
           @collection-action="onCollectionAction"
+          @collection-pick="onCollectionPick"
           @loadout-action="onLoadoutAction"
           @loadout-rename="onLoadoutRename"
           @shop-buy="onShopBuy"

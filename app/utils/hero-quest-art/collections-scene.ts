@@ -3,10 +3,11 @@
 // their icon, or a Champion's portrait; the rest stay in place as `?` tiles, so the grid reads as
 // a checklist with the gaps where they will go. A tile pressed opens the encyclopedia detail
 // (`encyclopedia_detail`) in the grid's place: the entry shown large, what it does, the gacha's
-// Essence, and the buttons that equip and craft it.
+// Essence, and the buttons that equip and craft it. Equip on a Champion, Skill or Artifact opens
+// the picker over the detail: the formation or the slots, to pick where it goes or what it replaces.
 
 import { C, CLEAR, RARITY_COLORS } from './palette'
-import { Surface, rect, blit, ditherEllipse } from './surface'
+import { Surface, rect, blit, dither, ditherEllipse } from './surface'
 import { drawText, textWidth, type FontName } from './font'
 import { glyph, type Glyph } from './icon-kit'
 import { ARTIFACT_ICONS, CURRENCY_ICONS, GEAR_ICONS } from './icons-items'
@@ -17,6 +18,7 @@ import { headOf, HEAD } from './demo'
 import { artById } from './catalog'
 import type { SceneBackdrops } from './menu-band'
 import { HQ_COLLECTION_TABS, HQ_COLLECTION_TAB_LABELS, type HqCollectionTab } from '../hero-quest-scenes'
+import type { EquipPicker } from '../hero-quest-equip'
 
 export interface CollectionTile {
     id: string
@@ -37,22 +39,24 @@ export interface CollectionTile {
     upgrade?: boolean
     /** What it gives owned, and what it gives put to work, each saying whether it pays right now. */
     sections: readonly CollectionSection[]
-    /** The detail's buttons that put it to work or take it off, left to right. */
+    /** The detail's buttons that put it to work, left to right. */
     actions: readonly CollectionAction[]
+    /** Where Equip can put it, opened over the detail; null where Equip acts at once (Gear). */
+    picker: EquipPicker | null
     /** The craft button, its cost spelled out; null once the entry is maxed. */
     craft: { cost: string, enabled: boolean } | null
 }
 
 export type TileMark = 'E' | 'F' | 'B'
 
-export type CollectionActionId = 'equip' | 'front' | 'back' | 'bench'
+export type CollectionActionId = 'equip'
 
-/** A detail button: Equip, Unequip, a Champion's rows and Bench. */
+/** A detail button: Equip, which opens the picker, or puts Gear on at once. */
 export interface CollectionAction {
     id: CollectionActionId
     label: string
     enabled: boolean
-    /** The state it would set is the one already held (a Champion's own row): shown pressed in. */
+    /** The state it would set is the one already held (Gear worn now): shown pressed in. */
     current?: boolean
 }
 
@@ -74,12 +78,17 @@ export interface CollectionsView {
     tab: HqCollectionTab
     entries: readonly CollectionTile[]
     essence: string
+    /** The Hero's class, for its face in a Champion's picker. */
+    heroClassId: string | null
 }
 
 export type DetailButton = CollectionActionId | 'craft'
 
-/** What the pointer is over: a tab, a tile by index, the detail's close button or one of its buttons. */
-export type CollectionsHover = HqCollectionTab | number | 'close' | DetailButton | null
+/** A press in the picker: a spot by row and place, the x that frees one, its remove button, or Cancel. */
+export type PickerTarget = `spot:${number}:${number}` | `unset:${number}:${number}` | 'remove' | 'cancel'
+
+/** What the pointer is over: a tab, a tile by index, the detail's close button or one of its buttons, or the picker's. */
+export type CollectionsHover = HqCollectionTab | number | 'close' | DetailButton | PickerTarget | null
 
 const TAB_Y = 2
 const TAB_H = 13
@@ -124,11 +133,10 @@ const MARK_COLORS: Readonly<Record<TileMark, number>> = { E: C.gold2, F: C.red3,
 /** Each button's plate: the colour of what it does, Front and Back matching their tile letters. */
 const PLATES: Readonly<Record<DetailButton, readonly [number, number, number]>> = {
     equip: [C.green0, C.green1, C.green2],
-    front: [C.red0, C.red1, C.red2],
-    back: [C.blue0, C.blue1, C.blue2],
-    bench: [C.stone0, C.stone1, C.stone2],
     craft: [C.purple0, C.purple1, C.purple2]
 }
+const REMOVE_PLATE = [C.red0, C.red1, C.red2] as const
+const CANCEL_PLATE = [C.stone0, C.stone1, C.stone2] as const
 
 const NOT_FOUND = ['NOT FOUND YET.', 'PULL IT IN THE GACHA, OR CRAFT IT', 'FROM ESSENCE.']
 
@@ -222,6 +230,77 @@ function detailFooter(w: number, h: number, e: CollectionTile): { x: number, y: 
 export function detailButtonAt(w: number, h: number, e: CollectionTile, x: number, y: number): { id: DetailButton, enabled: boolean } | null {
     const hit = detailFooter(w, h, e).buttons.find(({ box: b }) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h)
     return hit ? { id: hit.id, enabled: hit.enabled && !hit.current } : null
+}
+
+/** The picker's panel, its spots by row, and its buttons, centred over the detail. */
+interface PickerLayout {
+    box: Box
+    title: { x: number, y: number }
+    labels: { x: number, y: number, text: string }[]
+    spots: { r: number, i: number, box: Box }[]
+    remove: Box | null
+    cancel: Box
+    /** The slots-unlocked hint, on the buttons' row at the left. */
+    hint: { x: number, y: number }
+}
+
+const PICKER_PAD = 7
+/** The x in a held spot's top-right corner, inside the tile. */
+const UNSET = 9
+
+function unsetBox(b: Box): Box {
+    return { x: b.x + TILE - UNSET, y: b.y, w: UNSET, h: UNSET }
+}
+/** The label column a formation's rows take, before their spots. */
+const PICKER_LABEL_W = 26
+
+function pickerLayout(w: number, h: number, picker: EquipPicker): PickerLayout {
+    const p = panelRect(w, h)
+    const width = (label: string) => textWidth(label) + 2 * BTN_PAD
+    const labelled = picker.rows.some(row => row.label !== null)
+    const labelW = labelled ? PICKER_LABEL_W : 0
+    const most = Math.max(...picker.rows.map(row => row.spots.length))
+    const removeLabel = picker.remove?.toUpperCase() ?? null
+    const buttonsW = width('CANCEL') + (removeLabel ? width(removeLabel) + 3 : 0)
+    const spotsW = labelW + most * PITCH - 1
+    // the hint keeps a gap from the buttons it shares the row with
+    const footW = textWidth(picker.hint.toUpperCase()) + 8 + buttonsW
+    const boxW = Math.max(textWidth(picker.title.toUpperCase()), spotsW, footW) + 2 * PICKER_PAD
+    const boxH = PICKER_PAD + 7 + 6 + picker.rows.length * PITCH - 1 + 6 + BTN_H + PICKER_PAD
+    const box = { x: p.x + ((p.w - boxW) >> 1), y: p.y + ((p.h - boxH) >> 1), w: boxW, h: boxH }
+    const top = box.y + PICKER_PAD + 13
+    // the spots centred under the title, their labels on the left
+    const x0 = box.x + ((boxW - spotsW) >> 1)
+    const labels: PickerLayout['labels'] = []
+    const spots: PickerLayout['spots'] = []
+    picker.rows.forEach((row, r) => {
+        const y = top + r * PITCH
+        if (row.label) labels.push({ x: x0, y: y + 9, text: row.label.toUpperCase() })
+        row.spots.forEach((_, i) => spots.push({ r, i, box: { x: x0 + labelW + i * PITCH, y, w: TILE, h: TILE } }))
+    })
+    // the buttons right-aligned along the bottom, Cancel last
+    const by = box.y + boxH - PICKER_PAD - BTN_H
+    const cancel = { x: box.x + boxW - PICKER_PAD - width('CANCEL'), y: by, w: width('CANCEL'), h: BTN_H }
+    const remove = removeLabel ? { x: cancel.x - 3 - width(removeLabel), y: by, w: width(removeLabel), h: BTN_H } : null
+    return { box, title: { x: box.x + (boxW >> 1), y: box.y + PICKER_PAD }, labels, spots, remove, cancel, hint: { x: box.x + PICKER_PAD, y: by + 4 } }
+}
+
+const inBox = (b: Box, x: number, y: number) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h
+
+/**
+ * What a point is over in the picker: a spot that can be taken, its remove button or Cancel; and
+ * `outside` off its panel, which shuts it. Null on the panel but nothing pressable.
+ */
+export function pickerTargetAt(w: number, h: number, picker: EquipPicker, x: number, y: number): PickerTarget | 'outside' | null {
+    const l = pickerLayout(w, h, picker)
+    if (!inBox(l.box, x, y)) return 'outside'
+    if (inBox(l.cancel, x, y)) return 'cancel'
+    if (l.remove && inBox(l.remove, x, y)) return 'remove'
+    // the x sits on its spot, so it is tried first
+    const unset = l.spots.find(sp => picker.rows[sp.r]!.spots[sp.i]!.unset && inBox(unsetBox(sp.box), x, y))
+    if (unset) return `unset:${unset.r}:${unset.i}`
+    const spot = l.spots.find(sp => inBox(sp.box, x, y))
+    return spot && picker.rows[spot.r]!.spots[spot.i]!.enabled ? `spot:${spot.r}:${spot.i}` : null
 }
 
 /** A caret for a stat difference: green and pointing up for a gain, red and down for a loss. */
@@ -324,14 +403,17 @@ export class CollectionsScene {
     /** Champions' idle frames, drawn once each as the detail first shows them. */
     private readonly idles = new Map<string, Surface[]>()
     private readonly icon = new Surface(TILE, TILE, 0, 0)
+    /** The Hero's face per class, for the picker. */
+    private readonly heads = new Map<string, Surface>()
 
     constructor(private readonly backdrops: SceneBackdrops) {}
 
     /**
      * The tabs, and the open roster's grid, or the entry `detail` names in its place. `pressed` sinks
-     * the hovered button; `busy` holds the detail's buttons while a request is out.
+     * the hovered button; `busy` holds the detail's buttons while a request is out. `picking` lays
+     * the open entry's picker over its detail.
      */
-    render(t: number, view: CollectionsView, hover: CollectionsHover, pressed: boolean, detail: string | null, busy: boolean): Surface {
+    render(t: number, view: CollectionsView, hover: CollectionsHover, pressed: boolean, detail: string | null, busy: boolean, picking = false): Surface {
         const { tab, entries } = view
         const s = this.backdrops.render('collections', t, false)
         const p = panelRect(s.w, s.h)
@@ -340,7 +422,8 @@ export class CollectionsScene {
         for (let i = 0; i < HQ_COLLECTION_TABS.length; i++) this.drawTab(s, i, HQ_COLLECTION_TABS[i]!, tab, entries, tabHover)
         const open = detail === null ? undefined : entries.find(e => e.id === detail)
         if (open) {
-            this.drawDetail(s, t, view, open, hover, pressed, busy)
+            this.drawDetail(s, t, view, open, picking ? null : hover, pressed, busy)
+            if (picking && open.picker) this.drawPicker(s, view, open.picker, hover, pressed, busy)
             return s
         }
         const g = gridOrigin(s.w, s.h)
@@ -484,6 +567,75 @@ export class CollectionsScene {
             rect(s, b.x + 4 + i, b.y + 3 + i, 1, 1, C.white)
             rect(s, b.x + 8 - i, b.y + 3 + i, 1, 1, C.white)
         }
+    }
+
+    /**
+     * The picker over a dimmed detail: the title, each spot as its holder's tile (the Hero's face, or
+     * an empty socket), and Remove and Cancel. The entry's own spot is ringed gold, one that cannot
+     * be taken is dimmed, and the pointed-at one ringed white.
+     */
+    private drawPicker(s: Surface, view: CollectionsView, picker: EquipPicker, hover: CollectionsHover, pressed: boolean, busy: boolean): void {
+        const p = panelRect(s.w, s.h)
+        dither(s, p.x, p.y, p.w, p.h, C.ink, 9)
+        const l = pickerLayout(s.w, s.h, picker)
+        panel(s, l.box.x, l.box.y, l.box.w, l.box.h)
+        drawText(s, picker.title.toUpperCase(), l.title.x, l.title.y, C.gold2, { align: 1, shadow: 1 })
+        for (const label of l.labels) drawText(s, label.text, label.x, label.y, label.text === 'FRONT' ? C.red3 : C.blue2, { shadow: 1 })
+        for (const { r, i, box: b } of l.spots) {
+            const spot = picker.rows[r]!.spots[i]!
+            const holder = spot.holder
+            if (holder?.kind === 'entry') {
+                const entry = view.entries.find(e => e.id === holder.id)
+                blit(s, collectionTile(view.tab, { id: holder.id, rarity: entry?.rarity ?? 'common', owned: true, mark: null }), b.x, b.y)
+            } else if (holder?.kind === 'hero') {
+                rect(s, b.x, b.y, TILE, TILE, C.ink)
+                // a plain rim: gold rings the entry being placed
+                rect(s, b.x + 1, b.y + 1, TILE - 2, TILE - 2, C.stone2)
+                rect(s, b.x + 2, b.y + 2, TILE - 4, TILE - 4, C.night0)
+                if (view.heroClassId) blit(s, this.heroHead(view.heroClassId), b.x + ((TILE - HEAD) >> 1), b.y + ((TILE - HEAD) >> 1))
+            } else {
+                // an empty socket, a plus while it can be taken
+                rect(s, b.x, b.y, TILE, TILE, C.ink)
+                rect(s, b.x + 1, b.y + 1, TILE - 2, TILE - 2, C.night2)
+                rect(s, b.x + 2, b.y + 2, TILE - 4, TILE - 4, C.night0)
+                if (spot.enabled) {
+                    rect(s, b.x + 11, b.y + 7, 2, 10, C.stone3)
+                    rect(s, b.x + 7, b.y + 11, 10, 2, C.stone3)
+                }
+            }
+            if (!spot.enabled && !spot.current && holder) dither(s, b.x, b.y, TILE, TILE, C.ink, 8)
+            const lit = hover === `spot:${r}:${i}`
+            if (spot.current || lit) {
+                const c = lit ? C.white : C.gold2
+                rect(s, b.x - 1, b.y - 1, TILE + 2, 1, c)
+                rect(s, b.x - 1, b.y + TILE, TILE + 2, 1, c)
+                rect(s, b.x - 1, b.y, 1, TILE, c)
+                rect(s, b.x + TILE, b.y, 1, TILE, c)
+            }
+            if (spot.unset) {
+                // the x that frees the spot: a red plate in the corner, lit on hover
+                const u = unsetBox(b)
+                const lit = hover === `unset:${r}:${i}`
+                rect(s, u.x, u.y, u.w, u.h, C.ink)
+                rect(s, u.x + 1, u.y + 1, u.w - 2, u.h - 2, lit ? C.red3 : C.red1)
+                for (let k = 0; k < 5; k++) {
+                    rect(s, u.x + 2 + k, u.y + 2 + k, 1, 1, C.white)
+                    rect(s, u.x + 6 - k, u.y + 2 + k, 1, 1, C.white)
+                }
+            }
+        }
+        drawText(s, picker.hint.toUpperCase(), l.hint.x, l.hint.y, C.stone3, { shadow: 1 })
+        if (l.remove) button(s, l.remove, picker.remove!.toUpperCase(), REMOVE_PLATE, !busy, hover === 'remove', pressed)
+        button(s, l.cancel, 'CANCEL', CANCEL_PLATE, true, hover === 'cancel', pressed)
+    }
+
+    private heroHead(classId: string): Surface {
+        let head = this.heads.get(classId)
+        if (!head) {
+            head = headOf(`hero/${classId}`)
+            this.heads.set(classId, head)
+        }
+        return head
     }
 
     /** A Champion's idle frame at `t`, anchored on its feet. */
