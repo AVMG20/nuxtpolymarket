@@ -8,11 +8,14 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { TownBuildingId } from '#shared/utils/gamelogic/town'
-import { townVisualLevel, townVisualStage } from './appearance'
-import { shade, type ModelSpec, type Part } from './kit'
-import { houseModel } from './homes'
+import { townSceneLevel, townVisualStage } from './appearance'
+import { paintAs, shade, type ModelSpec, type Part } from './kit'
+import { bakeryModel, emporiumModel, houseModel } from './homes'
 import { INDUSTRY_MODELS } from './industry'
+import { RESOURCE_MODELS } from './resources'
 import { CIVIC_MODELS } from './civic'
+import { MONUMENT_MODELS } from './monuments'
+import { isTownMonumentId } from '#shared/utils/gamelogic/town-monuments'
 
 export { shade }
 export type { Part }
@@ -70,7 +73,7 @@ function bake(p: Part, ox = 0, oy = 0, oz = 0): THREE.BufferGeometry {
     const source = unit.getAttribute('position')
     const colors = new Float32Array(source.count * 3)
     for (let i = 0; i < source.count; i++) {
-        const light = p.flat ? 1 : 0.8 + 0.2 * (source.getY(i) + 0.5)
+        const light = p.flat ? 1 : 0.7 + 0.3 * (source.getY(i) + 0.5)
         colors[i * 3] = tint.r * light
         colors[i * 3 + 1] = tint.g * light
         colors[i * 3 + 2] = tint.b * light
@@ -146,8 +149,12 @@ export type TownModelFactory = (stage: number, variant: number) => ModelSpec
 
 const MODELS: Partial<Record<TownBuildingId, TownModelFactory>> = {
     house: houseModel,
+    bakery: bakeryModel,
+    emporium: emporiumModel,
+    ...RESOURCE_MODELS,
     ...INDUSTRY_MODELS,
-    ...CIVIC_MODELS
+    ...CIVIC_MODELS,
+    ...MONUMENT_MODELS
 }
 
 /** How many colour variants a building has; the scene picks one per tile. */
@@ -155,18 +162,25 @@ export const TOWN_MODEL_VARIANTS = 12
 
 const prototypes = new Map<string, THREE.Group>()
 
+/** The raw part list behind a building's look, for previews and checks. */
+export function townModelSpec(type: TownBuildingId, stage: number, variant = 0): ModelSpec {
+    return paintAs(type, () => (MODELS[type] ?? MODELS.park!)(stage, variant))
+}
+
 /** A fresh instance of a building model; geometry and static materials are shared. */
 export function createBuildingModel(type: TownBuildingId, requestedLevel = 1, variant = 0): THREE.Group {
-    const level = type === 'road' ? 1 : townVisualLevel(requestedLevel)
-    const look = ((Math.floor(variant) % TOWN_MODEL_VARIANTS) + TOWN_MODEL_VARIANTS) % TOWN_MODEL_VARIANTS
+    const level = type === 'road' ? 1 : townSceneLevel(type, requestedLevel)
+    // A monument draws every stage as its own look and wears one colour scheme.
+    const monument = isTownMonumentId(type)
+    const stage = monument ? level : townVisualStage(level)
+    const look = monument ? 0 : ((Math.floor(variant) % TOWN_MODEL_VARIANTS) + TOWN_MODEL_VARIANTS) % TOWN_MODEL_VARIANTS
     const key = `${type}:${level}:${look}`
     let proto = prototypes.get(key)
     if (!proto) {
         // A building nobody has modelled yet borrows the park rather than crashing.
-        const model = MODELS[type] ?? MODELS.park!
-        proto = buildTownModel(model(townVisualStage(level), look))
+        proto = buildTownModel(townModelSpec(type, stage, look))
         proto.userData.visualLevel = level
-        proto.userData.visualStage = townVisualStage(level)
+        proto.userData.visualStage = stage
         proto.userData.height = new THREE.Box3().setFromObject(proto).max.y
         prototypes.set(key, proto)
     }

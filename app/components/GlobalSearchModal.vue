@@ -578,6 +578,14 @@ const rawGroups: CommandPaletteGroup[] = [
         keywords: ['blackjack', 'cards', '21', 'table', 'casino', 'gamble', 'dealer']
       },
       {
+        id: 'neighcasso',
+        label: 'Neighcasso Derby',
+        description: 'Draw a horse, bet any amount, winner takes the whole pot',
+        icon: 'i-lucide-brush',
+        to: '/games/neighcasso',
+        keywords: ['horse', 'race', 'derby', 'draw', 'doodle', 'multiplayer', 'gamble', 'neighcasso']
+      },
+      {
         id: 'xenoslot',
         label: 'Xeno Slot',
         description: 'Sci-fi line slot with a Hold & Win coin bonus',

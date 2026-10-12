@@ -57,7 +57,7 @@ export const EP_PORTAL_TIERS: EpPortalTier[] = [
     { min: 15, name: 'Arcane', ring: '#e070ff', core: '#c23cff', glow: '#d24aff', flames: ['#fff0ff', '#ff9af0', '#c23cff', '#5a0fa8'] },
     { min: 50, name: 'Storm', ring: '#5ac8ff', core: '#2a8cff', glow: '#3aa8ff', flames: ['#f4ffff', '#8af0ff', '#2a8cff', '#1a2ab8'] },
     { min: 150, name: 'Jade', ring: '#3affb0', core: '#10e090', glow: '#2affa8', flames: ['#f4fff6', '#9affd0', '#10e090', '#067a5a'] },
-    { min: 500, name: 'Celestial', ring: '#fff0b0', core: '#ffe27a', glow: '#fff2c0', flames: ['#ffffff', '#fffbe0', '#ffe27a', '#e0a83a'] }
+    { min: 256, name: 'Celestial', ring: '#ffffff', core: '#eef4ff', glow: '#ffffff', flames: ['#ffffff', '#f4f8ff', '#d8e6ff', '#9ab4e0'] }
 ]
 
 export function epPortalTierIndex(mult: number): number {

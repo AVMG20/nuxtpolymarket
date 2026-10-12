@@ -42,6 +42,7 @@ import {
     townPlotCooldownMs,
     townPlotPrice,
     townRushGemCost,
+    townRoadAccess,
     townWorkersFor,
     TOWN_MAX_ORDER_PRICE,
     TOWN_MARKET_MIN_PRICE,
@@ -429,26 +430,20 @@ describe.skipIf(SKIP)('polytown (database)', () => {
             expect(await getBalance(OWNER)).toBe('100000.0000')
         })
 
-        it('needs a road at the front door, and the rotation decides which tile that is', async () => {
+        it('places a building without a road, leaving it idle until its front door connects', async () => {
             const plotId = await foundFor(OWNER, { balance: '1000000.0000' })
             await stockFor(OWNER, townPlaceCost(FARM, 0))
 
-            // Nothing but bare land yet.
-            await expect(placeBuilding(OWNER, plotId, 3, 3, 'farm')).rejects.toThrow(/front door/)
-            // A road can go anywhere on dry land; whether it is any use is
-            // decided by who lives along it.
-            await placeBuilding(OWNER, plotId, 3, 3, 'road')
+            const { buildingId } = await placeBuilding(OWNER, plotId, 3, 3, 'farm', 2)
+            const before = await settleTownForRead(OWNER)
+            expect(townRoadAccess(before.sim, before.sim.find(b => b.id === buildingId)!)).toBe(false)
 
-            await placeBuilding(OWNER, plotId, 3, 0, 'road')
-            await placeBuilding(OWNER, plotId, 3, 1, 'road')
-
-            // Facing +y, away from the road on (4, 0): no front door.
-            await expect(placeBuilding(OWNER, plotId, 4, 0, 'farm', 0)).rejects.toThrow(/front door/)
-            // Facing −x, onto the road on (3, 0): fine.
-            await placeBuilding(OWNER, plotId, 4, 0, 'farm', 3)
+            await placeBuilding(OWNER, plotId, 3, 2, 'road')
+            const after = await settleTownForRead(OWNER)
+            expect(townRoadAccess(after.sim, after.sim.find(b => b.id === buildingId)!)).toBe(true)
 
             expect(await buildingsTyped(OWNER, 'farm')).toHaveLength(1)
-            expect(await buildingsTyped(OWNER, 'road')).toHaveLength(3)
+            expect(await buildingsTyped(OWNER, 'road')).toHaveLength(1)
         })
 
         it('builds nothing when the coins are short', async () => {

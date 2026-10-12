@@ -42,7 +42,7 @@ export interface TownUpgradeOptions {
 /**
  * Buildings an idle builder could upgrade right now, cheapest-to-grow first:
  * lowest level, then lowest coin cost. A building that is still going up, mid-
- * upgrade, maxed, a road, or cut off from the road network is skipped, since
+ * upgrade, maxed, a road, a monument, or cut off from the road network is skipped, since
  * an upgrade there either fails or does nothing for the town.
  */
 export function townUpgradeCandidates(buildings: TownBuildingSnapshot[], options: TownUpgradeOptions = {}): TownUpgradeCandidate[] {
@@ -50,7 +50,8 @@ export function townUpgradeCandidates(buildings: TownBuildingSnapshot[], options
     const candidates: TownUpgradeCandidate[] = []
     for (const building of buildings) {
         const def = getTownBuilding(building.type)
-        if (!def || def.kind === 'road') continue
+        // Monuments have their own crew and cost billions a stage: never an idle builder's job.
+        if (!def || def.kind === 'road' || def.kind === 'monument') continue
         if (building.level < 1 || building.upgradingTo !== null || !building.connected) continue
         if (building.level >= townBuildingMaxLevel(def)) continue
         const nextLevel = building.level + 1

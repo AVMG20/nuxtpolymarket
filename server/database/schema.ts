@@ -18,10 +18,14 @@ import type {
 } from '#shared/types/tcg-db'
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
+import type { TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
+import type { TownStreakLock } from '#shared/utils/gamelogic/town-streak'
 import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
 import type { HqSettings } from '#shared/utils/hero-quest/settings'
 import type { LoadoutSession } from '#shared/utils/hero-quest/loadout-session'
 import type { ArenaDefenseLoadout } from '#shared/utils/hero-quest/arena'
+import type { NcDrawing } from '#shared/utils/neighcasso/types'
+import type { NavLayout } from '#shared/utils/nav-layout'
 
 export const user = pgTable('user', {
   id: text('id').primaryKey(),
@@ -59,6 +63,19 @@ export const emblemHistory = pgTable(
   },
   table => [index('emblem_history_userId_createdAt_idx').on(table.userId, table.createdAt)]
 )
+
+// The player's sidebar arrangement (shared/utils/nav-layout.ts). One row per
+// user, written whole on every change.
+export const userNavLayout = pgTable('user_nav_layout', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => user.id, { onDelete: 'cascade' }),
+  layout: jsonb('layout').$type<NavLayout>().notNull(),
+  updatedAt: timestamp('updated_at')
+    .defaultNow()
+    .$onUpdate(() => /* @__PURE__ */ new Date())
+    .notNull()
+})
 
 export const transactions = pgTable(
   'transactions',
@@ -692,6 +709,25 @@ export const tableWagers = pgTable(
     createdAt: timestamp('created_at').defaultNow().notNull()
   },
   table => [index('table_wagers_settled_createdAt_idx').on(table.settled, table.createdAt)]
+)
+
+/**
+ * Neighcasso Derby horses: a player's saved doodles. The id doubles as the
+ * share link, so anyone signed in can view (and copy) a horse by id.
+ */
+export const neighcassoHorses = pgTable(
+  'neighcasso_horses',
+  {
+    id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    drawing: jsonb('drawing').$type<NcDrawing>().notNull(),
+    wins: integer('wins').notNull().default(0),
+    races: integer('races').notNull().default(0),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull()
+  },
+  table => [index('neighcasso_horses_userId_idx').on(table.userId, table.updatedAt)]
 )
 
 // ─── Xeno ──────────────────────────────────────────────────────────────────
@@ -2268,10 +2304,60 @@ export const townState = pgTable('town_state', {
   builders: integer('builders').notNull().default(3),
   /** Per building, per resource: fractions of a unit made but not yet handed over, carried between ticks. Written under the state lock. */
   carry: jsonb('carry').$type<Record<string, Record<string, number>>>().notNull().default({}),
-  /** The research project running right now, if any. Only ever one at a time. */
-  researchId: text('research_id'),
-  researchCompletesAt: timestamp('research_completes_at'),
+  /**
+   * Monument stages carried over from the retired research board, by monument
+   * id: placing that monument puts it up at this stage at once, free. Taken
+   * with a conditional update when it is used, so it can only be spent once.
+   */
+  monumentCredit: jsonb('monument_credit').$type<Record<string, number>>().notNull().default({}),
+  /**
+   * Builder's rush: every build job runs at double speed until then. Jobs
+   * already running are shortened when it starts (see activateTownBoosts),
+   * new ones when they start. Null or past means off. Written under the state lock.
+   */
+  buildBoostUntil: timestamp('build_boost_until'),
+  /** Production surge: the settle doubles production up to then. Null or past means off. Written under the state lock. */
+  productionBoostUntil: timestamp('production_boost_until'),
+  /** A hired-for-a-day build crew on top of `builders` while this is in the future. Written under the state lock. */
+  tempBuilderUntil: timestamp('temp_builder_until'),
+  /** Market day: town-hall floor sales pay extra until then, out of `marketBoostBonusLeft`. */
+  marketBoostUntil: timestamp('market_boost_until'),
+  /** Coins market day may still add on top of floor sales. Decremented under the state lock. */
+  marketBoostBonusLeft: numeric('market_boost_bonus_left', { precision: 19, scale: 4 }).notNull().default('0'),
   createdAt: timestamp('created_at').defaultNow().notNull()
+})
+
+/**
+ * Buildings a town owns but has taken off the map. A row keeps the building's
+ * own id, and moves back into town_buildings when it is placed.
+ *
+ * Deliberately its own table, with no plot or tile: everything that reads the
+ * map reads town_buildings, so a stored building can never produce, house or
+ * be counted by mistake, and selling the plot it stood on cannot cascade it.
+ */
+export const townStorage = pgTable('town_storage', {
+  id: text('id').primaryKey(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  type: text('type').notNull(),
+  level: integer('level').notNull(),
+  upgradingTo: integer('upgrading_to'),
+  /** Build time still owed on a paused construction or upgrade; 0 when idle. */
+  remainingMs: bigint('remaining_ms', { mode: 'number' }).notNull().default(0),
+  /** The building's own creation time, carried through storage. */
+  createdAt: timestamp('created_at').notNull(),
+  storedAt: timestamp('stored_at').defaultNow().notNull()
+}, t => [index('town_storage_userId_idx').on(t.userId)])
+
+/**
+ * A redesign saved half-way: where each piece was put down, the roads laid,
+ * and what is marked for storage. Only a plan — the town keeps running on its
+ * real layout until the redesign is saved in full, which deletes this row.
+ * Reopened, it is merged with the town as it then stands (TownGame.client.vue).
+ */
+export const townRedesignDrafts = pgTable('town_redesign_drafts', {
+  userId: text('user_id').primaryKey().references(() => user.id, { onDelete: 'cascade' }),
+  draft: jsonb('draft').$type<TownRedesignDraft>().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
 })
 
 /**
@@ -2288,20 +2374,6 @@ export const townRealm = pgTable('town_realm', {
   /** Lowest spiral index that might still be free. */
   foundingCursor: integer('founding_cursor').notNull().default(0)
 })
-
-/**
- * A finished research project. The unique (user, project) pair is the guard:
- * settling a finished project inserts here, and a second concurrent settle
- * conflicts instead of granting the effect twice.
- */
-export const townResearch = pgTable('town_research', {
-  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-  researchId: text('research_id').notNull(),
-  completedAt: timestamp('completed_at').defaultNow().notNull()
-}, table => [
-  unique('town_research_user_project').on(table.userId, table.researchId)
-])
 
 /**
  * One 8x8 plot on the shared endless grid. The unique (x, y) constraint is the
@@ -2414,7 +2486,7 @@ export const townTrades = pgTable('town_trades', {
 
 /**
  * What happened to a town while its mayor was not looking: a build or upgrade
- * that finished, a project banked, a resting offer another mayor took. The
+ * that finished, a resting offer another mayor took. The
  * notification centre lists these newest first. Nothing tracks read state.
  *
  * `createdAt` is the moment the thing happened, not the moment it was written
@@ -2424,10 +2496,68 @@ export const townTrades = pgTable('town_trades', {
 export const townEvents = pgTable('town_events', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
   userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
-  kind: text('kind').notNull(), // 'built' | 'upgraded' | 'research' | 'trade'
+  kind: text('kind').notNull(), // 'built' | 'upgraded' | 'trade'
   data: jsonb('data').$type<TownEventData>().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [index('town_events_user_createdAt_idx').on(t.userId, t.createdAt)])
+
+/**
+ * The day's three town hall contracts: a good, a quantity sized to what the
+ * town makes and can store, and a price at a premium over the floor. Rolled
+ * once per UTC day on first sight and never rerolled. Delivering flips
+ * `delivered` with a conditional update (claim-then-reward).
+ */
+export const townContracts = pgTable('town_contracts', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** UTC day key, 'YYYY-MM-DD'. */
+  day: text('day').notNull(),
+  slot: integer('slot').notNull(),
+  resource: text('resource').notNull(),
+  quantity: integer('quantity').notNull(),
+  /** Coins paid on delivery. */
+  reward: numeric('reward', { precision: 19, scale: 4 }).notNull(),
+  delivered: boolean('delivered').notNull().default(false),
+  deliveredAt: timestamp('delivered_at'),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [unique('town_contracts_user_day_slot_unique').on(t.userId, t.day, t.slot)])
+
+/**
+ * One row per town per contract day: the gem bonus for delivering all three,
+ * rolled with the contracts and paid once by flipping `bonusClaimed`.
+ */
+export const townContractDays = pgTable('town_contract_days', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  day: text('day').notNull(),
+  bonusGems: integer('bonus_gems').notNull(),
+  bonusClaimed: boolean('bonus_claimed').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [unique('town_contract_days_user_day_unique').on(t.userId, t.day)])
+
+/**
+ * The mayor's daily streak: a 30-step reward track. Each new UTC day the mayor
+ * shows up unlocks the next step; missing a day freezes the track until the
+ * mayor resets it. Never auto-resets. Claims set a bit in `claimed` with a
+ * conditional update; reset locks the row, pays every unclaimed step, then
+ * starts over.
+ */
+export const townStreak = pgTable('town_streak', {
+  userId: text('user_id').primaryKey().references(() => user.id, { onDelete: 'cascade' }),
+  /** Steps unlocked in this run, 0..30. */
+  step: integer('step').notNull().default(0),
+  /** UTC day key of the last step unlocked; null before the first visit. */
+  lastDay: text('last_day'),
+  /** Bit i set once step i + 1 has been paid. */
+  claimed: integer('claimed').notNull().default(0),
+  /** Completed or abandoned runs, for display. */
+  cycle: integer('cycle').notNull().default(0),
+  /** Per unlocked step: the town's scale and the payout, fixed the day it unlocked, so a late claim pays the same. */
+  locked: jsonb('locked').$type<Record<string, TownStreakLock>>().notNull().default({}),
+  /** Lucky charges: each upgrades the next chest opened by one tier. Spent with a conditional decrement. */
+  lucky: integer('lucky').notNull().default(0),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+})
 
 export const townStateRelations = relations(townState, ({ one }) => ({
   user: one(user, { fields: [townState.userId], references: [user.id] })

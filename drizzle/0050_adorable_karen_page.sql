@@ -1,0 +1,1 @@
+ALTER TABLE "town_state" ADD COLUMN "monument_credit" jsonb DEFAULT '{}'::jsonb NOT NULL;

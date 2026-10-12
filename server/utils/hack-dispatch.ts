@@ -36,53 +36,57 @@ export async function dispatchHackOp(
     if (new Set(agentIds).size !== agentIds.length)
         throw createError({ statusCode: 400, statusMessage: 'Duplicate agent in squad' })
 
-    const [agents, activeOps] = await Promise.all([
-        conn.query.hackAgents.findMany({ where: and(eq(hackAgents.userId, userId), inArray(hackAgents.id, agentIds)) }),
-        conn.query.hackOps.findMany({ where: and(eq(hackOps.userId, userId), eq(hackOps.collected, false)) })
-    ])
+    return conn.transaction(async (tx) => {
+        // Row lock serialises parallel deploys of the same agent; id order avoids deadlocks.
+        const agents = await tx.select().from(hackAgents)
+            .where(and(eq(hackAgents.userId, userId), inArray(hackAgents.id, agentIds)))
+            .orderBy(hackAgents.id)
+            .for('update')
+        const activeOps = await tx.query.hackOps.findMany({ where: and(eq(hackOps.userId, userId), eq(hackOps.collected, false)) })
 
-    if (agents.length !== agentIds.length)
-        throw createError({ statusCode: 400, statusMessage: 'One or more agents not found' })
-    if (agents.some(a => !a.active))
-        throw createError({ statusCode: 400, statusMessage: 'Agent is in storage' })
+        if (agents.length !== agentIds.length)
+            throw createError({ statusCode: 400, statusMessage: 'One or more agents not found' })
+        if (agents.some(a => !a.active))
+            throw createError({ statusCode: 400, statusMessage: 'Agent is in storage' })
 
-    const busyIds = new Set(activeOps.flatMap(op => op.agentIds as string[]))
-    if (agentIds.some(id => busyIds.has(id)))
-        throw createError({ statusCode: 400, statusMessage: 'Agent is already on an op' })
+        const busyIds = new Set(activeOps.flatMap(op => op.agentIds as string[]))
+        if (agentIds.some(id => busyIds.has(id)))
+            throw createError({ statusCode: 400, statusMessage: 'Agent is already on an op' })
 
-    const equippedIds = agents.flatMap(a =>
-        ([a.equippedTool, a.equippedSoftware, a.equippedHardware] as Array<string | null>)
-            .filter((x): x is string => x !== null)
-    )
+        const equippedIds = agents.flatMap(a =>
+            ([a.equippedTool, a.equippedSoftware, a.equippedHardware] as Array<string | null>)
+                .filter((x): x is string => x !== null)
+        )
 
-    const items = equippedIds.length > 0
-        ? await conn.query.hackItems.findMany({
-            where: and(eq(hackItems.userId, userId), inArray(hackItems.id, equippedIds))
+        const items = equippedIds.length > 0
+            ? await tx.query.hackItems.findMany({
+                where: and(eq(hackItems.userId, userId), inArray(hackItems.id, equippedIds))
+            })
+            : []
+
+        // Per-agent loadouts — each agent keeps its own gear so power and op speed are
+        // computed per agent (speed compounds across agents rather than stacking).
+        const agentLoadouts = agents.map((agent) => {
+            const agentItemIds = ([agent.equippedTool, agent.equippedSoftware, agent.equippedHardware] as Array<string | null>)
+                .filter((x): x is string => x !== null)
+            return {
+                class: agent.class as AgentClass,
+                traits: (agent.traits ?? []) as AgentTrait[],
+                items: items.filter(i => agentItemIds.includes(i.id)).map(i => ({ itemLevel: i.itemLevel, mods: i.mods as ItemMod[] }))
+            }
         })
-        : []
+        const totalPower = agents.reduce((sum, agent, i) =>
+            sum + agentPower({ level: agent.level, class: agent.class as AgentClass, rarity: agent.rarity as HackRarity }, agentLoadouts[i]!.items, (agent.traits ?? []) as AgentTrait[]), 0)
 
-    // Per-agent loadouts — each agent keeps its own gear so power and op speed are
-    // computed per agent (speed compounds across agents rather than stacking).
-    const agentLoadouts = agents.map((agent) => {
-        const agentItemIds = ([agent.equippedTool, agent.equippedSoftware, agent.equippedHardware] as Array<string | null>)
-            .filter((x): x is string => x !== null)
-        return {
-            class: agent.class as AgentClass,
-            traits: (agent.traits ?? []) as AgentTrait[],
-            items: items.filter(i => agentItemIds.includes(i.id)).map(i => ({ itemLevel: i.itemLevel, mods: i.mods as ItemMod[] }))
-        }
+        const durationMs = instant ? 1000 : effectiveDurationMs(template, agentLoadouts)
+        const successChance = opSuccessChance(totalPower, template.minPower)
+        if (successChance < MIN_DEPLOY_SUCCESS)
+            throw createError({ statusCode: 400, statusMessage: 'Success chance too low — bring more power' })
+
+        const completesAt = new Date(Date.now() + durationMs)
+
+        const [op] = await tx.insert(hackOps).values({ userId, templateId, agentIds, completesAt, autoRedeploy }).returning()
+
+        return { opId: op!.id, completesAt, durationMs, successChance }
     })
-    const totalPower = agents.reduce((sum, agent, i) =>
-        sum + agentPower({ level: agent.level, class: agent.class as AgentClass, rarity: agent.rarity as HackRarity }, agentLoadouts[i]!.items, (agent.traits ?? []) as AgentTrait[]), 0)
-
-    const durationMs = instant ? 1000 : effectiveDurationMs(template, agentLoadouts)
-    const successChance = opSuccessChance(totalPower, template.minPower)
-    if (successChance < MIN_DEPLOY_SUCCESS)
-        throw createError({ statusCode: 400, statusMessage: 'Success chance too low — bring more power' })
-
-    const completesAt = new Date(Date.now() + durationMs)
-
-    const [op] = await conn.insert(hackOps).values({ userId, templateId, agentIds, completesAt, autoRedeploy }).returning()
-
-    return { opId: op!.id, completesAt, durationMs, successChance }
 }

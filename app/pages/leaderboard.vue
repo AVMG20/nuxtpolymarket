@@ -23,7 +23,7 @@ interface LeaderboardUser {
   xenoBreederSlotsUnlocked: number
   townScore: number
   townMilestones: number
-  townResearch: number
+  townMonuments: number
   voidScore: number
   voidSectorsCleared: number
   voidPilotLevel: number
@@ -133,7 +133,7 @@ const detailGroups = computed(() => {
       total: upgradeGames[2]!.value(u),
       rows: [
         { icon: 'i-lucide-flag', label: 'Milestones', value: u.townMilestones },
-        { icon: 'i-lucide-flask-conical', label: 'Research', value: u.townResearch }
+        { icon: 'i-lucide-landmark', label: 'Monument stages', value: u.townMonuments }
       ]
     },
     {

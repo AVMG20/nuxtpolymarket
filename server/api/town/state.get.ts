@@ -1,5 +1,6 @@
 import { requireUserId } from '#server/utils/auth'
-import { getTownState, settleTownForRead, plotPurchaseInfo, getMyTownOrders, getTownLastPrices, serializeMilestones, getExpansions, getWorldView } from '#server/utils/town'
+import { getTownState, settleTownForRead, plotPurchaseInfo, getMyTownOrders, getTownLastPrices, serializeMilestones, getExpansions, townBoostsView, townCrews, toStored, getRedesignDraft } from '#server/utils/town'
+import { townStoredIsJob } from '#shared/utils/gamelogic/town-storage'
 import {
     TOWN_BUILDINGS,
     TOWN_RESOURCES,
@@ -14,6 +15,7 @@ import {
     TOWN_PARK_RADIUS,
     TOWN_MAX_BUILDERS,
     townBuildersBusy,
+    townMonumentJob,
     townBuilderGemCost,
     TOWN_HOUSE_CHEER_MAX,
     TOWN_SUPPLY_FULL_TILES,
@@ -81,23 +83,23 @@ export default defineEventHandler(async (event) => {
         }
     }
 
-    const [settled, myOrders, lastPrices] = await Promise.all([
+    const [settled, myOrders, lastPrices, redesignDraft] = await Promise.all([
         settleTownForRead(userId),
         getMyTownOrders(userId),
-        getTownLastPrices()
+        getTownLastPrices(),
+        getRedesignDraft(userId)
     ])
     const { state, buildings, plots, sim, inventory } = settled
-    const [expansions, world] = await Promise.all([
-        getExpansions(userId, plots),
-        getWorldView(userId, plots)
-    ])
+    // The neighbours' towns are not in here: they are most of the bytes and
+    // none of the gameplay, so the client fetches /api/town/world separately,
+    // after this, and on a slower clock.
+    const expansions = await getExpansions(userId, plots)
 
     // One breadth-first pass over the roads serves both derives below.
     const network = townSupplyNetwork(sim, now)
-    // Every rate below is derived with the same bonus the settle just paid.
-    const derived = deriveTown(sim, state.happiness, now, settled.satisfied, network, settled.research)
-    const unlockedTiers = [0, 1, 2, 3, 4, 5, 6].filter(t => townTierUnlocked(sim, t, now, state.produced, settled.research))
-    const tierLocks = Object.fromEntries([2, 3, 4, 5, 6].map(t => [t, townTierRequirement(sim, t, now, state.produced, settled.research)]))
+    const derived = deriveTown(sim, state.happiness, now, settled.satisfied, network)
+    const unlockedTiers = [0, 1, 2, 3, 4, 5, 6].filter(t => townTierUnlocked(sim, t, now, state.produced))
+    const tierLocks = Object.fromEntries([2, 3, 4, 5, 6].map(t => [t, townTierRequirement(sim, t, now, state.produced)]))
     const maxTier = Math.max(...unlockedTiers)
 
     // The bar's ceiling: what the town would score with every need it could
@@ -106,11 +108,14 @@ export default defineEventHandler(async (event) => {
     for (const need of TOWN_NEEDS) {
         if (townNeedExpected(need, derived.popCap, derived.reachableTier)) reachable[need.resource] = true
     }
-    const happinessPotential = deriveTown(sim, state.happiness, now, reachable, network, settled.research).happinessTarget
+    const happinessPotential = deriveTown(sim, state.happiness, now, reachable, network).happinessTarget
 
+    // Stored buildings are still owned: they count toward caps and prices.
     const countsByType: Record<string, number> = {}
-    for (const b of sim) countsByType[b.type] = (countsByType[b.type] ?? 0) + 1
-    const nextCost = Object.fromEntries(TOWN_BUILDINGS.map(def => [def.id, townPlaceCost(def, countsByType[def.id] ?? 0)]))
+    for (const b of [...sim, ...settled.stored]) countsByType[b.type] = (countsByType[b.type] ?? 0) + 1
+    const credit = state.monumentCredit
+    // A monument the town has research credit for goes up free.
+    const nextCost = Object.fromEntries(TOWN_BUILDINGS.map(def => [def.id, credit[def.id] ? { coins: 0, resources: {} } : townPlaceCost(def, countsByType[def.id] ?? 0)]))
     const mood = townMood(state.happiness)
     const nextMood = townNextMood(state.happiness)
 
@@ -135,6 +140,12 @@ export default defineEventHandler(async (event) => {
         mood: { id: mood.id, name: mood.name, emoji: mood.emoji, speed: mood.speed, buildTime: mood.buildTime, storage: mood.storage },
         nextMood: nextMood ? { id: nextMood.id, name: nextMood.name, emoji: nextMood.emoji, min: nextMood.min, speed: nextMood.speed, buildTime: nextMood.buildTime, storage: nextMood.storage } : null,
         speedMultiplier: derived.speedMultiplier,
+        // Rates in here (netPerTick, speedMultiplier, floorIncomePerDay, needs)
+        // are the base ones. While a boost runs, `boostMultiplier` says what
+        // to scale them by: production doubles workshop output and inputs,
+        // never what the townsfolk eat. `boosts` holds each one's end (epoch
+        // ms), null when it is off.
+        ...townBoostsView(state, now),
         countsByType,
         nextCost,
         tierLocks,
@@ -159,7 +170,7 @@ export default defineEventHandler(async (event) => {
             expected: townNeedExpected(n, derived.popCap, derived.reachableTier),
             producible: (getTownResource(n.resource)?.tier ?? 1) <= maxTier
         })),
-        floorIncomePerDay: townFloorIncomePerDay(sim, state.happiness, now, settled.research),
+        floorIncomePerDay: townFloorIncomePerDay(sim, state.happiness, now),
         netPerTick: townNetPerTick(sim, derived, now),
         tickProgressMs: state.tickProgressMs,
         lastSettledAt: state.lastSettledAt.getTime(),
@@ -172,13 +183,22 @@ export default defineEventHandler(async (event) => {
             listPrice: p.listPrice === null ? null : parseFloat(p.listPrice),
             refund: townPlotRefundFor(parseFloat(p.paidPrice))
         })),
-        world,
         plotRefundShare: TOWN_PLOT_REFUND_SHARE,
         builders: {
             owned: state.builders,
+            /** Owned crews plus the borrowed one while it is here: what `busy` is measured against. */
+            total: townCrews(state, now),
+            /** When the borrowed crew leaves (epoch ms), null without one. */
+            tempBuilderUntil: state.tempBuilderUntil && state.tempBuilderUntil.getTime() > now ? state.tempBuilderUntil.getTime() : null,
             busy: townBuildersBusy(settled.sim, now),
             nextGemCost: townBuilderGemCost(state.builders)
         },
+        /** The monument crew's one job, if it has one. */
+        monumentJob: townMonumentJob(settled.sim, now)?.id ?? null,
+        /** What the town's monuments give right now. */
+        monumentBonus: settled.bonus,
+        /** Monument stages carried over from research, waiting for the monument to be placed. */
+        monumentCredit: credit,
         plotPurchase: plotPurchaseInfo(state, now, plots.length),
         expansions,
         buildings: buildings.map(b => ({
@@ -200,15 +220,21 @@ export default defineEventHandler(async (event) => {
             // how many posts it has. Null while the building is cut off.
             district: derived.districts.get(derived.districtOf.get(b.id) ?? '') ?? null,
             // Durations come from the server, because only the server knows
-            // this town's mood and research. A client that recomputed them
+            // this town's mood and monuments. A client that recomputed them
             // would draw a progress bar that disagrees with its own clock.
             jobMs: b.level === 0 || b.upgradingTo !== null
-                ? townLevelBuildMs(getTownBuilding(b.type)!, b.upgradingTo ?? 1, state.happiness, settled.research)
+                ? townLevelBuildMs(getTownBuilding(b.type)!, b.upgradingTo ?? 1, state.happiness, settled.bonus)
                 : null,
             nextUpgradeMs: b.level > 0 && b.level < townBuildingMaxLevel(getTownBuilding(b.type)!)
-                ? townLevelBuildMs(getTownBuilding(b.type)!, b.level + 1, state.happiness, settled.research)
+                ? townLevelBuildMs(getTownBuilding(b.type)!, b.level + 1, state.happiness, settled.bonus)
                 : null
         })),
+        /** Buildings in storage, oldest first. */
+        storage: {
+            items: settled.stored.map(r => ({ ...toStored(r), createdAt: r.createdAt.getTime(), paused: townStoredIsJob(r) }))
+        },
+        /** A redesign saved half-way, to merge with this town when it is reopened. */
+        redesignDraft,
         inventory,
         myOrders,
         lastPrices,

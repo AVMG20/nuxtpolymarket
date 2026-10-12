@@ -1666,7 +1666,6 @@ async function bonusCinematic(result: EmberPortalsResult) {
   if (stageRoot) fx?.shake(stageRoot, 12, 0.9)
   await delay(650)
   fx?.flash(0xffc890, 0.9, 0.6)
-  await closePortals()
   undim()
   warp.color = '#ff8a1f'
   warp.show = true
@@ -1684,7 +1683,8 @@ async function playFreeSpins(result: EmberPortalsResult) {
   fsSpin.value = 0
   fsTotalSpins.value = fs.awarded
   fsTotal.value = 0
-  portalHud.value = []
+  // Portals from the triggering spin stay open for the feature.
+  portalHud.value = result.base.wildsEnd.map(w => ({ ...w }))
   if (!destroyed) sound.setBonusMusic(true)
   fx?.fountain(isPhone ? 8 : 16, [0xffc247, 0xff5a1a, 0xffffff])
   await showCard('fs', `${fs.awarded} Free Spins`, 'Portals stay open and keep growing until the last spin.', 0, 2600)

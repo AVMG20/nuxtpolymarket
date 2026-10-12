@@ -122,7 +122,7 @@ const pct = (v: number) => `${(v * 100).toFixed(1)}%`
                     <li>A winning cluster without a Portal opens one (<strong>×1</strong>) on one of its cells.</li>
                     <li>A Portal in a win multiplies it, grows by <strong>+1</strong> and jumps to a cell of that win.</li>
                     <li>Portals in the same win <strong>merge</strong>: their multipliers multiply (×5 and ×3 make ×15), and a merge never gives less than adding them up plus 1. A Portal tops out at ×{{ formatNumber(EP_WILD_MAX_MULT, false) }}.</li>
-                    <li>Portals hold their cell while symbols fall past them. In the base game they close when the tumbles stop.</li>
+                    <li>Portals hold their cell while symbols fall past them. In the base game they close when the tumbles stop, unless the spin triggers the free spins: then they stay open for the feature.</li>
                   </ul>
                 </div>
               </div>

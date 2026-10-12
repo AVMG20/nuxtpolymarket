@@ -1,6 +1,6 @@
 {
-  "id": "0143d59c-24dc-42ec-b450-79500705255d",
-  "prevId": "9695771b-87dc-4f29-8310-e4284db38c23",
+  "id": "ded3bfe4-e182-4704-881f-21cea0a93ed3",
+  "prevId": "295c17f4-6a28-473d-bf84-de121a1de548",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3027,107 +3027,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.hq_holiday_claims": {
-      "name": "hq_holiday_claims",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "holiday_id": {
-          "name": "holiday_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "year": {
-          "name": "year",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "claimed_at": {
-          "name": "claimed_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "hq_holiday_claims_user_holiday_year_idx": {
-          "name": "hq_holiday_claims_user_holiday_year_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "holiday_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "year",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "hq_holiday_claims_userId_idx": {
-          "name": "hq_holiday_claims_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "hq_holiday_claims_user_id_user_id_fk": {
-          "name": "hq_holiday_claims_user_id_user_id_fk",
-          "tableFrom": "hq_holiday_claims",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.hq_loadouts": {
       "name": "hq_loadouts",
       "schema": "",
@@ -3192,13 +3091,6 @@
           "notNull": true,
           "default": "'{}'::jsonb"
         },
-        "ascendant_skill_ids": {
-          "name": "ascendant_skill_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp",
@@ -3250,109 +3142,6 @@
           ]
         }
       },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.hq_raid_state": {
-      "name": "hq_raid_state",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "raid_id": {
-          "name": "raid_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "highest_level": {
-          "name": "highest_level",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "key_balance": {
-          "name": "key_balance",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 3
-        },
-        "last_key_grant_at": {
-          "name": "last_key_grant_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "hq_raid_state_user_raid_idx": {
-          "name": "hq_raid_state_user_raid_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "raid_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "hq_raid_state_userId_idx": {
-          "name": "hq_raid_state_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "hq_raid_state_user_id_user_id_fk": {
-          "name": "hq_raid_state_user_id_user_id_fk",
-          "tableFrom": "hq_raid_state",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -3562,20 +3351,6 @@
           "notNull": true,
           "default": false
         },
-        "prestiged_class_ids": {
-          "name": "prestiged_class_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "ascendant_skill_ids": {
-          "name": "ascendant_skill_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
         "void_shards": {
           "name": "void_shards",
           "type": "text",
@@ -3601,40 +3376,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
-        },
-        "calendar_start": {
-          "name": "calendar_start",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "calendar_claimed": {
-          "name": "calendar_claimed",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "calendar_makeups": {
-          "name": "calendar_makeups",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "milestones_claimed": {
-          "name": "milestones_claimed",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "tutorials_seen": {
-          "name": "tutorials_seen",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
         },
         "formation": {
           "name": "formation",
@@ -3670,19 +3411,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
-        },
-        "raid_loadout_preferences": {
-          "name": "raid_loadout_preferences",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "pre_raid_snapshot": {
-          "name": "pre_raid_snapshot",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "forge_seals": {
           "name": "forge_seals",
@@ -3735,13 +3463,6 @@
         },
         "artifact_essence": {
           "name": "artifact_essence",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "trait_gems": {
-          "name": "trait_gems",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

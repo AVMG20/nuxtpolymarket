@@ -132,7 +132,7 @@ type TownState = { initialized: false } | {
     coinsEarned: number
     unlockedTiers: number[]
     needs: Array<{ resource: string, active: boolean, satisfied: boolean, stock: number }>
-    builders: { owned: number, busy: number, nextGemCost: number | null }
+    builders: { owned: number, total?: number, busy: number, nextGemCost: number | null }
     buildings: Array<TownBuildingSnapshot & { name?: string }>
     inventory: Record<string, number>
     milestones: TownMilestone[]
@@ -256,7 +256,7 @@ function summarizeTown(town: TownState) {
         coinsEarnedLifetime: town.coinsEarned,
         unlockedTiers: town.unlockedTiers,
         unmetNeeds: town.needs.filter(need => need.active && !need.satisfied).map(need => need.resource),
-        builders: { owned: town.builders.owned, busy: town.builders.busy, idle: Math.max(0, town.builders.owned - town.builders.busy), nextGemCost: town.builders.nextGemCost },
+        builders: { owned: town.builders.owned, busy: town.builders.busy, idle: Math.max(0, (town.builders.total ?? town.builders.owned) - town.builders.busy), nextGemCost: town.builders.nextGemCost },
         stock: Object.entries(town.inventory)
             .filter(([, quantity]) => quantity > 0)
             .map(([resource, quantity]) => ({
@@ -297,7 +297,7 @@ async function runTownDailies(event: H3Event, args: Record<string, unknown>) {
         }
     }
 
-    const idleBuilders = Math.max(0, town.builders.owned - town.builders.busy)
+    const idleBuilders = Math.max(0, (town.builders.total ?? town.builders.owned) - town.builders.busy)
     const upgradeBudget = Math.min(idleBuilders, maxUpgrades)
     // More candidates than builders: a pick the purse cannot cover is skipped
     // and the next one tried, so cheap upgrades still start after an expensive

@@ -3,6 +3,7 @@ import {
   BAILOUT_GARNISH_RATE,
   BAILOUT_LOCKOUT_MS,
   BANK_CAP,
+  BANK_MAX_DAILY_INTEREST,
   BANK_MAX_DAILY_RATE,
   BANK_MIN_DAILY_RATE,
   DEBT_GARNISH_RATE,
@@ -13,6 +14,7 @@ import {
   bailoutThreshold,
   bailoutUntilFrom,
   bankDailyRate,
+  bankEffectiveDailyRate,
   canBailOut,
   debtFloor,
   garnishAmount,
@@ -50,6 +52,16 @@ describe('bank savings interest', () => {
     const start = new Date('2026-01-01T00:00:00.000Z')
     const tomorrow = new Date('2026-01-02T00:00:00.000Z')
     expect(growBankBalance(10_000, start, tomorrow)).toBeCloseTo(10_000 * (1 + bankDailyRate(10_000)), 10)
+  })
+
+  it('caps interest at 25M per day on large balances', () => {
+    const start = new Date('2026-01-01T00:00:00.000Z')
+    const tomorrow = new Date('2026-01-02T00:00:00.000Z')
+    const weekLater = new Date('2026-01-08T00:00:00.000Z')
+    expect(growBankBalance(75_000_000_000, start, tomorrow)).toBeCloseTo(75_000_000_000 + BANK_MAX_DAILY_INTEREST, 4)
+    expect(growBankBalance(5_000_000_000, start, weekLater)).toBeCloseTo(5_000_000_000 + 7 * BANK_MAX_DAILY_INTEREST, 4)
+    expect(bankEffectiveDailyRate(5_000_000_000)).toBeCloseTo(BANK_MAX_DAILY_INTEREST / 5_000_000_000, 12)
+    expect(bankEffectiveDailyRate(10_000)).toBe(bankDailyRate(10_000))
   })
 })
 

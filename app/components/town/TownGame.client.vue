@@ -9,16 +9,24 @@ import TownMarketPanel from '~/components/town/TownMarketPanel.vue'
 import TownMilestonesPanel from '~/components/town/TownMilestonesPanel.vue'
 import TownLeaderboardPanel from '~/components/town/TownLeaderboardPanel.vue'
 import TownEventsPanel from '~/components/town/TownEventsPanel.vue'
-import TownResearchPanel from '~/components/town/TownResearchPanel.vue'
+import TownStreakPanel from '~/components/town/TownStreakPanel.vue'
+import TownContractsPanel from '~/components/town/TownContractsPanel.vue'
+import TownFx from '~/components/town/TownFx.vue'
+import TownChestOpening from '~/components/town/TownChestOpening.vue'
+import TownBoostIcon from '~/components/town/TownBoostIcon.vue'
+import type { TownContractDelivery } from '~/composables/useTownContracts'
 import { formatTownDuration } from '~/utils/town-format'
 import { townTerrainCss } from '~/utils/town/terrain'
-import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, townEffectRadius, townCivicCheer, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
-import type { TownBuildingView } from '~/composables/useTown'
+import { TOWN_TERRAINS, TOWN_TERRAIN_BONUS, TOWN_PLOT_SIZE, TOWN_INDUSTRY_PENALTY_SCALE, townEffectRadius, townCivicCheer, houseAdjacency, townLevelCost, townRushGemCost, getTownBuilding, townPlacementIssue, townAutoFacing, townFrontTiles, townRoadAt, townIndustryNuisance, townHousesWithin, townWorkersFor, townPlaceCost, townGroupMoveIssue, townBuildingCountIssue, townRoadAccess, townBuildingSize, townFootprintAnchor, townSupplyPath, TOWN_MAX_DRAG_TILES, type TownSimBuilding } from '#shared/utils/gamelogic/town'
+import { getTownMonument, townBonusLabel, townBonusLines, townBonusValue, townMonumentEffect } from '#shared/utils/gamelogic/town-monuments'
+import { townJobProgress, townBoostedJobMs, type TownBuildingView, type TownBoostKind, type TownStoredView, type TownSpot } from '~/composables/useTown'
 import type { SceneTile, SceneMoveGhost } from '~/components/town/TownScene.client.vue'
+import type { TownDraftSpot, TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
 
 const town = useTown()
 const sound = useTownSound()
 const motion = useTownMotion()
+const fx = useTownFx()
 const toast = useToast()
 const { user } = useAuth()
 
@@ -32,15 +40,23 @@ onMounted(() => { clock = setInterval(() => { now.value = Date.now() + town.serv
 onBeforeUnmount(() => { if (clock) clearInterval(clock) })
 
 // ── UI state ──
-type Window = 'market' | 'goals' | 'mayors' | 'land' | 'research' | 'events' | null
+type Window = 'market' | 'goals' | 'mayors' | 'land' | 'events' | 'daily' | null
 const windowOpen = ref<Window>(null)
 const buildOpen = ref(false)
 const buildTier = ref(0)
 const ghostType = ref<string | null>(null)
 const ghostRotation = ref(0)
-function rotatePlacement() { ghostRotation.value = (ghostRotation.value + 1) % 4 }
+/** A quarter turn clockwise, or back the other way with `dir = -1` (Shift+R). */
+function rotatePlacement(dir: 1 | -1 = 1) {
+    ghostRotation.value = (ghostRotation.value + dir + 4) % 4
+    sound.play('rotate')
+}
 /** Building being relocated; its type becomes the ghost and the original hides. */
 const movingId = ref<string | null>(null)
+/** A building coming back out of storage: its type is the ghost. */
+const placingStored = ref<TownStoredView | null>(null)
+// Whatever lets go of the ghost lets go of the stored building with it.
+watch(ghostType, (t) => { if (!t) placingStored.value = null })
 const hoveredTile = ref<{ plotId: string, tileX: number, tileY: number, wx: number, wy: number } | null>(null)
 const selectedBuildingId = ref<string | null>(null)
 /** Everything a marquee has gathered up, or a shift-click has toggled in. */
@@ -82,6 +98,7 @@ function trackPointer(e: MouseEvent) {
 // no artwork of its own.
 const ghostLevel = computed(() => {
     if (trayPick.value && trayPick.value !== 'road') return Math.max(1, trayGroups.value.find(g => g.key === trayPick.value)?.level ?? 1)
+    if (placingStored.value) return Math.max(1, placingStored.value.upgradingTo ?? placingStored.value.level)
     return movingId.value ? Math.max(1, town.buildings.value.find(b => b.id === movingId.value)?.level ?? 1) : 1
 })
 const selectedBuilding = computed(() => town.buildings.value.find(b => b.id === selectedBuildingId.value) ?? null)
@@ -97,8 +114,6 @@ function openWindow(w: Window) {
     closeHudPopovers()
     if (redesign.value) return
     if (windowOpen.value === w) { closeAll(); return }
-    // The board is its own fetch, so pull it fresh the moment it is opened.
-    if (w === 'research') town.refreshResearch()
     windowOpen.value = w
     buildOpen.value = false
     ghostType.value = null
@@ -129,9 +144,38 @@ function closeAll() {
 }
 
 // ── Build ──
-const tiers = computed(() => [...new Set(town.catalog.value.map(c => c.tier))].sort((a, b) => a - b))
-const tierEntries = computed(() => town.catalog.value.filter(c => c.tier === buildTier.value))
-function tierLocked(t: number) { return !town.unlockedTiers.value.has(t) }
+/** The build strip's last tab: the monuments, whatever tier each opens at. */
+const MONUMENT_TAB = -1
+/** The tab after monuments, only while something is in storage: put stored buildings back. */
+const STORAGE_TAB = -2
+const tiers = computed(() => [...new Set(town.catalog.value.filter(c => c.kind !== 'monument').map(c => c.tier))].sort((a, b) => a - b))
+const tierEntries = computed(() => buildTier.value === STORAGE_TAB
+    ? []
+    : buildTier.value === MONUMENT_TAB
+        ? town.catalog.value.filter(c => c.kind === 'monument')
+        : town.catalog.value.filter(c => c.tier === buildTier.value && c.kind !== 'monument'))
+function tierLocked(t: number) { return t !== MONUMENT_TAB && t !== STORAGE_TAB && !town.unlockedTiers.value.has(t) }
+const hasStored = computed(() => town.storage.value.items.length > 0)
+/** The Storage tab's cards: one per stored building, and every stored road on a single stacked card. */
+const storageCards = computed(() => {
+    const items = town.storage.value.items
+    const roads = items.filter(s => s.type === 'road')
+    const cards = items.filter(s => s.type !== 'road').map(item => ({ item, count: 1 }))
+    return roads.length ? [{ item: roads[0]!, count: roads.length }, ...cards] : cards
+})
+// Storage emptied under an open Storage tab: fall back to the first tier.
+watch(hasStored, (has) => { if (!has && buildTier.value === STORAGE_TAB) buildTier.value = tiers.value[0] ?? 0 })
+/** Stages this town carried over from research for a monument: it goes up at that stage, free. */
+function monumentCredit(type: string) { return town.monumentCredit.value[type] ?? 0 }
+/** A card is shut while its tier is, unless research already paid for it. */
+function cardLocked(c: { id: string, tier: number }) { return tierLocked(c.tier) && !monumentCredit(c.id) }
+/** The monument crew raises one stage at a time; this is what it is on, if anything. */
+const monumentJob = computed(() => town.buildings.value.find(b => b.id === town.monumentJob.value) ?? null)
+const monumentCrewNote = computed(() => {
+    const job = monumentJob.value
+    if (!job) return null
+    return `The monument crew is on the ${town.catalogById.value.get(job.type)?.name ?? job.type} for another ${formatTownDuration(Math.max(0, job.completesAt - now.value))}`
+})
 /** The unmet conditions of a locked tier, in plain words. */
 function tierLockText(t: number): string {
     const lock = town.tierLocks.value[t]
@@ -143,6 +187,17 @@ function tierLockText(t: number): string {
     return `needs ${parts.join(' · ')}`
 }
 function tierName(t: number) { return t === 0 ? 'Town' : `Tier ${t}` }
+function pickTier(t: number) {
+    if (buildTier.value === t) return
+    buildTier.value = t
+    sound.play('tab')
+}
+/** Tab and Shift+Tab walk the tabs, monuments then storage last. */
+function cycleTier(dir: 1 | -1) {
+    const tabs = [...tiers.value, MONUMENT_TAB, ...(hasStored.value ? [STORAGE_TAB] : [])]
+    const at = Math.max(0, tabs.indexOf(buildTier.value))
+    pickTier(tabs[(at + dir + tabs.length) % tabs.length]!)
+}
 
 function canAfford(cost: { coins: number, resources: Record<string, number> }) {
     if (balance.value < cost.coins) return false
@@ -157,29 +212,56 @@ function countIssue(type: string): string | null {
 }
 
 function pickBuild(type: string) {
+    // The held card again puts it down, whatever would block picking up another.
+    if (ghostType.value === type && !movingId.value) {
+        sound.play('close')
+        ghostType.value = null
+        ghostRotation.value = 0
+        selectedBuildingId.value = null
+        return
+    }
     const capped = countIssue(type)
     if (capped) {
         toast.add({ title: capped, color: 'neutral' })
         return
     }
-    // Roads go up instantly and need nobody; everything else needs a free crew.
+    // Roads go up instantly and need nobody; monuments have their own crew;
+    // everything else needs a free builder.
     const def = town.catalogById.value.get(type)
-    if (def && def.kind !== 'road' && buildersFree.value === 0) {
+    if (def?.kind === 'monument' && !monumentCredit(type) && monumentCrewNote.value) {
+        toast.add({ title: monumentCrewNote.value, color: 'warning' })
+        return
+    }
+    if (def && def.kind !== 'road' && def.kind !== 'monument' && buildersFree.value === 0) {
         openBlocked({ kind: 'build', type })
         return
     }
-    sound.play('click')
+    sound.play('pickup')
     movingId.value = null
-    ghostType.value = ghostType.value === type ? null : type
+    placingStored.value = null
+    ghostType.value = type
     ghostRotation.value = 0
     selectedBuildingId.value = null
+}
+
+/** Pick up another of the building under the cursor (or the open card), like an eyedropper. */
+function copyBuilding() {
+    const b = hoveredBuilding.value ?? selectedBuilding.value
+    if (!b || redesign.value || moveSelection.value) return
+    // Already holding it: a second C must not drop it again.
+    if (ghostType.value === b.type && !movingId.value) return
+    const entry = town.catalogById.value.get(b.type)
+    if (!entry || cardLocked(entry)) { sound.play('deny'); return }
+    pickBuild(b.type)
+    if (ghostType.value === b.type && entry.kind !== 'road') ghostRotation.value = b.rotation
 }
 
 function startMove() {
     const b = selectedBuilding.value
     if (!b) return
-    sound.play('click')
+    sound.play('pickup')
     movingId.value = b.id
+    placingStored.value = null
     ghostType.value = b.type
     // A site travels as the building it will become, so it reads as itself.
     ghostRotation.value = b.rotation
@@ -188,7 +270,63 @@ function startMove() {
     buildOpen.value = false
 }
 
-async function onSelectTile(tile: { plotId: string, tileX: number, tileY: number }) {
+// ── Storage ─────────────────────────────────────────────────────────────────
+// Buildings taken off the map, free to keep. They make nothing while stored,
+// and come back out from the build strip's Storage tab.
+
+/** Why a stored building cannot come back out right now: a paused job needs its crew back. */
+function storedCrewIssue(item: TownStoredView): string | null {
+    if (!item.paused) return null
+    if (getTownMonument(item.type)) return town.monumentJob.value ? 'The monument crew is busy' : null
+    return buildersFree.value > 0 ? null : 'Every builder is busy: a paused job needs a free crew'
+}
+
+/** Take buildings off the map into storage, roads included. */
+function storeIds(ids: string[]) {
+    if (ids.length === 0) return
+    sound.unlock()
+    run(() => town.storeBuildings(ids), () => {
+        selectedIds.value = selectedIds.value.filter(id => !ids.includes(id))
+        if (selectedBuildingId.value && ids.includes(selectedBuildingId.value)) selectedBuildingId.value = null
+    }, 'pickup')
+}
+
+const storeTip = 'Take it off the map. It makes nothing while stored; put it back from the Storage tab in Build.'
+
+/** A stored building on the cursor, waiting for a tile. From the build strip's Storage tab the strip stays open. */
+function startPlaceStored(item: TownStoredView, fromStrip = false) {
+    // The held card again puts it down, like any other build card.
+    if (fromStrip && placingStored.value?.id === item.id) { sound.play('close'); ghostType.value = null; return }
+    const issue = storedCrewIssue(item)
+    if (issue) { sound.play('deny'); toast.add({ title: issue, color: 'warning' }); return }
+    sound.play('pickup')
+    windowOpen.value = null
+    if (!fromStrip) buildOpen.value = false
+    selectedBuildingId.value = null
+    selectedIds.value = []
+    movingId.value = null
+    ghostType.value = item.type
+    ghostRotation.value = 0
+    placingStored.value = item
+}
+
+/**
+ * A wide building is held by its middle: the tile under the cursor is the
+ * centre of its footprint, and this is the corner the server stores it by.
+ * Near a plot edge, keep the whole footprint on the plot under the cursor.
+ */
+function anchorTile<T extends { plotId: string, tileX: number, tileY: number }>(tile: T): T & { wx: number, wy: number } {
+    const plot = plotById.value.get(tile.plotId)
+    const wx = (plot?.x ?? 0) * TOWN_PLOT_SIZE + tile.tileX
+    const wy = (plot?.y ?? 0) * TOWN_PLOT_SIZE + tile.tileY
+    const size = ghostType.value && !moveSelection.value ? townBuildingSize(ghostType.value) : 1
+    const anchor = townFootprintAnchor(wx, wy, size)
+    if (!plot) return { ...tile, ...anchor }
+    return { ...tile, tileX: anchor.wx - plot.x * TOWN_PLOT_SIZE, tileY: anchor.wy - plot.y * TOWN_PLOT_SIZE, ...anchor }
+}
+
+async function onSelectTile(cursorTile: { plotId: string, tileX: number, tileY: number }) {
+    const tile = anchorTile(cursorTile)
     sound.unlock()
     if (redesign.value) { placeDraft(tile); return }
     if (moveSelection.value) {
@@ -201,21 +339,37 @@ async function onSelectTile(tile: { plotId: string, tileX: number, tileY: number
         return
     }
     if (busy.value) return
-    if (ghostIssue.value) {
-        sound.play('error')
-        toast.add({ title: ghostIssue.value, color: 'warning' })
+    const issue = placementIssueAt(tile)
+    // Out of crews is the one blocker with a way through: offer the rush.
+    if (issue === NO_CREWS && issue === ghostBlocker.value && !movingId.value) {
+        openBlocked({ kind: 'build', type: ghostType.value })
+        return
+    }
+    if (issue) {
+        denyPlacement(issue, tile)
         return
     }
     busy.value = true
     try {
-        if (movingId.value) {
+        if (placingStored.value) {
+            const wasRoad = placingStored.value.type === 'road'
+            await town.placeStored({ buildingId: placingStored.value.id, plotId: tile.plotId, tileX: tile.tileX, tileY: tile.tileY, rotation: ghostRotation.value })
+            sound.play(wasRoad ? 'road' : 'place')
+            // Stored roads come out one click at a time until the stack runs dry.
+            const nextRoad = wasRoad ? town.storage.value.items.find(s => s.type === 'road') : undefined
+            if (nextRoad) placingStored.value = nextRoad
+            else ghostType.value = null
+        } else if (movingId.value) {
             await town.moveBuilding(movingId.value, tile.plotId, tile.tileX, tile.tileY, ghostRotation.value)
             sound.play('place')
             movingId.value = null
             ghostType.value = null
         } else {
-            await town.placeBuilding(tile.plotId, tile.tileX, tile.tileY, ghostType.value, ghostRotation.value)
-            sound.play('place')
+            const type = ghostType.value
+            await town.placeBuilding(tile.plotId, tile.tileX, tile.tileY, type, ghostRotation.value)
+            sound.play(type === 'road' ? 'road' : 'place')
+            // The last one the town may own: nothing left to hold.
+            if (ghostType.value === type && countIssue(type)) ghostType.value = null
         }
     } catch {
         sound.play('error')
@@ -224,7 +378,19 @@ async function onSelectTile(tile: { plotId: string, tileX: number, tileY: number
     }
 }
 
-function onHoverTile(tile: { plotId: string, tileX: number, tileY: number, wx: number, wy: number } | null) {
+/**
+ * A click the ghost cannot take: it shakes and knocks. The reason already
+ * floats over the ghost when there was a hover; a tap has none, so it toasts.
+ */
+function denyPlacement(issue: string, tile: { wx: number, wy: number } | null) {
+    sound.play('deny')
+    sceneRef.value?.denyGhost()
+    const hovered = hoveredTile.value
+    if (!tile || !hovered || hovered.wx !== tile.wx || hovered.wy !== tile.wy) toast.add({ title: issue, color: 'warning' })
+}
+
+function onHoverTile(cursorTile: { plotId: string, tileX: number, tileY: number, wx: number, wy: number } | null) {
+    const tile = cursorTile ? anchorTile(cursorTile) : null
     hoveredTile.value = tile
     // Auto-face the nearest road when the current rotation has none in front,
     // so most placements never need the R key.
@@ -232,8 +398,8 @@ function onHoverTile(tile: { plotId: string, tileX: number, tileY: number, wx: n
     const def = town.catalogById.value.get(ghostType.value)
     if (!def || def.kind === 'road') return
     const others = movingId.value ? simBuildings.value.filter(b => b.id !== movingId.value) : simBuildings.value
-    if (townPlacementIssue(others, getTownBuilding(def.id)!, tile.wx, tile.wy, ghostRotation.value) === null) return
-    const auto = townAutoFacing(others, tile.wx, tile.wy)
+    if (townFrontTiles(tile.wx, tile.wy, ghostRotation.value, def.size ?? 1).some(f => townRoadAt(others, f.wx, f.wy))) return
+    const auto = townAutoFacing(others, tile.wx, tile.wy, def.size ?? 1)
     if (auto !== null) ghostRotation.value = auto
 }
 
@@ -241,7 +407,7 @@ function onSelectBuilding(id: string) {
     sound.unlock()
     closeHudPopovers()
     if (redesign.value) { selectedIds.value = []; pickUpDraft(id); return }
-    sound.play('click')
+    sound.play('select')
     ghostType.value = null
     buildOpen.value = false
     windowOpen.value = null
@@ -253,34 +419,57 @@ function onSelectBuilding(id: string) {
 
 function onDeselect() {
     if (redesign.value) { dropTrayPick(); return }
-    if (moveSelection.value) { moveSelection.value = null; return }
-    if (ghostType.value) { ghostType.value = null; movingId.value = null; return }
+    if (moveSelection.value) { moveSelection.value = null; sound.play('close'); return }
+    if (ghostType.value) { ghostType.value = null; movingId.value = null; sound.play('close'); return }
     if (selectedIds.value.length) { clearSelection(); sound.play('close'); return }
     if (selectedBuildingId.value) { selectedBuildingId.value = null; sound.play('close') }
 }
 
 // ── Redesign ────────────────────────────────────────────────────────────────
 // The whole town goes into a tray and comes back down one piece at a time.
-// Nothing reaches the server until Save: the draft is a map of building id to
-// tile, laid over a snapshot of the town taken when the mode was entered.
+// Nothing changes in the town until the final Save: the draft is a map of
+// building id to tile, laid over a snapshot of the town taken when the mode
+// was entered. A save with pieces still in the tray keeps the draft on the
+// server instead, and reopening merges it with the town as it then stands.
 
-interface DraftSpot { plotId: string, tileX: number, tileY: number, rotation: number }
+type DraftSpot = TownDraftSpot
 const redesign = ref<{
     /** The town as it stood when the tray opened — the pieces to put back. */
     original: TownBuildingView[]
+    /** What was in storage when the tray opened: pieces that may come back out. */
+    stored: TownStoredView[]
     /** Where each piece has been put down, by building id. Absent = still in the tray. */
     placed: Record<string, DraftSpot>
     /** Roads laid beyond the ones the town had, paid for on save. */
     newRoads: Record<string, DraftSpot>
+    /** Buildings from the map marked to go into storage on the final save. */
+    toStore: string[]
 } | null>(null)
 /** What the tray has handed to the cursor: a group key, or 'road'. */
 const trayPick = ref<string | null>(null)
-const confirmRedesign = ref<{ moves: DraftSpot[], roads: DraftSpot[] } | null>(null)
+const confirmRedesign = ref<{ moves: DraftSpot[], roads: DraftSpot[], store: string[], place: string[] } | null>(null)
+
+/** One tray card per kind, level and origin; stored pieces get their own card. */
+function trayKey(b: { type: string, level: number, upgradingTo: number | null }, stored: boolean) {
+    return `${b.type}:${b.upgradingTo ?? b.level}:${b.level === 0 ? 'site' : ''}:${stored ? 'stored' : ''}`
+}
+
+/** A stored building drawn on the draft where it has been put down. */
+function storedAsView(s: TownStoredView, spot: DraftSpot): TownBuildingView {
+    return {
+        id: s.id, type: s.type, ...spot, level: s.level,
+        upgradingTo: s.paused ? s.upgradingTo : null,
+        // Not `now.value`: a dependency on the clock would redraw the draft twice a second.
+        completesAt: s.paused ? town.serverNow() + s.remainingMs : 0,
+        createdAt: s.createdAt,
+        staffing: null, connected: true, district: null, jobMs: null, nextUpgradeMs: null, supply: null, throughput: null
+    }
+}
 const ROAD_DEF = getTownBuilding('road')!
 let newRoadSeq = 0
 
-/** Whether anything has been put down since the tray opened. */
-const draftTouched = computed(() => !!redesign.value && (Object.keys(redesign.value.placed).length > 0 || Object.keys(redesign.value.newRoads).length > 0))
+/** Whether anything has been put down or marked since the tray opened. */
+const draftTouched = computed(() => !!redesign.value && (Object.keys(redesign.value.placed).length > 0 || Object.keys(redesign.value.newRoads).length > 0 || redesign.value.toStore.length > 0))
 
 /** The draft as building rows, so the scene and every rule see the layout being drawn. */
 const redesignBuildings = computed<TownBuildingView[]>(() => {
@@ -290,6 +479,10 @@ const redesignBuildings = computed<TownBuildingView[]>(() => {
     for (const b of r.original) {
         const spot = r.placed[b.id]
         if (spot) out.push({ ...b, ...spot })
+    }
+    for (const s of r.stored) {
+        const spot = r.placed[s.id]
+        if (spot) out.push(storedAsView(s, spot))
     }
     for (const [id, spot] of Object.entries(r.newRoads)) {
         out.push({
@@ -309,32 +502,58 @@ watch(() => sceneBuildings.value, (list) => {
     if (moveSelection.value?.items.some(i => !alive.has(i.id))) moveSelection.value = null
 })
 
-interface TrayGroup { key: string, type: string, name: string, level: number, site: boolean, ids: string[] }
-/** The pieces still in the tray, one card per kind and level. Roads have their own card. */
+interface TrayGroup { key: string, type: string, name: string, level: number, site: boolean, stored: boolean, ids: string[] }
+/** The pieces still in the tray, one card per kind and level. Roads have their own card; stored pieces their own. */
 const trayGroups = computed<TrayGroup[]>(() => {
     const r = redesign.value
     if (!r) return []
     const groups = new Map<string, TrayGroup>()
-    for (const b of r.original) {
-        if (b.type === 'road' || r.placed[b.id]) continue
-        const shown = b.upgradingTo ?? b.level
-        const key = `${b.type}:${shown}:${b.level === 0 ? 'site' : ''}`
+    const add = (b: { id: string, type: string, level: number, upgradingTo: number | null }, stored: boolean) => {
+        const key = trayKey(b, stored)
         let g = groups.get(key)
-        if (!g) groups.set(key, g = { key, type: b.type, name: town.catalogById.value.get(b.type)?.name ?? b.type, level: shown, site: b.level === 0, ids: [] })
+        if (!g) groups.set(key, g = { key, type: b.type, name: town.catalogById.value.get(b.type)?.name ?? b.type, level: b.upgradingTo ?? b.level, site: b.level === 0, stored, ids: [] })
+        g.ids.push(b.id)
+    }
+    const marked = new Set(r.toStore)
+    for (const b of r.original) if (b.type !== 'road' && !r.placed[b.id] && !marked.has(b.id)) add(b, false)
+    // Stored roads join the road card's stack rather than getting a card of their own.
+    for (const s of r.stored) if (s.type !== 'road' && !r.placed[s.id]) add(s, true)
+    return [...groups.values()].sort((a, b) => Number(a.stored) - Number(b.stored) || a.name.localeCompare(b.name) || a.level - b.level)
+})
+/** Roads the town already had on the map that are not down yet, nor marked for storage: on save they go into storage. */
+const trayRoads = computed(() => {
+    const r = redesign.value
+    if (!r) return []
+    const marked = new Set(r.toStore)
+    return r.original.filter(b => b.type === 'road' && !r.placed[b.id] && !marked.has(b.id)).map(b => b.id)
+})
+/** Stored roads not put down: laid before any new road is bought, and left in storage otherwise. */
+const storedRoadsLeft = computed(() => redesign.value ? redesign.value.stored.filter(s => s.type === 'road' && !redesign.value!.placed[s.id]).map(s => s.id) : [])
+/** Buildings from the map neither put down nor marked for storage: the final Save waits for zero. */
+const trayLeft = computed(() => trayGroups.value.filter(g => !g.stored).reduce((n, g) => n + g.ids.length, 0))
+/** Stored pieces put down in the draft: on save they come out of storage. */
+const draftFromStorage = computed(() => redesign.value ? redesign.value.stored.filter(s => redesign.value!.placed[s.id]).map(s => s.id) : [])
+/** The pieces marked for storage, as tray cards so a mark can be taken back. */
+const markedGroups = computed(() => {
+    const r = redesign.value
+    if (!r) return []
+    const groups = new Map<string, { key: string, type: string, name: string, level: number, ids: string[] }>()
+    for (const id of r.toStore) {
+        const b = r.original.find(x => x.id === id)
+        if (!b) continue
+        const key = trayKey(b, false)
+        let g = groups.get(key)
+        if (!g) groups.set(key, g = { key, type: b.type, name: town.catalogById.value.get(b.type)?.name ?? b.type, level: b.upgradingTo ?? b.level, ids: [] })
         g.ids.push(b.id)
     }
     return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name) || a.level - b.level)
 })
-/** Roads the town already had that are not down yet. */
-const trayRoads = computed(() => redesign.value ? redesign.value.original.filter(b => b.type === 'road' && !redesign.value!.placed[b.id]).map(b => b.id) : [])
-/** Buildings (not roads) still to place — Save waits for zero. */
-const trayLeft = computed(() => trayGroups.value.reduce((n, g) => n + g.ids.length, 0))
 const draftTotal = computed(() => redesign.value ? redesign.value.original.filter(b => b.type !== 'road').length : 0)
 /** What the new roads will cost: the n-th road counts every road still standing. */
 const newRoadCost = computed(() => {
     const r = redesign.value
     if (!r) return 0
-    const standing = r.original.filter(b => b.type === 'road' && r.placed[b.id]).length
+    const standing = [...r.original, ...r.stored].filter(b => b.type === 'road' && r.placed[b.id]).length
     let coins = 0
     const n = Object.keys(r.newRoads).length
     for (let i = 0; i < n; i++) coins += townPlaceCost(ROAD_DEF, standing + i).coins
@@ -344,18 +563,110 @@ const newRoadCount = computed(() => redesign.value ? Object.keys(redesign.value.
 /** Placed buildings whose front door has no road: they go dark, and the confirm says so. */
 const draftDoorless = computed(() => redesign.value ? simBuildings.value.filter(b => !townRoadAccess(simBuildings.value, b)).length : 0)
 const redesignSaveIssue = computed(() => {
-    if (trayLeft.value > 0) return `${trayLeft.value} ${trayLeft.value === 1 ? 'building is' : 'buildings are'} still in the tray`
     if (newRoadCost.value > balance.value) return 'Not enough coins for the new roads'
     return null
 })
+/** Pieces still in the tray: Save keeps a draft instead of changing the town. */
+const redesignIsDraft = computed(() => trayLeft.value > 0)
+
+/**
+ * Lay a saved draft over the town as it stands now. Pieces that no longer
+ * exist drop out; new buildings are simply not placed yet, so they wait in
+ * the tray; levels come from the town, not the draft. A spot that now clashes
+ * with the ground or an earlier piece goes back to the tray.
+ */
+function mergeDraft(saved: TownRedesignDraft, original: TownBuildingView[], stored: TownStoredView[]) {
+    const known = new Map<string, string>([...original.map(b => [b.id, b.type] as const), ...stored.map(s => [s.id, s.type] as const)])
+    const placed: Record<string, DraftSpot> = {}
+    const newRoads: Record<string, DraftSpot> = {}
+    const layout: TownSimBuilding[] = []
+    const fits = (id: string, type: string, spot: DraftSpot) => {
+        const plot = plotById.value.get(spot.plotId)
+        if (!plot) return false
+        const wx = plot.x * TOWN_PLOT_SIZE + spot.tileX
+        const wy = plot.y * TOWN_PLOT_SIZE + spot.tileY
+        if (groundIssue(wx, wy, type, layout)) return false
+        layout.push({ id, type: type as TownSimBuilding['type'], level: 1, completesAt: 0, upgradingTo: null, createdAt: 0, wx, wy, rotation: spot.rotation })
+        return true
+    }
+    for (const [id, spot] of Object.entries(saved.placed)) {
+        const type = known.get(id)
+        if (type && fits(id, type, spot)) placed[id] = spot
+    }
+    for (const [id, spot] of Object.entries(saved.newRoads)) {
+        if (fits(id, 'road', spot)) newRoads[id] = spot
+    }
+    const onMap = new Set(original.map(b => b.id))
+    const toStore = saved.toStore.filter(id => onMap.has(id) && !placed[id])
+    return { placed, newRoads, toStore }
+}
 
 function startRedesign() {
     if (!town.initialized.value || busy.value) return
     sound.unlock()
     closeAll()
-    redesign.value = { original: town.buildings.value.map(b => ({ ...b })), placed: {}, newRoads: {} }
+    const original = town.buildings.value.map(b => ({ ...b }))
+    const stored = town.storage.value.items.map(s => ({ ...s }))
+    const saved = town.redesignDraft.value?.draft
+    redesign.value = { original, stored, ...(saved ? mergeDraft(saved, original, stored) : { placed: {}, newRoads: {}, toStore: [] }) }
+    newRoadSeq = Math.max(newRoadSeq, ...Object.keys(redesign.value.newRoads).map(k => Number(k.split(':')[1]) || 0))
     trayPick.value = null
     sound.play('open')
+}
+
+/** Mark pieces from the map to go into storage on the final save; they leave the draft. */
+function markForStorage(ids: string[]) {
+    const r = redesign.value
+    if (!r) return
+    const onMap = new Set(r.original.map(b => b.id))
+    const marking = ids.filter(id => onMap.has(id))
+    if (marking.length === 0) return
+    r.placed = Object.fromEntries(Object.entries(r.placed).filter(([id]) => !marking.includes(id)))
+    r.toStore = [...new Set([...r.toStore, ...marking])]
+    selectedIds.value = selectedIds.value.filter(id => !marking.includes(id))
+    moveSelection.value = null
+    if (trayPick.value && !trayGroups.value.some(g => g.key === trayPick.value)) dropTrayPick()
+    sound.play('pickup')
+}
+
+/**
+ * Finish the redesign now: whatever from the map is still in the tray goes
+ * into storage, and the layout is saved for real through the usual confirm.
+ * Pieces already in storage stay there. Keep editing undoes nothing: the
+ * marks stay, and can be taken back from the tray one by one.
+ */
+function saveAndStoreSurplus() {
+    const surplus = trayGroups.value.filter(g => !g.stored).flatMap(g => g.ids)
+    if (surplus.length) markForStorage(surplus)
+    askSaveRedesign()
+}
+
+/** Take back a storage mark: the piece returns to the tray. */
+function unmarkStorage(ids: string[]) {
+    const r = redesign.value
+    if (!r) return
+    r.toStore = r.toStore.filter(id => !ids.includes(id))
+    sound.play('click')
+}
+
+/** Keep the half-done layout on the server and leave; the town is untouched. */
+function saveRedesignDraft() {
+    const r = redesign.value
+    if (!r) return
+    run(() => town.saveRedesignDraft({ placed: r.placed, newRoads: r.newRoads, toStore: r.toStore }), () => {
+        redesign.value = null
+        clearSelection()
+        dropTrayPick()
+    }, 'place')
+}
+
+/** Throw the saved draft away and start the tray from the town as it stands. */
+async function discardDraft() {
+    await run(() => town.discardRedesignDraft(), () => {
+        if (redesign.value) redesign.value = { ...redesign.value, placed: {}, newRoads: {}, toStore: [] }
+        clearSelection()
+        dropTrayPick()
+    }, 'close')
 }
 
 function cancelRedesign() {
@@ -366,11 +677,12 @@ function cancelRedesign() {
     sound.play('close')
 }
 
-/** Put every piece back in the tray. */
+/** Put every piece back in the tray, storage marks included. */
 function pickUpAll() {
     if (!redesign.value) return
     redesign.value.placed = {}
     redesign.value.newRoads = {}
+    redesign.value.toStore = []
     clearSelection()
     dropTrayPick()
     sound.play('click')
@@ -400,9 +712,13 @@ function dropTrayPick() {
     movingId.value = null
 }
 
-/** Only the ground is judged while redesigning: a tile taken, or water. The road def asks nothing else. */
-function groundIssue(wx: number, wy: number) {
-    return townPlacementIssue(simBuildings.value, ROAD_DEF, wx, wy, 0)
+/**
+ * Only the ground is judged while redesigning: a tile taken, water, or a wide
+ * footprint that would straddle two plots. The road def asks nothing else.
+ */
+function groundIssue(wx: number, wy: number, type = 'road', layout = simBuildings.value) {
+    const size = townBuildingSize(type)
+    return townPlacementIssue(layout, size > 1 ? { ...ROAD_DEF, size } : ROAD_DEF, wx, wy, 0)
 }
 
 /** Put the piece on the cursor down on this tile, or say why not. */
@@ -415,7 +731,7 @@ function placeDraft(tile: { plotId: string, tileX: number, tileY: number }) {
     }
     const plot = plotById.value.get(tile.plotId)
     if (!plot) return
-    const issue = groundIssue(plot.x * TOWN_PLOT_SIZE + tile.tileX, plot.y * TOWN_PLOT_SIZE + tile.tileY)
+    const issue = groundIssue(plot.x * TOWN_PLOT_SIZE + tile.tileX, plot.y * TOWN_PLOT_SIZE + tile.tileY, ghostType.value)
     if (issue) {
         sound.play('error')
         toast.add({ title: issue, color: 'warning' })
@@ -431,7 +747,8 @@ function putDown(tile: { plotId: string, tileX: number, tileY: number }, rotatio
     if (!r || !trayPick.value) return false
     const spot: DraftSpot = { plotId: tile.plotId, tileX: tile.tileX, tileY: tile.tileY, rotation }
     if (trayPick.value === 'road') {
-        const id = trayRoads.value[0]
+        // The town's own roads first, then stored ones, and only then a new one to pay for.
+        const id = trayRoads.value[0] ?? storedRoadsLeft.value[0]
         if (id) r.placed[id] = { ...spot, rotation: 0 }
         else r.newRoads[`new:${++newRoadSeq}`] = { ...spot, rotation: 0 }
         return true
@@ -446,7 +763,8 @@ function putDown(tile: { plotId: string, tileX: number, tileY: number }, rotatio
 }
 
 /** A drag while redesigning: each tile judged against the ones before it, like a fresh road run. */
-function planDraftTiles(tiles: SceneTile[]) {
+function planDraftTiles(cursorTiles: SceneTile[]) {
+    const tiles = cursorTiles.map(anchorTile)
     const type = ghostType.value
     const def = type ? getTownBuilding(type) : null
     if (!def || !trayPick.value || tiles.length === 0) return []
@@ -455,11 +773,11 @@ function planDraftTiles(tiles: SceneTile[]) {
     const out: { tile: SceneTile, rotation: number, ok: boolean, coins: number }[] = []
     for (const tile of tiles) {
         let rotation = ghostRotation.value
-        if (def.kind !== 'road' && townPlacementIssue(layout, def, tile.wx, tile.wy, rotation) !== null) {
-            const auto = townAutoFacing(layout, tile.wx, tile.wy)
+        if (def.kind !== 'road' && !townFrontTiles(tile.wx, tile.wy, rotation, def.size ?? 1).some(f => townRoadAt(layout, f.wx, f.wy))) {
+            const auto = townAutoFacing(layout, tile.wx, tile.wy, def.size ?? 1)
             if (auto !== null) rotation = auto
         }
-        const ok = left > 0 && townPlacementIssue(layout, ROAD_DEF, tile.wx, tile.wy, 0) === null
+        const ok = left > 0 && groundIssue(tile.wx, tile.wy, def.id, layout) === null
         out.push({ tile, rotation, ok, coins: 0 })
         if (ok) {
             left--
@@ -493,15 +811,14 @@ function pickUpDraft(id: string) {
         holdRoad()
         return
     }
-    const b = r.original.find(x => x.id === id)
+    const stored = r.stored.find(x => x.id === id)
+    const b = r.original.find(x => x.id === id) ?? stored
     const spot = r.placed[id]
     if (!b || !spot) return
     const { [id]: _spot, ...rest } = r.placed
     r.placed = rest
     if (b.type === 'road') { holdRoad(); return }
-    const shown = b.upgradingTo ?? b.level
-    const key = `${b.type}:${shown}:${b.level === 0 ? 'site' : ''}`
-    trayPick.value = key
+    trayPick.value = trayKey(b, !!stored)
     ghostType.value = b.type
     ghostRotation.value = spot.rotation
     movingId.value = null
@@ -521,21 +838,32 @@ function liftSelection() {
 
 function askSaveRedesign() {
     const r = redesign.value
-    if (!r || redesignSaveIssue.value) return
+    if (!r) return
+    // Pieces still in the tray: keep the draft for later, the town stays as it is.
+    if (redesignIsDraft.value) { saveRedesignDraft(); return }
+    if (redesignSaveIssue.value) return
+    const fromStorage = new Set(draftFromStorage.value)
     sound.play('open')
-    confirmRedesign.value = { moves: Object.values(r.placed), roads: Object.values(r.newRoads) }
+    confirmRedesign.value = {
+        moves: Object.entries(r.placed).filter(([id]) => !fromStorage.has(id)).map(([, s]) => s),
+        roads: Object.values(r.newRoads),
+        // Roads left in the tray are kept, not demolished.
+        store: [...r.toStore, ...trayRoads.value],
+        place: draftFromStorage.value
+    }
 }
 
 function saveRedesign() {
     const r = redesign.value
     if (!r) return
-    const moves = Object.entries(r.placed).map(([buildingId, s]) => ({ buildingId, ...s }))
+    const fromStorage = new Set(draftFromStorage.value)
+    const spots: TownSpot[] = Object.entries(r.placed).map(([buildingId, s]) => ({ buildingId, ...s }))
+    const moves = spots.filter(s => !fromStorage.has(s.buildingId))
+    const place = spots.filter(s => fromStorage.has(s.buildingId))
     const roads = Object.values(r.newRoads).map(s => ({ plotId: s.plotId, tileX: s.tileX, tileY: s.tileY }))
+    const store = [...r.toStore, ...trayRoads.value]
     confirmRedesign.value = null
-    run(() => town.redesign(moves, roads), (res) => {
-        const bits = [`${res.moved.length} placed`]
-        if (res.built.length) bits.push(`${res.built.length} new ${res.built.length === 1 ? 'road' : 'roads'}`)
-        if (res.removed.length) bits.push(`${res.removed.length} ${res.removed.length === 1 ? 'road' : 'roads'} removed`)
+    run(() => town.redesign(moves, roads, store, place), () => {
         redesign.value = null
         clearSelection()
         dropTrayPick()
@@ -568,8 +896,8 @@ const selNextLevel = computed(() => (selectedBuilding.value?.level ?? 0) + 1)
 const selMaxLevel = computed(() => selectedEntry.value?.maxLevel ?? town.constants.value.maxLevel)
 const selCanUpgrade = computed(() => !!selectedBuilding.value && !selPending.value && selectedBuilding.value.level > 0 && selectedBuilding.value.level < selMaxLevel.value)
 const selUpgradeCost = computed(() => selDef.value ? townLevelCost(selDef.value, selNextLevel.value) : { coins: 0, resources: {} })
-// The server quotes this: only it knows the town's mood and its research.
-const selUpgradeMs = computed(() => selectedBuilding.value?.nextUpgradeMs ?? 0)
+// The server quotes this: only it knows the town's mood and its monuments.
+const selUpgradeMs = computed(() => boostedMs(selectedBuilding.value?.nextUpgradeMs ?? 0))
 /** Residents this building wants. Warehouses want them too, not just workshops. */
 const selWorkersWanted = computed(() => selDef.value && selectedBuilding.value
     ? townWorkersFor(selDef.value, selectedBuilding.value.level)
@@ -621,24 +949,64 @@ const selAdjacency = computed(() => {
     return houseAdjacency(simBuildings.value, plot.x * TOWN_PLOT_SIZE + b.tileX, plot.y * TOWN_PLOT_SIZE + b.tileY)
 })
 
-/** Why the ghost cannot go where it hovers, from the same rules the server enforces. */
-const ghostIssue = computed<string | null>(() => {
-    const tile = hoveredTile.value
-    if (!tile || !ghostType.value) return null
+/** Why the ghost cannot go on a tile, from the same rules the server enforces. */
+function placementIssueAt(tile: { wx: number, wy: number }): string | null {
+    if (!ghostType.value) return null
     const def = getTownBuilding(ghostType.value)
     if (!def) return null
-    // A relocation only asks about the ground; a fresh build also wants a door.
-    if (redesign.value) return groundIssue(tile.wx, tile.wy)
+    // Placement only checks the ground; a disconnected building stays idle.
+    if (redesign.value) return groundIssue(tile.wx, tile.wy, def.id)
     if (movingId.value) return townGroupMoveIssue(simBuildings.value, [{ id: movingId.value, wx: tile.wx, wy: tile.wy, rotation: ghostRotation.value }])
-    return townPlacementIssue(simBuildings.value, def, tile.wx, tile.wy, ghostRotation.value)
+    // Out of storage costs nothing; only the ground, and a crew for a paused job.
+    if (placingStored.value) return townPlacementIssue(simBuildings.value, def, tile.wx, tile.wy, ghostRotation.value) ?? storedCrewIssue(placingStored.value)
+    return townPlacementIssue(simBuildings.value, def, tile.wx, tile.wy, ghostRotation.value) ?? (redesign.value ? null : ghostBlocker.value)
+}
+
+/** The server's word for a build with no crew free; the one blocker a rush gets past. */
+const NO_CREWS = 'Every builder is busy'
+
+/** What the next one costs to put down: free while research carries a monument over. */
+const ghostCost = computed(() => {
+    const type = ghostType.value
+    if (!type || movingId.value || placingStored.value || redesign.value) return null
+    const entry = town.catalogById.value.get(type)
+    if (!entry) return null
+    if (monumentCredit(type)) return { coins: 0, resources: {} as Record<string, number> }
+    return town.nextCost.value[type] ?? entry.cost
 })
+
+/**
+ * Why no tile at all would take the held building right now (crews, coins,
+ * the town's cap), so the ghost turns red before the click, not after.
+ */
+const ghostBlocker = computed<string | null>(() => {
+    const type = ghostType.value
+    const cost = ghostCost.value
+    const entry = type ? town.catalogById.value.get(type) : null
+    if (!type || !cost || !entry) return null
+    const capped = countIssue(type)
+    if (capped) return capped
+    if (entry.kind === 'monument') {
+        if (!monumentCredit(type) && monumentCrewNote.value) return monumentCrewNote.value
+    } else if (entry.kind !== 'road' && buildersFree.value === 0) {
+        return NO_CREWS
+    }
+    if (balance.value < cost.coins) return 'Not enough coins'
+    for (const [id, q] of Object.entries(cost.resources)) {
+        if ((town.inventory.value[id] ?? 0) < q) return `Not enough ${town.resourceById.value.get(id)?.name.toLowerCase() ?? id}`
+    }
+    return null
+})
+
+const ghostIssue = computed<string | null>(() => hoveredTile.value ? placementIssueAt(hoveredTile.value) : null)
 
 // ── Drag placement ──────────────────────────────────────────────────────────
 // A drag paints a run of tiles. Each one is judged against the layout the tiles
 // before it in the same drag would create, so a street connects to itself and
 // the pads on the ground read exactly as the server will decide.
 
-function planTiles(tiles: SceneTile[]) {
+function planTiles(cursorTiles: SceneTile[]) {
+    const tiles = cursorTiles.map(anchorTile)
     const type = ghostType.value
     const def = type ? getTownBuilding(type) : null
     if (!def || tiles.length === 0) return []
@@ -648,19 +1016,25 @@ function planTiles(tiles: SceneTile[]) {
     // What the drag has left to spend, so the pads stop where the server will.
     let coinsLeft = balance.value
     const goodsLeft: Record<string, number> = { ...town.inventory.value }
+    // Every building but a road takes a crew, so the pads stop when they run out.
+    const needsCrew = def.kind !== 'road' && def.kind !== 'monument'
+    let crewsLeft = buildersFree.value
     const out: { tile: SceneTile, rotation: number, ok: boolean, coins: number }[] = []
     for (const tile of tiles) {
         let rotation = ghostRotation.value
-        if (def.kind !== 'road' && townPlacementIssue(layout, def, tile.wx, tile.wy, rotation) !== null) {
-            const auto = townAutoFacing(layout, tile.wx, tile.wy)
+        if (def.kind !== 'road' && !townFrontTiles(tile.wx, tile.wy, rotation, def.size ?? 1).some(f => townRoadAt(layout, f.wx, f.wy))) {
+            const auto = townAutoFacing(layout, tile.wx, tile.wy, def.size ?? 1)
             if (auto !== null) rotation = auto
         }
         let ok = townPlacementIssue(layout, def, tile.wx, tile.wy, rotation) === null
+            && townBuildingCountIssue(def, counts.get(def.id) ?? 0) === null
+            && (!needsCrew || crewsLeft > 0)
         const cost = townPlaceCost(def, counts.get(def.id) ?? 0)
         if (ok && (cost.coins > coinsLeft || Object.entries(cost.resources).some(([id, q]) => (goodsLeft[id] ?? 0) < q))) ok = false
         const coins = ok ? cost.coins : 0
         out.push({ tile, rotation, ok, coins })
         if (ok) {
+            if (needsCrew) crewsLeft--
             coinsLeft -= cost.coins
             for (const [id, q] of Object.entries(cost.resources)) goodsLeft[id] = (goodsLeft[id] ?? 0) - q
             counts.set(def.id, (counts.get(def.id) ?? 0) + 1)
@@ -690,7 +1064,16 @@ const dragQuote = computed(() => {
 })
 
 function onDragTiles(tiles: SceneTile[]) {
+    const grew = tiles.length > dragTiles.value.length
     dragTiles.value = tiles
+    // The first tile is every plain click too; only a run that grows ticks.
+    if (!grew || tiles.length < 2) return
+    // Each tile the run takes ticks a semitone higher, up to two octaves; a
+    // tile it cannot take knocks low instead.
+    const plan = dragPlan.value
+    const ok = plan.filter(p => p.ok).length
+    if (plan[plan.length - 1]?.ok === false) sound.play('tick', 0.5)
+    else sound.play('tick', Math.pow(2, Math.min(24, Math.max(0, ok - 1)) / 12))
 }
 
 /**
@@ -702,7 +1085,7 @@ function onPlaceLine(tiles: SceneTile[]) {
     if (!ghostType.value || busy.value) return
     if (redesign.value) { placeDraftLine(tiles); return }
     // A relocation is one building by definition — the drag only ever adds.
-    if (movingId.value) { dragTiles.value = []; return }
+    if (movingId.value || placingStored.value) { dragTiles.value = []; return }
     const plan = planTiles(tiles).filter(p => p.ok)
     dragTiles.value = []
     if (plan.length === 0) {
@@ -710,8 +1093,11 @@ function onPlaceLine(tiles: SceneTile[]) {
         toast.add({ title: 'Nothing could go there', color: 'warning' })
         return
     }
-    const items = plan.map(p => ({ plotId: p.tile.plotId, tileX: p.tile.tileX, tileY: p.tile.tileY, type: ghostType.value!, rotation: p.rotation }))
-    run(() => town.placeBuildings(items.slice(0, TOWN_MAX_DRAG_TILES)), undefined, 'place')
+    const type = ghostType.value
+    const items = plan.map(p => ({ plotId: p.tile.plotId, tileX: p.tile.tileX, tileY: p.tile.tileY, type, rotation: p.rotation }))
+    run(() => town.placeBuildings(items.slice(0, TOWN_MAX_DRAG_TILES)), () => {
+        if (ghostType.value === type && countIssue(type)) ghostType.value = null
+    }, type === 'road' ? 'road' : 'place')
 }
 
 // ── Selection ───────────────────────────────────────────────────────────────
@@ -778,7 +1164,9 @@ function clearSelection() {
 
 /** The Delete key or the toolbar's Demolish on a selection. */
 const confirmBulk = ref<{ ids: string[] } | null>(null)
-function demolishMany(ids: string[]) {
+function demolishMany(all: string[]) {
+    // Monuments stand for good, so a band that caught one leaves it be.
+    const ids = all.filter(id => !getTownMonument(sceneBuildings.value.find(b => b.id === id)?.type ?? ''))
     if (ids.length === 0) return
     sound.unlock()
     confirmBulk.value = { ids }
@@ -825,7 +1213,7 @@ function startGroupMove() {
     trayPick.value = null
     selectedBuildingId.value = null
     buildOpen.value = false
-    sound.play('click')
+    sound.play('pickup')
 }
 
 const moveGhosts = computed(() => moveSelection.value?.items ?? null)
@@ -846,15 +1234,18 @@ const moveIssue = computed(() => {
     return tile ? groupIssueFor(groupTargetsAt(tile.wx, tile.wy)) : null
 })
 
-function rotateGroup() {
+function rotateGroup(dir: 1 | -1 = 1) {
     const sel = moveSelection.value
     if (!sel) return
     // The whole block turns a quarter clockwise about the tile under the cursor,
     // every building turning with it, so a street with houses along it comes
     // down as the same street facing the other way. The offset map is the same
     // one TOWN_FACING follows, which is what keeps every door on its road.
-    sel.items = sel.items.map(i => ({ ...i, dx: i.dy, dy: -i.dx, rotation: (i.rotation + 1) % 4 }))
-    sound.play('click')
+    // Shift turns it back the other way: the exact inverse of that map.
+    sel.items = dir === 1
+        ? sel.items.map(i => ({ ...i, dx: i.dy, dy: -i.dx, rotation: (i.rotation + 1) % 4 }))
+        : sel.items.map(i => ({ ...i, dx: -i.dy, dy: i.dx, rotation: (i.rotation + 3) % 4 }))
+    sound.play('rotate')
 }
 
 /**
@@ -869,8 +1260,8 @@ async function commitGroupMove(tile: { plotId: string, tileX: number, tileY: num
     if (!targets) return
     const issue = groupIssueFor(targets)
     if (issue) {
-        sound.play('error')
-        toast.add({ title: issue, color: 'warning' })
+        // A carried block shows no reason over the cursor, so it always says why.
+        denyPlacement(issue, null)
         return
     }
     const moves = targets.map((t) => {
@@ -908,6 +1299,48 @@ const selNuisance = computed(() => {
 
 /** How well the selected workshop's inputs reach it — null unless it consumes goods. */
 const selSupply = computed(() => selectedBuilding.value?.supply ?? null)
+/**
+ * The deliveries feeding the selected workshop, each with the road it travels.
+ * The server says who supplies whom and what survives the trip; the route
+ * itself is walked here, because the client already holds the road layout and
+ * shipping a path per link in every state response would be most of the
+ * payload for something only the selected building ever draws.
+ *
+ * The label is written here too — resource names and number formatting live on
+ * this side, and the scene should not need either.
+ */
+const supplyRoutes = computed(() => {
+    const links = selSupply.value?.links
+    const sel = selectedBuilding.value
+    if (!links?.length || !sel) return []
+    const out: { producerId: string, path: { wx: number, wy: number }[], label: string }[] = []
+    for (const link of links) {
+        const path = townSupplyPath(simBuildings.value, link.producerId, sel.id, town.serverNow())
+        // No path means the layout moved under a state response still in
+        // flight; drawing a straight line through the houses would be a lie.
+        if (!path.length) continue
+        const name = town.resourceById.value.get(link.resource)?.name ?? link.resource
+        const pct = Math.round(link.efficiency * 100)
+        // Stops, not tiles. The route draws both front doors and everything
+        // between, so a trip the allocator calls 11 tiles is 12 markers on the
+        // ground — and a mayor counting them should land on the same number.
+        const stops = `${path.length} ${path.length === 1 ? 'stop' : 'stops'}`
+        // Per hour like every other rate on screen; the allocator's per-tick
+        // figures are an implementation detail (see perHour).
+        const unit: 'h' | 'day' = link.sent * ticksPerHour.value < 1 ? 'day' : 'h'
+        const per = unit === 'day' ? '/day' : '/h'
+        const sent = ioRate(link.sent, unit)
+        const lands = ioRate(link.sent * link.efficiency, unit)
+        out.push({
+            producerId: link.producerId,
+            path,
+            label: pct >= 100
+                ? `${name} · ${stops} · ${sent}${per}, all of it arrives`
+                : `${name} · ${stops} · ${sent}${per} sent, ${lands}${per} arrives (${pct}%)`
+        })
+    }
+    return out
+})
 /** Per-hour rate the building really runs at: recipe × level × throughput. */
 const selUnit = computed(() => selectedEntry.value ? ioUnit(selectedEntry.value) : 'h')
 function selRate(perLevel: number) {
@@ -915,6 +1348,10 @@ function selRate(perLevel: number) {
     if (!b) return '0'
     return ioRate(perLevel * b.level * (b.throughput ?? 1), selUnit.value)
 }
+/** The selected building's monument, when it is one. */
+const selMonument = computed(() => selectedBuilding.value ? getTownMonument(selectedBuilding.value.type) ?? null : null)
+/** What the selected monument gives now, in words. */
+const selMonumentNow = computed(() => selMonument.value && selectedBuilding.value ? townBonusLines(townMonumentEffect(selMonument.value, selectedBuilding.value.level)) : [])
 /** Hovering Upgrade swaps the cost for what the next level changes. */
 const previewUpgrade = ref(false)
 /** Before → after for the next level, at today's staffing and supply. */
@@ -924,6 +1361,16 @@ const selUpgradePreview = computed(() => {
     if (!b || !e || e.kind === 'road') return []
     const next = b.level + 1
     const rows: { id?: string, ico?: string, label: string, from: string, to: string, up: boolean, tip?: string }[] = []
+    if (selMonument.value) {
+        // One line per perk the next stage adds: what the town has, and what it will have.
+        const gained = selMonument.value.stages[b.level] ?? {}
+        const before = townMonumentEffect(selMonument.value, b.level)
+        const after = townMonumentEffect(selMonument.value, next)
+        for (const key of Object.keys(gained) as (keyof typeof gained)[]) {
+            rows.push({ ico: 'i-lucide-landmark', label: townBonusLabel(key), from: before[key] ? townBonusValue(key, before[key]) : '0', to: townBonusValue(key, after[key] ?? 0), up: true })
+        }
+        return rows
+    }
     if (e.kind === 'industry') {
         const rate = (q: number, level: number) => ioRate(q * level * (b.throughput ?? 1), selUnit.value)
         for (const [id, q] of Object.entries(e.outputs)) {
@@ -975,7 +1422,9 @@ const selSupplyFix = computed(() => {
 function upgradeSelected() {
     const b = selectedBuilding.value
     if (!b) return
-    if (buildersFree.value === 0) { openBlocked({ kind: 'upgrade', buildingId: b.id }); return }
+    if (selMonument.value) {
+        if (monumentCrewNote.value) { toast.add({ title: monumentCrewNote.value, color: 'warning' }); return }
+    } else if (buildersFree.value === 0) { openBlocked({ kind: 'upgrade', buildingId: b.id }); return }
     run(() => town.upgradeBuilding(b.id), undefined, 'upgrade')
 }
 function rushSelected() {
@@ -1074,9 +1523,22 @@ function openMarket(resource?: string) {
     if (resource) marketResource.value = resource
     if (windowOpen.value !== 'market') openWindow('market')
 }
+/**
+ * Where a gain should burst from: the button just pressed (or the card it
+ * sits in), read before the request so a button that vanishes still counts.
+ */
+function pressedAt(closest?: string): DOMRect | null {
+    const el = document.activeElement
+    if (!el || el === document.body) return null
+    return (closest ? el.closest(closest) ?? el : el).getBoundingClientRect()
+}
+
 function sellFloor(resource: string, quantity: number) {
+    const at = pressedAt()
     run(() => town.sellToFloor(resource, quantity), (res) => {
         sound.play(res.total >= 100_000 ? 'bigcoin' : 'coin')
+        fx.reward(at, { coins: res.total }, { scale: res.total >= 100_000 ? 1.3 : 0.8 })
+        marketDayFloat(at, res.marketBonus)
     })
 }
 function placeOrder(resource: string, side: 'buy' | 'sell', price: number, quantity: number) {
@@ -1089,15 +1551,26 @@ function placeOrder(resource: string, side: 'buy' | 'sell', price: number, quant
     })
 }
 function convertJewels(gems: number) {
-    run(() => town.convertJewels(gems), () => {
-        sound.play('bigcoin')
+    const at = pressedAt()
+    run(() => town.convertJewels(gems), (res) => {
+        sound.play('gem')
+        fx.reward(at, { gems: res.gems || gems })
     })
 }
 function sellBulk(items: { resource: string, quantity: number }[]) {
     if (!items.length) return
+    const at = pressedAt()
     run(() => town.sellBulk(items), (res) => {
         sound.play(res.total >= 100_000 ? 'bigcoin' : 'coin')
+        fx.reward(at, { coins: res.total }, { scale: res.total >= 100_000 ? 1.5 : 1 })
+        marketDayFloat(at, res.marketBonus)
     })
+}
+/** The market-day coins on top of a sale, floated just above the sale's own amount. */
+function marketDayFloat(at: DOMRect | null, bonus: number | undefined) {
+    if (!bonus || bonus <= 0) return
+    const p = at ? { x: at.left + at.width / 2, y: at.top + at.height / 2 } : null
+    setTimeout(() => fx.float(p, [{ icon: 'coin', text: `+${formatNumber(bonus)} market day`, tone: 'gold' }], { dy: -56 }), 180)
 }
 function cancelOrder(orderId: string) {
     run(() => town.cancelOrder(orderId), undefined, 'close')
@@ -1106,7 +1579,10 @@ function cancelOrder(orderId: string) {
 // ── Milestones ──
 const claimable = computed(() => town.claimableMilestones.value.length)
 function claimMilestone(id: string) {
-    run(() => town.claimMilestone(id), undefined, 'bigcoin')
+    const at = pressedAt('.goal')
+    run(() => town.claimMilestone(id), (res) => {
+        fx.reward(at, { coins: res.reward, gems: res.gems }, { scale: 1.3 })
+    }, 'bigcoin')
 }
 watch(claimable, (n, prev) => {
     if (prev !== undefined && n > prev) {
@@ -1135,6 +1611,27 @@ const welcomeRows = computed(() => Object.entries(welcome.value?.delta ?? {})
     .map(([id, qty]) => ({ id, qty, def: town.resourceById.value.get(id) }))
     .sort((a, b) => b.qty - a.qty))
 const welcomeValue = computed(() => welcomeRows.value.reduce((s, r) => s + Math.max(0, r.qty) * (r.def?.floorPrice ?? 0), 0))
+const welcomeGains = computed(() => welcomeRows.value.filter(r => r.qty > 0))
+const welcomeLosses = computed(() => welcomeRows.value.filter(r => r.qty < 0))
+/** The headline worth counts up from zero as the card opens. */
+const welcomeShownValue = ref(0)
+let welcomeRaf = 0
+watch(welcome, (w) => {
+    cancelAnimationFrame(welcomeRaf)
+    welcomeShownValue.value = 0
+    if (!w) return
+    const target = welcomeValue.value
+    if (motion.reduced.value || target <= 0) { welcomeShownValue.value = target; return }
+    const start = performance.now()
+    const step = (t: number) => {
+        if (welcome.value !== w) return
+        const k = Math.min(1, Math.max(0, t - start) / 900)
+        welcomeShownValue.value = Math.round(target * (1 - Math.pow(1 - k, 3)))
+        if (k < 1) welcomeRaf = requestAnimationFrame(step)
+    }
+    welcomeRaf = requestAnimationFrame(step)
+}, { immediate: true })
+onBeforeUnmount(() => cancelAnimationFrame(welcomeRaf))
 
 // ── Help ──
 const helpOpen = ref(false)
@@ -1147,6 +1644,49 @@ onMounted(() => {
         }
     } catch { /* storage unavailable */ }
 })
+
+// ── Daily: the mayor streak and the town hall contracts ──
+const streak = useTownStreak()
+const contracts = useTownContracts(() => town.inventory.value)
+/** Something waiting in the Daily window: a streak step to claim, a contract the town can fill, or the contracts bonus. */
+const dailyBadge = computed(() => streak.claimableCount.value + contracts.readyCount.value + (contracts.bonus.value.claimable ? 1 : 0))
+// Both need a town: refetch only what came back empty before it was founded.
+// A fetch still in flight on a normal load is left alone, since cutting it off
+// would drop the response that unlocked today's step.
+watch(town.initialized, (v) => {
+    if (!v) return
+    if (streak.data.value?.initialized === false) streak.refresh()
+    if (contracts.error.value) contracts.refresh()
+})
+/**
+ * The first visit of a new day opens the track, once the welcome-back card
+ * and the help are out of the way, so the day's step is the first thing seen.
+ * `advancedToday` is latched: a later refetch reports false, and must not
+ * cancel an open that is only waiting on the welcome card.
+ */
+let dailyOpened = false
+const dailyDue = ref(false)
+watch(streak.advancedToday, (v) => { if (v && !dailyOpened) dailyDue.value = true }, { immediate: true })
+watch(() => dailyDue.value && !welcome.value && !helpOpen.value && town.initialized.value, async (ready) => {
+    if (!ready) return
+    // The welcome-back card comes from the same state load and may land a tick
+    // later; once it does, this fires again when it closes.
+    await nextTick()
+    if (!dailyDue.value || welcome.value || helpOpen.value) return
+    dailyDue.value = false
+    dailyOpened = true
+    // Busy with something else: the dock badge is enough.
+    if (windowOpen.value || buildOpen.value || ghostType.value || redesign.value) return
+    windowOpen.value = 'daily'
+}, { immediate: true })
+function onStreakChanged() {
+    town.refresh()
+}
+function onContractDelivered(res: TownContractDelivery) {
+    town.refresh()
+    // The set is complete: a fanfare as the bonus button pops in, after the stamp.
+    if (res.bonusReady) setTimeout(() => sound.play('complete'), motion.reduced.value ? 0 : 550)
+}
 
 // ── Happiness / needs popover ──
 const needs = computed(() => town.needs.value)
@@ -1175,6 +1715,7 @@ const scoreRows = computed(() => {
     }
     if (b.parks) rows.push({ label: 'Parks', icon: 'i-lucide-trees', points: b.parks, hint: `${formatNumber(b.layout.residentsWithPark)} of ${formatNumber(b.layout.residents)} residents live near one. Averaged over every home.` })
     if (b.industry) rows.push({ label: 'Industry', icon: 'i-lucide-factory', points: b.industry, hint: `${formatNumber(b.layout.residentsWithIndustry)} residents live beside workshops. Averaged over every home, no ceiling.` })
+    if (b.monuments) rows.push({ label: 'Colosseum', icon: 'i-lucide-landmark', points: b.monuments, hint: 'Felt by the whole town' })
     if (b.crowding) rows.push({ label: 'Overcrowded', icon: 'i-lucide-users', points: b.crowding, hint: 'More jobs than residents' })
     if (starving.value) rows.push({ label: 'Starving', icon: 'i-lucide-frown', points: -12, hint: 'No food in store at all' })
     return rows
@@ -1215,6 +1756,46 @@ const happiness = computed(() => town.state.value?.happiness ?? 50)
 const speed = computed(() => town.state.value?.speedMultiplier ?? 0.75)
 const popCap = computed(() => town.state.value?.popCap ?? 0)
 
+// ── Boosts ──
+const BOOST_INFO: Record<TownBoostKind, { name: string, tip: string }> = {
+    build: { name: 'Builder\'s rush', tip: 'Every build and upgrade runs at double speed.' },
+    production: { name: 'Production surge', tip: 'Workshops make twice as much, and use twice the inputs.' },
+    market: { name: 'Market day', tip: 'The town hall pays 1.5× for your goods.' },
+    builder: { name: 'Free builder', tip: 'A borrowed crew takes on one more job at a time.' }
+}
+/** Short countdown for a buff chip: "43m", "23h 10m", "40s". */
+function boostLeft(ms: number) {
+    const s = Math.max(0, Math.ceil(ms / 1000))
+    if (s < 60) return `${s}s`
+    const m = Math.ceil(s / 60)
+    if (m < 60) return `${m}m`
+    return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`
+}
+const activeBoosts = computed(() => {
+    const b = town.boosts.value
+    return (['build', 'production', 'market', 'builder'] as const)
+        .filter(kind => b[kind] !== null && b[kind]! > now.value)
+        .map((kind) => {
+            const info = BOOST_INFO[kind]
+            const left = boostLeft(b[kind]! - now.value)
+            let tip = `${info.name}: ${info.tip}`
+            if (kind === 'market') {
+                tip += town.marketBonusLeft.value > 0
+                    ? `\n${formatNumber(town.marketBonusLeft.value)} bonus coins left to earn.`
+                    : '\nThe bonus budget is spent.'
+            }
+            return { kind, name: info.name, left, tip: `${tip}\nEnds in ${left}.` }
+        })
+})
+/** Production surge: workshop rates shown doubled, with a ×2 marker. */
+const productionMult = computed(() => town.boostMultiplier.value.production)
+/** A build job's length as it would run if started now, the rush counted in. */
+function boostedMs(ms: number) {
+    return townBoostedJobMs(ms, now.value, town.boosts.value.build)
+}
+/** The borrowed crew's countdown, for the builders chip and popover. */
+const tempCrewLeft = computed(() => town.builders.value.tempBuilderUntil ? boostLeft(town.builders.value.tempBuilderUntil - now.value) : null)
+
 // ── Builders ──
 // One crew per running build or upgrade. This is the pacing lever: a town can
 // only grow on as many fronts as it has crews, and the rest cost gems.
@@ -1252,7 +1833,7 @@ const upgradeCandidates = computed(() => {
     for (const b of town.buildings.value) {
         const entry = town.catalogById.value.get(b.type)
         const def = getTownBuilding(b.type)
-        if (!entry || !def || entry.kind === 'road') continue
+        if (!entry || !def || entry.kind === 'road' || entry.kind === 'monument') continue
         if (b.level <= 0 || b.upgradingTo !== null || b.completesAt > now.value) continue
         if (b.level >= (entry.maxLevel ?? cap)) continue
         const cost = townLevelCost(def, b.level + 1)
@@ -1269,7 +1850,7 @@ const recommendedUpgrades = computed(() => rankTownUpgrades({
     residents: popCap.value,
     happiness: happiness.value,
     storageCap: storageCap.value,
-    netPerHour: Object.fromEntries(Object.entries(town.netPerTick.value).map(([id, n]) => [id, n * ticksPerHour.value])),
+    netPerHour: Object.fromEntries(Object.entries(town.boostedNetPerTick.value).map(([id, n]) => [id, n * ticksPerHour.value])),
     stock: town.inventory.value
 }, upgradeCandidates.value))
 
@@ -1286,7 +1867,7 @@ function upgradeRecommended(id: string) {
  * wait without hunting for the building on the map.
  */
 const runningJobs = computed(() => town.buildings.value
-    .filter(b => b.completesAt > now.value && (b.level === 0 || b.upgradingTo !== null))
+    .filter(b => b.completesAt > now.value && (b.level === 0 || b.upgradingTo !== null) && !getTownMonument(b.type))
     .map(b => ({
         id: b.id,
         name: town.catalogById.value.get(b.type)?.name ?? b.type,
@@ -1295,7 +1876,7 @@ const runningJobs = computed(() => town.buildings.value
         first: b.level === 0,
         remainingMs: b.completesAt - now.value,
         /** How far along, 0..1 — the server quotes the job's full length. */
-        progress: Math.min(1, Math.max(0, 1 - (b.completesAt - now.value) / Math.max(1, b.jobMs ?? 1))),
+        progress: townJobProgress(b.completesAt, b.jobMs, now.value, town.boosts.value.build),
         gems: townRushGemCost(b.completesAt - now.value)
     }))
     .sort((a, b) => a.gems - b.gems))
@@ -1317,16 +1898,9 @@ async function rushAndContinue() {
     if (!job || !next) return
     blocked.value = null
     await run(() => town.rushBuilding(job.id), undefined, 'rush')
-    if (next.kind === 'build') pickBuild(next.type)
+    // Still holding it (the block came from a click on the map): keep holding it.
+    if (next.kind === 'build') { if (ghostType.value !== next.type) pickBuild(next.type) }
     else await run(() => town.upgradeBuilding(next.buildingId), undefined, 'upgrade')
-}
-/** A dot on the dock while something is in the lab. */
-const researchRunning = computed(() => !!town.researchBoard.value?.active)
-function startResearch(id: string) {
-    run(() => town.startResearch(id), () => {
-        town.refreshResearch()
-        town.refresh()
-    }, 'upgrade')
 }
 
 function hireBuilder() {
@@ -1334,7 +1908,8 @@ function hireBuilder() {
     run(() => town.hireBuilder(), undefined, 'coin')
 }
 const workersDemanded = computed(() => town.state.value?.workersDemanded ?? 0)
-const incomePerDay = computed(() => town.state.value?.floorIncomePerDay ?? 0)
+// Floor income counts the workshops only, so a surge doubles all of it.
+const incomePerDay = computed(() => (town.state.value?.floorIncomePerDay ?? 0) * productionMult.value)
 const storageCap = computed(() => town.state.value?.storageCap ?? 0)
 const ticksPerHour = computed(() => (3_600_000 / town.constants.value.tickMs) * speed.value)
 /** Per-tick amounts are an implementation detail; every number the player sees is per hour. */
@@ -1345,14 +1920,15 @@ function perHour(perTick: number) {
 function ioUnit(c: { outputs: Record<string, number> }): 'h' | 'day' {
     return Object.values(c.outputs).some(q => q * ticksPerHour.value < 1) ? 'day' : 'h'
 }
+/** A workshop's rate as it runs right now: a production surge doubles it. */
 function ioRate(q: number, unit: 'h' | 'day') {
-    const value = q * ticksPerHour.value * (unit === 'day' ? 24 : 1)
+    const value = q * ticksPerHour.value * productionMult.value * (unit === 'day' ? 24 : 1)
     return value < 10 ? String(Math.round(value * 10) / 10) : formatNumber(Math.round(value))
 }
 /** A day of output priced at the floor, good by good — which good actually pays. */
 const incomeRows = computed(() => town.resources.value
     .map((r) => {
-        const perDay = Math.round((town.netPerTick.value[r.id] ?? 0) * ticksPerHour.value * 24)
+        const perDay = Math.round((town.boostedNetPerTick.value[r.id] ?? 0) * ticksPerHour.value * 24)
         return { id: r.id, name: r.name, perDay, value: Math.round(perDay * r.floorPrice) }
     })
     .filter(r => r.perDay > 0)
@@ -1372,7 +1948,7 @@ const inventoryRows = computed(() => town.resources.value
     .map(r => ({
         ...r,
         amount: town.inventory.value[r.id] ?? 0,
-        perHour: Math.round((town.netPerTick.value[r.id] ?? 0) * ticksPerHour.value)
+        perHour: Math.round((town.boostedNetPerTick.value[r.id] ?? 0) * ticksPerHour.value)
     }))
     .filter(r => r.amount > 0 || producedIds.value.has(r.id)))
 function toggleSound() {
@@ -1406,12 +1982,16 @@ const terrainLegend = computed(() => TOWN_TERRAINS.map(t => ({
 function onKey(e: KeyboardEvent) {
     if (townIsTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey || e.repeat) return
     const modal = welcome.value || helpOpen.value || confirmDemolish.value || confirmBulk.value || confirmRedesign.value
+    // Any dialog over the map: the build keys must not act behind it.
+    const dialog = modal || blocked.value || buildersOpen.value || confirmPlot.value || confirmListing.value || confirmSellPlot.value
     if (e.code === 'KeyR' && !modal && (ghostType.value || moveSelection.value)) {
         e.preventDefault()
-        if (moveSelection.value) rotateGroup()
-        else rotatePlacement()
+        const dir = e.shiftKey ? -1 : 1
+        if (moveSelection.value) rotateGroup(dir)
+        else rotatePlacement(dir)
         return
     }
+    if (e.code === 'KeyC' && !dialog && !windowOpen.value) { copyBuilding(); return }
     if ((e.key === 'Delete' || e.key === 'Backspace') && !modal && (selectedIds.value.length || selectedBuilding.value)) {
         e.preventDefault()
         if (selectedIds.value.length) demolishMany(selectedIds.value)
@@ -1446,13 +2026,28 @@ function onKey(e: KeyboardEvent) {
         else if (welcome.value) welcome.value = null
         else if (helpOpen.value) helpOpen.value = false
         else closeAll()
-    } else if ((e.key === 'm' || e.key === 'M') && selectedIds.value.length > 1) startGroupMove()
+    } else if (buildOpen.value && !dialog && /^Digit[1-9]$/.test(e.code) && buildTier.value === STORAGE_TAB) {
+        const card = storageCards.value[Number(e.code.slice(5)) - 1]
+        if (card) startPlaceStored(card.item, true)
+    } else if (buildOpen.value && !dialog && /^Digit[1-9]$/.test(e.code)) {
+        const card = tierEntries.value[Number(e.code.slice(5)) - 1]
+        if (card && !cardLocked(card)) pickBuild(card.id)
+    } else if (buildOpen.value && !dialog && e.key === 'Tab') {
+        e.preventDefault()
+        cycleTier(e.shiftKey ? -1 : 1)
+    } else if ((e.key === 'u' || e.key === 'U') && !dialog && selectedIds.value.length > 1) { if (!busy.value) upgradeSelection() }
+    else if ((e.key === 'u' || e.key === 'U') && !dialog && selectedBuilding.value && selCanUpgrade.value) {
+        // The same gate as the button: no key press may do what a disabled button cannot.
+        if (!busy.value && canAfford(selUpgradeCost.value) && !(selMonument.value && monumentCrewNote.value)) upgradeSelected()
+        else sound.play('deny')
+    }
+    else if ((e.key === 'm' || e.key === 'M') && selectedIds.value.length > 1) startGroupMove()
     else if ((e.key === 'm' || e.key === 'M') && selectedBuilding.value) startMove()
     else if (e.key === 'b' || e.key === 'B') toggleBuild()
     else if (e.key === 'h' || e.key === 'H') openMarket()
     else if (e.key === 't' || e.key === 'T') openWindow('goals')
+    else if (e.key === 'y' || e.key === 'Y') openWindow('daily')
     else if (e.key === 'l' || e.key === 'L') openWindow('mayors')
-    else if (e.key === 'c' || e.key === 'C') openWindow('research')
     else if (e.key === 'p' || e.key === 'P') openWindow('land')
     else if (e.key === 'g' || e.key === 'G') toggleTerrain()
 }
@@ -1527,15 +2122,18 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             :expansion-affordable="canBuyPlot"
             :neighbours="town.world.value.towns"
             :effect-radii="effectRadii"
+            :supply-routes="supplyRoutes"
+            :supply-bonus-tiles="town.state.value?.monumentBonus?.supplyTiles ?? 0"
             :ghost-radius="ghostRadius"
             :ghost-issue="ghostIssue"
-            :moving-id="movingId"
+            :moving-id="movingId ?? placingStored?.id ?? null"
             :terrain-overlay="terrainOverlay"
             :selected-ids="selectedIds"
             :move-ghosts="moveGhosts"
             :move-issue="moveIssue"
             :drag-valid="dragValid"
             :reduced-motion="motion.reduced.value"
+            :boosts="town.boosts.value"
             @hover-tile="onHoverTile"
             @select-tile="onSelectTile"
             @select-building="onSelectBuilding"
@@ -1579,14 +2177,22 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 <div class="hud-hover" @mouseenter="buildersPop = true" @mouseleave="buildersPop = false">
                     <button class="g-chip g-chip-btn" :class="buildersFree === 0 ? 'g-chip-warn' : ''" @click="openBuilders">
                         <UIcon name="i-lucide-hammer" class="g-ico" />
-                        <b>{{ buildersFree }}<span class="g-sub">/{{ town.builders.value.owned }}</span></b>
+                        <b>{{ buildersFree }}<span class="g-sub">/</span><span :class="tempCrewLeft ? 'crew-temp' : 'g-sub'">{{ town.builders.value.total }}</span></b>
                     </button>
 
                     <Transition name="fade">
                         <div v-if="buildersPop" class="moodpop is-builders">
                             <div>
                                 <span class="g-label">In progress</span>
-                                <p class="moodpop-sub">{{ buildersFree }} of {{ town.builders.value.owned }} builders free</p>
+                                <p class="moodpop-sub">{{ buildersFree }} of {{ town.builders.value.total }} builders free</p>
+                            </div>
+                            <div v-if="tempCrewLeft" class="crew-row">
+                                <TownBoostIcon kind="builder" :size="22" />
+                                <span class="rec-main">
+                                    <b>Free builder</b>
+                                    <span class="moodpop-sub">One extra crew, on loan</span>
+                                </span>
+                                <span class="crew-row-time">{{ tempCrewLeft }}</span>
                             </div>
                             <div class="moodpop-group">
                                 <div v-for="j in runningJobs" :key="j.id" class="job-row">
@@ -1720,11 +2326,12 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <div class="g-chip">
                         <UIcon name="i-lucide-trending-up" class="g-ico is-green" />
                         <b>{{ formatNumber(incomePerDay) }}</b><span class="g-sub">/day if sold</span>
+                        <em v-if="productionMult > 1" class="boost-x">×2</em>
                     </div>
 
                     <Transition name="fade">
                         <div v-if="incomeOpen" class="moodpop is-income">
-                            <span class="g-label">Per day, sold at floor</span>
+                            <span class="g-label">Per day, sold at floor<template v-if="productionMult > 1"> · production surge ×2</template></span>
                             <div class="moodpop-group">
                                 <div v-for="r in incomeRows" :key="r.id" class="income-row">
                                     <span class="income-ico"><TownAsset :id="r.id" /></span>
@@ -1741,14 +2348,31 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         </div>
                     </Transition>
                 </div>
+                <!-- Timed boosts: one chip each while it runs -->
+                <TransitionGroup name="buff">
+                    <div
+                        v-for="b in activeBoosts"
+                        :key="b.kind"
+                        class="g-chip buff"
+                        :class="[`is-${b.kind}`, motion.reduced.value ? 'is-calm' : '']"
+                        :data-tip-below="b.tip"
+                        role="status"
+                        :aria-label="`${b.name}, ${b.left} left`"
+                    >
+                        <TownBoostIcon :kind="b.kind" :size="20" />
+                        <span class="buff-name">{{ b.name }}</span>
+                        <b class="buff-time">{{ b.left }}</b>
+                    </div>
+                </TransitionGroup>
             </div>
 
             <!-- Top-right controls -->
             <div class="corner">
-                <button v-if="town.initialized.value" class="g-icon" :class="redesign ? 'is-on' : ''" data-tip-below="Redesign — pick the whole town up and lay it out again" @click="redesign ? cancelRedesign() : startRedesign()">
+                <button v-if="town.initialized.value" class="g-icon draft-btn" :class="redesign ? 'is-on' : ''" :data-tip-below="town.redesignDraft.value ? 'Redesign — carry on with your saved draft' : 'Redesign — pick the whole town up and lay it out again'" @click="redesign ? cancelRedesign() : startRedesign()">
                     <UIcon name="i-lucide-pencil-ruler" />
+                    <span v-if="town.redesignDraft.value && !redesign" class="draft-dot" />
                 </button>
-                <button class="g-icon" :class="windowOpen === 'events' ? 'is-on' : ''" data-tip-below="What happened — finished builds, research, filled offers" @click="openWindow('events')">
+                <button class="g-icon" :class="windowOpen === 'events' ? 'is-on' : ''" data-tip-below="What happened — finished builds, monument stages, filled offers" @click="openWindow('events')">
                     <UIcon name="i-lucide-bell" />
                 </button>
                 <button class="g-icon" data-tip-below="How to play" @click="helpOpen = true">
@@ -1773,7 +2397,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 <div v-if="moveSelection" class="hint">
                     <UIcon name="i-lucide-move" />
                     <b>{{ moveSelection.items.length }} moving</b>
-                    <button class="hint-btn" data-tip-below="Turn the whole block a quarter turn" @click="rotateGroup"><kbd>R</kbd>rotate</button>
+                    <span class="hint-note">press R to rotate</span>
+                    <button class="hint-btn" data-tip-below="Turn the whole block a quarter turn. Shift+R turns it back" @click="rotateGroup()"><kbd>R</kbd>rotate</button>
                     <kbd>Esc</kbd>
                 </div>
                 <div v-else-if="redesign && ghostType" class="hint">
@@ -1781,24 +2406,29 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <UIcon v-else name="i-lucide-route" />
                     <b>{{ town.catalogById.value.get(ghostType)?.name }}</b>
                     <span class="hint-note">{{ ghostType === 'road' ? 'click or drag to lay' : 'click to put down · drag for a row' }}</span>
-                    <button v-if="ghostType !== 'road'" class="hint-btn" data-tip-below="The white arrow is the front door" @click="rotatePlacement"><kbd>R</kbd>rotate</button>
+                    <button v-if="ghostType !== 'road'" class="hint-btn" data-tip-below="The white arrow is the front door. Shift+R turns it back" @click="rotatePlacement()"><kbd>R</kbd>rotate</button>
                     <kbd>Esc</kbd>
                 </div>
                 <div v-else-if="ghostType" class="hint">
                     <TownAsset v-if="ghostType !== 'road'" :id="ghostType" kind="building" :level="ghostLevel" />
                     <UIcon v-else name="i-lucide-route" />
                     <b>{{ town.catalogById.value.get(ghostType)?.name }}</b>
-                    <span v-if="dragQuote" class="hint-quote">×{{ dragQuote.count }}<TownCoin />{{ formatNumber(dragQuote.coins) }}</span>
-                    <span v-else-if="!movingId" class="hint-note">drag to lay a run</span>
+                    <span v-if="placingStored" class="hint-note">out of storage · press R to turn the front door to a road</span>
+                    <span v-else-if="movingId" class="hint-note">moving · press R to turn the front door to a road</span>
+                    <span v-else-if="dragQuote" class="hint-quote">×{{ dragQuote.count }}<TownCoin />{{ formatNumber(dragQuote.coins) }}</span>
+                    <template v-else-if="ghostCost">
+                        <span v-if="ghostBlocker" class="hint-warn">{{ ghostBlocker }}</span>
+                        <span v-else class="hint-note">drag to lay a run</span>
+                    </template>
                     <button
                         v-if="town.catalogById.value.get(ghostType)?.kind !== 'road'"
                         class="hint-btn"
-                        data-tip-below="The white arrow is the front door, and it has to touch a road"
-                        @click="rotatePlacement"
+                        data-tip-below="The white arrow marks the front door. A building works when its door touches a road. Shift+R turns it back"
+                        @click="rotatePlacement()"
                     >
                         <kbd>R</kbd>rotate
                     </button>
-                    <kbd>Esc</kbd>
+                    <span class="hint-note" data-tip-below="Esc or a right-click lets go of it"><kbd>Esc</kbd></span>
                 </div>
                 <div v-else-if="hoveredSlot && plotPurchase && plotRemainingMs > 0 && !plotPurchase.maxed" class="hint">
                     <UIcon name="i-lucide-map" />Land office opens in <b>{{ formatTownDuration(plotRemainingMs) }}</b>
@@ -1812,7 +2442,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <span class="inv-num">{{ formatNumber(r.amount) }}</span>
                     <span class="inv-tail">
                         <UIcon v-if="r.amount >= storageCap" name="i-lucide-package" class="inv-full" />
-                        <span v-if="r.perHour" class="inv-rate" :class="r.perHour > 0 ? 'up' : 'down'">{{ r.perHour > 0 ? '+' : '' }}{{ formatNumber(r.perHour) }}/h</span>
+                        <span v-if="r.perHour" class="inv-rate" :class="r.perHour > 0 ? 'up' : 'down'">{{ r.perHour > 0 ? '+' : '' }}{{ formatNumber(r.perHour) }}/h<em v-if="productionMult > 1 && r.perHour > 0" class="boost-x">×2</em></span>
                     </span>
                 </button>
             </div>
@@ -1880,7 +2510,13 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <UIcon name="i-lucide-undo-2" />Lift<kbd>Del</kbd>
                     </button>
                     <button v-if="!redesign" class="g-btn g-btn-sm" :disabled="busy || selectionUpgradable.length === 0" :data-tip="selectionUpgradable.length ? 'As many as your crews and coins allow.' : 'None can upgrade now.'" @click="upgradeSelection">
-                        <UIcon name="i-lucide-arrow-up" />Upgrade {{ selectionUpgradable.length }}
+                        <UIcon name="i-lucide-arrow-up" />Upgrade {{ selectionUpgradable.length }}<kbd>U</kbd>
+                    </button>
+                    <button v-if="!redesign" class="g-btn g-btn-sm" :disabled="busy" data-tip="Take them off the map, roads too." @click="storeIds(selectedIds)">
+                        <UIcon name="i-lucide-archive" />Store
+                    </button>
+                    <button v-if="redesign" class="g-btn g-btn-sm" data-tip="Goes into storage when you save the layout." @click="markForStorage(selectedIds)">
+                        <UIcon name="i-lucide-archive" />To storage
                     </button>
                     <button v-if="!redesign" class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." :disabled="busy" @click="demolishMany(selectedIds)">
                         <UIcon name="i-lucide-trash-2" />Demolish<kbd>Del</kbd>
@@ -1901,8 +2537,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <div class="min-w-0 flex-1">
                             <div class="card-title">
                                 <b>{{ selectedEntry.name }}</b>
-                                <span v-if="selectedBuilding.level > 0 && selectedEntry.kind !== 'road'" class="g-tag" :data-tip="`This one tops out at level ${selMaxLevel}.`">
-                                    Lv {{ selectedBuilding.level }}<span class="g-sub">/{{ selMaxLevel }}</span>
+                                <span v-if="selectedBuilding.level > 0 && selectedEntry.kind !== 'road'" class="g-tag" :data-tip="selMonument ? `Finished at stage ${selMaxLevel}.` : `This one tops out at level ${selMaxLevel}.`">
+                                    {{ selMonument ? 'Stage' : 'Lv' }} {{ selectedBuilding.level }}<span class="g-sub">/{{ selMaxLevel }}</span>
                                     <template v-if="selectedBuilding.upgradingTo"><UIcon name="i-lucide-arrow-right" />{{ selectedBuilding.upgradingTo }}</template>
                                 </span>
                                 <span v-else class="g-tag">Site</span>
@@ -1921,10 +2557,10 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                         <div v-if="selPending" class="card-row">
                             <div class="flex-1">
                                 <div class="card-progress-head">
-                                    <span class="g-label"><UIcon name="i-lucide-hammer" />{{ selectedBuilding.level === 0 ? 'Under construction' : 'Upgrading' }}</span>
+                                    <span class="g-label"><UIcon name="i-lucide-hammer" />{{ selectedBuilding.level === 0 ? 'Under construction' : selMonument ? `Stage ${selectedBuilding.upgradingTo}` : 'Upgrading' }}<em v-if="town.boosts.value.build" class="boost-x is-build" data-tip="Builder's rush: double speed">×2</em></span>
                                     <b>{{ formatTownDuration(selRemaining) }}</b>
                                 </div>
-                                <div class="g-progress"><i :style="{ width: `${Math.round(100 * (1 - selRemaining / Math.max(1, selectedBuilding.jobMs ?? 1)))}%` }" /></div>
+                                <div class="g-progress" :class="town.boosts.value.build ? 'is-rushed' : ''"><i :style="{ width: `${Math.round(100 * townJobProgress(selectedBuilding.completesAt, selectedBuilding.jobMs, now, town.boosts.value.build))}%` }" /></div>
                             </div>
                             <button class="g-btn g-btn-gem g-btn-sm" :disabled="busy || gems < selRushGems" @click="rushSelected">
                                 <UIcon name="i-lucide-gem" />Rush {{ selRushGems }}
@@ -1936,7 +2572,10 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <button class="g-btn g-btn-sm" data-tip="The build carries on wherever you put it." :disabled="busy" @click="startMove">
                                 <UIcon name="i-lucide-move" />Move<kbd>M</kbd>
                             </button>
-                            <button class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." @click="confirmDemolish = true">
+                            <button class="g-btn g-btn-sm" :data-tip="storeTip" :disabled="busy" @click="storeIds([selectedBuilding.id])">
+                                <UIcon name="i-lucide-archive" />Store
+                            </button>
+                            <button v-if="!selMonument" class="g-btn g-btn-sm g-btn-danger" data-tip="No refund." @click="confirmDemolish = true">
                                 <UIcon name="i-lucide-trash-2" />Demolish
                             </button>
                         </div>
@@ -1952,6 +2591,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     <TownAsset :id="id" />+{{ selRate(q) }}
                                 </span>
                                 <span class="recipe-unit" data-tip="What it really moves right now. Level, workers and supply are all counted in.">per {{ selUnit === 'day' ? 'day' : 'hour' }}</span>
+                                <em v-if="productionMult > 1" class="boost-x" data-tip="Production surge: twice the output, twice the inputs">×2</em>
                             </div>
 
                             <!-- The two things that slow a building down -->
@@ -1986,6 +2626,9 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     <UIcon name="i-lucide-ruler" />{{ townEffectRadius(getTownBuilding(selectedEntry.id)!) }} tiles
                                 </span>
                             </div>
+                            <div v-else-if="selMonument" class="card-stats">
+                                <span v-for="line in selMonumentNow" :key="line" class="g-tag g-tag-green" data-tip="Felt town-wide while a road reaches it."><UIcon name="i-lucide-landmark" />{{ line }}</span>
+                            </div>
                             <div v-else-if="selectedEntry.kind === 'storage'" class="card-stats">
                                 <span class="g-tag" :class="(selectedBuilding.staffing ?? 0) >= 0.99 ? 'g-tag-green' : ''" data-tip="A warehouse holds only what its crew can manage, so an unstaffed one holds nothing.">
                                     <UIcon name="i-lucide-package" />+{{ formatNumber(Math.floor(selectedEntry.storage * selectedBuilding.level * (selectedBuilding.staffing ?? 0))) }} per good
@@ -2011,7 +2654,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 <div class="upgrade-faces">
                                     <div v-if="selUpgradePreview.length" class="upgrade-info" :class="previewUpgrade ? '' : 'is-hidden'" :aria-hidden="!previewUpgrade">
                                         <div class="upgrade-head">
-                                            <span class="g-label">Level {{ selectedBuilding.level }} → {{ selNextLevel }}</span>
+                                            <span class="g-label">{{ selMonument ? 'Stage' : 'Level' }} {{ selectedBuilding.level }} → {{ selNextLevel }}</span>
                                             <span v-if="selectedEntry.kind === 'industry'" class="g-sub">per {{ selUnit === 'day' ? 'day' : 'hour' }}</span>
                                         </div>
                                         <div class="upgrade-cost">
@@ -2026,8 +2669,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     </div>
                                     <div class="upgrade-info" :class="previewUpgrade && selUpgradePreview.length ? 'is-hidden' : ''" :aria-hidden="previewUpgrade && selUpgradePreview.length > 0">
                                         <div class="upgrade-head">
-                                            <span class="g-label">Level {{ selNextLevel }}</span>
-                                            <span class="g-sub"><UIcon name="i-lucide-clock" />{{ formatTownDuration(selUpgradeMs) }}</span>
+                                            <span class="g-label">{{ selMonument ? 'Stage' : 'Level' }} {{ selNextLevel }}</span>
+                                            <span class="g-sub" :class="town.boosts.value.build ? 'is-rushed' : ''"><UIcon name="i-lucide-clock" />{{ formatTownDuration(selUpgradeMs) }}</span>
                                         </div>
                                         <div class="upgrade-cost">
                                             <span :class="balance >= selUpgradeCost.coins ? '' : 'bad'"><TownCoin />{{ formatNumber(selUpgradeCost.coins) }}</span>
@@ -2038,6 +2681,20 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     </div>
                                 </div>
                                 <button
+                                    v-if="selMonument"
+                                    class="g-btn g-btn-primary g-btn-sm"
+                                    :disabled="busy || !canAfford(selUpgradeCost) || !!monumentCrewNote"
+                                    :data-tip="monumentCrewNote ?? (canAfford(selUpgradeCost) ? 'Monuments have their own crew, one stage at a time.' : 'You are short on what is marked red.')"
+                                    @mouseenter="previewUpgrade = true"
+                                    @mouseleave="previewUpgrade = false"
+                                    @focus="previewUpgrade = true"
+                                    @blur="previewUpgrade = false"
+                                    @click="upgradeSelected"
+                                >
+                                    <UIcon name="i-lucide-landmark" />Build<kbd>U</kbd>
+                                </button>
+                                <button
+                                    v-else
                                     class="g-btn g-btn-primary g-btn-sm"
                                     :disabled="busy || !canAfford(selUpgradeCost)"
                                     :data-tip="buildersFree === 0 ? 'Every builder is on a job — click to free one.' : canAfford(selUpgradeCost) ? undefined : 'You are short on what is marked red.'"
@@ -2047,18 +2704,21 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     @blur="previewUpgrade = false"
                                     @click="upgradeSelected"
                                 >
-                                    <UIcon name="i-lucide-arrow-up" />{{ buildersFree === 0 ? 'No builder' : 'Upgrade' }}
+                                    <UIcon name="i-lucide-arrow-up" />{{ buildersFree === 0 ? 'No builder' : 'Upgrade' }}<kbd>U</kbd>
                                 </button>
                             </div>
                             <div v-else-if="selectedEntry.kind !== 'road'" class="g-tag g-tag-gold card-maxed">
-                                <UIcon name="i-lucide-medal" />Fully upgraded
+                                <UIcon name="i-lucide-medal" />{{ selMonument ? 'Complete' : 'Fully upgraded' }}
                             </div>
 
                             <div class="card-actions">
                                 <button class="g-btn g-btn-sm" data-tip="Free. Away from a road it stops working until one reaches it." :disabled="busy" @click="startMove">
                                     <UIcon name="i-lucide-move" />Move<kbd>M</kbd>
                                 </button>
-                                <button class="g-btn g-btn-sm g-btn-danger" data-tip="Nothing is refunded." @click="confirmDemolish = true">
+                                <button class="g-btn g-btn-sm" :data-tip="storeTip" :disabled="busy" @click="storeIds([selectedBuilding.id])">
+                                    <UIcon name="i-lucide-archive" />Store
+                                </button>
+                                <button v-if="!selMonument" class="g-btn g-btn-sm g-btn-danger" data-tip="Nothing is refunded." @click="confirmDemolish = true">
                                     <UIcon name="i-lucide-trash-2" />Demolish
                                 </button>
                             </div>
@@ -2071,32 +2731,61 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <Transition name="rise">
                 <div v-if="buildOpen" class="strip g-panel">
                     <div class="strip-tabs">
-                        <button v-for="t in tiers" :key="t" class="strip-tab" :class="[buildTier === t ? 'is-active' : '', tierLocked(t) ? 'is-locked' : '']" @click="buildTier = t; sound.play('click')">
+                        <button v-for="t in tiers" :key="t" class="strip-tab" :class="[buildTier === t ? 'is-active' : '', tierLocked(t) ? 'is-locked' : '']" @click="pickTier(t)">
                             <UIcon v-if="tierLocked(t)" name="i-lucide-lock" />{{ tierName(t) }}
+                        </button>
+                        <button class="strip-tab" :class="buildTier === MONUMENT_TAB ? 'is-active' : ''" @click="pickTier(MONUMENT_TAB)">
+                            <UIcon name="i-lucide-landmark" />Monuments
+                        </button>
+                        <button v-if="hasStored" class="strip-tab is-storage" :class="buildTier === STORAGE_TAB ? 'is-active' : ''" data-tip-below="Buildings taken off the map. Putting one back is free." @click="pickTier(STORAGE_TAB)">
+                            <UIcon name="i-lucide-archive" />Storage <span class="strip-tab-count">{{ town.storage.value.items.length }}</span>
                         </button>
                         <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="toggleBuild"><UIcon name="i-lucide-x" /></button>
                     </div>
                     <div v-if="tierLocked(buildTier) && tierLockText(buildTier)" class="strip-lock">
                         <UIcon name="i-lucide-lock" />{{ tierLockText(buildTier) }}
                     </div>
-                    <div class="strip-cards">
+                    <div v-if="buildTier === STORAGE_TAB" class="strip-cards">
                         <button
-                            v-for="c in tierEntries"
+                            v-for="({ item: s, count }, i) in storageCards"
+                            :key="s.type === 'road' ? 'roads' : s.id"
+                            class="bcard is-stored"
+                            :class="[placingStored && (s.type === 'road' ? placingStored.type === 'road' : placingStored.id === s.id) ? 'is-active' : '', storedCrewIssue(s) ? 'is-dim' : '']"
+                            :data-tip="storedCrewIssue(s) ?? (s.type === 'road' ? 'Free to put back. Click tile after tile to lay them all.' : 'Free to put back. Pick a tile.')"
+                            @click="startPlaceStored(s, true)"
+                        >
+                            <kbd v-if="i < 9" class="bcard-key">{{ i + 1 }}</kbd>
+                            <span v-if="count > 1" class="bcard-count">×{{ count }}</span>
+                            <span class="bcard-art">
+                                <UIcon v-if="s.type === 'road'" name="i-lucide-route" />
+                                <TownAsset v-else :id="s.type" kind="building" :level="Math.max(1, s.upgradingTo ?? s.level)" />
+                            </span>
+                            <b class="bcard-name">{{ town.catalogById.value.get(s.type)?.name ?? s.type }}</b>
+                            <span class="bcard-cost">{{ s.type === 'road' ? 'Stored' : s.level === 0 ? 'Site' : getTownMonument(s.type) ? `Stage ${s.level}` : `Level ${s.level}` }}</span>
+                            <span v-if="s.paused" class="bcard-meta">
+                                <span><UIcon name="i-lucide-pause" />{{ formatTownDuration(s.remainingMs) }} left</span>
+                            </span>
+                        </button>
+                    </div>
+                    <div v-else class="strip-cards">
+                        <button
+                            v-for="(c, i) in tierEntries"
                             :key="c.id"
                             class="bcard"
-                            :class="[ghostType === c.id && !movingId ? 'is-active' : '', canAfford(town.nextCost.value[c.id] ?? c.cost) && !tierLocked(c.tier) && !countIssue(c.id) && (c.kind === 'road' || buildersFree > 0) ? '' : 'is-dim']"
-                            :disabled="tierLocked(c.tier)"
+                            :class="[ghostType === c.id && !movingId && !placingStored ? 'is-active' : '', canAfford(town.nextCost.value[c.id] ?? c.cost) && !cardLocked(c) && !countIssue(c.id) && (c.kind === 'road' || (c.kind === 'monument' ? !monumentCrewNote || monumentCredit(c.id) > 0 : buildersFree > 0)) ? '' : 'is-dim']"
+                            :disabled="cardLocked(c)"
                             :style="{ '--accent': hex(c.color) }"
                             @click="pickBuild(c.id)"
                         >
+                            <kbd v-if="i < 9 && !cardLocked(c)" class="bcard-key">{{ i + 1 }}</kbd>
                             <span v-if="town.countsByType.value[c.id] || c.maxCount" class="bcard-count">×{{ town.countsByType.value[c.id] ?? 0 }}<template v-if="c.maxCount">/{{ c.maxCount }}</template></span>
                             <span class="bcard-art">
-                                <TownAsset v-if="c.kind !== 'road'" :id="c.id" kind="building" />
+                                <TownAsset v-if="c.kind !== 'road'" :id="c.id" kind="building" :level="c.kind === 'monument' ? c.maxLevel : 1" />
                                 <UIcon v-else name="i-lucide-route" />
                             </span>
                             <b
                                 class="bcard-name"
-                                :data-tip="countIssue(c.id) ?? ((town.countsByType.value[c.id] ?? 0) ? `You own ${town.countsByType.value[c.id]}${c.maxCount ? ` of ${c.maxCount}` : ''} — each extra one costs more` : (c.maxCount ? `A town may run ${c.maxCount}` : ''))"
+                                :data-tip="c.kind === 'monument' ? (monumentCredit(c.id) ? `Your research carries over: it goes up at stage ${monumentCredit(c.id)} at once, free` : tierLocked(c.tier) ? `Opens at tier ${c.tier}` : countIssue(c.id) ?? c.description) : countIssue(c.id) ?? ((town.countsByType.value[c.id] ?? 0) ? `You own ${town.countsByType.value[c.id]}${c.maxCount ? ` of ${c.maxCount}` : ''} — each extra one costs more` : (c.maxCount ? `A town may run ${c.maxCount}` : ''))"
                             >{{ c.name }}</b>
                             <span class="bcard-cost" :class="balance >= (town.nextCost.value[c.id]?.coins ?? c.cost.coins) ? '' : 'bad'">
                                 <TownCoin />{{ formatNumber(town.nextCost.value[c.id]?.coins ?? c.cost.coins) }}
@@ -2107,16 +2796,18 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 </span>
                             </span>
                             <span class="bcard-meta">
-                                <span v-if="c.kind === 'road'"><UIcon name="i-lucide-zap" />instant</span>
-                                <span v-else :data-tip="`Upgrades take ${formatTownDuration(Math.round(c.upgradeMs * (mood?.buildTime ?? 1)))} and up`">
-                                    <UIcon name="i-lucide-clock" />{{ formatTownDuration(Math.round(c.buildMs * (mood?.buildTime ?? 1))) }}
+                                <span v-if="c.kind === 'road' || monumentCredit(c.id)"><UIcon name="i-lucide-zap" />instant</span>
+                                <span v-else :class="town.boosts.value.build ? 'is-rushed' : ''" :data-tip="`${town.boosts.value.build ? 'Builder\'s rush: double speed. ' : ''}Upgrades take ${formatTownDuration(boostedMs(Math.round(c.upgradeMs * (mood?.buildTime ?? 1))))} and up`">
+                                    <UIcon name="i-lucide-clock" />{{ formatTownDuration(boostedMs(Math.round(c.buildMs * (mood?.buildTime ?? 1)))) }}
                                 </span>
                                 <span v-if="c.workers"><UIcon name="i-lucide-users" />{{ c.workers }}</span>
                                 <span v-if="c.popCap"><UIcon name="i-lucide-house" />+{{ c.popCap }}</span>
                                 <span v-if="c.happiness" :data-tip="`To each home in reach, plus ${c.happinessPerLevel ?? 0} a level`"><UIcon name="i-lucide-smile" />+{{ c.happiness }}</span>
                                 <span v-if="c.storage"><UIcon name="i-lucide-package" />+{{ formatNumber(c.storage) }}</span>
+                                <span v-if="c.size" data-tip="Tiles it covers"><UIcon name="i-lucide-grid-2x2" />{{ c.size }}×{{ c.size }}</span>
+                                <span v-if="monumentCredit(c.id)" class="is-credit"><UIcon name="i-lucide-gift" />Stage {{ monumentCredit(c.id) }}</span>
                             </span>
-                            <span v-if="Object.keys(c.outputs).length" class="bcard-io" :data-tip="`Per ${ioUnit(c) === 'day' ? 'day' : 'hour'} at level 1`">
+                            <span v-if="Object.keys(c.outputs).length" class="bcard-io" :class="productionMult > 1 ? 'is-surge' : ''" :data-tip="`Per ${ioUnit(c) === 'day' ? 'day' : 'hour'} at level 1${productionMult > 1 ? ', doubled by the production surge' : ''}`">
                                 <template v-if="Object.keys(c.inputs).length">
                                     <span v-for="[id, q] in Object.entries(c.inputs)" :key="id">{{ ioRate(q, ioUnit(c)) }}<TownAsset :id="id" /></span>
                                     <UIcon name="i-lucide-arrow-right" />
@@ -2150,32 +2841,74 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                     <div class="tray-head">
                         <span class="g-label"><UIcon name="i-lucide-pencil-ruler" />Redesign</span>
                         <span class="tray-progress" :class="trayLeft === 0 ? 'is-done' : ''">{{ draftTotal - trayLeft }}/{{ draftTotal }} placed</span>
+                        <span v-if="redesign.toStore.length" class="tray-progress"><UIcon name="i-lucide-archive" />{{ redesign.toStore.length }} to storage</span>
                         <span v-if="newRoadCount" class="tray-progress"><TownCoin />{{ formatNumber(newRoadCost) }} for {{ newRoadCount }} new {{ newRoadCount === 1 ? 'road' : 'roads' }}</span>
                         <span class="flex-1" />
                         <button class="g-btn g-btn-sm g-btn-ghost" :disabled="!draftTouched" data-tip="Everything back in the tray" @click="pickUpAll">
                             <UIcon name="i-lucide-undo-2" />Pick up all
                         </button>
-                        <button class="g-btn g-btn-sm" data-tip="Leave everything as it was. Nothing is saved." @click="cancelRedesign">
+                        <button v-if="town.redesignDraft.value" class="g-btn g-btn-sm g-btn-ghost" :disabled="busy" data-tip="Throw the saved draft away and start again from the town as it is" @click="discardDraft">
+                            <UIcon name="i-lucide-trash-2" />Discard draft
+                        </button>
+                        <button class="g-btn g-btn-sm" :data-tip="town.redesignDraft.value ? 'Leave. Changes since your last draft save are not kept.' : 'Leave everything as it was. Nothing is saved.'" @click="cancelRedesign">
                             <UIcon name="i-lucide-x" />Cancel
                         </button>
-                        <button class="g-btn g-btn-sm g-btn-primary" :disabled="busy || !!redesignSaveIssue" :data-tip="redesignSaveIssue ?? 'Nothing changes until you confirm'" @click="askSaveRedesign">
-                            <UIcon name="i-lucide-check" />Save layout
+                        <button
+                            class="g-btn g-btn-sm"
+                            :class="redesignIsDraft ? '' : 'g-btn-primary'"
+                            :disabled="busy || (!redesignIsDraft && !!redesignSaveIssue)"
+                            :data-tip="redesignIsDraft
+                                ? `${trayLeft} still in the tray: this keeps your progress as a draft and leaves the town as it is. Place or store the rest to finish.`
+                                : redesignSaveIssue ?? 'Nothing changes until you confirm'"
+                            @click="askSaveRedesign"
+                        >
+                            <UIcon :name="redesignIsDraft ? 'i-lucide-save' : 'i-lucide-check'" />{{ redesignIsDraft ? 'Save draft' : 'Save layout' }}
+                        </button>
+                        <button
+                            v-if="redesignIsDraft"
+                            class="g-btn g-btn-sm g-btn-primary"
+                            :disabled="busy || !!redesignSaveIssue"
+                            :data-tip="redesignSaveIssue ?? `Save the layout now and put the ${trayLeft} still in the tray into storage`"
+                            @click="saveAndStoreSurplus"
+                        >
+                            <UIcon name="i-lucide-archive" />Save and store surplus
                         </button>
                     </div>
                     <div class="tray-items">
-                        <button class="tray-item" :class="trayPick === 'road' ? 'is-active' : ''" @click="pickTray('road')">
+                        <button
+                            class="tray-item"
+                            :class="trayPick === 'road' ? 'is-active' : ''"
+                            :data-tip="trayRoads.length ? 'Roads left in the tray go into storage when you save.' : storedRoadsLeft.length ? 'Laid from storage first, for free.' : undefined"
+                            @click="pickTray('road')"
+                        >
                             <span class="tray-art"><UIcon name="i-lucide-route" /></span>
                             <b>Road</b>
-                            <span v-if="trayRoads.length" class="tray-count">×{{ trayRoads.length }}</span>
+                            <span v-if="trayRoads.length + storedRoadsLeft.length" class="tray-count">×{{ trayRoads.length + storedRoadsLeft.length }}</span>
                             <span v-else class="tray-sub"><TownCoin />{{ formatNumber(townPlaceCost(ROAD_DEF, redesignBuildings.filter(b => b.type === 'road').length).coins) }} each</span>
                         </button>
-                        <button v-for="g in trayGroups" :key="g.key" class="tray-item" :class="trayPick === g.key ? 'is-active' : ''" @click="pickTray(g.key)">
+                        <button v-for="g in trayGroups" :key="g.key" class="tray-item" :class="[trayPick === g.key ? 'is-active' : '', g.stored ? 'is-stored' : '']" :data-tip="g.stored ? 'From storage. Left in the tray, it stays there.' : undefined" @click="pickTray(g.key)">
                             <span class="tray-art"><TownAsset :id="g.type" kind="building" :level="Math.max(1, g.level)" /></span>
                             <b>{{ g.name }}</b>
-                            <span class="tray-sub">{{ g.site ? 'site' : `L${g.level}` }}</span>
+                            <span class="tray-sub"><UIcon v-if="g.stored" name="i-lucide-archive" />{{ g.site ? 'site' : `L${g.level}` }}</span>
+                            <span class="tray-count">×{{ g.ids.length }}</span>
+                            <span
+                                v-if="!g.stored"
+                                class="tray-store"
+                                role="button"
+                                tabindex="0"
+                                :aria-label="`Send one ${g.name} to storage`"
+                                data-tip="One to storage on save. Shift-click: all of them."
+                                @click.stop="markForStorage($event.shiftKey ? g.ids : g.ids.slice(0, 1))"
+                                @keydown.enter.stop.prevent="markForStorage(g.ids.slice(0, 1))"
+                            ><UIcon name="i-lucide-archive" /></span>
+                        </button>
+                        <button v-for="g in markedGroups" :key="`marked:${g.key}`" class="tray-item is-marked" data-tip="Goes into storage on save. Click to put one back in the tray." @click="unmarkStorage(g.ids.slice(0, 1))">
+                            <span class="tray-art"><TownAsset :id="g.type" kind="building" :level="Math.max(1, g.level)" /></span>
+                            <b>{{ g.name }}</b>
+                            <span class="tray-sub"><UIcon name="i-lucide-archive" />to storage</span>
                             <span class="tray-count">×{{ g.ids.length }}</span>
                         </button>
-                        <p v-if="trayGroups.length === 0" class="tray-empty">Every building is down. Add roads, or save.</p>
+                        <p v-if="trayGroups.length === 0 && markedGroups.length === 0" class="tray-empty">Every building is down. Add roads, or save.</p>
                     </div>
                 </div>
             </Transition>
@@ -2184,9 +2917,14 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <div v-if="!redesign" class="dock g-panel">
                 <button class="dock-btn" :class="buildOpen ? 'is-active' : ''" @click="toggleBuild">
                     <UIcon name="i-lucide-hammer" class="dock-ico" /><span>Build</span><kbd>B</kbd>
+                    <span v-if="Object.keys(town.monumentCredit.value).length" class="dock-dot" data-tip="Your research carried over: a monument is waiting to be placed" />
                 </button>
                 <button class="dock-btn" :class="windowOpen === 'market' ? 'is-active' : ''" @click="openMarket()">
                     <UIcon name="i-lucide-store" class="dock-ico" /><span>Market</span><kbd>H</kbd>
+                </button>
+                <button class="dock-btn" :class="windowOpen === 'daily' ? 'is-active' : ''" data-fx-home @click="openWindow('daily')">
+                    <UIcon name="i-lucide-calendar-check" class="dock-ico" /><span>Daily</span><kbd>Y</kbd>
+                    <span v-if="dailyBadge" class="dock-badge">{{ dailyBadge }}</span>
                 </button>
                 <button class="dock-btn" :class="windowOpen === 'goals' ? 'is-active' : ''" @click="openWindow('goals')">
                     <UIcon name="i-lucide-trophy" class="dock-ico" /><span>Goals</span><kbd>T</kbd>
@@ -2194,10 +2932,6 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 </button>
                 <button class="dock-btn" :class="windowOpen === 'land' ? 'is-active' : ''" @click="openWindow('land')">
                     <UIcon name="i-lucide-map" class="dock-ico" /><span>Land</span><kbd>P</kbd>
-                </button>
-                <button class="dock-btn" :class="windowOpen === 'research' ? 'is-active' : ''" @click="openWindow('research')">
-                    <UIcon name="i-lucide-microscope" class="dock-ico" /><span>Research</span><kbd>C</kbd>
-                    <span v-if="researchRunning" class="dock-dot" />
                 </button>
                 <button class="dock-btn" :class="windowOpen === 'mayors' ? 'is-active' : ''" @click="openWindow('mayors')">
                     <UIcon name="i-lucide-crown" class="dock-ico" /><span>Mayors</span><kbd>L</kbd>
@@ -2207,7 +2941,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <!-- Windows -->
             <Transition name="fade">
                 <div v-if="windowOpen" class="backdrop" @click.self="closeAll">
-                    <div class="g-window" :class="windowOpen === 'market' ? 'is-wide' : windowOpen === 'events' ? 'is-small' : ''">
+                    <div class="g-window" :class="windowOpen === 'market' || windowOpen === 'daily' ? 'is-wide' : windowOpen === 'events' ? 'is-small' : ''">
                         <TownMarketPanel
                             v-if="windowOpen === 'market'"
                             :resources="town.resources.value"
@@ -2217,11 +2951,13 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             :balance="balance"
                             :initial-resource="marketResource"
                             :busy="busy"
-                            :net-per-tick="town.netPerTick.value"
+                            :net-per-tick="town.boostedNetPerTick.value"
                             :speed-multiplier="speed"
                             :tick-ms="town.constants.value.tickMs"
                             :storage-cap="storageCap"
                             :jewels-per-gem="town.constants.value.jewelsPerGem"
+                            :market-day-until="town.boosts.value.market"
+                            :market-bonus-left="town.marketBonusLeft.value"
                             @close="closeAll"
                             @convert="convertJewels"
                             @sell-floor="sellFloor"
@@ -2229,19 +2965,19 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             @place-order="placeOrder"
                             @cancel-order="cancelOrder"
                         />
+                        <div v-else-if="windowOpen === 'daily'" class="flex h-full min-h-0 flex-col">
+                            <div class="g-window-head">
+                                <h2><UIcon name="i-lucide-calendar-check" />Daily</h2>
+                                <button class="g-icon g-icon-sm" aria-label="Close" @click="closeAll"><UIcon name="i-lucide-x" /></button>
+                            </div>
+                            <div class="g-window-body space-y-3">
+                                <TownStreakPanel @claimed="onStreakChanged" @reset="onStreakChanged" />
+                                <TownContractsPanel :busy="busy" :resource-by-id="town.resourceById.value" :inventory="town.inventory.value" @delivered="onContractDelivered" />
+                            </div>
+                        </div>
                         <TownMilestonesPanel v-else-if="windowOpen === 'goals'" :milestones="town.milestones.value" :busy="busy" @claim="claimMilestone" @close="closeAll" />
                         <TownLeaderboardPanel v-else-if="windowOpen === 'mayors'" @close="closeAll" />
                         <TownEventsPanel v-else-if="windowOpen === 'events'" :catalog-by-id="town.catalogById.value" :resource-by-id="town.resourceById.value" :tick="stateTick" @close="closeAll" />
-                        <TownResearchPanel
-                            v-else-if="windowOpen === 'research'"
-                            :board="town.researchBoard.value"
-                            :inventory="town.inventory.value"
-                            :balance="balance"
-                            :now="now"
-                            :busy="busy"
-                            @start="startResearch"
-                            @close="closeAll"
-                        />
 
                         <div v-else-if="windowOpen === 'land'" class="flex h-full min-h-0 flex-col">
                             <div class="g-window-head">
@@ -2277,7 +3013,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                         <span>For sale near you</span>
                                         <span>{{ town.world.value.listings.length }}</span>
                                     </header>
-                                    <p v-if="town.world.value.listings.length === 0" class="g-empty">Nobody next to you is selling.</p>
+                                    <p v-if="town.world.value.listings.length === 0" class="g-empty">{{ town.worldLoaded.value ? 'Nobody next to you is selling.' : 'Looking around…' }}</p>
                                     <div v-for="l in town.world.value.listings" :key="l.plotId" class="g-row plotrow">
                                         <UIcon name="i-lucide-map-pinned" class="plot-ico" />
                                         <div class="min-w-0 flex-1">
@@ -2297,23 +3033,31 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
             <!-- Welcome back -->
             <Transition name="fade">
                 <div v-if="welcome" class="backdrop" @click.self="welcome = null">
-                    <div class="g-window is-small">
-                        <div class="g-window-head">
-                            <h2><UIcon name="i-lucide-hand" />Welcome back <span class="g-tag">{{ formatTownDuration(welcome.elapsedMs) }}</span></h2>
-                            <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="welcome = null"><UIcon name="i-lucide-x" /></button>
+                    <div class="g-window is-small welcome" :class="{ 'is-calm': motion.reduced.value }">
+                        <div class="welcome-hero">
+                            <button class="g-icon g-icon-sm welcome-close" aria-label="Close" @click="welcome = null"><UIcon name="i-lucide-x" /></button>
+                            <span class="welcome-sun" aria-hidden="true" />
+                            <p class="welcome-kicker"><UIcon name="i-lucide-clock" />Away for {{ formatTownDuration(welcome.elapsedMs) }}</p>
+                            <h2 class="welcome-title">Welcome back, mayor</h2>
+                            <p v-if="welcomeValue" class="welcome-total">
+                                <TownCoin /><b>{{ formatNumber(welcomeShownValue) }}</b>
+                            </p>
+                            <p v-if="welcomeValue" class="welcome-total-sub">made while you were gone, at floor price</p>
                         </div>
                         <div class="g-window-body space-y-3">
-                            <p class="g-label">While you were away</p>
-                            <div class="welcome-grid">
-                                <div v-for="r in welcomeRows" :key="r.id" class="g-cell">
+                            <div class="welcome-grid" :style="{ gridTemplateColumns: `repeat(${Math.min(3, Math.max(1, welcomeGains.length))}, minmax(0, 1fr))` }">
+                                <div v-for="(r, i) in welcomeGains" :key="r.id" class="g-cell welcome-cell" :style="{ animationDelay: `${120 + i * 45}ms` }">
                                     <span class="welcome-art"><TownAsset :id="r.def?.id" /></span>
-                                    <b :class="r.qty > 0 ? 'is-up' : 'is-down'">{{ r.qty > 0 ? '+' : '' }}{{ formatNumber(r.qty) }}</b>
+                                    <b class="is-up">+{{ formatNumber(r.qty) }}</b>
                                     <span class="g-sub">{{ r.def?.name }}</span>
                                 </div>
                             </div>
-                            <p v-if="welcomeValue" class="welcome-worth">
-                                Worth about <b><TownCoin />{{ formatNumber(welcomeValue) }}</b> at floor price.
-                            </p>
+                            <div v-if="welcomeLosses.length" class="welcome-used">
+                                <span class="g-label">Used up</span>
+                                <span v-for="r in welcomeLosses" :key="r.id" class="welcome-used-item">
+                                    <TownAsset :id="r.def?.id" />{{ formatNumber(r.qty) }}
+                                </span>
+                            </div>
                             <div class="g-actions">
                                 <button class="g-btn g-btn-ghost" @click="welcome = null">Close</button>
                                 <button class="g-btn g-btn-primary" @click="welcome = null; openMarket()">
@@ -2340,7 +3084,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     <dt><UIcon name="i-lucide-house" />Houses</dt>
                                     <dd>Two residents per level. Every workshop needs residents — an unstaffed farm grows nothing.</dd>
                                     <dt><UIcon name="i-lucide-route" />Roads</dt>
-                                    <dd>Every front door must touch a road, and people walk to work along them, so a road network only staffs the workshops it reaches. <kbd>R</kbd> rotates; buildings auto-face a road. Moving is free.</dd>
+                                    <dd>Buildings can be placed without a road, but they only work when their front door touches one. People walk to work along roads, so a road network only staffs the workshops it reaches. <kbd>R</kbd> rotates; buildings auto-face a road. Moving is free.</dd>
                                     <dt><UIcon name="i-lucide-smile" />Happiness</dt>
                                     <dd>A score out of 100 that sets production speed. Starts at 55. Each home gains up to 48 from the parks in reach and loses without limit to the workshops in reach; the town feels the average across its residents. Needs add or subtract. The mood chip shows every line.</dd>
                                     <dt><UIcon name="i-lucide-utensils" />Needs</dt>
@@ -2365,8 +3109,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                     <dd>Caps each good. Full storage halts production — sell, or build warehouses.</dd>
                                     <dt><UIcon name="i-lucide-mountain" />Terrain</dt>
                                     <dd>Soil, woodland and rock make the matching building a quarter faster; water cannot be built on. <kbd>G</kbd> shows the map.</dd>
-                                    <dt><UIcon name="i-lucide-microscope" />Research</dt>
-                                    <dd>Thirty projects in five branches, one at a time, 12 hours to 3 days each: output, build speed, supply reach, residents, prices.</dd>
+                                    <dt><UIcon name="i-lucide-landmark" />Monuments</dt>
+                                    <dd>Five wonders, one of each, raised in eight stages by their own crew. Every stage adds a town-wide perk: output, build speed, supply reach, happiness and residents, storage.</dd>
                                 </dl>
                             </div>
 
@@ -2386,12 +3130,13 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 <header>Controls</header>
                                 <p class="help-keys">
                                     Drag to select · shift-drag adds · shift-click toggles one · with a building picked, drag to lay a run
-                                    · middle-drag pans · wheel zooms · right-drag orbits
+                                    · middle-drag pans · wheel zooms · right-drag orbits · right-click lets go of what you hold
                                 </p>
                                 <p class="help-keys">
-                                    <kbd>WASD</kbd> move <kbd>Q</kbd><kbd>E</kbd> turn <kbd>R</kbd> rotate <kbd>M</kbd> move <kbd>Del</kbd> demolish
-                                    <kbd>B</kbd> build <kbd>H</kbd> market <kbd>T</kbd> goals <kbd>L</kbd> mayors
-                                    <kbd>P</kbd> land <kbd>C</kbd> research <kbd>G</kbd> terrain <kbd>Esc</kbd> back
+                                    <kbd>WASD</kbd> move <kbd>Q</kbd><kbd>E</kbd> turn <kbd>R</kbd> rotate (<kbd>Shift</kbd> back) <kbd>M</kbd> move <kbd>U</kbd> upgrade <kbd>Del</kbd> demolish
+                                    <kbd>C</kbd> copy the building under the cursor <kbd>1</kbd>–<kbd>9</kbd> pick a card <kbd>Tab</kbd> next tier
+                                    <kbd>B</kbd> build <kbd>Y</kbd> daily <kbd>H</kbd> market <kbd>T</kbd> goals <kbd>L</kbd> mayors
+                                    <kbd>P</kbd> land <kbd>G</kbd> terrain <kbd>Esc</kbd> back
                                 </p>
                             </div>
                         </div>
@@ -2468,7 +3213,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                             <button class="g-icon g-icon-sm ml-auto" aria-label="Close" @click="blocked = null"><UIcon name="i-lucide-x" /></button>
                         </div>
                         <div class="g-window-body space-y-3">
-                            <p class="g-copy">All {{ town.builders.value.owned }} crews are on a job. Free one up, or wait.</p>
+                            <p class="g-copy">All {{ town.builders.value.total }} crews are on a job. Free one up, or wait.</p>
                             <div v-if="blockedCheapest" class="g-stat">
                                 <span class="blocked-art"><TownAsset :id="blockedCheapest.type" kind="building" :level="blockedCheapest.level" /></span>
                                 <div class="min-w-0 flex-1">
@@ -2517,9 +3262,12 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                                 Every building moves to where you put it — all {{ confirmRedesign.moves.length }} at once. Builds and upgrades in
                                 progress keep their clocks. Moving is free.
                             </p>
-                            <p v-if="trayRoads.length" class="card-note is-warn">
-                                <UIcon name="i-lucide-triangle-alert" />
-                                {{ trayRoads.length }} {{ trayRoads.length === 1 ? 'road is' : 'roads are' }} still in the tray and will be removed. Roads are cheap to lay again, but not free.
+                            <p v-if="confirmRedesign.store.length" class="g-copy">
+                                {{ confirmRedesign.store.length }} {{ confirmRedesign.store.length === 1 ? 'piece goes' : 'pieces go' }} into storage<template v-if="trayRoads.length">, {{ trayRoads.length }} of them {{ trayRoads.length === 1 ? 'a road' : 'roads' }} left in the tray</template>.
+                                Stored builds and upgrades pause, and their crews are freed.
+                            </p>
+                            <p v-if="confirmRedesign.place.length" class="g-copy">
+                                {{ confirmRedesign.place.length }} {{ confirmRedesign.place.length === 1 ? 'building comes' : 'buildings come' }} back out of storage.
                             </p>
                             <p v-if="confirmRedesign.roads.length" class="g-copy">
                                 {{ confirmRedesign.roads.length }} new {{ confirmRedesign.roads.length === 1 ? 'road' : 'roads' }} for <TownCoin /> {{ formatNumber(newRoadCost) }}.
@@ -2575,6 +3323,11 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
                 </div>
             </Transition>
         </template>
+
+        <!-- Reward effects: above every window and backdrop, never in the way of a click. -->
+        <TownFx />
+        <!-- Chest opening: takes over the whole game area, above everything else in it. -->
+        <TownChestOpening />
     </div>
 </template>
 
@@ -3095,6 +3848,88 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .hud-hover::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 12px; }
 .moodpop.is-income { width: 300px; }
 .moodpop.is-builders { width: 320px; }
+
+/* ── Boosts ─────────────────────────────────────────────────────────────── */
+/* A running boost wears its colour: a slow shimmer round the border and a
+   soft breathing glow. Still with reduced motion. */
+.buff {
+    --buff: var(--g-gold);
+    --buff-edge: color-mix(in srgb, var(--buff) 55%, transparent);
+    gap: 6px;
+    padding: 0 11px 0 8px;
+    border-color: transparent;
+    background:
+        linear-gradient(var(--g-bg), var(--g-bg)) padding-box,
+        linear-gradient(105deg, var(--buff-edge) 0 36%, color-mix(in srgb, var(--buff) 30%, #fff) 50%, var(--buff-edge) 64% 100%) border-box;
+    background-size: 100% 100%, 300% 100%;
+    background-position: 0 0, 100% 0;
+    animation: buff-shimmer 3.6s linear infinite, buff-glow 2.6s ease-in-out infinite;
+    cursor: default;
+}
+.buff.is-build { --buff: var(--g-warn); }
+.buff.is-production { --buff: var(--g-green); }
+.buff.is-market { --buff: var(--g-gold); }
+.buff.is-builder { --buff: var(--g-gem); }
+.buff .town-boost-icon { flex-shrink: 0; }
+.buff-name { font-size: 12px; font-weight: 600; color: var(--g-text-2); }
+.buff-time { color: var(--buff); font-variant-numeric: tabular-nums; }
+.buff.is-calm { animation: none; background-position: 0 0, 50% 0; }
+/* Chips wrap onto a row of their own at the left edge: hang the tip from the chip's left, not its middle. */
+.buff[data-tip-below]::after { left: 0; transform: translateY(-4px); }
+.buff[data-tip-below]:hover::after { transform: none; }
+@keyframes buff-shimmer {
+    from { background-position: 0 0, 100% 0; }
+    to { background-position: 0 0, 0% 0; }
+}
+@keyframes buff-glow {
+    0%, 100% { box-shadow: var(--g-shadow), 0 0 0 0 transparent; }
+    50% { box-shadow: var(--g-shadow), 0 0 14px -2px color-mix(in srgb, var(--buff) 55%, transparent); }
+}
+.buff-enter-active { transition: opacity 0.2s ease, transform 0.45s cubic-bezier(0.2, 1.6, 0.4, 1); }
+.buff-enter-from { opacity: 0; transform: scale(0.55); }
+.buff-leave-active { transition: opacity 0.35s ease; }
+.buff-leave-to { opacity: 0; }
+.buff.is-calm.buff-enter-from { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+    .buff { animation: none; background-position: 0 0, 50% 0; }
+    .buff-enter-from { transform: none; }
+}
+@media (max-width: 520px) {
+    .buff { height: 30px; padding: 0 8px 0 5px; gap: 5px; font-size: 12px; }
+    .buff-name { display: none; }
+}
+/* The rate a boost is doubling, marked where it is shown. */
+.boost-x {
+    display: inline-block;
+    margin-left: 3px;
+    padding: 0 3px;
+    border-radius: 4px;
+    background: var(--g-green-bg);
+    color: var(--g-green);
+    font-size: 9.5px;
+    font-style: normal;
+    font-weight: 800;
+    line-height: 14px;
+    vertical-align: 1px;
+}
+.boost-x.is-build { background: var(--g-warn-bg); color: var(--g-warn); }
+.is-rushed { color: var(--g-warn) !important; font-weight: 700; }
+.g-progress.is-rushed i { background: linear-gradient(90deg, var(--g-warn), color-mix(in srgb, var(--g-warn) 55%, #fff)); }
+.bcard-io.is-surge .is-out { font-weight: 800; }
+.crew-temp { color: var(--g-gem); }
+.crew-row {
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: var(--g-radius-sm);
+    background: var(--g-gem-bg);
+    font-size: 12px;
+}
+.crew-row .rec-main { display: flex; flex-direction: column; min-width: 0; }
+.crew-row .moodpop-sub { margin-top: 0; }
+.crew-row-time { font-weight: 700; color: var(--g-gem); font-variant-numeric: tabular-nums; }
 .moodpop-sub { margin-top: 2px; font-size: 11.5px; color: var(--g-muted); }
 .moodpop-foot { font-size: 11px; color: var(--g-muted); }
 .moodpop-group { display: flex; flex-direction: column; gap: 4px; }
@@ -3196,6 +4031,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .hint.is-danger { border-color: color-mix(in srgb, var(--g-red) 55%, transparent); color: var(--g-red); }
 .hint-note { color: var(--g-muted); }
 .hint-quote { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: var(--g-gold-bg); color: var(--g-gold); font-weight: 600; font-variant-numeric: tabular-nums; }
+.hint-warn { color: var(--g-red); font-weight: 600; }
 .hint-btn { display: inline-flex; align-items: center; gap: 4px; padding: 2px 7px; border-radius: var(--g-radius-xs); background: var(--g-fill); color: var(--g-text-2); font-size: 11px; cursor: pointer; }
 .hint-btn:hover { background: var(--g-fill-2); color: var(--g-text); }
 
@@ -3217,7 +4053,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .inv::-webkit-scrollbar { display: none; }
 .inv-row {
     display: grid;
-    grid-template-columns: 18px 46px 1fr;
+    grid-template-columns: 18px 58px 1fr;
     align-items: center;
     gap: 7px;
     height: 30px;
@@ -3427,6 +4263,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .bcard.is-active { border-color: var(--g-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-accent) 30%, transparent); }
 .bcard.is-dim { opacity: 0.55; }
 .bcard:disabled { cursor: not-allowed; filter: grayscale(1); }
+.bcard-key { position: absolute; left: 6px; top: 6px; padding: 0 4px; font-size: 9px; opacity: 0.7; }
 .bcard-count { position: absolute; right: 8px; top: 8px; font-size: 10px; font-weight: 600; color: var(--g-muted); font-variant-numeric: tabular-nums; }
 .bcard-art { display: inline-flex; align-items: center; justify-content: center; height: 52px; font-size: 28px; line-height: 1; color: var(--g-text-2); }
 .bcard-name { font-size: 13px; font-weight: 600; }
@@ -3435,6 +4272,7 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 .bcard-res span, .bcard-io span { display: inline-flex; align-items: center; gap: 3px; }
 .bcard-meta { display: flex; flex-wrap: wrap; justify-content: center; gap: 3px 7px; font-size: 10px; color: var(--g-muted); font-variant-numeric: tabular-nums; }
 .bcard-meta span { display: inline-flex; align-items: center; gap: 3px; }
+.bcard-meta .is-credit { color: var(--g-green); font-weight: 700; }
 .bcard-io { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--g-text-2); font-variant-numeric: tabular-nums; }
 .bcard-io .is-out { color: var(--g-green); }
 
@@ -3479,6 +4317,47 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 }
 .tray-item:hover { background: var(--g-fill-2); }
 .tray-item.is-active { border-color: var(--g-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-accent) 30%, transparent); }
+/* Out of storage, and marked for it: dashed, so neither reads as part of the town being laid out. */
+.tray-item { position: relative; }
+.tray-item.is-stored { border-style: dashed; }
+.tray-item.is-marked { border-style: dashed; opacity: 0.7; }
+.tray-item.is-stored .tray-sub, .tray-item.is-marked .tray-sub { color: var(--g-muted); }
+.tray-store {
+    position: absolute;
+    right: 3px;
+    top: 3px;
+    display: inline-flex;
+    padding: 2px;
+    border-radius: var(--g-radius-xs);
+    color: var(--g-muted);
+    font-size: 12px;
+}
+.tray-store:hover { color: var(--g-text); background: var(--g-fill-2); }
+.bcard.is-stored { --accent: var(--g-muted); }
+.bcard.is-stored .bcard-cost { color: var(--g-text-2); }
+.strip-tab-count {
+    min-width: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--g-fill-2);
+    color: var(--g-text-2);
+    font-size: 10px;
+    font-weight: 800;
+    line-height: 16px;
+    text-align: center;
+}
+.draft-btn { position: relative; }
+/* A redesign is waiting as a draft. */
+.draft-dot {
+    position: absolute;
+    right: 3px;
+    top: 3px;
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--g-accent);
+    box-shadow: 0 0 0 2px var(--g-bg);
+}
 .tray-art { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; font-size: 24px; }
 .tray-art .iconify { width: 22px; height: 22px; color: var(--g-muted); }
 .tray-sub { display: inline-flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 500; color: var(--g-muted); font-variant-numeric: tabular-nums; }
@@ -3566,10 +4445,48 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 }
 .dark .backdrop { background: rgba(4, 6, 10, 0.5); }
 
+.welcome { overflow: hidden; }
+.welcome-hero {
+    position: relative;
+    flex-shrink: 0;
+    overflow: hidden;
+    padding: 26px 20px 18px;
+    text-align: center;
+    background:
+        radial-gradient(120% 90% at 50% 0%, var(--g-gold-bg), transparent 70%),
+        linear-gradient(180deg, color-mix(in srgb, var(--g-gold) 10%, transparent), transparent);
+    border-bottom: 1px solid color-mix(in srgb, var(--g-gold) 25%, transparent);
+}
+.welcome-close { position: absolute; right: 10px; top: 10px; z-index: 1; }
+.welcome-sun {
+    position: absolute;
+    left: 50%;
+    top: -120px;
+    width: 260px;
+    height: 260px;
+    margin-left: -130px;
+    border-radius: 50%;
+    background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--g-gold) 16%, transparent) 0 10deg, transparent 10deg 20deg);
+    mask-image: radial-gradient(circle, #000 30%, transparent 70%);
+    animation: welcome-spin 30s linear infinite;
+    pointer-events: none;
+}
+.welcome-kicker { position: relative; display: inline-flex; align-items: center; gap: 5px; padding: 2px 10px; border-radius: 999px; background: var(--g-fill); font-size: 11.5px; color: var(--g-text-2); }
+.welcome-title { position: relative; margin-top: 8px; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.welcome-total { position: relative; display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 28px; color: var(--g-gold); font-variant-numeric: tabular-nums; }
+.welcome-total b { font-weight: 800; }
+.welcome-total-sub { position: relative; font-size: 11.5px; color: var(--g-muted); }
 .welcome-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.welcome-cell { animation: welcome-pop 0.35s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
 .welcome-art { font-size: 22px; line-height: 1; }
-.welcome-worth { text-align: center; font-size: 12.5px; color: var(--g-text-2); }
-.welcome-worth b { display: inline-flex; align-items: center; gap: 4px; color: var(--g-gold); }
+.welcome-used { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12px; color: var(--g-muted); }
+.welcome-used-item { display: inline-flex; align-items: center; gap: 3px; font-variant-numeric: tabular-nums; }
+@keyframes welcome-spin { to { transform: rotate(360deg); } }
+@keyframes welcome-pop { from { opacity: 0; transform: translateY(6px) scale(0.92); } }
+.welcome.is-calm :is(.welcome-sun, .welcome-cell) { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+    .welcome-sun, .welcome-cell { animation: none; }
+}
 .blocked-art { font-size: 16px; line-height: 1; }
 
 /* ── Help ───────────────────────────────────────────────────────────────── */
@@ -3582,5 +4499,8 @@ function hex(color: number) { return `#${color.toString(16).padStart(6, '0')}` }
 @media (max-width: 520px) {
     .help dl { grid-template-columns: 1fr; gap: 2px; }
     .help dd { margin-bottom: 8px; }
+    /* Six dock buttons fit a phone only without the key hints. */
+    .dock-btn { width: 54px; }
+    .dock-btn kbd { display: none; }
 }
 </style>

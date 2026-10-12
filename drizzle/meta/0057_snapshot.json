@@ -1,6 +1,6 @@
 {
-  "id": "04c202c9-7fe2-407c-9a70-f7d0b7bbaca9",
-  "prevId": "d66ac6a4-f060-446c-8082-ab19b360c49d",
+  "id": "5f01929d-34dc-444e-bb07-74246c20d06d",
+  "prevId": "7afe90d9-79a4-4a9b-95a9-10f0d406c47c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3146,109 +3146,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.hq_raid_state": {
-      "name": "hq_raid_state",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "raid_id": {
-          "name": "raid_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "highest_level": {
-          "name": "highest_level",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "key_balance": {
-          "name": "key_balance",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 3
-        },
-        "last_key_grant_at": {
-          "name": "last_key_grant_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "hq_raid_state_user_raid_idx": {
-          "name": "hq_raid_state_user_raid_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "raid_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "hq_raid_state_userId_idx": {
-          "name": "hq_raid_state_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "hq_raid_state_user_id_user_id_fk": {
-          "name": "hq_raid_state_user_id_user_id_fk",
-          "tableFrom": "hq_raid_state",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.hq_shop_upgrades": {
       "name": "hq_shop_upgrades",
       "schema": "",
@@ -3412,13 +3309,6 @@
           "notNull": true,
           "default": false
         },
-        "boss_lost": {
-          "name": "boss_lost",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "hero_node_id": {
           "name": "hero_node_id",
           "type": "text",
@@ -3447,65 +3337,12 @@
           "notNull": true,
           "default": "'[\"class_beginner\"]'::jsonb"
         },
-        "class_token": {
-          "name": "class_token",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "void_shards": {
           "name": "void_shards",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "default": "'0'"
-        },
-        "speed_boost_multiplier": {
-          "name": "speed_boost_multiplier",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "speed_boost_expires_at": {
-          "name": "speed_boost_expires_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "settings": {
-          "name": "settings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "calendar_start": {
-          "name": "calendar_start",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "calendar_claimed": {
-          "name": "calendar_claimed",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "calendar_makeups": {
-          "name": "calendar_makeups",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "milestones_claimed": {
-          "name": "milestones_claimed",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
         },
         "formation": {
           "name": "formation",
@@ -3593,13 +3430,6 @@
         },
         "artifact_essence": {
           "name": "artifact_essence",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "trait_gems": {
-          "name": "trait_gems",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,

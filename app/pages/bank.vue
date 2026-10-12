@@ -7,8 +7,9 @@ import {
   DEBT_CEILING_MULTIPLIER,
   DEBT_GARNISH_RATE,
   LOAN_DAILY_RATE,
+  BANK_MAX_DAILY_INTEREST,
   LOAN_MULTIPLIER,
-  bankDailyRate,
+  bankEffectiveDailyRate,
   growBankBalance
 } from '#shared/utils/gamelogic/bank'
 
@@ -69,8 +70,10 @@ const bankProfitLoss = computed(() => liveBalance.value - (data.value?.principal
 const walletBalance = computed(() => parseFloat(user.value?.balance ?? '0'))
 // Match the server settlement rate exactly between refreshes. The amount itself
 // still updates in real time, but its current accrual period uses this anchor.
-const rate = computed(() => isInDebt.value ? LOAN_DAILY_RATE : bankDailyRate(Math.max(0, data.value?.balance ?? 0)))
-const interestToday = computed(() => Math.abs(liveBalance.value) * rate.value)
+const rate = computed(() => isInDebt.value ? LOAN_DAILY_RATE : bankEffectiveDailyRate(Math.max(0, data.value?.balance ?? 0)))
+const interestToday = computed(() => isInDebt.value
+  ? Math.abs(liveBalance.value) * rate.value
+  : Math.min(Math.max(0, liveBalance.value) * rate.value, BANK_MAX_DAILY_INTEREST))
 const validAmount = computed(() => amount.value > 0 ? amount.value : 0)
 const availableLoan = computed(() => data.value?.loanAvailable ?? 0)
 const availableBankBalance = computed(() => Math.max(0, liveBalance.value))
@@ -371,7 +374,7 @@ async function submit(action: 'deposit' | 'withdraw', overrideAmount?: number, r
             <UIcon name="i-lucide-chart-no-axes-combined" class="size-5" />
           </div>
           <p class="mt-3 text-sm font-medium">Your growth chart starts with a deposit</p>
-          <p class="mt-1 max-w-sm text-xs text-muted">Savings begin at 2% daily and rise smoothly to 4% as your bank balance approaches 1B.</p>
+          <p class="mt-1 max-w-sm text-xs text-muted">Savings begin at 2% daily and rise smoothly to 4% as your bank balance approaches 1B, up to {{ formatNumber(BANK_MAX_DAILY_INTEREST) }} interest a day.</p>
         </div>
         <ChartsChartLine v-else-if="chartData.length" :data="chartData" :x="xFn" :y="yFn" color="var(--ui-primary)" negative-color="var(--ui-error)" :width="chartWidth" :tick-format="xTickFmt" :tooltip-template="tooltipFmt" :padding="{ top: 36 }" height="h-56" />
       </UCard>

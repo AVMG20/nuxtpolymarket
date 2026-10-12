@@ -1,6 +1,6 @@
 {
-  "id": "f789eae6-d995-4fc2-9bcd-a5ba677058c3",
-  "prevId": "accce0c9-510b-4eff-847f-ea36128af5ca",
+  "id": "1d951bff-965e-4c96-bd8f-21caba068fb9",
+  "prevId": "d9ebf646-e880-4bfd-a3e7-71c1898fb8d6",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2830,848 +2830,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.hq_collection": {
-      "name": "hq_collection",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "system": {
-          "name": "system",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "content_id": {
-          "name": "content_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "star": {
-          "name": "star",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "level": {
-          "name": "level",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "dupe_progress": {
-          "name": "dupe_progress",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "acquired_at": {
-          "name": "acquired_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "hq_collection_userId_system_idx": {
-          "name": "hq_collection_userId_system_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "system",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "hq_collection_user_id_user_id_fk": {
-          "name": "hq_collection_user_id_user_id_fk",
-          "tableFrom": "hq_collection",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "hq_collection_unique": {
-          "name": "hq_collection_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "user_id",
-            "system",
-            "content_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.hq_fights": {
-      "name": "hq_fights",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "seed": {
-          "name": "seed",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "context": {
-          "name": "context",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "outcome": {
-          "name": "outcome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "resolved_at": {
-          "name": "resolved_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "hq_fights_userId_idx": {
-          "name": "hq_fights_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "hq_fights_user_id_user_id_fk": {
-          "name": "hq_fights_user_id_user_id_fk",
-          "tableFrom": "hq_fights",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.hq_loadouts": {
-      "name": "hq_loadouts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slot_index": {
-          "name": "slot_index",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'Loadout'"
-        },
-        "party_champion_ids": {
-          "name": "party_champion_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "formation": {
-          "name": "formation",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "equipped_skill_ids": {
-          "name": "equipped_skill_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "equipped_artifact_ids": {
-          "name": "equipped_artifact_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "equipped_gear": {
-          "name": "equipped_gear",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "hq_loadouts_userId_idx": {
-          "name": "hq_loadouts_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "hq_loadouts_user_id_user_id_fk": {
-          "name": "hq_loadouts_user_id_user_id_fk",
-          "tableFrom": "hq_loadouts",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "hq_loadouts_unique": {
-          "name": "hq_loadouts_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "user_id",
-            "slot_index"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.hq_raid_state": {
-      "name": "hq_raid_state",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "raid_id": {
-          "name": "raid_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "highest_level": {
-          "name": "highest_level",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "key_balance": {
-          "name": "key_balance",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 3
-        },
-        "last_key_grant_at": {
-          "name": "last_key_grant_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "hq_raid_state_user_raid_idx": {
-          "name": "hq_raid_state_user_raid_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "raid_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "hq_raid_state_userId_idx": {
-          "name": "hq_raid_state_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "hq_raid_state_user_id_user_id_fk": {
-          "name": "hq_raid_state_user_id_user_id_fk",
-          "tableFrom": "hq_raid_state",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.hq_shop_upgrades": {
-      "name": "hq_shop_upgrades",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "upgrade_id": {
-          "name": "upgrade_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "level": {
-          "name": "level",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        }
-      },
-      "indexes": {
-        "hq_shop_upgrades_userId_idx": {
-          "name": "hq_shop_upgrades_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "hq_shop_upgrades_user_id_user_id_fk": {
-          "name": "hq_shop_upgrades_user_id_user_id_fk",
-          "tableFrom": "hq_shop_upgrades",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "hq_shop_upgrades_unique": {
-          "name": "hq_shop_upgrades_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "user_id",
-            "upgrade_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.hq_state": {
-      "name": "hq_state",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "last_settled_at": {
-          "name": "last_settled_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "prestige": {
-          "name": "prestige",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "world": {
-          "name": "world",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "stage": {
-          "name": "stage",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "kill_count": {
-          "name": "kill_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "kill_fraction": {
-          "name": "kill_fraction",
-          "type": "double precision",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "recovery_seconds": {
-          "name": "recovery_seconds",
-          "type": "double precision",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "at_boss_gate": {
-          "name": "at_boss_gate",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "run_cleared": {
-          "name": "run_cleared",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "boss_lost": {
-          "name": "boss_lost",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "hero_node_id": {
-          "name": "hero_node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'class_beginner'"
-        },
-        "hero_level": {
-          "name": "hero_level",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "hero_xp": {
-          "name": "hero_xp",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'0'"
-        },
-        "seen_node_ids": {
-          "name": "seen_node_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[\"class_beginner\"]'::jsonb"
-        },
-        "class_token": {
-          "name": "class_token",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "void_shards": {
-          "name": "void_shards",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'0'"
-        },
-        "speed_boost_multiplier": {
-          "name": "speed_boost_multiplier",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "speed_boost_expires_at": {
-          "name": "speed_boost_expires_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "settings": {
-          "name": "settings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "formation": {
-          "name": "formation",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "party_champion_ids": {
-          "name": "party_champion_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "equipped_skill_ids": {
-          "name": "equipped_skill_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "equipped_artifact_ids": {
-          "name": "equipped_artifact_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "equipped_gear": {
-          "name": "equipped_gear",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "forge_seals": {
-          "name": "forge_seals",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "guild_seals": {
-          "name": "guild_seals",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "skill_seals": {
-          "name": "skill_seals",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "excavation_seals": {
-          "name": "excavation_seals",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "gear_essence": {
-          "name": "gear_essence",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "champion_essence": {
-          "name": "champion_essence",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "skill_essence": {
-          "name": "skill_essence",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "artifact_essence": {
-          "name": "artifact_essence",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "trait_gems": {
-          "name": "trait_gems",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "gacha_levels": {
-          "name": "gacha_levels",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "gacha_progress": {
-          "name": "gacha_progress",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "seal_ladder_purchased_today": {
-          "name": "seal_ladder_purchased_today",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "seal_ladder_date": {
-          "name": "seal_ladder_date",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "free_pulls_used_today": {
-          "name": "free_pulls_used_today",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "free_pull_date": {
-          "name": "free_pull_date",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "free_pull_claimed_at": {
-          "name": "free_pull_claimed_at",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        }
-      },
-      "indexes": {
-        "hq_state_userId_idx": {
-          "name": "hq_state_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "hq_state_user_id_user_id_fk": {
-          "name": "hq_state_user_id_user_id_fk",
-          "tableFrom": "hq_state",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "hq_state_user_id_unique": {
-          "name": "hq_state_user_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "user_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.live_blackjack_wagers": {
       "name": "live_blackjack_wagers",
       "schema": "",
@@ -4173,6 +3331,107 @@
           ]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.neighcasso_horses": {
+      "name": "neighcasso_horses",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "drawing": {
+          "name": "drawing",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "wins": {
+          "name": "wins",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "races": {
+          "name": "races",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "neighcasso_horses_userId_idx": {
+          "name": "neighcasso_horses_userId_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "updated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "neighcasso_horses_user_id_user_id_fk": {
+          "name": "neighcasso_horses_user_id_user_id_fk",
+          "tableFrom": "neighcasso_horses",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -8794,6 +8053,179 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.town_contract_days": {
+      "name": "town_contract_days",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bonus_gems": {
+          "name": "bonus_gems",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bonus_claimed": {
+          "name": "bonus_claimed",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "town_contract_days_user_id_user_id_fk": {
+          "name": "town_contract_days_user_id_user_id_fk",
+          "tableFrom": "town_contract_days",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "town_contract_days_user_day_unique": {
+          "name": "town_contract_days_user_day_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "day"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.town_contracts": {
+      "name": "town_contracts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "slot": {
+          "name": "slot",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource": {
+          "name": "resource",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reward": {
+          "name": "reward",
+          "type": "numeric(19, 4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "delivered": {
+          "name": "delivered",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "delivered_at": {
+          "name": "delivered_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "town_contracts_user_id_user_id_fk": {
+          "name": "town_contracts_user_id_user_id_fk",
+          "tableFrom": "town_contracts",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "town_contracts_user_day_slot_unique": {
+          "name": "town_contracts_user_day_slot_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "user_id",
+            "day",
+            "slot"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.town_events": {
       "name": "town_events",
       "schema": "",
@@ -9289,30 +8721,24 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.town_research": {
-      "name": "town_research",
+    "public.town_redesign_drafts": {
+      "name": "town_redesign_drafts",
       "schema": "",
       "columns": {
-        "id": {
-          "name": "id",
+        "user_id": {
+          "name": "user_id",
           "type": "text",
           "primaryKey": true,
           "notNull": true
         },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
+        "draft": {
+          "name": "draft",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": true
         },
-        "research_id": {
-          "name": "research_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "completed_at": {
-          "name": "completed_at",
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
@@ -9321,9 +8747,9 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "town_research_user_id_user_id_fk": {
-          "name": "town_research_user_id_user_id_fk",
-          "tableFrom": "town_research",
+        "town_redesign_drafts_user_id_user_id_fk": {
+          "name": "town_redesign_drafts_user_id_user_id_fk",
+          "tableFrom": "town_redesign_drafts",
           "tableTo": "user",
           "columnsFrom": [
             "user_id"
@@ -9336,16 +8762,7 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "town_research_user_project": {
-          "name": "town_research_user_project",
-          "nullsNotDistinct": false,
-          "columns": [
-            "user_id",
-            "research_id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -9436,17 +8853,43 @@
           "notNull": true,
           "default": "'{}'::jsonb"
         },
-        "research_id": {
-          "name": "research_id",
-          "type": "text",
+        "monument_credit": {
+          "name": "monument_credit",
+          "type": "jsonb",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "'{}'::jsonb"
         },
-        "research_completes_at": {
-          "name": "research_completes_at",
+        "build_boost_until": {
+          "name": "build_boost_until",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": false
+        },
+        "production_boost_until": {
+          "name": "production_boost_until",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "temp_builder_until": {
+          "name": "temp_builder_until",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "market_boost_until": {
+          "name": "market_boost_until",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "market_boost_bonus_left": {
+          "name": "market_boost_bonus_left",
+          "type": "numeric(19, 4)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
         },
         "created_at": {
           "name": "created_at",
@@ -9482,6 +8925,180 @@
           ]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.town_storage": {
+      "name": "town_storage",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "type": {
+          "name": "type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "level": {
+          "name": "level",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "upgrading_to": {
+          "name": "upgrading_to",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "remaining_ms": {
+          "name": "remaining_ms",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stored_at": {
+          "name": "stored_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "town_storage_userId_idx": {
+          "name": "town_storage_userId_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "town_storage_user_id_user_id_fk": {
+          "name": "town_storage_user_id_user_id_fk",
+          "tableFrom": "town_storage",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.town_streak": {
+      "name": "town_streak",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "step": {
+          "name": "step",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "last_day": {
+          "name": "last_day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "claimed": {
+          "name": "claimed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "cycle": {
+          "name": "cycle",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "locked": {
+          "name": "locked",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "lucky": {
+          "name": "lucky",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "town_streak_user_id_user_id_fk": {
+          "name": "town_streak_user_id_user_id_fk",
+          "tableFrom": "town_streak",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -9873,6 +9490,52 @@
           ]
         }
       },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.user_nav_layout": {
+      "name": "user_nav_layout",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "layout": {
+          "name": "layout",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "user_nav_layout_user_id_user_id_fk": {
+          "name": "user_nav_layout_user_id_user_id_fk",
+          "tableFrom": "user_nav_layout",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

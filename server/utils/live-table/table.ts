@@ -21,6 +21,12 @@ export interface LtConfig {
     disconnectGrace: number
     /** The same, with nothing at risk — no reason to hold the seat as long. */
     disconnectGraceIdle: number
+    /**
+     * Refuse a seat to a player who can't cover the minimum bet. Games that
+     * stake nothing until the round starts turn this off: sitting costs
+     * nothing, and the stake itself refuses a player who can't pay.
+     */
+    seatNeedsBalance?: boolean
 }
 
 const CHAT_MAX_LENGTH = 120
@@ -270,11 +276,13 @@ export abstract class LiveTable<TSeat, TShared, TAction> {
         }
         if (this.seatTaken(index)) fail('Seat is taken')
 
-        const balance = Number(await getBalance(userId))
-        // Turning a broke player away at the seat beats letting them sit
-        // through rounds they can never bet in.
-        if (balance < this.config.minBet) {
-            fail(`You need at least ${this.config.minBet} to take a seat`)
+        if (this.config.seatNeedsBalance !== false) {
+            const balance = Number(await getBalance(userId))
+            // Turning a broke player away at the seat beats letting them sit
+            // through rounds they can never bet in.
+            if (balance < this.config.minBet) {
+                fail(`You need at least ${this.config.minBet} coins to take a seat`)
+            }
         }
 
         if (existing) {

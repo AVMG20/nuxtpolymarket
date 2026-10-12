@@ -1,7 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { townResearch } from '#server/database/schema'
 import {
     deleteTownForUser,
     foundTown,
@@ -9,15 +7,12 @@ import {
     placeBuilding,
     settleTownForRead
 } from '#server/utils/town'
-import { getTownResearchBoard } from '#server/utils/town-research'
-import { TOWN_RESEARCH_BRANCHES } from '#shared/utils/gamelogic/town-research'
 import { TOWN_FREE_BUILDERS, TOWN_MAX_BUILDERS } from '#shared/utils/gamelogic/town'
 import { SKIP, cleanupUser, lockTownRealm, moveTownToFlatGround, seedUser } from '../setup/db-helpers'
 
 const OWNER = 'test-town-smoke-owner'
 
 async function cleanup() {
-    await db.delete(townResearch).where(eq(townResearch.userId, OWNER))
     await deleteTownForUser(OWNER)
     await cleanupUser(OWNER)
 }
@@ -57,8 +52,8 @@ describe.skipIf(SKIP)('a new mayor can play (database)', () => {
         const settled = await settleTownForRead(OWNER)
         expect(settled.buildings).toHaveLength(4)
         expect(settled.state.builders).toBe(TOWN_FREE_BUILDERS)
-        // Nothing researched yet, so every bonus is zero.
-        expect(settled.research.output).toBe(0)
+        // No monument yet, so every bonus is zero.
+        expect(settled.bonus.output).toBe(0)
     })
 
     it('stops the mayor at the crew cap, and lets them buy their way past it', async () => {
@@ -86,14 +81,5 @@ describe.skipIf(SKIP)('a new mayor can play (database)', () => {
         await foundTown(OWNER)
         for (let i = TOWN_FREE_BUILDERS; i < TOWN_MAX_BUILDERS; i++) await hireTownBuilder(OWNER)
         await expect(hireTownBuilder(OWNER)).rejects.toThrow(/already have/)
-    })
-
-    it('opens a research board with the first project of every branch ready', async () => {
-        await seedUser(OWNER, { balance: '100000000000' })
-        await foundTown(OWNER)
-        const board = await getTownResearchBoard(OWNER)
-        expect(board.active).toBeNull()
-        expect(board.projects.filter(p => p.unlocked && p.step === 1))
-            .toHaveLength(TOWN_RESEARCH_BRANCHES.length)
     })
 })

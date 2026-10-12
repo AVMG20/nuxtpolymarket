@@ -1,0 +1,1 @@
+ALTER TABLE "town_streak" ADD COLUMN "locked" jsonb DEFAULT '{}'::jsonb NOT NULL;

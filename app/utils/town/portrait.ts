@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { createBuildingModel } from './models'
-import { townVisualLevel } from './appearance'
+import { townSceneLevel } from './appearance'
 import type { TownBuildingId } from '#shared/utils/gamelogic/town'
 
 // Building portraits for menus and panels. Each one is the building's own 3D
@@ -33,7 +33,7 @@ function sharedRenderer(): THREE.WebGLRenderer | null {
  * Returns null when the browser cannot give us a context.
  */
 export function townRenderedPortrait(type: TownBuildingId, level = 1): string | null {
-    const visual = townVisualLevel(level)
+    const visual = townSceneLevel(type, level)
     const key = `${type}:${visual}`
     const hit = cache.get(key)
     if (hit !== undefined) return hit

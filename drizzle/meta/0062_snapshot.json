@@ -1,6 +1,6 @@
 {
-  "id": "2b3e2cfe-6dbd-42ec-b112-7e2af3bcabdf",
-  "prevId": "0143d59c-24dc-42ec-b450-79500705255d",
+  "id": "accce0c9-510b-4eff-847f-ea36128af5ca",
+  "prevId": "ded3bfe4-e182-4704-881f-21cea0a93ed3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3027,107 +3027,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.hq_holiday_claims": {
-      "name": "hq_holiday_claims",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "holiday_id": {
-          "name": "holiday_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "year": {
-          "name": "year",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "claimed_at": {
-          "name": "claimed_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "hq_holiday_claims_user_holiday_year_idx": {
-          "name": "hq_holiday_claims_user_holiday_year_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "holiday_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "year",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "hq_holiday_claims_userId_idx": {
-          "name": "hq_holiday_claims_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "hq_holiday_claims_user_id_user_id_fk": {
-          "name": "hq_holiday_claims_user_id_user_id_fk",
-          "tableFrom": "hq_holiday_claims",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.hq_loadouts": {
       "name": "hq_loadouts",
       "schema": "",
@@ -3191,13 +3090,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
-        },
-        "ascendant_skill_ids": {
-          "name": "ascendant_skill_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
         },
         "updated_at": {
           "name": "updated_at",
@@ -3562,20 +3454,6 @@
           "notNull": true,
           "default": false
         },
-        "prestiged_class_ids": {
-          "name": "prestiged_class_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "ascendant_skill_ids": {
-          "name": "ascendant_skill_ids",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
         "void_shards": {
           "name": "void_shards",
           "type": "text",
@@ -3601,40 +3479,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
-        },
-        "calendar_start": {
-          "name": "calendar_start",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "calendar_claimed": {
-          "name": "calendar_claimed",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "calendar_makeups": {
-          "name": "calendar_makeups",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "milestones_claimed": {
-          "name": "milestones_claimed",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "tutorials_seen": {
-          "name": "tutorials_seen",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
         },
         "formation": {
           "name": "formation",
@@ -3670,19 +3514,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
-        },
-        "raid_loadout_preferences": {
-          "name": "raid_loadout_preferences",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "pre_raid_snapshot": {
-          "name": "pre_raid_snapshot",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "forge_seals": {
           "name": "forge_seals",
@@ -3735,13 +3566,6 @@
         },
         "artifact_essence": {
           "name": "artifact_essence",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "trait_gems": {
-          "name": "trait_gems",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -3834,191 +3658,6 @@
           "nullsNotDistinct": false,
           "columns": [
             "user_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.hq_trait_save_slots": {
-      "name": "hq_trait_save_slots",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "save_slot_index": {
-          "name": "save_slot_index",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "snapshot": {
-          "name": "snapshot",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "hq_trait_save_slots_userId_idx": {
-          "name": "hq_trait_save_slots_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "hq_trait_save_slots_user_id_user_id_fk": {
-          "name": "hq_trait_save_slots_user_id_user_id_fk",
-          "tableFrom": "hq_trait_save_slots",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "hq_trait_save_slots_unique": {
-          "name": "hq_trait_save_slots_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "user_id",
-            "save_slot_index"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.hq_trait_slots": {
-      "name": "hq_trait_slots",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "slot_index": {
-          "name": "slot_index",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "stat": {
-          "name": "stat",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "grade": {
-          "name": "grade",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "set_id": {
-          "name": "set_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "locked": {
-          "name": "locked",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        }
-      },
-      "indexes": {
-        "hq_trait_slots_userId_idx": {
-          "name": "hq_trait_slots_userId_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "hq_trait_slots_user_id_user_id_fk": {
-          "name": "hq_trait_slots_user_id_user_id_fk",
-          "tableFrom": "hq_trait_slots",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "hq_trait_slots_unique": {
-          "name": "hq_trait_slots_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "user_id",
-            "slot_index"
           ]
         }
       },

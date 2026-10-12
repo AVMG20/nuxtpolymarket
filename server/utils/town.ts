@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gte, inArray, lte, notInArray, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townResearch, townRealm, townEvents } from '#server/database/schema'
+import { user, townState, townPlots, townBuildings, townInventory, townOrders, townTrades, townProduction, townRealm, townEvents, townContracts, townContractDays, townStorage, townRedesignDrafts } from '#server/database/schema'
 import { credit, creditGems, debit, debitGems } from '#server/utils/balance'
 import { pruneTownEvents, recordTownEvent } from '#server/utils/town-events'
 import { matchGemOrder } from '#shared/utils/gamelogic/gem-exchange'
@@ -28,7 +28,9 @@ import {
     townSpiralCoords,
     townPlotIsFlat,
     townFloorPrice,
-    type TownResearchBonus,
+    type TownBonus,
+    townMonumentBonus,
+    townMonumentJob,
     townCeilingPrice,
     TOWN_MAX_ORDER_PRICE,
     townOrderTotal,
@@ -58,7 +60,20 @@ import {
     type TownSimBuilding,
     type TownSatisfied
 } from '#shared/utils/gamelogic/town'
-import { townResearchEffects } from '#shared/utils/gamelogic/town-research'
+import { TOWN_MONUMENT_IDS, isTownMonumentId } from '#shared/utils/gamelogic/town-monuments'
+import { townStoredIsJob, type TownRedesignDraft, type TownStoredBuilding } from '#shared/utils/gamelogic/town-storage'
+import {
+    isTownBoostActive,
+    townBoostExtend,
+    townBoostMultiplier,
+    townBoostUntil,
+    townBuildBoostedCompletesAt,
+    townBuildRushedCompletesAt,
+    townCrewCount,
+    townMarketBonus,
+    townMarketMultiplier,
+    type TownBoostBag
+} from '#shared/utils/gamelogic/town-boosts'
 
 const CATEGORY = 'polytown'
 /**
@@ -67,6 +82,8 @@ const CATEGORY = 'polytown'
  * money the player never earned — see isEarning in server/utils/balance.ts.
  */
 const CATEGORY_REFUND = 'polytown:refund'
+/** Market-day coins on top of a town-hall sale. */
+const CATEGORY_MARKET_DAY = 'polytown:market-day'
 
 // App-unique advisory lock keys. Plot claiming serializes on one global key so
 // spiral indexes never collide; each resource book gets its own key so matching
@@ -189,57 +206,19 @@ export interface SettledTown {
     /** Which needs the last tick could supply. */
     satisfied: TownSatisfied
     /**
-     * What this town's research is worth. Handed back so every caller derives
-     * with the same bonus the settle just paid out — a rate quoted without it
-     * is a number the player would catch us lying about.
+     * What this town's monuments are worth right now. Handed back so every
+     * build timer quoted after the settle uses the same Great Pyramid the
+     * player sees on the map.
      */
-    research: TownResearchBonus
-    /** Project ids this town has finished — the research milestones count them. */
-    researchDone: string[]
+    bonus: TownBonus
+    /** The buildings in storage, oldest first. Read under the same lock. */
+    stored: StoredRow[]
 }
 
-/**
- * Bank the running project if its clock has run out. Lives here rather than in
- * the research module because the settle has to do it first, under the same
- * town_state lock, before it reads the bonus for the window it is about to pay.
- *
- * The insert is the guard: a second caller conflicts on the unique
- * (user, project) pair and changes nothing.
- */
-export async function bankFinishedResearch(
-    tx: DbExecutor,
-    userId: string,
-    state: typeof townState.$inferSelect,
-    now = Date.now()
-) {
-    if (!state.researchId || !state.researchCompletesAt) return
-    if (state.researchCompletesAt.getTime() > now) return
-    const banked = await tx.insert(townResearch)
-        .values({ userId, researchId: state.researchId })
-        .onConflictDoNothing()
-        .returning({ id: townResearch.id })
-    await tx.update(townState)
-        .set({ researchId: null, researchCompletesAt: null })
-        .where(and(eq(townState.id, state.id), eq(townState.researchId, state.researchId)))
-    // Only the caller that won the insert tells the mayor; the loser changed nothing.
-    if (banked.length) await recordTownEvent(tx, userId, { kind: 'research', researchId: state.researchId }, state.researchCompletesAt.getTime())
-}
+type StoredRow = typeof townStorage.$inferSelect
 
-/**
- * What this player's finished research is worth, read inside the caller's
- * transaction. Research changes at most once every twelve hours, so this is a
- * cheap read next to everything else a settle does.
- */
-export async function getResearchBonus(tx: DbExecutor, userId: string): Promise<TownResearchBonus> {
-    return townResearchEffects(await getResearchDoneIds(tx, userId))
-}
-
-/** Project ids this player has finished, read inside the caller's transaction. */
-export async function getResearchDoneIds(tx: DbExecutor, userId: string): Promise<string[]> {
-    const rows = await tx.select({ researchId: townResearch.researchId })
-        .from(townResearch)
-        .where(eq(townResearch.userId, userId))
-    return rows.map(r => r.researchId)
+export function toStored(row: StoredRow): TownStoredBuilding {
+    return { id: row.id, type: row.type, level: row.level, upgradingTo: row.upgradingTo, remainingMs: row.remainingMs, storedAt: row.storedAt.getTime() }
 }
 
 /**
@@ -263,12 +242,6 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
     const inventory = await getInventory(userId, tx, true)
     const { plots, byId } = await getPlotMap(userId, tx)
     const simBefore = rows.map(row => toSim(row, byId.get(row.plotId)))
-    // A project that finished while the player was away has to be banked
-    // before the window is settled, or the whole offline stretch is paid at
-    // the un-researched rate and the bonus is quietly lost.
-    await bankFinishedResearch(tx, userId, state, now)
-    const researchDone = await getResearchDoneIds(tx, userId)
-    const research = townResearchEffects(researchDone)
 
     const result = settleTown({
         happiness: state.happiness,
@@ -276,8 +249,8 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
         lastSettledAt: state.lastSettledAt.getTime(),
         inventory,
         buildings: simBefore,
-        research,
-        carry: state.carry
+        carry: state.carry,
+        productionBoostUntil: state.productionBoostUntil?.getTime() ?? null
     }, now)
 
     for (const [id, delta] of Object.entries(result.delta) as [TownResourceId, number][]) {
@@ -319,6 +292,8 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
     }
     if (result.completed.length) await pruneTownEvents(tx, userId, now)
 
+    const stored = await tx.select().from(townStorage).where(eq(townStorage.userId, userId)).orderBy(asc(townStorage.storedAt), asc(townStorage.id))
+
     const [updated] = await tx.update(townState)
         .set({
             happiness: result.happiness,
@@ -347,9 +322,129 @@ export async function settleTownState(tx: DbExecutor, userId: string, now = Date
         delta: result.delta,
         elapsedMs: Math.min(now - state.lastSettledAt.getTime(), TOWN_MAX_OFFLINE_MS),
         satisfied: result.satisfied,
-        research,
-        researchDone
+        bonus: townMonumentBonus(sim, now),
+        stored
     }
+}
+
+// ─── Boosts ──────────────────────────────────────────────────────────────────
+
+type TownBoostState = Pick<typeof townState.$inferSelect, 'buildBoostUntil' | 'productionBoostUntil' | 'tempBuilderUntil' | 'marketBoostUntil' | 'marketBoostBonusLeft'>
+
+/** The boosts running at `now`: when each ends (null when off) and what it multiplies by. */
+export function townBoostsView(state: TownBoostState, now: number) {
+    const build = state.buildBoostUntil?.getTime() ?? null
+    const production = state.productionBoostUntil?.getTime() ?? null
+    const market = state.marketBoostUntil?.getTime() ?? null
+    const marketOn = townBoostUntil(market, now) !== null
+    return {
+        boosts: { build: townBoostUntil(build, now), production: townBoostUntil(production, now), market: townBoostUntil(market, now) },
+        boostMultiplier: { build: townBoostMultiplier(build, now), production: townBoostMultiplier(production, now), market: townMarketMultiplier(market, now) },
+        /** Extra coins market day can still pay out; 0 when it is off. */
+        marketBonusLeft: marketOn ? parseFloat(state.marketBoostBonusLeft) : 0
+    }
+}
+
+/** Crews this town can put to work at `now`, the borrowed one included. */
+export function townCrews(state: Pick<typeof townState.$inferSelect, 'builders' | 'tempBuilderUntil'>, now: number): number {
+    return townCrewCount(state.builders, state.tempBuilderUntil?.getTime(), now)
+}
+
+export interface TownBoostGrant extends TownBoostBag {
+    /** Borrowed-crew time to add. */
+    builder?: number
+    /** Market-day time to add, and the bonus budget that comes with it. */
+    market?: number
+    marketBudget?: number
+}
+
+/**
+ * Start (or lengthen) boosts. Lock-then-read: the town_state lock is taken
+ * here (a settle earlier in `tx` already holds it), so the until read below
+ * is the one the write extends, and two activations queue up rather than
+ * overwrite each other.
+ *
+ * Production needs only the new end: the caller has settled up to `now`, so
+ * the next settle starts inside the surge. A rush also shortens every job
+ * still running, by the part of it inside the new window. Jobs started during
+ * an earlier window were already shortened for that window, and the new one
+ * begins where the old one ends, so nothing is counted twice.
+ */
+export async function activateTownBoosts(tx: DbExecutor, userId: string, grant: TownBoostGrant | undefined, now: number) {
+    const build = Math.max(0, grant?.build ?? 0)
+    const production = Math.max(0, grant?.production ?? 0)
+    const builder = Math.max(0, grant?.builder ?? 0)
+    const market = Math.max(0, grant?.market ?? 0)
+    if (build <= 0 && production <= 0 && builder <= 0 && market <= 0) return
+    const state = await lockTownState(tx, userId)
+    const patch: Partial<typeof townState.$inferInsert> = {}
+
+    if (production > 0) {
+        patch.productionBoostUntil = new Date(townBoostExtend(state.productionBoostUntil?.getTime(), now, production))
+    }
+    if (builder > 0) {
+        patch.tempBuilderUntil = new Date(townBoostExtend(state.tempBuilderUntil?.getTime(), now, builder))
+    }
+    if (market > 0) {
+        // A lapsed market day's unspent budget lapses with it.
+        const running = isTownBoostActive(state.marketBoostUntil?.getTime(), now)
+        const left = running ? parseFloat(state.marketBoostBonusLeft) : 0
+        patch.marketBoostUntil = new Date(townBoostExtend(state.marketBoostUntil?.getTime(), now, market))
+        patch.marketBoostBonusLeft = (left + Math.max(0, grant?.marketBudget ?? 0)).toFixed(4)
+    }
+    if (build > 0) {
+        const windowStart = Math.max(now, state.buildBoostUntil?.getTime() ?? 0)
+        patch.buildBoostUntil = new Date(townBoostExtend(state.buildBoostUntil?.getTime(), now, build))
+        const running = await tx.select({ id: townBuildings.id, completesAt: townBuildings.completesAt })
+            .from(townBuildings)
+            .where(and(
+                eq(townBuildings.userId, userId),
+                gte(townBuildings.completesAt, new Date(windowStart)),
+                sql`(${townBuildings.level} = 0 or ${townBuildings.upgradingTo} is not null)`
+            ))
+        for (const job of running) {
+            const completesAt = townBuildRushedCompletesAt(job.completesAt.getTime(), windowStart, build)
+            if (completesAt === job.completesAt.getTime()) continue
+            // Keyed by id under the state lock, which every build mutation takes first.
+            await tx.update(townBuildings).set({ completesAt: new Date(completesAt) }).where(eq(townBuildings.id, job.id))
+        }
+    }
+    await tx.update(townState).set(patch).where(eq(townState.id, state.id))
+}
+
+/**
+ * Running jobs an instant finish may complete, longest left first: builds and
+ * upgrades, never a monument stage. Call under the town lock.
+ */
+export async function townInstantJobs(tx: DbExecutor, userId: string, now: number) {
+    const rows = await tx.select().from(townBuildings).where(and(
+        eq(townBuildings.userId, userId),
+        gte(townBuildings.completesAt, new Date(now + 1)),
+        sql`(${townBuildings.level} = 0 or ${townBuildings.upgradingTo} is not null)`,
+        NOT_A_MONUMENT
+    )).orderBy(desc(townBuildings.completesAt))
+    return rows
+}
+
+/**
+ * Finish the `count` running jobs with the most time left, as a free rush
+ * would. Lock-then-read: the town lock serializes this with every other build
+ * mutation, so the jobs read here are the ones finished.
+ */
+export async function finishLongestTownJobs(tx: DbExecutor, userId: string, count: number, now: number) {
+    if (count <= 0) return []
+    await lockTownState(tx, userId)
+    const jobs = (await townInstantJobs(tx, userId, now)).slice(0, count)
+    const done: { buildingId: string, type: string, level: number, savedMs: number }[] = []
+    for (const job of jobs) {
+        const level = job.upgradingTo ?? 1
+        await tx.update(townBuildings)
+            .set({ level, upgradingTo: null, completesAt: new Date(now) })
+            .where(eq(townBuildings.id, job.id))
+        await recordTownEvent(tx, userId, { kind: job.level === 0 ? 'built' : 'upgraded', type: job.type, level }, now)
+        done.push({ buildingId: job.id, type: job.type, level, savedMs: job.completesAt.getTime() - now })
+    }
+    return done
 }
 
 /** Convenience for read paths: settle in its own transaction. */
@@ -765,8 +860,7 @@ function validatePlacementShape(item: TownPlacement) {
  * Place one or more buildings in a single transaction — what a road drag sends.
  *
  * Every item is validated against the layout the previous items in the same
- * drag already created, so a run of road tiles connects to itself and a house
- * may be dropped beside a road laid a moment earlier in the same call. A drag
+ * drag already created, so occupancy and costs account for earlier tiles. A drag
  * across a tile that is taken, or past what the purse covers, skips that tile
  * rather than failing the whole gesture — but a request that places nothing at
  * all reports the first reason, so a single click still explains itself the way
@@ -783,15 +877,16 @@ export async function placeBuildings(userId: string, items: TownPlacement[]) {
 
     return db.transaction(async (tx) => {
         const now = Date.now()
-        const { sim, state, research, inventory } = await settleTownState(tx, userId, now)
+        const { sim, state, bonus, inventory, stored } = await settleTownState(tx, userId, now)
         const { byId: plotsById } = await getPlotMap(userId, tx)
         const purse = await townPurse(tx, userId, inventory)
 
         // The layout as this call builds it up, so each item sees the last one.
         const layout = [...sim]
+        // Stored buildings are still owned: they count toward caps and prices.
         const counts = new Map<string, number>()
-        for (const b of sim) counts.set(b.type, (counts.get(b.type) ?? 0) + 1)
-        let buildersLeft = townBuildersFree(sim, state.builders, now)
+        for (const b of [...sim, ...stored]) counts.set(b.type, (counts.get(b.type) ?? 0) + 1)
+        let buildersLeft = townBuildersFree(sim, townCrews(state, now), now)
 
         const placed: { buildingId: string, type: string, plotId: string, tileX: number, tileY: number, completesAt: number, cost: ReturnType<typeof townPlaceCost> }[] = []
         const touchedPlots = new Set<string>()
@@ -804,7 +899,11 @@ export async function placeBuildings(userId: string, items: TownPlacement[]) {
             const plot = plotsById.get(item.plotId)
             if (!plot) { note('That plot is not yours'); continue }
 
-            const lock = townTierRequirement(layout, def.tier, now, state.produced, research)
+            // Monument stages carried over from research: the monument goes up
+            // at that stage at once, free, and whatever tier the town is at.
+            const credit = def.kind === 'monument' ? Math.max(0, Math.floor(state.monumentCredit[def.id] ?? 0)) : 0
+
+            const lock = credit > 0 ? null : townTierRequirement(layout, def.tier, now, state.produced)
             if (lock) {
                 note(lock.needsBuilding
                     ? `Finish a tier ${def.tier - 1} building first`
@@ -824,16 +923,19 @@ export async function placeBuildings(userId: string, items: TownPlacement[]) {
             const issue = townPlacementIssue(layout, def, wx, wy, rotation)
             if (issue) { note(issue); continue }
 
-            // Roads go up instantly and need nobody; everything else needs a crew.
+            // Roads go up instantly and need nobody; monuments have their own
+            // crew; everything else needs a builder.
             const instant = def.kind === 'road'
-            if (!instant && buildersLeft <= 0) { note('Every builder is busy'); continue }
+            const monument = def.kind === 'monument'
+            if (monument && !credit && townMonumentJob(layout, now)) { note('The monument crew is busy'); continue }
+            if (!instant && !monument && buildersLeft <= 0) { note('Every builder is busy'); continue }
 
             // The n-th copy costs more: count every existing one, finished or not.
-            const cost = townPlaceCost(def, counts.get(def.id) ?? 0)
+            const cost = credit > 0 ? { coins: 0, resources: {} } : townPlaceCost(def, counts.get(def.id) ?? 0)
             const short = purse.shortOf(cost)
             if (short) { note(short); continue }
 
-            const buildMs = instant ? 0 : townLevelBuildMs(def, 1, state.happiness, research)
+            const buildMs = instant ? 0 : townLevelBuildMs(def, 1, state.happiness, bonus)
             // The unique (plot, tile) constraint is the occupancy guard, and the
             // insert comes first: a tile lost to a concurrent build must not be
             // paid for.
@@ -845,19 +947,30 @@ export async function placeBuildings(userId: string, items: TownPlacement[]) {
                     tileX: item.tileX,
                     tileY: item.tileY,
                     rotation,
-                    level: instant ? 1 : 0,
-                    completesAt: new Date(now + buildMs)
+                    level: instant ? 1 : credit,
+                    completesAt: new Date(credit > 0 ? now : townBuildBoostedCompletesAt(now, buildMs, state.buildBoostUntil?.getTime()))
                 })
                 .onConflictDoNothing()
                 .returning()
             if (!building) { note('That tile is already taken'); continue }
+
+            if (credit > 0) {
+                // Spend the credit only once the tile is won. The key's presence
+                // is the guard, so two placements racing for it cannot both land
+                // a free monument; the loser rolls the whole call back.
+                const [spent] = await tx.update(townState)
+                    .set({ monumentCredit: sql`${townState.monumentCredit} - ${def.id}::text` })
+                    .where(and(eq(townState.id, state.id), sql`${townState.monumentCredit} ? ${def.id}`))
+                    .returning({ id: townState.id })
+                if (!spent) throw createError({ statusCode: 409, statusMessage: 'That research credit was just used' })
+            }
 
             if (cost.coins > 0) await debit(userId, cost.coins.toFixed(4), CATEGORY, tx)
             await spendBag(tx, userId, cost.resources)
             purse.spend(cost)
 
             counts.set(def.id, (counts.get(def.id) ?? 0) + 1)
-            if (!instant) buildersLeft--
+            if (!instant && !monument) buildersLeft--
             layout.push(toSim(building, plot))
             touchedPlots.add(item.plotId)
             placed.push({
@@ -960,6 +1073,180 @@ export interface TownRedesign {
     moves: TownRelocation[]
     /** Brand-new roads to lay, paid for at the usual price. */
     roads: { plotId: string, tileX: number, tileY: number }[]
+    /** Buildings on the map going into storage instead of back down. */
+    store?: string[]
+    /** Stored buildings coming back out, by their stored id, and where. */
+    place?: TownRelocation[]
+}
+
+// ─── Storage ─────────────────────────────────────────────────────────────────
+
+/** A stored building as the layout rules see it while it is being put back: no tile yet. */
+function storedToSim(row: StoredRow, now: number): TownSimBuilding {
+    const job = townStoredIsJob(row)
+    return {
+        id: row.id,
+        type: row.type as TownSimBuilding['type'],
+        level: row.level,
+        upgradingTo: job ? row.upgradingTo : null,
+        completesAt: job ? now + row.remainingMs : 0,
+        createdAt: row.createdAt.getTime(),
+        rotation: 0
+    }
+}
+
+/**
+ * Take buildings off the map into storage. The DELETE ... RETURNING is the
+ * claim: only a row this call removed is stored, so a building cannot be
+ * stored twice. A running job is frozen: what was left of it is kept, and
+ * the crew it held is free from now on.
+ */
+async function storeBuildingRows(tx: DbExecutor, userId: string, ids: string[], now: number) {
+    if (ids.length === 0) return []
+    const taken = await tx.delete(townBuildings)
+        .where(and(inArray(townBuildings.id, ids), eq(townBuildings.userId, userId)))
+        .returning()
+    if (taken.length !== ids.length) throw createError({ statusCode: 409, statusMessage: 'A building changed — try again' })
+    await tx.insert(townStorage).values(taken.map((b) => {
+        const job = b.level === 0 || b.upgradingTo !== null
+        return {
+            id: b.id,
+            userId,
+            type: b.type,
+            level: b.level,
+            upgradingTo: b.upgradingTo,
+            remainingMs: job ? Math.max(0, b.completesAt.getTime() - now) : 0,
+            createdAt: b.createdAt,
+            storedAt: new Date(now)
+        }
+    }))
+    return taken
+}
+
+/**
+ * Put a stored building back on a tile. The storage DELETE claims it, and the
+ * (plot, tile) unique index guards the tile; losing either rolls back the
+ * whole transaction, so the building is never in both places or neither.
+ * A paused job picks up where it stopped.
+ */
+async function placeStoredRow(tx: DbExecutor, userId: string, m: TownRelocation, now: number) {
+    const [row] = await tx.delete(townStorage)
+        .where(and(eq(townStorage.id, m.buildingId), eq(townStorage.userId, userId)))
+        .returning()
+    if (!row) throw createError({ statusCode: 404, statusMessage: 'That building is not in storage' })
+    const job = townStoredIsJob(row)
+    const [placed] = await tx.insert(townBuildings)
+        .values({
+            id: row.id,
+            userId,
+            plotId: m.plotId,
+            type: row.type,
+            tileX: m.tileX,
+            tileY: m.tileY,
+            rotation: m.rotation,
+            level: row.level,
+            upgradingTo: job ? row.upgradingTo : null,
+            completesAt: new Date(job ? now + row.remainingMs : now),
+            createdAt: row.createdAt
+        })
+        .onConflictDoNothing()
+        .returning({ id: townBuildings.id })
+    if (!placed) throw createError({ statusCode: 400, statusMessage: 'That tile is already taken' })
+}
+
+/**
+ * Why the stored buildings in `placing` cannot come back onto `layout` (the
+ * map as it will stand, stores already gone), or null. A paused job needs a
+ * crew standing idle to pick it up; a monument stage needs the monument
+ * crew. Every placed job takes its crew before the next is judged. Without
+ * this, storing a job to free its crew and placing it back would run two
+ * jobs on one crew.
+ */
+function storagePlaceCrewIssue(layout: TownSimBuilding[], placing: StoredRow[], crews: number, now: number): string | null {
+    let free = townBuildersFree(layout, crews, now)
+    let monumentFree = townMonumentJob(layout, now) === null
+    for (const row of placing) {
+        if (!townStoredIsJob(row)) continue
+        if (isTownMonumentId(row.type)) {
+            if (!monumentFree) return 'The monument crew is busy: this monument\'s stage has to wait in storage'
+            monumentFree = false
+        } else {
+            if (free <= 0) return 'Every builder is busy: a paused job needs a free crew to come back'
+            free--
+        }
+    }
+    return null
+}
+
+/** Send buildings on the map to storage, roads included. */
+export async function storeBuildings(userId: string, buildingIds: string[]) {
+    const ids = [...new Set(buildingIds.filter(Boolean))]
+    if (ids.length === 0) throw createError({ statusCode: 400, statusMessage: 'Nothing to store' })
+    if (ids.length > TOWN_MAX_DRAG_TILES) throw createError({ statusCode: 400, statusMessage: 'Too many buildings in one go' })
+    return db.transaction(async (tx) => {
+        const now = Date.now()
+        // Settled first, so a job's frozen time is measured from now.
+        const { buildings } = await settleTownState(tx, userId, now)
+        for (const id of ids) {
+            if (!buildings.some(x => x.id === id)) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
+        }
+        await storeBuildingRows(tx, userId, ids, now)
+        return { stored: ids }
+    })
+}
+
+// ─── Redesign drafts ─────────────────────────────────────────────────────────
+
+export async function getRedesignDraft(userId: string, ex: DbExecutor = db): Promise<{ draft: TownRedesignDraft, updatedAt: number } | null> {
+    const [row] = await ex.select().from(townRedesignDrafts).where(eq(townRedesignDrafts.userId, userId))
+    return row ? { draft: row.draft, updatedAt: row.updatedAt.getTime() } : null
+}
+
+/**
+ * Keep a half-done redesign for later. Only a plan: nothing about the town
+ * changes, so this is a plain upsert with no lock — the last save wins.
+ */
+export async function saveRedesignDraft(userId: string, draft: TownRedesignDraft) {
+    const state = await getTownState(userId)
+    if (!state) throw createError({ statusCode: 400, statusMessage: 'Found a town first' })
+    const now = new Date()
+    await db.insert(townRedesignDrafts)
+        .values({ userId, draft, updatedAt: now })
+        .onConflictDoUpdate({ target: townRedesignDrafts.userId, set: { draft, updatedAt: now } })
+    return { savedAt: now.getTime() }
+}
+
+export async function discardRedesignDraft(userId: string, ex: DbExecutor = db) {
+    await ex.delete(townRedesignDrafts).where(eq(townRedesignDrafts.userId, userId))
+    return { discarded: true }
+}
+
+/** Bring one stored building back onto a tile of your own land. */
+export async function placeStoredBuilding(userId: string, m: TownRelocation) {
+    if (!Number.isInteger(m.rotation) || m.rotation < 0 || m.rotation > 3) {
+        throw createError({ statusCode: 400, statusMessage: 'Rotation must be 0, 1, 2 or 3 quarter turns' })
+    }
+    if (!Number.isInteger(m.tileX) || !Number.isInteger(m.tileY) || m.tileX < 0 || m.tileY < 0 || m.tileX >= TOWN_PLOT_SIZE || m.tileY >= TOWN_PLOT_SIZE) {
+        throw createError({ statusCode: 400, statusMessage: 'That tile is off the plot' })
+    }
+    return db.transaction(async (tx) => {
+        const now = Date.now()
+        const { state, sim, stored } = await settleTownState(tx, userId, now)
+        const row = stored.find(s => s.id === m.buildingId)
+        if (!row) throw createError({ statusCode: 404, statusMessage: 'That building is not in storage' })
+        const { byId: plotsById } = await getPlotMap(userId, tx)
+        const plot = plotsById.get(m.plotId)
+        if (!plot) throw createError({ statusCode: 400, statusMessage: 'That plot is not yours' })
+        const wx = plot.x * TOWN_PLOT_SIZE + m.tileX
+        const wy = plot.y * TOWN_PLOT_SIZE + m.tileY
+        const issue = townGroupMoveIssue([...sim, storedToSim(row, now)], [{ id: row.id, wx, wy, rotation: m.rotation }])
+        if (issue) throw createError({ statusCode: 400, statusMessage: issue })
+        const crew = storagePlaceCrewIssue(sim, [row], townCrews(state, now), now)
+        if (crew) throw createError({ statusCode: 400, statusMessage: crew })
+        await placeStoredRow(tx, userId, m, now)
+        await tx.update(townPlots).set({ listPrice: null }).where(eq(townPlots.id, m.plotId))
+        return { buildingId: row.id }
+    })
 }
 
 /** The most tiles a redesign can name: every tile of every plot a town can own. */
@@ -970,42 +1257,65 @@ export const TOWN_REDESIGN_MAX_TILES = TOWN_MAX_PLOTS * TOWN_PLOT_SIZE * TOWN_PL
  *
  * The client picks everything up into a tray and puts it back down; this is
  * the tray being emptied. Every building that is not a road must be in
- * `moves` — a redesign never demolishes a building, so a call that forgot
- * one is refused rather than quietly deleting it. Roads are the exception:
- * any road left out is removed (the client warns before it asks), and new
- * ones can be laid at the same time, charged exactly as a fresh build.
+ * `moves` or `store` — a redesign never demolishes a building, so a call
+ * that forgot one is refused rather than quietly deleting it. Roads may be
+ * stored too; a road named in neither list is removed. New roads can be laid
+ * at the same time, charged exactly as a fresh build.
+ *
+ * Stored buildings can come out (`place`) and buildings on the map can go in
+ * (`store`) in the same save. Stores happen first, so a crew freed by a
+ * stored job can pick up a paused one coming back.
  *
  * Moves are free and keep the clock, like moveBuildings. Only the ground is
  * checked; a building put down away from a road goes dark, it is not refused.
  */
 export async function redesignTown(userId: string, plan: TownRedesign) {
     const { moves, roads } = plan
-    if (moves.length + roads.length === 0) throw createError({ statusCode: 400, statusMessage: 'Nothing to lay out' })
-    if (moves.length + roads.length > TOWN_REDESIGN_MAX_TILES) throw createError({ statusCode: 400, statusMessage: 'Too many tiles in one go' })
+    const store = [...new Set(plan.store ?? [])]
+    const place = plan.place ?? []
+    if (moves.length + roads.length + store.length + place.length === 0) throw createError({ statusCode: 400, statusMessage: 'Nothing to lay out' })
+    if (moves.length + roads.length + place.length > TOWN_REDESIGN_MAX_TILES || store.length > TOWN_REDESIGN_MAX_TILES) {
+        throw createError({ statusCode: 400, statusMessage: 'Too many tiles in one go' })
+    }
     const onPlot = (t: { tileX: number, tileY: number }) =>
         Number.isInteger(t.tileX) && Number.isInteger(t.tileY) && t.tileX >= 0 && t.tileY >= 0 && t.tileX < TOWN_PLOT_SIZE && t.tileY < TOWN_PLOT_SIZE
-    for (const m of moves) {
+    for (const m of [...moves, ...place]) {
         if (!Number.isInteger(m.rotation) || m.rotation < 0 || m.rotation > 3) {
             throw createError({ statusCode: 400, statusMessage: 'Rotation must be 0, 1, 2 or 3 quarter turns' })
         }
         if (!onPlot(m)) throw createError({ statusCode: 400, statusMessage: 'That tile is off the plot' })
     }
     for (const r of roads) if (!onPlot(r)) throw createError({ statusCode: 400, statusMessage: 'That tile is off the plot' })
-    if (new Set(moves.map(m => m.buildingId)).size !== moves.length) {
+    const named = [...moves.map(m => m.buildingId), ...place.map(m => m.buildingId), ...store]
+    if (new Set(named).size !== named.length) {
         throw createError({ statusCode: 400, statusMessage: 'A building can only be placed once' })
     }
     const roadDef = getTownBuilding('road')!
 
     return db.transaction(async (tx) => {
         const now = Date.now()
-        const { sim } = await settleTownState(tx, userId, now)
+        const { sim: settledSim, state, stored } = await settleTownState(tx, userId, now)
         const { byId: plotsById } = await getPlotMap(userId, tx)
 
+        const storing = new Set(store)
+        for (const id of store) {
+            if (!settledSim.some(x => x.id === id)) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
+        }
+        const placing: StoredRow[] = []
+        for (const m of place) {
+            const row = stored.find(s => s.id === m.buildingId)
+            // Repossessed by the settle above, or never stored.
+            if (!row) throw createError({ statusCode: 404, statusMessage: 'That building is no longer in storage' })
+            placing.push(row)
+        }
+
+        // From here on the map is the map without what is going into storage.
+        const sim = settledSim.filter(b => !storing.has(b.id))
         const moving = new Set(moves.map(m => m.buildingId))
         const removed: string[] = []
         for (const b of sim) {
             if (moving.has(b.id)) continue
-            if (b.type !== 'road') throw createError({ statusCode: 400, statusMessage: 'Every building has to be placed before saving' })
+            if (b.type !== 'road') throw createError({ statusCode: 400, statusMessage: 'Every building has to be placed or stored before saving' })
             removed.push(b.id)
         }
 
@@ -1020,9 +1330,15 @@ export async function redesignTown(userId: string, plan: TownRedesign) {
             const { wx, wy } = world(m.plotId, m.tileX, m.tileY)
             wanted.push({ id: m.buildingId, wx, wy, rotation: m.rotation })
         }
-        // The roads being removed do not hold their tiles against the new layout.
-        const kept = sim.filter(b => !removed.includes(b.id))
-        const issue = townGroupMoveIssue(kept, wanted)
+        for (const m of place) {
+            const { wx, wy } = world(m.plotId, m.tileX, m.tileY)
+            wanted.push({ id: m.buildingId, wx, wy, rotation: m.rotation })
+        }
+        // The roads being removed do not hold their tiles against the new
+        // layout; buildings coming out of storage hold none until they land.
+        const kept = [...sim.filter(b => !removed.includes(b.id)), ...placing.map(row => storedToSim(row, now))]
+        // Everything may be going into storage, leaving nothing to put down.
+        const issue = wanted.length ? townGroupMoveIssue(kept, wanted) : null
         if (issue) throw createError({ statusCode: 400, statusMessage: issue })
 
         // New roads are judged against the finished layout, and priced the way
@@ -1031,6 +1347,9 @@ export async function redesignTown(userId: string, plan: TownRedesign) {
             const w = wanted.find(m => m.id === b.id)
             return w ? { ...b, wx: w.wx, wy: w.wy, rotation: w.rotation } : b
         })
+        const placingIds = new Set(placing.map(p => p.id))
+        const crew = storagePlaceCrewIssue(layout.filter(b => !placingIds.has(b.id)), placing, townCrews(state, now), now)
+        if (crew) throw createError({ statusCode: 400, statusMessage: crew })
         let roadCount = layout.filter(b => b.type === 'road').length
         let coins = 0
         const newRoads: { plotId: string, tileX: number, tileY: number, wx: number, wy: number }[] = []
@@ -1044,6 +1363,8 @@ export async function redesignTown(userId: string, plan: TownRedesign) {
             newRoads.push({ ...r, wx, wy })
         }
 
+        // Into storage first: their tiles come free for the moves below.
+        await storeBuildingRows(tx, userId, store, now)
         // Park, clear, then set: see moveBuildings for why the shuffle is legal.
         let park = -1
         for (const m of moves) {
@@ -1062,6 +1383,7 @@ export async function redesignTown(userId: string, plan: TownRedesign) {
                 .returning({ id: townBuildings.id })
             if (!moved) throw createError({ statusCode: 400, statusMessage: 'That tile is already taken' })
         }
+        for (const m of place) await placeStoredRow(tx, userId, m, now)
         const built: string[] = []
         for (const r of newRoads) {
             const [row] = await tx.insert(townBuildings)
@@ -1074,9 +1396,11 @@ export async function redesignTown(userId: string, plan: TownRedesign) {
         // debit throws when the purse is short, and the transaction rolls back.
         if (coins > 0) await debit(userId, coins.toFixed(4), CATEGORY, tx)
 
-        const touched = new Set([...moves.map(m => m.plotId), ...roads.map(r => r.plotId)])
+        const touched = new Set([...moves.map(m => m.plotId), ...place.map(m => m.plotId), ...roads.map(r => r.plotId)])
         if (touched.size) await tx.update(townPlots).set({ listPrice: null }).where(inArray(townPlots.id, [...touched]))
-        return { moved: moves.map(m => m.buildingId), removed, built, coins }
+        // The plan is carried out: any half-way draft of it is spent.
+        await discardRedesignDraft(userId, tx)
+        return { moved: moves.map(m => m.buildingId), removed, built, coins, stored: store, placed: place.map(m => m.buildingId) }
     })
 }
 
@@ -1085,10 +1409,16 @@ export async function moveBuilding(userId: string, buildingId: string, plotId: s
     return { buildingId, plotId, tileX, tileY, rotation }
 }
 
+/** Why nobody can start an upgrade on a building of `kind` right now, or null. */
+function upgradeCrewIssue(kind: string, sim: TownSimBuilding[], builders: number, now: number): string | null {
+    if (kind === 'monument') return townMonumentJob(sim, now) ? 'The monument crew is busy' : null
+    return townBuildersFree(sim, builders, now) <= 0 ? 'Every builder is busy' : null
+}
+
 export async function upgradeBuilding(userId: string, buildingId: string) {
     return db.transaction(async (tx) => {
         const now = Date.now()
-        const { buildings, state, sim, research } = await settleTownState(tx, userId, now)
+        const { buildings, state, sim, bonus } = await settleTownState(tx, userId, now)
         const building = buildings.find(b => b.id === buildingId)
         if (!building) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
         if (building.level === 0) throw createError({ statusCode: 400, statusMessage: 'Still under construction' })
@@ -1097,15 +1427,14 @@ export async function upgradeBuilding(userId: string, buildingId: string) {
         const def = getTownBuilding(building.type)!
         if (def.kind === 'road') throw createError({ statusCode: 400, statusMessage: 'Roads have no levels' })
         if (building.level >= townBuildingMaxLevel(def)) throw createError({ statusCode: 400, statusMessage: 'Already at max level' })
-        if (townBuildersFree(sim, state.builders, now) <= 0) {
-            throw createError({ statusCode: 400, statusMessage: 'Every builder is busy' })
-        }
+        const crewIssue = upgradeCrewIssue(def.kind, sim, townCrews(state, now), now)
+        if (crewIssue) throw createError({ statusCode: 400, statusMessage: crewIssue })
         const nextLevel = building.level + 1
         const cost = townLevelCost(def, nextLevel)
         if (cost.coins > 0) await debit(userId, cost.coins.toFixed(4), CATEGORY, tx)
         await spendBag(tx, userId, cost.resources)
 
-        const completesAt = new Date(now + townLevelBuildMs(def, nextLevel, state.happiness, research))
+        const completesAt = new Date(townBuildBoostedCompletesAt(now, townLevelBuildMs(def, nextLevel, state.happiness, bonus), state.buildBoostUntil?.getTime()))
         const [updated] = await tx.update(townBuildings)
             .set({ upgradingTo: nextLevel, completesAt })
             .where(and(eq(townBuildings.id, buildingId), eq(townBuildings.level, building.level), sql`${townBuildings.upgradingTo} is null`))
@@ -1140,11 +1469,16 @@ export async function rushBuilding(userId: string, buildingId: string) {
     })
 }
 
+/** Monuments stand for good: the billions sunk into one cannot be bulldozed by a slip of the mouse. */
+const NOT_A_MONUMENT = notInArray(townBuildings.type, [...TOWN_MONUMENT_IDS])
+
 export async function demolishBuilding(userId: string, buildingId: string) {
     return db.transaction(async (tx) => {
-        await settleTownState(tx, userId)
+        const { buildings } = await settleTownState(tx, userId)
+        const target = buildings.find(b => b.id === buildingId)
+        if (target && isTownMonumentId(target.type)) throw createError({ statusCode: 400, statusMessage: 'Monuments cannot be demolished' })
         const [deleted] = await tx.delete(townBuildings)
-            .where(and(eq(townBuildings.id, buildingId), eq(townBuildings.userId, userId)))
+            .where(and(eq(townBuildings.id, buildingId), eq(townBuildings.userId, userId), NOT_A_MONUMENT))
             .returning({ id: townBuildings.id, type: townBuildings.type })
         if (!deleted) throw createError({ statusCode: 404, statusMessage: 'Building not found' })
         return { buildingId: deleted.id, type: deleted.type }
@@ -1161,9 +1495,9 @@ export async function demolishBuildings(userId: string, buildingIds: string[]) {
         // The DELETE is the guard: whatever comes back is what this call removed,
         // so a tile already cleared by another request is simply not in the list.
         const deleted = await tx.delete(townBuildings)
-            .where(and(inArray(townBuildings.id, ids), eq(townBuildings.userId, userId)))
+            .where(and(inArray(townBuildings.id, ids), eq(townBuildings.userId, userId), NOT_A_MONUMENT))
             .returning({ id: townBuildings.id, type: townBuildings.type })
-        if (deleted.length === 0) throw createError({ statusCode: 404, statusMessage: 'Nothing left to demolish' })
+        if (deleted.length === 0) throw createError({ statusCode: 400, statusMessage: 'Nothing left to demolish — monuments stay standing' })
         return { demolished: deleted.map(d => d.id), types: deleted.map(d => d.type) }
     })
 }
@@ -1183,9 +1517,10 @@ export async function upgradeBuildings(userId: string, buildingIds: string[]) {
 
     return db.transaction(async (tx) => {
         const now = Date.now()
-        const { buildings, state, sim, research, inventory } = await settleTownState(tx, userId, now)
+        const { buildings, state, sim, bonus, inventory } = await settleTownState(tx, userId, now)
         const purse = await townPurse(tx, userId, inventory)
-        let buildersLeft = townBuildersFree(sim, state.builders, now)
+        let buildersLeft = townBuildersFree(sim, townCrews(state, now), now)
+        let monumentCrewFree = townMonumentJob(sim, now) === null
         const started: { buildingId: string, level: number, completesAt: number }[] = []
         let firstIssue: string | null = null
         const note = (why: string) => { if (!firstIssue) firstIssue = why }
@@ -1198,13 +1533,15 @@ export async function upgradeBuildings(userId: string, buildingIds: string[]) {
             const def = getTownBuilding(building.type)!
             if (def.kind === 'road') { note('Roads have no levels'); continue }
             if (building.level >= townBuildingMaxLevel(def)) { note('Already at max level'); continue }
-            if (buildersLeft <= 0) { note('Every builder is busy'); continue }
+            const monument = def.kind === 'monument'
+            if (monument && !monumentCrewFree) { note('The monument crew is busy'); continue }
+            if (!monument && buildersLeft <= 0) { note('Every builder is busy'); continue }
 
             const nextLevel = building.level + 1
             const cost = townLevelCost(def, nextLevel)
             const short = purse.shortOf(cost)
             if (short) { note(short); continue }
-            const completesAt = new Date(now + townLevelBuildMs(def, nextLevel, state.happiness, research))
+            const completesAt = new Date(townBuildBoostedCompletesAt(now, townLevelBuildMs(def, nextLevel, state.happiness, bonus), state.buildBoostUntil?.getTime()))
             // The conditional UPDATE claims the upgrade; only then is anything charged.
             const [updated] = await tx.update(townBuildings)
                 .set({ upgradingTo: nextLevel, completesAt })
@@ -1220,7 +1557,8 @@ export async function upgradeBuildings(userId: string, buildingIds: string[]) {
             await spendBag(tx, userId, cost.resources)
             purse.spend(cost)
 
-            buildersLeft--
+            if (monument) monumentCrewFree = false
+            else buildersLeft--
             started.push({ buildingId: id, level: nextLevel, completesAt: completesAt.getTime() })
         }
 
@@ -1238,7 +1576,7 @@ export async function upgradeBuildings(userId: string, buildingIds: string[]) {
  * out real coins and gems at the Magnate milestone. The hall is the one
  * counterparty nobody can be on both sides of.
  */
-async function recordEarnings(tx: DbExecutor, userId: string, coins: number) {
+export async function recordEarnings(tx: DbExecutor, userId: string, coins: number) {
     if (coins <= 0) return
     await tx.update(townState)
         .set({ coinsEarned: sql`${townState.coinsEarned} + ${coins.toFixed(4)}::numeric` })
@@ -1247,12 +1585,11 @@ async function recordEarnings(tx: DbExecutor, userId: string, coins: number) {
 
 // ─── Milestones ──────────────────────────────────────────────────────────────
 
-type MilestoneInput = Pick<SettledTown, 'state' | 'sim' | 'inventory' | 'satisfied' | 'research' | 'researchDone'>
+type MilestoneInput = Pick<SettledTown, 'state' | 'sim' | 'inventory' | 'satisfied'>
 
 export function milestoneSnapshotFor(settled: MilestoneInput, now: number) {
-    const derived = deriveTown(settled.sim, settled.state.happiness, now, settled.satisfied, undefined, settled.research)
+    const derived = deriveTown(settled.sim, settled.state.happiness, now, settled.satisfied)
     return townMilestoneSnapshot(settled.sim, derived, settled.state.happiness, settled.state.plotsBought, parseFloat(settled.state.coinsEarned), now, {
-        researchDone: settled.researchDone.length,
         needsSatisfied: townAllNeedsSatisfied(settled.satisfied)
     })
 }
@@ -1403,6 +1740,27 @@ async function applySweepSell(tx: DbExecutor, userId: string, plan: SweepSellPla
 }
 
 /**
+ * Market day: half again on what the town hall paid, out of the budget the
+ * market days granted. Lock-then-read on the seller's town row (the sell
+ * paths already hold it), so parallel sells draw the budget down one after
+ * another and never pay out more than it holds. Only the hall's share counts:
+ * fills against player bids and contracts earn no bonus.
+ */
+async function payMarketBonus(tx: DbExecutor, userId: string, hallTotal: number, now: number): Promise<number> {
+    if (hallTotal <= 0) return 0
+    const [state] = await tx.select({ id: townState.id, until: townState.marketBoostUntil, left: townState.marketBoostBonusLeft })
+        .from(townState).where(eq(townState.userId, userId)).for('update')
+    if (!state) return 0
+    const bonus = townMarketBonus(hallTotal, parseFloat(state.left), isTownBoostActive(state.until?.getTime(), now))
+    if (bonus <= 0) return 0
+    await tx.update(townState)
+        .set({ marketBoostBonusLeft: sql`greatest(0, ${townState.marketBoostBonusLeft} - ${bonus.toFixed(4)}::numeric)` })
+        .where(eq(townState.id, state.id))
+    await credit(userId, bonus.toFixed(4), CATEGORY_MARKET_DAY, tx)
+    return bonus
+}
+
+/**
  * Sell one good for the most coins on offer: the player bids that beat the
  * town hall first, best price first, then the hall for the remainder.
  *
@@ -1418,6 +1776,7 @@ export async function sellToFloor(userId: string, resource: string, quantity: nu
         const plan = await planSweepSell(tx, userId, resource, quantity)
         for (const id of sweepParticipants(userId, [plan])) await lockTownForMarket(tx, id)
         await applySweepSell(tx, userId, plan)
+        const marketBonus = await payMarketBonus(tx, userId, plan.hallTotal, Date.now())
         return {
             resource,
             quantity,
@@ -1425,7 +1784,9 @@ export async function sellToFloor(userId: string, resource: string, quantity: nu
             total: plan.total,
             toPlayers: plan.playerTotal,
             toHall: plan.hallTotal,
-            filledByPlayers: quantity - plan.remaining
+            filledByPlayers: quantity - plan.remaining,
+            /** Market-day coins paid on top of `total`. */
+            marketBonus
         }
     })
 }
@@ -1467,12 +1828,15 @@ export async function sellBulkToFloor(userId: string, items: { resource: string,
         for (const id of sweepParticipants(userId, plans)) await lockTownForMarket(tx, id)
 
         let total = 0
+        let hallTotal = 0
         for (const plan of plans) {
             await applySweepSell(tx, userId, plan)
             total += plan.total
+            hallTotal += plan.hallTotal
         }
+        const marketBonus = await payMarketBonus(tx, userId, hallTotal, Date.now())
         const lines = plans.map(plan => ({ resource: plan.resource, quantity: plan.quantity, price: plan.floor, total: plan.total }))
-        return { total, lines, resources: plans.filter(plan => plan.fills.length > 0).map(plan => plan.resource) }
+        return { total, lines, resources: plans.filter(plan => plan.fills.length > 0).map(plan => plan.resource), marketBonus }
     })
 }
 
@@ -1862,10 +2226,13 @@ export async function deleteTownForUser(userId: string, tx: DbExecutor = db) {
     await tx.delete(townOrders).where(eq(townOrders.userId, userId))
     await tx.delete(townProduction).where(eq(townProduction.userId, userId))
     await tx.delete(townBuildings).where(eq(townBuildings.userId, userId))
+    await tx.delete(townStorage).where(eq(townStorage.userId, userId))
+    await tx.delete(townRedesignDrafts).where(eq(townRedesignDrafts.userId, userId))
     await tx.delete(townInventory).where(eq(townInventory.userId, userId))
     await tx.delete(townPlots).where(eq(townPlots.userId, userId))
-    await tx.delete(townResearch).where(eq(townResearch.userId, userId))
     await tx.delete(townEvents).where(eq(townEvents.userId, userId))
+    await tx.delete(townContracts).where(eq(townContracts.userId, userId))
+    await tx.delete(townContractDays).where(eq(townContractDays.userId, userId))
     await tx.delete(townState).where(eq(townState.userId, userId))
 }
 /**
