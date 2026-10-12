@@ -39,7 +39,7 @@
 
 import { ANIM_FPS, Phase, phaseAt, type Clip } from './anim'
 import { C, CLEAR, RAMP, type RampName } from './palette'
-import { Surface, bayer, hash2, px, rect, ring } from './surface'
+import { Surface, bayer, hash2, rect, ring } from './surface'
 import { textOut } from './font'
 import { Particles } from './particles'
 import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type BakeJob } from './catalog'
@@ -47,6 +47,7 @@ import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
 import { GOLD_CHEST_CORNER } from './gold-chest'
+import { coin } from './vfx-training'
 import { BADGE_GLINT_FOR, BADGE_PORTRAIT_BOX, NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, badgePortrait, drawChallengeButton, drawGpnBar, drawProfileBadge, drawSkillBar, SKILL_TILE, gpnChanging, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type BadgeView, type NumberStyle, type PartyMember } from './feedback'
 import { VL, clock, dimLevel, R } from './vfx-kit'
 import { J } from './rig'
@@ -441,6 +442,7 @@ const COIN_POP = 0.35
 const COIN_FLY = 0.55
 const COIN_STAGGER = 0.06
 const COIN_GRAVITY = 260
+const COIN_R = 2.5
 
 interface Coin { live: boolean, t: number, x: number, y: number, vx: number, vy: number, fromX: number, fromY: number }
 
@@ -2759,22 +2761,11 @@ export class BattleDemo {
         }
     }
 
-    /** The coins in flight, over the HUD: each spins through a face and its edge. */
+    /** The coins in flight, over the HUD: King's Ransom's spinning coin, at its size. */
     private drawCoins(out: Surface): void {
         for (let i = 0; i < this.coins.length; i++) {
             const c = this.coins[i]!
-            if (!c.live || c.t < 0) continue
-            const x = Math.round(c.x)
-            const y = Math.round(c.y)
-            const edge = Math.floor(c.t * 12 + i) % 3 === 2
-            if (edge) {
-                rect(out, x, y - 1, 1, 3, C.gold2)
-                px(out, x, y - 1, C.gold3)
-            } else {
-                px(out, x - 1, y, C.gold2); px(out, x + 1, y, C.gold1)
-                px(out, x, y - 1, C.gold3); px(out, x, y + 1, C.gold1)
-                px(out, x, y, C.white)
-            }
+            if (c.live && c.t >= 0) coin(out, c.x, c.y, COIN_R, c.t * 14 + i)
         }
     }
 
