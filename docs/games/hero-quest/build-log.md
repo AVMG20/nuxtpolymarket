@@ -7,8 +7,8 @@ attention; this one holds the record.
 **Item numbers are the originals and are never reused.** Eleven docs, `constants.ts` and two
 scripts cite them (`#22`, `#23.3`, `#18.6`), so renumbering would silently repoint a reference.
 Numbers missing here are items still open — they stayed in `open-items.md` under the same number.
-Four entries (#22, #23, #25, #29) appear in **both**: the full record is here, and the part still
-needing attention stayed there. Numbering runs to **#54**; open-items.md says where the next new item starts.
+Four entries (#22, #23, #25, #29) appeared in **both**: the full record is here, and the part still
+needing attention stayed there. Numbering runs to **#63**; open-items.md says where the next new item starts.
 
 **This is not on the per-task reading list** (`CLAUDE.md` §1). Read an entry when you need the
 reasoning behind something already built; do not load it to find out what to do next.
@@ -325,7 +325,7 @@ Every blocker in the party's first prestige is a boss timer. World 1's boss need
 
 ---
 
-### 23. Gold is paced on account age — **landed 2026-08-18, with open consequences**
+### 23. Gold is paced on account age — **landed 2026-08-18; its consequences decided 2026-10-12**
 
 `gold-economy.md` §3 and §3a have the full design. In one line: `goldPerKill = BASE_GOLD × min(1.017^n, tenureCeiling(accountAge))`, with the ceiling generated from Colony's and Xeno's income at equal account age and discounted to 0.85×. `PRESTIGE_GOLD_FACTOR[]`, `GOLD_PRESTIGE_CAP`, `GOLD_WORLD_BASE`, `GOLD_STAGE_BASE` and `GOLD_PLATEAU_GROWTH` are deleted; `hq_state.created_at` was added.
 
@@ -358,13 +358,120 @@ Three consequences, all recorded rather than reconciled:
 
 **What it does to #23.2.** At current numbers the walk earns 29,598 Gold/day, so the ladder's first purchase — 1,000,000 Gold for **one** Seal — is **33.8 days of income**, and a 10-pull's worth is most of a year. The ladder is not mispriced at the margin, it is unreachable, and re-deriving `SEAL_LADDER_GROWTH` against income this size is meaningless. With the ceiling regenerated at the measured rate the same walk would earn ~12.9M/day, which makes the 1M first rung an ordinary daily purchase and the growth rates worth deriving. **So #23.2 is blocked on #23.3, not parallel to it** — and #29 raised the stakes on both, since the Gold ladder is now the only non-milestone Seal source.
 
-**Open — three consequences, none reconciled:**
+**Open until 2026-10-12 — three consequences, decided below** (*The progression half, decided*):
 
 1. **The locked calendar anchors are gone.** `gold-economy.md` locked ~235M/hr at month 3 and ~0.71B/hr at month 6. The ceiling now pays a keeping-pace account ~28M/hr at day 90 and ~52M/hr at day 180 — roughly an order of magnitude less. That is a deliberate re-anchoring on the platform, but it replaced a *locked* decision in code; it is recorded here so it reads as a decision.
 2. **The Seal ladder's calibration is stale** — and, measured, worse than stale: see above, the first rung is 33.8 days of income. Blocked on #23.3.
 
    *Original note:*  `SEAL_LADDER_GROWTH` was sized so pure Gold-buying completes one gacha's roster in ~6 months at the old income (17B/day at month 6). At ~1.25B/day that target does not hold. The ladder's shape is fine; its growth rates want re-deriving against the tenure ceiling (`gold-economy.md` §7).
 3. **`GOLD_STEP_BASE = 1.017` was measured before #22 slowed a prestige loop to a week.** It was chosen so the weakest simulated roster stayed inside the platform's 0.4–2.5× band, back when loops took hours. Now a prestige-0 account's progression factor tops out at `1.017^99 ≈ 5.3`. The ~15K Gold/hour this line used to quote assumed the maximum kill rate; **measured at the walk's real rate it is 1,233 Gold/hour**, against ~975K/hour on the platform at day 7 — and the campaign walk's party of three earns 311,851 Gold over 10½ days. The ceiling does not bind for a new account; progression does, far below the platform. The "~89% of time ceiling-bound" figure behind `GOLD_PLATFORM_DISCOUNT` dates from the same fast-loop era. **Needs a decision:** whether a first-week account should earn near platform rates or whether low early Gold is acceptable. **Measured 2026-09-16, above** — and the measurement changes the options: steepening `GOLD_STEP_BASE` is ruled out (it saturates at 2.6% of platform), raising `BASE_GOLD` cancels against the generated table in the ceiling-bound regime, and the real lever is the kill rate the ceiling is generated against. Note also that "Gold only buys Seals" now carries more weight than when this was written: after #29 the ladder is the only non-milestone Seal source.
+
+
+**The progression half, decided 2026-10-12 — the user's call via GitHub issue #10.** #23.3 had been
+left for the playtest on 2026-10-11; the owner asked for the decisions to be made rather than wait,
+so **all three are set from the sim, and #23.3 is to be confirmed by the playtest** (`open-items.md`
+🔬 *Does Gold feel like anything in week one?*). Measured with `bun run sim:hero-quest --report=gold`
+and `--report=campaign`, party of three and solo, before and after, plus `--grind-hours=200` walks
+(party of three, solo, party of six) for the month view, and `bun run balance:compare`.
+
+**A contradiction found first: the reference kill rate was stale.** `GOLD_REFERENCE_KILLS_PER_HOUR`
+was `TUNED ✓` at 600 from the 2026-09-16 walk (523 / 617 / 620). Re-measured, the walk kills at
+**405 solo, 430 for a party of three, 423 for a party of six** — the cooldown ladder (#36), wipe
+recovery (#37) and boss specials (#45) lengthened the grind since. At 600 a ceiling-bound account
+earned 0.71× the ceiling's stated rate, so every "0.85× platform" figure was really 0.60×. **Set to
+420** and the ceiling regenerated, the same correction as 2026-09-16. Its cost, stated: the abuse
+bound (`3600 / MIN_SECONDS_PER_KILL ÷ 420`) goes from 12× to **~17× platform**, and the column
+margin shrinks ×1.43 (below).
+
+**#23.1 — the calendar anchors.** The platform side did not move: Colony and Xeno are identical on
+this branch and on `main` (no commits to either since before 2026-09-16), `economy-stages.ts` reads
+their live code, the rungs still sit on their habitat and tier boundaries, and at 600 kills/hour the
+table regenerated byte-identical. Polytown, the newest idle economy, pays 0.3–1.0× the platform curve
+over its first month with three builders (`scripts/polytown-income.ts`), so leaving it out of the
+model does not bias it. Regenerated twice — at 420 kills/hour, then at `BASE_GOLD = 1` — to
+`[9.854, 21.25, … 195500]`; both are divisors, so what it pays is unchanged. **Decided: the anchors
+are what the ceiling pays an account keeping pace — ~28.2M Gold/hour at month 3 (day 90) and
+~51.9M/hour at month 6 (day 180)**, 0.85× the platform, now at the kill rate the game produces.
+They replace the locked ~235M/hour and ~0.71B/hour explicitly (`gold-economy.md` §3a).
+
+**#23.3 — first-week income.** **Decided: a first-week account earns about a quarter of what the
+platform's idle games pay at the same age, and stays under the ceiling.** Below the platform because
+Hero Quest Gold is the platform's shared coin: a first week near platform rates would make a fresh
+Hero Quest account the best new-account Gold farm on the site while it is still progression-bound
+and its Gold buys only Seals and the Shop's offline tracks. Not far below, because 0.07% read as no
+income. The other idle games pay 30–50K/hour on day one (Colony Habitat 2 34K, Xeno T3 30K,
+Polytown 46K) and 0.8–1.2M/hour by day 7.
+
+**`BASE_GOLD` 0.4 → 1, `GOLD_STEP_BASE` 1.017 → 1.075**, both `TUNED ✓`. One base alone could not
+do it: the platform climbs ~21× from day 1 to day 7 while the walk moves World 6 → World 9, so the
+slope has to be steep; at `BASE_GOLD = 0.4` hitting a quarter at day 7 needed ~1.09, past
+`ENEMY_STEP_BASE` (1.08), and Gold would outgrow the enemy it is earned from. 1.075 with 1 holds
+days 3–7 at a fifth to a quarter without passing the ceiling in the first day. Swept (party of
+three, `BASE_GOLD = 1`, share of platform at day 0.5 / 3 / 7 / 30): 1.07 → 57 / 14 / 15 / 33%;
+**1.075 → 71 / 20 / 22 / 58%**; 1.078 → 81 / 24 / 28 / 82%.
+
+| Gold/hour, continuous play | Party of three, before → after | Solo, before → after | Platform | Ceiling |
+|---|---|---|---|---|
+| day 1 | 438 → **25.5K** (56%) | 336 → **11.3K** (25%) | 45.4K | 38.6K |
+| day 3 | 506 → **51K** (20%) | 404 → **23K** (9%) | 260K | 221K |
+| day 7 | 703 → **216K** (22%) | 476 → **48K** (5%) | 975K | 828K |
+| day 30 | 1,830 → **4.2M** (58%) | 1,025 (stalled) → **446K** (6%) | 7.23M | 6.14M |
+| day 90 | 1,830 (stalled at P1 W3) → **4.2M** (13%) | 1,025 → **446K** (1%) | 33.2M | 28.2M |
+| day 180 | 1,830 → **4.2M** (7%) | 1,025 → **446K** (0.7%) | 61.0M | 51.9M |
+| first week, total | 92.9K → **15.8M** (24%) | 69.6K → **4.7M** (7%) | 67.2M | — |
+
+Day 90 and 180 are past the end of either walk (31.5 and 24.6 days at a 200-hour grind budget), so
+they read the wall world's rate held flat — a stalled account; a keeping-pace one earns the ceiling.
+**Where the ceiling binds:** the party of three never, inside its walk (P1 W3 at day 31 pays 11,264
+against a ceiling factor of 15,928; it would bind from about P1 W4); a party of six from about hour 8,
+continuously from day ~6 (~90% of its 37-day walk); solo never. The default 72-hour walks:
+party of three 151,074 → **37,202,074 Gold** over 9d 20h; solo 107,942 → **9,444,030** over 9d 17h.
+
+**Progression is unchanged**: every level, fight time, grind time, blocker, forced grind and wall of
+both campaign walks is identical before and after; only the Gold column moved. Gold feeds no combat
+or XP formula.
+
+**#23.2 — the Seal ladder.** **Decided: `SEAL_LADDER_BASE_GOLD = 1,000,000` and
+`SEAL_LADDER_GROWTH = 1.2` both hold, now `TUNED ✓`.** The targets: the base sets week one — a party
+of three's first Gold Seal on **day 2** of continuous play (solo day 3; 3 Seals a day of one gacha by
+day 7). The growth sets later depth — at keeping-pace income, Gold-bought Seals reach a gacha's free
+allowance (30 pulls a day, #29) around month 3 and then climb only ~4 Seals per doubling of income,
+so Gold at most doubles a gacha's daily pulls and never becomes the route to a roster (the 2026-10-04
+intent). At 1.2 a day of keeping-pace income buys **8 Seals at day 7, 18 at day 30, 26 at day 90**
+(three 10-pulls from day ~91), **30 at day 180, 32 at a year**. 1.17 reaches 36 at a year, past the
+free allowance; 1.25 stays under it. Milestone and boss Seals (~60 per type across a first prestige,
+#48) never advance a counter. `--report=gold` now prints the ladder depth a day of the walk buys.
+
+**Knock-ons checked.**
+
+- **`GOLD_PLATFORM_DISCOUNT`'s "~89% ceiling-bound"** is retired: ~90% for a party of six, 0% inside
+  the stand-in party of three's month. The 0.85 itself is unchanged.
+- **The abuse bound** is ~17× platform (12× at 600). Battle Speed stays under it (held to
+  `maxGoldPerHour` over the window's real time, 2026-10-11).
+- **§9.4's column margin**: the largest collect is ~1.9e12 against ~1e15, ~2.7 orders (525
+  worst-case collects fill it; 750 at 600). `settle.spec.ts` still asserts two orders, unchanged —
+  not loosened — and its comment carries the new figures. Headroom: ~37,800 hours at ×4 Gold% (spec:
+  ≥100). Three specs named positions that the steeper slope now puts past the ceiling (the Battle
+  Speed hold, "pays progress once the calendar has caught up", "applies inside settle()"); their
+  positions or ages moved so each still tests what it says. "Grows more slowly than the enemy curve"
+  dropped "far": ~1,300× across a run against the enemy's ~2,000×.
+- **Downstream, priced in minutes of income** (`goldPerHourAt`, so they scale on their own): the login
+  calendar's eight Gold days (390 minutes a cycle, ~0.9% of a cycle's income) pay a party of three
+  ~2K on day 1, ~72K on day 8, ~0.94M on day 19 and ~3.9M on day 26 — about 8.7M, eight first-rung
+  Seals, over the first cycle, where they paid a few thousand before. Holiday gifts (30–120 minutes)
+  are ~0.4–1.7M at day 7 and ~14–56M at day 90 for a keeping-pace account. Both read as rewards now.
+  #47 was locked "unless a Gold decision changes what a minute is worth": a minute is worth far more
+  in week one, but the schedule was sized in minutes so that it would scale, and the amounts above
+  read sensibly, so **it is not reopened** — recorded here rather than left implicit. **The Arena
+  pays no Gold** (2026-10-10). **Gem amounts are not retuned** (out of scope): the calendar's 25 / 50
+  / 75 Gem days, holiday Gems (25–100) and prestige milestone Gems (50, +25 a prestige) are still
+  sized against nothing.
+- **The Shop's Gold tracks** (#55, the user's prices, unchanged) become reachable: Offline Cap's
+  first levels (100K ×1.5) on day one, Offline Efficiency's first (1M) about day 2 and its second
+  (10M) around day 7. They were 6½ and 65 days away.
+- **Coupled to pacing.** The first prestige is ~13 days for a party of three (#36, to come back to
+  about a week under GitHub issue #12); that pass moves the walk deeper sooner and this Gold up.
+  Re-measure `BASE_GOLD`, `GOLD_STEP_BASE` and `GOLD_REFERENCE_KILLS_PER_HOUR` with it.
 
 ---
 

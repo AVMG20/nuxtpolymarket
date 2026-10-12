@@ -122,8 +122,8 @@ Not design docs — they describe the *state* of the project rather than the gam
 | Topic | Doc | § |
 |---|---|---|
 | Full currency list | `economy-and-currencies.md` | §1 |
-| Gold curve (`1.017^n`, `min`'d against the ceiling) | `gold-economy.md` | §3 |
-| ⚠️ Tenure ceiling — Gold paced on account age, generated from Colony/Xeno | `gold-economy.md` §3a, `open-items.md` #23 | |
+| Gold curve (`1.075^n`, `min`'d against the ceiling) | `gold-economy.md` | §3 |
+| Tenure ceiling — Gold paced on account age, generated from Colony/Xeno; the calendar anchors | `gold-economy.md` §3a, `build-log.md` #23 | |
 | Throughput floor `MIN_SECONDS_PER_KILL` | `gold-economy.md` §4, `idle-mechanics.md` §4 | |
 | Gold% stacking policy | `gold-economy.md` | §5 |
 | Gold bursts denominated in earn-time | `gold-economy.md` | §6 |

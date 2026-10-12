@@ -8,7 +8,7 @@ made it the most expensive bloat in the project.
 **Item numbers are the originals and are never reused.** Eleven docs, `constants.ts` and two
 scripts cite them (`#22`, `#23.3`, `#18.6`). The gaps below — #4, #5, #8, #10–#21, #24, #26–#28 —
 are finished items, not missing ones; they are in `build-log.md` under the same number. #22, #23,
-#25 and #29 appear in both: the open part here, the full record there. New items continue from
+#25 and #29 appear in both: the open part here (now closed stubs), the full record there. New items continue from
 **#63** — #62 (Arena bots) landed 2026-10-11, with its open half under #58; #61 (party stats, GPN arrows, Gear upgrade arrows) landed 2026-10-11; #60 (Arena crits capped, fights paced) and #59 (an Arena milestone, and no claim-all) landed 2026-10-10 and are in `build-log.md`; #58 (the Arena) landed 2026-10-09 and was reworked 2026-10-10, with its open half below; #57 (the Milestones into the Calendar) landed 2026-10-10 and is in `build-log.md`; #56 (Battle Speed into the Shop, the `shop` rename) landed 2026-10-10 and is in `build-log.md`; #55 (the Shop and the Gold offline tracks) was decided and built 2026-10-10, and is in `build-log.md`; #30 was raised and decided on 2026-09-17, and is in `build-log.md`; #31 opened 2026-09-28, #32 on 2026-09-29; #33, #34 and #35 were decided on 2026-10-02 and are in `build-log.md`; #36 landed 2026-10-03 with its pacing half open; #37 landed the same day; #38 to #42 landed 2026-10-04; #43 opened the same day, #44 landed and #45 opened with it, and #6, #3, #31 and #32 were decided (all in `build-log.md`); #46 (raids) landed 2026-10-05; #45 (boss specials) landed 2026-10-08 with its open half below, and #47 (the login calendar) the same day; #48 (milestones) landed 2026-10-09, and #43 (the Ascendant) was decided, built and its art locked the same day, closing it; #49 opened with it, and #50 (the tutorials, backlog item 10) was picked up, built and its guide's art locked the same day, closing it; #51 (bosses without an escort) landed with it; #52 (Traits), #53 (holiday gifts) and #54 (per-raid Loadout auto-apply) were built the same day, each with an open half below.
 
 **Resolving a bare `#N`:** this doc first, `build-log.md` otherwise. Sub-numbers (`#23.3`,
@@ -30,7 +30,7 @@ read the older rule in the doc named in the middle column, it is superseded.**
 | 17 | `CLAUDE.md` §6: Champion names are deferred, do not generate them | All 48 exist, assembled from two tables. The guidance was updated rather than left contradicting the code |
 | 18.2 | "do not generate 48 Artifact names" | Named 2026-09-15, `artifacts-dig-site-gacha.md` §3a |
 | 20 | `gear-equipment.md` §6, `skills-gacha.md` §1 and both gacha docs describe four gacha **tabs** the player visits | Collapsed to **Gacha + Collections**. Navigation only — no rule, formula, drop table or number moved. `trainingGroundsArt` is serialized and rendered nowhere |
-| 23 | `gold-economy.md` §9's prestige→calendar anchors; ~235M/hr at month 3 | Gold is paced on **wall-clock account age**. The anchors are gone. Still open below |
+| 23 | `gold-economy.md` §9's prestige→calendar anchors; ~235M/hr at month 3, ~0.71B/hr at month 6 | Gold is paced on **wall-clock account age**. The anchors are **~28M/hr at month 3 and ~52M/hr at month 6**, what the tenure ceiling pays an account keeping pace (2026-10-12, the user's call via issue #10). `gold-economy.md` §3a now says so. `build-log.md` #23 |
 | 25 | `core-progression-and-prestige.md` §2 and `idle-mechanics.md` §5: a failed boss is re-engaged **manually** | Bosses engage **automatically** while `document.visibilityState` is `visible`. A hidden tab, a closed app and an offline settle never engage one, so Void Shards still cannot come from idle time. The 400 on an early client engage is routine — **do not soften it server-side** |
 | 29 | `economy-and-currencies.md` §5 source 2: a time-gated free Seal grant | **Removed.** Free Seals come only from milestones and (later) raid clears; the free 10-pull entitlement is the only thing a clock hands out |
 | 47 | #29 above: the free 10-pull is the only thing a clock hands out; `economy-and-currencies.md` §5: Seals come in milestone and raid chunks, never a drip | **The login calendar is a second clock.** It pays Seals on some of its thirty days, alongside Gold, Gems, Raid Keys, Trait Gems and, on day 30, Void Shards, each day claimed in person (2026-10-08, the user's call: any currency the game grants may be on it). Built outside the phase plan, from backlog item 12. `build-log.md` #47 |
@@ -45,7 +45,7 @@ read the older rule in the doc named in the middle column, it is superseded.**
 | 41 | `build-log.md` #11.4: the prestige-shop stat multiplier is cut, struck from the sink lists in `core-progression-and-prestige.md` §4, `economy-and-currencies.md` §4, `tech-architecture.md` §3 and `global-power-number.md` §3 | **Back, as four uncapped tracks: PWR, DEF, IMP and VIT**, party-wide (summed with equipped Artifacts' lines). Each level adds `PRESTIGE_STAT_PER_LEVEL` of the stat; the price climbs on `PRESTIGE_STAT_COST_GROWTH` from `PRESTIGE_STAT_BASE_COST` Void Shards, forever. SPD and LCK are left out because they run into ceilings (the attack-interval floor, the crit clamp). Page 2 of the shop scene. The campaign sim buys none, so pacing does not account for them (2026-10-04, the user's call) |
 | 42 | `core-progression-and-prestige.md` and `pickableClasses`: a class pick is legal "at a prestige" (anything seen, or one tier deeper) — and in practice at any time, since nothing gated it | **A class token**: every prestige grants one (`hq_state.class_token`, migration `0051`; a flag, so a second prestige while holding one changes nothing), and taking a class **never reached before** — one tier deeper than the current — spends it. Switching back to any class already reached is free at any time. A new account starts without one, so everyone plays the Beginner until their first prestige. The class tree is its own scene and menu item; prestiging happens only through Begin Again on the bridge, which now raises the Void Shards it paid over the Hero (2026-10-04, the user's call) |
 | 44 | `idle-mechanics.md` §3: Battle Speed tiers 2x/3x/5x/10x, anchored at 50 Gems for 2x/30 min | **2x/3x/5x**, anchored at **250 Gems** (the old 10x price), both axes' rules unchanged. 10x was cut because at 10x the largest offline collect cleared the balance column by 1.87 orders of magnitude against the specs' 2. A second purchase of the running speed extends the block from its end; another speed is refused until it ends. §3 updated in place (2026-10-04, the user's calls) |
-| 44 | `gold-economy.md` §7: Seal-ladder growth 1.0007 (Guild, Dig Site) and 1.0011 (Forge, Training), sized so Gold completes a roster in ~6 months | **1.2 for all four**, set by feel: a day's first 10-pull is ~21M, the fifth ~14.7B, so Gold buys a few extra 10-pulls a day rather than completing a roster. There is no Seal button: a pull short of Seals buys them itself, at the price its button shows. §7 carries a dated note (2026-10-04, the user's call) |
+| 44 | `gold-economy.md` §7: Seal-ladder growth 1.0007 (Guild, Dig Site) and 1.0011 (Forge, Training), sized so Gold completes a roster in ~6 months | **1.2 for all four**, set by feel: a day's first 10-pull is ~21M, the fifth ~14.7B, so Gold buys a few extra 10-pulls a day rather than completing a roster. There is no Seal button: a pull short of Seals buys them itself, at the price its button shows. §7 carries a dated note (2026-10-04, the user's call). **Re-derived against the settled income 2026-10-12 and kept**, with the 1,000,000 base (#23.2, `build-log.md` #23) |
 | 55 | `idle-mechanics.md` §4: Offline Efficiency and Offline Cap are prestige-shop lines (Void Shards), costing `BASE × 2^(level−1)` and `BASE × 1.72^(level−1)` | **Bought with Gold**, in the Shop: Offline Efficiency 1M ×10 a level (10B for the fifth), Offline Cap 100K ×1.5 a level (28,762,658,885 for the 32nd). The Shop (the renamed Prestige scene) opens on the World 1 boss's first win (2026-10-10, the user's calls). `build-log.md` #55 |
 | 54 | `idle-mechanics.md` §2: the core loop is always-auto the instant the app is open, and the run advances continuously; §3: a Battle Speed block is pure wall-clock and runs down whether the app is open or not | **The run holds while the player is in a raid, and a running Battle Speed block waits with it.** Every fresh raid engage opens a session (`hq_state.pre_raid_snapshot`), with a preferred Loadout or without, and a settle while one is open pays nothing and only moves the clock; leaving drops the time spent there. A gap past `ONLINE_THRESHOLD_MS` closes it as time away, settled on the player's own loadout. The screen's projection, the boss auto-engage and the block's countdown hold with it; the block's expiry moves out by the held span (2026-10-10, the user's call). `build-log.md` #54 |
 | 62 | `arena.md` §2a: a slot no real player in band can fill gets a Training Dummy | **Arena bots fill it first**, the dummy only after them. Bots are content (`content/arena-bots.ts`), not accounts, so they never reach a leaderboard or a season's standings; each sits at a fixed Rating of 1000 or below, and a fight against one is a real match on the attacker's side: Rating against the bot's, Medals by upset odds, a log row naming it (2026-10-11, the user's calls). `build-log.md` #62 |
@@ -167,6 +167,11 @@ open:
    #23; the user's call, 2026-10-08). A Gold day is minutes of current income (`gold-economy.md`
    §6), so it is exactly as right as the unreconciled Gold curve, and the Gem days (25, 50, 75 a
    cycle, platform-wide) are sized against nothing yet.
+   **Checked against the 2026-10-12 Gold decision (#23) and not reopened:** a minute is worth far more
+   in week one now, but the days are sized in minutes so they scale, and the eight Gold days pay a party
+   of three ~8.7M over its first cycle (~0.9% of the cycle's income, ~2K on day 1 to ~3.9M on day 26).
+   The Gem days are still sized against nothing; Gems were out of that decision's scope. Recorded in
+   `build-log.md` #23.
 3. ~~**No Battle Speed days.**~~ **Decided 2026-10-09: left out** (the user's call). A free block
    can't start while a bought block of another speed runs (`idle-mechanics.md` §3), and neither a
    refused claim nor a queue was worth it.
@@ -290,50 +295,28 @@ solo wipe grinds are ~5% longer (`sim.ts` charges the recovery per attempt,
 ~~**Open:** whether 5s reads as a penalty or just as a pause.~~ **Shortened to 3 s 2026-10-11** (the
 user's call), and closed.
 
-### 23. Gold — the progression half is still open
+### ~~23. Gold — the progression half~~ — closed 2026-10-12, the user's call via GitHub issue #10
 
-Full record, including the 2026-09-16 measurement pass and the ceiling regeneration:
-`build-log.md` #23. Where it stands:
+Full record, measurements and knock-ons: `build-log.md` #23. The sub-numbers keep their meaning:
 
-**Done.** `GOLD_TENURE_CEILING` is regenerated against `GOLD_REFERENCE_KILLS_PER_HOUR = 600`,
-measured on the campaign walk, instead of the `MIN_SECONDS_PER_KILL` throughput floor it used to
-assume. Every rung went up 12×. `bun run balance:compare --emit-hq-ceiling` regenerates it.
+1. ~~**#23.1 The locked calendar anchors are gone.**~~ **Decided:** the anchors are what the regenerated
+   ceiling pays an account keeping pace — **~28.2M Gold/hour at month 3, ~51.9M/hour at month 6** — and
+   replace ~235M/hour and ~0.71B/hour. Colony and Xeno had not moved; Hero Quest's own kill rate had
+   (600 → **420**/hour, re-measured), which is what the regeneration corrects.
+2. ~~**#23.2 The Seal ladder's calibration is stale.**~~ **Decided:** 1,000,000 and ×1.2 hold, now
+   `TUNED ✓` — the first Gold Seal on day 2 for a party of three, and at keeping-pace income Gold reaches
+   a gacha's 30 free pulls a day around month 3 and at most doubles them after.
+3. ~~**#23.3 First-week income.**~~ **Decided: about a quarter of platform income in the first week,
+   under the ceiling.** `BASE_GOLD` 0.4 → **1**, `GOLD_STEP_BASE` 1.017 → **1.075**: the party-of-three
+   walk earns ~24% of the platform across its first week (25.5K/hr at day 1, 216K/hr at day 7), up from
+   0.07%; solo ~7%. ⚠ **This was left for the playtest on 2026-10-11 and is now set from the sim, to be
+   confirmed by the playtest** (🔬 *Does Gold feel like anything in week one?*, below). It is coupled to
+   run pacing: re-measure when #36's first prestige comes back to about a week.
 
-**Still open. The sub-numbers are unchanged** — `#23.1`, `#23.2` and `#23.3` are cited from
-`playtest-notes.md`, `gold-economy.md` and `constants.ts`:
-
-1. **The locked calendar anchors are gone.** **2026-10-11, the user's call:** re-derive the anchors against the
-   platform's latest changes, as part of the Gold rebalance; neither the old anchors nor the ceiling's
-   figures are the answer until then. `gold-economy.md` locked ~235M/hr at month 3 and
-   ~0.71B/hr at month 6; the ceiling pays ~28M/hr at day 90 and ~52M/hr at day 180. A deliberate
-   re-anchoring on the platform that replaced a *locked* decision in code — recorded here so it
-   reads as a decision rather than a drift.
-2. **The Seal ladder's calibration is stale**, and measured, worse than stale: at present income
-   the first 1,000,000-Gold rung is **33.8 days** away, so re-deriving `SEAL_LADDER_GROWTH`
-   against income that size is meaningless. **Blocked on 23.3, not parallel to it.** #29 raised
-   the stakes — the ladder is now the only non-milestone Seal source.
-3. **First-week income — the actual decision.** **Left for the playtest** (2026-10-11, the user's call). The walk is **progression-bound end to end** and
-   earns 1,233 Gold/hour, 0.07% of platform; raising a ceiling that never binds changed its
-   income by nothing. The two levers that reach that region are `BASE_GOLD` and `GOLD_STEP_BASE`,
-   and the regeneration gave them room they did not have — the walk now saturates at 138.8M
-   rather than 11.57M, with the saturation point at 1.09 rather than 1.07. **Nothing has been
-   moved** pending the call: should a first-week account earn near platform rates, or is low
-   early Gold acceptable given that Gold only buys Seals? Note that `GOLD_PLATFORM_DISCOUNT`'s
-   "~89% of time ceiling-bound" figure is **0%** for the first month-plus.
-
-⚠ **The abuse bound is now explicit.** With the ceiling generated at 600 kills/hour and the floor
-still allowing 7,200, the worst case is **12× platform**. **Battle Speed multiplies straight
-through it**, with no second ceiling underneath. That was a warning about an unbuilt system until
-2026-10-04; Battle Speed is built now (`build-log.md` #44), so at its 5x top tier
-(`MAX_BATTLE_SPEED`) the live worst case is **60× platform** while a block runs. The column specs
-already use `MAX_BATTLE_SPEED`. ~~Whether income needs a second ceiling~~ — **built 2026-10-11** (the
-user's call): a Battle Speed window's Gold is held to `maxGoldPerHour` over its real time, so the worst
-case is back to 12× platform with or without a block, and the column's margin (§9.4 below) regains the ×5.
-
-⚠ **`gold-economy.md` §9.4's safety margin dropped an order of magnitude** with the regeneration:
-the largest single collect clears the `numeric(19,4)` column by two orders rather than three
-(187 consecutive worst-case collects fill it, not 2,250). `settle.spec.ts` asserts the new figure
-and says why.
+**What it left standing**, recorded rather than open: the abuse bound is now **~17× platform** (12× at
+the old 600-kill rate), and §9.4's column margin is ~2.7 orders against the three it asks for (the spec
+asserts two, unchanged). `GOLD_PLATFORM_DISCOUNT`'s "~89% ceiling-bound" is retired: ~90% for a party of
+six, 0% inside a stand-in party of three's first month.
 
 ### ~~29. Free Seals — the un-re-derived half~~ — closed 2026-10-11, folded into the standing tuning
 
@@ -347,7 +330,7 @@ user's call): those constants are re-derived with the rest of the standing tunin
 
 ## ⚪ Standing numeric tuning — **what is still `// UNTUNED ╧`**
 
-Named constants with a formula shape locked and a placeholder value. Consolidated so a tuning pass has one list. `rg '╧' shared/utils/hero-quest/constants.ts` is the authority — **120 markers** as of 2026-10-11 (`rg -c` prints 122: the file's header legend carries the glyph twice), up from 61 on 2026-09-16 with the raids (#46), boss specials (#45), the login calendar (#47), milestones (#48), the Ascendant (#43), the holiday gifts (#53) and the Passive Skill Tree (#63). Every marker has a row below; the Arena row's constants are not in `constants.ts` until the Arena is built.
+Named constants with a formula shape locked and a placeholder value. Consolidated so a tuning pass has one list. `rg '╧' shared/utils/hero-quest/constants.ts` is the authority — **52 markers** as of 2026-10-12 (`rg -c` prints 54: the file's header legend carries the glyph twice), matching `CLAUDE.md` §4. This line read 120 until 2026-10-12: that was the count before the 2026-10-11 locks and was never brought down; the Gold decision (#23) moved none, since the Gold and ladder constants carried no marker. Every marker has a row below; the Arena row's constants are not in `constants.ts` until the Arena is built.
 
 ~~**Decided: none of this is tuned before playtesting.**~~ **Superseded for the combat and progression block by #22**, which tuned it on the campaign walk. The original reasoning still holds for everything that remains below: the balance script and campaign sim project *what the formulas say*, and a projected value that feels wrong in play is worth less than no value, because it looks settled. What remains is mostly the gacha, shop and ability-magnitude layers, which the campaign walk barely exercises — so they want play data or a different measurement, not another sim pass.
 
@@ -386,8 +369,8 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 | `WEALTH_FACTOR_MIN/MAX`, `WEALTH_NEUTRAL_HOURS` | `skills-gacha.md` §4¹ | The Gambler's Strike family's bounded modulation. §4¹ suggests ×0.5–×2.0 explicitly and calls it not locked; the neutral point is where the factor passes through 1.0 |
 | `ARTIFACT_EFFECT_PER_POINT`, `ARTIFACT_ECONOMY_COEFFICIENT` | `artifacts-dig-site-gacha.md` §6 | Per *point* of the investment scalar, unlike Skills' flat magnitude — §6 states the scaling for Artifacts and no doc states it for Skills. See #18's closing note |
 | `SKILL_SLOT_BASE_COST`/`_GROWTH`, `ARTIFACT_SLOT_BASE_COST`/`_GROWTH` | `skills-gacha.md` §6, `artifacts-dig-site-gacha.md` §7 | Both mirror the Champion slot track exactly, so all three want deriving together — and all three compete with the two offline tracks for the same Void Shards |
-| `GOLD_STEP_BASE`, `BASE_GOLD`, `GOLD_PLATFORM_DISCOUNT` | `gold-economy.md` §3, §3a | **Carry no marker but are open** — see #23.3. `GOLD_TENURE_CEILING` is generated, never tuned by hand: regenerate from `scripts/lib/economy-stages.ts` |
-| `SEAL_LADDER_GROWTH[]` | `gold-economy.md` §7 | Set, but calibrated against the superseded Gold anchors — see #23.2 |
+| ~~`GOLD_STEP_BASE`, `BASE_GOLD`, `GOLD_PLATFORM_DISCOUNT`~~ | `gold-economy.md` §3, §3a | **`TUNED ✓` 2026-10-12** (#23.3): 1.075 and 1; the 0.85 discount unchanged, a design number. `GOLD_TENURE_CEILING` is generated, never tuned by hand: regenerate from `scripts/lib/economy-stages.ts` |
+| ~~`SEAL_LADDER_GROWTH[]`~~ | `gold-economy.md` §7 | **`TUNED ✓` 2026-10-12** (#23.2): 1.2 re-derived and kept |
 | ~~`LOADOUT_SLOT_BASE_COST_GEMS` (4-level doubling, #40)~~ | `loadouts.md` §3 | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
 | ~~`ONLINE_THRESHOLD_MS`, `HQ_REFRESH_INTERVAL_MS`~~ | `tech-architecture.md` §9 | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
 | ~~`TRAIT_AUTO_ROLL_BATCH`~~ | — (Auto Roll, `build-log.md` #52) | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
@@ -402,12 +385,12 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 | ~~`CHAMPION_PASSIVE_PER_POINT`~~ | `champions-guild-gacha.md` §7 | **Locked 2026-10-11, the user's call** (GitHub issue #17) |
 | `CHAMPION_INVESTMENT_PER_POINT` | `champions-guild-gacha.md` §2 | What a copy's `star × 10 + level` scalar is worth. Sets the payoff on dupe levelling, so it decides whether pulling wide or levelling deep is correct |
 | Archetype base stat spreads (`ARCHETYPE_DEFINITIONS[].spread`) | `champions-guild-gacha.md` §2 | Not a constant but the same problem: §2 states outright there is no Champion equivalent of the Hero's §2 table, so all four spreads are a reading of the archetype identities rather than a specified number |
-| `SEAL_LADDER_BASE_GOLD` | `gold-economy.md` §7 | Doc-specified at 1,000,000. Uncapped per day by design — see the note below |
+| ~~`SEAL_LADDER_BASE_GOLD`~~ | `gold-economy.md` §7 | **`TUNED ✓` 2026-10-12** (#23.2): 1,000,000 kept, the doc-locked floor. Uncapped per day by design — see the note below |
 | `TANK_THREAT_MULTIPLIER`, `TAUNT_THREAT_MULTIPLIER` | none — see #14 | How hard the two documented aggro anchors pull. Any value above 1 already puts a Tank in front of its row-mates; the magnitude only starts mattering once threat becomes contested and continuous |
 | `FROSTBIND_STACKS_PER_CAST`, `FROSTBIND_FREEZE_STACKS` | none — see #15 | How fast Frostbind's slow builds and how deep it must get before the freeze lands. Two dials so time-to-freeze can be retuned from either end; a threshold above `STATUS_MAX_STACKS` turns the freeze off entirely |
 | The `SKILL_*` magnitude set, `ENRAGE_*`, `KILL_SHOT_CRIT_MULTIPLIER`, `EXECUTE_BONUS`, `FOCUSED_BARRAGE_HITS`, `REVIVE_HP_FRACTION` | none — see #15 | Every ability magnitude in the game. Both rosters describe effects entirely in prose ("a short duration", "a portion", "small") and assign no numbers anywhere. The *relative ordering* is design content and deliberate — wide AoE pays for reach, a pierce beats a basic attack by a little — so retune the set, not individual entries. `HASTE_SPD_BONUS` is excluded: §3 states the doubling |
 
-**On `SEAL_LADDER_BASE_GOLD` — reviewed and closed.** Gold buys nothing in the game except Seals, so this price is the entire Gold sink. The campaign sim banks ~4.9B Gold by prestige 4, which at the base rung and `SEAL_LADDER_GROWTH[champion] = 1.0007` converts to roughly **2,100 Seals in a single sitting** — about two full 1,066-dupe Champions — because `MAX_SEALS_PER_PURCHASE` bounds the per-call size and nothing bounds the per-day total.
+**On `SEAL_LADDER_BASE_GOLD` — reviewed and closed.** *(Written against the 1.0007 ladder; at 1.2, since 2026-10-04, a 4.9B pile buys ~37 Seals of one gacha in a day — the compounding below does the braking. Gold also buys the Shop's two offline tracks since #55.)* Gold bought nothing in the game except Seals, so this price was the entire Gold sink. The campaign sim banks ~4.9B Gold by prestige 4, which at the base rung and `SEAL_LADDER_GROWTH[champion] = 1.0007` converts to roughly **2,100 Seals in a single sitting** — about two full 1,066-dupe Champions — because `MAX_SEALS_PER_PURCHASE` bounds the per-call size and nothing bounds the per-day total.
 
 **That is intended, and no daily cap is being added.** A player willing to spend an exponentially increasing amount of Gold should be able to keep buying; the ladder's compounding *is* the brake, and it is a smooth one rather than a wall that stops the session dead. Converting a large Gold pile into a large collection is what the pile is for. `SEAL_LADDER_BASE_GOLD` stays an ordinary tuning value in the table above, calibrated at playtest against real Gold income like everything else — not a structural problem to solve first.
 
@@ -422,7 +405,7 @@ Two rows are not constants in the strict sense: the archetype stat spreads are a
 1. ~~**Phase 3 — the remaining three gachas**~~ **Done — `build-log.md` #18.**
 2. **Close out the tuning pass** — *deferred to the end with step 7 (2026-10-02).* Small, and it was meant to come before anything is built on top of the loop:
    - **Play a session against the tuned loop** and log it in `playtest-notes.md`. The predictions table there is refreshed; session 1 is the only one on record.
-   - **Decide the Gold consequences (#23)** — first-week income, the lost calendar anchors, and whether the Seal ladder is re-derived now or after world design. **Measured and half-applied 2026-09-16** (`--report=gold`): the ceiling is regenerated against the measured kill rate, which raises the cap 12× but leaves the walk's income untouched, since it is progression-bound throughout. What remains open is the progression half — `BASE_GOLD` and `GOLD_STEP_BASE` — and #23.2, which is downstream of it.
+   - ~~**Decide the Gold consequences (#23)**~~ **Decided 2026-10-12** (the user's call via issue #10): the anchors, first-week income and the Seal ladder, set from the sim. The playtest confirms the first-week half (🔬 below).
    - ~~**Confirm the solo shape (#22.1)**~~ **Decided 2026-10-09:** no prestige without a party is intended.
    - ~~**Check the cleared-run manual re-engage** flagged in #25.~~ Fixed.
 3. ~~**World & Enemy Design (#6)**~~ **Closed 2026-10-04** — the art is restyled and locked (`art-style.md`); regular enemies get no abilities. ~~**Boss specials become real (#45)**~~ **built 2026-10-08**, measured on seeded gate fights; the open half is under #45 above.
@@ -473,9 +456,9 @@ The loop was slowed from hours to about a week for a party of three, and nearly 
 
 Bosses were the only thing that waited for the player. They now fire on their own while the tab is visible. Watch whether a boss still feels like an event when the player did not start it, whether the auto-closing replay is long enough to see what happened, and whether players miss the button.
 
-### Does Gold feel like anything in week one? — **new, from #23**
+### Does Gold feel like anything in week one? — **new, from #23; the confirmation #23.3 waits on**
 
-A first-week account earns at most ~15K Gold an hour before Gold%, and the campaign walk's party averages nearer 1K (#23.3), and Gold buys only Seals. Watch whether the Gold ladder is ever used before week two, and whether the number reads as an income at all next to the platform's other games.
+**Set from the sim on 2026-10-12, to be confirmed here** (#23.3 was left for the playtest on 2026-10-11). The campaign walk's party of three now earns ~25K Gold an hour at day 1 and ~216K at day 7, about a quarter of the platform's first-week income (it was ~1K an hour, 0.07%); solo is ~7%. The first Gold Seal is about day 2, the Shop's first Offline Cap levels day one. Watch whether the number reads as an income next to the platform's other games without becoming the reason to play, whether the Gold ladder and the Shop's offline tracks get used in week one, and whether the first day (when the walk briefly runs near 70% of a still-tiny platform rate) feels generous or right. The levers are `BASE_GOLD` (level) and `GOLD_STEP_BASE` (slope, kept under 1.08).
 
 ### The whole standing-tuning table
 
