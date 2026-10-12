@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "nuxt build",
-    "dev": "bun --bun nuxt dev",
+    "dev": "nuxt dev",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -29,7 +29,10 @@
     "balance:polymasters": "bun scripts/polymasters-rtp.ts",
     "balance:emberportals": "bun scripts/slot-rtp.ts emberportals",
     "balance:gold-miner": "bun scripts/gold-miner-rtp.ts",
-    "tcg:rarity-audit": "bun scripts/tcg-rarity-audit.ts"
+    "tcg:rarity-audit": "bun scripts/tcg-rarity-audit.ts",
+    "balance:hero-quest": "bun scripts/hero-quest-balance.ts",
+    "sim:hero-quest": "bun scripts/hero-quest-sim.ts",
+    "art:hero-quest": "bun scripts/hero-quest-art.ts"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.98",
@@ -38,6 +41,7 @@
     "@sentry/nuxt": "^10.68.0",
     "@unovis/vue": "^1.6.4",
     "better-auth": "^1.6.24",
+    "break_eternity.js": "^2.1.3",
     "date-fns": "^4.1.0",
     "drizzle-orm": "^0.45.1",
     "gsap": "^3.15.0",

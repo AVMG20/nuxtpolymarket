@@ -8,6 +8,9 @@ import * as schema from './schema'
 export const db = drizzle({
     connection: {
         connectionString: process.env.DATABASE_URL!,
+        // `defaultNow()` writes in the session zone but reads back as UTC; on a non-UTC local
+        // Postgres that puts settle clocks in the future. Deployed Postgres is UTC already.
+        options: '-c timezone=UTC',
         max: Number(process.env.DATABASE_POOL_MAX ?? 30),
         idleTimeoutMillis: 30_000,
         connectionTimeoutMillis: 10_000

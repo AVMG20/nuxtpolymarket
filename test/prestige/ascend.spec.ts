@@ -8,7 +8,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
-import { bankState, chatMessages, gemOrders, minerState, transactions, user } from '#server/database/schema'
+import { bankState, chatMessages, gemOrders, hqState, minerState, transactions, user } from '#server/database/schema'
 import { prestigeUser } from '#server/utils/prestige'
 import { PRESTIGE_TIERS } from '#shared/utils/prestige'
 import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
@@ -82,6 +82,42 @@ describe.skipIf(SKIP)('prestigeUser', () => {
         // the coins it burned.
         expect(rows.chat).toBe(1)
         expect(rows.ledger).toBe(1)
+    })
+
+    /**
+     * Hero Quest is exempt as a whole (`PRESTIGE_PRESERVED_PREFIXES`), so the run
+     * has to come through untouched — and its offline clock must not.
+     *
+     * The clock is the one coin claim the exemption parks outside the wallet:
+     * Hero Quest pays its Gold through `credit`, so a `last_settled_at` still
+     * pointing before the ascent would let the next settle bank a whole offline
+     * window into the wallet this reset just emptied.
+     */
+    it('keeps the hero-quest run but not its unbanked offline window', async () => {
+        await seedUser(USER_ID, { balance: `${TIER_1.coinCost}.0000`, gems: TIER_1.gemCost })
+        const staleClock = new Date(Date.now() - 48 * 3600 * 1000)
+        await db.insert(hqState).values({
+            userId: USER_ID,
+            prestige: 3,
+            world: 7,
+            stage: 4,
+            heroLevel: 260,
+            lastSettledAt: staleClock
+        })
+
+        const startedAt = new Date()
+        await prestigeUser(USER_ID)
+
+        const run = await db.query.hqState.findFirst({ where: eq(hqState.userId, USER_ID) })
+        // The run itself survives — that is the whole point of the exemption.
+        expect(run).toBeDefined()
+        expect(run?.prestige).toBe(3)
+        expect(run?.world).toBe(7)
+        expect(run?.stage).toBe(4)
+        expect(run?.heroLevel).toBe(260)
+        // The 48 unbanked hours do not.
+        expect(run!.lastSettledAt.getTime()).toBeGreaterThanOrEqual(startedAt.getTime() - 1000)
+        expect(run!.lastSettledAt.getTime()).toBeGreaterThan(staleClock.getTime())
     })
 
     it('burns the whole balance, not just the tier price', async () => {

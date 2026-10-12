@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { parseAmount } from '#shared/utils/parse-amount'
+import { formatHq } from '#shared/utils/hero-quest/numbers'
 
 interface LeaderboardUser {
   isCurrentUser: boolean
@@ -30,6 +31,12 @@ interface LeaderboardUser {
   voidSystemLevels: number
   voidTradeLevel: number
   aiPromptsUsed: number
+  /** Hero Quest's ranked score: Worlds cleared, every run counted, plus collection entries owned. */
+  heroQuestScore: number
+  heroQuestWorlds: number
+  heroQuestEntries: number
+  /** Hero Quest's Global Power Number, a Decimal string; null before a run has settled with it. */
+  heroQuestGpn: string | null
   battlerRunsWon: number
   battlerRating: number | null
   battlerBattlesWon: number
@@ -67,7 +74,8 @@ const upgradeGames = [
   { key: 'colony', label: 'Colony', icon: 'i-lucide-bug', bar: 'bg-warning', text: 'text-warning', value: (u: LeaderboardUser) => u.colonyHabitatLevel + u.colonyResearchLevels },
   { key: 'xeno', label: 'Xeno', icon: 'i-lucide-sprout', bar: 'bg-success', text: 'text-success', value: (u: LeaderboardUser) => u.xenoSpeciesUnlocked + u.xenoGridSlotsUnlocked + u.xenoBreederSlotsUnlocked },
   { key: 'town', label: 'Polytown', icon: 'i-lucide-building-2', bar: 'bg-secondary', text: 'text-secondary', value: (u: LeaderboardUser) => u.townScore },
-  { key: 'void', label: 'Void Runner', icon: 'i-lucide-rocket', bar: 'bg-inverted', text: 'text-highlighted', value: (u: LeaderboardUser) => u.voidScore }
+  { key: 'void', label: 'Void Runner', icon: 'i-lucide-rocket', bar: 'bg-inverted', text: 'text-highlighted', value: (u: LeaderboardUser) => u.voidScore },
+  { key: 'heroQuest', label: 'Hero Quest', icon: 'i-lucide-sword', bar: 'bg-info', text: 'text-info', value: (u: LeaderboardUser) => u.heroQuestScore }
 ]
 
 const podium = computed(() => (users.value ?? []).slice(0, 3))
@@ -137,6 +145,14 @@ const detailGroups = computed(() => {
         { icon: 'i-lucide-rocket', label: 'Hulls owned', value: u.voidHulls },
         { icon: 'i-lucide-wrench', label: 'Station system levels', value: u.voidSystemLevels },
         { icon: 'i-lucide-handshake', label: 'Trade contracts', value: u.voidTradeLevel }
+      ]
+    },
+    {
+      ...upgradeGames[4]!,
+      total: upgradeGames[4]!.value(u),
+      rows: [
+        { icon: 'i-lucide-globe', label: 'Worlds cleared', value: u.heroQuestWorlds },
+        { icon: 'i-lucide-library', label: 'Collection entries', value: u.heroQuestEntries }
       ]
     }
   ]
@@ -243,7 +259,7 @@ async function sendGift() {
           </span>
         </UTooltip>
         <UIcon name="i-lucide-chevron-right" class="size-3.5 text-dimmed" />
-        <UTooltip text="Upgrades bought in Colony, Xeno, Polytown and Void Runner">
+        <UTooltip text="Upgrades in Colony, Xeno, Polytown and Void Runner, and Hero Quest progress">
           <span class="inline-flex items-center gap-1 rounded-full border border-default bg-elevated/50 px-2 py-1 font-medium">
             <span class="font-mono text-muted">2</span><UIcon name="i-lucide-arrow-big-up-dash" class="size-3.5 text-primary" />Upgrades
           </span>
@@ -565,6 +581,11 @@ async function sendGift() {
                 <span class="flex-1 text-sm">Battler rating</span>
                 <span class="text-xs text-muted">{{ selectedUser.battlerBattlesWon }}–{{ selectedUser.battlerBattlesLost }} · {{ selectedUser.battlerRunsWon }} runs won</span>
                 <span class="font-semibold tabular-nums">{{ selectedUser.battlerRating ?? '—' }}</span>
+              </div>
+              <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
+                <UIcon name="i-lucide-sword" class="size-4 text-warning" />
+                <span class="flex-1 text-sm">Hero Quest power</span>
+                <span class="font-semibold tabular-nums">{{ selectedUser.heroQuestGpn ? formatHq(selectedUser.heroQuestGpn) : '—' }}</span>
               </div>
               <div class="flex items-center gap-3 bg-elevated/40 px-3 py-2.5">
                 <UIcon name="i-lucide-bot" class="size-4 text-info" />

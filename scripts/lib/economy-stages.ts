@@ -1,4 +1,4 @@
-// Shared progression model for the two idle economies, XENO and COLONY.
+// Shared progression model for the idle economies: XENO, COLONY and HERO QUEST.
 //
 // The property this exists to protect: at any given number of DAYS PLAYED, the
 // two games should pay comparably. Tier index is not a fair axis — Colony's
@@ -11,6 +11,11 @@
 // scripts/xeno-income.ts, scripts/colony-income.ts, scripts/economy-compare.ts
 // and test/economy/cross-game.spec.ts all read the same functions from here so
 // they cannot drift apart from each other or from the live constants.
+//
+// Hero Quest joined late and sits differently: its income is a function of
+// account age by construction, so it needs no stage model at all. See the
+// HERO QUEST section for why comparing it here is a staleness guard rather
+// than a balance check.
 
 import {
     BUG_TYPES,
@@ -37,6 +42,15 @@ import {
     type BugType,
     type UpgradeTrackId
 } from '../../shared/utils/colony'
+
+import {
+    BASE_GOLD,
+    GOLD_REFERENCE_KILLS_PER_HOUR
+} from '../../shared/utils/hero-quest/constants'
+import {
+    goldProgressionFactor,
+    goldTenureCeiling
+} from '../../shared/utils/hero-quest/settle'
 
 import {
     MUTATIONS,
@@ -307,6 +321,122 @@ export function colonyIncomeAtDay(days: number, researchLevel: number): number {
     return last.coinsPerHour
 }
 
+/**
+ * Xeno's income at an arbitrary number of days, interpolated geometrically
+ * between tier stages — the mirror of `colonyIncomeAtDay`. Past T9 it plateaus
+ * for the same reason: T9 is the last tier there is.
+ */
+export function xenoIncomeAtDay(days: number, globalLevelFor: (tier: number) => number): number {
+    const points = XENO_TIERS.map(tier => xenoStage(tier, globalLevelFor(tier)))
+    const first = points[0]!
+    const last = points[points.length - 1]!
+    if (days <= first.days) return first.coinsPerHour
+    if (days >= last.days) return last.coinsPerHour
+    for (let i = 1; i < points.length; i++) {
+        const lo = points[i - 1]!
+        const hi = points[i]!
+        if (days <= hi.days) {
+            const t = (days - lo.days) / (hi.days - lo.days)
+            return lo.coinsPerHour * Math.pow(hi.coinsPerHour / lo.coinsPerHour, t)
+        }
+    }
+    return last.coinsPerHour
+}
+
+/**
+ * The platform's idle income at a given day, as one number: the geometric mean
+ * of Colony and Xeno, each taken both uninvested and invested.
+ *
+ * Geometric rather than arithmetic because these series span orders of
+ * magnitude — an arithmetic mean would simply track whichever game is richest
+ * and stop describing the platform at all.
+ */
+export function platformIncomeAtDay(days: number): number {
+    return Math.pow(
+        colonyIncomeAtDay(days, 0)
+        * colonyIncomeAtDay(days, MAX_RESEARCH_LEVEL)
+        * xenoIncomeAtDay(days, () => 0)
+        * xenoIncomeAtDay(days, xenoGlobalLevelAt),
+        0.25
+    )
+}
+
+// ─── HERO QUEST ─────────────────────────────────────────────────────────────
+// Hero Quest has no stage model here, and deliberately so. Its Gold rate is
+// `BASE_GOLD × min(progression, tenureCeiling(accountAge))`, and the ceiling is
+// *generated from the two functions above* — so for any account keeping pace,
+// income at day D is a pure function of D. There is no tier to interpolate.
+//
+// Which changes what comparing it here is for. This is NOT a balance check —
+// the ceiling is derived from Colony and Xeno, so of course it tracks them.
+// It is a **staleness guard**: `GOLD_TENURE_CEILING` is a generated table, and
+// the one way it goes wrong is silently, when Colony or Xeno is retuned and
+// nobody regenerates it. Then these ratios drift and the band catches it.
+// See `docs/games/hero-quest/gold-economy.md` §3a.
+
+/**
+ * The kill rate every figure below is stated at — `GOLD_REFERENCE_KILLS_PER_HOUR`, measured on
+ * the campaign walk, **not** the throughput floor. Using the floor here was the bug behind
+ * `open-items.md` #23: it described an account killing 12× faster than the game produces, so
+ * "Hero Quest pays 0.85× platform" was a statement about a rate nobody plays at.
+ */
+const HQ_KILLS_PER_HOUR = GOLD_REFERENCE_KILLS_PER_HOUR
+
+/**
+ * Gold/hour for a Hero Quest account of `days` age that is keeping pace, i.e.
+ * one whose progression has outrun the calendar so the ceiling is what binds.
+ * This is the common case for an invested roster and the upper bound for any.
+ */
+export function heroQuestIncomeAtDay(days: number): number {
+    return BASE_GOLD * goldTenureCeiling(days) * HQ_KILLS_PER_HOUR
+}
+
+/**
+ * Gold/hour for an account parked at `prestige`/`world`/`stage`, which is what
+ * a player stalled behind a wall earns. Below `heroQuestIncomeAtDay` whenever
+ * progress has fallen behind the calendar — that gap is the designed cost of
+ * not progressing, not a balance failure.
+ */
+export function heroQuestIncomeAt(days: number, prestige: number, world: number, stage: number): number {
+    const capped = Math.min(goldProgressionFactor(prestige, world, stage), goldTenureCeiling(days))
+    return BASE_GOLD * capped * HQ_KILLS_PER_HOUR
+}
+
+export interface HeroQuestComparison {
+    days: number
+    heroQuest: number
+    colony: number
+    xeno: number
+    platform: number
+    /** heroQuest / platform. The designed value is GOLD_PLATFORM_DISCOUNT. */
+    ratio: number
+}
+
+/** Hero Quest against the platform at a spread of account ages. */
+export function compareHeroQuestAtEqualDays(days: readonly number[] = HERO_QUEST_SAMPLE_DAYS): HeroQuestComparison[] {
+    return days.map((d) => {
+        const heroQuest = heroQuestIncomeAtDay(d)
+        const platform = platformIncomeAtDay(d)
+        return {
+            days: d,
+            heroQuest,
+            colony: colonyIncomeAtDay(d, MAX_RESEARCH_LEVEL),
+            xeno: xenoIncomeAtDay(d, xenoGlobalLevelAt),
+            platform,
+            ratio: heroQuest / platform
+        }
+    })
+}
+
+/**
+ * Account ages to compare at. Spread across the arc rather than on the ceiling
+ * table's own rungs — landing only on rungs would test interpolation nowhere,
+ * and interpolation error is one of the two ways that table goes wrong.
+ */
+export const HERO_QUEST_SAMPLE_DAYS: readonly number[] = [
+    0.5, 1, 2, 4, 7, 10, 20, 30, 45, 60, 90, 120, 180, 230
+]
+
 export interface Comparison {
     tier: number
     days: number
@@ -323,6 +453,23 @@ export function compareAtEqualDays(globalLevelFor: (tier: number) => number, res
         const colony = colonyIncomeAtDay(stage.days, researchLevel)
         return { tier, days: stage.days, xeno: stage.coinsPerHour, colony, ratio: stage.coinsPerHour / colony }
     })
+}
+
+/**
+ * `GOLD_TENURE_CEILING`, regenerated — the values to paste into `constants.ts`.
+ *
+ * The table is the platform curve expressed as a per-kill multiplier, so it is exactly
+ * `platformIncomeAtDay(rung) / (BASE_GOLD × GOLD_REFERENCE_KILLS_PER_HOUR)`. `GOLD_PLATFORM_DISCOUNT`
+ * is deliberately *not* applied: `goldTenureCeiling` applies it on the way out, which keeps the
+ * table readable as the platform curve and the discount visible as one number.
+ *
+ * Four significant figures, matching what is there now — the platform curves this comes from are
+ * not accurate to more, and a long tail of digits would imply otherwise.
+ */
+export function emitGoldTenureCeiling(rungs: readonly number[]): number[] {
+    return rungs.map(day => Number(
+        (platformIncomeAtDay(day) / (BASE_GOLD * GOLD_REFERENCE_KILLS_PER_HOUR)).toPrecision(4)
+    ))
 }
 
 export { MAX_RESEARCH_LEVEL, MAX_TIER, XENO_UPGRADE_MAX_LEVEL }

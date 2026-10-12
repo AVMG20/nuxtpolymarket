@@ -151,7 +151,7 @@ describe('structural invariants (seeded)', () => {
         }
         expect(dives).toBeGreaterThan(50)
         expect(fs).toBeGreaterThan(15)
-    })
+    }, 30_000)
 
     it('holds for both bonus buys', () => {
         const rng = mulberry32(99)

@@ -393,6 +393,13 @@
       "when": 1791538639200,
       "tag": "0055_curious_human_fly",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1791807423655,
+      "tag": "0056_hero_quest",
+      "breakpoints": true
     }
   ]
 }

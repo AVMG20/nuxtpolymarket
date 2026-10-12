@@ -33,7 +33,8 @@ export const NAV_CATALOG: NavSection[] = [
       { label: 'Xeno', icon: 'i-lucide-sprout', to: '/xeno' },
       { label: 'Hack Ops', icon: 'i-lucide-terminal', to: '/hack' },
       { label: 'Colony', icon: 'i-lucide-bug', to: '/colony' },
-      { label: 'Polytown', icon: 'i-lucide-building-2', to: '/polytown' }
+      { label: 'Polytown', icon: 'i-lucide-building-2', to: '/polytown' },
+      { label: 'Hero Quest', icon: 'i-lucide-swords', to: '/hero-quest' }
     ]
   },
   {

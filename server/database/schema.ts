@@ -1,5 +1,5 @@
 import { relations, sql } from 'drizzle-orm'
-import { pgTable, text, timestamp, boolean, index, uniqueIndex, numeric, integer, unique, jsonb, bigint } from 'drizzle-orm/pg-core'
+import { pgTable, text, timestamp, boolean, index, uniqueIndex, numeric, integer, unique, jsonb, bigint, doublePrecision } from 'drizzle-orm/pg-core'
 import type {
   PathwardenGameState,
   PathwardenMapPlan
@@ -21,6 +21,9 @@ import type { TownEventData } from '#shared/utils/gamelogic/town-events'
 import type { TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
 import type { TownStreakLock } from '#shared/utils/gamelogic/town-streak'
 import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
+import type { HqSettings } from '#shared/utils/hero-quest/settings'
+import type { LoadoutSession } from '#shared/utils/hero-quest/loadout-session'
+import type { ArenaDefenseLoadout } from '#shared/utils/hero-quest/arena'
 import type { NcDrawing } from '#shared/utils/neighcasso/types'
 import type { NavLayout } from '#shared/utils/nav-layout'
 
@@ -1055,6 +1058,538 @@ export const hackHistory = pgTable('hack_history', {
   durationMs: integer('duration_ms').notNull().default(0),
   createdAt: timestamp('created_at').defaultNow().notNull()
 }, t => [index('hack_history_userId_idx').on(t.userId)])
+
+/**
+ * HERO QUEST — settle contract.
+ *
+ * The party fights continuously and there is no server-side interval, cron or worker
+ * anywhere in this game. Kills, Gold, XP and stage advancement are computed analytically
+ * from elapsed real time (see server/utils/hero-quest.ts:settleHq) on every state read and
+ * before every mutation that depends on accrued progress. `lastSettledAt` is the anchor.
+ *
+ * The row lock taken over this row is the mutex — two concurrent settles would otherwise
+ * both read the same `lastSettledAt` and both pay out the same window. The loser blocks,
+ * then reads the advanced timestamp and returns having earned nothing.
+ *
+ * Presence is *demonstrated*, not asserted: a gap at or under ONLINE_THRESHOLD_MS counts as
+ * online (full rate), anything longer is offline (cap + efficiency apply). A closed app is
+ * therefore indistinguishable from a dead network, which is the correct failure direction.
+ *
+ * Two things settle never does. It never resolves a boss — Stage 5 and Stage 10 park the run
+ * and wait for a live `boss/engage` (which is why Void Shards can never be earned offline) —
+ * and it never resets `heroLevel`/`heroXp`, which persist across prestige and class switches.
+ * Prestige resets the run-position group and increments `prestige`; everything else survives by
+ * simply not being written.
+ *
+ * Gold lives on the shared `user.balance` and is only ever touched through
+ * server/utils/balance.ts. Only Void Shards are Hero Quest's own currency, and it is `text`
+ * rather than a numeric because its 100 × 2^prestige payout overflows a bigint by ~prestige 56.
+ */
+export const hqState = pgTable('hq_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  /** The settle clock. Never compare-and-swap on this — Postgres keeps microseconds, JS Dates don't. */
+  lastSettledAt: timestamp('last_settled_at').defaultNow().notNull(),
+  /**
+   * Account age, the input to the Gold tenure ceiling (`GOLD_TENURE_CEILING`).
+   *
+   * Written once at row creation and never again — it is read-only for the whole lifetime of the
+   * account, which is what keeps it clear of the compare-and-swap trap above.
+   */
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+
+  // Run position — the only group prestige resets.
+  prestige: integer('prestige').notNull().default(0),
+  world: integer('world').notNull().default(1),
+  stage: integer('stage').notNull().default(1),
+  /** Kills banked toward the current stage's requirement. */
+  killCount: integer('kill_count').notNull().default(0),
+  /**
+   * Progress toward the *next* kill, in kills — always `[0, 1)`. The remainder a settle could
+   * not bank as a whole kill, carried so the next one can.
+   *
+   * Load-bearing, not a rounding nicety — see `SettleInput.killFraction` for why, and why it is
+   * kills rather than seconds.
+   */
+  killFraction: doublePrecision('kill_fraction').notNull().default(0),
+  /**
+   * Seconds of wipe recovery still owed (`WIPE_RECOVERY_SECONDS`), served first by the next
+   * settle. Run position, so everything that resets the counter zeroes it too.
+   */
+  recoverySeconds: doublePrecision('recovery_seconds').notNull().default(0),
+  /** Parked at an unengaged Stage 5/10. Always written as `isBossStage(stage)`; readers derive it from `stage`. */
+  atBossGate: boolean('at_boss_gate').notNull().default(false),
+  /**
+   * The World 10 / Stage 10 super boss has been beaten, so prestige is available.
+   *
+   * Needed because a win there leaves the run standing on the same stage — position alone
+   * cannot distinguish "cleared the game" from "walked up to the final boss and stopped".
+   * Paying Void Shards off position would hand them out for merely arriving. Prestige clears
+   * this along with the rest of the run-position group.
+   */
+  runCleared: boolean('run_cleared').notNull().default(false),
+  /**
+   * The boss at the run's next gate beat the party last time (a timeout or a wipe), so the client
+   * leaves it for the player to challenge instead of engaging it on its own. A loss falls the run
+   * back exactly one stage, so the next gate reached is always that boss. Set and cleared by the
+   * fight that decides it; run position, so everything that resets the run clears it too.
+   */
+  bossLost: boolean('boss_lost').notNull().default(false),
+
+  // Hero — persists across prestige AND across class switches. There is no relevel anywhere.
+  heroNodeId: text('hero_node_id').notNull().default('class_beginner'),
+  heroLevel: integer('hero_level').notNull().default(1),
+  /** Decimal as text: XP accumulates forever now that level never resets. */
+  heroXp: text('hero_xp').notNull().default('0'),
+  /** Every class node reached in any past run — permanently re-pickable at any time. */
+  seenNodeIds: jsonb('seen_node_ids').$type<string[]>().notNull().default(['class_beginner']),
+  /**
+   * A class not reached before can be taken: granted by every prestige and spent by the pick that
+   * reaches a new node. A flag, not a count — prestiging again while holding it changes nothing,
+   * so no one skips two tiers at once (`open-items.md` #42).
+   */
+  classToken: boolean('class_token').notNull().default(false),
+
+  /**
+   * Every class a prestige has been completed with. The Ascendant opens once all six masters are in
+   * it (`capstone-class.md`). Appended by the prestige, never reset.
+   */
+  prestigedClassIds: jsonb('prestiged_class_ids').$type<string[]>().notNull().default([]),
+
+  /**
+   * The Ascendant's picked class skills, up to `ASCENDANT_KIT_SIZE`. A Loadout component; read only
+   * while the Hero is the Ascendant, and kept across class switches and prestige.
+   */
+  ascendantSkillIds: jsonb('ascendant_skill_ids').$type<string[]>().notNull().default([]),
+
+  /** Prestige currency. Decimal as text — see the note above. */
+  voidShards: text('void_shards').notNull().default('0'),
+
+  /**
+   * The running Battle Speed block (`battle-speed.ts`): its multiplier, and the wall-clock instant
+   * it runs out. Null, or a past expiry, means none. Bought, not run position, so prestige keeps it.
+   */
+  speedBoostMultiplier: integer('speed_boost_multiplier'),
+  speedBoostExpiresAt: timestamp('speed_boost_expires_at'),
+
+  /** The player's choices in the Settings scene (`HqSettings`); a key not stored takes its default. */
+  settings: jsonb('settings').$type<Partial<HqSettings>>().notNull().default({}),
+
+  /**
+   * The login calendar (`shared/utils/hero-quest/calendar.ts`): the cycle's day 1 as a UTC day
+   * number (null before the first claim), a bitmask of the days claimed, and the make-ups used.
+   * Integers so a claim is a compare-and-swap; a cycle that has run out is rolled on read, never
+   * at midnight. Not run position, so prestige keeps it.
+   */
+  calendarStart: integer('calendar_start'),
+  calendarClaimed: integer('calendar_claimed').notNull().default(0),
+  calendarMakeups: integer('calendar_makeups').notNull().default(0),
+
+  /**
+   * Milestone track ID → steps claimed (`shared/utils/hero-quest/milestones.ts`); a track absent
+   * has none. A claim compare-and-swaps its tracks' counts. Not run position, so prestige keeps it.
+   */
+  milestonesClaimed: jsonb('milestones_claimed').$type<Record<string, number>>().notNull().default({}),
+
+  /**
+   * The guide's tutorials seen (`shared/utils/hero-quest/tutorials.ts`, `TutorialId`). Which features
+   * are open is derived from progress and never stored, so resetting these locks nothing.
+   */
+  tutorialsSeen: jsonb('tutorials_seen').$type<string[]>().notNull().default([]),
+
+  /**
+   * Unit ID → row. Keyed by `'hero'` for the Hero and by Champion ID for everyone else, so a
+   * placement survives a Champion being benched and re-fielded. Absent keys fall back to the
+   * class node's / archetype's default row (`classes-and-combat.md` §6).
+   */
+  formation: jsonb('formation').$type<Record<string, 'front' | 'back'>>().notNull().default({}),
+
+  /**
+   * The fielded Champions, in party order, capped by the purchased slot count. IDs only —
+   * their star/level live in `hqCollection`, so fielding never duplicates collection state.
+   */
+  partyChampionIds: jsonb('party_champion_ids').$type<string[]>().notNull().default([]),
+
+  // ── The rest of the live loadout (`loadouts.md` §1) ──────────────────────────────
+  //
+  // A Loadout is a snapshot of five things: party, formation, Skills, Artifacts and Gear. IDs
+  // only, same as the party — star/level live in `hqCollection` and are never duplicated here.
+  //
+  // `hqLoadouts` mirrors this exact column group per saved slot, which is why they are grouped.
+
+  /** Equipped Skills, up to the purchased slot count (`skills-gacha.md` §5–6). Hero-only. */
+  equippedSkillIds: jsonb('equipped_skill_ids').$type<string[]>().notNull().default([]),
+
+  /** Equipped Artifacts, up to the purchased slot count. Party-wide in effect, not Hero-only. */
+  equippedArtifactIds: jsonb('equipped_artifact_ids').$type<string[]>().notNull().default([]),
+
+  /**
+   * Gear slot → item ID, for all six slots from account start (`gear-equipment.md` §1, §3).
+   *
+   * Persisted rather than derived because equip is **manual**: the strongest owned piece and the
+   * equipped one are allowed to differ, and closing that gap is the player's decision.
+   */
+  equippedGear: jsonb('equipped_gear').$type<Record<string, string>>().notNull().default({}),
+
+  /**
+   * Preferred Loadouts (`loadouts.md` §4): target → saved slot index, for each raid and the
+   * Arena's attack (`LoadoutTarget`). A pointer, not storage; assigning one is free. A target
+   * absent has none, and its fights run on whatever is live.
+   */
+  raidLoadoutPreferences: jsonb('raid_loadout_preferences').$type<Partial<Record<string, number>>>().notNull().default({}),
+
+  /**
+   * The open raid session (`LoadoutSession`): which raid's fresh engage opened it and, when it
+   * applied a preferred Loadout, that slot and the live loadout (all six components) as it was
+   * before. The run holds while one is open (`settleHq`). Put back, and cleared, when the player
+   * leaves the raid; null when none is open. Stored rather than held by the client, so a reload
+   * keeps it and a tab shut mid-raid is closed by the next settle past presence (`loadout-session.ts`).
+   */
+  preRaidSnapshot: jsonb('pre_raid_snapshot').$type<LoadoutSession | null>(),
+
+  // ── Gacha currencies (`tech-architecture.md` §3) ─────────────────────────────────
+  //
+  // Plain integers, not Decimal: Seal and Essence balances are bounded by real spending, not
+  // by the exponential curve. One Seal and one Essence column per gacha system.
+  forgeSeals: integer('forge_seals').notNull().default(0),
+  guildSeals: integer('guild_seals').notNull().default(0),
+  skillSeals: integer('skill_seals').notNull().default(0),
+  excavationSeals: integer('excavation_seals').notNull().default(0),
+
+  gearEssence: integer('gear_essence').notNull().default(0),
+  championEssence: integer('champion_essence').notNull().default(0),
+  skillEssence: integer('skill_essence').notNull().default(0),
+  artifactEssence: integer('artifact_essence').notNull().default(0),
+
+  /** Paid by Shardcaller Beast, spent on Traits (`traits.md`). */
+  traitGems: integer('trait_gems').notNull().default(0),
+
+  /**
+   * Passive Skill Tree levels by node id (`passive-skill-tree.md`). The points are derived from
+   * `heroLevel`, never stored, so this map is the whole save. Written only under the row lock.
+   */
+  passiveTree: jsonb('passive_tree').$type<Record<string, number>>().notNull().default({}),
+  /** A prestige grants one free respec, held until used; a flag, so integer CAS spends it. */
+  passiveRespecFree: boolean('passive_respec_free').notNull().default(false),
+
+  /** system → 1..10, and pulls banked toward the next level. Each gacha levels independently. */
+  gachaLevels: jsonb('gacha_levels').$type<Record<string, number>>().notNull().default({}),
+  gachaProgress: jsonb('gacha_progress').$type<Record<string, number>>().notNull().default({}),
+
+  /**
+   * The Gold-purchase ladder's daily counters — one per gacha, one shared reset date
+   * (`gold-economy.md` §7). Buying Champion pulls today must not move the Skill price, which
+   * is why this is a per-system map and not a single integer.
+   *
+   * `sealLadderDate` is a plain `YYYY-MM-DD` string, not a timestamp: it is compared for
+   * equality to decide "is this still the same day", and a timestamp compare-and-swap is the
+   * exact pattern the platform guidance forbids.
+   */
+  sealLadderPurchasedToday: jsonb('seal_ladder_purchased_today').$type<Record<string, number>>().notNull().default({}),
+  sealLadderDate: text('seal_ladder_date'),
+
+  /**
+   * Free 10-pull entitlements: how many of today's are spent per gacha, and one shared reset
+   * date — deliberately the same shape as the Gold ladder two fields up, since it answers the
+   * same question. Spending Champion entitlements must not touch the Skill allowance, which is
+   * why it is a per-system map rather than an integer.
+   *
+   * An entitlement is **not** Seals. It cannot be banked, split into singles, or spent on
+   * anything but a 10-pull — which, with the daily Seal drip gone, is now the only free way
+   * to pull at all.
+   */
+  freePullsUsedToday: jsonb('free_pulls_used_today').$type<Record<string, number>>().notNull().default({}),
+  freePullDate: text('free_pull_date'),
+
+  /**
+   * Last free-pull claim per gacha, ISO strings in a map rather than four timestamp columns.
+   *
+   * Stored as text on purpose. The cooldown is evaluated by *comparison* under a row lock, never
+   * by compare-and-swap — Postgres keeps microseconds a JS `Date` cannot, so a CAS on a real
+   * timestamp column matches zero rows and fails closed forever (the standing platform warning).
+   * Keeping these out of the column type makes that mistake harder to make later.
+   */
+  freePullClaimedAt: jsonb('free_pull_claimed_at').$type<Record<string, string>>().notNull().default({}),
+
+  /**
+   * The live Global Power Number (`global-power-number.md`), Decimal as text, written by every
+   * settle for the platform leaderboard's Hero Quest column. Null until the first settle after it
+   * was added; nothing in the game reads it, the payload computes its own.
+   */
+  globalPowerNumber: text('global_power_number'),
+
+  // ── The Arena (`arena.md`) ───────────────────────────────────────────────────────
+  //
+  // None of it is run position: prestige keeps all of it. Written only under this row's lock,
+  // taken in user-ID order when an attack holds two (`server/utils/hero-quest-arena.ts`).
+
+  /**
+   * The stored defence (§1): the five Loadout components, apart from the live ones. Null until the
+   * player sets one, and a player without one is never drawn as a candidate.
+   */
+  defenseLoadout: jsonb('defense_loadout').$type<ArenaDefenseLoadout>(),
+  /**
+   * Defense GPN (§2): the GPN of the party `defenseLoadout` fields, Decimal as text, for show.
+   * Written when the defence is saved, and only then: a defence that falls behind is the player's
+   * to set again (the user's call, 2026-10-10). Matchmaking reads the Rating, not this.
+   */
+  defenseGpn: text('defense_gpn'),
+  /**
+   * Rating (§4) and matches fought for `arenaSeasonId`, the season they belong to (0: never). A row
+   * from an earlier season is rolled to the current one, back to the start, the first time anything
+   * touches it (`arena.rollStanding`); no cron resets anyone.
+   */
+  arenaRating: integer('arena_rating').notNull().default(1000),
+  arenaSeasonId: integer('arena_season_id').notNull().default(0),
+  arenaSeasonMatches: integer('arena_season_matches').notNull().default(0),
+  /** Arena Medals (§5). Persist across seasons and prestige. */
+  arenaMedals: integer('arena_medals').notNull().default(0),
+  /** Arena attacks won, lifetime, Training Dummy wins included: the Arena milestone's feat. Never reset. */
+  arenaWins: integer('arena_wins').notNull().default(0),
+  /**
+   * Today's attacks (§3): made, extra ones bought, and the UTC day they count for, a `YYYY-MM-DD`
+   * string compared for equality like `sealLadderDate`. A new day starts both counters over.
+   */
+  arenaAttemptsUsedToday: integer('arena_attempts_used_today').notNull().default(0),
+  arenaExtraAttemptsPurchasedToday: integer('arena_extra_attempts_purchased_today').notNull().default(0),
+  arenaAttemptDate: text('arena_attempt_date'),
+  /** Today's list redraws (two free, then Gems) and the UTC day they count for, as the attacks are. */
+  arenaRefreshesToday: integer('arena_refreshes_today').notNull().default(0),
+  arenaRefreshDate: text('arena_refresh_date'),
+  /**
+   * The opponent list (§2): a user ID per slot, null for a Training Dummy. Empty until first drawn;
+   * redrawn by a refresh and after every attack.
+   */
+  arenaCandidates: jsonb('arena_candidates').$type<(string | null)[]>().notNull().default([])
+}, t => [
+  index('hq_state_userId_idx').on(t.userId),
+  index('hq_state_arena_rating_idx').on(t.arenaSeasonId, t.arenaRating)
+])
+
+/**
+ * One row per owned item, across **all four gachas** — `system` discriminates
+ * (`tech-architecture.md` §3, locked).
+ *
+ * `contentId` is an unconstrained string rather than a foreign key: the four systems' content
+ * lives in separate `content/*.ts` modules, not a content table, so it is validated at the
+ * application layer against whichever module `system` names. The unique constraint is what
+ * makes "own one copy, level it with duplicates" expressible at all — a second pull of the
+ * same item is an UPDATE to `dupeProgress`, never a second row.
+ */
+export const hqCollection = pgTable('hq_collection', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** 'gear' | 'champion' | 'skill' | 'artifact'. */
+  system: text('system').notNull(),
+  contentId: text('content_id').notNull(),
+  /** 0–5. Everything starts at 0★. */
+  star: integer('star').notNull().default(0),
+  /** 1–10 within the current star. */
+  level: integer('level').notNull().default(1),
+  /** Duplicates banked toward the next level. */
+  dupeProgress: integer('dupe_progress').notNull().default(0),
+  acquiredAt: timestamp('acquired_at').defaultNow().notNull()
+}, t => [
+  unique('hq_collection_unique').on(t.userId, t.system, t.contentId),
+  index('hq_collection_userId_system_idx').on(t.userId, t.system)
+])
+
+/**
+ * Saved Loadout presets (`loadouts.md` §1, §3) — one row per slot.
+ *
+ * The same column group as `hqState`'s live loadout, per slot instead of singular, which is the
+ * whole design: applying a preset copies five columns across, and saving copies them back.
+ *
+ * **Slot count needs no schema.** It reads `hqShopUpgrades` at `upgradeId = 'loadoutSlots'`, the
+ * one track in the game priced in Gems rather than Void Shards — Loadout slots add zero combat
+ * power on their own, so they take the convenience currency.
+ *
+ * A preset never goes stale: nothing in this game is ever un-owned and slot counts only grow, so
+ * an old preset saved under fewer slots stays valid and simply fills fewer of them.
+ */
+export const hqLoadouts = pgTable('hq_loadouts', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** 0-based, bounded by the purchased slot count at write time. */
+  slotIndex: integer('slot_index').notNull(),
+  name: text('name').notNull().default('Loadout'),
+  partyChampionIds: jsonb('party_champion_ids').$type<string[]>().notNull().default([]),
+  formation: jsonb('formation').$type<Record<string, 'front' | 'back'>>().notNull().default({}),
+  equippedSkillIds: jsonb('equipped_skill_ids').$type<string[]>().notNull().default([]),
+  equippedArtifactIds: jsonb('equipped_artifact_ids').$type<string[]>().notNull().default([]),
+  equippedGear: jsonb('equipped_gear').$type<Record<string, string>>().notNull().default({}),
+  /** The Ascendant's picks. Empty in a preset saved before the Ascendant existed, and applying that leaves the live picks alone. */
+  ascendantSkillIds: jsonb('ascendant_skill_ids').$type<string[]>().notNull().default([]),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+}, t => [
+  unique('hq_loadouts_unique').on(t.userId, t.slotIndex),
+  index('hq_loadouts_userId_idx').on(t.userId)
+])
+
+/**
+ * Every purchasable track in the game, whatever currency pays for it. Deliberately generic: a new
+ * track is a new `upgradeId` value, not a new table. `level` is an integer, so the conditional
+ * bump is a safe compare-and-swap and doubles as the claim-then-reward mutex for the purchase.
+ */
+export const hqShopUpgrades = pgTable('hq_shop_upgrades', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  upgradeId: text('upgrade_id').notNull(),
+  level: integer('level').notNull().default(0)
+}, t => [
+  unique('hq_shop_upgrades_unique').on(t.userId, t.upgradeId),
+  index('hq_shop_upgrades_userId_idx').on(t.userId)
+])
+
+/**
+ * One row per resolved boss fight. The client fetches `seed` + `context` and replays the
+ * animation by running the identical shared `fight.ts` — so this is the record of what
+ * authoritatively happened, and a free audit trail for a shared-economy game.
+ */
+export const hqFights = pgTable('hq_fights', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** 'boss', 'raid' with the raid in `context`, or 'arena' with both sides in it. */
+  kind: text('kind').notNull(),
+  seed: integer('seed').notNull(),
+  /** The snapshot the fight was resolved against — hero, position, outcome detail. */
+  context: jsonb('context').notNull(),
+  outcome: text('outcome').notNull(),
+  resolvedAt: timestamp('resolved_at').defaultNow().notNull()
+}, t => [index('hq_fights_userId_idx').on(t.userId)])
+
+/**
+ * The five live Trait slots (`traits.md` §1–3, `tech-architecture.md` §3), one row per slot index.
+ * No rows until the first Roll, which fills all five at once (§1: every slot starts empty).
+ *
+ * Only IDs are stored — `stat`, `grade`, `setId` — and what they are worth is read from
+ * `constants.ts` at use, so retuning a grade's value never needs a migration. `locked` is the free
+ * protect-from-reroll flag. Every write happens under the `hq_state` row lock, which is the mutex
+ * a Roll's Trait Gem spend already needs.
+ */
+export const hqTraitSlots = pgTable('hq_trait_slots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** 0..4. */
+  slotIndex: integer('slot_index').notNull(),
+  /** A `TraitStatId` from `content/traits.ts`. */
+  stat: text('stat').notNull(),
+  /** 'F' .. 'SSS'. */
+  grade: text('grade').notNull(),
+  /** A `TraitSetId`. */
+  setId: text('set_id').notNull(),
+  locked: boolean('locked').notNull().default(false)
+}, t => [
+  unique('hq_trait_slots_unique').on(t.userId, t.slotIndex),
+  index('hq_trait_slots_userId_idx').on(t.userId)
+])
+
+/**
+ * Stored Trait boards (`traits.md` §6): a save slot holds all five slots as they were, locks
+ * included. Separate from Loadouts, which never capture Traits (§7). Slot count reads
+ * `hqShopUpgrades` at `upgradeId = 'traitSaveSlots'`, Gems-priced, 1 → 4.
+ */
+export const hqTraitSaveSlots = pgTable('hq_trait_save_slots', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** 0..3, bounded by the purchased slot count at write time. */
+  saveSlotIndex: integer('save_slot_index').notNull(),
+  name: text('name').notNull().default(''),
+  /** The five slots, in slot order: `{ stat, grade, set, locked }` each. */
+  snapshot: jsonb('snapshot').$type<{ stat: string, grade: string, set: string, locked: boolean }[]>().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+}, t => [
+  unique('hq_trait_save_slots_unique').on(t.userId, t.saveSlotIndex),
+  index('hq_trait_save_slots_userId_idx').on(t.userId)
+])
+
+/**
+ * One row per player per raid (`tech-architecture.md` §3): the ladder and the Keys. Written only
+ * under its own row lock: the grant clock is a timestamp, so it is never compare-and-swapped.
+ */
+export const hqRaidState = pgTable('hq_raid_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** A `RaidId` from `content/raids.ts`. */
+  raidId: text('raid_id').notNull(),
+  /** The best level cleared, or for a raid that can't be won the best reached; 0 before any. */
+  highestLevel: integer('highest_level').notNull().default(0),
+  /** Starts with a day's Keys. */
+  keyBalance: integer('key_balance').notNull().default(3),
+  /** The daily grant's clock: Keys for each whole day since, applied lazily (`raids.grantKeys`). */
+  lastKeyGrantAt: timestamp('last_key_grant_at').defaultNow().notNull()
+}, t => [
+  uniqueIndex('hq_raid_state_user_raid_idx').on(t.userId, t.raidId),
+  index('hq_raid_state_userId_idx').on(t.userId)
+])
+
+/**
+ * One row per holiday gift claimed (`holiday-events.md` §2): the unique key **is** the
+ * once-per-holiday-per-year rule, so a claim is an insert and a conflict is the refusal. `year`
+ * is the year the holiday fell in, not the day it was claimed. No row is ever written for a
+ * window missed: a closed window never opens again.
+ */
+export const hqHolidayClaims = pgTable('hq_holiday_claims', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** A `HolidayId` from `content/holidays.ts`. */
+  holidayId: text('holiday_id').notNull(),
+  year: integer('year').notNull(),
+  claimedAt: timestamp('claimed_at').defaultNow().notNull()
+}, t => [
+  uniqueIndex('hq_holiday_claims_user_holiday_year_idx').on(t.userId, t.holidayId, t.year),
+  index('hq_holiday_claims_userId_idx').on(t.userId)
+])
+
+/**
+ * The Arena battle log (`arena.md` §8): one row per match per side, the newest `ARENA_LOG_SIZE`
+ * kept per player, pruned as each is written. A Training Dummy or Arena bot fight writes only the
+ * attacker's row. Separate from `hqFights`, which is the replay and audit record.
+ */
+export const hqArenaLog = pgTable('hq_arena_log', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  /** Null for a Training Dummy, and once the opponent's account is gone. */
+  opponentUserId: text('opponent_user_id').references(() => user.id, { onDelete: 'set null' }),
+  /** An Arena bot's content ID (`content/arena-bots.ts`) when one was fought; null otherwise. */
+  opponentBotId: text('opponent_bot_id'),
+  /** 'attacker' | 'defender'. */
+  role: text('role').notNull(),
+  won: boolean('won').notNull(),
+  ratingChange: integer('rating_change').notNull().default(0),
+  /** Only an attacker earns Medals (§5); 0 on every defender row. */
+  medalsEarned: integer('medals_earned').notNull().default(0),
+  isDummy: boolean('is_dummy').notNull().default(false),
+  createdAt: timestamp('created_at').defaultNow().notNull()
+}, t => [index('hq_arena_log_userId_createdAt_idx').on(t.userId, t.createdAt)])
+
+/**
+ * Arena seasons that have been closed: one row each, inserted by the first request after a season
+ * ends. The insert is the claim — `ON CONFLICT DO NOTHING` lets exactly one request write that
+ * season's final standings (`hqArenaSeasonResults`) while every other one waits for it.
+ */
+export const hqArenaSeasons = pgTable('hq_arena_seasons', {
+  seasonId: integer('season_id').primaryKey(),
+  closedAt: timestamp('closed_at').defaultNow().notNull()
+})
+
+/**
+ * A closed season's final standings (§7): every player who fought or was fought in it, their
+ * Rating, rank and what the rank pays. `claimed` is the claim-then-reward flag: a claim flips it
+ * from false and pays only the rows that came back.
+ */
+export const hqArenaSeasonResults = pgTable('hq_arena_season_results', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  seasonId: integer('season_id').notNull(),
+  userId: text('user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  rating: integer('rating').notNull(),
+  rank: integer('rank').notNull(),
+  medals: integer('medals').notNull(),
+  claimed: boolean('claimed').notNull().default(false)
+}, t => [
+  unique('hq_arena_season_results_unique').on(t.seasonId, t.userId),
+  index('hq_arena_season_results_userId_idx').on(t.userId)
+])
 
 export const chatMessages = pgTable('chat_messages', {
   id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),

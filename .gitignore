@@ -33,7 +33,13 @@ test-results/
 blob-report/
 
 # Game design docs & prototype art — kept local, not versioned
-docs/games
+docs/games/*
+# TEMPORARY, hero-quest branch only: versioned so the docs sync across machines.
+# Remove this line and untrack docs/games/hero-quest before merging into main.
+!docs/games/hero-quest/
+
+# Hero Quest sprite exports: a local rendering of the procedural art (bun run art:hero-quest); the game draws from code
+public/hero-quest/sprites/
 
 # Local blackjack autoplay test scripts — never versioned
 scripts/blackjack-autoplay.js

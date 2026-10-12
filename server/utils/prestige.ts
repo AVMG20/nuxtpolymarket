@@ -1,6 +1,6 @@
 import { and, eq, or, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { bankState, liveBlackjackWagers, tcgAuction, tcgBuyOrder, tcgListing, tcgLot, transactions, user } from '#server/database/schema'
+import { bankState, hqState, liveBlackjackWagers, tcgAuction, tcgBuyOrder, tcgListing, tcgLot, transactions, user } from '#server/database/schema'
 import { nextPrestigeTier, type PrestigeTier } from '#shared/utils/prestige'
 
 /**
@@ -59,10 +59,25 @@ export const PRESTIGE_PRESERVED_TABLES = new Set([
  * empty every binder while leaving the cards themselves behind (they hang off
  * `owner_id`, which this scan never sees), which is the worst of both worlds.
  *
+ * `hq_` is exempt because Hero Quest runs a prestige of its own. `hq_state`
+ * carries its own `prestige`, `void_shards` and world/stage position, and the
+ * whole game is built around ascending inside itself — a platform reset that
+ * also wiped that would be two prestige systems fighting over one button, and
+ * the player would lose a Hero Quest run they never chose to spend.
+ *
  * The coin side is NOT exempt: escrowed coins that would otherwise ride
  * through a reset are handled by prestigeBlockers, not by this list.
+ *
+ * ⚠ **Hero Quest's Gold *is* the platform balance** — `settleHq` pays it out
+ * through `credit`, not into a currency of its own. So exempting the game
+ * leaves exactly one coin claim parked outside the wallet:
+ * `hq_state.last_settled_at`. Left untouched it still points at a time before
+ * the ascent, and the first settle afterwards pays a full offline window — up
+ * to the offline cap — into the *fresh* wallet, which is precisely what the
+ * wipe was supposed to burn. `prestigeUser` re-stamps it as part of the
+ * ascent; see the note there.
  */
-export const PRESTIGE_PRESERVED_PREFIXES = ['tcg_']
+export const PRESTIGE_PRESERVED_PREFIXES = ['tcg_', 'hq_']
 
 /** Whether `table` survives a prestige, by either rule. */
 export function isPrestigePreserved(table: string): boolean {
@@ -236,6 +251,17 @@ export async function prestigeUser(userId: string): Promise<PrestigeResult> {
         for (const table of tables) {
             await tx.execute(sql`delete from ${sql.identifier(table)} where user_id = ${userId}`)
         }
+
+        // Hero Quest survives the wipe (`PRESTIGE_PRESERVED_PREFIXES`), which
+        // leaves its offline clock pointing before the ascent. Its Gold is the
+        // platform balance, so the next settle would pay that whole window into
+        // the wallet this reset just emptied. Re-stamping the clock is what
+        // makes the exemption "keep the run" rather than "keep the run and get
+        // paid for the reset". The run itself — position, level, shards — is
+        // untouched, which is the point of exempting it.
+        await tx.update(hqState)
+            .set({ lastSettledAt: new Date() })
+            .where(eq(hqState.userId, userId))
 
         // Fixed resets for the columns that live on the user row itself, which
         // the table scan can never reach. Balance, rake and gems all go to

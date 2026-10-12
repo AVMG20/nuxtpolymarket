@@ -77,6 +77,26 @@ describe.skipIf(SKIP)('prestige wipe scan', () => {
         expect(tables.filter(name => name.startsWith('tcg_'))).toEqual([])
     })
 
+    it('never clears a hero-quest table', async () => {
+        const tables = await prestigeWipeTables()
+
+        // Named individually for the same reason the card list is: these are
+        // every `hq_` table carrying a `user_id`, so they are exactly what the
+        // scan would reach if the exemption regressed. Hero Quest runs its own
+        // prestige — a platform ascent must not spend a run the player did not
+        // choose to spend.
+        for (const table of [
+            'hq_collection',
+            'hq_fights',
+            'hq_loadouts',
+            'hq_shop_upgrades',
+            'hq_state'
+        ]) {
+            expect(tables).not.toContain(table)
+        }
+        expect(tables.filter(name => name.startsWith('hq_'))).toEqual([])
+    })
+
     it('exempts card tables that do not exist yet', async () => {
         // The point of the prefix rule: someone ships tcg_whatever next month
         // and it survives without anyone editing the preserve list.

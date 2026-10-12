@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { townScore, voidScore } from '#shared/utils/gamelogic/scoreboard'
+import { heroQuestScore, townScore, voidScore } from '#shared/utils/gamelogic/scoreboard'
 import { TOWN_MILESTONES } from '#shared/utils/gamelogic/town'
 import { TOWN_MONUMENTS, TOWN_MONUMENT_STAGES } from '#shared/utils/gamelogic/town-monuments'
 import { VOID_MAX_SECTOR, VOID_SHIP_IDS, VOID_TRADE_MAX_LEVEL, VOID_UPGRADES } from '#shared/utils/gamelogic/void'
@@ -42,5 +42,15 @@ describe('scoreboard: Void Runner', () => {
         expect(max.pilotLevel).toBe(VOID_MAX_PILOT_LEVEL)
         expect(max.total).toBeGreaterThan(60)
         expect(max.total).toBeLessThan(120)
+    })
+})
+
+describe('scoreboard: Hero Quest', () => {
+    it('counts the Worlds cleared in every run, and the entries owned', () => {
+        expect(heroQuestScore({ prestige: 0, world: 1, runCleared: false, entriesOwned: 0 }).total).toBe(0)
+        expect(heroQuestScore({ prestige: 0, world: 4, runCleared: false, entriesOwned: 12 })).toEqual({ worlds: 3, entries: 12, total: 15 })
+        // a cleared run counts its tenth World, and every prestige before it ten more
+        expect(heroQuestScore({ prestige: 0, world: 10, runCleared: true, entriesOwned: 0 }).worlds).toBe(10)
+        expect(heroQuestScore({ prestige: 2, world: 3, runCleared: false, entriesOwned: 0 }).worlds).toBe(22)
     })
 })
