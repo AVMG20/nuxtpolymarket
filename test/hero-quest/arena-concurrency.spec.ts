@@ -200,15 +200,23 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             await getCandidates(ATTACKER, Date.now())
             await getCandidates(SECOND, Date.now())
 
-            const result = await burst(2 * ARENA_FREE_ATTEMPTS_PER_DAY, i => i % 2 ? attack(SECOND, ATTACKER) : attack(ATTACKER, SECOND))
+            const results = await Promise.allSettled(Array.from({ length: 2 * ARENA_FREE_ATTEMPTS_PER_DAY },
+                (_, i) => i % 2 ? attack(SECOND, ATTACKER) : attack(ATTACKER, SECOND)))
+            const ok = results.filter(r => r.status === 'fulfilled').length
 
-            expect(result.ok).toBe(2 * ARENA_FREE_ATTEMPTS_PER_DAY)
+            // Every attack redraws the attacker's list, and ten coin-flip matches can push the two
+            // Ratings past the match band, so a later attack may find the other player off its list:
+            // that is a 409 to pick again, never a deadlock, which would surface as a Postgres error.
+            expect(ok).toBeGreaterThan(0)
+            for (const r of results) {
+                if (r.status === 'rejected') expect(r.reason).toMatchObject({ statusCode: 409 })
+            }
             for (const id of [ATTACKER, SECOND]) {
                 const state = await stateOf(id)
                 const rows = await db.select().from(hqArenaLog).where(eq(hqArenaLog.userId, id))
-                expect(rows).toHaveLength(2 * ARENA_FREE_ATTEMPTS_PER_DAY)
+                expect(rows).toHaveLength(ok)
                 expect(state.arenaRating).toBe(RATING + rows.reduce((sum, row) => sum + row.ratingChange, 0))
-                expect(state.arenaSeasonMatches).toBe(2 * ARENA_FREE_ATTEMPTS_PER_DAY)
+                expect(state.arenaSeasonMatches).toBe(ok)
             }
         })
 
