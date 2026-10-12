@@ -269,6 +269,29 @@ requirements for it (the user's calls, 2026-10-11):
 - **Tune across all the constants, not one dial.** `BASE_ENEMY_HP` is the only one measured so far and is
   not to be the fix on its own; the whole set moves together, each move re-measured on the walk.
 
+**Balanced around a baseline Trait board, 2026-10-12 (the user's call).** Traits and the tree are
+required: everyone fields every source of damage by design, so there is no "no-Trait player" to pace
+for. The baseline is ATK and IMP at D with two pieces of Deep Impact
+(`--traits=atk:D:deep_impact,imp:D:deep_impact,champion_atk:D:aggression,atk:D:aggression,imp:D:aggression`)
+and the Passive Skill Tree spent cheapest-first (`--tree=cheapest`, new). On the old constants that
+party prestiged in **8 hours**: the board lifts IMP about ×4, and crit damage linear in IMP turned that
+into a lead that grew with level. Moved: `CRIT_DAMAGE_PER_POINT` 0.02 → 0.005 and
+`OVERFLOW_CONVERSION_RATE` 0.01 → 0.0025, to stay at half of crit damage.
+
+**Every source in the walk, a baseline kit, and five days (the user's calls, 2026-10-12).** The walk
+now fields Gear, Skills, Artifacts and real Champions (`--kit`), and fights boss gates as seeded live
+fights with their specials (`--boss-fights`). Class switches, the Ascendant and the Shop's stat tracks
+cannot touch a first run: the first class token is the Void's, and Void Shards come only at a
+prestige. The baseline kit is **Rare 0★ Lv2** (`--kit=rare:0:2`), the median equipped copy at the
+run's midpoint, from 400 simulated first runs per gacha through the real drop table and dupe curve
+(free pulls daily, boss-win and World-milestone Seals, no Gold Seals): Rare 0★ Lv1 by day 1, Epic
+0★ Lv1 by day 7, investment never past Lv3. The target is **5.5 days**: five so players who start on
+a Monday prestige on the Friday, plus half a day because players will likely field better loadouts than
+the walk does, a hunch the playtest is to check. `XP_TO_LEVEL_BASE` 10 → 46 measures **5.46 days**
+(42 measured 4.98), World 1 in minutes and Worlds 9 and 10 about 40 hours each. World 9 now costs as much as World 10: Vigil of the
+Forgotten's weaken and drain stretch it past the timer (#45). The walk assumes a boss is fought the
+moment it is reachable, and in play a boss needs the player present (#25), so real runs land later.
+
 1. ~~**Long cooldowns lose their tail inside `BOSS_TIMER_SECONDS`.**~~ Accepted, locked with the ladder. The first cast waits a full
    cooldown, so a Mythic ability (~15.9s at step 1.2) fires once in a 30s boss fight. Damage per
    second is equal on average only; in boss fights the ladder is a slight nerf to rare kits.
