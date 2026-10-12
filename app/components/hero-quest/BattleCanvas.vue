@@ -909,7 +909,10 @@ function onPointerUp(e: PointerEvent) {
     const item = HQ_MENU_SCENES.find(s => s === hit)
     if (hit === 'challenge') emit('challenge')
     else if (hit === 'gift') emit('holidayOpen')
-    else if (hit === 'chest') emit('chestCollect')
+    else if (hit === 'chest') {
+        coinLanded = false
+        emit('chestCollect')
+    }
     else if (hit === 'gift:ok') emit('holidayRevealClose')
     else if (hit === 'gift:skip') {
         if (props.holidayReveal) giftReveal?.skip(props.holidayReveal)
@@ -1086,8 +1089,20 @@ function onPointerLeave(e?: PointerEvent) {
 
 /** The chest sits in the battle view's corner, but not over a fight, a raid round or a holiday reveal. */
 function chestShows(): boolean {
-    return !!props.goldChest && !props.fight && !props.raidRound && !props.holidayReveal
+    return (!!props.goldChest || coinLanded) && chestCanShow()
 }
+
+/** Where the chest may sit at all: the battle view, but not over a fight, a raid round or a holiday reveal. */
+function chestCanShow(): boolean {
+    return openScene.value === 'battle' && !props.fight && !props.raidRound && !props.holidayReveal
+}
+
+/**
+ * A coin from a kill on screen has dropped in since the chest was last opened: it shows from then,
+ * rather than at the next read. `coinLandedAt` lifts its lid for the landing.
+ */
+let coinLanded = false
+let coinLandedAt = -1
 
 /** When the chest's current toast went up, on the stage's clock: a new key starts it over. */
 let chestToastKey = -1
@@ -1315,6 +1330,10 @@ onMounted(async () => {
     giftReveal = new giftArt.GiftReveal()
     welcomeHit = welcomeArt
     stage = new BattleDemo()
+    stage.onCoinLanded = () => {
+        coinLanded = true
+        coinLandedAt = sceneTime
+    }
     build()
     if (intro) {
         stage.holdIris()
@@ -1341,6 +1360,7 @@ onMounted(async () => {
         // Battle Speed never touches an Arena round (`arena.md` §1)
         stage!.speed = props.fight ? props.fight.playbackSpeed ?? 1 : props.arenaRound ? 1 : props.speed ?? 1
         stage!.speedTag = props.speedTag ?? ''
+        stage!.coinTarget = chestHit && chestCanShow() ? chestHit.goldChestMouth(presenter!.w) : null
         stage!.calm = calm.value
         stage!.cinematics = prefs.value.skillCinematics
         stage!.numbers = prefs.value.combatNumbers
@@ -1376,7 +1396,7 @@ onMounted(async () => {
                                     : settingsScene!.render(t, props.settings ?? { settings: { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false }, settingsHover.value, pressed.value, !!props.settingsBusy, settingsScroll.value)
         if (sceneTabs.value && sceneTabsHit) sceneTabsHit.drawSceneTabs(view, sceneTabs.value.tabs, sceneTabs.value.open, sceneTabHover.value)
         if (scene === 'battle' && giftShows() && giftHit) giftHit.drawGiftIcon(view, t, props.holidayGift!, hover.value === 'gift')
-        if (scene === 'battle' && chestShows() && chestHit) chestHit.drawGoldChest(view, t, hover.value === 'chest')
+        if (scene === 'battle' && chestShows() && chestHit) chestHit.drawGoldChest(view, t, hover.value === 'chest', coinLandedAt < 0 ? -1 : t - coinLandedAt)
         if (props.chestToast && chestHit) {
             if (props.chestToast.key !== chestToastKey) {
                 chestToastKey = props.chestToast.key

@@ -39,7 +39,7 @@
 
 import { ANIM_FPS, Phase, phaseAt, type Clip } from './anim'
 import { C, CLEAR, RAMP, type RampName } from './palette'
-import { Surface, bayer, rect, ring } from './surface'
+import { Surface, bayer, hash2, px, rect, ring } from './surface'
 import { textOut } from './font'
 import { Particles } from './particles'
 import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type BakeJob } from './catalog'
@@ -434,6 +434,16 @@ const enum U { Idle, Attack, Cast, Hit, Death, Entry, Gone, Move }
  * is ticks the whole stage stops; `shake` is px of screen shake for `shakeFor` seconds; `flash`
  * is the strength of a dithered full-screen flash; `slowmo` is seconds of the stage at 35%.
  */
+/** Coins a kill on screen throws toward the Gold chest: how many, and the arc then the flight in. */
+const COINS_PER_KILL = 3
+const COINS_PER_BOSS = 6
+const COIN_POP = 0.35
+const COIN_FLY = 0.55
+const COIN_STAGGER = 0.06
+const COIN_GRAVITY = 260
+
+interface Coin { live: boolean, t: number, x: number, y: number, vx: number, vy: number, fromX: number, fromY: number }
+
 const JUICE = {
     hit: { hold: 3 },
     crit: { hold: 5, shake: 1, shakeFor: 0.1 },
@@ -759,6 +769,14 @@ export class BattleDemo {
     }))
 
     private rings: Ring[] = Array.from({ length: 8 }, () => ({ live: false, x: 0, y: 0, t: 0, big: false }))
+    /**
+     * Where the Gold chest takes coins, in view pixels; null while it can't show, and no kill throws
+     * any. Set by the canvas each frame, which hears of each landing through `onCoinLanded`.
+     */
+    coinTarget: { x: number, y: number } | null = null
+    onCoinLanded: (() => void) | null = null
+    private coins: Coin[] = Array.from({ length: 32 }, () => ({ live: false, t: 0, x: 0, y: 0, vx: 0, vy: 0, fromX: 0, fromY: 0 }))
+    private coinSeed = 0
     // the scene-wide hit feel (JUICE)
     private freeze = 0
     private freezeGap = 0
@@ -2674,6 +2692,7 @@ export class BattleDemo {
         const y = tgt.y - tgt.chest
         this.ringAt(tgt.x + tgt.ox, y, tgt.boss)
         this.particles.burst(tgt.x, tgt.y - 10, 18, 40, 0.8, 'dust', 60, tgt.y)
+        if (tgt.side === 1) this.throwCoins(tgt.x + tgt.ox, y, tgt.boss ? COINS_PER_BOSS : COINS_PER_KILL)
         let left = 0
         for (let k = 0; k < this.units.length; k++) if (standing(this.units[k]!)) left++
         // a run already ahead of the stage gets no wave-end slow-mo: it would only fall further behind
@@ -2686,6 +2705,76 @@ export class BattleDemo {
         } else {
             this.stopFor(JUICE.kill.freeze)
             this.shake(JUICE.kill.shake, JUICE.kill.shakeFor)
+        }
+    }
+
+    /**
+     * A run's kill pays Gold into the chest: coins pop out of the body and fly into it. Only for a
+     * body in view, and only while the chest can take them, so raids, the Arena and replays throw none.
+     */
+    private throwCoins(wx: number, wy: number, n: number): void {
+        const cam = CAMERAS[this.camera]
+        const x = wx - cam.x
+        const y = wy - cam.y
+        if (!this.coinTarget || !this.run || this.raid || this.arenaRound || x < 0 || x >= cam.w || y < 0 || y >= cam.h) return
+        for (let k = 0, i = 0; k < n && i < this.coins.length; i++) {
+            const c = this.coins[i]!
+            if (c.live) continue
+            const seed = this.coinSeed++
+            // staggered, so they leave in a trickle rather than a clump
+            c.live = true; c.t = -k * COIN_STAGGER; c.x = x; c.y = y
+            c.vx = (hash2(seed, 1) - 0.5) * 70
+            c.vy = -60 - hash2(seed, 2) * 50
+            k++
+        }
+    }
+
+    private updateCoins(dt: number): void {
+        const to = this.coinTarget
+        for (let i = 0; i < this.coins.length; i++) {
+            const c = this.coins[i]!
+            if (!c.live) continue
+            if (!to) { c.live = false; continue }
+            c.t += dt
+            if (c.t < 0) continue
+            if (c.t < COIN_POP) {
+                c.vy += COIN_GRAVITY * dt
+                c.x += c.vx * dt
+                c.y += c.vy * dt
+                c.fromX = c.x
+                c.fromY = c.y
+                continue
+            }
+            // then in to the chest, speeding up, on a curve that rises first
+            const k = Math.min(1, (c.t - COIN_POP) / COIN_FLY)
+            const e = k * k
+            const midX = (c.fromX + to.x) / 2
+            const midY = Math.min(c.fromY, to.y) - 20
+            c.x = (1 - e) * (1 - e) * c.fromX + 2 * (1 - e) * e * midX + e * e * to.x
+            c.y = (1 - e) * (1 - e) * c.fromY + 2 * (1 - e) * e * midY + e * e * to.y
+            if (k >= 1) {
+                c.live = false
+                this.onCoinLanded?.()
+            }
+        }
+    }
+
+    /** The coins in flight, over the HUD: each spins through a face and its edge. */
+    private drawCoins(out: Surface): void {
+        for (let i = 0; i < this.coins.length; i++) {
+            const c = this.coins[i]!
+            if (!c.live || c.t < 0) continue
+            const x = Math.round(c.x)
+            const y = Math.round(c.y)
+            const edge = Math.floor(c.t * 12 + i) % 3 === 2
+            if (edge) {
+                rect(out, x, y - 1, 1, 3, C.gold2)
+                px(out, x, y - 1, C.gold3)
+            } else {
+                px(out, x - 1, y, C.gold2); px(out, x + 1, y, C.gold1)
+                px(out, x, y - 1, C.gold3); px(out, x, y + 1, C.gold1)
+                px(out, x, y, C.white)
+            }
         }
     }
 
@@ -2827,6 +2916,8 @@ export class BattleDemo {
     update(dt: number): void {
         if (this.jobs.length) this.bakeSome()
         if (this.paused) return
+        // on the wall clock, not the fight's: a kill's freeze or slow-mo doesn't hold the trickle
+        this.updateCoins(dt)
         if (this.spot) {
             this.spot.t += dt
             if (this.spot.released) this.spot.out += dt
@@ -3268,6 +3359,7 @@ export class BattleDemo {
         // under the timer or the challenge button while either shows
         const under = timed || this.showsChallenge()
         if (this.nameT >= 0 && this.nameT < this.nameFor) drawSkillBanner(out, this.bossName, cam.w / 2, under ? HUD_BAR_Y + HUD_BAR_H + 14 : 14, this.nameT, true, this.nameFor - this.nameT)
+        this.drawCoins(out)
         if (this.spot) {
             // over the HUD too, so the timer and the banner go when it shuts
             const cx = cam.w / 2
