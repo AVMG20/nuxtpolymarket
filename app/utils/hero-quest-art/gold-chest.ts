@@ -60,9 +60,18 @@ const INK: Record<string, number> = {
     G: C.gold3, g: C.gold2, y: C.gold1, k: C.ink, o: C.ink
 }
 
+/** Seconds a landed coin bumps the lid for. */
+const GULP_FOR = 0.12
+
 /** The chest's box on a view `w` wide: the top-right corner. */
 export function goldChestBox(w: number): Box {
     return { x: w - MARGIN - BOX_W, y: MARGIN - 1, w: BOX_W, h: BOX_H }
+}
+
+/** Where a coin flying in drops, on a view `w` wide: the lid's seam. */
+export function goldChestMouth(w: number): { x: number, y: number } {
+    const b = goldChestBox(w)
+    return { x: b.x + (b.w >> 1), y: b.y + b.h - 8 }
 }
 
 export function onGoldChest(w: number, x: number, y: number): boolean {
@@ -96,12 +105,14 @@ function sparkle(s: Surface, x: number, y: number, k: number): void {
 /**
  * The chest in the corner. It sparkles, and every few seconds shakes with its lid popping on the
  * Gold inside, stepped at 10 fps like the rest of the UI's loops; pointed at, it sits up a pixel.
+ * `landedAgo` is how long since a coin last dropped in, which lifts the lid for a moment.
  */
-export function drawGoldChest(s: Surface, t: number, hover: boolean): void {
+export function drawGoldChest(s: Surface, t: number, hover: boolean, landedAgo = -1): void {
     const b = goldChestBox(s.w)
     const f = Math.floor((t % SHAKE_EVERY) * 10)
     const sway = f < SHAKE_SWAY.length ? SHAKE_SWAY[f]! : 0
-    const lidUp = f < SHAKE_LID.length ? SHAKE_LID[f]! : 0
+    const gulp = landedAgo >= 0 && landedAgo < GULP_FOR ? -1 : 0
+    const lidUp = f < SHAKE_LID.length ? SHAKE_LID[f]! : gulp
     const x = b.x + ((b.w - CHEST_W) >> 1) + sway
     const bodyY = b.y + b.h - BODY.length - (hover ? 1 : 0)
     const lidY = bodyY - LID.length + lidUp
