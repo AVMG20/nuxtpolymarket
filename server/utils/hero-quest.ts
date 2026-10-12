@@ -642,6 +642,8 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
                 killCount: result.position.killsInStage,
                 killFraction: result.killFraction,
                 recoverySeconds: result.recoverySeconds,
+                // lifetime, so only ever set: the first fall opens the Gacha (`tutorials.ts`)
+                ...(result.partyFell ? { partyFallen: true } : {}),
                 atBossGate: isBossStage(result.position.stage),
                 heroLevel: result.heroLevel,
                 heroXp: toStore(result.heroXp),
@@ -860,6 +862,7 @@ export async function resolveBossEngage(tx: DbExecutor, userId: string, bankedGo
             atBossGate: isBossStage(landing.stage),
             runCleared: clearedTheRun,
             bossLost: !won,
+            ...(fight.outcome === 'wipe' ? { partyFallen: true } : {}),
             ...(sealsEarned > 0 ? sealGrantSet(sealsEarned) : {})
         })
         .where(eq(hqState.userId, userId))

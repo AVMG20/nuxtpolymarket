@@ -1,0 +1,1 @@
+ALTER TABLE "hq_state" ADD COLUMN "party_fallen" boolean DEFAULT false NOT NULL;

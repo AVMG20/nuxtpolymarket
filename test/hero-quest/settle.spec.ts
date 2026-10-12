@@ -460,6 +460,7 @@ describe('hero-quest settle', () => {
 
             const result = settle(input({ position: unsurvivable, elapsedSeconds: 72 * 3600 }))
             expect(result.wipedOnWave).toBe(true)
+            expect(result.partyFell).toBe(true)
             expect(result.position.world).toBe(unsurvivable.world)
             expect(result.position.stage).toBe(unsurvivable.stage)
         })
@@ -514,6 +515,14 @@ describe('hero-quest settle', () => {
             expect(Math.abs(kills - once.kills)).toBeLessThanOrEqual(1)
         })
 
+        it('does not count a fall before the attempt under way runs out', () => {
+            const kills = wipeCount(unsurvivable)
+            expect(kills).toBeGreaterThan(1)
+            const result = settle(input({ position: unsurvivable, elapsedSeconds: (kills - 1) * secondsPerKillAt(unsurvivable) }))
+            expect(result.wipedOnWave).toBe(true)
+            expect(result.partyFell).toBe(false)
+        })
+
         it('resolves a long window in bounded time rather than walking wipe by wipe', () => {
             const started = Date.now()
             settle(input({ position: unsurvivable, elapsedSeconds: 72 * 3600 }))
@@ -529,6 +538,7 @@ describe('hero-quest settle', () => {
 
             const result = settle(input({ position, elapsedSeconds: 24 * 3600 }))
             expect(result.wipedOnWave).toBe(true)
+            expect(result.partyFell).toBe(true)
             expect(result.kills).toBe(0)
             expect(result.goldEarned).toBe(0)
             expect(result.position.killsInStage).toBe(0)
@@ -543,6 +553,7 @@ describe('hero-quest settle', () => {
                 elapsedSeconds: 8 * 3600
             }))
             expect(result.wipedOnWave).toBe(false)
+            expect(result.partyFell).toBe(false)
             expect(result.position.stage).toBeGreaterThan(1)
         })
     })

@@ -839,6 +839,7 @@ export function settle(input: SettleInput): SettleResult {
         secondsPerKill: spk,
         blockedAtBoss: isBossStage(input.position.stage),
         wipedOnWave: false,
+        partyFell: false,
         recoverySeconds: owedIn - served,
         effectiveSeconds,
         offline,
@@ -876,6 +877,7 @@ export function settle(input: SettleInput): SettleResult {
     let killsLanded = 0
     let blockedAtBoss = false
     let wipedOnWave = false
+    let partyFell = false
 
     // Survivability is frozen at the departure snapshot for exactly the reason `spk` is:
     // offline holds one rate, and the two halves of that rate have to agree. A window that
@@ -904,6 +906,8 @@ export function settle(input: SettleInput): SettleResult {
         if (wipeAt < required) {
             wipedOnWave = true
             const wall = walkWall(pos.killsInStage, 0, (remaining + killFraction) * spk, wipeAt, spk)
+            // the attempt under way ran out: a recovery is owed, or the kills reached the wipe
+            partyFell = wall.recoverySeconds > 0 || wall.kills + 1e-9 >= wipeAt - Math.min(Math.max(0, pos.killsInStage), wipeAt)
             // the cycle's boundaries are whole kills, so float dust is the only thing under one
             const paid = Math.floor(wall.kills + 1e-9)
             gold += paid * goldPerKill(pos.prestige, pos.world, pos.stage, input.tenureDays) * goldMultiplier
@@ -955,6 +959,7 @@ export function settle(input: SettleInput): SettleResult {
         secondsPerKill: spk,
         blockedAtBoss,
         wipedOnWave,
+        partyFell,
         recoverySeconds,
         effectiveSeconds,
         offline,

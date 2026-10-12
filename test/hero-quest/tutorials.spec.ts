@@ -22,7 +22,7 @@ import { ensureHqState } from '#server/utils/hero-quest'
 import { markTutorialSeen, requireFeature, resetTutorials } from '#server/utils/hero-quest-tutorials'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
 
-const at = (world: number, stage: number, prestige = 0, runCleared = false, bossLost = false): UnlockProgress => ({ prestige, world, stage, runCleared, bossLost })
+const at = (world: number, stage: number, prestige = 0, runCleared = false, bossLost = false, partyFallen = false): UnlockProgress => ({ prestige, world, stage, runCleared, bossLost, partyFallen })
 const FRESH = at(1, 1)
 
 describe('hero-quest feature unlocks', () => {
@@ -40,7 +40,12 @@ describe('hero-quest feature unlocks', () => {
         expect(unlockedFeatures(at(3, 4, 2))).toEqual(HQ_FEATURES)
     })
 
-    it('opens the Gacha and Collections once the World 1 boss is fought, beaten or lost to', () => {
+    it('opens the Gacha and Collections on the party\'s first fall, wherever it lands', () => {
+        expect(featureUnlocked('gacha', at(1, 2))).toBe(false)
+        expect(unlockedFeatures(at(1, 2, 0, false, false, true))).toEqual(['gacha', 'collections'])
+    })
+
+    it('opens the Gacha and Collections for a party that never fell, once the World 1 boss is fought, beaten or lost to', () => {
         expect(featureUnlocked('gacha', at(1, BOSS_STAGE))).toBe(false)
         expect(featureUnlocked('gacha', at(1, BOSS_STAGE, 0, false, true))).toBe(true)
         expect(featureUnlocked('collections', at(1, BOSS_STAGE, 0, false, true))).toBe(true)
@@ -160,7 +165,11 @@ describe.skipIf(SKIP)('hero-quest feature gates on the server', () => {
     afterAll(async () => { await db.$client.end() })
 
     it('refuses a feature before its checkpoint, saying what opens it, and lets it through after', async () => {
-        await expect(requireFeature(USER_ID, 'gacha')).rejects.toMatchObject({ statusCode: 403, statusMessage: 'That opens once you fight the World 1 boss' })
+        await expect(requireFeature(USER_ID, 'gacha')).rejects.toMatchObject({ statusCode: 403, statusMessage: 'That opens once you lose a fight' })
+        // the party's first fall opens it anywhere in the run
+        await db.update(hqState).set({ partyFallen: true }).where(eq(hqState.userId, USER_ID))
+        await expect(requireFeature(USER_ID, 'gacha')).resolves.toBeUndefined()
+        await db.update(hqState).set({ partyFallen: false }).where(eq(hqState.userId, USER_ID))
         // at the gate and not yet fought: still closed; lost to: open
         await db.update(hqState).set({ stage: BOSS_STAGE, atBossGate: true }).where(eq(hqState.userId, USER_ID))
         await expect(requireFeature(USER_ID, 'gacha')).rejects.toMatchObject({ statusCode: 403 })

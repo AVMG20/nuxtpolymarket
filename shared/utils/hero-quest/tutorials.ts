@@ -33,10 +33,14 @@ export interface UnlockProgress {
     runCleared: boolean
     /** The boss at this gate beat the party (`hq_state.boss_lost`): it has been fought, if not yet beaten. */
     bossLost: boolean
+    /** The party has been knocked out at least once (`hq_state.party_fallen`). */
+    partyFallen: boolean
 }
 
 export function checkpointReached(at: FeatureCheckpoint, p: UnlockProgress): boolean {
     switch (at.kind) {
+        // or the World 1 boss fought, for a party that got there without ever falling
+        case 'fallen': return p.partyFallen || checkpointReached({ kind: 'boss', world: 1 }, p)
         // a prestige is a whole run done, so every boss of every World is behind it; losing to the
         // boss counts too, since a wall is when the party needs what opens there (the user's call)
         case 'boss': return p.prestige > 0 || p.world > at.world
@@ -75,6 +79,7 @@ export function featureMenuScene(feature: HqFeature): Exclude<HqFeature, 'speed'
 /** What reaching a checkpoint takes, as a sentence's predicate: "Opens once you beat the World 1 boss". */
 export function checkpointLabel(at: FeatureCheckpoint): string {
     switch (at.kind) {
+        case 'fallen': return 'lose a fight'
         case 'boss': return `fight the World ${at.world} boss`
         case 'boss_beaten': return `beat the World ${at.world} boss`
         case 'worlds': return at.count === 1 ? 'clear a World' : `clear ${at.count} Worlds`
@@ -137,11 +142,13 @@ export function nextTutorial(unlocked: readonly HqFeature[], seen: readonly stri
 }
 
 /**
- * Whether two checkpoints open as one group. A boss fought and the same boss beaten are one: the
- * Shop, which takes the win, comes out after the Gacha and Collections when one fight opens all three.
+ * Whether two checkpoints open as one group. A boss fought and the same boss beaten are one, and the
+ * first fall is the World 1 boss's, which also opens it: the Shop, which takes the win, comes out
+ * after the Gacha and Collections when one fight opens all three.
  */
 function sameCheckpoint(a: FeatureCheckpoint, b: FeatureCheckpoint): boolean {
-    const group = (c: FeatureCheckpoint) => c.kind === 'boss_beaten' ? { kind: 'boss', world: c.world } : c
+    const group = (c: FeatureCheckpoint) => c.kind === 'boss_beaten' ? { kind: 'boss', world: c.world }
+        : c.kind === 'fallen' ? { kind: 'boss', world: 1 } : c
     return JSON.stringify(group(a)) === JSON.stringify(group(b))
 }
 

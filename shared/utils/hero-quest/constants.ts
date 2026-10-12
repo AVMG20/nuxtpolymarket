@@ -1378,13 +1378,15 @@ export const CALENDAR_SCHEDULE: readonly CalendarDay[] = [ // locked 2026-10-11,
 // it there (`tutorials.ts`). The schedule is the user's (2026-10-09): each scene opens where it first
 // becomes useful, the Shop at the World 1 boss's first win since 2026-10-10, and Classes at the
 // first prestige. Battle Speed is a tab in the Shop now, and the Milestones one in the Calendar, each
-// still opening where it did.
+// still opening where it did. The Gacha and Collections open on the party's first fall since
+// 2026-10-12 (the user's call): waves can wall a run before the World 1 boss, and the Gacha is the answer.
 
 /** A scene that opens at a checkpoint. Battle and Settings are open from the start. */
 export type HqFeature = 'gacha' | 'collections' | 'milestones' | 'calendar' | 'loadouts' | 'speed' | 'tree' | 'raids' | 'traits' | 'arena' | 'shop' | 'classes'
 
-/** A point of lifetime progress: a World's mid-boss fought (beaten, or lost to) or beaten, Worlds cleared, the run cleared, prestiges made. */
+/** A point of lifetime progress: the party's first fall, a World's mid-boss fought (beaten, or lost to) or beaten, Worlds cleared, the run cleared, prestiges made. */
 export type FeatureCheckpoint =
+    | { kind: 'fallen' }
     | { kind: 'boss', world: number }
     | { kind: 'boss_beaten', world: number }
     | { kind: 'worlds', count: number }
@@ -1393,8 +1395,8 @@ export type FeatureCheckpoint =
 
 /** In the order they open, which is the order the guide announces them. */
 export const FEATURE_UNLOCKS: readonly { feature: HqFeature, at: FeatureCheckpoint }[] = [
-    { feature: 'gacha', at: { kind: 'boss', world: 1 } },
-    { feature: 'collections', at: { kind: 'boss', world: 1 } },
+    { feature: 'gacha', at: { kind: 'fallen' } },
+    { feature: 'collections', at: { kind: 'fallen' } },
     // the Shop takes the win, and comes after the two above when they open on the same fight
     { feature: 'shop', at: { kind: 'boss_beaten', world: 1 } },
     // the Calendar first: it is the main page of the button the two share
