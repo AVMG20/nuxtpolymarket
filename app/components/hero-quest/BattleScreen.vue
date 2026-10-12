@@ -17,6 +17,7 @@ import type { SpeedView } from '~/utils/hero-quest-art/speed-scene'
 import type { SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
 import type { CalendarView } from '~/utils/hero-quest-art/calendar-scene'
 import type { HolidayGiftIconView, HolidayRevealView } from '~/utils/hero-quest-art/holiday-gift'
+import type { ChestToast } from '~/utils/hero-quest-art/gold-chest'
 import type { MilestonesView } from '~/utils/hero-quest-art/milestones-scene'
 import type { TraitRollView, TraitsTarget, TraitsView } from '~/utils/hero-quest-art/traits-scene'
 import type { TreeView } from '~/utils/hero-quest-art/tree-scene'
@@ -51,7 +52,7 @@ const {
     initialized, run, hero, welcome, pending, guild, forge, training, digSite, nextPrestigeReward,
     engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
     loadoutPreferences, loadoutSession, setLoadoutPreference, leaveRaid,
-    shop, voidShards, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
+    shop, voidShards, chestGold, collectChest, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
     pull, freePull, settings, setSetting, raids, engageRaid, quickClearRaid, calendar, claimCalendar,
     holidays, claimHoliday, milestones, claimMilestones, ascendant, tutorials, markTutorialSeen, resetTutorials,
     traits, rollTraits, autoRollTraits, refreshTraits, lockTrait, saveTraits, loadTraits, buyTraitSaveSlot,
@@ -1043,6 +1044,29 @@ async function onClaimCalendar(makeup: boolean) {
 
 const SEAL_NAMES: Readonly<Record<string, string>> = { gear: 'FORGE SEALS', champion: 'GUILD SEALS', skill: 'SKILL SEALS', artifact: 'EXCAVATION SEALS' }
 
+/**
+ * The Gold chest shows while the last read says it holds Gold. Not the live forecast: that would
+ * bring it straight back after an open, where the read leaves it gone until the next poll.
+ */
+const chestBusy = ref(false)
+const goldChest = computed(() => !chestBusy.value && D(chestGold.value).gt(0))
+const chestToast = ref<ChestToast | null>(null)
+
+/** Open the chest: what it paid, or why it didn't, is toasted on the canvas rather than the platform. */
+async function onChestCollect() {
+    if (chestBusy.value) return
+    chestBusy.value = true
+    const key = (chestToast.value?.key ?? 0) + 1
+    try {
+        const res = await collectChest()
+        if (res) chestToast.value = { key, text: `+${formatHq(res.collected)} GOLD`, error: false }
+    } catch (e) {
+        chestToast.value = { key, text: apiErrorMessage(e, 'Could not open the chest').toUpperCase(), error: true }
+    } finally {
+        chestBusy.value = false
+    }
+}
+
 /** The holiday gift waiting in the battle view's corner: the earliest open one not yet claimed. */
 const holidayGift = computed<HolidayGiftIconView | null>(() => {
     const open = holidays.value?.open.find(g => !g.claimed)
@@ -1778,6 +1802,8 @@ function closeWelcome() {
           :raid-loadouts="raidLoadoutOptions"
           :raid-round="raidRound"
           :holiday-gift="holidayGift"
+          :gold-chest="goldChest"
+          :chest-toast="chestToast"
           :holiday-reveal="holidayReveal"
           :raid-reward="raidReward"
           :welcome="welcomeView"
@@ -1802,6 +1828,7 @@ function closeWelcome() {
           @setting="onSetting"
           @claim-calendar="onClaimCalendar"
           @holiday-open="onHolidayOpen"
+          @chest-collect="onChestCollect"
           @holiday-reveal-close="onHolidayRevealClose"
           @claim-milestones="onClaimMilestones"
           @guide-next="onGuideNext"

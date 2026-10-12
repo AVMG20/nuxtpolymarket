@@ -1,0 +1,1 @@
+ALTER TABLE "hq_state" ADD COLUMN "pending_gold" numeric(19, 4) DEFAULT '0' NOT NULL;

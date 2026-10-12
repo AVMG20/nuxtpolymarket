@@ -568,7 +568,7 @@ export interface SettleOutcome {
  * 3. Classify the chunk as online or offline — that is what decides whether the offline cap
  *    and efficiency apply at all.
  * 4. Run the pure `settle()`. It stops at boss gates and never resolves one.
- * 5. Write the new position back, then credit Gold through `balance.ts` **with the tx**.
+ * 5. Write the new position back, and bank the Gold in the chest (`collectChest` pays it out).
  *
  * Battle Speed rides in as the part of the window its block covered (`speedBoostFor`).
  */
@@ -576,11 +576,8 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
     /**
      * Banked Gold, read **before** the transaction opens and deliberately so.
      *
-     * Two reasons. Deadlock: `credit` later locks this user's balance row from inside the
-     * transaction, and a read issued from a second pool connection while that lock is held is
-     * exactly the shape the platform guidance warns about. Correctness: the wealth factor
-     * describes the Gold the window was *fought with*, so the balance as of the window's start is
-     * the right reading, not the balance after it pays out.
+     * The wealth factor describes the Gold the window was *fought with*, so the balance as of the
+     * window's start is the right reading. Gold still in the chest isn't banked, so it doesn't count.
      *
      * Only the Gambler's Strike family reads this, and its factor is clamped, so a slightly stale
      * value cannot move anything by more than the clamp already allows.
@@ -649,18 +646,13 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
                 atBossGate: isBossStage(result.position.stage),
                 heroLevel: result.heroLevel,
                 heroXp: toStore(result.heroXp),
+                // banked, not credited: a credit per settle filled the transactions table
+                ...(result.goldEarned > 0 ? { pendingGold: sql`${hqState.pendingGold} + ${result.goldEarned.toFixed(4)}::numeric` } : {}),
                 // the platform leaderboard's GPN, at the level the window ends on
                 ...powerWrites({ ...state, heroLevel: result.heroLevel }, shopLevels, collections, traits)
             })
             .where(eq(hqState.userId, userId))
             .returning()
-
-        // Gold is a shared platform balance — it only ever moves through balance.ts, and the
-        // tx has to be threaded or the write goes out on a second pool connection and
-        // deadlocks against the lock this transaction is already holding.
-        if (result.goldEarned > 0) {
-            await credit(userId, result.goldEarned.toFixed(4), 'hero-quest', tx)
-        }
 
         return {
             state: updated ?? state,
@@ -674,6 +666,21 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
             collections,
             traits
         }
+    })
+}
+
+/**
+ * Open the chest: pay the Gold the settles banked into the shared balance, as one transaction row.
+ * Lock-then-read, so of a burst of opens the first pays and every other reads an empty chest and
+ * throws. The caller settles first, so the chest holds everything up to now.
+ */
+export async function collectChest(userId: string): Promise<{ collected: string, balance: string }> {
+    return db.transaction(async (tx) => {
+        const [locked] = await tx.select({ pendingGold: hqState.pendingGold }).from(hqState).where(eq(hqState.userId, userId)).for('update')
+        if (!locked || Number(locked.pendingGold) <= 0) throw createError({ statusCode: 400, statusMessage: 'The chest is empty' })
+        await tx.update(hqState).set({ pendingGold: '0' }).where(eq(hqState.userId, userId))
+        const balance = await credit(userId, locked.pendingGold, 'hero-quest', tx)
+        return { collected: locked.pendingGold, balance }
     })
 }
 

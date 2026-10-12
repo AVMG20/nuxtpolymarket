@@ -400,6 +400,13 @@
       "when": 1791807423655,
       "tag": "0056_hero_quest",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1791830674287,
+      "tag": "0057_slippery_stone_men",
+      "breakpoints": true
     }
   ]
 }
