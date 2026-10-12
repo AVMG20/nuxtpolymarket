@@ -458,6 +458,8 @@ export interface SettleResult {
      * minus `WIPE_RECOVERY_SECONDS` after each; it is a wall levelling resolves, not a fallback.
      */
     wipedOnWave: boolean
+    /** True when the party was knocked out at least once in the window, not merely walled. */
+    partyFell: boolean
     /** Wipe recovery still to serve; persist it and hand it back as the next window's. */
     recoverySeconds: number
     effectiveSeconds: number
