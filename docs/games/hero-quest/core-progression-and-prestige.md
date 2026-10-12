@@ -36,7 +36,7 @@ meant re-climbing familiar ground. It no longer does. A single continuous base c
 both a per-run ramp and a smaller per-prestige jump — under one index they are the same number.
 `ENEMY_PRESTIGE_STEP_MULT` in `constants.ts` is the escape hatch if the dip is wanted back.
 
-**The World 1 Stage 1 enemy** is `BASE_ENEMY_HP 60 / BASE_ENEMY_PWR 1.75 / BASE_ENEMY_DEF 2` before the ramp. PWR and DEF ride `b^n`; **HP rides its own exponent** — see *Hero pacing* below for why.
+**The World 1 Stage 1 enemy** is `BASE_ENEMY_HP 50 / BASE_ENEMY_PWR 1.75 / BASE_ENEMY_DEF 2` before the ramp. PWR and DEF ride `b^n`; **HP rides its own exponent** — see *Hero pacing* below for why.
 
 **Elite mob stats** (stages 6–9 within a world), layered on top of the regular-mob multiplier for that stage:
 - Stats **×1.2** that stage's regular-mob baseline (`ELITE_STAT_MULT`) — same base roster, stat-buffed variants with a slight design variation (e.g. recolor or minor visual tweak) so players can tell them apart from regular mobs at a glance, without needing full new art.

@@ -293,6 +293,19 @@ the walk does, a hunch the playtest is to check. `XP_TO_LEVEL_BASE` 10 → 46 me
 Forgotten's weaken and drain stretch it past the timer (#45). The walk assumes a boss is fought the
 moment it is reachable, and in play a boss needs the player present (#25), so real runs land later.
 
+**The unlock schedule, a 20-minute World 1 and four days (the user's calls, 2026-10-12, after the
+first live deploy).** New players found World 1 slow. The baseline fielded the Trait board and the tree
+from the first stage, but the tree opens at 3 Worlds cleared and Traits at 4 (`FEATURE_UNLOCKS`), so the
+early Worlds were paced for a party no new player has. The walk now opens both on that schedule
+(`--unlocks`); on it the old constants measured a **6.4-day** first prestige, and a new party of three
+on Common 0★ Lv1 kit took **45 minutes** for World 1, walled by its boss timer. Targets: World 1 in
+about 20 minutes for that party, and the first prestige at **about 4 days** on the baseline. Two dials,
+swept together: `XP_TO_LEVEL_BASE` 46 → **38** (a level offset at every stage) and `BASE_ENEMY_HP`
+60 → **50** (every fight shorter). Measured **20 minutes** and **4.04 days**. Alone, HP 45 measured
+15 min / 4.21 d and XP 30 measured 28 min / 4.12 d. A solo Hero who never pulls still takes ~2 hours
+for World 1 (7 walls); the Gacha opens on the first fall, at Stage 4, so that player is the exception.
+The Gold slope was re-measured with it (#23.3): `GOLD_STEP_BASE` 1.065 → **1.0575**.
+
 1. ~~**Long cooldowns lose their tail inside `BOSS_TIMER_SECONDS`.**~~ Accepted, locked with the ladder. The first cast waits a full
    cooldown, so a Mythic ability (~15.9s at step 1.2) fires once in a 30s boss fight. Damage per
    second is equal on average only; in boss fights the ladder is a slight nerf to rare kits.
@@ -331,7 +344,7 @@ Full record, measurements and knock-ons: `build-log.md` #23. The sub-numbers kee
    `TUNED ✓` — the first Gold Seal on day 2 for a party of three, and at keeping-pace income Gold reaches
    a gacha's 30 free pulls a day around month 3 and at most doubles them after.
 3. ~~**#23.3 First-week income.**~~ **Decided: about a quarter of platform income in the first week,
-   under the ceiling.** `BASE_GOLD` 0.4 → **1**, `GOLD_STEP_BASE` 1.017 → **1.075**, then **1.065** on the new run pace (#36, `build-log.md` #23): the party-of-three
+   under the ceiling.** `BASE_GOLD` 0.4 → **1**, `GOLD_STEP_BASE` 1.017 → **1.075**, then **1.065** on the new run pace, then **1.0575** on the 4-day pace (#36, `build-log.md` #23): the party-of-three
    walk earns ~24% of the platform across its first week (25.5K/hr at day 1, 216K/hr at day 7), up from
    0.07%; solo ~7%. ⚠ **This was left for the playtest on 2026-10-11 and is now set from the sim, to be
    confirmed by the playtest** (🔬 *Does Gold feel like anything in week one?*, below). It is coupled to
