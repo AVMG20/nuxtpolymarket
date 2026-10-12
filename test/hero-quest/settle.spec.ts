@@ -121,7 +121,9 @@ function firstStallingPosition(snapshot: HeroSnapshot): RunPosition | null {
                 // would quietly stop testing what it claims to.
                 if (stage === BOSS_STAGE || stage === SUPER_BOSS_STAGE) continue
                 const position = at(world, stage, 0, prestige)
-                const spk = secondsPerKill(partyUnitStats(snapshot), enemyPackAt(position))
+                // settle's own rate, abilities included: an autoattack-only rate stalls earlier,
+                // and a position between the two is no wall to settle at all
+                const { secondsPerKill: spk } = settle(input({ hero: snapshot, position, elapsedSeconds: LONGEST_SETTLE_SECONDS }))
                 if (!(spk <= LONGEST_SETTLE_SECONDS)) return position
             }
         }

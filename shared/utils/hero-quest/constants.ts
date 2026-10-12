@@ -122,7 +122,8 @@ export const ENEMY_PRESTIGE_STEP_MULT = 1
  * The World 1 Stage 1 enemy, before the ramp touches it.
  *
  * `BASE_ENEMY_HP` is **how long a fight is**, at every depth, because `ENEMY_HP_STEP_EXPONENT`
- * covers the party's DPS growth. It is sized for a one-week first prestige.
+ * covers the party's DPS growth. 60 → 50 on 2026-10-12 with `XP_TO_LEVEL_BASE` (`open-items.md` #36): a
+ * new party clears World 1 in about 20 minutes and the baseline first prestige takes about 4 days.
  * ⚠ **Bounded above by `BOSS_TIMER_SECONDS`, which is fixed.** A gate is 3 bodies inside 30s, so
  * `secondsPerKill` at a gate cannot exceed 10s; raise HP much further and the early gates stop
  * being passable at any level a fresh account can reach. Raising this means raising the timer.
@@ -142,7 +143,7 @@ export const ENEMY_PRESTIGE_STEP_MULT = 1
  * Current shape: a solo level-1 Beginner clears World 1 Stages 1–4 and stops at the Stage 5
  * boss timer, and every blocker in the first prestige for a party of 3 is a boss timer.
  */
-export const BASE_ENEMY_HP = 60 // TUNED ✓
+export const BASE_ENEMY_HP = 50 // TUNED ✓
 export const BASE_ENEMY_PWR = 1.75 // TUNED ✓
 export const BASE_ENEMY_DEF = 2 // TUNED ✓
 export const ELITE_STAT_MULT = 1.2 // TUNED ✓
@@ -686,8 +687,13 @@ export const XP_BASE_PER_KILL = 1 // TUNED ✓
  * party of three on the baseline (`open-items.md` #36): the Trait board, the tree, a Rare 0★ Lv2
  * kit and boss gates fought as live fights. Measured 5.46 days with
  * `--traits=… --tree=cheapest --kit=rare:0:2 --boss-fights=8`; 42 measured 4.98.
+ *
+ * 46 → 38 the same day, with `BASE_ENEMY_HP` 60 → 50 (the user's calls): **a 4-day first prestige**
+ * on that baseline with Traits and the tree opening on their schedule (`--unlocks`), measured 4.04
+ * days, and **World 1 in about 20 minutes** for a new party of three on Common 0★ Lv1 kit, measured
+ * 20 min. The old pair measured 6.4 days and 45 minutes on the same walks.
  */
-export const XP_TO_LEVEL_BASE = 46 // TUNED ✓
+export const XP_TO_LEVEL_BASE = 38 // TUNED ✓
 
 /**
  * **The dial for "XP numbers are too big", and very nearly only that.**
@@ -858,11 +864,15 @@ export const BASE_GOLD = 1 // TUNED ✓
  * days 3.8–5.5 at about 25% and day 7.8 at 36%, never ceiling-bound in week one, and ceiling-bound
  * from about day 60, so the month-3 and month-6 anchors hold.
  *
+ * 1.065 → 1.0575 the same day, re-measured on the 4-day pace (`open-items.md` #36, with Traits and
+ * the tree on their unlock schedule): 1.065 paid ~41% of platform at days 3–4 and 53–60% at days
+ * 5–8. 1.0575 puts days 3–8 at 21–26%, and the ceiling binds by day 90, so the anchors hold.
+ *
  * **Kept under `ENEMY_STEP_BASE` (1.08)**, so Gold still grows more slowly than the enemy it is
  * earned from (`settle.spec.ts`). A Beginner party of three never reaches the ceiling in its
  * first month; a party of six does by about day 12. Coupled to run pacing like `BASE_GOLD`.
  */
-export const GOLD_STEP_BASE = 1.065 // TUNED ✓
+export const GOLD_STEP_BASE = 1.0575 // TUNED ✓
 
 // ── The tenure ceiling ─────────────────────────────  gold-economy.md §3, §9
 
