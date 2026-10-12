@@ -54,6 +54,8 @@ import { TRAIT_GRADES, TRAIT_SETS, TRAIT_STATS, isTraitGrade } from '../../share
 import { rollTrait } from '../../shared/utils/hero-quest/traits'
 import { PASSIVE_NODES } from '../../shared/utils/hero-quest/content/passive-tree'
 import { passiveBuyBlock, passiveLevelCost, passiveNodeActive, passivePointsEarned } from '../../shared/utils/hero-quest/passive-tree'
+import { FEATURE_UNLOCKS } from '../../shared/utils/hero-quest/constants'
+import { checkpointReached } from '../../shared/utils/hero-quest/tutorials'
 
 export type Verdict = 'clear' | 'timer_fail' | 'wipe' | 'stalled'
 
@@ -291,6 +293,34 @@ export function withSimKit(hero: HeroSnapshot, spec: string): HeroSnapshot {
     return kitted
 }
 
+/**
+ * Whether the walk opens Traits and the Passive Tree on their `FEATURE_UNLOCKS` schedule (`--unlocks`)
+ * rather than fielding them from the first stage. Off, every report reads as it was tuned.
+ */
+let unlockSchedule = false
+
+export function setSimUnlocks(on: boolean): boolean {
+    unlockSchedule = on
+    return on
+}
+
+function featureOpen(feature: 'traits' | 'tree', prestige: number, world: number): boolean {
+    const at = FEATURE_UNLOCKS.find(u => u.feature === feature)!.at
+    return checkpointReached(at, { prestige, world, stage: 1, runCleared: false, bossLost: false, partyFallen: true })
+}
+
+/**
+ * The party as the run's position fields it under `--unlocks`: no Trait board before Traits open,
+ * no tree before the tree does. A tree that opens has every point banked so far to spend.
+ */
+export function withSimUnlocks(hero: HeroSnapshot, prestige: number, world: number): HeroSnapshot {
+    if (!unlockSchedule) return withSimTree(hero)
+    const traitsOpen = featureOpen('traits', prestige, world)
+    const treeOpen = featureOpen('tree', prestige, world)
+    const fielded = traitsOpen ? hero : { ...hero, traits: [] }
+    return treeOpen ? withSimTree(fielded) : { ...fielded, passiveTree: {} }
+}
+
 /** The Hero with its tree filled in from its level under the `--tree` policy; unchanged under `none`. */
 export function withSimTree(hero: HeroSnapshot): HeroSnapshot {
     if (treePolicy === 'none') return hero
@@ -356,7 +386,7 @@ export function makeParty(classId: ClassId, heroLevel: number, size: number, ove
  * own accumulated clock, which is the only place the ceiling can be seen binding.
  */
 export function analyzeStage(fielded: HeroSnapshot, prestige: number, world: number, stage: number, tenureDays: number): StageReport {
-    const hero = withSimTree(fielded)
+    const hero = withSimUnlocks(fielded, prestige, world)
     const position = { prestige, world, stage, killsInStage: 0 }
     // Per-enemy stats for the display columns; the pack for everything that resolves against
     // the whole encounter. A wave stage is still 30 bodies — they just arrive N at a time.
