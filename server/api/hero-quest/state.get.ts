@@ -82,6 +82,7 @@ export default defineEventHandler(async (event) => {
             passiveTree: null,
             arena: null,
             voidShards: '0',
+            chestGold: '0',
             nextPrestigeReward: voidShardsFor(0).toString(),
             awaySeconds: 0,
             settled: null
@@ -173,6 +174,8 @@ export default defineEventHandler(async (event) => {
         passiveTree: serializePassiveTree(state),
 
         voidShards: fromStore(state.voidShards).toString(),
+        /** Gold the settles banked in the chest, paid out when the player opens it. */
+        chestGold: state.pendingGold,
         nextPrestigeReward: voidShardsFor(state.prestige).toString(),
 
         /**

@@ -1166,6 +1166,12 @@ export const hqState = pgTable('hq_state', {
   voidShards: text('void_shards').notNull().default('0'),
 
   /**
+   * Gold the settles have earned and the chest holds, paid into the shared balance in one
+   * transaction when the player opens it rather than one per settle. Earned, so prestige keeps it.
+   */
+  pendingGold: numeric('pending_gold', { precision: 19, scale: 4 }).notNull().default('0'),
+
+  /**
    * The running Battle Speed block (`battle-speed.ts`): its multiplier, and the wall-clock instant
    * it runs out. Null, or a past expiry, means none. Bought, not run position, so prestige keeps it.
    */

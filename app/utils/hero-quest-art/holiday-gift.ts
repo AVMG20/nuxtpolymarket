@@ -12,6 +12,7 @@ import { drawText, textWidth } from './font'
 import { glyph } from './icon-kit'
 import { CURRENCY_ICONS } from './icons-items'
 import { panel } from './ui-art'
+import { goldChestBox } from './gold-chest'
 import { formatHq } from '../../../shared/utils/hero-quest/numbers'
 import type { HolidayId } from '../../../shared/utils/hero-quest/content/holidays'
 
@@ -216,9 +217,10 @@ const WIGGLE_EVERY = 2.2
 const WIGGLE_SWAY = [0, -1, 1, -1, 1, -1, 1, 0] as const
 const WIGGLE_LID = [0, -1, -2, -1, -2, -1, 0, 0] as const
 
-/** The icon's box on a view `w` wide: under the top-right readout. */
+/** The icon's box on a view `w` wide: in the top-right corner, under the Gold chest. */
 export function giftIconBox(w: number): Box {
-    return { x: w - 6 - ICON, y: 13, w: ICON, h: ICON }
+    const chest = goldChestBox(w)
+    return { x: chest.x + chest.w - ICON, y: chest.y + chest.h + 3, w: ICON, h: ICON }
 }
 
 export function onGiftIcon(w: number, x: number, y: number): boolean {

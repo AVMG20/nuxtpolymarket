@@ -18,6 +18,7 @@ import type { TreeCamera, TreeScene, TreeTarget, TreeView } from '~/utils/hero-q
 import type { RaidLoadoutOption, RaidRewardView, RaidRowView, RaidsHover, RaidsScene, RaidsView } from '~/utils/hero-quest-art/raids-scene'
 import type { WelcomeView } from '~/utils/hero-quest-art/welcome-card'
 import type { GiftReveal, HolidayGiftIconView, HolidayRevealView } from '~/utils/hero-quest-art/holiday-gift'
+import type { ChestToast } from '~/utils/hero-quest-art/gold-chest'
 import type { SceneTab } from '~/utils/hero-quest-art/scene-tabs'
 import type { ArenaResultView, ArenaScene, ArenaTarget, ArenaView } from '~/utils/hero-quest-art/arena-scene'
 import type { PartyStatsTarget, PartyStatsView } from '~/utils/hero-quest-art/party-stats'
@@ -126,6 +127,10 @@ const props = defineProps<{
     holidayGift?: HolidayGiftIconView | null
     /** The holiday gift being opened, over everything; null when none is. */
     holidayReveal?: HolidayRevealView | null
+    /** The Gold chest shows in the battle view's corner while it holds Gold. */
+    goldChest?: boolean
+    /** What the last open of the chest paid, or why it didn't, toasted in its corner. */
+    chestToast?: ChestToast | null
     /** A raid round to play in place of the run; the stage goes back to the run once it is cleared. */
     raidRound?: StageRaid | null
     /** What a raid round or quick-clear paid, shown over the stage until its button is pressed. */
@@ -228,6 +233,8 @@ const emit = defineEmits<{
     claimCalendar: [makeup: boolean]
     /** The holiday gift in the battle view's corner was pressed. */
     holidayOpen: []
+    /** The Gold chest in the battle view's corner was pressed. */
+    chestCollect: []
     /** The holiday reveal's button was pressed once everything was out. */
     holidayRevealClose: []
     /** A milestone card with steps waiting was pressed. */
@@ -297,6 +304,7 @@ let treeHit: typeof import('~/utils/hero-quest-art/tree-scene') | null = null
 let arenaScene: ArenaScene | null = null
 let arenaHit: typeof import('~/utils/hero-quest-art/arena-scene') | null = null
 let giftHit: typeof import('~/utils/hero-quest-art/holiday-gift') | null = null
+let chestHit: typeof import('~/utils/hero-quest-art/gold-chest') | null = null
 let partyStatsHit: typeof import('~/utils/hero-quest-art/party-stats') | null = null
 let giftReveal: GiftReveal | null = null
 /** The stage's clock, for the scene that times its own animation (the gacha reveal). */
@@ -456,7 +464,7 @@ defineExpose({ skipFight, closeIris })
  * The challenge button and the menu band live in the canvas, so the pointer is hit-tested against
  * them in the view's own pixels. The page's own Fight button stays the keyboard's way in.
  */
-type Target = 'challenge' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuScene | `scenetab:${string}` | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
+type Target = 'challenge' | 'chest' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuScene | `scenetab:${string}` | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
     | `picker:${PickerTarget | 'outside'}`
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
     | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${Exclude<RaidsHover, null>}` | 'reward:ok' | 'welcome:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
@@ -700,6 +708,7 @@ function targetAt(e: PointerEvent): Target | null {
         return block && !props.speedBusy && speedHit.speedBlockOpen(props.speedView, block) ? `speed:${block.speed}:${block.minutes}` : null
     }
     if (openScene.value === 'battle' && giftShows() && giftHit?.onGiftIcon(presenter.w, x, y)) return 'gift'
+    if (openScene.value === 'battle' && chestShows() && chestHit?.onGoldChest(presenter.w, x, y)) return 'chest'
     return openScene.value === 'battle' && props.challenge && stage?.onChallenge(x, y) ? 'challenge' : null
 }
 
@@ -900,6 +909,7 @@ function onPointerUp(e: PointerEvent) {
     const item = HQ_MENU_SCENES.find(s => s === hit)
     if (hit === 'challenge') emit('challenge')
     else if (hit === 'gift') emit('holidayOpen')
+    else if (hit === 'chest') emit('chestCollect')
     else if (hit === 'gift:ok') emit('holidayRevealClose')
     else if (hit === 'gift:skip') {
         if (props.holidayReveal) giftReveal?.skip(props.holidayReveal)
@@ -1074,6 +1084,15 @@ function onPointerLeave(e?: PointerEvent) {
     draftAtPress = null
 }
 
+/** The chest sits in the battle view's corner, but not over a fight, a raid round or a holiday reveal. */
+function chestShows(): boolean {
+    return !!props.goldChest && !props.fight && !props.raidRound && !props.holidayReveal
+}
+
+/** When the chest's current toast went up, on the stage's clock: a new key starts it over. */
+let chestToastKey = -1
+let chestToastAt = 0
+
 /** The gift waits in the battle view's corner, but not over a fight, a raid round or its own reveal. */
 function giftShows(): boolean {
     return !!props.holidayGift && !props.fight && !props.raidRound && !props.holidayReveal
@@ -1233,7 +1252,7 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, giftArt, traitsArt, sceneTabsArt, arenaArt, partyStatsArt, treeArt, welcomeArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, giftArt, traitsArt, sceneTabsArt, arenaArt, partyStatsArt, treeArt, welcomeArt, chestArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
@@ -1254,7 +1273,8 @@ onMounted(async () => {
         import('~/utils/hero-quest-art/arena-scene'),
         import('~/utils/hero-quest-art/party-stats'),
         import('~/utils/hero-quest-art/tree-scene'),
-        import('~/utils/hero-quest-art/welcome-card')
+        import('~/utils/hero-quest-art/welcome-card'),
+        import('~/utils/hero-quest-art/gold-chest')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -1291,6 +1311,7 @@ onMounted(async () => {
     treeScene = new treeArt.TreeScene(backdrops)
     treeHit = treeArt
     giftHit = giftArt
+    chestHit = chestArt
     giftReveal = new giftArt.GiftReveal()
     welcomeHit = welcomeArt
     stage = new BattleDemo()
@@ -1355,6 +1376,14 @@ onMounted(async () => {
                                     : settingsScene!.render(t, props.settings ?? { settings: { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false }, settingsHover.value, pressed.value, !!props.settingsBusy, settingsScroll.value)
         if (sceneTabs.value && sceneTabsHit) sceneTabsHit.drawSceneTabs(view, sceneTabs.value.tabs, sceneTabs.value.open, sceneTabHover.value)
         if (scene === 'battle' && giftShows() && giftHit) giftHit.drawGiftIcon(view, t, props.holidayGift!, hover.value === 'gift')
+        if (scene === 'battle' && chestShows() && chestHit) chestHit.drawGoldChest(view, t, hover.value === 'chest')
+        if (props.chestToast && chestHit) {
+            if (props.chestToast.key !== chestToastKey) {
+                chestToastKey = props.chestToast.key
+                chestToastAt = t
+            }
+            if (scene === 'battle') chestHit.drawChestToast(view, props.chestToast, t - chestToastAt)
+        }
         if (props.holidayReveal && giftReveal) giftReveal.render(view, t, props.holidayReveal, hover.value === 'gift:ok', pressed.value)
         else if (props.raidReward && raidsHit) raidsHit.drawRaidReward(view, props.raidReward, hover.value === 'reward:ok', pressed.value)
         else if (props.welcome && welcomeHit) welcomeHit.drawWelcome(view, props.welcome, hover.value === 'welcome:ok', pressed.value)

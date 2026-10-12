@@ -185,6 +185,8 @@ export const useHeroQuest = () => {
     /** The Settings scene's choices, defaults filled in by the server. */
     const settings = computed(() => state.value?.settings ?? null)
     const voidShards = computed(() => state.value?.voidShards ?? '0')
+    /** Gold banked in the chest as of the last read; the settles fill it and opening it pays it out. */
+    const chestGold = computed(() => state.value?.chestGold ?? '0')
     const nextPrestigeReward = computed(() => state.value?.nextPrestigeReward ?? '0')
     const settled = computed(() => state.value?.settled ?? null)
     const serverNow = computed(() => state.value?.serverNow ?? Date.now())
@@ -397,6 +399,13 @@ export const useHeroQuest = () => {
     async function claimCalendar(makeup: boolean) {
         const res = await call<{ day: number, kind: string, amount: string }>('/api/hero-quest/calendar/claim', { makeup }, '')
         if (res?.kind === 'gold' || res?.kind === 'gems') await fetchSession()
+        return res
+    }
+
+    /** Open the chest: its Gold goes into the shared balance, and the read after it starts the chest over. Errors are the caller's to show. */
+    async function collectChest() {
+        const res = await call<{ collected: string, balance: string }>('/api/hero-quest/chest/collect', {}, '', { silentErrors: true })
+        if (res) setBalance(res.balance)
         return res
     }
 
@@ -629,7 +638,7 @@ export const useHeroQuest = () => {
         away: () => call<{ awaySeconds: number }>('/api/hero-quest/dev/away', {}, '')
     }
 
-    // Gold accrues into the shared balance on every settle, so the header has to follow it.
+    // The settles bank Gold in the chest, not the shared balance, so the poll leaves the session alone.
     // Not while the splash waits for Start: a tab left on it is away, not present (`useHqSession`).
     // One poll however many components hold the state: the layout and the page both do.
     onMounted(() => {
@@ -637,7 +646,6 @@ export const useHeroQuest = () => {
         poll.timer = setInterval(async () => {
             if (!sessionActive.value) return
             await refresh()
-            await fetchSession()
         }, refreshIntervalMs.value)
     })
     onUnmounted(() => {
@@ -678,6 +686,8 @@ export const useHeroQuest = () => {
         arenaBoard,
         settings,
         voidShards,
+        chestGold,
+        collectChest,
         nextPrestigeReward,
         settled,
         welcome,

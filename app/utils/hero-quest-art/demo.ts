@@ -46,6 +46,7 @@ import { artById, bake, bakeLater, bakeStep, FORGE_BOSSES, type Baked, type Bake
 import { HERO_ART } from './heroes'
 import { CHASSIS, championLook } from './champions'
 import { ENEMY_RIGS, ELITE_MARK, drawEliteMark, type EnemyWeapon } from './enemies'
+import { GOLD_CHEST_CORNER } from './gold-chest'
 import { BADGE_GLINT_FOR, BADGE_PORTRAIT_BOX, NUMBER_STYLES, PARTY_FRAME_H, PARTY_FRAME_W, badgePortrait, drawChallengeButton, drawGpnBar, drawProfileBadge, drawSkillBar, SKILL_TILE, gpnChanging, drawEnrageTimer, drawNumberAt, drawPartyFrameAt, drawStageProgress, CHALLENGE_H, CHALLENGE_W, type BadgeView, type NumberStyle, type PartyMember } from './feedback'
 import { VL, clock, dimLevel, R } from './vfx-kit'
 import { J } from './rig'
@@ -3229,7 +3230,8 @@ export class BattleDemo {
         // the badge carries the label on its bar, so only a stage without one prints it bare
         if (!kit?.length && !badge && !this.raidRound) textOut(out, this.label, 6, 5, C.bone1, 'small', 1, 0, 1, C.ink, -1)
         if (this.raid?.id === 'training_grounds' || (this.raidRound && this.raid?.id === 'trait')) textOut(out, this.tally, cam.w - 6, 5, (this.raidRound ? this.raidRound.left : this.raid.clock) <= 5 ? C.red3 : C.gold3, 'small', 1, 2, 1, C.ink, -1)
-        else if (this.speedTag) textOut(out, this.speedTag, cam.w - 6, 5, C.gold3, 'small', 1, 2, 1, C.ink, -1)
+        // the game's stage keeps the corner for the Gold chest
+        else if (this.speedTag) textOut(out, this.speedTag, cam.w - (badge ? GOLD_CHEST_CORNER : 6), 5, C.gold3, 'small', 1, 2, 1, C.ink, -1)
         // top-centre: a run's boss fight shows its enrage timer, drained as far as the fight has played;
         // a wave stage shows how far its kills have got
         // Shardcaller Beast has no clock (§7): it ends when the party falls
