@@ -24,6 +24,7 @@ const tabs = [
     { label: 'Combat', to: '/hero-quest/wiki/combat', icon: 'i-lucide-swords' },
     { label: 'Economy', to: '/hero-quest/wiki/economy', icon: 'i-lucide-coins' },
     { label: 'Gacha', to: '/hero-quest/wiki/gacha', icon: 'i-lucide-dices' },
+    { label: 'Traits', to: '/hero-quest/wiki/traits', icon: 'i-lucide-sparkles' },
     { label: 'Content', to: '/hero-quest/wiki/content', icon: 'i-lucide-list' }
 ]
 </script>
