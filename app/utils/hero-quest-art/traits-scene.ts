@@ -16,7 +16,7 @@ import { panel } from './ui-art'
 import { plateButton, type Box } from './collections-scene'
 import { drawRevealBase, REVEAL_LUT, REVEAL_SIZE } from './feedback'
 import type { SceneBackdrops } from './menu-band'
-import { TRAIT_GRADES, TRAIT_SETS, TRAIT_STATS } from '../../../shared/utils/hero-quest/content/traits'
+import { TRAIT_GRADES, TRAIT_SETS, TRAIT_STATS } from '#shared/utils/hero-quest/content/traits'
 
 export interface TraitSlotView {
     statName: string

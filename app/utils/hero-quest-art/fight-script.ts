@@ -8,7 +8,7 @@
 //
 // Pure: it reorganises the log and never changes a number in it.
 
-import type { FightEvent } from '../../../shared/utils/hero-quest/fight'
+import type { FightEvent } from '#shared/utils/hero-quest/fight'
 
 export interface Beat {
     /** Sim-seconds: when the hits land. */

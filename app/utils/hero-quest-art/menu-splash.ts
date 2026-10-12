@@ -15,7 +15,7 @@ import { artById, bake, type Baked } from './catalog'
 import { HERO_ART } from './heroes'
 import { STAGE } from './special-kit'
 import { runMarks, type RunParty } from './demo'
-import { CHAMPION_BY_ID } from '../../../shared/utils/hero-quest/content/champions'
+import { CHAMPION_BY_ID } from '#shared/utils/hero-quest/content/champions'
 
 /** The party a splash stands: who, and on which row. The Beginner alone without a save. */
 export interface SplashParty {

@@ -7,8 +7,8 @@ import { rect, dither, type Surface } from './surface'
 import { drawText, textWidth } from './font'
 import { panel } from './ui-art'
 import { stageNumber } from './run-director'
-import { D } from '../../../shared/utils/hero-quest/numbers'
-import { CHAMPION_BY_ID } from '../../../shared/utils/hero-quest/content/champions'
+import { D } from '#shared/utils/hero-quest/numbers'
+import { CHAMPION_BY_ID } from '#shared/utils/hero-quest/content/champions'
 
 /** One fielded unit's column: its name, and each row's value already spelled out. */
 export interface PartyStatsUnit {

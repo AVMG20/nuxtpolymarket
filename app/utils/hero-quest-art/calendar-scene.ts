@@ -13,10 +13,10 @@ import { plateButton, type Box } from './collections-scene'
 import { KEY_ICON } from './raids-scene'
 import { stageNumber } from './run-director'
 import type { SceneBackdrops } from './menu-band'
-import { D } from '../../../shared/utils/hero-quest/numbers'
-import { getRaid, type RaidId } from '../../../shared/utils/hero-quest/content/raids'
-import type { CalendarDayState } from '../../../shared/utils/hero-quest/calendar'
-import type { CalendarReward } from '../../../shared/utils/hero-quest/constants'
+import { D } from '#shared/utils/hero-quest/numbers'
+import { getRaid, type RaidId } from '#shared/utils/hero-quest/content/raids'
+import type { CalendarDayState } from '#shared/utils/hero-quest/calendar'
+import type { CalendarReward } from '#shared/utils/hero-quest/constants'
 
 export interface CalendarDayView {
     day: number

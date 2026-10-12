@@ -14,7 +14,7 @@ import { line, px, rect, disc, ellipse, tri, dither, poly, arc, hash2 } from './
 import { HP, J, fxX, fxY, hclip, hitClip, deathClip, rest, type Look, type Painter } from './rig'
 import { robeSkirt, smear, sparks, streak } from './hero-parts'
 import { M, tip, sword, axe, bow, staff, Gem, type Mat } from './weapons'
-import type { EnemyStyle } from '../../../shared/utils/hero-quest/content/worlds'
+import type { EnemyStyle } from '#shared/utils/hero-quest/content/worlds'
 
 export const ENEMY_WEAPONS = ['sword', 'axe', 'bow', 'staff'] as const
 export type EnemyWeapon = typeof ENEMY_WEAPONS[number]

@@ -14,9 +14,9 @@ import { sparks, streak } from './hero-parts'
 import { chibiHead, crescent, drawChibi, pix, type Head } from './chibi'
 import { chibiCape, robe } from './hero-kit'
 import { M, tip, sword, axe, hammer, mace, spear, dagger, scythe, staff, shield, tome, orb, Gem, ShieldStyle, type Mat } from './weapons'
-import { CHAMPIONS, CHAMPION_BY_ID } from '../../../shared/utils/hero-quest/content/champions'
-import { RARITIES } from '../../../shared/utils/hero-quest/gacha'
-import type { ChampionArchetype } from '../../../shared/utils/hero-quest/types'
+import { CHAMPIONS, CHAMPION_BY_ID } from '#shared/utils/hero-quest/content/champions'
+import { RARITIES } from '#shared/utils/hero-quest/gacha'
+import type { ChampionArchetype } from '#shared/utils/hero-quest/types'
 
 export const CHAMPION_STATES = ['idle', 'attack', 'cast', 'hit', 'death', 'move'] as const
 export interface ChassisClips { idle: Clip, attack: Clip, cast: Clip, hit: Clip, death: Clip, move: Clip }

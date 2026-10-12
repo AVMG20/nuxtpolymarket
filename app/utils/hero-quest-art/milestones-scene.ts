@@ -12,9 +12,9 @@ import { panel } from './ui-art'
 import type { Box } from './collections-scene'
 import { KEY_ICON } from './raids-scene'
 import type { SceneBackdrops } from './menu-band'
-import { getRaid } from '../../../shared/utils/hero-quest/content/raids'
-import type { MilestoneReward, MilestoneRow } from '../../../shared/utils/hero-quest/milestones'
-import type { GachaSystem } from '../../../shared/utils/hero-quest/gacha'
+import { getRaid } from '#shared/utils/hero-quest/content/raids'
+import type { MilestoneReward, MilestoneRow } from '#shared/utils/hero-quest/milestones'
+import type { GachaSystem } from '#shared/utils/hero-quest/gacha'
 
 export interface MilestonesView {
     rows: readonly MilestoneRow[]

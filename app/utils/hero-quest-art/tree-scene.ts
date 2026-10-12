@@ -13,9 +13,9 @@ import { glyph } from './icon-kit'
 import { CURRENCY_ICONS } from './icons-items'
 import { plateButton, type Box } from './collections-scene'
 import type { SceneBackdrops } from './menu-band'
-import { PASSIVE_BAND_MAGNITUDE } from '../../../shared/utils/hero-quest/constants'
-import { PASSIVE_NODES, PASSIVE_ROOT_ID, type PassiveNode, type PassivePath } from '../../../shared/utils/hero-quest/content/passive-tree'
-import type { HqModifier } from '../../../shared/utils/hero-quest/modifiers'
+import { PASSIVE_BAND_MAGNITUDE } from '#shared/utils/hero-quest/constants'
+import { PASSIVE_NODES, PASSIVE_ROOT_ID, type PassiveNode, type PassivePath } from '#shared/utils/hero-quest/content/passive-tree'
+import type { HqModifier } from '#shared/utils/hero-quest/modifiers'
 
 /** A node as the payload has it: what it holds and what its next level costs. */
 export interface TreeNodeState {

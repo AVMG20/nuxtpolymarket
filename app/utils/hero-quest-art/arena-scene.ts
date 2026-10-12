@@ -23,9 +23,9 @@ import { drawCreature } from './creature'
 import { TRAINING_DUMMY } from './raids'
 import { KEY_ICON } from './raids-scene'
 import type { SceneBackdrops } from './menu-band'
-import type { RaidId } from '../../../shared/utils/hero-quest/content/raids'
+import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import { HQ_ARENA_TABS, HQ_ARENA_TAB_LABELS, type HqArenaTab } from '../hero-quest-scenes'
-import { ARENA_SEASON_REWARDS } from '../../../shared/utils/hero-quest/constants'
+import { ARENA_SEASON_REWARDS } from '#shared/utils/hero-quest/constants'
 
 /** A face on a card or in the defence: an art asset (`hero/<class>` or `champion/<id>`) and its row. */
 export interface ArenaFace { asset: string, row: 'front' | 'back' }

@@ -11,7 +11,7 @@
 //
 // Pure: no DOM, no drawing. The stage asks, this answers.
 
-import { D, ZERO, type Decimal } from '../../../shared/utils/hero-quest/numbers'
+import { D, ZERO, type Decimal } from '#shared/utils/hero-quest/numbers'
 
 /** What the stage needs of the projected run, re-sent every frame. */
 export interface RunFeed {

@@ -17,8 +17,8 @@ import { bufferSize, drawCreature, stateFrames, type CreatureDef } from './creat
 import { ANIM_FPS } from './anim'
 import { GILDED_WARLORD, GREAT_DUMMY, DEEPCOIL, FORGE_MASTER, RAMPANT } from './raids'
 import type { SceneBackdrops } from './menu-band'
-import { RAIDS, paysEveryRun, type RaidFightType, type RaidId } from '../../../shared/utils/hero-quest/content/raids'
-import { RAID_KEYS_PER_DAY } from '../../../shared/utils/hero-quest/constants'
+import { RAIDS, paysEveryRun, type RaidFightType, type RaidId } from '#shared/utils/hero-quest/content/raids'
+import { RAID_KEYS_PER_DAY } from '#shared/utils/hero-quest/constants'
 
 export interface RaidsView {
     /** The raid shown on the right. */
