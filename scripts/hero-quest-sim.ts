@@ -14,11 +14,23 @@
  *   bun run sim:hero-quest --report=gates --party=3         # what a starting party buys
  *
  *   bun run sim:hero-quest --report=campaign --party=3 --traits=E   # field a Trait board
+ *   bun run sim:hero-quest --report=campaign --party=3 --tree=cheapest   # spend Passive Tree points
+ *   bun run sim:hero-quest --report=campaign --party=3 --kit=rare:1:5     # field Gear, Skills, Artifacts, Champions
  *
- * Flags: --class --level --world --stage --prestige --party --traits --no-levelup --json
+ * Flags: --class --level --world --stage --prestige --party --traits --tree --kit --boss-fights --no-levelup --json
  *
- * `--traits` is `none` (the default), a grade for a board of that grade, or `roll:N` for one seeded
- * Roll (`simTraitBoard`). It reaches the stage, world, campaign, Gold and stats reports.
+ * `--traits` is `none` (the default), a grade for a board of that grade, `roll:N` for one seeded
+ * Roll, or a board written out as `stat:grade:set` slots (`simTraitBoard`). It reaches the stage,
+ * world, campaign, Gold and stats reports.
+ *
+ * `--tree` is `none` (the default) or `cheapest`, which spends the Passive Skill Tree's points as the
+ * Hero levels (`SimTreePolicy`). It reaches every report.
+ *
+ * `--kit` is `none` (the default) or `rarity[:star[:level]]`, which fields Gear, Skills, Artifacts and
+ * real Champions at that rarity and investment (`withSimKit`). It reaches every report.
+ *
+ * `--boss-fights=N` fights every boss gate as N seeded live fights, boss specials included, instead of
+ * taking the expected-value verdict (`setSimBossFights`).
  *
  * Crit-averaged, no per-hit rolling — a verdict is "wins on expected values", not a win
  * rate. Overrides are applied by rewriting `constants.ts` at load time and never touch the
@@ -50,6 +62,10 @@ const {
     gateTable,
     makeParty: makeBareParty,
     simTraitBoard,
+    setSimBossFights,
+    setSimTreePolicy,
+    withSimKit,
+    withSimTree,
     DEFAULT_CAMPAIGN_MAX_LEVEL,
     DEFAULT_CAMPAIGN_MAX_PRESTIGE,
     DEFAULT_GRIND_BUDGET_SECONDS,
@@ -90,8 +106,11 @@ const maxLevel = Number(arg('max-level', String(DEFAULT_CAMPAIGN_MAX_LEVEL)))
 const party = Math.max(1, Number(arg('party', '1')))
 const traitsSpec = arg('traits', 'none')
 const traits = simTraitBoard(traitsSpec)
-/** The party every report fields, with the `--traits` board on it. */
-const makeParty = (classId: ClassId, heroLevel: number, size: number) => makeBareParty(classId, heroLevel, size, { traits })
+const treePolicy = setSimTreePolicy(arg('tree', 'none'))
+const kitSpec = arg('kit', 'none')
+const bossFights = setSimBossFights(Number(arg('boss-fights', '0')))
+/** The party every report fields, with the `--traits` board, the `--kit` and the `--tree` build on it. */
+const makeParty = (classId: ClassId, heroLevel: number, size: number) => withSimTree(withSimKit(makeBareParty(classId, heroLevel, size, { traits }), kitSpec))
 /** `--sweep-levels=1,20,50` — the scaling view on `--report=stats`. Empty means single-level. */
 const sweepLevels = arg('sweep-levels', '')
     .split(',').map(entry => Number(entry.trim())).filter(value => Number.isFinite(value) && value >= 1)
@@ -114,7 +133,8 @@ function banner() {
     const tuning = describeOverrides(overrides)
     const size = party > 1 ? `  party of ${party}` : ''
     const board = traits.length ? `  traits ${traitsSpec} (${traits.map(t => `${t.stat.slice(6)}:${t.grade}`).join(' ')})` : ''
-    console.log(`\n${classId} @ level ${level} — prestige ${prestige}${size}${board}${tuning ? `  [${tuning}]` : ''}`)
+    const tree = `${treePolicy === 'none' ? '' : `  tree ${treePolicy}`}${kitSpec === 'none' ? '' : `  kit ${kitSpec}`}${bossFights ? `  boss fights ×${bossFights}` : ''}`
+    console.log(`\n${classId} @ level ${level} — prestige ${prestige}${size}${board}${tree}${tuning ? `  [${tuning}]` : ''}`)
 }
 
 // ── reports ────────────────────────────────────────────────────────────────────────────

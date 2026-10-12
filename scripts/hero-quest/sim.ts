@@ -14,7 +14,17 @@
  *     import { analyzeStage, analyzeWorld, minLevelForGate } from './scripts/hero-quest/sim'
  */
 
-import { BOSS_TIMER_SECONDS, STAGES_PER_WORLD, WIPE_RECOVERY_SECONDS, WORLD_COUNT } from '../../shared/utils/hero-quest/constants'
+import {
+    BASE_ARTIFACT_SLOTS,
+    BASE_SKILL_SLOTS,
+    BOSS_TIMER_SECONDS,
+    LEVELS_PER_STAR,
+    MAX_STAR,
+    STAGES_PER_WORLD,
+    TRAIT_SLOT_COUNT,
+    WIPE_RECOVERY_SECONDS,
+    WORLD_COUNT
+} from '../../shared/utils/hero-quest/constants'
 import {
     applyXp,
     enemyStatsAt,
@@ -30,13 +40,20 @@ import {
     xpPerKill
 } from '../../shared/utils/hero-quest/settle'
 import { partyAbilityDps } from '../../shared/utils/hero-quest/projection'
+import { runFight } from '../../shared/utils/hero-quest/fight'
 import { CLASS_NODES } from '../../shared/utils/hero-quest/content/classes'
-import { CHAMPION_ABILITY_POOL, ability, getArchetype } from '../../shared/utils/hero-quest/content/champions'
+import { CHAMPIONS, CHAMPION_ABILITY_POOL, ability, getArchetype } from '../../shared/utils/hero-quest/content/champions'
+import { GEAR_SLOTS, gearIdFor } from '../../shared/utils/hero-quest/content/gear'
+import { skillsOfRarity } from '../../shared/utils/hero-quest/content/skills'
+import { ARTIFACTS } from '../../shared/utils/hero-quest/content/artifacts'
+import { RARITIES, RARITY_STAT_MULTIPLIER, investmentScalar } from '../../shared/utils/hero-quest/gacha'
 import { ZERO } from '../../shared/utils/hero-quest/numbers'
 import type { Decimal } from '../../shared/utils/hero-quest/numbers'
-import type { ChampionArchetype, ClassId, HeroSnapshot, StageArchetype, TraitRoll } from '../../shared/utils/hero-quest/types'
+import type { ChampionArchetype, ClassId, HeroSnapshot, OwnedCopy, Rarity, StageArchetype, TraitRoll } from '../../shared/utils/hero-quest/types'
 import { TRAIT_GRADES, TRAIT_SETS, TRAIT_STATS, isTraitGrade } from '../../shared/utils/hero-quest/content/traits'
 import { rollTrait } from '../../shared/utils/hero-quest/traits'
+import { PASSIVE_NODES } from '../../shared/utils/hero-quest/content/passive-tree'
+import { passiveBuyBlock, passiveLevelCost, passiveNodeActive, passivePointsEarned } from '../../shared/utils/hero-quest/passive-tree'
 
 export type Verdict = 'clear' | 'timer_fail' | 'wipe' | 'stalled'
 
@@ -93,6 +110,8 @@ function seeded(seed: number): () => number {
  * - a grade (`E`, `A`, ...): ATK, SPD, HP, Champion ATK and Hero Skill DMG, all at that grade, one
  *   slot of each Set, so every Set that opens at one piece is live and none is stacked.
  * - `roll:N`: one real Roll with seed N, what a player's first Roll hands them.
+ * - a board written out, one `stat:grade:set` per slot, comma-separated, with the `trait_` and
+ *   `set_` prefixes dropped: `atk:B:deep_impact,imp:B:deep_impact,champion_atk:D:aggression`.
  */
 export function simTraitBoard(spec: string): TraitRoll[] {
     if (spec === 'none' || spec === '') return []
@@ -104,7 +123,178 @@ export function simTraitBoard(spec: string): TraitRoll[] {
         const rng = seeded(Number(seed[1]))
         return TRAIT_SETS.map(() => rollTrait(rng))
     }
-    throw new Error(`--traits takes none, a grade (${TRAIT_GRADES.join(' ')}) or roll:N, not "${spec}"`)
+    if (spec.includes(':')) {
+        const slots = spec.split(',').map((slot) => {
+            const [stat, grade, set] = slot.split(':')
+            const statDef = TRAIT_STATS.find(candidate => candidate.id === `trait_${stat}`)
+            const setDef = TRAIT_SETS.find(candidate => candidate.id === `set_${set}`)
+            if (!statDef || !grade || !isTraitGrade(grade) || !setDef) {
+                throw new Error(`--traits slot "${slot}" is not stat:grade:set (stats ${TRAIT_STATS.map(s => s.id.slice(6)).join(' ')}; sets ${TRAIT_SETS.map(s => s.id.slice(4)).join(' ')})`)
+            }
+            return { stat: statDef.id, grade, set: setDef.id }
+        })
+        if (slots.length > TRAIT_SLOT_COUNT) throw new Error(`--traits has ${slots.length} slots, the board holds ${TRAIT_SLOT_COUNT}`)
+        return slots
+    }
+    throw new Error(`--traits takes none, a grade (${TRAIT_GRADES.join(' ')}), roll:N or stat:grade:set slots, not "${spec}"`)
+}
+
+/**
+ * How the sim spends the Passive Skill Tree's points (`passive-skill-tree.md`), from `--tree`:
+ *
+ * - `none`: no tree, the walk as it was tuned.
+ * - `cheapest`: every point spent as soon as it is earned, on the cheapest next level the tree
+ *   opens, ties to the tree's order. A neutral stand-in for a player, not an optimal build. It
+ *   skips what the walk cannot see: economy nodes (its XP and Gold never read Hero modifiers),
+ *   class-path nodes off the Hero's path, and side nodes for an archetype the party doesn't field.
+ *
+ * Points come from Hero level, so the tree is filled in wherever the sim fields a Hero
+ * (`withSimTree`), and every level the walk gains grows it.
+ */
+export type SimTreePolicy = 'none' | 'cheapest'
+
+let treePolicy: SimTreePolicy = 'none'
+
+export function setSimTreePolicy(spec: string): SimTreePolicy {
+    if (spec !== 'none' && spec !== 'cheapest') throw new Error(`--tree takes none or cheapest, not "${spec}"`)
+    treePolicy = spec
+    return spec
+}
+
+/**
+ * The order `cheapest` buys levels in, per class and fielded archetypes. Buying cheapest-first
+ * means a smaller budget always stops on a prefix of the same order, so one list serves every
+ * level, extended as the walk earns more.
+ */
+const treePurchases = new Map<string, { id: string, spent: number }[]>()
+
+function simTree(hero: HeroSnapshot, points: number): Record<string, number> {
+    const fielded = new Set((hero.champions ?? []).map(champion => champion.archetype))
+    const key = `${hero.classId}|${[...fielded].sort().join(',')}`
+    const purchases = treePurchases.get(key) ?? []
+    treePurchases.set(key, purchases)
+    const levels: Record<string, number> = {}
+    for (const { id } of purchases) levels[id] = (levels[id] ?? 0) + 1
+    const useful = PASSIVE_NODES.filter(node =>
+        node.lines.some(line => line.band !== 'economy')
+        && passiveNodeActive(node, hero.classId)
+        && (node.scope.kind === 'hero' || node.scope.archetype === 'all' || fielded.has(node.scope.archetype)))
+    while ((purchases[purchases.length - 1]?.spent ?? 0) < points) {
+        let next: { id: string, cost: number } | null = null
+        for (const node of useful) {
+            if (passiveBuyBlock(node, Number.MAX_SAFE_INTEGER, levels) !== null) continue
+            const cost = passiveLevelCost(node, (levels[node.id] ?? 0) + 1)
+            if (!next || cost < next.cost) next = { id: node.id, cost }
+        }
+        if (!next) break
+        levels[next.id] = (levels[next.id] ?? 0) + 1
+        purchases.push({ id: next.id, spent: (purchases[purchases.length - 1]?.spent ?? 0) + next.cost })
+    }
+    const held: Record<string, number> = {}
+    for (const { id, spent } of purchases) {
+        if (spent > points) break
+        held[id] = (held[id] ?? 0) + 1
+    }
+    return held
+}
+
+/**
+ * Seeded fights per boss gate, from `--boss-fights`. At 0 (the default) a gate takes the
+ * expected-value verdict like every other stage. Above it, a gate is fought the way the live game
+ * fights one, `runFight` with seeds 1…N, so boss specials, rolled crits and the real timer all
+ * count, and it clears when at least half the fights are won: a lost boss waits to be challenged
+ * again, so a coin-flip gate is one a player gets through. Waves and elites stay expected-value,
+ * as settle resolves them.
+ */
+let bossFightSeeds = 0
+
+export function setSimBossFights(seeds: number): number {
+    if (!Number.isInteger(seeds) || seeds < 0) throw new Error(`--boss-fights takes a whole number of seeds, not "${seeds}"`)
+    bossFightSeeds = seeds
+    return seeds
+}
+
+/** Where `--kit` measures a Skill or Artifact pick: a late first-run stage, at a level that reaches it. */
+const KIT_REFERENCE = { level: 200, world: 5, stage: 9 }
+
+/**
+ * A kit for the sim to field from the start, from `--kit`: every gacha at one rarity and
+ * investment, written `rarity[:star[:level]]` (`rare`, `epic:2:5`). What a player owns at a given
+ * point of a run hangs on Seal income, which is unreconciled (#23), so this fields a fixed kit the
+ * way `--traits` fields a fixed board:
+ *
+ * - Gear: one piece in every slot.
+ * - Champions: the stand-ins swapped for real Champions of that rarity, in the same archetype order.
+ * - Skills and Artifacts: the starting slots, each filled with whichever item of that rarity clears
+ *   `KIT_REFERENCE` fastest given what is already picked.
+ *
+ * The collections hold only what is equipped, so the collection passives are understated.
+ */
+export function withSimKit(hero: HeroSnapshot, spec: string): HeroSnapshot {
+    if (spec === 'none' || spec === '') return hero
+    const [rarity, starText = '0', levelText = '1'] = spec.split(':')
+    const star = Number(starText)
+    const level = Number(levelText)
+    if (!RARITIES.includes(rarity as Rarity) || !Number.isInteger(star) || star < 0 || star > MAX_STAR
+        || !Number.isInteger(level) || level < 1 || level > LEVELS_PER_STAR) {
+        throw new Error(`--kit takes rarity[:star[:level]] (${RARITIES.join(' ')}; star 0–${MAX_STAR}; level 1–${LEVELS_PER_STAR}), not "${spec}"`)
+    }
+    const r = rarity as Rarity
+    const copy = (contentId: string): OwnedCopy => ({ contentId, star, level })
+
+    const used = new Set<string>()
+    const champions = (hero.champions ?? []).map((standIn) => {
+        const definition = CHAMPIONS.find(c => c.archetype === standIn.archetype && c.rarity === r && !used.has(c.id))
+            ?? CHAMPIONS.find(c => c.rarity === r && !used.has(c.id))!
+        used.add(definition.id)
+        return {
+            championId: definition.id,
+            archetype: definition.archetype,
+            rarityMultiplier: RARITY_STAT_MULTIPLIER[r],
+            investment: investmentScalar(star, level),
+            strikesPerAttack: definition.strikesPerAttack,
+            row: getArchetype(definition.archetype).defaultRow,
+            abilities: definition.abilities
+        }
+    })
+    const gear = GEAR_SLOTS.map(slot => copy(gearIdFor(slot, r)))
+    let kitted: HeroSnapshot = {
+        ...hero,
+        champions,
+        ownedChampions: champions.map(c => ({ archetype: c.archetype, investment: c.investment })),
+        ownedGear: gear,
+        equippedGear: Object.fromEntries(GEAR_SLOTS.map((slot, i) => [slot, gear[i]!.contentId])),
+        equippedSkills: [],
+        ownedSkills: [],
+        equippedArtifacts: [],
+        ownedArtifacts: []
+    }
+
+    const clearRate = (candidate: HeroSnapshot) => analyzeStage({ ...candidate, heroLevel: KIT_REFERENCE.level },
+        0, KIT_REFERENCE.world, KIT_REFERENCE.stage, SIM_MATURE_TENURE_DAYS).secondsPerKill
+    const fill = (ids: readonly string[], slots: number, field: 'Skills' | 'Artifacts') => {
+        for (let slot = 0; slot < slots; slot++) {
+            let best: { hero: HeroSnapshot, seconds: number } | null = null
+            for (const id of ids) {
+                const equipped = kitted[`equipped${field}`] ?? []
+                if (equipped.some(c => c.contentId === id)) continue
+                const next = [...equipped, copy(id)]
+                const candidate = { ...kitted, [`equipped${field}`]: next, [`owned${field}`]: next }
+                const seconds = clearRate(candidate)
+                if (!best || seconds < best.seconds) best = { hero: candidate, seconds }
+            }
+            if (best) kitted = best.hero
+        }
+    }
+    fill(skillsOfRarity(r).map(s => s.id), BASE_SKILL_SLOTS, 'Skills')
+    fill(ARTIFACTS.filter(a => a.rarity === r).map(a => a.id), BASE_ARTIFACT_SLOTS, 'Artifacts')
+    return kitted
+}
+
+/** The Hero with its tree filled in from its level under the `--tree` policy; unchanged under `none`. */
+export function withSimTree(hero: HeroSnapshot): HeroSnapshot {
+    if (treePolicy === 'none') return hero
+    return { ...hero, passiveTree: simTree(hero, passivePointsEarned(hero.heroLevel)) }
 }
 
 export function makeHero(classId: ClassId, heroLevel: number, overrides: Partial<HeroSnapshot> = {}): HeroSnapshot {
@@ -165,7 +355,8 @@ export function makeParty(classId: ClassId, heroLevel: number, size: number, ove
  * asking a pure combat question pass `SIM_MATURE_TENURE_DAYS`; the campaign walk passes its
  * own accumulated clock, which is the only place the ceiling can be seen binding.
  */
-export function analyzeStage(hero: HeroSnapshot, prestige: number, world: number, stage: number, tenureDays: number): StageReport {
+export function analyzeStage(fielded: HeroSnapshot, prestige: number, world: number, stage: number, tenureDays: number): StageReport {
+    const hero = withSimTree(fielded)
     const position = { prestige, world, stage, killsInStage: 0 }
     // Per-enemy stats for the display columns; the pack for everything that resolves against
     // the whole encounter. A wave stage is still 30 bodies — they just arrive N at a time.
@@ -181,7 +372,7 @@ export function analyzeStage(hero: HeroSnapshot, prestige: number, world: number
     // Both branches are "seconds × bodies". A gate is one encounter — the boss plus its
     // escort — so it is `packSize` bodies, not one; `spk` is amortized per enemy, so using it
     // bare would under-report a boss fight by the size of its escort.
-    const clearSeconds = isGate ? spk * packSize(pack) : spk * kills
+    let clearSeconds = isGate ? spk * packSize(pack) : spk * kills
 
     // Same two functions `settle()` uses, deliberately — a survivability verdict here that
     // the live game disagreed with would make every table in this tool a lie.
@@ -213,6 +404,18 @@ export function analyzeStage(hero: HeroSnapshot, prestige: number, world: number
     if (!Number.isFinite(spk)) verdict = 'stalled'
     else if (timeToDie < survivalWindow) verdict = 'wipe'
     else if (isGate && clearSeconds > BOSS_TIMER_SECONDS) verdict = 'timer_fail'
+
+    if (isGate && bossFightSeeds > 0) {
+        const fights = Array.from({ length: bossFightSeeds }, (_unused, i) => runFight({ hero, position, seed: i + 1 }))
+        const wins = fights.filter(fight => fight.outcome === 'win')
+        if (wins.length * 2 >= fights.length) {
+            verdict = 'clear'
+            clearSeconds = wins.reduce((total, fight) => total + fight.secondsElapsed, 0) / wins.length
+        } else {
+            const wipes = fights.filter(fight => fight.outcome === 'wipe').length
+            verdict = wipes * 2 > fights.length - wins.length ? 'wipe' : 'timer_fail'
+        }
+    }
 
     return {
         world,
