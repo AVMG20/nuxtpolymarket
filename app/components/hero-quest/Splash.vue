@@ -161,7 +161,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="p-4 sm:p-6 max-w-4xl mx-auto space-y-6">
+  <div class="p-4 sm:p-6 space-y-6">
     <div
       ref="wrap"
       class="relative w-full overflow-hidden rounded-lg border border-default bg-elevated"

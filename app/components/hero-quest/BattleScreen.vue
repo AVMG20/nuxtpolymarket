@@ -1709,7 +1709,7 @@ function closeWelcome() {
 
 <template>
   <div
-    class="p-4 sm:p-6 max-w-4xl mx-auto space-y-6"
+    class="p-4 sm:p-6 space-y-6"
     :class="scene === 'battle' ? '' : 'pb-0 sm:pb-0'"
   >
     <div
