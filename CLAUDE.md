@@ -2,8 +2,6 @@
 
 A play-money gaming site. Players earn and spend **coins** (`user.balance`) and **gems** (`user.gems`) across casino games (slots, dice, roulette, live tables), idle and strategy games (Xeno, Hack Ops, Colony, Polytown, Pathwarden, …), a TCG, a bank, a gem exchange and an AI assistant. Every feature touches the economy, so treat value-changing code with care.
 
-For Hero Quest see @docs/games/hero-quest/CLAUDE.md
-
 ## Stack
 
 - Nuxt 4 + Vue 3, **Nuxt UI v4** (use its components and semantic tokens)
