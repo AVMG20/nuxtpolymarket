@@ -10,7 +10,7 @@ For Hero Quest see @docs/games/hero-quest/CLAUDE.md
 - Drizzle ORM + PostgreSQL (`server/database/schema.ts`)
 - better-auth
 - **bun only**. Never `npm`, `pnpm` or `yarn`. `bun.lock` is the only lockfile.
-- **`nuxt dev` and `nuxt build` run on Node, not Bun.** Don't "fix" the dev script back to `bun --bun nuxt dev`: under Bun's runtime the dev server leaks a TCP connection per request until it stops answering while still holding the port.
+- **The dev server and the build run on Node, not Bun** (production serves on Bun). Don't "fix" the dev script back to `bun --bun nuxt dev`: under Bun's runtime the dev server leaks a TCP connection per request until it stops answering while still holding the port. The Dockerfile builds with `node` because Bun's runtime balloons the Nitro build's memory.
 
 ## Layout
 
