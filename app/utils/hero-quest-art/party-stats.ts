@@ -1,17 +1,19 @@
 // The party's stats: a popup over the battle, opened from the profile badge's portrait. One column
-// per fielded unit, the Hero first, one row per stat, read from `stats.get.ts` when it opens. A base
+// per fielded unit, the Hero first, under its portrait, one row per stat, read from `stats.get.ts` when it opens. A base
 // stat's cell opens where it comes from: each stage of its pipeline and the parts that summed to it.
 
 import { C } from './palette'
-import { rect, dither, type Surface } from './surface'
+import { rect, dither, blit, type Surface } from './surface'
 import { drawText, textWidth } from './font'
 import { panel } from './ui-art'
 import { stageNumber } from './run-director'
+import { headOf, HEAD } from './demo'
 import { D } from '#shared/utils/hero-quest/numbers'
 import { CHAMPION_BY_ID } from '#shared/utils/hero-quest/content/champions'
 
-/** One fielded unit's column: its name, and each row's value already spelled out. */
+/** One fielded unit's column: its portrait's art asset, its name, and each row's value already spelled out. */
 export interface PartyStatsUnit {
+    asset: string
     name: string
     hero: boolean
     values: readonly string[]
@@ -95,11 +97,12 @@ function unitName(unit: PartyStatsPayload['units'][number], heroName: string): s
 }
 
 /**
- * The popup's columns from the stats read, Hero first as it sends them, the Hero named by its
- * class. `cell` is the base stat whose sources are open, by its row and its unit's column.
+ * The popup's columns from the stats read, Hero first as it sends them, the Hero named and drawn by
+ * its class. `cell` is the base stat whose sources are open, by its row and its unit's column.
  */
-export function partyStatsView(payload: PartyStatsPayload, heroName: string, cell: { row: number, unit: number } | null = null): PartyStatsView {
+export function partyStatsView(payload: PartyStatsPayload, heroName: string, heroClassId: string, cell: { row: number, unit: number } | null = null): PartyStatsView {
     const units = payload.units.map(unit => ({
+        asset: unit.role === null ? `hero/${heroClassId}` : `champion/${unit.label}`,
         name: unitName(unit, heroName),
         hero: unit.role === null,
         values: ROWS.map((row) => {
@@ -137,7 +140,7 @@ export function partyStatRowOpens(row: number): boolean {
 interface Box { x: number, y: number, w: number, h: number }
 
 const W = 252
-const H = 130
+const H = 147
 const PAD = 6
 const LABEL_W = 36
 const MAX_COL_W = 64
@@ -147,6 +150,7 @@ const CLOSE_W = 13
 const CLOSE_H = 11
 const BACK_W = 30
 const LINE_H = 7
+const PLATE = HEAD + 2
 
 function box(w: number, h: number): Box {
     return { x: (w - W) >> 1, y: (h - H) >> 1, w: W, h: H }
@@ -167,7 +171,7 @@ function grid(b: Box, units: number): { colW: number, left: number, top: number 
     return {
         colW: Math.min(MAX_COL_W, Math.floor((b.w - 2 * PAD - LABEL_W) / units)),
         left: b.x + PAD + LABEL_W,
-        top: b.y + TITLE_H + 6
+        top: b.y + TITLE_H + 5 + PLATE
     }
 }
 
@@ -186,6 +190,18 @@ export function partyStatsTargetAt(w: number, h: number, view: PartyStatsView, x
     const unit = Math.floor((x - g.left) / g.colW)
     if (row < 0 || unit < 0 || unit >= units.length || !partyStatRowOpens(row)) return 'inside'
     return `cell:${row}:${unit}`
+}
+
+const heads = new Map<string, Surface>()
+
+/** `asset`'s portrait, cropped once: the same face the party band below wears. */
+function headFor(asset: string): Surface {
+    let h = heads.get(asset)
+    if (!h) {
+        h = headOf(asset)
+        heads.set(asset, h)
+    }
+    return h
 }
 
 /** `text` cut to `max` px. */
@@ -230,6 +246,12 @@ export function drawPartyStats(s: Surface, view: PartyStatsView, hover: PartySta
     // each column's values right-aligned under its centred name
     const colRight = (k: number) => left + (k + 1) * colW - 3
     units.forEach((unit, k) => {
+        // the face on a plate above the name, ringed in gold for the Hero
+        const px = left + k * colW + ((colW - PLATE) >> 1)
+        const py = top - PLATE - 2
+        rect(s, px, py, PLATE, PLATE, unit.hero ? C.gold2 : C.night3)
+        rect(s, px + 1, py + 1, HEAD, HEAD, C.night1)
+        blit(s, headFor(unit.asset), px + 1, py + 1)
         drawText(s, fit(unit.name, colW - 2), left + k * colW + (colW >> 1), top, unit.hero ? C.gold3 : C.bone1, { align: 1, shadow: 1 })
     })
     rect(s, b.x + PAD, top + 7, b.w - 2 * PAD, 1, C.night3)

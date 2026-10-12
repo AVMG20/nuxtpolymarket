@@ -885,7 +885,7 @@ let partyStatsRead = 0
 const partyStats = computed<PartyStatsView | null>(() => {
     if (!partyStatsOpen.value) return null
     if (!partyStatsPayload.value) return { units: null }
-    return partyStatsView(partyStatsPayload.value, liveHero.value?.className ?? '', partyStatCell.value)
+    return partyStatsView(partyStatsPayload.value, liveHero.value?.className ?? '', hero.value?.classId ?? 'class_beginner', partyStatCell.value)
 })
 
 async function openPartyStats() {
