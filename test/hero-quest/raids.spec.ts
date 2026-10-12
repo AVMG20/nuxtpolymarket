@@ -122,7 +122,7 @@ describe('hero-quest raid rules', () => {
         const [apprentice, journeyman, master] = forgeStats(3)
         expect(journeyman!.hp.gt(apprentice!.hp)).toBe(true)
         expect(master!.hp.gt(journeyman!.hp)).toBe(true)
-        const fight = runForgeFight(makeParty('class_warrior', 205, 3), { prestige: 0, world: 1, stage: 1, killsInStage: 0 }, 7919, 4)
+        const fight = runForgeFight(makeParty('class_warrior', 225, 3), { prestige: 0, world: 1, stage: 1, killsInStage: 0 }, 7919, 4)
         const downs = fight.events.filter(e => e.kind === 'enemy_down')
         const arrivals = fight.events.filter(e => e.kind === 'enemy_arrive')
         expect(arrivals.map(e => e.enemyIndex)).toEqual([1, 2])

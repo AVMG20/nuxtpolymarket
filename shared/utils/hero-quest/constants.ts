@@ -281,22 +281,30 @@ export const TAUNT_THREAT_MULTIPLIER = 10 // UNTUNED ╧
 export const CRIT_CHANCE_PER_POINT = 0.01 // TUNED ✓
 
 /**
- * Crit damage per point of IMP: IMP 10 → ×1.2.
+ * Crit damage per point of IMP: IMP 10 → ×1.05.
  *
  * IMP rides the level curve, so this per-point rate on an exponentially growing stat is the only
  * thing bounding how fast the crit multiplier runs away. The *shape* — linear and unbounded in
  * IMP — is load-bearing; see `STAT_SCALES_WITH_LEVEL`.
+ *
+ * 0.02 → 0.005 on 2026-10-12, with `XP_TO_LEVEL_BASE` 10 → 46, balancing the first run around the
+ * baseline Trait board (the user's call: Traits and the tree are required, so the pace assumes
+ * them). That board, ATK and IMP at D with two pieces of Deep Impact, multiplies IMP about ×4, and
+ * linear crit damage turned that into a lead that grew with level; at 0.02 it prestiged in 8 hours.
+ * Measured with `--traits=atk:D:deep_impact,imp:D:deep_impact,champion_atk:D:aggression,
+ * atk:D:aggression,imp:D:aggression --tree=cheapest`.
  */
-export const CRIT_DAMAGE_PER_POINT = 0.02 // TUNED ✓
+export const CRIT_DAMAGE_PER_POINT = 0.005 // TUNED ✓
 
 /**
  * LCK past 100% crit chance converts to crit damage at this rate. Must sit well below
- * `CRIT_DAMAGE_PER_POINT` — overflow is a "nothing wasted" valve, not a rival to IMP.
+ * `CRIT_DAMAGE_PER_POINT` — overflow is a "nothing wasted" valve, not a rival to IMP. Kept at half
+ * of it when that dropped to a quarter (2026-10-12).
  *
  * Rarely reached: with LCK off the level curve only a deliberately built crit Hero passes 100%.
  * Cut `LCK_BASE_SCALE` much further and it stops firing at all.
  */
-export const OVERFLOW_CONVERSION_RATE = 0.01 // UNTUNED ╧
+export const OVERFLOW_CONVERSION_RATE = 0.0025 // UNTUNED ╧
 
 /**
  * HP = BASE_HP + VIT × HP_PER_VIT
@@ -671,8 +679,15 @@ export const XP_BASE_PER_KILL = 1 // TUNED ✓
  *
  * Moves as a pair with `XP_BASE_PER_KILL` — see there. Declared ahead of the XP-income constants
  * because `XP_STEP_EXPONENT` is derived from `XP_TO_LEVEL_GROWTH`.
+ *
+ * 10 → 46 on 2026-10-12, with `CRIT_DAMAGE_PER_POINT`: moved here rather than on `XP_BASE_PER_KILL`
+ * so XP stays in whole numbers. Set to a **5.5-day first prestige** (the user's call: players will
+ * likely field better loadouts than the walk's, so the playtest says where it really lands) for a
+ * party of three on the baseline (`open-items.md` #36): the Trait board, the tree, a Rare 0★ Lv2
+ * kit and boss gates fought as live fights. Measured 5.46 days with
+ * `--traits=… --tree=cheapest --kit=rare:0:2 --boss-fights=8`; 42 measured 4.98.
  */
-export const XP_TO_LEVEL_BASE = 10 // TUNED ✓
+export const XP_TO_LEVEL_BASE = 46 // TUNED ✓
 
 /**
  * **The dial for "XP numbers are too big", and very nearly only that.**

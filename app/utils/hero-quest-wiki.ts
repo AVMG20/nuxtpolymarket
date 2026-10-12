@@ -111,7 +111,7 @@ export const HQ_STAT_DOCS: readonly HqStatDoc[] = [
         detail: 'Impact does nothing on its own — it multiplies critical hits only. It is the '
             + 'partner stat to Luck, and stacking it without the Luck to land crits is the most '
             + 'common way to build a character that reads strong and hits weak.',
-        formula: `crit multiplier = 1 + IMP × ${pct(CRIT_DAMAGE_PER_POINT)} (+ Luck overflow)`
+        formula: `crit multiplier = 1 + IMP × ${pct(CRIT_DAMAGE_PER_POINT, 1)} (+ Luck overflow)`
     }
 ]
 

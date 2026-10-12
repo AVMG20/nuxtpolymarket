@@ -159,8 +159,8 @@ describe('the settle projection', () => {
             // so a finite fight always lands fewer casts than the steady-state rate prices —
             // and the shorter the fight, the larger the gap.
             // A boss alone falls too fast at the fixture's level for a cast to land, so this one
-            // fights longer: the middle of the band (144–154) where every claim below holds.
-            const snapshot = hero(150, 'class_hunter')
+            // fights longer: the middle of the band (160–166) where every claim below holds.
+            const snapshot = hero(163, 'class_hunter')
             const position = FIXTURE.position
             const result = runFight({ hero: snapshot, position, seed: 7 })
             const units = partyUnitStats(snapshot)

@@ -24,7 +24,7 @@ import {
     type BattleReadoutInput,
     type RunAnchor
 } from '../../app/utils/hero-quest-battle'
-import { enemyPackAt, killsBeforeWipe, settle, totalXpForLevel } from '#shared/utils/hero-quest/settle'
+import { enemyPackAt, killsBeforeWipe, settle, totalXpForLevel, xpPerKill } from '#shared/utils/hero-quest/settle'
 import { partyUnitStats } from '#shared/utils/hero-quest/stats'
 import { BASE_KILL_COUNT, BOSS_STAGE, STAGES_PER_WORLD, WIPE_RECOVERY_SECONDS } from '#shared/utils/hero-quest/constants'
 import { ZERO } from '#shared/utils/hero-quest/numbers'
@@ -201,7 +201,13 @@ describe('agreement with the settle it is drawing', () => {
             expect(projected.world).toBe(served.position.world)
             expect(projected.stage).toBe(served.position.stage)
             expect(Math.floor(projected.killsInStage)).toBe(served.position.killsInStage)
-            expect(projected.heroLevel).toBe(served.heroLevel)
+            // The readout earns XP on the part-kill too, so its bar fills smoothly where the settle
+            // banks whole kills: it runs ahead by under one kill's XP, and when a level threshold
+            // falls inside that gap it shows the level a beat early. Compare total XP, not levels.
+            const total = (level: number, xp: typeof ZERO) => totalXpForLevel(level).add(xp)
+            const ahead = total(projected.heroLevel, projected.heroXp).sub(total(served.heroLevel, served.heroXp))
+            expect(ahead.gte(0)).toBe(true)
+            expect(ahead.lt(xpPerKill(0, served.position.world, served.position.stage))).toBe(true)
         })
     }
 })
