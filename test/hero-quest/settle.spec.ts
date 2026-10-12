@@ -801,7 +801,10 @@ describe('hero-quest settle', () => {
     })
 
     describe('gold curve', () => {
-        it('grows within a run but far more slowly than the enemy curve', () => {
+        it('grows within a run, but more slowly than the enemy curve', () => {
+            // `GOLD_STEP_BASE` is held under `ENEMY_STEP_BASE` (1.075 against 1.08 since 2026-10-12,
+            // `open-items.md` #23.3): ~1,300× across a run against the enemy's ~2,000×. It was ~5×
+            // at 1.017, hence the old "far more slowly"; the column is guarded by the ceiling, not this.
             const goldGrowth = goldPerKill(0, 10, 10, SPEC_TENURE_DAYS) / goldPerKill(0, 1, 1, SPEC_TENURE_DAYS)
             const enemyGrowth = enemyMultiplier(0, 10, 10).toNumber() / enemyMultiplier(0, 1, 1).toNumber()
             expect(goldGrowth).toBeGreaterThan(1)
@@ -954,10 +957,12 @@ describe('hero-quest settle', () => {
         })
 
         it('pays progress once the calendar has caught up with it', () => {
-            const factor = goldProgressionFactor(2, 5, 5)
+            // P1 rather than P2: at GOLD_STEP_BASE 1.075 a P2 mid-run factor (~5e7) is past even the
+            // last rung, so it would be capped rather than paid.
+            const factor = goldProgressionFactor(1, 5, 5)
             const mature = GOLD_TENURE_DAYS.at(-1)!
             expect(goldTenureCeiling(mature)).toBeGreaterThan(factor)
-            expect(goldPerKill(2, 5, 5, mature)).toBeCloseTo(BASE_GOLD * factor, 9)
+            expect(goldPerKill(1, 5, 5, mature)).toBeCloseTo(BASE_GOLD * factor, 9)
         })
 
         it('prices the same position lower the younger the account is', () => {
@@ -975,7 +980,9 @@ describe('hero-quest settle', () => {
             // A hero deep enough to have out-progressed a young calendar. Parked at a gate so
             // position holds and every
             // kill farms Stage 4 at one rate, making the payout readable as kills x one value.
-            const deep = { hero: { ...hero, heroLevel: 1500 }, position: at(10, BOSS_STAGE, 0, 2) }
+            // P1 W9 rather than P2 W10: at GOLD_STEP_BASE 1.075 a P2 position out-progresses even the
+            // ten-year ceiling, so the mature half would be capped too.
+            const deep = { hero: { ...hero, heroLevel: 1500 }, position: at(9, BOSS_STAGE, 0, 1) }
 
             const young = settle(input({ ...deep, tenureDays: 0, elapsedSeconds: 3600, online: true }))
             expect(young.blockedAtBoss).toBe(true)
@@ -985,7 +992,7 @@ describe('hero-quest settle', () => {
             // Identical progress, mature account: the ceiling lifts and progress gets paid.
             const mature = settle(input({ ...deep, tenureDays: SPEC_TENURE_DAYS, elapsedSeconds: 3600, online: true }))
             expect(mature.kills).toBe(young.kills)
-            expect(mature.goldEarned).toBeCloseTo(mature.kills * BASE_GOLD * goldProgressionFactor(2, 10, 4), 6)
+            expect(mature.goldEarned).toBeCloseTo(mature.kills * BASE_GOLD * goldProgressionFactor(1, 9, 4), 6)
             expect(mature.goldEarned).toBeGreaterThan(young.goldEarned)
         })
     })
