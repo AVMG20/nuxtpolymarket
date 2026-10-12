@@ -852,11 +852,17 @@ export const BASE_GOLD = 1 // TUNED ✓
  * passing the ceiling in its first day; steeper lifts days 7–30 toward the ceiling, shallower
  * needs a larger `BASE_GOLD` and front-loads the first day.
  *
+ * 1.075 → 1.065 the same day, re-measured on the new pace (`open-items.md` #36: the baseline Trait
+ * board, tree and Rare 0★ Lv2 kit, first prestige 5.46 days). The faster run reached deeper stages
+ * sooner, so 1.075 paid 38–53% of platform across days 3–7 and hit the ceiling at hour 9. 1.065 puts
+ * days 3.8–5.5 at about 25% and day 7.8 at 36%, never ceiling-bound in week one, and ceiling-bound
+ * from about day 60, so the month-3 and month-6 anchors hold.
+ *
  * **Kept under `ENEMY_STEP_BASE` (1.08)**, so Gold still grows more slowly than the enemy it is
  * earned from (`settle.spec.ts`). A Beginner party of three never reaches the ceiling in its
  * first month; a party of six does by about day 12. Coupled to run pacing like `BASE_GOLD`.
  */
-export const GOLD_STEP_BASE = 1.075 // TUNED ✓
+export const GOLD_STEP_BASE = 1.065 // TUNED ✓
 
 // ── The tenure ceiling ─────────────────────────────  gold-economy.md §3, §9
 
