@@ -15,6 +15,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState } from '#server/database/schema'
 import { ensureHqState, resolveBossEngage } from '#server/utils/hero-quest'
+import { FALLEN_MARK } from '#shared/utils/hero-quest/tutorials'
 import {
     BOSS_STAGE,
     SEAL_GRANT_PER_BOSS,
@@ -120,7 +121,7 @@ describe.skipIf(SKIP)('boss engage', () => {
         expect(lost.stage).toBe(BOSS_STAGE - 1)
         expect(lost.bossLost).toBe(true)
         // a wipe is the party's fall, which opens the Gacha; a timeout leaves it standing
-        expect(lost.partyFallen).toBe(outcome === 'wipe')
+        expect(lost.tutorialsSeen.includes(FALLEN_MARK)).toBe(outcome === 'wipe')
 
         await parkAt(5, BOSS_STAGE)
         await db.update(hqState).set({ bossLost: true }).where(eq(hqState.userId, USER_ID))

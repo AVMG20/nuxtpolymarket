@@ -14,6 +14,8 @@ import { and, eq, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { hqCollection, hqFights, hqLoadouts, hqShopUpgrades, hqState, hqTraitSlots, user } from '#server/database/schema'
 import { credit, debit, debitGems, getBalance } from '#server/utils/balance'
+import { fallenWrite } from '#server/utils/hero-quest-tutorials'
+import { FALLEN_MARK } from '#shared/utils/hero-quest/tutorials'
 import {
     ASCENDANT_KIT_SIZE,
     BASE_ARTIFACT_SLOTS,
@@ -642,8 +644,8 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
                 killCount: result.position.killsInStage,
                 killFraction: result.killFraction,
                 recoverySeconds: result.recoverySeconds,
-                // lifetime, so only ever set: the first fall opens the Gacha (`tutorials.ts`)
-                ...(result.partyFell ? { partyFallen: true } : {}),
+                // the first fall opens the Gacha (`tutorials.ts`); read inside the lock, so it is written once
+                ...(result.partyFell && !state.tutorialsSeen.includes(FALLEN_MARK) ? fallenWrite() : {}),
                 atBossGate: isBossStage(result.position.stage),
                 heroLevel: result.heroLevel,
                 heroXp: toStore(result.heroXp),
@@ -862,7 +864,7 @@ export async function resolveBossEngage(tx: DbExecutor, userId: string, bankedGo
             atBossGate: isBossStage(landing.stage),
             runCleared: clearedTheRun,
             bossLost: !won,
-            ...(fight.outcome === 'wipe' ? { partyFallen: true } : {}),
+            ...(fight.outcome === 'wipe' && !state.tutorialsSeen.includes(FALLEN_MARK) ? fallenWrite() : {}),
             ...(sealsEarned > 0 ? sealGrantSet(sealsEarned) : {})
         })
         .where(eq(hqState.userId, userId))

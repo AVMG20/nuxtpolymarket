@@ -4,7 +4,9 @@ import {
     featureMenuScene,
     HQ_FEATURES,
     TUTORIAL_IDS,
+    FALLEN_MARK,
     checkpointReached,
+    isTutorialRecord,
     featureUnlocked,
     bossLossMark,
     nextTutorial,
@@ -19,7 +21,7 @@ import { guidePageFits } from '../../app/utils/hero-quest-art/guide'
 import { db } from '#server/database'
 import { hqState } from '#server/database/schema'
 import { ensureHqState } from '#server/utils/hero-quest'
-import { markTutorialSeen, requireFeature, resetTutorials } from '#server/utils/hero-quest-tutorials'
+import { fallenWrite, markTutorialSeen, requireFeature, resetTutorials } from '#server/utils/hero-quest-tutorials'
 import { SKIP, cleanupUser, seedUser } from '../setup/db-helpers'
 
 const at = (world: number, stage: number, prestige = 0, runCleared = false, bossLost = false, partyFallen = false): UnlockProgress => ({ prestige, world, stage, runCleared, bossLost, partyFallen })
@@ -43,6 +45,8 @@ describe('hero-quest feature unlocks', () => {
     it('opens the Gacha and Collections on the party\'s first fall, wherever it lands', () => {
         expect(featureUnlocked('gacha', at(1, 2))).toBe(false)
         expect(unlockedFeatures(at(1, 2, 0, false, false, true))).toEqual(['gacha', 'collections'])
+        // the server writes the fall; the client can't post it to open the Gacha early
+        expect(isTutorialRecord(FALLEN_MARK)).toBe(false)
     })
 
     it('opens the Gacha and Collections for a party that never fell, once the World 1 boss is fought, beaten or lost to', () => {
@@ -167,9 +171,13 @@ describe.skipIf(SKIP)('hero-quest feature gates on the server', () => {
     it('refuses a feature before its checkpoint, saying what opens it, and lets it through after', async () => {
         await expect(requireFeature(USER_ID, 'gacha')).rejects.toMatchObject({ statusCode: 403, statusMessage: 'That opens once you lose a fight' })
         // the party's first fall opens it anywhere in the run
-        await db.update(hqState).set({ partyFallen: true }).where(eq(hqState.userId, USER_ID))
+        await db.update(hqState).set(fallenWrite()).where(eq(hqState.userId, USER_ID))
         await expect(requireFeature(USER_ID, 'gacha')).resolves.toBeUndefined()
-        await db.update(hqState).set({ partyFallen: false }).where(eq(hqState.userId, USER_ID))
+        // a reset shows the tutorials again but keeps the fall, so nothing closes
+        await resetTutorials(USER_ID)
+        expect((await db.select().from(hqState).where(eq(hqState.userId, USER_ID)))[0]!.tutorialsSeen).toEqual([FALLEN_MARK])
+        await expect(requireFeature(USER_ID, 'gacha')).resolves.toBeUndefined()
+        await db.update(hqState).set({ tutorialsSeen: [] }).where(eq(hqState.userId, USER_ID))
         // at the gate and not yet fought: still closed; lost to: open
         await db.update(hqState).set({ stage: BOSS_STAGE, atBossGate: true }).where(eq(hqState.userId, USER_ID))
         await expect(requireFeature(USER_ID, 'gacha')).rejects.toMatchObject({ statusCode: 403 })

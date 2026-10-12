@@ -1135,11 +1135,6 @@ export const hqState = pgTable('hq_state', {
    * fight that decides it; run position, so everything that resets the run clears it too.
    */
   bossLost: boolean('boss_lost').notNull().default(false),
-  /**
-   * The party has been knocked out at least once, on a wave or by a boss: what opens the Gacha and
-   * Collections (`tutorials.ts`). Lifetime, so nothing resets it; set from 2026-10-12, never backfilled.
-   */
-  partyFallen: boolean('party_fallen').notNull().default(false),
 
   // Hero — persists across prestige AND across class switches. There is no relevel anywhere.
   heroNodeId: text('hero_node_id').notNull().default('class_beginner'),

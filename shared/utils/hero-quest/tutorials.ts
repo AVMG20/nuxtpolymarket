@@ -33,7 +33,7 @@ export interface UnlockProgress {
     runCleared: boolean
     /** The boss at this gate beat the party (`hq_state.boss_lost`): it has been fought, if not yet beaten. */
     bossLost: boolean
-    /** The party has been knocked out at least once (`hq_state.party_fallen`). */
+    /** The party has been knocked out at least once: `FALLEN_MARK` is in the seen set. */
     partyFallen: boolean
 }
 
@@ -106,8 +106,15 @@ export const TUTORIAL_IDS: readonly TutorialId[] = [
 export const BOSS_LOSS_MARKS = ['boss_lost_1', 'boss_lost_2'] as const
 export type TutorialMark = typeof BOSS_LOSS_MARKS[number]
 
-/** Anything the seen set may hold: a tutorial read, or a mark. */
+/** Anything the client may add to the seen set: a tutorial read, or a mark. */
 export type TutorialRecord = TutorialId | TutorialMark
+
+/**
+ * The party's first fall, on a wave or to a boss, kept with the tutorials seen: what opens the Gacha
+ * and Collections (the user's call, 2026-10-12). Only the server's settle and boss fight write it, so
+ * it is not a `TutorialRecord` the client can post, and a reset keeps it, since it is progress, not a read.
+ */
+export const FALLEN_MARK = 'party_fell'
 
 const TUTORIAL_RECORD_SET = new Set<string>([...TUTORIAL_IDS, ...BOSS_LOSS_MARKS])
 

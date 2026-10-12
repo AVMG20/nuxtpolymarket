@@ -400,13 +400,6 @@
       "when": 1791807423655,
       "tag": "0056_hero_quest",
       "breakpoints": true
-    },
-    {
-      "idx": 57,
-      "version": "7",
-      "when": 1791812960457,
-      "tag": "0057_nice_vance_astro",
-      "breakpoints": true
     }
   ]
 }
