@@ -123,7 +123,8 @@ export const ENEMY_PRESTIGE_STEP_MULT = 1
  *
  * `BASE_ENEMY_HP` is **how long a fight is**, at every depth, because `ENEMY_HP_STEP_EXPONENT`
  * covers the party's DPS growth. 60 → 50 on 2026-10-12 with `XP_TO_LEVEL_BASE` (`open-items.md` #36): a
- * new party clears World 1 in about 20 minutes and the baseline first prestige takes about 4 days.
+ * new party clears World 1 in about 20 minutes and the baseline first prestige takes about 4 days
+ * (halved since by `XP_BASE_PER_KILL`).
  * ⚠ **Bounded above by `BOSS_TIMER_SECONDS`, which is fixed.** A gate is 3 bodies inside 30s, so
  * `secondsPerKill` at a gate cannot exceed 10s; raise HP much further and the early gates stop
  * being passable at any level a fresh account can reach. Raising this means raising the timer.
@@ -672,8 +673,12 @@ export const CHAMPION_INVESTMENT_PER_POINT = 0.05 // UNTUNED ╧
  * XP required, so scaling both by the same factor is a pure change of units. Moving this alone
  * shifts the level trajectory by `ln(factor) / ln(XP_TO_LEVEL_GROWTH)` levels at every stage and
  * re-paces the whole campaign.
+ *
+ * 1 → 2 on 2026-10-13 (the user's call: progression felt too slow): every grind halves and the level
+ * each World is cleared at doesn't move. With the earlier unlocks, measured **1.76 days** to the first
+ * prestige on the baseline (`--unlocks`, was 4.03) and **10 minutes** for a new party's World 1 (was 20).
  */
-export const XP_BASE_PER_KILL = 1 // TUNED ✓
+export const XP_BASE_PER_KILL = 2 // TUNED ✓
 
 /**
  * xpToNextLevel(level) = XP_TO_LEVEL_BASE × XP_TO_LEVEL_GROWTH^(level-1)
@@ -1385,17 +1390,18 @@ export const CALENDAR_SCHEDULE: readonly CalendarDay[] = [ // locked 2026-10-11,
 // ── Feature unlocks ────────────────────────────────  idea-backlog.md item 10, open-items #50
 //
 // Every menu scene but Settings opens at a checkpoint of lifetime progress, and the guide announces
-// it there (`tutorials.ts`). The schedule is the user's (2026-10-09): each scene opens where it first
-// becomes useful, the Shop at the World 1 boss's first win since 2026-10-10, and Classes at the
-// first prestige. Battle Speed is a tab in the Shop now, and the Milestones one in the Calendar, each
-// still opening where it did. The Gacha and Collections open on the party's first fall since
-// 2026-10-12 (the user's call): waves can wall a run before the World 1 boss, and the Gacha is the answer.
+// it there (`tutorials.ts`). The schedule is the user's (2026-10-09, moved earlier 2026-10-13 because
+// progression felt too slow): the Shop, Battle Speed and the Calendar from the start, Classes at the
+// first prestige. Battle Speed is a tab in the Shop, and the Milestones one in the Calendar. The Gacha
+// and Collections open on the party's first fall (2026-10-12): waves can wall a run before the World 1
+// boss, and the Gacha is the answer.
 
 /** A scene that opens at a checkpoint. Battle and Settings are open from the start. */
 export type HqFeature = 'gacha' | 'collections' | 'milestones' | 'calendar' | 'loadouts' | 'speed' | 'tree' | 'raids' | 'traits' | 'arena' | 'shop' | 'classes'
 
-/** A point of lifetime progress: the party's first fall, a World's mid-boss fought (beaten, or lost to) or beaten, Worlds cleared, the run cleared, prestiges made. */
+/** A point of lifetime progress: a new run, the party's first fall, a World's mid-boss fought (beaten, or lost to) or beaten, Worlds cleared, the run cleared, prestiges made. */
 export type FeatureCheckpoint =
+    | { kind: 'start' }
     | { kind: 'fallen' }
     | { kind: 'boss', world: number }
     | { kind: 'boss_beaten', world: number }
@@ -1405,22 +1411,22 @@ export type FeatureCheckpoint =
 
 /** In the order they open, which is the order the guide announces them. */
 export const FEATURE_UNLOCKS: readonly { feature: HqFeature, at: FeatureCheckpoint }[] = [
+    // the Calendar first, so day one's gift is the first thing the guide shows
+    { feature: 'calendar', at: { kind: 'start' } },
+    // the Shop ahead of Battle Speed: it is the main page of the button the two share
+    { feature: 'shop', at: { kind: 'start' } },
+    { feature: 'speed', at: { kind: 'start' } },
     { feature: 'gacha', at: { kind: 'fallen' } },
     { feature: 'collections', at: { kind: 'fallen' } },
-    // the Shop takes the win, and comes after the two above when they open on the same fight
-    { feature: 'shop', at: { kind: 'boss_beaten', world: 1 } },
-    // the Calendar first: it is the main page of the button the two share
-    { feature: 'calendar', at: { kind: 'worlds', count: 1 } },
     { feature: 'milestones', at: { kind: 'worlds', count: 1 } },
-    { feature: 'loadouts', at: { kind: 'worlds', count: 2 } },
-    { feature: 'speed', at: { kind: 'worlds', count: 2 } },
+    { feature: 'loadouts', at: { kind: 'worlds', count: 1 } },
     // a World of levels banked by then, so the first visit has points to spend
-    { feature: 'tree', at: { kind: 'worlds', count: 3 } },
-    { feature: 'raids', at: { kind: 'worlds', count: 4 } },
-    // with the raids: the Trait raid is where Trait Gems come from
-    { feature: 'traits', at: { kind: 'worlds', count: 4 } },
+    { feature: 'tree', at: { kind: 'worlds', count: 2 } },
+    { feature: 'raids', at: { kind: 'worlds', count: 3 } },
+    // never ahead of the raids: the Trait raid is where Trait Gems come from
+    { feature: 'traits', at: { kind: 'worlds', count: 3 } },
     // a World after the raids, so its tutorial doesn't land on top of theirs
-    { feature: 'arena', at: { kind: 'worlds', count: 5 } },
+    { feature: 'arena', at: { kind: 'worlds', count: 4 } },
     { feature: 'classes', at: { kind: 'prestiges', count: 1 } }
 ]
 

@@ -83,7 +83,7 @@ Side nodes go through `championModifierTotals(hero, archetype)`, so a Champion r
 
 ## 6. Opening
 
-Opens at **3 Worlds cleared** (`FEATURE_UNLOCKS`), between Loadouts at 2 and the raids at 4, so the first visit has a World's levels to spend. My call, not the user's.
+Opens at **2 Worlds cleared** (`FEATURE_UNLOCKS`), between Loadouts at 1 and the raids at 3, so the first visit has a World's levels to spend. Moved from 3 on 2026-10-13, the user's call (`open-items.md` #36).
 
 ---
 

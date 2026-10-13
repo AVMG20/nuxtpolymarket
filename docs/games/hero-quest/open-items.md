@@ -306,6 +306,15 @@ swept together: `XP_TO_LEVEL_BASE` 46 → **38** (a level offset at every stage)
 for World 1 (7 walls); the Gacha opens on the first fall, at Stage 4, so that player is the exception.
 The Gold slope was re-measured with it (#23.3): `GOLD_STEP_BASE` 1.065 → **1.0575**.
 
+**XP ×2 and an earlier unlock schedule (the user's calls, 2026-10-13: progression felt too slow).**
+`XP_BASE_PER_KILL` 1 → **2**. XP is a pure clock on this model: every World is cleared at the same
+level, and since nearly all of a run is grinding levels at boss gates, every grind halves (×1.5
+measured 2.6 days, ×3 1.2 days). The schedule moved with it: the Shop, Battle Speed and the Calendar
+from the start (a new `start` checkpoint), Loadouts at 1 World cleared, the tree at 2, the raids and
+Traits at 3 (Traits never ahead of the raids, which pay Trait Gems), the Arena at 4. Measured **1.76
+days** to the first prestige on the baseline (was 4.03) and **10 minutes** for a new party's World 1
+(was 20). Raid ladders are measured against the level each World is cleared at, which didn't move.
+
 1. ~~**Long cooldowns lose their tail inside `BOSS_TIMER_SECONDS`.**~~ Accepted, locked with the ladder. The first cast waits a full
    cooldown, so a Mythic ability (~15.9s at step 1.2) fires once in a 30s boss fight. Damage per
    second is equal on average only; in boss fights the ladder is a slight nerf to rare kits.

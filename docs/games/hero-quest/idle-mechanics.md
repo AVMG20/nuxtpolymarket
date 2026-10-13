@@ -138,7 +138,7 @@ The same window applies the **Gold tenure ceiling** at the account age of the wi
 
 ### Upgrade cost formulas
 
-*(Overridden 2026-10-10, `open-items.md` precedence row #55: both lines are bought with **Gold** in the Shop, from the World 1 boss's first win. Efficiency costs 1M ×10 a level, Cap 100K ×1.5 a level. The shapes below are the original Void Shard design.)*
+*(Overridden 2026-10-10, `open-items.md` precedence row #55: both lines are bought with **Gold** in the Shop, open from the start since 2026-10-13 (`open-items.md` #36). Efficiency costs 1M ×10 a level, Cap 100K ×1.5 a level. The shapes below are the original Void Shard design.)*
 
 Two different curve shapes, matched to how many levels each track has:
 

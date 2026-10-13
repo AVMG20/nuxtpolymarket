@@ -39,6 +39,7 @@ export interface UnlockProgress {
 
 export function checkpointReached(at: FeatureCheckpoint, p: UnlockProgress): boolean {
     switch (at.kind) {
+        case 'start': return true
         // or the World 1 boss fought, for a party that got there without ever falling
         case 'fallen': return p.partyFallen || checkpointReached({ kind: 'boss', world: 1 }, p)
         // a prestige is a whole run done, so every boss of every World is behind it; losing to the
@@ -79,6 +80,8 @@ export function featureMenuScene(feature: HqFeature): Exclude<HqFeature, 'speed'
 /** What reaching a checkpoint takes, as a sentence's predicate: "Opens once you beat the World 1 boss". */
 export function checkpointLabel(at: FeatureCheckpoint): string {
     switch (at.kind) {
+        // never refused, so never read: a feature open from the start has nothing to wait for
+        case 'start': return 'start a run'
         case 'fallen': return 'lose a fight'
         case 'boss': return `fight the World ${at.world} boss`
         case 'boss_beaten': return `beat the World ${at.world} boss`
@@ -150,8 +153,7 @@ export function nextTutorial(unlocked: readonly HqFeature[], seen: readonly stri
 
 /**
  * Whether two checkpoints open as one group. A boss fought and the same boss beaten are one, and the
- * first fall is the World 1 boss's, which also opens it: the Shop, which takes the win, comes out
- * after the Gacha and Collections when one fight opens all three.
+ * first fall is the World 1 boss's, which also opens it.
  */
 function sameCheckpoint(a: FeatureCheckpoint, b: FeatureCheckpoint): boolean {
     const group = (c: FeatureCheckpoint) => c.kind === 'boss_beaten' ? { kind: 'boss', world: c.world }
