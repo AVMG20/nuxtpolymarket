@@ -1,6 +1,6 @@
 // The Gold chest in the battle view's top-right corner. The settles bank the run's Gold in it
 // rather than the shared balance; it shows only while it holds some, pointing at it shows how much,
-// and pressing it pays out.
+// and pressing it pays out. A finger has no pointing, so its first tap shows how much instead.
 
 import { C } from './palette'
 import { px, hash2, type Surface } from './surface'
@@ -28,6 +28,8 @@ export const GOLD_CHEST_CORNER = MARGIN + BOX_W + 3
 const SHAKE_EVERY = 5
 const SHAKE_SWAY = [0, -1, 1, -1, 1, -1, 1, 0] as const
 const SHAKE_LID = [0, -1, -2, -1, -2, -1, 0, 0] as const
+/** Seconds a tap's look inside stays up, the window for the second tap that opens the chest. */
+export const CHEST_PEEK_FOR = 3
 /** Seconds the toast stays up, and the last stretch of them it spends sliding away. */
 export const CHEST_TOAST_FOR = 2.4
 const TOAST_OUT = 0.3
