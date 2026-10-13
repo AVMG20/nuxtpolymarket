@@ -595,6 +595,30 @@ describe('hero-quest settle', () => {
             expect(parked.goldEarned).toBeCloseTo(parked.kills * goldPerKill(0, 1, 4, SPEC_TENURE_DAYS), 6)
         })
 
+        it('times a parked run against the stage it farms, not the boss', () => {
+            // Timed against the boss encounter, a run waiting at its gate earned about a tenth of the farm it is paid for.
+            const levelled = { ...hero, heroLevel: OPENING_CLEAR_LEVEL }
+            for (const [gate, farm] of [[at(1, 5), at(1, 4)], [at(1, 10), at(1, 9)]] as const) {
+                const parked = settle(input({ hero: levelled, position: gate, elapsedSeconds: 60, online: true }))
+                expect(parked.secondsPerKill).toBe(rateAt(levelled, farm).secondsPerKill)
+                expect(parked.secondsPerKill).toBeLessThan(rateAt(levelled, gate).secondsPerKill)
+            }
+        })
+
+        it('pays a run parked online what one offline window from the stage before it pays', () => {
+            const levelled = { ...hero, heroLevel: OPENING_CLEAR_LEVEL, offlineEfficiencyLevel: MAX_OFFLINE_EFFICIENCY_LEVEL }
+            let online = 0
+            let killFraction = 0
+            for (let minute = 0; minute < 60; minute++) {
+                const window = settle(input({ hero: levelled, position: at(1, 5), elapsedSeconds: 60, online: true, killFraction }))
+                online += window.goldEarned
+                killFraction = window.killFraction
+            }
+            const offline = settle(input({ hero: levelled, position: at(1, 4, BASE_KILL_COUNT - 1), elapsedSeconds: 3600 }))
+            // within one kill: the offline window spends its first one walking up to the gate
+            expect(Math.abs(online - offline.goldEarned)).toBeLessThanOrEqual(goldPerKill(0, 1, 4, SPEC_TENURE_DAYS))
+        })
+
         it('gates Stage 10 the same way it gates Stage 5', () => {
             // Needs a levelled hero, one that outlasts a full elite stage attempt — six elites
             // per encounter is a much heavier incoming stream than one.

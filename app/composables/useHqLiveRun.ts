@@ -148,7 +148,7 @@ export function useHqLiveRun(
             killsFloat: farming ? required : ahead.killsInStage,
             killsRequired: required,
             atBossGate: ahead.atBossGate && !farming,
-            // the payload's wipe budget is the boss stage's; against a farmed stage's full kill count it reads as a wipe
+            // a farmed stage shows its counter full, which against any wipe budget under it reads as a wipe
             killsBeforeWipe: farming ? null : anchor.killsBeforeWipe,
             farming,
             walled: ahead.walled,

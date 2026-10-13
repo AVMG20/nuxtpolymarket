@@ -326,6 +326,11 @@ export function rateAt(hero: HeroSnapshot, position: RunPosition): RateContext {
     return { abilities, units, pack, secondsPerKill: secondsPerKill(units, pack, hero) }
 }
 
+/** The rate a run earns at: a gate farms the stage before it (`idle-mechanics.md` §5), so it is timed against that stage, not the boss. */
+export function accrualRateAt(hero: HeroSnapshot, position: RunPosition): RateContext {
+    return rateAt(hero, offlineFarmStage(position))
+}
+
 /**
  * How many hours of the player's *current* income they are sitting on in banked Gold.
  *
@@ -350,10 +355,11 @@ export function wealthHoursFor(
     if (!Number.isFinite(bankedGold) || bankedGold <= 0) return 0
     // `wealthHours` stripped so the rate this is measured against cannot depend on itself.
     const neutral: HeroSnapshot = { ...hero, wealthHours: undefined }
-    const { secondsPerKill: spk } = rateAt(neutral, position)
+    const farm = offlineFarmStage(position)
+    const { secondsPerKill: spk } = rateAt(neutral, farm)
     if (!Number.isFinite(spk) || spk <= 0) return 0
 
-    const perKill = goldPerKill(position.prestige, position.world, position.stage, tenureDays)
+    const perKill = goldPerKill(farm.prestige, farm.world, farm.stage, tenureDays)
     const goldPerHour = (3600 / spk) * perKill * (1 + economyBonuses(neutral).goldPct)
     if (!Number.isFinite(goldPerHour) || goldPerHour <= 0) return 0
     return bankedGold / goldPerHour
@@ -365,9 +371,10 @@ export function wealthHoursFor(
  * 0 where the party can't kill anything.
  */
 export function goldPerHourAt(hero: HeroSnapshot, position: RunPosition, tenureDays: number): number {
-    const { abilities, secondsPerKill: spk } = rateAt(hero, position)
+    const farm = offlineFarmStage(position)
+    const { abilities, secondsPerKill: spk } = rateAt(hero, farm)
     if (!Number.isFinite(spk) || spk <= 0) return 0
-    const perKill = goldPerKill(position.prestige, position.world, position.stage, tenureDays)
+    const perKill = goldPerKill(farm.prestige, farm.world, farm.stage, tenureDays)
     const goldPerHour = (3600 / spk) * perKill * (1 + economyBonuses(hero).goldPct) * abilities.goldFactor
     return Number.isFinite(goldPerHour) && goldPerHour > 0 ? goldPerHour : 0
 }
@@ -805,7 +812,7 @@ export function offlineFarmStage(pos: RunPosition): RunPosition {
  */
 export function settle(input: SettleInput): SettleResult {
     // Ability effects, averaged into the rate (`projection.ts`) — see `buffedUnits`.
-    const { abilities, units, pack: startPack, secondsPerKill: spk } = rateAt(input.hero, input.position)
+    const { abilities, units, pack: startPack, secondsPerKill: spk } = accrualRateAt(input.hero, input.position)
 
     const effectiveSeconds = input.online
         ? applyBoost(Math.max(0, input.elapsedSeconds), input)
