@@ -97,4 +97,5 @@ Edit `schema.ts`, then run `bun run db:generate` (commit the generated `drizzle/
 - **Commits**: only when asked. Short imperative subject, no body or footer, no `Co-Authored-By`. Split commits by concern.
 - **Branches**: `feature/…` or `bugfix/…` in kebab-case, from an up-to-date `main`.
 - **PRs**: title is the branch name, empty body, base `main`.
+- **PRs to `upstream`** (`AVMG20/nuxtpolymarket`): code changes only. Leave out our docs: everything under `docs/`, `CLAUDE.md` files and `AGENTS.md`. Build the branch so its diff against `upstream/main` touches none of them.
 - **Rebases**: you may `git fetch` and start a `git rebase`, then stop. Don't resolve conflicts, continue or push.
