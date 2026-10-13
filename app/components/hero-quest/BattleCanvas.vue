@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { BattleDemo, RunParty, StageArena, StageFight, StageRaid } from '~/utils/hero-quest-art/demo'
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
+import { fitStage, stagePlaceholderWidth } from '~/utils/hero-quest-art/stage-size'
 import type { RunFeed } from '~/utils/hero-quest-art/run-director'
 import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-band'
 import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton, PickerTarget } from '~/utils/hero-quest-art/collections-scene'
@@ -249,7 +250,18 @@ const emit = defineEmits<{
     treeRespec: []
 }>()
 
+/** The full-width box the stage is sized into; `wrap` hugs the canvas inside it. */
+const frame = ref<HTMLDivElement | null>(null)
 const wrap = ref<HTMLDivElement | null>(null)
+const { size: stageSize } = useHqStageSize()
+/** The loading box's shape, until the art is in and the canvas sizes it. */
+const PLACEHOLDER_ASPECT = 272 / 175
+const placeholderWidth = ref<number | null>(null)
+const placeholder = computed(() => {
+    if (ready.value) return {}
+    const width = placeholderWidth.value
+    return { aspectRatio: `${PLACEHOLDER_ASPECT}`, ...(width === null ? {} : { width: `${width}px` }) }
+})
 const canvas = ref<HTMLCanvasElement | null>(null)
 const cssSize = ref({ width: 0, height: 0 })
 const ready = ref(false)
@@ -354,10 +366,11 @@ function feed(): RunFeed {
 }
 
 function fit() {
-    if (!wrap.value || !presenter) return
-    const width = wrap.value.getBoundingClientRect().width
-    cssSize.value = presenter.fit(width, width * presenter.h / presenter.w, window.devicePixelRatio || 1)
+    if (!frame.value || !presenter) return
+    cssSize.value = fitStage(presenter, frame.value, stageSize.value)
 }
+
+watch(stageSize, fit)
 
 // a new class or a changed party rebuilds the stage; everything else arrives through the feed
 const partyKey = computed(() => [
@@ -1265,6 +1278,9 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 })
 
 onMounted(async () => {
+    if (frame.value) placeholderWidth.value = stagePlaceholderWidth(frame.value, PLACEHOLDER_ASPECT, stageSize.value)
+    // painted at that width before the intro measures it
+    await nextTick()
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
     const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, giftArt, traitsArt, sceneTabsArt, arenaArt, partyStatsArt, treeArt, welcomeArt, chestArt] = await Promise.all([
@@ -1393,7 +1409,7 @@ onMounted(async () => {
                                     ? milestonesScene!.render(t, props.milestones ?? { rows: [] }, milestonesHover.value, pressed.value, !!props.milestonesBusy)
                                     : scene === 'calendar'
                                     ? calendarScene!.render(t, props.calendar ?? { today: 0, days: [], makeupsLeft: 0, makeupsPerCycle: 0, makeupDay: null, nextDayIn: '', cycleDaysLeft: 0 }, calendarHover.value, pressed.value, !!props.calendarBusy)
-                                    : settingsScene!.render(t, props.settings ?? { settings: { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false }, settingsHover.value, pressed.value, !!props.settingsBusy, settingsScroll.value)
+                                    : settingsScene!.render(t, props.settings ?? { settings: { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false, stageSize: stageSize.value }, settingsHover.value, pressed.value, !!props.settingsBusy, settingsScroll.value)
         if (sceneTabs.value && sceneTabsHit) sceneTabsHit.drawSceneTabs(view, sceneTabs.value.tabs, sceneTabs.value.open, sceneTabHover.value)
         if (scene === 'battle' && giftShows() && giftHit) giftHit.drawGiftIcon(view, t, props.holidayGift!, hover.value === 'gift')
         if (scene === 'battle' && chestShows() && chestHit) chestHit.drawGoldChest(view, t, hover.value === 'chest', coinLandedAt < 0 ? -1 : t - coinLandedAt)
@@ -1417,7 +1433,9 @@ onMounted(async () => {
         presenter!.present(frame)
     })
     observer = new ResizeObserver(fit)
-    observer.observe(wrap.value!)
+    observer.observe(frame.value!)
+    // a window only made shorter leaves the frame's width alone
+    window.addEventListener('resize', fit)
     fit()
     ready.value = true
 })
@@ -1429,50 +1447,56 @@ onBeforeUnmount(() => {
     // without its frames an unmounted stage the dev tools hold on to costs next to nothing
     stage?.dispose()
     observer?.disconnect()
+    window.removeEventListener('resize', fit)
 })
 </script>
 
 <template>
   <div
-    ref="wrap"
-    class="relative w-full overflow-hidden rounded-lg border border-default bg-elevated"
-    :class="ready ? '' : 'aspect-[272/175]'"
-    :style="opening ? { backgroundColor: INK } : undefined"
+    ref="frame"
+    class="w-full"
   >
     <div
-      class="relative mx-auto"
-      :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px` }"
+      ref="wrap"
+      class="relative mx-auto overflow-hidden rounded-lg border border-default bg-elevated"
+      :class="ready ? 'w-fit' : 'w-full'"
+      :style="[opening ? { backgroundColor: INK } : {}, placeholder]"
     >
-      <canvas
-        ref="canvas"
-        class="block"
-        :class="treeDragging ? 'cursor-grabbing' : pointer ? 'cursor-pointer' : panZoomHere ? 'cursor-grab' : ''"
-        :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated', touchAction: panZoomHere ? 'none' : scrollsHere ? 'pan-x' : undefined }"
-        @pointermove="onPointerMove"
-        @pointerdown="onPointerDown"
-        @pointerup="onPointerUp"
-        @pointerleave="onPointerLeave"
-        @pointercancel="onPointerLeave"
-        @wheel="onWheel"
-      />
-      <input
-        v-if="renaming"
-        ref="renameInput"
-        v-model="renaming.text"
-        class="absolute px-1 font-mono uppercase text-white outline-none border border-primary"
-        :style="renameStyle"
-        :maxlength="LOADOUT_NAME_MAX_LENGTH"
-        aria-label="Loadout name"
-        @keydown.enter.prevent="commitRename"
-        @keydown.esc.prevent="renaming = null"
-        @blur="commitRename"
+      <div
+        class="relative mx-auto"
+        :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px` }"
       >
-    </div>
-    <div
-      v-if="!ready && !opening"
-      class="absolute inset-0 flex items-center justify-center text-sm text-muted"
-    >
-      Loading the battle…
+        <canvas
+          ref="canvas"
+          class="block"
+          :class="treeDragging ? 'cursor-grabbing' : pointer ? 'cursor-pointer' : panZoomHere ? 'cursor-grab' : ''"
+          :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated', touchAction: panZoomHere ? 'none' : scrollsHere ? 'pan-x' : undefined }"
+          @pointermove="onPointerMove"
+          @pointerdown="onPointerDown"
+          @pointerup="onPointerUp"
+          @pointerleave="onPointerLeave"
+          @pointercancel="onPointerLeave"
+          @wheel="onWheel"
+        />
+        <input
+          v-if="renaming"
+          ref="renameInput"
+          v-model="renaming.text"
+          class="absolute px-1 font-mono uppercase text-white outline-none border border-primary"
+          :style="renameStyle"
+          :maxlength="LOADOUT_NAME_MAX_LENGTH"
+          aria-label="Loadout name"
+          @keydown.enter.prevent="commitRename"
+          @keydown.esc.prevent="renaming = null"
+          @blur="commitRename"
+        >
+      </div>
+      <div
+        v-if="!ready && !opening"
+        class="absolute inset-0 flex items-center justify-center text-sm text-muted"
+      >
+        Loading the battle…
+      </div>
     </div>
   </div>
 </template>

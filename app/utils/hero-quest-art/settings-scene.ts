@@ -8,6 +8,7 @@ import { drawText } from './font'
 import { panel } from './ui-art'
 import { plateButton, type Box } from './collections-scene'
 import type { SceneBackdrops } from './menu-band'
+import { HQ_STAGE_SIZES, type HqStageSize } from './stage-size'
 import type { HqSettingKey, HqSettings } from '../../../shared/utils/hero-quest/settings'
 import { GUIDE_NAME } from '../../../shared/utils/hero-quest/content/tutorials'
 
@@ -15,12 +16,19 @@ export interface SettingsView {
     settings: HqSettings
     /** Whether there are tutorial flags to reset yet; until then the button waits. */
     tutorialsReady: boolean
+    /** This browser's stage size (`useHqStageSize`), not an account setting. */
+    stageSize: HqStageSize
 }
 
-/** A row's control: a switch for a setting, or the one-off reset. */
-export type SettingsTarget = HqSettingKey | 'resetTutorials'
+/** A row's control: a switch for a setting, the one-off reset, or one of the stage sizes. */
+export type SettingsTarget = HqSettingKey | 'resetTutorials' | `stage:${HqStageSize}`
 
-interface Row { id: SettingsTarget, name: string, line: string }
+/** Whether a control is one of the stage sizes, which the page keeps rather than the server. */
+export function isStageTarget(target: SettingsTarget): target is `stage:${HqStageSize}` {
+    return target.startsWith('stage:')
+}
+
+interface Row { id: HqSettingKey | 'resetTutorials' | 'stageSize', name: string, line: string }
 
 const SECTIONS: readonly { title: string, rows: readonly Row[] }[] = [
     {
@@ -44,6 +52,7 @@ const SECTIONS: readonly { title: string, rows: readonly Row[] }[] = [
     {
         title: 'DISPLAY',
         rows: [
+            { id: 'stageSize', name: 'SCREEN SIZE', line: 'SMALL IS THE ORIGINAL SIZE.' },
             { id: 'reduceMotion', name: 'REDUCE MOTION', line: 'NO SCREEN SHAKE AND FEWER FLASHES.' },
             { id: 'fastReveals', name: 'FAST PULL REVEALS', line: 'A PULL SHOWS ITS CARDS AT ONCE, WITHOUT THE DEAL.' },
             { id: 'skillCinematics', name: 'SKILL CINEMATICS', line: 'THE HERO\'S SIGNATURE SKILL PLAYS ITS CINEMATIC.' },
@@ -71,22 +80,35 @@ const HEAD_H = 10
 const TOP = 16
 const CTRL_W = 34
 const CTRL_H = 13
+const CTRL_GAP = 2
 
 const ON_PLATE = [C.green0, C.green1, C.green2] as const
 const OFF_PLATE = [C.night0, C.night2, C.night3] as const
 const ACT_PLATE = [C.red0, C.red1, C.red2] as const
 
-/** Every row's box and its control's, top to bottom, with the headings' places, `scroll` px up. */
-function layout(w: number, scroll = 0): { heads: { title: string, y: number }[], rows: { row: Row, box: Box, ctrl: Box }[], bottom: number } {
+/** A row's controls, right to left from its edge: one for a switch or the reset, a button per size for the stage. */
+function controlsOf(row: Row, box: Box): { id: SettingsTarget, box: Box }[] {
+    const y = box.y + ((ROW_H - CTRL_H) >> 1)
+    const right = box.x + box.w - 5
+    if (row.id !== 'stageSize') return [{ id: row.id, box: { x: right - CTRL_W, y, w: CTRL_W, h: CTRL_H } }]
+    const n = HQ_STAGE_SIZES.length
+    return HQ_STAGE_SIZES.map((size, i) => ({
+        id: `stage:${size}` as const,
+        box: { x: right - (n - i) * CTRL_W - (n - 1 - i) * CTRL_GAP, y, w: CTRL_W, h: CTRL_H }
+    }))
+}
+
+/** Every row's box and its controls', top to bottom, with the headings' places, `scroll` px up. */
+function layout(w: number, scroll = 0): { heads: { title: string, y: number }[], rows: { row: Row, box: Box, ctrls: { id: SettingsTarget, box: Box }[] }[], bottom: number } {
     const heads: { title: string, y: number }[] = []
-    const rows: { row: Row, box: Box, ctrl: Box }[] = []
+    const rows: { row: Row, box: Box, ctrls: { id: SettingsTarget, box: Box }[] }[] = []
     let y = TOP - Math.round(scroll)
     for (const section of SECTIONS) {
         heads.push({ title: section.title, y })
         y += HEAD_H
         for (const row of section.rows) {
             const box = { x: ROW_X, y, w: w - ROW_X * 2, h: ROW_H }
-            rows.push({ row, box, ctrl: { x: box.x + box.w - CTRL_W - 5, y: y + ((ROW_H - CTRL_H) >> 1), w: CTRL_W, h: CTRL_H } })
+            rows.push({ row, box, ctrls: controlsOf(row, box) })
             y += ROW_H + ROW_GAP
         }
         y += 2
@@ -107,8 +129,8 @@ export function settingsTargetEnabled(view: SettingsView, id: SettingsTarget): b
 /** The control a point on the view is over, with the list scrolled `scroll` px. The title band covers it. */
 export function settingsTargetAt(w: number, x: number, y: number, scroll = 0): SettingsTarget | null {
     if (y < SETTINGS_HEADER) return null
-    for (const { row, ctrl } of layout(w, scroll).rows) {
-        if (x >= ctrl.x && x < ctrl.x + ctrl.w && y >= ctrl.y && y < ctrl.y + ctrl.h) return row.id
+    for (const { ctrls } of layout(w, scroll).rows) {
+        for (const { id, box } of ctrls) if (x >= box.x && x < box.x + box.w && y >= box.y && y < box.y + box.h) return id
     }
     return null
 }
@@ -120,17 +142,23 @@ export class SettingsScene {
         const s = this.backdrops.render('settings', t, false)
         const { heads, rows } = layout(s.w, scroll)
         for (const head of heads) drawText(s, head.title, ROW_X + 1, head.y + 1, C.stone3, { shadow: 1 })
-        for (const { row, box, ctrl } of rows) {
+        for (const { row, box, ctrls } of rows) {
             panel(s, box.x, box.y, box.w, box.h)
             drawText(s, row.name, box.x + 5, box.y + 5, C.bone1, { shadow: 1 })
             drawText(s, row.line, box.x + 5, box.y + 14, C.stone3, { shadow: 1 })
-            const enabled = !busy && settingsTargetEnabled(view, row.id)
-            const lit = hover === row.id
-            if (row.id === 'resetTutorials') {
-                plateButton(s, ctrl, view.tutorialsReady ? 'RESET' : 'SOON', ACT_PLATE, enabled, lit, pressed)
-            } else {
-                const on = view.settings[row.id]
-                plateButton(s, ctrl, on ? 'ON' : 'OFF', on ? ON_PLATE : OFF_PLATE, enabled, lit, pressed)
+            for (const { id, box: ctrl } of ctrls) {
+                const enabled = !busy && settingsTargetEnabled(view, id)
+                const lit = hover === id
+                if (id === 'resetTutorials') {
+                    plateButton(s, ctrl, view.tutorialsReady ? 'RESET' : 'SOON', ACT_PLATE, enabled, lit, pressed)
+                } else if (isStageTarget(id)) {
+                    const size = id.slice(6) as HqStageSize
+                    const on = view.stageSize === size
+                    plateButton(s, ctrl, size === 'mid' ? 'MID' : size.toUpperCase(), on ? ON_PLATE : OFF_PLATE, enabled, lit, pressed)
+                } else {
+                    const on = view.settings[id]
+                    plateButton(s, ctrl, on ? 'ON' : 'OFF', on ? ON_PLATE : OFF_PLATE, enabled, lit, pressed)
+                }
             }
         }
         // the title band over whatever scrolled under it
