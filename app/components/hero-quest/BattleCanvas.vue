@@ -130,6 +130,8 @@ const props = defineProps<{
     holidayReveal?: HolidayRevealView | null
     /** The Gold chest shows in the battle view's corner while it holds Gold. */
     goldChest?: boolean
+    /** What the chest holds, shown under it while it is pointed at; null when it shows nothing. */
+    chestPreview?: string | null
     /** What the last open of the chest paid, or why it didn't, toasted in its corner. */
     chestToast?: ChestToast | null
     /** A raid round to play in place of the run; the stage goes back to the run once it is cleared. */
@@ -1412,7 +1414,10 @@ onMounted(async () => {
                                     : settingsScene!.render(t, props.settings ?? { settings: { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false, stageSize: stageSize.value }, settingsHover.value, pressed.value, !!props.settingsBusy, settingsScroll.value)
         if (sceneTabs.value && sceneTabsHit) sceneTabsHit.drawSceneTabs(view, sceneTabs.value.tabs, sceneTabs.value.open, sceneTabHover.value)
         if (scene === 'battle' && giftShows() && giftHit) giftHit.drawGiftIcon(view, t, props.holidayGift!, hover.value === 'gift')
-        if (scene === 'battle' && chestShows() && chestHit) chestHit.drawGoldChest(view, t, hover.value === 'chest', coinLandedAt < 0 ? -1 : t - coinLandedAt)
+        if (scene === 'battle' && chestShows() && chestHit) {
+            chestHit.drawGoldChest(view, t, hover.value === 'chest', coinLandedAt < 0 ? -1 : t - coinLandedAt)
+            if (hover.value === 'chest' && props.chestPreview) chestHit.drawChestPreview(view, props.chestPreview)
+        }
         if (props.chestToast && chestHit) {
             if (props.chestToast.key !== chestToastKey) {
                 chestToastKey = props.chestToast.key
