@@ -8,7 +8,8 @@ export type HqStageSize = 'large' | 'mid' | 'small'
 
 export const HQ_STAGE_SIZES: readonly HqStageSize[] = ['large', 'mid', 'small']
 
-export const HQ_STAGE_SIZE_DEFAULT: HqStageSize = 'large'
+// between the two, so a new screen doesn't open the game edge to edge (the user's call, 2026-10-13)
+export const HQ_STAGE_SIZE_DEFAULT: HqStageSize = 'mid'
 
 /** The stage's width at release (2026-10-12): the page's `max-w-4xl` column less its `sm:p-6` padding. */
 const RELEASE_WIDTH = 896 - 2 * 24
@@ -37,7 +38,8 @@ export function stageRoom(frame: HTMLElement): { width: number, height: number }
 /** The loading box's width, before the art says its frame: about where the stage will land, so the intro grows toward it. */
 export function stagePlaceholderWidth(frame: HTMLElement, aspect: number, size: HqStageSize): number {
     const room = stageRoom(frame)
-    const width = size === 'large' ? room.width : Math.min(room.width, RELEASE_WIDTH)
+    const small = Math.min(room.width, RELEASE_WIDTH)
+    const width = size === 'large' ? room.width : size === 'small' ? small : (room.width + small) / 2
     return Math.max(0, Math.min(width, room.height * aspect)) + BORDER
 }
 
