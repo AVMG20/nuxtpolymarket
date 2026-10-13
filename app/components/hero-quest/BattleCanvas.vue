@@ -920,11 +920,19 @@ function onPointerUp(e: PointerEvent) {
         }
         sendRename(draft)
     }
+    // a tap anywhere else puts a look inside the chest away
+    const peeked = chestPeeking()
+    if (hit !== 'chest') chestPeekUntil = 0
     if (!wasPressed || !hit) return
     const item = HQ_MENU_SCENES.find(s => s === hit)
     if (hit === 'challenge') emit('challenge')
     else if (hit === 'gift') emit('holidayOpen')
+    else if (hit === 'chest' && e.pointerType !== 'mouse' && !peeked && props.chestPreview && chestHit) {
+        // a finger can't point, so its first tap shows what the chest holds and the second opens it
+        chestPeekUntil = performance.now() + chestHit.CHEST_PEEK_FOR * 1000
+    }
     else if (hit === 'chest') {
+        chestPeekUntil = 0
         coinLanded = false
         emit('chestCollect')
     }
@@ -1100,6 +1108,13 @@ function onPointerLeave(e?: PointerEvent) {
     // a press that left the canvas still committed the name it took the focus from
     if (draftAtPress) sendRename(draftAtPress)
     draftAtPress = null
+}
+
+/** When a tap's look inside the chest runs out, in `performance.now()` ms; 0 with none up. */
+let chestPeekUntil = 0
+
+function chestPeeking(): boolean {
+    return performance.now() < chestPeekUntil
 }
 
 /** The chest sits in the battle view's corner, but not over a fight, a raid round or a holiday reveal. */
@@ -1416,7 +1431,7 @@ onMounted(async () => {
         if (scene === 'battle' && giftShows() && giftHit) giftHit.drawGiftIcon(view, t, props.holidayGift!, hover.value === 'gift')
         if (scene === 'battle' && chestShows() && chestHit) {
             chestHit.drawGoldChest(view, t, hover.value === 'chest', coinLandedAt < 0 ? -1 : t - coinLandedAt)
-            if (hover.value === 'chest' && props.chestPreview) chestHit.drawChestPreview(view, props.chestPreview)
+            if ((hover.value === 'chest' || chestPeeking()) && props.chestPreview) chestHit.drawChestPreview(view, props.chestPreview)
         }
         if (props.chestToast && chestHit) {
             if (props.chestToast.key !== chestToastKey) {
