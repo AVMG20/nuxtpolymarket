@@ -873,11 +873,16 @@ export const BASE_GOLD = 1 // TUNED ✓
  * the tree on their unlock schedule): 1.065 paid ~41% of platform at days 3–4 and 53–60% at days
  * 5–8. 1.0575 puts days 3–8 at 21–26%, and the ceiling binds by day 90, so the anchors hold.
  *
+ * 1.0575 → 1.05 on 2026-10-13 (the user's call), on the 1.8-day pace (`XP_BASE_PER_KILL` 2): 1.0575
+ * hit the ceiling from hour 7 and paid 45–99% of platform for a month. 1.05 is never ceiling-bound
+ * before day 90 and earns the walk's month what the 4-day pace did (1.29B against 1.38B): 50–77% of
+ * platform on day one, 25–33% from day 3. Swept: 1.045 → 13–20% from day 3, 1.04 → 6–11%.
+ *
  * **Kept under `ENEMY_STEP_BASE` (1.08)**, so Gold still grows more slowly than the enemy it is
  * earned from (`settle.spec.ts`). A Beginner party of three never reaches the ceiling in its
  * first month; a party of six does by about day 12. Coupled to run pacing like `BASE_GOLD`.
  */
-export const GOLD_STEP_BASE = 1.0575 // TUNED ✓
+export const GOLD_STEP_BASE = 1.05 // TUNED ✓
 
 // ── The tenure ceiling ─────────────────────────────  gold-economy.md §3, §9
 
