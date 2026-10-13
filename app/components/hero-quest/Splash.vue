@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
+import { fitStage, stagePlaceholderWidth } from '~/utils/hero-quest-art/stage-size'
 import type { SplashParty } from '~/utils/hero-quest-art/menu-splash'
 import { C, PALETTE } from '~/utils/hero-quest-art/palette'
 import type { HqIntroRect } from '~/composables/useHqIntro'
@@ -32,7 +33,18 @@ const emit = defineEmits<{
 /** The stage's own black, so the shut splash and the shut battle stage are one colour. */
 const INK = PALETTE[C.ink]!
 
+/** The full-width box the stage is sized into; `wrap` hugs the canvas inside it. */
+const frame = ref<HTMLDivElement | null>(null)
 const wrap = ref<HTMLDivElement | null>(null)
+const { size: stageSize } = useHqStageSize()
+/** The loading box's shape, until the art is in and the canvas sizes it. */
+const PLACEHOLDER_ASPECT = 16 / 9
+const placeholderWidth = ref<number | null>(null)
+const placeholder = computed(() => {
+    if (ready.value) return {}
+    const width = placeholderWidth.value
+    return { aspectRatio: `${PLACEHOLDER_ASPECT}`, ...(width === null ? {} : { width: `${width}px` }) }
+})
 const canvas = ref<HTMLCanvasElement | null>(null)
 const cssSize = ref({ width: 0, height: 0 })
 const ready = ref(false)
@@ -46,10 +58,11 @@ let observer: ResizeObserver | null = null
 let disposed = false
 
 function fit() {
-    if (!wrap.value || !presenter) return
-    const width = wrap.value.getBoundingClientRect().width
-    cssSize.value = presenter.fit(width, width * presenter.h / presenter.w, window.devicePixelRatio || 1)
+    if (!frame.value || !presenter) return
+    cssSize.value = fitStage(presenter, frame.value, stageSize.value)
 }
+
+watch(stageSize, fit)
 
 /** Press Play, unless the state is still loading or a press is already on its way. */
 function go() {
@@ -105,6 +118,7 @@ const partyKey = computed(() => [props.party.classId, props.party.heroRow, ...pr
 watch(partyKey, () => rebuild?.(props.party))
 
 onMounted(async () => {
+    if (frame.value) placeholderWidth.value = stagePlaceholderWidth(frame.value, PLACEHOLDER_ASPECT, stageSize.value)
     const [{ MenuSplash, onPlayButton }, { Presenter, startLoop }] = await Promise.all([
         import('~/utils/hero-quest-art/menu-splash'),
         import('~/utils/hero-quest-art/canvas')
@@ -121,7 +135,9 @@ onMounted(async () => {
     let t = 0
     stop = startLoop(dt => { t += dt }, () => presenter!.present(splash.render(t, buttonState.value)))
     observer = new ResizeObserver(fit)
-    observer.observe(wrap.value!)
+    observer.observe(frame.value!)
+    // a window only made shorter leaves the frame's width alone
+    window.addEventListener('resize', fit)
     fit()
     ready.value = true
 })
@@ -157,33 +173,39 @@ onBeforeUnmount(() => {
     disposed = true
     stop?.()
     observer?.disconnect()
+    window.removeEventListener('resize', fit)
 })
 </script>
 
 <template>
   <div class="p-4 sm:p-6 space-y-6">
     <div
-      ref="wrap"
-      class="relative w-full overflow-hidden rounded-lg border border-default bg-elevated"
-      :class="ready ? '' : 'aspect-video'"
-      :style="closing ? { backgroundColor: INK } : undefined"
+      ref="frame"
+      class="w-full"
     >
-      <canvas
-        ref="canvas"
-        class="block mx-auto focus-visible:outline-2 focus-visible:outline-primary"
-        :class="hover ? 'cursor-pointer' : ''"
-        :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated' }"
-        role="button"
-        tabindex="0"
-        :aria-label="mode === 'begin' ? 'Play: begin the quest' : 'Play'"
-        :aria-disabled="mode === 'loading' || pending"
-        @pointermove="onPointerMove"
-        @pointerdown="onPointerDown"
-        @pointerup="onPointerUp"
-        @pointerleave="onPointerLeave"
-        @keydown.enter.prevent="go"
-        @keydown.space.prevent="go"
-      />
+      <div
+        ref="wrap"
+        class="relative mx-auto overflow-hidden rounded-lg border border-default bg-elevated"
+        :class="ready ? 'w-fit' : 'w-full'"
+        :style="[closing ? { backgroundColor: INK } : {}, placeholder]"
+      >
+        <canvas
+          ref="canvas"
+          class="block mx-auto focus-visible:outline-2 focus-visible:outline-primary"
+          :class="hover ? 'cursor-pointer' : ''"
+          :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated' }"
+          role="button"
+          tabindex="0"
+          :aria-label="mode === 'begin' ? 'Play: begin the quest' : 'Play'"
+          :aria-disabled="mode === 'loading' || pending"
+          @pointermove="onPointerMove"
+          @pointerdown="onPointerDown"
+          @pointerup="onPointerUp"
+          @pointerleave="onPointerLeave"
+          @keydown.enter.prevent="go"
+          @keydown.space.prevent="go"
+        />
+      </div>
     </div>
   </div>
 </template>

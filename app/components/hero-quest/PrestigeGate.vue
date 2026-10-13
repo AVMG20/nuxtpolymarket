@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
+import { fitStage, stagePlaceholderWidth } from '~/utils/hero-quest-art/stage-size'
 import type { SplashParty } from '~/utils/hero-quest-art/menu-splash'
 import { C, PALETTE_RGB } from '~/utils/hero-quest-art/palette'
 import type { HqIntroRect } from '~/composables/useHqIntro'
@@ -52,7 +53,18 @@ const opening = ref(intro !== null)
 /** The canvas scales in whole steps, so the frame around it is the scene's own dark. */
 const ground = `#${PALETTE_RGB[C.ink]!.toString(16).padStart(6, '0')}`
 
+/** The full-width box the stage is sized into; `wrap` hugs the canvas inside it. */
+const frame = ref<HTMLDivElement | null>(null)
 const wrap = ref<HTMLDivElement | null>(null)
+const { size: stageSize } = useHqStageSize()
+/** The loading box's shape, until the art is in and the canvas sizes it. */
+const PLACEHOLDER_ASPECT = 320 / 202
+const placeholderWidth = ref<number | null>(null)
+const placeholder = computed(() => {
+    if (ready.value) return {}
+    const width = placeholderWidth.value
+    return { aspectRatio: `${PLACEHOLDER_ASPECT}`, ...(width === null ? {} : { width: `${width}px` }) }
+})
 const canvas = ref<HTMLCanvasElement | null>(null)
 const cssSize = ref({ width: 0, height: 0 })
 const ready = ref(false)
@@ -63,10 +75,11 @@ let observer: ResizeObserver | null = null
 let disposed = false
 
 function fit() {
-    if (!wrap.value || !presenter) return
-    const width = wrap.value.getBoundingClientRect().width
-    cssSize.value = presenter.fit(width, width * presenter.h / presenter.w, window.devicePixelRatio || 1)
+    if (!frame.value || !presenter) return
+    cssSize.value = fitStage(presenter, frame.value, stageSize.value)
 }
+
+watch(stageSize, fit)
 
 function go() {
     // a tutorial on screen holds the bridge: Begin Again waits until it is read
@@ -144,6 +157,9 @@ watch(() => props.earned, (earned) => {
 })
 
 onMounted(async () => {
+    if (frame.value) placeholderWidth.value = stagePlaceholderWidth(frame.value, PLACEHOLDER_ASPECT, stageSize.value)
+    // painted at that width before the intro measures it
+    await nextTick()
     // started before the art loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
     const [{ PrestigeBridge, onBeginAgain, BRIDGE_HERO_FOCUS, BRIDGE_PORTAL_FOCUS }, { Presenter, startLoop }, menuBand, guideArt] = await Promise.all([
@@ -186,7 +202,9 @@ onMounted(async () => {
         presenter!.present(frame)
     })
     observer = new ResizeObserver(fit)
-    observer.observe(wrap.value!)
+    observer.observe(frame.value!)
+    // a window only made shorter leaves the frame's width alone
+    window.addEventListener('resize', fit)
     fit()
     ready.value = true
     if (intro) {
@@ -202,31 +220,37 @@ onBeforeUnmount(() => {
     disposed = true
     stop?.()
     observer?.disconnect()
+    window.removeEventListener('resize', fit)
 })
 </script>
 
 <template>
   <div
-    ref="wrap"
-    class="relative w-full overflow-hidden rounded-lg border border-default"
-    :class="ready ? '' : 'aspect-[320/202]'"
-    :style="{ background: ground }"
+    ref="frame"
+    class="w-full"
   >
-    <canvas
-      ref="canvas"
-      class="block mx-auto focus-visible:outline-2 focus-visible:outline-primary"
-      :class="hover ? 'cursor-pointer' : ''"
-      :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated', clipPath: opening ? 'circle(0px)' : undefined }"
-      role="button"
-      tabindex="0"
-      aria-label="Begin again: prestige and return to World 1"
-      :aria-disabled="pending || crossing"
-      @pointermove="onPointerMove"
-      @pointerdown="onPointerDown"
-      @pointerup="onPointerUp"
-      @pointerleave="onPointerLeave"
-      @keydown.enter.prevent="go"
-      @keydown.space.prevent="go"
-    />
+    <div
+      ref="wrap"
+      class="relative mx-auto overflow-hidden rounded-lg border border-default"
+      :class="ready ? 'w-fit' : 'w-full'"
+      :style="[{ background: ground }, placeholder]"
+    >
+      <canvas
+        ref="canvas"
+        class="block mx-auto focus-visible:outline-2 focus-visible:outline-primary"
+        :class="hover ? 'cursor-pointer' : ''"
+        :style="{ width: `${cssSize.width}px`, height: `${cssSize.height}px`, imageRendering: 'pixelated', clipPath: opening ? 'circle(0px)' : undefined }"
+        role="button"
+        tabindex="0"
+        aria-label="Begin again: prestige and return to World 1"
+        :aria-disabled="pending || crossing"
+        @pointermove="onPointerMove"
+        @pointerdown="onPointerDown"
+        @pointerup="onPointerUp"
+        @pointerleave="onPointerLeave"
+        @keydown.enter.prevent="go"
+        @keydown.space.prevent="go"
+      />
+    </div>
   </div>
 </template>

@@ -53,7 +53,16 @@ export class Presenter {
      * (cssW × cssH) CSS pixels. Returns the CSS size the canvas should be shown at.
      */
     fit(cssW: number, cssH: number, dpr: number): { width: number, height: number } {
-        const s = Math.max(1, Math.floor(Math.min(cssW * dpr / this.w, cssH * dpr / this.h)))
+        return this.setScale(this.scaleFor(cssW, cssH, dpr), dpr)
+    }
+
+    /** The largest integer scale whose frame fits (cssW × cssH) CSS pixels, never under 1. */
+    scaleFor(cssW: number, cssH: number, dpr: number): number {
+        return Math.max(1, Math.floor(Math.min(cssW * dpr / this.w, cssH * dpr / this.h)))
+    }
+
+    /** Size the display canvas at integer scale `s`. Returns the CSS size the canvas should be shown at. */
+    setScale(s: number, dpr: number): { width: number, height: number } {
         this.scale = s
         this.display.width = this.w * s
         this.display.height = this.h * s
