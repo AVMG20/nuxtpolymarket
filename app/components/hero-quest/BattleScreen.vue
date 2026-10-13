@@ -14,7 +14,8 @@ import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-q
 import type { PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesView } from '~/utils/hero-quest-art/classes-scene'
 import type { SpeedView } from '~/utils/hero-quest-art/speed-scene'
-import type { SettingsTarget, SettingsView } from '~/utils/hero-quest-art/settings-scene'
+import { isStageTarget, type SettingsTarget, type SettingsView } from '~/utils/hero-quest-art/settings-scene'
+import type { HqStageSize } from '~/utils/hero-quest-art/stage-size'
 import type { CalendarView } from '~/utils/hero-quest-art/calendar-scene'
 import type { HolidayGiftIconView, HolidayRevealView } from '~/utils/hero-quest-art/holiday-gift'
 import type { ChestToast } from '~/utils/hero-quest-art/gold-chest'
@@ -995,10 +996,13 @@ function closeArenaResult() {
 }
 
 /** The Settings scene: every setting's value, and the tutorials ready to reset. */
-const settingsView = computed<SettingsView>(() => ({ settings: settings.value ?? { ...HQ_SETTING_DEFAULTS }, tutorialsReady: true }))
+const { size: stageSize, setSize: setStageSize } = useHqStageSize()
+const settingsView = computed<SettingsView>(() => ({ settings: settings.value ?? { ...HQ_SETTING_DEFAULTS }, tutorialsReady: true, stageSize: stageSize.value }))
 const settingsBusy = ref(false)
 
 async function onSetting(target: SettingsTarget) {
+    // this browser's choice, so nothing goes to the server
+    if (isStageTarget(target)) return setStageSize(target.slice(6) as HqStageSize)
     settingsBusy.value = true
     try {
         if (target === 'resetTutorials') {
@@ -1416,7 +1420,10 @@ watch(welcome, (report) => {
 /** The run as the stage plays it: a held boss reads as a lost one, so it is farmed in front of and challenged. */
 const shownRun = computed(() => run.value && bossHeld.value && !run.value.bossLost ? { ...run.value, bossLost: true } : run.value)
 
-const { liveRun, liveHero, speedNow } = useHqLiveRun(shownRun, hero, battleSpeed, computed(() => loadoutSession.value !== null))
+const { liveRun, liveHero, speedNow, goldSincePayload } = useHqLiveRun(shownRun, hero, battleSpeed, computed(() => loadoutSession.value !== null))
+
+/** The chest's Gold as of now: the last read's, and what the run has banked in it since. */
+const chestPreview = computed(() => goldChest.value ? `${formatHq(D(chestGold.value).add(goldSincePayload.value).floor())} GOLD` : null)
 
 /**
  * Who stands on the stage: the Hero and the Champions fielded, in party order, each on its row.
@@ -1803,6 +1810,7 @@ function closeWelcome() {
           :raid-round="raidRound"
           :holiday-gift="holidayGift"
           :gold-chest="goldChest"
+          :chest-preview="chestPreview"
           :chest-toast="chestToast"
           :holiday-reveal="holidayReveal"
           :raid-reward="raidReward"
