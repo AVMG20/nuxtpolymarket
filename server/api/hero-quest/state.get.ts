@@ -85,6 +85,7 @@ export default defineEventHandler(async (event) => {
             chestGold: '0',
             nextPrestigeReward: voidShardsFor(0).toString(),
             awaySeconds: 0,
+            awayReport: null,
             settled: null
         }
     }
@@ -184,7 +185,10 @@ export default defineEventHandler(async (event) => {
          */
         awaySeconds: settleOutcome.elapsedSeconds,
 
-        /** What the settle just banked — the "while you were away" summary. */
+        /** The welcome-back card waiting to be put away, from whichever request settled the time away. */
+        awayReport: state.awayReport ?? null,
+
+        /** What this read's own settle banked; the welcome-back card reads `awayReport`. */
         settled: result
             ? {
                 online,
