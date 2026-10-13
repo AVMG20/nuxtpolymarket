@@ -91,12 +91,14 @@ import {
 } from '#shared/utils/hero-quest/content/artifacts'
 import { gachaContent } from '#shared/utils/hero-quest/content/registry'
 import {
+    accrualRateAt,
     enemyStatsAt,
     fallbackStage,
     killsBeforeWipe,
     nextStage,
     offlineCapHours,
     offlineEfficiency,
+    offlineFarmStage,
     goldPerKill,
     goldProgressionFactor,
     goldTenureCeiling,
@@ -976,16 +978,19 @@ export function serializeRun(state: HqStateRow, hero: HeroSnapshot) {
      * Through `rateAt`, not by assembling the pipeline here: the displayed rate and the settled
      * rate have to be the same number, buffs and shreds included.
      */
-    const { abilities, units, pack, secondsPerKill: spk } = rateAt(hero, position)
+    const { units, pack } = rateAt(hero, position)
+    const atBoss = isBossStage(position.stage)
+    // what the run earns at: a gate farms the stage before it, so the rate, wipe budget and pay are that stage's
+    const farm = offlineFarmStage(position)
+    const { abilities, units: farmUnits, pack: farmPack, secondsPerKill: spk } = accrualRateAt(hero, position)
     // Per-enemy stats, unmodified — the client shows what one body *is*, and `packSize` says how
     // many of them are standing.
     const enemy = enemyStatsAt(position)
     const dps = packDps(units, pack)
-    const wipeAt = killsBeforeWipe(units, pack, spk, abilities.healingPerSecond, abilities.damageTakenFactor)
+    const wipeAt = killsBeforeWipe(farmUnits, farmPack, spk, abilities.healingPerSecond, abilities.damageTakenFactor)
     const economy = economyBonuses(hero)
     const goldMultiplier = (1 + economy.goldPct) * abilities.goldFactor
     const { name: enemyName, archetype } = enemyNameAt(position.world, position.stage)
-    const atBoss = isBossStage(position.stage)
     const killsNeeded = atBoss ? 0 : BASE_KILL_COUNT
 
     return {
@@ -1024,11 +1029,11 @@ export function serializeRun(state: HqStateRow, hero: HeroSnapshot) {
         /** Amortized per enemy, so it stays comparable to `goldPerKill`. */
         secondsPerKill: Number.isFinite(spk) ? spk : null,
         /** Seconds to clear a whole encounter — what the battle animation should cycle on. */
-        secondsPerPack: Number.isFinite(spk) ? spk * packSize(pack) : null,
+        secondsPerPack: Number.isFinite(spk) ? spk * packSize(farmPack) : null,
         /** Both already carry every Gold% and burst source, so the client never stacks them itself. */
-        goldPerKill: goldPerKill(position.prestige, position.world, position.stage, tenureDays) * goldMultiplier,
+        goldPerKill: goldPerKill(farm.prestige, farm.world, farm.stage, tenureDays) * goldMultiplier,
         goldPerHour: Number.isFinite(spk) && spk > 0
-            ? (3600 / spk) * goldPerKill(position.prestige, position.world, position.stage, tenureDays) * goldMultiplier
+            ? (3600 / spk) * goldPerKill(farm.prestige, farm.world, farm.stage, tenureDays) * goldMultiplier
             : 0,
         /**
          * Account age in days, and whether it is the calendar or progress that currently caps
@@ -1037,7 +1042,7 @@ export function serializeRun(state: HqStateRow, hero: HeroSnapshot) {
          */
         tenureDays,
         goldCappedByTenure: goldTenureCeiling(tenureDays)
-            < goldProgressionFactor(position.prestige, position.world, position.stage),
+            < goldProgressionFactor(farm.prestige, farm.world, farm.stage),
         /** What the collection is currently adding, so the Fortune lines are visible as numbers. */
         goldBonusPct: goldMultiplier - 1,
         xpBonusPct: (1 + economy.xpPct) * abilities.xpFactor - 1,
