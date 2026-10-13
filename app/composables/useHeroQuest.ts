@@ -126,6 +126,9 @@ export const useHeroQuest = () => {
         default: () => null,
         // The layout and the tab both hold the state; only the first to mount reads it.
         getCachedData: (key, nuxtApp, context) => reuseRecentRead(key, nuxtApp, context, fetchedAt.value),
+        // Every component here calls useFetch on this key, and 'cancel' let the second abort the first
+        // read after the server had settled it, dropping the night it banked. Writes refresh with 'cancel'.
+        dedupe: 'defer',
         onResponse({ response }) {
             const payload = response._data as { initialized?: boolean, settled?: HqAwayReport | null } | undefined
             if (!payload) return
@@ -219,7 +222,8 @@ export const useHeroQuest = () => {
         try {
             const res = await $fetch(url, { method: 'POST', body })
             if (successMsg) toast.add({ title: successMsg, color: 'success' })
-            if (options.refresh !== false) await refresh()
+            // a fresh read: one already in flight left before this write
+            if (options.refresh !== false) await refresh({ dedupe: 'cancel' })
             return res as T
         } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             if (!options.silentErrors) {
@@ -231,7 +235,7 @@ export const useHeroQuest = () => {
 
     async function initRun() {
         await $fetch('/api/hero-quest/init', { method: 'POST' })
-        await refresh()
+        await refresh({ dedupe: 'cancel' })
     }
 
     interface BossResult {
@@ -442,7 +446,7 @@ export const useHeroQuest = () => {
 
     /** Read the state back after an Auto Roll run. */
     async function refreshTraits() {
-        await refresh()
+        await refresh({ dedupe: 'cancel' })
     }
 
     /** Lock or unlock a Trait slot: free. */
