@@ -47,7 +47,6 @@ import { SHOP_TRACKS } from '#shared/utils/hero-quest/content/shop'
 import {
     LEVELS_PER_STAR,
     MAX_STAR,
-    HQ_SESSION_TIMEOUT_MS,
     ONLINE_THRESHOLD_MS,
     STAGES_PER_WORLD,
     WORLD_COUNT
@@ -71,6 +70,9 @@ const MAX_ONLINE_CHUNKS = 2000
 
 /** Skipping at least this far is treated as crossing into a new day for the Gold ladder. */
 const LADDER_RESET_HOURS = 24
+
+/** How long the Away button pretends the player was gone. */
+const DEV_AWAY_MS = 60 * 60_000
 
 export type SkipMode = 'offline' | 'online'
 
@@ -444,14 +446,14 @@ export async function devSet(userId: string, patch: DevSet) {
 }
 
 /**
- * End the player's session, as an absence just past `HQ_SESSION_TIMEOUT_MS` would: bank what
- * really elapsed, then move the settle clock back past the timeout. The next read settles that gap
- * offline through the real `settleHq` and reports it, so the splash shows exactly what a player
- * coming back after an hour sees. Moves the clock only; computes nothing.
+ * End the player's session, as an hour away would: bank what really elapsed, then move the settle
+ * clock back an hour. The next read settles that gap offline through the real `settleHq` and
+ * reports it, so the splash shows exactly what a player coming back after an hour sees. Moves the
+ * clock only; computes nothing.
  */
 export async function devAway(userId: string) {
     await settleHq(userId)
-    const awayMs = HQ_SESSION_TIMEOUT_MS + 60_000
+    const awayMs = DEV_AWAY_MS
     await db.update(hqState)
         .set({ lastSettledAt: new Date(Date.now() - awayMs) })
         .where(eq(hqState.userId, userId))

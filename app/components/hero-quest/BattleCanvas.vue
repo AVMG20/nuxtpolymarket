@@ -3,7 +3,7 @@ import type { BattleDemo, RunParty, StageArena, StageFight, StageRaid } from '~/
 import type { Presenter } from '~/utils/hero-quest-art/canvas'
 import type { RunFeed } from '~/utils/hero-quest-art/run-director'
 import type { BandedFrame, SceneBackdrops } from '~/utils/hero-quest-art/menu-band'
-import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton } from '~/utils/hero-quest-art/collections-scene'
+import type { CollectionsHover, CollectionsScene, CollectionsView, DetailButton, PickerTarget } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutButton, LoadoutsHover, LoadoutsScene, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeScene, PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
 import type { ClassesScene, ClassesView, KitTarget } from '~/utils/hero-quest-art/classes-scene'
@@ -18,6 +18,7 @@ import type { TreeCamera, TreeScene, TreeTarget, TreeView } from '~/utils/hero-q
 import type { RaidLoadoutOption, RaidRewardView, RaidRowView, RaidsHover, RaidsScene, RaidsView } from '~/utils/hero-quest-art/raids-scene'
 import type { WelcomeView } from '~/utils/hero-quest-art/welcome-card'
 import type { GiftReveal, HolidayGiftIconView, HolidayRevealView } from '~/utils/hero-quest-art/holiday-gift'
+import type { ChestToast } from '~/utils/hero-quest-art/gold-chest'
 import type { SceneTab } from '~/utils/hero-quest-art/scene-tabs'
 import type { ArenaResultView, ArenaScene, ArenaTarget, ArenaView } from '~/utils/hero-quest-art/arena-scene'
 import type { PartyStatsTarget, PartyStatsView } from '~/utils/hero-quest-art/party-stats'
@@ -126,6 +127,10 @@ const props = defineProps<{
     holidayGift?: HolidayGiftIconView | null
     /** The holiday gift being opened, over everything; null when none is. */
     holidayReveal?: HolidayRevealView | null
+    /** The Gold chest shows in the battle view's corner while it holds Gold. */
+    goldChest?: boolean
+    /** What the last open of the chest paid, or why it didn't, toasted in its corner. */
+    chestToast?: ChestToast | null
     /** A raid round to play in place of the run; the stage goes back to the run once it is cleared. */
     raidRound?: StageRaid | null
     /** What a raid round or quick-clear paid, shown over the stage until its button is pressed. */
@@ -181,6 +186,8 @@ const emit = defineEmits<{
     calendarTab: [tab: HqCalendarTab]
     /** A Collections detail button was pressed, for the entry it shows. */
     collectionAction: [action: DetailButton, id: string]
+    /** A spot, or Bench/Unequip, was picked in a Collections equip picker, for the entry it was opened on. */
+    collectionPick: [id: string, pick: string]
     /** A Collections tab was pressed. */
     collectionTab: [tab: HqCollectionTab]
     /** A loadout detail's Save or Apply was pressed, for its slot; a Save pressed mid-rename carries the typed name. */
@@ -226,6 +233,8 @@ const emit = defineEmits<{
     claimCalendar: [makeup: boolean]
     /** The holiday gift in the battle view's corner was pressed. */
     holidayOpen: []
+    /** The Gold chest in the battle view's corner was pressed. */
+    chestCollect: []
     /** The holiday reveal's button was pressed once everything was out. */
     holidayRevealClose: []
     /** A milestone card with steps waiting was pressed. */
@@ -295,6 +304,7 @@ let treeHit: typeof import('~/utils/hero-quest-art/tree-scene') | null = null
 let arenaScene: ArenaScene | null = null
 let arenaHit: typeof import('~/utils/hero-quest-art/arena-scene') | null = null
 let giftHit: typeof import('~/utils/hero-quest-art/holiday-gift') | null = null
+let chestHit: typeof import('~/utils/hero-quest-art/gold-chest') | null = null
 let partyStatsHit: typeof import('~/utils/hero-quest-art/party-stats') | null = null
 let giftReveal: GiftReveal | null = null
 /** The stage's clock, for the scene that times its own animation (the gacha reveal). */
@@ -454,13 +464,14 @@ defineExpose({ skipFight, closeIris })
  * The challenge button and the menu band live in the canvas, so the pointer is hit-tested against
  * them in the view's own pixels. The page's own Fight button stays the keyboard's way in.
  */
-type Target = 'challenge' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuScene | `scenetab:${string}` | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
+type Target = 'challenge' | 'chest' | 'gift' | 'gift:ok' | 'gift:skip' | HqMenuScene | `scenetab:${string}` | `tab:${HqCollectionTab}` | `tile:${number}` | 'close' | DetailButton
+    | `picker:${PickerTarget | 'outside'}`
     | `card:${number}` | `loadout:${LoadoutButton}` | `buy:${number}` | 'shop:prev' | 'shop:next' | `class:${string}` | KitTarget | `speed:${number}:${number}`
     | `gacha:${GachaSystemId}:${GachaButton | 'emblem'}` | 'reveal' | `setting:${SettingsTarget}` | `raid:${Exclude<RaidsHover, null>}` | 'reward:ok' | 'welcome:ok' | `cal:${CalendarTarget}` | `ms:${MilestonesTarget}` | GuideTarget
     | `trait:${TraitsTarget}` | `tree:${TreeTarget}`
     | `arena:${ArenaTarget}` | 'result:ok' | 'stats:open' | 'stats:close' | 'stats:back' | `stats:cell:${number}:${number}`
 
-const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'front', 'back', 'bench', 'craft']
+const DETAIL_BUTTONS: readonly DetailButton[] = ['equip', 'craft']
 const isDetailButton = (t: Target): t is DetailButton => DETAIL_BUTTONS.includes(t as DetailButton)
 const hover = ref<Target | null>(null)
 const pressed = ref(false)
@@ -471,6 +482,13 @@ const detail = ref<string | null>(null)
 watch([openScene, () => props.collections?.tab], () => {
     detail.value = null
 })
+
+/** The open entry's equip picker is up over its detail; another entry, or none, shuts it. */
+const picking = ref(false)
+watch(detail, () => {
+    picking.value = false
+})
+const openEntry = computed(() => detail.value === null ? undefined : props.collections?.entries.find(e => e.id === detail.value))
 
 /** The loadout slot open in the detail view; the cards when null. Leaving the scene shuts it, and any rename. */
 const loadoutDetail = ref<number | null>(null)
@@ -569,14 +587,21 @@ function targetAt(e: PointerEvent): Target | null {
     if (item) return item
     if (openScene.value === 'battle' && stage?.onBadgePortrait(x, y)) return 'stats:open'
     if (openScene.value === 'collections' && collectionsHit) {
+        // the scene is the frame above the menu band
+        const h = presenter.h - (band?.BAND_H ?? 0)
+        const open = openEntry.value
+        // the picker covers the scene: a press off its panel shuts it, and a pick waits for a request out
+        if (picking.value && open?.picker) {
+            const target = collectionsHit.pickerTargetAt(presenter.w, h, open.picker, x, y)
+            if (!target) return null
+            if (props.collectionsBusy && (target === 'remove' || target.startsWith('spot:') || target.startsWith('unset:'))) return null
+            return `picker:${target}`
+        }
         const tab = collectionsHit.collectionTabAt(presenter.w, x, y)
         // the open tab is a button only while the detail is up, back to the grid
         if (tab) return tab !== props.collections?.tab || detail.value ? `tab:${tab}` : null
-        // the scene is the frame above the menu band
-        const h = presenter.h - (band?.BAND_H ?? 0)
         if (detail.value) {
             if (collectionsHit.onDetailClose(presenter.w, h, x, y)) return 'close'
-            const open = props.collections?.entries.find(e => e.id === detail.value)
             const button = open ? collectionsHit.detailButtonAt(presenter.w, h, open, x, y) : null
             // a button that cannot be pressed is no target
             return button?.enabled && !props.collectionsBusy ? button.id : null
@@ -683,6 +708,7 @@ function targetAt(e: PointerEvent): Target | null {
         return block && !props.speedBusy && speedHit.speedBlockOpen(props.speedView, block) ? `speed:${block.speed}:${block.minutes}` : null
     }
     if (openScene.value === 'battle' && giftShows() && giftHit?.onGiftIcon(presenter.w, x, y)) return 'gift'
+    if (openScene.value === 'battle' && chestShows() && chestHit?.onGoldChest(presenter.w, x, y)) return 'chest'
     return openScene.value === 'battle' && props.challenge && stage?.onChallenge(x, y) ? 'challenge' : null
 }
 
@@ -883,6 +909,10 @@ function onPointerUp(e: PointerEvent) {
     const item = HQ_MENU_SCENES.find(s => s === hit)
     if (hit === 'challenge') emit('challenge')
     else if (hit === 'gift') emit('holidayOpen')
+    else if (hit === 'chest') {
+        coinLanded = false
+        emit('chestCollect')
+    }
     else if (hit === 'gift:ok') emit('holidayRevealClose')
     else if (hit === 'gift:skip') {
         if (props.holidayReveal) giftReveal?.skip(props.holidayReveal)
@@ -999,7 +1029,28 @@ function onPointerUp(e: PointerEvent) {
         else if (slot) emit('loadoutAction', button, slot.slotIndex)
     }
     else if (isDetailButton(hit)) {
-        if (detail.value) emit('collectionAction', hit, detail.value)
+        // Equip on an entry with a picker opens it; Gear and craft go at once
+        if (hit === 'equip' && openEntry.value?.picker) picking.value = true
+        else if (detail.value) emit('collectionAction', hit, detail.value)
+    }
+    else if (hit.startsWith('picker:')) {
+        const target = hit.slice(7)
+        const open = openEntry.value
+        // the x frees a spot and leaves the picker up, to pick it; everything else shuts it
+        if (target.startsWith('unset:') && open?.picker) {
+            const [, r, i] = target.split(':')
+            const unset = open.picker.rows[Number(r)]?.spots[Number(i)]?.unset
+            if (unset) emit('collectionPick', open.id, unset)
+            return
+        }
+        picking.value = false
+        if (!open?.picker) return
+        if (target === 'remove') emit('collectionPick', open.id, 'remove')
+        else if (target.startsWith('spot:')) {
+            const [, r, i] = target.split(':')
+            const spot = open.picker.rows[Number(r)]?.spots[Number(i)]
+            if (spot?.enabled) emit('collectionPick', open.id, spot.pick)
+        }
     }
     else if (hit.startsWith('tile:')) detail.value = props.collections?.entries[Number(hit.slice(5))]?.id ?? null
     else {
@@ -1036,6 +1087,27 @@ function onPointerLeave(e?: PointerEvent) {
     draftAtPress = null
 }
 
+/** The chest sits in the battle view's corner, but not over a fight, a raid round or a holiday reveal. */
+function chestShows(): boolean {
+    return (!!props.goldChest || coinLanded) && chestCanShow()
+}
+
+/** Where the chest may sit at all: the battle view, but not over a fight, a raid round or a holiday reveal. */
+function chestCanShow(): boolean {
+    return openScene.value === 'battle' && !props.fight && !props.raidRound && !props.holidayReveal
+}
+
+/**
+ * A coin from a kill on screen has dropped in since the chest was last opened: it shows from then,
+ * rather than at the next read. `coinLandedAt` lifts its lid for the landing.
+ */
+let coinLanded = false
+let coinLandedAt = -1
+
+/** When the chest's current toast went up, on the stage's clock: a new key starts it over. */
+let chestToastKey = -1
+let chestToastAt = 0
+
 /** The gift waits in the battle view's corner, but not over a fight, a raid round or its own reveal. */
 function giftShows(): boolean {
     return !!props.holidayGift && !props.fight && !props.raidRound && !props.holidayReveal
@@ -1047,13 +1119,14 @@ const collectionsHover = computed<CollectionsHover>(() => {
     const h = hover.value
     if (h === 'close' || (h && isDetailButton(h))) return h
     if (h?.startsWith('tile:')) return Number(h.slice(5))
+    if (h?.startsWith('picker:') && h !== 'picker:outside') return h.slice(7) as PickerTarget
     return HQ_COLLECTION_TABS.find(t => h === `tab:${t}`) ?? null
 })
 /** Whether a press on what the pointer is over does anything: a class that cannot be taken is only described. */
 const pointer = computed(() => {
     const h = hover.value
     if (!h) return false
-    if (h.endsWith(':emblem') || h.startsWith('cal:day:')) return false
+    if (h.endsWith(':emblem') || h.startsWith('cal:day:') || h === 'picker:outside') return false
     if (h.startsWith('ms:row:')) return !!milestoneRowOf(h)?.claimable.length
     if (h.startsWith('kit:') && h !== 'kit:done') {
         const ascendant = props.classes?.ascendant
@@ -1086,7 +1159,7 @@ const gachaHover = computed<GachaHover>(() => {
 const arenaTab = ref<HqArenaTab>('fight')
 const arenaPage = ref(0)
 const ARENA_EMPTY: Omit<ArenaView, 'tab' | 'page' | 'pickerOpen' | 'rewardsOpen'> = {
-    busy: false, rating: 0, medals: 0, season: 1, seasonLeft: '', attemptsLeft: 0, attemptsFree: 0, attemptPrice: 0, refreshPrice: 0, refreshesLeft: 0,
+    busy: false, rating: 0, medals: 0, season: 1, seasonLeft: '', attemptsLeft: 0, attemptsFree: 0, attemptPrice: 0, refreshPrice: 0, refreshesLeft: 0, armed: null,
     gems: 0, rewards: [], candidates: null, defense: null, shop: [], log: null, board: null,
     loadout: null, loadoutLive: false, loadoutSlot: null, loadoutOptions: []
 }
@@ -1194,7 +1267,7 @@ const loadoutsHover = computed<LoadoutsHover>(() => {
 onMounted(async () => {
     // started before the engine loads, so the box never paints in its own place first
     const landed = intro && wrap.value ? growFrom(wrap.value, intro) : Promise.resolve()
-    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, giftArt, traitsArt, sceneTabsArt, arenaArt, partyStatsArt, treeArt, welcomeArt] = await Promise.all([
+    const [{ BattleDemo, CAMERAS }, { Presenter, startLoop }, menuBand, collectionsArt, loadoutsArt, prestigeArt, classesArt, speedArt, gachaArt, settingsArt, raidsArt, calendarArt, milestonesArt, guideArt, giftArt, traitsArt, sceneTabsArt, arenaArt, partyStatsArt, treeArt, welcomeArt, chestArt] = await Promise.all([
         import('~/utils/hero-quest-art/demo'),
         import('~/utils/hero-quest-art/canvas'),
         import('~/utils/hero-quest-art/menu-band'),
@@ -1215,7 +1288,8 @@ onMounted(async () => {
         import('~/utils/hero-quest-art/arena-scene'),
         import('~/utils/hero-quest-art/party-stats'),
         import('~/utils/hero-quest-art/tree-scene'),
-        import('~/utils/hero-quest-art/welcome-card')
+        import('~/utils/hero-quest-art/welcome-card'),
+        import('~/utils/hero-quest-art/gold-chest')
     ])
     if (disposed || !canvas.value) return
     band = menuBand
@@ -1252,9 +1326,14 @@ onMounted(async () => {
     treeScene = new treeArt.TreeScene(backdrops)
     treeHit = treeArt
     giftHit = giftArt
+    chestHit = chestArt
     giftReveal = new giftArt.GiftReveal()
     welcomeHit = welcomeArt
     stage = new BattleDemo()
+    stage.onCoinLanded = () => {
+        coinLanded = true
+        coinLandedAt = sceneTime
+    }
     build()
     if (intro) {
         stage.holdIris()
@@ -1281,6 +1360,7 @@ onMounted(async () => {
         // Battle Speed never touches an Arena round (`arena.md` §1)
         stage!.speed = props.fight ? props.fight.playbackSpeed ?? 1 : props.arenaRound ? 1 : props.speed ?? 1
         stage!.speedTag = props.speedTag ?? ''
+        stage!.coinTarget = chestHit && chestCanShow() ? chestHit.goldChestMouth(presenter!.w) : null
         stage!.calm = calm.value
         stage!.cinematics = prefs.value.skillCinematics
         stage!.numbers = prefs.value.combatNumbers
@@ -1290,7 +1370,7 @@ onMounted(async () => {
         const view = scene === 'battle'
             ? stage!.render()
             : scene === 'collections'
-                ? collectionsScene!.render(t, props.collections ?? { tab: 'gear', entries: [], essence: '0' }, collectionsHover.value, pressed.value, detail.value, !!props.collectionsBusy)
+                ? collectionsScene!.render(t, props.collections ?? { tab: 'gear', entries: [], essence: '0', heroClassId: null }, collectionsHover.value, pressed.value, detail.value, !!props.collectionsBusy, picking.value)
                 : scene === 'loadouts'
                     ? loadoutsScene!.render(t, props.loadouts ?? { slots: [], unlocked: 0, max: 0 }, loadoutsHover.value, pressed.value, loadoutDetail.value, !!props.loadoutsBusy)
                     : scene === 'classes'
@@ -1316,6 +1396,14 @@ onMounted(async () => {
                                     : settingsScene!.render(t, props.settings ?? { settings: { ...HQ_SETTING_DEFAULTS }, tutorialsReady: false }, settingsHover.value, pressed.value, !!props.settingsBusy, settingsScroll.value)
         if (sceneTabs.value && sceneTabsHit) sceneTabsHit.drawSceneTabs(view, sceneTabs.value.tabs, sceneTabs.value.open, sceneTabHover.value)
         if (scene === 'battle' && giftShows() && giftHit) giftHit.drawGiftIcon(view, t, props.holidayGift!, hover.value === 'gift')
+        if (scene === 'battle' && chestShows() && chestHit) chestHit.drawGoldChest(view, t, hover.value === 'chest', coinLandedAt < 0 ? -1 : t - coinLandedAt)
+        if (props.chestToast && chestHit) {
+            if (props.chestToast.key !== chestToastKey) {
+                chestToastKey = props.chestToast.key
+                chestToastAt = t
+            }
+            if (scene === 'battle') chestHit.drawChestToast(view, props.chestToast, t - chestToastAt)
+        }
         if (props.holidayReveal && giftReveal) giftReveal.render(view, t, props.holidayReveal, hover.value === 'gift:ok', pressed.value)
         else if (props.raidReward && raidsHit) raidsHit.drawRaidReward(view, props.raidReward, hover.value === 'reward:ok', pressed.value)
         else if (props.welcome && welcomeHit) welcomeHit.drawWelcome(view, props.welcome, hover.value === 'welcome:ok', pressed.value)

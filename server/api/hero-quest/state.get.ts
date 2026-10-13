@@ -82,8 +82,8 @@ export default defineEventHandler(async (event) => {
             passiveTree: null,
             arena: null,
             voidShards: '0',
+            chestGold: '0',
             nextPrestigeReward: voidShardsFor(0).toString(),
-            awaySeconds: 0,
             settled: null
         }
     }
@@ -173,15 +173,11 @@ export default defineEventHandler(async (event) => {
         passiveTree: serializePassiveTree(state),
 
         voidShards: fromStore(state.voidShards).toString(),
+        /** Gold the settles banked in the chest, paid out when the player opens it. */
+        chestGold: state.pendingGold,
         nextPrestigeReward: voidShardsFor(state.prestige).toString(),
 
-        /**
-         * The gap this read closed, in seconds: time since the last settle. The client ends the
-         * session on its splash past `HQ_SESSION_TIMEOUT_MS`; it decides nothing else.
-         */
-        awaySeconds: settleOutcome.elapsedSeconds,
-
-        /** What the settle just banked — the "while you were away" summary. */
+        /** What the settle just banked: the "while you were away" summary. An offline one ends the session on its splash. */
         settled: result
             ? {
                 online,

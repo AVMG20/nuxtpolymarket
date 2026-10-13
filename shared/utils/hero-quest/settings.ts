@@ -11,8 +11,8 @@ export interface HqSettings {
     confirmGoldSeals: boolean
     /** A purchase paid in Void Shards takes a second press to confirm. */
     confirmVoidShards: boolean
-    /** A Battle Speed block, paid in Gems, takes a second press to confirm. */
-    confirmGemSpeed: boolean
+    /** A purchase paid in Gems takes a second press to confirm: Battle Speed, a Gem shop track, a paid Arena refresh or attack. */
+    confirmGemSpends: boolean
     /** A Passive Skill Tree respec, which refunds the whole tree, takes a second press to confirm. */
     confirmTreeRespec: boolean
     /** An Auto Roll, a loaded or bought trait set, or a graded save overwritten takes a second press to confirm. */
@@ -36,7 +36,7 @@ export const HQ_SETTING_DEFAULTS: Readonly<HqSettings> = {
     tutorials: true,
     confirmGoldSeals: true,
     confirmVoidShards: true,
-    confirmGemSpeed: true,
+    confirmGemSpends: true,
     confirmTreeRespec: true,
     confirmTraitSpends: true,
     reduceMotion: false,

@@ -44,8 +44,8 @@ function tg(id: string, name: string, owner: string, dur: number, draw: VfxDef['
     return { id, name, source: 'training', owner, dur, draw, dim: DIMS[id] }
 }
 
-/** A gold coin at (x, y), spinning: its face narrows to an edge and back with `spin`. */
-function coin(d: Surface, x: number, y: number, r: number, spin: number): void {
+/** A gold coin at (x, y), spinning: its face narrows to an edge and back with `spin`. King's Ransom's, and the Gold chest's trickle. */
+export function coin(d: Surface, x: number, y: number, r: number, spin: number): void {
     const w = Math.max(0.6, Math.abs(Math.cos(spin)) * r)
     ditherEllipse(d, x, y, w + 0.5, r + 0.5, C.gold1, 16)
     ditherEllipse(d, x, y, w, r, C.gold2, 16)
