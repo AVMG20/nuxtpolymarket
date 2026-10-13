@@ -407,6 +407,20 @@
       "when": 1791830674287,
       "tag": "0057_slippery_stone_men",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1791870481481,
+      "tag": "0058_sparkling_black_tarantula",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1791870489508,
+      "tag": "0059_hero_quest_offline_credit",
+      "breakpoints": true
     }
   ]
 }

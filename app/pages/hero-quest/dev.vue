@@ -156,7 +156,7 @@ async function doReset() {
     confirmingReset.value = false
     seeded.value = false
     lastSkip.value = null
-    await refresh()
+    await refresh({ dedupe: 'cancel' })
   })
 }
 </script>
