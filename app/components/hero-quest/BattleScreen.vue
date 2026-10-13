@@ -1420,7 +1420,10 @@ watch(welcome, (report) => {
 /** The run as the stage plays it: a held boss reads as a lost one, so it is farmed in front of and challenged. */
 const shownRun = computed(() => run.value && bossHeld.value && !run.value.bossLost ? { ...run.value, bossLost: true } : run.value)
 
-const { liveRun, liveHero, speedNow } = useHqLiveRun(shownRun, hero, battleSpeed, computed(() => loadoutSession.value !== null))
+const { liveRun, liveHero, speedNow, goldSincePayload } = useHqLiveRun(shownRun, hero, battleSpeed, computed(() => loadoutSession.value !== null))
+
+/** The chest's Gold as of now: the last read's, and what the run has banked in it since. */
+const chestPreview = computed(() => goldChest.value ? `${formatHq(D(chestGold.value).add(goldSincePayload.value).floor())} GOLD` : null)
 
 /**
  * Who stands on the stage: the Hero and the Champions fielded, in party order, each on its row.
@@ -1807,6 +1810,7 @@ function closeWelcome() {
           :raid-round="raidRound"
           :holiday-gift="holidayGift"
           :gold-chest="goldChest"
+          :chest-preview="chestPreview"
           :chest-toast="chestToast"
           :holiday-reveal="holidayReveal"
           :raid-reward="raidReward"

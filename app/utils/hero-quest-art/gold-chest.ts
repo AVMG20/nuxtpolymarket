@@ -1,5 +1,6 @@
 // The Gold chest in the battle view's top-right corner. The settles bank the run's Gold in it
-// rather than the shared balance; it shows only while it holds some, and pressing it pays out.
+// rather than the shared balance; it shows only while it holds some, pointing at it shows how much,
+// and pressing it pays out.
 
 import { C } from './palette'
 import { px, hash2, type Surface } from './surface'
@@ -140,14 +141,23 @@ export function drawGoldChest(s: Surface, t: number, hover: boolean, landedAgo =
 export function drawChestToast(s: Surface, toast: ChestToast, age: number): void {
     if (age < 0 || age >= CHEST_TOAST_FOR) return
     const b = goldChestBox(s.w)
-    const icon = toast.error ? 0 : SMALL_ICON
-    const w = textWidth(toast.text) + icon + 10
-    const right = b.x + b.w
     // slides up out of view over its last moments, stepped a pixel at a time
     const out = age > CHEST_TOAST_FOR - TOAST_OUT ? Math.floor((age - CHEST_TOAST_FOR + TOAST_OUT) / TOAST_OUT * (TOAST_H + b.y)) : 0
+    goldPlate(s, b.x + b.w, b.y - out, toast.text, toast.error)
+}
+
+/** What the chest holds, under it while it is pointed at: what pressing it would pay. */
+export function drawChestPreview(s: Surface, text: string): void {
+    const b = goldChestBox(s.w)
+    goldPlate(s, b.x + b.w, b.y + b.h + 1, text, false)
+}
+
+/** A plate ending at `right`: the text beside a coin, or alone in red for an error. */
+function goldPlate(s: Surface, right: number, y: number, text: string, error: boolean): void {
+    const icon = error ? 0 : SMALL_ICON
+    const w = textWidth(text) + icon + 10
     const x = right - w
-    const y = b.y - out
     panel(s, x, y, w, TOAST_H)
     if (icon) glyph(s, CURRENCY_ICONS.gold!, x + 2 + (SMALL_ICON >> 1), y + (TOAST_H >> 1), true)
-    drawText(s, toast.text, x + 5 + icon, y + 7, toast.error ? C.red3 : C.gold3, { shadow: 1 })
+    drawText(s, text, x + 5 + icon, y + 7, error ? C.red3 : C.gold3, { shadow: 1 })
 }
