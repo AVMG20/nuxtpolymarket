@@ -58,7 +58,7 @@ export const TUTORIAL_PAGES: Readonly<Record<TutorialId, readonly string[]>> = {
         'Missed a day? It happens to the best of us. A few make-ups a cycle let you claim late.'
     ],
 
-    'loadouts:unlock': ['Two Worlds behind you. Time to plan ahead: Loadouts are now available.'],
+    'loadouts:unlock': ['A World behind you. Time to plan ahead: Loadouts are now available.'],
     'loadouts:visit': [
         'A Loadout saves your party, formation, Skills, Artifacts and Gear.',
         'Keep one for waves and one for bosses. Saving is free, and swapping is one tap.'
@@ -70,7 +70,7 @@ export const TUTORIAL_PAGES: Readonly<Record<TutorialId, readonly string[]>> = {
         'It keeps running while you\'re away. Take it from a snail: speed is precious.'
     ],
 
-    'tree:unlock': ['Three Worlds behind you, and every level you\'ve earned is worth a point. The Passive Tree is now available.'],
+    'tree:unlock': ['Two Worlds behind you, and every level you\'ve earned is worth a point. The Passive Tree is now available.'],
     'tree:visit': [
         'Every level your Hero gains is a point to spend here, and levels never go away.',
         'Start at the root and grow outward. A node opens once the one before it holds a level.',
@@ -79,7 +79,7 @@ export const TUTORIAL_PAGES: Readonly<Record<TutorialId, readonly string[]>> = {
         'Changed your mind? Every prestige brings a free respec. Any other time, it costs Gems.'
     ],
 
-    'raids:unlock': ['Four Worlds cleared, and something big has noticed you. Raids are now available.'],
+    'raids:unlock': ['Three Worlds cleared, and something big has noticed you. Raids are now available.'],
     'raids:visit': [
         'Five great beasts wait in the raids, each with a trick of its own.',
         'Each reward costs a Key, and Keys come back every day.',
@@ -95,7 +95,7 @@ export const TUTORIAL_PAGES: Readonly<Record<TutorialId, readonly string[]>> = {
         'Save a good board to come back to. Even I write the best ones down.'
     ],
 
-    'arena:unlock': ['Five Worlds cleared, and word of you has spread. Other heroes want a turn. The Arena is now available.'],
+    'arena:unlock': ['Four Worlds cleared, and word of you has spread. Other heroes want a turn. The Arena is now available.'],
     'arena:visit': [
         'Heroes fight each other here. Not in person, mind: you fight their defence, and they fight yours.',
         'So set your current loadout as your defence first. It holds the gate while you\'re away.',
@@ -105,7 +105,7 @@ export const TUTORIAL_PAGES: Readonly<Record<TutorialId, readonly string[]>> = {
         'Each season ends with rewards by rank. I write down every result. I have the shell space.'
     ],
 
-    'shop:unlock': ['Your first boss down! A merchant has set up shop. The Shop is now available.'],
+    'shop:unlock': ['A merchant follows every new hero, and this one found you. The Shop is now available.'],
     'shop:visit': [
         'The Shop sells upgrades that last through everything, even the Void.',
         'Offline Efficiency is the best buy here: it raises what you earn while you\'re away.',
