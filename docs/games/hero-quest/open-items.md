@@ -315,6 +315,12 @@ Traits at 3 (Traits never ahead of the raids, which pay Trait Gems), the Arena a
 days** to the first prestige on the baseline (was 4.03) and **10 minutes** for a new party's World 1
 (was 20). Raid ladders are measured against the level each World is cleared at, which didn't move.
 
+**Gold on the new pace (the user's call, the same day).** Accounts stand on deep stages at half the
+age, so at 1.0575 the age ceiling bound from about hour 7 and the first month paid **45–99% of
+platform** (2.52B over the walk's 34 days against 1.38B). `GOLD_STEP_BASE` 1.0575 → **1.05**:
+progression-bound until about day 90, 1.29B, ~50–77% of platform on day one and ~25–33% from day 3
+(`gold-economy.md` §3).
+
 1. ~~**Long cooldowns lose their tail inside `BOSS_TIMER_SECONDS`.**~~ Accepted, locked with the ladder. The first cast waits a full
    cooldown, so a Mythic ability (~15.9s at step 1.2) fires once in a 30s boss fight. Damage per
    second is equal on average only; in boss fights the ladder is a slight nerf to rare kits.
