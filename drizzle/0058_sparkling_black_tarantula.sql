@@ -1,0 +1,1 @@
+ALTER TABLE "hq_state" ADD COLUMN "away_report" jsonb;

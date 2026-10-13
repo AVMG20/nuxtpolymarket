@@ -133,6 +133,7 @@ import { ASCENDANT_ID, ASCENDANT_PICKABLE, CLASS_NODES, MASTER_IDS, childrenOf, 
 import { SHOP_TRACKS, maxLevelFor, shopStatLevels, shopTrackCost, type ShopTrackId } from '#shared/utils/hero-quest/content/shop'
 import { traitBoardOf, traitRollsOf, traitSaveSlotsAt, type TraitBoard, type TraitSlotState } from '#shared/utils/hero-quest/traits'
 import { passiveTreeOf } from '#shared/utils/hero-quest/passive-tree'
+import { awayReportOf, mergeAwayReports } from '#shared/utils/hero-quest/away-report'
 import { enemyNameAt, getWorld, runProgress } from '#shared/utils/hero-quest/content/worlds'
 import type {
     ChampionArchetype,
@@ -632,6 +633,7 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
             // the part of the window the running block covered, from its start
             speedBoost: speedBoostFor(battleSpeedOf(state), state.lastSettledAt.getTime())
         })
+        const away = awayReportOf(crypto.randomUUID(), result, elapsedSeconds, state.heroLevel, positionOf(state))
 
         const [updated] = await tx.update(hqState)
             .set({
@@ -648,6 +650,7 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
                 heroXp: toStore(result.heroXp),
                 // banked, not credited: a credit per settle filled the transactions table
                 ...(result.goldEarned > 0 ? { pendingGold: sql`${hqState.pendingGold} + ${result.goldEarned.toFixed(4)}::numeric` } : {}),
+                ...(away ? { awayReport: mergeAwayReports(state.awayReport, away) } : {}),
                 // the platform leaderboard's GPN, at the level the window ends on
                 ...powerWrites({ ...state, heroLevel: result.heroLevel }, shopLevels, collections, traits)
             })
@@ -667,6 +670,12 @@ export async function settleHq(userId: string): Promise<SettleOutcome> {
             traits
         }
     })
+}
+
+/** Clear the welcome-back card, but only the copy the player saw: a window merged in since keeps it. */
+export async function dismissAwayReport(userId: string, id: string) {
+    await db.update(hqState).set({ awayReport: null })
+        .where(and(eq(hqState.userId, userId), sql`${hqState.awayReport}->>'id' = ${id}`))
 }
 
 /**

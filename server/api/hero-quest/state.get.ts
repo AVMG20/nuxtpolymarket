@@ -84,6 +84,7 @@ export default defineEventHandler(async (event) => {
             voidShards: '0',
             chestGold: '0',
             nextPrestigeReward: voidShardsFor(0).toString(),
+            awayReport: null,
             settled: null
         }
     }
@@ -177,7 +178,10 @@ export default defineEventHandler(async (event) => {
         chestGold: state.pendingGold,
         nextPrestigeReward: voidShardsFor(state.prestige).toString(),
 
-        /** What the settle just banked: the "while you were away" summary. An offline one ends the session on its splash. */
+        /** The welcome-back card waiting to be put away, from whichever request settled the time away. */
+        awayReport: state.awayReport ?? null,
+
+        /** What this read's own settle banked; an offline one ends the session on its splash. The card reads `awayReport`. */
         settled: result
             ? {
                 online,

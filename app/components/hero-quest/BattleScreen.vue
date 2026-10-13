@@ -49,7 +49,7 @@ const emit = defineEmits<{
 }>()
 
 const {
-    initialized, run, hero, welcome, pending, guild, forge, training, digSite, nextPrestigeReward,
+    initialized, run, hero, welcome, dismissWelcome, pending, guild, forge, training, digSite, nextPrestigeReward,
     engageBoss, prestige, craft, setLoadout, loadouts, saveLoadout, applyLoadout, renameLoadout,
     loadoutPreferences, loadoutSession, setLoadoutPreference, leaveRaid,
     shop, voidShards, chestGold, collectChest, buyUpgrade, classTree, classToken, pickClass, battleSpeed, buyBattleSpeed,
@@ -1693,14 +1693,14 @@ const welcomeView = computed<WelcomeView | null>(() => {
     if (!r || props.scene !== 'battle' || fight.value || raidRound.value || arenaRound.value || raidReward.value || arenaResult.value) return null
     const notes: WelcomeNote[] = []
     const o = r.offline
-    const lostToCap = o ? Math.max(0, r.awaySeconds - o.capSeconds) : 0
-    if (lostToCap > 0) notes.push({ text: `OFFLINE CAP ${stageDuration(o!.capSeconds)}: ${stageDuration(lostToCap)} NOT COUNTED`, tone: 'bad' })
-    if (o && o.efficiency < 1) notes.push({ text: `OFFLINE EFFICIENCY ${Math.round(o.efficiency * 100)}%`, tone: 'warn' })
-    if (o && o.boostedSeconds > 0) notes.push({ text: `BATTLE SPEED ×${o.boostMultiplier} FOR ${stageDuration(o.boostedSeconds)}`, tone: 'info' })
+    const lostToCap = r.lostToCapSeconds
+    if (lostToCap > 0) notes.push({ text: `OFFLINE CAP ${stageDuration(o.capSeconds)}: ${stageDuration(lostToCap)} NOT COUNTED`, tone: 'bad' })
+    if (o.efficiency < 1) notes.push({ text: `OFFLINE EFFICIENCY ${Math.round(o.efficiency * 100)}%`, tone: 'warn' })
+    if (o.boostedSeconds > 0) notes.push({ text: `BATTLE SPEED ×${o.boostMultiplier} FOR ${stageDuration(o.boostedSeconds)}`, tone: 'info' })
     if (r.blockedAtBoss) notes.push({ text: 'PARKED AT THE BOSS, READY TO FIGHT', tone: 'warn' })
     if (r.wipedOnWave) notes.push({ text: 'THE PARTY KEEPS FALLING ON THIS WAVE', tone: 'bad' })
     // the Shop's offline tracks, once it is open and while they still have a level to give
-    if (o && shownFeatures.value.includes('shop')) {
+    if (shownFeatures.value.includes('shop')) {
         const cap = lostToCap > 0 && o.capLevel < MAX_OFFLINE_CAP_LEVEL
         const efficiency = o.efficiency < 1 && o.efficiencyLevel < MAX_OFFLINE_EFFICIENCY_LEVEL
         if (cap || efficiency) {
@@ -1722,7 +1722,7 @@ const welcomeView = computed<WelcomeView | null>(() => {
 })
 
 function closeWelcome() {
-    welcome.value = null
+    dismissWelcome()
 }
 </script>
 

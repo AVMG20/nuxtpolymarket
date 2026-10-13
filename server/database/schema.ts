@@ -23,6 +23,7 @@ import type { TownStreakLock } from '#shared/utils/gamelogic/town-streak'
 import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
 import type { HqSettings } from '#shared/utils/hero-quest/settings'
 import type { LoadoutSession } from '#shared/utils/hero-quest/loadout-session'
+import type { HqAwayReport } from '#shared/utils/hero-quest/away-report'
 import type { ArenaDefenseLoadout } from '#shared/utils/hero-quest/arena'
 import type { NcDrawing } from '#shared/utils/neighcasso/types'
 import type { NavLayout } from '#shared/utils/nav-layout'
@@ -1170,6 +1171,8 @@ export const hqState = pgTable('hq_state', {
    * transaction when the player opens it rather than one per settle. Earned, so prestige keeps it.
    */
   pendingGold: numeric('pending_gold', { precision: 19, scale: 4 }).notNull().default('0'),
+  /** What the settles banked away since the welcome-back card was last put away; kept here so a dropped response can't lose it. */
+  awayReport: jsonb('away_report').$type<HqAwayReport | null>(),
 
   /**
    * The running Battle Speed block (`battle-speed.ts`): its multiplier, and the wall-clock instant

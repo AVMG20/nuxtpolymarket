@@ -1,6 +1,6 @@
 import type { FightEvent, FightOutcome } from '#shared/utils/hero-quest/fight'
 import type { HqSettingKey } from '#shared/utils/hero-quest/settings'
-import type { OfflineWindow, RunPosition } from '#shared/utils/hero-quest/types'
+import type { HqAwayReport } from '#shared/utils/hero-quest/away-report'
 
 /**
  * The single source of Hero Quest state on the client. Pages contain no fetch logic.
@@ -65,24 +65,6 @@ export interface ArenaRound {
     enemyMaxHps: string[]
 }
 
-/** What a read's settle banked (`state.get.ts` `settled`): the welcome-back card's source. */
-export interface HqAwayReport {
-    online: boolean
-    kills: number
-    goldEarned: number
-    xpEarned: string
-    levelsGained: number
-    /** The Hero's level the window ended on. */
-    heroLevel: number
-    effectiveSeconds: number
-    blockedAtBoss: boolean
-    wipedOnWave: boolean
-    awaySeconds: number
-    offline: OfflineWindow | null
-    from: RunPosition
-    to: RunPosition
-}
-
 /** How recent a read the next component to mount reuses rather than settling again. */
 const STATE_REUSE_MS = 5_000
 
@@ -113,11 +95,10 @@ export const useHeroQuest = () => {
      */
     const sessionActive = useState<boolean | null>('hq-session-active', () => null)
     const sessionResuming = useState('hq-session-resuming', () => false)
-    /**
-     * The last read that settled real time away and banked something, for the stage's welcome-back
-     * card. Held apart from `settled`, which the next read replaces, until the player puts it away.
-     */
+    /** The welcome-back card the server holds (`hq_state.away_report`), until the player puts it away. */
     const welcome = useState<HqAwayReport | null>('hq-welcome', () => null)
+    /** The card just put away, so a read that left before the dismiss landed doesn't bring it back. */
+    const dismissedWelcomeId = useState<string | null>('hq-welcome-dismissed', () => null)
     /** When this app last read the state: a read is a settle, a write, so a second one moments later reuses it. */
     const fetchedAt = useState('hq-state-fetched-at', () => 0)
 
@@ -130,11 +111,12 @@ export const useHeroQuest = () => {
         // read after the server had settled it, dropping the night it banked. Writes refresh with 'cancel'.
         dedupe: 'defer',
         onResponse({ response }) {
-            const payload = response._data as { initialized?: boolean, settled?: HqAwayReport | null } | undefined
+            const payload = response._data as { initialized?: boolean, settled?: { online: boolean } | null, awayReport?: HqAwayReport | null } | undefined
             if (!payload) return
             fetchedAt.value = Date.now()
+            const away = payload.awayReport ?? null
+            welcome.value = away && away.id !== dismissedWelcomeId.value ? away : null
             const report = payload.settled
-            if (report && !report.online && (report.kills > 0 || report.wipedOnWave)) welcome.value = report
             if (!payload.initialized) {
                 sessionActive.value = false
             } else if (sessionResuming.value) {
@@ -406,6 +388,15 @@ export const useHeroQuest = () => {
     }
 
     /** Open the chest: its Gold goes into the shared balance, and the read after it starts the chest over. Errors are the caller's to show. */
+    /** Put the welcome-back card away. A failed dismiss only brings it back on the next page load. */
+    function dismissWelcome() {
+        const id = welcome.value?.id
+        welcome.value = null
+        if (!id) return
+        dismissedWelcomeId.value = id
+        $fetch('/api/hero-quest/away/dismiss', { method: 'POST', body: { id } }).catch(() => {})
+    }
+
     async function collectChest() {
         const res = await call<{ collected: string, balance: string }>('/api/hero-quest/chest/collect', {}, '', { silentErrors: true })
         if (res) setBalance(res.balance)
@@ -694,6 +685,7 @@ export const useHeroQuest = () => {
         nextPrestigeReward,
         settled,
         welcome,
+        dismissWelcome,
         serverNow,
         atBossGate,
         walled,
