@@ -508,6 +508,14 @@ const rawGroups: CommandPaletteGroup[] = [
         keywords: ['firewall', 'security', 'cyber', 'defense', 'packets', 'puzzle']
       },
       {
+        id: 'hackerz',
+        label: 'Hackerz',
+        description: 'Neon 3D lane defence - hold the fence against waves of hackers',
+        icon: 'i-lucide-skull',
+        to: '/hackerz',
+        keywords: ['hackerz', 'hackers', 'cyber', 'tron', 'defense', 'tower defence', '3d']
+      },
+      {
         id: 'storm-the-house',
         label: 'Storm the House',
         description: 'Defend your stronghold against relentless enemy waves',

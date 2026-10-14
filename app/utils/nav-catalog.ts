@@ -48,6 +48,7 @@ export const NAV_CATALOG: NavSection[] = [
       { label: 'Call of Xeno', icon: 'i-lucide-skull', to: '/call-of-xeno' },
       { label: 'Voxel Arena', icon: 'i-lucide-boxes', to: '/voxel-arena' },
       { label: 'Firewall', icon: 'i-lucide-shield-half', to: '/firewall' },
+      { label: 'Hackerz', icon: 'i-lucide-skull', to: '/hackerz' },
       { label: 'Meadowbrawl', icon: 'i-lucide-swords', to: '/meadowbrawl' },
       { label: 'TCG', icon: 'i-lucide-layers', to: '/tcg' }
     ]
