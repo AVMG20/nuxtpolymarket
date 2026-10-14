@@ -5,6 +5,7 @@ import type {
   PathwardenMapPlan
 } from '#shared/types/pathwarden-save'
 import type { FirewallRunSave } from '#shared/utils/gamelogic/firewall'
+import type { HackerzRunSave } from '#shared/utils/gamelogic/hackerz'
 import type { GmOffer, GmShopItem } from '#shared/utils/gamelogic/gold-miner'
 import type { CallOfXenoRunSave } from '#shared/utils/gamelogic/call-of-xeno-save'
 import type { MeadowbrawlRunSave } from '#shared/utils/gamelogic/meadowbrawl-meta'
@@ -537,6 +538,45 @@ export const firewallRuns = pgTable('firewall_runs', {
   revision: integer('revision').notNull().default(0),
   saveVersion: integer('save_version').notNull(),
   runState: jsonb('run_state').$type<FirewallRunSave>().notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
+})
+
+// ─── HACKERZ ─────────────────────────────────────────────────────────────
+
+// Firewall's 3D successor, run as a game of its own: same shape of account
+// state and saved run as Firewall above, but separate rows, so neither game's
+// Mainframe, best wave or in-progress run leaks into the other.
+export const hackerzState = pgTable('hackerz_state', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  bulwarkLevel: integer('bulwark_level').notNull().default(0),
+  munitionsLevel: integer('munitions_level').notNull().default(0),
+  foundryLevel: integer('foundry_level').notNull().default(0),
+  grantLevel: integer('grant_level').notNull().default(0),
+  salvageLevel: integer('salvage_level').notNull().default(0),
+  capacitorLevel: integer('capacitor_level').notNull().default(0),
+  charterLevel: integer('charter_level').notNull().default(0),
+  arsenalLevel: integer('arsenal_level').notNull().default(0),
+  runsPlayed: integer('runs_played').notNull().default(0),
+  totalCoinsEarned: numeric('total_coins_earned', { precision: 19, scale: 4 }).notNull().default('0'),
+  bestWave: integer('best_wave').notNull().default(0),
+  bestKills: integer('best_kills').notNull().default(0),
+  bestPayout: integer('best_payout').notNull().default(0),
+  victories: integer('victories').notNull().default(0),
+  runStartedAt: timestamp('run_started_at'),
+  runDifficultySnapshot: text('run_difficulty_snapshot'),
+  runPowerSnapshot: integer('run_power_snapshot'),
+  runCoinMultiplierSnapshot: numeric('run_coin_multiplier_snapshot', { precision: 10, scale: 4 }),
+  lastRunFinishedAt: timestamp('last_run_finished_at')
+})
+
+export const hackerzRuns = pgTable('hackerz_runs', {
+  id: text('id').primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text('user_id').notNull().unique().references(() => user.id, { onDelete: 'cascade' }),
+  revision: integer('revision').notNull().default(0),
+  saveVersion: integer('save_version').notNull(),
+  runState: jsonb('run_state').$type<HackerzRunSave>().notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull()
 })
@@ -2271,6 +2311,14 @@ export const firewallStateRelations = relations(firewallState, ({ one }) => ({
 
 export const firewallRunsRelations = relations(firewallRuns, ({ one }) => ({
   user: one(user, { fields: [firewallRuns.userId], references: [user.id] })
+}))
+
+export const hackerzStateRelations = relations(hackerzState, ({ one }) => ({
+  user: one(user, { fields: [hackerzState.userId], references: [user.id] })
+}))
+
+export const hackerzRunsRelations = relations(hackerzRuns, ({ one }) => ({
+  user: one(user, { fields: [hackerzRuns.userId], references: [user.id] })
 }))
 
 export const goldMinerStateRelations = relations(goldMinerState, ({ one }) => ({
