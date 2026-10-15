@@ -938,6 +938,12 @@ export class BattleDemo {
         script: FightScript, beat: number, inst: number, late: Beat[], clock: number, end: number
         party: (number | null)[], foes: (number | null)[], partyMax: Decimal[], hp: number[], foeMax: Decimal[]
         outcome: StageFight['outcome'], done: boolean, quiet: boolean
+        /**
+         * How many of each logged body's falls the stage has shown, by `p<unitIndex>` / `e<enemyIndex>`
+         * (a stage body can stand in for several: the Forge's bosses, the Dig Site's adds); and the
+         * fallen a revive stands back up once their death has played.
+         */
+        fell: Map<string, number>, rising: Set<Unit>
     } | null = null
 
     /** Rebuild for a world (1–10), a Hero class and a wave. Bakes every frame the stage will show. */
@@ -1267,7 +1273,9 @@ export class BattleDemo {
             foeMax: fight.enemyMaxHps.map(hp => D(hp)),
             outcome: fight.outcome,
             done: false,
-            quiet: false
+            quiet: false,
+            fell: new Map(),
+            rising: new Set()
         }
     }
 
@@ -1645,7 +1653,9 @@ export class BattleDemo {
     private strikeBeat(u: Unit, cast: boolean): void {
         const b = u.beat!
         u.beat = null
-        if (cast) this.playFx(this.castFx(u, b), u.side === 1)
+        // the Hero's cinematic already plays its effect from the cast's first frame
+        const cined = this.cine !== null && !this.cine.special && !this.cine.beat && u === this.partyUnit(0)
+        if (cast && !cined) this.playFx(this.castFx(u, b), u.side === 1)
         if (!u.shot || cast) {
             this.applyBeat(b)
             return
@@ -1712,15 +1722,48 @@ export class BattleDemo {
 
     private applyDowns(downs: readonly FightEvent[]): void {
         for (const e of downs) {
-            if (e.kind === 'enemy_down') {
-                const t = this.foeUnit(e.enemyIndex)
-                if (t && t.state !== U.Death && t.state !== U.Gone) { this.kill(t); this.flushBeat(t) }
-            } else {
-                const t = this.partyUnit(e.unitIndex)
-                this.setPartyHp(e.unitIndex, '0')
-                if (t && t.state !== U.Death && t.state !== U.Gone) { t.state = U.Death; t.t = 0; t.hold = 0; this.flushBeat(t) }
-            }
+            const enemy = e.kind === 'enemy_down'
+            const t = enemy ? this.foeUnit(e.enemyIndex) : this.partyUnit(e.unitIndex)
+            if (!enemy) this.setPartyHp(e.unitIndex, '0')
+            if (t) this.showFall(t, enemy ? `e${e.enemyIndex}` : `p${e.unitIndex}`, this.replay?.script.falls.get(e))
         }
+    }
+
+    /**
+     * A body's `n`th logged fall: its death, once. A revive that came first (its fall rode a blow
+     * still on its way) has already shown it, and a fall after a revive still waiting to stand the
+     * body up keeps it down instead.
+     */
+    private showFall(t: Unit, body: string, n: number | undefined): void {
+        const rp = this.replay
+        if (rp) {
+            const shown = rp.fell.get(body) ?? 0
+            if (n !== undefined && shown >= n) return
+            rp.fell.set(body, n ?? shown + 1)
+            rp.rising.delete(t)
+        }
+        if (t.state === U.Death || t.state === U.Gone) return
+        if (t.side === 1) this.kill(t)
+        else { t.state = U.Death; t.t = 0; t.hold = 0 }
+        this.flushBeat(t)
+    }
+
+    /**
+     * A revive (`FightScript.revives`) of a body's `n`th fall: its death plays out first, shown now if
+     * the blow that felled it hasn't landed yet, and it gets back up once the death is done.
+     */
+    private revive(t: Unit, body: string, n: number): void {
+        const rp = this.replay
+        if (!rp) return
+        if ((rp.fell.get(body) ?? 0) < n) this.showFall(t, body, n)
+        if (t.state === U.Death) rp.rising.add(t)
+        else if (t.state === U.Gone) this.standUp(t)
+    }
+
+    private standUp(t: Unit): void {
+        t.state = U.Entry
+        t.t = 0
+        if (t.side === 0) t.bar = 1
     }
 
     /** What nobody swings for: heals, shields, damage over time, reflected blows, a death on its own. */
@@ -1728,20 +1771,24 @@ export class BattleDemo {
         const quiet = this.replay?.quiet ?? true
         switch (e.kind) {
             case 'heal': {
-                // a draining special mends its boss
+                // only the log's revives bring the fallen back up: a heal that landed just before the
+                // killing blow in the log can land just after it on the stage, and must not undo it
+                const n = this.replay?.script.revives.get(e)
+                const down = (u: Unit) => u.state === U.Gone || u.state === U.Death
+                // a draining special mends its boss; an Arena defender revived gets back up
                 if (e.onEnemy) {
                     const f = this.foeUnit(e.enemyIndex)
+                    if (f && n !== undefined) this.revive(f, `e${e.enemyIndex}`, n)
+                    else if (f && down(f)) return
                     this.setFoeHp(f, e.enemyIndex, e.remainingHp)
-                    // an Arena defender revived gets back up
-                    if (f && (f.state === U.Gone || f.state === U.Death) && D(e.remainingHp ?? 0).gt(0)) { f.state = U.Entry; f.t = 0 }
                     if (f && !quiet && f.state !== U.Gone && D(e.damage ?? 0).gt(0)) this.number(f.x + 6, f.y - f.crown + 10, 'heal', false, `+${stageNumber(D(e.damage!))}`)
                     return
                 }
-                this.setPartyHp(e.unitIndex, e.remainingHp)
                 const t = this.partyUnit(e.unitIndex)
+                if (t && n !== undefined) this.revive(t, `p${e.unitIndex}`, n)
+                else if (t && down(t)) return
+                this.setPartyHp(e.unitIndex, e.remainingHp)
                 if (!t) return
-                // a revive brings the fallen back up
-                if (t.state === U.Gone || t.state === U.Death) { t.state = U.Entry; t.t = 0; t.bar = 1 }
                 if (!quiet && D(e.damage ?? 0).gt(0)) this.number(t.x - 6, t.y - t.crown + 10, 'heal', false, `+${stageNumber(D(e.damage!))}`)
                 return
             }
@@ -3015,7 +3062,14 @@ export class BattleDemo {
                     u.phase = clip ? phaseAt(clip, u.t) : (u.t < u.impact[u.state]! ? Phase.Charge : u.t < u.impact[u.state]! + 0.15 ? Phase.Cast : Phase.Recover)
                     if (u.phase === Phase.Cast && was !== Phase.Cast) u.strikeAt = u.t
                     if (!u.fired && u.t >= u.impact[u.state]!) { u.fired = true; this.strike(u, u.state === U.Cast) }
-                    if (u.t >= dur) { u.state = U.Idle; u.t = 0; u.wait = (u.side ? 1.0 : 0.6) + Math.random() * 1.4 }
+                    if (u.t >= dur) {
+                        u.state = U.Idle
+                        u.t = 0
+                        u.wait = (u.side ? 1.0 : 0.6) + Math.random() * 1.4
+                        // a swing that ended without landing its logged beat lands it now: nothing
+                        // after it may be the next swing to flush it, and its deaths must play
+                        this.flushBeat(u)
+                    }
                     break
                 }
                 case U.Hit:
@@ -3033,6 +3087,8 @@ export class BattleDemo {
                     }
                     if (frameIndex(b, u.t) >= fs || u.t >= dur) {
                         this.shatter(u, b, b.frames[Math.max(0, fs - 1)]!)
+                        // revived in the log while its death played: it gets back up now the death is done
+                        if (this.replay?.rising.delete(u)) this.standUp(u)
                         // the Forge: as one of its bosses falls, the next comes out
                         const r = this.raid
                         if (u.boss && r?.id === 'forge' && r.at < r.tables.length - 1) {

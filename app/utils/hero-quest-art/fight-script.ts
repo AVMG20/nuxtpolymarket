@@ -6,6 +6,10 @@
 // deaths those hits cause. Everything else in the log (heals, shields, damage over time, reflects,
 // statuses) happens on its moment with nobody swinging for it.
 //
+// The stage lands a beat at its swing's impact, which can fall a frame either side of the logged
+// moment, so it can't tell a revive from a heal by the order things land in. The script says which
+// heals bring a fallen body back, and numbers each body's falls, so the stage shows each one once.
+//
 // Pure: it reorganises the log and never changes a number in it.
 
 import type { FightEvent } from '../../../shared/utils/hero-quest/fight'
@@ -29,6 +33,21 @@ export interface FightScript {
     beats: Beat[]
     /** Everything nobody swings for, in log order. */
     instants: FightEvent[]
+    /** Each `unit_down` / `enemy_down`: which of its body's falls it is, from 1. */
+    falls: Map<FightEvent, number>
+    /** Each `heal` that brings a fallen body back up: the fall it undoes. Every other heal only mends. */
+    revives: Map<FightEvent, number>
+}
+
+/** The body an event is about: `p<unitIndex>` on the party's side, `e<enemyIndex>` on the enemies'. */
+function bodyOf(e: FightEvent): string | null {
+    if (e.kind === 'unit_down') return e.unitIndex === undefined ? null : `p${e.unitIndex}`
+    if (e.kind === 'enemy_down') return e.enemyIndex === undefined ? null : `e${e.enemyIndex}`
+    if (e.kind === 'heal') {
+        const index = e.onEnemy ? e.enemyIndex : e.unitIndex
+        return index === undefined ? null : `${e.onEnemy ? 'e' : 'p'}${index}`
+    }
+    return null
 }
 
 function actorOf(e: FightEvent): { side: 0 | 1, actor: number, cast: boolean } | null {
@@ -48,10 +67,27 @@ export function hitsParty(e: FightEvent): boolean {
 export function scriptFight(events: readonly FightEvent[]): FightScript {
     const beats: Beat[] = []
     const instants: FightEvent[] = []
+    const falls = new Map<FightEvent, number>()
+    const revives = new Map<FightEvent, number>()
+    // per body: how many times it has fallen, and whether it is down as the log stands
+    const fallen = new Map<string, { count: number, down: boolean }>()
     // the beat each actor opened at the moment being read, so its further hits join it
     const open = new Map<string, Beat>()
     let moment = Number.NaN
     for (const e of events) {
+        const body = bodyOf(e)
+        if (body !== null) {
+            const was = fallen.get(body) ?? { count: 0, down: false }
+            if (e.kind === 'heal') {
+                if (was.down && Number(e.remainingHp ?? 0) > 0) {
+                    revives.set(e, was.count)
+                    fallen.set(body, { count: was.count, down: false })
+                }
+            } else if (!was.down) {
+                falls.set(e, was.count + 1)
+                fallen.set(body, { count: was.count + 1, down: true })
+            }
+        }
         if (e.at !== moment) {
             moment = e.at
             open.clear()
@@ -87,5 +123,5 @@ export function scriptFight(events: readonly FightEvent[]): FightScript {
         }
         instants.push(e)
     }
-    return { beats, instants }
+    return { beats, instants, falls, revives }
 }
