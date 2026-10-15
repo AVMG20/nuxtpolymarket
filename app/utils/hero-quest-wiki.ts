@@ -15,6 +15,10 @@ import {
     SPD_ATTACK_RATE_PER_POINT
 } from '#shared/utils/hero-quest/constants'
 import type { HqStatKey } from '#shared/utils/hero-quest/types'
+import { checkpointLabel, featureCheckpoint, isHqFeature, type HqFeature } from '#shared/utils/hero-quest/tutorials'
+import { RAIDS } from '#shared/utils/hero-quest/content/raids'
+import type { GachaSystem } from '#shared/utils/hero-quest/gacha'
+import { HQ_MENU_SCENES, HQ_SCENE_LABELS, type HqMenuScene } from './hero-quest-scenes'
 
 /**
  * The glossary the wiki and every info tooltip read from (session-1 playtest, finding 6:
@@ -166,8 +170,8 @@ export const HQ_CURRENCY_DOCS: readonly HqCurrencyDoc[] = [
     },
     {
         name: 'Gems',
-        source: 'Milestones. Shared with the rest of the platform.',
-        sink: 'Extra Loadout slots and Trait save slots.',
+        source: 'Milestones, the login calendar, holiday gifts and the Arena shop. Shared with the rest of the platform.',
+        sink: 'Battle Speed, extra Loadout and Trait save slots, Passive Tree respecs, and extra Arena attacks and refreshes.',
         live: true,
         shared: true
     },
@@ -195,6 +199,125 @@ export const HQ_CURRENCY_DOCS: readonly HqCurrencyDoc[] = [
         sink: 'Rolling Traits, and storing or loading a Trait board.',
         live: true
     },
-    { name: 'Raid Keys', source: 'A daily allowance per raid.', sink: 'Raid entries.', live: false },
-    { name: 'Arena Medals', source: 'Winning Arena attacks.', sink: 'The Arena shop.', live: false }
+    {
+        name: 'Raid Keys',
+        source: 'A daily allowance per raid, Milestones, the login calendar and the Arena shop.',
+        sink: 'Raid rewards: one Key per reward paid.',
+        live: true
+    },
+    {
+        name: 'Arena Medals',
+        source: 'Every Arena attack (a win pays more), season rewards and Milestones.',
+        sink: 'The Arena shop: Seals, raid Keys and Gems.',
+        live: true
+    }
 ]
+
+/**
+ * The screens: one wiki article per menu scene, plus the battle stage they open over (issue #28).
+ *
+ * Keyed by scene, so a scene added to `HQ_MENU_SCENES` without an article fails the typecheck, and
+ * listed in the menu band's own order. The label is the scene's own (`HQ_SCENE_LABELS`) and the
+ * unlock line is read from `FEATURE_UNLOCKS`, so neither can disagree with the game.
+ */
+export type HqScreenId = 'battle' | HqMenuScene
+
+export interface HqScreenDoc {
+    id: HqScreenId
+    label: string
+    /** The wiki's icon for it. The game's own button is pixel art, described in `button`. */
+    icon: string
+    /** What its menu button shows. */
+    button: string
+    /** One line: what the screen is for. */
+    summary: string
+}
+
+const SCREEN_INFO: Readonly<Record<HqScreenId, Omit<HqScreenDoc, 'id' | 'label'>>> = {
+    battle: {
+        icon: 'i-lucide-swords',
+        button: 'No button: it is what shows when every other screen is closed.',
+        summary: 'The run itself: your party fighting, the boss gate, the Gold chest and the menu.'
+    },
+    gacha: {
+        icon: 'i-lucide-dices',
+        button: 'A gumball machine.',
+        summary: 'Four banners that turn Seals into Gear, Champions, Skills and Artifacts.'
+    },
+    collections: {
+        icon: 'i-lucide-book-open',
+        button: 'A red book.',
+        summary: 'Everything you own: equip it, field it, and craft what you are missing.'
+    },
+    loadouts: {
+        icon: 'i-lucide-save',
+        button: 'A sword behind a blue kite shield.',
+        summary: 'Saved setups of party, formation, Skills, Artifacts and Gear, swapped in one press.'
+    },
+    raids: {
+        icon: 'i-lucide-flag',
+        button: 'A red war banner.',
+        summary: 'Five raid bosses that pay Seals and Trait Gems for Keys.'
+    },
+    traits: {
+        icon: 'i-lucide-gem',
+        button: 'A purple Trait Gem.',
+        summary: 'Five rolled bonuses for the whole party, paid for in Trait Gems.'
+    },
+    arena: {
+        icon: 'i-lucide-medal',
+        button: 'A gold Arena Medal on a ribbon.',
+        summary: 'Fight other players\' defences for Rating and Medals.'
+    },
+    classes: {
+        icon: 'i-lucide-git-fork',
+        button: 'A small tree of coloured nodes.',
+        summary: 'The class tree: spend the token each prestige grants to go one class deeper.'
+    },
+    tree: {
+        icon: 'i-lucide-network',
+        button: 'A gold root with red, blue and green spokes.',
+        summary: 'Spend a point per Hero level on permanent passive bonuses.'
+    },
+    shop: {
+        icon: 'i-lucide-store',
+        button: 'A market stall with a striped awning.',
+        summary: 'Permanent upgrades, and Battle Speed boosts.'
+    },
+    calendar: {
+        icon: 'i-lucide-calendar-days',
+        button: 'A wall calendar.',
+        summary: 'A login reward every day, and the Milestones for everything you achieve.'
+    },
+    settings: {
+        icon: 'i-lucide-settings',
+        button: 'A steel cog.',
+        summary: 'Tutorials, spending confirmations, display options and the menu\'s red dots.'
+    }
+}
+
+export const HQ_SCREEN_DOCS: readonly HqScreenDoc[] = (['battle', ...HQ_MENU_SCENES] as const).map(id => ({
+    id,
+    label: HQ_SCENE_LABELS[id],
+    ...SCREEN_INFO[id]
+}))
+
+export function hqScreenWikiPath(id: HqScreenId): string {
+    return `/hero-quest/wiki/screens/${id}`
+}
+
+/** When a feature (a screen, or a tab inside one) opens, as a sentence: "Opens once you clear 3 Worlds." */
+export function hqFeatureUnlockText(feature: HqFeature): string {
+    const at = featureCheckpoint(feature)
+    return at.kind === 'start' ? 'Open from the start.' : `Opens once you ${checkpointLabel(at)}.`
+}
+
+/** The same for a screen. Battle and Settings are never gated. */
+export function hqScreenUnlockText(id: HqScreenId): string {
+    return isHqFeature(id) ? hqFeatureUnlockText(id) : 'Open from the start.'
+}
+
+/** A gacha's Seals by the name the game gives them ("Forge Seals"): its paired raid's reward. */
+export function hqSealName(system: GachaSystem): string {
+    return RAIDS.find(raid => raid.pairedSystem === system)?.reward ?? 'Seals'
+}

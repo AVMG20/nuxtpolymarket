@@ -8,6 +8,8 @@
  *   works, with every *number* interpolated from `constants.ts` rather than typed out.
  * - **The reference** — Content. Rendered straight from the content modules, so a roster edit
  *   updates it and nobody has to remember to.
+ * - **The screens** — one article per menu scene (issue #28): what it is for, what each button does
+ *   and what each symbol means. Same rule: numbers from `constants.ts`, prose about shape.
  *
  * That split is the whole design. A hand-maintained wiki over constants that are still being tuned
  * and rosters that are still changing would be wrong within a week; one that is *generated* cannot
@@ -25,8 +27,14 @@ const tabs = [
     { label: 'Economy', to: '/hero-quest/wiki/economy', icon: 'i-lucide-coins' },
     { label: 'Gacha', to: '/hero-quest/wiki/gacha', icon: 'i-lucide-dices' },
     { label: 'Traits', to: '/hero-quest/wiki/traits', icon: 'i-lucide-sparkles' },
+    { label: 'Screens', to: '/hero-quest/wiki/screens', icon: 'i-lucide-layout-grid' },
     { label: 'Content', to: '/hero-quest/wiki/content', icon: 'i-lucide-list' }
 ]
+
+/** The Screens tab stays lit on every article under it. */
+function isActive(to: string) {
+    return route.path === to || (to === '/hero-quest/wiki/screens' && route.path.startsWith(`${to}/`))
+}
 </script>
 
 <template>
@@ -38,7 +46,7 @@ const tabs = [
           :key="tab.to"
           :to="tab.to"
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors"
-          :class="route.path === tab.to
+          :class="isActive(tab.to)
             ? 'border-primary bg-primary/10 text-primary'
             : 'border-default text-muted hover:text-default'"
         >

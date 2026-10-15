@@ -133,12 +133,11 @@ const dupesToMax = totalDupesToMax()
         do can advance it faster or slower than the pulls you make.
       </p>
       <p>
-        The exact odds at every level are on the gacha page — tap the
-        <UIcon
-          name="i-lucide-info"
-          class="size-3.5 inline align-middle"
-        />
-        on any of the four cards.
+        The odds at your current level are on the Gacha screen: point at a banner's emblem
+        (<NuxtLink
+          :to="hqScreenWikiPath('gacha')"
+          class="text-primary hover:underline"
+        >how the screen works</NuxtLink>).
       </p>
     </HeroQuestWikiSection>
 
@@ -197,7 +196,7 @@ const dupesToMax = totalDupesToMax()
         <li>
           <strong class="text-default">Gear</strong> has six slots, one per stat, all open from
           the start. The first piece you ever get for a slot equips itself; after that, swapping
-          is always your call — watch for the <em>Upgrade</em> badge.
+          is always your call — watch for the green arrow on a tile in Collections.
         </li>
         <li>
           <strong class="text-default">Champions</strong> fill party slots, which you buy with
