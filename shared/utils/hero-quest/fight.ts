@@ -70,7 +70,7 @@ import { columnOf, enemyPackAt, rowOf } from './settle'
 import { partyUnitStats } from './stats'
 import { heroKit } from './content/skills'
 import { bossSpecialAt } from './content/boss-specials'
-import type { BossSpecialDef, SpecialStatus, SpecialTarget, SpecialWeight } from './content/boss-specials'
+import type { RaidSpecialTarget, SpecialDef, SpecialStatus, SpecialWeight } from './content/boss-specials'
 import {
     SINGLE_TARGET,
     executeMultiplier,
@@ -100,7 +100,7 @@ export type FightOutcome = 'win' | 'timeout' | 'wipe'
 
 export type FightEventKind =
     | 'attack' | 'skill' | 'enemy_attack' | 'unit_down' | 'enemy_down'
-    /** One hit of a gate boss's special on a party member, `skillId` naming it; the stage plays the special for it. */
+    /** One hit of a boss's special on a party member, `skillId` naming it, or with none a special for its adds; the stage plays the special for it. */
     | 'enemy_special'
     /**
      * Damage bounced back at an attacker. Its own kind rather than an `attack`, because nobody
@@ -176,6 +176,11 @@ export interface Encounter {
     reinforcements?: Reinforcements
     gauntlet?: Gauntlet
     rampage?: Rampage
+    /**
+     * The raid bosses' specials (`RAID_BOSS_SPECIALS`), per pack member in order: each casts its
+     * own in turn, on its own cooldown, from its first swing. Adds never have one.
+     */
+    specials?: readonly (readonly SpecialDef[])[]
 }
 
 /**
@@ -575,27 +580,69 @@ export function runFight(input: FightInput): FightResult {
     }
 
     /**
-     * The gate boss's special (`content/boss-specials.ts`): only at a run's own gate, never in a
-     * raid. It is ready from the start, so the boss opens with it, and on a fixed cooldown after
-     * that, so the seed decides nothing about when it comes.
+     * Boss specials (`content/boss-specials.ts`): at a run's own gate its boss's one, and in a raid
+     * each boss's own (`Encounter.specials`). Each caster's is ready from the start, so a boss opens
+     * with it (a gauntlet's later bosses as they walk out), then comes round on a fixed cooldown, so
+     * the seed decides nothing about when; a boss with several takes them in turn.
      */
-    const special = input.encounter ? undefined : bossSpecialAt(input.position.world, input.position.stage)
-    const specialCaster = special ? enemies[enemies.length - 1] : undefined
-    let specialReadyAt = 0
+    const casters = new Map<EnemyCombatant, { defs: readonly SpecialDef[], next: number, readyAt: number }>()
+    if (input.encounter) {
+        const first = enemies.findIndex(foe => !foe.add)
+        for (const [k, defs] of (input.encounter.specials ?? []).entries()) {
+            const foe = first < 0 ? undefined : enemies[first + k]
+            if (foe && defs.length) casters.set(foe, { defs, next: 0, readyAt: 0 })
+        }
+    } else {
+        const special = bossSpecialAt(input.position.world, input.position.stage)
+        if (special) casters.set(enemies[enemies.length - 1]!, { defs: [special], next: 0, readyAt: 0 })
+    }
+    const addsStanding = () => enemies.some(foe => foe.add && foe.present && foe.hp.gt(0))
 
-    const specialTargets = (target: SpecialTarget): Combatant[] => {
+    /** The special a caster reaches for now, in turn: one for its adds is passed over while none stand. */
+    const nextSpecial = (caster: { defs: readonly SpecialDef[], next: number }): SpecialDef | undefined => {
+        for (let k = 0; k < caster.defs.length; k++) {
+            const n = (caster.next + k) % caster.defs.length
+            const def = caster.defs[n]!
+            if (def.target === 'adds' && !addsStanding()) continue
+            caster.next = (n + 1) % caster.defs.length
+            return def
+        }
+        return undefined
+    }
+
+    const specialTargets = (target: Exclude<RaidSpecialTarget, 'adds'>): Combatant[] => {
         const first = chooseDefender()
         if (!first) return []
         if (target === 'front') return [first]
         const living = party.filter(unit => unit.hp.gt(0))
         if (target === 'all') return living
-        // the next body its basic attack would reach, in the same order
+        // the next bodies its basic attack would reach, in the same order
         const rest = living.filter(unit => unit !== first)
-        const next = targetingOrder(rest.map(unit => unit.stats))[0]
-        return [first, ...rest.filter(unit => unit.stats === next)]
+        const reach = target === 'front_two' ? 1 : target === 'front_three' ? 2 : 3
+        const next = targetingOrder(rest.map(unit => unit.stats)).slice(0, reach)
+        return [first, ...next.map(stats => rest.find(unit => unit.stats === stats)!)]
     }
 
-    const castSpecial = (foe: EnemyCombatant, def: BossSpecialDef) => {
+    /** A special for the boss's adds: logged as its cast with no one struck, then each standing add mended. */
+    const mendAdds = (foe: EnemyCombatant, def: SpecialDef) => {
+        events.push({ at: elapsed, kind: 'enemy_special', enemyIndex: enemies.indexOf(foe), skillId: def.id, damage: '0' })
+        for (const add of enemies) {
+            if (!add.add || !add.present || add.hp.lte(0)) continue
+            const before = add.hp
+            const healed = add.hp.add(add.stats.hp.mul(SPECIAL_HP_SHARE[def.weight]))
+            add.hp = healed.gt(add.stats.hp) ? add.stats.hp : healed
+            events.push({
+                at: elapsed, kind: 'heal', enemyIndex: enemies.indexOf(add), onEnemy: true, skillId: def.id,
+                damage: add.hp.sub(before).toString(), remainingHp: add.hp.toString()
+            })
+        }
+    }
+
+    const castSpecial = (foe: EnemyCombatant, def: SpecialDef) => {
+        if (def.target === 'adds') {
+            mendAdds(foe, def)
+            return
+        }
         const foeIndex = enemies.indexOf(foe)
         const hits = Math.max(1, Math.floor(def.hits ?? 1))
         let drained = ZERO
@@ -954,9 +1001,11 @@ export function runFight(input: FightInput): FightResult {
             foe.attackTimer += attackIntervalFor(0)
             if (!canAutoattack(foe.statuses)) continue
 
-            // the gate's boss swings its special in place of this attack whenever it is off cooldown
-            if (special && foe === specialCaster && elapsed >= specialReadyAt - 1e-9) {
-                specialReadyAt = elapsed + BOSS_SPECIAL_COOLDOWN_SECONDS
+            // a boss swings its special in place of this attack whenever it is off cooldown
+            const caster = casters.get(foe)
+            const special = caster && elapsed >= caster.readyAt - 1e-9 ? nextSpecial(caster) : undefined
+            if (caster && special) {
+                caster.readyAt = elapsed + BOSS_SPECIAL_COOLDOWN_SECONDS
                 castSpecial(foe, special)
                 continue
             }

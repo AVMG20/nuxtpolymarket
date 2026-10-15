@@ -45,6 +45,7 @@ import { bossMinionStats, enemyPackAt, enemyStatsAt, packHp } from './settle'
 import { runFight, type FightEvent, type FightResult } from './fight'
 import type { EnemyPack, EnemyStats, HeroSnapshot, RunPosition } from './types'
 import type { RaidId } from './content/raids'
+import { RAID_BOSS_SPECIALS } from './content/boss-specials'
 
 const DAY_MS = 86_400_000
 
@@ -188,7 +189,7 @@ export function nextRaidLevel(best: number): number {
 
 /** One Gilded Knight fight, seeded: the party against the Knight at `level` on the enrage clock. */
 export function runKnightFight(hero: HeroSnapshot, position: RunPosition, seed: number, level: number): FightResult {
-    return runFight({ hero, position, seed, encounter: { pack: { members: [knightStats(level)] }, seconds: RAID_ENRAGE_SECONDS } })
+    return runFight({ hero, position, seed, encounter: { pack: { members: [knightStats(level)] }, seconds: RAID_ENRAGE_SECONDS, specials: RAID_BOSS_SPECIALS.raid_guild } })
 }
 
 // ── The Dig Site ───────────────────────────────────────────────────────────────────
@@ -215,6 +216,7 @@ export function runDigSiteFight(hero: HeroSnapshot, position: RunPosition, seed:
         encounter: {
             pack: { members: [boss] },
             seconds: RAID_ENRAGE_SECONDS,
+            specials: RAID_BOSS_SPECIALS.raid_dig_site,
             reinforcements: { every: RAID_DIG_ADD_SECONDS, members: Array.from({ length: RAID_DIG_BURROWS }, () => add) }
         }
     })
@@ -242,6 +244,7 @@ export function runForgeFight(hero: HeroSnapshot, position: RunPosition, seed: n
         encounter: {
             pack: { members: forgeStats(level) },
             seconds: RAID_ENRAGE_SECONDS,
+            specials: RAID_BOSS_SPECIALS.raid_forge,
             gauntlet: { handoff: RAID_FORGE_HANDOFF_SECONDS, bonusSeconds: RAID_FORGE_KILL_SECONDS }
         }
     })
@@ -274,6 +277,7 @@ export function runRampageFight(hero: HeroSnapshot, position: RunPosition, seed:
         encounter: {
             pack: { members: [rampageStats(1)] },
             seconds: RAID_RAMPAGE_CAP_SECONDS,
+            specials: RAID_BOSS_SPECIALS.raid_trait,
             rampage: { thresholdAt: rampageThreshold, statsAt: rampageStats, clockGrowth: RAID_RAMPAGE_CLOCK_GROWTH }
         }
     })

@@ -1102,6 +1102,14 @@ export const RAID_DUMMY_PACKS = 0.7 // TUNED ✓
 
 /** A raid boss's clock (§7 *Session Timer*): the fight is lost if the boss still stands when it runs out. */
 export const RAID_ENRAGE_SECONDS = 30 // UNTUNED ╧
+/*
+ * The raid multipliers below were tuned before the raid bosses had specials. Re-measured with them
+ * in (`RAID_BOSS_SPECIALS`, 2026-10-15, issue #36: the lowest level a party of three, or a Warrior
+ * party of five, clears raid levels 1–10 at, 6 of 8 seeds): the Knight needs 1–2% more levels from
+ * level 3 on (4–6% at level 2), the Forge 0–3% more, the Dig Site none, and the Beast reaches the
+ * same level within a quarter. No party wiped to a special. Within the margin of a level, so the
+ * multipliers stay as tuned.
+ */
 /**
  * The Gilded Knight: level L is the super boss of world L, alone (no escort), its HP and PWR
  * scaled by these, so the Knight's ladder climbs a world of account growth a level, as the
