@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import type { HqDevSkipResponse } from '#server/utils/hero-quest-api'
+import type { GachaSystem } from '#shared/utils/hero-quest/gacha'
+
 /**
  * The Hero Quest playtest harness. **Development only.**
  *
@@ -21,16 +24,7 @@ const {
 if (!devMode) throw createError({ statusCode: 404, statusMessage: 'Not found' })
 
 const busy = ref(false)
-const lastSkip = ref<{
-  chunksRun: number
-  kills: number
-  goldEarned: number
-  levelsGained: number
-  blockedAtBoss: boolean
-  world: number
-  stage: number
-  heroLevel: number
-} | null>(null)
+const lastSkip = ref<HqDevSkipResponse | null>(null)
 
 async function withBusy(action: () => Promise<unknown>) {
   busy.value = true
@@ -86,12 +80,12 @@ async function grantAll() {
 // ── Collection ──────────────────────────────────────────────────────────────────────
 
 const SYSTEMS = ['gear', 'champion', 'skill', 'artifact'] as const
-const chosenSystems = ref<string[]>([...SYSTEMS])
+const chosenSystems = ref<GachaSystem[]>([...SYSTEMS])
 const unlockStar = ref(0)
 const unlockLevel = ref(1)
 const maxShop = ref(true)
 
-function toggleSystem(system: string) {
+function toggleSystem(system: GachaSystem) {
   const next = [...chosenSystems.value]
   const at = next.indexOf(system)
   if (at >= 0) next.splice(at, 1)

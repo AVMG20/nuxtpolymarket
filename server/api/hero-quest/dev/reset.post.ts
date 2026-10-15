@@ -1,5 +1,6 @@
 import { requireUserId } from '#server/utils/auth'
 import { assertDevHarness, devReset } from '#server/utils/hero-quest-dev'
+import type { HqDevResetResponse } from '#server/utils/hero-quest-api'
 
 /**
  * Wipe Hero Quest back to unfounded, so the next `init` is a genuinely fresh account.
@@ -8,7 +9,7 @@ import { assertDevHarness, devReset } from '#server/utils/hero-quest-dev'
  * Gold and Gems survive: they are shared platform balances, and a game reset has no business
  * deleting a balance earned elsewhere.
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqDevResetResponse> => {
     assertDevHarness()
     const userId = await requireUserId(event)
     return devReset(userId)

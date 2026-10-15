@@ -11,9 +11,10 @@ import {
     essenceSpend,
     lockLiveLoadout
 } from '#server/utils/hero-quest'
-import { applyDupes, craftCostFor, isGachaSystem, newEntry } from '#shared/utils/hero-quest/gacha'
+import { applyDupes, craftCostFor, newEntry } from '#shared/utils/hero-quest/gacha'
 import { gachaContent } from '#shared/utils/hero-quest/content/registry'
 import { autoEquipFirstPieces, isGearId } from '#shared/utils/hero-quest/content/gear'
+import { CRAFT_BODY, readHqBody, type HqCraftResponse } from '#server/utils/hero-quest-api'
 
 /**
  * Craft a specific item in any of the four gachas with that gacha's Essence — the full RNG
@@ -36,19 +37,12 @@ import { autoEquipFirstPieces, isGearId } from '#shared/utils/hero-quest/content
  * against one craft's worth of Essence would otherwise both read the balance, both pass, and both
  * grant. Only the request whose `WHERE <essence> >= cost` matches gets to write a collection row.
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqCraftResponse> => {
     const userId = await requireUserId(event)
     await requireFeature(userId, 'gacha')
-    const body = await readBody<{ system?: string; contentId?: string }>(event)
-
-    const system = body?.system
-    if (typeof system !== 'string' || !isGachaSystem(system)) {
-        throw createError({ statusCode: 400, statusMessage: 'Unknown gacha' })
-    }
+    const { system, contentId } = await readHqBody(event, CRAFT_BODY)
     const content = gachaContent(system)
-
-    const contentId = body?.contentId
-    if (typeof contentId !== 'string' || !content.isId(contentId)) {
+    if (!content.isId(contentId)) {
         throw createError({ statusCode: 400, statusMessage: 'Unknown item' })
     }
 

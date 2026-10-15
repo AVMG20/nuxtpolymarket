@@ -5,13 +5,15 @@
 // an Attack button; under them the Arena's preferred Loadout (a list opening upward, as a raid's) and
 // today's attacks, then an extra attack to buy and a refresh (two free a day, then Gems). A season
 // reward waiting goes on a gold strip above the cards. Defence: the stored defence as the Loadouts
-// detail draws a slot, and the one button that sets the current loadout as it. Shop:
-// everything Medals buy, a row each. Log and Ranking: the battle log (`arena_log`) and the Rating
-// leaderboard (`arena_leaderboard`), a page at a time.
+// detail draws a slot, its Traits under its faces, and the one button that sets the current loadout
+// (and Trait board) as it, with what a defence is for beside it. Shop:
+// everything Medals buy, a row each. Log: the battle log (`arena_log`), the last day's matches in two
+// columns, so the whole log (`ARENA_LOG_SIZE`) is one page. Ranking: the Rating leaderboard
+// (`arena_leaderboard`), a page at a time.
 //
 // Every number shown comes from the server's payload; the scene decides nothing.
 
-import { C } from './palette'
+import { C, TRAIT_GRADE_COLORS, type TraitGrade } from './palette'
 import { rect, blit, dither, px, type Surface } from './surface'
 import { drawText, textWidth } from './font'
 import { glyph, type Glyph } from './icon-kit'
@@ -107,6 +109,8 @@ export interface ArenaView {
         skills: readonly { id: string, rarity: string }[]
         artifacts: readonly { id: string, rarity: string }[]
         gear: readonly { id: string, rarity: string }[]
+        /** Its Traits by slot, null for an empty one: the grade, and the stat with its value (`ATK +35%`). */
+        traits: readonly ({ grade: TraitGrade, label: string } | null)[]
     } | null
     /** The Arena's preferred Loadout's name, null with none; and whether it is the one live now. */
     loadout: string | null
@@ -140,7 +144,14 @@ const TAB_GAP = 2
 const P = { x: 4, y: 14, w: 264 }
 const BTN_H = 13
 const CARD_GAP = 4
-const LOG_ROWS = 11
+/**
+ * The log's rows a column, and its columns: two of ten fit over the footer, so the whole log is one
+ * page. It used to be one column of 11, which put a log of 12 to 20 on a second page (issue #29).
+ */
+const LOG_ROWS = 10
+const LOG_COLS = 2
+const LOG_PAGE = LOG_ROWS * LOG_COLS
+const LOG_COL_W = (P.w - 12 - 4) >> 1
 const BOARD_ROWS = 10
 const SHOP_ROWS = 6
 const ROW_H = 10
@@ -173,6 +184,15 @@ function miniMedal(s: Surface, cx: number, top: number): void {
     px(s, cx - 1, d + 1, C.gold3)
     px(s, cx, d + 2, C.gold1)
     px(s, cx + 1, d + 3, C.gold1)
+}
+
+/** A Medal the size of a log row's text, beside the Medals a match paid: a ribbon over a gold disc, 7 px tall. */
+function medalPip(s: Surface, x: number, top: number): void {
+    rect(s, x + 1, top, 3, 2, C.ink)
+    px(s, x + 2, top, C.red2)
+    rect(s, x, top + 2, 5, 5, C.ink)
+    rect(s, x + 1, top + 3, 3, 3, C.gold2)
+    px(s, x + 1, top + 3, C.gold3)
 }
 
 function panelH(h: number): number {
@@ -298,7 +318,7 @@ function pagerBoxes(h: number): { prev: Box, next: Box } {
 /** How many pages the open tab has, at least 1. */
 export function arenaPages(view: ArenaView): number {
     const rows = view.tab === 'log' ? view.log?.length ?? 0 : view.tab === 'ranking' ? view.board?.rows.length ?? 0 : view.tab === 'shop' ? view.shop.length : 0
-    const per = view.tab === 'log' ? LOG_ROWS : view.tab === 'ranking' ? BOARD_ROWS : 2 * SHOP_ROWS
+    const per = view.tab === 'log' ? LOG_PAGE : view.tab === 'ranking' ? BOARD_ROWS : 2 * SHOP_ROWS
     return Math.max(1, Math.ceil(rows / per))
 }
 
@@ -547,10 +567,12 @@ export class ArenaScene {
         const d = view.defense
         if (!d) {
             drawText(s, 'NO DEFENCE SET.', x, y + 4, C.gold2, { shadow: 1 })
+            // what a defence is (issue #32): others attack it, the AI plays it for the player, and it never attacks
             const lines = [
                 'OTHER PLAYERS CAN ONLY DRAW YOU AS AN OPPONENT',
-                'ONCE YOU HAVE ONE. THE AI FIGHTS WITH IT WHILE',
-                'YOU ARE AWAY; IT NEVER CHANGES YOUR LIVE PARTY.',
+                'ONCE YOU HAVE ONE. WHEN THEY ATTACK IT, THE AI',
+                'DEFENDS WITH IT FOR YOU. IT NEVER ATTACKS ANYONE,',
+                'AND YOUR LIVE PARTY STAYS AS IT IS.',
                 'SET YOUR CURRENT LOADOUT AS YOUR DEFENCE BELOW.'
             ]
             lines.forEach((line, i) => drawText(s, line, x, y + 16 + i * 8, C.stone3, { shadow: 1 }))
@@ -568,12 +590,32 @@ export class ArenaScene {
             group('SKILLS', 'skills', d.skills, y)
             group('ARTIFACTS', 'artifacts', d.artifacts, y + 33)
             group('GEAR', 'gear', d.gear, y + 66)
-            drawText(s, 'FOUGHT BY THE AI', x, y + 52, C.stone3, { shadow: 1 })
-            drawText(s, 'WHILE YOU ARE AWAY.', x, y + 60, C.stone3, { shadow: 1 })
-            drawText(s, 'NEVER YOUR LIVE PARTY.', x, y + 68, C.stone3, { shadow: 1 })
+            // its Traits under its faces, a line a slot: the grade in its colour, then the stat
+            const ty = y + 51
+            const tw = drawText(s, 'TRAITS', x, ty, C.gold2, { shadow: 1 })
+            drawText(s, String(d.traits.filter(Boolean).length), x + tw + 4, ty, C.bone0, { shadow: 1 })
+            if (!d.traits.some(Boolean)) drawText(s, 'NONE', x, ty + 8, C.stone2, { shadow: 1 })
+            else {
+                d.traits.forEach((t, k) => {
+                    const ly = ty + 8 + k * 8
+                    if (!t) {
+                        drawText(s, '-', x, ly, C.stone2, { shadow: 1 })
+                        return
+                    }
+                    drawText(s, t.grade, x, ly, TRAIT_GRADE_COLORS[t.grade][2], { shadow: 1 })
+                    drawText(s, fit(t.label.toUpperCase(), rx - x - 20), x + 15, ly, C.bone1, { shadow: 1 })
+                })
+            }
         }
-        // set again when it falls behind: a defence is the player's own call
-        plateButton(s, defenseButton(s.h), SET_DEFENSE, GREEN, enabled('def:set'), lit('def:set'), pressed)
+        // set again for another selection; its stats follow the account on their own (issue #32)
+        const button = defenseButton(s.h)
+        plateButton(s, button, SET_DEFENSE, GREEN, enabled('def:set'), lit('def:set'), pressed)
+        if (d) {
+            // what a defence is for: it fights the players who attack you, and it never attacks
+            const tx = button.x + button.w + 4
+            drawText(s, 'THIS PARTY DEFENDS YOU WHEN', tx, button.y, C.stone3, { shadow: 1 })
+            drawText(s, 'OTHER PLAYERS ATTACK.', tx, button.y + 7, C.stone3, { shadow: 1 })
+        }
     }
 
     // ── Shop ──
@@ -612,15 +654,20 @@ export class ArenaScene {
             drawText(s, 'MATCHES AGAINST YOUR DEFENCE SHOW HERE TOO.', x, y0 + 12, C.stone3, { shadow: 1 })
             return
         }
-        view.log.slice(view.page * LOG_ROWS, (view.page + 1) * LOG_ROWS).forEach((row, i) => {
-            const y = y0 + i * ROW_H
-            rect(s, x - 1, y, P.w - 10, ROW_H - 1, i & 1 ? C.night0 : C.night2)
-            drawText(s, row.outcome, x + 2, y + 2, row.won ? C.green4 : C.red3, { shadow: 1 })
-            drawText(s, fit(row.opponent.toUpperCase(), 92), x + 34, y + 2, row.attacker ? C.bone1 : C.cyan, { shadow: 1 })
+        // newest first, down the left column and then the right
+        view.log.slice(view.page * LOG_PAGE, (view.page + 1) * LOG_PAGE).forEach((row, i) => {
+            const cx = x + Math.floor(i / LOG_ROWS) * (LOG_COL_W + 4)
+            const y = y0 + (i % LOG_ROWS) * ROW_H
+            rect(s, cx - 1, y, LOG_COL_W, ROW_H - 1, i & 1 ? C.night0 : C.night2)
+            drawText(s, row.outcome, cx + 2, y + 2, row.won ? C.green4 : C.red3, { shadow: 1 })
+            drawText(s, fit(row.opponent.toUpperCase(), 48), cx + 20, y + 2, row.attacker ? C.bone1 : C.cyan, { shadow: 1 })
             const delta = row.ratingChange > 0 ? `+${row.ratingChange}` : String(row.ratingChange)
-            drawText(s, delta, x + 154, y + 2, row.ratingChange > 0 ? C.green4 : row.ratingChange < 0 ? C.red3 : C.stone3, { align: 2, shadow: 1 })
-            if (row.medals > 0) drawText(s, `+${row.medals} MEDALS`, x + 214, y + 2, C.gold3, { align: 2, shadow: 1 })
-            drawText(s, row.ago, P.x + P.w - 8, y + 2, C.stone3, { align: 2, shadow: 1 })
+            drawText(s, delta, cx + 84, y + 2, row.ratingChange > 0 ? C.green4 : row.ratingChange < 0 ? C.red3 : C.stone3, { align: 2, shadow: 1 })
+            if (row.medals > 0) {
+                drawText(s, `+${row.medals}`, cx + 101, y + 2, C.gold3, { align: 2, shadow: 1 })
+                medalPip(s, cx + 103, y + 1)
+            }
+            drawText(s, row.ago, cx + LOG_COL_W - 3, y + 2, C.stone3, { align: 2, shadow: 1 })
         })
     }
 

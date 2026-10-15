@@ -39,6 +39,9 @@ import {
     ARENA_SEASON_EPOCH_MS,
     ARENA_SEASON_REWARDS,
     ARENA_SHOP_GEM_PRICE,
+    ARENA_SHOP_SEAL_KEY_PRICE,
+    ARENA_SHOP_SEAL_PRICE,
+    ARENA_SHOP_TRAIT_KEY_PRICE,
     BATTLE_SPEED_ANCHOR_GEMS,
     K_ATTACK,
     K_DEFEND,
@@ -138,6 +141,11 @@ describe('hero-quest arena', () => {
             expect(refreshesOn({ date: '2026-10-10', used: 4 }, '2026-10-10')).toEqual({ date: '2026-10-10', used: 4 })
             expect(refreshesOn({ date: '2026-10-09', used: 4 }, '2026-10-10')).toEqual({ date: '2026-10-10', used: 0 })
         })
+
+        it('never rolls a counter back to an earlier day than the one it holds', () => {
+            // a request that read the clock before midnight and queued behind one after it
+            expect(refreshesOn({ date: '2026-10-10', used: 4 }, '2026-10-09')).toEqual({ date: '2026-10-10', used: 4 })
+        })
     })
 
     describe('the candidate draw (§2, §2a)', () => {
@@ -188,6 +196,14 @@ describe('hero-quest arena', () => {
             expect(attemptsLeft(attemptsOn(bought, '2026-10-09'))).toBe(2)
             expect(attemptsOn(bought, '2026-10-10')).toEqual({ date: '2026-10-10', used: 0, purchased: 0 })
         })
+
+        it('never rolls the attacks back to an earlier day than the one they hold', () => {
+            // a request that read the clock before midnight and queued behind one after it must not
+            // start the day over: that would hand out the free attacks and the ladder's cheap rungs again
+            const today = { date: '2026-10-10', used: ARENA_FREE_ATTEMPTS_PER_DAY, purchased: 3 }
+            expect(attemptsOn(today, '2026-10-09')).toEqual(today)
+            expect(attemptsLeft(attemptsOn(today, '2026-10-09'))).toBe(3)
+        })
     })
 
     describe('seasons (§7)', () => {
@@ -216,9 +232,18 @@ describe('hero-quest arena', () => {
             expect(rollStanding({ season: 0, rating: 1000, matches: 0 }, 3)).toEqual({ season: 3, rating: ARENA_RATING_START, matches: 0 })
         })
 
-        it('ranks final standings with shared ranks on ties, and pays by rank', () => {
-            const ranked = rankStandings([{ id: 'c', rating: 990 }, { id: 'a', rating: 1200 }, { id: 'b', rating: 1100 }, { id: 'd', rating: 1100 }])
-            expect(ranked.map(r => [r.id, r.rank])).toEqual([['a', 1], ['b', 2], ['d', 2], ['c', 4]])
+        it('ranks final standings one apiece, an equal Rating to whoever reached it first, and pays by rank', () => {
+            const at = (minute: number) => new Date(Date.UTC(2026, 9, 15, 12, minute))
+            const ranked = rankStandings([
+                { userId: 'c', rating: 990, ratingAt: at(0) },
+                { userId: 'a', rating: 1200, ratingAt: at(5) },
+                { userId: 'd', rating: 1100, ratingAt: at(1) },
+                { userId: 'b', rating: 1100, ratingAt: at(3) },
+                // never moved by a match: last among its Rating, then by user ID
+                { userId: 'f', rating: 1100, ratingAt: null },
+                { userId: 'e', rating: 1100, ratingAt: null }
+            ])
+            expect(ranked.map(r => [r.userId, r.rank])).toEqual([['a', 1], ['d', 2], ['b', 3], ['e', 4], ['f', 5], ['c', 6]])
             expect(seasonRewardFor(1)).toBe(ARENA_SEASON_REWARDS[0]!.medals)
             expect(seasonRewardFor(1)).toBeGreaterThan(seasonRewardFor(2))
             expect(seasonRewardFor(10_000)).toBe(ARENA_SEASON_REWARDS[ARENA_SEASON_REWARDS.length - 1]!.medals)
@@ -237,18 +262,25 @@ describe('hero-quest arena', () => {
             expect(arenaShopItem('nope')).toBeNull()
         })
 
-        it('prices a Seal raid\'s Key at the Seals a level-5 clear pays, and never under them', () => {
-            // a level-5 clear of a Seal raid pays 3 Seals, at 30 Medals each
-            expect(arenaShopItem('keys_raid_guild')?.price).toBe(90)
-            for (const raid of RAIDS.filter(r => r.pairedSystem)) {
-                expect(arenaShopItem(`keys_${raid.id}`)?.price).toBe(raidReward(raid.id, 5) * arenaShopItem('seals_champion')!.price)
+        it('prices every Seal raid\'s Key at one flat price, and the Trait raid\'s at its own', () => {
+            for (const raid of RAIDS) {
+                expect(arenaShopItem(`keys_${raid.id}`)?.price).toBe(raid.pairedSystem ? ARENA_SHOP_SEAL_KEY_PRICE : ARENA_SHOP_TRAIT_KEY_PRICE)
             }
+            // a Key matches the Seal item at a level-20 clear
+            expect(raidReward('raid_guild', 20) * ARENA_SHOP_SEAL_PRICE).toBe(ARENA_SHOP_SEAL_KEY_PRICE)
         })
 
         it('keeps a day of Medals into Gems well under one Battle Speed block', () => {
             // a generous day: five wins at the biggest upset
             const day = 5 * medalsFor(true, 0)
             expect(day / ARENA_SHOP_GEM_PRICE).toBeLessThan(BATTLE_SPEED_ANCHOR_GEMS / 2)
+        })
+
+        it('never lets a paid attack buy back its own price in Gems (issue #30)', () => {
+            // the most an attack can pay is a win at the biggest upset; even that, sold for Gems,
+            // stays under the cheapest extra attack, so Gems -> attacks -> Medals -> Gems loses
+            expect(ARENA_SHOP_GEM_PRICE).toBe(10)
+            expect(Math.floor(medalsFor(true, 0) / ARENA_SHOP_GEM_PRICE)).toBeLessThan(extraAttemptPrice(0))
         })
     })
 

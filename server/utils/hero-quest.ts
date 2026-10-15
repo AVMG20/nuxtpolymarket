@@ -130,12 +130,12 @@ import {
 } from '#shared/utils/hero-quest/battle-speed'
 import type { StatsExplanation } from '#shared/utils/hero-quest/explain'
 import { readLoadoutSnapshot, type LiveLoadoutColumns, type LoadoutTarget } from '#shared/utils/hero-quest/loadout-session'
-import { D, ZERO, decPow, fromStore, toStore } from '#shared/utils/hero-quest/numbers'
+import { D, ZERO, decPow, fromStore, roundHq, roundHqFraction, toStore } from '#shared/utils/hero-quest/numbers'
 import { ASCENDANT_ID, ASCENDANT_PICKABLE, CLASS_NODES, MASTER_IDS, childrenOf, classOfSkill, getClass, kitFor } from '#shared/utils/hero-quest/content/classes'
 import { SHOP_TRACKS, maxLevelFor, shopStatLevels, shopTrackCost, type ShopTrackId } from '#shared/utils/hero-quest/content/shop'
 import { traitBoardOf, traitRollsOf, traitSaveSlotsAt, type TraitBoard, type TraitSlotState } from '#shared/utils/hero-quest/traits'
 import { passiveTreeOf } from '#shared/utils/hero-quest/passive-tree'
-import { awayReportOf, mergeAwayReports } from '#shared/utils/hero-quest/away-report'
+import { awayReportOf, mergeAwayReports, type HqAwayReport } from '#shared/utils/hero-quest/away-report'
 import { enemyNameAt, getWorld, runProgress } from '#shared/utils/hero-quest/content/worlds'
 import type {
     ChampionArchetype,
@@ -144,11 +144,22 @@ import type {
     FormationRow,
     HeroSnapshot,
     HqStatKey,
+    OfflineWindow,
     OwnedCopy,
     Rarity,
     RunPosition,
     SettleResult
 } from '#shared/utils/hero-quest/types'
+import type {
+    HqAscendantPayload,
+    HqBattleSpeedPayload,
+    HqClassNodePayload,
+    HqHeroPayload,
+    HqRunPayload,
+    HqSettledPayload,
+    HqShopTrackPayload,
+    HqStatsResponse
+} from '#server/utils/hero-quest-api'
 
 export type HqStateRow = typeof hqState.$inferSelect
 
@@ -364,12 +375,13 @@ export function holdClockTo(state: HqStateRow, now: number): Partial<HqStateRow>
  * Battle Speed for the client: what runs now, when it ends, and the price of every block. The
  * client dilates its own projection and the stage's clock with `multiplier` until `expiresAt`.
  */
-export function serializeBattleSpeed(state: HqStateRow, now = Date.now()) {
+export function serializeBattleSpeed(state: HqStateRow, now = Date.now()): HqBattleSpeedPayload {
     const window = battleSpeedOf(state)
     const multiplier = battleSpeedAt(window, now)
     return {
         multiplier,
         expiresAt: multiplier > 1 ? state.speedBoostExpiresAt!.getTime() : null,
+        // exact: the projection dilates its clock by it
         remainingSeconds: battleSpeedRemainingSeconds(window, now),
         tiers: BATTLE_SPEED_TIERS.map(speed => ({
             speed,
@@ -500,8 +512,27 @@ export function loadoutSnapshotOf(
 
 /** Does this Hero field anything whose damage reads banked Gold? */
 function hasWealthScaledSkill(hero: HeroSnapshot): boolean {
-    return (hero.equippedSkills ?? []).some(copy =>
-        isSkillId(copy.contentId) && getSkill(copy.contentId).effect?.wealthScaled === true)
+    return (hero.equippedSkills ?? []).some(copy => isWealthScaledSkillId(copy.contentId))
+}
+
+function isWealthScaledSkillId(contentId: string): boolean {
+    return isSkillId(contentId) && getSkill(contentId).effect?.wealthScaled === true
+}
+
+/**
+ * The hours of income the player has banked in Gold, for the Collections detail of a wealth-scaled
+ * Active (#26): what the Gambler's Strike family multiplies its hit by. The snapshot's own figure
+ * when one is equipped; otherwise one more `wealthHoursFor`, paid only by a player who owns one.
+ * Null when none is owned.
+ */
+export function skillWealthHoursOf(
+    state: HqStateRow,
+    hero: HeroSnapshot,
+    ownedSkills: readonly HqCollectionRow[],
+    bankedGold: number
+): number | null {
+    if (!ownedSkills.some(row => isWealthScaledSkillId(row.contentId))) return null
+    return hero.wealthHours ?? wealthHoursFor(hero, positionOf(state), bankedGold, tenureDaysOf(state))
 }
 
 export function isBossStage(stage: number): boolean {
@@ -697,8 +728,9 @@ export async function collectChest(userId: string): Promise<{ collected: string,
 
 /**
  * The row with its stored Arena defence fielded in place of the live loadout (`arena.md` §1), for
- * `heroSnapshotOf` to read: the defender's class, level and collection as they stand, the five
- * Loadout components from the defence. Null without a defence.
+ * `heroSnapshotOf` to read: the defender's class, level, Passive Skill Tree and collection as they
+ * stand, the five Loadout components from the defence. Null without a defence. Its Traits are the
+ * defence's too: the caller passes `defenseTraitBoard`'s.
  */
 export function withDefenseLoadout(state: HqStateRow): HqStateRow | null {
     const defense = state.defenseLoadout
@@ -713,7 +745,10 @@ export function withDefenseLoadout(state: HqStateRow): HqStateRow | null {
     }
 }
 
-/** Defense GPN (`arena.md` §2), for show: written when the defence is set, and only then. */
+/**
+ * Defense GPN (`arena.md` §2): the stored selection at the account's progress as it stands (issue
+ * #32), so it is worked out wherever it is shown. `traits` is the defence's board (`defenseTraitBoard`).
+ */
 export function defenseGpnOf(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections, traits?: TraitBoard) {
     const defended = withDefenseLoadout(state)
     if (!defended) return { defenseGpn: null }
@@ -722,9 +757,8 @@ export function defenseGpnOf(state: HqStateRow, shopLevels: Record<string, numbe
 
 /**
  * The live GPN as of `state`, for the platform leaderboard's Hero Quest column
- * (`tech-architecture.md` §3: recomputed on every settle). Defense GPN is not refreshed here:
- * the locked docs recompute it only when the defence is saved (`arena.md` §2), though the
- * defender's level and collection keep moving it between saves (`open-items.md` #52).
+ * (`tech-architecture.md` §3: recomputed on every settle). Defense GPN is not written here: it
+ * follows the account's progress, so it is worked out where it is shown (`defenseGpnOf`, issue #32).
  */
 function powerWrites(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections, traits?: TraitBoard) {
     return { globalPowerNumber: globalPower(heroSnapshotOf(state, shopLevels, collections, undefined, traits)).gpn.toString() }
@@ -971,7 +1005,7 @@ export function classPickWrites(state: HqStateRow, requested: string) {
 // formula it does not need. Decimals go out as strings and are formatted client-side by
 // `numbers.ts`.
 
-export function serializeRun(state: HqStateRow, hero: HeroSnapshot) {
+export function serializeRun(state: HqStateRow, hero: HeroSnapshot): HqRunPayload {
     const position = positionOf(state)
     const tenureDays = tenureDaysOf(state)
     /**
@@ -1028,12 +1062,15 @@ export function serializeRun(state: HqStateRow, hero: HeroSnapshot) {
         partyDps: dps.toString(),
         /** Amortized per enemy, so it stays comparable to `goldPerKill`. */
         secondsPerKill: Number.isFinite(spk) ? spk : null,
-        /** Seconds to clear a whole encounter — what the battle animation should cycle on. */
-        secondsPerPack: Number.isFinite(spk) ? spk * packSize(farmPack) : null,
-        /** Both already carry every Gold% and burst source, so the client never stacks them itself. */
-        goldPerKill: goldPerKill(farm.prestige, farm.world, farm.stage, tenureDays) * goldMultiplier,
+        /** Seconds to clear a whole encounter, for display: the projection walks `secondsPerKill`. */
+        secondsPerPack: Number.isFinite(spk) ? roundHq(spk * packSize(farmPack)) : null,
+        /**
+         * Both already carry every Gold% and burst source, so the client never stacks them itself.
+         * Shown only: the projection prices kills from `tenureDays` and `goldBonusPct`.
+         */
+        goldPerKill: roundHq(goldPerKill(farm.prestige, farm.world, farm.stage, tenureDays) * goldMultiplier),
         goldPerHour: Number.isFinite(spk) && spk > 0
-            ? (3600 / spk) * goldPerKill(farm.prestige, farm.world, farm.stage, tenureDays) * goldMultiplier
+            ? roundHq((3600 / spk) * goldPerKill(farm.prestige, farm.world, farm.stage, tenureDays) * goldMultiplier)
             : 0,
         /**
          * Account age in days, and whether it is the calendar or progress that currently caps
@@ -1058,7 +1095,7 @@ export function serializeRun(state: HqStateRow, hero: HeroSnapshot) {
     }
 }
 
-export function serializeHero(state: HqStateRow, hero: HeroSnapshot) {
+export function serializeHero(state: HqStateRow, hero: HeroSnapshot): HqHeroPayload {
     const node = getClass(hero.classId)
     const units = partyUnitStats(hero)
     const self = units[0]!
@@ -1072,7 +1109,8 @@ export function serializeHero(state: HqStateRow, hero: HeroSnapshot) {
         level: hero.heroLevel,
         xp: xp.toString(),
         xpToNextLevel: needed.toString(),
-        xpProgress: needed.lte(0) ? 0 : Math.min(1, xp.div(needed).toNumber()),
+        /** The bar's fill, shown only: the projection levels off `xp` and `xpToNextLevel`. */
+        xpProgress: needed.lte(0) ? 0 : roundHqFraction(Math.min(1, xp.div(needed).toNumber())),
         skills: kitFor(hero.classId, hero.ascendantSkillIds),
         /** Every unit's kit on its live cooldowns, as the fight times it: what the battle stage casts on. */
         kits: partyKits(hero, units),
@@ -1084,13 +1122,14 @@ export function serializeHero(state: HqStateRow, hero: HeroSnapshot) {
             // crit multiplier joined them when the stat block became Decimal — sending the
             // objects raw would serialize break_eternity's internals, not a number.
             spd: self.spd.toString(),
-            attacksPerSecond: self.attacksPerSecond,
+            // shown only: the battle stage times its swings by `kits`
+            attacksPerSecond: roundHq(self.attacksPerSecond),
             strikesPerAttack: self.strikesPerAttack,
-            /** A probability, genuinely a number — not a Decimal that needs stringifying. */
-            critChance: self.critChance,
+            /** A probability, shown as a percentage; the stage sizes its damage numbers by it. */
+            critChance: roundHqFraction(self.critChance),
             critMultiplier: self.critMultiplier.toString(),
-            /** Evasion Rate, a rate already clamped at `MAX_EVASION`. */
-            eva: self.eva
+            /** Evasion Rate, a rate already clamped at `MAX_EVASION`, shown as a percentage. */
+            eva: roundHqFraction(self.eva)
         },
         /**
          * The Global Power Number (`global-power-number.md`) and the two sums it is the geometric
@@ -1101,12 +1140,65 @@ export function serializeHero(state: HqStateRow, hero: HeroSnapshot) {
     }
 }
 
-function serializePower(hero: HeroSnapshot) {
+function serializePower(hero: HeroSnapshot): HqHeroPayload['power'] {
     const power = globalPower(hero)
     return {
         gpn: power.gpn.toString(),
         dps: power.dps.toString(),
         ehp: power.ehp.toString()
+    }
+}
+
+/** An offline window's rules as the welcome-back card shows them: the seconds and the efficiency rounded. */
+function serializeOfflineWindow(offline: OfflineWindow): OfflineWindow {
+    return {
+        ...offline,
+        cappedSeconds: roundHq(offline.cappedSeconds),
+        capSeconds: roundHq(offline.capSeconds),
+        boostedSeconds: roundHq(offline.boostedSeconds),
+        efficiency: roundHqFraction(offline.efficiency)
+    }
+}
+
+/**
+ * What a read's own settle banked, for the wire. Display only: the settle already wrote the exact
+ * figures down, so the Gold, kills and seconds go out rounded.
+ */
+export function serializeSettled(outcome: SettleOutcome): HqSettledPayload | null {
+    const { result } = outcome
+    if (!result) return null
+    return {
+        online: outcome.online,
+        kills: roundHq(result.kills),
+        goldEarned: roundHq(result.goldEarned),
+        xpEarned: result.xpEarned.toString(),
+        levelsGained: result.heroLevel - outcome.previousLevel,
+        heroLevel: result.heroLevel,
+        effectiveSeconds: roundHq(result.effectiveSeconds),
+        blockedAtBoss: result.blockedAtBoss,
+        wipedOnWave: result.wipedOnWave,
+        // the real time away, how the offline rules counted it, and where the run went
+        awaySeconds: roundHq(outcome.elapsedSeconds),
+        offline: result.offline ? serializeOfflineWindow(result.offline) : null,
+        from: outcome.previousPosition ?? result.position,
+        to: result.position
+    }
+}
+
+/**
+ * The welcome-back card for the wire. The stored report keeps its exact sums, since later windows
+ * merge into it (`mergeAwayReports`); only the copy sent is rounded.
+ */
+export function serializeAwayReport(report: HqAwayReport | null | undefined): HqAwayReport | null {
+    if (!report) return null
+    return {
+        ...report,
+        kills: roundHq(report.kills),
+        goldEarned: roundHq(report.goldEarned),
+        awaySeconds: roundHq(report.awaySeconds),
+        effectiveSeconds: roundHq(report.effectiveSeconds),
+        lostToCapSeconds: roundHq(report.lostToCapSeconds),
+        offline: serializeOfflineWindow(report.offline)
     }
 }
 
@@ -1118,10 +1210,20 @@ function serializePower(hero: HeroSnapshot) {
  * §5). Kept beside the other serializers rather than inside the route so the conversion lives
  * where a reader looking for "how do Hero Quest values cross the wire" will find it.
  */
-export function serializeStatExplanation(explained: StatsExplanation) {
+export function serializeStatExplanation(explained: StatsExplanation): HqStatsResponse {
+    const { pacing } = explained
     return {
         heroLevel: explained.heroLevel,
-        pacing: explained.pacing,
+        // shown only; growth factors keep four decimals, so 1.0392 still reads as +3.92%
+        pacing: {
+            statGrowthPerLevel: roundHqFraction(pacing.statGrowthPerLevel),
+            defenceGrowthPerLevel: roundHqFraction(pacing.defenceGrowthPerLevel),
+            enemyStepBase: roundHqFraction(pacing.enemyStepBase),
+            dpsStatExponent: roundHqFraction(pacing.dpsStatExponent),
+            stagesPerLevel: roundHqFraction(pacing.stagesPerLevel),
+            // JSON has no Infinity: a curve no level covers goes out as null
+            levelsPerStage: Number.isFinite(pacing.levelsPerStage) ? roundHq(pacing.levelsPerStage) : null
+        },
         units: explained.units.map(unit => ({
             label: unit.label,
             role: unit.role,
@@ -1132,7 +1234,7 @@ export function serializeStatExplanation(explained: StatsExplanation) {
                 label: stat.label,
                 tier: stat.tier,
                 final: stat.final.toString(),
-                stagesOfCurve: stat.stagesOfCurve,
+                stagesOfCurve: roundHq(stat.stagesOfCurve),
                 stages: stat.stages.map(stage => ({
                     id: stage.id,
                     label: stage.label,
@@ -1141,14 +1243,18 @@ export function serializeStatExplanation(explained: StatsExplanation) {
                     unbounded: stage.unbounded,
                     floored: stage.floored ?? false,
                     formula: stage.formula,
-                    parts: stage.parts
+                    // the base stage's parts are points, every later stage's a fraction (+0.3 = +30%)
+                    parts: stage.parts.map(part => ({
+                        label: part.label,
+                        amount: stage.id === 'base' ? roundHq(part.amount) : roundHqFraction(part.amount)
+                    }))
                 }))
             }))
         }))
     }
 }
 
-export function serializeShop(shopLevels: Record<string, number>) {
+export function serializeShop(shopLevels: Record<string, number>): HqShopTrackPayload[] {
     return SHOP_TRACKS.map(track => {
         const level = shopLevels[track.id] ?? 0
         return {
@@ -1595,13 +1701,16 @@ export interface TrainingPayload extends GachaCommonPayload {
     slotCount: number
     equippedSkillIds: string[]
     art: string
+    /** Hours of income banked in Gold, which scale the wealth-scaled Actives' hits; null when none is owned. */
+    wealthHours: number | null
     roster: TrainingRosterEntry[]
 }
 
 export function serializeTrainingGrounds(
     state: HqStateRow,
     collection: readonly HqCollectionRow[],
-    shopLevels: Record<string, number>
+    shopLevels: Record<string, number>,
+    wealthHours: number | null = null
 ): TrainingPayload {
     const owned = new Map(collection.map(row => [row.contentId, row]))
     const equipped = new Set(state.equippedSkillIds as string[])
@@ -1611,6 +1720,7 @@ export function serializeTrainingGrounds(
         slotCount: skillSlots(shopLevels),
         equippedSkillIds: state.equippedSkillIds as string[],
         art: trainingGroundsArt(state.heroNodeId as ClassId),
+        wealthHours,
         roster: SKILLS.map((definition) => {
             const row = owned.get(definition.id)
             // At the copy's own investment, or at a fresh 0★/Lv1 for one not yet owned — so a
@@ -1773,7 +1883,7 @@ export async function getLoadouts(userId: string, tx: DbExecutor = db) {
     return tx.select().from(hqLoadouts).where(eq(hqLoadouts.userId, userId))
 }
 
-export function serializeClassTree(state: HqStateRow) {
+export function serializeClassTree(state: HqStateRow): HqClassNodePayload[] {
     const seen = new Set(state.seenNodeIds as string[])
     const pickable = new Set(pickableClasses(state))
     return CLASS_NODES.map(node => ({
@@ -1794,7 +1904,7 @@ export function serializeClassTree(state: HqStateRow) {
  * The Ascendant as the Classes scene needs it: the masters prestiged with so far (its unlock), the
  * live picks, and every skill it can pick from, with whether that skill's class has been reached.
  */
-export function serializeAscendant(state: HqStateRow) {
+export function serializeAscendant(state: HqStateRow): HqAscendantPayload {
     const seen = new Set(state.seenNodeIds as string[])
     return {
         mastersPrestiged: mastersPrestiged(state),
@@ -1832,6 +1942,13 @@ export async function claimFreePull(
     const [locked] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
     if (!locked) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
 
+    // The clock was read before the lock: a claim that read it before midnight and queued behind one
+    // made after must not move the day back, or it would rebuild the map and hand today's allowance back.
+    const today = ladderDateKey(now)
+    if (locked.freePullDate !== null && locked.freePullDate > today) {
+        throw createError({ statusCode: 409, statusMessage: 'The day just turned over, try again' })
+    }
+
     const used = locked.freePullsUsedToday as Record<string, number>
     const claimedAt = locked.freePullClaimedAt as Record<string, string>
 
@@ -1853,7 +1970,6 @@ export async function claimFreePull(
         })
     }
 
-    const today = ladderDateKey(now)
     const [consumed] = await tx.update(hqState)
         .set({
             freePullDate: today,

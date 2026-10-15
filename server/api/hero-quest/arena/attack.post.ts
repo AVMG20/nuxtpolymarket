@@ -4,6 +4,7 @@ import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { getBalance } from '#server/utils/balance'
 import { settleHq } from '#server/utils/hero-quest'
 import { attackArena, ensureSeasonsClosed } from '#server/utils/hero-quest-arena'
+import { ARENA_ATTACK_BODY, readHqBody, type HqArenaRoundResponse } from '#server/utils/hero-quest-api'
 
 /**
  * Attack a candidate from the list (`arena.md` §1–§5), resolved server-side and seeded: the response
@@ -13,14 +14,10 @@ import { attackArena, ensureSeasonsClosed } from '#server/utils/hero-quest-arena
  * that has ended before a row is locked, so the Ratings this moves belong to the season they count
  * for. Attempts, Medals and both Ratings move under the two rows' locks (`attackArena`).
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqArenaRoundResponse> => {
     const userId = await requireUserId(event)
     await requireFeature(userId, 'arena')
-    const body = await readBody<{ slot?: unknown, opponent?: unknown }>(event)
-    const slot = Number(body?.slot)
-    if (!Number.isInteger(slot) || slot < 0) throw createError({ statusCode: 400, statusMessage: 'Pick an opponent from the list' })
-    if (typeof body?.opponent !== 'string') throw createError({ statusCode: 400, statusMessage: 'Pick an opponent from the list' })
-    const opponent = body.opponent
+    const { slot, opponent } = await readHqBody(event, ARENA_ATTACK_BODY)
 
     await settleHq(userId)
     const now = Date.now()

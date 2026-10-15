@@ -102,4 +102,21 @@ describe('scriptFight', () => {
         expect(beats[0]).toMatchObject({ side: 1, actor: 1, cast: true, skillId: 'skill_haste', hits: [] })
         expect(instants).toEqual([events[1]])
     })
+
+    it('tells a revive from a heal, and numbers each body\'s falls', () => {
+        const events: FightEvent[] = [
+            // a heal-over-time tick on a body still standing only mends it
+            { at: 1, kind: 'heal', enemyIndex: 0, onEnemy: true, damage: '1', remainingHp: '2' },
+            { at: 1, kind: 'attack', unitIndex: 0, enemyIndex: 0, damage: '2', remainingHp: '0' },
+            { at: 1, kind: 'enemy_down', enemyIndex: 0, remainingHp: '0' },
+            { at: 2, kind: 'heal', enemyIndex: 0, onEnemy: true, skillId: 'revive', damage: '5', remainingHp: '5' },
+            { at: 3, kind: 'attack', unitIndex: 0, enemyIndex: 0, damage: '5', remainingHp: '0' },
+            { at: 3, kind: 'enemy_down', enemyIndex: 0, remainingHp: '0' },
+            // the same index on the party's side is another body
+            { at: 3, kind: 'unit_down', unitIndex: 0, remainingHp: '0' }
+        ]
+        const { falls, revives } = scriptFight(events)
+        expect([...revives.entries()]).toEqual([[events[3], 1]])
+        expect([...falls.entries()]).toEqual([[events[2], 1], [events[5], 2], [events[6], 1]])
+    })
 })

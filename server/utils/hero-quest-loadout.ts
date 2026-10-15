@@ -33,6 +33,7 @@ import { isSkillId } from '#shared/utils/hero-quest/content/skills'
 import { isArtifactId } from '#shared/utils/hero-quest/content/artifacts'
 import type { GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { ClassId, FormationRow } from '#shared/utils/hero-quest/types'
+import type { HqLoadoutSessionPayload } from '#server/utils/hero-quest-api'
 
 type HqStateRow = typeof hqState.$inferSelect
 
@@ -304,7 +305,7 @@ export function serializeLoadoutPreferences(state: HqStateRow, rows: readonly { 
 }
 
 /** The open raid session as the client needs it: which target it is for and the slot it applied (null for none); null when none is open. */
-export function serializeLoadoutSession(state: HqStateRow) {
+export function serializeLoadoutSession(state: HqStateRow): HqLoadoutSessionPayload | null {
     const session = loadoutSessionOf(state.preRaidSnapshot)
     return session ? { target: session.target, slotIndex: session.slotIndex } : null
 }

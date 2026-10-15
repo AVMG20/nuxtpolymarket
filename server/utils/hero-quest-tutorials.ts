@@ -12,6 +12,7 @@ import { eq, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
 import { hqState } from '#server/database/schema'
 import type { HqStateRow } from '#server/utils/hero-quest'
+import type { HqTutorialsPayload } from '#server/utils/hero-quest-api'
 import {
     FALLEN_MARK,
     checkpointLabel,
@@ -47,7 +48,7 @@ export async function requireFeature(userId: string, feature: HqFeature, executo
 }
 
 /** What the stage needs: the open features, in the order they opened, and the tutorials seen. */
-export function serializeTutorials(state: HqStateRow) {
+export function serializeTutorials(state: HqStateRow): HqTutorialsPayload {
     return {
         unlocked: unlockedFeatures(unlockProgressOf(state)),
         seen: state.tutorialsSeen

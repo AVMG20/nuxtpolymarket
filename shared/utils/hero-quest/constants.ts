@@ -1035,13 +1035,29 @@ export const RAID_KEYS_PER_DAY = 3
 export const RAID_KEY_BANK_DAYS = 7
 
 /**
- * What a raid clear pays (§6), in the raid's own currency: `BASE × GROWTH^(level − 1)`.
+ * What a raid clear pays (§6), in the raid's own currency: `BASE × GROWTH^(level − 1)`, each raid
+ * on its own growth.
  *
  * Set by the user on 2026-10-04: 3 Seals at level 1 for the four Seal raids (three clears a day is
  * about one 10-pull), 10 Trait Gems for the Trait Raid (two cheap rolls; 100 since 2026-10-10), all +3%
- * a level. Kept
- * gentle because the ladder is slow to climb: a raid level costs a world of account growth, so
- * level 100 takes the power of about ten prestiges (`build-log.md`).
+ * a level. Kept gentle because the ladder is slow to climb: a raid level costs a world of account
+ * growth, so level 100 takes the power of about ten prestiges (`build-log.md`).
+ *
+ * The Trait Raid climbs +8% a level since 2026-10-15 (issue #34): at +3% its base of 100 went
+ * 100 → 123 from level 1 to 8, under five extra Rolls for seven levels. At +8% a level is +8 Gems
+ * (more than a Roll a clear) at level 1, and a prestige's ten levels about double a clear:
+ *
+ *     level        1    5    8   10   20   30     50       100
+ *     Gems/clear 100  136  171  200  432  932  4,343   203,682
+ *
+ * Against the Roll (5 Trait Gems, +5 a lock), simulated with a lock on every hit (2026-10-15): five
+ * A-or-better of any stat take ~7k Gems, five A-or-better ATK ~65k and five SS-or-better ATK ~450k.
+ * On three clears a day that is three weeks to the first at level 1, ~110 days to the second at
+ * level 10 and ~23 at level 30, and at level 50 the third in ~35 days. Trait Gems have no other
+ * sink, so the deep ladder ending the chase is the trade for an early ladder that shows. The
+ * calendar's Trait Gem days are sized off the level-1 reward (`calendarIncomePerDay`), which stays
+ * 100, so they stay 106–261 Gems: a third to most of a day of level-1 clears, a bonus beside a
+ * climbed ladder rather than a rival to it.
  */
 export const RAID_REWARD_BASE: Readonly<Record<string, number>> = {
     raid_guild: 3,
@@ -1056,7 +1072,8 @@ export const RAID_REWARD_GROWTH: Readonly<Record<string, number>> = {
     raid_training_grounds: 1.03,
     raid_dig_site: 1.03,
     raid_forge: 1.03,
-    raid_trait: 1.03
+    // its own since 2026-10-15 (#34): +3% read flat on a 100-Gem base, see above
+    raid_trait: 1.08
 }
 /**
  * The ladder's shape. `exponential` is the formula above; `stepped` pays `BASE` plus one more every
@@ -1085,6 +1102,14 @@ export const RAID_DUMMY_PACKS = 0.7 // TUNED ✓
 
 /** A raid boss's clock (§7 *Session Timer*): the fight is lost if the boss still stands when it runs out. */
 export const RAID_ENRAGE_SECONDS = 30 // UNTUNED ╧
+/*
+ * The raid multipliers below were tuned before the raid bosses had specials. Re-measured with them
+ * in (`RAID_BOSS_SPECIALS`, 2026-10-15, issue #36: the lowest level a party of three, or a Warrior
+ * party of five, clears raid levels 1–10 at, 6 of 8 seeds): the Knight needs 1–2% more levels from
+ * level 3 on (4–6% at level 2), the Forge 0–3% more, the Dig Site none, and the Beast reaches the
+ * same level within a quarter. No party wiped to a special. Within the margin of a level, so the
+ * multipliers stay as tuned.
+ */
 /**
  * The Gilded Knight: level L is the super boss of world L, alone (no escort), its HP and PWR
  * scaled by these, so the Knight's ladder climbs a world of account growth a level, as the
@@ -1285,8 +1310,14 @@ export const ARENA_SEASON_REWARDS: readonly { maxRank: number, medals: number }[
     { maxRank: Number.POSITIVE_INFINITY, medals: 100 }
 ]
 
-/** The battle log keeps this many entries per player (§8). Doc-specified. */
+/**
+ * The battle log keeps at most this many entries per player (§8), doc-specified, and none older than
+ * `ARENA_LOG_MAX_AGE_HOURS` (issue #29, 2026-10-15): the log is the last day's matches, never more
+ * than one page of them.
+ */
 export const ARENA_LOG_SIZE = 20
+/** How far back the battle log reaches (issue #29): older entries are cleared and never read. */
+export const ARENA_LOG_MAX_AGE_HOURS = 24
 /** The Rating leaderboard's top list (§9). Doc-specified. */
 export const ARENA_LEADERBOARD_TOP = 50
 /** Players shown either side of the viewer's own rank (§9's "nearby neighbors"). */
@@ -1294,20 +1325,21 @@ export const ARENA_LEADERBOARD_NEIGHBORS = 2 // locked 2026-10-11, the user's ca
 
 /**
  * The Arena Shop (§6): static prices, no ladder, no cap, and no Gold (the user's call, 2026-10-10). A
- * Seal is about a fifth of a day's Medals. A Seal raid's Key is priced at the Seals a clear of that
- * raid pays at `ARENA_SHOP_KEY_LEVEL`, at the Seal's own price (the user's call, 2026-10-10: a level-5
- * clear pays 3, so 90 Medals), so a Key is never a cheaper way to Seals than the Seals themselves.
- * The Trait raid pays Trait Gems, not Seals, and keeps its own price.
+ * Seal is about a fifth of a day's Medals. A Key quick-clears at the raid's best level, so for a deep
+ * raider it is the cheaper road to Seals; flat prices bound that by Medal income (#43). A Seal raid's
+ * Key matches the Seal item at a level-20 clear (5 Seals).
  */
 export const ARENA_SHOP_SEAL_PRICE = 30 // locked 2026-10-11, the user's call
-export const ARENA_SHOP_KEY_LEVEL = 5
-export const ARENA_SHOP_TRAIT_KEY_PRICE = 60 // locked 2026-10-11, the user's call
+export const ARENA_SHOP_SEAL_KEY_PRICE = 150 // locked 2026-10-15, the user's call
+export const ARENA_SHOP_TRAIT_KEY_PRICE = 90 // locked 2026-10-15, the user's call
 /**
  * Medals per Gem: a deliberately bad rate (§6). The calibration target is that a whole day's Medals
- * convert to meaningfully less than one Battle Speed block (`BATTLE_SPEED_ANCHOR_GEMS`, 250): at 5
- * a day's ~120–200 Medals buy 24–40 Gems, a tenth to a sixth of a block.
+ * convert to meaningfully less than one Battle Speed block (`BATTLE_SPEED_ANCHOR_GEMS`, 250): at 10
+ * a day's ~120–200 Medals buy 12–20 Gems, a twentieth to a twelfth of a block. Doubled from 5 on
+ * 2026-10-15 (the user's call, issue #30); at 5 the best upset win (60 Medals) bought back more
+ * Gems than the first extra attack cost.
  */
-export const ARENA_SHOP_GEM_PRICE = 5 // locked 2026-10-11, the user's call
+export const ARENA_SHOP_GEM_PRICE = 10 // locked 2026-10-15, the user's call
 /** The most of one item a single purchase takes, so a request cannot name an unbounded quantity. */
 export const ARENA_SHOP_MAX_QUANTITY = 100
 
@@ -1494,11 +1526,16 @@ export const MILESTONE_RAID_KEYS_STEP = 1 // locked 2026-10-11, the user's call
 
 /**
  * The Arena's track (the user's call, 2026-10-10): every this many Arena wins, lifetime, Training
- * Dummy wins included, pays Arena Medals, more each step.
+ * Dummy wins included, pays Arena Medals, more each step up to the cap.
  */
 export const MILESTONE_ARENA_WINS_EVERY = 10 // locked 2026-10-11, the user's call
 export const MILESTONE_ARENA_MEDALS_BASE = 50 // locked 2026-10-11, the user's call
 export const MILESTONE_ARENA_MEDALS_STEP = 25 // locked 2026-10-11, the user's call
+/**
+ * The most one Arena step pays, reached at the 11th (110 wins). Uncapped, a veteran's win was worth
+ * enough Medals to make bought extra attacks Gem-positive (#43).
+ */
+export const MILESTONE_ARENA_MEDALS_CAP = 300 // locked 2026-10-15, the user's call
 
 /** A collection's steps: every this many owned, and the full roster as the last. */
 export const MILESTONE_COLLECTION_EVERY = 6 // locked 2026-10-11, the user's call

@@ -211,7 +211,7 @@ export default defineEventHandler(async (event) => {
         aiPromptsUsed,
         heroQuestScore: heroQuest?.total ?? 0,
         heroQuestWorlds: heroQuest?.worlds ?? 0,
-        heroQuestEntries: heroQuest?.entries ?? 0,
+        heroQuestCollection: heroQuest?.collection ?? 0,
         heroQuestGpn: heroQuestGpnByUser.get(u.id) ?? null,
         battlerRunsWon: battler?.runsWon ?? 0,
         battlerRating: battlerRatingByUser.get(u.id) ?? null,

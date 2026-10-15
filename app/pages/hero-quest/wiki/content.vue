@@ -24,7 +24,7 @@ import {
 } from '#shared/utils/hero-quest/constants'
 import { RARITIES, RARITY_STAT_MULTIPLIER, investmentScalar } from '#shared/utils/hero-quest/gacha'
 import { championInvestmentMultiplier, partyUnitStats } from '#shared/utils/hero-quest/stats'
-import { ZERO, formatHq } from '#shared/utils/hero-quest/numbers'
+import { ZERO, formatHq, hqNumber } from '#shared/utils/hero-quest/numbers'
 import type { ClassId, HqStatKey, Rarity } from '#shared/utils/hero-quest/types'
 import type { ModifierKind } from '#shared/utils/hero-quest/modifiers'
 
@@ -37,22 +37,12 @@ import type { ModifierKind } from '#shared/utils/hero-quest/modifiers'
  * change.
  *
  * One roster at a time. Rendering all 200-odd entries at once is a page nobody scrolls, and the
- * chips double as the table of contents.
+ * wiki menu's Content group doubles as the table of contents, one `?roster=` link each.
  */
 
-type RosterKey = 'classes' | 'champions' | 'skills' | 'gear' | 'artifacts' | 'effects' | 'worlds'
-
-const rosters: readonly { key: RosterKey; label: string; count: number }[] = [
-    { key: 'classes', label: 'Classes', count: CLASS_NODES.length },
-    { key: 'champions', label: 'Champions', count: CHAMPIONS.length },
-    { key: 'skills', label: 'Skills', count: SKILLS.length },
-    { key: 'gear', label: 'Gear', count: GEAR.length },
-    { key: 'artifacts', label: 'Artifacts', count: ARTIFACTS.length },
-    { key: 'effects', label: 'Artifact effects', count: Object.values(ARTIFACT_EFFECT_POOL).flat().length },
-    { key: 'worlds', label: 'Worlds', count: WORLDS.length }
-]
-
-const active = ref<RosterKey>('classes')
+const route = useRoute()
+const active = computed(() => hqWikiRoster(route.query.roster))
+const activeRoster = computed(() => HQ_WIKI_ROSTERS.find(roster => roster.key === active.value)!)
 
 /** Rarity low→high, matching the collection grids, so the two read the same way. */
 function byRarity<T extends { rarity: string; name: string }>(entries: readonly T[]): T[] {
@@ -89,18 +79,18 @@ function line(kind: ModifierKind, stat: HqStatKey | undefined, low: number, high
 /** A Hero of this class at level 1, as the stat pipeline builds it. */
 function classStats(classId: ClassId) {
     const unit = partyUnitStats({ classId, heroLevel: 1, heroXp: ZERO, goldBonusPct: 0, offlineEfficiencyLevel: 0, offlineCapLevel: 0 })[0]!
-    return `PWR ${formatHq(unit.pwr)} · DEF ${formatHq(unit.def)} · HP ${formatHq(unit.maxHp)} · ${unit.attacksPerSecond.toFixed(2)} att/s · crit ${hqPercent(unit.critChance)} ×${Number(unit.critMultiplier.toNumber().toFixed(2))}`
+    return `PWR ${formatHq(unit.pwr)} · DEF ${formatHq(unit.def)} · HP ${formatHq(unit.maxHp)} · ${hqNumber(unit.attacksPerSecond)} att/s · crit ${hqPercent(unit.critChance)} ×${hqNumber(unit.critMultiplier.toNumber())}`
 }
 
 /** Cooldown and damage multiplier, rounded for reading; a utility ability has no multiplier to show. */
 function abilityNumbers(ability: { cooldownSeconds: number, abilityMultiplier: number }) {
-    const multiplier = ability.abilityMultiplier > 0 ? ` · ×${Number(ability.abilityMultiplier.toFixed(2))}` : ''
+    const multiplier = ability.abilityMultiplier > 0 ? ` · ×${hqNumber(ability.abilityMultiplier)}` : ''
     return `· ${Number(ability.cooldownSeconds.toFixed(1))}s${multiplier}`
 }
 
 function championStats(rarity: Rarity) {
     const at = (copy: typeof FRESH) => RARITY_STAT_MULTIPLIER[rarity] * championInvestmentMultiplier(investmentScalar(copy.star, copy.level))
-    return `×${Number(at(FRESH).toFixed(2))} → ×${Number(at(MAXED).toFixed(2))}`
+    return `×${hqNumber(at(FRESH))} → ×${hqNumber(at(MAXED))}`
 }
 
 /** A Passive's lines, or an Active's ability multiplier, fresh → maxed. */
@@ -113,7 +103,7 @@ function skillNumbers(id: string) {
     }
     const [fresh] = skillActives([{ contentId: id, ...FRESH }])
     const [maxed] = skillActives([{ contentId: id, ...MAXED }])
-    return fresh && maxed ? `×${Number(fresh.abilityMultiplier.toFixed(2))} → ×${Number(maxed.abilityMultiplier.toFixed(2))} damage` : ''
+    return fresh && maxed ? `×${hqNumber(fresh.abilityMultiplier)} → ×${hqNumber(maxed.abilityMultiplier)} damage` : ''
 }
 
 function gearNumbers(slot: Parameters<typeof equippedBonus>[0], rarity: Rarity) {
@@ -175,19 +165,10 @@ function parentName(parentId: string | null) {
       </p>
     </div>
 
-    <div class="flex flex-wrap gap-1">
-      <UButton
-        v-for="roster in rosters"
-        :key="roster.key"
-        size="xs"
-        :variant="active === roster.key ? 'solid' : 'ghost'"
-        :color="active === roster.key ? 'primary' : 'neutral'"
-        @click="active = roster.key"
-      >
-        {{ roster.label }}
-        <span class="opacity-60">{{ roster.count }}</span>
-      </UButton>
-    </div>
+    <h2 class="text-base font-semibold text-highlighted">
+      {{ activeRoster.label }}
+      <span class="text-muted font-normal">{{ activeRoster.count }}</span>
+    </h2>
 
     <p class="text-xs text-muted">
       Numbers run from a fresh copy to a maxed one ({{ climbLabel }}). Classes are shown at Hero level 1.
@@ -340,7 +321,7 @@ function parentName(parentId: string | null) {
               <span
                 v-if="entry.cooldownSeconds"
                 class="opacity-60"
-              >· {{ entry.cooldownSeconds }}s</span>
+              >· {{ hqNumber(entry.cooldownSeconds) }}s</span>
             </td>
             <td class="py-1.5 pl-3 text-muted">
               <div>{{ entry.lines.join(' · ') }}</div>

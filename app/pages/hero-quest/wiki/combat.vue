@@ -6,6 +6,7 @@ import {
     MIN_DAMAGE,
     K
 } from '#shared/utils/hero-quest/constants'
+import { hqPct } from '#shared/utils/hero-quest/numbers'
 import { ARCHETYPE_DEFINITIONS } from '#shared/utils/hero-quest/content/champions'
 
 /**
@@ -200,7 +201,7 @@ import { ARCHETYPE_DEFINITIONS } from '#shared/utils/hero-quest/content/champion
       </p>
       <HeroQuestWikiFormula
         label="Evasion ceiling"
-        :formula="`${MAX_EVASION * 100}% dodge, whatever the sources say`"
+        :formula="`${hqPct(MAX_EVASION)} dodge, whatever the sources say`"
       />
     </HeroQuestWikiSection>
   </div>

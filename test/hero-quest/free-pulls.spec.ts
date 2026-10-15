@@ -226,6 +226,21 @@ describe.skipIf(SKIP)('free pull claiming', () => {
         expect(message).toContain('min')
     })
 
+    it('never moves the day back for a claim that read the clock before midnight (issue #30)', async () => {
+        // queued behind a claim made after midnight: rebuilding the map on its older day would wipe
+        // today's counts and hand the allowance back, and rewind the date for every later claim
+        const tomorrow = nextDayResetAt(NOW)
+        await exhaustTodaysAllowance()
+        await db.transaction(tx => claimFreePull(tx, USER_ID, 'champion', tomorrow))
+
+        await expect(
+            db.transaction(tx => claimFreePull(tx, USER_ID, 'skill', NOW + COOLDOWN_MS * FREE_PULLS_PER_DAY))
+        ).rejects.toThrowError(expect.objectContaining({ statusCode: 409 }))
+        const state = await readState()
+        expect(state.freePullDate).toBe(ladderDateKey(tomorrow))
+        expect(state.freePullsUsedToday).toEqual({ champion: 1 })
+    })
+
     it('drops a stale day map instead of carrying other systems forward', async () => {
         // The route rebuilds the map on a rollover rather than spreading it. Spreading would
         // carry yesterday's Skill count into today and silently eat an allowance for a gacha

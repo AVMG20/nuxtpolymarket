@@ -1333,14 +1333,14 @@ export const hqState = pgTable('hq_state', {
   // taken in user-ID order when an attack holds two (`server/utils/hero-quest-arena.ts`).
 
   /**
-   * The stored defence (§1): the five Loadout components, apart from the live ones. Null until the
-   * player sets one, and a player without one is never drawn as a candidate.
+   * The stored defence (§1): the five Loadout components and the Trait board, apart from the live
+   * ones. Null until the player sets one, and a player without one is never drawn as a candidate.
    */
   defenseLoadout: jsonb('defense_loadout').$type<ArenaDefenseLoadout>(),
   /**
-   * Defense GPN (§2): the GPN of the party `defenseLoadout` fields, Decimal as text, for show.
-   * Written when the defence is saved, and only then: a defence that falls behind is the player's
-   * to set again (the user's call, 2026-10-10). Matchmaking reads the Rating, not this.
+   * Defense GPN (§2) as it stood when the defence was set, Decimal as text: a record only. The
+   * defence's stats follow the account (issue #32), so every screen works its GPN out afresh
+   * (`defenseGpnNow`). Matchmaking reads the Rating, not this.
    */
   defenseGpn: text('defense_gpn'),
   /**
@@ -1351,6 +1351,8 @@ export const hqState = pgTable('hq_state', {
   arenaRating: integer('arena_rating').notNull().default(1000),
   arenaSeasonId: integer('arena_season_id').notNull().default(0),
   arenaSeasonMatches: integer('arena_season_matches').notNull().default(0),
+  /** When a match last moved `arenaRating`: equal Ratings rank whoever reached theirs first (#43). Ordered on, never compared to. */
+  arenaRatingAt: timestamp('arena_rating_at'),
   /** Arena Medals (§5). Persist across seasons and prestige. */
   arenaMedals: integer('arena_medals').notNull().default(0),
   /** Arena attacks won, lifetime, Training Dummy wins included: the Arena milestone's feat. Never reset. */
@@ -1525,7 +1527,7 @@ export const hqRaidState = pgTable('hq_raid_state', {
   highestLevel: integer('highest_level').notNull().default(0),
   /** Starts with a day's Keys. */
   keyBalance: integer('key_balance').notNull().default(3),
-  /** The daily grant's clock: Keys for each whole day since, applied lazily (`raids.grantKeys`). */
+  /** The daily grant's clock: Keys for each UTC midnight since, applied lazily (`raids.grantKeys`). */
   lastKeyGrantAt: timestamp('last_key_grant_at').defaultNow().notNull()
 }, t => [
   uniqueIndex('hq_raid_state_user_raid_idx').on(t.userId, t.raidId),

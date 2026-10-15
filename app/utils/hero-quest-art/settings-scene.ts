@@ -56,7 +56,8 @@ const SECTIONS: readonly { title: string, rows: readonly Row[] }[] = [
             { id: 'reduceMotion', name: 'REDUCE MOTION', line: 'NO SCREEN SHAKE AND FEWER FLASHES.' },
             { id: 'fastReveals', name: 'FAST PULL REVEALS', line: 'A PULL SHOWS ITS CARDS AT ONCE, WITHOUT THE DEAL.' },
             { id: 'skillCinematics', name: 'SKILL CINEMATICS', line: 'THE HERO\'S SIGNATURE SKILL PLAYS ITS CINEMATIC.' },
-            { id: 'combatNumbers', name: 'COMBAT NUMBERS', line: 'DAMAGE, HEAL AND MISS NUMBERS OVER THE FIGHT.' }
+            { id: 'combatNumbers', name: 'COMBAT NUMBERS', line: 'DAMAGE, HEAL AND MISS NUMBERS OVER THE FIGHT.' },
+            { id: 'detailedDescriptions', name: 'DESCRIPTIONS', line: 'COLLECTIONS ITEMS IN SHORT, OR WITH EXACT FIGURES.' }
         ]
     },
     {
@@ -155,6 +156,9 @@ export class SettingsScene {
                     const size = id.slice(6) as HqStageSize
                     const on = view.stageSize === size
                     plateButton(s, ctrl, size === 'mid' ? 'MID' : size.toUpperCase(), on ? ON_PLATE : OFF_PLATE, enabled, lit, pressed)
+                } else if (id === 'detailedDescriptions') {
+                    const on = view.settings[id]
+                    plateButton(s, ctrl, on ? 'DETAILED' : 'SHORT', on ? ON_PLATE : OFF_PLATE, enabled, lit, pressed)
                 } else {
                     const on = view.settings[id]
                     plateButton(s, ctrl, on ? 'ON' : 'OFF', on ? ON_PLATE : OFF_PLATE, enabled, lit, pressed)

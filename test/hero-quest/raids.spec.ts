@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { RAIDS, paysEveryRun } from '#shared/utils/hero-quest/content/raids'
-import { RAID_KEY_CAP, damageDealt, dummyLevelFor, dummyThreshold, grantKeys, knightStats, nextRaidLevel, raidReward, forgeStats, rampageLevelReached, rampageStats, rampageThreshold, runDigSiteFight, runDummyRound, runForgeFight, runRampageFight } from '#shared/utils/hero-quest/raids'
+import { RAID_KEY_CAP, damageDealt, dummyLevelFor, dummyThreshold, grantKeys, knightStats, nextKeyGrantAt, nextRaidLevel, raidReward, forgeStats, rampageLevelReached, rampageStats, rampageThreshold, runDigSiteFight, runDummyRound, runForgeFight, runRampageFight } from '#shared/utils/hero-quest/raids'
 import { RAID_DIG_ADD_SECONDS, RAID_DIG_BURROWS, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_FORGE_HANDOFF_SECONDS, RAID_FORGE_KILL_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
 import { makeParty } from '../../scripts/hero-quest/sim'
 import { D, ZERO } from '#shared/utils/hero-quest/numbers'
@@ -35,18 +35,42 @@ describe('hero-quest raid rules', () => {
         expect(raidReward('raid_trait', 1)).toBe(100)
     })
 
-    it('grants a day of Keys for each whole day since the last grant, up to the bank, keeping its time of day', () => {
-        const day = 86_400_000
-        const at = Date.UTC(2026, 9, 4, 9)
-        expect(grantKeys(0, at, at + day - 1)).toEqual({ balance: 0, lastGrantAt: at })
-        expect(grantKeys(1, at, at + 2.5 * day)).toEqual({ balance: 7, lastGrantAt: at + 2 * day })
-        expect(grantKeys(20, at, at + 30 * day).balance).toBe(RAID_KEY_CAP)
+    it('climbs the Trait Raid on its own growth, so every level climbed shows on a clear', () => {
+        expect(raidReward('raid_trait', 8)).toBe(171)
+        expect(raidReward('raid_trait', 10)).toBe(200)
+        for (let level = 1; level < 30; level++) expect(raidReward('raid_trait', level + 1) - raidReward('raid_trait', level)).toBeGreaterThanOrEqual(8)
+        // the Seal raids keep theirs
+        expect(raidReward('raid_guild', 8)).toBe(Math.round(3 * 1.03 ** 7))
     })
 
-    it('stops the grant at the bank, but never takes Keys from elsewhere back down to it', () => {
+    describe('the daily Key grant at 00:00 UTC', () => {
         const day = 86_400_000
-        const at = Date.UTC(2026, 9, 4, 9)
-        expect(grantKeys(RAID_KEY_CAP + 5, at, at + 3 * day)).toEqual({ balance: RAID_KEY_CAP + 5, lastGrantAt: at + 3 * day })
+        const midnight = Date.UTC(2026, 9, 5)
+
+        it('pays nothing before midnight and a day of Keys just after it, moving the clock to the start of the day', () => {
+            const evening = midnight - 4 * 3_600_000
+            expect(grantKeys(0, evening, midnight - 1)).toEqual({ balance: 0, lastGrantAt: evening })
+            expect(grantKeys(0, evening, midnight + 1)).toEqual({ balance: 3, lastGrantAt: midnight })
+            // a whole day after the last grant, but no midnight crossed: nothing yet
+            expect(grantKeys(0, midnight + 1, midnight + day - 1)).toEqual({ balance: 0, lastGrantAt: midnight + 1 })
+        })
+
+        it('pays a day of Keys for each midnight crossed, however late in the day the last grant was', () => {
+            const at = midnight - 60_000
+            expect(grantKeys(1, at, midnight + 2 * day + 60_000)).toEqual({ balance: 10, lastGrantAt: midnight + 2 * day })
+            expect(grantKeys(20, at, at + 30 * day).balance).toBe(RAID_KEY_CAP)
+        })
+
+        it('stops the grant at the bank, but never takes Keys from elsewhere back down to it', () => {
+            expect(grantKeys(RAID_KEY_CAP - 1, midnight - 1, midnight + 3 * day)).toEqual({ balance: RAID_KEY_CAP, lastGrantAt: midnight + 3 * day })
+            expect(grantKeys(RAID_KEY_CAP + 5, midnight - 1, midnight + 3 * day)).toEqual({ balance: RAID_KEY_CAP + 5, lastGrantAt: midnight + 3 * day })
+        })
+
+        it('counts down to the next UTC midnight from any time of the day', () => {
+            expect(nextKeyGrantAt(midnight)).toBe(midnight + day)
+            expect(nextKeyGrantAt(midnight + day - 1)).toBe(midnight + day)
+            expect(nextKeyGrantAt(midnight - 1)).toBe(midnight)
+        })
     })
 
     it('starts every round at level 1 and needs a world more of damage for each level after', () => {

@@ -8,6 +8,7 @@ import {
     TRAIT_STAT_VALUES
 } from '#shared/utils/hero-quest/constants'
 import { TRAIT_GRADES, TRAIT_SETS, TRAIT_STATS, type TraitScope } from '#shared/utils/hero-quest/content/traits'
+import { hqNumber } from '#shared/utils/hero-quest/numbers'
 import type { TraitGrade } from '#shared/utils/hero-quest/types'
 
 /**
@@ -37,7 +38,7 @@ const GRADE_CLASS: Record<TraitGrade, string> = {
 }
 
 /** Percent figures, rounded off the float noise a running sum picks up. */
-const percent = (value: number) => `${Number(value.toFixed(2))}%`
+const percent = (value: number) => `${hqNumber(value)}%`
 
 const gradeRows = computed(() => TRAIT_GRADES.map((grade, index) => ({
     grade,

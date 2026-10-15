@@ -1,0 +1,98 @@
+/**
+ * The request bodies (`hero-quest-api.ts`, issue #27): each route reads its body through a schema,
+ * and a schema has to read exactly what the route's own checks used to, 400s included.
+ */
+import { describe, expect, it } from 'vitest'
+import {
+    ARENA_ATTACK_BODY,
+    ARENA_SHOP_BUY_BODY,
+    BUY_SEALS_BODY,
+    CALENDAR_CLAIM_BODY,
+    DEV_SET_BODY,
+    DEV_SKIP_BODY,
+    LOADOUT_APPLY_BODY,
+    LOADOUT_PREFERENCE_BODY,
+    LOADOUT_SAVE_BODY,
+    LOADOUT_SET_BODY,
+    PULL_BODY,
+    SETTING_BODY,
+    TRAIT_LOCK_BODY,
+    validateHqBody,
+    type BodySchema
+} from '#server/utils/hero-quest-api'
+
+function refusal<T>(body: unknown, schema: BodySchema<T>): string | null {
+    try {
+        validateHqBody(body, schema)
+        return null
+    } catch (error) {
+        return (error as { statusMessage?: string }).statusMessage ?? 'threw'
+    }
+}
+
+describe('hero-quest request bodies', () => {
+    it('reads a missing body as an empty one, and hands back only the declared fields', () => {
+        expect(validateHqBody(undefined, CALENDAR_CLAIM_BODY)).toEqual({ makeup: false })
+        expect(validateHqBody({ key: 'tutorials', value: false, extra: 1 }, SETTING_BODY)).toEqual({ key: 'tutorials', value: false })
+    })
+
+    it('answers the first broken field with its route\'s own 400', () => {
+        expect(refusal({}, ARENA_ATTACK_BODY)).toBe('Pick an opponent from the list')
+        expect(refusal({ slot: 0 }, ARENA_ATTACK_BODY)).toBe('Pick an opponent from the list')
+        expect(refusal({ key: 'nope', value: true }, SETTING_BODY)).toBe('Unknown setting')
+        expect(refusal({ system: 'nope' }, PULL_BODY)).toBe('Unknown gacha')
+        expect(refusal({ slotIndex: 9, locked: true }, TRAIT_LOCK_BODY)).toBe('Pick a Trait slot')
+        expect(refusal({ slotIndex: 0, locked: 'yes' }, TRAIT_LOCK_BODY)).toBe('Say whether to lock it')
+    })
+
+    it('takes an index sent as text, and rounds a fractional loadout slot down, as the routes always did', () => {
+        expect(validateHqBody({ slot: '2', opponent: 'x' }, ARENA_ATTACK_BODY)).toEqual({ slot: 2, opponent: 'x' })
+        expect(refusal({ slot: 1.5, opponent: 'x' }, ARENA_ATTACK_BODY)).toBe('Pick an opponent from the list')
+        expect(validateHqBody({ slotIndex: 2.7 }, LOADOUT_APPLY_BODY)).toEqual({ slotIndex: 2 })
+        expect(validateHqBody({ slotIndex: '1', locked: false }, TRAIT_LOCK_BODY)).toEqual({ slotIndex: 1, locked: false })
+        expect(refusal({ slotIndex: -1 }, LOADOUT_APPLY_BODY)).toBe('Pick a loadout slot')
+    })
+
+    it('fills a count left out or null with the route\'s default, and still bounds one that is sent', () => {
+        expect(validateHqBody({ system: 'gear' }, BUY_SEALS_BODY)).toEqual({ system: 'gear' })
+        expect(validateHqBody({ system: 'gear', count: null }, BUY_SEALS_BODY)).toEqual({ system: 'gear' })
+        expect(validateHqBody({ system: 'gear', count: 3.9 }, BUY_SEALS_BODY)).toEqual({ system: 'gear', count: 3 })
+        expect(refusal({ system: 'gear', count: 11 }, BUY_SEALS_BODY)).toBe('Buy between 1 and 10 Seals at a time')
+        expect(validateHqBody({ itemId: 'x', quantity: null }, ARENA_SHOP_BUY_BODY)).toEqual({ itemId: 'x' })
+        expect(refusal({ itemId: 'x', quantity: 0 }, ARENA_SHOP_BUY_BODY)).toMatch(/^Buy between 1 and/)
+    })
+
+    it('reads a flag as on only when it is true, and a pull as ten only when it asks for ten', () => {
+        expect(validateHqBody({ makeup: 'yes' }, CALENDAR_CLAIM_BODY)).toEqual({ makeup: false })
+        expect(validateHqBody({ makeup: true }, CALENDAR_CLAIM_BODY)).toEqual({ makeup: true })
+        expect(validateHqBody({ system: 'champion', count: 5, free: 1 }, PULL_BODY)).toEqual({ system: 'champion', count: 1, free: false })
+        expect(validateHqBody({ system: 'champion', count: 10 }, PULL_BODY)).toEqual({ system: 'champion', count: 10, free: false })
+    })
+
+    it('needs an auto-buy\'s price, as a number or as text', () => {
+        expect(validateHqBody({ system: 'skill', autoBuy: { maxGold: '250' } }, PULL_BODY).autoBuy).toEqual({ maxGold: 250 })
+        expect(refusal({ system: 'skill', autoBuy: {} }, PULL_BODY)).toBe('An auto-buy needs the price it was shown')
+        expect(refusal({ system: 'skill', autoBuy: null }, PULL_BODY)).toBe('An auto-buy needs the price it was shown')
+        expect(refusal({ system: 'skill', autoBuy: { maxGold: -1 } }, PULL_BODY)).toBe('An auto-buy needs the price it was shown')
+    })
+
+    it('names a loadout by default when the name is missing or not text, and points a raid at none with null', () => {
+        expect(validateHqBody({ slotIndex: 0, name: 42 }, LOADOUT_SAVE_BODY)).toEqual({ slotIndex: 0 })
+        expect(validateHqBody({ target: 'arena' }, LOADOUT_PREFERENCE_BODY)).toEqual({ target: 'arena', slotIndex: null })
+        expect(validateHqBody({ target: 'arena', slotIndex: '1' }, LOADOUT_PREFERENCE_BODY)).toEqual({ target: 'arena', slotIndex: 1 })
+        expect(refusal({ target: 'nope' }, LOADOUT_PREFERENCE_BODY)).toBe('Unknown raid')
+    })
+
+    it('lets a Gear slot be cleared with null, and leaves which pieces are legal to the loadout check', () => {
+        expect(validateHqBody({ gear: { weapon: null } }, LOADOUT_SET_BODY)).toEqual({ gear: { weapon: null } })
+        expect(validateHqBody({ formation: null }, LOADOUT_SET_BODY)).toEqual({ formation: null })
+        expect(refusal({ gear: [] }, LOADOUT_SET_BODY)).toBe('gear must be a slot → item map')
+        expect(refusal({ skillIds: [1] }, LOADOUT_SET_BODY)).toBe('skillIds must be an array of ids')
+    })
+
+    it('reads the playtest harness the loose way it always has', () => {
+        expect(validateHqBody({ world: '3', killCount: -2, bossLost: 1 }, DEV_SET_BODY)).toEqual({ world: 3, killCount: -2, bossLost: true })
+        expect(validateHqBody({ hours: null, mode: 'sideways' }, DEV_SKIP_BODY)).toEqual({ mode: 'offline' })
+        expect(refusal({ hours: 'soon' }, DEV_SKIP_BODY)).toBe('hours must be a positive number')
+    })
+})
