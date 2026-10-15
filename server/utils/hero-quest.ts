@@ -1832,6 +1832,13 @@ export async function claimFreePull(
     const [locked] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
     if (!locked) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
 
+    // The clock was read before the lock: a claim that read it before midnight and queued behind one
+    // made after must not move the day back, or it would rebuild the map and hand today's allowance back.
+    const today = ladderDateKey(now)
+    if (locked.freePullDate !== null && locked.freePullDate > today) {
+        throw createError({ statusCode: 409, statusMessage: 'The day just turned over, try again' })
+    }
+
     const used = locked.freePullsUsedToday as Record<string, number>
     const claimedAt = locked.freePullClaimedAt as Record<string, string>
 
@@ -1853,7 +1860,6 @@ export async function claimFreePull(
         })
     }
 
-    const today = ladderDateKey(now)
     const [consumed] = await tx.update(hqState)
         .set({
             freePullDate: today,
