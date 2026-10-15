@@ -70,6 +70,7 @@ import { hitsParty, scriptFight, type Beat, type FightScript } from './fight-scr
 import type { FightEvent } from '../../../shared/utils/hero-quest/fight'
 import { D, ZERO, type Decimal } from '../../../shared/utils/hero-quest/numbers'
 import { dummyLevelFor, dummyThreshold, landsOnEnemy, rampageThreshold } from '../../../shared/utils/hero-quest/raids'
+import { raidBossSpecials } from '../../../shared/utils/hero-quest/content/boss-specials'
 import { attackIntervalFor } from '../../../shared/utils/hero-quest/combat'
 import { BOSS_SPECIAL_COOLDOWN_SECONDS, BOSS_TIMER_SECONDS, MIN_ATTACK_INTERVAL_SECONDS, RAID_DIG_BURROWS, RAID_FORGE_KILL_SECONDS, SUPER_BOSS_STAGE } from '../../../shared/utils/hero-quest/constants'
 
@@ -1588,9 +1589,25 @@ export class BattleDemo {
         return impact + Math.max(0.12, Math.abs(tgt.x + tgt.ox - u.x - u.ox) / SHOT_SPEED[u.shot.kind])
     }
 
-    /** The special a logged beat plays: a boss's cast, at a gate whose boss has one. */
+    /** The special a logged beat plays: a boss's cast, at a gate whose boss has one, or a raid boss's own. */
     private specialFor(b: Beat): BossSpecial | null {
-        return b.side === 1 && b.cast ? this.runSpecial : null
+        if (b.side !== 1 || !b.cast) return null
+        if (!this.raidRound) return this.runSpecial
+        const pick = this.raidSpecialOf(b)
+        return pick ? this.raid!.specials[pick.k]![pick.n]! : null
+    }
+
+    /**
+     * Which raid boss's special a logged cast is: its table (the Forge boss the log names, else the
+     * one up) and its place in that boss's list, read off the shared `raidBossSpecials`, which keeps
+     * the art's order. Null for a cast with no art.
+     */
+    private raidSpecialOf(b: Beat): { k: number, n: number } | null {
+        const r = this.raid
+        if (!r || !b.skillId) return null
+        const k = r.id === 'forge' ? b.actor : r.at
+        const n = raidBossSpecials(`raid_${r.id}`, r.id === 'forge' ? k : 0).findIndex(def => def.id === b.skillId)
+        return n >= 0 && r.specials[k]?.[n] ? { k, n } : null
     }
 
     /** The replay's clock: start the swings whose time has come, land what is due, close at the end. */
@@ -1621,13 +1638,25 @@ export class BattleDemo {
             const special = this.specialFor(b)
             if (special) {
                 u.beat = null
+                // a raid boss plays it on that special's own body, in its Cast slot
+                const pick = this.raidRound ? this.raidSpecialOf(b) : null
+                if (pick) {
+                    if (!this.baked(pick.k)) this.finishBaking(pick.k)
+                    u.frames = this.raid!.spTables[pick.k]![pick.n]!
+                }
                 this.startSpecial(special, u, b)
                 continue
             }
             // the Hero's cinematic for a damaging cast: the ability's own, else the class skill's;
             // a special playing keeps the stage
             const cine = this.cinematics && b.cast && b.side === 0 && b.actor === 0 && b.hits.length ? (b.skillId ? CINEMATIC_BY_ID[b.skillId] : null) ?? this.heroCine : null
-            if (cine && !this.cine?.beat) this.startCine(cine, u)
+            if (cine && !this.cine?.beat) {
+                this.startCine(cine, u)
+                // in a replay the cinematic is only the flourish: the logged hits, and the deaths they
+                // cause, still land at the clip's impact. Left fired, the beat was held until the Hero's
+                // next swing, and a skill that ended the fight never brought its victims down.
+                u.fired = false
+            }
         }
         for (let k = rp.late.length - 1; k >= 0; k--) {
             if (rp.late[k]!.at > rp.clock) continue

@@ -38,6 +38,21 @@ export async function lockRaid(tx: DbExecutor, userId: string, raidId: RaidId, n
     return { row, keys: granted.balance, lastKeyGrantAt: new Date(granted.lastGrantAt) }
 }
 
+/**
+ * Add Keys from elsewhere (the calendar, a milestone, the Arena Shop) to a raid: under its row's
+ * lock, on top of the grant owed since the last visit, which is applied and written with them, so a
+ * reward never lands first and leaves the grant nothing to fill (§3). The Keys may stand above
+ * `RAID_KEY_CAP`: the cap only stops the daily grant, and a reward is never silently cut to it.
+ */
+export async function addRaidKeys(tx: DbExecutor, userId: string, raidId: RaidId, amount: number, now = Date.now()): Promise<number> {
+    const raid = await lockRaid(tx, userId, raidId, now)
+    const keys = raid.keys + amount
+    await tx.update(hqRaidState)
+        .set({ keyBalance: keys, lastKeyGrantAt: raid.lastKeyGrantAt })
+        .where(eq(hqRaidState.id, raid.row.id))
+    return keys
+}
+
 function assertOpen(raidId: RaidId): void {
     if (!RAIDS_OPEN.has(raidId)) throw createError({ statusCode: 400, statusMessage: `${getRaid(raidId).name} opens later` })
 }
@@ -154,13 +169,22 @@ export async function quickClearRaid(tx: DbExecutor, userId: string, raidId: Rai
 /**
  * Every raid as the client shows it: its Keys with the grant applied as of now (read only; the
  * grant is written by the next entry), when the next day's arrive, its best, and what that pays.
+ *
+ * With `open` (the raids feature unlocked), a raid never visited gets its row first, so its grant
+ * clock starts the first time the player can see it and it accrues from then like any other,
+ * rather than showing a fresh day's Keys on every read. The insert is a no-op once the row is there.
  */
-export async function serializeRaids(userId: string, executor: DbExecutor = db) {
+export async function serializeRaids(userId: string, executor: DbExecutor = db, open = false) {
+    if (open) {
+        await executor.insert(hqRaidState)
+            .values(RAIDS.map(raid => ({ userId, raidId: raid.id })))
+            .onConflictDoNothing()
+    }
     const rows = await executor.select().from(hqRaidState).where(eq(hqRaidState.userId, userId))
     const now = Date.now()
     return RAIDS.map((raid) => {
         const row = rows.find(r => r.raidId === raid.id)
-        // a raid never visited has a day's Keys and its grant clock starts now
+        // before the raids open: a day's Keys, waiting for the row the first open read creates
         const granted = row ? grantKeys(row.keyBalance, row.lastKeyGrantAt.getTime(), now) : { balance: RAID_KEYS_PER_DAY, lastGrantAt: now }
         const best = row?.highestLevel ?? 0
         return {
@@ -168,6 +192,7 @@ export async function serializeRaids(userId: string, executor: DbExecutor = db) 
             open: RAIDS_OPEN.has(raid.id),
             keys: granted.balance,
             keyCap: RAID_KEY_CAP,
+            /** The next UTC midnight, the same for every raid; null at the cap. */
             nextKeyAt: granted.balance >= RAID_KEY_CAP ? null : nextKeyGrantAt(granted.lastGrantAt),
             best,
             /** What a quick-clear of the best pays; 0 before a first round. */

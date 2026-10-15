@@ -27,7 +27,8 @@ import { hqSettingsOf } from '#shared/utils/hero-quest/settings'
 import { serializeRaids } from '#server/utils/hero-quest-raids'
 import { calendarGoldPerHour, serializeCalendar } from '#server/utils/hero-quest-calendar'
 import { serializeHqMilestones } from '#server/utils/hero-quest-milestones'
-import { serializeTutorials } from '#server/utils/hero-quest-tutorials'
+import { serializeTutorials, unlockProgressOf } from '#server/utils/hero-quest-tutorials'
+import { featureUnlocked } from '#shared/utils/hero-quest/tutorials'
 import { getHolidayClaims, serializeHolidays } from '#server/utils/hero-quest-holidays'
 import { serializeLoadoutPreferences, serializeLoadoutSession } from '#server/utils/hero-quest-loadout'
 import { ensureSeasonsClosed, serializeArena, unclaimedSeasons } from '#server/utils/hero-quest-arena'
@@ -117,7 +118,8 @@ export default defineEventHandler(async (event) => {
         getTraitSaves(userId),
         getLoadouts(userId),
         getBalance(userId),
-        serializeRaids(userId),
+        // once the raids are open, a raid never visited gets its row, so its daily Keys accrue
+        serializeRaids(userId, undefined, featureUnlocked('raids', unlockProgressOf(state))),
         getHolidayClaims(userId),
         unclaimedSeasons(userId)
     ])

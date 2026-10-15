@@ -26,11 +26,11 @@
 
 import { and, desc, eq, gt, inArray, isNotNull, ne, notInArray, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { hqArenaLog, hqArenaSeasonResults, hqArenaSeasons, hqFights, hqRaidState, hqState, user } from '#server/database/schema'
+import { hqArenaLog, hqArenaSeasonResults, hqArenaSeasons, hqFights, hqState, user } from '#server/database/schema'
 import { creditGems, debitGems } from '#server/utils/balance'
 import { defenseGpnOf, getCollections, getShopLevels, getTraitBoard, heroSnapshotOf, loadoutSnapshotOf, positionOf, restoreLoadoutSession, sealGrant, withDefenseLoadout, type HqCollectionRow, type HqCollections, type HqStateRow } from '#server/utils/hero-quest'
 import { engageLoadout, validateLiveLoadout, type LoadoutInput } from '#server/utils/hero-quest-loadout'
-import { lockRaid } from '#server/utils/hero-quest-raids'
+import { addRaidKeys } from '#server/utils/hero-quest-raids'
 import {
     ARENA_DUMMY_ID,
     arenaSeasonAt,
@@ -587,12 +587,7 @@ export async function buyFromShop(tx: DbExecutor, userId: string, itemId: unknow
     // The grant owed since the last visit is applied and written first, as a raid entry does, so the
     // Keys bought land on top of it. Bought Keys may stand above `RAID_KEY_CAP`: the cap only stops
     // the daily grant (`grantKeys`), and a purchase is never silently cut to it.
-    if (item.kind === 'keys') {
-        const raid = await lockRaid(tx, userId, item.raid, Date.now())
-        await tx.update(hqRaidState)
-            .set({ keyBalance: raid.keys + count, lastKeyGrantAt: raid.lastKeyGrantAt })
-            .where(eq(hqRaidState.id, raid.row.id))
-    }
+    if (item.kind === 'keys') await addRaidKeys(tx, userId, item.raid, count)
 
     const [spent] = await tx.update(hqState)
         .set({

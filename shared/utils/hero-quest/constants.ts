@@ -1035,13 +1035,29 @@ export const RAID_KEYS_PER_DAY = 3
 export const RAID_KEY_BANK_DAYS = 7
 
 /**
- * What a raid clear pays (§6), in the raid's own currency: `BASE × GROWTH^(level − 1)`.
+ * What a raid clear pays (§6), in the raid's own currency: `BASE × GROWTH^(level − 1)`, each raid
+ * on its own growth.
  *
  * Set by the user on 2026-10-04: 3 Seals at level 1 for the four Seal raids (three clears a day is
  * about one 10-pull), 10 Trait Gems for the Trait Raid (two cheap rolls; 100 since 2026-10-10), all +3%
- * a level. Kept
- * gentle because the ladder is slow to climb: a raid level costs a world of account growth, so
- * level 100 takes the power of about ten prestiges (`build-log.md`).
+ * a level. Kept gentle because the ladder is slow to climb: a raid level costs a world of account
+ * growth, so level 100 takes the power of about ten prestiges (`build-log.md`).
+ *
+ * The Trait Raid climbs +8% a level since 2026-10-15 (issue #34): at +3% its base of 100 went
+ * 100 → 123 from level 1 to 8, under five extra Rolls for seven levels. At +8% a level is +8 Gems
+ * (more than a Roll a clear) at level 1, and a prestige's ten levels about double a clear:
+ *
+ *     level        1    5    8   10   20   30     50       100
+ *     Gems/clear 100  136  171  200  432  932  4,343   203,682
+ *
+ * Against the Roll (5 Trait Gems, +5 a lock), simulated with a lock on every hit (2026-10-15): five
+ * A-or-better of any stat take ~7k Gems, five A-or-better ATK ~65k and five SS-or-better ATK ~450k.
+ * On three clears a day that is three weeks to the first at level 1, ~110 days to the second at
+ * level 10 and ~23 at level 30, and at level 50 the third in ~35 days. Trait Gems have no other
+ * sink, so the deep ladder ending the chase is the trade for an early ladder that shows. The
+ * calendar's Trait Gem days are sized off the level-1 reward (`calendarIncomePerDay`), which stays
+ * 100, so they stay 106–261 Gems: a third to most of a day of level-1 clears, a bonus beside a
+ * climbed ladder rather than a rival to it.
  */
 export const RAID_REWARD_BASE: Readonly<Record<string, number>> = {
     raid_guild: 3,
@@ -1056,7 +1072,8 @@ export const RAID_REWARD_GROWTH: Readonly<Record<string, number>> = {
     raid_training_grounds: 1.03,
     raid_dig_site: 1.03,
     raid_forge: 1.03,
-    raid_trait: 1.03
+    // its own since 2026-10-15 (#34): +3% read flat on a 100-Gem base, see above
+    raid_trait: 1.08
 }
 /**
  * The ladder's shape. `exponential` is the formula above; `stepped` pays `BASE` plus one more every
@@ -1085,6 +1102,14 @@ export const RAID_DUMMY_PACKS = 0.7 // TUNED ✓
 
 /** A raid boss's clock (§7 *Session Timer*): the fight is lost if the boss still stands when it runs out. */
 export const RAID_ENRAGE_SECONDS = 30 // UNTUNED ╧
+/*
+ * The raid multipliers below were tuned before the raid bosses had specials. Re-measured with them
+ * in (`RAID_BOSS_SPECIALS`, 2026-10-15, issue #36: the lowest level a party of three, or a Warrior
+ * party of five, clears raid levels 1–10 at, 6 of 8 seeds): the Knight needs 1–2% more levels from
+ * level 3 on (4–6% at level 2), the Forge 0–3% more, the Dig Site none, and the Beast reaches the
+ * same level within a quarter. No party wiped to a special. Within the margin of a level, so the
+ * multipliers stay as tuned.
+ */
 /**
  * The Gilded Knight: level L is the super boss of world L, alone (no escort), its HP and PWR
  * scaled by these, so the Knight's ladder climbs a world of account growth a level, as the

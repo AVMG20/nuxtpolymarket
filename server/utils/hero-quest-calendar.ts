@@ -10,10 +10,11 @@
 
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import type { DbExecutor } from '#server/database'
-import { hqRaidState, hqState } from '#server/database/schema'
+import { hqState } from '#server/database/schema'
 import { credit, creditGems } from '#server/utils/balance'
 import { bankedGoldOf, getCollections, getShopLevels, getTraitBoard, heroSnapshotOf, positionOf, sealGrant, tenureDaysOf, type HqStateRow } from '#server/utils/hero-quest'
-import { RAID_KEYS_PER_DAY, type CalendarReward } from '#shared/utils/hero-quest/constants'
+import { addRaidKeys } from '#server/utils/hero-quest-raids'
+import type { CalendarReward } from '#shared/utils/hero-quest/constants'
 import { CALENDAR_REWARDS, calendarAfterClaim, calendarClaimDay, calendarCycle, calendarReward, type CalendarStored } from '#shared/utils/hero-quest/calendar'
 import { goldPerHourAt } from '#shared/utils/hero-quest/settle'
 import { D, fromStore, toStore } from '#shared/utils/hero-quest/numbers'
@@ -80,15 +81,8 @@ export async function claimCalendar(tx: DbExecutor, userId: string, makeup: bool
     const amount = calendarPayout(reward, goldPerHour)
 
     // Keys before the swap: a raid entry takes its raid row before hq_state, so this keeps that order.
-    // A raid never visited starts with a day's Keys, as `lockRaid` would create it.
-    if (reward.kind === 'keys') {
-        await tx.insert(hqRaidState)
-            .values({ userId, raidId: reward.raid, keyBalance: RAID_KEYS_PER_DAY + reward.amount })
-            .onConflictDoUpdate({
-                target: [hqRaidState.userId, hqRaidState.raidId],
-                set: { keyBalance: sql`${hqRaidState.keyBalance} + ${reward.amount}` }
-            })
-    }
+    // They go on under the raid row's lock, on top of the daily grant owed (`addRaidKeys`).
+    if (reward.kind === 'keys') await addRaidKeys(tx, userId, reward.raid, reward.amount, now)
 
     const paid = reward.kind === 'seals'
         ? sealGrant(reward.system, reward.amount)

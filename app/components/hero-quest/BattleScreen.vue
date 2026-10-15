@@ -7,6 +7,7 @@ import { GEAR_SLOTS, GEAR_SLOT_NAME } from '#shared/utils/hero-quest/content/gea
 import { ARENA_FIGHT_SECONDS, AUTO_ENGAGE_REPLAY_HOLD_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, MAX_ARTIFACT_SLOTS, MAX_CHAMPION_SLOTS, MAX_OFFLINE_CAP_LEVEL, MAX_OFFLINE_EFFICIENCY_LEVEL, MAX_SKILL_SLOTS, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
 import { ARENA_SHOP } from '#shared/utils/hero-quest/arena'
 import { getRaid } from '#shared/utils/hero-quest/content/raids'
+import { grantKeys, nextKeyGrantAt } from '#shared/utils/hero-quest/raids'
 import type { ArenaBoardRow, ArenaFace, ArenaItemView, ArenaResultView, ArenaTarget, ArenaView } from '~/utils/hero-quest-art/arena-scene'
 import { partyStatsView, type PartyStatsPayload, type PartyStatsView } from '~/utils/hero-quest-art/party-stats'
 import type { CollectionAction, CollectionLine, CollectionSection, CollectionTile, DetailButton } from '~/utils/hero-quest-art/collections-scene'
@@ -616,21 +617,28 @@ async function onGachaAction(system: GachaSystemId, button: GachaButton) {
 
 /**
  * The Raids scene's rows: each raid's Keys, how long until more come, and its best. The countdown
- * reads the shared clock, so it ticks without a payload.
+ * reads the shared clock, so it ticks without a payload; once it passes midnight the day's Keys go
+ * on here with the server's own `grantKeys`, rather than sitting at 00:00 until the next read.
  */
 const raidClock = useHqClock()
-const raidRows = computed<RaidRowView[]>(() => (raids.value ?? []).map(r => ({
-    id: r.id as RaidId,
-    open: r.open,
-    loadout: preferredName(r.id),
-    loadoutSlot: preferredName(r.id) === null ? null : loadoutPreferences.value[r.id] ?? null,
-    loadoutLive: loadoutSession.value?.target === r.id && loadoutSession.value.slotIndex !== null,
-    keys: r.keys,
-    keyCap: r.keyCap,
-    nextKeys: r.nextKeyAt === null ? null : countdown(r.nextKeyAt - raidClock.value),
-    best: r.best,
-    bestReward: r.bestReward
-})))
+const raidRows = computed<RaidRowView[]>(() => (raids.value ?? []).map((r) => {
+    const due = r.nextKeyAt !== null && raidClock.value >= r.nextKeyAt
+    // the payload's Keys are as of the day before `nextKeyAt`: grant from there to now
+    const keys = due ? grantKeys(r.keys, r.nextKeyAt! - 1, raidClock.value).balance : r.keys
+    const nextKeyAt = r.nextKeyAt === null || keys >= r.keyCap ? null : due ? nextKeyGrantAt(raidClock.value) : r.nextKeyAt
+    return {
+        id: r.id as RaidId,
+        open: r.open,
+        loadout: preferredName(r.id),
+        loadoutSlot: preferredName(r.id) === null ? null : loadoutPreferences.value[r.id] ?? null,
+        loadoutLive: loadoutSession.value?.target === r.id && loadoutSession.value.slotIndex !== null,
+        keys,
+        keyCap: r.keyCap,
+        nextKeys: nextKeyAt === null ? null : countdown(nextKeyAt - raidClock.value),
+        best: r.best,
+        bestReward: r.bestReward
+    }
+}))
 
 /** The name of the saved slot a raid points at, or null with none. */
 function preferredName(target: string): string | null {

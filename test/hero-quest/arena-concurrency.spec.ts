@@ -368,7 +368,7 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
 
             const row = await raidRow()
             expect(row.keyBalance).toBe(RAID_KEY_CAP + 10)
-            // the grant clock moved on by the days paid, keeping its time of day
+            // the grant clock moved on to the start of today
             expect(Date.now() - row.lastKeyGrantAt.getTime()).toBeLessThan(DAY)
         })
 
