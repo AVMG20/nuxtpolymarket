@@ -63,27 +63,34 @@ export function raidReward(raid: RaidId, level: number, shape: 'exponential' | '
 /** How many Keys a raid can bank. */
 export const RAID_KEY_CAP = RAID_KEYS_PER_DAY * RAID_KEY_BANK_DAYS
 
+/** The UTC day a moment falls on, counted from the epoch. */
+function utcDay(at: number): number {
+    return Math.floor(at / DAY_MS)
+}
+
 /**
- * The daily Key grant, applied lazily (§3): a day's Keys for every whole day since the last grant,
- * up to the bank. The grant clock advances by the days granted, keeping its time of day, so a read
- * never loses the part-day toward the next grant; at the cap it simply moves on.
+ * The daily Key grant, applied lazily (§3): a day's Keys for every UTC midnight crossed since the
+ * last grant, up to the bank. Only the day the clock falls on counts, so every raid turns over at
+ * 00:00 UTC with the rest of the game's daily counters (the calendar, the Seal ladder, the Arena's
+ * attacks), not 24h after its own last visit. A grant moves the clock to the start of today; at the
+ * cap it simply moves on.
  *
  * The cap stops the grant, nothing else: Keys from elsewhere (a reward, an event) can stand above it,
  * and the grant then adds nothing rather than taking them back down to it.
  */
 export function grantKeys(balance: number, lastGrantAt: number, now: number): { balance: number, lastGrantAt: number } {
-    const days = Math.max(0, Math.floor((now - lastGrantAt) / DAY_MS))
+    const days = Math.max(0, utcDay(now) - utcDay(lastGrantAt))
     if (days === 0) return { balance, lastGrantAt }
     const held = Math.max(0, balance)
     return {
         balance: held >= RAID_KEY_CAP ? held : Math.min(RAID_KEY_CAP, held + days * RAID_KEYS_PER_DAY),
-        lastGrantAt: lastGrantAt + days * DAY_MS
+        lastGrantAt: utcDay(now) * DAY_MS
     }
 }
 
-/** When the next day's Keys arrive. */
+/** When the next day's Keys arrive: the UTC midnight after the grant clock, the same for every raid. */
 export function nextKeyGrantAt(lastGrantAt: number): number {
-    return lastGrantAt + DAY_MS
+    return (utcDay(lastGrantAt) + 1) * DAY_MS
 }
 
 // ── The Training Grounds dummy ─────────────────────────────────────────────────────

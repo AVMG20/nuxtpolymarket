@@ -14,7 +14,7 @@ import type { DbExecutor } from '#server/database'
 import { hqCollection, hqRaidState, hqState } from '#server/database/schema'
 import { creditGems } from '#server/utils/balance'
 import { sealGrant, type HqStateRow } from '#server/utils/hero-quest'
-import { RAID_KEYS_PER_DAY } from '#shared/utils/hero-quest/constants'
+import { addRaidKeys } from '#server/utils/hero-quest-raids'
 import { GACHA_SYSTEMS, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
 import {
@@ -90,15 +90,8 @@ export async function claimMilestones(tx: DbExecutor, userId: string, trackId: s
     }
 
     // Keys before the swap: a raid entry takes its raid row before hq_state, so this keeps that order.
-    // A raid never visited starts with a day's Keys, as `lockRaid` would create it.
-    for (const [raid, amount] of keys) {
-        await tx.insert(hqRaidState)
-            .values({ userId, raidId: raid, keyBalance: RAID_KEYS_PER_DAY + amount })
-            .onConflictDoUpdate({
-                target: [hqRaidState.userId, hqRaidState.raidId],
-                set: { keyBalance: sql`${hqRaidState.keyBalance} + ${amount}` }
-            })
-    }
+    // They go on under the raid row's lock, on top of the daily grant owed (`addRaidKeys`).
+    for (const [raid, amount] of keys) await addRaidKeys(tx, userId, raid, amount)
 
     const patch = Object.fromEntries(rows.map(r => [r.id, r.reached]))
     const guards: SQL[] = rows.map(r => sql`coalesce((${hqState.milestonesClaimed} ->> ${r.id})::int, 0) = ${r.claimed}`)

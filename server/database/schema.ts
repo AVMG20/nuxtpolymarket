@@ -1525,7 +1525,7 @@ export const hqRaidState = pgTable('hq_raid_state', {
   highestLevel: integer('highest_level').notNull().default(0),
   /** Starts with a day's Keys. */
   keyBalance: integer('key_balance').notNull().default(3),
-  /** The daily grant's clock: Keys for each whole day since, applied lazily (`raids.grantKeys`). */
+  /** The daily grant's clock: Keys for each UTC midnight since, applied lazily (`raids.grantKeys`). */
   lastKeyGrantAt: timestamp('last_key_grant_at').defaultNow().notNull()
 }, t => [
   uniqueIndex('hq_raid_state_user_raid_idx').on(t.userId, t.raidId),
