@@ -107,6 +107,8 @@ Fight duration itself is bounded by `RAID_ENRAGE_SECONDS` (Section 7) for three 
 raidRewardGranted(raidLevel) = RAID_REWARD_BASE[raid] × RAID_REWARD_GROWTH[raid]^(raidLevel - 1)
 ```
 
+**The Trait Raid climbs on its own growth, 1.08 (2026-10-15, issue #34);** the four Seal raids stay at 1.03. At 1.03 a level 8 clear paid 123 Trait Gems against 100 at level 1, which read flat; at 1.08 it pays 171, and level 20 pays 432. The calibration is in `constants.ts`.
+
 Renamed from `sealsRewarded`/`RAID_SEAL_BASE`/`RAID_SEAL_GROWTH` — not every raid pays Seals (Trait Raid pays Trait Gems), so the generic name is the correct one going forward.
 
 **Not rewarded directly:** Essence (crafting currency) stays exclusive to post-max gacha duplicates (`gacha-shared-system.md` §6) — no new source added here. Void Shards stay tied to the World 10/Stage 10 full clear only (`core-progression-and-prestige.md` §4), unchanged. Gold is no longer part of raid rewards at all — no entry needed in `gold-economy.md`.
