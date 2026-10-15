@@ -1449,8 +1449,19 @@ const fight = ref<Awaited<ReturnType<typeof engageBoss>>>(null)
 
 // ── Feature unlocks and the guide (`tutorials.ts`) ───────────────────────────────────
 
+/**
+ * The features open as the boss fight on the stage found them, while its replay plays. The server
+ * resolves the fight on engage, so the read that comes back with it already holds what the clear
+ * opened; this holds those back until the replay has played out, the way the balance waits for a
+ * win's reveal. Local to the stage, so leaving it mid-fight lets everything through.
+ */
+const heldUnlocks = ref<readonly HqFeature[] | null>(null)
 /** The features open, in the order they opened; empty until the first read. */
-const unlocked = computed<readonly HqFeature[]>(() => tutorials.value?.unlocked ?? [])
+const unlocked = computed<readonly HqFeature[]>(() => {
+    const open = tutorials.value?.unlocked ?? []
+    const held = heldUnlocks.value
+    return held ? open.filter(f => held.includes(f)) : open
+})
 /** Closed here before the server says so, so a tutorial doesn't flash back while its write is on its way. */
 const seenLocally = ref<string[]>([])
 const seenTutorials = computed(() => [...(tutorials.value?.seen ?? []), ...seenLocally.value])
@@ -1651,6 +1662,8 @@ const challenge = computed(() => (liveRun.value?.farming ?? false) && !fight.val
 async function runFightAt(automatic: boolean) {
     engaging.value = true
     bossHeld.value = false
+    // before the engage: the read it refreshes already counts the clear
+    heldUnlocks.value = [...(tutorials.value?.unlocked ?? [])]
     try {
         const result = await engageBoss({ silentErrors: automatic })
         fightProgress.value = { time: 0, done: false }
@@ -1658,8 +1671,14 @@ async function runFightAt(automatic: boolean) {
         if (result && result.outcome !== 'win') countBossLoss()
     } finally {
         engaging.value = false
+        if (!fight.value) heldUnlocks.value = null
     }
 }
+
+/** The replay has played out, or was put away: what the fight opened shows. */
+watch(() => fight.value === null || fightProgress.value.done, (over) => {
+    if (over && !engaging.value) heldUnlocks.value = null
+})
 
 const onEngage = () => runFightAt(false)
 
