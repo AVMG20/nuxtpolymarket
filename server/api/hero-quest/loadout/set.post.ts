@@ -11,7 +11,8 @@ import {
     settleHq,
     skillSlots
 } from '#server/utils/hero-quest'
-import { validateLiveLoadout, type LoadoutInput } from '#server/utils/hero-quest-loadout'
+import { validateLiveLoadout } from '#server/utils/hero-quest-loadout'
+import { LOADOUT_SET_BODY, readHqBody, type HqLoadoutSetResponse } from '#server/utils/hero-quest-api'
 
 /**
  * Set any part of the live loadout — party, formation, Skills, Artifacts, Gear, and the
@@ -34,12 +35,12 @@ import { validateLiveLoadout, type LoadoutInput } from '#server/utils/hero-quest
  * and a concurrent slot purchase would otherwise let a save race past the count it was validated
  * against.
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqLoadoutSetResponse> => {
     const userId = await requireUserId(event)
     await requireFeature(userId, 'collections')
     // settle first, so the window before this pays at the rate it ran at, not the new one
     await settleHq(userId)
-    const body = await readBody<LoadoutInput>(event)
+    const body = await readHqBody(event, LOADOUT_SET_BODY)
 
     return db.transaction(async (tx: DbExecutor) => {
         const [locked] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
@@ -48,7 +49,7 @@ export default defineEventHandler(async (event) => {
         const state = await restoreLoadoutSession(tx, userId, locked)
 
         const shopLevels = await getShopLevels(userId, tx)
-        const writes = await validateLiveLoadout(tx, userId, state, body ?? {}, shopLevels)
+        const writes = await validateLiveLoadout(tx, userId, state, body, shopLevels)
 
         const [updated] = await tx.update(hqState)
             .set(writes)

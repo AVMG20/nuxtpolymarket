@@ -80,6 +80,7 @@ import {
 } from '#shared/utils/hero-quest/constants'
 import { randomInt } from '#shared/utils/random'
 import { traitBoardOf, type TraitBoard } from '#shared/utils/hero-quest/traits'
+import type { HqArenaPayload } from '#server/utils/hero-quest-api'
 
 // ── Standing, attempts, defence ────────────────────────────────────────────────────
 
@@ -753,7 +754,7 @@ export async function arenaLeaderboard(userId: string, now: number) {
  * and any season reward waiting. Read only: a stale season shows as the start Rating until
  * something rolls the row.
  */
-export function serializeArena(state: HqStateRow, unclaimed: Awaited<ReturnType<typeof unclaimedSeasons>>, progress: DefenderProgress, now = Date.now()) {
+export function serializeArena(state: HqStateRow, unclaimed: Awaited<ReturnType<typeof unclaimedSeasons>>, progress: DefenderProgress, now = Date.now()): HqArenaPayload {
     const season = arenaSeasonAt(now)
     const standing = rollStanding(standingOf(state), season)
     const today = attemptsOn(attemptsOf(state), ladderDateKey(now))

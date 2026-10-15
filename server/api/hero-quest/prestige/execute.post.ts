@@ -4,6 +4,7 @@ import { hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { prestigeResetValues, settleHq, voidShardsFor } from '#server/utils/hero-quest'
 import { fromStore, toStore } from '#shared/utils/hero-quest/numbers'
+import type { HqPrestigeResponse } from '#server/utils/hero-quest-api'
 
 /**
  * Complete a prestige: pay Void Shards, reset the run, start over harder.
@@ -17,7 +18,7 @@ import { fromStore, toStore } from '#shared/utils/hero-quest/numbers'
  * standing on that same stage, so position alone cannot tell "beat the game" from "walked up
  * to the final boss", and paying off position would reward merely arriving.
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqPrestigeResponse> => {
     const userId = await requireUserId(event)
 
     // Bank anything still owed at the old position before the reset wipes it.

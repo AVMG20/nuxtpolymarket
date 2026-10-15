@@ -19,6 +19,7 @@ import { CALENDAR_REWARDS, calendarAfterClaim, calendarClaimDay, calendarCycle, 
 import { goldPerHourAt } from '#shared/utils/hero-quest/settle'
 import { D, fromStore, toStore } from '#shared/utils/hero-quest/numbers'
 import type { HeroSnapshot } from '#shared/utils/hero-quest/types'
+import type { HqCalendarPayload } from '#server/utils/hero-quest-api'
 
 export function calendarStoredOf(state: HqStateRow): CalendarStored {
     return { start: state.calendarStart, claimed: state.calendarClaimed, makeups: state.calendarMakeups }
@@ -36,7 +37,7 @@ export function calendarPayout(reward: CalendarReward, goldPerHour: number): str
 }
 
 /** The calendar as the scene draws it: every day's reward and state, the make-ups, and the clocks. */
-export function serializeCalendar(state: HqStateRow, goldPerHour: number, now = Date.now()) {
+export function serializeCalendar(state: HqStateRow, goldPerHour: number, now = Date.now()): HqCalendarPayload {
     const cycle = calendarCycle(calendarStoredOf(state), now)
     return {
         /** 0-based. */

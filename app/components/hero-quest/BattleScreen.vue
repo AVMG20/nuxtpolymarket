@@ -15,7 +15,7 @@ import { ARENA_SHOP } from '#shared/utils/hero-quest/arena'
 import { getRaid } from '#shared/utils/hero-quest/content/raids'
 import { grantKeys, nextKeyGrantAt } from '#shared/utils/hero-quest/raids'
 import type { ArenaBoardRow, ArenaFace, ArenaItemView, ArenaResultView, ArenaTarget, ArenaView } from '~/utils/hero-quest-art/arena-scene'
-import { partyStatsView, type PartyStatsPayload, type PartyStatsView } from '~/utils/hero-quest-art/party-stats'
+import { partyStatsView, type PartyStatsView } from '~/utils/hero-quest-art/party-stats'
 import type { CollectionAction, CollectionLine, CollectionSection, CollectionTile, DetailButton } from '~/utils/hero-quest-art/collections-scene'
 import type { LoadoutEntry, LoadoutSlotView, LoadoutsView } from '~/utils/hero-quest-art/loadouts-scene'
 import type { PrestigeView } from '~/utils/hero-quest-art/prestige-scene'
@@ -37,6 +37,9 @@ import { RAIDS, type RaidId } from '#shared/utils/hero-quest/content/raids'
 import { TRAIT_GRADES } from '#shared/utils/hero-quest/content/traits'
 import { LOADOUT_TARGETS } from '#shared/utils/hero-quest/loadout-session'
 import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
+import type { BattleSpeedDuration, BattleSpeedTier } from '#shared/utils/hero-quest/battle-speed'
+import type { ShopTrackId } from '#shared/utils/hero-quest/content/shop'
+import type { HqStatsResponse, HqTraitAutoRollResponse } from '#server/utils/hero-quest-api'
 import { bossLossMark, featureMenuScene, isHqFeature, nextTutorial, revealedFeatures, type HqFeature, type TutorialId } from '#shared/utils/hero-quest/tutorials'
 import { GUIDE_NAME, TUTORIAL_PAGES } from '#shared/utils/hero-quest/content/tutorials'
 import type { GuideView } from '~/utils/hero-quest-art/guide'
@@ -660,7 +663,7 @@ const raidRows = computed<RaidRowView[]>(() => (raids.value ?? []).map((r) => {
     const keys = due ? grantKeys(r.keys, r.nextKeyAt! - 1, raidClock.value).balance : r.keys
     const nextKeyAt = r.nextKeyAt === null || keys >= r.keyCap ? null : due ? nextKeyGrantAt(raidClock.value) : r.nextKeyAt
     return {
-        id: r.id as RaidId,
+        id: r.id,
         open: r.open,
         loadout: preferredName(r.id),
         loadoutSlot: preferredName(r.id) === null ? null : loadoutPreferences.value[r.id] ?? null,
@@ -899,7 +902,7 @@ const arenaView = computed<Omit<ArenaView, 'tab' | 'page' | 'pickerOpen' | 'rewa
                 skills: d.equippedSkillIds.map(rarityIn(training.value?.roster)),
                 artifacts: d.equippedArtifactIds.map(rarityIn(digSite.value?.roster)),
                 gear: GEAR_SLOTS.flatMap(slot => d.equippedGear[slot] ? [rarityIn(forge.value?.roster)(d.equippedGear[slot]!)] : []),
-                traits: d.traits.map(t => t && { grade: t.grade as TraitGrade, label: `${t.statName} +${hqPercent(t.value)}` })
+                traits: d.traits.map(t => t && { grade: t.grade, label: `${t.statName} +${hqPercent(t.value)}` })
             }
             : null,
         // the Arena's preferred Loadout, picked as a raid's is (`loadouts.md` §4)
@@ -923,7 +926,7 @@ const arenaView = computed<Omit<ArenaView, 'tab' | 'page' | 'pickerOpen' | 'rewa
 
 /** The party's stats over the battle, opened from the badge's portrait: the read once it lands, and the cell whose sources are open. */
 const partyStatsOpen = ref(false)
-const partyStatsPayload = ref<PartyStatsPayload | null>(null)
+const partyStatsPayload = ref<HqStatsResponse | null>(null)
 const partyStatCell = ref<{ row: number, unit: number } | null>(null)
 let partyStatsRead = 0
 const partyStats = computed<PartyStatsView | null>(() => {
@@ -938,7 +941,7 @@ async function openPartyStats() {
     partyStatsPayload.value = null
     partyStatCell.value = null
     try {
-        const payload = await $fetch<PartyStatsPayload>('/api/hero-quest/stats')
+        const payload = await $fetch<HqStatsResponse>('/api/hero-quest/stats')
         // shut, or opened again, while it was out
         if (read === partyStatsRead && partyStatsOpen.value) partyStatsPayload.value = payload
     } catch (e) {
@@ -1187,6 +1190,9 @@ let traitAutoStop = false
 const traitAutoGems = ref<number | null>(null)
 onUnmounted(() => { traitAutoStop = true })
 
+/** An Auto Roll run's batches, summed. */
+type AutoRollTotal = Pick<HqTraitAutoRollResponse, 'rolls' | 'spent' | 'stoppedBy' | 'slots'>
+
 /**
  * An Auto Roll run: batch after batch, the count running on the stage, until a slot lands at the
  * grade, the Trait Gems run short, or STOP. The state is read once at the end, and a batch that
@@ -1194,7 +1200,7 @@ onUnmounted(() => { traitAutoStop = true })
  */
 async function runAutoRoll(): Promise<string> {
     traitAutoStop = false
-    let total = { rolls: 0, spent: 0, stoppedBy: 'cap' as 'hit' | 'gems' | 'cap', slots: [] as ({ grade: string } | null)[] }
+    let total: AutoRollTotal = { rolls: 0, spent: 0, stoppedBy: 'cap', slots: [] }
     try {
         while (true) {
             let res
@@ -1219,10 +1225,10 @@ async function runAutoRoll(): Promise<string> {
 }
 
 /** What an Auto Roll came to, for the scene's bottom line. */
-function autoRollNote(res: { rolls: number, spent: number, stoppedBy: 'hit' | 'gems' | 'cap', slots: ({ grade: string } | null)[] }): string {
+function autoRollNote(res: AutoRollTotal): string {
     const rolls = `${res.rolls} ROLL${res.rolls === 1 ? '' : 'S'}, ${formatNumber(res.spent)} TRAIT GEMS`
     if (res.stoppedBy === 'hit') {
-        const best = res.slots.reduce((top, slot) => slot && TRAIT_GRADES.indexOf(slot.grade as TraitGrade) > TRAIT_GRADES.indexOf(top) ? slot.grade as TraitGrade : top, 'F' as TraitGrade)
+        const best = res.slots.reduce<TraitGrade>((top, slot) => slot && TRAIT_GRADES.indexOf(slot.grade) > TRAIT_GRADES.indexOf(top) ? slot.grade : top, 'F')
         return `GRADE ${best} AFTER ${rolls}!`
     }
     return res.stoppedBy === 'gems' ? `OUT OF TRAIT GEMS AFTER ${rolls}.` : `STOPPED AFTER ${rolls}.`
@@ -1244,7 +1250,7 @@ const traitsView = computed<TraitsView>(() => {
         slots: t.slots.map(slot => slot && {
             statName: slot.statName,
             value: `+${hqPercent(slot.value)}`,
-            grade: slot.grade as TraitGrade,
+            grade: slot.grade,
             set: slot.set,
             setName: slot.setName,
             locked: slot.locked
@@ -1268,7 +1274,7 @@ const traitsView = computed<TraitsView>(() => {
                 unlocked: slot.unlocked,
                 price: next === null ? null : formatNumber(next),
                 priceGems: next,
-                grades: slot.slots ? slot.slots.map(s => (s?.grade ?? 'F') as TraitGrade) : null
+                grades: slot.slots ? slot.slots.map(s => s?.grade ?? 'F') : null
             }
         }),
         saveCost: t.saves.cost,
@@ -1406,7 +1412,7 @@ const armedSpeed = computed(() => {
     return kind === 'speed' ? { speed: Number(speed), minutes: Number(minutes) } : null
 })
 
-async function onBuySpeed(speed: number, minutes: number) {
+async function onBuySpeed(speed: BattleSpeedTier, minutes: BattleSpeedDuration) {
     // a block paid in Gems waits for a second press, unless that is turned off in Settings
     if ((settings.value?.confirmGemSpends ?? true) && !confirm.press(`speed:${speed}:${minutes}`)) return
     confirm.clear()
@@ -1420,7 +1426,7 @@ async function onBuySpeed(speed: number, minutes: number) {
     }
 }
 
-async function onShopBuy(upgradeId: string) {
+async function onShopBuy(upgradeId: ShopTrackId) {
     // a track paid in Void Shards or Gems waits for a second press, unless that is turned off in Settings
     const track = shop.value?.find(t => t.id === upgradeId)
     const setting = track?.currency === 'voidShards' ? 'confirmVoidShards' : track?.currency === 'gems' ? 'confirmGemSpends' : null
@@ -1764,7 +1770,7 @@ const welcomeView = computed<WelcomeView | null>(() => {
     const lostToCap = r.lostToCapSeconds
     if (lostToCap > 0) notes.push({ text: `OFFLINE CAP ${stageDuration(o.capSeconds)}: ${stageDuration(lostToCap)} NOT COUNTED`, tone: 'bad' })
     if (o.efficiency < 1) notes.push({ text: `OFFLINE EFFICIENCY ${Math.round(o.efficiency * 100)}%`, tone: 'warn' })
-    if (o.boostedSeconds > 0) notes.push({ text: `BATTLE SPEED ×${o.boostMultiplier} FOR ${stageDuration(o.boostedSeconds)}`, tone: 'info' })
+    if (o.boostedSeconds > 0) notes.push({ text: `BATTLE SPEED ×${hqNumber(o.boostMultiplier)} FOR ${stageDuration(o.boostedSeconds)}`, tone: 'info' })
     if (r.blockedAtBoss) notes.push({ text: 'PARKED AT THE BOSS, READY TO FIGHT', tone: 'warn' })
     if (r.wipedOnWave) notes.push({ text: 'THE PARTY KEEPS FALLING ON THIS WAVE', tone: 'bad' })
     // the Shop's offline tracks, once it is open and while they still have a level to give

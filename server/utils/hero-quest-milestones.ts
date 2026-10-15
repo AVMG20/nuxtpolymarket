@@ -22,6 +22,7 @@ import {
     mergeMilestoneRewards,
     milestoneRows,
     worldsClearedOf,
+    type MilestoneRow,
     type MilestoneSnapshot
 } from '#shared/utils/hero-quest/milestones'
 
@@ -44,7 +45,7 @@ export function milestoneSnapshotOf(
  * The rows the Milestones scene draws. Named apart from Polytown's `serializeMilestones`
  * (`town.ts`): Nitro auto-imports every `server/utils` export, and two of one name shadow each other.
  */
-export function serializeHqMilestones(state: HqStateRow, raidLevels: Partial<Record<RaidId, number>>, owned: Partial<Record<GachaSystem, number>>) {
+export function serializeHqMilestones(state: HqStateRow, raidLevels: Partial<Record<RaidId, number>>, owned: Partial<Record<GachaSystem, number>>): MilestoneRow[] {
     return milestoneRows(milestoneSnapshotOf(state, raidLevels, owned), state.milestonesClaimed)
 }
 

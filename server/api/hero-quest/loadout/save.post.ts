@@ -5,6 +5,7 @@ import { requireUserId } from '#server/utils/auth'
 import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { getShopLevels, loadoutSlots, restoreLoadoutSession } from '#server/utils/hero-quest'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
+import { LOADOUT_SAVE_BODY, readHqBody, type HqLoadoutSaveResponse } from '#server/utils/hero-quest-api'
 
 /**
  * Save the live state into a Loadout slot (`loadouts.md` §2).
@@ -21,17 +22,13 @@ import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
  * Free and unlimited outside combat, so no currency moves and nothing needs claiming. The upsert
  * on `(userId, slotIndex)` is what makes a double-submit idempotent rather than a second row.
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqLoadoutSaveResponse> => {
     const userId = await requireUserId(event)
     await requireFeature(userId, 'loadouts')
-    const body = await readBody<{ slotIndex?: number; name?: string }>(event)
+    const body = await readHqBody(event, LOADOUT_SAVE_BODY)
+    const slotIndex = body.slotIndex
 
-    const slotIndex = Math.floor(Number(body?.slotIndex))
-    if (!Number.isFinite(slotIndex) || slotIndex < 0) {
-        throw createError({ statusCode: 400, statusMessage: 'Pick a loadout slot' })
-    }
-
-    const rawName = typeof body?.name === 'string' ? body.name.trim() : ''
+    const rawName = body.name?.trim() ?? ''
     // A sensible default rather than a rejection (§2 — "player-named, with a sensible default").
     const name = (rawName || `Loadout ${slotIndex + 1}`).slice(0, LOADOUT_NAME_MAX_LENGTH)
 

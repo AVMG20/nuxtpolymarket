@@ -38,6 +38,8 @@ import {
     type TraitSlotState
 } from '#shared/utils/hero-quest/traits'
 import type { TraitGrade } from '#shared/utils/hero-quest/types'
+import { roundHqFraction } from '#shared/utils/hero-quest/numbers'
+import type { HqTraitSlotView, TraitsPayload } from '#server/utils/hero-quest-api'
 import { randomFloat } from '#shared/utils/random'
 
 type TraitSaveRow = typeof hqTraitSaveSlots.$inferSelect
@@ -53,7 +55,7 @@ function savedBoardOf(row: TraitSaveRow): TraitSlotState[] | null {
 }
 
 /** One slot as the scene shows it (and the Arena's defence, its frozen board). */
-export function traitSlotView(slot: TraitSlotState | null) {
+export function traitSlotView(slot: TraitSlotState | null): HqTraitSlotView | null {
     if (!slot) return null
     return {
         stat: slot.stat,
@@ -61,8 +63,8 @@ export function traitSlotView(slot: TraitSlotState | null) {
         grade: slot.grade,
         set: slot.set,
         setName: getTraitSet(slot.set).name,
-        /** The stat's value at its grade, a fraction. */
-        value: traitValue(slot.stat, slot.grade),
+        /** The stat's value at its grade, a fraction, shown only: the sim reads the table itself. */
+        value: roundHqFraction(traitValue(slot.stat, slot.grade)),
         locked: slot.locked
     }
 }
@@ -76,7 +78,7 @@ export function serializeTraits(
     board: TraitBoard,
     saves: readonly TraitSaveRow[],
     shopLevels: Record<string, number>
-) {
+): TraitsPayload {
     const rolls = traitRollsOf(board)
     const counts = traitSetCounts(rolls)
     const active = new Map(activeTraitSets(rolls).map(bonus => [bonus.set, bonus]))
@@ -95,7 +97,7 @@ export function serializeTraits(
             pieces: counts[set.id],
             /** The tier reached, 0-based; null below the first count. */
             tier: active.get(set.id)?.tier ?? null,
-            tiers: TRAIT_SET_TIERS[set.id].map(t => ({ pieces: t.pieces, magnitude: t.magnitude }))
+            tiers: TRAIT_SET_TIERS[set.id].map(t => ({ pieces: t.pieces, magnitude: roundHqFraction(t.magnitude) }))
         })),
         saves: {
             unlocked,
@@ -112,8 +114,6 @@ export function serializeTraits(
         }
     }
 }
-
-export type TraitsPayload = ReturnType<typeof serializeTraits>
 
 /** The `hq_state` row, locked for the rest of the transaction. */
 async function lockState(tx: DbExecutor, userId: string): Promise<HqStateRow> {

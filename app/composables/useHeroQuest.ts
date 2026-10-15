@@ -1,7 +1,89 @@
-import type { FightEvent, FightOutcome } from '#shared/utils/hero-quest/fight'
-import type { HqSettingKey } from '#shared/utils/hero-quest/settings'
+import type {
+    HqArenaAttackRequest,
+    HqArenaAttemptResponse,
+    HqArenaBoardResponse,
+    HqArenaCandidatesResponse,
+    HqArenaClaimResponse,
+    HqArenaDefenseResponse,
+    HqArenaLogResponse,
+    HqArenaRefreshResponse,
+    HqArenaRoundResponse,
+    HqArenaShopBuyRequest,
+    HqArenaShopBuyResponse,
+    HqAwayDismissRequest,
+    HqAwayDismissResponse,
+    HqBossResponse,
+    HqBuySealsRequest,
+    HqBuySealsResponse,
+    HqCalendarClaimRequest,
+    HqCalendarClaimResponse,
+    HqChestResponse,
+    HqCraftRequest,
+    HqCraftResponse,
+    HqDevAwayResponse,
+    HqDevGrantRequest,
+    HqDevSetRequest,
+    HqDevSkipRequest,
+    HqDevSkipResponse,
+    HqDevUnlockRequest,
+    HqHolidayClaimRequest,
+    HqHolidayClaimResponse,
+    HqInitResponse,
+    HqLoadoutApplyResponse,
+    HqLoadoutPreferenceRequest,
+    HqLoadoutPreferenceResponse,
+    HqLoadoutRenameRequest,
+    HqLoadoutRenameResponse,
+    HqLoadoutSaveRequest,
+    HqLoadoutSaveResponse,
+    HqLoadoutSetRequest,
+    HqLoadoutSetResponse,
+    HqLoadoutSlotRequest,
+    HqMilestonesClaimRequest,
+    HqMilestonesClaimResponse,
+    HqPickClassRequest,
+    HqPickClassResponse,
+    HqPrestigeResponse,
+    HqPullRequest,
+    HqPullResponse,
+    HqQuickClearResponse,
+    HqRaidLeaveResponse,
+    HqRaidRequest,
+    HqRaidRoundResponse,
+    HqSettingRequest,
+    HqSettingResponse,
+    HqShopBuyRequest,
+    HqShopBuyResponse,
+    HqSpeedBuyRequest,
+    HqSpeedBuyResponse,
+    HqStateResponse,
+    HqTraitAutoRollRequest,
+    HqTraitAutoRollResponse,
+    HqTraitLoadResponse,
+    HqTraitLockRequest,
+    HqTraitLockResponse,
+    HqTraitRollResponse,
+    HqTraitSaveResponse,
+    HqTraitSaveSlotRequest,
+    HqTreeBuyRequest,
+    HqTreeBuyResponse,
+    HqTreeRespecResponse,
+    HqTutorialSeenRequest,
+    HqTutorialSeenResponse,
+    HqTutorialsResetResponse
+} from '#server/utils/hero-quest-api'
 import type { HqAwayReport } from '#shared/utils/hero-quest/away-report'
+import type { BattleSpeedDuration, BattleSpeedTier } from '#shared/utils/hero-quest/battle-speed'
 import { HQ_SESSION_TIMEOUT_MS } from '#shared/utils/hero-quest/constants'
+import type { HolidayId } from '#shared/utils/hero-quest/content/holidays'
+import type { RaidId } from '#shared/utils/hero-quest/content/raids'
+import type { ShopTrackId } from '#shared/utils/hero-quest/content/shop'
+import type { GachaSystem } from '#shared/utils/hero-quest/gacha'
+import type { LoadoutTarget } from '#shared/utils/hero-quest/loadout-session'
+import type { HqSettingKey } from '#shared/utils/hero-quest/settings'
+import type { TutorialRecord } from '#shared/utils/hero-quest/tutorials'
+import type { SkipMode } from '#server/utils/hero-quest-dev'
+import type { TraitGrade } from '#shared/utils/hero-quest/types'
 
 /**
  * The single source of Hero Quest state on the client. Pages contain no fetch logic.
@@ -10,61 +92,9 @@ import { HQ_SESSION_TIMEOUT_MS } from '#shared/utils/hero-quest/constants'
  * reads. A gap at or under `ONLINE_THRESHOLD_MS` counts as the player being present and
  * accrues at full rate; a longer one is treated as offline and pays the cap and efficiency
  * tax. Stop refreshing and you are, correctly, offline.
+ *
+ * Every request body and response is typed by the wire contract in `hero-quest-api.ts`.
  */
-/** A slot on the Arena's opponent list (`arena/candidates.get.ts`). */
-export interface ArenaCandidate {
-    slot: number
-    /** What an attack names: the defender's user ID, or the Training Dummy's sentinel. */
-    id: string
-    dummy: boolean
-    name: string
-    rating: number | null
-    defenseGpn: string | null
-    classId: string | null
-    heroRow: 'front' | 'back' | null
-    champions: { id: string, row: 'front' | 'back' }[]
-}
-
-/** One battle log entry (`arena/log.get.ts`). */
-export interface ArenaLogEntry {
-    id: string
-    role: 'attacker' | 'defender'
-    won: boolean
-    ratingChange: number
-    medalsEarned: number
-    isDummy: boolean
-    opponentName: string
-    at: number
-}
-
-/** The Rating leaderboard (`arena/leaderboard.get.ts`). */
-export interface ArenaBoard {
-    season: number
-    endsAt: number
-    top: { rank: number, name: string, rating: number, you: boolean }[]
-    me: { rank: number, rating: number } | null
-    around: { rank: number, name: string, rating: number, you: boolean }[]
-}
-
-/** An Arena attack, resolved on the server: its log for the stage, and what it came to. */
-export interface ArenaRound {
-    seed: number
-    dummy: boolean
-    opponentName: string
-    outcome: FightOutcome
-    won: boolean
-    medals: number
-    rating: number
-    ratingChange: number
-    attemptsLeft: number
-    secondsElapsed: number
-    events: FightEvent[]
-    partyIds: string[]
-    partyMaxHps: string[]
-    /** The defence as the fight indexed it; null for the Training Dummy. */
-    enemy: { classId: string, heroRow: 'front' | 'back', champions: { id: string, row: 'front' | 'back' }[] } | null
-    enemyMaxHps: string[]
-}
 
 /** How recent a read the next component to mount reuses rather than settling again. */
 const STATE_REUSE_MS = 5_000
@@ -103,16 +133,15 @@ export const useHeroQuest = () => {
     /** When this app last read the state: a read is a settle, a write, so a second one moments later reuses it. */
     const fetchedAt = useState('hq-state-fetched-at', () => 0)
 
-    const { data: state, refresh, pending } = useFetch('/api/hero-quest/state', {
+    const { data: state, refresh, pending } = useFetch<HqStateResponse>('/api/hero-quest/state', {
         key: 'hero-quest-state',
-        default: () => null,
         // The layout and the tab both hold the state; only the first to mount reads it.
         getCachedData: (key, nuxtApp, context) => reuseRecentRead(key, nuxtApp, context, fetchedAt.value),
         // Every component here calls useFetch on this key, and 'cancel' let the second abort the first
         // read after the server had settled it, dropping the night it banked. Writes refresh with 'cancel'.
         dedupe: 'defer',
         onResponse({ response }) {
-            const payload = response._data as { initialized?: boolean, awaySeconds?: number, awayReport?: HqAwayReport | null } | undefined
+            const payload = response._data
             if (!payload) return
             fetchedAt.value = Date.now()
             const report = payload.awayReport ?? null
@@ -123,7 +152,7 @@ export const useHeroQuest = () => {
                 // the read Start makes closes the very gap that ended the session
                 sessionResuming.value = false
                 sessionActive.value = true
-            } else if ((payload.awaySeconds ?? 0) * 1000 > HQ_SESSION_TIMEOUT_MS) {
+            } else if (payload.awaySeconds * 1000 > HQ_SESSION_TIMEOUT_MS) {
                 sessionActive.value = false
             } else if (sessionActive.value === null) {
                 sessionActive.value = true
@@ -163,9 +192,9 @@ export const useHeroQuest = () => {
      * opponent list, the battle log and the Rating leaderboard. Shared, so a reload of one view keeps
      * the others.
      */
-    const arenaCandidates = useState<ArenaCandidate[] | null>('hq-arena-candidates', () => null)
-    const arenaLog = useState<ArenaLogEntry[] | null>('hq-arena-log', () => null)
-    const arenaBoard = useState<ArenaBoard | null>('hq-arena-board', () => null)
+    const arenaCandidates = useState<HqArenaCandidatesResponse | null>('hq-arena-candidates', () => null)
+    const arenaLog = useState<HqArenaLogResponse | null>('hq-arena-log', () => null)
+    const arenaBoard = useState<HqArenaBoardResponse | null>('hq-arena-board', () => null)
     /** The Settings scene's choices, defaults filled in by the server. */
     const settings = computed(() => state.value?.settings ?? null)
     const voidShards = computed(() => state.value?.voidShards ?? '0')
@@ -195,18 +224,18 @@ export const useHeroQuest = () => {
      * lazy settle and a 400 there means "not yet", not "something went wrong". The caller decides
      * what a given failure means; it never decides whether the request happened.
      */
-    async function call<T>(
+    async function call<Res, Req extends object = Record<string, never>>(
         url: string,
-        body: Record<string, unknown>,
+        body: Req,
         successMsg: string,
         options: { silentErrors?: boolean, refresh?: boolean } = {}
-    ): Promise<T | null> {
+    ): Promise<Res | null> {
         try {
-            const res = await $fetch(url, { method: 'POST', body })
+            const res = await $fetch<Res>(url, { method: 'POST', body })
             if (successMsg) toast.add({ title: successMsg, color: 'success' })
             // a fresh read: one already in flight left before this write
             if (options.refresh !== false) await refresh({ dedupe: 'cancel' })
-            return res as T
+            return res
         } catch (e: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             if (!options.silentErrors) {
                 toast.add({ title: e?.data?.message ?? 'Something went wrong', color: 'error' })
@@ -216,27 +245,8 @@ export const useHeroQuest = () => {
     }
 
     async function initRun() {
-        await $fetch('/api/hero-quest/init', { method: 'POST' })
+        await $fetch<HqInitResponse>('/api/hero-quest/init', { method: 'POST' })
         await refresh({ dedupe: 'cancel' })
-    }
-
-    interface BossResult {
-        outcome: FightOutcome
-        seed: number
-        secondsElapsed: number
-        damageDealtPct: number
-        enemyMaxHp: string
-        /** Per body, escort first — a boss stands with minions, so the pack is mixed. */
-        enemyMaxHps: string[]
-        enemyHpRemaining: string
-        events: FightEvent[]
-        /** The party in the fight's `unitIndex` order: the Hero's class, then each fielded Champion. */
-        partyIds: string[]
-        partyMaxHps: string[]
-        landing: { world: number; stage: number }
-        runComplete: boolean
-        /** Battle Speed at engage: how much faster the replay plays. */
-        playbackSpeed: number
     }
 
     /**
@@ -245,20 +255,18 @@ export const useHeroQuest = () => {
      * Toast is suppressed: the replay itself is the feedback.
      */
     async function engageBoss(options: { silentErrors?: boolean } = {}) {
-        return call<BossResult>('/api/hero-quest/boss/engage', {}, '', options)
+        return call<HqBossResponse>('/api/hero-quest/boss/engage', {}, '', options)
     }
 
     async function prestige() {
-        const res = await call<{ voidShardsEarned: string; prestige: number }>(
-            '/api/hero-quest/prestige/execute', {}, ''
-        )
+        const res = await call<HqPrestigeResponse>('/api/hero-quest/prestige/execute', {}, '')
         // Gold moves during the settle that precedes the reset.
         await fetchSession()
         return res
     }
 
     async function pickClass(classId: string) {
-        return call<{ className: string }>('/api/hero-quest/prestige/pick-class', { classId }, '')
+        return call<HqPickClassResponse, HqPickClassRequest>('/api/hero-quest/prestige/pick-class', { classId }, '')
     }
 
     /**
@@ -266,56 +274,38 @@ export const useHeroQuest = () => {
      * away; a Gems track (Loadout or Trait save slots) moves a platform balance the response doesn't
      * carry, and Gems have no setter of their own, so the session is read back.
      */
-    async function buyUpgrade(upgradeId: string) {
-        const res = await call<{ currency: 'voidShards' | 'gems' | 'gold', balance: string | null }>('/api/hero-quest/shop/buy', { upgradeId }, '')
+    async function buyUpgrade(upgradeId: ShopTrackId) {
+        const res = await call<HqShopBuyResponse, HqShopBuyRequest>('/api/hero-quest/shop/buy', { upgradeId }, '')
         if (res?.currency === 'gold' && res.balance !== null) setBalance(res.balance)
         else if (res?.currency === 'gems') await fetchSession()
         return res
     }
 
-    interface RaidRound {
-        raidId: string
-        seed: number
-        outcome: FightOutcome
-        level: number
-        /** The dummy's damage; null for a boss. */
-        damage: string | null
-        reward: number
-        best: number
-        newBest: boolean
-        keys: number
-        secondsElapsed: number
-        events: FightEvent[]
-        enemyMaxHps: string[]
-        partyIds: string[]
-        partyMaxHps: string[]
-    }
-
     /** Enter a raid: the response is its round, resolved on the server, for the stage to replay. */
-    async function engageRaid(raidId: string) {
-        return call<RaidRound>('/api/hero-quest/raid/engage', { raidId }, '')
+    async function engageRaid(raidId: RaidId) {
+        return call<HqRaidRoundResponse, HqRaidRequest>('/api/hero-quest/raid/engage', { raidId }, '')
     }
 
     /** Spend a Key on the best level's reward, without a round. */
-    async function quickClearRaid(raidId: string) {
-        return call<{ raidId: string, level: number, reward: number, keys: number }>('/api/hero-quest/raid/quick-clear', { raidId }, '')
+    async function quickClearRaid(raidId: RaidId) {
+        return call<HqQuickClearResponse, HqRaidRequest>('/api/hero-quest/raid/quick-clear', { raidId }, '')
     }
 
     async function loadArenaCandidates() {
-        arenaCandidates.value = await $fetch<ArenaCandidate[]>('/api/hero-quest/arena/candidates')
+        arenaCandidates.value = await $fetch<HqArenaCandidatesResponse>('/api/hero-quest/arena/candidates')
     }
 
     async function loadArenaLog() {
-        arenaLog.value = await $fetch<ArenaLogEntry[]>('/api/hero-quest/arena/log')
+        arenaLog.value = await $fetch<HqArenaLogResponse>('/api/hero-quest/arena/log')
     }
 
     async function loadArenaBoard() {
-        arenaBoard.value = await $fetch<ArenaBoard>('/api/hero-quest/arena/leaderboard')
+        arenaBoard.value = await $fetch<HqArenaBoardResponse>('/api/hero-quest/arena/leaderboard')
     }
 
     /** Pay Gems for a fresh opponent list. Gems have no setter of their own, so the session is read back. */
     async function refreshArenaCandidates() {
-        const res = await call<{ gemsSpent: number, candidates: ArenaCandidate[] }>('/api/hero-quest/arena/refresh-candidates', {}, '')
+        const res = await call<HqArenaRefreshResponse>('/api/hero-quest/arena/refresh-candidates', {}, '')
         if (res) arenaCandidates.value = res.candidates
         // a free refresh moves no Gems
         if (res?.gemsSpent) await fetchSession()
@@ -327,7 +317,7 @@ export const useHeroQuest = () => {
      * someone else. The response is the fight, for the stage to replay; the list is redrawn by it.
      */
     async function attackArena(slot: number, opponent: string) {
-        const res = await call<ArenaRound>('/api/hero-quest/arena/attack', { slot, opponent }, '').catch((e) => {
+        const res = await call<HqArenaRoundResponse, HqArenaAttackRequest>('/api/hero-quest/arena/attack', { slot, opponent }, '').catch((e) => {
             // a refused attack may have found the list stale (out of band): reading it back redraws it
             loadArenaCandidates().catch(() => {})
             throw e
@@ -340,40 +330,40 @@ export const useHeroQuest = () => {
 
     /** Buy one more attack today, on the doubling Gem ladder. */
     async function buyArenaAttempt() {
-        const res = await call<{ gemsSpent: number, attemptsLeft: number }>('/api/hero-quest/arena/buy-attempt', {}, '')
+        const res = await call<HqArenaAttemptResponse>('/api/hero-quest/arena/buy-attempt', {}, '')
         await fetchSession()
         return res
     }
 
     /** "Set current loadout as defence": the player's own loadout, as it is equipped now. */
     async function setArenaDefense() {
-        return call<{ defenseGpn: string | null }>('/api/hero-quest/arena/defense-set', {}, '')
+        return call<HqArenaDefenseResponse>('/api/hero-quest/arena/defense-set', {}, '')
     }
 
-    /** Buy from the Arena Shop with Medals. Gold and Gems move platform balances the response doesn't carry. */
+    /** Buy from the Arena Shop with Medals. Gems move a platform balance the response doesn't carry. */
     async function buyArenaItem(itemId: string, quantity = 1) {
-        const res = await call<{ kind: string }>('/api/hero-quest/arena/shop-buy', { itemId, quantity }, '')
-        if (res?.kind === 'gold' || res?.kind === 'gems') await fetchSession()
+        const res = await call<HqArenaShopBuyResponse, HqArenaShopBuyRequest>('/api/hero-quest/arena/shop-buy', { itemId, quantity }, '')
+        if (res?.kind === 'gems') await fetchSession()
         return res
     }
 
     /** Claim every finished season's rank reward waiting. */
     async function claimArenaSeason() {
-        return call<{ medals: number }>('/api/hero-quest/arena/claim-season', {}, '')
+        return call<HqArenaClaimResponse>('/api/hero-quest/arena/claim-season', {}, '')
     }
 
     async function setSetting(key: HqSettingKey, value: boolean) {
-        return call('/api/hero-quest/settings/set', { key, value }, '')
+        return call<HqSettingResponse, HqSettingRequest>('/api/hero-quest/settings/set', { key, value }, '')
     }
 
     /** The guide's tutorial `id` was read or skipped. */
-    async function markTutorialSeen(id: string) {
-        return call('/api/hero-quest/tutorials/seen', { id }, '')
+    async function markTutorialSeen(id: TutorialRecord) {
+        return call<HqTutorialSeenResponse, HqTutorialSeenRequest>('/api/hero-quest/tutorials/seen', { id }, '')
     }
 
     /** See every tutorial again. Locks nothing. */
     async function resetTutorials() {
-        return call('/api/hero-quest/tutorials/reset', {}, '')
+        return call<HqTutorialsResetResponse>('/api/hero-quest/tutorials/reset', {}, '')
     }
 
     /**
@@ -382,7 +372,7 @@ export const useHeroQuest = () => {
      * it happens at most a few times a day.
      */
     async function claimCalendar(makeup: boolean) {
-        const res = await call<{ day: number, kind: string, amount: string }>('/api/hero-quest/calendar/claim', { makeup }, '')
+        const res = await call<HqCalendarClaimResponse, HqCalendarClaimRequest>('/api/hero-quest/calendar/claim', { makeup }, '')
         if (res?.kind === 'gold' || res?.kind === 'gems') await fetchSession()
         return res
     }
@@ -394,11 +384,12 @@ export const useHeroQuest = () => {
         welcome.value = null
         if (!id) return
         dismissedWelcomeId.value = id
-        $fetch('/api/hero-quest/away/dismiss', { method: 'POST', body: { id } }).catch(() => {})
+        const body: HqAwayDismissRequest = { id }
+        $fetch<HqAwayDismissResponse>('/api/hero-quest/away/dismiss', { method: 'POST', body }).catch(() => {})
     }
 
     async function collectChest() {
-        const res = await call<{ collected: string, balance: string }>('/api/hero-quest/chest/collect', {}, '', { silentErrors: true })
+        const res = await call<HqChestResponse>('/api/hero-quest/chest/collect', {}, '', { silentErrors: true })
         if (res) setBalance(res.balance)
         return res
     }
@@ -407,8 +398,8 @@ export const useHeroQuest = () => {
      * Claim an open holiday's gift. Its Gold and Gems move platform balances the response doesn't
      * carry, so the caller reads the session back once the reveal is done, or the header would spoil it.
      */
-    async function claimHoliday(holidayId: string) {
-        return call<{ holidayId: string, year: number, gold: string, gems: number, seals: { system: string, amount: number }[] }>('/api/hero-quest/holiday/claim', { holidayId }, '')
+    async function claimHoliday(holidayId: HolidayId) {
+        return call<HqHolidayClaimResponse, HqHolidayClaimRequest>('/api/hero-quest/holiday/claim', { holidayId }, '')
     }
 
     /**
@@ -416,23 +407,22 @@ export const useHeroQuest = () => {
      * doesn't carry, so the session is read back when any were paid.
      */
     async function claimMilestones(track: string) {
-        const res = await call<{ rewards: { kind: string, amount: number }[] }>('/api/hero-quest/milestones/claim', { track }, '')
+        const res = await call<HqMilestonesClaimResponse, HqMilestonesClaimRequest>('/api/hero-quest/milestones/claim', { track }, '')
         if (res?.rewards.some(r => r.kind === 'gems')) await fetchSession()
         return res
     }
 
     /** Roll every unlocked Trait slot, for the Trait Gems the board's locks price it at. */
     async function rollTraits() {
-        return call<{ spent: number, traitGems: number }>('/api/hero-quest/trait/roll', {}, '')
+        return call<HqTraitRollResponse>('/api/hero-quest/trait/roll', {}, '')
     }
 
     /**
      * One Auto Roll batch. The state is not read back, since a run asks for batch after batch;
      * `refreshTraits` does that once the run is over.
      */
-    async function autoRollTraits(minGrade: string) {
-        return call<{ rolls: number, spent: number, stoppedBy: 'hit' | 'gems' | 'cap', traitGems: number, slots: ({ grade: string } | null)[] }>(
-            '/api/hero-quest/trait/auto-roll', { minGrade }, '', { refresh: false })
+    async function autoRollTraits(minGrade: TraitGrade) {
+        return call<HqTraitAutoRollResponse, HqTraitAutoRollRequest>('/api/hero-quest/trait/auto-roll', { minGrade }, '', { refresh: false })
     }
 
     /** Read the state back after an Auto Roll run. */
@@ -442,27 +432,27 @@ export const useHeroQuest = () => {
 
     /** Lock or unlock a Trait slot: free. */
     async function lockTrait(slotIndex: number, locked: boolean) {
-        return call('/api/hero-quest/trait/lock', { slotIndex, locked }, '')
+        return call<HqTraitLockResponse, HqTraitLockRequest>('/api/hero-quest/trait/lock', { slotIndex, locked }, '')
     }
 
     /** Store the live Trait board in a save slot, for Trait Gems. */
     async function saveTraits(saveSlotIndex: number) {
-        return call('/api/hero-quest/trait/save', { saveSlotIndex }, '')
+        return call<HqTraitSaveResponse, HqTraitSaveSlotRequest>('/api/hero-quest/trait/save', { saveSlotIndex }, '')
     }
 
     /** Load a stored Trait board onto the live slots, for Trait Gems. */
     async function loadTraits(saveSlotIndex: number) {
-        return call('/api/hero-quest/trait/load', { saveSlotIndex }, '')
+        return call<HqTraitLoadResponse, HqTraitSaveSlotRequest>('/api/hero-quest/trait/load', { saveSlotIndex }, '')
     }
 
     /** Buy one level of a Passive Skill Tree node, from the Hero's level points. */
     async function buyPassiveNode(nodeId: string) {
-        return call<{ nodeId: string, level: number, pointsLeft: number }>('/api/hero-quest/tree/buy', { nodeId }, '')
+        return call<HqTreeBuyResponse, HqTreeBuyRequest>('/api/hero-quest/tree/buy', { nodeId }, '')
     }
 
     /** Refund the tree. A paid respec moves Gems, which the response doesn't carry, so the session is read back. */
     async function respecPassiveTree() {
-        const res = await call<{ free: boolean, pointsLeft: number }>('/api/hero-quest/tree/respec', {}, '')
+        const res = await call<HqTreeRespecResponse>('/api/hero-quest/tree/respec', {}, '')
         if (res && !res.free) await fetchSession()
         return res
     }
@@ -473,20 +463,10 @@ export const useHeroQuest = () => {
     }
 
     /** Buy a Battle Speed block. Gems have no setter of their own, so the session is read back. */
-    async function buyBattleSpeed(speed: number, minutes: number) {
-        const res = await call('/api/hero-quest/speed/buy', { speed, minutes }, '')
+    async function buyBattleSpeed(speed: BattleSpeedTier, minutes: BattleSpeedDuration) {
+        const res = await call<HqSpeedBuyResponse, HqSpeedBuyRequest>('/api/hero-quest/speed/buy', { speed, minutes }, '')
         await fetchSession()
         return res
-    }
-
-    interface PullRecord {
-        contentId: string
-        name: string
-        rarity: string
-        isNew: boolean
-        star: number
-        level: number
-        essence: number
     }
 
     /**
@@ -496,8 +476,6 @@ export const useHeroQuest = () => {
      * ladder, levelling curve, drop table and dupe formula are identical across all four, so the
      * only per-tab difference is which word goes in the body.
      */
-    type GachaSystem = 'gear' | 'champion' | 'skill' | 'artifact'
-
     /** Toast is suppressed — the result reel is the feedback, and a 10-pull would stack ten. */
     /**
      * Pull with Seals. `maxGold` lets it buy the Seals it is short off the day's Gold ladder, at no
@@ -505,10 +483,8 @@ export const useHeroQuest = () => {
      * session is read back.
      */
     async function pull(system: GachaSystem, count: 1 | 10, maxGold?: number) {
-        const body = maxGold === undefined ? { system, count } : { system, count, autoBuy: { maxGold } }
-        const res = await call<{ pulls: PullRecord[]; essenceGained: number; gachaLevel: number }>(
-            '/api/hero-quest/gacha/pull', body, ''
-        )
+        const body: HqPullRequest = maxGold === undefined ? { system, count } : { system, count, autoBuy: { maxGold } }
+        const res = await call<HqPullResponse, HqPullRequest>('/api/hero-quest/gacha/pull', body, '')
         if (maxGold !== undefined) await fetchSession()
         return res
     }
@@ -521,23 +497,17 @@ export const useHeroQuest = () => {
      * letting the client name a size would be letting it name a price.
      */
     async function freePull(system: GachaSystem) {
-        return call<{ pulls: PullRecord[]; essenceGained: number; gachaLevel: number; free: boolean }>(
-            '/api/hero-quest/gacha/pull', { system, free: true }, ''
-        )
+        return call<HqPullResponse, HqPullRequest>('/api/hero-quest/gacha/pull', { system, free: true }, '')
     }
 
     /** Spend a gacha's Essence on a specific item — the full RNG bypass. */
     async function craft(system: GachaSystem, contentId: string) {
-        return call<{ name: string; isNew: boolean }>(
-            '/api/hero-quest/gacha/craft', { system, contentId }, ''
-        )
+        return call<HqCraftResponse, HqCraftRequest>('/api/hero-quest/gacha/craft', { system, contentId }, '')
     }
 
     /** Buy Seals with Gold on that gacha's own daily escalating ladder. */
     async function buySeals(system: GachaSystem, count = 1) {
-        const res = await call<{ sealsBought: number; goldSpent: number }>(
-            '/api/hero-quest/gacha/buy-seals', { system, count }, ''
-        )
+        const res = await call<HqBuySealsResponse, HqBuySealsRequest>('/api/hero-quest/gacha/buy-seals', { system, count }, '')
         // Gold left the shared balance — the header has to follow it.
         await fetchSession()
         return res
@@ -550,45 +520,36 @@ export const useHeroQuest = () => {
      * Party and formation still travel together when either changes, because a formation is only
      * valid against a specific party and the server validates row capacity across both.
      */
-    interface LiveLoadout {
-        championIds?: string[]
-        formation?: Record<string, 'front' | 'back'>
-        skillIds?: string[]
-        artifactIds?: string[]
-        gear?: Record<string, string>
-        ascendantSkillIds?: string[]
-    }
-
-    async function setLoadout(change: LiveLoadout, successMsg = 'Loadout updated') {
-        return call('/api/hero-quest/loadout/set', change as Record<string, unknown>, successMsg)
+    async function setLoadout(change: HqLoadoutSetRequest, successMsg = 'Loadout updated') {
+        return call<HqLoadoutSetResponse, HqLoadoutSetRequest>('/api/hero-quest/loadout/set', change, successMsg)
     }
 
     /** Snapshot the whole live state into a slot (`loadouts.md` §2). */
     async function saveLoadout(slotIndex: number, name?: string) {
-        return call('/api/hero-quest/loadout/save', { slotIndex, name }, '')
+        return call<HqLoadoutSaveResponse, HqLoadoutSaveRequest>('/api/hero-quest/loadout/save', { slotIndex, name }, '')
     }
 
     /** Apply a saved slot as the new live state — all six components at once. */
     async function applyLoadout(slotIndex: number) {
-        return call('/api/hero-quest/loadout/apply', { slotIndex }, '')
+        return call<HqLoadoutApplyResponse, HqLoadoutSlotRequest>('/api/hero-quest/loadout/apply', { slotIndex }, '')
     }
 
     /**
      * Point a raid at a saved slot, or with null at none (`loadouts.md` §4). Free; only the
      * pointer moves, so the live loadout changes on the raid's next engage.
      */
-    async function setLoadoutPreference(target: string, slotIndex: number | null) {
-        return call('/api/hero-quest/loadout/set-raid-preference', { target, slotIndex }, '')
+    async function setLoadoutPreference(target: LoadoutTarget, slotIndex: number | null) {
+        return call<HqLoadoutPreferenceResponse, HqLoadoutPreferenceRequest>('/api/hero-quest/loadout/set-raid-preference', { target, slotIndex }, '')
     }
 
     /** Leave the raid: the loadout that was live before its first engage goes back, if one was applied. */
     async function leaveRaid() {
-        return call<{ restored: boolean }>('/api/hero-quest/raid/leave', {}, '')
+        return call<HqRaidLeaveResponse>('/api/hero-quest/raid/leave', {}, '')
     }
 
     /** Rename a saved slot, leaving what it holds alone. */
     async function renameLoadout(slotIndex: number, name: string) {
-        return call('/api/hero-quest/loadout/rename', { slotIndex, name }, '')
+        return call<HqLoadoutRenameResponse, HqLoadoutRenameRequest>('/api/hero-quest/loadout/rename', { slotIndex, name }, '')
     }
 
     /**
@@ -600,36 +561,25 @@ export const useHeroQuest = () => {
      */
     const devMode = import.meta.dev
 
-    interface SkipResult {
-        chunksRun: number
-        kills: number
-        goldEarned: number
-        levelsGained: number
-        blockedAtBoss: boolean
-        world: number
-        stage: number
-        heroLevel: number
-    }
-
     const dev = {
         /** Settle `hours` as one offline window, or as consecutive presence-length ones. */
-        skip: (hours: number, mode: 'offline' | 'online') =>
-            call<SkipResult>('/api/hero-quest/dev/skip', { hours, mode }, '').then(async (res) => {
+        skip: (hours: number, mode: SkipMode) =>
+            call<HqDevSkipResponse, HqDevSkipRequest>('/api/hero-quest/dev/skip', { hours, mode }, '').then(async (res) => {
                 await fetchSession()
                 return res
             }),
-        grant: (body: Record<string, number>) =>
-            call('/api/hero-quest/dev/grant', body, 'Granted').then(async (res) => {
+        grant: (body: HqDevGrantRequest) =>
+            call<unknown, HqDevGrantRequest>('/api/hero-quest/dev/grant', body, 'Granted').then(async (res) => {
                 await fetchSession()
                 return res
             }),
-        unlock: (body: Record<string, unknown>) =>
-            call('/api/hero-quest/dev/unlock', body, 'Collection unlocked'),
-        set: (body: Record<string, unknown>) =>
-            call('/api/hero-quest/dev/set', body, 'Run moved'),
-        reset: () => call('/api/hero-quest/dev/reset', {}, 'Hero Quest wiped'),
+        unlock: (body: HqDevUnlockRequest) =>
+            call<unknown, HqDevUnlockRequest>('/api/hero-quest/dev/unlock', body, 'Collection unlocked'),
+        set: (body: HqDevSetRequest) =>
+            call<unknown, HqDevSetRequest>('/api/hero-quest/dev/set', body, 'Run moved'),
+        reset: () => call<unknown>('/api/hero-quest/dev/reset', {}, 'Hero Quest wiped'),
         /** End the session as an hour away would; the read after it opens on the splash. */
-        away: () => call<{ awaySeconds: number }>('/api/hero-quest/dev/away', {}, '')
+        away: () => call<HqDevAwayResponse>('/api/hero-quest/dev/away', {}, '')
     }
 
     // The settles bank Gold in the chest, not the shared balance, so the poll leaves the session alone.

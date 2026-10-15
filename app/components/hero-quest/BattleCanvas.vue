@@ -24,6 +24,8 @@ import type { SceneTab } from '~/utils/hero-quest-art/scene-tabs'
 import type { ArenaResultView, ArenaScene, ArenaTarget, ArenaView } from '~/utils/hero-quest-art/arena-scene'
 import type { PartyStatsTarget, PartyStatsView } from '~/utils/hero-quest-art/party-stats'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
+import type { ShopTrackId } from '#shared/utils/hero-quest/content/shop'
+import { isBattleSpeedDuration, isBattleSpeedTier, type BattleSpeedDuration, type BattleSpeedTier } from '#shared/utils/hero-quest/battle-speed'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
 import { D } from '#shared/utils/hero-quest/numbers'
@@ -202,9 +204,9 @@ const emit = defineEmits<{
     /** The Ascendant's picks, after a skill in its kit was pressed. */
     setAscendantKit: [skillIds: string[]]
     /** A prestige-shop track's Buy button was pressed. */
-    shopBuy: [upgradeId: string]
+    shopBuy: [upgradeId: ShopTrackId]
     /** A Battle Speed block's Buy button was pressed. */
-    buySpeed: [speed: number, minutes: number]
+    buySpeed: [speed: BattleSpeedTier, minutes: BattleSpeedDuration]
     /** A gacha banner's button was pressed. */
     gachaAction: [system: GachaSystemId, button: GachaButton]
     /** The reveal board was pressed once every card had turned over. */
@@ -1052,8 +1054,8 @@ function onPointerUp(e: PointerEvent) {
         else emit('calendarTab', id as HqCalendarTab)
     }
     else if (hit.startsWith('speed:')) {
-        const [, speed, minutes] = hit.split(':')
-        emit('buySpeed', Number(speed), Number(minutes))
+        const [speed, minutes] = hit.split(':').slice(1).map(Number)
+        if (isBattleSpeedTier(speed) && isBattleSpeedDuration(minutes)) emit('buySpeed', speed, minutes)
     }
     else if (hit.startsWith('buy:')) {
         const track = props.prestige?.tracks[Number(hit.slice(4))]

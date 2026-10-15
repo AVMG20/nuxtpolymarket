@@ -130,12 +130,12 @@ import {
 } from '#shared/utils/hero-quest/battle-speed'
 import type { StatsExplanation } from '#shared/utils/hero-quest/explain'
 import { readLoadoutSnapshot, type LiveLoadoutColumns, type LoadoutTarget } from '#shared/utils/hero-quest/loadout-session'
-import { D, ZERO, decPow, fromStore, toStore } from '#shared/utils/hero-quest/numbers'
+import { D, ZERO, decPow, fromStore, roundHq, roundHqFraction, toStore } from '#shared/utils/hero-quest/numbers'
 import { ASCENDANT_ID, ASCENDANT_PICKABLE, CLASS_NODES, MASTER_IDS, childrenOf, classOfSkill, getClass, kitFor } from '#shared/utils/hero-quest/content/classes'
 import { SHOP_TRACKS, maxLevelFor, shopStatLevels, shopTrackCost, type ShopTrackId } from '#shared/utils/hero-quest/content/shop'
 import { traitBoardOf, traitRollsOf, traitSaveSlotsAt, type TraitBoard, type TraitSlotState } from '#shared/utils/hero-quest/traits'
 import { passiveTreeOf } from '#shared/utils/hero-quest/passive-tree'
-import { awayReportOf, mergeAwayReports } from '#shared/utils/hero-quest/away-report'
+import { awayReportOf, mergeAwayReports, type HqAwayReport } from '#shared/utils/hero-quest/away-report'
 import { enemyNameAt, getWorld, runProgress } from '#shared/utils/hero-quest/content/worlds'
 import type {
     ChampionArchetype,
@@ -144,11 +144,22 @@ import type {
     FormationRow,
     HeroSnapshot,
     HqStatKey,
+    OfflineWindow,
     OwnedCopy,
     Rarity,
     RunPosition,
     SettleResult
 } from '#shared/utils/hero-quest/types'
+import type {
+    HqAscendantPayload,
+    HqBattleSpeedPayload,
+    HqClassNodePayload,
+    HqHeroPayload,
+    HqRunPayload,
+    HqSettledPayload,
+    HqShopTrackPayload,
+    HqStatsResponse
+} from '#server/utils/hero-quest-api'
 
 export type HqStateRow = typeof hqState.$inferSelect
 
@@ -364,12 +375,13 @@ export function holdClockTo(state: HqStateRow, now: number): Partial<HqStateRow>
  * Battle Speed for the client: what runs now, when it ends, and the price of every block. The
  * client dilates its own projection and the stage's clock with `multiplier` until `expiresAt`.
  */
-export function serializeBattleSpeed(state: HqStateRow, now = Date.now()) {
+export function serializeBattleSpeed(state: HqStateRow, now = Date.now()): HqBattleSpeedPayload {
     const window = battleSpeedOf(state)
     const multiplier = battleSpeedAt(window, now)
     return {
         multiplier,
         expiresAt: multiplier > 1 ? state.speedBoostExpiresAt!.getTime() : null,
+        // exact: the projection dilates its clock by it
         remainingSeconds: battleSpeedRemainingSeconds(window, now),
         tiers: BATTLE_SPEED_TIERS.map(speed => ({
             speed,
@@ -993,7 +1005,7 @@ export function classPickWrites(state: HqStateRow, requested: string) {
 // formula it does not need. Decimals go out as strings and are formatted client-side by
 // `numbers.ts`.
 
-export function serializeRun(state: HqStateRow, hero: HeroSnapshot) {
+export function serializeRun(state: HqStateRow, hero: HeroSnapshot): HqRunPayload {
     const position = positionOf(state)
     const tenureDays = tenureDaysOf(state)
     /**
@@ -1050,12 +1062,15 @@ export function serializeRun(state: HqStateRow, hero: HeroSnapshot) {
         partyDps: dps.toString(),
         /** Amortized per enemy, so it stays comparable to `goldPerKill`. */
         secondsPerKill: Number.isFinite(spk) ? spk : null,
-        /** Seconds to clear a whole encounter — what the battle animation should cycle on. */
-        secondsPerPack: Number.isFinite(spk) ? spk * packSize(farmPack) : null,
-        /** Both already carry every Gold% and burst source, so the client never stacks them itself. */
-        goldPerKill: goldPerKill(farm.prestige, farm.world, farm.stage, tenureDays) * goldMultiplier,
+        /** Seconds to clear a whole encounter, for display: the projection walks `secondsPerKill`. */
+        secondsPerPack: Number.isFinite(spk) ? roundHq(spk * packSize(farmPack)) : null,
+        /**
+         * Both already carry every Gold% and burst source, so the client never stacks them itself.
+         * Shown only: the projection prices kills from `tenureDays` and `goldBonusPct`.
+         */
+        goldPerKill: roundHq(goldPerKill(farm.prestige, farm.world, farm.stage, tenureDays) * goldMultiplier),
         goldPerHour: Number.isFinite(spk) && spk > 0
-            ? (3600 / spk) * goldPerKill(farm.prestige, farm.world, farm.stage, tenureDays) * goldMultiplier
+            ? roundHq((3600 / spk) * goldPerKill(farm.prestige, farm.world, farm.stage, tenureDays) * goldMultiplier)
             : 0,
         /**
          * Account age in days, and whether it is the calendar or progress that currently caps
@@ -1080,7 +1095,7 @@ export function serializeRun(state: HqStateRow, hero: HeroSnapshot) {
     }
 }
 
-export function serializeHero(state: HqStateRow, hero: HeroSnapshot) {
+export function serializeHero(state: HqStateRow, hero: HeroSnapshot): HqHeroPayload {
     const node = getClass(hero.classId)
     const units = partyUnitStats(hero)
     const self = units[0]!
@@ -1094,7 +1109,8 @@ export function serializeHero(state: HqStateRow, hero: HeroSnapshot) {
         level: hero.heroLevel,
         xp: xp.toString(),
         xpToNextLevel: needed.toString(),
-        xpProgress: needed.lte(0) ? 0 : Math.min(1, xp.div(needed).toNumber()),
+        /** The bar's fill, shown only: the projection levels off `xp` and `xpToNextLevel`. */
+        xpProgress: needed.lte(0) ? 0 : roundHqFraction(Math.min(1, xp.div(needed).toNumber())),
         skills: kitFor(hero.classId, hero.ascendantSkillIds),
         /** Every unit's kit on its live cooldowns, as the fight times it: what the battle stage casts on. */
         kits: partyKits(hero, units),
@@ -1106,13 +1122,14 @@ export function serializeHero(state: HqStateRow, hero: HeroSnapshot) {
             // crit multiplier joined them when the stat block became Decimal — sending the
             // objects raw would serialize break_eternity's internals, not a number.
             spd: self.spd.toString(),
-            attacksPerSecond: self.attacksPerSecond,
+            // shown only: the battle stage times its swings by `kits`
+            attacksPerSecond: roundHq(self.attacksPerSecond),
             strikesPerAttack: self.strikesPerAttack,
-            /** A probability, genuinely a number — not a Decimal that needs stringifying. */
-            critChance: self.critChance,
+            /** A probability, shown as a percentage; the stage sizes its damage numbers by it. */
+            critChance: roundHqFraction(self.critChance),
             critMultiplier: self.critMultiplier.toString(),
-            /** Evasion Rate, a rate already clamped at `MAX_EVASION`. */
-            eva: self.eva
+            /** Evasion Rate, a rate already clamped at `MAX_EVASION`, shown as a percentage. */
+            eva: roundHqFraction(self.eva)
         },
         /**
          * The Global Power Number (`global-power-number.md`) and the two sums it is the geometric
@@ -1123,12 +1140,65 @@ export function serializeHero(state: HqStateRow, hero: HeroSnapshot) {
     }
 }
 
-function serializePower(hero: HeroSnapshot) {
+function serializePower(hero: HeroSnapshot): HqHeroPayload['power'] {
     const power = globalPower(hero)
     return {
         gpn: power.gpn.toString(),
         dps: power.dps.toString(),
         ehp: power.ehp.toString()
+    }
+}
+
+/** An offline window's rules as the welcome-back card shows them: the seconds and the efficiency rounded. */
+function serializeOfflineWindow(offline: OfflineWindow): OfflineWindow {
+    return {
+        ...offline,
+        cappedSeconds: roundHq(offline.cappedSeconds),
+        capSeconds: roundHq(offline.capSeconds),
+        boostedSeconds: roundHq(offline.boostedSeconds),
+        efficiency: roundHqFraction(offline.efficiency)
+    }
+}
+
+/**
+ * What a read's own settle banked, for the wire. Display only: the settle already wrote the exact
+ * figures down, so the Gold, kills and seconds go out rounded.
+ */
+export function serializeSettled(outcome: SettleOutcome): HqSettledPayload | null {
+    const { result } = outcome
+    if (!result) return null
+    return {
+        online: outcome.online,
+        kills: roundHq(result.kills),
+        goldEarned: roundHq(result.goldEarned),
+        xpEarned: result.xpEarned.toString(),
+        levelsGained: result.heroLevel - outcome.previousLevel,
+        heroLevel: result.heroLevel,
+        effectiveSeconds: roundHq(result.effectiveSeconds),
+        blockedAtBoss: result.blockedAtBoss,
+        wipedOnWave: result.wipedOnWave,
+        // the real time away, how the offline rules counted it, and where the run went
+        awaySeconds: roundHq(outcome.elapsedSeconds),
+        offline: result.offline ? serializeOfflineWindow(result.offline) : null,
+        from: outcome.previousPosition ?? result.position,
+        to: result.position
+    }
+}
+
+/**
+ * The welcome-back card for the wire. The stored report keeps its exact sums, since later windows
+ * merge into it (`mergeAwayReports`); only the copy sent is rounded.
+ */
+export function serializeAwayReport(report: HqAwayReport | null | undefined): HqAwayReport | null {
+    if (!report) return null
+    return {
+        ...report,
+        kills: roundHq(report.kills),
+        goldEarned: roundHq(report.goldEarned),
+        awaySeconds: roundHq(report.awaySeconds),
+        effectiveSeconds: roundHq(report.effectiveSeconds),
+        lostToCapSeconds: roundHq(report.lostToCapSeconds),
+        offline: serializeOfflineWindow(report.offline)
     }
 }
 
@@ -1140,10 +1210,20 @@ function serializePower(hero: HeroSnapshot) {
  * §5). Kept beside the other serializers rather than inside the route so the conversion lives
  * where a reader looking for "how do Hero Quest values cross the wire" will find it.
  */
-export function serializeStatExplanation(explained: StatsExplanation) {
+export function serializeStatExplanation(explained: StatsExplanation): HqStatsResponse {
+    const { pacing } = explained
     return {
         heroLevel: explained.heroLevel,
-        pacing: explained.pacing,
+        // shown only; growth factors keep four decimals, so 1.0392 still reads as +3.92%
+        pacing: {
+            statGrowthPerLevel: roundHqFraction(pacing.statGrowthPerLevel),
+            defenceGrowthPerLevel: roundHqFraction(pacing.defenceGrowthPerLevel),
+            enemyStepBase: roundHqFraction(pacing.enemyStepBase),
+            dpsStatExponent: roundHqFraction(pacing.dpsStatExponent),
+            stagesPerLevel: roundHqFraction(pacing.stagesPerLevel),
+            // JSON has no Infinity: a curve no level covers goes out as null
+            levelsPerStage: Number.isFinite(pacing.levelsPerStage) ? roundHq(pacing.levelsPerStage) : null
+        },
         units: explained.units.map(unit => ({
             label: unit.label,
             role: unit.role,
@@ -1154,7 +1234,7 @@ export function serializeStatExplanation(explained: StatsExplanation) {
                 label: stat.label,
                 tier: stat.tier,
                 final: stat.final.toString(),
-                stagesOfCurve: stat.stagesOfCurve,
+                stagesOfCurve: roundHq(stat.stagesOfCurve),
                 stages: stat.stages.map(stage => ({
                     id: stage.id,
                     label: stage.label,
@@ -1163,14 +1243,18 @@ export function serializeStatExplanation(explained: StatsExplanation) {
                     unbounded: stage.unbounded,
                     floored: stage.floored ?? false,
                     formula: stage.formula,
-                    parts: stage.parts
+                    // the base stage's parts are points, every later stage's a fraction (+0.3 = +30%)
+                    parts: stage.parts.map(part => ({
+                        label: part.label,
+                        amount: stage.id === 'base' ? roundHq(part.amount) : roundHqFraction(part.amount)
+                    }))
                 }))
             }))
         }))
     }
 }
 
-export function serializeShop(shopLevels: Record<string, number>) {
+export function serializeShop(shopLevels: Record<string, number>): HqShopTrackPayload[] {
     return SHOP_TRACKS.map(track => {
         const level = shopLevels[track.id] ?? 0
         return {
@@ -1799,7 +1883,7 @@ export async function getLoadouts(userId: string, tx: DbExecutor = db) {
     return tx.select().from(hqLoadouts).where(eq(hqLoadouts.userId, userId))
 }
 
-export function serializeClassTree(state: HqStateRow) {
+export function serializeClassTree(state: HqStateRow): HqClassNodePayload[] {
     const seen = new Set(state.seenNodeIds as string[])
     const pickable = new Set(pickableClasses(state))
     return CLASS_NODES.map(node => ({
@@ -1820,7 +1904,7 @@ export function serializeClassTree(state: HqStateRow) {
  * The Ascendant as the Classes scene needs it: the masters prestiged with so far (its unlock), the
  * live picks, and every skill it can pick from, with whether that skill's class has been reached.
  */
-export function serializeAscendant(state: HqStateRow) {
+export function serializeAscendant(state: HqStateRow): HqAscendantPayload {
     const seen = new Set(state.seenNodeIds as string[])
     return {
         mastersPrestiged: mastersPrestiged(state),

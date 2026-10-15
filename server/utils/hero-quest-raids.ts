@@ -19,6 +19,7 @@ import { partyUnitStats } from '#shared/utils/hero-quest/stats'
 import { RAID_KEYS_PER_DAY } from '#shared/utils/hero-quest/constants'
 import { randomInt } from '#shared/utils/random'
 import type { HeroSnapshot } from '#shared/utils/hero-quest/types'
+import type { HqRaidPayload } from '#server/utils/hero-quest-api'
 
 type RaidRow = typeof hqRaidState.$inferSelect
 
@@ -174,7 +175,7 @@ export async function quickClearRaid(tx: DbExecutor, userId: string, raidId: Rai
  * clock starts the first time the player can see it and it accrues from then like any other,
  * rather than showing a fresh day's Keys on every read. The insert is a no-op once the row is there.
  */
-export async function serializeRaids(userId: string, executor: DbExecutor = db, open = false) {
+export async function serializeRaids(userId: string, executor: DbExecutor = db, open = false): Promise<HqRaidPayload[]> {
     if (open) {
         await executor.insert(hqRaidState)
             .values(RAIDS.map(raid => ({ userId, raidId: raid.id })))

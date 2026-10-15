@@ -10,6 +10,7 @@ import {
     settleHq
 } from '#server/utils/hero-quest'
 import { explainStats } from '#shared/utils/hero-quest/explain'
+import type { HqStatsResponse } from '#server/utils/hero-quest-api'
 
 /**
  * Where every stat on every fielded unit comes from.
@@ -23,7 +24,7 @@ import { explainStats } from '#shared/utils/hero-quest/explain'
  * Settles first like every other read, so the levels it explains are the levels the battle
  * screen is showing rather than the ones from before the window that just accrued.
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqStatsResponse> => {
     const userId = await requireUserId(event)
 
     const existing = await getHqState(userId)
