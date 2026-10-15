@@ -109,7 +109,9 @@ and a timeout decided by HP share. What is still open:
    call, GitHub issue #23): Hero Quest adds **Worlds cleared, every run counted, plus collection entries
    owned** to the platform's upgrade count (`heroQuestScore`, `scoreboard.ts`). Stages and collection levels
    were weighed and left out, since both run into the hundreds and would decide the board. GPN stays shown,
-   unranked.
+   unranked. **Reweighed 2026-10-15** (the user's call, GitHub issue #35): the collection counts as its
+   completion percentage, `round(owned / 168 × 100)`, so an entry is worth about 0.6 of a point and the
+   leaderboard breakdown shows the percentage.
 4. ~~**The bots' loadouts are guesses (#62).**~~ — `ARENA_BOT_LOADOUT` **locked 2026-10-11**, the user's call.
 
 ### ~~45. Boss specials are real — built; what the sims don't see~~ — closed 2026-10-11

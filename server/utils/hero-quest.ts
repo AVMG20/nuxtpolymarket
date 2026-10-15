@@ -500,8 +500,27 @@ export function loadoutSnapshotOf(
 
 /** Does this Hero field anything whose damage reads banked Gold? */
 function hasWealthScaledSkill(hero: HeroSnapshot): boolean {
-    return (hero.equippedSkills ?? []).some(copy =>
-        isSkillId(copy.contentId) && getSkill(copy.contentId).effect?.wealthScaled === true)
+    return (hero.equippedSkills ?? []).some(copy => isWealthScaledSkillId(copy.contentId))
+}
+
+function isWealthScaledSkillId(contentId: string): boolean {
+    return isSkillId(contentId) && getSkill(contentId).effect?.wealthScaled === true
+}
+
+/**
+ * The hours of income the player has banked in Gold, for the Collections detail of a wealth-scaled
+ * Active (#26): what the Gambler's Strike family multiplies its hit by. The snapshot's own figure
+ * when one is equipped; otherwise one more `wealthHoursFor`, paid only by a player who owns one.
+ * Null when none is owned.
+ */
+export function skillWealthHoursOf(
+    state: HqStateRow,
+    hero: HeroSnapshot,
+    ownedSkills: readonly HqCollectionRow[],
+    bankedGold: number
+): number | null {
+    if (!ownedSkills.some(row => isWealthScaledSkillId(row.contentId))) return null
+    return hero.wealthHours ?? wealthHoursFor(hero, positionOf(state), bankedGold, tenureDaysOf(state))
 }
 
 export function isBossStage(stage: number): boolean {
@@ -1598,13 +1617,16 @@ export interface TrainingPayload extends GachaCommonPayload {
     slotCount: number
     equippedSkillIds: string[]
     art: string
+    /** Hours of income banked in Gold, which scale the wealth-scaled Actives' hits; null when none is owned. */
+    wealthHours: number | null
     roster: TrainingRosterEntry[]
 }
 
 export function serializeTrainingGrounds(
     state: HqStateRow,
     collection: readonly HqCollectionRow[],
-    shopLevels: Record<string, number>
+    shopLevels: Record<string, number>,
+    wealthHours: number | null = null
 ): TrainingPayload {
     const owned = new Map(collection.map(row => [row.contentId, row]))
     const equipped = new Set(state.equippedSkillIds as string[])
@@ -1614,6 +1636,7 @@ export function serializeTrainingGrounds(
         slotCount: skillSlots(shopLevels),
         equippedSkillIds: state.equippedSkillIds as string[],
         art: trainingGroundsArt(state.heroNodeId as ClassId),
+        wealthHours,
         roster: SKILLS.map((definition) => {
             const row = owned.get(definition.id)
             // At the copy's own investment, or at a fresh 0★/Lv1 for one not yet owned — so a

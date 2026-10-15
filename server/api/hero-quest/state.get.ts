@@ -18,6 +18,7 @@ import {
     serializeRun,
     serializeShop,
     serializeTrainingGrounds,
+    skillWealthHoursOf,
     settleHq,
     voidShardsFor
 } from '#server/utils/hero-quest'
@@ -123,7 +124,8 @@ export default defineEventHandler(async (event) => {
         getHolidayClaims(userId),
         unclaimedSeasons(userId)
     ])
-    const hero = heroSnapshotOf(state, shopLevels, collections, parseFloat(balance) || 0, traitBoard)
+    const bankedGold = parseFloat(balance) || 0
+    const hero = heroSnapshotOf(state, shopLevels, collections, bankedGold, traitBoard)
     // what a minute of the run's income is worth: the calendar's Gold days and the holiday gifts' Gold
     const goldPerHour = calendarGoldPerHour(state, hero)
 
@@ -164,7 +166,7 @@ export default defineEventHandler(async (event) => {
 
         guild: serializeGuild(state, collections.champion, shopLevels),
         forge: serializeForge(state, collections.gear),
-        training: serializeTrainingGrounds(state, collections.skill, shopLevels),
+        training: serializeTrainingGrounds(state, collections.skill, shopLevels, skillWealthHoursOf(state, hero, collections.skill, bankedGold)),
         digSite: serializeDigSite(state, collections.artifact, shopLevels),
         loadouts: serializeLoadouts(loadoutRows, shopLevels),
         /** Raid (or `arena`) → the saved slot it applies on a fresh engage (`loadouts.md` §4). */

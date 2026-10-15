@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { heroQuestScore, townScore, voidScore } from '#shared/utils/gamelogic/scoreboard'
+import { HERO_QUEST_COLLECTION_SIZE, heroQuestScore, townScore, voidScore } from '#shared/utils/gamelogic/scoreboard'
 import { TOWN_MILESTONES } from '#shared/utils/gamelogic/town'
 import { TOWN_MONUMENTS, TOWN_MONUMENT_STAGES } from '#shared/utils/gamelogic/town-monuments'
 import { VOID_MAX_SECTOR, VOID_SHIP_IDS, VOID_TRADE_MAX_LEVEL, VOID_UPGRADES } from '#shared/utils/gamelogic/void'
@@ -46,11 +46,24 @@ describe('scoreboard: Void Runner', () => {
 })
 
 describe('scoreboard: Hero Quest', () => {
-    it('counts the Worlds cleared in every run, and the entries owned', () => {
+    it('counts the Worlds cleared in every run, and the collection completion', () => {
         expect(heroQuestScore({ prestige: 0, world: 1, runCleared: false, entriesOwned: 0 }).total).toBe(0)
-        expect(heroQuestScore({ prestige: 0, world: 4, runCleared: false, entriesOwned: 12 })).toEqual({ worlds: 3, entries: 12, total: 15 })
+        // 12 of 168 entries is 7.1%, rounded to 7
+        expect(heroQuestScore({ prestige: 0, world: 4, runCleared: false, entriesOwned: 12 })).toEqual({ worlds: 3, collection: 7, total: 10 })
         // a cleared run counts its tenth World, and every prestige before it ten more
         expect(heroQuestScore({ prestige: 0, world: 10, runCleared: true, entriesOwned: 0 }).worlds).toBe(10)
         expect(heroQuestScore({ prestige: 2, world: 3, runCleared: false, entriesOwned: 0 }).worlds).toBe(22)
+    })
+
+    it('scores the collection as a whole percentage of every gacha entry, 0 to 100', () => {
+        expect(HERO_QUEST_COLLECTION_SIZE).toBe(168)
+        const score = (entriesOwned: number) => heroQuestScore({ prestige: 0, world: 1, runCleared: false, entriesOwned }).collection
+        expect(score(1)).toBe(1)
+        expect(score(84)).toBe(50)
+        expect(score(167)).toBe(99)
+        expect(score(168)).toBe(100)
+        // stale rows past the roster never push it over 100
+        expect(score(200)).toBe(100)
+        expect(score(-3)).toBe(0)
     })
 })
