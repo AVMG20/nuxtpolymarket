@@ -10,6 +10,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '#server/database'
 import { bankState, chatMessages, gemOrders, hqState, minerState, transactions, user } from '#server/database/schema'
 import { prestigeUser } from '#server/utils/prestige'
+import { collectChest } from '#server/utils/hero-quest'
 import { PRESTIGE_TIERS } from '#shared/utils/prestige'
 import { SKIP, burst, cleanupUser, seedUser } from '../setup/db-helpers'
 
@@ -118,6 +119,23 @@ describe.skipIf(SKIP)('prestigeUser', () => {
         // The 48 unbanked hours do not.
         expect(run!.lastSettledAt.getTime()).toBeGreaterThanOrEqual(startedAt.getTime() - 1000)
         expect(run!.lastSettledAt.getTime()).toBeGreaterThan(staleClock.getTime())
+    })
+
+    /**
+     * The chest is the other coin claim the exemption parks outside the wallet:
+     * a settle banks its Gold there, and opening it pays the platform balance.
+     * Left full, it would open into the wallet the reset just emptied (issue #30).
+     */
+    it('burns the hero-quest chest with the balance', async () => {
+        await seedUser(USER_ID, { balance: `${TIER_1.coinCost}.0000`, gems: TIER_1.gemCost })
+        await db.insert(hqState).values({ userId: USER_ID, pendingGold: '987654.0000' })
+
+        await prestigeUser(USER_ID)
+
+        const run = await db.query.hqState.findFirst({ where: eq(hqState.userId, USER_ID) })
+        expect(Number(run?.pendingGold)).toBe(0)
+        await expect(collectChest(USER_ID)).rejects.toMatchObject({ statusCode: 400 })
+        expect((await readUser())?.balance).toBe('0.0000')
     })
 
     it('burns the whole balance, not just the tier price', async () => {

@@ -68,14 +68,16 @@ export const PRESTIGE_PRESERVED_TABLES = new Set([
  * The coin side is NOT exempt: escrowed coins that would otherwise ride
  * through a reset are handled by prestigeBlockers, not by this list.
  *
- * ⚠ **Hero Quest's Gold *is* the platform balance** — `settleHq` pays it out
+ * ⚠ **Hero Quest's Gold *is* the platform balance** — `settleHq` banks it in
+ * the chest (`hq_state.pending_gold`) and opening the chest pays it out
  * through `credit`, not into a currency of its own. So exempting the game
- * leaves exactly one coin claim parked outside the wallet:
- * `hq_state.last_settled_at`. Left untouched it still points at a time before
- * the ascent, and the first settle afterwards pays a full offline window — up
- * to the offline cap — into the *fresh* wallet, which is precisely what the
- * wipe was supposed to burn. `prestigeUser` re-stamps it as part of the
- * ascent; see the note there.
+ * leaves two coin claims parked outside the wallet: the chest, and
+ * `hq_state.last_settled_at`. Left untouched, the chest opens into the *fresh*
+ * wallet, and the clock still points at a time before the ascent, so the first
+ * settle afterwards banks a full offline window — up to the offline cap — for
+ * it. Both are precisely what the wipe was supposed to burn. `prestigeUser`
+ * empties the chest and re-stamps the clock as part of the ascent; see the
+ * note there.
  */
 export const PRESTIGE_PRESERVED_PREFIXES = ['tcg_', 'hq_']
 
@@ -253,14 +255,16 @@ export async function prestigeUser(userId: string): Promise<PrestigeResult> {
         }
 
         // Hero Quest survives the wipe (`PRESTIGE_PRESERVED_PREFIXES`), which
-        // leaves its offline clock pointing before the ascent. Its Gold is the
-        // platform balance, so the next settle would pay that whole window into
-        // the wallet this reset just emptied. Re-stamping the clock is what
-        // makes the exemption "keep the run" rather than "keep the run and get
-        // paid for the reset". The run itself — position, level, shards — is
-        // untouched, which is the point of exempting it.
+        // leaves its offline clock pointing before the ascent and its chest
+        // full. Its Gold is the platform balance, so the chest, and the next
+        // settle's whole window, would pay into the wallet this reset just
+        // emptied. Emptying the chest and re-stamping the clock is what makes
+        // the exemption "keep the run" rather than "keep the run and get paid
+        // for the reset". The run itself — position, level, shards — is
+        // untouched, which is the point of exempting it. The welcome-back card
+        // goes too: the Gold it reports is gone.
         await tx.update(hqState)
-            .set({ lastSettledAt: new Date() })
+            .set({ lastSettledAt: new Date(), pendingGold: '0', awayReport: null })
             .where(eq(hqState.userId, userId))
 
         // Fixed resets for the columns that live on the user row itself, which
