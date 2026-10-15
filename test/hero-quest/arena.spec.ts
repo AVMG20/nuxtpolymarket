@@ -138,6 +138,11 @@ describe('hero-quest arena', () => {
             expect(refreshesOn({ date: '2026-10-10', used: 4 }, '2026-10-10')).toEqual({ date: '2026-10-10', used: 4 })
             expect(refreshesOn({ date: '2026-10-09', used: 4 }, '2026-10-10')).toEqual({ date: '2026-10-10', used: 0 })
         })
+
+        it('never rolls a counter back to an earlier day than the one it holds', () => {
+            // a request that read the clock before midnight and queued behind one after it
+            expect(refreshesOn({ date: '2026-10-10', used: 4 }, '2026-10-09')).toEqual({ date: '2026-10-10', used: 4 })
+        })
     })
 
     describe('the candidate draw (§2, §2a)', () => {
@@ -187,6 +192,14 @@ describe('hero-quest arena', () => {
             const bought = { date: '2026-10-09', used: ARENA_FREE_ATTEMPTS_PER_DAY, purchased: 2 }
             expect(attemptsLeft(attemptsOn(bought, '2026-10-09'))).toBe(2)
             expect(attemptsOn(bought, '2026-10-10')).toEqual({ date: '2026-10-10', used: 0, purchased: 0 })
+        })
+
+        it('never rolls the attacks back to an earlier day than the one they hold', () => {
+            // a request that read the clock before midnight and queued behind one after it must not
+            // start the day over: that would hand out the free attacks and the ladder's cheap rungs again
+            const today = { date: '2026-10-10', used: ARENA_FREE_ATTEMPTS_PER_DAY, purchased: 3 }
+            expect(attemptsOn(today, '2026-10-09')).toEqual(today)
+            expect(attemptsLeft(attemptsOn(today, '2026-10-09'))).toBe(3)
         })
     })
 

@@ -140,6 +140,21 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             expect(log.every(row => row.isDummy && row.won && row.ratingChange === 0 && row.opponentUserId === null)).toBe(true)
         })
 
+        it('never starts the day over for an attack that read the clock before midnight (issue #30)', async () => {
+            await found(ATTACKER)
+            await getCandidates(ATTACKER, Date.now())
+            await burst(ARENA_FREE_ATTEMPTS_PER_DAY, () => attack(ATTACKER, ARENA_DUMMY_ID))
+
+            // queued behind today's attacks with yesterday's clock: the attempts already spent today
+            // stand (refused for the attempts, or as a season it can't fight in on a season's first day)
+            const lastNight = Date.now() - DAY
+            await expect(attack(ATTACKER, ARENA_DUMMY_ID, lastNight)).rejects.toThrow()
+            const state = await stateOf(ATTACKER)
+            expect(state.arenaAttemptDate).toBe(ladderDateKey(Date.now()))
+            expect(state.arenaAttemptsUsedToday).toBe(ARENA_FREE_ATTEMPTS_PER_DAY)
+            expect(state.arenaMedals).toBe(ARENA_FREE_ATTEMPTS_PER_DAY * MEDAL_BASE_WIN)
+        })
+
         it('fights a bot as a real match on the attacker\'s side only', async () => {
             await found(ATTACKER)
             const bot = arenaBots()[0]!
@@ -283,6 +298,25 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             expect(result.ok).toBe(2)
             expect(await gemsOf(ATTACKER)).toBe(0)
             expect((await stateOf(ATTACKER)).arenaExtraAttemptsPurchasedToday).toBe(2)
+        })
+
+        it('prices an extra attack or a redraw that read the clock before midnight at today\'s rung (issue #30)', async () => {
+            await found(ATTACKER, extraAttemptPrice(0) + extraAttemptPrice(1) + refreshPrice(2))
+            await db.transaction(tx => buyAttempt(tx, ATTACKER, Date.now()))
+            await refreshCandidates(ATTACKER, Date.now())
+            await refreshCandidates(ATTACKER, Date.now())
+
+            const lastNight = Date.now() - DAY
+            const bought = await db.transaction(tx => buyAttempt(tx, ATTACKER, lastNight))
+            const redrawn = await refreshCandidates(ATTACKER, lastNight)
+            expect(bought.gemsSpent).toBe(extraAttemptPrice(1))
+            expect(redrawn.gemsSpent).toBe(refreshPrice(2))
+            const state = await stateOf(ATTACKER)
+            expect(state.arenaAttemptDate).toBe(ladderDateKey(Date.now()))
+            expect(state.arenaExtraAttemptsPurchasedToday).toBe(2)
+            expect(state.arenaRefreshDate).toBe(ladderDateKey(Date.now()))
+            expect(state.arenaRefreshesToday).toBe(3)
+            expect(await gemsOf(ATTACKER)).toBe(0)
         })
 
         it('gives two refreshes free, then charges each at its own rung, never past the Gems held', async () => {

@@ -126,9 +126,13 @@ export interface ArenaAttempts {
 /**
  * Today's counters: as stored on the same UTC day, back to none on a new one (§3: free attacks do
  * not bank, and the extra-attack ladder starts over). `today` is a `ladderDateKey`.
+ *
+ * Never backwards, like `rollStanding`: counters already on a later day than the caller's clock
+ * (a request that read the time before midnight and queued behind one after it) stay as they are,
+ * or that request would start the day over and hand out its free attacks again.
  */
 export function attemptsOn(stored: ArenaAttempts, today: string): ArenaAttempts {
-    if (stored.date === today) return stored
+    if (stored.date !== null && stored.date >= today) return stored
     return { date: today, used: 0, purchased: 0 }
 }
 
@@ -143,9 +147,9 @@ export interface ArenaRefreshes {
     used: number
 }
 
-/** Today's redraws: as stored on the same UTC day, back to none on a new one. */
+/** Today's redraws: as stored on the same UTC day, back to none on a new one, and never backwards (`attemptsOn`). */
 export function refreshesOn(stored: ArenaRefreshes, today: string): ArenaRefreshes {
-    return stored.date === today ? stored : { date: today, used: 0 }
+    return stored.date !== null && stored.date >= today ? stored : { date: today, used: 0 }
 }
 
 /** The next redraw's Gem price after `usedToday` today: free for the first two, then 5, 10, 20, … */
