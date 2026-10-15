@@ -31,20 +31,28 @@ import {
     K_DEFEND,
     MEDAL_BASE_LOSS,
     MEDAL_BASE_WIN,
-    MEDAL_UPSET_BONUS
+    MEDAL_UPSET_BONUS,
+    TRAIT_SLOT_COUNT
 } from './constants'
 import { RAIDS, getRaid, type RaidId } from './content/raids'
 import { raidReward } from './raids'
 import type { GachaSystem } from './gacha'
+import { traitSlotOf, type TraitBoard, type TraitSlotState } from './traits'
 import type { FormationRow } from './types'
 
 const DAY_MS = 86_400_000
 const SEASON_MS = ARENA_SEASON_DAYS * DAY_MS
 
+/** A Trait slot as the defence keeps it: what it rolled. */
+export interface ArenaDefenseTrait { stat: string, grade: string, set: string }
+
 /**
  * The stored defence (§1): the same five components a Loadout captures (`loadouts.md` §1), Gear
- * included, kept apart from the live loadout so attack and defence diverge by design. IDs only;
- * star and level are read from the defender's collection when they are attacked.
+ * included, and the Trait board, kept apart from the live ones so attack and defence diverge by
+ * design. The selection is frozen until the player sets the defence again; its stats are not:
+ * IDs only, so star and level are read from the defender's collection, and hero level, the Passive
+ * Skill Tree, the Shop's stat tracks and the collection passives from the account as it stands
+ * (issue #32, the user's call 2026-10-15).
  */
 export interface ArenaDefenseLoadout {
     partyChampionIds: string[]
@@ -52,6 +60,29 @@ export interface ArenaDefenseLoadout {
     equippedSkillIds: string[]
     equippedArtifactIds: string[]
     equippedGear: Record<string, string>
+    /**
+     * The Trait board as it was set, by slot index, null for an empty slot. Absent on a defence set
+     * before Traits were frozen with it (2026-10-15): that one fights on the live board until it is
+     * set again.
+     */
+    traits?: (ArenaDefenseTrait | null)[]
+}
+
+/** A Trait board as the defence stores it: each slot's roll, the lock left behind. */
+export function defenseTraitsFrom(board: TraitBoard): (ArenaDefenseTrait | null)[] {
+    return Array.from({ length: TRAIT_SLOT_COUNT }, (_, i) => {
+        const slot = board[i]
+        return slot ? { stat: slot.stat, grade: slot.grade, set: slot.set } : null
+    })
+}
+
+/** The Trait board the defence fights on: its own, or `live` for a defence stored without one. */
+export function defenseTraitBoard(defense: ArenaDefenseLoadout, live: TraitBoard): TraitBoard {
+    if (!defense.traits) return live
+    return Array.from({ length: TRAIT_SLOT_COUNT }, (_, i): TraitSlotState | null => {
+        const slot = defense.traits![i]
+        return slot ? traitSlotOf({ ...slot, locked: false }) : null
+    })
 }
 
 // ── Seasons ────────────────────────────────────────────────────────────────────────

@@ -697,8 +697,9 @@ export async function collectChest(userId: string): Promise<{ collected: string,
 
 /**
  * The row with its stored Arena defence fielded in place of the live loadout (`arena.md` §1), for
- * `heroSnapshotOf` to read: the defender's class, level and collection as they stand, the five
- * Loadout components from the defence. Null without a defence.
+ * `heroSnapshotOf` to read: the defender's class, level, Passive Skill Tree and collection as they
+ * stand, the five Loadout components from the defence. Null without a defence. Its Traits are the
+ * defence's too: the caller passes `defenseTraitBoard`'s.
  */
 export function withDefenseLoadout(state: HqStateRow): HqStateRow | null {
     const defense = state.defenseLoadout
@@ -713,7 +714,10 @@ export function withDefenseLoadout(state: HqStateRow): HqStateRow | null {
     }
 }
 
-/** Defense GPN (`arena.md` §2), for show: written when the defence is set, and only then. */
+/**
+ * Defense GPN (`arena.md` §2): the stored selection at the account's progress as it stands (issue
+ * #32), so it is worked out wherever it is shown. `traits` is the defence's board (`defenseTraitBoard`).
+ */
 export function defenseGpnOf(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections, traits?: TraitBoard) {
     const defended = withDefenseLoadout(state)
     if (!defended) return { defenseGpn: null }
@@ -722,9 +726,8 @@ export function defenseGpnOf(state: HqStateRow, shopLevels: Record<string, numbe
 
 /**
  * The live GPN as of `state`, for the platform leaderboard's Hero Quest column
- * (`tech-architecture.md` §3: recomputed on every settle). Defense GPN is not refreshed here:
- * the locked docs recompute it only when the defence is saved (`arena.md` §2), though the
- * defender's level and collection keep moving it between saves (`open-items.md` #52).
+ * (`tech-architecture.md` §3: recomputed on every settle). Defense GPN is not written here: it
+ * follows the account's progress, so it is worked out where it is shown (`defenseGpnOf`, issue #32).
  */
 function powerWrites(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections, traits?: TraitBoard) {
     return { globalPowerNumber: globalPower(heroSnapshotOf(state, shopLevels, collections, undefined, traits)).gpn.toString() }
