@@ -3,6 +3,7 @@ import { TOWN_MONUMENT_STAGES, isTownMonumentId } from './town-monuments'
 import { VOID_MAX_SECTOR, VOID_SHIP_IDS, VOID_TRADE_MAX_LEVEL, voidNormalizeLevels } from './void'
 import { voidPilotLevel } from './void-skills'
 import { WORLD_COUNT } from '../hero-quest/constants'
+import { GACHA_CONTENT } from '../hero-quest/content/registry'
 
 /**
  * What Polytown, Void Runner and Hero Quest add to the site scoreboard.
@@ -12,7 +13,8 @@ import { WORLD_COUNT } from '../hero-quest/constants'
  * playing rather than by spending. Anything a player can mint or lose is left
  * out on purpose: buildings and plots can be bulldozed or traded, crafted gear
  * can be scrapped and re-rolled. Polytown and Void Runner top out near Xeno's 85 points, so
- * neither decides the board alone; Hero Quest's entries stop at 168, its worlds add ten a run.
+ * neither decides the board alone; Hero Quest's collection counts as a completion percentage, so it
+ * stops at 100, and its worlds add ten a run.
  */
 
 const MILESTONE_IDS = new Set(TOWN_MILESTONES.map(m => m.id))
@@ -86,19 +88,28 @@ export interface HeroQuestScoreInput {
 
 export interface HeroQuestScore {
     worlds: number
-    entries: number
+    /** Collection completion, 0–100: the share of every gacha entry owned, rounded. */
+    collection: number
     total: number
 }
 
+/** Every entry across the four gachas (168 today: Skills 36, Gear 36, Champions 48, Artifacts 48). */
+export const HERO_QUEST_COLLECTION_SIZE = Object.values(GACHA_CONTENT).reduce((sum, c) => sum + c.entries.length, 0)
+
 /**
- * Worlds cleared, every run counted, plus collection entries owned (2026-10-11, the user's call).
- * Levels and stages were weighed and left out: both run into the hundreds and would decide the
- * board, and a level is bought with pulls as much as it is played for.
+ * Worlds cleared, every run counted, plus collection completion as a whole percentage.
+ *
+ * Entries counted a point each from 2026-10-11 (#23); on 2026-10-15 (#35) the collection became
+ * `round(owned / 168 × 100)`, so an entry is worth about 0.6 of a point and a full collection no
+ * longer outweighs two other games. Entries come from pulls, which Gold can buy, so they stay the
+ * smaller share. Levels and stages were weighed and left out: both run into the hundreds and would
+ * decide the board, and a level is bought with pulls as much as it is played for.
  */
 export function heroQuestScore(s: HeroQuestScoreInput): HeroQuestScore {
     const prestige = Math.max(0, Math.floor(s.prestige))
     const inRun = Math.max(0, Math.min(WORLD_COUNT, Math.floor(s.world) - 1 + (s.runCleared ? 1 : 0)))
     const worlds = prestige * WORLD_COUNT + inRun
-    const entries = Math.max(0, Math.floor(s.entriesOwned))
-    return { worlds, entries, total: worlds + entries }
+    const owned = Math.max(0, Math.min(HERO_QUEST_COLLECTION_SIZE, Math.floor(s.entriesOwned)))
+    const collection = Math.round(owned / HERO_QUEST_COLLECTION_SIZE * 100)
+    return { worlds, collection, total: worlds + collection }
 }
