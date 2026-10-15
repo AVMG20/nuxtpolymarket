@@ -738,10 +738,30 @@ let drag: { pointer: number, y: number, scroll: number, moved: boolean } | null 
 let sceneH = 0
 
 const settingsScrollMax = () => settingsHit && presenter ? settingsHit.settingsMaxScroll(presenter.w, sceneH) : 0
-const scrollsHere = computed(() => openScene.value === 'settings' && ready.value && settingsScrollMax() > 0)
 
-function scrollSettings(to: number) {
-    settingsScroll.value = Math.min(settingsScrollMax(), Math.max(0, to))
+/** The open Collections entry's lines, scrolled when they run past its footer; a new entry starts at the top. */
+const detailScroll = ref(0)
+watch(detail, () => { detailScroll.value = 0 })
+const detailScrollMax = () => collectionsHit && presenter && openEntry.value && !picking.value
+    ? collectionsHit.detailMaxScroll(presenter.w, sceneH, openEntry.value)
+    : 0
+
+/** What a wheel or a dragged finger scrolls here: the Settings list, a Collections detail's lines, or nothing. */
+const scrollKind = computed<'settings' | 'detail' | null>(() => {
+    if (!ready.value) return null
+    if (openScene.value === 'settings') return settingsScrollMax() > 0 ? 'settings' : null
+    if (openScene.value === 'collections') return detailScrollMax() > 0 ? 'detail' : null
+    return null
+})
+const scrollsHere = computed(() => scrollKind.value !== null)
+
+function scrollNow(): number {
+    return scrollKind.value === 'detail' ? detailScroll.value : settingsScroll.value
+}
+
+function scrollList(to: number) {
+    if (scrollKind.value === 'detail') detailScroll.value = Math.min(detailScrollMax(), Math.max(0, to))
+    else settingsScroll.value = Math.min(settingsScrollMax(), Math.max(0, to))
 }
 
 /** The pointer's height on the stage, in stage pixels. */
@@ -767,7 +787,7 @@ function onWheel(e: WheelEvent) {
     if (!scrollsHere.value) return
     e.preventDefault()
     // the page's pixels become the stage's
-    scrollSettings(settingsScroll.value + px / canvas.value.getBoundingClientRect().height * presenter.h)
+    scrollList(scrollNow() + px / canvas.value.getBoundingClientRect().height * presenter.h)
 }
 
 /**
@@ -871,7 +891,7 @@ function onPointerMove(e: PointerEvent) {
             hover.value = null
         }
         if (drag.moved) {
-            scrollSettings(drag.scroll - dy)
+            scrollList(drag.scroll - dy)
             return
         }
     }
@@ -883,7 +903,7 @@ function onPointerMove(e: PointerEvent) {
 function onPointerDown(e: PointerEvent) {
     // a finger on the list may be a scroll rather than a press: follow it, wherever it goes
     if (e.pointerType !== 'mouse' && scrollsHere.value && presenter && stageY(e) < sceneH) {
-        drag = { pointer: e.pointerId, y: stageY(e), scroll: settingsScroll.value, moved: false }
+        drag = { pointer: e.pointerId, y: stageY(e), scroll: scrollNow(), moved: false }
         canvas.value?.setPointerCapture(e.pointerId)
     }
     if (renaming.value) {
@@ -1403,7 +1423,7 @@ onMounted(async () => {
         const view = scene === 'battle'
             ? stage!.render()
             : scene === 'collections'
-                ? collectionsScene!.render(t, props.collections ?? { tab: 'gear', entries: [], essence: '0', heroClassId: null }, collectionsHover.value, pressed.value, detail.value, !!props.collectionsBusy, picking.value)
+                ? collectionsScene!.render(t, props.collections ?? { tab: 'gear', entries: [], essence: '0', heroClassId: null }, collectionsHover.value, pressed.value, detail.value, !!props.collectionsBusy, picking.value, detailScroll.value)
                 : scene === 'loadouts'
                     ? loadoutsScene!.render(t, props.loadouts ?? { slots: [], unlocked: 0, max: 0 }, loadoutsHover.value, pressed.value, loadoutDetail.value, !!props.loadoutsBusy)
                     : scene === 'classes'

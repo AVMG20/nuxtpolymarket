@@ -4,6 +4,12 @@ import { D, formatHq, formatSeconds } from '#shared/utils/hero-quest/numbers'
 import { RARITIES, sealLadderTotal, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { FormationRow, Rarity } from '#shared/utils/hero-quest/types'
 import { GEAR_SLOTS, GEAR_SLOT_NAME } from '#shared/utils/hero-quest/content/gear'
+import { RARITY_STAT_MULTIPLIER, getChampion } from '#shared/utils/hero-quest/content/champions'
+import { skillActives } from '#shared/utils/hero-quest/content/skills'
+import { investmentScalar } from '#shared/utils/hero-quest/gacha'
+import { championInvestmentMultiplier } from '#shared/utils/hero-quest/stats'
+import { wealthFactorFor } from '#shared/utils/hero-quest/combat'
+import { describeAbility, describeWealth, hqNumber, hqPct, isWealthScaled, modifierLine } from '#shared/utils/hero-quest/describe'
 import { ARENA_FIGHT_SECONDS, AUTO_ENGAGE_REPLAY_HOLD_SECONDS, CALENDAR_MAKEUPS_PER_CYCLE, FORMATION_ROW_CAPACITY, FREE_PULLS_PER_DAY, MAX_ARTIFACT_SLOTS, MAX_CHAMPION_SLOTS, MAX_OFFLINE_CAP_LEVEL, MAX_OFFLINE_EFFICIENCY_LEVEL, MAX_SKILL_SLOTS, RAID_DUMMY_SECONDS, RAID_ENRAGE_SECONDS, RAID_RAMPAGE_CAP_SECONDS } from '#shared/utils/hero-quest/constants'
 import { ARENA_SHOP } from '#shared/utils/hero-quest/arena'
 import { getRaid } from '#shared/utils/hero-quest/content/raids'
@@ -98,6 +104,33 @@ function equipActions(owned: boolean): CollectionAction[] {
     return owned ? [{ id: 'equip', label: 'Equip', enabled: true }] : []
 }
 
+/** The copy a detail describes: the player's own, or a fresh 0★ Lv1 for one not owned yet, as the rosters price it. */
+function copyAt(e: { owned: boolean, star: number, level: number }): { star: number, level: number } {
+    return e.owned ? { star: e.star, level: Math.max(1, e.level) } : { star: 0, level: 1 }
+}
+
+/** What a fielded Champion brings, exactly: its stat multiplier at its star and level, and every ability it casts. */
+function championLines(e: { id: string, rarity: Rarity, owned: boolean, star: number, level: number }): string[] {
+    const at = copyAt(e)
+    const rarity = RARITY_STAT_MULTIPLIER[e.rarity]
+    const investment = championInvestmentMultiplier(investmentScalar(at.star, at.level))
+    return [
+        `All stats ×${hqNumber(rarity * investment)}: rarity ×${hqNumber(rarity)}, star and level ×${hqNumber(investment)}.`,
+        ...getChampion(e.id).abilities.map(a => `${a.name}: ${describeAbility(a, { caster: 'champion' })}`)
+    ]
+}
+
+/** An equipped Active at the copy's potency, and for a wealth-scaled one the Gold banked now and what it does to the hit. */
+function activeSkillLines(e: { id: string, owned: boolean, star: number, level: number }, wealthHours: number | null): string[] {
+    const [kit] = skillActives([{ contentId: e.id, ...copyAt(e) }])
+    if (!kit) return []
+    const wealthFactor = wealthHours === null ? undefined : wealthFactorFor(wealthHours)
+    return [
+        describeAbility(kit, { caster: 'hero', wealthFactor }),
+        ...(isWealthScaled(kit) && wealthHours !== null ? [describeWealth(wealthHours)] : [])
+    ]
+}
+
 function craftButton(e: { maxed: boolean, craftCost: number }, essence: number) {
     return e.maxed ? null : { cost: formatNumber(e.craftCost), enabled: essence >= e.craftCost }
 }
@@ -123,11 +156,11 @@ function collectionTiles(tab: HqCollectionTab): CollectionTile[] {
             const essence = f?.essence ?? 0
             const worn = new Map((f?.slots ?? []).map(slot => [slot.slot, f?.roster.find(e => e.id === slot.equippedId)]))
             return (f?.roster ?? []).map((e) => {
-                const line = hqEffectLine('stat', e.stat, e.equippedBonus)
+                const line = modifierLine('stat', e.stat, e.equippedBonus)
                 // against what the slot wears now: equipping replaces its bonus, and every owned passive stays
                 const delta = e.equippedBonus - (worn.get(e.slot)?.equippedBonus ?? 0)
                 const compared: CollectionLine = e.owned && !e.equipped && delta !== 0
-                    ? { text: line, delta: hqPercent(delta), up: delta > 0 }
+                    ? { text: line, delta: hqPct(Math.abs(delta)), up: delta > 0 }
                     : line
                 return {
                     ...e,
@@ -135,7 +168,7 @@ function collectionTiles(tab: HqCollectionTab): CollectionTile[] {
                     mark: e.equipped ? 'E' as const : null,
                     upgrade: e.owned && !e.equipped && delta > 0,
                     sections: sections(
-                        { active: e.owned, lines: [hqEffectLine('stat', e.stat, e.ownedBonus)] },
+                        { active: e.owned, lines: [modifierLine('stat', e.stat, e.ownedBonus)] },
                         { title: 'Equipped', scope: 'Hero', active: e.equipped, lines: [compared] }
                     ),
                     // a slot always holds a piece, so equipped Gear is replaced rather than taken off
@@ -156,8 +189,8 @@ function collectionTiles(tab: HqCollectionTab): CollectionTile[] {
                 // the row it fights in: F front, B back
                 mark: party.includes(e.id) ? (formation[e.id] === 'front' ? 'F' as const : 'B' as const) : null,
                 sections: sections(
-                    { active: e.owned, lines: e.collectionStats.map(stat => hqEffectLine('stat', stat, e.collectionBonus)) },
-                    { title: 'Fielded', scope: 'In the party', active: party.includes(e.id), lines: e.abilities }
+                    { active: e.owned, lines: e.collectionStats.map(stat => modifierLine('stat', stat, e.collectionBonus)) },
+                    { title: 'Fielded', scope: 'In the party', active: party.includes(e.id), lines: championLines(e) }
                 ),
                 actions: equipActions(e.owned),
                 picker: e.owned ? hqChampionPicker(e.id, state) : null,
@@ -175,13 +208,13 @@ function collectionTiles(tab: HqCollectionTab): CollectionTile[] {
                 sections: sections(
                     {
                         active: e.owned,
-                        lines: e.modifiers.flatMap(m => m.ownedMagnitude === null ? [] : [hqEffectLine(m.kind, m.stat, m.ownedMagnitude)])
+                        lines: e.modifiers.flatMap(m => m.ownedMagnitude === null ? [] : [modifierLine(m.kind, m.stat, m.ownedMagnitude)])
                     },
                     {
                         title: 'Equipped',
                         scope: 'Hero',
                         active: equipped.includes(e.id),
-                        lines: e.type === 'active' ? [...e.lines] : e.modifiers.map(m => hqEffectLine(m.kind, m.stat, m.magnitude))
+                        lines: e.type === 'active' ? activeSkillLines(e, t?.wealthHours ?? null) : e.modifiers.map(m => modifierLine(m.kind, m.stat, m.magnitude))
                     }
                 ),
                 actions: equipActions(e.owned),
@@ -199,13 +232,13 @@ function collectionTiles(tab: HqCollectionTab): CollectionTile[] {
                 sections: sections(
                     {
                         active: e.owned,
-                        lines: e.effects.flatMap(f => f.ownedMagnitude === null ? [] : [hqEffectLine(f.kind, f.stat, f.ownedMagnitude)])
+                        lines: e.effects.flatMap(f => f.ownedMagnitude === null ? [] : [`${f.name}: ${modifierLine(f.kind, f.stat, f.ownedMagnitude)}`])
                     },
                     {
                         title: 'Equipped',
                         scope: 'Whole party',
                         active: equipped.includes(e.id),
-                        lines: e.effects.map(f => hqEffectLine(f.kind, f.stat, f.magnitude))
+                        lines: e.effects.map(f => `${f.name}: ${modifierLine(f.kind, f.stat, f.magnitude)}`)
                     }
                 ),
                 actions: equipActions(e.owned),
