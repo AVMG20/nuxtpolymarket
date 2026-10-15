@@ -36,6 +36,8 @@ This corrects the earlier schema note in `tech-architecture.md` §3, which liste
 
 **Editing the defense loadout is free and unlimited**, same convention as every other equip-swap in this project (`loadouts.md` §2). Editing it never touches live state — it's a pure write to the stored snapshot via `arena/defense-set.post.ts`.
 
+**The selection is frozen; its stats follow the account (2026-10-15, issue #32).** The five components above and the Trait board (stored with the defence since then, as `traits`) stay exactly as they were set: changing the live loadout or Trait board never changes the defence, only setting it again does. Everything else is read as it stands: the Hero's level, the level and star of each Champion, Skill, Artifact and Gear piece in the defence, the Passive Skill Tree, the prestige shop's stat tracks and every collection passive. A defence set before Traits were stored fights with the live board until it is set again.
+
 **Only one active defense configuration exists per player** — not multiple saved presets. This is a deliberate scope cut versus the general Loadout system's 2–10 slots; nothing in this design needs more than one defense config yet. Revisit if that changes.
 
 **Battle Speed does not apply to Arena fights** — the one exception to it otherwise applying everywhere in this game. Already locked in `tech-architecture.md` §4d/§9.3; not re-litigated here, just cross-referenced since it's a real player-facing rule of this system.
@@ -44,7 +46,7 @@ This corrects the earlier schema note in `tech-architecture.md` §3, which liste
 
 ## 2. Opponent Selection & Matchmaking
 
-**New: Defense GPN.** Computed with the exact same formula as live GPN (`global-power-number.md` — `partyEffectiveDPS × partyEffectiveEHP`), but evaluated against `defenseLoadout`'s stats instead of live state. Unlike live GPN, it does **not** need recomputing on every settle tick — it's static between edits, so it's recomputed once whenever `defenseLoadout` is saved and stored denormalized (`hqState.defenseGpn`), same indexing approach as live GPN.
+**New: Defense GPN.** Computed with the exact same formula as live GPN (`global-power-number.md` — `partyEffectiveDPS × partyEffectiveEHP`), but evaluated against `defenseLoadout`'s stats instead of live state. Unlike live GPN, it does **not** need recomputing on every settle tick — it's static between edits, so it's recomputed once whenever `defenseLoadout` is saved and stored denormalized (`hqState.defenseGpn`), same indexing approach as live GPN. **Superseded 2026-10-15 (issue #32):** the defence's stats follow the account (§1), so Defense GPN is worked out wherever it is shown; `hqState.defenseGpn` is only a record of the GPN at the time it was set. Matchmaking is on Rating, so nothing ranks on it.
 
 **Matchmaking compares the attacker's live GPN against the pool of other players' Defense GPN** — this is the actual fix for the divergence flagged in `global-power-number.md` §5 and `tech-architecture.md` §4d: defenders are now matched on a number that actually reflects what they'll be fought with, not a proxy that could be stale or unrelated.
 
@@ -171,7 +173,7 @@ Exact rank-reward table (how much, at which rank cutoffs) is a tuning-pass place
 
 Each entry: opponent name, role (attacker/defender), win/loss, rating change, Medals earned (attacker entries only).
 
-**Capped at the last 20 entries**, oldest dropped as new ones are added.
+**Capped at the last 20 entries**, oldest dropped as new ones are added, **and at the last 24 hours** (`ARENA_LOG_MAX_AGE_HOURS`, 2026-10-15, issue #29): older entries are cleared as new ones are written and never read. The log shows them on one page, two columns of ten.
 
 ---
 

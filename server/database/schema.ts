@@ -1333,14 +1333,14 @@ export const hqState = pgTable('hq_state', {
   // taken in user-ID order when an attack holds two (`server/utils/hero-quest-arena.ts`).
 
   /**
-   * The stored defence (§1): the five Loadout components, apart from the live ones. Null until the
-   * player sets one, and a player without one is never drawn as a candidate.
+   * The stored defence (§1): the five Loadout components and the Trait board, apart from the live
+   * ones. Null until the player sets one, and a player without one is never drawn as a candidate.
    */
   defenseLoadout: jsonb('defense_loadout').$type<ArenaDefenseLoadout>(),
   /**
-   * Defense GPN (§2): the GPN of the party `defenseLoadout` fields, Decimal as text, for show.
-   * Written when the defence is saved, and only then: a defence that falls behind is the player's
-   * to set again (the user's call, 2026-10-10). Matchmaking reads the Rating, not this.
+   * Defense GPN (§2) as it stood when the defence was set, Decimal as text: a record only. The
+   * defence's stats follow the account (issue #32), so every screen works its GPN out afresh
+   * (`defenseGpnNow`). Matchmaking reads the Rating, not this.
    */
   defenseGpn: text('defense_gpn'),
   /**

@@ -160,7 +160,7 @@ export default defineEventHandler(async (event) => {
         ),
 
         /** The Arena: Medals, this season's Rating, today's attacks, the defence and any season reward waiting. */
-        arena: serializeArena(state, arenaRewards, now),
+        arena: serializeArena(state, arenaRewards, { shopLevels, collections, traits: traitBoard }, now),
 
         guild: serializeGuild(state, collections.champion, shopLevels),
         forge: serializeForge(state, collections.gear),

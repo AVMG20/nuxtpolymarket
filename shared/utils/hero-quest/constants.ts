@@ -1310,8 +1310,14 @@ export const ARENA_SEASON_REWARDS: readonly { maxRank: number, medals: number }[
     { maxRank: Number.POSITIVE_INFINITY, medals: 100 }
 ]
 
-/** The battle log keeps this many entries per player (§8). Doc-specified. */
+/**
+ * The battle log keeps at most this many entries per player (§8), doc-specified, and none older than
+ * `ARENA_LOG_MAX_AGE_HOURS` (issue #29, 2026-10-15): the log is the last day's matches, never more
+ * than one page of them.
+ */
 export const ARENA_LOG_SIZE = 20
+/** How far back the battle log reaches (issue #29): older entries are cleared and never read. */
+export const ARENA_LOG_MAX_AGE_HOURS = 24
 /** The Rating leaderboard's top list (§9). Doc-specified. */
 export const ARENA_LEADERBOARD_TOP = 50
 /** Players shown either side of the viewer's own rank (§9's "nearby neighbors"). */

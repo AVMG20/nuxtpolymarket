@@ -865,7 +865,8 @@ const arenaView = computed<Omit<ArenaView, 'tab' | 'page' | 'pickerOpen' | 'rewa
                 faces: facesOf(hero.value?.classId ?? 'class_beginner', d.formation.hero ?? guild.value?.heroRow ?? 'front', d.partyChampionIds.map(id => ({ id, row: d.formation[id] ?? 'front' }))),
                 skills: d.equippedSkillIds.map(rarityIn(training.value?.roster)),
                 artifacts: d.equippedArtifactIds.map(rarityIn(digSite.value?.roster)),
-                gear: GEAR_SLOTS.flatMap(slot => d.equippedGear[slot] ? [rarityIn(forge.value?.roster)(d.equippedGear[slot]!)] : [])
+                gear: GEAR_SLOTS.flatMap(slot => d.equippedGear[slot] ? [rarityIn(forge.value?.roster)(d.equippedGear[slot]!)] : []),
+                traits: d.traits.map(t => t && { grade: t.grade as TraitGrade, label: `${t.statName} +${hqPercent(t.value)}` })
             }
             : null,
         // the Arena's preferred Loadout, picked as a raid's is (`loadouts.md` §4)

@@ -52,8 +52,8 @@ function savedBoardOf(row: TraitSaveRow): TraitSlotState[] | null {
     return slots.every(slot => slot !== null) ? slots as TraitSlotState[] : null
 }
 
-/** One slot as the scene shows it. */
-function slotView(slot: TraitSlotState | null) {
+/** One slot as the scene shows it (and the Arena's defence, its frozen board). */
+export function traitSlotView(slot: TraitSlotState | null) {
     if (!slot) return null
     return {
         stat: slot.stat,
@@ -84,7 +84,7 @@ export function serializeTraits(
     const saved = new Map(saves.map(row => [row.saveSlotIndex, row]))
     return {
         traitGems: state.traitGems,
-        slots: board.map(slotView),
+        slots: board.map(traitSlotView),
         locked: lockedCount(board),
         rollCost: traitRollCost(lockedCount(board)),
         canRoll: canRollTraits(board),
@@ -107,7 +107,7 @@ export function serializeTraits(
             slots: Array.from({ length: MAX_TRAIT_SAVE_SLOTS }, (_, index) => {
                 const row = index < unlocked ? saved.get(index) : undefined
                 const stored = row ? savedBoardOf(row) : null
-                return { index, unlocked: index < unlocked, slots: stored ? stored.map(slotView) : null }
+                return { index, unlocked: index < unlocked, slots: stored ? stored.map(traitSlotView) : null }
             })
         }
     }
@@ -156,7 +156,7 @@ export async function rollTraits(tx: DbExecutor, userId: string, rng: () => numb
     const next = rerollTraitBoard(board, rng)
     // locked slots come back as they were, so only the rest are written
     await writeSlots(tx, userId, next.flatMap((slot, index) => board[index]?.locked ? [] : [{ index, slot }]))
-    return { spent: cost, traitGems, slots: next.map(slotView) }
+    return { spent: cost, traitGems, slots: next.map(traitSlotView) }
 }
 
 /**
@@ -175,7 +175,7 @@ export async function autoRollTraits(tx: DbExecutor, userId: string, minGrade: T
     if (run.rolls === 0) throw createError({ statusCode: 400, statusMessage: 'Not enough Trait Gems' })
     const traitGems = await spendTraitGems(tx, userId, run.spent)
     await writeSlots(tx, userId, run.board.flatMap((slot, index) => !slot || board[index]?.locked ? [] : [{ index, slot }]))
-    return { rolls: run.rolls, spent: run.spent, stoppedBy: run.stoppedBy, traitGems, slots: run.board.map(slotView) }
+    return { rolls: run.rolls, spent: run.spent, stoppedBy: run.stoppedBy, traitGems, slots: run.board.map(traitSlotView) }
 }
 
 /** Lock or unlock a rolled slot: free and unlimited (§3). An empty slot has nothing to protect. */
@@ -234,5 +234,5 @@ export async function loadTraitBoard(tx: DbExecutor, userId: string, saveSlotInd
 
     const traitGems = await spendTraitGems(tx, userId, TRAIT_SAVE_LOAD_COST)
     await writeSlots(tx, userId, stored.map((slot, index) => ({ index, slot })))
-    return { saveSlotIndex, spent: TRAIT_SAVE_LOAD_COST, traitGems, slots: stored.map(slotView) }
+    return { saveSlotIndex, spent: TRAIT_SAVE_LOAD_COST, traitGems, slots: stored.map(traitSlotView) }
 }
