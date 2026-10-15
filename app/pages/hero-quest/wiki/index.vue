@@ -16,6 +16,7 @@ import {
     VOID_SHARD_GROWTH,
     WORLD_COUNT
 } from '#shared/utils/hero-quest/constants'
+import { hqPct } from '#shared/utils/hero-quest/numbers'
 
 /**
  * Basics — the loop, in the order a new player meets it.
@@ -124,7 +125,7 @@ const minutesOnline = Math.round(ONLINE_THRESHOLD_MS / 60_000)
         />
         <HeroQuestWikiFormula
           label="Offline efficiency"
-          :formula="`${BASE_OFFLINE_EFFICIENCY * 100}% → ${MAX_OFFLINE_EFFICIENCY * 100}%`"
+          :formula="`${hqPct(BASE_OFFLINE_EFFICIENCY)} → ${hqPct(MAX_OFFLINE_EFFICIENCY)}`"
           note="What fraction of the live rate that counted time earns."
         />
       </div>

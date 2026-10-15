@@ -24,7 +24,7 @@ import {
 } from '#shared/utils/hero-quest/constants'
 import { RARITIES, RARITY_STAT_MULTIPLIER, investmentScalar } from '#shared/utils/hero-quest/gacha'
 import { championInvestmentMultiplier, partyUnitStats } from '#shared/utils/hero-quest/stats'
-import { ZERO, formatHq } from '#shared/utils/hero-quest/numbers'
+import { ZERO, formatHq, hqNumber } from '#shared/utils/hero-quest/numbers'
 import type { ClassId, HqStatKey, Rarity } from '#shared/utils/hero-quest/types'
 import type { ModifierKind } from '#shared/utils/hero-quest/modifiers'
 
@@ -89,18 +89,18 @@ function line(kind: ModifierKind, stat: HqStatKey | undefined, low: number, high
 /** A Hero of this class at level 1, as the stat pipeline builds it. */
 function classStats(classId: ClassId) {
     const unit = partyUnitStats({ classId, heroLevel: 1, heroXp: ZERO, goldBonusPct: 0, offlineEfficiencyLevel: 0, offlineCapLevel: 0 })[0]!
-    return `PWR ${formatHq(unit.pwr)} · DEF ${formatHq(unit.def)} · HP ${formatHq(unit.maxHp)} · ${unit.attacksPerSecond.toFixed(2)} att/s · crit ${hqPercent(unit.critChance)} ×${Number(unit.critMultiplier.toNumber().toFixed(2))}`
+    return `PWR ${formatHq(unit.pwr)} · DEF ${formatHq(unit.def)} · HP ${formatHq(unit.maxHp)} · ${hqNumber(unit.attacksPerSecond)} att/s · crit ${hqPercent(unit.critChance)} ×${hqNumber(unit.critMultiplier.toNumber())}`
 }
 
 /** Cooldown and damage multiplier, rounded for reading; a utility ability has no multiplier to show. */
 function abilityNumbers(ability: { cooldownSeconds: number, abilityMultiplier: number }) {
-    const multiplier = ability.abilityMultiplier > 0 ? ` · ×${Number(ability.abilityMultiplier.toFixed(2))}` : ''
+    const multiplier = ability.abilityMultiplier > 0 ? ` · ×${hqNumber(ability.abilityMultiplier)}` : ''
     return `· ${Number(ability.cooldownSeconds.toFixed(1))}s${multiplier}`
 }
 
 function championStats(rarity: Rarity) {
     const at = (copy: typeof FRESH) => RARITY_STAT_MULTIPLIER[rarity] * championInvestmentMultiplier(investmentScalar(copy.star, copy.level))
-    return `×${Number(at(FRESH).toFixed(2))} → ×${Number(at(MAXED).toFixed(2))}`
+    return `×${hqNumber(at(FRESH))} → ×${hqNumber(at(MAXED))}`
 }
 
 /** A Passive's lines, or an Active's ability multiplier, fresh → maxed. */
@@ -113,7 +113,7 @@ function skillNumbers(id: string) {
     }
     const [fresh] = skillActives([{ contentId: id, ...FRESH }])
     const [maxed] = skillActives([{ contentId: id, ...MAXED }])
-    return fresh && maxed ? `×${Number(fresh.abilityMultiplier.toFixed(2))} → ×${Number(maxed.abilityMultiplier.toFixed(2))} damage` : ''
+    return fresh && maxed ? `×${hqNumber(fresh.abilityMultiplier)} → ×${hqNumber(maxed.abilityMultiplier)} damage` : ''
 }
 
 function gearNumbers(slot: Parameters<typeof equippedBonus>[0], rarity: Rarity) {
@@ -340,7 +340,7 @@ function parentName(parentId: string | null) {
               <span
                 v-if="entry.cooldownSeconds"
                 class="opacity-60"
-              >· {{ entry.cooldownSeconds }}s</span>
+              >· {{ hqNumber(entry.cooldownSeconds) }}s</span>
             </td>
             <td class="py-1.5 pl-3 text-muted">
               <div>{{ entry.lines.join(' · ') }}</div>

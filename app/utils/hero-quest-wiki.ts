@@ -14,6 +14,7 @@ import {
     OVERFLOW_CONVERSION_RATE,
     SPD_ATTACK_RATE_PER_POINT
 } from '#shared/utils/hero-quest/constants'
+import { hqNumber, hqPct } from '#shared/utils/hero-quest/numbers'
 import type { HqStatKey } from '#shared/utils/hero-quest/types'
 
 /**
@@ -34,11 +35,6 @@ import type { HqStatKey } from '#shared/utils/hero-quest/types'
  * in a value. The wiki says so once, prominently, rather than pretending to a precision it
  * does not have.
  */
-
-/** `0.01` → `1%`, without the float dust `0.1 * 100` would print. */
-function pct(fraction: number, decimals = 0): string {
-    return `${(fraction * 100).toFixed(decimals)}%`
-}
 
 export interface HqStatDoc {
     key: HqStatKey
@@ -91,7 +87,7 @@ export const HQ_STAT_DOCS: readonly HqStatDoc[] = [
             + 'the Speed from your class, gear, skills, artifacts and buffs. Rarer skills and '
             + 'deeper classes have longer cooldowns and hit proportionally harder.',
         formula: `attack every ${BASE_ATTACK_INTERVAL_SECONDS}s ÷ (1 + SPD × ${SPD_ATTACK_RATE_PER_POINT}), `
-            + `floored at ${MIN_ATTACK_INTERVAL_SECONDS.toFixed(2)}s; cooldowns use the same divisor without level growth, floored at ${MIN_COOLDOWN_SECONDS}s`
+            + `floored at ${hqNumber(MIN_ATTACK_INTERVAL_SECONDS)}s; cooldowns use the same divisor without level growth, floored at ${MIN_COOLDOWN_SECONDS}s`
     },
     {
         key: 'lck',
@@ -101,8 +97,8 @@ export const HQ_STAT_DOCS: readonly HqStatDoc[] = [
             + 'wasted: the surplus overflows into bonus crit damage at a much lower rate. That '
             + 'makes Luck the one stat with no dead zone, but the conversion past the cap is poor '
             + 'enough that piling into it is rarely the best use of a slot.',
-        formula: `crit chance = min(100%, LCK × ${pct(CRIT_CHANCE_PER_POINT)}); `
-            + `every point past the cap adds ${pct(OVERFLOW_CONVERSION_RATE)} crit damage`
+        formula: `crit chance = min(100%, LCK × ${hqPct(CRIT_CHANCE_PER_POINT)}); `
+            + `every point past the cap adds ${hqPct(OVERFLOW_CONVERSION_RATE)} crit damage`
     },
     {
         key: 'imp',
@@ -111,7 +107,7 @@ export const HQ_STAT_DOCS: readonly HqStatDoc[] = [
         detail: 'Impact does nothing on its own — it multiplies critical hits only. It is the '
             + 'partner stat to Luck, and stacking it without the Luck to land crits is the most '
             + 'common way to build a character that reads strong and hits weak.',
-        formula: `crit multiplier = 1 + IMP × ${pct(CRIT_DAMAGE_PER_POINT, 1)} (+ Luck overflow)`
+        formula: `crit multiplier = 1 + IMP × ${hqPct(CRIT_DAMAGE_PER_POINT)} (+ Luck overflow)`
     }
 ]
 
@@ -133,7 +129,7 @@ export const HQ_POWER_DOC = {
         + 'Artifact lowers it. Because the two multiply, a party that is all damage and no '
         + 'health — or the reverse — scores lower than a balanced one with the same totals.',
     formula: `power = √(party DPS × party effective HP) × ${GPN_DISPLAY_SCALE}; `
-        + `effective HP = HP × (1 + DEF ÷ ${EHP_DEF_CONSTANT}) ÷ (1 − evasion, at most ${pct(MAX_EVASION)})`
+        + `effective HP = HP × (1 + DEF ÷ ${EHP_DEF_CONSTANT}) ÷ (1 − evasion, at most ${hqPct(MAX_EVASION)})`
 } as const
 
 /**

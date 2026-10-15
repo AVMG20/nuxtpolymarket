@@ -8,7 +8,7 @@ import { drawText, textWidth } from './font'
 import { panel } from './ui-art'
 import { stageNumber } from './run-director'
 import { headOf, HEAD } from './demo'
-import { D } from '../../../shared/utils/hero-quest/numbers'
+import { D, hqNumber } from '../../../shared/utils/hero-quest/numbers'
 import { CHAMPION_BY_ID } from '../../../shared/utils/hero-quest/content/champions'
 
 /** One fielded unit's column: its portrait's art asset, its name, and each row's value already spelled out. */
@@ -42,7 +42,7 @@ export interface PartyStatsView {
 /** A cell by its row and its unit's column, the back button, or where the press fell. */
 export type PartyStatsTarget = 'close' | 'back' | `cell:${number}:${number}` | 'inside' | 'outside'
 
-/** What `stats.get.ts` returns, as far as this reads it. */
+/** What `stats.get.ts` returns (`HqStatsResponse`), as far as this reads it. */
 export interface PartyStatsPayload {
     units: readonly {
         label: string
@@ -82,7 +82,7 @@ function statNumber(value: string): string {
 function factorText(factor: string, base: boolean): string {
     if (base) return statNumber(factor)
     const value = Number(factor)
-    return Number.isFinite(value) ? `×${value.toFixed(3)}` : `×${stageNumber(D(factor))}`
+    return Number.isFinite(value) ? `×${hqNumber(value)}` : `×${stageNumber(D(factor))}`
 }
 
 /** A part as an addend: points on the base, a percentage everywhere else, so nobody multiplies them. */

@@ -18,18 +18,10 @@ import { wealthFactorFor } from './combat'
 import { SINGLE_TARGET, isAllyTarget, type EffectTarget, type StatusSpec } from './effects'
 import type { ModifierKind } from './modifiers'
 import type { ClassSkill } from './types'
+import { hqNumber, hqPct } from './numbers'
 
-/** A number as a player reads it: at most two decimals, no trailing zeros. */
-export function hqNumber(value: number): string {
-    if (!Number.isFinite(value)) return '0'
-    const rounded = Number(value.toFixed(2))
-    return String(Object.is(rounded, -0) ? 0 : rounded)
-}
-
-/** A fraction as a percentage, at most two decimals: 0.12345 → "12.35%". */
-export function hqPct(fraction: number): string {
-    return `${hqNumber(fraction * 100)}%`
-}
+// the rounding helpers live with the rest of the number formatting; re-exported for this module's callers
+export { hqNumber, hqPct }
 
 /** What each non-stat modifier kind is called on a line. */
 export const MODIFIER_LABELS: Readonly<Record<Exclude<ModifierKind, 'stat'>, string>> = {

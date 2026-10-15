@@ -89,6 +89,34 @@ export function formatHq(v: DecimalSource, precision = 2): string {
     return `${sign}${mantissa.toFixed(precision)}e${exponent}`
 }
 
+/**
+ * A plain number rounded to `decimals` places, two by default: what Hero Quest shows a player and
+ * sends over the wire for a display-only float (issue #27). Not for anything the sim, the client's
+ * projection or a price check reads back: those stay exact. A non-finite value passes through, and
+ * -0 comes out as 0.
+ */
+export function roundHq(value: number, decimals = 2): number {
+    if (!Number.isFinite(value)) return value
+    const rounded = Number(value.toFixed(decimals))
+    return Object.is(rounded, -0) ? 0 : rounded
+}
+
+/** A fraction rounded to what it shows as a percentage at two decimals: 0.123456 → 0.1235 (12.35%). */
+export function roundHqFraction(fraction: number): number {
+    return roundHq(fraction, 4)
+}
+
+/** A number as a player reads it: at most two decimals, no trailing zeros. */
+export function hqNumber(value: number): string {
+    if (!Number.isFinite(value)) return '0'
+    return String(roundHq(value))
+}
+
+/** A fraction as a percentage, at most two decimals: 0.12345 → "12.35%". */
+export function hqPct(fraction: number): string {
+    return `${hqNumber(fraction * 100)}%`
+}
+
 /** Human-readable duration, for balance tables and time-to-boss projections. */
 export function formatSeconds(seconds: number): string {
     if (!Number.isFinite(seconds)) return '∞'
