@@ -250,6 +250,13 @@ describe('hero-quest arena', () => {
             const day = 5 * medalsFor(true, 0)
             expect(day / ARENA_SHOP_GEM_PRICE).toBeLessThan(BATTLE_SPEED_ANCHOR_GEMS / 2)
         })
+
+        it('never lets a paid attack buy back its own price in Gems (issue #30)', () => {
+            // the most an attack can pay is a win at the biggest upset; even that, sold for Gems,
+            // stays under the cheapest extra attack, so Gems -> attacks -> Medals -> Gems loses
+            expect(ARENA_SHOP_GEM_PRICE).toBe(10)
+            expect(Math.floor(medalsFor(true, 0) / ARENA_SHOP_GEM_PRICE)).toBeLessThan(extraAttemptPrice(0))
+        })
     })
 
     describe('the duel', () => {

@@ -1304,10 +1304,12 @@ export const ARENA_SHOP_KEY_LEVEL = 5
 export const ARENA_SHOP_TRAIT_KEY_PRICE = 60 // locked 2026-10-11, the user's call
 /**
  * Medals per Gem: a deliberately bad rate (§6). The calibration target is that a whole day's Medals
- * convert to meaningfully less than one Battle Speed block (`BATTLE_SPEED_ANCHOR_GEMS`, 250): at 5
- * a day's ~120–200 Medals buy 24–40 Gems, a tenth to a sixth of a block.
+ * convert to meaningfully less than one Battle Speed block (`BATTLE_SPEED_ANCHOR_GEMS`, 250): at 10
+ * a day's ~120–200 Medals buy 12–20 Gems, a twentieth to a twelfth of a block. Doubled from 5 on
+ * 2026-10-15 (the user's call, issue #30); at 5 the best upset win (60 Medals) bought back more
+ * Gems than the first extra attack cost.
  */
-export const ARENA_SHOP_GEM_PRICE = 5 // locked 2026-10-11, the user's call
+export const ARENA_SHOP_GEM_PRICE = 10 // locked 2026-10-15, the user's call
 /** The most of one item a single purchase takes, so a request cannot name an unbounded quantity. */
 export const ARENA_SHOP_MAX_QUANTITY = 100
 

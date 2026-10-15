@@ -144,6 +144,8 @@ Beating a higher-rated opponent pays more (the upset bonus scales with how unlik
 
 **Concrete calibration target** (a real constraint for the balance pass, not just a vibe): a player converting **100% of a typical day's Medals** into Gems should net meaningfully **less than the daily-equivalent Gem value of a single Battle Speed block** — i.e. grinding Arena purely for Gems is a strictly worse use of the time than almost anything else. `ARENA_SHOP_GEM_PRICE` is set from that target once Medal income per day is calibrated, rather than picked in isolation.
 
+**Set at 10 Medals per Gem** (2026-10-15, the user's call, issue #30; it was 5): a typical day's ~120–200 Medals buy about **12–20 Gems**, a twentieth to a twelfth of a 250-Gem Battle Speed block. At 5 (24–40 Gems a day) the best upset win, 60 Medals, bought back more Gems than the first extra attack's 10, so a paid attack could pay for itself.
+
 **Deliberately *not* solved with a purchase cap.** A hard limit ("only N Gems per season") would work, but it punishes exactly the completionist this exists for. Bad pricing self-limits without ever telling a player *no* — and it keeps the shop's promise that Medals always convert into something, which is the reason Gems were included at all.
 
 Exact prices for everything else = tuning-pass placeholder, same convention as everywhere else.
