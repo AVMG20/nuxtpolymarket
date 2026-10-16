@@ -62,6 +62,8 @@ export default defineEventHandler(async (event) => {
             ...difficulty,
             unlocked: hackerzDifficultyUnlocked(difficulty, state.bestWave)
         })),
+        // Database entries opened so far; the client adds what the best wave has shown.
+        codex: state.codex,
         stats: {
             runsPlayed: state.runsPlayed,
             totalCoinsEarned: state.totalCoinsEarned,
