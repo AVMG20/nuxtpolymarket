@@ -58,6 +58,7 @@
   "devDependencies": {
     "@elevenlabs/elevenlabs-js": "^2.59.0",
     "@nuxt/eslint": "^1.15.2",
+    "@receptron/laya": "^0.1.2",
     "@types/pg": "^8.18.0",
     "@types/three": "^0.185.4",
     "drizzle-kit": "^0.31.10",
