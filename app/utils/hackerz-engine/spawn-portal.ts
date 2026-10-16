@@ -21,19 +21,9 @@ const SENTENCES = [
 
 const HAZE_VERTEX = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }'
 
-/** Entry ripples the haze can show at once; the oldest is recycled. */
-const RIPPLES = 8
-/** How fast an entry ripple spreads across the opening (world units a second), and how long it lasts. */
-const RIPPLE_SPEED = 26
-const RIPPLE_LIFE = 1.4
-
-/** Rising red smoke with glitch bands sliding through it, rippling where something comes through. */
+/** Rising red smoke with glitch bands sliding through it. */
 const HAZE_FRAGMENT = /* glsl */ `
-#define RIPPLES ${RIPPLES}
 uniform float uTime;
-uniform vec2 uSize;
-// x, y in world units across the opening; z the ripple's age in seconds (< 0 when idle).
-uniform vec3 uRipples[RIPPLES];
 varying vec2 vUv;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -62,25 +52,90 @@ void main() {
     // Brighter toward the frame, so the opening reads as a field held in place.
     vec2 e = min(vUv, 1.0 - vUv);
     float edge = 1.0 - smoothstep(0.0, 0.12, min(e.x * 0.45, e.y));
-    // Entry ripples: a soft ring spreading out from where a unit came through,
-    // dimming as it widens and fading out entirely — a swell, never a flash.
-    vec2 w = vUv * uSize;
-    float ripple = 0.0;
-    for (int i = 0; i < RIPPLES; i++) {
-        vec3 r = uRipples[i];
-        if (r.z < 0.0) continue;
-        float radius = r.z * ${RIPPLE_SPEED.toFixed(1)};
-        float ring = 1.0 - smoothstep(0.0, 1.6, abs(length(w - r.xy) - radius));
-        float fade = 1.0 - clamp(r.z / ${RIPPLE_LIFE.toFixed(1)}, 0.0, 1.0);
-        ripple += ring * fade * fade;
-    }
-    ripple = min(ripple, 1.2);
-    vec3 col = vec3(1.0, 0.08, 0.06) * (0.18 + smoke * 0.55) + vec3(1.0, 0.25, 0.4) * band * 0.25 + vec3(2.0, 0.2, 0.15) * edge * 0.6
-        + vec3(2.2, 0.55, 0.3) * ripple * (0.5 + smoke * 0.5);
-    float a = clamp(0.25 + smoke * 0.45 + edge * 0.5 + ripple * 0.4, 0.0, 1.0);
+    vec3 col = vec3(1.0, 0.08, 0.06) * (0.18 + smoke * 0.55) + vec3(1.0, 0.25, 0.4) * band * 0.25 + vec3(2.0, 0.2, 0.15) * edge * 0.6;
+    float a = clamp(0.25 + smoke * 0.45 + edge * 0.5, 0.0, 1.0);
     gl_FragColor = vec4(col * a, a);
 }
 `
+
+/**
+ * Arrival cables: thin power lines that run out across the opening from where
+ * a unit came through, each ending at a small icon of the attackers' tooling.
+ * Dim on purpose — in the dark they are the only sign anything arrived.
+ */
+const CABLE_HEX = 0xffd2b0
+const CABLE_OPACITY = 0.6
+/** Seconds to draw out, and to be gone altogether. */
+const CABLE_GROW = 0.5
+const CABLE_LIFE = 1.8
+const CABLES_MAX = 24
+const ICONS = ['terminal', 'folder', 'file', 'database', 'lock', 'gear'] as const
+const iconGeometry = new THREE.PlaneGeometry(0.9, 0.9)
+
+interface Cable {
+    line: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>
+    icon: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
+    points: number
+    age: number
+}
+
+let iconSet: THREE.CanvasTexture[] | null = null
+
+/** Small line-art icons, white on transparent, tinted by the material. */
+function iconTextures() {
+    if (iconSet) return iconSet
+    iconSet = ICONS.map((kind) => {
+        const canvas = document.createElement('canvas')
+        canvas.width = canvas.height = 64
+        const ctx = canvas.getContext('2d')!
+        ctx.strokeStyle = '#fff'
+        ctx.fillStyle = '#fff'
+        ctx.lineWidth = 4
+        ctx.lineJoin = 'round'
+        ctx.lineCap = 'round'
+        if (kind === 'terminal') {
+            ctx.strokeRect(6, 10, 52, 44)
+            ctx.beginPath()
+            ctx.moveTo(16, 24); ctx.lineTo(26, 32); ctx.lineTo(16, 40)
+            ctx.moveTo(30, 42); ctx.lineTo(46, 42)
+            ctx.stroke()
+        } else if (kind === 'folder') {
+            ctx.beginPath()
+            ctx.moveTo(6, 18); ctx.lineTo(24, 18); ctx.lineTo(30, 24); ctx.lineTo(58, 24)
+            ctx.lineTo(58, 52); ctx.lineTo(6, 52); ctx.closePath()
+            ctx.stroke()
+        } else if (kind === 'file') {
+            ctx.beginPath()
+            ctx.moveTo(14, 6); ctx.lineTo(40, 6); ctx.lineTo(52, 18); ctx.lineTo(52, 58); ctx.lineTo(14, 58); ctx.closePath()
+            ctx.moveTo(22, 30); ctx.lineTo(44, 30); ctx.moveTo(22, 40); ctx.lineTo(44, 40)
+            ctx.stroke()
+        } else if (kind === 'database') {
+            for (const y of [14, 32, 50]) {
+                ctx.beginPath()
+                ctx.ellipse(32, y, 22, 7, 0, 0, Math.PI * 2)
+                ctx.stroke()
+            }
+        } else if (kind === 'lock') {
+            ctx.strokeRect(12, 28, 40, 28)
+            ctx.beginPath()
+            ctx.arc(32, 28, 13, Math.PI, 0)
+            ctx.stroke()
+        } else {
+            ctx.beginPath()
+            ctx.arc(32, 32, 12, 0, Math.PI * 2)
+            for (let i = 0; i < 8; i++) {
+                const a = i / 8 * Math.PI * 2
+                ctx.moveTo(32 + Math.cos(a) * 16, 32 + Math.sin(a) * 16)
+                ctx.lineTo(32 + Math.cos(a) * 24, 32 + Math.sin(a) * 24)
+            }
+            ctx.stroke()
+        }
+        const texture = new THREE.CanvasTexture(canvas)
+        texture.colorSpace = THREE.SRGBColorSpace
+        return texture
+    })
+    return iconSet
+}
 
 interface Floater {
     mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>
@@ -124,8 +179,7 @@ export class SpawnPortal {
     private arcs: Arc[] = []
     private nextArc = 0
     private time = 0
-    private ripples: THREE.Vector3[]
-    private rippleCursor = 0
+    private cables: Cable[] = []
 
     /** `z` is the gate's plane; it spans ±`halfWidth` and stands `height` tall. */
     constructor(z: number, private halfWidth: number, private height: number) {
@@ -147,13 +201,8 @@ export class SpawnPortal {
         sill.position.set(0, 0.05, 0)
         this.group.add(beam, innerBeam, sill)
 
-        this.ripples = Array.from({ length: RIPPLES }, () => new THREE.Vector3(0, 0, -1))
         this.hazeMaterial = new THREE.ShaderMaterial({
-            uniforms: {
-                uTime: { value: 0 },
-                uSize: { value: new THREE.Vector2(halfWidth * 2, height) },
-                uRipples: { value: this.ripples }
-            },
+            uniforms: { uTime: { value: 0 } },
             vertexShader: HAZE_VERTEX,
             fragmentShader: HAZE_FRAGMENT,
             transparent: true,
@@ -251,23 +300,95 @@ export class SpawnPortal {
     }
 
     /**
-     * Something came through at world x (relative to the gate's centre): a
-     * ripple spreads from low in the opening there across the rest of it.
+     * Something came through at world x (relative to the gate's centre): two
+     * or three power lines run out across the opening from low down there.
      */
-    ripple(x: number) {
-        const slot = this.ripples[this.rippleCursor]!
-        this.rippleCursor = (this.rippleCursor + 1) % RIPPLES
-        slot.set(THREE.MathUtils.clamp(x + this.halfWidth, 0, this.halfWidth * 2), 1.2, 0)
+    arrival(x: number) {
+        const count = 2 + (Math.random() < 0.5 ? 1 : 0)
+        for (let i = 0; i < count && this.cables.length < CABLES_MAX; i++) this.layCable(x)
+    }
+
+    /**
+     * One power line out of the entry point: light-cycle turns up and across
+     * the opening, ending at a small icon — a terminal, a folder, a file —
+     * as if the arrival just plugged into the attackers' tooling.
+     */
+    private layCable(x: number) {
+        const w = this.halfWidth - 1.2
+        const points: THREE.Vector3[] = []
+        let px = THREE.MathUtils.clamp(x, -w, w)
+        let py = 0.35
+        const z = 0.45
+        points.push(new THREE.Vector3(px, py, z))
+        const turns = 2 + Math.floor(Math.random() * 3)
+        for (let t = 0; t < turns; t++) {
+            // Up a stretch, then across a stretch: never back down.
+            py = Math.min(this.height - 1.4, py + randRange(1, 3))
+            points.push(new THREE.Vector3(px, py, z))
+            px = THREE.MathUtils.clamp(px + randRange(2.5, 7) * (Math.random() < 0.5 ? -1 : 1), -w, w)
+            points.push(new THREE.Vector3(px, py, z))
+        }
+        // Resampled into short steps, so the line can grow smoothly.
+        const path: THREE.Vector3[] = [points[0]!]
+        for (let i = 1; i < points.length; i++) {
+            const a = points[i - 1]!
+            const b = points[i]!
+            const steps = Math.max(1, Math.ceil(a.distanceTo(b) / 0.25))
+            for (let s = 1; s <= steps; s++) path.push(a.clone().lerp(b, s / steps))
+        }
+        // Additive, so a line glows on top of the haze rather than cutting a
+        // dark seam through it.
+        const material = new THREE.LineBasicMaterial({
+            color: hdr(CABLE_HEX, 1.4),
+            toneMapped: false,
+            transparent: true,
+            opacity: 0,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        })
+        const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(path), material)
+        line.geometry.setDrawRange(0, 0)
+        line.frustumCulled = false
+        const iconMaterial = new THREE.MeshBasicMaterial({
+            map: iconTextures()[Math.floor(Math.random() * ICONS.length)]!,
+            color: hdr(CABLE_HEX, 1.6),
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            toneMapped: false,
+            opacity: 0
+        })
+        const icon = new THREE.Mesh(iconGeometry, iconMaterial)
+        icon.position.copy(path[path.length - 1]!).add(new THREE.Vector3(0, 0.55, 0.05))
+        this.group.add(line, icon)
+        this.cables.push({ line, icon, points: path.length, age: 0 })
+    }
+
+    private updateCables(dt: number) {
+        for (let i = this.cables.length - 1; i >= 0; i--) {
+            const cable = this.cables[i]!
+            cable.age += dt
+            const grow = Math.min(1, cable.age / CABLE_GROW)
+            cable.line.geometry.setDrawRange(0, Math.ceil(grow * cable.points))
+            // Lit while it runs, then a slow fade: a trace cooling, not a flash.
+            const fade = 1 - THREE.MathUtils.smoothstep(cable.age, CABLE_GROW, CABLE_LIFE)
+            cable.line.material.opacity = CABLE_OPACITY * fade
+            const iconIn = THREE.MathUtils.smoothstep(cable.age, CABLE_GROW * 0.85, CABLE_GROW + 0.2)
+            cable.icon.material.opacity = CABLE_OPACITY * iconIn * fade
+            if (cable.age < CABLE_LIFE) continue
+            cable.line.geometry.dispose()
+            cable.line.material.dispose()
+            cable.icon.material.dispose()
+            cable.line.removeFromParent()
+            cable.icon.removeFromParent()
+            this.cables.splice(i, 1)
+        }
     }
 
     update(dt: number) {
         this.time += dt
         this.hazeMaterial.uniforms.uTime!.value = this.time
-        for (const ripple of this.ripples) {
-            if (ripple.z < 0) continue
-            ripple.z += dt
-            if (ripple.z > RIPPLE_LIFE) ripple.z = -1
-        }
+        this.updateCables(dt)
 
         for (const floater of this.floaters) {
             floater.age += dt

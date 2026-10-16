@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { randomFloat } from '#shared/utils/random'
+import { randomFloat } from './rng'
 import { FIELD_HALF_WIDTH, FIELD_SCALE } from './constants'
 import { emblemTextures } from './lane-props'
 import { hdr } from './models'
@@ -32,6 +32,8 @@ const NODE_NEAR_D = 200
 const NODE_FAR_D = 950
 /** Rounds it takes to reclaim a hacked node: they are fragile on purpose. */
 const RECLAIM_HITS = 3
+/** Hacked nodes, counted from the wall, the ICE pulse washes back toward us. */
+const ICE_PULSE_ROWS = 3
 /** Seconds without a pulse before a half-hacked node starts to recover. */
 const RECOVER_AFTER = 2.5
 const RECOVER_RATE = 0.06
@@ -246,6 +248,43 @@ export class PathChips {
         chip.flare = 0.7
         this.paint(chip)
         return true
+    }
+
+    /** Reclaims a hacked node outright (a Cosmic Blip). False when it cannot be had back. */
+    reclaim(chip: PathChip) {
+        if (chip.state !== 'hacked' || this.locked) return false
+        chip.state = 'ours'
+        chip.reclaimHits = 0
+        chip.flare = 0.9
+        this.paint(chip)
+        return true
+    }
+
+    /**
+     * The ICE pulse washes back over the hacked nodes, counted from the one
+     * nearest the wall: that one turns ours, the next gets two thirds of the
+     * way back, the one after that a third. A defended node stops the wash
+     * cold — `defended` says which are, and the node it broke on is returned
+     * so its defender can pay for it.
+     */
+    icePulse(defended: (chip: PathChip) => boolean) {
+        const reclaimed: PathChip[] = []
+        if (this.locked) return { reclaimed, brokeOn: null }
+        const hacked = this.ordered.filter(chip => chip.state === 'hacked').reverse()
+        for (let row = 0; row < ICE_PULSE_ROWS && row < hacked.length; row++) {
+            const chip = hacked[row]!
+            if (defended(chip)) return { reclaimed, brokeOn: chip }
+            const share = (ICE_PULSE_ROWS - row) / ICE_PULSE_ROWS
+            chip.flare = Math.max(chip.flare, 0.5 * share)
+            chip.reclaimHits = Math.max(chip.reclaimHits, Math.round(share * RECLAIM_HITS))
+            if (chip.reclaimHits < RECLAIM_HITS) continue
+            chip.state = 'ours'
+            chip.reclaimHits = 0
+            chip.flare = 0.9
+            this.paint(chip)
+            reclaimed.push(chip)
+        }
+        return { reclaimed, brokeOn: null }
     }
 
     /** Locked nodes cannot be reclaimed: the DDoS flood holds the whole board. */

@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { HackerzGame } from '~/utils/hackerz-engine'
+import { HackerzAutopilot } from '~/utils/hackerz-autopilot'
+import type { HackerzAutopilotOffer } from '#shared/utils/gamelogic/hackerz-autopilot'
 import type { HackerzWaveSummary, SysLogKind, SysLogLine } from '~/utils/hackerz-engine'
 import {
-  HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_DEPLOYABLES,
+  HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_DIFFICULTY_FULL_WAVE, HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_CODEX_ALWAYS, HACKERZ_DEPLOYABLES,
+  hackerzCodexFromArmoury, hackerzCodexFromWave,
   HACKERZ_DEPLOYABLE_MAX, HACKERZ_MAX_WAVE, HACKERZ_TURRETS, HACKERZ_TURRET_REFUND, HACKERZ_UPGRADES,
   HACKERZ_WAVE_MS, HACKERZ_WEAPONS, HACKERZ_SAVE_VERSION,
   hackerzBonusEvent, hackerzBonusOffered, hackerzCooldownRushCost, hackerzDeployableCost, hackerzDifficulty,
-  hackerzEmptyArmoury, hackerzIsBossWave, hackerzLoadout, hackerzMainframeEffects, hackerzNetworkEvent,
+  hackerzEmptyArmoury, hackerzEmptyLevels, hackerzEmptyMainframe, hackerzIsBossWave, hackerzLoadout, hackerzMainframeEffects, hackerzNetworkEvent,
   hackerzRepairCost, hackerzSlots, hackerzStock, hackerzTurret, hackerzUpgradeMax,
   hackerzUpgradeCost, hackerzWeapon, hackerzWeaponRuntime, hackerzWeaponUnlockWave,
-  type HackerzArmoury, type HackerzDeployableId, type HackerzDifficultyId, type HackerzEventId,
+  type HackerzArmoury, type HackerzDeployableId, type HackerzDifficultyId, type HackerzEnemyId, type HackerzEventId,
   type HackerzMainframeId, type HackerzMainframeLevels, type HackerzRunSave, type HackerzTab,
   type HackerzTurretId, type HackerzUpgradeId, type HackerzWeaponId
 } from '#shared/utils/gamelogic/hackerz'
@@ -33,10 +36,7 @@ const paused = ref(false)
 type HackerzStateResponse = Awaited<ReturnType<typeof loadState>>
 
 const account = ref<HackerzStateResponse | null>(null)
-const mainframeLevels = computed<HackerzMainframeLevels>(() =>
-  account.value?.levels ?? {
-    bulwark: 0, munitions: 0, foundry: 0, grant: 0, salvage: 0, capacitor: 0, charter: 0, arsenal: 0
-  })
+const mainframeLevels = computed<HackerzMainframeLevels>(() => account.value?.levels ?? hackerzEmptyMainframe())
 const effects = computed(() => hackerzMainframeEffects(mainframeLevels.value))
 const bestWave = computed(() => account.value?.stats.bestWave ?? 0)
 const busy = ref(false)
@@ -125,6 +125,44 @@ const armed = ref<HackerzDeployableId | null>(null)
 const difficulty = computed(() => hackerzDifficulty(difficultyId.value))
 const loadout = computed(() => hackerzLoadout(armoury.value, mainframeLevels.value, difficultyId.value))
 const levels = computed(() => armoury.value.levels)
+
+// ─── Database ───────────────────────────────────────────────────────────────
+// The Database opens an entry once its thing is bought into the armoury or met
+// on the board. The server keeps what has been opened; what the best wave has
+// already shown is worked out here. Openings go up in batches, a moment apart.
+
+const codexOpened = ref(new Set<string>())
+const codexKnown = computed(() => new Set([
+  ...HACKERZ_CODEX_ALWAYS,
+  ...(account.value?.codex ?? []),
+  ...hackerzCodexFromWave(bestWave.value),
+  ...codexOpened.value
+]))
+let codexPending = new Set<string>()
+let codexTimer: ReturnType<typeof setTimeout> | null = null
+
+function openCodex(ids: string[]) {
+  const fresh = ids.filter(id => !codexKnown.value.has(id))
+  if (!fresh.length) return
+  codexOpened.value = new Set([...codexOpened.value, ...fresh])
+  for (const id of fresh) codexPending.add(id)
+  codexTimer ??= setTimeout(flushCodex, 1500)
+}
+
+async function flushCodex() {
+  codexTimer = null
+  const ids = [...codexPending]
+  codexPending = new Set()
+  if (!ids.length) return
+  try {
+    await $fetch('/api/hackerz/codex', { method: 'POST', body: { ids } })
+  } catch {
+    // Only what the Database shows: keep them for the next batch rather than nag.
+    for (const id of ids) codexPending.add(id)
+  }
+}
+
+watch(armoury, value => openCodex(hackerzCodexFromArmoury(value)), { deep: true })
 
 // ─── Saving ─────────────────────────────────────────────────────────────────
 
@@ -290,6 +328,7 @@ onMounted(async () => {
       settleRun('defeat')
     },
     onBoss: name => pushNotice(`${name} detected`, 'bad'),
+    onSighted: id => openCodex([id]),
     onNotice: pushNotice,
     onSound: (event) => hackerzSound.play(event),
     onChain: (length, multiplier) => {
@@ -320,11 +359,16 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  // Database openings still waiting on their batch go up now.
+  if (codexTimer) clearTimeout(codexTimer)
+  void flushCodex()
   hackerzSound.stop()
   document.removeEventListener('visibilitychange', onVisibility)
   document.removeEventListener('fullscreenchange', syncFullscreen)
   window.removeEventListener('keydown', onHotkey)
   if (clockTimer) clearInterval(clockTimer)
+  autopilot?.stop()
+  autopilot = null
   game?.destroy()
   game = null
 })
@@ -373,7 +417,8 @@ function togglePause() {
 /** Loads a save — fresh from `start-run` or resumed — onto the field. */
 function hydrate(save: HackerzRunSave, rev: number) {
   difficultyId.value = save.difficulty
-  armoury.value = { ...save.armoury, deployables: hackerzStock(save.armoury) }
+  // Upgrades added since the save was written come back at level 0.
+  armoury.value = { ...save.armoury, levels: { ...hackerzEmptyLevels(), ...save.armoury.levels }, deployables: hackerzStock(save.armoury) }
   bonusResolved.value = save.bonusWave ?? 0
   bonusActive.value = null
   armed.value = null
@@ -462,8 +507,26 @@ async function playBonus() {
   phase.value = 'wave'
 }
 
-/** Dev server only: the uplink grows buttons that start any bonus round on demand. */
+/** Dev server only: the uplink grows a Debug button that opens the test tools. */
 const isDev = import.meta.dev
+const debugOpen = ref(false)
+const DEBUG_BONUSES: { id: HackerzEventId, label: string }[] = [
+  { id: 'ddos', label: 'DDoS' },
+  { id: 'blackout', label: 'Blackout' },
+  { id: 'packetloss', label: 'Packet loss' }
+]
+const DEBUG_BOSSES: { id: HackerzEnemyId, label: string }[] = [
+  { id: 'titan', label: 'ROOTKIT' },
+  { id: 'leviathan', label: 'BLACK ICE' },
+  { id: 'zeroday', label: 'ZERO DAY' }
+]
+
+/** Dev server only: 100k run credits in hand, saved with the run. Credits never reach the site economy. */
+async function debugCredits() {
+  if (!isDev) return
+  credits.value += 100_000
+  if (phase.value === 'shop') await saveRun()
+}
 
 /**
  * Starts a bonus round for testing. It leaves the run's own bonus offer alone,
@@ -478,6 +541,192 @@ function debugBonus(id: HackerzEventId) {
   game.startWave(wave.value + 1, loadout.value, id)
   phase.value = 'wave'
 }
+
+/**
+ * Dev server only: a boss fight on demand. A wave at the next wave's strength
+ * with the boss sent in at once, without moving the wave counter — and never
+ * the last wave, so a test fight can never count as winning the run.
+ */
+function debugBoss(id: HackerzEnemyId) {
+  if (!isDev || !game || phase.value !== 'shop') return
+  paused.value = false
+  bonusActive.value = null
+  roundMs.value = HACKERZ_WAVE_MS
+  waveMsLeft.value = HACKERZ_WAVE_MS
+  game.startWave(Math.min(wave.value + 1, HACKERZ_MAX_WAVE - 1), loadout.value)
+  game.debugSpawn(id)
+  phase.value = 'wave'
+}
+
+// ── Auto-play with Laya (dev server) ──
+// Laya, running on this machine, plays the run: it names the target and the
+// abilities mid-wave, and picks every purchase at the uplink before deploying
+// the next wave. Without Laya nothing happens; see `hackerz-autopilot`.
+
+const layaUrl = useRuntimeConfig().public.layaUrl as string
+const autopilotOn = ref(false)
+const autopilotLine = ref('')
+/** Laya's own terminal under the syslog: every call it makes, newest at the bottom. */
+const layaLog = ref<{ id: number, stamp: string, text: string, offline: boolean }[]>([])
+let layaLogId = 0
+function pushLaya(text: string, offline = false) {
+  const now = new Date()
+  const stamp = [now.getHours(), now.getMinutes(), now.getSeconds()].map(n => String(n).padStart(2, '0')).join(':')
+  layaLog.value = [...layaLog.value, { id: ++layaLogId, stamp, text: text.replace(/^Laya: /, ''), offline }].slice(-LOG_KEEP)
+}
+
+/** From the Debug modal: start Laya (closing the modal, so the board is in view), or stop her. */
+function activateLaya() {
+  debugOpen.value = false
+  toggleAutopilot(!autopilotOn.value)
+}
+let autopilot: HackerzAutopilot | null = null
+/** Bumped whenever auto-play is switched, so a shopping trip from before stops. */
+let autopilotRun = 0
+/** Pause between purchases and before deploying, so the uplink can be watched. */
+const AUTOPILOT_STEP_MS = 600
+const AUTOPILOT_DEPLOY_MS = 1800
+/** While Laya is down at the uplink, how long to wait before asking again. */
+const AUTOPILOT_RETRY_MS = 3000
+
+function toggleAutopilot(on: boolean) {
+  autopilotRun += 1
+  autopilotOn.value = on
+  if (!on || !game) {
+    autopilot?.stop()
+    autopilot = null
+    autopilotLine.value = ''
+    return
+  }
+  layaLog.value = []
+  pushLaya(`laya --play ${difficulty.value.name.toLowerCase()} --url ${layaUrl}`)
+  autopilot = new HackerzAutopilot(game, layaUrl, (status) => {
+    autopilotLine.value = status.line
+    pushLaya(status.line, !status.online)
+  }, {
+    guns: () => weaponRows.value.filter(row => row.owned).map(row => ({
+      id: row.def.id,
+      name: row.def.name,
+      tag: row.def.tag,
+      damageType: row.def.damageType,
+      dps: row.dps,
+      multi: (row.runtime.chain ?? 0) > 0 || (row.runtime.splashRadius ?? 0) > 0 || (row.runtime.pellets ?? 1) > 1
+    })),
+    current: () => armoury.value.active,
+    swap: id => selectWeapon(id as HackerzWeaponId)
+  })
+  autopilot.start()
+  if (phase.value === 'shop') void autopilotShop()
+}
+
+/** Everything the uplink sells right now that Laya may pick, each with how to buy it. */
+function autopilotOffers() {
+  const offers: (HackerzAutopilotOffer & { buy: () => void })[] = []
+  for (const row of weaponRows.value) {
+    if (!row.affordable) continue
+    offers.push({ key: `w_${row.def.id}`, text: `the ${row.def.name} gun, ${Math.round(row.dps)} dps (${row.def.cost} credits)`, buy: () => buyWeapon(row.def.id) })
+  }
+  const empty = armoury.value.turrets.findIndex(id => id === null)
+  const unlocked = turretRows.value.filter(row => !row.locked).map(row => row.def)
+  for (const def of unlocked) {
+    if (empty >= 0 && credits.value >= def.cost) {
+      offers.push({ key: `t_${def.id}`, text: `a ${def.name} turret on an empty mount (${def.cost} credits)`, buy: () => installTurret(empty, def.id) })
+    }
+  }
+  // Swapping the weakest mounted turret for the best one unlocked.
+  const best = unlocked.reduce<typeof unlocked[number] | null>((top, def) => !top || def.cost > top.cost ? def : top, null)
+  const mounted = armoury.value.turrets
+    .map((id, slot) => ({ id, slot }))
+    .filter((m): m is { id: HackerzTurretId, slot: number } => !!m.id && m.id !== best?.id)
+    .sort((a, b) => hackerzTurret(a.id).cost - hackerzTurret(b.id).cost)[0]
+  if (best && mounted) {
+    const refund = Math.round(hackerzTurret(mounted.id).cost * HACKERZ_TURRET_REFUND)
+    if (credits.value + refund >= best.cost) {
+      offers.push({ key: `r_${best.id}`, text: `swap a ${hackerzTurret(mounted.id).name} turret for a ${best.name} (${best.cost - refund} credits)`, buy: () => installTurret(mounted.slot, best.id) })
+    }
+  }
+  if (canRepair.value) offers.push({ key: 'repair', text: `repair the wall back to full (${repairCost.value} credits)`, buy: buyRepair })
+  for (const row of deployableRows.value) {
+    if (!row.affordable) continue
+    offers.push({ key: `d_${row.def.id}`, text: `a ${row.def.name}, ${row.owned} in stock: ${row.def.description} (${row.cost} credits)`, buy: () => buyDeployable(row.def.id) })
+  }
+  for (const row of shopRows.value) {
+    if (!row.affordable || (row.def.weapon && !armoury.value.owned.includes(row.def.weapon))) continue
+    offers.push({ key: `u_${row.def.id}`, text: `${row.def.name} to ${row.next} (${row.cost} credits)`, buy: () => buy(row.def.id) })
+  }
+  return offers.slice(0, AUTOPILOT_OFFERS)
+}
+const AUTOPILOT_OFFERS = 14
+
+/** At the uplink: buy what Laya picks, one at a time, until nothing is affordable, then deploy. */
+async function autopilotShop() {
+  const run = autopilotRun
+  const live = () => run === autopilotRun && autopilotOn.value && phase.value === 'shop' && !!autopilot
+  const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+  await wait(AUTOPILOT_STEP_MS)
+  for (let n = 0; n < 40 && live(); n++) {
+    const offers = autopilotOffers()
+    if (!offers.length) break
+    const held = game?.autopilotView().view.held ?? 0
+    const { online, pick } = await autopilot!.pickPurchase({
+      nextWave: nextWave.value,
+      wall: integrity.value,
+      credits: credits.value,
+      gun: hackerzWeapon(armoury.value.active).name,
+      mounts: armoury.value.turrets.length,
+      filled: armoury.value.turrets.filter(Boolean).length,
+      held,
+      nodes: 8
+    }, offers)
+    if (!live()) return
+    // Laya down: the uplink waits and asks again (the player can still buy and deploy).
+    if (!online) {
+      await wait(AUTOPILOT_RETRY_MS)
+      n -= 1
+      continue
+    }
+    // Laya answered without naming a purchase: done shopping.
+    if (!pick) break
+    offers.find(offer => offer.key === pick.key)?.buy()
+    await wait(AUTOPILOT_STEP_MS)
+  }
+  if (!live()) return
+  // A bonus round on offer: Laya takes it or leaves it. Once it is over the
+  // uplink opens again, the offer answered, and this runs again to deploy.
+  while (bonusOffer.value && live()) {
+    const event = bonusOffer.value
+    const take = await autopilot!.decideBonus({
+      name: event.name,
+      tagline: event.tagline,
+      failBelow: HACKERZ_BONUS_PASS_INTEGRITY,
+      multiplier: HACKERZ_BONUS_MULTIPLIER,
+      seconds: HACKERZ_BONUS_MS / 1000
+    }, integrity.value, nextWave.value)
+    if (take === null) {
+      await wait(AUTOPILOT_RETRY_MS)
+      continue
+    }
+    if (!live()) return
+    if (take) {
+      await wait(AUTOPILOT_STEP_MS)
+      if (live()) await playBonus()
+      return
+    }
+    break
+  }
+  if (!live()) return
+  autopilot!.say(`Laya: deploying wave ${nextWave.value}`)
+  await saveRun()
+  await wait(AUTOPILOT_DEPLOY_MS)
+  if (live()) deployNextWave()
+}
+
+watch(phase, (value) => {
+  if (!autopilotOn.value) return
+  if (value === 'shop') void autopilotShop()
+  // A run that is over has nothing left to play.
+  if (value === 'over' || value === 'won' || value === 'lobby') toggleAutopilot(false)
+})
 
 async function skipBonus() {
   if (!bonusOffer.value) return
@@ -547,6 +796,8 @@ const tabs: { id: HackerzTab, label: string, icon: string }[] = [
   { id: 'systems', label: 'Systems', icon: 'i-lucide-radio' }
 ]
 const activeTab = ref<HackerzTab>('rail')
+/** The threat and hardening database, opened from the uplink or the Mainframe. */
+const codexOpen = ref(false)
 
 const shopRows = computed(() => HACKERZ_UPGRADES.map((def) => {
   const level = levels.value[def.id]
@@ -565,7 +816,9 @@ const shopRows = computed(() => HACKERZ_UPGRADES.map((def) => {
   }
 }))
 
-const tabRows = computed(() => shopRows.value.filter(row => row.def.tab === activeTab.value))
+// A gun's own upgrade (Superconductor for the Tesla Coil) is offered once that gun is owned.
+const tabRows = computed(() => shopRows.value.filter(row => row.def.tab === activeTab.value
+  && (!row.def.weapon || armoury.value.owned.includes(row.def.weapon))))
 
 function buy(id: HackerzUpgradeId) {
   const def = HACKERZ_UPGRADES.find(u => u.id === id)
@@ -833,6 +1086,26 @@ async function toggleFullscreen() {
                 </p>
               </div>
             </div>
+
+            <!-- Laya's terminal: every call auto-play makes, newest at the bottom. -->
+            <div
+              v-if="autopilotOn"
+              class="hidden sm:block mt-2 w-72 h-36 rounded-lg bg-black/45 backdrop-blur-sm border border-primary/30 overflow-hidden font-mono text-[10px] leading-snug"
+            >
+              <div class="flex items-center gap-1 truncate border-b border-primary/20 px-2 py-1 text-[9px] tracking-wider text-primary/70">
+                <UIcon name="i-lucide-bot" class="size-3" /> laya@uplink:~$ tail -f /var/log/laya
+              </div>
+              <div class="flex h-[calc(100%-1.45rem)] flex-col justify-end overflow-hidden px-2 py-1 [mask-image:linear-gradient(to_bottom,transparent,black_30%)]">
+                <p
+                  v-for="line in layaLog"
+                  :key="line.id"
+                  class="break-words"
+                  :class="line.offline ? 'text-red-400' : 'text-primary'"
+                >
+                  <span class="text-white/25">{{ line.stamp }}</span> {{ line.text }}
+                </p>
+              </div>
+            </div>
           </div>
 
           <div class="rounded-lg bg-black/55 backdrop-blur-sm border border-white/10 px-3 py-2 text-center">
@@ -1045,14 +1318,20 @@ async function toggleFullscreen() {
       <!-- ── Lobby: difficulty, Mainframe, resume ────────────────────────── -->
       <div
         v-else-if="phase === 'lobby'"
-        class="absolute inset-0 flex flex-col bg-gradient-to-b from-black/92 via-black/88 to-black/95"
+        class="hz-console absolute inset-0 flex flex-col"
       >
-        <div class="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-3">
+        <div class="flex items-center justify-between gap-4 border-b border-cyan-400/15 px-4 py-3">
           <div>
-            <div class="flex items-center gap-2">
-              <div class="text-2xl font-black tracking-[0.2em] text-cyan-300">
+            <div class="flex items-center gap-3">
+              <div class="hz-title text-2xl">
                 HACKERZ
               </div>
+              <button type="button" class="hz-tab" @click="codexOpen = true">
+                <UIcon name="i-lucide-database" class="size-3.5" /> Database
+              </button>
+              <UButton v-if="isDev" color="warning" variant="outline" size="xs" icon="i-lucide-bug" @click="debugOpen = true">
+                Debug
+              </UButton>
               <UBadge
                 v-if="isCoolingDown"
                 :label="`Recharging ${cooldownLabel}`"
@@ -1062,7 +1341,7 @@ async function toggleFullscreen() {
               />
             </div>
             <p class="text-[11px] text-white/50 mt-0.5">
-              Click or hold to fire · hold on a hostile to track it · RMB radar ping · Z/X/C deploy · R reload · 1-5 swap · Space pulse · Q overclock · P/Esc pause
+              Click or hold to fire · hold on a hostile to track it · RMB radar ping · Z/X/C/M deploy · V portscan · B blip · N white hat · R reload · 1-5 swap · Space pulse · Q overclock · P/Esc pause
             </p>
           </div>
           <div class="flex items-center gap-4 text-right">
@@ -1089,7 +1368,7 @@ async function toggleFullscreen() {
           <!-- A run in progress takes priority over starting a new one. -->
           <div
             v-if="account?.activeRun?.save"
-            class="rounded-lg border border-cyan-400/40 bg-cyan-400/10 p-3 flex items-center justify-between gap-4"
+            class="hz-card hz-card--active !p-3 flex items-center justify-between gap-4"
           >
             <div>
               <div class="flex items-center gap-2 text-sm font-semibold text-cyan-200">
@@ -1107,7 +1386,7 @@ async function toggleFullscreen() {
             </UButton>
           </div>
 
-          <div v-else-if="isCoolingDown" class="rounded-lg border border-warning/25 bg-warning/10 p-4 text-center">
+          <div v-else-if="isCoolingDown" class="hz-card hz-card--warn !p-4 text-center">
             <p class="flex items-center justify-center gap-2 font-black text-warning">
               <UIcon name="i-lucide-battery-charging" class="size-5" /> UPLINK RECHARGING
             </p>
@@ -1134,8 +1413,8 @@ async function toggleFullscreen() {
           </div>
 
           <div v-else>
-            <div class="text-[11px] uppercase tracking-widest text-white/40 mb-2">
-              Difficulty — coins scale with it, and so does everything trying to get in
+            <div class="hz-label mb-2">
+              // threat level — coins scale with it, and so does everything trying to get in
             </div>
             <div class="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
               <button
@@ -1143,12 +1422,10 @@ async function toggleFullscreen() {
                 :key="entry.id"
                 type="button"
                 :disabled="!entry.unlocked"
-                class="rounded-lg border p-3 text-left transition-colors"
+                class="hz-card"
                 :class="difficultyId === entry.id
-                  ? 'border-cyan-400 bg-cyan-400/15'
-                  : entry.unlocked
-                    ? 'border-white/15 bg-white/5 hover:bg-white/10 cursor-pointer'
-                    : 'border-white/10 bg-white/5 opacity-45 cursor-not-allowed'"
+                  ? 'hz-card--active'
+                  : entry.unlocked ? 'hz-card--owned' : 'hz-card--locked'"
                 @click="difficultyId = entry.id"
               >
                 <div class="flex items-center justify-between gap-2">
@@ -1162,7 +1439,7 @@ async function toggleFullscreen() {
                 </p>
                 <div class="mt-2 font-mono text-[11px] text-white/60">
                   <span class="text-amber-300">×{{ entry.reward }} coins</span>
-                  · ×{{ entry.enemyHp }} HP
+                  · ×{{ entry.enemyHp }} HP<template v-if="entry.enemyHp > 1"> by wave {{ HACKERZ_DIFFICULTY_FULL_WAVE }}</template>
                 </div>
               </button>
             </div>
@@ -1181,8 +1458,8 @@ async function toggleFullscreen() {
           <!-- The Mainframe: permanent, coin-bought, offline during a run. -->
           <div>
             <div class="flex items-baseline justify-between gap-3 mb-2">
-              <div class="text-[11px] uppercase tracking-widest text-white/40">
-                Mainframe — permanent, bought with coins
+              <div class="hz-label">
+                // mainframe — permanent, bought with coins
               </div>
               <div class="font-mono text-sm font-bold text-amber-300">
                 {{ formatNumber(Number(account?.balance ?? 0)) }}
@@ -1192,40 +1469,50 @@ async function toggleFullscreen() {
               Offline while a run is in progress. Finish or retire first.
             </p>
             <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              <button
+              <div
                 v-for="entry in account?.mainframe ?? []"
                 :key="entry.id"
+                class="hz-bloom grid"
+                :class="{ 'hz-bloom--dim': entry.cost === null || !!account?.activeRun || Number(account?.balance ?? 0) < entry.cost }"
+              >
+              <button
                 type="button"
                 :disabled="busy || !!account?.activeRun || entry.cost === null
                   || Number(account?.balance ?? 0) < entry.cost"
-                class="rounded-lg border p-3 text-left transition-colors"
+                class="hz-card"
                 :class="entry.cost === null
-                  ? 'border-white/10 bg-white/5 opacity-60 cursor-default'
+                  ? 'hz-card--off'
                   : !account?.activeRun && Number(account?.balance ?? 0) >= entry.cost
-                    ? 'border-amber-400/40 bg-amber-400/5 hover:bg-amber-400/15 cursor-pointer'
-                    : 'border-white/10 bg-white/5 opacity-55 cursor-not-allowed'"
+                    ? 'hz-card--gold'
+                    : 'hz-card--locked'"
                 @click="buyMainframe(entry.id)"
               >
                 <div class="flex items-center gap-2">
-                  <UIcon :name="entry.icon" class="size-4 shrink-0 text-amber-300" />
-                  <span class="text-sm font-semibold text-white truncate">{{ entry.name }}</span>
-                  <span class="ml-auto font-mono text-[11px] shrink-0 text-amber-300">
+                  <UIcon :name="entry.icon" class="hz-glow-gold size-4 shrink-0 text-amber-300" />
+                  <span class="hz-glow-text text-sm font-semibold text-white truncate">{{ entry.name }}</span>
+                  <span class="hz-glow-gold ml-auto font-mono text-[11px] shrink-0 text-amber-300">
                     {{ entry.cost === null ? 'MAX' : formatNumber(entry.cost) }}
                   </span>
                 </div>
-                <p class="mt-1 text-[11px] text-white/45 leading-snug">
+                <p class="hz-glow-text mt-1 text-[11px] text-white/45 leading-snug">
                   {{ entry.description }}
                 </p>
                 <div class="mt-1.5 flex items-center gap-2">
-                  <span class="font-mono text-[10px] text-white/40">{{ entry.level }}/{{ entry.max }}</span>
-                  <div class="h-1 flex-1 rounded-full bg-white/10 overflow-hidden">
-                    <div class="h-full bg-amber-400" :style="{ width: `${entry.level / entry.max * 100}%` }" />
+                  <span class="hz-glow-text font-mono text-[10px] text-white/40">{{ entry.level }}/{{ entry.max }}</span>
+                  <div class="flex flex-1 flex-wrap gap-0.5">
+                    <span
+                      v-for="i in entry.max"
+                      :key="i"
+                      class="hz-pip"
+                      :class="{ 'hz-pip--gold': i <= entry.level }"
+                    />
                   </div>
                 </div>
-                <div class="mt-1 font-mono text-[11px] text-white/60 truncate">
+                <div class="hz-glow-text mt-1 font-mono text-[11px] text-white/60 truncate">
                   {{ entry.next ?? entry.current }}
                 </div>
               </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1234,11 +1521,17 @@ async function toggleFullscreen() {
       <!-- ── Uplink ──────────────────────────────────────────────────────── -->
       <div
         v-else-if="phase === 'shop'"
-        class="absolute inset-0 flex flex-col bg-black/90 backdrop-blur-sm"
+        class="hz-console absolute inset-0 flex flex-col"
       >
-        <div class="flex items-center justify-between gap-4 border-b border-white/10 px-4 py-2.5">
+        <div class="flex items-center justify-between gap-4 border-b border-cyan-400/15 px-4 py-2.5">
           <div class="flex items-center gap-3">
-            <span class="text-lg font-bold tracking-widest text-cyan-300">UPLINK</span>
+            <div class="flex flex-col leading-tight">
+              <span class="hz-title text-lg">UPLINK</span>
+              <span class="hz-prompt hidden lg:inline">root@uplink:~$ ./deploy --wave {{ nextWave }}</span>
+            </div>
+            <button type="button" class="hz-tab" @click="codexOpen = true">
+              <UIcon name="i-lucide-database" class="size-3.5" /> Database
+            </button>
             <span
               v-if="lastSummary?.bonus"
               class="text-xs font-mono font-bold"
@@ -1279,17 +1572,9 @@ async function toggleFullscreen() {
                 {{ formatNumber(coins) }} coins
               </div>
             </div>
-            <template v-if="isDev">
-              <UButton color="warning" variant="outline" size="xs" icon="i-lucide-bug" @click="debugBonus('ddos')">
-                DDoS
-              </UButton>
-              <UButton color="warning" variant="outline" size="xs" icon="i-lucide-bug" @click="debugBonus('blackout')">
-                Blackout
-              </UButton>
-              <UButton color="warning" variant="outline" size="xs" icon="i-lucide-bug" @click="debugBonus('packetloss')">
-                Packet loss
-              </UButton>
-            </template>
+            <UButton v-if="isDev" color="warning" variant="outline" size="xs" icon="i-lucide-bug" @click="debugOpen = true">
+              Debug
+            </UButton>
             <UButton
               color="neutral"
               variant="subtle"
@@ -1321,15 +1606,13 @@ async function toggleFullscreen() {
           </div>
         </div>
 
-        <div class="flex items-center gap-1 border-b border-white/10 px-4">
+        <div class="flex items-center gap-1 border-b border-cyan-400/10 px-4 py-1.5">
           <button
             v-for="tab in tabs"
             :key="tab.id"
             type="button"
-            class="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold uppercase tracking-widest border-b-2 transition-colors"
-            :class="activeTab === tab.id
-              ? 'border-cyan-400 text-cyan-300'
-              : 'border-transparent text-white/40 hover:text-white/70'"
+            class="hz-tab"
+            :class="{ 'hz-tab--on': activeTab === tab.id }"
             @click="activeTab = tab.id"
           >
             <UIcon :name="tab.icon" class="size-4" />
@@ -1383,12 +1666,8 @@ async function toggleFullscreen() {
               :key="row.def.id"
               type="button"
               :disabled="!row.affordable"
-              class="rounded-lg border p-2.5 text-left transition-colors"
-              :class="row.full
-                ? 'border-white/10 bg-white/5 opacity-60 cursor-default'
-                : row.affordable
-                  ? 'border-lime-400/40 bg-lime-400/5 hover:bg-lime-400/15 cursor-pointer'
-                  : 'border-white/10 bg-white/5 opacity-55 cursor-not-allowed'"
+              class="hz-card"
+              :class="row.full ? 'hz-card--off' : row.affordable ? 'hz-card--buy' : 'hz-card--locked'"
               @click="buyDeployable(row.def.id)"
             >
               <div class="flex items-center gap-2">
@@ -1410,8 +1689,8 @@ async function toggleFullscreen() {
                 <span
                   v-for="i in HACKERZ_DEPLOYABLE_MAX"
                   :key="i"
-                  class="h-1.5 w-3 rounded-sm"
-                  :class="i <= row.owned ? 'bg-lime-300' : 'bg-white/15'"
+                  class="hz-pip"
+                  :class="{ 'hz-pip--lime': i <= row.owned }"
                 />
               </div>
             </button>
@@ -1425,16 +1704,12 @@ async function toggleFullscreen() {
                 :key="row.def.id"
                 type="button"
                 :disabled="!row.owned && !row.affordable"
-                class="rounded-lg border p-2.5 text-left transition-colors"
+                class="hz-card"
                 :class="row.active
-                  ? 'border-cyan-400 bg-cyan-400/15'
+                  ? 'hz-card--active'
                   : row.owned
-                    ? 'border-white/15 bg-white/5 hover:bg-white/10 cursor-pointer'
-                    : row.locked
-                      ? 'border-white/10 bg-white/5 opacity-40 cursor-not-allowed'
-                      : row.affordable
-                        ? 'border-lime-400/40 bg-lime-400/5 hover:bg-lime-400/15 cursor-pointer'
-                        : 'border-white/10 bg-white/5 opacity-50 cursor-not-allowed'"
+                    ? 'hz-card--owned'
+                    : !row.locked && row.affordable ? 'hz-card--buy' : 'hz-card--locked'"
                 @click="buyWeapon(row.def.id)"
               >
                 <div class="flex items-center justify-between gap-2">
@@ -1473,7 +1748,7 @@ async function toggleFullscreen() {
             <div
               v-for="mount in mountRows"
               :key="mount.slot"
-              class="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 p-2"
+              class="hz-row flex items-center gap-2 p-2"
             >
               <div class="w-16 shrink-0 font-mono text-[11px] uppercase tracking-widest text-white/40">
                 M{{ mount.slot + 1 }}
@@ -1515,7 +1790,7 @@ async function toggleFullscreen() {
               />
             </div>
             <p class="text-[11px] text-white/35">
-              Spire opens more mounts and builds the tower another storey taller. Swapping refunds half.
+              Rack Expansion opens more mounts. Swapping refunds half.
             </p>
           </div>
 
@@ -1526,12 +1801,8 @@ async function toggleFullscreen() {
               :key="row.def.id"
               type="button"
               :disabled="row.maxed || !row.affordable"
-              class="rounded-lg border p-2.5 text-left transition-colors"
-              :class="row.maxed
-                ? 'border-white/10 bg-white/5 opacity-60 cursor-default'
-                : row.affordable
-                  ? 'border-cyan-400/40 bg-cyan-400/5 hover:bg-cyan-400/15 cursor-pointer'
-                  : 'border-white/10 bg-white/5 opacity-55 cursor-not-allowed'"
+              class="hz-card"
+              :class="row.maxed ? 'hz-card--off' : row.affordable ? 'hz-card--buy' : 'hz-card--locked'"
               @click="buy(row.def.id)"
             >
               <div class="flex items-center gap-2.5">
@@ -1551,8 +1822,8 @@ async function toggleFullscreen() {
                       <span
                         v-for="i in row.max"
                         :key="i"
-                        class="h-1.5 w-2 rounded-sm"
-                        :class="i <= row.level ? 'bg-cyan-300' : 'bg-white/15'"
+                        class="hz-pip"
+                        :class="{ 'hz-pip--on': i <= row.level }"
                       />
                     </div>
                     <span class="font-mono text-[11px] text-white/60 truncate">
@@ -1622,6 +1893,82 @@ async function toggleFullscreen() {
           </UButton>
         </div>
       </div>
+
+      <HackerzCodex v-if="codexOpen && (phase === 'lobby' || phase === 'shop')" :known="codexKnown" @close="codexOpen = false" />
+    <UModal v-if="isDev" v-model:open="debugOpen" title="Debug" description="Dev server only. Rounds, fights and credits need a run at the uplink.">
+      <template #body>
+        <div class="space-y-4">
+          <div>
+            <div class="mb-2 text-xs text-muted">
+              Run
+            </div>
+            <UButton color="success" variant="outline" size="sm" icon="i-lucide-coins" :disabled="phase !== 'shop'" @click="debugCredits">
+              +100k credits
+            </UButton>
+          </div>
+          <div>
+            <div class="mb-2 text-xs text-muted">
+              Auto-play
+            </div>
+            <UButton
+              :color="autopilotOn ? 'error' : 'primary'"
+              variant="outline"
+              size="sm"
+              icon="i-lucide-bot"
+              :disabled="phase !== 'shop' && phase !== 'wave'"
+              @click="activateLaya"
+            >
+              {{ autopilotOn ? 'Stop Laya' : 'Activate Laya' }}
+            </UButton>
+            <p class="mt-1 text-xs text-muted">
+              Needs Laya on this machine: <code>bun scripts/laya-server.ts</code>. It shoots, fires abilities, shops and deploys every wave.
+            </p>
+          </div>
+          <div>
+            <div class="mb-2 text-xs text-muted">
+              Bonus rounds
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <UButton
+                v-for="b in DEBUG_BONUSES"
+                :key="b.id"
+                color="warning"
+                variant="outline"
+                size="sm"
+                icon="i-lucide-bug"
+                :disabled="phase !== 'shop'"
+                @click="debugOpen = false; debugBonus(b.id)"
+              >
+                {{ b.label }}
+              </UButton>
+            </div>
+          </div>
+          <div>
+            <div class="mb-2 text-xs text-muted">
+              Boss fights
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <UButton
+                v-for="b in DEBUG_BOSSES"
+                :key="b.id"
+                color="error"
+                variant="outline"
+                size="sm"
+                icon="i-lucide-skull"
+                :disabled="phase !== 'shop'"
+                @click="debugOpen = false; debugBoss(b.id)"
+              >
+                {{ b.label }}
+              </UButton>
+            </div>
+          </div>
+        </div>
+      </template>
+    </UModal>
     </div>
   </div>
 </template>
+
+<style>
+@import '~/assets/css/hackerz.css';
+</style>

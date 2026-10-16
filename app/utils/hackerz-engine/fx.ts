@@ -224,12 +224,119 @@ export class TransientFx {
         this.add(line, 0.18, (t) => { material.opacity = 1 - t })
     }
 
+    /**
+     * Electricity jumping between two points: a thick jagged bolt with a white
+     * core that re-forks every few frames, crackling for a moment. Lines are
+     * one pixel wide in WebGL, so a bolt you can see has to be a tube.
+     */
+    arc(from: THREE.Vector3, to: THREE.Vector3, hex: number, life = 0.26, thickness = 0.09) {
+        if (this.muted) return
+        const group = new THREE.Group()
+        const sheath = additive(hex, 2.6, 0.9)
+        const core = additive(0xffffff, 2.2, 1)
+        const outer = new THREE.Mesh(new THREE.BufferGeometry(), sheath)
+        const inner = new THREE.Mesh(new THREE.BufferGeometry(), core)
+        group.add(outer, inner)
+        const length = from.distanceTo(to)
+        const steps = Math.max(5, Math.round(length * 1.2))
+        let nextFork = 0
+        const fork = () => {
+            const points: THREE.Vector3[] = []
+            const jitter = Math.min(0.9, length * 0.12)
+            for (let i = 0; i <= steps; i++) {
+                const p = from.clone().lerp(to, i / steps)
+                if (i > 0 && i < steps) p.add(new THREE.Vector3(randRange(-jitter, jitter), randRange(-jitter, jitter) * 0.7, randRange(-jitter, jitter)))
+                points.push(p)
+            }
+            const path = new THREE.CurvePath<THREE.Vector3>()
+            for (let i = 0; i < points.length - 1; i++) path.add(new THREE.LineCurve3(points[i]!, points[i + 1]!))
+            outer.geometry.dispose()
+            inner.geometry.dispose()
+            outer.geometry = new THREE.TubeGeometry(path, steps * 2, thickness, 5, false)
+            inner.geometry = new THREE.TubeGeometry(path, steps * 2, thickness * 0.4, 4, false)
+        }
+        this.add(group, life, (t) => {
+            if (t >= nextFork) {
+                fork()
+                nextFork = t + 0.15
+            }
+            // Flickers as it crackles, then dies away.
+            const flicker = 0.65 + Math.random() * 0.35
+            sheath.opacity = 0.9 * (1 - t) * flicker
+            core.opacity = (1 - t) * flicker
+        })
+    }
+
     /** A straight beam — the Longbore and the Lance draw their whole path for a beat. */
     beam(from: THREE.Vector3, to: THREE.Vector3, hex: number, life = 0.14) {
         if (this.muted) return
         const material = new THREE.LineBasicMaterial({ color: hdr(hex, 4), transparent: true, toneMapped: false })
         const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, to]), material)
         this.add(line, life, (t) => { material.opacity = 1 - t })
+    }
+
+    /**
+     * A ring bursting out sideways from a point, standing up across `facing`
+     * (the way a round was flying) — the shock of something punched through.
+     */
+    shockRing(pos: THREE.Vector3, hex: number, radius: number, facing: THREE.Vector3, life = 0.32) {
+        if (this.muted) return
+        const material = additive(hex, 2, 1)
+        const mesh = new THREE.Mesh(ringGeometry, material)
+        mesh.position.copy(pos)
+        mesh.lookAt(pos.clone().add(facing))
+        this.add(mesh, life, (t) => {
+            mesh.scale.setScalar(0.15 + radius * (1 - (1 - t) * (1 - t)))
+            material.opacity = 1 - t
+        })
+    }
+
+    /**
+     * A gout of flame roaring straight up out of a point: puffs of burning gas
+     * that swell as they climb, sway, and burn out by the top — white-hot at
+     * the root, the colour higher up.
+     */
+    flame(pos: THREE.Vector3, hex: number, height: number, life = 0.85) {
+        if (this.muted) return
+        const group = new THREE.Group()
+        group.position.copy(pos)
+        const PUFFS = 14
+        const puffs = Array.from({ length: PUFFS }, (_, i) => {
+            const hot = i < 4
+            // Pale at the root, full colour above: dim enough that the bloom leaves it purple.
+            const material = additive(hot ? 0xe9d5ff : hex, hot ? 0.9 : 1.1, 0)
+            const mesh = new THREE.Mesh(sphereGeometry, material)
+            group.add(mesh)
+            return {
+                mesh,
+                material,
+                // Born one after another over the first half, each living a little over half the flame's life.
+                birth: (i / PUFFS) * 0.45,
+                span: 0.5 + randRange(0, 0.12),
+                size: height * randRange(0.06, 0.1),
+                sway: randRange(0, Math.PI * 2),
+                drift: randRange(0.03, 0.07) * height
+            }
+        })
+        this.add(group, life, (t) => {
+            for (const puff of puffs) {
+                const a = (t - puff.birth) / puff.span
+                if (a <= 0 || a >= 1) {
+                    puff.mesh.visible = false
+                    continue
+                }
+                puff.mesh.visible = true
+                // Fast off the root, slowing as it climbs, swaying as it goes.
+                const climb = 1 - (1 - a) * (1 - a)
+                puff.mesh.position.set(
+                    Math.sin(puff.sway + a * 6) * puff.drift * a,
+                    height * climb,
+                    Math.cos(puff.sway + a * 5) * puff.drift * a
+                )
+                puff.mesh.scale.setScalar(puff.size * (0.6 + 1.4 * a) * (1 - a * 0.5))
+                puff.material.opacity = Math.min(1, a * 6) * (1 - a)
+            }
+        })
     }
 
     /** A column of light rising where something died. */
@@ -313,6 +420,11 @@ const projectileGeometry = {
 
 const projectileMaterials = new Map<string, THREE.MeshBasicMaterial>()
 
+/** The round a turret fires: warheads for splash guns, slugs for piercing ones, rail rounds otherwise. */
+export function turretProjectile(turret: { splashRadius?: number, pierce: number }): HackerzProjectile {
+    return (turret.splashRadius ?? 0) > 0 ? 'missile' : turret.pierce > 0 ? 'slug' : 'rail'
+}
+
 /** A round in flight, oriented along +Z; the engine points it down its velocity. */
 export function makeProjectile(kind: HackerzProjectile, hex: number, crit: boolean, fromTurret: boolean) {
     const key = `${hex}:${crit}:${fromTurret}`
@@ -372,6 +484,8 @@ interface Banner {
 export interface HealthTag {
     pos: THREE.Vector3
     fraction: number
+    /** Where the bar stood a moment ago: the chunk a hit took drains away from here down to `fraction`. */
+    trail: number
     color: string
     armored: boolean
     width: number
@@ -452,8 +566,15 @@ export class Overlay {
             const w = tag.width
             ctx.fillStyle = 'rgba(0,0,0,0.6)'
             ctx.fillRect(s.x - w / 2 - 1, s.y - 1, w + 2, 5)
+            const left = s.x - w / 2
+            const kept = w * Math.max(0, tag.fraction)
+            // The health a hit just took, draining away in white behind the bar.
+            if (tag.trail > tag.fraction) {
+                ctx.fillStyle = 'rgba(255,255,255,0.85)'
+                ctx.fillRect(left + kept, s.y, w * Math.min(1, tag.trail) - kept, 3)
+            }
             ctx.fillStyle = tag.color
-            ctx.fillRect(s.x - w / 2, s.y, w * Math.max(0, tag.fraction), 3)
+            ctx.fillRect(left, s.y, kept, 3)
             if (tag.armored) {
                 ctx.strokeStyle = '#fbbf24'
                 ctx.lineWidth = 1

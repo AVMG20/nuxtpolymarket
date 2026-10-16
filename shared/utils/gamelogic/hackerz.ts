@@ -133,6 +133,10 @@ export const HACKERZ_DIFFICULTIES: readonly HackerzDifficulty[] = [
         enemyHp: 6,
         enemyDamage: 2.5,
         budget: 1.65,
+        // Deliberately above the balance report's payout band (it reads WAY
+        // OVER for mid investment and up): Zero Day is the jackpot rung, gated
+        // behind wave 20, paid at its full rate only from wave 25 on, and a
+        // deep run is hard and long. Kept at ×30 by decision on 2026-10-16.
         reward: 30,
         requiredBestWave: 20,
         color: '#e879f9'
@@ -145,6 +149,52 @@ export function hackerzDifficulty(id: unknown): HackerzDifficulty {
 
 export function hackerzDifficultyUnlocked(difficulty: HackerzDifficulty, bestWave: number) {
     return bestWave >= difficulty.requiredBestWave
+}
+
+/**
+ * The wave from which a difficulty is fought at full strength. A hard rung's
+ * tougher, harder-hitting hostiles phase in over the run instead of arriving
+ * at wave one: the run's gear is bought wave by wave, so ×6 health from the
+ * first spawn (when the gun is still the starting one) ended every Zero Day
+ * run by wave three, however much of the Mainframe was bought. The last
+ * stretch is fought at the full multiplier.
+ */
+export const HACKERZ_DIFFICULTY_FULL_WAVE = 25
+
+/** How far into its difficulty a wave is fought: 0 at wave one, 1 from `HACKERZ_DIFFICULTY_FULL_WAVE` on. */
+export function hackerzDifficultyRamp(wave: number) {
+    return Math.min(1, Math.max(0, (wave - 1) / (HACKERZ_DIFFICULTY_FULL_WAVE - 1)))
+}
+
+/**
+ * A difficulty multiplier as it applies at `wave`: one above ×1 rises from
+ * Breach strength (×1) at wave one to its full value; one at or below ×1
+ * (Probe's soft bodies) applies from the start.
+ */
+function rampedMultiplier(full: number, wave: number) {
+    return full <= 1 ? full : 1 + (full - 1) * hackerzDifficultyRamp(wave)
+}
+
+/** The difficulty's enemy health multiplier at `wave` (see `HACKERZ_DIFFICULTY_FULL_WAVE`). */
+export function hackerzWaveEnemyHp(difficulty: HackerzDifficulty, wave: number) {
+    return rampedMultiplier(difficulty.enemyHp, wave)
+}
+
+/**
+ * The difficulty's coin multiplier at `wave`: it is paid at the strength it
+ * is fought at. A rung that pays more than Breach rises from Breach's rate at
+ * wave one to its full rate at `HACKERZ_DIFFICULTY_FULL_WAVE`, so the easy
+ * opening waves of a hard rung pay like the easy rung they are.
+ */
+export function hackerzWaveReward(difficulty: HackerzDifficulty, wave: number) {
+    const base = hackerzDifficulty('breach').reward
+    if (difficulty.reward <= base) return difficulty.reward
+    return base + (difficulty.reward - base) * hackerzDifficultyRamp(wave)
+}
+
+/** The difficulty's wall damage multiplier at `wave` (see `HACKERZ_DIFFICULTY_FULL_WAVE`). */
+export function hackerzWaveEnemyDamage(difficulty: HackerzDifficulty, wave: number) {
+    return rampedMultiplier(difficulty.enemyDamage, wave)
 }
 
 // ─── Damage types ───────────────────────────────────────────────────────────
@@ -190,6 +240,7 @@ export type HackerzEnemyId =
     | 'crawler' | 'grunt' | 'sapper' | 'drone' | 'brute' | 'spitter'
     | 'warden' | 'tank' | 'artillery' | 'gunship' | 'phantom'
     | 'titan' | 'leviathan' | 'zeroday'
+    | 'spiderling'
 
 /** How an enemy behaves once it reaches its stopping distance from the wall. */
 export type HackerzEnemyKind =
@@ -240,7 +291,55 @@ export interface HackerzEnemyDefinition {
      * cloak to strike the wall, so an unpinged one is never an unanswerable leak.
      */
     cloaked?: boolean
+    /**
+     * Leaks memory: every hit on the fence also leaves an allocation behind at
+     * its foot, which drains this fraction of the hit again every second until
+     * it is shot clear or the purge collects it.
+     */
+    leak?: number
+    /**
+     * A healer (the Wisp, a packet sniffer): instead of attacking, it flies to
+     * the most damaged hostile and restores this much health every heal tick,
+     * scaled to that unit's strength. Healers converge, so several on one unit
+     * heal it faster. Once nothing but healers is left, they dive the fence and
+     * self-destruct like a weak Sapper.
+     */
+    heal?: number
+    /**
+     * Carries a shield with this fraction of its own health (the Warden's tower
+     * shield). Every hit lands on the shield until it breaks; while it holds,
+     * held ground does not bite.
+     */
+    guard?: number
+    /** Never rolled for a wave: only ever spawned by another unit (ROOTKIT's spiderlings). */
+    spawnedOnly?: boolean
+    /**
+     * Latches onto the fence and drains it instead of striking: every drain
+     * feeds it, so it drains this fraction harder each time, grows, and heals
+     * by what it took.
+     */
+    drain?: number
 }
+
+/**
+ * ROOTKIT's brood: how often its forelegs inject a pair of spiderlings, how
+ * often a hacked node it has infected hatches one, how close it must pass a
+ * hacked node to infect it (field units), and the most spiderlings at once.
+ */
+export const HACKERZ_SPIDER_INJECT_MS = 5000
+export const HACKERZ_SPIDER_HATCH_MS = 4000
+export const HACKERZ_SPIDER_INFECT_RADIUS = 120
+export const HACKERZ_SPIDER_CAP = 30
+/** How big a spiderling may grow on what it drains, and its drain's ceiling, as multiples of where it started. */
+export const HACKERZ_SPIDER_MAX_GROWTH = 2.2
+export const HACKERZ_SPIDER_MAX_DRAIN = 6
+
+/** How often a healer's beam ticks. */
+export const HACKERZ_HEAL_TICK_MS = 200
+
+/** Leaked allocations within this many field units of a pile join it, and a pile holds at most this many. */
+export const HACKERZ_LEAK_MERGE = 70
+export const HACKERZ_LEAK_MAX = 12
 
 export const HACKERZ_ENEMIES: readonly HackerzEnemyDefinition[] = [
     {
@@ -273,7 +372,8 @@ export const HACKERZ_ENEMIES: readonly HackerzEnemyDefinition[] = [
         hex: 0x67e8f9,
         fromWave: 1,
         weight: 40,
-        armored: false
+        armored: false,
+        leak: 0.1
     },
     {
         id: 'sapper',
@@ -303,10 +403,11 @@ export const HACKERZ_ENEMIES: readonly HackerzEnemyDefinition[] = [
         cost: 7,
         height: 26,
         hex: 0x93c5fd,
-        fromWave: 4,
+        fromWave: 6,
         weight: 22,
         armored: false,
-        altitude: 150
+        altitude: 150,
+        heal: 1
     },
     {
         id: 'brute',
@@ -355,7 +456,8 @@ export const HACKERZ_ENEMIES: readonly HackerzEnemyDefinition[] = [
         hex: 0xa3a3a3,
         fromWave: 8,
         weight: 22,
-        armored: true
+        armored: true,
+        guard: 0.5
     },
     {
         id: 'tank',
@@ -482,6 +584,24 @@ export const HACKERZ_ENEMIES: readonly HackerzEnemyDefinition[] = [
         weight: 0,
         armored: true,
         boss: true
+    },
+    {
+        id: 'spiderling',
+        name: 'Spiderling',
+        kind: 'walker',
+        hp: 14,
+        speed: 150,
+        damage: 2,
+        attackMs: 600,
+        bounty: 2,
+        cost: 0,
+        height: 18,
+        hex: 0xfb7185,
+        fromWave: HACKERZ_MAX_WAVE + 1,
+        weight: 0,
+        armored: false,
+        spawnedOnly: true,
+        drain: 0.25
     }
 ] as const
 
@@ -531,7 +651,18 @@ export function hackerzBountyMultiplier(wave: number) {
  */
 export function hackerzWaveBudget(wave: number, difficulty: HackerzDifficulty) {
     const base = 72 + (wave - 1) * 30 + Math.pow(wave, 1.7)
-    return Math.max(1, Math.round(base * difficulty.budget))
+    return Math.max(1, Math.round(base * difficulty.budget * hackerzOpening(wave)))
+}
+
+/**
+ * How hard the opening waves lean in, 0–1. A fresh run starts on the Packet
+ * Rail alone, which kills about one wave-one budget per wave with every shot
+ * landing; full-strength waves on top of the hackers buried it before the
+ * first boss. The run eases in up to that boss and is at full pressure after.
+ */
+export function hackerzOpening(wave: number) {
+    if (wave > HACKERZ_BOSS_EVERY) return 1
+    return 0.55 + 0.45 * Math.max(0, wave - 1) / HACKERZ_BOSS_EVERY
 }
 
 /** Paid on surviving a wave, scaled by how much of the wall is left standing. */
@@ -550,7 +681,7 @@ export function hackerzBossFor(wave: number): HackerzEnemyId {
 
 /** Types that may be rolled on this wave, bosses excluded — they are scripted. */
 export function hackerzWavePool(wave: number) {
-    return HACKERZ_ENEMIES.filter(def => !def.boss && def.fromWave <= wave)
+    return HACKERZ_ENEMIES.filter(def => !def.boss && !def.spawnedOnly && def.fromWave <= wave)
 }
 
 /** Ground speed from which a unit counts as a runner: hard to track, there and gone. */
@@ -564,7 +695,10 @@ export const HACKERZ_RUNNER_SPEED = 70
  */
 export function hackerzSpawnWeight(def: HackerzEnemyDefinition, wave: number) {
     if (def.id === HACKERZ_HACKER_ID || def.speed < HACKERZ_RUNNER_SPEED) return def.weight
-    return def.weight * Math.min(3, 1.5 + 0.1 * Math.max(0, wave - 1))
+    // The boost grows in over the opening waves rather than starting at ×1.5.
+    const boost = Math.min(3, 1.5 + 0.1 * Math.max(0, wave - 1))
+    const opening = Math.min(1, Math.max(0, wave - 1) / HACKERZ_BOSS_EVERY)
+    return def.weight * (1 + (boost - 1) * opening)
 }
 
 /**
@@ -586,6 +720,8 @@ export const HACKERZ_HACKER_SECOND_MS = 4000
 
 /** How many hackers the portal keeps on the field this far into a wave. */
 export function hackerzHackerField(wave: number, elapsedMs: number) {
+    // The opening waves send a smaller crew, growing to the full one by the first boss.
+    if (wave < HACKERZ_BOSS_EVERY) return Math.min(HACKERZ_HACKER_FIELD, 2 + wave)
     if (wave < HACKERZ_HACKER_SURGE_WAVE) return HACKERZ_HACKER_FIELD
     return HACKERZ_HACKER_CONTINGENT * (elapsedMs < HACKERZ_HACKER_SECOND_MS ? 1 : 2)
 }
@@ -670,14 +806,19 @@ export function hackerzNetworkEvent(id: HackerzEventId): HackerzNetworkEvent {
 
 // ─── Deployables ────────────────────────────────────────────────────────────
 
-export type HackerzDeployableId = 'honeypot' | 'bomb' | 'proxy'
+export type HackerzDeployableId = 'honeypot' | 'bomb' | 'proxy' | 'portscan' | 'blip' | 'whitehat' | 'surge'
 export type HackerzDeployableStock = Record<HackerzDeployableId, number>
 
 export interface HackerzDeployableDefinition {
     id: HackerzDeployableId
     name: string
-    /** The key that arms it mid-wave; a click then places it. */
-    key: 'Z' | 'X' | 'C'
+    /**
+     * The key that uses it mid-wave: it arms one that is aimed (a click then
+     * places it, or picks its target), and fires one that is not at once.
+     */
+    key: 'Z' | 'X' | 'C' | 'V' | 'B' | 'N' | 'M'
+    /** Used the moment its key is pressed, with nothing to aim. */
+    instant?: boolean
     description: string
     icon: string
     hex: number
@@ -711,6 +852,44 @@ export const HACKERZ_DEPLOYABLES: readonly HackerzDeployableDefinition[] = [
         icon: 'i-lucide-brick-wall',
         hex: 0x38bdf8,
         cost: 150
+    },
+    {
+        id: 'portscan',
+        name: 'Portscan',
+        key: 'V',
+        instant: true,
+        description: 'A standing radar sweep: every time the contacts fade it pings again, keeping hostiles targetable for a while.',
+        icon: 'i-lucide-radar',
+        hex: 0xa3e635,
+        cost: 110
+    },
+    {
+        id: 'blip',
+        name: 'Cosmic Blip',
+        key: 'B',
+        instant: true,
+        description: 'A stray cosmic ray flips the right bit: a hacked node is reclaimed on the spot.',
+        icon: 'i-lucide-sparkles',
+        hex: 0x22d3ee,
+        cost: 220
+    },
+    {
+        id: 'whitehat',
+        name: 'White Hat',
+        key: 'N',
+        description: 'Click a hostile (never a boss): it switches sides and turns on its own until it falls.',
+        icon: 'i-lucide-user-check',
+        hex: 0xf8fafc,
+        cost: 180
+    },
+    {
+        id: 'surge',
+        name: 'Power Surge',
+        key: 'M',
+        description: 'Overloads a patch of the grid: lightning arcs through every hostile inside it for a while.',
+        icon: 'i-lucide-zap',
+        hex: 0x60a5fa,
+        cost: 160
     }
 ]
 
@@ -728,18 +907,28 @@ export function hackerzDeployableCost(def: HackerzDeployableDefinition, wave: nu
 }
 
 export function hackerzEmptyStock(): HackerzDeployableStock {
-    return { honeypot: 0, bomb: 0, proxy: 0 }
+    return { honeypot: 0, bomb: 0, proxy: 0, portscan: 0, blip: 0, whitehat: 0, surge: 0 }
 }
 
-/** What a deployable does at a given wave: it scales with the wave like the enemies do. */
+/**
+ * What a deployable does at a given wave: it scales with the wave like the
+ * enemies do. How long a portscan or a surge runs, how many nodes a blip
+ * reclaims and how many a white hat turns come from the Mainframe (see
+ * `hackerzMainframeEffects`).
+ */
 export function hackerzDeployableStats(wave: number) {
     const w = Math.max(1, wave)
     return {
         honeypot: { lureRadius: 300, lifeMs: 9000, hp: 260 + w * 90, blastRadius: 210, blastDamage: 180 + w * 70 },
         bomb: { armMs: 500, triggerRadius: 70, blastRadius: 190, damage: 280 + w * 85 },
-        proxy: { halfWidth: 130, hp: 520 + w * 130, lifeMs: 22_000 }
+        proxy: { halfWidth: 130, hp: 520 + w * 130, lifeMs: 22_000 },
+        /** A storm field: its radius, how often it arcs, into how many hostiles at once, and each arc's damage. */
+        surge: { radius: 200, arcMs: 250, arcs: 3, damage: 30 + w * 12 }
     }
 }
+
+/** How long after a portscan's contacts fade it pings again. */
+export const HACKERZ_PORTSCAN_REPING_MS = 500
 
 // ─── Weapons ────────────────────────────────────────────────────────────────
 
@@ -837,7 +1026,8 @@ export const HACKERZ_WEAPONS: readonly HackerzWeaponDefinition[] = [
         damageType: 'energy',
         pierce: 0,
         chain: 3,
-        chainFalloff: 0.6,
+        // Each jump keeps 90% of the power (see HACKERZ_ARC_LOSS and Superconductor).
+        chainFalloff: 0.9,
         hex: 0x818cf8
     },
     {
@@ -847,7 +1037,9 @@ export const HACKERZ_WEAPONS: readonly HackerzWeaponDefinition[] = [
         cost: 2400,
         unlockWave: 10,
         tag: 'splash',
-        damage: 44,
+        // Scaled so each later gun stays ahead of the one before once the
+        // hostiles' health at its unlock wave is counted (see scripts/hackerz-weapon-tiers.ts).
+        damage: 72,
         fireIntervalMs: 850,
         magazine: 5,
         reloadMs: 2000,
@@ -856,7 +1048,7 @@ export const HACKERZ_WEAPONS: readonly HackerzWeaponDefinition[] = [
         damageType: 'kinetic',
         pierce: 0,
         splashRadius: 120,
-        splashDamage: 26,
+        splashDamage: 43,
         homing: true,
         hex: 0xfb923c
     },
@@ -867,7 +1059,8 @@ export const HACKERZ_WEAPONS: readonly HackerzWeaponDefinition[] = [
         cost: 4200,
         unlockWave: 14,
         tag: 'pierce',
-        damage: 130,
+        // Scaled with the Seeker Pod's: ahead of it once hostile health at wave 14 is counted.
+        damage: 180,
         fireIntervalMs: 1300,
         magazine: 4,
         reloadMs: 2200,
@@ -997,7 +1190,7 @@ export const HACKERZ_TURRET_REFUND = 0.5
 // ─── In-run upgrades ────────────────────────────────────────────────────────
 
 export type HackerzUpgradeId =
-    | 'damage' | 'firerate' | 'autoloader' | 'crit'
+    | 'damage' | 'firerate' | 'autoloader' | 'crit' | 'conduction'
     | 'integrity' | 'spire' | 'repair' | 'shield' | 'spikes'
     | 'turretPower'
     | 'pulse' | 'overclock'
@@ -1015,7 +1208,16 @@ export interface HackerzUpgradeDefinition {
     growth: number
     /** The stat at a given level. Kept to a few characters — the shop is a list. */
     value: (level: number) => string
+    /** Only does anything for this gun, so the uplink offers it once the gun is owned. */
+    weapon?: HackerzWeaponId
 }
+
+/**
+ * The Tesla Coil's arc loses this share of its power at every jump, and each
+ * level of Superconductor takes this much off that loss.
+ */
+export const HACKERZ_ARC_LOSS = 0.1
+export const HACKERZ_ARC_LOSS_STEP = 0.005
 
 /**
  * Twelve lines, four of them on the gun.
@@ -1029,7 +1231,7 @@ export interface HackerzUpgradeDefinition {
 export const HACKERZ_UPGRADES: readonly HackerzUpgradeDefinition[] = [
     {
         id: 'damage',
-        name: 'Amplifier',
+        name: 'Payload Amp',
         icon: 'i-lucide-zap',
         tab: 'rail',
         max: 10,
@@ -1039,7 +1241,7 @@ export const HACKERZ_UPGRADES: readonly HackerzUpgradeDefinition[] = [
     },
     {
         id: 'firerate',
-        name: 'Clock Speed',
+        name: 'Cycle Boost',
         icon: 'i-lucide-gauge',
         tab: 'rail',
         max: 10,
@@ -1049,7 +1251,7 @@ export const HACKERZ_UPGRADES: readonly HackerzUpgradeDefinition[] = [
     },
     {
         id: 'autoloader',
-        name: 'Autoloader',
+        name: 'Buffer Overflow',
         icon: 'i-lucide-layers',
         tab: 'rail',
         max: 8,
@@ -1059,7 +1261,7 @@ export const HACKERZ_UPGRADES: readonly HackerzUpgradeDefinition[] = [
     },
     {
         id: 'crit',
-        name: 'Exploit',
+        name: 'Exploit Kit',
         icon: 'i-lucide-crosshair',
         tab: 'rail',
         max: 8,
@@ -1068,8 +1270,19 @@ export const HACKERZ_UPGRADES: readonly HackerzUpgradeDefinition[] = [
         value: level => `${Math.round((0.04 + level * 0.04) * 100)}% · ${(2 + level * 0.15).toFixed(1)}x`
     },
     {
+        id: 'conduction',
+        name: 'Superconductor',
+        icon: 'i-lucide-git-fork',
+        tab: 'rail',
+        max: 10,
+        baseCost: 200,
+        growth: 1.42,
+        weapon: 'arc',
+        value: level => `−${((HACKERZ_ARC_LOSS - level * HACKERZ_ARC_LOSS_STEP) * 100).toFixed(1)}%/jump`
+    },
+    {
         id: 'integrity',
-        name: 'Integrity',
+        name: 'Hardened Kernel',
         icon: 'i-lucide-brick-wall',
         tab: 'bastion',
         max: 14,
@@ -1079,7 +1292,7 @@ export const HACKERZ_UPGRADES: readonly HackerzUpgradeDefinition[] = [
     },
     {
         id: 'spire',
-        name: 'Spire',
+        name: 'Rack Expansion',
         icon: 'i-lucide-building-2',
         tab: 'bastion',
         max: 6,
@@ -1099,7 +1312,7 @@ export const HACKERZ_UPGRADES: readonly HackerzUpgradeDefinition[] = [
     },
     {
         id: 'shield',
-        name: 'Barrier',
+        name: 'ICE Barrier',
         icon: 'i-lucide-shield',
         tab: 'bastion',
         max: 8,
@@ -1109,13 +1322,13 @@ export const HACKERZ_UPGRADES: readonly HackerzUpgradeDefinition[] = [
     },
     {
         id: 'spikes',
-        name: 'Grid Trap',
+        name: 'Tarpit Grid',
         icon: 'i-lucide-grid-2x2',
         tab: 'bastion',
         max: 8,
         baseCost: 290,
         growth: 1.58,
-        value: level => level === 0 ? 'offline' : `${level * 42} dmg/s`
+        value: level => level === 0 ? 'offline' : `${level * 42} dmg/s · 1 round/s`
     },
     {
         id: 'turretPower',
@@ -1199,7 +1412,8 @@ export function hackerzUpgradeMax(def: { id: string, max: number }, charterLevel
 // ─── Mainframe (permanent, coin-bought) ─────────────────────────────────────
 
 export const HACKERZ_MAINFRAME_IDS = [
-    'bulwark', 'munitions', 'foundry', 'grant', 'salvage', 'capacitor', 'charter', 'arsenal'
+    'bulwark', 'munitions', 'foundry', 'grant', 'salvage', 'capacitor', 'charter', 'arsenal',
+    'scanner', 'blip', 'whitehat', 'surge'
 ] as const
 export type HackerzMainframeId = typeof HACKERZ_MAINFRAME_IDS[number]
 
@@ -1239,7 +1453,7 @@ export interface HackerzMainframeDefinition {
 export const HACKERZ_MAINFRAME: readonly HackerzMainframeDefinition[] = [
     {
         id: 'bulwark',
-        name: 'Reinforced Bulwark',
+        name: 'Bedrock Firmware',
         description: 'The wall starts every run thicker.',
         icon: 'i-lucide-brick-wall',
         color: 'success',
@@ -1250,7 +1464,7 @@ export const HACKERZ_MAINFRAME: readonly HackerzMainframeDefinition[] = [
     },
     {
         id: 'munitions',
-        name: 'Munitions Contract',
+        name: 'Weaponised Payloads',
         description: 'Every weapon you carry hits harder.',
         icon: 'i-lucide-zap',
         color: 'error',
@@ -1261,7 +1475,7 @@ export const HACKERZ_MAINFRAME: readonly HackerzMainframeDefinition[] = [
     },
     {
         id: 'foundry',
-        name: 'Turret Foundry',
+        name: 'Turret Firmware',
         description: 'Every mounted turret hits harder.',
         icon: 'i-lucide-factory',
         color: 'warning',
@@ -1272,7 +1486,7 @@ export const HACKERZ_MAINFRAME: readonly HackerzMainframeDefinition[] = [
     },
     {
         id: 'grant',
-        name: 'Uplink Grant',
+        name: 'Seed Funding',
         description: 'Deploy with credits already banked.',
         icon: 'i-lucide-banknote',
         color: 'info',
@@ -1283,7 +1497,7 @@ export const HACKERZ_MAINFRAME: readonly HackerzMainframeDefinition[] = [
     },
     {
         id: 'salvage',
-        name: 'Salvage Rig',
+        name: 'Crypto Miner',
         description: 'Strip more coin off everything you kill.',
         icon: 'i-lucide-coins',
         color: 'secondary',
@@ -1294,7 +1508,7 @@ export const HACKERZ_MAINFRAME: readonly HackerzMainframeDefinition[] = [
     },
     {
         id: 'capacitor',
-        name: 'Capacitor Bank',
+        name: 'Always-On ICE',
         description: 'The barrier comes online without buying it first.',
         icon: 'i-lucide-shield',
         color: 'primary',
@@ -1305,7 +1519,7 @@ export const HACKERZ_MAINFRAME: readonly HackerzMainframeDefinition[] = [
     },
     {
         id: 'charter',
-        name: 'Rampart Charter',
+        name: 'Rack Charter',
         description: 'Extra turret mounts, open from wave one.',
         icon: 'i-lucide-building-2',
         color: 'warning',
@@ -1316,7 +1530,7 @@ export const HACKERZ_MAINFRAME: readonly HackerzMainframeDefinition[] = [
     },
     {
         id: 'arsenal',
-        name: 'Arsenal Licence',
+        name: 'Darknet Licence',
         description: 'The uplink sells the next gun up from wave one. You still pay for it.',
         icon: 'i-lucide-swords',
         color: 'error',
@@ -1327,6 +1541,50 @@ export const HACKERZ_MAINFRAME: readonly HackerzMainframeDefinition[] = [
             const unlocked = HACKERZ_WEAPONS.slice(1, level + 1).map(w => w.name)
             return unlocked.length ? unlocked.join(', ') : 'nothing yet'
         }
+    },
+    {
+        id: 'scanner',
+        name: 'Persistent Scanner',
+        description: 'Every Portscan keeps sweeping for longer.',
+        icon: 'i-lucide-radar',
+        color: 'success',
+        max: 5,
+        baseCost: 40_000,
+        growth: 2,
+        value: level => `${15 + level * 3}s portscan`
+    },
+    {
+        id: 'blip',
+        name: 'Solar Flare',
+        description: 'Every Cosmic Blip flips more nodes back.',
+        icon: 'i-lucide-sparkles',
+        color: 'info',
+        max: 2,
+        baseCost: 400_000,
+        growth: 3,
+        value: level => `${1 + level} node${level ? 's' : ''} per blip`
+    },
+    {
+        id: 'whitehat',
+        name: 'Bug Bounty',
+        description: 'Every White Hat turns more hostiles.',
+        icon: 'i-lucide-user-check',
+        color: 'neutral',
+        max: 4,
+        baseCost: 120_000,
+        growth: 2.4,
+        value: level => `${1 + level} hostile${level ? 's' : ''} per white hat`
+    },
+    {
+        id: 'surge',
+        name: 'Grid Overload',
+        description: 'Every Power Surge crackles for longer.',
+        icon: 'i-lucide-zap',
+        color: 'primary',
+        max: 4,
+        baseCost: 50_000,
+        growth: 2,
+        value: level => `${8 + level * 2}s surge`
     }
 ] as const
 
@@ -1369,6 +1627,11 @@ export interface HackerzMainframeEffects {
     startingMounts: number
     /** How many weapons past the rail ignore their wave gate. */
     arsenal: number
+    /** How long a Portscan keeps sweeping, how many nodes a Cosmic Blip reclaims, how many hostiles a White Hat turns, how long a Power Surge lasts. */
+    portscanMs: number
+    blipNodes: number
+    whitehatTargets: number
+    surgeMs: number
 }
 
 export function hackerzMainframeEffects(levels: HackerzMainframeLevels): HackerzMainframeEffects {
@@ -1381,7 +1644,11 @@ export function hackerzMainframeEffects(levels: HackerzMainframeLevels): Hackerz
         shieldBase: levels.capacitor * 45,
         shieldRegenBase: levels.capacitor * 3,
         startingMounts: levels.charter,
-        arsenal: levels.arsenal
+        arsenal: levels.arsenal,
+        portscanMs: (15 + levels.scanner * 3) * 1000,
+        blipNodes: 1 + levels.blip,
+        whitehatTargets: 1 + levels.whitehat,
+        surgeMs: (8 + levels.surge * 2) * 1000
     }
 }
 
@@ -1428,7 +1695,7 @@ export function hackerzCoinValue(
     return Math.max(1, Math.round(
         bounty
         * HACKERZ_COIN_SCALE
-        * difficulty.reward
+        * hackerzWaveReward(difficulty, wave)
         * Math.max(0, coinMultiplier)
         * Math.pow(Math.max(1, wave), HACKERZ_COIN_WAVE_EXPONENT)
     ))
@@ -1535,6 +1802,11 @@ export interface HackerzLoadout {
     difficulty: HackerzDifficulty
     /** Deployables carried into the wave. */
     deployables: HackerzDeployableStock
+    /** What the Mainframe makes of them: a Portscan's run, a Blip's nodes, a White Hat's turns, a Surge's run. */
+    portscanMs: number
+    blipNodes: number
+    whitehatTargets: number
+    surgeMs: number
 }
 
 export interface HackerzArmoury {
@@ -1593,7 +1865,8 @@ export function hackerzWeaponRuntime(
         splashDamage: (def.splashDamage ?? 0) * damageScale,
         homing: def.homing ?? false,
         chain: def.chain ?? 0,
-        chainFalloff: def.chainFalloff ?? 0,
+        // Superconductor cuts what an arc loses at each jump.
+        chainFalloff: def.chainFalloff ? Math.min(1, def.chainFalloff + (levels.conduction ?? 0) * HACKERZ_ARC_LOSS_STEP) : 0,
         hex: def.hex
     }
 }
@@ -1650,12 +1923,73 @@ export function hackerzLoadout(
         overclockCooldownMs: 24_000,
         coinMultiplier: effects.coins,
         difficulty: hackerzDifficulty(difficultyId),
-        deployables: hackerzStock(armoury)
+        deployables: hackerzStock(armoury),
+        portscanMs: effects.portscanMs,
+        blipNodes: effects.blipNodes,
+        whitehatTargets: effects.whitehatTargets,
+        surgeMs: effects.surgeMs
     }
 }
 
 /** Seconds without taking a hit before the barrier starts coming back. */
 export const HACKERZ_SHIELD_DELAY_MS = 3000
+
+// ─── Database ───────────────────────────────────────────────────────────────
+
+/**
+ * The Database starts incomplete: an entry opens once its thing has been
+ * bought into an armoury, or met on the board. These are known from the start:
+ * the board itself, the stock rail and its radar.
+ */
+export const HACKERZ_CODEX_ALWAYS: readonly string[] = ['fence', 'blue', 'rail', 'ping', 'nodes', 'damage']
+
+/** Upgrades with an entry of their own, by that entry: buying the first level opens it. */
+export const HACKERZ_CODEX_UPGRADES = { barrier: 'shield', grid: 'spikes', pulse: 'pulse', overclock: 'overclock' } as const satisfies Record<string, HackerzUpgradeId>
+
+/**
+ * How the intrusion fights together, by the wave each is first seen: a node
+ * defender as soon as a node falls, bodyguards once hackers bring them.
+ */
+export const HACKERZ_CODEX_TACTICS = ['defender', 'bodyguard'] as const
+const TACTIC_FROM_WAVE: Record<typeof HACKERZ_CODEX_TACTICS[number], number> = { defender: 1, bodyguard: 10 }
+
+/** Every entry the Database can open: the only ids the server will record. */
+export const HACKERZ_CODEX_IDS: ReadonlySet<string> = new Set([
+    ...HACKERZ_ENEMIES.map(def => def.id),
+    ...HACKERZ_WEAPONS.map(def => def.id),
+    ...HACKERZ_TURRETS.map(def => def.id),
+    ...HACKERZ_DEPLOYABLES.map(def => def.id),
+    ...HACKERZ_EVENTS.map(event => event.id),
+    ...Object.keys(HACKERZ_CODEX_UPGRADES),
+    ...HACKERZ_CODEX_TACTICS
+])
+
+/** The entries an armoury opens: every gun, turret, deployable and upgrade bought into it. */
+export function hackerzCodexFromArmoury(armoury: HackerzArmoury): string[] {
+    const ids: string[] = [...armoury.owned]
+    for (const turret of armoury.turrets) if (turret) ids.push(turret)
+    for (const [id, count] of Object.entries(hackerzStock(armoury))) if (count > 0) ids.push(id)
+    for (const [entry, upgrade] of Object.entries(HACKERZ_CODEX_UPGRADES)) if ((armoury.levels[upgrade] ?? 0) > 0) ids.push(entry)
+    return ids
+}
+
+/**
+ * The threats a player has met by reaching a wave: every hostile that spawns
+ * up to it, the bosses of the boss waves on the way, and the bonus rounds
+ * offered. Lets a veteran's Database open on what they have already fought.
+ */
+export function hackerzCodexFromWave(bestWave: number): string[] {
+    const ids: string[] = []
+    for (const def of HACKERZ_ENEMIES) {
+        if (!def.boss && !def.spawnedOnly && def.fromWave <= bestWave) ids.push(def.id)
+    }
+    for (let wave = HACKERZ_BOSS_EVERY; wave <= bestWave; wave += HACKERZ_BOSS_EVERY) ids.push(hackerzBossFor(wave))
+    // ROOTKIT's brood comes with it.
+    if (ids.includes('titan')) ids.push('spiderling')
+    for (const tactic of HACKERZ_CODEX_TACTICS) if (TACTIC_FROM_WAVE[tactic] <= bestWave) ids.push(tactic)
+    for (let wave = HACKERZ_BONUS_EVERY; wave <= bestWave && wave < HACKERZ_MAX_WAVE; wave += HACKERZ_BONUS_EVERY) ids.push(hackerzBonusEvent(wave).id)
+    return [...new Set(ids)]
+}
 
 // ─── Saved runs ─────────────────────────────────────────────────────────────
 
@@ -1728,7 +2062,8 @@ export function hackerzValidateSave(save: unknown): save is HackerzRunSave {
     if (!armoury.turrets.every(id => id === null || HACKERZ_TURRETS.some(t => t.id === id))) return false
     if (typeof armoury.levels !== 'object' || armoury.levels === null) return false
     return HACKERZ_UPGRADES.every((def) => {
-        const level = armoury.levels[def.id]
+        // A save from before an upgrade existed simply has none of it.
+        const level = armoury.levels[def.id] ?? 0
         return isFiniteNumber(level) && level >= 0 && level <= def.max
     })
 }

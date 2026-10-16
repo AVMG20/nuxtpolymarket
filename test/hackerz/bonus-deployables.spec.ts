@@ -12,8 +12,10 @@ import {
   hackerzEmptyArmoury,
   hackerzEmptyMainframe,
   hackerzLoadout,
+  hackerzMainframe,
   hackerzStock,
   hackerzValidateSave,
+  type HackerzDeployableStock,
   type HackerzRunSave
 } from '#shared/utils/gamelogic/hackerz'
 
@@ -66,12 +68,34 @@ describe('hackerz deployables', () => {
 
   it('fills a stock for an armoury written before deployables existed', () => {
     const { deployables: _, ...legacy } = hackerzEmptyArmoury()
-    expect(hackerzStock(legacy)).toEqual({ honeypot: 0, bomb: 0, proxy: 0 })
+    expect(hackerzStock(legacy)).toEqual({ honeypot: 0, bomb: 0, proxy: 0, portscan: 0, blip: 0, whitehat: 0, surge: 0 })
   })
 
-  it('carries the stock into the loadout', () => {
-    const armoury = { ...hackerzEmptyArmoury(), deployables: { honeypot: 2, bomb: 0, proxy: 1 } }
-    expect(hackerzLoadout(armoury, hackerzEmptyMainframe(), 'breach').deployables).toEqual({ honeypot: 2, bomb: 0, proxy: 1 })
+  it('carries the stock into the loadout, filling items a save predates', () => {
+    // A save written before the Portscan, Blip, White Hat and Surge existed.
+    const armoury = { ...hackerzEmptyArmoury(), deployables: { honeypot: 2, bomb: 0, proxy: 1 } as HackerzDeployableStock }
+    expect(hackerzLoadout(armoury, hackerzEmptyMainframe(), 'breach').deployables)
+      .toEqual({ honeypot: 2, bomb: 0, proxy: 1, portscan: 0, blip: 0, whitehat: 0, surge: 0 })
+  })
+
+  it('gives every deployable its own key', () => {
+    const keys = HACKERZ_DEPLOYABLES.map(def => def.key)
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+
+  it('upgrades the new consumables from their base to their cap in the Mainframe', () => {
+    const base = hackerzLoadout(hackerzEmptyArmoury(), hackerzEmptyMainframe(), 'breach')
+    expect(base.portscanMs).toBe(15_000)
+    expect(base.blipNodes).toBe(1)
+    expect(base.whitehatTargets).toBe(1)
+    expect(base.surgeMs).toBe(8_000)
+    const maxed = { ...hackerzEmptyMainframe() }
+    for (const id of ['scanner', 'blip', 'whitehat', 'surge'] as const) maxed[id] = hackerzMainframe(id).max
+    const top = hackerzLoadout(hackerzEmptyArmoury(), maxed, 'breach')
+    expect(top.portscanMs).toBe(30_000)
+    expect(top.blipNodes).toBe(3)
+    expect(top.whitehatTargets).toBe(5)
+    expect(top.surgeMs).toBe(16_000)
   })
 })
 

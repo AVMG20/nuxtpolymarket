@@ -23,6 +23,10 @@ export interface HackerzLevelState {
     capacitorLevel: number
     charterLevel: number
     arsenalLevel: number
+    scannerLevel: number
+    blipLevel: number
+    whitehatLevel: number
+    surgeLevel: number
 }
 
 export function hackerzLevels(state: HackerzLevelState): HackerzMainframeLevels {
@@ -34,7 +38,11 @@ export function hackerzLevels(state: HackerzLevelState): HackerzMainframeLevels 
         salvage: state.salvageLevel,
         capacitor: state.capacitorLevel,
         charter: state.charterLevel,
-        arsenal: state.arsenalLevel
+        arsenal: state.arsenalLevel,
+        scanner: state.scannerLevel,
+        blip: state.blipLevel,
+        whitehat: state.whitehatLevel,
+        surge: state.surgeLevel
     }
 }
 
@@ -46,7 +54,11 @@ export const HACKERZ_LEVEL_COLUMN = {
     salvage: 'salvageLevel',
     capacitor: 'capacitorLevel',
     charter: 'charterLevel',
-    arsenal: 'arsenalLevel'
+    arsenal: 'arsenalLevel',
+    scanner: 'scannerLevel',
+    blip: 'blipLevel',
+    whitehat: 'whitehatLevel',
+    surge: 'surgeLevel'
 } as const
 
 export interface HackerzSettlementState {

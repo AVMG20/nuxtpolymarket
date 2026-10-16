@@ -31,6 +31,8 @@ export const MODEL_HEIGHT_SCALE = FIELD_SCALE * 1.45
  */
 export const WALL_HALF_LENGTH = 560
 export const FENCE_HEIGHT = 2.6
+/** How far out in front of the fence the ICE Barrier stands, in field units. */
+export const SHIELD_D = 26
 /** Deck top height, front edge distance behind the fence, and depth. */
 export const WALL_HEIGHT = 3.2
 export const DECK_FRONT = 7
@@ -73,9 +75,6 @@ export const SPIKE_BAND = 168
 /** How far the ICE pulse reaches, and how hard it shoves. */
 export const PULSE_RADIUS = 1500
 export const PULSE_KNOCKBACK = 320
-
-/** Enemies are pushed out of each other so a wave never stacks into one column. */
-export const CROWD_PUSH = 46
 
 /** Camera shake, in world units. */
 export const SHAKE_DECAY = 7.5

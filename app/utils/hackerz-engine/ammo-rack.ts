@@ -77,6 +77,15 @@ export class AmmoRack {
     private arcs: { line: THREE.Line, life: number, cell: number }[] = []
     private nextArc = 0.6
 
+    /**
+     * Slides the rack along the deck with its gun (a railgun gliding on its
+     * track): the cable's plug moves with it, so a rebuild still finds the gun.
+     */
+    follow(x: number) {
+        this.gunAnchor.x += x - this.group.position.x
+        this.group.position.x = x
+    }
+
     constructor(private gunAnchor: THREE.Vector3, hex: number) {
         this.lit = hdr(hex, 1.6)
         const dark = new THREE.MeshBasicMaterial({ color: 0x0a1220 })

@@ -50,8 +50,15 @@ describe('damage types', () => {
 })
 
 describe('shop shape', () => {
-  it('offers exactly four ways to upgrade the gun', () => {
-    expect(HACKERZ_UPGRADES.filter(u => u.tab === 'rail')).toHaveLength(4)
+  it('offers exactly four ways to upgrade every gun', () => {
+    expect(HACKERZ_UPGRADES.filter(u => u.tab === 'rail' && !u.weapon)).toHaveLength(4)
+  })
+
+  it('offers a gun\'s own upgrade only for that gun', () => {
+    for (const def of HACKERZ_UPGRADES.filter(u => u.weapon)) {
+      expect(def.tab).toBe('rail')
+      expect(HACKERZ_WEAPONS.some(w => w.id === def.weapon)).toBe(true)
+    }
   })
 
   it('has no in-run credit-rate upgrade — that moved to the Mainframe', () => {

@@ -1,4 +1,4 @@
-import { randomFloat } from '#shared/utils/random'
+import { randomFloat } from './rng'
 import { FIELD_DEPTH, FIELD_HALF_WIDTH } from './constants'
 
 /**
