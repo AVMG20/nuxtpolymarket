@@ -2,6 +2,8 @@ import { db } from '#server/database'
 import { requireUserId } from '#server/utils/auth'
 import { getBalance } from '#server/utils/balance'
 import { resolveBossEngage, settleHq } from '#server/utils/hero-quest'
+import type { HqBossResponse } from '#server/utils/hero-quest-api'
+import { roundHqFraction } from '#shared/utils/hero-quest/numbers'
 
 /**
  * Resolve a boss or super-boss fight, server-side and authoritatively.
@@ -21,7 +23,7 @@ import { resolveBossEngage, settleHq } from '#server/utils/hero-quest'
  * The fight and both of its guards — at a gate, and not already cleared — run under the
  * `hqState` row lock in `resolveBossEngage`. See there for why the cleared check is needed.
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqBossResponse> => {
     const userId = await requireUserId(event)
 
     // Settle first, outside the fight transaction, so the fight uses current state — the
@@ -34,5 +36,7 @@ export default defineEventHandler(async (event) => {
     // reads it, and its factor is clamped, so a slightly stale value cannot move the fight much.
     const bankedGold = parseFloat(await getBalance(userId)) || 0
 
-    return db.transaction(tx => resolveBossEngage(tx, userId, bankedGold))
+    const fight = await db.transaction(tx => resolveBossEngage(tx, userId, bankedGold))
+    // shown only, never replayed: the replay runs on the events and ends on `secondsElapsed`
+    return { ...fight, damageDealtPct: roundHqFraction(fight.damageDealtPct) }
 })

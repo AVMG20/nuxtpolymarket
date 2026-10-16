@@ -14,6 +14,7 @@ describe('hero-quest settings', () => {
             fastReveals: false,
             skillCinematics: true,
             combatNumbers: true,
+            detailedDescriptions: false,
             dotFreePulls: true,
             dotUpgrades: true,
             dotTreeNodes: true,

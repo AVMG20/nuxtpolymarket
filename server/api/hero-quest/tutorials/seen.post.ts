@@ -1,12 +1,11 @@
 import { requireUserId } from '#server/utils/auth'
 import { markTutorialSeen } from '#server/utils/hero-quest-tutorials'
-import { isTutorialRecord } from '#shared/utils/hero-quest/tutorials'
+import { TUTORIAL_SEEN_BODY, readHqBody, type HqTutorialSeenResponse } from '#server/utils/hero-quest-api'
 
 /** The guide's tutorial `id` was read, or a silent mark like a boss lost was reached (`tutorials.ts`). */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqTutorialSeenResponse> => {
     const userId = await requireUserId(event)
-    const body = await readBody<{ id?: unknown }>(event)
-    if (!isTutorialRecord(body?.id)) throw createError({ statusCode: 400, statusMessage: 'Unknown tutorial' })
-    await markTutorialSeen(userId, body.id)
-    return { id: body.id }
+    const { id } = await readHqBody(event, TUTORIAL_SEEN_BODY)
+    await markTutorialSeen(userId, id)
+    return { id }
 })

@@ -421,6 +421,13 @@
       "when": 1791870489508,
       "tag": "0059_hero_quest_offline_credit",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1792089320546,
+      "tag": "0060_green_iron_monger",
+      "breakpoints": true
     }
   ]
 }

@@ -11,6 +11,9 @@ import {
     type MilestoneSnapshot
 } from '#shared/utils/hero-quest/milestones'
 import {
+    MILESTONE_ARENA_MEDALS_BASE,
+    MILESTONE_ARENA_MEDALS_CAP,
+    MILESTONE_ARENA_MEDALS_STEP,
     MILESTONE_COLLECTION_EVERY,
     MILESTONE_RAID_LEVEL_EVERY,
     MILESTONE_WORLD_SEALS_BASE,
@@ -29,6 +32,14 @@ describe('hero-quest milestones', () => {
     it('has one track for Worlds, one for prestige, one per raid, one per gacha and one for the Arena, each with a unique id', () => {
         expect(MILESTONE_TRACKS).toHaveLength(3 + RAIDS.length + GACHA_SYSTEMS.length)
         expect(new Set(MILESTONE_TRACKS.map(t => t.id)).size).toBe(MILESTONE_TRACKS.length)
+    })
+
+    it('grows the Arena step\'s Medals until the cap, then pays the cap', () => {
+        const medals = (k: number) => track('milestone_arena').reward(k)[0]!.amount
+        expect(medals(1)).toBe(MILESTONE_ARENA_MEDALS_BASE)
+        expect(medals(2)).toBe(MILESTONE_ARENA_MEDALS_BASE + MILESTONE_ARENA_MEDALS_STEP)
+        expect(medals(11)).toBe(MILESTONE_ARENA_MEDALS_CAP)
+        expect(medals(100)).toBe(MILESTONE_ARENA_MEDALS_CAP)
     })
 
     it('counts Worlds cleared across every run, never going back at a prestige', () => {

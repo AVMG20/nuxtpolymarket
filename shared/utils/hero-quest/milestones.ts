@@ -21,6 +21,7 @@
 
 import {
     MILESTONE_ARENA_MEDALS_BASE,
+    MILESTONE_ARENA_MEDALS_CAP,
     MILESTONE_ARENA_MEDALS_STEP,
     MILESTONE_ARENA_WINS_EVERY,
     MILESTONE_COLLECTION_EVERY,
@@ -133,7 +134,7 @@ export const MILESTONE_TRACKS: readonly MilestoneTrack[] = [
         every: MILESTONE_ARENA_WINS_EVERY,
         cap: null,
         progress: s => s.arenaWins,
-        reward: k => [{ kind: 'medals', amount: linear(MILESTONE_ARENA_MEDALS_BASE, MILESTONE_ARENA_MEDALS_STEP, k) }]
+        reward: k => [{ kind: 'medals', amount: Math.min(MILESTONE_ARENA_MEDALS_CAP, linear(MILESTONE_ARENA_MEDALS_BASE, MILESTONE_ARENA_MEDALS_STEP, k)) }]
     }
 ]
 

@@ -12,6 +12,7 @@ import {
     TEN_PULL_COST,
     TEN_PULL_SIZE
 } from '#shared/utils/hero-quest/constants'
+import { hqNumber } from '#shared/utils/hero-quest/numbers'
 import { RARITIES, totalDupesToMax } from '#shared/utils/hero-quest/gacha'
 
 /**
@@ -70,7 +71,7 @@ const dupesToMax = totalDupesToMax()
     <HeroQuestWikiSection
       title="Rarity"
       icon="i-lucide-gem"
-      :lead="`Six tiers. A Mythic is worth ${RARITY_STAT_MULTIPLIERS[RARITIES.length - 1]}× a Common of the same thing.`"
+      :lead="`Six tiers. A Mythic is worth ${hqNumber(RARITY_STAT_MULTIPLIERS[RARITIES.length - 1] ?? 1)}× a Common of the same thing.`"
     >
       <div class="overflow-x-auto">
         <table class="w-full text-xs border-collapse">
@@ -103,7 +104,7 @@ const dupesToMax = totalDupesToMax()
                 {{ row.label }}
               </td>
               <td class="py-1.5 px-3 text-right tabular-nums">
-                {{ row.statMultiplier.toFixed(2) }}
+                {{ hqNumber(row.statMultiplier) }}
               </td>
               <td class="py-1.5 px-3 text-right tabular-nums">
                 {{ row.essenceValue.toLocaleString('en-US') }}
@@ -133,12 +134,11 @@ const dupesToMax = totalDupesToMax()
         do can advance it faster or slower than the pulls you make.
       </p>
       <p>
-        The exact odds at every level are on the gacha page — tap the
-        <UIcon
-          name="i-lucide-info"
-          class="size-3.5 inline align-middle"
-        />
-        on any of the four cards.
+        The odds at your current level are on the Gacha screen: point at a banner's emblem
+        (<NuxtLink
+          :to="hqScreenWikiPath('gacha')"
+          class="text-primary hover:underline"
+        >how the screen works</NuxtLink>).
       </p>
     </HeroQuestWikiSection>
 
@@ -197,7 +197,7 @@ const dupesToMax = totalDupesToMax()
         <li>
           <strong class="text-default">Gear</strong> has six slots, one per stat, all open from
           the start. The first piece you ever get for a slot equips itself; after that, swapping
-          is always your call — watch for the <em>Upgrade</em> badge.
+          is always your call — watch for the green arrow on a tile in Collections.
         </li>
         <li>
           <strong class="text-default">Champions</strong> fill party slots, which you buy with

@@ -13,21 +13,25 @@ import {
     serializeGuild,
     serializeHero,
     serializeAscendant,
+    serializeAwayReport,
     serializeBattleSpeed,
     serializeLoadouts,
     serializeRun,
+    serializeSettled,
     serializeShop,
     serializeTrainingGrounds,
+    skillWealthHoursOf,
     settleHq,
     voidShardsFor
 } from '#server/utils/hero-quest'
 import { HQ_REFRESH_INTERVAL_MS, STAGES_PER_WORLD, WORLD_COUNT } from '#shared/utils/hero-quest/constants'
-import { fromStore } from '#shared/utils/hero-quest/numbers'
+import { fromStore, roundHq } from '#shared/utils/hero-quest/numbers'
 import { hqSettingsOf } from '#shared/utils/hero-quest/settings'
 import { serializeRaids } from '#server/utils/hero-quest-raids'
 import { calendarGoldPerHour, serializeCalendar } from '#server/utils/hero-quest-calendar'
 import { serializeHqMilestones } from '#server/utils/hero-quest-milestones'
-import { serializeTutorials } from '#server/utils/hero-quest-tutorials'
+import { serializeTutorials, unlockProgressOf } from '#server/utils/hero-quest-tutorials'
+import { featureUnlocked } from '#shared/utils/hero-quest/tutorials'
 import { getHolidayClaims, serializeHolidays } from '#server/utils/hero-quest-holidays'
 import { serializeLoadoutPreferences, serializeLoadoutSession } from '#server/utils/hero-quest-loadout'
 import { ensureSeasonsClosed, serializeArena, unclaimedSeasons } from '#server/utils/hero-quest-arena'
@@ -35,6 +39,7 @@ import { arenaSeasonAt } from '#shared/utils/hero-quest/arena'
 import { GACHA_SYSTEMS } from '#shared/utils/hero-quest/gacha'
 import { getTraitSaves, serializeTraits } from '#server/utils/hero-quest-traits'
 import { serializePassiveTree } from '#server/utils/hero-quest-passive-tree'
+import type { HqStateResponse } from '#server/utils/hero-quest-api'
 
 /**
  * The one read the client makes.
@@ -45,15 +50,18 @@ import { serializePassiveTree } from '#server/utils/hero-quest-passive-tree'
  * All four gacha tabs are served from one call rather than one endpoint each, because they share
  * a settle and the same `hqCollection` query. Splitting them would mean four settles per page
  * load, and a settle is a write.
+ *
+ * The shape is `HqStateResponse` (`hero-quest-api.ts`): the same keys either way, null or empty
+ * before the run is founded.
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqStateResponse> => {
     const userId = await requireUserId(event)
 
     // Founding is explicit. Same payload shape either way, so the composable stays simple.
     const existing = await getHqState(userId)
     if (!existing) {
         return {
-            initialized: false as const,
+            initialized: false,
             serverNow: Date.now(),
             refreshIntervalMs: HQ_REFRESH_INTERVAL_MS,
             worldCount: WORLD_COUNT,
@@ -92,7 +100,7 @@ export default defineEventHandler(async (event) => {
     // A raid session left open (a tab shut mid-raid) is closed by the settle itself once the gap
     // outlasts presence, so the time away accrues on the player's own loadout.
     const settleOutcome = await settleHq(userId)
-    const { state, result, online, previousLevel } = settleOutcome
+    const { state } = settleOutcome
 
     /**
      * The settle already read the shop levels and the collection rows, inside its lock — reuse
@@ -116,16 +124,18 @@ export default defineEventHandler(async (event) => {
         getTraitSaves(userId),
         getLoadouts(userId),
         getBalance(userId),
-        serializeRaids(userId),
+        // once the raids are open, a raid never visited gets its row, so its daily Keys accrue
+        serializeRaids(userId, undefined, featureUnlocked('raids', unlockProgressOf(state))),
         getHolidayClaims(userId),
         unclaimedSeasons(userId)
     ])
-    const hero = heroSnapshotOf(state, shopLevels, collections, parseFloat(balance) || 0, traitBoard)
+    const bankedGold = parseFloat(balance) || 0
+    const hero = heroSnapshotOf(state, shopLevels, collections, bankedGold, traitBoard)
     // what a minute of the run's income is worth: the calendar's Gold days and the holiday gifts' Gold
     const goldPerHour = calendarGoldPerHour(state, hero)
 
     return {
-        initialized: true as const,
+        initialized: true,
         // Lets the client interpolate accrual without drifting against its own clock.
         serverNow: Date.now(),
         refreshIntervalMs: HQ_REFRESH_INTERVAL_MS,
@@ -157,11 +167,11 @@ export default defineEventHandler(async (event) => {
         ),
 
         /** The Arena: Medals, this season's Rating, today's attacks, the defence and any season reward waiting. */
-        arena: serializeArena(state, arenaRewards, now),
+        arena: serializeArena(state, arenaRewards, { shopLevels, collections, traits: traitBoard }, now),
 
         guild: serializeGuild(state, collections.champion, shopLevels),
         forge: serializeForge(state, collections.gear),
-        training: serializeTrainingGrounds(state, collections.skill, shopLevels),
+        training: serializeTrainingGrounds(state, collections.skill, shopLevels, skillWealthHoursOf(state, hero, collections.skill, bankedGold)),
         digSite: serializeDigSite(state, collections.artifact, shopLevels),
         loadouts: serializeLoadouts(loadoutRows, shopLevels),
         /** Raid (or `arena`) → the saved slot it applies on a fresh engage (`loadouts.md` §4). */
@@ -179,26 +189,9 @@ export default defineEventHandler(async (event) => {
         nextPrestigeReward: voidShardsFor(state.prestige).toString(),
 
         /** The welcome-back card waiting to be put away, from whichever request settled the time away. */
-        awayReport: state.awayReport ?? null,
+        awayReport: serializeAwayReport(state.awayReport),
 
         /** What this read's own settle banked; an offline one ends the session on its splash. The card reads `awayReport`. */
-        settled: result
-            ? {
-                online,
-                kills: result.kills,
-                goldEarned: result.goldEarned,
-                xpEarned: result.xpEarned.toString(),
-                levelsGained: result.heroLevel - previousLevel,
-                heroLevel: result.heroLevel,
-                effectiveSeconds: result.effectiveSeconds,
-                blockedAtBoss: result.blockedAtBoss,
-                wipedOnWave: result.wipedOnWave,
-                // the real time away, how the offline rules counted it, and where the run went
-                awaySeconds: settleOutcome.elapsedSeconds,
-                offline: result.offline,
-                from: settleOutcome.previousPosition ?? result.position,
-                to: result.position
-            }
-            : null
+        settled: serializeSettled(settleOutcome)
     }
 })

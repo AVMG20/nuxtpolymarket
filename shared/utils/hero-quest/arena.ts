@@ -24,27 +24,34 @@ import {
     ARENA_SEASON_EPOCH_MS,
     ARENA_SEASON_REWARDS,
     ARENA_SHOP_GEM_PRICE,
-    ARENA_SHOP_KEY_LEVEL,
+    ARENA_SHOP_SEAL_KEY_PRICE,
     ARENA_SHOP_TRAIT_KEY_PRICE,
     ARENA_SHOP_SEAL_PRICE,
     K_ATTACK,
     K_DEFEND,
     MEDAL_BASE_LOSS,
     MEDAL_BASE_WIN,
-    MEDAL_UPSET_BONUS
+    MEDAL_UPSET_BONUS,
+    TRAIT_SLOT_COUNT
 } from './constants'
 import { RAIDS, getRaid, type RaidId } from './content/raids'
-import { raidReward } from './raids'
 import type { GachaSystem } from './gacha'
+import { traitSlotOf, type TraitBoard, type TraitSlotState } from './traits'
 import type { FormationRow } from './types'
 
 const DAY_MS = 86_400_000
 const SEASON_MS = ARENA_SEASON_DAYS * DAY_MS
 
+/** A Trait slot as the defence keeps it: what it rolled. */
+export interface ArenaDefenseTrait { stat: string, grade: string, set: string }
+
 /**
  * The stored defence (§1): the same five components a Loadout captures (`loadouts.md` §1), Gear
- * included, kept apart from the live loadout so attack and defence diverge by design. IDs only;
- * star and level are read from the defender's collection when they are attacked.
+ * included, and the Trait board, kept apart from the live ones so attack and defence diverge by
+ * design. The selection is frozen until the player sets the defence again; its stats are not:
+ * IDs only, so star and level are read from the defender's collection, and hero level, the Passive
+ * Skill Tree, the Shop's stat tracks and the collection passives from the account as it stands
+ * (issue #32, the user's call 2026-10-15).
  */
 export interface ArenaDefenseLoadout {
     partyChampionIds: string[]
@@ -52,6 +59,29 @@ export interface ArenaDefenseLoadout {
     equippedSkillIds: string[]
     equippedArtifactIds: string[]
     equippedGear: Record<string, string>
+    /**
+     * The Trait board as it was set, by slot index, null for an empty slot. Absent on a defence set
+     * before Traits were frozen with it (2026-10-15): that one fights on the live board until it is
+     * set again.
+     */
+    traits?: (ArenaDefenseTrait | null)[]
+}
+
+/** A Trait board as the defence stores it: each slot's roll, the lock left behind. */
+export function defenseTraitsFrom(board: TraitBoard): (ArenaDefenseTrait | null)[] {
+    return Array.from({ length: TRAIT_SLOT_COUNT }, (_, i) => {
+        const slot = board[i]
+        return slot ? { stat: slot.stat, grade: slot.grade, set: slot.set } : null
+    })
+}
+
+/** The Trait board the defence fights on: its own, or `live` for a defence stored without one. */
+export function defenseTraitBoard(defense: ArenaDefenseLoadout, live: TraitBoard): TraitBoard {
+    if (!defense.traits) return live
+    return Array.from({ length: TRAIT_SLOT_COUNT }, (_, i): TraitSlotState | null => {
+        const slot = defense.traits![i]
+        return slot ? traitSlotOf({ ...slot, locked: false }) : null
+    })
 }
 
 // ── Seasons ────────────────────────────────────────────────────────────────────────
@@ -102,16 +132,15 @@ export function seasonRewardFor(rank: number): number {
 }
 
 /**
- * Final ranks for a season's standings, highest Rating first. Ties share a rank and the next rank
- * skips past them (1, 2, 2, 4): no player is ranked below anyone they matched.
+ * Final ranks for a season's standings, highest Rating first, every rank its own. An equal Rating
+ * goes to whoever reached it first (a row never moved by a match last), then to user ID: shared
+ * ranks let every bot-only player tie for rank 1 at the bots' ceiling (#43).
  */
-export function rankStandings<T extends { rating: number }>(rows: readonly T[]): (T & { rank: number })[] {
-    const sorted = [...rows].sort((a, b) => b.rating - a.rating)
-    let rank = 0
-    return sorted.map((row, i) => {
-        if (i === 0 || row.rating !== sorted[i - 1]!.rating) rank = i + 1
-        return { ...row, rank }
-    })
+export function rankStandings<T extends { rating: number, ratingAt: Date | null, userId: string }>(rows: readonly T[]): (T & { rank: number })[] {
+    const reached = (row: T) => row.ratingAt?.getTime() ?? Number.POSITIVE_INFINITY
+    const sorted = [...rows].sort((a, b) =>
+        b.rating - a.rating || reached(a) - reached(b) || (a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0))
+    return sorted.map((row, i) => ({ ...row, rank: i + 1 }))
 }
 
 // ── Attempts ───────────────────────────────────────────────────────────────────────
@@ -126,9 +155,13 @@ export interface ArenaAttempts {
 /**
  * Today's counters: as stored on the same UTC day, back to none on a new one (§3: free attacks do
  * not bank, and the extra-attack ladder starts over). `today` is a `ladderDateKey`.
+ *
+ * Never backwards, like `rollStanding`: counters already on a later day than the caller's clock
+ * (a request that read the time before midnight and queued behind one after it) stay as they are,
+ * or that request would start the day over and hand out its free attacks again.
  */
 export function attemptsOn(stored: ArenaAttempts, today: string): ArenaAttempts {
-    if (stored.date === today) return stored
+    if (stored.date !== null && stored.date >= today) return stored
     return { date: today, used: 0, purchased: 0 }
 }
 
@@ -143,9 +176,9 @@ export interface ArenaRefreshes {
     used: number
 }
 
-/** Today's redraws: as stored on the same UTC day, back to none on a new one. */
+/** Today's redraws: as stored on the same UTC day, back to none on a new one, and never backwards (`attemptsOn`). */
 export function refreshesOn(stored: ArenaRefreshes, today: string): ArenaRefreshes {
-    return stored.date === today ? stored : { date: today, used: 0 }
+    return stored.date !== null && stored.date >= today ? stored : { date: today, used: 0 }
 }
 
 /** The next redraw's Gem price after `usedToday` today: free for the first two, then 5, 10, 20, … */
@@ -254,12 +287,11 @@ export type ArenaShopItem =
 const SEAL_SYSTEMS: readonly GachaSystem[] = ['champion', 'skill', 'artifact', 'gear']
 
 /**
- * A raid Key's Medal price: for a Seal raid, the Seals a clear pays at `ARENA_SHOP_KEY_LEVEL` at the
- * Seal's own price; the Trait raid, which pays Trait Gems, at its own.
+ * A raid Key's Medal price: one flat price for the Seal raids, and its own for the Trait raid, which
+ * pays Trait Gems.
  */
 export function arenaKeyPrice(raid: RaidId): number {
-    if (!getRaid(raid).pairedSystem) return ARENA_SHOP_TRAIT_KEY_PRICE
-    return raidReward(raid, ARENA_SHOP_KEY_LEVEL) * ARENA_SHOP_SEAL_PRICE
+    return getRaid(raid).pairedSystem ? ARENA_SHOP_SEAL_KEY_PRICE : ARENA_SHOP_TRAIT_KEY_PRICE
 }
 
 /**

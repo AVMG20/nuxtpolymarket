@@ -226,6 +226,78 @@ function detailFooter(w: number, h: number, e: CollectionTile): { x: number, y: 
     return { x, y, top: y - (rows.length - 1) * (BTN_H + 3), buttons }
 }
 
+/** The room a scroll bar keeps down the body's right edge. */
+const BAR_W = 4
+
+/**
+ * The detail's body: the column right of the showcase, under the name and the rarity row, down to
+ * the footer. Its lines scroll inside it when they run past the bottom.
+ */
+function detailBody(w: number, h: number, e: CollectionTile): Box {
+    const p = panelRect(w, h)
+    const x = p.x + 6 + BOX_W + 8
+    const right = p.x + p.w - 6
+    let y = p.y + 8
+    // a long name takes two lines rather than running under the close button
+    y += e.owned ? wrap(e.name.toUpperCase(), right - x - CLOSE_W - 4, 'big').length * 10 : 12
+    // the rarity row, and the rule under it
+    y += 1 + 9 + 6
+    const bottom = detailFooter(w, h, e).top - 3
+    return { x, y, w: right - x, h: Math.max(0, bottom - y) }
+}
+
+/**
+ * Lay out (and with `s`, draw) the body's lines from `y`, `width` px wide: each section's head and
+ * its lines, or the not-found note. Returns the height they take.
+ */
+function drawBody(s: Surface | null, e: CollectionTile, x: number, y: number, width: number): number {
+    const top = y
+    const right = x + width
+    if (!e.owned) {
+        for (const line of NOT_FOUND) {
+            if (s) drawText(s, line, x, y, C.stone3, { shadow: 1 })
+            y += LINE_H
+        }
+        return y - top
+    }
+    e.sections.forEach((section, i) => {
+        if (i > 0) y += SECTION_GAP
+        // the condition and who it reaches, and ACTIVE on the right while it pays
+        if (s) {
+            const head = `${section.title} - ${section.scope}`.toUpperCase()
+            drawText(s, head, x, y, section.active ? C.gold2 : C.stone3, { shadow: 1 })
+            if (section.active) drawText(s, 'ACTIVE', right, y, C.green3, { align: 2, shadow: 1 })
+        }
+        y += LINE_H + 1
+        const color = section.active ? C.bone1 : C.stone2
+        for (const line of section.lines) {
+            if (typeof line !== 'string') {
+                if (s) {
+                    // the line, then the caret and how far equipping it would move the stat
+                    const text = line.text.toUpperCase()
+                    const tx = x + 4 + textWidth(text) + 4
+                    drawText(s, text, x + 4, y, color, { shadow: 1 })
+                    caret(s, tx, y, line.up)
+                    drawText(s, line.delta.toUpperCase(), tx + 7, y, line.up ? C.green3 : C.red3, { shadow: 1 })
+                }
+                y += LINE_H
+                continue
+            }
+            for (const part of wrap(line.toUpperCase(), right - x - 4)) {
+                if (s) drawText(s, part, x + 4, y, color, { shadow: 1 })
+                y += LINE_H
+            }
+        }
+    })
+    return y - top
+}
+
+/** How far the open entry's detail scrolls: 0 while its lines all fit. */
+export function detailMaxScroll(w: number, h: number, e: CollectionTile): number {
+    const body = detailBody(w, h, e)
+    return Math.max(0, drawBody(null, e, 0, 0, body.w - BAR_W) - body.h)
+}
+
 /** The detail button a point on the view is over, for the entry shown, and whether it can be pressed. */
 export function detailButtonAt(w: number, h: number, e: CollectionTile, x: number, y: number): { id: DetailButton, enabled: boolean } | null {
     const hit = detailFooter(w, h, e).buttons.find(({ box: b }) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h)
@@ -403,6 +475,8 @@ export class CollectionsScene {
     /** Champions' idle frames, drawn once each as the detail first shows them. */
     private readonly idles = new Map<string, Surface[]>()
     private readonly icon = new Surface(TILE, TILE, 0, 0)
+    /** The detail's body, its lines drawn here first so a scroll cuts them at its edges. */
+    private body: Surface | null = null
     /** The Hero's face per class, for the picker. */
     private readonly heads = new Map<string, Surface>()
 
@@ -413,7 +487,7 @@ export class CollectionsScene {
      * the hovered button; `busy` holds the detail's buttons while a request is out. `picking` lays
      * the open entry's picker over its detail.
      */
-    render(t: number, view: CollectionsView, hover: CollectionsHover, pressed: boolean, detail: string | null, busy: boolean, picking = false): Surface {
+    render(t: number, view: CollectionsView, hover: CollectionsHover, pressed: boolean, detail: string | null, busy: boolean, picking = false, scroll = 0): Surface {
         const { tab, entries } = view
         const s = this.backdrops.render('collections', t, false)
         const p = panelRect(s.w, s.h)
@@ -422,7 +496,7 @@ export class CollectionsScene {
         for (let i = 0; i < HQ_COLLECTION_TABS.length; i++) this.drawTab(s, i, HQ_COLLECTION_TABS[i]!, tab, entries, tabHover)
         const open = detail === null ? undefined : entries.find(e => e.id === detail)
         if (open) {
-            this.drawDetail(s, t, view, open, picking ? null : hover, pressed, busy)
+            this.drawDetail(s, t, view, open, picking ? null : hover, pressed, busy, scroll)
             if (picking && open.picker) this.drawPicker(s, view, open.picker, hover, pressed, busy)
             return s
         }
@@ -456,8 +530,11 @@ export class CollectionsScene {
         drawText(s, text, x + (TAB_W >> 1), TAB_Y + 4, on ? C.gold2 : hover === id ? C.bone1 : C.stone3, { align: 1, shadow: 1 })
     }
 
-    /** The detail, laid out as `encyclopedia_detail`: a showcase box on the left, what it is and does on the right. */
-    private drawDetail(s: Surface, t: number, view: CollectionsView, e: CollectionTile, hover: CollectionsHover, pressed: boolean, busy: boolean): void {
+    /**
+     * The detail, laid out as `encyclopedia_detail`: a showcase box on the left, what it is and does
+     * on the right, its lines `scroll` px down when they run past the footer.
+     */
+    private drawDetail(s: Surface, t: number, view: CollectionsView, e: CollectionTile, hover: CollectionsHover, pressed: boolean, busy: boolean, scroll: number): void {
         const tab = view.tab
         const p = panelRect(s.w, s.h)
         const m = RARITY_COLORS[e.rarity] ?? RARITY_COLORS.common!
@@ -514,42 +591,23 @@ export class CollectionsScene {
         if (e.owned) drawText(s, `${e.star} STAR  LV ${e.level}`, rx, y, C.bone0, { shadow: 1 })
         y += 9
         rect(s, x, y + 1, right - x, 1, C.night3)
-        y += 6
+
+        // the lines, drawn into the body's own surface so a scrolled one is cut at its edges
         const f = detailFooter(s.w, s.h, e)
-        const bottom = f.top - 3
-        if (!e.owned) {
-            for (const line of NOT_FOUND) {
-                drawText(s, line, x, y, C.stone3, { shadow: 1 })
-                y += LINE_H
-            }
-        } else {
-            for (const section of e.sections) {
-                if (y + LINE_H > bottom) break
-                // the condition and who it reaches, and ACTIVE on the right while it pays
-                const head = `${section.title} - ${section.scope}`.toUpperCase()
-                drawText(s, head, x, y, section.active ? C.gold2 : C.stone3, { shadow: 1 })
-                if (section.active) drawText(s, 'ACTIVE', right, y, C.green3, { align: 2, shadow: 1 })
-                y += LINE_H + 1
-                const color = section.active ? C.bone1 : C.stone2
-                for (const line of section.lines) {
-                    if (typeof line !== 'string') {
-                        if (y + LINE_H > bottom) break
-                        // the line, then the caret and how far equipping it would move the stat
-                        const text = line.text.toUpperCase()
-                        const tx = x + 4 + textWidth(text) + 4
-                        drawText(s, text, x + 4, y, color, { shadow: 1 })
-                        caret(s, tx, y, line.up)
-                        drawText(s, line.delta.toUpperCase(), tx + 7, y, line.up ? C.green3 : C.red3, { shadow: 1 })
-                        y += LINE_H
-                        continue
-                    }
-                    for (const part of wrap(line.toUpperCase(), right - x - 4)) {
-                        if (y + LINE_H > bottom) break
-                        drawText(s, part, x + 4, y, color, { shadow: 1 })
-                        y += LINE_H
-                    }
-                }
-                y += SECTION_GAP
+        const body = detailBody(s.w, s.h, e)
+        if (body.h > 0) {
+            if (!this.body || this.body.w !== body.w || this.body.h !== body.h) this.body = new Surface(body.w, body.h, 0, 0)
+            const max = detailMaxScroll(s.w, s.h, e)
+            const at = Math.min(max, Math.max(0, Math.round(scroll)))
+            this.body.clear()
+            drawBody(this.body, e, 0, -at, body.w - BAR_W)
+            blit(s, this.body, body.x, body.y)
+            if (max > 0) {
+                // the bar: its track down the body's right edge, the thumb as long as the share in view
+                const thumb = Math.max(6, Math.round(body.h * body.h / (body.h + max)))
+                const ty = body.y + Math.round((body.h - thumb) * at / max)
+                rect(s, body.x + body.w - 2, body.y, 2, body.h, C.night2)
+                rect(s, body.x + body.w - 2, ty, 2, thumb, C.stone3)
             }
         }
 

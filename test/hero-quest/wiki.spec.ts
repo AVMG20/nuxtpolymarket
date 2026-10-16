@@ -14,13 +14,21 @@
  * modules, and `content.spec.ts` already owns those rosters' invariants.
  */
 
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
     HQ_CURRENCY_DOCS,
     HQ_POWER_DOC,
+    HQ_SCREEN_DOCS,
     HQ_STAT_DOCS,
-    HQ_STAT_DOC_BY_KEY
+    HQ_STAT_DOC_BY_KEY,
+    hqFeatureUnlockText,
+    hqScreenUnlockText,
+    hqScreenWikiPath
 } from '../../app/utils/hero-quest-wiki'
+import { HQ_MENU_SCENES } from '../../app/utils/hero-quest-scenes'
+import { HQ_FEATURES, checkpointLabel, featureCheckpoint } from '../../shared/utils/hero-quest/tutorials'
 import {
     BASE_HP,
     CRIT_CHANCE_PER_POINT,
@@ -112,13 +120,11 @@ describe('the Global Power entry', () => {
 })
 
 describe('the currency list', () => {
-    it('marks the unbuilt currencies rather than omitting them', () => {
-        // A wiki that lists Raid Keys as though they work sends players hunting for something
-        // they cannot earn; one that omits them entirely leaves a doc reader confused instead.
-        const planned = HQ_CURRENCY_DOCS.filter(currency => !currency.live)
-        expect(planned.length).toBeGreaterThan(0)
-        for (const currency of planned) {
-            expect(currency.name.length).toBeGreaterThan(0)
+    it('lists Raid Keys and Arena Medals as live now that both systems ship', () => {
+        // They were marked unbuilt while Raids and the Arena were still to come; a wiki that keeps
+        // saying so sends players away from two screens they can open.
+        for (const name of ['Raid Keys', 'Arena Medals']) {
+            expect(HQ_CURRENCY_DOCS.find(currency => currency.name === name)?.live, name).toBe(true)
         }
     })
 
@@ -139,5 +145,33 @@ describe('the currency list', () => {
     it('has no duplicate entries', () => {
         const names = HQ_CURRENCY_DOCS.map(currency => currency.name)
         expect(new Set(names).size).toBe(names.length)
+    })
+})
+
+describe('the screen articles', () => {
+    const pagesDir = fileURLToPath(new URL('../../app/pages', import.meta.url))
+
+    it('covers the battle stage and every menu scene, in the menu band\'s order', () => {
+        // Issue #28: every menu screen gets an article. A scene added to the band without one
+        // fails here (and in the typecheck, which keys the article list by scene).
+        expect(HQ_SCREEN_DOCS.map(doc => doc.id)).toEqual(['battle', ...HQ_MENU_SCENES])
+    })
+
+    it('has a page behind every article link', () => {
+        for (const doc of HQ_SCREEN_DOCS) {
+            const page = `${pagesDir}${hqScreenWikiPath(doc.id)}.vue`
+            expect(existsSync(page), page).toBe(true)
+        }
+    })
+
+    it('states each unlock from the live schedule', () => {
+        for (const feature of HQ_FEATURES) {
+            const at = featureCheckpoint(feature)
+            const text = hqFeatureUnlockText(feature)
+            if (at.kind === 'start') expect(text, feature).toBe('Open from the start.')
+            else expect(text, feature).toContain(checkpointLabel(at))
+        }
+        expect(hqScreenUnlockText('battle')).toBe('Open from the start.')
+        expect(hqScreenUnlockText('settings')).toBe('Open from the start.')
     })
 })

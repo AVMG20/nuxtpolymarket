@@ -4,10 +4,8 @@ import { hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { buyLadderSeals, sealBalance, settleHq } from '#server/utils/hero-quest'
-import { isGachaSystem, sealLadderPrice } from '#shared/utils/hero-quest/gacha'
-
-/** Bulk buys are priced rung by rung, so this bounds the loop and the Gold spent per call. */
-const MAX_SEALS_PER_PURCHASE = 10
+import { sealLadderPrice } from '#shared/utils/hero-quest/gacha'
+import { BUY_SEALS_BODY, readHqBody, type HqBuySealsResponse } from '#server/utils/hero-quest-api'
 
 /**
  * Buy extra Seals for any of the four gachas with Gold, on the daily escalating ladder
@@ -34,23 +32,10 @@ const MAX_SEALS_PER_PURCHASE = 10
  * `debit` is threaded with `tx` — mandatory, not stylistic. Without it the Gold write goes out on
  * a second pool connection and deadlocks against the lock this transaction is holding.
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqBuySealsResponse> => {
     const userId = await requireUserId(event)
     await requireFeature(userId, 'gacha')
-    const body = await readBody<{ system?: string; count?: number }>(event)
-
-    const system = body?.system
-    if (typeof system !== 'string' || !isGachaSystem(system)) {
-        throw createError({ statusCode: 400, statusMessage: 'Unknown gacha' })
-    }
-
-    const requested = Math.floor(Number(body?.count ?? 1))
-    if (!Number.isFinite(requested) || requested < 1 || requested > MAX_SEALS_PER_PURCHASE) {
-        throw createError({
-            statusCode: 400,
-            statusMessage: `Buy between 1 and ${MAX_SEALS_PER_PURCHASE} Seals at a time`
-        })
-    }
+    const { system, count: requested = 1 } = await readHqBody(event, BUY_SEALS_BODY)
 
     // Bank progress first, so the Gold this spends includes everything already earned.
     await settleHq(userId)
@@ -70,7 +55,6 @@ export default defineEventHandler(async (event) => {
             goldSpent,
             seals: updated ? sealBalance(updated, system) : sealBalance(state, system) + requested,
             purchasedToday: boughtToday,
-            /** What the next single Seal will cost, so the client never prices anything itself. */
             nextPrice: sealLadderPrice(system, boughtToday)
         }
     })

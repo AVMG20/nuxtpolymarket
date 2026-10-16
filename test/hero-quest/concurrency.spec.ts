@@ -13,7 +13,9 @@ import { and, eq, sql } from 'drizzle-orm'
 import { db } from '#server/database'
 import { hqCollection, hqFights, hqHolidayClaims, hqLoadouts, hqRaidState, hqShopUpgrades, hqState, hqTraitSaveSlots, hqTraitSlots, user } from '#server/database/schema'
 import { autoRollTraits, getTraitSaves, loadTraitBoard, rollTraits, serializeTraits, setTraitLock, storeTraitBoard } from '#server/utils/hero-quest-traits'
-import { engageRaid, quickClearRaid } from '#server/utils/hero-quest-raids'
+import { engageRaid, quickClearRaid, serializeRaids } from '#server/utils/hero-quest-raids'
+import { RAIDS } from '#shared/utils/hero-quest/content/raids'
+import { RAID_KEY_CAP } from '#shared/utils/hero-quest/raids'
 import { claimCalendar } from '#server/utils/hero-quest-calendar'
 import { claimHoliday } from '#server/utils/hero-quest-holidays'
 import { leaveLoadoutSession, setLoadoutPreference } from '#server/utils/hero-quest-loadout'
@@ -172,13 +174,32 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
 
         it('grants the Keys owed since the last visit under the lock, once', async () => {
             await ensureHqState(USER_ID)
-            await db.insert(hqRaidState).values({ userId: USER_ID, raidId: 'raid_training_grounds', keyBalance: 0, lastKeyGrantAt: new Date(Date.now() - 2.5 * 86_400_000) })
+            await db.insert(hqRaidState).values({ userId: USER_ID, raidId: 'raid_training_grounds', keyBalance: 0, lastKeyGrantAt: new Date((Math.floor(Date.now() / 86_400_000) - 2) * 86_400_000 + 3_600_000) })
 
-            // two days owed: six Keys, and a burst of eight rounds can spend only those
+            // two midnights crossed: six Keys, and a burst of eight rounds can spend only those
             const result = await burst(8, () => db.transaction(tx => engageRaid(tx, USER_ID, 'raid_training_grounds', () => ({ ...hero }))))
 
             expect(result.ok).toBe(2 * RAID_KEYS_PER_DAY)
             expect((await raidRow()).keyBalance).toBe(0)
+        })
+
+        it('starts a raid never visited on its first open read, once, so its daily Keys accrue from then', async () => {
+            await ensureHqState(USER_ID)
+            const rows = () => db.select().from(hqRaidState).where(eq(hqRaidState.userId, USER_ID))
+
+            // before the raids open nothing is written
+            await serializeRaids(USER_ID)
+            expect(await rows()).toHaveLength(0)
+
+            await Promise.all(Array.from({ length: 5 }, () => serializeRaids(USER_ID, db, true)))
+            const first = await rows()
+            expect(first).toHaveLength(RAIDS.length)
+            for (const row of first) expect(row.keyBalance).toBe(RAID_KEYS_PER_DAY)
+
+            // a later read leaves the clock where it started
+            const shown = await serializeRaids(USER_ID, db, true)
+            expect((await rows()).map(r => r.lastKeyGrantAt.getTime()).sort()).toEqual(first.map(r => r.lastKeyGrantAt.getTime()).sort())
+            for (const raid of shown) expect(raid.nextKeyAt).toBe((Math.floor(Date.now() / 86_400_000) + 1) * 86_400_000)
         })
 
         it('spends a Key on every Shardcaller Beast run and pays the level it reached in Trait Gems', async () => {
@@ -319,6 +340,20 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
             expect(raid!.keyBalance).toBe(RAID_KEYS_PER_DAY + day.amount)
         })
 
+        it('puts a Key day on top of the daily grant owed, so a near-full bank keeps both', async () => {
+            const day = CALENDAR_REWARDS[2]!
+            await startedAgo(2, 0b11)
+            // 18 held and three midnights owed: the grant fills the bank first, then the day's Keys go on
+            await db.insert(hqRaidState).values({ userId: USER_ID, raidId: 'raid_guild', keyBalance: RAID_KEY_CAP - 3, lastKeyGrantAt: new Date(Date.now() - 3 * 86_400_000) })
+
+            await db.transaction(tx => claimCalendar(tx, USER_ID, false))
+
+            const [raid] = await db.select().from(hqRaidState)
+                .where(and(eq(hqRaidState.userId, USER_ID), eq(hqRaidState.raidId, 'raid_guild')))
+            expect(raid!.keyBalance).toBe(RAID_KEY_CAP + day.amount)
+            expect(Date.now() - raid!.lastKeyGrantAt.getTime()).toBeLessThan(86_400_000)
+        })
+
         it('never spends more make-ups than the cycle has, each on the oldest missed day', async () => {
             await startedAgo(6)
 
@@ -427,6 +462,18 @@ describe.skipIf(SKIP)('hero-quest concurrency', () => {
                 .where(and(eq(hqRaidState.userId, USER_ID), eq(hqRaidState.raidId, 'raid_guild')))
             expect(raid!.keyBalance).toBe(keys!.amount)
             expect((await stateOf()).milestonesClaimed).toEqual({ milestone_raid_guild: 2 })
+        })
+
+        it('puts a milestone\'s Keys on top of the daily grant owed', async () => {
+            await ensureHqState(USER_ID)
+            await db.insert(hqRaidState).values({ userId: USER_ID, raidId: 'raid_guild', highestLevel: 11, keyBalance: RAID_KEY_CAP - 3, lastKeyGrantAt: new Date(Date.now() - 3 * 86_400_000) })
+
+            await db.transaction(tx => claimMilestones(tx, USER_ID, 'milestone_raid_guild'))
+
+            const [keys] = milestoneRewardTotal(getMilestoneTrack('milestone_raid_guild')!, 0, 2)
+            const [raid] = await db.select().from(hqRaidState)
+                .where(and(eq(hqRaidState.userId, USER_ID), eq(hqRaidState.raidId, 'raid_guild')))
+            expect(raid!.keyBalance).toBe(RAID_KEY_CAP + keys!.amount)
         })
 
         it('refuses a claim with nothing waiting', async () => {

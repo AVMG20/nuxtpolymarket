@@ -31,10 +31,11 @@ interface LeaderboardUser {
   voidSystemLevels: number
   voidTradeLevel: number
   aiPromptsUsed: number
-  /** Hero Quest's ranked score: Worlds cleared, every run counted, plus collection entries owned. */
+  /** Hero Quest's ranked score: Worlds cleared, every run counted, plus collection completion (0–100). */
   heroQuestScore: number
   heroQuestWorlds: number
-  heroQuestEntries: number
+  /** Collection completion as a whole percentage, 0–100. */
+  heroQuestCollection: number
   /** Hero Quest's Global Power Number, a Decimal string; null before a run has settled with it. */
   heroQuestGpn: string | null
   battlerRunsWon: number
@@ -152,7 +153,7 @@ const detailGroups = computed(() => {
       total: upgradeGames[4]!.value(u),
       rows: [
         { icon: 'i-lucide-globe', label: 'Worlds cleared', value: u.heroQuestWorlds },
-        { icon: 'i-lucide-library', label: 'Collection entries', value: u.heroQuestEntries }
+        { icon: 'i-lucide-library', label: 'Collection completed', value: u.heroQuestCollection, suffix: '%' }
       ]
     }
   ]
@@ -561,7 +562,7 @@ async function sendGift() {
                   <div v-for="row in group.rows" :key="row.label" class="flex items-center gap-2 text-muted">
                     <UIcon :name="row.icon" class="size-3.5" />
                     <span class="flex-1">{{ row.label }}</span>
-                    <span class="font-semibold tabular-nums text-default">{{ formatNumber(row.value, false) }}</span>
+                    <span class="font-semibold tabular-nums text-default">{{ formatNumber(row.value, false) }}{{ 'suffix' in row ? row.suffix : '' }}</span>
                   </div>
                 </div>
               </div>

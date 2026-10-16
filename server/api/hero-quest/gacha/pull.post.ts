@@ -16,10 +16,10 @@ import {
     settleHq,
     type HqStateRow
 } from '#server/utils/hero-quest'
+import { PULL_BODY, readHqBody, type HqPullRecord, type HqPullResponse } from '#server/utils/hero-quest-api'
 import {
     applyDupes,
     applyPulls,
-    isGachaSystem,
     newEntry,
     pullCost,
     rarityFromRoll,
@@ -30,20 +30,6 @@ import { gachaContent } from '#shared/utils/hero-quest/content/registry'
 import { autoEquipFirstPieces, isGearId } from '#shared/utils/hero-quest/content/gear'
 import { TEN_PULL_SIZE } from '#shared/utils/hero-quest/constants'
 import { randomFloat } from '#shared/utils/random'
-import type { Rarity } from '#shared/utils/hero-quest/types'
-
-interface PullRecord {
-    contentId: string
-    name: string
-    rarity: Rarity
-    /** True the first time this item is ever obtained. */
-    isNew: boolean
-    /** Star/level after this pull landed, so the client can show the copy's new state. */
-    star: number
-    level: number
-    /** Essence produced, non-zero only when the copy was already 5★ Lv10. */
-    essence: number
-}
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -111,26 +97,19 @@ async function claimWithSeals(tx: Tx, userId: string, system: GachaSystem, seals
  * Rarity comes from the drop table, then the specific item is a uniform pick within that rarity —
  * the two-step the drop table implies (it weights rarities, not individual items).
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqPullResponse> => {
     const userId = await requireUserId(event)
     await requireFeature(userId, 'gacha')
-    const body = await readBody<{ system?: string; count?: number; free?: boolean; autoBuy?: { maxGold?: number } }>(event)
-
-    const system = body?.system
-    if (typeof system !== 'string' || !isGachaSystem(system)) {
-        throw createError({ statusCode: 400, statusMessage: 'Unknown gacha' })
-    }
+    const body = await readHqBody(event, PULL_BODY)
+    const system = body.system
     const content = gachaContent(system)
     // A free pull is always the full ten — the entitlement exists for the 10-pull moment, and
     // letting it be spent as a single would quietly make it worth a ninth of itself.
-    const free = body?.free === true
-    const requested = free || body?.count === TEN_PULL_SIZE ? TEN_PULL_SIZE : 1
+    const free = body.free === true
+    const requested = free || body.count === TEN_PULL_SIZE ? TEN_PULL_SIZE : 1
     const cost = pullCost(requested)
-    const maxGold = Number(body?.autoBuy?.maxGold)
-    const autoBuy = !free && body?.autoBuy !== undefined
-    if (autoBuy && !(Number.isFinite(maxGold) && maxGold >= 0)) {
-        throw createError({ statusCode: 400, statusMessage: 'An auto-buy needs the price it was shown' })
-    }
+    // a free pull never buys Seals, whatever it was sent with
+    const autoBuy = free ? undefined : body.autoBuy
 
     // Bank progress first so the pull can't be used to dodge a settle, and so the Seals a
     // milestone just granted are visible to this request.
@@ -142,7 +121,7 @@ export default defineEventHandler(async (event) => {
             const [state] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
             if (!state) throw createError({ statusCode: 400, statusMessage: 'No Hero Quest run' })
             const short = cost.seals - sealBalance(state, system)
-            if (short > 0) await buyLadderSeals(tx, userId, state, system, short, maxGold)
+            if (short > 0) await buyLadderSeals(tx, userId, state, system, short, autoBuy.maxGold)
         }
         const claimed = free
             ? await claimFreePull(tx, userId, system)
@@ -160,7 +139,7 @@ export default defineEventHandler(async (event) => {
             existing.map(row => [row.contentId, { star: row.star, level: row.level, dupeProgress: row.dupeProgress }])
         )
 
-        const pulls: PullRecord[] = []
+        const pulls: HqPullRecord[] = []
         let essenceGained = 0
 
         for (let index = 0; index < cost.pulls; index++) {
@@ -239,7 +218,6 @@ export default defineEventHandler(async (event) => {
         return {
             system,
             pulls,
-            /** True when this came out of the daily entitlement rather than the Seal balance. */
             free,
             sealsSpent: free ? 0 : cost.seals,
             seals: sealBalance(after, system),

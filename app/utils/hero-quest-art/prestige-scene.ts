@@ -3,6 +3,7 @@
 // far along it is (or that it has no limit), what it gives now and at the next level, and a Buy
 // button with the price in its currency; a maxed track says so instead.
 
+import type { ShopTrackId } from '#shared/utils/hero-quest/content/shop'
 import { C, CLEAR } from './palette'
 import { rect, ellipse, disc, type Surface } from './surface'
 import { drawText, textWidth } from './font'
@@ -15,7 +16,7 @@ import { LOADOUT_GLYPH } from './menu-band'
 import type { SceneBackdrops } from './menu-band'
 
 export interface ShopTrackView {
-    id: string
+    id: ShopTrackId
     name: string
     level: number
     /** Null for a track with no cap. */

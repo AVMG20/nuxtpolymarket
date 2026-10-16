@@ -77,24 +77,27 @@ describe.skipIf(SKIP)('prestige wipe scan', () => {
         expect(tables.filter(name => name.startsWith('tcg_'))).toEqual([])
     })
 
-    it('never clears a hero-quest table', async () => {
+    it('clears every hero-quest table', async () => {
         const tables = await prestigeWipeTables()
 
-        // Named individually for the same reason the card list is: these are
-        // every `hq_` table carrying a `user_id`, so they are exactly what the
-        // scan would reach if the exemption regressed. Hero Quest runs its own
-        // prestige — a platform ascent must not spend a run the player did not
-        // choose to spend.
+        // Hero Quest is wiped like any other game (#43): its Gem milestones and
+        // Arena Medals would otherwise cash in after an ascent that burned the Gems.
         for (const table of [
+            'hq_arena_log',
+            'hq_arena_season_results',
             'hq_collection',
             'hq_fights',
+            'hq_holiday_claims',
             'hq_loadouts',
+            'hq_raid_state',
             'hq_shop_upgrades',
-            'hq_state'
+            'hq_state',
+            'hq_trait_save_slots',
+            'hq_trait_slots'
         ]) {
-            expect(tables).not.toContain(table)
+            expect(tables).toContain(table)
         }
-        expect(tables.filter(name => name.startsWith('hq_'))).toEqual([])
+        expect(isPrestigePreserved('hq_state')).toBe(false)
     })
 
     it('exempts card tables that do not exist yet', async () => {

@@ -4,6 +4,7 @@ import { hqState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { classPickWrites, settleHq } from '#server/utils/hero-quest'
+import { PICK_CLASS_BODY, readHqBody, type HqPickClassResponse } from '#server/utils/hero-quest-api'
 import { getClass } from '#shared/utils/hero-quest/content/classes'
 import type { ClassId } from '#shared/utils/hero-quest/types'
 
@@ -19,17 +20,12 @@ import type { ClassId } from '#shared/utils/hero-quest/types'
  * spread those levels multiply into changes. That is what makes the picker a build choice
  * rather than a tax, and it is the single easiest invariant here to break by accident.
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqPickClassResponse> => {
     const userId = await requireUserId(event)
     await requireFeature(userId, 'classes')
     // settle first, so the window before this pays at the rate it ran at, not the new one
     await settleHq(userId)
-    const body = await readBody<{ classId?: string }>(event)
-    const requested = body?.classId
-
-    if (typeof requested !== 'string') {
-        throw createError({ statusCode: 400, statusMessage: 'classId is required' })
-    }
+    const { classId: requested } = await readHqBody(event, PICK_CLASS_BODY)
 
     return db.transaction(async (tx) => {
         const [state] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')

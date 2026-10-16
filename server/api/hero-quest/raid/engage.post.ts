@@ -4,7 +4,7 @@ import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { getBalance } from '#server/utils/balance'
 import { getCollections, getShopLevels, getTraitBoard, heroSnapshotOf, settleHq } from '#server/utils/hero-quest'
 import { engageRaid } from '#server/utils/hero-quest-raids'
-import { isRaidId } from '#shared/utils/hero-quest/content/raids'
+import { RAID_BODY, readHqBody, type HqRaidRoundResponse } from '#server/utils/hero-quest-api'
 
 /**
  * Enter a raid and play its round, server-side and seeded (`raid-system.md` §5): the response is the
@@ -14,12 +14,10 @@ import { isRaidId } from '#shared/utils/hero-quest/content/raids'
  * reward move under the raid row's lock (`engageRaid`), after the raid's preferred Loadout has
  * gone on (`loadouts.md` §4); the party is read off the state that swap leaves.
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqRaidRoundResponse> => {
     const userId = await requireUserId(event)
     await requireFeature(userId, 'raids')
-    const body = await readBody<{ raidId?: string }>(event)
-    const raidId = body?.raidId
-    if (!isRaidId(raidId)) throw createError({ statusCode: 400, statusMessage: 'Unknown raid' })
+    const { raidId } = await readHqBody(event, RAID_BODY)
 
     await settleHq(userId)
     // read before the transaction, as the boss engage does: only the Gambler's Strike family reads it

@@ -5,6 +5,7 @@ import { requireUserId } from '#server/utils/auth'
 import { requireFeature } from '#server/utils/hero-quest-tutorials'
 import { getShopLevels, loadoutSlots, restoreLoadoutSession, settleHq } from '#server/utils/hero-quest'
 import { validateLiveLoadout } from '#server/utils/hero-quest-loadout'
+import { LOADOUT_APPLY_BODY, readHqBody, type HqLoadoutApplyResponse } from '#server/utils/hero-quest-api'
 
 /**
  * Apply a saved Loadout as the new live state (`loadouts.md` §2).
@@ -25,17 +26,12 @@ import { validateLiveLoadout } from '#server/utils/hero-quest-loadout'
  * It also closes the obvious hole: a preset is client-writable state, so trusting it on apply
  * would let a save-then-apply pair bypass every ownership check `loadout/set` performs.
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler(async (event): Promise<HqLoadoutApplyResponse> => {
     const userId = await requireUserId(event)
     await requireFeature(userId, 'loadouts')
     // settle first, so the window before this pays at the rate it ran at, not the new one
     await settleHq(userId)
-    const body = await readBody<{ slotIndex?: number }>(event)
-
-    const slotIndex = Math.floor(Number(body?.slotIndex))
-    if (!Number.isFinite(slotIndex) || slotIndex < 0) {
-        throw createError({ statusCode: 400, statusMessage: 'Pick a loadout slot' })
-    }
+    const { slotIndex } = await readHqBody(event, LOADOUT_APPLY_BODY)
 
     return db.transaction(async (tx) => {
         const [locked] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')

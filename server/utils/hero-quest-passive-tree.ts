@@ -26,6 +26,7 @@ import {
     passiveTreeOf
 } from '#shared/utils/hero-quest/passive-tree'
 import type { ClassId } from '#shared/utils/hero-quest/types'
+import type { HqPassiveTreePayload } from '#server/utils/hero-quest-api'
 
 async function lockState(tx: DbExecutor, userId: string): Promise<HqStateRow> {
     const [row] = await tx.select().from(hqState).where(eq(hqState.userId, userId)).for('update')
@@ -37,7 +38,7 @@ async function lockState(tx: DbExecutor, userId: string): Promise<HqStateRow> {
  * The scene's payload: the points, the respec's price, and every node with what it holds, what its
  * next level costs and whether it can be bought. What a node does is shared content, read on both sides.
  */
-export function serializePassiveTree(state: HqStateRow) {
+export function serializePassiveTree(state: HqStateRow): HqPassiveTreePayload {
     const levels = passiveTreeOf(state.passiveTree)
     const classId = state.heroNodeId as ClassId
     return {

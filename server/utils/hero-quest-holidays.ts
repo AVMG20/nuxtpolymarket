@@ -17,6 +17,7 @@ import { holidayGift, holidayGiftGold, openHolidayWindow, openHolidayWindows } f
 import { isHolidayId } from '#shared/utils/hero-quest/content/holidays'
 import { GACHA_SYSTEMS, type GachaSystem } from '#shared/utils/hero-quest/gacha'
 import type { HolidayGift } from '#shared/utils/hero-quest/constants'
+import type { HqHolidaysPayload } from '#server/utils/hero-quest-api'
 
 export async function getHolidayClaims(userId: string, executor: DbExecutor = db) {
     return executor.select({ holidayId: hqHolidayClaims.holidayId, year: hqHolidayClaims.year })
@@ -33,7 +34,7 @@ function giftSeals(gift: HolidayGift): { system: GachaSystem, amount: number }[]
  * The gifts open now, for the battle view's gift icon: whether each is claimed and what it pays at
  * the run's current income.
  */
-export function serializeHolidays(claims: readonly { holidayId: string, year: number }[], goldPerHour: number, now = Date.now()) {
+export function serializeHolidays(claims: readonly { holidayId: string, year: number }[], goldPerHour: number, now = Date.now()): HqHolidaysPayload {
     return {
         open: openHolidayWindows(now).map((w) => {
             const gift = holidayGift(w.holiday.id)

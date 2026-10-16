@@ -140,6 +140,21 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             expect(log.every(row => row.isDummy && row.won && row.ratingChange === 0 && row.opponentUserId === null)).toBe(true)
         })
 
+        it('never starts the day over for an attack that read the clock before midnight (issue #30)', async () => {
+            await found(ATTACKER)
+            await getCandidates(ATTACKER, Date.now())
+            await burst(ARENA_FREE_ATTEMPTS_PER_DAY, () => attack(ATTACKER, ARENA_DUMMY_ID))
+
+            // queued behind today's attacks with yesterday's clock: the attempts already spent today
+            // stand (refused for the attempts, or as a season it can't fight in on a season's first day)
+            const lastNight = Date.now() - DAY
+            await expect(attack(ATTACKER, ARENA_DUMMY_ID, lastNight)).rejects.toThrow()
+            const state = await stateOf(ATTACKER)
+            expect(state.arenaAttemptDate).toBe(ladderDateKey(Date.now()))
+            expect(state.arenaAttemptsUsedToday).toBe(ARENA_FREE_ATTEMPTS_PER_DAY)
+            expect(state.arenaMedals).toBe(ARENA_FREE_ATTEMPTS_PER_DAY * MEDAL_BASE_WIN)
+        })
+
         it('fights a bot as a real match on the attacker\'s side only', async () => {
             await found(ATTACKER)
             const bot = arenaBots()[0]!
@@ -220,6 +235,26 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             }
         })
 
+        it('stamps when each side\'s Rating moved, for ties, and leaves a dummy fight unstamped', async () => {
+            await found(ATTACKER)
+            await found(SECOND)
+            await db.transaction(tx => setDefense(tx, SECOND))
+            const stale = new Date(Date.UTC(2020, 0, 1))
+            await db.update(hqState).set({ arenaRatingAt: stale }).where(inArray(hqState.userId, [ATTACKER, SECOND]))
+            await getCandidates(ATTACKER, Date.now())
+
+            await attack(ATTACKER, SECOND)
+
+            // two equal Ratings always move each other
+            for (const id of [ATTACKER, SECOND]) expect((await stateOf(id)).arenaRatingAt!.getTime()).toBeGreaterThan(stale.getTime())
+
+            await cleanup()
+            await found(ATTACKER)
+            await getCandidates(ATTACKER, Date.now())
+            await attack(ATTACKER, ARENA_DUMMY_ID)
+            expect((await stateOf(ATTACKER)).arenaRatingAt).toBeNull()
+        })
+
         it('refuses an attack on someone the list no longer shows', async () => {
             await found(ATTACKER)
             await getCandidates(ATTACKER, Date.now())
@@ -285,6 +320,25 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
             expect((await stateOf(ATTACKER)).arenaExtraAttemptsPurchasedToday).toBe(2)
         })
 
+        it('prices an extra attack or a redraw that read the clock before midnight at today\'s rung (issue #30)', async () => {
+            await found(ATTACKER, extraAttemptPrice(0) + extraAttemptPrice(1) + refreshPrice(2))
+            await db.transaction(tx => buyAttempt(tx, ATTACKER, Date.now()))
+            await refreshCandidates(ATTACKER, Date.now())
+            await refreshCandidates(ATTACKER, Date.now())
+
+            const lastNight = Date.now() - DAY
+            const bought = await db.transaction(tx => buyAttempt(tx, ATTACKER, lastNight))
+            const redrawn = await refreshCandidates(ATTACKER, lastNight)
+            expect(bought.gemsSpent).toBe(extraAttemptPrice(1))
+            expect(redrawn.gemsSpent).toBe(refreshPrice(2))
+            const state = await stateOf(ATTACKER)
+            expect(state.arenaAttemptDate).toBe(ladderDateKey(Date.now()))
+            expect(state.arenaExtraAttemptsPurchasedToday).toBe(2)
+            expect(state.arenaRefreshDate).toBe(ladderDateKey(Date.now()))
+            expect(state.arenaRefreshesToday).toBe(3)
+            expect(await gemsOf(ATTACKER)).toBe(0)
+        })
+
         it('gives two refreshes free, then charges each at its own rung, never past the Gems held', async () => {
             // the two free ones, then 5 and 10, and 4 over
             await found(ATTACKER, refreshPrice(2) + refreshPrice(3) + 4)
@@ -334,7 +388,7 @@ describe.skipIf(SKIP)('hero-quest arena concurrency', () => {
 
             const row = await raidRow()
             expect(row.keyBalance).toBe(RAID_KEY_CAP + 10)
-            // the grant clock moved on by the days paid, keeping its time of day
+            // the grant clock moved on to the start of today
             expect(Date.now() - row.lastKeyGrantAt.getTime()).toBeLessThan(DAY)
         })
 

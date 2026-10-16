@@ -24,6 +24,8 @@ import type { SceneTab } from '~/utils/hero-quest-art/scene-tabs'
 import type { ArenaResultView, ArenaScene, ArenaTarget, ArenaView } from '~/utils/hero-quest-art/arena-scene'
 import type { PartyStatsTarget, PartyStatsView } from '~/utils/hero-quest-art/party-stats'
 import type { RaidId } from '#shared/utils/hero-quest/content/raids'
+import type { ShopTrackId } from '#shared/utils/hero-quest/content/shop'
+import { isBattleSpeedDuration, isBattleSpeedTier, type BattleSpeedDuration, type BattleSpeedTier } from '#shared/utils/hero-quest/battle-speed'
 import { LOADOUT_NAME_MAX_LENGTH } from '#shared/utils/hero-quest/constants'
 import { HQ_SETTING_DEFAULTS } from '#shared/utils/hero-quest/settings'
 import { D } from '#shared/utils/hero-quest/numbers'
@@ -202,9 +204,9 @@ const emit = defineEmits<{
     /** The Ascendant's picks, after a skill in its kit was pressed. */
     setAscendantKit: [skillIds: string[]]
     /** A prestige-shop track's Buy button was pressed. */
-    shopBuy: [upgradeId: string]
+    shopBuy: [upgradeId: ShopTrackId]
     /** A Battle Speed block's Buy button was pressed. */
-    buySpeed: [speed: number, minutes: number]
+    buySpeed: [speed: BattleSpeedTier, minutes: BattleSpeedDuration]
     /** A gacha banner's button was pressed. */
     gachaAction: [system: GachaSystemId, button: GachaButton]
     /** The reveal board was pressed once every card had turned over. */
@@ -738,10 +740,30 @@ let drag: { pointer: number, y: number, scroll: number, moved: boolean } | null 
 let sceneH = 0
 
 const settingsScrollMax = () => settingsHit && presenter ? settingsHit.settingsMaxScroll(presenter.w, sceneH) : 0
-const scrollsHere = computed(() => openScene.value === 'settings' && ready.value && settingsScrollMax() > 0)
 
-function scrollSettings(to: number) {
-    settingsScroll.value = Math.min(settingsScrollMax(), Math.max(0, to))
+/** The open Collections entry's lines, scrolled when they run past its footer; a new entry starts at the top. */
+const detailScroll = ref(0)
+watch(detail, () => { detailScroll.value = 0 })
+const detailScrollMax = () => collectionsHit && presenter && openEntry.value && !picking.value
+    ? collectionsHit.detailMaxScroll(presenter.w, sceneH, openEntry.value)
+    : 0
+
+/** What a wheel or a dragged finger scrolls here: the Settings list, a Collections detail's lines, or nothing. */
+const scrollKind = computed<'settings' | 'detail' | null>(() => {
+    if (!ready.value) return null
+    if (openScene.value === 'settings') return settingsScrollMax() > 0 ? 'settings' : null
+    if (openScene.value === 'collections') return detailScrollMax() > 0 ? 'detail' : null
+    return null
+})
+const scrollsHere = computed(() => scrollKind.value !== null)
+
+function scrollNow(): number {
+    return scrollKind.value === 'detail' ? detailScroll.value : settingsScroll.value
+}
+
+function scrollList(to: number) {
+    if (scrollKind.value === 'detail') detailScroll.value = Math.min(detailScrollMax(), Math.max(0, to))
+    else settingsScroll.value = Math.min(settingsScrollMax(), Math.max(0, to))
 }
 
 /** The pointer's height on the stage, in stage pixels. */
@@ -767,7 +789,7 @@ function onWheel(e: WheelEvent) {
     if (!scrollsHere.value) return
     e.preventDefault()
     // the page's pixels become the stage's
-    scrollSettings(settingsScroll.value + px / canvas.value.getBoundingClientRect().height * presenter.h)
+    scrollList(scrollNow() + px / canvas.value.getBoundingClientRect().height * presenter.h)
 }
 
 /**
@@ -871,7 +893,7 @@ function onPointerMove(e: PointerEvent) {
             hover.value = null
         }
         if (drag.moved) {
-            scrollSettings(drag.scroll - dy)
+            scrollList(drag.scroll - dy)
             return
         }
     }
@@ -883,7 +905,7 @@ function onPointerMove(e: PointerEvent) {
 function onPointerDown(e: PointerEvent) {
     // a finger on the list may be a scroll rather than a press: follow it, wherever it goes
     if (e.pointerType !== 'mouse' && scrollsHere.value && presenter && stageY(e) < sceneH) {
-        drag = { pointer: e.pointerId, y: stageY(e), scroll: settingsScroll.value, moved: false }
+        drag = { pointer: e.pointerId, y: stageY(e), scroll: scrollNow(), moved: false }
         canvas.value?.setPointerCapture(e.pointerId)
     }
     if (renaming.value) {
@@ -1032,8 +1054,8 @@ function onPointerUp(e: PointerEvent) {
         else emit('calendarTab', id as HqCalendarTab)
     }
     else if (hit.startsWith('speed:')) {
-        const [, speed, minutes] = hit.split(':')
-        emit('buySpeed', Number(speed), Number(minutes))
+        const [speed, minutes] = hit.split(':').slice(1).map(Number)
+        if (isBattleSpeedTier(speed) && isBattleSpeedDuration(minutes)) emit('buySpeed', speed, minutes)
     }
     else if (hit.startsWith('buy:')) {
         const track = props.prestige?.tracks[Number(hit.slice(4))]
@@ -1403,7 +1425,7 @@ onMounted(async () => {
         const view = scene === 'battle'
             ? stage!.render()
             : scene === 'collections'
-                ? collectionsScene!.render(t, props.collections ?? { tab: 'gear', entries: [], essence: '0', heroClassId: null }, collectionsHover.value, pressed.value, detail.value, !!props.collectionsBusy, picking.value)
+                ? collectionsScene!.render(t, props.collections ?? { tab: 'gear', entries: [], essence: '0', heroClassId: null }, collectionsHover.value, pressed.value, detail.value, !!props.collectionsBusy, picking.value, detailScroll.value)
                 : scene === 'loadouts'
                     ? loadoutsScene!.render(t, props.loadouts ?? { slots: [], unlocked: 0, max: 0 }, loadoutsHover.value, pressed.value, loadoutDetail.value, !!props.loadoutsBusy)
                     : scene === 'classes'

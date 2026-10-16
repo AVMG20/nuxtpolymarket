@@ -25,6 +25,8 @@ export interface HqSettings {
     skillCinematics: boolean
     /** Damage, heal and miss numbers float off the bodies on the stage. */
     combatNumbers: boolean
+    /** Collections details give exact multipliers and full ability text; off, the short rounded lines. */
+    detailedDescriptions: boolean
     /** The menu's red dots: a free pull, an upgrade, a tree node, a calendar or arena reward. */
     dotFreePulls: boolean
     dotUpgrades: boolean
@@ -43,6 +45,7 @@ export const HQ_SETTING_DEFAULTS: Readonly<HqSettings> = {
     fastReveals: false,
     skillCinematics: true,
     combatNumbers: true,
+    detailedDescriptions: false,
     dotFreePulls: true,
     dotUpgrades: true,
     dotTreeNodes: true,

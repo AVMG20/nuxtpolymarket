@@ -24,13 +24,14 @@
  * judges seasons by that same instant, so it never rolls a row out of a season it did not close.
  */
 
-import { and, desc, eq, gt, inArray, isNotNull, ne, notInArray, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNotNull, ne, notInArray, or, sql } from 'drizzle-orm'
 import { db, type DbExecutor } from '#server/database'
-import { hqArenaLog, hqArenaSeasonResults, hqArenaSeasons, hqFights, hqRaidState, hqState, user } from '#server/database/schema'
+import { hqArenaLog, hqArenaSeasonResults, hqArenaSeasons, hqCollection, hqFights, hqShopUpgrades, hqState, hqTraitSlots, user } from '#server/database/schema'
 import { creditGems, debitGems } from '#server/utils/balance'
-import { defenseGpnOf, getCollections, getShopLevels, getTraitBoard, heroSnapshotOf, loadoutSnapshotOf, positionOf, restoreLoadoutSession, sealGrant, withDefenseLoadout, type HqCollectionRow, type HqCollections, type HqStateRow } from '#server/utils/hero-quest'
+import { defenseGpnOf, emptyCollections, getCollections, getShopLevels, getTraitBoard, heroSnapshotOf, loadoutSnapshotOf, positionOf, restoreLoadoutSession, sealGrant, withDefenseLoadout, type HqCollectionRow, type HqCollections, type HqStateRow } from '#server/utils/hero-quest'
+import { traitSlotView } from '#server/utils/hero-quest-traits'
 import { engageLoadout, validateLiveLoadout, type LoadoutInput } from '#server/utils/hero-quest-loadout'
-import { lockRaid } from '#server/utils/hero-quest-raids'
+import { addRaidKeys } from '#server/utils/hero-quest-raids'
 import {
     ARENA_DUMMY_ID,
     arenaSeasonAt,
@@ -50,6 +51,8 @@ import {
     refreshesOn,
     rollStanding,
     seasonRewardFor,
+    defenseTraitBoard,
+    defenseTraitsFrom,
     type ArenaAttempts,
     type ArenaRefreshes,
     type ArenaDefenseLoadout,
@@ -70,12 +73,14 @@ import {
     ARENA_FREE_REFRESHES_PER_DAY,
     ARENA_LEADERBOARD_NEIGHBORS,
     ARENA_LEADERBOARD_TOP,
+    ARENA_LOG_MAX_AGE_HOURS,
     ARENA_LOG_SIZE,
     ARENA_RATING_START,
     ARENA_SHOP_MAX_QUANTITY
 } from '#shared/utils/hero-quest/constants'
 import { randomInt } from '#shared/utils/random'
-import type { TraitBoard } from '#shared/utils/hero-quest/traits'
+import { traitBoardOf, type TraitBoard } from '#shared/utils/hero-quest/traits'
+import type { HqArenaPayload } from '#server/utils/hero-quest-api'
 
 // ── Standing, attempts, defence ────────────────────────────────────────────────────
 
@@ -96,13 +101,52 @@ function standingWrites(standing: ArenaStanding) {
 }
 
 /**
- * The defender as they are fought: their class, level and whole collection as they stand now, with
- * the stored defence fielded in place of whatever they play with live (§1). Wealth-neutral, as the
- * defender's banked Gold has nothing to do with a fight they are not at.
+ * The defender as they are fought: their class, level, Passive Skill Tree, Shop and whole collection
+ * as they stand now, with the stored defence (its Traits included) fielded in place of whatever they
+ * play with live (§1). Wealth-neutral, as the defender's banked Gold has nothing to do with a fight
+ * they are not at. `liveTraits` is only read for a defence stored without its own board.
  */
-export function defenseSnapshotOf(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections, traits?: TraitBoard): HeroSnapshot | null {
+export function defenseSnapshotOf(state: HqStateRow, shopLevels: Record<string, number>, collections: HqCollections, liveTraits: TraitBoard = []): HeroSnapshot | null {
     const defended = withDefenseLoadout(state)
-    return defended ? heroSnapshotOf(defended, shopLevels, collections, undefined, traits) : null
+    return defended ? heroSnapshotOf(defended, shopLevels, collections, undefined, defenseTraitBoard(state.defenseLoadout!, liveTraits)) : null
+}
+
+/** What the defence's stats are read off: the account's progress as it stands. */
+export interface DefenderProgress {
+    shopLevels: Record<string, number>
+    collections: HqCollections
+    /** The live Trait board, read only for a defence stored without its own. */
+    traits: TraitBoard
+}
+
+/**
+ * Defense GPN (§2) at the account's progress now (issue #32): the selection is the stored one, the
+ * hero level, the copies' stars and levels, the Passive Skill Tree, the Shop's stat tracks and the
+ * collection passives are today's. Null without a defence.
+ */
+export function defenseGpnNow(state: HqStateRow, progress: DefenderProgress): string | null {
+    if (!state.defenseLoadout) return null
+    return defenseGpnOf(state, progress.shopLevels, progress.collections, defenseTraitBoard(state.defenseLoadout, progress.traits)).defenseGpn
+}
+
+/**
+ * Several defenders' progress at once, for the opponent list: one query a table for all of them
+ * rather than three a defender. The live Trait board is read only for a defence without its own.
+ */
+async function defendersProgress(executor: DbExecutor, states: readonly HqStateRow[]): Promise<Map<string, DefenderProgress>> {
+    const ids = states.map(state => state.userId)
+    const progress = new Map<string, DefenderProgress>(ids.map(id => [id, { shopLevels: {}, collections: emptyCollections(), traits: [] }]))
+    if (ids.length === 0) return progress
+    const liveTraitIds = states.filter(state => state.defenseLoadout && !state.defenseLoadout.traits).map(state => state.userId)
+    const [shops, owned, slots] = await Promise.all([
+        executor.select().from(hqShopUpgrades).where(inArray(hqShopUpgrades.userId, ids)),
+        executor.select().from(hqCollection).where(inArray(hqCollection.userId, ids)),
+        liveTraitIds.length ? executor.select().from(hqTraitSlots).where(inArray(hqTraitSlots.userId, liveTraitIds)) : Promise.resolve([])
+    ])
+    for (const row of shops) progress.get(row.userId)!.shopLevels[row.upgradeId] = row.level
+    for (const row of owned) progress.get(row.userId)!.collections[row.system as GachaSystem]?.push(row)
+    for (const id of liveTraitIds) progress.get(id)!.traits = traitBoardOf(slots.filter(row => row.userId === id))
+    return progress
 }
 
 /** Lock the given players' rows for the rest of the transaction, in user-ID order. */
@@ -178,7 +222,7 @@ export async function closeSeason(season: number): Promise<void> {
         if (!claimed) return
         // locked, in the user-ID order an attack takes them in: a match still in flight on one of
         // these rows lands in the standings first, and one queued behind finds the season closed
-        const rows = await tx.select({ userId: hqState.userId, rating: hqState.arenaRating })
+        const rows = await tx.select({ userId: hqState.userId, rating: hqState.arenaRating, ratingAt: hqState.arenaRatingAt })
             .from(hqState)
             .where(and(eq(hqState.arenaSeasonId, season), gt(hqState.arenaSeasonMatches, 0)))
             .orderBy(sql`${hqState.userId} collate "C"`)
@@ -285,36 +329,32 @@ export interface ArenaCandidate {
 export async function serializeCandidates(executor: DbExecutor, candidates: readonly (string | null)[], season: number): Promise<ArenaCandidate[]> {
     const ids = candidates.filter((id): id is string => id !== null && !getArenaBot(id))
     const rows = ids.length
-        ? await executor.select({
-            userId: hqState.userId,
-            name: user.name,
-            heroNodeId: hqState.heroNodeId,
-            defenseLoadout: hqState.defenseLoadout,
-            defenseGpn: hqState.defenseGpn,
-            arenaRating: hqState.arenaRating,
-            arenaSeasonId: hqState.arenaSeasonId,
-            arenaSeasonMatches: hqState.arenaSeasonMatches
-        }).from(hqState).innerJoin(user, eq(user.id, hqState.userId)).where(inArray(hqState.userId, ids))
+        ? await executor.select({ state: hqState, name: user.name })
+            .from(hqState).innerJoin(user, eq(user.id, hqState.userId)).where(inArray(hqState.userId, ids))
         : []
+    // each defence's GPN at its owner's progress now, not as it stood when it was set (issue #32)
+    const defended = rows.map(row => row.state).filter(state => state.defenseLoadout)
+    const progress = await defendersProgress(executor, defended)
     return candidates.map((id, slot) => {
         const bot = id === null ? undefined : getArenaBot(id)
         if (bot) {
             const { hero, gpn } = botDefense(bot)
             return { slot, id: bot.id, dummy: false, name: bot.name, rating: bot.rating, defenseGpn: gpn, ...enemyOf(hero) }
         }
-        const row = id === null ? undefined : rows.find(r => r.userId === id)
-        if (id === null || !row?.defenseLoadout) {
+        const row = id === null ? undefined : rows.find(r => r.state.userId === id)
+        if (id === null || !row?.state.defenseLoadout) {
             return { slot, id: id ?? ARENA_DUMMY_ID, dummy: id === null, name: id === null ? 'Training Dummy' : 'Gone', rating: null, defenseGpn: null, classId: null, heroRow: null, champions: [] }
         }
-        const defense = row.defenseLoadout
+        const state = row.state
+        const defense = state.defenseLoadout!
         return {
             slot,
             id,
             dummy: false,
             name: row.name,
-            rating: rollStanding({ season: row.arenaSeasonId, rating: row.arenaRating, matches: row.arenaSeasonMatches }, season).rating,
-            defenseGpn: row.defenseGpn,
-            classId: row.heroNodeId,
+            rating: rollStanding(standingOf(state), season).rating,
+            defenseGpn: defenseGpnNow(state, progress.get(id)!),
+            classId: state.heroNodeId,
             heroRow: defense.formation.hero ?? null,
             champions: defense.partyChampionIds.map(c => ({ id: c, row: defense.formation[c] ?? 'front' }))
         }
@@ -379,10 +419,11 @@ export async function buyAttempt(tx: DbExecutor, userId: string, now: number) {
 
 /**
  * "Set current loadout as defence" (§1; the user's call, 2026-10-10: the one way a defence is set,
- * kept apart from the saved Loadout slots). The player's own loadout: a raid's or the Arena's
- * preferred Loadout still live is put back first. Checked against ownership and slot counts as an
- * equip is, free, and never touches the live loadout. Defense GPN is recomputed with it, and only
- * here: a defence that falls behind the player is theirs to set again.
+ * kept apart from the saved Loadout slots). The player's own loadout and Trait board: a raid's or
+ * the Arena's preferred Loadout still live is put back first. Checked against ownership and slot
+ * counts as an equip is, free, and never touches the live loadout. The selection stays as set until
+ * the next press; its stats follow the account (issue #32). `defenseGpn` is written as it stands
+ * now, a record only: everything shown works it out afresh (`defenseGpnNow`).
  */
 export async function setDefense(tx: DbExecutor, userId: string) {
     const state = await restoreLoadoutSession(tx, userId, await lockOwn(tx, userId))
@@ -390,17 +431,18 @@ export async function setDefense(tx: DbExecutor, userId: string) {
     const input: LoadoutInput = { championIds: state.partyChampionIds, formation: state.formation, skillIds: state.equippedSkillIds, artifactIds: state.equippedArtifactIds, gear: state.equippedGear }
 
     const writes = await validateLiveLoadout(tx, userId, state, input, shopLevels)
+    const [collections, traits] = await Promise.all([getCollections(userId, tx), getTraitBoard(userId, tx)])
     const defense: ArenaDefenseLoadout = {
         partyChampionIds: writes.partyChampionIds ?? [],
         formation: writes.formation ?? {},
         equippedSkillIds: writes.equippedSkillIds ?? [],
         equippedArtifactIds: writes.equippedArtifactIds ?? [],
-        equippedGear: writes.equippedGear ?? {}
+        equippedGear: writes.equippedGear ?? {},
+        traits: defenseTraitsFrom(traits)
     }
-    const [collections, traits] = await Promise.all([getCollections(userId, tx), getTraitBoard(userId, tx)])
-    const gpn = defenseGpnOf({ ...state, defenseLoadout: defense }, shopLevels, collections, traits)
-    await tx.update(hqState).set({ defenseLoadout: defense, ...gpn }).where(eq(hqState.userId, userId))
-    return { defense, defenseGpn: gpn.defenseGpn }
+    const defenseGpn = defenseGpnNow({ ...state, defenseLoadout: defense }, { shopLevels, collections, traits })
+    await tx.update(hqState).set({ defenseLoadout: defense, defenseGpn }).where(eq(hqState.userId, userId))
+    return { defense, defenseGpn }
 }
 
 // ── The attack ─────────────────────────────────────────────────────────────────────
@@ -471,7 +513,12 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
         if (bot) {
             defenderHero = botDefense(bot).hero
         } else {
-            const [shop, collections, traits] = await Promise.all([getShopLevels(listed, tx), getCollections(listed, tx), getTraitBoard(listed, tx)])
+            // the defence's own Traits; the live board only for one stored before they were kept with it
+            const [shop, collections, traits] = await Promise.all([
+                getShopLevels(listed, tx),
+                getCollections(listed, tx),
+                defender!.defenseLoadout!.traits ? [] : getTraitBoard(listed, tx)
+            ])
             defenderHero = defenseSnapshotOf(defender!, shop, collections, traits)!
         }
         fight = runDuel({ attacker: hero, defender: defenderHero, seed })
@@ -492,6 +539,8 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
         : attackerStanding
     await tx.update(hqState).set({
         ...standingWrites(attackerAfter),
+        // a rated match stamps the Rating when it moves it, or when it is the row's first this season
+        ...(elo && (elo.attacker.after !== attackerStanding.rating || attacker.arenaSeasonId !== attackerStanding.season) ? { arenaRatingAt: sql`now()` } : {}),
         arenaMedals: sql`${hqState.arenaMedals} + ${medals}`,
         ...(won ? { arenaWins: sql`${hqState.arenaWins} + 1` } : {}),
         arenaAttemptDate: attempts.date,
@@ -503,7 +552,10 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
     if (elo && defender) {
         const before = rollStanding(standingOf(defender), season)
         await tx.update(hqState)
-            .set(standingWrites({ season: before.season, rating: elo.defender.after, matches: before.matches + 1 }))
+            .set({
+                ...standingWrites({ season: before.season, rating: elo.defender.after, matches: before.matches + 1 }),
+                ...(elo.defender.after !== before.rating || defender.arenaSeasonId !== before.season ? { arenaRatingAt: sql`now()` } : {})
+            })
             .where(eq(hqState.userId, defender.userId))
     }
 
@@ -552,7 +604,17 @@ export async function attackArena(tx: DbExecutor, userId: string, slot: number, 
     }
 }
 
-/** Write battle log rows and keep each player's newest `ARENA_LOG_SIZE` (§8). */
+/**
+ * Inside the battle log's window (§8, issue #29): written in the last `ARENA_LOG_MAX_AGE_HOURS`. An
+ * age compared in SQL, against the same clock the rows are stamped with.
+ */
+const inLogWindow = sql`${hqArenaLog.createdAt} > clock_timestamp() - make_interval(hours => ${ARENA_LOG_MAX_AGE_HOURS})`
+
+/**
+ * Write battle log rows, then trim each player's log (§8): rows past the window go, and of the rest
+ * only the newest `ARENA_LOG_SIZE` stay. A player's log is trimmed whenever they fight or are
+ * fought; one left alone keeps its stale rows, which `arenaLog` never reads.
+ */
 async function writeLog(tx: DbExecutor, rows: (typeof hqArenaLog.$inferInsert)[]) {
     if (rows.length === 0) return
     // the insert's own instant, not the transaction's: a queued attack started before the one ahead of it committed
@@ -562,7 +624,10 @@ async function writeLog(tx: DbExecutor, rows: (typeof hqArenaLog.$inferInsert)[]
             .where(eq(hqArenaLog.userId, id))
             .orderBy(desc(hqArenaLog.createdAt), desc(hqArenaLog.id))
             .limit(ARENA_LOG_SIZE)
-        await tx.delete(hqArenaLog).where(and(eq(hqArenaLog.userId, id), notInArray(hqArenaLog.id, keep)))
+        await tx.delete(hqArenaLog).where(and(
+            eq(hqArenaLog.userId, id),
+            or(sql`not (${inLogWindow})`, notInArray(hqArenaLog.id, keep))
+        ))
     }
 }
 
@@ -587,12 +652,7 @@ export async function buyFromShop(tx: DbExecutor, userId: string, itemId: unknow
     // The grant owed since the last visit is applied and written first, as a raid entry does, so the
     // Keys bought land on top of it. Bought Keys may stand above `RAID_KEY_CAP`: the cap only stops
     // the daily grant (`grantKeys`), and a purchase is never silently cut to it.
-    if (item.kind === 'keys') {
-        const raid = await lockRaid(tx, userId, item.raid, Date.now())
-        await tx.update(hqRaidState)
-            .set({ keyBalance: raid.keys + count, lastKeyGrantAt: raid.lastKeyGrantAt })
-            .where(eq(hqRaidState.id, raid.row.id))
-    }
+    if (item.kind === 'keys') await addRaidKeys(tx, userId, item.raid, count)
 
     const [spent] = await tx.update(hqState)
         .set({
@@ -618,7 +678,7 @@ export async function buyFromShop(tx: DbExecutor, userId: string, itemId: unknow
 
 // ── Reads ──────────────────────────────────────────────────────────────────────────
 
-/** The battle log (§8): newest first, the opponent named, a dummy as "Training Dummy". */
+/** The battle log (§8): the last day's matches, newest first and `ARENA_LOG_SIZE` at most, the opponent named, a dummy as "Training Dummy". */
 export async function arenaLog(userId: string, executor: DbExecutor = db) {
     const rows = await executor.select({
         id: hqArenaLog.id,
@@ -633,7 +693,7 @@ export async function arenaLog(userId: string, executor: DbExecutor = db) {
     })
         .from(hqArenaLog)
         .leftJoin(user, eq(user.id, hqArenaLog.opponentUserId))
-        .where(eq(hqArenaLog.userId, userId))
+        .where(and(eq(hqArenaLog.userId, userId), inLogWindow))
         .orderBy(desc(hqArenaLog.createdAt), desc(hqArenaLog.id))
         .limit(ARENA_LOG_SIZE)
     return rows.map(row => ({
@@ -655,21 +715,21 @@ interface LeaderRow { userId: string, name: string, rating: number, rank: number
 /**
  * The Rating leaderboard (§9), for the current season: the top `ARENA_LEADERBOARD_TOP`, and the
  * viewer's own rank with `ARENA_LEADERBOARD_NEIGHBORS` either side. Ranked are the players who have
- * fought, or been fought, this season; ties share a rank.
+ * fought, or been fought, this season; an equal Rating ranks whoever reached it first, as the
+ * season's close does (`rankStandings`).
  */
 export async function arenaLeaderboard(userId: string, now: number) {
     const season = arenaSeasonAt(now)
     const result = await db.execute(sql`
         with ranked as (
             select user_id, arena_rating as rating,
-                   rank() over (order by arena_rating desc)::int as rank,
-                   row_number() over (order by arena_rating desc, user_id)::int as pos
+                   row_number() over (order by arena_rating desc, arena_rating_at asc nulls last, user_id collate "C")::int as pos
             from hq_state
             where arena_season_id = ${season} and arena_season_matches > 0
         ), mine as (
             select pos from ranked where user_id = ${userId}
         )
-        select r.user_id, u.name, r.rating, r.rank, r.pos
+        select r.user_id, u.name, r.rating, r.pos as rank, r.pos
         from ranked r
         join "user" u on u.id = r.user_id
         where r.pos <= ${ARENA_LEADERBOARD_TOP}
@@ -695,10 +755,11 @@ export async function arenaLeaderboard(userId: string, now: number) {
 
 /**
  * The player's Arena as the state payload carries it: Medals, Rating this season, today's attacks
- * and the next one's price, the defence and its GPN, and any season reward waiting. Read only: a
- * stale season shows as the start Rating until something rolls the row.
+ * and the next one's price, the defence with its Traits and its GPN at the account's progress now,
+ * and any season reward waiting. Read only: a stale season shows as the start Rating until
+ * something rolls the row.
  */
-export function serializeArena(state: HqStateRow, unclaimed: Awaited<ReturnType<typeof unclaimedSeasons>>, now = Date.now()) {
+export function serializeArena(state: HqStateRow, unclaimed: Awaited<ReturnType<typeof unclaimedSeasons>>, progress: DefenderProgress, now = Date.now()): HqArenaPayload {
     const season = arenaSeasonAt(now)
     const standing = rollStanding(standingOf(state), season)
     const today = attemptsOn(attemptsOf(state), ladderDateKey(now))
@@ -720,7 +781,12 @@ export function serializeArena(state: HqStateRow, unclaimed: Awaited<ReturnType<
             return { free: ARENA_FREE_REFRESHES_PER_DAY, used: t.used, nextPrice: refreshPrice(t.used) }
         })(),
         defense: state.defenseLoadout
-            ? { ...state.defenseLoadout, gpn: state.defenseGpn }
+            ? {
+                ...state.defenseLoadout,
+                gpn: defenseGpnNow(state, progress),
+                /** The Traits it fights with, by slot: its own, or the live board for one set before they were kept. */
+                traits: defenseTraitBoard(state.defenseLoadout, progress.traits).map(traitSlotView)
+            }
             : null,
         unclaimed
     }
