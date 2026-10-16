@@ -421,6 +421,27 @@
       "when": 1791870489508,
       "tag": "0059_hero_quest_offline_credit",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1791901798205,
+      "tag": "0060_small_shatterstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1792070840802,
+      "tag": "0061_mushy_spitfire",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1792076801703,
+      "tag": "0062_sticky_gambit",
+      "breakpoints": true
     }
   ]
 }

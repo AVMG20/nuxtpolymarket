@@ -192,6 +192,14 @@ const arcadeGames = [
     iconColor: 'text-cyan-300'
 },
   {
+    name: 'Hackerz',
+    description: 'Hold the fence against hackers on a neon 3D grid — 30 waves, five difficulties, and a Mainframe of its own',
+    icon: 'i-lucide-skull',
+    to: '/hackerz',
+    gradient: 'from-red-950 via-slate-900 to-slate-950',
+    iconColor: 'text-red-300'
+  },
+  {
     name: 'Meadowbrawl',
     description: 'Top-down melee roguelite — chain combos, dodge telegraphs and stack absurd boons across 20 waves',
     icon: 'i-lucide-swords',

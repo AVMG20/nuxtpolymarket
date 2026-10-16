@@ -20,6 +20,7 @@
     "balance:colony": "bun scripts/colony-income.ts",
     "balance:hack": "bun scripts/hack-income.ts",
     "balance:firewall": "bun scripts/firewall-balance.ts",
+    "balance:hackerz": "bun scripts/hackerz-balance.ts",
     "balance:pathwarden": "bun scripts/pathwarden-balance.ts",
     "balance:pirates": "bun scripts/pirates-balance.ts",
     "balance:pirates-playtest": "bun --tsconfig-override scripts/tsconfig.shapezz-playtest.json scripts/pirates-playtest.ts",
@@ -32,7 +33,8 @@
     "tcg:rarity-audit": "bun scripts/tcg-rarity-audit.ts",
     "balance:hero-quest": "bun scripts/hero-quest-balance.ts",
     "sim:hero-quest": "bun scripts/hero-quest-sim.ts",
-    "art:hero-quest": "bun scripts/hero-quest-art.ts"
+    "art:hero-quest": "bun scripts/hero-quest-art.ts",
+    "models:hackerz": "blender --background --factory-startup --python scripts/hackerz-models/build.py"
   },
   "dependencies": {
     "@iconify-json/lucide": "^1.2.98",
@@ -56,6 +58,7 @@
   "devDependencies": {
     "@elevenlabs/elevenlabs-js": "^2.59.0",
     "@nuxt/eslint": "^1.15.2",
+    "@receptron/laya": "^0.1.2",
     "@types/pg": "^8.18.0",
     "@types/three": "^0.185.4",
     "drizzle-kit": "^0.31.10",

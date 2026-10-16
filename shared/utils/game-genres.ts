@@ -65,6 +65,7 @@ const GENRE_BY_LABEL: Record<string, Genre> = {
     'Call of Xeno': 'active',
     'Voxel Arena': 'active',
     Firewall: 'active',
+    Hackerz: 'active',
     Meadowbrawl: 'active',
     TCG: 'active',
     // Not in the sidebar: the TCG battler, and standalone active games.
