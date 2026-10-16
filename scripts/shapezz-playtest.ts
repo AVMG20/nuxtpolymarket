@@ -536,7 +536,7 @@ class Bot {
         this.targetId = best.id
         if (weapon.type === 'arcCoil') return { x: best.x, y: best.y, fire: true }
         // Lead the target by the projectile's travel time.
-        const speed = engine.autopilotView().weapon.bulletSpeed
+        const speed = engine.playerBulletSpeed()
         const ox = p.x
         const oy = p.y - 6
         let tx = best.x

@@ -1,4 +1,4 @@
-import { PirateAutopilot, PirateGame, type PirateLayaDecision, type PirateAutopilotStatus } from '~/utils/pirates-engine'
+import { PirateGame } from '~/utils/pirates-engine'
 import type {
     PirateAnnouncement, PirateGameOverResult, PirateHudState, PirateShipStats, PirateSoundEvent, SoundOptions
 } from '~/utils/pirates-engine/types'
@@ -67,11 +67,6 @@ const gameOverResult = ref<PirateGameOverInfo | null>(null)
 const submitting = ref(false)
 
 let game: PirateGame | null = null
-let autopilot: PirateAutopilot | null = null
-// Auto-play stays on across voyages until the captain takes the helm back.
-const autopilotEnabled = ref(false)
-const autopilotStatus = ref<PirateAutopilotStatus | null>(null)
-const autopilotDecision = shallowRef<PirateLayaDecision | null>(null)
 let resizeObserver: ResizeObserver | null = null
 let lastTension = -1
 
@@ -189,7 +184,6 @@ function setupResizeObserver(host: HTMLDivElement) {
 
 export function usePirateRun() {
     currentToast = useToast()
-    const layaUrl = useRuntimeConfig().public.layaUrl
     currentFetchSession = useAuth().fetchSession
 
     function registerRefresh(refresh: () => Promise<unknown>) {
@@ -323,24 +317,6 @@ export function usePirateRun() {
         gameOverVisible.value = false
     }
 
-    function toggleAutopilot() {
-        if (!game) return
-        autopilotEnabled.value = !autopilotEnabled.value
-        if (autopilotEnabled.value) {
-            autopilot ??= new PirateAutopilot(
-                game,
-                layaUrl,
-                (status) => { autopilotStatus.value = status },
-                (decision) => { autopilotDecision.value = decision }
-            )
-            autopilot.start()
-        } else {
-            autopilot?.stop()
-            autopilotStatus.value = null
-            autopilotDecision.value = null
-        }
-    }
-
     return {
         hud,
         running,
@@ -363,10 +339,6 @@ export function usePirateRun() {
         castAbility,
         toggleAmmoMode,
         closeGameOver,
-        autopilotEnabled,
-        autopilotStatus,
-        autopilotDecision,
-        toggleAutopilot,
         soundEnabled: pirateSound.soundEnabled,
         soundVolume: pirateSound.soundVolume,
         playMenuSound: () => pirateSound.play('menu')

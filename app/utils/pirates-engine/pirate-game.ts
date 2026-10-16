@@ -1,4 +1,3 @@
-import type { PirateAutopilotSnapshot } from '#shared/utils/gamelogic/pirates-autopilot'
 import { WORLD_H, WORLD_W } from './constants'
 import { PirateRenderer } from './render'
 import { PirateSim } from './sim'
@@ -42,7 +41,6 @@ export class PirateGame {
     private hudTimerMs = 0
     private hudAfterEnd = false
     private redrawPaused = false
-    private frameHook: ((deltaMS: number) => void) | null = null
     private cursor: Point | null = null
     private heldKeys = new Set<string>()
     private pointerDown: { x: number, y: number, dragging: boolean } | null = null
@@ -163,44 +161,6 @@ export class PirateGame {
         return this.sim.castAbility(target.x, target.y)
     }
 
-    // ─── Auto-pilot ─────────────────────────────────────────────────────────
-
-    /** Called after every simulated frame while a voyage runs. */
-    setFrameHook(hook: ((deltaMS: number) => void) | null) {
-        this.frameHook = hook
-    }
-
-    /** The sea as the auto-pilot sees it, in world coordinates. */
-    autopilotView(): PirateAutopilotSnapshot & { speed: number } {
-        return this.sim.autopilotView()
-    }
-
-    /** True when a ship centred here would sit on an island. */
-    autopilotBlocked(x: number, y: number) {
-        return this.sim.blocked(x, y)
-    }
-
-    /** Sail to a point, pathing around islands, without a click marker. */
-    autopilotSail(x: number, y: number) {
-        this.sim.sailTo(x, y, false)
-    }
-
-    /** The attack order a click on an enemy gives. */
-    autopilotAttack(enemyId: number) {
-        return this.sim.attack(enemyId)
-    }
-
-    /** Stop where the ship is and drop any attack order. */
-    autopilotHeaveTo() {
-        this.sim.heaveTo()
-    }
-
-    /** Right-click the sea. Returns false while the ability is unavailable. */
-    autopilotCastAbility(x: number, y: number) {
-        if (!this.sim.abilityReady) return false
-        return this.sim.castAbility(x, y)
-    }
-
     // ─── Loop ───────────────────────────────────────────────────────────────
 
     private loop = (now: number) => {
@@ -218,9 +178,7 @@ export class PirateGame {
             return
         }
 
-        const wasRunning = this.sim.running
         this.sim.step(dt)
-        if (wasRunning && this.sim.running) this.frameHook?.(dt)
         const events = this.sim.drainEvents()
         this.routeSounds(events)
         this.renderer?.frame(dt, events)

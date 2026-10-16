@@ -16,7 +16,6 @@ const {
     gameOverVisible, gameOverResult,
     attachCanvas, detachCanvas, startVoyage, pauseVoyage, resumeVoyage, cancelVoyage,
     castAbility, toggleAmmoMode, closeGameOver,
-    autopilotEnabled, autopilotStatus, autopilotDecision, toggleAutopilot,
     soundEnabled, soundVolume, playMenuSound
 } = usePirateRun()
 
@@ -82,43 +81,6 @@ const gemAmmoCapacity = computed(() => state.value?.gemAmmo.capacity ?? 0)
 function upgradeFrame(id: PiratePowerUpId) {
     return { '--glow': piratePowerUpHex(id) }
 }
-
-// ─── Autopilot ──────────────────────────────────────────────────────────────
-
-function moveLabel(move: NonNullable<typeof autopilotStatus.value>['move']) {
-    if (!move) return 'Laya'
-    if (move.kind === 'sail') return `Sailing ${move.heading}`
-    if (move.kind === 'grab') return `Grabbing the ${move.pickup}`
-    return 'Attacking'
-}
-const autopilotLabel = computed(() => {
-    const status = autopilotStatus.value
-    if (!autopilotEnabled.value || !status) return 'Auto-play'
-    if (!status.laya) return status.online ? 'Waiting for Laya' : 'Laya offline'
-    return moveLabel(status.move)
-})
-// Laya's rating of its top moves, highest first, and the ability call.
-const autopilotRows = computed(() => {
-    const decision = autopilotDecision.value
-    if (!decision) return []
-    const best = Math.max(...Object.values(decision.moves))
-    const rows = Object.entries(decision.moves)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([key, value]) => ({
-            key,
-            label: key.startsWith('attack_') ? 'attack ship' : key.replace('_', ' '),
-            value,
-            text: `${Math.round(value * 100)}%`,
-            top: value === best
-        }))
-    if (decision.keg) rows.push({ key: 'keg', label: 'ability', value: 1, text: 'cast', top: false })
-    return rows
-})
-// Auto-play is limited to a few accounts; drop it if this one lost access.
-watch(() => state.value?.autopilot, (allowed) => {
-    if (!allowed && autopilotEnabled.value) toggleAutopilot()
-})
 
 // ─── Harbour ────────────────────────────────────────────────────────────────
 
@@ -423,23 +385,6 @@ onUnmounted(() => {
             <button type="button" class="hud-btn" :aria-label="isFullscreen ? 'Exit fullscreen' : 'Fullscreen'" @click="toggleFullscreen">
               <UIcon :name="isFullscreen ? 'i-lucide-minimize' : 'i-lucide-maximize'" />
             </button>
-          </div>
-
-          <!-- Auto-play decisions -->
-          <div v-if="autopilotEnabled && autopilotStatus" class="hud-autopilot">
-            <div class="flex items-center justify-between gap-2 font-bold">
-              <span class="flex items-center gap-1 truncate"><UIcon name="i-lucide-bot" />{{ autopilotLabel }}</span>
-              <span :style="{ color: autopilotStatus.laya ? '#2dd4bf' : '#f0524f' }">{{ autopilotStatus.laya ? 'Laya' : 'Offline' }}</span>
-            </div>
-            <div v-for="row in autopilotRows" :key="row.key">
-              <div class="flex justify-between gap-2">
-                <span class="opacity-70">{{ row.label }}</span>
-                <span class="font-semibold">{{ row.text }}</span>
-              </div>
-              <div class="hud-autopilot-bar">
-                <i :style="{ width: `${Math.round(row.value * 100)}%`, background: row.top ? '#f3c35a' : '#5f7686' }" />
-              </div>
-            </div>
           </div>
 
           <!-- Bottom-left: hull -->
@@ -799,17 +744,6 @@ onUnmounted(() => {
                 <p v-if="!canSetSail" class="mt-2 text-center text-xs text-[var(--pr-blood)]">
                   Your gun deck is empty. Fit a cannon in the Armory first.
                 </p>
-
-                <PiratesButton
-                  v-if="state.autopilot"
-                  class="mt-2"
-                  :variant="autopilotEnabled ? 'teal' : 'ghost'"
-                  size="sm"
-                  block
-                  icon="i-lucide-bot"
-                  :label="autopilotEnabled ? 'Auto-play on' : 'Auto-play off'"
-                  @click="toggleAutopilot"
-                />
               </div>
 
               <!-- Controls -->
@@ -1169,22 +1103,6 @@ onUnmounted(() => {
 }
 .hud-btn:hover { color: #ffe29a; background: rgba(36, 23, 15, 0.9); }
 .hud-btn :deep(span), .hud-btn :deep(svg) { width: 1.2em; height: 1.2em; }
-
-.hud-autopilot {
-  position: absolute;
-  top: 7.5em;
-  left: 0.9em;
-  width: 14em;
-  padding: 0.6em;
-  border-radius: 0.6em;
-  font-size: 0.85em;
-  line-height: 1.25;
-  background: rgba(5, 14, 23, 0.75);
-  border: 1px solid rgba(45, 212, 191, 0.3);
-  pointer-events: none;
-}
-.hud-autopilot-bar { height: 0.3em; margin-top: 0.15em; border-radius: 999px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
-.hud-autopilot-bar i { display: block; height: 100%; border-radius: inherit; transition: width 0.2s; }
 
 .hud-hull {
   position: absolute;
@@ -1574,7 +1492,7 @@ onUnmounted(() => {
 /* ── Small screens ─────────────────────────────────────────────────────── */
 @container (max-width: 700px) {
   .raid-hud { font-size: 9px; }
-  .hud-ability-keys, .hud-autopilot { display: none; }
+  .hud-ability-keys { display: none; }
   .hud-hull { width: 14em; }
   .hud-topleft { max-width: 45%; }
 }

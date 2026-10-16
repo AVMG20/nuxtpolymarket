@@ -40,7 +40,6 @@ import {
     type ShapezzRunUpgradeId,
     type ShapezzWeapon
 } from '#shared/utils/gamelogic/shapezz'
-import type { ShapezzAutopilotView } from '#shared/utils/gamelogic/shapezz-autopilot'
 import { randomChance, randomFloat, randomPick } from '#shared/utils/random'
 import type { ShapezzSoundEvent, ShapezzSoundOptions } from '~/utils/shapezz-sounds'
 import { ShapezzRenderer } from './shapezz/render'
@@ -196,7 +195,6 @@ export class ShapezzEngine {
     private callbacks: ShapezzEngineCallbacks
     private keys = new Set<string>()
     private autopilotInput: ShapezzAutopilotInput | null = null
-    private frameHook: ((dt: number) => void) | null = null
     private dropThroughTimer = 0
     private checkpointOpen = false
     private destroyed = false
@@ -373,11 +371,6 @@ export class ShapezzEngine {
 
     // ─── Auto-pilot ─────────────────────────────────────────────────────────
 
-    /** Called at the start of every simulated frame while a run is live. */
-    setFrameHook(hook: ((dt: number) => void) | null) {
-        this.frameHook = hook
-    }
-
     /** Take over movement, aim and trigger; null hands them back to the player. */
     setAutopilotInput(input: ShapezzAutopilotInput | null) {
         this.autopilotInput = input
@@ -393,35 +386,6 @@ export class ShapezzEngine {
         this.firing = pilot.fire
         if (pilot.jump && this.player.onGround) this.jump()
         if (pilot.drop && this.player.onGround) this.dropThroughPlatform()
-    }
-
-    /** The arena as the auto-pilot sees it. */
-    autopilotView(): ShapezzAutopilotView {
-        return {
-            elapsedMs: this.elapsedMs,
-            checkpoint: Math.floor(this.elapsedMs / SHAPEZZ_CHECKPOINT_MS),
-            player: { x: this.player.x, y: this.player.y, vx: this.player.vx, vy: this.player.vy, size: this.player.size, onGround: this.player.onGround },
-            hp: Math.max(0, this.player.hp),
-            maxHp: this.stats.maxHp,
-            shield: Math.max(0, this.player.shield),
-            moveSpeed: this.stats.moveSpeed,
-            jumpSpeed: this.stats.jumpSpeed,
-            weapon: {
-                type: this.weapon.type,
-                bulletSpeed: this.playerBulletSpeed(),
-                chainRange: this.weapon.chainRange,
-                explosionRadius: this.weapon.explosionRadius
-            },
-            bulletTime: this.upgrades.bulletTime ?? 0,
-            enemies: this.enemies.filter(enemy => enemy.hp > 0).map(enemy => ({
-                id: enemy.id, type: enemy.type, x: enemy.x, y: enemy.y, vx: enemy.vx, vy: enemy.vy,
-                radius: enemy.radius, hp: enemy.hp / Math.max(1, enemy.maxHp), damage: enemy.damage, speed: enemy.speed
-            })),
-            bullets: this.enemyBullets.map(({ x, y, vx, vy, radius, damage }) => ({ x, y, vx, vy, radius, damage })),
-            pickups: this.pickups.map(({ x, y, kind, value }) => ({ x, y, kind, value })),
-            platforms: this.platforms.filter(platform => platform.y < FLOOR_Y).map(({ x, y, width }) => ({ x, y, width })),
-            upgrades: { ...this.upgrades }
-        }
     }
 
     /** Freeze/unfreeze the simulation. No-op outside a live run (checkpoint, game over). */
@@ -484,7 +448,6 @@ export class ShapezzEngine {
     }
 
     private update(dt: number) {
-        this.frameHook?.(dt)
         this.applyAutopilotInput()
         this.elapsedMs += dt * 1000
         this.fireCooldown -= dt
@@ -1455,9 +1418,9 @@ export class ShapezzEngine {
 
     // ─── Player weapons ─────────────────────────────────────────────────────
 
-    private playerBulletSpeed() {
+    playerBulletSpeed() {
         const velocity = Math.min(4, this.upgrades.hyperVelocity ?? 0)
-        // The rail is hitscan; the auto-pilot reads this to lead its aim.
+        // The rail is hitscan; the playtest bot reads this to lead its aim.
         if (this.weapon.type === 'railgun') return 100_000
         return 780 * this.weapon.projectileSpeedMultiplier * Math.pow(1.5, velocity)
     }

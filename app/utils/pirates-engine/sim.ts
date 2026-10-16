@@ -24,7 +24,6 @@ import {
     pirateEnemyReloadMultiplier, pirateSurvivalCoins, pirateSurvivalCoinRate,
     type PirateAbilityId, type PirateEnemyAbility, type PirateEnemyTier, type PiratePowerUpId, type PirateRarity
 } from '#shared/utils/gamelogic/pirates'
-import type { PirateAutopilotSnapshot } from '#shared/utils/gamelogic/pirates-autopilot'
 import { randomFloat } from '#shared/utils/random'
 import {
     WORLD_W, WORLD_H, BALL_SPEED, PLAYER_CANNON_FIRE_GAP_MS, PICKUP_RADIUS, HOLD_RANGE_FRACTION,
@@ -487,7 +486,7 @@ export class PirateSim {
         return true
     }
 
-    // ─── HUD / autopilot views ──────────────────────────────────────────────
+    // ─── HUD views ──────────────────────────────────────────────────────────
 
     hud(): PirateHudState {
         const bosses = this.enemies
@@ -542,44 +541,6 @@ export class PirateSim {
 
     get sailSpeed() {
         return this.maxSpeed()
-    }
-
-    autopilotView(): PirateAutopilotSnapshot & { speed: number } {
-        const p = this.player
-        const nearest = (kind: SimPickup['kind']) => {
-            let best: Pickup | null = null
-            let bestD = Infinity
-            for (const pickup of this.pickups) {
-                if (pickup.dead || pickup.kind !== kind) continue
-                const d = dist2(p.x, p.y, pickup.x, pickup.y)
-                if (d < bestD) {
-                    best = pickup
-                    bestD = d
-                }
-            }
-            return best ? { x: best.x, y: best.y } : null
-        }
-        return {
-            t: this.elapsedMs,
-            x: p.x,
-            y: p.y,
-            hull: p.hp / Math.max(1, p.maxHp),
-            shield: p.shield,
-            range: this.cannonRange,
-            keg: this.abilityId === 'bomb' && this.abilityReady,
-            powerUps: [...this.powerUpStacks.values()].reduce((sum, n) => sum + n, 0),
-            speed: this.maxSpeed(),
-            enemies: this.enemies
-                .filter(enemy => !enemy.dead && this.targetable(enemy))
-                .map(enemy => ({ id: enemy.id, tier: enemy.tier.id, x: enemy.x, y: enemy.y, hp: enemy.hp / enemy.maxHp, range: enemy.tier.range })),
-            hazards: this.telegraphs
-                .filter(t => !t.dead && t.hostile)
-                .map(t => t.kind === 'line' ? { x: t.x2, y: t.y2, r: Math.max(40, t.width * 3) } : { x: t.x, y: t.y, r: t.r }),
-            mines: this.mines.filter(mine => !mine.dead).map(mine => ({ x: mine.x, y: mine.y })),
-            islands: this.islands.map(({ x, y, r }) => ({ x, y, r })),
-            supply: nearest('crate'),
-            repair: nearest('repair')
-        }
     }
 
     // ─── Setup helpers ──────────────────────────────────────────────────────
