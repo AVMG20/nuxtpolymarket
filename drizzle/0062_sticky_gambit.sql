@@ -1,0 +1,1 @@
+ALTER TABLE "hackerz_state" ADD COLUMN "codex" text[] DEFAULT '{}'::text[] NOT NULL;
