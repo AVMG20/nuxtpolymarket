@@ -1,21 +1,26 @@
 import * as THREE from 'three'
-import { randomChance, randomFloat } from '#shared/utils/random'
+import { randomBetween, randomChance, randomFloat, randomInt, seededRng, withSeed } from './rng'
+import type { DemoScript } from '../hackerz-demo-scripts'
+import type { HackerzAutopilotView } from '#shared/utils/gamelogic/hackerz-autopilot'
 import {
-    HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, HACKERZ_MAX_SLOTS, hackerzHackerField,
-    HACKERZ_MAX_WAVE, HACKERZ_REINFORCEMENT_BOUNTY,
+    HACKERZ_BONUS_MS, HACKERZ_BONUS_MULTIPLIER, HACKERZ_BOSS_EVERY, HACKERZ_DEPLOYABLE_MAX, HACKERZ_BONUS_PASS_INTEGRITY, HACKERZ_HACKER_ID, HACKERZ_MAX_SLOTS, hackerzHackerField,
+    HACKERZ_HEAL_TICK_MS, HACKERZ_LEAK_MERGE, HACKERZ_MAX_WAVE,
+    HACKERZ_SPIDER_CAP, HACKERZ_SPIDER_HATCH_MS, HACKERZ_SPIDER_INFECT_RADIUS, HACKERZ_SPIDER_INJECT_MS,
+    HACKERZ_SPIDER_MAX_DRAIN, HACKERZ_REINFORCEMENT_BOUNTY,
     HACKERZ_PURGE_BOUNTY, HACKERZ_SHIELD_DELAY_MS, HACKERZ_SPAWN_WINDOW_MS, HACKERZ_TYPE_HEX, HACKERZ_WAVE_MS,
     hackerzBossFor, hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue,
-    hackerzDamageMultiplier, hackerzDeployable, hackerzEmptyStock, hackerzEnemy, hackerzHpMultiplier,
+    HACKERZ_DEPLOYABLES, HACKERZ_PORTSCAN_REPING_MS,
+    hackerzDamageMultiplier, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock, hackerzEnemy, hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp,
     hackerzIsAirborne, hackerzIsBossWave, hackerzNetworkEvent, hackerzTypeMultiplier, hackerzWaveBudget,
     hackerzSpawnWeight, hackerzWavePool,
     type HackerzDamageType, type HackerzDeployableId, type HackerzDeployableStock, type HackerzEnemyDefinition,
     type HackerzEnemyId, type HackerzEventId, type HackerzLoadout, type HackerzWeaponRuntime
 } from '#shared/utils/gamelogic/hackerz'
 import {
-    BULLET_LIFE_MS, BULLET_RADIUS, COIN_FLIGHT_MS, CROWD_PUSH, DESPAWN_DEPTH, FIELD_DEPTH,
+    BULLET_LIFE_MS, BULLET_RADIUS, COIN_FLIGHT_MS, DESPAWN_DEPTH, FIELD_DEPTH,
     FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE, MODEL_HEIGHT_SCALE, PICK_SLACK_PX, PULSE_KNOCKBACK,
     PULSE_RADIUS, PURGE_MS, PURGE_REACH, RAIL_U, SHAKE_DECAY, SPAWN_SPREAD, SPIKE_BAND, SPIT_GRAVITY,
-    SPIT_SPEED, FENCE_HEIGHT, GUN_Z, WALL_HALF_LENGTH, WALL_HEIGHT, mountPosition
+    SPIT_SPEED, FENCE_HEIGHT, GUN_Z, SHIELD_D, WALL_HALF_LENGTH, WALL_HEIGHT, mountPosition
 } from './constants'
 import { clamp, randRange, segPointDist, segSegDist } from './math'
 import { CHIP_HIT_RADIUS, PathChips, type PathChip } from './path-chips'
@@ -24,15 +29,27 @@ import { Deployables, type Blast, type Hold } from './deployables'
 import { HackTerminals } from './hack-terminal'
 import { LinePulses } from './line-pulses'
 import { SysLog } from './sys-log'
+import { LeakCarry, LeakStack } from './memory-leak'
+import { Shrapnel } from './shrapnel'
+import { GlitchClouds } from './glitch-cloud'
+import { HexShield } from './hex-shield'
+import { CRYSTAL_RIBBON_IDS, CrystalRibbon } from './crystal-ribbon'
+import { BLOCK_STORM_IDS, BlockStorm } from './block-storm'
+import { DrainWound } from './drain-wound'
+import { IceWall, disposeIceGlob, makeIceGlob } from './ice-wall'
 import {
     buildNetwork, nearestOnNetwork, segmentDirection, tracePassesNear, zapTarget,
     type DataNetwork, type LinePoint, type Trace
 } from './data-lines'
-import { buildRig, disposeRig, hdr, loadModels, modelClock, poseRig, type ModelRig } from './models'
+import { buildRig, disposeRig, hdr, loadModels, modelClock, poseRig, shroud, type ModelRig } from './models'
+import {
+    ENEMY_PACE, MOTION, SAPPER_SPEED, THEIR_GROUND_SPEED, easeRailKick, easeRecoil, easeSheen, easeTurretKick, hitFlash,
+    burrowFrame, drainGrowth, gatherLegs, easeHeave, easeInject, easeStrike, fangTips, injectLands, heaveCarry, heaveReleases, hoverBob, muzzleOf, railKickFor, rollSpeedFor, spinTurret, strideFor, strikeLands, turnToward, weaponTip
+} from './rig-motion'
 import { AMBER, CYAN, DARK_ZONES, FRONT_COLUMNS, HackerzScene, ISLANDS, LIME, RED, fieldToWorld } from './scene'
 import { AmmoRack } from './ammo-rack'
 import { LaneProps, zoneAt } from './lane-props'
-import { Overlay, ParticleSystem, TransientFx, hexCss, makeCoin, makeProjectile, makeSpit, type HealthTag } from './fx'
+import { Overlay, ParticleSystem, TransientFx, hexCss, makeCoin, makeProjectile, makeSpit, turretProjectile, type HealthTag } from './fx'
 import type {
     BulletEntity, CoinEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig, SpitEntity, TurretMount
 } from './types'
@@ -86,6 +103,77 @@ const COIN_BANK = new THREE.Vector3(0, WALL_HEIGHT + 1.2, GUN_Z + 0.4)
  * a unit at the fence is in front of every barrel rather than under it.
  */
 const MUZZLE_D = -GUN_Z * PER_WORLD
+/**
+ * Where leaked memory piles up: between the fence and the Daemons hitting it;
+ * and how big, so a full pile stands about fence-high, the size it is beside a
+ * Daemon on the database turntable.
+ */
+const LEAK_D = 14
+const LEAK_SCALE = 2
+/** A shot aimed this close to a pile (field units) is fired at it, and how often a pile drains the fence. */
+const LEAK_AIM_U = 36
+const LEAK_AIM_D = 45
+const LEAK_TICK_MS = 1000
+
+/**
+ * Units drawn smaller than their height in the rules says: ROOTKIT's legs
+ * spread far wider than it is tall, so at full size it straddled half the
+ * fence. Its body, hitbox, standoff, stride and spacing all shrink together.
+ */
+const UNIT_DISPLAY_SCALE: Partial<Record<HackerzEnemyId, number>> = { titan: 0.55 }
+
+/** A unit's size on the board, in the rules' height units. */
+function unitSize(def: HackerzEnemyDefinition) {
+    return def.height * (UNIT_DISPLAY_SCALE[def.id] ?? 1)
+}
+
+/**
+ * BLACK ICE: how often it spits, how its globs fall (field units/s²), and the
+ * walls they build — how wide and tall at full growth, how much of a wall one
+ * glob makes, the nearest to the fence one may stand, how long it lasts after
+ * its last glob, and how much a round through it is slowed.
+ */
+const BLACK_ICE_SPIT_MS = 2500
+const BLACK_ICE_GRAVITY = 900
+const BLACK_ICE_WALL_WIDTH = 150
+const BLACK_ICE_WALL_HEIGHT = 130
+const BLACK_ICE_DEPOSIT = 0.3
+const BLACK_ICE_WALL_MIN_D = 140
+const BLACK_ICE_WALL_LIFE_MS = 14_000
+const BLACK_ICE_SLOW = 0.45
+/**
+ * The slab BLACK ICE throws at the rail: a third of the field wide, aimed at
+ * where the gun stood. A gun clear of it by more than its own half width
+ * when it lands is missed.
+ */
+const BLACK_ICE_RAIL_CHUNK = FIELD_HALF_WIDTH * 2 / 3
+const RAIL_GUN_HALF = 24
+
+/** How long ROOTKIT stays gone when it burrows, its dive into the floor included; and how many spiderlings scatter where it goes under. */
+const ROOTKIT_BURROW_MS = 2600
+const ROOTKIT_BURROW_CLUTCH = 3
+
+/**
+ * Healers: the beam's colour; how close (field units) a healer must be to mend;
+ * where it hovers, behind its patient; how far to the side it shadows the front
+ * when nobody is hurt; and how strongly a unit others already mend draws it in.
+ */
+const HEAL_HEX = 0x4ade80
+const HEAL_REACH = 70
+const HEAL_HOVER_D = 30
+const HEAL_ESCORT_U = 40
+const HEAL_CONVERGE = 0.35
+
+/** A pile of leaked allocations at the foot of the fence, and what each of its blocks drains a second. */
+interface LeakPile {
+    u: number
+    stack: LeakStack
+    drains: number[]
+    tickMs: number
+    /** Blocks shot off it so far, for the log line when it is gone. */
+    freed: number
+}
+
 /** Chain lengths that earn a banner. */
 const CHAIN_MILESTONES = [10, 25, 50, 100]
 /** Radar ping: recharge, wavefront speed in field units a second, and how long a contact stays lit. */
@@ -100,13 +188,6 @@ const SPAWN_RAMP = 1.8
 /** The last stretch of a wave: everything drops what it is doing and charges the fence. */
 const FINAL_PUSH_MS = 12_000
 const FINAL_PUSH_SPEED = 1.35
-/**
- * Every hostile's speed in the rules, scaled up for the 3D field. Riders take
- * the long way round along the data lines where the balance sim walks them
- * straight in, so this also keeps their time to the fence near what the sim
- * assumes.
- */
-const ENEMY_PACE = 1.4
 /** How many open nodes the hackers split across at once. */
 const HACK_FRONTS = 2
 /** The most hackers that work one node at once; the rest wait this much further out for a free terminal. */
@@ -120,6 +201,8 @@ const HACK_QUEUE_GAP = 70
 const DISTRACT_NODES = 3
 const DISTRACT_MS = 1400
 const DISTRACT_MAX = 8
+/** The decoys hold off until the first boss is down: a fresh run cannot shoot both them and the hackers. */
+const DISTRACT_FROM_WAVE = HACKERZ_BOSS_EVERY + 1
 /** Hacker zap-dodge: how far ahead a round is seen, the odds of dodging it, the jump range, and the recharge. */
 const ZAP_SIGHT = 150
 const ZAP_CHANCE = 0.55
@@ -140,12 +223,18 @@ const HACKER_RESPAWN_MS = 600
 /** With more than this many hackers short, they come out this quickly one after another. */
 const HACKER_BURST_FROM = 3
 const HACKER_BURST_GAP_MS = 150
-/** Speed through their own red ground, once they hold a node. */
-const THEIR_GROUND_SPEED = 2
 /** A honeypot pulls in riders whose next trace passes this close to it. */
 const LURE_TRACE_RADIUS = 120
 /** Hackers get to work within this far of a node — a column over still counts. */
 const HACK_REACH = 125
+/**
+ * Hackers park side by side in a row behind a node (portal side), facing
+ * the fence: the row this far behind it, this many slots either side of the
+ * middle. One within this distance of its node leaves the line to park.
+ */
+const HACK_ROW_BACK = 70
+const HACK_SLOT_SIDE = 2
+const HACK_PARK_FROM = 280
 /** Facing for a rider: down the column toward the fence, or along a rung. */
 const YAW_DOWN = 0
 const YAW_RIGHT = Math.PI / 2
@@ -182,9 +271,6 @@ const DEFEND_AHEAD = 50
 /** From this wave each hacker brings a bodyguard, and from the second wave listed, two. */
 const ESCORT_FROM_WAVE = 10
 const ESCORT_DOUBLE_WAVE = 20
-/** How far in front of its hacker (toward the rail) a bodyguard stands, and the gap to the next one. */
-const ESCORT_AHEAD = 40
-const ESCORT_SPACING = 30
 /** A free unit this close to an unguarded hacker is drafted; failing that, the portal sends one. */
 const ESCORT_REACH = 600
 const ESCORT_ID: HackerzEnemyId = 'grunt'
@@ -213,8 +299,6 @@ const RETREAT_BELOW = 0.5
 const RECOVERED = 0.9
 /** Units this close to a node they hold heal twice as fast, and stand guard over it. */
 const GUARD_RADIUS = 140
-/** Sappers run this much faster than the rules say, and shrug off every second held-ground tick. */
-const SAPPER_SPEED = 1.5
 /** A unit falls back at this share of its pace; healthier units this close in front of it hold to cover it. */
 const RETREAT_SPEED = 0.8
 const COVER_RADIUS = 170
@@ -228,9 +312,9 @@ const RED_HEAL_BOSS_SHARE = 0.005
 const RED_FLOW_SPEED = 150
 /** How fast disputed ground swarms out from their line, in field units a second. */
 const SWARM_SPEED = 260
-/** Hack pulses: how often a hacking unit fires one, how long it flies, and how much of a node it takes. */
-const HACK_PULSE_MS = 560
-const HACK_PULSE_FLIGHT = 0.35
+/** The colour of an electric prod's discharge. */
+const PROD_HEX = 0xbfe9ff
+/** How much of a node a hack pulse takes (how often they fly is `MOTION.hackPulseMs`). */
 const HACK_PULSE_AMOUNT = 0.09
 /**
  * Nodes out by the portal are poorly defended and fall fast; the closer to the
@@ -262,9 +346,70 @@ const LAG_GAP_MS = 1800
 const LAG_CATCH_UP_SPEED = 4
 const LAG_CATCH_UP_MS = 500
 /** Deployables may only go down on this stretch of the lane. */
+/** Where a demo board's camera sits relative to what it is looking at: well in from the game's own. */
+const DEMO_CAMERA_OFFSET = new THREE.Vector3(0, 13, 16)
+/** A demo board's fixed step, and the seed every loop of it starts from. */
+const DEMO_STEP_MS = 1000 / 60
+const DEMO_SEED = 0x5eed
+/**
+ * The Longbore's track: how far either side of the middle it can glide (field
+ * units, just inside the lane), and how fast — quick enough to keep up with a
+ * cursor sweeping the lane.
+ */
+const RAIL_TRACK = FIELD_HALF_WIDTH - 20
+const RAIL_GLIDE = 2400
+/**
+ * The Longbore punching through a body: the flame it throws up, how long the
+ * round hangs in the body before carrying on, and how hard it drives it back.
+ */
+const LONGBORE_FLARE = 0xc084fc
+const PUNCH_HOLD_MS = 70
+const PUNCH_PUSH = 480
+/** The clearance kept between two bodies on the ground, in field units. */
+const CROWD_GAP = 4
+/** How long a body may stand blocked before a jam is broken, and how long it then backs off to break it. */
+const JAM_MS = 2500
+const YIELD_MS = 700
+/**
+ * A rider's line is guidance, not a rail: it may stand off it by up to this
+ * much (field units) to step round a body or stand beside one, which is
+ * enough to reach the next pin over. It eases back onto the line, at this
+ * share of its speed, whenever there is room.
+ */
+const LANE_SLACK = 70
+const LANE_RETURN = 0.5
+/** Rounds the Tarpit Grid burns from the gun's magazine each second it is biting. */
+const TARPIT_ROUNDS_PER_S = 1
+/** How much bigger (footprint area) a body must be to barge another out of its way. */
+const BARGE_RATIO = 1.6
+/** Auto-play offers Laya this many hostiles to choose between, and counts this close to the wall as near. */
+const AUTOPILOT_CONTACTS = 5
+const AUTOPILOT_NEAR = 250
+/** Hostiles this close together count as one pack, for where auto-play puts a deployable. */
+const AUTOPILOT_PACK_RADIUS = 140
+/** How far ahead of a pack (toward the wall) auto-play puts each deployable that waits for it. */
+const AUTOPILOT_DEPLOY_AHEAD: Partial<Record<HackerzDeployableId, number>> = { honeypot: 120, proxy: 90, bomb: 60, surge: 0 }
+/** How long a round fired blind into the dark lights up what it hits. */
+const HIT_LIGHT_MS = 450
+/** The most two overlapping bodies are pushed apart in one tick (field units). */
+const SEPARATE_STEP = 4
+/** How long a blast leaves a unit glitching, and over how much of the end it eases out. */
+const GLITCH_MS = 650
+const GLITCH_FADE_MS = 400
+/**
+ * A hacker passing through another body tears at full strength (kept topped
+ * up past the fade while they overlap), with a puff of corrupted blocks this
+ * often per frame — but none of a blast's skips. Cosmetic.
+ */
+const PHASE_GLITCH_MS = GLITCH_FADE_MS + 100
+const PHASE_CLOUD_CHANCE = 0.08
+/** How fast a health bar's trail drains after a hit, in bar-lengths a second. */
+const HP_TRAIL_DRAIN = 0.9
+/** How close to its stop line a demo unit counts as there: `walkTo` settles within 3. */
+const PUPPET_SETTLE = 4
 const DEPLOY_MIN_D = 60
 const DEPLOY_MAX_D = FIELD_DEPTH * 0.85
-const DEPLOY_KEYS: Record<string, HackerzDeployableId> = { z: 'honeypot', x: 'bomb', c: 'proxy' }
+const DEPLOY_KEYS: Record<string, HackerzDeployableId> = Object.fromEntries(HACKERZ_DEPLOYABLES.map(def => [def.key.toLowerCase(), def.id]))
 /** A logic bomb dropped this close to a node that is not theirs is wired onto it. */
 const BOMB_CHIP_SNAP = 110
 
@@ -361,6 +506,9 @@ export class HackerzGame {
     // ── Deployables ──
     private deployables: Deployables | null = null
     private linePulses: LinePulses | null = null
+    private shrapnel: Shrapnel | null = null
+    /** Warhead blasts: clouds of corrupted data scrambling the splash area. */
+    private glitchClouds: GlitchClouds | null = null
     /** The firewall's syslog, for the terminal beside the board. */
     private sysLog = new SysLog(line => this.callbacks.onLog?.(line))
     /** The hacker pack size last seen this wave, to announce a second contingent. */
@@ -384,10 +532,16 @@ export class HackerzGame {
     private magSize = 10
     private fireTimer = 0
     private reloadTimer = 0
+    /** Rounds the Tarpit Grid has drawn from the magazine but not yet spent a whole round of. */
+    private tarpitDrain = 0
     private pulseCharge = 0
     private overclockCharge = 0
     private overclockLeft = 0
     private railHeading = Math.PI
+    /** Where the rail gun stands along the wall: the middle, or wherever a railgun has glided to on its track. */
+    private railU = RAIL_U
+    /** The railgun's track across the deck, shown while the Longbore is on. */
+    private railTrack: THREE.Object3D | null = null
     private railKick = 0
     private pingCharge = PING_COOLDOWN_MS
 
@@ -395,6 +549,17 @@ export class HackerzGame {
     private enemies: EnemyEntity[] = []
     private bullets: BulletEntity[] = []
     private spits: SpitEntity[] = []
+    private leaks: LeakPile[] = []
+    /** BLACK ICE's globs in flight (a field position and velocity; `left` seconds to landing), and the walls they have built. */
+    private iceGlobs: { mesh: THREE.Mesh, u: number, d: number, y: number, vu: number, vd: number, vy: number, left: number, atRail: boolean, width: number }[] = []
+    private iceWalls: { u: number, d: number, wall: IceWall, ageMs: number }[] = []
+    /** A Portscan's sweep left (ms), and the countdown to its next ping once the contacts fade. */
+    private portscanLeft = 0
+    private rescanMs = 0
+    /** Power Surges on the grid: where, how long left, and the countdowns to the next arc and the next ring. */
+    private surges: { u: number, d: number, leftMs: number, arcMs: number, ringMs: number }[] = []
+    /** Hacked nodes ROOTKIT has infected, and ms until each hatches its next spiderling. */
+    private infected = new Map<number, number>()
     private coins: CoinEntity[] = []
     private turrets: TurretMount[] = []
 
@@ -418,6 +583,23 @@ export class HackerzGame {
     private elapsedTotal = 0
     /** The picture's clock: drives every shader animation, and stands still during a packet-loss spike. */
     private visualTime = 0
+
+    /** Hostile types and bonus rounds already reported this session (see `sight`). */
+    private sighted = new Set<string>()
+    /** A Database demo board (see `mountDemo`), the spot its camera is held on, and whether it cuts there. */
+    private demo = false
+    private demoFocus: { u: number, d: number } | null = null
+    private demoSnap = true
+    /** The demo's script, its seeded rolls, its clock, the next step due, and where its lines go. */
+    private demoScript: DemoScript | null = null
+    private demoRng: (() => number) | null = null
+    private demoTime = 0
+    private demoNext = 0
+    private demoAccumMs = 0
+    private demoSay: ((line: string) => void) | null = null
+    /** How far the demo camera is pulled back, and what the script has the rail firing at. */
+    private demoZoom = 1
+    private demoFiring: 'lead' | 'node' | null = null
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -456,6 +638,27 @@ export class HackerzGame {
         this.ammoRack.group.updateMatrixWorld(true)
         view.scene.add(this.ammoRack.group)
 
+        // The Longbore's track: a glowing rail across the deck it glides along, shown only while it is on.
+        const trackLength = RAIL_TRACK * 2 * FIELD_SCALE + 1.6
+        const track = new THREE.Group()
+        const bar = new THREE.Mesh(
+            new THREE.BoxGeometry(trackLength, 0.12, 0.3),
+            new THREE.MeshBasicMaterial({ color: hdr(0x1a1030, 1), toneMapped: false })
+        )
+        track.add(bar)
+        for (const side of [-1, 1]) {
+            const lip = new THREE.Mesh(
+                new THREE.BoxGeometry(trackLength, 0.05, 0.05),
+                new THREE.MeshBasicMaterial({ color: hdr(LONGBORE_FLARE, 1.8), toneMapped: false })
+            )
+            lip.position.set(0, 0.07, side * 0.16)
+            track.add(lip)
+        }
+        track.position.set(0, WALL_HEIGHT + 0.06, GUN_Z)
+        track.visible = false
+        this.railTrack = track
+        view.scene.add(track)
+
         // Chips and capacitors either side of the lane, marked by whoever holds their ground.
         this.laneProps = new LaneProps((intensity, packets) => view.territoryMaterial(intensity, packets))
         view.scene.add(this.laneProps.group)
@@ -468,6 +671,8 @@ export class HackerzGame {
         view.setNetwork(this.network)
         view.scene.add(this.pathChips.group)
         this.linePulses = new LinePulses(this.particles)
+        this.shrapnel = new Shrapnel(this.fieldRoot)
+        this.glitchClouds = new GlitchClouds(this.fieldRoot)
         view.scene.add(this.linePulses.group)
         this.deployables = new Deployables()
         view.scene.add(this.deployables.group)
@@ -481,7 +686,7 @@ export class HackerzGame {
         })
         this.resizeObserver.observe(host)
 
-        this.attachInput()
+        if (!this.demo) this.attachInput()
         this.lastTime = performance.now()
         this.raf = requestAnimationFrame(this.loop)
         this.mounted = true
@@ -514,9 +719,426 @@ export class HackerzGame {
         this.placeEnemy(enemy)
     }
 
+    // ─── Auto-play ───────────────────────────────────────────────────────────
+
+    /**
+     * The board as auto-play tells it to Laya (see `hackerz-autopilot`), with
+     * the hostiles it may pick keyed `e0`, `e1`… in `contacts`: hackers at
+     * work first, then whatever is closest to the wall. Nothing that cannot be
+     * locked on is offered.
+     */
+    autopilotView(): { view: HackerzAutopilotView, contacts: Map<string, EnemyEntity> } {
+        const loadout = this.loadout
+        const chips = this.pathChips?.chips ?? []
+        const live = this.enemies.filter(e => e.hp > 0 && !e.turned && !e.decoy && !this.untargetable(e))
+        live.sort((a, b) => Number(b.hacking) - Number(a.hacking) || Number(!!b.def.boss) - Number(!!a.def.boss) || a.d - b.d)
+        const picked = live.slice(0, AUTOPILOT_CONTACTS)
+        const contacts = new Map(picked.map((enemy, i) => [`e${i}`, enemy]))
+        const hostile = this.enemies.filter(e => e.hp > 0 && !e.turned)
+        return {
+            contacts,
+            view: {
+                wave: this.wave,
+                wall: this.wallMaxHp > 0 ? this.wallHp / this.wallMaxHp : 0,
+                held: chips.filter(chip => chip.state === 'hacked').length,
+                nodes: chips.length,
+                contacts: picked.map((enemy, i) => ({
+                    key: `e${i}`,
+                    name: enemy.def.name,
+                    boss: !!enemy.def.boss,
+                    hacking: enemy.hacking,
+                    hacker: enemy.def.id === HACKERZ_HACKER_ID,
+                    d: enemy.d,
+                    health: enemy.maxHp > 0 ? enemy.hp / enemy.maxHp : 0,
+                    plated: !!enemy.def.armored
+                })),
+                near: hostile.filter(e => e.d < AUTOPILOT_NEAR).length,
+                hidden: hostile.filter(e => this.inTheDark(e) || (!!e.def.cloaked && !e.decloaked && e.revealMs <= 0)).length,
+                total: hostile.length,
+                pulseReady: !!loadout?.pulseUnlocked && this.pulseCharge >= loadout.pulseCooldownMs,
+                pingReady: this.pingCharge >= PING_COOLDOWN_MS,
+                overclockReady: !!loadout?.overclockUnlocked && this.overclockLeft <= 0 && this.overclockCharge >= loadout.overclockCooldownMs
+            }
+        }
+    }
+
+    /** Auto-play locks the rail on `target` and holds the trigger, or lets go with none. */
+    autopilotAim(target: EnemyEntity | null) {
+        const live = !!target && target.hp > 0 && this.enemies.includes(target)
+        this.target = live ? target : null
+        this.lockSpot = null
+        this.holding = live
+    }
+
+    /**
+     * The densest pack of ground hostiles: its centre, its size, the one in it
+     * closest to the wall, and the one a White Hat would best turn. Null with
+     * nothing on the ground.
+     */
+    private autopilotPack() {
+        const ground = this.enemies.filter(e => e.hp > 0 && !e.turned && !hackerzIsAirborne(e.def) && !this.untouchable(e))
+        let best: EnemyEntity[] = []
+        for (const enemy of ground) {
+            const group = ground.filter(o => Math.hypot(o.u - enemy.u, o.d - enemy.d) <= AUTOPILOT_PACK_RADIUS)
+            if (group.length > best.length) best = group
+        }
+        if (!best.length) return null
+        const u = best.reduce((sum, e) => sum + e.u, 0) / best.length
+        const d = best.reduce((sum, e) => sum + e.d, 0) / best.length
+        const lead = best.reduce((top, e) => e.d < top.d ? e : top)
+        const convert = best.filter(e => this.turnable(e)).sort((a, b) => b.maxHp - a.maxHp)[0] ?? null
+        return { u, d, size: best.length, lead, convert }
+    }
+
+    /** Auto-play's deployable stock and the pack it would be used on. */
+    autopilotStock() {
+        const pack = this.autopilotPack()
+        return {
+            stock: { ...this.stock },
+            pack: pack ? { size: pack.size, d: pack.d } : null,
+            held: (this.pathChips?.chips ?? []).filter(chip => chip.state === 'hacked').length
+        }
+    }
+
+    /**
+     * Auto-play uses a deployable where it does the most: a Power Surge on the
+     * densest pack, a Honeypot, Proxy Wall or Logic Bomb just ahead of it on
+     * its way to the wall, a White Hat on the toughest hostile in it that can
+     * be turned; Portscan and Cosmic Blip simply go off. True when one was spent.
+     */
+    autopilotDeploy(id: HackerzDeployableId) {
+        if (!this.running || this.purging || this.paused || this.stock[id] <= 0) return false
+        const before = this.stock[id]
+        if (hackerzDeployable(id).instant) {
+            this.useInstant(id)
+            return this.stock[id] < before
+        }
+        const pack = this.autopilotPack()
+        if (!pack) return false
+        if (id === 'whitehat') {
+            if (pack.convert) this.useWhiteHat(pack.convert)
+            return this.stock[id] < before
+        }
+        this.aimU = pack.u
+        this.aimD = pack.d - (AUTOPILOT_DEPLOY_AHEAD[id] ?? 0)
+        const spot = this.deploySpot(id)
+        this.drop(id, spot.u, spot.d, spot.chip)
+        return true
+    }
+
+    /**
+     * Auto-play fires blind: with nothing to lock on but hostiles hidden in
+     * the dark, the rail holds its trigger on the middle of the densest of
+     * them — where a player would spray. A cloaked unit is not aimed at: a
+     * round passes through it. True when it is firing.
+     */
+    autopilotBlindFire() {
+        const hidden = this.enemies.filter(e => e.hp > 0 && !e.turned && !this.untouchable(e) && this.inTheDark(e))
+        if (!hidden.length) return false
+        let pack: EnemyEntity[] = []
+        for (const enemy of hidden) {
+            const group = hidden.filter(o => Math.hypot(o.u - enemy.u, o.d - enemy.d) <= AUTOPILOT_PACK_RADIUS)
+            if (group.length > pack.length) pack = group
+        }
+        const n = pack.length
+        this.target = null
+        this.lockSpot = {
+            u: pack.reduce((sum, e) => sum + e.u, 0) / n,
+            d: pack.reduce((sum, e) => sum + e.d, 0) / n,
+            y: pack.reduce((sum, e) => sum + this.enemyCentreY(e), 0) / n
+        }
+        this.holding = true
+        return true
+    }
+
+    /** Auto-play fires an ability; each does nothing when it is not ready. */
+    autopilotAbility(id: 'pulse' | 'ping' | 'overclock') {
+        if (id === 'pulse') this.firePulse()
+        else if (id === 'ping') this.firePing()
+        else this.fireOverclock()
+    }
+
     /** Advances the simulation by hand, in frames of `frameMs`. For a test harness only. */
     debugStep(ms: number, frameMs = 16.7) {
         for (let t = 0; t < ms; t += frameMs) this.tick(frameMs)
+    }
+
+    // ─── Database demo ───────────────────────────────────────────────────────
+
+    /**
+     * Mounts this engine as a Database demo: a quiet board that a script
+     * drives. Nothing spawns on its own, the wave never ends, the wall never
+     * falls, and no key or click reaches it — the real game may be running
+     * underneath.
+     */
+    async mountDemo(host: HTMLDivElement, loadout: HackerzLoadout) {
+        this.demo = true
+        await this.mount(host)
+        if (!this.mounted) return false
+        this.startRun({ loadout })
+        this.demoReset()
+        return true
+    }
+
+    /**
+     * Plays a script on the demo board, from the top and on a loop. `say`
+     * hears each line it prints. Every loop is identical: the board, the
+     * rolls and the clock all start over from the same seed.
+     */
+    demoPlay(script: DemoScript, loadout: HackerzLoadout, say: (line: string) => void) {
+        if (!this.demo) return
+        this.demoScript = script
+        this.demoSay = say
+        this.loadout = loadout
+        this.demoReset()
+    }
+
+    /**
+     * Fires the rail for the script: locked on the hostile nearest the fence
+     * (and the next one when it falls), at the hacked node furthest out, or —
+     * with null — not at all.
+     */
+    demoFire(at: 'lead' | 'node' | null) {
+        if (!this.demo) return
+        this.demoFiring = at
+        this.holding = at !== null
+        if (!at) this.target = null
+    }
+
+    /** Sets off one of the rail's abilities for the script, charged or not. */
+    demoAbility(id: 'pulse' | 'overclock' | 'ping') {
+        const loadout = this.loadout
+        if (!this.demo || !loadout) return
+        if (id === 'pulse') {
+            this.pulseCharge = loadout.pulseCooldownMs
+            this.firePulse()
+        } else if (id === 'overclock') {
+            this.overclockLeft = 0
+            this.overclockCharge = loadout.overclockCooldownMs
+            this.fireOverclock()
+        } else {
+            this.firePing(true)
+        }
+    }
+
+    /**
+     * Puts a hostile on the demo board that thinks for itself, as in a wave —
+     * a hacker that goes for the nodes, a daemon that takes up a node's
+     * guard. The board's seeded rolls keep what it decides the same every loop.
+     */
+    demoSpawnFree(id: HackerzEnemyId, u: number, d: number) {
+        if (!this.demo) return
+        this.debugSpawn(id, u, d)
+        const enemy = this.enemies[this.enemies.length - 1]
+        if (enemy) this.demoSettle(enemy)
+    }
+
+    /** Keeps the rail's lock for the script: on the next hostile when its mark falls, or on the outermost hacked node. */
+    private demoAim() {
+        if (this.demoFiring === 'lead') {
+            if (this.target && this.target.hp > 0 && this.enemies.includes(this.target)) return
+            this.target = this.enemies
+                .filter(e => e.hp > 0 && !e.turned && !this.untargetable(e))
+                .sort((a, b) => a.d - b.d)[0] ?? null
+        } else if (this.demoFiring === 'node') {
+            const chip = this.pathChips?.ordered.find(c => c.state === 'hacked')
+            this.target = null
+            if (chip) {
+                this.aimU = chip.u
+                this.aimD = chip.d
+            }
+        }
+    }
+
+    /** Puts the demo board back to a fresh, empty wave over the same seeded board: the script's loop point. */
+    demoReset() {
+        const loadout = this.loadout
+        if (!this.demo || !loadout) return
+        this.demoRng = seededRng(DEMO_SEED)
+        withSeed(this.demoRng, () => {
+            this.clearField()
+            this.pathChips?.reset()
+            this.network = buildNetwork(this.pathChips?.ordered ?? [])
+            this.view?.setNetwork(this.network)
+            this.islands = []
+            this.elapsedTotal = 0
+            this.visualTime = 0
+            this.startWave(1, loadout)
+            this.schedule = []
+            this.waveMs = Infinity
+            // A wave carries the wall's damage over; a demo loop starts whole,
+            // and so do the guns on it: no reload or aim left from the last loop.
+            this.wallHp = this.wallMaxHp
+            this.shield = this.shieldMax
+            // The rail, the barrier's regen clock and the kill chain start fresh too.
+            this.railHeading = Math.PI
+            this.railU = RAIL_U
+            this.railKick = 0
+            this.msSinceWallHit = 99_999
+            this.shieldHit = 0
+            this.chain = 0
+            this.totalKills = 0
+            this.pingCharge = PING_COOLDOWN_MS
+            // Dark zones fade in and out: one lit in the last scene must not still be fading here.
+            for (const zone of this.darkZones) Object.assign(zone, { u: 0, d: 0, r: 0, strength: 0, on: false })
+            this.darkness = 0
+            // Their ground pours rather than jumps, so it is poured back out to the portal: no red left over.
+            this.view?.redLine.fill(FIELD_DEPTH)
+            this.view?.orangeLine.fill(FIELD_DEPTH)
+            // Reused or freshly built, every mount starts as a new one stands: facing home, ready to fire.
+            for (const mount of this.turrets) {
+                mount.cooldown = 0
+                mount.kick = 0
+                mount.heading = Math.PI
+                mount.frozenMs = 0
+            }
+        })
+        this.overlay.clear()
+        this.demoTime = 0
+        this.demoNext = 0
+        this.demoAccumMs = 0
+        this.demoFocus = null
+        this.demoZoom = 1
+        this.demoSnap = true
+        this.demoFire(null)
+        this.demoSay?.('')
+    }
+
+    /**
+     * A demo board steps at a fixed rate, whatever the display does, and its
+     * script fires on that clock — so a slow frame never changes what happens.
+     */
+    private demoFrame(rawMs: number) {
+        // The models' clock is shared with the game that may be running
+        // underneath: the demo drives it on its own time while it steps (its
+        // poses are part of what it replays), then hands the game's back.
+        const gameClock = modelClock.value
+        try {
+            this.demoSteps(rawMs)
+        } finally {
+            modelClock.value = gameClock
+        }
+    }
+
+    private demoSteps(rawMs: number) {
+        this.demoAccumMs = Math.min(this.demoAccumMs + rawMs, DEMO_STEP_MS * 4)
+        while (this.demoAccumMs >= DEMO_STEP_MS) {
+            this.demoAccumMs -= DEMO_STEP_MS
+            const script = this.demoScript
+            if (script && this.demoTime >= script.length) this.demoReset()
+            const rng = this.demoRng
+            if (!rng) return
+            withSeed(rng, () => {
+                this.demoTime += DEMO_STEP_MS
+                const steps = this.demoScript?.steps ?? []
+                while (this.demoNext < steps.length && steps[this.demoNext]!.at <= this.demoTime) {
+                    const step = steps[this.demoNext++]!
+                    if (step.say !== undefined) this.demoSay?.(step.say)
+                    step.run?.(this)
+                }
+                this.demoAim()
+                this.tick(DEMO_STEP_MS)
+            })
+        }
+    }
+
+    /**
+     * Points the demo camera at a spot on the board, or back to following the
+     * hostiles with null. `zoom` above 1 pulls it back to take in more: the
+     * fence and the guns on it, or a run of nodes.
+     */
+    demoLook(at: { u: number, d: number } | null, zoom = 1) {
+        this.demoFocus = at
+        this.demoZoom = zoom
+    }
+
+    /**
+     * The demo's camera: in close behind whatever the script is showing — a
+     * spot it named, or else the middle of the hostiles on the board — and
+     * easing after it as they move.
+     */
+    private demoCamera(dt: number) {
+        const view = this.view
+        if (!view) return
+        let u = 0
+        let d = FIELD_DEPTH * 0.5
+        const live = this.enemies.filter(e => e.hp > 0)
+        if (this.demoFocus) {
+            u = this.demoFocus.u
+            d = this.demoFocus.d
+        } else if (live.length) {
+            u = live.reduce((sum, e) => sum + e.u, 0) / live.length
+            d = live.reduce((sum, e) => sum + e.d, 0) / live.length
+        }
+        const aim = fieldToWorld(u, d, 0, _v)
+        view.cameraTarget.lerp(aim, this.demoSnap ? 1 : 1 - Math.exp(-dt * 2.2))
+        view.cameraHome.copy(view.cameraTarget).addScaledVector(DEMO_CAMERA_OFFSET, this.demoZoom)
+        this.demoSnap = false
+    }
+
+    /**
+     * Puts a hostile on the demo board at the first waypoint of `path`; it
+     * walks the rest in order, off the network and out of its own judgement.
+     */
+    demoSpawn(id: HackerzEnemyId, path: { u: number, d: number }[]) {
+        const start = path[0]
+        if (!this.demo || !start) return
+        // Set down where it stands, as a hatching spiderling is: it resolves out
+        // of the dark on the spot, and the portal shows nothing of it.
+        this.spawn(hackerzEnemy(id), false, 1, start)
+        const enemy = this.enemies[this.enemies.length - 1]
+        if (!enemy) return
+        enemy.route = null
+        enemy.demoPath = path.slice(1).map(point => ({ ...point }))
+        this.demoSettle(enemy)
+        this.placeEnemy(enemy)
+    }
+
+    /**
+     * A spawn starts its walk cycle and a flyer its bob at a cosmetic random
+     * phase; on a demo board those come from the seeded roll too — a flyer's
+     * bob is where shots aim — so the replay matches.
+     */
+    private demoSettle(enemy: EnemyEntity) {
+        enemy.stride = randomFloat() * Math.PI * 2
+        enemy.hover = randomFloat() * Math.PI * 2
+    }
+
+    /** Hands the `count` outermost nodes to the intrusion. */
+    demoHack(count: number) {
+        const chips = this.pathChips
+        if (!this.demo || !chips) return
+        const taken = chips.ordered.slice(0, count)
+        for (const chip of taken) chips.landPulse(chip, 1)
+        if (taken.length) {
+            this.demoLook({
+                u: taken.reduce((sum, chip) => sum + chip.u, 0) / taken.length,
+                d: taken.reduce((sum, chip) => sum + chip.d, 0) / taken.length
+            })
+        }
+    }
+
+    /**
+     * Uses a deployable on the demo board as a player would: placed at (u, d),
+     * fired on the spot when it has nothing to aim, or — a White Hat — put on
+     * the hostile nearest (u, d). The demo's stock never runs out.
+     */
+    demoDeploy(id: HackerzDeployableId, u: number, d: number) {
+        if (!this.demo) return
+        this.stock[id] = HACKERZ_DEPLOYABLE_MAX
+        if (hackerzDeployable(id).instant) {
+            this.useInstant(id)
+            return
+        }
+        if (id === 'whitehat') {
+            const pick = this.enemies
+                .filter(e => this.turnable(e))
+                .sort((a, b) => Math.hypot(a.u - u, a.d - d) - Math.hypot(b.u - u, b.d - d))[0]
+            this.useWhiteHat(pick ?? null)
+            return
+        }
+        // Exactly where the script says: no snapping to a line or a node.
+        this.drop(id, u, d, null)
     }
 
     private loop = (now: number) => {
@@ -524,7 +1146,8 @@ export class HackerzGame {
         this.raf = requestAnimationFrame(this.loop)
         const rawMs = now - this.lastTime
         this.lastTime = now
-        this.tick(rawMs)
+        if (this.demo) this.demoFrame(rawMs)
+        else this.tick(rawMs)
     }
 
     // ─── Input ───────────────────────────────────────────────────────────────
@@ -563,6 +1186,11 @@ export class HackerzGame {
             }
             if (event.button !== 0) return
             const p = local(event)
+            // A White Hat is aimed at a hostile, not at the ground.
+            if (this.armed === 'whitehat') {
+                this.useWhiteHat(this.pickEnemy(p.x, p.y))
+                return
+            }
             if (this.armed) {
                 this.setAimFromScreen(p.x, p.y)
                 this.placeArmed()
@@ -604,7 +1232,9 @@ export class HackerzGame {
                 this.arm(null)
             }
             const deploy = DEPLOY_KEYS[key]
-            if (deploy) this.arm(this.armed === deploy ? null : deploy)
+            // One with nothing to aim (a Portscan, a Cosmic Blip) goes off at once.
+            if (deploy && hackerzDeployable(deploy).instant) this.useInstant(deploy)
+            else if (deploy) this.arm(this.armed === deploy ? null : deploy)
             if (key === ' ') {
                 // Space scrolls the page by default, which is fatal for a key
                 // the player mashes under pressure.
@@ -661,7 +1291,8 @@ export class HackerzGame {
         let best: EnemyEntity | null = null
         const screen = { x: 0, y: 0 }
         for (const enemy of this.enemies) {
-            if (this.untouchable(enemy)) continue
+            // Nothing in the dark can be picked out to lock on: fire blind instead.
+            if (this.untargetable(enemy)) continue
             const root = enemy.rig.root
             root.updateMatrixWorld()
             const box = enemy.rig.box
@@ -752,6 +1383,7 @@ export class HackerzGame {
         this.magSize = Math.round(loadout.weapon.magazine)
         this.mag = this.magSize
         this.reloadTimer = 0
+        this.tarpitDrain = 0
         this.slots = loadout.slots
         this.syncTurrets()
         this.emitWall()
@@ -781,6 +1413,7 @@ export class HackerzGame {
             }
         }
         this.bonus = event
+        if (event) this.sight(event)
         this.finalPush = false
         this.hackerTimer = 0
         this.hackerField = 0
@@ -805,6 +1438,7 @@ export class HackerzGame {
         this.magSize = Math.round(loadout.weapon.magazine)
         this.mag = this.magSize
         this.reloadTimer = 0
+        this.tarpitDrain = 0
         this.fireTimer = 0
         this.pulseCharge = loadout.pulseCooldownMs
         this.overclockCharge = loadout.overclockCooldownMs
@@ -924,7 +1558,8 @@ export class HackerzGame {
     }
 
     private showGhost(id: HackerzDeployableId | null) {
-        if (!id) {
+        // A White Hat picks a hostile: no patch of ground to preview.
+        if (!id || id === 'whitehat') {
             this.deployables?.setGhost(null)
             return
         }
@@ -937,17 +1572,265 @@ export class HackerzGame {
         const deployables = this.deployables
         if (!id || !deployables || !this.running || this.purging || this.paused || this.stock[id] <= 0) return
         const { u, d, chip } = this.deploySpot(id)
-        const item = deployables.place(id, u, d, this.wave, chip?.id ?? null)
+        this.drop(id, u, d, chip)
+        // One click, one drop: placing another means pressing the key again.
+        this.arm(null)
+    }
+
+    /** Puts a deployable down at (u, d), wired onto `chip` if given, and spends one. */
+    private drop(id: HackerzDeployableId, u: number, d: number, chip: PathChip | null) {
+        // A Power Surge is a field the engine runs; the rest are props the deployables keep.
+        if (id === 'surge') this.placeSurge(u, d)
+        else this.deployables?.place(id, u, d, this.wave, chip?.id ?? null)
+        const hex = hackerzDeployable(id).hex
         this.stock[id]--
         this.callbacks.onDeploy?.(id, this.stock[id])
         this.sysLog.deploy(id, chip?.id ?? null)
         const at = fieldToWorld(u, d, 0.2, new THREE.Vector3())
-        this.transient?.ring(at, item.hex, 4, 0.4)
-        this.particles.burst(at, item.hex, 30, 9, { size: 0.3, life: 0.6 })
-        this.view?.addSurge(at.x, at.z, item.hex, 1.2)
+        this.transient?.ring(at, hex, 4, 0.4)
+        this.particles.burst(at, hex, 30, 9, { size: 0.3, life: 0.6 })
+        this.view?.addSurge(at.x, at.z, hex, 1.2)
         this.callbacks.onSound?.('weapon-swap')
-        // One click, one drop: placing another means pressing the key again.
+    }
+
+    // ─── Consumables: Portscan, Cosmic Blip, White Hat, Power Surge ──────────
+
+    /**
+     * A deployable with nothing to aim goes off the moment its key is pressed.
+     * One that would do nothing right now (no node to flip back) is kept.
+     */
+    private useInstant(id: HackerzDeployableId) {
+        const loadout = this.loadout
+        if (!loadout || !this.running || this.purging || this.paused) return
+        if (this.stock[id] <= 0) {
+            this.callbacks.onNotice(`No ${hackerzDeployable(id).name} left — buy them at the uplink.`, 'info')
+            return
+        }
+        if (id === 'portscan') {
+            this.portscanLeft = loadout.portscanMs
+            this.rescanMs = HACKERZ_PORTSCAN_REPING_MS
+            this.firePing(true)
+            this.sysLog.deploy(id, null)
+        } else if (id === 'blip') {
+            if (!this.cosmicBlip(loadout.blipNodes)) return
+        } else return
+        this.stock[id]--
+        this.callbacks.onDeploy?.(id, this.stock[id])
+        this.callbacks.onSound?.('weapon-swap')
+    }
+
+    /**
+     * The Portscan keeps the radar sweeping: whenever the last contacts have
+     * faded, it pings again a moment later, until it runs out.
+     */
+    private updatePortscan(dtMs: number) {
+        if (this.portscanLeft <= 0) return
+        this.portscanLeft = Math.max(0, this.portscanLeft - dtMs)
+        if (this.portscanLeft <= 0) return
+        const lit = this.enemies.some(e => e.revealMs > 0 || e.pingDelay >= 0)
+        if (lit) {
+            this.rescanMs = HACKERZ_PORTSCAN_REPING_MS
+            return
+        }
+        this.rescanMs -= dtMs
+        if (this.rescanMs > 0) return
+        this.rescanMs = HACKERZ_PORTSCAN_REPING_MS
+        this.firePing(true)
+    }
+
+    /** A Cosmic Blip: `count` hacked nodes, picked at random, flipped straight back to us. False when there are none. */
+    private cosmicBlip(count: number) {
+        const chips = this.pathChips
+        const hacked = chips && !chips.locked ? chips.chips.filter(chip => chip.state === 'hacked') : []
+        if (!hacked.length) {
+            this.callbacks.onNotice(chips?.locked ? 'The flood holds every node — nothing for a blip to flip.' : 'No hacked node to flip back.', 'info')
+            return false
+        }
+        let flipped = 0
+        for (let n = 0; n < count && hacked.length; n++) {
+            const chip = hacked.splice(randomInt(0, hacked.length - 1), 1)[0]!
+            if (!chips!.reclaim(chip)) continue
+            flipped++
+            const at = fieldToWorld(chip.u, chip.d, 0.4, new THREE.Vector3())
+            // Out of the sky: a white streak straight down onto the node.
+            this.transient?.beam(fieldToWorld(chip.u, chip.d, 30, new THREE.Vector3()), at, 0xe0f2fe, 0.4)
+            this.transient?.ring(at, CYAN, 6, 0.55)
+            this.particles.burst(at, CYAN, 34, 10, { size: 0.32, life: 0.7 })
+            this.view?.addSurge(at.x, at.z, CYAN, 1.6)
+            this.pulseFromChip(chip)
+        }
+        this.sysLog.blip(flipped)
+        return flipped > 0
+    }
+
+    /**
+     * A White Hat: the hostile clicked (never a boss), and as many of the
+     * nearest others as the Mainframe allows, switch sides for good.
+     */
+    private useWhiteHat(picked: EnemyEntity | null) {
+        const loadout = this.loadout
+        if (!loadout || !this.running || this.purging || this.paused || this.stock.whitehat <= 0) return
+        if (!picked || !this.turnable(picked)) {
+            this.callbacks.onNotice(picked?.def.boss ? 'A boss cannot be turned.' : 'Click a hostile to turn it.', 'info')
+            return
+        }
+        const turned = [picked]
+        const others = this.enemies
+            .filter(e => e !== picked && this.turnable(e))
+            .sort((a, b) => Math.hypot(a.u - picked.u, a.d - picked.d) - Math.hypot(b.u - picked.u, b.d - picked.d))
+        turned.push(...others.slice(0, loadout.whitehatTargets - 1))
+        for (const enemy of turned) this.turnEnemy(enemy)
+        this.stock.whitehat--
+        this.callbacks.onDeploy?.('whitehat', this.stock.whitehat)
+        this.sysLog.whiteHat(turned.length)
+        this.callbacks.onSound?.('coin-pickup')
         this.arm(null)
+    }
+
+    /** A hostile a White Hat can take: not a boss, not a copy, not one already ours, not one out of reach. */
+    private turnable(enemy: EnemyEntity) {
+        return !enemy.def.boss && !enemy.decoy && !enemy.turned && enemy.hp > 0 && !this.untargetable(enemy)
+    }
+
+    /** It switches sides: drops whatever job it had, and is marked white. */
+    private turnEnemy(enemy: EnemyEntity) {
+        enemy.turned = true
+        if (enemy.hacking) this.stopHacking(enemy)
+        // Every job it had for them is dropped: no more guarding, escorting or shield-bearing.
+        enemy.escorting = null
+        enemy.defending = null
+        enemy.bearer = false
+        enemy.parked = null
+        enemy.healing = null
+        if (this.target === enemy) this.target = null
+        const halo = new THREE.Mesh(new THREE.RingGeometry(0.8, 1, 32).rotateX(-Math.PI / 2),
+            new THREE.MeshBasicMaterial({ color: hdr(0xffffff, 2), toneMapped: false, transparent: true, opacity: 0.8, depthWrite: false }))
+        halo.scale.setScalar(Math.max(0.6, enemy.rig.height * 0.4))
+        halo.position.y = 0.05
+        enemy.rig.root.add(halo)
+        const at = this.enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
+        this.particles.burst(at, 0xffffff, 24, 8, { size: 0.26, life: 0.6 })
+        this.transient?.ring(at, 0xffffff, 3, 0.4)
+        this.overlay.floatText(this.enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v), 'WHITE HAT', 0xffffff, 1.1)
+    }
+
+    /** What a turned unit, or a hostile it is brawling with, hits for: its own heft, not its wall damage. */
+    private brawlHit(enemy: EnemyEntity) {
+        return enemy.maxHp * 0.12 + enemy.damage * 3
+    }
+
+    /** The hostile a turned unit goes for: the nearest one it can reach. */
+    private turnedFoe(enemy: EnemyEntity) {
+        let best: EnemyEntity | null = null
+        let bestDistance = Infinity
+        for (const other of this.enemies) {
+            if (other === enemy || other.turned || other.hp <= 0 || other.burrowMs > 0) continue
+            // A turned unit on foot cannot reach a flyer.
+            if (hackerzIsAirborne(other.def) && !hackerzIsAirborne(enemy.def)) continue
+            const distance = Math.hypot(other.u - enemy.u, other.d - enemy.d)
+            if (distance < bestDistance) {
+                best = other
+                bestDistance = distance
+            }
+        }
+        return best
+    }
+
+    /** A turned unit's move: after the nearest hostile, and a blow every attack beat once it is there. */
+    private turnedStep(enemy: EnemyEntity, dt: number, dtMs: number) {
+        const foe = this.turnedFoe(enemy)
+        if (!foe) return { moved: 0, arrived: false }
+        const du = foe.u - enemy.u
+        const dd = foe.d - enemy.d
+        const dist = Math.hypot(du, dd)
+        const reach = enemy.radius + foe.radius + 10
+        let moved = 0
+        if (dist > reach) {
+            moved = Math.min(dist - reach, enemy.speed * this.pushSpeed * dt)
+            enemy.u += du / dist * moved
+            enemy.d += dd / dist * moved
+            enemy.yaw = Math.atan2(du, -dd)
+        } else {
+            enemy.attackTimer -= dtMs
+            if (enemy.attackTimer <= 0) {
+                enemy.attackTimer = enemy.def.attackMs
+                enemy.strike = 1
+                this.damageEnemy(foe, this.brawlHit(enemy), 'kinetic', true, true)
+                const at = this.enemyWorld(foe, foe.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
+                this.particles.burst(at, 0xffffff, 8, 6, { size: 0.22, life: 0.3 })
+            }
+        }
+        return { moved, arrived: false }
+    }
+
+    /**
+     * A hostile with a turned unit in its face fights it instead of pressing on:
+     * stands, and hits it every attack beat. Null when none is close enough.
+     */
+    private brawlStep(enemy: EnemyEntity, dtMs: number) {
+        if (enemy.turned || enemy.def.boss) return null
+        let foe: EnemyEntity | null = null
+        for (const other of this.enemies) {
+            if (!other.turned || other.hp <= 0) continue
+            if (Math.hypot(other.u - enemy.u, other.d - enemy.d) <= enemy.radius + other.radius + 12) {
+                foe = other
+                break
+            }
+        }
+        if (!foe) return null
+        enemy.attackTimer -= dtMs
+        if (enemy.attackTimer <= 0) {
+            enemy.attackTimer = enemy.def.attackMs
+            enemy.strike = 1
+            this.damageEnemy(foe, this.brawlHit(enemy), 'kinetic', true, false)
+        }
+        return { moved: 0, arrived: false }
+    }
+
+    /** A Power Surge laid on the grid at (u, d). */
+    private placeSurge(u: number, d: number) {
+        const loadout = this.loadout
+        if (!loadout) return
+        this.surges.push({ u, d, leftMs: loadout.surgeMs, arcMs: 0, ringMs: 0 })
+    }
+
+    /** Every Power Surge on the grid: arcs into the hostiles inside it, a few at a time, until it runs out. */
+    private updateSurges(dtMs: number) {
+        if (!this.surges.length) return
+        const stats = hackerzDeployableStats(this.wave).surge
+        const hex = hackerzDeployable('surge').hex
+        for (let i = this.surges.length - 1; i >= 0; i--) {
+            const surge = this.surges[i]!
+            surge.leftMs -= dtMs
+            if (surge.leftMs <= 0) {
+                this.surges.splice(i, 1)
+                continue
+            }
+            // The field itself: a ring breathing on the grid, and stray sparks across it.
+            surge.ringMs -= dtMs
+            if (surge.ringMs <= 0) {
+                surge.ringMs = 600
+                this.transient?.ring(fieldToWorld(surge.u, surge.d, 0.08, _v), hex, stats.radius * FIELD_SCALE, 0.5, 0.6)
+            }
+            const centre = fieldToWorld(surge.u, surge.d, 0.3, new THREE.Vector3())
+            if (Math.random() < dtMs / 1000 * 8) {
+                const a = Math.random() * Math.PI * 2
+                const r = Math.random() * stats.radius
+                this.transient?.bolt(centre, fieldToWorld(surge.u + Math.cos(a) * r, surge.d + Math.sin(a) * r, 0.1, new THREE.Vector3()), hex)
+            }
+            surge.arcMs -= dtMs
+            if (surge.arcMs > 0) continue
+            surge.arcMs += stats.arcMs
+            const inside = this.enemies.filter(e => !e.turned && e.hp > 0 && !this.untouchable(e)
+                && Math.hypot(e.u - surge.u, e.d - surge.d) <= stats.radius)
+            for (let n = 0; n < stats.arcs && inside.length; n++) {
+                const enemy = inside.splice(randomInt(0, inside.length - 1), 1)[0]!
+                this.damageEnemy(enemy, stats.damage, 'energy', true, true)
+                const at = this.enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
+                this.transient?.bolt(centre, at, hex)
+                this.particles.burst(at, hex, 5, 6, { size: 0.2, life: 0.25 })
+            }
+        }
     }
 
     /** A honeypot or logic bomb goes off: everything in the radius takes it, falling off to half at the edge. */
@@ -993,6 +1876,13 @@ export class HackerzGame {
             this.particles.burst(at, broken.hex, 50, 12, { size: 0.3, life: 0.6 })
             if (broken.hp <= 0) this.overlay.floatText(at, 'PROXY DOWN', broken.hex, 1.1)
         }
+    }
+
+    /** Reports a hostile type or bonus round the first time it turns up; a demo board never does. */
+    private sight(id: string) {
+        if (this.demo || this.sighted.has(id)) return
+        this.sighted.add(id)
+        this.callbacks.onSighted?.(id)
     }
 
     /** Uplink purchase — patches the wall back to full between waves. */
@@ -1157,7 +2047,7 @@ export class HackerzGame {
                 }
             }
             // As `spawn` sizes it: wave and difficulty scaling, halved for the flood.
-            health += def.hp * hackerzHpMultiplier(wave) * difficulty.enemyHp * 0.5
+            health += def.hp * hackerzHpMultiplier(wave) * hackerzWaveEnemyHp(difficulty, wave) * 0.5
             surge.push({ atMs: start + randomFloat() * (end - start), def })
         }
         // At the cap the units get tougher instead of more numerous, so even a
@@ -1179,7 +2069,7 @@ export class HackerzGame {
         const difficulty = this.loadout?.difficulty
         const light = pool.filter(def => !this.isHeavy(def))
         if (!difficulty || !light.length) return []
-        const health = (def: HackerzEnemyDefinition) => def.hp * hackerzHpMultiplier(wave) * difficulty.enemyHp
+        const health = (def: HackerzEnemyDefinition) => def.hp * hackerzHpMultiplier(wave) * hackerzWaveEnemyHp(difficulty, wave)
         const at = () => randomFloat() * window
         const swarm: ScheduledSpawn[] = picks.filter(def => !this.isHeavy(def)).map(def => ({ atMs: at(), def }))
         const total = [...picks, ...swarm.map(s => s.def)].reduce((sum, def) => sum + health(def), 0)
@@ -1232,6 +2122,7 @@ export class HackerzGame {
         this.muteFx(frozen)
         const seen = frozen ? 0 : dt
         if (!frozen) this.visualTime += dtMs
+        // The model clock is shared; a demo board hands it back after its own steps (see `demoFrame`).
         modelClock.value = this.visualTime / 1000
         if (live) {
             if (this.running && !this.purging) {
@@ -1240,11 +2131,15 @@ export class HackerzGame {
                 if (!frozen) this.waveElapsed += dtMs
                 this.sysLog.tick(this.waveElapsed, this.enemies.length)
                 this.releaseScheduled()
-                this.maintainHackers(dtMs)
-                this.maintainDistraction(dtMs)
-                this.maintainBearers(dtMs)
+                // A demo board brings on only what its script spawns.
+                if (!this.demo) {
+                    this.maintainHackers(dtMs)
+                    this.maintainDistraction(dtMs)
+                    this.maintainBearers(dtMs)
+                    this.maintainEscorts(dtMs)
+                }
                 this.maintainDefenders()
-                this.maintainEscorts(dtMs)
+                this.hatchInfected(dtMs)
                 this.updateWeapon(dtMs)
                 this.updateAbilities(dtMs)
                 if (!this.finalPush && this.waveElapsed >= this.waveMs - FINAL_PUSH_MS) this.beginFinalPush()
@@ -1254,12 +2149,17 @@ export class HackerzGame {
             this.updateEnemies(dt, dtMs)
             this.updateBullets(dt)
             this.updateSpits(dt)
+            this.updateIce(dt)
+            if (this.running && !this.purging) this.updateSurges(dtMs)
             this.updateTurrets(dtMs, frozen)
             this.updateCoins(frozen ? 0 : dtMs)
             this.updateBastion(dt, dtMs)
+            this.updateLeaks(dt, frozen ? 0 : dtMs)
             this.updateHackPulses(dt)
             this.pathChips?.update(seen)
             this.linePulses?.update(seen, (u, d) => this.pulseFade(u, d))
+            this.shrapnel?.update(seen)
+        this.glitchClouds?.update(seen)
             this.particles.update(seen)
             this.transient?.update(seen)
         }
@@ -1274,7 +2174,8 @@ export class HackerzGame {
         this.updateDying(live ? seen : 0)
         view.ageSurges(live ? seen : 0)
 
-        view.trapMaterial.uniforms.uLevel!.value = (this.loadout?.spikeDps ?? 0) > 0 ? 1 : 0
+        // The grid goes dark while the gun reloads: it has no power then.
+        view.trapMaterial.uniforms.uLevel!.value = (this.loadout?.spikeDps ?? 0) > 0 && this.tarpitPowered ? 1 : 0
         view.shieldMaterial.uniforms.uStrength!.value = this.shieldMax > 0 ? this.shield / this.shieldMax : 0
         view.shieldMaterial.uniforms.uHit!.value = this.shieldHit
         // With every node theirs the ground right up to the deck and the barrier
@@ -1287,12 +2188,16 @@ export class HackerzGame {
         const dark = this.bonus === 'blackout' && this.running ? 1 : 0
         this.darkness += (dark - this.darkness) * Math.min(1, dt * 1.2)
         view.renderer.toneMappingExposure = 1.05 - 0.5 * this.darkness
+        // The hostiles' shroud follows the same dark: the zones, and the Blackout.
+        shroud.dark.value = view.darkZones
+        shroud.blackout.value.set(this.darkness, -BLACKOUT_LIGHT_D * FIELD_SCALE)
         const fog = view.scene.fog as THREE.Fog | null
         if (fog) {
             fog.near = 45 - 27 * this.darkness
             fog.far = 120 - 58 * this.darkness
         }
 
+        if (this.demo) this.demoCamera(dt)
         view.render(frozen ? 0 : dt, this.shake)
         this.drawOverlay(frozen ? 0 : dt)
 
@@ -1461,8 +2366,13 @@ export class HackerzGame {
         this.overlay.muted = on
     }
 
+    /**
+     * The board's lag spikes: PACKET LOSS throws them on its own timer, and a
+     * glob of BLACK ICE on the rail throws one any time (see `lagSpike`).
+     */
     private updateBoardLag(dtMs: number) {
-        if (this.bonus !== 'packetloss' || !this.running) {
+        const packetLoss = this.bonus === 'packetloss'
+        if (!this.running || (!packetLoss && this.boardLagMs <= 0 && this.lagCatchUpMs <= 0)) {
             this.boardLagMs = 0
             this.lagCatchUpMs = 0
             return
@@ -1484,8 +2394,15 @@ export class HackerzGame {
             this.lagCatchUpMs = LAG_CATCH_UP_MS
             return
         }
+        if (!packetLoss) return
         this.boardLagTimer -= dtMs
         if (this.boardLagTimer > 0) return
+        this.lagSpike()
+    }
+
+    /** The picture freezes: the board holds while everything on it carries on, then jumps to catch up. */
+    private lagSpike() {
+        if (this.boardLagMs > 0) return
         this.boardLagMs = LAG_FREEZE_MS * (0.6 + randomFloat() * 0.8)
         this.sysLog.lagSpike()
         // The spike drops the lock: the rail keeps firing at the last spot it
@@ -1554,7 +2471,9 @@ export class HackerzGame {
                 if (Math.hypot(enemy.u - chip.u, enemy.d - chip.d) > DEFEND_RADIUS) continue
                 if (!pick || enemy.maxHp < pick.maxHp) pick = enemy
             }
-            if (pick) pick.defending = chip
+            if (!pick) continue
+            pick.defending = chip
+            this.sight('defender')
         }
     }
 
@@ -1579,6 +2498,7 @@ export class HackerzGame {
             if (hacker.def.id !== HACKERZ_HACKER_ID || hacker.decoy) continue
             const want = wanted(hacker)
             let guards = this.enemies.filter(e => e.escorting === hacker).length
+            if (guards > 0) this.sight('bodyguard')
             while (guards < want) {
                 // A hacker pushing past the gate drags one of the node
                 // defenders along as its shield before it drafts anyone else.
@@ -1635,7 +2555,7 @@ export class HackerzGame {
         let best: EnemyEntity | null = null
         let bestDistance = ESCORT_REACH
         for (const enemy of this.enemies) {
-            if (enemy.escorting || enemy.defending || enemy.bearer || enemy.decoy || enemy.def.boss || enemy.def.armored) continue
+            if (enemy.escorting || enemy.defending || enemy.bearer || enemy.turned || enemy.decoy || enemy.def.boss || enemy.def.armored) continue
             if (enemy.def.kind !== 'walker' || enemy.def.id === HACKERZ_HACKER_ID || enemy.def.cloaked || enemy.burrowMs > 0) continue
             const distance = Math.hypot(enemy.u - hacker.u, enemy.d - hacker.d)
             if (distance >= bestDistance) continue
@@ -1657,13 +2577,20 @@ export class HackerzGame {
         const du = RAIL_U - hacker.u
         const dd = MUZZLE_D - hacker.d
         const length = Math.hypot(du, dd) || 1
-        const ahead = ESCORT_AHEAD + rank * ESCORT_SPACING
+        // Bodies are solid: the guard stands clear of its hacker's nose, and a
+        // second guard clear of the first — by their real size along the line.
+        const reach = (e: EnemyEntity) => {
+            const foot = this.footprint(e)
+            return Math.abs(du / length) * foot.u + Math.abs(dd / length) * foot.d
+        }
+        const depth = reach(enemy)
+        const ahead = reach(hacker) + depth + CROWD_GAP + rank * (depth * 2 + CROWD_GAP)
         return { u: hacker.u + du / length * ahead, d: Math.max(20, hacker.d + dd / length * ahead) }
     }
 
-    /** Who may stand guard at a node: any free walker but the hackers, the bearers and the bosses. */
+    /** Who may stand guard at a node: any free walker but the hackers, the bearers, the bosses and the turned. */
     private canDefend(enemy: EnemyEntity) {
-        return !enemy.defending && !enemy.escorting && !enemy.bearer && !enemy.decoy && !enemy.def.boss
+        return !enemy.defending && !enemy.escorting && !enemy.bearer && !enemy.turned && !enemy.decoy && !enemy.def.boss && !enemy.demoPath
             && enemy.def.id !== HACKERZ_HACKER_ID && !hackerzIsAirborne(enemy.def) && enemy.burrowMs <= 0
     }
 
@@ -1671,7 +2598,10 @@ export class HackerzGame {
     private defenderPost(enemy: EnemyEntity) {
         const chip = enemy.defending
         if (!chip || chip.state !== 'hacked') return null
-        return { u: chip.u, d: Math.max(30, chip.d - DEFEND_AHEAD) }
+        // In front of the hackers working the node, not among them: past the
+        // furthest a hacker stands to work it, by the defender's own depth.
+        const ahead = Math.max(DEFEND_AHEAD, HACK_REACH + this.footprint(enemy).d + CROWD_GAP)
+        return { u: chip.u, d: Math.max(30, chip.d - ahead) }
     }
 
     /** The frontier node with the fewest bearers on it. */
@@ -1807,6 +2737,121 @@ export class HackerzGame {
         return false
     }
 
+    /**
+     * A demo unit walks the waypoints its script gave it instead of thinking
+     * for itself, but the board still has its say: a honeypot in range draws
+     * it in, a proxy wall stops it at its line, and the fence stops it at its
+     * standoff. Arrived once it is where its blows land.
+     */
+    private puppetStep(enemy: EnemyEntity, goal: RouteGoal, hold: Hold | null, dt: number) {
+        // Held at a proxy wall's line, the crowd behind cannot shove it through.
+        if (hold && hold.target.kind !== 'honeypot') enemy.d = Math.max(enemy.d, goal.stopD)
+        // `walkTo` settles a step short of its mark, so the line counts from just behind it.
+        if (goal.near?.(enemy.u, enemy.d) || enemy.d <= goal.stopD + PUPPET_SETTLE) return { moved: 0, arrived: true }
+        if (hold?.target.kind === 'honeypot') return { moved: this.walkTo(enemy, hold.target.u, hold.target.d, dt), arrived: false }
+        const path = enemy.demoPath!
+        while (path.length > 1 && Math.hypot(path[0]!.u - enemy.u, path[0]!.d - enemy.d) < 3) path.shift()
+        const next = path[0]
+        if (!next) return { moved: 0, arrived: false }
+        return { moved: this.walkTo(enemy, next.u, Math.max(next.d, goal.stopD), dt), arrived: false }
+    }
+
+    /**
+     * The parking row's measures, from a hacker's own size: how far apart
+     * the slots are (room to swing round between two parked neighbours), and
+     * how far behind the row the lane runs (room to drive past them, and to
+     * turn in).
+     */
+    private parkingRow(enemy: EnemyEntity) {
+        const box = enemy.rig.box
+        const halfX = Math.max(Math.abs(box.min.x), Math.abs(box.max.x)) * PER_WORLD
+        const halfZ = Math.max(Math.abs(box.min.z), Math.abs(box.max.z)) * PER_WORLD
+        // Half its extent at its widest, mid-turn.
+        const swing = Math.SQRT1_2 * (halfX + halfZ)
+        return { spacing: swing + halfX + CROWD_GAP * 2, lane: halfZ + swing + CROWD_GAP * 3 }
+    }
+
+    /** Where parking slot `index` (−HACK_SLOT_SIDE … HACK_SLOT_SIDE) behind a node lies. */
+    private slotAt(enemy: EnemyEntity, node: PathChip, index: number) {
+        return { u: node.u + index * this.parkingRow(enemy).spacing, d: node.d + HACK_ROW_BACK }
+    }
+
+    /**
+     * A hacker's slot at its node: kept once taken. The first to arrive takes
+     * the slot nearest it; each after takes the free slot next to one already
+     * taken, nearest it — so they park side by side. Null with none free.
+     */
+    private hackSlotFor(enemy: EnemyEntity, node: PathChip) {
+        if (enemy.hackSlot?.chip === node) return enemy.hackSlot
+        const taken = new Set(this.enemies.filter(e => e !== enemy && e.hackSlot?.chip === node).map(e => e.hackSlot!.index))
+        let best: number | null = null
+        let bestDistance = Infinity
+        for (let index = -HACK_SLOT_SIDE; index <= HACK_SLOT_SIDE; index++) {
+            if (taken.has(index)) continue
+            if (taken.size && !taken.has(index - 1) && !taken.has(index + 1)) continue
+            const spot = this.slotAt(enemy, node, index)
+            if (Math.abs(spot.u) > FIELD_HALF_WIDTH - 20) continue
+            const distance = Math.hypot(spot.u - enemy.u, spot.d - enemy.d)
+            if (distance < bestDistance) {
+                bestDistance = distance
+                best = index
+            }
+        }
+        enemy.hackSlot = best === null ? null : { chip: node, index: best, stage: 'lane' }
+        return enemy.hackSlot
+    }
+
+    /**
+     * A hacker near its node parks in its slot, smoothly and from behind:
+     * onto the lane behind the row (round the end of the row if it is in
+     * front of it), along the lane past the ones already parked to its slot,
+     * then it turns to face the fence and pulls straight in. Null while it is
+     * still too far off, or no slot is free.
+     */
+    private parkStep(enemy: EnemyEntity, node: PathChip, dt: number) {
+        const from = Math.hypot(enemy.u - node.u, enemy.d - node.d)
+        // Thrown well clear (a zap, a shove) it gives the slot up and rides back on the lines.
+        if (from > HACK_PARK_FROM + (enemy.hackSlot?.chip === node ? 80 : 0)) {
+            enemy.hackSlot = null
+            return null
+        }
+        const slot = this.hackSlotFor(enemy, node)
+        if (!slot) return null
+        const row = this.parkingRow(enemy)
+        const spot = this.slotAt(enemy, node, slot.index)
+        const laneD = spot.d + row.lane
+        if (slot.stage === 'in') {
+            if (Math.hypot(spot.u - enemy.u, spot.d - enemy.d) < 3) {
+                enemy.yaw = turnToward(enemy.yaw, YAW_DOWN, dt * 8)
+                return { moved: 0, arrived: true }
+            }
+            return { moved: this.walkTo(enemy, spot.u, spot.d, dt), arrived: false }
+        }
+        if (slot.stage === 'turn') {
+            enemy.yaw = turnToward(enemy.yaw, YAW_DOWN, dt * 6)
+            if (Math.abs(Math.atan2(Math.sin(enemy.yaw - YAW_DOWN), Math.cos(enemy.yaw - YAW_DOWN))) < 0.03) slot.stage = 'in'
+            return { moved: 0, arrived: false }
+        }
+        // On the lane, level with its slot: turn in.
+        if (Math.abs(enemy.u - spot.u) < 3 && Math.abs(enemy.d - laneD) < 3) {
+            slot.stage = 'turn'
+            return { moved: 0, arrived: false }
+        }
+        // Level with the row or in front of it: round the end of the row
+        // first, never through it. Between the row and the lane: back onto the lane.
+        const rowEnd = (HACK_SLOT_SIDE + 1) * row.spacing
+        if (enemy.d < spot.d + row.lane / 2) {
+            const side = Math.sign(enemy.u - node.u) || 1
+            if (Math.abs(enemy.u - node.u) < rowEnd - 3) {
+                return { moved: this.walkTo(enemy, node.u + side * rowEnd, enemy.d, dt), arrived: false }
+            }
+            return { moved: this.walkTo(enemy, enemy.u, laneD, dt), arrived: false }
+        }
+        // Behind it: down onto the lane, then along it to the slot.
+        if (enemy.d > laneD + 3) return { moved: this.walkTo(enemy, enemy.u, laneD, dt), arrived: false }
+        return { moved: this.walkTo(enemy, spot.u, laneD, dt), arrived: false }
+    }
+
     /** A parked gun walks to its firing spot; it has arrived once it is there. */
     private walkToPark(enemy: EnemyEntity, spot: { u: number, d: number }, dt: number) {
         const moved = this.walkTo(enemy, spot.u, spot.d, dt)
@@ -1818,6 +2863,22 @@ export class HackerzGame {
         if (enemy.bearer) return false
         return this.enemies.some(other => other.bearer && other.d < enemy.d
             && Math.hypot(other.u - enemy.u, other.d - enemy.d) <= SHELTER_RADIUS)
+    }
+
+    /**
+     * How hidden a unit is, 0 seen to 1 unseen: the CPU twin of the shroud in
+     * its shader (`shroudAt` in models), for overlays that must not give it away.
+     */
+    private shroudOf(enemy: EnemyEntity) {
+        let k = 0
+        for (const zone of this.darkZones) {
+            if (zone.r <= 0 || zone.strength <= 0) continue
+            const distance = Math.hypot(enemy.u - zone.u, enemy.d - zone.d)
+            k = Math.max(k, zone.strength * (1 - THREE.MathUtils.smoothstep(distance, zone.r * 0.6, zone.r)))
+        }
+        const band = 2 / FIELD_SCALE
+        k = Math.max(k, this.darkness * THREE.MathUtils.smoothstep(enemy.d, BLACKOUT_LIGHT_D - band, BLACKOUT_LIGHT_D + band))
+        return k * (1 - enemy.rig.reveal.value)
     }
 
     /** Whether a point lies inside a dark zone that is mostly out. */
@@ -1883,12 +2944,18 @@ export class HackerzGame {
         if (!view) return
         const tags: HealthTag[] = []
         for (const enemy of this.enemies) {
+            // The bar's trail holds where the health stood, then drains down to it.
+            const fraction = enemy.hp / enemy.maxHp
+            const trail = enemy.hpTrail ?? 1
+            enemy.hpTrail = trail <= fraction ? fraction : Math.max(fraction, trail - dt * HP_TRAIL_DRAIN)
             // Only wounded enemies get a bar; a pip over every crawler is noise.
-            if (enemy.hp >= enemy.maxHp) continue
+            // Nor does anything mostly lost in the dark: the bar would give it away.
+            if (enemy.hp >= enemy.maxHp || !enemy.rig.root.visible || this.shroudOf(enemy) > 0.6) continue
             tags.push({
                 // Overlays follow the picture, so a lag spike does not give a position away.
                 pos: this.seenWorld(enemy, enemy.rig.height * PER_WORLD + 12, new THREE.Vector3()),
-                fraction: enemy.hp / enemy.maxHp,
+                fraction,
+                trail,
                 color: hexCss(enemy.def.hex),
                 armored: enemy.armored,
                 width: enemy.def.boss ? 90 : clamp(enemy.def.height * 0.6, 22, 50)
@@ -1977,7 +3044,7 @@ export class HackerzGame {
         const chips = this.pathChips
         if (!chips || chips.conquered >= DISTRACT_NODES || this.allNodesTaken) return
         const sapper = hackerzEnemy('sapper')
-        if (sapper.fromWave > this.wave) return
+        if (Math.max(sapper.fromWave, DISTRACT_FROM_WAVE) > this.wave) return
         if (this.enemies.filter(e => e.def.id === sapper.id).length >= DISTRACT_MAX) return
         this.distractTimer = DISTRACT_MS * (0.75 + randomFloat() * 0.5)
         this.spawn(sapper, true)
@@ -1987,20 +3054,28 @@ export class HackerzGame {
         }
     }
 
-    private spawn(def: HackerzEnemyDefinition, reinforcement = false, hpScale = 1) {
+    /**
+     * Brings a unit onto the field. `at` sets it down mid-field instead (a
+     * spiderling hatching): it takes the nearest line from there, and the
+     * portal shows nothing of it.
+     */
+    private spawn(def: HackerzEnemyDefinition, reinforcement = false, hpScale = 1, at: { u: number, d: number } | null = null) {
         const loadout = this.loadout
         if (!loadout) return
         const difficulty = loadout.difficulty
         // Flyers pick any lane over the board; ground units come out of one of
         // the portal's sockets and are put on a trace below.
-        const u = def.boss ? 0 : (randomFloat() * 2 - 1) * (FIELD_HALF_WIDTH - 40)
-        const d = FIELD_DEPTH + randomFloat() * SPAWN_SPREAD
+        const u = at ? at.u : def.boss ? 0 : (randomFloat() * 2 - 1) * (FIELD_HALF_WIDTH - 40)
+        const d = at ? at.d : FIELD_DEPTH + randomFloat() * SPAWN_SPREAD
 
-        const height = def.height * MODEL_HEIGHT_SCALE
-        const rig = buildRig(def.id, def.hex, height)
+        this.sight(def.id)
+        const size = unitSize(def)
+        const height = size * MODEL_HEIGHT_SCALE
+        const rig = buildRig(def.id, def.hex, height, { shrouded: true })
         this.fieldRoot.add(rig.root)
 
-        const maxHp = def.hp * hackerzHpMultiplier(this.wave) * difficulty.enemyHp * (this.bonus === 'ddos' ? 0.5 : 1) * hpScale
+        // A hard difficulty phases in over the run (see `HACKERZ_DIFFICULTY_FULL_WAVE`).
+        const maxHp = def.hp * hackerzHpMultiplier(this.wave) * hackerzWaveEnemyHp(difficulty, this.wave) * (this.bonus === 'ddos' ? 0.5 : 1) * hpScale
         const bounty = def.bounty * hackerzBountyMultiplier(this.wave) * (this.bonus === 'ddos' ? 0.6 : 1)
             * (reinforcement ? HACKERZ_REINFORCEMENT_BOUNTY : 1)
 
@@ -2013,7 +3088,7 @@ export class HackerzGame {
             hp: maxHp,
             maxHp,
             speed: def.speed * (0.92 + randomFloat() * 0.16),
-            damage: def.damage * hackerzDamageMultiplier(this.wave) * difficulty.enemyDamage,
+            damage: def.damage * hackerzDamageMultiplier(this.wave) * hackerzWaveEnemyDamage(difficulty, this.wave),
             bounty,
             // Bonus rounds pay credits only: coins are the site economy, and a
             // replayable sprint must never be a way to farm them.
@@ -2025,8 +3100,9 @@ export class HackerzGame {
             pushVd: 0,
             hover: randRange(0, Math.PI * 2),
             flashMs: 0,
-            standoff: def.range ?? def.height * 0.3 + 10,
-            radius: def.height * 0.22 + BULLET_RADIUS,
+            // A drainer closes in until its fangs are in the fence.
+            standoff: def.range ?? (def.drain ? size * 0.9 : size * 0.3 + 10),
+            radius: size * 0.22 + BULLET_RADIUS,
             age: 0,
             pingDelay: -1,
             revealMs: 0,
@@ -2036,7 +3112,7 @@ export class HackerzGame {
             burrowMs: 0,
             splits: 0,
             hackReach: randomFloat(),
-            pulseTimer: randomFloat() * HACK_PULSE_MS,
+            pulseTimer: randomFloat() * MOTION.hackPulseMs,
             hacking: false,
             route: null,
             routeSeg: 0,
@@ -2055,14 +3131,43 @@ export class HackerzGame {
             bearer: false,
             defending: null,
             escorting: null,
-            parked: null
+            parked: null,
+            recoil: 0,
+            strike: 0,
+            heave: 0,
+            heaveDrain: 0,
+            carry: null,
+            healing: null,
+            kamikaze: false,
+            turned: false,
+            guard: def.guard ? maxHp * def.guard : 0,
+            hexShield: null,
+            ribbon: null,
+            ribbonMs: 0,
+            storm: null,
+            inject: 0,
+            broodMs: HACKERZ_SPIDER_INJECT_MS,
+            drainPower: 1,
+            wound: null,
+            riseMs: 0
         }
-        if (this.ridesNetwork(enemy)) this.enterFromPortal(enemy)
+        if (this.ridesNetwork(enemy)) {
+            if (at) this.attachToNetwork(enemy)
+            else this.enterFromPortal(enemy)
+        }
         this.placeEnemy(enemy)
+        // Arrivals take the clearest socket (see `enterFromPortal`); one that
+        // still lands on a body — every socket backed up — waits inside the
+        // portal until the way is clear.
+        if (!at && !def.boss && !hackerzIsAirborne(def) && this.crowdedAt(enemy)) {
+            enemy.gateHold = true
+            enemy.rig.root.visible = false
+        }
         this.enemies.push(enemy)
         this.transient?.ring(fieldToWorld(u, d, 0.1, _v), def.hex, def.boss ? 6 : 1.6, 0.5)
-        // Coming through the gate sets a ripple running across it from the entry point.
-        this.view?.portalRipple(enemy.u)
+        // Coming through the gate sends power lines out across it from the entry
+        // point — in the dark, the only sign that anything arrived.
+        if (!at) this.view?.portalArrival(enemy.u)
 
         if (def.boss) {
             this.callbacks.onBoss(def.name)
@@ -2074,18 +3179,79 @@ export class HackerzGame {
     }
 
     private placeEnemy(enemy: EnemyEntity) {
-        const bob = hackerzIsAirborne(enemy.def) ? Math.sin(enemy.hover) * 9 : 0
-        fieldToWorld(enemy.u, enemy.d, (enemy.altitude + bob) * FIELD_SCALE, enemy.rig.root.position)
+        const bob = hackerzIsAirborne(enemy.def) ? hoverBob(enemy.hover) : 0
+        fieldToWorld(enemy.u, enemy.d, (enemy.altitude + bob) * FIELD_SCALE + this.burrowing(enemy).lift * enemy.rig.height, enemy.rig.root.position)
+        // Corrupted by a blast, the whole unit skips: it snaps to a random spot
+        // nearby — sideways, up, forwards or back — holds there a few frames,
+        // snaps home, and goes again until the corruption fades, stuttering
+        // all the while. Cosmetic: the picture only, never where it really is.
+        const glitch = this.glitchOf(enemy)
+        if (glitch <= 0) {
+            enemy.glitchJump = undefined
+            return
+        }
+        const jump = enemy.glitchJump ??= { x: 0, y: 0, z: 0, frames: 0 }
+        if (--jump.frames <= 0) {
+            const away = jump.x === 0 && jump.y === 0 && jump.z === 0 && Math.random() < 0.6
+            const reach = enemy.rig.height * glitch
+            jump.x = away ? (Math.random() - 0.5) * 1.2 * reach : 0
+            jump.y = away ? Math.random() * 0.5 * reach : 0
+            jump.z = away ? (Math.random() - 0.5) * 1.2 * reach : 0
+            jump.frames = away ? 2 + Math.floor(Math.random() * 3) : 2 + Math.floor(Math.random() * 4)
+        }
+        enemy.rig.root.position.x += jump.x
+        enemy.rig.root.position.y += jump.y
+        enemy.rig.root.position.z += jump.z
+        // And under the skips, a constant sideways stutter.
+        if (Math.random() < 0.4) enemy.rig.root.position.x += (Math.random() - 0.5) * 0.45 * glitch * enemy.rig.height
+    }
+
+    /** How hard a unit is glitching after a blast caught it, 0 to 1. */
+    private glitchOf(enemy: EnemyEntity) {
+        return Math.min(1, (enemy.glitchMs ?? 0) / GLITCH_FADE_MS)
+    }
+
+    /** Where a burrowing unit (ROOTKIT) is in its dive or its climb back out: its leap, spin and gathered legs. */
+    private burrowing(enemy: EnemyEntity) {
+        if (enemy.burrowMs > 0) return burrowFrame((ROOTKIT_BURROW_MS - enemy.burrowMs) / MOTION.burrowSinkMs, null)
+        if (enemy.riseMs > 0) return burrowFrame(null, 1 - enemy.riseMs / MOTION.burrowRiseMs)
+        return burrowFrame(null, null)
+    }
+
+    /** True while a burrowing unit is fully under the floor: out of sight, and out of every gun's reach. */
+    private underground(enemy: EnemyEntity) {
+        return enemy.burrowMs > 0 && ROOTKIT_BURROW_MS - enemy.burrowMs >= MOTION.burrowSinkMs
     }
 
     // ─── Enemies ─────────────────────────────────────────────────────────────
 
     private updateEnemies(dt: number, dtMs: number) {
-        const spikeDps = this.loadout?.spikeDps ?? 0
+        // The Tarpit Grid runs off the gun's magazine: dead while it reloads.
+        const spikeDps = this.tarpitPowered ? this.loadout?.spikeDps ?? 0 : 0
+        let spiking = false
 
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             const enemy = this.enemies[i] as EnemyEntity
+            // Felled in a brawl or by a Power Surge since its last turn: a hostile
+            // pays out as any kill; a turned unit that falls pays nothing.
+            if (enemy.hp <= 0) {
+                this.killEnemy(i, enemy.turned ? 0 : 1)
+                continue
+            }
+            // Waiting inside the portal for its socket to clear: it steps out
+            // (and resolves in) only once nothing is standing there.
+            if (enemy.gateHold) {
+                if (this.crowdedAt(enemy)) continue
+                enemy.gateHold = false
+                enemy.age = 0
+                enemy.rig.root.visible = true
+            }
             enemy.age += dt
+            // Where it stood before this tick's move, for the collision check below.
+            const fromU = enemy.u
+            const fromD = enemy.d
+            const fromSeg = enemy.routeSeg
+            const fromYaw = enemy.yaw
             if (enemy.def.boss) this.updateBoss(enemy, dt, dtMs)
             // A shield bearer whose node was taken back disintegrates on the spot.
             if (enemy.bearer && this.running && !this.purging && this.keepBearerPost(enemy, i)) continue
@@ -2094,12 +3260,14 @@ export class HackerzGame {
             let hold: Hold | null = enemy.burrowMs > 0 || enemy.def.boss
                 ? null
                 : this.deployables?.holdFor(enemy.u, enemy.d, enemy.standoff, hackerzIsAirborne(enemy.def)) ?? null
+            // A spiderling is not fooled by a honeypot: it only stops for what it can drain.
+            if (hold?.target.kind === 'honeypot' && enemy.def.drain) hold = null
             // A honeypot only draws a rider whose line runs past it.
             if (hold?.target.kind === 'honeypot' && riding
                 && !this.routeAheadPasses(enemy, hold.target.u, hold.target.d, 90)) hold = null
             // Hackers go for the next path node still ahead on their lines — and
             // when none is left ahead, they double back for one that is still open.
-            let node = !hold && this.canHack(enemy) ? this.hackTarget(enemy) : null
+            let node = !hold && !enemy.turned && this.canHack(enemy) ? this.hackTarget(enemy) : null
             if (!node && !hold && riding && this.canHack(enemy)) {
                 const open = this.pathChips?.ordered.filter(chip => chip.state !== 'hacked') ?? []
                 const nearest = open.reduce<PathChip | null>((best, chip) =>
@@ -2128,45 +3296,54 @@ export class HackerzGame {
             const tactic = riding || enemy.bearer || enemy.defending || enemy.escorting ? this.tactics(enemy, dtMs) : 'advance'
             if (enemy.parked && (tactic !== 'advance' || node || hold)) enemy.parked = null
             const parked = enemy.parked
-            const step = parked
+            // A healer flies its own rounds: to whoever is hurt worst, to mend them.
+            const live = this.running && !this.purging
+            // A turned unit hunts hostiles; a hostile with one in its face fights
+            // it; a healer flies its own rounds; everyone else gets on with it.
+            const mending = enemy.turned
+                ? (live ? this.turnedStep(enemy, dt, dtMs) : { moved: 0, arrived: false })
+                : (live ? this.brawlStep(enemy, dtMs) : null)
+                    ?? (enemy.def.heal && !enemy.kamikaze && live ? this.healerStep(enemy, dt, dtMs) : null)
+            const step = mending ?? (enemy.demoPath
+                ? this.puppetStep(enemy, goal, hold, dt)
+                : parked
                 ? this.walkToPark(enemy, parked, dt)
                 : tactic === 'advance'
-                    ? riding ? this.ride(enemy, goal, dt) : this.fly(enemy, goal, dt)
-                    : { moved: this.holdBack(enemy, tactic, dt), arrived: false }
+                    ? (node && !queued && riding ? this.parkStep(enemy, node, dt) : null)
+                    ?? (riding ? this.ride(enemy, goal, dt) : this.fly(enemy, goal, dt))
+                    : { moved: this.holdBack(enemy, tactic, dt), arrived: false })
+            if (!node || queued || tactic !== 'advance') enemy.hackSlot = null
             // Stride is driven by distance, not time, so a knocked-back or
             // crowded enemy never moon-walks.
-            enemy.stride += (step.moved / enemy.def.height) * 7
-            let rollSpeed = step.moved * FIELD_SCALE / Math.max(0.2, enemy.rig.height * 0.18) / Math.max(dt, 1e-4)
+            enemy.stride += strideFor(step.moved, unitSize(enemy.def))
+            let rollSpeed = rollSpeedFor(step.moved, enemy.rig.height, dt, FIELD_SCALE)
 
             if (tactic !== 'advance') {
                 if (enemy.hacking) this.stopHacking(enemy)
-                if (step.moved === 0) enemy.stride += dt * 3
             } else if (!step.arrived) {
                 if (enemy.hacking) this.stopHacking(enemy)
             } else if (node && queued) {
                 // Waiting its turn at the node: idling on the spot.
                 rollSpeed = 0
-                enemy.stride += dt * 2
             } else if (node) {
                 rollSpeed = 0
-                this.hackAt(enemy, node, dt, dtMs)
+                this.hackAt(enemy, node, dtMs)
             } else if (!hold && this.parkAside(enemy)) {
                 // A gun that set up beside a node would read as its guard: it
                 // steps aside first, and opens fire from there.
             } else {
                 rollSpeed = 0
-                enemy.stride += dt * 6
                 enemy.attackTimer -= dtMs
                 if (enemy.attackTimer <= 0) {
                     // Burst types fire a short volley, then take the full gap.
                     if (enemy.burstLeft <= 0) enemy.burstLeft = enemy.def.burst ?? 1
                     enemy.burstLeft--
-                    enemy.attackTimer = enemy.burstLeft > 0 ? 260 : enemy.def.attackMs
+                    enemy.attackTimer = enemy.burstLeft > 0 ? MOTION.burstGapMs : enemy.def.attackMs
                     if (hold) {
                         if (this.strikeDeployable(enemy, hold)) continue
                     } else {
                         this.enemyStrike(enemy)
-                        if (enemy.def.kind === 'bomber') continue
+                        if (enemy.def.kind === 'bomber' || enemy.kamikaze) continue
                     }
                 }
             }
@@ -2192,8 +3369,13 @@ export class HackerzGame {
                 }
             }
 
+            // Bodies are solid: a move that would carry this one into another
+            // stops at the point of contact.
+            this.collide(enemy, fromU, fromD, fromSeg, fromYaw, dtMs)
+
             // Grid trap: ground units only, and only inside the band.
-            if (spikeDps > 0 && !hackerzIsAirborne(enemy.def) && enemy.d < SPIKE_BAND) {
+            if (spikeDps > 0 && !enemy.turned && !hackerzIsAirborne(enemy.def) && enemy.d < SPIKE_BAND) {
+                spiking = true
                 this.damageEnemy(enemy, spikeDps * dt, 'kinetic', false, false, false, false)
                 if (enemy.hp <= 0) {
                     this.killEnemy(i, 1)
@@ -2207,7 +3389,9 @@ export class HackerzGame {
             // Held ground bites: anything that has pushed down into the blue
             // takes a steady tick of damage for as long as it stays there.
             // Behind a shield wall the ground's bite does not reach.
-            if (this.running && !this.purging && this.inHeldGround(enemy) && !this.isSheltered(enemy)) {
+            // A unit still carrying its shield (a Warden) shrugs the ground off.
+            // A demo unit does too, unless its scene is about the ground itself.
+            if (this.running && !this.purging && !enemy.turned && (!enemy.demoPath || this.demoScript?.ground) && this.inHeldGround(enemy) && !this.isSheltered(enemy) && enemy.guard <= 0) {
                 enemy.zoneTick += dtMs
                 // Sappers are built to run the gauntlet: they only feel every second tick.
                 if (enemy.zoneTick >= ZONE_TICK_MS && enemy.def.kind === 'bomber' && ++enemy.zoneTicks % 2 === 1) {
@@ -2229,7 +3413,7 @@ export class HackerzGame {
             }
             this.redGround(enemy, dtMs)
 
-            if (hackerzIsAirborne(enemy.def)) enemy.hover += dt * 2.4
+            if (hackerzIsAirborne(enemy.def)) enemy.hover += dt * MOTION.hoverRate
             if (enemy.flashMs > 0) enemy.flashMs = Math.max(0, enemy.flashMs - dtMs)
 
             // Radar: the ping's wavefront lights a contact when it arrives.
@@ -2245,25 +3429,97 @@ export class HackerzGame {
             // really are, not where they look.
             if (this.boardLagMs > 0) continue
 
-            this.updateShieldSheen(enemy, dt)
+            easeSheen(enemy.rig, enemy.redShield, dt)
             // Riders snap round corners like a light cycle (turned in `ride`); flyers face the fence.
             enemy.rig.root.rotation.y = enemy.yaw
-            enemy.rig.body.uniforms.uFlash!.value = enemy.flashMs / 90 * 0.7
-            const hidden = this.untouchable(enemy)
-            enemy.rig.root.visible = !hidden
-            // A hidden unit still disturbs the grid: a faint shimmer where it walks.
-            if (hidden && Math.random() < dt * 5) {
+            // A turned unit glows faintly white: it is ours now.
+            enemy.rig.body.uniforms.uFlash!.value = Math.max(hitFlash(enemy.flashMs), enemy.turned ? 0.3 : 0)
+            // A blast's corruption tears the body's polygons into slipping bands, easing out.
+            if (enemy.glitchMs) enemy.glitchMs = Math.max(0, enemy.glitchMs - dtMs)
+            if (enemy.phaseMs) enemy.phaseMs = Math.max(0, enemy.phaseMs - dtMs)
+            // Passing through another body tears it too (`phaseMs`), without the skips.
+            enemy.rig.body.uniforms.uGlitch!.value = Math.max(this.glitchOf(enemy), Math.min(1, (enemy.phaseMs ?? 0) / GLITCH_FADE_MS))
+            // The dark hides a unit gradually, in its own shader (see `shroud` in
+            // models): only a burrowed or cloaked one drops out of the picture
+            // outright. A ping lifts the shroud off it, eased in and out.
+            const cloakedAway = !!enemy.def.cloaked && !enemy.decloaked && enemy.revealMs <= 0
+            // A burrowing ROOTKIT stays in sight while it melts into the floor.
+            enemy.rig.root.visible = !this.underground(enemy) && !cloakedAway
+            if (enemy.litMs) enemy.litMs = Math.max(0, enemy.litMs - dtMs)
+            enemy.rig.reveal.value += ((enemy.revealMs > 0 || enemy.litMs ? 1 : 0) - enemy.rig.reveal.value) * Math.min(1, dt * 5)
+            // Into the dark the lock slips: the rail keeps firing where it last saw its target.
+            if (this.target === enemy && this.inTheDark(enemy)) {
+                this.lockSpot = { u: enemy.u, d: enemy.d, y: this.enemyCentreY(enemy) }
+                this.target = null
+            }
+            // A cloaked unit still disturbs the grid: a faint shimmer where it walks.
+            if (cloakedAway && Math.random() < dt * 5) {
                 this.particles.emit(this.enemyWorld(enemy, randRange(5, enemy.rig.height * PER_WORLD), _v), _w.set(0, 1.2, 0), enemy.def.hex,
                     { size: 0.16, life: 0.4, gravity: 0, intensity: 1.2 })
             }
             // Rez in: the unit is drawn up out of the grid over its first beat.
-            const rez = Math.min(1, enemy.age / 0.35)
-            enemy.rig.root.scale.set(1, rez, 1)
+            const rez = Math.min(1, enemy.age / MOTION.rezIn)
+            // A spiderling swells on what it drains.
+            const grown = drainGrowth(enemy.drainPower)
+            enemy.rig.root.scale.set(grown, rez * grown, grown)
             poseRig(enemy.rig, enemy.stride, dt, rollSpeed)
+            // A gun that just fired kicks back along its barrel and eases home.
+            if (enemy.rig.barrel) enemy.recoil = easeRecoil(enemy.rig, enemy.recoil, dt)
+            // A melee blow; at full reach a prod discharges, a ram slams home.
+            if (enemy.rig.weapon) {
+                const before = enemy.strike
+                enemy.strike = easeStrike(enemy.rig, enemy.strike, dt)
+                if (strikeLands(before, enemy.strike)) {
+                    if (enemy.rig.weaponKind === 'ram') this.ramImpact(enemy)
+                    else this.prodZap(enemy)
+                }
+            }
             this.placeEnemy(enemy)
+            // ROOTKIT's dive: legs drawn into a point, the whole body drilling round.
+            if (enemy.burrowMs > 0 || enemy.riseMs > 0) {
+                const dive = this.burrowing(enemy)
+                gatherLegs(enemy.rig, dive.gather)
+                enemy.rig.root.rotation.y = enemy.yaw + dive.spin
+            }
+            if (enemy.heave > 0) this.heaveLeak(enemy, dt)
+            enemy.hexShield?.update(dt)
+            if (enemy.inject > 0) {
+                const before = enemy.inject
+                enemy.inject = easeInject(enemy.rig, enemy.inject, dt)
+                // ROOTKIT's stab puts its brood in; a spiderling's is its bite (see `drainFence`).
+                if (injectLands(before, enemy.inject) && enemy.def.id === 'titan') this.injectBrood(enemy)
+            }
+            if (enemy.ribbonMs > 0 || enemy.ribbon?.busy) this.feedRibbon(enemy, dt, dtMs)
+            enemy.storm?.update(dt)
+            enemy.wound?.update(dt)
         }
 
-        this.separate(dt)
+        if (spiking) this.drainTarpit(dt)
+        this.separate()
+    }
+
+    /** The Tarpit Grid has power while the gun has rounds in it and is not reloading. */
+    private get tarpitPowered() {
+        return this.reloadTimer <= 0 && this.mag > 0
+    }
+
+    /**
+     * The Tarpit Grid draws its power from the gun: while it is biting it
+     * burns through the magazine at a steady rate, on top of whatever the gun
+     * fires, and an empty magazine sends the gun to reload — the grid going
+     * dark with it until the reload is done.
+     */
+    private drainTarpit(dt: number) {
+        this.tarpitDrain += TARPIT_ROUNDS_PER_S * dt
+        if (this.tarpitDrain < 1) return
+        const rounds = Math.min(this.mag, Math.floor(this.tarpitDrain))
+        this.tarpitDrain -= rounds
+        this.mag -= rounds
+        this.emitAmmo()
+        if (this.mag <= 0) {
+            this.tarpitDrain = 0
+            this.beginReload()
+        }
     }
 
     // ─── Bosses ──────────────────────────────────────────────────────────────
@@ -2283,8 +3539,28 @@ export class HackerzGame {
      * red surges running through the traces, until it erupts somewhere else.
      */
     private updateRootkit(enemy: EnemyEntity, dt: number, dtMs: number) {
+        // It halts with its head against the ICE Barrier while that stands,
+        // and against the fence itself once the barrier is down.
+        enemy.standoff = enemy.rig.box.max.z * PER_WORLD + 2 + (this.shield > 0 ? SHIELD_D : 0)
+        if (enemy.riseMs > 0) enemy.riseMs = Math.max(0, enemy.riseMs - dtMs)
         if (enemy.burrowMs > 0) {
+            const wasUp = !this.underground(enemy)
             enemy.burrowMs = Math.max(0, enemy.burrowMs - dtMs)
+            // The moment it drills out of sight, a clutch of its brood scatters from the hole.
+            if (wasUp && this.underground(enemy) && !enemy.decoy) {
+                const at = fieldToWorld(enemy.u, enemy.d, 0.2, new THREE.Vector3())
+                this.transient?.ring(at, enemy.def.hex, 6, 0.45)
+                this.particles.burst(at, enemy.def.hex, 30, 10, { size: 0.3, life: 0.6 })
+                for (let i = 0; i < ROOTKIT_BURROW_CLUTCH; i++) {
+                    const a = (i / ROOTKIT_BURROW_CLUTCH) * Math.PI * 2
+                    this.hatchSpider(enemy.u + Math.cos(a) * 40, enemy.d + Math.sin(a) * 40)
+                }
+            }
+            // Melting in: the floor boils red round it as it goes under.
+            if (!this.underground(enemy) && Math.random() < dt * 30) {
+                const at = fieldToWorld(enemy.u + randRange(-30, 30), enemy.d + randRange(-30, 30), 0.05, _v)
+                this.particles.emit(at, _w.set(0, 1.5, 0), enemy.def.hex, { size: 0.3, life: 0.5, gravity: 0 })
+            }
             enemy.u = clamp(enemy.u + Math.sin(enemy.age * 1.6) * dt * 90, -FIELD_HALF_WIDTH + 60, FIELD_HALF_WIDTH - 60)
             if (Math.random() < dt * 5) {
                 const at = fieldToWorld(enemy.u, enemy.d, 0, _v)
@@ -2294,6 +3570,8 @@ export class HackerzGame {
                 // It erupts onto the nearest data line and rides on from there.
                 this.attachToNetwork(enemy)
                 enemy.age = 0
+                // And climbs back out of the floor where it surfaced.
+                enemy.riseMs = MOTION.burrowRiseMs
                 const at = fieldToWorld(enemy.u, enemy.d, 0.2, new THREE.Vector3())
                 this.transient?.ring(at, enemy.def.hex, 9, 0.5)
                 this.particles.burst(at, enemy.def.hex, 50, 12, { size: 0.35, life: 0.7 })
@@ -2301,10 +3579,11 @@ export class HackerzGame {
             }
             return
         }
+        this.rootkitBrood(enemy, dtMs)
         enemy.bossTimer -= dtMs
         if (enemy.bossTimer > 0 || enemy.d < enemy.standoff + 220) return
         enemy.bossTimer = 6000
-        enemy.burrowMs = 2600
+        enemy.burrowMs = ROOTKIT_BURROW_MS
         const at = fieldToWorld(enemy.u, enemy.d, 0.2, new THREE.Vector3())
         this.transient?.ring(at, enemy.def.hex, 7, 0.45)
         this.particles.burst(at, enemy.def.hex, 40, 10, { size: 0.3, life: 0.6 })
@@ -2312,14 +3591,148 @@ export class HackerzGame {
         if (this.target === enemy) this.target = null
     }
 
+    /**
+     * BLACK ICE spits black ice: globs that land ahead of it and freeze into
+     * walls that shield what is behind them, slowing every round through them,
+     * and every third spit at your rail, where a hit lags the whole board.
+     */
+    private spitBlackIce(enemy: EnemyEntity, dtMs: number) {
+        if (!this.running || this.purging || enemy.decoy) return
+        enemy.broodMs -= dtMs
+        if (enemy.broodMs > 0) return
+        enemy.broodMs = BLACK_ICE_SPIT_MS
+        enemy.burstLeft = (enemy.burstLeft + 1) % 3
+        const atRail = enemy.burstLeft === 0 && !!this.railRig
+        this.placeEnemy(enemy)
+        const mouth = muzzleOf(enemy.rig, new THREE.Vector3())
+        const from = { u: mouth.x * PER_WORLD, d: -mouth.z * PER_WORLD, y: mouth.y * PER_WORLD }
+        let to: { u: number, d: number, y: number }
+        // At the rail it throws a slab a third of the field wide, at where the
+        // gun stands now: a gun that can glide (the Longbore) can get out from under it.
+        const width = atRail ? BLACK_ICE_RAIL_CHUNK : 0
+        if (atRail) {
+            const rail = this.railRig!.root.position
+            const u = clamp(this.railU, -FIELD_HALF_WIDTH + width / 2, FIELD_HALF_WIDTH - width / 2)
+            to = { u, d: -rail.z * PER_WORLD, y: (rail.y + 1) * PER_WORLD }
+        } else {
+            // Ahead of it, between it and the fence: where its wall will stand.
+            to = { u: clamp(enemy.u + randomBetween(-70, 70), -FIELD_HALF_WIDTH + 60, FIELD_HALF_WIDTH - 60), d: Math.max(BLACK_ICE_WALL_MIN_D, enemy.d * randomBetween(0.45, 0.65)), y: 0 }
+        }
+        const flight = atRail ? 1.1 : 0.9
+        const gravity = BLACK_ICE_GRAVITY
+        const mesh = makeIceGlob(enemy.rig.height * (atRail ? 0.22 : 0.12))
+        if (width) {
+            // Stretched across the lane to the slab's full width.
+            const box = mesh.geometry.boundingBox ?? (mesh.geometry.computeBoundingBox(), mesh.geometry.boundingBox!)
+            mesh.scale.x = width * FIELD_SCALE / Math.max(0.01, box.max.x - box.min.x)
+        }
+        mesh.position.copy(mouth)
+        this.fieldRoot.add(mesh)
+        this.iceGlobs.push({
+            mesh,
+            ...from,
+            vu: (to.u - from.u) / flight,
+            vd: (to.d - from.d) / flight,
+            vy: (to.y - from.y) / flight + 0.5 * gravity * flight,
+            left: flight,
+            atRail,
+            width
+        })
+        this.transient?.flash(mouth, 0xa5b4fc, 0.9)
+        this.particles.burst(mouth, 0xa5b4fc, 10, 6, { size: 0.24, life: 0.35 })
+    }
+
+    /** Black ice in flight, landing, and the walls it builds; called every frame. */
+    private updateIce(dt: number) {
+        for (let i = this.iceGlobs.length - 1; i >= 0; i--) {
+            const glob = this.iceGlobs[i]!
+            glob.left -= dt
+            glob.vy -= BLACK_ICE_GRAVITY * dt
+            glob.u += glob.vu * dt
+            glob.d += glob.vd * dt
+            glob.y += glob.vy * dt
+            fieldToWorld(glob.u, glob.d, glob.y * FIELD_SCALE, glob.mesh.position)
+            // A slab tumbles end over end along its length; a glob spins every way.
+            glob.mesh.rotation.x += dt * 4
+            if (!glob.width) glob.mesh.rotation.y += dt * 3
+            if (Math.random() < dt * 30) this.particles.emit(glob.mesh.position, _w.set(0, 0.3, 0), 0xa5b4fc, { size: 0.18, life: 0.35, gravity: 0 })
+            if (glob.left > 0) continue
+            const at = glob.mesh.position.clone()
+            disposeIceGlob(glob.mesh)
+            this.iceGlobs.splice(i, 1)
+            this.particles.burst(at, 0xa5b4fc, 18, 7, { size: 0.26, life: 0.5 })
+            if (glob.atRail) {
+                // It shatters along its whole length on the rail.
+                for (let k = -2; k <= 2; k++) {
+                    const shard = fieldToWorld(glob.u + k * glob.width / 5, glob.d, at.y, new THREE.Vector3())
+                    this.particles.burst(shard, 0xa5b4fc, 10, 6, { size: 0.24, life: 0.45 })
+                }
+                // Clear of the gun: it smashes on the rail and does nothing.
+                if (Math.abs(this.railU - glob.u) > glob.width / 2 + RAIL_GUN_HALF) {
+                    this.addShake(2)
+                    continue
+                }
+                // On the gun: the frame freezes, as in PACKET LOSS.
+                this.transient?.ring(at, 0xa5b4fc, 3, 0.4)
+                this.view?.flash(0xa5b4fc, 0.12)
+                this.lagSpike()
+                continue
+            }
+            this.depositIce(glob.u, glob.d)
+        }
+        for (let i = this.iceWalls.length - 1; i >= 0; i--) {
+            const wall = this.iceWalls[i]!
+            wall.ageMs += dt * 1000
+            if (wall.ageMs > BLACK_ICE_WALL_LIFE_MS) wall.wall.thaw()
+            wall.wall.update(dt)
+            if (!wall.wall.gone) continue
+            wall.wall.dispose()
+            this.iceWalls.splice(i, 1)
+        }
+    }
+
+    /** A glob lands: it freezes onto the wall here, or starts a new one. */
+    private depositIce(u: number, d: number) {
+        let wall = this.iceWalls.find(w => Math.abs(w.u - u) < BLACK_ICE_WALL_WIDTH * 0.6 && Math.abs(w.d - d) < 60)
+        if (!wall) {
+            const iceWall = new IceWall(this.fieldRoot, fieldToWorld(u, d, 0, new THREE.Vector3()),
+                BLACK_ICE_WALL_WIDTH * FIELD_SCALE, BLACK_ICE_WALL_HEIGHT * FIELD_SCALE)
+            wall = { u, d, wall: iceWall, ageMs: 0 }
+            this.iceWalls.push(wall)
+        }
+        wall.ageMs = 0
+        wall.wall.deposit(BLACK_ICE_DEPOSIT)
+        this.transient?.ring(fieldToWorld(u, d, 0.1, _v), 0xa5b4fc, 2.4, 0.35)
+    }
+
+    /** True when a round crossing from (u0, d0) to (u1, d1) passes through a wall of black ice. */
+    private throughIce(u0: number, d0: number, u1: number, d1: number) {
+        for (const wall of this.iceWalls) {
+            if (wall.wall.fill < 0.2) continue
+            const half = BLACK_ICE_WALL_WIDTH * 0.5 * Math.min(1, 0.4 + wall.wall.fill)
+            if (Math.min(u0, u1) > wall.u + half || Math.max(u0, u1) < wall.u - half) continue
+            if (Math.min(d0, d1) > wall.d + 8 || Math.max(d0, d1) < wall.d - 8) continue
+            return wall
+        }
+        return null
+    }
+
+    private clearIce() {
+        for (const glob of this.iceGlobs) disposeIceGlob(glob.mesh)
+        this.iceGlobs = []
+        for (const wall of this.iceWalls) wall.wall.dispose()
+        this.iceWalls = []
+    }
+
     /** BLACK ICE freezes one of your turrets at a time; a click on it thaws it. */
     private updateBlackIce(enemy: EnemyEntity, dtMs: number) {
+        this.spitBlackIce(enemy, dtMs)
         enemy.bossTimer -= dtMs
         if (enemy.bossTimer > 0) return
         enemy.bossTimer = 7000
         const warm = this.turrets.filter(m => m.frozenMs <= 0)
         if (!warm.length) return
-        const mount = warm[Math.floor(Math.random() * warm.length)]!
+        const mount = warm[randomInt(0, warm.length - 1)]!
         mount.frozenMs = 12_000
         if (!mount.ice) {
             mount.ice = new THREE.Mesh(
@@ -2379,7 +3792,7 @@ export class HackerzGame {
         enemy.splits++
         const decoys = [this.spawnDecoy(enemy, -1), this.spawnDecoy(enemy, 1)]
         // Swap places with one copy, so the player has to find the tell again.
-        const swap = decoys[Math.random() < 0.5 ? 0 : 1]!
+        const swap = decoys[randomChance(0.5) ? 0 : 1]!
         const u = enemy.u
         const d = enemy.d
         enemy.u = swap.u
@@ -2398,7 +3811,7 @@ export class HackerzGame {
     }
 
     private spawnDecoy(real: EnemyEntity, side: number): EnemyEntity {
-        const rig = buildRig(real.def.id, real.def.hex, real.rig.height)
+        const rig = buildRig(real.def.id, real.def.hex, real.rig.height, { shrouded: true })
         this.fieldRoot.add(rig.root)
         const decoy: EnemyEntity = {
             ...real,
@@ -2406,8 +3819,8 @@ export class HackerzGame {
             route: null,
             redShield: false,
             recovering: false,
-            u: clamp(real.u + side * randRange(110, 170), -FIELD_HALF_WIDTH + 40, FIELD_HALF_WIDTH - 40),
-            d: real.d + randRange(-50, 50),
+            u: clamp(real.u + side * randomBetween(110, 170), -FIELD_HALF_WIDTH + 40, FIELD_HALF_WIDTH - 40),
+            d: real.d + randomBetween(-50, 50),
             hp: real.maxHp * 0.05,
             maxHp: real.maxHp * 0.05,
             damage: real.damage * 0.5,
@@ -2430,41 +3843,360 @@ export class HackerzGame {
      * Pushes overlapping enemies apart. Without it a wave stacks into a single
      * column at the wall and reads as one enemy taking sixty hits.
      */
-    private separate(dt: number) {
+    private separate() {
         for (let i = 0; i < this.enemies.length; i++) {
             const a = this.enemies[i] as EnemyEntity
             for (let j = i + 1; j < this.enemies.length; j++) {
                 const b = this.enemies[j] as EnemyEntity
-                const gap = (a.def.height + b.def.height) * 0.16 + 6
+                // Flyers pass over the walkers; only things on the same level collide,
+                // nothing still waiting inside the portal, and nothing passes for
+                // solid while it hacks or guards a chip.
+                if (hackerzIsAirborne(a.def) !== hackerzIsAirborne(b.def) || a.gateHold || b.gateHold) continue
+                // Each body's real footprint, turned the way it faces: a Siege
+                // Tank is long, not round, so a circle would let two in a line
+                // sit half inside each other.
+                const fa = this.footprint(a)
+                const fb = this.footprint(b)
                 const du = b.u - a.u
                 const dd = b.d - a.d
-                if (Math.abs(du) >= gap || Math.abs(dd) >= gap) continue
-                const distance = Math.hypot(du, dd)
-                if (distance >= gap) continue
-                const push = (gap - distance) * CROWD_PUSH * dt * 0.02
-                // Riders stay on their lines: two on one straight run down the
-                // same line queue along it, the one behind giving way (never back
-                // past its corner); anything else just passes.
-                const aRides = this.ridesNetwork(a)
-                const bRides = this.ridesNetwork(b)
-                if (aRides || bRides) {
-                    if (aRides && bRides && Math.abs(a.u - b.u) < 0.5) {
-                        const back = a.d > b.d ? a : b
-                        const from = back.route?.[back.routeSeg]
-                        const to = back.route?.[back.routeSeg + 1]
-                        if (from && to && segmentDirection(from, to) === 'down') back.d = Math.min(from.d, back.d + push * 0.5)
+                const overlapU = fa.u + fb.u + CROWD_GAP - Math.abs(du)
+                const overlapD = fa.d + fb.d + CROWD_GAP - Math.abs(dd)
+                if (overlapU <= 0 || overlapD <= 0) continue
+                // A body others pass through (a hacker at work, a guard on a
+                // chip), or a hacker slipping through a heavy: no push. The
+                // hacker in it glitches for as long as they are inside each
+                // other; the body it passes through does not.
+                if (this.permeable(a) || this.permeable(b) || this.slipsPast(a, b) || this.slipsPast(b, a)) {
+                    if (overlapU > CROWD_GAP && overlapD > CROWD_GAP) {
+                        for (const body of [a, b]) {
+                            if (body.def.id !== HACKERZ_HACKER_ID) continue
+                            // A warhead's glitch without the skips: torn bands and a
+                            // flicker of corrupted blocks around it, as it passes through.
+                            body.phaseMs = Math.max(body.phaseMs ?? 0, PHASE_GLITCH_MS)
+                            if (Math.random() < PHASE_CLOUD_CHANCE) {
+                                this.glitchClouds?.burst(this.enemyWorld(body, body.rig.height * PER_WORLD * 0.5, new THREE.Vector3()), body.rig.height * 0.7, body.def.hex)
+                            }
+                        }
                     }
                     continue
                 }
-                // Mostly sideways: crowding should widen the front, not slow it.
-                const nu = distance === 0 ? (i % 2 ? 1 : -1) : du / distance
-                const nd = distance === 0 ? 0 : dd / distance * 0.35
-                a.u = clamp(a.u - push * nu, -FIELD_HALF_WIDTH, FIELD_HALF_WIDTH)
-                b.u = clamp(b.u + push * nu, -FIELD_HALF_WIDTH, FIELD_HALF_WIDTH)
-                if (a.d > a.standoff) a.d -= push * nd
-                if (b.d > b.standoff) b.d += push * nd
+                // Push them clear along whichever way they overlap least, never
+                // into a third body: in a queue the one behind gives way, side by
+                // side they part, which widens the front rather than slowing it.
+                // Riders part the same way: their line only guides them.
+                // A little each tick, so a deep overlap (a long body swinging
+                // round) eases apart over a few frames instead of jumping.
+                // A heavy body gives way less: the lighter one takes the push.
+                const heavy = this.outweighs(a, b) ? a : this.outweighs(b, a) ? b : null
+                const light = heavy === a ? b : a
+                const back = heavy ? light : a.d > b.d ? a : b
+                const side = du === 0 ? (i % 2 ? 1 : -1) : Math.sign(du)
+                const pushD = Math.min(overlapD, SEPARATE_STEP)
+                const pushU = Math.min(heavy ? overlapU : overlapU / 2, SEPARATE_STEP)
+                const queue = () => this.shove([[back, back.u, back.d + (heavy ? Math.sign(light.d - heavy.d || 1) : 1) * pushD]])
+                const part = () => heavy
+                    ? this.shove([[light, clamp(light.u + Math.sign(light.u - heavy.u || 1) * pushU, -FIELD_HALF_WIDTH, FIELD_HALF_WIDTH), light.d]])
+                    : this.shove([
+                        [a, clamp(a.u - side * pushU, -FIELD_HALF_WIDTH, FIELD_HALF_WIDTH), a.d],
+                        [b, clamp(b.u + side * pushU, -FIELD_HALF_WIDTH, FIELD_HALF_WIDTH), b.d]
+                    ])
+                if (overlapD < overlapU) {
+                    if (!queue()) part()
+                } else if (!part()) {
+                    queue()
+                }
             }
         }
+    }
+
+    /**
+     * Moves each body to its spot unless that would sink any of them deeper
+     * into a body outside the move (riders kept near their line). All or
+     * nothing. True when applied.
+     */
+    private shove(moves: [EnemyEntity, number, number][]) {
+        const was = moves.map(([e]) => [e.u, e.d] as const)
+        if (moves.some(([e, u, d], k) => this.ridesNetwork(e) && !this.nearLine(e, u, d, was[k]![0], was[k]![1]))) return false
+        for (const [e, u, d] of moves) {
+            e.u = u
+            e.d = d
+        }
+        const movers = new Set(moves.map(([e]) => e))
+        const ok = moves.every(([e], k) => !this.enemies.some((o) => {
+            if (movers.has(o) || !this.solidPair(e, o)) return false
+            const now = this.sinkInto(e, e.u, e.d, o)
+            return now > 0.5 && now > this.sinkInto(e, was[k]![0], was[k]![1], o) + 0.01
+        }))
+        if (!ok) moves.forEach(([e], k) => ([e.u, e.d] = was[k]!))
+        return ok
+    }
+
+    /** The stretch of line a rider is on: whether it runs along `d` (down, or up on a detour) or across. */
+    private legOf(enemy: EnemyEntity) {
+        const from = enemy.route?.[enemy.routeSeg]
+        if (!from) return null
+        const to = enemy.route![enemy.routeSeg + 1] ?? from
+        return { from, to, vertical: Math.abs(to.u - from.u) < 0.01 }
+    }
+
+    /**
+     * Whether (u, d) is within `LANE_SLACK` of the stretch of line a rider is
+     * on, or no further off it than (fromU, fromD) was: a move may not carry
+     * a rider further from its line than the slack allows.
+     */
+    private nearLine(enemy: EnemyEntity, u: number, d: number, fromU: number, fromD: number) {
+        const leg = this.legOf(enemy)
+        // A hacker parking at its node has left the lines for good.
+        if (!leg || enemy.hackSlot) return true
+        const off = (pu: number, pd: number) => Math.max(
+            Math.min(leg.from.u, leg.to.u) - pu, pu - Math.max(leg.from.u, leg.to.u),
+            Math.min(leg.from.d, leg.to.d) - pd, pd - Math.max(leg.from.d, leg.to.d), 0)
+        const now = off(u, d)
+        return now <= LANE_SLACK || now <= off(fromU, fromD)
+    }
+
+    /** Whether standing at (u, d) would sink `enemy` deeper into any other ground body than it is now. */
+    private sinksDeeper(enemy: EnemyEntity, u: number, d: number) {
+        return this.enemies.some((o) => {
+            if (!this.solidPair(enemy, o)) return false
+            const then = this.sinkInto(enemy, u, d, o)
+            return then > 0.5 && then > this.sinkInto(enemy, enemy.u, enemy.d, o) + 0.01
+        })
+    }
+
+    /**
+     * A rider blocked by a body ahead steps round it: sideways off its line
+     * to whichever side clears the body (the side it already leans to
+     * first), at no more than its walking pace, and only as far as
+     * `LANE_SLACK` allows. Returns where it can stand, or null to wait.
+     */
+    private sidestep(enemy: EnemyEntity, fromU: number, fromD: number, toU: number, toD: number, wall: EnemyEntity,
+        blocked: (u: number, d: number) => boolean) {
+        const leg = this.legOf(enemy)
+        if (!leg) return null
+        const fa = this.footprint(enemy)
+        const fb = this.footprint(wall)
+        const vertical = leg.vertical
+        const at = vertical ? fromU : fromD
+        const them = vertical ? wall.u : wall.d
+        const line = vertical ? leg.from.u : leg.from.d
+        const clear = (vertical ? fa.u + fb.u : fa.d + fb.d) + CROWD_GAP + 0.5
+        const pace = Math.max(Math.hypot(toU - fromU, toD - fromD), 0.5)
+        const lean = Math.sign(at - them) || Math.sign(line - them) || (this.enemies.indexOf(enemy) % 2 ? 1 : -1)
+        for (const side of [lean, -lean]) {
+            const target = them + side * clear
+            if (Math.abs(target - line) > LANE_SLACK) continue
+            const shift = clamp(target - at, -pace, pace)
+            // Step aside while going on if there is room, else step aside on the spot.
+            const spots = vertical
+                ? [[fromU + shift, toD], [fromU + shift, fromD]]
+                : [[toU, fromD + shift], [fromU, fromD + shift]]
+            for (const [u, d] of spots as [number, number][]) {
+                if (Math.abs(u) > FIELD_HALF_WIDTH) continue
+                if (!blocked(u, d)) return { u, d }
+            }
+        }
+        return null
+    }
+
+    /**
+     * A body others pass straight through: a hacker at work on its node, or a
+     * guard standing over a chip (a defender, a shield bearer). They hold
+     * their ground, but never block anyone's way.
+     */
+    private permeable(enemy: EnemyEntity) {
+        return enemy.hacking || !!enemy.defending || enemy.bearer
+    }
+
+    /**
+     * Whether two bodies can collide at all: both on the ground, both on the
+     * board, neither one others pass through — and never a hacker: hackers
+     * glitch through every other body to reach their nodes, or a column of
+     * tanks would keep them off the board.
+     */
+    private solidPair(a: EnemyEntity, b: EnemyEntity) {
+        if (a === b || a.hp <= 0 || b.hp <= 0 || a.gateHold || b.gateHold || a.burrowMs > 0 || b.burrowMs > 0) return false
+        if (hackerzIsAirborne(a.def) || hackerzIsAirborne(b.def) || this.permeable(a) || this.permeable(b)) return false
+        return !this.slipsPast(a, b) && !this.slipsPast(b, a)
+    }
+
+    /** A hacker passes through every other body on the ground (glitching as it does, see `separate`). */
+    private slipsPast(hacker: EnemyEntity, other: EnemyEntity) {
+        return hacker !== other && hacker.def.id === HACKERZ_HACKER_ID
+    }
+
+    /** How much of a body there is to push with: its footprint's area, from its model. */
+    private bulk(enemy: EnemyEntity) {
+        const box = enemy.rig.box
+        return Math.max(Math.abs(box.min.x), Math.abs(box.max.x)) * Math.max(Math.abs(box.min.z), Math.abs(box.max.z))
+    }
+
+    /** A body this much bigger than the one in its way barges it aside instead of waiting. */
+    private outweighs(enemy: EnemyEntity, other: EnemyEntity) {
+        return this.bulk(enemy) >= this.bulk(other) * BARGE_RATIO
+    }
+
+    /**
+     * A heavy body moving from (fromU, fromD) to (toU, toD) into a lighter
+     * one, `other`, shoves it out of the way: aside,
+     * off the line of the move (to whichever side it already stands), or
+     * failing that on ahead of it. At most its own pace, never into a third
+     * body. True when the lighter one moved.
+     */
+    private barge(other: EnemyEntity, fromU: number, fromD: number, toU: number, toD: number) {
+        const mu = toU - fromU
+        const md = toD - fromD
+        const length = Math.hypot(mu, md)
+        if (length < 1e-3) return false
+        const pace = Math.max(length * 1.5, SEPARATE_STEP)
+        // Across the move, to the side the lighter one already stands on.
+        const pu = -md / length
+        const pd = mu / length
+        const side = Math.sign((other.u - fromU) * pu + (other.d - fromD) * pd) || 1
+        const edge = (u: number) => clamp(u, -FIELD_HALF_WIDTH, FIELD_HALF_WIDTH)
+        return this.shove([[other, edge(other.u + pu * side * pace), other.d + pd * side * pace]])
+            || this.shove([[other, edge(other.u + mu / length * pace), other.d + md / length * pace]])
+    }
+
+    /** Whether any other body on the ground stands where this one is. */
+    private crowdedAt(enemy: EnemyEntity) {
+        return this.enemies.some(o => o !== enemy && !o.gateHold && o.hp > 0 && !hackerzIsAirborne(o.def)
+            && this.sinkInto(enemy, enemy.u, enemy.d, o) > 1)
+    }
+
+    /** How far a point on the ground is from the nearest edge of a body's footprint: 0 inside it. */
+    private reachOf(enemy: EnemyEntity, u: number, d: number) {
+        const foot = this.footprint(enemy)
+        return Math.hypot(Math.max(0, Math.abs(enemy.u - u) - foot.u), Math.max(0, Math.abs(enemy.d - d) - foot.d))
+    }
+
+    /**
+     * How far `enemy`, standing at (u, d), sinks into `other`'s footprint: the
+     * smaller of its two overlaps, or 0 when they are clear of each other.
+     */
+    private sinkInto(enemy: EnemyEntity, u: number, d: number, other: EnemyEntity) {
+        const fa = this.footprint(enemy)
+        const fb = this.footprint(other)
+        const ou = fa.u + fb.u - Math.abs(other.u - u)
+        const od = fa.d + fb.d - Math.abs(other.d - d)
+        return ou > 0 && od > 0 ? Math.min(ou, od) : 0
+    }
+
+    /**
+     * Collision: bodies on the ground are solid. If this tick's move (a walk, a
+     * ride, a shove) would carry `enemy` deeper into another body than it
+     * stood before, the move is cut back to the furthest point short of that —
+     * it stops at contact and waits, rather than walking through or being
+     * shoved aside. Moving away from or along another body is always free.
+     */
+    private collide(enemy: EnemyEntity, fromU: number, fromD: number, fromSeg: number, fromYaw: number, dtMs: number) {
+        if (hackerzIsAirborne(enemy.def) || enemy.burrowMs > 0) return
+        const toU = enemy.u
+        const toD = enemy.d
+        if (toU === fromU && toD === fromD && enemy.yaw === fromYaw) return
+        // One hacking or guarding a chip walks through everyone, and everyone through it.
+        if (this.permeable(enemy)) return
+        const rides = this.ridesNetwork(enemy)
+        const others = this.enemies.filter(o => this.solidPair(enemy, o))
+        // How deep it sank into any other body before this tick, at its old spot and heading.
+        const toYaw = enemy.yaw
+        enemy.yaw = fromYaw
+        const before = others.map(o => this.sinkInto(enemy, fromU, fromD, o))
+        enemy.yaw = toYaw
+        const blocker = (u: number, d: number) => others.find((o, k) => {
+            const now = this.sinkInto(enemy, u, d, o)
+            return now > 0.5 && now > before[k]! + 0.01
+        })
+        const blocked = (u: number, d: number) => !!blocker(u, d)
+        // A jam (two blocking each other) cannot last, and nobody walks
+        // through anybody: the one held longest backs off for a moment, so the
+        // other can step round it.
+        if (enemy.yieldMs && enemy.yieldMs > 0) {
+            enemy.yieldMs -= dtMs
+            enemy.yaw = fromYaw
+            const from = enemy.yieldFrom
+            const awayU = from ? fromU - from.u : 0
+            const awayD = from ? fromD - from.d : 1
+            const length = Math.hypot(awayU, awayD) || 1
+            const pace = Math.max(Math.hypot(toU - fromU, toD - fromD), 0.5)
+            const u = clamp(fromU + awayU / length * pace, -FIELD_HALF_WIDTH, FIELD_HALF_WIDTH)
+            const d = fromD + awayD / length * pace
+            const clear = !blocked(u, d) && (!rides || this.nearLine(enemy, u, d, fromU, fromD))
+            enemy.u = clear ? u : fromU
+            enemy.d = clear ? d : fromD
+            enemy.routeSeg = fromSeg
+            return
+        }
+        // A long body cannot swing round into a neighbour either: it keeps its
+        // old heading until there is room to turn.
+        const turnWall = toYaw !== fromYaw ? blocker(fromU, fromD) : undefined
+        if (turnWall) {
+            enemy.yaw = fromYaw
+            // A hacker turning into its slot does not wait on a passer-by:
+            // the passer-by is eased out of its way, a little each tick.
+            if (enemy.hackSlot && !turnWall.hackSlot) {
+                const du = turnWall.u - fromU
+                const dd = turnWall.d - fromD
+                const length = Math.hypot(du, dd) || 1
+                this.shove([[turnWall, clamp(turnWall.u + du / length * SEPARATE_STEP, -FIELD_HALF_WIDTH, FIELD_HALF_WIDTH),
+                    turnWall.d + dd / length * SEPARATE_STEP]])
+            }
+        }
+        if (toU === fromU && toD === fromD) return
+        let wall = blocker(toU, toD)
+        // A heavy body does not queue behind a light one: it barges it aside.
+        if (wall && this.outweighs(enemy, wall) && this.barge(wall, fromU, fromD, toU, toD)) wall = blocker(toU, toD)
+        if (!wall) {
+            enemy.blockedMs = 0
+            enemy.blockedBy = null
+            return
+        }
+        // A rider is not glued to its line: it steps round the body in its way.
+        // One parking at its node keeps to its own way in, and waits.
+        const round = rides && !enemy.hackSlot ? this.sidestep(enemy, fromU, fromD, toU, toD, wall, blocked) : null
+        if (round) {
+            enemy.u = round.u
+            enemy.d = round.d
+            enemy.blockedMs = 0
+            enemy.blockedBy = null
+            return
+        }
+        enemy.blockedBy = wall
+        // The furthest point along the move that is still clear.
+        let lo = 0
+        let hi = 1
+        for (let step = 0; step < 8; step++) {
+            const t = (lo + hi) / 2
+            if (blocked(fromU + (toU - fromU) * t, fromD + (toD - fromD) * t)) hi = t
+            else lo = t
+        }
+        enemy.u = fromU + (toU - fromU) * lo
+        enemy.d = fromD + (toD - fromD) * lo
+        // Cut back before a corner it had just turned, it is still on the stretch before it.
+        if (lo < 1 && enemy.routeSeg !== fromSeg) enemy.routeSeg = fromSeg
+        // A shove into a body stops dead against it.
+        enemy.pushVd = 0
+        enemy.blockedMs = (enemy.blockedMs ?? 0) + dtMs
+        // Only a true deadlock — two bodies each waiting on the other — is
+        // broken, by this one backing off. A queue just waits its turn.
+        if (enemy.blockedMs > JAM_MS && wall.blockedBy === enemy) {
+            enemy.blockedMs = 0
+            enemy.yieldMs = YIELD_MS
+            enemy.yieldFrom = wall
+        }
+    }
+
+    /**
+     * A unit's half extents on the ground (field units): across the lane (`u`)
+     * and along it (`d`), from its model's own bounds, turned with its yaw.
+     */
+    private footprint(enemy: EnemyEntity) {
+        const box = enemy.rig.box
+        const halfX = Math.max(Math.abs(box.min.x), Math.abs(box.max.x)) * PER_WORLD
+        const halfZ = Math.max(Math.abs(box.min.z), Math.abs(box.max.z)) * PER_WORLD
+        const c = Math.abs(Math.cos(enemy.yaw))
+        const s = Math.abs(Math.sin(enemy.yaw))
+        return { u: c * halfX + s * halfZ, d: s * halfX + c * halfZ }
     }
 
     /**
@@ -2485,6 +4217,11 @@ export class HackerzGame {
             return true
         }
         if (enemy.def.cloaked && !enemy.decloaked) enemy.decloaked = true
+        // A spiderling sinks its fangs into a proxy wall and drains it like the fence.
+        if (enemy.def.drain && hold.target.kind === 'proxy') {
+            this.drainFence(enemy, damage, hold.target)
+            return false
+        }
         this.deployables?.strike(hold.target, damage)
         return false
     }
@@ -2492,42 +4229,57 @@ export class HackerzGame {
     /** What an enemy does when it reaches its stopping distance. */
     private enemyStrike(enemy: EnemyEntity) {
         const damage = enemy.damage * this.chipBuff(enemy)
-        switch (enemy.def.kind) {
+        // The last healers of a wave go off on the fence like a weak Sapper.
+        switch (enemy.kamikaze ? 'bomber' : enemy.def.kind) {
             case 'ranged': {
                 const heavy = enemy.def.id === 'artillery'
-                const originY = enemy.altitude + enemy.rig.height * PER_WORLD * 0.75
+                // The shot leaves from the muzzle itself (shared with the
+                // database turntable), not from somewhere inside the body.
+                this.placeEnemy(enemy)
+                // Twin guns (a Gunship's) take turns down the volley.
+                const muzzle = muzzleOf(enemy.rig, new THREE.Vector3(), enemy.burstLeft)
+                const from = { u: muzzle.x / FIELD_SCALE, d: -muzzle.z / FIELD_SCALE, y: muzzle.y / FIELD_SCALE }
                 const speed = heavy ? SPIT_SPEED * 1.5 : SPIT_SPEED
-                const flightTime = Math.max(0.35, enemy.d / speed)
+                const flightTime = Math.max(0.35, from.d / speed)
                 const mesh = makeSpit(enemy.def.hex, heavy)
                 this.fieldRoot.add(mesh)
                 this.spits.push({
                     mesh,
-                    u: enemy.u,
-                    d: enemy.d,
-                    y: originY,
-                    vd: -enemy.d / flightTime,
-                    vy: (WALL_HIT_Y - originY) / flightTime + 0.5 * SPIT_GRAVITY * flightTime,
+                    u: from.u,
+                    d: from.d,
+                    y: from.y,
+                    vd: -from.d / flightTime,
+                    vy: (WALL_HIT_Y - from.y) / flightTime + 0.5 * SPIT_GRAVITY * flightTime,
                     damage,
                     hex: enemy.def.hex,
                     heavy
                 })
-                this.transient?.flash(fieldToWorld(enemy.u, enemy.d, originY * FIELD_SCALE, _v), enemy.def.hex, heavy ? 0.9 : 0.5)
+                this.transient?.flash(muzzle, enemy.def.hex, heavy ? 0.9 : 0.5)
+                enemy.recoil = 1
                 break
             }
             case 'bomber': {
                 this.damageWall(damage, enemy.u)
+                // It goes up: the spikes are blown off the cage in every direction.
+                this.placeEnemy(enemy)
+                this.shrapnel?.burst(enemy.rig, enemy.def.hex)
                 const at = this.enemyWorld(enemy, 10, _v)
                 this.transient?.flash(at, enemy.def.hex, 2.6, 0.25)
                 this.transient?.ring(at, enemy.def.hex, 9, 0.45)
                 this.particles.burst(at, enemy.def.hex, 30, 16, { size: 0.35, life: 0.7 })
                 this.addShake(14)
-                this.callbacks.onNotice('A sapper reached the wall.', 'bad')
+                this.callbacks.onNotice(`A ${enemy.def.name} reached the wall.`, 'bad')
                 this.sysLog.sapperHit(Math.floor((enemy.u + FIELD_HALF_WIDTH) / 100) + 1, this.integrityPercent())
                 const index = this.enemies.indexOf(enemy)
                 if (index >= 0) this.removeEnemy(index)
                 break
             }
             default: {
+                // A spiderling latches on and drains instead of striking.
+                if (enemy.def.drain) {
+                    this.drainFence(enemy, damage)
+                    break
+                }
                 // A cloaked unit has to drop its cloak to strike.
                 if (enemy.def.cloaked && !enemy.decloaked) {
                     enemy.decloaked = true
@@ -2535,9 +4287,326 @@ export class HackerzGame {
                 }
                 this.damageWall(damage, enemy.u)
                 this.particles.burst(fieldToWorld(enemy.u, 4, FENCE_HEIGHT * 0.5, _v), enemy.def.hex, 5, 8, { size: 0.2, life: 0.3 })
+                // A unit with a melee weapon (the Warden's prod) jabs it home.
+                enemy.strike = 1
+                // A Phantom's strikes are a crystal ribbon: each keeps it fed until the next.
+                if (CRYSTAL_RIBBON_IDS.includes(enemy.def.id)) enemy.ribbonMs = enemy.def.attackMs * 1.3
+                // ZERO DAY's are its own body: it comes apart at the wall and regrows from its gem.
+                if (BLOCK_STORM_IDS.includes(enemy.def.id)) this.blockStorm(enemy)
+                // A leaking unit (the Daemon) heaves a leaked block onto the pile;
+                // it only starts draining once it lands there.
+                if (enemy.def.leak && enemy.heave <= 0 && enemy.rig.lifts.length) {
+                    enemy.heave = 1
+                    enemy.heaveDrain = damage * enemy.def.leak
+                }
                 break
             }
         }
+    }
+
+    /** A Phantom's ribbon: crystals out of its chest, round its crossing orbits, and off the front at the fence. */
+    private feedRibbon(enemy: EnemyEntity, dt: number, dtMs: number) {
+        enemy.ribbonMs = Math.max(0, enemy.ribbonMs - dtMs)
+        const height = enemy.rig.height
+        enemy.ribbon ??= new CrystalRibbon(this.fieldRoot, enemy.def.hex, height, at => {
+            if (randomChance(0.35)) this.particles.burst(at, enemy.def.hex, 3, 5, { size: 0.16, life: 0.25 })
+        })
+        const chest = this.enemyWorld(enemy, height * PER_WORLD * 0.6, new THREE.Vector3())
+        const target = fieldToWorld(enemy.u, 0, FENCE_HEIGHT * 0.55, new THREE.Vector3())
+        const forward = target.clone().sub(chest).normalize()
+        enemy.ribbon.update(dt, enemy.ribbonMs > 0, chest, forward, target)
+    }
+
+    /** ZERO DAY's blow: its blocks burst off, sweep past its gem and pelt the fence; it regrows after. */
+    private blockStorm(enemy: EnemyEntity) {
+        this.placeEnemy(enemy)
+        enemy.storm ??= new BlockStorm(enemy.rig, this.fieldRoot, enemy.def.hex, at => {
+            this.particles.burst(at, enemy.def.hex, 4, 6, { size: 0.22, life: 0.3 })
+        })
+        enemy.storm.start(fieldToWorld(enemy.u, 0, FENCE_HEIGHT * 0.5, new THREE.Vector3()))
+    }
+
+    /** The ram slamming home: sparks and grit off the plate, a shock along the fence, a jolt. */
+    private ramImpact(enemy: EnemyEntity) {
+        this.placeEnemy(enemy)
+        const face = weaponTip(enemy.rig, new THREE.Vector3())
+        if (!face) return
+        this.particles.burst(face, 0xffd08a, 26, 9, { size: 0.24, life: 0.4, gravity: 12 })
+        this.particles.burst(face, enemy.def.hex, 12, 5, { size: 0.32, life: 0.5 })
+        this.transient?.ring(fieldToWorld(enemy.u, 0, FENCE_HEIGHT * 0.3, _v), enemy.def.hex, 3.2, 0.35)
+        this.addShake(7)
+    }
+
+    /** The prod's discharge: arcs from its tip into the fence, and a spit of sparks. */
+    private prodZap(enemy: EnemyEntity) {
+        this.placeEnemy(enemy)
+        const tip = weaponTip(enemy.rig, new THREE.Vector3())
+        if (!tip) return
+        const fence = fieldToWorld(enemy.u, 0, FENCE_HEIGHT * 0.45, new THREE.Vector3())
+        this.transient?.bolt(tip, fence, PROD_HEX)
+        this.transient?.bolt(tip, fence.clone().add(_w.set(randRange(-0.6, 0.6), randRange(-0.4, 0.4), 0)), PROD_HEX)
+        this.particles.burst(tip, PROD_HEX, 10, 6, { size: 0.18, life: 0.25 })
+    }
+
+    // ─── ROOTKIT's brood ─────────────────────────────────────────────────────
+
+    /**
+     * A spiderling drains the fence (the ICE Barrier first): quietly, like a
+     * leak, and harder every time. What it drains feeds it: it grows, its
+     * health with it, and it heals by what it took.
+     */
+    private drainFence(enemy: EnemyEntity, damage: number, proxy: Hold['target'] | null = null) {
+        const dealt = damage * enemy.drainPower
+        // The fence (its ICE Barrier first), or the proxy wall standing in the way.
+        if (proxy) this.deployables?.strike(proxy, dealt)
+        else this.damageWall(dealt, enemy.u, true)
+        const before = drainGrowth(enemy.drainPower)
+        enemy.drainPower = Math.min(HACKERZ_SPIDER_MAX_DRAIN, enemy.drainPower * (1 + enemy.def.drain!))
+        enemy.maxHp *= drainGrowth(enemy.drainPower) / before
+        enemy.hp = Math.min(enemy.maxHp, enemy.hp + dealt)
+        // The bite: its fangs drive in, a red stain spills out round them, and
+        // the draw pulses in from the stain's edge, up the fangs, into it.
+        enemy.inject = 1
+        this.placeEnemy(enemy)
+        const tips = fangTips(enemy.rig)
+        const bite = tips.length ? tips.reduce((sum, t) => sum.add(t), new THREE.Vector3()).divideScalar(tips.length) : this.enemyWorld(enemy, 6, new THREE.Vector3())
+        const surfaceD = proxy ? proxy.d + 4 : 1
+        const at = fieldToWorld(enemy.u, surfaceD, bite.y * PER_WORLD, new THREE.Vector3())
+        enemy.wound ??= new DrainWound(this.fieldRoot, enemy.def.hex)
+        // The surface faces the field: back toward the spiderling.
+        enemy.wound.place(at, _w.set(0, 0, -1), enemy.rig.height * drainGrowth(enemy.drainPower) * 0.9)
+        enemy.wound.draw(this.enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.45, new THREE.Vector3()))
+    }
+
+    /** Spiderlings on the field. */
+    private spiderCount() {
+        let n = 0
+        for (const e of this.enemies) if (e.def.id === 'spiderling') n++
+        return n
+    }
+
+    /** A spiderling hatches at (u, d), if the brood is not already at its cap. */
+    private hatchSpider(u: number, d: number) {
+        if (this.spiderCount() >= HACKERZ_SPIDER_CAP) return
+        // A reinforcement: half bounty and no coins, so the brood is never a farm.
+        this.spawn(hackerzEnemy('spiderling'), true, 1, { u, d })
+    }
+
+    /**
+     * ROOTKIT, surfaced: it infects the hacked nodes it passes, and every few
+     * seconds its forelegs rear up to inject a pair of spiderlings.
+     */
+    private rootkitBrood(enemy: EnemyEntity, dtMs: number) {
+        if (!this.running || this.purging || enemy.decoy) return
+        for (const chip of this.pathChips?.chips ?? []) {
+            if (chip.state !== 'hacked' || this.infected.has(chip.id)) continue
+            if (Math.hypot(chip.u - enemy.u, chip.d - enemy.d) > HACKERZ_SPIDER_INFECT_RADIUS) continue
+            this.infected.set(chip.id, HACKERZ_SPIDER_HATCH_MS * 0.5)
+            const at = fieldToWorld(chip.u, chip.d, 0.3, new THREE.Vector3())
+            this.transient?.ring(at, enemy.def.hex, 4, 0.5)
+            this.particles.burst(at, enemy.def.hex, 24, 7, { size: 0.24, life: 0.6 })
+            this.sysLog.infected(chip.id)
+        }
+        enemy.broodMs -= dtMs
+        if (enemy.broodMs > 0 || enemy.inject > 0) return
+        enemy.broodMs = HACKERZ_SPIDER_INJECT_MS
+        if (this.spiderCount() < HACKERZ_SPIDER_CAP) enemy.inject = 1
+    }
+
+    /** The forelegs drive home: a spiderling out of each needle. */
+    private injectBrood(enemy: EnemyEntity) {
+        for (const tip of fangTips(enemy.rig)) {
+            this.particles.burst(tip, enemy.def.hex, 10, 5, { size: 0.2, life: 0.35 })
+            this.hatchSpider(tip.x * PER_WORLD, -tip.z * PER_WORLD)
+        }
+    }
+
+    /**
+     * Infected nodes hatch a spiderling every tick, for as long as ROOTKIT
+     * lives and the node stays theirs.
+     */
+    private hatchInfected(dtMs: number) {
+        if (!this.infected.size) return
+        if (!this.enemies.some(e => e.def.id === 'titan' && !e.decoy)) {
+            this.infected.clear()
+            return
+        }
+        const chips = this.pathChips?.chips ?? []
+        for (const [id, ms] of this.infected) {
+            const chip = chips.find(c => c.id === id)
+            if (!chip || chip.state !== 'hacked') {
+                this.infected.delete(id)
+                continue
+            }
+            const at = fieldToWorld(chip.u, chip.d, 0.3, _v)
+            // A sick pulse on the node, so the player can see what is breeding there.
+            if (Math.random() < dtMs / 1000 * 4) this.particles.emit(at, _w.set(randRange(-0.4, 0.4), 1.2, randRange(-0.4, 0.4)), 0xfb7185, { size: 0.2, life: 0.5, gravity: 0 })
+            let left = ms - dtMs
+            if (left <= 0) {
+                left += HACKERZ_SPIDER_HATCH_MS
+                this.transient?.ring(at, 0xfb7185, 2.4, 0.35)
+                this.hatchSpider(chip.u, chip.d - 30)
+            }
+            this.infected.set(id, left)
+        }
+    }
+
+    // ─── Healers ─────────────────────────────────────────────────────────────
+
+    /**
+     * A healer's move: to the worst-hurt hostile, preferring one other healers
+     * already work on (so they converge, and heal it faster together), and a
+     * heal every tick once in reach. With nobody hurt it shadows the front of
+     * the push. Null once only healers are left: then it goes kamikaze, diving
+     * the fence like any flyer, to go off there.
+     */
+    private healerStep(enemy: EnemyEntity, dt: number, dtMs: number) {
+        const others = this.enemies.filter(e => !e.def.heal && !e.turned)
+        if (!others.length) {
+            enemy.kamikaze = true
+            enemy.healing = null
+            return null
+        }
+        let patient: EnemyEntity | null = null
+        let best = -Infinity
+        for (const e of others) {
+            if (e.hp >= e.maxHp || e.burrowMs > 0) continue
+            const crew = this.enemies.filter(h => h !== enemy && h.healing === e).length
+            const score = (1 - e.hp / e.maxHp) + crew * HEAL_CONVERGE + (e === enemy.healing ? 0.15 : 0)
+                - Math.hypot(e.u - enemy.u, e.d - enemy.d) / 3000
+            if (score > best) {
+                best = score
+                patient = e
+            }
+        }
+        enemy.healing = patient
+        const lead = patient ?? others.reduce((a, e) => e.d < a.d ? e : a)
+        const goalU = lead.u + (patient ? 0 : HEAL_ESCORT_U * Math.sign(enemy.u - lead.u || 1))
+        const goalD = lead.d + HEAL_HOVER_D
+        const du = goalU - enemy.u
+        const dd = goalD - enemy.d
+        const dist = Math.hypot(du, dd)
+        const moved = Math.min(dist, enemy.speed * this.pushSpeed * dt)
+        if (dist > 0.001) {
+            enemy.u += du / dist * moved
+            enemy.d += dd / dist * moved
+        }
+        if (patient && Math.hypot(patient.u - enemy.u, patient.d - enemy.d) < HEAL_REACH) {
+            enemy.attackTimer -= dtMs
+            if (enemy.attackTimer <= 0) {
+                enemy.attackTimer = HACKERZ_HEAL_TICK_MS
+                // 1 a tick at the unit's own strength: a heavy mends as fast, proportionally, as a light.
+                patient.hp = Math.min(patient.maxHp, patient.hp + enemy.def.heal! * patient.maxHp / patient.def.hp)
+                this.healBeam(enemy, patient)
+            }
+        }
+        return { moved, arrived: false }
+    }
+
+    private healBeam(healer: EnemyEntity, patient: EnemyEntity) {
+        this.placeEnemy(healer)
+        const from = this.enemyWorld(healer, healer.rig.height * PER_WORLD * 0.3, new THREE.Vector3())
+        const to = this.enemyWorld(patient, this.enemyCentreY(patient) - patient.altitude, new THREE.Vector3())
+        this.transient?.beam(from, to, HEAL_HEX, 0.18)
+        this.particles.burst(to, HEAL_HEX, 3, 3, { size: 0.18, life: 0.35, gravity: -6 })
+    }
+
+    // ─── Memory leaks ────────────────────────────────────────────────────────
+
+    /**
+     * The heave: arms back to the disc, a leaked block out of it, overhead, and
+     * let go onto the pile in front.
+     */
+    private heaveLeak(enemy: EnemyEntity, dt: number) {
+        const before = enemy.heave
+        enemy.heave = easeHeave(enemy.rig, enemy.heave, dt)
+        const at = _w
+        const grown = heaveCarry(enemy.rig, enemy.heave, at)
+        if (grown > 0) {
+            enemy.carry ??= new LeakCarry(this.fieldRoot, enemy.def.hex, LEAK_SCALE)
+            enemy.carry.show(at, grown)
+        } else enemy.carry?.hide()
+        if (heaveReleases(before, enemy.heave)) this.leakMemory(enemy, enemy.heaveDrain, enemy.carry?.mesh.position ?? at)
+    }
+
+    /**
+     * A Daemon's hit leaves an allocation behind: a block thrown from `from`
+     * onto the pile at that stretch of fence (a new pile if there is none near),
+     * draining `drain` a second until it is shot or collected.
+     */
+    private leakMemory(enemy: EnemyEntity, drain: number, from: THREE.Vector3) {
+        // Once the sweep has started, the heap is being collected: nothing new lands.
+        if (this.purging || !this.running) {
+            enemy.carry?.hide()
+            return
+        }
+        let pile = this.leaks.find(p => Math.abs(p.u - enemy.u) < HACKERZ_LEAK_MERGE)
+        if (!pile) {
+            const u = clamp(enemy.u, -WALL_HALF_LENGTH + 20, WALL_HALF_LENGTH - 20)
+            const stack = new LeakStack(this.fieldRoot, fieldToWorld(u, LEAK_D, 0, new THREE.Vector3()), enemy.def.hex, LEAK_SCALE)
+            pile = { u, stack, drains: [], tickMs: 0, freed: 0 }
+            this.leaks.push(pile)
+            this.sysLog.memoryLeak(Math.floor((u + FIELD_HALF_WIDTH) / 100) + 1)
+        }
+        enemy.carry?.hide()
+        if (pile.stack.spill(from)) pile.drains.push(drain)
+    }
+
+    /** Each pile drains the fence once a second, by what its blocks leak; quietly, as a leak does. */
+    private updateLeaks(dt: number, dtMs: number) {
+        for (const pile of this.leaks) {
+            pile.stack.update(dt)
+            if (!this.running || this.purging || !pile.drains.length) continue
+            pile.tickMs += dtMs
+            if (pile.tickMs < LEAK_TICK_MS) continue
+            pile.tickMs -= LEAK_TICK_MS
+            pile.stack.drained()
+            const top = pile.stack.top(new THREE.Vector3())
+            this.particles.emit(top, _w.set(0, 1.2, 1.4), pile.stack.hex, { size: 0.2, life: 0.4, gravity: 0 })
+            this.damageWall(pile.drains.reduce((sum, d) => sum + d, 0), pile.u, true)
+        }
+    }
+
+    /** The pile a shot at (u, d) is aimed at: one right by the fence, under the cursor. */
+    private leakPileAt(u: number, d: number) {
+        if (d > LEAK_D + LEAK_AIM_D) return null
+        let best: LeakPile | null = null
+        for (const pile of this.leaks) {
+            if (Math.abs(pile.u - u) < LEAK_AIM_U && (!best || Math.abs(pile.u - u) < Math.abs(best.u - u))) best = pile
+        }
+        return best
+    }
+
+    /** A round fired at a pile reaches it: one block freed, in a burst. */
+    private shootLeak(u: number) {
+        const pile = this.leaks.find(p => p.u === u)
+        if (!pile) return
+        const at = pile.stack.pop(new THREE.Vector3())
+        if (!at) return
+        pile.drains.pop()
+        this.particles.burst(at, pile.stack.hex, 12, 7, { size: 0.24, life: 0.4 })
+        this.particles.burst(at, 0xffffff, 4, 4, { size: 0.16, life: 0.2 })
+        this.callbacks.onSound?.('hit-enemy')
+        if (pile.stack.count) {
+            pile.freed++
+            return
+        }
+        this.transient?.ring(fieldToWorld(pile.u, LEAK_D, 0.1, _v), pile.stack.hex, 2.4, 0.4)
+        this.sysLog.heapFreed(pile.freed + 1, false)
+        pile.stack.dispose()
+        this.leaks.splice(this.leaks.indexOf(pile), 1)
+    }
+
+    /** Collects every pile: the purge's sweep logs it as a GC run; a reset just drops them. */
+    private clearLeaks(swept: boolean) {
+        let blocks = 0
+        for (const pile of this.leaks) {
+            blocks += pile.stack.count
+            if (swept) this.particles.burst(pile.stack.top(new THREE.Vector3()), pile.stack.hex, 18, 8, { size: 0.26, life: 0.5 })
+            pile.stack.dispose()
+        }
+        this.leaks = []
+        if (swept && blocks) this.sysLog.heapFreed(blocks, true)
     }
 
     /**
@@ -2564,13 +4633,21 @@ export class HackerzGame {
             const at = this.enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
             this.particles.burst(at, 0xff3b3b, 14, 7, { size: 0.24, life: 0.35 })
             if (showNumber) this.overlay.floatText(this.enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v), 'BLOCKED', 0xff6b6b, 0.95)
-            if (flash) enemy.flashMs = 90
+            if (flash) enemy.flashMs = MOTION.hitFlashMs
             return
         }
         const bonus = hackerzTypeMultiplier(damageType, enemy.armored)
         const dealt = amount * bonus
-        enemy.hp -= dealt
-        if (flash) enemy.flashMs = 90
+        // A carried shield (the Warden's) takes the hit until it breaks; the
+        // bubble flashes round the unit from the shield back.
+        const blocked = Math.min(enemy.guard, dealt)
+        if (blocked > 0) {
+            enemy.guard -= blocked
+            if (shieldable) (enemy.hexShield ??= new HexShield(enemy.rig)).pulse()
+            if (enemy.guard <= 0) this.breakGuard(enemy)
+        }
+        enemy.hp -= dealt - blocked
+        if (flash) enemy.flashMs = MOTION.hitFlashMs
         if (showNumber) {
             const effective = bonus > 1
             this.overlay.floatText(
@@ -2580,6 +4657,18 @@ export class HackerzGame {
                 crit ? 1.5 : effective ? 1.2 : 0.95
             )
         }
+    }
+
+    /** The shield gives: it shatters off the unit, and hits land on the unit from now on. */
+    private breakGuard(enemy: EnemyEntity) {
+        enemy.guard = 0
+        this.placeEnemy(enemy)
+        this.shrapnel?.burst(enemy.rig, 0xffffff, enemy.rig.guardParts)
+        for (const part of enemy.rig.guardParts) part.visible = false
+        const at = this.enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
+        this.particles.burst(at, 0xffffff, 18, 9, { size: 0.24, life: 0.45 })
+        this.transient?.ring(at, 0xffffff, 3, 0.35)
+        this.overlay.floatText(this.enemyWorld(enemy, enemy.rig.height * PER_WORLD + 20, _v), 'SHIELD DOWN', 0xffffff, 1.1)
     }
 
     /** Removes an enemy and pays out. `payout` scales it (the purge pays less). */
@@ -2639,6 +4728,18 @@ export class HackerzGame {
         if (!enemy) return
         if (this.target === enemy) this.target = null
         this.terminals?.close(enemy)
+        // A block still in its hands goes down with it.
+        enemy.carry?.dispose()
+        enemy.carry = null
+        enemy.hexShield?.dispose()
+        enemy.hexShield = null
+        enemy.ribbon?.dispose()
+        enemy.ribbon = null
+        // Whole again for its death, whatever state it was in.
+        enemy.storm?.dispose()
+        enemy.storm = null
+        enemy.wound?.dispose()
+        enemy.wound = null
         if (shortOut) this.dying.push({ rig: enemy.rig, age: 0, life: enemy.def.boss ? 0.9 : 0.4, hex: enemy.def.hex })
         else disposeRig(enemy.rig)
         this.enemies.splice(index, 1)
@@ -2740,15 +4841,28 @@ export class HackerzGame {
         return { u: this.aimU, d: this.aimD, y: 0 }
     }
 
+    /** The Longbore is a railgun: it cannot turn, and fires straight down the lane from wherever it stands on its rail. */
+    private get straightShot() {
+        return this.weapon?.projectile === 'slug'
+    }
+
     private updateRail(dt: number) {
         const rig = this.railRig
         if (!rig) return
         const aim = this.railAim()
-        const desired = Math.atan2((aim.u - RAIL_U) * FIELD_SCALE, -aim.d * FIELD_SCALE - GUN_Z)
-        this.railHeading = turnToward(this.railHeading, desired, dt * 14)
+        const straight = this.straightShot
+        // A railgun glides along its track under the cursor (or its locked
+        // target); every other gun sits back in the middle and turns to aim.
+        const home = straight ? clamp(aim.u, -RAIL_TRACK, RAIL_TRACK) : RAIL_U
+        const gap = home - this.railU
+        this.railU += Math.sign(gap) * Math.min(Math.abs(gap), RAIL_GLIDE * dt)
+        rig.root.position.x = this.railU * FIELD_SCALE
+        this.ammoRack?.follow(this.railU * FIELD_SCALE)
+        if (this.railTrack) this.railTrack.visible = straight
+        const desired = straight ? Math.PI : Math.atan2((aim.u - this.railU) * FIELD_SCALE, -aim.d * FIELD_SCALE - GUN_Z)
+        this.railHeading = straight ? Math.PI : turnToward(this.railHeading, desired, dt * MOTION.railTurn)
         if (rig.yaw) rig.yaw.rotation.y = this.railHeading
-        this.railKick += (0 - this.railKick) * Math.min(1, dt * 18)
-        if (rig.barrel) rig.barrel.position.z = rig.barrelRestZ - this.railKick
+        this.railKick = easeRailKick(rig, this.railKick, dt)
         for (const spinner of rig.spins) spinner.rotation.y += dt
     }
 
@@ -2804,15 +4918,21 @@ export class HackerzGame {
         else if (weapon.id === 'missile') this.callbacks.onSound?.('shoot-missile')
         else if (weapon.id === 'sniper') this.callbacks.onSound?.('shoot-sniper')
 
-        const aim = this.railAim()
+        let aim = this.railAim()
+        // Aimed down at a pile of leaked memory by the fence, the round goes for
+        // the top of it, and is spent freeing a block.
+        const leak = this.target ? null : this.leakPileAt(aim.u, aim.d)
+        if (leak) aim = { u: leak.u, d: LEAK_D, y: leak.stack.top(_w).y * PER_WORLD }
         // Lead the target by its walking speed over the round's flight, once —
         // a locked shot should land, but a pushed or turning target can still slip it.
         let aimD = aim.d
+        const from = this.railU
         if (this.target && weapon.speed > 0) {
-            const flight = Math.hypot(aim.u - RAIL_U, aim.d - MUZZLE_D) / weapon.speed
+            const flight = Math.hypot(aim.u - from, aim.d - MUZZLE_D) / weapon.speed
             if (this.target.d > this.target.standoff) aimD = Math.max(this.target.standoff, aim.d - this.target.speed * flight)
         }
-        const angle = Math.atan2(aim.u - RAIL_U, aimD - MUZZLE_D)
+        // A railgun fires dead straight from where it stands on its rail.
+        const angle = this.straightShot ? 0 : Math.atan2(aim.u - from, aimD - MUZZLE_D)
 
         const crit = randomChance(loadout.critChance)
         const overclocked = this.overclockLeft > 0
@@ -2834,12 +4954,13 @@ export class HackerzGame {
 
         for (let i = 0; i < weapon.pellets; i++) {
             const spread = weapon.pellets > 1 ? (randomFloat() * 2 - 1) * weapon.spread : 0
-            this.spawnBullet(RAIL_U, MUZZLE_D, MUZZLE_Y, angle + spread, spec, aim.y, this.target)
+            this.spawnBullet(from, MUZZLE_D, MUZZLE_Y, angle + spread, spec, aim.y, this.target)
+            if (leak) this.bullets[this.bullets.length - 1]!.leakU = leak.u
         }
 
-        const muzzle = fieldToWorld(RAIL_U + Math.sin(angle) * 36, MUZZLE_D + Math.cos(angle) * 36, MUZZLE_Y * FIELD_SCALE, _v)
+        const muzzle = fieldToWorld(from + Math.sin(angle) * 36, MUZZLE_D + Math.cos(angle) * 36, MUZZLE_Y * FIELD_SCALE, _v)
         this.transient?.flash(muzzle, spec.hex, weapon.projectile === 'slug' ? 0.9 : 0.55)
-        this.railKick = weapon.projectile === 'slug' ? 0.5 : 0.28
+        this.railKick = railKickFor(weapon.projectile)
         this.addShake(weapon.projectile === 'slug' ? 5 : crit ? 3 : 1.6)
     }
 
@@ -2883,7 +5004,7 @@ export class HackerzGame {
             flown: 0
         }
         if (this.bonus === 'packetloss' && randomChance(PACKET_LOSS)) {
-            bullet.lostAt = randRange(0.25, 0.85) * span
+            bullet.lostAt = randomBetween(0.25, 0.85) * span
         }
         this.orientBullet(bullet)
         this.bullets.push(bullet)
@@ -2900,7 +5021,7 @@ export class HackerzGame {
         let best: EnemyEntity | null = null
         let bestScore = -Infinity
         for (const enemy of this.enemies) {
-            if (this.untouchable(enemy)) continue
+            if (this.untargetable(enemy)) continue
             const score = -enemy.d - Math.hypot(enemy.u - u, enemy.d - d) * 0.25
             if (score > bestScore) {
                 bestScore = score
@@ -2913,6 +5034,12 @@ export class HackerzGame {
     private updateBullets(dt: number) {
         for (let i = this.bullets.length - 1; i >= 0; i--) {
             const bullet = this.bullets[i] as BulletEntity
+
+            // Punching through a body, a railgun round hangs there a beat before it carries on.
+            if (bullet.holdMs) {
+                bullet.holdMs = Math.max(0, bullet.holdMs - dt * 1000)
+                continue
+            }
 
             if (bullet.homing) this.steerMissile(bullet, dt)
 
@@ -2936,6 +5063,26 @@ export class HackerzGame {
                 continue
             }
 
+            // Through a wall of black ice: the round drags on, slowed for good.
+            if (!bullet.iced && this.iceWalls.length && this.throughIce(bullet.prevU, bullet.prevD, bullet.u, bullet.d)) {
+                bullet.iced = true
+                bullet.vu *= BLACK_ICE_SLOW
+                bullet.vd *= BLACK_ICE_SLOW
+                bullet.lifeMs /= BLACK_ICE_SLOW
+                this.particles.burst(bullet.mesh.position, 0xa5b4fc, 6, 4, { size: 0.2, life: 0.3 })
+            }
+
+            // A round fired at leaked memory goes in low at the foot of the
+            // fence, under the Daemons standing over it: it hits nothing on the
+            // way, and is spent on the pile.
+            if (bullet.leakU !== undefined) {
+                if (bullet.d < LEAK_D) continue
+                this.shootLeak(bullet.leakU)
+                bullet.mesh.removeFromParent()
+                this.bullets.splice(i, 1)
+                continue
+            }
+
             let consumed = false
             for (let e = this.enemies.length - 1; e >= 0; e--) {
                 const enemy = this.enemies[e]
@@ -2947,11 +5094,26 @@ export class HackerzGame {
                 // no splash and no arc jump reaches its charge.
                 if (enemy.escorting) bullet.hit.add(enemy.escorting)
                 this.damageEnemy(enemy, bullet.damage, bullet.damageType, true, true, bullet.crit)
+                // A round fired blind lights up what it hits, for a moment.
+                if (this.inTheDark(enemy)) enemy.litMs = HIT_LIGHT_MS
                 this.callbacks.onSound?.('hit-enemy')
                 const at = this.enemyWorld(enemy, this.enemyCentreY(enemy) - enemy.altitude, new THREE.Vector3())
                 this.particles.burst(at, enemy.def.hex, bullet.crit ? 8 : 4, 9, { size: 0.22, life: 0.3 })
                 if (bullet.projectile === 'slug' || bullet.pierce > 0) {
                     this.transient?.beam(fieldToWorld(bullet.prevU, bullet.prevD, bullet.y * FIELD_SCALE, new THREE.Vector3()), at, bullet.hex)
+                }
+                // A railgun round (the Longbore's, or a Rail Lance's) punching
+                // through: it hangs in the body a beat, a shock ring bursts out
+                // sideways, a gout of flame roars up out of it — the Longbore's
+                // purple, a turret its own colour — and the body is driven back.
+                if (bullet.projectile === 'slug') {
+                    const flame = bullet.fromTurret ? bullet.hex : LONGBORE_FLARE
+                    bullet.holdMs = PUNCH_HOLD_MS
+                    this.transient?.flash(at, 0xffffff, 0.7, 0.1, 1.6)
+                    this.transient?.shockRing(at, flame, Math.max(1.6, enemy.rig.height * 1.1), _w.set(bullet.vu, 0, -bullet.vd).normalize())
+                    this.transient?.flame(at, flame, Math.max(6, enemy.rig.height * 3))
+                    // The plated and the bosses only stagger; the light are hurled.
+                    enemy.pushVd += PUNCH_PUSH * (enemy.def.boss ? 0.2 : enemy.armored ? 0.35 : 1)
                 }
 
                 if (bullet.splashRadius > 0) this.detonate(bullet, enemy)
@@ -3005,19 +5167,54 @@ export class HackerzGame {
         }
     }
 
-    /** Splash from a warhead. The direct target has already been hit. */
+    /**
+     * Splash from a warhead. The direct target has already been hit. The blast
+     * ripples out through the grid lines in the round's colour, exactly as far
+     * as the splash reaches, and every hostile it catches shows the hit.
+     */
     private detonate(bullet: BulletEntity, epicentre: EnemyEntity) {
-        const at = fieldToWorld(bullet.u, bullet.d, bullet.y * FIELD_SCALE, new THREE.Vector3())
-        this.transient?.ring(fieldToWorld(bullet.u, bullet.d, 0.1, _v), bullet.hex, bullet.splashRadius * FIELD_SCALE * 1.4, 0.38)
-        this.transient?.flash(at, bullet.hex, bullet.splashRadius * FIELD_SCALE * 0.5, 0.18)
+        // It goes off on the unit it struck, not wherever the round happened to
+        // be when it connected — a big target's far side would carry the blast
+        // past its neighbours.
+        const u = epicentre.u
+        const d = epicentre.d
+        const at = fieldToWorld(u, d, bullet.y * FIELD_SCALE, new THREE.Vector3())
+        const ground = fieldToWorld(u, d, 0.1, new THREE.Vector3())
+        // Kept dim: any brighter and the bloom washes the orange out to white.
+        this.view?.addSurge(ground.x, ground.z, bullet.hex, 0.45, bullet.splashRadius * FIELD_SCALE)
+        // The blast itself: a cloud of corrupted data scrambling the whole splash area.
+        this.glitchClouds?.burst(fieldToWorld(u, d, 0, new THREE.Vector3()), bullet.splashRadius * FIELD_SCALE, bullet.hex)
+        this.transient?.ring(ground, bullet.hex, bullet.splashRadius * FIELD_SCALE * 1.4, 0.38)
         this.particles.burst(at, bullet.hex, 14, 12, { size: 0.3, life: 0.45 })
         this.addShake(3)
+        epicentre.glitchMs = GLITCH_MS
+        // Hackers shrug splash off alone, but a crew working one node together
+        // is hit as one: catch any of them, and the whole crew takes it.
+        // The blast reaches a body if it reaches any of it, not just its middle:
+        // two Bulwarks shoulder to shoulder stand further apart, centre to
+        // centre, than a warhead's splash.
+        const reached = (enemy: EnemyEntity) => enemy === epicentre || this.reachOf(enemy, u, d) <= bullet.splashRadius
+        const crewNodes = new Set<PathChip>()
+        for (const enemy of this.enemies) {
+            if (enemy.def.id === HACKERZ_HACKER_ID && enemy.hacking && enemy.targetChip && reached(enemy)) crewNodes.add(enemy.targetChip)
+        }
+        const crew = new Set<EnemyEntity>()
+        for (const chip of crewNodes) {
+            const working = this.enemies.filter(e => e.def.id === HACKERZ_HACKER_ID && e.hacking && e.targetChip === chip && !this.untouchable(e))
+            if (working.length >= 2) for (const hacker of working) crew.add(hacker)
+        }
         for (let e = this.enemies.length - 1; e >= 0; e--) {
             const enemy = this.enemies[e] as EnemyEntity
-            // Hackers shrug off splash too: picking them off takes a direct hit.
-            if (enemy === epicentre || bullet.hit.has(enemy) || this.untouchable(enemy) || enemy.def.id === HACKERZ_HACKER_ID) continue
-            if (Math.hypot(enemy.u - bullet.u, enemy.d - bullet.d) > bullet.splashRadius) continue
-            this.damageEnemy(enemy, bullet.splashDamage, bullet.damageType, true, false, false)
+            if (enemy === epicentre || bullet.hit.has(enemy) || this.untouchable(enemy)) continue
+            if (crew.has(enemy)) {
+                // A hacking crew: every member takes it, wherever on the node it works.
+            } else if (enemy.def.id === HACKERZ_HACKER_ID || !reached(enemy)) {
+                // A lone hacker shrugs splash off: picking one off takes a direct hit.
+                continue
+            }
+            this.damageEnemy(enemy, bullet.splashDamage, bullet.damageType, true, true, false)
+            enemy.glitchMs = GLITCH_MS
+            this.particles.burst(this.enemyWorld(enemy, this.enemyCentreY(enemy) - enemy.altitude, _w), bullet.hex, 6, 7, { size: 0.22, life: 0.3 })
             if (enemy.hp <= 0) this.killEnemy(e, 1)
         }
     }
@@ -3032,7 +5229,7 @@ export class HackerzGame {
             let bestDist = 260
             for (const enemy of this.enemies) {
                 // Hackers are grounded against arcs: only a direct hit lands on one.
-                if (bullet.hit.has(enemy) || this.untouchable(enemy) || enemy.def.id === HACKERZ_HACKER_ID) continue
+                if (bullet.hit.has(enemy) || this.untargetable(enemy) || enemy.def.id === HACKERZ_HACKER_ID) continue
                 const d = Math.hypot(enemy.u - from.u, enemy.d - from.d)
                 if (d < bestDist) {
                     bestDist = d
@@ -3040,11 +5237,13 @@ export class HackerzGame {
                 }
             }
             if (!best) return
-            this.transient?.bolt(
-                this.enemyWorld(from, this.enemyCentreY(from) - from.altitude, new THREE.Vector3()),
-                this.enemyWorld(best, this.enemyCentreY(best) - best.altitude, new THREE.Vector3()),
-                bullet.hex
-            )
+            // Electricity jumping body to body: a crackling bolt you can see,
+            // and a spray of sparks where it lands.
+            const start = this.enemyWorld(from, this.enemyCentreY(from) - from.altitude, new THREE.Vector3())
+            const end = this.enemyWorld(best, this.enemyCentreY(best) - best.altitude, new THREE.Vector3())
+            this.transient?.arc(start, end, bullet.hex)
+            this.particles.burst(end, bullet.hex, 10, 9, { size: 0.22, life: 0.3 })
+            this.particles.burst(end, 0xffffff, 4, 6, { size: 0.16, life: 0.2 })
             bullet.hit.add(best)
             this.damageEnemy(best, damage, bullet.damageType, true, true, false)
             if (best.hp <= 0) {
@@ -3074,15 +5273,12 @@ export class HackerzGame {
             const seen = target ? this.seenAt(target) : null
             if (target && seen) {
                 const desired = Math.atan2((seen.u - mount.u) * FIELD_SCALE, -seen.d * FIELD_SCALE - mount.z)
-                mount.heading = turnToward(mount.heading, desired, dt * 10)
+                mount.heading = turnToward(mount.heading, desired, dt * MOTION.turretTurn)
             }
             if (mount.rig.yaw) mount.rig.yaw.rotation.y = mount.heading
-            for (const spinner of mount.rig.spins) spinner.rotation.y += dt * 1.5
+            spinTurret(mount.rig, dt)
 
-            if (!frozen) {
-                mount.kick += (0 - mount.kick) * Math.min(1, dtMs / 60)
-                if (mount.rig.barrel) mount.rig.barrel.position.z = mount.rig.barrelRestZ - mount.kick
-            }
+            if (!frozen) mount.kick = easeTurretKick(mount.rig, mount.kick, dtMs)
 
             if (!this.running || this.purging) continue
             mount.cooldown -= dtMs * (overclocked ? this.overclockRate : 1)
@@ -3103,13 +5299,13 @@ export class HackerzGame {
                 chainFalloff: 0,
                 speed: isMissile ? 780 : 1700,
                 hex: mount.runtime.hex,
-                projectile: isMissile ? 'missile' : mount.runtime.pierce > 0 ? 'slug' : 'rail',
+                projectile: turretProjectile(mount.runtime),
                 crit: false,
                 fromTurret: true
             }, this.enemyCentreY(target), target)
             const muzzle = fieldToWorld(mount.u + Math.sin(angle) * 30, mount.muzzleD + Math.cos(angle) * 30, (MUZZLE_Y * 0.92 + mount.muzzleLift) * FIELD_SCALE, _v)
             this.transient?.flash(muzzle, mount.runtime.hex, 0.35)
-            mount.kick = 0.22
+            mount.kick = MOTION.turretKick
             if (mount.runtime.id === 'gun') this.callbacks.onSound?.('turret-gun')
             else if (mount.runtime.id === 'needler') this.callbacks.onSound?.('turret-needler')
             else if (mount.runtime.id === 'warhead') this.callbacks.onSound?.('turret-warhead')
@@ -3135,7 +5331,7 @@ export class HackerzGame {
         let best: EnemyEntity | null = null
         let bestKey: number[] | null = null
         for (const enemy of this.enemies) {
-            if (enemy.d > mount.runtime.range || this.untouchable(enemy)) continue
+            if (enemy.d > mount.runtime.range || this.untargetable(enemy)) continue
             const off = Math.abs(enemy.u - mount.u)
             const tier = off <= TURRET_LANE ? 0 : off <= TURRET_LANE * 3 ? 1 : 2
             const key = [enemy.def.id === HACKERZ_HACKER_ID ? 1 : 0, tier, -enemy.maxHp, enemy.d]
@@ -3180,25 +5376,44 @@ export class HackerzGame {
 
     /**
      * Whether a unit is out of reach: a cloaked one nobody has pinged, or a
-     * ROOTKIT underground, or anything out in the dark during a BLACKOUT. Nothing
-     * targets, hits or splashes an untouchable unit.
+     * ROOTKIT underground. Nothing targets, hits or splashes an untouchable unit.
      */
     private untouchable(enemy: EnemyEntity) {
+        // A White Hat's convert is on our side now: nothing of ours shoots it.
+        if (enemy.turned) return true
+        // Still waiting inside the portal: not on the board yet.
+        if (enemy.gateHold) return true
         if (enemy.burrowMs > 0) return true
-        if (this.bonus === 'blackout' && this.running && enemy.d > BLACKOUT_LIGHT_D && enemy.revealMs <= 0) return true
-        // Inside a dark zone only a ping shows what is there.
-        if (enemy.revealMs <= 0 && this.inDarkZone(enemy.u, enemy.d)) return true
         return !!enemy.def.cloaked && !enemy.decloaked && enemy.revealMs <= 0
+    }
+
+    /**
+     * Whether a unit stands unseen in the dark: out past the light in a
+     * BLACKOUT, or inside a dark zone, with no ping on it. Rounds fired blind
+     * still hit it, but nothing can lock on.
+     */
+    private inTheDark(enemy: EnemyEntity) {
+        if (enemy.revealMs > 0) return false
+        if (this.bonus === 'blackout' && this.running && enemy.d > BLACKOUT_LIGHT_D) return true
+        return this.inDarkZone(enemy.u, enemy.d)
+    }
+
+    /** Whether nothing can pick a unit out to aim at: untouchable, or unseen in the dark. */
+    private untargetable(enemy: EnemyEntity) {
+        return this.untouchable(enemy) || this.inTheDark(enemy)
     }
 
     /**
      * Right click: a radar ring sweeps out from the rail and lights every contact
      * as the wavefront reaches it; the highlight fades as the wave moves on.
      */
-    private firePing() {
-        if (!this.running || this.purging || this.paused || this.pingCharge < PING_COOLDOWN_MS) return
-        this.pingCharge = 0
-        this.emitPing()
+    /** `free`: a Portscan's own sweep, which neither needs nor spends the radar's charge. */
+    private firePing(free = false) {
+        if (!this.running || this.purging || this.paused || (!free && this.pingCharge < PING_COOLDOWN_MS)) return
+        if (!free) {
+            this.pingCharge = 0
+            this.emitPing()
+        }
         const reach = (FIELD_DEPTH + 300) * FIELD_SCALE
         this.transient?.ring(fieldToWorld(RAIL_U, MUZZLE_D, 0.15, _v), LIME, reach, reach / (PING_SPEED * FIELD_SCALE), 1.6)
         for (const enemy of this.enemies) {
@@ -3215,6 +5430,7 @@ export class HackerzGame {
     private updateAbilities(dtMs: number) {
         const loadout = this.loadout
         if (!loadout) return
+        this.updatePortscan(dtMs)
 
         if (this.pingCharge < PING_COOLDOWN_MS) {
             // In a BLACKOUT the radar is the only light, so it recharges twice as fast.
@@ -3257,6 +5473,25 @@ export class HackerzGame {
             enemy.pushVd += PULSE_KNOCKBACK * falloff * (enemy.def.boss ? 0.25 : 1)
             if (enemy.hp <= 0) this.killEnemy(i, 1)
         }
+        // The hacked nodes nearest the wall wash back toward us, the front one
+        // whole. A defender throws itself in the way: the wash breaks on its
+        // node, and it does not survive it.
+        const defenderOf = (chip: PathChip) => this.enemies.findIndex(enemy => enemy.defending === chip && enemy.hp > 0)
+        const wash = this.pathChips?.icePulse(chip => defenderOf(chip) >= 0)
+        for (const chip of wash?.reclaimed ?? []) {
+            this.pulseFromChip(chip)
+            this.chipReclaimed(chip)
+        }
+        if (wash?.brokeOn) {
+            const at = fieldToWorld(wash.brokeOn.u, wash.brokeOn.d, 0.4, new THREE.Vector3())
+            this.transient?.ring(at, CYAN, 7, 0.6)
+            this.particles.burst(at, 0xe0f2fe, 40, 12, { size: 0.3, life: 0.8 })
+            for (let i = defenderOf(wash.brokeOn); i >= 0; i = defenderOf(wash.brokeOn)) {
+                const defender = this.enemies[i] as EnemyEntity
+                defender.hp = 0
+                this.killEnemy(i, 1)
+            }
+        }
         this.callbacks.onNotice('ICE pulse discharged.', 'info')
     }
 
@@ -3289,7 +5524,7 @@ export class HackerzGame {
      * while everything else heads for the fence.
      */
     private canHack(enemy: EnemyEntity) {
-        return this.running && !this.purging && enemy.def.id === HACKERZ_HACKER_ID && !enemy.decoy
+        return this.running && !this.purging && enemy.def.id === HACKERZ_HACKER_ID && !enemy.decoy && !enemy.demoPath
             && enemy.burrowMs <= 0 && enemy.age > 0.4
     }
 
@@ -3430,7 +5665,7 @@ export class HackerzGame {
     private ridesNetwork(enemy: EnemyEntity) {
         // Packet loss keeps the light units on the lines: the lag is the threat
         // there, not a charge. The heavies are too big for the corners and go straight.
-        return !hackerzIsAirborne(enemy.def) && enemy.burrowMs <= 0
+        return !hackerzIsAirborne(enemy.def) && enemy.burrowMs <= 0 && !enemy.demoPath
             && (!this.allNodesTaken || (this.bonus === 'packetloss' && !this.isHeavy(enemy.def)))
     }
 
@@ -3439,8 +5674,10 @@ export class HackerzGame {
         const a = enemy.route?.[enemy.routeSeg]
         if (!a) return false
         const b = enemy.route![enemy.routeSeg + 1] ?? a
-        return enemy.u >= Math.min(a.u, b.u) - 1 && enemy.u <= Math.max(a.u, b.u) + 1
-            && enemy.d >= Math.min(a.d, b.d) - 1 && enemy.d <= Math.max(a.d, b.d) + 1
+        // Within the slack a rider may stand off its line (see `LANE_SLACK`).
+        const slack = LANE_SLACK + 1
+        return enemy.u >= Math.min(a.u, b.u) - slack && enemy.u <= Math.max(a.u, b.u) + slack
+            && enemy.d >= Math.min(a.d, b.d) - slack && enemy.d <= Math.max(a.d, b.d) + slack
     }
 
     /** Every path node is in their hands. */
@@ -3551,20 +5788,50 @@ export class HackerzGame {
         return tracePassesNear({ points: ahead, from: -1, to: -1 }, u, d, radius)
     }
 
-    /** A new ground unit comes out of one of the portal's sockets and takes a line from it. */
+    /**
+     * A new ground unit comes out of one of the portal's sockets and takes a
+     * line from it. Bodies are solid, so it takes the socket where it can
+     * stand clear closest to the field: an empty one if there is one, else it
+     * falls in behind the last body queued at the least backed-up socket.
+     */
     private enterFromPortal(enemy: EnemyEntity) {
         const sources = this.network.nodes.map((node, index) => ({ node, index })).filter(s => s.node.kind === 'source')
         if (!sources.length) return
-        const { node, index } = sources[Math.floor(randomFloat() * sources.length)]!
+        const wanted = enemy.d
+        const clearAt = (u: number, from: number) => {
+            let d = from
+            // Step back past whatever stands on this column, until it is clear.
+            for (let guard = 0; guard < 40; guard++) {
+                enemy.u = u
+                enemy.d = d
+                const blocker = this.enemies.find(o => !hackerzIsAirborne(o.def) && o.hp > 0 && this.sinkInto(enemy, u, d, o) > 0)
+                if (!blocker) return d
+                d = blocker.d + this.footprint(blocker).d + this.footprint(enemy).d + CROWD_GAP
+            }
+            return d
+        }
+        // A random first pick, so ties spread across the sockets.
+        const start = Math.floor(randomFloat() * sources.length)
+        let best: { node: typeof sources[number]['node'], index: number, d: number } | null = null
+        for (let k = 0; k < sources.length; k++) {
+            const source = sources[(start + k) % sources.length]!
+            const d = clearAt(source.node.u, Math.max(wanted, source.node.d))
+            if (!best || d < best.d) best = { ...source, d }
+        }
+        const { node, index } = best!
         enemy.u = node.u
-        enemy.d = Math.max(enemy.d, node.d)
+        enemy.d = best!.d
         enemy.route = [{ u: node.u, d: enemy.d }, { u: node.u, d: node.d }]
         enemy.routeSeg = 0
         enemy.routeTo = index
         enemy.routeFrom = index
     }
 
-    /** Drops a unit onto the nearest point of the nearest line, riding on toward that line's end. */
+    /**
+     * Puts a unit back on the nearest line, riding on toward that line's end.
+     * It walks there — across, then along — rather than snapping onto it:
+     * bodies are solid, and the line may have someone on it.
+     */
     private attachToNetwork(enemy: EnemyEntity) {
         const on = nearestOnNetwork(this.network, enemy.u, enemy.d)
         if (!on) {
@@ -3572,10 +5839,13 @@ export class HackerzGame {
             enemy.routeTo = -1
             return
         }
-        enemy.u = on.u
-        enemy.d = on.d
-        enemy.route = on.trace.points
-        enemy.routeSeg = on.seg
+        enemy.route = [
+            { u: enemy.u, d: enemy.d },
+            { u: on.u, d: enemy.d },
+            { u: on.u, d: on.d },
+            ...on.trace.points.slice(on.seg + 1)
+        ]
+        enemy.routeSeg = 0
         enemy.routeTo = on.trace.to
         enemy.routeFrom = on.trace.from
     }
@@ -3709,26 +5979,27 @@ export class HackerzGame {
                 this.attachToNetwork(enemy)
                 if (!enemy.route) break
             }
+            const from = enemy.route[enemy.routeSeg]!
             const next = enemy.route[enemy.routeSeg + 1]
             if (!next) {
                 this.chooseNext(enemy)
                 continue
             }
-            const du = next.u - enemy.u
-            const dd = next.d - enemy.d
-            const length = Math.abs(du) + Math.abs(dd)
-            if (length < 0.01) {
-                enemy.u = next.u
-                enemy.d = next.d
+            // Progress is measured along the stretch only: a rider standing off
+            // its line (stepped round a body, or beside one) keeps that offset
+            // and takes the corner where it is.
+            const across = Math.abs(next.u - from.u) >= 0.01
+            const way = across ? Math.sign(next.u - from.u) : Math.sign(next.d - from.d)
+            const left = across ? (next.u - enemy.u) * way : (next.d - enemy.d) * way
+            if (left < 0.01) {
                 enemy.routeSeg++
                 continue
             }
-            const across = Math.abs(du) > Math.abs(dd)
             // Lines run down toward the fence; only a hacker's detour climbs one.
-            const down = !across && dd < 0
-            facing = across ? (du > 0 ? YAW_RIGHT : YAW_LEFT) : down ? YAW_DOWN : YAW_UP
+            const down = !across && way < 0
+            facing = across ? (way > 0 ? YAW_RIGHT : YAW_LEFT) : down ? YAW_DOWN : YAW_UP
             if (budget <= 1e-4) break
-            let step = Math.min(length, budget)
+            let step = Math.min(left, budget)
             // Never run down past a stop: the fence's standoff, or a proxy wall.
             if (down) step = Math.min(step, Math.max(0, enemy.d - goal.stopD))
             if (step <= 0) {
@@ -3736,14 +6007,29 @@ export class HackerzGame {
                 break
             }
             if (keepOut) {
-                const nu = across ? enemy.u + Math.sign(du) * step : enemy.u
-                const nd = across ? enemy.d : enemy.d + Math.sign(dd) * step
+                const nu = across ? enemy.u + way * step : enemy.u
+                const nd = across ? enemy.d : enemy.d + way * step
                 if (this.zoneOf(nu, nd) === 'held') break
             }
-            if (across) enemy.u += Math.sign(du) * step
-            else enemy.d += Math.sign(dd) * step
+            if (across) enemy.u += way * step
+            else enemy.d += way * step
             budget -= step
             moved += step
+        }
+        // Off its line, it eases back onto it whenever that does not walk it into anyone.
+        const leg = this.legOf(enemy)
+        if (leg && !arrived) {
+            const off = leg.vertical ? enemy.u - leg.from.u : enemy.d - leg.from.d
+            const back = Math.min(Math.abs(off), enemy.speed * this.pushSpeed * LANE_RETURN * dt) * Math.sign(off)
+            if (back !== 0) {
+                const u = leg.vertical ? enemy.u - back : enemy.u
+                const d = leg.vertical ? enemy.d : enemy.d - back
+                if (!this.sinksDeeper(enemy, u, d)) {
+                    enemy.u = u
+                    enemy.d = d
+                    moved += Math.abs(back)
+                }
+            }
         }
         // The turn itself is fast but not instant, so a corner reads as a corner.
         enemy.yaw = turnToward(enemy.yaw, facing, dt * 16)
@@ -3822,7 +6108,7 @@ export class HackerzGame {
             && Math.hypot(chip.u - enemy.u, chip.d - enemy.d) <= GUARD_RADIUS)
         const share = (enemy.def.boss ? RED_HEAL_BOSS_SHARE : RED_HEAL_SHARE) * (guarding ? 2 : 1)
         enemy.hp = Math.min(enemy.maxHp, enemy.hp + enemy.maxHp * share)
-        if (!this.untouchable(enemy)) {
+        if (!this.untargetable(enemy)) {
             this.particles.emit(this.enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.6, _v), _w.set(0, 2.4, 0), RED,
                 { size: 0.2, life: 0.5, gravity: 0 })
         }
@@ -3830,25 +6116,15 @@ export class HackerzGame {
 
     /**
      * The shield is a sheen on the unit's own plating (see the body shader's
-     * `uShield`), eased in and out each frame in `updateShieldSheen`.
+     * `uShield`), eased in and out each frame by `easeSheen` (rig-motion).
      */
     private setRedShield(enemy: EnemyEntity, on: boolean) {
         enemy.redShield = on
         if (!on) enemy.redShieldMs = RED_SHIELD_RECHARGE_MS
     }
 
-    /** Eases a unit's shield sheen toward on or off, and lets the break flare fade. */
-    private updateShieldSheen(enemy: EnemyEntity, dt: number) {
-        const uniforms = enemy.rig.body.uniforms
-        const sheen = uniforms.uShield!
-        sheen.value += ((enemy.redShield ? 1 : 0) - sheen.value) * Math.min(1, dt * 6)
-        const hit = uniforms.uShieldHit!
-        if (hit.value > 0) hit.value = Math.max(0, hit.value - dt * 3)
-    }
-
     /** A unit in reach of a node hacks it: a terminal opens beside it and fires pulses into the node. */
-    private hackAt(enemy: EnemyEntity, node: PathChip, dt: number, dtMs: number) {
-        enemy.stride += dt * 3
+    private hackAt(enemy: EnemyEntity, node: PathChip, dtMs: number) {
         const terminal = this.terminals?.open(enemy)
         enemy.hacking = true
         if (terminal) {
@@ -3856,11 +6132,12 @@ export class HackerzGame {
             // queue's terminals do not stack into one.
             this.enemyWorld(enemy, enemy.rig.height * PER_WORLD + 40 + enemy.hackReach * 24, terminal.position)
             terminal.position.x += (enemy.u >= node.u ? 1 : -1) * 1.2
-            terminal.visible = enemy.rig.root.visible
+            // A terminal glowing in the dark would give its hacker away.
+            terminal.visible = enemy.rig.root.visible && this.shroudOf(enemy) < 0.5
         }
         enemy.pulseTimer -= dtMs
         if (enemy.pulseTimer <= 0) {
-            enemy.pulseTimer = HACK_PULSE_MS * (0.85 + randomFloat() * 0.3)
+            enemy.pulseTimer = MOTION.hackPulseMs * (0.85 + randomFloat() * 0.3)
             if (terminal?.visible) this.fireHackPulse(node, terminal.position)
             else this.landPulse(node)
         }
@@ -3884,7 +6161,7 @@ export class HackerzGame {
     private updateHackPulses(dt: number) {
         for (let i = this.hackPulses.length - 1; i >= 0; i--) {
             const pulse = this.hackPulses[i]!
-            pulse.t += dt / HACK_PULSE_FLIGHT
+            pulse.t += dt / MOTION.hackPulseFlight
             if (pulse.t >= 1) {
                 pulse.mesh.removeFromParent()
                 this.hackPulses.splice(i, 1)
@@ -3894,7 +6171,7 @@ export class HackerzGame {
             }
             // A shallow arc, spinning as it goes.
             pulse.mesh.position.lerpVectors(pulse.from, pulse.to, pulse.t)
-            pulse.mesh.position.y += Math.sin(pulse.t * Math.PI) * 0.8
+            pulse.mesh.position.y += Math.sin(pulse.t * Math.PI) * MOTION.hackPulseArc
             pulse.mesh.rotation.y += dt * 12
             if (randomChance(dt * 30)) this.particles.emit(pulse.mesh.position, _w.set(0, 0, 0), 0xff3b3b, { size: 0.12, life: 0.18, gravity: 0 })
         }
@@ -3950,19 +6227,24 @@ export class HackerzGame {
             // A DDoS-locked node shrugs the round off in red: there is no taking it back.
             this.particles.burst(at, chips.locked ? RED : CYAN, 6, 7, { size: 0.22, life: 0.3 })
             this.pulseFromChip(chip)
-            if (!chips.hit(chip)) return true
-            const reward = 15 + this.wave * 8
-            this.waveCredits += reward
-            this.callbacks.onCredits(reward, 'kill')
-            this.view?.addSurge(at.x, at.z, CYAN, 1.6)
-            this.transient?.ring(at, CYAN, 6, 0.55)
-            this.particles.burst(at, CYAN, 34, 10, { size: 0.32, life: 0.7 })
-            this.overlay.floatText(at, `RECLAIMED +${reward}`, CYAN, 1.3)
-            this.sysLog.chipReclaimed(chip.id)
-            this.callbacks.onSound?.('coin-pickup')
+            if (chips.hit(chip)) this.chipReclaimed(chip)
             return true
         }
         return false
+    }
+
+    /** A hacked node came back to us: it pays, and shows it. */
+    private chipReclaimed(chip: PathChip) {
+        const at = fieldToWorld(chip.u, chip.d, 0.4, new THREE.Vector3())
+        const reward = 15 + this.wave * 8
+        this.waveCredits += reward
+        this.callbacks.onCredits(reward, 'kill')
+        this.view?.addSurge(at.x, at.z, CYAN, 1.6)
+        this.transient?.ring(at, CYAN, 6, 0.55)
+        this.particles.burst(at, CYAN, 34, 10, { size: 0.32, life: 0.7 })
+        this.overlay.floatText(at, `RECLAIMED +${reward}`, CYAN, 1.3)
+        this.sysLog.chipReclaimed(chip.id)
+        this.callbacks.onSound?.('coin-pickup')
     }
 
     /**
@@ -4034,11 +6316,18 @@ export class HackerzGame {
         return this.wallMaxHp > 0 ? Math.round(100 * this.wallHp / this.wallMaxHp) : 100
     }
 
-    private damageWall(amount: number, sourceU: number) {
+    /**
+     * `quiet` is a drain rather than a blow (a memory leak): it does not count as
+     * a leak, keep the barrier from recharging or break the chain, and it lands
+     * without the jolt and the alarm.
+     */
+    private damageWall(amount: number, sourceU: number, quiet = false) {
         if (this.gameOver) return
-        this.msSinceWallHit = 0
-        this.waveLeaks++
-        this.breakChain()
+        if (!quiet) {
+            this.msSinceWallHit = 0
+            this.waveLeaks++
+            this.breakChain()
+        }
 
         let remaining = amount
         if (this.shield > 0) {
@@ -4051,19 +6340,21 @@ export class HackerzGame {
             this.particles.burst(fieldToWorld(sourceU, 26, 3, _v), 0x67e8f9, 6, 6, { size: 0.25, life: 0.3, gravity: 0 })
             if (this.shield <= 0) {
                 this.view?.flash(0x67e8f9, 0.18)
-                this.callbacks.onNotice('Barrier collapsed.', 'bad')
+                this.callbacks.onNotice('ICE Barrier collapsed.', 'bad')
             }
         }
         if (remaining > 0) {
             this.wallHp = Math.max(0, this.wallHp - remaining)
             this.wallFlash = Math.min(1, this.wallFlash + 0.15 + remaining / 220)
-            this.overlay.floatText(fieldToWorld(sourceU, 0, FENCE_HEIGHT + 1.2, _v), `-${Math.round(remaining)}`, RED)
+            this.overlay.floatText(fieldToWorld(sourceU, 0, FENCE_HEIGHT + 1.2, _v), `-${Math.round(remaining)}`, RED, quiet ? 0.75 : 1)
             this.particles.burst(fieldToWorld(sourceU, 2, FENCE_HEIGHT * 0.6, _v), RED, 4, 7, { size: 0.22, life: 0.35 })
         }
-        this.addShake(clamp(amount * 0.16, 1.5, 12))
         this.emitWall()
-        this.callbacks.onSound?.('wall-hurt')
-        if (remaining > 0) this.sysLog.wallHit(this.integrityPercent())
+        if (!quiet) {
+            this.addShake(clamp(amount * 0.16, 1.5, 12))
+            this.callbacks.onSound?.('wall-hurt')
+            if (remaining > 0) this.sysLog.wallHit(this.integrityPercent())
+        }
 
         if (this.bonus) {
             // A bonus round can be lost, never the run: dropping under the line
@@ -4077,7 +6368,10 @@ export class HackerzGame {
             }
             return
         }
-        if (this.wallHp <= 0) this.endRun()
+        if (this.wallHp > 0) return
+        // A demo board's wall is only scenery.
+        if (this.demo) this.wallHp = this.wallMaxHp
+        else this.endRun()
     }
 
     private updateBastion(dt: number, dtMs: number) {
@@ -4110,6 +6404,10 @@ export class HackerzGame {
     private beginPurge() {
         if (this.purging) return
         this.sysLog.purge(this.enemies.length)
+        // The sweep is a full garbage collection: every leaked block goes with it.
+        this.clearLeaks(true)
+        // And the black ice melts.
+        for (const wall of this.iceWalls) wall.wall.thaw()
         this.purging = true
         this.holding = false
         this.target = null
@@ -4166,6 +6464,11 @@ export class HackerzGame {
         while (this.enemies.length) this.killEnemy(this.enemies.length - 1, HACKERZ_PURGE_BOUNTY)
         for (const spit of this.spits) spit.mesh.removeFromParent()
         this.spits = []
+        this.clearLeaks(false)
+        this.infected.clear()
+        this.clearIce()
+        this.surges = []
+        this.portscanLeft = 0
         // Coins still mid-flight belong to the wave that dropped them.
         this.flushCoins()
 
@@ -4248,6 +6551,11 @@ export class HackerzGame {
         this.bullets = []
         for (const spit of this.spits) spit.mesh.removeFromParent()
         this.spits = []
+        this.clearLeaks(false)
+        this.infected.clear()
+        this.clearIce()
+        this.surges = []
+        this.portscanLeft = 0
         // Dropped without banking: a cleared field is a run that is restarting.
         for (const coin of this.coins) coin.mesh.removeFromParent()
         this.coins = []
@@ -4259,6 +6567,8 @@ export class HackerzGame {
         this.overlay.clear()
         this.deployables?.clear()
         this.linePulses?.clear()
+        this.shrapnel?.clear()
+        this.glitchClouds?.clear()
         this.clearHacking()
         this.armed = null
         this.bonus = null
@@ -4299,14 +6609,6 @@ function swell(current: number, goal: number, dt: number) {
     return goal > current
         ? Math.min(goal, current + ISLAND_FLOW * dt)
         : Math.max(goal, current - ISLAND_FLOW * 0.6 * dt)
-}
-
-/** Turns `current` toward `target` by at most `step` radians, the short way round. */
-function turnToward(current: number, target: number, step: number) {
-    let diff = (target - current) % (Math.PI * 2)
-    if (diff > Math.PI) diff -= Math.PI * 2
-    if (diff < -Math.PI) diff += Math.PI * 2
-    return current + clamp(diff, -step, step)
 }
 
 /** Whether sort key `a` comes before `b`: compared field by field, lowest first. */

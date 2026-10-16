@@ -6,7 +6,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import {
     FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE, MOUNT_BACK_RISE, MOUNT_U, SPAWN_SPREAD, SPIKE_BAND, mountPosition,
-    DECK_FRONT, FENCE_HEIGHT, GUN_Z, WALL_HALF_LENGTH, WALL_HEIGHT, WALL_THICKNESS
+    DECK_FRONT, FENCE_HEIGHT, GUN_Z, SHIELD_D, WALL_HALF_LENGTH, WALL_HEIGHT, WALL_THICKNESS
 } from './constants'
 import { hdr, modelClock } from './models'
 import { randRange } from './math'
@@ -159,6 +159,7 @@ const SURGE_LIFE = 1.4
 const SURGE_GLSL = /* glsl */ `
 uniform vec4 uSurge[${SURGES}];
 uniform vec3 uSurgeColor[${SURGES}];
+uniform float uSurgeReach[${SURGES}];
 
 vec3 surge(vec2 p) {
     vec3 glow = vec3(0.0);
@@ -166,7 +167,12 @@ vec3 surge(vec2 p) {
         vec4 s = uSurge[i];
         if (s.z < 0.0 || s.z > ${SURGE_LIFE.toFixed(2)}) continue;
         float d = length(p - s.xy);
-        float radius = s.z * 16.0 * (0.7 + 0.3 * s.w);
+        // A blast's ripple races out to its reach and holds there as it fades;
+        // a death's runs on until it dies away.
+        float reach = uSurgeReach[i];
+        float radius = reach > 0.0
+            ? reach * min(1.0, s.z / ${(SURGE_LIFE * 0.35).toFixed(2)})
+            : s.z * 16.0 * (0.7 + 0.3 * s.w);
         // The wavefront, the charge left behind it, and the point of discharge.
         float ring = exp(-abs(d - radius) * 0.9);
         float charged = smoothstep(radius + 1.0, radius - 2.0, d);
@@ -349,6 +355,8 @@ export class HackerzScene {
     /** Death surges in flight: (x, z, age seconds, strength); age < 0 is a free slot. */
     readonly surges = Array.from({ length: SURGES }, () => new THREE.Vector4(0, 0, -1, 0))
     readonly surgeColours = Array.from({ length: SURGES }, () => new THREE.Color())
+    /** How far each surge's ripple runs, in world units; 0 lets it run on (a death). */
+    readonly surgeReach: number[] = Array.from({ length: SURGES }, () => 0)
     private surgeCursor = 0
 
     width = 1
@@ -406,7 +414,8 @@ export class HackerzScene {
                 uGate: this.gate,
                 uDark: { value: this.darkZones },
                 uSurge: { value: this.surges },
-                uSurgeColor: { value: this.surgeColours }
+                uSurgeColor: { value: this.surgeColours },
+            uSurgeReach: { value: this.surgeReach }
             },
             vertexShader: GRID_VERTEX,
             fragmentShader: GRID_FRAGMENT,
@@ -464,7 +473,8 @@ export class HackerzScene {
                 uGate: this.gate,
                 uDark: { value: this.darkZones },
                 uSurge: { value: this.surges },
-                uSurgeColor: { value: this.surgeColours }
+                uSurgeColor: { value: this.surgeColours },
+            uSurgeReach: { value: this.surgeReach }
             },
             vertexShader: TRACE_VERTEX,
             fragmentShader: TRACE_FRAGMENT,
@@ -614,9 +624,9 @@ export class HackerzScene {
         this.scene.add(towers, glow)
     }
 
-    /** A unit came through the gate at lane position `u`: a ripple spreads through the gate from there. */
-    portalRipple(u: number) {
-        this.portal?.ripple(u * FIELD_SCALE)
+    /** A unit came through the gate at lane position `u`: power lines run out across the gate from there. */
+    portalArrival(u: number) {
+        this.portal?.arrival(u * FIELD_SCALE)
     }
 
     /** Where enemies rez in: the intrusion's gate, angry and crackling. */
@@ -700,7 +710,8 @@ export class HackerzScene {
                 uGate: this.gate,
                 uDark: { value: this.darkZones },
                 uSurge: { value: this.surges },
-                uSurgeColor: { value: this.surgeColours }
+                uSurgeColor: { value: this.surgeColours },
+            uSurgeReach: { value: this.surgeReach }
             },
             vertexShader: GRID_VERTEX,
             fragmentShader: GRID_FRAGMENT,
@@ -750,7 +761,7 @@ export class HackerzScene {
         this.scene.add(trap)
 
         const shield = new THREE.Mesh(new THREE.PlaneGeometry(length, 7), this.shieldMaterial)
-        shield.position.set(0, 3.5, -1.3)
+        shield.position.set(0, 3.5, -SHIELD_D * FIELD_SCALE)
         shield.renderOrder = 3
         this.scene.add(shield)
     }
@@ -792,11 +803,12 @@ export class HackerzScene {
      * recycled when all slots are busy — on a crowded kill the newest deaths
      * are the ones worth seeing.
      */
-    addSurge(x: number, z: number, hex: number, strength = 1) {
-        const slot = this.surges[this.surgeCursor]!
+    addSurge(x: number, z: number, hex: number, strength = 1, reach = 0) {
+        const index = this.surgeCursor
         this.surgeCursor = (this.surgeCursor + 1) % SURGES
-        slot.set(x, z, 0, strength)
-        this.surgeColours[this.surges.indexOf(slot)]!.set(hex).multiplyScalar(1.4)
+        this.surges[index]!.set(x, z, 0, strength)
+        this.surgeColours[index]!.set(hex).multiplyScalar(1.4)
+        this.surgeReach[index] = reach
     }
 
     /** Advanced by the engine with game time, so a paused game freezes its surges. */

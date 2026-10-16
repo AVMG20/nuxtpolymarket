@@ -234,9 +234,13 @@ def grunt():
     part('visor', bm_box((0.26, 0.05, 0.06), loc=(0, -0.16, hips + 0.96)), root, mat='Hot')
     part('disc', bm_torus(0.26, 0.05, 16, rot=(90, 0, 0), loc=(0, 0.26, hips + 0.5)), root, mat='Glow')
     part('discCore', bm_cyl(0.18, 0.04, 16, rot=(90, 0, 0), loc=(0, 0.26, hips + 0.5)), root)
+    # Each arm hangs from its own shoulder pivot ('lift'), so the game can swing
+    # them back to the disc, pull a leaked block out of it, and heave it
+    # overhead onto the fence.
     for tag, side in (('L', -1), ('R', 1)):
+        lift = empty(f'lift{tag}', root, (0.52 * side, 0, hips + 0.75))
         part(f'arm{tag}', bm_frustum((0.16, 0.16), (0.12, 0.14), 0.7,
-                                     loc=(0.52 * side, 0, hips + 0.38), rot=(0, 12 * side, 0)), root)
+                                     loc=(0, 0, -0.37), rot=(0, 12 * side, 0)), lift)
         part(f'shoulder{tag}', bm_frustum((0.3, 0.32), (0.2, 0.24), 0.16,
                                           loc=(0.5 * side, 0, hips + 0.78)), root)
 
@@ -293,15 +297,18 @@ def spitter():
     """A Lancer: a tripod carrying a coil lance it lobs plasma from."""
     root = empty('root')
     body_z = 1.05
-    for i, (tag, a) in enumerate((('A', -90), ('B', 30), ('A2', 150))):
+    # A three-beat gait ('gait0..2', stepped in that order): the front leg, then
+    # its left (+X, as it faces -Y), then its right.
+    for i, a in enumerate((-90, 30, 150)):
         rad = math.radians(a)
-        leg = empty(f'leg{tag}', root, (math.cos(rad) * 0.18, math.sin(rad) * 0.18, body_z))
+        leg = empty(f'gait{i}', root, (math.cos(rad) * 0.18, math.sin(rad) * 0.18, body_z))
         part(f'strut{i}', bm_frustum((0.12, 0.12), (0.08, 0.08), 1.15,
                                      loc=(math.cos(rad) * 0.28, math.sin(rad) * 0.28, -0.52),
                                      rot=(-math.sin(rad) * 28, math.cos(rad) * 28, 0)), leg)
     part('pod', bm_octa((0.42, 0.5, 0.32), loc=(0, 0, body_z + 0.08)), root)
     part('podGlow', bm_box((0.5, 0.06, 0.06), loc=(0, -0.3, body_z + 0.08)), root, mat='Glow')
-    lance = empty('lance', root, (0, 0, body_z + 0.3))
+    # Named 'barrel' so the game can kick it back when it fires.
+    lance = empty('barrel', root, (0, 0, body_z + 0.3))
     part('lanceBody', bm_cyl(0.07, 1.6, 6, rot=(90, 0, 0), loc=(0, -0.3, 0.15)), lance)
     for k in range(4):
         part(f'coil{k}', bm_torus(0.13, 0.03, 10, rot=(90, 0, 0), loc=(0, -0.55 - k * 0.22, 0.15)), lance, mat='Glow')
@@ -333,21 +340,52 @@ def warden():
         part(f'shieldTrim{i}', bm_box((length, 0.04, 0.05), loc=(-0.25 + (ax + bx) / 2, -0.57, hips + 0.4 + (ay + by) / 2),
                                        rot=(0, -angle, 0)), root, mat='Glow')
     part('shieldCrest', bm_box((0.05, 0.04, 1.2), loc=(-0.25, -0.57, hips + 0.4)), root, mat='Glow')
-    part('blade', bm_box((0.08, 0.06, 1.3), loc=(0.6, -0.2, hips + 0.4), rot=(15, 0, 0)), root, mat='Glow')
+    # An electric cattle prod, held low and forward from the right shoulder. It
+    # hangs on its own pivot ('weapon') so the game can drive it into the fence
+    # with a jab; the shaft runs out along -Y (forward) from the grip.
+    prod = empty('weapon', root, (0.55, -0.05, hips + 0.85))
+    part('prodGrip', bm_cyl(0.06, 0.4, 8, rot=(90, 0, 0), loc=(0, 0.1, 0)), prod)
+    part('prodShaft', bm_cyl(0.035, 1.5, 8, rot=(90, 0, 0), loc=(0, -0.75, 0)), prod)
+    part('prodGuard', bm_torus(0.1, 0.025, 10, rot=(90, 0, 0), loc=(0, -0.12, 0)), prod, mat='Glow')
+    for k in range(3):
+        part(f'prodCoil{k}', bm_torus(0.07, 0.022, 10, rot=(90, 0, 0), loc=(0, -1.05 - k * 0.12, 0)), prod, mat='Glow')
+    for side in (-1, 1):
+        part(f'prodProng{side}', bm_box((0.03, 0.26, 0.03), loc=(0.05 * side, -1.62, 0), rot=(0, 0, -12 * side)), prod, mat='Hot')
+    prod.rotation_euler = (math.radians(14), 0, 0)
 
 
 def tank():
-    """A Siege Tank: a low wedge hull on two glowing treads, one long gun."""
+    """
+    A Siege Tank: a wedge-hulled armoured car on four big wheels, pushing a
+    broad ramming plate on hydraulic pistons. The plate hangs on its own pivot
+    ('ram') so the game can slam it forward into the fence; the piston rods ride
+    on the plate and slide out of the sleeves fixed to the hull as it goes.
+    """
     root = empty('root')
+    # Wheels on their own pivots ('roll…'), so the walk cycle turns them.
+    for i, (x, y) in enumerate([(-0.78, -0.62), (0.78, -0.62), (-0.78, 0.68), (0.78, 0.68)]):
+        wheel = empty(f'roll{i}', root, (x, y, 0.36))
+        part(f'tyre{i}', bm_cyl(0.36, 0.3, 12, rot=(0, 90, 0)), wheel)
+        part(f'hub{i}', bm_cyl(0.13, 0.32, 8, rot=(0, 90, 0)), wheel, mat='Glow')
+    # The hull: a low body, then the faceted wedge above it, the cupola on top.
+    part('hullLow', bm_box((1.3, 2.1, 0.42), loc=(0, 0.05, 0.62)), root)
+    part('hullWedge', bm_frustum((1.3, 1.9), (0.95, 1.2), 0.42, loc=(0, 0.15, 1.04)), root)
+    part('cupola', bm_frustum((0.6, 0.6), (0.42, 0.42), 0.26, loc=(0, 0.3, 1.38)), root)
+    part('hatch', bm_box((0.3, 0.3, 0.04), loc=(0, 0.3, 1.52)), root, mat='Glow')
     for side in (-1, 1):
-        part(f'tread{side}', bm_frustum((0.42, 2.1), (0.42, 1.9), 0.46, loc=(0.78 * side, 0, 0.25)), root)
-        part(f'treadGlow{side}', bm_box((0.05, 1.9, 0.07), loc=(1.0 * side, 0, 0.28)), root, mat='Glow')
-    part('hull', bm_frustum((1.4, 2.0), (1.1, 1.4), 0.5, loc=(0, 0.05, 0.62)), root)
-    part('nose', bm_box((1.0, 0.05, 0.06), loc=(0, -0.98, 0.62)), root, mat='Glow')
-    part('turret', bm_frustum((0.9, 1.0), (0.7, 0.7), 0.36, loc=(0, 0.15, 1.05)), root)
-    part('gun', bm_box((0.16, 1.6, 0.16), loc=(0, -0.95, 1.08)), root)
-    part('muzzle', bm_box((0.22, 0.12, 0.22), loc=(0, -1.78, 1.08)), root, mat='Hot')
-    part('hatch', bm_box((0.4, 0.4, 0.05), loc=(0, 0.3, 1.25)), root, mat='Glow')
+        part(f'slit{side}', bm_box((0.26, 0.04, 0.06), loc=(0.26 * side, -0.47, 1.12)), root, mat='Hot')
+        part(f'trim{side}', bm_box((0.05, 1.9, 0.05), loc=(0.66 * side, 0.05, 0.84)), root, mat='Glow')
+        # Piston sleeves, fixed to the hull's nose.
+        part(f'sleeve{side}', bm_cyl(0.09, 0.5, 8, rot=(90, 0, 0), loc=(0.42 * side, -1.05, 0.62)), root)
+    # The ram: a broad plate, framed in glow, on two piston rods.
+    ram = empty('ram', root, (0, -1.55, 0.66))
+    part('ramPlate', bm_box((1.6, 0.1, 0.95), loc=(0, -0.05, 0)), ram)
+    for i, (w, h, x, z) in enumerate([(1.5, 0.05, 0, 0.44), (1.5, 0.05, 0, -0.44), (0.05, 0.85, -0.76, 0), (0.05, 0.85, 0.76, 0)]):
+        part(f'ramFrame{i}', bm_box((w, 0.04, h), loc=(x, -0.11, z)), ram, mat='Glow')
+    for k, x in enumerate((-0.38, 0.0, 0.38)):
+        part(f'ramChevron{k}', bm_box((0.05, 0.03, 0.5), loc=(x, -0.11, 0), rot=(0, 30, 0)), ram, mat='Glow')
+    for side in (-1, 1):
+        part(f'pistonRod{side}', bm_cyl(0.05, 0.7, 8, rot=(90, 0, 0), loc=(0.42 * side, 0.35, -0.04)), ram, mat='Glow')
 
 
 def artillery():
@@ -359,11 +397,14 @@ def artillery():
     part('deck', bm_box((1.1, 1.6, 0.3), loc=(0, 0, 0.55)), root)
     part('breech', bm_box((0.6, 0.6, 0.5), loc=(0, 0.25, 0.95)), root)
     part('breechGlow', bm_box((0.64, 0.1, 0.3), loc=(0, 0.6, 0.95)), root, mat='Glow')
-    barrel = empty('cannon', root, (0, 0.1, 1.05))
+    # Named 'barrel' so the game can kick it back when it fires.
+    barrel = empty('barrel', root, (0, 0.1, 1.05))
     part('cannonTube', bm_cyl(0.13, 2.0, 8, loc=(0, -1.0, 0), rot=(90, 0, 0)), barrel)
     part('cannonRing', bm_torus(0.17, 0.04, 8, loc=(0, -1.7, 0), rot=(90, 0, 0)), barrel, mat='Glow')
     part('cannonMouth', bm_cyl(0.11, 0.1, 8, loc=(0, -2.0, 0), rot=(90, 0, 0)), barrel, mat='Hot')
-    barrel.rotation_euler = (math.radians(38), 0, 0)
+    # The tube runs out along -Y; tipping it about X by a negative angle lifts
+    # the muzzle skyward (a positive one drove it down through the deck).
+    barrel.rotation_euler = (math.radians(-38), 0, 0)
     for side in (-1, 1):
         part(f'spade{side}', bm_box((0.1, 0.5, 0.4), loc=(0.4 * side, 0.95, 0.3), rot=(-30, 0, 0)), root)
 
@@ -378,8 +419,10 @@ def gunship():
     part('beamGlow', bm_box((2.3, 0.06, 0.06), loc=(0, -0.48, 1.2)), root, mat='Glow')
     part('cockpit', bm_octa((0.36, 0.5, 0.3), loc=(0, -0.1, 0.78)), root)
     part('eye', bm_box((0.3, 0.05, 0.08), loc=(0, -0.58, 0.78)), root, mat='Hot')
-    for side in (-1, 1):
+    # Each gun ends in a 'muzzle' point the game fires from, alternating down a volley.
+    for side, tag in ((-1, 'L'), (1, 'R')):
         part(f'gun{side}', bm_box((0.08, 0.7, 0.08), loc=(0.4 * side, -0.5, 0.62)), root)
+        empty(f'muzzle{tag}', root, (0.4 * side, -0.86, 0.62))
 
 
 def titan():
@@ -391,14 +434,54 @@ def titan():
     part('abdomenGlow', bm_box((0.1, 1.3, 0.06), loc=(0, 0.55, body_z + 0.47)), root, mat='Glow')
     for i, (x, z) in enumerate([(-0.18, 0.1), (0.18, 0.1), (-0.3, -0.06), (0.3, -0.06), (0, 0.2)]):
         part(f'eye{i}', bm_box((0.1, 0.05, 0.08), loc=(x, -1.0, body_z + z)), root, mat='Hot')
+    # Six legs walking an insect's alternating tripod: front and rear on one
+    # side step with the middle of the other ('gaitS0…'), then the other three
+    # ('gaitS1…'). Each bends at a knee ('kneeS…') where the joint glows.
     for i, y in enumerate((-0.6, 0.0, 0.6)):
         for side, tag in ((-1, 'L'), (1, 'R')):
-            phase = 'A' if (i + (side > 0)) % 2 == 0 else 'B'
-            leg = empty(f'leg{phase}{i}{tag}', root, (0.45 * side, y - 0.2, body_z))
+            beat = (i + (side > 0)) % 2
+            leg = empty(f'gaitS{beat}{i}{tag}', root, (0.45 * side, y - 0.2, body_z))
             part(f'femur{i}{tag}', bm_box((0.95, 0.14, 0.14), loc=(0.42 * side, 0, 0.32), rot=(0, 34 * side, 0)), leg)
+            knee = empty(f'kneeS{i}{tag}', leg, (0.82 * side, 0, 0.6))
+            part(f'joint{i}{tag}', bm_box((0.18, 0.18, 0.18)), knee, mat='Glow')
             part(f'tibia{i}{tag}', bm_frustum((0.12, 0.12), (0.06, 0.06), 1.35,
-                                             loc=(1.0 * side, 0, -0.18), rot=(0, -18 * side, 0)), leg)
-            part(f'joint{i}{tag}', bm_box((0.18, 0.18, 0.18), loc=(0.82 * side, 0, 0.6)), leg, mat='Glow')
+                                             loc=(0.18 * side, 0, -0.78), rot=(0, -18 * side, 0)), knee)
+    # Two small forelegs under the eyes, on their own pivots ('fang0', 'fang1'),
+    # angled down: the game stabs them into the ground to inject spiderlings.
+    for i, side in enumerate((-1, 1)):
+        fang = empty(f'fang{i}', root, (0.24 * side, -0.85, body_z - 0.2))
+        part(f'fangArm{i}', bm_box((0.08, 0.5, 0.08), loc=(0, -0.25, 0)), fang)
+        part(f'fangJoint{i}', bm_box((0.12, 0.12, 0.12), loc=(0, -0.5, 0)), fang, mat='Glow')
+        part(f'fangNeedle{i}', bm_cyl(0.045, 0.4, 6, radius2=0.0, rot=(90, 0, 0), loc=(0, -0.72, 0)), fang, mat='Hot')
+        fang.rotation_euler = (math.radians(40), 0, 0)
+
+
+def spiderling():
+    """A spiderling: ROOTKIT's injected brood — a glowing bead on four quick legs."""
+    root = empty('root')
+    body_z = 0.32
+    part('body', bm_ico(0.2, subdiv=1, loc=(0, 0.05, body_z)), root)
+    part('head', bm_ico(0.11, subdiv=1, loc=(0, -0.2, body_z - 0.02)), root)
+    part('eye', bm_box((0.12, 0.04, 0.04), loc=(0, -0.3, body_z)), root, mat='Hot')
+    part('mark', bm_box((0.05, 0.22, 0.04), loc=(0, 0.06, body_z + 0.19)), root, mat='Glow')
+    # Two small fangs under the head ('fang0', 'fang1'), angled forward: the
+    # game drives them into whatever it drains.
+    for i, side in enumerate((-1, 1)):
+        fang = empty(f'fang{i}', root, (0.05 * side, -0.26, body_z - 0.06))
+        part(f'fangBase{i}', bm_box((0.035, 0.1, 0.035), loc=(0, -0.05, 0)), fang)
+        part(f'fangNeedle{i}', bm_cyl(0.018, 0.12, 6, radius2=0.0, rot=(90, 0, 0), loc=(0, -0.16, 0)), fang, mat='Hot')
+        fang.rotation_euler = (math.radians(15), 0, 0)
+    # Four sideways legs on hip pivots fixed to the body ('gaitS0..3', stepped in
+    # that order: front left, rear right, front right, rear left — a walk). Its
+    # left is +X, as it faces -Y.
+    # Each leg bends at a knee ('kneeS…', a pivot at the end of the upper leg):
+    # it folds up as the leg steps and straightens to plant.
+    for i, (y, side) in enumerate(((-0.08, 1), (0.14, -1), (-0.08, -1), (0.14, 1))):
+        leg = empty(f'gaitS{i}', root, (0.12 * side, y, body_z))
+        part(f'femur{i}', bm_box((0.32, 0.05, 0.05), loc=(0.14 * side, 0, 0.08), rot=(0, 30 * side, 0)), leg)
+        knee = empty(f'kneeS{i}', leg, (0.28 * side, 0, 0.16))
+        part(f'kneeJoint{i}', bm_box((0.07, 0.07, 0.07)), knee, mat='Glow')
+        part(f'tibia{i}', bm_box((0.05, 0.05, 0.44), loc=(0.03 * side, 0, -0.22)), knee)
 
 
 def leviathan():
@@ -533,7 +616,7 @@ def turret_rail():
 MODELS = {
     'crawler': crawler, 'grunt': grunt, 'sapper': sapper, 'drone': drone, 'brute': brute,
     'spitter': spitter, 'warden': warden, 'tank': tank, 'artillery': artillery, 'gunship': gunship,
-    'titan': titan, 'leviathan': leviathan, 'phantom': phantom, 'zeroday': zeroday,
+    'titan': titan, 'leviathan': leviathan, 'phantom': phantom, 'zeroday': zeroday, 'spiderling': spiderling,
     'turret-gun': turret_gun, 'turret-needler': turret_needler, 'turret-warhead': turret_warhead,
     'turret-lance': turret_lance, 'turret-rail': turret_rail
 }

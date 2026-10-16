@@ -61,6 +61,7 @@ function fill(template: string, values: Record<string, string | number>) {
 const KILL_GAP_MS = 900
 const WALL_GAP_MS = 2500
 const SAPPER_GAP_MS = 1500
+const LEAK_GAP_MS = 4000
 /** With nothing logged for this long, an ambient line fills the silence. */
 const QUIET_MS = 7000
 
@@ -69,6 +70,7 @@ export class SysLog {
     private lastKill = -Infinity
     private lastWall = -Infinity
     private lastSapper = -Infinity
+    private lastLeak = -Infinity
     private lastLine = 0
     private seed = Math.floor(Math.random() * 0xffff)
     /** The wave clock in ms, for stamps and rate limits. */
@@ -82,6 +84,7 @@ export class SysLog {
         this.lastKill = -Infinity
         this.lastWall = -Infinity
         this.lastSapper = -Infinity
+        this.lastLeak = -Infinity
         this.lastLine = 0
     }
 
@@ -191,6 +194,34 @@ export class SysLog {
         this.say('bad', ['{p} detonated on fence segment {s} — integrity {i}%', 'fence segment {s} breached by {p}. integrity {i}%'], { p: this.proc('sapper'), s: segment, i: integrity })
     }
 
+    /** ROOTKIT infects a hacked node: it will hatch spiderlings. */
+    infected(id: number) {
+        const c = this.chip(id)
+        this.say('bad', [
+            '{c}: rootkit payload dropped — node is breeding',
+            'kernel worm nesting in {c}. spawning children.',
+            '{c} infected: fork() in a loop. it will not stop on its own.'
+        ], { c })
+    }
+
+    /** A Daemon starts a new pile of leaked allocations against the fence. */
+    memoryLeak(segment: number) {
+        if (this.clock - this.lastLeak < LEAK_GAP_MS) return
+        this.lastLeak = this.clock
+        this.say('warn', [
+            'malloc() without free() on fence segment {s} — heap climbing',
+            '{p} is leaking into segment {s}. RSS +{n}MB',
+            'valgrind: {n} blocks definitely lost at segment {s}'
+        ], { p: this.proc('grunt'), s: segment, n: 16 + Math.floor(Math.random() * 240) })
+    }
+
+    /** Leaked allocations reclaimed: the purge's sweep, or a stack shot clean. */
+    heapFreed(blocks: number, swept: boolean) {
+        this.say('good', swept
+            ? ['GC: full collection, {b} leaked block(s) reclaimed', 'heap compacted — {b} allocation(s) freed']
+            : ['free(): segment cleared, {b} block(s) returned to the heap'], { b: blocks })
+    }
+
     wallHit(integrity: number) {
         if (this.clock - this.lastWall < WALL_GAP_MS) return
         this.lastWall = this.clock
@@ -243,7 +274,19 @@ export class SysLog {
         if (kind === 'honeypot') return this.say('info', ['honeypot spun up at {ip} — fake root password set to "hunter2"', 'honeypot online. bait: /etc/shadow (fake)'], { ip: ip() })
         if (kind === 'bomb' && chipId !== null) return this.say('info', ['logic bomb wired into {c}. touch it and see.', 'cron @reboot on {c}: boom.'], { c: this.chip(chipId) })
         if (kind === 'bomb') return this.say('info', ['logic bomb armed — trip wire set', 'logic bomb planted. counting footsteps.'])
+        if (kind === 'portscan') return this.say('info', ['nmap -sS -p- 0.0.0.0/0 — standing sweep running', 'portscan up: every open port answers, every few seconds'])
+        if (kind === 'surge') return this.say('info', ['power surge routed into the grid — do not touch', 'overvoltage on sector {s}. stand clear.'], { s: Math.floor(Math.random() * 90) + 10 })
         this.say('info', ['proxy wall up: ACL deny any any', 'proxy wall deployed. nobody gets through without a ticket.'])
+    }
+
+    /** A Cosmic Blip flipped `count` nodes back to us. */
+    blip(count: number) {
+        this.say('good', ['single-event upset: {n} node(s) flipped back to us. thanks, sun.', 'cosmic ray bit-flip — {n} node(s) reclaimed. no one can explain it.'], { n: count })
+    }
+
+    /** A White Hat turned `count` hostiles. */
+    whiteHat(count: number) {
+        this.say('good', ['bug bounty paid: {n} process(es) now report to us', '{n} hostile process(es) switched sides. responsible disclosure.'], { n: count })
     }
 
     blast(kind: string, kills: number) {

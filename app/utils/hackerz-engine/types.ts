@@ -5,6 +5,11 @@ import type {
 } from '#shared/utils/gamelogic/hackerz'
 import type { FirewallSoundEvent } from '../firewall-sounds'
 import type { ModelRig } from './models'
+import type { LeakCarry } from './memory-leak'
+import type { HexShield } from './hex-shield'
+import type { CrystalRibbon } from './crystal-ribbon'
+import type { BlockStorm } from './block-storm'
+import type { DrainWound } from './drain-wound'
 import type { LinePoint } from './data-lines'
 import type { PathChip } from './path-chips'
 import type { SysLogLine } from './sys-log'
@@ -49,6 +54,8 @@ export interface EnemyEntity {
     pingDelay: number
     /** Ms left on the radar highlight. A cloaked unit can only be seen and hit while this runs. */
     revealMs: number
+    /** Ms left lit by a round fired blind into the dark: seen for a moment, never lockable. */
+    litMs?: number
     /** A cloaked unit that has struck the wall stays visible for good. */
     decloaked: boolean
     /** A ZERO DAY copy: dies fast, pays nothing, and does not bleed data. */
@@ -78,6 +85,12 @@ export interface EnemyEntity {
     zoneTick: number
     /** The path node a hacker has picked to work on; it sticks until that node falls. */
     targetChip: PathChip | null
+    /**
+     * The parking slot it has taken at the node it hacks (see `parkStep`),
+     * and how far in it is: on the lane behind the row, turning in, or
+     * pulling in.
+     */
+    hackSlot?: { chip: PathChip, index: number, stage: 'lane' | 'turn' | 'in' } | null
     /** Ms until a hacker can zap to another line again. */
     zapCooldown: number
     /** Carrying red ground's shield, which eats the next hit. */
@@ -100,6 +113,58 @@ export interface EnemyEntity {
     escorting: EnemyEntity | null
     /** Where a ranged unit stepped aside to fire from, clear of the nodes, or null. Riding stops while it is set. */
     parked: { u: number, d: number } | null
+    /** 1 the moment a gun fires, easing back to 0: the barrel's recoil. */
+    recoil: number
+    /** 1 the moment a melee blow lands, easing back to 0: the weapon's jab. */
+    strike: number
+    /**
+     * A leaking unit's heave (the Daemon): 1 as it reaches back for a leaked
+     * block, easing to 0; the block it carries, and what that block will drain
+     * a second once it lands on the pile.
+     */
+    heave: number
+    heaveDrain: number
+    carry: LeakCarry | null
+    /** Turned by a White Hat: it fights for us now, until it falls. */
+    turned: boolean
+    /** A healer's patient, or null; and a healer gone kamikaze, the last of its wave, diving the fence to go off. */
+    healing: EnemyEntity | null
+    kamikaze: boolean
+    /** A carried shield's health left (the Warden's), and the bubble that flashes when it takes a hit. */
+    guard: number
+    hexShield: HexShield | null
+    /** A Phantom's crystal ribbon, and how much longer it keeps feeding it since its last strike. */
+    ribbon: CrystalRibbon | null
+    ribbonMs: number
+    /** ZERO DAY coming apart at the wall and regrowing from its gem. */
+    storm: BlockStorm | null
+    /** ROOTKIT's forelegs mid-injection (1 as they rear, easing to 0), and ms until its next brood (or BLACK ICE's next spit). */
+    inject: number
+    broodMs: number
+    /** A draining unit's (a spiderling's) drain, as a multiple of where it started: it grows with it. */
+    drainPower: number
+    /** Where a drainer's fangs are in: the stain it draws through. */
+    wound: DrainWound | null
+    /** ROOTKIT climbing back out of the floor after it erupts: ms of the climb left. */
+    riseMs: number
+    /** Arrived on a body still standing in the gateway: waits inside the portal, unseen, until it clears. */
+    gateHold?: boolean
+    /** Ms it has stood blocked by another body, and ms left backing off one to break a jam, from whom (see `collide`). */
+    blockedMs?: number
+    yieldMs?: number
+    yieldFrom?: EnemyEntity | null
+    /** The body it is waiting on, while blocked. */
+    blockedBy?: EnemyEntity | null
+    /** Ms left glitching after a blast caught it: its body tears and it stutters (picture only). */
+    glitchMs?: number
+    /** Ms left glitching from passing through another body: the tear only, no skips (picture only). */
+    phaseMs?: number
+    /** Where the glitching picture has skipped to, off its true spot (world units), and for how many more frames. */
+    glitchJump?: { x: number, y: number, z: number, frames: number }
+    /** Health fraction the bar's draining trail stands at (overlay only). */
+    hpTrail?: number
+    /** A Database demo's unit: the waypoints it walks in place of its own judgement (see `puppetStep`). */
+    demoPath?: { u: number, d: number }[] | null
     /** Ms until its terminal fires the next pulse into the node. */
     pulseTimer: number
     /** In position at a node and hacking it: its terminal is open. */
@@ -137,6 +202,12 @@ export interface BulletEntity {
     projectile: HackerzProjectile
     /** Path nodes this round has already counted a hit on. */
     chipsHit?: Set<number>
+    /** Fired at a stack of leaked memory at the foot of the fence: the stack's `u`. It is spent there, freeing one block. */
+    leakU?: number
+    /** Ms left hanging in a body it just punched through (the Longbore) before it flies on. */
+    holdMs?: number
+    /** Slowed by a wall of BLACK ICE it passed through (once is all a round takes). */
+    iced?: boolean
     /** PACKET LOSS: the distance flown at which this round drops out of existence. */
     lostAt?: number
     /** Height the round is fired from and the height of what it is aimed at. */
@@ -237,6 +308,8 @@ export interface HackerzCallbacks {
     onDeploy?: (id: HackerzDeployableId, left: number) => void
     /** A line for the syslog terminal beside the board. */
     onLog?: (line: SysLogLine) => void
+    /** A hostile type or a bonus round met for the first time this session: it opens in the Database. */
+    onSighted?: (id: string) => void
 }
 
 /** What `startRun` needs to put a resumed run back on the field. */

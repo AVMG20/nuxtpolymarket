@@ -335,7 +335,7 @@ export class Deployables {
                 new THREE.Vector3(half, 0, 0.3), new THREE.Vector3(-half, 0, 0.3), new THREE.Vector3(-half, 0, -0.3)
             ]), material))
         } else {
-            const radius = kind === 'honeypot' ? stats.honeypot.lureRadius : stats.bomb.blastRadius
+            const radius = kind === 'honeypot' ? stats.honeypot.lureRadius : kind === 'surge' ? stats.surge.radius : stats.bomb.blastRadius
             group.add(new THREE.Line(circle(radius * FIELD_SCALE), material))
             group.add(new THREE.Line(circle(1.2), material))
         }

@@ -23,7 +23,7 @@
 import {
     HACKERZ_MAX_WAVE, HACKERZ_SPAWN_WINDOW_MS, HACKERZ_WAVE_MS,
     hackerzBountyMultiplier, hackerzClearBonus, hackerzCoinValue, hackerzDamageMultiplier,
-    hackerzDifficulty, hackerzEmptyLevels, hackerzEmptyMainframe, hackerzHpMultiplier,
+    hackerzDifficulty, hackerzEmptyLevels, hackerzEmptyMainframe, hackerzHpMultiplier, hackerzWaveEnemyDamage, hackerzWaveEnemyHp,
     hackerzIsAirborne, hackerzIsBossWave, hackerzBossFor, hackerzEnemy,
     hackerzLoadout, hackerzMainframeEffects, hackerzTypeMultiplier, hackerzUpgrade,
     hackerzSpawnWeight, hackerzUpgradeCost, hackerzWaveBudget, hackerzWavePool, hackerzWeapon,
@@ -218,8 +218,8 @@ export function hackerzSimulateWave(
     wallHp: number
 ): HackerzSimWave {
     const difficulty = hackerzDifficulty(difficultyId)
-    const hpMultiplier = hackerzHpMultiplier(wave) * difficulty.enemyHp
-    const damageMultiplier = hackerzDamageMultiplier(wave) * difficulty.enemyDamage
+    const hpMultiplier = hackerzHpMultiplier(wave) * hackerzWaveEnemyHp(difficulty, wave)
+    const damageMultiplier = hackerzDamageMultiplier(wave) * hackerzWaveEnemyDamage(difficulty, wave)
     const bountyMultiplier = hackerzBountyMultiplier(wave)
 
     const composition = hackerzExpectedWave(wave, difficultyId)
