@@ -7,7 +7,7 @@ import { tcgSet, tcgCard, tcgPrinting, tcgSheet, tcgPackTemplate } from '#server
 import type { TcgCardRaw, TcgPackTemplateSlot } from '#shared/types/tcg-db'
 import { isBasicEnergy } from '#shared/utils/tcg/rate-fitter'
 import type { FitPrinting, FitSheetSpec, FitSlotSpec } from '#shared/utils/tcg/rate-fitter'
-import { sidecarFetch, sidecarUnreachable } from '#server/utils/tcg/sidecar'
+import { SIDECAR_TIMEOUT_MS, sidecarFetch, sidecarUnreachable } from '#server/utils/tcg/sidecar'
 
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -192,15 +192,9 @@ export async function fetchPlaatjesChecklist(plaatjesSetCode: string, apiBase: s
     cardRows: TcgCardInsert[]
     printingRows: TcgPrintingInsert[]
 }> {
-    const records: PlaatjesCard[] = []
+    let records: PlaatjesCard[]
     try {
-        for (let page = 1; ; page++) {
-            const response = await sidecarFetch<PlaatjesCardsPage>(`${apiBase}/cards`, {
-                query: { set: plaatjesSetCode, limit: 500, page }
-            })
-            records.push(...response.items)
-            if (response.returned === 0 || records.length >= response.total) break
-        }
+        records = await fetchPlaatjesRecords(plaatjesSetCode, apiBase)
     } catch {
         throw createError({
             statusCode: 502,
@@ -226,7 +220,16 @@ export async function fetchPlaatjesChecklist(plaatjesSetCode: string, apiBase: s
         group.variants.push(record)
     }
 
+    // The set's own cards first, then each subset's, each in number order —
+    // a subset numbers from 1 again, so number alone would interleave them.
+    const subsetRank = (card: PlaatjesCard) => {
+        const code = String(card.setCode ?? '')
+        return code.toUpperCase() === plaatjesSetCode.toUpperCase() ? '' : code
+    }
     const bases = [...byBaseId.entries()].sort(([, a], [, b]) => {
+        const rankA = subsetRank(a.base)
+        const rankB = subsetRank(b.base)
+        if (rankA !== rankB) return rankA.localeCompare(rankB)
         const keyA = numberSortKey(a.base.number ?? '')
         const keyB = numberSortKey(b.base.number ?? '')
         if (keyA !== keyB) return keyA - keyB
@@ -234,6 +237,36 @@ export async function fetchPlaatjesChecklist(plaatjesSetCode: string, apiBase: s
     })
 
     return mapChecklistRows(setId, bases)
+}
+
+/** The sidecar's `/pull-rates` index, as far as subset lookup needs it. */
+interface PullRatesSubsets {
+    sets: { setCode: string | null, subsetCodes?: string[] | null }[]
+}
+
+/**
+ * Every sidecar record for a set, plus those of the subsets that come in its
+ * packs. 30th Celebration's Classic Collection (ME5-5C) and RGB Secret Rares
+ * (ME5-5M) carry their own set codes in the game but are tiers of the ME5-5
+ * rate table; without them those tiers fit to empty pools.
+ */
+async function fetchPlaatjesRecords(setCode: string, apiBase: string): Promise<PlaatjesCard[]> {
+    const index = await sidecarFetch<PullRatesSubsets>(`${apiBase}/pull-rates`, { timeout: SIDECAR_TIMEOUT_MS })
+    const subsets = index.sets.find(entry => entry.setCode?.toUpperCase() === setCode.toUpperCase())?.subsetCodes ?? []
+
+    const records: PlaatjesCard[] = []
+    for (const code of [setCode, ...subsets]) {
+        const fromCode: PlaatjesCard[] = []
+        for (let page = 1; ; page++) {
+            const response = await sidecarFetch<PlaatjesCardsPage>(`${apiBase}/cards`, {
+                query: { set: code, limit: 500, page }
+            })
+            fromCode.push(...response.items)
+            if (response.returned === 0 || fromCode.length >= response.total) break
+        }
+        records.push(...fromCode)
+    }
+    return records
 }
 
 /**
@@ -250,14 +283,7 @@ export async function refreshSetRaw(setId: string, apiBase: string): Promise<{ u
     if (!set) throw createError({ statusCode: 404, statusMessage: 'Set not found' })
     if (!set.code) throw createError({ statusCode: 400, statusMessage: 'Set has no sidecar code to refresh from' })
 
-    const records: PlaatjesCard[] = []
-    for (let page = 1; ; page++) {
-        const response = await sidecarFetch<PlaatjesCardsPage>(`${apiBase}/cards`, {
-            query: { set: set.code, limit: 500, page }
-        })
-        records.push(...response.items)
-        if (response.returned === 0 || records.length >= response.total) break
-    }
+    const records = await fetchPlaatjesRecords(set.code, apiBase)
     const baseById = new Map<string, PlaatjesCard>()
     for (const record of records) {
         if (!record.cardId) continue
