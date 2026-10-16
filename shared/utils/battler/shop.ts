@@ -66,7 +66,11 @@ const TIER_COST: Record<string, number> = {
     'Black White Rare': 10,
     'Mega Hyper Rare': 10,
     'Mega Attack Rare': 10,
-    'ACE SPEC Rare': 5
+    'ACE SPEC Rare': 5,
+    'Pikachu Rare': 4,
+    'Classic Collection': 8,
+    'Futuristic Rare': 10,
+    'RGB Secret Rare': 10
 }
 
 /**

@@ -98,6 +98,11 @@ describe('deriveUnit', () => {
         expect(unitCostFor('CSR')).toBe(8)
         expect(unitCostFor('CHR')).toBe(6)
         expect(unitCostFor('BWR')).toBe(10)
+        // 30th Celebration's own tiers, by label and by code.
+        expect(unitCostFor('Pikachu Rare')).toBe(4)
+        expect(unitCostFor('CC')).toBe(8)
+        expect(unitCostFor('FUR')).toBe(10)
+        expect(unitCostFor('RGB Secret Rare')).toBe(10)
         expect(unitCostFor(null)).toBe(4)
     })
 
