@@ -1,20 +1,29 @@
 import { describe, expect, it } from 'vitest'
 import {
-  settleHackerzRun,
+  settleHackerzRun as settleBounded,
   type HackerzRunReport,
   type HackerzSettlementState
 } from '#server/utils/hackerz'
+import { hackerzAccountBounds, type HackerzAccountBounds } from '#shared/utils/gamelogic/hackerz-sim'
 import {
   HACKERZ_MAX_WAVE,
   HACKERZ_SAVE_VERSION,
   HACKERZ_WAVE_MS,
   hackerzDifficulty,
   hackerzEmptyArmoury,
+  hackerzEmptyMainframe,
   hackerzMaxPayout,
   hackerzMaxWaveForElapsedMs,
   hackerzValidateSave,
+  type HackerzMainframeLevels,
   type HackerzRunSave
 } from '#shared/utils/gamelogic/hackerz'
+
+/** No account bound: the cases below test everything else settlement does. */
+const OPEN: HackerzAccountBounds = { maxWave: HACKERZ_MAX_WAVE, maxCoins: () => Number.POSITIVE_INFINITY }
+function settleHackerzRun(s: HackerzSettlementState, r: HackerzRunReport, bounds = OPEN) {
+  return settleBounded(s, r, bounds)
+}
 
 function state(overrides: Partial<HackerzSettlementState> = {}): HackerzSettlementState {
   return {
@@ -76,10 +85,32 @@ describe('settleHackerzRun', () => {
   })
 
   it('counts a victory, and only a victory', () => {
-    expect(settleHackerzRun(state(), report({ reason: 'victory' })).victories).toBe(1)
-    expect(settleHackerzRun(state(), report({ reason: 'defeat' })).victories).toBe(0)
-    expect(settleHackerzRun(state(), report({ reason: 'retire' })).victories).toBe(0)
-    expect(settleHackerzRun(state(), report({ reason: 'victory' })).victory).toBe(true)
+    const cleared = { reportedWave: HACKERZ_MAX_WAVE }
+    expect(settleHackerzRun(state(), report({ reason: 'victory', ...cleared })).victories).toBe(1)
+    expect(settleHackerzRun(state(), report({ reason: 'defeat', ...cleared })).victories).toBe(0)
+    expect(settleHackerzRun(state(), report({ reason: 'retire', ...cleared })).victories).toBe(0)
+    expect(settleHackerzRun(state(), report({ reason: 'victory', ...cleared })).victory).toBe(true)
+  })
+
+  it('does not count a victory the run never reached the last wave for', () => {
+    const result = settleHackerzRun(state(), report({ reason: 'victory', reportedWave: 12 }))
+    expect(result.victory).toBe(false)
+    expect(result.victories).toBe(0)
+  })
+
+  it('bounds the wave by the account, and moves the records only by the bounded wave', () => {
+    const bounds: HackerzAccountBounds = { maxWave: 14, maxCoins: () => Number.POSITIVE_INFINITY }
+    const result = settleHackerzRun(state({ bestWave: 9 }), report({ reportedWave: 30 }), bounds)
+    expect(result.wave).toBe(14)
+    expect(result.bestWave).toBe(14)
+    expect(result.capped).toBe(true)
+  })
+
+  it('pays no more than the account\'s own bound for the wave', () => {
+    const bounds: HackerzAccountBounds = { maxWave: HACKERZ_MAX_WAVE, maxCoins: wave => wave * 100 }
+    const result = settleHackerzRun(state(), report({ reportedWave: 12, reportedCoins: 1e12 }), bounds)
+    expect(result.awarded).toBe(1_200)
+    expect(result.capped).toBe(true)
   })
 
   it('caps a forged coin total at the ceiling for the wave reached', () => {
@@ -110,6 +141,36 @@ describe('settleHackerzRun', () => {
   it('treats a negative or non-finite coin total as zero', () => {
     expect(settleHackerzRun(state(), report({ reportedCoins: -500 })).awarded).toBe(0)
     expect(settleHackerzRun(state(), report({ reportedCoins: Number.NaN })).awarded).toBe(0)
+  })
+})
+
+describe('hackerzAccountBounds', () => {
+  const maxed = (): HackerzMainframeLevels => ({
+    ...hackerzEmptyMainframe(),
+    bulwark: 12, munitions: 12, foundry: 12, grant: 10, salvage: 13, capacitor: 10, charter: 4, arsenal: 4
+  })
+
+  it('keeps a bare account\'s forged wave-30 run to what a bare account can do', () => {
+    const bounds = hackerzAccountBounds(hackerzEmptyMainframe(), 'breach')
+    const result = settleBounded(state({ bestWave: 0 }), report({ reportedWave: HACKERZ_MAX_WAVE, reportedCoins: 1e15 }), bounds)
+    // The game-wide ceiling alone paid ~905k here.
+    expect(result.awarded).toBeLessThan(100_000)
+    // Not deep enough to unlock Zero Day off a forged save.
+    expect(result.bestWave).toBeLessThan(hackerzDifficulty('zeroday').requiredBestWave)
+  })
+
+  it('leaves a maxed account far more room than a bare one', () => {
+    const bare = hackerzAccountBounds(hackerzEmptyMainframe(), 'breach')
+    const full = hackerzAccountBounds(maxed(), 'breach')
+    expect(full.maxWave).toBeGreaterThan(bare.maxWave)
+    expect(full.maxCoins(full.maxWave)).toBeGreaterThan(bare.maxCoins(bare.maxWave) * 3)
+  })
+
+  it('never pays more for a wave than for a deeper one', () => {
+    const bounds = hackerzAccountBounds(maxed(), 'zeroday')
+    for (let wave = 1; wave <= HACKERZ_MAX_WAVE; wave++) {
+      expect(bounds.maxCoins(wave)).toBeGreaterThanOrEqual(bounds.maxCoins(wave - 1))
+    }
   })
 })
 
