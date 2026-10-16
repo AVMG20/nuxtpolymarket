@@ -215,7 +215,9 @@ export function hackerzSimulateWave(
     wave: number,
     loadout: HackerzLoadout,
     difficultyId: HackerzDifficultyId,
-    wallHp: number
+    wallHp: number,
+    /** How much of the gun's damage lands; see `SIM_PLAYER_UPTIME`. */
+    uptime = SIM_PLAYER_UPTIME
 ): HackerzSimWave {
     const difficulty = hackerzDifficulty(difficultyId)
     const hpMultiplier = hackerzHpMultiplier(wave) * hackerzWaveEnemyHp(difficulty, wave)
@@ -242,7 +244,7 @@ export function hackerzSimulateWave(
     }
     queue.sort((a, b) => a.spawnAt - b.spawnAt)
 
-    const weaponDps = hackerzWeaponDps(loadout) * SIM_PLAYER_UPTIME
+    const weaponDps = hackerzWeaponDps(loadout) * uptime
     const turretDps = hackerzTurretDps(loadout)
     const maxWallHp = loadout.wallMaxHp
 
@@ -440,6 +442,14 @@ export interface HackerzSimOptions {
     autoUpgrade?: boolean
     /** Repair the wall to full between waves when it can be afforded. */
     repair?: boolean
+    /** How much of the gun's damage lands; `SIM_PLAYER_UPTIME` unless given. */
+    uptime?: number
+    /**
+     * Play every wave to the last even after the wall falls (rebuilt to full
+     * each time), so there is a coin figure for every wave. `endedWave` is
+     * still the first wave the wall fell on.
+     */
+    endless?: boolean
 }
 
 export function hackerzSimulateRun(
@@ -466,6 +476,7 @@ export function hackerzSimulateRun(
     }, build.mainframe, difficultyId)
 
     let hp = makeLoadout().wallMaxHp
+    let fellOn: number | null = null
 
     for (let wave = 1; wave <= HACKERZ_MAX_WAVE; wave++) {
         if (options.autoUpgrade) credits = autoSpend(build, credits, wave)
@@ -481,14 +492,64 @@ export function hackerzSimulateRun(
             }
         }
 
-        const result = hackerzSimulateWave(wave, loadout, difficultyId, hp)
+        const result = hackerzSimulateWave(wave, loadout, difficultyId, hp, options.uptime)
         waves.push(result)
         coins += result.coins
         credits += result.credits
         hp = result.wallHp
 
-        if (result.breached) return { endedWave: wave, victory: false, coins, waves }
+        if (result.breached) {
+            fellOn ??= wave
+            if (!options.endless) return { endedWave: wave, victory: false, coins, waves }
+            hp = loadout.wallMaxHp
+        }
     }
 
-    return { endedWave: HACKERZ_MAX_WAVE, victory: true, coins, waves }
+    return fellOn === null
+        ? { endedWave: HACKERZ_MAX_WAVE, victory: true, coins, waves }
+        : { endedWave: fellOn, victory: false, coins, waves }
+}
+
+/**
+ * Waves past where a perfect-aim run of the account's own build falls that a
+ * settled run may still claim; and how far over that run's coins a settled run
+ * may still be paid. The headroom is for the play the model does not see —
+ * abilities, deployables, reclaimed nodes — not for a forged save.
+ */
+export const HACKERZ_BOUND_WAVES = 2
+export const HACKERZ_BOUND_COINS = 1.5
+
+export interface HackerzAccountBounds {
+    /** The deepest wave a run on this account and difficulty may be settled at. */
+    maxWave: number
+    /** The most a run settled at `wave` may pay (the account's Salvage multiplier included). */
+    maxCoins: (wave: number) => number
+}
+
+/**
+ * What an account's own build could get out of a run, so a settled run is
+ * bounded by the account that played it rather than by the best build the game
+ * allows: a bare account cannot be paid a maxed account's run, nor credited a
+ * wave it could never reach (which would unlock the harder difficulties).
+ *
+ * The model is deliberately generous: the account's Mainframe on a fresh
+ * armoury, shopping well between waves, with every round landing (uptime 1 —
+ * the real game, with its hackers and red ground, plays some ten waves harder
+ * than this model at its usual uptime). The run is played on past the wall
+ * falling, so every wave has a coin figure.
+ */
+export function hackerzAccountBounds(mainframe: HackerzMainframeLevels, difficultyId: HackerzDifficultyId): HackerzAccountBounds {
+    const build: HackerzSimBuild = {
+        levels: hackerzEmptyLevels(),
+        mainframe: { ...mainframe },
+        weapon: 'rail',
+        turrets: Array.from({ length: hackerzSlots(0, mainframe.charter) }, () => null)
+    }
+    const run = hackerzSimulateRun(build, difficultyId, { autoUpgrade: true, uptime: 1, endless: true })
+    const through: number[] = [0]
+    for (const wave of run.waves) through.push(through[through.length - 1]! + wave.coins)
+    return {
+        maxWave: Math.min(HACKERZ_MAX_WAVE, run.endedWave + HACKERZ_BOUND_WAVES),
+        maxCoins: wave => Math.floor((through[Math.max(0, Math.min(wave, through.length - 1))] ?? 0) * HACKERZ_BOUND_COINS)
+    }
 }

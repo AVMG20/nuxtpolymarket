@@ -3,8 +3,9 @@ import { db } from '#server/database'
 import { hackerzRuns, hackerzState } from '#server/database/schema'
 import { requireUserId } from '#server/utils/auth'
 import { credit } from '#server/utils/balance'
-import { getLockedHackerzState, settleHackerzRun } from '#server/utils/hackerz'
-import { hackerzMaxWaveForElapsedMs } from '#shared/utils/gamelogic/hackerz'
+import { getLockedHackerzState, hackerzLevels, settleHackerzRun } from '#server/utils/hackerz'
+import { hackerzDifficulty, hackerzMaxWaveForElapsedMs } from '#shared/utils/gamelogic/hackerz'
+import { hackerzAccountBounds } from '#shared/utils/gamelogic/hackerz-sim'
 
 /**
  * Ends a run and settles its coins.
@@ -36,12 +37,15 @@ export default defineEventHandler(async (event) => {
         const elapsedMs = Date.now() - state.runStartedAt.getTime()
         const wave = Math.max(0, Math.min(runState?.wave ?? 0, hackerzMaxWaveForElapsedMs(elapsedMs) + 2))
 
+        // The save is the client's word: what it may claim is bounded by what this
+        // account's own build could have done on this difficulty.
+        const bounds = hackerzAccountBounds(hackerzLevels(state), hackerzDifficulty(state.runDifficultySnapshot).id)
         const result = settleHackerzRun(state, {
             reason,
             reportedWave: wave,
             reportedCoins: runState?.coins ?? 0,
             reportedKills: runState?.kills ?? 0
-        })
+        }, bounds)
 
         const now = Date.now()
         // Clearing the active-run lock *is* the claim: a second request in flight
