@@ -12,7 +12,8 @@
  * asked in one forward pass.
  *
  * Binds 127.0.0.1:8000 by default (`LAYA_HOST`, `LAYA_PORT`). It has no
- * authentication, so it never binds anywhere else unless told to.
+ * authentication, so it never binds anywhere else unless told to, and only
+ * the dev site (plus `LAYA_ORIGINS`) may call it from a browser.
  */
 import { Laya } from '@receptron/laya'
 
@@ -25,16 +26,34 @@ console.log('Laya loaded')
 
 type Question = { type: string, instructions: string, criteria?: unknown, state?: unknown }
 
-const CORS = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    // Chrome asks before a public page may call a local address.
-    'Access-Control-Allow-Private-Network': 'true'
+/**
+ * The pages that may call this from a browser: the dev site by default, plus
+ * any listed in `LAYA_ORIGINS` (comma separated, e.g. the live site, so its
+ * auto-play can reach a player's own Laya). Any other page gets no CORS
+ * headers, so the browser refuses it the answer: the server has no
+ * authentication, and a page anywhere on the web must not be able to use it.
+ */
+const ORIGINS = new Set([
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    ...(process.env.LAYA_ORIGINS ?? '').split(',').map(origin => origin.trim()).filter(Boolean)
+])
+
+function cors(request: Request): Record<string, string> {
+    const origin = request.headers.get('Origin')
+    if (!origin || !ORIGINS.has(origin)) return {}
+    return {
+        'Access-Control-Allow-Origin': origin,
+        'Vary': 'Origin',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+        // Chrome asks before a public page may call a local address.
+        'Access-Control-Allow-Private-Network': 'true'
+    }
 }
 
-function json(body: unknown, status = 200) {
-    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS } })
+function json(request: Request, body: unknown, status = 200) {
+    return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...cors(request) } })
 }
 
 /** Questions grouped by the state they are asked over, one model run per group. */
@@ -74,24 +93,27 @@ let queue: Promise<unknown> = Promise.resolve()
 Bun.serve({
     hostname: host,
     port,
-    async fetch(request) {
+    async fetch(request: Request) {
         const url = new URL(request.url)
-        if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
-        if (url.pathname === '/health') return json({ status: 'ok' })
-        if (url.pathname !== '/v1/systemone' || request.method !== 'POST') return json({ error: 'not found' }, 404)
+        if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors(request) })
+        if (url.pathname === '/health') return json(request, { status: 'ok' })
+        if (url.pathname !== '/v1/systemone' || request.method !== 'POST') return json(request, { error: 'not found' }, 404)
+        // A page not on the list is refused outright, not only its answer.
+        const origin = request.headers.get('Origin')
+        if (origin && !ORIGINS.has(origin)) return json(request, { error: 'origin not allowed' }, 403)
         let body: { state?: unknown, questions?: Record<string, Question> }
         try {
             body = await request.json()
         } catch {
-            return json({ error: 'body is not JSON' }, 400)
+            return json(request, { error: 'body is not JSON' }, 400)
         }
-        if (!body.questions || typeof body.questions !== 'object') return json({ error: 'questions missing' }, 400)
+        if (!body.questions || typeof body.questions !== 'object') return json(request, { error: 'questions missing' }, 400)
         const run = queue.then(() => answer(body.state, body.questions!))
         queue = run.catch(() => undefined)
         try {
-            return json({ id: crypto.randomUUID(), answers: await run })
+            return json(request, { id: crypto.randomUUID(), answers: await run })
         } catch (error) {
-            return json({ error: error instanceof Error ? error.message : String(error) }, 500)
+            return json(request, { error: error instanceof Error ? error.message : String(error) }, 500)
         }
     }
 })
