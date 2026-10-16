@@ -559,6 +559,12 @@ export const hackerzState = pgTable('hackerz_state', {
   capacitorLevel: integer('capacitor_level').notNull().default(0),
   charterLevel: integer('charter_level').notNull().default(0),
   arsenalLevel: integer('arsenal_level').notNull().default(0),
+  scannerLevel: integer('scanner_level').notNull().default(0),
+  blipLevel: integer('blip_level').notNull().default(0),
+  whitehatLevel: integer('whitehat_level').notNull().default(0),
+  surgeLevel: integer('surge_level').notNull().default(0),
+  // Database entries the player has unlocked: bought, or met on the board.
+  codex: text('codex').array().notNull().default(sql`'{}'::text[]`),
   runsPlayed: integer('runs_played').notNull().default(0),
   totalCoinsEarned: numeric('total_coins_earned', { precision: 19, scale: 4 }).notNull().default('0'),
   bestWave: integer('best_wave').notNull().default(0),
