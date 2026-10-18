@@ -530,6 +530,14 @@ const rawGroups: CommandPaletteGroup[] = [
         icon: 'i-lucide-boxes',
         to: '/voxel-arena',
         keywords: ['voxel', 'arena', 'shooter', 'slasher', 'waves', 'survival', 'roguelike', 'upgrades', 'titan']
+      },
+      {
+        id: 'dead-front',
+        label: 'Dead Front',
+        description: 'Co-op round-based zombies FPS with 1900s weapons',
+        icon: 'i-lucide-crosshair',
+        to: '/dead-front',
+        keywords: ['dead front', 'zombies', 'fps', 'co-op', 'multiplayer', 'rounds', 'pack-a-punch', 'perks', 'wonder weapon', 'ww1']
       }
     ]
   },

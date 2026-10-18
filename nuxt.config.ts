@@ -52,6 +52,7 @@ export default defineNuxtConfig({
 // Canvas hack-and-slash — pure client-side simulation.
         '/meadowbrawl': { ssr: false },
         '/voxel-arena': { ssr: false },
+        '/dead-front': { ssr: false },
         // WebGL foil renderer + admin-only tooling — no SSR value.
         '/tcg-admin/**': { ssr: false }
     },

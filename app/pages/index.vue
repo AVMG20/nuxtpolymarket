@@ -206,6 +206,14 @@ const arcadeGames = [
     to: '/voxel-arena',
     gradient: 'from-indigo-950 via-slate-950 to-cyan-950',
     iconColor: 'text-cyan-300'
+  },
+  {
+    name: 'Dead Front',
+    description: 'Co-op round-based zombies in a ruined 1917 chapel — party up, Pack-a-Punch your rifle and chase the wonder weapon',
+    icon: 'i-lucide-crosshair',
+    to: '/dead-front',
+    gradient: 'from-stone-950 via-red-950 to-zinc-950',
+    iconColor: 'text-red-300'
   }
 ]
 
