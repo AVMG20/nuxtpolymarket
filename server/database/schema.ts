@@ -18,6 +18,7 @@ import type {
 } from '#shared/types/tcg-db'
 import type { RateTemplate } from '#shared/utils/tcg/rate-fitter'
 import type { TownEventData } from '#shared/utils/gamelogic/town-events'
+import type { DfLoadout, DfPerkId, DfWeaponId } from '#shared/utils/dead-front/types'
 import type { TownRedesignDraft } from '#shared/utils/gamelogic/town-storage'
 import type { TownStreakLock } from '#shared/utils/gamelogic/town-streak'
 import type { TcgGradeResult } from '#shared/utils/tcg/grading-model-types'
@@ -2587,3 +2588,20 @@ export const accountRelations = relations(account, ({ one }) => ({
     references: [user.id]
   })
 }))
+
+// Dead Front (zombies FPS) per-player progression. Weapons unlock by being
+// found in a match, attachments by weapon level, perk modifiers by research.
+export const deadFrontProfile = pgTable('dead_front_profile', {
+  userId: text('user_id').primaryKey().references(() => user.id, { onDelete: 'cascade' }),
+  unlockedWeapons: jsonb('unlocked_weapons').$type<DfWeaponId[]>().notNull().default(['m1911']),
+  weaponXp: jsonb('weapon_xp').$type<Partial<Record<DfWeaponId, number>>>().notNull().default({}),
+  loadout: jsonb('loadout').$type<DfLoadout>().notNull().default({ startWeapon: 'm1911', attachments: {} }),
+  researchPerk: text('research_perk').$type<DfPerkId>(),
+  perkXp: jsonb('perk_xp').$type<Partial<Record<DfPerkId, number>>>().notNull().default({}),
+  perkMods: jsonb('perk_mods').$type<Partial<Record<DfPerkId, string[]>>>().notNull().default({}),
+  gamesPlayed: integer('games_played').notNull().default(0),
+  bestRound: integer('best_round').notNull().default(0),
+  totalKills: integer('total_kills').notNull().default(0),
+  eggsCompleted: integer('eggs_completed').notNull().default(0),
+  updatedAt: timestamp('updated_at').defaultNow().notNull()
+})

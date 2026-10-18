@@ -428,6 +428,13 @@
       "when": 1792089320546,
       "tag": "0060_green_iron_monger",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1792315625928,
+      "tag": "0061_dead_front_profile",
+      "breakpoints": true
     }
   ]
 }
