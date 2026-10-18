@@ -58,6 +58,9 @@ export class DfMatch {
     private readonly players: MatchPlayer[]
     private readonly hooks: DfMatchHooks
     private timer: ReturnType<typeof setInterval> | null = null
+    private lastTickAt = 0
+    /** Seconds of wall time not yet simulated. */
+    private tickDebt = 0
     private finished = false
     private lastRound = 0
 
@@ -208,12 +211,29 @@ export class DfMatch {
         if (this.finished) return
         const sim = this.sim
         // Nobody connected: hold the world still until someone returns or the grace runs out.
-        if (sim.connectedCount === 0) return
-        try {
-            sim.step(1 / DF_TICK_HZ)
-        } catch (e) {
-            console.error('[dead-front] tick failed', e)
+        if (sim.connectedCount === 0) {
+            this.lastTickAt = 0
+            return
         }
+        // Fixed steps driven by the wall clock: on a busy host setInterval fires late, and
+        // stepping once per callback would let the sim (and the snapshot clock clients
+        // interpolate on) fall behind real time, which reads as stuttering zombies.
+        const dt = 1 / DF_TICK_HZ
+        const now = Date.now()
+        this.tickDebt += this.lastTickAt ? Math.min(0.25, (now - this.lastTickAt) / 1000) : dt
+        this.lastTickAt = now
+        let steps = 0
+        // Half a tick of tolerance keeps a callback that fires a hair early from skipping a step.
+        while (this.tickDebt >= dt * 0.5 && steps < 4) {
+            try {
+                sim.step(dt)
+            } catch (e) {
+                console.error('[dead-front] tick failed', e)
+            }
+            this.tickDebt -= dt
+            steps++
+        }
+        if (steps === 0) return
         try {
             this.broadcastSnapshot()
         } catch (e) {

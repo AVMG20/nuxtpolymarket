@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { DF_GRENADES, DF_INTERP_DELAY_MS, DF_MELEE, DF_PLAYER, DF_BASE_EFFECTS } from '#shared/utils/dead-front/constants'
+import { DF_GRENADES, DF_INTERP_DELAY_MS, DF_TICK_HZ, DF_MELEE, DF_PLAYER, DF_BASE_EFFECTS } from '#shared/utils/dead-front/constants'
 import { DF_ENEMIES, dfZombieHitTest } from '#shared/utils/dead-front/enemies'
 import { DF_BARRICADE_PLANKS, DF_MAP, dfInteractables, dfMaterialSurface } from '#shared/utils/dead-front/map'
 import { DF_PERKS, dfComputeEffects } from '#shared/utils/dead-front/perks'
@@ -905,6 +905,7 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
     }
 
     // ---------------------------------------------------------------- the loop
+    let interpDelay: number = DF_INTERP_DELAY_MS
     function frame(): void {
         if (disposed) return
         raf = requestAnimationFrame(frame)
@@ -958,7 +959,10 @@ export function createDfEngine(opts: DfEngineOptions): DfEngine {
         }
 
         // ---- interpolation
-        const renderT = buffer.renderTime(nowMs, DF_INTERP_DELAY_MS)
+        // Ease toward the jitter-adapted delay so the render clock never jumps.
+        const targetDelay = buffer.targetDelay(DF_INTERP_DELAY_MS, 1000 / DF_TICK_HZ)
+        interpDelay += (targetDelay - interpDelay) * Math.min(1, dt * (targetDelay > interpDelay ? 2 : 0.3))
+        const renderT = buffer.renderTime(nowMs, interpDelay)
         const sample = buffer.at(renderT)
         while (eventQueue.length && eventQueue[0]!.time <= renderT + 1e-4) {
             const q = eventQueue.shift()!

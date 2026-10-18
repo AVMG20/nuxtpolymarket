@@ -9,6 +9,8 @@ import type { Vec3 } from '#shared/utils/dead-front/types'
 const MAX_SNAPS = 40
 /** Longest extrapolation past the newest snapshot, in seconds. */
 export const DF_MAX_EXTRAPOLATE = 0.25
+/** Upper bound for the adaptive render delay, in ms. */
+export const DF_MAX_INTERP_DELAY_MS = 300
 
 export interface DfBufferedSnap {
     s: DfSnapshot
@@ -44,6 +46,8 @@ export class DfSnapBuffer {
     readonly snaps: DfBufferedSnap[] = []
     /** Estimated localMs - serverMs. */
     offset: number | null = null
+    /** Smoothed lateness of arrivals (ms), see targetDelay. */
+    jitter = 0
     private readonly sample: DfSample = { a: null as unknown as DfBufferedSnap, b: null as unknown as DfBufferedSnap, alpha: 0, span: 0.05 }
 
     get latest(): DfBufferedSnap | null {
@@ -69,12 +73,24 @@ export class DfSnapBuffer {
         // arrivals earlier than expected pull the estimate in quickly, late ones drift it slowly
         else if (sample < this.offset) this.offset += (sample - this.offset) * 0.3
         else this.offset += (sample - this.offset) * 0.015
+        // How late snapshots arrive relative to the earliest ones: network and server-tick jitter.
+        const late = Math.max(0, sample - this.offset)
+        this.jitter += (late - this.jitter) * (late > this.jitter ? 0.25 : 0.02)
         return true
+    }
+
+    /**
+     * Render delay (ms) that keeps two snapshots ahead of the render clock under the
+     * measured jitter: one tick interval plus a margin for late arrivals.
+     */
+    targetDelay(baseMs: number, tickMs: number): number {
+        return Math.min(DF_MAX_INTERP_DELAY_MS, Math.max(baseMs, tickMs + this.jitter * 2.5 + 30))
     }
 
     reset(): void {
         this.snaps.length = 0
         this.offset = null
+        this.jitter = 0
     }
 
     /** Server time (seconds) to render remote entities at. */
