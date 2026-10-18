@@ -1,0 +1,703 @@
+import * as THREE from 'three'
+import { DF_PAP_COLORS } from '#shared/utils/dead-front/weapons'
+import type { DfAttachmentChoice, DfWeaponId } from '#shared/utils/dead-front/types'
+import { dfHash3 } from '#shared/utils/dead-front/voxel'
+import { DfVoxModel, mixHex, scaleHex } from '../voxel/model'
+import { dfOwnedGlowMat, dfPapMat, dfReticleTexture, dfTickPap, dfWeaponMat } from './materials'
+import type { DfVoxMaterial } from '../voxel/material'
+
+// Voxel 1900s weapons. Each gun is authored on its own voxel grid (k runs from
+// the muzzle, k = 0, back to the butt; j up; i across), with moving parts
+// (slide, bolt, pump, magazine, pan) as separate models on the same grid.
+// Gun space: metres, origin at the right-hand grip, x right, y up, muzzle
+// toward -z. Pack-a-Punch recolours the steel with the tier colour and a
+// glowing stripe pattern; attachments add voxel parts.
+
+export type DfReloadStyle = 'mag' | 'side' | 'top' | 'stripper' | 'shell' | 'capsule' | 'coil'
+
+export interface DfGunRig {
+    id: DfWeaponId
+    root: THREE.Group
+    muzzle: THREE.Object3D
+    /** The rear sight (notch bottom / aperture / scope eyepiece) on the sight line, gun space. ADS puts it on the camera axis. */
+    sight: THREE.Vector3
+    /** The front sight (post or bead top / scope objective) on the same sight line. */
+    sightFront: THREE.Vector3
+    /** Metres from the eye to `sight` while aiming. */
+    eyeRelief: number
+    /** Left (support) hand rest position, gun space. */
+    left: THREE.Vector3
+    /** Ejection port, gun space. */
+    eject: THREE.Vector3
+    slide: THREE.Object3D | null
+    bolt: THREE.Object3D | null
+    pump: THREE.Object3D | null
+    mag: THREE.Object3D | null
+    pan: THREE.Object3D | null
+    /** Glow material pulsed by the viewmodel (X-Ray, wonder weapon). */
+    glow: DfVoxMaterial | null
+    reload: DfReloadStyle
+    scoped: boolean
+    lens: THREE.Mesh | null
+    long: boolean
+}
+
+/** One voxel size for every gun, so they all read as the same craft. */
+const VOX = 0.011
+
+// ---------------------------------------------------------------- palette
+const STEEL = 0x4e545c
+const STEEL_HI = 0x6f757d
+const PARK = 0x4f544e
+const BLACK = 0x34363a
+const WOOD = 0x8a5634
+const WOOD_D = 0x6a4128
+const WOOD_L = 0xa06c40
+const BRASS = 0xb38b3b
+const COPPER = 0x9c5a2a
+const IVORY = 0xe6dec6
+const LEATHER = 0x4e3220
+const METALS = new Set([STEEL, STEEL_HI, PARK, BLACK, scaleHex(STEEL, 1.1), scaleHex(STEEL, 0.9)])
+const WOODS = new Set([WOOD, WOOD_D, WOOD_L, scaleHex(WOOD, 1.1), scaleHex(WOOD, 0.88), scaleHex(WOOD_D, 1.12), scaleHex(WOOD_L, 0.9)])
+
+type PartName = 'main' | 'slide' | 'bolt' | 'pump' | 'mag' | 'pan'
+
+/** Authoring helper: boxes on the gun grid, centred across i unless told otherwise. */
+class Gun {
+    readonly models: Record<PartName, DfVoxModel | null> = { main: null, slide: null, bolt: null, pump: null, mag: null, pan: null }
+    cur: DfVoxModel
+    readonly ci: number
+    /** Free cells ahead of the muzzle (k < 0) for cans, launchers and compensators. */
+    readonly ko = 14
+
+    constructor(readonly s: number, readonly L: number, readonly H: number, readonly W: number) {
+        this.cur = this.part('main')
+        this.ci = Math.floor(W / 2)
+    }
+
+    part(name: PartName): DfVoxModel {
+        let m = this.models[name]
+        if (!m) this.models[name] = m = new DfVoxModel(this.W, this.H, this.L + this.ko)
+        this.cur = m
+        return m
+    }
+
+    /** Fill for a colour: steel and wood get subtle per-voxel shades. */
+    col(hex: number, glow = 0): (i: number, j: number, k: number) => number {
+        const m = this.cur
+        if (glow) return () => m.c(hex, glow)
+        if (WOODS.has(hex)) {
+            const a = m.c(scaleHex(hex, 1.1))
+            const b = m.c(hex)
+            const c = m.c(scaleHex(hex, 0.88))
+            return (i, j, k) => {
+                const h = dfHash3(i, j >> 1, k >> 2, 3)
+                return h < 0.3 ? a : h < 0.8 ? b : c
+            }
+        }
+        if (hex === STEEL) {
+            const a = m.c(scaleHex(hex, 1.1))
+            const b = m.c(hex)
+            return (i, j, k) => (dfHash3(i, j, k >> 1, 5) < 0.35 ? a : b)
+        }
+        const v = m.c(hex)
+        return () => v
+    }
+
+    /** Box [k0, k1) x [j0, j1), `w` wide centred (plus `di` offset). */
+    box(k0: number, k1: number, j0: number, j1: number, w: number, hex: number, di = 0, glow = 0): this {
+        const i0 = this.ci - Math.floor((w - 1) / 2) + di
+        this.cur.box(i0, j0, k0 + this.ko, i0 + w, j1, k1 + this.ko, this.col(hex, glow))
+        return this
+    }
+
+    /** Box with explicit i range. */
+    boxI(k0: number, k1: number, j0: number, j1: number, i0: number, i1: number, hex: number, glow = 0): this {
+        this.cur.box(i0, j0, k0 + this.ko, i1, j1, k1 + this.ko, this.col(hex, glow))
+        return this
+    }
+
+    /** A round rod along k with radius r (cells) around (cj, ci + di). */
+    rod(k0: number, k1: number, cj: number, r: number, hex: number, di = 0, glow = 0): this {
+        const f = this.col(hex, glow)
+        const cx = this.ci + 0.5 + di
+        const cy = cj + 0.5
+        for (let j = Math.floor(cy - r); j <= Math.ceil(cy + r); j++) {
+            for (let i = Math.floor(cx - r); i <= Math.ceil(cx + r); i++) {
+                if ((i + 0.5 - cx) ** 2 + (j + 0.5 - cy) ** 2 <= r * r + 0.01) this.cur.box(i, j, k0 + this.ko, i + 1, j + 1, k1 + this.ko, f)
+            }
+        }
+        return this
+    }
+
+    /** A ring (disc minus hole) across the bore at k, radius r1 outer, r0 inner. */
+    ring(k0: number, k1: number, cj: number, r0: number, r1: number, hex: number, di = 0, glow = 0): this {
+        const f = this.col(hex, glow)
+        const cx = this.ci + 0.5 + di
+        const cy = cj + 0.5
+        for (let j = Math.floor(cy - r1); j <= Math.ceil(cy + r1); j++) {
+            for (let i = Math.floor(cx - r1); i <= Math.ceil(cx + r1); i++) {
+                const d = Math.hypot(i + 0.5 - cx, j + 0.5 - cy)
+                if (d <= r1 + 0.05 && d >= r0) this.cur.box(i, j, k0 + this.ko, i + 1, j + 1, k1 + this.ko, f)
+            }
+        }
+        return this
+    }
+
+    /** Clears a box (all models). */
+    cut(k0: number, k1: number, j0: number, j1: number, i0: number, i1: number): this {
+        this.cur.box(i0, j0, k0 + this.ko, i1, j1, k1 + this.ko, 0)
+        return this
+    }
+
+    /** A sloped run: for each k, a column [lo(k), hi(k)) of `w` width. */
+    slope(k0: number, k1: number, lo: (k: number) => number, hi: (k: number) => number, w: number, hex: number, di = 0): this {
+        for (let k = k0; k < k1; k++) this.box(k, k + 1, Math.round(lo(k)), Math.round(hi(k)), w, hex, di)
+        return this
+    }
+}
+
+interface Spec {
+    gun: Gun
+    /** Grip (origin) in voxel coordinates: i is the gun's centre line. */
+    grip: [number, number]
+    bore: number
+    /** Rear sight [k, j]: k is used, the height is measured from the voxels at the centre column. */
+    sight: [number, number]
+    /** Front sight column k (post or bead). */
+    front: number
+    eyeRelief: number
+    left: [number, number, number]
+    eject: [number, number]
+    reload: DfReloadStyle
+    long: boolean
+    scoped?: { j: number, k0: number, k1: number }
+    /** Rotation axes for the bolt / pan groups (voxel coords j, k) when they turn. */
+    boltAxis?: [number, number]
+    panAxis?: [number, number]
+    glow?: boolean
+}
+
+function has(att: DfAttachmentChoice, slot: keyof DfAttachmentChoice, word: string): boolean {
+    return (att[slot] ?? '').includes(word)
+}
+
+/** A telescopic sight on mounts along [k0, k1) at bore height j. */
+function scope(g: Gun, k0: number, k1: number, j: number): void {
+    g.rod(k0 + 3, k1 - 3, j, 1.5, BLACK)
+    g.rod(k0, k0 + 4, j, 2.2, BLACK)
+    g.rod(k1 - 4, k1, j, 2, BLACK)
+    g.box(k0 + 2, k0 + 3, j - 1, j + 2, 1, 0x7aa0c8, 0, 0.5)
+    for (const k of [k0 + 6, k1 - 7]) g.box(k, k + 2, j - 4, j - 1, 1, STEEL)
+}
+
+/** A Maxim silencer can ahead of the muzzle: returns how many cells it adds. */
+function maxim(g: Gun, kMuzzle: number, bore: number): void {
+    g.rod(kMuzzle - 12, kMuzzle, bore, 1.6, BLACK)
+    g.ring(kMuzzle - 12, kMuzzle - 11, bore, 0, 1.6, STEEL_HI)
+}
+
+function cutts(g: Gun, kMuzzle: number, bore: number): void {
+    g.box(kMuzzle - 5, kMuzzle, bore - 1, bore + 2, 3, PARK)
+    for (const k of [kMuzzle - 4, kMuzzle - 2]) g.box(k, k + 1, bore + 1, bore + 2, 3, BLACK)
+}
+
+function build(id: DfWeaponId, att: DfAttachmentChoice): Spec {
+    switch (id) {
+        case 'm1911': {
+            const g = new Gun(VOX, 22, 16, 5)
+            const ext = has(att, 'magazine', 'extended')
+            const grips = has(att, 'stock', 'grips')
+            // Frame, trigger guard and a raked grip with walnut panels.
+            g.box(2, 18, 8, 9, 3, STEEL)
+            g.box(6, 12, 5, 6, 1, STEEL).box(6, 7, 5, 8, 1, STEEL).box(9, 10, 6, 8, 1, BLACK)
+            for (let j = 0; j < 8; j++) {
+                const k0 = 12 + Math.round((8 - j) * 0.3)
+                g.box(k0, k0 + 6, j, j + 1, 3, STEEL)
+                g.box(k0 + 1, k0 + 5, j, j + 1, 1, grips ? WOOD_L : WOOD_D, -1).box(k0 + 1, k0 + 5, j, j + 1, 1, grips ? WOOD_L : WOOD_D, 1)
+            }
+            g.box(18, 19, 9, 11, 1, STEEL)
+            g.part('slide')
+            g.box(0, 19, 9, 12, 3, STEEL)
+            for (let k = 14; k < 19; k += 2) g.box(k, k + 1, 11, 12, 3, BLACK)
+            g.box(0, 1, 10, 11, 1, BLACK)
+            g.box(1, 2, 12, 13, 1, STEEL_HI)
+            g.box(17, 18, 12, 13, 1, STEEL_HI, -1).box(17, 18, 12, 13, 1, STEEL_HI, 1)
+            g.box(10, 13, 10, 11, 1, BLACK, 1)
+            g.part('mag')
+            g.box(14, 18, ext ? -4 : 0, 8, 1, STEEL)
+            g.box(13, 19, ext ? -5 : -1, ext ? -4 : 0, 3, BLACK)
+            g.part('main')
+            if (has(att, 'optic', 'peep')) g.box(16, 19, 12, 14, 3, STEEL).cut(17, 18, 13, 14, g.ci, g.ci + 1)
+            if (has(att, 'muzzle', 'maxim')) maxim(g, 0, 10)
+            return { gun: g, grip: [15, 4], bore: 10, front: 1, sight: [17, 13], eyeRelief: 0.3, left: [-0.025, -0.02, -0.03], eject: [12, 11], reload: 'mag', long: false }
+        }
+        case 'c96': {
+            const g = new Gun(VOX, 28, 17, 5)
+            const box = has(att, 'magazine', 'box')
+            const holster = has(att, 'stock', 'holster')
+            g.rod(0, 11, 12, 0.6, STEEL)
+            g.box(1, 2, 13, 15, 1, STEEL_HI)
+            g.box(10, 22, 10, 14, 3, STEEL)
+            g.box(10, 16, 6, 10, 3, STEEL)
+            for (let k = 11; k < 16; k += 2) g.box(k, k + 1, 7, 9, 1, BLACK, 1)
+            g.box(15, 18, 14, 15, 3, STEEL_HI).cut(15, 18, 14, 15, g.ci, g.ci + 1)
+            g.box(16, 20, 6, 7, 1, STEEL).box(17, 18, 7, 9, 1, BLACK)
+            // Broomhandle grip.
+            for (let j = 0; j < 10; j++) {
+                const k0 = 19 + Math.round((10 - j) * 0.25)
+                g.box(k0, k0 + 5, j, j + 1, 3, (j & 1) ? WOOD : WOOD_D)
+            }
+            g.box(22, 23, 14, 16, 1, STEEL)
+            g.part('bolt')
+            g.box(18, 22, 13, 14, 1, STEEL_HI).box(20, 22, 13, 14, 3, STEEL_HI)
+            g.part('mag')
+            if (box) g.box(10, 16, -1, 6, 3, BLACK)
+            else g.box(10, 16, 6, 7, 3, STEEL_HI)
+            g.part('main')
+            if (holster) g.slope(24, 28, k => 2 + (k - 24) * 0.5, k => 9 - (k - 24) * 0.2, 3, WOOD_L)
+            if (has(att, 'muzzle', 'cutts')) cutts(g, 0, 12)
+            if (has(att, 'optic', 'tangent')) g.box(15, 18, 14, 16, 3, STEEL_HI).cut(16, 17, 15, 16, g.ci, g.ci + 1)
+            return { gun: g, grip: [22, 5], bore: 12, front: 1, sight: [16, 15], eyeRelief: 0.32, left: [-0.025, -0.02, -0.03], eject: [19, 13], reload: box ? 'mag' : 'stripper', long: false }
+        }
+        case 'm1897': {
+            const sawn = has(att, 'stock', 'sawn')
+            const tube = has(att, 'magazine', 'tube')
+            const g = new Gun(VOX, 82, 22, 5)
+            const k0 = sawn ? 22 : 0
+            g.rod(k0, 50, 13, 1, STEEL)
+            g.rod(sawn ? k0 : tube ? 2 : 8, 46, 11, 0.8, STEEL_HI)
+            g.box(k0 + 1, k0 + 2, 14, 15, 1, has(att, 'optic', 'bead') ? IVORY : BRASS)
+            g.box(46, 60, 8, 15, 3, STEEL)
+            g.box(52, 53, 15, 16, 1, STEEL_HI)
+            g.box(54, 61, 6, 8, 1, STEEL).box(56, 57, 7, 9, 1, BLACK)
+            if (sawn) g.slope(60, 68, k => 1 + (68 - k) * 0.6, () => 10, 3, WOOD)
+            else g.slope(60, 82, k => 7 - (k - 60) * 0.3, k => 12 - (k - 60) * 0.08, 3, WOOD).box(81, 82, 0, 11, 3, BLACK)
+            g.part('pump')
+            g.box(sawn ? 30 : 24, sawn ? 42 : 38, 8, 12, 3, WOOD)
+            for (let k = sawn ? 31 : 25; k < (sawn ? 42 : 38); k += 2) g.box(k, k + 1, 8, 9, 3, WOOD_D)
+            g.part('main')
+            if (has(att, 'muzzle', 'choke')) g.ring(k0 - 2, k0, 13, 0, 1.6, STEEL_HI)
+            return { gun: g, grip: [62, 8], bore: 13, front: k0 + 1, sight: [52, 16], eyeRelief: 0.3, left: [-0.012, 0.0, sawn ? -0.29 : -0.4], eject: [55, 13], reload: 'shell', long: true }
+        }
+        case 'kar98k': {
+            const sc = has(att, 'optic', 'scope')
+            const light = has(att, 'stock', 'light')
+            const g = new Gun(VOX, 90, 24, 7)
+            g.rod(0, 46, 10, 0.8, STEEL)
+            g.box(1, 3, 11, 14, 1, STEEL_HI)
+            // Fore-end, handguard and bands.
+            g.box(14, 50, 6, 10, 3, WOOD)
+            g.box(26, 44, 11, 12, 3, WOOD_D)
+            for (const k of [14, 28]) g.ring(k, k + 2, 9, 0, 2.2, STEEL)
+            g.box(44, 60, 8, 12, 3, STEEL)
+            g.box(40, 43, 12, 14, 3, STEEL_HI).cut(40, 43, 13, 14, 3, 4)
+            g.box(50, 57, 5, 7, 1, STEEL).box(54, 55, 6, 8, 1, BLACK)
+            // Wrist and stock.
+            g.slope(57, 66, k => 4 + (k - 57) * 0.1, () => 10, 3, WOOD)
+            g.slope(66, 90, k => 5 - (k - 66) * 0.21, k => 10 - (k - 66) * 0.02, 3, WOOD)
+            if (light) {
+                for (const k of [72, 79]) g.cut(k, k + 4, 4, 7, 0, 7)
+            }
+            g.box(89, 90, 0, 10, 3, STEEL)
+            g.part('bolt')
+            g.box(48, 60, 11, 13, 1, STEEL_HI)
+            g.box(57, 59, 10, 11, 3, STEEL_HI, 1).box(57, 59, 9, 11, 1, STEEL_HI, 3)
+            g.box(59, 61, 10, 13, 1, STEEL)
+            g.part('mag')
+            if (has(att, 'magazine', 'trench')) g.box(48, 56, -3, 6, 3, BLACK)
+            else g.box(49, 56, 5, 6, 3, STEEL_HI)
+            g.part('main')
+            if (sc) scope(g, 42, 64, 16)
+            if (has(att, 'muzzle', 'maxim')) maxim(g, 0, 10)
+            return {
+                gun: g, grip: [62, 7], bore: 10, front: 2, sight: sc ? [56, 16.5] : [41, 14], eyeRelief: sc ? 0.07 : 0.3, left: [-0.02, -0.005, -0.36], eject: [52, 12],
+                reload: has(att, 'magazine', 'trench') ? 'mag' : 'stripper', long: true, scoped: sc ? { j: 16, k0: 42, k1: 64 } : undefined, boltAxis: [12, 54]
+            }
+        }
+        case 'thompson': {
+            const drum = has(att, 'magazine', 'drum')
+            const g = new Gun(VOX, 76, 30, drum ? 9 : 5)
+            g.rod(0, 28, 16, 1, STEEL)
+            for (let k = 4; k < 22; k += 2) g.ring(k, k + 1, 16, 0, 2.1, STEEL)
+            g.box(1, 2, 18, 21, 1, STEEL_HI)
+            g.box(26, 54, 13, 20, 3, STEEL)
+            g.box(46, 47, 20, 22, 3, STEEL_HI).cut(46, 47, 21, 22, g.ci, g.ci + 1)
+            // Vertical foregrip, rear grip, stock.
+            g.slope(14, 20, k => 6 + (20 - k) * 0.4, () => 14, 3, WOOD)
+            g.box(14, 20, 13, 15, 3, STEEL)
+            g.slope(44, 51, k => 3 + (51 - k) * 0.4, () => 13, 3, WOOD)
+            g.box(41, 48, 10, 12, 1, STEEL).box(44, 45, 11, 13, 1, BLACK)
+            g.slope(54, 76, k => 8 - (k - 54) * 0.25, () => 17, 3, WOOD)
+            g.box(75, 76, 2, 17, 3, BLACK)
+            g.part('bolt')
+            g.box(36, 41, 20, 22, 1, STEEL_HI)
+            g.part('mag')
+            if (drum) {
+                for (let k = 28; k < 44; k++) {
+                    for (let j = 0; j < 16; j++) {
+                        const d = Math.hypot(k + 0.5 - 36, j + 0.5 - 7)
+                        if (d < 8) g.box(k, k + 1, j, j + 1, 7, d > 6.8 ? STEEL_HI : BLACK)
+                    }
+                }
+            } else {
+                g.box(32, 37, 2, 13, 3, BLACK)
+            }
+            g.part('main')
+            if (has(att, 'muzzle', 'cutts')) cutts(g, 0, 16)
+            if (has(att, 'optic', 'lyman')) g.box(45, 48, 20, 24, 3, STEEL_HI).cut(46, 47, 22, 24, g.ci, g.ci + 1)
+            if (has(att, 'stock', 'light')) for (const k of [60, 67]) g.cut(k, k + 4, 6, 12, 0, g.W)
+            return { gun: g, grip: [47, 9], bore: 16, front: 1, sight: [46, 21], eyeRelief: 0.26, left: [-0.012, -0.04, -0.33], eject: [38, 19], reload: 'mag', long: true }
+        }
+        case 'mp18': {
+            const snail = has(att, 'magazine', 'snail')
+            const g = new Gun(VOX, 78, 24, 11)
+            g.rod(0, 34, 15, 2, STEEL)
+            for (let k = 2; k < 32; k += 3) for (const j of [14, 16]) g.boxI(k, k + 1, j, j + 1, g.ci - 2, g.ci + 3, BLACK)
+            g.rod(0, 34, 15, 0.6, STEEL_HI)
+            g.box(1, 2, 17, 19, 1, STEEL_HI)
+            g.rod(32, 54, 15, 2, STEEL)
+            g.box(38, 40, 18, 19, 3, STEEL_HI).cut(38, 40, 18, 19, g.ci, g.ci + 1)
+            g.box(28, 46, 10, 13, 3, WOOD)
+            g.slope(46, 56, k => 5 + (k - 46) * 0.1, () => 13, 3, WOOD)
+            g.slope(56, 78, k => 6 - (k - 56) * 0.22, k => 13 - (k - 56) * 0.04, 3, WOOD)
+            g.box(77, 78, 1, 13, 3, STEEL)
+            g.box(46, 52, 8, 10, 1, STEEL).box(49, 50, 9, 11, 1, BLACK)
+            g.part('bolt')
+            g.box(42, 46, 16, 17, 1, STEEL_HI, 3)
+            g.part('mag')
+            if (snail) {
+                for (let k = 30; k < 42; k++) {
+                    for (let j = 6; j < 18; j++) {
+                        const d = Math.hypot(k + 0.5 - 36, j + 0.5 - 12)
+                        if (d < 6) g.boxI(k, k + 1, j, j + 1, 0, 3, d > 4.8 ? STEEL_HI : BLACK)
+                    }
+                }
+                g.boxI(34, 38, 14, 16, 3, g.ci - 1, STEEL)
+            } else {
+                g.boxI(34, 38, 14, 16, 0, g.ci - 1, BLACK)
+            }
+            g.part('main')
+            if (has(att, 'muzzle', 'maxim')) maxim(g, 0, 15)
+            if (has(att, 'optic', 'peep')) g.box(48, 51, 18, 20, 3, STEEL).cut(49, 50, 19, 20, g.ci, g.ci + 1)
+            if (has(att, 'stock', 'light')) for (const k of [62, 69]) g.cut(k, k + 4, 6, 10, 0, g.W)
+            return { gun: g, grip: [52, 9], bore: 15, front: 1, sight: [38, 19], eyeRelief: 0.31, left: [-0.015, 0.005, -0.27], eject: [44, 16], reload: 'side', long: true }
+        }
+        case 'bar': {
+            const sc = has(att, 'optic', 'scope')
+            const cut = has(att, 'stock', 'cut') || has(att, 'stock', 'light')
+            const g = new Gun(VOX, 98, 26, 5)
+            g.rod(0, 40, 13, 0.8, STEEL)
+            g.rod(12, 38, 11, 0.6, STEEL)
+            g.box(0, 3, 12, 15, 3, STEEL)
+            g.box(2, 3, 15, 17, 1, STEEL_HI)
+            g.box(30, 50, 9, 15, 3, WOOD)
+            g.box(48, 66, 8, 15, 3, PARK)
+            g.box(63, 66, 15, 17, 3, STEEL_HI).cut(63, 66, 16, 17, g.ci, g.ci + 1)
+            g.box(60, 67, 5, 8, 1, STEEL).box(63, 64, 6, 9, 1, BLACK)
+            g.slope(66, 74, k => 6 + (k - 66) * 0.1, () => 13, 3, WOOD)
+            if (cut) g.slope(74, 86, k => 7 - (k - 74) * 0.2, () => 13, 3, WOOD).box(85, 86, 4, 13, 3, STEEL)
+            else g.slope(74, 98, k => 7 - (k - 74) * 0.2, k => 13 - (k - 74) * 0.02, 3, WOOD).box(97, 98, 2, 13, 3, STEEL)
+            g.part('bolt')
+            g.box(54, 58, 12, 14, 1, STEEL_HI, 2)
+            g.part('mag')
+            g.box(52, 58, has(att, 'magazine', '40') ? -6 : 1, 8, 3, BLACK)
+            g.part('main')
+            if (sc) scope(g, 48, 70, 18)
+            if (has(att, 'muzzle', 'cutts')) cutts(g, 0, 13)
+            return {
+                gun: g, grip: [68, 9], bore: 13, front: 2, sight: sc ? [62, 18.5] : [64, 17], eyeRelief: sc ? 0.07 : 0.24, left: [-0.02, -0.025, -0.42], eject: [56, 13],
+                reload: 'mag', long: true, scoped: sc ? { j: 18, k0: 48, k1: 70 } : undefined
+            }
+        }
+        case 'lewis': {
+            const stripped = has(att, 'muzzle', 'stripped')
+            const big = has(att, 'magazine', '97')
+            const g = new Gun(VOX, 104, 30, 25)
+            if (stripped) {
+                g.rod(0, 52, 13, 0.8, STEEL)
+                for (let k = 30; k < 50; k += 2) g.ring(k, k + 1, 13, 0, 2, STEEL)
+            } else {
+                g.rod(0, 5, 13, 1.6, BLACK)
+                g.rod(5, 52, 13, 4, BLACK)
+                for (let k = 8; k < 50; k += 6) g.ring(k, k + 1, 13, 3.5, 4.1, STEEL)
+            }
+            g.box(4, 5, stripped ? 14 : 17, 21, 1, STEEL_HI)
+            g.box(50, 74, 9, 17, 5, PARK)
+            g.box(68, 70, 17, 21, 3, STEEL_HI).cut(68, 70, 20, 21, g.ci, g.ci + 1)
+            g.slope(70, 77, k => 2 + (77 - k) * 0.5, () => 10, 3, WOOD)
+            g.box(66, 72, 6, 8, 1, STEEL).box(69, 70, 7, 9, 1, BLACK)
+            g.slope(74, 104, k => 7 - (k - 74) * 0.1, () => 14, 5, WOOD)
+            g.box(103, 104, 4, 14, 5, has(att, 'stock', 'padded') ? LEATHER : BLACK)
+            if (has(att, 'stock', 'padded')) g.box(100, 103, 4, 14, 5, LEATHER)
+            g.part('bolt')
+            g.box(56, 62, 9, 11, 1, STEEL_HI, 3)
+            // Pan magazine on top, centred on its own axis so it can turn.
+            g.part('pan')
+            const r = big ? 12 : 10
+            for (let k = 58 - r; k < 58 + r; k++) {
+                for (let i = 0; i < 25; i++) {
+                    const d = Math.hypot(k + 0.5 - 58, i + 0.5 - (g.ci + 0.5))
+                    if (d < r) g.boxI(k, k + 1, 17, big ? 20 : 19, i, i + 1, d < 2 ? STEEL_HI : d > r - 1.2 ? STEEL : BLACK)
+                }
+            }
+            g.part('main')
+            if (has(att, 'optic', 'ring')) g.ring(5, 6, 22, 2, 3, STEEL_HI)
+            return { gun: g, grip: [73, 8], bore: 13, front: 4, sight: [68, 21], eyeRelief: 0.28, left: [-0.03, -0.035, -0.3], eject: [62, 12], reload: 'top', long: true, panAxis: [17, 58] }
+        }
+        case 'xray': {
+            const g = new Gun(VOX, 24, 17, 7)
+            g.ring(0, 1, 10, 0, 3, BRASS)
+            g.ring(0, 1, 10, 0, 1.6, 0x5dff7a, 0, 1)
+            g.rod(1, 11, 10, 1.2, COPPER)
+            for (const k of [3, 6, 9]) g.ring(k, k + 1, 10, 1, 2.1, BRASS)
+            g.box(1, 2, 13, 15, 1, BRASS)
+            g.box(10, 20, 8, 13, 3, BRASS)
+            g.box(4, 11, 13, 14, 1, 0x5dff7a, 0, 1)
+            g.box(19, 20, 13, 15, 1, BRASS)
+            for (let j = 0; j < 8; j++) {
+                const k0 = 15 + Math.round((8 - j) * 0.3)
+                g.box(k0, k0 + 5, j, j + 1, 3, WOOD_D)
+            }
+            g.box(12, 16, 5, 6, 1, BRASS).box(14, 15, 6, 8, 1, BLACK)
+            g.part('mag')
+            g.boxI(6, 13, 7, 9, 0, 2, 0x5dff7a, 0.9)
+            g.boxI(5, 6, 7, 9, 0, 2, BRASS).boxI(13, 14, 7, 9, 0, 2, BRASS)
+            g.part('main')
+            return { gun: g, grip: [18, 4], bore: 10, front: 1, sight: [19, 15], eyeRelief: 0.3, left: [-0.025, -0.02, -0.03], eject: [12, 11], reload: 'capsule', long: false, glow: true }
+        }
+        case 'wunder': {
+            // The Voltigeur: a brass-and-blued-steel rifle with copper Tesla coils that flare
+            // toward an electrode fork, glowing capacitor tubes along both flanks of the
+            // receiver and a charged cell slung underneath.
+            const g = new Gun(VOX, 94, 28, 11)
+            const ARC = 0xa8e2ff
+            const HOT = 0xeaf8ff
+            const COIL = 0xc87436
+            // Electrode fork: a brass yoke with two copper prongs, glowing tips and a spark between.
+            g.box(3, 6, 8, 17, 3, BRASS)
+            g.slope(0, 3, () => 15, () => 17, 1, COPPER).slope(0, 3, () => 8, () => 10, 1, COPPER)
+            g.box(0, 1, 15, 17, 1, HOT, 0, 1).box(0, 1, 8, 10, 1, HOT, 0, 1)
+            g.rod(1, 3, 12, 0.8, ARC, 0, 1)
+            g.box(4, 5, 17, 20, 1, STEEL_HI)
+            // Barrel with the glowing core showing between the coils.
+            g.rod(5, 36, 12, 1.2, BLACK)
+            g.rod(6, 34, 12, 0.6, ARC, 0, 0.9)
+            const coils = [8, 13, 18, 23, 28]
+            coils.forEach((k, n) => {
+                const r = 3.8 - n * 0.25
+                g.ring(k, k + 2, 12, r - 1.2, r, COIL)
+                g.ring(k + 2, k + 3, 12, 1.2, 1.9, ARC, 0, 0.8)
+            })
+            g.ring(33, 36, 12, 0, 2.6, IVORY).ring(34, 35, 12, 0, 3.1, BRASS)
+            // Receiver: brass over a dark steel belly, steel top plate, notch rear sight.
+            g.box(36, 58, 10, 16, 7, BRASS)
+            g.box(36, 58, 7, 10, 7, BLACK)
+            g.box(36, 58, 15, 16, 5, STEEL)
+            for (const k of [38, 56]) g.box(k, k + 1, 7, 16, 7, COPPER)
+            // A wide U rear sight: the coils and the fork stay in view through it.
+            g.boxI(54, 56, 16, 20, g.ci - 2, g.ci - 1, STEEL_HI).boxI(54, 56, 16, 20, g.ci + 2, g.ci + 3, STEEL_HI)
+            // Capacitor tubes along both flanks with brass caps and copper clamps.
+            for (const [i0, i1] of [[0, 2], [g.W - 2, g.W]] as const) {
+                g.boxI(40, 54, 12, 15, i0, i1, ARC, 1)
+                g.boxI(39, 40, 11, 16, i0, i1, BRASS).boxI(54, 55, 12, 15, i0, i1, BRASS)
+                for (const k of [44, 49]) g.boxI(k, k + 1, 11, 15, i0, i1, COIL)
+            }
+            // Trigger guard, raked grip, stock.
+            g.box(54, 62, 5, 7, 1, BRASS).box(57, 58, 6, 8, 1, BLACK)
+            for (let j = 0; j < 8; j++) {
+                const k0 = 58 + Math.round((7 - j) * 0.45)
+                g.box(k0, k0 + 5, j, j + 1, 3, WOOD_D)
+            }
+            g.slope(62, 94, k => 7 - (k - 62) * 0.15, () => 15, 3, WOOD_D)
+            g.box(58, 62, 8, 15, 3, BLACK)
+            g.box(93, 94, 2, 15, 3, BRASS)
+            g.box(70, 72, 9, 15, 3, COPPER)
+            // The swappable cell: dark steel with glowing windows on both sides.
+            g.part('mag')
+            g.box(42, 51, 2, 7, 5, BLACK)
+            g.box(43, 50, 3, 6, 7, ARC, 0, 1)
+            g.box(42, 51, 2, 3, 5, BRASS)
+            g.part('main')
+            return { gun: g, grip: [61, 6], bore: 12, front: 4, sight: [54, 20], eyeRelief: 0.3, left: [-0.02, 0.02, -0.33], eject: [44, 15], reload: 'coil', long: true, glow: true }
+        }
+    }
+}
+
+/** Pack-a-Punch: steel takes the tier colour with a glowing stripe pattern; wood darkens toward it. */
+function papRecolor(m: DfVoxModel, tier: number, glowToo = false): void {
+    const hex = Number.parseInt(DF_PAP_COLORS[Math.max(1, Math.min(3, tier)) - 1]!.slice(1), 16)
+    const dark = scaleHex(hex, 0.32)
+    m.recolor((c, glow, i, j, k) => {
+        if (glow) return glowToo ? [mixHex(hex, c, 0.4), glow] : null
+        if (METALS.has(c) || c === STEEL || c === STEEL_HI) {
+            const stripe = ((k + j * 2 + i) % 9 === 0) || ((k * 3 + j) % 17 === 0)
+            if (stripe) return [mixHex(hex, 0xffffff, 0.2), 0.9]
+            return [mixHex(scaleHex(c, 1.2), dark, 0.55), 0]
+        }
+        if (WOODS.has(c)) return [mixHex(c, dark, 0.45), 0]
+        if (c === BRASS) return [mixHex(c, hex, 0.35), 0.15]
+        return null
+    })
+}
+
+function buildRig(id: DfWeaponId, pap: number, attachments: DfAttachmentChoice): DfGunRig {
+    const spec = build(id, attachments ?? {})
+    const g = spec.gun
+    const s = g.s
+    const root = new THREE.Group()
+    root.name = `df-weapon-${id}`
+    const tier = Math.max(0, Math.min(3, Math.floor(pap)))
+    const glowMat = spec.glow ? dfOwnedGlowMat() : null
+    const mat: THREE.Material = glowMat ?? (tier > 0 ? dfPapMat(tier) : dfWeaponMat())
+    const [gk, gj] = spec.grip
+    const gi = g.ci + 0.5
+    const toGun = (i: number, j: number, k: number, out = new THREE.Vector3()) => out.set((i - gi) * s, (j - gj) * s, (k - gk) * s)
+    const ko = g.ko
+    // The PaP pistol: a fat launcher barrel under the slide.
+    if (id === 'm1911' && tier > 0) {
+        g.part('main')
+        g.rod(-2, 8, 6, 1.5, STEEL)
+        g.ring(-2, -1, 6, 0, 0.8, BLACK)
+    }
+    const meshOf = (name: PartName, pivot: [number, number, number]): THREE.Mesh | null => {
+        const m = g.models[name]
+        if (!m || !m.vox.count()) return null
+        if (tier > 0) papRecolor(m, tier, id === 'wunder')
+        const geo = m.mesh(s, pivot, { aoMin: 0.55 })
+        if (!geo) return null
+        const me = new THREE.Mesh(geo, mat)
+        if (tier > 0 && !glowMat) me.onBeforeRender = dfTickPap
+        return me
+    }
+    const gripPivot: [number, number, number] = [gi, gj, gk + ko]
+    const main = meshOf('main', gripPivot)
+    if (main) root.add(main)
+    const sub = (name: PartName, axis?: [number, number]): THREE.Object3D | null => {
+        const pivot: [number, number, number] = axis ? [gi, axis[0], axis[1] + ko] : gripPivot
+        const me = meshOf(name, pivot)
+        if (!me) return null
+        const grp = new THREE.Group()
+        grp.name = name
+        if (axis) toGun(gi, axis[0], axis[1], grp.position)
+        grp.add(me)
+        if (name === 'mag') {
+            // The left hand reaches for the magazine's centre: put the mesh there.
+            const box = new THREE.Box3().setFromBufferAttribute(me.geometry.getAttribute('position') as THREE.BufferAttribute)
+            const c = box.getCenter(new THREE.Vector3())
+            me.geometry.translate(-c.x, -c.y, -c.z)
+            me.position.copy(c)
+        }
+        root.add(grp)
+        return grp
+    }
+    const slide = sub('slide')
+    const bolt = sub('bolt', spec.boltAxis)
+    const pump = sub('pump')
+    const pan = sub('pan', spec.panAxis)
+    const mag = pan ?? sub('mag')
+    const muzzle = new THREE.Object3D()
+    const muzzleK = has(attachments, 'muzzle', 'maxim') ? -12 : id === 'm1911' && tier > 0 ? -2 : 0
+    toGun(gi, spec.bore + 0.5, muzzleK, muzzle.position)
+    root.add(muzzle)
+    let lens: THREE.Mesh | null = null
+    if (spec.scoped) {
+        const lm = new THREE.MeshBasicMaterial({ map: dfReticleTexture(), transparent: true, depthWrite: false, toneMapped: false })
+        lm.userData.dfOwned = true
+        lens = new THREE.Mesh(new THREE.PlaneGeometry(0.05, 0.05), lm)
+        toGun(gi, spec.scoped.j + 0.5, spec.scoped.k1 + 0.2, lens.position)
+        lens.visible = false
+        lens.renderOrder = 5
+        root.add(lens)
+    }
+    // Sight line from the voxels themselves (6 o'clock hold): the front post top
+    // level with the tops of the rear sight's ears, the post filling the notch.
+    const topAt = (k: number, anyColumn: boolean): number => {
+        let top = -1
+        for (const m of Object.values(g.models)) {
+            if (!m || (m === g.models.mag) || (m === g.models.pan)) continue
+            for (let i = anyColumn ? 0 : g.ci; i <= (anyColumn ? g.W - 1 : g.ci); i++) {
+                for (let j = m.sy - 1; j > top; j--) {
+                    if (m.get(i, j, Math.round(k) + ko)) {
+                        top = j
+                        break
+                    }
+                }
+            }
+        }
+        return top + 1
+    }
+    const rearK = spec.sight[0]
+    const sightRear = spec.scoped ? toGun(gi, spec.scoped.j + 0.5, spec.scoped.k1) : toGun(gi, topAt(rearK, true), rearK + 0.5)
+    const sightFront = spec.scoped ? toGun(gi, spec.scoped.j + 0.5, spec.scoped.k0) : toGun(gi, topAt(spec.front, false), spec.front + 0.5)
+    const r: DfGunRig = {
+        id,
+        root,
+        muzzle,
+        sight: sightRear,
+        sightFront,
+        eyeRelief: spec.eyeRelief,
+        left: new THREE.Vector3(spec.left[0], spec.left[1], spec.left[2]),
+        eject: toGun(gi + 1, spec.eject[1], spec.eject[0]),
+        slide,
+        bolt,
+        pump,
+        mag,
+        pan,
+        glow: glowMat,
+        reload: spec.reload,
+        scoped: !!spec.scoped,
+        lens,
+        long: spec.long
+    }
+    for (const o of [r.slide, r.bolt, r.pump, r.mag, r.pan]) {
+        if (o) o.userData.rest = o.position.clone()
+    }
+    root.userData.dfSight = sightRear.clone()
+    root.userData.dfSightFront = sightFront.clone()
+    root.traverse((o) => {
+        if ((o as THREE.Mesh).isMesh) o.castShadow = true
+    })
+    return r
+}
+
+export function dfBuildGunRig(id: DfWeaponId, pap = 0, attachments: DfAttachmentChoice = {}): DfGunRig {
+    return buildRig(id, pap, attachments)
+}
+
+/**
+ * World-space model (third-person hands, box float, pedestal, wall chalk,
+ * armory preview). 1 unit = 1 metre, muzzle toward -z, origin at the grip.
+ * Geometries belong to the group; materials are shared (do not dispose them).
+ * Dispose with `disposeDfWeaponModel`.
+ */
+export function buildDfWeaponModelImpl(id: DfWeaponId, pap = 0, attachments: DfAttachmentChoice = {}): THREE.Group {
+    const r = dfBuildGunRig(id, pap, attachments)
+    if (r.lens) r.lens.visible = false
+    r.root.userData.dfMuzzle = r.muzzle.position.clone()
+    const glow = r.glow
+    if (glow) {
+        // Out of the hands (pedestal, box, armory) the coils breathe on their own.
+        const main = r.root.children.find(o => (o as THREE.Mesh).isMesh) as THREE.Mesh | undefined
+        const phase = Math.random() * 6
+        if (main) main.onBeforeRender = () => {
+            const t = performance.now() / 1000 + phase
+            glow.userData.uGlow.value = 1.3 + 0.3 * Math.sin(t * 2.2) + (Math.random() < 0.03 ? 0.6 : 0)
+        }
+    }
+    return r.root
+}
+
+/** Disposes a model's own geometries (and its few per-model materials); shared materials stay. */
+export function disposeDfWeaponModel(group: THREE.Object3D): void {
+    const owned = new Set<THREE.Material>()
+    group.traverse((o) => {
+        const m = o as THREE.Mesh
+        if (!m.isMesh) return
+        m.geometry.dispose()
+        const mat = m.material as THREE.Material
+        if (mat.userData.dfOwned) owned.add(mat)
+    })
+    for (const m of owned) m.dispose()
+    group.removeFromParent()
+}

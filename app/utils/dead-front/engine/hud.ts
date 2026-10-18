@@ -1,0 +1,246 @@
+import type { DfPowerupKind } from '#shared/utils/dead-front/constants'
+import type { DfEvent, DfPlayerLife } from '#shared/utils/dead-front/protocol'
+import type { DfEggStep, DfPerkId, DfWeaponId } from '#shared/utils/dead-front/types'
+
+// HUD state the engine writes (~20 Hz) and the Vue overlay renders. Fast
+// per-frame values (crosshair spread, waypoint position, damage indicator
+// rotation) go straight to CSS variables on the HUD root instead.
+
+export interface DfHudPlayer {
+    pid: number
+    name: string
+    color: string
+    me: boolean
+    points: number
+    kills: number
+    headshots: number
+    downs: number
+    revives: number
+    life: DfPlayerLife
+    connected: boolean
+    ping: number | null
+}
+
+export interface DfHudPopup {
+    id: number
+    pid: number
+    amount: number
+    gold: boolean
+    /** -1..1 horizontal jitter. */
+    dx: number
+    born: number
+}
+
+export interface DfHudPerk {
+    id: DfPerkId
+    name: string
+    color: string
+}
+
+export interface DfHudPowerup {
+    kind: DfPowerupKind
+    name: string
+    seconds: number
+    ending: boolean
+}
+
+export interface DfHudDamage {
+    id: number
+    /** World-space angle (radians, yaw convention) the damage came from. */
+    angle: number
+    born: number
+}
+
+export interface DfHudState {
+    round: number
+    /** Bumps when the round changes (drives the transition). */
+    roundKey: number
+    phase: 'intermission' | 'active'
+    phaseTimer: number
+    zombiesLeft: number
+    players: DfHudPlayer[]
+    popups: DfHudPopup[]
+    ammo: {
+        weapon: DfWeaponId | null
+        name: string
+        mag: number
+        magSize: number
+        reserve: number
+        pap: number
+        reloading: boolean
+        infinite: boolean
+    }
+    grenades: number
+    perks: DfHudPerk[]
+    health: number // 0..1
+    life: DfPlayerLife
+    bleedout: number
+    bleedoutMax: number
+    beingRevived: number // 0..1
+    selfRevives: number
+    reviving: { name: string, progress: number } | null
+    powerups: DfHudPowerup[]
+    announce: { key: number, title: string, sub: string, tone: 'gold' | 'red' | 'pale' } | null
+    prompt: { text: string, sub: string, cost: number | null, ok: boolean, denyKey: number, hold: number } | null
+    objective: {
+        visible: boolean
+        step: DfEggStep
+        text: string
+        fuses: string | null
+        charge: number | null
+        label: string
+        distance: number
+        hasTarget: boolean
+    }
+    hitmarker: { key: number, kind: 'hit' | 'kill' | 'head' }
+    killKey: number
+    damage: DfHudDamage[]
+    scoreboard: boolean
+    ping: number
+    connection: 'ok' | 'reconnecting' | 'lost'
+    locked: boolean
+    started: boolean
+    spectating: string | null
+    chat: { id: number, name: string, text: string, born: number }[]
+    stamina: number // 0..1
+    ads: boolean
+    sprinting: boolean
+    lowAmmo: boolean
+    gameOver: boolean
+    /** The most recently bought perk; `key` bumps on every purchase (drives the bottle pop-in). */
+    perkPulse: { id: DfPerkId | null, key: number }
+    /** Bumps whenever the held weapon changes (swap, buy, box, Pack-a-Punch): drives the name plate. */
+    swapKey: number
+    /** Squad event feed (top right): downs, revives, doors, power. Filled by the game view from snapshot events. */
+    feed: DfHudFeedItem[]
+}
+
+export type DfHudFeedTone = 'red' | 'green' | 'gold' | 'blue' | 'pale'
+
+export interface DfHudFeedItem {
+    id: number
+    /** performance.now() when it arrived; the view fades it out. */
+    born: number
+    tone: DfHudFeedTone
+    /** The soldier who did it (null for squad-wide events like the power). */
+    who: string | null
+    whoColor: string | null
+    text: string
+    /** Optional second name, e.g. the revived soldier. */
+    target: string | null
+    targetColor: string | null
+}
+
+export type DfHudFeedLine = Omit<DfHudFeedItem, 'id' | 'born'>
+
+export interface DfHudFeedContext {
+    /** Your pid: you read as "You". */
+    me: number
+    name(pid: number): string
+    color(pid: number): string
+    doorLabel(id: string): string | null
+    weaponName(id: string): string
+    powerupName(kind: DfPowerupKind): string
+}
+
+export const DF_HUD_FEED_MAX = 5
+export const DF_HUD_FEED_MS = 6000
+
+/** The feed line for one snapshot event, or null when the event isn't feed-worthy. Pure. */
+export function dfHudFeedLine(ev: DfEvent, c: DfHudFeedContext): DfHudFeedLine | null {
+    const who = (pid: number) => (pid === c.me ? 'You' : c.name(pid))
+    const line = (tone: DfHudFeedTone, pid: number | null, text: string, target: number | null = null): DfHudFeedLine => ({
+        tone,
+        who: pid === null ? null : who(pid),
+        whoColor: pid === null ? null : c.color(pid),
+        text,
+        target: target === null ? null : who(target),
+        targetColor: target === null ? null : c.color(target)
+    })
+    switch (ev.k) {
+        case 'down':
+            return line('red', ev.p, ev.p === c.me ? 'are down' : 'is down')
+        case 'revived':
+            return ev.by === ev.p ? line('green', ev.p, 'got back up') : line('green', ev.by, 'revived', ev.p)
+        case 'bleedout':
+            return line('red', ev.p, 'bled out')
+        case 'respawn':
+            return line('pale', ev.p, ev.p === c.me ? 'are back on the line' : 'is back on the line')
+        case 'power':
+            return line('blue', null, 'The power is on')
+        case 'fuse':
+            return line('blue', ev.p, 'found a Tesla fuse')
+        case 'pap':
+            return line('gold', ev.p, `packed the ${c.weaponName(ev.weapon)}`)
+        case 'powerup':
+            return line('gold', ev.p, `grabbed ${c.powerupName(ev.kind)}`)
+        case 'buy': {
+            if (ev.what.startsWith('door:')) {
+                const label = c.doorLabel(ev.what.slice(5))
+                return line('pale', ev.p, label ? `opened the ${label}` : 'opened a door')
+            }
+            if (ev.what === 'weapon:wunder') return line('gold', ev.p, 'claimed the wonder weapon')
+            return null
+        }
+        default:
+            return null
+    }
+}
+
+let feedId = 0
+
+/** Pushes a line onto the feed, dropping expired and overflowing entries. */
+export function dfHudPushFeed(feed: DfHudFeedItem[], line: DfHudFeedLine, now: number): void {
+    dfHudPruneFeed(feed, now)
+    feed.push({ ...line, id: ++feedId, born: now })
+    while (feed.length > DF_HUD_FEED_MAX) feed.shift()
+}
+
+/** Drops entries older than DF_HUD_FEED_MS. */
+export function dfHudPruneFeed(feed: DfHudFeedItem[], now: number): void {
+    while (feed.length && now - feed[0]!.born > DF_HUD_FEED_MS) feed.shift()
+}
+
+export function dfCreateHudState(): DfHudState {
+    return {
+        round: 0,
+        roundKey: 0,
+        phase: 'intermission',
+        phaseTimer: 0,
+        zombiesLeft: 0,
+        players: [],
+        popups: [],
+        ammo: { weapon: null, name: '', mag: 0, magSize: 0, reserve: 0, pap: 0, reloading: false, infinite: false },
+        grenades: 0,
+        perks: [],
+        health: 1,
+        life: 'alive',
+        bleedout: 0,
+        bleedoutMax: 30,
+        beingRevived: 0,
+        selfRevives: 0,
+        reviving: null,
+        powerups: [],
+        announce: null,
+        prompt: null,
+        objective: { visible: false, step: 'power', text: '', fuses: null, charge: null, label: '', distance: 0, hasTarget: false },
+        hitmarker: { key: 0, kind: 'hit' },
+        killKey: 0,
+        damage: [],
+        scoreboard: false,
+        ping: 0,
+        connection: 'ok',
+        locked: false,
+        started: false,
+        spectating: null,
+        chat: [],
+        stamina: 1,
+        ads: false,
+        sprinting: false,
+        lowAmmo: false,
+        gameOver: false,
+        perkPulse: { id: null, key: 0 },
+        swapKey: 0,
+        feed: []
+    }
+}
