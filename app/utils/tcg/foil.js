@@ -416,8 +416,13 @@ export const EFFECTS = {
     // and green, about 0.03-0.04 card widths across, over the border and the
     // art; lying flat only the right border shows them, tilted they move to
     // the left border and the art window — a lit band sweeping with the light.
-    // The holo beneath is left at the fallback until the stars are right.
-    etch: true,
+    //
+    // The holo beneath, from the same recording, is a dense glitter of tiny
+    // gold-white specks over the art and border, and the colour stays the
+    // card's own: no Sun_Pillar bands, no rainbow wash, the engraved lines
+    // much quieter than the etch alone would make them.
+    etch: true, pattern: "none", bands: 1, chroma: 0.25, intensity: 0.3,
+    contrast: 0.6, etchmix: 0.35,
     stars: 1.0, starscale: 24, stardensity: 0.35, starsize: 0.4,
     // startravel 3: tuned when the hue spread was 6; at the new default of 2
     // the stars would sweep a third as fast, so their travel is tripled.
@@ -426,9 +431,11 @@ export const EFFECTS = {
     // Only over the border and the art: the plate is white exactly there and
     // ~22 on the text boxes, which is where the recording shows none.
     starplate: 1.0,
-    // Glitter on the gold border alone, which is 0.046 card widths wide.
-    ...GLITTER, dotbody: 0, dotedge: 1.0, dotedgewidth: 0.046,
-    verified: "not yet — first pass from a recording of me5-5c_2 Charizard",
+    // Glitter over everything the plate covers — the gold border and the art
+    // — denser and warmer than the shared glitter, with more of it lit.
+    ...GLITTER, dotplate: 1.0, dotbody: 1.0, dotedge: 0, dotscale: 300,
+    dotsize: 0.32, dottwinkle: 0.4, dotwarm: 0.8, dots: 1.0, dotover: 0.35,
+    verified: "me5-5c_2 Charizard, from a TCG Live recording",
   },
   // Set-specific: 30th Celebration's commons. Plain foil with a glow rather
   // than the wavy Sun_Pillar rainbow: no distortion map, one smooth low-
