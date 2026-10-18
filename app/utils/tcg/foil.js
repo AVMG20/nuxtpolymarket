@@ -65,6 +65,16 @@ export const SHOWCASE = [
  * records whether the look was checked against TCG Live or is a guess.
  */
 
+// A fine glitter of tiny white specks, from the dot layer: very small and
+// dense, most of them dark at any one angle. Seen in TCG Live on 30th
+// Celebration's SIR frames, its Futuristic Rare backgrounds and its Classic
+// Collection's gold border. Where it goes is set per effect.
+const GLITTER = {
+  dots: 0.9, dotscale: 170, dotsize: 0.24, dothex: 0, dotrandom: 1.0,
+  dotsizevar: 0.5, dotshape: 0.2, dotstretch: 0.2, dotchroma: 0.25,
+  dotwarm: 0.3, dottwinkle: 0.8, dotjitter: 1.0, dotover: 0,
+};
+
 export const EFFECTS = {
   sunbeam: {                                  // SM-era reverse holos
     pattern: "T_Holofoil_Rain", dir: -1, bands: 3, chroma: 0.9, dropout: 0,
@@ -416,6 +426,8 @@ export const EFFECTS = {
     // Only over the border and the art: the plate is white exactly there and
     // ~22 on the text boxes, which is where the recording shows none.
     starplate: 1.0,
+    // Glitter on the gold border alone, which is 0.046 card widths wide.
+    ...GLITTER, dotbody: 0, dotedge: 1.0, dotedgewidth: 0.046,
     verified: "not yet — first pass from a recording of me5-5c_2 Charizard",
   },
   // Set-specific: 30th Celebration's commons. Plain foil with a glow rather
@@ -433,6 +445,17 @@ export const EFFECTS = {
     glow: 0.8, glowsize: 0.45, glowsoft: 2.0, glowmirror: 1.0,
     glowchroma: 0.7, glowhue: 1.5, glowplate: 1.0,
     verified: "not yet — designed by eye, a plain foil asked for in place of the waves",
+  },
+  // Set-specific: 30th Celebration's SIRs and Futuristic Rares. Matched as
+  // they were — recordings of me5-5_152 and _158 line up with the plain
+  // svultra entry — but both show a fine glitter the other sets' do not: on
+  // the SIR's silver frame, and over the Futuristic Rare's background but not
+  // its Mew, which the etch leaves smooth. So the glitter follows the plate
+  // and keeps to the engraving.
+  "svultra@me5-5": {
+    // The frame carries little plate, so it gets the border lift as well.
+    ...GLITTER, dotplate: 1.0, dotedge: 1.0, dotedgewidth: 0.04, dotetch: 1.0,
+    verified: "me5-5_152 Mew ex SIR, me5-5_158 Mew ex Futuristic Rare",
   },
   // Set-specific: in 30th Celebration the SunPillar cards — its double rares,
   // Mew ex and Espeon ex among them — carry sparkles the same effect elsewhere
@@ -546,6 +569,7 @@ export const FRAGMENT = /* glsl */`
   uniform float uDots, uDotScale, uDotSize, uDotHex, uDotPlate, uDotEdge;
   uniform float uDotEdgeWidth, uDotChroma, uDotTwinkle, uDotJitter, uDotOver;
   uniform float uDotRandom, uDotSizeVar, uDotShape, uDotStretch, uDotWarm;
+  uniform float uDotBody, uDotEtch;
   uniform float uBurst, uBurstX, uBurstY, uBurstRays, uBurstRingScale;
   uniform float uBurstDash, uBurstWidth, uBurstStagger, uBurstLog, uBurstPitch;
   uniform float uBurstReach, uBurstSpoke, uBurstSpokeWidth, uBurstHue;
@@ -1313,7 +1337,11 @@ export const FRAGMENT = /* glsl */`
       // ramp from the outer edge: the whole silver border is equally dotted.
       float bw = max(uDotEdgeWidth, 1e-3);
       float border = 1.0 - smoothstep(bw - 0.006, bw + 0.002, edgeDist);
-      float where = mix(1.0, plate, uDotPlate) + uDotEdge * border;
+      // uDotBody scales everything inside the frame, so 0 leaves dots on the
+      // frame alone; uDotEtch keeps them to where the card is engraved, which
+      // spares a figure the etch leaves smooth.
+      float where = mix(1.0, plate, uDotPlate) * uDotBody + uDotEdge * border;
+      where *= mix(1.0, etchShape, uDotEtch * uHasEtch);
       // No ink absorption, unlike the foil beneath. The dots sit over the
       // print: on the Pikachu Rare the dots on the black ear tips and on the
       // yellow face work out, unscreened, to the same colour (about 0.75 grey
@@ -1631,6 +1659,8 @@ export function makeUniforms(mode, patternName) {
      * uDotShape     0 round, 1 square-cornered flakes
      * uDotStretch   how far a flake may be drawn out along its own axis
      * uDotWarm      0 white base, 1 pale gold
+     * uDotBody      strength inside the frame; 0 for frame-only dots
+     * uDotEtch      1 keeps dots to the engraved areas
      * uDotPlate     how far the plate decides where dots show; 0 is even
      * uDotEdge      extra strength at the card's border
      * uDotEdgeWidth how far in from the edge that lift reaches, card widths
@@ -1656,6 +1686,8 @@ export function makeUniforms(mode, patternName) {
     uDotShape: { value: 0.0 },
     uDotStretch: { value: 0.0 },
     uDotWarm: { value: 0.0 },
+    uDotBody: { value: 1.0 },
+    uDotEtch: { value: 0.0 },
 
     /* A firework of radial dashes, off unless an effect asks for it.
      *
