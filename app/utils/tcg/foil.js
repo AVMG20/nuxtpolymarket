@@ -49,6 +49,7 @@ export const SHOWCASE = [
   ["Mew (Red)", "rgbfoil", "me5-5m", "001", "wp", false],
   ["Charizard (Classic)", "classicfoil", "me5-5c", "002", "wp", false],
   ["Mew ex (30th)", "sunpillar", "me5-5", "066", "wp", false],
+  ["Exeggcute (30th)", "rainbow", "me5-5", "001", "wp", false],
 ];
 
 /* What a foil effect looks like.
@@ -408,12 +409,30 @@ export const EFFECTS = {
     // The holo beneath is left at the fallback until the stars are right.
     etch: true,
     stars: 1.0, starscale: 24, stardensity: 0.35, starsize: 0.4,
-    starpoints: 5, starinner: 0.45, starbands: 1.0, startravel: 1.0,
+    // startravel 3: tuned when the hue spread was 6; at the new default of 2
+    // the stars would sweep a third as fast, so their travel is tripled.
+    starpoints: 5, starinner: 0.45, starbands: 1.0, startravel: 3.0,
     starwidth: 3.0, starchroma: 0.6, starover: 0.6,
     // Only over the border and the art: the plate is white exactly there and
     // ~22 on the text boxes, which is where the recording shows none.
     starplate: 1.0,
     verified: "not yet — first pass from a recording of me5-5c_2 Charizard",
+  },
+  // Set-specific: 30th Celebration's commons. Plain foil with a glow rather
+  // than the wavy Sun_Pillar rainbow: no distortion map, one smooth low-
+  // colour band so the plate reads as metal, and a soft highlight that slides
+  // with the tilt. Their plate is foil at the frame (255), half at the name
+  // bar (150) and ~33 elsewhere, so it is mostly the frame that glows.
+  "rainbow@me5-5": {
+    // The frame is pale silver, and screen blending alone barely tints it
+    // (border saturation 0.04), so the foil takes over part of its colour.
+    // Colour values tuned by eye in the demo: low chroma and contrast for a
+    // soft, even sheen, with takeover at 0.65.
+    pattern: "none", bands: 1, chroma: 0.35, intensity: 0.4, contrast: 0.4,
+    foilover: 0.65,
+    glow: 0.8, glowsize: 0.45, glowsoft: 2.0, glowmirror: 1.0,
+    glowchroma: 0.7, glowhue: 1.5, glowplate: 1.0,
+    verified: "not yet — designed by eye, a plain foil asked for in place of the waves",
   },
   // Set-specific: in 30th Celebration the SunPillar cards — its double rares,
   // Mew ex and Espeon ex among them — carry sparkles the same effect elsewhere
@@ -425,10 +444,16 @@ export const EFFECTS = {
     // the whole card including Mew's body where the plate is black, and
     // twinkling one by one rather than sweeping as a band. The commons
     // (Rainbow) have none.
+    // The holo itself redesigned like the commons': no Sun_Pillar waves, the
+    // same soft even sheen, but with more bands across the card.
+    pattern: "none", bands: 5, chroma: 0.35, intensity: 0.4, contrast: 0.4,
+    foilover: 0.65,
     stars: 1.0, starscale: 22, stardensity: 0.35, starsize: 0.5,
     starsizevar: 0.7, starpoints: 4, starinner: 0.12,
     starmix: 0.4, starpoints2: 8, starinner2: 0.35, starspin: 0.15,
-    starbands: 2.0, starwidth: 2.0, starjitter: 1.0, starsel: 0.6,
+    // startravel 3 keeps the twinkle at the speed it had before the hue
+    // spread came down from 6 to 2.
+    starbands: 2.0, starwidth: 2.0, starjitter: 1.0, starsel: 0.6, startravel: 3.0,
     starchroma: 0.35, starover: 0.2, starplate: 0,
     verified: "not yet — first pass from a recording of me5-5_66 Mew ex",
   },
@@ -500,6 +525,8 @@ export const FRAGMENT = /* glsl */`
   uniform float uStarPoints, uStarInner, uStarPoints2, uStarInner2, uStarMix;
   uniform float uStarBands, uStarTravel, uStarWidth, uStarJitter, uStarSel;
   uniform float uStarChroma, uStarOver, uStarPlate, uStarSpin;
+  uniform float uGlow, uGlowSize, uGlowMirror, uGlowChroma, uGlowPlate, uGlowSoft;
+  uniform float uGlowHue;
   uniform vec2 uPointer;
   uniform float uIntensity, uSpread, uPatternScale, uWarp, uCrop, uChroma, uBlur, uMode;
   uniform float uMotifCut, uTwinkle, uSparkleGain, uSparkleWhite;
@@ -1094,7 +1121,10 @@ export const FRAGMENT = /* glsl */`
         float band = pow(0.5 + 0.5 * cos(6.2831853 * phase),
                          max(uStarWidth, 0.1));
         float vis = mix(1.0, band, uStarSel);
-        vec3 sc = texture2D(uSpectrum, vec2(fract(st.y * 3.7 + lightPos * 0.1), 0.5)).rgb;
+        // A star's colour moves with the light at the same rate as its band,
+        // so one control sets how lively the stars are.
+        vec3 sc = texture2D(uSpectrum, vec2(fract(st.y * 3.7
+                    + lightPos * 0.1 * uStarTravel), 0.5)).rgb;
         sc /= max(max(sc.r, max(sc.g, sc.b)), 0.001);
         sc = mix(vec3(1.0), sc, uStarChroma);
         float wherePlate = mix(1.0, plate, uStarPlate);
@@ -1223,6 +1253,26 @@ export const FRAGMENT = /* glsl */`
     // Pushing saturation back out around the composite's own luminance restores
     // what the blend flattened, without touching brightness.
     outc = mix(vec3(luma(outc)), outc, uSaturate);
+
+    /* A plain glow: one soft, broad highlight that slides across the foil as
+     * the card tilts — what a smooth sheet of foil does under a single light,
+     * with no bands or pattern in it. uGlowMirror 1 puts it opposite the tilt,
+     * like a reflection; 0 follows it. Weighted by the plate (uGlowPlate), so
+     * on a card with foil only at the frame, only the frame glows.
+     */
+    if (uGlow > 0.0) {
+      vec2 gp = mix(uPointer, 1.0 - uPointer, uGlowMirror);
+      vec2 gd = (vUv - gp) * vec2(1.0, 1.0 / uCardAspect);
+      float g = exp(-pow(length(gd) / max(uGlowSize, 0.01), max(uGlowSoft, 0.5)));
+      // Rainbow rings outward from the highlight's centre (uGlowHue per card
+      // width), and the whole palette turns with the light.
+      vec3 gc = texture2D(uSpectrum, vec2(fract(lightPos * 0.25
+                    + length(gd) * uGlowHue), 0.5)).rgb;
+      gc /= max(max(gc.r, max(gc.g, gc.b)), 0.001);
+      gc = mix(vec3(1.0), gc, uGlowChroma);
+      float gw = mix(1.0, plate, uGlowPlate);
+      outc = 1.0 - (1.0 - outc) * (1.0 - clamp(gc * g * gw * uGlow, 0.0, 1.0));
+    }
 
     // The dot screen, a layer of its own on top of the foil — and after the
     // saturation push, which exists to undo the foil's screen blend. Applied
@@ -1393,7 +1443,8 @@ export function makeUniforms(mode, patternName) {
      * uStarPoints2/Inner2, uStarMix  a second shape, for that share of stars
      * uStarSpin         random rotation per star; 0 all upright
      * uStarBands        lit bands across the card
-     * uStarTravel       how fast the bands move with the light
+     * uStarTravel       how fast the bands, and the stars' colours, move with
+     *                   the light
      * uStarWidth        higher narrows each lit band
      * uStarJitter       per-star offset, so a band's edge is ragged
      * uStarSel          how strictly the bands gate them; 0 all lit
@@ -1420,6 +1471,27 @@ export function makeUniforms(mode, patternName) {
     uStarChroma: { value: 0.6 },
     uStarOver: { value: 0.5 },
     uStarPlate: { value: 0.0 },
+
+    /* A plain glow, on every card by default: a light shone on the card.
+     * Full on the foil, about a third on the rest (uGlowPlate 0.7), mostly
+     * white with a faint rainbow. Effects can still set their own.
+     *
+     * uGlow        strength; 0 turns it off
+     * uGlowSize    radius, in card widths
+     * uGlowSoft    falloff: 2 a soft gaussian, lower a long tail, higher a
+     *              flatter spot with a sharper edge
+     * uGlowMirror  1 opposite the tilt, like a reflection; 0 with it
+     * uGlowChroma  0 white, 1 full rainbow
+     * uGlowHue     rainbow rings per card width, outward from its centre
+     * uGlowPlate   how far the plate decides where it shows; 0 everywhere
+     */
+    uGlow: { value: 0.4 },
+    uGlowSize: { value: 0.45 },
+    uGlowSoft: { value: 2.0 },
+    uGlowMirror: { value: 1.0 },
+    uGlowChroma: { value: 0.35 },
+    uGlowPlate: { value: 0.7 },
+    uGlowHue: { value: 1.0 },
     uHasEtch: { value: 0.0 },
     // How far the engraving shifts the hue along its lines, and how much it
     // varies the brightness. Both are applied around the etch's mid-point, so
@@ -1462,7 +1534,13 @@ export function makeUniforms(mode, patternName) {
     uCorner: { value: 0.055 },
     uCardAspect: { value: ASPECT },
     uIntensity: { value: 1.0 },
-    uSpread: { value: 6.0 },
+    // How far the light moves through the spectrum per unit of pointer and
+    // tilt. At 6 a sweep across the card ran the bands through six rainbows
+    // and the dot, burst and glow layers through one and a half, which read
+    // as colour cycling under every small mouse movement. At 2 it is two for
+    // the bands and half a rainbow for the rest. The three presets that set
+    // their own were already lower.
+    uSpread: { value: 2.0 },
     // One repeat across the card. These maps are low resolution, so any higher
     // count magnifies their cells into visible blocks.
     uPatternScale: { value: 1.0 },
