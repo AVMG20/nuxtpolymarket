@@ -457,6 +457,14 @@ export const EFFECTS = {
     ...GLITTER, dotplate: 1.0, dotedge: 1.0, dotedgewidth: 0.04, dotetch: 1.0,
     verified: "me5-5_152 Mew ex SIR, me5-5_158 Mew ex Futuristic Rare",
   },
+  // 30th Celebration's Illustration Rares, 129-146, share SunPillar with its
+  // double rares but have no sparkles in the game (seen on me5-5_130
+  // Moltres). The card data says nothing else to tell them apart, and their
+  // numbers are fixed, so they are picked out by range.
+  "sunpillar@me5-5#129-146": {
+    stars: 0,
+    verified: "me5-5_130 Moltres — the sheen, without the sparkles",
+  },
   // Set-specific: in 30th Celebration the SunPillar cards — its double rares,
   // Mew ex and Espeon ex among them — carry sparkles the same effect elsewhere
   // does not, and the card data has nothing to say so. Keyed effect@family,
@@ -1781,9 +1789,17 @@ export function makeUniforms(mode, patternName) {
 // here rather than re-derived later.
 export function resolve({ card, num, mask, effect, alt, face, pattern, etch,
                          isolate }) {
-  // A set can refine an effect: `effect@family` is laid over the plain one.
+  // A set can refine an effect: `effect@family` is laid over the plain one,
+  // and `effect@family#from-to` over that for cards numbered in the range —
+  // for when the card data gives two kinds of card the same effect.
   const eff = (effect || "").toLowerCase();
-  const preset = { ...(EFFECTS[eff] || {}), ...(EFFECTS[`${eff}@${card}`] || {}) };
+  const n = parseInt(num, 10);
+  const ranged = Object.keys(EFFECTS)
+    .map((k) => [k, new RegExp(`^${eff}@${card}#(\\d+)-(\\d+)$`).exec(k)])
+    .filter(([, m]) => m && n >= +m[1] && n <= +m[2])
+    .map(([k]) => EFFECTS[k]);
+  const preset = Object.assign({}, EFFECTS[eff] || {},
+                               EFFECTS[`${eff}@${card}`] || {}, ...ranged);
   const patternName =
     pattern || preset.pattern || "T_Holofoil_Distortion_Sun_Pillar";
   const noPattern = patternName.toLowerCase() === "none";
