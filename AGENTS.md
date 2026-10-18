@@ -4,7 +4,7 @@ A play-money gaming site. Players earn and spend **coins** (`user.balance`) and 
 
 ## Stack
 
-- Nuxt 4 + Vue 3, **Nuxt UI v4** (use its components and semantic tokens)
+- Nuxt 4 + Vue 3, Tailwind CSS v4
 - Drizzle ORM + PostgreSQL (`server/database/schema.ts`)
 - better-auth
 - **bun only**. Never `npm`, `pnpm` or `yarn`. `bun.lock` is the only lockfile.
@@ -23,7 +23,6 @@ A play-money gaming site. Players earn and spend **coins** (`user.balance`) and 
 - `formatNumber(value, compact = true)` for every coin and gem amount shown.
 - Coin and gem inputs accept `10k`/`2.5m` shorthand: bind `useAmountInput(ref)` to the input and show `amountPreview(text)` as a trailing hint.
 - `apiFetch` for typed API calls; `apiErrorMessage(e, fallback)` for error text.
-- Colors: semantic tokens (`text-primary`, `text-muted`, `bg-elevated`, `border-default`), not raw hex or Tailwind palette colors.
 - **Toasts are for errors and failures only** (`'error'` / `'warning'`). Never add success or confirmation toasts; the UI updating is the feedback.
 
 ## Server
