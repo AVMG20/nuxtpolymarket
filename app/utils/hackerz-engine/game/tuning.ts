@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { FIELD_SCALE, FENCE_HEIGHT, WALL_HEIGHT } from '../constants'
+import type { HackerzDamageType, HackerzWeaponRuntime } from '#shared/utils/gamelogic/hackerz'
+import { FIELD_SCALE, FENCE_HEIGHT, GUN_Z, WALL_HEIGHT } from '../constants'
 
 /** Field units per world unit, for heights that only exist for rendering. */
 export const PER_WORLD = 1 / FIELD_SCALE
@@ -60,3 +61,36 @@ export const WALL_HIT_Y = FENCE_HEIGHT * 0.55 * PER_WORLD
 
 /** Turret and rail muzzles sit this high above the field, in field units. */
 export const MUZZLE_Y = (WALL_HEIGHT + 1.1) * PER_WORLD
+
+/** What a projectile carries, whoever fired it. */
+export interface ShotSpec {
+    damage: number
+    pierce: number
+    damageType: HackerzDamageType
+    splashRadius: number
+    splashDamage: number
+    homing: boolean
+    chain: number
+    chainFalloff: number
+    speed: number
+    hex: number
+    projectile: HackerzWeaponRuntime['projectile']
+    crit: boolean
+    fromTurret: boolean
+}
+
+/**
+ * Rounds start on the deck, well behind the fence. Walkers stop a body-width
+ * out from the fence to hit it, so the guns have to stand back far enough that
+ * a unit at the fence is in front of every barrel rather than under it.
+ */
+export const MUZZLE_D = -GUN_Z * PER_WORLD
+
+/** PACKET LOSS: the share of player rounds that never arrive. */
+export const PACKET_LOSS = 0.25
+
+/**
+ * The Longbore punching through a body: the flame it throws up, how long the
+ * round hangs in the body before carrying on, and how hard it drives it back.
+ */
+export const LONGBORE_FLARE = 0xc084fc

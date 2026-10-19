@@ -71,8 +71,8 @@ export class PacketLoss {
                 placeEnemy(enemy)
                 this.game.particles.burst(enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, _v), 0xe879f9, 6, 4, { size: 0.22, life: 0.3 })
             }
-            for (const bullet of this.game.bullets) this.game.orientBullet(bullet)
-            for (const spit of this.game.spits) fieldToWorld(spit.u, spit.d, spit.y * FIELD_SCALE, spit.mesh.position)
+            for (const bullet of this.game.projectiles.bullets) this.game.projectiles.orientBullet(bullet)
+            for (const spit of this.game.projectiles.spits) fieldToWorld(spit.u, spit.d, spit.y * FIELD_SCALE, spit.mesh.position)
             this.game.view?.flash(0xe879f9, 0.08)
             this.boardLagTimer = LAG_GAP_MS * (0.6 + randomFloat() * 0.8)
             this.lagCatchUpMs = LAG_CATCH_UP_MS

@@ -6,7 +6,7 @@ import { MOTION, easeTurretKick, spinTurret, turnToward } from '../rig-motion'
 import { fieldToWorld } from '../scene'
 import { turretProjectile } from '../fx'
 import type { EnemyEntity, TurretMount } from '../types'
-import { MUZZLE_Y, PER_WORLD, _v, _w } from './tuning'
+import { PER_WORLD, _v, _w, MUZZLE_Y } from './tuning'
 import { enemyCentreY } from './bodies'
 import type { HackerzGame } from '../hackerz-game'
 
@@ -117,7 +117,7 @@ export class Turrets {
 
             const isMissile = mount.runtime.splashRadius > 0
             const angle = Math.atan2(seen.u - mount.u, seen.d - mount.muzzleD)
-            this.game.spawnBullet(mount.u, mount.muzzleD, MUZZLE_Y * 0.92 + mount.muzzleLift, angle, {
+            this.game.projectiles.spawnBullet(mount.u, mount.muzzleD, MUZZLE_Y * 0.92 + mount.muzzleLift, angle, {
                 damage: mount.runtime.damage,
                 pierce: mount.runtime.pierce,
                 damageType: mount.runtime.damageType,

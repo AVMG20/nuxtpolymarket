@@ -69,7 +69,7 @@ export class Assault {
                 const flightTime = Math.max(0.35, from.d / speed)
                 const mesh = makeSpit(enemy.def.hex, heavy)
                 this.game.fieldRoot.add(mesh)
-                this.game.spits.push({
+                this.game.projectiles.spits.push({
                     mesh,
                     u: from.u,
                     d: from.d,
