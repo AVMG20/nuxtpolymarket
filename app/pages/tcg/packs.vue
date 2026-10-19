@@ -23,33 +23,24 @@ const packs = computed(() => data.value?.packs ?? [])
 const bundles = computed(() => data.value?.bundles ?? [])
 const opened = computed(() => data.value?.opened ?? [])
 
-interface PackStack {
+interface PackGroup {
   key: string
-  setId: string
-  /** Sealed packs in pack-number order; the first one opens next. */
+  /** Sealed packs in pack-number order. */
   packs: SealedPackSummary[]
   bundle?: TcgBundleSummary
 }
 
-// Sealed packs stack per bundle, then loose ones per set: a stack of identical
-// boosters reads better than a grid of identical cards.
-const stacks = computed<PackStack[]>(() => {
-  const result: PackStack[] = []
+// Every sealed pack gets its own card so players pick which one to open:
+// bundles still being opened first, each under its own heading, then loose packs.
+const groups = computed<PackGroup[]>(() => {
+  const result: PackGroup[] = []
   for (const bundle of bundles.value) {
     const bundled = packs.value.filter(p => p.bundleId === bundle.id)
-    if (bundled.length) result.push({ key: bundle.id, setId: bundle.setId, packs: bundled, bundle })
+    if (bundled.length) result.push({ key: bundle.id, packs: bundled, bundle })
   }
-  const loose = new Map<string, PackStack>()
-  for (const pack of packs.value) {
-    if (pack.bundleId) continue
-    let stack = loose.get(pack.setId)
-    if (!stack) {
-      stack = { key: pack.setId, setId: pack.setId, packs: [] }
-      loose.set(pack.setId, stack)
-      result.push(stack)
-    }
-    stack.packs.push(pack)
-  }
+  const loose = packs.value.filter(p => !p.bundleId)
+    .sort((a, b) => setName(a.setId).localeCompare(setName(b.setId)) || a.packIndex - b.packIndex)
+  if (loose.length) result.push({ key: 'loose', packs: loose })
   return result
 })
 
@@ -58,12 +49,6 @@ const openedTotal = computed(() =>
   opened.value.reduce((sum, row) => sum + row.count, 0)
   + finishedBundles.value.reduce((sum, b) => sum + b.openedCount, 0))
 const showHistory = ref(false)
-
-function packRange(stack: PackStack) {
-  const first = stack.packs[0]!.packIndex + 1
-  const last = stack.packs[stack.packs.length - 1]!.packIndex + 1
-  return first === last ? `#${first}` : `#${first}–#${last}`
-}
 
 function setName(setId: string) {
   return setById(setId)?.name ?? 'Unknown set'
@@ -133,67 +118,78 @@ async function onCeremonyClose() {
     <h2 class="text-sm font-semibold uppercase tracking-wider text-muted">
       Sealed packs
     </h2>
-    <div
-      v-if="stacks.length"
-      class="grid gap-3 sm:grid-cols-2"
-    >
-      <UCard
-        v-for="stack in stacks"
-        :key="stack.key"
+    <template v-if="groups.length">
+      <div
+        v-for="group in groups"
+        :key="group.key"
+        class="space-y-2"
       >
-        <div class="flex items-center gap-3">
-          <div class="relative shrink-0">
-            <img
-              v-if="packArt(stack.setId)"
-              :src="packArt(stack.setId)!"
-              :alt="`${setName(stack.setId)} booster pack`"
-              class="h-20 w-auto drop-shadow"
-              @error="hideBrokenArt"
-            >
-            <UBadge
-              v-if="stack.packs.length > 1"
-              size="sm"
-              class="absolute -right-2 -top-2 tabular-nums"
-            >
-              ×{{ stack.packs.length }}
-            </UBadge>
-          </div>
-          <div class="min-w-0 flex-1">
-            <p class="truncate font-medium text-highlighted">
-              {{ setName(stack.setId) }}<template v-if="stack.bundle"> bundle</template>
-            </p>
-            <p class="truncate text-xs tabular-nums text-muted">
-              <template v-if="stack.bundle">
-                {{ stack.packs.length }} of {{ stack.packs.length + stack.bundle.openedCount }} left · week of {{ stack.bundle.weekKey }}
-              </template>
-              <template v-else>
-                {{ stack.packs.length }} sealed · {{ packRange(stack) }}
-              </template>
-            </p>
-          </div>
-          <div class="flex shrink-0 gap-1.5">
-            <UButton
-              size="sm"
-              icon="i-lucide-package-open"
-              :loading="opening === stack.packs[0]!.id"
-              :disabled="!!opening"
-              @click="openPack(stack.packs[0]!)"
-            >
-              Open
-            </UButton>
-            <UButton
-              v-if="!stack.bundle"
-              size="sm"
-              color="neutral"
-              variant="subtle"
-              icon="i-lucide-gavel"
-              aria-label="Auction a pack"
-              @click="auctionPackId = stack.packs[0]!.id"
-            />
-          </div>
+        <p
+          v-if="group.bundle"
+          class="flex items-center gap-1.5 text-sm"
+        >
+          <UIcon
+            name="i-lucide-gift"
+            class="size-4 text-primary"
+          />
+          <span class="font-medium text-highlighted">{{ setName(group.bundle.setId) }} bundle</span>
+          <span class="text-xs tabular-nums text-muted">
+            · {{ group.packs.length }} of {{ group.packs.length + group.bundle.openedCount }} left · week of {{ group.bundle.weekKey }}
+          </span>
+        </p>
+        <p
+          v-else-if="groups.length > 1"
+          class="text-sm font-medium text-highlighted"
+        >
+          Loose packs
+        </p>
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+          <UCard
+            v-for="pack in group.packs"
+            :key="pack.id"
+            :ui="{ body: 'p-3 sm:p-3' }"
+          >
+            <div class="flex flex-col items-center gap-2 text-center">
+              <img
+                v-if="packArt(pack.setId)"
+                :src="packArt(pack.setId)!"
+                :alt="`${setName(pack.setId)} booster pack`"
+                class="h-24 w-auto drop-shadow"
+                @error="hideBrokenArt"
+              >
+              <div class="w-full min-w-0">
+                <p class="truncate text-sm font-medium text-highlighted">
+                  {{ setName(pack.setId) }}
+                </p>
+                <p class="text-xs tabular-nums text-muted">
+                  Pack #{{ pack.packIndex + 1 }}
+                </p>
+              </div>
+              <div class="flex gap-1.5">
+                <UButton
+                  size="sm"
+                  icon="i-lucide-package-open"
+                  :loading="opening === pack.id"
+                  :disabled="!!opening"
+                  @click="openPack(pack)"
+                >
+                  Open
+                </UButton>
+                <UButton
+                  v-if="!group.bundle"
+                  size="sm"
+                  color="neutral"
+                  variant="subtle"
+                  icon="i-lucide-gavel"
+                  aria-label="Auction this pack"
+                  @click="auctionPackId = pack.id"
+                />
+              </div>
+            </div>
+          </UCard>
         </div>
-      </UCard>
-    </div>
+      </div>
+    </template>
     <UCard v-else>
       <p class="text-sm text-muted">
         {{ pending ? 'Loading…' : 'No sealed packs — grab some in the shop.' }}
