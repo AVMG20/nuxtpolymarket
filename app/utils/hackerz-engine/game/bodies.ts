@@ -4,7 +4,7 @@ import { FIELD_SCALE } from '../constants'
 import { MOTION, burrowFrame, hoverBob } from '../rig-motion'
 import { fieldToWorld } from '../scene'
 import type { EnemyEntity } from '../types'
-import { ROOTKIT_BURROW_MS, GLITCH_FADE_MS, halfExtents, PER_WORLD } from './tuning'
+import { PER_WORLD, ROOTKIT_BURROW_MS, GLITCH_FADE_MS, halfExtents } from './tuning'
 
 /** World position of an enemy, `lift` field units above where it stands. */
 export function enemyWorld(enemy: EnemyEntity, lift: number, out: THREE.Vector3) {

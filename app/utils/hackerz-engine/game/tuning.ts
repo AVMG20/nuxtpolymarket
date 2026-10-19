@@ -43,3 +43,14 @@ export function halfExtents(box: THREE.Box3) {
 }
 
 export const halves = new WeakMap<THREE.Box3, { x: number, z: number }>()
+
+/** The clearance kept between two bodies on the ground, in field units. */
+export const CROWD_GAP = 4
+
+/**
+ * A rider's line is guidance, not a rail: it may stand off it by up to this
+ * much (field units) to step round a body or stand beside one, which is
+ * enough to reach the next pin over. It eases back onto the line, at this
+ * share of its speed, whenever there is room.
+ */
+export const LANE_SLACK = 70
