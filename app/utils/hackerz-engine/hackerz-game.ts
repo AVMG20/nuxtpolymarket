@@ -16,8 +16,8 @@ import {
     BULLET_RADIUS, DESPAWN_DEPTH, FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE, MAX_SHAKE, MODEL_HEIGHT_SCALE,
     PICK_SLACK_PX, PURGE_MS, PURGE_REACH, RAIL_U, SHAKE_DECAY, SPAWN_SPREAD, SPIKE_BAND, GUN_Z, WALL_HEIGHT
 } from './constants'
-import { clamp, randRange, segPointDist } from './math'
-import { CHIP_HIT_RADIUS, PathChips, type PathChip } from './path-chips'
+import { clamp, randRange } from './math'
+import { PathChips, type PathChip } from './path-chips'
 import { Guardrail } from './guardrail'
 import { Deployables, type Hold } from './deployables'
 import { HackTerminals } from './hack-terminal'
@@ -26,8 +26,7 @@ import { SysLog } from './sys-log'
 import { Shrapnel } from './shrapnel'
 import { GlitchClouds } from './glitch-cloud'
 import {
-    buildNetwork, nearestOnNetwork, segmentDirection, tracePassesNear, zapTarget, type DataNetwork, type LinePoint,
-    type Trace
+    buildNetwork, nearestOnNetwork, segmentDirection, tracePassesNear, type DataNetwork, type LinePoint, type Trace
 } from './data-lines'
 import { buildRig, disposeRig, hdr, loadModels, modelClock, poseRig, shroud } from './models'
 import {
@@ -38,10 +37,10 @@ import { AMBER, CYAN, HackerzScene, LIME, RED, fieldToWorld } from './scene'
 import { AmmoRack } from './ammo-rack'
 import { LaneProps } from './lane-props'
 import { Overlay, ParticleSystem, TransientFx, hexCss, type HealthTag } from './fx'
-import type { BulletEntity, EnemyEntity, HackerzCallbacks, HackerzStartConfig } from './types'
+import type { EnemyEntity, HackerzCallbacks, HackerzStartConfig } from './types'
 import {
-    PER_WORLD, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, GLITCH_FADE_MS, halfExtents, CROWD_GAP, LANE_SLACK, MUZZLE_D,
-    PACKET_LOSS, LONGBORE_FLARE, RAIL_TRACK, PING_COOLDOWN_MS
+    HACK_TEAM, YAW_DOWN, PER_WORLD, _v, _w, ZONE_TICK_MS, BLACKOUT_LIGHT_D, GLITCH_FADE_MS, CROWD_GAP, LANE_SLACK,
+    MUZZLE_D, PACKET_LOSS, LONGBORE_FLARE, RAIL_TRACK, PING_COOLDOWN_MS
 } from './game/tuning'
 import { Healers } from './game/healers'
 import { Leaks } from './game/leaks'
@@ -64,6 +63,7 @@ import { Projectiles } from './game/projectiles'
 import { Rail } from './game/rail'
 import { Abilities } from './game/abilities'
 import { Deployer } from './game/deployer'
+import { Hacking } from './game/hacking'
 
 /** A spawn the wave scheduler has already decided on. */
 interface ScheduledSpawn {
@@ -112,11 +112,6 @@ const SPAWN_RAMP = 1.8
 const FINAL_PUSH_MS = 12_000
 const FINAL_PUSH_SPEED = 1.35
 
-/** How many open nodes the hackers split across at once. */
-const HACK_FRONTS = 2
-
-/** The most hackers that work one node at once; the rest wait this much further out for a free terminal. */
-const HACK_TEAM = 4
 const HACK_QUEUE_GAP = 70
 
 /**
@@ -130,13 +125,6 @@ const DISTRACT_MAX = 8
 
 /** The decoys hold off until the first boss is down: a fresh run cannot shoot both them and the hackers. */
 const DISTRACT_FROM_WAVE = HACKERZ_BOSS_EVERY + 1
-
-/** Hacker zap-dodge: how far ahead a round is seen, the odds of dodging it, the jump range, and the recharge. */
-const ZAP_SIGHT = 150
-const ZAP_CHANCE = 0.55
-const ZAP_MIN = 45
-const ZAP_MAX = 170
-const ZAP_COOLDOWN_MS = 2600
 
 /**
  * DDoS surge: the final push adds enough cheap units to outlast the player's
@@ -159,17 +147,6 @@ const LURE_TRACE_RADIUS = 120
 /** Hackers get to work within this far of a node — a column over still counts. */
 const HACK_REACH = 125
 
-/**
- * Hackers park side by side in a row behind a node (portal side), facing
- * the fence: the row this far behind it, this many slots either side of the
- * middle. One within this distance of its node leaves the line to park.
- */
-const HACK_ROW_BACK = 70
-const HACK_SLOT_SIDE = 2
-const HACK_PARK_FROM = 280
-
-/** Facing for a rider: down the column toward the fence, or along a rung. */
-const YAW_DOWN = 0
 const YAW_RIGHT = Math.PI / 2
 const YAW_LEFT = -Math.PI / 2
 
@@ -229,27 +206,6 @@ const COVER_RADIUS = 170
 const COVER_HOLD_MS = 900
 const YAW_UP = Math.PI
 
-/** How much of a node a hack pulse takes (how often they fly is `MOTION.hackPulseMs`). */
-const HACK_PULSE_AMOUNT = 0.09
-
-/**
- * Nodes out by the portal are poorly defended and fall fast; the closer to the
- * fence, the longer one holds out. A pulse's take is scaled from the first
- * figure (right at the portal: a third of the old hack time) down to the second
- * (at the fence: the old hack time, and never slower).
- */
-const HACK_EASE_FAR = 1.5
-const HACK_EASE_NEAR = 0.5
-
-/**
- * The blue pulse a round knocks out of a hacked node: strength it loses per
- * field unit on each kind of ground (it starts at 1), how many nodes on it can
- * fan out through, and the most that may run at once.
- */
-const LINE_PULSE_FADE = { held: 1 / 1400, contested: 1 / 550, theirs: 1 / 170 }
-const LINE_PULSE_HOPS = 1
-const LINE_PULSE_MAX = 24
-
 /** PACKET LOSS: the round's health against what the player's battery can clear in it, and the most extra units it adds. */
 const PACKET_LOSS_OVERKILL = 2
 const PACKET_LOSS_SWARM_CAP = 120
@@ -296,10 +252,6 @@ export class HackerzGame {
     terminals: HackTerminals | null = null
     /** The data lines ground hostiles ride. Rebuilt each run. */
     network: DataNetwork = { nodes: [], traces: [] }
-    /** Hack pulses in flight from a terminal to its node: they count when they land. */
-    private hackPulses: { chip: PathChip, from: THREE.Vector3, to: THREE.Vector3, t: number, mesh: THREE.Mesh }[] = []
-    private pulseGeometry = new THREE.OctahedronGeometry(0.34, 0)
-    private pulseMaterial = new THREE.MeshBasicMaterial({ color: hdr(0xff3b3b, 3), toneMapped: false })
     private guardrail: Guardrail | null = null
     private resizeObserver: ResizeObserver | null = null
     private raf = 0
@@ -341,7 +293,7 @@ export class HackerzGame {
 
     // ── Deployables ──
     deployables: Deployables | null = null
-    private linePulses: LinePulses | null = null
+    linePulses: LinePulses | null = null
     shrapnel: Shrapnel | null = null
     /** Warhead blasts: clouds of corrupted data scrambling the splash area. */
     glitchClouds: GlitchClouds | null = null
@@ -401,6 +353,7 @@ export class HackerzGame {
     readonly rail = new Rail(this)
     readonly abilities = new Abilities(this)
     readonly deployer = new Deployer(this)
+    readonly hacking = new Hacking(this)
 
     constructor(callbacks: HackerzCallbacks) {
         this.callbacks = callbacks
@@ -1518,9 +1471,9 @@ export class HackerzGame {
             this.scoring.updateCoins(frozen ? 0 : dtMs)
             this.bastion.updateBastion(dt, dtMs)
             this.memory.updateLeaks(dt, frozen ? 0 : dtMs)
-            this.updateHackPulses(dt)
+            this.hacking.updateHackPulses(dt)
             this.pathChips?.update(seen)
-            this.linePulses?.update(seen, (u, d) => this.pulseFade(u, d))
+            this.linePulses?.update(seen, (u, d) => this.hacking.pulseFade(u, d))
             this.shrapnel?.update(seen)
             this.glitchClouds?.update(seen)
             this.particles.update(seen)
@@ -1854,7 +1807,7 @@ export class HackerzGame {
      * their own slow pace; anything else moves as it would on the lines.
      * Returns the distance covered.
      */
-    private walkTo(enemy: EnemyEntity, u: number, d: number, dt: number) {
+    walkTo(enemy: EnemyEntity, u: number, d: number, dt: number) {
         const du = u - enemy.u
         const dd = d - enemy.d
         const distance = Math.hypot(du, dd)
@@ -1914,100 +1867,6 @@ export class HackerzGame {
         const next = path[0]
         if (!next) return { moved: 0, arrived: false }
         return { moved: this.walkTo(enemy, next.u, Math.max(next.d, goal.stopD), dt), arrived: false }
-    }
-
-    /**
-     * The parking row's measures, from a hacker's own size: how far apart
-     * the slots are (room to swing round between two parked neighbours), and
-     * how far behind the row the lane runs (room to drive past them, and to
-     * turn in).
-     */
-    private parkingRow(enemy: EnemyEntity) {
-        const { x: halfX, z: halfZ } = halfExtents(enemy.rig.box)
-        // Half its extent at its widest, mid-turn.
-        const swing = Math.SQRT1_2 * (halfX + halfZ)
-        return { spacing: swing + halfX + CROWD_GAP * 2, lane: halfZ + swing + CROWD_GAP * 3 }
-    }
-
-    /** Where parking slot `index` (−HACK_SLOT_SIDE … HACK_SLOT_SIDE) behind a node lies. */
-    private slotAt(enemy: EnemyEntity, node: PathChip, index: number) {
-        return { u: node.u + index * this.parkingRow(enemy).spacing, d: node.d + HACK_ROW_BACK }
-    }
-
-    /**
-     * A hacker's slot at its node: kept once taken. The first to arrive takes
-     * the slot nearest it; each after takes the free slot next to one already
-     * taken, nearest it — so they park side by side. Null with none free.
-     */
-    private hackSlotFor(enemy: EnemyEntity, node: PathChip) {
-        if (enemy.hackSlot?.chip === node) return enemy.hackSlot
-        const taken = new Set(this.enemies.filter(e => e !== enemy && e.hackSlot?.chip === node).map(e => e.hackSlot!.index))
-        let best: number | null = null
-        let bestDistance = Infinity
-        for (let index = -HACK_SLOT_SIDE; index <= HACK_SLOT_SIDE; index++) {
-            if (taken.has(index)) continue
-            if (taken.size && !taken.has(index - 1) && !taken.has(index + 1)) continue
-            const spot = this.slotAt(enemy, node, index)
-            if (Math.abs(spot.u) > FIELD_HALF_WIDTH - 20) continue
-            const distance = Math.hypot(spot.u - enemy.u, spot.d - enemy.d)
-            if (distance < bestDistance) {
-                bestDistance = distance
-                best = index
-            }
-        }
-        enemy.hackSlot = best === null ? null : { chip: node, index: best, stage: 'lane' }
-        return enemy.hackSlot
-    }
-
-    /**
-     * A hacker near its node parks in its slot, smoothly and from behind:
-     * onto the lane behind the row (round the end of the row if it is in
-     * front of it), along the lane past the ones already parked to its slot,
-     * then it turns to face the fence and pulls straight in. Null while it is
-     * still too far off, or no slot is free.
-     */
-    private parkStep(enemy: EnemyEntity, node: PathChip, dt: number) {
-        const from = Math.hypot(enemy.u - node.u, enemy.d - node.d)
-        // Thrown well clear (a zap, a shove) it gives the slot up and rides back on the lines.
-        if (from > HACK_PARK_FROM + (enemy.hackSlot?.chip === node ? 80 : 0)) {
-            enemy.hackSlot = null
-            return null
-        }
-        const slot = this.hackSlotFor(enemy, node)
-        if (!slot) return null
-        const row = this.parkingRow(enemy)
-        const spot = this.slotAt(enemy, node, slot.index)
-        const laneD = spot.d + row.lane
-        if (slot.stage === 'in') {
-            if (Math.hypot(spot.u - enemy.u, spot.d - enemy.d) < 3) {
-                enemy.yaw = turnToward(enemy.yaw, YAW_DOWN, dt * 8)
-                return { moved: 0, arrived: true }
-            }
-            return { moved: this.walkTo(enemy, spot.u, spot.d, dt), arrived: false }
-        }
-        if (slot.stage === 'turn') {
-            enemy.yaw = turnToward(enemy.yaw, YAW_DOWN, dt * 6)
-            if (Math.abs(Math.atan2(Math.sin(enemy.yaw - YAW_DOWN), Math.cos(enemy.yaw - YAW_DOWN))) < 0.03) slot.stage = 'in'
-            return { moved: 0, arrived: false }
-        }
-        // On the lane, level with its slot: turn in.
-        if (Math.abs(enemy.u - spot.u) < 3 && Math.abs(enemy.d - laneD) < 3) {
-            slot.stage = 'turn'
-            return { moved: 0, arrived: false }
-        }
-        // Level with the row or in front of it: round the end of the row
-        // first, never through it. Between the row and the lane: back onto the lane.
-        const rowEnd = (HACK_SLOT_SIDE + 1) * row.spacing
-        if (enemy.d < spot.d + row.lane / 2) {
-            const side = Math.sign(enemy.u - node.u) || 1
-            if (Math.abs(enemy.u - node.u) < rowEnd - 3) {
-                return { moved: this.walkTo(enemy, node.u + side * rowEnd, enemy.d, dt), arrived: false }
-            }
-            return { moved: this.walkTo(enemy, enemy.u, laneD, dt), arrived: false }
-        }
-        // Behind it: down onto the lane, then along it to the slot.
-        if (enemy.d > laneD + 3) return { moved: this.walkTo(enemy, enemy.u, laneD, dt), arrived: false }
-        return { moved: this.walkTo(enemy, spot.u, laneD, dt), arrived: false }
     }
 
     /** A parked gun walks to its firing spot; it has arrived once it is there. */
@@ -2302,15 +2161,15 @@ export class HackerzGame {
                 && !this.routeAheadPasses(enemy, hold.target.u, hold.target.d, 90)) hold = null
             // Hackers go for the next path node still ahead on their lines — and
             // when none is left ahead, they double back for one that is still open.
-            let node = !hold && !enemy.turned && this.canHack(enemy) ? this.hackTarget(enemy) : null
-            if (!node && !hold && riding && this.canHack(enemy)) {
+            let node = !hold && !enemy.turned && this.hacking.canHack(enemy) ? this.hacking.hackTarget(enemy) : null
+            if (!node && !hold && riding && this.hacking.canHack(enemy)) {
                 const open = this.pathChips?.ordered.filter(chip => chip.state !== 'hacked') ?? []
                 const nearest = open.reduce<PathChip | null>((best, chip) =>
                     !best || Math.hypot(chip.u - enemy.u, chip.d - enemy.d) < Math.hypot(best.u - enemy.u, best.d - enemy.d) ? chip : best, null)
-                if (nearest && this.planDetour(enemy, nearest)) node = this.hackTarget(enemy)
+                if (nearest && this.planDetour(enemy, nearest)) node = this.hacking.hackTarget(enemy)
             }
-            if (enemy.def.id === HACKERZ_HACKER_ID && riding) this.dodge(enemy, dtMs)
-            if (!node && enemy.hacking) this.stopHacking(enemy)
+            if (enemy.def.id === HACKERZ_HACKER_ID && riding) this.hacking.dodge(enemy, dtMs)
+            if (!node && enemy.hacking) this.hacking.stopHacking(enemy)
 
             // Only so many can work one node at once; the rest close in and wait
             // a step further out, ready to take the next free terminal.
@@ -2342,7 +2201,7 @@ export class HackerzGame {
                 : parked
                 ? this.walkToPark(enemy, parked, dt)
                 : tactic === 'advance'
-                    ? (node && !queued && riding ? this.parkStep(enemy, node, dt) : null)
+                    ? (node && !queued && riding ? this.hacking.parkStep(enemy, node, dt) : null)
                     ?? (riding ? this.ride(enemy, goal, dt) : this.fly(enemy, goal, dt))
                     : { moved: this.holdBack(enemy, tactic, dt), arrived: false })
             if (!node || queued || tactic !== 'advance') enemy.hackSlot = null
@@ -2352,15 +2211,15 @@ export class HackerzGame {
             let rollSpeed = rollSpeedFor(step.moved, enemy.rig.height, dt, FIELD_SCALE)
 
             if (tactic !== 'advance') {
-                if (enemy.hacking) this.stopHacking(enemy)
+                if (enemy.hacking) this.hacking.stopHacking(enemy)
             } else if (!step.arrived) {
-                if (enemy.hacking) this.stopHacking(enemy)
+                if (enemy.hacking) this.hacking.stopHacking(enemy)
             } else if (node && queued) {
                 // Waiting its turn at the node: idling on the spot.
                 rollSpeed = 0
             } else if (node) {
                 rollSpeed = 0
-                this.hackAt(enemy, node, dtMs)
+                this.hacking.hackAt(enemy, node, dtMs)
             } else if (!hold && this.parkAside(enemy)) {
                 // A gun that set up beside a node would read as its guard: it
                 // steps aside first, and opens fire from there.
@@ -2548,23 +2407,6 @@ export class HackerzGame {
         }
     }
 
-    // ─── Path nodes ──────────────────────────────────────────────────────────
-
-    /** ×1.25 on speed and damage for a hostile inside a hacked node's aura. */
-    chipBuff(enemy: EnemyEntity) {
-        return this.pathChips?.buffedAt(enemy.u, enemy.d) ? 1.25 : 1
-    }
-
-    /**
-     * Who goes for the path nodes: the green hackers, and only them. They keep
-     * at it through the final push — there is always someone on the nodes —
-     * while everything else heads for the fence.
-     */
-    private canHack(enemy: EnemyEntity) {
-        return this.running && !this.purging && enemy.def.id === HACKERZ_HACKER_ID && !enemy.decoy && !enemy.demoPath
-            && enemy.burrowMs <= 0 && enemy.age > 0.4
-    }
-
     // ─── Tactics ─────────────────────────────────────────────────────────────
 
     /** Armored units and bosses: the only ones that will walk into blue ground. */
@@ -2723,96 +2565,13 @@ export class HackerzGame {
         return chips.length > 0 && chips.every(chip => chip.state === 'hacked')
     }
 
-    /**
-     * The node a hacker works on. Hackers spread over the two nearest nodes
-     * still open ahead of them, each picking whichever has fewer hackers on
-     * it, and stick with their pick until it falls — so the swarm splits into
-     * two fronts instead of piling onto one.
-     */
-    private hackTarget(enemy: EnemyEntity) {
-        const chips = this.pathChips
-        if (!chips) return null
-        // While the first node still stands it blocks the whole board, and the
-        // hackers throw in on it together, a few at a time (`HACK_TEAM`). One
-        // that finds every terminal taken pushes on to a node further forward
-        // instead — taking a hostage along as a shield (see `maintainEscorts`) —
-        // and sticks with it.
-        const gate = chips.ordered[0]
-        if (gate && gate.state !== 'hacked' && this.chipAhead(enemy, gate)) {
-            const pick = enemy.targetChip
-            if (pick && pick !== gate && pick.state !== 'hacked' && this.chipAhead(enemy, pick)) return pick
-            const team = this.enemies.filter(e => e !== enemy && e.hacking && e.targetChip === gate).length
-            if (enemy.hacking || team < HACK_TEAM) {
-                enemy.targetChip = gate
-                return gate
-            }
-            const forward = chips.ordered.find(chip => chip !== gate && chip.state !== 'hacked' && this.chipAhead(enemy, chip))
-            enemy.targetChip = forward ?? gate
-            return enemy.targetChip
-        }
-        const open = chips.ordered
-            .filter(chip => chip.state !== 'hacked' && this.chipAhead(enemy, chip))
-            .slice(0, HACK_FRONTS)
-        if (!open.length) {
-            enemy.targetChip = null
-            return null
-        }
-        if (enemy.targetChip && open.includes(enemy.targetChip)) return enemy.targetChip
-        const crowd = (chip: PathChip) => this.enemies.filter(e => e !== enemy && e.targetChip === chip).length
-        enemy.targetChip = open.reduce((best, chip) => crowd(chip) < crowd(best) ? chip : best)
-        return enemy.targetChip
-    }
-
-    /**
-     * A hacker about to take one of the player's rounds may zap sideways onto
-     * another data line — never further from the fence — with a green arc
-     * marking the jump. It cannot do it again for a while, and does not always
-     * see the round coming.
-     */
-    private dodge(enemy: EnemyEntity, dtMs: number) {
-        enemy.zapCooldown -= dtMs
-        if (enemy.zapCooldown > 0 || this.combat.untouchable(enemy)) return
-        const threatened = this.projectiles.bullets.some((bullet) => {
-            if (bullet.fromTurret || bullet.hit.has(enemy)) return false
-            const speed = Math.hypot(bullet.vu, bullet.vd)
-            if (speed < 1) return false
-            const ru = enemy.u - bullet.u
-            const rd = enemy.d - bullet.d
-            const along = (ru * bullet.vu + rd * bullet.vd) / speed
-            if (along < 0 || along > ZAP_SIGHT) return false
-            return Math.abs(ru * bullet.vd - rd * bullet.vu) / speed < enemy.radius + 24
-        })
-        if (!threatened) return
-        if (!randomChance(ZAP_CHANCE)) {
-            // Saw it too late: no second guess on the same round.
-            enemy.zapCooldown = 700
-            return
-        }
-        const to = zapTarget(this.network, enemy.u, enemy.d, ZAP_MIN, ZAP_MAX)
-        if (!to) return
-        const from = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
-        if (enemy.hacking) this.stopHacking(enemy)
-        enemy.u = to.u
-        enemy.d = to.d
-        enemy.route = to.trace.points
-        enemy.routeSeg = to.seg
-        enemy.routeTo = to.trace.to
-        enemy.routeFrom = to.trace.from
-        enemy.zapCooldown = ZAP_COOLDOWN_MS
-        const landed = enemyWorld(enemy, enemy.rig.height * PER_WORLD * 0.5, new THREE.Vector3())
-        this.transient?.bolt(from, landed, enemy.def.hex)
-        this.particles.burst(from, enemy.def.hex, 12, 6, { size: 0.24, life: 0.35 })
-        this.particles.burst(landed, enemy.def.hex, 16, 7, { size: 0.26, life: 0.4 })
-        placeEnemy(enemy)
-    }
-
     /** The network layer of a path node: 1 for the outermost. */
     private chipLayer(chip: PathChip) {
         return (this.pathChips?.ordered.indexOf(chip) ?? -1) + 1
     }
 
     /** Whether a path node is still ahead of a rider: at or past the node its line runs to. */
-    private chipAhead(enemy: EnemyEntity, chip: PathChip) {
+    chipAhead(enemy: EnemyEntity, chip: PathChip) {
         const node = this.network.nodes[enemy.routeTo]
         if (!enemy.route || !node) return true
         return this.chipLayer(chip) >= node.layer
@@ -2917,7 +2676,7 @@ export class HackerzGame {
             // A hacker heads for its own pick; failing that, the next open node.
             const own = enemy.targetChip
             const picked = own && own.state !== 'hacked' && this.chipLayer(own) > node.layer ? own : undefined
-            const target = this.canHack(enemy)
+            const target = this.hacking.canHack(enemy)
                 ? picked ?? ordered.find((chip, i) => i + 1 > node.layer && chip.state !== 'hacked')
                 : undefined
             const limit = target ? this.chipLayer(target) : Infinity
@@ -2994,7 +2753,7 @@ export class HackerzGame {
      */
     private ride(enemy: EnemyEntity, goal: RouteGoal, dt: number) {
         const boost = this.groundSpeed(enemy) * (enemy.def.kind === 'bomber' ? SAPPER_SPEED : 1)
-        let budget = enemy.speed * this.chipBuff(enemy) * this.pushSpeed * boost * dt
+        let budget = enemy.speed * this.hacking.chipBuff(enemy) * this.pushSpeed * boost * dt
         // A skirmisher halts at the edge of blue ground rather than step into it.
         // One already standing in blue (the ground changed under it) carries on.
         const keepOut = this.keepsOutOfBlue(enemy) && this.territory.zoneOf(enemy.u, enemy.d) !== 'held'
@@ -3082,7 +2841,7 @@ export class HackerzGame {
             enemy.d = goal.stopD
             return { moved: 0, arrived: true }
         }
-        const step = Math.min(room, enemy.speed * this.chipBuff(enemy) * this.pushSpeed * this.groundSpeed(enemy)
+        const step = Math.min(room, enemy.speed * this.hacking.chipBuff(enemy) * this.pushSpeed * this.groundSpeed(enemy)
             * (enemy.burrowMs > 0 ? 1.8 : 1) * (enemy.def.kind === 'bomber' ? SAPPER_SPEED : 1) * dt)
         // Flying skirmishers hold at the edge of blue ground too.
         if (this.keepsOutOfBlue(enemy) && this.territory.zoneOf(enemy.u, enemy.d) !== 'held'
@@ -3102,161 +2861,6 @@ export class HackerzGame {
         const taken = this.pathChips?.chips.some(chip => chip.state === 'hacked')
         if (!taken || enemy.burrowMs > 0) return surge
         return (this.territory.zoneOf(enemy.u, enemy.d) === 'theirs' ? THEIR_GROUND_SPEED : 1) * surge
-    }
-
-    /** A unit in reach of a node hacks it: a terminal opens beside it and fires pulses into the node. */
-    private hackAt(enemy: EnemyEntity, node: PathChip, dtMs: number) {
-        const terminal = this.terminals?.open(enemy)
-        enemy.hacking = true
-        if (terminal) {
-            // The panel floats above the unit, staggered by its reach so a
-            // queue's terminals do not stack into one.
-            enemyWorld(enemy, enemy.rig.height * PER_WORLD + 40 + enemy.hackReach * 24, terminal.position)
-            terminal.position.x += (enemy.u >= node.u ? 1 : -1) * 1.2
-            // A terminal glowing in the dark would give its hacker away.
-            terminal.visible = enemy.rig.root.visible && this.territory.shroudOf(enemy) < 0.5
-        }
-        enemy.pulseTimer -= dtMs
-        if (enemy.pulseTimer <= 0) {
-            enemy.pulseTimer = MOTION.hackPulseMs * (0.85 + randomFloat() * 0.3)
-            if (terminal?.visible) this.fireHackPulse(node, terminal.position)
-            else this.landPulse(node)
-        }
-    }
-
-    stopHacking(enemy: EnemyEntity) {
-        enemy.hacking = false
-        this.terminals?.close(enemy)
-    }
-
-    /** A pulse leaves a terminal for its node; it counts when it arrives. */
-    private fireHackPulse(node: PathChip, from: THREE.Vector3) {
-        const mesh = new THREE.Mesh(this.pulseGeometry, this.pulseMaterial)
-        mesh.position.copy(from)
-        this.fieldRoot.add(mesh)
-        this.hackPulses.push({ chip: node, from: from.clone(), to: fieldToWorld(node.u, node.d, 0.5, new THREE.Vector3()), t: 0, mesh })
-        this.particles.burst(from, 0xff3b3b, 3, 3, { size: 0.16, life: 0.2, gravity: 0 })
-    }
-
-    private updateHackPulses(dt: number) {
-        for (let i = this.hackPulses.length - 1; i >= 0; i--) {
-            const pulse = this.hackPulses[i]!
-            pulse.t += dt / MOTION.hackPulseFlight
-            if (pulse.t >= 1) {
-                pulse.mesh.removeFromParent()
-                this.hackPulses.splice(i, 1)
-                this.particles.burst(pulse.to, 0xff3b3b, 4, 5, { size: 0.18, life: 0.25 })
-                this.landPulse(pulse.chip)
-                continue
-            }
-            // A shallow arc, spinning as it goes.
-            pulse.mesh.position.lerpVectors(pulse.from, pulse.to, pulse.t)
-            pulse.mesh.position.y += Math.sin(pulse.t * Math.PI) * MOTION.hackPulseArc
-            pulse.mesh.rotation.y += dt * 12
-            if (randomChance(dt * 30)) this.particles.emit(pulse.mesh.position, _w.set(0, 0, 0), 0xff3b3b, { size: 0.12, life: 0.18, gravity: 0 })
-        }
-    }
-
-    /** A pulse lands. The one that takes the node is announced. */
-    private landPulse(node: PathChip) {
-        const chips = this.pathChips
-        if (!chips) return
-        const wasAlert = node.alert
-        const depth = clamp(node.d / FIELD_DEPTH, 0, 1)
-        const taken = chips.landPulse(node, HACK_PULSE_AMOUNT * (HACK_EASE_NEAR + (HACK_EASE_FAR - HACK_EASE_NEAR) * depth))
-        if (!taken) {
-            if (!wasAlert && node.alert) {
-                this.sysLog.chipUnderAttack(node.id, this.enemies.filter(e => e.hacking && e.targetChip === node).length || 1)
-            }
-            return
-        }
-        const next = chips.ordered.find(chip => chip.state !== 'hacked')
-        this.sysLog.chipCaptured(node.id, next ? next.id : null)
-        const at = fieldToWorld(node.u, node.d, 0.3, new THREE.Vector3())
-        this.view?.addSurge(at.x, at.z, RED, 1.6)
-        this.transient?.ring(at, RED, 6, 0.55)
-        this.particles.burst(at, RED, 40, 10, { size: 0.32, life: 0.7 })
-        this.overlay.floatText(at, 'NODE COMPROMISED', RED, 1.3)
-        this.addShake(4)
-        this.callbacks.onNotice('A path node was hacked — shoot it to reclaim it.', 'bad')
-        // A logic bomb wired onto it goes off under the crew that just took it.
-        for (const blast of this.deployables?.detonateOnChip(node.id) ?? []) this.deployer.detonateBlast(blast)
-        // The units on it re-target on their next step and march on to the next node.
-    }
-
-    private clearHacking() {
-        this.terminals?.clear()
-        for (const pulse of this.hackPulses) pulse.mesh.removeFromParent()
-        this.hackPulses = []
-        for (const enemy of this.enemies) enemy.hacking = false
-    }
-
-    /**
-     * A player round that reaches a hacked node strikes it and is spent there:
-     * it chips away at the node, and knocks a blue pulse out along every data
-     * line the node is wired to. True when the round struck one.
-     */
-    roundThroughChips(bullet: BulletEntity) {
-        const chips = this.pathChips
-        if (!chips) return false
-        for (const chip of chips.chips) {
-            if (chip.state !== 'hacked' || bullet.chipsHit?.has(chip.id)) continue
-            if (segPointDist(bullet.prevU, bullet.prevD, bullet.u, bullet.d, chip.u, chip.d) > CHIP_HIT_RADIUS) continue
-            ;(bullet.chipsHit ??= new Set()).add(chip.id)
-            const at = fieldToWorld(chip.u, chip.d, 0.4, new THREE.Vector3())
-            // A DDoS-locked node shrugs the round off in red: there is no taking it back.
-            this.particles.burst(at, chips.locked ? RED : CYAN, 6, 7, { size: 0.22, life: 0.3 })
-            this.pulseFromChip(chip)
-            if (chips.hit(chip)) this.chipReclaimed(chip)
-            return true
-        }
-        return false
-    }
-
-    /** A hacked node came back to us: it pays, and shows it. */
-    chipReclaimed(chip: PathChip) {
-        const at = fieldToWorld(chip.u, chip.d, 0.4, new THREE.Vector3())
-        const reward = 15 + this.wave * 8
-        this.scoring.waveCredits += reward
-        this.callbacks.onCredits(reward, 'kill')
-        this.view?.addSurge(at.x, at.z, CYAN, 1.6)
-        this.transient?.ring(at, CYAN, 6, 0.55)
-        this.particles.burst(at, CYAN, 34, 10, { size: 0.32, life: 0.7 })
-        this.overlay.floatText(at, `RECLAIMED +${reward}`, CYAN, 1.3)
-        this.sysLog.chipReclaimed(chip.id)
-        this.callbacks.onSound?.('coin-pickup')
-    }
-
-    /**
-     * Sends blue pulses out of a struck node along every line wired to it, in
-     * and out. A pulse that still has strength when it reaches the next node
-     * fans out once more from there.
-     */
-    pulseFromChip(chip: PathChip) {
-        const pulses = this.linePulses
-        if (!pulses) return
-        const nodes = this.network.nodes
-        const index = nodes.findIndex(node => node.kind === 'node' && Math.abs(node.u - chip.u) < 1 && Math.abs(node.d - chip.d) < 1)
-        if (index < 0) return
-        const fan = (from: number, strength: number, hops: number, cameBy: Trace | null) => {
-            for (const trace of this.network.traces) {
-                if (trace === cameBy || pulses.count >= LINE_PULSE_MAX) continue
-                const outward = trace.from === from
-                if (!outward && trace.to !== from) continue
-                const path = outward ? trace.points : [...trace.points].reverse()
-                const next = outward ? trace.to : trace.from
-                pulses.send(path, strength, hops > 0 && nodes[next]?.kind === 'node'
-                    ? (left: number) => fan(next, left, hops - 1, trace)
-                    : null)
-            }
-        }
-        fan(index, 1, LINE_PULSE_HOPS, null)
-    }
-
-    /** How much a line pulse fades per field unit: little in our blue, more in orange, most in red. */
-    private pulseFade(u: number, d: number) {
-        const zone = this.territory.zoneOf(u, d)
-        return zone === 'held' ? LINE_PULSE_FADE.held : zone === 'contested' ? LINE_PULSE_FADE.contested : LINE_PULSE_FADE.theirs
     }
 
     // ─── Wave end ────────────────────────────────────────────────────────────
@@ -3433,7 +3037,7 @@ export class HackerzGame {
         this.linePulses?.clear()
         this.shrapnel?.clear()
         this.glitchClouds?.clear()
-        this.clearHacking()
+        this.hacking.clearHacking()
         this.deployer.armed = null
         this.bonus = null
         this.bonusChips = null

@@ -30,7 +30,7 @@ export class Assault {
      * fence. A sapper spends itself on it. True when the unit is gone.
      */
     strikeDeployable(enemy: EnemyEntity, hold: Hold) {
-        const damage = enemy.damage * this.game.chipBuff(enemy)
+        const damage = enemy.damage * this.game.hacking.chipBuff(enemy)
         const at = fieldToWorld(enemy.u, hold.target.d, 1.2, new THREE.Vector3())
         this.game.particles.burst(at, hold.target.hex, 5, 7, { size: 0.2, life: 0.3 })
         if (enemy.def.kind === 'bomber') {
@@ -54,7 +54,7 @@ export class Assault {
 
     /** What an enemy does when it reaches its stopping distance. */
     enemyStrike(enemy: EnemyEntity) {
-        const damage = enemy.damage * this.game.chipBuff(enemy)
+        const damage = enemy.damage * this.game.hacking.chipBuff(enemy)
         // The last healers of a wave go off on the fence like a weak Sapper.
         switch (enemy.kamikaze ? 'bomber' : enemy.def.kind) {
             case 'ranged': {

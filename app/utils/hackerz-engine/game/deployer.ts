@@ -170,7 +170,7 @@ export class Deployer {
             this.game.transient?.ring(at, CYAN, 6, 0.55)
             this.game.particles.burst(at, CYAN, 34, 10, { size: 0.32, life: 0.7 })
             this.game.view?.addSurge(at.x, at.z, CYAN, 1.6)
-            this.game.pulseFromChip(chip)
+            this.game.hacking.pulseFromChip(chip)
         }
         this.game.sysLog.blip(flipped)
         return flipped > 0

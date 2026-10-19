@@ -104,3 +104,9 @@ export const RAIL_TRACK = FIELD_HALF_WIDTH - 20
 
 /** Radar ping: recharge, wavefront speed in field units a second, and how long a contact stays lit. */
 export const PING_COOLDOWN_MS = 3500
+
+/** The most hackers that work one node at once; the rest wait this much further out for a free terminal. */
+export const HACK_TEAM = 4
+
+/** Facing for a rider: down the column toward the fence, or along a rung. */
+export const YAW_DOWN = 0

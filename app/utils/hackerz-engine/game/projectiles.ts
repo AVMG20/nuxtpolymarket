@@ -229,7 +229,7 @@ export class Projectiles {
                 }
             }
 
-            if (!consumed && !bullet.fromTurret && this.game.roundThroughChips(bullet)) consumed = true
+            if (!consumed && !bullet.fromTurret && this.game.hacking.roundThroughChips(bullet)) consumed = true
 
             const offField = Math.abs(bullet.u) > WALL_HALF_LENGTH + 200 || bullet.d > DESPAWN_DEPTH + 100 || bullet.d < MUZZLE_D - 60
             if (consumed || bullet.lifeMs <= 0 || offField) {

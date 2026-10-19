@@ -21,7 +21,7 @@ export class WhiteHats {
     /** It switches sides: drops whatever job it had, and is marked white. */
     turnEnemy(enemy: EnemyEntity) {
         enemy.turned = true
-        if (enemy.hacking) this.game.stopHacking(enemy)
+        if (enemy.hacking) this.game.hacking.stopHacking(enemy)
         // Every job it had for them is dropped: no more guarding, escorting or shield-bearing.
         enemy.escorting = null
         enemy.defending = null

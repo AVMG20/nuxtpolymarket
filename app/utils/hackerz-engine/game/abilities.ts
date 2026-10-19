@@ -129,8 +129,8 @@ export class Abilities {
         const defenderOf = (chip: PathChip) => this.game.enemies.findIndex(enemy => enemy.defending === chip && enemy.hp > 0)
         const wash = this.game.pathChips?.icePulse(chip => defenderOf(chip) >= 0)
         for (const chip of wash?.reclaimed ?? []) {
-            this.game.pulseFromChip(chip)
-            this.game.chipReclaimed(chip)
+            this.game.hacking.pulseFromChip(chip)
+            this.game.hacking.chipReclaimed(chip)
         }
         if (wash?.brokeOn) {
             const at = fieldToWorld(wash.brokeOn.u, wash.brokeOn.d, 0.4, new THREE.Vector3())
