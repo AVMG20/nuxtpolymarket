@@ -1,14 +1,8 @@
 import * as THREE from 'three'
 import { randomInt } from '../rng'
 import {
-    HACKERZ_HACKER_ID,
-    HACKERZ_PORTSCAN_REPING_MS,
-    hackerzDeployable,
-    hackerzDeployableStats,
-    hackerzEmptyStock,
-    hackerzIsAirborne,
-    type HackerzDeployableId,
-    type HackerzDeployableStock
+    HACKERZ_HACKER_ID, HACKERZ_PORTSCAN_REPING_MS, hackerzDeployable, hackerzDeployableStats, hackerzEmptyStock,
+    hackerzIsAirborne, type HackerzDeployableId, type HackerzDeployableStock
 } from '#shared/utils/gamelogic/hackerz'
 import { FIELD_DEPTH, FIELD_HALF_WIDTH, FIELD_SCALE } from '../constants'
 import { clamp } from '../math'

@@ -7,18 +7,8 @@ import type { Hold } from '../deployables'
 import { segmentDirection } from '../data-lines'
 import { poseRig } from '../models'
 import {
-    MOTION,
-    easeRecoil,
-    easeSheen,
-    hitFlash,
-    drainGrowth,
-    gatherLegs,
-    easeInject,
-    easeStrike,
-    injectLands,
-    rollSpeedFor,
-    strideFor,
-    strikeLands
+    MOTION, easeRecoil, easeSheen, hitFlash, drainGrowth, gatherLegs, easeInject, easeStrike, injectLands, rollSpeedFor,
+    strideFor, strikeLands
 } from '../rig-motion'
 import { AMBER, CYAN } from '../scene'
 import type { EnemyEntity, RouteGoal } from '../types'

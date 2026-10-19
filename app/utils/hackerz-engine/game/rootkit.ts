@@ -1,10 +1,6 @@
 import * as THREE from 'three'
 import {
-    HACKERZ_SPIDER_CAP,
-    HACKERZ_SPIDER_HATCH_MS,
-    HACKERZ_SPIDER_INFECT_RADIUS,
-    HACKERZ_SPIDER_INJECT_MS,
-    hackerzEnemy
+    HACKERZ_SPIDER_CAP, HACKERZ_SPIDER_HATCH_MS, HACKERZ_SPIDER_INFECT_RADIUS, HACKERZ_SPIDER_INJECT_MS, hackerzEnemy
 } from '#shared/utils/gamelogic/hackerz'
 import { FIELD_HALF_WIDTH, SHIELD_D } from '../constants'
 import { clamp, randRange } from '../math'
