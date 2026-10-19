@@ -56,4 +56,39 @@ describe('dead front viewmodel sights', () => {
             expect(rig.mag ?? rig.pan ?? rig.pump, id).not.toBeNull()
         }
     })
+    it('draws every attachment on its weapon', () => {
+        // A fitting that leaves the model untouched is one that never shows in the armory or the match.
+        const signature = (id: Parameters<typeof dfBuildGunRig>[0], attachments = {}) => {
+            const rig = dfBuildGunRig(id, 0, attachments)
+            let sum = 0
+            rig.root.traverse((o) => {
+                const geo = (o as THREE.Mesh).geometry as THREE.BufferGeometry | undefined
+                if (!geo) return
+                for (const attr of Object.values(geo.attributes)) {
+                    const arr = attr.array as ArrayLike<number>
+                    for (let i = 0; i < arr.length; i += 7) sum += (arr[i] ?? 0) * ((i % 13) + 1)
+                    sum += arr.length
+                }
+            })
+            return sum
+        }
+        for (const id of DF_WEAPON_IDS) {
+            const bare = signature(id)
+            for (const a of DF_WEAPONS[id].attachments) {
+                expect(signature(id, { [a.slot]: a.id }), `${id} ${a.id}`).not.toBe(bare)
+            }
+        }
+    })
+
+    it('puts a red dot lens in the glass of every red dot sight', () => {
+        for (const id of DF_WEAPON_IDS) {
+            for (const a of DF_WEAPONS[id].attachments.filter(x => x.id.endsWith('-reddot'))) {
+                const rig = dfBuildGunRig(id, 0, { optic: a.id })
+                expect(rig.lens, `${id} ${a.id}`).not.toBeNull()
+                // Clear of the iron sights: the window sits above the bore, on the sight line.
+                expect(rig.sight.y, a.id).toBeGreaterThan(rig.muzzle.position.y + 0.03)
+                expect(Math.abs(rig.lens!.position.y - rig.sight.y), a.id).toBeLessThan(1e-6)
+            }
+        }
+    })
 })

@@ -70,15 +70,16 @@ describe('weapon defs', () => {
         expect(DF_WEAPON_IDS.filter(id => !DF_WEAPONS[id].startable).sort()).toEqual(['wunder', 'xray'])
     })
 
-    it('gives regular weapons 3-4 attachments unlocked at levels 2-5', () => {
+    it('gives regular weapons a choice in each of the four slots, unlocked at levels 2-5', () => {
         for (const id of DF_WEAPON_IDS) {
             const list = DF_WEAPONS[id].attachments
             if (id === 'xray' || id === 'wunder') {
                 expect(list).toHaveLength(0)
                 continue
             }
-            expect(list.length).toBeGreaterThanOrEqual(3)
-            expect(list.length).toBeLessThanOrEqual(4)
+            expect(list.length).toBeGreaterThanOrEqual(4)
+            expect(list.length).toBeLessThanOrEqual(7)
+            expect(new Set(list.map(a => a.slot)).size).toBe(4)
             for (const a of list) {
                 expect(a.level).toBeGreaterThanOrEqual(2)
                 expect(a.level).toBeLessThanOrEqual(5)
