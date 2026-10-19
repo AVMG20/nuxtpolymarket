@@ -2,6 +2,7 @@ import { DF_COSTS, DF_MAX_PERKS, DF_SOLO_SECONDWIND_MAX, dfPapCost } from '#shar
 import { DF_BARRICADE_PLANKS } from '#shared/utils/dead-front/map'
 import type { DfInteractable, DfMapDef } from '#shared/utils/dead-front/map'
 import { DF_PERKS } from '#shared/utils/dead-front/perks'
+import { DF_TRAP } from '#shared/utils/dead-front/specials'
 import type { DfHeldWeapon, DfPlayerSnap, DfWorldSnap } from '#shared/utils/dead-front/protocol'
 import { dfEggRodSpots } from './objective'
 import type { Vec3 } from '#shared/utils/dead-front/types'
@@ -166,8 +167,22 @@ export function dfPromptFor(it: DfInteractable, c: DfPromptCtx): DfPrompt | null
             if (boards >= DF_BARRICADE_PLANKS) return null
             return { id: it.id, kind: 'barricade', text: 'Hold F to rebuild the barrier', cost: null, ok: true, action: 'use', repeat: true }
         }
+        case 'trap':
+            return trapPrompt(it, c)
     }
     return null
+}
+
+/** An electric trap's lever: needs the power, runs a while, then cools down. */
+function trapPrompt(it: DfInteractable, c: DfPromptCtx): DfPrompt | null {
+    const id = it.ref ?? it.id
+    const trap = c.map.traps?.find(t => t.id === id)
+    if (!trap) return null
+    const run = c.world.traps?.find(t => t.id === id)
+    if (run?.state === 'active') return info(it.id, 'trap', 'Electric trap running', `${trap.label} · ${Math.ceil(run.timer)} s`)
+    if (run?.state === 'cooldown') return info(it.id, 'trap', 'Electric trap cooling down', `${trap.label} · ${Math.ceil(run.timer)} s`)
+    if (!c.world.power) return info(it.id, 'trap', 'Requires power', trap.label)
+    return buyPrompt(it.id, 'trap', 'Hold F to activate the electric trap', DF_TRAP.cost, c.me.points, trap.label)
 }
 
 /** A lightning-rod switch: thrown during the `rods` step, otherwise it explains itself or stays quiet. */

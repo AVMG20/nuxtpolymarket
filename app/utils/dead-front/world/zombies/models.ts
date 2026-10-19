@@ -35,9 +35,14 @@ export const P = {
     legUR: 9,
     legLR: 10,
     helmet: 11,
-    eyes: 12
+    eyes: 12,
+    /** A gas mask over the head (gas rounds), shown per zombie. */
+    mask: 13,
+    /** Bloody knee stumps, shown when the legs are blown off (crawlers). */
+    stumpL: 14,
+    stumpR: 15
 } as const
-export const DF_ZOMBIE_PARTS = 13
+export const DF_ZOMBIE_PARTS = 16
 
 /** Joint layout in voxel units. */
 const HIP = 12
@@ -67,6 +72,8 @@ export interface DfZombiePartModel {
     model: DfVoxModel
     /** Joint (pivot) in model voxel coordinates. */
     pivot: [number, number, number]
+    /** Voxel size relative to the zombie's (finer detail, e.g. the gas mask at half size). */
+    cell?: number
 }
 
 export interface DfZombieBuild {
@@ -369,8 +376,12 @@ export function dfBuildZombie(type: DfEnemyType, outfit: number): DfZombieBuild 
             sh.box(0, 0, 0, w, 1, w + 1, sh.c(L.boot)).box(0, 1, w - 1, w, 2, w + 1, sh.c(L.boot))
             if (type === 'ghoul' && side === 0) sh.box(0, 0, 0, w, 1, w + 1, skinFill(sh, seed + 18))
             parts[side ? P.legLR : P.legLL] = { model: sh, pivot: [w / 2, 6, w / 2] }
+            parts[side ? P.stumpR : P.stumpL] = { model: stump(w, L.trousers, seed + 40 + side), pivot: [w / 2, 3, w / 2] }
         }
     }
+
+    // ---------------------------------------------------------------- gas mask (gas rounds), over the head
+    if (type !== 'brute' && !L.mask) parts[P.mask] = { model: gasMask(seed + 50), pivot: [MASK_W / 2, -1, MASK_W / 2], cell: 0.5 }
 
     // ---------------------------------------------------------------- the brute's iron helmet (a trench helmet with a face plate)
     if (type === 'brute') {
@@ -386,6 +397,75 @@ export function dfBuildZombie(type: DfEnemyType, outfit: number): DfZombieBuild 
         parts[P.helmet] = { model: m, pivot: [3.5, 0, 3.5] }
     }
     return { type, outfit, dims, parts }
+}
+
+/**
+ * What is left below the knee when the legs are blown off: a ragged cuff of
+ * trouser, raw flesh and a splinter of bone, hanging from the knee joint.
+ */
+function stump(w: number, trousers: number, seed: number): DfVoxModel {
+    const m = new DfVoxModel(w, 3, w)
+    const flesh = m.c(0x7a1c14)
+    const raw = m.c(0x4e120d)
+    const bone = m.c(0xd8d0b0)
+    m.box(0, 2, 0, w, 3, w, worn(m, trousers, seed))
+    m.box(0, 1, 0, w, 2, w, (i, j, k) => (dfHash3(i, j, k, seed) < 0.3 ? 0 : dfHash3(i, j, k, seed + 1) < 0.5 ? flesh : raw))
+    const c = Math.floor(w / 2)
+    m.set(c, 1, c, bone).set(c, 0, c, bone)
+    if (dfHash3(w, 0, 0, seed) < 0.5) m.set(Math.max(0, c - 1), 0, c, flesh)
+    return m
+}
+
+/** The gas mask's size in half voxels (the head cube is 10 across). */
+const MASK_W = 12
+
+/**
+ * A 1917 rubberised gas hood over the whole head, in half voxels: big round
+ * goggle eyes in brass rims glowing faintly from the eyes behind, a snout
+ * with a ribbed filter canister screwed onto it, and a head harness. Its
+ * joint is the head's (the hood clears the head cube by half a voxel).
+ */
+function gasMask(seed: number): DfVoxModel {
+    const W = MASK_W
+    // the head cube is i, k 1..10, j 0..9; the face is at k = 11, the canister reaches k = 16
+    const m = new DfVoxModel(W, 11, W + 5)
+    const rubber = m.shade(0x494a3b, 0.07, seed)
+    m.box(0, 0, 0, W, 11, W, rubber)
+    // a darker skirt at the throat and the harness straps round the back
+    const strap = m.c(0x2e2a22)
+    m.box(0, 0, 0, W, 1, W, m.c(0x3b3c30))
+    for (const j of [4, 8]) m.box(0, j, 0, W, j + 1, W - 3, strap)
+    m.box(1, 0, 1, W - 1, 10, W - 1, 0)
+    m.set(5, 6, 0, m.c(0x8a7440)).set(6, 6, 0, m.c(0x8a7440))
+    // goggle eyes: brass rims (5x5, corners cut) round glowing glass
+    const rim = m.c(0x8a7440)
+    const rimDark = m.c(0x5b4a28)
+    const glass = m.c(0xb8d860, 0.6)
+    for (const cx of [1, 6]) {
+        for (let a = 0; a < 5; a++) {
+            for (let b = 0; b < 5; b++) {
+                const corner = (a === 0 || a === 4) && (b === 0 || b === 4)
+                if (corner) continue
+                const inner = a >= 1 && a <= 3 && b >= 1 && b <= 3 && !((a === 1 || a === 3) && (b === 1 || b === 3))
+                m.set(cx + a, 4 + b, W, inner ? glass : (b === 0 ? rimDark : rim))
+                if (!inner) m.set(cx + a, 4 + b, W - 1, rimDark)
+            }
+        }
+    }
+    // the snout and the filter canister, pointing forward and down
+    m.box(4, 1, W, 8, 4, W + 1, rubber)
+    const tin = m.shade(0x5d6148, 0.06, seed + 3)
+    const rib = m.c(0x767a5c)
+    for (let k = W + 1; k < W + 5; k++) {
+        for (let i = 4; i < 8; i++) {
+            for (let j = 0; j < 4; j++) {
+                if ((i === 4 || i === 7) && (j === 0 || j === 3)) continue
+                m.set(i, j, k, k === W + 2 ? rib : tin(i, j, k))
+            }
+        }
+    }
+    m.box(5, 1, W + 4, 7, 3, W + 5, m.c(0x24251f))
+    return m
 }
 
 /** Rest-pose offsets of each part's joint from its parent joint (metres), shared by the rig and tests. */
@@ -404,8 +484,14 @@ export function dfZombieJoints(d: DfZombieDims): THREE.Vector3[] {
     j[P.legUR] = new THREE.Vector3(d.legX, 0, 0)
     j[P.legLL] = new THREE.Vector3(0, -d.thigh, 0)
     j[P.legLR] = new THREE.Vector3(0, -d.thigh, 0)
+    j[P.mask] = new THREE.Vector3(0, 0, 0)
+    j[P.stumpL] = new THREE.Vector3(0, -d.thigh, 0)
+    j[P.stumpR] = new THREE.Vector3(0, -d.thigh, 0)
     return j
 }
 
 /** Parent of each part (-1 = the root). */
-export const DF_ZOMBIE_PARENT: number[] = [-1, P.pelvis, P.torso, P.torso, P.armUL, P.torso, P.armUR, P.pelvis, P.legUL, P.pelvis, P.legUR, P.head, P.head]
+export const DF_ZOMBIE_PARENT: number[] = [-1, P.pelvis, P.torso, P.torso, P.armUL, P.torso, P.armUR, P.pelvis, P.legUL, P.pelvis, P.legUR, P.head, P.head, P.head, P.legUL, P.legUR]
+
+/** Part draw order: parents first. */
+export const DF_ZOMBIE_ORDER = [P.pelvis, P.torso, P.head, P.eyes, P.helmet, P.mask, P.armUL, P.armLL, P.armUR, P.armLR, P.legUL, P.legLL, P.stumpL, P.legUR, P.legLR, P.stumpR]

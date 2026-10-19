@@ -1,5 +1,6 @@
 import type { DfPerkId, DfWeaponId, Vec3 } from './types'
 import { DF_WALK_Y, dfMapWorld } from './map-world'
+import { dfMapTraps } from './map-traps'
 import type { Rect } from './map-world'
 import type { DfTrap } from './specials'
 import { dfBodyFits, dfBuildCollision, dfGroundHeight } from './physics'
@@ -415,8 +416,8 @@ function compile(): DfMapDef {
         },
         riserSpawns: w.riserSpawns,
         nav: buildNav({ solids: w.solids, doors: w.doors, barricades: w.barricades, zoneRects: w.zoneRects, pockets: w.pockets, stairs: w.stairs, start: w.playerSpawns[0]! }),
-        lights: w.lights
-        // traps: dfMapTraps() (map-traps.ts) joins once the client draws the lever and coils
+        lights: w.lights,
+        traps: dfMapTraps()
     }
 }
 

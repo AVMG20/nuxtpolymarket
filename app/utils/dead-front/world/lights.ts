@@ -46,6 +46,8 @@ interface Fixture {
     inst: number
     flames: number[]
     flameBase: THREE.Vector3[]
+    /** Electric trap id: lit only while that trap runs. */
+    trap?: string
 }
 
 interface Slot {
@@ -151,11 +153,21 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
         const s = kit.map.pap
         virtual.push({ pos: { x: s.pos.x + Math.sin(s.yaw) * 0.9, y: s.pos.y + 1.6, z: s.pos.z + Math.cos(s.yaw) * 0.9 }, color: '#a45cff', intensity: 0.42, distance: 5.5, power: true })
     }
+    // Electric traps: a cold blue pool over the passage, only while the trap runs.
+    const trapOf = new Map<DfLight, string>()
+    for (const t of kit.map.traps ?? []) {
+        const a = t.area
+        const l: DfLight = { pos: { x: (a.min.x + a.max.x) / 2, y: a.min.y + 2.1, z: (a.min.z + a.max.z) / 2 }, color: '#9fd0ff', intensity: 0.9, distance: 8 }
+        virtual.push(l)
+        trapOf.set(l, t.id)
+    }
+    const trapLive = new Set<string>()
     const virtualSet = new Set(virtual)
     for (const l of [...kit.map.lights, ...virtual]) {
         const kind = kindOf(l)
         const onPost = virtualSet.has(l) || lampposts.some(p => Math.hypot(p.x - l.pos.x, p.z - l.pos.z) < 0.7)
-        const f: Fixture = { light: l, kind, color: new THREE.Color(l.color), seed: rnd() * 100, level: l.power ? 0 : 1, delay: kit.powerDelay(l.pos.x, l.pos.z), score: 0, inst: onPost ? -1 : byKind[kind].length, flames: [], flameBase: [] }
+        const trap = trapOf.get(l)
+        const f: Fixture = { light: l, kind, color: new THREE.Color(l.color), seed: rnd() * 100, level: l.power || trap ? 0 : 1, delay: kit.powerDelay(l.pos.x, l.pos.z), score: 0, inst: onPost ? -1 : byKind[kind].length, flames: [], flameBase: [], trap }
         if (!onPost) {
             byKind[kind].push(f)
             const o = l.pos
@@ -239,7 +251,9 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
             const p = f.light.pos
             const d2 = (p.x - camPos.x) ** 2 + (p.y - camPos.y) ** 2 + (p.z - camPos.z) ** 2
             const reach = f.light.distance
-            const strength = f.light.intensity * (f.light.power ? (kit.state.powerOn && kit.state.powerAge >= f.delay ? 1 : 0) : 1)
+            const strength = f.trap
+                ? (trapLive.has(f.trap) ? f.light.intensity : 0)
+                : f.light.intensity * (f.light.power ? (kit.state.powerOn && kit.state.powerAge >= f.delay ? 1 : 0) : 1)
             f.score = strength <= 0.01 ? 0 : strength * reach * reach / (d2 + 9)
             if (d2 > (reach + 22) ** 2) f.score *= 0.05
         }
@@ -262,7 +276,9 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
 
     const tint = new THREE.Color()
     return {
-        update(dt, _world, time) {
+        update(dt, world, time) {
+            trapLive.clear()
+            for (const t of world.traps ?? []) if (t.state === 'active') trapLive.add(t.id)
             reassign -= dt
             if (reassign <= 0) {
                 assign()
@@ -271,7 +287,10 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
             const st = kit.state
             for (const f of fixtures) {
                 let level: number
-                if (f.light.power) {
+                if (f.trap) {
+                    // Live current: a hard, fast stutter.
+                    level = trapLive.has(f.trap) ? 0.6 + 0.4 * Math.abs(Math.sin(time * 37 + f.seed) * Math.sin(time * 23)) : 0
+                } else if (f.light.power) {
                     // The surge spreads out from the switch: each lamp stutters on as it arrives.
                     level = dfPowerLevel(st.powerOn ? st.powerAge - f.delay : -1, time, f.seed)
                 } else {

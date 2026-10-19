@@ -16,7 +16,7 @@ import type { DfPlayerSetup } from '#server/utils/dead-front/sim-types'
 
 const setup = (userId: string): DfPlayerSetup => ({ userId, name: userId, startWeapon: 'm1911', attachments: {}, perkMods: {} })
 
-/** Sainte-Croix with its traps (not on the live map until the client draws them). */
+/** Sainte-Croix with its traps (built straight from map-traps.ts). */
 const TRAP_MAP: DfMapDef = { ...DF_MAP, traps: dfMapTraps() }
 
 function makeSim(players = 1) {

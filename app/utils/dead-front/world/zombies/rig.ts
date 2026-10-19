@@ -35,6 +35,9 @@ function patchRig(m: THREE.Material, bones: { value: THREE.Texture }, normals: b
     m.customProgramCacheKey = () => `dfrig|${prevKey()}`
 }
 
+/** The batch behind each zombie mesh (tests and debugging read poses back through it). */
+export const dfZombieBatchOf = new WeakMap<THREE.Object3D, DfZombieBatch>()
+
 export class DfZombieBatch {
     readonly type: DfEnemyType
     readonly outfit: number
@@ -59,7 +62,7 @@ export class DfZombieBatch {
         const pieces: THREE.BufferGeometry[] = []
         this.build.parts.forEach((p, i) => {
             if (!p) return
-            const g = p.model.mesh(v, p.pivot)
+            const g = p.model.mesh(v * (p.cell ?? 1), p.pivot)
             if (!g) return
             const n = g.getAttribute('position').count
             g.setAttribute('aPart', new THREE.BufferAttribute(new Float32Array(n).fill(i), 1))
@@ -77,6 +80,7 @@ export class DfZombieBatch {
         patchRig(this.depth, bones, false)
         this.mesh = new THREE.InstancedMesh(this.geo, this.material, cap)
         this.mesh.name = `df-zombies-${type}-${outfit}`
+        dfZombieBatchOf.set(this.mesh, this)
         this.mesh.customDepthMaterial = this.depth
         this.mesh.frustumCulled = false
         this.mesh.castShadow = shadows
@@ -118,6 +122,11 @@ export class DfZombieBatch {
     setPart(slot: number, part: number, m: THREE.Matrix4): void {
         this.data.set(m.elements, (slot * DF_ZOMBIE_PARTS + part) * 16)
         this.dirty = true
+    }
+
+    /** Reads back one part's world matrix (all zeros when hidden). */
+    part(slot: number, part: number, out: THREE.Matrix4): THREE.Matrix4 {
+        return out.fromArray(this.data, (slot * DF_ZOMBIE_PARTS + part) * 16)
     }
 
     hidePart(slot: number, part: number): void {

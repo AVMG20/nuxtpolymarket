@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { DF_BLOATER, DF_ENEMIES } from '#shared/utils/dead-front/enemies'
+import { DF_BLOATER, DF_ENEMIES, dfCrawlGeometry } from '#shared/utils/dead-front/enemies'
 import { DF_MAP } from '#shared/utils/dead-front/map'
 import { dfBuildCollision, dfRaycast } from '#shared/utils/dead-front/physics'
 import type { DfEnemyDef } from '#shared/utils/dead-front/enemies'
@@ -10,9 +10,9 @@ import { dfVoxMaterial } from '../../voxel/material'
 import { DF_WORLD_SOUNDS, dfAttackSound, dfDeathSound, dfGroanSound } from '../sound-names'
 import { createDfDebris } from './debris'
 import { createDfGasClouds } from './gas'
-import { DF_ZOMBIE_PARENT, DF_ZOMBIE_PARTS, DF_ZOMBIE_TYPES, P, dfZombieJoints, dfZombieOutfitCount } from './models'
+import { DF_ZOMBIE_ORDER, DF_ZOMBIE_PARENT, DF_ZOMBIE_PARTS, DF_ZOMBIE_TYPES, P, dfZombieJoints, dfZombieOutfitCount } from './models'
 import type { DfZombieDims } from './models'
-import { DF_POSE_ROOT, dfCadence, dfEvalPose, dfLerpPose, dfNewPose } from './pose'
+import { DF_CRAWL_FALL, DF_POSE_ROOT, dfCadence, dfEvalPose, dfLerpPose, dfNewPose } from './pose'
 import type { DfPose, DfPoseInput } from './pose'
 import { DfZombieBatch } from './rig'
 import { DfZombieVoices } from './voices'
@@ -22,6 +22,8 @@ import { DfZombieVoices } from './voices'
 // Hits knock voxel chips off, kills burst into cubes (a headshot pops the
 // whole head), corpses fall, lie still, then sink and crumble away. Voices go
 // through a small budget so the horde groans now and then, nearest first.
+// Crawlers (`crawl`) lose their shins in a spray of gore and drag themselves
+// along prone; gas-round zombies (`masked`) wear a gas mask.
 //
 // Facing: the server's yaw is atan2(dx, dz), so a zombie at `yaw` faces
 // (sin yaw, 0, cos yaw); the models are built facing +z, so root yaw = yaw.
@@ -31,8 +33,9 @@ export { DF_ZOMBIE_TYPES } from './models'
 const BLEND_SECONDS = 0.2
 const DESPAWN_GRACE = 0.35
 const CAP = 40
-/** Part draw order: parents first. */
-const ORDER = [P.pelvis, P.torso, P.head, P.eyes, P.helmet, P.armUL, P.armLL, P.armUR, P.armLR, P.legUL, P.legLL, P.legUR, P.legLR]
+const ORDER = DF_ZOMBIE_ORDER
+/** A crawler's head height (its gaze tracks the player from there). */
+const CRAWL_HEAD_Y = Object.fromEntries(DF_ZOMBIE_TYPES.map(t => [t, dfCrawlGeometry(t).headY])) as Record<DfEnemyType, number>
 
 // Additive spring channels for flinches.
 const S_TORSO_X = 0
@@ -117,6 +120,32 @@ interface Live {
     tr: number
     tg: number
     tb: number
+    /** Legs blown off: prone, shins hidden, stumps shown. */
+    crawl: boolean
+    /** Wearing the gas mask (gas rounds). */
+    masked: boolean
+    /** Next blood smear left behind a crawler. */
+    trailAt: number
+}
+
+/** Which parts a zombie shows. */
+interface RigLook {
+    headGone?: boolean
+    helmet?: boolean
+    helmetMatrix?: THREE.Matrix4 | null
+    crawl?: boolean
+    mask?: boolean
+}
+
+function partHidden(p: number, o: RigLook): boolean {
+    if (o.headGone && (p === P.head || p === P.eyes || p === P.helmet || p === P.mask)) return true
+    if (p === P.helmet) return !o.helmet && !o.helmetMatrix
+    // the goggles glow in place of the eyes
+    if (p === P.mask) return !o.mask
+    if (p === P.eyes) return o.mask === true
+    if (p === P.legLL || p === P.legLR) return o.crawl === true
+    if (p === P.stumpL || p === P.stumpR) return !o.crawl
+    return false
 }
 
 interface Corpse {
@@ -147,6 +176,9 @@ interface Corpse {
     /** Knockback slide along the ground, decaying as it falls. */
     vx: number
     vz: number
+    /** A crawler: already down, it only slumps. */
+    crawl: boolean
+    mask: boolean
 }
 
 /** One flying limb of a gibbed zombie (a rigid part of its rig instance). */
@@ -194,7 +226,7 @@ function angleLerp(a: number, b: number, t: number): number {
 function newInput(type: DfEnemyType): DfPoseInput {
     return {
         type, anim: 'walk', t: 0, phase: 0, move: 0, limp: 0, limpSide: 1, arms: 2, hunch: 0, tilt: 0, seed: 0,
-        swing: -1, windup: 0.5, spit: -1, spitWindup: 0.6, tearPeriod: 1, height: DF_ENEMIES[type].height, tell: 0
+        swing: -1, windup: 0.5, spit: -1, spitWindup: 0.6, tearPeriod: 1, height: DF_ENEMIES[type].height, tell: 0, crawl: false, down: DF_CRAWL_FALL
     }
 }
 
@@ -213,7 +245,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
     const pointsOf = new Map<DfZombieBatch, { x: number, y: number, z: number, color: number }[][]>()
     for (const b of batches.values()) {
         jointsOf.set(b, dfZombieJoints(b.build.dims))
-        pointsOf.set(b, b.build.parts.map(p => (p ? p.model.points(b.build.dims.v, p.pivot) : [])))
+        pointsOf.set(b, b.build.parts.map(p => (p ? p.model.points(b.build.dims.v * (p.cell ?? 1), p.pivot) : [])))
     }
     const debrisMat = dfVoxMaterial()
     // Every door open: only walls stop a corpse sliding.
@@ -272,7 +304,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
      * Writes all part matrices of one instance. `tilt` pitches the whole body
      * about the feet (corpses), `eyeScale` grows the eyes at range.
      */
-    function writeRig(b: DfZombieBatch, slot: number, joints: THREE.Vector3[], dims: DfZombieDims, pose: DfPose, x: number, y: number, z: number, yaw: number, opts: { headGone?: boolean, helmet?: boolean, eyeScale?: number, scale?: number, helmetMatrix?: THREE.Matrix4 | null }): void {
+    function writeRig(b: DfZombieBatch, slot: number, joints: THREE.Vector3[], dims: DfZombieDims, pose: DfPose, x: number, y: number, z: number, yaw: number, opts: RigLook & { eyeScale?: number, scale?: number }): void {
         // root = T(feet) * Ry(yaw) * T(offset) * Rx(pitch) * Rz(roll): offsets stay level when the body tips over.
         const r = DF_POSE_ROOT
         q.setFromAxisAngle(v3.set(0, 1, 0), yaw + pose[r + 5]!)
@@ -297,8 +329,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             }
         }
         for (let p = 0; p < DF_ZOMBIE_PARTS; p++) {
-            const hidden = (opts.headGone && (p === P.head || p === P.eyes || p === P.helmet)) || (p === P.helmet && !opts.helmet && !opts.helmetMatrix)
-            if (hidden) b.hidePart(slot, p)
+            if (partHidden(p, opts)) b.hidePart(slot, p)
             else if (p === P.helmet && opts.helmetMatrix) b.setPart(slot, p, opts.helmetMatrix)
             else b.setPart(slot, p, world[p]!)
         }
@@ -370,7 +401,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             blend: 1, anim: 'walk', animTime: 0, input: newInput(s.type), x: 0, y: 0, z: 0, yaw: 0, lastX: 0, lastZ: 0, speed: 0, phase: 0, speedMul: 1,
             limpBase: 0, hitLimp: 0, springs: new Float32Array(S_COUNT * 2), headYaw: 0, headPitch: 0, groanAt: 0, attackAt: 0, tearAt: 0, gurgleAt: 0, leakAt: 0, sparkAt: 0,
             flickerAt: 0, seen: 0, missing: 0, armored: false, shocked: false, hp: 1, hitAt: -10, hitX: 0, hitZ: 0, fleshAt: 0, voice: 1, riseFx: 0, flash: 0,
-            helmet: null, helmetGone: false, dist: 0, tr: 1, tg: 1, tb: 1
+            helmet: null, helmetGone: false, dist: 0, tr: 1, tg: 1, tb: 1, crawl: false, masked: false, trailAt: 0
         }
         L.id = s.id
         L.type = s.type
@@ -435,6 +466,12 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         inp.windup = def.windup
         inp.tearPeriod = def.tearTime
         inp.spitWindup = DF_BLOATER.spitWindup
+        // already crawling when first seen: it is simply down
+        L.crawl = s.crawl === true
+        inp.crawl = L.crawl
+        inp.down = DF_CRAWL_FALL
+        L.trailAt = time + rnd(0.3, 0.9)
+        L.masked = s.masked === true && batch.build.parts[P.mask] !== null
         batch.setColor(slot, tint.setRGB(L.tr, L.tg, L.tb))
         enterAnim(L, s.anim, true)
         poseLive(L, 0)
@@ -494,7 +531,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
 
     function poseLive(L: Live, dt: number): void {
         const inp = L.input
-        const cad = dfCadence(L.type, L.speed) * L.speedMul
+        const cad = (L.crawl ? Math.max(0.25, dfCadence(L.type, L.speed, true)) : dfCadence(L.type, L.speed)) * L.speedMul
         L.phase += cad * dt
         inp.anim = L.anim
         inp.t = L.animTime
@@ -535,7 +572,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         const lz = dx * sy + dz * cy
         const dist = Math.hypot(lx, lz)
         let ty = Math.atan2(lx, lz)
-        let tp = -Math.atan2(camPos.y - (L.y + L.def.headY), Math.max(0.3, dist))
+        let tp = -Math.atan2(camPos.y - (L.y + (L.crawl ? CRAWL_HEAD_Y[L.type] : L.def.headY)), Math.max(0.3, dist))
         let w = TRACK[L.anim] * (dist < 16 ? 1 : Math.max(0, 1 - (dist - 16) / 8))
         if (Math.abs(ty) > 1.9) w = 0
         ty = clamp(ty, -1.0, 1.0) * w
@@ -560,7 +597,32 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             const h = L.helmet
             helmetMatrix = m4b.compose(h.pos, h.quat, one.set(1, 1, 1)).clone()
         }
-        writeRig(L.batch, L.slot, L.joints, L.dims, L.pose, L.x, L.y, L.z, L.yaw, { helmet: L.type === 'brute' && !L.helmetGone, helmetMatrix, eyeScale: eyeScale(L, pxPerUnit) })
+        writeRig(L.batch, L.slot, L.joints, L.dims, L.pose, L.x, L.y, L.z, L.yaw, { helmet: L.type === 'brute' && !L.helmetGone, helmetMatrix, crawl: L.crawl, mask: L.masked, eyeScale: eyeScale(L, pxPerUnit) })
+    }
+
+    /** The legs come off below the knee: the shins burst into gore and it starts toppling onto its front. */
+    function loseLegs(L: Live, anim: DfZombieAnim): void {
+        // the standing pose, shins still on, for the burst
+        writeLive(L, 1000)
+        const up = { x: 0, y: 1, z: 0 }
+        for (const part of [P.legLL, P.legLR]) {
+            v3.setFromMatrixPosition(world[part]!)
+            const kx = v3.x
+            const ky = v3.y
+            const kz = v3.z
+            burstPart(L.batch, part, L.y, rnd(2, 3.5), 1, kx, ky + 0.15, kz, null)
+            fx.burst('blood', { x: kx, y: ky, z: kz }, { normal: up, count: 10 })
+        }
+        const at = { x: L.x, y: L.y + L.dims.hipY * 0.45, z: L.z }
+        fx.burst('blood-mist', at, { scale: 0.9 })
+        fx.burst('gib', at, { scale: 0.6 })
+        fx.decal({ x: L.x, y: L.y + 0.01, z: L.z }, up, 'blood')
+        sound(DF_WORLD_SOUNDS.gib, at.x, at.y, at.z, 0.75, rnd(1.05, 1.2))
+        L.crawl = true
+        L.input.crawl = true
+        L.input.down = 0
+        L.trailAt = time + 0.8
+        enterAnim(L, anim, false)
     }
 
     function knockHelmet(L: Live): void {
@@ -626,7 +688,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             }
         } else {
             fx.burst('blood', ev.pos, { normal, count: 8 })
-            const part = ev.zone === 'head' ? P.head : ev.zone === 'body' ? P.torso : relY > L.def.height * 0.5 ? (side > 0 ? P.armLR : P.armLL) : (side > 0 ? P.legUR : P.legUL)
+            const part = ev.zone === 'head' ? (L.masked ? P.mask : P.head) : ev.zone === 'body' ? P.torso : relY > L.def.height * 0.5 ? (side > 0 ? P.armLR : P.armLL) : (side > 0 ? P.legUR : P.legUL)
             chips(L, part, ev.pos, ev.zone === 'head' ? 5 : 4)
             if (time - L.fleshAt > 0.07) {
                 L.fleshAt = time
@@ -676,14 +738,15 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         dz /= len
         const push = { x: dx * 2, y: 0, z: dz * 2 }
         const cx = L.x
-        const cyy = L.y + L.def.height * 0.55
+        const cyy = L.y + (L.crawl ? 0.22 : L.def.height * 0.55)
         const cz = L.z
+        const look: RigLook = { helmet: L.type === 'brute' && !L.helmetGone, crawl: L.crawl, mask: L.masked }
 
         if (ev.gib) {
             // The body bursts into cubes and some limbs fly off whole, tumbling.
             const g: Gib = { batch: L.batch, slot: L.slot, limbs: [], floor: L.y, t: 0 }
             for (let p = 0; p < DF_ZOMBIE_PARTS; p++) {
-                if (p === P.helmet && L.helmetGone) continue
+                if (partHidden(p, look)) continue
                 if (LIMBS.includes(p as typeof LIMBS[number]) && Math.random() < 0.65) {
                     const w = world[p]!
                     const pos = new THREE.Vector3().setFromMatrixPosition(w)
@@ -701,7 +764,8 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
                     })
                     continue
                 }
-                burstPart(L.batch, p, L.y, rnd(3.5, 6), L.type === 'brute' ? 2 : 1, cx, L.y + 0.6, cz, push)
+                // the gas mask is drawn at half size: thin it out
+                burstPart(L.batch, p, L.y, rnd(3.5, 6), p === P.mask ? 4 : L.type === 'brute' ? 2 : 1, cx, L.y + 0.6, cz, push)
             }
             fx.burst('blood-mist', { x: cx, y: cyy, z: cz }, { scale: 1.4 })
             fx.burst('gib', { x: cx, y: cyy, z: cz }, { scale: 1.2 })
@@ -724,15 +788,31 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             // Pop the head into cubes (and the helmet with it).
             burstPart(L.batch, P.head, L.y, rnd(2.5, 4), 1, hx, hy - L.dims.v, hz, push)
             if (L.type === 'brute' && !L.helmetGone) burstPart(L.batch, P.helmet, L.y, rnd(2, 3), 1, hx, hy - L.dims.v, hz, push)
+            if (L.masked) burstPart(L.batch, P.mask, L.y, rnd(2, 3), 4, hx, hy - L.dims.v, hz, push)
             fx.burst('blood-mist', { x: hx, y: hy, z: hz }, { normal: { x: dx, y: 0.4, z: dz }, scale: 1.1 })
             sound(DF_WORLD_SOUNDS.headPop, hx, hy, hz, 1, rnd(0.9, 1.1))
         } else {
             if (voices.take('death', time, L.dist)) sound(dfDeathSound(L.type), hx, hy, hz, 0.85, L.voice)
             chips(L, P.torso, { x: cx, y: cyy, z: cz }, 10)
         }
-        const twitch = ev.weapon === 'arc' ? 0.75 : L.shocked ? 0.3 : 0
+        const twitch = ev.weapon === 'arc' || ev.weapon === 'trap' ? 0.75 : L.shocked ? 0.3 : 0
         if (twitch > 0) fx.burst('electric', { x: cx, y: cyy, z: cz }, { count: 12 })
         const explosive = ev.weapon === 'grenade'
+        if (L.crawl) {
+            // Already down: it slumps flat where it lies, nudged along the shot.
+            const c: Corpse = {
+                batch: L.batch, slot: L.slot, dims: L.dims, joints: L.joints, type: L.type, pose: dfNewPose(), start: dfNewPose(),
+                x: L.x, y: L.y, z: L.z, yaw: L.yaw, yaw0: L.yaw, yawT: L.yaw, dir: 1, t: 0, crumple: false, twitch, landed: true, headGone: headshot,
+                helmet: false, fast: explosive, crumbled: 0, vx: dx * (explosive ? 1.2 : 0.3), vz: dz * (explosive ? 1.2 : 0.3), crawl: true, mask: L.masked
+            }
+            c.start.set(L.pose)
+            c.pose.set(L.pose)
+            L.batch.setColor(L.slot, tint.setRGB(0.92, 0.92, 0.92))
+            corpses.push(c)
+            if (corpses.length > 16) removeCorpse(corpses[0]!)
+            recycle(L)
+            return
+        }
         const crumple = !explosive && (headshot ? Math.random() < 0.55 : ev.weapon === 'knife' ? Math.random() < 0.7 : Math.random() < 0.3)
         // Fall away from the shooter unless the knees buckle (then forward).
         const fwdX = Math.sin(L.yaw)
@@ -751,7 +831,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             batch: L.batch, slot: L.slot, dims: L.dims, joints: L.joints, type: L.type, pose: dfNewPose(), start: dfNewPose(),
             x: L.x, y: L.y, z: L.z, yaw: L.yaw, yaw0: L.yaw, yawT: yaw, dir, t: 0, crumple, twitch, landed: false, headGone: headshot,
             helmet: L.type === 'brute' && !L.helmetGone && !headshot, fast: explosive, crumbled: 0,
-            vx: dx * kick, vz: dz * kick
+            vx: dx * kick, vz: dz * kick, crawl: false, mask: L.masked
         }
         c.start.set(L.pose)
         c.pose.set(L.pose)
@@ -766,7 +846,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         const c: Corpse = {
             batch: L.batch, slot: L.slot, dims: L.dims, joints: L.joints, type: L.type, pose: dfNewPose(), start: dfNewPose(),
             x: L.x, y: L.y, z: L.z, yaw: L.yaw, yaw0: L.yaw, yawT: L.yaw, dir: 1, t: 4.2, crumple: false, twitch: 0, landed: true, headGone: false, helmet: L.type === 'brute' && !L.helmetGone, fast: false, crumbled: 0,
-            vx: 0, vz: 0
+            vx: 0, vz: 0, crawl: L.crawl, mask: L.masked
         }
         c.start.set(L.pose)
         c.pose.set(L.pose)
@@ -842,6 +922,25 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         const fall = c.fast ? 0.35 : c.crumple ? 0.75 : 0.55
         const p = c.pose
         const r = DF_POSE_ROOT
+        const look: RigLook = { headGone: c.headGone, helmet: c.helmet, crawl: c.crawl, mask: c.mask }
+        if (c.t < LIE && c.crawl) {
+            // A crawler slumps flat: chest and head drop, the head rolls onto a cheek, the arms go limp.
+            const slack = smooth(c.t / 0.45)
+            p.set(c.start)
+            p[P.torso * 3] = c.start[P.torso * 3]! * (1 - slack)
+            p[P.torso * 3 + 1] = c.start[P.torso * 3 + 1]! * (1 - slack)
+            p[P.head * 3] = c.start[P.head * 3]! * (1 - slack) - 0.25 * slack
+            p[P.head * 3 + 2] = c.start[P.head * 3 + 2]! * (1 - slack) + 0.9 * slack
+            for (const part of [P.armUL, P.armUR]) p[part * 3] = p[part * 3]! * (1 - slack) - 2.9 * slack
+            for (const part of [P.armLL, P.armLR]) p[part * 3] = p[part * 3]! * (1 - slack) + 0.2 * slack
+            p[r + 1] = c.start[r + 1]! - slack * c.dims.v * 0.4
+            if (c.twitch > 0 && c.t < 2.5 && Math.random() < dt * 8 * c.twitch) {
+                p[P.armLL * 3] = p[P.armLL * 3]! - rnd(0, 0.6)
+                fx.burst('electric', { x: c.x + rnd(-0.3, 0.3), y: c.y + 0.2, z: c.z + rnd(-0.3, 0.3) }, { count: 5 })
+            }
+            writeRig(c.batch, c.slot, c.joints, c.dims, p, c.x, c.y, c.z, c.yaw, { ...look, eyeScale: 1 })
+            return true
+        }
         if (c.t < LIE) {
             // Knees buckle (crumple) then the body topples about the feet with a small bounce.
             const u = clamp(c.t / fall, 0, 1)
@@ -878,7 +977,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
                     fx.decal({ x: fx2, y: c.y + 0.01, z: fz2 }, { x: 0, y: 1, z: 0 }, 'blood')
                 }
             }
-            writeRig(c.batch, c.slot, c.joints, c.dims, p, c.x, c.y, c.z, c.yaw, { headGone: c.headGone, helmet: c.helmet, eyeScale: 1 })
+            writeRig(c.batch, c.slot, c.joints, c.dims, p, c.x, c.y, c.z, c.yaw, { ...look, eyeScale: 1 })
             void pxPerUnit
             return true
         }
@@ -886,7 +985,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         const u = (c.t - LIE) / SINK
         if (u >= 1) return false
         const sink = smooth(u)
-        p[r + 1] = c.dims.v * 2.2 - sink * 0.6
+        p[r + 1] = (c.crawl ? c.start[r + 1]! - c.dims.v * 0.4 : c.dims.v * 2.2) - sink * 0.6
         const want = Math.floor(u * 6)
         while (c.crumbled < want) {
             c.crumbled++
@@ -895,7 +994,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
                 debris.spawn(c.x + Math.sin(c.yaw) * c.dir * rnd(0.2, 1.4) + Math.cos(a) * 0.2, c.y + 0.15, c.z + Math.cos(c.yaw) * c.dir * rnd(0.2, 1.4) + Math.sin(a) * 0.2, Math.cos(a) * 0.5, rnd(0.8, 1.6), Math.sin(a) * 0.5, c.dims.v * 0.8, 0x4a4436, c.y, 0.8)
             }
         }
-        writeRig(c.batch, c.slot, c.joints, c.dims, p, c.x, c.y, c.z, c.yaw, { headGone: c.headGone, helmet: c.helmet, eyeScale: 1, scale: 1 - sink * 0.35 })
+        writeRig(c.batch, c.slot, c.joints, c.dims, p, c.x, c.y, c.z, c.yaw, { ...look, eyeScale: 1, scale: 1 - sink * 0.35 })
         return true
     }
 
@@ -909,6 +1008,14 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         L.z = s.pos.z
         L.hp = s.hp
         L.dist = distTo(L.x, L.y + 1, L.z)
+        L.masked = s.masked === true && L.batch.build.parts[P.mask] !== null
+        const crawl = s.crawl === true
+        if (crawl && !L.crawl) loseLegs(L, s.anim)
+        else if (!crawl && L.crawl) {
+            L.crawl = false
+            L.input.crawl = false
+            enterAnim(L, s.anim, false)
+        }
         const tell = s.tell === 'lunge' ? 1 : s.tell === 'charge' ? 2 : 0
         if (tell !== L.input.tell) {
             L.input.tell = tell
@@ -943,6 +1050,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             if (prev < inp.spitWindup && inp.spit >= inp.spitWindup && voices.take('spit', time, L.dist)) sound(DF_WORLD_SOUNDS.spit, L.x, L.y + L.def.headY, L.z, 1, L.voice)
             if (inp.spit > inp.spitWindup + 1) inp.spit = -1
         }
+        if (L.crawl) stepCrawler(L, dt)
         const prevPhase = L.phase
         poseLive(L, dt)
         stepHelmet(L, dt)
@@ -1007,6 +1115,32 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             tb += h * 0.2
         }
         L.batch.setColor(L.slot, tint.setRGB(tr * L.tr, tg * L.tg, tb * L.tb))
+    }
+
+    /** A crawler hits the ground after its fall, and smears blood behind it as it drags itself along. */
+    function stepCrawler(L: Live, dt: number): void {
+        const inp = L.input
+        const was = inp.down ?? DF_CRAWL_FALL
+        inp.down = was + dt
+        const fwdX = Math.sin(L.yaw)
+        const fwdZ = Math.cos(L.yaw)
+        if (was < DF_CRAWL_FALL && inp.down >= DF_CRAWL_FALL) {
+            const hx = L.x + fwdX * 0.45
+            const hz = L.z + fwdZ * 0.45
+            fx.burst('dust', { x: hx, y: L.y + 0.05, z: hz }, { normal: { x: 0, y: 1, z: 0 }, count: 8 })
+            if (time - fallSoundAt > 0.06) {
+                fallSoundAt = time
+                sound(DF_WORLD_SOUNDS.bodyFall, hx, L.y + 0.2, hz, 0.7, rnd(1, 1.12))
+            }
+        }
+        if (L.speed > 0.2 && time >= L.trailAt && L.dist < 30) {
+            L.trailAt = time + rnd(0.5, 0.9)
+            const back = L.def.height * 0.3
+            const bx = L.x - fwdX * back + rnd(-0.08, 0.08)
+            const bz = L.z - fwdZ * back + rnd(-0.08, 0.08)
+            fx.decal({ x: bx, y: L.y + 0.01, z: bz }, { x: 0, y: 1, z: 0 }, 'blood')
+            if (Math.random() < 0.5) fx.burst('blood', { x: bx, y: L.y + 0.12, z: bz }, { normal: { x: -fwdX, y: 0.5, z: -fwdZ }, count: 2 })
+        }
     }
 
     /** Idle groans: the nearest due zombie may speak; everyone else waits a while. */

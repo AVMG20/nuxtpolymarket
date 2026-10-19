@@ -12,6 +12,7 @@ import { createDfDoors } from './interact/doors'
 import { createDfMachines } from './interact/machines'
 import { createDfPerkMachines } from './interact/perks'
 import { createDfRods } from './interact/rods'
+import { createDfTraps } from './interact/traps'
 import type { DfWorldKit, DfWorldPart } from './kit'
 import { buildDfLevel } from './level'
 import { createDfLights } from './lights'
@@ -36,7 +37,7 @@ export function dfPowerDelay(map: DfMapDef, x: number, z: number): number {
     return Math.hypot(x - map.power.pos.x, z - map.power.pos.z) / POWER_WAVE_SPEED
 }
 
-/** Static map + live interactables (doors, boards, box, PaP, perks, power, egg). */
+/** Static map + live interactables (doors, boards, box, PaP, perks, power, egg, traps). */
 export function createDfWorldView(ctx: DfRenderContext, map: DfMapDef): DfWorldView {
     const quality = ctx.quality
     const mat = dfVoxMaterial()
@@ -85,6 +86,7 @@ export function createDfWorldView(ctx: DfRenderContext, map: DfMapDef): DfWorldV
     tryPart('machines', () => createDfMachines(kit))
     tryPart('perks', () => createDfPerkMachines(kit))
     tryPart('rods', () => createDfRods(kit))
+    tryPart('traps', () => createDfTraps(kit))
     ctx.audio.loop(DF_WORLD_SOUNDS.ambience, dfAmbienceLoop)
 
     return {

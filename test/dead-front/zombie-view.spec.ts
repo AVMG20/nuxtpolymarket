@@ -4,7 +4,9 @@ import type { DfZombieSnap } from '#shared/utils/dead-front/protocol'
 import type { DfFx, DfAudio, DfRenderContext } from '../../app/utils/dead-front/context'
 import { createDfZombieView } from '../../app/utils/dead-front/world/zombies'
 import { DF_WORLD_SOUNDS } from '../../app/utils/dead-front/world/sound-names'
-import { DF_ZOMBIE_TYPES, dfZombieOutfitCount } from '../../app/utils/dead-front/world/zombies/models'
+import { DF_ZOMBIE_TYPES, P, dfZombieOutfitCount } from '../../app/utils/dead-front/world/zombies/models'
+import { dfZombieBatchOf } from '../../app/utils/dead-front/world/zombies/rig'
+import type { DfZombieBatch } from '../../app/utils/dead-front/world/zombies/rig'
 
 function mockCtx() {
     const sounds: string[] = []
@@ -145,6 +147,55 @@ describe('dead front zombie view', () => {
         expect(groanAt.length).toBeLessThanOrEqual(30)
         for (let i = 1; i < groanAt.length; i++) expect(groanAt[i]! - groanAt[i - 1]!).toBeGreaterThanOrEqual(1)
         expect(minGap).toBeGreaterThanOrEqual(6)
+        view.dispose()
+    })
+
+    it('masks gas-round zombies and drops crawlers onto their stumps', () => {
+        const { ctx, sounds, bursts, scene } = mockCtx()
+        const view = createDfZombieView(ctx)
+        // the ghoul sits in slot 0 of whichever outfit batch it drew
+        const drawn = (): DfZombieBatch => scene.children.map(c => dfZombieBatchOf.get(c)!).find(b => b && b.type === 'ghoul' && b.active > 0)!
+        const m = new THREE.Matrix4()
+        const shown = (part: number) => drawn().part(0, part, m).elements.some(x => x !== 0)
+        const headY = () => drawn().part(0, P.head, m).elements[13]!
+        const run = (z: DfZombieSnap, frames: number) => {
+            for (let f = 0; f < frames; f++) view.update(1 / 60, [z])
+        }
+
+        let z = snap(1, 'ghoul', 0, 0, 'sprint', { masked: true })
+        run(z, 5)
+        expect(shown(P.mask)).toBe(true)
+        expect(shown(P.eyes)).toBe(false)
+        z = { ...z, masked: undefined }
+        run(z, 2)
+        expect(shown(P.mask)).toBe(false)
+        expect(shown(P.eyes)).toBe(true)
+
+        // standing: shins on, no stumps
+        expect(shown(P.legLL)).toBe(true)
+        expect(shown(P.stumpL)).toBe(false)
+        const standing = headY()
+        // the legs come off: gore, then it topples onto its front and drags itself along
+        z = { ...z, crawl: true, anim: 'stagger' }
+        run(z, 1)
+        expect(bursts).toContain('blood-mist')
+        expect(sounds).toContain(DF_WORLD_SOUNDS.gib)
+        expect(shown(P.legLL)).toBe(false)
+        expect(shown(P.stumpL)).toBe(true)
+        run(z, 50)
+        expect(sounds).toContain(DF_WORLD_SOUNDS.bodyFall)
+        z = { ...z, anim: 'crawl' }
+        run(z, 30)
+        expect(headY()).toBeLessThan(standing * 0.5)
+        // a crawler seen for the first time is simply down (no gore)
+        const gibs = sounds.filter(s => s === DF_WORLD_SOUNDS.gib).length
+        view.update(1 / 60, [z, snap(2, 'shambler', 3, 0, 'crawl', { crawl: true })])
+        expect(sounds.filter(s => s === DF_WORLD_SOUNDS.gib).length).toBe(gibs)
+        // killed while down, it stays down
+        view.onEvent({ k: 'kill', z: 1, p: 0, zone: 'body', weapon: 'kar98k', pos: { x: 0, y: 0.3, z: 0.4 } })
+        for (let f = 0; f < 60; f++) view.update(1 / 60, [])
+        expect(shown(P.stumpL)).toBe(true)
+        expect(headY()).toBeLessThan(standing * 0.5)
         view.dispose()
     })
 })

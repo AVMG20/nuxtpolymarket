@@ -48,10 +48,10 @@ export interface DfSpecialsHooks {
 }
 
 /**
- * Hits only turn zombies into crawlers once the zombie view has the crawl pose
- * (the server rules, the low hitboxes and the dev hook are in place).
+ * Hits can turn zombies into crawlers (the zombie view poses them prone over
+ * the low hitboxes). A kill switch: false keeps every zombie on its feet.
  */
-export const DF_CRAWLERS_LIVE = false
+export const DF_CRAWLERS_LIVE = true
 
 interface TrapRuntime {
     def: DfTrap

@@ -1,14 +1,19 @@
+import { DF_ENEMIES } from '#shared/utils/dead-front/enemies'
 import type { DfZombieAnim } from '#shared/utils/dead-front/protocol'
 import type { DfEnemyType } from '#shared/utils/dead-front/types'
-import { P } from './models'
+import { DF_ZOMBIE_PARTS, P } from './models'
 
 // Procedural zombie animation. A pose is an Euler rotation (x, y, z) per part
 // plus a root offset and tilt; every animation state is a small function of
 // time, gait phase and a few per-zombie quirks. Conventions (model faces +z):
 // +x on the torso leans forward, -x on a limb swings it forward, +x on a knee
 // or elbow bends it.
+//
+// Crawlers (legs blown off) lie face down along their facing and drag
+// themselves by the arms; every anim has a prone variant. The body lands where
+// `dfCrawlGeometry` puts the shared hitboxes.
 
-export const DF_POSE_ROOT = 13 * 3
+export const DF_POSE_ROOT = DF_ZOMBIE_PARTS * 3
 /** rootX, rootY, rootZ, pitch, roll, yaw offset. */
 export const DF_POSE_LEN = DF_POSE_ROOT + 6
 
@@ -44,6 +49,10 @@ export interface DfPoseInput {
     height: number
     /** Special-attack telegraph: 0 none, 1 ghoul crouch before a leap, 2 brute roar before a charge. */
     tell: number
+    /** Legs blown off: prone, dragging itself (every anim has a crawling variant). */
+    crawl?: boolean
+    /** Seconds since the legs came off: it topples onto its front over the first `DF_CRAWL_FALL`. */
+    down?: number
 }
 
 const TAU = Math.PI * 2
@@ -149,9 +158,180 @@ function roar(p: DfPose, t: number, seed: number): void {
     p[DF_POSE_ROOT + 1] = -0.06 * k
 }
 
+// ---------------------------------------------------------------- crawlers
+
+/**
+ * The prone body in voxels from the feet position (forward along the facing,
+ * up): the hip joint, the chest lift off the ground and the head's forward
+ * lean from vertical. `dfCrawlGeometry` (the hitboxes) is built to the same
+ * layout; the zombie-models test keeps the two together.
+ */
+const CRAWL = {
+    hipZ: -0.9,
+    hipY: 2.3,
+    chest: 0.28,
+    headLean: 0.62,
+    /** Hand plant range ahead of the shoulder, its height, and the lift while reaching. */
+    front: 10,
+    back: 4.2,
+    plant: 0.9,
+    lift: 2.4,
+    /** Share of each arm's cycle spent planted and pulling. */
+    pull: 0.55
+} as const
+
+/** Seconds a zombie takes to topple onto its front when its legs come off. */
+export const DF_CRAWL_FALL = 0.5
+
+/** Ground covered per crawl cycle (both arms pull once), in voxels. */
+const CRAWL_STRIDE = 2 * (CRAWL.front - CRAWL.back)
+
+/** Shoulder joint out from the spine, in voxels (near enough for every type). */
+const SHOULDER_X = 4.5
+const UPPER_ARM = 5
+const FOREARM = 6
+const HALF_PI = Math.PI / 2
+
+const ik = { a: 0, e: 0 }
+/** The last crawl pose's shoulder height (voxels). */
+let shoulderY = 0
+
+/**
+ * Two-bone arm IK in the body's side plane: hand target `fwd` ahead of and
+ * `up` above the shoulder (voxels). Sets `ik.a` (the upper arm's absolute
+ * pitch: 0 hangs down, -pi/2 points forward) and `ik.e` (elbow bend). The
+ * elbows ride high, the zombie crawl.
+ */
+function armIk(fwd: number, up: number): void {
+    const d = Math.max(FOREARM - UPPER_ARM + 0.3, Math.min(UPPER_ARM + FOREARM - 0.05, Math.hypot(fwd, up)))
+    const base = Math.atan2(-fwd, -up)
+    const alpha = Math.acos(Math.max(-1, Math.min(1, (UPPER_ARM * UPPER_ARM + d * d - FOREARM * FOREARM) / (2 * UPPER_ARM * d))))
+    const gamma = Math.acos(Math.max(-1, Math.min(1, (UPPER_ARM * UPPER_ARM + FOREARM * FOREARM - d * d) / (2 * UPPER_ARM * FOREARM))))
+    ik.a = base - alpha
+    ik.e = Math.PI - gamma
+}
+
+/** Places the root so the hip joint sits `hz` ahead of and `hy` above the feet (voxels), the body pitched forward by `pitch`. */
+function placeHip(p: DfPose, v: number, hz: number, hy: number, pitch: number): void {
+    // root = T(offset) * Rx(pitch): the hip joint (0, 12, 0) lands at (0, 12 cos, 12 sin)
+    p[DF_POSE_ROOT + 1] = (hy - 12 * Math.cos(pitch)) * v
+    p[DF_POSE_ROOT + 2] = (hz - 12 * Math.sin(pitch)) * v
+    p[DF_POSE_ROOT + 3] = pitch
+}
+
+/** One arm planted at (fwd, up) from the shoulder; `chest` is the torso's lift, `spread` swings the arm out sideways. */
+function crawlArm(p: DfPose, upper: number, lower: number, fwd: number, up: number, chest: number, spread: number): void {
+    // the arm splayed out sideways reaches less far in the side plane
+    const k = 1 / Math.cos(spread)
+    armIk(fwd * k, up * k)
+    // absolute pitch = root (pi/2) + torso (-chest) + arm
+    set(p, upper, ik.a - HALF_PI + chest, 0, spread)
+    set(p, lower, ik.e)
+}
+
+/**
+ * The crawl: face down, chest a little off the ground, head up and looking
+ * ahead; the arms take turns reaching out, clawing in and dragging the body
+ * forward while the thigh stumps trail and wag behind. `rear` lifts the chest
+ * further (the swipe). Returns the chest lift.
+ */
+function crawlPose(p: DfPose, inp: DfPoseInput, rear: number): number {
+    const v = DF_ENEMIES[inp.type].headY / 23
+    const ph = inp.phase * TAU
+    const s = Math.sin(ph)
+    const hy = (inp.type === 'ghoul' ? CRAWL.hipY - 0.4 : CRAWL.hipY) + Math.abs(s) * 0.25
+    const chest = CRAWL.chest + Math.abs(Math.cos(ph)) * 0.05 + rear
+    placeHip(p, v, CRAWL.hipZ, hy, HALF_PI)
+    // the shoulders roll and swing toward the pulling arm, the hips the other way
+    set(p, P.pelvis, 0, 0, -s * 0.1)
+    const roll = s * 0.1
+    set(p, P.torso, -chest, roll, s * 0.14 + inp.tilt * 0.15)
+    set(p, P.head, CRAWL.headLean - (HALF_PI - chest) - rear * 0.3, -s * 0.12, inp.tilt * 0.5)
+    // shoulder height in voxels (the roll lifts one shoulder, drops the other)
+    const sy = hy + 5.5 * Math.sin(chest)
+    shoulderY = sy
+    const lean = SHOULDER_X * Math.sin(roll)
+    for (const side of [0, 1]) {
+        const u = (inp.phase + side * 0.5 + inp.seed) % 1
+        let fwd: number
+        let y: number
+        if (u < CRAWL.pull) {
+            const k = u / CRAWL.pull
+            fwd = CRAWL.front + (CRAWL.back - CRAWL.front) * k
+            y = CRAWL.plant
+        } else {
+            const k = (u - CRAWL.pull) / (1 - CRAWL.pull)
+            fwd = CRAWL.back + (CRAWL.front - CRAWL.back) * smooth(k)
+            y = CRAWL.plant + CRAWL.lift * Math.sin(k * Math.PI)
+        }
+        crawlArm(p, side ? P.armUR : P.armUL, side ? P.armLR : P.armLL, fwd, y - sy - (side ? lean : -lean), chest, side ? 0.22 : -0.22)
+    }
+    // thigh stumps trail behind, splayed, drooping to the ground and dragging
+    set(p, P.legUL, -0.06 + s * 0.06, 0, -0.18 - s * 0.06)
+    set(p, P.legUR, -0.06 - s * 0.06, 0, 0.18 - s * 0.06)
+    return chest
+}
+
+/** Every anim's prone variant, toppling onto the front first when the legs just came off. */
+function crawlAnim(p: DfPose, inp: DfPoseInput): void {
+    const t = inp.t
+    if (inp.anim === 'attack') {
+        // Rears its chest up and claws down at the ankles with one arm.
+        const w = Math.max(0.15, inp.windup)
+        const u = inp.swing >= 0 ? inp.swing / w : 2
+        const raise = smooth(u / 0.85) * (1 - smooth((u - 1) / 0.12))
+        const strike = u >= 1 ? 1 - smooth((u - 1.15) / 0.8) : 0
+        const chest = crawlPose(p, inp, 0.22 * raise + 0.08 * strike)
+        const right = Math.floor(inp.seed * 10) % 2 === 0
+        const a = right ? P.armUR : P.armUL
+        const b = right ? P.armLR : P.armLL
+        // absolute arm pitch: up and forward on the windup, slammed down ahead on the strike
+        const base = p[a * 3]! + HALF_PI - chest
+        const elbow = p[b * 3]!
+        // the strike lands on the ground at full stretch
+        const k = 1 / Math.cos(0.3)
+        armIk(CRAWL.front * k, (CRAWL.plant + 1 - shoulderY) * k)
+        const abs = (base + (-2.7 - base) * raise) * (1 - strike) + ik.a * strike
+        set(p, a, abs - HALF_PI + chest, 0, right ? 0.3 : -0.3)
+        set(p, b, (elbow + (0.9 - elbow) * raise) * (1 - strike) + ik.e * strike)
+        add(p, P.head, -0.1 * raise + 0.15 * strike)
+    } else if (inp.anim === 'stagger') {
+        // Writhes: rolls and thrashes, head thrown back.
+        crawlPose(p, inp, 0)
+        const k = Math.exp(-t * 2.5)
+        const wob = Math.sin(t * 13) * k
+        add(p, P.torso, 0, wob * 0.35, wob * 0.2)
+        add(p, P.head, -0.5 * k, -wob * 0.3, wob * 0.3)
+        add(p, P.armUL, -0.6 * k + wob * 0.3, 0, -0.4 * k)
+        add(p, P.armUR, -0.4 * k - wob * 0.3, 0, 0.4 * k)
+        add(p, P.legUL, wob * 0.3)
+        add(p, P.legUR, -wob * 0.3)
+    } else {
+        crawlPose(p, inp, 0)
+    }
+    const down = inp.down ?? DF_CRAWL_FALL
+    if (down >= DF_CRAWL_FALL) return
+    // Legs gone: it drops onto the stumps and topples forward, arms thrown out to catch itself.
+    const v = DF_ENEMIES[inp.type].headY / 23
+    const k = Math.max(0, down / DF_CRAWL_FALL) ** 2
+    // prone, the root's height offset is the hip height (cos pi/2 = 0)
+    const hy = p[DF_POSE_ROOT + 1]! / v
+    placeHip(p, v, CRAWL.hipZ * k, 6 + (hy - 6) * k, HALF_PI * k)
+    for (const [part, x] of FALL_START) p[part * 3] = x + (p[part * 3]! - x) * k
+}
+
+/** The limbs' pitch the moment the legs come off (the fall eases from these into the crawl). */
+const FALL_START: [number, number][] = [
+    [P.torso, 0.3], [P.head, 0.15], [P.armUL, -1.5], [P.armUR, -1.5], [P.armLL, -0.3], [P.armLR, -0.3], [P.legUL, 0], [P.legUR, 0]
+]
+
 /** Evaluates the pose for the current state into `out`. */
 export function dfEvalPose(inp: DfPoseInput, out: DfPose): DfPose {
     out.fill(0)
+    if (inp.crawl) {
+        crawlAnim(out, inp)
+        return out
+    }
     const t = inp.t
     switch (inp.anim) {
         case 'walk':
@@ -281,8 +461,9 @@ export function dfLerpPose(a: DfPose, b: DfPose, t: number, out: DfPose): DfPose
     return out
 }
 
-/** Gait cycles per second for a ground speed. */
-export function dfCadence(type: DfEnemyType, speed: number): number {
+/** Gait cycles per second for a ground speed (a crawler's cycle is one pull of each arm). */
+export function dfCadence(type: DfEnemyType, speed: number, crawl = false): number {
+    if (crawl) return speed / (CRAWL_STRIDE * DF_ENEMIES[type].headY / 23)
     const stride = type === 'brute' ? 1.5 : type === 'ghoul' ? 1.4 : type === 'bloater' ? 1.0 : 1.15
     return Math.max(0.35, speed / stride)
 }
