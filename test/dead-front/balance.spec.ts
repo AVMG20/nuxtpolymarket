@@ -8,6 +8,7 @@ import { DF_WEAPONS, DF_WEAPON_IDS, dfBoxPool, dfBoxWeight, dfWeaponStats } from
 import type { DfWeaponId } from '#shared/utils/dead-front/types'
 import { dfBoxRoll } from '#server/utils/dead-front/rules'
 import { DfMatchSim } from '#server/utils/dead-front/sim'
+import { stubRandomFloat } from '../setup/stub-random'
 
 // Headless balance run: bot squads hold the square on the real map for ten
 // rounds, shooting what they can see with a human-ish hit rate, buying the
@@ -25,7 +26,7 @@ interface RoundLine {
     hitsTaken: number
 }
 
-/** Deterministic noise for the bots' aim so runs are comparable. */
+/** Deterministic noise for the bots' aim and the sim's rolls, so runs are comparable. */
 function lcg(seed: number): () => number {
     let s = seed >>> 0
     return () => {
@@ -137,7 +138,14 @@ describe('balance (headless bots)', () => {
         const table: string[] = []
         const results: Record<number, RoundLine[]> = {}
         for (const players of [1, 2, 4]) {
-            const lines = playRounds(players, 10, 0.65)
+            // pin the sim's own rolls (spawns, gaits, the box) too, or round lengths vary run to run
+            const spy = stubRandomFloat(lcg(1234))
+            let lines: RoundLine[]
+            try {
+                lines = playRounds(players, 10, 0.65)
+            } finally {
+                spy.mockRestore()
+            }
             results[players] = lines
             table.push(`--- ${players} player(s): costs door ${costs.door} box ${costs.box} perk ${costs.perk} PaP ${costs.pap}`)
             table.push('round  kills  secs  earned/p  banked/p  hits taken')
