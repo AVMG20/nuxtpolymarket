@@ -155,7 +155,7 @@ describe.skipIf(SKIP)('a save that loses a race', () => {
             .where(eq(hackerzState.userId, userId))
 
         await expect(putRun({ userId, body: { revision: 0, save: started.save } }))
-            .rejects.toMatchObject({ statusCode: 409, statusMessage: 'This Hackerz run has already ended' })
+            .rejects.toMatchObject({ statusCode: 410, statusMessage: 'This Hackerz run has already ended' })
     })
 
     it('says another session saved first when its revision is stale', async () => {
