@@ -35,6 +35,14 @@ export const DF_WORLD_SOUNDS = {
     zap: 'df:zap',
     soul: 'df:soul',
     eggStep: 'df:egg-step',
+    /** A lightning-rod switch thrown home. */
+    rodLever: 'df:rod-lever',
+    /** A charged rod mast crackling. */
+    rodCrackle: 'df:rod-crackle',
+    /** A rod switch dropping out (the timer ran down). */
+    rodSputter: 'df:rod-sputter',
+    /** All three rods: thunder overhead (2D). */
+    rodThunder: 'df:rod-thunder',
     perkBuy: 'df:perk-buy',
     /** Machine hum when a perk machine powers up. */
     perkHum: 'df:perk-hum',

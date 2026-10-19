@@ -802,6 +802,7 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
     const Z = new THREE.Vector3(0, 0, 1)
     const camPos = new THREE.Vector3()
     const userColor = new THREE.Color()
+    const userTail = new THREE.Color()
     const dir = { x: 0, y: 0, z: 0 }
 
     /** Random unit vector in a cone around (nx, ny, nz); spread 0 = exact, 1 = hemisphere-ish. */
@@ -1288,13 +1289,16 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
                 break
             }
             case 'ray': {
+                // A custom colour (X-Ray Pack-a-Punch tiers) tints every layer.
+                const ray0 = custom ?? PRESET_COLORS.ray0
+                const ray1 = custom ? userTail.copy(custom).multiplyScalar(0.4) : PRESET_COLORS.ray1
                 base(px, py, pz, floor)
                 S.life = 0.16
                 S.s0 = 0.9 * sc
                 S.s1 = 0.4 * sc
                 S.shape = SHAPE.glow
-                S.c0.copy(custom ?? PRESET_COLORS.ray0)
-                S.c1.copy(PRESET_COLORS.ray1)
+                S.c0.copy(ray0)
+                S.c1.copy(ray1)
                 emit(add)
                 base(px, py, pz, floor)
                 S.life = 0.3
@@ -1303,8 +1307,8 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
                 S.alpha = 0.6
                 S.fadePow = 2
                 S.shape = SHAPE.ring
-                S.c0.copy(PRESET_COLORS.ray0)
-                S.c1.copy(PRESET_COLORS.ray1)
+                S.c0.copy(ray0)
+                S.c1.copy(ray1)
                 emit(add)
                 for (let i = 0, c = cnt(18); i < c; i++) {
                     base(px, py, pz, floor)
@@ -1316,8 +1320,8 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
                     S.s0 = S.s1 = rnd(0.01, 0.02)
                     S.stretch = 0.03
                     S.shape = SHAPE.streak
-                    S.c0.copy(PRESET_COLORS.ray0)
-                    S.c1.copy(PRESET_COLORS.ray1)
+                    S.c0.copy(ray0)
+                    S.c1.copy(ray1)
                     emit(add)
                 }
                 for (let i = 0, c = cnt(6); i < c; i++) {
@@ -1332,11 +1336,11 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
                     S.alpha = 0.35
                     S.fadePow = 2
                     S.shape = SHAPE.smoke
-                    S.c0.copy(PRESET_COLORS.ray1)
-                    S.c1.copy(PRESET_COLORS.ray1)
+                    S.c0.copy(ray1)
+                    S.c1.copy(ray1)
                     emit(add)
                 }
-                flash(pos, 0x50ff70, 12 * sc, 0.25)
+                flash(pos, custom ?? 0x50ff70, 12 * sc, 0.25)
                 break
             }
             case 'pap': {
@@ -1512,7 +1516,8 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
             segs[n * 6 + 3] = x
             segs[n * 6 + 4] = y
             segs[n * 6 + 5] = z
-            widths[n] = 0.022
+            // Long bolts (sky strikes, mast-to-generator arcs) get thicker so they read at range.
+            widths[n] = 0.022 + Math.min(0.1, len * 0.0022)
             n++
             // forks
             if (i < steps - 1 && n < BOLT_MAX - 6 && Math.random() < 0.18) {
@@ -1534,7 +1539,7 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
                     segs[n * 6 + 3] = nx2
                     segs[n * 6 + 4] = ny2
                     segs[n * 6 + 5] = nz2
-                    widths[n] = 0.012 * (1 - k / 5)
+                    widths[n] = (0.012 + Math.min(0.05, len * 0.001)) * (1 - k / 5)
                     n++
                     bx = nx2
                     by = ny2
@@ -1569,7 +1574,7 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
         flash(tmpV, color ?? 0x9fd0ff, 14, 0.18)
     }
 
-    function decal(pos: V3, normal: V3, kind: 'bullet' | 'scorch' | 'blood'): void {
+    function decal(pos: V3, normal: V3, kind: 'bullet' | 'scorch' | 'blood', scale = 1): void {
         const i = decalNext
         decalNext = (decalNext + 1) % DECALS
         if (decals.count < DECALS) decals.count = Math.max(decals.count, i + 1)
@@ -1579,7 +1584,7 @@ export function createDfFx(scene: THREE.Scene, camera: THREE.Camera, quality: 'l
         tmpQ.setFromUnitVectors(Z, tmpN)
         tmpQ2.setFromAxisAngle(Z, Math.random() * Math.PI * 2)
         tmpQ.multiply(tmpQ2)
-        const size = kind === 'bullet' ? rnd(0.07, 0.1) : kind === 'scorch' ? rnd(2, 2.8) : rnd(0.5, 1.1)
+        const size = (kind === 'bullet' ? rnd(0.07, 0.1) : kind === 'scorch' ? rnd(2, 2.8) : rnd(0.5, 1.1)) * scale
         tmpS.set(size, size, size)
         tmpV.set(pos.x + tmpN.x * 0.012, pos.y + tmpN.y * 0.012, pos.z + tmpN.z * 0.012)
         tmpM.compose(tmpV, tmpQ, tmpS)

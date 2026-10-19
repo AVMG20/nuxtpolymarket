@@ -4,6 +4,7 @@ import type { DfZombieSnap } from '#shared/utils/dead-front/protocol'
 import type { DfFx, DfAudio, DfRenderContext } from '../../app/utils/dead-front/context'
 import { createDfZombieView } from '../../app/utils/dead-front/world/zombies'
 import { DF_WORLD_SOUNDS } from '../../app/utils/dead-front/world/sound-names'
+import { DF_ZOMBIE_TYPES, dfZombieOutfitCount } from '../../app/utils/dead-front/world/zombies/models'
 
 function mockCtx() {
     const sounds: string[] = []
@@ -67,7 +68,8 @@ describe('dead front zombie view', () => {
         const zombiesInScene = () => scene.children
             .filter(c => c.name.startsWith('df-zombies-'))
             .reduce((n, c) => n + (c as THREE.InstancedMesh).count, 0)
-        expect(scene.children.filter(c => c.name.startsWith('df-zombies-')).length).toBe(8)
+        const batches = DF_ZOMBIE_TYPES.reduce((n, t) => n + dfZombieOutfitCount(t), 0)
+        expect(scene.children.filter(c => c.name.startsWith('df-zombies-')).length).toBe(batches)
         expect(zombiesInScene()).toBe(4)
 
         // Helmet knocked off.
@@ -105,8 +107,9 @@ describe('dead front zombie view', () => {
         step(zs, 6)
         step([zs[2]!], 120)
         expect(sounds).toContain(DF_WORLD_SOUNDS.bodyFall)
-        // Brute (3) still alive; corpses of 1 and 4 still lying.
-        expect(zombiesInScene()).toBe(3)
+        // Brute (3) still alive; corpses of 1 and 4 still lying; 2's limbs (almost always some) still tumbling.
+        expect(zombiesInScene()).toBeGreaterThanOrEqual(3)
+        expect(zombiesInScene()).toBeLessThanOrEqual(4)
         step([zs[2]!], 60 * 8)
         expect(zombiesInScene()).toBe(1)
         // Despawn without a kill sinks quickly.

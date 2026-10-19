@@ -216,6 +216,8 @@ interface Token {
     seen: boolean
     phase: number
     born: number
+    /** Seconds left at the last update: a token that vanishes early was picked up. */
+    left: number
 }
 
 export interface DfPowerupView {
@@ -270,7 +272,7 @@ export function createDfPowerupView(ctx: DfRenderContext): DfPowerupView {
         halo.renderOrder = 2
         root.add(halo)
         ctx.scene.add(root)
-        return { id: p.id, kind: p.kind, root, spin, halo, shimmer: 0, seen: true, phase: Math.random() * 6, born: time }
+        return { id: p.id, kind: p.kind, root, spin, halo, shimmer: 0, seen: true, phase: Math.random() * 6, born: time, left: p.expiresIn }
     }
 
     const tmp = new THREE.Vector3()
@@ -287,6 +289,7 @@ export function createDfPowerupView(ctx: DfRenderContext): DfPowerupView {
                     ctx.fx.burst('powerup', p.pos, { scale: 1.6, count: 20 })
                 }
                 t.seen = true
+                t.left = p.expiresIn
                 const bob = Math.sin(time * 2.2 + t.phase) * 0.08
                 // Pops in with an overshoot, then floats and spins.
                 const a = Math.min(1, (time - t.born) / 0.45)
@@ -312,6 +315,13 @@ export function createDfPowerupView(ctx: DfRenderContext): DfPowerupView {
             }
             for (const [id, t] of tokens) {
                 if (t.seen) continue
+                if (t.left > 0.3) {
+                    // Picked up: the token bursts into gold with a flash.
+                    t.root.getWorldPosition(tmp)
+                    ctx.fx.burst('powerup', tmp, { scale: 2.4, count: 34 })
+                    ctx.fx.burst('sparks', tmp, { count: 14, color: 0xffd27a })
+                    ctx.fx.flash(tmp, 0xffc860, 3.5, 0.35)
+                }
                 ctx.scene.remove(t.root)
                 tokens.delete(id)
             }

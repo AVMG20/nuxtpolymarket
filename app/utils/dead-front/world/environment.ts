@@ -35,6 +35,7 @@ const SKY_FRAG = /* glsl */`
     uniform vec3 uFog;
     uniform float uFlash;
     uniform vec4 uFlare;
+    uniform float uBlood;
     varying vec3 vDir;
 
     float hash2(vec2 p) {
@@ -84,6 +85,11 @@ const SKY_FRAG = /* glsl */`
         float fl8 = fl2 * fl2 * fl2 * fl2;
         col += vec3(0.9, 0.42, 0.16) * uFlare.w * (fl8 * fl8 * 0.6 + fl8 * 0.12) * (1.0 - smoothstep(0.0, 0.35, up));
 
+        // A new round: the sky bleeds red, deepest overhead, then drains away.
+        vec3 blood = mix(vec3(0.16, 0.02, 0.012), vec3(0.07, 0.008, 0.01), smoothstep(0.0, 0.8, up));
+        col = mix(col, blood + col * 0.25, uBlood * 0.85);
+        col += vec3(0.3, 0.03, 0.01) * uBlood * halo * halo;
+
         col *= 1.0 + uFlash * 1.5;
         gl_FragColor = vec4(col, 1.0);
     }
@@ -123,7 +129,8 @@ export function createDfEnvironment(kit: DfWorldKit): DfEnvironment {
             uFire: { value: FIRE_DIR.clone() },
             uFog: { value: DF_FOG_COLOR.clone() },
             uFlash: { value: 0 },
-            uFlare: { value: new THREE.Vector4(FIRE_DIR.x, 0.05, FIRE_DIR.z, 0) }
+            uFlare: { value: new THREE.Vector4(FIRE_DIR.x, 0.05, FIRE_DIR.z, 0) },
+            uBlood: { value: 0 }
         },
         vertexShader: SKY_VERT,
         fragmentShader: SKY_FRAG,
@@ -248,12 +255,27 @@ export function createDfEnvironment(kit: DfWorldKit): DfEnvironment {
     const fy = new THREE.Vector3(0, 1, 0)
 
     let flash = 0
+    // Round-start blood sky: attack, hold, slow release.
+    let blood = 0
+    let bloodT = -1
+    let rounds = 0
+    const fog = scene.fog as THREE.FogExp2
+    const fogBlood = new THREE.Color().setRGB(0.085, 0.018, 0.016)
+    const hemiSky = hemi.color.clone()
+    const hemiWarm = new THREE.Color().setRGB(0.95, 0.55, 0.35)
+    const hemiBlood = new THREE.Color().setRGB(0.75, 0.22, 0.2)
     const camPos = new THREE.Vector3()
     const ls = new THREE.Vector3()
     return {
         moon,
         flash(amount) {
             flash = Math.min(1, flash + amount)
+        },
+        onEvent(ev) {
+            if (ev.k !== 'round') return
+            // The first round starts as you arrive: only later rounds bleed the sky.
+            rounds++
+            if (rounds > 1 || ev.round > 1) bloodT = 0
         },
         update(dt, _world, time) {
             const cam = ctx.camera
@@ -302,8 +324,22 @@ export function createDfEnvironment(kit: DfWorldKit): DfEnvironment {
             smoke.instanceMatrix.needsUpdate = true
             if (fires.instanceColor) fires.instanceColor.needsUpdate = true
             if (smoke.instanceColor) smoke.instanceColor.needsUpdate = true
+            if (bloodT >= 0) {
+                bloodT += dt
+                blood = bloodT < 0.6 ? bloodT / 0.6 : bloodT < 2.2 ? 1 : Math.max(0, 1 - (bloodT - 2.2) / 2.6)
+                blood = blood * blood * (3 - 2 * blood)
+                if (bloodT > 4.8) bloodT = -1
+            } else {
+                blood = 0
+            }
+            skyMat.uniforms.uBlood!.value = blood
+            fog.color.copy(DF_FOG_COLOR).lerp(fogBlood, blood * 0.7)
+            ;(scene.background as THREE.Color).copy(fog.color)
+            skyMat.uniforms.uFog!.value.copy(fog.color)
             skyMat.uniforms.uFlash!.value = flash
-            hemi.intensity = HEMI + flash * 2.5
+            // Shell flashes on the horizon warm the whole scene for a beat.
+            hemi.color.copy(hemiSky).lerp(hemiWarm, Math.min(1, flare) * 0.3).lerp(hemiBlood, blood * 0.45)
+            hemi.intensity = HEMI + flash * 2.5 + flare * 0.18
             // Shadow frustum follows the camera, snapped to whole texels so edges don't crawl.
             ls.copy(camPos).applyQuaternion(moonQi)
             ls.x = Math.round(ls.x / texel) * texel

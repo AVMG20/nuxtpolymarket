@@ -153,6 +153,8 @@ interface Avatar {
     tagTex: THREE.CanvasTexture
     tagMat: THREE.SpriteMaterial
     revive: THREE.Sprite
+    /** Pulsing ring on the ground while downed, in the player's colour. */
+    ring: THREE.Mesh
     name: string
     phase: number
     stride: number
@@ -183,6 +185,19 @@ export function createDfAvatars(ctx: DfRenderContext): DfAvatarManager {
     const mat = dfVoxMaterial()
     const flashMat = new THREE.MeshBasicMaterial({ vertexColors: true, color: new THREE.Color(2.4, 2, 1.5), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, toneMapped: false, side: THREE.DoubleSide })
     const geos = soldierGeos()
+    // Per-player colour accents: armbands, a helmet band and a pack flash that
+    // glow faintly so teammates read at night, and a ground ring when downed.
+    const bandGeo = new THREE.BoxGeometry(0.145, 0.075, 0.145)
+    const helmBandGeo = new THREE.BoxGeometry(0.43, 0.045, 0.43)
+    const packGeo = new THREE.BoxGeometry(0.2, 0.06, 0.13)
+    const ringGeo = new THREE.RingGeometry(0.62, 0.78, 28, 1)
+    ringGeo.rotateX(-Math.PI / 2)
+    const accentMats = DF_PLAYER_COLORS.map((c) => {
+        const col = new THREE.Color(c)
+        return new THREE.MeshLambertMaterial({ color: col, emissive: col.clone().multiplyScalar(0.35) })
+    })
+    const ringMats = DF_PLAYER_COLORS.map(c => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(1.6), transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }))
+    const accentOf = (pid: number) => ((pid % 4) + 4) % 4
 
     const avatars = new Map<number, Avatar>()
     const tmp = new THREE.Vector3()
@@ -219,11 +234,22 @@ export function createDfAvatars(ctx: DfRenderContext): DfAvatarManager {
         mesh(geos.head, head, 0, 0, 0)
         const helm = mesh(geos.helmet, head, 0, 0.2, 0)
         helm.rotation.x = 0.06
+        const accent = accentMats[accentOf(p.pid)]!
+        const helmBand = new THREE.Mesh(helmBandGeo, accent)
+        helmBand.position.set(0, 0.235, 0)
+        helmBand.rotation.x = 0.06
+        head.add(helmBand)
+        const packFlash = new THREE.Mesh(packGeo, accent)
+        packFlash.position.set(0, 0.47, 0.18)
+        torso.add(packFlash)
         const mkArm = (side: number) => {
             const arm = new THREE.Group()
             arm.position.set(0.24 * side, 0, 0)
             chest.add(arm)
             mesh(geos.upperArm, arm)
+            const band = new THREE.Mesh(bandGeo, accent)
+            band.position.y = -0.12
+            arm.add(band)
             const elbow = new THREE.Group()
             elbow.position.y = -0.3
             arm.add(elbow)
@@ -274,13 +300,19 @@ export function createDfAvatars(ctx: DfRenderContext): DfAvatarManager {
         revive.renderOrder = 21
         root.add(revive)
 
+        const ring = new THREE.Mesh(ringGeo, ringMats[accentOf(p.pid)]!)
+        ring.position.y = 0.04
+        ring.visible = false
+        ring.renderOrder = 6
+        root.add(ring)
+
         ctx.scene.add(root)
         return {
             pid: p.pid, root, body, hips, torso, chest, head,
             legL: LL.leg, legR: RL.leg, kneeL: LL.knee, kneeR: RL.knee,
             armL: L.arm, armR: R.arm, elbowL: L.elbow, elbowR: R.elbow,
             gunMount, gun: null, gunKey: '', muzzle: new THREE.Vector3(0, 0, -0.6),
-            flash, flashT: 0, tag, tagTex: tex, tagMat, revive, name: p.name,
+            flash, flashT: 0, tag, tagTex: tex, tagMat, revive, ring, name: p.name,
             phase: 0, stride: 0, lean: 0, crouch: 0, down: 0, kick: 0, yawVis: 0, seen: true
         }
     }
@@ -387,10 +419,16 @@ export function createDfAvatars(ctx: DfRenderContext): DfAvatarManager {
             a.chest.rotation.x = (1 - a.down) * a.chest.rotation.x + a.down * (-0.95 + p.pitch * 0.4)
         }
         a.revive.visible = downed
+        a.ring.visible = downed
         if (downed) {
             const k = 0.42 + Math.sin(time * 5) * 0.05 + p.reviveProgress * 0.1
             a.revive.scale.setScalar(k)
             ;(a.revive.material as THREE.SpriteMaterial).opacity = 0.7 + Math.sin(time * 5) * 0.3
+            // The ring breathes, and fills in (shrinks toward the body) as the revive progresses.
+            const u = (time * 0.9) % 1
+            a.ring.scale.setScalar((1 + u * 0.35) * (1 - p.reviveProgress * 0.35))
+            a.ring.position.z = -0.6
+            ;(a.ring.material as THREE.MeshBasicMaterial).opacity = 0.75 * (1 - u) * (1 - u)
         }
         a.tag.position.y = downed ? 1.55 : 2.15 - a.crouch * 0.4
 
@@ -454,6 +492,8 @@ export function createDfAvatars(ctx: DfRenderContext): DfAvatarManager {
             mat.dispose()
             flashMat.dispose()
             reviveTex.dispose()
+            for (const g of [bandGeo, helmBandGeo, packGeo, ringGeo]) g.dispose()
+            for (const m of [...accentMats, ...ringMats]) m.dispose()
         }
     }
     return mgr

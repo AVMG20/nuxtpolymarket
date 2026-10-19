@@ -155,3 +155,23 @@ export function dfRadialTexture(size = 64, inner = 0, falloff = 2): THREE.Canvas
     tex.colorSpace = THREE.SRGBColorSpace
     return tex
 }
+
+/**
+ * Power level 0..1 of something the surge reached `age` seconds ago (negative:
+ * not yet): it stutters on with a few hard flickers, then holds with a faint hum.
+ */
+export function dfPowerLevel(age: number, time: number, seed: number): number {
+    if (age < 0) return 0
+    if (age < 0.85) {
+        // Two or three hard cuts while the filament catches.
+        const on = Math.sin(time * 41 + seed * 7.1) > -0.15 && Math.sin(time * 17 + seed * 3.3) > -0.6
+        return (on ? 1 : 0.08) * (0.55 + 0.45 * clamp01(age / 0.5))
+    }
+    return 0.97 + 0.03 * Math.sin(time * 50 + seed)
+}
+
+/** Shows one model at a time under `holder`. */
+export function dfShowModel(holder: THREE.Object3D, model: THREE.Object3D | null): void {
+    for (const c of [...holder.children]) if (c !== model) holder.remove(c)
+    if (model && model.parent !== holder) holder.add(model)
+}

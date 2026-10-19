@@ -1,6 +1,7 @@
 import type { DfPerkId, DfWeaponId, Vec3 } from './types'
 import { DF_WALK_Y, dfMapWorld } from './map-world'
 import type { Rect } from './map-world'
+import type { DfTrap } from './specials'
 import { dfBodyFits, dfBuildCollision, dfGroundHeight } from './physics'
 import type { DfCollisionWorld } from './physics'
 
@@ -137,6 +138,8 @@ export interface DfMapDef {
     power: DfSpot
     egg: {
         fuses: DfSpot[] // exactly 3
+        /** Lightning-rod masts (ids rod-0..2) thrown during the 'rods' step; one on the raised level. */
+        rods: DfSpot[]
         generator: DfSpot
         pedestal: DfSpot
         /** Kills within this radius of the generator count toward the charge. */
@@ -146,6 +149,8 @@ export interface DfMapDef {
     riserSpawns: DfSpot[]
     nav: { nodes: DfNavNode[], links: DfNavLink[] }
     lights: DfLight[]
+    /** Buyable electric traps across passages (shared/utils/dead-front/map-traps.ts). */
+    traps?: DfTrap[]
 }
 
 /** Floor height of the raised level. */
@@ -403,6 +408,7 @@ function compile(): DfMapDef {
         power: w.power,
         egg: {
             fuses: w.fuses,
+            rods: w.rods,
             generator: w.generator,
             pedestal: w.pedestal,
             chargeRadius: 9
@@ -410,13 +416,14 @@ function compile(): DfMapDef {
         riserSpawns: w.riserSpawns,
         nav: buildNav({ solids: w.solids, doors: w.doors, barricades: w.barricades, zoneRects: w.zoneRects, pockets: w.pockets, stairs: w.stairs, start: w.playerSpawns[0]! }),
         lights: w.lights
+        // traps: dfMapTraps() (map-traps.ts) joins once the client draws the lever and coils
     }
 }
 
 export const DF_MAP: DfMapDef = compile()
 
 /** Interactable ids used in `{ t: 'use', id }`. Built from the map so client prompts and server checks agree. */
-export type DfInteractKind = 'door' | 'wallbuy' | 'perk' | 'box' | 'pap' | 'power' | 'fuse' | 'generator' | 'pedestal' | 'barricade'
+export type DfInteractKind = 'door' | 'wallbuy' | 'perk' | 'box' | 'pap' | 'power' | 'fuse' | 'rod' | 'generator' | 'pedestal' | 'barricade' | 'trap'
 
 export interface DfInteractable {
     id: string
@@ -435,10 +442,13 @@ export function dfInteractables(map: DfMapDef): DfInteractable[] {
     for (const b of map.boxSpots) out.push({ id: b.id, kind: 'box', pos: b.pos, zone: b.zone })
     for (const b of map.barricades) out.push({ id: b.id, kind: 'barricade', pos: b.pos, zone: b.zone, ref: b.id })
     for (const f of map.egg.fuses) out.push({ id: f.id, kind: 'fuse', pos: f.pos, zone: f.zone, ref: f.id })
+    // (Test maps written before the rods step may leave them out.)
+    for (const r of map.egg.rods ?? []) out.push({ id: r.id, kind: 'rod', pos: r.pos, zone: r.zone, ref: r.id })
     out.push({ id: map.pap.id, kind: 'pap', pos: map.pap.pos, zone: map.pap.zone })
     out.push({ id: map.power.id, kind: 'power', pos: map.power.pos, zone: map.power.zone })
     out.push({ id: map.egg.generator.id, kind: 'generator', pos: map.egg.generator.pos, zone: map.egg.generator.zone })
     out.push({ id: map.egg.pedestal.id, kind: 'pedestal', pos: map.egg.pedestal.pos, zone: map.egg.pedestal.zone })
+    for (const t of map.traps ?? []) out.push({ id: t.id, kind: 'trap', pos: t.lever.pos, zone: t.zone, ref: t.id })
     return out
 }
 

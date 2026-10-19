@@ -1,17 +1,14 @@
 import * as THREE from 'three'
 import type { DfSpot } from '#shared/utils/dead-front/map'
-import { dfRaycast } from '#shared/utils/dead-front/physics'
-import { DF_PERKS } from '#shared/utils/dead-front/perks'
 import { DF_MACHINE_TIMES } from '#shared/utils/dead-front/constants'
-import { dfBoxPool } from '#shared/utils/dead-front/weapons'
-import type { DfPerkId, DfWeaponId } from '#shared/utils/dead-front/types'
-import { buildDfWeaponModel, disposeDfWeaponModel } from '~/utils/dead-front/weapons'
 import { dfVoxMaterial } from '../../voxel/material'
 import type { DfVoxMaterial } from '../../voxel/material'
-import { DfVoxModel, mixHex, scaleHex } from '../../voxel/model'
+import { DfVoxModel } from '../../voxel/model'
 import type { DfWorldKit, DfWorldPart } from '../kit'
-import { DF_WORLD_SOUNDS, dfPerkJingleSound } from '../sound-names'
-import { clamp01, damp, dfRng, easeInOutCubic, easeOutBack, easeOutCubic } from '../util'
+import { DF_WORLD_SOUNDS } from '../sound-names'
+import { createDfMysteryBox } from './box'
+import { DfWeaponCache } from './weapon-cache'
+import { clamp01, damp, dfPowerLevel, dfShowModel, easeInOutCubic, easeOutBack, easeOutCubic } from '../util'
 
 // The machines, all voxel models: the mystery box, the Pack-a-Punch press,
 // six perk cabinets in their perk colours, the power lever, the Tesla fuses,
@@ -30,62 +27,11 @@ function spotGroup(kit: DfWorldKit, s: { pos: { x: number, y: number, z: number 
     return g
 }
 
-/** Weapon models built once per (weapon, tier) and reused. */
-class WeaponCache {
-    private cache = new Map<string, THREE.Group>()
-    get(id: DfWeaponId, pap = 0): THREE.Group {
-        const k = `${id}:${pap}`
-        let g = this.cache.get(k)
-        if (!g) {
-            try {
-                g = buildDfWeaponModel(id, pap)
-            } catch {
-                g = new THREE.Group()
-            }
-            this.cache.set(k, g)
-        }
-        return g
-    }
-
-    dispose(): void {
-        for (const g of this.cache.values()) {
-            g.removeFromParent()
-            disposeDfWeaponModel(g)
-        }
-        this.cache.clear()
-    }
-}
-
-/** Shows one model at a time under `holder`. */
-function showModel(holder: THREE.Object3D, model: THREE.Object3D | null): void {
-    for (const c of [...holder.children]) if (c !== model) holder.remove(c)
-    if (model && model.parent !== holder) holder.add(model)
-}
-
-const BEAM_VERT = /* glsl */`
-    varying float vY;
-    void main() {
-        vY = position.y + 0.5;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }
-`
-const BEAM_FRAG = /* glsl */`
-    uniform vec3 uColor;
-    uniform float uOpacity;
-    varying float vY;
-    void main() {
-        float y = clamp(vY, 0.0, 1.0);
-        float a = (1.0 - y) * (1.0 - y) * uOpacity;
-        gl_FragColor = vec4(uColor * a, a);
-    }
-`
-
 export function createDfMachines(kit: DfWorldKit): DfWorldPart {
     const { map, ctx } = kit
-    const rnd = dfRng(5)
     const geos: THREE.BufferGeometry[] = []
     const mats: THREE.Material[] = []
-    const weapons = new WeaponCache()
+    const weapons = new DfWeaponCache()
     const parts: DfWorldPart[] = []
     const shadow = kit.shadows
     const own = (glow = 1): DfVoxMaterial => {
@@ -106,168 +52,7 @@ export function createDfMachines(kit: DfWorldKit): DfWorldPart {
     const IRON = 0x2a2b2e
     const CAST = 0x45474b
 
-    // ---------------------------------------------------------------- mystery box
-    {
-        const g = new THREE.Group()
-        kit.root.add(g)
-        const body = new THREE.Group()
-        g.add(body)
-        // Trestle stand (the 0.55 m 'boxstand' proxy), box on top. Local +z is the front.
-        const stand = new DfVoxModel(27, 9, 13)
-        const sw = stand.shade(0x5e4329, 0.07, 3)
-        stand.box(0, 7, 0, 27, 9, 13, sw)
-        for (const x of [1, 24]) for (const z of [1, 10]) stand.box(x, 0, z, x + 2, 7, z + 2, sw)
-        stand.box(2, 3, 2, 25, 4, 3, sw).box(2, 3, 10, 25, 4, 11, sw)
-        mesh(stand, [13.5, 0, 6.5], body)
-        const box = new DfVoxModel(24, 8, 10)
-        const wood = box.shade(0x7a5532, 0.06, 4)
-        const brass = box.c(BRASS)
-        box.box(0, 0, 0, 24, 8, 10, wood)
-        box.vox.map((_v, i, j, k) => ((i === 0 || i === 23 ? 1 : 0) + (k === 0 || k === 9 ? 1 : 0) >= 2 || ((i === 0 || i === 23) && (j === 0 || j === 7)) ? brass : -1))
-        // Painted eye sigil on the front and the back.
-        const paint = box.c(0xe2d6ae, 0.35)
-        const pupil = box.c(0x111111)
-        for (const k of [0, 9]) {
-            box.box(8, 3, k, 16, 5, k + 1, paint).box(10, 2, k, 14, 6, k + 1, paint).box(11, 3, k, 13, 5, k + 1, pupil)
-        }
-        box.box(10, 0, 0, 14, 8, 10, (i, j, k) => (j === 7 ? box.c(0x5c3f25) : wood(i, j, k)))
-        box.box(1, 7, 1, 23, 8, 9, 0)
-        box.box(1, 6, 1, 23, 7, 9, box.c(0xffd890, 1))
-        const top = 0.55
-        const boxMesh = mesh(box, [12, 0, 5], body)
-        boxMesh.position.y = top
-        const lidM = new DfVoxModel(24, 2, 10)
-        lidM.box(0, 0, 0, 24, 2, 10, lidM.shade(0x7f5934, 0.06, 6))
-        lidM.box(0, 0, 0, 24, 2, 1, lidM.c(BRASS)).box(0, 0, 9, 24, 2, 10, lidM.c(BRASS)).box(8, 1, 3, 16, 2, 7, lidM.c(BRASS))
-        const lid = new THREE.Group()
-        lid.position.set(0, top + 0.5, -0.3125)
-        body.add(lid)
-        mesh(lidM, [12, 0, 0], lid)
-        const holder = new THREE.Group()
-        body.add(holder)
-        // A faint additive shaft of light that fades upward (square, like everything else).
-        const beamMat = new THREE.ShaderMaterial({
-            uniforms: { uColor: { value: new THREE.Color().setRGB(1.0, 0.85, 0.5) }, uOpacity: { value: 0.06 } },
-            vertexShader: BEAM_VERT,
-            fragmentShader: BEAM_FRAG,
-            transparent: true,
-            depthWrite: false,
-            blending: THREE.AdditiveBlending,
-            side: THREE.DoubleSide
-        })
-        mats.push(beamMat)
-        const beamGeo = new THREE.BoxGeometry(1, 1, 1, 1, 1, 1)
-        geos.push(beamGeo)
-        const beam = new THREE.Mesh(beamGeo, beamMat)
-        beam.renderOrder = 3
-        kit.root.add(beam)
-        const heights = map.boxSpots.map((s) => {
-            const hit = dfRaycast(kit.collision, { x: s.pos.x, y: s.pos.y + 1.2, z: s.pos.z }, { x: 0, y: 1, z: 0 }, 40)
-            return hit ? hit.dist + 1.1 : 30
-        })
-        const pool = dfBoxPool()
-        let spot = -1
-        let shownState = ''
-        let lidT = 0
-        let cycle = 0
-        let cycleIdx = 0
-        let rollT = 0
-        let moveT = -1
-        let landT = -1
-        const place = (i: number) => {
-            const s = map.boxSpots[i]!
-            g.position.set(s.pos.x, s.pos.y, s.pos.z)
-            g.rotation.y = s.yaw
-            beam.position.set(s.pos.x, s.pos.y + heights[i]! / 2 + 0.6, s.pos.z)
-            beam.scale.set(0.8, heights[i]!, 0.8)
-            beam.rotation.y = s.yaw
-        }
-        parts.push({
-            update(dt, world, time) {
-                const b = world.box
-                if (b.spot !== spot && b.state !== 'moving') {
-                    const firstPlace = spot < 0
-                    spot = b.spot
-                    place(spot)
-                    if (!firstPlace) {
-                        landT = 0
-                        kit.play(DF_WORLD_SOUNDS.boxLand, g.position, 1)
-                        ctx.fx.burst('dust', g.position, { count: 22, scale: 1.6 })
-                    }
-                }
-                if (b.state !== shownState) {
-                    if (b.state === 'rolling') {
-                        rollT = 0
-                        cycle = 0
-                    }
-                    if (b.state === 'moving') moveT = 0
-                    shownState = b.state
-                }
-                const open = b.state === 'rolling' || b.state === 'ready'
-                lidT = damp(lidT, open ? 1 : 0, open ? 6 : 9, dt)
-                lid.rotation.x = -lidT * 1.9
-                if (b.state === 'rolling') {
-                    rollT += dt
-                    cycle -= dt
-                    const prog = clamp01(rollT / DF_MACHINE_TIMES.boxRoll)
-                    if (cycle <= 0 && pool.length) {
-                        cycleIdx = (cycleIdx + 1 + Math.floor(Math.random() * (pool.length - 1))) % pool.length
-                        cycle = 0.06 + prog * prog * 0.35
-                    }
-                    const id = b.timer < 0.35 && b.weapon ? b.weapon : pool[cycleIdx]
-                    showModel(holder, id ? weapons.get(id) : null)
-                    holder.position.set(0, top + 0.3 + easeOutCubic(prog) * 0.75, 0)
-                } else if (b.state === 'ready' && b.weapon) {
-                    showModel(holder, weapons.get(b.weapon))
-                    const sink = 1 - clamp01(b.timer / DF_MACHINE_TIMES.boxOffer)
-                    holder.position.set(0, top + 1.05 - sink * 0.7 + Math.sin(time * 2) * 0.03, 0)
-                } else {
-                    holder.position.y = damp(holder.position.y, top, 10, dt)
-                    if (holder.position.y < top + 0.1) showModel(holder, null)
-                }
-                holder.rotation.set(0, Math.PI / 2 + Math.sin(time * 0.8) * 0.15, 0)
-                if (b.state === 'moving' && moveT >= 0) {
-                    moveT += dt
-                    const shake = moveT < 1.2 ? Math.sin(moveT * 40) * 0.04 * moveT : 0
-                    body.position.set(shake, moveT > 1.2 ? easeOutCubic((moveT - 1.2) / 1.6) * 6 : 0, 0)
-                    body.rotation.z = shake * 2
-                    body.scale.setScalar(1 - clamp01((moveT - 2.4) / 0.4))
-                    beam.visible = moveT < 2
-                    if (moveT > 2.4 && moveT - dt <= 2.4) ctx.fx.burst('smoke', { x: g.position.x, y: g.position.y + 6, z: g.position.z }, { scale: 2 })
-                } else {
-                    beam.visible = true
-                    body.rotation.z = 0
-                    if (landT >= 0) {
-                        landT += dt
-                        const t = clamp01(landT / 0.5)
-                        body.position.set(0, (1 - t * t) * 4, 0)
-                        body.scale.setScalar(1)
-                        if (t >= 1) landT = -1
-                    } else {
-                        body.position.set(0, 0, 0)
-                        body.scale.setScalar(1)
-                    }
-                }
-                beamMat.uniforms.uOpacity!.value = 0.05 + Math.sin(time * 1.7) * 0.01 + lidT * 0.04
-            },
-            onEvent(ev) {
-                if (ev.k !== 'box') return
-                if (ev.what === 'open') {
-                    kit.play(DF_WORLD_SOUNDS.boxOpen, g.position, 1)
-                    kit.play(DF_WORLD_SOUNDS.boxJingle, g.position, 0.9)
-                    kit.play(DF_WORLD_SOUNDS.boxRoll, g.position, 0.7)
-                } else if (ev.what === 'take') {
-                    kit.play(DF_WORLD_SOUNDS.boxClose, g.position, 0.9)
-                } else if (ev.what === 'move') {
-                    kit.play(DF_WORLD_SOUNDS.boxMove, g.position, 1)
-                }
-            },
-            dispose() {
-                g.removeFromParent()
-                beam.removeFromParent()
-            }
-        })
-    }
+    parts.push(createDfMysteryBox(kit, weapons))
 
     // ---------------------------------------------------------------- Pack-a-Punch: a mechanical press with a flywheel dynamo
     {
@@ -284,7 +69,10 @@ export function createDfMachines(kit: DfWorldKit): DfWorldPart {
         base.box(5, 15, 2, 19, 33, 9, ci)
         base.box(4, 30, 2, 20, 34, 12, ci)
         // Window into the press chamber, rivets, and the violet tubes.
-        base.box(7, 22, 8, 17, 29, 9, base.c(0x150a1f))
+        base.box(7, 22, 8, 17, 29, 9, base.c(0x2a1440, 0.5))
+        base.box(8, 23, 8, 16, 24, 9, violet).box(8, 27, 8, 16, 28, 9, base.c(0x7a3cc0, 0.6))
+        // Violet pilot lamps along the base.
+        for (let x = 3; x < 22; x += 3) base.set(x, 8, 17, base.c(0xc890ff, 1))
         for (const x of [5, 18]) for (let y = 16; y < 32; y += 4) base.set(x, y, 9, brass)
         for (const x of [6, 16]) {
             base.box(x, 34 - 4, 0, x + 2, 34, 2, base.c(0x8a4a24))
@@ -309,40 +97,91 @@ export function createDfMachines(kit: DfWorldKit): DfWorldPart {
         fly.position.set(-0.82, 0.6, -0.1)
         g.add(fly)
         mesh(flyM, [1, 9, 9], fly)
+        // A geared drive on the other flank: a big cog meshing with a small one.
+        const cog = (r: number, teeth: number, hex: number) => {
+            const n = r * 2 + 2
+            const cm = new DfVoxModel(2, n, n)
+            const col = cm.c(hex)
+            const hub = cm.c(BRASS)
+            const c = n / 2
+            for (let j = 0; j < n; j++) {
+                for (let k = 0; k < n; k++) {
+                    const dy = j + 0.5 - c
+                    const dz = k + 0.5 - c
+                    const d = Math.hypot(dy, dz)
+                    const a = Math.atan2(dy, dz)
+                    const tooth = Math.cos(a * teeth) > 0.2 && d <= r + 1
+                    if (d < 1.6) cm.box(0, j, k, 2, j + 1, k + 1, hub)
+                    else if ((d <= r && d > r - 1.6) || tooth || (d < r - 1.6 && Math.abs(Math.sin(a * 2)) < 0.22)) cm.box(0, j, k, 2, j + 1, k + 1, col)
+                }
+            }
+            const grp = new THREE.Group()
+            g.add(grp)
+            mesh(cm, [1, c, c], grp)
+            return grp
+        }
+        const cogBig = cog(7, 10, 0x3a3c40)
+        cogBig.position.set(0.8, 0.55, 0.05)
+        const cogSmall = cog(4, 6, 0x6e5a2a)
+        cogSmall.position.set(0.8, 1.15, -0.3)
+        cogSmall.rotation.x = Math.PI / 6
         const holder = new THREE.Group()
         g.add(holder)
+        const papDelay = kit.powerDelay(g.position.x, g.position.z)
+        const dingAt = new THREE.Vector3()
         let flyV = 0
         let lastState = 'idle'
         let stamp = 0
+        let pop = 1
+        let litOnce = false
         parts.push({
             update(dt, world, time) {
                 const p = world.pap
-                const powered = world.power
+                const lvl = dfPowerLevel(world.power && kit.state.powerOn ? kit.state.powerAge - papDelay : -1, time, 3.3)
+                const powered = lvl > 0
+                if (powered && !litOnce) {
+                    litOnce = true
+                    kit.play(DF_WORLD_SOUNDS.perkHum, g.position, 0.7, 0.8)
+                    ctx.fx.burst('pap', g.localToWorld(dingAt.set(0, 1.6, 0.4)), { count: 14 })
+                }
                 const working = p.state === 'working'
                 flyV = damp(flyV, working ? 18 : powered ? 1.2 : 0, 2, dt)
                 fly.rotation.x += flyV * dt
-                glowMat.userData.uGlow.value = powered ? (working ? 1.8 + Math.sin(time * 20) * 0.6 : 1 + Math.sin(time * 2) * 0.25) : 0.05
+                cogBig.rotation.x -= flyV * dt * 0.6
+                cogSmall.rotation.x += flyV * dt * 0.6 * (7 / 4)
+                pop = Math.min(1, pop + dt * 3)
+                const ding = 1 - pop
+                glowMat.userData.uGlow.value = powered ? (working ? 1.8 + Math.sin(time * 20) * 0.6 : 1 + Math.sin(time * 2) * 0.35) * lvl + ding * 2.5 : 0.05
                 if (working) {
                     const st = (time * 2.4) % 1
                     ram.position.y = 1.0 - (st < 0.15 ? easeOutCubic(st / 0.15) : 1 - easeInOutCubic((st - 0.15) / 0.85)) * 0.12
-                    if (st < stamp) ctx.fx.burst('pap', g.localToWorld(new THREE.Vector3(0, 0.95, 0.3)), { count: 10 })
+                    if (st < stamp) ctx.fx.burst('pap', g.localToWorld(dingAt.set(0, 0.95, 0.3)), { count: 10 })
                     stamp = st
                 } else {
                     ram.position.y = damp(ram.position.y, 1.0, 6, dt)
                 }
                 if (p.state !== lastState) {
-                    if (p.state === 'ready') kit.play(DF_WORLD_SOUNDS.papReady, g.position, 1)
+                    if (p.state === 'ready') {
+                        // Ding: the weapon slides out in a violet flash.
+                        kit.play(DF_WORLD_SOUNDS.papReady, g.position, 1)
+                        g.localToWorld(dingAt.set(0, 1.1, 0.75))
+                        ctx.fx.flash(dingAt, 0xb064ff, 5, 0.45)
+                        ctx.fx.burst('pap', dingAt, { count: 34, scale: 1.4 })
+                        ctx.fx.burst('muzzle-smoke', dingAt, { normal: { x: 0, y: 1, z: 0 }, count: 5, scale: 2, color: 0xcab8e8 })
+                        pop = 0
+                    }
                     lastState = p.state
                 }
                 if (p.weapon && p.state !== 'idle') {
                     const tier = working ? Math.max(0, (p.tier ?? 1) - 1) : (p.tier ?? 1)
-                    showModel(holder, weapons.get(p.weapon, tier))
+                    dfShowModel(holder, weapons.get(p.weapon, tier))
                     const k = working ? clamp01(1 - p.timer / DF_MACHINE_TIMES.papWork) : clamp01(p.timer / DF_MACHINE_TIMES.papOffer)
                     const z = working ? 0.75 - easeInOutCubic(Math.min(1, k * 3)) * 0.6 : 0.75
                     holder.position.set(0, 1.05 + (p.state === 'ready' ? Math.sin(time * 2) * 0.02 : 0), z - (p.state === 'ready' ? (1 - k) * 0.4 : 0))
-                    holder.rotation.set(0, Math.PI / 2, 0)
+                    holder.rotation.set(0, Math.PI / 2 + (p.state === 'ready' ? Math.sin(time * 1.4) * 0.12 : 0), 0)
+                    holder.scale.setScalar(p.state === 'ready' ? 0.8 + 0.2 * easeOutBack(pop, 3) : 1)
                 } else {
-                    showModel(holder, null)
+                    dfShowModel(holder, null)
                 }
             },
             onEvent(ev) {
@@ -350,78 +189,6 @@ export function createDfMachines(kit: DfWorldKit): DfWorldPart {
             },
             dispose() {
                 g.removeFromParent()
-            }
-        })
-    }
-
-    // ---------------------------------------------------------------- perk machines
-    {
-        const machines: { perk: DfPerkId, g: THREE.Group, mat: DfVoxMaterial, bottle: THREE.Object3D, buzz: number, seed: number }[] = []
-        for (const pm of map.perks) {
-            const fx = Math.sin(pm.yaw)
-            const fz = Math.cos(pm.yaw)
-            const g = new THREE.Group()
-            g.position.set(pm.pos.x - fx * 0.95, pm.pos.y, pm.pos.z - fz * 0.95)
-            g.rotation.y = pm.yaw
-            kit.root.add(g)
-            const hex = Number.parseInt((DF_PERKS[pm.perk]?.color ?? '#ffffff').slice(1), 16)
-            const mat = own(0.05)
-            const m = new DfVoxModel(16, 40, 15)
-            const body = m.shade(scaleHex(hex, 0.62), 0.05, pm.perk.length)
-            const trim = m.c(scaleHex(hex, 0.35))
-            const brass = m.c(BRASS)
-            const panel = m.c(mixHex(hex, 0xffffff, 0.25), 1)
-            const bulb = m.c(0xffe0a0, 0.9)
-            m.box(0, 0, 0, 16, 2, 15, brass)
-            m.box(1, 2, 0, 15, 31, 14, body)
-            m.box(1, 2, 13, 15, 31, 14, trim)
-            // Front: glowing glass panel with the perk colour, coin slot, dispenser tray.
-            m.box(3, 15, 13, 13, 27, 15, panel)
-            m.box(4, 16, 14, 12, 26, 15, m.c(mixHex(hex, 0xffffff, 0.55), 1))
-            m.box(5, 8, 13, 11, 11, 15, m.c(IRON))
-            m.box(4, 12, 13, 12, 13, 15, brass)
-            // Round marquee on top ringed with bulbs.
-            for (let j = 0; j < 9; j++) {
-                for (let i = 0; i < 16; i++) {
-                    const d = Math.hypot(i + 0.5 - 8, j + 0.5)
-                    if (d < 8) m.box(i, 31 + j, 3, i + 1, 32 + j, 11, d > 6.6 ? bulb : body)
-                }
-            }
-            m.box(4, 32, 11, 12, 37, 12, panel)
-            mesh(m, [8, 0, 7.5], g, mat)
-            const bm = new DfVoxModel(4, 9, 4)
-            const glass = bm.c(mixHex(hex, 0xffffff, 0.3), 0.8)
-            bm.box(0, 0, 0, 4, 6, 4, glass).box(1, 6, 1, 3, 9, 3, glass).box(1, 8, 1, 3, 9, 3, bm.c(BRASS))
-            const bottle = new THREE.Group()
-            bottle.position.set(0, 2.5, -0.03)
-            g.add(bottle)
-            mesh(bm, [2, 0, 2], bottle, mat)
-            machines.push({ perk: pm.perk, g, mat, bottle, buzz: 0, seed: rnd() * 10 })
-        }
-        let wasPowered = false
-        parts.push({
-            update(dt, world, time) {
-                const on = world.power
-                if (on && !wasPowered) for (const m of machines) kit.play(DF_WORLD_SOUNDS.perkHum, m.g.position, 0.6)
-                wasPowered = on
-                for (const m of machines) {
-                    m.buzz = Math.max(0, m.buzz - dt)
-                    const surge = kit.state.powerAge < 1.5 && on ? (Math.sin(time * 37 + m.seed) > 0 ? 1 : 0.2) : 1
-                    m.mat.userData.uGlow.value = on ? (1.05 + Math.sin(time * 2 + m.seed) * 0.15) * surge + m.buzz * 1.4 : 0.05
-                    m.bottle.rotation.y += dt * (on ? 0.9 : 0)
-                    m.bottle.position.y = 2.5 + (on ? Math.sin(time * 1.6 + m.seed) * 0.04 : 0)
-                }
-            },
-            onEvent(ev) {
-                if (ev.k !== 'perk') return
-                const m = machines.find(x => x.perk === ev.perk)
-                if (!m) return
-                m.buzz = 1.5
-                kit.play(DF_WORLD_SOUNDS.perkBuy, m.g.position, 1)
-                kit.play(dfPerkJingleSound(ev.perk), m.g.position, 0.8)
-            },
-            dispose() {
-                for (const m of machines) m.g.removeFromParent()
             }
         })
     }
@@ -621,12 +388,12 @@ export function createDfMachines(kit: DfWorldKit): DfWorldPart {
                     }
                 }
                 if (egg.step === 'claim') {
-                    showModel(pedHolder, weapons.get('wunder'))
+                    dfShowModel(pedHolder, weapons.get('wunder'))
                     pedHolder.position.y = 1.45 + Math.sin(time * 1.6) * 0.06
                     pedHolder.rotation.y += dt * 0.6
                     if (Math.random() < dt * 1.5) ctx.fx.burst('electric', ped.localToWorld(tmpA.set(0, 1.45, 0)), { count: 5, scale: 0.5 })
                 } else {
-                    showModel(pedHolder, null)
+                    dfShowModel(pedHolder, null)
                 }
                 if (egg.step !== lastStep) {
                     if (lastStep && egg.step === 'claim') {

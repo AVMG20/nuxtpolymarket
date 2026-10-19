@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { DF_BLOATER, DF_ENEMIES } from '#shared/utils/dead-front/enemies'
+import { DF_MAP } from '#shared/utils/dead-front/map'
+import { dfBuildCollision, dfRaycast } from '#shared/utils/dead-front/physics'
 import type { DfEnemyDef } from '#shared/utils/dead-front/enemies'
 import type { DfEvent, DfZombieAnim, DfZombieSnap } from '#shared/utils/dead-front/protocol'
 import type { DfEnemyType, Vec3 } from '#shared/utils/dead-front/types'
@@ -8,7 +10,7 @@ import { dfVoxMaterial } from '../../voxel/material'
 import { DF_WORLD_SOUNDS, dfAttackSound, dfDeathSound, dfGroanSound } from '../sound-names'
 import { createDfDebris } from './debris'
 import { createDfGasClouds } from './gas'
-import { DF_ZOMBIE_OUTFITS, DF_ZOMBIE_PARENT, DF_ZOMBIE_PARTS, DF_ZOMBIE_TYPES, P, dfZombieJoints } from './models'
+import { DF_ZOMBIE_PARENT, DF_ZOMBIE_PARTS, DF_ZOMBIE_TYPES, P, dfZombieJoints, dfZombieOutfitCount } from './models'
 import type { DfZombieDims } from './models'
 import { DF_POSE_ROOT, dfCadence, dfEvalPose, dfLerpPose, dfNewPose } from './pose'
 import type { DfPose, DfPoseInput } from './pose'
@@ -47,7 +49,7 @@ const SPRING_C = 13
 
 /** Head-tracking weight per animation. */
 const TRACK: Record<DfZombieAnim, number> = {
-    rise: 0.2, walk: 1, run: 0.8, sprint: 0.45, attack: 0.9, tear: 0.3, climb: 0.2, spit: 0.7, stagger: 0.2
+    rise: 0.2, walk: 1, run: 0.8, sprint: 0.45, attack: 0.9, tear: 0.3, climb: 0.2, spit: 0.7, stagger: 0.2, crawl: 0.6
 }
 
 interface Helmet {
@@ -111,6 +113,10 @@ interface Live {
     helmet: Helmet | null
     helmetGone: boolean
     dist: number
+    /** Per-zombie tint (grime, pallor) on top of the outfit. */
+    tr: number
+    tg: number
+    tb: number
 }
 
 interface Corpse {
@@ -135,7 +141,35 @@ interface Corpse {
     helmet: boolean
     fast: boolean
     crumbled: number
+    /** Facing at death and the facing it twists to as it falls along the push. */
+    yaw0: number
+    yawT: number
+    /** Knockback slide along the ground, decaying as it falls. */
+    vx: number
+    vz: number
 }
+
+/** One flying limb of a gibbed zombie (a rigid part of its rig instance). */
+interface Limb {
+    part: number
+    pos: THREE.Vector3
+    vel: THREE.Vector3
+    quat: THREE.Quaternion
+    spin: THREE.Vector3
+    landed: boolean
+}
+
+/** A gibbed zombie: the limbs that flew off keep the instance until they sink away. */
+interface Gib {
+    batch: DfZombieBatch
+    slot: number
+    limbs: Limb[]
+    floor: number
+    t: number
+}
+
+const LIMBS = [P.armUL, P.armLL, P.armUR, P.armLR, P.legUL, P.legLL, P.legUR, P.legLR]
+const GIB_LIFE = 3.6
 
 function rnd(a: number, b: number): number {
     return a + Math.random() * (b - a)
@@ -169,7 +203,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
     const shadows = ctx.quality === 'high'
     const batches = new Map<string, DfZombieBatch>()
     for (const t of DF_ZOMBIE_TYPES) {
-        for (let o = 0; o < DF_ZOMBIE_OUTFITS; o++) {
+        for (let o = 0; o < dfZombieOutfitCount(t); o++) {
             const b = new DfZombieBatch(t, o, CAP, shadows)
             scene.add(b.mesh)
             batches.set(`${t}:${o}`, b)
@@ -182,16 +216,20 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         pointsOf.set(b, b.build.parts.map(p => (p ? p.model.points(b.build.dims.v, p.pivot) : [])))
     }
     const debrisMat = dfVoxMaterial()
+    // Every door open: only walls stop a corpse sliding.
+    const collision = dfBuildCollision(DF_MAP, new Set(DF_MAP.doors.map(d => d.id)))
     const voices = new DfZombieVoices()
     const alive = new Map<number, Live>()
     const deadIds = new Map<number, number>()
     const corpses: Corpse[] = []
+    const gibs: Gib[] = []
     const spareLives: Live[] = []
     let time = 0
     let frame = 0
     let decalAt = 0
     let fallSoundAt = 0
-    let compiled = false
+    /** The round's last few zombies: they glow faintly so they can be found. */
+    const highlighted = new Set<number>()
 
     const camPos = new THREE.Vector3()
     const bufSize = new THREE.Vector2()
@@ -310,17 +348,20 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         const def = DF_ENEMIES[s.type]
         let batch: DfZombieBatch | undefined
         let slot = -1
-        const first = Math.floor(Math.random() * DF_ZOMBIE_OUTFITS)
-        for (let o = 0; o < DF_ZOMBIE_OUTFITS && slot < 0; o++) {
-            batch = batches.get(`${s.type}:${(first + o) % DF_ZOMBIE_OUTFITS}`)!
+        const outfits = dfZombieOutfitCount(s.type)
+        const first = Math.floor(Math.random() * outfits)
+        for (let o = 0; o < outfits && slot < 0; o++) {
+            batch = batches.get(`${s.type}:${(first + o) % outfits}`)!
             slot = batch.acquire()
         }
         if (!batch || slot < 0) {
-            // Out of slots: free the oldest corpse of this type and retry.
+            // Out of slots: free the oldest corpse (or flying limbs) of this type and retry.
             const c = corpses.find(k => k.type === s.type)
-            if (!c) return null
-            removeCorpse(c)
-            batch = c.batch
+            const g = c ? null : gibs.find(k => k.batch.type === s.type)
+            if (c) removeCorpse(c)
+            else if (g) removeGib(g)
+            else return null
+            batch = (c ?? g)!.batch
             slot = batch.acquire()
             if (slot < 0) return null
         }
@@ -329,7 +370,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             blend: 1, anim: 'walk', animTime: 0, input: newInput(s.type), x: 0, y: 0, z: 0, yaw: 0, lastX: 0, lastZ: 0, speed: 0, phase: 0, speedMul: 1,
             limpBase: 0, hitLimp: 0, springs: new Float32Array(S_COUNT * 2), headYaw: 0, headPitch: 0, groanAt: 0, attackAt: 0, tearAt: 0, gurgleAt: 0, leakAt: 0, sparkAt: 0,
             flickerAt: 0, seen: 0, missing: 0, armored: false, shocked: false, hp: 1, hitAt: -10, hitX: 0, hitZ: 0, fleshAt: 0, voice: 1, riseFx: 0, flash: 0,
-            helmet: null, helmetGone: false, dist: 0
+            helmet: null, helmetGone: false, dist: 0, tr: 1, tg: 1, tb: 1
         }
         L.id = s.id
         L.type = s.type
@@ -376,6 +417,12 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         L.helmet = null
         L.helmetGone = s.type === 'brute' && s.armored !== true
         L.dist = distTo(L.x, L.y, L.z)
+        // A little variety inside each outfit: pallid, grimy, bruised.
+        const bright = rnd(0.84, 1.06)
+        const warm = rnd(-0.05, 0.05)
+        L.tr = bright * (1 + warm)
+        L.tg = bright * (1 - Math.abs(warm) * 0.3)
+        L.tb = bright * (1 - warm)
         const inp = L.input
         Object.assign(inp, newInput(s.type))
         inp.tell = s.tell === 'lunge' ? 1 : s.tell === 'charge' ? 2 : 0
@@ -388,7 +435,7 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         inp.windup = def.windup
         inp.tearPeriod = def.tearTime
         inp.spitWindup = DF_BLOATER.spitWindup
-        batch.setColor(slot, tint.setRGB(1, 1, 1))
+        batch.setColor(slot, tint.setRGB(L.tr, L.tg, L.tb))
         enterAnim(L, s.anim, true)
         poseLive(L, 0)
         return L
@@ -633,15 +680,41 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         const cz = L.z
 
         if (ev.gib) {
-            // The whole body bursts into cubes.
+            // The body bursts into cubes and some limbs fly off whole, tumbling.
+            const g: Gib = { batch: L.batch, slot: L.slot, limbs: [], floor: L.y, t: 0 }
             for (let p = 0; p < DF_ZOMBIE_PARTS; p++) {
                 if (p === P.helmet && L.helmetGone) continue
+                if (LIMBS.includes(p as typeof LIMBS[number]) && Math.random() < 0.65) {
+                    const w = world[p]!
+                    const pos = new THREE.Vector3().setFromMatrixPosition(w)
+                    const ox = pos.x - cx
+                    const oz = pos.z - cz
+                    const ol = Math.hypot(ox, oz) || 1
+                    const sp = rnd(2.5, 5.5)
+                    g.limbs.push({
+                        part: p,
+                        pos,
+                        vel: new THREE.Vector3(ox / ol * sp + push.x * rnd(0.6, 1.4), rnd(3, 6.5), oz / ol * sp + push.z * rnd(0.6, 1.4)),
+                        quat: new THREE.Quaternion().setFromRotationMatrix(w),
+                        spin: new THREE.Vector3(rnd(-14, 14), rnd(-8, 8), rnd(-14, 14)),
+                        landed: false
+                    })
+                    continue
+                }
                 burstPart(L.batch, p, L.y, rnd(3.5, 6), L.type === 'brute' ? 2 : 1, cx, L.y + 0.6, cz, push)
             }
             fx.burst('blood-mist', { x: cx, y: cyy, z: cz }, { scale: 1.4 })
+            fx.burst('gib', { x: cx, y: cyy, z: cz }, { scale: 1.2 })
             sound(DF_WORLD_SOUNDS.gib, cx, cyy, cz, 1, rnd(0.92, 1.08))
             fx.decal({ x: cx, y: L.y + 0.01, z: cz }, { x: 0, y: 1, z: 0 }, 'blood')
-            L.batch.release(L.slot)
+            if (g.limbs.length) {
+                for (let p = 0; p < DF_ZOMBIE_PARTS; p++) L.batch.hidePart(L.slot, p)
+                L.batch.setColor(L.slot, tint.setRGB(0.9, 0.85, 0.85))
+                gibs.push(g)
+                if (gibs.length > 6) removeGib(gibs[0]!)
+            } else {
+                L.batch.release(L.slot)
+            }
             recycle(L)
             return
         }
@@ -665,10 +738,20 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         const fwdX = Math.sin(L.yaw)
         const fwdZ = Math.cos(L.yaw)
         const dir = crumple ? 1 : (fwdX * dx + fwdZ * dz >= 0 ? 1 : -1)
+        // Knocked back along the shot: shotguns and blasts throw them, a knife barely moves them.
+        const heavy = L.type === 'brute' ? 0.45 : L.type === 'bloater' ? 0.6 : 1
+        let kick = (explosive ? 4.2 : ev.weapon === 'm1897' ? 3.2 : ev.weapon === 'knife' ? 0.6 : crumple ? 0.5 : headshot ? 1.3 : 1.7) * heavy
+        // Stop short of walls: the slide covers about kick / 4.5 metres.
+        const wall = dfRaycast(collision, { x: L.x, y: L.y + 0.4, z: L.z }, { x: dx, y: 0, z: dz }, kick / 4.5 + 1.2)
+        if (wall) kick = Math.max(0, Math.min(kick, (wall.dist - 1.0) * 4.5))
+        // Turn the body so it topples along the push (falling backward when shot from the front).
+        const along = Math.atan2(dx, dz)
+        const yaw = crumple ? L.yaw + rnd(-0.35, 0.35) : (dir > 0 ? along : along + Math.PI) + rnd(-0.3, 0.3)
         const c: Corpse = {
             batch: L.batch, slot: L.slot, dims: L.dims, joints: L.joints, type: L.type, pose: dfNewPose(), start: dfNewPose(),
-            x: L.x, y: L.y, z: L.z, yaw: L.yaw + rnd(-0.35, 0.35), dir, t: 0, crumple, twitch, landed: false, headGone: headshot,
-            helmet: L.type === 'brute' && !L.helmetGone && !headshot, fast: explosive, crumbled: 0
+            x: L.x, y: L.y, z: L.z, yaw: L.yaw, yaw0: L.yaw, yawT: yaw, dir, t: 0, crumple, twitch, landed: false, headGone: headshot,
+            helmet: L.type === 'brute' && !L.helmetGone && !headshot, fast: explosive, crumbled: 0,
+            vx: dx * kick, vz: dz * kick
         }
         c.start.set(L.pose)
         c.pose.set(L.pose)
@@ -682,7 +765,8 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         alive.delete(L.id)
         const c: Corpse = {
             batch: L.batch, slot: L.slot, dims: L.dims, joints: L.joints, type: L.type, pose: dfNewPose(), start: dfNewPose(),
-            x: L.x, y: L.y, z: L.z, yaw: L.yaw, dir: 1, t: 4.2, crumple: false, twitch: 0, landed: true, headGone: false, helmet: L.type === 'brute' && !L.helmetGone, fast: false, crumbled: 0
+            x: L.x, y: L.y, z: L.z, yaw: L.yaw, yaw0: L.yaw, yawT: L.yaw, dir: 1, t: 4.2, crumple: false, twitch: 0, landed: true, headGone: false, helmet: L.type === 'brute' && !L.helmetGone, fast: false, crumbled: 0,
+            vx: 0, vz: 0
         }
         c.start.set(L.pose)
         c.pose.set(L.pose)
@@ -695,6 +779,47 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         spareLives.push(L)
     }
 
+    function removeGib(g: Gib): void {
+        const i = gibs.indexOf(g)
+        if (i >= 0) gibs.splice(i, 1)
+        g.batch.release(g.slot)
+    }
+
+    /** Tumbles a gib's limbs: gravity, a bounce or two, blood where they land, then they sink. */
+    function stepGib(g: Gib, dt: number): boolean {
+        g.t += dt
+        if (g.t > GIB_LIFE) return false
+        const sink = Math.max(0, g.t - (GIB_LIFE - 0.8)) / 0.8
+        for (const l of g.limbs) {
+            if (!l.landed || l.vel.lengthSq() > 0.01) {
+                l.vel.y -= 16 * dt
+                l.pos.addScaledVector(l.vel, dt)
+                e.set(l.spin.x * dt, l.spin.y * dt, l.spin.z * dt)
+                l.quat.multiply(q.setFromEuler(e))
+                const rest = g.floor + 0.06
+                if (l.pos.y < rest) {
+                    l.pos.y = rest
+                    if (!l.landed) {
+                        l.landed = true
+                        if (time - decalAt > 0.06) {
+                            decalAt = time
+                            fx.decal({ x: l.pos.x, y: g.floor + 0.01, z: l.pos.z }, { x: 0, y: 1, z: 0 }, 'blood')
+                        }
+                        fx.burst('blood', l.pos, { normal: { x: 0, y: 1, z: 0 }, count: 4 })
+                    }
+                    l.vel.y = l.vel.y < -2 ? -l.vel.y * 0.3 : 0
+                    l.vel.x *= 0.55
+                    l.vel.z *= 0.55
+                    l.spin.multiplyScalar(0.45)
+                }
+            }
+            v3.copy(l.pos)
+            v3.y -= sink * 0.35
+            g.batch.setPart(g.slot, l.part, m4.compose(v3, l.quat, one.set(1, 1, 1)))
+        }
+        return true
+    }
+
     function removeCorpse(c: Corpse): void {
         const i = corpses.indexOf(c)
         if (i >= 0) corpses.splice(i, 1)
@@ -705,6 +830,15 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
     const SINK = 1.4
     function stepCorpse(c: Corpse, dt: number, pxPerUnit: number): boolean {
         c.t += dt
+        if (c.vx !== 0 || c.vz !== 0) {
+            c.x += c.vx * dt
+            c.z += c.vz * dt
+            const k = Math.exp(-dt * (c.landed ? 9 : 4.5))
+            c.vx *= k
+            c.vz *= k
+            if (Math.abs(c.vx) + Math.abs(c.vz) < 0.02) c.vx = c.vz = 0
+        }
+        if (c.t < 0.3) c.yaw = angleLerp(c.yaw0, c.yawT, smooth(c.t / 0.25))
         const fall = c.fast ? 0.35 : c.crumple ? 0.75 : 0.55
         const p = c.pose
         const r = DF_POSE_ROOT
@@ -763,18 +897,6 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
         }
         writeRig(c.batch, c.slot, c.joints, c.dims, p, c.x, c.y, c.z, c.yaw, { headGone: c.headGone, helmet: c.helmet, eyeScale: 1, scale: 1 - sink * 0.35 })
         return true
-    }
-
-    function precompile(): void {
-        compiled = true
-        try {
-            const slots: [DfZombieBatch, number][] = []
-            for (const b of batches.values()) slots.push([b, b.acquire()])
-            ctx.renderer.compile(scene, camera)
-            for (const [b, s] of slots) b.release(s)
-        } catch {
-            // Compilation is only a hitch-avoidance nicety.
-        }
     }
 
     // ------------------------------------------------------------ per frame
@@ -877,7 +999,14 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
                 fx.burst('electric', { x: L.x + rnd(-0.25, 0.25), y: L.y + rnd(0.4, L.def.height), z: L.z + rnd(-0.25, 0.25) }, { count: 5 })
             }
         }
-        L.batch.setColor(L.slot, tint.setRGB(tr, tg, tb))
+        if (highlighted.has(L.id)) {
+            // A slow ember glow that reads through the dark (the eyes flare with it).
+            const h = 0.35 + 0.25 * Math.sin(time * 3.2 + L.id)
+            tr += h * 1.1
+            tg += h * 0.45
+            tb += h * 0.2
+        }
+        L.batch.setColor(L.slot, tint.setRGB(tr * L.tr, tg * L.tg, tb * L.tb))
     }
 
     /** Idle groans: the nearest due zombie may speak; everyone else waits a while. */
@@ -905,7 +1034,6 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             const step = Math.min(Math.max(dt, 0), 0.1)
             time += step
             frame++
-            if (!compiled) precompile()
             camera.getWorldPosition(camPos)
             if (frame % 60 === 0) {
                 for (const [id, until] of deadIds) {
@@ -940,6 +1068,10 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
             for (let i = corpses.length - 1; i >= 0; i--) {
                 const c = corpses[i]!
                 if (!stepCorpse(c, step, pxPerUnit)) removeCorpse(c)
+            }
+            for (let i = gibs.length - 1; i >= 0; i--) {
+                const g = gibs[i]!
+                if (!stepGib(g, step)) removeGib(g)
             }
             for (const b of batches.values()) b.commit()
             debris.update(step)
@@ -976,9 +1108,19 @@ export function createDfZombieView(ctx: DfRenderContext): DfZombieView {
                     break
             }
         },
+        highlight(ids) {
+            highlighted.clear()
+            for (const id of ids) highlighted.add(id)
+        },
+        unkill(id) {
+            // the engine predicted this kill but the server kept the zombie: let it show again
+            deadIds.delete(id)
+        },
         dispose() {
             alive.clear()
+            highlighted.clear()
             corpses.length = 0
+            gibs.length = 0
             for (const b of batches.values()) b.dispose()
             batches.clear()
             debris.dispose()

@@ -154,8 +154,12 @@ describe('Sainte-Croix layout', () => {
     })
 
     it('places the box, PaP, power and egg parts on solid ground', () => {
-        expect(map.boxSpots.length).toBe(3)
+        expect(map.boxSpots.length).toBeGreaterThanOrEqual(4)
         expect(map.boxSpots.some(s => s.zone === map.startZone)).toBe(true)
+        // The box never starts in the start zone: at least three spots elsewhere, in different zones.
+        const away = map.boxSpots.filter(s => s.zone !== map.startZone)
+        expect(away.length).toBeGreaterThanOrEqual(3)
+        expect(new Set(away.map(s => s.zone)).size).toBe(away.length)
         const floorSpots = [...map.boxSpots, map.pap, map.power, map.egg.generator, map.egg.pedestal]
         for (const s of floorSpots) {
             expect(dfGroundHeight(closedWorld, s.pos.x + Math.sin(s.yaw) * 0.9, s.pos.z + Math.cos(s.yaw) * 0.9, s.pos.y + 0.1)).toBeCloseTo(s.pos.y, 2)
@@ -166,6 +170,14 @@ describe('Sainte-Croix layout', () => {
         for (const f of map.egg.fuses) {
             // Lies on something, not floating.
             expect(dfGroundHeight(closedWorld, f.pos.x, f.pos.z, f.pos.y + 0.05)).toBeCloseTo(f.pos.y, 2)
+        }
+        // Lightning rods: three, in different zones, one up on the raised level, standing on solid ground.
+        expect(map.egg.rods.map(r => r.id)).toEqual(['rod-0', 'rod-1', 'rod-2'])
+        expect(new Set(map.egg.rods.map(r => r.zone)).size).toBe(3)
+        expect(map.egg.rods.some(r => r.pos.y >= DF_UPPER_Y - 0.01)).toBe(true)
+        for (const r of map.egg.rods) {
+            expect(dfGroundHeight(closedWorld, r.pos.x + Math.sin(r.yaw) * 0.9, r.pos.z + Math.cos(r.yaw) * 0.9, r.pos.y + 0.1), r.id).toBeCloseTo(r.pos.y, 2)
+            expect(dfInteractables(map).find(i => i.id === r.id)).toMatchObject({ kind: 'rod', ref: r.id })
         }
         expect(map.egg.chargeRadius).toBeGreaterThanOrEqual(8)
         expect(map.egg.chargeRadius).toBeLessThanOrEqual(10)
@@ -227,6 +239,14 @@ describe('Sainte-Croix nav graph', () => {
         expect(missing.map(n => n.id)).toEqual([])
         for (const z of zoneIds) expect(nodes.some(n => n.zone === z && seen.has(n.id))).toBe(true)
         expect(nodes.some(n => n.pos.y > DF_UPPER_Y - 0.01 && seen.has(n.id))).toBe(true)
+    })
+
+    it('reaches every lightning rod from the start once the doors are open', () => {
+        const seen = reachable(startNode.id, { doors: true, windows: false })
+        for (const r of map.egg.rods) {
+            const near = nodes.filter(n => seen.has(n.id) && Math.hypot(n.pos.x - r.pos.x, n.pos.z - r.pos.z) <= DF_PLAYER.useRange && Math.abs(n.pos.y - r.pos.y) < 0.5)
+            expect(near.length, r.id).toBeGreaterThan(0)
+        }
     })
 
     it('keeps the start zone sealed while the doors are closed', () => {

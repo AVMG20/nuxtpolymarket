@@ -8,7 +8,7 @@ import {
 } from './interact'
 import { boxJingle, perkJingle } from './jingles'
 import {
-    eggStep, fuse, fuseInstall, genHum, lever, papReady, papWork, perkBuy, perkHum, power, soul, zap
+    eggStep, fuse, fuseInstall, genHum, lever, papReady, papWork, perkBuy, perkHum, power, rodCrackle, rodLever, rodSputter, rodThunder, soul, zap
 } from './machines'
 import { rt } from './noise'
 import type { Rt } from './noise'
@@ -52,6 +52,10 @@ const WORLD: Record<keyof typeof DF_WORLD_SOUNDS, readonly [Recipe, number]> = {
     zap: [r => zap(r), 1.8],
     soul: [soul, 1.7],
     eggStep: [eggStep, 0.85],
+    rodLever: [rodLever, 1.1],
+    rodCrackle: [rodCrackle, 1.2],
+    rodSputter: [rodSputter, 1],
+    rodThunder: [rodThunder, 0.9],
     perkBuy: [perkBuy, 0.9],
     perkHum: [perkHum, 1.3],
     helmetClang: [helmetClang, 1.3],

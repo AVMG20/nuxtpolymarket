@@ -131,6 +131,8 @@ export interface DfMapWorld {
     pap: DfSpot
     power: DfSpot
     fuses: DfSpot[]
+    /** Lightning-rod masts for the egg's rods step (lever at the base, facing `yaw`). */
+    rods: DfSpot[]
     generator: DfSpot
     pedestal: DfSpot
     riserSpawns: DfSpot[]
@@ -676,7 +678,8 @@ function buildWorld(): DfMapWorld {
     const boxSpots: DfSpot[] = [
         { id: 'box-square', pos: v(-11.55, 0, 28), yaw: PI / 2, zone: 'square' },
         { id: 'box-farm', pos: v(-39.55, 0, 17), yaw: PI / 2, zone: 'farm' },
-        { id: 'box-cemetery', pos: v(12, 0, -39.55), yaw: 0, zone: 'cemetery' }
+        { id: 'box-cemetery', pos: v(12, 0, -39.55), yaw: 0, zone: 'cemetery' },
+        { id: 'box-ramparts', pos: v(21.45, 0, 23.5), yaw: PI / 2, zone: 'ramparts' }
     ]
     for (const s of boxSpots) spotProxy(s, 1.7, 0.8, 0.55, 'wood', 'boxstand')
     const pap: DfSpot = { id: 'pap', pos: v(-37, 0.5, -38.2), yaw: PI / 2, zone: 'chapel' }
@@ -692,6 +695,18 @@ function buildWorld(): DfMapWorld {
         { id: 'fuse-chapel', pos: v(-39, 1.5, -32.5), yaw: -0.3, zone: 'chapel' },
         { id: 'fuse-ramparts', pos: v(38, DF_WALK_Y, -2.5), yaw: 1.2, zone: 'ramparts' }
     ]
+
+    // Lightning rods: tall iron masts, one up on the rampart walk, one in the
+    // farm field, one among the graves. The lever faces the approach.
+    const rods: DfSpot[] = [
+        { id: 'rod-0', pos: v(39.4, DF_WALK_Y, 5.5), yaw: -PI / 2, zone: 'ramparts' },
+        { id: 'rod-1', pos: v(-30, 0, 2), yaw: 0, zone: 'farm' },
+        { id: 'rod-2', pos: v(11, 0, -33), yaw: 0, zone: 'cemetery' }
+    ]
+    for (const r of rods) {
+        solid(r.pos.x - 0.35, r.pos.y, r.pos.z - 0.35, r.pos.x + 0.35, r.pos.y + 0.35, r.pos.z + 0.35, 'metal', { prop: 'rod' })
+        solid(r.pos.x - 0.15, r.pos.y + 0.35, r.pos.z - 0.15, r.pos.x + 0.15, r.pos.y + 5.6, r.pos.z + 0.15, 'metal', { prop: 'rod' })
+    }
 
     const wallBuys: DfWallBuy[] = [
         { id: 'wall-kar98k', weapon: 'kar98k', pos: v(-6, 1.5, 2), normal: v(0, 0, 1), zone: 'square' },
@@ -797,6 +812,6 @@ function buildWorld(): DfMapWorld {
 
     return {
         vox: g, props, solids, zones, zoneRects, doors, barricades, pockets, wallBuys, perks, boxSpots,
-        pap, power, fuses, generator, pedestal, riserSpawns, playerSpawns, lights, stairs
+        pap, power, fuses, rods, generator, pedestal, riserSpawns, playerSpawns, lights, stairs
     }
 }

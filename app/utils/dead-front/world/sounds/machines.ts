@@ -278,3 +278,42 @@ export function eggStep(r: Rt): void {
     bell(at(w, 0.12), { freq: 196, dur: 3, gain: 0.3, bright: 0.5 })
     crack(at(w, 0.02), { gain: 0.08, freq: 400, snap: 1200 })
 }
+
+/** A lightning-rod knife switch thrown home: a ratchet, a heavy iron clunk, then the contacts spit. */
+export function rodLever(r: Rt): void {
+    clickTrain(r, [0, 0.05, 0.09, 0.12], { freq: 1500, q: 3, gain: 0.16, len: 0.012 })
+    const c = at(r, 0.16)
+    thud(c, { freq: 70, freqEnd: 36, dur: 0.5, gain: 0.65, body: 0.9, bodyFreq: 340, click: 0.35 })
+    metal(c, { base: 150, ratios: [1, 2.71, 4.4, 6.3], decay: 0.9, gain: 0.22, strike: 0.6 })
+    zap(at(r, 0.2), 0.7)
+}
+
+/** A charged mast: a long sizzling crackle with a high whine and a sharp crack on top. */
+export function rodCrackle(r: Rt): void {
+    const send = reverbSend(r.ctx, r.out, 0.45, 2.2, 3, 0.5)
+    const s = { ...r, out: send }
+    crack(s, { gain: 0.5, dur: 0.25, freq: 2600 })
+    crackle(s, rnd(0.9, 1.3), 0.3, 110)
+    const { ctx, t } = r
+    const g = gainNode(ctx, 0, send)
+    const bp = filterNode(ctx, 'bandpass', 1800 * r.rate, 4, g)
+    const o = waveNode(ctx, pulseWave(ctx, 0.12), 240 * r.rate, t, 1.3, bp)
+    o.frequency.exponentialRampToValueAtTime(90 * r.rate, t + 1.25)
+    decayEnv(g.gain, t, 0.08 * r.vol, 0.01, 1.25)
+}
+
+/** The rod switch dropping out: a sputter of sparks and a dying buzz. */
+export function rodSputter(r: Rt): void {
+    for (const dt of [0, 0.14, 0.33]) zap(at(r, dt), 0.35)
+    thud(at(r, 0.05), { freq: 110, freqEnd: 60, dur: 0.25, gain: 0.3, body: 0.5, bodyFreq: 500, click: 0.2 })
+}
+
+/** All three rods: thunder right overhead, a rolling crack across the sky. */
+export function rodThunder(r: Rt): void {
+    const send = reverbSend(r.ctx, r.out, 0.6, 3.5, 2.5, 0.6)
+    const s = { ...r, out: send }
+    crack(s, { gain: 0.8, dur: 0.4, freq: 1800 })
+    thud(s, { freq: 60, freqEnd: 24, dur: 2.2, gain: 0.8, body: 1, bodyFreq: 180, click: 0.4 })
+    noiseSwell(at(s, 0.1), { kind: 'brown', type: 'lowpass', freq: 500, freqEnd: 120, q: 0.7, gain: 0.5, dur: 3, peakAt: 0.15 })
+    crackle(at(s, 0.05), 1.4, 0.25, 70)
+}

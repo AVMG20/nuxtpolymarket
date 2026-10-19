@@ -81,6 +81,7 @@ export class DfZombieBatch {
         this.mesh.frustumCulled = false
         this.mesh.castShadow = shadows
         this.mesh.receiveShadow = shadows
+        // Visible (with no instances) until first used, so the engine's shader warm-up compiles it.
         this.mesh.count = 0
         const white = new THREE.Color(1, 1, 1)
         for (let i = 0; i < cap; i++) this.mesh.setColorAt(i, white)
@@ -96,6 +97,7 @@ export class DfZombieBatch {
         if (slot === undefined) return -1
         this.used = Math.max(this.used, slot + 1)
         this.mesh.count = this.used
+        this.mesh.visible = true
         this.clear(slot)
         return slot
     }
@@ -108,6 +110,8 @@ export class DfZombieBatch {
         const free = new Set(this.free)
         while (this.used > 0 && free.has(this.used - 1)) this.used--
         this.mesh.count = this.used
+        // Empty batches skip the draw (and the shadow pass) entirely.
+        this.mesh.visible = this.used > 0
     }
 
     /** Writes one part's world matrix (column-major) for an instance. */

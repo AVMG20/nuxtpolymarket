@@ -4,11 +4,14 @@ import { DF_VOX_CELL, dfMapWorld } from '#shared/utils/dead-front/map-world'
 import { dfBuildCollision } from '#shared/utils/dead-front/physics'
 import type { DfRenderContext, DfWorldView } from '../context'
 import { dfVoxMaterial } from '../voxel/material'
+import { createDfAtmosphere } from './atmosphere'
 import { createDfEnvironment } from './environment'
 import { createDfBarricades } from './interact/barricades'
 import { createDfDecor } from './decor'
 import { createDfDoors } from './interact/doors'
 import { createDfMachines } from './interact/machines'
+import { createDfPerkMachines } from './interact/perks'
+import { createDfRods } from './interact/rods'
 import type { DfWorldKit, DfWorldPart } from './kit'
 import { buildDfLevel } from './level'
 import { createDfLights } from './lights'
@@ -24,6 +27,14 @@ import { clamp01 } from './util'
 
 export { createDfZombieView } from './zombies'
 export { registerDfWorldSounds } from './sounds'
+
+/** Metres per second the power surge travels out from the switch. */
+const POWER_WAVE_SPEED = 26
+
+/** Seconds after the switch is thrown before the surge reaches (x, z). */
+export function dfPowerDelay(map: DfMapDef, x: number, z: number): number {
+    return Math.hypot(x - map.power.pos.x, z - map.power.pos.z) / POWER_WAVE_SPEED
+}
 
 /** Static map + live interactables (doors, boards, box, PaP, perks, power, egg). */
 export function createDfWorldView(ctx: DfRenderContext, map: DfMapDef): DfWorldView {
@@ -43,6 +54,9 @@ export function createDfWorldView(ctx: DfRenderContext, map: DfMapDef): DfWorldV
         quality,
         shadows: quality === 'high',
         state: { powerOn: false, power: 0, powerAge: 0, time: 0 },
+        powerDelay(x, z) {
+            return dfPowerDelay(map, x, z)
+        },
         play(name, pos, volume = 1, rate = 1) {
             ctx.audio.play(name, { pos: pos ? { x: pos.x, y: pos.y, z: pos.z } : undefined, volume, rate })
         }
@@ -63,11 +77,14 @@ export function createDfWorldView(ctx: DfRenderContext, map: DfMapDef): DfWorldV
         }
     }
     tryPart('lights', () => createDfLights(kit))
+    tryPart('atmosphere', () => createDfAtmosphere(kit))
     tryPart('props', () => createDfProps(kit))
     tryPart('decor', () => createDfDecor(kit))
     tryPart('doors', () => createDfDoors(kit))
     tryPart('barricades', () => createDfBarricades(kit))
     tryPart('machines', () => createDfMachines(kit))
+    tryPart('perks', () => createDfPerkMachines(kit))
+    tryPart('rods', () => createDfRods(kit))
     ctx.audio.loop(DF_WORLD_SOUNDS.ambience, dfAmbienceLoop)
 
     return {

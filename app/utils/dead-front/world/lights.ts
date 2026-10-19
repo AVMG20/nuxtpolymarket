@@ -1,9 +1,10 @@
 import * as THREE from 'three'
 import type { DfLight } from '#shared/utils/dead-front/map'
+import { DF_PERKS } from '#shared/utils/dead-front/perks'
 import { dfRaycast } from '#shared/utils/dead-front/physics'
 import { DfVoxModel } from '../voxel/model'
 import type { DfWorldKit, DfWorldPart } from './kit'
-import { damp, dfFlicker, dfRng } from './util'
+import { damp, dfFlicker, dfPowerLevel, dfRng } from './util'
 
 // Lanterns, candles, braziers, bulbs and arc lamps. Every map light gets a
 // voxel fixture (instanced per kind, flicker through the instance colour) and
@@ -39,6 +40,8 @@ interface Fixture {
     color: THREE.Color
     seed: number
     level: number
+    /** Seconds after the switch before the surge reaches this fixture. */
+    delay: number
     score: number
     inst: number
     flames: number[]
@@ -136,10 +139,23 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
         bars.push(new THREE.Matrix4().compose(v3.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2), q.identity(), s3.set(Math.max(0.05, Math.abs(x1 - x0)), Math.max(0.05, Math.abs(y1 - y0)), Math.max(0.05, Math.abs(z1 - z0)))))
     }
     let flameCount = 0
-    for (const l of kit.map.lights) {
+    // Machine glows join the pool as virtual fixtures (no lamp model): each perk
+    // cabinet throws a pool of its colour on the floor, the press a violet one.
+    const virtual: DfLight[] = []
+    for (const pm of kit.map.perks) {
+        const fx = Math.sin(pm.yaw)
+        const fz = Math.cos(pm.yaw)
+        virtual.push({ pos: { x: pm.pos.x - fx * 0.2, y: pm.pos.y + 1.5, z: pm.pos.z - fz * 0.2 }, color: DF_PERKS[pm.perk]?.color ?? '#ffffff', intensity: 0.45, distance: 5, power: true })
+    }
+    {
+        const s = kit.map.pap
+        virtual.push({ pos: { x: s.pos.x + Math.sin(s.yaw) * 0.9, y: s.pos.y + 1.6, z: s.pos.z + Math.cos(s.yaw) * 0.9 }, color: '#a45cff', intensity: 0.42, distance: 5.5, power: true })
+    }
+    const virtualSet = new Set(virtual)
+    for (const l of [...kit.map.lights, ...virtual]) {
         const kind = kindOf(l)
-        const onPost = lampposts.some(p => Math.hypot(p.x - l.pos.x, p.z - l.pos.z) < 0.7)
-        const f: Fixture = { light: l, kind, color: new THREE.Color(l.color), seed: rnd() * 100, level: l.power ? 0 : 1, score: 0, inst: onPost ? -1 : byKind[kind].length, flames: [], flameBase: [] }
+        const onPost = virtualSet.has(l) || lampposts.some(p => Math.hypot(p.x - l.pos.x, p.z - l.pos.z) < 0.7)
+        const f: Fixture = { light: l, kind, color: new THREE.Color(l.color), seed: rnd() * 100, level: l.power ? 0 : 1, delay: kit.powerDelay(l.pos.x, l.pos.z), score: 0, inst: onPost ? -1 : byKind[kind].length, flames: [], flameBase: [] }
         if (!onPost) {
             byKind[kind].push(f)
             const o = l.pos
@@ -223,7 +239,7 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
             const p = f.light.pos
             const d2 = (p.x - camPos.x) ** 2 + (p.y - camPos.y) ** 2 + (p.z - camPos.z) ** 2
             const reach = f.light.distance
-            const strength = f.light.intensity * (f.light.power ? kit.state.power : 1)
+            const strength = f.light.intensity * (f.light.power ? (kit.state.powerOn && kit.state.powerAge >= f.delay ? 1 : 0) : 1)
             f.score = strength <= 0.01 ? 0 : strength * reach * reach / (d2 + 9)
             if (d2 > (reach + 22) ** 2) f.score *= 0.05
         }
@@ -252,14 +268,12 @@ export function createDfLights(kit: DfWorldKit): DfWorldPart {
                 assign()
                 reassign = 0.2
             }
-            const p = kit.state.power
-            const surge = kit.state.powerOn && kit.state.powerAge < 1.6
+            const st = kit.state
             for (const f of fixtures) {
                 let level: number
                 if (f.light.power) {
-                    level = p
-                    if (surge) level *= Math.sin(time * 41 + f.seed) > -0.2 ? 1 : 0.15
-                    else if (p > 0) level *= 0.97 + 0.03 * Math.sin(time * 50 + f.seed)
+                    // The surge spreads out from the switch: each lamp stutters on as it arrives.
+                    level = dfPowerLevel(st.powerOn ? st.powerAge - f.delay : -1, time, f.seed)
                 } else {
                     level = f.light.flicker ? dfFlicker(time * (f.kind === 'candle' ? 1.4 : 1), f.seed) : 1
                 }

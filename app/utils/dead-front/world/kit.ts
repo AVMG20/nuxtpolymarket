@@ -34,6 +34,11 @@ export interface DfWorldKit {
     /** Props cast shadows (high quality only). */
     shadows: boolean
     state: DfWorldState
+    /**
+     * Seconds after the switch is thrown before the power reaches (x, z): the
+     * surge spreads out from the power switch, zone by zone.
+     */
+    powerDelay(x: number, z: number): number
     /** Spatial sound helper. */
     play(name: string, pos?: Vec3 | THREE.Vector3, volume?: number, rate?: number): void
 }
